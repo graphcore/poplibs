@@ -45,6 +45,7 @@ public:
 class Net {
 public:
   unsigned batchSize;
+  float eta;
   std::vector<HiddenLayer *> hiddenLayers;
 
   /* This field references are parameters in the graph that can be
@@ -117,8 +118,11 @@ public:
   /* When a Net object is constructed the corrensponding poplar graph is
      made */
   Net(DataSet &data, unsigned batchSize,
-      std::vector<HiddenLayer *> hiddenLayers) : batchSize(batchSize),
-                                                 hiddenLayers(hiddenLayers) {
+      std::vector<HiddenLayer *> hiddenLayers,
+      LossType lossType,
+      float learningRate) : batchSize(batchSize),
+                            hiddenLayers(hiddenLayers),
+                            eta(learningRate) {
     unsigned inputSize = data.dataSize;
     GraphProgEnv env("neural_net_graph.ppo", GraphProgFileType::Object);
     graphBuilder = std::unique_ptr<GraphBuilder>(new GraphBuilder(env));
@@ -171,7 +175,8 @@ public:
 
     /* The loss layer connects to the final hidden layer. */
     std::cerr << "-- Adding loss layer\n";
-    errorVertex = builder.addVertex("SumSquaredErrorVertex");
+    errorVertex = builder.addVertex("errorVertex");
+    builder.setInitialFieldValue<LossType>(errorVertex["lossType"], lossType);
     builder.addEdge(stateField, errorVertex["state"], false);
     builder.setInitialFieldValue<NonLinearityType>(
         errorVertex["nonLinearityType"],
@@ -181,6 +186,7 @@ public:
     builder.addEdge(fwd[0]["indexOut"], errorVertex["indexIn"], true);
     builder.setInitialFieldValue<unsigned>(errorVertex["batchSize"], batchSize);
     builder.setFieldSize(errorVertex["deltaOut"], fwd.size());
+    builder.setFieldSize(errorVertex["probs"], fwd.size());
     builder.setFieldSize(errorVertex["labels"], batchSize);
     builder.addToDataArray(daTrainingLabels, errorVertex["labels"]);
     builder.addToDataArray(daTestLabels, errorVertex["labels"]);
@@ -308,7 +314,7 @@ public:
   void train(unsigned numBatches) {
     /* All this method needs to do is set the relevant parameters and
        run the control program. */
-    engine->setValue<float>(etaField, 0.9);
+    engine->setValue<float>(etaField, eta);
     engine->setValue<unsigned>(numBatchesField, numBatches);
     std::cerr << "Running graph program\n";
 
@@ -578,7 +584,7 @@ int main() {
   });
   #endif
 
-  Net net(MNIST, 10, layers);
+  Net net(MNIST, 10, layers, SOFTMAX_CROSS_ENTROPY_LOSS, 0.9);
 
   net.train(5000);
 

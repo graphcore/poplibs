@@ -7,4 +7,9 @@ typedef enum NonLinearityType {
   NON_LINEARITY_RELU
 } NonLinearityType;
 
+typedef enum LossType {
+  SUM_SQUARED_LOSS,
+  SOFTMAX_CROSS_ENTROPY_LOSS
+} LossType;
+
 #endif // _neural_net_common_h_

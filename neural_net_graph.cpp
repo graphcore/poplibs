@@ -589,8 +589,10 @@ public:
    of the last hidden layer of the network.
    It also calculates the partial derivative of that loss with respect its
    inputs and kicks off the backward pass. */
-class SumSquaredErrorVertex : public Vertex {
+class errorVertex : public Vertex {
 public:
+  LossType lossType;
+
   Vector<Input<float>> zIn;
   Input<int> indexIn;
 
@@ -609,6 +611,9 @@ public:
   Input<nn_state_t> state;
   unsigned batchSize;
   bool doingWeightUpdate;
+
+  /* Probability vector - used for softmax */
+  Vector<float> probs;
 
   float error;
   unsigned numCorrect;
@@ -652,29 +657,65 @@ public:
     }
 
     unsigned index = doingWeightUpdate ? indexOut : indexIn;
-
     unsigned E = labels[index];
 
-    float sum = 0;
-    float max = nonlinearity(nonLinearityType, zIn[0]);
+    switch (lossType) {
+    case SUM_SQUARED_LOSS:
+      {
+      /* Calculate the sum-squared error and the partial derivative
+         to pass back. */
+      float sum = 0;
+      for (unsigned i = 0;  i < zIn.size(); ++i) {
+        float expected = (i == E ? 1 : 0);
+        float actual = nonlinearity(nonLinearityType, zIn[i]);
+        float nlGradient = nonlinearity_derivative(nonLinearityType, zIn[i]);
+        deltaOut[i] = (expected - actual) * nlGradient;
+        sum += (expected - actual) *  (expected - actual);
+      }
+      error = sum;
+      break;
+      }
+    case SOFTMAX_CROSS_ENTROPY_LOSS:
+      /* Calculate the softmax probability distribution */
+      for (unsigned i = 0;  i < zIn.size(); ++i) {
+        float act = nonlinearity(nonLinearityType, zIn[i]);
+        probs[i] = exp(act);
+      }
+      float sum = 0;
+      for (float p : probs)
+        sum += p;
+      for (unsigned i = 0;  i < zIn.size(); ++i)
+        probs[i] /= sum;
+
+      /* Calculate the cross-entropy error and the partial derivative
+         to pass back. */
+      error = 0;
+      for (unsigned i = 0;  i < probs.size(); ++i) {
+        float expected = (i == E ? 1 : 0);
+        float nlGradient = nonlinearity_derivative(nonLinearityType, zIn[i]);
+        deltaOut[i] = -(probs[i] - expected) * nlGradient;
+        error += expected * log(probs[i]);
+      }
+      break;
+    }
+
+    // Calculate the classification error for reporting test results
+    // This assumes that the
+    // non-linearity is monotonic, so the max output of the previous
+    // layer is the max z-term of the previous layer.
+    float max = zIn[0];
     unsigned maxIndex = 0;
     for (unsigned i = 0;  i < zIn.size(); ++i) {
-      float expected = (i == E ? 1 : 0);
-      float actual = nonlinearity(nonLinearityType, zIn[i]);
-      float nlGradient = nonlinearity_derivative(nonLinearityType,
-                                                 zIn[i]);
-      deltaOut[i] = (expected - actual) * nlGradient;
-      sum += (expected - actual) *  (expected - actual);
-      if (actual > max) {
-        max = actual;
-	maxIndex = i;
+      if (zIn[i] > max) {
+        max = zIn[i];
+        maxIndex = i;
       }
     }
-    indexOut = index;
     bool correct = (maxIndex == E);
     if (correct)
       numCorrect++;
-    error += sum;
+
+    indexOut = index;
     return false;
   }
 
