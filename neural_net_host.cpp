@@ -41,42 +41,57 @@ public:
   }
 };
 
+/* This class represent the entire network. */
 class Net {
 public:
   unsigned batchSize;
   std::vector<HiddenLayer *> hiddenLayers;
 
+  /* This field references are parameters in the graph that can be
+     changed by the control program */
   FieldRef numBatchesField;
   FieldRef stateField;
   FieldRef etaField;
 
+  /* Three compute sets since different vertices run during training, testing
+     and weight synchronization */
   ComputeSetRef trainCS;
   ComputeSetRef testCS;
   ComputeSetRef weightSyncCS;
 
-  DataArrayRef daParams;
+  /* The following data arrays represent data to be copied into and out
+     of the network */
+  DataArrayRef daParams;  /* The parameters (weights and bias) */
   DataArrayRef daTrainingData;
   DataArrayRef daTrainingLabels;
   DataArrayRef daTestData;
   DataArrayRef daTestLabels;
 
-  NonLinearityType prevNonLinearityType;
-
+  /* These parts of the graph are made by the Net object. The hidden
+     layer vertices are created via the addForward and addBackward method
+     calls of the hidden layer objects. */
   std::vector<VertexRef> inputLayer;
-  std::vector<VertexRef> fwd;
   VertexRef errorVertex;
 
+  /* The following state is used when building up the graph.
+     Calling addForward or addBackward will read and update them which
+     allows each layer to pass information to the next layer when
+     building the graph. */
+  NonLinearityType prevNonLinearityType;
+  std::vector<VertexRef> fwd;
   std::vector<FieldRef> bwdDeltaOut;
   std::vector<FieldRef> bwdIndexOut;
 
-  std::unique_ptr<GraphBuilder> graphBuilder;
-  std::unique_ptr<EngineBuilder> engineBuilder;
-  std::unique_ptr<Engine> engine;
-
+  /* The training and testing data needs to be copied in a different
+     layout to be copied into the graph correctly. */
   std::unique_ptr<float[]> shuffledTrainingData;
   std::unique_ptr<float[]> shuffledTestData;
   std::unique_ptr<float[]> params;
 
+  /* Poplar graph creation state. */
+  std::unique_ptr<GraphBuilder> graphBuilder;
+  std::unique_ptr<EngineBuilder> engineBuilder;
+  std::unique_ptr<Engine> engine;
   unsigned numTiles;
 
   /* This function shuffles data into a good layout to be transferred into
@@ -99,17 +114,20 @@ public:
     return std::move(shuffled);
   }
 
+  /* When a Net object is constructed the corrensponding poplar graph is
+     made */
   Net(DataSet &data, unsigned batchSize,
       std::vector<HiddenLayer *> hiddenLayers) : batchSize(batchSize),
                                                  hiddenLayers(hiddenLayers) {
+    unsigned inputSize = data.dataSize;
     GraphProgEnv env("neural_net_graph.ppo", GraphProgFileType::Object);
     graphBuilder = std::unique_ptr<GraphBuilder>(new GraphBuilder(env));
     GraphBuilder &builder = *graphBuilder;
 
     std::cerr << "Constructing graph\n";
 
-    unsigned inputSize = data.dataSize;
-
+    /* First, the global data vertices, compute sets and data arrays
+       are created in the graph. */
     numBatchesField = builder.addDataVertex("unsigned")["data"];
     stateField = builder.addDataVertex("nn_state_t")["data"];
     etaField = builder.addDataVertex("float")["data"];
@@ -124,6 +142,9 @@ public:
     testCS = builder.createComputeSet();
     weightSyncCS = builder.createComputeSet();
 
+    /* Now the input layer is added to the graph. Both the
+       test and training data arrays are built up on top of the
+       input vertices. */
     std::cerr << "-- Adding input layer\n";
     for (unsigned i = 0; i < inputSize; ++i) {
       auto v = builder.addVertex("InputLayerVertex");
@@ -137,13 +158,18 @@ public:
       fwd.push_back(v);
       inputLayer.push_back(v);
     }
-    prevNonLinearityType = NON_LINEARITY_NONE;
 
+    /* The hidden layers are added in order. Each layer
+       will use and then update
+       the 'fwd' and 'prevNonLinearityType' fields of this
+       object. */
+    prevNonLinearityType = NON_LINEARITY_NONE;
     for (unsigned i = 0; i < hiddenLayers.size(); ++i) {
       std::cerr << "-- Adding forward layer " << i << "\n";
       hiddenLayers[i]->addForward(*this);
     }
 
+    /* The loss layer connects to the final hidden layer. */
     std::cerr << "-- Adding loss layer\n";
     errorVertex = builder.addVertex("SumSquaredErrorVertex");
     builder.addEdge(stateField, errorVertex["state"], false);
@@ -167,10 +193,17 @@ public:
       bwdIndexOut.push_back(errorVertex["indexOut"]);
     }
 
+    /* Finally the backward pass vertices are adding in reverse
+       layer order.
+       Each layer will use and then update the 'bwdDeltaOut' and
+       'bwdIndexOut' fields of this object. */
     for (int i = hiddenLayers.size() - 1; i >= 0; --i) {
       std::cerr << "-- Adding backward layer " << i << "\n";
       hiddenLayers[i]->addBackward(*this);
     }
+
+    /* Now that the graph is constructed, a poplar engine is created. */
+
     #if IPU_MODEL
     engineBuilder =
       std::unique_ptr<EngineBuilder>(new IPUModelEngineBuilder(builder));
@@ -178,9 +211,12 @@ public:
     engineBuilder =
       std::unique_ptr<EngineBuilder>(new CPUEngineBuilder(builder));
     #endif
+
     EngineBuilder &eb = *engineBuilder;
 
-    eb.setControlProgram("runTest");
+    /* All the data arrays, compute sets and parameter fields need to be
+       passed to the control program. */
+    eb.setControlProgram("doTraining");
     eb.setControlProgramArg(0, trainCS);
     eb.setControlProgramArg(1, testCS);
     eb.setControlProgramArg(2, weightSyncCS);
@@ -196,50 +232,58 @@ public:
     eb.setControlProgramArg(12, data.numTest / batchSize);
     eb.setControlProgramArg(13, 500);
 
+
+    /* The parameters (i.e. weights and biases) data array is linked to
+       an array of randomly created values based on a normal distribution. */
     unsigned numParams = eb.dataArrayBufferSize(daParams) / sizeof(float);
     params = std::unique_ptr<float[]>(new float[numParams]);
     unsigned seed = time(0);
     boost::variate_generator< boost::mt19937, boost::normal_distribution<> >
       generator(boost::mt19937(seed), boost::normal_distribution<>(0, 0.01));
-
     for (unsigned i = 0; i < numParams; ++i)
       params[i] = generator();
-
     eb.linkDataArrayToBuffer(daParams, (char *) &params[0]);
 
+
+    /* Link the training data array to the shuffled training data on the
+       host. */
     shuffledTrainingData = shuffleData(&data.trainingData[0],
                                        data.numTraining,
                                        inputSize,
                                        batchSize);
-
     eb.linkDataArrayToCircularBuffer(
       daTrainingData,
       (char *) &shuffledTrainingData[0],
       (char *) &shuffledTrainingData[data.numTraining * inputSize]);
 
+    /* Link the training labels to the correct array on the host. */
     eb.linkDataArrayToCircularBuffer(
       daTrainingLabels,
       (char *) &data.trainingLabels[0],
       (char *) &data.trainingLabels[data.numTraining]);
 
+    /* Link the test data array to the shuffled test data on the
+       host. */
     shuffledTestData = shuffleData(&data.testData[0],
                                    data.numTest,
                                    inputSize,
                                    batchSize);
-
     eb.linkDataArrayToCircularBuffer(
       daTestData,
       (char *) &shuffledTestData[0],
       (char *) &shuffledTestData[data.numTest * inputSize]);
 
+    /* Link the test labels to the correct array on the host. */
     eb.linkDataArrayToCircularBuffer(
       daTestLabels,
       (char *) &data.testLabels[0],
       (char *) &data.testLabels[data.numTest]);
 
     #if IPU_MODEL
-    IPUModelEngineBuilder ipuEB =
-      static_cast<IPUModelEngineBuilder>(&eb);
+    /* When modelling the IPU, a tile mapping is created based on the
+       VTileMapper, each layer is placed on a different 'virtual' tile. */
+    IPUModelEngineBuilder *ipuEB =
+      static_cast<IPUModelEngineBuilder *>(&eb);
     ipuEB->setIPUExchangeImplementation(IPUModelEngineBuilder::OPTIMISTIC);
     numTiles = ipuEB->getTilesPerIPU() * ipuEB->getNumIPUs();
     std::cerr << builder.getNumVertices() << " vertices, "
@@ -261,14 +305,17 @@ public:
     engine = eb.makeEngine();
   }
 
-  void test(unsigned numBatches) {
+  void train(unsigned numBatches) {
+    /* All this method needs to do is set the relevant parameters and
+       run the control program. */
     engine->setValue<float>(etaField, 0.9);
     engine->setValue<unsigned>(numBatchesField, numBatches);
     std::cerr << "Running graph program\n";
 
     #if IPU_MODEL
-    engine->report(std::cout);
-    #if 1
+    IPUModelEngine *ipuEngine = static_cast<IPUModelEngine *>(&*engine);
+    ipuEngine->report(std::cout);
+    #if 0
     std::vector<unsigned> tileMapping = engine->getTileMapping();
     for (unsigned i = 0; i < graphBuilder->getNumVertices(); ++i) {
       if (tileMapping[i] == 756)
@@ -533,7 +580,7 @@ int main() {
 
   Net net(MNIST, 10, layers);
 
-  net.test(5000);
+  net.train(5000);
 
   return 0;
 }

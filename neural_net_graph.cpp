@@ -9,16 +9,10 @@
 
 using namespace poplar;
 
-#define NOTHING_TO_PROCESS (-2)
-#define DONE_PROCESSING    (-1)
-#define START_WEIGHT_UPDATE (-3)
 
-typedef enum nn_state_t {
-  INIT,
-  TRAIN,
-  TEST,
-  WEIGHT_SYNC
-} nn_state_t;
+/****************************************************************************/
+/*            Auxiliary math functions                                      */
+/****************************************************************************/
 
 static float sigmoid(float x)
 {
@@ -66,7 +60,42 @@ static float nonlinearity_derivative(NonLinearityType t, float x) {
   }
 }
 
+/****************************************************************************/
+/*            Vertices                                                      */
+/****************************************************************************/
 
+/* To run as much in parallel as possible, batches of data are fed through
+   the net in a pipelined fashion. During each compute step, each layer of
+   the net will be processing a different item from the batch.
+
+   To implement this, each vertex after the input layer
+   takes an indexIn input from the previous layer telling it which item of the
+   batch to process. It will process this data and pass it onto the next layer
+   via an indexOut output.
+
+   As well as the pipelining, there is a global state value fed to all
+   vertices which controls which phase of the algorithm is currently being
+   performed. This state is then set by the control program. */
+
+/* The following enum provides the possible values of the state variable. */
+typedef enum nn_state_t {
+  INIT,
+  TRAIN,
+  TEST,
+  WEIGHT_SYNC
+} nn_state_t;
+
+
+/* The following defines are special control codes for the indexIn/indexOut
+   values which control the pipelining of compute. */
+#define NOTHING_TO_PROCESS (-2)
+#define DONE_PROCESSING    (-1)
+#define START_WEIGHT_UPDATE (-3)
+
+/* An input layer holds a a batch worth of one input to the net.
+   Each iteration it will output a new item of the batch
+   (feeding it into the net) and at the end will feed the DONE_PROCESSING
+   control signal */
 class InputLayerVertex : public Vertex {
 public:
   Vector<float> data;
@@ -79,6 +108,9 @@ public:
 
   bool compute() {
     if (state == INIT) {
+      /* On initialization the indexOut variable is set to
+         NOTHING_TO_PROCESS so the next layer will not do anything until
+         this layer starts outputting */
       indexOut = NOTHING_TO_PROCESS;
       return true;
     }
@@ -86,12 +118,15 @@ public:
     if (indexOut == DONE_PROCESSING)
       return true;
 
-    if (indexOut == NOTHING_TO_PROCESS)
+    if (indexOut == NOTHING_TO_PROCESS) {
+      /* First compute step after init, start outputting data. */
       indexOut = 0;
-    else
+    } else {
       indexOut++;
+    }
 
     if (indexOut == batchSize) {
+      /* The whole batch has been output. */
       indexOut = DONE_PROCESSING;
       return true;
     }
@@ -99,18 +134,20 @@ public:
     /* The input layer will simple output data values until a whole
        batch has been output. */
     activationOut = data[indexOut];
+
     return false;
   }
 
   uint64_t getCycleEstimate() const {
-    return 30;
+    return 10;
   }
 };
 
 /** This vertex gathers together a vector of inputs into
     a dense vector.
     This will gather all the activations from a previous layer
-    to pass on to all the vertices in the next layer.
+    to pass on to all the vertices in the next layer. This is used as
+    an optimization for fully connected layers.
  */
 class InnerProductFwdGatherVertex : public Vertex {
 public:
@@ -134,11 +171,19 @@ public:
     return true;
   }
 
-  uint64_t getCycleEstimate() const {
+  uint64_t getCycleEstimate() const  {
+    if (state == INIT ||
+        indexIn == NOTHING_TO_PROCESS ||
+        indexIn == DONE_PROCESSING)
+      return 5;
+
     return (activationIn.size() + 10);
   }
 };
 
+/* This vertex calculates the forward pass of the network.
+   It implements one artificial neuron that performs a weighted sum
+   of its inputs followed by a non-linear function (e.g. sigmoid or reLU). */
 class InnerProductFwdVertex : public Vertex {
 public:
   NonLinearityType nonLinearityType;
@@ -149,16 +194,25 @@ public:
   Vector<Input<float>> activationIn;
 #endif
   Input<int> indexIn;
-  float z;
-  float activationOut;
   int indexOut;
 
+  /* Both the weighted sum (z) and the activation are stored since the
+     backward pass needs both these items of data. */
+  float z;
+  float activationOut;
+
+  /* The weights aren't stored in this vertex but in a separate
+     vertex that manages the weights.
+     This is still efficient but allows the other vertex to sync
+     weights with the backward pass after weight update has occurred.  */
   Input<Vector<float>> weights;
   Input<float> bias;
 
   Input<nn_state_t> state;
 
   bool compute() {
+
+    /* Handle the pipeline control */
     if (state == INIT) {
       indexOut = NOTHING_TO_PROCESS;
       return true;
@@ -172,24 +226,279 @@ public:
       return true;
     }
 
+    /* Perform a weigthed sum of the inputs. */
     float sum = 0;
     for (unsigned i = 0;  i < activationIn.size(); ++i) {
       sum += activationIn[i] * weights[i];
     }
+
+    /* Add the bias. */
     z = sum + bias;
+
+    /* Apply the non-linearity to get the activation. */
     activationOut = nonlinearity(nonLinearityType, z);
     indexOut = indexIn;
     return false;
   }
 
   uint64_t getCycleEstimate() const {
-    return 30;
+    if (state == INIT ||
+        indexIn == NOTHING_TO_PROCESS ||
+        indexIn == DONE_PROCESSING)
+      return 10;
+
+    return activationIn.size() + 20;
   }
 
 };
 
+/** This vertex gathers together a vector of delta terms into a dense vector.
+    This will gather all the deltas from a layer
+    to pass on to all the vertices in the previous layer. This is used as
+    an optimization for fully connected layers. */
+class InnerProductBwdGatherVertex : public Vertex {
+public:
+  Vector<Input<float>> deltaIn;
+  Vector<float> deltaOut;
+
+  Input<nn_state_t> state;
+  Input<int> indexIn;
+
+  bool compute() {
+    if (state == INIT || state == TEST)
+      return true;
+
+    if (indexIn == NOTHING_TO_PROCESS ||
+        indexIn == DONE_PROCESSING ||
+        indexIn == START_WEIGHT_UPDATE)
+      return true;
+
+    for (unsigned i = 0; i < deltaOut.size(); ++i) {
+      deltaOut[i] = deltaIn[i];
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    return (deltaIn.size() + 10);
+  }
+};
+
+/* This vertex implements the back propagation pass of the algorithm.
+   There are three phases: first, the deltas are calculated
+   and stored for the batch, then a second phase calculates the gradients
+   and updates the weights, finally a third phase syncs the new weights back
+   with the forward pass vertices. */
+class InnerProductBwdVertex : public Vertex {
+public:
+  /* This is the non-linearity of the *previous* layer */
+  NonLinearityType nonLinearityType;
+
+  Input<int> indexIn;
+  /* The input delta is the partial derivative of the error with respect to
+   *  the z-term (the sum before the non-linearity) of this vertex. */
+#if USE_GATHER_VERTEX
+  Input<Vector<float>> deltaIn;
+#else
+  Vector<Input<float>> deltaIn;
+#endif
+
+  /* The output delta is the partical derivative of the error with respect to
+   * the z-term of the connected vertex from the previous layer */
+  float deltaOut;
+  int indexOut;
+
+  /* These weights are duplicated from the forward pass. These vectors
+     across the backward vertices form the transpose matrix of the weight
+     vectors across the forward vertices */
+  Vector<float> weights;
+
+  /* The backward layer needs to record the activations and z-terms from the
+     forward layer to be able to calculate the gradients. */
+  Input<float> activationIn;
+  Input<float> zIn;
+  Input<int> actIndexIn;
+  Vector<float> zRecord, actRecord, bwdRecord;
+
+  /* The learning rate is passed to this vertex from a central control
+     vertex. */
+  Input<float> eta;
+  Input<nn_state_t> state;
+
+  /* The following state is used to control the weight sync phase */
+  #if MEM_OPTIMIZED_WEIGHT_SYNC
+  float weightSyncOutput;
+  unsigned currentRank;
+  #endif
+  bool doingWeightUpdate;
+
+  bool compute() {
+
+    if (state == INIT) {
+      indexOut = NOTHING_TO_PROCESS;
+      doingWeightUpdate = false;
+      #if MEM_OPTIMIZED_WEIGHT_SYNC
+      currentRank = 0;
+      #endif
+      return true;
+    }
+
+    #if MEM_OPTIMIZED_WEIGHT_SYNC
+    if (state == WEIGHT_SYNC) {
+      /*  During weight sync, one weight is output each compute
+          step to be transferred to the forward layers. */
+      if (currentRank >= weights.size())
+        return true;
+      weightSyncOutput = weights[currentRank];
+      currentRank++;
+      return false;
+    }
+    #endif
+
+    if (state == TEST)
+      return true;
+
+    /* During the forward pass the backwards vertex needs to record
+       the activations and z-terms going through the network. */
+    if (actIndexIn != NOTHING_TO_PROCESS &&
+	actIndexIn != DONE_PROCESSING) {
+      actRecord[actIndexIn] = activationIn;
+      zRecord[actIndexIn] = zIn;
+    }
+
+    if (doingWeightUpdate) {
+      if (indexIn == DONE_PROCESSING) {
+        indexOut = DONE_PROCESSING;
+        return true;
+      }
+
+      /* Calculate the weight gradients and update the weights. */
+      unsigned batchSize = actRecord.size();
+      for (unsigned i = 0;  i < deltaIn.size(); ++i) {
+        float gradient = actRecord[indexIn] * deltaIn[i];
+        weights[i] += eta * gradient  / batchSize;
+      }
+
+     /* Make sure the next layer gets the correct delta for
+        its weight update. */
+      deltaOut = bwdRecord[indexIn];
+      indexOut = indexIn;
+
+    } else {
+
+      if (indexIn == NOTHING_TO_PROCESS)
+        return false;
+
+      if (indexIn == START_WEIGHT_UPDATE) {
+        doingWeightUpdate = true;
+        indexOut = START_WEIGHT_UPDATE;
+        return false;
+      }
+
+      /* This is the core of the back-propagation algorithm.
+         The output delta is formed from the weighted sum of the
+         input deltas. */
+      float sum = 0;
+      for (unsigned i = 0;  i < deltaIn.size(); ++i) {
+        sum += deltaIn[i] * weights[i];
+      }
+
+      /* Apply the chain-rule on the non-linear function of the previous
+         layer. */
+      float nlGradient = nonlinearity_derivative(nonLinearityType,
+                                                 zRecord[indexIn]);
+
+      /* Pass on the error to the previous layer. */
+      deltaOut = nlGradient * sum;
+
+      /* Record the output for the weight update phase. */
+      bwdRecord[indexIn] = deltaOut;
+
+      /* Pass on the batch index to process to the previous layer. */
+      indexOut = indexIn;
+    }
+    return false;
+  }
+
+  uint64_t getCycleEstimate() const {
+    return 30;
+  }
+};
+
+/* This vertex handles the gradient descent update for the bias terms.
+ * During the backward pass the bias term is updated based on the delta
+ * input coming from the next layer. */
+class InnerProductBwdBiasVertex : public Vertex {
+public:
+  Input<float> deltaIn;
+  Input<int> indexIn;
+
+  float bias;
+  
+  Input<float> eta;
+  Input<nn_state_t> state;
+  unsigned batchSize;
+
+  float update;
+  bool updated;
+
+  bool compute() {
+
+    if (state == INIT) {
+      update = 0;
+      updated = false;
+      return true;
+    }
+
+    if (state == TEST)
+      return true;
+
+    if (updated)
+      return true;
+
+    if (indexIn == NOTHING_TO_PROCESS)
+      return false;
+
+    if (indexIn == START_WEIGHT_UPDATE) {
+      bias += eta * update / (float) batchSize;
+      updated = true;
+      return true;
+    }
+
+    if (indexIn == DONE_PROCESSING)
+      return true;
+
+    float gradient = deltaIn * 1;
+    update += gradient * 1;
+    return false;
+  }
+
+  uint64_t getCycleEstimate() const {
+    return 30;
+  }
+};
+
+/* There are two variants of the algorithm for weight sync.
+
+   In one version the weights in the backward pass vertices are connected to
+   their relevant destination in the forward pass parameter vertices. All
+   weight exchange can happen in one compute step.
+
+   In the memory optimized version, the backward pass vertices
+   pass the weights for each for forward vertices one by one over several
+   compute steps. This is slower but requires far less memory (i.e.
+   fewer edges).
+ */
 #if MEM_OPTIMIZED_WEIGHT_SYNC
 
+/* One of these vertices are created per layer.
+   The vertex gathers weights from the backward pass vertices
+   and passes on the vector to the forward pass vertices.
+
+   Each compute step the backward layer passes on the weights
+   for a different vertex in the forward layer. The relevant
+   forward layer param vertex will copy out the weights on the
+   correct iteration. */
 class InnerProductParamsGatherVertex : public Vertex {
 public:
   Vector<Input<float>> weightsIn;
@@ -208,7 +517,9 @@ public:
 
 };
 
-
+/* This vertex supplies the weights and bias to the forward pass vertex.
+   On the weight sync pass it will copy the weights from the param gathering
+   vertex on the correct iteration. */
 class InnerProductParamsVertex : public Vertex {
 public:
   Input<Vector<float>> weightsIn;
@@ -274,219 +585,33 @@ public:
 
 #endif
 
-class InnerProductBwdGatherVertex : public Vertex {
-public:
-  Vector<Input<float>> deltaIn;
-  Vector<float> deltaOut;
-
-  Input<nn_state_t> state;
-  Input<int> indexIn;
-
-  bool compute() {
-    if (state == INIT || state == TEST)
-      return true;
-
-    if (indexIn == NOTHING_TO_PROCESS ||
-        indexIn == DONE_PROCESSING ||
-        indexIn == START_WEIGHT_UPDATE)
-      return true;
-
-    for (unsigned i = 0; i < deltaOut.size(); ++i) {
-      deltaOut[i] = deltaIn[i];
-    }
-    return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    return 30;
-  }
-};
-
-
-class InnerProductBwdVertex : public Vertex {
-public:
-  NonLinearityType nonLinearityType;
-
-#if USE_GATHER_VERTEX
-  Input<Vector<float>> deltaIn;
-#else
-  Vector<Input<float>> deltaIn;
-#endif
-  Input<int> indexIn;
-  float deltaOut;
-  int indexOut;
-
-  Vector<float> weights;
-
-  Input<float> activationIn;
-  Input<float> zIn;
-  Input<int> actIndexIn;
-  Vector<float> zRecord, actRecord, bwdRecord;
-
-  Input<float> eta;
-  Input<nn_state_t> state;
-
-  #if MEM_OPTIMIZED_WEIGHT_SYNC
-  float weightSyncOutput;
-  unsigned currentRank;
-  #endif
-
-  bool doingWeightUpdate;
-
-  bool compute() {
-
-    if (state == INIT) {
-      indexOut = NOTHING_TO_PROCESS;
-      doingWeightUpdate = false;
-      #if MEM_OPTIMIZED_WEIGHT_SYNC
-      currentRank = 0;
-      #endif
-      return true;
-    }
-
-    #if MEM_OPTIMIZED_WEIGHT_SYNC
-    if (state == WEIGHT_SYNC) {
-      if (currentRank >= weights.size())
-        return true;
-      weightSyncOutput = weights[currentRank];
-      currentRank++;
-      return false;
-    }
-    #endif
-
-    if (state == TEST)
-      return true;
-
-    // During the forward pass the backwards vertex needs to record 
-    // the activations going through the network.
-    if (actIndexIn != NOTHING_TO_PROCESS &&
-	actIndexIn != DONE_PROCESSING) {
-      actRecord[actIndexIn] = activationIn;
-      zRecord[actIndexIn] = zIn;
-    }
-
-
-    if (doingWeightUpdate) {
-
-      if (indexIn == DONE_PROCESSING) {
-        indexOut = DONE_PROCESSING;
-        return true;
-      }
-
-      unsigned batchSize = actRecord.size();
-      for (unsigned i = 0;  i < deltaIn.size(); ++i) {
-        weights[i] += eta * actRecord[indexIn] * deltaIn[i] / batchSize;
-      }
-
-      deltaOut = bwdRecord[indexIn];
-      indexOut = indexIn;
-
-    } else {
-
-      if (indexIn == NOTHING_TO_PROCESS)
-        return false;
-
-      if (indexIn == START_WEIGHT_UPDATE) {
-        doingWeightUpdate = true;
-        indexOut = START_WEIGHT_UPDATE;
-        return false;
-      }
-
-      float sum = 0;
-      for (unsigned i = 0;  i < deltaIn.size(); ++i) {
-        sum += deltaIn[i] * weights[i];
-      }
-      float nlGradient = nonlinearity_derivative(nonLinearityType,
-                                                 zRecord[indexIn]);
-
-      // Pass on the error to the previous layer.
-      deltaOut = nlGradient * sum;
-
-      // Record the output for the weight update phase.
-      bwdRecord[indexIn] = deltaOut;
-
-      // Pass on the batch index to process to the previous layer.
-      indexOut = indexIn;
-    }
-    return false;
-  }
-
-  uint64_t getCycleEstimate() const {
-    return 30;
-  }
-};
-
-
-class InnerProductBwdBiasVertex : public Vertex {
-public:
-  Input<float> deltaIn;
-  Input<int> indexIn;
-
-  float bias;
-  
-  Input<float> eta;
-  Input<nn_state_t> state;
-  unsigned batchSize;
-
-  float update;
-  bool updated;
-
-  bool compute() {
-
-    if (state == INIT) {
-      update = 0;
-      updated = false;
-      return true;
-    }
-
-    if (state == TEST)
-      return true;
-
-    if (updated)
-      return true;
-
-    if (indexIn == NOTHING_TO_PROCESS)
-      return false;
-
-    if (indexIn == START_WEIGHT_UPDATE) {
-      bias += eta * update / (float) batchSize;
-      updated = true;
-      return true;
-    }
-
-    if (indexIn == DONE_PROCESSING)
-      return true;
-
-    update += deltaIn;
-    return false;
-  }
-
-  uint64_t getCycleEstimate() const {
-    return 30;
-  }
-};
-
-
+/* The error vertex calculates the classification error (or loss) of the output
+   of the last hidden layer of the network.
+   It also calculates the partial derivative of that loss with respect its
+   inputs and kicks off the backward pass. */
 class SumSquaredErrorVertex : public Vertex {
 public:
   Vector<Input<float>> zIn;
   Input<int> indexIn;
-  float error;
 
+  /* The non-linearity type of the *previous* layer */
+  NonLinearityType nonLinearityType;
+
+
+  /* The delta out is the partial derivative of the loss with respect to the
+     z term of the previous layer.  */
   Vector<float> deltaOut;
   int indexOut;
 
+  /* The expected data */
   Vector<unsigned char> labels;
 
   Input<nn_state_t> state;
-
-  unsigned numCorrect = 0;
-
+  unsigned batchSize;
   bool doingWeightUpdate;
 
-  unsigned batchSize;
-
-  NonLinearityType nonLinearityType;
+  float error;
+  unsigned numCorrect;
 
   bool compute() {
     if (state == INIT) {
@@ -517,6 +642,8 @@ public:
         return false;
 
       if (indexIn == DONE_PROCESSING) {
+        /* When every element of the batch is processed, the
+           weight update pass is kicked off. */
         indexOut = START_WEIGHT_UPDATE;
         doingWeightUpdate = true;
         return true;
@@ -556,6 +683,11 @@ public:
   }
 };
 
+/****************************************************************************/
+/*            Vertices                                                      */
+/****************************************************************************/
+
+/* Run the weight sync pass over the graph. */
 void weightSync(DataElement<nn_state_t> state,
                 ComputeSet weightSyncCS)
 {
@@ -568,6 +700,7 @@ void weightSync(DataElement<nn_state_t> state,
   }
 }
 
+/* Train on a single batch */
 void trainOnBatch(DataElement<nn_state_t> state,
                   ComputeSet trainCS, ComputeSet weightSyncCS,
                   DataArray trainingData,  DataArray trainingLabels)
@@ -584,6 +717,7 @@ void trainOnBatch(DataElement<nn_state_t> state,
   weightSync(state, weightSyncCS);
 }
 
+/* Test on a single batch */
 void testOnBatch(DataElement<nn_state_t> state,
                  ComputeSet testCS,
                  DataArray testData,  DataArray testLabels)
@@ -598,19 +732,20 @@ void testOnBatch(DataElement<nn_state_t> state,
     complete = testCS.compute();
   }
 }
-	   
 
+/* The main algorithm, repeatedly train on batches from the training
+   set whilst occasionally testing on the test set and reporting the error. */
 __control__
-void runTest(ComputeSet trainCS, ComputeSet testCS, ComputeSet weightSyncCS,
-             DataElement<nn_state_t> state,
-             DataArray initialParams,
-             DataArray trainingData,  DataArray trainingLabels,
-             DataArray testData,  DataArray testLabels,
-	     unsigned batchSize,
-             DataElement<unsigned> numBatches,
-             DataElement<unsigned> numCorrect,
-             unsigned numTestBatches,
-             unsigned numBatchesBetweenTests) {
+void doTraining(ComputeSet trainCS, ComputeSet testCS, ComputeSet weightSyncCS,
+                DataElement<nn_state_t> state,
+                DataArray initialParams,
+                DataArray trainingData,  DataArray trainingLabels,
+                DataArray testData,  DataArray testLabels,
+                unsigned batchSize,
+                DataElement<unsigned> numBatches,
+                DataElement<unsigned> numCorrect,
+                unsigned numTestBatches,
+                unsigned numBatchesBetweenTests) {
   std::cout << "-- Initializing params.\n";
   initialParams.copyIn();
   weightSync(state, weightSyncCS);
