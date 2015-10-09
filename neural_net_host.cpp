@@ -10,11 +10,10 @@
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/variate_generator.hpp>
 #include <chrono>
+#include <memory>
 #include "neural_net_common.h"
 #include "VTileMapper.hpp"
 using namespace poplar;
-
-#define IPU_MODEL 0
 
 class Net;
 
@@ -41,12 +40,24 @@ public:
   }
 };
 
+/* This utility function wraps a vector of normal pointers as unique_ptrs.
+   It allows the hidden layer array to be initializes with an
+   initializer list. */
+std::vector<std::unique_ptr<HiddenLayer>>
+makeHiddenLayers(std::vector<HiddenLayer *> vs)
+{
+  std::vector<std::unique_ptr<HiddenLayer>> xs;
+  for (auto p: vs)
+    xs.push_back(std::unique_ptr<HiddenLayer>(p));
+  return xs;
+}
+
 /* This class represent the entire network. */
 class Net {
 public:
   unsigned batchSize;
   float eta;
-  std::vector<HiddenLayer *> hiddenLayers;
+  std::vector<std::unique_ptr<HiddenLayer>> hiddenLayers;
 
   /* This field references are parameters in the graph that can be
      changed by the control program */
@@ -115,14 +126,7 @@ public:
     return std::move(shuffled);
   }
 
-  /* When a Net object is constructed the corrensponding poplar graph is
-     made */
-  Net(DataSet &data, unsigned batchSize,
-      std::vector<HiddenLayer *> hiddenLayers,
-      LossType lossType,
-      float learningRate) : batchSize(batchSize),
-                            hiddenLayers(hiddenLayers),
-                            eta(learningRate) {
+  void initialize(DataSet &data, LossType lossType) {
     unsigned inputSize = data.dataSize;
     GraphProgEnv env("neural_net_graph.ppo", GraphProgFileType::Object);
     graphBuilder = std::unique_ptr<GraphBuilder>(new GraphBuilder(env));
@@ -290,12 +294,12 @@ public:
        VTileMapper, each layer is placed on a different 'virtual' tile. */
     IPUModelEngineBuilder *ipuEB =
       static_cast<IPUModelEngineBuilder *>(&eb);
-    ipuEB->setIPUExchangeImplementation(IPUModelEngineBuilder::OPTIMISTIC);
+    ipuEB->setNumIPUs(1);
     numTiles = ipuEB->getTilesPerIPU() * ipuEB->getNumIPUs();
     std::cerr << builder.getNumVertices() << " vertices, "
               << numTiles << " tiles.\n";
     VTileMapper mapper;
-    for (HiddenLayer *layer : hiddenLayers) {
+    for (const std::unique_ptr<HiddenLayer> &layer : hiddenLayers) {
       auto vTile = mapper.createVTile();
       for (VertexRef &v : layer->getVertices()) {
         mapper.addToVTile(vTile, v.getId());
@@ -311,12 +315,36 @@ public:
     engine = eb.makeEngine();
   }
 
+  /* When a Net object is constructed the corrensponding poplar graph is
+     made */
+  Net(DataSet &data, unsigned batchSize,
+      std::vector<std::unique_ptr<HiddenLayer>> &hiddenLayers,
+      LossType lossType,
+      float learningRate) : batchSize(batchSize),
+                            hiddenLayers(std::move(hiddenLayers)),
+                            eta(learningRate) {
+    initialize(data, lossType);
+  }
+
+  Net(DataSet &data, unsigned batchSize,
+      std::vector<std::unique_ptr<HiddenLayer>> &&hiddenLayers,
+      LossType lossType,
+      float learningRate) : batchSize(batchSize),
+                            hiddenLayers(std::move(hiddenLayers)),
+                            eta(learningRate) {
+    initialize(data, lossType);
+  }
+
   void train(unsigned numBatches) {
     /* All this method needs to do is set the relevant parameters and
        run the control program. */
     engine->setValue<float>(etaField, eta);
     engine->setValue<unsigned>(numBatchesField, numBatches);
     std::cerr << "Running graph program\n";
+
+    #if DO_COMPUTATION
+    engine->run();
+    #endif
 
     #if IPU_MODEL
     IPUModelEngine *ipuEngine = static_cast<IPUModelEngine *>(&*engine);
@@ -328,8 +356,6 @@ public:
         engine->dumpVertexInfo(i, std::cout);
     }
     #endif
-    #else
-    engine->run();
     #endif
 
     #if DEBUG_INPUT_OUTPUT_DATA
@@ -568,23 +594,31 @@ int main() {
   MNIST.trainingLabels = readMNISTLabels(MNIST.numTraining,
                                          "train-labels-idx1-ubyte");
 
-  #if !IPU_MODEL
-  std::vector<HiddenLayer *> layers({
-      new FullyConnectedLayer(30, NON_LINEARITY_SIGMOID),
-      new FullyConnectedLayer(10, NON_LINEARITY_SIGMOID),
-  });
+  #if LARGE_DNN_MODEL
+  Net net(MNIST,
+          100, // batch size
+          makeHiddenLayers({
+            new FullyConnectedLayer(2000, NON_LINEARITY_SIGMOID),
+            new FullyConnectedLayer(2000, NON_LINEARITY_SIGMOID),
+            new FullyConnectedLayer(2000, NON_LINEARITY_SIGMOID),
+            new FullyConnectedLayer(2000, NON_LINEARITY_SIGMOID),
+            new FullyConnectedLayer(2000, NON_LINEARITY_SIGMOID),
+            new FullyConnectedLayer(10, NON_LINEARITY_SIGMOID),
+          }),
+          SOFTMAX_CROSS_ENTROPY_LOSS,
+          0.9 // learning rate
+          );
   #else
-  std::vector<HiddenLayer *> layers({
-      new FullyConnectedLayer(2000, NON_LINEARITY_SIGMOID),
-      new FullyConnectedLayer(2000, NON_LINEARITY_SIGMOID),
-      new FullyConnectedLayer(2000, NON_LINEARITY_SIGMOID),
-      new FullyConnectedLayer(2000, NON_LINEARITY_SIGMOID),
-      new FullyConnectedLayer(2000, NON_LINEARITY_SIGMOID),
-      new FullyConnectedLayer(10, NON_LINEARITY_SIGMOID),
-  });
+  Net net(MNIST,
+          10, // batch size
+          makeHiddenLayers({
+            new FullyConnectedLayer(30, NON_LINEARITY_SIGMOID),
+            new FullyConnectedLayer(10, NON_LINEARITY_SIGMOID),
+          }),
+          SOFTMAX_CROSS_ENTROPY_LOSS,
+          0.9 // learning rate
+          );
   #endif
-
-  Net net(MNIST, 10, layers, SOFTMAX_CROSS_ENTROPY_LOSS, 0.9);
 
   net.train(5000);
 

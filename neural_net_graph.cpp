@@ -350,7 +350,7 @@ public:
       if (currentRank >= weights.size())
         return true;
       weightSyncOutput = weights[currentRank];
-      currentRank++;
+      currentRank += 1;
       return false;
     }
     #endif
@@ -421,7 +421,45 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    return 30;
+    if (state == INIT)
+      return 10;
+
+    #if MEM_OPTIMIZED_WEIGHT_SYNC
+    if (state == WEIGHT_SYNC)
+      return 15;
+    #endif
+
+    if (state == TEST)
+      return 0;
+
+    uint64_t cycles = 0;
+
+    if (actIndexIn != NOTHING_TO_PROCESS &&
+        actIndexIn != DONE_PROCESSING) {
+      cycles += 5;
+    }
+
+    if (doingWeightUpdate) {
+      if (indexIn == DONE_PROCESSING)
+        return cycles + 5;
+
+      return cycles + deltaIn.size() * 3 + 5;
+    } else {
+      if (indexIn == NOTHING_TO_PROCESS ||
+          indexIn == START_WEIGHT_UPDATE)
+        return cycles + 5;
+
+      // weighted sum
+      cycles += deltaIn.size();
+
+      // non linearity
+      cycles += 5;
+
+      // other stuff
+      cycles += 5;
+
+      return cycles;
+    }
   }
 };
 
@@ -474,7 +512,13 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    return 30;
+    if (state == INIT)
+      return 5;
+    if (state == TEST)
+      return 0;
+    if (indexIn == START_WEIGHT_UPDATE)
+      return 15;
+    return 10;
   }
 };
 
@@ -512,7 +556,7 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    return 30;
+    return (weightsIn.size() + 10);
   }
 
 };
@@ -550,12 +594,18 @@ public:
       biasOut = biasIn;
       updated = true;
     }
-    currentRank++;
+    currentRank += 1;
     return updated;
   }
 
   uint64_t getCycleEstimate() const {
-    return 30;
+    if (state == INIT)
+      return 5;
+
+    if (myRank == currentRank)
+      return 15;
+
+    return 10;
   }
 };
 
@@ -579,7 +629,7 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    return 30;
+    return weightsIn.size() + 10;
   }
 };
 
@@ -627,7 +677,6 @@ public:
     }
 
     if (doingWeightUpdate) {
-
       if (indexOut == DONE_PROCESSING)
         return true;
 
@@ -640,9 +689,7 @@ public:
           return true;
         }
       }
-
     } else {
-
       if (indexIn == NOTHING_TO_PROCESS)
         return false;
 
@@ -653,7 +700,6 @@ public:
         doingWeightUpdate = true;
         return true;
       }
-
     }
 
     unsigned index = doingWeightUpdate ? indexOut : indexIn;
@@ -720,7 +766,37 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    return 30;
+    if (state == INIT)
+      return 5;
+
+    if (doingWeightUpdate) {
+      if (indexOut == DONE_PROCESSING)
+        return 5;
+
+      return 10;
+    } else {
+      if (indexIn == NOTHING_TO_PROCESS)
+        return 5;
+
+      if (indexIn == DONE_PROCESSING)
+        return 5;
+    }
+
+    uint64_t cycles = 5;
+    switch (lossType) {
+    case SUM_SQUARED_LOSS:
+      cycles += zIn.size() * 30;
+      break;
+    case SOFTMAX_CROSS_ENTROPY_LOSS:
+      cycles += zIn.size() * 50;
+      break;
+    }
+
+    cycles += zIn.size() * 10;
+
+    cycles += 5;
+
+    return cycles;
   }
 };
 
@@ -787,6 +863,11 @@ void doTraining(ComputeSet trainCS, ComputeSet testCS, ComputeSet weightSyncCS,
                 DataElement<unsigned> numCorrect,
                 unsigned numTestBatches,
                 unsigned numBatchesBetweenTests) {
+  #if TRAIN_SINGLE_BATCH_ONLY
+  trainOnBatch(state, trainCS, weightSyncCS, trainingData, trainingLabels);
+  return;
+  #endif
+
   std::cout << "-- Initializing params.\n";
   initialParams.copyIn();
   weightSync(state, weightSyncCS);
