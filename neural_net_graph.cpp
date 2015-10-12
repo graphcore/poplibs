@@ -602,7 +602,7 @@ public:
    of the last hidden layer of the network.
    It also calculates the partial derivative of that loss with respect its
    inputs and kicks off the backward pass. */
-class errorVertex : public Vertex {
+class ErrorVertex : public Vertex {
 public:
   LossType lossType;
 

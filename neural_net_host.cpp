@@ -179,7 +179,7 @@ public:
 
     /* The loss layer connects to the final hidden layer. */
     std::cerr << "-- Adding loss layer\n";
-    errorVertex = builder.addVertex("errorVertex");
+    errorVertex = builder.addVertex("ErrorVertex");
     builder.setInitialFieldValue<LossType>(errorVertex["lossType"], lossType);
     builder.addEdge(stateField, errorVertex["state"], false);
     builder.setInitialFieldValue<NonLinearityType>(
