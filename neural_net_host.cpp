@@ -387,10 +387,8 @@ class FullyConnectedLayer : public HiddenLayer {
 public:
   unsigned size;
   std::vector<VertexRef> fwd, bwd, weightSyncVertices, prev, biasVertices;
-  #if MEM_OPTIMIZED_WEIGHT_SYNC
   std::vector<VertexRef> paramGatherVertices;
   unsigned numParamGathers = 20;
-  #endif
   NonLinearityType nonLinearityType, prevNonLinearityType;
 
   FullyConnectedLayer(unsigned size,
@@ -430,7 +428,6 @@ public:
 
     VertexRef vCurParamGather;
     for (unsigned i = 0; i < size; ++i) {
-      #if MEM_OPTIMIZED_WEIGHT_SYNC
       if (i % (size/numParamGathers) == 0) {
         VertexRef v = builder.addVertex("InnerProductParamsGatherVertex");
         vertices.push_back(v);
@@ -440,7 +437,6 @@ public:
         builder.setFieldSize(v["weightsOut"], prevSize);
         vCurParamGather = v;
       }
-      #endif
 
       VertexRef v = builder.addVertex("InnerProductFwdVertex");
       builder.addEdge(net.stateField, v["state"], false);
@@ -464,7 +460,6 @@ public:
       }
       #endif
 
-      #if MEM_OPTIMIZED_WEIGHT_SYNC
       VertexRef pv = builder.addVertex("InnerProductParamsVertex");
       vertices.push_back(pv);
       weightSyncVertices.push_back(pv);
@@ -478,16 +473,6 @@ public:
       builder.addEdge(pv["biasOut"], v["bias"], false);
       builder.setInitialFieldValue<unsigned>(pv["myRank"],
                                              i % (size / numParamGathers));
-      #else
-      VertexRef pv = builder.addVertex("InnerProductParamsVertex");
-      vertices.push_back(pv);
-      builder.addToComputeSet(net.weightSyncCS, pv);
-      weightSyncVertices.push_back(pv);
-      builder.setFieldSize(pv["weightsIn"], prevSize);
-      builder.setFieldSize(pv["weightsOut"], prevSize);
-      builder.addEdge(pv["weightsOut"], v["weights"], false);
-      builder.addEdge(pv["biasOut"], v["bias"], false);
-      #endif
 
       if (i < prevSize) {
         VertexRef bv = builder.addVertex("InnerProductBwdVertex");
@@ -554,7 +539,6 @@ public:
       }
       #endif
 
-      #if MEM_OPTIMIZED_WEIGHT_SYNC
       builder.setFieldSize(v["weightSyncOutput"], numParamGathers);
       for (unsigned j = 0; j < numParamGathers; ++j) {
         builder.addEdge(v["weightSyncOutput"][j],
@@ -562,12 +546,6 @@ public:
                         false);
       }
       builder.addToComputeSet(net.weightSyncCS, v);
-      #else
-      for (unsigned j = 0; j < size; ++j) {
-        builder.addEdge(v["weights"][j], weightSyncVertices[j]["weightsIn"][i],
-                        false);
-      }
-      #endif
 
       builder.addEdge(prev[i]["activationOut"], v["activationIn"], true);
       builder.addEdge(prev[i]["z"], v["zIn"], true);

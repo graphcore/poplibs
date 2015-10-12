@@ -326,10 +326,8 @@ public:
   Input<nn_state_t> state;
 
   /* The following state is used to control the weight sync phase */
-  #if MEM_OPTIMIZED_WEIGHT_SYNC
   Vector<float> weightSyncOutput;
   unsigned currentRank;
-  #endif
   bool doingWeightUpdate;
 
   bool compute() {
@@ -337,13 +335,11 @@ public:
     if (state == INIT) {
       indexOut = NOTHING_TO_PROCESS;
       doingWeightUpdate = false;
-      #if MEM_OPTIMIZED_WEIGHT_SYNC
+      /* For weight sync */
       currentRank = 0;
-      #endif
       return true;
     }
 
-    #if MEM_OPTIMIZED_WEIGHT_SYNC
     if (state == WEIGHT_SYNC) {
       unsigned N = weightSyncOutput.size();
       unsigned stride = weights.size() / N;
@@ -361,7 +357,6 @@ public:
       ++currentRank;
       return false;
     }
-    #endif
 
     if (state == TEST)
       return true;
@@ -432,10 +427,8 @@ public:
     if (state == INIT)
       return 10;
 
-    #if MEM_OPTIMIZED_WEIGHT_SYNC
     if (state == WEIGHT_SYNC)
       return 15;
-    #endif
 
     if (state == TEST)
       return 0;
@@ -530,18 +523,6 @@ public:
   }
 };
 
-/* There are two variants of the algorithm for weight sync.
-
-   In one version the weights in the backward pass vertices are connected to
-   their relevant destination in the forward pass parameter vertices. All
-   weight exchange can happen in one compute step.
-
-   In the memory optimized version, the backward pass vertices
-   pass the weights for each for forward vertices one by one over several
-   compute steps. This is slower but requires far less memory (i.e.
-   fewer edges).
- */
-#if MEM_OPTIMIZED_WEIGHT_SYNC
 
 /* One of these vertices are created per layer.
    The vertex gathers weights from the backward pass vertices
@@ -616,32 +597,6 @@ public:
     return 10;
   }
 };
-
-
-
-#else
-
-class InnerProductParamsVertex : public Vertex {
-public:
-  Vector<Input<float>> weightsIn;
-  Vector<float> weightsOut;
-  Input<float> biasIn;
-  float biasOut;
- 
-  bool compute() {
-    for (unsigned i = 0; i < weightsOut.size(); ++i) {
-      weightsOut[i] = weightsIn[i];
-    }
-    biasOut = biasIn;
-    return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    return weightsIn.size()*2 + 10;
-  }
-};
-
-#endif
 
 /* The error vertex calculates the classification error (or loss) of the output
    of the last hidden layer of the network.
