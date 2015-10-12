@@ -15,6 +15,11 @@
 #include "VTileMapper.hpp"
 using namespace poplar;
 
+typedef enum NetType {
+  TrainingNet,
+  TestOnlyNet
+} NetType;
+
 class Net;
 
 /* A data set full of test and training data along with its dimensions */
@@ -55,6 +60,8 @@ makeHiddenLayers(std::vector<HiddenLayer *> vs)
 /* This class represent the entire network. */
 class Net {
 public:
+  NetType netType;
+
   unsigned batchSize;
   float eta;
   std::vector<std::unique_ptr<HiddenLayer>> hiddenLayers;
@@ -207,9 +214,11 @@ public:
        layer order.
        Each layer will use and then update the 'bwdDeltaOut' and
        'bwdIndexOut' fields of this object. */
-    for (int i = hiddenLayers.size() - 1; i >= 0; --i) {
-      std::cerr << "-- Adding backward layer " << i << "\n";
-      hiddenLayers[i]->addBackward(*this);
+    if (netType == TrainingNet) {
+      for (int i = hiddenLayers.size() - 1; i >= 0; --i) {
+        std::cerr << "-- Adding backward layer " << i << "\n";
+        hiddenLayers[i]->addBackward(*this);
+      }
     }
 
     /* Now that the graph is constructed, a poplar engine is created. */
@@ -226,21 +235,35 @@ public:
 
     /* All the data arrays, compute sets and parameter fields need to be
        passed to the control program. */
-    eb.setControlProgram("doTraining");
-    eb.setControlProgramArg(0, trainCS);
-    eb.setControlProgramArg(1, testCS);
-    eb.setControlProgramArg(2, weightSyncCS);
-    eb.setControlProgramArg(3, stateField);
-    eb.setControlProgramArg(4, daParams);
-    eb.setControlProgramArg(5, daTrainingData);
-    eb.setControlProgramArg(6, daTrainingLabels);
-    eb.setControlProgramArg(7, daTestData);
-    eb.setControlProgramArg(8, daTestLabels);
-    eb.setControlProgramArg<unsigned>(9, batchSize);
-    eb.setControlProgramArg(10, numBatchesField);
-    eb.setControlProgramArg(11, errorVertex["numCorrect"]);
-    eb.setControlProgramArg(12, data.numTest / batchSize);
-    eb.setControlProgramArg(13, 500);
+    if (netType == TrainingNet) {
+      eb.setControlProgram("doTraining");
+      eb.setControlProgramArg(0, trainCS);
+      eb.setControlProgramArg(1, testCS);
+      eb.setControlProgramArg(2, weightSyncCS);
+      eb.setControlProgramArg(3, stateField);
+      eb.setControlProgramArg(4, daParams);
+      eb.setControlProgramArg(5, daTrainingData);
+      eb.setControlProgramArg(6, daTrainingLabels);
+      eb.setControlProgramArg(7, daTestData);
+      eb.setControlProgramArg(8, daTestLabels);
+      eb.setControlProgramArg<unsigned>(9, batchSize);
+      eb.setControlProgramArg(10, numBatchesField);
+      eb.setControlProgramArg(11, errorVertex["numCorrect"]);
+      eb.setControlProgramArg(12, data.numTest / batchSize);
+      eb.setControlProgramArg(13, 500);
+    } else {
+      eb.setControlProgram("doTest");
+      eb.setControlProgramArg(0, trainCS);
+      eb.setControlProgramArg(1, stateField);
+      eb.setControlProgramArg(2, daParams);
+      eb.setControlProgramArg(3, daTestData);
+      eb.setControlProgramArg(4, daTestLabels);
+      eb.setControlProgramArg<unsigned>(5, batchSize);
+      eb.setControlProgramArg(6, numBatchesField);
+      eb.setControlProgramArg(7, errorVertex["numCorrect"]);
+      eb.setControlProgramArg(8, data.numTest / batchSize);
+    }
+
 
 
     /* The parameters (i.e. weights and biases) data array is linked to
@@ -323,22 +346,26 @@ public:
   Net(DataSet &data, unsigned batchSize,
       std::vector<std::unique_ptr<HiddenLayer>> &hiddenLayers,
       LossType lossType,
-      float learningRate) : batchSize(batchSize),
-                            hiddenLayers(std::move(hiddenLayers)),
-                            eta(learningRate) {
+      float learningRate,
+      NetType netType) : netType(netType),
+                         batchSize(batchSize),
+                         hiddenLayers(std::move(hiddenLayers)),
+                         eta(learningRate) {
     initialize(data, lossType);
   }
 
   Net(DataSet &data, unsigned batchSize,
       std::vector<std::unique_ptr<HiddenLayer>> &&hiddenLayers,
       LossType lossType,
-      float learningRate) : batchSize(batchSize),
-                            hiddenLayers(std::move(hiddenLayers)),
-                            eta(learningRate) {
+      float learningRate,
+      NetType netType) : netType(netType),
+                         batchSize(batchSize),
+                         hiddenLayers(std::move(hiddenLayers)),
+                         eta(learningRate) {
     initialize(data, lossType);
   }
 
-  void train(unsigned numBatches) {
+  void run(unsigned numBatches) {
     /* All this method needs to do is set the relevant parameters and
        run the control program. */
     engine->setValue<float>(etaField, eta);
@@ -428,7 +455,8 @@ public:
 
     VertexRef vCurParamGather;
     for (unsigned i = 0; i < size; ++i) {
-      if (i % (size/numParamGathers) == 0) {
+      if (net.netType == TrainingNet &&
+          i % (size/numParamGathers) == 0) {
         VertexRef v = builder.addVertex("InnerProductParamsGatherVertex");
         vertices.push_back(v);
         paramGatherVertices.push_back(v);
@@ -460,30 +488,45 @@ public:
       }
       #endif
 
-      VertexRef pv = builder.addVertex("InnerProductParamsVertex");
-      vertices.push_back(pv);
-      weightSyncVertices.push_back(pv);
-      builder.addEdge(net.stateField, pv["state"], false);
-      builder.addToComputeSet(net.weightSyncCS, pv);
-      builder.setFieldSize(pv["weightsOut"], prevSize);
-      VertexRef paramsGatherVertex = vCurParamGather;
-      builder.addEdge(paramsGatherVertex["weightsOut"], pv["weightsIn"],
-                      false);
-      builder.addEdge(pv["weightsOut"], v["weights"], false);
-      builder.addEdge(pv["biasOut"], v["bias"], false);
-      builder.setInitialFieldValue<unsigned>(pv["myRank"],
-                                             i % (size / numParamGathers));
+      if (net.netType == TrainingNet) {
+        VertexRef pv = builder.addVertex("InnerProductParamsVertex");
+        vertices.push_back(pv);
+        weightSyncVertices.push_back(pv);
+        builder.addEdge(net.stateField, pv["state"], false);
+        builder.addToComputeSet(net.weightSyncCS, pv);
+        builder.setFieldSize(pv["weightsOut"], prevSize);
+        VertexRef paramsGatherVertex = vCurParamGather;
+        builder.addEdge(paramsGatherVertex["weightsOut"], pv["weightsIn"],
+                        false);
+        builder.addEdge(pv["weightsOut"], v["weights"], false);
+        builder.addEdge(pv["biasOut"], v["bias"], false);
+        builder.setInitialFieldValue<unsigned>(pv["myRank"],
+                                               i % (size / numParamGathers));
+      } else {
+        VertexRef pv = builder.addVertex("InnerProductParamsFwdOnlyVertex");
+        vertices.push_back(pv);
+        builder.addToComputeSet(net.trainCS, pv);
+        builder.addToComputeSet(net.testCS, pv);
+        builder.addEdge(pv["weights"], v["weights"], false);
+        builder.addEdge(pv["bias"], v["bias"], false);
+        builder.setFieldSize(pv["weights"], prevSize);
+        builder.addToDataArray(net.daParams, pv["weights"]);
+        builder.addToDataArray(net.daParams, pv["bias"]);
+      }
 
-      if (i < prevSize) {
+      if (net.netType == TrainingNet && i < prevSize) {
         VertexRef bv = builder.addVertex("InnerProductBwdVertex");
         vertices.push_back(bv);
         bwd.push_back(bv);
       }
     }
-    for (unsigned i = size; i < prevSize; ++i) {
+
+    if (net.netType == TrainingNet) {
+      for (unsigned i = size; i < prevSize; ++i) {
         VertexRef bv = builder.addVertex("InnerProductBwdVertex");
         vertices.push_back(bv);
         bwd.push_back(bv);
+      }
     }
 
     net.fwd = fwd;
@@ -592,6 +635,7 @@ int main() {
   MNIST.trainingLabels = readMNISTLabels(MNIST.numTraining,
                                          "train-labels-idx1-ubyte");
 
+  NetType netType = TrainingNet;
   #if LARGE_DNN_MODEL
   Net net(MNIST,
           100, // batch size
@@ -606,7 +650,8 @@ int main() {
             new FullyConnectedLayer(10, NON_LINEARITY_SIGMOID),
           }),
           SOFTMAX_CROSS_ENTROPY_LOSS,
-          0.9 // learning rate
+          0.9, // learning rate
+          netType
           );
   #else
   Net net(MNIST,
@@ -616,11 +661,12 @@ int main() {
             new FullyConnectedLayer(10, NON_LINEARITY_SIGMOID),
           }),
           SOFTMAX_CROSS_ENTROPY_LOSS,
-          0.9 // learning rate
+          0.9, // learning rate
+          netType
           );
   #endif
 
-  net.train(5000);
+  net.run(5000);
 
   return 0;
 }

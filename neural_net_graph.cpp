@@ -523,6 +523,23 @@ public:
   }
 };
 
+/* This vertex supplies the weights and bias to the forward pass vertex for
+   a test-only network. */
+class InnerProductParamsFwdOnlyVertex : public Vertex {
+public:
+  Vector<float> weights;
+  float bias;
+
+  bool compute() {
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    return 0;
+  }
+};
+
+
 
 /* One of these vertices are created per layer.
    The vertex gathers weights from the backward pass vertices
@@ -826,7 +843,7 @@ void doTraining(ComputeSet trainCS, ComputeSet testCS, ComputeSet weightSyncCS,
                 DataElement<unsigned> numCorrect,
                 unsigned numTestBatches,
                 unsigned numBatchesBetweenTests) {
-  #if TRAIN_SINGLE_BATCH_ONLY
+  #if SINGLE_BATCH_ONLY
   trainOnBatch(state, trainCS, weightSyncCS, trainingData, trainingLabels);
   return;
   #endif
@@ -849,4 +866,31 @@ void doTraining(ComputeSet trainCS, ComputeSet testCS, ComputeSet weightSyncCS,
                 << percentCorrect << "%\n";
     }
   }
+}
+
+__control__
+void doTest(ComputeSet testCS,
+            DataElement<nn_state_t> state,
+            DataArray initialParams,
+            DataArray testData,  DataArray testLabels,
+            unsigned batchSize,
+            DataElement<unsigned> numBatches,
+            DataElement<unsigned> numCorrect,
+            unsigned numTestBatches) {
+  #if SINGLE_BATCH_ONLY
+  testOnBatch(state, testCS, testData, testLabels);
+  return;
+  #endif
+
+  std::cout << "-- Initializing params.\n";
+  initialParams.copyIn();
+
+  std::cout << "-- Testing.\n";
+  numCorrect = 0;
+  for (unsigned j = 0; j < numTestBatches; j++) {
+    testOnBatch(state, testCS, testData, testLabels);
+  }
+  unsigned numTests = (numTestBatches * batchSize);
+  float percentCorrect = 100 * ((float) numCorrect) / numTests;
+  std::cout << "--- Accuracy = " << percentCorrect << "%\n";
 }
