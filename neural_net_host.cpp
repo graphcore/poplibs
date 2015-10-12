@@ -295,6 +295,9 @@ public:
     IPUModelEngineBuilder *ipuEB =
       static_cast<IPUModelEngineBuilder *>(&eb);
     ipuEB->setNumIPUs(1);
+    unsigned superTileDiv = 4;
+    ipuEB->setTilesPerIPU(1152/superTileDiv);
+    ipuEB->setNumBytesPerTile(256*superTileDiv*1024);
     numTiles = ipuEB->getTilesPerIPU() * ipuEB->getNumIPUs();
     std::cerr << builder.getNumVertices() << " vertices, "
               << numTiles << " tiles.\n";
@@ -385,14 +388,22 @@ public:
   unsigned size;
   std::vector<VertexRef> fwd, bwd, weightSyncVertices, prev, biasVertices;
   #if MEM_OPTIMIZED_WEIGHT_SYNC
-  VertexRef paramsGatherVertex;
+  std::vector<VertexRef> paramGatherVertices;
+  unsigned numParamGathers = 20;
   #endif
   NonLinearityType nonLinearityType, prevNonLinearityType;
 
   FullyConnectedLayer(unsigned size,
                       NonLinearityType nonLinearityType) :
     size(size),
-    nonLinearityType(nonLinearityType) {}
+    nonLinearityType(nonLinearityType) {
+    if (numParamGathers > size)
+      numParamGathers = size;
+
+    if (size % numParamGathers != 0) {
+      numParamGathers = size / (size/numParamGathers + 1);
+    }
+  }
 
   void addForward(Net &net)  {
     GraphBuilder &builder = *net.graphBuilder;
@@ -417,16 +428,20 @@ public:
     }
     #endif
 
-    #if MEM_OPTIMIZED_WEIGHT_SYNC
-    paramsGatherVertex = builder.addVertex("InnerProductParamsGatherVertex");
-    vertices.push_back(paramsGatherVertex);
-    builder.addToComputeSet(net.weightSyncCS, paramsGatherVertex);
-    builder.setFieldSize(paramsGatherVertex["weightsIn"], prevSize);
-    builder.setFieldSize(paramsGatherVertex["weightsOut"], prevSize);
-    #endif
-
-
+    VertexRef vCurParamGather;
     for (unsigned i = 0; i < size; ++i) {
+      #if MEM_OPTIMIZED_WEIGHT_SYNC
+      if (i % (size/numParamGathers) == 0) {
+        VertexRef v = builder.addVertex("InnerProductParamsGatherVertex");
+        vertices.push_back(v);
+        paramGatherVertices.push_back(v);
+        builder.addToComputeSet(net.weightSyncCS, v);
+        builder.setFieldSize(v["weightsIn"], prevSize);
+        builder.setFieldSize(v["weightsOut"], prevSize);
+        vCurParamGather = v;
+      }
+      #endif
+
       VertexRef v = builder.addVertex("InnerProductFwdVertex");
       builder.addEdge(net.stateField, v["state"], false);
       vertices.push_back(v);
@@ -456,11 +471,13 @@ public:
       builder.addEdge(net.stateField, pv["state"], false);
       builder.addToComputeSet(net.weightSyncCS, pv);
       builder.setFieldSize(pv["weightsOut"], prevSize);
+      VertexRef paramsGatherVertex = vCurParamGather;
       builder.addEdge(paramsGatherVertex["weightsOut"], pv["weightsIn"],
                       false);
       builder.addEdge(pv["weightsOut"], v["weights"], false);
       builder.addEdge(pv["biasOut"], v["bias"], false);
-      builder.setInitialFieldValue<unsigned>(pv["myRank"], i);
+      builder.setInitialFieldValue<unsigned>(pv["myRank"],
+                                             i % (size / numParamGathers));
       #else
       VertexRef pv = builder.addVertex("InnerProductParamsVertex");
       vertices.push_back(pv);
@@ -538,9 +555,12 @@ public:
       #endif
 
       #if MEM_OPTIMIZED_WEIGHT_SYNC
-      builder.addEdge(v["weightSyncOutput"],
-                      paramsGatherVertex["weightsIn"][i],
-                      false);
+      builder.setFieldSize(v["weightSyncOutput"], numParamGathers);
+      for (unsigned j = 0; j < numParamGathers; ++j) {
+        builder.addEdge(v["weightSyncOutput"][j],
+                        paramGatherVertices[j]["weightsIn"][i],
+                        false);
+      }
       builder.addToComputeSet(net.weightSyncCS, v);
       #else
       for (unsigned j = 0; j < size; ++j) {
@@ -603,6 +623,8 @@ int main() {
             new FullyConnectedLayer(2000, NON_LINEARITY_SIGMOID),
             new FullyConnectedLayer(2000, NON_LINEARITY_SIGMOID),
             new FullyConnectedLayer(2000, NON_LINEARITY_SIGMOID),
+            new FullyConnectedLayer(2000, NON_LINEARITY_SIGMOID),
+
             new FullyConnectedLayer(10, NON_LINEARITY_SIGMOID),
           }),
           SOFTMAX_CROSS_ENTROPY_LOSS,

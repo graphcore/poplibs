@@ -177,7 +177,7 @@ public:
         indexIn == DONE_PROCESSING)
       return 5;
 
-    return (activationIn.size() + 10);
+    return (activationIn.size()*2 + 10);
   }
 };
 
@@ -247,7 +247,7 @@ public:
         indexIn == DONE_PROCESSING)
       return 10;
 
-    return activationIn.size() + 20;
+    return activationIn.size()*2 + 20;
   }
 
 };
@@ -280,7 +280,7 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    return (deltaIn.size() + 10);
+    return (deltaIn.size()*2 + 10);
   }
 };
 
@@ -327,7 +327,7 @@ public:
 
   /* The following state is used to control the weight sync phase */
   #if MEM_OPTIMIZED_WEIGHT_SYNC
-  float weightSyncOutput;
+  Vector<float> weightSyncOutput;
   unsigned currentRank;
   #endif
   bool doingWeightUpdate;
@@ -345,12 +345,20 @@ public:
 
     #if MEM_OPTIMIZED_WEIGHT_SYNC
     if (state == WEIGHT_SYNC) {
+      unsigned N = weightSyncOutput.size();
+      unsigned stride = weights.size() / N;
       /*  During weight sync, one weight is output each compute
           step to be transferred to the forward layers. */
-      if (currentRank >= weights.size())
+      if (currentRank >= stride)
         return true;
-      weightSyncOutput = weights[currentRank];
-      currentRank += 1;
+
+      for (unsigned i = 0; i < N; ++i) {
+        unsigned j = stride * i + currentRank;
+        if (j < weights.size()) {
+          weightSyncOutput[i] = weights[j];
+        }
+      }
+      ++currentRank;
       return false;
     }
     #endif
@@ -450,7 +458,7 @@ public:
         return cycles + 5;
 
       // weighted sum
-      cycles += deltaIn.size();
+      cycles += deltaIn.size() * 2;
 
       // non linearity
       cycles += 5;
@@ -556,7 +564,7 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    return (weightsIn.size() + 10);
+    return (weightsIn.size()*2 + 10);
   }
 
 };
@@ -603,7 +611,7 @@ public:
       return 5;
 
     if (myRank == currentRank)
-      return 15;
+      return weightsIn.size()*2 + 10;
 
     return 10;
   }
@@ -629,7 +637,7 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    return weightsIn.size() + 10;
+    return weightsIn.size()*2 + 10;
   }
 };
 
