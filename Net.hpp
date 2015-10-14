@@ -1,24 +1,34 @@
+#ifndef _net_hpp_
+#define _net_hpp_
 #include <poplar/GraphProgEnv.hpp>
 #include <poplar/GraphBuilder.hpp>
 #include <poplar/CPUEngine.hpp>
 #include <poplar/IPUModelEngine.hpp>
-#include <initializer_list>
-#include <vector>
-#include <mnist.h>
-#include <iostream>
 #include <boost/random/normal_distribution.hpp>
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/variate_generator.hpp>
+#include <iostream>
 #include <chrono>
 #include <memory>
+#include <vector>
 #include "neural_net_common.h"
 #include "VTileMapper.hpp"
+
 using namespace poplar;
 
 typedef enum NetType {
   TrainingNet,
   TestOnlyNet
 } NetType;
+
+class NetOptions {
+public:
+  bool useIPUModel = false;
+  bool doComputation = true;
+  bool singleBatchProfile = false;
+  unsigned numIPUs = 1;
+  bool useSuperTiles = false;
+};
 
 class Net;
 
@@ -28,6 +38,7 @@ public:
   std::unique_ptr<float[]> testData, trainingData;
   std::unique_ptr<unsigned char[]> testLabels, trainingLabels;
   unsigned dataSize, numTest, numTraining;
+  std::vector<unsigned> dim;
 };
 
 /* The hidden layer class represents all non-input layers in the net.
@@ -43,6 +54,9 @@ public:
   std::vector<VertexRef> getVertices() const {
     return vertices;
   }
+
+  virtual bool requiresLayeredInput() = 0;
+  virtual bool providesLayeredOutput() = 0;
 };
 
 /* This utility function wraps a vector of normal pointers as unique_ptrs.
@@ -61,6 +75,7 @@ makeHiddenLayers(std::vector<HiddenLayer *> vs)
 class Net {
 public:
   NetType netType;
+  NetOptions options;
 
   unsigned batchSize;
   float eta;
@@ -98,6 +113,9 @@ public:
      building the graph. */
   NonLinearityType prevNonLinearityType;
   std::vector<VertexRef> fwd;
+  unsigned xDim, yDim;
+  unsigned prevLayers;
+
   std::vector<FieldRef> bwdDeltaOut;
   std::vector<FieldRef> bwdIndexOut;
 
@@ -135,7 +153,7 @@ public:
 
   void initialize(DataSet &data, LossType lossType) {
     unsigned inputSize = data.dataSize;
-    GraphProgEnv env("neural_net_graph.ppo", GraphProgFileType::Object);
+    GraphProgEnv env("obj/neural_net_graph.ppo", GraphProgFileType::Object);
     graphBuilder = std::unique_ptr<GraphBuilder>(new GraphBuilder(env));
     GraphBuilder &builder = *graphBuilder;
 
@@ -157,12 +175,23 @@ public:
     testCS = builder.createComputeSet();
     weightSyncCS = builder.createComputeSet();
 
+    bool layeredInput = data.dim.size() == 3;
+
     /* Now the input layer is added to the graph. Both the
        test and training data arrays are built up on top of the
        input vertices. */
     std::cerr << "-- Adding input layer\n";
     for (unsigned i = 0; i < inputSize; ++i) {
-      auto v = builder.addVertex("InputLayerVertex");
+      VertexRef v;
+      if (layeredInput) {
+        v = builder.addVertex("LayeredInputVertex");
+        builder.setFieldSize(v["activationOut"], data.dim[2]);
+        prevLayers = data.dim[2];
+      } else {
+        v = builder.addVertex("InputVertex");
+        prevLayers = 0;
+      }
+
       builder.addToComputeSet(trainCS, v);
       builder.addToComputeSet(testCS, v);
       builder.setFieldSize(v["data"], batchSize);
@@ -172,6 +201,11 @@ public:
       builder.addEdge(stateField, v["state"], false);
       fwd.push_back(v);
       inputLayer.push_back(v);
+    }
+
+    if (data.dim.size() >= 2) {
+      xDim = data.dim[0];
+      yDim = data.dim[1];
     }
 
     /* The hidden layers are added in order. Each layer
@@ -223,13 +257,13 @@ public:
 
     /* Now that the graph is constructed, a poplar engine is created. */
 
-    #if IPU_MODEL
-    engineBuilder =
-      std::unique_ptr<EngineBuilder>(new IPUModelEngineBuilder(builder));
-    #else
-    engineBuilder =
-      std::unique_ptr<EngineBuilder>(new CPUEngineBuilder(builder));
-    #endif
+    if (options.useIPUModel) {
+      engineBuilder =
+        std::unique_ptr<EngineBuilder>(new IPUModelEngineBuilder(builder));
+    } else {
+      engineBuilder =
+        std::unique_ptr<EngineBuilder>(new CPUEngineBuilder(builder));
+    }
 
     EngineBuilder &eb = *engineBuilder;
 
@@ -251,6 +285,7 @@ public:
       eb.setControlProgramArg(11, errorVertex["numCorrect"]);
       eb.setControlProgramArg(12, data.numTest / batchSize);
       eb.setControlProgramArg(13, 500);
+      eb.setControlProgramArg<bool>(14, options.singleBatchProfile);
     } else {
       eb.setControlProgram("doTest");
       eb.setControlProgramArg(0, trainCS);
@@ -262,6 +297,7 @@ public:
       eb.setControlProgramArg(6, numBatchesField);
       eb.setControlProgramArg(7, errorVertex["numCorrect"]);
       eb.setControlProgramArg(8, data.numTest / batchSize);
+      eb.setControlProgramArg<bool>(9, options.singleBatchProfile);
     }
 
 
@@ -312,30 +348,30 @@ public:
       (char *) &data.testLabels[0],
       (char *) &data.testLabels[data.numTest]);
 
-    #if IPU_MODEL
-    /* When modelling the IPU, a tile mapping is created based on the
-       VTileMapper, each layer is placed on a different 'virtual' tile. */
-    IPUModelEngineBuilder *ipuEB =
-      static_cast<IPUModelEngineBuilder *>(&eb);
-    ipuEB->setNumIPUs(1);
-    unsigned superTileDiv = 4;
-    ipuEB->setTilesPerIPU(1152/superTileDiv);
-    ipuEB->setNumBytesPerTile(256*superTileDiv*1024);
-    numTiles = ipuEB->getTilesPerIPU() * ipuEB->getNumIPUs();
-    std::cerr << builder.getNumVertices() << " vertices, "
-              << numTiles << " tiles.\n";
-    VTileMapper mapper;
-    for (const std::unique_ptr<HiddenLayer> &layer : hiddenLayers) {
-      auto vTile = mapper.createVTile();
-      for (VertexRef &v : layer->getVertices()) {
-        mapper.addToVTile(vTile, v.getId());
+    if (options.useIPUModel) {
+      /* When modelling the IPU, a tile mapping is created based on the
+         VTileMapper, each layer is placed on a different 'virtual' tile. */
+      IPUModelEngineBuilder *ipuEB =
+        static_cast<IPUModelEngineBuilder *>(&eb);
+      ipuEB->setNumIPUs(options.numIPUs);
+      unsigned superTileDiv = options.useSuperTiles ? 4 : 1;
+      ipuEB->setTilesPerIPU(1152/superTileDiv);
+      ipuEB->setNumBytesPerTile(256*superTileDiv*1024);
+      numTiles = ipuEB->getTilesPerIPU() * ipuEB->getNumIPUs();
+      std::cerr << builder.getNumVertices() << " vertices, "
+                << numTiles << " tiles.\n";
+      VTileMapper mapper;
+      for (const std::unique_ptr<HiddenLayer> &layer : hiddenLayers) {
+        auto vTile = mapper.createVTile();
+        for (VertexRef &v : layer->getVertices()) {
+          mapper.addToVTile(vTile, v.getId());
+        }
       }
-    }
-    auto mapping = mapper.createTileMapping(builder.getNumVertices(),
+      auto mapping = mapper.createTileMapping(builder.getNumVertices(),
                                             numTiles);
-    IPUModelEngineBuilder::UserTilePartitioner p(mapping);
-    ipuEB->setTilePartitioner(p);
-    #endif
+      IPUModelEngineBuilder::UserTilePartitioner p(mapping);
+      ipuEB->setTilePartitioner(p);
+    }
 
     std::cerr << "Creating graph engine\n";
     engine = eb.makeEngine();
@@ -347,7 +383,8 @@ public:
       std::vector<std::unique_ptr<HiddenLayer>> &hiddenLayers,
       LossType lossType,
       float learningRate,
-      NetType netType) : netType(netType),
+      NetType netType,
+      NetOptions options = NetOptions()) : netType(netType), options(options),
                          batchSize(batchSize),
                          hiddenLayers(std::move(hiddenLayers)),
                          eta(learningRate) {
@@ -358,7 +395,8 @@ public:
       std::vector<std::unique_ptr<HiddenLayer>> &&hiddenLayers,
       LossType lossType,
       float learningRate,
-      NetType netType) : netType(netType),
+      NetType netType,
+      NetOptions options = NetOptions()) : netType(netType), options(options),
                          batchSize(batchSize),
                          hiddenLayers(std::move(hiddenLayers)),
                          eta(learningRate) {
@@ -372,301 +410,25 @@ public:
     engine->setValue<unsigned>(numBatchesField, numBatches);
     std::cerr << "Running graph program\n";
 
-    #if DO_COMPUTATION
-    engine->run();
-    #endif
 
-    #if IPU_MODEL
-    IPUModelEngine *ipuEngine = static_cast<IPUModelEngine *>(&*engine);
-    ipuEngine->report(std::cout);
-    #if 0
-    std::vector<unsigned> tileMapping = engine->getTileMapping();
-    for (unsigned i = 0; i < graphBuilder->getNumVertices(); ++i) {
-      if (tileMapping[i] == 756)
-        engine->dumpVertexInfo(i, std::cout);
+    if (options.doComputation) {
+      engine->run();
     }
-    #endif
-    #endif
 
-    #if DEBUG_INPUT_OUTPUT_DATA
-    for (unsigned j = 0; j < batchSize; ++j) {
-      unsigned l = engine->getValue<unsigned char>(errorVertex["labels"][j]);
-      std::cout << "LABEL: " << l << "\n";
-      for (unsigned x = 0; x < 28; ++x) {
-        for (unsigned y = 0; y < 28; ++y) {
-          FieldRef f = inputLayer[x*28+y]["data"][j];
-          float d = engine->getValue<float>(f);
-          if (d == 0)
-            std::cout << " ";
-          else
-            std::cout << ".";
-        }
-        std::cout << "\n";
+    if (options.useIPUModel) {
+      IPUModelEngine *ipuEngine = static_cast<IPUModelEngine *>(&*engine);
+      ipuEngine->report(std::cout);
+      #if 0
+      std::vector<unsigned> tileMapping = engine->getTileMapping();
+      for (unsigned i = 0; i < graphBuilder->getNumVertices(); ++i) {
+        if (tileMapping[i] == 756)
+          engine->dumpVertexInfo(i, std::cout);
       }
+      #endif
     }
-    #endif
+
   }
 
 };
 
-
-class FullyConnectedLayer : public HiddenLayer {
-public:
-  unsigned size;
-  std::vector<VertexRef> fwd, bwd, weightSyncVertices, prev, biasVertices;
-  std::vector<VertexRef> paramGatherVertices;
-  unsigned numParamGathers = 20;
-  NonLinearityType nonLinearityType, prevNonLinearityType;
-
-  FullyConnectedLayer(unsigned size,
-                      NonLinearityType nonLinearityType) :
-    size(size),
-    nonLinearityType(nonLinearityType) {
-    if (numParamGathers > size)
-      numParamGathers = size;
-
-    if (size % numParamGathers != 0) {
-      numParamGathers = size / (size/numParamGathers + 1);
-    }
-  }
-
-  void addForward(Net &net)  {
-    GraphBuilder &builder = *net.graphBuilder;
-    prev = net.fwd;
-    unsigned prevSize = prev.size();
-    prevNonLinearityType = net.prevNonLinearityType;
-    net.prevNonLinearityType = nonLinearityType;
-
-    #if USE_GATHER_VERTEX
-    VertexRef gatherVertex = builder.addVertex("InnerProductFwdGatherVertex");
-    vertices.push_back(gatherVertex);
-    builder.addEdge(net.stateField, gatherVertex["state"], false);
-    builder.addToComputeSet(net.trainCS, gatherVertex);
-    builder.addToComputeSet(net.testCS, gatherVertex);
-    builder.setFieldSize(gatherVertex["activationIn"], prevSize);
-    builder.setFieldSize(gatherVertex["activationOut"], prevSize);
-    builder.addEdge(prev[0]["indexOut"], gatherVertex["indexIn"], true);
-    for (unsigned j = 0; j < prevSize; j++) {
-      builder.addEdge(prev[j]["activationOut"],
-                      gatherVertex["activationIn"][j],
-                      true);
-    }
-    #endif
-
-    VertexRef vCurParamGather;
-    for (unsigned i = 0; i < size; ++i) {
-      if (net.netType == TrainingNet &&
-          i % (size/numParamGathers) == 0) {
-        VertexRef v = builder.addVertex("InnerProductParamsGatherVertex");
-        vertices.push_back(v);
-        paramGatherVertices.push_back(v);
-        builder.addToComputeSet(net.weightSyncCS, v);
-        builder.setFieldSize(v["weightsIn"], prevSize);
-        builder.setFieldSize(v["weightsOut"], prevSize);
-        vCurParamGather = v;
-      }
-
-      VertexRef v = builder.addVertex("InnerProductFwdVertex");
-      builder.addEdge(net.stateField, v["state"], false);
-      vertices.push_back(v);
-      builder.addToComputeSet(net.trainCS, v);
-      builder.addToComputeSet(net.testCS, v);
-      fwd.push_back(v);
-      builder.setInitialFieldValue<NonLinearityType>(v["nonLinearityType"],
-                                                     nonLinearityType);
-
-      builder.addEdge(prev[0]["indexOut"], v["indexIn"], true);
-      #if USE_GATHER_VERTEX
-      builder.addEdge(gatherVertex["activationOut"],
-                      v["activationIn"],
-                      false);
-      #else
-      builder.setFieldSize(v["activationIn"], prevSize);
-      for (unsigned j = 0; j < prevSize; j++) {
-        builder.addEdge(prev[j]["activationOut"], v["activationIn"][j],
-                        true);
-      }
-      #endif
-
-      if (net.netType == TrainingNet) {
-        VertexRef pv = builder.addVertex("InnerProductParamsVertex");
-        vertices.push_back(pv);
-        weightSyncVertices.push_back(pv);
-        builder.addEdge(net.stateField, pv["state"], false);
-        builder.addToComputeSet(net.weightSyncCS, pv);
-        builder.setFieldSize(pv["weightsOut"], prevSize);
-        VertexRef paramsGatherVertex = vCurParamGather;
-        builder.addEdge(paramsGatherVertex["weightsOut"], pv["weightsIn"],
-                        false);
-        builder.addEdge(pv["weightsOut"], v["weights"], false);
-        builder.addEdge(pv["biasOut"], v["bias"], false);
-        builder.setInitialFieldValue<unsigned>(pv["myRank"],
-                                               i % (size / numParamGathers));
-      } else {
-        VertexRef pv = builder.addVertex("InnerProductParamsFwdOnlyVertex");
-        vertices.push_back(pv);
-        builder.addToComputeSet(net.trainCS, pv);
-        builder.addToComputeSet(net.testCS, pv);
-        builder.addEdge(pv["weights"], v["weights"], false);
-        builder.addEdge(pv["bias"], v["bias"], false);
-        builder.setFieldSize(pv["weights"], prevSize);
-        builder.addToDataArray(net.daParams, pv["weights"]);
-        builder.addToDataArray(net.daParams, pv["bias"]);
-      }
-
-      if (net.netType == TrainingNet && i < prevSize) {
-        VertexRef bv = builder.addVertex("InnerProductBwdVertex");
-        vertices.push_back(bv);
-        bwd.push_back(bv);
-      }
-    }
-
-    if (net.netType == TrainingNet) {
-      for (unsigned i = size; i < prevSize; ++i) {
-        VertexRef bv = builder.addVertex("InnerProductBwdVertex");
-        vertices.push_back(bv);
-        bwd.push_back(bv);
-      }
-    }
-
-    net.fwd = fwd;
-  }
-
-  void addBackward(Net &net)  {
-    GraphBuilder &builder = *net.graphBuilder;
-    unsigned prevSize = prev.size();
-    std::vector<FieldRef> bwdDeltaOut, bwdIndexOut;
-
-    #if USE_GATHER_VERTEX
-    VertexRef gatherVertex = builder.addVertex("InnerProductBwdGatherVertex");
-    builder.addEdge(net.stateField, gatherVertex["state"], false);
-    vertices.push_back(gatherVertex);
-    builder.addToComputeSet(net.trainCS, gatherVertex);
-    builder.setFieldSize(gatherVertex["deltaIn"], size);
-    builder.setFieldSize(gatherVertex["deltaOut"], size);
-    builder.addEdge(net.bwdIndexOut[0], gatherVertex["indexIn"], true);
-    for (unsigned j = 0; j < size; j++) {
-      builder.addEdge(net.bwdDeltaOut[j],
-                      gatherVertex["deltaIn"][j],
-                      true);
-    }
-    #endif
-
-    for (unsigned i = 0; i < prevSize; i++) {
-      VertexRef v = bwd[i];
-      builder.addEdge(net.stateField, v["state"], false);
-      builder.addEdge(net.etaField, v["eta"], false);
-      builder.addToComputeSet(net.trainCS, v);
-
-      bwdDeltaOut.push_back(v["deltaOut"]);
-      bwdIndexOut.push_back(v["indexOut"]);
-
-      builder.setInitialFieldValue<NonLinearityType>(v["nonLinearityType"],
-                                                     prevNonLinearityType);
-
-      builder.addEdge(net.bwdIndexOut[0], v["indexIn"], true);
-
-      builder.setFieldSize(v["weights"], size);
-      builder.setFieldSize(v["bwdRecord"], net.batchSize);
-      builder.setFieldSize(v["actRecord"], net.batchSize);
-      builder.setFieldSize(v["zRecord"], net.batchSize);
-
-      #if USE_GATHER_VERTEX
-      builder.addEdge(gatherVertex["deltaOut"],
-                      v["deltaIn"],
-                      false);
-      #else
-      builder.setFieldSize(v["deltaIn"], size);
-      for (unsigned j = 0; j < size; ++j) {
-        builder.addEdge(net.bwdDeltaOut[j], v["deltaIn"][j], true);
-      }
-      #endif
-
-      builder.setFieldSize(v["weightSyncOutput"], numParamGathers);
-      for (unsigned j = 0; j < numParamGathers; ++j) {
-        builder.addEdge(v["weightSyncOutput"][j],
-                        paramGatherVertices[j]["weightsIn"][i],
-                        false);
-      }
-      builder.addToComputeSet(net.weightSyncCS, v);
-
-      builder.addEdge(prev[i]["activationOut"], v["activationIn"], true);
-      builder.addEdge(prev[i]["z"], v["zIn"], true);
-      builder.addEdge(prev[i]["indexOut"], v["actIndexIn"], true);
-
-      builder.addToDataArray(net.daParams, v["weights"]);
-    }
-
-    for (unsigned i = 0; i < size; ++i) {
-      VertexRef v = builder.addVertex("InnerProductBwdBiasVertex");
-      builder.setInitialFieldValue<unsigned>(v["batchSize"], net.batchSize);
-      builder.addEdge(net.stateField, v["state"], false);
-      builder.addEdge(net.etaField, v["eta"], false);
-      vertices.push_back(v);
-      biasVertices.push_back(v);
-      builder.addToComputeSet(net.trainCS, v);
-      builder.addEdge(net.bwdDeltaOut[i], v["deltaIn"], true);
-      builder.addEdge(net.bwdIndexOut[i], v["indexIn"], true);
-      builder.addEdge(v["bias"], weightSyncVertices[i]["biasIn"], false);
-      builder.addToDataArray(net.daParams, v["bias"]);
-    }
-
-    net.bwdDeltaOut = bwdDeltaOut;
-    net.bwdIndexOut = bwdIndexOut;
-  }
-};
-
-int main() {
-  std::vector<std::vector<float>> MNISTTestData, MNISTTrainData;
-  std::vector<int> MNISTTestLabels, MNISTTrainLabels;
-  DataSet MNIST;
-  std::cerr << "Reading MNIST data\n";
-  MNIST.dataSize = 784;
-  MNIST.numTraining = 60000;
-  MNIST.numTest = 10000;
-  MNIST.testLabels = readMNISTLabels(MNIST.numTest,
-                                     "t10k-labels-idx1-ubyte");
-  MNIST.testData = readMNISTData(MNIST.numTest,
-                                 MNIST.dataSize,
-                                 "t10k-images-idx3-ubyte");
-  MNIST.trainingData = readMNISTData(MNIST.numTraining,
-                                     MNIST.dataSize,
-                                     "train-images-idx3-ubyte");
-  MNIST.trainingLabels = readMNISTLabels(MNIST.numTraining,
-                                         "train-labels-idx1-ubyte");
-
-  NetType netType = TrainingNet;
-  #if LARGE_DNN_MODEL
-  Net net(MNIST,
-          100, // batch size
-          makeHiddenLayers({
-            new FullyConnectedLayer(2000, NON_LINEARITY_SIGMOID),
-            new FullyConnectedLayer(2000, NON_LINEARITY_SIGMOID),
-            new FullyConnectedLayer(2000, NON_LINEARITY_SIGMOID),
-            new FullyConnectedLayer(2000, NON_LINEARITY_SIGMOID),
-            new FullyConnectedLayer(2000, NON_LINEARITY_SIGMOID),
-            new FullyConnectedLayer(2000, NON_LINEARITY_SIGMOID),
-
-            new FullyConnectedLayer(10, NON_LINEARITY_SIGMOID),
-          }),
-          SOFTMAX_CROSS_ENTROPY_LOSS,
-          0.9, // learning rate
-          netType
-          );
-  #else
-  Net net(MNIST,
-          10, // batch size
-          makeHiddenLayers({
-            new FullyConnectedLayer(30, NON_LINEARITY_SIGMOID),
-            new FullyConnectedLayer(10, NON_LINEARITY_SIGMOID),
-          }),
-          SOFTMAX_CROSS_ENTROPY_LOSS,
-          0.9, // learning rate
-          netType
-          );
-  #endif
-
-  net.run(5000);
-
-  return 0;
-}
+#endif //_net_hpp_

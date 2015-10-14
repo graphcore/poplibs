@@ -96,7 +96,7 @@ typedef enum nn_state_t {
    Each iteration it will output a new item of the batch
    (feeding it into the net) and at the end will feed the DONE_PROCESSING
    control signal */
-class InputLayerVertex : public Vertex {
+class InputVertex : public Vertex {
 public:
   Vector<float> data;
   float activationOut;
@@ -134,6 +134,56 @@ public:
     /* The input layer will simple output data values until a whole
        batch has been output. */
     activationOut = data[indexOut];
+
+    return false;
+  }
+
+  uint64_t getCycleEstimate() const {
+    return 10;
+  }
+};
+
+
+class LayeredInputVertex : public Vertex {
+public:
+  Vector<float> data;
+  Vector<float> activationOut;
+  float z = 0;
+  int indexOut;
+
+  Input<nn_state_t> state;
+  unsigned batchSize;
+
+  bool compute() {
+    if (state == INIT) {
+      /* On initialization the indexOut variable is set to
+         NOTHING_TO_PROCESS so the next layer will not do anything until
+         this layer starts outputting */
+      indexOut = NOTHING_TO_PROCESS;
+      return true;
+    }
+
+    if (indexOut == DONE_PROCESSING)
+      return true;
+
+    if (indexOut == NOTHING_TO_PROCESS) {
+      /* First compute step after init, start outputting data. */
+      indexOut = 0;
+    } else {
+      indexOut++;
+    }
+
+    if (indexOut == batchSize) {
+      /* The whole batch has been output. */
+      indexOut = DONE_PROCESSING;
+      return true;
+    }
+
+    unsigned numOutputLayers = activationOut.size();
+    /* The input layer will simple output data values until a whole
+       batch has been output. */
+    for (unsigned i = 0; i < numOutputLayers; ++i)
+      activationOut[i] = data[indexOut * numOutputLayers + i];
 
     return false;
   }
@@ -181,6 +231,38 @@ public:
   }
 };
 
+
+class InnerProductFwdLayeredGatherVertex : public Vertex {
+public:
+  Vector<Input<Vector<float>>> activationIn;
+  Vector<float> activationOut;
+
+  Input<nn_state_t> state;
+  Input<int> indexIn;
+
+  bool compute() {
+    if (state == INIT)
+      return true;
+
+    if (indexIn == NOTHING_TO_PROCESS ||
+        indexIn == DONE_PROCESSING)
+      return true;
+
+    unsigned i = 0;
+    for (unsigned j = 0; j < activationIn.size(); ++j) {
+      for (unsigned k = 0; k < activationIn[j].size(); ++k) {
+        activationOut[i++] = activationIn[j][k];
+      }
+    }
+
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const  {
+    return 10;
+  }
+};
+
 /* This vertex calculates the forward pass of the network.
    It implements one artificial neuron that performs a weighted sum
    of its inputs followed by a non-linear function (e.g. sigmoid or reLU). */
@@ -188,11 +270,7 @@ class InnerProductFwdVertex : public Vertex {
 public:
   NonLinearityType nonLinearityType;
 
-#if USE_GATHER_VERTEX
   Input<Vector<float>> activationIn;
-#else
-  Vector<Input<float>> activationIn;
-#endif
   Input<int> indexIn;
   int indexOut;
 
@@ -252,6 +330,8 @@ public:
 
 };
 
+
+
 /** This vertex gathers together a vector of delta terms into a dense vector.
     This will gather all the deltas from a layer
     to pass on to all the vertices in the previous layer. This is used as
@@ -297,11 +377,7 @@ public:
   Input<int> indexIn;
   /* The input delta is the partial derivative of the error with respect to
    *  the z-term (the sum before the non-linearity) of this vertex. */
-#if USE_GATHER_VERTEX
   Input<Vector<float>> deltaIn;
-#else
-  Vector<Input<float>> deltaIn;
-#endif
 
   /* The output delta is the partical derivative of the error with respect to
    * the z-term of the connected vertex from the previous layer */
@@ -541,6 +617,7 @@ public:
 
 
 
+
 /* One of these vertices are created per layer.
    The vertex gathers weights from the backward pass vertices
    and passes on the vector to the forward pass vertices.
@@ -614,6 +691,146 @@ public:
     return 10;
   }
 };
+
+
+class ConvLayerFwdVertex : public Vertex {
+public:
+  NonLinearityType nonLinearityType;
+  Vector<Input<Vector<float>>> activationIn;
+  Input<int> indexIn;
+  int indexOut;
+
+  /* Both the weighted sum (z) and the activation are stored since the
+     backward pass needs both these items of data. */
+  Vector<float> zOut;
+  Vector<float> activationOut;
+
+  /* The weights aren't stored in this vertex but in a separate
+     vertex that manages the weights.
+     This is still efficient but allows the other vertex to sync
+     weights with the backward pass after weight update has occurred.  */
+  Input<Vector<float>> weights;
+  Input<Vector<float>> bias;
+
+  Input<nn_state_t> state;
+
+  bool compute() {
+
+    /* Handle the pipeline control */
+    if (state == INIT) {
+      indexOut = NOTHING_TO_PROCESS;
+      return true;
+    }
+
+    if (indexIn == NOTHING_TO_PROCESS)
+      return false;
+
+    if (indexIn == DONE_PROCESSING) {
+      indexOut = DONE_PROCESSING;
+      return true;
+    }
+
+    unsigned numInputLayers = activationIn[0].size();
+    unsigned numOutputLayers = activationOut.size();
+    unsigned fmapSize = activationIn.size();
+
+    unsigned wIndex = 0;
+    for (unsigned i = 0; i < numOutputLayers; ++i) {
+      float sum = 0;
+      /* Perform a weighted sum of the inputs. */
+      for (unsigned j = 0; j < fmapSize; j++) {
+        for (unsigned k = 0;  k < numInputLayers; ++k) {
+          float w = weights[wIndex++];
+          sum += activationIn[j][k] * w;
+        }
+      }
+      zOut[i] = sum + bias[i];
+      activationOut[i] = nonlinearity(nonLinearityType, zOut[i]);
+    }
+
+    indexOut = indexIn;
+    return false;
+  }
+
+  uint64_t getCycleEstimate() const {
+    return 10;
+  }
+
+};
+
+class ConvPaddingVertex : public Vertex {
+public:
+  Vector<float> activationOut;
+  bool compute() {
+    return true;
+  }
+  uint64_t getCycleEstimate() const {
+    return 0;
+  }
+};
+
+/* This vertex supplies the weights and bias to the forward pass vertex for
+   a test-only network. */
+class ConvParamsFwdOnlyVertex : public Vertex {
+public:
+  Vector<float> weights;
+  Vector<float> bias;
+
+  bool compute() {
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    return 0;
+  }
+};
+
+
+class MaxPoolFwdVertex : public Vertex {
+public:
+  Vector<Input<Vector<float>>> activationIn;
+  Input<int> indexIn;
+  int indexOut;
+  Vector<float> activationOut;
+  Vector<float> zOut;
+  Input<nn_state_t> state;
+
+  bool compute() {
+
+    /* Handle the pipeline control */
+    if (state == INIT) {
+      indexOut = NOTHING_TO_PROCESS;
+      return true;
+    }
+
+    if (indexIn == NOTHING_TO_PROCESS)
+      return false;
+
+    if (indexIn == DONE_PROCESSING) {
+      indexOut = DONE_PROCESSING;
+      return true;
+    }
+
+    unsigned numLayers = activationOut.size();
+
+    for (unsigned i = 0; i < numLayers; i++) {
+      float m = activationIn[0][i];
+      for (unsigned j = 1; j < activationIn.size(); ++j) {
+        if (activationIn[j][i] > m)
+          m = activationIn[j][i];
+      }
+      activationOut[i] = m;
+    }
+    indexOut = indexIn;
+    return false;
+  }
+
+  uint64_t getCycleEstimate() const {
+    return 10;
+  }
+
+};
+
 
 /* The error vertex calculates the classification error (or loss) of the output
    of the last hidden layer of the network.
@@ -842,11 +1059,12 @@ void doTraining(ComputeSet trainCS, ComputeSet testCS, ComputeSet weightSyncCS,
                 DataElement<unsigned> numBatches,
                 DataElement<unsigned> numCorrect,
                 unsigned numTestBatches,
-                unsigned numBatchesBetweenTests) {
-  #if SINGLE_BATCH_ONLY
-  trainOnBatch(state, trainCS, weightSyncCS, trainingData, trainingLabels);
-  return;
-  #endif
+                unsigned numBatchesBetweenTests,
+                bool singleBatchProfile) {
+  if (singleBatchProfile) {
+    trainOnBatch(state, trainCS, weightSyncCS, trainingData, trainingLabels);
+    return;
+  }
 
   std::cout << "-- Initializing params.\n";
   initialParams.copyIn();
@@ -876,11 +1094,12 @@ void doTest(ComputeSet testCS,
             unsigned batchSize,
             DataElement<unsigned> numBatches,
             DataElement<unsigned> numCorrect,
-            unsigned numTestBatches) {
-  #if SINGLE_BATCH_ONLY
-  testOnBatch(state, testCS, testData, testLabels);
-  return;
-  #endif
+            unsigned numTestBatches,
+            bool singleBatchProfile) {
+  if (singleBatchProfile) {
+    testOnBatch(state, testCS, testData, testLabels);
+    return;
+  }
 
   std::cout << "-- Initializing params.\n";
   initialParams.copyIn();
