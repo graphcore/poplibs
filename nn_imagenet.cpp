@@ -23,8 +23,8 @@ int main() {
   NetOptions options;
   options.doComputation = false;
   options.useIPUModel = true;
-  options.numIPUs = 1;
-
+  options.numIPUs = 2;
+  options.useSuperTiles = true;
   Net net(IMAGENET,
           10, // batch size
           makeHiddenLayers({
@@ -36,9 +36,9 @@ int main() {
             new ConvLayer(3, 1, 2, 192*2, NON_LINEARITY_RELU),
             new ConvLayer(3, 1, 2, 128*2, NON_LINEARITY_RELU),
             new MaxPoolLayer(3, 2),
-            new FullyConnectedLayer(1024*2, NON_LINEARITY_RELU),
-            new FullyConnectedLayer(1024*2, NON_LINEARITY_RELU),
-            new FullyConnectedLayer(1000*2, NON_LINEARITY_RELU),
+            new FullyConnectedLayer(2048*2, NON_LINEARITY_RELU),
+            new FullyConnectedLayer(2048*2, NON_LINEARITY_RELU),
+            new FullyConnectedLayer(1000, NON_LINEARITY_RELU),
           }),
           SOFTMAX_CROSS_ENTROPY_LOSS,
           0.9, // learning rate

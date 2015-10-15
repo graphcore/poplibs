@@ -239,14 +239,17 @@ public:
 
   Input<nn_state_t> state;
   Input<int> indexIn;
+  int indexOut;
 
   bool compute() {
     if (state == INIT)
       return true;
 
     if (indexIn == NOTHING_TO_PROCESS ||
-        indexIn == DONE_PROCESSING)
+        indexIn == DONE_PROCESSING) {
+      indexOut = indexIn;
       return true;
+    }
 
     unsigned i = 0;
     for (unsigned j = 0; j < activationIn.size(); ++j) {
@@ -255,6 +258,7 @@ public:
       }
     }
 
+    indexOut = indexIn;
     return true;
   }
 
