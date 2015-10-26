@@ -24,17 +24,20 @@ int main() {
   options.doComputation = false;
   options.useIPUModel = true;
   options.numIPUs = 2;
-  options.useSuperTiles = true;
+  //  options.useSuperTiles = true;
   Net net(IMAGENET,
           10, // batch size
           makeHiddenLayers({
-            new ConvLayer(11, 4, 4, 48*2, NON_LINEARITY_RELU),
+            new ConvLayer(11, 4, 4, 48*2, NON_LINEARITY_RELU, NORMALIZATION_LR),
             new MaxPoolLayer(3, 2),
-            new ConvLayer(5, 1, 4, 128*2, NON_LINEARITY_RELU),
+            new ConvLayer(5, 1, 4, 128*2, NON_LINEARITY_RELU, NORMALIZATION_LR),
             new MaxPoolLayer(3, 2),
-            new ConvLayer(3, 1, 2, 192*2, NON_LINEARITY_RELU),
-            new ConvLayer(3, 1, 2, 192*2, NON_LINEARITY_RELU),
-            new ConvLayer(3, 1, 2, 128*2, NON_LINEARITY_RELU),
+            new ConvLayer(3, 1, 2, 192*2, NON_LINEARITY_RELU,
+                          NORMALIZATION_NONE),
+            new ConvLayer(3, 1, 2, 192*2, NON_LINEARITY_RELU,
+                          NORMALIZATION_NONE),
+            new ConvLayer(3, 1, 2, 128*2, NON_LINEARITY_RELU,
+                          NORMALIZATION_NONE),
             new MaxPoolLayer(3, 2),
             new FullyConnectedLayer(2048*2, NON_LINEARITY_RELU),
             new FullyConnectedLayer(2048*2, NON_LINEARITY_RELU),

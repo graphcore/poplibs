@@ -1,6 +1,7 @@
 #ifndef _conv_layer_hpp_
 #define _conv_layer_hpp_
 #include "Net.hpp"
+#include "HilbertCurve.hpp"
 
 class ConvLayer : public HiddenLayer {
 public:
@@ -9,19 +10,22 @@ public:
   unsigned padding;
   unsigned numLayers;
   NonLinearityType nonLinearityType;
-
-  unsigned idealParamsPerVertex = (256*1024/10/4);
+  NormalizationType normalizationType;
+  // Split the parameter holding vertices in ~20k chunks
+  unsigned idealParamsPerVertex = 20000/4;
 
   ConvLayer(unsigned kernelSize,
             unsigned stride,
             unsigned padding,
             unsigned numLayers,
-            NonLinearityType nonLinearityType) :
+            NonLinearityType nonLinearityType,
+            NormalizationType normalizationType) :
     kernelSize(kernelSize),
     stride(stride),
     padding(padding),
     numLayers(numLayers),
-    nonLinearityType(nonLinearityType) { }
+    nonLinearityType(nonLinearityType),
+    normalizationType(normalizationType) { }
 
   virtual bool requiresLayeredInput() {return true;}
   virtual bool providesLayeredOutput() {return true;}
@@ -31,67 +35,134 @@ public:
     unsigned xDim = net.xDim;
     unsigned yDim = net.yDim;
 
-    unsigned layersPerVertex =
-      idealParamsPerVertex / ((kernelSize * kernelSize * net.prevLayers) + 1);
+    unsigned prevLayersPerChunk = net.prevLayers / net.prevChunks;
 
-    if (layersPerVertex == 0) {
-      layersPerVertex = 1;
-    } else if (numLayers % layersPerVertex != 0) {
-      layersPerVertex = numLayers / ( numLayers / layersPerVertex + 1);
+    unsigned layersPerChunk =
+      idealParamsPerVertex /
+          ((kernelSize * kernelSize * prevLayersPerChunk) + 1);
+
+    if (layersPerChunk == 0) {
+      layersPerChunk = 1;
+    } else if (numLayers % layersPerChunk != 0) {
+      layersPerChunk = numLayers / ( numLayers / layersPerChunk + 1);
     }
+
+    unsigned normPadSize = 2;
+
+    unsigned numChunks = numLayers / layersPerChunk;
 
     VertexRef padDataVertex = builder.addVertex("ConvPaddingVertex");
     builder.setFieldSize(padDataVertex["activationOut"], net.prevLayers);
 
+    VertexRef normPad = builder.addVertex("ConvPaddingVertex");
+    builder.setFieldSize(normPad["activationOut"],
+                         normPadSize * net.prevChunks);
+
     unsigned xDimOut = (xDim + padding - kernelSize) / stride + 1;
     unsigned yDimOut = (yDim + padding - kernelSize) / stride + 1;
 
-    std::vector<VertexRef> gatherVertices;
     std::vector<VertexRef> fwd;
-    for (unsigned layer = 0; layer < numLayers / layersPerVertex; ++layer) {
-      VertexRef pv = builder.addVertex("ConvParamsFwdOnlyVertex");
-      vertices.push_back(pv);
-      builder.addToComputeSet(net.trainCS, pv);
-      builder.addToComputeSet(net.testCS, pv);
-      builder.setFieldSize(pv["weights"], kernelSize * kernelSize *
-                                          net.prevLayers * layersPerVertex);
-      builder.setFieldSize(pv["bias"], layersPerVertex);
+      //     VertexRef gv;
+    std::vector<VertexRef> vs(xDimOut * yDimOut);
 
-      unsigned outIndex = 0;
-      for (unsigned i = 0; i <= yDim + padding - kernelSize; i += stride) {
-        for (unsigned j = 0; j <= xDim + padding - kernelSize; j += stride) {
-          VertexRef gv;
-          if (layer == 0) {
-            gv = builder.addVertex("InnerProductFwdLayeredGatherVertex");
-            fwd.push_back(gv);
+    for (unsigned i = 0; i < xDimOut * yDimOut * numChunks; ++i) {
+      fwd.push_back(builder.addVertex("ConvReductionVertex"));
+    }
+
+    for (unsigned chunk = 0; chunk < numChunks; ++chunk) {
+      VertexRef bv = builder.addVertex("ConvBiasFwdOnlyVertex");
+      vertices.push_back(bv);
+      builder.addToComputeSet(net.trainCS, bv);
+      builder.addToComputeSet(net.testCS, bv);
+      builder.setFieldSize(bv["bias"], layersPerChunk);
+      builder.setFieldSize(bv["topBias"], normPadSize);
+      builder.setFieldSize(bv["bottomBias"], normPadSize);
+
+    for (unsigned prevChunk = 0; prevChunk < net.prevChunks; prevChunk++) {
+      VertexRef wv = builder.addVertex("ConvWeightsFwdOnlyVertex");
+      vertices.push_back(wv);
+      builder.addToComputeSet(net.trainCS, wv);
+      builder.addToComputeSet(net.testCS, wv);
+      builder.setFieldSize(wv["weights"], kernelSize * kernelSize *
+                                          prevLayersPerChunk * layersPerChunk);
+
+      for (unsigned ii = 0; ii <= yDim + padding - kernelSize; ii += stride) {
+        for (unsigned jj = 0; jj <= xDim + padding - kernelSize; jj += stride) {
+          int i, j;
+          unsigned outIndex = (ii/stride) * xDimOut + (jj/stride);
+          d2xy(xDimOut, outIndex, &i, &j);
+
+          VertexRef gv = fwd[chunk * xDimOut * yDimOut + outIndex];;
+          if (prevChunk == 0) {
             vertices.push_back(gv);
-            builder.setFieldSize(gv["activationIn"],
-                                 numLayers / layersPerVertex);
-            builder.setFieldSize(gv["activationOut"], numLayers);
+            builder.setInitialFieldValue<NonLinearityType>(
+                  gv["nonLinearityType"],
+                  nonLinearityType);
+            builder.setInitialFieldValue<NormalizationType>(
+                  gv["normalizationType"],
+                  normalizationType);
+            builder.setFieldSize(gv["zIn"], net.prevChunks);
+            builder.setFieldSize(gv["activationOut"], layersPerChunk);
             builder.addEdge(net.fwd[0]["indexOut"], gv["indexIn"], true);
             builder.addEdge(net.stateField, gv["state"], false);
-          } else {
-            gv = fwd[outIndex++];
+            builder.addEdge(bv["bias"], gv["bias"], false);
+            builder.addEdge(bv["topBias"], gv["bottomBias"], false);
+            builder.addEdge(bv["bottomBias"], gv["topBias"], false);
+            builder.setFieldSize(gv["bottomIn"], net.prevChunks);
+            builder.setFieldSize(gv["topIn"], net.prevChunks);
+            builder.setFieldSize(gv["top"], normPadSize);
+            builder.setFieldSize(gv["bottom"], normPadSize);
+
+            if (chunk == numChunks - 1) {
+              for (unsigned k = 0; k < net.prevChunks; ++k) {
+                builder.addEdge(normPad["activationOut"],
+                                gv["topIn"][k],
+                                false);
+              }
+            }
+
+            if (chunk == 0) {
+              for (unsigned k = 0; k < net.prevChunks; ++k) {
+                builder.addEdge(normPad["activationOut"],
+                                gv["bottomIn"][k],
+                                false);
+              }
+            }
           }
 
-          VertexRef v = builder.addVertex("ConvLayerFwdVertex");
+          VertexRef v;
+          v = builder.addVertex("ConvLayerFwdVertex");
+          vs[outIndex] = v;
+          builder.addEdge(v["zOut"],
+                          gv["zIn"][prevChunk],
+                          false);
+
+          if (chunk != 0) {
+            VertexRef prevGV = fwd[(chunk-1) * xDimOut * yDimOut + outIndex];
+            builder.addEdge(v["bottom"],
+                            prevGV["topIn"][prevChunk],
+                            false);
+          }
+
+          if (chunk != numChunks - 1) {
+            VertexRef nextGV = fwd[(chunk+1) * xDimOut * yDimOut + outIndex];
+            builder.addEdge(v["top"],
+                            nextGV["bottomIn"][prevChunk],
+                            false);
+          }
+
+          builder.setFieldSize(v["zOut"], layersPerChunk);
+          builder.setFieldSize(v["top"], normPadSize);
+          builder.setFieldSize(v["bottom"], normPadSize);
           vertices.push_back(v);
           builder.addToComputeSet(net.trainCS, v);
           builder.addToComputeSet(net.testCS, v);
 
           builder.addEdge(net.stateField, v["state"], false);
-          builder.setInitialFieldValue<NonLinearityType>(v["nonLinearityType"],
-                                                         nonLinearityType);
           builder.setFieldSize(v["activationIn"], kernelSize * kernelSize);
-          builder.setFieldSize(v["activationOut"], layersPerVertex);
-          builder.setFieldSize(v["zOut"], layersPerVertex);
           builder.addEdge(net.fwd[i * xDim + j]["indexOut"],
                           v["indexIn"],
                           true);
-
-          builder.addEdge(v["activationOut"],
-                          gv["activationIn"][layer],
-                          false);
 
           unsigned aIndex = 0;
           for (unsigned k1 = 0; k1 < kernelSize; k1++) {
@@ -102,25 +173,25 @@ public:
               if (x > xDim || y > yDim) {
                 src = padDataVertex["activationOut"];
               } else {
-                src = net.fwd[y * xDim + x]["activationOut"];
+                unsigned offset = prevChunk * xDim * yDim;
+                src = net.fwd[offset + y * xDim + x]["activationOut"];
               }
               builder.addEdge(src,
                               v["activationIn"][aIndex++],
                               true);
             }
           }
-          builder.addEdge(pv["weights"], v["weights"], false);
-          builder.addEdge(pv["bias"], v["bias"], false);
+          builder.addEdge(wv["weights"], v["weights"], false);
         }
       }
     }
-
+    }
     unsigned numWeights =
       (kernelSize * kernelSize * net.prevLayers) * numLayers;
 
-    unsigned paramsPerVertex =
-      (kernelSize * kernelSize * net.prevLayers) * layersPerVertex +
-      layersPerVertex;
+    unsigned paramsPerChunk =
+      (kernelSize * kernelSize * prevLayersPerChunk) * layersPerChunk +
+      layersPerChunk;
 
     std::cout << "   -- Added convolutional layer:\n"
               << "        Size: " << kernelSize << "x" << kernelSize << "\n"
@@ -131,14 +202,17 @@ public:
               << "        Output: " << xDimOut << "x" << yDimOut
                      <<   "x" << numLayers << "\n"
               << "        Params: " << numWeights + numLayers << "\n"
-              << "        Params per vertex: " << paramsPerVertex << "\n";
+              << "        Num input chunks: " << net.prevChunks << "\n"
+              << "        Num output chunks: " << numChunks << "\n"
+              << "        Params per chunk: " << paramsPerChunk << "\n";
 
     net.xDim = xDimOut;
     net.yDim = yDimOut;
     net.prevLayers = numLayers;
-    assert(fwd.size() == net.xDim * net.yDim);
+    assert(fwd.size() == net.xDim * net.yDim * numChunks);
     net.prevNonLinearityType = nonLinearityType;
     net.fwd = fwd;
+    net.prevChunks = numChunks;
   }
 
   void addBackward(Net &net)  {

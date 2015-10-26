@@ -114,7 +114,7 @@ public:
   NonLinearityType prevNonLinearityType;
   std::vector<VertexRef> fwd;
   unsigned xDim, yDim;
-  unsigned prevLayers;
+  unsigned prevLayers, prevChunks;
 
   std::vector<FieldRef> bwdDeltaOut;
   std::vector<FieldRef> bwdIndexOut;
@@ -163,7 +163,7 @@ public:
        are created in the graph. */
     numBatchesField = builder.addDataVertex("unsigned")["data"];
     stateField = builder.addDataVertex("nn_state_t")["data"];
-    etaField = builder.addDataVertex("float")["data"];
+    etaField = builder.addDataVertex(FPTypeStr)["data"];
 
     daTrainingData = builder.createDataArray();
     daTrainingLabels = builder.createDataArray();
@@ -187,9 +187,11 @@ public:
         v = builder.addVertex("LayeredInputVertex");
         builder.setFieldSize(v["activationOut"], data.dim[2]);
         prevLayers = data.dim[2];
+        prevChunks = 1;
       } else {
         v = builder.addVertex("InputVertex");
         prevLayers = 0;
+        prevChunks = 1;
       }
 
       builder.addToComputeSet(trainCS, v);

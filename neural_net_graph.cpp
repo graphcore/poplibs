@@ -98,9 +98,9 @@ typedef enum nn_state_t {
    control signal */
 class InputVertex : public Vertex {
 public:
-  Vector<float> data;
-  float activationOut;
-  float z = 0;
+  Vector<FPType> data;
+  FPType activationOut;
+  FPType z = 0;
   int indexOut;
 
   Input<nn_state_t> state;
@@ -146,9 +146,9 @@ public:
 
 class LayeredInputVertex : public Vertex {
 public:
-  Vector<float> data;
-  Vector<float> activationOut;
-  float z = 0;
+  Vector<FPType> data;
+  Vector<FPType> activationOut;
+  FPType z = 0;
   int indexOut;
 
   Input<nn_state_t> state;
@@ -201,8 +201,8 @@ public:
  */
 class InnerProductFwdGatherVertex : public Vertex {
 public:
-  Vector<Input<float>> activationIn;
-  Vector<float> activationOut;
+  Vector<Input<FPType>> activationIn;
+  Vector<FPType> activationOut;
 
   Input<nn_state_t> state;
   Input<int> indexIn;
@@ -234,8 +234,8 @@ public:
 
 class InnerProductFwdLayeredGatherVertex : public Vertex {
 public:
-  Vector<Input<Vector<float>>> activationIn;
-  Vector<float> activationOut;
+  Vector<Input<Vector<FPType>>> activationIn;
+  Vector<FPType> activationOut;
 
   Input<nn_state_t> state;
   Input<int> indexIn;
@@ -274,21 +274,21 @@ class InnerProductFwdVertex : public Vertex {
 public:
   NonLinearityType nonLinearityType;
 
-  Input<Vector<float>> activationIn;
+  Input<Vector<FPType>> activationIn;
   Input<int> indexIn;
   int indexOut;
 
   /* Both the weighted sum (z) and the activation are stored since the
      backward pass needs both these items of data. */
-  float z;
-  float activationOut;
+  FPType z;
+  FPType activationOut;
 
   /* The weights aren't stored in this vertex but in a separate
      vertex that manages the weights.
      This is still efficient but allows the other vertex to sync
      weights with the backward pass after weight update has occurred.  */
-  Input<Vector<float>> weights;
-  Input<float> bias;
+  Input<Vector<FPType>> weights;
+  Input<FPType> bias;
 
   Input<nn_state_t> state;
 
@@ -309,7 +309,7 @@ public:
     }
 
     /* Perform a weigthed sum of the inputs. */
-    float sum = 0;
+    FPType sum = 0;
     for (unsigned i = 0;  i < activationIn.size(); ++i) {
       sum += activationIn[i] * weights[i];
     }
@@ -342,8 +342,8 @@ public:
     an optimization for fully connected layers. */
 class InnerProductBwdGatherVertex : public Vertex {
 public:
-  Vector<Input<float>> deltaIn;
-  Vector<float> deltaOut;
+  Vector<Input<FPType>> deltaIn;
+  Vector<FPType> deltaOut;
 
   Input<nn_state_t> state;
   Input<int> indexIn;
@@ -381,32 +381,32 @@ public:
   Input<int> indexIn;
   /* The input delta is the partial derivative of the error with respect to
    *  the z-term (the sum before the non-linearity) of this vertex. */
-  Input<Vector<float>> deltaIn;
+  Input<Vector<FPType>> deltaIn;
 
   /* The output delta is the partical derivative of the error with respect to
    * the z-term of the connected vertex from the previous layer */
-  float deltaOut;
+  FPType deltaOut;
   int indexOut;
 
   /* These weights are duplicated from the forward pass. These vectors
      across the backward vertices form the transpose matrix of the weight
      vectors across the forward vertices */
-  Vector<float> weights;
+  Vector<FPType> weights;
 
   /* The backward layer needs to record the activations and z-terms from the
      forward layer to be able to calculate the gradients. */
-  Input<float> activationIn;
-  Input<float> zIn;
+  Input<FPType> activationIn;
+  Input<FPType> zIn;
   Input<int> actIndexIn;
-  Vector<float> zRecord, actRecord, bwdRecord;
+  Vector<FPType> zRecord, actRecord, bwdRecord;
 
   /* The learning rate is passed to this vertex from a central control
      vertex. */
-  Input<float> eta;
+  Input<FPType> eta;
   Input<nn_state_t> state;
 
   /* The following state is used to control the weight sync phase */
-  Vector<float> weightSyncOutput;
+  Vector<FPType> weightSyncOutput;
   unsigned currentRank;
   bool doingWeightUpdate;
 
@@ -458,7 +458,7 @@ public:
       /* Calculate the weight gradients and update the weights. */
       unsigned batchSize = actRecord.size();
       for (unsigned i = 0;  i < deltaIn.size(); ++i) {
-        float gradient = actRecord[indexIn] * deltaIn[i];
+        FPType gradient = actRecord[indexIn] * deltaIn[i];
         weights[i] += eta * gradient  / batchSize;
       }
 
@@ -481,14 +481,14 @@ public:
       /* This is the core of the back-propagation algorithm.
          The output delta is formed from the weighted sum of the
          input deltas. */
-      float sum = 0;
+      FPType sum = 0;
       for (unsigned i = 0;  i < deltaIn.size(); ++i) {
         sum += deltaIn[i] * weights[i];
       }
 
       /* Apply the chain-rule on the non-linear function of the previous
          layer. */
-      float nlGradient = nonlinearity_derivative(nonLinearityType,
+      FPType nlGradient = nonlinearity_derivative(nonLinearityType,
                                                  zRecord[indexIn]);
 
       /* Pass on the error to the previous layer. */
@@ -549,16 +549,16 @@ public:
  * input coming from the next layer. */
 class InnerProductBwdBiasVertex : public Vertex {
 public:
-  Input<float> deltaIn;
+  Input<FPType> deltaIn;
   Input<int> indexIn;
 
-  float bias;
+  FPType bias;
   
-  Input<float> eta;
+  Input<FPType> eta;
   Input<nn_state_t> state;
   unsigned batchSize;
 
-  float update;
+  FPType update;
   bool updated;
 
   bool compute() {
@@ -579,7 +579,7 @@ public:
       return false;
 
     if (indexIn == START_WEIGHT_UPDATE) {
-      bias += eta * update / (float) batchSize;
+      bias += eta * update / (FPType) batchSize;
       updated = true;
       return true;
     }
@@ -587,7 +587,7 @@ public:
     if (indexIn == DONE_PROCESSING)
       return true;
 
-    float gradient = deltaIn * 1;
+    FPType gradient = deltaIn * 1;
     update += gradient * 1;
     return false;
   }
@@ -607,8 +607,8 @@ public:
    a test-only network. */
 class InnerProductParamsFwdOnlyVertex : public Vertex {
 public:
-  Vector<float> weights;
-  float bias;
+  Vector<FPType> weights;
+  FPType bias;
 
   bool compute() {
     return true;
@@ -632,8 +632,8 @@ public:
    correct iteration. */
 class InnerProductParamsGatherVertex : public Vertex {
 public:
-  Vector<Input<float>> weightsIn;
-  Vector<float> weightsOut;
+  Vector<Input<FPType>> weightsIn;
+  Vector<FPType> weightsOut;
 
   bool compute() {
     for (unsigned i = 0; i < weightsOut.size(); ++i) {
@@ -653,10 +653,10 @@ public:
    vertex on the correct iteration. */
 class InnerProductParamsVertex : public Vertex {
 public:
-  Input<Vector<float>> weightsIn;
-  Vector<float> weightsOut;
-  Input<float> biasIn;
-  float biasOut;
+  Input<Vector<FPType>> weightsIn;
+  Vector<FPType> weightsOut;
+  Input<FPType> biasIn;
+  FPType biasOut;
 
   unsigned currentRank;
   unsigned myRank;
@@ -699,22 +699,17 @@ public:
 
 class ConvLayerFwdVertex : public Vertex {
 public:
-  NonLinearityType nonLinearityType;
-  Vector<Input<Vector<float>>> activationIn;
+  Vector<Input<Vector<FPType>>> activationIn;
   Input<int> indexIn;
   int indexOut;
 
-  /* Both the weighted sum (z) and the activation are stored since the
-     backward pass needs both these items of data. */
-  Vector<float> zOut;
-  Vector<float> activationOut;
+  Vector<FPType> zOut, top, bottom;
 
   /* The weights aren't stored in this vertex but in a separate
      vertex that manages the weights.
      This is still efficient but allows the other vertex to sync
      weights with the backward pass after weight update has occurred.  */
-  Input<Vector<float>> weights;
-  Input<Vector<float>> bias;
+  Input<Vector<FPType>> weights;
 
   Input<nn_state_t> state;
 
@@ -735,21 +730,20 @@ public:
     }
 
     unsigned numInputLayers = activationIn[0].size();
-    unsigned numOutputLayers = activationOut.size();
+    unsigned numOutputLayers = zOut.size();
     unsigned fmapSize = activationIn.size();
 
     unsigned wIndex = 0;
     for (unsigned i = 0; i < numOutputLayers; ++i) {
-      float sum = 0;
+      FPType sum = 0;
       /* Perform a weighted sum of the inputs. */
       for (unsigned j = 0; j < fmapSize; j++) {
         for (unsigned k = 0;  k < numInputLayers; ++k) {
-          float w = weights[wIndex++];
+          FPType w = weights[wIndex++];
           sum += activationIn[j][k] * w;
         }
       }
-      zOut[i] = sum + bias[i];
-      activationOut[i] = nonlinearity(nonLinearityType, zOut[i]);
+      zOut[i] = sum;
     }
 
     indexOut = indexIn;
@@ -762,9 +756,105 @@ public:
 
 };
 
+class ConvReductionVertex : public Vertex {
+public:
+  NonLinearityType nonLinearityType;
+  NormalizationType normalizationType;
+
+  Vector<Input<Vector<FPType>>> zIn;
+  Input<Vector<FPType>> bias;
+
+  // These input the extra elements on the top and bottom of the
+  // chunk - required for noramlization.
+  Vector<Input<Vector<FPType>>> bottomIn;
+  Input<Vector<FPType>> bottomBias;
+  Vector<Input<Vector<FPType>>> topIn;
+  Input<Vector<FPType>> topBias;
+
+  Vector<FPType> activationOut, top, bottom;
+
+  Input<nn_state_t> state;
+  Input<int> indexIn;
+  int indexOut;
+
+  bool compute() {
+    if (state == INIT)
+      return true;
+
+    if (indexIn == NOTHING_TO_PROCESS ||
+        indexIn == DONE_PROCESSING) {
+      indexOut = indexIn;
+      return true;
+    }
+
+    for (unsigned i = 0; i < activationOut.size(); ++i) {
+      FPType sum = 0;
+      for (unsigned j = 0; j < zIn.size(); ++j) {
+        sum += zIn[j][i];
+      }
+      sum += bias[i];
+      activationOut[i] = nonlinearity(nonLinearityType, sum);
+    }
+
+    for (unsigned i = 0; i < top.size(); ++i) {
+      FPType sum = 0;
+      for (unsigned j = 0; j < topIn.size(); ++j) {
+        sum += topIn[j][i];
+      }
+      sum += topBias[i];
+      top[i] = nonlinearity(nonLinearityType, sum);
+    }
+
+    for (unsigned i = 0; i < bottom.size(); ++i) {
+      FPType sum = 0;
+      for (unsigned j = 0; j < bottomIn.size(); ++j) {
+        sum += bottomIn[j][i];
+      }
+      sum += bottomBias[i];
+      bottom[i] = nonlinearity(nonLinearityType, sum);
+    }
+
+    //Normalization
+    switch (normalizationType) {
+    case NORMALIZATION_NONE:
+      break;
+    case NORMALIZATION_LR:
+      //TODO - make this configurable
+      unsigned n = 5;
+      unsigned N = activationOut.size();
+      for (int i = 0; i < N; ++i) {
+        FPType sum = 0;
+        for (int j = -n/2; j < n/2; ++j) {
+          if (i + j < 0) {
+            sum += bottom[i + j + n/2] *
+                   bottom[i + j + n/2];
+          } else if (i + j > N) {
+            sum += top[i + j - N] *
+                   top[i + j - N];
+          } else {
+            sum += activationOut[i + j] * activationOut[i + j];
+          }
+        }
+        // TODO - make these configurable
+        FPType alpha = 0.0001, beta = 0.75, k = 2;
+        activationOut[i] = pow(k + alpha * sum, beta);
+      }
+      break;
+    }
+
+    indexOut = indexIn;
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const  {
+    return 10;
+  }
+};
+
+
 class ConvPaddingVertex : public Vertex {
 public:
-  Vector<float> activationOut;
+  Vector<FPType> activationOut;
   bool compute() {
     return true;
   }
@@ -773,12 +863,23 @@ public:
   }
 };
 
-/* This vertex supplies the weights and bias to the forward pass vertex for
-   a test-only network. */
-class ConvParamsFwdOnlyVertex : public Vertex {
+class ConvWeightsFwdOnlyVertex : public Vertex {
 public:
-  Vector<float> weights;
-  Vector<float> bias;
+  Vector<FPType> weights;
+
+  bool compute() {
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    return 0;
+  }
+};
+
+class ConvBiasFwdOnlyVertex : public Vertex {
+public:
+  Vector<FPType> bias;
+  Vector<FPType> topBias, bottomBias;
 
   bool compute() {
     return true;
@@ -792,11 +893,10 @@ public:
 
 class MaxPoolFwdVertex : public Vertex {
 public:
-  Vector<Input<Vector<float>>> activationIn;
+  Vector<Input<Vector<FPType>>> activationIn;
   Input<int> indexIn;
   int indexOut;
-  Vector<float> activationOut;
-  Vector<float> zOut;
+  Vector<FPType> activationOut;
   Input<nn_state_t> state;
 
   bool compute() {
@@ -818,7 +918,7 @@ public:
     unsigned numLayers = activationOut.size();
 
     for (unsigned i = 0; i < numLayers; i++) {
-      float m = activationIn[0][i];
+      FPType m = activationIn[0][i];
       for (unsigned j = 1; j < activationIn.size(); ++j) {
         if (activationIn[j][i] > m)
           m = activationIn[j][i];
@@ -844,7 +944,7 @@ class ErrorVertex : public Vertex {
 public:
   LossType lossType;
 
-  Vector<Input<float>> zIn;
+  Vector<Input<FPType>> zIn;
   Input<int> indexIn;
 
   /* The non-linearity type of the *previous* layer */
@@ -853,7 +953,7 @@ public:
 
   /* The delta out is the partial derivative of the loss with respect to the
      z term of the previous layer.  */
-  Vector<float> deltaOut;
+  Vector<FPType> deltaOut;
   int indexOut;
 
   /* The expected data */
@@ -864,9 +964,9 @@ public:
   bool doingWeightUpdate;
 
   /* Probability vector - used for softmax */
-  Vector<float> probs;
+  Vector<FPType> probs;
 
-  float error;
+  FPType error;
   unsigned numCorrect;
 
   bool compute() {
@@ -911,11 +1011,11 @@ public:
       {
       /* Calculate the sum-squared error and the partial derivative
          to pass back. */
-      float sum = 0;
+      FPType sum = 0;
       for (unsigned i = 0;  i < zIn.size(); ++i) {
-        float expected = (i == E ? 1 : 0);
-        float actual = nonlinearity(nonLinearityType, zIn[i]);
-        float nlGradient = nonlinearity_derivative(nonLinearityType, zIn[i]);
+        FPType expected = (i == E ? 1 : 0);
+        FPType actual = nonlinearity(nonLinearityType, zIn[i]);
+        FPType nlGradient = nonlinearity_derivative(nonLinearityType, zIn[i]);
         deltaOut[i] = (expected - actual) * nlGradient;
         sum += (expected - actual) *  (expected - actual);
       }
@@ -925,11 +1025,11 @@ public:
     case SOFTMAX_CROSS_ENTROPY_LOSS:
       /* Calculate the softmax probability distribution */
       for (unsigned i = 0;  i < zIn.size(); ++i) {
-        float act = nonlinearity(nonLinearityType, zIn[i]);
+        FPType act = nonlinearity(nonLinearityType, zIn[i]);
         probs[i] = exp(act);
       }
-      float sum = 0;
-      for (float p : probs)
+      FPType sum = 0;
+      for (FPType p : probs)
         sum += p;
       for (unsigned i = 0;  i < zIn.size(); ++i)
         probs[i] /= sum;
@@ -938,8 +1038,8 @@ public:
          to pass back. */
       error = 0;
       for (unsigned i = 0;  i < probs.size(); ++i) {
-        float expected = (i == E ? 1 : 0);
-        float nlGradient = nonlinearity_derivative(nonLinearityType, zIn[i]);
+        FPType expected = (i == E ? 1 : 0);
+        FPType nlGradient = nonlinearity_derivative(nonLinearityType, zIn[i]);
         deltaOut[i] = -(probs[i] - expected) * nlGradient;
         error += expected * log(probs[i]);
       }
@@ -950,7 +1050,7 @@ public:
     // This assumes that the
     // non-linearity is monotonic, so the max output of the previous
     // layer is the max z-term of the previous layer.
-    float max = zIn[0];
+    FPType max = zIn[0];
     unsigned maxIndex = 0;
     for (unsigned i = 0;  i < zIn.size(); ++i) {
       if (zIn[i] > max) {

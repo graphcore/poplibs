@@ -35,7 +35,7 @@ public:
 
     VertexRef gatherVertex;
     if (net.prevLayers) {
-      prevSize  = prevSize * net.prevLayers;
+      prevSize  = prevSize * net.prevLayers / net.prevChunks;
       gatherVertex = builder.addVertex("InnerProductFwdLayeredGatherVertex");
     } else {
       gatherVertex = builder.addVertex("InnerProductFwdGatherVertex");

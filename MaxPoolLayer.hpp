@@ -19,19 +19,29 @@ public:
     GraphBuilder &builder = *net.graphBuilder;
     unsigned xDim = net.xDim;
     unsigned yDim = net.yDim;
+    unsigned xDimOut = (xDim - kernelSize) / stride + 1;
+    unsigned yDimOut = (yDim - kernelSize) / stride + 1;
+
+    unsigned prevLayersPerChunk = net.prevLayers / net.prevChunks;
 
     std::vector<VertexRef> fwd;
-    for (unsigned i = 0; i <= yDim - kernelSize; i += stride) {
-      for (unsigned j = 0; j <= xDim - kernelSize; j += stride) {
+        for (unsigned prevChunk = 0; prevChunk < net.prevChunks; prevChunk++) {
+
+
+    for (unsigned ii = 0; ii <= yDim - kernelSize; ii += stride) {
+      for (unsigned jj = 0; jj <= xDim - kernelSize; jj += stride) {
         VertexRef v = builder.addVertex("MaxPoolFwdVertex");
+        unsigned d = (ii/stride) * xDimOut + (jj/stride);
+        int i, j;
+        d2xy(xDimOut, d, &i, &j);
         vertices.push_back(v);
         fwd.push_back(v);
         builder.addToComputeSet(net.trainCS, v);
         builder.addToComputeSet(net.testCS, v);
 
         builder.addEdge(net.stateField, v["state"], false);
-        builder.setFieldSize(v["activationOut"], net.prevLayers);
-        builder.setFieldSize(v["zOut"], net.prevLayers);
+        builder.setFieldSize(v["activationOut"], prevLayersPerChunk);
+        //builder.setFieldSize(v["zOut"], net.prevLayers);
         builder.setFieldSize(v["activationIn"], kernelSize * kernelSize);
 
         builder.addEdge(net.fwd[i * xDim + j]["indexOut"],
@@ -43,17 +53,15 @@ public:
           for (unsigned k2 = 0; k2 < kernelSize; k2++) {
             unsigned y = i + k1;
             unsigned x = j + k2;
-            builder.addEdge(net.fwd[y * xDim + x]["activationOut"],
+            unsigned offset = prevChunk * xDim * yDim;
+            builder.addEdge(net.fwd[offset + y * xDim + x]["activationOut"],
                             v["activationIn"][aIndex++],
                             true);
           }
         }
       }
     }
-
-
-    unsigned xDimOut = (xDim - kernelSize) / stride + 1;
-    unsigned yDimOut = (yDim - kernelSize) / stride + 1;
+    }
 
     std::cout << "   -- Added max pooling layer:\n"
               << "        Size: " << kernelSize << "x" << kernelSize << "\n"
@@ -65,7 +73,7 @@ public:
 
     net.xDim = xDimOut;
     net.yDim = yDimOut;
-    assert(fwd.size() == net.xDim * net.yDim);
+    assert(fwd.size() == net.xDim * net.yDim * net.prevChunks);
     net.prevNonLinearityType = NON_LINEARITY_NONE;
     net.fwd = fwd;
   }
