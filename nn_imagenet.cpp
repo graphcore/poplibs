@@ -4,6 +4,8 @@
 #include "ConvLayer.hpp"
 #include "MaxPoolLayer.hpp"
 
+#define USE_CONVNET_BENCH_NET 1
+
 int main() {
   DataSet IMAGENET;
   IMAGENET.dataSize = 224*224*3;
@@ -25,18 +27,22 @@ int main() {
   options.useIPUModel = true;
   options.numIPUs = 2;
   //  options.useSuperTiles = true;
+#if USE_CONVNET_BENCH_NET
+
   Net net(IMAGENET,
-          10, // batch size
+          128, // batch size
           makeHiddenLayers({
-            new ConvLayer(11, 4, 4, 48*2, NON_LINEARITY_RELU, NORMALIZATION_LR),
+            new ConvLayer(11, 4, 4, 1, 64,
+                          NON_LINEARITY_RELU, NORMALIZATION_LR),
             new MaxPoolLayer(3, 2),
-            new ConvLayer(5, 1, 4, 128*2, NON_LINEARITY_RELU, NORMALIZATION_LR),
+            new ConvLayer(5, 1, 4, 1, 192,
+                          NON_LINEARITY_RELU, NORMALIZATION_LR),
             new MaxPoolLayer(3, 2),
-            new ConvLayer(3, 1, 2, 192*2, NON_LINEARITY_RELU,
+            new ConvLayer(3, 1, 2, 1, 384, NON_LINEARITY_RELU,
                           NORMALIZATION_NONE),
-            new ConvLayer(3, 1, 2, 192*2, NON_LINEARITY_RELU,
+            new ConvLayer(3, 1, 2, 1, 256, NON_LINEARITY_RELU,
                           NORMALIZATION_NONE),
-            new ConvLayer(3, 1, 2, 128*2, NON_LINEARITY_RELU,
+            new ConvLayer(3, 1, 2, 1, 256, NON_LINEARITY_RELU,
                           NORMALIZATION_NONE),
             new MaxPoolLayer(3, 2),
             new FullyConnectedLayer(2048*2, NON_LINEARITY_RELU),
@@ -48,6 +54,33 @@ int main() {
           TestOnlyNet,
           options
           );
+#else
+  Net net(IMAGENET,
+          128, // batch size
+          makeHiddenLayers({
+            new ConvLayer(11, 4, 4, 1, 48*2,
+                          NON_LINEARITY_RELU, NORMALIZATION_LR),
+            new MaxPoolLayer(3, 2),
+            new ConvLayer(5, 1, 4, 2, 128*2,
+                          NON_LINEARITY_RELU, NORMALIZATION_LR),
+            new MaxPoolLayer(3, 2),
+            new ConvLayer(3, 1, 2, 1, 192*2, NON_LINEARITY_RELU,
+                          NORMALIZATION_NONE),
+            new ConvLayer(3, 1, 2, 2, 192*2, NON_LINEARITY_RELU,
+                          NORMALIZATION_NONE),
+            new ConvLayer(3, 1, 2, 2, 128*2, NON_LINEARITY_RELU,
+                          NORMALIZATION_NONE),
+            new MaxPoolLayer(3, 2),
+            new FullyConnectedLayer(2048*2, NON_LINEARITY_RELU),
+            new FullyConnectedLayer(2048*2, NON_LINEARITY_RELU),
+            new FullyConnectedLayer(1000, NON_LINEARITY_RELU),
+          }),
+          SOFTMAX_CROSS_ENTROPY_LOSS,
+          0.9, // learning rate
+          TestOnlyNet,
+          options
+          );
+#endif
 
   net.run(5000);
   return 0;
