@@ -1,7 +1,6 @@
 #ifndef _conv_layer_hpp_
 #define _conv_layer_hpp_
 #include "Net.hpp"
-#include "HilbertCurve.hpp"
 
 class ConvLayer : public HiddenLayer {
 public:
@@ -71,7 +70,6 @@ public:
 
     for (unsigned chunk = 0; chunk < numChunks; ++chunk) {
       VertexRef bv = builder.addVertex("ConvBiasFwdOnlyVertex");
-      vertices.push_back(bv);
       builder.addToComputeSet(net.trainCS, bv);
       builder.addToComputeSet(net.testCS, bv);
       builder.setFieldSize(bv["bias"], layersPerChunk);
@@ -80,21 +78,17 @@ public:
 
     for (unsigned prevChunk = 0; prevChunk < net.prevChunks; prevChunk++) {
       VertexRef wv = builder.addVertex("ConvWeightsFwdOnlyVertex");
-      vertices.push_back(wv);
       builder.addToComputeSet(net.trainCS, wv);
       builder.addToComputeSet(net.testCS, wv);
       builder.setFieldSize(wv["weights"], kernelSize * kernelSize *
                                           prevLayersPerChunk * layersPerChunk);
 
-      for (unsigned ii = 0; ii <= yDim + padding - kernelSize; ii += stride) {
-        for (unsigned jj = 0; jj <= xDim + padding - kernelSize; jj += stride) {
-          int i, j;
-          unsigned outIndex = (ii/stride) * xDimOut + (jj/stride);
-          d2xy(xDimOut, outIndex, &i, &j);
+      for (unsigned i = 0; i <= yDim + padding - kernelSize; i += stride) {
+        for (unsigned j = 0; j <= xDim + padding - kernelSize; j += stride) {
+          unsigned outIndex = (i/stride) * xDimOut + (j/stride);
 
           VertexRef gv = fwd[chunk * xDimOut * yDimOut + outIndex];;
           if (prevChunk == 0) {
-            vertices.push_back(gv);
             builder.setInitialFieldValue<NonLinearityType>(
                   gv["nonLinearityType"],
                   nonLinearityType);
@@ -154,7 +148,6 @@ public:
           builder.setFieldSize(v["zOut"], layersPerChunk);
           builder.setFieldSize(v["top"], normPadSize);
           builder.setFieldSize(v["bottom"], normPadSize);
-          vertices.push_back(v);
           builder.addToComputeSet(net.trainCS, v);
           builder.addToComputeSet(net.testCS, v);
 

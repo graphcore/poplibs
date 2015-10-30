@@ -28,13 +28,9 @@ public:
         for (unsigned prevChunk = 0; prevChunk < net.prevChunks; prevChunk++) {
 
 
-    for (unsigned ii = 0; ii <= yDim - kernelSize; ii += stride) {
-      for (unsigned jj = 0; jj <= xDim - kernelSize; jj += stride) {
+    for (unsigned i = 0; i <= yDim - kernelSize; i += stride) {
+      for (unsigned j = 0; j <= xDim - kernelSize; j += stride) {
         VertexRef v = builder.addVertex("MaxPoolFwdVertex");
-        unsigned d = (ii/stride) * xDimOut + (jj/stride);
-        int i, j;
-        d2xy(xDimOut, d, &i, &j);
-        vertices.push_back(v);
         fwd.push_back(v);
         builder.addToComputeSet(net.trainCS, v);
         builder.addToComputeSet(net.testCS, v);

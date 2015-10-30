@@ -12,7 +12,6 @@
 #include <memory>
 #include <vector>
 #include "neural_net_common.h"
-#include "VTileMapper.hpp"
 
 using namespace poplar;
 
@@ -44,16 +43,10 @@ public:
 /* The hidden layer class represents all non-input layers in the net.
  */
 class HiddenLayer {
-protected:
-  std::vector<VertexRef> vertices;
 public:
   virtual void addForward(Net &net) = 0;
 
   virtual void addBackward(Net &net) = 0;
-
-  std::vector<VertexRef> getVertices() const {
-    return vertices;
-  }
 
   virtual bool requiresLayeredInput() = 0;
   virtual bool providesLayeredOutput() = 0;
@@ -351,8 +344,6 @@ public:
       (char *) &data.testLabels[data.numTest]);
 
     if (options.useIPUModel) {
-      /* When modelling the IPU, a tile mapping is created based on the
-         VTileMapper, each layer is placed on a different 'virtual' tile. */
       IPUModelEngineBuilder *ipuEB =
         static_cast<IPUModelEngineBuilder *>(&eb);
       ipuEB->setNumIPUs(options.numIPUs);
@@ -360,19 +351,10 @@ public:
       ipuEB->setTilesPerIPU(1152/superTileDiv);
       ipuEB->setNumBytesPerTile(256*superTileDiv*1024);
       numTiles = ipuEB->getTilesPerIPU() * ipuEB->getNumIPUs();
+      ipuEB->setIPUExchangeImplementation(IPUModelEngineBuilder::OPTIMISTIC_WITH_MULTICAST);
+
       std::cerr << builder.getNumVertices() << " vertices, "
                 << numTiles << " tiles.\n";
-      VTileMapper mapper;
-      for (const std::unique_ptr<HiddenLayer> &layer : hiddenLayers) {
-        auto vTile = mapper.createVTile();
-        for (VertexRef &v : layer->getVertices()) {
-          mapper.addToVTile(vTile, v.getId());
-        }
-      }
-      auto mapping = mapper.createTileMapping(builder.getNumVertices(),
-                                            numTiles);
-      IPUModelEngineBuilder::UserTilePartitioner p(mapping);
-      ipuEB->setTilePartitioner(p);
     }
 
     std::cerr << "Creating graph engine\n";

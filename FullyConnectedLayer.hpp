@@ -41,7 +41,6 @@ public:
       gatherVertex = builder.addVertex("InnerProductFwdGatherVertex");
     }
     builder.setFieldSize(gatherVertex["activationOut"], prevSize);
-    vertices.push_back(gatherVertex);
     builder.addEdge(net.stateField, gatherVertex["state"], false);
     builder.addToComputeSet(net.trainCS, gatherVertex);
     builder.addToComputeSet(net.testCS, gatherVertex);
@@ -58,7 +57,6 @@ public:
       if (net.netType == TrainingNet &&
           i % (size/numParamGathers) == 0) {
         VertexRef v = builder.addVertex("InnerProductParamsGatherVertex");
-        vertices.push_back(v);
         paramGatherVertices.push_back(v);
         builder.addToComputeSet(net.weightSyncCS, v);
         builder.setFieldSize(v["weightsIn"], prevSize);
@@ -68,7 +66,6 @@ public:
 
       VertexRef v = builder.addVertex("InnerProductFwdVertex");
       builder.addEdge(net.stateField, v["state"], false);
-      vertices.push_back(v);
       builder.addToComputeSet(net.trainCS, v);
       builder.addToComputeSet(net.testCS, v);
       fwd.push_back(v);
@@ -82,7 +79,6 @@ public:
 
       if (net.netType == TrainingNet) {
         VertexRef pv = builder.addVertex("InnerProductParamsVertex");
-        vertices.push_back(pv);
         weightSyncVertices.push_back(pv);
         builder.addEdge(net.stateField, pv["state"], false);
         builder.addToComputeSet(net.weightSyncCS, pv);
@@ -96,7 +92,6 @@ public:
                                                i % (size / numParamGathers));
       } else {
         VertexRef pv = builder.addVertex("InnerProductParamsFwdOnlyVertex");
-        vertices.push_back(pv);
         builder.addToComputeSet(net.trainCS, pv);
         builder.addToComputeSet(net.testCS, pv);
         builder.addEdge(pv["weights"], v["weights"], false);
@@ -108,7 +103,6 @@ public:
 
       if (net.netType == TrainingNet && i < prevSize) {
         VertexRef bv = builder.addVertex("InnerProductBwdVertex");
-        vertices.push_back(bv);
         bwd.push_back(bv);
       }
     }
@@ -116,7 +110,6 @@ public:
     if (net.netType == TrainingNet) {
       for (unsigned i = size; i < prevSize; ++i) {
         VertexRef bv = builder.addVertex("InnerProductBwdVertex");
-        vertices.push_back(bv);
         bwd.push_back(bv);
       }
     }
@@ -137,7 +130,6 @@ public:
 
     VertexRef gatherVertex = builder.addVertex("InnerProductBwdGatherVertex");
     builder.addEdge(net.stateField, gatherVertex["state"], false);
-    vertices.push_back(gatherVertex);
     builder.addToComputeSet(net.trainCS, gatherVertex);
     builder.setFieldSize(gatherVertex["deltaIn"], size);
     builder.setFieldSize(gatherVertex["deltaOut"], size);
@@ -191,7 +183,6 @@ public:
       builder.setInitialFieldValue<unsigned>(v["batchSize"], net.batchSize);
       builder.addEdge(net.stateField, v["state"], false);
       builder.addEdge(net.etaField, v["eta"], false);
-      vertices.push_back(v);
       biasVertices.push_back(v);
       builder.addToComputeSet(net.trainCS, v);
       builder.addEdge(net.bwdDeltaOut[i], v["deltaIn"], true);
