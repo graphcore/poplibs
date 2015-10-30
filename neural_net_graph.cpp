@@ -308,7 +308,7 @@ public:
       return true;
     }
 
-    /* Perform a weigthed sum of the inputs. */
+    /* Perform a weighted sum of the inputs. */
     FPType sum = 0;
     for (unsigned i = 0;  i < activationIn.size(); ++i) {
       sum += activationIn[i] * weights[i];
