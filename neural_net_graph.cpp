@@ -9,6 +9,10 @@
 
 using namespace poplar;
 
+static uint64_t dense_dotproduct_cycles(unsigned size) {
+  return (size+1)/2+2;
+}
+
 
 /****************************************************************************/
 /*            Auxiliary math functions                                      */
@@ -242,8 +246,10 @@ public:
   int indexOut;
 
   bool compute() {
-    if (state == INIT)
+    if (state == INIT) {
+      indexOut = NOTHING_TO_PROCESS;
       return true;
+    }
 
     if (indexIn == NOTHING_TO_PROCESS ||
         indexIn == DONE_PROCESSING) {
@@ -263,7 +269,12 @@ public:
   }
 
   uint64_t getCycleEstimate() const  {
-    return 10;
+    if (state == INIT ||
+        indexIn == NOTHING_TO_PROCESS ||
+        indexIn == DONE_PROCESSING)
+      return 5;
+
+    return (activationIn.size()*activationIn[0].size()*2 + 10);
   }
 };
 
@@ -329,7 +340,7 @@ public:
         indexIn == DONE_PROCESSING)
       return 10;
 
-    return activationIn.size()*2 + 20;
+    return dense_dotproduct_cycles(activationIn.size()) + 20;
   }
 
 };
@@ -734,6 +745,8 @@ public:
     unsigned fmapSize = activationIn.size();
 
     unsigned wIndex = 0;
+
+
     for (unsigned i = 0; i < numOutputLayers; ++i) {
       FPType sum = 0;
       /* Perform a weighted sum of the inputs. */
@@ -751,7 +764,19 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    return 10;
+    if (state == INIT ||
+        indexIn == NOTHING_TO_PROCESS ||
+        indexIn == DONE_PROCESSING)
+      return 5;
+
+    // Sample ranges for this loop (from AlexNet, second conv: 16x25x12)
+    // 16 * (zero + 25 * (ldptr + 12 * ( ldinc, ldinc, mac)) + storeinc)
+    unsigned numInputLayers = activationIn[0].size();
+    unsigned numOutputLayers = zOut.size();
+    unsigned fmapSize = activationIn.size();
+
+    return 10 + numOutputLayers * (2 + fmapSize * (1 + dense_dotproduct_cycles(numInputLayers)));
+
   }
 
 };
@@ -778,8 +803,10 @@ public:
   int indexOut;
 
   bool compute() {
-    if (state == INIT)
+    if (state == INIT) {
+      indexOut = NOTHING_TO_PROCESS;
       return true;
+    }
 
     if (indexIn == NOTHING_TO_PROCESS ||
         indexIn == DONE_PROCESSING) {
@@ -847,7 +874,18 @@ public:
   }
 
   uint64_t getCycleEstimate() const  {
-    return 10;
+    if (state == INIT ||
+        indexIn == NOTHING_TO_PROCESS ||
+        indexIn == DONE_PROCESSING)
+      return 5;
+
+    uint64_t cycles = 0;
+
+    cycles += activationOut.size() * (4 + zIn.size()*2);
+    cycles += top.size() * (4 + topIn.size()*2);
+    cycles += bottom.size() * (4 + bottomIn.size()*2);
+    cycles += activationOut.size() * (5 * 2 + 10);
+    return cycles;
   }
 };
 
@@ -930,7 +968,12 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    return 10;
+    if (state == INIT ||
+        indexIn == NOTHING_TO_PROCESS ||
+        indexIn == DONE_PROCESSING)
+      return 5;
+
+    return 10 + activationOut.size() * (2 + activationIn.size() * 2);
   }
 
 };
