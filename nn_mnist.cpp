@@ -1,20 +1,9 @@
-#include <poplar/GraphProgEnv.hpp>
-#include <poplar/GraphBuilder.hpp>
-#include <poplar/CPUEngine.hpp>
-#include <poplar/IPUModelEngine.hpp>
 #include <initializer_list>
-#include <vector>
-#include <mnist.h>
-#include <iostream>
-#include <boost/random/normal_distribution.hpp>
-#include <boost/random/mersenne_twister.hpp>
-#include <boost/random/variate_generator.hpp>
-#include <chrono>
-#include <memory>
-#include "neural_net_common.h"
-#include "VTileMapper.hpp"
 #include "Net.hpp"
 #include "FullyConnectedLayer.hpp"
+#include "ConvLayer.hpp"
+#include "MaxPoolLayer.hpp"
+#include "mnist.h"
 
 #define LARGE_DNN_MODEL 1
 
@@ -41,7 +30,7 @@ int main() {
   NetOptions options;
   options.useIPUModel = true;
   options.singleBatchProfile = true;
-  options.useSuperTiles = true;
+  options.useSuperTiles = false;
   Net net(MNIST,
           100, // batch size
           makeHiddenLayers({
