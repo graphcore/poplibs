@@ -36,6 +36,9 @@ public:
     GraphBuilder &builder = *net.graphBuilder;
     unsigned xDim = net.xDim;
     unsigned yDim = net.yDim;
+    bool normalize = normalizationType != NORMALIZATION_NONE;
+    bool pipelineReduction = true;
+
 
     // TODO: These shouldn't be assert, the network should force this to be
     // the case
@@ -70,19 +73,48 @@ public:
     VertexRef padDataVertex = builder.addVertex("ConvPaddingVertex");
     builder.setFieldSize(padDataVertex["activationOut"], net.prevLayers);
 
-    VertexRef normPad = builder.addVertex("ConvPaddingVertex");
-    builder.setFieldSize(normPad["activationOut"],
-                         normPadSize * inputChunksPerGroup);
+    VertexRef normPad;
+    if (normalize) {
+      normPad = builder.addVertex("ConvPaddingVertex");
+      builder.setFieldSize(normPad["activationOut"],
+                           normPadSize * inputChunksPerGroup);
+    }
 
     unsigned xDimOut = (xDim + padding - kernelSize) / stride + 1;
     unsigned yDimOut = (yDim + padding - kernelSize) / stride + 1;
+
+    unsigned numWeights =
+      (kernelSize * kernelSize * net.prevLayers) * numKernels;
+
+    unsigned paramsPerChunk =
+      (kernelSize * kernelSize * prevLayersPerChunk) * kernelsPerChunk +
+      kernelsPerChunk;
+
+    std::cout << "   -- Added convolutional layer:\n"
+              << "        Size: " << kernelSize << "x" << kernelSize << "\n"
+              << "        Stride: " << stride << "\n"
+              << "        Padding: " << padding << "\n"
+              << "        Input: " << xDim << "x" << yDim
+                     <<   "x" << net.prevLayers << "\n"
+              << "        Input groups: " << numInputGroups << "\n"
+              << "        Output: " << xDimOut << "x" << yDimOut
+                     <<   "x" << numKernels << "\n"
+              << "        Params: " << numWeights + numKernels << "\n"
+              << "        Num input chunks: " << net.prevChunks << "\n"
+              << "        Num output chunks: " << numChunks << "\n"
+              << "        Params per chunk: " << paramsPerChunk << "\n";
+
 
     std::vector<VertexRef> fwd;
       //     VertexRef gv;
     std::vector<VertexRef> vs(xDimOut * yDimOut);
 
     for (unsigned i = 0; i < xDimOut * yDimOut * numChunks; ++i) {
-      VertexRef v = builder.addVertex("ConvReductionVertex");
+      VertexRef v;
+      if (normalize)
+        v = builder.addVertex("ConvReductionNormVertex");
+      else
+        v = builder.addVertex("ConvReductionVertex");
       fwd.push_back(v);
       builder.addToComputeSet(net.trainCS, v);
       builder.addToComputeSet(net.testCS, v);
@@ -91,8 +123,8 @@ public:
 
     for (unsigned chunk = 0; chunk < numChunks; ++chunk) {
       VertexRef bv = builder.addVertex("ConvBiasFwdOnlyVertex");
-      builder.addToComputeSet(net.trainCS, bv);
-      builder.addToComputeSet(net.testCS, bv);
+      //builder.addToComputeSet(net.trainCS, bv);
+      //builder.addToComputeSet(net.testCS, bv);
       builder.setFieldSize(bv["bias"], kernelsPerChunk);
       builder.setFieldSize(bv["topBias"], normPadSize);
       builder.setFieldSize(bv["bottomBias"], normPadSize);
@@ -105,76 +137,81 @@ public:
            prevChunk < firstPrevChunk + inputChunksPerGroup;
            prevChunk++) {
       VertexRef wv = builder.addVertex("ConvWeightsFwdOnlyVertex");
-      builder.addToComputeSet(net.trainCS, wv);
-      builder.addToComputeSet(net.testCS, wv);
+      //builder.addToComputeSet(net.trainCS, wv);
+      //builder.addToComputeSet(net.testCS, wv);
       builder.setFieldSize(wv["weights"], kernelSize * kernelSize *
                                           prevLayersPerChunk * kernelsPerChunk);
 
       for (unsigned i = 0; i <= yDim + padding - kernelSize; i += stride) {
         for (unsigned j = 0; j <= xDim + padding - kernelSize; j += stride) {
           unsigned outIndex = (i/stride) * xDimOut + (j/stride);
-
+          VertexRef v;
+          v = builder.addVertex("ConvLayerFwdVertex");
           VertexRef gv = fwd[chunk * xDimOut * yDimOut + outIndex];;
           if (prevChunk == firstPrevChunk) {
             builder.setInitialFieldValue<NonLinearityType>(
                   gv["nonLinearityType"],
                   nonLinearityType);
-            builder.setInitialFieldValue<NormalizationType>(
-                  gv["normalizationType"],
-                  normalizationType);
             builder.setFieldSize(gv["zIn"], inputChunksPerGroup);
             builder.setFieldSize(gv["activationOut"], kernelsPerChunk);
-            builder.addEdge(net.fwd[0]["indexOut"], gv["indexIn"], true);
+            builder.addEdge(v["indexOut"], gv["indexIn"], pipelineReduction);
             builder.addEdge(net.stateField, gv["state"], false);
             builder.addEdge(bv["bias"], gv["bias"], false);
-            builder.addEdge(bv["topBias"], gv["bottomBias"], false);
-            builder.addEdge(bv["bottomBias"], gv["topBias"], false);
-            builder.setFieldSize(gv["bottomIn"], inputChunksPerGroup);
-            builder.setFieldSize(gv["topIn"], inputChunksPerGroup);
-            builder.setFieldSize(gv["top"], normPadSize);
-            builder.setFieldSize(gv["bottom"], normPadSize);
+            if (normalize) {
+              builder.setInitialFieldValue<NormalizationType>(
+                gv["normalizationType"],
+                normalizationType);
+              builder.addEdge(bv["topBias"], gv["bottomBias"], false);
+              builder.addEdge(bv["bottomBias"], gv["topBias"], false);
+              builder.setFieldSize(gv["bottomIn"], inputChunksPerGroup);
+              builder.setFieldSize(gv["topIn"], inputChunksPerGroup);
+              builder.setFieldSize(gv["top"], normPadSize);
+              builder.setFieldSize(gv["bottom"], normPadSize);
 
-            if (chunk == numChunks - 1) {
-              for (unsigned k = 0; k < inputChunksPerGroup; ++k) {
-                builder.addEdge(normPad["activationOut"],
-                                gv["topIn"][k],
-                                false);
+              if (chunk == numChunks - 1) {
+                for (unsigned k = 0; k < inputChunksPerGroup; ++k) {
+                  builder.addEdge(normPad["activationOut"],
+                                  gv["topIn"][k],
+                                  false);
+                }
+              }
+
+              if (chunk == 0) {
+                for (unsigned k = 0; k < inputChunksPerGroup; ++k) {
+                  builder.addEdge(normPad["activationOut"],
+                                  gv["bottomIn"][k],
+                                  false);
+                }
               }
             }
 
-            if (chunk == 0) {
-              for (unsigned k = 0; k < inputChunksPerGroup; ++k) {
-                builder.addEdge(normPad["activationOut"],
-                                gv["bottomIn"][k],
-                                false);
-              }
-            }
           }
 
-          VertexRef v;
-          v = builder.addVertex("ConvLayerFwdVertex");
           vs[outIndex] = v;
           builder.addEdge(v["zOut"],
                           gv["zIn"][prevChunk - firstPrevChunk],
-                          false);
+                          pipelineReduction);
 
-          if (chunk != 0) {
-            VertexRef prevGV = fwd[(chunk-1) * xDimOut * yDimOut + outIndex];
-            builder.addEdge(v["bottom"],
-                            prevGV["topIn"][prevChunk - firstPrevChunk],
-                            false);
+          if (normalize) {
+            if (chunk != 0) {
+              VertexRef prevGV = fwd[(chunk-1) * xDimOut * yDimOut + outIndex];
+              builder.addEdge(v["bottom"],
+                              prevGV["topIn"][prevChunk - firstPrevChunk],
+                              pipelineReduction);
+            }
+
+            if (chunk != numChunks - 1) {
+              VertexRef nextGV = fwd[(chunk+1) * xDimOut * yDimOut + outIndex];
+              builder.addEdge(v["top"],
+                              nextGV["bottomIn"][prevChunk - firstPrevChunk],
+                              pipelineReduction);
+            }
+
           }
 
-          if (chunk != numChunks - 1) {
-            VertexRef nextGV = fwd[(chunk+1) * xDimOut * yDimOut + outIndex];
-            builder.addEdge(v["top"],
-                            nextGV["bottomIn"][prevChunk - firstPrevChunk],
-                            false);
-          }
-
-          builder.setFieldSize(v["zOut"], kernelsPerChunk);
           builder.setFieldSize(v["top"], normPadSize);
           builder.setFieldSize(v["bottom"], normPadSize);
+          builder.setFieldSize(v["zOut"], kernelsPerChunk);
           builder.addToComputeSet(net.trainCS, v);
           builder.addToComputeSet(net.testCS, v);
 
@@ -206,26 +243,7 @@ public:
       }
     }
     }
-    unsigned numWeights =
-      (kernelSize * kernelSize * net.prevLayers) * numKernels;
 
-    unsigned paramsPerChunk =
-      (kernelSize * kernelSize * prevLayersPerChunk) * kernelsPerChunk +
-      kernelsPerChunk;
-
-    std::cout << "   -- Added convolutional layer:\n"
-              << "        Size: " << kernelSize << "x" << kernelSize << "\n"
-              << "        Stride: " << stride << "\n"
-              << "        Padding: " << padding << "\n"
-              << "        Input: " << xDim << "x" << yDim
-                     <<   "x" << net.prevLayers << "\n"
-              << "        Input groups: " << numInputGroups << "\n"
-              << "        Output: " << xDimOut << "x" << yDimOut
-                     <<   "x" << numKernels << "\n"
-              << "        Params: " << numWeights + numKernels << "\n"
-              << "        Num input chunks: " << net.prevChunks << "\n"
-              << "        Num output chunks: " << numChunks << "\n"
-              << "        Params per chunk: " << paramsPerChunk << "\n";
 
     net.xDim = xDimOut;
     net.yDim = yDimOut;

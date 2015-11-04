@@ -784,6 +784,57 @@ public:
 class ConvReductionVertex : public Vertex {
 public:
   NonLinearityType nonLinearityType;
+
+  Vector<Input<Vector<FPType>>> zIn;
+  Input<Vector<FPType>> bias;
+
+  Vector<FPType> activationOut;
+
+  Input<nn_state_t> state;
+  Input<int> indexIn;
+  int indexOut;
+
+  bool compute() {
+    if (state == INIT) {
+      indexOut = NOTHING_TO_PROCESS;
+      return true;
+    }
+
+    if (indexIn == NOTHING_TO_PROCESS ||
+        indexIn == DONE_PROCESSING) {
+      indexOut = indexIn;
+      return true;
+    }
+
+    for (unsigned i = 0; i < activationOut.size(); ++i) {
+      FPType sum = 0;
+      for (unsigned j = 0; j < zIn.size(); ++j) {
+        sum += zIn[j][i];
+      }
+      sum += bias[i];
+      activationOut[i] = nonlinearity(nonLinearityType, sum);
+    }
+
+    indexOut = indexIn;
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const  {
+    if (state == INIT ||
+        indexIn == NOTHING_TO_PROCESS ||
+        indexIn == DONE_PROCESSING)
+      return 5;
+
+    uint64_t cycles = 0;
+
+    cycles += activationOut.size() * (4 + zIn.size()/2);
+    return cycles;
+  }
+};
+
+class ConvReductionNormVertex : public Vertex {
+public:
+  NonLinearityType nonLinearityType;
   NormalizationType normalizationType;
 
   Vector<Input<Vector<FPType>>> zIn;
@@ -881,10 +932,12 @@ public:
 
     uint64_t cycles = 0;
 
-    cycles += activationOut.size() * (4 + zIn.size()*2);
-    cycles += top.size() * (4 + topIn.size()*2);
-    cycles += bottom.size() * (4 + bottomIn.size()*2);
-    cycles += activationOut.size() * (5 * 2 + 10);
+    cycles += activationOut.size() * (4 + zIn.size()/2);
+    if (normalizationType == NORMALIZATION_LR) {
+      cycles += top.size() * (4 + topIn.size()/2);
+      cycles += bottom.size() * (4 + bottomIn.size()/2);
+      cycles += activationOut.size() * (5 * 2 + 10);
+    }
     return cycles;
   }
 };
