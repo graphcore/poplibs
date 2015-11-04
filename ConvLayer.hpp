@@ -49,10 +49,11 @@ public:
 
     if (kernelsPerChunk == 0) {
       kernelsPerChunk = 1;
-    } else if (numKernels % kernelsPerChunk != 0) {
-      kernelsPerChunk = numKernels / ( numKernels / kernelsPerChunk + 1);
     }
 
+    while (numKernels % kernelsPerChunk != 0) {
+      kernelsPerChunk--;
+    }
     unsigned normPadSize = 2;
 
     unsigned numChunks = numKernels / kernelsPerChunk;
@@ -60,8 +61,8 @@ public:
     if (numChunks < numInputGroups)
       numChunks = numInputGroups;
 
-    if (numChunks % numInputGroups != 0) {
-      numChunks = numKernels / ( numKernels / numChunks + 1);
+    while (numChunks % numInputGroups != 0) {
+      numChunks++;
     }
 
     unsigned inputChunksPerGroup = net.prevChunks / numInputGroups;
