@@ -16,7 +16,7 @@ public:
   virtual bool providesLayeredOutput() {return true;}
 
   void addForward(Net &net)  {
-    GraphBuilder &builder = *net.graphBuilder;
+    Graph &graph = *net.graph;
     unsigned xDim = net.xDim;
     unsigned yDim = net.yDim;
     unsigned xDimOut = (xDim - kernelSize) / stride + 1;
@@ -30,17 +30,17 @@ public:
 
     for (unsigned i = 0; i <= yDim - kernelSize; i += stride) {
       for (unsigned j = 0; j <= xDim - kernelSize; j += stride) {
-        VertexRef v = builder.addVertex("MaxPoolFwdVertex");
+        VertexRef v = graph.addVertex("MaxPoolFwdVertex");
         fwd.push_back(v);
-        builder.addToComputeSet(net.trainCS, v);
-        builder.addToComputeSet(net.testCS, v);
+        graph.addToComputeSet(net.trainCS, v);
+        graph.addToComputeSet(net.testCS, v);
 
-        builder.addEdge(net.stateField, v["state"], false);
-        builder.setFieldSize(v["activationOut"], prevLayersPerChunk);
-        //builder.setFieldSize(v["zOut"], net.prevLayers);
-        builder.setFieldSize(v["activationIn"], kernelSize * kernelSize);
+        graph.addEdge(net.stateField, v["state"], false);
+        graph.setFieldSize(v["activationOut"], prevLayersPerChunk);
+        //graph.setFieldSize(v["zOut"], net.prevLayers);
+        graph.setFieldSize(v["activationIn"], kernelSize * kernelSize);
 
-        builder.addEdge(net.fwd[i * xDim + j]["indexOut"],
+        graph.addEdge(net.fwd[i * xDim + j]["indexOut"],
                         v["indexIn"],
                         true);
 
@@ -50,9 +50,9 @@ public:
             unsigned y = i + k1;
             unsigned x = j + k2;
             unsigned offset = prevChunk * xDim * yDim;
-            builder.addEdge(net.fwd[offset + y * xDim + x]["activationOut"],
-                            v["activationIn"][aIndex++],
-                            true);
+            graph.addEdge(net.fwd[offset + y * xDim + x]["activationOut"],
+                          v["activationIn"][aIndex++],
+                          true);
           }
         }
       }
@@ -75,7 +75,7 @@ public:
   }
 
   void addBackward(Net &net)  {
-    GraphBuilder &builder = *net.graphBuilder;
+    Graph &graph = *net.graph;
   }
 };
 

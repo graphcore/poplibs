@@ -33,7 +33,7 @@ public:
   virtual bool providesLayeredOutput() {return true;}
 
   void addForward(Net &net)  {
-    GraphBuilder &builder = *net.graphBuilder;
+    Graph &graph = *net.graph;
     unsigned xDim = net.xDim;
     unsigned yDim = net.yDim;
     bool normalize = normalizationType != NORMALIZATION_NONE;
@@ -70,14 +70,14 @@ public:
 
     unsigned inputChunksPerGroup = net.prevChunks / numInputGroups;
 
-    VertexRef padDataVertex = builder.addVertex("ConvPaddingVertex");
-    builder.setFieldSize(padDataVertex["activationOut"], net.prevLayers);
+    VertexRef padDataVertex = graph.addVertex("ConvPaddingVertex");
+    graph.setFieldSize(padDataVertex["activationOut"], net.prevLayers);
 
     VertexRef normPad;
     if (normalize) {
-      normPad = builder.addVertex("ConvPaddingVertex");
-      builder.setFieldSize(normPad["activationOut"],
-                           normPadSize * inputChunksPerGroup);
+      normPad = graph.addVertex("ConvPaddingVertex");
+      graph.setFieldSize(normPad["activationOut"],
+                         normPadSize * inputChunksPerGroup);
     }
 
     unsigned xDimOut = (xDim + padding - kernelSize) / stride + 1;
@@ -112,22 +112,22 @@ public:
     for (unsigned i = 0; i < xDimOut * yDimOut * numChunks; ++i) {
       VertexRef v;
       if (normalize)
-        v = builder.addVertex("ConvReductionNormVertex");
+        v = graph.addVertex("ConvReductionNormVertex");
       else
-        v = builder.addVertex("ConvReductionVertex");
+        v = graph.addVertex("ConvReductionVertex");
       fwd.push_back(v);
-      builder.addToComputeSet(net.trainCS, v);
-      builder.addToComputeSet(net.testCS, v);
+      graph.addToComputeSet(net.trainCS, v);
+      graph.addToComputeSet(net.testCS, v);
     }
 
 
     for (unsigned chunk = 0; chunk < numChunks; ++chunk) {
-      VertexRef bv = builder.addVertex("ConvBiasFwdOnlyVertex");
-      //builder.addToComputeSet(net.trainCS, bv);
-      //builder.addToComputeSet(net.testCS, bv);
-      builder.setFieldSize(bv["bias"], kernelsPerChunk);
-      builder.setFieldSize(bv["topBias"], normPadSize);
-      builder.setFieldSize(bv["bottomBias"], normPadSize);
+      VertexRef bv = graph.addVertex("ConvBiasFwdOnlyVertex");
+      //graph.addToComputeSet(net.trainCS, bv);
+      //graph.addToComputeSet(net.testCS, bv);
+      graph.setFieldSize(bv["bias"], kernelsPerChunk);
+      graph.setFieldSize(bv["topBias"], normPadSize);
+      graph.setFieldSize(bv["bottomBias"], normPadSize);
 
       unsigned group = chunk / (numChunks / numInputGroups);
 
@@ -136,51 +136,51 @@ public:
       for (unsigned prevChunk = firstPrevChunk;
            prevChunk < firstPrevChunk + inputChunksPerGroup;
            prevChunk++) {
-      VertexRef wv = builder.addVertex("ConvWeightsFwdOnlyVertex");
-      //builder.addToComputeSet(net.trainCS, wv);
-      //builder.addToComputeSet(net.testCS, wv);
-      builder.setFieldSize(wv["weights"], kernelSize * kernelSize *
+      VertexRef wv = graph.addVertex("ConvWeightsFwdOnlyVertex");
+      //graph.addToComputeSet(net.trainCS, wv);
+      //graph.addToComputeSet(net.testCS, wv);
+      graph.setFieldSize(wv["weights"], kernelSize * kernelSize *
                                           prevLayersPerChunk * kernelsPerChunk);
 
       for (unsigned i = 0; i <= yDim + padding - kernelSize; i += stride) {
         for (unsigned j = 0; j <= xDim + padding - kernelSize; j += stride) {
           unsigned outIndex = (i/stride) * xDimOut + (j/stride);
           VertexRef v;
-          v = builder.addVertex("ConvLayerFwdVertex");
+          v = graph.addVertex("ConvLayerFwdVertex");
           VertexRef gv = fwd[chunk * xDimOut * yDimOut + outIndex];;
           if (prevChunk == firstPrevChunk) {
-            builder.setInitialFieldValue<NonLinearityType>(
+            graph.setInitialFieldValue<NonLinearityType>(
                   gv["nonLinearityType"],
                   nonLinearityType);
-            builder.setFieldSize(gv["zIn"], inputChunksPerGroup);
-            builder.setFieldSize(gv["activationOut"], kernelsPerChunk);
-            builder.addEdge(v["indexOut"], gv["indexIn"], pipelineReduction);
-            builder.addEdge(net.stateField, gv["state"], false);
-            builder.addEdge(bv["bias"], gv["bias"], false);
+            graph.setFieldSize(gv["zIn"], inputChunksPerGroup);
+            graph.setFieldSize(gv["activationOut"], kernelsPerChunk);
+            graph.addEdge(v["indexOut"], gv["indexIn"], pipelineReduction);
+            graph.addEdge(net.stateField, gv["state"], false);
+            graph.addEdge(bv["bias"], gv["bias"], false);
             if (normalize) {
-              builder.setInitialFieldValue<NormalizationType>(
+              graph.setInitialFieldValue<NormalizationType>(
                 gv["normalizationType"],
                 normalizationType);
-              builder.addEdge(bv["topBias"], gv["bottomBias"], false);
-              builder.addEdge(bv["bottomBias"], gv["topBias"], false);
-              builder.setFieldSize(gv["bottomIn"], inputChunksPerGroup);
-              builder.setFieldSize(gv["topIn"], inputChunksPerGroup);
-              builder.setFieldSize(gv["top"], normPadSize);
-              builder.setFieldSize(gv["bottom"], normPadSize);
+              graph.addEdge(bv["topBias"], gv["bottomBias"], false);
+              graph.addEdge(bv["bottomBias"], gv["topBias"], false);
+              graph.setFieldSize(gv["bottomIn"], inputChunksPerGroup);
+              graph.setFieldSize(gv["topIn"], inputChunksPerGroup);
+              graph.setFieldSize(gv["top"], normPadSize);
+              graph.setFieldSize(gv["bottom"], normPadSize);
 
               if (chunk == numChunks - 1) {
                 for (unsigned k = 0; k < inputChunksPerGroup; ++k) {
-                  builder.addEdge(normPad["activationOut"],
-                                  gv["topIn"][k],
-                                  false);
+                  graph.addEdge(normPad["activationOut"],
+                                gv["topIn"][k],
+                                false);
                 }
               }
 
               if (chunk == 0) {
                 for (unsigned k = 0; k < inputChunksPerGroup; ++k) {
-                  builder.addEdge(normPad["activationOut"],
-                                  gv["bottomIn"][k],
-                                  false);
+                  graph.addEdge(normPad["activationOut"],
+                                gv["bottomIn"][k],
+                                false);
                 }
               }
             }
@@ -188,38 +188,38 @@ public:
           }
 
           vs[outIndex] = v;
-          builder.addEdge(v["zOut"],
-                          gv["zIn"][prevChunk - firstPrevChunk],
-                          pipelineReduction);
+          graph.addEdge(v["zOut"],
+                        gv["zIn"][prevChunk - firstPrevChunk],
+                        pipelineReduction);
 
           if (normalize) {
             if (chunk != 0) {
               VertexRef prevGV = fwd[(chunk-1) * xDimOut * yDimOut + outIndex];
-              builder.addEdge(v["bottom"],
-                              prevGV["topIn"][prevChunk - firstPrevChunk],
-                              pipelineReduction);
+              graph.addEdge(v["bottom"],
+                            prevGV["topIn"][prevChunk - firstPrevChunk],
+                            pipelineReduction);
             }
 
             if (chunk != numChunks - 1) {
               VertexRef nextGV = fwd[(chunk+1) * xDimOut * yDimOut + outIndex];
-              builder.addEdge(v["top"],
-                              nextGV["bottomIn"][prevChunk - firstPrevChunk],
-                              pipelineReduction);
+              graph.addEdge(v["top"],
+                            nextGV["bottomIn"][prevChunk - firstPrevChunk],
+                            pipelineReduction);
             }
 
           }
 
-          builder.setFieldSize(v["top"], normPadSize);
-          builder.setFieldSize(v["bottom"], normPadSize);
-          builder.setFieldSize(v["zOut"], kernelsPerChunk);
-          builder.addToComputeSet(net.trainCS, v);
-          builder.addToComputeSet(net.testCS, v);
+          graph.setFieldSize(v["top"], normPadSize);
+          graph.setFieldSize(v["bottom"], normPadSize);
+          graph.setFieldSize(v["zOut"], kernelsPerChunk);
+          graph.addToComputeSet(net.trainCS, v);
+          graph.addToComputeSet(net.testCS, v);
 
-          builder.addEdge(net.stateField, v["state"], false);
-          builder.setFieldSize(v["activationIn"], kernelSize * kernelSize);
-          builder.addEdge(net.fwd[i * xDim + j]["indexOut"],
-                          v["indexIn"],
-                          true);
+          graph.addEdge(net.stateField, v["state"], false);
+          graph.setFieldSize(v["activationIn"], kernelSize * kernelSize);
+          graph.addEdge(net.fwd[i * xDim + j]["indexOut"],
+                        v["indexIn"],
+                        true);
 
           unsigned aIndex = 0;
           for (unsigned k1 = 0; k1 < kernelSize; k1++) {
@@ -233,12 +233,12 @@ public:
                 unsigned offset = prevChunk * xDim * yDim;
                 src = net.fwd[offset + y * xDim + x]["activationOut"];
               }
-              builder.addEdge(src,
-                              v["activationIn"][aIndex++],
-                              true);
+              graph.addEdge(src,
+                            v["activationIn"][aIndex++],
+                            true);
             }
           }
-          builder.addEdge(wv["weights"], v["weights"], false);
+          graph.addEdge(wv["weights"], v["weights"], false);
         }
       }
     }
@@ -255,7 +255,7 @@ public:
   }
 
   void addBackward(Net &net)  {
-    GraphBuilder &builder = *net.graphBuilder;
+    Graph &graph = *net.graph;
     //TODO
   }
 };

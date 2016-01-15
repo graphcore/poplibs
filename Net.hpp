@@ -1,7 +1,6 @@
 #ifndef _net_hpp_
 #define _net_hpp_
 #include <poplar/GraphProgEnv.hpp>
-#include <poplar/GraphBuilder.hpp>
 #include <poplar/CPUEngine.hpp>
 #include <poplar/IPUModelEngine.hpp>
 #include <boost/random/normal_distribution.hpp>
@@ -119,7 +118,8 @@ public:
   std::unique_ptr<float[]> params;
 
   /* Poplar graph creation state. */
-  std::unique_ptr<GraphBuilder> graphBuilder;
+  std::unique_ptr<GraphProgEnv> env;
+  std::unique_ptr<Graph> graph;
   std::unique_ptr<EngineBuilder> engineBuilder;
   std::unique_ptr<Engine> engine;
   unsigned numTiles;
@@ -146,27 +146,32 @@ public:
 
   void initialize(DataSet &data, LossType lossType) {
     unsigned inputSize = data.dataSize;
-    GraphProgEnv env("obj/neural_net_graph.ppo", GraphProgFileType::Object);
-    graphBuilder = std::unique_ptr<GraphBuilder>(new GraphBuilder(env));
-    GraphBuilder &builder = *graphBuilder;
+    env =
+      std::unique_ptr<GraphProgEnv>(
+        new GraphProgEnv(
+          "obj/neural_net_graph.ppo",
+          GraphProgFileType::Object
+        )
+      );
+    graph = std::unique_ptr<Graph>(new Graph(*env));
 
     std::cerr << "Constructing graph\n";
 
     /* First, the global data vertices, compute sets and data arrays
        are created in the graph. */
-    numBatchesField = builder.addDataVertex("unsigned")["data"];
-    stateField = builder.addDataVertex("nn_state_t")["data"];
-    etaField = builder.addDataVertex(FPTypeStr)["data"];
+    numBatchesField = graph->addDataVertex("unsigned")["data"];
+    stateField = graph->addDataVertex("nn_state_t")["data"];
+    etaField = graph->addDataVertex(FPTypeStr)["data"];
 
-    daTrainingData = builder.createDataArray();
-    daTrainingLabels = builder.createDataArray();
-    daTestData = builder.createDataArray();
-    daTestLabels = builder.createDataArray();
-    daParams = builder.createDataArray();
+    daTrainingData = graph->createDataArray();
+    daTrainingLabels = graph->createDataArray();
+    daTestData = graph->createDataArray();
+    daTestLabels = graph->createDataArray();
+    daParams = graph->createDataArray();
 
-    trainCS = builder.createComputeSet();
-    testCS = builder.createComputeSet();
-    weightSyncCS = builder.createComputeSet();
+    trainCS = graph->createComputeSet();
+    testCS = graph->createComputeSet();
+    weightSyncCS = graph->createComputeSet();
 
     bool layeredInput = data.dim.size() == 3;
 
@@ -177,23 +182,23 @@ public:
     for (unsigned i = 0; i < inputSize; ++i) {
       VertexRef v;
       if (layeredInput) {
-        v = builder.addVertex("LayeredInputVertex");
-        builder.setFieldSize(v["activationOut"], data.dim[2]);
+        v = graph->addVertex("LayeredInputVertex");
+        graph->setFieldSize(v["activationOut"], data.dim[2]);
         prevLayers = data.dim[2];
         prevChunks = 1;
       } else {
-        v = builder.addVertex("InputVertex");
+        v = graph->addVertex("InputVertex");
         prevLayers = 0;
         prevChunks = 1;
       }
 
-      builder.addToComputeSet(trainCS, v);
-      builder.addToComputeSet(testCS, v);
-      builder.setFieldSize(v["data"], batchSize);
-      builder.addToDataArray(daTrainingData, v["data"]);
-      builder.addToDataArray(daTestData, v["data"]);
-      builder.setInitialFieldValue<unsigned>(v["batchSize"], batchSize);
-      builder.addEdge(stateField, v["state"], false);
+      graph->addToComputeSet(trainCS, v);
+      graph->addToComputeSet(testCS, v);
+      graph->setFieldSize(v["data"], batchSize);
+      graph->addToDataArray(daTrainingData, v["data"]);
+      graph->addToDataArray(daTestData, v["data"]);
+      graph->setInitialFieldValue<unsigned>(v["batchSize"], batchSize);
+      graph->addEdge(stateField, v["state"], false);
       fwd.push_back(v);
       inputLayer.push_back(v);
     }
@@ -215,26 +220,26 @@ public:
 
     /* The loss layer connects to the final hidden layer. */
     std::cerr << "-- Adding loss layer\n";
-    errorVertex = builder.addVertex("ErrorVertex");
-    builder.setInitialFieldValue<LossType>(errorVertex["lossType"], lossType);
-    builder.addEdge(stateField, errorVertex["state"], false);
-    builder.setInitialFieldValue<NonLinearityType>(
+    errorVertex = graph->addVertex("ErrorVertex");
+    graph->setInitialFieldValue<LossType>(errorVertex["lossType"], lossType);
+    graph->addEdge(stateField, errorVertex["state"], false);
+    graph->setInitialFieldValue<NonLinearityType>(
         errorVertex["nonLinearityType"],
         prevNonLinearityType);
-    builder.addToComputeSet(trainCS, errorVertex);
-    builder.addToComputeSet(testCS, errorVertex);
-    builder.addEdge(fwd[0]["indexOut"], errorVertex["indexIn"], true);
-    builder.setInitialFieldValue<unsigned>(errorVertex["batchSize"], batchSize);
-    builder.setFieldSize(errorVertex["deltaOut"], fwd.size());
-    builder.setFieldSize(errorVertex["probs"], fwd.size());
-    builder.setFieldSize(errorVertex["labels"], batchSize);
-    builder.addToDataArray(daTrainingLabels, errorVertex["labels"]);
-    builder.addToDataArray(daTestLabels, errorVertex["labels"]);
-    builder.setFieldSize(errorVertex["zIn"], fwd.size());
+    graph->addToComputeSet(trainCS, errorVertex);
+    graph->addToComputeSet(testCS, errorVertex);
+    graph->addEdge(fwd[0]["indexOut"], errorVertex["indexIn"], true);
+    graph->setInitialFieldValue<unsigned>(errorVertex["batchSize"], batchSize);
+    graph->setFieldSize(errorVertex["deltaOut"], fwd.size());
+    graph->setFieldSize(errorVertex["probs"], fwd.size());
+    graph->setFieldSize(errorVertex["labels"], batchSize);
+    graph->addToDataArray(daTrainingLabels, errorVertex["labels"]);
+    graph->addToDataArray(daTestLabels, errorVertex["labels"]);
+    graph->setFieldSize(errorVertex["zIn"], fwd.size());
     for (unsigned i = 0; i < fwd.size(); i++) {
-      builder.addEdge(fwd[i]["z"],
-                      errorVertex["zIn"][i],
-                      true);
+      graph->addEdge(fwd[i]["z"],
+                     errorVertex["zIn"][i],
+                     true);
       bwdDeltaOut.push_back(errorVertex["deltaOut"][i]);
       bwdIndexOut.push_back(errorVertex["indexOut"]);
     }
@@ -254,10 +259,10 @@ public:
 
     if (options.useIPUModel) {
       engineBuilder =
-        std::unique_ptr<EngineBuilder>(new IPUModelEngineBuilder(builder));
+        std::unique_ptr<EngineBuilder>(new IPUModelEngineBuilder(*env));
     } else {
       engineBuilder =
-        std::unique_ptr<EngineBuilder>(new CPUEngineBuilder(builder));
+        std::unique_ptr<EngineBuilder>(new CPUEngineBuilder(*env));
     }
 
     EngineBuilder &eb = *engineBuilder;
@@ -299,7 +304,7 @@ public:
 
     /* The parameters (i.e. weights and biases) data array is linked to
        an array of randomly created values based on a normal distribution. */
-    unsigned numParams = eb.dataArrayBufferSize(daParams) / sizeof(float);
+    unsigned numParams = graph->dataArrayBufferSize(daParams) / sizeof(float);
     params = std::unique_ptr<float[]>(new float[numParams]);
     unsigned seed = time(0);
     boost::variate_generator< boost::mt19937, boost::normal_distribution<> >
@@ -343,6 +348,7 @@ public:
       (char *) &data.testLabels[0],
       (char *) &data.testLabels[data.numTest]);
 
+    IPUModelEngineBuilder::P6TilePartitioner partitioner;
     if (options.useIPUModel) {
       IPUModelEngineBuilder *ipuEB =
         static_cast<IPUModelEngineBuilder *>(&eb);
@@ -351,14 +357,15 @@ public:
       ipuEB->setTilesPerIPU(1152/superTileDiv);
       ipuEB->setNumBytesPerTile(256*superTileDiv*1024);
       numTiles = ipuEB->getTilesPerIPU() * ipuEB->getNumIPUs();
+      ipuEB->setTilePartitioner(partitioner);
       ipuEB->setIPUExchangeImplementation(IPUModelEngineBuilder::OPTIMISTIC_WITH_MULTICAST);
 
-      std::cerr << builder.getNumVertices() << " vertices, "
+      std::cerr << graph->getNumVertices() << " vertices, "
                 << numTiles << " tiles.\n";
     }
 
     std::cerr << "Creating graph engine\n";
-    engine = eb.makeEngine();
+    engine = eb.makeEngine(*graph);
   }
 
   /* When a Net object is constructed the corrensponding poplar graph is
@@ -404,7 +411,7 @@ public:
       ipuEngine->report(std::cout);
       #if 0
       std::vector<unsigned> tileMapping = engine->getTileMapping();
-      for (unsigned i = 0; i < graphBuilder->getNumVertices(); ++i) {
+      for (unsigned i = 0; i < graph->getNumVertices(); ++i) {
         if (tileMapping[i] == 756)
           engine->dumpVertexInfo(i, std::cout);
       }
