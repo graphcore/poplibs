@@ -1,19 +1,23 @@
 #ifndef _net_hpp_
 #define _net_hpp_
-#include <poplar/GraphProgEnv.hpp>
-#include <poplar/GraphBuilder.hpp>
+#include <poplar/Graph.hpp>
 #include <poplar/CPUEngine.hpp>
 #include <poplar/IPUModelEngine.hpp>
-#include <boost/random/normal_distribution.hpp>
-#include <boost/random/mersenne_twister.hpp>
-#include <boost/random/variate_generator.hpp>
 #include <iostream>
 #include <chrono>
 #include <memory>
 #include <vector>
 #include "neural_net_common.h"
+#include <map>
 
 using namespace poplar;
+using namespace poplar::program;
+
+typedef enum DType {
+  FP16,
+  FP32
+} DType;
+
 
 typedef enum NetType {
   TrainingNet,
@@ -27,41 +31,166 @@ public:
   bool singleBatchProfile = false;
   unsigned numIPUs = 1;
   bool useSuperTiles = false;
+  unsigned numBatchesBetweenTest = 2500;
 };
-
-class Net;
 
 /* A data set full of test and training data along with its dimensions */
 class DataSet {
 public:
   std::unique_ptr<float[]> testData, trainingData;
-  std::unique_ptr<unsigned char[]> testLabels, trainingLabels;
+  std::unique_ptr<unsigned[]> testLabels, trainingLabels;
   unsigned dataSize, numTest, numTraining;
-  std::vector<unsigned> dim;
+  std::vector<std::size_t> dim;
 };
 
-/* The hidden layer class represents all non-input layers in the net.
+/* The layer class represents a single layer in the net.
  */
-class HiddenLayer {
+class Layer {
 public:
-  virtual void addForward(Net &net) = 0;
+  virtual void init(Graph &graph, Layer *prev, Layer *next,
+                    NetType netType, float eta, unsigned batchSize,
+                    const std::string &dType) = 0;
+  virtual Program initParams(Graph &graph) = 0;
+  virtual Program startBatch(Graph &graph) = 0;
+  virtual Program forward(Graph &graph, Layer *prev) = 0;
+  virtual Program backward(Graph &graph, Layer *prev, Layer *next) = 0;
+  virtual Program weightSync(Graph &graph) = 0;
+  virtual void describe(std::ostream &out) = 0;
+  virtual Tensor getFwdActivations() const = 0;
+  virtual Tensor getFwdZs() const = 0;
+  virtual NonLinearityType getNonLinearityType() const {
+    return NON_LINEARITY_NONE;
+  };
+  virtual Tensor getBwdErrors() const = 0;
+};
 
-  virtual void addBackward(Net &net) = 0;
+class InputLayer : public Layer {
+  DataSet &data;
+  Tensor out, z, isTraining;
+public:
+  InputLayer(DataSet &data, Tensor isTraining) :
+    data(data), isTraining(isTraining) {}
 
-  virtual bool requiresLayeredInput() = 0;
-  virtual bool providesLayeredOutput() = 0;
+  void init(Graph &graph, Layer *prev, Layer *next, NetType netType,
+            float eta, unsigned batchSize, const std::string &dType) {
+    out = graph.addTensor(dType, data.dim);
+    z = graph.addTensor(dType, data.dim);
+  }
+  Program initParams(Graph &graph) { return Sequence(); }
+  Program startBatch(Graph &graph) { return Sequence(); }
+  Program forward(Graph &graph, Layer *prev) {
+    size_t trainingDataSize = data.numTraining * data.dataSize;
+    size_t testDataSize = data.numTest * data.dataSize;
+    return Sequence();
+    #if 0
+    return IfProg(
+             isTraining,
+             Copy(out,
+                  &data.trainingData[0],
+                  &data.trainingData[trainingDataSize]),
+             Copy(out,
+                  &data.testData[0],
+                  &data.testData[testDataSize]));
+    #endif
+  }
+
+  Program backward(Graph &graph, Layer *prev, Layer *next) { return Sequence(); }
+  Program weightSync(Graph &graph) { return Sequence(); }
+  void describe(std::ostream &out) {}
+  Tensor getFwdActivations() const { return out; }
+  Tensor getFwdZs() const { return out; }
+  Tensor getBwdErrors() const { return {}; }
+};
+
+class LossLayer : public Layer {
+  DataSet &data;
+  LossType lossType;
+  Tensor errors, expected, loss, numCorrect, isTraining;
+  unsigned hNumCorrect;
+  std::string dType;
+  ComputeSet fwd;
+public:
+  LossLayer(DataSet &data, LossType lossType, Tensor isTraining) :
+    data(data), lossType(lossType), isTraining(isTraining) {}
+
+  void init(Graph &graph, Layer *prev, Layer *next, NetType netType,
+            float eta, unsigned batchSize, const std::string &dType) {
+    errors = graph.addTensor(dType, {prev->getFwdActivations().numElements()});
+    expected = graph.addTensor("unsigned", {1});
+    loss = graph.addTensor(dType, {1});
+    numCorrect = graph.addTensor("unsigned", {1});
+    this->dType = dType;
+    fwd = graph.createComputeSet();
+  }
+
+  void resetNumCorrect() {
+    hNumCorrect = 0;
+  }
+
+  unsigned getNumCorrect() {
+    return hNumCorrect;
+  }
+
+  Program initParams(Graph &graph) { return Sequence(); }
+  Program startBatch(Graph &graph) {
+    return Assign(numCorrect[0], 0);
+  }
+  Program forward(Graph &graph, Layer *prev) {
+    auto v = graph.addVertex(fwd, "CalcLoss",
+                             {{"zIn", prev->getFwdZs().flatten()},
+                              {"errorOut", errors},
+                              {"label", expected[0]},
+                              {"lossType", lossType},
+                              {"loss", loss[0]},
+                              {"numCorrect", numCorrect[0]}});
+    graph.setFieldSize(v["probs"], prev->getFwdActivations().numElements());
+    graph.setInitialValue(v["nonLinearityType"], prev->getNonLinearityType());
+    #if 0
+    Program copyLabelsProg =
+      Ifprog(isTraining,
+             Copy(expected,
+                  &data.trainingLabels[0],
+                  &data.trainingLabels[data.numTraining]),
+             Copy(expected,
+                  &data.testLabels[0],
+                  &data.testLabels[data.numTest]));
+    #endif
+    Program copyLabelsProg =
+      Copy(expected,
+           &data.testLabels[0],
+           &data.testLabels[data.numTest]);
+    return Sequence(Copy(numCorrect, &hNumCorrect),
+                    copyLabelsProg,
+                    Execute(fwd),
+                    Copy(&hNumCorrect, numCorrect));
+  }
+  Program backward(Graph &graph, Layer *prev, Layer *next) { return Sequence(); }
+  Program weightSync(Graph &graph) { return Sequence(); }
+  void describe(std::ostream &out) {}
+  Tensor getFwdActivations() const { return {}; }
+  Tensor getFwdZs() const { return {}; }
+  Tensor getBwdErrors() const { return errors; }
 };
 
 /* This utility function wraps a vector of normal pointers as unique_ptrs.
    It allows the hidden layer array to be initializes with an
    initializer list. */
-std::vector<std::unique_ptr<HiddenLayer>>
-makeHiddenLayers(std::vector<HiddenLayer *> vs)
+static std::vector<std::unique_ptr<Layer>>
+makeLayers(std::vector<Layer *> vs)
 {
-  std::vector<std::unique_ptr<HiddenLayer>> xs;
+  std::vector<std::unique_ptr<Layer>> xs;
   for (auto p: vs)
-    xs.push_back(std::unique_ptr<HiddenLayer>(p));
+    xs.push_back(std::unique_ptr<Layer>(p));
   return xs;
+}
+
+static std::string getDTypeString(DType dType) {
+  switch (dType) {
+  case FP32:
+    return "float";
+  case FP16:
+    return "short";
+  }
 }
 
 /* This class represent the entire network. */
@@ -72,276 +201,98 @@ public:
 
   unsigned batchSize;
   float eta;
-  std::vector<std::unique_ptr<HiddenLayer>> hiddenLayers;
+  std::vector<std::unique_ptr<Layer>> hiddenLayers;
 
-  /* This field references are parameters in the graph that can be
-     changed by the control program */
-  FieldRef numBatchesField;
-  FieldRef stateField;
-  FieldRef etaField;
-
-  /* Three compute sets since different vertices run during training, testing
-     and weight synchronization */
-  ComputeSetRef trainCS;
-  ComputeSetRef testCS;
-  ComputeSetRef weightSyncCS;
-
-  /* The following data arrays represent data to be copied into and out
-     of the network */
-  DataArrayRef daParams;  /* The parameters (weights and bias) */
-  DataArrayRef daTrainingData;
-  DataArrayRef daTrainingLabels;
-  DataArrayRef daTestData;
-  DataArrayRef daTestLabels;
-
-  /* These parts of the graph are made by the Net object. The hidden
-     layer vertices are created via the addForward and addBackward method
-     calls of the hidden layer objects. */
-  std::vector<VertexRef> inputLayer;
-  VertexRef errorVertex;
-
-  /* The following state is used when building up the graph.
-     Calling addForward or addBackward will read and update them which
-     allows each layer to pass information to the next layer when
-     building the graph. */
-  NonLinearityType prevNonLinearityType;
-  std::vector<VertexRef> fwd;
-  unsigned xDim, yDim;
-  unsigned prevLayers, prevChunks;
-
-  std::vector<FieldRef> bwdDeltaOut;
-  std::vector<FieldRef> bwdIndexOut;
-
-  /* The training and testing data needs to be copied in a different
-     layout to be copied into the graph correctly. */
-  std::unique_ptr<float[]> shuffledTrainingData;
-  std::unique_ptr<float[]> shuffledTestData;
-  std::unique_ptr<float[]> params;
-
-  /* Poplar graph creation state. */
-  std::unique_ptr<GraphBuilder> graphBuilder;
+  /* Poplar program creation state. */
+  std::unique_ptr<GraphProgEnv> env;
+  std::unique_ptr<Graph> graph;
+  std::unique_ptr<InputLayer> inputLayer;
+  std::unique_ptr<LossLayer> lossLayer;
   std::unique_ptr<EngineBuilder> engineBuilder;
   std::unique_ptr<Engine> engine;
-  unsigned numTiles;
 
-  /* This function shuffles data into a good layout to be transferred into
-     the graph.
-     The data is arranged into batches and each batch.
-  */
-  std::unique_ptr<float[]> shuffleData(const float *data,
-                                       unsigned numItems,
-                                       unsigned dataSize,
-                                       unsigned batchSize) {
-    auto shuffled = std::unique_ptr<float[]>(new float[numItems * dataSize]);
-    for (unsigned i = 0; i < numItems/batchSize; ++i) {
-      for (unsigned j = 0; j < batchSize; ++j) {
-        for (unsigned k = 0; k < dataSize; ++k) {
-          float x = data[i * batchSize * dataSize + j * dataSize + k];
-          shuffled[i * batchSize * dataSize + k * batchSize + j] = x;
-        }
-      }
-    }
-    return std::move(shuffled);
-  }
+  unsigned hIsTraining;
+  unsigned numTestBatches;
+
+  std::string dType;
 
   void initialize(DataSet &data, LossType lossType) {
     unsigned inputSize = data.dataSize;
-    GraphProgEnv env("obj/neural_net_graph.ppo", GraphProgFileType::Object);
-    graphBuilder = std::unique_ptr<GraphBuilder>(new GraphBuilder(env));
-    GraphBuilder &builder = *graphBuilder;
-
-    std::cerr << "Constructing graph\n";
-
-    /* First, the global data vertices, compute sets and data arrays
-       are created in the graph. */
-    numBatchesField = builder.addDataVertex("unsigned")["data"];
-    stateField = builder.addDataVertex("nn_state_t")["data"];
-    etaField = builder.addDataVertex(FPTypeStr)["data"];
-
-    daTrainingData = builder.createDataArray();
-    daTrainingLabels = builder.createDataArray();
-    daTestData = builder.createDataArray();
-    daTestLabels = builder.createDataArray();
-    daParams = builder.createDataArray();
-
-    trainCS = builder.createComputeSet();
-    testCS = builder.createComputeSet();
-    weightSyncCS = builder.createComputeSet();
-
-    bool layeredInput = data.dim.size() == 3;
-
-    /* Now the input layer is added to the graph. Both the
-       test and training data arrays are built up on top of the
-       input vertices. */
-    std::cerr << "-- Adding input layer\n";
-    for (unsigned i = 0; i < inputSize; ++i) {
-      VertexRef v;
-      if (layeredInput) {
-        v = builder.addVertex("LayeredInputVertex");
-        builder.setFieldSize(v["activationOut"], data.dim[2]);
-        prevLayers = data.dim[2];
-        prevChunks = 1;
-      } else {
-        v = builder.addVertex("InputVertex");
-        prevLayers = 0;
-        prevChunks = 1;
-      }
-
-      builder.addToComputeSet(trainCS, v);
-      builder.addToComputeSet(testCS, v);
-      builder.setFieldSize(v["data"], batchSize);
-      builder.addToDataArray(daTrainingData, v["data"]);
-      builder.addToDataArray(daTestData, v["data"]);
-      builder.setInitialFieldValue<unsigned>(v["batchSize"], batchSize);
-      builder.addEdge(stateField, v["state"], false);
-      fwd.push_back(v);
-      inputLayer.push_back(v);
+    numTestBatches = data.numTest / batchSize;
+    std::string obj;
+    if (dType == "float") {
+      obj = "obj/neural_net_graph32.ppo";
+    } else {
+      obj = "obj/neural_net_graph16.ppo";
     }
+    std::cout << dType << "\n";
+    env = std::unique_ptr<GraphProgEnv>(
+      new GraphProgEnv(obj, GraphProgFileType::Object));
 
-    if (data.dim.size() >= 2) {
-      xDim = data.dim[0];
-      yDim = data.dim[1];
-    }
+    graph = std::unique_ptr<Graph>(new Graph(*env));
+    std::cerr << "Constructing program\n";
+    Tensor isTraining = graph->addTensor("unsigned", {1});
+    inputLayer = std::unique_ptr<InputLayer>(
+      new InputLayer(data, isTraining));
+    lossLayer = std::unique_ptr<LossLayer>(
+      new LossLayer(data, lossType, isTraining));
+    auto initParamsProg = Sequence();
+    auto startBatchProg = Sequence();
+    auto fwdProg = Sequence();
+    auto bwdProg = Sequence();
+    auto weightSyncProg = Sequence();
 
-    /* The hidden layers are added in order. Each layer
-       will use and then update
-       the 'fwd' and 'prevNonLinearityType' fields of this
-       object. */
-    prevNonLinearityType = NON_LINEARITY_NONE;
+    Layer *first = &**hiddenLayers.begin();
+    inputLayer->init(*graph, 0, first, netType, eta, batchSize, dType);
+    startBatchProg.add(inputLayer->startBatch(*graph));
+    fwdProg.add(inputLayer->forward(*graph, 0));
+
+    initParamsProg.add(inputLayer->initParams(*graph));
+
     for (unsigned i = 0; i < hiddenLayers.size(); ++i) {
-      std::cerr << "-- Adding forward layer " << i << "\n";
-      hiddenLayers[i]->addForward(*this);
+      Layer *prev = (i == 0) ? &*inputLayer : &*hiddenLayers[i-1];
+      Layer *next = (i == hiddenLayers.size() - 1) ?
+                          &*lossLayer :
+                          &*hiddenLayers[i+1];
+      hiddenLayers[i]->init(*graph, prev, next, netType, eta, batchSize, dType);
+      startBatchProg.add(hiddenLayers[i]->startBatch(*graph));
+      fwdProg.add(hiddenLayers[i]->forward(*graph, prev));
+      initParamsProg.add(hiddenLayers[i]->initParams(*graph));
+      std::cout << "-- Layer " << i << "\n";
+      hiddenLayers[i]->describe(std::cout);
     }
 
-    /* The loss layer connects to the final hidden layer. */
-    std::cerr << "-- Adding loss layer\n";
-    errorVertex = builder.addVertex("ErrorVertex");
-    builder.setInitialFieldValue<LossType>(errorVertex["lossType"], lossType);
-    builder.addEdge(stateField, errorVertex["state"], false);
-    builder.setInitialFieldValue<NonLinearityType>(
-        errorVertex["nonLinearityType"],
-        prevNonLinearityType);
-    builder.addToComputeSet(trainCS, errorVertex);
-    builder.addToComputeSet(testCS, errorVertex);
-    builder.addEdge(fwd[0]["indexOut"], errorVertex["indexIn"], true);
-    builder.setInitialFieldValue<unsigned>(errorVertex["batchSize"], batchSize);
-    builder.setFieldSize(errorVertex["deltaOut"], fwd.size());
-    builder.setFieldSize(errorVertex["probs"], fwd.size());
-    builder.setFieldSize(errorVertex["labels"], batchSize);
-    builder.addToDataArray(daTrainingLabels, errorVertex["labels"]);
-    builder.addToDataArray(daTestLabels, errorVertex["labels"]);
-    builder.setFieldSize(errorVertex["zIn"], fwd.size());
-    for (unsigned i = 0; i < fwd.size(); i++) {
-      builder.addEdge(fwd[i]["z"],
-                      errorVertex["zIn"][i],
-                      true);
-      bwdDeltaOut.push_back(errorVertex["deltaOut"][i]);
-      bwdIndexOut.push_back(errorVertex["indexOut"]);
-    }
+    Layer *last = &**(hiddenLayers.end() - 1);
+    lossLayer->init(*graph, last, 0, netType, eta, batchSize, dType);
+    startBatchProg.add(lossLayer->startBatch(*graph));
+    fwdProg.add(lossLayer->forward(*graph, last));
+    initParamsProg.add(lossLayer->initParams(*graph));
 
-    /* Finally the backward pass vertices are adding in reverse
-       layer order.
-       Each layer will use and then update the 'bwdDeltaOut' and
-       'bwdIndexOut' fields of this object. */
     if (netType == TrainingNet) {
+      bwdProg.add(lossLayer->backward(*graph, last, 0));
+      weightSyncProg.add(lossLayer->weightSync(*graph));
       for (int i = hiddenLayers.size() - 1; i >= 0; --i) {
-        std::cerr << "-- Adding backward layer " << i << "\n";
-        hiddenLayers[i]->addBackward(*this);
+        Layer *prev = (i == 0) ? &*inputLayer : &*hiddenLayers[i-1];
+        Layer *next = (i == hiddenLayers.size() - 1) ?
+                          &*lossLayer :
+                          &*hiddenLayers[i+1];
+        bwdProg.add(hiddenLayers[i]->backward(*graph, prev, next));
+        weightSyncProg.add(hiddenLayers[i]->weightSync(*graph));
       }
+      bwdProg.add(inputLayer->backward(*graph, 0, first));
+      weightSyncProg.add(inputLayer->weightSync(*graph));
     }
 
-    /* Now that the graph is constructed, a poplar engine is created. */
-
+    /* Now that the program is constructed, a poplar engine is created. */
     if (options.useIPUModel) {
       engineBuilder =
-        std::unique_ptr<EngineBuilder>(new IPUModelEngineBuilder(builder));
+        std::unique_ptr<EngineBuilder>(new IPUModelEngineBuilder(*env));
     } else {
       engineBuilder =
-        std::unique_ptr<EngineBuilder>(new CPUEngineBuilder(builder));
+        std::unique_ptr<EngineBuilder>(new CPUEngineBuilder(*env));
     }
 
     EngineBuilder &eb = *engineBuilder;
-
-    /* All the data arrays, compute sets and parameter fields need to be
-       passed to the control program. */
-    if (netType == TrainingNet) {
-      eb.setControlProgram("doTraining");
-      eb.setControlProgramArg(0, trainCS);
-      eb.setControlProgramArg(1, testCS);
-      eb.setControlProgramArg(2, weightSyncCS);
-      eb.setControlProgramArg(3, stateField);
-      eb.setControlProgramArg(4, daParams);
-      eb.setControlProgramArg(5, daTrainingData);
-      eb.setControlProgramArg(6, daTrainingLabels);
-      eb.setControlProgramArg(7, daTestData);
-      eb.setControlProgramArg(8, daTestLabels);
-      eb.setControlProgramArg<unsigned>(9, batchSize);
-      eb.setControlProgramArg(10, numBatchesField);
-      eb.setControlProgramArg(11, errorVertex["numCorrect"]);
-      eb.setControlProgramArg(12, data.numTest / batchSize);
-      eb.setControlProgramArg(13, 500);
-      eb.setControlProgramArg<bool>(14, options.singleBatchProfile);
-    } else {
-      eb.setControlProgram("doTest");
-      eb.setControlProgramArg(0, trainCS);
-      eb.setControlProgramArg(1, stateField);
-      eb.setControlProgramArg(2, daParams);
-      eb.setControlProgramArg(3, daTestData);
-      eb.setControlProgramArg(4, daTestLabels);
-      eb.setControlProgramArg<unsigned>(5, batchSize);
-      eb.setControlProgramArg(6, numBatchesField);
-      eb.setControlProgramArg(7, errorVertex["numCorrect"]);
-      eb.setControlProgramArg(8, data.numTest / batchSize);
-      eb.setControlProgramArg<bool>(9, options.singleBatchProfile);
-    }
-
-
-
-    /* The parameters (i.e. weights and biases) data array is linked to
-       an array of randomly created values based on a normal distribution. */
-    unsigned numParams = eb.dataArrayBufferSize(daParams) / sizeof(float);
-    params = std::unique_ptr<float[]>(new float[numParams]);
-    unsigned seed = time(0);
-    boost::variate_generator< boost::mt19937, boost::normal_distribution<> >
-      generator(boost::mt19937(seed), boost::normal_distribution<>(0, 0.01));
-    for (unsigned i = 0; i < numParams; ++i)
-      params[i] = generator();
-    eb.linkDataArrayToBuffer(daParams, (char *) &params[0]);
-
-
-    /* Link the training data array to the shuffled training data on the
-       host. */
-    shuffledTrainingData = shuffleData(&data.trainingData[0],
-                                       data.numTraining,
-                                       inputSize,
-                                       batchSize);
-    eb.linkDataArrayToCircularBuffer(
-      daTrainingData,
-      (char *) &shuffledTrainingData[0],
-      (char *) &shuffledTrainingData[data.numTraining * inputSize]);
-
-    /* Link the training labels to the correct array on the host. */
-    eb.linkDataArrayToCircularBuffer(
-      daTrainingLabels,
-      (char *) &data.trainingLabels[0],
-      (char *) &data.trainingLabels[data.numTraining]);
-
-    /* Link the test data array to the shuffled test data on the
-       host. */
-    shuffledTestData = shuffleData(&data.testData[0],
-                                   data.numTest,
-                                   inputSize,
-                                   batchSize);
-    eb.linkDataArrayToCircularBuffer(
-      daTestData,
-      (char *) &shuffledTestData[0],
-      (char *) &shuffledTestData[data.numTest * inputSize]);
-
-    /* Link the test labels to the correct array on the host. */
-    eb.linkDataArrayToCircularBuffer(
-      daTestLabels,
-      (char *) &data.testLabels[0],
-      (char *) &data.testLabels[data.numTest]);
 
     if (options.useIPUModel) {
       IPUModelEngineBuilder *ipuEB =
@@ -350,67 +301,179 @@ public:
       unsigned superTileDiv = options.useSuperTiles ? 4 : 1;
       ipuEB->setTilesPerIPU(1152/superTileDiv);
       ipuEB->setNumBytesPerTile(256*superTileDiv*1024);
-      numTiles = ipuEB->getTilesPerIPU() * ipuEB->getNumIPUs();
-      ipuEB->setIPUExchangeImplementation(IPUModelEngineBuilder::OPTIMISTIC_WITH_MULTICAST);
+      unsigned numTiles = ipuEB->getTilesPerIPU() * ipuEB->getNumIPUs();
+      //      ipuEB->setIPUExchangeImplementation(IPUModelEngineBuilder::OPTIMISTIC_WITH_MULTICAST);
+      ipuEB->setIPUExchangeImplementation(IPUModelEngineBuilder::BARE_NAKED_WITH_MULTICAST);
+      ipuEB->setCausalLayerSchedulingAlgorithm(IPUModelEngineBuilder::ASAP);
+      ipuEB->setNumWorkerContexts(1);
 
-      std::cerr << builder.getNumVertices() << " vertices, "
-                << numTiles << " tiles.\n";
+      IPUModelEngineBuilder::TileMapping mapping(*graph);
+      std::vector <Tensor> tensors = graph->getTensors();
+      std::vector <ComputeSet> computeSets = graph->getComputeSets();
+
+      
+      for (Tensor t : tensors) {
+        std::size_t size = t.numElements();
+        double elemsPerTile = (double) size / numTiles;
+        double acc = 0;
+        unsigned index = 0;
+        for (unsigned j = 0; j < numTiles; ++j) {
+          acc += elemsPerTile;
+          unsigned thisTileElements = acc;
+          if (j == numTiles - 1)
+            thisTileElements = size - index;
+          if (thisTileElements < 1)
+            continue;
+          acc -= thisTileElements;
+          if (index + thisTileElements > size)
+            thisTileElements = size - index;
+          if (thisTileElements) {
+            mapping.setMapping(t.flatten()
+                                .slice(index, index + thisTileElements),
+                               j);
+            index += thisTileElements;
+          }
+          if (index == size)
+            break;
+        }
+      }
+
+      for (ComputeSet c : computeSets) {
+        auto cs = graph->getComputeSet(c);
+        unsigned tile = 0;
+        std::size_t size = cs.size();
+        double vsPerTile = (double) size / numTiles;
+        double acc = 0;
+        unsigned index = 0;
+        for (unsigned j = 0; j < numTiles; ++j) {
+          acc += vsPerTile;
+          unsigned vsThisTile = acc;
+          acc -= vsThisTile;
+          if (index + vsThisTile > size)
+            vsThisTile = size - index;
+          if (j == numTiles - 1) {
+            vsThisTile = size - index;
+          }
+          if (vsThisTile) {
+            for (unsigned i = index; i < index + vsThisTile; ++i) {
+              mapping.setMapping(cs[i], j);
+            }
+            index += vsThisTile;
+          }
+          if (index == size)
+            break;
+        }
+      }
+      IPUModelEngineBuilder::UserTilePartitioner p(mapping);
+      ipuEB->setTilePartitioner(p);
+#if 0
+      ipuEB->setGlobalExchangeConstraints({
+        IPUModelEngineBuilder::GlobalExchangeConstraint(140*1024*1024*1024LL*1152LL,
+          {IPUModelEngineBuilder::GlobalExchangeFlow(0,1)}),
+        IPUModelEngineBuilder::GlobalExchangeConstraint(140*1024*1024*1024LL*1152LL,
+          {IPUModelEngineBuilder::GlobalExchangeFlow(1,0)}),
+          });
+#endif
     }
 
-    std::cerr << "Creating graph engine\n";
-    engine = eb.makeEngine();
+    hIsTraining = (netType == TrainingNet);
+    std::cerr << "Creating engine\n";
+    auto prog = Sequence();
+    prog.add(Copy(isTraining, &hIsTraining));
+    prog.add(startBatchProg);
+    auto doBatchProg = Sequence();
+    doBatchProg.add(fwdProg);
+    if (netType == TrainingNet) {
+      doBatchProg.add(bwdProg);
+      #if 0
+      doBatchProg->add(ifprog(isTraining,
+                               *bwdProg,
+                               *Sequence()));
+      #endif
+    }
+    unsigned repeatSize = options.singleBatchProfile ? 1 : batchSize;
+    prog.add(Repeat(repeatSize, doBatchProg));
+    if (netType == TrainingNet) {
+      #if 0
+      prog.add(ifprog(isTraining,*weightSyncProg,*Sequence()));
+      #endif
+    }
+    engine = eb.makeEngine(*graph, {&initParamsProg, &prog});
   }
 
   /* When a Net object is constructed the corrensponding poplar graph is
      made */
   Net(DataSet &data, unsigned batchSize,
-      std::vector<std::unique_ptr<HiddenLayer>> &hiddenLayers,
+      std::vector<std::unique_ptr<Layer>> &hiddenLayers,
       LossType lossType,
       float learningRate,
       NetType netType,
+      DType dType,
       NetOptions options = NetOptions()) : netType(netType), options(options),
-                         batchSize(batchSize),
+                                           batchSize(batchSize),
                          hiddenLayers(std::move(hiddenLayers)),
-                         eta(learningRate) {
+                         eta(learningRate),
+                         dType(getDTypeString(dType))
+      {
     initialize(data, lossType);
   }
 
   Net(DataSet &data, unsigned batchSize,
-      std::vector<std::unique_ptr<HiddenLayer>> &&hiddenLayers,
+      std::vector<std::unique_ptr<Layer>> &&hiddenLayers,
       LossType lossType,
       float learningRate,
       NetType netType,
+      DType dType,
       NetOptions options = NetOptions()) : netType(netType), options(options),
                          batchSize(batchSize),
                          hiddenLayers(std::move(hiddenLayers)),
-                         eta(learningRate) {
+                         eta(learningRate),
+                         dType(getDTypeString(dType))
+      {
     initialize(data, lossType);
   }
 
   void run(unsigned numBatches) {
     /* All this method needs to do is set the relevant parameters and
        run the control program. */
-    engine->setValue<float>(etaField, eta);
-    engine->setValue<unsigned>(numBatchesField, numBatches);
-    std::cerr << "Running graph program\n";
-
-
+    std::cerr << "Running program\n";
     if (options.doComputation) {
-      engine->run();
+      if (netType == TrainingNet) {
+        engine->run(0); // initialize params
+        for (unsigned i = 0; i < numBatches; i++) {
+          if (!options.singleBatchProfile &&
+              i % options.numBatchesBetweenTest == 0) {
+            hIsTraining = 0;
+            lossLayer->resetNumCorrect();
+            for (unsigned j = 0; j < numTestBatches; j++) {
+              engine->run(1);
+            }
+            float numCorrect = lossLayer->getNumCorrect();
+            unsigned numTests = (numTestBatches * batchSize);
+            float percentCorrect = 100 * numCorrect / numTests;
+            std::cout << "--- Accuracy after " << i << " batches = "
+                      << percentCorrect << "%\n";
+          }
+          hIsTraining = 1;
+          engine->run(1);
+        }
+      } else {
+        hIsTraining = 0;
+        engine->run(0);
+        lossLayer->resetNumCorrect();
+        for (unsigned i = 0; i < numBatches; i++) {
+          engine->run(1);
+        }
+        float numCorrect = lossLayer->getNumCorrect();
+        unsigned numTests = (numTestBatches * batchSize);
+        float percentCorrect = 100 * numCorrect / numTests;
+        std::cout << "--- Accuracy = " << percentCorrect << "%\n";
+      }
     }
-
     if (options.useIPUModel) {
       IPUModelEngine *ipuEngine = static_cast<IPUModelEngine *>(&*engine);
       ipuEngine->report(std::cout);
-      #if 0
-      std::vector<unsigned> tileMapping = engine->getTileMapping();
-      for (unsigned i = 0; i < graphBuilder->getNumVertices(); ++i) {
-        if (tileMapping[i] == 756)
-          engine->dumpVertexInfo(i, std::cout);
-      }
-      #endif
     }
-
   }
 
 };

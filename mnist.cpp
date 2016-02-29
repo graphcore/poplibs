@@ -13,10 +13,10 @@ static int reverseInt(int i) {
   return ((int) ch1 << 24) + ((int) ch2 << 16) + ((int) ch3 << 8) + ch4;
 }
 
-std::unique_ptr<unsigned char[]> readMNISTLabels(int numberOfImages,
+std::unique_ptr<unsigned[]> readMNISTLabels(int numberOfImages,
                                             const char *fname) {
   auto arr =
-    std::unique_ptr<unsigned char[]>(new unsigned char[numberOfImages]);
+    std::unique_ptr<unsigned[]>(new unsigned[numberOfImages]);
   std::ifstream file(fname,std::ios::binary);
   if (file.is_open()) {
     int magic_number = 0;

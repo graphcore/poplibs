@@ -1,198 +1,112 @@
 #ifndef _fully_connected_layer_hpp_
 #define _fully_connected_layer_hpp_
 #include "Net.hpp"
+#include <boost/random/normal_distribution.hpp>
+#include <boost/random/mersenne_twister.hpp>
+#include <boost/random/variate_generator.hpp>
 
-class FullyConnectedLayer : public HiddenLayer {
+class FullyConnectedLayer : public Layer {
 public:
-  unsigned size;
-  std::vector<VertexRef> fwd, bwd, weightSyncVertices, prev, biasVertices;
-  std::vector<VertexRef> paramGatherVertices;
-  unsigned numParamGathers = 20;
-  NonLinearityType nonLinearityType, prevNonLinearityType;
+  std::size_t size, prevSize;
+  NonLinearityType nonLinearityType;
+
+  Tensor weights, bwdWeights, z,
+    activations, errors, activationRecord, errorRecord,
+    actRecordIndex, errorRecordIndex;
+
+  std::unique_ptr<float []> hWeights;
+
+  NetType netType;
+  float eta;
+  unsigned batchSize;
+  std::string dType;
 
   FullyConnectedLayer(unsigned size,
                       NonLinearityType nonLinearityType) :
     size(size),
     nonLinearityType(nonLinearityType) {
-    if (numParamGathers > size)
-      numParamGathers = size;
-
-    if (size % numParamGathers != 0) {
-      numParamGathers = size / (size/numParamGathers + 1);
-    }
   }
 
-  virtual bool requiresLayeredInput() {return false;}
-  virtual bool providesLayeredOutput() {return false;}
+  Tensor getFwdActivations() const {
+    return activations;
+  }
 
-  void addForward(Net &net)  {
-    GraphBuilder &builder = *net.graphBuilder;
-    prev = net.fwd;
-    unsigned prevSize = prev.size();
-    prevNonLinearityType = net.prevNonLinearityType;
-    net.prevNonLinearityType = nonLinearityType;
+  Tensor getFwdZs() const {
+    return z;
+  }
 
+  Tensor getBwdErrors() const {
+    return errors;
+  }
 
-    VertexRef gatherVertex;
-    if (net.prevLayers) {
-      prevSize  = prevSize * net.prevLayers / net.prevChunks;
-      gatherVertex = builder.addVertex("InnerProductFwdLayeredGatherVertex");
-    } else {
-      gatherVertex = builder.addVertex("InnerProductFwdGatherVertex");
-    }
-    builder.setFieldSize(gatherVertex["activationOut"], prevSize);
-    builder.addEdge(net.stateField, gatherVertex["state"], false);
-    builder.addToComputeSet(net.trainCS, gatherVertex);
-    builder.addToComputeSet(net.testCS, gatherVertex);
-    builder.setFieldSize(gatherVertex["activationIn"], prev.size());
-    builder.addEdge(prev[0]["indexOut"], gatherVertex["indexIn"], true);
-    for (unsigned j = 0; j < prev.size(); j++) {
-      builder.addEdge(prev[j]["activationOut"],
-                      gatherVertex["activationIn"][j],
-                      true);
-    }
+  NonLinearityType getNonLinearityType() const {
+    return nonLinearityType;
+  }
 
-    VertexRef vCurParamGather;
-    for (unsigned i = 0; i < size; ++i) {
-      if (net.netType == TrainingNet &&
-          i % (size/numParamGathers) == 0) {
-        VertexRef v = builder.addVertex("InnerProductParamsGatherVertex");
-        paramGatherVertices.push_back(v);
-        builder.addToComputeSet(net.weightSyncCS, v);
-        builder.setFieldSize(v["weightsIn"], prevSize);
-        builder.setFieldSize(v["weightsOut"], prevSize);
-        vCurParamGather = v;
-      }
-
-      VertexRef v = builder.addVertex("InnerProductFwdVertex");
-      builder.addEdge(net.stateField, v["state"], false);
-      builder.addToComputeSet(net.trainCS, v);
-      builder.addToComputeSet(net.testCS, v);
-      fwd.push_back(v);
-      builder.setInitialFieldValue<NonLinearityType>(v["nonLinearityType"],
-                                                     nonLinearityType);
-
-      builder.addEdge(prev[0]["indexOut"], v["indexIn"], true);
-      builder.addEdge(gatherVertex["activationOut"],
-                      v["activationIn"],
-                      false);
-
-      if (net.netType == TrainingNet) {
-        VertexRef pv = builder.addVertex("InnerProductParamsVertex");
-        weightSyncVertices.push_back(pv);
-        builder.addEdge(net.stateField, pv["state"], false);
-        builder.addToComputeSet(net.weightSyncCS, pv);
-        builder.setFieldSize(pv["weightsOut"], prevSize);
-        VertexRef paramsGatherVertex = vCurParamGather;
-        builder.addEdge(paramsGatherVertex["weightsOut"], pv["weightsIn"],
-                        false);
-        builder.addEdge(pv["weightsOut"], v["weights"], false);
-        builder.addEdge(pv["biasOut"], v["bias"], false);
-        builder.setInitialFieldValue<unsigned>(pv["myRank"],
-                                               i % (size / numParamGathers));
-      } else {
-        VertexRef pv = builder.addVertex("InnerProductParamsFwdOnlyVertex");
-        builder.addToComputeSet(net.trainCS, pv);
-        builder.addToComputeSet(net.testCS, pv);
-        builder.addEdge(pv["weights"], v["weights"], false);
-        builder.addEdge(pv["bias"], v["bias"], false);
-        builder.setFieldSize(pv["weights"], prevSize);
-        builder.addToDataArray(net.daParams, pv["weights"]);
-        builder.addToDataArray(net.daParams, pv["bias"]);
-      }
-
-      if (net.netType == TrainingNet && i < prevSize) {
-        VertexRef bv = builder.addVertex("InnerProductBwdVertex");
-        bwd.push_back(bv);
-      }
-    }
-
-    if (net.netType == TrainingNet) {
-      for (unsigned i = size; i < prevSize; ++i) {
-        VertexRef bv = builder.addVertex("InnerProductBwdVertex");
-        bwd.push_back(bv);
-      }
-    }
-
-    std::cout << "   -- Added fully connected layer:\n"
-              << "        Input: "  << prevSize << "\n"
+  void describe(std::ostream &out) {
+    std::cout << "   -- Fully connected layer:\n"
+              << "        Input: "  << weights.dim(1)-1 << "\n"
               << "        Output: " << size << "\n"
-              << "        Params: " << size * (prevSize + 1) << "\n";
-
-    net.fwd = fwd;
-    net.prevLayers = 0;
+              << "        Params: " << weights.numElements() << "\n";
   }
 
-  void addBackward(Net &net)  {
-    GraphBuilder &builder = *net.graphBuilder;
-    unsigned prevSize = prev.size();
-    std::vector<FieldRef> bwdDeltaOut, bwdIndexOut;
+  void init(Graph &graph, Layer *prev, Layer *next, NetType netType,
+            float eta, unsigned batchSize, const std::string &dType) {
+    this->netType = netType;
+    this->eta = eta;
+    this->batchSize = batchSize;
+    this->dType = dType;
+    prevSize = prev->getFwdActivations().numElements();
+    weights = graph.addTensor(dType, {size, prevSize + 1});
 
-    VertexRef gatherVertex = builder.addVertex("InnerProductBwdGatherVertex");
-    builder.addEdge(net.stateField, gatherVertex["state"], false);
-    builder.addToComputeSet(net.trainCS, gatherVertex);
-    builder.setFieldSize(gatherVertex["deltaIn"], size);
-    builder.setFieldSize(gatherVertex["deltaOut"], size);
-    builder.addEdge(net.bwdIndexOut[0], gatherVertex["indexIn"], true);
-    for (unsigned j = 0; j < size; j++) {
-      builder.addEdge(net.bwdDeltaOut[j],
-                      gatherVertex["deltaIn"][j],
-                      true);
+    z = graph.addTensor(dType, {size});
+    activations = graph.addTensor(dType, {size});
+    if (netType == TrainingNet) {
+      errors = graph.addTensor(dType, {prevSize});
+      activationRecord = graph.addTensor(dType, {prevSize, batchSize});
+      actRecordIndex = graph.addTensor("unsigned", {1});
+      errorRecord = graph.addTensor(dType, {size, batchSize});
+      errorRecordIndex = graph.addTensor("unsigned", {1});
+      bwdWeights = graph.addTensor(dType, {prevSize + 1, size});
     }
+    hWeights = std::unique_ptr<float[]>(new float[(prevSize+1) * size]);
+    unsigned seed = time(0);
+    boost::variate_generator< boost::mt19937, boost::normal_distribution<> >
+      generator(boost::mt19937(seed), boost::normal_distribution<>(0, 1));
+    for (unsigned i = 0; i < (prevSize+1)*size; ++i)
+      hWeights[i] = generator();
+  }
 
-    for (unsigned i = 0; i < prevSize; i++) {
-      VertexRef v = bwd[i];
-      builder.addEdge(net.stateField, v["state"], false);
-      builder.addEdge(net.etaField, v["eta"], false);
-      builder.addToComputeSet(net.trainCS, v);
+  Program initParams(Graph &graph) {
+    return Sequence();
+  }
 
-      bwdDeltaOut.push_back(v["deltaOut"]);
-      bwdIndexOut.push_back(v["indexOut"]);
+  Program startBatch(Graph &graph) {
+    return Sequence();
+  }
 
-      builder.setInitialFieldValue<NonLinearityType>(v["nonLinearityType"],
-                                                     prevNonLinearityType);
-
-      builder.addEdge(net.bwdIndexOut[0], v["indexIn"], true);
-
-      builder.setFieldSize(v["weights"], size);
-      builder.setFieldSize(v["bwdRecord"], net.batchSize);
-      builder.setFieldSize(v["actRecord"], net.batchSize);
-      builder.setFieldSize(v["zRecord"], net.batchSize);
-
-      builder.addEdge(gatherVertex["deltaOut"],
-                      v["deltaIn"],
-                      false);
-
-      builder.setFieldSize(v["weightSyncOutput"], numParamGathers);
-      for (unsigned j = 0; j < numParamGathers; ++j) {
-        builder.addEdge(v["weightSyncOutput"][j],
-                        paramGatherVertices[j]["weightsIn"][i],
-                        false);
-      }
-      builder.addToComputeSet(net.weightSyncCS, v);
-
-      builder.addEdge(prev[i]["activationOut"], v["activationIn"], true);
-      builder.addEdge(prev[i]["z"], v["zIn"], true);
-      builder.addEdge(prev[i]["indexOut"], v["actIndexIn"], true);
-
-      builder.addToDataArray(net.daParams, v["weights"]);
-    }
-
+  Program forward(Graph &graph, Layer *prev)  {
+    Tensor in = prev->getFwdActivations().flatten();
+    ComputeSet fwd = graph.createComputeSet();
     for (unsigned i = 0; i < size; ++i) {
-      VertexRef v = builder.addVertex("InnerProductBwdBiasVertex");
-      builder.setInitialFieldValue<unsigned>(v["batchSize"], net.batchSize);
-      builder.addEdge(net.stateField, v["state"], false);
-      builder.addEdge(net.etaField, v["eta"], false);
-      biasVertices.push_back(v);
-      builder.addToComputeSet(net.trainCS, v);
-      builder.addEdge(net.bwdDeltaOut[i], v["deltaIn"], true);
-      builder.addEdge(net.bwdIndexOut[i], v["indexIn"], true);
-      builder.addEdge(v["bias"], weightSyncVertices[i]["biasIn"], false);
-      builder.addToDataArray(net.daParams, v["bias"]);
+      auto v = graph.addVertex(fwd, "FullyConnected",
+                               {{"activationIn", in},
+                                {"weights", weights[i]},
+                                {"zOut", z[i]},
+                                {"activationOut", activations[i]}});
+      graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
     }
+    return Execute(fwd);
+  }
 
-    net.bwdDeltaOut = bwdDeltaOut;
-    net.bwdIndexOut = bwdIndexOut;
+  Program backward(Graph &graph, Layer *prev, Layer *next) {
+    // TODO
+    return Sequence();
+  }
+
+  Program weightSync(Graph &graph) {
+    // TODO
+    return Sequence();
   }
 };
 

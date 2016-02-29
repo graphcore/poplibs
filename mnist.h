@@ -3,7 +3,7 @@
 #include <vector>
 #include <memory>
 
-std::unique_ptr<unsigned char[]> readMNISTLabels(int NumberOfImages,
+std::unique_ptr<unsigned[]> readMNISTLabels(int NumberOfImages,
                                             const char *fname);
 
 std::unique_ptr<float[]> readMNISTData(int numberOfImages,

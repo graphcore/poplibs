@@ -2,80 +2,100 @@
 #define _max_pool_layer_hpp_
 #include "Net.hpp"
 
-class MaxPoolLayer : public HiddenLayer {
+class MaxPoolLayer : public Layer {
 public:
   unsigned kernelSize;
   unsigned stride;
+
+  Tensor out, activations;
+
+  std::string dType;
+
+  unsigned xDim, yDim, numChannels, xDimOut, yDimOut;
 
   MaxPoolLayer(unsigned kernelSize,
                unsigned stride)  :
     kernelSize(kernelSize),
     stride(stride) { }
 
-  virtual bool requiresLayeredInput() {return true;}
-  virtual bool providesLayeredOutput() {return true;}
+  Tensor getFwdActivations() const {
+    return activations;
+  }
 
-  void addForward(Net &net)  {
-    GraphBuilder &builder = *net.graphBuilder;
-    unsigned xDim = net.xDim;
-    unsigned yDim = net.yDim;
-    unsigned xDimOut = (xDim - kernelSize) / stride + 1;
-    unsigned yDimOut = (yDim - kernelSize) / stride + 1;
+  Tensor getFwdZs() const {
+    return activations;
+  }
 
-    unsigned prevLayersPerChunk = net.prevLayers / net.prevChunks;
+  Tensor getBwdErrors() const {
+    // TODO
+  }
 
-    std::vector<VertexRef> fwd;
-        for (unsigned prevChunk = 0; prevChunk < net.prevChunks; prevChunk++) {
+  NonLinearityType getNonLinearityType() const {
+    return NON_LINEARITY_NONE;
+  }
 
+  void describe(std::ostream &out) {
+    out << "   -- Max pooling layer:\n"
+        << "        Size: " << kernelSize << "x" << kernelSize << "\n"
+        << "        Stride: " << stride << "\n"
+        << "        Input: " << xDim << "x" << yDim
+                     <<   "x" << numChannels << "\n"
+        << "        Output: " << xDimOut << "x" << yDimOut
+                     <<   "x" << numChannels << "\n";
+  }
 
-    for (unsigned i = 0; i <= yDim - kernelSize; i += stride) {
-      for (unsigned j = 0; j <= xDim - kernelSize; j += stride) {
-        VertexRef v = builder.addVertex("MaxPoolFwdVertex");
-        fwd.push_back(v);
-        builder.addToComputeSet(net.trainCS, v);
-        builder.addToComputeSet(net.testCS, v);
+  void init(Graph &graph, Layer *prev, Layer *next, NetType netType,
+            float eta, unsigned batchSize, const std::string &dType) {
+    this->dType = dType;
+    Tensor in = prev->getFwdActivations();
+    xDim = in.dim(0);
+    yDim = in.dim(1);
+    numChannels = in.dim(2);
+    xDimOut = (xDim - kernelSize) / stride + 1;
+    yDimOut = (yDim - kernelSize) / stride + 1;
+    activations = graph.addTensor(dType, {xDimOut, yDimOut, numChannels});
+  }
 
-        builder.addEdge(net.stateField, v["state"], false);
-        builder.setFieldSize(v["activationOut"], prevLayersPerChunk);
-        //builder.setFieldSize(v["zOut"], net.prevLayers);
-        builder.setFieldSize(v["activationIn"], kernelSize * kernelSize);
+  Program initParams(Graph &graph) {
+    // TODO
+    return Sequence();
+  }
 
-        builder.addEdge(net.fwd[i * xDim + j]["indexOut"],
-                        v["indexIn"],
-                        true);
+  Program startBatch(Graph &graph) {
+    // TODO
+    return Sequence();
+  }
 
-        unsigned aIndex = 0;
-        for (unsigned k1 = 0; k1 < kernelSize; k1++) {
-          for (unsigned k2 = 0; k2 < kernelSize; k2++) {
-            unsigned y = i + k1;
-            unsigned x = j + k2;
-            unsigned offset = prevChunk * xDim * yDim;
-            builder.addEdge(net.fwd[offset + y * xDim + x]["activationOut"],
-                            v["activationIn"][aIndex++],
-                            true);
-          }
+  Program forward(Graph &graph, Layer *prev)  {
+    Tensor in = prev->getFwdActivations();
+    ComputeSet fwd = graph.createComputeSet();
+    for (unsigned i = 0; i < xDimOut; ++i) {
+      for (unsigned j = 0; j < yDimOut; ++j) {
+        for (unsigned chan = 0; chan < numChannels; ++chan) {
+          unsigned width = std::min(i * stride + kernelSize, xDim) - i * stride;
+          unsigned height = std::min(j * stride + kernelSize, yDim) - j * stride;
+          // Create window into previous layer
+          Tensor window =
+            in.slice({i * stride, j * stride, chan },
+                     {i * stride + width, j * stride + height, chan + 1})
+              .reshape({width, height});
+          graph.addVertex(fwd, "MaxPooling",
+            { {"activationIn", window},
+              {"activationOut", activations[i][j][chan]} });
         }
       }
     }
-    }
-
-    std::cout << "   -- Added max pooling layer:\n"
-              << "        Size: " << kernelSize << "x" << kernelSize << "\n"
-              << "        Stride: " << stride << "\n"
-              << "        Input: " << xDim << "x" << yDim
-                     <<   "x" << net.prevLayers << "\n"
-              << "        Output: " << xDimOut << "x" << yDimOut
-                     <<   "x" << net.prevLayers << "\n";
-
-    net.xDim = xDimOut;
-    net.yDim = yDimOut;
-    assert(fwd.size() == net.xDim * net.yDim * net.prevChunks);
-    net.prevNonLinearityType = NON_LINEARITY_NONE;
-    net.fwd = fwd;
+    return Execute(fwd);
   }
 
-  void addBackward(Net &net)  {
-    GraphBuilder &builder = *net.graphBuilder;
+  Program backward(Graph &graph, Layer *prev, Layer *next) {
+    // TODO
+    return Sequence();
+  }
+
+  Program weightSync(Graph &graph) {
+    // TODO
+    return Sequence();
   }
 };
 

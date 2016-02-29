@@ -17,9 +17,4 @@ typedef enum NormalizationType {
   NORMALIZATION_LR
 } NormalizationType;
 
-#define FPType float
-#define _STR0(X) #X
-#define _STR(X) _STR0(X)
-#define FPTypeStr _STR(FPType)
-
 #endif // _neural_net_common_h_
