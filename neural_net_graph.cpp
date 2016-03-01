@@ -133,18 +133,15 @@ public:
 
 class MaxPooling : public Vertex {
 public:
-  Vector<Input<Vector<FPType>>> activationIn;
+  Vector<Input<FPType>> activationIn;
   Output<FPType> activationOut;
 
   bool compute() {
-    float maxVal = activationIn[0][0];
+    float maxVal = activationIn[0];
     unsigned receptiveFieldSize = activationIn.size();
-    unsigned numChannels = activationIn[0].size();
     for (unsigned i = 0; i < receptiveFieldSize; ++i) {
-      for (unsigned j = 0; j < numChannels; ++j) {
-        if (activationIn[i][j] > maxVal) {
-          maxVal = activationIn[i][j];
-        }
+      if (activationIn[i] > maxVal) {
+        maxVal = activationIn[i];
       }
     }
     *activationOut = maxVal;
@@ -152,7 +149,7 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    return 10 + activationIn.size() * activationIn[0].size() * 2;
+    return 10 + activationIn.size() * 2;
   }
 };
 

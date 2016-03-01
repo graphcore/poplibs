@@ -78,7 +78,7 @@ public:
           Tensor window =
             in.slice({i * stride, j * stride, chan },
                      {i * stride + width, j * stride + height, chan + 1})
-              .reshape({width, height});
+              .flatten();
           graph.addVertex(fwd, "MaxPooling",
             { {"activationIn", window},
               {"activationOut", activations[i][j][chan]} });
