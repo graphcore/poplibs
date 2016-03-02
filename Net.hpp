@@ -302,7 +302,7 @@ public:
       ipuEB->setNumBytesPerTile(256*superTileDiv*1024);
       unsigned numTiles = ipuEB->getTilesPerIPU() * ipuEB->getNumIPUs();
       ipuEB->setIPUExchangeImplementation(IPUModelEngineBuilder::BARE_NAKED_WITH_MULTICAST);
-
+      ipuEB->setGlobalSyncCycles(500);
       IPUModelEngineBuilder::TileMapping mapping(*graph);
       std::vector <Tensor> tensors = graph->getTensors();
       std::vector <ComputeSet> computeSets = graph->getComputeSets();
