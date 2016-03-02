@@ -49,6 +49,7 @@ class Layer {
 public:
   virtual void init(Graph &graph, Layer *prev, Layer *next,
                     NetType netType, float eta, unsigned batchSize,
+                    unsigned numIPUs, unsigned tilesPerIPU,
                     const std::string &dType) = 0;
   virtual Program initParams(Graph &graph) = 0;
   virtual Program startBatch(Graph &graph) = 0;
@@ -72,7 +73,9 @@ public:
     data(data), isTraining(isTraining) {}
 
   void init(Graph &graph, Layer *prev, Layer *next, NetType netType,
-            float eta, unsigned batchSize, const std::string &dType) {
+            float eta, unsigned batchSize,
+            unsigned numIPUS, unsigned numTiles,
+            const std::string &dType) {
     out = graph.addTensor(dType, data.dim);
     z = graph.addTensor(dType, data.dim);
   }
@@ -114,7 +117,9 @@ public:
     data(data), lossType(lossType), isTraining(isTraining) {}
 
   void init(Graph &graph, Layer *prev, Layer *next, NetType netType,
-            float eta, unsigned batchSize, const std::string &dType) {
+            float eta, unsigned batchSize,
+            unsigned numIPUs, unsigned tilesPerIPU,
+            const std::string &dType) {
     errors = graph.addTensor(dType, {prev->getFwdActivations().numElements()});
     expected = graph.addTensor("unsigned", {1});
     loss = graph.addTensor(dType, {1});
@@ -229,6 +234,20 @@ public:
       new GraphProgEnv(obj, GraphProgFileType::Object));
 
     graph = std::unique_ptr<Graph>(new Graph(*env));
+    unsigned numIPUs, tilesPerIPU;
+    if (options.useIPUModel) {
+      IPUModelEngineBuilder *ipuEB = new IPUModelEngineBuilder(*env);
+      engineBuilder = std::unique_ptr<EngineBuilder>(ipuEB);
+      numIPUs = ipuEB->getNumIPUs();
+      tilesPerIPU = ipuEB->getTilesPerIPU();
+    } else {
+      engineBuilder =
+        std::unique_ptr<EngineBuilder>(new CPUEngineBuilder(*env));
+      numIPUs = 1;
+      tilesPerIPU = 1;
+    }
+    EngineBuilder &eb = *engineBuilder;
+
     std::cerr << "Constructing program\n";
     Tensor isTraining = graph->addTensor("unsigned", {1});
     inputLayer = std::unique_ptr<InputLayer>(
@@ -242,7 +261,8 @@ public:
     auto weightSyncProg = Sequence();
 
     Layer *first = &**hiddenLayers.begin();
-    inputLayer->init(*graph, 0, first, netType, eta, batchSize, dType);
+    inputLayer->init(*graph, 0, first, netType, eta, batchSize,
+                     numIPUs, tilesPerIPU, dType);
     startBatchProg.add(inputLayer->startBatch(*graph));
     fwdProg.add(inputLayer->forward(*graph, 0));
 
@@ -253,7 +273,8 @@ public:
       Layer *next = (i == hiddenLayers.size() - 1) ?
                           &*lossLayer :
                           &*hiddenLayers[i+1];
-      hiddenLayers[i]->init(*graph, prev, next, netType, eta, batchSize, dType);
+      hiddenLayers[i]->init(*graph, prev, next, netType, eta, batchSize,
+                            numIPUs, tilesPerIPU, dType);
       startBatchProg.add(hiddenLayers[i]->startBatch(*graph));
       fwdProg.add(hiddenLayers[i]->forward(*graph, prev));
       initParamsProg.add(hiddenLayers[i]->initParams(*graph));
@@ -262,7 +283,8 @@ public:
     }
 
     Layer *last = &**(hiddenLayers.end() - 1);
-    lossLayer->init(*graph, last, 0, netType, eta, batchSize, dType);
+    lossLayer->init(*graph, last, 0, netType, eta, batchSize,
+                    numIPUs, tilesPerIPU, dType);
     startBatchProg.add(lossLayer->startBatch(*graph));
     fwdProg.add(lossLayer->forward(*graph, last));
     initParamsProg.add(lossLayer->initParams(*graph));
@@ -281,17 +303,6 @@ public:
       bwdProg.add(inputLayer->backward(*graph, 0, first));
       weightSyncProg.add(inputLayer->weightSync(*graph));
     }
-
-    /* Now that the program is constructed, a poplar engine is created. */
-    if (options.useIPUModel) {
-      engineBuilder =
-        std::unique_ptr<EngineBuilder>(new IPUModelEngineBuilder(*env));
-    } else {
-      engineBuilder =
-        std::unique_ptr<EngineBuilder>(new CPUEngineBuilder(*env));
-    }
-
-    EngineBuilder &eb = *engineBuilder;
 
     if (options.useIPUModel) {
       IPUModelEngineBuilder *ipuEB =

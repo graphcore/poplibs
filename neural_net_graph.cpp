@@ -78,6 +78,7 @@ class FullyConnected : public Vertex {
 public:
   Input<Vector<FPType>> activationIn;
   Input<Vector<FPType>> weights;
+  Input<FPType> bias;
   NonLinearityType nonLinearityType;
   Output<FPType> zOut;
   Output<FPType> activationOut;
@@ -87,7 +88,6 @@ public:
     for (unsigned i = 0; i < activationIn.size(); ++i) {
       sum += activationIn[i] * weights[i];
     }
-    FPType bias = weights[activationIn.size()];
     sum += bias;
     *zOut = sum;
     *activationOut = nonlinearity(nonLinearityType, sum);
@@ -96,6 +96,55 @@ public:
 
   uint64_t getCycleEstimate() const {
     return 20 + dense_dotproduct_cycles(activationIn.size());
+  }
+};
+
+class FullyConnectedPartial : public Vertex {
+public:
+  Input<Vector<FPType>> in;
+  Input<Vector<FPType>> weights;
+  Output<FPType> out;
+
+  bool compute() {
+    float sum = 0;
+    for (unsigned i = 0; i < in.size(); ++i) {
+      sum += in[i] * weights[i];
+    }
+    *out = sum;
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    return 5 + dense_dotproduct_cycles(in.size());
+  }
+};
+
+
+class FullyConnectedReduce : public Vertex {
+public:
+  Input<Vector<FPType>> partials;
+  Input<FPType> bias;
+  NonLinearityType nonLinearityType;
+  Output<FPType> zOut;
+  Output<FPType> activationOut;
+
+  bool compute() {
+    float sum = 0;
+    for (unsigned i = 0; i < partials.size(); ++i) {
+      sum += partials[i];
+    }
+    sum += bias;
+    *zOut = sum;
+    *activationOut = nonlinearity(nonLinearityType, sum);
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    if (sizeof(FPType) == 2) {
+      return (partials.size()+1)/4+15;
+    } else {
+      return (partials.size()+1)/2+15;
+    }
   }
 };
 

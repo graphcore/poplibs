@@ -4,13 +4,16 @@
 #include <boost/random/normal_distribution.hpp>
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/variate_generator.hpp>
+#include <cmath>
+
+#define USE_PARTIAL_SUMS 1
 
 class FullyConnectedLayer : public Layer {
 public:
   std::size_t size, prevSize;
   NonLinearityType nonLinearityType;
 
-  Tensor weights, bwdWeights, z,
+  Tensor weights, biases, bwdWeights, z,
     activations, errors, activationRecord, errorRecord,
     actRecordIndex, errorRecordIndex;
 
@@ -19,7 +22,10 @@ public:
   NetType netType;
   float eta;
   unsigned batchSize;
+  unsigned numIPUs, tilesPerIPU;
   std::string dType;
+
+  size_t numPartials, elemsPerPartial;
 
   FullyConnectedLayer(unsigned size,
                       NonLinearityType nonLinearityType) :
@@ -45,20 +51,34 @@ public:
 
   void describe(std::ostream &out) {
     std::cout << "   -- Fully connected layer:\n"
-              << "        Input: "  << weights.dim(1)-1 << "\n"
+              << "        Input: "  << prevSize << "\n"
               << "        Output: " << size << "\n"
-              << "        Params: " << weights.numElements() << "\n";
+              << "        Params: " << size * (prevSize + 1) << "\n";
   }
 
   void init(Graph &graph, Layer *prev, Layer *next, NetType netType,
-            float eta, unsigned batchSize, const std::string &dType) {
+            float eta, unsigned batchSize,
+            unsigned numIPUs, unsigned tilesPerIPU, const std::string &dType) {
+    this->numIPUs = numIPUs;
+    this->tilesPerIPU = tilesPerIPU;
     this->netType = netType;
     this->eta = eta;
     this->batchSize = batchSize;
     this->dType = dType;
     prevSize = prev->getFwdActivations().numElements();
-    weights = graph.addTensor(dType, {size, prevSize + 1});
-
+    if (USE_PARTIAL_SUMS) {
+      numPartials = sqrt(tilesPerIPU * numIPUs);
+      elemsPerPartial = prevSize/numPartials;
+      while (numPartials * elemsPerPartial != prevSize) {
+        numPartials--;
+        elemsPerPartial = prevSize/numPartials;
+      }
+      assert(numPartials * elemsPerPartial == prevSize);
+      weights = graph.addTensor(dType, {numPartials, size, elemsPerPartial});
+    } else {
+      weights = graph.addTensor(dType, {size, prevSize});
+    }
+    biases = graph.addTensor(dType, {size});
     z = graph.addTensor(dType, {size});
     activations = graph.addTensor(dType, {size});
     if (netType == TrainingNet) {
@@ -87,16 +107,44 @@ public:
 
   Program forward(Graph &graph, Layer *prev)  {
     Tensor in = prev->getFwdActivations().flatten();
-    ComputeSet fwd = graph.createComputeSet();
-    for (unsigned i = 0; i < size; ++i) {
-      auto v = graph.addVertex(fwd, "FullyConnected",
-                               {{"activationIn", in},
-                                {"weights", weights[i]},
-                                {"zOut", z[i]},
-                                {"activationOut", activations[i]}});
-      graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
+
+    if (USE_PARTIAL_SUMS) {
+      Tensor partials = graph.addTensor(dType, {size, numPartials});
+      ComputeSet fwd1 = graph.createComputeSet(),
+                 fwd2 = graph.createComputeSet();
+      for (unsigned j = 0; j < numPartials; j++) {
+        for (unsigned i = 0; i < size; ++i) {
+          Tensor partialIn = in.slice(j * elemsPerPartial,
+                                      (j + 1) * elemsPerPartial);
+          Tensor partialWeights = weights[j][i];
+          auto v = graph.addVertex(fwd1, "FullyConnectedPartial",
+                                   {{"in", partialIn},
+                                    {"weights", partialWeights},
+                                    {"out", partials[i][j]}});
+        }
+      }
+      for (unsigned i = 0; i < size; ++i) {
+        auto v = graph.addVertex(fwd2, "FullyConnectedReduce",
+                                 {{"partials", partials[i]},
+                                  {"bias", biases[i]},
+                                  {"zOut", z[i]},
+                                  {"activationOut", activations[i]}});
+          graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
+      }
+      return Sequence(Execute(fwd1), Execute(fwd2));
+    } else {
+      ComputeSet fwd = graph.createComputeSet();
+      for (unsigned i = 0; i < size; ++i) {
+        auto v = graph.addVertex(fwd, "FullyConnected",
+                                 {{"activationIn", in},
+                                  {"weights", weights[i]},
+                                  {"bias", biases[i]},
+                                  {"zOut", z[i]},
+                                  {"activationOut", activations[i]}});
+        graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
+      }
+      return Sequence(Execute(fwd));
     }
-    return Execute(fwd);
   }
 
   Program backward(Graph &graph, Layer *prev, Layer *next) {

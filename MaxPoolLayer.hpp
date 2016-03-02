@@ -45,7 +45,8 @@ public:
   }
 
   void init(Graph &graph, Layer *prev, Layer *next, NetType netType,
-            float eta, unsigned batchSize, const std::string &dType) {
+            float eta, unsigned batchSize,
+            unsigned numIPUS, unsigned tilesPerIPU, const std::string &dType) {
     this->dType = dType;
     Tensor in = prev->getFwdActivations();
     xDim = in.dim(0);
