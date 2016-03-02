@@ -301,10 +301,7 @@ public:
       ipuEB->setTilesPerIPU(1152/superTileDiv);
       ipuEB->setNumBytesPerTile(256*superTileDiv*1024);
       unsigned numTiles = ipuEB->getTilesPerIPU() * ipuEB->getNumIPUs();
-      //      ipuEB->setIPUExchangeImplementation(IPUModelEngineBuilder::OPTIMISTIC_WITH_MULTICAST);
       ipuEB->setIPUExchangeImplementation(IPUModelEngineBuilder::BARE_NAKED_WITH_MULTICAST);
-      ipuEB->setCausalLayerSchedulingAlgorithm(IPUModelEngineBuilder::ASAP);
-      ipuEB->setNumWorkerContexts(1);
 
       IPUModelEngineBuilder::TileMapping mapping(*graph);
       std::vector <Tensor> tensors = graph->getTensors();
@@ -365,14 +362,21 @@ public:
       }
       IPUModelEngineBuilder::UserTilePartitioner p(mapping);
       ipuEB->setTilePartitioner(p);
-#if 0
-      ipuEB->setGlobalExchangeConstraints({
-        IPUModelEngineBuilder::GlobalExchangeConstraint(140*1024*1024*1024LL*1152LL,
-          {IPUModelEngineBuilder::GlobalExchangeFlow(0,1)}),
-        IPUModelEngineBuilder::GlobalExchangeConstraint(140*1024*1024*1024LL*1152LL,
-          {IPUModelEngineBuilder::GlobalExchangeFlow(1,0)}),
-          });
-#endif
+      switch (ipuEB->getNumIPUs()) {
+      case 1:
+        break;
+      case 2:
+        ipuEB->setGlobalExchangeConstraints({
+            IPUModelEngineBuilder::GlobalExchangeConstraint(140*1024*1024*1024LL,
+              {IPUModelEngineBuilder::GlobalExchangeFlow(0,1)}),
+            IPUModelEngineBuilder::GlobalExchangeConstraint(140*1024*1024*1024LL,
+              {IPUModelEngineBuilder::GlobalExchangeFlow(1,0)}),
+             });
+        break;
+      default:
+        std::cerr << "IPU modeling does not support > 2 IPUs\n";
+        std::abort();
+      }
     }
 
     hIsTraining = (netType == TrainingNet);
