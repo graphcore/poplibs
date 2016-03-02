@@ -225,7 +225,6 @@ public:
     } else {
       obj = "obj/neural_net_graph16.ppo";
     }
-    std::cout << dType << "\n";
     env = std::unique_ptr<GraphProgEnv>(
       new GraphProgEnv(obj, GraphProgFileType::Object));
 
