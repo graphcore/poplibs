@@ -309,55 +309,28 @@ public:
 
       
       for (Tensor t : tensors) {
-        std::size_t size = t.numElements();
-        double elemsPerTile = (double) size / numTiles;
-        double acc = 0;
-        unsigned index = 0;
+        std::uint64_t size = t.numElements();
         for (unsigned j = 0; j < numTiles; ++j) {
-          acc += elemsPerTile;
-          unsigned thisTileElements = acc;
-          if (j == numTiles - 1)
-            thisTileElements = size - index;
-          if (thisTileElements < 1)
+          const auto begin = (size * j) / numTiles;
+          const auto end = (size * (j + 1)) / numTiles;
+          if (begin == end)
             continue;
-          acc -= thisTileElements;
-          if (index + thisTileElements > size)
-            thisTileElements = size - index;
-          if (thisTileElements) {
-            mapping.setMapping(t.flatten()
-                                .slice(index, index + thisTileElements),
-                               j);
-            index += thisTileElements;
-          }
-          if (index == size)
-            break;
+          mapping->setMapping(t.flatten().slice(begin, end),
+                              j);
         }
       }
 
       for (ComputeSet c : computeSets) {
         auto cs = graph->getComputeSet(c);
-        unsigned tile = 0;
-        std::size_t size = cs.size();
-        double vsPerTile = (double) size / numTiles;
-        double acc = 0;
-        unsigned index = 0;
+        std::uint64_t size = cs.size();
         for (unsigned j = 0; j < numTiles; ++j) {
-          acc += vsPerTile;
-          unsigned vsThisTile = acc;
-          acc -= vsThisTile;
-          if (index + vsThisTile > size)
-            vsThisTile = size - index;
-          if (j == numTiles - 1) {
-            vsThisTile = size - index;
+          const auto begin = (size * j) / numTiles;
+          const auto end = (size * (j + 1)) / numTiles;
+          if (begin == end)
+            continue;
+          for (unsigned i = begin; i != end; ++i) {
+            mapping->setMapping(cs[i], j);
           }
-          if (vsThisTile) {
-            for (unsigned i = index; i < index + vsThisTile; ++i) {
-              mapping.setMapping(cs[i], j);
-            }
-            index += vsThisTile;
-          }
-          if (index == size)
-            break;
         }
       }
       IPUModelEngineBuilder::UserTilePartitioner p(mapping);
