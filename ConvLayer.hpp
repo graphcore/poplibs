@@ -20,6 +20,8 @@ public:
 
   unsigned xDim, yDim, prevChannels, xDimOut, yDimOut, weightsPerOutputChannel;
 
+  std::string layerName;
+
   ConvLayer(unsigned kernelSize,
             unsigned stride,
             unsigned padding,
@@ -33,7 +35,10 @@ public:
     numInputGroups(numInputGroups),
     numChannels(numChannels),
     nonLinearityType(nonLinearityType),
-    normalizationType(normalizationType) { }
+    normalizationType(normalizationType) {
+    layerName = "Conv" + std::to_string(kernelSize) + "x" +
+                std::to_string(kernelSize);
+  }
 
   Tensor getFwdActivations() const {
     return activations;
@@ -102,7 +107,8 @@ public:
   Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping,
                   Layer *prev)  {
     Tensor in = prev->getFwdActivations();
-    ComputeSet fwd = graph.createComputeSet();
+    ComputeSet fwd =
+      graph.createComputeSet(layerName + ".fwd");
     for (unsigned chan = 0; chan < numChannels; ++chan) {
       for (unsigned i = 0; i < xDimOut; ++i) {
         for (unsigned j = 0; j < yDimOut; ++j) {

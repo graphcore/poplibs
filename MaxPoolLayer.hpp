@@ -13,10 +13,15 @@ public:
 
   unsigned xDim, yDim, numChannels, xDimOut, yDimOut;
 
+  std::string layerName;
+
   MaxPoolLayer(unsigned kernelSize,
                unsigned stride)  :
     kernelSize(kernelSize),
-    stride(stride) { }
+    stride(stride) {
+    layerName = "MaxPool" + std::to_string(kernelSize) + "x" +
+      std::to_string(kernelSize);
+  }
 
   Tensor getFwdActivations() const {
     return activations;
@@ -73,7 +78,7 @@ public:
   Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping,
                   Layer *prev)  {
     Tensor in = prev->getFwdActivations();
-    ComputeSet fwd = graph.createComputeSet();
+    ComputeSet fwd = graph.createComputeSet(layerName + ".fwd");
     for (unsigned i = 0; i < xDimOut; ++i) {
       for (unsigned j = 0; j < yDimOut; ++j) {
         for (unsigned chan = 0; chan < numChannels; ++chan) {

@@ -24,6 +24,7 @@ public:
   unsigned batchSize;
   unsigned numIPUs, tilesPerIPU;
   std::string dType;
+  std::string layerName;
 
   size_t numPartials, elemsPerPartial;
 
@@ -31,6 +32,7 @@ public:
                       NonLinearityType nonLinearityType) :
     size(size),
     nonLinearityType(nonLinearityType) {
+    layerName = "FullyConnected" + std::to_string(size);
   }
 
   Tensor getFwdActivations() const {
@@ -124,8 +126,8 @@ public:
     if (USE_PARTIAL_SUMS) {
       Tensor partials = graph.addTensor(dType, {size, numPartials});
       mapTensor(partials, mapping);
-      ComputeSet fwd1 = graph.createComputeSet(),
-                 fwd2 = graph.createComputeSet();
+      ComputeSet fwd1 = graph.createComputeSet(layerName + ".fwd"),
+                 fwd2 = graph.createComputeSet(layerName + ".fwd.reduce");
       for (unsigned j = 0; j < numPartials; j++) {
         for (unsigned i = 0; i < size; ++i) {
           Tensor partialIn = in.slice(j * elemsPerPartial,
@@ -149,7 +151,7 @@ public:
       mapComputeSet(graph, fwd2, mapping);
       return Sequence(Execute(fwd1), Execute(fwd2));
     } else {
-      ComputeSet fwd = graph.createComputeSet();
+      ComputeSet fwd = graph.createComputeSet(layerName + ".fwd");
       for (unsigned i = 0; i < size; ++i) {
         auto v = graph.addVertex(fwd, "FullyConnected",
                                  {{"activationIn", in},

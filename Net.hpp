@@ -179,7 +179,7 @@ public:
     mapTensor(loss, mapping);
     mapTensor(numCorrect, mapping);
     this->dType = dType;
-    fwd = graph.createComputeSet();
+    fwd = graph.createComputeSet("LossLayer");
   }
 
   void resetNumCorrect() {
@@ -493,7 +493,7 @@ public:
     }
     if (options.useIPUModel) {
       IPUModelEngine *ipuEngine = static_cast<IPUModelEngine *>(&*engine);
-      ipuEngine->report(std::cout);
+      ipuEngine->report(std::cout, true);
     }
   }
 
