@@ -46,14 +46,54 @@ public:
 /* The layer class represents a single layer in the net.
  */
 class Layer {
+protected:
+  unsigned numIPUs;
+  unsigned tilesPerIPU;
+  void init(unsigned numIPUs_, unsigned tilesPerIPU_) {
+    numIPUs = numIPUs_;
+    tilesPerIPU = tilesPerIPU_;
+  }
+  void mapTensor(Tensor t, IPUModelEngineBuilder::TileMapping *mapping) {
+    if (!mapping)
+      return;
+    std::uint64_t size = t.numElements();
+    const auto numTiles = tilesPerIPU * numIPUs;
+    for (unsigned i = 0; i < numTiles; ++i) {
+      const auto begin = (size * i) / numTiles;
+      const auto end = (size * (i + 1)) / numTiles;
+      if (begin == end)
+        continue;
+      mapping->setMapping(t.flatten().slice(begin, end), i);
+    }
+  }
+  void mapComputeSet(const Graph &graph, ComputeSet c,
+                     IPUModelEngineBuilder::TileMapping *mapping) {
+    if (!mapping)
+      return;
+    auto cs = graph.getComputeSet(c);
+    std::uint64_t size = cs.size();
+    const auto numTiles = tilesPerIPU * numIPUs;
+    for (unsigned i = 0; i < numTiles; ++i) {
+      const auto begin = (size * i) / numTiles;
+      const auto end = (size * (i + 1)) / numTiles;
+      if (begin == end)
+        continue;
+      for (unsigned j = begin; j != end; ++j) {
+        mapping->setMapping(cs[j], i);
+      }
+    }
+  }
 public:
-  virtual void init(Graph &graph, Layer *prev, Layer *next,
+  virtual void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping,
+                    Layer *prev, Layer *next,
                     NetType netType, float eta, unsigned batchSize,
                     unsigned numIPUs, unsigned tilesPerIPU,
                     const std::string &dType) = 0;
   virtual Program initParams(Graph &graph) = 0;
   virtual Program startBatch(Graph &graph) = 0;
-  virtual Program forward(Graph &graph, Layer *prev) = 0;
+  virtual Program forward(Graph &graph,
+                          IPUModelEngineBuilder::TileMapping *mapping,
+                          Layer *prev) = 0;
   virtual Program backward(Graph &graph, Layer *prev, Layer *next) = 0;
   virtual Program weightSync(Graph &graph) = 0;
   virtual void describe(std::ostream &out) = 0;
@@ -72,16 +112,21 @@ public:
   InputLayer(DataSet &data, Tensor isTraining) :
     data(data), isTraining(isTraining) {}
 
-  void init(Graph &graph, Layer *prev, Layer *next, NetType netType,
+  void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping,
+            Layer *prev, Layer *next, NetType netType,
             float eta, unsigned batchSize,
-            unsigned numIPUS, unsigned numTiles,
+            unsigned numIPUs, unsigned tilesPerIPU,
             const std::string &dType) {
+    Layer::init(numIPUs, tilesPerIPU);
     out = graph.addTensor(dType, data.dim);
     z = graph.addTensor(dType, data.dim);
+    mapTensor(out, mapping);
+    mapTensor(z, mapping);
   }
   Program initParams(Graph &graph) { return Sequence(); }
   Program startBatch(Graph &graph) { return Sequence(); }
-  Program forward(Graph &graph, Layer *prev) {
+  Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping,
+                  Layer *prev) {
     size_t trainingDataSize = data.numTraining * data.dataSize;
     size_t testDataSize = data.numTest * data.dataSize;
     return Sequence();
@@ -108,7 +153,7 @@ public:
 class LossLayer : public Layer {
   DataSet &data;
   LossType lossType;
-  Tensor errors, expected, loss, numCorrect, isTraining;
+  Tensor errors, expected, lossTypeTensor, loss, numCorrect, isTraining;
   unsigned hNumCorrect;
   std::string dType;
   ComputeSet fwd;
@@ -116,14 +161,23 @@ public:
   LossLayer(DataSet &data, LossType lossType, Tensor isTraining) :
     data(data), lossType(lossType), isTraining(isTraining) {}
 
-  void init(Graph &graph, Layer *prev, Layer *next, NetType netType,
+  void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping,
+            Layer *prev, Layer *next, NetType netType,
             float eta, unsigned batchSize,
             unsigned numIPUs, unsigned tilesPerIPU,
             const std::string &dType) {
+    Layer::init(numIPUs, tilesPerIPU);
     errors = graph.addTensor(dType, {prev->getFwdActivations().numElements()});
     expected = graph.addTensor("unsigned", {1});
+    lossTypeTensor = graph.addTensor("LossType", {1});
+    graph.setInitialValue(lossTypeTensor[0], lossType);
     loss = graph.addTensor(dType, {1});
     numCorrect = graph.addTensor("unsigned", {1});
+    mapTensor(errors, mapping);
+    mapTensor(expected, mapping);
+    mapTensor(lossTypeTensor, mapping);
+    mapTensor(loss, mapping);
+    mapTensor(numCorrect, mapping);
     this->dType = dType;
     fwd = graph.createComputeSet();
   }
@@ -140,16 +194,18 @@ public:
   Program startBatch(Graph &graph) {
     return Assign(numCorrect[0], 0);
   }
-  Program forward(Graph &graph, Layer *prev) {
+  Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping,
+                  Layer *prev) {
     auto v = graph.addVertex(fwd, "CalcLoss",
                              {{"zIn", prev->getFwdZs().flatten()},
                               {"errorOut", errors},
                               {"label", expected[0]},
-                              {"lossType", lossType},
+                              {"lossType", lossTypeTensor[0]},
                               {"loss", loss[0]},
                               {"numCorrect", numCorrect[0]}});
     graph.setFieldSize(v["probs"], prev->getFwdActivations().numElements());
     graph.setInitialValue(v["nonLinearityType"], prev->getNonLinearityType());
+    mapComputeSet(graph, fwd, mapping);
     #if 0
     Program copyLabelsProg =
       Ifprog(isTraining,
@@ -234,8 +290,10 @@ public:
       new GraphProgEnv(obj, GraphProgFileType::Object));
 
     graph = std::unique_ptr<Graph>(new Graph(*env));
+    std::unique_ptr<IPUModelEngineBuilder::TileMapping> mapping;
     unsigned numIPUs, tilesPerIPU;
     if (options.useIPUModel) {
+      mapping.reset(new IPUModelEngineBuilder::TileMapping(*graph));
       IPUModelEngineBuilder *ipuEB = new IPUModelEngineBuilder(*env);
       engineBuilder = std::unique_ptr<EngineBuilder>(ipuEB);
       numIPUs = ipuEB->getNumIPUs();
@@ -250,6 +308,9 @@ public:
 
     std::cerr << "Constructing program\n";
     Tensor isTraining = graph->addTensor("unsigned", {1});
+    if (mapping) {
+      mapping->setMapping(isTraining, 0);
+    }
     inputLayer = std::unique_ptr<InputLayer>(
       new InputLayer(data, isTraining));
     lossLayer = std::unique_ptr<LossLayer>(
@@ -261,10 +322,10 @@ public:
     auto weightSyncProg = Sequence();
 
     Layer *first = &**hiddenLayers.begin();
-    inputLayer->init(*graph, 0, first, netType, eta, batchSize,
+    inputLayer->init(*graph, mapping.get(), 0, first, netType, eta, batchSize,
                      numIPUs, tilesPerIPU, dType);
     startBatchProg.add(inputLayer->startBatch(*graph));
-    fwdProg.add(inputLayer->forward(*graph, 0));
+    fwdProg.add(inputLayer->forward(*graph, mapping.get(), 0));
 
     initParamsProg.add(inputLayer->initParams(*graph));
 
@@ -273,20 +334,20 @@ public:
       Layer *next = (i == hiddenLayers.size() - 1) ?
                           &*lossLayer :
                           &*hiddenLayers[i+1];
-      hiddenLayers[i]->init(*graph, prev, next, netType, eta, batchSize,
-                            numIPUs, tilesPerIPU, dType);
+      hiddenLayers[i]->init(*graph, mapping.get(), prev, next, netType, eta,
+                            batchSize, numIPUs, tilesPerIPU, dType);
       startBatchProg.add(hiddenLayers[i]->startBatch(*graph));
-      fwdProg.add(hiddenLayers[i]->forward(*graph, prev));
+      fwdProg.add(hiddenLayers[i]->forward(*graph, mapping.get(), prev));
       initParamsProg.add(hiddenLayers[i]->initParams(*graph));
       std::cout << "-- Layer " << i << "\n";
       hiddenLayers[i]->describe(std::cout);
     }
 
     Layer *last = &**(hiddenLayers.end() - 1);
-    lossLayer->init(*graph, last, 0, netType, eta, batchSize,
+    lossLayer->init(*graph, mapping.get(), last, 0, netType, eta, batchSize,
                     numIPUs, tilesPerIPU, dType);
     startBatchProg.add(lossLayer->startBatch(*graph));
-    fwdProg.add(lossLayer->forward(*graph, last));
+    fwdProg.add(lossLayer->forward(*graph, mapping.get(), last));
     initParamsProg.add(lossLayer->initParams(*graph));
 
     if (netType == TrainingNet) {
@@ -314,37 +375,10 @@ public:
       unsigned numTiles = ipuEB->getTilesPerIPU() * ipuEB->getNumIPUs();
       ipuEB->setIPUExchangeImplementation(IPUModelEngineBuilder::BARE_NAKED_WITH_MULTICAST);
       ipuEB->setGlobalSyncCycles(500);
-      IPUModelEngineBuilder::TileMapping mapping(*graph);
       std::vector <Tensor> tensors = graph->getTensors();
       std::vector <ComputeSet> computeSets = graph->getComputeSets();
 
-      
-      for (Tensor t : tensors) {
-        std::uint64_t size = t.numElements();
-        for (unsigned j = 0; j < numTiles; ++j) {
-          const auto begin = (size * j) / numTiles;
-          const auto end = (size * (j + 1)) / numTiles;
-          if (begin == end)
-            continue;
-          mapping->setMapping(t.flatten().slice(begin, end),
-                              j);
-        }
-      }
-
-      for (ComputeSet c : computeSets) {
-        auto cs = graph->getComputeSet(c);
-        std::uint64_t size = cs.size();
-        for (unsigned j = 0; j < numTiles; ++j) {
-          const auto begin = (size * j) / numTiles;
-          const auto end = (size * (j + 1)) / numTiles;
-          if (begin == end)
-            continue;
-          for (unsigned i = begin; i != end; ++i) {
-            mapping->setMapping(cs[i], j);
-          }
-        }
-      }
-      IPUModelEngineBuilder::UserTilePartitioner p(mapping);
+      IPUModelEngineBuilder::UserTilePartitioner p(*mapping);
       ipuEB->setTilePartitioner(p);
       switch (ipuEB->getNumIPUs()) {
       case 1:

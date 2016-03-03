@@ -56,9 +56,11 @@ public:
               << "        Params: " << size * (prevSize + 1) << "\n";
   }
 
-  void init(Graph &graph, Layer *prev, Layer *next, NetType netType,
-            float eta, unsigned batchSize,
-            unsigned numIPUs, unsigned tilesPerIPU, const std::string &dType) {
+  void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping,
+            Layer *prev, Layer *next, NetType netType, float eta,
+            unsigned batchSize, unsigned numIPUs, unsigned tilesPerIPU,
+            const std::string &dType) {
+    Layer::init(numIPUs, tilesPerIPU);
     this->numIPUs = numIPUs;
     this->tilesPerIPU = tilesPerIPU;
     this->netType = netType;
@@ -81,6 +83,10 @@ public:
     biases = graph.addTensor(dType, {size});
     z = graph.addTensor(dType, {size});
     activations = graph.addTensor(dType, {size});
+    mapTensor(weights, mapping);
+    mapTensor(biases, mapping);
+    mapTensor(z, mapping);
+    mapTensor(activations, mapping);
     if (netType == TrainingNet) {
       errors = graph.addTensor(dType, {prevSize});
       activationRecord = graph.addTensor(dType, {prevSize, batchSize});
@@ -88,6 +94,12 @@ public:
       errorRecord = graph.addTensor(dType, {size, batchSize});
       errorRecordIndex = graph.addTensor("unsigned", {1});
       bwdWeights = graph.addTensor(dType, {prevSize + 1, size});
+      mapTensor(errors, mapping);
+      mapTensor(activationRecord, mapping);
+      mapTensor(actRecordIndex, mapping);
+      mapTensor(errorRecord, mapping);
+      mapTensor(errorRecordIndex, mapping);
+      mapTensor(bwdWeights, mapping);
     }
     hWeights = std::unique_ptr<float[]>(new float[(prevSize+1) * size]);
     unsigned seed = time(0);
@@ -105,11 +117,13 @@ public:
     return Sequence();
   }
 
-  Program forward(Graph &graph, Layer *prev)  {
+  Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping,
+                  Layer *prev)  {
     Tensor in = prev->getFwdActivations().flatten();
 
     if (USE_PARTIAL_SUMS) {
       Tensor partials = graph.addTensor(dType, {size, numPartials});
+      mapTensor(partials, mapping);
       ComputeSet fwd1 = graph.createComputeSet(),
                  fwd2 = graph.createComputeSet();
       for (unsigned j = 0; j < numPartials; j++) {
@@ -131,6 +145,8 @@ public:
                                   {"activationOut", activations[i]}});
           graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
       }
+      mapComputeSet(graph, fwd1, mapping);
+      mapComputeSet(graph, fwd2, mapping);
       return Sequence(Execute(fwd1), Execute(fwd2));
     } else {
       ComputeSet fwd = graph.createComputeSet();
@@ -143,6 +159,7 @@ public:
                                   {"activationOut", activations[i]}});
         graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
       }
+      mapComputeSet(graph, fwd, mapping);
       return Sequence(Execute(fwd));
     }
   }

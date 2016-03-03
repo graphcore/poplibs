@@ -44,9 +44,11 @@ public:
                      <<   "x" << numChannels << "\n";
   }
 
-  void init(Graph &graph, Layer *prev, Layer *next, NetType netType,
-            float eta, unsigned batchSize,
-            unsigned numIPUS, unsigned tilesPerIPU, const std::string &dType) {
+  void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping,
+            Layer *prev, Layer *next, NetType netType, float eta,
+            unsigned batchSize, unsigned numIPUs, unsigned tilesPerIPU,
+            const std::string &dType) {
+    Layer::init(numIPUs, tilesPerIPU);
     this->dType = dType;
     Tensor in = prev->getFwdActivations();
     xDim = in.dim(0);
@@ -55,6 +57,7 @@ public:
     xDimOut = (xDim - kernelSize) / stride + 1;
     yDimOut = (yDim - kernelSize) / stride + 1;
     activations = graph.addTensor(dType, {xDimOut, yDimOut, numChannels});
+    mapTensor(activations, mapping);
   }
 
   Program initParams(Graph &graph) {
@@ -67,7 +70,8 @@ public:
     return Sequence();
   }
 
-  Program forward(Graph &graph, Layer *prev)  {
+  Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping,
+                  Layer *prev)  {
     Tensor in = prev->getFwdActivations();
     ComputeSet fwd = graph.createComputeSet();
     for (unsigned i = 0; i < xDimOut; ++i) {
@@ -86,6 +90,7 @@ public:
         }
       }
     }
+    mapComputeSet(graph, fwd, mapping);
     return Execute(fwd);
   }
 
