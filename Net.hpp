@@ -296,7 +296,7 @@ public:
       mapping.reset(new IPUModelEngineBuilder::TileMapping(*graph));
       IPUModelEngineBuilder *ipuEB = new IPUModelEngineBuilder(*env);
       engineBuilder = std::unique_ptr<EngineBuilder>(ipuEB);
-      numIPUs = ipuEB->getNumIPUs();
+      numIPUs = options.numIPUs;
       tilesPerIPU = ipuEB->getTilesPerIPU();
     } else {
       engineBuilder =
