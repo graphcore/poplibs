@@ -138,7 +138,7 @@ public:
       const auto numRows = size;
       const auto numCols = prevSize;
 
-      Tensor partials = graph.addTensor(dType, {numRows, verticesPerRow});
+      Tensor partials = graph.addTensor("float", {numRows, verticesPerRow});
       ComputeSet fwd1 = graph.createComputeSet(layerName + ".fwd"),
                  fwd2 = graph.createComputeSet(layerName + ".fwd.reduce");
 

@@ -103,7 +103,7 @@ class FullyConnectedPartial : public Vertex {
 public:
   Input<Vector<FPType>> in;
   Input<Vector<FPType>> weights;
-  Output<FPType> out;
+  Output<float> out;
 
   bool compute() {
     float sum = 0;
@@ -122,7 +122,7 @@ public:
 
 class FullyConnectedReduce : public Vertex {
 public:
-  Input<Vector<FPType>> partials;
+  Input<Vector<float>> partials;
   Input<FPType> bias;
   NonLinearityType nonLinearityType;
   Output<FPType> zOut;
@@ -140,11 +140,7 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    if (sizeof(FPType) == 2) {
-      return (partials.size()+1)/4+15;
-    } else {
-      return (partials.size()+1)/2+15;
-    }
+    return (partials.size()+1)/2+15;
   }
 };
 
