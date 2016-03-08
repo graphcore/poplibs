@@ -26,7 +26,7 @@ public:
   std::string dType;
   std::string layerName;
 
-  size_t numPartials, elemsPerPartial;
+  size_t verticesPerRow;
 
   FullyConnectedLayer(unsigned size,
                       NonLinearityType nonLinearityType) :
@@ -71,24 +71,34 @@ public:
     this->dType = dType;
     prevSize = prev->getFwdActivations().numElements();
     if (USE_PARTIAL_SUMS) {
-      numPartials = sqrt(tilesPerIPU * numIPUs);
-      elemsPerPartial = prevSize/numPartials;
-      while (numPartials * elemsPerPartial != prevSize) {
-        numPartials--;
-        elemsPerPartial = prevSize/numPartials;
+      const auto numTiles = numIPUs * tilesPerIPU;
+      const auto numRows = size;
+      const auto numCols = prevSize;
+      // The cost of partial sum elements relative to input vector elements.
+      unsigned partialSumCost;
+      if (dType == "float") {
+        partialSumCost = 1;
+      } else {
+        assert(dType == "short");
+        partialSumCost = 2;
       }
-      assert(numPartials * elemsPerPartial == prevSize);
-      weights = graph.addTensor(dType, {numPartials, size, elemsPerPartial});
+      verticesPerRow =
+        static_cast<unsigned>(
+          std::floor(std::sqrt((numCols * numTiles) /
+                               (static_cast<float>(numRows * partialSumCost))))
+        );
+      verticesPerRow = std::max(verticesPerRow, 1UL);
     } else {
-      weights = graph.addTensor(dType, {size, prevSize});
+      verticesPerRow = 1;
     }
+    weights = graph.addTensor(dType, {size, prevSize});
     biases = graph.addTensor(dType, {size});
     z = graph.addTensor(dType, {size});
     activations = graph.addTensor(dType, {size});
-    mapTensor(weights, mapping);
     mapTensor(biases, mapping);
     mapTensor(z, mapping);
     mapTensor(activations, mapping);
+    // weights mapped in forward()
     if (netType == TrainingNet) {
       errors = graph.addTensor(dType, {prevSize});
       activationRecord = graph.addTensor(dType, {prevSize, batchSize});
@@ -123,32 +133,45 @@ public:
                   Layer *prev)  {
     Tensor in = prev->getFwdActivations().flatten();
 
-    if (USE_PARTIAL_SUMS) {
-      Tensor partials = graph.addTensor(dType, {size, numPartials});
-      mapTensor(partials, mapping);
+    if (verticesPerRow > 1) {
+      const auto numTiles = numIPUs * tilesPerIPU;
+      const auto numRows = size;
+      const auto numCols = prevSize;
+
+      Tensor partials = graph.addTensor(dType, {numRows, verticesPerRow});
       ComputeSet fwd1 = graph.createComputeSet(layerName + ".fwd"),
                  fwd2 = graph.createComputeSet(layerName + ".fwd.reduce");
-      for (unsigned j = 0; j < numPartials; j++) {
-        for (unsigned i = 0; i < size; ++i) {
-          Tensor partialIn = in.slice(j * elemsPerPartial,
-                                      (j + 1) * elemsPerPartial);
-          Tensor partialWeights = weights[j][i];
+
+      for (unsigned i = 0; i != numRows; ++i) {
+        const auto resultTile = (i * numTiles) / numRows;
+        for (unsigned j = 0; j != verticesPerRow; ++j) {
+          const auto beginElement = (numCols * j) / verticesPerRow;
+          const auto endElement = (numCols * (j + 1)) / verticesPerRow;
+          Tensor partialIn = in.slice(beginElement, endElement);
+          Tensor partialWeights = weights[i].slice(beginElement, endElement);
           auto v = graph.addVertex(fwd1, "FullyConnectedPartial",
                                    {{"in", partialIn},
                                     {"weights", partialWeights},
                                     {"out", partials[i][j]}});
+          const auto tile = j +
+                            verticesPerRow *
+                            ((i * (numTiles / verticesPerRow)) / numRows);
+          if (mapping) {
+            mapping->setMapping(v, tile);
+            mapping->setMapping(partialWeights, tile);
+          }
         }
-      }
-      for (unsigned i = 0; i < size; ++i) {
         auto v = graph.addVertex(fwd2, "FullyConnectedReduce",
                                  {{"partials", partials[i]},
                                   {"bias", biases[i]},
                                   {"zOut", z[i]},
                                   {"activationOut", activations[i]}});
-          graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
+        graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
+        if (mapping) {
+          mapping->setMapping(partials[i], resultTile);
+          mapping->setMapping(v, resultTile);
+        }
       }
-      mapComputeSet(graph, fwd1, mapping);
-      mapComputeSet(graph, fwd2, mapping);
       return Sequence(Execute(fwd1), Execute(fwd2));
     } else {
       ComputeSet fwd = graph.createComputeSet(layerName + ".fwd");
@@ -162,6 +185,7 @@ public:
         graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
       }
       mapComputeSet(graph, fwd, mapping);
+      mapTensor(weights, mapping);
       return Sequence(Execute(fwd));
     }
   }
