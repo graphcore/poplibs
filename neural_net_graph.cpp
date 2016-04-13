@@ -148,33 +148,38 @@ class Convolution : public Vertex {
 public:
   Vector<Input<Vector<FPType>>> activationIn;
   Vector<Input<Vector<FPType>>> weights;
-  Input<FPType> bias;
+  Input<Vector<FPType>> bias;
   NonLinearityType nonLinearityType;
-  Output <FPType> activationOut;
+  Output<Vector<FPType>> activationOut;
 
   bool compute() {
-    float sum = 0;
-    for (unsigned i = 0; i < activationIn.size(); ++i) {
-      for (unsigned j = 0; j < activationIn[i].size(); ++j) {
-        sum += activationIn[i][j] * weights[i][j];
+    unsigned numOutputs = activationOut.size();
+    unsigned wSize = activationIn.size();
+    for (unsigned i = 0; i < numOutputs; ++i) {
+      float sum = 0;
+      for (unsigned j = 0; j < wSize; ++j) {
+        for (unsigned k = 0; k < activationIn[i].size(); ++k) {
+          sum += activationIn[j][k] * weights[i * wSize + j][k];
+        }
       }
+      sum += bias[i]; // bias
+      activationOut[i] = nonlinearity(nonLinearityType, sum);
     }
-    sum += bias; // bias
-    *activationOut = nonlinearity(nonLinearityType, sum);
     return true;
   }
 
   uint64_t getCycleEstimate() const {
+    unsigned numOutputs = activationOut.size();
     unsigned N = activationIn.size();
     unsigned M = activationIn[0].size();
     unsigned vertexOverhead = 6;
     unsigned reluCycles = 3;
-    return vertexOverhead + reluCycles +
-           N * (1 + dense_dotproduct_cycles(M));
+    return vertexOverhead +
+      numOutputs * (reluCycles +
+                    N * (1 + dense_dotproduct_cycles(M)));
   }
 
 };
-
 
 class MaxPooling : public Vertex {
 public:

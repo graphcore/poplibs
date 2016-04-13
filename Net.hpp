@@ -9,9 +9,21 @@
 #include <vector>
 #include "neural_net_common.h"
 #include <map>
+#include <stdexcept>
 
 using namespace poplar;
 using namespace poplar::program;
+
+struct net_creation_error : std::logic_error {
+  std::string type;
+  explicit net_creation_error(const std::string &s) : std::logic_error(s) {
+    type = __FUNCTION__;
+  }
+  explicit net_creation_error(const char *s) : std::logic_error(s) {
+    type = __FUNCTION__;
+  }
+};
+
 
 typedef enum DType {
   FP16,

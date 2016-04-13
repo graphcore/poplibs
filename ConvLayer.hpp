@@ -20,6 +20,8 @@ public:
 
   unsigned xDim, yDim, prevChannels, xDimOut, yDimOut, weightsPerOutputChannel;
 
+
+
   std::string layerName;
 
   ConvLayer(unsigned kernelSize,
@@ -75,6 +77,9 @@ public:
             const std::string &dType) {
     Layer::init(numIPUs, tilesPerIPU);
     this->dType = dType;
+    if (dType != "float" && numChannels % 2 != 0) {
+      throw net_creation_error("Convolution layers with an odd number of channels are not supported for FP16 data");
+    }
     Tensor in = prev->getFwdActivations();
     xDim = in.dim(0);
     yDim = in.dim(1);
@@ -109,7 +114,9 @@ public:
     Tensor in = prev->getFwdActivations();
     ComputeSet fwd =
       graph.createComputeSet(layerName + ".fwd");
-    for (unsigned chan = 0; chan < numChannels; ++chan) {
+    unsigned chansPerVertex = dType == "float" ? 1 : 2;
+    assert(numChannels % chansPerVertex == 0);
+    for (unsigned chan = 0; chan < numChannels; chan += chansPerVertex) {
       for (unsigned i = 0; i < xDimOut; ++i) {
         for (unsigned j = 0; j < yDimOut; ++j) {
           unsigned width = std::min(i * stride + kernelSize, xDim) - i * stride;
@@ -121,13 +128,16 @@ public:
               .reshape({width, height * prevChannels});
           // Get weights that match window size
           Tensor w =
-            weights[chan].slice({0, 0}, {width, height * prevChannels});
-
+            weights.slice({chan, 0, 0},
+                          {chan + chansPerVertex, width, height * prevChannels})
+                   .reshape({chansPerVertex * width, height * prevChannels});
           auto v = graph.addVertex(fwd, "Convolution",
-            { {"activationIn", window},
-              {"weights", w},
-              {"bias", biases[chan]},
-              {"activationOut", activations[i][j][chan]} });
+            { {"activationIn", window },
+              {"weights", w },
+              {"bias", biases.slice(chan, chan + chansPerVertex) },
+              {"activationOut", activations[i][j].slice(chan,
+                                                        chan + chansPerVertex)}
+            });
           graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
         }
       }
