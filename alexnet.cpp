@@ -27,7 +27,7 @@ int main() {
   options.useIPUModel = true;
   options.numIPUs = 1;
   options.singleBatchProfile = true;
-  //  options.useSuperTiles = true;
+
 #if USE_CONVNET_BENCH_NET
   Net net(IMAGENET,
           1, // batch size

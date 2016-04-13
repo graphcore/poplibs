@@ -30,7 +30,6 @@ public:
   bool doComputation = true;
   bool singleBatchProfile = false;
   unsigned numIPUs = 1;
-  bool useSuperTiles = false;
   unsigned numBatchesBetweenTest = 2500;
 };
 
@@ -369,9 +368,6 @@ public:
       IPUModelEngineBuilder *ipuEB =
         static_cast<IPUModelEngineBuilder *>(&eb);
       ipuEB->setNumIPUs(options.numIPUs);
-      unsigned superTileDiv = options.useSuperTiles ? 4 : 1;
-      ipuEB->setTilesPerIPU(1152/superTileDiv);
-      ipuEB->setNumBytesPerTile(256*superTileDiv*1024);
       unsigned numTiles = ipuEB->getTilesPerIPU() * ipuEB->getNumIPUs();
       ipuEB->setIPUExchangeImplementation(IPUModelEngineBuilder::BARE_NAKED_WITH_MULTICAST);
       ipuEB->setGlobalSyncCycles(500);
