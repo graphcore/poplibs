@@ -25,16 +25,16 @@ struct net_creation_error : std::logic_error {
 };
 
 
-typedef enum DType {
+enum DType {
   FP16,
   FP32
-} DType;
+};
 
 
-typedef enum NetType {
+enum NetType {
   TrainingNet,
   TestOnlyNet
-} NetType;
+};
 
 class NetOptions {
 public:
