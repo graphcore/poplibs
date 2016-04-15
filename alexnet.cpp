@@ -1,10 +1,13 @@
+#include <boost/program_options.hpp>
 #include <initializer_list>
 #include "Net.hpp"
 #include "FullyConnectedLayer.hpp"
 #include "ConvLayer.hpp"
 #include "MaxPoolLayer.hpp"
 
-int main() {
+namespace po = boost::program_options;
+
+int main(int argc, char **argv) {
   DataSet IMAGENET;
   IMAGENET.dataSize = 224*224*3;
   IMAGENET.dim = std::vector<std::size_t>{224,224,3};
@@ -22,8 +25,26 @@ int main() {
   NetOptions options;
   options.doComputation = true;
   options.useIPUModel = true;
-  options.numIPUs = 1;
   options.singleBatchProfile = true;
+
+  po::options_description desc("Options");
+  desc.add_options()
+    ("help", "Produce help message")
+    ("ipus", po::value<unsigned>(&options.numIPUs)->default_value(1),
+             "Number of IPUs")
+  ;
+  po::variables_map vm;
+  try {
+    po::store(po::parse_command_line(argc, argv, desc), vm);
+    if (vm.count("help")) {
+      std::cout << desc << "\n";
+      return 1;
+    }
+    po::notify(vm);
+  } catch (std::exception& e) {
+    std::cerr << "error: " << e.what() << "\n";
+    return 1;
+  }
 
   Net net(IMAGENET,
           1, // batch size

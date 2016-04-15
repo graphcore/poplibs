@@ -26,7 +26,7 @@ ${OBJDIR}/%.o: %.cpp Makefile ${wildcard *.hpp} ${wilcard *.h} | ${OBJDIR}/
 ALEXNET_OBJ=${OBJDIR}/alexnet.o
 
 ${BINDIR}/alexnet: ${ALEXNET_OBJ} | ${BINDIR}/
-	g++ -std=c++11 -ffast-math ${ALEXNET_OBJ} -lpoplar -o $@
+	g++ -std=c++11 -ffast-math ${ALEXNET_OBJ} -lpoplar -lboost_program_options -o $@
 
 FC_OBJ=${OBJDIR}/fc.o
 
