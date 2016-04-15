@@ -9,7 +9,6 @@ public:
   unsigned kernelSize;
   unsigned stride;
   unsigned padding;
-  unsigned numInputGroups;
   unsigned numChannels;
   NonLinearityType nonLinearityType;
   NormalizationType normalizationType;
@@ -27,14 +26,12 @@ public:
   ConvLayer(unsigned kernelSize,
             unsigned stride,
             unsigned padding,
-            unsigned numInputGroups,
             unsigned numChannels,
             NonLinearityType nonLinearityType,
             NormalizationType normalizationType) :
     kernelSize(kernelSize),
     stride(stride),
     padding(padding),
-    numInputGroups(numInputGroups),
     numChannels(numChannels),
     nonLinearityType(nonLinearityType),
     normalizationType(normalizationType) {
