@@ -2,9 +2,7 @@
 #define _conv_layer_hpp_
 #include "Net.hpp"
 
-
-
-class ConvLayer : public Layer {
+class ConvLayerImpl : public Layer {
 public:
   unsigned kernelSize;
   unsigned stride;
@@ -12,23 +10,20 @@ public:
   unsigned numChannels;
   NonLinearityType nonLinearityType;
   NormalizationType normalizationType;
-
   Tensor weights, biases, z, activations;
-
-  std::string dType;
-
   unsigned xDim, yDim, prevChannels, xDimOut, yDimOut, weightsPerOutputChannel;
-
-
 
   std::string layerName;
 
-  ConvLayer(unsigned kernelSize,
-            unsigned stride,
-            unsigned padding,
-            unsigned numChannels,
-            NonLinearityType nonLinearityType,
-            NormalizationType normalizationType) :
+  ConvLayerImpl(Net &net,
+                int index,
+                unsigned kernelSize,
+                unsigned stride,
+                unsigned padding,
+                unsigned numChannels,
+                NonLinearityType nonLinearityType,
+                NormalizationType normalizationType) :
+    Layer(net, index),
     kernelSize(kernelSize),
     stride(stride),
     padding(padding),
@@ -68,15 +63,12 @@ public:
         << "        Params: " << numParams << "\n";
   }
 
-  void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping,
-            Layer *prev, Layer *next, NetType netType, float eta,
-            unsigned batchSize, unsigned numIPUs, unsigned tilesPerIPU,
-            const std::string &dType) {
-    Layer::init(numIPUs, tilesPerIPU);
-    this->dType = dType;
+  void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
+    const auto dType = getDType();
     if (dType != "float" && numChannels % 2 != 0) {
       throw net_creation_error("Convolution layers with an odd number of channels are not supported for FP16 data");
     }
+    Layer *prev = getPrevLayer();
     Tensor in = prev->getFwdActivations();
     xDim = in.dim(0);
     yDim = in.dim(1);
@@ -106,8 +98,9 @@ public:
     return Sequence();
   }
 
-  Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping,
-                  Layer *prev)  {
+  Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
+    Layer *prev = getPrevLayer();
+    const auto dType = getDType();
     Tensor in = prev->getFwdActivations();
     ComputeSet fwd =
       graph.createComputeSet(layerName + ".fwd");
@@ -143,7 +136,7 @@ public:
     return Execute(fwd);
   }
 
-  Program backward(Graph &graph, Layer *prev, Layer *next) {
+  Program backward(Graph &graph) {
     // TODO
     return Sequence();
   }
@@ -155,6 +148,33 @@ public:
 
 };
 
+class ConvLayer : public LayerSpec {
+  unsigned kernelSize;
+  unsigned stride;
+  unsigned padding;
+  unsigned numChannels;
+  NonLinearityType nonLinearityType;
+  NormalizationType normalizationType;
+public:
+  ConvLayer(unsigned kernelSize,
+            unsigned stride,
+            unsigned padding,
+            unsigned numChannels,
+            NonLinearityType nonLinearityType,
+            NormalizationType normalizationType) :
+  kernelSize(kernelSize),
+  stride(stride),
+  padding(padding),
+  numChannels(numChannels),
+  nonLinearityType(nonLinearityType),
+  normalizationType(normalizationType) {}
 
+  std::unique_ptr<Layer>
+  makeLayer(Net &net, int index) {
+    return std::unique_ptr<Layer>(
+       new ConvLayerImpl(net, index, kernelSize, stride, padding, numChannels,
+                         nonLinearityType, normalizationType));
+  }
+};
 
 #endif // _conv_layer_hpp_

@@ -8,7 +8,7 @@
 
 #define USE_PARTIAL_SUMS 1
 
-class FullyConnectedLayer : public Layer {
+class FullyConnectedLayerImpl : public Layer {
 public:
   std::size_t size, prevSize;
   NonLinearityType nonLinearityType;
@@ -18,18 +18,13 @@ public:
     actRecordIndex, errorRecordIndex;
 
   std::unique_ptr<float []> hWeights;
-
-  NetType netType;
-  float eta;
-  unsigned batchSize;
-  unsigned numIPUs, tilesPerIPU;
-  std::string dType;
   std::string layerName;
-
   size_t verticesPerRow;
 
-  FullyConnectedLayer(unsigned size,
-                      NonLinearityType nonLinearityType) :
+  FullyConnectedLayerImpl(Net &net, int index,
+                          unsigned size,
+                          NonLinearityType nonLinearityType) :
+    Layer(net, index),
     size(size),
     nonLinearityType(nonLinearityType) {
     layerName = "FullyConnected" + std::to_string(size);
@@ -58,20 +53,12 @@ public:
               << "        Params: " << size * (prevSize + 1) << "\n";
   }
 
-  void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping,
-            Layer *prev, Layer *next, NetType netType, float eta,
-            unsigned batchSize, unsigned numIPUs, unsigned tilesPerIPU,
-            const std::string &dType) {
-    Layer::init(numIPUs, tilesPerIPU);
-    this->numIPUs = numIPUs;
-    this->tilesPerIPU = tilesPerIPU;
-    this->netType = netType;
-    this->eta = eta;
-    this->batchSize = batchSize;
-    this->dType = dType;
+  void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
+    const auto dType = getDType();
+    Layer *prev = getPrevLayer();
     prevSize = prev->getFwdActivations().numElements();
     if (USE_PARTIAL_SUMS) {
-      const auto numTiles = numIPUs * tilesPerIPU;
+      const auto numTiles = getNumIPUs() * getTilesPerIPU();
       const auto numRows = size;
       const auto numCols = prevSize;
       // The cost of partial sum elements relative to input vector elements.
@@ -99,7 +86,8 @@ public:
     mapTensor(z, mapping);
     mapTensor(activations, mapping);
     // weights mapped in forward()
-    if (netType == TrainingNet) {
+    if (getNetType() == TrainingNet) {
+      const auto batchSize = getBatchSize();
       errors = graph.addTensor(dType, {prevSize});
       activationRecord = graph.addTensor(dType, {prevSize, batchSize});
       actRecordIndex = graph.addTensor("unsigned", {1});
@@ -129,12 +117,12 @@ public:
     return Sequence();
   }
 
-  Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping,
-                  Layer *prev)  {
+  Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
+    Layer *prev = getPrevLayer();
     Tensor in = prev->getFwdActivations().flatten();
 
     if (verticesPerRow > 1) {
-      const auto numTiles = numIPUs * tilesPerIPU;
+      const auto numTiles = getNumIPUs() * getTilesPerIPU();
       const auto numRows = size;
       const auto numCols = prevSize;
 
@@ -190,7 +178,7 @@ public:
     }
   }
 
-  Program backward(Graph &graph, Layer *prev, Layer *next) {
+  Program backward(Graph &graph) {
     // TODO
     return Sequence();
   }
@@ -198,6 +186,20 @@ public:
   Program weightSync(Graph &graph) {
     // TODO
     return Sequence();
+  }
+};
+
+class FullyConnectedLayer : public LayerSpec {
+  unsigned size;
+  NonLinearityType nonLinearityType;
+public:
+  FullyConnectedLayer(unsigned size,
+                      NonLinearityType nonLinearityType) :
+    size(size), nonLinearityType(nonLinearityType) {}
+  std::unique_ptr<Layer>
+  makeLayer(Net &net, int index) {
+    return std::unique_ptr<Layer>(
+       new FullyConnectedLayerImpl(net, index, size, nonLinearityType));
   }
 };
 

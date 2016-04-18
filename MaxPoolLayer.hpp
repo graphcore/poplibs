@@ -2,21 +2,22 @@
 #define _max_pool_layer_hpp_
 #include "Net.hpp"
 
-class MaxPoolLayer : public Layer {
+class MaxPoolLayerImpl : public Layer {
 public:
   unsigned kernelSize;
   unsigned stride;
 
   Tensor out, activations;
 
-  std::string dType;
-
   unsigned xDim, yDim, numChannels, xDimOut, yDimOut;
 
   std::string layerName;
 
-  MaxPoolLayer(unsigned kernelSize,
-               unsigned stride)  :
+  MaxPoolLayerImpl(const Net &net,
+                   int index,
+                   unsigned kernelSize,
+                   unsigned stride)  :
+    Layer(net, index),
     kernelSize(kernelSize),
     stride(stride) {
     layerName = "MaxPool" + std::to_string(kernelSize) + "x" +
@@ -49,12 +50,9 @@ public:
                      <<   "x" << numChannels << "\n";
   }
 
-  void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping,
-            Layer *prev, Layer *next, NetType netType, float eta,
-            unsigned batchSize, unsigned numIPUs, unsigned tilesPerIPU,
-            const std::string &dType) {
-    Layer::init(numIPUs, tilesPerIPU);
-    this->dType = dType;
+  void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
+    const auto dType = getDType();
+    Layer *prev = getPrevLayer();
     Tensor in = prev->getFwdActivations();
     xDim = in.dim(0);
     yDim = in.dim(1);
@@ -75,8 +73,8 @@ public:
     return Sequence();
   }
 
-  Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping,
-                  Layer *prev)  {
+  Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
+    Layer *prev = getPrevLayer();
     Tensor in = prev->getFwdActivations();
     ComputeSet fwd = graph.createComputeSet(layerName + ".fwd");
     for (unsigned i = 0; i < xDimOut; ++i) {
@@ -99,7 +97,7 @@ public:
     return Execute(fwd);
   }
 
-  Program backward(Graph &graph, Layer *prev, Layer *next) {
+  Program backward(Graph &graph) {
     // TODO
     return Sequence();
   }
@@ -107,6 +105,22 @@ public:
   Program weightSync(Graph &graph) {
     // TODO
     return Sequence();
+  }
+};
+
+class MaxPoolLayer : public LayerSpec {
+  unsigned kernelSize;
+  unsigned stride;
+public:
+  MaxPoolLayer(unsigned kernelSize,
+               unsigned stride) :
+  kernelSize(kernelSize),
+  stride(stride) {}
+
+  std::unique_ptr<Layer>
+  makeLayer(Net &net, int index) {
+    return std::unique_ptr<Layer>(
+      new MaxPoolLayerImpl(net, index, kernelSize, stride));
   }
 };
 
