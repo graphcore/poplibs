@@ -6,7 +6,55 @@
 #include <boost/random/variate_generator.hpp>
 #include <cmath>
 
-#define USE_PARTIAL_SUMS 1
+static uint64_t estimateVertexCycles(bool isFloat, unsigned size) {
+    return (size + 3) / 4 + 2 + 5;
+  return (size + 1) / 2 + 2 + 5;
+}
+
+struct PartitionShape {
+  unsigned tilesPerColumn;
+  unsigned tilesPerRow;
+  PartitionShape(unsigned tilesPerColumn, unsigned tilesPerRow) :
+    tilesPerColumn(tilesPerColumn), tilesPerRow(tilesPerRow) {}
+};
+
+// TODO Instead of hardcoding this we should querying it somehow.
+static int numWorkerContexts = 6;
+
+static int estimatePartitionCost(bool isFloat, int numRows, int numCols,
+                                int tilesPerRow, int tilesPerColumn) {
+  auto numTiles = tilesPerRow * tilesPerColumn;
+  auto numVertices = numRows * tilesPerRow;
+  auto vertexElements = 1 + (numCols - 1) / tilesPerRow;
+  auto partialSumsPerTile = 1 + (numRows - 1) / tilesPerColumn;
+  auto vertexRuntime = estimateVertexCycles(isFloat, vertexElements);
+  auto verticesPerWorker = 1 + (numVertices - 1) /
+                               (numTiles * numWorkerContexts);
+  auto computeCycles = vertexRuntime * verticesPerWorker;
+  auto exchangeElementsPerCycle = isFloat ? 1 : 2;
+  auto exchangeCycles =
+    (vertexElements + exchangeElementsPerCycle - 1) / exchangeElementsPerCycle +
+    partialSumsPerTile;
+  return computeCycles + exchangeCycles;
+}
+
+PartitionShape
+choosePartition(bool isFloat, int numRows, int numCols, int numTiles) {
+  int lowestCost = std::numeric_limits<int>::max();
+  int bestTilesPerColumn, bestTilesPerRow;
+  for (int tilesPerRow = 1; tilesPerRow <= numTiles; ++tilesPerRow) {
+    int tilesPerColumn = numTiles / tilesPerRow;
+    const auto cost = estimatePartitionCost(isFloat, numRows,
+                                            numCols, tilesPerRow,
+                                            tilesPerColumn);
+    if (cost < lowestCost) {
+      lowestCost = cost;
+      bestTilesPerColumn = tilesPerColumn;
+      bestTilesPerRow = tilesPerRow;
+    }
+  }
+  return PartitionShape(bestTilesPerColumn, bestTilesPerRow);
+}
 
 class FullyConnectedLayerImpl : public Layer {
 public:
@@ -19,7 +67,6 @@ public:
 
   std::unique_ptr<float []> hWeights;
   std::string layerName;
-  size_t verticesPerRow;
 
   FullyConnectedLayerImpl(Net &net, int index,
                           unsigned size,
@@ -57,27 +104,7 @@ public:
     const auto dType = getDType();
     Layer *prev = getPrevLayer();
     prevSize = prev->getFwdActivations().numElements();
-    if (USE_PARTIAL_SUMS) {
-      const auto numTiles = getNumIPUs() * getTilesPerIPU();
-      const auto numRows = size;
-      const auto numCols = prevSize;
-      // The cost of partial sum elements relative to input vector elements.
-      unsigned partialSumCost;
-      if (dType == "float") {
-        partialSumCost = 1;
-      } else {
-        assert(dType == "short");
-        partialSumCost = 2;
-      }
-      verticesPerRow =
-        static_cast<unsigned>(
-          std::floor(std::sqrt((numCols * numTiles) /
-                               (static_cast<float>(numRows * partialSumCost))))
-        );
-      verticesPerRow = std::max(verticesPerRow, 1UL);
-    } else {
-      verticesPerRow = 1;
-    }
+
     weights = graph.addTensor(dType, {size, prevSize});
     biases = graph.addTensor(dType, {size});
     z = graph.addTensor(dType, {size});
@@ -120,62 +147,92 @@ public:
   Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
     Layer *prev = getPrevLayer();
     Tensor in = prev->getFwdActivations().flatten();
+    const auto dType = getDType();
 
-    if (verticesPerRow > 1) {
-      const auto numTiles = getNumIPUs() * getTilesPerIPU();
-      const auto numRows = size;
-      const auto numCols = prevSize;
+    const auto numRows = size;
+    const auto numCols = prevSize;
+    // In theory a 2D tiling of the matrix across IPUs could decrease the
+    // amount of communication. Unfortunately it introduces a new causal layer.
+    // It turns out that, at least up to 16 IPUs, it is better to always keep
+    // all row elements on the same IPU to avoid the need for an extra sync.
+    const auto numIPUs = getNumIPUs();
+    const auto maxRowsPerTile = (numRows + numIPUs - 1) / numIPUs;
 
-      Tensor partials = graph.addTensor("float", {numRows, verticesPerRow});
-      ComputeSet fwd1 = graph.createComputeSet(layerName + ".fwd"),
-                 fwd2 = graph.createComputeSet(layerName + ".fwd.reduce");
+    bool isFloat = dType == "float";
+    assert(isFloat || dType == "short");
+    const auto tilesPerIPU = getTilesPerIPU();
+    auto ipuPartition = choosePartition(isFloat, maxRowsPerTile, numCols,
+                                        tilesPerIPU);
 
-      for (unsigned i = 0; i != numRows; ++i) {
-        const auto resultTile = (i * numTiles) / numRows;
-        for (unsigned j = 0; j != verticesPerRow; ++j) {
-          const auto beginElement = (numCols * j) / verticesPerRow;
-          const auto endElement = (numCols * (j + 1)) / verticesPerRow;
+    ComputeSet dotProductCS = graph.createComputeSet(layerName + ".fwd");
+    ComputeSet reduceCS;
+    Tensor partials;
+    if (ipuPartition.tilesPerRow > 1) {
+       reduceCS = graph.createComputeSet(layerName + ".fwd.reduce");
+       partials = graph.addTensor("float", {numRows, ipuPartition.tilesPerRow});
+    }
+
+    for (unsigned i = 0; i != numRows; ++i) {
+      const auto ipu = (i * numIPUs) / numRows;
+      const auto ipuBeginRow = (numRows * ipu) / numIPUs;
+      const auto ipuEndRow = (numRows * (ipu + 1)) / numIPUs;
+      const auto ipuRows = ipuEndRow - ipuBeginRow;
+      const auto tileY = ((i - ipuBeginRow) * ipuPartition.tilesPerColumn) /
+                         ipuRows;
+      for (unsigned j = 0; j != ipuPartition.tilesPerRow; ++j) {
+        const auto tileX = j;
+        const auto tile = ipu * tilesPerIPU +
+                          tileY * ipuPartition.tilesPerRow +
+                          tileX;
+        VertexRef v;
+        if (ipuPartition.tilesPerRow > 1) {
+          const auto beginElement =
+              (numCols * j) / ipuPartition.tilesPerRow;
+          const auto endElement =
+              (numCols * (j + 1)) / ipuPartition.tilesPerRow;
           Tensor partialIn = in.slice(beginElement, endElement);
           Tensor partialWeights = weights[i].slice(beginElement, endElement);
-          auto v = graph.addVertex(fwd1, "FullyConnectedPartial",
-                                   {{"in", partialIn},
-                                    {"weights", partialWeights},
-                                    {"out", partials[i][j]}});
-          const auto tile = j +
-                            verticesPerRow *
-                            ((i * (numTiles / verticesPerRow)) / numRows);
+          v = graph.addVertex(dotProductCS, "FullyConnectedPartial",
+                              {{"in", partialIn},
+                               {"weights", partialWeights},
+                               {"out", partials[i][j]}});
+          if (mapping) {
+            mapping->setMapping(partialWeights, tile);
+            mapping->setMapping(v, tile);
+          }
+        } else {
+          v = graph.addVertex(dotProductCS, "FullyConnected",
+                              {{"activationIn", in},
+                               {"weights", weights[i]},
+                               {"bias", biases[i]},
+                               {"zOut", z[i]},
+                               {"activationOut", activations[i]}});
+          graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
           if (mapping) {
             mapping->setMapping(v, tile);
-            mapping->setMapping(partialWeights, tile);
           }
         }
-        auto v = graph.addVertex(fwd2, "FullyConnectedReduce",
+      }
+      if (ipuPartition.tilesPerRow > 1) {
+        // Sum the partial sums.
+        auto v = graph.addVertex(reduceCS, "FullyConnectedReduce",
                                  {{"partials", partials[i]},
                                   {"bias", biases[i]},
                                   {"zOut", z[i]},
                                   {"activationOut", activations[i]}});
         graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
         if (mapping) {
+          const auto resultTile = (i * getNumIPUs() * getTilesPerIPU()) /
+                                  numRows;
           mapping->setMapping(partials[i], resultTile);
           mapping->setMapping(v, resultTile);
         }
       }
-      return Sequence(Execute(fwd1), Execute(fwd2));
-    } else {
-      ComputeSet fwd = graph.createComputeSet(layerName + ".fwd");
-      for (unsigned i = 0; i < size; ++i) {
-        auto v = graph.addVertex(fwd, "FullyConnected",
-                                 {{"activationIn", in},
-                                  {"weights", weights[i]},
-                                  {"bias", biases[i]},
-                                  {"zOut", z[i]},
-                                  {"activationOut", activations[i]}});
-        graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
-      }
-      mapComputeSet(graph, fwd, mapping);
-      mapTensor(weights, mapping);
-      return Sequence(Execute(fwd));
     }
+    if (ipuPartition.tilesPerRow > 1) {
+      return Sequence(Execute(dotProductCS), Execute(reduceCS));
+    }
+    return Sequence(Execute(dotProductCS));
   }
 
   Program backward(Graph &graph) {
