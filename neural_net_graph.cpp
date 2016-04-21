@@ -13,9 +13,9 @@ using namespace poplar;
 
 static uint64_t dense_dotproduct_cycles(unsigned size) {
   if (sizeof(FPType) == 2) {
-    return (size+1)/4+2;
+    return (size + 3) / 4 + 2;
   } else {
-    return (size+1)/2+2;
+    return (size + 1) / 2 + 2;
   }
 }
 
