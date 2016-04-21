@@ -90,6 +90,19 @@ public:
     return NON_LINEARITY_NONE;
   };
   virtual Tensor getBwdErrors() const = 0;
+
+  // Called if the previous layer provides a 3D volume as output.
+  // A layer can request that the previous layer provides the z-axis
+  // (or channel-axis) to be split into a number of groups. So the provided
+  // tensor from the previous layer will be a 4D tensor of dimension
+  // {numGroups, x, y, z / numGroups}.
+  //
+  // If this function returns 0 then it indicates that it does not care how
+  // the previous output is grouped.
+  virtual size_t getNumChannelGroupsIn(size_t xPrev, size_t yPrev,
+                                       size_t zPrev) const {
+    return 0;
+  }
 };
 
 class LayerSpec {
@@ -108,8 +121,16 @@ public:
 
   void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
     const auto dType = getDType();
-    out = graph.addTensor(dType, data.dim);
-    z = graph.addTensor(dType, data.dim);
+    Layer *next = getNextLayer();
+    // Re-arrange so that the channels are the major
+    auto numGroups = next->getNumChannelGroupsIn(data.dim[0], data.dim[1],
+                                               data.dim[2]);
+    if (!numGroups)
+      numGroups = 1;
+    const auto dim = std::vector<size_t>({numGroups, data.dim[0], data.dim[1],
+                                          data.dim[2]/numGroups});
+    out = graph.addTensor(dType, dim);
+    z = graph.addTensor(dType, dim);
     mapTensor(out, mapping);
     mapTensor(z, mapping);
   }

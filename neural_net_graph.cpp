@@ -181,6 +181,127 @@ public:
 
 };
 
+/* Compute a partial convolution for a sub-set of input channels and
+ * output channels over a number of rows of the input field.
+ *
+ * TODO: For non 3x3 convolutions, this code needs extra temporary memory
+ * for partial convolutions. This needs to be accounted for.
+ */
+class ConvPartial: public Vertex {
+public:
+  Input<Vector<FPType>> in;
+  Input<Vector<FPType>> weights;
+  Vector<Output<Vector<float>>> out;
+  unsigned kernelSize;
+  unsigned stride;
+  unsigned inputCols;
+  unsigned chans;
+
+  bool compute() {
+    unsigned outputRows = out.size();
+    unsigned outputCols = out[0].size();
+    for (unsigned orow = 0; orow < outputRows; ++orow) {
+      unsigned fieldHeight = kernelSize;
+      if (orow + fieldHeight > outputRows)
+        fieldHeight = outputRows - orow;
+      for (unsigned irow = 0; irow < fieldHeight; ++irow) {
+        FPType *row = &in[orow * stride * inputCols + irow * inputCols];
+        FPType *rowWeights = &weights[irow * kernelSize * chans];
+        for (unsigned ocol = 0; ocol < outputCols; ++ocol) {
+          float sum = 0;
+          FPType *field = &row[ocol * stride * chans];
+          for (unsigned i = 0; i < kernelSize * chans; ++i) {
+            FPType v;
+            if (ocol + i < outputCols)
+              v = field[i];
+            else
+              v = 0;
+            sum += v * rowWeights[i];
+          }
+          if (irow == 0)
+            out[orow][ocol] = sum;
+          else
+            out[orow][ocol] += sum;
+        }
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    unsigned outputRows = out.size();
+    unsigned outputCols = out[0].size();
+    unsigned vertexOverhead = 5;
+    if (sizeof(FPType) == 2 && stride == 1) {
+      // Each output row will have a number of passes of 3x1 convolutions
+      // followed by a summation.
+      unsigned numPasses = (kernelSize + 2) / 3;
+      unsigned innerLoopCycles = numPasses * outputCols;
+      return vertexOverhead +
+             outputRows * (1 + kernelSize * (1 + innerLoopCycles));
+    }  else {
+      return vertexOverhead +
+        (1 +  outputCols * (1 + kernelSize * (1 + dense_dotproduct_cycles(kernelSize*chans))));
+    }
+  }
+
+};
+
+class ConvReduce : public Vertex {
+public:
+  Output<Vector<float>> out;
+  Vector<Input<Vector<float>>> partials;
+
+  bool compute() {
+    unsigned numPartials = partials.size();
+    unsigned numElem = out.size();
+    for (unsigned i = 0; i < numElem; ++i) {
+      float sum = 0;
+      for (unsigned j = 0; j < numPartials; ++j) {
+        sum += partials[j][i];
+      }
+      out[i] = sum;
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    unsigned numPartials = partials.size();
+    unsigned numElem = out.size();
+    return 4 + numElem * (1 + numPartials / 2);
+  }
+};
+
+class ConvComplete : public Vertex {
+public:
+  Vector<Input<Vector<float>>> in;
+  Input<Vector<FPType>> bias;
+  Output<Vector<FPType>> out;
+  NonLinearityType nonLinearityType;
+
+  bool compute() {
+    unsigned outChans = bias.size();
+    unsigned outCols = in[0].size();
+    for (unsigned ochan = 0; ochan < outChans; ++ochan) {
+      for (unsigned ocol = 0; ocol < outCols; ++ocol) {
+        float sum = in[ochan][ocol];
+        sum += bias[ochan];
+        out[ochan * outChans + ocol] = nonlinearity(nonLinearityType, sum);
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    unsigned vertexOverhead = 5;
+    unsigned outChans = bias.size();
+    unsigned outCols = in[0].size();
+    return vertexOverhead + 2*outCols*outChans;
+  }
+
+};
+
+
 class MaxPooling : public Vertex {
 public:
   Vector<Input<FPType>> activationIn;

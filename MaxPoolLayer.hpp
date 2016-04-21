@@ -9,7 +9,7 @@ public:
 
   Tensor out, activations;
 
-  unsigned xDim, yDim, numChannels, xDimOut, yDimOut;
+  unsigned xDim, yDim, numChannels, xDimOut, yDimOut, numChanGroups;
 
   std::string layerName;
 
@@ -53,13 +53,19 @@ public:
   void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
     const auto dType = getDType();
     Layer *prev = getPrevLayer();
-    Tensor in = prev->getFwdActivations();
-    xDim = in.dim(0);
-    yDim = in.dim(1);
-    numChannels = in.dim(2);
+    auto in = prev->getFwdActivations();
+    xDim = in.dim(1);
+    yDim = in.dim(2);
+    numChannels = in.dim(0) * in.dim(3);
     xDimOut = (xDim - kernelSize) / stride + 1;
     yDimOut = (yDim - kernelSize) / stride + 1;
-    activations = graph.addTensor(dType, {xDimOut, yDimOut, numChannels});
+    Layer *next = getNextLayer();
+    numChanGroups = next->getNumChannelGroupsIn(xDimOut, yDimOut, numChannels);
+    if (!numChanGroups)
+      numChanGroups = in.dim(0);
+    size_t chansPerGroup = numChannels / numChanGroups;
+    activations = graph.addTensor(dType, {numChanGroups, xDimOut, yDimOut,
+                                          chansPerGroup});
     mapTensor(activations, mapping);
   }
 
@@ -76,6 +82,9 @@ public:
   Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
     Layer *prev = getPrevLayer();
     Tensor in = prev->getFwdActivations();
+    unsigned prevChanGroups = in.dim(0);
+    unsigned prevChansPerGroup = numChannels / prevChanGroups;
+    unsigned chansPerGroup = numChannels / numChanGroups;
     ComputeSet fwd = graph.createComputeSet(layerName + ".fwd");
     for (unsigned i = 0; i < xDimOut; ++i) {
       for (unsigned j = 0; j < yDimOut; ++j) {
@@ -83,13 +92,18 @@ public:
           unsigned width = std::min(i * stride + kernelSize, xDim) - i * stride;
           unsigned height = std::min(j * stride + kernelSize, yDim) - j * stride;
           // Create window into previous layer
+          unsigned prevChanGroup = chan / prevChansPerGroup;
+          unsigned prevChanInGroup = chan % prevChansPerGroup;
+          unsigned chanGroup = chan / chansPerGroup;
+          unsigned chanInGroup = chan % chansPerGroup;
           Tensor window =
-            in.slice({i * stride, j * stride, chan },
-                     {i * stride + width, j * stride + height, chan + 1})
+            in[prevChanGroup].slice({i * stride, j * stride, prevChanInGroup},
+                                    {i * stride + width, j * stride + height,
+                                      prevChanInGroup+1})
               .flatten();
           graph.addVertex(fwd, "MaxPooling",
             { {"activationIn", window},
-              {"activationOut", activations[i][j][chan]} });
+              {"activationOut", activations[chanGroup][i][j][chanInGroup]} });
         }
       }
     }
