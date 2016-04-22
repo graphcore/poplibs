@@ -1,3 +1,5 @@
+#include "Layer.hpp"
+
 #include "Net.hpp"
 
 unsigned Layer::getNumIPUs() const { return net.getNumIPUs(); }
