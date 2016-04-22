@@ -23,7 +23,11 @@ ${OBJDIR}/neural_net_graph32.ppo: neural_net_graph.cpp neural_net_common.h Makef
 ${OBJDIR}/%.o: %.cpp Makefile ${wildcard *.hpp} ${wilcard *.h} | ${OBJDIR}/
 	g++ -march=native -ffast-math ${FLAGS} -c -std=c++11 $< -o $@
 
-COMMON_OBJ = ${OBJDIR}/Layer.o
+COMMON_OBJ = \
+	${OBJDIR}/ConvLayer.o \
+	${OBJDIR}/FullyConnectedLayer.o \
+	${OBJDIR}/Layer.o \
+	${OBJDIR}/MaxPoolLayer.o
 
 ALEXNET_OBJ=${OBJDIR}/alexnet.o ${COMMON_OBJ}
 
