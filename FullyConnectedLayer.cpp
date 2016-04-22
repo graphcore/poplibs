@@ -67,8 +67,10 @@ std::uint64_t FullyConnectedLayerImpl::getNumberOfFlops() {
 }
 
 double FullyConnectedLayerImpl::getPerfectCycleCount() {
+  const auto numTiles = getNumIPUs() * getTilesPerIPU();
   // Can execute 4 f16 MACs of 2 f32 MACs per cycle.
-  return static_cast<double>(getNumberOfFlops()) / (2 * getDTypeSize());
+  return static_cast<double>(getNumberOfFlops()) /
+         (2 * getDTypeSize() * numTiles);
 }
 
 void FullyConnectedLayerImpl::

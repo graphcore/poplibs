@@ -41,17 +41,18 @@ std::uint64_t ConvLayerImpl::getNumberOfFlops() {
 }
 
 double ConvLayerImpl::getPerfectCycleCount() {
+  const auto numTiles = getNumIPUs() * getTilesPerIPU();
   if (getDType() == "float") {
     // Can execute 2 f32 MACs per cycle.
-    return static_cast<double>(getNumberOfFlops()) / (2 * 2);
+    return static_cast<double>(getNumberOfFlops()) / (2 * 2 * numTiles);
   }
   assert(getDType() == "short");
   if (stride != 1) {
     // Can execute 4 f16 MACs per cycle.
-    return static_cast<double>(getNumberOfFlops()) / (4 * 2);
+    return static_cast<double>(getNumberOfFlops()) / (4 * 2 * numTiles);
   }
   // Can execute 12 f32 MACs per cycle for convolutions with a stride of 1.
-  return static_cast<double>(getNumberOfFlops()) / (12 * 2);
+  return static_cast<double>(getNumberOfFlops()) / (12 * 2 * numTiles);
 }
 
 void ConvLayerImpl::describe(std::ostream &out) {

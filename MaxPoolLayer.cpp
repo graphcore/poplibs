@@ -39,8 +39,9 @@ std::uint64_t MaxPoolLayerImpl::getNumberOfFlops() {
 }
 
 double MaxPoolLayerImpl::getPerfectCycleCount() {
+  const auto numTiles = getNumIPUs() * getTilesPerIPU();
   // Can execute 4 f16 max or 2 f32 max per cycle.
-  return static_cast<double>(getNumberOfFlops() / getDTypeSize());
+  return static_cast<double>(getNumberOfFlops() / (getDTypeSize() * numTiles));
 }
 
 void MaxPoolLayerImpl::
