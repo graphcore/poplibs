@@ -99,7 +99,19 @@ public:
     std::cout << "   -- Fully connected layer:\n"
               << "        Input: "  << prevSize << "\n"
               << "        Output: " << size << "\n"
-              << "        Params: " << size * (prevSize + 1) << "\n";
+              << "        Params: " << size * (prevSize + 1) << "\n"
+              << "        FLOPs: " << getNumberOfFlops() << "\n";
+  }
+
+  std::uint64_t getNumberOfFlops() {
+    auto numRows = size;
+    auto numCols = prevSize;
+    return 2 * numRows * numCols;
+  }
+
+  virtual double getPerfectCycleCount() {
+    // Can execute 4 f16 MACs of 2 f32 MACs per cycle.
+    return static_cast<double>(getNumberOfFlops()) / (2 * getDTypeSize());
   }
 
   void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {

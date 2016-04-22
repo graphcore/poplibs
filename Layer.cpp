@@ -1,11 +1,24 @@
 #include "Net.hpp"
 
 unsigned Layer::getNumIPUs() const { return net.getNumIPUs(); }
+
 unsigned Layer::getTilesPerIPU() const { return net.getTilesPerIPU(); }
+
 Layer *Layer::getPrevLayer() const { return net.getPrevLayer(index); }
+
 Layer *Layer::getNextLayer() const { return net.getNextLayer(index); }
+
 const std::string &Layer::getDType() const { return net.getDType(); }
+
+unsigned Layer::getDTypeSize() const {
+  if (getDType() == "float")
+    return 4;
+  assert(getDType() == "short");
+  return 2;
+}
+
 unsigned Layer::getBatchSize() const { return net.getBatchSize(); }
+
 enum NetType Layer::getNetType() const { return net.getNetType(); }
 
 void Layer::mapTensor(Tensor t, IPUModelEngineBuilder::TileMapping *mapping) {

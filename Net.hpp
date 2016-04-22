@@ -5,6 +5,7 @@
 #include <poplar/IPUModelEngine.hpp>
 #include <iostream>
 #include <chrono>
+#include <cstdint>
 #include <memory>
 #include <vector>
 #include "neural_net_common.h"
@@ -67,6 +68,7 @@ protected:
   unsigned getNumIPUs() const;
   unsigned getTilesPerIPU() const;
   const std::string &getDType() const;
+  unsigned getDTypeSize() const;
   enum NetType getNetType() const;
   unsigned getBatchSize() const;
   void mapTensor(Tensor t, IPUModelEngineBuilder::TileMapping *mapping);
@@ -84,6 +86,18 @@ public:
   virtual Program backward(Graph &graph) = 0;
   virtual Program weightSync(Graph &graph) = 0;
   virtual void describe(std::ostream &out) = 0;
+  /// Return the number of FLOPs required for a naive implementation of the
+  /// forward pass. A FLOP is a basic arithmetic operation such as multiply,
+  /// add, subtract. A fused multiply accumulate counts as 2 FLOPs.
+  /// The count of the number of FLOPs does not include operations used to
+  /// compute the non-linearity at the end of the layer.
+  virtual std::uint64_t getNumberOfFlops() = 0;
+  /// Return the number of cycles you would expect the forward pass to require
+  /// based only on amount of compute required, ignoring any overheads. The
+  /// return value may be fractional in cases where the number of operations
+  /// required is not an exact multiple of the ideal number of operations per
+  /// cycle.
+  virtual double getPerfectCycleCount() = 0;
   virtual Tensor getFwdActivations() const = 0;
   virtual Tensor getFwdZs() const = 0;
   virtual NonLinearityType getNonLinearityType() const {
@@ -156,6 +170,8 @@ public:
   Program backward(Graph &graph) { return Sequence(); }
   Program weightSync(Graph &graph) { return Sequence(); }
   void describe(std::ostream &out) {}
+  std::uint64_t getNumberOfFlops() { return 0; }
+  virtual double getPerfectCycleCount() { return 0.0; }
   Tensor getFwdActivations() const { return out; }
   Tensor getFwdZs() const { return out; }
   Tensor getBwdErrors() const { return {}; }
@@ -236,6 +252,8 @@ public:
   Program backward(Graph &graph) { return Sequence(); }
   Program weightSync(Graph &graph) { return Sequence(); }
   void describe(std::ostream &out) {}
+  std::uint64_t getNumberOfFlops() { return 0; }
+  virtual double getPerfectCycleCount() { return 0.0; }
   Tensor getFwdActivations() const { return {}; }
   Tensor getFwdZs() const { return {}; }
   Tensor getBwdErrors() const { return errors; }
@@ -367,6 +385,8 @@ public:
 
     initParamsProg.add(inputLayer->initParams(*graph));
 
+    std::uint64_t numFlops = 0;
+    double perfectCycleTime = 0.0;
     for (unsigned i = 0; i < hiddenLayers.size(); ++i) {
       hiddenLayers[i]->init(*graph, mapping.get());
       startBatchProg.add(hiddenLayers[i]->startBatch(*graph));
@@ -374,7 +394,12 @@ public:
       initParamsProg.add(hiddenLayers[i]->initParams(*graph));
       std::cout << "-- Layer " << i << "\n";
       hiddenLayers[i]->describe(std::cout);
+      numFlops += hiddenLayers[i]->getNumberOfFlops();
+      perfectCycleTime += hiddenLayers[i]->getPerfectCycleCount();
     }
+    std::cout << "Total number of FLOPs: " << numFlops << "\n";
+    std::cout << "Perfect cycle time: ";
+    std::cout << static_cast<std::uint64_t>(perfectCycleTime) << "\n";
 
     lossLayer->init(*graph, mapping.get());
     startBatchProg.add(lossLayer->startBatch(*graph));

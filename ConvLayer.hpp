@@ -47,6 +47,36 @@ public:
                               (kernelSize == 3 || kernelSize == 5));
   }
 
+  std::uint64_t getNumberOfFlops() {
+    std::uint64_t numFlops = 0;
+    for (unsigned outChan = 0; outChan < outNumChans; ++outChan) {
+      for (unsigned j = 0; j < outDimY; ++j) {
+        for (unsigned i = 0; i < outDimX; ++i) {
+          unsigned width =
+              std::min(i * stride + kernelSize, inDimX) - i * stride;
+          unsigned height =
+              std::min(j * stride + kernelSize, inDimY) - j * stride;
+          numFlops += 2 * width * height * inNumChans;
+        }
+      }
+    }
+    return numFlops;
+  }
+
+  virtual double getPerfectCycleCount() {
+    if (getDType() == "float") {
+      // Can execute 2 f32 MACs per cycle.
+      return static_cast<double>(getNumberOfFlops()) / (2 * 2);
+    }
+    assert(getDType() == "short");
+    if (stride != 1) {
+      // Can execute 4 f16 MACs per cycle.
+      return static_cast<double>(getNumberOfFlops()) / (4 * 2);
+    }
+    // Can execute 12 f32 MACs per cycle for convolutions with a stride of 1.
+    return static_cast<double>(getNumberOfFlops()) / (12 * 2);
+  }
+
   Tensor getFwdActivations() const {
     return activations;
   }
@@ -73,7 +103,8 @@ public:
                     <<   "x" << inNumChans << "\n"
         << "        Output: " << outDimX << "x" << outDimY
                      <<   "x" << outNumChans << "\n"
-        << "        Params: " << numParams << "\n";
+        << "        Params: " << numParams << "\n"
+        << "        FLOPs: " << getNumberOfFlops() << "\n";
   }
 
   size_t getNumChannelGroupsIn(size_t xPrev, size_t yPrev,

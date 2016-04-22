@@ -47,7 +47,29 @@ public:
         << "        Input: " << xDim << "x" << yDim
                      <<   "x" << numChannels << "\n"
         << "        Output: " << xDimOut << "x" << yDimOut
-                     <<   "x" << numChannels << "\n";
+                     <<   "x" << numChannels << "\n"
+        << "        FLOPs: " << getNumberOfFlops() << "\n";
+  }
+
+  std::uint64_t getNumberOfFlops() {
+    std::uint64_t numFlops = 0;
+    for (unsigned i = 0; i < xDimOut; ++i) {
+      for (unsigned j = 0; j < yDimOut; ++j) {
+        for (unsigned chan = 0; chan < numChannels; ++chan) {
+          unsigned width =
+            std::min(i * stride + kernelSize, xDim) - i * stride;
+          unsigned height =
+            std::min(j * stride + kernelSize, yDim) - j * stride;
+          numFlops += width * height;
+        }
+      }
+    }
+    return numFlops;
+  }
+
+  virtual double getPerfectCycleCount() {
+    // Can execute 4 f16 max or 2 f32 max per cycle.
+    return static_cast<double>(getNumberOfFlops() / getDTypeSize());
   }
 
   void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
