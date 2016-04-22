@@ -27,7 +27,8 @@ COMMON_OBJ = \
 	${OBJDIR}/ConvLayer.o \
 	${OBJDIR}/FullyConnectedLayer.o \
 	${OBJDIR}/Layer.o \
-	${OBJDIR}/MaxPoolLayer.o
+        ${OBJDIR}/MaxPoolLayer.o \
+        ${OBJDIR}/Net.o
 
 ALEXNET_OBJ=${OBJDIR}/alexnet.o ${COMMON_OBJ}
 
