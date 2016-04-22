@@ -64,8 +64,9 @@ public:
   unsigned numTestBatches;
 
   std::string dType;
-  unsigned numIPUs, tilesPerIPU;
+  unsigned workerContextsPerTile, numIPUs, tilesPerIPU;
 
+  unsigned getWorkerContextsPerTile() const { return workerContextsPerTile; }
   unsigned getNumIPUs() const { return numIPUs; }
   unsigned getTilesPerIPU() const { return tilesPerIPU; }
 

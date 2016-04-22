@@ -34,6 +34,7 @@ class Layer {
   int index;
 protected:
   Layer(const Net &net, int index) : net(net), index(index) {}
+  unsigned getWorkerContextsPerTile() const;
   unsigned getNumIPUs() const;
   unsigned getTilesPerIPU() const;
   const std::string &getDType() const;

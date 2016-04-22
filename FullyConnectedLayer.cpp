@@ -14,12 +14,10 @@ namespace {
   };
 }
 
-// TODO Instead of hardcoding this we should querying it somehow.
-static unsigned numWorkerContexts = 6;
-
-static unsigned estimatePartitionCost(bool isFloat, unsigned numRows,
-                                 unsigned numCols, unsigned tilesPerRow,
-                                 unsigned tilesPerColumn) {
+static unsigned
+estimatePartitionCost(unsigned numWorkerContexts, bool isFloat,
+                      unsigned numRows, unsigned numCols, unsigned tilesPerRow,
+                      unsigned tilesPerColumn) {
   auto numTiles = tilesPerRow * tilesPerColumn;
   auto numVertices = numRows * tilesPerRow;
   auto vertexElements = (numCols + tilesPerRow - 1) / tilesPerRow;
@@ -36,14 +34,14 @@ static unsigned estimatePartitionCost(bool isFloat, unsigned numRows,
 }
 
 static PartitionShape
-choosePartition(bool isFloat, unsigned numRows, unsigned numCols,
-                unsigned numTiles) {
+choosePartition(unsigned numWorkerContexts, bool isFloat, unsigned numRows,
+                unsigned numCols, unsigned numTiles) {
   unsigned lowestCost = std::numeric_limits<unsigned>::max();
   unsigned bestTilesPerColumn, bestTilesPerRow;
   for (unsigned tilesPerRow = 1; tilesPerRow <= numTiles; ++tilesPerRow) {
     unsigned tilesPerColumn = numTiles / tilesPerRow;
-    const auto cost = estimatePartitionCost(isFloat, numRows,
-                                            numCols, tilesPerRow,
+    const auto cost = estimatePartitionCost(numWorkerContexts, isFloat,
+                                            numRows, numCols, tilesPerRow,
                                             tilesPerColumn);
     if (cost < lowestCost) {
       lowestCost = cost;
@@ -128,7 +126,8 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   bool isFloat = dType == "float";
   assert(isFloat || dType == "short");
   const auto tilesPerIPU = getTilesPerIPU();
-  auto ipuPartition = choosePartition(isFloat, maxRowsPerTile, numCols,
+  auto ipuPartition = choosePartition(getWorkerContextsPerTile(),
+                                      isFloat, maxRowsPerTile, numCols,
                                       tilesPerIPU);
 
   ComputeSet dotProductCS = graph.createComputeSet(layerName + ".fwd");

@@ -61,11 +61,13 @@ void Net::initialize(DataSet &data, LossType lossType) {
     mapping.reset(new IPUModelEngineBuilder::TileMapping(*graph));
     IPUModelEngineBuilder *ipuEB = new IPUModelEngineBuilder(*env);
     engineBuilder = std::unique_ptr<EngineBuilder>(ipuEB);
+    workerContextsPerTile = ipuEB->getNumWorkerContexts();
     numIPUs = options.numIPUs;
     tilesPerIPU = ipuEB->getTilesPerIPU();
   } else {
     engineBuilder =
       std::unique_ptr<EngineBuilder>(new CPUEngineBuilder(*env));
+    workerContextsPerTile = 1;
     numIPUs = 1;
     tilesPerIPU = 1;
   }
