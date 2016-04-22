@@ -19,17 +19,18 @@ struct PartitionShape {
 };
 
 // TODO Instead of hardcoding this we should querying it somehow.
-static int numWorkerContexts = 6;
+static unsigned numWorkerContexts = 6;
 
-static int estimatePartitionCost(bool isFloat, int numRows, int numCols,
-                                int tilesPerRow, int tilesPerColumn) {
+static unsigned estimatePartitionCost(bool isFloat, unsigned numRows,
+                                 unsigned numCols, unsigned tilesPerRow,
+                                 unsigned tilesPerColumn) {
   auto numTiles = tilesPerRow * tilesPerColumn;
   auto numVertices = numRows * tilesPerRow;
-  auto vertexElements = 1 + (numCols - 1) / tilesPerRow;
-  auto partialSumsPerTile = 1 + (numRows - 1) / tilesPerColumn;
+  auto vertexElements = (numCols + tilesPerRow - 1) / tilesPerRow;
+  auto partialSumsPerTile = (numRows + tilesPerColumn - 1) / tilesPerColumn;
   auto vertexRuntime = estimateVertexCycles(isFloat, vertexElements);
-  auto verticesPerWorker = 1 + (numVertices - 1) /
-                               (numTiles * numWorkerContexts);
+  auto verticesPerWorker = (numVertices + numTiles * numWorkerContexts - 1) /
+                           (numTiles * numWorkerContexts);
   auto computeCycles = vertexRuntime * verticesPerWorker;
   auto exchangeElementsPerCycle = isFloat ? 1 : 2;
   auto exchangeCycles =
@@ -39,11 +40,12 @@ static int estimatePartitionCost(bool isFloat, int numRows, int numCols,
 }
 
 PartitionShape
-choosePartition(bool isFloat, int numRows, int numCols, int numTiles) {
-  int lowestCost = std::numeric_limits<int>::max();
-  int bestTilesPerColumn, bestTilesPerRow;
-  for (int tilesPerRow = 1; tilesPerRow <= numTiles; ++tilesPerRow) {
-    int tilesPerColumn = numTiles / tilesPerRow;
+choosePartition(bool isFloat, unsigned numRows, unsigned numCols,
+                unsigned numTiles) {
+  unsigned lowestCost = std::numeric_limits<unsigned>::max();
+  unsigned bestTilesPerColumn, bestTilesPerRow;
+  for (unsigned tilesPerRow = 1; tilesPerRow <= numTiles; ++tilesPerRow) {
+    unsigned tilesPerColumn = numTiles / tilesPerRow;
     const auto cost = estimatePartitionCost(isFloat, numRows,
                                             numCols, tilesPerRow,
                                             tilesPerColumn);
