@@ -1,6 +1,7 @@
 #include "FullyConnectedLayer.hpp"
 
 static uint64_t estimateVertexCycles(bool isFloat, unsigned size) {
+  if (!isFloat)
     return (size + 3) / 4 + 2 + 5;
   return (size + 1) / 2 + 2 + 5;
 }
