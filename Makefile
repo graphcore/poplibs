@@ -3,7 +3,7 @@ BINDIR = bin
 OBJDIR = obj
 
 #PROGS = ${BINDIR}/fc ${BINDIR}/fc_mnist ${BINDIR}/alexnet
-PROGS =  ${BINDIR}/alexnet ${BINDIR}/resnet34b
+PROGS =  ${BINDIR}/alexnet ${BINDIR}/resnet34b ${BINDIR}/resnet50
 
 all: ${PROGS} ${OBJDIR}/neural_net_graph32.ppo ${OBJDIR}/neural_net_graph16.ppo
 	@echo Build complete
@@ -39,6 +39,11 @@ RESNET34B_OBJ=${OBJDIR}/resnet34b.o ${COMMON_OBJ}
 
 ${BINDIR}/resnet34b: ${RESNET34B_OBJ} | ${BINDIR}/
 	g++ -std=c++11 -ffast-math ${RESNET34B_OBJ} -lpoplar -o $@
+
+RESNET50_OBJ=${OBJDIR}/resnet50.o ${COMMON_OBJ}
+
+${BINDIR}/resnet50: ${RESNET50_OBJ} | ${BINDIR}/
+	g++ -std=c++11 -ffast-math ${RESNET50_OBJ} -lpoplar -o $@
 
 FC_OBJ=${OBJDIR}/fc.o ${COMMON_OBJ}
 
