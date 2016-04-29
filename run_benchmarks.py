@@ -13,6 +13,7 @@ import itertools
 from functools import partial
 from openpyxl import Workbook
 from openpyxl.styles import Font
+import argparse
 import re
 import subprocess
 import sys
@@ -53,8 +54,8 @@ fields = [
 ]
 
 
-def run(params):
-    cmd = ['bin/alexnet']
+def run(prog, params):
+    cmd = ['bin/{}'.format(prog)]
     for name, value in params.iteritems():
         if name == 'Exchange Type':
             pass
@@ -180,20 +181,38 @@ def parse(lines):
     return layer_data
 
 
-def main():
-    param_space = [
-        ('Num IPUs', [1, 2])
-    ]
+def benchmark(prog, param_space):
     param_names = [name for name, _ in param_space]
     runs = []
     for param_set in \
             itertools.product(*(options for _, options in param_space)):
         params = dict(zip(param_names, param_set))
-        log = run(params)
+        log = run(prog, params)
         data = parse(log)
         runs.append((params, data))
 
-    write(runs, 'alexnet.xlsx')
+    write(runs, '{}.xlsx'.format(prog))
+
+
+def main():
+    benchmarks = {'alexnet': [('Num IPUs', [1, 2])],
+                  'resnet34b': [('Num IPUs', [1])],
+                  'resnet50': [('Num IPUs', [1])]
+                 }
+    all_progs = benchmarks.keys()
+    parser = argparse.ArgumentParser(description='Run neural net benchmarks')
+    parser.add_argument('progs', metavar='prog', type=str, nargs='*',
+                        help='Programs to run {}'.format(str(all_progs)))
+    args = parser.parse_args()
+    progs = args.progs
+    if not progs:
+        progs = all_progs
+    for prog in progs:
+        if prog not in benchmarks:
+            sys.stderr.write("ERROR: unknown program '{}'\n".format(prog))
+            return 1
+        param_space = benchmarks[prog]
+        benchmark(prog, param_space)
     return 0
 
 
