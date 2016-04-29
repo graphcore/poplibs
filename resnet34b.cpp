@@ -35,6 +35,8 @@ int main() {
   options.numIPUs = 1;
   options.singleBatchProfile = true;
 
+  auto resMethod = RESIDUAL_PAD;
+
   Net net(IMAGENET,
           1, // batch size
           makeLayers({
@@ -44,84 +46,71 @@ int main() {
 
             new ConvLayer(3, 1, 2, 64, NON_LINEARITY_RELU,
                           NORMALIZATION_NONE),
+            new ConvResLayer(3, 1, 2, 64, NON_LINEARITY_RELU,
+                             NORMALIZATION_NONE, 2, resMethod),
             new ConvLayer(3, 1, 2, 64, NON_LINEARITY_RELU,
                           NORMALIZATION_NONE),
-
+            new ConvResLayer(3, 1, 2, 64, NON_LINEARITY_RELU,
+                             NORMALIZATION_NONE, 2, resMethod),
             new ConvLayer(3, 1, 2, 64, NON_LINEARITY_RELU,
                           NORMALIZATION_NONE),
-            new ConvLayer(3, 1, 2, 64, NON_LINEARITY_RELU,
-                          NORMALIZATION_NONE),
-
-            new ConvLayer(3, 1, 2, 64, NON_LINEARITY_RELU,
-                          NORMALIZATION_NONE),
-            new ConvLayer(3, 1, 2, 64, NON_LINEARITY_RELU,
-                          NORMALIZATION_NONE),
+            new ConvResLayer(3, 1, 2, 64, NON_LINEARITY_RELU,
+                             NORMALIZATION_NONE, 2, resMethod),
 
             new ConvLayer(3, 2, 2, 128, NON_LINEARITY_RELU,
                           NORMALIZATION_NONE),
-
+            new ConvResLayer(3, 1, 2, 128, NON_LINEARITY_RELU,
+                             NORMALIZATION_NONE, 2, resMethod),
             new ConvLayer(3, 1, 2, 128, NON_LINEARITY_RELU,
                           NORMALIZATION_NONE),
+            new ConvResLayer(3, 1, 2, 128, NON_LINEARITY_RELU,
+                             NORMALIZATION_NONE, 2, resMethod),
             new ConvLayer(3, 1, 2, 128, NON_LINEARITY_RELU,
                           NORMALIZATION_NONE),
-
+            new ConvResLayer(3, 1, 2, 128, NON_LINEARITY_RELU,
+                             NORMALIZATION_NONE, 2, resMethod),
             new ConvLayer(3, 1, 2, 128, NON_LINEARITY_RELU,
                           NORMALIZATION_NONE),
-            new ConvLayer(3, 1, 2, 128, NON_LINEARITY_RELU,
-                          NORMALIZATION_NONE),
-
-            new ConvLayer(3, 1, 2, 128, NON_LINEARITY_RELU,
-                          NORMALIZATION_NONE),
-            new ConvLayer(3, 1, 2, 128, NON_LINEARITY_RELU,
-                          NORMALIZATION_NONE),
-
-            new ConvLayer(3, 1, 2, 128, NON_LINEARITY_RELU,
-                          NORMALIZATION_NONE),
+            new ConvResLayer(3, 1, 2, 128, NON_LINEARITY_RELU,
+                             NORMALIZATION_NONE, 2, resMethod),
 
             new ConvLayer(3, 2, 2, 256, NON_LINEARITY_RELU,
                           NORMALIZATION_NONE),
-
+            new ConvResLayer(3, 1, 2, 256, NON_LINEARITY_RELU,
+                             NORMALIZATION_NONE, 2, resMethod),
             new ConvLayer(3, 1, 2, 256, NON_LINEARITY_RELU,
                           NORMALIZATION_NONE),
+            new ConvResLayer(3, 1, 2, 256, NON_LINEARITY_RELU,
+                             NORMALIZATION_NONE, 2, resMethod),
             new ConvLayer(3, 1, 2, 256, NON_LINEARITY_RELU,
                           NORMALIZATION_NONE),
-
+            new ConvResLayer(3, 1, 2, 256, NON_LINEARITY_RELU,
+                             NORMALIZATION_NONE, 2, resMethod),
             new ConvLayer(3, 1, 2, 256, NON_LINEARITY_RELU,
                           NORMALIZATION_NONE),
+            new ConvResLayer(3, 1, 2, 256, NON_LINEARITY_RELU,
+                             NORMALIZATION_NONE, 2, resMethod),
             new ConvLayer(3, 1, 2, 256, NON_LINEARITY_RELU,
                           NORMALIZATION_NONE),
-
+            new ConvResLayer(3, 1, 2, 256, NON_LINEARITY_RELU,
+                             NORMALIZATION_NONE, 2, resMethod),
             new ConvLayer(3, 1, 2, 256, NON_LINEARITY_RELU,
                           NORMALIZATION_NONE),
-            new ConvLayer(3, 1, 2, 256, NON_LINEARITY_RELU,
-                          NORMALIZATION_NONE),
-
-            new ConvLayer(3, 1, 2, 256, NON_LINEARITY_RELU,
-                          NORMALIZATION_NONE),
-            new ConvLayer(3, 1, 2, 256, NON_LINEARITY_RELU,
-                          NORMALIZATION_NONE),
-
-            new ConvLayer(3, 1, 2, 256, NON_LINEARITY_RELU,
-                          NORMALIZATION_NONE),
-            new ConvLayer(3, 1, 2, 256, NON_LINEARITY_RELU,
-                          NORMALIZATION_NONE),
-            new ConvLayer(3, 1, 2, 256, NON_LINEARITY_RELU,
-                          NORMALIZATION_NONE),
+            new ConvResLayer(3, 1, 2, 256, NON_LINEARITY_RELU,
+                             NORMALIZATION_NONE, 2, resMethod),
 
             new ConvLayer(3, 2, 2, 512, NON_LINEARITY_RELU,
                           NORMALIZATION_NONE),
-
+            new ConvResLayer(3, 1, 2, 512, NON_LINEARITY_RELU,
+                             NORMALIZATION_NONE, 2, resMethod),
             new ConvLayer(3, 1, 2, 512, NON_LINEARITY_RELU,
                           NORMALIZATION_NONE),
+            new ConvResLayer(3, 1, 2, 512, NON_LINEARITY_RELU,
+                             NORMALIZATION_NONE, 2, resMethod),
             new ConvLayer(3, 1, 2, 512, NON_LINEARITY_RELU,
                           NORMALIZATION_NONE),
-
-            new ConvLayer(3, 1, 2, 512, NON_LINEARITY_RELU,
-                          NORMALIZATION_NONE),
-            new ConvLayer(3, 1, 2, 512, NON_LINEARITY_RELU,
-                          NORMALIZATION_NONE),
-            new ConvLayer(3, 1, 2, 512, NON_LINEARITY_RELU,
-                          NORMALIZATION_NONE),
+            new ConvResLayer(3, 1, 2, 512, NON_LINEARITY_RELU,
+                             NORMALIZATION_NONE, 2, resMethod),
 
             new MaxPoolLayer(7, 7),
             new FullyConnectedLayer(1000, NON_LINEARITY_RELU),

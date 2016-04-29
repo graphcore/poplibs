@@ -249,6 +249,80 @@ public:
 };
 
 
+class ConvCompleteRes : public Vertex {
+public:
+  Vector<Input<Vector<float>>> in;
+  Input<Vector<FPType>> bias;
+  Output<Vector<FPType>> out;
+  NonLinearityType nonLinearityType;
+  Input<Vector<FPType>> res;
+
+  bool compute() {
+    unsigned outChans = bias.size();
+    unsigned outCols = in[0].size();
+    for (unsigned ochan = 0; ochan < outChans; ++ochan) {
+      for (unsigned ocol = 0; ocol < outCols; ++ocol) {
+        float sum = in[ochan][ocol];
+        sum += bias[ochan];
+        sum += res[ochan * outChans + ocol];
+        out[ochan * outChans + ocol] = nonlinearity(nonLinearityType, sum);
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    unsigned vertexOverhead = 5;
+    unsigned outChans = bias.size();
+    unsigned outCols = in[0].size();
+    return vertexOverhead + 2*outCols*outChans;
+  }
+
+};
+
+
+class CopyResidual : public Vertex {
+public:
+  Input<Vector<FPType>> in;
+  Output<Vector<FPType>> out;
+
+  bool compute() {
+    for (unsigned i = 0; i < in.size(); ++i)
+      out[i] = in[i];
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    // TODO: make this more accurate
+    bool isFloat = sizeof(FPType) == 4;
+    auto copiesPerCycle = isFloat ? 2 : 4;
+    auto copyCycles = (in.size() + copiesPerCycle - 1) / copiesPerCycle;
+    return 4 + copyCycles;
+  }
+};
+
+class Zero : public Vertex {
+public:
+  Output<Vector<FPType>> out;
+
+  bool compute() {
+    for (unsigned i = 0; i < out.size(); ++i) {
+      out[i] = 0;
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    // TODO: make this more accurate
+    bool isFloat = sizeof(FPType) == 4;
+    auto zeroesPerCycle = isFloat ? 2 : 4;
+    auto zeroCycles = (out.size() + zeroesPerCycle - 1) / zeroesPerCycle;
+    return 4 + zeroCycles;
+  }
+};
+
+
+
 class MaxPooling : public Vertex {
 public:
   Vector<Input<FPType>> activationIn;

@@ -200,14 +200,18 @@ ConvLayerImpl::ConvLayerImpl(Net &net,
                              unsigned padding,
                              unsigned numChannels,
                              NonLinearityType nonLinearityType,
-                             NormalizationType normalizationType) :
+                             NormalizationType normalizationType,
+                             unsigned resIndex,
+                             enum ResidualMethod resMethod) :
   Layer(net, index),
   kernelSize(kernelSize),
   stride(stride),
   padding(padding),
   outNumChans(numChannels),
   nonLinearityType(nonLinearityType),
-  normalizationType(normalizationType) {
+  normalizationType(normalizationType),
+  resIndex(resIndex),
+  resMethod(resMethod) {
   layerName = "Conv" + std::to_string(kernelSize) + "x" +
               std::to_string(kernelSize);
 }
@@ -246,8 +250,8 @@ getWeightRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
   return { weightBegin, weightEnd };
 }
 
-std::uint64_t ConvLayerImpl::getNumberOfFlops() {
-  std::uint64_t numFlops = 0;
+std::uint64_t ConvLayerImpl::getNumberOfMACs() {
+  std::uint64_t numMACs = 0;
   for (unsigned y = 0; y < outDimY; ++y) {
     unsigned inYBegin, inYEnd;
     std::tie(inYBegin, inYEnd) = getInputRange(y, stride, kernelSize,
@@ -258,31 +262,56 @@ std::uint64_t ConvLayerImpl::getNumberOfFlops() {
       std::tie(inXBegin, inXEnd) = getInputRange(x, stride, kernelSize,
                                                  inDimX);
       const auto width = inXEnd - inXBegin;
-      numFlops += 2 * width * height * outNumChans * inNumChans;
+      numMACs += width * height * outNumChans * inNumChans;
     }
   }
-  return numFlops;
+  return numMACs;
+}
+
+std::uint64_t ConvLayerImpl::getNumberOfAdds() {
+  if (!resIndex)
+    return 0;
+
+  // An addition is required to add in the residual information
+  return outNumChans * outDimX * outDimY;
+}
+
+
+std::uint64_t ConvLayerImpl::getNumberOfFlops() {
+  return 2 * getNumberOfMACs() + getNumberOfAdds();
 }
 
 double ConvLayerImpl::getPerfectCycleCount() {
   const auto numTiles = getNumIPUs() * getTilesPerIPU();
   if (getDType() == "float") {
     // Can execute 2 f32 MACs per cycle.
-    return static_cast<double>(getNumberOfFlops()) / (2 * 2 * numTiles);
+    auto macCycles =
+       static_cast<double>(getNumberOfMACs()) / (2 * numTiles);
+    // Can execute 2 f32 ADDs per cycle.
+    auto addCycles =
+       static_cast<double>(getNumberOfAdds()) / (2 * numTiles);
+    return macCycles + addCycles;
   }
   assert(getDType() == "short");
+  double macCycles;
   if (stride != 1) {
     // Can execute 4 f16 MACs per cycle.
-    return static_cast<double>(getNumberOfFlops()) / (4 * 2 * numTiles);
+    macCycles = static_cast<double>(getNumberOfMACs()) / (4 * numTiles);
   }
   // Can execute 12 f32 MACs per cycle for convolutions with a stride of 1.
-  return static_cast<double>(getNumberOfFlops()) / (12 * 2 * numTiles);
+  macCycles = static_cast<double>(getNumberOfMACs()) / (12 * numTiles);
+  // Can execute 4 f16 ADDs per cycle.
+  auto addCycles = static_cast<double>(getNumberOfAdds()) / (4 * numTiles);
+  return macCycles + addCycles;
 }
 
 void ConvLayerImpl::describe(std::ostream &out) {
   unsigned numParams = weights.numElements() + biases.numElements();
-  out << "   -- Convolutional layer:\n"
-      << "        Size: " << kernelSize << "x" << kernelSize << "\n"
+  if (resIndex)
+    out << "   -- Convolutional layer (residual):\n";
+  else
+    out << "   -- Convolutional layer:\n";
+  out << "        Size: " << kernelSize << "x" << kernelSize << "\n"
       << "        Stride: " << stride << "\n"
       << "        Padding: " << padding << "\n"
       << "        Input: " << inDimX << "x" << inDimY
@@ -367,11 +396,34 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   biases = graph.addTensor(dType, {outNumChans});
   mapTensor(biases, mapping);
 
+  unsigned resDimX = 0, resDimY = 0, resNumChans = 0, resNumChanGroups = 0,
+           resChansPerGroup;
+  if (resIndex) {
+    resLayer = this;
+    for (unsigned i = 0; i < resIndex; ++i)
+      resLayer = resLayer->getPrevLayer();
+    auto act = resLayer->getFwdActivations();
+    resDimY = act.dim(1);
+    resDimX = act.dim(2);
+    if (resDimX < outDimX || resDimY < outDimY) {
+      throw net_creation_error("Residual layers must use previous layers "
+                               "with X and Y dimensions that are larger"
+                               "than the current layer's output.");
+    }
+    resStrideX = resDimX / outDimX;
+    resStrideY = resDimY / outDimY;
+    resNumChanGroups = act.dim(0);
+    resChansPerGroup = act.dim(3);
+    resNumChans = resNumChanGroups * resChansPerGroup;
+  }
+
   auto implSpec =
     ConvImplSpec(inNumChans, inNumChanGroups,
                  inDimX, inDimY,
                  outNumChans, outNumChanGroups,
                  outDimX, outDimY,
+                 resNumChans, resNumChanGroups,
+                 resDimX, resDimY,
                  kernelSize, stride, padding);
 
 
@@ -399,7 +451,90 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   mapTensor(activations, mapping);
   mapTensor(in, mapping);
   mapTensor(biasesIn, mapping);
+  if (resIndex) {
+    resIn = graph.addTensor(dType, {resNumChanGroups,
+                                    resDimY, resDimY,
+                                    resChansPerGroup});
+    mapTensor(resIn, mapping);
+  }
 }
+
+void ConvLayerImpl::
+addResidualCalc(Graph &graph,
+                ComputeSet cs,
+                IPUModelEngineBuilder::TileMapping *mapping) {
+  assert(resLayer);
+  auto resNumChanGroups = resIn.dim(0);
+  auto resChansPerGroup = resIn.dim(3);
+  auto resNumChans = resNumChanGroups * resChansPerGroup;
+  if (resMethod != RESIDUAL_WEIGHTED_CONV &&
+      resNumChans == outNumChans &&
+      resNumChanGroups == outNumChanGroups) {
+    // We can directly add the output of the previous layer to this
+    // layer's output.
+    residual = resIn;
+    return;
+  }
+  size_t outChansPerGroup = outNumChans / outNumChanGroups;
+  size_t resOutNumChanGroups =
+      (resNumChans + outChansPerGroup - 1) / outChansPerGroup;
+  size_t resOutNumChans = resOutNumChanGroups * outChansPerGroup;
+  residual = graph.addTensor(getDType(), {resOutNumChanGroups, outDimY, outDimX,
+                                          outChansPerGroup});
+  mapTensor(residual, mapping);
+
+  switch (resMethod) {
+  case RESIDUAL_PAD:
+    for (unsigned outChanGroup = 0;
+         outChanGroup < resOutNumChanGroups;
+         ++outChanGroup) {
+      for (unsigned y = 0; y < outDimY; ++y) {
+        for (unsigned x = 0; x < outDimX; ++x) {
+          auto chansPerVertex = getDTypeSize() == 2 ? 2 : 1;
+          assert(outChansPerGroup % chansPerVertex == 0);
+          assert(resChansPerGroup % chansPerVertex == 0);
+          for (unsigned outChanGroupElement = 0;
+               outChanGroupElement < outChansPerGroup;
+               outChanGroupElement += chansPerVertex) {
+            Tensor out = residual[outChanGroup][y][x]
+              .slice(outChanGroupElement,
+                     outChanGroupElement + chansPerVertex);
+            auto outChan = outChanGroup * outChansPerGroup +
+              outChanGroupElement;
+            if (outChan >= resNumChans) {
+              auto v = graph.addVertex(cs, "Zero", {{"out",out}});
+              continue;
+            }
+            auto resChanGroup = outChan / resChansPerGroup;
+            auto resChanGroupElement = outChan % resChansPerGroup;
+            assert(resChanGroup < resNumChanGroups);
+            assert(resChanGroupElement < resChansPerGroup);
+            assert(y * resStrideX < resIn.dim(1));
+            assert(x * resStrideY < resIn.dim(2));
+            Tensor in = resIn[resChanGroup][y * resStrideY][x * resStrideX]
+              .slice(resChanGroupElement,
+                     resChanGroupElement + chansPerVertex);
+            auto v = graph.addVertex(cs, "CopyResidual",
+                                     {{"in", in}, {"out",out}});
+          }
+        }
+      }
+    }
+    break;
+  case RESIDUAL_WEIGHTED_CONV:
+  case RESIDUAL_WEIGHTED_CONV_IF_SIZES_DIFFER:
+    assert(0 && "Weighted calculation of residual input not implemented");
+    break;
+  default:
+    assert(0 && "Unknown residual calculation method");
+  }
+  // This compute set may have more added with a specific mapping later. Here,
+  // we map the current vertices of the compute set using the mapComputeSet
+  // helper.
+  mapComputeSet(graph, cs, mapping);
+  resStrideX = resStrideY = 1;
+}
+
 
 void
 ConvLayerImpl::forwardTile(Graph &graph,
@@ -545,6 +680,10 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
     prog.add(Copy(reuseImpl->getInputWeights(), weights));
     prog.add(Copy(reuseImpl->getInputBiases(), biases));
     prog.add(reuseImpl->getCachedFwdProg());
+    if (resLayer) {
+      prog.add(Copy(reuseImpl->getInputResidual(),
+                    resLayer->getFwdActivations()));
+    }
     return prog;
   }
   auto prog = Sequence();
@@ -552,6 +691,10 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
   mapWeights(graph, mapping, weights, isMultiIPU);
   prog.add(Copy(weightsIn, weights));
   prog.add(Copy(biasesIn, biases));
+  if (resLayer) {
+    prog.add(Copy(resIn, resLayer->getFwdActivations()));
+  }
+
   const auto inChansPerGroup = partition.inChansPerGroup;
   const auto dType = getDType();
   unsigned outChansPerVertex = dType == "float" ? 1 : 2;
@@ -568,7 +711,6 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
                                      outNumChans,
                                      outDimY,
                                      outDimX});
-
   ComputeSet fwdCS = graph.createComputeSet(layerName + ".fwd");
   forwardProg.add(Execute(fwdCS));
   for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
@@ -595,12 +737,17 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
   }
   mapWeights(graph, mapping, weightsIn, isMultiIPU);
   Tensor reduced;
+  ComputeSet reduceCS = graph.createComputeSet(layerName + ".fwd.reduce");
+  bool executeReduceCS = false;
+  if (resLayer) {
+    addResidualCalc(graph, reduceCS, mapping);
+    executeReduceCS = true;
+  }
   if (tilesPerInZGroup == 1) {
     reduced = partials[0];
   } else {
     // Accumulate the partial sums.
     reduced = graph.addTensor("float", {outNumChans, outDimY, outDimX});
-    ComputeSet reduceCS = graph.createComputeSet(layerName + ".fwd.reduce");
     const auto numTiles = getNumIPUs() * getTilesPerIPU();
     for (unsigned z = 0; z != outNumChans; ++z) {
       for (unsigned y = 0; y != outDimY; ++y) {
@@ -620,11 +767,15 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
         }
       }
     }
+    executeReduceCS = true;
+  }
+  if (executeReduceCS) {
     forwardProg.add(Execute(reduceCS));
   }
 
   // Apply the non linearity and write back results in the layout desired by
   // the next layer. Each vertex handles outChansPerGroup output elements.
+  // TODO: This step could be merged with the reduction step above.
   ComputeSet completionCS =
      graph.createComputeSet(layerName + ".fwd.complete");
   size_t outChansPerGroup = outNumChans / outNumChanGroups;
@@ -644,11 +795,23 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
               {outChanGroup, 0, y, x},
               {outChanGroup + 1, outChansPerGroup, y + 1, x + 1}
             ).reshape({outChansPerGroup, 1});
-        auto v = graph.addVertex(completionCS, "ConvComplete",
+        auto resOutChanGroups = resLayer ? residual.dim(0) : 0;
+        bool needsResidual = resLayer && outChanGroup < resOutChanGroups;
+        std::string vertexType =
+            needsResidual ? "ConvCompleteRes" : "ConvComplete";
+        auto v = graph.addVertex(completionCS, vertexType,
                                  {{ "in", in },
                                   { "bias", biasSlice },
                                   { "out", actOut} });
         graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
+        if (needsResidual) {
+          // If the residual is taken directly from the previous layer (
+          // as opposed to being zero-padded or converted), then striding over
+          // the X,Y plane may still be needed (in this case resStride will not
+          // be 1).
+          Tensor res = residual[outChanGroup][y * resStrideY][x * resStrideX];
+          graph.connect(res, v["res"]);
+        }
       }
     }
   }
