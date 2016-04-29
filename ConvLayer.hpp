@@ -2,10 +2,33 @@
 #define _conv_layer_hpp_
 #include "Net.hpp"
 
+struct ConvLayerPartition {
+  unsigned tilesPerXAxis;
+  unsigned tilesPerYAxis;
+  unsigned tilesPerZAxis;
+  unsigned tilesPerInZGroupAxis;
+  unsigned inChansPerGroup;
+  ConvLayerPartition() = default;
+  ConvLayerPartition(unsigned tilesPerXAxis, unsigned tilesPerYAxis,
+                     unsigned tilesPerZAxis, unsigned tilesPerInZGroupAxis,
+                     unsigned inChansPerGroup) :
+    tilesPerXAxis(tilesPerXAxis), tilesPerYAxis(tilesPerYAxis),
+    tilesPerZAxis(tilesPerZAxis), tilesPerInZGroupAxis(tilesPerInZGroupAxis),
+    inChansPerGroup(inChansPerGroup) {}
+};
+
 class ConvLayerImpl : public Layer {
-  Program forwardByChanGroup(Graph &graph,
-                             IPUModelEngineBuilder::TileMapping *mapping);
+  void
+  forwardTile(Graph &graph,
+              IPUModelEngineBuilder::TileMapping *mapping,
+              unsigned tile, unsigned outXBegin, unsigned outXEnd,
+              unsigned outYBegin, unsigned outYEnd,
+              unsigned outZBegin, unsigned outZEnd,
+              unsigned inZGroupBegin, unsigned inZGroupEnd,
+              ComputeSet cs,
+              const Tensor &out);
 public:
+  ConvLayerPartition partition;
   unsigned kernelSize;
   unsigned stride;
   unsigned padding;
@@ -16,14 +39,6 @@ public:
   Tensor weights, biases, z, activations;
 
   std::string layerName;
-
-  // This get set if the layer should try the forward pass by calculating the
-  // partial result for a group of channels at a time and then reducing these
-  // partial sums to get the full result for each neuron.
-  //
-  // If this isn't set the layer will implement the forward pass with a
-  // vertex for each neuron calculating the sum of all the input channels.
-  bool tryForwardByChanGroup;
 
   ConvLayerImpl(Net &net,
                 int index,

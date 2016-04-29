@@ -3,22 +3,13 @@
 #include <iomanip>
 #include <cmath>
 #include "neural_net_common.h"
+#include "PerformanceEstimation.hpp"
 
 #ifndef FPType
 #error Need to define FPType!
 #endif
 
 using namespace poplar;
-
-
-static uint64_t dense_dotproduct_cycles(unsigned size) {
-  if (sizeof(FPType) == 2) {
-    return (size + 3) / 4 + 2;
-  } else {
-    return (size + 1) / 2 + 2;
-  }
-}
-
 
 /****************************************************************************/
 /*            Auxiliary math functions                                      */
@@ -95,7 +86,8 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    return 20 + dense_dotproduct_cycles(activationIn.size());
+    bool isFloat = sizeof(FPType) == 4;
+    return 20 + getDenseDotProductCycles(isFloat, activationIn.size());
   }
 };
 
@@ -115,7 +107,8 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    return 5 + dense_dotproduct_cycles(in.size());
+    bool isFloat = sizeof(FPType) == 4;
+    return getFullyConnectedPartialCycleEstimate(isFloat, in.size());
   }
 };
 
@@ -144,84 +137,46 @@ public:
   }
 };
 
-class Convolution : public Vertex {
-public:
-  Vector<Input<Vector<FPType>>> activationIn;
-  Vector<Input<Vector<FPType>>> weights;
-  Input<Vector<FPType>> bias;
-  NonLinearityType nonLinearityType;
-  Output<Vector<FPType>> activationOut;
-
-  bool compute() {
-    unsigned numOutputs = activationOut.size();
-    unsigned wSize = activationIn.size();
-    for (unsigned i = 0; i < numOutputs; ++i) {
-      float sum = 0;
-      for (unsigned j = 0; j < wSize; ++j) {
-        for (unsigned k = 0; k < activationIn[i].size(); ++k) {
-          sum += activationIn[j][k] * weights[i * wSize + j][k];
-        }
-      }
-      sum += bias[i]; // bias
-      activationOut[i] = nonlinearity(nonLinearityType, sum);
-    }
-    return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    unsigned numOutputs = activationOut.size();
-    unsigned N = activationIn.size();
-    unsigned M = activationIn[0].size();
-    unsigned vertexOverhead = 6;
-    unsigned reluCycles = 3;
-    return vertexOverhead +
-      numOutputs * (reluCycles +
-                    N * (1 + dense_dotproduct_cycles(M)));
-  }
-
-};
-
 /* Compute a partial convolution for a sub-set of input channels and
- * output channels over a number of rows of the input field.
- *
- * TODO: For non 3x3 convolutions, this code needs extra temporary memory
- * for partial convolutions. This needs to be accounted for.
- */
+ * output channels over a number of rows of the input field. */
 class ConvPartial: public Vertex {
 public:
-  Input<Vector<FPType>> in;
-  Input<Vector<FPType>> weights;
-  Vector<Output<Vector<float>>> out;
-  unsigned kernelSize;
+  Vector<Input<Vector<FPType>>> in;
+  Vector<Input<Vector<FPType>>> weights;
+  Output<Vector<float>> out;
+  unsigned inChansPerGroup;
+  // The amount of implicit of zero padding before the first element of the
+  // input.
+  unsigned padding;
   unsigned stride;
-  unsigned inputCols;
-  unsigned chans;
 
   bool compute() {
-    unsigned outputRows = out.size();
-    unsigned outputCols = out[0].size();
-    for (unsigned orow = 0; orow < outputRows; ++orow) {
-      unsigned fieldHeight = kernelSize;
-      if (orow + fieldHeight > outputRows)
-        fieldHeight = outputRows - orow;
-      for (unsigned irow = 0; irow < fieldHeight; ++irow) {
-        FPType *row = &in[orow * stride * inputCols + irow * inputCols];
-        FPType *rowWeights = &weights[irow * kernelSize * chans];
-        for (unsigned ocol = 0; ocol < outputCols; ++ocol) {
-          float sum = 0;
-          FPType *field = &row[ocol * stride * chans];
-          for (unsigned i = 0; i < kernelSize * chans; ++i) {
-            FPType v;
-            if (ocol + i < outputCols)
-              v = field[i];
-            else
-              v = 0;
-            sum += v * rowWeights[i];
+    unsigned numInRows = in.size();
+    unsigned inputWidth = in[0].size() / inChansPerGroup;
+    unsigned outputWidth = out.size();
+    unsigned kernelSize = weights[0].size() / inChansPerGroup;
+    unsigned distanceFromCentre = (kernelSize - 1) / 2;
+
+    for (auto &o : out) {
+      o = 0.0;
+    }
+
+    for (unsigned i = 0; i != numInRows; ++i) {
+      FPType *row = &in[i][0];
+      FPType *rowWeights = &weights[i][0];
+      for (unsigned outX = 0; outX < outputWidth; outX += stride) {
+        unsigned inXCentre = outX / stride + padding;
+        unsigned inXBegin =
+            inXCentre > distanceFromCentre ? inXCentre - distanceFromCentre :
+                                             0;
+        unsigned inXEnd =
+            std::min(inXCentre + distanceFromCentre + 1, inputWidth);
+        for (unsigned inX = inXBegin; inX != inXEnd; ++inX) {
+          unsigned weightX = inX + distanceFromCentre - inXCentre;
+          for (unsigned inZ = 0; inZ != inChansPerGroup; ++inZ) {
+            out[outX] += row[inX * inChansPerGroup + inZ] *
+                         rowWeights[weightX * inChansPerGroup + inZ];
           }
-          if (irow == 0)
-            out[orow][ocol] = sum;
-          else
-            out[orow][ocol] += sum;
         }
       }
     }
@@ -229,22 +184,14 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    unsigned outputRows = out.size();
-    unsigned outputCols = out[0].size();
-    unsigned vertexOverhead = 5;
-    if (sizeof(FPType) == 2 && stride == 1) {
-      // Each output row will have a number of passes of 3x1 convolutions
-      // followed by a summation.
-      unsigned numPasses = (kernelSize + 2) / 3;
-      unsigned innerLoopCycles = numPasses * outputCols;
-      return vertexOverhead +
-             outputRows * (1 + kernelSize * (1 + innerLoopCycles));
-    }  else {
-      return vertexOverhead +
-        (1 +  outputCols * (1 + kernelSize * (1 + dense_dotproduct_cycles(kernelSize*chans))));
-    }
-  }
+    unsigned numInRows = in.size();
+    unsigned outputWidth = out.size();
+    unsigned kernelSize = weights[0].size() / inChansPerGroup;
+    bool isFloat = sizeof(FPType) == 4;
 
+    return getConvPartialCycleEstimate(isFloat, inChansPerGroup, stride,
+                                       kernelSize, numInRows, outputWidth);
+  }
 };
 
 class ConvReduce : public Vertex {

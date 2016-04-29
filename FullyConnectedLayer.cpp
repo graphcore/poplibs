@@ -1,10 +1,5 @@
 #include "FullyConnectedLayer.hpp"
-
-static uint64_t estimateVertexCycles(bool isFloat, unsigned size) {
-  if (!isFloat)
-    return (size + 3) / 4 + 2 + 5;
-  return (size + 1) / 2 + 2 + 5;
-}
+#include "PerformanceEstimation.hpp"
 
 namespace {
   struct PartitionShape {
@@ -23,7 +18,8 @@ estimatePartitionCost(unsigned numWorkerContexts, bool isFloat,
   auto numVertices = numRows * tilesPerRow;
   auto vertexElements = (numCols + tilesPerRow - 1) / tilesPerRow;
   auto partialSumsPerTile = (numRows + tilesPerColumn - 1) / tilesPerColumn;
-  auto vertexRuntime = estimateVertexCycles(isFloat, vertexElements);
+  auto vertexRuntime =
+      getFullyConnectedPartialCycleEstimate(isFloat, vertexElements);
   auto verticesPerWorker = (numVertices + numTiles * numWorkerContexts - 1) /
                            (numTiles * numWorkerContexts);
   auto computeCycles = vertexRuntime * verticesPerWorker;
