@@ -65,12 +65,21 @@ def run(params):
     return subprocess.check_output(cmd).split('\n')
 
 
+def write_headings(ws, headings):
+    bold_font = Font(bold=True)
+
+    for x, (heading, _) in enumerate(headings):
+        column = x + 1
+        ws.cell(row=1, column=column).value = heading
+        ws.cell(row=1, column=column).font = bold_font
+
+def write_data(ws, row, headings, params, data):
+    for i, (heading, f) in enumerate(headings):
+        column = i + 1
+        f(heading, ws.cell(row=row, column=column), params, data)
+
 def write(runs, filename):
     wb = Workbook()
-
-    # Grab the active worksheet
-    ws = wb.active
-    bold_font = Font(bold=True)
 
     def setParamCell(heading, cell, params, data):
         cell.value = params[heading]
@@ -86,7 +95,7 @@ def write(runs, filename):
         last = cell.offset(column=lastOffset)
         cell.value = '=SUM({}:{})'.format(first.coordinate, last.coordinate)
 
-    headings = [
+    headings1 = [
         ('Num IPUs', setParamCell),
         ('Vertex data', setDataCell),
         ('Tensor data', setDataCell),
@@ -96,6 +105,9 @@ def write(runs, filename):
         ('Run instructions', setDataCell),
         ('Exchange supervisor code', setDataCell),
         ('Total memory usage', partial(setTotalCell, -7, -1)),
+    ]
+
+    headings2 = [
         ('Compute cycles', setDataCell),
         ('Global exchange cycles', setDataCell),
         ('Send', setDataCell),
@@ -108,28 +120,48 @@ def write(runs, filename):
         ('Total cycle count', partial(setTotalCell, -9, -1))
     ]
 
-    # Write the headings
-    for x, (heading, _) in enumerate(headings):
-        column = x + 1
-        ws.cell(row=1, column=column).value = heading
-        ws.cell(row=1, column=column).font = bold_font
+    summary_headings = headings1 + headings2
 
-    # Write the data
-    for y, (params, data) in enumerate(runs):
+    # Create the summary sheet
+    ws = wb.active
+    ws.title = 'Summary'
+    write_headings(ws, summary_headings)
+    for y, (params, layer_data) in enumerate(runs):
+        data = layer_data[0]
         row = y + 2
-        for i, (heading, f) in enumerate(headings):
-            column = i + 1
-            f(heading, ws.cell(row=row, column=column), params, data)
+        write_data(ws, row, summary_headings, params, data)
+
+    layer_headings = [('Layer ID', setDataCell)] + headings2
+
+    # Write a sheet for each run
+    for y, (params, layer_data) in enumerate(runs):
+        title = ','.join(["{0}={1}".format(*p) for p in params.iteritems()])
+        ws = wb.create_sheet(title = title)
+        write_headings(ws, layer_headings)
+
+        for y, data in enumerate(layer_data[1:]):
+            row = y + 2
+            write_data(ws, row, layer_headings, params, data)
+
 
     # Save the file
     wb.save(filename)
 
 
 def parse(lines):
+    # Build up a list of data dictionaries for each layer (computeset) in the
+    # program. The first element of this list will be the totals for the entire
+    # program.
+    layer_data = []
     data = dict()
     found_start = False
     for line in lines:
         line = line.rstrip()
+        m = re.match('(?P<name>.*) \(\d+ execution.*', line)
+        if m:
+            layer_data.append(data)
+            data = dict()
+            data['Layer ID'] = m.group('name')
         for (name, expr) in fields:
             # The report starts with an summary of the overall cycle count for
             # the whole application. This is followed by per IPU cycle counts
@@ -142,7 +174,10 @@ def parse(lines):
             m = re.match(expr, line)
             if m:
                 data[name] = float(m.group('value'))
-    return data
+
+    layer_data.append(data)
+
+    return layer_data
 
 
 def main():
