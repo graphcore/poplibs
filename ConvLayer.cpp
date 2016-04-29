@@ -191,6 +191,8 @@ choosePartition(unsigned numWorkerContexts,
   return bestPartition;
 }
 
+std::map<ConvImplSpec, ConvLayerImpl *> ConvLayerImpl::implMap;
+
 ConvLayerImpl::ConvLayerImpl(Net &net,
                              int index,
                              unsigned kernelSize,
@@ -329,11 +331,11 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   const auto dType = getDType();
   bool isFloat = dType == "float";
   Layer *prev = getPrevLayer();
-  Tensor in = prev->getFwdActivations();
-  inNumChanGroups = in.dim(0);
-  inDimY = in.dim(1);
-  inDimX = in.dim(2);
-  size_t inChansPerGroup = in.dim(3);
+  Tensor prevOut = prev->getFwdActivations();
+  inNumChanGroups = prevOut.dim(0);
+  inDimY = prevOut.dim(1);
+  inDimX = prevOut.dim(2);
+  size_t inChansPerGroup = prevOut.dim(3);
   inNumChans = inChansPerGroup * inNumChanGroups;
   outDimX = (inDimX + padding - kernelSize) / stride + 1;
   outDimY = (inDimY + padding - kernelSize) / stride + 1;
@@ -357,19 +359,46 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   // sub-word access is not atomic we must ensure output channels are grouped
   // in multiples of two.
   assert(isFloat || outChansPerGroup % 2 == 0);
-  z = graph.addTensor(dType, {outNumChanGroups, outDimY, outDimX,
-                              outChansPerGroup});
-  activations = graph.addTensor(dType, {outNumChanGroups, outDimY, outDimX,
-                                        outChansPerGroup});
   weights = graph.addTensor(dType, {inNumChanGroups,
                                     outNumChans,
                                     kernelSize,
                                     kernelSize,
                                     inChansPerGroup});
   biases = graph.addTensor(dType, {outNumChans});
+  mapTensor(biases, mapping);
+
+  auto implSpec =
+    ConvImplSpec(inNumChans, inNumChanGroups,
+                 inDimX, inDimY,
+                 outNumChans, outNumChanGroups,
+                 outDimX, outDimY,
+                 kernelSize, stride, padding);
+
+
+
+  auto emplaceResult = implMap.emplace(implSpec, this);
+  if (!emplaceResult.second) {
+    // Matching implementation already exists
+    reuseImpl = emplaceResult.first->second;
+    return;
+  }
+
+  in = graph.addTensor(dType, {prevOut.dim(0), prevOut.dim(1),
+                               prevOut.dim(2), prevOut.dim(3)});
+  z = graph.addTensor(dType, {outNumChanGroups, outDimY, outDimX,
+                              outChansPerGroup});
+  activations = graph.addTensor(dType, {outNumChanGroups, outDimY, outDimX,
+                                        outChansPerGroup});
+  weightsIn = graph.addTensor(dType, {inNumChanGroups,
+                                    outNumChans,
+                                    kernelSize,
+                                    kernelSize,
+                                    inChansPerGroup});
+  biasesIn = graph.addTensor(dType, {outNumChans});
   mapTensor(z, mapping);
   mapTensor(activations, mapping);
-  mapTensor(biases, mapping);
+  mapTensor(in, mapping);
+  mapTensor(biasesIn, mapping);
 }
 
 void
@@ -383,7 +412,6 @@ ConvLayerImpl::forwardTile(Graph &graph,
                            ComputeSet cs,
                            const Tensor &out) {
   Layer *prev = getPrevLayer();
-  Tensor in = prev->getFwdActivations();
   const auto inChansPerGroup = partition.inChansPerGroup;
   const auto inZGroups = inZGroupEnd - inZGroupBegin;
   for (unsigned z = outZBegin; z != outZEnd; ++z) {
@@ -462,53 +490,17 @@ linearizeTileIndices(unsigned izg, unsigned ix, unsigned iy, unsigned iz,
                izg));
 }
 
-Program ConvLayerImpl::
-forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
-  auto prog = Sequence();
-  const auto isMultiIPU = getNumIPUs() > 1;
+void ConvLayerImpl::mapWeights(Graph &graph,
+                               IPUModelEngineBuilder::TileMapping *mapping,
+                               Tensor w,
+                               bool isMultiIPU) {
   const auto inChansPerGroup = partition.inChansPerGroup;
-  Layer *prev = getPrevLayer();
-  const auto dType = getDType();
-  Tensor in = prev->getFwdActivations();
-  unsigned outChansPerVertex = dType == "float" ? 1 : 2;
-  assert(outNumChans % outChansPerVertex == 0);
   const auto tilesPerX = partition.tilesPerXAxis;
   const auto tilesPerY = partition.tilesPerYAxis;
   const auto tilesPerZ = partition.tilesPerZAxis;
   const auto tilesPerInZGroup = partition.tilesPerInZGroupAxis;
-
-  assert(inNumChans % inChansPerGroup == 0);
   const auto numInZGroups = inNumChans / inChansPerGroup;
-  Tensor partials = graph.addTensor("float",
-                                    {tilesPerInZGroup,
-                                     outNumChans,
-                                     outDimY,
-                                     outDimX});
-  ComputeSet fwdCS = graph.createComputeSet(layerName + ".fwd");
-  prog.add(Execute(fwdCS));
-  for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
-    const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
-    const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
-    for (unsigned iz = 0; iz != tilesPerZ; ++iz) {
-      const auto outZBegin = (iz * outNumChans) / tilesPerZ;
-      const auto outZEnd = ((iz + 1) * outNumChans) / tilesPerZ;
-      for (unsigned iy = 0; iy != tilesPerY; ++iy) {
-        const auto outYBegin = (iy * outDimY) / tilesPerY;
-        const auto outYEnd = ((iy + 1) * outDimY) / tilesPerY;
-        for (unsigned ix = 0; ix != tilesPerX; ++ix) {
-          const auto outXBegin = (ix * outDimX) / tilesPerX;
-          const auto outXEnd = ((ix + 1) * outDimX) / tilesPerX;
-          const auto tile = linearizeTileIndices(izg, ix, iy, iz, partition,
-                                                 isMultiIPU);
 
-          forwardTile(graph, mapping,
-                      tile, outXBegin, outXEnd, outYBegin, outYEnd, outZBegin,
-                      outZEnd, inZGroupBegin, inZGroupEnd, fwdCS,
-                      partials[izg]);
-        }
-      }
-    }
-  }
   if (mapping) {
     for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
       const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
@@ -518,9 +510,9 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
         const auto outZEnd = ((iz + 1) * outNumChans) / tilesPerZ;
         // Weights that are shared by tiles within this loop body.
         const auto sharedWeights =
-            weights.slice({inZGroupBegin, outZBegin, 0, 0, 0},
-                          {inZGroupEnd, outZEnd, kernelSize, kernelSize,
-                           inChansPerGroup}).flatten();
+            w.slice({inZGroupBegin, outZBegin, 0, 0, 0},
+                    {inZGroupEnd, outZEnd, kernelSize, kernelSize,
+                     inChansPerGroup}).flatten();
         const auto numSharedWeights = sharedWeights.numElements();
         // Spread the weights equally across the tiles that read them.
         for (unsigned iy = 0; iy != tilesPerY; ++iy) {
@@ -540,6 +532,68 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
       }
     }
   }
+}
+
+Program ConvLayerImpl::
+forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
+  const auto isMultiIPU = getNumIPUs() > 1;
+  Layer *prev = getPrevLayer();
+  if (reuseImpl) {
+    auto prog = Sequence();
+    prog.add(Copy(reuseImpl->getInputTensor(), prev->getFwdActivations()));
+    reuseImpl->mapWeights(graph, mapping, weights, isMultiIPU);
+    prog.add(Copy(reuseImpl->getInputWeights(), weights));
+    prog.add(Copy(reuseImpl->getInputBiases(), biases));
+    prog.add(reuseImpl->getCachedFwdProg());
+    return prog;
+  }
+  auto prog = Sequence();
+  prog.add(Copy(in, prev->getFwdActivations()));
+  mapWeights(graph, mapping, weights, isMultiIPU);
+  prog.add(Copy(weightsIn, weights));
+  prog.add(Copy(biasesIn, biases));
+  const auto inChansPerGroup = partition.inChansPerGroup;
+  const auto dType = getDType();
+  unsigned outChansPerVertex = dType == "float" ? 1 : 2;
+  assert(outNumChans % outChansPerVertex == 0);
+  const auto tilesPerX = partition.tilesPerXAxis;
+  const auto tilesPerY = partition.tilesPerYAxis;
+  const auto tilesPerZ = partition.tilesPerZAxis;
+  const auto tilesPerInZGroup = partition.tilesPerInZGroupAxis;
+
+  assert(inNumChans % inChansPerGroup == 0);
+  const auto numInZGroups = inNumChans / inChansPerGroup;
+  Tensor partials = graph.addTensor("float",
+                                    {tilesPerInZGroup,
+                                     outNumChans,
+                                     outDimY,
+                                     outDimX});
+
+  ComputeSet fwdCS = graph.createComputeSet(layerName + ".fwd");
+  forwardProg.add(Execute(fwdCS));
+  for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
+    const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
+    const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
+    for (unsigned iz = 0; iz != tilesPerZ; ++iz) {
+      const auto outZBegin = (iz * outNumChans) / tilesPerZ;
+      const auto outZEnd = ((iz + 1) * outNumChans) / tilesPerZ;
+      for (unsigned iy = 0; iy != tilesPerY; ++iy) {
+        const auto outYBegin = (iy * outDimY) / tilesPerY;
+        const auto outYEnd = ((iy + 1) * outDimY) / tilesPerY;
+        for (unsigned ix = 0; ix != tilesPerX; ++ix) {
+          const auto outXBegin = (ix * outDimX) / tilesPerX;
+          const auto outXEnd = ((ix + 1) * outDimX) / tilesPerX;
+          const auto tile = linearizeTileIndices(izg, ix, iy, iz, partition,
+                                                 isMultiIPU);
+          forwardTile(graph, mapping,
+                      tile, outXBegin, outXEnd, outYBegin, outYEnd, outZBegin,
+                      outZEnd, inZGroupBegin, inZGroupEnd, fwdCS,
+                      partials[izg]);
+        }
+      }
+    }
+  }
+  mapWeights(graph, mapping, weightsIn, isMultiIPU);
   Tensor reduced;
   if (tilesPerInZGroup == 1) {
     reduced = partials[0];
@@ -566,7 +620,7 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
         }
       }
     }
-    prog.add(Execute(reduceCS));
+    forwardProg.add(Execute(reduceCS));
   }
 
   // Apply the non linearity and write back results in the layout desired by
@@ -575,7 +629,7 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
      graph.createComputeSet(layerName + ".fwd.complete");
   size_t outChansPerGroup = outNumChans / outNumChanGroups;
   Tensor biasesByChanGroup =
-      biases.reshape({outNumChanGroups, outChansPerGroup});
+      biasesIn.reshape({outNumChanGroups, outChansPerGroup});
   for (unsigned outChanGroup = 0; outChanGroup != outNumChanGroups;
        ++outChanGroup) {
     for (unsigned y = 0; y != outDimY; ++y) {
@@ -599,6 +653,8 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
     }
   }
   mapComputeSet(graph, completionCS, mapping);
-  prog.add(Execute(completionCS));
+  forwardProg.add(Execute(completionCS));
+  prog.add(forwardProg);
   return prog;
 }
+
