@@ -14,7 +14,7 @@
     imagenet models (congidox document XM-010286-UN).
 */
 
-int main() {
+int main(int argc, char **argv) {
   DataSet IMAGENET;
   IMAGENET.dataSize = 224*224*3;
   IMAGENET.dim = std::vector<std::size_t>{224,224,3};
@@ -32,8 +32,9 @@ int main() {
   NetOptions options;
   options.doComputation = true;
   options.useIPUModel = true;
-  options.numIPUs = 1;
   options.singleBatchProfile = true;
+  if (!parseCommandLine(argc, argv, options))
+    return 1;
 
   auto resMethod = RESIDUAL_PAD;
 

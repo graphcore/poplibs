@@ -30,20 +30,24 @@ COMMON_OBJ = \
 	${OBJDIR}/MaxPoolLayer.o \
 	${OBJDIR}/Net.o
 
+COMMON_LIBS = \
+	-lpoplar \
+	-lboost_program_options
+
 ALEXNET_OBJ=${OBJDIR}/alexnet.o ${COMMON_OBJ}
 
 ${BINDIR}/alexnet: ${ALEXNET_OBJ} | ${BINDIR}/
-	g++ -std=c++11 -ffast-math ${ALEXNET_OBJ} -lpoplar -lboost_program_options -o $@
+	g++ -std=c++11 -ffast-math ${ALEXNET_OBJ} ${COMMON_LIBS} -o $@
 
 RESNET34B_OBJ=${OBJDIR}/resnet34b.o ${COMMON_OBJ}
 
 ${BINDIR}/resnet34b: ${RESNET34B_OBJ} | ${BINDIR}/
-	g++ -std=c++11 -ffast-math ${RESNET34B_OBJ} -lpoplar -o $@
+	g++ -std=c++11 -ffast-math ${RESNET34B_OBJ} ${COMMON_LIBS} -o $@
 
 RESNET50_OBJ=${OBJDIR}/resnet50.o ${COMMON_OBJ}
 
 ${BINDIR}/resnet50: ${RESNET50_OBJ} | ${BINDIR}/
-	g++ -std=c++11 -ffast-math ${RESNET50_OBJ} -lpoplar -o $@
+	g++ -std=c++11 -ffast-math ${RESNET50_OBJ} ${COMMON_LIBS} -o $@
 
 FC_OBJ=${OBJDIR}/fc.o ${COMMON_OBJ}
 

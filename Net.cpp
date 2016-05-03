@@ -1,4 +1,29 @@
 #include "Net.hpp"
+#include <boost/program_options.hpp>
+
+bool parseCommandLine(int argc, char **argv, NetOptions &options) {
+  namespace po = boost::program_options;
+
+  po::options_description desc("Options");
+  desc.add_options()
+    ("help", "Produce help message")
+    ("ipus", po::value<unsigned>(&options.numIPUs)->default_value(1),
+             "Number of IPUs")
+  ;
+  po::variables_map vm;
+  try {
+    po::store(po::parse_command_line(argc, argv, desc), vm);
+    if (vm.count("help")) {
+      std::cout << desc << "\n";
+      return false;
+    }
+    po::notify(vm);
+  } catch (std::exception& e) {
+    std::cerr << "error: " << e.what() << "\n";
+    return false;
+  }
+  return true;
+}
 
 static std::string getDTypeString(DType dType) {
   switch (dType) {

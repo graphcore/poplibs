@@ -41,6 +41,8 @@ public:
   unsigned numBatchesBetweenTest = 2500;
 };
 
+bool parseCommandLine(int argc, char **argv, NetOptions &options);
+
 /* This class represent the entire network. */
 class Net {
 public:
