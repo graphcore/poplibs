@@ -434,9 +434,38 @@ ConvLayerImpl::forwardTile(Graph &graph,
   }
 }
 
+/// Convert a set of indices over the different dimensions of the partition
+/// into a tile number.
+static unsigned
+linearizeTileIndices(unsigned izg, unsigned ix, unsigned iy, unsigned iz,
+                     const ConvLayerPartition &partition,
+                     bool isMultiIPU) {
+  const auto tilesPerX = partition.tilesPerXAxis;
+  const auto tilesPerY = partition.tilesPerYAxis;
+  const auto tilesPerZ = partition.tilesPerZAxis;
+  const auto tilesPerInZGroup = partition.tilesPerInZGroupAxis;
+
+  // If this is a multi IPU system then choose an order that avoids splitting
+  // partial sums over IPUs
+  if (isMultiIPU)
+    return izg + tilesPerInZGroup *
+             (ix + tilesPerX *
+               (iy + tilesPerY *
+                 iz));
+  // For single IPU systems this order appears to give the best results.
+  // TODO understand why this is. Intuitively I'd expect the an ordering
+  // that matches the input tensor, i.e. (izg, iy, ix, iz) to result in
+  // less exchange.
+  return ix + tilesPerX *
+           (iy + tilesPerY *
+             (iz + tilesPerZ *
+               izg));
+}
+
 Program ConvLayerImpl::
 forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
   auto prog = Sequence();
+  const auto isMultiIPU = getNumIPUs() > 1;
   const auto inChansPerGroup = partition.inChansPerGroup;
   Layer *prev = getPrevLayer();
   const auto dType = getDType();
@@ -457,35 +486,36 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
                                      outDimX});
   ComputeSet fwdCS = graph.createComputeSet(layerName + ".fwd");
   prog.add(Execute(fwdCS));
-  for (unsigned i = 0; i != tilesPerInZGroup; ++i) {
-    const auto inZGroupBegin = (i * numInZGroups) / tilesPerInZGroup;
-    const auto inZGroupEnd = ((i + 1) * numInZGroups) / tilesPerInZGroup;
-    for (unsigned j = 0; j != tilesPerZ; ++j) {
-      const auto outZBegin = (j * outNumChans) / tilesPerZ;
-      const auto outZEnd = ((j + 1) * outNumChans) / tilesPerZ;
-      for (unsigned k = 0; k != tilesPerY; ++k) {
-        const auto outYBegin = (k * outDimY) / tilesPerY;
-        const auto outYEnd = ((k + 1) * outDimY) / tilesPerY;
-        for (unsigned l = 0; l != tilesPerX; ++l) {
-          const auto tile =
-              l + tilesPerX * (k + tilesPerY * (j + tilesPerZ * i));
-          const auto outXBegin = (l * outDimX) / tilesPerX;
-          const auto outXEnd = ((l + 1) * outDimX) / tilesPerX;
+  for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
+    const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
+    const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
+    for (unsigned iz = 0; iz != tilesPerZ; ++iz) {
+      const auto outZBegin = (iz * outNumChans) / tilesPerZ;
+      const auto outZEnd = ((iz + 1) * outNumChans) / tilesPerZ;
+      for (unsigned iy = 0; iy != tilesPerY; ++iy) {
+        const auto outYBegin = (iy * outDimY) / tilesPerY;
+        const auto outYEnd = ((iy + 1) * outDimY) / tilesPerY;
+        for (unsigned ix = 0; ix != tilesPerX; ++ix) {
+          const auto outXBegin = (ix * outDimX) / tilesPerX;
+          const auto outXEnd = ((ix + 1) * outDimX) / tilesPerX;
+          const auto tile = linearizeTileIndices(izg, ix, iy, iz, partition,
+                                                 isMultiIPU);
+
           forwardTile(graph, mapping,
                       tile, outXBegin, outXEnd, outYBegin, outYEnd, outZBegin,
                       outZEnd, inZGroupBegin, inZGroupEnd, fwdCS,
-                      partials[i]);
+                      partials[izg]);
         }
       }
     }
   }
   if (mapping) {
-    for (unsigned i = 0; i != tilesPerInZGroup; ++i) {
-      const auto inZGroupBegin = (i * numInZGroups) / tilesPerInZGroup;
-      const auto inZGroupEnd = ((i + 1) * numInZGroups) / tilesPerInZGroup;
-      for (unsigned j = 0; j != tilesPerZ; ++j) {
-        const auto outZBegin = (j * outNumChans) / tilesPerZ;
-        const auto outZEnd = ((j + 1) * outNumChans) / tilesPerZ;
+    for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
+      const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
+      const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
+      for (unsigned iz = 0; iz != tilesPerZ; ++iz) {
+        const auto outZBegin = (iz * outNumChans) / tilesPerZ;
+        const auto outZEnd = ((iz + 1) * outNumChans) / tilesPerZ;
         // Weights that are shared by tiles within this loop body.
         const auto sharedWeights =
             weights.slice({inZGroupBegin, outZBegin, 0, 0, 0},
@@ -493,16 +523,19 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
                            inChansPerGroup}).flatten();
         const auto numSharedWeights = sharedWeights.numElements();
         // Spread the weights equally across the tiles that read them.
-        for (unsigned k = 0; k != tilesPerY * tilesPerX; ++k) {
-          const auto tile =
-              k + tilesPerY * tilesPerX * (j + tilesPerZ * i);
-          const auto sharedWeightBegin =
-              (k * numSharedWeights) / (tilesPerY * tilesPerX);
-          const auto sharedWeightEnd =
-              ((k + 1) * numSharedWeights) / (tilesPerY * tilesPerX);
-          const auto tileWeights =
-              sharedWeights.slice(sharedWeightBegin, sharedWeightEnd);
-          mapping->setMapping(tileWeights, tile);
+        for (unsigned iy = 0; iy != tilesPerY; ++iy) {
+          for (unsigned ix = 0; ix != tilesPerX; ++ix) {
+            const auto iw = ix + tilesPerX * iy;
+            const auto sharedWeightBegin =
+                (iw * numSharedWeights) / (tilesPerY * tilesPerX);
+            const auto sharedWeightEnd =
+                ((iw + 1) * numSharedWeights) / (tilesPerY * tilesPerX);
+            const auto tileWeights =
+                sharedWeights.slice(sharedWeightBegin, sharedWeightEnd);
+            const auto tile = linearizeTileIndices(izg, ix, iy, iz, partition,
+                                                   isMultiIPU);
+            mapping->setMapping(tileWeights, tile);
+          }
         }
       }
     }
