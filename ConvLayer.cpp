@@ -63,7 +63,7 @@ estimateExchangeCost(bool isFloat, const ConvolutionParams &params,
   const auto tileOutDepth =
       (params.outputDepth + tilesPerZ - 1) / tilesPerZ;
   const auto numInGroups =
-      params.inputDepth + (inChansPerGroup - 1) / inChansPerGroup;
+      (params.inputDepth + (inChansPerGroup - 1)) / inChansPerGroup;
   const auto tileNumInGroups =
       (numInGroups + tilesPerInZGroupAxis - 1) / tilesPerInZGroupAxis;
   const auto tileInDepth = tileNumInGroups * inChansPerGroup;
@@ -99,7 +99,7 @@ estimateVertexCycles(bool isFloat, const ConvolutionParams &params,
   const auto tileOutWidth =
       (params.getOutputWidth() + tilesPerX - 1) / tilesPerX;
   const auto numInGroups =
-      params.inputDepth + (inChansPerGroup - 1) / inChansPerGroup;
+      (params.inputDepth + (inChansPerGroup - 1)) / inChansPerGroup;
   const auto tileNumInGroups =
       (numInGroups + tilesPerInZGroupAxis - 1) / tilesPerInZGroupAxis;
 
@@ -127,7 +127,7 @@ estimateComputeCost(unsigned numWorkerContexts, bool isFloat,
   const auto vertexRuntime = estimateVertexCycles(isFloat, params, partition);
   auto verticesPerWorker = (tileVertices + numWorkerContexts - 1) /
                            numWorkerContexts;
-  auto computeCycles = vertexRuntime * verticesPerWorker;
+  auto computeCycles = vertexRuntime * verticesPerWorker * numWorkerContexts;
   return computeCycles;
 }
 
