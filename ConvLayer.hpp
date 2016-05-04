@@ -85,7 +85,13 @@ class ConvLayerImpl : public Layer {
   Tensor getInputTensor() const {
     return in;
   }
-  Program getCachedFwdProg() const {
+  void createFwdProg(Graph &graph,
+                     IPUModelEngineBuilder::TileMapping *mapping);
+  Program
+  getOrCreateFwdProg(Graph &graph,
+                     IPUModelEngineBuilder::TileMapping *mapping) {
+    if (!createdForwardProg)
+      createFwdProg(graph, mapping);
     return forwardProg;
   }
   Tensor getInputResidual() const {
@@ -112,6 +118,7 @@ public:
 
   ConvLayerImpl *reuseImpl = 0;
 
+  bool createdForwardProg;
   Sequence forwardProg;
 
   unsigned resIndex;

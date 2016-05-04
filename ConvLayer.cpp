@@ -210,6 +210,7 @@ ConvLayerImpl::ConvLayerImpl(Net &net,
   outNumChans(numChannels),
   nonLinearityType(nonLinearityType),
   normalizationType(normalizationType),
+  createdForwardProg(false),
   resIndex(resIndex),
   resMethod(resMethod) {
   layerName = "Conv" + std::to_string(kernelSize) + "x" +
@@ -669,31 +670,10 @@ void ConvLayerImpl::mapWeights(Graph &graph,
   }
 }
 
-Program ConvLayerImpl::
-forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
+void ConvLayerImpl::
+createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
+  assert(!createdForwardProg);
   const auto isMultiIPU = getNumIPUs() > 1;
-  Layer *prev = getPrevLayer();
-  if (reuseImpl) {
-    auto prog = Sequence();
-    prog.add(Copy(reuseImpl->getInputTensor(), prev->getFwdActivations()));
-    reuseImpl->mapWeights(graph, mapping, weights, isMultiIPU);
-    prog.add(Copy(reuseImpl->getInputWeights(), weights));
-    prog.add(Copy(reuseImpl->getInputBiases(), biases));
-    prog.add(reuseImpl->getCachedFwdProg());
-    if (resLayer) {
-      prog.add(Copy(reuseImpl->getInputResidual(),
-                    resLayer->getFwdActivations()));
-    }
-    return prog;
-  }
-  auto prog = Sequence();
-  prog.add(Copy(in, prev->getFwdActivations()));
-  mapWeights(graph, mapping, weights, isMultiIPU);
-  prog.add(Copy(weightsIn, weights));
-  prog.add(Copy(biasesIn, biases));
-  if (resLayer) {
-    prog.add(Copy(resIn, resLayer->getFwdActivations()));
-  }
 
   const auto inChansPerGroup = partition.inChansPerGroup;
   const auto dType = getDType();
@@ -817,7 +797,24 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
   }
   mapComputeSet(graph, completionCS, mapping);
   forwardProg.add(Execute(completionCS));
-  prog.add(forwardProg);
+  createdForwardProg = true;
+}
+
+Program ConvLayerImpl::
+forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
+  const auto isMultiIPU = getNumIPUs() > 1;
+  Layer *prev = getPrevLayer();
+  auto impl = reuseImpl ? reuseImpl : this;
+  auto prog = Sequence();
+  prog.add(Copy(impl->getInputTensor(), prev->getFwdActivations()));
+  impl->mapWeights(graph, mapping, weights, isMultiIPU);
+  prog.add(Copy(impl->getInputWeights(), weights));
+  prog.add(Copy(impl->getInputBiases(), biases));
+  if (resLayer) {
+    prog.add(Copy(impl->getInputResidual(),
+                  resLayer->getFwdActivations()));
+  }
+  prog.add(impl->getOrCreateFwdProg(graph, mapping));
   return prog;
 }
 
