@@ -295,12 +295,14 @@ double ConvLayerImpl::getPerfectCycleCount() {
   }
   assert(getDType() == "short");
   double macCycles;
-  if (stride != 1) {
-    // Can execute 4 f16 MACs per cycle.
+  if (kernelSize != 1 && stride == 1) {
+    // Can execute 12 f32 MACs per cycle for convolutions with a stride of 1.
+    macCycles = static_cast<double>(getNumberOfMACs()) / (12 * numTiles);
+  } else {
+    // For other convolutions, can execute 4 f16 MACs per cycle
     macCycles = static_cast<double>(getNumberOfMACs()) / (4 * numTiles);
   }
-  // Can execute 12 f32 MACs per cycle for convolutions with a stride of 1.
-  macCycles = static_cast<double>(getNumberOfMACs()) / (12 * numTiles);
+
   // Can execute 4 f16 ADDs per cycle.
   auto addCycles = static_cast<double>(getNumberOfAdds()) / (4 * numTiles);
   return macCycles + addCycles;
