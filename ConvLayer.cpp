@@ -628,8 +628,8 @@ linearizeTileIndices(unsigned izg, unsigned ix, unsigned iy, unsigned iz,
 
 void ConvLayerImpl::mapWeights(Graph &graph,
                                IPUModelEngineBuilder::TileMapping *mapping,
-                               Tensor w,
-                               bool isMultiIPU) {
+                               Tensor w) {
+  const auto isMultiIPU = getNumIPUs() > 1;
   const auto inChansPerGroup = partition.inChansPerGroup;
   const auto tilesPerX = partition.tilesPerXAxis;
   const auto tilesPerY = partition.tilesPerYAxis;
@@ -715,7 +715,7 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
       }
     }
   }
-  mapWeights(graph, mapping, weightsIn, isMultiIPU);
+  mapWeights(graph, mapping, weightsIn);
   Tensor reduced;
   ComputeSet reduceCS = graph.createComputeSet(layerName + ".fwd.reduce");
   bool executeReduceCS = false;
@@ -807,7 +807,7 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
   auto impl = reuseImpl ? reuseImpl : this;
   auto prog = Sequence();
   prog.add(Copy(impl->getInputTensor(), prev->getFwdActivations()));
-  impl->mapWeights(graph, mapping, weights, isMultiIPU);
+  impl->mapWeights(graph, mapping, weights);
   prog.add(Copy(impl->getInputWeights(), weights));
   prog.add(Copy(impl->getInputBiases(), biases));
   if (resLayer) {

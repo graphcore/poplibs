@@ -74,8 +74,7 @@ class ConvLayerImpl : public Layer {
               const Tensor &out);
   void mapWeights(Graph &graph,
                   IPUModelEngineBuilder::TileMapping *mapping,
-                  Tensor w,
-                  bool isMultiIPU);
+                  Tensor w);
   Tensor getInputWeights() const {
     return weightsIn;
   }
