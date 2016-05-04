@@ -571,7 +571,7 @@ ConvLayerImpl::forwardTile(Graph &graph,
           getWeightRange(y, stride, kernelSize, inDimY);
       assert(weightYEnd - weightYBegin == height);
       Tensor w =
-          weights.slice(
+          weightsIn.slice(
             {inZGroupBegin, z, weightYBegin, 0, 0},
             {inZGroupEnd, z + 1 , weightYEnd, kernelSize, inChansPerGroup}
           ).reshape({height * inZGroups,
