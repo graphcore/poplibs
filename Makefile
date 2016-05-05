@@ -17,10 +17,10 @@ ${OBJDIR}/:
 NEURAL_NET_GRAPH_HEADERS = neural_net_common.h PerformanceEstimation.hpp
 
 ${OBJDIR}/neural_net_graph16.ppo: neural_net_graph.cpp ${NEURAL_NET_GRAPH_HEADERS} Makefile | ${OBJDIR}/
-	popc -DFPType=short ${FLAGS} $< -o $@
+	popc -I. -DFPType=short ${FLAGS} $< -o $@
 
 ${OBJDIR}/neural_net_graph32.ppo: neural_net_graph.cpp ${NEURAL_NET_GRAPH_HEADERS} Makefile | ${OBJDIR}/
-	popc -DFPType=float ${FLAGS} $< -o $@
+	popc -I. -DFPType=float ${FLAGS} $< -o $@
 
 ${OBJDIR}/%.o: %.cpp Makefile ${wildcard *.hpp} ${wilcard *.h} | ${OBJDIR}/
 	${CXX} -march=native -ffast-math ${FLAGS} -c -std=c++11 $< -o $@
