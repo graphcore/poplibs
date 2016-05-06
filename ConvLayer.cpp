@@ -746,21 +746,34 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
     // Accumulate the partial sums.
     reduced = graph.addTensor("float", {outNumChans, outDimY, outDimX});
     const auto numTiles = getNumIPUs() * getTilesPerIPU();
-    for (unsigned z = 0; z != outNumChans; ++z) {
-      for (unsigned y = 0; y != outDimY; ++y) {
-        Tensor in =
-            partials.slice({0, z, y, 0},
-                           {tilesPerInZGroup, z + 1, y + 1, outDimX}
-            ).reshape({tilesPerInZGroup, outDimX});
-        Tensor out = reduced[z][y];
-        const auto v = graph.addVertex(reduceCS, "ConvReduce",
-                                       {{"out", out},
-                                       {"partials", in}});
-        if (mapping) {
-          const auto tile =
-              (numTiles * (outDimY * z + y)) / (outDimY * outNumChans);
-          mapping->setMapping(v, tile);
-          mapping->setMapping(out, tile);
+    size_t outChansPerGroup = outNumChans / outNumChanGroups;
+    const auto numGroups = activations.numElements() / outChansPerGroup;
+    for (unsigned tile = 0; tile != numTiles; ++tile) {
+      const auto groupBegin = (tile * numGroups) / numTiles;
+      const auto groupEnd = ((tile + 1) * numGroups) / numTiles;
+      const auto rowBegin = groupBegin / outDimX;
+      const auto rowEnd = (groupEnd + outDimX - 1) / outDimX;
+      for (unsigned row = rowBegin; row != rowEnd; ++row) {
+        const auto xBegin = row == rowBegin ? groupBegin - row * outDimX : 0;
+        const auto xEnd = row + 1 == rowEnd ? groupEnd - row * outDimX :
+                                              outDimX;
+        const auto outChanGroup = row / outDimY;
+        const auto y = row % outDimY;
+        for (unsigned groupIndex = 0; groupIndex != outChansPerGroup;
+             ++groupIndex) {
+          const auto z = outChanGroup * outChansPerGroup + groupIndex;
+          Tensor in =
+              partials.slice({0, z, y, xBegin},
+                             {tilesPerInZGroup, z + 1, y + 1, xEnd}
+              ).reshape({tilesPerInZGroup, xEnd - xBegin});
+          Tensor out = reduced[z][y].slice(xBegin, xEnd);
+          const auto v = graph.addVertex(reduceCS, "ConvReduce",
+                                         {{"out", out},
+                                         {"partials", in}});
+          if (mapping) {
+            mapping->setMapping(v, tile);
+            mapping->setMapping(out, tile);
+          }
         }
       }
     }
