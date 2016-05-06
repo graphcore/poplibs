@@ -451,14 +451,11 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
                                     inChansPerGroup});
   biasesIn = graph.addTensor(dType, {outNumChans});
   mapTensor(z, mapping);
-  mapTensor(activations, mapping);
-  mapTensor(in, mapping);
   mapTensor(biasesIn, mapping);
   if (resIndex) {
     resIn = graph.addTensor(dType, {resNumChanGroups,
                                     resDimY, resDimY,
                                     resChansPerGroup});
-    mapTensor(resIn, mapping);
   }
 }
 
@@ -626,6 +623,24 @@ linearizeTileIndices(unsigned izg, unsigned ix, unsigned iy, unsigned iz,
            (iy + tilesPerY *
              (iz + tilesPerZ *
                izg));
+}
+
+void ConvLayerImpl::mapActivations(Graph &graph,
+                                   IPUModelEngineBuilder::TileMapping *mapping,
+                                   Tensor act) {
+  if (!mapping)
+    return;
+  const auto numActivations = act.numElements();
+  const auto chansPerGroup = act.dim(3);
+  const auto numGroups = numActivations / chansPerGroup;
+  const auto numTiles = getTilesPerIPU() * getNumIPUs();
+  auto actByGroup = act.reshape({numGroups, chansPerGroup});
+  // Spread groups of activations evenly across the tiles.
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    const auto groupBegin = (tile * numGroups) / numTiles;
+    const auto groupEnd = ((tile + 1) * numGroups) / numTiles;
+    mapping->setMapping(actByGroup.slice(groupBegin, groupEnd), tile);
+  }
 }
 
 void ConvLayerImpl::mapWeights(Graph &graph,
@@ -798,16 +813,19 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
     }
   }
   mapComputeSet(graph, completionCS, mapping);
+  mapActivations(graph, mapping, activations);
   forwardProg.add(Execute(completionCS));
   createdForwardProg = true;
 }
 
 Program ConvLayerImpl::
 forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
-  const auto isMultiIPU = getNumIPUs() > 1;
   Layer *prev = getPrevLayer();
   auto impl = reuseImpl ? reuseImpl : this;
   auto prog = Sequence();
+  impl->mapActivations(graph, mapping, impl->getInputTensor());
+  if (resLayer)
+    impl->mapActivations(graph, mapping, impl->getInputResidual());
   prog.add(Copy(impl->getInputTensor(), prev->getFwdActivations()));
   impl->mapWeights(graph, mapping, weights);
   prog.add(Copy(impl->getInputWeights(), weights));

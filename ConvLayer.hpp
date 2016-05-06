@@ -72,6 +72,9 @@ class ConvLayerImpl : public Layer {
               unsigned inZGroupBegin, unsigned inZGroupEnd,
               ComputeSet cs,
               const Tensor &out);
+  void mapActivations(Graph &graph,
+                      IPUModelEngineBuilder::TileMapping *mapping,
+                      Tensor act);
   void mapWeights(Graph &graph,
                   IPUModelEngineBuilder::TileMapping *mapping,
                   Tensor w);
