@@ -751,12 +751,15 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
     for (unsigned tile = 0; tile != numTiles; ++tile) {
       const auto groupBegin = (tile * numGroups) / numTiles;
       const auto groupEnd = ((tile + 1) * numGroups) / numTiles;
+      if (groupBegin == groupEnd)
+        continue;
       const auto rowBegin = groupBegin / outDimX;
       const auto rowEnd = (groupEnd + outDimX - 1) / outDimX;
       for (unsigned row = rowBegin; row != rowEnd; ++row) {
         const auto xBegin = row == rowBegin ? groupBegin - row * outDimX : 0;
         const auto xEnd = row + 1 == rowEnd ? groupEnd - row * outDimX :
                                               outDimX;
+        assert(xBegin != xEnd);
         const auto outChanGroup = row / outDimY;
         const auto y = row % outDimY;
         for (unsigned groupIndex = 0; groupIndex != outChansPerGroup;
