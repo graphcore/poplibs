@@ -181,13 +181,22 @@ def parse(lines):
     return layer_data
 
 
-def benchmark(prog, param_space):
+def benchmark(prog, param_space, args):
     param_names = [name for name, _ in param_space]
     runs = []
     for param_set in \
             itertools.product(*(options for _, options in param_space)):
         params = dict(zip(param_names, param_set))
-        log = run(prog, params)
+        params_str = '_'.join(str(x)+'_'+str(y) for x,y in params.items())
+        params_str = params_str.replace(' ','_')
+        logname = prog + '_' + params_str + ".log"
+        if args.use_logs:
+            log = open(logname).readlines()
+        else:
+            log = run(prog, params)
+            with open(logname, "w") as f:
+                for line in log:
+                    f.write(line + "\n")
         data = parse(log)
         runs.append((params, data))
 
@@ -201,6 +210,8 @@ def main():
                  }
     all_progs = benchmarks.keys()
     parser = argparse.ArgumentParser(description='Run neural net benchmarks')
+    parser.add_argument('--uselogs', dest='use_logs', action='store_true',
+                        help='Do not run programs. Just use previous logs.')
     parser.add_argument('progs', metavar='prog', type=str, nargs='*',
                         help='Programs to run {}'.format(str(all_progs)))
     args = parser.parse_args()
@@ -212,7 +223,7 @@ def main():
             sys.stderr.write("ERROR: unknown program '{}'\n".format(prog))
             return 1
         param_space = benchmarks[prog]
-        benchmark(prog, param_space)
+        benchmark(prog, param_space, args)
     return 0
 
 
