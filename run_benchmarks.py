@@ -17,8 +17,13 @@ import argparse
 import re
 import subprocess
 import sys
+from benchmark_report import create_report
 
 fields = [
+    ('Number of vertices',
+     'Number of vertices: (?P<value>[0-9.]+)'),
+    ('Number of edges',
+     'Number of edges: (?P<value>[0-9.]+)'),
     ('Vertex data',
      '    Vertex data: (?P<value>[0-9.]+)'),
     ('Tensor data',
@@ -50,7 +55,13 @@ fields = [
     ('IPU sync',
      '    IPU sync: (?P<value>[0-9.]+)'),
     ('Global sync',
-     '    Global sync: (?P<value>[0-9.]+)')
+     '    Global sync: (?P<value>[0-9.]+)'),
+    ('Exchange activity',
+     '    Exchange activity: (?P<value>[0-9.]+)'),
+    ('FLOPS',
+     'Total number of FLOPs: (?P<value>[0-9.]+)'),
+    ('Perfect cycles',
+     'Perfect cycle time: (?P<value>[0-9.]+)')
 ]
 
 
@@ -100,6 +111,8 @@ def write(runs, filename):
 
     headings1 = [
         ('Num IPUs', setParamCell),
+        ('Number of vertices', setDataCell),
+        ('Number of edges', setDataCell),
         ('Vertex data', setDataCell),
         ('Tensor data', setDataCell),
         ('Pipelined output copies', setDataCell),
@@ -149,7 +162,6 @@ def write(runs, filename):
 
     # Save the file
     wb.save(filename)
-
 
 def parse(lines):
     # Build up a list of data dictionaries for each layer (computeset) in the
@@ -205,7 +217,7 @@ def benchmark(prog, param_space, args):
         runs.append((params, data))
 
     write(runs, '{}.xlsx'.format(prog))
-
+    return runs
 
 def main():
     benchmarks = {'alexnet': [('Num IPUs', [1, 2])],
@@ -218,8 +230,11 @@ def main():
                         help='Do not run programs. Just use previous logs.')
     parser.add_argument('--test-reuse', dest='test_reuse', action='store_true',
                         help='Test graph reuse option in resnet benchmarks.')
+    parser.add_argument('--report', dest='create_report', action='store_true',
+                        help='Create a overall report on the benchmarks.')
     parser.add_argument('progs', metavar='prog', type=str, nargs='*',
                         help='Programs to run {}'.format(str(all_progs)))
+
     args = parser.parse_args()
     progs = args.progs
     if not progs:
@@ -227,12 +242,16 @@ def main():
     if args.test_reuse:
         benchmarks['resnet34b'].append(('Reuse graphs', [0, 1]))
         benchmarks['resnet50'].append(('Reuse graphs', [0, 1]))
+    runs = []
     for prog in progs:
         if prog not in benchmarks:
             sys.stderr.write("ERROR: unknown program '{}'\n".format(prog))
             return 1
         param_space = benchmarks[prog]
-        benchmark(prog, param_space, args)
+        prog_runs = benchmark(prog, param_space, args)
+        runs += [(prog, x, y) for (x, y) in prog_runs]
+    if args.create_report:
+        create_report(runs, "benchmark_report.csv")
     return 0
 
 
