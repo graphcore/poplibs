@@ -295,13 +295,8 @@ double ConvLayerImpl::getPerfectCycleCount() {
   }
   assert(getDType() == "short");
   double macCycles;
-  if (kernelSize != 1 && stride == 1) {
-    // Can execute 12 f32 MACs per cycle for convolutions with a stride of 1.
-    macCycles = static_cast<double>(getNumberOfMACs()) / (12 * numTiles);
-  } else {
-    // For other convolutions, can execute 4 f16 MACs per cycle
-    macCycles = static_cast<double>(getNumberOfMACs()) / (4 * numTiles);
-  }
+  // Can execute 4 f16 MACs per cycle.
+  macCycles = static_cast<double>(getNumberOfMACs()) / (4 * numTiles);
 
   // Can execute 4 f16 ADDs per cycle.
   auto addCycles = static_cast<double>(getNumberOfAdds()) / (4 * numTiles);
@@ -328,31 +323,24 @@ void ConvLayerImpl::describe(std::ostream &out) {
 size_t ConvLayerImpl::getNumChannelGroupsIn(size_t xPrev, size_t yPrev,
                                             size_t zPrev) const {
   unsigned inChansPerGroup;
-  if (getDType() != "float" && stride == 1 && zPrev % 4 == 0) {
-    // If doing the convolution by channel is preferred then try
-    // and target the special convolution instructions
-    // which require writing back to a 4-element vector.
-    inChansPerGroup = 4;
-  } else {
-    const bool isFloat = getDType() == "float";
-    const auto numWorkerContexts = getWorkerContextsPerTile();
-    const auto numTiles = getNumIPUs() * getTilesPerIPU();
-    unsigned bestCost = std::numeric_limits<unsigned>::max();
-    ConvolutionParams params(kernelSize, stride, zPrev, xPrev,
-                             yPrev, padding, outNumChans);
-    for (unsigned i = 1; i <= zPrev; ++i) {
-      if (zPrev % i != 0)
-        continue;
-      const auto candidate =
-        choosePartition(numWorkerContexts, isFloat, i,
-                        params, numTiles);
-      const auto candidateCost =
-          estimatePartitionCost(numWorkerContexts, isFloat, params,
-                                candidate);
-      if (candidateCost < bestCost) {
-        inChansPerGroup = candidate.inChansPerGroup;
-        bestCost = candidateCost;
-      }
+  const bool isFloat = getDType() == "float";
+  const auto numWorkerContexts = getWorkerContextsPerTile();
+  const auto numTiles = getNumIPUs() * getTilesPerIPU();
+  unsigned bestCost = std::numeric_limits<unsigned>::max();
+  ConvolutionParams params(kernelSize, stride, zPrev, xPrev,
+                           yPrev, padding, outNumChans);
+  for (unsigned i = 1; i <= zPrev; ++i) {
+    if (zPrev % i != 0)
+      continue;
+    const auto candidate =
+      choosePartition(numWorkerContexts, isFloat, i,
+                      params, numTiles);
+    const auto candidateCost =
+        estimatePartitionCost(numWorkerContexts, isFloat, params,
+                              candidate);
+    if (candidateCost < bestCost) {
+      inChansPerGroup = candidate.inChansPerGroup;
+      bestCost = candidateCost;
     }
   }
   return zPrev / inChansPerGroup;
