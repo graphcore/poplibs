@@ -250,6 +250,8 @@ void Net::run(unsigned numBatches) {
   }
   if (options.useIPUModel) {
     IPUModelEngine *ipuEngine = static_cast<IPUModelEngine *>(&*engine);
-    ipuEngine->report(std::cout, true);
+    IPUModelEngine::ReportOptions opt;
+    opt.doLayerWiseProfile = true;
+    ipuEngine->report(std::cout, opt);
   }
 }
