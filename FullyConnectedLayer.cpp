@@ -174,6 +174,7 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
                              {"activationOut", activations[i]}});
         graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
         if (mapping) {
+          mapping->setMapping(weights[i], tile);
           mapping->setMapping(v, tile);
         }
       }
