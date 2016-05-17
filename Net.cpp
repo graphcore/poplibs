@@ -30,7 +30,7 @@ static std::string getDTypeString(DType dType) {
   case FP32:
     return "float";
   case FP16:
-    return "short";
+    return "half";
   }
 }
 
@@ -71,14 +71,8 @@ Net::Net(DataSet &data, unsigned batchSize,
 void Net::initialize(DataSet &data, LossType lossType) {
   unsigned inputSize = data.dataSize;
   numTestBatches = data.numTest / batchSize;
-  std::string obj;
-  if (dType == "float") {
-    obj = "obj/neural_net_graph32.ppo";
-  } else {
-    obj = "obj/neural_net_graph16.ppo";
-  }
   env = std::unique_ptr<GraphProgEnv>(
-    new GraphProgEnv(obj, GraphProgFileType::Object));
+    new GraphProgEnv("obj/neural_net_graph.ppo", GraphProgFileType::Object));
 
   graph = std::unique_ptr<Graph>(new Graph(*env));
   std::unique_ptr<IPUModelEngineBuilder::TileMapping> mapping;

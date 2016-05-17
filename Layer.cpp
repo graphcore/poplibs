@@ -19,7 +19,7 @@ const std::string &Layer::getDType() const { return net.getDType(); }
 unsigned Layer::getDTypeSize() const {
   if (getDType() == "float")
     return 4;
-  assert(getDType() == "short");
+  assert(getDType() == "half");
   return 2;
 }
 

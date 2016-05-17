@@ -1,5 +1,6 @@
 #include "FullyConnectedLayer.hpp"
 #include "PerformanceEstimation.hpp"
+#include "VertexTemplates.hpp"
 
 namespace {
   struct PartitionShape {
@@ -123,7 +124,7 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   const auto maxRowsPerTile = (numRows + numIPUs - 1) / numIPUs;
 
   bool isFloat = dType == "float";
-  assert(isFloat || dType == "short");
+  assert(isFloat || dType == "half");
   const auto tilesPerIPU = getTilesPerIPU();
   auto ipuPartition = choosePartition(getWorkerContextsPerTile(),
                                       isFloat, maxRowsPerTile, numCols,
@@ -157,7 +158,8 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
             (numCols * (j + 1)) / ipuPartition.tilesPerRow;
         Tensor partialIn = in.slice(beginElement, endElement);
         Tensor partialWeights = weights[i].slice(beginElement, endElement);
-        v = graph.addVertex(dotProductCS, "FullyConnectedPartial",
+        v = graph.addVertex(dotProductCS,
+                            templateVertex("FullyConnectedPartial", getDType()),
                             {{"in", partialIn},
                              {"weights", partialWeights},
                              {"out", partials[i][j]}});
@@ -166,7 +168,8 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
           mapping->setMapping(v, tile);
         }
       } else {
-        v = graph.addVertex(dotProductCS, "FullyConnected",
+        v = graph.addVertex(dotProductCS,
+                            templateVertex("FullyConnected", getDType()),
                             {{"activationIn", in},
                              {"weights", weights[i]},
                              {"bias", biases[i]},
@@ -181,7 +184,9 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
     }
     if (ipuPartition.tilesPerRow > 1) {
       // Sum the partial sums.
-      auto v = graph.addVertex(reduceCS, "FullyConnectedReduce",
+      auto v = graph.addVertex(reduceCS,
+                               templateVertex("FullyConnectedReduce",
+                                              getDType()),
                                {{"partials", partials[i]},
                                 {"bias", biases[i]},
                                 {"zOut", z[i]},

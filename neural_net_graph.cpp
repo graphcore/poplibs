@@ -1,14 +1,12 @@
 #include <poplar/Vertex.hpp>
+#include <poplar/HalfFloat.hpp>
 #include <iostream>
 #include <iomanip>
 #include <cassert>
 #include <cmath>
+#include <type_traits>
 #include "neural_net_common.h"
 #include "PerformanceEstimation.hpp"
-
-#ifndef FPType
-#error Need to define FPType!
-#endif
 
 using namespace poplar;
 
@@ -62,10 +60,12 @@ static float nonlinearity_derivative(NonLinearityType t, float x) {
   }
 }
 
+
 /****************************************************************************/
 /*            Vertices                                                      */
 /****************************************************************************/
 
+template <typename FPType>
 class FullyConnected : public Vertex {
 public:
   Input<Vector<FPType>> activationIn;
@@ -80,18 +80,22 @@ public:
     for (unsigned i = 0; i < activationIn.size(); ++i) {
       sum += activationIn[i] * weights[i];
     }
-    sum += bias;
+    sum += *bias;
     *zOut = sum;
     *activationOut = nonlinearity(nonLinearityType, sum);
     return true;
   }
 
   uint64_t getCycleEstimate() const {
-    bool isFloat = sizeof(FPType) == 4;
+    bool isFloat = std::is_same<FPType, float>::value;
     return 20 + getDenseDotProductCycles(isFloat, activationIn.size());
   }
 };
 
+template class FullyConnected<float>;
+template class FullyConnected<half>;
+
+template <typename FPType>
 class FullyConnectedPartial : public Vertex {
 public:
   Input<Vector<FPType>> in;
@@ -108,12 +112,15 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    bool isFloat = sizeof(FPType) == 4;
+    bool isFloat = std::is_same<FPType, float>::value;
     return getFullyConnectedPartialCycleEstimate(isFloat, in.size());
   }
 };
 
+template class FullyConnectedPartial<float>;
+template class FullyConnectedPartial<half>;
 
+template <typename FPType>
 class FullyConnectedReduce : public Vertex {
 public:
   Input<Vector<float>> partials;
@@ -127,7 +134,7 @@ public:
     for (unsigned i = 0; i < partials.size(); ++i) {
       sum += partials[i];
     }
-    sum += bias;
+    sum += *bias;
     *zOut = sum;
     *activationOut = nonlinearity(nonLinearityType, sum);
     return true;
@@ -138,10 +145,14 @@ public:
   }
 };
 
+template class FullyConnectedReduce<float>;
+template class FullyConnectedReduce<half>;
+
 /**
  * Compute a sum of 1x1 convolutions over a subset of the input channels for
  * multiple output channels.
  **/
+template <typename FPType>
 class ConvPartial1x1: public Vertex {
 public:
   Vector<Input<Vector<FPType>>> in;
@@ -196,7 +207,7 @@ public:
     const auto height = out.size();
     unsigned numInChanGroups = in.size() / height;
 
-    bool isFloat = sizeof(FPType) == 4;
+    bool isFloat = std::is_same<FPType, float>::value;
     const auto stride = 1;
     const auto kernelSize = 1;
     // getConvPartialCycleEstimate assumes each vertex computes a single output
@@ -208,8 +219,12 @@ public:
   }
 };
 
+template class ConvPartial1x1<float>;
+template class ConvPartial1x1<half>;
+
 /* Compute a partial convolution for a sub-set of input channels and
  * output channels over a number of rows of the input field. */
+template <typename FPType>
 class ConvPartial: public Vertex {
 public:
   Vector<Input<Vector<FPType>>> in;
@@ -258,13 +273,16 @@ public:
     unsigned numInRows = in.size();
     unsigned outputWidth = out.size();
     unsigned kernelSize = weights[0].size() / inChansPerGroup;
-    bool isFloat = sizeof(FPType) == 4;
+    bool isFloat = std::is_same<FPType, float>::value;
     const auto outChansPerGroup = 1;
     return getConvPartialCycleEstimate(isFloat, inChansPerGroup, stride,
                                        kernelSize, numInRows, outputWidth,
                                        1);
   }
 };
+
+template class ConvPartial<float>;
+template class ConvPartial<half>;
 
 class ConvReduce : public Vertex {
 public:
@@ -291,6 +309,7 @@ public:
   }
 };
 
+template <typename FPType>
 class ConvComplete : public Vertex {
 public:
   Vector<Input<Vector<float>>> in;
@@ -320,7 +339,10 @@ public:
 
 };
 
+template class ConvComplete<float>;
+template class ConvComplete<half>;
 
+template <typename FPType>
 class ConvCompleteRes : public Vertex {
 public:
   Vector<Input<Vector<float>>> in;
@@ -352,7 +374,10 @@ public:
 
 };
 
+template class ConvCompleteRes<float>;
+template class ConvCompleteRes<half>;
 
+template <typename FPType>
 class CopyResidual : public Vertex {
 public:
   Input<Vector<FPType>> in;
@@ -366,13 +391,18 @@ public:
 
   uint64_t getCycleEstimate() const {
     // TODO: make this more accurate
-    bool isFloat = sizeof(FPType) == 4;
+    bool isFloat = std::is_same<FPType, float>::value;
     auto copiesPerCycle = isFloat ? 2 : 4;
     auto copyCycles = (in.size() + copiesPerCycle - 1) / copiesPerCycle;
     return 4 + copyCycles;
   }
 };
 
+template class CopyResidual<float>;
+template class CopyResidual<half>;
+
+
+template <typename FPType>
 class Zero : public Vertex {
 public:
   Output<Vector<FPType>> out;
@@ -386,15 +416,18 @@ public:
 
   uint64_t getCycleEstimate() const {
     // TODO: make this more accurate
-    bool isFloat = sizeof(FPType) == 4;
+    bool isFloat = std::is_same<FPType, float>::value;
     auto zeroesPerCycle = isFloat ? 2 : 4;
     auto zeroCycles = (out.size() + zeroesPerCycle - 1) / zeroesPerCycle;
     return 4 + zeroCycles;
   }
 };
 
+template class Zero<float>;
+template class Zero<half>;
 
 
+template <typename FPType>
 class MaxPooling : public Vertex {
 public:
   Vector<Input<FPType>> activationIn;
@@ -417,7 +450,10 @@ public:
   }
 };
 
+template class MaxPooling<float>;
+template class MaxPooling<half>;
 
+template <typename FPType>
 class CalcLoss : public Vertex {
 public:
   Input<Vector<FPType>> zIn;
@@ -512,3 +548,6 @@ public:
   }
 };
 
+
+template class CalcLoss<float>;
+template class CalcLoss<half>;

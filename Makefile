@@ -5,7 +5,7 @@ OBJDIR = obj
 #PROGS = ${BINDIR}/fc ${BINDIR}/fc_mnist ${BINDIR}/alexnet
 PROGS =  ${BINDIR}/alexnet ${BINDIR}/resnet34b ${BINDIR}/resnet50
 
-all: ${PROGS} ${OBJDIR}/neural_net_graph32.ppo ${OBJDIR}/neural_net_graph16.ppo
+all: ${PROGS} ${OBJDIR}/neural_net_graph.ppo
 	@echo Build complete
 
 ${BINDIR}/:
@@ -16,11 +16,8 @@ ${OBJDIR}/:
 
 NEURAL_NET_GRAPH_HEADERS = neural_net_common.h PerformanceEstimation.hpp
 
-${OBJDIR}/neural_net_graph16.ppo: neural_net_graph.cpp ${NEURAL_NET_GRAPH_HEADERS} Makefile | ${OBJDIR}/
-	popc -I. -DFPType=short ${FLAGS} $< -o $@
-
-${OBJDIR}/neural_net_graph32.ppo: neural_net_graph.cpp ${NEURAL_NET_GRAPH_HEADERS} Makefile | ${OBJDIR}/
-	popc -I. -DFPType=float ${FLAGS} $< -o $@
+${OBJDIR}/neural_net_graph.ppo: neural_net_graph.cpp ${NEURAL_NET_GRAPH_HEADERS} Makefile | ${OBJDIR}/
+	popc -I. ${FLAGS} $< -o $@
 
 ${OBJDIR}/%.o: %.cpp Makefile ${wildcard *.hpp} ${wilcard *.h} | ${OBJDIR}/
 	${CXX} -march=native -ffast-math ${FLAGS} -c -std=c++11 $< -o $@

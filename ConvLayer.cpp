@@ -1,5 +1,6 @@
 #include "ConvLayer.hpp"
 #include "PerformanceEstimation.hpp"
+#include "VertexTemplates.hpp"
 
 namespace {
   struct ConvolutionParams {
@@ -322,7 +323,7 @@ double ConvLayerImpl::getPerfectCycleCount() {
        static_cast<double>(getNumberOfAdds()) / (2 * numTiles);
     return macCycles + addCycles;
   }
-  assert(getDType() == "short");
+  assert(getDType() == "half");
   auto macsPerCycles = useConvolutionInstruction() ? 16 : 4;
   auto macCycles = static_cast<double>(getNumberOfMACs()) /
                    (macsPerCycles * numTiles);
@@ -542,7 +543,8 @@ addResidualCalc(Graph &graph,
             auto outChan = outChanGroup * outChansPerGroup +
               outChanGroupElement;
             if (outChan >= resNumChans) {
-              auto v = graph.addVertex(cs, "Zero", {{"out",out}});
+              auto v = graph.addVertex(cs, templateVertex("Zero", getDType()),
+                                       {{"out",out}});
               continue;
             }
             auto resChanGroup = outChan / resChansPerGroup;
@@ -554,7 +556,8 @@ addResidualCalc(Graph &graph,
             Tensor in = resIn[resChanGroup][y * resStrideY][x * resStrideX]
               .slice(resChanGroupElement,
                      resChanGroupElement + chansPerVertex);
-            auto v = graph.addVertex(cs, "CopyResidual",
+            auto v = graph.addVertex(cs,
+                                     templateVertex("CopyResidual", getDType()),
                                      {{"in", in}, {"out",out}});
           }
         }
@@ -629,7 +632,8 @@ ConvLayerImpl::forwardTile(Graph &graph,
               outXEnd
             ).reshape({height, width * outChansPerGroup});
         // Add the vertex.
-        auto v = graph.addVertex(cs, "ConvPartial1x1",
+        auto v = graph.addVertex(cs,
+                                 templateVertex("ConvPartial1x1", getDType()),
             { {"in", inWindow },
               {"weights", w },
               {"out", outWindow },
@@ -656,7 +660,7 @@ ConvLayerImpl::forwardTile(Graph &graph,
                        inChansPerGroup * kernelSize});
         Tensor outWindow = out[z][y].slice(outXBegin, outXEnd).flatten();
         // Add the vertex.
-        auto v = graph.addVertex(cs, "ConvPartial",
+        auto v = graph.addVertex(cs, templateVertex("ConvPartial", getDType()),
             { {"in", inWindow },
               {"weights", w },
               {"out", outWindow },
@@ -923,7 +927,8 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
         bool needsResidual = resLayer && outChanGroup < resOutChanGroups;
         std::string vertexType =
             needsResidual ? "ConvCompleteRes" : "ConvComplete";
-        auto v = graph.addVertex(completionCS, vertexType,
+        auto v = graph.addVertex(completionCS,
+                                 templateVertex(vertexType, getDType()),
                                  {{ "in", in },
                                   { "bias", biasSlice },
                                   { "out", actOut} });

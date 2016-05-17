@@ -7,6 +7,8 @@
 #include <poplar/IPUModelEngine.hpp>
 #include <string>
 #include "neural_net_common.h"
+#include "VertexTemplates.hpp"
+
 
 using namespace poplar;
 using namespace poplar::program;
@@ -190,7 +192,7 @@ public:
   }
   Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
     Layer *prev = getPrevLayer();
-    auto v = graph.addVertex(fwd, "CalcLoss",
+    auto v = graph.addVertex(fwd, templateVertex("CalcLoss", getDType()),
                              {{"zIn", prev->getFwdZs().flatten()},
                               {"errorOut", errors},
                               {"label", expected[0]},

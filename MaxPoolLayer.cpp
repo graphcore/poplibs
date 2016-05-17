@@ -1,4 +1,5 @@
 #include "MaxPoolLayer.hpp"
+#include "VertexTemplates.hpp"
 
 MaxPoolLayerImpl::MaxPoolLayerImpl(const Net &net,
                  int index,
@@ -87,7 +88,7 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
                                   {i * stride + width, j * stride + height,
                                     prevChanInGroup+1})
             .flatten();
-        graph.addVertex(fwd, "MaxPooling",
+        graph.addVertex(fwd, templateVertex("MaxPooling", getDType()),
           { {"activationIn", window},
             {"activationOut", activations[chanGroup][i][j][chanInGroup]} });
       }
