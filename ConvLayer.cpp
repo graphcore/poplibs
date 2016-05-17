@@ -166,13 +166,13 @@ choosePartition(unsigned numWorkerContexts,
   // rows of partial sum per tile pair.
   // TODO investigate the alternative strategy outlined above.
   const auto maxTilesPerX = std::min(params.getOutputWidth(), numTiles);
-  for (unsigned tilesPerX = 1; tilesPerX < maxTilesPerX; ++tilesPerX) {
+  for (unsigned tilesPerX = 1; tilesPerX <= maxTilesPerX; ++tilesPerX) {
     const auto maxTilesPerY = std::min(params.getOutputHeight(),
                                        numTiles / tilesPerX);
-    for (unsigned tilesPerY = 1; tilesPerY < maxTilesPerY; ++tilesPerY) {
+    for (unsigned tilesPerY = 1; tilesPerY <= maxTilesPerY; ++tilesPerY) {
       const auto maxTilesPerZ =
           std::min(params.outputDepth, numTiles / (tilesPerX * tilesPerY));
-      for (unsigned tilesPerZ = 1; tilesPerZ < maxTilesPerZ; ++tilesPerZ) {
+      for (unsigned tilesPerZ = 1; tilesPerZ <= maxTilesPerZ; ++tilesPerZ) {
         const auto tilesPerInZ =
             std::min(params.inputDepth / inChansPerGroup,
                      numTiles / (tilesPerX * tilesPerY * tilesPerZ));
