@@ -232,10 +232,15 @@ static std::pair<unsigned, unsigned>
 getInputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
               unsigned kernelSize, unsigned inputSize) {
   assert(outputRange.first <= outputRange.second);
-  return {
-    getInputRange(outputRange.first, stride, kernelSize, inputSize).first,
-    getInputRange(outputRange.second, stride, kernelSize, inputSize).second
-  };
+  if (outputRange.first == outputRange.second) {
+    return {0, 0};
+  }
+  const auto begin =
+      getInputRange(outputRange.first, stride, kernelSize, inputSize).first;
+  const auto end =
+      getInputRange(outputRange.second - 1, stride, kernelSize,
+                    inputSize).second;
+  return {begin, end};
 }
 
 static std::pair<unsigned, unsigned>
