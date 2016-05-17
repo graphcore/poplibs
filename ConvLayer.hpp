@@ -47,13 +47,20 @@ struct ConvLayerPartition {
   unsigned tilesPerZAxis;
   unsigned tilesPerInZGroupAxis;
   unsigned inChansPerGroup;
+  unsigned partialChansPerGroup;
   ConvLayerPartition() = default;
-  ConvLayerPartition(unsigned tilesPerXAxis, unsigned tilesPerYAxis,
-                     unsigned tilesPerZAxis, unsigned tilesPerInZGroupAxis,
-                     unsigned inChansPerGroup) :
-    tilesPerXAxis(tilesPerXAxis), tilesPerYAxis(tilesPerYAxis),
-    tilesPerZAxis(tilesPerZAxis), tilesPerInZGroupAxis(tilesPerInZGroupAxis),
-    inChansPerGroup(inChansPerGroup) {}
+  ConvLayerPartition(unsigned tilesPerXAxis,
+                     unsigned tilesPerYAxis,
+                     unsigned tilesPerZAxis,
+                     unsigned tilesPerInZGroupAxis,
+                     unsigned inChansPerGroup,
+                     unsigned partialChansPerGroup) :
+    tilesPerXAxis(tilesPerXAxis),
+    tilesPerYAxis(tilesPerYAxis),
+    tilesPerZAxis(tilesPerZAxis),
+    tilesPerInZGroupAxis(tilesPerInZGroupAxis),
+    inChansPerGroup(inChansPerGroup),
+    partialChansPerGroup(partialChansPerGroup) {}
 };
 
 enum ResidualMethod {
@@ -63,12 +70,13 @@ enum ResidualMethod {
 };
 
 class ConvLayerImpl : public Layer {
+  bool useConvolutionInstruction() const;
   void
   forwardTile(Graph &graph,
               IPUModelEngineBuilder::TileMapping *mapping,
               unsigned tile, unsigned outXBegin, unsigned outXEnd,
               unsigned outYBegin, unsigned outYEnd,
-              unsigned outZBegin, unsigned outZEnd,
+              unsigned outZGroupBegin, unsigned outZGroupEnd,
               unsigned inZGroupBegin, unsigned inZGroupEnd,
               ComputeSet cs,
               const Tensor &out);

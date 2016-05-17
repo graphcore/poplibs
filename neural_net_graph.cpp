@@ -1,6 +1,7 @@
 #include <poplar/Vertex.hpp>
 #include <iostream>
 #include <iomanip>
+#include <cassert>
 #include <cmath>
 #include "neural_net_common.h"
 #include "PerformanceEstimation.hpp"
@@ -137,6 +138,76 @@ public:
   }
 };
 
+/**
+ * Compute a sum of 1x1 convolutions over a subset of the input channels for
+ * multiple output channels.
+ **/
+class ConvPartial1x1: public Vertex {
+public:
+  Vector<Input<Vector<FPType>>> in;
+  Input<Vector<FPType>> weights;
+  Vector<Output<Vector<float>>> out;
+
+  static const auto inChansPerGroup = 16;
+  static const auto outChansPerGroup = 4;
+
+  bool compute() {
+    assert(out[0].size() % outChansPerGroup == 0);
+    const auto width = out[0].size() / outChansPerGroup;
+    const auto height = out.size();
+    assert(in.size() % height == 0);
+    unsigned numInChanGroups = in.size() / height;
+
+    assert(weights.size() == numInChanGroups * outChansPerGroup *
+                             inChansPerGroup);
+
+    for (auto &v : out) {
+      for (auto &o : v) {
+        o = 0.0;
+      }
+    }
+    for (unsigned inChanGroup = 0; inChanGroup != numInChanGroups;
+         ++inChanGroup) {
+      for (unsigned y = 0; y != height; ++y) {
+        for (unsigned x = 0; x != width; ++x) {
+          for (unsigned inChanIndex = 0; inChanIndex != inChansPerGroup;
+               ++inChanIndex) {
+            for (unsigned outChanIndex = 0; outChanIndex != outChansPerGroup;
+                 ++outChanIndex) {
+              const auto outIndex = outChanIndex + outChansPerGroup * x;
+              const auto weightIndex =
+                  inChanIndex + inChansPerGroup * (
+                    outChanIndex + outChansPerGroup * (
+                      inChanGroup
+                    )
+                  );
+              const auto inIndex = inChanIndex + inChansPerGroup * x;
+              out[y][outIndex] += weights[weightIndex] * in[y][inIndex];
+            }
+          }
+        }
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    const auto width = out[0].size() / outChansPerGroup;
+    const auto height = out.size();
+    unsigned numInChanGroups = in.size() / height;
+
+    bool isFloat = sizeof(FPType) == 4;
+    const auto stride = 1;
+    const auto kernelSize = 1;
+    // getConvPartialCycleEstimate assumes each vertex computes a single output
+    // row.
+    assert(height == 1);
+    return getConvPartialCycleEstimate(isFloat, inChansPerGroup, stride,
+                                       kernelSize, numInChanGroups,
+                                       width, outChansPerGroup);
+  }
+};
+
 /* Compute a partial convolution for a sub-set of input channels and
  * output channels over a number of rows of the input field. */
 class ConvPartial: public Vertex {
@@ -188,9 +259,10 @@ public:
     unsigned outputWidth = out.size();
     unsigned kernelSize = weights[0].size() / inChansPerGroup;
     bool isFloat = sizeof(FPType) == 4;
-
+    const auto outChansPerGroup = 1;
     return getConvPartialCycleEstimate(isFloat, inChansPerGroup, stride,
-                                       kernelSize, numInRows, outputWidth);
+                                       kernelSize, numInRows, outputWidth,
+                                       1);
   }
 };
 
