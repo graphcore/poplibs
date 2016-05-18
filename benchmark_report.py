@@ -42,6 +42,9 @@ def create_report(runs, filename):
                                           'IPU sync',
                                           'Global sync'])
 
+    def MB(num_bytes):
+        return num_bytes/(1024*1024)
+
 
     alexnet_1_ipu = find_run('alexnet', {'Num IPUs': 1})
     resnet34 = find_run('resnet34b', {'Reuse graphs': 1})
@@ -156,3 +159,53 @@ def create_report(runs, filename):
                                            resnet50_no_reuse[0]['Number of edges']))
         f.write('Resnet 50 (graph reuse), {:.0f}, {:.0f}\n'.format(resnet50[0]['Number of vertices'],
                                            resnet50[0]['Number of edges']))
+
+        f.write(',\nMEMORY USAGE,\n,\n')
+
+        f.write('Category, Alexnet, ResNet34, ResNet50\n')
+        for field in ['Vertex data',
+                      'Tensor data',
+                      'In edge pointers',
+                      'Message memory',
+                      'Run instructions',
+                      'Exchange supervisor code']:
+            f.write('{} (MB), {:.0f},{:.0f},{:.0f}\n'.format(
+                    field,
+                    MB(alexnet_1_ipu[0][field]),
+                    MB(resnet34[0][field]),
+                    MB(resnet50[0][field])))
+        f.write('TOTAL (MB), {:.0f},{:.0f},{:.0f}\n'.format(
+                MB(get_total_mem(alexnet_1_ipu[0])),
+                MB(get_total_mem(resnet34[0])),
+                MB(get_total_mem(resnet50[0]))))
+        f.write(',,,\n')
+        f.write('Parameters (MB),,,\n')
+        f.write('Tensor data/param (MB),,\n')
+        f.write('Num vertices,{:.0f},{:.0f},{:.0f}\n'.format(
+                alexnet_1_ipu[0]['Number of vertices'],
+                resnet34[0]['Number of vertices'],
+                resnet50[0]['Number of vertices'],
+               ))
+        f.write('Num edges,{:.0f},{:.0f},{:.0f}\n'.format(
+                alexnet_1_ipu[0]['Number of edges'],
+                resnet34[0]['Number of edges'],
+                resnet50[0]['Number of edges'],
+               ))
+        vertex_bytes_fields = ['Vertex data', 'Run instructions']
+        alexnet_vertex_bytes = sum_fields(alexnet_1_ipu[0], vertex_bytes_fields)
+        resnet34_vertex_bytes = sum_fields(resnet34[0], vertex_bytes_fields)
+        resnet50_vertex_bytes = sum_fields(resnet50[0], vertex_bytes_fields)
+        f.write('Bytes/vertex,{:.1f},{:.1f},{:.1f}\n'.format(
+                alexnet_vertex_bytes/alexnet_1_ipu[0]['Number of vertices'],
+                resnet34_vertex_bytes/resnet34[0]['Number of vertices'],
+                resnet50_vertex_bytes/resnet50[0]['Number of vertices'],
+               ))
+        edge_bytes_fields = ['In edge pointers', 'Exchange supervisor code']
+        alexnet_edge_bytes = sum_fields(alexnet_1_ipu[0], edge_bytes_fields)
+        resnet34_edge_bytes = sum_fields(resnet34[0], edge_bytes_fields)
+        resnet50_edge_bytes = sum_fields(resnet50[0], edge_bytes_fields)
+        f.write('Bytes/edge,{:.1f},{:.1f},{:.1f}\n'.format(
+                alexnet_edge_bytes/alexnet_1_ipu[0]['Number of edges'],
+                resnet34_edge_bytes/resnet34[0]['Number of edges'],
+                resnet50_edge_bytes/resnet50[0]['Number of edges'],
+               ))
