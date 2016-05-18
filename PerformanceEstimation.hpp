@@ -10,14 +10,11 @@ inline std::uint64_t getDenseDotProductCycles(bool isFloat, unsigned size) {
   return (size + 3) / 4 + 2;
 }
 
-/// Estimate the number of cycles required for a partial convolution vertex.
-/// Each partial convolution vertex computes a partial sum for one output row.
-/// The number of in rows is the total number of inChansPerGroup deep input
-/// rows that are required to compute the output row.
 inline std::uint64_t
 getConvPartialCycleEstimate(bool isFloat, unsigned inChansPerGroup,
                             unsigned stride, unsigned kernelSize,
-                            unsigned numInRows,
+                            unsigned inputGroupsPerOutput,
+                            unsigned outputHeight,
                             unsigned outputWidth,
                             unsigned outChansPerGroup)
 {
@@ -26,17 +23,15 @@ getConvPartialCycleEstimate(bool isFloat, unsigned inChansPerGroup,
       stride == 1 && kernelSize == 1) {
     unsigned warmUpCycles = 19;
     unsigned innerLoopCycles =
-        outputWidth * outChansPerGroup;
+        outputWidth * outputHeight * outChansPerGroup;
     unsigned coolDownCycles = 5;
-    unsigned cycleCount = numInRows *
+    unsigned cycleCount = inputGroupsPerOutput *
                           (warmUpCycles + innerLoopCycles + coolDownCycles);
     return cycleCount;
   }
   return vertexOverhead +
-         outChansPerGroup * outputWidth *
-         numInRows * (1 +
-                      getDenseDotProductCycles(isFloat,
-                                               kernelSize * inChansPerGroup));
+         outChansPerGroup * outputWidth * outputHeight * inputGroupsPerOutput *
+         (1 + getDenseDotProductCycles(isFloat, kernelSize * inChansPerGroup));
 }
 
 inline std::uint64_t

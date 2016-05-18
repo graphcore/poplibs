@@ -210,11 +210,8 @@ public:
     bool isFloat = std::is_same<FPType, float>::value;
     const auto stride = 1;
     const auto kernelSize = 1;
-    // getConvPartialCycleEstimate assumes each vertex computes a single output
-    // row.
-    assert(height == 1);
     return getConvPartialCycleEstimate(isFloat, inChansPerGroup, stride,
-                                       kernelSize, numInChanGroups,
+                                       kernelSize, numInChanGroups, height,
                                        width, outChansPerGroup);
   }
 };
@@ -276,7 +273,7 @@ public:
     bool isFloat = std::is_same<FPType, float>::value;
     const auto outChansPerGroup = 1;
     return getConvPartialCycleEstimate(isFloat, inChansPerGroup, stride,
-                                       kernelSize, numInRows, outputWidth,
+                                       kernelSize, numInRows, 1, outputWidth,
                                        1);
   }
 };

@@ -45,6 +45,7 @@ struct ConvLayerPartition {
   unsigned tilesPerXAxis;
   unsigned tilesPerYAxis;
   unsigned tilesPerZAxis;
+  unsigned verticesPerTilePerYAxis;
   unsigned tilesPerInZGroupAxis;
   unsigned inChansPerGroup;
   unsigned partialChansPerGroup;
@@ -52,12 +53,14 @@ struct ConvLayerPartition {
   ConvLayerPartition(unsigned tilesPerXAxis,
                      unsigned tilesPerYAxis,
                      unsigned tilesPerZAxis,
+                     unsigned verticesPerYAxis,
                      unsigned tilesPerInZGroupAxis,
                      unsigned inChansPerGroup,
                      unsigned partialChansPerGroup) :
     tilesPerXAxis(tilesPerXAxis),
     tilesPerYAxis(tilesPerYAxis),
     tilesPerZAxis(tilesPerZAxis),
+    verticesPerTilePerYAxis(verticesPerTilePerYAxis),
     tilesPerInZGroupAxis(tilesPerInZGroupAxis),
     inChansPerGroup(inChansPerGroup),
     partialChansPerGroup(partialChansPerGroup) {}

@@ -97,11 +97,15 @@ estimateExchangeCost(bool isFloat, const ConvolutionParams &params,
 static unsigned
 estimateVertexCycles(bool isFloat, const ConvolutionParams &params,
                      const ConvLayerPartition &partition) {
+  const auto tilesPerY = partition.tilesPerYAxis;
   const auto tilesPerX = partition.tilesPerXAxis;
   const auto tilesPerInZGroupAxis = partition.tilesPerInZGroupAxis;
+  const auto verticesPerTilePerY = partition.verticesPerTilePerYAxis;
   const auto inChansPerGroup = partition.inChansPerGroup;
   const auto outChansPerGroup = partition.partialChansPerGroup;
 
+  const auto tileOutHeight =
+      (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
   const auto tileOutWidth =
       (params.getOutputWidth() + tilesPerX - 1) / tilesPerX;
   const auto numInGroups =
@@ -109,11 +113,14 @@ estimateVertexCycles(bool isFloat, const ConvolutionParams &params,
   const auto tileNumInGroups =
       (numInGroups + tilesPerInZGroupAxis - 1) / tilesPerInZGroupAxis;
 
-  const auto numInRows = params.kernelSize * tileNumInGroups;
+  const auto outRowsPerVertex =
+      (tileOutHeight + verticesPerTilePerY - 1) / verticesPerTilePerY;
+  const auto inputGroupsPerOutput = params.kernelSize * tileNumInGroups;
 
   return getConvPartialCycleEstimate(isFloat, inChansPerGroup, params.stride,
-                                     params.kernelSize, numInRows,
-                                     tileOutWidth, outChansPerGroup);
+                                     params.kernelSize, inputGroupsPerOutput,
+                                     outRowsPerVertex, tileOutWidth,
+                                     outChansPerGroup);
 }
 
 static unsigned
@@ -124,15 +131,17 @@ estimateComputeCost(unsigned numWorkerContexts, bool isFloat,
   const auto tilesPerZ = partition.tilesPerZAxis;
   const auto outChansPerGroup = partition.partialChansPerGroup;
 
-  const auto outHeight = params.getOutputHeight();
+  const auto tileOutHeight =
+      (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
   const auto numOutGroups =
       (params.outputDepth + (outChansPerGroup - 1)) / outChansPerGroup;
 
-  const auto tileY = (outHeight + tilesPerY - 1) / tilesPerY;
   const auto tileNumOutGroups =
       (numOutGroups + tilesPerZ - 1) / tilesPerZ;
 
-  const auto tileVertices = tileY * tileNumOutGroups;
+  const auto verticesPerTilePerY =
+      std::min(tileOutHeight, partition.verticesPerTilePerYAxis);
+  const auto tileVertices = verticesPerTilePerY * tileNumOutGroups;
   const auto vertexRuntime = estimateVertexCycles(isFloat, params, partition);
   auto verticesPerWorker = (tileVertices + numWorkerContexts - 1) /
                            numWorkerContexts;
@@ -187,27 +196,35 @@ choosePartition(unsigned numWorkerContexts,
   // but it needs to sends (outputChannelsPerTile * (filterSize - 1) / 2) extra
   // rows of partial sum per tile pair.
   // TODO investigate the alternative strategy outlined above.
-  const auto maxTilesPerX = std::min(params.getOutputWidth(), numTiles);
-  for (unsigned tilesPerX = 1; tilesPerX <= maxTilesPerX; ++tilesPerX) {
-    const auto maxTilesPerY = std::min(params.getOutputHeight(),
-                                       numTiles / tilesPerX);
-    for (unsigned tilesPerY = 1; tilesPerY <= maxTilesPerY; ++tilesPerY) {
-      const auto maxTilesPerZ =
-          std::min(params.outputDepth, numTiles / (tilesPerX * tilesPerY));
-      for (unsigned tilesPerZ = 1; tilesPerZ <= maxTilesPerZ; ++tilesPerZ) {
-        const auto tilesPerInZ =
-            std::min(params.inputDepth / inChansPerGroup,
-                     numTiles / (tilesPerX * tilesPerY * tilesPerZ));
-        for (const auto partialChansPerGroup : partialChansPerGroupCandidates) {
-          ConvLayerPartition candidate(tilesPerX, tilesPerY, tilesPerZ,
-                                       tilesPerInZ, inChansPerGroup,
-                                       partialChansPerGroup);
-          auto candidateCost =
-              estimatePartitionCost(numWorkerContexts, isFloat, params,
-                                    candidate);
-          if (candidateCost < bestCost) {
-            bestPartition = candidate;
-            bestCost = candidateCost;
+  for (const auto partialChansPerGroup : partialChansPerGroupCandidates) {
+    const auto maxTilesPerX = std::min(params.getOutputWidth(), numTiles);
+    for (unsigned tilesPerX = 1; tilesPerX <= maxTilesPerX; ++tilesPerX) {
+      const auto maxTilesPerY = std::min(params.getOutputHeight(),
+                                         numTiles / tilesPerX);
+      for (unsigned tilesPerY = 1; tilesPerY <= maxTilesPerY; ++tilesPerY) {
+        const auto maxTilesPerZ =
+            std::min(params.outputDepth, numTiles / (tilesPerX * tilesPerY));
+        for (unsigned tilesPerZ = 1; tilesPerZ <= maxTilesPerZ; ++tilesPerZ) {
+          const auto tilesPerInZ =
+              std::min(params.inputDepth / inChansPerGroup,
+                       numTiles / (tilesPerX * tilesPerY * tilesPerZ));
+          const auto maxVerticesPerTilePerY =
+              (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
+          const auto minVerticesPerTilePerY =
+              partialChansPerGroup == 4 ? 1 : maxVerticesPerTilePerY;
+          for (unsigned verticesPerTilePerY = minVerticesPerTilePerY;
+               verticesPerTilePerY <= maxVerticesPerTilePerY;
+               ++verticesPerTilePerY) {
+            ConvLayerPartition candidate(tilesPerX, tilesPerY, tilesPerZ,
+                                         verticesPerTilePerY, tilesPerInZ,
+                                         inChansPerGroup, partialChansPerGroup);
+            auto candidateCost =
+                estimatePartitionCost(numWorkerContexts, isFloat, params,
+                                      candidate);
+            if (candidateCost < bestCost) {
+              bestPartition = candidate;
+              bestCost = candidateCost;
+            }
           }
         }
       }
@@ -280,6 +297,21 @@ getWeightRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
   const auto weightBegin = inputBegin + distanceFromCentre - inputCentre;
   const auto weightEnd = inputEnd + distanceFromCentre - inputCentre;
   return { weightBegin, weightEnd };
+}
+
+static std::pair<unsigned, unsigned>
+getWeightRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
+               unsigned kernelSize, unsigned inputSize) {
+  assert(outputRange.first <= outputRange.second);
+  if (outputRange.first == outputRange.second) {
+    return {0, 0};
+  }
+  const auto begin =
+      getWeightRange(outputRange.first, stride, kernelSize, inputSize).first;
+  const auto end =
+      getWeightRange(outputRange.second - 1, stride, kernelSize,
+                     inputSize).second;
+  return {begin, end};
 }
 
 std::uint64_t ConvLayerImpl::getNumberOfMACs() {
@@ -362,6 +394,8 @@ size_t ConvLayerImpl::getNumChannelGroupsIn(size_t xPrev, size_t yPrev,
                            yPrev, padding, outNumChans);
   for (unsigned i = 1; i <= zPrev; ++i) {
     if (zPrev % i != 0)
+      continue;
+    if (!isFloat && i % 2 != 0)
       continue;
     const auto candidate =
       choosePartition(numWorkerContexts, isFloat, i,
@@ -600,29 +634,39 @@ ConvLayerImpl::forwardTile(Graph &graph,
                            const Tensor &out) {
   const auto inChansPerGroup = partition.inChansPerGroup;
   const auto outChansPerGroup = partition.partialChansPerGroup;
+  const auto tileHeight = outYEnd - outYBegin;
+  const auto verticesPerY = partition.verticesPerTilePerYAxis;
+
+  const auto outWidth = outXEnd - outXBegin;
   const auto inZGroups = inZGroupEnd - inZGroupBegin;
   for (unsigned zg = outZGroupBegin; zg != outZGroupEnd; ++zg) {
-    for (unsigned y = outYBegin; y != outYEnd; ++y) {
+    for (unsigned vy = 0; vy != verticesPerY; ++vy) {
+      const auto vertexYBegin = outYBegin + (vy * tileHeight) / verticesPerY;
+      const auto vertexYEnd =
+          outYBegin + ((vy + 1) * tileHeight) / verticesPerY;
+      if (vertexYBegin == vertexYEnd)
+        continue;
+      const auto outHeight = vertexYEnd - vertexYBegin;
       unsigned inYBegin, inYEnd, inXBegin, inXEnd;
       std::tie(inYBegin, inYEnd) =
-          getInputRange(y, stride, kernelSize, inDimY);
+          getInputRange({vertexYBegin, vertexYEnd}, stride, kernelSize, inDimY);
       std::tie(inXBegin, inXEnd) =
           getInputRange({outXBegin, outXEnd}, stride, kernelSize, inDimX);
       // Window into previous layer.
-      const auto width = inXEnd - inXBegin;
-      const auto height = inYEnd - inYBegin;
+      const auto inWidth = inXEnd - inXBegin;
+      const auto inHeight = inYEnd - inYBegin;
       // Weights that match the window.
       unsigned weightYBegin, weightYEnd;
       std::tie(weightYBegin, weightYEnd) =
-          getWeightRange(y, stride, kernelSize, inDimY);
+          getWeightRange({vertexYBegin, vertexYEnd}, stride, kernelSize,
+                         inDimY);
       if (useConvolutionInstruction()) {
         Tensor inWindow =
             in.slice(
               {inZGroupBegin, inYBegin, inXBegin, 0},
               {inZGroupEnd, inYEnd, inXEnd, inChansPerGroup}
-            ).reshape({height * inZGroups,
-                       width * inChansPerGroup});
-        assert(weightYEnd - weightYBegin == height);
+            ).reshape({inHeight * inZGroups,
+                       inWidth * inChansPerGroup});
         Tensor w =
             weightsIn[zg].slice(
               {inZGroupBegin, weightYBegin, 0, 0, 0},
@@ -630,10 +674,10 @@ ConvLayerImpl::forwardTile(Graph &graph,
                inChansPerGroup}
             ).flatten();
         Tensor outWindow =
-            out[zg][y].slice(
-              outXBegin,
-              outXEnd
-            ).reshape({height, width * outChansPerGroup});
+            out[zg].slice(
+              {vertexYBegin, outXBegin, 0},
+              {vertexYEnd, outXEnd, outChansPerGroup}
+            ).reshape({outHeight, outWidth * outChansPerGroup});
         // Add the vertex.
         auto v = graph.addVertex(cs,
                                  templateVertex("ConvPartial1x1", getDType()),
@@ -648,18 +692,20 @@ ConvLayerImpl::forwardTile(Graph &graph,
         }
       } else {
         assert(outChansPerGroup == 1);
+        assert(vertexYEnd - vertexYBegin == 1);
         const auto z = zg;
+        const auto y = vertexYBegin;
         Tensor inWindow =
             in.slice(
               {inZGroupBegin, inYBegin, inXBegin, 0},
               {inZGroupEnd, inYEnd, inXEnd, inChansPerGroup}
-            ).reshape({height * inZGroups,
-                       width * inChansPerGroup});
+            ).reshape({inHeight * inZGroups,
+                       inWidth * inChansPerGroup});
         Tensor w =
             weightsIn.slice(
               {inZGroupBegin, z, weightYBegin, 0, 0},
               {inZGroupEnd, z + 1, weightYEnd, kernelSize, inChansPerGroup}
-            ).reshape({height * inZGroups,
+            ).reshape({inHeight * inZGroups,
                        inChansPerGroup * kernelSize});
         Tensor outWindow = out[z][y].slice(outXBegin, outXEnd).flatten();
         // Add the vertex.
