@@ -53,7 +53,7 @@ struct ConvLayerPartition {
   ConvLayerPartition(unsigned tilesPerXAxis,
                      unsigned tilesPerYAxis,
                      unsigned tilesPerZAxis,
-                     unsigned verticesPerYAxis,
+                     unsigned verticesPerTilePerYAxis,
                      unsigned tilesPerInZGroupAxis,
                      unsigned inChansPerGroup,
                      unsigned partialChansPerGroup) :
