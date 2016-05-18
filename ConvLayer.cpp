@@ -237,7 +237,8 @@ ConvLayerImpl::ConvLayerImpl(Net &net,
   normalizationType(normalizationType),
   createdForwardProg(false),
   resIndex(resIndex),
-  resMethod(resMethod) {
+  resMethod(resMethod),
+  reuseLayerImplGraphs(net.options.reuseLayerImplGraphs) {
   layerName = "Conv" + std::to_string(kernelSize) + "x" +
               std::to_string(kernelSize);
 }
@@ -462,11 +463,13 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
 
 
 
-  auto emplaceResult = implMap.emplace(implSpec, this);
-  if (!emplaceResult.second) {
-    // Matching implementation already exists
-    reuseImpl = emplaceResult.first->second;
-    return;
+  if (reuseLayerImplGraphs) {
+    auto emplaceResult = implMap.emplace(implSpec, this);
+    if (!emplaceResult.second) {
+      // Matching implementation already exists
+      reuseImpl = emplaceResult.first->second;
+      return;
+    }
   }
 
   in = graph.addTensor(dType, {prevOut.dim(0), prevOut.dim(1),

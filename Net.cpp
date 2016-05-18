@@ -9,6 +9,9 @@ bool parseCommandLine(int argc, char **argv, NetOptions &options) {
     ("help", "Produce help message")
     ("ipus", po::value<unsigned>(&options.numIPUs)->default_value(1),
              "Number of IPUs")
+    ("graph-reuse",
+     po::value<bool>(&options.reuseLayerImplGraphs)->default_value(true),
+     "Re-use graph structure for similar layers")
   ;
   po::variables_map vm;
   try {

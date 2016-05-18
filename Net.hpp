@@ -39,6 +39,7 @@ public:
   bool singleBatchProfile = false;
   unsigned numIPUs = 1;
   unsigned numBatchesBetweenTest = 2500;
+  bool reuseLayerImplGraphs = true;
 };
 
 bool parseCommandLine(int argc, char **argv, NetOptions &options);

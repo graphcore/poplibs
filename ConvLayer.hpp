@@ -137,6 +137,8 @@ public:
   Tensor residual;
   unsigned resStrideX, resStrideY;
 
+  bool reuseLayerImplGraphs;
+
   ConvLayerImpl(Net &net,
                 int index,
                 unsigned kernelSize,
