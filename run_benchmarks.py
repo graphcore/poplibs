@@ -61,6 +61,8 @@ def run(prog, params):
             pass
         elif name == 'Num IPUs':
             cmd.extend(['--ipus', str(value)])
+        elif name == 'Reuse graphs':
+            cmd.extend(['--graph-reuse', str(value)])
         else:
             raise Exception
     return subprocess.check_output(cmd).split('\n')
@@ -191,8 +193,10 @@ def benchmark(prog, param_space, args):
         params_str = params_str.replace(' ','_')
         logname = prog + '_' + params_str + ".log"
         if args.use_logs:
+            print("Reading " + logname)
             log = open(logname).readlines()
         else:
+            print("Creating " + logname)
             log = run(prog, params)
             with open(logname, "w") as f:
                 for line in log:
@@ -212,12 +216,17 @@ def main():
     parser = argparse.ArgumentParser(description='Run neural net benchmarks')
     parser.add_argument('--uselogs', dest='use_logs', action='store_true',
                         help='Do not run programs. Just use previous logs.')
+    parser.add_argument('--test-reuse', dest='test_reuse', action='store_true',
+                        help='Test graph reuse option in resnet benchmarks.')
     parser.add_argument('progs', metavar='prog', type=str, nargs='*',
                         help='Programs to run {}'.format(str(all_progs)))
     args = parser.parse_args()
     progs = args.progs
     if not progs:
         progs = all_progs
+    if args.test_reuse:
+        benchmarks['resnet34b'].append(('Reuse graphs', [0, 1]))
+        benchmarks['resnet50'].append(('Reuse graphs', [0, 1]))
     for prog in progs:
         if prog not in benchmarks:
             sys.stderr.write("ERROR: unknown program '{}'\n".format(prog))
