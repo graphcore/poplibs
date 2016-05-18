@@ -152,7 +152,7 @@ static bool
 canUseConvolutionInstruction(bool isFloat, unsigned stride, unsigned kernelSize,
                              unsigned inChansPerGroup,
                              unsigned partialChansPerGroup) {
-  return isFloat && stride == 1 && kernelSize == 1 && inChansPerGroup == 16 &&
+  return !isFloat && stride == 1 && kernelSize == 1 && inChansPerGroup == 16 &&
          partialChansPerGroup == 4;
 }
 
