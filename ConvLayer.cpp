@@ -581,8 +581,8 @@ addResidualCalc(Graph &graph,
 bool ConvLayerImpl::useConvolutionInstruction() const {
   const bool isFloat = getDType() == "float";
   return canUseConvolutionInstruction(isFloat, stride, kernelSize,
-                                      partition.partialChansPerGroup,
-                                      partition.inChansPerGroup);
+                                      partition.inChansPerGroup,
+                                      partition.partialChansPerGroup);
 }
 
 void
