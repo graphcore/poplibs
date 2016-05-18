@@ -36,7 +36,7 @@ COMMON_LIBS = \
 ALEXNET_OBJ=${OBJDIR}/alexnet.o ${COMMON_OBJ}
 
 ${BINDIR}/alexnet: ${ALEXNET_OBJ} | ${BINDIR}/
-	${CXX} -v -std=c++11 -ffast-math ${ALEXNET_OBJ} ${COMMON_LIBS} -o $@
+	${CXX} -std=c++11 -ffast-math ${ALEXNET_OBJ} ${COMMON_LIBS} -o $@
 
 RESNET34B_OBJ=${OBJDIR}/resnet34b.o ${COMMON_OBJ}
 
