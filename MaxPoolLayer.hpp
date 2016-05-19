@@ -1,6 +1,7 @@
 #ifndef _max_pool_layer_hpp_
 #define _max_pool_layer_hpp_
 #include "Net.hpp"
+#include <cstdlib>
 
 class MaxPoolLayerImpl : public Layer {
 public:
@@ -28,6 +29,7 @@ public:
 
   Tensor getBwdErrors() const {
     // TODO
+    std::abort();
   }
 
   NonLinearityType getNonLinearityType() const {

@@ -1,6 +1,7 @@
 #ifndef _conv_layer_hpp_
 #define _conv_layer_hpp_
 #include "Net.hpp"
+#include <cstdlib>
 #include <map>
 #include <tuple>
 
@@ -169,6 +170,7 @@ public:
 
   Tensor getBwdErrors() const {
     // TODO
+    std::abort();
   }
 
   NonLinearityType getNonLinearityType() const {
