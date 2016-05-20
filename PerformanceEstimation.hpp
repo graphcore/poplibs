@@ -10,6 +10,14 @@ inline std::uint64_t getDenseDotProductCycles(bool isFloat, unsigned size) {
   return (size + 3) / 4 + 2;
 }
 
+inline bool
+canUseConvolutionInstruction(bool isFloat, unsigned stride, unsigned kernelSize,
+                             unsigned inChansPerGroup,
+                             unsigned partialChansPerGroup) {
+  return !isFloat && kernelSize == 1 && stride < (1 << 4) &&
+         inChansPerGroup == 16 && partialChansPerGroup == 4;
+}
+
 inline std::uint64_t
 getConvPartialCycleEstimate(bool isFloat, unsigned inChansPerGroup,
                             unsigned stride, unsigned kernelSize,
@@ -19,8 +27,8 @@ getConvPartialCycleEstimate(bool isFloat, unsigned inChansPerGroup,
                             unsigned outChansPerGroup)
 {
   unsigned vertexOverhead = 5;
-  if (!isFloat && inChansPerGroup == 16 && outChansPerGroup == 4 &&
-      stride == 1 && kernelSize == 1) {
+  if (canUseConvolutionInstruction(isFloat, stride, kernelSize, inChansPerGroup,
+                                   outChansPerGroup)) {
     unsigned warmUpCycles = 19;
     unsigned innerLoopCycles =
         outputWidth * outputHeight * outChansPerGroup;

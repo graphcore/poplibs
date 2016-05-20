@@ -157,14 +157,6 @@ estimatePartitionCost(unsigned numWorkerContexts, bool isFloat,
          estimateComputeCost(numWorkerContexts, isFloat, params, partition);
 }
 
-static bool
-canUseConvolutionInstruction(bool isFloat, unsigned stride, unsigned kernelSize,
-                             unsigned inChansPerGroup,
-                             unsigned partialChansPerGroup) {
-  return !isFloat && stride == 1 && kernelSize == 1 && inChansPerGroup == 16 &&
-         partialChansPerGroup == 4;
-}
-
 static ConvLayerPartition
 choosePartition(unsigned numWorkerContexts,
                 bool isFloat,

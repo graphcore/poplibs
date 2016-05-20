@@ -164,13 +164,19 @@ public:
 
   bool compute() {
     assert(out[0].size() % outChansPerGroup == 0);
-    const auto width = out[0].size() / outChansPerGroup;
-    const auto height = out.size();
-    assert(in.size() % height == 0);
-    unsigned numInChanGroups = in.size() / height;
+    const auto outWidth = out[0].size() / outChansPerGroup;
+    const auto outHeight = out.size();
+    assert(in[0].size() % inChansPerGroup == 0);
+    const auto inWidth = in[0].size() / inChansPerGroup;
+    const auto stride = (inWidth + outWidth - 1) / outWidth;
+    assert((inWidth + stride - 1) / stride == outWidth);
 
-    assert(weights.size() == numInChanGroups * outChansPerGroup *
-                             inChansPerGroup);
+    const auto inHeight = (outHeight - 1) * stride + 1;
+    assert(in.size() % inHeight == 0);
+    unsigned numInChanGroups = in.size() / inHeight;
+
+    assert(weights.size() ==
+           numInChanGroups * outChansPerGroup * inChansPerGroup);
 
     for (auto &v : out) {
       for (auto &o : v) {
@@ -179,8 +185,8 @@ public:
     }
     for (unsigned inChanGroup = 0; inChanGroup != numInChanGroups;
          ++inChanGroup) {
-      for (unsigned y = 0; y != height; ++y) {
-        for (unsigned x = 0; x != width; ++x) {
+      for (unsigned y = 0; y != outHeight; ++y) {
+        for (unsigned x = 0; x != outWidth; ++x) {
           for (unsigned inChanIndex = 0; inChanIndex != inChansPerGroup;
                ++inChanIndex) {
             for (unsigned outChanIndex = 0; outChanIndex != outChansPerGroup;
@@ -192,8 +198,9 @@ public:
                       inChanGroup
                     )
                   );
-              const auto inIndex = inChanIndex + inChansPerGroup * x;
-              out[y][outIndex] += weights[weightIndex] * in[y][inIndex];
+              const auto inIndex = inChanIndex + inChansPerGroup * x * stride;
+              out[y][outIndex] += weights[weightIndex] *
+                                  in[y * stride][inIndex];
             }
           }
         }
@@ -203,16 +210,18 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    const auto width = out[0].size() / outChansPerGroup;
+    const auto outWidth = out[0].size() / outChansPerGroup;
     const auto height = out.size();
+    const auto inWidth = in[0].size() / inChansPerGroup;
     unsigned numInChanGroups = in.size() / height;
 
+    const auto stride = (inWidth + outWidth - 1) / outWidth;
+
     bool isFloat = std::is_same<FPType, float>::value;
-    const auto stride = 1;
     const auto kernelSize = 1;
     return getConvPartialCycleEstimate(isFloat, inChansPerGroup, stride,
                                        kernelSize, numInChanGroups, height,
-                                       width, outChansPerGroup);
+                                       outWidth, outChansPerGroup);
   }
 };
 
