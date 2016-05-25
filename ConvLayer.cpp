@@ -728,6 +728,16 @@ forwardTile(Graph &graph,
               {outYBegin, tileOutXBegin, 0},
               {outYEnd, tileOutXEnd, outChansPerGroup}
             ).reshape({outHeight, tileOutWidth * outChansPerGroup});
+        if (stride == 1 && tileOutWidth == outDimX && inWidth == inDimX) {
+          // If input rows are contiguous we can flatten the x and y dimensions,
+          // reducing the number of in edge pointers.
+          inWindow =
+              inWindow.reshape({inZGroups, inHeight * inWidth *
+                                inChansPerGroup});
+          outWindow =
+              outWindow.reshape({1, outHeight * tileOutWidth *
+                                 outChansPerGroup});
+        }
         // Add the vertex.
         auto v = graph.addVertex(fwdCS, "ConvPartial1x1Out",
             { {"in", inWindow },
