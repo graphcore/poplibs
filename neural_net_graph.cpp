@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cmath>
 #include <type_traits>
+#include <vector>
 #include "neural_net_common.h"
 #include "PerformanceEstimation.hpp"
 
@@ -149,14 +150,82 @@ template class FullyConnectedReduce<float>;
 template class FullyConnectedReduce<half>;
 
 /**
+ * Compute 1x1 convolutions and accumulate them with partial sums in memory.
+ **/
+class ConvPartial1x1InOut: public Vertex {
+public:
+  Vector<Input<Vector<half>>> in;
+  Vector<Input<Vector<half>>> weights;
+  Vector<unsigned> weightReuseCount;
+  Vector<InOut<Vector<float>>> out;
+
+  static const auto inChansPerGroup = 16;
+  static const auto outChansPerGroup = 4;
+
+  bool compute() {
+    assert(out.size() > 0);
+    assert(out.size() == in.size());
+    assert(weightReuseCount.size() == weights.size());
+    unsigned weightSetIndex = 0;
+    unsigned weightUses = 0;
+    for (unsigned i = 0; i != out.size(); ++i) {
+      if (weightUses == weightReuseCount[weightSetIndex]) {
+        ++weightSetIndex;
+        weightUses = 0;
+      }
+      const auto outWidth = out[0].size() / outChansPerGroup;
+      const auto inWidth = in[0].size() / inChansPerGroup;
+      const auto stride = (inWidth + outWidth - 1) / outWidth;
+      assert((inWidth + stride - 1) / stride == outWidth);
+      for (unsigned x = 0; x != outWidth; ++x) {
+        for (unsigned inChanIndex = 0; inChanIndex != inChansPerGroup;
+             ++inChanIndex) {
+          for (unsigned outChanIndex = 0; outChanIndex != outChansPerGroup;
+               ++outChanIndex) {
+            const auto outIndex = outChanIndex + outChansPerGroup * x;
+            const auto weightIndex =
+                inChanIndex + inChansPerGroup * outChanIndex;
+            const auto inIndex = inChanIndex + inChansPerGroup * x * stride;
+            out[i][outIndex] += weights[weightSetIndex][weightIndex] *
+                                in[i][inIndex];
+          }
+        }
+      }
+      ++weightUses;
+    }
+    assert(weightUses == weightReuseCount[weightSetIndex]);
+    assert(weightSetIndex + 1 == weights.size());
+    return true;
+  }
+
+  std::uint64_t getCycleEstimate() const {
+    unsigned weightSetIndex = 0;
+    unsigned weightUses = 0;
+    std::vector<std::vector<unsigned>> convolutionsByWeight(1);
+    for (unsigned i = 0; i != out.size(); ++i) {
+      convolutionsByWeight.back().push_back(out[i].size() / outChansPerGroup);
+      ++weightUses;
+      if (weightUses == weightReuseCount[weightSetIndex]) {
+        ++weightSetIndex;
+        weightUses = 0;
+        convolutionsByWeight.emplace_back();
+      }
+    }
+    assert(weightSetIndex == weights.size());
+    assert(weightUses == 0);
+    convolutionsByWeight.pop_back();
+    return getConvPartial1x1CycleEstimate(convolutionsByWeight);
+  }
+};
+
+/**
  * Compute a sum of 1x1 convolutions over a subset of the input channels for
  * multiple output channels.
  **/
-template <typename FPType>
-class ConvPartial1x1: public Vertex {
+class ConvPartial1x1Out: public Vertex {
 public:
-  Vector<Input<Vector<FPType>>> in;
-  Input<Vector<FPType>> weights;
+  Vector<Input<Vector<half>>> in;
+  Input<Vector<half>> weights;
   Vector<Output<Vector<float>>> out;
 
   static const auto inChansPerGroup = 16;
@@ -210,23 +279,28 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
+    assert(out[0].size() % outChansPerGroup == 0);
     const auto outWidth = out[0].size() / outChansPerGroup;
-    const auto height = out.size();
+    const auto outHeight = out.size();
+    assert(in[0].size() % inChansPerGroup == 0);
     const auto inWidth = in[0].size() / inChansPerGroup;
-    unsigned numInChanGroups = in.size() / height;
-
     const auto stride = (inWidth + outWidth - 1) / outWidth;
+    assert((inWidth + stride - 1) / stride == outWidth);
 
-    bool isFloat = std::is_same<FPType, float>::value;
-    const auto kernelSize = 1;
-    return getConvPartialCycleEstimate(isFloat, inChansPerGroup, stride,
-                                       kernelSize, numInChanGroups, height,
-                                       outWidth, outChansPerGroup);
+    const auto inHeight = (outHeight - 1) * stride + 1;
+    assert(in.size() % inHeight == 0);
+    unsigned numInChanGroups = in.size() / inHeight;
+
+    std::vector<std::vector<unsigned>> convSizesByWeight;
+    for (unsigned i = 0; i != numInChanGroups; ++i) {
+      convSizesByWeight.emplace_back();
+      for (unsigned j = 0; j != outHeight; ++j) {
+        convSizesByWeight.back().push_back(outWidth);
+      }
+    }
+    return getConvPartial1x1CycleEstimate(convSizesByWeight);
   }
 };
-
-template class ConvPartial1x1<float>;
-template class ConvPartial1x1<half>;
 
 /* Compute a partial convolution for a sub-set of input channels and
  * output channels over a number of rows of the input field. */
@@ -432,6 +506,35 @@ public:
 template class Zero<float>;
 template class Zero<half>;
 
+template <typename FPType>
+class Zero2D : public Vertex {
+public:
+  Vector<Output<Vector<FPType>>> out;
+
+  bool compute() {
+    for (auto &row : out) {
+      for (auto &x : row) {
+        x = 0;
+      }
+    }
+    return true;
+  }
+
+  std::uint64_t getCycleEstimate() const {
+    // TODO: make this more accurate
+    bool isFloat = std::is_same<FPType, float>::value;
+    auto zeroesPerCycle = isFloat ? 2 : 4;
+    std::uint64_t cycles = 4;
+    for (auto &row : out) {
+      auto zeroCycles = (row.size() + zeroesPerCycle - 1) / zeroesPerCycle;
+      cycles += 1 + zeroCycles;
+    }
+    return cycles;
+  }
+};
+
+template class Zero2D<float>;
+template class Zero2D<half>;
 
 template <typename FPType>
 class MaxPooling : public Vertex {

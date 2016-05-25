@@ -1,6 +1,7 @@
 #ifndef _performance_estimation_h_
 #define _performance_estimation_h_
 
+#include <algorithm>
 #include <cstdint>
 
 inline std::uint64_t getDenseDotProductCycles(bool isFloat, unsigned size) {
@@ -11,35 +12,61 @@ inline std::uint64_t getDenseDotProductCycles(bool isFloat, unsigned size) {
 }
 
 inline bool
-canUseConvolutionInstruction(bool isFloat, unsigned stride, unsigned kernelSize,
+canUseConvolutionInstruction(bool isFloat, unsigned stride,
                              unsigned inChansPerGroup,
                              unsigned partialChansPerGroup) {
-  return !isFloat && kernelSize == 1 && stride < (1 << 4) &&
-         inChansPerGroup == 16 && partialChansPerGroup == 4;
+  return !isFloat && stride < (1 << 4) && inChansPerGroup == 16 &&
+         partialChansPerGroup == 4;
+}
+
+inline std::uint64_t
+get1x1ConvCycles(unsigned outputWidth) {
+  const auto outChansPerGroup = 4;
+  unsigned warmUpCycles = 19;
+  unsigned innerLoopCycles =
+      outputWidth * outChansPerGroup;
+  unsigned coolDownCycles = 5;
+  return warmUpCycles + innerLoopCycles + coolDownCycles;
+}
+
+inline std::uint64_t
+getConvPartial1x1CycleEstimate(
+    const std::vector<std::vector<unsigned>> &convSizesByWeight) {
+  const unsigned vertexOverhead = 5;
+  unsigned cycleCount = vertexOverhead;
+  for (const auto &convSizes : convSizesByWeight) {
+    const auto numElements = std::accumulate(convSizes.begin(), convSizes.end(),
+                                             0);
+    const auto pointerLoadCycles = convSizes.size();
+    cycleCount += get1x1ConvCycles(numElements) + pointerLoadCycles;
+  }
+  return cycleCount;
 }
 
 inline std::uint64_t
 getConvPartialCycleEstimate(bool isFloat, unsigned inChansPerGroup,
-                            unsigned stride, unsigned kernelSize,
+                            unsigned stride, unsigned kernelWidth,
                             unsigned inputGroupsPerOutput,
                             unsigned outputHeight,
                             unsigned outputWidth,
                             unsigned outChansPerGroup)
 {
-  unsigned vertexOverhead = 5;
-  if (canUseConvolutionInstruction(isFloat, stride, kernelSize, inChansPerGroup,
+  if (canUseConvolutionInstruction(isFloat, stride, inChansPerGroup,
                                    outChansPerGroup)) {
-    unsigned warmUpCycles = 19;
-    unsigned innerLoopCycles =
-        outputWidth * outputHeight * outChansPerGroup;
-    unsigned coolDownCycles = 5;
-    unsigned cycleCount = inputGroupsPerOutput *
-                          (warmUpCycles + innerLoopCycles + coolDownCycles);
-    return cycleCount;
+    std::vector<std::vector<unsigned>> convSizesByWeight;
+    for (unsigned i = 0; i != inputGroupsPerOutput * kernelWidth;
+         ++i) {
+      convSizesByWeight.emplace_back();
+      for (unsigned j = 0; j != outputHeight; ++j) {
+        convSizesByWeight.back().push_back(outputWidth);
+      }
+    }
+    return getConvPartial1x1CycleEstimate(convSizesByWeight);
   }
+  unsigned vertexOverhead = 5;
   return vertexOverhead +
          outChansPerGroup * outputWidth * outputHeight * inputGroupsPerOutput *
-         (1 + getDenseDotProductCycles(isFloat, kernelSize * inChansPerGroup));
+         (1 + getDenseDotProductCycles(isFloat, kernelWidth * inChansPerGroup));
 }
 
 inline std::uint64_t

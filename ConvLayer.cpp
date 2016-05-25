@@ -116,7 +116,6 @@ estimateVertexCycles(bool isFloat, const ConvolutionParams &params,
   const auto outRowsPerVertex =
       (tileOutHeight + verticesPerTilePerY - 1) / verticesPerTilePerY;
   const auto inputGroupsPerOutput = params.kernelSize * tileNumInGroups;
-
   return getConvPartialCycleEstimate(isFloat, inChansPerGroup, params.stride,
                                      params.kernelSize, inputGroupsPerOutput,
                                      outRowsPerVertex, tileOutWidth,
@@ -170,8 +169,8 @@ choosePartition(unsigned numWorkerContexts,
     std::abort();
   }
   std::vector<unsigned> partialChansPerGroupCandidates = { 1 };
-  if (canUseConvolutionInstruction(isFloat, params.stride, params.kernelSize,
-                                   inChansPerGroup, 4)) {
+  if (canUseConvolutionInstruction(isFloat, params.stride, inChansPerGroup,
+                                   4)) {
     partialChansPerGroupCandidates.push_back(4);
   }
   // If tilesPerY is greater than one we end up splitting across the y axis of
@@ -250,6 +249,68 @@ ConvLayerImpl::ConvLayerImpl(Net &net,
   reuseLayerImplGraphs(net.options.reuseLayerImplGraphs) {
   layerName = "Conv" + std::to_string(kernelSize) + "x" +
               std::to_string(kernelSize);
+}
+
+/// Return the index of the input that is multiplied with the specified weight
+/// and incorporated into the specified output. Return ~0U if there is no
+/// such output.
+static unsigned
+getInputIndex(unsigned outputIndex, unsigned stride, unsigned kernelSize,
+              unsigned inputSize, unsigned weightIndex) {
+  const auto inputCentre = outputIndex * stride;
+  auto inputIndex = static_cast<int>(inputCentre) +
+                    static_cast<int>(weightIndex) -
+                    static_cast<int>((kernelSize - 1) / 2);
+  if (inputIndex < 0 || static_cast<unsigned>(inputIndex) >= inputSize)
+    return ~0U;
+  return inputIndex;
+}
+
+/// Given an output range, return the subset whose calculation involves the
+/// specified weight.
+static std::pair<unsigned, unsigned>
+getOutputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
+               unsigned kernelSize, unsigned inputSize, unsigned weightIndex) {
+  assert(outputRange.first <= outputRange.second);
+  if (outputRange.first == outputRange.second) {
+    return {0, 0};
+  }
+  unsigned outputBegin = 0, outputEnd = 0;
+  for (unsigned i = outputRange.first; i != outputRange.second; ++i) {
+    if (getInputIndex(i, stride, kernelSize, inputSize, weightIndex) == ~0U) {
+      continue;
+    }
+    outputBegin = i;
+    break;
+  }
+  for (unsigned i = outputRange.second; i != outputRange.first; --i) {
+    if (getInputIndex(i - 1, stride, kernelSize, inputSize,
+                      weightIndex) == ~0U) {
+      continue;
+    }
+    outputEnd = i;
+    break;
+  }
+  return {outputBegin, outputEnd};
+}
+
+/// Return the input range that is multiplied by the specified weight when
+/// calculating the specified output range.
+static std::pair<unsigned, unsigned>
+getInputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
+              unsigned kernelSize, unsigned inputSize, unsigned weightIndex) {
+  auto truncatedOutputRange =
+      getOutputRange(outputRange, stride, kernelSize, inputSize,
+                     weightIndex);
+  if (truncatedOutputRange.first == truncatedOutputRange.second) {
+    return {0, 0};
+  }
+  return {
+    getInputIndex(truncatedOutputRange.first, stride, kernelSize, inputSize,
+                  weightIndex),
+    getInputIndex(truncatedOutputRange.second - 1, stride, kernelSize,
+                  inputSize, weightIndex) + 1
+  };
 }
 
 static std::pair<unsigned, unsigned>
@@ -609,70 +670,66 @@ addResidualCalc(Graph &graph,
 
 bool ConvLayerImpl::useConvolutionInstruction() const {
   const bool isFloat = getDType() == "float";
-  return canUseConvolutionInstruction(isFloat, stride, kernelSize,
+  return canUseConvolutionInstruction(isFloat, stride,
                                       partition.inChansPerGroup,
                                       partition.partialChansPerGroup);
 }
 
-void
-ConvLayerImpl::forwardTile(Graph &graph,
-                           IPUModelEngineBuilder::TileMapping *mapping,
-                           unsigned tile,
-                           unsigned outXBegin, unsigned outXEnd,
-                           unsigned outYBegin, unsigned outYEnd,
-                           unsigned outZGroupBegin, unsigned outZGroupEnd,
-                           unsigned inZGroupBegin, unsigned inZGroupEnd,
-                           ComputeSet cs,
-                           const Tensor &out) {
+void ConvLayerImpl::
+forwardTile(Graph &graph,
+            IPUModelEngineBuilder::TileMapping *mapping,
+            unsigned tile,
+            unsigned tileOutXBegin, unsigned tileOutXEnd,
+            unsigned tileOutYBegin, unsigned tileOutYEnd,
+            unsigned tileOutZGroupBegin, unsigned tileOutZGroupEnd,
+            unsigned tileInZGroupBegin, unsigned tileInZGroupEnd,
+            ComputeSet zeroCS,
+            ComputeSet fwdCS,
+            const Tensor &out) {
   const auto inChansPerGroup = partition.inChansPerGroup;
   const auto outChansPerGroup = partition.partialChansPerGroup;
-  const auto tileHeight = outYEnd - outYBegin;
+  const auto tileOutHeight = tileOutYEnd - tileOutYBegin;
+  const auto tileOutWidth = tileOutXEnd - tileOutXBegin;
   const auto verticesPerY = partition.verticesPerTilePerYAxis;
 
-  const auto outWidth = outXEnd - outXBegin;
-  const auto inZGroups = inZGroupEnd - inZGroupBegin;
-  for (unsigned zg = outZGroupBegin; zg != outZGroupEnd; ++zg) {
-    for (unsigned vy = 0; vy != verticesPerY; ++vy) {
-      const auto vertexYBegin = outYBegin + (vy * tileHeight) / verticesPerY;
-      const auto vertexYEnd =
-          outYBegin + ((vy + 1) * tileHeight) / verticesPerY;
-      if (vertexYBegin == vertexYEnd)
-        continue;
-      const auto outHeight = vertexYEnd - vertexYBegin;
-      unsigned inYBegin, inYEnd, inXBegin, inXEnd;
-      std::tie(inYBegin, inYEnd) =
-          getInputRange({vertexYBegin, vertexYEnd}, stride, kernelSize, inDimY);
-      std::tie(inXBegin, inXEnd) =
-          getInputRange({outXBegin, outXEnd}, stride, kernelSize, inDimX);
-      // Window into previous layer.
-      const auto inWidth = inXEnd - inXBegin;
-      const auto inHeight = inYEnd - inYBegin;
-      // Weights that match the window.
-      unsigned weightYBegin, weightYEnd;
-      std::tie(weightYBegin, weightYEnd) =
-          getWeightRange({vertexYBegin, vertexYEnd}, stride, kernelSize,
-                         inDimY);
-      if (useConvolutionInstruction()) {
+  if (useConvolutionInstruction() && kernelSize == 1) {
+    const auto inZGroups = tileInZGroupEnd - tileInZGroupBegin;
+    for (unsigned ozg = tileOutZGroupBegin; ozg != tileOutZGroupEnd; ++ozg) {
+      for (unsigned vy = 0; vy != verticesPerY; ++vy) {
+        const auto outYBegin =
+            tileOutYBegin + (vy * tileOutHeight) / verticesPerY;
+        const auto outYEnd =
+            tileOutYBegin + ((vy + 1) * tileOutHeight) / verticesPerY;
+        const auto outHeight = outYEnd - outYBegin;
+        if (outHeight == 0)
+          continue;
+        unsigned inYBegin, inYEnd, inXBegin, inXEnd;
+        std::tie(inYBegin, inYEnd) =
+            getInputRange({outYBegin, outYEnd}, stride, kernelSize, inDimY);
+        std::tie(inXBegin, inXEnd) =
+            getInputRange({tileOutXBegin, tileOutXEnd}, stride, kernelSize,
+                          inDimX);
+        // Window into previous layer.
+        const auto inWidth = inXEnd - inXBegin;
+        const auto inHeight = inYEnd - inYBegin;
         Tensor inWindow =
             in.slice(
-              {inZGroupBegin, inYBegin, inXBegin, 0},
-              {inZGroupEnd, inYEnd, inXEnd, inChansPerGroup}
+              {tileInZGroupBegin, inYBegin, inXBegin, 0},
+              {tileInZGroupEnd, inYEnd, inXEnd, inChansPerGroup}
             ).reshape({inHeight * inZGroups,
                        inWidth * inChansPerGroup});
         Tensor w =
-            weightsIn[zg].slice(
-              {inZGroupBegin, weightYBegin, 0, 0, 0},
-              {inZGroupEnd, weightYEnd, kernelSize, outChansPerGroup,
-               inChansPerGroup}
+            weightsIn[ozg].slice(
+              {tileInZGroupBegin, 0, 0, 0, 0},
+              {tileInZGroupEnd, 1, 1, outChansPerGroup, inChansPerGroup}
             ).flatten();
         Tensor outWindow =
-            out[zg].slice(
-              {vertexYBegin, outXBegin, 0},
-              {vertexYEnd, outXEnd, outChansPerGroup}
-            ).reshape({outHeight, outWidth * outChansPerGroup});
+            out[ozg].slice(
+              {outYBegin, tileOutXBegin, 0},
+              {outYEnd, tileOutXEnd, outChansPerGroup}
+            ).reshape({outHeight, tileOutWidth * outChansPerGroup});
         // Add the vertex.
-        auto v = graph.addVertex(cs,
-                                 templateVertex("ConvPartial1x1", getDType()),
+        auto v = graph.addVertex(fwdCS, "ConvPartial1x1Out",
             { {"in", inWindow },
               {"weights", w },
               {"out", outWindow },
@@ -682,32 +739,142 @@ ConvLayerImpl::forwardTile(Graph &graph,
           mapping->setMapping(v, tile);
           mapping->setMapping(outWindow, tile);
         }
-      } else {
-        assert(outChansPerGroup == 1);
-        assert(vertexYEnd - vertexYBegin == 1);
-        const auto z = zg;
-        const auto y = vertexYBegin;
+      }
+    }
+  } else if (useConvolutionInstruction()) {
+    for (unsigned ozg = tileOutZGroupBegin; ozg != tileOutZGroupEnd; ++ozg) {
+      for (unsigned vy = 0; vy != verticesPerY; ++vy) {
+        const auto outYBegin =
+            tileOutYBegin + (vy * tileOutHeight) / verticesPerY;
+        const auto outYEnd =
+            tileOutYBegin + ((vy + 1) * tileOutHeight) / verticesPerY;
+        const auto outHeight = outYEnd - outYBegin;
+        if (outHeight == 0)
+          continue;
+        // Zero the partial sums.
+        Tensor zeroWindow =
+            out[ozg].slice(
+              {outYBegin, tileOutXBegin, 0},
+              {outYEnd, tileOutXEnd, outChansPerGroup}
+            ).reshape({outHeight, tileOutWidth * outChansPerGroup});
+        auto zv = graph.addVertex(zeroCS, templateVertex("Zero2D", "float"),
+                                  {{"out", zeroWindow }});
+        // Add the vertex.
+        auto v = graph.addVertex(fwdCS, "ConvPartial1x1InOut");
+        if (mapping) {
+          mapping->setMapping(zv, tile);
+          mapping->setMapping(v, tile);
+        }
+        unsigned numWeights = 0;
+        unsigned numConvolutions = 0;
+        for (unsigned wy = 0; wy != kernelSize; ++wy) {
+          unsigned convOutYBegin, convOutYEnd;
+          std::tie(convOutYBegin, convOutYEnd) =
+              getOutputRange({outYBegin, outYEnd}, stride, kernelSize, inDimY,
+                             wy);
+          const auto convOutHeight = convOutYEnd - convOutYBegin;
+          if (convOutHeight == 0)
+            continue;
+          for (unsigned wx = 0; wx != kernelSize; ++wx) {
+            unsigned convOutXBegin, convOutXEnd;
+            std::tie(convOutXBegin, convOutXEnd) =
+                getOutputRange({tileOutXBegin, tileOutXEnd}, stride, kernelSize,
+                               inDimX, wx);
+            const auto convOutWidth = convOutXEnd - convOutXBegin;
+            if (convOutXBegin == convOutXEnd)
+              continue;
+            unsigned convInXBegin, convInXEnd;
+            std::tie(convInXBegin, convInXEnd) =
+                getInputRange({tileOutXBegin, tileOutXEnd}, stride, kernelSize,
+                              inDimX, wx);
+            const auto convInWidth = convInXEnd - convInXBegin;
+            for (unsigned izg = tileInZGroupBegin; izg != tileInZGroupEnd;
+                 ++izg) {
+              Tensor w =
+                  weightsIn[ozg][izg][wy][wx].flatten();
+              graph.connect(v["weights"][numWeights], w);
+              graph.setInitialValue(v["weightReuseCount"][numWeights],
+                                    convOutHeight);
+              ++numWeights;
+              for (unsigned y = convOutYBegin; y != convOutYEnd; ++y) {
+                const auto convInY =
+                  getInputIndex(y, stride, kernelSize, inDimY, wy);
+                assert(convInY != ~0U);
+                Tensor inWindow =
+                    in[izg][convInY].slice(
+                      {convInXBegin, 0},
+                      {convInXEnd, inChansPerGroup}
+                    ).reshape({convInWidth * inChansPerGroup});
+                Tensor outWindow =
+                    out[ozg][y].slice(
+                      {convOutXBegin, 0},
+                      {convOutXEnd, outChansPerGroup}
+                    ).reshape({convOutWidth * outChansPerGroup});
+                if (mapping) {
+                  mapping->setMapping(outWindow, tile);
+                }
+                graph.connect(v["in"][numConvolutions], inWindow);
+                graph.connect(v["out"][numConvolutions], outWindow);
+                ++numConvolutions;
+              }
+            }
+          }
+        }
+        graph.setFieldSize(v["in"], numConvolutions);
+        graph.setFieldSize(v["out"], numConvolutions);
+        graph.setFieldSize(v["weights"], numWeights);
+        graph.setFieldSize(v["weightReuseCount"], numWeights);
+      }
+    }
+  } else {
+    const auto inZGroups = tileInZGroupEnd - tileInZGroupBegin;
+    for (unsigned ozg = tileOutZGroupBegin; ozg != tileOutZGroupEnd; ++ozg) {
+      assert(outChansPerGroup == 1);
+      const auto z = ozg;
+      for (unsigned vy = 0; vy != verticesPerY; ++vy) {
+        const auto outYBegin =
+            tileOutYBegin + (vy * tileOutHeight) / verticesPerY;
+        const auto outYEnd =
+            tileOutYBegin + ((vy + 1) * tileOutHeight) / verticesPerY;
+        if (outYBegin == outYEnd)
+          continue;
+        assert(outYEnd - outYBegin == 1);
+        const auto y = outYBegin;
+        unsigned inYBegin, inYEnd, inXBegin, inXEnd;
+        std::tie(inYBegin, inYEnd) =
+            getInputRange(y, stride, kernelSize, inDimY);
+        std::tie(inXBegin, inXEnd) =
+            getInputRange({tileOutXBegin, tileOutXEnd}, stride, kernelSize,
+                          inDimX);
+        // Window into previous layer.
+        const auto inWidth = inXEnd - inXBegin;
+        const auto inHeight = inYEnd - inYBegin;
+        // Weights that match the window.
+        unsigned weightYBegin, weightYEnd;
+        std::tie(weightYBegin, weightYEnd) =
+          getWeightRange(y, stride, kernelSize, inDimY);
         Tensor inWindow =
             in.slice(
-              {inZGroupBegin, inYBegin, inXBegin, 0},
-              {inZGroupEnd, inYEnd, inXEnd, inChansPerGroup}
+              {tileInZGroupBegin, inYBegin, inXBegin, 0},
+              {tileInZGroupEnd, inYEnd, inXEnd, inChansPerGroup}
             ).reshape({inHeight * inZGroups,
                        inWidth * inChansPerGroup});
         Tensor w =
             weightsIn.slice(
-              {inZGroupBegin, z, weightYBegin, 0, 0},
-              {inZGroupEnd, z + 1, weightYEnd, kernelSize, inChansPerGroup}
+              {tileInZGroupBegin, z, weightYBegin, 0, 0},
+              {tileInZGroupEnd, z + 1, weightYEnd, kernelSize, inChansPerGroup}
             ).reshape({inHeight * inZGroups,
                        inChansPerGroup * kernelSize});
-        Tensor outWindow = out[z][y].slice(outXBegin, outXEnd).flatten();
+        Tensor outWindow = out[z][y].slice(tileOutXBegin, tileOutXEnd).flatten();
         // Add the vertex.
-        auto v = graph.addVertex(cs, templateVertex("ConvPartial", getDType()),
+        auto v = graph.addVertex(fwdCS,
+                                 templateVertex("ConvPartial", getDType()),
             { {"in", inWindow },
               {"weights", w },
               {"out", outWindow },
             });
         const auto padding =
-            inXBegin + (kernelSize - 1) / 2 - outXBegin * stride;
+            inXBegin + (kernelSize - 1) / 2 - tileOutXBegin * stride;
         graph.setInitialValue(v["stride"], stride);
         graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
         graph.setInitialValue(v["padding"], padding);
@@ -841,6 +1008,11 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
                                      outDimY,
                                      outDimX,
                                      partialChansPerGroup});
+  ComputeSet zeroCS;
+  if (useConvolutionInstruction() && kernelSize != 1) {
+    zeroCS = graph.createComputeSet(layerName + ".zero");
+    forwardProg.add(Execute(zeroCS));
+  }
   ComputeSet fwdCS = graph.createComputeSet(layerName + ".fwd");
   forwardProg.add(Execute(fwdCS));
   for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
@@ -860,7 +1032,7 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
           forwardTile(graph, mapping,
                       tile, outXBegin, outXEnd, outYBegin, outYEnd,
                       outZGroupBegin, outZGroupEnd, inZGroupBegin, inZGroupEnd,
-                      fwdCS, partials[izg]);
+                      zeroCS, fwdCS, partials[izg]);
         }
       }
     }

@@ -11,7 +11,7 @@ inline std::string templateVertexParams(bool first) {
 
 template <typename T, typename ...Args>
 inline std::string templateVertexParams(bool first,
-                                               const T&val, Args... args) {
+                                        const T&val, Args... args) {
   std::string p = first ? "<" : ",";
   p += std::to_string(val) + templateVertexParams(false, args...);
   return p;
@@ -19,8 +19,17 @@ inline std::string templateVertexParams(bool first,
 
 template <typename ...Args>
 inline std::string templateVertexParams(bool first,
-                                               const std::string &val,
-                                               Args... args) {
+                                        const std::string &val,
+                                        Args... args) {
+  std::string p = first ? "<" : ",";
+  p += val + templateVertexParams(false, args...);
+  return p;
+}
+
+template <typename ...Args>
+inline std::string templateVertexParams(bool first,
+                                        const char *val,
+                                        Args... args) {
   std::string p = first ? "<" : ",";
   p += val + templateVertexParams(false, args...);
   return p;
@@ -28,7 +37,7 @@ inline std::string templateVertexParams(bool first,
 
 template <typename ...Args>
 inline std::string templateVertex(const std::string &name,
-                                         Args... args) {
+                                  Args... args) {
   return name + templateVertexParams(true, args...);
 }
 
