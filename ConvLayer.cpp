@@ -1087,12 +1087,14 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
     const auto numTiles = getNumIPUs() * getTilesPerIPU();
     reduced = graph.addTensor("float", {partialNumChanGroups, outDimY, outDimX,
                                         partialChansPerGroup});
-    if (partialChansPerGroup == 1) {
-      size_t outChansPerGroup = outNumChans / outNumChanGroups;
-      const auto numGroups = activations.numElements() / outChansPerGroup;
+    size_t outChansPerGroup = outNumChans / outNumChanGroups;
+    if (outChansPerGroup % partialChansPerGroup == 0) {
+      const auto partialGroupsPerOutGroup =
+          outChansPerGroup / partialChansPerGroup;
+      const auto numOutGroups = activations.numElements() / outChansPerGroup;
       for (unsigned tile = 0; tile != numTiles; ++tile) {
-        const auto groupBegin = (tile * numGroups) / numTiles;
-        const auto groupEnd = ((tile + 1) * numGroups) / numTiles;
+        const auto groupBegin = (tile * numOutGroups) / numTiles;
+        const auto groupEnd = ((tile + 1) * numOutGroups) / numTiles;
         if (groupBegin == groupEnd)
           continue;
         const auto rowBegin = groupBegin / outDimX;
@@ -1104,14 +1106,15 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
           assert(xBegin != xEnd);
           const auto outChanGroup = row / outDimY;
           const auto y = row % outDimY;
-          for (unsigned groupIndex = 0; groupIndex != outChansPerGroup;
-               ++groupIndex) {
-            const auto z = outChanGroup * outChansPerGroup + groupIndex;
+          for (unsigned i = 0; i != partialGroupsPerOutGroup; ++i) {
+            const auto zg = outChanGroup * partialGroupsPerOutGroup + i;
             Tensor in =
-                partials.slice({0, z, y, xBegin, 0},
-                               {tilesPerInZGroup, z + 1, y + 1, xEnd, 1}
-                ).reshape({tilesPerInZGroup, xEnd - xBegin});
-            Tensor out = reduced[z][y].slice(xBegin, xEnd).flatten();
+                partials.slice({0, zg, y, xBegin, 0},
+                               {tilesPerInZGroup, zg + 1, y + 1, xEnd,
+                                partialChansPerGroup}
+                ).reshape({tilesPerInZGroup,
+                           (xEnd - xBegin) * partialChansPerGroup});
+            Tensor out = reduced[zg][y].slice(xBegin, xEnd).flatten();
             const auto v = graph.addVertex(reduceCS, "ConvReduce",
                                            {{"out", out},
                                            {"partials", in}});

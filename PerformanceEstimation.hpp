@@ -54,8 +54,7 @@ getConvPartialCycleEstimate(bool isFloat, unsigned inChansPerGroup,
   if (canUseConvolutionInstruction(isFloat, stride, inChansPerGroup,
                                    outChansPerGroup)) {
     std::vector<std::vector<unsigned>> convSizesByWeight;
-    for (unsigned i = 0; i != inputGroupsPerOutput * kernelWidth;
-         ++i) {
+    for (unsigned i = 0; i != inputGroupsPerOutput * kernelWidth; ++i) {
       convSizesByWeight.emplace_back();
       for (unsigned j = 0; j != outputHeight; ++j) {
         convSizesByWeight.back().push_back(outputWidth);
