@@ -240,9 +240,8 @@ public:
     const auto stride = (inWidth + outWidth - 1) / outWidth;
     assert((inWidth + stride - 1) / stride == outWidth);
 
-    const auto inHeight = (outHeight - 1) * stride + 1;
-    assert(in.size() % inHeight == 0);
-    unsigned numInChanGroups = in.size() / inHeight;
+    assert(in.size() % outHeight == 0);
+    unsigned numInChanGroups = in.size() / outHeight;
 
     assert(weights.size() ==
            numInChanGroups * outChansPerGroup * inChansPerGroup);
@@ -269,7 +268,7 @@ public:
                   );
               const auto inIndex = inChanIndex + inChansPerGroup * x * stride;
               out[y][outIndex] += weights[weightIndex] *
-                                  in[y * stride][inIndex];
+                                  in[y][inIndex];
             }
           }
         }
@@ -287,9 +286,8 @@ public:
     const auto stride = (inWidth + outWidth - 1) / outWidth;
     assert((inWidth + stride - 1) / stride == outWidth);
 
-    const auto inHeight = (outHeight - 1) * stride + 1;
-    assert(in.size() % inHeight == 0);
-    unsigned numInChanGroups = in.size() / inHeight;
+    assert(in.size() % outHeight == 0);
+    unsigned numInChanGroups = in.size() / outHeight;
 
     std::vector<std::vector<unsigned>> convSizesByWeight;
     for (unsigned i = 0; i != numInChanGroups; ++i) {

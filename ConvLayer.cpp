@@ -34,18 +34,148 @@ namespace {
   };
 }
 
+/// Return the index of the input that is multiplied with the specified weight
+/// and incorporated into the specified output. Return ~0U if there is no
+/// such output.
+static unsigned
+getInputIndex(unsigned outputIndex, unsigned stride, unsigned kernelSize,
+              unsigned inputSize, unsigned weightIndex) {
+  const auto inputCentre = outputIndex * stride;
+  auto inputIndex = static_cast<int>(inputCentre) +
+                    static_cast<int>(weightIndex) -
+                    static_cast<int>((kernelSize - 1) / 2);
+  if (inputIndex < 0 || static_cast<unsigned>(inputIndex) >= inputSize)
+    return ~0U;
+  return inputIndex;
+}
+
+/// Given an output range, return the subset whose calculation involves the
+/// specified weight.
+static std::pair<unsigned, unsigned>
+getOutputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
+               unsigned kernelSize, unsigned inputSize, unsigned weightIndex) {
+  assert(outputRange.first <= outputRange.second);
+  if (outputRange.first == outputRange.second) {
+    return {0, 0};
+  }
+  unsigned outputBegin = 0, outputEnd = 0;
+  for (unsigned i = outputRange.first; i != outputRange.second; ++i) {
+    if (getInputIndex(i, stride, kernelSize, inputSize, weightIndex) == ~0U) {
+      continue;
+    }
+    outputBegin = i;
+    break;
+  }
+  for (unsigned i = outputRange.second; i != outputRange.first; --i) {
+    if (getInputIndex(i - 1, stride, kernelSize, inputSize,
+                      weightIndex) == ~0U) {
+      continue;
+    }
+    outputEnd = i;
+    break;
+  }
+  return {outputBegin, outputEnd};
+}
+
+/// Return the input range that is multiplied by the specified weight when
+/// calculating the specified output range.
+static std::pair<unsigned, unsigned>
+getInputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
+              unsigned kernelSize, unsigned inputSize, unsigned weightIndex) {
+  auto truncatedOutputRange =
+      getOutputRange(outputRange, stride, kernelSize, inputSize,
+                     weightIndex);
+  if (truncatedOutputRange.first == truncatedOutputRange.second) {
+    return {0, 0};
+  }
+  return {
+    getInputIndex(truncatedOutputRange.first, stride, kernelSize, inputSize,
+                  weightIndex),
+    getInputIndex(truncatedOutputRange.second - 1, stride, kernelSize,
+                  inputSize, weightIndex) + 1
+  };
+}
+
+static std::pair<unsigned, unsigned>
+getInputRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
+              unsigned inputSize) {
+  const auto inputCentre = outputIndex * stride;
+  const auto distanceFromCentre = (kernelSize - 1) / 2;
+  const auto begin =
+      inputCentre > distanceFromCentre ? inputCentre - distanceFromCentre : 0;
+  const auto end = std::min(inputCentre + distanceFromCentre + 1, inputSize);
+  return {begin, end};
+}
+
+static std::pair<unsigned, unsigned>
+getInputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
+              unsigned kernelSize, unsigned inputSize) {
+  assert(outputRange.first <= outputRange.second);
+  if (outputRange.first == outputRange.second) {
+    return {0, 0};
+  }
+  const auto begin =
+      getInputRange(outputRange.first, stride, kernelSize, inputSize).first;
+  const auto end =
+      getInputRange(outputRange.second - 1, stride, kernelSize,
+                    inputSize).second;
+  return {begin, end};
+}
+
+static std::pair<unsigned, unsigned>
+getWeightRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
+               unsigned inputSize) {
+  const auto inputCentre = outputIndex * stride;
+  const auto distanceFromCentre = (kernelSize - 1) / 2;
+  unsigned inputBegin, inputEnd;
+  std::tie(inputBegin, inputEnd) = getInputRange(outputIndex, stride,
+                                                 kernelSize, inputSize);
+  const auto weightBegin = inputBegin + distanceFromCentre - inputCentre;
+  const auto weightEnd = inputEnd + distanceFromCentre - inputCentre;
+  return { weightBegin, weightEnd };
+}
+
+static std::pair<unsigned, unsigned>
+getWeightRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
+               unsigned kernelSize, unsigned inputSize) {
+  assert(outputRange.first <= outputRange.second);
+  if (outputRange.first == outputRange.second) {
+    return {0, 0};
+  }
+  const auto begin =
+      getWeightRange(outputRange.first, stride, kernelSize, inputSize).first;
+  const auto end =
+      getWeightRange(outputRange.second - 1, stride, kernelSize,
+                     inputSize).second;
+  return {begin, end};
+}
+
 static unsigned
 getMaxInputRangeSize(unsigned outputRangeSize, unsigned stride,
                      unsigned kernelSize, unsigned numPartitions,
-                     unsigned padding) {
-  auto inputRangeSize = outputRangeSize * stride + kernelSize - 1;
+                     unsigned inputSize, bool contiguousAccess) {
+  if (outputRangeSize == 0)
+    return 0;
+  unsigned inputRangeSize;
   // If the number of partitions is small the input range is guaranteed
   // to contain padding.
   switch (numPartitions) {
-  default: return inputRangeSize;
-  case 1: return inputRangeSize - padding;
-  case 2: return inputRangeSize - padding / 2;
+  case 1:
+  case 2:
+    {
+      auto inputRange = getInputRange({0, outputRangeSize}, stride, kernelSize,
+                                      inputSize);
+      inputRangeSize = inputRange.second - inputRange.first;
+    }
+    break;
+  default:
+    inputRangeSize = (outputRangeSize - 1) * stride + 1 + (kernelSize - 1);
+    break;
   }
+  if (!contiguousAccess && kernelSize == 1 && stride > 1) {
+    inputRangeSize = (inputRangeSize - 1) / stride + 1;
+  }
+  return inputRangeSize;
 }
 
 static unsigned
@@ -74,10 +204,10 @@ estimateExchangeCost(bool isFloat, const ConvolutionParams &params,
   const auto tileInDepth = tileNumInGroups * inChansPerGroup;
   const auto tileInWidth =
       getMaxInputRangeSize(tileOutWidth, params.stride, params.kernelSize,
-                           tilesPerX, params.padding);
+                           tilesPerX, params.inputWidth, true);
   const auto tileInHeight =
       getMaxInputRangeSize(tileOutHeight, params.stride, params.kernelSize,
-                           tilesPerY, params.padding);
+                           tilesPerY, params.inputWidth, false);
   const auto numberOfInputElements = tileInWidth * tileInHeight * tileInDepth;
   const auto numberOfWeights =
       params.kernelSize * params.kernelSize * tileOutDepth * tileInDepth;
@@ -251,122 +381,6 @@ ConvLayerImpl::ConvLayerImpl(Net &net,
               std::to_string(kernelSize);
 }
 
-/// Return the index of the input that is multiplied with the specified weight
-/// and incorporated into the specified output. Return ~0U if there is no
-/// such output.
-static unsigned
-getInputIndex(unsigned outputIndex, unsigned stride, unsigned kernelSize,
-              unsigned inputSize, unsigned weightIndex) {
-  const auto inputCentre = outputIndex * stride;
-  auto inputIndex = static_cast<int>(inputCentre) +
-                    static_cast<int>(weightIndex) -
-                    static_cast<int>((kernelSize - 1) / 2);
-  if (inputIndex < 0 || static_cast<unsigned>(inputIndex) >= inputSize)
-    return ~0U;
-  return inputIndex;
-}
-
-/// Given an output range, return the subset whose calculation involves the
-/// specified weight.
-static std::pair<unsigned, unsigned>
-getOutputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
-               unsigned kernelSize, unsigned inputSize, unsigned weightIndex) {
-  assert(outputRange.first <= outputRange.second);
-  if (outputRange.first == outputRange.second) {
-    return {0, 0};
-  }
-  unsigned outputBegin = 0, outputEnd = 0;
-  for (unsigned i = outputRange.first; i != outputRange.second; ++i) {
-    if (getInputIndex(i, stride, kernelSize, inputSize, weightIndex) == ~0U) {
-      continue;
-    }
-    outputBegin = i;
-    break;
-  }
-  for (unsigned i = outputRange.second; i != outputRange.first; --i) {
-    if (getInputIndex(i - 1, stride, kernelSize, inputSize,
-                      weightIndex) == ~0U) {
-      continue;
-    }
-    outputEnd = i;
-    break;
-  }
-  return {outputBegin, outputEnd};
-}
-
-/// Return the input range that is multiplied by the specified weight when
-/// calculating the specified output range.
-static std::pair<unsigned, unsigned>
-getInputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
-              unsigned kernelSize, unsigned inputSize, unsigned weightIndex) {
-  auto truncatedOutputRange =
-      getOutputRange(outputRange, stride, kernelSize, inputSize,
-                     weightIndex);
-  if (truncatedOutputRange.first == truncatedOutputRange.second) {
-    return {0, 0};
-  }
-  return {
-    getInputIndex(truncatedOutputRange.first, stride, kernelSize, inputSize,
-                  weightIndex),
-    getInputIndex(truncatedOutputRange.second - 1, stride, kernelSize,
-                  inputSize, weightIndex) + 1
-  };
-}
-
-static std::pair<unsigned, unsigned>
-getInputRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
-              unsigned inputSize) {
-  const auto inputCentre = outputIndex * stride;
-  const auto distanceFromCentre = (kernelSize - 1) / 2;
-  const auto begin =
-      inputCentre > distanceFromCentre ? inputCentre - distanceFromCentre : 0;
-  const auto end = std::min(inputCentre + distanceFromCentre + 1, inputSize);
-  return {begin, end};
-}
-
-static std::pair<unsigned, unsigned>
-getInputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
-              unsigned kernelSize, unsigned inputSize) {
-  assert(outputRange.first <= outputRange.second);
-  if (outputRange.first == outputRange.second) {
-    return {0, 0};
-  }
-  const auto begin =
-      getInputRange(outputRange.first, stride, kernelSize, inputSize).first;
-  const auto end =
-      getInputRange(outputRange.second - 1, stride, kernelSize,
-                    inputSize).second;
-  return {begin, end};
-}
-
-static std::pair<unsigned, unsigned>
-getWeightRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
-               unsigned inputSize) {
-  const auto inputCentre = outputIndex * stride;
-  const auto distanceFromCentre = (kernelSize - 1) / 2;
-  unsigned inputBegin, inputEnd;
-  std::tie(inputBegin, inputEnd) = getInputRange(outputIndex, stride,
-                                                 kernelSize, inputSize);
-  const auto weightBegin = inputBegin + distanceFromCentre - inputCentre;
-  const auto weightEnd = inputEnd + distanceFromCentre - inputCentre;
-  return { weightBegin, weightEnd };
-}
-
-static std::pair<unsigned, unsigned>
-getWeightRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
-               unsigned kernelSize, unsigned inputSize) {
-  assert(outputRange.first <= outputRange.second);
-  if (outputRange.first == outputRange.second) {
-    return {0, 0};
-  }
-  const auto begin =
-      getWeightRange(outputRange.first, stride, kernelSize, inputSize).first;
-  const auto end =
-      getWeightRange(outputRange.second - 1, stride, kernelSize,
-                     inputSize).second;
-  return {begin, end};
-}
-
 std::uint64_t ConvLayerImpl::getNumberOfMACs() {
   std::uint64_t numMACs = 0;
   for (unsigned y = 0; y < outDimY; ++y) {
@@ -397,6 +411,7 @@ std::uint64_t ConvLayerImpl::getNumberOfAdds() {
 std::uint64_t ConvLayerImpl::getNumberOfFlops() {
   return 2 * getNumberOfMACs() + getNumberOfAdds();
 }
+
 
 double ConvLayerImpl::getPerfectCycleCount() {
   const auto numTiles = getNumIPUs() * getTilesPerIPU();
@@ -740,10 +755,20 @@ forwardTile(Graph &graph,
         }
         // Add the vertex.
         auto v = graph.addVertex(fwdCS, "ConvPartial1x1Out",
-            { {"in", inWindow },
-              {"weights", w },
-              {"out", outWindow },
+            { {"weights", w},
+              {"out", outWindow},
             });
+        if (stride == 1) {
+          graph.connect(v["in"], inWindow);
+        } else {
+          for (unsigned i = 0; i != inZGroups; ++i) {
+            for (unsigned j = 0; j != outHeight; ++j) {
+              graph.connect(v["in"][j + i * outHeight],
+                           inWindow[stride * j + i * inHeight]);
+            }
+          }
+          graph.setFieldSize(v["in"], inZGroups * outHeight);
+        }
         // Map the vertex and output.
         if (mapping) {
           mapping->setMapping(v, tile);
