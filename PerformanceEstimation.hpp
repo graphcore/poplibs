@@ -2,6 +2,7 @@
 #define _performance_estimation_h_
 
 #include <algorithm>
+#include <cassert>
 #include <cstdint>
 
 inline std::uint64_t getDenseDotProductCycles(bool isFloat, unsigned size) {
@@ -19,26 +20,75 @@ canUseConvolutionInstruction(bool isFloat, unsigned stride,
          partialChansPerGroup == 4;
 }
 
-inline std::uint64_t
-get1x1ConvCycles(unsigned outputWidth) {
-  const auto outChansPerGroup = 4;
-  unsigned warmUpCycles = 19;
-  unsigned innerLoopCycles =
-      outputWidth * outChansPerGroup;
-  unsigned coolDownCycles = 5;
-  return warmUpCycles + innerLoopCycles + coolDownCycles;
+template <class InputIterator>
+bool allEqual(InputIterator begin, InputIterator end) {
+  if (begin == end)
+    return true;
+  const auto &first = *begin;
+  for (auto it = begin + 1; it != end; ++it) {
+    if (*it != first)
+      return false;
+  }
+  return true;
 }
 
 inline std::uint64_t
 getConvPartial1x1CycleEstimate(
-    const std::vector<std::vector<unsigned>> &convSizesByWeight) {
+    const std::vector<std::vector<unsigned>> &convSizesByWeight,
+    bool supervisorVertex) {
+  const auto numWorkerContexts = 6;
+  const auto inChansPerGroup = 16;
+  const auto partialChansPerGroup = 4;
+  if (supervisorVertex) {
+    unsigned cycleCount = 0;
+    for (const auto &convSizes : convSizesByWeight) {
+      if (convSizes.empty())
+        continue;
+      assert(allEqual(convSizes.begin(), convSizes.end()));
+      const auto convSize = convSizes.front();
+      // Load weights in the supervisor.
+      const auto numBytes = inChansPerGroup * partialChansPerGroup * 2;
+      cycleCount += (numBytes + 7) / 8;
+      // Start 6 workers.
+      const auto numElements =
+          std::accumulate(convSizes.begin(), convSizes.end(), 0);
+      unsigned maxWorkerCycleCount = 0;
+      for (unsigned i = 0; i != numWorkerContexts; ++i) {
+        const auto beginElement = (i * numElements) / numWorkerContexts;
+        const auto endElement = ((i + 1) * numElements) / numWorkerContexts;
+        if (beginElement == endElement)
+          continue;
+        const auto beginRow = beginElement / convSize;
+        const auto endRow = 1 + (endElement - 1) / convSize;
+        const auto workerPointerLoads = endRow - beginRow;
+        const auto workerNumElements = endElement - beginElement;
+        const auto vertexOverhead = 5U;
+        const auto coolDownCycles = 5U;
+        const auto workerCycleCount = vertexOverhead +
+                                      workerNumElements * partialChansPerGroup +
+                                      coolDownCycles +
+                                      workerPointerLoads;
+        maxWorkerCycleCount = std::max(maxWorkerCycleCount, workerCycleCount);
+      }
+      cycleCount += maxWorkerCycleCount * numWorkerContexts;
+      cycleCount += 1; // Sync.
+      cycleCount += numWorkerContexts - 1; // Pipeline bubble.
+    }
+    return cycleCount;
+  }
   const unsigned vertexOverhead = 5;
   unsigned cycleCount = vertexOverhead;
   for (const auto &convSizes : convSizesByWeight) {
     const auto numElements = std::accumulate(convSizes.begin(), convSizes.end(),
                                              0);
     const auto pointerLoadCycles = convSizes.size();
-    cycleCount += get1x1ConvCycles(numElements) + pointerLoadCycles;
+    const auto partialChansPerGroup = 4;
+    unsigned warmUpCycles = 19;
+    unsigned innerLoopCycles =
+        numElements * partialChansPerGroup;
+    unsigned coolDownCycles = 5;
+    cycleCount += warmUpCycles + innerLoopCycles + coolDownCycles +
+                  pointerLoadCycles;
   }
   return cycleCount;
 }
@@ -49,7 +99,8 @@ getConvPartialCycleEstimate(bool isFloat, unsigned inChansPerGroup,
                             unsigned inputGroupsPerOutput,
                             unsigned outputHeight,
                             unsigned outputWidth,
-                            unsigned outChansPerGroup)
+                            unsigned outChansPerGroup,
+                            bool useSupervisorVertices)
 {
   if (canUseConvolutionInstruction(isFloat, stride, inChansPerGroup,
                                    outChansPerGroup)) {
@@ -60,8 +111,10 @@ getConvPartialCycleEstimate(bool isFloat, unsigned inChansPerGroup,
         convSizesByWeight.back().push_back(outputWidth);
       }
     }
-    return getConvPartial1x1CycleEstimate(convSizesByWeight);
+    return getConvPartial1x1CycleEstimate(convSizesByWeight,
+                                          useSupervisorVertices);
   }
+  assert(!useSupervisorVertices);
   unsigned vertexOverhead = 5;
   return vertexOverhead +
          outChansPerGroup * outputWidth * outputHeight * inputGroupsPerOutput *

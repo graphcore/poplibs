@@ -226,7 +226,8 @@ estimateExchangeCost(bool isFloat, const ConvolutionParams &params,
 
 static unsigned
 estimateVertexCycles(bool isFloat, const ConvolutionParams &params,
-                     const ConvLayerPartition &partition) {
+                     const ConvLayerPartition &partition,
+                     bool useSupervisorVertices) {
   const auto tilesPerY = partition.tilesPerYAxis;
   const auto tilesPerX = partition.tilesPerXAxis;
   const auto tilesPerInZGroupAxis = partition.tilesPerInZGroupAxis;
@@ -249,13 +250,14 @@ estimateVertexCycles(bool isFloat, const ConvolutionParams &params,
   return getConvPartialCycleEstimate(isFloat, inChansPerGroup, params.stride,
                                      params.kernelSize, inputGroupsPerOutput,
                                      outRowsPerVertex, tileOutWidth,
-                                     outChansPerGroup);
+                                     outChansPerGroup, useSupervisorVertices);
 }
 
 static unsigned
 estimateComputeCost(unsigned numWorkerContexts, bool isFloat,
                     const ConvolutionParams &params,
-                    const ConvLayerPartition &partition) {
+                    const ConvLayerPartition &partition,
+                    bool targetConvSharedWeights) {
   const auto tilesPerY = partition.tilesPerYAxis;
   const auto tilesPerZ = partition.tilesPerZAxis;
   const auto outChansPerGroup = partition.partialChansPerGroup;
@@ -271,19 +273,33 @@ estimateComputeCost(unsigned numWorkerContexts, bool isFloat,
   const auto verticesPerTilePerY =
       std::min(tileOutHeight, partition.verticesPerTilePerYAxis);
   const auto tileVertices = verticesPerTilePerY * tileNumOutGroups;
-  const auto vertexRuntime = estimateVertexCycles(isFloat, params, partition);
-  auto verticesPerWorker = (tileVertices + numWorkerContexts - 1) /
-                           numWorkerContexts;
-  auto computeCycles = vertexRuntime * verticesPerWorker * numWorkerContexts;
+  // The use of supervisor vertices only affects vertices that use the
+  // convolution instructions.
+  bool useSupervisorVertices = false;
+  unsigned numContexts = numWorkerContexts;
+  if (targetConvSharedWeights &&
+      canUseConvolutionInstruction(isFloat, params.stride,
+                                   partition.inChansPerGroup,
+                                   partition.partialChansPerGroup)) {
+    useSupervisorVertices = true;
+    numContexts = 1;
+  }
+  const auto vertexRuntime = estimateVertexCycles(isFloat, params, partition,
+                                                  useSupervisorVertices);
+  auto verticesPerWorker = (tileVertices + numContexts - 1) /
+                           numContexts;
+  auto computeCycles = vertexRuntime * verticesPerWorker * numContexts;
   return computeCycles;
 }
 
 static unsigned
 estimatePartitionCost(unsigned numWorkerContexts, bool isFloat,
                       const ConvolutionParams &params,
-                      const ConvLayerPartition &partition) {
+                      const ConvLayerPartition &partition,
+                      bool targetConvSharedWeights) {
   return estimateExchangeCost(isFloat, params, partition) +
-         estimateComputeCost(numWorkerContexts, isFloat, params, partition);
+         estimateComputeCost(numWorkerContexts, isFloat, params, partition,
+                             targetConvSharedWeights);
 }
 
 static ConvLayerPartition
@@ -291,7 +307,8 @@ choosePartition(unsigned numWorkerContexts,
                 bool isFloat,
                 unsigned inChansPerGroup,
                 const ConvolutionParams &params,
-                unsigned numTiles) {
+                unsigned numTiles,
+                bool targetConvSharedWeights) {
   unsigned bestCost = std::numeric_limits<unsigned>::max();
   ConvLayerPartition bestPartition;
   if (params.inputDepth % inChansPerGroup != 0) {
@@ -341,7 +358,7 @@ choosePartition(unsigned numWorkerContexts,
                                          inChansPerGroup, partialChansPerGroup);
             auto candidateCost =
                 estimatePartitionCost(numWorkerContexts, isFloat, params,
-                                      candidate);
+                                      candidate, targetConvSharedWeights);
             if (candidateCost < bestCost) {
               bestPartition = candidate;
               bestCost = candidateCost;
@@ -465,12 +482,13 @@ size_t ConvLayerImpl::getNumChannelGroupsIn(size_t xPrev, size_t yPrev,
       continue;
     if (!isFloat && i % 2 != 0)
       continue;
+    const auto sharedWeights = targetSharedConvWeights();
     const auto candidate =
       choosePartition(numWorkerContexts, isFloat, i,
-                      params, numTiles);
+                      params, numTiles, sharedWeights);
     const auto candidateCost =
         estimatePartitionCost(numWorkerContexts, isFloat, params,
-                              candidate);
+                              candidate, sharedWeights);
     if (candidateCost < bestCost) {
       inChansPerGroup = candidate.inChansPerGroup;
       bestCost = candidateCost;
@@ -497,7 +515,8 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
                       inChansPerGroup,
                       ConvolutionParams(kernelSize, stride, inNumChans, inDimX,
                                         inDimY, padding, outNumChans),
-                      getNumIPUs() * getTilesPerIPU());
+                      getNumIPUs() * getTilesPerIPU(),
+                      targetSharedConvWeights());
   Layer *next = getNextLayer();
   outNumChanGroups = next->getNumChannelGroupsIn(inDimX, inDimY, outNumChans);
   size_t outChansPerGroup;
@@ -754,10 +773,14 @@ forwardTile(Graph &graph,
                                  outChansPerGroup});
         }
         // Add the vertex.
-        auto v = graph.addVertex(fwdCS, "ConvPartial1x1Out",
-            { {"weights", w},
-              {"out", outWindow},
-            });
+        const char *baseClass =
+            targetSharedConvWeights() ? "poplar::SupervisorVertex" :
+                                        "poplar::Vertex";
+        auto v = graph.addVertex(
+          fwdCS,
+          templateVertex("ConvPartial1x1Out", baseClass),
+          {{"weights", w}, {"out", outWindow}}
+        );
         if (stride == 1) {
           graph.connect(v["in"], inWindow);
         } else {
@@ -812,7 +835,12 @@ forwardTile(Graph &graph,
         if (outHeight == 0)
           continue;
         // Add the vertex.
-        auto v = graph.addVertex(fwdCS, "ConvPartial1x1InOut");
+        const char *baseClass =
+            targetSharedConvWeights() ? "poplar::SupervisorVertex" :
+                                        "poplar::Vertex";
+        auto v =
+            graph.addVertex(fwdCS,
+                            templateVertex("ConvPartial1x1InOut", baseClass));
         if (mapping) {
           mapping->setMapping(v, tile);
         }

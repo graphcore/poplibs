@@ -43,6 +43,7 @@ protected:
   unsigned getDTypeSize() const;
   enum NetType getNetType() const;
   unsigned getBatchSize() const;
+  bool targetSharedConvWeights() const;
   void mapTensor(Tensor t, IPUModelEngineBuilder::TileMapping *mapping);
   void mapComputeSet(const Graph &graph, ComputeSet c,
                      IPUModelEngineBuilder::TileMapping *mapping);

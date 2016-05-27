@@ -37,6 +37,7 @@ public:
   bool useIPUModel = false;
   bool doComputation = true;
   bool singleBatchProfile = false;
+  bool sharedConvWeights = true;
   unsigned numIPUs = 1;
   unsigned numBatchesBetweenTest = 2500;
   bool reuseLayerImplGraphs = true;

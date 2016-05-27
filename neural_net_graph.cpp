@@ -152,7 +152,8 @@ template class FullyConnectedReduce<half>;
 /**
  * Compute 1x1 convolutions and accumulate them with partial sums in memory.
  **/
-class ConvPartial1x1InOut: public Vertex {
+template <class Base>
+class ConvPartial1x1InOut: public Base {
 public:
   Vector<Input<Vector<half>>> in;
   Vector<Input<Vector<half>>> weights;
@@ -214,15 +215,21 @@ public:
     assert(weightSetIndex == weights.size());
     assert(weightUses == 0);
     convolutionsByWeight.pop_back();
-    return getConvPartial1x1CycleEstimate(convolutionsByWeight);
+    bool isSupervisorVertex = std::is_same<Base, SupervisorVertex>::value;
+    return getConvPartial1x1CycleEstimate(convolutionsByWeight,
+                                          isSupervisorVertex);
   }
 };
+
+template class ConvPartial1x1InOut<Vertex>;
+template class ConvPartial1x1InOut<SupervisorVertex>;
 
 /**
  * Compute a sum of 1x1 convolutions over a subset of the input channels for
  * multiple output channels.
  **/
-class ConvPartial1x1Out: public Vertex {
+template <class Base>
+class ConvPartial1x1Out: public Base {
 public:
   Vector<Input<Vector<half>>> in;
   Input<Vector<half>> weights;
@@ -296,9 +303,14 @@ public:
         convSizesByWeight.back().push_back(outWidth);
       }
     }
-    return getConvPartial1x1CycleEstimate(convSizesByWeight);
+    bool isSupervisorVertex = std::is_same<Base, SupervisorVertex>::value;
+    return getConvPartial1x1CycleEstimate(convSizesByWeight,
+                                          isSupervisorVertex);
   }
 };
+
+template class ConvPartial1x1Out<Vertex>;
+template class ConvPartial1x1Out<SupervisorVertex>;
 
 /* Compute a partial convolution for a sub-set of input channels and
  * output channels over a number of rows of the input field. */
@@ -355,7 +367,7 @@ public:
     const auto outChansPerGroup = 1;
     return getConvPartialCycleEstimate(isFloat, inChansPerGroup, stride,
                                        kernelSize, numInRows, 1, outputWidth,
-                                       1);
+                                       1, false);
   }
 };
 
