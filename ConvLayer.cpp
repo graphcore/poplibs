@@ -777,6 +777,31 @@ forwardTile(Graph &graph,
       }
     }
   } else if (useConvolutionInstruction()) {
+    // Zero the partial sums.
+    Tensor tileOut =
+        out.slice(
+          {tileOutZGroupBegin, tileOutYBegin, tileOutXBegin, 0},
+          {tileOutZGroupEnd, tileOutYEnd, tileOutXEnd, outChansPerGroup}
+        );
+    const auto outZGroups = tileOutZGroupEnd - tileOutZGroupBegin;
+    Tensor tileOutFlattened =
+        tileOut.reshape({outZGroups * tileOutHeight,
+                         tileOutWidth * outChansPerGroup});
+    const auto numWorkerContexts = getWorkerContextsPerTile();
+    const auto tileOutRows = tileOutFlattened.dim(0);
+    for (unsigned i = 0; i != numWorkerContexts; ++i) {
+      const auto beginRow = (i * tileOutRows) / numWorkerContexts;
+      const auto endRow = ((i + 1) * tileOutRows) / numWorkerContexts;
+      if (beginRow == endRow)
+        continue;
+      auto zv = graph.addVertex(
+        zeroCS, templateVertex("Zero2D", "float"),
+        {{"out", tileOutFlattened.slice(beginRow, endRow)}}
+      );
+      if (mapping) {
+        mapping->setMapping(zv, tile);
+      }
+    }
     for (unsigned ozg = tileOutZGroupBegin; ozg != tileOutZGroupEnd; ++ozg) {
       for (unsigned vy = 0; vy != verticesPerY; ++vy) {
         const auto outYBegin =
@@ -786,18 +811,9 @@ forwardTile(Graph &graph,
         const auto outHeight = outYEnd - outYBegin;
         if (outHeight == 0)
           continue;
-        // Zero the partial sums.
-        Tensor zeroWindow =
-            out[ozg].slice(
-              {outYBegin, tileOutXBegin, 0},
-              {outYEnd, tileOutXEnd, outChansPerGroup}
-            ).reshape({outHeight, tileOutWidth * outChansPerGroup});
-        auto zv = graph.addVertex(zeroCS, templateVertex("Zero2D", "float"),
-                                  {{"out", zeroWindow }});
         // Add the vertex.
         auto v = graph.addVertex(fwdCS, "ConvPartial1x1InOut");
         if (mapping) {
-          mapping->setMapping(zv, tile);
           mapping->setMapping(v, tile);
         }
         unsigned numWeights = 0;
