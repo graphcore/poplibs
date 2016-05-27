@@ -33,48 +33,75 @@ bool allEqual(InputIterator begin, InputIterator end) {
 }
 
 inline std::uint64_t
+getConvPartial1x1SupervisorCycleEstimate(
+    const std::vector<std::vector<std::vector<unsigned>>> &
+    convSizesByWeightAndWorker) {
+  const auto numWorkerContexts = 6;
+  const auto inChansPerGroup = 16;
+  const auto partialChansPerGroup = 4;
+
+  unsigned cycles = 0;
+  for (const auto &convSizesByWorker : convSizesByWeightAndWorker) {
+    assert(convSizesByWorker.size() <= numWorkerContexts);
+    // Load weights in the supervisor.
+    const auto numBytes = inChansPerGroup * partialChansPerGroup * 2;
+    cycles += (numBytes + 7) / 8;
+    unsigned maxWorkerCycles = 0;
+    // Start workers.
+    for (const auto &convSizes : convSizesByWorker) {
+      unsigned workerCycles = 0;
+      const auto vertexOverhead = 5U;
+      const auto coolDownCycles = 5U;
+      workerCycles += vertexOverhead;
+      for (const auto convSize : convSizes) {
+        workerCycles += 1 + convSize * partialChansPerGroup;
+      }
+      workerCycles += coolDownCycles;
+      maxWorkerCycles = std::max(maxWorkerCycles, workerCycles);
+    }
+    cycles += maxWorkerCycles * numWorkerContexts;
+    cycles += 1; // Sync.
+    cycles += numWorkerContexts - 1; // Pipeline bubble.
+  }
+  return cycles;
+}
+
+inline std::uint64_t
 getConvPartial1x1CycleEstimate(
     const std::vector<std::vector<unsigned>> &convSizesByWeight,
     bool supervisorVertex) {
   const auto numWorkerContexts = 6;
-  const auto inChansPerGroup = 16;
-  const auto partialChansPerGroup = 4;
   if (supervisorVertex) {
-    unsigned cycleCount = 0;
+    std::vector<std::vector<std::vector<unsigned>>> convSizesByWeightAndWorker;
+    convSizesByWeightAndWorker.reserve(convSizesByWeight.size());
     for (const auto &convSizes : convSizesByWeight) {
       if (convSizes.empty())
         continue;
+      convSizesByWeightAndWorker.emplace_back();
       assert(allEqual(convSizes.begin(), convSizes.end()));
       const auto convSize = convSizes.front();
-      // Load weights in the supervisor.
-      const auto numBytes = inChansPerGroup * partialChansPerGroup * 2;
-      cycleCount += (numBytes + 7) / 8;
-      // Start 6 workers.
       const auto numElements =
           std::accumulate(convSizes.begin(), convSizes.end(), 0);
-      unsigned maxWorkerCycleCount = 0;
+      auto &convSizesByWorker = convSizesByWeightAndWorker.back();
+      convSizesByWorker.reserve(numWorkerContexts);
       for (unsigned i = 0; i != numWorkerContexts; ++i) {
+        convSizesByWorker.emplace_back();
         const auto beginElement = (i * numElements) / numWorkerContexts;
         const auto endElement = ((i + 1) * numElements) / numWorkerContexts;
         if (beginElement == endElement)
           continue;
         const auto beginRow = beginElement / convSize;
         const auto endRow = 1 + (endElement - 1) / convSize;
-        const auto workerPointerLoads = endRow - beginRow;
-        const auto workerNumElements = endElement - beginElement;
-        const auto vertexOverhead = 5U;
-        const auto coolDownCycles = 5U;
-        const auto workerCycleCount = vertexOverhead +
-                                      workerNumElements * partialChansPerGroup +
-                                      coolDownCycles +
-                                      workerPointerLoads;
-        maxWorkerCycleCount = std::max(maxWorkerCycleCount, workerCycleCount);
+        for (unsigned j = beginRow; j != endRow; ++j) {
+          unsigned beginIndex = j == beginRow ? beginElement % convSize :
+                                                0;
+          unsigned endIndex = j + 1 == endRow ? 1 + (endElement - 1) % convSize :
+                                                convSize;
+          convSizesByWorker.back().push_back(endIndex - beginIndex);
+        }
       }
-      cycleCount += maxWorkerCycleCount * numWorkerContexts;
-      cycleCount += 1; // Sync.
-      cycleCount += numWorkerContexts - 1; // Pipeline bubble.
     }
-    return cycleCount;
+    return getConvPartial1x1SupervisorCycleEstimate(convSizesByWeightAndWorker);
   }
   const unsigned vertexOverhead = 5;
   unsigned cycleCount = vertexOverhead;
