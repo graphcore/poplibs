@@ -167,54 +167,46 @@ public:
     assert(out.size() > 0);
     assert(out.size() == in.size());
     assert(weightReuseCount.size() == weights.size());
-    unsigned weightSetIndex = 0;
-    unsigned weightUses = 0;
-    for (unsigned i = 0; i != out.size(); ++i) {
-      if (weightUses == weightReuseCount[weightSetIndex]) {
-        ++weightSetIndex;
-        weightUses = 0;
-      }
-      const auto outWidth = out[0].size() / outChansPerGroup;
-      const auto inWidth = in[0].size() / inChansPerGroup;
-      const auto stride = (inWidth + outWidth - 1) / outWidth;
-      assert((inWidth + stride - 1) / stride == outWidth);
-      for (unsigned x = 0; x != outWidth; ++x) {
-        for (unsigned inChanIndex = 0; inChanIndex != inChansPerGroup;
-             ++inChanIndex) {
-          for (unsigned outChanIndex = 0; outChanIndex != outChansPerGroup;
-               ++outChanIndex) {
-            const auto outIndex = outChanIndex + outChansPerGroup * x;
-            const auto weightIndex =
-                inChanIndex + inChansPerGroup * outChanIndex;
-            const auto inIndex = inChanIndex + inChansPerGroup * x * stride;
-            out[i][outIndex] += weights[weightSetIndex][weightIndex] *
-                                in[i][inIndex];
+    unsigned convNum = 0;
+    for (unsigned w = 0; w != weights.size(); ++w) {
+      for (unsigned i = 0; i != weightReuseCount[w]; ++i) {
+        const auto outWidth = out[convNum].size() / outChansPerGroup;
+        const auto inWidth = in[convNum].size() / inChansPerGroup;
+        const auto stride = (inWidth + outWidth - 1) / outWidth;
+        assert((inWidth + stride - 1) / stride == outWidth);
+        for (unsigned x = 0; x != outWidth; ++x) {
+          for (unsigned inChanIndex = 0; inChanIndex != inChansPerGroup;
+               ++inChanIndex) {
+            for (unsigned outChanIndex = 0; outChanIndex != outChansPerGroup;
+                 ++outChanIndex) {
+              const auto outIndex = outChanIndex + outChansPerGroup * x;
+              const auto weightIndex =
+                  inChanIndex + inChansPerGroup * outChanIndex;
+              const auto inIndex = inChanIndex + inChansPerGroup * x * stride;
+              out[convNum][outIndex] += weights[w][weightIndex] *
+                                        in[convNum][inIndex];
+            }
           }
         }
+        ++convNum;
       }
-      ++weightUses;
     }
-    assert(weightUses == weightReuseCount[weightSetIndex]);
-    assert(weightSetIndex + 1 == weights.size());
+    assert(convNum == out.size());
     return true;
   }
 
   std::uint64_t getCycleEstimate() const {
-    unsigned weightSetIndex = 0;
-    unsigned weightUses = 0;
     std::vector<std::vector<unsigned>> convolutionsByWeight(1);
-    for (unsigned i = 0; i != out.size(); ++i) {
-      convolutionsByWeight.back().push_back(out[i].size() / outChansPerGroup);
-      ++weightUses;
-      if (weightUses == weightReuseCount[weightSetIndex]) {
-        ++weightSetIndex;
-        weightUses = 0;
-        convolutionsByWeight.emplace_back();
+    unsigned convNum = 0;
+    for (unsigned w = 0; w != weights.size(); ++w) {
+      convolutionsByWeight.emplace_back();
+      for (unsigned i = 0; i != weightReuseCount[w]; ++i) {
+        convolutionsByWeight.back().push_back(out[convNum].size() /
+                                              outChansPerGroup);
+        ++convNum;
       }
     }
-    assert(weightSetIndex == weights.size());
-    assert(weightUses == 0);
-    convolutionsByWeight.pop_back();
+    assert(convNum == out.size());
     bool isSupervisorVertex = std::is_same<Base, SupervisorVertex>::value;
     return getConvPartial1x1CycleEstimate(convolutionsByWeight,
                                           isSupervisorVertex);
