@@ -75,6 +75,17 @@ enum ResidualMethod {
 
 class ConvLayerImpl : public Layer {
   bool useConvolutionInstruction() const;
+
+  void
+  createConvPartial1x1InOutVertex(Graph &graph,
+                                  IPUModelEngineBuilder::TileMapping *mapping,
+                                  unsigned tile,
+                                  unsigned outXBegin, unsigned outXEnd,
+                                  unsigned outYBegin, unsigned outYEnd,
+                                  unsigned outZGroup,
+                                  unsigned inZGroupBegin, unsigned inZGroupEnd,
+                                  ComputeSet fwdCS,
+                                  const Tensor &out);
   void
   forwardTile(Graph &graph,
               IPUModelEngineBuilder::TileMapping *mapping,
