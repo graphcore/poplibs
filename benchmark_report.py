@@ -1,3 +1,5 @@
+import re
+
 def create_report(runs, filename):
     # Create a report on the benchmarks.
     # This is not meant to be a generic report of information
@@ -42,9 +44,8 @@ def create_report(runs, filename):
                                           'IPU sync',
                                           'Global sync'])
 
-    def MB(num_bytes):
-        return num_bytes/(1024*1024)
-
+    def MB(n):
+        return n / (1024*1024)
 
     alexnet_1_ipu = find_run('alexnet', {'Num IPUs': 1})
     resnet34 = find_run('resnet34b', {'Reuse graphs': 1})
@@ -76,7 +77,7 @@ def create_report(runs, filename):
         for layer in alexnet_1_ipu[1:]:
             layer_id_components = layer['Layer ID'].split('.')
             this_layer_name = layer_id_components[0]
-            if len(layer_id_components) <= 2:
+            if len(layer_id_components) <= 2 and (len(layer_id_components) == 1 or layer_id_components[0][0] == 'F' or layer_id_components[1] == 'zero' or re.match('.*11x11.*',layer_id_components[0]) or re.match('.*Max.*', layer_id_components[0])):
                 if layer_name:
                     layer_info.append((layer_name, layer_total))
                 layer_name = this_layer_name
@@ -151,12 +152,14 @@ def create_report(runs, filename):
         f.write(',Vertices,Edges\n')
         f.write('Alexnet, {:.0f}, {:.0f}\n'.format(alexnet_1_ipu[0]['Number of vertices'],
                                            alexnet_1_ipu[0]['Number of edges']))
-        f.write('Resnet 34, {:.0f}, {:.0f}\n'.format(resnet34_no_reuse[0]['Number of vertices'],
-                                           resnet34_no_reuse[0]['Number of edges']))
+        if resnet34_no_reuse:
+            f.write('Resnet 34, {:.0f}, {:.0f}\n'.format(resnet34_no_reuse[0]['Number of vertices'],
+                                                         resnet34_no_reuse[0]['Number of edges']))
         f.write('Resnet 34 (graph reuse), {:.0f}, {:.0f}\n'.format(resnet34[0]['Number of vertices'],
                                            resnet34[0]['Number of edges']))
-        f.write('Resnet 50, {:.0f}, {:.0f}\n'.format(resnet50_no_reuse[0]['Number of vertices'],
-                                           resnet50_no_reuse[0]['Number of edges']))
+        if resnet50_no_reuse:
+            f.write('Resnet 50, {:.0f}, {:.0f}\n'.format(resnet50_no_reuse[0]['Number of vertices'],
+                                                         resnet50_no_reuse[0]['Number of edges']))
         f.write('Resnet 50 (graph reuse), {:.0f}, {:.0f}\n'.format(resnet50[0]['Number of vertices'],
                                            resnet50[0]['Number of edges']))
 
@@ -179,8 +182,18 @@ def create_report(runs, filename):
                 MB(get_total_mem(resnet34[0])),
                 MB(get_total_mem(resnet50[0]))))
         f.write(',,,\n')
-        f.write('Parameters (MB),,,\n')
-        f.write('Tensor data/param (MB),,\n')
+        bytes_per_param = 2
+        alexnet_params_mb = MB(alexnet_1_ipu[0]['Parameters'] * bytes_per_param)
+        resnet34_params_mb = MB(resnet34[0]['Parameters'] * bytes_per_param)
+        resnet50_params_mb = MB(resnet50[0]['Parameters'] * bytes_per_param)
+        f.write('Parameters (MB), {:.0f},{:.0f},{:.0f}\n'.format(
+                alexnet_params_mb,
+                resnet34_params_mb,
+                resnet50_params_mb))
+        f.write('Tensor data/param, {:.2f},{:.2f},{:.2f}\n'.format(
+                MB(alexnet_1_ipu[0]['Tensor data']) / alexnet_params_mb,
+                MB(resnet34[0]['Tensor data']) / resnet34_params_mb,
+                MB(resnet50[0]['Tensor data']) / resnet50_params_mb))
         f.write('Num vertices,{:.0f},{:.0f},{:.0f}\n'.format(
                 alexnet_1_ipu[0]['Number of vertices'],
                 resnet34[0]['Number of vertices'],
@@ -209,3 +222,57 @@ def create_report(runs, filename):
                 resnet34_edge_bytes/resnet34[0]['Number of edges'],
                 resnet50_edge_bytes/resnet50[0]['Number of edges'],
                ))
+
+
+        f.write(',\nPERFORMANCE,\n,\n')
+
+        alexnet_cycles = get_total_cycles(alexnet_1_ipu[0])
+        alexnet_compute_ratio = \
+          alexnet_1_ipu[0]['Compute cycles'] / alexnet_cycles
+        resnet34_cycles = get_total_cycles(resnet34[0])
+        resnet34_compute_ratio = \
+          resnet34[0]['Compute cycles'] / resnet34_cycles
+        resnet50_cycles = get_total_cycles(resnet50[0])
+        resnet50_compute_ratio = \
+          resnet50[0]['Compute cycles'] / resnet50_cycles
+
+        alexnet_flops = alexnet_1_ipu[0]['FLOPS']
+        resnet34_flops = resnet34[0]['FLOPS']
+        resnet50_flops = resnet50[0]['FLOPS']
+        alexnet_us_per_image = alexnet_cycles / cycles_per_sec * 1000000
+        alexnet_gflops_per_sec = alexnet_flops / alexnet_us_per_image / 1000
+        resnet34_us_per_image = resnet34_cycles / cycles_per_sec * 1000000
+        resnet34_gflops_per_sec = resnet34_flops / resnet34_us_per_image / 1000
+        resnet50_us_per_image = resnet50_cycles / cycles_per_sec * 1000000
+        resnet50_gflops_per_sec = resnet50_flops / resnet50_us_per_image / 1000
+
+        alexnet_vertex_ratio =  alexnet_1_ipu[0]['Perfect cycles'] / \
+                                alexnet_1_ipu[0]['Compute cycles']
+        resnet34_vertex_ratio = resnet34[0]['Perfect cycles'] / \
+                                resnet34[0]['Compute cycles']
+        resnet50_vertex_ratio = resnet50[0]['Perfect cycles'] / \
+                                resnet50[0]['Compute cycles']
+
+        alexnet_ratio = alexnet_1_ipu[0]['Perfect cycles'] / alexnet_cycles
+        resnet34_ratio = resnet34[0]['Perfect cycles'] / resnet34_cycles
+        resnet50_ratio = resnet50[0]['Perfect cycles'] / resnet50_cycles
+
+        f.write(', Alexnet, ResNet34, ResNet50\n')
+        f.write('Effective GFLOP/s,{:.0f},{:.0f},{:.0f}\n'.format(
+                alexnet_gflops_per_sec,
+                resnet34_gflops_per_sec,
+                resnet50_gflops_per_sec))
+
+        f.write(',,,\n')
+        f.write('Compute ratio,{:.2f},{:.2f},{:.2f}\n'.format(
+                alexnet_compute_ratio,
+                resnet34_compute_ratio,
+                resnet50_compute_ratio))
+        f.write('Vertex overhead ratio,{:.2f},{:.2f},{:.2f}\n'.format(
+                alexnet_vertex_ratio,
+                resnet34_vertex_ratio,
+                resnet50_vertex_ratio))
+        f.write('Overall ratio,{:.2f},{:.2f},{:.2f}\n'.format(
+                alexnet_ratio,
+                resnet34_ratio,
+                resnet50_ratio))

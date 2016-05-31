@@ -64,6 +64,10 @@ fields = [
      'Perfect cycle time: (?P<value>[0-9.]+)')
 ]
 
+aggregated_fields = [
+    ('Parameters',
+     '        Params: (?P<value>[0-9.]+)')
+]
 
 def run(prog, params):
     cmd = ['bin/{}'.format(prog)]
@@ -168,7 +172,8 @@ def parse(lines):
     # program. The first element of this list will be the totals for the entire
     # program.
     layer_data = []
-    data = dict()
+    data0 = dict()
+    data = data0
     found_start = False
     for line in lines:
         line = line.rstrip()
@@ -189,6 +194,14 @@ def parse(lines):
             m = re.match(expr, line)
             if m:
                 data[name] = float(m.group('value'))
+
+        for (name, expr) in aggregated_fields:
+            # Aggregated fields get summed into the first dictionary.
+            m = re.match(expr, line)
+            if m:
+                if name not in data:
+                    data[name] =  0
+                data[name] += float(m.group('value'))
 
     layer_data.append(data)
 
@@ -242,6 +255,9 @@ def main():
     if args.test_reuse:
         benchmarks['resnet34b'].append(('Reuse graphs', [0, 1]))
         benchmarks['resnet50'].append(('Reuse graphs', [0, 1]))
+    else:
+        benchmarks['resnet34b'].append(('Reuse graphs', [1]))
+        benchmarks['resnet50'].append(('Reuse graphs', [1]))
     runs = []
     for prog in progs:
         if prog not in benchmarks:
