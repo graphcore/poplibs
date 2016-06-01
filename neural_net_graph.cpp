@@ -401,12 +401,14 @@ public:
 
   bool compute() {
     unsigned outChans = bias.size();
-    unsigned outCols = in[0].size();
-    for (unsigned ochan = 0; ochan < outChans; ++ochan) {
-      for (unsigned ocol = 0; ocol < outCols; ++ocol) {
-        float sum = in[ochan][ocol];
+    unsigned outCols = out.size() / outChans;
+    unsigned chunkSize = in[0].size();
+    for (unsigned ocol = 0; ocol < outCols; ++ocol) {
+      for (unsigned ochan = 0; ochan < outChans; ++ochan) {
+        auto outIndex = ocol * outChans + ochan;
+        float sum = in[outIndex / chunkSize][outIndex % chunkSize];
         sum += bias[ochan];
-        out[ochan * outChans + ocol] = nonlinearity(nonLinearityType, sum);
+        out[outIndex] = nonlinearity(nonLinearityType, sum);
       }
     }
     return true;
@@ -415,7 +417,7 @@ public:
   uint64_t getCycleEstimate() const {
     unsigned vertexOverhead = 5;
     unsigned outChans = bias.size();
-    unsigned outCols = in[0].size();
+    unsigned outCols = out.size() / outChans;
     return vertexOverhead + 2*outCols*outChans;
   }
 
@@ -435,13 +437,15 @@ public:
 
   bool compute() {
     unsigned outChans = bias.size();
-    unsigned outCols = in[0].size();
-    for (unsigned ochan = 0; ochan < outChans; ++ochan) {
-      for (unsigned ocol = 0; ocol < outCols; ++ocol) {
-        float sum = in[ochan][ocol];
+    unsigned outCols = out.size() / outChans;
+    unsigned chunkSize = in[0].size();
+    for (unsigned ocol = 0; ocol < outCols; ++ocol) {
+      for (unsigned ochan = 0; ochan < outChans; ++ochan) {
+        auto outIndex = ocol * outChans + ochan;
+        float sum = in[outIndex / chunkSize][outIndex % chunkSize];
         sum += bias[ochan];
-        sum += res[ochan * outChans + ocol];
-        out[ochan * outChans + ocol] = nonlinearity(nonLinearityType, sum);
+        sum += res[outIndex];
+        out[outIndex] = nonlinearity(nonLinearityType, sum);
       }
     }
     return true;
@@ -450,7 +454,7 @@ public:
   uint64_t getCycleEstimate() const {
     unsigned vertexOverhead = 5;
     unsigned outChans = bias.size();
-    unsigned outCols = in[0].size();
+    unsigned outCols = out.size() / outChans;
     return vertexOverhead + 2*outCols*outChans;
   }
 

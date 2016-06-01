@@ -2,6 +2,17 @@
 #include "PerformanceEstimation.hpp"
 #include "VertexTemplates.hpp"
 
+// Greatest common divisor
+template <typename T>
+static T gcd(T a, T b) {
+  while (b != 0) {
+    T tmp = b;
+    b = a % b;
+    a = tmp;
+  }
+  return a;
+}
+
 namespace {
   struct ConvolutionParams {
     unsigned kernelSize;
@@ -1225,6 +1236,9 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
   size_t outChansPerGroup = outNumChans / outNumChanGroups;
   Tensor biasesByChanGroup =
       biasesIn.reshape({outNumChanGroups, outChansPerGroup});
+
+  unsigned partialChanChunkSize =
+    gcd<unsigned>(outChansPerGroup, partialChansPerGroup);
   for (unsigned outChanGroup = 0; outChanGroup != outNumChanGroups;
        ++outChanGroup) {
     for (unsigned y = 0; y != outDimY; ++y) {
@@ -1236,9 +1250,11 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
           {partialNumChanGroups, y + 1, x + 1, partialChansPerGroup}
         ).flatten();
         Tensor reducedByChanGroup =
-            reducedChans.reshape({outNumChanGroups, outChansPerGroup});
+            reducedChans.reshape({outNumChanGroups,
+                                  outChansPerGroup / partialChanChunkSize,
+                                  partialChanChunkSize});
         Tensor in =
-            reducedByChanGroup[outChanGroup].reshape({outChansPerGroup, 1});
+            reducedByChanGroup[outChanGroup];
         auto resOutChanGroups = resLayer ? residual.dim(0) : 0;
         bool needsResidual = resLayer && outChanGroup < resOutChanGroups;
         std::string vertexType =
