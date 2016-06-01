@@ -470,7 +470,7 @@ void ConvLayerImpl::describe(std::ostream &out) {
 
 size_t ConvLayerImpl::getNumChannelGroupsIn(size_t xPrev, size_t yPrev,
                                             size_t zPrev) const {
-  unsigned inChansPerGroup;
+  unsigned inChansPerGroup = zPrev;
   const bool isFloat = getDType() == "float";
   const auto numWorkerContexts = getWorkerContextsPerTile();
   const auto numTiles = getNumIPUs() * getTilesPerIPU();
