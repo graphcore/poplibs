@@ -63,3 +63,19 @@ void Layer::mapComputeSet(const Graph &graph, ComputeSet c,
   }
 }
 
+void Layer::mapActivations(Tensor act,
+                           IPUModelEngineBuilder::TileMapping *mapping) {
+  if (!mapping)
+    return;
+  const auto numActivations = act.numElements();
+  const auto chansPerGroup = act.dim(3);
+  const auto numGroups = numActivations / chansPerGroup;
+  const auto numTiles = getTilesPerIPU() * getNumIPUs();
+  auto actByGroup = act.reshape({numGroups, chansPerGroup});
+  // Spread groups of activations evenly across the tiles.
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    const auto groupBegin = (tile * numGroups) / numTiles;
+    const auto groupEnd = ((tile + 1) * numGroups) / numTiles;
+    mapping->setMapping(actByGroup.slice(groupBegin, groupEnd), tile);
+  }
+}

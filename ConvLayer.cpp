@@ -606,6 +606,8 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
 
   in = graph.addTensor(dType, {prevOut.dim(0), prevOut.dim(1),
                                prevOut.dim(2), prevOut.dim(3)});
+  mapActivations(in, mapping);
+
   z = graph.addTensor(dType, {outNumChanGroups, outDimY, outDimX,
                               outChansPerGroup});
   activations = graph.addTensor(dType, {outNumChanGroups, outDimY, outDimX,
@@ -632,6 +634,7 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
     resIn = graph.addTensor(dType, {resNumChanGroups,
                                     resDimY, resDimY,
                                     resChansPerGroup});
+    mapActivations(resIn, mapping);
   }
 }
 
@@ -1042,24 +1045,6 @@ linearizeTileIndices(unsigned izg, unsigned ox, unsigned oy,
                izg));
 }
 
-void ConvLayerImpl::mapActivations(Graph &graph,
-                                   IPUModelEngineBuilder::TileMapping *mapping,
-                                   Tensor act) {
-  if (!mapping)
-    return;
-  const auto numActivations = act.numElements();
-  const auto chansPerGroup = act.dim(3);
-  const auto numGroups = numActivations / chansPerGroup;
-  const auto numTiles = getTilesPerIPU() * getNumIPUs();
-  auto actByGroup = act.reshape({numGroups, chansPerGroup});
-  // Spread groups of activations evenly across the tiles.
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
-    const auto groupBegin = (tile * numGroups) / numTiles;
-    const auto groupEnd = ((tile + 1) * numGroups) / numTiles;
-    mapping->setMapping(actByGroup.slice(groupBegin, groupEnd), tile);
-  }
-}
-
 void ConvLayerImpl::mapWeights(Graph &graph,
                                IPUModelEngineBuilder::TileMapping *mapping,
                                Tensor w) {
@@ -1320,7 +1305,7 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
     }
   }
   mapComputeSet(graph, completionCS, mapping);
-  mapActivations(graph, mapping, activations);
+  mapActivations(activations, mapping);
   forwardProg.add(Execute(completionCS));
   createdForwardProg = true;
 }
@@ -1330,9 +1315,6 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
   Layer *prev = getPrevLayer();
   auto impl = reuseImpl ? reuseImpl : this;
   auto prog = Sequence();
-  impl->mapActivations(graph, mapping, impl->getInputTensor());
-  if (resLayer)
-    impl->mapActivations(graph, mapping, impl->getInputResidual());
   prog.add(Copy(impl->getInputTensor(), prev->getFwdActivations()));
   impl->mapWeights(graph, mapping, weights);
   prog.add(Copy(impl->getInputWeights(), weights));

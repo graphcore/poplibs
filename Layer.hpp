@@ -47,6 +47,7 @@ protected:
   void mapTensor(Tensor t, IPUModelEngineBuilder::TileMapping *mapping);
   void mapComputeSet(const Graph &graph, ComputeSet c,
                      IPUModelEngineBuilder::TileMapping *mapping);
+  void mapActivations(Tensor t, IPUModelEngineBuilder::TileMapping *mapping);
 public:
   Layer *getNextLayer() const;
   Layer *getPrevLayer() const;

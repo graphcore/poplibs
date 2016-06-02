@@ -62,7 +62,7 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   size_t chansPerGroup = numChannels / numChanGroups;
   activations = graph.addTensor(dType, {numChanGroups, xDimOut, yDimOut,
                                         chansPerGroup});
-  mapTensor(activations, mapping);
+  mapActivations(activations, mapping);
 }
 
 Program MaxPoolLayerImpl::
