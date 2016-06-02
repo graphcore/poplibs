@@ -420,20 +420,41 @@ template <typename FPType>
 class ConvComplete : public Vertex {
 public:
   Vector<Input<Vector<float>>> in;
-  Input<Vector<FPType>> bias;
-  Output<Vector<FPType>> out;
+  Vector<Input<Vector<FPType>>> bias;
+  Vector<Output<Vector<FPType>>> out;
   NonLinearityType nonLinearityType;
+  Vector<unsigned> outputChanGroupsPerBias;
+  Vector<Input<Vector<FPType>>> res;
 
   bool compute() {
-    unsigned outChans = bias.size();
-    unsigned outCols = out.size() / outChans;
+    unsigned numOut = out.size();
+    unsigned outChans = bias[0].size();
     unsigned chunkSize = in[0].size();
-    for (unsigned ocol = 0; ocol < outCols; ++ocol) {
-      for (unsigned ochan = 0; ochan < outChans; ++ochan) {
-        auto outIndex = ocol * outChans + ochan;
-        float sum = in[outIndex / chunkSize][outIndex % chunkSize];
-        sum += bias[ochan];
-        out[outIndex] = nonlinearity(nonLinearityType, sum);
+    unsigned biasIndex = 0;
+    unsigned biasCount = outputChanGroupsPerBias[0];
+    unsigned inIndex = 0;
+    for (unsigned o = 0; o < numOut; ++o) {
+      unsigned outCols = out[o].size() / outChans;
+      for (unsigned ocol = 0; ocol < outCols; ++ocol) {
+        for (unsigned ochan = 0; ochan < outChans; ++ochan) {
+          auto outIndex = ocol * outChans + ochan;
+          float sum = in[inIndex / chunkSize][inIndex % chunkSize];
+          ++inIndex;
+          sum += bias[biasIndex][ochan];
+          // The outputs are ordered in a way such that residuals may
+          // only be needed for outputs at the beginning of the sequence
+          // (or none at all) if the residual has fewer channels than
+          // the output.
+          if (o < res.size())
+            sum += res[o][outIndex];
+          out[o][outIndex] = nonlinearity(nonLinearityType, sum);
+        }
+      }
+      --biasCount;
+      if (biasCount == 0) {
+        ++biasIndex;
+        if (biasIndex < outputChanGroupsPerBias.size())
+          biasCount = outputChanGroupsPerBias[biasIndex];
       }
     }
     return true;
@@ -441,52 +462,30 @@ public:
 
   uint64_t getCycleEstimate() const {
     unsigned vertexOverhead = 5;
+    unsigned cycles = vertexOverhead;
+    unsigned numOut = out.size();
     unsigned outChans = bias.size();
-    unsigned outCols = out.size() / outChans;
-    return vertexOverhead + 2*outCols*outChans;
+    unsigned chunkSize = in[0].size();
+    unsigned i = 0;
+    for (unsigned o = 0; o < numOut; ++o) {
+      unsigned outCols = out[o].size() / outChans;
+      for (unsigned ocol = 0; ocol < outCols; ++ocol) {
+        for (unsigned ochan = 0; ochan < outChans; ++ochan) {
+          cycles += 1; // load input, load bias and add
+                       // - dual loads, dual issue = 2 in 2 cycles
+          if (o < res.size())
+            cycles += 1; // load res and add
+          cycles += 2; // RELU
+        }
+      }
+    }
+    return cycles;
   }
 
 };
 
 template class ConvComplete<float>;
 template class ConvComplete<half>;
-
-template <typename FPType>
-class ConvCompleteRes : public Vertex {
-public:
-  Vector<Input<Vector<float>>> in;
-  Input<Vector<FPType>> bias;
-  Output<Vector<FPType>> out;
-  NonLinearityType nonLinearityType;
-  Input<Vector<FPType>> res;
-
-  bool compute() {
-    unsigned outChans = bias.size();
-    unsigned outCols = out.size() / outChans;
-    unsigned chunkSize = in[0].size();
-    for (unsigned ocol = 0; ocol < outCols; ++ocol) {
-      for (unsigned ochan = 0; ochan < outChans; ++ochan) {
-        auto outIndex = ocol * outChans + ochan;
-        float sum = in[outIndex / chunkSize][outIndex % chunkSize];
-        sum += bias[ochan];
-        sum += res[outIndex];
-        out[outIndex] = nonlinearity(nonLinearityType, sum);
-      }
-    }
-    return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    unsigned vertexOverhead = 5;
-    unsigned outChans = bias.size();
-    unsigned outCols = out.size() / outChans;
-    return vertexOverhead + 2*outCols*outChans;
-  }
-
-};
-
-template class ConvCompleteRes<float>;
-template class ConvCompleteRes<half>;
 
 template <typename FPType>
 class CopyResidual : public Vertex {

@@ -1292,46 +1292,87 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
   Tensor biasesByChanGroup =
       biasesIn.reshape({outNumChanGroups, outChansPerGroup});
 
-  unsigned partialChanChunkSize =
-    gcd<unsigned>(outChansPerGroup, partialChansPerGroup);
-  for (unsigned outChanGroup = 0; outChanGroup != outNumChanGroups;
-       ++outChanGroup) {
-    for (unsigned y = 0; y != outDimY; ++y) {
-      for (unsigned x = 0; x != outDimX; ++x) {
-        Tensor actOut = activations[outChanGroup][y][x];
-        Tensor biasSlice = biasesByChanGroup[outChanGroup];
-        Tensor reducedChans = reduced.slice(
-          {0, y, x, 0},
-          {partialNumChanGroups, y + 1, x + 1, partialChansPerGroup}
-        ).flatten();
-        Tensor reducedByChanGroup =
-            reducedChans.reshape({outNumChanGroups,
-                                  outChansPerGroup / partialChanChunkSize,
-                                  partialChanChunkSize});
-        Tensor in =
-            reducedByChanGroup[outChanGroup];
-        auto resOutChanGroups = resLayer ? residual.dim(0) : 0;
-        bool needsResidual = resLayer && outChanGroup < resOutChanGroups;
-        std::string vertexType =
-            needsResidual ? "ConvCompleteRes" : "ConvComplete";
-        auto v = graph.addVertex(completionCS,
-                                 templateVertex(vertexType, getDType()),
-                                 {{ "in", in },
-                                  { "bias", biasSlice },
-                                  { "out", actOut} });
-        graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
-        if (needsResidual) {
-          // If the residual is taken directly from the previous layer (
-          // as opposed to being zero-padded or converted), then striding over
-          // the X,Y plane may still be needed (in this case resStride will not
-          // be 1).
-          Tensor res = residual[outChanGroup][y * resStrideY][x * resStrideX];
-          graph.connect(res, v["res"]);
-        }
+  const auto numTiles = getNumIPUs() * getTilesPerIPU();
+  const auto workersPerTile = getWorkerContextsPerTile();
+  const auto numWorkers = numTiles * workersPerTile;
+  const auto numOutGroups = activations.numElements() / outChansPerGroup;
+  const auto partialChanChunkSize =
+      gcd<unsigned>(outChansPerGroup, partialChansPerGroup);
+  const auto resOutChanGroups = resLayer ? residual.dim(0) : 0;
+  // Create a single vertex for each worker on the IPU to spread
+  // computation evenly. This also matches the standard layout
+  // of output activations so no exchange is required to write
+  // the outputs.
+  for (unsigned worker = 0; worker != numWorkers; ++worker) {
+    auto tile = worker / workersPerTile;
+    const auto groupBegin = (worker * numOutGroups) / numWorkers;
+    const auto groupEnd = ((worker + 1) * numOutGroups) / numWorkers;
+    if (groupBegin == groupEnd)
+      continue;
+
+    // Create a vertex for this worker to process a number of output channel
+    // groups.
+    const auto numGroups = groupEnd - groupBegin;
+    auto v = graph.addVertex(completionCS,
+                             templateVertex("ConvComplete", getDType()));
+    if (mapping)
+      mapping->setMapping(v, tile);
+
+    // Add the biases and a vector that tells the vertex how many output
+    // groups to process for each bias.
+    auto minOutChanGroup = groupBegin / (outDimX * outDimY);
+    auto maxOutChanGroup = (groupEnd - 1) / (outDimX * outDimY);
+    Tensor biasSlice = biasesByChanGroup.slice(minOutChanGroup,
+                                               maxOutChanGroup + 1);
+    graph.connect(v["bias"], biasSlice);
+    graph.setFieldSize(v["outputChanGroupsPerBias"],
+                       maxOutChanGroup - minOutChanGroup + 1);
+    for (auto outChanGroup = minOutChanGroup;
+         outChanGroup <= maxOutChanGroup;
+         ++outChanGroup) {
+      auto gBegin = std::max(groupBegin, outChanGroup * outDimY * outDimX);
+      auto gEnd = std::min(groupEnd, (outChanGroup+1) * outDimY * outDimX);
+      unsigned outputsPerBias = gEnd - gBegin;
+      auto i = outChanGroup - minOutChanGroup;
+      graph.setInitialValue(v["outputChanGroupsPerBias"][i],
+                            outputsPerBias);
+    }
+
+    // Connect the output channel groups and inputs from the partial sums.
+    graph.setFieldSize(v["out"], numGroups);
+    graph.setFieldSize(v["in"],
+                       numGroups * outChansPerGroup / partialChanChunkSize);
+    unsigned numIn = 0;
+    unsigned numResUsed = 0;
+    for (auto group = groupBegin; group != groupEnd; ++group) {
+      auto outChanGroup = group / (outDimX * outDimY);
+      auto y = group % (outDimX * outDimY) / outDimX;
+      auto x = group % outDimX;
+      auto out = activations[outChanGroup][y][x];
+      graph.connect(v["out"][group - groupBegin], out);
+      Tensor reducedChans = reduced.slice(
+         {0, y, x, 0},
+         {partialNumChanGroups, y + 1, x + 1, partialChansPerGroup}
+      ).flatten();
+      Tensor reducedByChanGroup =
+          reducedChans.reshape({outNumChanGroups,
+                                outChansPerGroup / partialChanChunkSize,
+                                partialChanChunkSize});
+      Tensor in = reducedByChanGroup[outChanGroup];
+      for (unsigned i = 0; i < in.dim(0); ++i) {
+        graph.connect(in[i], v["in"][numIn++]);
+      }
+      if (resLayer && outChanGroup < resOutChanGroups) {
+        // If the residual is taken directly from the previous layer (
+        // as opposed to being zero-padded or converted), then striding over
+        // the X,Y plane may still be needed (in this case resStride will not
+        // be 1).
+        Tensor res = residual[outChanGroup][y * resStrideY][x * resStrideX];
+        graph.connect(res, v["res"][numResUsed++]);
       }
     }
+    graph.setFieldSize(v["res"], numResUsed);
   }
-  mapComputeSet(graph, completionCS, mapping);
   mapActivations(activations, mapping);
   forwardProg.add(Execute(completionCS));
   createdForwardProg = true;
