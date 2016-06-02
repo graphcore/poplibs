@@ -235,8 +235,7 @@ public:
       }
     }
     assert(convNum == out.size());
-    return getConvPartial1x1CycleEstimate(convolutionsByWeight,
-                                          isSupervisorVertex);
+    return getConvPartial1x1CycleEstimate(convolutionsByWeight);
   }
 };
 
@@ -315,16 +314,15 @@ public:
     assert(in.size() % outHeight == 0);
     unsigned numInChanGroups = in.size() / outHeight;
 
-    std::vector<std::vector<unsigned>> convSizesByWeight;
-    for (unsigned i = 0; i != numInChanGroups; ++i) {
-      convSizesByWeight.emplace_back();
-      for (unsigned j = 0; j != outHeight; ++j) {
-        convSizesByWeight.back().push_back(outWidth);
-      }
-    }
     bool isSupervisorVertex = std::is_same<Base, SupervisorVertex>::value;
-    return getConvPartial1x1CycleEstimate(convSizesByWeight,
-                                          isSupervisorVertex);
+
+    return getConvPartialCycleEstimate(false /*isFloat*/, inChansPerGroup,
+                                       stride, 1 /*kernelWidth*/,
+                                       numInChanGroups,
+                                       outHeight,
+                                       outWidth,
+                                       outChansPerGroup,
+                                       isSupervisorVertex);
   }
 };
 

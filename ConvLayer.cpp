@@ -763,9 +763,9 @@ createConvPartial1x1InOutVertex(Graph &graph,
       const auto convOutWidth = convOutXEnd - convOutXBegin;
       if (convOutWidth == 0)
         continue;
-      std::vector<unsigned> convSizes(convOutHeight, convOutWidth);
       std::vector<std::vector<PartialRow>> workerPartition =
-          partitionConvPartialByWorker(convSizes, contextsPerVertex);
+          partitionConvPartialByWorker(convOutHeight, convOutWidth,
+                                       contextsPerVertex);
       assert(workerPartition.size() == contextsPerVertex);
       for (unsigned izg = inZGroupBegin; izg != inZGroupEnd; ++izg) {
         Tensor w =
