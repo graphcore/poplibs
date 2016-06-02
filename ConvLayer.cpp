@@ -1078,35 +1078,57 @@ void ConvLayerImpl::mapWeights(Graph &graph,
     for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
       const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
       const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
+      const auto numInZGroups = inZGroupEnd - inZGroupBegin;
       for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
         const auto outZGroupBegin =
             (ozg * partialNumChanGroups) / tilesPerZ;
         const auto outZGroupEnd =
             ((ozg + 1) * partialNumChanGroups) / tilesPerZ;
-        // Weights that are shared by tiles within this loop body.
+        const auto numOutZGroups = outZGroupEnd - outZGroupBegin;
+        // Group weights that are accessed contiguously by tiles within this
+        // loop body.
         Tensor sharedWeights;
         if (useConvolutionInstruction()) {
-          sharedWeights =
-              w.slice({outZGroupBegin, inZGroupBegin, 0, 0, 0, 0},
-                      {outZGroupEnd, inZGroupEnd, kernelSize, kernelSize,
-                       partialChansPerGroup, inChansPerGroup}).flatten();
+          if (kernelSize == 1) {
+            sharedWeights =
+                w.slice(
+                  {outZGroupBegin, inZGroupBegin, 0, 0, 0, 0},
+                  {outZGroupEnd, inZGroupEnd, kernelSize, kernelSize,
+                   partialChansPerGroup, inChansPerGroup}
+                ).reshape({numOutZGroups,
+                           numInZGroups * partialChansPerGroup *
+                           inChansPerGroup});
+          } else {
+            sharedWeights =
+                w.slice(
+                  {outZGroupBegin, inZGroupBegin, 0, 0, 0, 0},
+                  {outZGroupEnd, inZGroupEnd, kernelSize, kernelSize,
+                   partialChansPerGroup, inChansPerGroup}
+                ).reshape({numOutZGroups * numInZGroups * kernelSize *
+                           kernelSize,
+                           partialChansPerGroup * inChansPerGroup});
+          }
         } else {
           sharedWeights =
-              w.slice({inZGroupBegin, outZGroupBegin, 0, 0, 0},
-                      {inZGroupEnd, outZGroupEnd, kernelSize, kernelSize,
-                       inChansPerGroup}).flatten();
+              w.slice(
+                {inZGroupBegin, outZGroupBegin, 0, 0, 0},
+                {inZGroupEnd, outZGroupEnd, kernelSize, kernelSize,
+                 inChansPerGroup}
+              ).reshape({numInZGroups * numOutZGroups * kernelSize,
+                         kernelSize * inChansPerGroup});
         }
-        const auto numSharedWeights = sharedWeights.numElements();
-        // Spread the weights equally across the tiles that read them.
+        const auto numSharedWeightGroups = sharedWeights.dim(0);
+        // Spread groups of weights equally across the tiles that read them.
         for (unsigned oy = 0; oy != tilesPerY; ++oy) {
           for (unsigned ox = 0; ox != tilesPerX; ++ox) {
             const auto iw = ox + tilesPerX * oy;
-            const auto sharedWeightBegin =
-                (iw * numSharedWeights) / (tilesPerY * tilesPerX);
-            const auto sharedWeightEnd =
-                ((iw + 1) * numSharedWeights) / (tilesPerY * tilesPerX);
+            const auto sharedWeightGroupBegin =
+                (iw * numSharedWeightGroups) / (tilesPerY * tilesPerX);
+            const auto sharedWeightGroupEnd =
+                ((iw + 1) * numSharedWeightGroups) / (tilesPerY * tilesPerX);
             const auto tileWeights =
-                sharedWeights.slice(sharedWeightBegin, sharedWeightEnd);
+                sharedWeights.slice(sharedWeightGroupBegin,
+                                    sharedWeightGroupEnd);
             const auto tile = linearizeTileIndices(izg, ox, oy, ozg, partition,
                                                    isMultiIPU);
             mapping->setMapping(tileWeights, tile);
