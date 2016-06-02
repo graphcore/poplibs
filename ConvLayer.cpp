@@ -763,14 +763,14 @@ createConvPartial1x1InOutVertex(Graph &graph,
       const auto convOutWidth = convOutXEnd - convOutXBegin;
       if (convOutWidth == 0)
         continue;
+      std::vector<unsigned> convSizes(convOutHeight, convOutWidth);
+      std::vector<std::vector<PartialRow>> workerPartition =
+          partitionConvPartialByWorker(convSizes, contextsPerVertex);
+      assert(workerPartition.size() == contextsPerVertex);
       for (unsigned izg = inZGroupBegin; izg != inZGroupEnd; ++izg) {
         Tensor w =
             weightsIn[outZGroup][izg][wy][wx].flatten();
         graph.connect(v["weights"][numWeights], w);
-        std::vector<unsigned> convSizes(convOutHeight, convOutWidth);
-        std::vector<std::vector<PartialRow>> workerPartition =
-            partitionConvPartialByWorker(convSizes, contextsPerVertex);
-        assert(workerPartition.size() == contextsPerVertex);
         for (unsigned i = 0; i != contextsPerVertex; ++i) {
           graph.setInitialValue(
             v["weightReuseCount"][numWeights * contextsPerVertex + i],
