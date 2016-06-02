@@ -732,11 +732,13 @@ createConvPartial1x1InOutVertex(Graph &graph,
                                 const Tensor &out) {
   const auto inChansPerGroup = partition.inChansPerGroup;
   const auto outChansPerGroup = partition.partialChansPerGroup;
-
-  // Add the vertex.
+  const auto contextsPerVertex =
+      targetSharedConvWeights() ? getWorkerContextsPerTile() : 1;
   const char *baseClass =
       targetSharedConvWeights() ? "poplar::SupervisorVertex" :
                                   "poplar::Vertex";
+
+  // Add the vertex.
   auto v =
       graph.addVertex(fwdCS,
                       templateVertex("ConvPartial1x1InOut", baseClass));
@@ -759,48 +761,60 @@ createConvPartial1x1InOutVertex(Graph &graph,
           getOutputRange({outXBegin, outXEnd}, stride, kernelSize,
                          inDimX, wx);
       const auto convOutWidth = convOutXEnd - convOutXBegin;
-      if (convOutXBegin == convOutXEnd)
+      if (convOutWidth == 0)
         continue;
-      unsigned convInXBegin, convInXEnd;
-      std::tie(convInXBegin, convInXEnd) =
-          getInputRange({outXBegin, outXEnd}, stride, kernelSize,
-                        inDimX, wx);
-      const auto convInWidth = convInXEnd - convInXBegin;
       for (unsigned izg = inZGroupBegin; izg != inZGroupEnd; ++izg) {
         Tensor w =
             weightsIn[outZGroup][izg][wy][wx].flatten();
         graph.connect(v["weights"][numWeights], w);
-        graph.setInitialValue(v["weightReuseCount"][numWeights],
-                              convOutHeight);
-        ++numWeights;
-        for (unsigned y = convOutYBegin; y != convOutYEnd; ++y) {
-          const auto convInY =
-            getInputIndex(y, stride, kernelSize, inDimY, wy);
-          assert(convInY != ~0U);
-          Tensor inWindow =
-              in[izg][convInY].slice(
-                {convInXBegin, 0},
-                {convInXEnd, inChansPerGroup}
-              ).reshape({convInWidth * inChansPerGroup});
-          Tensor outWindow =
-              out[outZGroup][y].slice(
-                {convOutXBegin, 0},
-                {convOutXEnd, outChansPerGroup}
-              ).reshape({convOutWidth * outChansPerGroup});
-          if (mapping) {
-            mapping->setMapping(outWindow, tile);
+        std::vector<unsigned> convSizes(convOutHeight, convOutWidth);
+        std::vector<std::vector<PartialRow>> workerPartition =
+            partitionConvPartialByWorker(convSizes, contextsPerVertex);
+        assert(workerPartition.size() == contextsPerVertex);
+        for (unsigned i = 0; i != contextsPerVertex; ++i) {
+          graph.setInitialValue(
+            v["weightReuseCount"][numWeights * contextsPerVertex + i],
+            static_cast<std::uint32_t>(workerPartition[i].size())
+          );
+          for (const auto &partialRow : workerPartition[i]) {
+            const auto workerOutY = convOutYBegin + partialRow.rowNumber;
+            const auto workerOutXBegin = convOutXBegin + partialRow.begin;
+            const auto workerOutXEnd = convOutXBegin + partialRow.end;
+            const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
+            const auto workerInY =
+              getInputIndex(workerOutY, stride, kernelSize, inDimY, wy);
+            assert(workerInY != ~0U);
+            unsigned workerInXBegin, workerInXEnd;
+            std::tie(workerInXBegin, workerInXEnd) =
+                getInputRange({workerOutXBegin, workerOutXEnd}, stride,
+                               kernelSize, inDimX, wx);
+            const auto workerInWidth = workerInXEnd - workerInXBegin;
+            Tensor inWindow =
+                in[izg][workerInY].slice(
+                  {workerInXBegin, 0},
+                  {workerInXEnd, inChansPerGroup}
+                ).reshape({workerInWidth * inChansPerGroup});
+            Tensor outWindow =
+                out[outZGroup][workerOutY].slice(
+                  {workerOutXBegin, 0},
+                  {workerOutXEnd, outChansPerGroup}
+                ).reshape({workerOutWidth * outChansPerGroup});
+            if (mapping) {
+              mapping->setMapping(outWindow, tile);
+            }
+            graph.connect(v["in"][numConvolutions], inWindow);
+            graph.connect(v["out"][numConvolutions], outWindow);
+            ++numConvolutions;
           }
-          graph.connect(v["in"][numConvolutions], inWindow);
-          graph.connect(v["out"][numConvolutions], outWindow);
-          ++numConvolutions;
         }
+        ++numWeights;
       }
     }
   }
   graph.setFieldSize(v["in"], numConvolutions);
   graph.setFieldSize(v["out"], numConvolutions);
   graph.setFieldSize(v["weights"], numWeights);
-  graph.setFieldSize(v["weightReuseCount"], numWeights);
+  graph.setFieldSize(v["weightReuseCount"], numWeights * contextsPerVertex);
 }
 
 

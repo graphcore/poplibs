@@ -166,29 +166,32 @@ public:
   bool compute() {
     assert(out.size() > 0);
     assert(out.size() == in.size());
-    assert(weightReuseCount.size() == weights.size());
+    assert(weightReuseCount.size() % weights.size() == 0);
+    const auto numContexts = weightReuseCount.size() / weights.size();
     unsigned convNum = 0;
     for (unsigned w = 0; w != weights.size(); ++w) {
-      for (unsigned i = 0; i != weightReuseCount[w]; ++i) {
-        const auto outWidth = out[convNum].size() / outChansPerGroup;
-        const auto inWidth = in[convNum].size() / inChansPerGroup;
-        const auto stride = (inWidth + outWidth - 1) / outWidth;
-        assert((inWidth + stride - 1) / stride == outWidth);
-        for (unsigned x = 0; x != outWidth; ++x) {
-          for (unsigned inChanIndex = 0; inChanIndex != inChansPerGroup;
-               ++inChanIndex) {
-            for (unsigned outChanIndex = 0; outChanIndex != outChansPerGroup;
-                 ++outChanIndex) {
-              const auto outIndex = outChanIndex + outChansPerGroup * x;
-              const auto weightIndex =
-                  inChanIndex + inChansPerGroup * outChanIndex;
-              const auto inIndex = inChanIndex + inChansPerGroup * x * stride;
-              out[convNum][outIndex] += weights[w][weightIndex] *
-                                        in[convNum][inIndex];
+      for (unsigned c = 0; c != numContexts; ++c) {
+        for (unsigned i = 0; i != weightReuseCount[w * numContexts + c]; ++i) {
+          const auto outWidth = out[convNum].size() / outChansPerGroup;
+          const auto inWidth = in[convNum].size() / inChansPerGroup;
+          const auto stride = (inWidth + outWidth - 1) / outWidth;
+          assert((inWidth + stride - 1) / stride == outWidth);
+          for (unsigned x = 0; x != outWidth; ++x) {
+            for (unsigned inChanIndex = 0; inChanIndex != inChansPerGroup;
+                 ++inChanIndex) {
+              for (unsigned outChanIndex = 0; outChanIndex != outChansPerGroup;
+                   ++outChanIndex) {
+                const auto outIndex = outChanIndex + outChansPerGroup * x;
+                const auto weightIndex =
+                    inChanIndex + inChansPerGroup * outChanIndex;
+                const auto inIndex = inChanIndex + inChansPerGroup * x * stride;
+                out[convNum][outIndex] += weights[w][weightIndex] *
+                                          in[convNum][inIndex];
+              }
             }
           }
+          ++convNum;
         }
-        ++convNum;
       }
     }
     assert(convNum == out.size());
@@ -196,6 +199,31 @@ public:
   }
 
   std::uint64_t getCycleEstimate() const {
+    bool isSupervisorVertex = std::is_same<Base, SupervisorVertex>::value;
+    const auto numContexts = weightReuseCount.size() / weights.size();
+    if (isSupervisorVertex) {
+      std::vector<std::vector<std::vector<unsigned>>>
+          convolutionsByWeightAndWorker;
+      unsigned convNum = 0;
+      for (unsigned w = 0; w != weights.size(); ++w) {
+        convolutionsByWeightAndWorker.emplace_back();
+        auto &convolutionsByWeight = convolutionsByWeightAndWorker.back();
+        for (unsigned c = 0; c != numContexts; ++c) {
+          convolutionsByWeight.emplace_back();
+          for (unsigned i = 0; i != weightReuseCount[w * numContexts + c];
+               ++i) {
+            convolutionsByWeight.back().push_back(out[convNum].size() /
+                                                  outChansPerGroup);
+            ++convNum;
+          }
+        }
+      }
+      assert(convNum == out.size());
+      return getConvPartial1x1SupervisorCycleEstimate(
+        convolutionsByWeightAndWorker
+      );
+    }
+    assert(numContexts == 1);
     std::vector<std::vector<unsigned>> convolutionsByWeight(1);
     unsigned convNum = 0;
     for (unsigned w = 0; w != weights.size(); ++w) {
@@ -207,7 +235,6 @@ public:
       }
     }
     assert(convNum == out.size());
-    bool isSupervisorVertex = std::is_same<Base, SupervisorVertex>::value;
     return getConvPartial1x1CycleEstimate(convolutionsByWeight,
                                           isSupervisorVertex);
   }

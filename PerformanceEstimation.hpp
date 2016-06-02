@@ -66,38 +66,64 @@ getConvPartial1x1SupervisorCycleEstimate(
   return cycles;
 }
 
+struct PartialRow {
+  unsigned rowNumber;
+  unsigned begin;
+  unsigned end;
+  PartialRow(unsigned rowNumber, unsigned begin, unsigned end) :
+    rowNumber(rowNumber),
+    begin(begin),
+    end(end) {}
+};
+
+inline std::vector<std::vector<PartialRow>>
+partitionConvPartialByWorker(
+    const std::vector<unsigned> &convSizes,
+    unsigned numContexts) {
+  std::vector<std::vector<PartialRow>> partitionByWorker;
+  partitionByWorker.reserve(numContexts);
+  assert(allEqual(convSizes.begin(), convSizes.end()));
+  const auto convSize = convSizes.front();
+  const auto numElements =
+      std::accumulate(convSizes.begin(), convSizes.end(), 0);
+  for (unsigned i = 0; i != numContexts; ++i) {
+    partitionByWorker.emplace_back();
+    const auto beginElement = (i * numElements) / numContexts;
+    const auto endElement = ((i + 1) * numElements) / numContexts;
+    if (beginElement == endElement)
+      continue;
+    const auto beginRow = beginElement / convSize;
+    const auto endRow = 1 + (endElement - 1) / convSize;
+    for (unsigned j = beginRow; j != endRow; ++j) {
+      unsigned beginIndex = j == beginRow ? beginElement % convSize :
+                                            0;
+      unsigned endIndex = j + 1 == endRow ? 1 + (endElement - 1) % convSize :
+                                            convSize;
+      partitionByWorker.back().emplace_back(j, beginIndex, endIndex);
+    }
+  }
+  return partitionByWorker;
+}
+
 inline std::uint64_t
 getConvPartial1x1CycleEstimate(
     const std::vector<std::vector<unsigned>> &convSizesByWeight,
     bool supervisorVertex) {
-  const auto numWorkerContexts = 6;
   if (supervisorVertex) {
     std::vector<std::vector<std::vector<unsigned>>> convSizesByWeightAndWorker;
     convSizesByWeightAndWorker.reserve(convSizesByWeight.size());
     for (const auto &convSizes : convSizesByWeight) {
-      if (convSizes.empty())
-        continue;
+      const auto numWorkerContexts = 6;
+      std::vector<std::vector<PartialRow>> partition =
+          partitionConvPartialByWorker(convSizes, numWorkerContexts);
       convSizesByWeightAndWorker.emplace_back();
-      assert(allEqual(convSizes.begin(), convSizes.end()));
-      const auto convSize = convSizes.front();
-      const auto numElements =
-          std::accumulate(convSizes.begin(), convSizes.end(), 0);
-      auto &convSizesByWorker = convSizesByWeightAndWorker.back();
-      convSizesByWorker.reserve(numWorkerContexts);
-      for (unsigned i = 0; i != numWorkerContexts; ++i) {
-        convSizesByWorker.emplace_back();
-        const auto beginElement = (i * numElements) / numWorkerContexts;
-        const auto endElement = ((i + 1) * numElements) / numWorkerContexts;
-        if (beginElement == endElement)
-          continue;
-        const auto beginRow = beginElement / convSize;
-        const auto endRow = 1 + (endElement - 1) / convSize;
-        for (unsigned j = beginRow; j != endRow; ++j) {
-          unsigned beginIndex = j == beginRow ? beginElement % convSize :
-                                                0;
-          unsigned endIndex = j + 1 == endRow ? 1 + (endElement - 1) % convSize :
-                                                convSize;
-          convSizesByWorker.back().push_back(endIndex - beginIndex);
+      convSizesByWeightAndWorker.back().reserve(partition.size());
+      for (const auto &entry : partition) {
+        convSizesByWeightAndWorker.back().emplace_back();
+        convSizesByWeightAndWorker.back().back().reserve(entry.size());
+        for (const auto &partialRow : entry) {
+          convSizesByWeightAndWorker.back().back().push_back(partialRow.end -
+                                                             partialRow.begin);
         }
       }
     }
