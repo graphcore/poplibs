@@ -1063,32 +1063,39 @@ void ConvLayerImpl::mapActivations(Graph &graph,
 void ConvLayerImpl::mapWeights(Graph &graph,
                                IPUModelEngineBuilder::TileMapping *mapping,
                                Tensor w) {
-  if (useConvolutionInstruction()) {
-    // TODO
-    mapTensor(w, mapping);
-    return;
-  }
   const auto isMultiIPU = getNumIPUs() > 1;
   const auto inChansPerGroup = partition.inChansPerGroup;
+  const auto partialChansPerGroup = partition.partialChansPerGroup;
   const auto tilesPerX = partition.tilesPerXAxis;
   const auto tilesPerY = partition.tilesPerYAxis;
   const auto tilesPerZ = partition.tilesPerZAxis;
   const auto tilesPerInZGroup = partition.tilesPerInZGroupAxis;
   const auto numInZGroups = inNumChans / inChansPerGroup;
-  assert(partition.partialChansPerGroup == 1);
+  assert(outNumChans % partialChansPerGroup == 0);
+  const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
 
   if (mapping) {
     for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
       const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
       const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
-      for (unsigned oz = 0; oz != tilesPerZ; ++oz) {
-        const auto outZBegin = (oz * outNumChans) / tilesPerZ;
-        const auto outZEnd = ((oz + 1) * outNumChans) / tilesPerZ;
+      for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
+        const auto outZGroupBegin =
+            (ozg * partialNumChanGroups) / tilesPerZ;
+        const auto outZGroupEnd =
+            ((ozg + 1) * partialNumChanGroups) / tilesPerZ;
         // Weights that are shared by tiles within this loop body.
-        const auto sharedWeights =
-            w.slice({inZGroupBegin, outZBegin, 0, 0, 0},
-                    {inZGroupEnd, outZEnd, kernelSize, kernelSize,
-                     inChansPerGroup}).flatten();
+        Tensor sharedWeights;
+        if (useConvolutionInstruction()) {
+          sharedWeights =
+              w.slice({outZGroupBegin, inZGroupBegin, 0, 0, 0, 0},
+                      {outZGroupEnd, inZGroupEnd, kernelSize, kernelSize,
+                       partialChansPerGroup, inChansPerGroup}).flatten();
+        } else {
+          sharedWeights =
+              w.slice({inZGroupBegin, outZGroupBegin, 0, 0, 0},
+                      {inZGroupEnd, outZGroupEnd, kernelSize, kernelSize,
+                       inChansPerGroup}).flatten();
+        }
         const auto numSharedWeights = sharedWeights.numElements();
         // Spread the weights equally across the tiles that read them.
         for (unsigned oy = 0; oy != tilesPerY; ++oy) {
@@ -1100,7 +1107,7 @@ void ConvLayerImpl::mapWeights(Graph &graph,
                 ((iw + 1) * numSharedWeights) / (tilesPerY * tilesPerX);
             const auto tileWeights =
                 sharedWeights.slice(sharedWeightBegin, sharedWeightEnd);
-            const auto tile = linearizeTileIndices(izg, ox, oy, oz, partition,
+            const auto tile = linearizeTileIndices(izg, ox, oy, ozg, partition,
                                                    isMultiIPU);
             mapping->setMapping(tileWeights, tile);
           }
