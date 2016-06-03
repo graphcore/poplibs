@@ -372,10 +372,21 @@ choosePartition(unsigned numWorkerContexts,
           const auto tilesPerInZ =
               std::min(params.inputDepth / inChansPerGroup,
                        numTiles / (tilesPerX * tilesPerY * tilesPerZ));
-          const auto maxVerticesPerTilePerY =
+          auto maxVerticesPerTilePerY =
               (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
-          const auto minVerticesPerTilePerY =
-              partialChansPerGroup == 4 ? 1 : maxVerticesPerTilePerY;
+          auto minVerticesPerTilePerY = 1;
+          if (partialChansPerGroup == 4) {
+            if (targetConvSharedWeights) {
+              // All workers are utilized in each single supervisor vertex so
+              // there is no reason to use more than the minimum number of
+              // vertices.
+              maxVerticesPerTilePerY = 1;
+            }
+          } else {
+            // The ConvPartial vertex that doesn't use the convolution
+            // instruction always computes a single output row.
+            minVerticesPerTilePerY = maxVerticesPerTilePerY;
+          }
           for (unsigned verticesPerTilePerY = minVerticesPerTilePerY;
                verticesPerTilePerY <= maxVerticesPerTilePerY;
                ++verticesPerTilePerY) {
