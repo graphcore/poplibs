@@ -304,13 +304,27 @@ estimateComputeCost(unsigned numWorkerContexts, bool isFloat,
 }
 
 static unsigned
+estimatePartitionCostBounded(unsigned numWorkerContexts, bool isFloat,
+                             const ConvolutionParams &params,
+                             const ConvLayerPartition &partition,
+                             bool targetConvSharedWeights,
+                             unsigned maxBound) {
+  auto cost = estimateExchangeCost(isFloat, params, partition);
+  if (cost > maxBound)
+    return maxBound;
+  cost += estimateComputeCost(numWorkerContexts, isFloat, params, partition,
+                              targetConvSharedWeights);
+  return std::min(cost, maxBound);
+}
+
+static unsigned
 estimatePartitionCost(unsigned numWorkerContexts, bool isFloat,
                       const ConvolutionParams &params,
                       const ConvLayerPartition &partition,
                       bool targetConvSharedWeights) {
-  return estimateExchangeCost(isFloat, params, partition) +
-         estimateComputeCost(numWorkerContexts, isFloat, params, partition,
-                             targetConvSharedWeights);
+  return estimatePartitionCostBounded(numWorkerContexts, isFloat, params,
+                                      partition, targetConvSharedWeights,
+                                      std::numeric_limits<unsigned>::max());
 }
 
 static ConvLayerPartition
@@ -326,11 +340,12 @@ choosePartition(unsigned numWorkerContexts,
     // TODO handle this case.
     std::abort();
   }
-  std::vector<unsigned> partialChansPerGroupCandidates = { 1 };
+  std::vector<unsigned> partialChansPerGroupCandidates;
   if (canUseConvolutionInstruction(isFloat, params.stride, inChansPerGroup,
                                    4)) {
     partialChansPerGroupCandidates.push_back(4);
   }
+  partialChansPerGroupCandidates.push_back(1);
   // If tilesPerY is greater than one we end up splitting across the y axis of
   // the output volume. The input elements required to compute output elements
   // on one side of the split will overlap with the input elements required for
@@ -368,8 +383,9 @@ choosePartition(unsigned numWorkerContexts,
                                          verticesPerTilePerY, tilesPerInZ,
                                          inChansPerGroup, partialChansPerGroup);
             auto candidateCost =
-                estimatePartitionCost(numWorkerContexts, isFloat, params,
-                                      candidate, targetConvSharedWeights);
+                estimatePartitionCostBounded(numWorkerContexts, isFloat, params,
+                                             candidate, targetConvSharedWeights,
+                                             bestCost);
             if (candidateCost < bestCost) {
               bestPartition = candidate;
               bestCost = candidateCost;
