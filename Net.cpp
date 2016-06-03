@@ -162,7 +162,9 @@ void Net::initialize(DataSet &data, LossType lossType) {
       static_cast<IPUModelEngineBuilder *>(&eb);
     ipuEB->setNumIPUs(options.numIPUs);
     unsigned numTiles = ipuEB->getTilesPerIPU() * ipuEB->getNumIPUs();
-    ipuEB->setIPUExchangeImplementation(IPUModelEngineBuilder::BARE_NAKED_WITH_MULTICAST);
+    ipuEB->setIPUExchangeImplementation(
+      IPUModelEngineBuilder::BARE_NAKED_WITH_AGGRESSIVE_MULTICAST
+    );
     ipuEB->setGlobalSyncCycles(500);
     std::vector <Tensor> tensors = graph->getTensors();
     std::vector <ComputeSet> computeSets = graph->getComputeSets();
