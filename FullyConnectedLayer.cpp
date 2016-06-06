@@ -143,60 +143,69 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
     const auto ipuBeginRow = (numRows * ipu) / numIPUs;
     const auto ipuEndRow = (numRows * (ipu + 1)) / numIPUs;
     const auto ipuRows = ipuEndRow - ipuBeginRow;
-    const auto tileY = ((i - ipuBeginRow) * ipuPartition.tilesPerColumn) /
-                       ipuRows;
-    for (unsigned j = 0; j != ipuPartition.tilesPerRow; ++j) {
-      const auto tileX = j;
-      const auto tile = ipu * tilesPerIPU +
-                        tileY * ipuPartition.tilesPerRow +
-                        tileX;
-      VertexRef v;
-      if (ipuPartition.tilesPerRow > 1) {
-        const auto beginElement =
-            (numCols * j) / ipuPartition.tilesPerRow;
-        const auto endElement =
-            (numCols * (j + 1)) / ipuPartition.tilesPerRow;
-        Tensor partialIn = in.slice(beginElement, endElement);
-        Tensor partialWeights = weights[i].slice(beginElement, endElement);
-        v = graph.addVertex(dotProductCS,
-                            templateVertex("FullyConnectedPartial", getDType()),
-                            {{"in", partialIn},
-                             {"weights", partialWeights},
-                             {"out", partials[i][j]}});
-        if (mapping) {
-          mapping->setMapping(partialWeights, tile);
-          mapping->setMapping(v, tile);
-        }
-      } else {
-        v = graph.addVertex(dotProductCS,
-                            templateVertex("FullyConnected", getDType()),
-                            {{"activationIn", in},
-                             {"weights", weights[i]},
-                             {"bias", biases[i]},
-                             {"zOut", z[i]},
-                             {"activationOut", activations[i]}});
-        graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
-        if (mapping) {
-          mapping->setMapping(weights[i], tile);
-          mapping->setMapping(v, tile);
+    if (ipuPartition.tilesPerRow > 1) {
+      const auto tileY = ((i - ipuBeginRow) * ipuPartition.tilesPerColumn) /
+                         ipuRows;
+      for (unsigned j = 0; j != ipuPartition.tilesPerRow; ++j) {
+        const auto tileX = j;
+        const auto tile = ipu * tilesPerIPU +
+                          tileY * ipuPartition.tilesPerRow +
+                          tileX;
+        if (ipuPartition.tilesPerRow > 1) {
+          const auto beginElement =
+              (numCols * j) / ipuPartition.tilesPerRow;
+          const auto endElement =
+              (numCols * (j + 1)) / ipuPartition.tilesPerRow;
+          Tensor partialIn = in.slice(beginElement, endElement);
+          Tensor partialWeights = weights[i].slice(beginElement, endElement);
+          auto v =
+              graph.addVertex(dotProductCS,
+                              templateVertex("FullyConnectedPartial", getDType()),
+                              {{"in", partialIn},
+                               {"weights", partialWeights},
+                               {"out", partials[i][j]}});
+          if (mapping) {
+            mapping->setMapping(partialWeights, tile);
+            mapping->setMapping(partials[i][j], tile);
+            mapping->setMapping(v, tile);
+          }
         }
       }
     }
+    const auto resultTile = (i * getNumIPUs() * getTilesPerIPU()) /
+                            numRows;
+    if (mapping) {
+      mapping->setMapping(biases[i], resultTile);
+      mapping->setMapping(z[i], resultTile);
+      mapping->setMapping(activations[i], resultTile);
+    }
     if (ipuPartition.tilesPerRow > 1) {
       // Sum the partial sums.
-      auto v = graph.addVertex(reduceCS,
-                               templateVertex("FullyConnectedReduce",
-                                              getDType()),
-                               {{"partials", partials[i]},
-                                {"bias", biases[i]},
-                                {"zOut", z[i]},
-                                {"activationOut", activations[i]}});
+      auto v =
+          graph.addVertex(reduceCS,
+                          templateVertex("FullyConnectedReduce",
+                                         getDType()),
+                          {{"partials", partials[i]},
+                           {"bias", biases[i]},
+                           {"zOut", z[i]},
+                           {"activationOut", activations[i]}});
       graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
       if (mapping) {
-        const auto resultTile = (i * getNumIPUs() * getTilesPerIPU()) /
-                                numRows;
-        mapping->setMapping(partials[i], resultTile);
         mapping->setMapping(v, resultTile);
+      }
+    } else {
+      auto v =
+          graph.addVertex(dotProductCS,
+                          templateVertex("FullyConnected", getDType()),
+                          {{"activationIn", in},
+                           {"weights", weights[i]},
+                           {"bias", biases[i]},
+                           {"zOut", z[i]},
+                           {"activationOut", activations[i]}});
+      graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
+      if (mapping) {
+        mapping->setMapping(v, resultTile);
+        mapping->setMapping(weights[i], resultTile);
       }
     }
   }
