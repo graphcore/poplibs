@@ -265,10 +265,10 @@ estimateVertexCycles(bool isFloat, const ConvolutionParams &params,
 }
 
 static unsigned
-estimateComputeCost(unsigned numWorkerContexts, bool isFloat,
-                    const ConvolutionParams &params,
-                    const ConvLayerPartition &partition,
-                    bool targetConvSharedWeights) {
+estimateFwdComputeCost(unsigned numWorkerContexts, bool isFloat,
+                       const ConvolutionParams &params,
+                       const ConvLayerPartition &partition,
+                       bool targetConvSharedWeights) {
   const auto tilesPerY = partition.tilesPerYAxis;
   const auto tilesPerZ = partition.tilesPerZAxis;
   const auto outChansPerGroup = partition.partialChansPerGroup;
@@ -304,26 +304,54 @@ estimateComputeCost(unsigned numWorkerContexts, bool isFloat,
 }
 
 static unsigned
-estimatePartitionCostBounded(unsigned numWorkerContexts, bool isFloat,
-                             const ConvolutionParams &params,
+estimateReduceComputeCost(unsigned numTiles,
+                          const ConvolutionParams &params,
+                          const ConvLayerPartition &partition) {
+  if (partition.tilesPerInZGroupAxis == 1)
+    return 0;
+  const auto numOutputs = params.getOutputHeight() * params.getOutputWidth() *
+                          params.outputDepth;
+  const auto numOutputsPerTile = (numOutputs + numTiles - 1) / numTiles;
+  const auto numPartialSumsPerTile = numOutputsPerTile *
+                                     partition.tilesPerInZGroupAxis;
+  const auto numCycles = (numPartialSumsPerTile + 1) / 2;
+  return numCycles;
+}
+
+static unsigned
+estimateComputeCost(unsigned numWorkerContexts, unsigned numTiles,
+                    bool isFloat, const ConvolutionParams &params,
+                    const ConvLayerPartition &partition,
+                    bool targetConvSharedWeights) {
+  return estimateFwdComputeCost(numWorkerContexts, isFloat, params,
+                                partition, targetConvSharedWeights) +
+         estimateReduceComputeCost(numTiles, params,
+                                   partition);
+
+}
+
+static unsigned
+estimatePartitionCostBounded(unsigned numWorkerContexts, unsigned numTiles,
+                             bool isFloat, const ConvolutionParams &params,
                              const ConvLayerPartition &partition,
                              bool targetConvSharedWeights,
                              unsigned maxBound) {
   auto cost = estimateExchangeCost(isFloat, params, partition);
   if (cost > maxBound)
     return maxBound;
-  cost += estimateComputeCost(numWorkerContexts, isFloat, params, partition,
-                              targetConvSharedWeights);
+  cost += estimateComputeCost(numWorkerContexts, numTiles, isFloat, params,
+                              partition, targetConvSharedWeights);
   return std::min(cost, maxBound);
 }
 
 static unsigned
-estimatePartitionCost(unsigned numWorkerContexts, bool isFloat,
-                      const ConvolutionParams &params,
+estimatePartitionCost(unsigned numWorkerContexts, unsigned numTiles,
+                      bool isFloat, const ConvolutionParams &params,
                       const ConvLayerPartition &partition,
                       bool targetConvSharedWeights) {
-  return estimatePartitionCostBounded(numWorkerContexts, isFloat, params,
-                                      partition, targetConvSharedWeights,
+  return estimatePartitionCostBounded(numWorkerContexts, numTiles,
+                                      isFloat, params, partition,
+                                      targetConvSharedWeights,
                                       std::numeric_limits<unsigned>::max());
 }
 
@@ -394,8 +422,9 @@ choosePartition(unsigned numWorkerContexts,
                                          verticesPerTilePerY, tilesPerInZ,
                                          inChansPerGroup, partialChansPerGroup);
             auto candidateCost =
-                estimatePartitionCostBounded(numWorkerContexts, isFloat, params,
-                                             candidate, targetConvSharedWeights,
+                estimatePartitionCostBounded(numWorkerContexts, numTiles,
+                                             isFloat, params, candidate,
+                                             targetConvSharedWeights,
                                              bestCost);
             if (candidateCost < bestCost) {
               bestPartition = candidate;
@@ -525,7 +554,7 @@ size_t ConvLayerImpl::getNumChannelGroupsIn(size_t xPrev, size_t yPrev,
       choosePartition(numWorkerContexts, isFloat, i,
                       params, numTiles, sharedWeights);
     const auto candidateCost =
-        estimatePartitionCost(numWorkerContexts, isFloat, params,
+        estimatePartitionCost(numWorkerContexts, numTiles, isFloat, params,
                               candidate, sharedWeights);
     if (candidateCost < bestCost) {
       inChansPerGroup = candidate.inChansPerGroup;
