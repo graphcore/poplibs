@@ -469,6 +469,10 @@ ConvLayerImpl::ConvLayerImpl(Net &net,
               std::to_string(kernelSize);
 }
 
+bool ConvLayerImpl::targetSharedConvWeights() const {
+  return getNetOptions().ipuMachineInfo.sharedConvWeights;
+}
+
 std::uint64_t ConvLayerImpl::getNumberOfMACs() {
   std::uint64_t numMACs = 0;
   for (unsigned y = 0; y < outDimY; ++y) {
@@ -543,8 +547,6 @@ size_t ConvLayerImpl::getNumChannelGroupsIn(size_t xPrev, size_t yPrev,
                                             size_t zPrev) const {
   unsigned inChansPerGroup = zPrev;
   const bool isFloat = getDType() == "float";
-  const auto numWorkerContexts = getWorkerContextsPerTile();
-  const auto numTiles = getNumIPUs() * getTilesPerIPU();
   unsigned bestCost = std::numeric_limits<unsigned>::max();
   ConvolutionParams params(kernelSize, stride, zPrev, xPrev,
                            yPrev, padding, outNumChans);

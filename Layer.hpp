@@ -13,6 +13,7 @@ using namespace poplar;
 using namespace poplar::program;
 
 class Net;
+class NetOptions;
 
 /* A data set full of test and training data along with its dimensions */
 class DataSet {
@@ -42,8 +43,8 @@ protected:
   const std::string &getDType() const;
   unsigned getDTypeSize() const;
   enum NetType getNetType() const;
+  const NetOptions &getNetOptions() const;
   unsigned getBatchSize() const;
-  bool targetSharedConvWeights() const;
   void mapTensor(Tensor t, IPUModelEngineBuilder::TileMapping *mapping);
   void mapComputeSet(const Graph &graph, ComputeSet c,
                      IPUModelEngineBuilder::TileMapping *mapping);

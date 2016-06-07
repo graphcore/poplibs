@@ -28,11 +28,9 @@ unsigned Layer::getDTypeSize() const {
 
 unsigned Layer::getBatchSize() const { return net.getBatchSize(); }
 
-bool Layer::targetSharedConvWeights() const {
-  return net.options.sharedConvWeights;
-}
-
 enum NetType Layer::getNetType() const { return net.getNetType(); }
+
+const NetOptions &Layer::getNetOptions() const { return net.options; }
 
 void Layer::mapTensor(Tensor t, IPUModelEngineBuilder::TileMapping *mapping) {
   if (!mapping)

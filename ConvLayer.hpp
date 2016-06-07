@@ -75,6 +75,7 @@ enum ResidualMethod {
 
 class ConvLayerImpl : public Layer {
   bool useConvolutionInstruction() const;
+  bool targetSharedConvWeights() const;
 
   void
   createConvPartial1x1InOutVertex(Graph &graph,

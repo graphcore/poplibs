@@ -32,15 +32,20 @@ enum DType {
   FP32
 };
 
+class IPUMachineInfo {
+public:
+  bool sharedConvWeights = true;
+};
+
 class NetOptions {
 public:
   bool useIPUModel = false;
   bool doComputation = true;
   bool singleBatchProfile = false;
-  bool sharedConvWeights = true;
   unsigned numIPUs = 1;
   unsigned numBatchesBetweenTest = 2500;
   bool reuseLayerImplGraphs = true;
+  IPUMachineInfo ipuMachineInfo;
 };
 
 bool parseCommandLine(int argc, char **argv, NetOptions &options);
