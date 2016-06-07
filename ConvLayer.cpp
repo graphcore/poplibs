@@ -268,7 +268,7 @@ static unsigned
 estimateFwdComputeCost(IPUModelEngineBuilder *engineBuilder, bool isFloat,
                        const ConvolutionParams &params,
                        const ConvLayerPartition &partition,
-                       bool targetConvSharedWeights) {
+                       const IPUMachineInfo &machineInfo) {
   const auto tilesPerY = partition.tilesPerYAxis;
   const auto tilesPerZ = partition.tilesPerZAxis;
   const auto outChansPerGroup = partition.partialChansPerGroup;
@@ -289,7 +289,7 @@ estimateFwdComputeCost(IPUModelEngineBuilder *engineBuilder, bool isFloat,
   bool useSupervisorVertices = false;
   unsigned numContexts =
       engineBuilder ? engineBuilder->getNumWorkerContexts() : 1;
-  if (targetConvSharedWeights &&
+  if (machineInfo.sharedConvWeights &&
       canUseConvolutionInstruction(isFloat, params.stride,
                                    partition.inChansPerGroup,
                                    partition.partialChansPerGroup)) {
@@ -324,9 +324,9 @@ static unsigned
 estimateComputeCost(IPUModelEngineBuilder *engineBuilder,
                     bool isFloat, const ConvolutionParams &params,
                     const ConvLayerPartition &partition,
-                    bool targetConvSharedWeights) {
+                    const IPUMachineInfo &machineInfo) {
   return estimateFwdComputeCost(engineBuilder, isFloat, params, partition,
-                                targetConvSharedWeights) +
+                                machineInfo) +
          estimateReduceComputeCost(engineBuilder, params,
                                    partition);
 
@@ -336,13 +336,13 @@ static unsigned
 estimatePartitionCostBounded(IPUModelEngineBuilder *engineBuilder,
                              bool isFloat, const ConvolutionParams &params,
                              const ConvLayerPartition &partition,
-                             bool targetConvSharedWeights,
+                             const IPUMachineInfo &machineInfo,
                              unsigned maxBound) {
   auto cost = estimateExchangeCost(isFloat, params, partition);
   if (cost > maxBound)
     return maxBound;
   cost += estimateComputeCost(engineBuilder, isFloat, params,
-                              partition, targetConvSharedWeights);
+                              partition, machineInfo);
   return std::min(cost, maxBound);
 }
 
@@ -350,10 +350,10 @@ static unsigned
 estimatePartitionCost(IPUModelEngineBuilder *engineBuilder,
                       bool isFloat, const ConvolutionParams &params,
                       const ConvLayerPartition &partition,
-                      bool targetConvSharedWeights) {
+                      const IPUMachineInfo &machineInfo) {
   return estimatePartitionCostBounded(engineBuilder,
                                       isFloat, params, partition,
-                                      targetConvSharedWeights,
+                                      machineInfo,
                                       std::numeric_limits<unsigned>::max());
 }
 
@@ -362,7 +362,7 @@ choosePartition(IPUModelEngineBuilder *engineBuilder,
                 bool isFloat,
                 unsigned inChansPerGroup,
                 const ConvolutionParams &params,
-                bool targetConvSharedWeights) {
+                const IPUMachineInfo &machineInfo) {
   unsigned bestCost = std::numeric_limits<unsigned>::max();
   ConvLayerPartition bestPartition;
   if (params.inputDepth % inChansPerGroup != 0) {
@@ -408,7 +408,7 @@ choosePartition(IPUModelEngineBuilder *engineBuilder,
               (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
           auto minVerticesPerTilePerY = 1;
           if (partialChansPerGroup == 4) {
-            if (targetConvSharedWeights) {
+            if (machineInfo.sharedConvWeights) {
               // All workers are utilized in each single supervisor vertex so
               // there is no reason to use more than the minimum number of
               // vertices.
@@ -428,7 +428,7 @@ choosePartition(IPUModelEngineBuilder *engineBuilder,
             auto candidateCost =
                 estimatePartitionCostBounded(engineBuilder,
                                              isFloat, params, candidate,
-                                             targetConvSharedWeights,
+                                             machineInfo,
                                              bestCost);
             if (candidateCost < bestCost) {
               bestPartition = candidate;
@@ -555,13 +555,12 @@ size_t ConvLayerImpl::getNumChannelGroupsIn(size_t xPrev, size_t yPrev,
       continue;
     if (!isFloat && i % 2 != 0)
       continue;
-    const auto sharedWeights = targetSharedConvWeights();
     const auto candidate =
       choosePartition(getIPUModelEngineBuilder(), isFloat, i, params,
-                      sharedWeights);
+                      getNetOptions().ipuMachineInfo);
     const auto candidateCost =
         estimatePartitionCost(getIPUModelEngineBuilder(), isFloat, params,
-                              candidate, sharedWeights);
+                              candidate, getNetOptions().ipuMachineInfo);
     if (candidateCost < bestCost) {
       inChansPerGroup = candidate.inChansPerGroup;
       bestCost = candidateCost;
@@ -588,7 +587,7 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
                       inChansPerGroup,
                       ConvolutionParams(kernelSize, stride, inNumChans, inDimX,
                                         inDimY, padding, outNumChans),
-                      targetSharedConvWeights());
+                      getNetOptions().ipuMachineInfo);
   Layer *next = getNextLayer();
   outNumChanGroups = next->getNumChannelGroupsIn(inDimX, inDimY, outNumChans);
   size_t outChansPerGroup;
