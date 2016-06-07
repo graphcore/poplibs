@@ -208,7 +208,7 @@ def parse(lines):
     return layer_data
 
 
-def benchmark(prog, param_space, args):
+def benchmark(run_name, prog, param_space, args):
     param_names = [name for name, _ in param_space]
     runs = []
     for param_set in \
@@ -216,7 +216,10 @@ def benchmark(prog, param_space, args):
         params = dict(zip(param_names, param_set))
         params_str = '_'.join(str(x)+'_'+str(y) for x,y in params.items())
         params_str = params_str.replace(' ','_')
-        logname = prog + '_' + params_str + ".log"
+        logname = prog + '_' + params_str
+        if run_name:
+            logname += '_' + run_name
+        logname += ".log"
         if args.use_logs:
             print("Reading " + logname)
             log = open(logname).readlines()
@@ -245,6 +248,9 @@ def main():
                         help='Test graph reuse option in resnet benchmarks.')
     parser.add_argument('--report', dest='create_report', action='store_true',
                         help='Create a overall report on the benchmarks.')
+    parser.add_argument('--name', dest='run_name', default="", type=str,
+                        help='Name for this benchmark run'
+                               + ' (will be appended to logfile names).')
     parser.add_argument('progs', metavar='prog', type=str, nargs='*',
                         help='Programs to run {}'.format(str(all_progs)))
 
@@ -264,10 +270,14 @@ def main():
             sys.stderr.write("ERROR: unknown program '{}'\n".format(prog))
             return 1
         param_space = benchmarks[prog]
-        prog_runs = benchmark(prog, param_space, args)
+        prog_runs = benchmark(args.run_name, prog, param_space, args)
         runs += [(prog, x, y) for (x, y) in prog_runs]
     if args.create_report:
-        create_report(runs, "benchmark_report.csv")
+        report_file = "benchmark_report"
+        if args.run_name:
+            report_file += "_" + args.run_name
+        report_file += ".csv"
+        create_report(runs, report_file)
     return 0
 
 
