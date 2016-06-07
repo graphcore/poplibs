@@ -68,11 +68,22 @@ public:
   unsigned numTestBatches;
 
   std::string dType;
-  unsigned workerContextsPerTile, numIPUs, tilesPerIPU;
 
-  unsigned getWorkerContextsPerTile() const { return workerContextsPerTile; }
-  unsigned getNumIPUs() const { return numIPUs; }
-  unsigned getTilesPerIPU() const { return tilesPerIPU; }
+  IPUModelEngineBuilder *getIPUModelEngineBuilder() const {
+    return dynamic_cast<IPUModelEngineBuilder*>(engineBuilder.get());
+  }
+  unsigned getWorkerContextsPerTile() const {
+    auto p = getIPUModelEngineBuilder();
+    return p ? p->getNumWorkerContexts() : 1;
+  }
+  unsigned getNumIPUs() const {
+    auto p = getIPUModelEngineBuilder();
+    return p ? p->getNumIPUs() : 1;
+  }
+  unsigned getTilesPerIPU() const {
+    auto p = getIPUModelEngineBuilder();
+    return p ? p->getTilesPerIPU() : 1;
+  }
 
   Layer *getPrevLayer(int index) const {
     assert(index >= 0);

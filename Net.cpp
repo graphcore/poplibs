@@ -86,15 +86,14 @@ void Net::initialize(DataSet &data, LossType lossType) {
     mapping.reset(new IPUModelEngineBuilder::TileMapping(*graph));
     IPUModelEngineBuilder *ipuEB = new IPUModelEngineBuilder(*env);
     engineBuilder = std::unique_ptr<EngineBuilder>(ipuEB);
-    workerContextsPerTile = ipuEB->getNumWorkerContexts();
-    numIPUs = options.numIPUs;
-    tilesPerIPU = ipuEB->getTilesPerIPU();
+    ipuEB->setNumIPUs(options.numIPUs);
+    ipuEB->setIPUExchangeImplementation(
+      IPUModelEngineBuilder::BARE_NAKED_WITH_AGGRESSIVE_MULTICAST
+    );
+    ipuEB->setGlobalSyncCycles(500);
   } else {
     engineBuilder =
       std::unique_ptr<EngineBuilder>(new CPUEngineBuilder(*env));
-    workerContextsPerTile = 1;
-    numIPUs = 1;
-    tilesPerIPU = 1;
   }
   EngineBuilder &eb = *engineBuilder;
 
@@ -160,12 +159,6 @@ void Net::initialize(DataSet &data, LossType lossType) {
   if (options.useIPUModel) {
     IPUModelEngineBuilder *ipuEB =
       static_cast<IPUModelEngineBuilder *>(&eb);
-    ipuEB->setNumIPUs(options.numIPUs);
-    unsigned numTiles = ipuEB->getTilesPerIPU() * ipuEB->getNumIPUs();
-    ipuEB->setIPUExchangeImplementation(
-      IPUModelEngineBuilder::BARE_NAKED_WITH_AGGRESSIVE_MULTICAST
-    );
-    ipuEB->setGlobalSyncCycles(500);
     std::vector <Tensor> tensors = graph->getTensors();
     std::vector <ComputeSet> computeSets = graph->getComputeSets();
 
