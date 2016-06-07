@@ -6,6 +6,9 @@ unsigned Layer::getWorkerContextsPerTile() const {
   return net.getWorkerContextsPerTile();
 }
 
+IPUModelEngineBuilder *Layer::
+getIPUModelEngineBuilder() const { return net.getIPUModelEngineBuilder(); }
+
 unsigned Layer::getNumIPUs() const { return net.getNumIPUs(); }
 
 unsigned Layer::getTilesPerIPU() const { return net.getTilesPerIPU(); }
