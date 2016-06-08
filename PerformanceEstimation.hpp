@@ -12,14 +12,6 @@ inline std::uint64_t getDenseDotProductCycles(bool isFloat, unsigned size) {
   return (size + 3) / 4 + 2;
 }
 
-inline bool
-canUseConvolutionInstruction(bool isFloat, unsigned stride,
-                             unsigned inChansPerGroup,
-                             unsigned partialChansPerGroup) {
-  return !isFloat && stride < (1 << 4) && inChansPerGroup == 16 &&
-         partialChansPerGroup == 4;
-}
-
 template <class InputIterator>
 bool allEqual(InputIterator begin, InputIterator end) {
   if (begin == end)
@@ -124,47 +116,50 @@ getConvPartial1x1CycleEstimate(
 }
 
 inline std::uint64_t
-getConvPartialCycleEstimate(bool isFloat, unsigned inChansPerGroup,
-                            unsigned stride, unsigned kernelWidth,
-                            unsigned inputGroupsPerOutput,
-                            unsigned outputHeight,
-                            unsigned outputWidth,
-                            unsigned outChansPerGroup,
-                            bool useSupervisorVertices)
+getConvPartial1x1CycleEstimate(unsigned kernelWidth,
+                               unsigned inputGroupsPerOutput,
+                               unsigned outputHeight,
+                               unsigned outputWidth,
+                               bool useSupervisorVertices)
 {
-  if (canUseConvolutionInstruction(isFloat, stride, inChansPerGroup,
-                                   outChansPerGroup)) {
-    if (useSupervisorVertices) {
-      std::vector<std::vector<std::vector<unsigned>>> convSizesByWeightAndWorker;
-      for (unsigned i = 0; i != inputGroupsPerOutput * kernelWidth; ++i) {
-        const auto numWorkerContexts = 6;
-        std::vector<std::vector<PartialRow>> partition =
-            partitionConvPartialByWorker(outputHeight, outputWidth,
-                                         numWorkerContexts);
-        convSizesByWeightAndWorker.emplace_back();
-        convSizesByWeightAndWorker.back().reserve(partition.size());
-        for (const auto &entry : partition) {
-          convSizesByWeightAndWorker.back().emplace_back();
-          convSizesByWeightAndWorker.back().back().reserve(entry.size());
-          for (const auto &partialRow : entry) {
-            convSizesByWeightAndWorker.back().back().push_back(partialRow.end -
-                                                               partialRow.begin);
-          }
+  if (useSupervisorVertices) {
+    std::vector<std::vector<std::vector<unsigned>>> convSizesByWeightAndWorker;
+    for (unsigned i = 0; i != inputGroupsPerOutput * kernelWidth; ++i) {
+      const auto numWorkerContexts = 6;
+      std::vector<std::vector<PartialRow>> partition =
+          partitionConvPartialByWorker(outputHeight, outputWidth,
+                                       numWorkerContexts);
+      convSizesByWeightAndWorker.emplace_back();
+      convSizesByWeightAndWorker.back().reserve(partition.size());
+      for (const auto &entry : partition) {
+        convSizesByWeightAndWorker.back().emplace_back();
+        convSizesByWeightAndWorker.back().back().reserve(entry.size());
+        for (const auto &partialRow : entry) {
+          convSizesByWeightAndWorker.back().back().push_back(partialRow.end -
+                                                             partialRow.begin);
         }
       }
-      return getConvPartial1x1SupervisorCycleEstimate(convSizesByWeightAndWorker);
-    } else {
-      std::vector<std::vector<unsigned>> convSizesByWeight;
-      for (unsigned i = 0; i != inputGroupsPerOutput * kernelWidth; ++i) {
-        convSizesByWeight.emplace_back();
-        for (unsigned j = 0; j != outputHeight; ++j) {
-          convSizesByWeight.back().push_back(outputWidth);
-        }
-      }
-      return getConvPartial1x1CycleEstimate(convSizesByWeight);
+    }
+    return getConvPartial1x1SupervisorCycleEstimate(convSizesByWeightAndWorker);
+  }
+  std::vector<std::vector<unsigned>> convSizesByWeight;
+  for (unsigned i = 0; i != inputGroupsPerOutput * kernelWidth; ++i) {
+    convSizesByWeight.emplace_back();
+    for (unsigned j = 0; j != outputHeight; ++j) {
+      convSizesByWeight.back().push_back(outputWidth);
     }
   }
-  assert(!useSupervisorVertices);
+  return getConvPartial1x1CycleEstimate(convSizesByWeight);
+}
+
+inline std::uint64_t
+getConvPartialByDotProductCycleEstimate(bool isFloat, unsigned inChansPerGroup,
+                                        unsigned kernelWidth,
+                                        unsigned inputGroupsPerOutput,
+                                        unsigned outputHeight,
+                                        unsigned outputWidth,
+                                        unsigned outChansPerGroup)
+{
   unsigned vertexOverhead = 5;
   return vertexOverhead +
          outChansPerGroup * outputWidth * outputHeight * inputGroupsPerOutput *

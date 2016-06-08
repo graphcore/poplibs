@@ -235,6 +235,38 @@ estimateExchangeCost(bool isFloat, const ConvolutionParams &params,
   return numCycles;
 }
 
+static bool
+canUseConvolutionInstruction(bool isFloat, unsigned stride,
+                             unsigned inChansPerGroup,
+                             unsigned partialChansPerGroup) {
+  return !isFloat && stride < (1 << 4) && inChansPerGroup == 16 &&
+         partialChansPerGroup == 4;
+}
+
+static std::uint64_t
+getConvPartialCycleEstimate(bool isFloat, unsigned inChansPerGroup,
+                            unsigned stride, unsigned kernelWidth,
+                            unsigned inputGroupsPerOutput,
+                            unsigned outputHeight,
+                            unsigned outputWidth,
+                            unsigned outChansPerGroup,
+                            bool useSupervisorVertices)
+{
+  if (canUseConvolutionInstruction(isFloat, stride, inChansPerGroup,
+                                   outChansPerGroup)) {
+    getConvPartial1x1CycleEstimate(kernelWidth, inputGroupsPerOutput,
+                                   outputHeight, outputWidth,
+                                   useSupervisorVertices);
+  }
+  assert(!useSupervisorVertices);
+  return getConvPartialByDotProductCycleEstimate(isFloat, inChansPerGroup,
+                                                 kernelWidth,
+                                                 inputGroupsPerOutput,
+                                                 outputHeight,
+                                                 outputWidth,
+                                                 outChansPerGroup);
+}
+
 static unsigned
 estimateVertexCycles(bool isFloat, const ConvolutionParams &params,
                      const ConvLayerPartition &partition,

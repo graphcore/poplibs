@@ -316,13 +316,11 @@ public:
 
     bool isSupervisorVertex = std::is_same<Base, SupervisorVertex>::value;
 
-    return getConvPartialCycleEstimate(false /*isFloat*/, inChansPerGroup,
-                                       stride, 1 /*kernelWidth*/,
-                                       numInChanGroups,
-                                       outHeight,
-                                       outWidth,
-                                       outChansPerGroup,
-                                       isSupervisorVertex);
+    return getConvPartial1x1CycleEstimate(1 /*kernelWidth*/,
+                                          numInChanGroups,
+                                          outHeight,
+                                          outWidth,
+                                          isSupervisorVertex);
   }
 };
 
@@ -382,9 +380,9 @@ public:
     unsigned kernelSize = weights[0].size() / inChansPerGroup;
     bool isFloat = std::is_same<FPType, float>::value;
     const auto outChansPerGroup = 1;
-    return getConvPartialCycleEstimate(isFloat, inChansPerGroup, stride,
-                                       kernelSize, numInRows, 1, outputWidth,
-                                       1, false);
+    return getConvPartialByDotProductCycleEstimate(isFloat, inChansPerGroup,
+                                                   kernelSize, numInRows, 1,
+                                                   outputWidth, 1);
   }
 };
 
