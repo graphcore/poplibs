@@ -27,16 +27,16 @@ bool allEqual(InputIterator begin, InputIterator end) {
 inline std::uint64_t
 getConvPartial1x1SupervisorCycleEstimate(
     const std::vector<std::vector<std::vector<unsigned>>> &
-    convSizesByWeightAndWorker) {
+    convSizesByWeightAndWorker,
+    unsigned numConvUnitsPerTile) {
   const auto numWorkerContexts = 6;
-  const auto inChansPerGroup = 16;
-  const auto partialChansPerGroup = 4;
+  const auto weightsPerConvUnit = 16;
 
   unsigned cycles = 0;
   for (const auto &convSizesByWorker : convSizesByWeightAndWorker) {
     assert(convSizesByWorker.size() <= numWorkerContexts);
     // Load weights in the supervisor.
-    const auto numBytes = inChansPerGroup * partialChansPerGroup * 2;
+    const auto numBytes = weightsPerConvUnit * numConvUnitsPerTile * 2;
     cycles += (numBytes + 7) / 8;
     unsigned maxWorkerCycles = 0;
     // Start workers.
@@ -46,7 +46,7 @@ getConvPartial1x1SupervisorCycleEstimate(
       const auto coolDownCycles = 5U;
       workerCycles += vertexOverhead;
       for (const auto convSize : convSizes) {
-        workerCycles += 1 + convSize * partialChansPerGroup;
+        workerCycles += 1 + convSize * weightsPerConvUnit / 4;
       }
       workerCycles += coolDownCycles;
       maxWorkerCycles = std::max(maxWorkerCycles, workerCycles);
@@ -97,17 +97,19 @@ partitionConvPartialByWorker(
 
 inline std::uint64_t
 getConvPartial1x1CycleEstimate(
-    const std::vector<std::vector<unsigned>> &convSizesByWeight) {
+    const std::vector<std::vector<unsigned>> &convSizesByWeight,
+    unsigned numConvUnitsPerTile) {
   const unsigned vertexOverhead = 5;
   unsigned cycleCount = vertexOverhead;
   for (const auto &convSizes : convSizesByWeight) {
     const auto numElements = std::accumulate(convSizes.begin(), convSizes.end(),
                                              0);
     const auto pointerLoadCycles = convSizes.size();
-    const auto partialChansPerGroup = 4;
-    unsigned warmUpCycles = 19;
+    unsigned warmUpCycles = numConvUnitsPerTile * 4 + 3;
+
+
     unsigned innerLoopCycles =
-        numElements * partialChansPerGroup;
+        numElements * 4;
     unsigned coolDownCycles = 5;
     cycleCount += warmUpCycles + innerLoopCycles + coolDownCycles +
                   pointerLoadCycles;
@@ -120,6 +122,7 @@ getConvPartial1x1CycleEstimate(unsigned kernelWidth,
                                unsigned inputGroupsPerOutput,
                                unsigned outputHeight,
                                unsigned outputWidth,
+                               unsigned numConvUnitsPerTile,
                                bool useSupervisorVertices)
 {
   if (useSupervisorVertices) {
@@ -140,7 +143,8 @@ getConvPartial1x1CycleEstimate(unsigned kernelWidth,
         }
       }
     }
-    return getConvPartial1x1SupervisorCycleEstimate(convSizesByWeightAndWorker);
+    return getConvPartial1x1SupervisorCycleEstimate(convSizesByWeightAndWorker,
+                                                    numConvUnitsPerTile);
   }
   std::vector<std::vector<unsigned>> convSizesByWeight;
   for (unsigned i = 0; i != inputGroupsPerOutput * kernelWidth; ++i) {
@@ -149,7 +153,7 @@ getConvPartial1x1CycleEstimate(unsigned kernelWidth,
       convSizesByWeight.back().push_back(outputWidth);
     }
   }
-  return getConvPartial1x1CycleEstimate(convSizesByWeight);
+  return getConvPartial1x1CycleEstimate(convSizesByWeight, numConvUnitsPerTile);
 }
 
 inline std::uint64_t

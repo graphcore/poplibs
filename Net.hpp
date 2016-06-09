@@ -34,6 +34,7 @@ enum DType {
 
 class IPUMachineInfo {
 public:
+  unsigned numConvUnitsPerTile = 4;
   bool sharedConvWeights = true;
 };
 

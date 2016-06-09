@@ -238,9 +238,10 @@ estimateExchangeCost(bool isFloat, const ConvolutionParams &params,
 static bool
 canUseConvolutionInstruction(bool isFloat, unsigned stride,
                              unsigned inChansPerGroup,
-                             unsigned partialChansPerGroup) {
+                             unsigned partialChansPerGroup,
+                             const IPUMachineInfo &machineInfo) {
   return !isFloat && stride < (1 << 4) && inChansPerGroup == 16 &&
-         partialChansPerGroup == 4;
+         partialChansPerGroup == machineInfo.numConvUnitsPerTile;
 }
 
 static std::uint64_t
@@ -250,13 +251,16 @@ getConvPartialCycleEstimate(bool isFloat, unsigned inChansPerGroup,
                             unsigned outputHeight,
                             unsigned outputWidth,
                             unsigned outChansPerGroup,
+                            const IPUMachineInfo &machineInfo,
                             bool useSupervisorVertices)
 {
   if (canUseConvolutionInstruction(isFloat, stride, inChansPerGroup,
-                                   outChansPerGroup)) {
-    getConvPartial1x1CycleEstimate(kernelWidth, inputGroupsPerOutput,
-                                   outputHeight, outputWidth,
-                                   useSupervisorVertices);
+                                   outChansPerGroup,
+                                   machineInfo)) {
+    return getConvPartial1x1CycleEstimate(kernelWidth, inputGroupsPerOutput,
+                                          outputHeight, outputWidth,
+                                          machineInfo.numConvUnitsPerTile,
+                                          useSupervisorVertices);
   }
   assert(!useSupervisorVertices);
   return getConvPartialByDotProductCycleEstimate(isFloat, inChansPerGroup,
@@ -270,6 +274,7 @@ getConvPartialCycleEstimate(bool isFloat, unsigned inChansPerGroup,
 static unsigned
 estimateVertexCycles(bool isFloat, const ConvolutionParams &params,
                      const ConvLayerPartition &partition,
+                     const IPUMachineInfo &machineInfo,
                      bool useSupervisorVertices) {
   const auto tilesPerY = partition.tilesPerYAxis;
   const auto tilesPerX = partition.tilesPerXAxis;
@@ -293,7 +298,9 @@ estimateVertexCycles(bool isFloat, const ConvolutionParams &params,
   return getConvPartialCycleEstimate(isFloat, inChansPerGroup, params.stride,
                                      params.kernelSize, inputGroupsPerOutput,
                                      outRowsPerVertex, tileOutWidth,
-                                     outChansPerGroup, useSupervisorVertices);
+                                     outChansPerGroup,
+                                     machineInfo,
+                                     useSupervisorVertices);
 }
 
 static unsigned
@@ -324,11 +331,13 @@ estimateFwdComputeCost(IPUModelEngineBuilder *engineBuilder, bool isFloat,
   if (machineInfo.sharedConvWeights &&
       canUseConvolutionInstruction(isFloat, params.stride,
                                    partition.inChansPerGroup,
-                                   partition.partialChansPerGroup)) {
+                                   partition.partialChansPerGroup,
+                                   machineInfo)) {
     useSupervisorVertices = true;
     numContexts = 1;
   }
   const auto vertexRuntime = estimateVertexCycles(isFloat, params, partition,
+                                                  machineInfo,
                                                   useSupervisorVertices);
   auto verticesPerWorker = (tileVertices + numContexts - 1) /
                            numContexts;
@@ -403,8 +412,9 @@ choosePartition(IPUModelEngineBuilder *engineBuilder,
   }
   std::vector<unsigned> partialChansPerGroupCandidates;
   if (canUseConvolutionInstruction(isFloat, params.stride, inChansPerGroup,
-                                   4)) {
-    partialChansPerGroupCandidates.push_back(4);
+                                   machineInfo.numConvUnitsPerTile,
+                                   machineInfo)) {
+    partialChansPerGroupCandidates.push_back(machineInfo.numConvUnitsPerTile);
   }
   partialChansPerGroupCandidates.push_back(1);
   // If tilesPerY is greater than one we end up splitting across the y axis of
@@ -439,7 +449,7 @@ choosePartition(IPUModelEngineBuilder *engineBuilder,
           auto maxVerticesPerTilePerY =
               (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
           auto minVerticesPerTilePerY = 1;
-          if (partialChansPerGroup == 4) {
+          if (partialChansPerGroup == machineInfo.numConvUnitsPerTile) {
             if (machineInfo.sharedConvWeights) {
               // All workers are utilized in each single supervisor vertex so
               // there is no reason to use more than the minimum number of
@@ -549,7 +559,9 @@ double ConvLayerImpl::getPerfectCycleCount() {
     return macCycles + addCycles;
   }
   assert(getDType() == "half");
-  auto macsPerCycles = useConvolutionInstruction() ? 16 : 4;
+  const auto &machineInfo = getNetOptions().ipuMachineInfo;
+  auto macsPerCycles =
+      useConvolutionInstruction() ? machineInfo.numConvUnitsPerTile * 4 : 4;
   auto macCycles = static_cast<double>(getNumberOfMACs()) /
                    (macsPerCycles * numTiles);
 
@@ -810,9 +822,11 @@ addResidualCalc(Graph &graph,
 
 bool ConvLayerImpl::useConvolutionInstruction() const {
   const bool isFloat = getDType() == "float";
-  return canUseConvolutionInstruction(isFloat, stride,
-                                      partition.inChansPerGroup,
-                                      partition.partialChansPerGroup);
+  return canUseConvolutionInstruction(
+    isFloat, stride, partition.inChansPerGroup,
+    partition.partialChansPerGroup,
+    getNetOptions().ipuMachineInfo
+  );
 }
 
 void ConvLayerImpl::
@@ -837,6 +851,7 @@ createConvPartial1x1InOutVertex(Graph &graph,
   auto v =
       graph.addVertex(fwdCS,
                       templateVertex("ConvPartial1x1InOut", baseClass));
+  graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
   if (mapping) {
     mapping->setMapping(v, tile);
   }
@@ -985,6 +1000,7 @@ forwardTile(Graph &graph,
           templateVertex("ConvPartial1x1Out", baseClass),
           {{"weights", w}, {"out", outWindow}}
         );
+        graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
         if (stride == 1) {
           graph.connect(v["in"], inWindow);
         } else {

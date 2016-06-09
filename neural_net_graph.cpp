@@ -161,7 +161,7 @@ public:
   Vector<InOut<Vector<float>>> out;
 
   static const auto inChansPerGroup = 16;
-  static const auto outChansPerGroup = 4;
+  SimOnlyField<unsigned> outChansPerGroup;
 
   bool compute() {
     assert(out.size() > 0);
@@ -201,6 +201,7 @@ public:
   std::uint64_t getCycleEstimate() const {
     bool isSupervisorVertex = std::is_same<Base, SupervisorVertex>::value;
     const auto numContexts = weightReuseCount.size() / weights.size();
+    const auto numConvUnitsPerTile = outChansPerGroup;
     if (isSupervisorVertex) {
       std::vector<std::vector<std::vector<unsigned>>>
           convolutionsByWeightAndWorker;
@@ -220,7 +221,8 @@ public:
       }
       assert(convNum == out.size());
       return getConvPartial1x1SupervisorCycleEstimate(
-        convolutionsByWeightAndWorker
+        convolutionsByWeightAndWorker,
+        numConvUnitsPerTile
       );
     }
     assert(numContexts == 1);
@@ -235,7 +237,8 @@ public:
       }
     }
     assert(convNum == out.size());
-    return getConvPartial1x1CycleEstimate(convolutionsByWeight);
+    return getConvPartial1x1CycleEstimate(convolutionsByWeight,
+                                          numConvUnitsPerTile);
   }
 };
 
@@ -254,7 +257,7 @@ public:
   Vector<Output<Vector<float>>> out;
 
   static const auto inChansPerGroup = 16;
-  static const auto outChansPerGroup = 4;
+  SimOnlyField<unsigned> outChansPerGroup;
 
   bool compute() {
     assert(out[0].size() % outChansPerGroup == 0);
@@ -316,10 +319,12 @@ public:
 
     bool isSupervisorVertex = std::is_same<Base, SupervisorVertex>::value;
 
+    const auto numConvUnitsPerTile = outChansPerGroup;
     return getConvPartial1x1CycleEstimate(1 /*kernelWidth*/,
                                           numInChanGroups,
                                           outHeight,
                                           outWidth,
+                                          numConvUnitsPerTile,
                                           isSupervisorVertex);
   }
 };
