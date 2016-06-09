@@ -152,13 +152,13 @@ template class FullyConnectedReduce<half>;
 /**
  * Compute 1x1 convolutions and accumulate them with partial sums in memory.
  **/
-template <class Base>
+template <class Base, class AccumType>
 class ConvPartial1x1InOut: public Base {
 public:
   Vector<Input<Vector<half>>> in;
   Vector<Input<Vector<half>>> weights;
   Vector<unsigned> weightReuseCount;
-  Vector<InOut<Vector<float>>> out;
+  Vector<InOut<Vector<AccumType>>> out;
 
   static const auto inChansPerGroup = 16;
   SimOnlyField<unsigned> outChansPerGroup;
@@ -242,6 +242,11 @@ public:
   }
 };
 
+template class ConvPartial1x1InOut<Vertex, half>;
+template class ConvPartial1x1InOut<Vertex, float>;
+template class ConvPartial1x1InOut<SupervisorVertex, half>;
+template class ConvPartial1x1InOut<SupervisorVertex, float>;
+
 template <typename FPType>
 class FullyConnectedBwd : public Vertex {
 public:
@@ -300,19 +305,16 @@ public:
 template class FullyConnectedWeightUpdate<float>;
 template class FullyConnectedWeightUpdate<half>;
 
-template class ConvPartial1x1InOut<Vertex>;
-template class ConvPartial1x1InOut<SupervisorVertex>;
-
 /**
  * Compute a sum of 1x1 convolutions over a subset of the input channels for
  * multiple output channels.
  **/
-template <class Base>
+template <class Base, class AccumType>
 class ConvPartial1x1Out: public Base {
 public:
   Vector<Input<Vector<half>>> in;
   Input<Vector<half>> weights;
-  Vector<Output<Vector<float>>> out;
+  Vector<Output<Vector<AccumType>>> out;
 
   static const auto inChansPerGroup = 16;
   SimOnlyField<unsigned> outChansPerGroup;
@@ -387,17 +389,19 @@ public:
   }
 };
 
-template class ConvPartial1x1Out<Vertex>;
-template class ConvPartial1x1Out<SupervisorVertex>;
+template class ConvPartial1x1Out<Vertex, float>;
+template class ConvPartial1x1Out<Vertex, half>;
+template class ConvPartial1x1Out<SupervisorVertex, float>;
+template class ConvPartial1x1Out<SupervisorVertex, half>;
 
 /* Compute a partial convolution for a sub-set of input channels and
  * output channels over a number of rows of the input field. */
-template <typename FPType>
+template <typename InType, typename AccumType>
 class ConvPartial: public Vertex {
 public:
-  Vector<Input<Vector<FPType>>> in;
-  Vector<Input<Vector<FPType>>> weights;
-  Output<Vector<float>> out;
+  Vector<Input<Vector<InType>>> in;
+  Vector<Input<Vector<InType>>> weights;
+  Output<Vector<AccumType>> out;
   unsigned inChansPerGroup;
   // The amount of implicit of zero padding before the first element of the
   // input.
@@ -416,8 +420,8 @@ public:
     }
 
     for (unsigned i = 0; i != numInRows; ++i) {
-      FPType *row = &in[i][0];
-      FPType *rowWeights = &weights[i][0];
+      auto *row = &in[i][0];
+      auto *rowWeights = &weights[i][0];
       for (unsigned outX = 0; outX < outputWidth; outX += stride) {
         unsigned inXCentre = outX / stride + padding;
         unsigned inXBegin =
@@ -441,7 +445,7 @@ public:
     unsigned numInRows = in.size();
     unsigned outputWidth = out.size();
     unsigned kernelSize = weights[0].size() / inChansPerGroup;
-    bool isFloat = std::is_same<FPType, float>::value;
+    bool isFloat = std::is_same<InType, float>::value;
     const auto outChansPerGroup = 1;
     return getConvPartialByDotProductCycleEstimate(isFloat, inChansPerGroup,
                                                    kernelSize, numInRows, 1,
@@ -449,13 +453,15 @@ public:
   }
 };
 
-template class ConvPartial<float>;
-template class ConvPartial<half>;
+template class ConvPartial<float, float>;
+template class ConvPartial<half, float>;
+template class ConvPartial<half, half>;
 
+template <typename FPType>
 class ConvReduce : public Vertex {
 public:
-  Output<Vector<float>> out;
-  Vector<Input<Vector<float>>> partials;
+  Output<Vector<FPType>> out;
+  Vector<Input<Vector<FPType>>> partials;
 
   bool compute() {
     unsigned numPartials = partials.size();
@@ -473,19 +479,24 @@ public:
   uint64_t getCycleEstimate() const {
     unsigned numPartials = partials.size();
     unsigned numElem = out.size();
-    return 4 + numElem * (1 + numPartials / 2);
+    bool isFloat = std::is_same<FPType, float>::value;
+    unsigned opsPerCycle = isFloat ? 2 : 4;
+    return 4 + numElem * (1 + (numPartials + opsPerCycle - 1) / opsPerCycle);
   }
 };
 
-template <typename FPType>
+template class ConvReduce<float>;
+template class ConvReduce<half>;
+
+template <class InType, class OutType>
 class ConvComplete : public Vertex {
 public:
-  Vector<Input<Vector<float>>> in;
-  Vector<Input<Vector<FPType>>> bias;
-  Vector<Output<Vector<FPType>>> out;
+  Vector<Input<Vector<InType>>> in;
+  Vector<Input<Vector<OutType>>> bias;
+  Vector<Output<Vector<OutType>>> out;
   NonLinearityType nonLinearityType;
   Vector<unsigned> outputChanGroupsPerBias;
-  Vector<Input<Vector<FPType>>> res;
+  Vector<Input<Vector<OutType>>> res;
 
   bool compute() {
     unsigned numOut = out.size();
@@ -545,8 +556,9 @@ public:
 
 };
 
-template class ConvComplete<float>;
-template class ConvComplete<half>;
+template class ConvComplete<float, float>;
+template class ConvComplete<float, half>;
+template class ConvComplete<half, half>;
 
 template <typename FPType>
 class CopyResidual : public Vertex {

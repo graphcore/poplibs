@@ -50,6 +50,7 @@ struct ConvLayerPartition {
   unsigned tilesPerInZGroupAxis;
   unsigned inChansPerGroup;
   unsigned partialChansPerGroup;
+  bool floatPartials;
   ConvLayerPartition() = default;
   ConvLayerPartition(unsigned tilesPerXAxis,
                      unsigned tilesPerYAxis,
@@ -57,14 +58,16 @@ struct ConvLayerPartition {
                      unsigned verticesPerTilePerYAxis,
                      unsigned tilesPerInZGroupAxis,
                      unsigned inChansPerGroup,
-                     unsigned partialChansPerGroup) :
+                     unsigned partialChansPerGroup,
+                     bool floatPartials) :
     tilesPerXAxis(tilesPerXAxis),
     tilesPerYAxis(tilesPerYAxis),
     tilesPerZAxis(tilesPerZAxis),
     verticesPerTilePerYAxis(verticesPerTilePerYAxis),
     tilesPerInZGroupAxis(tilesPerInZGroupAxis),
     inChansPerGroup(inChansPerGroup),
-    partialChansPerGroup(partialChansPerGroup) {}
+    partialChansPerGroup(partialChansPerGroup),
+    floatPartials(floatPartials) {}
 };
 
 enum ResidualMethod {
@@ -85,6 +88,7 @@ class ConvLayerImpl : public Layer {
                                   unsigned outYBegin, unsigned outYEnd,
                                   unsigned outZGroup,
                                   unsigned inZGroupBegin, unsigned inZGroupEnd,
+                                  const std::string &partialType,
                                   ComputeSet fwdCS,
                                   const Tensor &out);
   void
@@ -163,6 +167,10 @@ public:
                 NormalizationType normalizationType,
                 unsigned resIndex,
                 enum ResidualMethod resMethod);
+
+  const char *getPartialType() const {
+    return partition.floatPartials ? "float" : "half";
+  }
 
   std::uint64_t getNumberOfFlops();
 

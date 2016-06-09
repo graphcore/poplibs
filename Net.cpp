@@ -17,11 +17,16 @@ bool parseCommandLine(int argc, char **argv, NetOptions &options) {
        &options.ipuMachineInfo.sharedConvWeights
      )->default_value(true),
      "Use of shared weights for convolution instructions")
-    ("num-conv-units",
+    ("num-fp16-accum-conv-units",
      po::value<unsigned>(
-       &options.ipuMachineInfo.numConvUnitsPerTile
+       &options.ipuMachineInfo.fp16AccumConvUnitsPerTile
+     )->default_value(0),
+     "Number of convolutional units per tile with fp16 accumulation")
+    ("num-fp32-accum-conv-units",
+     po::value<unsigned>(
+       &options.ipuMachineInfo.fp32AccumConvUnitsPerTile
      )->default_value(4),
-     "Number of convolutional units per tile")
+     "Number of convolutional units per tile with fp32 accumulation")
   ;
   po::variables_map vm;
   try {
