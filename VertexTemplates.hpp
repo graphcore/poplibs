@@ -9,6 +9,16 @@ inline std::string templateVertexParams(bool first) {
     return ">";
 }
 
+template <typename ...Args>
+inline std::string templateVertexParams(bool first,
+                                        const std::string &val,
+                                        Args... args);
+
+template <typename ...Args>
+inline std::string templateVertexParams(bool first,
+                                        const char *val,
+                                        Args... args);
+
 template <typename T, typename ...Args>
 inline std::string templateVertexParams(bool first,
                                         const T&val, Args... args) {
