@@ -81,7 +81,15 @@ Net::Net(DataSet &data, unsigned batchSize,
   initialize(data, lossType);
 }
 
+enum {
+  INIT_PARAMS_PROG,
+  TRAIN_PROG,
+  TEST_PROG,
+  NUM_PROGS
+};
+
 void Net::initialize(DataSet &data, LossType lossType) {
+  assert(batchSize == 1 && "Only batch size of 1 is supported");
   unsigned inputSize = data.dataSize;
   numTestBatches = data.numTest / batchSize;
   env = std::unique_ptr<GraphProgEnv>(
@@ -105,28 +113,21 @@ void Net::initialize(DataSet &data, LossType lossType) {
   EngineBuilder &eb = *engineBuilder;
 
   std::cerr << "Constructing program\n";
-  Tensor isTraining = graph->addTensor("unsigned", {1});
-  if (mapping) {
-    mapping->setMapping(isTraining, 0);
-  }
   inputLayer = std::unique_ptr<InputLayer>(
-    new InputLayer(*this, -1, data, isTraining));
+    new InputLayer(*this, -1, data));
   lossLayer = std::unique_ptr<LossLayer>(
-    new LossLayer(*this, hiddenLayerSpecs.size(), data, lossType,
-                  isTraining));
+    new LossLayer(*this, hiddenLayerSpecs.size(), data, lossType));
 
   for (size_t i = 0; i < hiddenLayerSpecs.size(); ++i) {
     hiddenLayers.push_back(hiddenLayerSpecs[i]->makeLayer(*this, i));
   }
 
   auto initParamsProg = Sequence();
-  auto startBatchProg = Sequence();
   auto fwdProg = Sequence();
   auto bwdProg = Sequence();
-  auto weightSyncProg = Sequence();
+  auto weightUpdateProg = Sequence();
 
   inputLayer->init(*graph, mapping.get());
-  startBatchProg.add(inputLayer->startBatch(*graph));
   fwdProg.add(inputLayer->forward(*graph, mapping.get()));
 
   initParamsProg.add(inputLayer->initParams(*graph));
@@ -135,7 +136,6 @@ void Net::initialize(DataSet &data, LossType lossType) {
   double perfectCycleTime = 0.0;
   for (unsigned i = 0; i < hiddenLayers.size(); ++i) {
     hiddenLayers[i]->init(*graph, mapping.get());
-    startBatchProg.add(hiddenLayers[i]->startBatch(*graph));
     fwdProg.add(hiddenLayers[i]->forward(*graph, mapping.get()));
     initParamsProg.add(hiddenLayers[i]->initParams(*graph));
     std::cout << "-- Layer " << i << "\n";
@@ -148,19 +148,18 @@ void Net::initialize(DataSet &data, LossType lossType) {
   std::cout << static_cast<std::uint64_t>(perfectCycleTime) << "\n";
 
   lossLayer->init(*graph, mapping.get());
-  startBatchProg.add(lossLayer->startBatch(*graph));
   fwdProg.add(lossLayer->forward(*graph, mapping.get()));
   initParamsProg.add(lossLayer->initParams(*graph));
 
   if (netType == TrainingNet) {
     bwdProg.add(lossLayer->backward(*graph));
-    weightSyncProg.add(lossLayer->weightSync(*graph));
+    weightUpdateProg.add(lossLayer->weightUpdate(*graph));
     for (int i = hiddenLayers.size() - 1; i >= 0; --i) {
       bwdProg.add(hiddenLayers[i]->backward(*graph));
-      weightSyncProg.add(hiddenLayers[i]->weightSync(*graph));
+      weightUpdateProg.add(hiddenLayers[i]->weightUpdate(*graph));
     }
     bwdProg.add(inputLayer->backward(*graph));
-    weightSyncProg.add(inputLayer->weightSync(*graph));
+    weightUpdateProg.add(inputLayer->weightUpdate(*graph));
   }
 
   if (options.useIPUModel) {
@@ -188,29 +187,28 @@ void Net::initialize(DataSet &data, LossType lossType) {
     }
   }
 
-  hIsTraining = (netType == TrainingNet);
   std::cerr << "Creating engine\n";
-  auto prog = Sequence();
-  prog.add(Copy(isTraining, &hIsTraining));
-  prog.add(startBatchProg);
-  auto doBatchProg = Sequence();
-  doBatchProg.add(fwdProg);
+  auto trainProg = Sequence();
   if (netType == TrainingNet) {
-    doBatchProg.add(bwdProg);
-    #if 0
-    doBatchProg->add(ifprog(isTraining,
-                             *bwdProg,
-                             *Sequence()));
-    #endif
+    if (!options.ignoreData) {
+      trainProg.add(inputLayer->loadData(*graph, true));
+      trainProg.add(lossLayer->loadLabels(*graph, true));
+    }
+    trainProg.add(fwdProg);
+    trainProg.add(bwdProg);
+    trainProg.add(weightUpdateProg);
   }
-  unsigned repeatSize = options.singleBatchProfile ? 1 : batchSize;
-  prog.add(Repeat(repeatSize, doBatchProg));
-  if (netType == TrainingNet) {
-    #if 0
-    prog.add(ifprog(isTraining,*weightSyncProg,*Sequence()));
-    #endif
+  auto testProg = Sequence();
+  if (!options.ignoreData) {
+    testProg.add(inputLayer->loadData(*graph, false));
+    testProg.add(lossLayer->loadLabels(*graph, false));
   }
-  engine = eb.makeEngine(*graph, {&initParamsProg, &prog});
+  testProg.add(fwdProg);
+  std::vector<const Program *> progs(NUM_PROGS);
+  progs[INIT_PARAMS_PROG] = &initParamsProg;
+  progs[TRAIN_PROG] = &trainProg;
+  progs[TEST_PROG] = &testProg;
+  engine = eb.makeEngine(*graph, progs);
 }
 
 void Net::run(unsigned numBatches) {
@@ -219,14 +217,13 @@ void Net::run(unsigned numBatches) {
   std::cerr << "Running program\n";
   if (options.doComputation) {
     if (netType == TrainingNet) {
-      engine->run(0); // initialize params
+      engine->run(INIT_PARAMS_PROG); // initialize params
       for (unsigned i = 0; i < numBatches; i++) {
         if (!options.singleBatchProfile &&
             i % options.numBatchesBetweenTest == 0) {
-          hIsTraining = 0;
           lossLayer->resetNumCorrect();
           for (unsigned j = 0; j < numTestBatches; j++) {
-            engine->run(1);
+            engine->run(TEST_PROG);
           }
           float numCorrect = lossLayer->getNumCorrect();
           unsigned numTests = (numTestBatches * batchSize);
@@ -234,15 +231,13 @@ void Net::run(unsigned numBatches) {
           std::cout << "--- Accuracy after " << i << " batches = "
                     << percentCorrect << "%\n";
         }
-        hIsTraining = 1;
-        engine->run(1);
+        engine->run(TRAIN_PROG);
       }
     } else {
-      hIsTraining = 0;
-      engine->run(0);
+      engine->run(INIT_PARAMS_PROG);
       lossLayer->resetNumCorrect();
       for (unsigned i = 0; i < numBatches; i++) {
-        engine->run(1);
+        engine->run(TEST_PROG);
       }
       float numCorrect = lossLayer->getNumCorrect();
       unsigned numTests = (numTestBatches * batchSize);

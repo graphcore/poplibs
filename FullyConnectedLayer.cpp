@@ -100,12 +100,15 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
     mapTensor(errorRecordIndex, mapping);
     mapTensor(bwdWeights, mapping);
   }
-  hWeights = std::unique_ptr<float[]>(new float[(prevSize+1) * size]);
+  hWeights = std::unique_ptr<float[]>(new float[prevSize * size]);
+  hBiases = std::unique_ptr<float[]>(new float[size]);
   unsigned seed = time(0);
   boost::variate_generator< boost::mt19937, boost::normal_distribution<> >
     generator(boost::mt19937(seed), boost::normal_distribution<>(0, 1));
-  for (unsigned i = 0; i < (prevSize+1)*size; ++i)
+  for (unsigned i = 0; i < prevSize*size; ++i)
     hWeights[i] = generator();
+  for (unsigned i = 0; i < size; ++i)
+    hBiases[i] = generator();
 }
 
 Program FullyConnectedLayerImpl::
@@ -213,4 +216,43 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
     return Sequence(Execute(dotProductCS), Execute(reduceCS));
   }
   return Sequence(Execute(dotProductCS));
+}
+
+Program FullyConnectedLayerImpl::backward(Graph &graph) {
+  auto bwdCS = graph.createComputeSet(layerName + ".bwd");
+  for (unsigned i = 0; i < prevSize; ++i) {
+    auto w = weights.slice({0, i}, {size, i+1}).flatten();
+    auto in = getNextLayer()->getBwdErrors().flatten();
+    auto v = graph.addVertex(bwdCS,
+                             templateVertex("FullyConnectedBwd",
+                                            getDType()),
+                             {{"in", in},
+                              {"z", z},
+                              {"weights", w},
+                              {"out", errors[i]},
+                             });
+    graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
+  }
+  return Execute(bwdCS);
+}
+
+Program FullyConnectedLayerImpl::weightUpdate(Graph &graph) {
+  auto cs = graph.createComputeSet(layerName + ".weight_update");
+  for (unsigned i = 0; i < size; ++i) {
+    auto errorIn = getNextLayer()->getBwdErrors().flatten();
+    auto prev = getPrevLayer()->getFwdActivations().flatten();
+    auto v = graph.addVertex(cs,
+                             templateVertex("FullyConnectedWeightUpdate",
+                                            getDType()),
+                             {{"error", errorIn[i]},
+                              {"weights", weights[i]},
+                              {"in", prev},
+                              {"z", z[i]},
+                              {"bias", biases[i]}});
+    graph.setInitialValue(v["eta"],
+                          getLearningRate());
+    graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
+  }
+
+  return Execute(cs);
 }

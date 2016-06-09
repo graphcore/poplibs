@@ -2,8 +2,7 @@ FLAGS=-O3 -g
 BINDIR = bin
 OBJDIR = obj
 
-#PROGS = ${BINDIR}/fc ${BINDIR}/fc_mnist ${BINDIR}/alexnet
-PROGS =  ${BINDIR}/alexnet ${BINDIR}/resnet34b ${BINDIR}/resnet50
+PROGS =  ${BINDIR}/fc_mnist ${BINDIR}/alexnet ${BINDIR}/resnet34b ${BINDIR}/resnet50
 
 all: ${PROGS} ${OBJDIR}/neural_net_graph.ppo
 	@echo Build complete
@@ -56,7 +55,7 @@ ${BINDIR}/fc: ${FC_OBJ} | ${BINDIR}/
 FC_MNIST_OBJ=${OBJDIR}/fc_mnist.o ${OBJDIR}/mnist.o ${COMMON_OBJ}
 
 ${BINDIR}/fc_mnist: ${FC_MNIST_OBJ} | ${BINDIR}/
-	${CXX} -std=c++11 -ffast-math ${FC_MNIST_OBJ} -lpoplar -o $@
+	${CXX} -std=c++11 -ffast-math ${FC_MNIST_OBJ} ${COMMON_LIBS} -lpoplar -o $@
 
 clean:
 	-rm ${OBJDIR}/* ${BINDIR}/*

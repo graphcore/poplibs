@@ -199,11 +199,6 @@ public:
     return Sequence();
   }
 
-  Program startBatch(Graph &graph) {
-    // TODO
-    return Sequence();
-  }
-
   Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping);
 
   Program backward(Graph &graph) {
@@ -211,7 +206,7 @@ public:
     return Sequence();
   }
 
-  Program weightSync(Graph &graph) {
+  Program weightUpdate(Graph &graph) {
     // TODO
     return Sequence();
   }

@@ -45,12 +45,6 @@ public:
   void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping);
 
   Program initParams(Graph &graph) {
-    // TODO
-    return Sequence();
-  }
-
-  Program startBatch(Graph &graph) {
-    // TODO
     return Sequence();
   }
 
@@ -61,7 +55,7 @@ public:
     return Sequence();
   }
 
-  Program weightSync(Graph &graph) {
+  Program weightUpdate(Graph &graph) {
     // TODO
     return Sequence();
   }

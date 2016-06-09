@@ -13,6 +13,8 @@ unsigned Layer::getNumIPUs() const { return net.getNumIPUs(); }
 
 unsigned Layer::getTilesPerIPU() const { return net.getTilesPerIPU(); }
 
+float Layer::getLearningRate() const { return net.getLearningRate(); }
+
 Layer *Layer::getPrevLayer() const { return net.getPrevLayer(index); }
 
 Layer *Layer::getNextLayer() const { return net.getNextLayer(index); }

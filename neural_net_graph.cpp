@@ -242,6 +242,64 @@ public:
   }
 };
 
+template <typename FPType>
+class FullyConnectedBwd : public Vertex {
+public:
+  Input<Vector<FPType>> in;
+  Vector<Input<FPType>> weights;
+  Input<Vector<FPType>> z;
+  Output<FPType> out;
+  NonLinearityType nonLinearityType;
+
+  bool compute() {
+    float sum = 0;
+    for (unsigned i = 0; i < in.size(); ++i) {
+      auto d = in[i] * nonlinearity_derivative(nonLinearityType, z[i]);
+      sum += d * weights[i];
+    }
+    *out = sum;
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    // TODO
+    return 0;
+  }
+};
+
+template class FullyConnectedBwd<float>;
+template class FullyConnectedBwd<half>;
+
+template <typename FPType>
+class FullyConnectedWeightUpdate : public Vertex {
+public:
+  Input<FPType> error;
+  Input<FPType> z;
+  InOut<Vector<FPType>> weights;
+  Input<Vector<FPType>> in;
+  InOut<FPType> bias;
+  float eta;
+  NonLinearityType nonLinearityType;
+
+  bool compute() {
+    auto d = *error * nonlinearity_derivative(nonLinearityType, *z);
+    for (unsigned i = 0; i < weights.size(); ++i) {
+      auto grad = d * in[i];
+      weights[i] = weights[i] - grad * eta;
+    }
+    *bias = *bias - d * eta;
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    // TODO
+    return 0;
+  }
+};
+
+template class FullyConnectedWeightUpdate<float>;
+template class FullyConnectedWeightUpdate<half>;
+
 template class ConvPartial1x1InOut<Vertex>;
 template class ConvPartial1x1InOut<SupervisorVertex>;
 
@@ -618,9 +676,8 @@ public:
 
         FPType expected = (i == label ? 1 : 0);
         FPType actual = nonlinearity(nonLinearityType, zIn[i]);
-        FPType nlGradient = nonlinearity_derivative(nonLinearityType, zIn[i]);
-        errorOut[i] = (actual - expected) * nlGradient;
-        sum += (actual - expected) *  (actual - expected);
+        errorOut[i] = (actual - expected);
+        sum += 0.5 * (actual - expected) *  (actual - expected);
       }
       *loss = sum;
     }
@@ -643,8 +700,7 @@ public:
       FPType error = 0;
       for (unsigned i = 0;  i < probs.size(); ++i) {
         FPType expected = (i == label ? 1 : 0);
-        FPType nlGradient = nonlinearity_derivative(nonLinearityType, zIn[i]);
-        errorOut[i] = (probs[i] - expected) * nlGradient;
+        errorOut[i] = (probs[i] - expected);
         error += expected * log(probs[i]);
       }
       *loss = error;

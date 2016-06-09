@@ -33,6 +33,7 @@ int main(int argc, char **argv) {
   options.doComputation = true;
   options.useIPUModel = true;
   options.singleBatchProfile = true;
+  options.ignoreData = true;
   if (!parseCommandLine(argc, argv, options))
     return 1;
 

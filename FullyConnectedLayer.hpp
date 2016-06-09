@@ -15,7 +15,7 @@ public:
     activations, errors, activationRecord, errorRecord,
     actRecordIndex, errorRecordIndex;
 
-  std::unique_ptr<float []> hWeights;
+  std::unique_ptr<float []> hWeights, hBiases;
   std::string layerName;
 
   FullyConnectedLayerImpl(Net &net, int index,
@@ -52,24 +52,18 @@ public:
   void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping);
 
   Program initParams(Graph &graph) {
-    return Sequence();
-  }
-
-  Program startBatch(Graph &graph) {
-    return Sequence();
+    if (getDType() != "float") {
+      // TODO: host to device tensor copies of half datatype
+      return Sequence();
+    }
+    return Sequence(Copy(weights, &hWeights[0]),
+                    Copy(biases, &hBiases[0]));
   }
 
   Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping);
+  Program backward(Graph &graph);
 
-  Program backward(Graph &graph) {
-    // TODO
-    return Sequence();
-  }
-
-  Program weightSync(Graph &graph) {
-    // TODO
-    return Sequence();
-  }
+  Program weightUpdate(Graph &graph);
 };
 
 class FullyConnectedLayer : public LayerSpec {

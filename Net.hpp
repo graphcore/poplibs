@@ -46,6 +46,7 @@ public:
   unsigned numIPUs = 1;
   unsigned numBatchesBetweenTest = 2500;
   bool reuseLayerImplGraphs = true;
+  bool ignoreData = false;
   IPUMachineInfo ipuMachineInfo;
 };
 
@@ -108,6 +109,8 @@ public:
   }
 
   const std::string &getDType() const { return dType; }
+
+  float getLearningRate() const { return eta; }
 
   unsigned getBatchSize() const { return batchSize; }
 

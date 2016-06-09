@@ -45,6 +45,8 @@ protected:
   enum NetType getNetType() const;
   const NetOptions &getNetOptions() const;
   unsigned getBatchSize() const;
+  bool targetSharedConvWeights() const;
+  float getLearningRate() const;
   void mapTensor(Tensor t, IPUModelEngineBuilder::TileMapping *mapping);
   void mapComputeSet(const Graph &graph, ComputeSet c,
                      IPUModelEngineBuilder::TileMapping *mapping);
@@ -55,11 +57,10 @@ public:
   virtual void init(Graph &graph,
                     IPUModelEngineBuilder::TileMapping *mapping) = 0;
   virtual Program initParams(Graph &graph) = 0;
-  virtual Program startBatch(Graph &graph) = 0;
   virtual Program forward(Graph &graph,
                           IPUModelEngineBuilder::TileMapping *mapping) = 0;
   virtual Program backward(Graph &graph) = 0;
-  virtual Program weightSync(Graph &graph) = 0;
+  virtual Program weightUpdate(Graph &graph) = 0;
   virtual void describe(std::ostream &out) = 0;
   /// Return the number of FLOPs required for a naive implementation of the
   /// forward pass. A FLOP is a basic arithmetic operation such as multiply,
@@ -103,10 +104,10 @@ public:
 
 class InputLayer : public Layer {
   DataSet &data;
-  Tensor out, z, isTraining;
+  Tensor out, z;
 public:
-  InputLayer(const Net &net, int index, DataSet &data, Tensor isTraining) :
-    Layer(net, index), data(data), isTraining(isTraining) {}
+  InputLayer(const Net &net, int index, DataSet &data) :
+    Layer(net, index), data(data) {}
 
   void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
     const auto dType = getDType();
@@ -125,25 +126,24 @@ public:
   }
 
   Program initParams(Graph &graph) { return Sequence(); }
-  Program startBatch(Graph &graph) { return Sequence(); }
-  Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
-    size_t trainingDataSize = data.numTraining * data.dataSize;
-    size_t testDataSize = data.numTest * data.dataSize;
+  Program forward(Graph &graph,
+                  IPUModelEngineBuilder::TileMapping *mapping) {
     return Sequence();
-    #if 0
-    return IfProg(
-             isTraining,
-             Copy(out,
-                  &data.trainingData[0],
-                  &data.trainingData[trainingDataSize]),
-             Copy(out,
-                  &data.testData[0],
-                  &data.testData[testDataSize]));
-    #endif
   }
 
+  Program loadData(Graph &graph, bool isTraining) {
+    if (isTraining) {
+      size_t trainingDataSize = data.numTraining * data.dataSize;
+      return Copy(out, &data.trainingData[0],
+                  &data.trainingData[trainingDataSize]);
+    } else {
+      size_t testDataSize = data.numTest * data.dataSize;
+      return Copy(out, &data.testData[0],
+                  &data.testData[testDataSize]);
+    }
+  }
   Program backward(Graph &graph) { return Sequence(); }
-  Program weightSync(Graph &graph) { return Sequence(); }
+  Program weightUpdate(Graph &graph) { return Sequence(); }
   void describe(std::ostream &out) {}
   std::uint64_t getNumberOfFlops() { return 0; }
   virtual double getPerfectCycleCount() { return 0.0; }
@@ -155,13 +155,13 @@ public:
 class LossLayer : public Layer {
   DataSet &data;
   LossType lossType;
-  Tensor errors, expected, lossTypeTensor, loss, numCorrect, isTraining;
+  Tensor errors, expected, lossTypeTensor, loss, numCorrect;
   unsigned hNumCorrect;
   ComputeSet fwd;
 public:
   LossLayer(const Net &net, int index,
-            DataSet &data, LossType lossType, Tensor isTraining) :
-    Layer(net, index), data(data), lossType(lossType), isTraining(isTraining) {}
+            DataSet &data, LossType lossType) :
+    Layer(net, index), data(data), lossType(lossType) {}
 
   void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
     const auto dType = getDType();
@@ -190,9 +190,6 @@ public:
   }
 
   Program initParams(Graph &graph) { return Sequence(); }
-  Program startBatch(Graph &graph) {
-    return Assign(numCorrect[0], 0);
-  }
   Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
     Layer *prev = getPrevLayer();
     auto v = graph.addVertex(fwd, templateVertex("CalcLoss", getDType()),
@@ -205,27 +202,23 @@ public:
     graph.setFieldSize(v["probs"], prev->getFwdActivations().numElements());
     graph.setInitialValue(v["nonLinearityType"], prev->getNonLinearityType());
     mapComputeSet(graph, fwd, mapping);
-    #if 0
-    Program copyLabelsProg =
-      Ifprog(isTraining,
-             Copy(expected,
-                  &data.trainingLabels[0],
-                  &data.trainingLabels[data.numTraining]),
-             Copy(expected,
-                  &data.testLabels[0],
-                  &data.testLabels[data.numTest]));
-    #endif
-    Program copyLabelsProg =
-      Copy(expected,
-           &data.testLabels[0],
-           &data.testLabels[data.numTest]);
     return Sequence(Copy(numCorrect, &hNumCorrect),
-                    copyLabelsProg,
                     Execute(fwd),
                     Copy(&hNumCorrect, numCorrect));
   }
+  Program loadLabels(Graph &graph, bool isTraining) {
+    if (isTraining) {
+      return Copy(expected,
+                  &data.trainingLabels[0],
+                  &data.trainingLabels[data.numTraining]);
+    } else {
+      return Copy(expected,
+                  &data.testLabels[0],
+                  &data.testLabels[data.numTest]);
+    }
+  }
   Program backward(Graph &graph) { return Sequence(); }
-  Program weightSync(Graph &graph) { return Sequence(); }
+  Program weightUpdate(Graph &graph) { return Sequence(); }
   void describe(std::ostream &out) {}
   std::uint64_t getNumberOfFlops() { return 0; }
   virtual double getPerfectCycleCount() { return 0.0; }
