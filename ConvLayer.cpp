@@ -710,6 +710,9 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   }
   biases = graph.addTensor(dType, {outNumChans});
   mapTensor(biases, mapping);
+  fwdActivations = graph.addTensor(dType, {outNumChanGroups, outDimY, outDimX,
+                                           outChansPerGroup});
+  mapActivations(fwdActivations, mapping);
 
   unsigned resDimX = 0, resDimY = 0, resNumChans = 0, resNumChanGroups = 0,
            resChansPerGroup;
@@ -1525,6 +1528,7 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
                   resLayer->getFwdActivations()));
   }
   prog.add(impl->getOrCreateFwdProg(graph, mapping));
+  prog.add(Copy(fwdActivations, impl->getOutputTensor()));
   return prog;
 }
 

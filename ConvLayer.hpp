@@ -113,6 +113,9 @@ class ConvLayerImpl : public Layer {
   Tensor getInputTensor() const {
     return in;
   }
+  Tensor getOutputTensor() const {
+    return activations;
+  }
   void createFwdProg(Graph &graph,
                      IPUModelEngineBuilder::TileMapping *mapping);
   Program
@@ -140,7 +143,8 @@ public:
   unsigned outNumChans, outNumChanGroups, outDimX, outDimY;
   NonLinearityType nonLinearityType;
   NormalizationType normalizationType;
-  Tensor weights, in, weightsIn, biases, biasesIn, z, activations, resIn;
+  Tensor weights, in, weightsIn, biases, biasesIn, z, activations, fwdActivations,
+         resIn;
 
   std::string layerName;
 
@@ -177,9 +181,7 @@ public:
   double getPerfectCycleCount();
 
   Tensor getFwdActivations() const {
-    if (reuseImpl)
-      return reuseImpl->getFwdActivations();
-    return activations;
+    return fwdActivations;
   }
 
   Tensor getFwdZs() const {
