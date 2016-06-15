@@ -709,7 +709,7 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
                                       inChansPerGroup});
   }
   biases = graph.addTensor(dType, {outNumChans});
-  mapTensor(biases, mapping);
+  mapBiases(biases, mapping);
   fwdActivations = graph.addTensor(dType, {outNumChanGroups, outDimY, outDimX,
                                            outChansPerGroup});
   mapActivations(fwdActivations, mapping);
@@ -780,7 +780,7 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   }
   biasesIn = graph.addTensor(dType, {outNumChans});
   mapTensor(z, mapping);
-  mapTensor(biasesIn, mapping);
+  mapBiases(biasesIn, mapping);
   if (resIndex) {
     resIn = graph.addTensor(dType, {resNumChanGroups,
                                     resDimY, resDimY,
@@ -1204,6 +1204,32 @@ linearizeTileIndices(unsigned izg, unsigned ox, unsigned oy,
                izg));
 }
 
+void ConvLayerImpl::mapBiases(Tensor b,
+                              IPUModelEngineBuilder::TileMapping *mapping) {
+  if (!mapping)
+    return;
+  const auto numTiles = getNumIPUs() * getTilesPerIPU();
+  const auto workersPerTile = getWorkerContextsPerTile();
+  const auto numWorkers = numTiles * workersPerTile;
+  size_t outChansPerGroup = outNumChans / outNumChanGroups;
+  const auto numOutGroups = outNumChanGroups * outDimY * outDimX;
+  Tensor biasesByChanGroup =
+      b.reshape({outNumChanGroups, outChansPerGroup});
+  for (unsigned worker = 0; worker != numWorkers; ++worker) {
+    auto tile = worker / workersPerTile;
+    const auto groupBegin = (worker * numOutGroups) / numWorkers;
+    const auto groupEnd = ((worker + 1) * numOutGroups) / numWorkers;
+    if (groupBegin == groupEnd)
+      continue;
+
+    auto minOutChanGroup = groupBegin / (outDimX * outDimY);
+    auto maxOutChanGroup = (groupEnd - 1) / (outDimX * outDimY);
+    Tensor biasSlice = biasesByChanGroup.slice(minOutChanGroup,
+                                               maxOutChanGroup + 1);
+    mapping->setMapping(biasSlice, tile);
+  }
+}
+
 void ConvLayerImpl::mapWeights(Graph &graph,
                                IPUModelEngineBuilder::TileMapping *mapping,
                                Tensor w) {
@@ -1461,6 +1487,8 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
     Tensor biasSlice = biasesByChanGroup.slice(minOutChanGroup,
                                                maxOutChanGroup + 1);
     graph.connect(v["bias"], biasSlice);
+    if (mapping)
+      mapping->setMapping(biasSlice, tile);
     graph.setFieldSize(v["outputChanGroupsPerBias"],
                        maxOutChanGroup - minOutChanGroup + 1);
     for (auto outChanGroup = minOutChanGroup;

@@ -101,6 +101,7 @@ class ConvLayerImpl : public Layer {
               ComputeSet zeroCS,
               ComputeSet fwdCS,
               const Tensor &out);
+  void mapBiases(Tensor w, IPUModelEngineBuilder::TileMapping *mapping);
   void mapWeights(Graph &graph,
                   IPUModelEngineBuilder::TileMapping *mapping,
                   Tensor w);
