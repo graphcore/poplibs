@@ -693,21 +693,12 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   const auto partialChansPerGroup = partition.partialChansPerGroup;
   assert(outNumChans % partialChansPerGroup == 0);
   const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
-  if (useConvolutionInstruction()) {
-    weights = graph.addTensor(dType, {partialNumChanGroups,
-                                      inNumChanGroups,
-                                      kernelSize,
-                                      kernelSize,
-                                      partialChansPerGroup,
-                                      inChansPerGroup});
-  } else {
-    assert(partialChansPerGroup == 1);
-    weights = graph.addTensor(dType, {inNumChanGroups,
-                                      outNumChans,
-                                      kernelSize,
-                                      kernelSize,
-                                      inChansPerGroup});
-  }
+  weights = graph.addTensor(dType, {partialNumChanGroups,
+                                    inNumChanGroups,
+                                    kernelSize,
+                                    kernelSize,
+                                    partialChansPerGroup,
+                                    inChansPerGroup});
   fwdActivations = graph.addTensor(dType, {outNumChanGroups, outDimY, outDimX,
                                            outChansPerGroup});
   mapActivations(fwdActivations, mapping);
@@ -764,21 +755,12 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
                               outChansPerGroup});
   activations = graph.addTensor(dType, {outNumChanGroups, outDimY, outDimX,
                                         outChansPerGroup});
-  if (useConvolutionInstruction()) {
-    weightsIn = graph.addTensor(dType, {partialNumChanGroups,
-                                        inNumChanGroups,
-                                        kernelSize,
-                                        kernelSize,
-                                        partialChansPerGroup,
-                                        inChansPerGroup});
-  } else {
-    assert(partialChansPerGroup == 1);
-    weightsIn = graph.addTensor(dType, {inNumChanGroups,
-                                        outNumChans,
-                                        kernelSize,
-                                        kernelSize,
-                                        inChansPerGroup});
-  }
+  weightsIn = graph.addTensor(dType, {partialNumChanGroups,
+                                      inNumChanGroups,
+                                      kernelSize,
+                                      kernelSize,
+                                      partialChansPerGroup,
+                                      inChansPerGroup});
   biasesIn = graph.addTensor(dType, {outNumChans});
   mapTensor(z, mapping);
   mapBiases(biasesIn, activationsMapping, mapping);
@@ -1153,9 +1135,9 @@ forwardTile(Graph &graph,
             ).reshape({inHeight * inZGroups,
                        inWidth * inChansPerGroup});
         Tensor w =
-            weightsIn.slice(
-              {tileInZGroupBegin, z, weightYBegin, 0, 0},
-              {tileInZGroupEnd, z + 1, weightYEnd, kernelSize, inChansPerGroup}
+            weightsIn[z].slice(
+              {tileInZGroupBegin, weightYBegin, 0, 0, 0},
+              {tileInZGroupEnd, weightYEnd, kernelSize, 1, inChansPerGroup}
             ).reshape({inHeight * inZGroups,
                        inChansPerGroup * kernelSize});
         Tensor outWindow = out[z][y].slice(tileOutXBegin, tileOutXEnd).flatten();
@@ -1289,9 +1271,9 @@ void ConvLayerImpl::mapWeights(Graph &graph,
         } else {
           sharedWeights =
               w.slice(
-                {inZGroupBegin, outZGroupBegin, 0, 0, 0},
-                {inZGroupEnd, outZGroupEnd, kernelSize, kernelSize,
-                 inChansPerGroup}
+                {outZGroupBegin, inZGroupBegin, 0, 0, 0, 0},
+                {outZGroupEnd, inZGroupEnd, kernelSize, kernelSize,
+                 1, inChansPerGroup}
               ).reshape({numInZGroups * numOutZGroups * kernelSize,
                          kernelSize * inChansPerGroup});
         }
