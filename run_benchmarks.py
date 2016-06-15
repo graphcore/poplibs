@@ -33,11 +33,11 @@ fields = [
     ('In edge pointers',
      '    In edge pointers: (?P<value>[0-9.]+)'),
     ('Message memory',
-     '    Message memory: (?P<value>[0-9.]+)'),
+     '  (  )?Message memory: (?P<value>[0-9.]+)'),
     ('Run instructions',
-     '    Run instructions: (?P<value>[0-9.]+)'),
+     '  (  )?Run instructions: (?P<value>[0-9.]+)'),
     ('Exchange supervisor code',
-     '    Exchange supervisor code: (?P<value>[0-9.]+)'),
+     '  (  )?Exchange supervisor code: (?P<value>[0-9.]+)'),
     ('Compute cycles',
      '  Compute cycles: (?P<value>[0-9.]+)'),
     ('Global exchange cycles',
@@ -137,7 +137,10 @@ def write(runs, filename):
         ('Tile sync', setDataCell),
         ('IPU sync', setDataCell),
         ('Global sync', setDataCell),
-        ('Total cycle count', partial(setTotalCell, -9, -1))
+        ('Total cycle count', partial(setTotalCell, -9, -1)),
+        ('Exchange supervisor code', setDataCell),
+        ('Message memory', setDataCell),
+        ('Run instructions', setDataCell),
     ]
 
     summary_headings = headings1 + headings2
