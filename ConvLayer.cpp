@@ -1,6 +1,7 @@
 #include "ConvLayer.hpp"
 #include "PerformanceEstimation.hpp"
 #include "VertexTemplates.hpp"
+#include "ConvUtil.hpp"
 
 // Greatest common divisor
 template <typename T>
@@ -43,133 +44,6 @@ namespace {
       padding(padding),
       outputDepth(outputDepth) {}
   };
-}
-
-/// Return the index of the input that is multiplied with the specified weight
-/// and incorporated into the specified output. Return ~0U if there is no
-/// such output.
-static unsigned
-getInputIndex(unsigned outputIndex, unsigned stride, unsigned kernelSize,
-              unsigned padding, unsigned inputSize, unsigned weightIndex) {
-  const auto start  = static_cast<int>(outputIndex * stride) - padding;
-  auto inputIndex = start + static_cast<int>(weightIndex);
-  if (inputIndex < 0 ||
-      static_cast<unsigned>(inputIndex) >= inputSize)
-    return ~0U;
-  return inputIndex;
-}
-
-/// Given an output range, return the subset whose calculation involves the
-/// specified weight.
-static std::pair<unsigned, unsigned>
-getOutputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
-               unsigned kernelSize, unsigned padding,
-               unsigned inputSize, unsigned weightIndex) {
-  assert(outputRange.first <= outputRange.second);
-  if (outputRange.first == outputRange.second) {
-    return {0, 0};
-  }
-  unsigned outputBegin = 0, outputEnd = 0;
-  for (unsigned i = outputRange.first; i != outputRange.second; ++i) {
-    if (getInputIndex(i, stride, kernelSize, padding,
-                      inputSize, weightIndex) == ~0U) {
-      continue;
-    }
-    outputBegin = i;
-    break;
-  }
-  for (unsigned i = outputRange.second; i != outputRange.first; --i) {
-    if (getInputIndex(i - 1, stride, kernelSize, padding, inputSize,
-                      weightIndex) == ~0U) {
-      continue;
-    }
-    outputEnd = i;
-    break;
-  }
-  return {outputBegin, outputEnd};
-}
-
-/// Return the input range that is multiplied by the specified weight when
-/// calculating the specified output range.
-static std::pair<unsigned, unsigned>
-getInputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
-              unsigned kernelSize, unsigned padding,
-              unsigned inputSize, unsigned weightIndex) {
-  auto truncatedOutputRange =
-    getOutputRange(outputRange, stride, kernelSize, padding, inputSize,
-                   weightIndex);
-  if (truncatedOutputRange.first == truncatedOutputRange.second) {
-    return {0, 0};
-  }
-  return {
-    getInputIndex(truncatedOutputRange.first, stride, kernelSize,
-                  padding, inputSize, weightIndex),
-    getInputIndex(truncatedOutputRange.second - 1, stride, kernelSize,
-                  padding, inputSize, weightIndex) + 1
-  };
-}
-
-static std::pair<unsigned, unsigned>
-getInputRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
-              unsigned padding, unsigned inputSize) {
-  int begin = static_cast<int>(outputIndex * stride) -
-              static_cast<int>(padding);
-  unsigned underflow = 0;
-  if (begin < 0) {
-    underflow = -begin;
-    begin = 0;
-  }
-  assert(underflow <= kernelSize);
-  unsigned end = std::min(begin + kernelSize - underflow, inputSize);
-  return {begin, end};
-}
-
-static std::pair<unsigned, unsigned>
-getInputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
-              unsigned kernelSize, unsigned padding, unsigned inputSize) {
-
-  assert(outputRange.first <= outputRange.second);
-  if (outputRange.first == outputRange.second) {
-    return {0, 0};
-  }
-  const auto begin =
-      getInputRange(outputRange.first, stride, kernelSize,
-                    padding, inputSize).first;
-  const auto end =
-      getInputRange(outputRange.second - 1, stride, kernelSize, padding,
-                    inputSize).second;
-  return {begin, end};
-}
-
-static std::pair<unsigned, unsigned>
-getWeightRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
-               unsigned padding, unsigned inputSize) {
-  int begin = static_cast<int>(outputIndex * stride) -
-              static_cast<int>(padding);
-  unsigned inputBegin, inputEnd;
-  std::tie(inputBegin, inputEnd) = getInputRange(outputIndex, stride,
-                                                 kernelSize, padding,
-                                                 inputSize);
-  const auto weightBegin = inputBegin - begin;
-  const auto weightEnd = inputEnd - begin;
-  return { weightBegin, weightEnd };
-}
-
-static std::pair<unsigned, unsigned>
-getWeightRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
-               unsigned kernelSize, unsigned padding,
-               unsigned inputSize) {
-  assert(outputRange.first <= outputRange.second);
-  if (outputRange.first == outputRange.second) {
-    return {0, 0};
-  }
-  const auto begin =
-      getWeightRange(outputRange.first, stride, kernelSize,
-                     padding, inputSize).first;
-  const auto end =
-      getWeightRange(outputRange.second - 1, stride, kernelSize, padding,
-                     inputSize).second;
-  return {begin, end};
 }
 
 static unsigned
@@ -1144,7 +1018,7 @@ forwardTile(Graph &graph,
         // Weights that match the window.
         unsigned weightYBegin, weightYEnd;
         std::tie(weightYBegin, weightYEnd) =
-          getWeightRange(y, stride, kernelSize, padding, inDimY);
+          getKernelRange(y, stride, kernelSize, padding, inDimY);
         Tensor inWindow =
             in.slice(
               {tileInZGroupBegin, inYBegin, inXBegin, 0},

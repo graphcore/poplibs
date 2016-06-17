@@ -46,8 +46,8 @@ int main(int argc, char **argv) {
               // 7x7,64, stride 2
             new ConvLayer(7, 2, 3, 64,
                           NON_LINEARITY_RELU, NORMALIZATION_LR),
-              // 3x3 max pool, stride 2
-            new MaxPoolLayer(3, 2),
+            // 3x3 max pool, stride 2
+            new MaxPoolLayer(3, 2, 1),
 
             // 1x1,64 -> 3x3, 64-> 1x1, 256 (residual) X 3
             new ConvLayer(1, 1, 0, 64, NON_LINEARITY_RELU,

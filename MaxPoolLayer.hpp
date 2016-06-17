@@ -7,6 +7,7 @@ class MaxPoolLayerImpl : public Layer {
 public:
   unsigned kernelSize;
   unsigned stride;
+  unsigned padding;
 
   Tensor out, activations;
 
@@ -17,7 +18,8 @@ public:
   MaxPoolLayerImpl(const Net &net,
                    int index,
                    unsigned kernelSize,
-                   unsigned stride);
+                   unsigned stride,
+                   unsigned padding);
 
   Tensor getFwdActivations() const {
     return activations;
@@ -64,16 +66,19 @@ public:
 class MaxPoolLayer : public LayerSpec {
   unsigned kernelSize;
   unsigned stride;
+  unsigned padding;
 public:
   MaxPoolLayer(unsigned kernelSize,
-               unsigned stride) :
+               unsigned stride,
+               unsigned padding=0) :
   kernelSize(kernelSize),
-  stride(stride) {}
+  stride(stride),
+  padding(padding) {}
 
   std::unique_ptr<Layer>
   makeLayer(Net &net, int index) {
     return std::unique_ptr<Layer>(
-      new MaxPoolLayerImpl(net, index, kernelSize, stride));
+      new MaxPoolLayerImpl(net, index, kernelSize, stride, padding));
   }
 };
 

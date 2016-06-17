@@ -1,13 +1,16 @@
 #include "MaxPoolLayer.hpp"
 #include "VertexTemplates.hpp"
+#include "ConvUtil.hpp"
 
 MaxPoolLayerImpl::MaxPoolLayerImpl(const Net &net,
                  int index,
                  unsigned kernelSize,
-                 unsigned stride)  :
+                 unsigned stride,
+                 unsigned padding)  :
   Layer(net, index),
   kernelSize(kernelSize),
-  stride(stride) {
+  stride(stride),
+  padding(padding) {
   layerName = "MaxPool" + std::to_string(kernelSize) + "x" +
     std::to_string(kernelSize);
 }
@@ -25,15 +28,17 @@ void MaxPoolLayerImpl::describe(std::ostream &out) {
 
 std::uint64_t MaxPoolLayerImpl::getNumberOfFlops() {
   std::uint64_t numFlops = 0;
-  for (unsigned i = 0; i < xDimOut; ++i) {
-    for (unsigned j = 0; j < yDimOut; ++j) {
-      for (unsigned chan = 0; chan < numChannels; ++chan) {
-        unsigned width =
-          std::min(i * stride + kernelSize, xDim) - i * stride;
-        unsigned height =
-          std::min(j * stride + kernelSize, yDim) - j * stride;
-        numFlops += width * height;
-      }
+  for (unsigned y = 0; y < yDimOut; ++y) {
+    unsigned inYBegin, inYEnd;
+    std::tie(inYBegin, inYEnd) = getInputRange(y, stride, kernelSize,
+                                               padding, yDim);
+    const auto height = inYEnd - inYBegin;
+    for (unsigned x = 0; x < xDimOut; ++x) {
+      unsigned inXBegin, inXEnd;
+      std::tie(inXBegin, inXEnd) = getInputRange(x, stride, kernelSize,
+                                                 padding, xDim);
+      const auto width = inXEnd - inXBegin;
+      numFlops += width * height;
     }
   }
   return numFlops;
@@ -53,8 +58,8 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   xDim = in.dim(1);
   yDim = in.dim(2);
   numChannels = in.dim(0) * in.dim(3);
-  xDimOut = (xDim - kernelSize) / stride + 1;
-  yDimOut = (yDim - kernelSize) / stride + 1;
+  xDimOut = (xDim + (2 * padding) - kernelSize) / stride + 1;
+  yDimOut = (yDim + (2 * padding) - kernelSize) / stride + 1;
   Layer *next = getNextLayer();
   numChanGroups = next->getNumChannelGroupsIn(xDimOut, yDimOut, numChannels);
   if (!numChanGroups)
@@ -87,17 +92,21 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
       const auto chan = chanGroup * chansPerGroup + chanInGroup;
       unsigned prevChanGroup = chan / prevChansPerGroup;
       unsigned prevChanInGroup = chan % prevChansPerGroup;
-      unsigned width = std::min(x * stride + kernelSize, xDim) - x * stride;
-      unsigned height = std::min(y * stride + kernelSize, yDim) - y * stride;
+      unsigned inYBegin, inYEnd;
+      std::tie(inYBegin, inYEnd) = getInputRange(y, stride, kernelSize,
+                                                 padding, yDim);
+      unsigned inXBegin, inXEnd;
+      std::tie(inXBegin, inXEnd) = getInputRange(x, stride, kernelSize,
+                                                 padding, xDim);
       Tensor window =
-        in[prevChanGroup].slice({x * stride, y * stride, prevChanInGroup},
-                                {x * stride + width, y * stride + height,
-                                  prevChanInGroup+1})
-          .flatten();
+          in[prevChanGroup].slice({inYBegin, inXBegin, prevChanInGroup},
+                                  {inYEnd, inXEnd,
+                                   prevChanInGroup + 1})
+                           .flatten();
       auto v =
         graph.addVertex(fwd, templateVertex("MaxPooling", getDType()),
           { {"activationIn", window},
-            {"activationOut", activations[chanGroup][x][y][chanInGroup]} });
+            {"activationOut", activations[chanGroup][y][x][chanInGroup]} });
       if (mapping) {
         mapping->setMapping(v, tile);
       }

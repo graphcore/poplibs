@@ -22,6 +22,7 @@ ${OBJDIR}/%.o: %.cpp Makefile ${wildcard *.hpp} ${wilcard *.h} | ${OBJDIR}/
 	${CXX} -march=native -ffast-math ${FLAGS} -c -std=c++11 $< -o $@
 
 COMMON_OBJ = \
+	${OBJDIR}/ConvUtil.o \
 	${OBJDIR}/ConvLayer.o \
 	${OBJDIR}/FullyConnectedLayer.o \
 	${OBJDIR}/Layer.o \

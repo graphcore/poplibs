@@ -44,7 +44,7 @@ int main(int argc, char **argv) {
           makeLayers({
             new ConvLayer(7, 2, 3, 64,
                           NON_LINEARITY_RELU, NORMALIZATION_LR),
-            new MaxPoolLayer(3, 2),
+            new MaxPoolLayer(3, 2, 1),
 
             new ConvLayer(3, 1, 1, 64, NON_LINEARITY_RELU,
                           NORMALIZATION_NONE),
