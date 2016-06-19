@@ -31,7 +31,7 @@ int main() {
             new FullyConnectedLayer(10, NON_LINEARITY_SIGMOID),
           }),
           SUM_SQUARED_LOSS,
-          3.0, // learning rate
+          0.3, // learning rate
           netType,
           FP32
           );
