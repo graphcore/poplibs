@@ -1,9 +1,6 @@
 #ifndef _fully_connected_layer_hpp_
 #define _fully_connected_layer_hpp_
 #include "Net.hpp"
-#include <boost/random/normal_distribution.hpp>
-#include <boost/random/mersenne_twister.hpp>
-#include <boost/random/variate_generator.hpp>
 #include <cmath>
 
 class FullyConnectedLayerImpl : public Layer {

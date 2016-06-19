@@ -9,7 +9,7 @@ public:
   unsigned stride;
   unsigned padding;
 
-  Tensor out, activations;
+  Tensor out, activations, errors;
 
   unsigned xDim, yDim, numChannels, xDimOut, yDimOut, numChanGroups;
 
@@ -30,8 +30,7 @@ public:
   }
 
   Tensor getBwdErrors() const {
-    // TODO
-    std::abort();
+    return errors;
   }
 
   NonLinearityType getNonLinearityType() const {
@@ -52,13 +51,9 @@ public:
 
   Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping);
 
-  Program backward(Graph &graph) {
-    // TODO
-    return Sequence();
-  }
+  Program backward(Graph &graph);
 
   Program weightUpdate(Graph &graph) {
-    // TODO
     return Sequence();
   }
 };

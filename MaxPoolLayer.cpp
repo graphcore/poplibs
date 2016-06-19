@@ -70,6 +70,9 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   activations = graph.addTensor(dType, {numChanGroups, xDimOut, yDimOut,
                                         chansPerGroup});
   mapActivations(activations, mapping);
+  if (getNetType() == TrainingNet) {
+    errors = graph.addTensor(dType, prev->getFwdActivations().dims());
+  }
 }
 
 Program MaxPoolLayerImpl::
@@ -115,4 +118,41 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
     }
   }
   return Execute(fwd);
+}
+
+Program MaxPoolLayerImpl::
+backward(Graph &graph) {
+  const auto chansPerGroup = numChannels / numChanGroups;
+  auto bwdCS = graph.createComputeSet(layerName + ".bwd");
+  auto errIn = getNextLayer()->getBwdErrors();
+  Layer *prev = getPrevLayer();
+  Tensor act = prev->getFwdActivations();
+  const auto prevChanGroups = act.dim(0);
+  const auto prevChansPerGroup = numChannels / prevChanGroups;
+  assert(errIn.dim(0) == numChanGroups);
+  assert(errIn.dim(1) == yDimOut);
+  assert(errIn.dim(2) == xDimOut);
+  assert(errIn.dim(3) == chansPerGroup);
+  for (unsigned xIn = 0; xIn < xDim; ++xIn) {
+    const auto xOut = xIn / stride;
+    if (xOut >= xDimOut)
+      continue;
+    for (unsigned yIn = 0; yIn < yDim; ++yIn) {
+      const auto yOut = yIn / stride;
+      if (yOut >= xDimOut)
+        continue;
+      for (unsigned chan = 0; chan < numChannels; ++chan) {
+        unsigned chanGroup = chan / chansPerGroup;
+        unsigned chanInGroup = chan % chansPerGroup;
+        unsigned prevChanGroup = chan / prevChansPerGroup;
+        unsigned prevChanInGroup = chan % prevChansPerGroup;
+        graph.addVertex(bwdCS, templateVertex("MaxPoolingBwd", getDType()),
+          { {"actOut", activations[chanGroup][yOut][xOut][chanInGroup]},
+            {"actIn", act[prevChanGroup][yIn][xIn][prevChanInGroup]},
+            {"errIn", errIn[chanGroup][yOut][xOut][chanInGroup]},
+            {"errOut", errors[prevChanGroup][yIn][xIn][prevChanInGroup]} });
+      }
+    }
+  }
+  return Execute(bwdCS);
 }

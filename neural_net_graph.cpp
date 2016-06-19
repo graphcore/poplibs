@@ -263,6 +263,157 @@ template class ConvPartial1x1InOut<Vertex, float>;
 template class ConvPartial1x1InOut<SupervisorVertex, half>;
 template class ConvPartial1x1InOut<SupervisorVertex, float>;
 
+
+template <typename FPType>
+class ConvBwd : public Vertex {
+public:
+  Vector<Input<Vector<FPType>>> in;
+  Vector<Input<Vector<FPType>>> z;
+  Vector<Input<FPType>> weights;
+  Vector<Output<Vector<FPType>>> out;
+  NonLinearityType nonLinearityType;
+  bool debug;
+
+  bool compute() {
+    const auto outRows = out.size();
+    const auto inChansPerCol = weights.size();
+    const auto inRows = in.size();
+    const auto stride = outRows / inRows;
+    for (unsigned rowIndex = 0; rowIndex < outRows; rowIndex += stride) {
+      auto &inRow = in[rowIndex/stride];
+      auto &outRow = out[rowIndex];
+      auto &zRow = z[rowIndex/stride];
+      unsigned weightIndex = 0;
+      for (unsigned outIndex = 0; outIndex < outRow.size();
+           outIndex += stride) {
+        float sum = 0;
+        for (unsigned weightIndex = 0;
+             weightIndex < weights.size();
+             ++weightIndex) {
+          auto inIndex = outIndex/stride * weights.size() + weightIndex;
+          auto d = inRow[inIndex] *
+                   nonlinearity_derivative(nonLinearityType, zRow[inIndex]);
+          sum += d * weights[weightIndex];
+        }
+        outRow[outIndex] = sum;
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    // TODO
+    return 0;
+  }
+};
+
+template class ConvBwd<half>;
+template class ConvBwd<float>;
+
+
+template <class InType, class OutType>
+class ConvCompleteBwd : public Vertex {
+public:
+  Vector<Input<InType>> in;
+  Output<Vector<OutType>> out;
+
+  bool compute() {
+    for (unsigned i = 0; i < out.size(); ++i) {
+      out[i] = in[i];
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    // TODO
+    return 0;
+  }
+
+};
+
+template class ConvCompleteBwd<float, float>;
+template class ConvCompleteBwd<float, half>;
+template class ConvCompleteBwd<half, half>;
+
+template <typename FPType>
+class ConvPartialWeightUpdate : public Vertex {
+public:
+  Input<FPType> error;
+  Input<FPType> z;
+  Output<Vector<FPType>> weightUpdates;
+  Vector<Input<FPType>> in;
+  NonLinearityType nonLinearityType;
+
+  bool compute() {
+    auto d = *error * nonlinearity_derivative(nonLinearityType, *z);
+    for (unsigned i = 0; i < weightUpdates.size(); ++i) {
+      weightUpdates[i] = d * in[i];
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    // TODO
+    return 0;
+  }
+};
+
+template class ConvPartialWeightUpdate<float>;
+template class ConvPartialWeightUpdate<half>;
+
+template <typename FPType>
+class ConvWeightUpdateReduce: public Vertex {
+public:
+  InOut<FPType> weight;
+  Vector<Input<FPType>> partials;
+  float eta;
+
+  bool compute() {
+    float sum = 0;
+    for (unsigned i = 0; i < partials.size(); ++i) {
+      sum += partials[i];
+    }
+    *weight = *weight - sum * eta;
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    // TODO
+    return 0;
+  }
+};
+
+template class ConvWeightUpdateReduce<float>;
+template class ConvWeightUpdateReduce<half>;
+
+template <typename FPType>
+class ConvBiasUpdate: public Vertex {
+public:
+  InOut<FPType> bias;
+  Vector<Input<FPType>> errors;
+  Vector<Input<FPType>> z;
+  float eta;
+  NonLinearityType nonLinearityType;
+
+  bool compute() {
+    float sum = 0;
+    for (unsigned i = 0; i < errors.size(); ++i) {
+      auto d = errors[i] * nonlinearity_derivative(nonLinearityType, z[i]);
+      sum += d;
+    }
+    *bias -= sum * eta;
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    // TODO
+    return 0;
+  }
+};
+
+template class ConvBiasUpdate<float>;
+template class ConvBiasUpdate<half>;
+
 template <typename FPType>
 class FullyConnectedBwd : public Vertex {
 public:
@@ -523,6 +674,7 @@ public:
   Vector<Input<Vector<InType>>> in;
   Vector<Input<Vector<OutType>>> bias;
   Vector<Output<Vector<OutType>>> out;
+  Vector<Output<Vector<OutType>>> z;
   NonLinearityType nonLinearityType;
   Vector<unsigned> outputChanGroupsPerBias;
   Vector<Input<Vector<OutType>>> res;
@@ -548,6 +700,7 @@ public:
           // the output.
           if (o < res.size())
             sum += res[o][outIndex];
+          z[o][outIndex] = sum;
           out[o][outIndex] = nonlinearity(nonLinearityType, sum);
         }
       }
@@ -700,6 +853,32 @@ public:
 
 template class MaxPooling<float>;
 template class MaxPooling<half>;
+
+template <typename FPType>
+class MaxPoolingBwd : public Vertex {
+public:
+  Input<FPType> actOut;
+  Input<FPType> actIn;
+  Input<FPType> errIn;
+  Output<FPType> errOut;
+
+  bool compute() {
+    if (*actIn == *actOut) {
+      *errOut = *errIn;
+    } else {
+      *errOut = 0;
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    // TODO
+    return 0;
+  }
+};
+
+template class MaxPoolingBwd<float>;
+template class MaxPoolingBwd<half>;
 
 template <typename FPType>
 class CalcLoss : public Vertex {

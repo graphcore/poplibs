@@ -168,7 +168,7 @@ public:
     const auto dType = getDType();
     Layer *prev = getPrevLayer();
     assert(prev);
-    errors = graph.addTensor(dType, {prev->getFwdActivations().numElements()});
+    errors = graph.addTensor(dType, prev->getFwdActivations().dims());
     expected = graph.addTensor("unsigned", {1});
     lossTypeTensor = graph.addTensor("LossType", {1});
     graph.setInitialValue(lossTypeTensor[0], lossType);
@@ -195,7 +195,7 @@ public:
     Layer *prev = getPrevLayer();
     auto v = graph.addVertex(fwd, templateVertex("CalcLoss", getDType()),
                              {{"zIn", prev->getFwdZs().flatten()},
-                              {"errorOut", errors},
+                              {"errorOut", errors.flatten()},
                               {"label", expected[0]},
                               {"lossType", lossTypeTensor[0]},
                               {"loss", loss[0]},
@@ -239,5 +239,8 @@ makeLayers(std::vector<LayerSpec *> vs)
     xs.push_back(std::unique_ptr<LayerSpec>(p));
   return xs;
 }
+
+std::unique_ptr<float[]> createRandomWeightInitializers(Tensor t, float mean,
+                                                        float variance);
 
 #endif // _layer_hpp_

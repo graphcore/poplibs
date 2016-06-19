@@ -95,7 +95,7 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   // weights mapped in forward()
   if (getNetType() == TrainingNet) {
     const auto batchSize = getBatchSize();
-    errors = graph.addTensor(dType, {prevSize});
+    errors = graph.addTensor(dType, prev->getFwdActivations().dims());
     activationRecord = graph.addTensor(dType, {prevSize, batchSize});
     actRecordIndex = graph.addTensor("unsigned", {1});
     errorRecord = graph.addTensor(dType, {size, batchSize});
@@ -108,15 +108,10 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
     mapTensor(errorRecordIndex, mapping);
     mapTensor(bwdWeights, mapping);
   }
-  hWeights = std::unique_ptr<float[]>(new float[prevSize * size]);
-  hBiases = std::unique_ptr<float[]>(new float[size]);
-  unsigned seed = time(0);
-  boost::variate_generator< boost::mt19937, boost::normal_distribution<> >
-    generator(boost::mt19937(seed), boost::normal_distribution<>(0, 1));
-  for (unsigned i = 0; i < prevSize*size; ++i)
-    hWeights[i] = generator();
-  for (unsigned i = 0; i < size; ++i)
-    hBiases[i] = generator();
+  // Initialize weights using "xavier" weight filler that scales
+  // variance based on number of inputs to a neuron.
+  hWeights = createRandomWeightInitializers(weights, 0, 1.0 / prevSize);
+  hBiases = createRandomWeightInitializers(biases, 0, 1.0 / prevSize);
 }
 
 Program FullyConnectedLayerImpl::
@@ -232,6 +227,7 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
 
 Program FullyConnectedLayerImpl::backward(Graph &graph) {
   auto bwdCS = graph.createComputeSet(layerName + ".bwd");
+  auto flatErrors = errors.flatten();
   for (unsigned i = 0; i < prevSize; ++i) {
     auto w = weights.slice({0, i}, {size, i+1}).flatten();
     auto in = getNextLayer()->getBwdErrors().flatten();
@@ -241,7 +237,7 @@ Program FullyConnectedLayerImpl::backward(Graph &graph) {
                              {{"in", in},
                               {"z", z},
                               {"weights", w},
-                              {"out", errors[i]},
+                              {"out", flatErrors[i]},
                              });
     graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
   }

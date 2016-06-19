@@ -602,6 +602,12 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   const auto activationsMapping = computeActivationsMapping(fwdActivations);
   biases = graph.addTensor(dType, {outNumChans});
   mapBiases(biases, activationsMapping, mapping);
+  fwdZ = graph.addTensor(dType, {outNumChanGroups, outDimY, outDimX,
+                                 outChansPerGroup});
+  mapActivations(fwdZ, mapping);
+  if (getNetType() == TrainingNet) {
+    errors = graph.addTensor(dType, prev->getFwdActivations().dims());
+  }
 
   unsigned resDimX = 0, resDimY = 0, resNumChans = 0, resNumChanGroups = 0,
            resChansPerGroup;
@@ -623,6 +629,11 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
     resChansPerGroup = act.dim(3);
     resNumChans = resNumChanGroups * resChansPerGroup;
   }
+
+  // Initialize weights using "xavier" weight filler that scales
+  // variance based on number of inputs to a neuron.
+  hWeights = createRandomWeightInitializers(weights, 0, 1.0f / kernelSize);
+  hBiases = createRandomWeightInitializers(biases, 0, 1.0f / kernelSize);
 
   auto implSpec =
     ConvImplSpec(inNumChans, inNumChanGroups,
@@ -1419,6 +1430,7 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
 
       // Connect the output channel groups and inputs from the partial sums.
       graph.setFieldSize(v["out"], numGroups);
+      graph.setFieldSize(v["z"], numGroups);
       graph.setFieldSize(v["in"],
                          numGroups * outChansPerGroup / partialChanChunkSize);
       unsigned numIn = 0;
@@ -1428,7 +1440,9 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
         auto y = group % (outDimX * outDimY) / outDimX;
         auto x = group % outDimX;
         auto out = activations[outChanGroup][y][x];
+        auto zz = z[outChanGroup][y][x];
         graph.connect(v["out"][group - groupBegin], out);
+        graph.connect(v["z"][group - groupBegin], zz);
         Tensor reducedChans = reduced.slice(
            {0, y, x, 0},
            {partialNumChanGroups, y + 1, x + 1, partialChansPerGroup}
@@ -1454,6 +1468,7 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
     }
   }
   mapActivations(activations, mapping);
+  mapActivations(z, mapping);
   forwardProg.add(Execute(completionCS));
   createdForwardProg = true;
 }
@@ -1477,6 +1492,228 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
   }
   prog.add(impl->getOrCreateFwdProg(graph, mapping));
   prog.add(Copy(fwdActivations, impl->getOutputTensor()));
+  prog.add(Copy(fwdZ, impl->getOutputZ()));
   return prog;
+}
+
+Program ConvLayerImpl::
+backward(Graph &graph) {
+  const auto partialChansPerGroup = partition.partialChansPerGroup;
+  const auto inChansPerGroup = partition.inChansPerGroup;
+  const auto outChansPerGroup = outNumChans / outNumChanGroups;
+  auto err = getNextLayer()->getBwdErrors();
+  assert(err.dim(0) == outNumChanGroups);
+  assert(err.dim(1) == outDimY);
+  assert(err.dim(2) == outDimX);
+  assert(err.dim(3) == outChansPerGroup);
+  auto partials = graph.addTensor("float",
+                                  {outNumChanGroups,
+                                   inNumChans,
+                                   kernelSize,
+                                   kernelSize,
+                                   inDimY, inDimX});
+  auto zeroCS = graph.createComputeSet(layerName + ".bwd.zero");
+  graph.addVertex(zeroCS, templateVertex("Zero", getDType()),
+                  {{"out",partials.flatten()}});
+  auto bwdCS = graph.createComputeSet(layerName + ".bwd");
+  for (unsigned outGroup = 0; outGroup < outNumChanGroups; ++outGroup) {
+    for (unsigned inChan = 0; inChan < inNumChans; ++inChan) {
+      for (unsigned wy = 0; wy < kernelSize; ++wy) {
+        for (unsigned wx = 0; wx < kernelSize; ++wx) {
+          unsigned convOutYBegin, convOutYEnd;
+          std::tie(convOutYBegin, convOutYEnd) =
+              getOutputRange({0, outDimY}, stride, kernelSize,
+                             padding, inDimY, wy);
+          const auto convOutHeight = convOutYEnd - convOutYBegin;
+          if (convOutHeight == 0) {
+            std::abort();
+            continue;
+          }
+          unsigned convOutXBegin, convOutXEnd;
+          std::tie(convOutXBegin, convOutXEnd) =
+              getOutputRange({0, outDimX}, stride, kernelSize,
+                             padding, inDimX, wx);
+          const auto convOutWidth = convOutXEnd - convOutXBegin;
+          if (convOutWidth == 0)
+            continue;
+          unsigned convInYBegin, convInYEnd;
+          std::tie(convInYBegin, convInYEnd) =
+              getInputRange({0, outDimY}, stride, kernelSize,
+                            padding, inDimY,
+                            wy);
+          const auto convInHeight = convInYEnd - convInYBegin;
+          if (convInHeight == 0)
+            continue;
+          unsigned convInXBegin, convInXEnd;
+          std::tie(convInXBegin, convInXEnd) =
+              getInputRange({0, outDimX}, stride, kernelSize, padding,
+                                inDimX, wx);
+          const auto convInWidth = convInXEnd - convInXBegin;
+          if (convInWidth == 0)
+            continue;
+          auto out =
+              partials[outGroup][inChan][wy][wx]
+                  .slice({convInYBegin, convInXBegin},
+                         {convInYEnd, convInXEnd})
+                  .reshape({convInHeight, convInWidth});
+          auto in = err[outGroup]
+                         .slice({convOutYBegin, convOutXBegin, 0},
+                                {convOutYEnd, convOutXEnd, outChansPerGroup})
+                         .reshape({convOutHeight, convOutWidth * outChansPerGroup});
+          auto zz = fwdZ[outGroup]
+                         .slice({convOutYBegin, convOutXBegin, 0},
+                                {convOutYEnd, convOutXEnd, outChansPerGroup})
+                         .reshape({convOutHeight, convOutWidth * outChansPerGroup});
+          auto v = graph.addVertex(bwdCS,
+                                   templateVertex("ConvBwd", getDType()),
+                                   {{"in", in},
+                                    {"out", out},
+                                    {"z", zz}});
+          graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
+          graph.setFieldSize(v["weights"], outChansPerGroup);
+          for (unsigned i = 0; i < outChansPerGroup; ++i) {
+            auto outChan = outGroup * outChansPerGroup + i;
+            Tensor w;
+            w = weights[outChan / partialChansPerGroup]
+                       [inChan / inChansPerGroup]
+                       [wy]
+                       [wx]
+                       [outChan % partialChansPerGroup]
+                       [inChan % inChansPerGroup];
+            graph.connect(v["weights"][i], w);
+          }
+        }
+      }
+    }
+  }
+  auto reduced = graph.addTensor("float", {inNumChans, inDimY, inDimX});
+  auto reduceCS = graph.createComputeSet(layerName + ".bwd.reduce");
+  for (unsigned inChan = 0; inChan < inNumChans; ++inChan) {
+    auto p = partials.slice({0, inChan, 0, 0, 0, 0},
+                            {outNumChanGroups, inChan + 1, kernelSize, kernelSize, inDimX, inDimY})
+                     .reshape({outNumChanGroups * kernelSize * kernelSize,
+                               inDimX * inDimY});
+    graph.addVertex(reduceCS, templateVertex("ConvReduce", "float"),
+                    {{"out", reduced[inChan].flatten()},
+                     {"partials", p}});
+  }
+
+  auto completeCS = graph.createComputeSet(layerName + ".bwd.complete");
+  for (unsigned inChanGroup = 0; inChanGroup < inNumChanGroups; ++inChanGroup) {
+    for (unsigned y = 0; y < inDimY; ++y) {
+      for (unsigned x = 0; x < inDimX; ++x) {
+        auto inChanBegin = inChanGroup * inChansPerGroup;
+        auto inChanEnd = (inChanGroup + 1) * inChansPerGroup;
+        auto in = reduced.slice({inChanBegin, y, x},
+                                {inChanEnd, y+1, x+1})
+                         .flatten();
+        graph.addVertex(completeCS,
+                        templateVertex("ConvCompleteBwd", "float", getDType()),
+                        {{"out", errors[inChanGroup][y][x].flatten()},
+                         {"in", in}});
+      }
+    }
+  }
+
+  return Sequence(Execute(zeroCS), Execute(bwdCS),
+                  Execute(reduceCS), Execute(completeCS));
+}
+
+Program ConvLayerImpl::
+weightUpdate(Graph &graph) {
+  const auto inChansPerGroup = partition.inChansPerGroup;
+  const auto outChansPerGroup = outNumChans / outNumChanGroups;
+  const auto partialChansPerGroup = partition.partialChansPerGroup;
+
+  auto errorIn = getNextLayer()->getBwdErrors();
+  auto wPartials = graph.addTensor(getDType(),
+                                   {outNumChans, outDimY, outDimX,
+                                    kernelSize, kernelSize, inNumChans});
+  auto zeroCS = graph.createComputeSet(layerName + ".weight_update.zero");
+  graph.addVertex(zeroCS, templateVertex("Zero", getDType()),
+                  {{"out",wPartials.flatten()}});
+  auto partialCS = graph.createComputeSet(layerName + ".weight_update.partial");
+  Layer *prev = getPrevLayer();
+  auto act = prev->getFwdActivations();
+  for (unsigned outChanGroup = 0; outChanGroup < outNumChanGroups; ++outChanGroup) {
+    for (unsigned y = 0; y < outDimY; ++y) {
+      for (unsigned x = 0; x < outDimX; ++x) {
+        for (unsigned outChanInGroup = 0; outChanInGroup < outChansPerGroup; ++outChanInGroup) {
+          for (unsigned wy = 0; wy < kernelSize; ++wy) {
+            for (unsigned wx = 0; wx < kernelSize; ++wx) {
+              auto inX = getInputIndex(x, stride, kernelSize,
+                                       padding, inDimX, wx);
+              if (inX == ~0U)
+                continue;
+              auto inY = getInputIndex(y, stride, kernelSize,
+                                       padding, inDimY, wy);
+              if (inY == ~0U)
+                continue;
+              auto outChan = outChanGroup * outChansPerGroup + outChanInGroup;
+              auto w = wPartials[outChan][y][x][wy][wx].flatten();
+              auto err = errorIn[outChanGroup][y][x][outChanInGroup];
+              auto zz = fwdZ[outChanGroup][y][x][outChanInGroup];
+              auto ii = act.slice({0, inY, inX, 0},
+                                  {inNumChanGroups, inY + 1, inX + 1, inChansPerGroup}).flatten();
+              auto v = graph.addVertex(partialCS,
+                                       templateVertex("ConvPartialWeightUpdate", getDType()),
+                                       {{"error", err},
+                                        {"z", zz},
+                                        {"in", ii},
+                                        {"weightUpdates", w}});
+              graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
+            }
+          }
+        }
+      }
+    }
+  }
+  auto reduceCS = graph.createComputeSet(layerName + ".weight_update.reduce");
+
+  for (unsigned inChan = 0; inChan < inNumChans; ++inChan) {
+    for (unsigned outChan = 0; outChan < outNumChans; ++outChan) {
+      for (unsigned wy = 0; wy < kernelSize; ++wy) {
+        for (unsigned wx = 0; wx < kernelSize; ++wx) {
+          auto w = weights[outChan / partialChansPerGroup]
+                          [inChan / inChansPerGroup]
+                          [wy][wx]
+                          [outChan % partialChansPerGroup]
+                          [inChan % inChansPerGroup];
+          auto in =
+              wPartials[outChan].slice({0, 0, wy, wx, inChan},
+                                       {outDimY, outDimX,
+                                        wy + 1, wx + 1,
+                                        inChan + 1})
+                                .flatten();
+          auto v = graph.addVertex(reduceCS,
+                                   templateVertex("ConvWeightUpdateReduce", getDType()),
+                                   {{"weight", w}, {"partials", in}});
+          graph.setInitialValue(v["eta"],
+                                getLearningRate());
+        }
+      }
+    }
+  }
+
+  for (unsigned outChan = 0; outChan < outNumChans; ++outChan) {
+    const auto outChanGroup = outChan / outChansPerGroup;
+    const auto outChanInGroup = outChan % outChansPerGroup;
+    auto in = errorIn.slice({outChanGroup, 0, 0, outChanInGroup},
+                            {outChanGroup + 1, outDimY, outDimX, outChanInGroup + 1})
+                     .flatten();
+    auto zz = fwdZ.slice({outChanGroup, 0, 0, outChanInGroup},
+                         {outChanGroup + 1, outDimY, outDimX, outChanInGroup + 1})
+                     .flatten();
+    auto v = graph.addVertex(reduceCS,
+                             templateVertex("ConvBiasUpdate", getDType()),
+                             {{"bias", biases[outChan]}, {"errors", in},
+                              {"z", zz}});
+    graph.setInitialValue(v["eta"],
+                          getLearningRate());
+    graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
+  }
+
+
+  return Sequence(Execute(zeroCS), Execute(partialCS), Execute(reduceCS));
 }
 

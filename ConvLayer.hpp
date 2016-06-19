@@ -118,6 +118,9 @@ class ConvLayerImpl : public Layer {
   Tensor getOutputTensor() const {
     return activations;
   }
+  Tensor getOutputZ() const {
+    return z;
+  }
   void createFwdProg(Graph &graph,
                      IPUModelEngineBuilder::TileMapping *mapping);
   Program
@@ -145,8 +148,8 @@ public:
   unsigned outNumChans, outNumChanGroups, outDimX, outDimY;
   NonLinearityType nonLinearityType;
   NormalizationType normalizationType;
-  Tensor weights, in, weightsIn, biases, biasesIn, z, activations, fwdActivations,
-         resIn;
+  Tensor weights, in, weightsIn, biases, biasesIn, fwdZ, z, activations, fwdActivations,
+        resIn, errors;
 
   std::string layerName;
 
@@ -162,6 +165,8 @@ public:
   unsigned resStrideX, resStrideY;
 
   bool reuseLayerImplGraphs;
+
+  std::unique_ptr<float []> hWeights, hBiases;
 
   ConvLayerImpl(Net &net,
                 int index,
@@ -187,12 +192,11 @@ public:
   }
 
   Tensor getFwdZs() const {
-    return z;
+    return fwdZ;
   }
 
   Tensor getBwdErrors() const {
-    // TODO
-    std::abort();
+    return errors;
   }
 
   NonLinearityType getNonLinearityType() const {
@@ -207,21 +211,19 @@ public:
   void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping);
 
   Program initParams(Graph &graph) {
-    // TODO
-    return Sequence();
+    if (getDType() != "float") {
+      // TODO: host to device tensor copies of half datatype
+      return Sequence();
+    }
+    return Sequence(Copy(weights, &hWeights[0]),
+                    Copy(biases, &hBiases[0]));
   }
 
   Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping);
 
-  Program backward(Graph &graph) {
-    // TODO
-    return Sequence();
-  }
+  Program backward(Graph &graph);
 
-  Program weightUpdate(Graph &graph) {
-    // TODO
-    return Sequence();
-  }
+  Program weightUpdate(Graph &graph);
 
 };
 
