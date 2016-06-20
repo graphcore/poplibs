@@ -708,11 +708,12 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
                                       kernelSize,
                                       inChansPerGroup});
   }
-  biases = graph.addTensor(dType, {outNumChans});
-  mapBiases(biases, mapping);
   fwdActivations = graph.addTensor(dType, {outNumChanGroups, outDimY, outDimX,
                                            outChansPerGroup});
   mapActivations(fwdActivations, mapping);
+  const auto activationsMapping = computeActivationsMapping(fwdActivations);
+  biases = graph.addTensor(dType, {outNumChans});
+  mapBiases(biases, activationsMapping, mapping);
 
   unsigned resDimX = 0, resDimY = 0, resNumChans = 0, resNumChanGroups = 0,
            resChansPerGroup;
@@ -780,7 +781,7 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   }
   biasesIn = graph.addTensor(dType, {outNumChans});
   mapTensor(z, mapping);
-  mapBiases(biasesIn, mapping);
+  mapBiases(biasesIn, activationsMapping, mapping);
   if (resIndex) {
     resIn = graph.addTensor(dType, {resNumChanGroups,
                                     resDimY, resDimY,
@@ -1211,25 +1212,26 @@ linearizeTileIndices(unsigned izg, unsigned ox, unsigned oy,
 }
 
 void ConvLayerImpl::mapBiases(Tensor b,
+                              const std::vector<unsigned> &activationsMapping,
                               IPUModelEngineBuilder::TileMapping *mapping) {
   if (!mapping)
     return;
   const auto numTiles = getNumIPUs() * getTilesPerIPU();
-  const auto workersPerTile = getWorkerContextsPerTile();
-  const auto numWorkers = numTiles * workersPerTile;
   size_t outChansPerGroup = outNumChans / outNumChanGroups;
-  const auto numOutGroups = outNumChanGroups * outDimY * outDimX;
   Tensor biasesByChanGroup =
       b.reshape({outNumChanGroups, outChansPerGroup});
-  for (unsigned worker = 0; worker != numWorkers; ++worker) {
-    auto tile = worker / workersPerTile;
-    const auto groupBegin = (worker * numOutGroups) / numWorkers;
-    const auto groupEnd = ((worker + 1) * numOutGroups) / numWorkers;
-    if (groupBegin == groupEnd)
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    const auto tileActivationsBegin = activationsMapping[tile];
+    const auto tileActivationsEnd = activationsMapping[tile + 1];
+    assert(tileActivationsBegin % outChansPerGroup == 0);
+    assert(tileActivationsEnd % outChansPerGroup == 0);
+    const auto tileGroupBegin = tileActivationsBegin / outChansPerGroup;
+    const auto tileGroupEnd = tileActivationsEnd / outChansPerGroup;
+    const auto tileNumGroups = tileGroupEnd - tileGroupBegin;
+    if (tileNumGroups == 0)
       continue;
-
-    auto minOutChanGroup = groupBegin / (outDimX * outDimY);
-    auto maxOutChanGroup = (groupEnd - 1) / (outDimX * outDimY);
+    const auto minOutChanGroup = tileGroupBegin / (outDimX * outDimY);
+    const auto maxOutChanGroup = (tileGroupEnd - 1) / (outDimX * outDimY);
     Tensor biasSlice = biasesByChanGroup.slice(minOutChanGroup,
                                                maxOutChanGroup + 1);
     mapping->setMapping(biasSlice, tile);
@@ -1509,8 +1511,6 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
       Tensor biasSlice = biasesByChanGroup.slice(minOutChanGroup,
                                                  maxOutChanGroup + 1);
       graph.connect(v["bias"], biasSlice);
-      if (mapping)
-        mapping->setMapping(biasSlice, tile);
       graph.setFieldSize(v["outputChanGroupsPerBias"],
                          maxOutChanGroup - minOutChanGroup + 1);
       for (auto outChanGroup = minOutChanGroup;
