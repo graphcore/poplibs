@@ -1369,6 +1369,7 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
     addResidualCalc(graph, reduceCS, mapping);
     executeReduceCS = true;
   }
+  auto activationsMapping = computeActivationsMapping(activations);
   if (tilesPerInZGroup == 1) {
     reduced = partials[0];
   } else {
@@ -1381,10 +1382,13 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
     if (outChansPerGroup % partialChansPerGroup == 0) {
       const auto partialGroupsPerOutGroup =
           outChansPerGroup / partialChansPerGroup;
-      const auto numOutGroups = activations.numElements() / outChansPerGroup;
       for (unsigned tile = 0; tile != numTiles; ++tile) {
-        const auto groupBegin = (tile * numOutGroups) / numTiles;
-        const auto groupEnd = ((tile + 1) * numOutGroups) / numTiles;
+        const auto activationsBegin = activationsMapping[tile];
+        const auto activationsEnd = activationsMapping[tile + 1];
+        assert(activationsBegin % outChansPerGroup == 0);
+        assert(activationsEnd % outChansPerGroup == 0);
+        const auto groupBegin = activationsBegin / outChansPerGroup;
+        const auto groupEnd = activationsEnd / outChansPerGroup;
         if (groupBegin == groupEnd)
           continue;
         const auto rowBegin = groupBegin / outDimX;
@@ -1455,88 +1459,95 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
 
   const auto numTiles = getNumIPUs() * getTilesPerIPU();
   const auto workersPerTile = getWorkerContextsPerTile();
-  const auto numWorkers = numTiles * workersPerTile;
-  const auto numOutGroups = activations.numElements() / outChansPerGroup;
   const auto partialChanChunkSize =
       gcd<unsigned>(outChansPerGroup, partialChansPerGroup);
   const auto resOutChanGroups = resLayer ? residual.dim(0) : 0;
-  // Create a single vertex for each worker on the IPU to spread
-  // computation evenly. This also matches the standard layout
-  // of output activations so no exchange is required to write
-  // the outputs.
-  for (unsigned worker = 0; worker != numWorkers; ++worker) {
-    auto tile = worker / workersPerTile;
-    const auto groupBegin = (worker * numOutGroups) / numWorkers;
-    const auto groupEnd = ((worker + 1) * numOutGroups) / numWorkers;
-    if (groupBegin == groupEnd)
+
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    const auto tileActivationsBegin = activationsMapping[tile];
+    const auto tileActivationsEnd = activationsMapping[tile + 1];
+    assert(tileActivationsBegin % outChansPerGroup == 0);
+    assert(tileActivationsEnd % outChansPerGroup == 0);
+    const auto tileGroupBegin = tileActivationsBegin / outChansPerGroup;
+    const auto tileGroupEnd = tileActivationsEnd / outChansPerGroup;
+    const auto tileNumGroups = tileGroupEnd - tileGroupBegin;
+    if (tileNumGroups == 0)
       continue;
+    for (unsigned worker = 0; worker != workersPerTile; ++worker) {
+      const auto groupBegin =
+          (worker * tileNumGroups) / workersPerTile + tileGroupBegin;
+      const auto groupEnd =
+          ((worker + 1) * tileNumGroups) / workersPerTile + tileGroupBegin;
+      if (groupBegin == groupEnd)
+        continue;
 
-    // Create a vertex for this worker to process a number of output channel
-    // groups.
-    const auto numGroups = groupEnd - groupBegin;
-    auto v = graph.addVertex(completionCS,
-                             templateVertex("ConvComplete", getPartialType(),
-                                            getDType()));
-    graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
-    if (mapping)
-      mapping->setMapping(v, tile);
+      // Create a vertex for this worker to process a number of output channel
+      // groups.
+      const auto numGroups = groupEnd - groupBegin;
+      auto v = graph.addVertex(completionCS,
+                               templateVertex("ConvComplete", getPartialType(),
+                                              getDType()));
+      graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
+      if (mapping)
+        mapping->setMapping(v, tile);
 
-    // Add the biases and a vector that tells the vertex how many output
-    // groups to process for each bias.
-    auto minOutChanGroup = groupBegin / (outDimX * outDimY);
-    auto maxOutChanGroup = (groupEnd - 1) / (outDimX * outDimY);
-    Tensor biasSlice = biasesByChanGroup.slice(minOutChanGroup,
-                                               maxOutChanGroup + 1);
-    graph.connect(v["bias"], biasSlice);
-    if (mapping)
-      mapping->setMapping(biasSlice, tile);
-    graph.setFieldSize(v["outputChanGroupsPerBias"],
-                       maxOutChanGroup - minOutChanGroup + 1);
-    for (auto outChanGroup = minOutChanGroup;
-         outChanGroup <= maxOutChanGroup;
-         ++outChanGroup) {
-      auto gBegin = std::max(groupBegin, outChanGroup * outDimY * outDimX);
-      auto gEnd = std::min(groupEnd, (outChanGroup+1) * outDimY * outDimX);
-      unsigned outputsPerBias = gEnd - gBegin;
-      auto i = outChanGroup - minOutChanGroup;
-      graph.setInitialValue(v["outputChanGroupsPerBias"][i],
-                            outputsPerBias);
-    }
-
-    // Connect the output channel groups and inputs from the partial sums.
-    graph.setFieldSize(v["out"], numGroups);
-    graph.setFieldSize(v["in"],
-                       numGroups * outChansPerGroup / partialChanChunkSize);
-    unsigned numIn = 0;
-    unsigned numResUsed = 0;
-    for (auto group = groupBegin; group != groupEnd; ++group) {
-      auto outChanGroup = group / (outDimX * outDimY);
-      auto y = group % (outDimX * outDimY) / outDimX;
-      auto x = group % outDimX;
-      auto out = activations[outChanGroup][y][x];
-      graph.connect(v["out"][group - groupBegin], out);
-      Tensor reducedChans = reduced.slice(
-         {0, y, x, 0},
-         {partialNumChanGroups, y + 1, x + 1, partialChansPerGroup}
-      ).flatten();
-      Tensor reducedByChanGroup =
-          reducedChans.reshape({outNumChanGroups,
-                                outChansPerGroup / partialChanChunkSize,
-                                partialChanChunkSize});
-      Tensor in = reducedByChanGroup[outChanGroup];
-      for (unsigned i = 0; i < in.dim(0); ++i) {
-        graph.connect(in[i], v["in"][numIn++]);
+      // Add the biases and a vector that tells the vertex how many output
+      // groups to process for each bias.
+      auto minOutChanGroup = groupBegin / (outDimX * outDimY);
+      auto maxOutChanGroup = (groupEnd - 1) / (outDimX * outDimY);
+      Tensor biasSlice = biasesByChanGroup.slice(minOutChanGroup,
+                                                 maxOutChanGroup + 1);
+      graph.connect(v["bias"], biasSlice);
+      if (mapping)
+        mapping->setMapping(biasSlice, tile);
+      graph.setFieldSize(v["outputChanGroupsPerBias"],
+                         maxOutChanGroup - minOutChanGroup + 1);
+      for (auto outChanGroup = minOutChanGroup;
+           outChanGroup <= maxOutChanGroup;
+           ++outChanGroup) {
+        auto gBegin = std::max(groupBegin, outChanGroup * outDimY * outDimX);
+        auto gEnd = std::min(groupEnd, (outChanGroup+1) * outDimY * outDimX);
+        unsigned outputsPerBias = gEnd - gBegin;
+        auto i = outChanGroup - minOutChanGroup;
+        graph.setInitialValue(v["outputChanGroupsPerBias"][i],
+                              outputsPerBias);
       }
-      if (resLayer && outChanGroup < resOutChanGroups) {
-        // If the residual is taken directly from the previous layer (
-        // as opposed to being zero-padded or converted), then striding over
-        // the X,Y plane may still be needed (in this case resStride will not
-        // be 1).
-        Tensor res = residual[outChanGroup][y * resStrideY][x * resStrideX];
-        graph.connect(res, v["res"][numResUsed++]);
+
+      // Connect the output channel groups and inputs from the partial sums.
+      graph.setFieldSize(v["out"], numGroups);
+      graph.setFieldSize(v["in"],
+                         numGroups * outChansPerGroup / partialChanChunkSize);
+      unsigned numIn = 0;
+      unsigned numResUsed = 0;
+      for (auto group = groupBegin; group != groupEnd; ++group) {
+        auto outChanGroup = group / (outDimX * outDimY);
+        auto y = group % (outDimX * outDimY) / outDimX;
+        auto x = group % outDimX;
+        auto out = activations[outChanGroup][y][x];
+        graph.connect(v["out"][group - groupBegin], out);
+        Tensor reducedChans = reduced.slice(
+           {0, y, x, 0},
+           {partialNumChanGroups, y + 1, x + 1, partialChansPerGroup}
+        ).flatten();
+        Tensor reducedByChanGroup =
+            reducedChans.reshape({outNumChanGroups,
+                                  outChansPerGroup / partialChanChunkSize,
+                                  partialChanChunkSize});
+        Tensor in = reducedByChanGroup[outChanGroup];
+        for (unsigned i = 0; i < in.dim(0); ++i) {
+          graph.connect(in[i], v["in"][numIn++]);
+        }
+        if (resLayer && outChanGroup < resOutChanGroups) {
+          // If the residual is taken directly from the previous layer (
+          // as opposed to being zero-padded or converted), then striding over
+          // the X,Y plane may still be needed (in this case resStride will not
+          // be 1).
+          Tensor res = residual[outChanGroup][y * resStrideY][x * resStrideX];
+          graph.connect(res, v["res"][numResUsed++]);
+        }
       }
+      graph.setFieldSize(v["res"], numResUsed);
     }
-    graph.setFieldSize(v["res"], numResUsed);
   }
   mapActivations(activations, mapping);
   forwardProg.add(Execute(completionCS));

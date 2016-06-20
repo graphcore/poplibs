@@ -50,6 +50,7 @@ protected:
   void mapTensor(Tensor t, IPUModelEngineBuilder::TileMapping *mapping);
   void mapComputeSet(const Graph &graph, ComputeSet c,
                      IPUModelEngineBuilder::TileMapping *mapping);
+  std::vector<unsigned> computeActivationsMapping(Tensor t);
   void mapActivations(Tensor t, IPUModelEngineBuilder::TileMapping *mapping);
 public:
   Layer *getNextLayer() const;

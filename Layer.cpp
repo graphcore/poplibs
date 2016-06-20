@@ -66,19 +66,31 @@ void Layer::mapComputeSet(const Graph &graph, ComputeSet c,
   }
 }
 
+std::vector<unsigned> Layer::computeActivationsMapping(Tensor act) {
+  const auto numActivations = act.numElements();
+  const auto chansPerGroup = act.dim(3);
+  const auto numTiles = getTilesPerIPU() * getNumIPUs();
+  std::vector<unsigned> mapping;
+  mapping.reserve(numTiles + 1);
+  mapping.emplace_back(0);
+  const auto numGroups = numActivations / chansPerGroup;
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    const auto groupEnd = ((tile + 1) * numGroups) / numTiles;
+    mapping.emplace_back(groupEnd * chansPerGroup);
+  }
+  return mapping;
+}
+
 void Layer::mapActivations(Tensor act,
                            IPUModelEngineBuilder::TileMapping *mapping) {
   if (!mapping)
     return;
-  const auto numActivations = act.numElements();
-  const auto chansPerGroup = act.dim(3);
-  const auto numGroups = numActivations / chansPerGroup;
+  auto actMapping = computeActivationsMapping(act);
   const auto numTiles = getTilesPerIPU() * getNumIPUs();
-  auto actByGroup = act.reshape({numGroups, chansPerGroup});
-  // Spread groups of activations evenly across the tiles.
+  assert(actMapping.size() == numTiles + 1);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
-    const auto groupBegin = (tile * numGroups) / numTiles;
-    const auto groupEnd = ((tile + 1) * numGroups) / numTiles;
-    mapping->setMapping(actByGroup.slice(groupBegin, groupEnd), tile);
+    mapping->setMapping(act.flatten().slice(actMapping[tile],
+                                            actMapping[tile + 1]),
+                        tile);
   }
 }
