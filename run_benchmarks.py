@@ -234,8 +234,11 @@ def benchmark(run_name, prog, param_space, args):
                     f.write(line + "\n")
         data = parse(log)
         runs.append((params, data))
-
-    write(runs, '{}.xlsx'.format(prog))
+    sheet_name = prog
+    if run_name:
+        sheet_name += '_' + run_name
+    sheet_name += '.xlsx'
+    write(runs, sheet_name)
     return runs
 
 def main():
