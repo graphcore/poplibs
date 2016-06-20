@@ -74,10 +74,26 @@ std::vector<unsigned> Layer::computeActivationsMapping(Tensor act) {
   mapping.reserve(numTiles + 1);
   mapping.emplace_back(0);
   const auto numGroups = numActivations / chansPerGroup;
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
-    const auto groupEnd = ((tile + 1) * numGroups) / numTiles;
+  // Instead of spreading activations across all tiles, compute the maximum
+  // number of activations that would need to be stored on a tile if activations
+  // were spread evenly and use the minimum number of tiles necessary to ensure
+  // that this maximum is not exceeded.
+  // This strategy reduces the number of tiles that activations are spread over.
+  // This reduces the amount of exchange code needed in the next layer
+  // as input data is spread over fewer tiles and therefore fewer set receive
+  // mux / set receive pointer instructions are required.
+  // The amount of work a tile has to perform during the reduce and complete
+  // phases is proportional to the number of activations. Because this strategy
+  // does not increase the maximum number of activations on a tile, the
+  // execution time of the reduce and complete phases should remain roughly the
+  // same.
+  const auto maxGroupsPerTile = (numGroups + numTiles - 1) / numTiles;
+  const auto tilesToUse = (numGroups + maxGroupsPerTile - 1) / maxGroupsPerTile;
+  for (unsigned tile = 0; tile != tilesToUse; ++tile) {
+    const auto groupEnd = ((tile + 1) * numGroups) / tilesToUse;
     mapping.emplace_back(groupEnd * chansPerGroup);
   }
+  mapping.resize(numTiles + 1, mapping.back());
   return mapping;
 }
 
