@@ -73,27 +73,35 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
   unsigned prevChansPerGroup = numChannels / prevChanGroups;
   unsigned chansPerGroup = numChannels / numChanGroups;
   ComputeSet fwd = graph.createComputeSet(layerName + ".fwd");
-  for (unsigned i = 0; i < xDimOut; ++i) {
-    for (unsigned j = 0; j < yDimOut; ++j) {
-      for (unsigned chan = 0; chan < numChannels; ++chan) {
-        unsigned width = std::min(i * stride + kernelSize, xDim) - i * stride;
-        unsigned height = std::min(j * stride + kernelSize, yDim) - j * stride;
-        // Create window into previous layer
-        unsigned prevChanGroup = chan / prevChansPerGroup;
-        unsigned prevChanInGroup = chan % prevChansPerGroup;
-        unsigned chanGroup = chan / chansPerGroup;
-        unsigned chanInGroup = chan % chansPerGroup;
-        Tensor window =
-          in[prevChanGroup].slice({i * stride, j * stride, prevChanInGroup},
-                                  {i * stride + width, j * stride + height,
-                                    prevChanInGroup+1})
-            .flatten();
+  const auto activationsMapping = computeActivationsMapping(activations);
+  const auto numTiles = getNumIPUs() * getTilesPerIPU();
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    const auto tileActivationsBegin = activationsMapping[tile];
+    const auto tileActivationsEnd = activationsMapping[tile + 1];
+    for (unsigned activation = tileActivationsBegin;
+         activation != tileActivationsEnd; ++activation) {
+      unsigned chanInGroup = activation % chansPerGroup;
+      unsigned y = (activation / chansPerGroup) % yDimOut;
+      unsigned x = (activation / (chansPerGroup * yDimOut)) % xDimOut;
+      unsigned chanGroup = activation / (chansPerGroup * yDimOut * xDimOut);
+      const auto chan = chanGroup * chansPerGroup + chanInGroup;
+      unsigned prevChanGroup = chan / prevChansPerGroup;
+      unsigned prevChanInGroup = chan % prevChansPerGroup;
+      unsigned width = std::min(x * stride + kernelSize, xDim) - x * stride;
+      unsigned height = std::min(y * stride + kernelSize, yDim) - y * stride;
+      Tensor window =
+        in[prevChanGroup].slice({x * stride, y * stride, prevChanInGroup},
+                                {x * stride + width, y * stride + height,
+                                  prevChanInGroup+1})
+          .flatten();
+      auto v =
         graph.addVertex(fwd, templateVertex("MaxPooling", getDType()),
           { {"activationIn", window},
-            {"activationOut", activations[chanGroup][i][j][chanInGroup]} });
+            {"activationOut", activations[chanGroup][x][y][chanInGroup]} });
+      if (mapping) {
+        mapping->setMapping(v, tile);
       }
     }
   }
-  mapComputeSet(graph, fwd, mapping);
   return Execute(fwd);
 }
