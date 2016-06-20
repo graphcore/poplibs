@@ -48,6 +48,7 @@ public:
   unsigned numBatchesBetweenTest = 2500;
   bool reuseLayerImplGraphs = true;
   bool ignoreData = false;
+  bool retainActivations = false;
   IPUMachineInfo ipuMachineInfo;
 };
 
@@ -71,6 +72,8 @@ public:
   std::unique_ptr<LossLayer> lossLayer;
   std::unique_ptr<EngineBuilder> engineBuilder;
   std::unique_ptr<Engine> engine;
+
+  std::unique_ptr<char[]> hAct;
 
   unsigned hIsTraining;
   unsigned numTestBatches;

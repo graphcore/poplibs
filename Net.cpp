@@ -1,5 +1,6 @@
 #include "Net.hpp"
 #include <boost/program_options.hpp>
+#include <poplar/HalfFloat.hpp>
 
 bool parseCommandLine(int argc, char **argv, NetOptions &options) {
   namespace po = boost::program_options;
@@ -27,6 +28,11 @@ bool parseCommandLine(int argc, char **argv, NetOptions &options) {
        &options.ipuMachineInfo.fp32AccumConvUnitsPerTile
      )->default_value(4),
      "Number of convolutional units per tile with fp32 accumulation")
+    ("retain-activations",
+     po::value<bool>(
+       &options.retainActivations
+     )->default_value(false),
+     "Make sure all activations are retained in memory during the foward pass")
   ;
   po::variables_map vm;
   try {
@@ -131,17 +137,22 @@ void Net::initialize(DataSet &data, LossType lossType) {
   auto fwdProg = Sequence();
   auto bwdProg = Sequence();
   auto weightUpdateProg = Sequence();
+  std::vector<Tensor> acts;
 
   inputLayer->init(*graph, mapping.get());
+
   fwdProg.add(inputLayer->forward(*graph, mapping.get()));
+  acts.push_back(inputLayer->getFwdActivations());
 
   initParamsProg.add(inputLayer->initParams(*graph));
 
   std::uint64_t numFlops = 0;
   double perfectCycleTime = 0.0;
+
   for (unsigned i = 0; i < hiddenLayers.size(); ++i) {
     hiddenLayers[i]->init(*graph, mapping.get());
     fwdProg.add(hiddenLayers[i]->forward(*graph, mapping.get()));
+    acts.push_back(hiddenLayers[i]->getFwdActivations());
     initParamsProg.add(hiddenLayers[i]->initParams(*graph));
     std::cout << "-- Layer " << i << "\n";
     hiddenLayers[i]->describe(std::cout);
@@ -151,6 +162,19 @@ void Net::initialize(DataSet &data, LossType lossType) {
   std::cout << "Total number of FLOPs: " << numFlops << "\n";
   std::cout << "Perfect cycle time: ";
   std::cout << static_cast<std::uint64_t>(perfectCycleTime) << "\n";
+
+  if (options.retainActivations) {
+    size_t maxActSize = 0;
+    size_t maxElemSize = std::max(sizeof(float), sizeof(half));
+    for (const auto &act : acts) {
+      maxActSize = std::max(maxActSize, act.numElements());
+    }
+    hAct = std::unique_ptr<char[]>(new char[maxActSize * maxElemSize]);
+    for (const auto &act : acts) {
+      fwdProg.add(Copy(&hAct[0], act));
+    }
+  }
+
 
   lossLayer->init(*graph, mapping.get());
   fwdProg.add(lossLayer->forward(*graph, mapping.get()));
