@@ -1079,11 +1079,17 @@ forwardTile(Graph &graph,
     Tensor tileOutFlattened =
         tileOut.reshape({outZGroups * tileOutHeight,
                          tileOutWidth * outChansPerGroup});
-    const auto numWorkerContexts = getWorkerContextsPerTile();
+    const auto workersPerTile = getWorkerContextsPerTile();
     const auto tileOutRows = tileOutFlattened.dim(0);
-    for (unsigned i = 0; i != numWorkerContexts; ++i) {
-      const auto beginRow = (i * tileOutRows) / numWorkerContexts;
-      const auto endRow = ((i + 1) * tileOutRows) / numWorkerContexts;
+    const auto maxRowsPerWorker =
+        (tileOutRows + workersPerTile - 1) / workersPerTile;
+    // Choose the number of vertices such that each vertices is reponsible for
+    // at most maxRowsPerWorker groups.
+    const auto verticesToCreate =
+        (tileOutRows + maxRowsPerWorker - 1) / maxRowsPerWorker;
+    for (unsigned vertex = 0; vertex != verticesToCreate; ++vertex) {
+      const auto beginRow = (vertex * tileOutRows) / verticesToCreate;
+      const auto endRow = ((vertex + 1) * tileOutRows) / verticesToCreate;
       if (beginRow == endRow)
         continue;
       auto zv = graph.addVertex(
@@ -1473,14 +1479,19 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
     const auto tileNumGroups = tileGroupEnd - tileGroupBegin;
     if (tileNumGroups == 0)
       continue;
-    for (unsigned worker = 0; worker != workersPerTile; ++worker) {
+    const auto maxGroupsPerWorker =
+        (tileNumGroups + workersPerTile - 1) / workersPerTile;
+    // Choose the number of vertices such that each vertices is reponsible for
+    // at most maxGroupsPerWorker groups.
+    const auto verticesToCreate =
+        (tileNumGroups + maxGroupsPerWorker - 1) / maxGroupsPerWorker;
+    for (unsigned vertex = 0; vertex != verticesToCreate; ++vertex) {
       const auto groupBegin =
-          (worker * tileNumGroups) / workersPerTile + tileGroupBegin;
+          (vertex * tileNumGroups) / verticesToCreate + tileGroupBegin;
       const auto groupEnd =
-          ((worker + 1) * tileNumGroups) / workersPerTile + tileGroupBegin;
+          ((vertex + 1) * tileNumGroups) / verticesToCreate + tileGroupBegin;
       if (groupBegin == groupEnd)
         continue;
-
       // Create a vertex for this worker to process a number of output channel
       // groups.
       const auto numGroups = groupEnd - groupBegin;
