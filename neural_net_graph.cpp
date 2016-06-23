@@ -422,15 +422,17 @@ public:
     for (unsigned i = 0; i != numInRows; ++i) {
       auto *row = &in[i][0];
       auto *rowWeights = &weights[i][0];
-      for (unsigned outX = 0; outX < outputWidth; outX += stride) {
-        unsigned inXCentre = outX / stride + padding;
-        unsigned inXBegin =
-            inXCentre > distanceFromCentre ? inXCentre - distanceFromCentre :
-                                             0;
-        unsigned inXEnd =
-            std::min(inXCentre + distanceFromCentre + 1, inputWidth);
+      for (unsigned outX = 0; outX < outputWidth; ++outX) {
+        int inXBegin = static_cast<int>(outX * stride) - padding;
+        unsigned inXEnd = std::min(inXBegin + kernelSize,
+                                   inputWidth);
+        unsigned weightShift = 0;
+        if (inXBegin < 0) {
+          weightShift = -inXBegin;
+          inXBegin = 0;
+        }
         for (unsigned inX = inXBegin; inX != inXEnd; ++inX) {
-          unsigned weightX = inX + distanceFromCentre - inXCentre;
+          unsigned weightX = inX - inXBegin + weightShift;
           for (unsigned inZ = 0; inZ != inChansPerGroup; ++inZ) {
             out[outX] += row[inX * inChansPerGroup + inZ] *
                          rowWeights[weightX * inChansPerGroup + inZ];

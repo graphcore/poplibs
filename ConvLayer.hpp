@@ -270,7 +270,12 @@ public:
             enum ResidualMethod resMethod) :
   ConvLayer(kernelSize, stride, padding, numChannels, nonLinearityType,
             normalizationType),
-  resIndex(resIndex), resMethod(resMethod) {}
+  resIndex(resIndex), resMethod(resMethod) {
+    if (padding >= kernelSize) {
+      // Padding greater than kernelsize is not supported (and weird)
+      std::abort();
+    }
+  }
 
   std::unique_ptr<Layer>
   makeLayer(Net &net, int index) {
