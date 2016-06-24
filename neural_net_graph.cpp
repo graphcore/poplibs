@@ -538,7 +538,7 @@ public:
     unsigned vertexOverhead = 5;
     unsigned cycles = vertexOverhead;
     unsigned numOut = out.size();
-    unsigned outChans = bias.size();
+    unsigned outChans = bias[0].size();
     unsigned chunkSize = in[0].size();
     unsigned i = 0;
     for (unsigned o = 0; o < numOut; ++o) {
