@@ -4,7 +4,8 @@
 unsigned
 getInputIndex(unsigned outputIndex, unsigned stride, unsigned kernelSize,
               unsigned padding, unsigned inputSize, unsigned kernelIndex) {
-  const auto start  = static_cast<int>(outputIndex * stride) - padding;
+  const auto start  = static_cast<int>(outputIndex * stride) -
+                      static_cast<int>(padding);
   auto inputIndex = start + static_cast<int>(kernelIndex);
   if (inputIndex < 0 ||
       static_cast<unsigned>(inputIndex) >= inputSize)
