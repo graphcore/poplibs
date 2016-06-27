@@ -34,7 +34,7 @@ enum DType {
 
 class IPUMachineInfo {
 public:
-  unsigned fp16AccumConvUnitsPerTile = 0;
+  unsigned fp16AccumConvUnitsPerTile = 8;
   unsigned fp32AccumConvUnitsPerTile = 4;
   bool sharedConvWeights = true;
 };

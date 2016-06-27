@@ -21,7 +21,7 @@ bool parseCommandLine(int argc, char **argv, NetOptions &options) {
     ("num-fp16-accum-conv-units",
      po::value<unsigned>(
        &options.ipuMachineInfo.fp16AccumConvUnitsPerTile
-     )->default_value(0),
+     )->default_value(8),
      "Number of convolutional units per tile with fp16 accumulation")
     ("num-fp32-accum-conv-units",
      po::value<unsigned>(
