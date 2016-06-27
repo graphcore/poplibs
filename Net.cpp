@@ -127,6 +127,7 @@ void Net::initialize(DataSet &data, LossType lossType) {
     mapping.reset(new IPUModelEngineBuilder::TileMapping(*graph));
     IPUModelEngineBuilder *ipuEB = new IPUModelEngineBuilder(*env);
     engineBuilder = std::unique_ptr<EngineBuilder>(ipuEB);
+    ipuEB->setMemcpyBytesPerCycle(options.ipuMachineInfo.dataPathWidth / 8);
     ipuEB->setNumIPUs(options.numIPUs);
     ipuEB->setTilesPerIPU(options.tilesPerIPU);
     ipuEB->setNumBytesPerTile(options.memoryBytesPerTile);
