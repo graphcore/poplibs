@@ -137,7 +137,8 @@ canUseConvolutionInstruction(bool floatActivations, bool floatPartials,
                              unsigned inChansPerGroup,
                              unsigned partialChansPerGroup,
                              const IPUMachineInfo &machineInfo) {
-  if (floatActivations || stride >= (1 << 4) || inChansPerGroup != 16)
+  if (floatActivations || stride >= (1 << 4) ||
+      inChansPerGroup != machineInfo.getInputChannelsPerConvUnit())
     return false;
   return partialChansPerGroup == getNumConvUnits(floatPartials, machineInfo);
 }
@@ -159,6 +160,7 @@ getConvPartialCycleEstimate(bool floatActivations, bool floatPartials,
                                    machineInfo)) {
     return getConvPartial1x1CycleEstimate(
           kernelWidth, inputGroupsPerOutput, outputHeight, outputWidth,
+          machineInfo.convUnitPipelineDepth,
           getNumConvUnits(floatPartials, machineInfo), useSupervisorVertices);
   }
   assert(!useSupervisorVertices);
@@ -761,6 +763,7 @@ createConvPartial1x1InOutVertex(Graph &graph,
                                 const Tensor &out) {
   const auto inChansPerGroup = partition.inChansPerGroup;
   const auto outChansPerGroup = partition.partialChansPerGroup;
+  const auto dataPathWidth = getNetOptions().ipuMachineInfo.dataPathWidth;
   const auto contextsPerVertex =
       targetSharedConvWeights() ? getWorkerContextsPerTile() : 1;
   const char *baseClass =
@@ -772,6 +775,8 @@ createConvPartial1x1InOutVertex(Graph &graph,
       graph.addVertex(fwdCS,
                       templateVertex("ConvPartial1x1InOut", baseClass,
                                      partialType));
+  graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
+  graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
   graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
   if (mapping) {
     mapping->setMapping(v, tile);
@@ -863,6 +868,7 @@ forwardTile(Graph &graph,
             const Tensor &out) {
   const auto inChansPerGroup = partition.inChansPerGroup;
   const auto outChansPerGroup = partition.partialChansPerGroup;
+  const auto dataPathWidth = getNetOptions().ipuMachineInfo.dataPathWidth;
   const auto tileOutHeight = tileOutYEnd - tileOutYBegin;
   const auto tileOutWidth = tileOutXEnd - tileOutXBegin;
   const auto verticesPerY = partition.verticesPerTilePerYAxis;
@@ -923,6 +929,8 @@ forwardTile(Graph &graph,
           templateVertex("ConvPartial1x1Out", baseClass, getPartialType()),
           {{"weights", w}, {"out", outWindow}}
         );
+        graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
+        graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
         graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
         if (stride == 1) {
           graph.connect(v["in"], inWindow);

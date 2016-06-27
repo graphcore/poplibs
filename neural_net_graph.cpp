@@ -160,7 +160,8 @@ public:
   Vector<unsigned> weightReuseCount;
   Vector<InOut<Vector<AccumType>>> out;
 
-  static const auto inChansPerGroup = 16;
+  SimOnlyField<unsigned> dataPathWidth;
+  SimOnlyField<unsigned> inChansPerGroup;
   SimOnlyField<unsigned> outChansPerGroup;
 
   bool compute() {
@@ -202,6 +203,10 @@ public:
     bool isSupervisorVertex = std::is_same<Base, SupervisorVertex>::value;
     const auto numContexts = weightReuseCount.size() / weights.size();
     const auto numConvUnitsPerTile = outChansPerGroup;
+    assert(dataPathWidth % 16 == 0);
+    const auto halfVectorWidth = dataPathWidth / 16;
+    assert(inChansPerGroup % halfVectorWidth == 0);
+    const auto convUnitPipelineDepth = inChansPerGroup / halfVectorWidth;
     if (isSupervisorVertex) {
       std::vector<std::vector<std::vector<unsigned>>>
           convolutionsByWeightAndWorker;
@@ -222,6 +227,7 @@ public:
       assert(convNum == out.size());
       return getConvPartial1x1SupervisorCycleEstimate(
         convolutionsByWeightAndWorker,
+        convUnitPipelineDepth,
         numConvUnitsPerTile
       );
     }
@@ -238,6 +244,7 @@ public:
     }
     assert(convNum == out.size());
     return getConvPartial1x1CycleEstimate(convolutionsByWeight,
+                                          convUnitPipelineDepth,
                                           numConvUnitsPerTile);
   }
 };
@@ -316,7 +323,8 @@ public:
   Input<Vector<half>> weights;
   Vector<Output<Vector<AccumType>>> out;
 
-  static const auto inChansPerGroup = 16;
+  SimOnlyField<unsigned> dataPathWidth;
+  SimOnlyField<unsigned> inChansPerGroup;
   SimOnlyField<unsigned> outChansPerGroup;
 
   bool compute() {
@@ -380,10 +388,15 @@ public:
     bool isSupervisorVertex = std::is_same<Base, SupervisorVertex>::value;
 
     const auto numConvUnitsPerTile = outChansPerGroup;
+    assert(dataPathWidth % 16 == 0);
+    const auto halfVectorWidth = dataPathWidth / 16;
+    assert(inChansPerGroup % halfVectorWidth == 0);
+    const auto convUnitPipelineDepth = inChansPerGroup / halfVectorWidth;
     return getConvPartial1x1CycleEstimate(1 /*kernelWidth*/,
                                           numInChanGroups,
                                           outHeight,
                                           outWidth,
+                                          convUnitPipelineDepth,
                                           numConvUnitsPerTile,
                                           isSupervisorVertex);
   }

@@ -34,9 +34,16 @@ enum DType {
 
 class IPUMachineInfo {
 public:
+  unsigned dataPathWidth = 64;
+  unsigned convUnitPipelineDepth = 4;
   unsigned fp16AccumConvUnitsPerTile = 8;
   unsigned fp32AccumConvUnitsPerTile = 4;
   bool sharedConvWeights = true;
+
+  unsigned getInputChannelsPerConvUnit() const {
+    assert(dataPathWidth % 16 == 0);
+    return (dataPathWidth / 16) * convUnitPipelineDepth;
+  }
 };
 
 class NetOptions {
