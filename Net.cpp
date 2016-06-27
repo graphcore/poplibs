@@ -10,6 +10,16 @@ bool parseCommandLine(int argc, char **argv, NetOptions &options) {
     ("help", "Produce help message")
     ("ipus", po::value<unsigned>(&options.numIPUs)->default_value(1),
              "Number of IPUs")
+    ("tiles-per-ipu",
+     po::value<unsigned>(&options.tilesPerIPU)->default_value(1216),
+     "Number of tiles per IPU")
+    ("bytes-per-tile",
+     po::value<unsigned>(&options.memoryBytesPerTile)
+         ->default_value(1024 * 256),
+     "Amount of memory per tile in bytes")
+    ("ipu-exchange-bandwidth",
+     po::value<unsigned>(&options.ipuExchangeBandwidth)->default_value(4),
+     "IPU exchange bandwidth per tile in bytes")
     ("graph-reuse",
      po::value<bool>(&options.reuseLayerImplGraphs)->default_value(true),
      "Re-use graph structure for similar layers")
@@ -118,6 +128,9 @@ void Net::initialize(DataSet &data, LossType lossType) {
     IPUModelEngineBuilder *ipuEB = new IPUModelEngineBuilder(*env);
     engineBuilder = std::unique_ptr<EngineBuilder>(ipuEB);
     ipuEB->setNumIPUs(options.numIPUs);
+    ipuEB->setTilesPerIPU(options.tilesPerIPU);
+    ipuEB->setNumBytesPerTile(options.memoryBytesPerTile);
+    ipuEB->setIPUExchangeBandwidth(options.ipuExchangeBandwidth);
     ipuEB->setIPUExchangeImplementation(
       IPUModelEngineBuilder::BARE_NAKED_WITH_AGGRESSIVE_MULTICAST
     );

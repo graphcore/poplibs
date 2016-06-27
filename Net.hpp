@@ -61,6 +61,9 @@ public:
   bool doComputation = true;
   bool singleBatchProfile = false;
   unsigned numIPUs = 1;
+  unsigned tilesPerIPU = 1216;
+  unsigned ipuExchangeBandwidth = 4;
+  unsigned memoryBytesPerTile = 1024 * 256;
   unsigned numBatchesBetweenTest = 2500;
   bool reuseLayerImplGraphs = true;
   bool ignoreData = false;
