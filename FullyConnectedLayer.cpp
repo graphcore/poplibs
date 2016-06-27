@@ -12,12 +12,13 @@ namespace {
 }
 
 static unsigned
-estimatePartitionCost(unsigned numWorkerContexts, bool isFloat,
+estimatePartitionCost(IPUModelEngineBuilder *engineBuilder, bool isFloat,
                       unsigned numRows, unsigned numCols, unsigned tilesPerRow,
                       unsigned tilesPerColumn,
                       const IPUMachineInfo &machineInfo) {
   auto numTiles = tilesPerRow * tilesPerColumn;
   auto numVertices = numRows * tilesPerRow;
+  auto numWorkerContexts = engineBuilder->getNumWorkerContexts();
   auto vertexElements = (numCols + tilesPerRow - 1) / tilesPerRow;
   auto partialSumsPerTile = (numRows + tilesPerColumn - 1) / tilesPerColumn;
   auto vertexRuntime =
@@ -26,23 +27,26 @@ estimatePartitionCost(unsigned numWorkerContexts, bool isFloat,
   auto verticesPerWorker = (numVertices + numTiles * numWorkerContexts - 1) /
                            (numTiles * numWorkerContexts);
   auto computeCycles = vertexRuntime * verticesPerWorker;
-  auto exchangeElementsPerCycle = isFloat ? 1 : 2;
+  auto exchangeBytesPerCycle = engineBuilder->getIPUExchangeBandwidth();
+  auto inputBytes = vertexElements * (isFloat ? 4 : 2);
+  auto partialSumBytes = partialSumsPerTile * 4;
   auto exchangeCycles =
-    (vertexElements + exchangeElementsPerCycle - 1) / exchangeElementsPerCycle +
-    partialSumsPerTile;
+      (inputBytes + exchangeBytesPerCycle - 1) / exchangeBytesPerCycle +
+      (partialSumBytes + exchangeBytesPerCycle - 1) / exchangeBytesPerCycle;
   return computeCycles + exchangeCycles;
 }
 
 static PartitionShape
-choosePartition(unsigned numWorkerContexts, bool isFloat, unsigned numRows,
+choosePartition(IPUModelEngineBuilder *engineBuilder,
+                bool isFloat, unsigned numRows,
                 unsigned numCols, unsigned numTiles,
                 const IPUMachineInfo &machineInfo) {
   unsigned lowestCost = std::numeric_limits<unsigned>::max();
   unsigned bestTilesPerColumn, bestTilesPerRow;
   for (unsigned tilesPerRow = 1; tilesPerRow <= numTiles; ++tilesPerRow) {
     unsigned tilesPerColumn = numTiles / tilesPerRow;
-    const auto cost = estimatePartitionCost(numWorkerContexts, isFloat,
-                                            numRows, numCols, tilesPerRow,
+    const auto cost = estimatePartitionCost(engineBuilder, isFloat, numRows,
+                                            numCols, tilesPerRow,
                                             tilesPerColumn, machineInfo);
     if (cost < lowestCost) {
       lowestCost = cost;
@@ -135,7 +139,7 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   assert(isFloat || dType == "half");
   const auto tilesPerIPU = getTilesPerIPU();
   auto ipuPartition =
-      choosePartition(getWorkerContextsPerTile(), isFloat, maxRowsPerTile,
+      choosePartition(getIPUModelEngineBuilder(), isFloat, maxRowsPerTile,
                       numCols, tilesPerIPU, getNetOptions().ipuMachineInfo);
 
   ComputeSet dotProductCS = graph.createComputeSet(layerName + ".fwd");

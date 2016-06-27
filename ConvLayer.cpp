@@ -77,7 +77,8 @@ getMaxInputRangeSize(unsigned outputRangeSize, unsigned stride,
 }
 
 static unsigned
-estimateExchangeCost(bool floatActivations, const ConvolutionParams &params,
+estimateExchangeCost(IPUModelEngineBuilder *engineBuilder,
+                     bool floatActivations, const ConvolutionParams &params,
                      const ConvLayerPartition &partition) {
   const auto tilesPerX = partition.tilesPerXAxis;
   const auto tilesPerY = partition.tilesPerYAxis;
@@ -119,9 +120,11 @@ estimateExchangeCost(bool floatActivations, const ConvolutionParams &params,
   const auto weightBytes = numberOfWeights * activationSize;
   const auto partialSize = partition.floatPartials ? 4 : 2;
   const auto partialSumBytes = numberOfPartialSums * partialSize;
-  const auto numCycles = (inputElementsBytes + 3) / 4 +
-                         (weightBytes + 3) / 4 +
-                         (partialSumBytes + 3) / 4;
+  const auto exchangeBytesPerCycle = engineBuilder->getIPUExchangeBandwidth();
+  const auto numCycles =
+      (inputElementsBytes + exchangeBytesPerCycle - 1) / exchangeBytesPerCycle +
+      (weightBytes + exchangeBytesPerCycle - 1) / exchangeBytesPerCycle +
+      (partialSumBytes + exchangeBytesPerCycle - 1) / exchangeBytesPerCycle;
   return numCycles;
 }
 
@@ -293,7 +296,8 @@ estimatePartitionCostBounded(IPUModelEngineBuilder *engineBuilder,
                              const ConvLayerPartition &partition,
                              const IPUMachineInfo &machineInfo,
                              unsigned maxBound) {
-  auto cost = estimateExchangeCost(floatActivations, params, partition);
+  auto cost = estimateExchangeCost(engineBuilder,
+                                   floatActivations, params, partition);
   if (cost > maxBound)
     return maxBound;
   cost += estimateComputeCost(engineBuilder, floatActivations, params,
