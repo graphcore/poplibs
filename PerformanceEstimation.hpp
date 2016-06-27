@@ -5,11 +5,14 @@
 #include <cassert>
 #include <cstdint>
 
-inline std::uint64_t getDenseDotProductCycles(bool isFloat, unsigned size) {
+inline std::uint64_t
+getDenseDotProductCycles(bool isFloat, unsigned size, unsigned dataPathWidth) {
   if (isFloat) {
-    return (size + 1) / 2 + 2;
+    const auto floatVectorWidth = dataPathWidth / 32;
+    return (size + floatVectorWidth - 1) / floatVectorWidth + 2;
   }
-  return (size + 3) / 4 + 2;
+  const auto halfVectorWidth = dataPathWidth / 16;
+  return (size + halfVectorWidth - 1) / halfVectorWidth + 2;
 }
 
 template <class InputIterator>
@@ -167,17 +170,20 @@ getConvPartialByDotProductCycleEstimate(bool isFloat, unsigned inChansPerGroup,
                                         unsigned inputGroupsPerOutput,
                                         unsigned outputHeight,
                                         unsigned outputWidth,
-                                        unsigned outChansPerGroup)
+                                        unsigned outChansPerGroup,
+                                        unsigned dataPathWidth)
 {
   unsigned vertexOverhead = 5;
   return vertexOverhead +
          outChansPerGroup * outputWidth * outputHeight * inputGroupsPerOutput *
-         (1 + getDenseDotProductCycles(isFloat, kernelWidth * inChansPerGroup));
+         (1 + getDenseDotProductCycles(isFloat, kernelWidth * inChansPerGroup,
+                                       dataPathWidth));
 }
 
 inline std::uint64_t
-getFullyConnectedPartialCycleEstimate(bool isFloat, unsigned size) {
-  return 5 + getDenseDotProductCycles(isFloat, size);
+getFullyConnectedPartialCycleEstimate(bool isFloat, unsigned size,
+                                      unsigned dataPathWidth) {
+  return 5 + getDenseDotProductCycles(isFloat, size, dataPathWidth);
 }
 
 #endif // _performance_estimation_h_

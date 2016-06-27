@@ -76,6 +76,8 @@ public:
   Output<FPType> zOut;
   Output<FPType> activationOut;
 
+  SimOnlyField<unsigned> dataPathWidth;
+
   bool compute() {
     float sum = 0;
     for (unsigned i = 0; i < activationIn.size(); ++i) {
@@ -89,7 +91,8 @@ public:
 
   uint64_t getCycleEstimate() const {
     bool isFloat = std::is_same<FPType, float>::value;
-    return 20 + getDenseDotProductCycles(isFloat, activationIn.size());
+    return 20 + getDenseDotProductCycles(isFloat, activationIn.size(),
+                                         dataPathWidth);
   }
 };
 
@@ -103,6 +106,8 @@ public:
   Input<Vector<FPType>> weights;
   Output<float> out;
 
+  SimOnlyField<unsigned> dataPathWidth;
+
   bool compute() {
     float sum = 0;
     for (unsigned i = 0; i < in.size(); ++i) {
@@ -114,7 +119,8 @@ public:
 
   uint64_t getCycleEstimate() const {
     bool isFloat = std::is_same<FPType, float>::value;
-    return getFullyConnectedPartialCycleEstimate(isFloat, in.size());
+    return getFullyConnectedPartialCycleEstimate(isFloat, in.size(),
+                                                 dataPathWidth);
   }
 };
 
@@ -130,6 +136,8 @@ public:
   Output<FPType> zOut;
   Output<FPType> activationOut;
 
+  SimOnlyField<unsigned> dataPathWidth;
+
   bool compute() {
     float sum = 0;
     for (unsigned i = 0; i < partials.size(); ++i) {
@@ -142,7 +150,8 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    return (partials.size()+1)/2+15;
+    const auto floatVectorWidth = dataPathWidth / 32;
+    return (partials.size() + floatVectorWidth - 1) / floatVectorWidth + 15;
   }
 };
 
@@ -421,6 +430,8 @@ public:
   unsigned padding;
   unsigned stride;
 
+  SimOnlyField<unsigned> dataPathWidth;
+
   bool compute() {
     unsigned numInRows = in.size();
     unsigned inputWidth = in[0].size() / inChansPerGroup;
@@ -464,7 +475,8 @@ public:
     const auto outChansPerGroup = 1;
     return getConvPartialByDotProductCycleEstimate(isFloat, inChansPerGroup,
                                                    kernelSize, numInRows, 1,
-                                                   outputWidth, 1);
+                                                   outputWidth, 1,
+                                                   dataPathWidth);
   }
 };
 
@@ -477,6 +489,8 @@ class ConvReduce : public Vertex {
 public:
   Output<Vector<FPType>> out;
   Vector<Input<Vector<FPType>>> partials;
+
+  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     unsigned numPartials = partials.size();
@@ -495,8 +509,8 @@ public:
     unsigned numPartials = partials.size();
     unsigned numElem = out.size();
     bool isFloat = std::is_same<FPType, float>::value;
-    unsigned opsPerCycle = isFloat ? 2 : 4;
-    return 4 + numElem * (1 + (numPartials + opsPerCycle - 1) / opsPerCycle);
+    unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    return 4 + numElem * (1 + (numPartials + vectorWidth - 1) / vectorWidth);
   }
 };
 
@@ -581,6 +595,8 @@ public:
   Input<Vector<FPType>> in;
   Output<Vector<FPType>> out;
 
+  SimOnlyField<unsigned> dataPathWidth;
+
   bool compute() {
     for (unsigned i = 0; i < in.size(); ++i)
       out[i] = in[i];
@@ -590,7 +606,8 @@ public:
   uint64_t getCycleEstimate() const {
     // TODO: make this more accurate
     bool isFloat = std::is_same<FPType, float>::value;
-    auto copiesPerCycle = isFloat ? 2 : 4;
+    const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    auto copiesPerCycle = vectorWidth;
     auto copyCycles = (in.size() + copiesPerCycle - 1) / copiesPerCycle;
     return 4 + copyCycles;
   }
@@ -605,6 +622,8 @@ class Zero : public Vertex {
 public:
   Output<Vector<FPType>> out;
 
+  SimOnlyField<unsigned> dataPathWidth;
+
   bool compute() {
     for (unsigned i = 0; i < out.size(); ++i) {
       out[i] = 0;
@@ -615,8 +634,8 @@ public:
   uint64_t getCycleEstimate() const {
     // TODO: make this more accurate
     bool isFloat = std::is_same<FPType, float>::value;
-    auto zeroesPerCycle = isFloat ? 2 : 4;
-    auto zeroCycles = (out.size() + zeroesPerCycle - 1) / zeroesPerCycle;
+    const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    auto zeroCycles = (out.size() + vectorWidth - 1) / vectorWidth;
     return 4 + zeroCycles;
   }
 };
@@ -628,6 +647,8 @@ template <typename FPType>
 class Zero2D : public Vertex {
 public:
   Vector<Output<Vector<FPType>>> out;
+
+  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (auto &row : out) {
@@ -641,10 +662,10 @@ public:
   std::uint64_t getCycleEstimate() const {
     // TODO: make this more accurate
     bool isFloat = std::is_same<FPType, float>::value;
-    auto zeroesPerCycle = isFloat ? 2 : 4;
+    const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
     std::uint64_t cycles = 4;
     for (auto &row : out) {
-      auto zeroCycles = (row.size() + zeroesPerCycle - 1) / zeroesPerCycle;
+      auto zeroCycles = (row.size() + vectorWidth - 1) / vectorWidth;
       cycles += 1 + zeroCycles;
     }
     return cycles;

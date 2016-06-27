@@ -170,7 +170,8 @@ getConvPartialCycleEstimate(bool floatActivations, bool floatPartials,
                                                  inputGroupsPerOutput,
                                                  outputHeight,
                                                  outputWidth,
-                                                 outChansPerGroup);
+                                                 outChansPerGroup,
+                                                 machineInfo.dataPathWidth);
 }
 
 static unsigned
@@ -255,7 +256,8 @@ estimateFwdComputeCost(IPUModelEngineBuilder *engineBuilder,
 static unsigned
 estimateReduceComputeCost(IPUModelEngineBuilder *engineBuilder,
                           const ConvolutionParams &params,
-                          const ConvLayerPartition &partition) {
+                          const ConvLayerPartition &partition,
+                          const IPUMachineInfo &machineInfo) {
   if (partition.tilesPerInZGroupAxis == 1)
     return 0;
   const auto numTiles = engineBuilder ? engineBuilder->getNumTiles() : 1;
@@ -264,9 +266,11 @@ estimateReduceComputeCost(IPUModelEngineBuilder *engineBuilder,
   const auto numOutputsPerTile = (numOutputs + numTiles - 1) / numTiles;
   const auto numPartialSumsPerTile = numOutputsPerTile *
                                      partition.tilesPerInZGroupAxis;
-  const auto opsPerCycle = partition.floatPartials ? 2 : 4;
-  const auto numCycles = (numPartialSumsPerTile + opsPerCycle - 1) /
-                         opsPerCycle;
+  const auto vectorWidth =
+      partition.floatPartials ? machineInfo.getFloatVectorWidth() :
+                                machineInfo.getHalfVectorWidth();
+  const auto numCycles = (numPartialSumsPerTile + vectorWidth - 1) /
+                          vectorWidth;
   return numCycles;
 }
 
@@ -278,7 +282,7 @@ estimateComputeCost(IPUModelEngineBuilder *engineBuilder,
   return estimateFwdComputeCost(engineBuilder, floatActivations, params,
                                 partition, machineInfo) +
          estimateReduceComputeCost(engineBuilder, params,
-                                   partition);
+                                   partition, machineInfo);
 
 }
 
@@ -480,27 +484,28 @@ std::uint64_t ConvLayerImpl::getNumberOfFlops() {
 
 double ConvLayerImpl::getPerfectCycleCount() {
   const auto numTiles = getNumIPUs() * getTilesPerIPU();
+  const auto &machineInfo = getNetOptions().ipuMachineInfo;
   if (getDType() == "float") {
-    // Can execute 2 f32 MACs per cycle.
+    const auto floatVectorWidth = machineInfo.getFloatVectorWidth();
     auto macCycles =
-       static_cast<double>(getNumberOfMACs()) / (2 * numTiles);
-    // Can execute 2 f32 ADDs per cycle.
+       static_cast<double>(getNumberOfMACs()) / (floatVectorWidth * numTiles);
     auto addCycles =
-       static_cast<double>(getNumberOfAdds()) / (2 * numTiles);
+       static_cast<double>(getNumberOfAdds()) / (floatVectorWidth * numTiles);
     return macCycles + addCycles;
   }
   assert(getDType() == "half");
-  const auto &machineInfo = getNetOptions().ipuMachineInfo;
   const auto convUnitsPerTile =
       std::max(machineInfo.fp16AccumConvUnitsPerTile,
                machineInfo.fp32AccumConvUnitsPerTile);
-  auto macsPerCycles =
-      useConvolutionInstruction() ? convUnitsPerTile * 4 : 4;
+  const auto halfVectorWidth = machineInfo.getHalfVectorWidth();
+  auto macsPerCycle =
+      useConvolutionInstruction() ? convUnitsPerTile * halfVectorWidth :
+                                    halfVectorWidth;
   auto macCycles = static_cast<double>(getNumberOfMACs()) /
-                   (macsPerCycles * numTiles);
+                   (macsPerCycle * numTiles);
 
-  // Can execute 4 f16 ADDs per cycle.
-  auto addCycles = static_cast<double>(getNumberOfAdds()) / (4 * numTiles);
+  auto addCycles = static_cast<double>(getNumberOfAdds()) /
+                   (halfVectorWidth * numTiles);
   return macCycles + addCycles;
 }
 
@@ -667,6 +672,7 @@ void ConvLayerImpl::
 addResidualCalc(Graph &graph,
                 ComputeSet cs,
                 IPUModelEngineBuilder::TileMapping *mapping) {
+  const auto dataPathWidth = getNetOptions().ipuMachineInfo.dataPathWidth;
   assert(resLayer);
   auto resNumChanGroups = resIn.dim(0);
   auto resChansPerGroup = resIn.dim(3);
@@ -708,6 +714,7 @@ addResidualCalc(Graph &graph,
             if (outChan >= resNumChans) {
               auto v = graph.addVertex(cs, templateVertex("Zero", getDType()),
                                        {{"out",out}});
+              graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
               continue;
             }
             auto resChanGroup = outChan / resChansPerGroup;
@@ -722,6 +729,7 @@ addResidualCalc(Graph &graph,
             auto v = graph.addVertex(cs,
                                      templateVertex("CopyResidual", getDType()),
                                      {{"in", in}, {"out",out}});
+            graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
           }
         }
       }
@@ -978,6 +986,7 @@ forwardTile(Graph &graph,
         zeroCS, templateVertex("Zero2D", getPartialType()),
         {{"out", tileOutFlattened.slice(beginRow, endRow)}}
       );
+      graph.setInitialValue(zv["dataPathWidth"], dataPathWidth);
       if (mapping) {
         mapping->setMapping(zv, tile);
       }
@@ -1048,6 +1057,7 @@ forwardTile(Graph &graph,
               {"weights", w },
               {"out", outWindow },
             });
+        graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
         graph.setInitialValue(v["stride"], stride);
         graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
         graph.setInitialValue(v["padding"], padding);
@@ -1201,6 +1211,7 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
   assert(!createdForwardProg);
   const auto isMultiIPU = getNumIPUs() > 1;
 
+  const auto dataPathWidth = getNetOptions().ipuMachineInfo.dataPathWidth;
   const auto inChansPerGroup = partition.inChansPerGroup;
   const auto partialChansPerGroup = partition.partialChansPerGroup;
   assert(outNumChans % partialChansPerGroup == 0);
@@ -1300,6 +1311,7 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
                 graph.addVertex(reduceCS, templateVertex("ConvReduce",
                                                          getPartialType()),
                                 {{"out", out}, {"partials", in}});
+            graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
             if (mapping) {
               mapping->setMapping(v, tile);
               mapping->setMapping(out, tile);
@@ -1320,6 +1332,7 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
               graph.addVertex(reduceCS, templateVertex("ConvReduce",
                                                        getPartialType()),
                               {{"out", out}, {"partials", in}});
+          graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
           if (mapping) {
             const auto tile =
                 (numTiles * (outDimY * z + y)) / (outDimY * outNumChans);

@@ -46,8 +46,9 @@ std::uint64_t MaxPoolLayerImpl::getNumberOfFlops() {
 
 double MaxPoolLayerImpl::getPerfectCycleCount() {
   const auto numTiles = getNumIPUs() * getTilesPerIPU();
+  const auto &machineInfo = getNetOptions().ipuMachineInfo;
   const auto numFLOPs = getNumberOfFlops();
-  const auto vectorWidth = 64 / (8 * getDTypeSize());
+  const auto vectorWidth = machineInfo.dataPathWidth / (8 * getDTypeSize());
   return static_cast<double>(numFLOPs) / (vectorWidth * numTiles);
 }
 

@@ -40,9 +40,18 @@ public:
   unsigned fp32AccumConvUnitsPerTile = 4;
   bool sharedConvWeights = true;
 
-  unsigned getInputChannelsPerConvUnit() const {
+  unsigned getFloatVectorWidth() const {
+    assert(dataPathWidth % 32 == 0);
+    return dataPathWidth / 32;
+  }
+
+  unsigned getHalfVectorWidth() const {
     assert(dataPathWidth % 16 == 0);
-    return (dataPathWidth / 16) * convUnitPipelineDepth;
+    return dataPathWidth / 16;
+  }
+
+  unsigned getInputChannelsPerConvUnit() const {
+    return getHalfVectorWidth() * convUnitPipelineDepth;
   }
 };
 

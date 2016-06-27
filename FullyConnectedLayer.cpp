@@ -14,13 +14,15 @@ namespace {
 static unsigned
 estimatePartitionCost(unsigned numWorkerContexts, bool isFloat,
                       unsigned numRows, unsigned numCols, unsigned tilesPerRow,
-                      unsigned tilesPerColumn) {
+                      unsigned tilesPerColumn,
+                      const IPUMachineInfo &machineInfo) {
   auto numTiles = tilesPerRow * tilesPerColumn;
   auto numVertices = numRows * tilesPerRow;
   auto vertexElements = (numCols + tilesPerRow - 1) / tilesPerRow;
   auto partialSumsPerTile = (numRows + tilesPerColumn - 1) / tilesPerColumn;
   auto vertexRuntime =
-      getFullyConnectedPartialCycleEstimate(isFloat, vertexElements);
+      getFullyConnectedPartialCycleEstimate(isFloat, vertexElements,
+                                            machineInfo.dataPathWidth);
   auto verticesPerWorker = (numVertices + numTiles * numWorkerContexts - 1) /
                            (numTiles * numWorkerContexts);
   auto computeCycles = vertexRuntime * verticesPerWorker;
@@ -33,14 +35,15 @@ estimatePartitionCost(unsigned numWorkerContexts, bool isFloat,
 
 static PartitionShape
 choosePartition(unsigned numWorkerContexts, bool isFloat, unsigned numRows,
-                unsigned numCols, unsigned numTiles) {
+                unsigned numCols, unsigned numTiles,
+                const IPUMachineInfo &machineInfo) {
   unsigned lowestCost = std::numeric_limits<unsigned>::max();
   unsigned bestTilesPerColumn, bestTilesPerRow;
   for (unsigned tilesPerRow = 1; tilesPerRow <= numTiles; ++tilesPerRow) {
     unsigned tilesPerColumn = numTiles / tilesPerRow;
     const auto cost = estimatePartitionCost(numWorkerContexts, isFloat,
                                             numRows, numCols, tilesPerRow,
-                                            tilesPerColumn);
+                                            tilesPerColumn, machineInfo);
     if (cost < lowestCost) {
       lowestCost = cost;
       bestTilesPerColumn = tilesPerColumn;
@@ -66,8 +69,9 @@ std::uint64_t FullyConnectedLayerImpl::getNumberOfFlops() {
 
 double FullyConnectedLayerImpl::getPerfectCycleCount() {
   const auto numTiles = getNumIPUs() * getTilesPerIPU();
+  const auto &machineInfo = getNetOptions().ipuMachineInfo;
   const auto numFLOPs = getNumberOfFlops();
-  const auto vectorWidth = 64 / (8 * getDTypeSize());
+  const auto vectorWidth = machineInfo.dataPathWidth / (8 * getDTypeSize());
   return static_cast<double>(numFLOPs) / (2 * vectorWidth * numTiles);
 }
 
@@ -116,6 +120,7 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   Layer *prev = getPrevLayer();
   Tensor in = prev->getFwdActivations().flatten();
   const auto dType = getDType();
+  const auto dataPathWidth = getNetOptions().ipuMachineInfo.dataPathWidth;
 
   const auto numRows = size;
   const auto numCols = prevSize;
@@ -129,9 +134,9 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   bool isFloat = dType == "float";
   assert(isFloat || dType == "half");
   const auto tilesPerIPU = getTilesPerIPU();
-  auto ipuPartition = choosePartition(getWorkerContextsPerTile(),
-                                      isFloat, maxRowsPerTile, numCols,
-                                      tilesPerIPU);
+  auto ipuPartition =
+      choosePartition(getWorkerContextsPerTile(), isFloat, maxRowsPerTile,
+                      numCols, tilesPerIPU, getNetOptions().ipuMachineInfo);
 
   ComputeSet dotProductCS = graph.createComputeSet(layerName + ".fwd");
   ComputeSet reduceCS;
@@ -167,6 +172,7 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
                               {{"in", partialIn},
                                {"weights", partialWeights},
                                {"out", partials[i][j]}});
+          graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
           if (mapping) {
             mapping->setMapping(partialWeights, tile);
             mapping->setMapping(partials[i][j], tile);
@@ -192,6 +198,7 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
                            {"bias", biases[i]},
                            {"zOut", z[i]},
                            {"activationOut", activations[i]}});
+      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
       if (mapping) {
         mapping->setMapping(v, resultTile);
@@ -205,6 +212,7 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
                            {"bias", biases[i]},
                            {"zOut", z[i]},
                            {"activationOut", activations[i]}});
+      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
       if (mapping) {
         mapping->setMapping(v, resultTile);
