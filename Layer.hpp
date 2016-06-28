@@ -37,7 +37,7 @@ class Layer {
 protected:
   Layer(const Net &net, int index) : net(net), index(index) {}
   unsigned getWorkerContextsPerTile() const;
-  IPUModelEngineBuilder *getIPUModelEngineBuilder() const;
+  IPUModelEngineBuilder &getIPUModelEngineBuilder() const;
   unsigned getNumIPUs() const;
   unsigned getTilesPerIPU() const;
   const std::string &getDType() const;

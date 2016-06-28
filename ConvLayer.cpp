@@ -77,7 +77,7 @@ getMaxInputRangeSize(unsigned outputRangeSize, unsigned stride,
 }
 
 static unsigned
-estimateExchangeCost(IPUModelEngineBuilder *engineBuilder,
+estimateExchangeCost(IPUModelEngineBuilder &engineBuilder,
                      bool floatActivations, const ConvolutionParams &params,
                      const ConvLayerPartition &partition) {
   const auto tilesPerX = partition.tilesPerXAxis;
@@ -120,7 +120,7 @@ estimateExchangeCost(IPUModelEngineBuilder *engineBuilder,
   const auto weightBytes = numberOfWeights * activationSize;
   const auto partialSize = partition.floatPartials ? 4 : 2;
   const auto partialSumBytes = numberOfPartialSums * partialSize;
-  const auto exchangeBytesPerCycle = engineBuilder->getIPUExchangeBandwidth();
+  const auto exchangeBytesPerCycle = engineBuilder.getIPUExchangeBandwidth();
   const auto numCycles =
       (inputElementsBytes + exchangeBytesPerCycle - 1) / exchangeBytesPerCycle +
       (weightBytes + exchangeBytesPerCycle - 1) / exchangeBytesPerCycle +
@@ -212,7 +212,7 @@ estimateVertexCycles(bool floatActivations,
 }
 
 static unsigned
-estimateFwdComputeCost(IPUModelEngineBuilder *engineBuilder,
+estimateFwdComputeCost(IPUModelEngineBuilder &engineBuilder,
                        bool floatActivations,
                        const ConvolutionParams &params,
                        const ConvLayerPartition &partition,
@@ -235,8 +235,7 @@ estimateFwdComputeCost(IPUModelEngineBuilder *engineBuilder,
   // The use of supervisor vertices only affects vertices that use the
   // convolution instructions.
   bool useSupervisorVertices = false;
-  unsigned numContexts =
-      engineBuilder ? engineBuilder->getNumWorkerContexts() : 1;
+  unsigned numContexts = engineBuilder.getNumWorkerContexts();
   if (machineInfo.sharedConvWeights &&
       canUseConvolutionInstruction(floatActivations, partition.floatPartials,
                                    params.stride,
@@ -257,13 +256,13 @@ estimateFwdComputeCost(IPUModelEngineBuilder *engineBuilder,
 }
 
 static unsigned
-estimateReduceComputeCost(IPUModelEngineBuilder *engineBuilder,
+estimateReduceComputeCost(IPUModelEngineBuilder &engineBuilder,
                           const ConvolutionParams &params,
                           const ConvLayerPartition &partition,
                           const IPUMachineInfo &machineInfo) {
   if (partition.tilesPerInZGroupAxis == 1)
     return 0;
-  const auto numTiles = engineBuilder ? engineBuilder->getNumTiles() : 1;
+  const auto numTiles = engineBuilder.getNumTiles();
   const auto numOutputs = params.getOutputHeight() * params.getOutputWidth() *
                           params.outputDepth;
   const auto numOutputsPerTile = (numOutputs + numTiles - 1) / numTiles;
@@ -278,7 +277,7 @@ estimateReduceComputeCost(IPUModelEngineBuilder *engineBuilder,
 }
 
 static unsigned
-estimateComputeCost(IPUModelEngineBuilder *engineBuilder,
+estimateComputeCost(IPUModelEngineBuilder &engineBuilder,
                     bool floatActivations, const ConvolutionParams &params,
                     const ConvLayerPartition &partition,
                     const IPUMachineInfo &machineInfo) {
@@ -290,7 +289,7 @@ estimateComputeCost(IPUModelEngineBuilder *engineBuilder,
 }
 
 static unsigned
-estimatePartitionCostBounded(IPUModelEngineBuilder *engineBuilder,
+estimatePartitionCostBounded(IPUModelEngineBuilder &engineBuilder,
                              bool floatActivations,
                              const ConvolutionParams &params,
                              const ConvLayerPartition &partition,
@@ -306,7 +305,7 @@ estimatePartitionCostBounded(IPUModelEngineBuilder *engineBuilder,
 }
 
 static unsigned
-estimatePartitionCost(IPUModelEngineBuilder *engineBuilder,
+estimatePartitionCost(IPUModelEngineBuilder &engineBuilder,
                       bool floatActivations,
                       const ConvolutionParams &params,
                       const ConvLayerPartition &partition,
@@ -318,7 +317,7 @@ estimatePartitionCost(IPUModelEngineBuilder *engineBuilder,
 }
 
 static ConvLayerPartition
-choosePartition(IPUModelEngineBuilder *engineBuilder,
+choosePartition(IPUModelEngineBuilder &engineBuilder,
                 bool floatActivations,
                 unsigned inChansPerGroup,
                 const ConvolutionParams &params,
@@ -363,9 +362,7 @@ choosePartition(IPUModelEngineBuilder *engineBuilder,
   // but it needs to sends (outputChannelsPerTile * (filterSize - 1) / 2) extra
   // rows of partial sum per tile pair.
   // TODO investigate the alternative strategy outlined above.
-  const auto numTiles = engineBuilder ? engineBuilder->getNumTiles() : 1;
-  const auto numWorkerContexts =
-      engineBuilder ? engineBuilder->getNumWorkerContexts() : 1;
+  const auto numTiles = engineBuilder.getNumTiles();
   for (const auto partialChansPerGroup : partialChansPerGroupCandidates) {
     const auto maxTilesPerX = std::min(params.getOutputWidth(), numTiles);
     for (unsigned tilesPerX = 1; tilesPerX <= maxTilesPerX; ++tilesPerX) {

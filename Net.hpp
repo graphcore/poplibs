@@ -90,6 +90,7 @@ public:
   std::unique_ptr<InputLayer> inputLayer;
   std::unique_ptr<LossLayer> lossLayer;
   std::unique_ptr<EngineBuilder> engineBuilder;
+  std::unique_ptr<IPUModelEngineBuilder> dummyIpuEngineBuilder;
   std::unique_ptr<Engine> engine;
 
   std::unique_ptr<char[]> hAct;
@@ -99,20 +100,20 @@ public:
 
   std::string dType;
 
-  IPUModelEngineBuilder *getIPUModelEngineBuilder() const {
-    return dynamic_cast<IPUModelEngineBuilder*>(engineBuilder.get());
+  IPUModelEngineBuilder &getIPUModelEngineBuilder() const {
+    if (auto p = dynamic_cast<IPUModelEngineBuilder*>(engineBuilder.get())) {
+      return *p;
+    }
+    return *dummyIpuEngineBuilder;
   }
   unsigned getWorkerContextsPerTile() const {
-    auto p = getIPUModelEngineBuilder();
-    return p ? p->getNumWorkerContexts() : 1;
+    return getIPUModelEngineBuilder().getNumWorkerContexts();
   }
   unsigned getNumIPUs() const {
-    auto p = getIPUModelEngineBuilder();
-    return p ? p->getNumIPUs() : 1;
+    return getIPUModelEngineBuilder().getNumIPUs();
   }
   unsigned getTilesPerIPU() const {
-    auto p = getIPUModelEngineBuilder();
-    return p ? p->getTilesPerIPU() : 1;
+    return getIPUModelEngineBuilder().getTilesPerIPU();
   }
 
   Layer *getPrevLayer(int index) const {

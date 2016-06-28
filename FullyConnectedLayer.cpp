@@ -12,13 +12,13 @@ namespace {
 }
 
 static unsigned
-estimatePartitionCost(IPUModelEngineBuilder *engineBuilder, bool isFloat,
+estimatePartitionCost(IPUModelEngineBuilder &engineBuilder, bool isFloat,
                       unsigned numRows, unsigned numCols, unsigned tilesPerRow,
                       unsigned tilesPerColumn,
                       const IPUMachineInfo &machineInfo) {
   auto numTiles = tilesPerRow * tilesPerColumn;
   auto numVertices = numRows * tilesPerRow;
-  auto numWorkerContexts = engineBuilder->getNumWorkerContexts();
+  auto numWorkerContexts = engineBuilder.getNumWorkerContexts();
   auto vertexElements = (numCols + tilesPerRow - 1) / tilesPerRow;
   auto partialSumsPerTile = (numRows + tilesPerColumn - 1) / tilesPerColumn;
   auto vertexRuntime =
@@ -27,7 +27,7 @@ estimatePartitionCost(IPUModelEngineBuilder *engineBuilder, bool isFloat,
   auto verticesPerWorker = (numVertices + numTiles * numWorkerContexts - 1) /
                            (numTiles * numWorkerContexts);
   auto computeCycles = vertexRuntime * verticesPerWorker;
-  auto exchangeBytesPerCycle = engineBuilder->getIPUExchangeBandwidth();
+  auto exchangeBytesPerCycle = engineBuilder.getIPUExchangeBandwidth();
   auto inputBytes = vertexElements * (isFloat ? 4 : 2);
   auto partialSumBytes = partialSumsPerTile * 4;
   auto exchangeCycles =
@@ -37,7 +37,7 @@ estimatePartitionCost(IPUModelEngineBuilder *engineBuilder, bool isFloat,
 }
 
 static PartitionShape
-choosePartition(IPUModelEngineBuilder *engineBuilder,
+choosePartition(IPUModelEngineBuilder &engineBuilder,
                 bool isFloat, unsigned numRows,
                 unsigned numCols, unsigned numTiles,
                 const IPUMachineInfo &machineInfo) {

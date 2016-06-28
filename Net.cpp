@@ -138,7 +138,12 @@ void Net::initialize(DataSet &data, LossType lossType) {
     ipuEB->setGlobalSyncCycles(500);
   } else {
     engineBuilder =
-      std::unique_ptr<EngineBuilder>(new CPUEngineBuilder(*env));
+        std::unique_ptr<EngineBuilder>(new CPUEngineBuilder(*env));
+    dummyIpuEngineBuilder =
+        std::unique_ptr<IPUModelEngineBuilder>(new IPUModelEngineBuilder(*env));
+    dummyIpuEngineBuilder->setNumIPUs(1);
+    dummyIpuEngineBuilder->setTilesPerIPU(1);
+    dummyIpuEngineBuilder->setNumWorkerContexts(1);
   }
   EngineBuilder &eb = *engineBuilder;
 
