@@ -183,34 +183,34 @@ public:
     return partition.floatPartials ? "float" : "half";
   }
 
-  std::uint64_t getNumberOfFlops();
+  std::uint64_t getNumberOfFlops() override;
 
-  double getPerfectCycleCount();
+  double getPerfectCycleCount() override;
 
-  Tensor getFwdActivations() const {
+  Tensor getFwdActivations() const override {
     return fwdActivations;
   }
 
-  Tensor getFwdZs() const {
+  Tensor getFwdZs() const override {
     return fwdZ;
   }
 
-  Tensor getBwdDeltas() const {
+  Tensor getBwdDeltas() const override {
     return deltas;
   }
 
-  NonLinearityType getNonLinearityType() const {
+  NonLinearityType getNonLinearityType() const override {
     return nonLinearityType;
   }
 
-  void describe(std::ostream &out);
+  void describe(std::ostream &out) override;
 
   size_t getNumChannelGroupsIn(size_t xPrev, size_t yPrev,
-                               size_t zPrev) const;
+                               size_t zPrev) const override;
 
-  void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping);
+  void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) override;
 
-  Program initParams(Graph &graph) {
+  Program initParams(Graph &graph) override {
     if (getDType() != "float") {
       // TODO: host to device tensor copies of half datatype
       return Sequence();
@@ -219,11 +219,12 @@ public:
                     Copy(biases, &hBiases[0]));
   }
 
-  Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping);
+  Program forward(Graph &graph,
+                  IPUModelEngineBuilder::TileMapping *mapping) override;
 
-  Program backward(Graph &graph);
+  Program backward(Graph &graph) override;
 
-  Program weightUpdate(Graph &graph);
+  Program weightUpdate(Graph &graph) override;
 
 };
 

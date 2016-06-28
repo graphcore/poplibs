@@ -164,7 +164,8 @@ public:
             DataSet &data, LossType lossType) :
     Layer(net, index), data(data), lossType(lossType) {}
 
-  void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
+  void init(Graph &graph,
+            IPUModelEngineBuilder::TileMapping *mapping) override {
     const auto dType = getDType();
     Layer *prev = getPrevLayer();
     assert(prev);
@@ -190,8 +191,9 @@ public:
     return hNumCorrect;
   }
 
-  Program initParams(Graph &graph) { return Sequence(); }
-  Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
+  Program initParams(Graph &graph) override { return Sequence(); }
+  Program forward(Graph &graph,
+                  IPUModelEngineBuilder::TileMapping *mapping) override {
     Layer *prev = getPrevLayer();
     auto v = graph.addVertex(fwd, templateVertex("CalcLoss", getDType()),
                              {{"zIn", prev->getFwdZs().flatten()},
@@ -218,14 +220,14 @@ public:
                   &data.testLabels[data.numTest]);
     }
   }
-  Program backward(Graph &graph) { return Sequence(); }
-  Program weightUpdate(Graph &graph) { return Sequence(); }
-  void describe(std::ostream &out) {}
-  std::uint64_t getNumberOfFlops() { return 0; }
-  virtual double getPerfectCycleCount() { return 0.0; }
-  Tensor getFwdActivations() const { return {}; }
-  Tensor getFwdZs() const { return {}; }
-  Tensor getBwdDeltas() const { return deltas; }
+  Program backward(Graph &graph) override { return Sequence(); }
+  Program weightUpdate(Graph &graph) override { return Sequence(); }
+  void describe(std::ostream &out) override {}
+  std::uint64_t getNumberOfFlops() override { return 0; }
+  virtual double getPerfectCycleCount() override { return 0.0; }
+  Tensor getFwdActivations() const override { return {}; }
+  Tensor getFwdZs() const override { return {}; }
+  Tensor getBwdDeltas() const override { return deltas; }
 };
 
 /* This utility function wraps a vector of normal pointers as unique_ptrs.

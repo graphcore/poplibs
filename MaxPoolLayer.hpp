@@ -21,42 +21,43 @@ public:
                    unsigned stride,
                    unsigned padding);
 
-  Tensor getFwdActivations() const {
+  Tensor getFwdActivations() const override {
     return activations;
   }
 
-  Tensor getFwdZs() const {
+  Tensor getFwdZs() const override {
     return activations;
   }
 
-  Tensor getBwdDeltas() const {
+  Tensor getBwdDeltas() const override {
     return deltas;
   }
 
-  NonLinearityType getNonLinearityType() const {
+  NonLinearityType getNonLinearityType() const override {
     return NON_LINEARITY_NONE;
   }
 
-  void describe(std::ostream &out);
+  void describe(std::ostream &out) override;
 
-  std::uint64_t getNumberOfFlops();
+  std::uint64_t getNumberOfFlops() override;
 
-  double getPerfectCycleCount();
+  double getPerfectCycleCount() override;
 
   size_t getNumChannelGroupsIn(size_t xPrev, size_t yPrev,
-                               size_t zPrev) const;
+                               size_t zPrev) const override;
 
-  void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping);
+  void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) override;
 
-  Program initParams(Graph &graph) {
+  Program initParams(Graph &graph) override {
     return Sequence();
   }
 
-  Program forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping);
+  Program forward(Graph &graph,
+                  IPUModelEngineBuilder::TileMapping *mapping) override;
 
-  Program backward(Graph &graph);
+  Program backward(Graph &graph) override;
 
-  Program weightUpdate(Graph &graph) {
+  Program weightUpdate(Graph &graph) override {
     return Sequence();
   }
 };
