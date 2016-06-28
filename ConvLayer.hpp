@@ -148,8 +148,8 @@ public:
   unsigned outNumChans, outNumChanGroups, outDimX, outDimY;
   NonLinearityType nonLinearityType;
   NormalizationType normalizationType;
-  Tensor weights, in, weightsIn, biases, biasesIn, fwdZ, z, activations, fwdActivations,
-        resIn, errors;
+  Tensor weights, in, weightsIn, biases, biasesIn, fwdZ, z, activations,
+         fwdActivations, resIn, deltas;
 
   std::string layerName;
 
@@ -195,8 +195,8 @@ public:
     return fwdZ;
   }
 
-  Tensor getBwdErrors() const {
-    return errors;
+  Tensor getBwdDeltas() const {
+    return deltas;
   }
 
   NonLinearityType getNonLinearityType() const {

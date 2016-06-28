@@ -95,13 +95,13 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   // weights mapped in forward()
   if (getNetType() == TrainingNet) {
     const auto batchSize = getBatchSize();
-    errors = graph.addTensor(dType, prev->getFwdActivations().dims());
+    deltas = graph.addTensor(dType, prev->getFwdActivations().dims());
     activationRecord = graph.addTensor(dType, {prevSize, batchSize});
     actRecordIndex = graph.addTensor("unsigned", {1});
     errorRecord = graph.addTensor(dType, {size, batchSize});
     errorRecordIndex = graph.addTensor("unsigned", {1});
     bwdWeights = graph.addTensor(dType, {prevSize + 1, size});
-    mapTensor(errors, mapping);
+    mapTensor(deltas, mapping);
     mapTensor(activationRecord, mapping);
     mapTensor(actRecordIndex, mapping);
     mapTensor(errorRecord, mapping);
@@ -227,17 +227,17 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
 
 Program FullyConnectedLayerImpl::backward(Graph &graph) {
   auto bwdCS = graph.createComputeSet(layerName + ".bwd");
-  auto flatErrors = errors.flatten();
+  auto flatDeltas = deltas.flatten();
   for (unsigned i = 0; i < prevSize; ++i) {
     auto w = weights.slice({0, i}, {size, i+1}).flatten();
-    auto in = getNextLayer()->getBwdErrors().flatten();
+    auto in = getNextLayer()->getBwdDeltas().flatten();
     auto v = graph.addVertex(bwdCS,
                              templateVertex("FullyConnectedBwd",
                                             getDType()),
                              {{"in", in},
                               {"z", z},
                               {"weights", w},
-                              {"out", flatErrors[i]},
+                              {"out", flatDeltas[i]},
                              });
     graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
   }
@@ -247,12 +247,12 @@ Program FullyConnectedLayerImpl::backward(Graph &graph) {
 Program FullyConnectedLayerImpl::weightUpdate(Graph &graph) {
   auto cs = graph.createComputeSet(layerName + ".weight_update");
   for (unsigned i = 0; i < size; ++i) {
-    auto errorIn = getNextLayer()->getBwdErrors().flatten();
+    auto deltasIn = getNextLayer()->getBwdDeltas().flatten();
     auto prev = getPrevLayer()->getFwdActivations().flatten();
     auto v = graph.addVertex(cs,
                              templateVertex("FullyConnectedWeightUpdate",
                                             getDType()),
-                             {{"error", errorIn[i]},
+                             {{"deltas", deltasIn[i]},
                               {"weights", weights[i]},
                               {"in", prev},
                               {"z", z[i]},

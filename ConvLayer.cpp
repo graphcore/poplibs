@@ -596,7 +596,7 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
                                  outChansPerGroup});
   mapActivations(fwdZ, mapping);
   if (getNetType() == TrainingNet) {
-    errors = graph.addTensor(dType, prev->getFwdActivations().dims());
+    deltas = graph.addTensor(dType, prev->getFwdActivations().dims());
   }
 
   unsigned resDimX = 0, resDimY = 0, resNumChans = 0, resNumChanGroups = 0,
@@ -1492,11 +1492,11 @@ backward(Graph &graph) {
   const auto partialChansPerGroup = partition.partialChansPerGroup;
   const auto inChansPerGroup = partition.inChansPerGroup;
   const auto outChansPerGroup = outNumChans / outNumChanGroups;
-  auto err = getNextLayer()->getBwdErrors();
-  assert(err.dim(0) == outNumChanGroups);
-  assert(err.dim(1) == outDimY);
-  assert(err.dim(2) == outDimX);
-  assert(err.dim(3) == outChansPerGroup);
+  auto deltasIn = getNextLayer()->getBwdDeltas();
+  assert(deltasIn.dim(0) == outNumChanGroups);
+  assert(deltasIn.dim(1) == outDimY);
+  assert(deltasIn.dim(2) == outDimX);
+  assert(deltasIn.dim(3) == outChansPerGroup);
   auto partials = graph.addTensor("float",
                                   {outNumChanGroups,
                                    inNumChans,
@@ -1547,7 +1547,7 @@ backward(Graph &graph) {
                   .slice({convInYBegin, convInXBegin},
                          {convInYEnd, convInXEnd})
                   .reshape({convInHeight, convInWidth});
-          auto in = err[outGroup]
+          auto in = deltasIn[outGroup]
                          .slice({convOutYBegin, convOutXBegin, 0},
                                 {convOutYEnd, convOutXEnd, outChansPerGroup})
                          .reshape({convOutHeight, convOutWidth * outChansPerGroup});
@@ -1600,7 +1600,7 @@ backward(Graph &graph) {
                          .flatten();
         graph.addVertex(completeCS,
                         templateVertex("ConvCompleteBwd", "float", getDType()),
-                        {{"out", errors[inChanGroup][y][x].flatten()},
+                        {{"out", deltas[inChanGroup][y][x].flatten()},
                          {"in", in}});
       }
     }
@@ -1616,7 +1616,7 @@ weightUpdate(Graph &graph) {
   const auto outChansPerGroup = outNumChans / outNumChanGroups;
   const auto partialChansPerGroup = partition.partialChansPerGroup;
 
-  auto errorIn = getNextLayer()->getBwdErrors();
+  auto deltasIn = getNextLayer()->getBwdDeltas();
   auto wPartials = graph.addTensor(getDType(),
                                    {outNumChans, outDimY, outDimX,
                                     kernelSize, kernelSize, inNumChans});
@@ -1642,13 +1642,13 @@ weightUpdate(Graph &graph) {
                 continue;
               auto outChan = outChanGroup * outChansPerGroup + outChanInGroup;
               auto w = wPartials[outChan][y][x][wy][wx].flatten();
-              auto err = errorIn[outChanGroup][y][x][outChanInGroup];
+              auto d = deltasIn[outChanGroup][y][x][outChanInGroup];
               auto zz = fwdZ[outChanGroup][y][x][outChanInGroup];
               auto ii = act.slice({0, inY, inX, 0},
                                   {inNumChanGroups, inY + 1, inX + 1, inChansPerGroup}).flatten();
               auto v = graph.addVertex(partialCS,
                                        templateVertex("ConvPartialWeightUpdate", getDType()),
-                                       {{"error", err},
+                                       {{"delta", d},
                                         {"z", zz},
                                         {"in", ii},
                                         {"weightUpdates", w}});
@@ -1689,15 +1689,15 @@ weightUpdate(Graph &graph) {
   for (unsigned outChan = 0; outChan < outNumChans; ++outChan) {
     const auto outChanGroup = outChan / outChansPerGroup;
     const auto outChanInGroup = outChan % outChansPerGroup;
-    auto in = errorIn.slice({outChanGroup, 0, 0, outChanInGroup},
-                            {outChanGroup + 1, outDimY, outDimX, outChanInGroup + 1})
-                     .flatten();
+    auto in = deltasIn.slice({outChanGroup, 0, 0, outChanInGroup},
+                             {outChanGroup + 1, outDimY, outDimX,
+                              outChanInGroup + 1}).flatten();
     auto zz = fwdZ.slice({outChanGroup, 0, 0, outChanInGroup},
-                         {outChanGroup + 1, outDimY, outDimX, outChanInGroup + 1})
-                     .flatten();
+                         {outChanGroup + 1, outDimY, outDimX,
+                          outChanInGroup + 1}).flatten();
     auto v = graph.addVertex(reduceCS,
                              templateVertex("ConvBiasUpdate", getDType()),
-                             {{"bias", biases[outChan]}, {"errors", in},
+                             {{"bias", biases[outChan]}, {"deltas", in},
                               {"z", zz}});
     graph.setInitialValue(v["eta"],
                           getLearningRate());

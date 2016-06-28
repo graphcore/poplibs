@@ -80,7 +80,7 @@ public:
   virtual NonLinearityType getNonLinearityType() const {
     return NON_LINEARITY_NONE;
   };
-  virtual Tensor getBwdErrors() const = 0;
+  virtual Tensor getBwdDeltas() const = 0;
 
   // Called if the previous layer provides a 3D volume as output.
   // A layer can request that the previous layer provides the z-axis
@@ -150,13 +150,13 @@ public:
   virtual double getPerfectCycleCount() { return 0.0; }
   Tensor getFwdActivations() const { return out; }
   Tensor getFwdZs() const { return out; }
-  Tensor getBwdErrors() const { return {}; }
+  Tensor getBwdDeltas() const { return {}; }
 };
 
 class LossLayer : public Layer {
   DataSet &data;
   LossType lossType;
-  Tensor errors, expected, lossTypeTensor, loss, numCorrect;
+  Tensor deltas, expected, lossTypeTensor, loss, numCorrect;
   unsigned hNumCorrect;
   ComputeSet fwd;
 public:
@@ -168,13 +168,13 @@ public:
     const auto dType = getDType();
     Layer *prev = getPrevLayer();
     assert(prev);
-    errors = graph.addTensor(dType, prev->getFwdActivations().dims());
+    deltas = graph.addTensor(dType, prev->getFwdActivations().dims());
     expected = graph.addTensor("unsigned", {1});
     lossTypeTensor = graph.addTensor("LossType", {1});
     graph.setInitialValue(lossTypeTensor[0], lossType);
     loss = graph.addTensor(dType, {1});
     numCorrect = graph.addTensor("unsigned", {1});
-    mapTensor(errors, mapping);
+    mapTensor(deltas, mapping);
     mapTensor(expected, mapping);
     mapTensor(lossTypeTensor, mapping);
     mapTensor(loss, mapping);
@@ -195,7 +195,7 @@ public:
     Layer *prev = getPrevLayer();
     auto v = graph.addVertex(fwd, templateVertex("CalcLoss", getDType()),
                              {{"zIn", prev->getFwdZs().flatten()},
-                              {"errorOut", errors.flatten()},
+                              {"deltaOut", deltas.flatten()},
                               {"label", expected[0]},
                               {"lossType", lossTypeTensor[0]},
                               {"loss", loss[0]},
@@ -225,7 +225,7 @@ public:
   virtual double getPerfectCycleCount() { return 0.0; }
   Tensor getFwdActivations() const { return {}; }
   Tensor getFwdZs() const { return {}; }
-  Tensor getBwdErrors() const { return errors; }
+  Tensor getBwdDeltas() const { return deltas; }
 };
 
 /* This utility function wraps a vector of normal pointers as unique_ptrs.

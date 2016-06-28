@@ -338,14 +338,14 @@ template class ConvCompleteBwd<half, half>;
 template <typename FPType>
 class ConvPartialWeightUpdate : public Vertex {
 public:
-  Input<FPType> error;
+  Input<FPType> delta;
   Input<FPType> z;
   Output<Vector<FPType>> weightUpdates;
   Vector<Input<FPType>> in;
   NonLinearityType nonLinearityType;
 
   bool compute() {
-    auto d = *error * nonlinearity_derivative(nonLinearityType, *z);
+    auto d = *delta * nonlinearity_derivative(nonLinearityType, *z);
     for (unsigned i = 0; i < weightUpdates.size(); ++i) {
       weightUpdates[i] = d * in[i];
     }
@@ -390,15 +390,15 @@ template <typename FPType>
 class ConvBiasUpdate: public Vertex {
 public:
   InOut<FPType> bias;
-  Vector<Input<FPType>> errors;
+  Vector<Input<FPType>> deltas;
   Vector<Input<FPType>> z;
   float eta;
   NonLinearityType nonLinearityType;
 
   bool compute() {
     float sum = 0;
-    for (unsigned i = 0; i < errors.size(); ++i) {
-      auto d = errors[i] * nonlinearity_derivative(nonLinearityType, z[i]);
+    for (unsigned i = 0; i < deltas.size(); ++i) {
+      auto d = deltas[i] * nonlinearity_derivative(nonLinearityType, z[i]);
       sum += d;
     }
     *bias -= sum * eta;
@@ -445,7 +445,7 @@ template class FullyConnectedBwd<half>;
 template <typename FPType>
 class FullyConnectedWeightUpdate : public Vertex {
 public:
-  Input<FPType> error;
+  Input<FPType> deltas;
   Input<FPType> z;
   InOut<Vector<FPType>> weights;
   Input<Vector<FPType>> in;
@@ -454,7 +454,7 @@ public:
   NonLinearityType nonLinearityType;
 
   bool compute() {
-    auto d = *error * nonlinearity_derivative(nonLinearityType, *z);
+    auto d = *deltas * nonlinearity_derivative(nonLinearityType, *z);
     for (unsigned i = 0; i < weights.size(); ++i) {
       auto grad = d * in[i];
       weights[i] = weights[i] - grad * eta;
@@ -912,7 +912,7 @@ public:
   NonLinearityType nonLinearityType;
   Input<unsigned> label;
   Input<LossType> lossType;
-  Output<Vector<FPType>> errorOut;
+  Output<Vector<FPType>> deltaOut;
   Output<FPType> loss;
   InOut<unsigned> numCorrect;
 
@@ -928,7 +928,7 @@ public:
 
         FPType expected = (i == label ? 1 : 0);
         FPType actual = nonlinearity(nonLinearityType, zIn[i]);
-        errorOut[i] = (actual - expected);
+        deltaOut[i] = (actual - expected);
         sum += 0.5 * (actual - expected) *  (actual - expected);
       }
       *loss = sum;
@@ -952,7 +952,7 @@ public:
       FPType error = 0;
       for (unsigned i = 0;  i < probs.size(); ++i) {
         FPType expected = (i == label ? 1 : 0);
-        errorOut[i] = (probs[i] - expected);
+        deltaOut[i] = (probs[i] - expected);
         error += expected * log(probs[i]);
       }
       *loss = error;

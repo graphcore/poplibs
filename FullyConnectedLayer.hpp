@@ -9,7 +9,7 @@ public:
   NonLinearityType nonLinearityType;
 
   Tensor weights, biases, bwdWeights, z,
-    activations, errors, activationRecord, errorRecord,
+    activations, deltas, activationRecord, errorRecord,
     actRecordIndex, errorRecordIndex;
 
   std::unique_ptr<float []> hWeights, hBiases;
@@ -32,8 +32,8 @@ public:
     return z;
   }
 
-  Tensor getBwdErrors() const {
-    return errors;
+  Tensor getBwdDeltas() const {
+    return deltas;
   }
 
   NonLinearityType getNonLinearityType() const {

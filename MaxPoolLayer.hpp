@@ -9,7 +9,7 @@ public:
   unsigned stride;
   unsigned padding;
 
-  Tensor out, activations, errors;
+  Tensor out, activations, deltas;
 
   unsigned xDim, yDim, numChannels, xDimOut, yDimOut, numChanGroups;
 
@@ -29,8 +29,8 @@ public:
     return activations;
   }
 
-  Tensor getBwdErrors() const {
-    return errors;
+  Tensor getBwdDeltas() const {
+    return deltas;
   }
 
   NonLinearityType getNonLinearityType() const {
