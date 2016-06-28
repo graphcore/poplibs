@@ -831,23 +831,40 @@ template class Zero2D<half>;
 template <typename FPType>
 class MaxPooling : public Vertex {
 public:
-  Vector<Input<FPType>> activationIn;
-  Output<FPType> activationOut;
+  Vector<Input<Vector<FPType>>> activationIn;
+  Output<Vector<FPType>> activationOut;
+
+  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    float maxVal = activationIn[0];
-    unsigned receptiveFieldSize = activationIn.size();
-    for (unsigned i = 0; i < receptiveFieldSize; ++i) {
-      if (activationIn[i] > maxVal) {
-        maxVal = activationIn[i];
+    auto outChansPerGroup = activationOut.size();
+    auto chunkSize = activationIn[0].size();
+    assert(outChansPerGroup % chunkSize == 0);
+    auto chunksPerGroup = outChansPerGroup / chunkSize;
+    assert(activationIn.size() % chunksPerGroup == 0);
+    unsigned receptiveFieldSize = activationIn.size() / chunksPerGroup;
+    for (unsigned chunk = 0; chunk != chunksPerGroup; ++chunk) {
+      for (unsigned i = 0; i != receptiveFieldSize; ++i) {
+        for (unsigned chanInChunk = 0; chanInChunk != chunkSize;
+             ++chanInChunk) {
+          auto chan = chunk * chunkSize + chanInChunk;
+          auto in = activationIn[chunk * receptiveFieldSize + i][chanInChunk];
+          if (i == 0 || activationOut[chan] > in)
+            activationOut[chan] = in;
+        }
       }
     }
-    *activationOut = maxVal;
     return true;
   }
 
   uint64_t getCycleEstimate() const {
-    return 10 + activationIn.size() * 2;
+    unsigned numCycles = 10;
+    bool isFloat = std::is_same<FPType, float>::value;
+    const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    auto numChunks = activationIn.size();
+    auto chunkSize = activationIn[0].size();
+    numCycles += numChunks * (1 + (chunkSize + vectorWidth - 1) / vectorWidth);
+    return numCycles;
   }
 };
 

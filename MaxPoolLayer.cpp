@@ -1,6 +1,7 @@
 #include "MaxPoolLayer.hpp"
 #include "VertexTemplates.hpp"
 #include "ConvUtil.hpp"
+#include "gcd.hpp"
 
 MaxPoolLayerImpl::MaxPoolLayerImpl(const Net &net,
                  int index,
@@ -85,43 +86,63 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
 
 Program MaxPoolLayerImpl::
 forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
+  const auto dataPathWidth = getNetOptions().ipuMachineInfo.dataPathWidth;
   Layer *prev = getPrevLayer();
   Tensor in = prev->getFwdActivations();
   unsigned prevChanGroups = in.dim(0);
   unsigned prevChansPerGroup = numChannels / prevChanGroups;
   unsigned chansPerGroup = numChannels / numChanGroups;
+  const auto chunkSize =
+      gcd<unsigned>(prevChansPerGroup, chansPerGroup);
+  const auto chunksPerChanGroup = chansPerGroup / chunkSize;
   ComputeSet fwd = graph.createComputeSet(layerName + ".fwd");
   const auto activationsMapping = computeActivationsMapping(activations);
   const auto numTiles = getNumIPUs() * getTilesPerIPU();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto tileActivationsBegin = activationsMapping[tile];
     const auto tileActivationsEnd = activationsMapping[tile + 1];
-    for (unsigned activation = tileActivationsBegin;
-         activation != tileActivationsEnd; ++activation) {
-      unsigned chanInGroup = activation % chansPerGroup;
-      unsigned y = (activation / chansPerGroup) % yDimOut;
-      unsigned x = (activation / (chansPerGroup * yDimOut)) % xDimOut;
-      unsigned chanGroup = activation / (chansPerGroup * yDimOut * xDimOut);
-      const auto chan = chanGroup * chansPerGroup + chanInGroup;
-      unsigned prevChanGroup = chan / prevChansPerGroup;
-      unsigned prevChanInGroup = chan % prevChansPerGroup;
+    assert(tileActivationsBegin % chansPerGroup == 0);
+    assert(tileActivationsEnd % chansPerGroup == 0);
+    const auto tileGroupBegin = tileActivationsBegin / chansPerGroup;
+    const auto tileGroupEnd = tileActivationsEnd / chansPerGroup;
+    const auto tileNumGroups = tileGroupEnd - tileGroupBegin;
+    if (tileNumGroups == 0)
+      continue;
+    for (unsigned i = tileGroupBegin; i != tileGroupEnd; ++i) {
+      unsigned y = i % yDimOut;
+      unsigned x = (i / yDimOut) % xDimOut;
+      unsigned chanGroup = i / (yDimOut * xDimOut);
       unsigned inYBegin, inYEnd;
       std::tie(inYBegin, inYEnd) = getInputRange(y, stride, kernelSize,
                                                  padding, yDim);
+      const auto inYSize = inYEnd - inYBegin;
       unsigned inXBegin, inXEnd;
       std::tie(inXBegin, inXEnd) = getInputRange(x, stride, kernelSize,
                                                  padding, xDim);
-      Tensor window =
-          in[prevChanGroup].slice({inYBegin, inXBegin, prevChanInGroup},
-                                  {inYEnd, inXEnd,
-                                   prevChanInGroup + 1})
-                           .flatten();
+      const auto inXSize = inXEnd - inXBegin;
       auto v =
         graph.addVertex(fwd, templateVertex("MaxPooling", getDType()),
-          { {"activationIn", window},
-            {"activationOut", activations[chanGroup][y][x][chanInGroup]} });
+          { {"activationOut", activations[chanGroup][y][x]} });
+      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       if (mapping) {
         mapping->setMapping(v, tile);
+      }
+      graph.setFieldSize(v["activationIn"],
+                         chunksPerChanGroup * inYSize * inXSize);
+      for (unsigned j = 0; j != chunksPerChanGroup; ++j) {
+        unsigned chan = chanGroup * chansPerGroup + j * chunksPerChanGroup;
+        unsigned prevChanGroup = chan / prevChansPerGroup;
+        unsigned prevChanInGroup = chan % prevChansPerGroup;
+        for (unsigned inY = inYBegin; inY != inYEnd; ++inY) {
+          for (unsigned inX = inXBegin; inX != inXEnd; ++inX) {
+            Tensor inWindow =
+                in[prevChanGroup][inY][inX].slice(prevChanInGroup,
+                                                  prevChanInGroup + chunkSize);
+            const auto chunkIndex =
+                (inX - inXBegin) + inXSize * ((inY - inYBegin) + inYSize * j);
+            graph.connect(inWindow, v["activationIn"][chunkIndex]);
+          }
+        }
       }
     }
   }

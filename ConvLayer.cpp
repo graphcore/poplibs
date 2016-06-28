@@ -2,17 +2,7 @@
 #include "PerformanceEstimation.hpp"
 #include "VertexTemplates.hpp"
 #include "ConvUtil.hpp"
-
-// Greatest common divisor
-template <typename T>
-static T gcd(T a, T b) {
-  while (b != 0) {
-    T tmp = b;
-    b = a % b;
-    a = tmp;
-  }
-  return a;
-}
+#include "gcd.hpp"
 
 namespace {
   struct ConvolutionParams {
