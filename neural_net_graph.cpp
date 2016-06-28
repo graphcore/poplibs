@@ -679,6 +679,8 @@ public:
   Vector<unsigned> outputChanGroupsPerBias;
   Vector<Input<Vector<OutType>>> res;
 
+  SimOnlyField<unsigned> dataPathWidth;
+
   bool compute() {
     unsigned numOut = out.size();
     unsigned outChans = bias[0].size();
@@ -711,31 +713,37 @@ public:
           biasCount = outputChanGroupsPerBias[biasIndex];
       }
     }
+    assert(biasIndex == outputChanGroupsPerBias.size());
+    assert(inIndex == in.size() * chunkSize);
     return true;
   }
 
   uint64_t getCycleEstimate() const {
-    unsigned vertexOverhead = 5;
-    unsigned cycles = vertexOverhead;
+    bool inIsFloat = std::is_same<InType, float>::value;
+    bool outIsFloat = std::is_same<InType, float>::value;
+    assert(!outIsFloat || inIsFloat && "Output is wider than input");
+    const auto inVectorWidth = dataPathWidth / (inIsFloat ? 32 : 16);
     unsigned numOut = out.size();
     unsigned outChans = bias[0].size();
     unsigned chunkSize = in[0].size();
-    unsigned i = 0;
+    unsigned numCycles = 5;
     for (unsigned o = 0; o < numOut; ++o) {
       unsigned outCols = out[o].size() / outChans;
       for (unsigned ocol = 0; ocol < outCols; ++ocol) {
-        for (unsigned ochan = 0; ochan < outChans; ++ochan) {
-          cycles += 1; // load input, load bias and add
-                       // - dual loads, dual issue = 2 in 2 cycles
+        assert(outChans % chunkSize == 0);
+        for (unsigned chunk = 0; chunk != outChans / chunkSize; ++chunk) {
+          // load input, load bias and add
+          // - dual loads, dual issue = 2 vectors in 2 cycles
+          numCycles += (chunkSize + inVectorWidth - 1) / inVectorWidth;
           if (o < res.size())
-            cycles += 1; // load res and add
-          cycles += 2; // RELU
+            // Load residual and add.
+            numCycles += (chunkSize + inVectorWidth - 1) / inVectorWidth;
+          numCycles += (chunkSize + inVectorWidth - 1) / inVectorWidth; // RELU
         }
       }
     }
-    return cycles;
+    return numCycles;
   }
-
 };
 
 template class ConvComplete<float, float>;

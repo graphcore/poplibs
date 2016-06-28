@@ -1394,6 +1394,7 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
       auto v = graph.addVertex(completionCS,
                                templateVertex("ConvComplete", getPartialType(),
                                               getDType()));
+      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
       if (mapping)
         mapping->setMapping(v, tile);
