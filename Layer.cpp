@@ -112,6 +112,9 @@ void Layer::mapActivations(Tensor act,
   }
 }
 
+std::string Layer::makeLayerName(const std::string &name) {
+  return name + ".layer" + std::to_string(index);
+}
 
 std::unique_ptr<float[]> createRandomWeightInitializers(Tensor t, float mean,
                                                         float variance) {

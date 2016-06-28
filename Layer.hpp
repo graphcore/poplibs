@@ -55,6 +55,7 @@ protected:
 public:
   Layer *getNextLayer() const;
   Layer *getPrevLayer() const;
+  std::string makeLayerName(const std::string &name);
   virtual void init(Graph &graph,
                     IPUModelEngineBuilder::TileMapping *mapping) = 0;
   virtual Program initParams(Graph &graph) = 0;
@@ -120,8 +121,8 @@ public:
       numGroups = 1;
     const auto dim = std::vector<size_t>({numGroups, data.dim[0], data.dim[1],
                                           data.dim[2]/numGroups});
-    out = graph.addTensor(dType, dim);
-    z = graph.addTensor(dType, dim);
+    out = graph.addTensor(dType, dim, makeLayerName("input"));
+    z = graph.addTensor(dType, dim, makeLayerName("z"));
     mapTensor(out, mapping);
     mapTensor(z, mapping);
   }
@@ -169,12 +170,13 @@ public:
     const auto dType = getDType();
     Layer *prev = getPrevLayer();
     assert(prev);
-    deltas = graph.addTensor(dType, prev->getFwdActivations().dims());
-    expected = graph.addTensor("unsigned", {1});
-    lossTypeTensor = graph.addTensor("LossType", {1});
+    deltas = graph.addTensor(dType, {prev->getFwdActivations().dims()}, 
+                             makeLayerName("deltas"));
+    expected = graph.addTensor("unsigned", {1}, makeLayerName("expected"));
+    lossTypeTensor = graph.addTensor("LossType", {1}, makeLayerName("lossType"));
     graph.setInitialValue(lossTypeTensor[0], lossType);
-    loss = graph.addTensor(dType, {1});
-    numCorrect = graph.addTensor("unsigned", {1});
+    loss = graph.addTensor(dType, {1}, makeLayerName("loss"));
+    numCorrect = graph.addTensor("unsigned", {1}, makeLayerName("numCorrect"));
     mapTensor(deltas, mapping);
     mapTensor(expected, mapping);
     mapTensor(lossTypeTensor, mapping);

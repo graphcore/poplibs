@@ -77,7 +77,8 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
     numChanGroups = in.dim(0);
   size_t chansPerGroup = numChannels / numChanGroups;
   activations = graph.addTensor(dType, {numChanGroups, xDimOut, yDimOut,
-                                        chansPerGroup});
+                                        chansPerGroup}, 
+                                makeLayerName("activations"));
   mapActivations(activations, mapping);
   if (getNetType() == TrainingNet) {
     deltas = graph.addTensor(dType, prev->getFwdActivations().dims());

@@ -585,12 +585,14 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
                                     kernelSize,
                                     kernelSize,
                                     partialChansPerGroup,
-                                    inChansPerGroup});
+                                    inChansPerGroup}, makeLayerName("weights"));
+                              
   fwdActivations = graph.addTensor(dType, {outNumChanGroups, outDimY, outDimX,
-                                           outChansPerGroup});
+                                           outChansPerGroup},
+                                   makeLayerName("fwdActivations"));
   mapActivations(fwdActivations, mapping);
   const auto activationsMapping = computeActivationsMapping(fwdActivations);
-  biases = graph.addTensor(dType, {outNumChans});
+  biases = graph.addTensor(dType, {outNumChans}, makeLayerName("biases"));
   mapBiases(biases, activationsMapping, mapping);
   fwdZ = graph.addTensor(dType, {outNumChanGroups, outDimY, outDimX,
                                  outChansPerGroup});
@@ -646,26 +648,30 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   }
 
   in = graph.addTensor(dType, {prevOut.dim(0), prevOut.dim(1),
-                               prevOut.dim(2), prevOut.dim(3)});
+                               prevOut.dim(2), prevOut.dim(3)}, 
+                       makeLayerName("in"));
   mapActivations(in, mapping);
 
   z = graph.addTensor(dType, {outNumChanGroups, outDimY, outDimX,
-                              outChansPerGroup});
+                              outChansPerGroup}, makeLayerName("z"));
   activations = graph.addTensor(dType, {outNumChanGroups, outDimY, outDimX,
-                                        outChansPerGroup});
+                                        outChansPerGroup}, 
+                                makeLayerName("activations"));
   weightsIn = graph.addTensor(dType, {partialNumChanGroups,
                                       inNumChanGroups,
                                       kernelSize,
                                       kernelSize,
                                       partialChansPerGroup,
-                                      inChansPerGroup});
-  biasesIn = graph.addTensor(dType, {outNumChans});
+                                      inChansPerGroup}, 
+                              makeLayerName("weightsIn"));
+  biasesIn = graph.addTensor(dType, {outNumChans}, makeLayerName("biasesIn"));
   mapTensor(z, mapping);
   mapBiases(biasesIn, activationsMapping, mapping);
   if (resIndex) {
     resIn = graph.addTensor(dType, {resNumChanGroups,
                                     resDimY, resDimY,
-                                    resChansPerGroup});
+                                    resChansPerGroup}, 
+                            makeLayerName("resIn"));
     mapActivations(resIn, mapping);
   }
 }
@@ -692,7 +698,8 @@ addResidualCalc(Graph &graph,
       (resNumChans + outChansPerGroup - 1) / outChansPerGroup;
   size_t resOutNumChans = resOutNumChanGroups * outChansPerGroup;
   residual = graph.addTensor(getDType(), {resOutNumChanGroups, outDimY, outDimX,
-                                          outChansPerGroup});
+                                          outChansPerGroup}, 
+                             makeLayerName("residual"));
   mapTensor(residual, mapping);
 
   switch (resMethod) {
@@ -1231,7 +1238,8 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
                                      partialNumChanGroups,
                                      outDimY,
                                      outDimX,
-                                     partialChansPerGroup});
+                                     partialChansPerGroup}, 
+                                    makeLayerName("partials"));
   ComputeSet zeroCS;
   if (useConvolutionInstruction() && kernelSize != 1) {
     zeroCS = graph.createComputeSet(layerName + ".zero");
@@ -1277,7 +1285,8 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
     const auto numTiles = getNumIPUs() * getTilesPerIPU();
     reduced = graph.addTensor(getPartialType(),
                               {partialNumChanGroups, outDimY, outDimX,
-                               partialChansPerGroup});
+                               partialChansPerGroup}, 
+                              makeLayerName("reduced"));
     size_t outChansPerGroup = outNumChans / outNumChanGroups;
     if (outChansPerGroup % partialChansPerGroup == 0) {
       const auto partialGroupsPerOutGroup =

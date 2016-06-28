@@ -85,17 +85,19 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   Layer *prev = getPrevLayer();
   prevSize = prev->getFwdActivations().numElements();
 
-  weights = graph.addTensor(dType, {size, prevSize});
-  biases = graph.addTensor(dType, {size});
-  z = graph.addTensor(dType, {size});
-  activations = graph.addTensor(dType, {size});
+  weights = graph.addTensor(dType, {size, prevSize}, makeLayerName("weights"));
+  biases = graph.addTensor(dType, {size}, makeLayerName("biases"));
+  z = graph.addTensor(dType, {size}, makeLayerName("z"));
+  activations = graph.addTensor(dType, {size}, makeLayerName("activations"));
   mapTensor(biases, mapping);
   mapTensor(z, mapping);
   mapTensor(activations, mapping);
   // weights mapped in forward()
   if (getNetType() == TrainingNet) {
-    deltas = graph.addTensor(dType, prev->getFwdActivations().dims());
-    bwdWeights = graph.addTensor(dType, {prevSize + 1, size});
+    deltas = graph.addTensor(dType, prev->getFwdActivations().dims(),
+                             makeLayerName("deltas"));
+    bwdWeights = graph.addTensor(dType, {prevSize + 1, size}, 
+                                 makeLayerName("bwdWeights"));
     mapTensor(deltas, mapping);
     mapTensor(bwdWeights, mapping);
   }
@@ -133,7 +135,8 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   Tensor partials;
   if (ipuPartition.tilesPerRow > 1) {
      reduceCS = graph.createComputeSet(layerName + ".fwd.reduce");
-     partials = graph.addTensor("float", {numRows, ipuPartition.tilesPerRow});
+     partials = graph.addTensor("float", {numRows, ipuPartition.tilesPerRow}, 
+                                makeLayerName("partials"));
   }
 
   for (unsigned i = 0; i != numRows; ++i) {
