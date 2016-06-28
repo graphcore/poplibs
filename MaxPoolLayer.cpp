@@ -52,6 +52,14 @@ double MaxPoolLayerImpl::getPerfectCycleCount() {
   return static_cast<double>(numFLOPs) / (vectorWidth * numTiles);
 }
 
+size_t MaxPoolLayerImpl::getNumChannelGroupsIn(size_t xPrev, size_t yPrev,
+                             size_t zPrev) const {
+  const auto xDimOut = (xPrev + (2 * padding) - kernelSize) / stride + 1;
+  const auto yDimOut = (yPrev + (2 * padding) - kernelSize) / stride + 1;
+  Layer *next = getNextLayer();
+  return next->getNumChannelGroupsIn(xDimOut, yDimOut, zPrev);
+}
+
 void MaxPoolLayerImpl::
 init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   const auto dType = getDType();

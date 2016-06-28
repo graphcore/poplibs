@@ -43,6 +43,9 @@ public:
 
   double getPerfectCycleCount();
 
+  size_t getNumChannelGroupsIn(size_t xPrev, size_t yPrev,
+                               size_t zPrev) const;
+
   void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping);
 
   Program initParams(Graph &graph) {
