@@ -9,8 +9,7 @@ public:
   NonLinearityType nonLinearityType;
 
   Tensor weights, biases, bwdWeights, z,
-    activations, deltas, activationRecord, errorRecord,
-    actRecordIndex, errorRecordIndex;
+    activations, deltas;
 
   std::unique_ptr<float []> hWeights, hBiases;
   std::string layerName;

@@ -94,18 +94,9 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   mapTensor(activations, mapping);
   // weights mapped in forward()
   if (getNetType() == TrainingNet) {
-    const auto batchSize = getBatchSize();
     deltas = graph.addTensor(dType, prev->getFwdActivations().dims());
-    activationRecord = graph.addTensor(dType, {prevSize, batchSize});
-    actRecordIndex = graph.addTensor("unsigned", {1});
-    errorRecord = graph.addTensor(dType, {size, batchSize});
-    errorRecordIndex = graph.addTensor("unsigned", {1});
     bwdWeights = graph.addTensor(dType, {prevSize + 1, size});
     mapTensor(deltas, mapping);
-    mapTensor(activationRecord, mapping);
-    mapTensor(actRecordIndex, mapping);
-    mapTensor(errorRecord, mapping);
-    mapTensor(errorRecordIndex, mapping);
     mapTensor(bwdWeights, mapping);
   }
   // Initialize weights using "xavier" weight filler that scales
