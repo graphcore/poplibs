@@ -5,6 +5,7 @@
 #include <poplar/Graph.hpp>
 #include <poplar/CPUEngine.hpp>
 #include <poplar/IPUModelEngine.hpp>
+#include <random>
 #include <string>
 #include "neural_net_common.h"
 #include "VertexTemplates.hpp"
@@ -56,7 +57,7 @@ public:
   Layer *getNextLayer() const;
   Layer *getPrevLayer() const;
   std::string makeLayerName(const std::string &name);
-  virtual void init(Graph &graph,
+  virtual void init(Graph &graph, std::mt19937 &randomEngine,
                     IPUModelEngineBuilder::TileMapping *mapping) = 0;
   virtual Program initParams(Graph &graph) = 0;
   virtual Program forward(Graph &graph,
@@ -111,7 +112,8 @@ public:
   InputLayer(const Net &net, int index, DataSet &data) :
     Layer(net, index), data(data) {}
 
-  void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
+  void init(Graph &graph, std::mt19937 &randomEngine,
+            IPUModelEngineBuilder::TileMapping *mapping) override {
     const auto dType = getDType();
     Layer *next = getNextLayer();
     // Re-arrange so that the channels are the major
@@ -127,9 +129,9 @@ public:
     mapTensor(z, mapping);
   }
 
-  Program initParams(Graph &graph) { return Sequence(); }
+  Program initParams(Graph &graph) override { return Sequence(); }
   Program forward(Graph &graph,
-                  IPUModelEngineBuilder::TileMapping *mapping) {
+                  IPUModelEngineBuilder::TileMapping *mapping) override {
     return Sequence();
   }
 
@@ -144,14 +146,14 @@ public:
                   &data.testData[testDataSize]);
     }
   }
-  Program backward(Graph &graph) { return Sequence(); }
-  Program weightUpdate(Graph &graph) { return Sequence(); }
-  void describe(std::ostream &out) {}
-  std::uint64_t getNumberOfFlops() { return 0; }
-  virtual double getPerfectCycleCount() { return 0.0; }
-  Tensor getFwdActivations() const { return out; }
-  Tensor getFwdZs() const { return out; }
-  Tensor getBwdDeltas() const { return {}; }
+  Program backward(Graph &graph) override { return Sequence(); }
+  Program weightUpdate(Graph &graph) override { return Sequence(); }
+  void describe(std::ostream &out) override {}
+  std::uint64_t getNumberOfFlops() override { return 0; }
+  virtual double getPerfectCycleCount() override { return 0.0; }
+  Tensor getFwdActivations() const override { return out; }
+  Tensor getFwdZs() const override { return out; }
+  Tensor getBwdDeltas() const override { return {}; }
 };
 
 class LossLayer : public Layer {
@@ -165,7 +167,7 @@ public:
             DataSet &data, LossType lossType) :
     Layer(net, index), data(data), lossType(lossType) {}
 
-  void init(Graph &graph,
+  void init(Graph &graph, std::mt19937 &randomEngine,
             IPUModelEngineBuilder::TileMapping *mapping) override {
     const auto dType = getDType();
     Layer *prev = getPrevLayer();
@@ -244,7 +246,8 @@ makeLayers(std::vector<LayerSpec *> vs)
   return xs;
 }
 
-std::unique_ptr<float[]> createRandomWeightInitializers(Tensor t, float mean,
-                                                        float variance);
+std::unique_ptr<float[]>
+createRandomWeightInitializers(Tensor t, float mean, float variance,
+                               std::mt19937 &randomEngine);
 
 #endif // _layer_hpp_

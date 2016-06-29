@@ -545,7 +545,8 @@ size_t ConvLayerImpl::getNumChannelGroupsIn(size_t xPrev, size_t yPrev,
 }
 
 void ConvLayerImpl::
-init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
+init(Graph &graph, std::mt19937 &randomEngine,
+     IPUModelEngineBuilder::TileMapping *mapping) {
   const auto dType = getDType();
   bool floatActivations = dType == "float";
   Layer *prev = getPrevLayer();
@@ -624,8 +625,10 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
 
   // Initialize weights using "xavier" weight filler that scales
   // variance based on number of inputs to a neuron.
-  hWeights = createRandomWeightInitializers(weights, 0, 1.0f / kernelSize);
-  hBiases = createRandomWeightInitializers(biases, 0, 1.0f / kernelSize);
+  hWeights = createRandomWeightInitializers(weights, 0, 1.0f / kernelSize,
+                                            randomEngine);
+  hBiases = createRandomWeightInitializers(biases, 0, 1.0f / kernelSize,
+                                           randomEngine);
 
   auto implSpec =
     ConvImplSpec(inNumChans, inNumChanGroups,

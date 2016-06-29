@@ -62,7 +62,8 @@ size_t MaxPoolLayerImpl::getNumChannelGroupsIn(size_t xPrev, size_t yPrev,
 }
 
 void MaxPoolLayerImpl::
-init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
+init(Graph &graph, std::mt19937 &randomEngine,
+     IPUModelEngineBuilder::TileMapping *mapping) {
   const auto dType = getDType();
   Layer *prev = getPrevLayer();
   auto in = prev->getFwdActivations();

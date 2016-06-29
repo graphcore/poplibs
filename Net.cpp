@@ -163,7 +163,8 @@ void Net::initialize(DataSet &data, LossType lossType) {
   auto weightUpdateProg = Sequence();
   std::vector<Tensor> acts;
 
-  inputLayer->init(*graph, mapping.get());
+  std::mt19937 randomEngine;
+  inputLayer->init(*graph, randomEngine, mapping.get());
 
   fwdProg.add(inputLayer->forward(*graph, mapping.get()));
   acts.push_back(inputLayer->getFwdActivations());
@@ -174,7 +175,7 @@ void Net::initialize(DataSet &data, LossType lossType) {
   double perfectCycleTime = 0.0;
 
   for (unsigned i = 0; i < hiddenLayers.size(); ++i) {
-    hiddenLayers[i]->init(*graph, mapping.get());
+    hiddenLayers[i]->init(*graph, randomEngine, mapping.get());
     fwdProg.add(hiddenLayers[i]->forward(*graph, mapping.get()));
     acts.push_back(hiddenLayers[i]->getFwdActivations());
     initParamsProg.add(hiddenLayers[i]->initParams(*graph));
@@ -199,8 +200,7 @@ void Net::initialize(DataSet &data, LossType lossType) {
     }
   }
 
-
-  lossLayer->init(*graph, mapping.get());
+  lossLayer->init(*graph, randomEngine, mapping.get());
   fwdProg.add(lossLayer->forward(*graph, mapping.get()));
   initParamsProg.add(lossLayer->initParams(*graph));
 

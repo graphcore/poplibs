@@ -80,7 +80,8 @@ double FullyConnectedLayerImpl::getPerfectCycleCount() {
 }
 
 void FullyConnectedLayerImpl::
-init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
+init(Graph &graph, std::mt19937 &randomEngine,
+     IPUModelEngineBuilder::TileMapping *mapping) {
   const auto dType = getDType();
   Layer *prev = getPrevLayer();
   prevSize = prev->getFwdActivations().numElements();
@@ -103,8 +104,10 @@ init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
   }
   // Initialize weights using "xavier" weight filler that scales
   // variance based on number of inputs to a neuron.
-  hWeights = createRandomWeightInitializers(weights, 0, 1.0 / prevSize);
-  hBiases = createRandomWeightInitializers(biases, 0, 1.0 / prevSize);
+  hWeights = createRandomWeightInitializers(weights, 0, 1.0 / prevSize,
+                                            randomEngine);
+  hBiases = createRandomWeightInitializers(biases, 0, 1.0 / prevSize,
+                                           randomEngine);
 }
 
 Program FullyConnectedLayerImpl::

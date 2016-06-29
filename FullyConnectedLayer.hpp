@@ -45,7 +45,8 @@ public:
 
   double getPerfectCycleCount() override;
 
-  void init(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) override;
+  void init(Graph &graph, std::mt19937 &randomEngine,
+            IPUModelEngineBuilder::TileMapping *mapping) override;
 
   Program initParams(Graph &graph) override {
     if (getDType() != "float") {

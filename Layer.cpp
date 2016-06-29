@@ -116,16 +116,15 @@ std::string Layer::makeLayerName(const std::string &name) {
   return name + ".layer" + std::to_string(index);
 }
 
-std::unique_ptr<float[]> createRandomWeightInitializers(Tensor t, float mean,
-                                                        float variance) {
+std::unique_ptr<float[]>
+createRandomWeightInitializers(Tensor t, float mean, float variance,
+                               std::mt19937 &randomEngine) {
   const auto numWeights = t.numElements();
   auto inits = std::unique_ptr<float[]>(new float[numWeights]);
 
-  std::random_device rd;
-  std::mt19937 gen(rd());
   std::normal_distribution<> dist(mean, variance);
   for (unsigned i = 0; i < numWeights; ++i)
-    inits[i] = dist(gen);
+    inits[i] = dist(randomEngine);
 
   return inits;
 }
