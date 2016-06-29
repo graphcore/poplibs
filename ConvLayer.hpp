@@ -149,7 +149,7 @@ public:
   NonLinearityType nonLinearityType;
   NormalizationType normalizationType;
   Tensor weights, in, weightsIn, biases, biasesIn, fwdZ, z, activations,
-         fwdActivations, resIn, deltas;
+         fwdActivations, resIn, deltas, zDeltas;
 
   std::string layerName;
 

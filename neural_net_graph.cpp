@@ -268,10 +268,8 @@ template <typename FPType>
 class ConvBwd : public Vertex {
 public:
   Vector<Input<Vector<FPType>>> in;
-  Vector<Input<Vector<FPType>>> z;
   Vector<Input<FPType>> weights;
   Vector<Output<Vector<FPType>>> out;
-  NonLinearityType nonLinearityType;
   bool debug;
 
   bool compute() {
@@ -282,7 +280,6 @@ public:
     for (unsigned rowIndex = 0; rowIndex < outRows; rowIndex += stride) {
       auto &inRow = in[rowIndex/stride];
       auto &outRow = out[rowIndex];
-      auto &zRow = z[rowIndex/stride];
       unsigned weightIndex = 0;
       for (unsigned outIndex = 0; outIndex < outRow.size();
            outIndex += stride) {
@@ -291,9 +288,7 @@ public:
              weightIndex < weights.size();
              ++weightIndex) {
           auto inIndex = outIndex/stride * weights.size() + weightIndex;
-          auto d = inRow[inIndex] *
-                   nonlinearity_derivative(nonLinearityType, zRow[inIndex]);
-          sum += d * weights[weightIndex];
+          sum += inRow[inIndex] * weights[weightIndex];
         }
         outRow[outIndex] = sum;
       }
@@ -338,16 +333,13 @@ template class ConvCompleteBwd<half, half>;
 template <typename FPType>
 class ConvPartialWeightUpdate : public Vertex {
 public:
-  Input<FPType> delta;
-  Input<FPType> z;
+  Input<FPType> d;
   Output<Vector<FPType>> weightUpdates;
   Vector<Input<FPType>> in;
-  NonLinearityType nonLinearityType;
 
   bool compute() {
-    auto d = *delta * nonlinearity_derivative(nonLinearityType, *z);
     for (unsigned i = 0; i < weightUpdates.size(); ++i) {
-      weightUpdates[i] = d * in[i];
+      weightUpdates[i] = *d * in[i];
     }
     return true;
   }
@@ -391,15 +383,12 @@ class ConvBiasUpdate: public Vertex {
 public:
   InOut<FPType> bias;
   Vector<Input<FPType>> deltas;
-  Vector<Input<FPType>> z;
   float eta;
-  NonLinearityType nonLinearityType;
 
   bool compute() {
     float sum = 0;
     for (unsigned i = 0; i < deltas.size(); ++i) {
-      auto d = deltas[i] * nonlinearity_derivative(nonLinearityType, z[i]);
-      sum += d;
+      sum += deltas[i];
     }
     *bias -= sum * eta;
     return true;

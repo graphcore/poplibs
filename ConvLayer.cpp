@@ -599,6 +599,7 @@ init(Graph &graph, std::mt19937 &randomEngine,
                                  outChansPerGroup});
   mapActivations(fwdZ, mapping);
   if (getNetType() == TrainingNet) {
+    zDeltas = graph.addTensor(dType, fwdZ.dims());
     deltas = graph.addTensor(dType, prev->getFwdActivations().dims());
   }
 
@@ -1501,14 +1502,25 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
 
 Program ConvLayerImpl::
 backward(Graph &graph) {
+  auto bwdNonLinearityCS =
+      graph.createComputeSet(layerName + ".bwd.nonLinearity");
+  auto deltasIn = getNextLayer()->getBwdDeltas();
   const auto partialChansPerGroup = partition.partialChansPerGroup;
   const auto inChansPerGroup = partition.inChansPerGroup;
   const auto outChansPerGroup = outNumChans / outNumChanGroups;
-  auto deltasIn = getNextLayer()->getBwdDeltas();
   assert(deltasIn.dim(0) == outNumChanGroups);
   assert(deltasIn.dim(1) == outDimY);
   assert(deltasIn.dim(2) == outDimX);
   assert(deltasIn.dim(3) == outChansPerGroup);
+
+  auto v = graph.addVertex(bwdNonLinearityCS,
+                           templateVertex("NonLinearityBwd",
+                                          getDType()),
+                           {{"deltasIn", deltasIn.flatten()},
+                            {"z", z.flatten()},
+                            {"deltasOut", zDeltas.flatten()},
+                           });
+  graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
   auto partials = graph.addTensor("float",
                                   {outNumChanGroups,
                                    inNumChans,
@@ -1559,7 +1571,7 @@ backward(Graph &graph) {
                   .slice({convInYBegin, convInXBegin},
                          {convInYEnd, convInXEnd})
                   .reshape({convInHeight, convInWidth});
-          auto in = deltasIn[outGroup]
+          auto in = zDeltas[outGroup]
                          .slice({convOutYBegin, convOutXBegin, 0},
                                 {convOutYEnd, convOutXEnd, outChansPerGroup})
                          .reshape({convOutHeight, convOutWidth * outChansPerGroup});
@@ -1570,9 +1582,7 @@ backward(Graph &graph) {
           auto v = graph.addVertex(bwdCS,
                                    templateVertex("ConvBwd", getDType()),
                                    {{"in", in},
-                                    {"out", out},
-                                    {"z", zz}});
-          graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
+                                    {"out", out}});
           graph.setFieldSize(v["weights"], outChansPerGroup);
           for (unsigned i = 0; i < outChansPerGroup; ++i) {
             auto outChan = outGroup * outChansPerGroup + i;
@@ -1618,7 +1628,7 @@ backward(Graph &graph) {
     }
   }
 
-  return Sequence(Execute(zeroCS), Execute(bwdCS),
+  return Sequence(Execute(bwdNonLinearityCS), Execute(zeroCS), Execute(bwdCS),
                   Execute(reduceCS), Execute(completeCS));
 }
 
@@ -1654,17 +1664,14 @@ weightUpdate(Graph &graph) {
                 continue;
               auto outChan = outChanGroup * outChansPerGroup + outChanInGroup;
               auto w = wPartials[outChan][y][x][wy][wx].flatten();
-              auto d = deltasIn[outChanGroup][y][x][outChanInGroup];
-              auto zz = fwdZ[outChanGroup][y][x][outChanInGroup];
+              auto d = zDeltas[outChanGroup][y][x][outChanInGroup];
               auto ii = act.slice({0, inY, inX, 0},
                                   {inNumChanGroups, inY + 1, inX + 1, inChansPerGroup}).flatten();
               auto v = graph.addVertex(partialCS,
                                        templateVertex("ConvPartialWeightUpdate", getDType()),
-                                       {{"delta", d},
-                                        {"z", zz},
+                                       {{"d", d},
                                         {"in", ii},
                                         {"weightUpdates", w}});
-              graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
             }
           }
         }
@@ -1701,19 +1708,14 @@ weightUpdate(Graph &graph) {
   for (unsigned outChan = 0; outChan < outNumChans; ++outChan) {
     const auto outChanGroup = outChan / outChansPerGroup;
     const auto outChanInGroup = outChan % outChansPerGroup;
-    auto in = deltasIn.slice({outChanGroup, 0, 0, outChanInGroup},
-                             {outChanGroup + 1, outDimY, outDimX,
-                              outChanInGroup + 1}).flatten();
-    auto zz = fwdZ.slice({outChanGroup, 0, 0, outChanInGroup},
-                         {outChanGroup + 1, outDimY, outDimX,
-                          outChanInGroup + 1}).flatten();
+    auto in = zDeltas.slice({outChanGroup, 0, 0, outChanInGroup},
+                            {outChanGroup + 1, outDimY, outDimX,
+                             outChanInGroup + 1}).flatten();
     auto v = graph.addVertex(reduceCS,
                              templateVertex("ConvBiasUpdate", getDType()),
-                             {{"bias", biases[outChan]}, {"deltas", in},
-                              {"z", zz}});
+                             {{"bias", biases[outChan]}, {"deltas", in}});
     graph.setInitialValue(v["eta"],
                           getLearningRate());
-    graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
   }
 
 
