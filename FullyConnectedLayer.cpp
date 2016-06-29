@@ -95,10 +95,12 @@ init(Graph &graph, std::mt19937 &randomEngine,
   mapTensor(activations, mapping);
   // weights mapped in forward()
   if (getNetType() == TrainingNet) {
+    zDeltas = graph.addTensor(dType, z.dims(), makeLayerName("zDeltas"));
     deltas = graph.addTensor(dType, prev->getFwdActivations().dims(),
                              makeLayerName("deltas"));
     bwdWeights = graph.addTensor(dType, {prevSize + 1, size}, 
                                  makeLayerName("bwdWeights"));
+    mapTensor(zDeltas, mapping);
     mapTensor(deltas, mapping);
     mapTensor(bwdWeights, mapping);
   }
@@ -223,6 +225,18 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
 }
 
 Program FullyConnectedLayerImpl::backward(Graph &graph) {
+  auto bwdNonLinearityCS =
+      graph.createComputeSet(layerName + ".bwd.nonLinearity");
+  auto deltasIn = getNextLayer()->getBwdDeltas().flatten();
+  auto v = graph.addVertex(bwdNonLinearityCS,
+                           templateVertex("NonLinearityBwd",
+                                          getDType()),
+                           {{"deltasIn", deltasIn },
+                            {"z", z},
+                            {"deltasOut", zDeltas},
+                           });
+  graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
+
   auto bwdCS = graph.createComputeSet(layerName + ".bwd");
   auto flatDeltas = deltas.flatten();
   for (unsigned i = 0; i < prevSize; ++i) {
@@ -231,32 +245,27 @@ Program FullyConnectedLayerImpl::backward(Graph &graph) {
     auto v = graph.addVertex(bwdCS,
                              templateVertex("FullyConnectedBwd",
                                             getDType()),
-                             {{"in", in},
-                              {"z", z},
+                             {{"in", zDeltas},
                               {"weights", w},
                               {"out", flatDeltas[i]},
                              });
-    graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
   }
-  return Execute(bwdCS);
+  return Sequence(Execute(bwdNonLinearityCS), Execute(bwdCS));
 }
 
 Program FullyConnectedLayerImpl::weightUpdate(Graph &graph) {
   auto cs = graph.createComputeSet(layerName + ".weight_update");
   for (unsigned i = 0; i < size; ++i) {
-    auto deltasIn = getNextLayer()->getBwdDeltas().flatten();
     auto prev = getPrevLayer()->getFwdActivations().flatten();
     auto v = graph.addVertex(cs,
                              templateVertex("FullyConnectedWeightUpdate",
                                             getDType()),
-                             {{"deltas", deltasIn[i]},
+                             {{"d", zDeltas[i]},
                               {"weights", weights[i]},
                               {"in", prev},
-                              {"z", z[i]},
                               {"bias", biases[i]}});
     graph.setInitialValue(v["eta"],
                           getLearningRate());
-    graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
   }
 
   return Execute(cs);

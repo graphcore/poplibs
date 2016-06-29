@@ -415,19 +415,43 @@ template class ConvBiasUpdate<float>;
 template class ConvBiasUpdate<half>;
 
 template <typename FPType>
+class NonLinearityBwd : public Vertex {
+public:
+  Input<Vector<FPType>> deltasIn;
+  Input<Vector<FPType>> z;
+  Output<Vector<FPType>> deltasOut;
+  NonLinearityType nonLinearityType;
+
+  bool compute() {
+    assert(deltasIn.size() == deltasOut.size());
+    assert(deltasIn.size() == z.size());
+    for (unsigned i = 0; i < deltasIn.size(); ++i) {
+      deltasOut[i] = deltasIn[i] * nonlinearity_derivative(nonLinearityType,
+                                                           z[i]);
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    // TODO
+    return 0;
+  }
+};
+
+template class NonLinearityBwd<float>;
+template class NonLinearityBwd<half>;
+
+template <typename FPType>
 class FullyConnectedBwd : public Vertex {
 public:
   Input<Vector<FPType>> in;
   Vector<Input<FPType>> weights;
-  Input<Vector<FPType>> z;
   Output<FPType> out;
-  NonLinearityType nonLinearityType;
 
   bool compute() {
     float sum = 0;
     for (unsigned i = 0; i < in.size(); ++i) {
-      auto d = in[i] * nonlinearity_derivative(nonLinearityType, z[i]);
-      sum += d * weights[i];
+      sum += in[i] * weights[i];
     }
     *out = sum;
     return true;
@@ -445,21 +469,18 @@ template class FullyConnectedBwd<half>;
 template <typename FPType>
 class FullyConnectedWeightUpdate : public Vertex {
 public:
-  Input<FPType> deltas;
-  Input<FPType> z;
+  Input<FPType> d;
   InOut<Vector<FPType>> weights;
   Input<Vector<FPType>> in;
   InOut<FPType> bias;
   float eta;
-  NonLinearityType nonLinearityType;
 
   bool compute() {
-    auto d = *deltas * nonlinearity_derivative(nonLinearityType, *z);
     for (unsigned i = 0; i < weights.size(); ++i) {
-      auto grad = d * in[i];
+      auto grad = *d * in[i];
       weights[i] = weights[i] - grad * eta;
     }
-    *bias = *bias - d * eta;
+    *bias = *bias - *d * eta;
     return true;
   }
 
