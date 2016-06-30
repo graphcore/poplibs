@@ -264,12 +264,13 @@ template class ConvPartial1x1InOut<SupervisorVertex, half>;
 template class ConvPartial1x1InOut<SupervisorVertex, float>;
 
 
-template <typename FPType>
+template <typename FPType, typename AccumType>
 class ConvBwd : public Vertex {
 public:
   Vector<Input<Vector<FPType>>> in;
   Vector<Input<FPType>> weights;
-  Vector<Output<Vector<FPType>>> out;
+  Vector<Output<Vector<AccumType>>> out;
+  NonLinearityType nonLinearityType;
   bool debug;
 
   bool compute() {
@@ -302,8 +303,10 @@ public:
   }
 };
 
-template class ConvBwd<half>;
-template class ConvBwd<float>;
+template class ConvBwd<half, half>;
+template class ConvBwd<half, float>;
+template class ConvBwd<float, half>;
+template class ConvBwd<float, float>;
 
 
 template <class InType, class OutType>

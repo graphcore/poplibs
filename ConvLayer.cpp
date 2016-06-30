@@ -1521,14 +1521,14 @@ backward(Graph &graph) {
                             {"deltasOut", zDeltas.flatten()},
                            });
   graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
-  auto partials = graph.addTensor("float",
+  auto partials = graph.addTensor(getPartialType(),
                                   {outNumChanGroups,
                                    inNumChans,
                                    kernelSize,
                                    kernelSize,
                                    inDimY, inDimX});
   auto zeroCS = graph.createComputeSet(layerName + ".bwd.zero");
-  graph.addVertex(zeroCS, templateVertex("Zero", getDType()),
+  graph.addVertex(zeroCS, templateVertex("Zero", getPartialType()),
                   {{"out",partials.flatten()}});
   auto bwdCS = graph.createComputeSet(layerName + ".bwd");
   for (unsigned outGroup = 0; outGroup < outNumChanGroups; ++outGroup) {
@@ -1580,7 +1580,9 @@ backward(Graph &graph) {
                                 {convOutYEnd, convOutXEnd, outChansPerGroup})
                          .reshape({convOutHeight, convOutWidth * outChansPerGroup});
           auto v = graph.addVertex(bwdCS,
-                                   templateVertex("ConvBwd", getDType()),
+                                   templateVertex("ConvBwd",
+                                                  getDType(),
+                                                  getPartialType()),
                                    {{"in", in},
                                     {"out", out}});
           graph.setFieldSize(v["weights"], outChansPerGroup);
@@ -1599,14 +1601,15 @@ backward(Graph &graph) {
       }
     }
   }
-  auto reduced = graph.addTensor("float", {inNumChans, inDimY, inDimX});
+  auto reduced = graph.addTensor(getPartialType(),
+                                 {inNumChans, inDimY, inDimX});
   auto reduceCS = graph.createComputeSet(layerName + ".bwd.reduce");
   for (unsigned inChan = 0; inChan < inNumChans; ++inChan) {
     auto p = partials.slice({0, inChan, 0, 0, 0, 0},
                             {outNumChanGroups, inChan + 1, kernelSize, kernelSize, inDimX, inDimY})
                      .reshape({outNumChanGroups * kernelSize * kernelSize,
                                inDimX * inDimY});
-    graph.addVertex(reduceCS, templateVertex("ConvReduce", "float"),
+    graph.addVertex(reduceCS, templateVertex("ConvReduce", getPartialType()),
                     {{"out", reduced[inChan].flatten()},
                      {"partials", p}});
   }
@@ -1621,7 +1624,8 @@ backward(Graph &graph) {
                                 {inChanEnd, y+1, x+1})
                          .flatten();
         graph.addVertex(completeCS,
-                        templateVertex("ConvCompleteBwd", "float", getDType()),
+                        templateVertex("ConvCompleteBwd",
+                                       getPartialType(), getDType()),
                         {{"out", deltas[inChanGroup][y][x].flatten()},
                          {"in", in}});
       }
