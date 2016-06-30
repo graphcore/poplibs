@@ -2,7 +2,8 @@
 #include <boost/program_options.hpp>
 #include <poplar/HalfFloat.hpp>
 
-bool parseCommandLine(int argc, char **argv, NetOptions &options) {
+bool parseCommandLine(int argc, char **argv, NetOptions &options,
+                      bool &doTraining) {
   namespace po = boost::program_options;
 
   po::options_description desc("Options");
@@ -48,6 +49,11 @@ bool parseCommandLine(int argc, char **argv, NetOptions &options) {
        &options.retainActivations
      )->default_value(false),
      "Make sure all activations are retained in memory during the foward pass")
+    ("train",
+     po::value<bool>(
+       &doTraining
+     )->default_value(false),
+     "Do training (forward, backward and weight update pass)")
   ;
   po::variables_map vm;
   try {
@@ -272,7 +278,7 @@ void Net::run(unsigned numBatches) {
     if (netType == TrainingNet) {
       engine->run(INIT_PARAMS_PROG); // initialize params
       for (unsigned i = 0; i < numBatches; i++) {
-        if (!options.singleBatchProfile &&
+        if (options.doTestsDuringTraining &&
             i % options.numBatchesBetweenTest == 0) {
           lossLayer->resetNumCorrect();
           for (unsigned j = 0; j < numTestBatches; j++) {

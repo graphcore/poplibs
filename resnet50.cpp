@@ -32,10 +32,12 @@ int main(int argc, char **argv) {
   NetOptions options;
   options.doComputation = true;
   options.useIPUModel = true;
-  options.singleBatchProfile = true;
+  options.doTestsDuringTraining = false;
   options.ignoreData = true;
-  if (!parseCommandLine(argc, argv, options))
+  bool doTraining = false;
+  if (!parseCommandLine(argc, argv, options, doTraining))
     return 1;
+  NetType netType = doTraining ? TrainingNet : TestOnlyNet;
 
   auto resMethod = RESIDUAL_PAD;
 
@@ -157,7 +159,7 @@ int main(int argc, char **argv) {
           }),
           SOFTMAX_CROSS_ENTROPY_LOSS,
           0.9, // learning rate
-          TestOnlyNet,
+          netType,
           FP16,
           options
           );

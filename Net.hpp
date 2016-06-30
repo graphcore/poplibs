@@ -59,7 +59,7 @@ class NetOptions {
 public:
   bool useIPUModel = false;
   bool doComputation = true;
-  bool singleBatchProfile = false;
+  bool doTestsDuringTraining = true;
   unsigned numIPUs = 1;
   unsigned tilesPerIPU = 1216;
   unsigned ipuExchangeBandwidth = 4;
@@ -71,7 +71,8 @@ public:
   IPUMachineInfo ipuMachineInfo;
 };
 
-bool parseCommandLine(int argc, char **argv, NetOptions &options);
+bool parseCommandLine(int argc, char **argv, NetOptions &options,
+                      bool &doTraining);
 
 /* This class represent the entire network. */
 class Net {
