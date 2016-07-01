@@ -308,6 +308,38 @@ template class ConvBwd<half, float>;
 template class ConvBwd<float, half>;
 template class ConvBwd<float, float>;
 
+template <typename FPType>
+class ConvReduceBwd : public Vertex {
+public:
+  Output<Vector<FPType>> out;
+  Vector<Input<Vector<FPType>>> partials;
+
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    unsigned numPartials = partials.size();
+    unsigned numElem = out.size();
+    for (unsigned i = 0; i < numElem; ++i) {
+      float sum = 0;
+      for (unsigned j = 0; j < numPartials; ++j) {
+        sum += partials[j][i];
+      }
+      out[i] = sum;
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    unsigned numPartials = partials.size();
+    unsigned numElem = out.size();
+    bool isFloat = std::is_same<FPType, float>::value;
+    unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    return 4 + numElem * (1 + (numPartials + vectorWidth - 1) / vectorWidth);
+  }
+};
+
+template class ConvReduceBwd<float>;
+template class ConvReduceBwd<half>;
 
 template <class InType, class OutType>
 class ConvCompleteBwd : public Vertex {
@@ -651,30 +683,39 @@ template class ConvPartial<half, half>;
 template <typename FPType>
 class ConvReduce : public Vertex {
 public:
-  Output<Vector<FPType>> out;
+  Vector<Output<Vector<FPType>>> out;
   Vector<Input<Vector<FPType>>> partials;
 
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    unsigned numPartials = partials.size();
-    unsigned numElem = out.size();
-    for (unsigned i = 0; i < numElem; ++i) {
-      float sum = 0;
-      for (unsigned j = 0; j < numPartials; ++j) {
-        sum += partials[j][i];
+    unsigned numReductions = out.size();
+    unsigned numPartials = partials.size() / numReductions;
+    for (unsigned r = 0; r < numReductions; ++r) {
+      unsigned numElem = out[r].size();
+      for (unsigned i = 0; i < numElem; ++i) {
+        float sum = 0;
+        for (unsigned j = 0; j < numPartials; ++j) {
+          sum += partials[r * numPartials + j][i];
+        }
+        out[r][i] = sum;
       }
-      out[i] = sum;
     }
     return true;
   }
 
   uint64_t getCycleEstimate() const {
-    unsigned numPartials = partials.size();
-    unsigned numElem = out.size();
     bool isFloat = std::is_same<FPType, float>::value;
     unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    return 4 + numElem * (1 + (numPartials + vectorWidth - 1) / vectorWidth);
+    unsigned cycles = 4;
+    unsigned numReductions = out.size();
+    unsigned numPartials = partials.size() / numReductions;
+    for (unsigned r = 0; r < numReductions; ++r) {
+      unsigned numElem = out[r].size();
+      cycles += 1 + numElem * (1 + (numPartials + vectorWidth - 1) / vectorWidth);
+    }
+
+    return cycles;
   }
 };
 
