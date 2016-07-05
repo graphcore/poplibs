@@ -1,20 +1,28 @@
 import re
 
-def create_report(runs, filename):
+CYCLES_PER_SEC = 1.6 * 1000000000;
+
+def create_report(runs, filename, param_info, arch_explore):
     # Create a report on the benchmarks.
     # This is not meant to be a generic report of information
     # but a very specific custom report that will change over time as we
     # feel different aspects of the benchmarks are important.
 
-    def find_run(prog, param_spec):
-        for (run_prog, params, data) in runs:
-            if run_prog != prog:
+    def find_run(prog, param_spec, exact=False):
+        for (params, logname, data) in runs[prog]:
+            if exact and len(param_spec) != len(params):
                 continue
+            params = dict(params)
             satisfies_params = True
             for (k, v) in param_spec.items():
-                if k not in params or params[k] != v:
-                    satisfies_params = False
-                    break
+                if k in params:
+                   if params[k] != v:
+                       satisfies_params = False
+                       break
+                else:
+                    if param_info[k]['default'] != v:
+                        satisfies_params = False
+                        break
             if satisfies_params:
                 return data
 
@@ -47,21 +55,67 @@ def create_report(runs, filename):
     def MB(n):
         return n / (1024*1024)
 
-    alexnet_1_ipu = find_run('alexnet', {'Num IPUs': 1})
-    resnet34 = find_run('resnet34b', {'Reuse graphs': 1})
-    resnet34_no_reuse = find_run('resnet34b', {'Reuse graphs': 0})
-    resnet50 = find_run('resnet50', {'Reuse graphs': 1})
-    resnet50_no_reuse = find_run('resnet50', {'Reuse graphs': 0})
+    def get_gflops(data):
+        flops = data[0]['FLOPS']
+        cycles = get_total_cycles(data[0])
+        us_per_image = cycles / CYCLES_PER_SEC * 1000000
+        return flops / us_per_image / 1000
+
+    def get_tflops(data):
+        return get_gflops(data)/1000
+
+    alexnet_1_ipu = find_run('alexnet', {'--ipus': '1'})
+    resnet34 = find_run('resnet34b', {'--graph-reuse': '1'})
+    resnet34_no_reuse = find_run('resnet34b', {'--graph-reuse': '0'})
+    resnet50 = find_run('resnet50', {'--graph-reuse': '1'})
+    resnet50_no_reuse = find_run('resnet50', {'--graph-reuse': '0'})
+    alexnet_large_tiles = find_run('alexnet', {'--tiles-per-ipu': '608'})
+    alexnet_xlarge_tiles = find_run('alexnet', {'--tiles-per-ipu': '304'})
+    alexnet_exchange8 = find_run('alexnet',
+                                 {'--ipu-exchange-bandwidth':'8'}, True)
+    alexnet_exchange8_reduce = find_run('alexnet',
+                                           {'--ipu-exchange-bandwidth':'8',
+                                            '--tiles-per-ipu':'1024'})
+    alexnet_exchange16 = find_run('alexnet',
+                                    {'--ipu-exchange-bandwidth':'16'}, True)
+    alexnet_exchange16_reduce = find_run('alexnet',
+                                           {'--ipu-exchange-bandwidth':'16',
+                                            '--tiles-per-ipu':'1024'})
+
+    resnet34_large_tiles = find_run('resnet34b', {'--tiles-per-ipu': '608'})
+    resnet34_xlarge_tiles = find_run('resnet34b', {'--tiles-per-ipu': '304'})
+    resnet34_exchange8 = find_run('resnet34b',
+                                     {'--ipu-exchange-bandwidth':'8'}, True)
+    resnet34_exchange8_reduce = find_run('resnet34b',
+                                           {'--ipu-exchange-bandwidth':'8',
+                                            '--tiles-per-ipu':'1024'})
+    resnet34_exchange16 = find_run('resnet34b',
+                                     {'--ipu-exchange-bandwidth':'16'}, True)
+    resnet34_exchange16_reduce = find_run('resnet34b',
+                                           {'--ipu-exchange-bandwidth':'16',
+                                            '--tiles-per-ipu':'1024'})
+
+    resnet50_large_tiles = find_run('resnet50', {'--tiles-per-ipu': '608'})
+    resnet50_xlarge_tiles = find_run('resnet50', {'--tiles-per-ipu': '304'})
+    resnet50_exchange8 = find_run('resnet50',
+                                     {'--ipu-exchange-bandwidth':'8'}, True)
+    resnet50_exchange8_reduce = find_run('resnet50',
+                                           {'--ipu-exchange-bandwidth':'8',
+                                            '--tiles-per-ipu':'1024'})
+    resnet50_exchange16 = find_run('resnet50',
+                                     {'--ipu-exchange-bandwidth':'16'}, True)
+    resnet50_exchange16_reduce = find_run('resnet50',
+                                           {'--ipu-exchange-bandwidth':'16',
+                                            '--tiles-per-ipu':'1024'})
 
     ipu_tiles = 1216
     ipu_total_mem = ipu_tiles * 256 * 1024
 
-    cycles_per_sec = 1.6 * 1000000000;
 
     with open(filename, "w") as f:
         f.write('ALEXNET 1 IPU SUMMARY,\n,\n')
         alexnet_total_cycles = get_total_cycles(alexnet_1_ipu[0])
-        alexnet_us_per_image = alexnet_total_cycles / cycles_per_sec * 1000000
+        alexnet_us_per_image = alexnet_total_cycles / CYCLES_PER_SEC * 1000000
         f.write('Alexnet 1 IPU time per image, {:.1f}us\n'.format(
                 alexnet_us_per_image))
 
@@ -239,11 +293,11 @@ def create_report(runs, filename):
         alexnet_flops = alexnet_1_ipu[0]['FLOPS']
         resnet34_flops = resnet34[0]['FLOPS']
         resnet50_flops = resnet50[0]['FLOPS']
-        alexnet_us_per_image = alexnet_cycles / cycles_per_sec * 1000000
+        alexnet_us_per_image = alexnet_cycles / CYCLES_PER_SEC * 1000000
         alexnet_gflops_per_sec = alexnet_flops / alexnet_us_per_image / 1000
-        resnet34_us_per_image = resnet34_cycles / cycles_per_sec * 1000000
+        resnet34_us_per_image = resnet34_cycles / CYCLES_PER_SEC * 1000000
         resnet34_gflops_per_sec = resnet34_flops / resnet34_us_per_image / 1000
-        resnet50_us_per_image = resnet50_cycles / cycles_per_sec * 1000000
+        resnet50_us_per_image = resnet50_cycles / CYCLES_PER_SEC * 1000000
         resnet50_gflops_per_sec = resnet50_flops / resnet50_us_per_image / 1000
 
         alexnet_vertex_ratio =  alexnet_1_ipu[0]['Perfect cycles'] / \
@@ -276,3 +330,147 @@ def create_report(runs, filename):
                 alexnet_ratio,
                 resnet34_ratio,
                 resnet50_ratio))
+
+        f.write(',\nSUMMARY,\n,\n')
+        f.write('Alexnet: {} cycles, {:.1f} MB\n'.format(alexnet_cycles, MB(get_total_mem(alexnet_1_ipu[0]))))
+        f.write('Resnet34: {} cycles, {:.1f} MB\n'.format(resnet34_cycles, MB(get_total_mem(resnet34[0]))))
+        f.write('Resnet50: {} cycles, {:.1f} MB\n'.format(resnet50_cycles, MB(get_total_mem(resnet50[0]))))
+
+        def info(*runs):
+            return [ get_tflops(runs[0]),
+                     ((get_tflops(runs[0]) / get_tflops(alexnet_1_ipu)) - 1) * 100,
+                     get_tflops(runs[1]),
+                     ((get_tflops(runs[1]) / get_tflops(resnet34)) - 1) * 100,
+                     get_tflops(runs[2]),
+                     ((get_tflops(runs[2]) / get_tflops(resnet50)) - 1) * 100]
+
+        if arch_explore:
+            f.write(',\nARCHITECTURE EXPLORATION,\n,\n')
+            f.write(',Alexnet,ResNet34,ResNet50\n')
+            f.write('64Bit exchange, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
+                    format(*info(alexnet_exchange8,
+                                 resnet34_exchange8,
+                                 resnet50_exchange8)))
+            f.write('64Bit exchange - reduced, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
+                    format(*info(alexnet_exchange8_reduce,
+                                 resnet34_exchange8_reduce,
+                                 resnet50_exchange8_reduce)))
+            f.write('128Bit exchange, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
+                    format(*info(alexnet_exchange16,
+                                 resnet34_exchange16,
+                                 resnet50_exchange16)))
+            f.write('128Bit exchange - reduced, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
+                    format(*info(alexnet_exchange16_reduce,
+                                 resnet34_exchange16_reduce,
+                                 resnet50_exchange16_reduce)))
+            f.write('608 tiles, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
+                    format(*info(alexnet_large_tiles,
+                                 resnet34_large_tiles,
+                                 resnet50_large_tiles)))
+            f.write('304 tiles, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
+                    format(*info(alexnet_xlarge_tiles,
+                                 resnet34_xlarge_tiles,
+                                 resnet50_xlarge_tiles)))
+
+        def meminfo(*runs):
+            return [ MB(get_total_mem(runs[0][0])),
+                     ((get_total_mem(runs[0][0]) / get_total_mem(alexnet_1_ipu[0])) - 1) * 100,
+                     MB(get_total_mem(runs[1][0])),
+                     ((get_total_mem(runs[1][0]) / get_total_mem(resnet34[0])) - 1) * 100,
+                     MB(get_total_mem(runs[2][0])),
+                     ((get_total_mem(runs[2][0]) / get_total_mem(resnet50[0])) - 1) * 100 ]
+
+        if arch_explore:
+            f.write(',Alexnet,ResNet34,ResNet50\n')
+            f.write('64Bit exchange, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
+                    format(*meminfo(alexnet_exchange8,
+                                    resnet34_exchange8,
+                                    resnet50_exchange8)))
+            f.write('64Bit exchange - reduced, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
+                    format(*meminfo(alexnet_exchange8_reduce,
+                                    resnet34_exchange8_reduce,
+                                    resnet50_exchange8_reduce)))
+            f.write('128Bit exchange, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
+                    format(*meminfo(alexnet_exchange16,
+                                    resnet34_exchange16,
+                                    resnet50_exchange16)))
+            f.write('128Bit exchange - reduced, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
+                    format(*meminfo(alexnet_exchange16_reduce,
+                                    resnet34_exchange16_reduce,
+                                    resnet50_exchange16_reduce)))
+            f.write('608 tiles, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
+                    format(*meminfo(alexnet_large_tiles,
+                                    resnet34_large_tiles,
+                                    resnet50_large_tiles)))
+            f.write('304 tiles, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
+                    format(*meminfo(alexnet_xlarge_tiles,
+                                    resnet34_xlarge_tiles,
+                                    resnet50_xlarge_tiles)))
+        
+        def get_send_stats(data):
+            min_send_ratio = 1
+            max_send_ratio = 0
+            sum_send_ratio = 0
+            sum_cycles = 0
+            for d in data:
+                exchange_cycles = sum_fields(d, ['Send',
+                                                 'Receive mux',
+                                                 'Receive ptr',
+                                                 'Nop'])
+                if exchange_cycles == 0:
+                    continue
+                ratio = d['Send'] / exchange_cycles
+                min_send_ratio = min(min_send_ratio, ratio)
+                max_send_ratio = max(max_send_ratio, ratio)
+                sum_send_ratio += ratio * exchange_cycles
+                sum_cycles += exchange_cycles
+
+            return (min_send_ratio * 100, sum_send_ratio / sum_cycles*100, max_send_ratio*100)
+
+        def get_recv_stats(data):
+            min_recv_ratio = 1
+            max_recv_ratio = 0
+            sum_recv_ratio = 0
+            sum_cycles = 0
+            for d in data:
+                exchange_cycles = sum_fields(d, ['Send',
+                                                 'Receive mux',
+                                                 'Receive ptr',
+                                                 'Nop'])
+                if exchange_cycles == 0:
+                    continue
+                ratio = d['Exchange activity'] / 100
+                min_recv_ratio = min(min_recv_ratio, ratio)
+                max_recv_ratio = max(max_recv_ratio, ratio)
+                sum_recv_ratio += ratio * exchange_cycles
+                sum_cycles += exchange_cycles
+
+            return (min_recv_ratio * 100, sum_recv_ratio / sum_cycles*100, max_recv_ratio*100)
+
+
+        f.write(',\nEXCHANGE DENSITY,\n,\n')
+
+        f.write('% cycles, min, mean, max\n')
+        all_layers = alexnet_1_ipu[1:] + resnet34[1:] + resnet50[1:]
+        f.write('Sending, {:.1f}%, {:.1f}%, {:.1f}%\n'.format(*get_send_stats(all_layers)))
+        f.write('Receiving, {:.1f}%, {:.1f}%, {:.1f}%\n'.format(*get_recv_stats(all_layers)))
+
+        f.write(',\nALEXNET TILE USAGE,\n,\n')
+
+        f.write('Layer, #computing, #exchanging\n')
+        computing_layers = [d for d in alexnet_1_ipu[1:-1] if d['Num tiles computing'] != 0]
+        for i, d in enumerate(computing_layers) :
+            f.write('{}, {}, {}\n'.format(d['Layer ID'],
+                                          int(d['Num tiles computing']),
+                                          int(d['Num tiles exchanging'])))
+
+        f.write(',\nRESNET 50 TILE USAGE,\n,\n')
+
+        f.write('Layer, #computing, #exchanging\n')
+        computing_layers = [d for d in resnet50[1:-1] if d['Num tiles computing'] != 0]
+
+        for i, d in enumerate(computing_layers) :
+            f.write('{}, {}, {}\n'.format(d['Layer ID'],
+                                          int(d['Num tiles computing']),
+                                          int(d['Num tiles exchanging'])))
+            

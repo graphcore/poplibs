@@ -18,6 +18,7 @@ import re
 import subprocess
 import sys
 from benchmark_report import create_report
+import os
 
 fields = [
     ('Number of vertices',
@@ -36,6 +37,10 @@ fields = [
      '  (  )?Message memory: (?P<value>[0-9.]+)'),
     ('Run instructions',
      '  (  )?Run instructions: (?P<value>[0-9.]+)'),
+    ('Num tiles exchanging',
+     '  (  )?Num tiles exchanging: (?P<value>[0-9.]+)'),
+    ('Num tiles computing',
+     '  (  )?Num tiles computing: (?P<value>[0-9.]+)'),
     ('Exchange supervisor code',
      '  (  )?Exchange supervisor code: (?P<value>[0-9.]+)'),
     ('Compute cycles',
@@ -69,27 +74,28 @@ aggregated_fields = [
      '        Params: (?P<value>[0-9.]+)')
 ]
 
+param_info = {'--ipus': {'desc': 'Num IPUs', 'default': '1'},
+              '--graph-reuse': {'desc':'Reuse graphs', 'default': '1'},
+              '--tiles-per-ipu': {'desc':'Tiles per IPU', 'default': '1216'},
+              '--ipu-exchange-bandwidth': {'desc':'IPU exchange bandwidth',
+                                            'default':'4'},
+              '--bytes-per-tile': {'desc':'Bytes per tile', 'default': '262144'},
+              '--data-path-width': {'desc':'Datapath width', 'default': '64'}}
+
+
 def run(prog, params):
     cmd = ['bin/{}'.format(prog)]
-    for name, value in params.iteritems():
-        if name == 'Exchange Type':
-            pass
-        elif name == 'Num IPUs':
-            cmd.extend(['--ipus', str(value)])
-        elif name == 'Reuse graphs':
-            cmd.extend(['--graph-reuse', str(value)])
-        else:
-            raise Exception
+    cmd += ['%s=%s'%(p,v) for (p,v) in params]
     return subprocess.check_output(cmd).split('\n')
 
 
-def write_headings(ws, headings):
+def write_headings(ws, headings, row):
     bold_font = Font(bold=True)
 
     for x, (heading, _) in enumerate(headings):
         column = x + 1
-        ws.cell(row=1, column=column).value = heading
-        ws.cell(row=1, column=column).font = bold_font
+        ws.cell(row=row, column=column).value = heading
+        ws.cell(row=row, column=column).font = bold_font
 
 def write_data(ws, row, headings, params, data):
     for i, (heading, f) in enumerate(headings):
@@ -113,8 +119,19 @@ def write(runs, filename):
         last = cell.offset(column=lastOffset)
         cell.value = '=SUM({}:{})'.format(first.coordinate, last.coordinate)
 
+    def completeParams(params):
+        params = dict(params)
+        complete_params = {}
+        for (param, info) in param_info.iteritems():
+            try:
+                value = params[param]
+            except KeyError:
+                value = info['default']
+            complete_params[info['desc']] =  value
+        return complete_params
+
+
     headings1 = [
-        ('Num IPUs', setParamCell),
         ('Number of vertices', setDataCell),
         ('Number of edges', setDataCell),
         ('Vertex data', setDataCell),
@@ -141,31 +158,39 @@ def write(runs, filename):
         ('Exchange supervisor code', setDataCell),
         ('Message memory', setDataCell),
         ('Run instructions', setDataCell),
+        ('Num tiles computing', setDataCell),
+        ('Num tiles exchanging', setDataCell),
     ]
 
-    summary_headings = headings1 + headings2
+    summary_headings = []
+    for (param, info) in param_info.iteritems():
+        summary_headings.append((info['desc'], setParamCell))
+    summary_headings += headings1 + headings2
 
     # Create the summary sheet
     ws = wb.active
     ws.title = 'Summary'
-    write_headings(ws, summary_headings)
-    for y, (params, layer_data) in enumerate(runs):
+    write_headings(ws, summary_headings, 1)
+    for y, (params, logname, layer_data) in enumerate(runs):
         data = layer_data[0]
         row = y + 2
-        write_data(ws, row, summary_headings, params, data)
+        write_data(ws, row, summary_headings, completeParams(params), data)
 
     layer_headings = [('Layer ID', setDataCell)] + headings2
 
     # Write a sheet for each run
-    for y, (params, layer_data) in enumerate(runs):
-        title = ','.join(["{0}={1}".format(*p) for p in params.iteritems()])
+    for y, (params, logname, layer_data) in enumerate(runs):
+        cparams = completeParams(params)
+        description = ','.join(["{0}={1}".format(*p) for p in cparams.iteritems()])
+        ws.cell(row=1, column=1).value = description
+        ws.cell(row=1, column=1).font = Font(bold=True)
+        title = "Scenario %d" % y
         ws = wb.create_sheet(title = title)
-        write_headings(ws, layer_headings)
+        write_headings(ws, layer_headings, 2)
 
         for y, data in enumerate(layer_data[1:]):
-            row = y + 2
-            write_data(ws, row, layer_headings, params, data)
-
+            row = y + 3
+            write_data(ws, row, layer_headings, cparams, data)
 
     # Save the file
     wb.save(filename)
@@ -211,19 +236,41 @@ def parse(lines):
     return layer_data
 
 
-def benchmark(run_name, prog, param_space, args):
-    param_names = [name for name, _ in param_space]
-    runs = []
+def parse_benchmark_spec(spec):
+    xs = spec.split(' ')
+    prog = xs[0]
+    xs = xs[1:]
+    param_space = []
+    param_names = []
+    for x in xs:
+        m = re.match('(.*)=\{?([^\}]*)\}?',x)
+        if not m:
+            raise Exception("Cannot parse argument: %s"%x)
+        argname = m.groups(0)[0]
+        vals = m.groups(0)[1].split(',')
+        param_space.append((argname, vals))
+        param_names.append(argname)
+    scenarios = []
     for param_set in \
             itertools.product(*(options for _, options in param_space)):
-        params = dict(zip(param_names, param_set))
-        params_str = '_'.join(str(x)+'_'+str(y) for x,y in params.items())
-        params_str = params_str.replace(' ','_')
-        logname = prog + '_' + params_str
+        params = zip(param_names, param_set)
+        logname_components = [prog]
+        for (p, v) in params:
+            param_str = param_info[p]['desc'].replace(' ','_')
+            param_str += '_' + str(v)
+            logname_components.append(param_str)
+        logname = '_'.join(logname_components)
+        scenarios.append((logname, params))
+
+    return prog, scenarios
+
+def run_benchmark(run_name, spec, args, runs):
+    prog, scenarios = parse_benchmark_spec(spec)
+    for logname, params in scenarios:
         if run_name:
             logname += '_' + run_name
         logname += ".log"
-        if args.use_logs:
+        if args.use_logs and os.path.exists(logname):
             print("Reading " + logname)
             log = open(logname).readlines()
         else:
@@ -233,57 +280,78 @@ def benchmark(run_name, prog, param_space, args):
                 for line in log:
                     f.write(line + "\n")
         data = parse(log)
-        runs.append((params, data))
-    sheet_name = prog
-    if run_name:
-        sheet_name += '_' + run_name
-    sheet_name += '.xlsx'
-    write(runs, sheet_name)
+        if prog not in runs:
+            runs[prog] = []
+        runs[prog].append((params, logname, data))
+
+def write_spreadsheets(runs, run_name):
+    for (prog, rs) in runs.iteritems():
+        sheet_name = prog
+        if run_name:
+            sheet_name += '_' + run_name
+        sheet_name += '.xlsx'
+        print("Writing %s" % sheet_name)
+        write(rs, sheet_name)
     return runs
 
 def main():
-    benchmarks = {'alexnet': [('Num IPUs', [1, 2])],
-                  'resnet34b': [('Num IPUs', [1])],
-                  'resnet50': [('Num IPUs', [1])]
-                 }
-    all_progs = benchmarks.keys()
+    large_tile_opts = '--tiles-per-ipu=608 --ipu-exchange-bandwidth=8 --bytes-per-tile=524288 --data-path-width=128'
+    xlarge_tile_opts = '--tiles-per-ipu=304 --ipu-exchange-bandwidth=16 --bytes-per-tile=1048576 --data-path-width=256'
+    benchmarks = ['alexnet --ipus={1,2}',
+                  'resnet34b',
+                  'resnet50']
+
+    arch_explore_benchmarks = ['alexnet ' + large_tile_opts,
+                               'alexnet ' + xlarge_tile_opts,
+                               'resnet34b ' + large_tile_opts,
+                               'resnet34b ' + xlarge_tile_opts,
+                               'resnet50 ' + large_tile_opts,
+                               'resnet50 ' + xlarge_tile_opts,
+                               'alexnet --ipu-exchange-bandwidth=8',
+                               'resnet34b --ipu-exchange-bandwidth=8',
+                               'resnet50 --ipu-exchange-bandwidth=8',
+                               'alexnet --ipu-exchange-bandwidth=16',
+                               'resnet34b --ipu-exchange-bandwidth=16',
+                               'resnet50 --ipu-exchange-bandwidth=16',
+                               'alexnet --ipu-exchange-bandwidth=8 --tiles-per-ipu=1024',
+                               'resnet34b --ipu-exchange-bandwidth=8 --tiles-per-ipu=1024',
+                               'resnet50 --ipu-exchange-bandwidth=8 --tiles-per-ipu=1024',
+                               'alexnet --ipu-exchange-bandwidth=16 --tiles-per-ipu=1024',
+                               'resnet34b --ipu-exchange-bandwidth=16 --tiles-per-ipu=1024',
+                               'resnet50 --ipu-exchange-bandwidth=16 --tiles-per-ipu=1024'
+    ]
+
     parser = argparse.ArgumentParser(description='Run neural net benchmarks')
     parser.add_argument('--uselogs', dest='use_logs', action='store_true',
                         help='Do not run programs. Just use previous logs.')
     parser.add_argument('--test-reuse', dest='test_reuse', action='store_true',
                         help='Test graph reuse option in resnet benchmarks.')
+    parser.add_argument('--arch-explore', dest='arch_explore', action='store_true',
+                        help='Explore a number of architectural configurations.')
     parser.add_argument('--report', dest='create_report', action='store_true',
                         help='Create a overall report on the benchmarks.')
     parser.add_argument('--name', dest='run_name', default="", type=str,
                         help='Name for this benchmark run'
                                + ' (will be appended to logfile names).')
-    parser.add_argument('progs', metavar='prog', type=str, nargs='*',
-                        help='Programs to run {}'.format(str(all_progs)))
 
     args = parser.parse_args()
-    progs = args.progs
-    if not progs:
-        progs = all_progs
     if args.test_reuse:
-        benchmarks['resnet34b'].append(('Reuse graphs', [0, 1]))
-        benchmarks['resnet50'].append(('Reuse graphs', [0, 1]))
-    else:
-        benchmarks['resnet34b'].append(('Reuse graphs', [1]))
-        benchmarks['resnet50'].append(('Reuse graphs', [1]))
-    runs = []
-    for prog in progs:
-        if prog not in benchmarks:
-            sys.stderr.write("ERROR: unknown program '{}'\n".format(prog))
-            return 1
-        param_space = benchmarks[prog]
-        prog_runs = benchmark(args.run_name, prog, param_space, args)
-        runs += [(prog, x, y) for (x, y) in prog_runs]
+        benchmarks.append['resnet34b --graph-reuse=0']
+        benchmarks.append['resnet50 --graph-reuse=0']
+
+    if args.arch_explore:
+        benchmarks += arch_explore_benchmarks
+
+    runs = {}
+    for benchmark in benchmarks:
+        run_benchmark(args.run_name, benchmark, args, runs)
+    write_spreadsheets(runs, args.run_name)
     if args.create_report:
         report_file = "benchmark_report"
         if args.run_name:
             report_file += "_" + args.run_name
         report_file += ".csv"
-        create_report(runs, report_file)
+        create_report(runs, report_file, param_info, args.arch_explore)
     return 0
 
 
