@@ -360,7 +360,8 @@ choosePartition(IPUModelEngineBuilder &engineBuilder,
                                          numTiles / tilesPerX);
       for (unsigned tilesPerY = 1; tilesPerY <= maxTilesPerY; ++tilesPerY) {
         const auto maxTilesPerZ =
-            std::min(params.outputDepth, numTiles / (tilesPerX * tilesPerY));
+          std::min(params.outputDepth / partialChansPerGroup,
+                   numTiles / (tilesPerX * tilesPerY));
         for (unsigned tilesPerZ = 1; tilesPerZ <= maxTilesPerZ; ++tilesPerZ) {
           const auto tilesPerInZ =
               std::min(params.inputDepth / inChansPerGroup,
