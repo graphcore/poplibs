@@ -158,6 +158,58 @@ public:
 template class FullyConnectedReduce<float>;
 template class FullyConnectedReduce<half>;
 
+template <typename FPType>
+class FullyConnectedBwd : public Vertex {
+public:
+  Input<Vector<FPType>> in;
+  Vector<Input<FPType>> weights;
+  Output<FPType> out;
+
+  bool compute() {
+    float sum = 0;
+    for (unsigned i = 0; i < in.size(); ++i) {
+      sum += in[i] * weights[i];
+    }
+    *out = sum;
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    // TODO
+    return 0;
+  }
+};
+
+template class FullyConnectedBwd<float>;
+template class FullyConnectedBwd<half>;
+
+template <typename FPType>
+class FullyConnectedWeightUpdate : public Vertex {
+public:
+  Input<FPType> d;
+  InOut<Vector<FPType>> weights;
+  Input<Vector<FPType>> in;
+  InOut<FPType> bias;
+  float eta;
+
+  bool compute() {
+    for (unsigned i = 0; i < weights.size(); ++i) {
+      auto grad = *d * in[i];
+      weights[i] = weights[i] - grad * eta;
+    }
+    *bias = *bias - *d * eta;
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    // TODO
+    return 0;
+  }
+};
+
+template class FullyConnectedWeightUpdate<float>;
+template class FullyConnectedWeightUpdate<half>;
+
 /**
  * Compute 1x1 convolutions and accumulate them with partial sums in memory.
  **/
@@ -464,58 +516,6 @@ public:
 
 template class NonLinearityBwd<float>;
 template class NonLinearityBwd<half>;
-
-template <typename FPType>
-class FullyConnectedBwd : public Vertex {
-public:
-  Input<Vector<FPType>> in;
-  Vector<Input<FPType>> weights;
-  Output<FPType> out;
-
-  bool compute() {
-    float sum = 0;
-    for (unsigned i = 0; i < in.size(); ++i) {
-      sum += in[i] * weights[i];
-    }
-    *out = sum;
-    return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    // TODO
-    return 0;
-  }
-};
-
-template class FullyConnectedBwd<float>;
-template class FullyConnectedBwd<half>;
-
-template <typename FPType>
-class FullyConnectedWeightUpdate : public Vertex {
-public:
-  Input<FPType> d;
-  InOut<Vector<FPType>> weights;
-  Input<Vector<FPType>> in;
-  InOut<FPType> bias;
-  float eta;
-
-  bool compute() {
-    for (unsigned i = 0; i < weights.size(); ++i) {
-      auto grad = *d * in[i];
-      weights[i] = weights[i] - grad * eta;
-    }
-    *bias = *bias - *d * eta;
-    return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    // TODO
-    return 0;
-  }
-};
-
-template class FullyConnectedWeightUpdate<float>;
-template class FullyConnectedWeightUpdate<half>;
 
 /**
  * Compute a sum of 1x1 convolutions over a subset of the input channels for
