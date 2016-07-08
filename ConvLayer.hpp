@@ -82,7 +82,7 @@ class ConvLayerImpl : public Layer {
 
   void
   createConvPartial1x1InOutVertex(Graph &graph,
-                                  IPUModelEngineBuilder::TileMapping *mapping,
+                                  IPUModelEngineBuilder::TileMapping &mapping,
                                   unsigned tile,
                                   unsigned outXBegin, unsigned outXEnd,
                                   unsigned outYBegin, unsigned outYEnd,
@@ -93,7 +93,7 @@ class ConvLayerImpl : public Layer {
                                   const Tensor &out);
   void
   forwardTile(Graph &graph,
-              IPUModelEngineBuilder::TileMapping *mapping,
+              IPUModelEngineBuilder::TileMapping &mapping,
               unsigned tile, unsigned outXBegin, unsigned outXEnd,
               unsigned outYBegin, unsigned outYEnd,
               unsigned outZGroupBegin, unsigned outZGroupEnd,
@@ -102,9 +102,9 @@ class ConvLayerImpl : public Layer {
               ComputeSet fwdCS,
               const Tensor &out);
   void mapBiases(Tensor w, const std::vector<unsigned> &activationMapping,
-                 IPUModelEngineBuilder::TileMapping *mapping);
+                 IPUModelEngineBuilder::TileMapping &mapping);
   void mapWeights(Graph &graph,
-                  IPUModelEngineBuilder::TileMapping *mapping,
+                  IPUModelEngineBuilder::TileMapping &mapping,
                   Tensor w);
   Tensor getInputWeights() const {
     return weightsIn;
@@ -122,10 +122,10 @@ class ConvLayerImpl : public Layer {
     return z;
   }
   void createFwdProg(Graph &graph,
-                     IPUModelEngineBuilder::TileMapping *mapping);
+                     IPUModelEngineBuilder::TileMapping &mapping);
   Program
   getOrCreateFwdProg(Graph &graph,
-                     IPUModelEngineBuilder::TileMapping *mapping) {
+                     IPUModelEngineBuilder::TileMapping &mapping) {
     if (!createdForwardProg)
       createFwdProg(graph, mapping);
     return forwardProg;
@@ -136,7 +136,7 @@ class ConvLayerImpl : public Layer {
   static std::map<ConvImplSpec, ConvLayerImpl *> implMap;
   void addResidualCalc(Graph &graph,
                        ComputeSet cs,
-                       IPUModelEngineBuilder::TileMapping *mapping);
+                       IPUModelEngineBuilder::TileMapping &mapping);
   std::uint64_t getNumberOfMACs();
   std::uint64_t getNumberOfAdds();
 public:
@@ -209,7 +209,7 @@ public:
                                size_t zPrev) const override;
 
   void init(Graph &graph, std::mt19937 &randomEngine,
-            IPUModelEngineBuilder::TileMapping *mapping) override;
+            IPUModelEngineBuilder::TileMapping &mapping) override;
 
   Program initParams(Graph &graph) override {
     if (getDType() != "float") {
@@ -221,7 +221,7 @@ public:
   }
 
   Program forward(Graph &graph,
-                  IPUModelEngineBuilder::TileMapping *mapping) override;
+                  IPUModelEngineBuilder::TileMapping &mapping) override;
 
   Program backward(Graph &graph) override;
 

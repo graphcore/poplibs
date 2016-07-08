@@ -46,7 +46,7 @@ public:
   double getPerfectCycleCount() override;
 
   void init(Graph &graph, std::mt19937 &randomEngine,
-            IPUModelEngineBuilder::TileMapping *mapping) override;
+            IPUModelEngineBuilder::TileMapping &mapping) override;
 
   Program initParams(Graph &graph) override {
     if (getDType() != "float") {
@@ -58,7 +58,7 @@ public:
   }
 
   Program forward(Graph &graph,
-                  IPUModelEngineBuilder::TileMapping *mapping) override;
+                  IPUModelEngineBuilder::TileMapping &mapping) override;
   Program backward(Graph &graph) override;
 
   Program weightUpdate(Graph &graph) override;

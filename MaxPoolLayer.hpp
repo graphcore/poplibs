@@ -47,14 +47,14 @@ public:
                                size_t zPrev) const override;
 
   void init(Graph &graph, std::mt19937 &randomEngine,
-            IPUModelEngineBuilder::TileMapping *mapping) override;
+            IPUModelEngineBuilder::TileMapping &mapping) override;
 
   Program initParams(Graph &graph) override {
     return Sequence();
   }
 
   Program forward(Graph &graph,
-                  IPUModelEngineBuilder::TileMapping *mapping) override;
+                  IPUModelEngineBuilder::TileMapping &mapping) override;
 
   Program backward(Graph &graph) override;
 

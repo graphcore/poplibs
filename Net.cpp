@@ -128,9 +128,8 @@ void Net::initialize(DataSet &data, LossType lossType) {
     new GraphProgEnv("obj/neural_net_graph.ppo", GraphProgFileType::Object));
 
   graph = std::unique_ptr<Graph>(new Graph(*env));
-  std::unique_ptr<IPUModelEngineBuilder::TileMapping> mapping;
+  IPUModelEngineBuilder::TileMapping mapping(*graph);
   if (options.useIPUModel) {
-    mapping.reset(new IPUModelEngineBuilder::TileMapping(*graph));
     IPUModelEngineBuilder *ipuEB = new IPUModelEngineBuilder(*env);
     engineBuilder = std::unique_ptr<EngineBuilder>(ipuEB);
     ipuEB->setMemcpyBytesPerCycle(options.ipuMachineInfo.dataPathWidth / 8);
@@ -170,9 +169,9 @@ void Net::initialize(DataSet &data, LossType lossType) {
   std::vector<Tensor> acts;
 
   std::mt19937 randomEngine;
-  inputLayer->init(*graph, randomEngine, mapping.get());
+  inputLayer->init(*graph, randomEngine, mapping);
 
-  fwdProg.add(inputLayer->forward(*graph, mapping.get()));
+  fwdProg.add(inputLayer->forward(*graph, mapping));
   acts.push_back(inputLayer->getFwdActivations());
 
   initParamsProg.add(inputLayer->initParams(*graph));
@@ -181,8 +180,8 @@ void Net::initialize(DataSet &data, LossType lossType) {
   double perfectCycleTime = 0.0;
 
   for (unsigned i = 0; i < hiddenLayers.size(); ++i) {
-    hiddenLayers[i]->init(*graph, randomEngine, mapping.get());
-    fwdProg.add(hiddenLayers[i]->forward(*graph, mapping.get()));
+    hiddenLayers[i]->init(*graph, randomEngine, mapping);
+    fwdProg.add(hiddenLayers[i]->forward(*graph, mapping));
     acts.push_back(hiddenLayers[i]->getFwdActivations());
     initParamsProg.add(hiddenLayers[i]->initParams(*graph));
     std::cout << "-- Layer " << i << "\n";
@@ -206,8 +205,8 @@ void Net::initialize(DataSet &data, LossType lossType) {
     }
   }
 
-  lossLayer->init(*graph, randomEngine, mapping.get());
-  fwdProg.add(lossLayer->forward(*graph, mapping.get()));
+  lossLayer->init(*graph, randomEngine, mapping);
+  fwdProg.add(lossLayer->forward(*graph, mapping));
   initParamsProg.add(lossLayer->initParams(*graph));
 
   if (netType == TrainingNet) {
@@ -227,7 +226,7 @@ void Net::initialize(DataSet &data, LossType lossType) {
     std::vector <Tensor> tensors = graph->getTensors();
     std::vector <ComputeSet> computeSets = graph->getComputeSets();
 
-    IPUModelEngineBuilder::UserTilePartitioner p(*mapping);
+    IPUModelEngineBuilder::UserTilePartitioner p(mapping);
     ipuEB->setTilePartitioner(p);
     switch (ipuEB->getNumIPUs()) {
     case 1:

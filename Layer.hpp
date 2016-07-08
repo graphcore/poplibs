@@ -48,20 +48,20 @@ protected:
   unsigned getBatchSize() const;
   bool targetSharedConvWeights() const;
   float getLearningRate() const;
-  void mapTensor(Tensor t, IPUModelEngineBuilder::TileMapping *mapping);
+  void mapTensor(Tensor t, IPUModelEngineBuilder::TileMapping &mapping);
   void mapComputeSet(const Graph &graph, ComputeSet c,
-                     IPUModelEngineBuilder::TileMapping *mapping);
+                     IPUModelEngineBuilder::TileMapping &mapping);
   std::vector<unsigned> computeActivationsMapping(Tensor t);
-  void mapActivations(Tensor t, IPUModelEngineBuilder::TileMapping *mapping);
+  void mapActivations(Tensor t, IPUModelEngineBuilder::TileMapping &mapping);
 public:
   Layer *getNextLayer() const;
   Layer *getPrevLayer() const;
   std::string makeLayerName(const std::string &name);
   virtual void init(Graph &graph, std::mt19937 &randomEngine,
-                    IPUModelEngineBuilder::TileMapping *mapping) = 0;
+                    IPUModelEngineBuilder::TileMapping &mapping) = 0;
   virtual Program initParams(Graph &graph) = 0;
   virtual Program forward(Graph &graph,
-                          IPUModelEngineBuilder::TileMapping *mapping) = 0;
+                          IPUModelEngineBuilder::TileMapping &mapping) = 0;
   virtual Program backward(Graph &graph) = 0;
   virtual Program weightUpdate(Graph &graph) = 0;
   virtual void describe(std::ostream &out) = 0;
@@ -113,7 +113,7 @@ public:
     Layer(net, index), data(data) {}
 
   void init(Graph &graph, std::mt19937 &randomEngine,
-            IPUModelEngineBuilder::TileMapping *mapping) override {
+            IPUModelEngineBuilder::TileMapping &mapping) override {
     const auto dType = getDType();
     Layer *next = getNextLayer();
     // Re-arrange so that the channels are the major
@@ -131,7 +131,7 @@ public:
 
   Program initParams(Graph &graph) override { return Sequence(); }
   Program forward(Graph &graph,
-                  IPUModelEngineBuilder::TileMapping *mapping) override {
+                  IPUModelEngineBuilder::TileMapping &mapping) override {
     return Sequence();
   }
 
@@ -168,7 +168,7 @@ public:
     Layer(net, index), data(data), lossType(lossType) {}
 
   void init(Graph &graph, std::mt19937 &randomEngine,
-            IPUModelEngineBuilder::TileMapping *mapping) override {
+            IPUModelEngineBuilder::TileMapping &mapping) override {
     const auto dType = getDType();
     Layer *prev = getPrevLayer();
     assert(prev);
@@ -197,7 +197,7 @@ public:
 
   Program initParams(Graph &graph) override { return Sequence(); }
   Program forward(Graph &graph,
-                  IPUModelEngineBuilder::TileMapping *mapping) override {
+                  IPUModelEngineBuilder::TileMapping &mapping) override {
     Layer *prev = getPrevLayer();
     auto v = graph.addVertex(fwd, templateVertex("CalcLoss", getDType()),
                              {{"zIn", prev->getFwdZs().flatten()},

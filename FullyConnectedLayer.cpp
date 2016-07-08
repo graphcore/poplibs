@@ -81,7 +81,7 @@ double FullyConnectedLayerImpl::getPerfectCycleCount() {
 
 void FullyConnectedLayerImpl::
 init(Graph &graph, std::mt19937 &randomEngine,
-     IPUModelEngineBuilder::TileMapping *mapping) {
+     IPUModelEngineBuilder::TileMapping &mapping) {
   const auto dType = getDType();
   Layer *prev = getPrevLayer();
   prevSize = prev->getFwdActivations().numElements();
@@ -113,7 +113,7 @@ init(Graph &graph, std::mt19937 &randomEngine,
 }
 
 Program FullyConnectedLayerImpl::
-forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
+forward(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping) {
   Layer *prev = getPrevLayer();
   Tensor in = prev->getFwdActivations().flatten();
   const auto dType = getDType();
@@ -171,21 +171,17 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
                                {"weights", partialWeights},
                                {"out", partials[i][j]}});
           graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-          if (mapping) {
-            mapping->setMapping(partialWeights, tile);
-            mapping->setMapping(partials[i][j], tile);
-            mapping->setMapping(v, tile);
-          }
+          mapping.setMapping(partialWeights, tile);
+          mapping.setMapping(partials[i][j], tile);
+          mapping.setMapping(v, tile);
         }
       }
     }
     const auto resultTile = (i * getNumIPUs() * getTilesPerIPU()) /
                             numRows;
-    if (mapping) {
-      mapping->setMapping(biases[i], resultTile);
-      mapping->setMapping(z[i], resultTile);
-      mapping->setMapping(activations[i], resultTile);
-    }
+    mapping.setMapping(biases[i], resultTile);
+    mapping.setMapping(z[i], resultTile);
+    mapping.setMapping(activations[i], resultTile);
     if (ipuPartition.tilesPerRow > 1) {
       // Sum the partial sums.
       auto v =
@@ -198,9 +194,7 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
                            {"activationOut", activations[i]}});
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
-      if (mapping) {
-        mapping->setMapping(v, resultTile);
-      }
+      mapping.setMapping(v, resultTile);
     } else {
       auto v =
           graph.addVertex(dotProductCS,
@@ -212,10 +206,8 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping) {
                            {"activationOut", activations[i]}});
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
-      if (mapping) {
-        mapping->setMapping(v, resultTile);
-        mapping->setMapping(weights[i], resultTile);
-      }
+      mapping.setMapping(v, resultTile);
+      mapping.setMapping(weights[i], resultTile);
     }
   }
   if (ipuPartition.tilesPerRow > 1) {
@@ -228,6 +220,7 @@ Program FullyConnectedLayerImpl::backward(Graph &graph) {
   auto bwdNonLinearityCS =
       graph.createComputeSet(layerName + ".bwd.nonLinearity");
   auto deltasIn = getNextLayer()->getBwdDeltas().flatten();
+
   auto v = graph.addVertex(bwdNonLinearityCS,
                            templateVertex("NonLinearityBwd",
                                           getDType()),

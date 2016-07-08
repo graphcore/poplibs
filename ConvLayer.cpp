@@ -547,7 +547,7 @@ size_t ConvLayerImpl::getNumChannelGroupsIn(size_t xPrev, size_t yPrev,
 
 void ConvLayerImpl::
 init(Graph &graph, std::mt19937 &randomEngine,
-     IPUModelEngineBuilder::TileMapping *mapping) {
+     IPUModelEngineBuilder::TileMapping &mapping) {
   const auto dType = getDType();
   bool floatActivations = dType == "float";
   Layer *prev = getPrevLayer();
@@ -684,7 +684,7 @@ init(Graph &graph, std::mt19937 &randomEngine,
 void ConvLayerImpl::
 addResidualCalc(Graph &graph,
                 ComputeSet cs,
-                IPUModelEngineBuilder::TileMapping *mapping) {
+                IPUModelEngineBuilder::TileMapping &mapping) {
   const auto dataPathWidth = getNetOptions().ipuMachineInfo.dataPathWidth;
   assert(resLayer);
   auto resNumChanGroups = resIn.dim(0);
@@ -774,7 +774,7 @@ bool ConvLayerImpl::useConvolutionInstruction() const {
 
 void ConvLayerImpl::
 createConvPartial1x1InOutVertex(Graph &graph,
-                                IPUModelEngineBuilder::TileMapping *mapping,
+                                IPUModelEngineBuilder::TileMapping &mapping,
                                 unsigned tile,
                                 unsigned outXBegin, unsigned outXEnd,
                                 unsigned outYBegin, unsigned outYEnd,
@@ -800,9 +800,7 @@ createConvPartial1x1InOutVertex(Graph &graph,
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
   graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
-  if (mapping) {
-    mapping->setMapping(v, tile);
-  }
+  mapping.setMapping(v, tile);
   unsigned numWeights = 0;
   unsigned numConvolutions = 0;
   for (unsigned wy = 0; wy != kernelSize; ++wy) {
@@ -858,9 +856,7 @@ createConvPartial1x1InOutVertex(Graph &graph,
                   {workerOutXBegin, 0},
                   {workerOutXEnd, outChansPerGroup}
                 ).reshape({workerOutWidth * outChansPerGroup});
-            if (mapping) {
-              mapping->setMapping(outWindow, tile);
-            }
+            mapping.setMapping(outWindow, tile);
             graph.connect(v["in"][numConvolutions], inWindow);
             graph.connect(v["out"][numConvolutions], outWindow);
             ++numConvolutions;
@@ -879,7 +875,7 @@ createConvPartial1x1InOutVertex(Graph &graph,
 
 void ConvLayerImpl::
 forwardTile(Graph &graph,
-            IPUModelEngineBuilder::TileMapping *mapping,
+            IPUModelEngineBuilder::TileMapping &mapping,
             unsigned tile,
             unsigned tileOutXBegin, unsigned tileOutXEnd,
             unsigned tileOutYBegin, unsigned tileOutYEnd,
@@ -966,10 +962,8 @@ forwardTile(Graph &graph,
           graph.setFieldSize(v["in"], inZGroups * outHeight);
         }
         // Map the vertex and output.
-        if (mapping) {
-          mapping->setMapping(v, tile);
-          mapping->setMapping(outWindow, tile);
-        }
+        mapping.setMapping(v, tile);
+        mapping.setMapping(outWindow, tile);
       }
     }
   } else if (useConvolutionInstruction()) {
@@ -1001,9 +995,7 @@ forwardTile(Graph &graph,
         {{"out", tileOutFlattened.slice(beginRow, endRow)}}
       );
       graph.setInitialValue(zv["dataPathWidth"], dataPathWidth);
-      if (mapping) {
-        mapping->setMapping(zv, tile);
-      }
+      mapping.setMapping(zv, tile);
     }
     for (unsigned ozg = tileOutZGroupBegin; ozg != tileOutZGroupEnd; ++ozg) {
       for (unsigned vy = 0; vy != verticesPerY; ++vy) {
@@ -1076,10 +1068,8 @@ forwardTile(Graph &graph,
         graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
         graph.setInitialValue(v["padding"], padding);
         // Map the vertex and output.
-        if (mapping) {
-          mapping->setMapping(v, tile);
-          mapping->setMapping(outWindow, tile);
-        }
+        mapping.setMapping(v, tile);
+        mapping.setMapping(outWindow, tile);
       }
     }
   }
@@ -1116,9 +1106,7 @@ linearizeTileIndices(unsigned izg, unsigned ox, unsigned oy,
 
 void ConvLayerImpl::mapBiases(Tensor b,
                               const std::vector<unsigned> &activationsMapping,
-                              IPUModelEngineBuilder::TileMapping *mapping) {
-  if (!mapping)
-    return;
+                              IPUModelEngineBuilder::TileMapping &mapping) {
   const auto numTiles = getNumIPUs() * getTilesPerIPU();
   size_t outChansPerGroup = outNumChans / outNumChanGroups;
   Tensor biasesByChanGroup =
@@ -1137,12 +1125,12 @@ void ConvLayerImpl::mapBiases(Tensor b,
     const auto maxOutChanGroup = (tileGroupEnd - 1) / (outDimX * outDimY);
     Tensor biasSlice = biasesByChanGroup.slice(minOutChanGroup,
                                                maxOutChanGroup + 1);
-    mapping->setMapping(biasSlice, tile);
+    mapping.setMapping(biasSlice, tile);
   }
 }
 
 void ConvLayerImpl::mapWeights(Graph &graph,
-                               IPUModelEngineBuilder::TileMapping *mapping,
+                               IPUModelEngineBuilder::TileMapping &mapping,
                                Tensor w) {
   const auto isMultiIPU = getNumIPUs() > 1;
   const auto inChansPerGroup = partition.inChansPerGroup;
@@ -1155,65 +1143,63 @@ void ConvLayerImpl::mapWeights(Graph &graph,
   assert(outNumChans % partialChansPerGroup == 0);
   const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
 
-  if (mapping) {
-    for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
-      const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
-      const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
-      const auto numInZGroups = inZGroupEnd - inZGroupBegin;
-      for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
-        const auto outZGroupBegin =
-            (ozg * partialNumChanGroups) / tilesPerZ;
-        const auto outZGroupEnd =
-            ((ozg + 1) * partialNumChanGroups) / tilesPerZ;
-        const auto numOutZGroups = outZGroupEnd - outZGroupBegin;
-        // Group weights that are accessed contiguously by tiles within this
-        // loop body.
-        Tensor sharedWeights;
-        if (useConvolutionInstruction()) {
-          if (kernelSize == 1) {
-            sharedWeights =
-                w.slice(
-                  {outZGroupBegin, inZGroupBegin, 0, 0, 0, 0},
-                  {outZGroupEnd, inZGroupEnd, kernelSize, kernelSize,
-                   partialChansPerGroup, inChansPerGroup}
-                ).reshape({numOutZGroups,
-                           numInZGroups * partialChansPerGroup *
-                           inChansPerGroup});
-          } else {
-            sharedWeights =
-                w.slice(
-                  {outZGroupBegin, inZGroupBegin, 0, 0, 0, 0},
-                  {outZGroupEnd, inZGroupEnd, kernelSize, kernelSize,
-                   partialChansPerGroup, inChansPerGroup}
-                ).reshape({numOutZGroups * numInZGroups * kernelSize *
-                           kernelSize,
-                           partialChansPerGroup * inChansPerGroup});
-          }
+for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
+    const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
+    const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
+    const auto numInZGroups = inZGroupEnd - inZGroupBegin;
+    for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
+      const auto outZGroupBegin =
+          (ozg * partialNumChanGroups) / tilesPerZ;
+      const auto outZGroupEnd =
+          ((ozg + 1) * partialNumChanGroups) / tilesPerZ;
+      const auto numOutZGroups = outZGroupEnd - outZGroupBegin;
+      // Group weights that are accessed contiguously by tiles within this
+      // loop body.
+      Tensor sharedWeights;
+      if (useConvolutionInstruction()) {
+        if (kernelSize == 1) {
+          sharedWeights =
+              w.slice(
+                {outZGroupBegin, inZGroupBegin, 0, 0, 0, 0},
+                {outZGroupEnd, inZGroupEnd, kernelSize, kernelSize,
+                 partialChansPerGroup, inChansPerGroup}
+              ).reshape({numOutZGroups,
+                         numInZGroups * partialChansPerGroup *
+                         inChansPerGroup});
         } else {
           sharedWeights =
               w.slice(
                 {outZGroupBegin, inZGroupBegin, 0, 0, 0, 0},
                 {outZGroupEnd, inZGroupEnd, kernelSize, kernelSize,
-                 1, inChansPerGroup}
-              ).reshape({numInZGroups * numOutZGroups * kernelSize,
-                         kernelSize * inChansPerGroup});
+                 partialChansPerGroup, inChansPerGroup}
+              ).reshape({numOutZGroups * numInZGroups * kernelSize *
+                         kernelSize,
+                         partialChansPerGroup * inChansPerGroup});
         }
-        const auto numSharedWeightGroups = sharedWeights.dim(0);
-        // Spread groups of weights equally across the tiles that read them.
-        for (unsigned oy = 0; oy != tilesPerY; ++oy) {
-          for (unsigned ox = 0; ox != tilesPerX; ++ox) {
-            const auto iw = ox + tilesPerX * oy;
-            const auto sharedWeightGroupBegin =
-                (iw * numSharedWeightGroups) / (tilesPerY * tilesPerX);
-            const auto sharedWeightGroupEnd =
-                ((iw + 1) * numSharedWeightGroups) / (tilesPerY * tilesPerX);
-            const auto tileWeights =
-                sharedWeights.slice(sharedWeightGroupBegin,
-                                    sharedWeightGroupEnd);
-            const auto tile = linearizeTileIndices(izg, ox, oy, ozg, partition,
-                                                   isMultiIPU);
-            mapping->setMapping(tileWeights, tile);
-          }
+      } else {
+        sharedWeights =
+            w.slice(
+              {outZGroupBegin, inZGroupBegin, 0, 0, 0, 0},
+              {outZGroupEnd, inZGroupEnd, kernelSize, kernelSize,
+               1, inChansPerGroup}
+            ).reshape({numInZGroups * numOutZGroups * kernelSize,
+                       kernelSize * inChansPerGroup});
+      }
+      const auto numSharedWeightGroups = sharedWeights.dim(0);
+      // Spread groups of weights equally across the tiles that read them.
+      for (unsigned oy = 0; oy != tilesPerY; ++oy) {
+        for (unsigned ox = 0; ox != tilesPerX; ++ox) {
+          const auto iw = ox + tilesPerX * oy;
+          const auto sharedWeightGroupBegin =
+              (iw * numSharedWeightGroups) / (tilesPerY * tilesPerX);
+          const auto sharedWeightGroupEnd =
+              ((iw + 1) * numSharedWeightGroups) / (tilesPerY * tilesPerX);
+          const auto tileWeights =
+              sharedWeights.slice(sharedWeightGroupBegin,
+                                  sharedWeightGroupEnd);
+          const auto tile = linearizeTileIndices(izg, ox, oy, ozg, partition,
+                                                 isMultiIPU);
+          mapping.setMapping(tileWeights, tile);
         }
       }
     }
@@ -1282,7 +1268,7 @@ getContiguousRegions(std::vector<unsigned>::iterator begin,
 }
 
 void ConvLayerImpl::
-createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
+createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping)  {
   assert(!createdForwardProg);
   const auto isMultiIPU = getNumIPUs() > 1;
 
@@ -1392,16 +1378,14 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
         for (unsigned i = 0; i < regions.size(); ++i) {
           auto out = flatReduced.slice(regions[i].first, regions[i].second);
           graph.connect(v["out"][i], out);
-          if (mapping)
-            mapping->setMapping(out, tile);
+          mapping.setMapping(out, tile);
           for (unsigned j = 0; j < tilesPerInZGroup; ++j) {
             graph.connect(v["partials"][i * tilesPerInZGroup + j],
                           flatPartials[j].slice(regions[i].first,
                                                 regions[i].second));
           }
         }
-        if (mapping)
-          mapping->setMapping(v, tile);
+        mapping.setMapping(v, tile);
       }
     }
     executeReduceCS = true;
@@ -1456,8 +1440,7 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
                                               getDType()));
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
-      if (mapping)
-        mapping->setMapping(v, tile);
+      mapping.setMapping(v, tile);
 
       // Add the biases and a vector that tells the vertex how many output
       // groups to process for each bias.
@@ -1525,7 +1508,7 @@ createFwdProg(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
 }
 
 Program ConvLayerImpl::
-forward(Graph &graph, IPUModelEngineBuilder::TileMapping *mapping)  {
+forward(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping)  {
   if (kernelSize > inDimX || kernelSize > inDimY) {
     // We don't support kernelsize greater than the x/y dimensions.
     std::abort();

@@ -35,9 +35,7 @@ enum NetType Layer::getNetType() const { return net.getNetType(); }
 
 const NetOptions &Layer::getNetOptions() const { return net.options; }
 
-void Layer::mapTensor(Tensor t, IPUModelEngineBuilder::TileMapping *mapping) {
-  if (!mapping)
-    return;
+void Layer::mapTensor(Tensor t, IPUModelEngineBuilder::TileMapping &mapping) {
   std::uint64_t size = t.numElements();
   const auto numTiles = getTilesPerIPU() * getNumIPUs();
   for (unsigned i = 0; i < numTiles; ++i) {
@@ -45,14 +43,12 @@ void Layer::mapTensor(Tensor t, IPUModelEngineBuilder::TileMapping *mapping) {
     const auto end = (size * (i + 1)) / numTiles;
     if (begin == end)
       continue;
-    mapping->setMapping(t.flatten().slice(begin, end), i);
+    mapping.setMapping(t.flatten().slice(begin, end), i);
   }
 }
 
 void Layer::mapComputeSet(const Graph &graph, ComputeSet c,
-                          IPUModelEngineBuilder::TileMapping *mapping) {
-  if (!mapping)
-    return;
+                          IPUModelEngineBuilder::TileMapping &mapping) {
   auto cs = graph.getComputeSet(c);
   std::uint64_t size = cs.size();
   const auto numTiles = getTilesPerIPU() * getNumIPUs();
@@ -62,7 +58,7 @@ void Layer::mapComputeSet(const Graph &graph, ComputeSet c,
     if (begin == end)
       continue;
     for (unsigned j = begin; j != end; ++j) {
-      mapping->setMapping(cs[j], i);
+      mapping.setMapping(cs[j], i);
     }
   }
 }
@@ -99,14 +95,12 @@ std::vector<unsigned> Layer::computeActivationsMapping(Tensor act) {
 }
 
 void Layer::mapActivations(Tensor act,
-                           IPUModelEngineBuilder::TileMapping *mapping) {
-  if (!mapping)
-    return;
+                           IPUModelEngineBuilder::TileMapping &mapping) {
   auto actMapping = computeActivationsMapping(act);
   const auto numTiles = getTilesPerIPU() * getNumIPUs();
   assert(actMapping.size() == numTiles + 1);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
-    mapping->setMapping(act.flatten().slice(actMapping[tile],
+    mapping.setMapping(act.flatten().slice(actMapping[tile],
                                             actMapping[tile + 1]),
                         tile);
   }
