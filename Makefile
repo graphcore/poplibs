@@ -25,7 +25,9 @@ COMMON_OBJ = \
 	${OBJDIR}/ConvUtil.o \
 	${OBJDIR}/ConvLayer.o \
 	${OBJDIR}/FullyConnectedLayer.o \
+	${OBJDIR}/InputLayer.o \
 	${OBJDIR}/Layer.o \
+	${OBJDIR}/LossLayer.o \
 	${OBJDIR}/MaxPoolLayer.o \
 	${OBJDIR}/Net.o
 

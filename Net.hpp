@@ -13,6 +13,8 @@
 #include <stdexcept>
 #include <cassert>
 #include "Layer.hpp"
+#include "InputLayer.hpp"
+#include "LossLayer.hpp"
 
 using namespace poplar;
 using namespace poplar::program;

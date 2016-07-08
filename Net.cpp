@@ -1,4 +1,6 @@
 #include "Net.hpp"
+#include "InputLayer.hpp"
+#include "LossLayer.hpp"
 #include <boost/program_options.hpp>
 #include <poplar/HalfFloat.hpp>
 
