@@ -62,8 +62,10 @@ public:
   virtual Program initParams(Graph &graph) = 0;
   virtual Program forward(Graph &graph,
                           IPUModelEngineBuilder::TileMapping &mapping) = 0;
-  virtual Program backward(Graph &graph) = 0;
-  virtual Program weightUpdate(Graph &graph) = 0;
+  virtual Program backward(Graph &graph,
+                           IPUModelEngineBuilder::TileMapping &mapping) = 0;
+  virtual Program weightUpdate(Graph &graph,
+                               IPUModelEngineBuilder::TileMapping &mapping) = 0;
   virtual void describe(std::ostream &out) = 0;
   /// Return the number of FLOPs required for a naive implementation of the
   /// forward pass. A FLOP is a basic arithmetic operation such as multiply,

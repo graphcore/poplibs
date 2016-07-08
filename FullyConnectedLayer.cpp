@@ -216,7 +216,8 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping) {
   return Sequence(Execute(dotProductCS));
 }
 
-Program FullyConnectedLayerImpl::backward(Graph &graph) {
+Program FullyConnectedLayerImpl::
+backward(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping) {
   auto bwdNonLinearityCS =
       graph.createComputeSet(layerName + ".bwd.nonLinearity");
   auto deltasIn = getNextLayer()->getBwdDeltas().flatten();
@@ -246,7 +247,8 @@ Program FullyConnectedLayerImpl::backward(Graph &graph) {
   return Sequence(Execute(bwdNonLinearityCS), Execute(bwdCS));
 }
 
-Program FullyConnectedLayerImpl::weightUpdate(Graph &graph) {
+Program FullyConnectedLayerImpl::
+weightUpdate(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping) {
   auto cs = graph.createComputeSet(layerName + ".weight_update");
   for (unsigned i = 0; i < size; ++i) {
     auto prev = getPrevLayer()->getFwdActivations().flatten();

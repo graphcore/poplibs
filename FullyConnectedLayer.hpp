@@ -59,9 +59,11 @@ public:
 
   Program forward(Graph &graph,
                   IPUModelEngineBuilder::TileMapping &mapping) override;
-  Program backward(Graph &graph) override;
+  Program backward(Graph &graph,
+                   IPUModelEngineBuilder::TileMapping &mapping) override;
 
-  Program weightUpdate(Graph &graph) override;
+  Program weightUpdate(Graph &graph,
+                       IPUModelEngineBuilder::TileMapping &mapping) override;
 };
 
 class FullyConnectedLayer : public LayerSpec {

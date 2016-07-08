@@ -30,8 +30,14 @@ public:
                   &data.testData[testDataSize]);
     }
   }
-  Program backward(Graph &graph) override { return Sequence(); }
-  Program weightUpdate(Graph &graph) override { return Sequence(); }
+  Program backward(Graph &graph,
+                   IPUModelEngineBuilder::TileMapping &mapping) override {
+    return Sequence();
+  }
+  Program weightUpdate(Graph &graph,
+                       IPUModelEngineBuilder::TileMapping &mapping) override {
+    return Sequence();
+  }
   void describe(std::ostream &out) override {}
   std::uint64_t getNumberOfFlops() override { return 0; }
   virtual double getPerfectCycleCount() override { return 0.0; }

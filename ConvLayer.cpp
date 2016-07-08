@@ -1531,7 +1531,8 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping)  {
 }
 
 Program ConvLayerImpl::
-backward(Graph &graph) {
+backward(Graph &graph,
+         IPUModelEngineBuilder::TileMapping &mapping) {
   auto bwdNonLinearityCS =
       graph.createComputeSet(layerName + ".bwd.nonLinearity");
   auto deltasIn = getNextLayer()->getBwdDeltas();
@@ -1668,7 +1669,8 @@ backward(Graph &graph) {
 }
 
 Program ConvLayerImpl::
-weightUpdate(Graph &graph) {
+weightUpdate(Graph &graph,
+             IPUModelEngineBuilder::TileMapping &mapping) {
   const auto inChansPerGroup = partition.inChansPerGroup;
   const auto outChansPerGroup = outNumChans / outNumChanGroups;
   const auto partialChansPerGroup = partition.partialChansPerGroup;

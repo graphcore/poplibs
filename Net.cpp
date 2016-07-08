@@ -212,14 +212,14 @@ void Net::initialize(DataSet &data, LossType lossType) {
   initParamsProg.add(lossLayer->initParams(*graph));
 
   if (netType == TrainingNet) {
-    bwdProg.add(lossLayer->backward(*graph));
-    weightUpdateProg.add(lossLayer->weightUpdate(*graph));
+    bwdProg.add(lossLayer->backward(*graph, mapping));
+    weightUpdateProg.add(lossLayer->weightUpdate(*graph, mapping));
     for (int i = hiddenLayers.size() - 1; i >= 0; --i) {
-      bwdProg.add(hiddenLayers[i]->backward(*graph));
-      weightUpdateProg.add(hiddenLayers[i]->weightUpdate(*graph));
+      bwdProg.add(hiddenLayers[i]->backward(*graph, mapping));
+      weightUpdateProg.add(hiddenLayers[i]->weightUpdate(*graph, mapping));
     }
-    bwdProg.add(inputLayer->backward(*graph));
-    weightUpdateProg.add(inputLayer->weightUpdate(*graph));
+    bwdProg.add(inputLayer->backward(*graph, mapping));
+    weightUpdateProg.add(inputLayer->weightUpdate(*graph, mapping));
   }
 
   if (options.useIPUModel) {

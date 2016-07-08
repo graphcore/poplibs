@@ -150,7 +150,8 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping)  {
 }
 
 Program MaxPoolLayerImpl::
-backward(Graph &graph) {
+backward(Graph &graph,
+         IPUModelEngineBuilder::TileMapping &mapping) {
   const auto chansPerGroup = numChannels / numChanGroups;
   auto bwdCS = graph.createComputeSet(layerName + ".bwd");
   auto deltasIn = getNextLayer()->getBwdDeltas();
