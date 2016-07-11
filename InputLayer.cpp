@@ -13,5 +13,5 @@ init(Graph &graph, std::mt19937 &randomEngine,
   const auto dim = std::vector<size_t>({numGroups, data.dim[0], data.dim[1],
                                         data.dim[2]/numGroups});
   out = graph.addTensor(dType, dim, makeLayerName("input"));
-  mapTensor(out, mapping);
+  mapActivations(out, mapping);
 }
