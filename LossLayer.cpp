@@ -25,14 +25,13 @@ Program LossLayer::
 forward(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping) {
   Layer *prev = getPrevLayer();
   auto v = graph.addVertex(fwd, templateVertex("CalcLoss", getDType()),
-                           {{"zIn", prev->getFwdZs().flatten()},
+                           {{"actIn", prev->getFwdActivations().flatten()},
                             {"deltaOut", deltas.flatten()},
                             {"label", expected[0]},
                             {"lossType", lossTypeTensor[0]},
                             {"loss", loss[0]},
                             {"numCorrect", numCorrect[0]}});
   graph.setFieldSize(v["probs"], prev->getFwdActivations().numElements());
-  graph.setInitialValue(v["nonLinearityType"], prev->getNonLinearityType());
   mapComputeSet(graph, fwd, mapping);
   return Sequence(Copy(numCorrect, &hNumCorrect),
                   Execute(fwd),
