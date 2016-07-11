@@ -1,8 +1,5 @@
 #include <initializer_list>
 #include "Net.hpp"
-#include "FullyConnectedLayer.hpp"
-#include "ConvLayer.hpp"
-#include "MaxPoolLayer.hpp"
 #include "mnist.h"
 
 int main() {
@@ -28,10 +25,9 @@ int main() {
           1, // batch size
           makeLayers({
             new MaxPoolLayer(2,2),
-            new ConvLayer(5, 1, 2, 2,
-                          NON_LINEARITY_NONE, NORMALIZATION_LR),
+            new ConvLayer(5, 1, 2, 2, NON_LINEARITY_NONE),
             new MaxPoolLayer(2,2),
-            new ConvLayer(7, 1, 0, 10, NON_LINEARITY_SIGMOID, NORMALIZATION_LR),
+            new ConvLayer(7, 1, 0, 10, NON_LINEARITY_SIGMOID),
           }),
           SOFTMAX_CROSS_ENTROPY_LOSS,
           0.01,

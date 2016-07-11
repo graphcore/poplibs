@@ -929,14 +929,16 @@ template class MaxPoolingBwd<half>;
 template <typename FPType>
 class CalcLoss : public Vertex {
 public:
-  Input<Vector<FPType>> actIn;
+  Input<Vector<FPType>> in;
   Input<unsigned> label;
-  Input<LossType> lossType;
+
   Output<Vector<FPType>> deltaOut;
   Output<FPType> loss;
   InOut<unsigned> numCorrect;
 
   Vector<FPType> probs;
+
+  LossType lossType;
 
   bool compute() {
     switch (lossType) {
@@ -944,9 +946,9 @@ public:
       /* Calculate the sum-squared error and the partial derivative
          to pass back. */
       FPType sum = 0;
-      for (unsigned i = 0;  i < actIn.size(); ++i) {
+      for (unsigned i = 0;  i < in.size(); ++i) {
         FPType expected = (i == label ? 1 : 0);
-        FPType actual = actIn[i];
+        FPType actual = in[i];
         deltaOut[i] = (actual - expected);
         sum += 0.5 * (actual - expected) *  (actual - expected);
       }
@@ -955,14 +957,15 @@ public:
       break;
     case SOFTMAX_CROSS_ENTROPY_LOSS:
       /* Calculate the softmax probability distribution */
-      for (unsigned i = 0;  i < actIn.size(); ++i) {
-        FPType act = actIn[i];
+      for (unsigned i = 0;  i < in.size(); ++i) {
+        FPType act = in[i];
         probs[i] = exp(act);
       }
       FPType sum = 0;
       for (FPType p : probs)
         sum += p;
-      for (unsigned i = 0;  i < actIn.size(); ++i) {
+
+      for (unsigned i = 0;  i < in.size(); ++i) {
         probs[i] /= sum;
       }
 
@@ -979,11 +982,14 @@ public:
     }
 
     // Calculate the classification error for reporting test results
-    FPType max = actIn[0];
+    // This assumes that the
+    // non-linearity is monotonic, so the max output of the previous
+    // layer is the max z-term of the previous layer.
+    FPType max = in[0];
     unsigned maxIndex = 0;
-    for (unsigned i = 0;  i < actIn.size(); ++i) {
-      if (actIn[i] > max) {
-        max = actIn[i];
+    for (unsigned i = 0;  i < in.size(); ++i) {
+      if (in[i] > max) {
+        max = in[i];
         maxIndex = i;
       }
     }
@@ -999,14 +1005,14 @@ public:
     uint64_t cycles = 5;
     switch (lossType) {
     case SUM_SQUARED_LOSS:
-      cycles += actIn.size() * 30;
+      cycles += in.size() * 30;
       break;
     case SOFTMAX_CROSS_ENTROPY_LOSS:
-      cycles += actIn.size() * 50;
+      cycles += in.size() * 50;
       break;
     }
 
-    cycles += actIn.size() * 10;
+    cycles += in.size() * 10;
 
     cycles += 5;
 

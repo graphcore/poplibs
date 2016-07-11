@@ -1,6 +1,22 @@
-#include "FullyConnectedLayer.hpp"
+#include "FullyConnected.hpp"
 #include "PerformanceEstimation.hpp"
 #include "VertexTemplates.hpp"
+#include "ActivationMapping.hpp"
+#include <cassert>
+
+using namespace poplar;
+using namespace poplar::program;
+
+namespace fc {
+
+std::pair<Tensor, Tensor>
+createParams(Graph &graph, std::string dType, unsigned inSize,
+             unsigned outSize) {
+  auto weights = graph.addTensor(dType, {outSize, inSize}, "weights");
+  auto biases = graph.addTensor(dType, {outSize}, "biases");
+  return {weights, biases};
+}
+
 
 namespace {
   struct PartitionShape {
@@ -12,22 +28,21 @@ namespace {
 }
 
 static unsigned
-estimatePartitionCost(IPUModelEngineBuilder &engineBuilder, bool isFloat,
+estimatePartitionCost(const DeviceInfo &deviceInfo, bool isFloat,
                       unsigned numRows, unsigned numCols, unsigned tilesPerRow,
-                      unsigned tilesPerColumn,
-                      const IPUMachineInfo &machineInfo) {
+                      unsigned tilesPerColumn) {
   auto numTiles = tilesPerRow * tilesPerColumn;
   auto numVertices = numRows * tilesPerRow;
-  auto numWorkerContexts = engineBuilder.getNumWorkerContexts();
+  auto numWorkerContexts = deviceInfo.getNumWorkerContexts();
   auto vertexElements = (numCols + tilesPerRow - 1) / tilesPerRow;
   auto partialSumsPerTile = (numRows + tilesPerColumn - 1) / tilesPerColumn;
   auto vertexRuntime =
       getFullyConnectedPartialCycleEstimate(isFloat, vertexElements,
-                                            machineInfo.dataPathWidth);
+                                            deviceInfo.dataPathWidth);
   auto verticesPerWorker = (numVertices + numTiles * numWorkerContexts - 1) /
                            (numTiles * numWorkerContexts);
   auto computeCycles = vertexRuntime * verticesPerWorker;
-  auto exchangeBytesPerCycle = engineBuilder.getIPUExchangeBandwidth();
+  auto exchangeBytesPerCycle = deviceInfo.getIPUExchangeBandwidth();
   auto inputBytes = vertexElements * (isFloat ? 4 : 2);
   auto partialSumBytes = partialSumsPerTile * 4;
   auto exchangeCycles =
@@ -37,17 +52,16 @@ estimatePartitionCost(IPUModelEngineBuilder &engineBuilder, bool isFloat,
 }
 
 static PartitionShape
-choosePartition(IPUModelEngineBuilder &engineBuilder,
+choosePartition(const DeviceInfo &deviceInfo,
                 bool isFloat, unsigned numRows,
-                unsigned numCols, unsigned numTiles,
-                const IPUMachineInfo &machineInfo) {
+                unsigned numCols, unsigned numTiles) {
   unsigned lowestCost = std::numeric_limits<unsigned>::max();
   unsigned bestTilesPerColumn, bestTilesPerRow;
   for (unsigned tilesPerRow = 1; tilesPerRow <= numTiles; ++tilesPerRow) {
     unsigned tilesPerColumn = numTiles / tilesPerRow;
-    const auto cost = estimatePartitionCost(engineBuilder, isFloat, numRows,
+    const auto cost = estimatePartitionCost(deviceInfo, isFloat, numRows,
                                             numCols, tilesPerRow,
-                                            tilesPerColumn, machineInfo);
+                                            tilesPerColumn);
     if (cost < lowestCost) {
       lowestCost = cost;
       bestTilesPerColumn = tilesPerColumn;
@@ -57,66 +71,19 @@ choosePartition(IPUModelEngineBuilder &engineBuilder,
   return PartitionShape(bestTilesPerColumn, bestTilesPerRow);
 }
 
-void FullyConnectedLayerImpl::describe(std::ostream &out) {
-  std::cout << "   -- Fully connected layer:\n"
-            << "        Input: "  << prevSize << "\n"
-            << "        Output: " << size << "\n"
-            << "        Params: " << size * (prevSize + 1) << "\n"
-            << "        FLOPs: " << getNumberOfFlops() << "\n";
-}
-
-std::uint64_t FullyConnectedLayerImpl::getNumberOfFlops() {
-  auto numRows = size;
-  auto numCols = prevSize;
-  return 2 * numRows * numCols;
-}
-
-double FullyConnectedLayerImpl::getPerfectCycleCount() {
-  const auto numTiles = getNumIPUs() * getTilesPerIPU();
-  const auto &machineInfo = getNetOptions().ipuMachineInfo;
-  const auto numFLOPs = getNumberOfFlops();
-  const auto vectorWidth = machineInfo.dataPathWidth / (8 * getDTypeSize());
-  return static_cast<double>(numFLOPs) / (2 * vectorWidth * numTiles);
-}
-
-void FullyConnectedLayerImpl::
-init(Graph &graph, std::mt19937 &randomEngine,
-     IPUModelEngineBuilder::TileMapping &mapping) {
-  const auto dType = getDType();
-  Layer *prev = getPrevLayer();
-  prevSize = prev->getFwdActivations().numElements();
-
-  weights = graph.addTensor(dType, {size, prevSize}, makeLayerName("weights"));
-  biases = graph.addTensor(dType, {size}, makeLayerName("biases"));
-  z = graph.addTensor(dType, {size}, makeLayerName("z"));
-  activations = graph.addTensor(dType, {size}, makeLayerName("activations"));
-  mapActivations(z, mapping);
-  mapActivations(activations, mapping);
-  // weights, biases mapped in forward()
-  if (getNetType() == TrainingNet) {
-    zDeltas = graph.addTensor(dType, z.dims(), makeLayerName("zDeltas"));
-    deltas = graph.addTensor(dType, prev->getFwdActivations().dims(),
-                             makeLayerName("deltas"));
-    bwdWeights = graph.addTensor(dType, {prevSize + 1, size}, 
-                                 makeLayerName("bwdWeights"));
-    mapTensor(zDeltas, mapping);
-    mapTensor(deltas, mapping);
-    mapTensor(bwdWeights, mapping);
-  }
-  // Initialize weights using "xavier" weight filler that scales
-  // variance based on number of inputs to a neuron.
-  hWeights = createRandomWeightInitializers(weights, 0, 1.0 / prevSize,
-                                            randomEngine);
-  hBiases = createRandomWeightInitializers(biases, 0, 1.0 / prevSize,
-                                           randomEngine);
-}
-
-Program FullyConnectedLayerImpl::
-forward(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping) {
-  Layer *prev = getPrevLayer();
-  Tensor in = prev->getFwdActivations().flatten();
-  const auto dType = getDType();
-  const auto dataPathWidth = getNetOptions().ipuMachineInfo.dataPathWidth;
+Program
+fullyConnected(Graph &graph,
+               IPUModelEngineBuilder::TileMapping &mapping,
+               DeviceInfo &deviceInfo,
+               unsigned size, NonLinearityType nonLinearityType,
+               std::string dType,
+               Tensor in0, Tensor weights,
+               Tensor biases,
+               Tensor z, Tensor activations) {
+  const auto layerName = "FullyConnected" + std::to_string(size);
+  Tensor in = in0.flatten();
+  const auto dataPathWidth = deviceInfo.dataPathWidth;
+  const auto prevSize = in.numElements();
 
   const auto numRows = size;
   const auto numCols = prevSize;
@@ -124,9 +91,9 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping) {
   // amount of communication. Unfortunately it introduces a new causal layer.
   // It turns out that, at least up to 16 IPUs, it is better to always keep
   // all row elements on the same IPU to avoid the need for an extra sync.
-  const auto numIPUs = getNumIPUs();
-  const auto tilesPerIPU = getTilesPerIPU();
-  auto activationsMapping = computeActivationsMapping(activations);
+  const auto numIPUs = deviceInfo.getNumIPUs();
+  const auto tilesPerIPU = deviceInfo.getTilesPerIPU();
+  auto activationsMapping = computeActivationsMapping(activations, deviceInfo);
   unsigned maxRowsPerIPU = 0;
   for (unsigned ipu = 0; ipu != numIPUs; ++ipu) {
     const auto ipuBeginRow = activationsMapping[ipu * tilesPerIPU];
@@ -137,11 +104,11 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping) {
   bool isFloat = dType == "float";
   assert(isFloat || dType == "half");
   auto ipuPartition =
-      choosePartition(getIPUModelEngineBuilder(), isFloat, maxRowsPerIPU,
-                      numCols, tilesPerIPU, getNetOptions().ipuMachineInfo);
+      choosePartition(deviceInfo, isFloat, maxRowsPerIPU, numCols, tilesPerIPU);
 
-  Tensor partials = graph.addTensor("float", {numRows, ipuPartition.tilesPerRow},
-                                    makeLayerName("partials"));
+  Tensor partials = graph.addTensor("float", {numRows,
+                                              ipuPartition.tilesPerRow},
+                                    "partials");
   auto forwardProg = Sequence();
 
   ComputeSet dotProductCS = graph.createComputeSet(layerName + ".fwd");
@@ -166,7 +133,7 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping) {
         Tensor partialWeights = weights[i].slice(beginElement, endElement);
         auto v =
             graph.addVertex(dotProductCS,
-                            templateVertex("FullyConnectedPartial", getDType()),
+                            templateVertex("FullyConnectedPartial", dType),
                             {{"in", partialIn},
                              {"weights", partialWeights},
                              {"out", partials[i][j]}});
@@ -188,7 +155,7 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping) {
       auto v =
           graph.addVertex(reduceCS,
                           templateVertex("FullyConnectedReduce",
-                                         getDType()),
+                                         dType),
                           {{"partials", partials[i]},
                            {"bias", biases[i]},
                            {"zOut", z[i]},
@@ -202,52 +169,93 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping) {
   return forwardProg;
 }
 
-Program FullyConnectedLayerImpl::
-backward(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping) {
+uint64_t getNumFlops(unsigned inSize, unsigned outSize) {
+  return 2 * inSize * outSize;
+}
+
+double getPerfectCycleCount(const DeviceInfo &deviceInfo,
+                            unsigned inSize, unsigned outSize,
+                            std::string dType) {
+  unsigned dTypeSize = dType == "float" ? 4 : 2;
+  const auto numTiles = deviceInfo.getNumTiles();
+  const auto numFLOPs = getNumFlops(inSize, outSize);
+  const auto vectorWidth = deviceInfo.dataPathWidth / (8 * dTypeSize);
+  return static_cast<double>(numFLOPs) / (2 * vectorWidth * numTiles);
+}
+
+Program
+fullyConnectedBwdNonLinearity(Graph &graph,
+                              IPUModelEngineBuilder::TileMapping &mapping,
+                              DeviceInfo &deviceInfo,
+                              std::string dType,
+                              Tensor z, Tensor deltasIn,
+                              Tensor zDeltas,
+                              NonLinearityType nonLinearityType) {
+  const auto size = deltasIn.numElements();
+  const auto layerName = "FullyConnected" + std::to_string(size);
   auto bwdNonLinearityCS =
       graph.createComputeSet(layerName + ".bwd.nonLinearity");
-  auto deltasIn = getNextLayer()->getBwdDeltas().flatten();
-
   auto v = graph.addVertex(bwdNonLinearityCS,
-                           templateVertex("NonLinearityBwd",
-                                          getDType()),
-                           {{"deltasIn", deltasIn },
+                           templateVertex("NonLinearityBwd", dType),
+                           {{"deltasIn", deltasIn.flatten() },
                             {"z", z},
                             {"deltasOut", zDeltas},
                            });
   graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
+  return Execute(bwdNonLinearityCS);
+}
 
+Program fullyConnectedBackward(Graph &graph,
+                               IPUModelEngineBuilder::TileMapping &mapping,
+                               DeviceInfo &deviceInfo,
+                               std::string dType,
+                               Tensor zDeltas,
+                               Tensor weights, Tensor deltasOut) {
+  const auto size = zDeltas.numElements();
+  const auto prevSize = weights.dim(1);
+  const auto layerName = "FullyConnected" + std::to_string(size);
   auto bwdCS = graph.createComputeSet(layerName + ".bwd");
-  auto flatDeltas = deltas.flatten();
+  auto flatDeltas = deltasOut.flatten();
   for (unsigned i = 0; i < prevSize; ++i) {
     auto w = weights.slice({0, i}, {size, i+1}).flatten();
-    auto in = getNextLayer()->getBwdDeltas().flatten();
     auto v = graph.addVertex(bwdCS,
-                             templateVertex("FullyConnectedBwd",
-                                            getDType()),
-                             {{"in", zDeltas},
+                             templateVertex("FullyConnectedBwd", dType),
+                             {{"in", zDeltas.flatten()},
                               {"weights", w},
                               {"out", flatDeltas[i]},
                              });
   }
-  return Sequence(Execute(bwdNonLinearityCS), Execute(bwdCS));
+  return Execute(bwdCS);
 }
 
-Program FullyConnectedLayerImpl::
-weightUpdate(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping) {
+Program
+fullyConnectedWeightUpdate(Graph &graph,
+                           IPUModelEngineBuilder::TileMapping &mapping,
+                           DeviceInfo &deviceInfo,
+                           std::string dType,
+                           Tensor zDeltas,
+                           Tensor activations,
+                           Tensor weights, Tensor biases,
+                           float learningRate) {
+  const auto size = zDeltas.numElements();
+  const auto layerName = "FullyConnected" + std::to_string(size);
   auto cs = graph.createComputeSet(layerName + ".weight_update");
   for (unsigned i = 0; i < size; ++i) {
-    auto prev = getPrevLayer()->getFwdActivations().flatten();
+    auto prev = activations.flatten();
     auto v = graph.addVertex(cs,
                              templateVertex("FullyConnectedWeightUpdate",
-                                            getDType()),
+                                            dType),
                              {{"d", zDeltas[i]},
                               {"weights", weights[i]},
                               {"in", prev},
                               {"bias", biases[i]}});
     graph.setInitialValue(v["eta"],
-                          getLearningRate());
+                          learningRate);
   }
 
   return Execute(cs);
 }
+
+
+}
+

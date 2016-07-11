@@ -3,58 +3,114 @@
 #include <poplar/Graph.hpp>
 #include <poplar/CPUEngine.hpp>
 #include <poplar/IPUModelEngine.hpp>
-#include <iostream>
-#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <vector>
-#include "neural_net_common.h"
 #include <map>
-#include <stdexcept>
-#include <cassert>
-#include "Layer.hpp"
-#include "InputLayer.hpp"
-#include "LossLayer.hpp"
+#include <random>
+#include "neural_net_common.h"
+#include "DeviceInfo.hpp"
+#include "ConvReuse.hpp"
+#include "exceptions.hpp"
 
-using namespace poplar;
-using namespace poplar::program;
+class Layer { public: virtual ~Layer() {};};
 
-struct net_creation_error : std::logic_error {
-  std::string type;
-  explicit net_creation_error(const std::string &s) : std::logic_error(s) {
-    type = __FUNCTION__;
-  }
-  explicit net_creation_error(const char *s) : std::logic_error(s) {
-    type = __FUNCTION__;
-  }
+class ConvLayer : public Layer {
+public:
+  unsigned kernelSize;
+  unsigned stride;
+  unsigned padding;
+  unsigned numChannels;
+  NonLinearityType nonLinearityType;
+  ConvLayer(unsigned kernelSize,
+            unsigned stride,
+            unsigned padding,
+            unsigned numChannels,
+            NonLinearityType nonLinearityType) :
+  kernelSize(kernelSize),
+  stride(stride),
+  padding(padding),
+  numChannels(numChannels),
+  nonLinearityType(nonLinearityType) {}
+};
+
+class ConvResLayer : public Layer {
+public:
+  unsigned kernelSize;
+  unsigned stride;
+  unsigned padding;
+  unsigned numChannels;
+  NonLinearityType nonLinearityType;
+  unsigned resIndex;
+  enum ResidualMethod resMethod;
+  ConvResLayer(unsigned kernelSize,
+               unsigned stride,
+               unsigned padding,
+               unsigned numChannels,
+               NonLinearityType nonLinearityType,
+               unsigned resIndex,
+               enum ResidualMethod resMethod) :
+    kernelSize(kernelSize),
+    stride(stride),
+    padding(padding),
+    numChannels(numChannels),
+    nonLinearityType(nonLinearityType),
+    resIndex(resIndex), resMethod(resMethod) {}
+};
+
+
+class MaxPoolLayer : public Layer {
+public:
+  unsigned kernelSize;
+  unsigned stride;
+  unsigned padding;
+  MaxPoolLayer(unsigned kernelSize,
+               unsigned stride,
+               unsigned padding=0) :
+  kernelSize(kernelSize),
+  stride(stride),
+  padding(padding) {}
+};
+
+class FullyConnectedLayer : public Layer {
+public:
+  unsigned size;
+  NonLinearityType nonLinearityType;
+  FullyConnectedLayer(unsigned size,
+                      NonLinearityType nonLinearityType) :
+    size(size), nonLinearityType(nonLinearityType) {}
+};
+
+/* This utility function wraps a vector of normal pointers as unique_ptrs.
+   It allows the hidden layer array to be initializes with an
+   initializer list. */
+static std::vector<std::unique_ptr<Layer>>
+makeLayers(std::vector<Layer *> vs)
+{
+  std::vector<std::unique_ptr<Layer>> xs;
+  for (auto p: vs)
+    xs.push_back(std::unique_ptr<Layer>(p));
+  return xs;
+}
+
+
+enum NetType {
+  TrainingNet,
+  TestOnlyNet
+};
+
+/* A data set full of test and training data along with its dimensions */
+class DataSet {
+public:
+  std::unique_ptr<float[]> testData, trainingData;
+  std::unique_ptr<unsigned[]> testLabels, trainingLabels;
+  unsigned dataSize, numTest, numTraining;
+  std::vector<std::size_t> dim;
 };
 
 enum DType {
   FP16,
   FP32
-};
-
-class IPUMachineInfo {
-public:
-  unsigned dataPathWidth = 64;
-  unsigned convUnitPipelineDepth = 4;
-  unsigned fp16AccumConvUnitsPerTile = 8;
-  unsigned fp32AccumConvUnitsPerTile = 4;
-  bool sharedConvWeights = true;
-
-  unsigned getFloatVectorWidth() const {
-    assert(dataPathWidth % 32 == 0);
-    return dataPathWidth / 32;
-  }
-
-  unsigned getHalfVectorWidth() const {
-    assert(dataPathWidth % 16 == 0);
-    return dataPathWidth / 16;
-  }
-
-  unsigned getInputChannelsPerConvUnit() const {
-    return getHalfVectorWidth() * convUnitPipelineDepth;
-  }
 };
 
 class NetOptions {
@@ -70,7 +126,11 @@ public:
   bool reuseLayerImplGraphs = true;
   bool ignoreData = false;
   bool retainActivations = false;
-  IPUMachineInfo ipuMachineInfo;
+  unsigned dataPathWidth = 64;
+  unsigned convUnitPipelineDepth = 4;
+  unsigned fp16AccumConvUnitsPerTile = 8;
+  unsigned fp32AccumConvUnitsPerTile = 4;
+  bool sharedConvWeights = true;
 };
 
 bool parseCommandLine(int argc, char **argv, NetOptions &options,
@@ -78,77 +138,56 @@ bool parseCommandLine(int argc, char **argv, NetOptions &options,
 
 /* This class represent the entire network. */
 class Net {
-public:
   NetType netType;
   NetOptions options;
 
   unsigned batchSize;
   float eta;
-  std::vector<std::unique_ptr<LayerSpec>> hiddenLayerSpecs;
-  std::vector<std::unique_ptr<Layer>> hiddenLayers;
+  std::vector<std::unique_ptr<Layer>> layers;
 
   /* Poplar program creation state. */
-  std::unique_ptr<GraphProgEnv> env;
-  std::unique_ptr<Graph> graph;
-  std::unique_ptr<InputLayer> inputLayer;
-  std::unique_ptr<LossLayer> lossLayer;
-  std::unique_ptr<EngineBuilder> engineBuilder;
-  std::unique_ptr<IPUModelEngineBuilder> dummyIpuEngineBuilder;
-  std::unique_ptr<Engine> engine;
-
+  std::unique_ptr<poplar::GraphProgEnv> env;
+  std::unique_ptr<poplar::Graph> graph;
+  std::unique_ptr<poplar::EngineBuilder> engineBuilder;
+  std::unique_ptr<DeviceInfo> deviceInfo;
+  std::unique_ptr<poplar::Engine> engine;
+  std::unique_ptr<poplar::IPUModelEngineBuilder::TileMapping> mapping;
   std::unique_ptr<char[]> hAct;
-
+  std::vector<std::unique_ptr<float[]>> hParams;
+  std::mt19937 randomEngine;
   unsigned hIsTraining;
   unsigned numTestBatches;
-
+  unsigned hNumCorrect;
   std::string dType;
 
-  IPUModelEngineBuilder &getIPUModelEngineBuilder() const {
-    if (auto p = dynamic_cast<IPUModelEngineBuilder*>(engineBuilder.get())) {
-      return *p;
-    }
-    return *dummyIpuEngineBuilder;
-  }
-  unsigned getWorkerContextsPerTile() const {
-    return getIPUModelEngineBuilder().getNumWorkerContexts();
-  }
-  unsigned getNumIPUs() const {
-    return getIPUModelEngineBuilder().getNumIPUs();
-  }
-  unsigned getTilesPerIPU() const {
-    return getIPUModelEngineBuilder().getTilesPerIPU();
-  }
+  std::map<ConvImplSpec, ReusableLayer> convImpls;
+  std::vector<poplar::Tensor> acts, z, deltas;
+  std::vector<std::vector<poplar::Tensor>> params;
+  std::uint64_t numFlops;
+  double perfectCycleTime;
 
-  Layer *getPrevLayer(int index) const {
-    assert(index >= 0);
-    if (index == 0)
-      return inputLayer.get();
-    return hiddenLayers[index - 1].get();
-  }
+  poplar::program::Program
+  createConvLayerFwd(unsigned i, unsigned kernelSize, unsigned stride,
+                     unsigned padding, unsigned numChannels,
+                     NonLinearityType nonLinearityType,
+                     unsigned resIndex, ResidualMethod resMethod,
+                     poplar::program::Sequence &initParamsProg);
 
-  Layer *getNextLayer(int index) const {
-    if (index == -1)
-      return hiddenLayers[0].get();
-    assert(index < hiddenLayers.size());
-    if (index == hiddenLayers.size() - 1)
-      return lossLayer.get();
-    return hiddenLayers[index + 1].get();
-  }
+  void outputConvDescription(unsigned inDimY, unsigned inDimX,
+                             unsigned inNumChans,
+                             unsigned kernelSize, unsigned stride,
+                             unsigned padding, unsigned outNumChans,
+                             bool doResidual);
 
-  const std::string &getDType() const { return dType; }
+  void outputDescription(const Layer *layer, poplar::Tensor in);
 
-  float getLearningRate() const { return eta; }
+  void initialize(DataSet &dataSet, LossType lossType);
 
-  unsigned getBatchSize() const { return batchSize; }
-
-  enum NetType getNetType() const { return netType; }
-
-  void initialize(DataSet &data, LossType lossType);
-
+public:
   /* When a Net object is constructed the corrensponding poplar graph is
      made */
   Net(DataSet &data, unsigned batchSize,
-      std::vector<std::unique_ptr<LayerSpec>> &hiddenLayerSpecs,
+      std::vector<std::unique_ptr<Layer>> &layers,
       LossType lossType,
       float learningRate,
       NetType netType,
@@ -156,7 +195,7 @@ public:
       NetOptions options = NetOptions());
 
   Net(DataSet &data, unsigned batchSize,
-      std::vector<std::unique_ptr<LayerSpec>> &&hiddenLayerSpecs,
+      std::vector<std::unique_ptr<Layer>> &&layers,
       LossType lossType,
       float learningRate,
       NetType netType,

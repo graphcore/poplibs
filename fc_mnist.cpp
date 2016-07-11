@@ -1,6 +1,5 @@
 #include <initializer_list>
 #include "Net.hpp"
-#include "FullyConnectedLayer.hpp"
 #include "mnist.h"
 
 #define LARGE_DNN_MODEL 0

@@ -22,13 +22,12 @@ ${OBJDIR}/%.o: %.cpp Makefile ${wildcard *.hpp} ${wilcard *.h} | ${OBJDIR}/
 	${CXX} -march=native -ffast-math ${FLAGS} -c -std=c++11 $< -o $@
 
 COMMON_OBJ = \
+	${OBJDIR}/ActivationMapping.o \
 	${OBJDIR}/ConvUtil.o \
-	${OBJDIR}/ConvLayer.o \
-	${OBJDIR}/FullyConnectedLayer.o \
-	${OBJDIR}/InputLayer.o \
-	${OBJDIR}/Layer.o \
-	${OBJDIR}/LossLayer.o \
-	${OBJDIR}/MaxPoolLayer.o \
+	${OBJDIR}/ConvPlan.o \
+	${OBJDIR}/Convolution.o \
+	${OBJDIR}/MaxPool.o \
+	${OBJDIR}/FullyConnected.o \
 	${OBJDIR}/Net.o
 
 COMMON_LIBS = \

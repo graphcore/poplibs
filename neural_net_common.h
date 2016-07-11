@@ -12,9 +12,12 @@ enum LossType {
   SOFTMAX_CROSS_ENTROPY_LOSS
 };
 
-enum NormalizationType {
-  NORMALIZATION_NONE,
-  NORMALIZATION_LR
+enum ResidualMethod {
+  RESIDUAL_NONE,
+  RESIDUAL_PAD,
+  RESIDUAL_WEIGHTED_CONV_IF_SIZES_DIFFER,
+  RESIDUAL_WEIGHTED_CONV
 };
+
 
 #endif // _neural_net_common_h_

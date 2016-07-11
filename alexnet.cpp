@@ -1,8 +1,5 @@
 #include <initializer_list>
 #include "Net.hpp"
-#include "FullyConnectedLayer.hpp"
-#include "ConvLayer.hpp"
-#include "MaxPoolLayer.hpp"
 
 int main(int argc, char **argv) {
   DataSet IMAGENET;
@@ -32,18 +29,13 @@ int main(int argc, char **argv) {
   Net net(IMAGENET,
           1, // batch size
           makeLayers({
-            new ConvLayer(11, 4, 3, 64,
-                          NON_LINEARITY_RELU, NORMALIZATION_LR),
+            new ConvLayer(11, 4, 3, 64, NON_LINEARITY_RELU),
             new MaxPoolLayer(3, 2),
-            new ConvLayer(5, 1, 2, 192,
-                          NON_LINEARITY_RELU, NORMALIZATION_LR),
+            new ConvLayer(5, 1, 2, 192, NON_LINEARITY_RELU),
             new MaxPoolLayer(3, 2),
-            new ConvLayer(3, 1, 1, 384, NON_LINEARITY_RELU,
-                          NORMALIZATION_NONE),
-            new ConvLayer(3, 1, 1, 256, NON_LINEARITY_RELU,
-                          NORMALIZATION_NONE),
-            new ConvLayer(3, 1, 1, 256, NON_LINEARITY_RELU,
-                          NORMALIZATION_NONE),
+            new ConvLayer(3, 1, 1, 384, NON_LINEARITY_RELU),
+            new ConvLayer(3, 1, 1, 256, NON_LINEARITY_RELU),
+            new ConvLayer(3, 1, 1, 256, NON_LINEARITY_RELU),
             new MaxPoolLayer(3, 2),
             new FullyConnectedLayer(2048*2, NON_LINEARITY_RELU),
             new FullyConnectedLayer(2048*2, NON_LINEARITY_RELU),
