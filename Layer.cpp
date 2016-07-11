@@ -65,7 +65,13 @@ void Layer::mapComputeSet(const Graph &graph, ComputeSet c,
 
 std::vector<unsigned> Layer::computeActivationsMapping(Tensor act) {
   const auto numActivations = act.numElements();
-  const auto chansPerGroup = act.dim(3);
+  unsigned chansPerGroup;
+  if (act.getDimensionality() == 1) {
+    chansPerGroup = 1;
+  } else {
+    assert(act.getDimensionality() == 4);
+    chansPerGroup = act.dim(3);
+  }
   const auto numTiles = getTilesPerIPU() * getNumIPUs();
   std::vector<unsigned> mapping;
   mapping.reserve(numTiles + 1);

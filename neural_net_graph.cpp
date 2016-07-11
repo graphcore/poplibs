@@ -67,39 +67,6 @@ static float nonlinearity_derivative(NonLinearityType t, float x) {
 /****************************************************************************/
 
 template <typename FPType>
-class FullyConnected : public Vertex {
-public:
-  Input<Vector<FPType>> activationIn;
-  Input<Vector<FPType>> weights;
-  Input<FPType> bias;
-  NonLinearityType nonLinearityType;
-  Output<FPType> zOut;
-  Output<FPType> activationOut;
-
-  SimOnlyField<unsigned> dataPathWidth;
-
-  bool compute() {
-    float sum = 0;
-    for (unsigned i = 0; i < activationIn.size(); ++i) {
-      sum += activationIn[i] * weights[i];
-    }
-    sum += *bias;
-    *zOut = sum;
-    *activationOut = nonlinearity(nonLinearityType, sum);
-    return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    bool isFloat = std::is_same<FPType, float>::value;
-    return 20 + getDenseDotProductCycles(isFloat, activationIn.size(),
-                                         dataPathWidth);
-  }
-};
-
-template class FullyConnected<float>;
-template class FullyConnected<half>;
-
-template <typename FPType>
 class FullyConnectedPartial : public Vertex {
 public:
   Input<Vector<FPType>> in;

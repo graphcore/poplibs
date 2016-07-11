@@ -90,10 +90,9 @@ init(Graph &graph, std::mt19937 &randomEngine,
   biases = graph.addTensor(dType, {size}, makeLayerName("biases"));
   z = graph.addTensor(dType, {size}, makeLayerName("z"));
   activations = graph.addTensor(dType, {size}, makeLayerName("activations"));
-  mapTensor(biases, mapping);
-  mapTensor(z, mapping);
-  mapTensor(activations, mapping);
-  // weights mapped in forward()
+  mapActivations(z, mapping);
+  mapActivations(activations, mapping);
+  // weights, biases mapped in forward()
   if (getNetType() == TrainingNet) {
     zDeltas = graph.addTensor(dType, z.dims(), makeLayerName("zDeltas"));
     deltas = graph.addTensor(dType, prev->getFwdActivations().dims(),
@@ -126,30 +125,32 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping) {
   // It turns out that, at least up to 16 IPUs, it is better to always keep
   // all row elements on the same IPU to avoid the need for an extra sync.
   const auto numIPUs = getNumIPUs();
-  const auto maxRowsPerTile = (numRows + numIPUs - 1) / numIPUs;
-
+  const auto tilesPerIPU = getTilesPerIPU();
+  auto activationsMapping = computeActivationsMapping(activations);
+  unsigned maxRowsPerIPU = 0;
+  for (unsigned ipu = 0; ipu != numIPUs; ++ipu) {
+    const auto ipuBeginRow = activationsMapping[ipu * tilesPerIPU];
+    const auto ipuEndRow = activationsMapping[(ipu + 1) * tilesPerIPU];
+    const auto rows = ipuEndRow - ipuBeginRow;
+    maxRowsPerIPU = std::max(maxRowsPerIPU, rows);
+  }
   bool isFloat = dType == "float";
   assert(isFloat || dType == "half");
-  const auto tilesPerIPU = getTilesPerIPU();
   auto ipuPartition =
-      choosePartition(getIPUModelEngineBuilder(), isFloat, maxRowsPerTile,
+      choosePartition(getIPUModelEngineBuilder(), isFloat, maxRowsPerIPU,
                       numCols, tilesPerIPU, getNetOptions().ipuMachineInfo);
 
-  ComputeSet dotProductCS = graph.createComputeSet(layerName + ".fwd");
-  ComputeSet reduceCS;
-  Tensor partials;
-  if (ipuPartition.tilesPerRow > 1) {
-     reduceCS = graph.createComputeSet(layerName + ".fwd.reduce");
-     partials = graph.addTensor("float", {numRows, ipuPartition.tilesPerRow}, 
-                                makeLayerName("partials"));
-  }
+  Tensor partials = graph.addTensor("float", {numRows, ipuPartition.tilesPerRow},
+                                    makeLayerName("partials"));
+  auto forwardProg = Sequence();
 
-  for (unsigned i = 0; i != numRows; ++i) {
-    const auto ipu = (i * numIPUs) / numRows;
-    const auto ipuBeginRow = (numRows * ipu) / numIPUs;
-    const auto ipuEndRow = (numRows * (ipu + 1)) / numIPUs;
+  ComputeSet dotProductCS = graph.createComputeSet(layerName + ".fwd");
+  forwardProg.add(Execute(dotProductCS));
+  for (unsigned ipu = 0; ipu != numIPUs; ++ipu) {
+    const auto ipuBeginRow = activationsMapping[ipu * tilesPerIPU];
+    const auto ipuEndRow = activationsMapping[(ipu + 1) * tilesPerIPU];
     const auto ipuRows = ipuEndRow - ipuBeginRow;
-    if (ipuPartition.tilesPerRow > 1) {
+    for (unsigned i = ipuBeginRow; i != ipuEndRow; ++i) {
       const auto tileY = ((i - ipuBeginRow) * ipuPartition.tilesPerColumn) /
                          ipuRows;
       for (unsigned j = 0; j != ipuPartition.tilesPerRow; ++j) {
@@ -157,32 +158,32 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping) {
         const auto tile = ipu * tilesPerIPU +
                           tileY * ipuPartition.tilesPerRow +
                           tileX;
-        if (ipuPartition.tilesPerRow > 1) {
-          const auto beginElement =
-              (numCols * j) / ipuPartition.tilesPerRow;
-          const auto endElement =
-              (numCols * (j + 1)) / ipuPartition.tilesPerRow;
-          Tensor partialIn = in.slice(beginElement, endElement);
-          Tensor partialWeights = weights[i].slice(beginElement, endElement);
-          auto v =
-              graph.addVertex(dotProductCS,
-                              templateVertex("FullyConnectedPartial", getDType()),
-                              {{"in", partialIn},
-                               {"weights", partialWeights},
-                               {"out", partials[i][j]}});
-          graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-          mapping.setMapping(partialWeights, tile);
-          mapping.setMapping(partials[i][j], tile);
-          mapping.setMapping(v, tile);
-        }
+        const auto beginElement =
+            (numCols * j) / ipuPartition.tilesPerRow;
+        const auto endElement =
+            (numCols * (j + 1)) / ipuPartition.tilesPerRow;
+        Tensor partialIn = in.slice(beginElement, endElement);
+        Tensor partialWeights = weights[i].slice(beginElement, endElement);
+        auto v =
+            graph.addVertex(dotProductCS,
+                            templateVertex("FullyConnectedPartial", getDType()),
+                            {{"in", partialIn},
+                             {"weights", partialWeights},
+                             {"out", partials[i][j]}});
+        graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
+        mapping.setMapping(partialWeights, tile);
+        mapping.setMapping(partials[i][j], tile);
+        mapping.setMapping(v, tile);
       }
     }
-    const auto resultTile = (i * getNumIPUs() * getTilesPerIPU()) /
-                            numRows;
-    mapping.setMapping(biases[i], resultTile);
-    mapping.setMapping(z[i], resultTile);
-    mapping.setMapping(activations[i], resultTile);
-    if (ipuPartition.tilesPerRow > 1) {
+  }
+  ComputeSet reduceCS = graph.createComputeSet(layerName + ".fwd.reduce");
+  forwardProg.add(Execute(reduceCS));
+  const auto numTiles = numIPUs * tilesPerIPU;
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    const auto activationsBegin = activationsMapping[tile];
+    const auto activationsEnd = activationsMapping[tile + 1];
+    for (unsigned i = activationsBegin; i != activationsEnd; ++i) {
       // Sum the partial sums.
       auto v =
           graph.addVertex(reduceCS,
@@ -194,26 +195,11 @@ forward(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping) {
                            {"activationOut", activations[i]}});
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
-      mapping.setMapping(v, resultTile);
-    } else {
-      auto v =
-          graph.addVertex(dotProductCS,
-                          templateVertex("FullyConnected", getDType()),
-                          {{"activationIn", in},
-                           {"weights", weights[i]},
-                           {"bias", biases[i]},
-                           {"zOut", z[i]},
-                           {"activationOut", activations[i]}});
-      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-      graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
-      mapping.setMapping(v, resultTile);
-      mapping.setMapping(weights[i], resultTile);
+      mapping.setMapping(v, tile);
+      mapping.setMapping(biases[i], tile);
     }
   }
-  if (ipuPartition.tilesPerRow > 1) {
-    return Sequence(Execute(dotProductCS), Execute(reduceCS));
-  }
-  return Sequence(Execute(dotProductCS));
+  return forwardProg;
 }
 
 Program FullyConnectedLayerImpl::
