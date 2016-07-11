@@ -27,16 +27,8 @@ public:
     return activations;
   }
 
-  Tensor getFwdZs() const override {
-    return z;
-  }
-
   Tensor getBwdDeltas() const override {
     return deltas;
-  }
-
-  NonLinearityType getNonLinearityType() const override {
-    return nonLinearityType;
   }
 
   void describe(std::ostream &out) override;

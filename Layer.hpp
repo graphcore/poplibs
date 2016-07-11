@@ -80,10 +80,6 @@ public:
   /// cycle.
   virtual double getPerfectCycleCount() = 0;
   virtual Tensor getFwdActivations() const = 0;
-  virtual Tensor getFwdZs() const = 0;
-  virtual NonLinearityType getNonLinearityType() const {
-    return NON_LINEARITY_NONE;
-  };
   virtual Tensor getBwdDeltas() const = 0;
 
   // Called if the previous layer provides a 3D volume as output.

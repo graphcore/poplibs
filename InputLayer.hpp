@@ -5,7 +5,7 @@
 
 class InputLayer : public Layer {
   DataSet &data;
-  Tensor out, z;
+  Tensor out;
 public:
   InputLayer(const Net &net, int index, DataSet &data) :
     Layer(net, index), data(data) {}
@@ -42,7 +42,6 @@ public:
   std::uint64_t getNumberOfFlops() override { return 0; }
   virtual double getPerfectCycleCount() override { return 0.0; }
   Tensor getFwdActivations() const override { return out; }
-  Tensor getFwdZs() const override { return out; }
   Tensor getBwdDeltas() const override { return {}; }
 };
 

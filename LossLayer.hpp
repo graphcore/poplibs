@@ -51,7 +51,6 @@ public:
   std::uint64_t getNumberOfFlops() override { return 0; }
   virtual double getPerfectCycleCount() override { return 0.0; }
   Tensor getFwdActivations() const override { return {}; }
-  Tensor getFwdZs() const override { return {}; }
   Tensor getBwdDeltas() const override { return deltas; }
 };
 
