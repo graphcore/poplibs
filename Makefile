@@ -26,6 +26,7 @@ COMMON_OBJ = \
 	${OBJDIR}/ActivationMapping.o \
 	${OBJDIR}/ConvUtil.o \
 	${OBJDIR}/ConvPlan.o \
+        ${OBJDIR}/ConvReuse.o \
 	${OBJDIR}/Convolution.o \
 	${OBJDIR}/MaxPool.o \
 	${OBJDIR}/FullyConnected.o \
