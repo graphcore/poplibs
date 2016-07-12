@@ -271,9 +271,9 @@ public:
       }
     }
     assert(convNum == out.size());
-    return getConvPartial1x1CycleEstimate(convolutionsByWeight,
-                                          convUnitPipelineDepth,
-                                          numConvUnitsPerTile);
+    return getConvPartial1x1CycleWorkerEstimate(convolutionsByWeight,
+                                                convUnitPipelineDepth,
+                                                numConvUnitsPerTile);
   }
 };
 
@@ -494,83 +494,108 @@ public:
   Vector<Input<Vector<half>>> in;
   Input<Vector<half>> weights;
   Vector<Output<Vector<AccumType>>> out;
+  Vector<unsigned> weightReuseCount;
 
   SimOnlyField<unsigned> dataPathWidth;
   SimOnlyField<unsigned> inChansPerGroup;
   SimOnlyField<unsigned> outChansPerGroup;
 
   bool compute() {
-    assert(out[0].size() % outChansPerGroup == 0);
-    const auto outWidth = out[0].size() / outChansPerGroup;
-    const auto outHeight = out.size();
-    assert(in[0].size() % inChansPerGroup == 0);
-    const auto inWidth = in[0].size() / inChansPerGroup;
-    const auto stride = (inWidth + outWidth - 1) / outWidth;
-    assert((inWidth + stride - 1) / stride == outWidth);
-
-    assert(in.size() % outHeight == 0);
-    unsigned numInChanGroups = in.size() / outHeight;
-
-    assert(weights.size() ==
-           numInChanGroups * outChansPerGroup * inChansPerGroup);
-
-    for (auto &v : out) {
-      for (auto &o : v) {
-        o = 0.0;
-      }
-    }
+    unsigned numContexts = weightReuseCount.size();
+    assert(weights.size() % (inChansPerGroup * outChansPerGroup) == 0);
+    const auto numInChanGroups =
+        weights.size() / (inChansPerGroup * outChansPerGroup);
+    assert(in.size() == out.size());
+    unsigned conv = 0;
     for (unsigned inChanGroup = 0; inChanGroup != numInChanGroups;
          ++inChanGroup) {
-      for (unsigned y = 0; y != outHeight; ++y) {
-        for (unsigned x = 0; x != outWidth; ++x) {
-          for (unsigned inChanIndex = 0; inChanIndex != inChansPerGroup;
-               ++inChanIndex) {
+      for (unsigned context = 0; context < numContexts; ++context) {
+        unsigned endConv = conv + weightReuseCount[context];
+        for (;conv != endConv; ++conv) {
+          assert(out[conv].size() % outChansPerGroup == 0);
+          const auto outWidth = out[conv].size() / outChansPerGroup;
+          assert(in[conv].size() % inChansPerGroup == 0);
+          const auto inWidth = in[conv].size() / inChansPerGroup;
+          const auto stride = (inWidth + outWidth - 1) / outWidth;
+          assert((inWidth + stride - 1) / stride == outWidth);
+          for (unsigned x = 0; x != outWidth; ++x) {
             for (unsigned outChanIndex = 0; outChanIndex != outChansPerGroup;
                  ++outChanIndex) {
               const auto outIndex = outChanIndex + outChansPerGroup * x;
-              const auto weightIndex =
-                  inChanIndex + inChansPerGroup * (
-                    outChanIndex + outChansPerGroup * (
-                      inChanGroup
-                    )
-                  );
-              const auto inIndex = inChanIndex + inChansPerGroup * x * stride;
-              out[y][outIndex] += weights[weightIndex] *
-                                  in[y][inIndex];
+              if (inChanGroup == 0)
+                out[conv][outIndex] = 0;
+              float sum = 0;
+              for (unsigned inChanIndex = 0; inChanIndex != inChansPerGroup;
+                   ++inChanIndex) {
+                const auto weightIndex =
+                    inChanIndex + inChansPerGroup * (
+                      outChanIndex + outChansPerGroup * (
+                        inChanGroup
+                      )
+                    );
+                const auto inIndex = inChanIndex + inChansPerGroup * x * stride;
+                sum += weights[weightIndex] * in[conv][inIndex];
+              }
+              out[conv][outIndex] += sum;
             }
           }
         }
       }
     }
+    assert(conv == out.size());
     return true;
   }
 
   uint64_t getCycleEstimate() const {
-    assert(out[0].size() % outChansPerGroup == 0);
-    const auto outWidth = out[0].size() / outChansPerGroup;
-    const auto outHeight = out.size();
-    assert(in[0].size() % inChansPerGroup == 0);
-    const auto inWidth = in[0].size() / inChansPerGroup;
-    const auto stride = (inWidth + outWidth - 1) / outWidth;
-    assert((inWidth + stride - 1) / stride == outWidth);
-
-    assert(in.size() % outHeight == 0);
-    unsigned numInChanGroups = in.size() / outHeight;
-
     bool isSupervisorVertex = std::is_same<Base, SupervisorVertex>::value;
-
+    const auto numContexts = weightReuseCount.size();
     const auto numConvUnitsPerTile = outChansPerGroup;
     assert(dataPathWidth % 16 == 0);
     const auto halfVectorWidth = dataPathWidth / 16;
     assert(inChansPerGroup % halfVectorWidth == 0);
     const auto convUnitPipelineDepth = inChansPerGroup / halfVectorWidth;
-    return getConvPartial1x1CycleEstimate(1 /*kernelWidth*/,
-                                          numInChanGroups,
-                                          outHeight,
-                                          outWidth,
-                                          convUnitPipelineDepth,
-                                          numConvUnitsPerTile,
-                                          isSupervisorVertex);
+    if (isSupervisorVertex) {
+      std::vector<std::vector<std::vector<unsigned>>>
+          convolutionsByWeightAndWorker;
+      const auto numInChanGroups =
+          weights.size() / (inChansPerGroup * outChansPerGroup);
+      unsigned convNum = 0;
+      for (unsigned inChanGroup = 0; inChanGroup != numInChanGroups;
+           ++inChanGroup) {
+        convolutionsByWeightAndWorker.emplace_back();
+        auto &convolutionsByWeight = convolutionsByWeightAndWorker.back();
+        for (unsigned c = 0; c != numContexts; ++c) {
+          convolutionsByWeight.emplace_back();
+          for (unsigned i = 0; i != weightReuseCount[c];
+               ++i) {
+            convolutionsByWeight.back().push_back(out[convNum].size() /
+                                                  outChansPerGroup);
+            ++convNum;
+          }
+        }
+      }
+      assert(convNum == out.size());
+      return getConvPartial1x1SupervisorCycleEstimate(
+        convolutionsByWeightAndWorker,
+        convUnitPipelineDepth,
+        numConvUnitsPerTile
+      );
+    }
+    assert(numContexts == 1);
+    std::vector<std::vector<unsigned>> convolutionsByWeight(1);
+    unsigned convNum = 0;
+    for (unsigned w = 0; w != weights.size(); ++w) {
+      convolutionsByWeight.emplace_back();
+      for (unsigned i = 0; i != weightReuseCount[w]; ++i) {
+        convolutionsByWeight.back().push_back(out[convNum].size() /
+                                              outChansPerGroup);
+        ++convNum;
+      }
+    }
+    assert(convNum == out.size());
+    return getConvPartial1x1CycleWorkerEstimate(convolutionsByWeight,
+                                                convUnitPipelineDepth,
+                                                numConvUnitsPerTile);
   }
 };
 

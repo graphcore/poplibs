@@ -1,6 +1,7 @@
 #ifndef _ConvUtil_hpp_
 #define _ConvUtil_hpp_
 #include <tuple>
+#include <vector>
 
 /// A collection of utility functions to assist calculation of input/output
 /// ranges when moving a 2-dimensional kernel over a larger 2-dimensional
@@ -43,5 +44,22 @@ getKernelRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
 std::pair<unsigned, unsigned>
 getKernelRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
                unsigned kernelSize, unsigned padding, unsigned inputSize);
+
+
+struct PartialRow {
+  unsigned rowNumber;
+  unsigned begin;
+  unsigned end;
+  PartialRow(unsigned rowNumber, unsigned begin, unsigned end) :
+    rowNumber(rowNumber),
+    begin(begin),
+    end(end) {}
+};
+
+std::vector<std::vector<PartialRow>>
+partitionConvPartialByWorker(
+    unsigned numConvolutions,
+    unsigned convSize,
+    unsigned numContexts);
 
 #endif // _ConvUtil_hpp_

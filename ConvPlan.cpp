@@ -84,6 +84,50 @@ getMaxInputRangeSize(unsigned outputRangeSize, unsigned stride,
 }
 
 static std::uint64_t
+getConvPartial1x1CycleEstimate(unsigned kernelWidth,
+                               unsigned inputGroupsPerOutput,
+                               unsigned outputHeight,
+                               unsigned outputWidth,
+                               unsigned convUnitPipelineDepth,
+                               unsigned numConvUnitsPerTile,
+                               bool useSupervisorVertices)
+{
+  if (useSupervisorVertices) {
+    std::vector<std::vector<std::vector<unsigned>>> convSizesByWeightAndWorker;
+    for (unsigned i = 0; i != inputGroupsPerOutput * kernelWidth; ++i) {
+      const auto numWorkerContexts = 6;
+      std::vector<std::vector<PartialRow>> partition =
+          partitionConvPartialByWorker(outputHeight, outputWidth,
+                                       numWorkerContexts);
+      convSizesByWeightAndWorker.emplace_back();
+      convSizesByWeightAndWorker.back().reserve(partition.size());
+      for (const auto &entry : partition) {
+        convSizesByWeightAndWorker.back().emplace_back();
+        convSizesByWeightAndWorker.back().back().reserve(entry.size());
+        for (const auto &partialRow : entry) {
+          convSizesByWeightAndWorker.back().back().push_back(partialRow.end -
+                                                             partialRow.begin);
+        }
+      }
+    }
+    return getConvPartial1x1SupervisorCycleEstimate(convSizesByWeightAndWorker,
+                                                    convUnitPipelineDepth,
+                                                    numConvUnitsPerTile);
+  }
+  std::vector<std::vector<unsigned>> convSizesByWeight;
+  for (unsigned i = 0; i != inputGroupsPerOutput * kernelWidth; ++i) {
+    convSizesByWeight.emplace_back();
+    for (unsigned j = 0; j != outputHeight; ++j) {
+      convSizesByWeight.back().push_back(outputWidth);
+    }
+  }
+  return getConvPartial1x1CycleWorkerEstimate(convSizesByWeight,
+                                              convUnitPipelineDepth,
+                                              numConvUnitsPerTile);
+}
+
+
+static std::uint64_t
 getConvPartialCycleEstimate(bool floatActivations, bool floatPartials,
                             unsigned inChansPerGroup,
                             unsigned stride, unsigned kernelWidth,

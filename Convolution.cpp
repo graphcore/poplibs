@@ -319,6 +319,8 @@ forwardTile(Graph &graph,
 
   if (plan.useConvolutionInstruction && kernelSize == 1) {
     const auto inZGroups = tileInZGroupEnd - tileInZGroupBegin;
+    const auto contextsPerVertex =
+        deviceInfo.sharedConvWeights ? deviceInfo.getNumWorkerContexts() : 1;
     for (unsigned ozg = tileOutZGroupBegin; ozg != tileOutZGroupEnd; ++ozg) {
       for (unsigned vy = 0; vy != verticesPerY; ++vy) {
         const auto outYBegin =
@@ -328,68 +330,106 @@ forwardTile(Graph &graph,
         const auto outHeight = outYEnd - outYBegin;
         if (outHeight == 0)
           continue;
-        unsigned inYBegin, inYEnd, inXBegin, inXEnd;
-        std::tie(inYBegin, inYEnd) =
-            getInputRange({outYBegin, outYEnd}, stride, kernelSize,
-                          padding, inDimY);
-        std::tie(inXBegin, inXEnd) =
-            getInputRange({tileOutXBegin, tileOutXEnd}, stride,
-                          kernelSize, padding, inDimX);
-        // Window into previous layer.
-        const auto inWidth = inXEnd - inXBegin;
-        const auto inHeight = inYEnd - inYBegin;
-        Tensor inWindow =
-            in.slice(
-              {tileInZGroupBegin, inYBegin, inXBegin, 0},
-              {tileInZGroupEnd, inYEnd, inXEnd, inChansPerGroup}
-            ).reshape({inHeight * inZGroups,
-                       inWidth * inChansPerGroup});
+        // Add the vertex.
+        const char *baseClass =
+            deviceInfo.sharedConvWeights ? "poplar::SupervisorVertex" :
+                                           "poplar::Vertex";
         Tensor w =
             weights[ozg].slice(
               {tileInZGroupBegin, 0, 0, 0, 0},
               {tileInZGroupEnd, 1, 1, outChansPerGroup, inChansPerGroup}
             ).flatten();
-        Tensor outWindow =
-            out[ozg].slice(
-              {outYBegin, tileOutXBegin, 0},
-              {outYEnd, tileOutXEnd, outChansPerGroup}
-            ).reshape({outHeight, tileOutWidth * outChansPerGroup});
-        if (stride == 1 && tileOutWidth == outDimX && inWidth == inDimX) {
-          // If input rows are contiguous we can flatten the x and y dimensions,
-          // reducing the number of in edge pointers.
-          inWindow =
-              inWindow.reshape({inZGroups, inHeight * inWidth *
-                                inChansPerGroup});
-          outWindow =
-              outWindow.reshape({1, outHeight * tileOutWidth *
-                                 outChansPerGroup});
-        }
-        // Add the vertex.
-        const char *baseClass =
-            deviceInfo.sharedConvWeights ? "poplar::SupervisorVertex" :
-                                           "poplar::Vertex";
         auto v = graph.addVertex(
           fwdCS,
           templateVertex("ConvPartial1x1Out", baseClass, partialType),
-          {{"weights", w}, {"out", outWindow}}
+          {{"weights", w}}
         );
         graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
         graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
         graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
-        if (stride == 1) {
-          graph.connect(v["in"], inWindow);
+        std::vector<std::vector<PartialRow>> workerPartition;
+        bool mergeRows =
+            stride == 1 && tileOutWidth == outDimX && tileOutWidth == outDimX;
+        if (mergeRows) {
+          workerPartition =
+              partitionConvPartialByWorker(1, outHeight * tileOutWidth,
+                                           contextsPerVertex);
         } else {
-          for (unsigned i = 0; i != inZGroups; ++i) {
-            for (unsigned j = 0; j != outHeight; ++j) {
-              graph.connect(v["in"][j + i * outHeight],
-                           inWindow[stride * j + i * inHeight]);
+          workerPartition =
+              partitionConvPartialByWorker(outHeight, tileOutWidth,
+                                           contextsPerVertex);
+        }
+        graph.setFieldSize(v["weightReuseCount"], contextsPerVertex);
+        for (unsigned i = 0; i != contextsPerVertex; ++i) {
+          graph.setInitialValue(
+            v["weightReuseCount"][i],
+            static_cast<std::uint32_t>(workerPartition[i].size())
+          );
+        }
+        unsigned numConvolutions = 0;
+        for (unsigned izg = tileInZGroupBegin; izg != tileInZGroupEnd; ++izg) {
+          for (unsigned i = 0; i != contextsPerVertex; ++i) {
+            for (const auto &partialRow : workerPartition[i]) {
+              if (mergeRows) {
+                assert(tileOutXBegin == 0);
+                const auto workerOutBegin = partialRow.begin;
+                const auto workerOutEnd = partialRow.end;
+                assert(inDimX == outDimX && inDimY == outDimY);
+                Tensor inWindow =
+                    in[izg].slice({tileOutYBegin, 0, 0},
+                                  {tileOutYEnd, inDimX, inChansPerGroup})
+                           .reshape({tileOutHeight * inDimX, inChansPerGroup})
+                           .slice({workerOutBegin, 0},
+                                  {workerOutEnd, inChansPerGroup})
+                           .flatten();
+                Tensor outWindow =
+                    out[ozg].slice({tileOutYBegin, 0, 0},
+                                   {tileOutYEnd, outDimX, outChansPerGroup})
+                            .reshape({tileOutHeight * outDimX,
+                                      outChansPerGroup})
+                            .slice({workerOutBegin, 0},
+                                   {workerOutEnd, outChansPerGroup})
+                            .flatten();
+                mapping.setMapping(outWindow, tile);
+                graph.connect(v["in"][numConvolutions], inWindow);
+                graph.connect(v["out"][numConvolutions], outWindow);
+                ++numConvolutions;
+              } else {
+                const auto workerOutY = outYBegin + partialRow.rowNumber;
+                const auto workerOutXBegin = tileOutXBegin + partialRow.begin;
+                const auto workerOutXEnd = tileOutXBegin + partialRow.end;
+                const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
+                const auto workerInY =
+                  getInputIndex(workerOutY, stride, kernelSize,
+                                padding, inDimY, 0);
+                assert(workerInY != ~0U);
+                unsigned workerInXBegin, workerInXEnd;
+                std::tie(workerInXBegin, workerInXEnd) =
+                    getInputRange({workerOutXBegin, workerOutXEnd}, stride,
+                                  kernelSize, padding, inDimX);
+                const auto workerInWidth = workerInXEnd - workerInXBegin;
+                Tensor inWindow =
+                    in[izg][workerInY].slice(
+                        {workerInXBegin, 0},
+                        {workerInXEnd, inChansPerGroup}
+                    ).reshape({workerInWidth * inChansPerGroup});
+                Tensor outWindow =
+                    out[ozg][workerOutY].slice(
+                        {workerOutXBegin, 0},
+                        {workerOutXEnd, outChansPerGroup}
+                    ).reshape({workerOutWidth * outChansPerGroup});
+                mapping.setMapping(outWindow, tile);
+                graph.connect(v["in"][numConvolutions], inWindow);
+                graph.connect(v["out"][numConvolutions], outWindow);
+                ++numConvolutions;
+              }
             }
           }
-          graph.setFieldSize(v["in"], inZGroups * outHeight);
         }
+        graph.setFieldSize(v["in"], numConvolutions);
+        graph.setFieldSize(v["out"], numConvolutions);
         // Map the vertex and output.
         mapping.setMapping(v, tile);
-        mapping.setMapping(outWindow, tile);
       }
     }
   } else if (plan.useConvolutionInstruction) {

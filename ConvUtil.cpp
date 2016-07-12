@@ -121,3 +121,30 @@ getKernelRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
                      inputSize).second;
   return {begin, end};
 }
+
+std::vector<std::vector<PartialRow>>
+partitionConvPartialByWorker(
+    unsigned numConvolutions,
+    unsigned convSize,
+    unsigned numContexts) {
+  std::vector<std::vector<PartialRow>> partitionByWorker;
+  partitionByWorker.reserve(numContexts);
+  const auto numElements = numConvolutions * convSize;
+  for (unsigned i = 0; i != numContexts; ++i) {
+    partitionByWorker.emplace_back();
+    const auto beginElement = (i * numElements) / numContexts;
+    const auto endElement = ((i + 1) * numElements) / numContexts;
+    if (beginElement == endElement)
+      continue;
+    const auto beginRow = beginElement / convSize;
+    const auto endRow = 1 + (endElement - 1) / convSize;
+    for (unsigned j = beginRow; j != endRow; ++j) {
+      unsigned beginIndex = j == beginRow ? beginElement % convSize :
+                                            0;
+      unsigned endIndex = j + 1 == endRow ? 1 + (endElement - 1) % convSize :
+                                            convSize;
+      partitionByWorker.back().emplace_back(j, beginIndex, endIndex);
+    }
+  }
+  return partitionByWorker;
+}
