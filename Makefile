@@ -1,4 +1,5 @@
 FLAGS=-O3 -g
+HOST_FLAGS=${FLAGS} -ftemplate-depth=512
 BINDIR = bin
 OBJDIR = obj
 
@@ -19,7 +20,7 @@ ${OBJDIR}/neural_net_graph.ppo: neural_net_graph.cpp ${NEURAL_NET_GRAPH_HEADERS}
 	popc -I. ${FLAGS} $< -o $@
 
 ${OBJDIR}/%.o: %.cpp Makefile ${wildcard *.hpp} ${wilcard *.h} | ${OBJDIR}/
-	${CXX} -march=native -ffast-math ${FLAGS} -c -std=c++11 $< -o $@
+	${CXX} ${HOST_FLAGS} -c -std=c++11 $< -o $@
 
 COMMON_OBJ = \
 	${OBJDIR}/ActivationMapping.o \
