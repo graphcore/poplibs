@@ -131,7 +131,7 @@ def create_report(runs, filename, param_info, arch_explore):
         for layer in alexnet_1_ipu[1:]:
             layer_id_components = layer['Layer ID'].split('.')
             this_layer_name = layer_id_components[0]
-            if len(layer_id_components) <= 2 and (len(layer_id_components) == 1 or layer_id_components[0][0] == 'F' or layer_id_components[1] == 'zero' or re.match('.*11x11.*',layer_id_components[0]) or re.match('.*Max.*', layer_id_components[0])):
+            if (layer['Layer ID'] == 'Conv11x11.fwd.convolve') or (len(layer_id_components) <= 2 and (len(layer_id_components) == 1 or layer_id_components[0][0] == 'F' or layer_id_components[1] == 'zero'  or re.match('.*Max.*', layer_id_components[0]))):
                 if layer_name:
                     layer_info.append((layer_name, layer_total))
                 layer_name = this_layer_name
