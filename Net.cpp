@@ -124,12 +124,34 @@ Net::Net(DataSet &data, unsigned batchSize,
   initialize(data, lossType);
 }
 
-static unsigned
-getRequiredNumChanGroups(std::vector<std::unique_ptr<Layer>> &layers,
-                         unsigned i, unsigned inDimY, unsigned inDimX,
-                         unsigned inNumChans,
-                         const std::string &dType,
-                         const DeviceInfo &deviceInfo) {
+conv::ConvPlan
+Net::getConvPlan(unsigned i, unsigned inDimY, unsigned inDimX,
+                 unsigned inNumChans) {
+  auto it = convPlans.find(i);
+  if (it != convPlans.end())
+    return it->second;
+  const auto *layer = layers[i].get();
+  conv::ConvPlan plan;
+  if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
+    plan = conv::createPlan(inDimY, inDimX, inNumChans,
+                            c->kernelSize, c->stride, c->padding,
+                            c->numChannels, dType, *deviceInfo);
+  } else if (const auto *c = dynamic_cast<const ConvResLayer *>(layer)) {
+    plan = conv::createPlan(inDimY, inDimX, inNumChans,
+                            c->kernelSize, c->stride, c->padding,
+                            c->numChannels, dType, *deviceInfo);
+  } else {
+    assert(0);
+  }
+  convPlans.emplace(i, plan);
+  return plan;
+}
+
+
+unsigned
+Net::getRequiredNumChanGroups(std::vector<std::unique_ptr<Layer>> &layers,
+                              unsigned i, unsigned inDimY, unsigned inDimX,
+                              unsigned inNumChans) {
   if (i >= layers.size())
     return 0;
   unsigned numChanGroups = 0;
@@ -137,14 +159,10 @@ getRequiredNumChanGroups(std::vector<std::unique_ptr<Layer>> &layers,
   if (const auto *fc = dynamic_cast<const FullyConnectedLayer *>(layer)) {
     numChanGroups = 0;
   } else if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
-    auto plan = conv::createPlan(inDimY, inDimX, inNumChans,
-                                 c->kernelSize, c->stride, c->padding,
-                                 c->numChannels, dType, deviceInfo);
+    auto plan = getConvPlan(i, inDimY, inDimX, inNumChans);
     return inNumChans / plan.fwdPartition.inChansPerGroup;
   } else if (const auto *c = dynamic_cast<const ConvResLayer *>(layer)) {
-    auto plan = conv::createPlan(inDimY, inDimX, inNumChans,
-                                 c->kernelSize, c->stride, c->padding,
-                                 c->numChannels, dType, deviceInfo);
+    auto plan = getConvPlan(i, inDimY, inDimX, inNumChans);
     return inNumChans / plan.fwdPartition.inChansPerGroup;
   } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
     unsigned outDimY, outDimX;
@@ -154,8 +172,7 @@ getRequiredNumChanGroups(std::vector<std::unique_ptr<Layer>> &layers,
                                                        m->padding);
     if (i < layers.size() - 1)
       numChanGroups = getRequiredNumChanGroups(layers, i + 1, outDimY, outDimX,
-                                               inNumChans, dType,
-                                               deviceInfo);
+                                               inNumChans);
     else
       numChanGroups = 0;
   } else {
@@ -334,8 +351,7 @@ Net::createConvLayerFwd(unsigned i,
       conv::getOutputDim(in.dim(1), in.dim(2), kernelSize, stride, padding);
   auto outNumChanGroups = getRequiredNumChanGroups(layers, i + 1,
                                                 outDimY, outDimX,
-                                                numChannels, dType,
-                                                *deviceInfo);
+                                                numChannels);
   if (!outNumChanGroups) {
     auto chansPerGroup = (dType == "float") ? 1 : 2;
     outNumChanGroups = numChannels / chansPerGroup;
@@ -355,10 +371,7 @@ Net::createConvLayerFwd(unsigned i,
   unsigned inNumChans = in.dim(0) * in.dim(3);
   unsigned inNumChanGroups = in.dim(0);
   unsigned inDimY = in.dim(1), inDimX = in.dim(2);
-  auto plan = conv::createPlan(inDimY, inDimX,
-                               inNumChans, inNumChanGroups,
-                               kernelSize, stride, padding,
-                               numChannels, dType, *deviceInfo);
+  auto plan = getConvPlan(i, inDimY, inDimX, inNumChans);
   Tensor weights, biases;
   std::tie(weights, biases) =
       conv::createParams(*graph, dType, inNumChans,
@@ -471,9 +484,8 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   auto fwdProg = Sequence();
   auto bwdProg = Sequence();
   auto weightUpdateProg = Sequence();
-  auto numChanGroups =
-      getRequiredNumChanGroups(layers, 0, dataSet.dim[0], dataSet.dim[1],
-                               dataSet.dim[2], dType, *deviceInfo);
+  auto numChanGroups = getRequiredNumChanGroups(layers, 0, dataSet.dim[0],
+                                                dataSet.dim[1], dataSet.dim[2]);
   if (numChanGroups == 0)
     numChanGroups = 1;
   const auto dim = std::vector<size_t>({numChanGroups,

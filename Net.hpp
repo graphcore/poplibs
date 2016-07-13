@@ -13,6 +13,7 @@
 #include "ConvReuse.hpp"
 #include "exceptions.hpp"
 #include "FullyConnectedPlan.hpp"
+#include "ConvPlan.hpp"
 
 class Layer { public: virtual ~Layer() {};};
 
@@ -165,8 +166,17 @@ class Net {
   std::map<unsigned, fc::Plan> fullyConnectedPlan;
   std::vector<poplar::Tensor> acts, z, deltas;
   std::vector<std::vector<poplar::Tensor>> params;
+  std::map<unsigned, conv::ConvPlan> convPlans;
   std::uint64_t numFlops;
   double perfectCycleTime;
+
+  conv::ConvPlan getConvPlan(unsigned i, unsigned inDimY, unsigned inDimX,
+                             unsigned inNumChans);
+
+  unsigned
+  getRequiredNumChanGroups(std::vector<std::unique_ptr<Layer>> &layers,
+                           unsigned i, unsigned inDimY, unsigned inDimX,
+                           unsigned inNumChans);
 
   poplar::program::Program
   createConvLayerFwd(unsigned i, unsigned kernelSize, unsigned stride,

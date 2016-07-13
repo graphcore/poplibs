@@ -447,12 +447,13 @@ choosePartition(const DeviceInfo &deviceInfo,
   return bestPartition;
 }
 
-ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                    unsigned inNumChanGroups,
-                    unsigned kernelSize, unsigned stride, unsigned padding,
-                    unsigned outNumChans,
-                    std::string dType,
-                    const DeviceInfo &deviceInfo) {
+static ConvPlan
+createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
+           unsigned inNumChanGroups,
+           unsigned kernelSize, unsigned stride, unsigned padding,
+           unsigned outNumChans,
+           std::string dType,
+           const DeviceInfo &deviceInfo) {
   unsigned outDimY, outDimX;
   std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX, kernelSize,
                                             stride, padding);

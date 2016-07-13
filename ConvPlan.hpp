@@ -44,13 +44,6 @@ public:
 };
 
 ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                    unsigned inNumChanGroups,
-                    unsigned kernelSize, unsigned stride, unsigned padding,
-                    unsigned numChannels,
-                    std::string dType,
-                    const DeviceInfo &deviceInfo);
-
-ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                     unsigned kernelSize, unsigned stride, unsigned padding,
                     unsigned numChannels,
                     std::string dType,
