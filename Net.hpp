@@ -12,6 +12,7 @@
 #include "DeviceInfo.hpp"
 #include "ConvReuse.hpp"
 #include "exceptions.hpp"
+#include "FullyConnectedPlan.hpp"
 
 class Layer { public: virtual ~Layer() {};};
 
@@ -161,6 +162,7 @@ class Net {
   std::string dType;
 
   std::map<ConvImplSpec, ReusableLayer> convImpls;
+  std::map<unsigned, fc::Plan> fullyConnectedPlan;
   std::vector<poplar::Tensor> acts, z, deltas;
   std::vector<std::vector<poplar::Tensor>> params;
   std::uint64_t numFlops;

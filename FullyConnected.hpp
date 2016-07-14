@@ -9,6 +9,8 @@
 
 namespace fc {
 
+struct Plan;
+
 uint64_t getNumFlops(unsigned inSize, unsigned outSize);
 
 double getPerfectCycleCount(const DeviceInfo &deviceInfo,
@@ -28,10 +30,8 @@ fullyConnected(poplar::Graph &graph,
                poplar::Tensor in, poplar::Tensor weights,
                poplar::Tensor biases,
                poplar::Tensor z,
-               poplar::Tensor out);
-
-
-
+               poplar::Tensor out,
+               const Plan &plan);
 
 poplar::program::Program
 fullyConnectedBwdNonLinearity(poplar::Graph &graph,
@@ -40,7 +40,8 @@ fullyConnectedBwdNonLinearity(poplar::Graph &graph,
                               std::string dType,
                               poplar::Tensor z, poplar::Tensor deltasIn,
                               poplar::Tensor zDeltas,
-                              NonLinearityType nonLinearityType);
+                              NonLinearityType nonLinearityType,
+                              const Plan &plan);
 
 poplar::program::Program
 fullyConnectedBackward(poplar::Graph &graph,
@@ -48,7 +49,8 @@ fullyConnectedBackward(poplar::Graph &graph,
                        DeviceInfo &deviceInfo,
                        std::string dType,
                        poplar::Tensor zDeltas,
-                       poplar::Tensor weights, poplar::Tensor deltasOut);
+                       poplar::Tensor weights, poplar::Tensor deltasOut,
+                       const Plan &plan);
 
 poplar::program::Program
 fullyConnectedWeightUpdate(poplar::Graph &graph,
@@ -58,7 +60,8 @@ fullyConnectedWeightUpdate(poplar::Graph &graph,
                            poplar::Tensor zDeltas,
                            poplar::Tensor activations,
                            poplar::Tensor weights, poplar::Tensor biases,
-                           float learningRate);
+                           float learningRate,
+                           const Plan &plan);
 
 
 } // namespace fc

@@ -1,4 +1,5 @@
 #include "FullyConnected.hpp"
+#include "FullyConnectedPlan.hpp"
 #include "PerformanceEstimation.hpp"
 #include "VertexTemplates.hpp"
 #include "ActivationMapping.hpp"
@@ -17,60 +18,6 @@ createParams(Graph &graph, std::string dType, unsigned inSize,
   return {weights, biases};
 }
 
-
-namespace {
-  struct PartitionShape {
-    unsigned tilesPerColumn;
-    unsigned tilesPerRow;
-    PartitionShape(unsigned tilesPerColumn, unsigned tilesPerRow) :
-      tilesPerColumn(tilesPerColumn), tilesPerRow(tilesPerRow) {}
-  };
-}
-
-static unsigned
-estimatePartitionCost(const DeviceInfo &deviceInfo, bool isFloat,
-                      unsigned numRows, unsigned numCols, unsigned tilesPerRow,
-                      unsigned tilesPerColumn) {
-  auto numTiles = tilesPerRow * tilesPerColumn;
-  auto numVertices = numRows * tilesPerRow;
-  auto numWorkerContexts = deviceInfo.getNumWorkerContexts();
-  auto vertexElements = (numCols + tilesPerRow - 1) / tilesPerRow;
-  auto partialSumsPerTile = (numRows + tilesPerColumn - 1) / tilesPerColumn;
-  auto vertexRuntime =
-      getFullyConnectedPartialCycleEstimate(isFloat, vertexElements,
-                                            deviceInfo.dataPathWidth);
-  auto verticesPerWorker = (numVertices + numTiles * numWorkerContexts - 1) /
-                           (numTiles * numWorkerContexts);
-  auto computeCycles = vertexRuntime * verticesPerWorker;
-  auto exchangeBytesPerCycle = deviceInfo.getIPUExchangeBandwidth();
-  auto inputBytes = vertexElements * (isFloat ? 4 : 2);
-  auto partialSumBytes = partialSumsPerTile * 4;
-  auto exchangeCycles =
-      (inputBytes + exchangeBytesPerCycle - 1) / exchangeBytesPerCycle +
-      (partialSumBytes + exchangeBytesPerCycle - 1) / exchangeBytesPerCycle;
-  return computeCycles + exchangeCycles;
-}
-
-static PartitionShape
-choosePartition(const DeviceInfo &deviceInfo,
-                bool isFloat, unsigned numRows,
-                unsigned numCols, unsigned numTiles) {
-  unsigned lowestCost = std::numeric_limits<unsigned>::max();
-  unsigned bestTilesPerColumn, bestTilesPerRow;
-  for (unsigned tilesPerRow = 1; tilesPerRow <= numTiles; ++tilesPerRow) {
-    unsigned tilesPerColumn = numTiles / tilesPerRow;
-    const auto cost = estimatePartitionCost(deviceInfo, isFloat, numRows,
-                                            numCols, tilesPerRow,
-                                            tilesPerColumn);
-    if (cost < lowestCost) {
-      lowestCost = cost;
-      bestTilesPerColumn = tilesPerColumn;
-      bestTilesPerRow = tilesPerRow;
-    }
-  }
-  return PartitionShape(bestTilesPerColumn, bestTilesPerRow);
-}
-
 Program
 fullyConnected(Graph &graph,
                IPUModelEngineBuilder::TileMapping &mapping,
@@ -79,7 +26,8 @@ fullyConnected(Graph &graph,
                std::string dType,
                Tensor in0, Tensor weights,
                Tensor biases,
-               Tensor z, Tensor activations) {
+               Tensor z, Tensor activations,
+               const Plan &plan) {
   const auto layerName = "FullyConnected" + std::to_string(size);
   Tensor in = in0.flatten();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
@@ -87,25 +35,13 @@ fullyConnected(Graph &graph,
 
   const auto numRows = size;
   const auto numCols = prevSize;
-  // In theory a 2D tiling of the matrix across IPUs could decrease the
-  // amount of communication. Unfortunately it introduces a new causal layer.
-  // It turns out that, at least up to 16 IPUs, it is better to always keep
-  // all row elements on the same IPU to avoid the need for an extra sync.
   const auto numIPUs = deviceInfo.getNumIPUs();
   const auto tilesPerIPU = deviceInfo.getTilesPerIPU();
   auto activationsMapping = computeActivationsMapping(activations, deviceInfo);
-  unsigned maxRowsPerIPU = 0;
-  for (unsigned ipu = 0; ipu != numIPUs; ++ipu) {
-    const auto ipuBeginRow = activationsMapping[ipu * tilesPerIPU];
-    const auto ipuEndRow = activationsMapping[(ipu + 1) * tilesPerIPU];
-    const auto rows = ipuEndRow - ipuBeginRow;
-    maxRowsPerIPU = std::max(maxRowsPerIPU, rows);
-  }
   bool isFloat = dType == "float";
   assert(isFloat || dType == "half");
-  auto ipuPartition =
-      choosePartition(deviceInfo, isFloat, maxRowsPerIPU, numCols, tilesPerIPU);
 
+  const auto &ipuPartition = plan.ipuPartition;
   Tensor partials = graph.addTensor("float", {numRows,
                                               ipuPartition.tilesPerRow},
                                     "partials");
@@ -190,7 +126,8 @@ fullyConnectedBwdNonLinearity(Graph &graph,
                               std::string dType,
                               Tensor z, Tensor deltasIn,
                               Tensor zDeltas,
-                              NonLinearityType nonLinearityType) {
+                              NonLinearityType nonLinearityType,
+                              const Plan &plan) {
   const auto size = deltasIn.numElements();
   const auto layerName = "FullyConnected" + std::to_string(size);
   auto bwdNonLinearityCS =
@@ -210,7 +147,8 @@ Program fullyConnectedBackward(Graph &graph,
                                DeviceInfo &deviceInfo,
                                std::string dType,
                                Tensor zDeltas,
-                               Tensor weights, Tensor deltasOut) {
+                               Tensor weights, Tensor deltasOut,
+                               const Plan &plan) {
   const auto size = zDeltas.numElements();
   const auto prevSize = weights.dim(1);
   const auto layerName = "FullyConnected" + std::to_string(size);
@@ -236,7 +174,8 @@ fullyConnectedWeightUpdate(Graph &graph,
                            Tensor zDeltas,
                            Tensor activations,
                            Tensor weights, Tensor biases,
-                           float learningRate) {
+                           float learningRate,
+                           const Plan &plan) {
   const auto size = zDeltas.numElements();
   const auto layerName = "FullyConnected" + std::to_string(size);
   auto cs = graph.createComputeSet(layerName + ".weight_update");

@@ -4,6 +4,7 @@
 #include "Convolution.hpp"
 #include "MaxPool.hpp"
 #include "FullyConnected.hpp"
+#include "FullyConnectedPlan.hpp"
 #include "DeviceInfo.hpp"
 #include "ActivationMapping.hpp"
 #include "VertexTemplates.hpp"
@@ -496,6 +497,11 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
       mapActivations(acts[i + 1], *mapping, *deviceInfo);
       z[i + 1] = graph->addTensor(dType, {size}, "z." + std::to_string(i));
       mapActivations(z[i + 1], *mapping, *deviceInfo);
+      const auto &plan =
+          fullyConnectedPlan.emplace(i,
+                                     fc::createPlan(*deviceInfo, dType, size,
+                                                    prevSize)
+         ).first->second;
       Tensor weights, biases;
       std::tie(weights, biases) = fc::createParams(*graph, dType,
                                                    prevSize, size);
@@ -514,8 +520,8 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
       }
       fwdProg.add(fc::fullyConnected(*graph, *mapping, *deviceInfo,
                                      size, fc->nonLinearityType, dType,
-                                     acts[i], weights,
-                                     biases, z[i + 1], acts[i + 1]));
+                                     acts[i], weights, biases, z[i + 1],
+                                     acts[i + 1], plan));
       numFlops += fc::getNumFlops(prevSize, size);
       perfectCycleTime += fc::getPerfectCycleCount(*deviceInfo, prevSize,
                                                    size, dType);
@@ -595,18 +601,22 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                                           "zDeltas");
         auto weights = params[i][0];
         auto biases = params[i][1];
+        const auto &plan = fullyConnectedPlan.find(i)->second;
         bwdProg.add(fc::fullyConnectedBwdNonLinearity(*graph, *mapping,
                                                       *deviceInfo, dType,
                                                       z[i + 1], deltas[i + 1],
                                                       zDeltas,
-                                                      fc->nonLinearityType));
+                                                      fc->nonLinearityType,
+                                                      plan));
         bwdProg.add(fc::fullyConnectedBackward(*graph, *mapping, *deviceInfo,
                                                dType, zDeltas,
-                                               weights, deltas[i]));
+                                               weights, deltas[i],
+                                               plan));
         weightUpdateProg.add(
               fc::fullyConnectedWeightUpdate(*graph, *mapping, *deviceInfo,
                                              dType, zDeltas, acts[i],
-                                             weights, biases, eta));
+                                             weights, biases, eta,
+                                             plan));
       } else if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
         deltas[i] = graph->addTensor(dType, acts[i].dims(), "deltas");
         Tensor zDeltas = graph->addTensor(dType, deltas[i + 1].dims(),

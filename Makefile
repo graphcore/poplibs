@@ -30,6 +30,7 @@ COMMON_OBJ = \
 	${OBJDIR}/Convolution.o \
 	${OBJDIR}/MaxPool.o \
 	${OBJDIR}/FullyConnected.o \
+        ${OBJDIR}/FullyConnectedPlan.o \
 	${OBJDIR}/Net.o
 
 COMMON_LIBS = \
