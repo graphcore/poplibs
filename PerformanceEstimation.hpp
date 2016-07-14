@@ -88,17 +88,18 @@ inline std::uint64_t
 getConvPartialByDotProductCycleEstimate(bool isFloat, unsigned inChansPerGroup,
                                         unsigned kernelWidth,
                                         unsigned inputGroupsPerOutput,
-                                        unsigned outputHeight,
                                         unsigned outputWidth,
-                                        unsigned outChansPerGroup,
                                         unsigned dataPathWidth,
                                         unsigned outputStride)
 {
-  unsigned vertexOverhead = 5;
-  return vertexOverhead +
-         outChansPerGroup * outputWidth * outputHeight * inputGroupsPerOutput *
-         (1 + getDenseDotProductCycles(isFloat, kernelWidth * inChansPerGroup,
-                                       dataPathWidth)) / outputStride;
+  unsigned vertexOverhead = 15;
+  unsigned innerLoopCycles =
+      getDenseDotProductCycles(isFloat, kernelWidth * inChansPerGroup,
+                               dataPathWidth) / outputStride;
+  unsigned middleLoopCycles = inputGroupsPerOutput * (5 + innerLoopCycles);
+  unsigned outerLoopCycles = outputWidth * (10 + middleLoopCycles);
+
+  return vertexOverhead + outerLoopCycles;
 }
 
 inline std::uint64_t

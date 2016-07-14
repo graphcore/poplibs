@@ -245,13 +245,12 @@ estimateVertexCycles(bool floatActivations,
           outputStride);
   }
   assert(!useSupervisorVertices);
-  return getConvPartialByDotProductCycleEstimate(floatActivations,
+  return outRowsPerVertex * outChansPerGroup *
+         getConvPartialByDotProductCycleEstimate(floatActivations,
                                                  inChansPerGroup,
                                                  params.kernelSize,
                                                  inputGroupsPerOutput,
-                                                 outRowsPerVertex,
                                                  tileOutWidth,
-                                                 outChansPerGroup,
                                                  deviceInfo.dataPathWidth,
                                                  outputStride);
 }

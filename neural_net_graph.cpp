@@ -798,10 +798,9 @@ public:
     unsigned outputWidth = out.size();
     unsigned kernelSize = weights[0].size() / inChansPerGroup;
     bool isFloat = std::is_same<InType, float>::value;
-    const auto outChansPerGroup = 1;
     return getConvPartialByDotProductCycleEstimate(isFloat, inChansPerGroup,
-                                                   kernelSize, numInRows, 1,
-                                                   outputWidth, 1,
+                                                   kernelSize, numInRows,
+                                                   outputWidth,
                                                    dataPathWidth, 1);
   }
 };
