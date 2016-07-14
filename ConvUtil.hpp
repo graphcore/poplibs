@@ -13,37 +13,42 @@
 /// such output.
 unsigned
 getInputIndex(unsigned outputIndex, unsigned stride, unsigned kernelSize,
-              unsigned padding, unsigned inputSize, unsigned kernelIndex);
+              unsigned padding, unsigned inputSize, unsigned kernelIndex,
+              bool forward);
 
-/// Given an output range, return the subset whose calculation involves the
-/// specified kernel.
+
+/// Given an output range, return the subset whose calculation
+/// involves the specified kernel.
 std::pair<unsigned, unsigned>
 getOutputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
                unsigned padding, unsigned kernelSize, unsigned inputSize,
-               unsigned kernelIndex);
+               unsigned kernelIndex, bool forward);
 
-/// Return the input range that is associate with the specified kernel index
-/// when calculating the specified output range.
+/// Return the input range that is associate with
+/// the specified kernel index when calculating the specified output range.
 std::pair<unsigned, unsigned>
 getInputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
               unsigned kernelSize, unsigned padding,
-              unsigned inputSize, unsigned kernelIndex);
+              unsigned inputSize, unsigned kernelIndex, bool forward);
 
 std::pair<unsigned, unsigned>
 getInputRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
-              unsigned padding, unsigned inputSize);
+              unsigned padding, unsigned inputSize, bool forward);
 
 std::pair<unsigned, unsigned>
 getInputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
-              unsigned kernelSize, unsigned padding, unsigned inputSize);
+              unsigned kernelSize, unsigned padding, unsigned inputSize,
+              bool forward);
 
 std::pair<unsigned, unsigned>
 getKernelRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
-               unsigned padding, unsigned inputSize);
+               unsigned padding, unsigned inputSize,
+               bool forward);
 
 std::pair<unsigned, unsigned>
 getKernelRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
-               unsigned kernelSize, unsigned padding, unsigned inputSize);
+               unsigned kernelSize, unsigned padding, unsigned inputSize,
+               bool forward);
 
 
 struct PartialRow {
@@ -57,9 +62,7 @@ struct PartialRow {
 };
 
 std::vector<std::vector<PartialRow>>
-partitionConvPartialByWorker(
-    unsigned numConvolutions,
-    unsigned convSize,
-    unsigned numContexts);
+partitionConvPartialByWorker(unsigned numConvolutions, unsigned convSize,
+                             unsigned numContexts, unsigned stride);
 
 #endif // _ConvUtil_hpp_

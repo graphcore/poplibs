@@ -237,7 +237,7 @@ template class FullyConnectedBiasUpdate<half>;
 /**
  * Compute 1x1 convolutions and accumulate them with partial sums in memory.
  **/
-template <class Base, class AccumType>
+template <class Base, class AccumType, bool forward>
 class ConvPartial1x1InOut: public Base {
 public:
   Vector<Input<Vector<half>>> in;
@@ -260,17 +260,27 @@ public:
         for (unsigned i = 0; i != weightReuseCount[w * numContexts + c]; ++i) {
           const auto outWidth = out[convNum].size() / outChansPerGroup;
           const auto inWidth = in[convNum].size() / inChansPerGroup;
-          const auto stride = (inWidth + outWidth - 1) / outWidth;
-          assert((inWidth + stride - 1) / stride == outWidth);
+          unsigned inStride, outStride;
+          if (forward) {
+            inStride = (inWidth + outWidth - 1) / outWidth;
+            assert((inWidth + inStride - 1) / inStride == outWidth);
+            outStride = 1;
+          } else {
+            outStride = (outWidth + inWidth - 1) / inWidth;
+            assert((outWidth + outStride - 1) / outStride == inWidth);
+            inStride = 1;
+          }
           for (unsigned x = 0; x != outWidth; ++x) {
             for (unsigned inChanIndex = 0; inChanIndex != inChansPerGroup;
                  ++inChanIndex) {
               for (unsigned outChanIndex = 0; outChanIndex != outChansPerGroup;
                    ++outChanIndex) {
-                const auto outIndex = outChanIndex + outChansPerGroup * x;
+                const auto outIndex =
+                    outChanIndex + outChansPerGroup * x * outStride;
                 const auto weightIndex =
                     inChanIndex + inChansPerGroup * outChanIndex;
-                const auto inIndex = inChanIndex + inChansPerGroup * x * stride;
+                const auto inIndex =
+                    inChanIndex + inChansPerGroup * x * inStride;
                 out[convNum][outIndex] += weights[w][weightIndex] *
                                           in[convNum][inIndex];
               }
@@ -303,8 +313,15 @@ public:
           convolutionsByWeight.emplace_back();
           for (unsigned i = 0; i != weightReuseCount[w * numContexts + c];
                ++i) {
-            convolutionsByWeight.back().push_back(out[convNum].size() /
-                                                  outChansPerGroup);
+            auto convSize = out[convNum].size() / outChansPerGroup;
+            if (!forward) {
+              const auto outWidth = out[convNum].size() / outChansPerGroup;
+              const auto inWidth = in[convNum].size() / inChansPerGroup;
+              const auto stride = (outWidth + inWidth - 1) / inWidth;
+              assert((outWidth + stride - 1) / stride == inWidth);
+              convSize = convSize / stride;
+            }
+            convolutionsByWeight.back().push_back(convSize);
             ++convNum;
           }
         }
@@ -322,8 +339,15 @@ public:
     for (unsigned w = 0; w != weights.size(); ++w) {
       convolutionsByWeight.emplace_back();
       for (unsigned i = 0; i != weightReuseCount[w]; ++i) {
-        convolutionsByWeight.back().push_back(out[convNum].size() /
-                                              outChansPerGroup);
+        auto convSize = out[convNum].size() / outChansPerGroup;
+        if (!forward) {
+          const auto outWidth = out[convNum].size() / outChansPerGroup;
+          const auto inWidth = in[convNum].size() / inChansPerGroup;
+          const auto stride = (outWidth + inWidth - 1) / inWidth;
+          assert((outWidth + stride - 1) / stride == inWidth);
+          convSize = convSize / stride;
+        }
+        convolutionsByWeight.back().push_back(convSize);
         ++convNum;
       }
     }
@@ -334,11 +358,14 @@ public:
   }
 };
 
-template class ConvPartial1x1InOut<Vertex, half>;
-template class ConvPartial1x1InOut<Vertex, float>;
-template class ConvPartial1x1InOut<SupervisorVertex, half>;
-template class ConvPartial1x1InOut<SupervisorVertex, float>;
-
+template class ConvPartial1x1InOut<Vertex, half, false>;
+template class ConvPartial1x1InOut<Vertex, float, false>;
+template class ConvPartial1x1InOut<SupervisorVertex, half, false>;
+template class ConvPartial1x1InOut<SupervisorVertex, float, false>;
+template class ConvPartial1x1InOut<Vertex, half, true>;
+template class ConvPartial1x1InOut<Vertex, float, true>;
+template class ConvPartial1x1InOut<SupervisorVertex, half, true>;
+template class ConvPartial1x1InOut<SupervisorVertex, float, true>;
 
 template <typename FPType, typename AccumType>
 class ConvBwd : public Vertex {
@@ -549,7 +576,7 @@ template class NonLinearityBwd<half>;
  * Compute a sum of 1x1 convolutions over a subset of the input channels for
  * multiple output channels.
  **/
-template <class Base, class AccumType>
+template <class Base, class AccumType, bool forward>
 class ConvPartial1x1Out: public Base {
 public:
   Vector<Input<Vector<half>>> in;
@@ -577,12 +604,21 @@ public:
           const auto outWidth = out[conv].size() / outChansPerGroup;
           assert(in[conv].size() % inChansPerGroup == 0);
           const auto inWidth = in[conv].size() / inChansPerGroup;
-          const auto stride = (inWidth + outWidth - 1) / outWidth;
-          assert((inWidth + stride - 1) / stride == outWidth);
+          unsigned inStride, outStride;
+          if (forward) {
+            inStride = (inWidth + outWidth - 1) / outWidth;
+            assert((inWidth + inStride - 1) / inStride == outWidth);
+            outStride = 1;
+          } else {
+            outStride = (outWidth + inWidth - 1) / inWidth;
+            assert((outWidth + outStride - 1) / outStride == inWidth);
+            inStride = 1;
+          }
           for (unsigned x = 0; x != outWidth; ++x) {
             for (unsigned outChanIndex = 0; outChanIndex != outChansPerGroup;
                  ++outChanIndex) {
-              const auto outIndex = outChanIndex + outChansPerGroup * x;
+              const auto outIndex =
+                  outChanIndex + outChansPerGroup * x * outStride;
               if (inChanGroup == 0)
                 out[conv][outIndex] = 0;
               float sum = 0;
@@ -594,7 +630,8 @@ public:
                         inChanGroup
                       )
                     );
-                const auto inIndex = inChanIndex + inChansPerGroup * x * stride;
+                const auto inIndex =
+                    inChanIndex + inChansPerGroup * x * inStride;
                 sum += weights[weightIndex] * in[conv][inIndex];
               }
               out[conv][outIndex] += sum;
@@ -629,8 +666,15 @@ public:
           convolutionsByWeight.emplace_back();
           for (unsigned i = 0; i != weightReuseCount[c];
                ++i) {
-            convolutionsByWeight.back().push_back(out[convNum].size() /
-                                                  outChansPerGroup);
+            auto convSize = out[convNum].size() / outChansPerGroup;
+            if (!forward) {
+              const auto outWidth = out[convNum].size() / outChansPerGroup;
+              const auto inWidth = in[convNum].size() / inChansPerGroup;
+              const auto stride = (outWidth + inWidth - 1) / inWidth;
+              assert((outWidth + stride - 1) / stride == inWidth);
+              convSize = convSize / stride;
+            }
+            convolutionsByWeight.back().push_back(convSize);
             ++convNum;
           }
         }
@@ -648,8 +692,15 @@ public:
     for (unsigned w = 0; w != weights.size(); ++w) {
       convolutionsByWeight.emplace_back();
       for (unsigned i = 0; i != weightReuseCount[w]; ++i) {
-        convolutionsByWeight.back().push_back(out[convNum].size() /
-                                              outChansPerGroup);
+        auto convSize = out[convNum].size() / outChansPerGroup;
+        if (!forward) {
+          const auto outWidth = out[convNum].size() / outChansPerGroup;
+          const auto inWidth = in[convNum].size() / inChansPerGroup;
+          const auto stride = (outWidth + inWidth - 1) / inWidth;
+          assert((outWidth + stride - 1) / stride == inWidth);
+          convSize = convSize / stride;
+        }
+        convolutionsByWeight.back().push_back(convSize);
         ++convNum;
       }
     }
@@ -660,10 +711,14 @@ public:
   }
 };
 
-template class ConvPartial1x1Out<Vertex, float>;
-template class ConvPartial1x1Out<Vertex, half>;
-template class ConvPartial1x1Out<SupervisorVertex, float>;
-template class ConvPartial1x1Out<SupervisorVertex, half>;
+template class ConvPartial1x1Out<Vertex, float, true>;
+template class ConvPartial1x1Out<Vertex, half, true>;
+template class ConvPartial1x1Out<SupervisorVertex, float, true>;
+template class ConvPartial1x1Out<SupervisorVertex, half, true>;
+template class ConvPartial1x1Out<Vertex, float, false>;
+template class ConvPartial1x1Out<Vertex, half, false>;
+template class ConvPartial1x1Out<SupervisorVertex, float, false>;
+template class ConvPartial1x1Out<SupervisorVertex, half, false>;
 
 /* Compute a partial convolution for a sub-set of input channels and
  * output channels over a number of rows of the input field. */
@@ -725,7 +780,7 @@ public:
     return getConvPartialByDotProductCycleEstimate(isFloat, inChansPerGroup,
                                                    kernelSize, numInRows, 1,
                                                    outputWidth, 1,
-                                                   dataPathWidth);
+                                                   dataPathWidth, 1);
   }
 };
 
@@ -1109,3 +1164,84 @@ public:
 
 template class CalcLoss<float>;
 template class CalcLoss<half>;
+
+
+template <class InType, class OutType>
+class RegroupChans : public Vertex {
+public:
+  Vector<Input<Vector<InType>>> in;
+  Vector<Output<Vector<OutType>>> out;
+  unsigned outChans;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    unsigned numOut = out.size();
+    unsigned chunkSize = in[0].size();
+    unsigned inIndex = 0;
+    for (unsigned o = 0; o < numOut; ++o) {
+      unsigned outCols = out[o].size() / outChans;
+      for (unsigned ocol = 0; ocol < outCols; ++ocol) {
+        for (unsigned ochan = 0; ochan < outChans; ++ochan) {
+          auto outIndex = ocol * outChans + ochan;
+          out[o][outIndex] = in[inIndex / chunkSize][inIndex % chunkSize];
+          ++inIndex;
+        }
+      }
+    }
+    assert(inIndex == in.size() * chunkSize);
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    bool inIsFloat = std::is_same<InType, float>::value;
+    bool outIsFloat = std::is_same<InType, float>::value;
+    assert(!outIsFloat || inIsFloat && "Output is wider than input");
+    const auto inVectorWidth = dataPathWidth / (inIsFloat ? 32 : 16);
+    unsigned numOut = out.size();
+    unsigned chunkSize = in[0].size();
+    unsigned numCycles = 5;
+    for (unsigned o = 0; o < numOut; ++o) {
+      unsigned outCols = out[o].size() / outChans;
+      for (unsigned ocol = 0; ocol < outCols; ++ocol) {
+        assert(outChans % chunkSize == 0);
+        for (unsigned chunk = 0; chunk != outChans / chunkSize; ++chunk) {
+          // load input, load bias and add
+          // - dual loads, dual issue = 2 vectors in 2 cycles
+          numCycles += (chunkSize + inVectorWidth - 1) / inVectorWidth;
+        }
+      }
+    }
+    return numCycles;
+  }
+};
+
+template class RegroupChans<float, float>;
+template class RegroupChans<float, half>;
+template class RegroupChans<half, half>;
+
+template <class FPType>
+class ConvTransformWeights : public Vertex {
+public:
+  Vector<Input<FPType>> in;
+  Vector<Output<Vector<FPType>>> out;
+
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    unsigned inIndex = 0;
+    for (unsigned i = 0; i < out.size(); ++i) {
+      for (unsigned j = 0; j < out[i].size(); ++j) {
+        out[i][j] = in[inIndex++];
+      }
+    }
+    assert(inIndex == in.size());
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    return 5 + 3 * out.size();
+  }
+};
+
+template class ConvTransformWeights<float>;
+template class ConvTransformWeights<half>;

@@ -149,15 +149,43 @@ Net::getConvPlan(unsigned i, unsigned inDimY, unsigned inDimX,
 
 
 unsigned
-Net::getRequiredNumChanGroups(std::vector<std::unique_ptr<Layer>> &layers,
-                              unsigned i, unsigned inDimY, unsigned inDimX,
-                              unsigned inNumChans) {
-  if (i >= layers.size())
+Net::getRequiredNumChanGroupsBwd(int i, unsigned inNumChans) {
+  if (i < 0)
     return 0;
-  unsigned numChanGroups = 0;
   const auto *layer = layers[i].get();
   if (const auto *fc = dynamic_cast<const FullyConnectedLayer *>(layer)) {
-    numChanGroups = 0;
+    return 0;
+  } else if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
+    auto it = convPlans.find(i);
+    assert(it != convPlans.end());
+    if (inNumChans == ~0U) {
+      inNumChans = acts[i + 1].dim(0) * acts[i + 1].dim(3);
+    }
+    return inNumChans / it->second.bwdPartition.inChansPerGroup;
+  } else if (const auto *c = dynamic_cast<const ConvResLayer *>(layer)) {
+    auto it = convPlans.find(i);
+    assert(it != convPlans.end());
+    if (inNumChans == ~0U) {
+      inNumChans = acts[i + 1].dim(0) * acts[i + 1].dim(3);
+    }
+    return inNumChans / it->second.bwdPartition.inChansPerGroup;
+  } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
+    return getRequiredNumChanGroupsBwd(i - 1, inNumChans);
+  } else {
+    assert(0 && "Unrecognized layer type");
+  }
+}
+
+unsigned
+Net::getRequiredNumChanGroupsFwd(unsigned i, unsigned inDimY, unsigned inDimX,
+                                 unsigned inNumChans) {
+  if (i >= layers.size())
+    return 0;
+  const auto *layer = layers[i].get();
+  if (const auto *fc = dynamic_cast<const FullyConnectedLayer *>(layer)) {
+    // A fully connected layer wants the channel grouping to be
+    // the same forwards and backwards.
+    return getRequiredNumChanGroupsBwd(i - 1, inNumChans);
   } else if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
     auto plan = getConvPlan(i, inDimY, inDimX, inNumChans);
     return inNumChans / plan.fwdPartition.inChansPerGroup;
@@ -170,15 +198,11 @@ Net::getRequiredNumChanGroups(std::vector<std::unique_ptr<Layer>> &layers,
                                                        m->kernelSize,
                                                        m->stride,
                                                        m->padding);
-    if (i < layers.size() - 1)
-      numChanGroups = getRequiredNumChanGroups(layers, i + 1, outDimY, outDimX,
-                                               inNumChans);
-    else
-      numChanGroups = 0;
+    return getRequiredNumChanGroupsFwd(i + 1, outDimY, outDimX,
+                                                inNumChans);
   } else {
     assert(0 && "Unrecognized layer type");
   }
-  return numChanGroups;
 }
 
 enum {
@@ -217,7 +241,7 @@ Net::outputConvDescription(unsigned inDimY, unsigned inDimX,
       kernelSize * kernelSize * inNumChans * outNumChans + outNumChans;
   auto flops = conv::getFlops(inDimY, inDimX, inNumChans,
                               kernelSize, stride, padding, outNumChans,
-                              doResidual);
+                              doResidual, netType == TestOnlyNet);
   if (doResidual) {
     std::cout << "   -- Convolutional layer (residual):\n";
   } else {
@@ -349,9 +373,9 @@ Net::createConvLayerFwd(unsigned i,
   unsigned outDimY, outDimX;
   std::tie(outDimY, outDimX) =
       conv::getOutputDim(in.dim(1), in.dim(2), kernelSize, stride, padding);
-  auto outNumChanGroups = getRequiredNumChanGroups(layers, i + 1,
-                                                outDimY, outDimX,
-                                                numChannels);
+  auto outNumChanGroups = getRequiredNumChanGroupsFwd(i + 1,
+                                                      outDimY, outDimX,
+                                                      numChannels);
   if (!outNumChanGroups) {
     auto chansPerGroup = (dType == "float") ? 1 : 2;
     outNumChanGroups = numChannels / chansPerGroup;
@@ -413,11 +437,13 @@ Net::createConvLayerFwd(unsigned i,
  }
  numFlops += conv::getFlops(inDimY, inDimX, inNumChans, kernelSize,
                             stride, padding, numChannels,
-                            resMethod != RESIDUAL_NONE);
+                            resMethod != RESIDUAL_NONE,
+                            netType == TestOnlyNet && i != 0);
  perfectCycleTime += conv::getPerfectCycleCount(*deviceInfo, dType, inDimY,
                                                 inDimX, inNumChans, kernelSize,
                                                 stride, padding, numChannels,
-                                                resMethod != RESIDUAL_NONE);
+                                                resMethod != RESIDUAL_NONE,
+                                                netType == TestOnlyNet && i != 0);
  auto prog = Sequence();
  prog.add(Copy(reusableLayer.inputs[0], in));
  prog.add(Copy(reusableLayer.inputs[1], weights));
@@ -483,8 +509,9 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   auto initParamsProg = Sequence();
   auto fwdProg = Sequence();
   auto bwdProg = Sequence();
-  auto numChanGroups = getRequiredNumChanGroups(layers, 0, dataSet.dim[0],
-                                                dataSet.dim[1], dataSet.dim[2]);
+  auto numChanGroups =
+      getRequiredNumChanGroupsFwd(0, dataSet.dim[0], dataSet.dim[1],
+                                  dataSet.dim[2]);
   if (numChanGroups == 0)
     numChanGroups = 1;
   const auto dim = std::vector<size_t>({numChanGroups,
@@ -611,12 +638,29 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   }
   if (netType == TrainingNet) {
     for (int i = layers.size() - 1; i >= 0; --i) {
+      bool backwardPassRequired = (i != 0);
+      if (backwardPassRequired) {
+        if (acts[i].dims().size() == 4) {
+          auto numChannels = acts[i].dim(0) * acts[i].dim(3);
+          auto numChanGroups = getRequiredNumChanGroupsBwd(i - 1);
+          if (numChanGroups == 0)
+            numChanGroups = 1;
+          auto chansPerGroup = numChannels / numChanGroups;
+          deltas[i] = graph->addTensor(dType, {numChanGroups,
+                                               acts[i].dim(1),
+                                               acts[i].dim(2),
+                                               chansPerGroup} , "deltas");
+         } else {
+           assert(acts[i].dims().size() == 1);
+           deltas[i] = graph->addTensor(dType, acts[i].dims(), "deltas");
+        }
+        mapActivations(deltas[i], *mapping, *deviceInfo);
+      }
       const auto *layer = layers[i].get();
       if (const auto *fc = dynamic_cast<const FullyConnectedLayer *>(layer)) {
-        deltas[i] = graph->addTensor(dType, acts[i].dims(), "deltas");
-        mapActivations(deltas[i], *mapping, *deviceInfo);
         Tensor zDeltas = graph->addTensor(dType, deltas[i + 1].dims(),
                                           "zDeltas");
+
         mapActivations(zDeltas, *mapping, *deviceInfo);
         auto weights = params[i][0];
         auto biases = params[i][1];
@@ -627,18 +671,23 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                                                       zDeltas,
                                                       fc->nonLinearityType,
                                                       plan));
-        bwdProg.add(fc::fullyConnectedBackward(*graph, *mapping, *deviceInfo,
-                                               dType, zDeltas,
-                                               weights, deltas[i],
-                                               plan));
+
+        if (backwardPassRequired)
+          bwdProg.add(fc::fullyConnectedBackward(*graph, *mapping, *deviceInfo,
+                                                 dType, zDeltas,
+                                                 weights, deltas[i],
+                                                 plan));
         bwdProg.add(fc::fullyConnectedWeightUpdate(*graph, *mapping,
                                                    *deviceInfo, dType, zDeltas,
                                                    acts[i], weights, biases,
                                                    eta, plan));
       } else if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
-        deltas[i] = graph->addTensor(dType, acts[i].dims(), "deltas");
+        auto it = convPlans.find(i);
+        assert(it != convPlans.end());
+        auto &plan = it->second;
         Tensor zDeltas = graph->addTensor(dType, deltas[i + 1].dims(),
                                           "zDeltas");
+        mapActivations(zDeltas, *mapping, *deviceInfo);
         auto weights = params[i][0];
         auto biases = params[i][1];
         bwdProg.add(conv::convolutionBwdNonLinearity(*graph, *mapping,
@@ -646,24 +695,49 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                                                      deltas[i + 1], z[i + 1],
                                                      zDeltas,
                                                      c->nonLinearityType));
-        bwdProg.add(conv::convolutionBackward(*graph, *mapping, *deviceInfo,
-                                              dType, zDeltas, weights,
-                                              deltas[i], c->kernelSize,
-                                              c->stride, c->padding));
-        bwdProg.add(conv::convolutionWeightUpdate(*graph, *mapping, *deviceInfo,
-                                                  dType, zDeltas, weights,
-                                                  biases, acts[i],
-                                                  c->kernelSize, c->stride,
-                                                  c->padding, eta));
+
+        if (backwardPassRequired)
+          bwdProg.add(conv::convolutionBackward(*graph, *mapping, *deviceInfo,
+                                                plan, dType, zDeltas, weights,
+                                                deltas[i], c->kernelSize,
+                                                c->stride, c->padding));
+        bwdProg.add(
+              conv::convolutionWeightUpdate(*graph, *mapping, *deviceInfo,
+                                            dType, zDeltas, weights, biases,
+                                            acts[i], c->kernelSize,
+                                            c->stride, c->padding, eta));
       } else if (const auto *c = dynamic_cast<const ConvResLayer *>(layer)) {
-        assert(0 && "Residual conv layer training not implemented");
+        // TODO residuals
+        auto it = convPlans.find(i);
+        assert(it != convPlans.end());
+        auto &plan = it->second;
+        Tensor zDeltas = graph->addTensor(dType, deltas[i + 1].dims(),
+                                          "zDeltas");
+        mapActivations(zDeltas, *mapping, *deviceInfo);
+        auto weights = params[i][0];
+        auto biases = params[i][1];
+        bwdProg.add(conv::convolutionBwdNonLinearity(*graph, *mapping,
+                                                     *deviceInfo, dType,
+                                                     deltas[i + 1], z[i + 1],
+                                                     zDeltas,
+                                                     c->nonLinearityType));
+        if (backwardPassRequired)
+          bwdProg.add(conv::convolutionBackward(*graph, *mapping, *deviceInfo,
+                                                plan, dType, zDeltas, weights,
+                                                deltas[i], c->kernelSize,
+                                                c->stride, c->padding));
+        bwdProg.add(
+              conv::convolutionWeightUpdate(*graph, *mapping, *deviceInfo,
+                                            dType, zDeltas, weights, biases,
+                                            acts[i], c->kernelSize,
+                                            c->stride, c->padding, eta));
       } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
-        deltas[i] = graph->addTensor(dType, acts[i].dims(), "deltas");
-        bwdProg.add(maxpool::maxPoolBackward(*graph, *mapping, *deviceInfo,
-                                             m->kernelSize, m->stride,
-                                             m->padding, dType,
-                                             acts[i], acts[i + 1],
-                                             deltas[i + 1], deltas[i]));
+        if (backwardPassRequired)
+          bwdProg.add(maxpool::maxPoolBackward(*graph, *mapping, *deviceInfo,
+                                               m->kernelSize, m->stride,
+                                               m->padding, dType,
+                                               acts[i], acts[i + 1],
+                                               deltas[i + 1], deltas[i]));
       } else {
         assert(0 && "Unrecognized layer type");
       }

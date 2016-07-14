@@ -14,6 +14,7 @@ struct Partition {
   unsigned inChansPerGroup;
   unsigned partialChansPerGroup;
   bool floatPartials;
+  bool useConvolutionInstructions;
 
   Partition() = default;
   Partition(unsigned tilesPerXAxis,
@@ -40,7 +41,7 @@ struct Partition {
 struct ConvPlan {
 public:
   Partition fwdPartition;
-  bool useConvolutionInstruction;
+  Partition bwdPartition;
 };
 
 ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,

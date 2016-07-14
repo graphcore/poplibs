@@ -28,12 +28,12 @@ uint64_t getNumFlops(unsigned inDimY, unsigned inDimX,
   for (unsigned y = 0; y < outDimY; ++y) {
     unsigned inYBegin, inYEnd;
     std::tie(inYBegin, inYEnd) = getInputRange(y, stride, kernelSize,
-                                               padding, inDimY);
+                                               padding, inDimY, true);
     const auto height = inYEnd - inYBegin;
     for (unsigned x = 0; x < outDimX; ++x) {
       unsigned inXBegin, inXEnd;
       std::tie(inXBegin, inXEnd) = getInputRange(x, stride, kernelSize,
-                                                 padding, inDimX);
+                                                 padding, inDimX, true);
       const auto width = inXEnd - inXBegin;
       numFlops += width * height;
     }
@@ -95,11 +95,11 @@ maxPool(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping,
       unsigned chanGroup = i / (outDimY * outDimX);
       unsigned inYBegin, inYEnd;
       std::tie(inYBegin, inYEnd) = getInputRange(y, stride, kernelSize,
-                                                 padding, inDimY);
+                                                 padding, inDimY, true);
       const auto inYSize = inYEnd - inYBegin;
       unsigned inXBegin, inXEnd;
       std::tie(inXBegin, inXEnd) = getInputRange(x, stride, kernelSize,
-                                                 padding, inDimX);
+                                                 padding, inDimX, true);
       const auto inXSize = inXEnd - inXBegin;
       auto v =
         graph.addVertex(fwd, templateVertex("MaxPooling", dType),

@@ -174,9 +174,10 @@ class Net {
                              unsigned inNumChans);
 
   unsigned
-  getRequiredNumChanGroups(std::vector<std::unique_ptr<Layer>> &layers,
-                           unsigned i, unsigned inDimY, unsigned inDimX,
-                           unsigned inNumChans);
+  getRequiredNumChanGroupsFwd(unsigned i, unsigned inDimY, unsigned inDimX,
+                              unsigned inNumChans);
+
+  unsigned getRequiredNumChanGroupsBwd(int i, unsigned inNumChans=~0U);
 
   poplar::program::Program
   createConvLayerFwd(unsigned i, unsigned kernelSize, unsigned stride,

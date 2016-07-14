@@ -16,7 +16,7 @@ getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSize,
 
 uint64_t getFlops(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                   unsigned kernelSize, unsigned stride, unsigned padding,
-                  unsigned outNumChans, bool doResidual);
+                  unsigned outNumChans, bool doResidual, bool forwardOnly);
 
 double getPerfectCycleCount(const DeviceInfo &deviceInfo,
                             std::string dType,
@@ -24,7 +24,8 @@ double getPerfectCycleCount(const DeviceInfo &deviceInfo,
                             unsigned inNumChans,
                             unsigned kernelSize, unsigned stride,
                             unsigned padding,
-                            unsigned outNumChans, bool doResidual);
+                            unsigned outNumChans, bool doResidual,
+                            bool forwardOnly);
 
 std::pair<poplar::Tensor, poplar::Tensor>
 createParams(poplar::Graph &graph, std::string dType,
@@ -69,6 +70,7 @@ poplar::program::Program
 convolutionBackward(poplar::Graph &graph,
                     poplar::IPUModelEngineBuilder::TileMapping &mapping,
                     const DeviceInfo &deviceInfo,
+                    const ConvPlan &plan,
                     std::string dType,
                     poplar::Tensor zDeltas, poplar::Tensor weights,
                     poplar::Tensor deltasOut,
