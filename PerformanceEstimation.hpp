@@ -106,4 +106,9 @@ getFullyConnectedPartialCycleEstimate(bool isFloat, unsigned size,
   return 5 + getDenseDotProductCycles(isFloat, size, dataPathWidth);
 }
 
+inline std::uint64_t
+getFullyConnectedBwdCycleEstimate(unsigned size) {
+  return 5 + size * 2;
+}
+
 #endif // _performance_estimation_h_

@@ -25,7 +25,8 @@ struct Plan {
 Plan
 createPlan(const DeviceInfo &deviceInfo,
            const std::string &dType, unsigned numCols,
-           std::vector<unsigned> outputMapping);
+           std::vector<unsigned> outputMapping,
+           bool forwardOnly);
 
 } // End namespace fc.
 

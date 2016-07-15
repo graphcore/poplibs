@@ -511,11 +511,13 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
       mapActivations(z[i + 1], *mapping, *deviceInfo);
       auto activationsMapping =
           computeActivationsMapping(z[i + 1], *deviceInfo);
+      bool forwardOnly = i == 0 || netType == TestOnlyNet;
       const auto &plan =
           fullyConnectedPlan.emplace(
             i,
             fc::createPlan(*deviceInfo, dType, prevSize,
-                           std::move(activationsMapping))
+                           std::move(activationsMapping),
+                           forwardOnly)
          ).first->second;
       Tensor weights, biases;
       std::tie(weights, biases) = fc::createParams(*graph, dType,

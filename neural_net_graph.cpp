@@ -142,7 +142,7 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    return 5 + weights.size() * 2;
+    return getFullyConnectedBwdCycleEstimate(weights.size());
   }
 };
 

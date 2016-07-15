@@ -7,9 +7,9 @@
 using namespace fc;
 
 static unsigned
-estimatePartitionCost(const DeviceInfo &deviceInfo, bool isFloat,
-                      unsigned numRows, unsigned numCols, unsigned tilesPerRow,
-                      unsigned tilesPerColumn) {
+estimateFwdCost(const DeviceInfo &deviceInfo, bool isFloat,
+                unsigned numRows, unsigned numCols, unsigned tilesPerRow,
+                unsigned tilesPerColumn) {
   auto numTiles = tilesPerRow * tilesPerColumn;
   auto numVertices = numRows * tilesPerRow;
   auto numWorkerContexts = deviceInfo.getNumWorkerContexts();
@@ -30,10 +30,34 @@ estimatePartitionCost(const DeviceInfo &deviceInfo, bool isFloat,
   return computeCycles + exchangeCycles;
 }
 
+static unsigned
+estimateBwdCost(const DeviceInfo &deviceInfo, bool isFloat,
+                unsigned numRows, unsigned numCols, unsigned tilesPerRow,
+                unsigned tilesPerColumn) {
+  auto numTiles = tilesPerRow * tilesPerColumn;
+  auto numVertices = numCols * tilesPerColumn;
+  auto numWorkerContexts = deviceInfo.getNumWorkerContexts();
+  auto vertexElements = (numRows + tilesPerColumn - 1) / tilesPerColumn;
+  auto partialSumsPerTile = (numCols + tilesPerRow - 1) / tilesPerRow;
+  auto vertexRuntime =
+      getFullyConnectedBwdCycleEstimate(vertexElements);
+  auto verticesPerWorker = (numVertices + numTiles * numWorkerContexts - 1) /
+                           (numTiles * numWorkerContexts);
+  auto computeCycles = vertexRuntime * verticesPerWorker * numWorkerContexts;
+  auto exchangeBytesPerCycle = deviceInfo.getIPUExchangeBandwidth();
+  auto inputBytes = vertexElements * (isFloat ? 4 : 2);
+  auto partialSumBytes = partialSumsPerTile * 4;
+  auto exchangeCycles =
+      (inputBytes + exchangeBytesPerCycle - 1) / exchangeBytesPerCycle +
+      (partialSumBytes + exchangeBytesPerCycle - 1) / exchangeBytesPerCycle;
+  return computeCycles + exchangeCycles;
+}
+
 Plan
 fc::createPlan(const DeviceInfo &deviceInfo,
                const std::string &dType,
-               unsigned numCols, std::vector<unsigned> outputMapping) {
+               unsigned numCols, std::vector<unsigned> outputMapping,
+               bool forwardOnly) {
   // In theory a 2D tiling of the matrix across IPUs could decrease the
   // amount of communication. Unfortunately it introduces a new causal layer.
   // It turns out that, at least up to 16 IPUs, it is better to always keep
@@ -53,9 +77,12 @@ fc::createPlan(const DeviceInfo &deviceInfo,
   unsigned bestTilesPerColumn, bestTilesPerRow;
   for (unsigned tilesPerRow = 1; tilesPerRow <= tilesPerIPU; ++tilesPerRow) {
     unsigned tilesPerColumn = tilesPerIPU / tilesPerRow;
-    const auto cost = estimatePartitionCost(deviceInfo, isFloat, maxRowsPerIPU,
-                                            numCols, tilesPerRow,
-                                            tilesPerColumn);
+    auto cost = estimateFwdCost(deviceInfo, isFloat, maxRowsPerIPU,
+                                numCols, tilesPerRow, tilesPerColumn);
+    if (!forwardOnly) {
+      cost += estimateBwdCost(deviceInfo, isFloat, maxRowsPerIPU,
+                              numCols, tilesPerRow, tilesPerColumn);
+    }
     if (cost < lowestCost) {
       lowestCost = cost;
       bestTilesPerColumn = tilesPerColumn;
