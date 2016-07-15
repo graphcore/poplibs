@@ -128,6 +128,37 @@ double getPerfectCycleCount(const DeviceInfo &deviceInfo,
   return static_cast<double>(numFLOPs) / (2 * vectorWidth * numTiles);
 }
 
+/// Given a mapping of data to tiles, use the specified builder function to
+/// create vertices that operate on that data. Each vertex operates on data
+/// that is local to the tile it runs on. The number of vertices per tile is
+/// decided based on the number of worker contexts.
+template <class Builder>
+void buildTransform(const std::vector<unsigned> &tileMapping,
+                    DeviceInfo &deviceInfo, Builder &&builder) {
+  const auto numTiles = deviceInfo.getNumTiles();
+  const auto workersPerTile = deviceInfo.getNumWorkerContexts();
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    const auto tileElementBegin = tileMapping[tile];
+    const auto tileElementEnd = tileMapping[tile + 1];
+    const auto tileNumElements = tileElementEnd - tileElementBegin;
+    if (tileNumElements == 0)
+      continue;
+    const auto maxElementsPerWorker =
+      (tileNumElements + workersPerTile - 1) / workersPerTile;
+    const auto verticesToCreate =
+      (tileNumElements + maxElementsPerWorker - 1) / maxElementsPerWorker;
+    for (unsigned vertex = 0; vertex != verticesToCreate; ++vertex) {
+      const auto elementBegin =
+          tileElementBegin +
+          (vertex * tileNumElements) / verticesToCreate;
+      const auto elementEnd =
+          tileElementBegin +
+          ((vertex + 1) * tileNumElements) / verticesToCreate;
+      builder(elementBegin, elementEnd, tile);
+    }
+  }
+}
+
 Program
 fullyConnectedBwdNonLinearity(Graph &graph,
                               IPUModelEngineBuilder::TileMapping &mapping,
@@ -144,37 +175,21 @@ fullyConnectedBwdNonLinearity(Graph &graph,
   const auto layerName = "FullyConnected" + std::to_string(size);
   auto bwdNonLinearityCS =
       graph.createComputeSet(layerName + ".bwd.nonLinearity");
-  const auto numTiles = deviceInfo.getNumTiles();
-  const auto workersPerTile = deviceInfo.getNumWorkerContexts();
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
-    const auto tileDeltaBegin = deltasInMapping[tile];
-    const auto tileDeltaEnd = deltasInMapping[tile + 1];
-    const auto numTileDeltas = tileDeltaEnd - tileDeltaBegin;
-    if (numTileDeltas == 0)
-      continue;
-    const auto maxDeltasPerWorker =
-      (numTileDeltas + workersPerTile - 1) / workersPerTile;
-    const auto verticesToCreate =
-      (numTileDeltas + maxDeltasPerWorker - 1) / maxDeltasPerWorker;
-    for (unsigned vertex = 0; vertex != verticesToCreate; ++vertex) {
-      const auto deltaBegin =
-          tileDeltaBegin +
-          (vertex * numTileDeltas) / verticesToCreate;
-      const auto deltaEnd =
-          tileDeltaBegin +
-          ((vertex + 1) * numTileDeltas) / verticesToCreate;
-      auto v =
-          graph.addVertex(bwdNonLinearityCS,
-                          templateVertex("NonLinearityBwd", dType),
-                          {{"deltasIn", deltasIn.slice(deltaBegin, deltaEnd)},
-                           {"z", z.slice(deltaBegin, deltaEnd)},
-                           {"deltasOut", zDeltas.slice(deltaBegin, deltaEnd)},
-                          });
-      graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
-      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-      mapping.setMapping(v, tile);
-    }
-  }
+
+  buildTransform(deltasInMapping, deviceInfo, [&](unsigned deltaBegin,
+                                                  unsigned deltaEnd,
+                                                  unsigned tile) {
+    auto v =
+        graph.addVertex(bwdNonLinearityCS,
+                        templateVertex("NonLinearityBwd", dType),
+                        {{"deltasIn", deltasIn.slice(deltaBegin, deltaEnd)},
+                         {"z", z.slice(deltaBegin, deltaEnd)},
+                         {"deltasOut", zDeltas.slice(deltaBegin, deltaEnd)},
+                        });
+    graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
+    graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
+    mapping.setMapping(v, tile);
+  });
   return Execute(bwdNonLinearityCS);
 }
 
