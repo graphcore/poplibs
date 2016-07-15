@@ -333,6 +333,7 @@ fullyConnectedWeightUpdate(Graph &graph,
                            Tensor weights, Tensor biases,
                            float learningRate,
                            const Plan &plan) {
+  const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto &activationsOutMapping = plan.outputMapping;
   activations = activations.flatten();
   const auto size = zDeltas.numElements();
@@ -384,23 +385,21 @@ fullyConnectedWeightUpdate(Graph &graph,
   }
 
   // Update the biases.
-  const auto numTiles = deviceInfo.getNumTiles();
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
-    const auto activationsBegin = activationsOutMapping[tile];
-    const auto activationsEnd = activationsOutMapping[tile + 1];
-    for (unsigned i = activationsBegin; i != activationsEnd; ++i) {
-      // Sum the partial sums.
-      auto v =
-          graph.addVertex(cs,
-                          templateVertex("FullyConnectedBiasUpdate",
-                                         dType),
-                          {{"d", zDeltas[i]},
-                           {"bias", biases[i]}});
-      graph.setInitialValue(v["eta"],
-                            learningRate);
-      mapping.setMapping(v, tile);
-    }
-  }
+  buildTransform(activationsOutMapping, deviceInfo,
+                 [&](unsigned activationBegin, unsigned activationEnd,
+                 unsigned tile) {
+    auto v =
+        graph.addVertex(cs,
+                        templateVertex("FullyConnectedBiasUpdate",
+                                       dType),
+                        {{"d", zDeltas.slice(activationBegin,
+                                             activationEnd)},
+                         {"bias", biases.slice(activationBegin,
+                                               activationEnd)}});
+    graph.setInitialValue(v["eta"], learningRate);
+    graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
+    mapping.setMapping(v, tile);
+  });
   return Execute(cs);
 }
 

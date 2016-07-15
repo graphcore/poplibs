@@ -208,18 +208,26 @@ template class FullyConnectedWeightUpdate<half>;
 template <typename FPType>
 class FullyConnectedBiasUpdate : public Vertex {
 public:
-  Input<FPType> d;
-  InOut<FPType> bias;
+  Vector<Input<FPType>> d;
+  Vector<InOut<FPType>> bias;
   float eta;
 
+  SimOnlyField<unsigned> dataPathWidth;
+
   bool compute() {
-    *bias = *bias - *d * eta;
+    const auto numBiases = bias.size();
+    assert(d.size() == numBiases);
+    for (unsigned i = 0; i != numBiases; ++i) {
+      bias[i] = bias[i] - d[i] * eta;
+    }
     return true;
   }
 
   uint64_t getCycleEstimate() const {
-    // TODO
-    return 5 + 3;
+    bool isFloat = std::is_same<FPType, float>::value;
+    unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    unsigned numVectors = (bias.size() + vectorWidth - 1) / vectorWidth;
+    return 5 + 2 * numVectors;
   }
 };
 
