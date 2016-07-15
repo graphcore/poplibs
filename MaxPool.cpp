@@ -80,7 +80,7 @@ maxPool(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping,
   const auto outMapping = computeActivationsMapping(out, deviceInfo);
   const auto numTiles = deviceInfo.getNumIPUs() * deviceInfo.getTilesPerIPU();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
-  const auto tileOutBegin = outMapping[tile];
+    const auto tileOutBegin = outMapping[tile];
     const auto tileOutEnd = outMapping[tile + 1];
     assert(tileOutBegin % chansPerGroup == 0);
     assert(tileOutEnd % chansPerGroup == 0);
