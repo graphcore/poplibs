@@ -20,7 +20,7 @@ estimatePartitionCost(const DeviceInfo &deviceInfo, bool isFloat,
                                             deviceInfo.dataPathWidth);
   auto verticesPerWorker = (numVertices + numTiles * numWorkerContexts - 1) /
                            (numTiles * numWorkerContexts);
-  auto computeCycles = vertexRuntime * verticesPerWorker;
+  auto computeCycles = vertexRuntime * verticesPerWorker * numWorkerContexts;
   auto exchangeBytesPerCycle = deviceInfo.getIPUExchangeBandwidth();
   auto inputBytes = vertexElements * (isFloat ? 4 : 2);
   auto partialSumBytes = partialSumsPerTile * 4;
