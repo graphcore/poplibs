@@ -129,15 +129,20 @@ template <typename FPType>
 class FullyConnectedBwd : public Vertex {
 public:
   Input<Vector<FPType>> in;
-  Vector<Input<FPType>> weights;
-  Output<float> out;
+  Vector<Input<Vector<FPType>>> weights;
+  Vector<Output<float>> out;
 
   bool compute() {
-    float sum = 0;
-    for (unsigned i = 0; i < in.size(); ++i) {
-      sum += in[i] * weights[i];
+    assert(in.size() == weights.size());
+    for (auto &sum : out) {
+      sum = 0.0;
     }
-    *out = sum;
+    for (unsigned i = 0; i != in.size(); ++i) {
+      for (unsigned j = 0; j != out.size(); ++j) {
+        assert(weights[i].size() == out.size());
+        out[j] += in[i] * weights[i][j];
+      }
+    }
     return true;
   }
 

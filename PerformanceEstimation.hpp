@@ -108,7 +108,10 @@ getFullyConnectedPartialCycleEstimate(bool isFloat, unsigned size,
 
 inline std::uint64_t
 getFullyConnectedBwdCycleEstimate(unsigned size) {
-  return 5 + size * 2;
+  // Inner loop is dominated by loads (load pointer, load 64bits, load 16
+  // bits). This could be improved if we uses strided loads instead of
+  // pointers.
+  return 5 + size * 3;
 }
 
 #endif // _performance_estimation_h_

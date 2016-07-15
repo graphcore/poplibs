@@ -34,15 +34,16 @@ static unsigned
 estimateBwdCost(const DeviceInfo &deviceInfo, bool isFloat,
                 unsigned numRows, unsigned numCols, unsigned tilesPerRow,
                 unsigned tilesPerColumn) {
-  auto numTiles = tilesPerRow * tilesPerColumn;
-  auto numVertices = numCols * tilesPerColumn;
+  auto vectorWidth = isFloat ? deviceInfo.getFloatVectorWidth() :
+                               deviceInfo.getHalfVectorWidth();
   auto numWorkerContexts = deviceInfo.getNumWorkerContexts();
   auto vertexElements = (numRows + tilesPerColumn - 1) / tilesPerColumn;
   auto partialSumsPerTile = (numCols + tilesPerRow - 1) / tilesPerRow;
+  auto verticesPerTile = (partialSumsPerTile + vectorWidth - 1) / vectorWidth;
   auto vertexRuntime =
       getFullyConnectedBwdCycleEstimate(vertexElements);
-  auto verticesPerWorker = (numVertices + numTiles * numWorkerContexts - 1) /
-                           (numTiles * numWorkerContexts);
+  auto verticesPerWorker = (verticesPerTile + numWorkerContexts - 1) /
+                           numWorkerContexts;
   auto computeCycles = vertexRuntime * verticesPerWorker * numWorkerContexts;
   auto exchangeBytesPerCycle = deviceInfo.getIPUExchangeBandwidth();
   auto inputBytes = vertexElements * (isFloat ? 4 : 2);

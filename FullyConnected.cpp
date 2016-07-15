@@ -200,8 +200,8 @@ Program fullyConnectedBackward(Graph &graph,
                                Tensor zDeltas,
                                Tensor weights, Tensor deltasOut,
                                const Plan &plan) {
-  const auto size = zDeltas.numElements();
-  const auto prevSize = weights.dim(1);
+  const auto size = static_cast<unsigned>(zDeltas.numElements());
+  const auto prevSize = static_cast<unsigned>(weights.dim(1));
   const auto layerName = "FullyConnected" + std::to_string(size);
   auto prog = Sequence();
   auto bwdCS = graph.createComputeSet(layerName + ".bwd");
@@ -236,18 +236,26 @@ Program fullyConnectedBackward(Graph &graph,
             (numCols * (tileX + 1)) / ipuPartition.tilesPerRow;
         if (beginElement == endElement)
           continue;
-        for (unsigned i = beginElement; i != endElement; ++i) {
-          auto w = weights.slice({tileRowBegin, i}, {tileRowEnd, i+1}).flatten();
+        const auto vectorWidth =
+            dType == "float" ? deviceInfo.getFloatVectorWidth() :
+                               deviceInfo.getHalfVectorWidth();
+        for (unsigned i = beginElement; i < endElement; i += vectorWidth) {
+          const auto vectorNumElements = std::min(endElement - i, vectorWidth);
+          auto w = weights.slice({tileRowBegin, i},
+                                 {tileRowEnd, i + vectorNumElements});
           Tensor inWindow = zDeltas.slice(tileRowBegin, tileRowEnd);
+          Tensor outWindow =
+              partials.slice({i, ipu, j},
+                             {i + vectorNumElements, ipu + 1, j + 1}).flatten();
           auto v = graph.addVertex(bwdCS,
                                    templateVertex("FullyConnectedBwd",
                                                   dType),
                                    {{"in", inWindow},
                                     {"weights", w},
-                                    {"out", partials[i][ipu][j]},
+                                    {"out", outWindow},
                                    });
           mapping.setMapping(v, tile);
-          mapping.setMapping(partials[i][ipu][j], tile);
+          mapping.setMapping(outWindow, tile);
         }
       }
     }
