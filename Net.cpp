@@ -483,7 +483,6 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   auto initParamsProg = Sequence();
   auto fwdProg = Sequence();
   auto bwdProg = Sequence();
-  auto weightUpdateProg = Sequence();
   auto numChanGroups = getRequiredNumChanGroups(layers, 0, dataSet.dim[0],
                                                 dataSet.dim[1], dataSet.dim[2]);
   if (numChanGroups == 0)
@@ -632,11 +631,10 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                                                dType, zDeltas,
                                                weights, deltas[i],
                                                plan));
-        weightUpdateProg.add(
-              fc::fullyConnectedWeightUpdate(*graph, *mapping, *deviceInfo,
-                                             dType, zDeltas, acts[i],
-                                             weights, biases, eta,
-                                             plan));
+        bwdProg.add(fc::fullyConnectedWeightUpdate(*graph, *mapping,
+                                                   *deviceInfo, dType, zDeltas,
+                                                   acts[i], weights, biases,
+                                                   eta, plan));
       } else if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
         deltas[i] = graph->addTensor(dType, acts[i].dims(), "deltas");
         Tensor zDeltas = graph->addTensor(dType, deltas[i + 1].dims(),
@@ -652,11 +650,11 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                                               dType, zDeltas, weights,
                                               deltas[i], c->kernelSize,
                                               c->stride, c->padding));
-        weightUpdateProg.add(
-              conv::convolutionWeightUpdate(*graph, *mapping, *deviceInfo,
-                                            dType, zDeltas, weights, biases,
-                                            acts[i], c->kernelSize,
-                                            c->stride, c->padding, eta));
+        bwdProg.add(conv::convolutionWeightUpdate(*graph, *mapping, *deviceInfo,
+                                                  dType, zDeltas, weights,
+                                                  biases, acts[i],
+                                                  c->kernelSize, c->stride,
+                                                  c->padding, eta));
       } else if (const auto *c = dynamic_cast<const ConvResLayer *>(layer)) {
         assert(0 && "Residual conv layer training not implemented");
       } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
@@ -686,7 +684,6 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
     }
     trainProg.add(fwdProg);
     trainProg.add(bwdProg);
-    trainProg.add(weightUpdateProg);
   }
   auto testProg = Sequence();
   if (!options.ignoreData) {
