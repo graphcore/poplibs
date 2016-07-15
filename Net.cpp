@@ -509,10 +509,13 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
       mapActivations(acts[i + 1], *mapping, *deviceInfo);
       z[i + 1] = graph->addTensor(dType, {size}, "z." + std::to_string(i));
       mapActivations(z[i + 1], *mapping, *deviceInfo);
+      auto activationsMapping =
+          computeActivationsMapping(z[i + 1], *deviceInfo);
       const auto &plan =
-          fullyConnectedPlan.emplace(i,
-                                     fc::createPlan(*deviceInfo, dType, size,
-                                                    prevSize)
+          fullyConnectedPlan.emplace(
+            i,
+            fc::createPlan(*deviceInfo, dType, prevSize,
+                           std::move(activationsMapping))
          ).first->second;
       Tensor weights, biases;
       std::tie(weights, biases) = fc::createParams(*graph, dType,
@@ -581,6 +584,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   Tensor numCorrect = graph->addTensor("unsigned", {1});
   Tensor loss = graph->addTensor(dType, {1});
   deltas[layers.size()] = graph->addTensor(dType, lastAct.dims());
+  mapActivations(deltas[layers.size()], *mapping, *deviceInfo);
   auto v = graph->addVertex(lossCS, templateVertex("CalcLoss", dType),
                            {{"in", lastAct.flatten()},
                             {"deltaOut", deltas[layers.size()].flatten()},
@@ -609,8 +613,10 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
       const auto *layer = layers[i].get();
       if (const auto *fc = dynamic_cast<const FullyConnectedLayer *>(layer)) {
         deltas[i] = graph->addTensor(dType, acts[i].dims(), "deltas");
+        mapActivations(deltas[i], *mapping, *deviceInfo);
         Tensor zDeltas = graph->addTensor(dType, deltas[i + 1].dims(),
                                           "zDeltas");
+        mapActivations(zDeltas, *mapping, *deviceInfo);
         auto weights = params[i][0];
         auto biases = params[i][1];
         const auto &plan = fullyConnectedPlan.find(i)->second;

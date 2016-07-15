@@ -32,21 +32,28 @@ estimatePartitionCost(const DeviceInfo &deviceInfo, bool isFloat,
 
 Plan
 fc::createPlan(const DeviceInfo &deviceInfo,
-               const std::string &dType, unsigned numRows,
-               unsigned numCols) {
+               const std::string &dType,
+               unsigned numCols, std::vector<unsigned> outputMapping) {
   // In theory a 2D tiling of the matrix across IPUs could decrease the
   // amount of communication. Unfortunately it introduces a new causal layer.
   // It turns out that, at least up to 16 IPUs, it is better to always keep
   // all row elements on the same IPU to avoid the need for an extra sync.
-  bool isFloat = dType == "float";
+  unsigned maxRowsPerIPU = 0;
   const auto numIPUs = deviceInfo.getNumIPUs();
-  unsigned rowsPerIPU = (numRows + numIPUs - 1) / numIPUs;
   const auto tilesPerIPU = deviceInfo.getTilesPerIPU();
+  for (unsigned ipu = 0; ipu != numIPUs; ++ipu) {
+    const auto ipuBeginRow = outputMapping[ipu * tilesPerIPU];
+    const auto ipuEndRow = outputMapping[(ipu + 1) * tilesPerIPU];
+    const auto rows = ipuEndRow - ipuBeginRow;
+    maxRowsPerIPU = std::max(maxRowsPerIPU, rows);
+  }
+
+  bool isFloat = dType == "float";
   unsigned lowestCost = std::numeric_limits<unsigned>::max();
   unsigned bestTilesPerColumn, bestTilesPerRow;
   for (unsigned tilesPerRow = 1; tilesPerRow <= tilesPerIPU; ++tilesPerRow) {
     unsigned tilesPerColumn = tilesPerIPU / tilesPerRow;
-    const auto cost = estimatePartitionCost(deviceInfo, isFloat, rowsPerIPU,
+    const auto cost = estimatePartitionCost(deviceInfo, isFloat, maxRowsPerIPU,
                                             numCols, tilesPerRow,
                                             tilesPerColumn);
     if (cost < lowestCost) {
@@ -55,5 +62,6 @@ fc::createPlan(const DeviceInfo &deviceInfo,
       bestTilesPerRow = tilesPerRow;
     }
   }
-  return Plan(Partition(bestTilesPerColumn, bestTilesPerRow));
+  return Plan(Partition(bestTilesPerColumn, bestTilesPerRow),
+              std::move(outputMapping));
 }

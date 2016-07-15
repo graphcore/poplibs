@@ -130,7 +130,7 @@ class FullyConnectedBwd : public Vertex {
 public:
   Input<Vector<FPType>> in;
   Vector<Input<FPType>> weights;
-  Output<FPType> out;
+  Output<float> out;
 
   bool compute() {
     float sum = 0;
@@ -142,13 +142,38 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    // TODO
-    return 0;
+    return 5 + weights.size() * 2;
   }
 };
 
 template class FullyConnectedBwd<float>;
 template class FullyConnectedBwd<half>;
+
+template <typename InType, typename OutType>
+class FullyConnectedBwdReduce : public Vertex {
+public:
+  Output<OutType> out;
+  Vector<Input<InType>> partials;
+
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    *out = 0.0;
+    for (const auto x : partials) {
+      *out += x;
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    return 5 + partials.size() * 2;
+  }
+};
+
+template class FullyConnectedBwdReduce<float, float>;
+template class FullyConnectedBwdReduce<float, half>;
+template class FullyConnectedBwdReduce<half, float>;
+template class FullyConnectedBwdReduce<half, half>;
 
 template <typename FPType>
 class FullyConnectedWeightUpdate : public Vertex {
@@ -156,7 +181,6 @@ public:
   Input<FPType> d;
   InOut<Vector<FPType>> weights;
   Input<Vector<FPType>> in;
-  InOut<FPType> bias;
   float eta;
 
   bool compute() {
@@ -164,7 +188,6 @@ public:
       auto grad = *d * in[i];
       weights[i] = weights[i] - grad * eta;
     }
-    *bias = *bias - *d * eta;
     return true;
   }
 
@@ -176,6 +199,27 @@ public:
 
 template class FullyConnectedWeightUpdate<float>;
 template class FullyConnectedWeightUpdate<half>;
+
+template <typename FPType>
+class FullyConnectedBiasUpdate : public Vertex {
+public:
+  Input<FPType> d;
+  InOut<FPType> bias;
+  float eta;
+
+  bool compute() {
+    *bias = *bias - *d * eta;
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    // TODO
+    return 5 + 3;
+  }
+};
+
+template class FullyConnectedBiasUpdate<float>;
+template class FullyConnectedBiasUpdate<half>;
 
 /**
  * Compute 1x1 convolutions and accumulate them with partial sums in memory.
@@ -465,6 +509,8 @@ public:
   Output<Vector<FPType>> deltasOut;
   NonLinearityType nonLinearityType;
 
+  SimOnlyField<unsigned> dataPathWidth;
+
   bool compute() {
     assert(deltasIn.size() == deltasOut.size());
     assert(deltasIn.size() == z.size());
@@ -476,8 +522,10 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    // TODO
-    return 0;
+    bool isFloat = std::is_same<FPType, float>::value;
+    unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    unsigned numVectors = (deltasIn.size() + vectorWidth - 1) / vectorWidth;
+    return 5 + numVectors * 3;
   }
 };
 

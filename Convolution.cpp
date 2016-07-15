@@ -1210,6 +1210,7 @@ Program convolutionBwdNonLinearity(Graph &graph,
                                    std::string dType,
                                    Tensor deltasIn, Tensor z, Tensor zDeltas,
                                    NonLinearityType nonLinearityType) {
+  const auto dataPathWidth = deviceInfo.dataPathWidth;
   auto bwdNonLinearityCS = graph.createComputeSet("conv.bwd.nonLinearity");
   auto v = graph.addVertex(bwdNonLinearityCS,
                            templateVertex("NonLinearityBwd", dType),
@@ -1218,6 +1219,7 @@ Program convolutionBwdNonLinearity(Graph &graph,
                             {"deltasOut", zDeltas.flatten()},
                            });
   graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
+  graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
   return Execute(bwdNonLinearityCS);
 }
 

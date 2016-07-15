@@ -2,6 +2,7 @@
 #define _FullyConnectedPlan_hpp_
 
 #include <string>
+#include <vector>
 
 class DeviceInfo;
 
@@ -16,13 +17,15 @@ struct Partition {
 
 struct Plan {
   Partition ipuPartition;
-  Plan(const Partition &ipuPartition) : ipuPartition(ipuPartition) {}
+  std::vector<unsigned> outputMapping;
+  Plan(const Partition &ipuPartition, std::vector<unsigned> outputMapping) :
+    ipuPartition(ipuPartition), outputMapping(std::move(outputMapping)) {}
 };
 
 Plan
 createPlan(const DeviceInfo &deviceInfo,
-           const std::string &dType, unsigned numRows,
-           unsigned numCols);
+           const std::string &dType, unsigned numCols,
+           std::vector<unsigned> outputMapping);
 
 } // End namespace fc.
 
