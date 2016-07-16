@@ -34,16 +34,6 @@ fullyConnected(poplar::Graph &graph,
                const Plan &plan);
 
 poplar::program::Program
-fullyConnectedBwdNonLinearity(poplar::Graph &graph,
-                              poplar::IPUModelEngineBuilder::TileMapping &mapping,
-                              DeviceInfo &deviceInfo,
-                              std::string dType,
-                              poplar::Tensor z, poplar::Tensor deltasIn,
-                              poplar::Tensor zDeltas,
-                              NonLinearityType nonLinearityType,
-                              const Plan &plan);
-
-poplar::program::Program
 fullyConnectedBackward(poplar::Graph &graph,
                        poplar::IPUModelEngineBuilder::TileMapping &mapping,
                        DeviceInfo &deviceInfo,

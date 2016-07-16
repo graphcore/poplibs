@@ -24,14 +24,15 @@ ${OBJDIR}/%.o: %.cpp Makefile ${wildcard *.hpp} ${wilcard *.h} | ${OBJDIR}/
 
 COMMON_OBJ = \
 	${OBJDIR}/ActivationMapping.o \
-	${OBJDIR}/ConvUtil.o \
+	${OBJDIR}/Convolution.o \
 	${OBJDIR}/ConvPlan.o \
         ${OBJDIR}/ConvReuse.o \
-	${OBJDIR}/Convolution.o \
-	${OBJDIR}/MaxPool.o \
+	${OBJDIR}/ConvUtil.o \
 	${OBJDIR}/FullyConnected.o \
-        ${OBJDIR}/FullyConnectedPlan.o \
-	${OBJDIR}/Net.o
+	${OBJDIR}/FullyConnectedPlan.o \
+	${OBJDIR}/MaxPool.o \
+	${OBJDIR}/Net.o \
+	${OBJDIR}/NonLinearity.o
 
 COMMON_LIBS = \
 	-lpoplar \

@@ -56,16 +56,6 @@ void mapBiases(poplar::Tensor b,
                const DeviceInfo &deviceInfo,
                poplar::Tensor activations);
 
-
-poplar::program::Program
-convolutionBwdNonLinearity(poplar::Graph &graph,
-                           poplar::IPUModelEngineBuilder::TileMapping &mapping,
-                           const DeviceInfo &deviceInfo,
-                           std::string dType,
-                           poplar::Tensor deltasIn, poplar::Tensor z,
-                           poplar::Tensor zDeltas,
-                           NonLinearityType nonLinearityType);
-
 poplar::program::Program
 convolutionBackward(poplar::Graph &graph,
                     poplar::IPUModelEngineBuilder::TileMapping &mapping,

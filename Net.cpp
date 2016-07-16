@@ -8,6 +8,7 @@
 #include "DeviceInfo.hpp"
 #include "ActivationMapping.hpp"
 #include "VertexTemplates.hpp"
+#include "NonLinearity.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
@@ -665,12 +666,11 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
         auto weights = params[i][0];
         auto biases = params[i][1];
         const auto &plan = fullyConnectedPlan.find(i)->second;
-        bwdProg.add(fc::fullyConnectedBwdNonLinearity(*graph, *mapping,
-                                                      *deviceInfo, dType,
-                                                      z[i + 1], deltas[i + 1],
-                                                      zDeltas,
-                                                      fc->nonLinearityType,
-                                                      plan));
+        bwdProg.add(bwdNonLinearity(*graph, *mapping,
+                                    *deviceInfo, dType,
+                                    z[i + 1], deltas[i + 1],
+                                    zDeltas,
+                                    fc->nonLinearityType));
 
         if (backwardPassRequired)
           bwdProg.add(fc::fullyConnectedBackward(*graph, *mapping, *deviceInfo,
@@ -690,11 +690,11 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
         mapActivations(zDeltas, *mapping, *deviceInfo);
         auto weights = params[i][0];
         auto biases = params[i][1];
-        bwdProg.add(conv::convolutionBwdNonLinearity(*graph, *mapping,
-                                                     *deviceInfo, dType,
-                                                     deltas[i + 1], z[i + 1],
-                                                     zDeltas,
-                                                     c->nonLinearityType));
+        bwdProg.add(bwdNonLinearity(*graph, *mapping,
+                                    *deviceInfo, dType,
+                                    z[i + 1], deltas[i + 1],
+                                    zDeltas,
+                                    c->nonLinearityType));
 
         if (backwardPassRequired)
           bwdProg.add(conv::convolutionBackward(*graph, *mapping, *deviceInfo,
@@ -716,11 +716,11 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
         mapActivations(zDeltas, *mapping, *deviceInfo);
         auto weights = params[i][0];
         auto biases = params[i][1];
-        bwdProg.add(conv::convolutionBwdNonLinearity(*graph, *mapping,
-                                                     *deviceInfo, dType,
-                                                     deltas[i + 1], z[i + 1],
-                                                     zDeltas,
-                                                     c->nonLinearityType));
+        bwdProg.add(bwdNonLinearity(*graph, *mapping,
+                                    *deviceInfo, dType,
+                                    z[i + 1], deltas[i + 1],
+                                    zDeltas,
+                                    c->nonLinearityType));
         if (backwardPassRequired)
           bwdProg.add(conv::convolutionBackward(*graph, *mapping, *deviceInfo,
                                                 plan, dType, zDeltas, weights,
