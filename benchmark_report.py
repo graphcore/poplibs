@@ -2,7 +2,7 @@ import re
 
 CYCLES_PER_SEC = 1.6 * 1000000000;
 
-def create_report(runs, filename, param_info, arch_explore):
+def create_report(runs, filename, param_info, arch_explore, training):
     # Create a report on the benchmarks.
     # This is not meant to be a generic report of information
     # but a very specific custom report that will change over time as we
@@ -107,6 +107,10 @@ def create_report(runs, filename, param_info, arch_explore):
     resnet50_exchange16_reduce = find_run('resnet50',
                                            {'--ipu-exchange-bandwidth':'16',
                                             '--tiles-per-ipu':'1024'})
+
+    alexnet_train = find_run('alexnet', {'--train':'1'})
+    resnet34_train = find_run('resnet34b', {'--train':'1'})
+    resnet50_train = find_run('resnet50', {'--train':'1'})
 
     ipu_tiles = 1216
     ipu_total_mem = ipu_tiles * 256 * 1024
@@ -474,3 +478,46 @@ def create_report(runs, filename, param_info, arch_explore):
                                           int(d['Num tiles computing']),
                                           int(d['Num tiles exchanging'])))
             
+        alexnet_train_cycles = get_total_cycles(alexnet_train[0])
+        resnet34_train_cycles = get_total_cycles(resnet34_train[0])
+        resnet50_train_cycles = get_total_cycles(resnet50_train[0])
+
+        alexnet_bwd_cycles = alexnet_train_cycles - alexnet_cycles
+        resnet34_bwd_cycles = resnet34_train_cycles - resnet34_cycles
+        resnet50_bwd_cycles = resnet50_train_cycles - resnet50_cycles
+
+        alexnet_train_flops = alexnet_train[0]['FLOPS']
+        resnet34_train_flops = resnet34_train[0]['FLOPS']
+        resnet50_train_flops = resnet50_train[0]['FLOPS']
+
+        alexnet_bwd_flops = alexnet_train[0]['FLOPS'] - alexnet_flops
+        resnet34_bwd_flops = resnet34_train[0]['FLOPS'] - resnet34_flops
+        resnet50_bwd_flops = resnet50_train[0]['FLOPS'] - resnet50_flops
+
+        alexnet_bwd_us_per_image = alexnet_bwd_cycles / CYCLES_PER_SEC * 1000000
+        alexnet_bwd_gflops_per_sec = alexnet_bwd_flops / alexnet_bwd_us_per_image / 1000
+        resnet34_bwd_us_per_image = resnet34_bwd_cycles / CYCLES_PER_SEC * 1000000
+        resnet34_bwd_gflops_per_sec = resnet34_bwd_flops / resnet34_bwd_us_per_image / 1000
+        resnet50_bwd_us_per_image = resnet50_bwd_cycles / CYCLES_PER_SEC * 1000000
+        resnet50_bwd_gflops_per_sec = resnet50_bwd_flops / resnet50_bwd_us_per_image / 1000
+
+
+
+        f.write(',\nTRAIN PERFORMANCE,\n,\n')
+
+        f.write('Benchmark, Foward, Backward\n')
+        f.write('alexnet,{:.1f},{:.1f}\n'.format(alexnet_gflops_per_sec/1000,
+                                               alexnet_bwd_gflops_per_sec/1000));
+        f.write('resnet34,{:.1f},{:.1f}\n'.format(resnet34_gflops_per_sec/1000,
+                                               resnet34_bwd_gflops_per_sec/1000));
+        f.write('resnet50,{:.1f},{:.1f}\n'.format(resnet50_gflops_per_sec/1000,
+                                               resnet50_bwd_gflops_per_sec/1000));
+
+
+        f.write(',\nTRAIN MEMORY,\n,\n')
+
+        f.write('Benchmark, Memory (MB)\n')
+        f.write('alexnet, {:.0f}\nresnet34,{:.0f}\nresnet50,{:.0f}'.format(
+                MB(get_total_mem(alexnet_train[0])),
+                MB(get_total_mem(resnet34_train[0])),
+                MB(get_total_mem(resnet50_train[0]))))

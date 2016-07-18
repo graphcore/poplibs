@@ -80,7 +80,8 @@ param_info = {'--ipus': {'desc': 'Num IPUs', 'default': '1'},
               '--ipu-exchange-bandwidth': {'desc':'IPU exchange bandwidth',
                                             'default':'4'},
               '--bytes-per-tile': {'desc':'Bytes per tile', 'default': '262144'},
-              '--data-path-width': {'desc':'Datapath width', 'default': '64'}}
+              '--data-path-width': {'desc':'Datapath width', 'default': '64'},
+              '--train':{'desc':'Training', 'default': 0}}
 
 
 def run(prog, params):
@@ -301,6 +302,10 @@ def main():
                   'resnet34b',
                   'resnet50']
 
+    training_benchmarks = ['alexnet --train=1',
+                           'resnet34b --train=1',
+                           'resnet50 --train=1']
+
     arch_explore_benchmarks = ['alexnet ' + large_tile_opts,
                                'alexnet ' + xlarge_tile_opts,
                                'resnet34b ' + large_tile_opts,
@@ -328,6 +333,8 @@ def main():
                         help='Test graph reuse option in resnet benchmarks.')
     parser.add_argument('--arch-explore', dest='arch_explore', action='store_true',
                         help='Explore a number of architectural configurations.')
+    parser.add_argument('--training', dest='training', action='store_true',
+                        help='Benchmark training.')
     parser.add_argument('--report', dest='create_report', action='store_true',
                         help='Create a overall report on the benchmarks.')
     parser.add_argument('--name', dest='run_name', default="", type=str,
@@ -342,6 +349,9 @@ def main():
     if args.arch_explore:
         benchmarks += arch_explore_benchmarks
 
+    if args.training:
+        benchmarks += training_benchmarks
+
     runs = {}
     for benchmark in benchmarks:
         run_benchmark(args.run_name, benchmark, args, runs)
@@ -351,7 +361,8 @@ def main():
         if args.run_name:
             report_file += "_" + args.run_name
         report_file += ".csv"
-        create_report(runs, report_file, param_info, args.arch_explore)
+        create_report(runs, report_file, param_info, args.arch_explore,
+                      args.training)
     return 0
 
 
