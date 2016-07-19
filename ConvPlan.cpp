@@ -5,6 +5,11 @@
 
 namespace conv {
 
+enum class Phase {
+  FORWARD,
+  BACKWARD
+};
+
 struct ConvolutionParams {
   unsigned kernelSize;
   unsigned stride;
@@ -58,7 +63,7 @@ getMaxInputRangeSize(unsigned outputRangeSize, unsigned stride,
                      unsigned kernelSize, unsigned padding,
                      unsigned numPartitions,
                      unsigned inputSize, bool contiguousAccess,
-                     bool forward) {
+                     Phase phase) {
   if (outputRangeSize == 0)
     return 0;
   unsigned inputRangeSize;
@@ -71,19 +76,20 @@ getMaxInputRangeSize(unsigned outputRangeSize, unsigned stride,
     {
       auto inputRange = getInputRange({0, outputRangeSize}, stride,
                                       kernelSize, padding,
-                                      inputSize, forward);
+                                      inputSize, phase != Phase::BACKWARD);
       inputRangeSize = inputRange.second - inputRange.first;
     }
     break;
   default:
-    if (forward) {
+    if (phase != Phase::BACKWARD) {
       inputRangeSize = (outputRangeSize - 1) * stride + 1 + (kernelSize - 1);
     } else {
       inputRangeSize = (outputRangeSize - kernelSize ) / stride + 1;
     }
     break;
   }
-  if (forward && !contiguousAccess && kernelSize == 1 && stride > 1) {
+  if (phase == Phase::FORWARD &&
+      !contiguousAccess && kernelSize == 1 && stride > 1) {
     inputRangeSize = (inputRangeSize - 1) / stride + 1;
   }
   return inputRangeSize;
@@ -172,7 +178,7 @@ static unsigned
 estimateExchangeCost(const DeviceInfo &deviceInfo,
                      bool floatActivations, const ConvolutionParams &params,
                      const Partition &partition,
-                     bool forward) {
+                     Phase phase) {
   const auto tilesPerX = partition.tilesPerXAxis;
   const auto tilesPerY = partition.tilesPerYAxis;
   const auto tilesPerZ = partition.tilesPerZAxis;
@@ -197,11 +203,11 @@ estimateExchangeCost(const DeviceInfo &deviceInfo,
   const auto tileInWidth =
       getMaxInputRangeSize(tileOutWidth, params.stride, params.kernelSize,
                            params.padding,
-                           tilesPerX, params.inputWidth, true, forward);
+                           tilesPerX, params.inputWidth, true, phase);
   const auto tileInHeight =
       getMaxInputRangeSize(tileOutHeight, params.stride, params.kernelSize,
                            params.padding,
-                           tilesPerY, params.inputWidth, false, forward);
+                           tilesPerY, params.inputWidth, false, phase);
   const auto numberOfInputElements = tileInWidth * tileInHeight * tileInDepth;
   const auto numberOfWeights =
       params.kernelSize * params.kernelSize * tileOutDepth * tileInDepth;
@@ -227,7 +233,7 @@ estimateVertexCycles(bool floatActivations,
                      const Partition &partition,
                      const DeviceInfo &deviceInfo,
                      bool useSupervisorVertices,
-                     bool forward) {
+                     Phase phase) {
   const auto tilesPerY = partition.tilesPerYAxis;
   const auto tilesPerX = partition.tilesPerXAxis;
   const auto tilesPerInZGroupAxis = partition.tilesPerInZGroupAxis;
@@ -247,8 +253,8 @@ estimateVertexCycles(bool floatActivations,
   const auto outRowsPerVertex =
       (tileOutHeight + verticesPerTilePerY - 1) / verticesPerTilePerY;
   const auto inputGroupsPerOutput = params.kernelSize * tileNumInGroups;
-  const auto inputStride = forward ? params.stride : 1;
-  const auto outputStride = forward ? 1 : params.stride;
+  const auto inputStride = phase != Phase::BACKWARD ? params.stride : 1;
+  const auto outputStride = phase != Phase::BACKWARD ? 1 : params.stride;
   return getConvPartialCycleEstimate(floatActivations, partition.floatPartials,
                                      inChansPerGroup, inputStride,
                                      outputStride,
@@ -264,7 +270,7 @@ estimateConvolveComputeCost(const DeviceInfo &deviceInfo,
                             bool floatActivations,
                             const ConvolutionParams &params,
                             const Partition &partition,
-                            bool forward) {
+                            Phase phase) {
   const auto tilesPerY = partition.tilesPerYAxis;
   const auto tilesPerZ = partition.tilesPerZAxis;
   const auto outChansPerGroup = partition.partialChansPerGroup;
@@ -297,7 +303,7 @@ estimateConvolveComputeCost(const DeviceInfo &deviceInfo,
                                                   partition,
                                                   deviceInfo,
                                                   useSupervisorVertices,
-                                                  forward);
+                                                  phase);
   auto verticesPerWorker = (tileVertices + numContexts - 1) /
                            numContexts;
   auto computeCycles = vertexRuntime * verticesPerWorker * numContexts;
@@ -328,9 +334,9 @@ static unsigned
 estimateComputeCost(const DeviceInfo &deviceInfo,
                     bool floatActivations, const ConvolutionParams &params,
                     const Partition &partition,
-                    bool forward) {
+                    Phase phase) {
   return estimateConvolveComputeCost(deviceInfo, floatActivations, params,
-                                     partition, forward) +
+                                     partition, phase) +
          estimateReduceComputeCost(deviceInfo, params,
                                    partition);
 
@@ -342,14 +348,14 @@ estimatePartitionCostBounded(const DeviceInfo &deviceInfo,
                              const ConvolutionParams &params,
                              const Partition &partition,
                              unsigned maxBound,
-                             bool forward) {
+                             Phase phase) {
   auto cost = estimateExchangeCost(deviceInfo,
                                    floatActivations, params, partition,
-                                   forward);
+                                   phase);
   if (cost > maxBound)
     return maxBound;
   cost += estimateComputeCost(deviceInfo, floatActivations, params,
-                              partition, forward);
+                              partition, phase);
   return std::min(cost, maxBound);
 }
 
@@ -358,19 +364,19 @@ estimatePartitionCost(const DeviceInfo &deviceInfo,
                       bool floatActivations,
                       const ConvolutionParams &params,
                       const Partition &partition,
-                      bool forward) {
+                      Phase phase) {
   return estimatePartitionCostBounded(deviceInfo,
                                       floatActivations, params, partition,
                                       std::numeric_limits<unsigned>::max(),
-                                      forward);
+                                      phase);
 }
 
-static Partition
+static std::pair<Partition, unsigned>
 choosePartition(const DeviceInfo &deviceInfo,
                 bool floatActivations,
                 unsigned inChansPerGroup,
                 const ConvolutionParams &params,
-                bool forward) {
+                Phase phase) {
   unsigned bestCost = std::numeric_limits<unsigned>::max();
   Partition bestPartition;
   if (params.inputDepth % inChansPerGroup != 0) {
@@ -457,7 +463,7 @@ choosePartition(const DeviceInfo &deviceInfo,
             auto candidateCost =
                 estimatePartitionCostBounded(deviceInfo, floatActivations,
                                              params, candidate,
-                                             bestCost, forward);
+                                             bestCost, phase);
             if (candidateCost < bestCost) {
               bestPartition = candidate;
               bestCost = candidateCost;
@@ -467,69 +473,35 @@ choosePartition(const DeviceInfo &deviceInfo,
       }
     }
   }
-  return bestPartition;
+  return {bestPartition, bestCost};
 }
 
-static Partition
-choosePartition(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                unsigned inNumChanGroups,
-                unsigned kernelSize, unsigned stride, unsigned padding,
-                unsigned outNumChans,
-                std::string dType,
-                const DeviceInfo &deviceInfo,
-                bool forward) {
-  unsigned outDimY, outDimX;
-  std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX, kernelSize,
-                                            stride, padding);
-  const bool floatActivations = dType == "float";
-  ConvolutionParams params(kernelSize, stride, inNumChans, inDimX, inDimY,
-                           padding, outNumChans);
-  return choosePartition(deviceInfo, floatActivations,
-                         inNumChans / inNumChanGroups,
-                         params, forward);
-}
-
-static Partition
-choosePartition(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                unsigned kernelSize, unsigned stride, unsigned padding,
-                unsigned outNumChans,
-                std::string dType,
-                const DeviceInfo &deviceInfo, bool forward) {
-  unsigned outDimY, outDimX;
-  std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX, kernelSize,
-                                            stride, padding);
-  const bool floatActivations = dType == "float";
-  ConvolutionParams params(kernelSize, stride, inNumChans, inDimX, inDimY,
-                           padding, outNumChans);
+static std::pair<Partition, unsigned>
+choosePartition(const DeviceInfo &deviceInfo, bool floatActivations,
+                const ConvolutionParams &params, Phase phase) {
   unsigned bestCost = std::numeric_limits<unsigned>::max();
   Partition best;
-  for (unsigned i = 1; i <= inNumChans; ++i) {
-    if (inNumChans % i != 0)
+  for (unsigned i = 1; i <= params.inputDepth; ++i) {
+    if (params.inputDepth % i != 0)
       continue;
     if (!floatActivations && i % 2 != 0)
       continue;
 
-    const auto candidate = choosePartition(inDimY, inDimX, inNumChans,
-                                           inNumChans / i,
-                                           kernelSize, stride, padding,
-                                           outNumChans, dType, deviceInfo,
-                                           forward);
+    Partition candidate;
+    unsigned candidateCost;
+    std::tie(candidate, candidateCost) =
+        choosePartition(deviceInfo, floatActivations, i, params, phase);
     assert(candidate.inChansPerGroup == i);
-    const auto candidateCost =
-        estimatePartitionCost(deviceInfo, floatActivations, params,
-                              candidate, forward);
     if (candidateCost < bestCost) {
       best = candidate;
       bestCost = candidateCost;
     }
   }
   if (bestCost == std::numeric_limits<unsigned>::max()) {
-    return choosePartition(inDimY, inDimX, inNumChans, 1,
-                           kernelSize, stride, padding,
-                           outNumChans, dType, deviceInfo,
-                           forward);
+    return choosePartition(deviceInfo, floatActivations, params.inputDepth,
+                           params, phase);
   }
-  return best;
+  return {best, bestCost};
 }
 
 
@@ -548,15 +520,15 @@ ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
   unsigned outDimY, outDimX;
   std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX, kernelSize,
                                             stride, padding);
-  plan.fwdPartition = choosePartition(inDimY, inDimX, inNumChans,
-                                      kernelSize, stride, padding,
-                                      numChannels, dType,
-                                      deviceInfo, true);
-  plan.bwdPartition = choosePartition(outDimY, outDimX, numChannels,
-                                      kernelSize, stride, padding,
-                                      inNumChans, dType,
-                                      deviceInfo, false);
+  ConvolutionParams fwdParams(kernelSize, stride, inNumChans, inDimX, inDimY,
+                              padding, numChannels);
+  ConvolutionParams bwdParams(kernelSize, stride, numChannels, outDimX,
+                              outDimY, padding, inNumChans);
   const bool floatActivations = dType == "float";
+  plan.fwdPartition = choosePartition(deviceInfo, floatActivations,
+                                      fwdParams, Phase::FORWARD).first;
+  plan.bwdPartition = choosePartition(deviceInfo, floatActivations,
+                                      bwdParams, Phase::BACKWARD).first;
   plan.fwdPartition.useConvolutionInstructions =
       canUseConvolutionInstruction(floatActivations,
                                    plan.fwdPartition.floatPartials,
