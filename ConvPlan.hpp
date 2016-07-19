@@ -42,12 +42,12 @@ struct ConvPlan {
 public:
   Partition fwdPartition;
   Partition bwdPartition;
+  bool flattenXY;
 };
 
 ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                     unsigned kernelSize, unsigned stride, unsigned padding,
-                    unsigned numChannels,
-                    std::string dType,
+                    unsigned numChannels, std::string dType,
                     const DeviceInfo &deviceInfo);
 
 

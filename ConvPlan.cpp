@@ -535,13 +535,19 @@ choosePartition(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
 
 ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                     unsigned kernelSize, unsigned stride, unsigned padding,
-                    unsigned numChannels,
-                    std::string dType,
+                    unsigned numChannels, std::string dType,
                     const DeviceInfo &deviceInfo) {
+  ConvPlan plan;
+  if (kernelSize == 1 && stride == 1 && padding == 0) {
+    plan.flattenXY = true;
+    inDimX = inDimX * inDimY;
+    inDimY = 1;
+  } else {
+    plan.flattenXY = false;
+  }
   unsigned outDimY, outDimX;
   std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX, kernelSize,
                                             stride, padding);
-  ConvPlan plan;
   plan.fwdPartition = choosePartition(inDimY, inDimX, inNumChans,
                                       kernelSize, stride, padding,
                                       numChannels, dType,

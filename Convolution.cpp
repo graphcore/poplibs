@@ -251,18 +251,10 @@ createConvPartial1x1OutVertex(Graph &graph,
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
   graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
   std::vector<std::vector<PartialRow>> workerPartition;
-  bool mergeRows =
-      forward && stride == 1 && outWidth == outDimX && outWidth == outDimX;
   unsigned outputStride = forward ? 1 : stride;
-  if (mergeRows) {
-    workerPartition =
-        partitionConvPartialByWorker(1, outHeight * outWidth,
-                                     contextsPerVertex, outputStride);
-  } else {
-    workerPartition =
-        partitionConvPartialByWorker(outHeight, outWidth,
-                                     contextsPerVertex, outputStride);
-  }
+  workerPartition =
+      partitionConvPartialByWorker(outHeight, outWidth,
+                                   contextsPerVertex, outputStride);
   graph.setFieldSize(v["weightReuseCount"], contextsPerVertex);
   for (unsigned i = 0; i != contextsPerVertex; ++i) {
     graph.setInitialValue(
@@ -274,60 +266,34 @@ createConvPartial1x1OutVertex(Graph &graph,
   for (unsigned izg = inZGroupBegin; izg != inZGroupEnd; ++izg) {
     for (unsigned i = 0; i != contextsPerVertex; ++i) {
       for (const auto &partialRow : workerPartition[i]) {
-        if (mergeRows) {
-          assert(outXBegin == 0);
-          const auto workerOutBegin = partialRow.begin;
-          const auto workerOutEnd = partialRow.end;
-          assert(inDimX == outDimX && inDimY == outDimY);
-          Tensor inWindow =
-              in[izg].slice({outYBegin, 0, 0},
-          {outYEnd, inDimX, inChansPerGroup})
-              .reshape({outHeight * inDimX, inChansPerGroup})
-              .slice({workerOutBegin, 0},
-          {workerOutEnd, inChansPerGroup})
-              .flatten();
-          Tensor outWindow =
-              out[ozg].slice({outYBegin, 0, 0},
-          {outYEnd, outDimX, outChansPerGroup})
-              .reshape({outHeight * outDimX,
-                        outChansPerGroup})
-              .slice({workerOutBegin, 0},
-          {workerOutEnd, outChansPerGroup})
-              .flatten();
-          mapping.setMapping(outWindow, tile);
-          graph.connect(v["in"][numConvolutions], inWindow);
-          graph.connect(v["out"][numConvolutions], outWindow);
-          ++numConvolutions;
-        } else {
-          const auto workerOutY = outYBegin + partialRow.rowNumber;
-          const auto workerOutXBegin = outXBegin + partialRow.begin;
-          const auto workerOutXEnd = outXBegin + partialRow.end;
-          const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
-          const auto workerInY =
-              getInputIndex(workerOutY, stride, kernelSize,
-                            padding, inDimY, 0, forward);
-          assert(workerInY != ~0U);
-          unsigned workerInXBegin, workerInXEnd;
-          std::tie(workerInXBegin, workerInXEnd) =
-              getInputRange({workerOutXBegin, workerOutXEnd}, stride,
-                            kernelSize, padding, inDimX, forward);
-          const auto workerInWidth = workerInXEnd - workerInXBegin;
-          assert(workerInWidth != 0);
-          Tensor inWindow =
-              in[izg][workerInY].slice(
-          {workerInXBegin, 0},
-          {workerInXEnd, inChansPerGroup}
-                ).reshape({workerInWidth * inChansPerGroup});
-          Tensor outWindow =
-              out[ozg][workerOutY].slice(
-          {workerOutXBegin, 0},
-          {workerOutXEnd, outChansPerGroup}
-                ).reshape({workerOutWidth * outChansPerGroup});
-          mapping.setMapping(outWindow, tile);
-          graph.connect(v["in"][numConvolutions], inWindow);
-          graph.connect(v["out"][numConvolutions], outWindow);
-          ++numConvolutions;
-        }
+        const auto workerOutY = outYBegin + partialRow.rowNumber;
+        const auto workerOutXBegin = outXBegin + partialRow.begin;
+        const auto workerOutXEnd = outXBegin + partialRow.end;
+        const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
+        const auto workerInY =
+            getInputIndex(workerOutY, stride, kernelSize,
+                          padding, inDimY, 0, forward);
+        assert(workerInY != ~0U);
+        unsigned workerInXBegin, workerInXEnd;
+        std::tie(workerInXBegin, workerInXEnd) =
+            getInputRange({workerOutXBegin, workerOutXEnd}, stride,
+                          kernelSize, padding, inDimX, forward);
+        const auto workerInWidth = workerInXEnd - workerInXBegin;
+        assert(workerInWidth != 0);
+        Tensor inWindow =
+            in[izg][workerInY].slice(
+              {workerInXBegin, 0},
+              {workerInXEnd, inChansPerGroup}
+            ).reshape({workerInWidth * inChansPerGroup});
+        Tensor outWindow =
+            out[ozg][workerOutY].slice(
+              {workerOutXBegin, 0},
+              {workerOutXEnd, outChansPerGroup}
+            ).reshape({workerOutWidth * outChansPerGroup});
+        mapping.setMapping(outWindow, tile);
+        graph.connect(v["in"][numConvolutions], inWindow);
+        graph.connect(v["out"][numConvolutions], outWindow);
+        ++numConvolutions;
       }
     }
   }
@@ -1172,7 +1138,17 @@ convolution(Graph &graph,
   const auto layerName =
       "Conv" + std::to_string(kernelSize) + "x" + std::to_string(kernelSize)
           + ".fwd";
-  const auto outDimY = activations.dim(1), outDimX = activations.dim(2);
+  const auto outDimY = activations.dim(1);
+  const auto outDimX = activations.dim(2);
+  unsigned partialOutDimY, partialOutDimX;
+  if (plan.flattenXY) {
+    partialOutDimY = 1;
+    partialOutDimX = outDimX * outDimY;
+    in = in.reshape({in.dim(0), 1, in.dim(1) * in.dim(2), in.dim(3)});
+  } else {
+    partialOutDimY = outDimY;
+    partialOutDimX = outDimX;
+  }
   const auto outNumChanGroups = activations.dim(0);
   const auto partialChansPerGroup = plan.fwdPartition.partialChansPerGroup;
   const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
@@ -1188,8 +1164,8 @@ convolution(Graph &graph,
   Tensor partials = graph.addTensor(partialType,
                                     {tilesPerInZGroup,
                                      partialNumChanGroups,
-                                     outDimY,
-                                     outDimX,
+                                     partialOutDimY,
+                                     partialOutDimX,
                                      partialChansPerGroup}, 
                                     "partials");
   forwardProg.add(calcPartialSums(graph, mapping, deviceInfo, plan.fwdPartition,
@@ -1205,8 +1181,8 @@ convolution(Graph &graph,
   bool doResidual = resMethod != RESIDUAL_NONE;
   if (doResidual) {
     std::tie(resStride, residual) =
-        addResidualCalc(graph, mapping, deviceInfo, resIn, reduceCS, outDimY,
-                        outDimX, outNumChans, outNumChanGroups, dType,
+        addResidualCalc(graph, mapping, deviceInfo, resIn, reduceCS,
+                        outDimY, outDimX, outNumChans, outNumChanGroups, dType,
                         resMethod);
   }
 
@@ -1217,6 +1193,8 @@ convolution(Graph &graph,
   Tensor reduced = r.first;
   Program &reduceProg = r.second;
   forwardProg.add(reduceProg);
+  reduced = reduced.reshape({partialNumChanGroups, outDimY, outDimX,
+                             partialChansPerGroup});
 
   // Add the residual (if any), apply the non-linearity and rearrange tensor
   // to required output channel grouping.
@@ -1508,7 +1486,21 @@ Program convolutionBackward(Graph &graph,
   const auto layerName =
       "Conv" + std::to_string(kernelSize) + "x" + std::to_string(kernelSize)
              + ".bwd";
-  const auto outDimY = deltasOut.dim(1), outDimX = deltasOut.dim(2);
+
+
+  const auto outDimY = deltasOut.dim(1);
+  const auto outDimX = deltasOut.dim(2);
+  unsigned partialOutDimY, partialOutDimX;
+  if (plan.flattenXY) {
+    partialOutDimY = 1;
+    partialOutDimX = outDimX * outDimY;
+    zDeltas = zDeltas.reshape({zDeltas.dim(0), 1,
+                               zDeltas.dim(1) * zDeltas.dim(2),
+                               zDeltas.dim(3)});
+  } else {
+    partialOutDimY = outDimY;
+    partialOutDimX = outDimX;
+  }
   const auto outNumChans = deltasOut.dim(0) * deltasOut.dim(3);
   const auto outNumChanGroups = deltasOut.dim(0);
   const auto partialChansPerGroup = plan.bwdPartition.partialChansPerGroup;
@@ -1537,8 +1529,8 @@ Program convolutionBackward(Graph &graph,
   Tensor partials = graph.addTensor(partialType,
                                     {tilesPerInZGroup,
                                      partialNumChanGroups,
-                                     outDimY,
-                                     outDimX,
+                                     partialOutDimY,
+                                     partialOutDimX,
                                      partialChansPerGroup},
                                     "partials");
   bwdProg.add(calcPartialSums(graph, mapping, deviceInfo, plan.bwdPartition,
@@ -1559,6 +1551,8 @@ Program convolutionBackward(Graph &graph,
   // Rearrange tensor to required output channel grouping.
   // TODO: the next layer's non-linearity derivative could be merged
   // into this.
+  reduced = reduced.reshape({partialNumChanGroups, outDimY, outDimX,
+                             partialChansPerGroup});
   bwdProg.add(regroup(graph, mapping, deviceInfo, layerName, partialType,
                       dType, activationsMapping, reduced, deltasOut));
 
