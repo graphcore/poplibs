@@ -1,4 +1,4 @@
-#include <mnist.h>
+#include "mnist.h"
 #include <vector>
 #include <iostream>
 #include <fstream>

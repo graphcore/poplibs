@@ -461,7 +461,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   unsigned inputSize = dataSet.dataSize;
   numTestBatches = dataSet.numTest / batchSize;
   env = std::unique_ptr<GraphProgEnv>(
-    new GraphProgEnv("obj/neural_net_graph.ppo", GraphProgFileType::Object));
+    new GraphProgEnv("obj/neural_net_graph.gp", GraphProgFileType::Object));
 
   graph = std::unique_ptr<Graph>(new Graph(*env));
   mapping = std::unique_ptr<IPUModelEngineBuilder::TileMapping>(

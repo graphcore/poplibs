@@ -1,7 +1,7 @@
 #ifndef __ConvPlan_hpp__
 #define __ConvPlan_hpp__
 #include <string>
-#include <DeviceInfo.hpp>
+#include "DeviceInfo.hpp"
 
 namespace conv {
 
