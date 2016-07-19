@@ -150,7 +150,7 @@ Net::getConvPlan(unsigned i, unsigned inDimY, unsigned inDimX,
 
 
 unsigned
-Net::getRequiredNumChanGroupsBwd(int i, unsigned inNumChans) {
+Net::getRequiredChansPerGroupBwd(int i) {
   if (i < 0)
     return 0;
   const auto *layer = layers[i].get();
@@ -159,26 +159,20 @@ Net::getRequiredNumChanGroupsBwd(int i, unsigned inNumChans) {
   } else if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
     auto it = convPlans.find(i);
     assert(it != convPlans.end());
-    if (inNumChans == ~0U) {
-      inNumChans = acts[i + 1].dim(0) * acts[i + 1].dim(3);
-    }
-    return inNumChans / it->second.bwdPartition.inChansPerGroup;
+    return it->second.bwdPartition.inChansPerGroup;
   } else if (const auto *c = dynamic_cast<const ConvResLayer *>(layer)) {
     auto it = convPlans.find(i);
     assert(it != convPlans.end());
-    if (inNumChans == ~0U) {
-      inNumChans = acts[i + 1].dim(0) * acts[i + 1].dim(3);
-    }
-    return inNumChans / it->second.bwdPartition.inChansPerGroup;
+    return it->second.bwdPartition.inChansPerGroup;
   } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
-    return getRequiredNumChanGroupsBwd(i - 1, inNumChans);
+    return getRequiredChansPerGroupBwd(i - 1);
   } else {
     assert(0 && "Unrecognized layer type");
   }
 }
 
 unsigned
-Net::getRequiredNumChanGroupsFwd(unsigned i, unsigned inDimY, unsigned inDimX,
+Net::getRequiredChansPerGroupFwd(unsigned i, unsigned inDimY, unsigned inDimX,
                                  unsigned inNumChans) {
   if (i >= layers.size())
     return 0;
@@ -186,21 +180,20 @@ Net::getRequiredNumChanGroupsFwd(unsigned i, unsigned inDimY, unsigned inDimX,
   if (const auto *fc = dynamic_cast<const FullyConnectedLayer *>(layer)) {
     // A fully connected layer wants the channel grouping to be
     // the same forwards and backwards.
-    return getRequiredNumChanGroupsBwd(i - 1, inNumChans);
+    return getRequiredChansPerGroupBwd(i - 1);
   } else if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
     auto plan = getConvPlan(i, inDimY, inDimX, inNumChans);
-    return inNumChans / plan.fwdPartition.inChansPerGroup;
+    return plan.fwdPartition.inChansPerGroup;
   } else if (const auto *c = dynamic_cast<const ConvResLayer *>(layer)) {
     auto plan = getConvPlan(i, inDimY, inDimX, inNumChans);
-    return inNumChans / plan.fwdPartition.inChansPerGroup;
+    return plan.fwdPartition.inChansPerGroup;
   } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
     unsigned outDimY, outDimX;
     std::tie(outDimY, outDimX) = maxpool::getOutputDim(inDimY, inDimX,
                                                        m->kernelSize,
                                                        m->stride,
                                                        m->padding);
-    return getRequiredNumChanGroupsFwd(i + 1, outDimY, outDimX,
-                                                inNumChans);
+    return getRequiredChansPerGroupFwd(i + 1, outDimY, outDimX, inNumChans);
   } else {
     assert(0 && "Unrecognized layer type");
   }
@@ -374,23 +367,24 @@ Net::createConvLayerFwd(unsigned i,
   unsigned outDimY, outDimX;
   std::tie(outDimY, outDimX) =
       conv::getOutputDim(in.dim(1), in.dim(2), kernelSize, stride, padding);
-  auto outNumChanGroups = getRequiredNumChanGroupsFwd(i + 1,
+  auto outChansPerGroup = getRequiredChansPerGroupFwd(i + 1,
                                                       outDimY, outDimX,
                                                       numChannels);
-  if (!outNumChanGroups) {
-    auto chansPerGroup = (dType == "float") ? 1 : 2;
-    outNumChanGroups = numChannels / chansPerGroup;
+  if (!outChansPerGroup) {
+    outChansPerGroup = (dType == "float") ? 1 : 2;
   }
+  assert(numChannels % outChansPerGroup == 0);
+  const auto outNumChanGroups = numChannels / outChansPerGroup;
   acts[i + 1] = graph->addTensor(dType,
                                  {outNumChanGroups,
                                   outDimY, outDimX,
-                                  numChannels / outNumChanGroups},
+                                  outChansPerGroup},
                                  "activations." + std::to_string(i));
   mapActivations(acts[i + 1], *mapping, *deviceInfo);
   z[i + 1] = graph->addTensor(dType,
                               {outNumChanGroups,
                                outDimY, outDimX,
-                               numChannels / outNumChanGroups},
+                               outChansPerGroup},
                                "z." + std::to_string(i));
   mapActivations(z[i + 1], *mapping, *deviceInfo);
   unsigned inNumChans = in.dim(0) * in.dim(3);
@@ -510,14 +504,16 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   auto initParamsProg = Sequence();
   auto fwdProg = Sequence();
   auto bwdProg = Sequence();
-  auto numChanGroups =
-      getRequiredNumChanGroupsFwd(0, dataSet.dim[0], dataSet.dim[1],
+  auto chansPerGroup =
+      getRequiredChansPerGroupFwd(0, dataSet.dim[0], dataSet.dim[1],
                                   dataSet.dim[2]);
-  if (numChanGroups == 0)
-    numChanGroups = 1;
+  if (chansPerGroup == 0)
+    chansPerGroup = dataSet.dim[2];
+  assert(dataSet.dim[2] % chansPerGroup == 0);
+  const auto numChanGroups = dataSet.dim[2] / chansPerGroup;
   const auto dim = std::vector<size_t>({numChanGroups,
                                         dataSet.dim[0], dataSet.dim[1],
-                                        dataSet.dim[2] / numChanGroups});
+                                        chansPerGroup});
   acts.resize(layers.size() + 1);
   z.resize(layers.size() + 1);
   deltas.resize(layers.size() + 1);
@@ -643,10 +639,11 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
       if (backwardPassRequired) {
         if (acts[i].dims().size() == 4) {
           auto numChannels = acts[i].dim(0) * acts[i].dim(3);
-          auto numChanGroups = getRequiredNumChanGroupsBwd(i - 1);
-          if (numChanGroups == 0)
-            numChanGroups = 1;
-          auto chansPerGroup = numChannels / numChanGroups;
+          auto chansPerGroup = getRequiredChansPerGroupBwd(i - 1);
+          if (chansPerGroup == 0)
+            chansPerGroup = numChannels;
+          assert(numChannels % chansPerGroup == 0);
+          const auto numChanGroups = numChannels / chansPerGroup;
           deltas[i] = graph->addTensor(dType, {numChanGroups,
                                                acts[i].dim(1),
                                                acts[i].dim(2),
