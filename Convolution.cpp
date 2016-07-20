@@ -781,6 +781,7 @@ calcPartialSums(Graph &graph,
                 std::string dType,
                 Tensor in, Tensor weights, Tensor partials,
                 const std::string &layerName,
+                unsigned outDimX, unsigned outDimY,
                 bool forward) {
   const auto isMultiIPU = deviceInfo.getNumIPUs() > 1;
   const auto inNumChans = in.dim(0) * in.dim(3);
@@ -795,9 +796,7 @@ calcPartialSums(Graph &graph,
   const auto numInZGroups = inNumChans / inChansPerGroup;
   const auto inDimY = in.dim(1);
   const auto inDimX = in.dim(2);
-  unsigned outDimY, outDimX;
-  std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX, kernelSize,
-                                            stride, padding);
+
   Sequence prog;
   ComputeSet zeroCS;
   if (partition.useConvolutionInstructions && kernelSize != 1) {
@@ -1171,6 +1170,7 @@ convolution(Graph &graph,
   forwardProg.add(calcPartialSums(graph, mapping, deviceInfo, plan.fwdPartition,
                                   kernelSize, stride, padding, outNumChans,
                                   dType, in, weights, partials, layerName,
+                                  outDimX, outDimY,
                                   true));
 
 
@@ -1535,7 +1535,8 @@ Program convolutionBackward(Graph &graph,
                                     "partials");
   bwdProg.add(calcPartialSums(graph, mapping, deviceInfo, plan.bwdPartition,
                               kernelSize, stride, padding, outNumChans, dType,
-                              zDeltas, bwdWeights, partials, layerName, false));
+                              zDeltas, bwdWeights, partials, layerName,
+                              outDimX, outDimY, false));
 
   // TODO - residuals
 
