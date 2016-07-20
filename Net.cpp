@@ -55,11 +55,6 @@ bool parseCommandLine(int argc, char **argv, NetOptions &options,
        &options.fp32AccumConvUnitsPerTile
      )->default_value(4),
      "Number of convolutional units per tile with fp32 accumulation")
-    ("retain-activations",
-     po::value<bool>(
-       &options.retainActivations
-     )->default_value(false),
-     "Make sure all activations are retained in memory during the foward pass")
     ("train",
      po::value<bool>(
        &doTraining
@@ -622,17 +617,6 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   fwdProg.add(Sequence(Copy(numCorrect, &hNumCorrect),
                        Execute(lossCS),
                        Copy(&hNumCorrect, numCorrect)));
-  if (options.retainActivations) {
-    size_t maxActSize = 0;
-    size_t maxElemSize = std::max(sizeof(float), sizeof(half));
-    for (const auto &act : acts) {
-      maxActSize = std::max(maxActSize, act.numElements());
-    }
-    hAct = std::unique_ptr<char[]>(new char[maxActSize * maxElemSize]);
-    for (const auto &act : acts) {
-      fwdProg.add(Copy(&hAct[0], act));
-    }
-  }
   if (netType == TrainingNet) {
     for (int i = layers.size() - 1; i >= 0; --i) {
       bool backwardPassRequired = (i != 0);

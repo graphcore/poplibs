@@ -127,7 +127,6 @@ public:
   unsigned numBatchesBetweenTest = 2500;
   bool reuseLayerImplGraphs = true;
   bool ignoreData = false;
-  bool retainActivations = false;
   unsigned dataPathWidth = 64;
   unsigned convUnitPipelineDepth = 4;
   unsigned fp16AccumConvUnitsPerTile = 8;
