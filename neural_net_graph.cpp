@@ -237,11 +237,11 @@ template class FullyConnectedBiasUpdate<half>;
 /**
  * Compute 1x1 convolutions and accumulate them with partial sums in memory.
  **/
-template <class Base, class AccumType, bool forward>
+template <class Base, class FPType, class AccumType, bool forward>
 class ConvPartial1x1InOut: public Base {
 public:
-  Vector<Input<Vector<half>>> in;
-  Vector<Input<Vector<half>>> weights;
+  Vector<Input<Vector<FPType>>> in;
+  Vector<Input<Vector<FPType>>> weights;
   Vector<unsigned> weightReuseCount;
   Vector<InOut<Vector<AccumType>>> out;
 
@@ -358,14 +358,23 @@ public:
   }
 };
 
-template class ConvPartial1x1InOut<Vertex, half, false>;
-template class ConvPartial1x1InOut<Vertex, float, false>;
-template class ConvPartial1x1InOut<SupervisorVertex, half, false>;
-template class ConvPartial1x1InOut<SupervisorVertex, float, false>;
-template class ConvPartial1x1InOut<Vertex, half, true>;
-template class ConvPartial1x1InOut<Vertex, float, true>;
-template class ConvPartial1x1InOut<SupervisorVertex, half, true>;
-template class ConvPartial1x1InOut<SupervisorVertex, float, true>;
+template class ConvPartial1x1InOut<Vertex, float, half, false>;
+template class ConvPartial1x1InOut<Vertex, float, float, false>;
+template class ConvPartial1x1InOut<SupervisorVertex, float, half, false>;
+template class ConvPartial1x1InOut<SupervisorVertex, float, float, false>;
+template class ConvPartial1x1InOut<Vertex, float, half, true>;
+template class ConvPartial1x1InOut<Vertex, float, float, true>;
+template class ConvPartial1x1InOut<SupervisorVertex, float, half, true>;
+template class ConvPartial1x1InOut<SupervisorVertex, float, float, true>;
+
+template class ConvPartial1x1InOut<Vertex, half, half, false>;
+template class ConvPartial1x1InOut<Vertex, half, float, false>;
+template class ConvPartial1x1InOut<SupervisorVertex, half, half, false>;
+template class ConvPartial1x1InOut<SupervisorVertex, half, float, false>;
+template class ConvPartial1x1InOut<Vertex, half, half, true>;
+template class ConvPartial1x1InOut<Vertex, half, float, true>;
+template class ConvPartial1x1InOut<SupervisorVertex, half, half, true>;
+template class ConvPartial1x1InOut<SupervisorVertex, half, float, true>;
 
 template <typename FPType, typename AccumType>
 class ConvBwd : public Vertex {
@@ -576,11 +585,11 @@ template class NonLinearityBwd<half>;
  * Compute a sum of 1x1 convolutions over a subset of the input channels for
  * multiple output channels.
  **/
-template <class Base, class AccumType, bool forward>
+template <class Base, class FPType, class AccumType, bool forward>
 class ConvPartial1x1Out: public Base {
 public:
-  Vector<Input<Vector<half>>> in;
-  Input<Vector<half>> weights;
+  Vector<Input<Vector<FPType>>> in;
+  Input<Vector<FPType>> weights;
   Vector<Output<Vector<AccumType>>> out;
   Vector<unsigned> weightReuseCount;
 
@@ -711,14 +720,22 @@ public:
   }
 };
 
-template class ConvPartial1x1Out<Vertex, float, true>;
-template class ConvPartial1x1Out<Vertex, half, true>;
-template class ConvPartial1x1Out<SupervisorVertex, float, true>;
-template class ConvPartial1x1Out<SupervisorVertex, half, true>;
-template class ConvPartial1x1Out<Vertex, float, false>;
-template class ConvPartial1x1Out<Vertex, half, false>;
-template class ConvPartial1x1Out<SupervisorVertex, float, false>;
-template class ConvPartial1x1Out<SupervisorVertex, half, false>;
+template class ConvPartial1x1Out<Vertex, float, float, true>;
+template class ConvPartial1x1Out<Vertex, float, half, true>;
+template class ConvPartial1x1Out<SupervisorVertex, float, float, true>;
+template class ConvPartial1x1Out<SupervisorVertex, float, half, true>;
+template class ConvPartial1x1Out<Vertex, float, float, false>;
+template class ConvPartial1x1Out<Vertex, float, half, false>;
+template class ConvPartial1x1Out<SupervisorVertex, float, float, false>;
+template class ConvPartial1x1Out<SupervisorVertex, float, half, false>;
+template class ConvPartial1x1Out<Vertex, half, float, true>;
+template class ConvPartial1x1Out<Vertex, half, half, true>;
+template class ConvPartial1x1Out<SupervisorVertex, half, float, true>;
+template class ConvPartial1x1Out<SupervisorVertex, half, half, true>;
+template class ConvPartial1x1Out<Vertex, half, float, false>;
+template class ConvPartial1x1Out<Vertex, half, half, false>;
+template class ConvPartial1x1Out<SupervisorVertex, half, float, false>;
+template class ConvPartial1x1Out<SupervisorVertex, half, half, false>;
 
 /* Compute a partial convolution for a sub-set of input channels and
  * output channels over a number of rows of the input field. */

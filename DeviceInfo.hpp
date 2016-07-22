@@ -11,16 +11,24 @@ public:
   unsigned fp16AccumConvUnitsPerTile = 8;
   unsigned fp32AccumConvUnitsPerTile = 4;
   bool sharedConvWeights = true;
+  bool convInstructionsFloat = true; // Allow convolution instructions for
+                                     // 32bit floats.
+  bool preferConvInstructions = true; // Prefer convolution instructions over
+                                      // other methods
   
   DeviceInfo(poplar::IPUModelEngineBuilder &ipuEB,
              unsigned dataPathWidth,
              unsigned convUnitPipelineDepth,
              unsigned fp16AccumConvUnitsPerTile,
-             unsigned fp32AccumConvUnitsPerTile) :
+             unsigned fp32AccumConvUnitsPerTile,
+             bool convInstructionsFloat,
+             bool preferConvInstructions) :
     ipuEB(ipuEB), dataPathWidth(dataPathWidth),
     convUnitPipelineDepth(convUnitPipelineDepth),
     fp16AccumConvUnitsPerTile(fp16AccumConvUnitsPerTile),
-    fp32AccumConvUnitsPerTile(fp32AccumConvUnitsPerTile) {}
+    fp32AccumConvUnitsPerTile(fp32AccumConvUnitsPerTile),
+    convInstructionsFloat(convInstructionsFloat),
+    preferConvInstructions(preferConvInstructions) {}
 
   unsigned getTilesPerIPU() const { return ipuEB.getTilesPerIPU(); }
   unsigned getNumIPUs() const { return ipuEB.getNumIPUs(); }
@@ -41,8 +49,11 @@ public:
     return dataPathWidth / 16;
   }
 
-  unsigned getInputChannelsPerConvUnit() const {
-    return getHalfVectorWidth() * convUnitPipelineDepth;
+  unsigned getInputChannelsPerConvUnit(bool floatActivations) const {
+    if (floatActivations)
+      return getFloatVectorWidth() * convUnitPipelineDepth;
+    else
+      return getHalfVectorWidth() * convUnitPipelineDepth;
   }
 
 };

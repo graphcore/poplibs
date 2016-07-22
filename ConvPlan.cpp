@@ -52,8 +52,11 @@ canUseConvolutionInstruction(bool floatActivations, bool floatPartials,
                              unsigned inChansPerGroup,
                              unsigned partialChansPerGroup,
                              const DeviceInfo &deviceInfo) {
-  if (floatActivations || stride >= (1 << 4) ||
-      inChansPerGroup != deviceInfo.getInputChannelsPerConvUnit())
+  if (floatActivations && !floatPartials)
+    return false;
+  if ((floatActivations && !deviceInfo.convInstructionsFloat) ||
+      stride >= (1 << 4) ||
+      inChansPerGroup != deviceInfo.getInputChannelsPerConvUnit(floatActivations))
     return false;
   return partialChansPerGroup == getNumConvUnits(floatPartials, deviceInfo);
 }
@@ -402,6 +405,7 @@ choosePartition(const DeviceInfo &deviceInfo,
       deviceInfo.fp32AccumConvUnitsPerTile
     );
   }
+
   partialChansPerGroupCandidates.push_back(1);
   // If tilesPerY is greater than one we end up splitting across the y axis of
   // the output volume. The input elements required to compute output elements
@@ -434,8 +438,12 @@ choosePartition(const DeviceInfo &deviceInfo,
           auto maxVerticesPerTilePerY =
               (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
           auto minVerticesPerTilePerY = 1;
-          if (partialChansPerGroup == deviceInfo.fp16AccumConvUnitsPerTile ||
-              partialChansPerGroup == deviceInfo.fp32AccumConvUnitsPerTile) {
+          if (canUseConvolutionInstruction(floatActivations, false,
+                                           params.stride, inChansPerGroup,
+                                           partialChansPerGroup, deviceInfo) ||
+              canUseConvolutionInstruction(floatActivations, true,
+                                           params.stride, inChansPerGroup,
+                                           partialChansPerGroup, deviceInfo)) {
             if (deviceInfo.sharedConvWeights) {
               // All workers are utilized in each single supervisor vertex so
               // there is no reason to use more than the minimum number of
@@ -451,6 +459,7 @@ choosePartition(const DeviceInfo &deviceInfo,
                verticesPerTilePerY <= maxVerticesPerTilePerY;
                ++verticesPerTilePerY) {
             bool floatPartials =
+                floatActivations ||
                 !canUseConvolutionInstruction(
                   floatActivations, false, params.stride, inChansPerGroup,
                   partialChansPerGroup,
@@ -464,6 +473,12 @@ choosePartition(const DeviceInfo &deviceInfo,
                 estimatePartitionCostBounded(deviceInfo, floatActivations,
                                              params, candidate,
                                              bestCost, phase);
+            if (deviceInfo.preferConvInstructions &&
+                !canUseConvolutionInstruction(floatActivations, floatPartials,
+                                              params.stride, inChansPerGroup,
+                                              partialChansPerGroup,
+                                              deviceInfo))
+              candidateCost *= 100000;
             if (candidateCost < bestCost) {
               bestPartition = candidate;
               bestCost = candidateCost;

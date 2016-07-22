@@ -458,6 +458,8 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
     new IPUModelEngineBuilder::TileMapping(*graph)
   );
   IPUModelEngineBuilder ipuEB(*env);
+  bool convInstructionsFloat = false,
+       preferConvInstructions = false;
   if (options.useIPUModel) {
     ipuEB.setMemcpyBytesPerCycle(options.dataPathWidth / 8);
     ipuEB.setNumIPUs(options.numIPUs);
@@ -487,12 +489,22 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
     ipuEB.setNumIPUs(1);
     ipuEB.setTilesPerIPU(1);
     ipuEB.setNumWorkerContexts(1);
+    // For now we set up the mock IPU to work with convolution instructions
+    // on small layers since this is what we want to test.
+    options.dataPathWidth = 32;
+    options.fp16AccumConvUnitsPerTile = 1;
+    options.fp32AccumConvUnitsPerTile = 1;
+    options.convUnitPipelineDepth = 1;
+    convInstructionsFloat = true;
+    preferConvInstructions = true;
   }
   deviceInfo = std::unique_ptr<DeviceInfo>(
         new DeviceInfo(ipuEB, options.dataPathWidth,
                        options.convUnitPipelineDepth,
                        options.fp16AccumConvUnitsPerTile,
-                       options.fp32AccumConvUnitsPerTile));
+                       options.fp32AccumConvUnitsPerTile,
+                       convInstructionsFloat,
+                       preferConvInstructions));
   std::cerr << "Constructing program\n";
   numFlops = 0;
   perfectCycleTime = 0;

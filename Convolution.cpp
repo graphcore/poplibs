@@ -193,6 +193,7 @@ createConvPartial1x1OutVertex(Graph &graph,
                               IPUModelEngineBuilder::TileMapping &mapping,
                               const DeviceInfo &deviceInfo,
                               const Partition &partition,
+                              const std::string &dType,
                               unsigned tile,
                               unsigned outXBegin0, unsigned outXEnd0,
                               unsigned outYBegin0, unsigned outYEnd0,
@@ -243,7 +244,7 @@ createConvPartial1x1OutVertex(Graph &graph,
         ).flatten();
   auto v = graph.addVertex(
         fwdCS,
-        templateVertex("ConvPartial1x1Out", baseClass, partialType,
+        templateVertex("ConvPartial1x1Out", baseClass, dType, partialType,
                        forward ? "true" : "false"),
   {{"weights", w}}
         );
@@ -308,6 +309,7 @@ createConvPartial1x1InOutVertex(Graph &graph,
                                 IPUModelEngineBuilder::TileMapping &mapping,
                                 const DeviceInfo &deviceInfo,
                                 const Partition &partition,
+                                const std::string &dType,
                                 unsigned tile,
                                 unsigned outXBegin, unsigned outXEnd,
                                 unsigned outYBegin, unsigned outYEnd,
@@ -335,7 +337,7 @@ createConvPartial1x1InOutVertex(Graph &graph,
   auto v =
       graph.addVertex(fwdCS,
                       templateVertex("ConvPartial1x1InOut", baseClass,
-                                     partition.getPartialType(),
+                                     dType, partition.getPartialType(),
                                      forward ? "true" : "false"));
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
@@ -563,7 +565,7 @@ calcPartialConvOutput(Graph &graph,
         continue;
       if (partition.useConvolutionInstructions && kernelSize == 1) {
         createConvPartial1x1OutVertex(graph, mapping, deviceInfo,
-                                      partition, tile,
+                                      partition, dType, tile,
                                       outXBegin, outXEnd,
                                       vertexOutYBegin, vertexOutYEnd,
                                       ozg,
@@ -573,7 +575,7 @@ calcPartialConvOutput(Graph &graph,
                                       forward);
       } else if (partition.useConvolutionInstructions) {
         createConvPartial1x1InOutVertex(graph, mapping, deviceInfo,
-                                        partition, tile,
+                                        partition, dType, tile,
                                         outXBegin, outXEnd,
                                         vertexOutYBegin, vertexOutYEnd,
                                         ozg,
@@ -1291,7 +1293,7 @@ double getPerfectCycleCount(const DeviceInfo &deviceInfo,
   bool canUseConvolutions = true;
   if (stride >= (1 << 4))
     canUseConvolutions = false;
-  if (inNumChans < deviceInfo.getInputChannelsPerConvUnit())
+  if (inNumChans < deviceInfo.getInputChannelsPerConvUnit(false))
      canUseConvolutions = false;
   if (outNumChans % deviceInfo.fp16AccumConvUnitsPerTile != 0)
     canUseConvolutions = false;
@@ -1569,7 +1571,6 @@ convolutionWeightUpdate(Graph &graph,
                         Tensor activations,
                         unsigned kernelSize, unsigned stride,
                         unsigned padding, float learningRate) {
-  return Sequence();
   const auto inNumChanGroups = activations.dim(0);
   const auto inDimY = activations.dim(1);
   const auto inDimX = activations.dim(2);
