@@ -15,20 +15,23 @@ public:
                                      // 32bit floats.
   bool preferConvInstructions = true; // Prefer convolution instructions over
                                       // other methods
-  
+  bool isIPU = false;
+
   DeviceInfo(poplar::IPUModelEngineBuilder &ipuEB,
              unsigned dataPathWidth,
              unsigned convUnitPipelineDepth,
              unsigned fp16AccumConvUnitsPerTile,
              unsigned fp32AccumConvUnitsPerTile,
              bool convInstructionsFloat,
-             bool preferConvInstructions) :
+             bool preferConvInstructions,
+             bool isIPU) :
     ipuEB(ipuEB), dataPathWidth(dataPathWidth),
     convUnitPipelineDepth(convUnitPipelineDepth),
     fp16AccumConvUnitsPerTile(fp16AccumConvUnitsPerTile),
     fp32AccumConvUnitsPerTile(fp32AccumConvUnitsPerTile),
     convInstructionsFloat(convInstructionsFloat),
-    preferConvInstructions(preferConvInstructions) {}
+    preferConvInstructions(preferConvInstructions),
+    isIPU(isIPU) {}
 
   unsigned getTilesPerIPU() const { return ipuEB.getTilesPerIPU(); }
   unsigned getNumIPUs() const { return ipuEB.getNumIPUs(); }

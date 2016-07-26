@@ -3,6 +3,7 @@
 #include "ActivationMapping.hpp"
 #include "ConvUtil.hpp"
 #include "gcd.hpp"
+#include "exceptions.hpp"
 #include <cassert>
 
 using namespace poplar;
@@ -134,36 +135,42 @@ maxPoolBackward(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping,
                 unsigned kernelSize, unsigned stride, unsigned padding,
                 std::string dType, Tensor actIn, Tensor actOut,
                 Tensor deltasIn, Tensor deltasOut) {
+  // Currently this code does not target the IPU model (no tile mapping)
+  // but is just used for the purely functional tests
+  if (deviceInfo.isIPU)
+    return Sequence();
   const auto numChanGroups = deltasIn.dim(0);
   const auto chansPerGroup = deltasIn.dim(3);
   const auto numChannels = numChanGroups * chansPerGroup;
   const auto layerName = "MaxPool" + std::to_string(kernelSize) + "x" +
                           std::to_string(kernelSize);
   auto bwdCS = graph.createComputeSet(layerName + ".bwd");
-  const auto prevChanGroups = actIn.dim(0);
-  const auto prevChansPerGroup = numChannels / prevChanGroups;
   const auto yDimOut = deltasIn.dim(1);
   const auto xDimOut = deltasIn.dim(2);
   const auto xDim = actIn.dim(2);
   const auto yDim = actIn.dim(1);
+  if (padding != 0 || xDim % stride != 0 || yDim % stride != 0 ||
+      kernelSize != stride) {
+    throw net_creation_error("padding, overlapped pooling or pooling that "
+                             "doesn't exactly divide "
+                             "input not implemented yet");
+  }
   for (unsigned xIn = 0; xIn < xDim; ++xIn) {
     const auto xOut = xIn / stride;
-    if (xOut >= xDimOut)
-      continue;
+    assert(xOut < xDimOut);
     for (unsigned yIn = 0; yIn < yDim; ++yIn) {
       const auto yOut = yIn / stride;
-      if (yOut >= xDimOut)
-        continue;
+      assert(yOut < yDimOut);
       for (unsigned chan = 0; chan < numChannels; ++chan) {
-        unsigned chanGroup = chan / chansPerGroup;
-        unsigned chanInGroup = chan % chansPerGroup;
-        unsigned prevChanGroup = chan / prevChansPerGroup;
-        unsigned prevChanInGroup = chan % prevChansPerGroup;
         graph.addVertex(bwdCS, templateVertex("MaxPoolingBwd", dType),
-          { {"actOut", actOut[chanGroup][yOut][xOut][chanInGroup]},
-            {"actIn", actIn[prevChanGroup][yIn][xIn][prevChanInGroup]},
-            {"errIn", deltasIn[chanGroup][yOut][xOut][chanInGroup]},
-            {"errOut", deltasOut[prevChanGroup][yIn][xIn][prevChanInGroup]} });
+          { {"actOut", actOut[chan / actOut.dim(3)][yOut][xOut]
+                             [chan % actOut.dim(3)]},
+            {"actIn", actIn[chan / actIn.dim(3)][yIn][xIn]
+                           [chan % actIn.dim(3)]},
+            {"errIn", deltasIn[chan / deltasIn.dim(3)][yOut][xOut]
+                              [chan % deltasIn.dim(3)]},
+            {"errOut", deltasOut[chan / deltasOut.dim(3)][yIn][xIn]
+                                [chan % deltasOut.dim(3)]} });
       }
     }
   }

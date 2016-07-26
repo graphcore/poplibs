@@ -504,7 +504,8 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                        options.fp16AccumConvUnitsPerTile,
                        options.fp32AccumConvUnitsPerTile,
                        convInstructionsFloat,
-                       preferConvInstructions));
+                       preferConvInstructions,
+                       options.useIPUModel));
   std::cerr << "Constructing program\n";
   numFlops = 0;
   perfectCycleTime = 0;
