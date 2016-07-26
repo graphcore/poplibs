@@ -1036,7 +1036,7 @@ public:
              ++chanInChunk) {
           auto chan = chunk * chunkSize + chanInChunk;
           auto in = activationIn[chunk * receptiveFieldSize + i][chanInChunk];
-          if (i == 0 || activationOut[chan] > in)
+          if (i == 0 || activationOut[chan] < in)
             activationOut[chan] = in;
         }
       }
