@@ -18,11 +18,17 @@ struct ConvolutionParams {
   unsigned inputHeight;
   unsigned padding;
   unsigned outputDepth;
-  unsigned getOutputWidth() const {
-    return (inputWidth + (padding * 2) - kernelSize) / stride + 1;
+  unsigned getOutputWidth(Phase phase) const {
+    if (phase == Phase::FORWARD) {
+      return (inputWidth + (padding * 2) - kernelSize) / stride + 1;
+    } else
+      return (inputWidth * stride + kernelSize - 1) - (padding * 2);
   }
-  unsigned getOutputHeight() const {
-    return (inputHeight + (padding * 2) - kernelSize) / stride + 1;
+  unsigned getOutputHeight(Phase phase) const {
+    if (phase == Phase::FORWARD)
+      return (inputHeight + (padding * 2) - kernelSize) / stride + 1;
+    else
+      return (inputHeight * stride + kernelSize - 1) - (padding * 2);
   }
   ConvolutionParams(unsigned kernelSize,
                     unsigned stride,
@@ -190,9 +196,9 @@ estimateExchangeCost(const DeviceInfo &deviceInfo,
   const auto partialChansPerGroup = partition.partialChansPerGroup;
 
   const auto tileOutWidth =
-      (params.getOutputWidth() + tilesPerX - 1) / tilesPerX;
+      (params.getOutputWidth(phase) + tilesPerX - 1) / tilesPerX;
   const auto tileOutHeight =
-      (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
+      (params.getOutputHeight(phase) + tilesPerY - 1) / tilesPerY;
   const auto numOutGroups =
       (params.outputDepth + (partialChansPerGroup - 1)) / partialChansPerGroup;
   const auto tileNumOutGroups =
@@ -245,9 +251,9 @@ estimateVertexCycles(bool floatActivations,
   const auto outChansPerGroup = partition.partialChansPerGroup;
 
   const auto tileOutHeight =
-      (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
+      (params.getOutputHeight(phase) + tilesPerY - 1) / tilesPerY;
   const auto tileOutWidth =
-      (params.getOutputWidth() + tilesPerX - 1) / tilesPerX;
+      (params.getOutputWidth(phase) + tilesPerX - 1) / tilesPerX;
   const auto numInGroups =
       (params.inputDepth + (inChansPerGroup - 1)) / inChansPerGroup;
   const auto tileNumInGroups =
@@ -279,7 +285,7 @@ estimateConvolveComputeCost(const DeviceInfo &deviceInfo,
   const auto outChansPerGroup = partition.partialChansPerGroup;
 
   const auto tileOutHeight =
-      (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
+      (params.getOutputHeight(phase) + tilesPerY - 1) / tilesPerY;
   const auto numOutGroups =
       (params.outputDepth + (outChansPerGroup - 1)) / outChansPerGroup;
 
@@ -316,11 +322,13 @@ estimateConvolveComputeCost(const DeviceInfo &deviceInfo,
 static unsigned
 estimateReduceComputeCost(const DeviceInfo &deviceInfo,
                           const ConvolutionParams &params,
-                          const Partition &partition) {
+                          const Partition &partition,
+                          Phase phase) {
   if (partition.tilesPerInZGroupAxis == 1)
     return 0;
   const auto numTiles = deviceInfo.getNumTiles();
-  const auto numOutputs = params.getOutputHeight() * params.getOutputWidth() *
+  const auto numOutputs = params.getOutputHeight(phase) *
+                          params.getOutputWidth(phase) *
                           params.outputDepth;
   const auto numOutputsPerTile = (numOutputs + numTiles - 1) / numTiles;
   const auto numPartialSumsPerTile = numOutputsPerTile *
@@ -341,7 +349,7 @@ estimateComputeCost(const DeviceInfo &deviceInfo,
   return estimateConvolveComputeCost(deviceInfo, floatActivations, params,
                                      partition, phase) +
          estimateReduceComputeCost(deviceInfo, params,
-                                   partition);
+                                   partition, phase);
 
 }
 
@@ -423,9 +431,9 @@ choosePartition(const DeviceInfo &deviceInfo,
   // TODO investigate the alternative strategy outlined above.
   const auto numTiles = deviceInfo.getNumTiles();
   for (const auto partialChansPerGroup : partialChansPerGroupCandidates) {
-    const auto maxTilesPerX = std::min(params.getOutputWidth(), numTiles);
+    const auto maxTilesPerX = std::min(params.getOutputWidth(phase), numTiles);
     for (unsigned tilesPerX = 1; tilesPerX <= maxTilesPerX; ++tilesPerX) {
-      const auto maxTilesPerY = std::min(params.getOutputHeight(),
+      const auto maxTilesPerY = std::min(params.getOutputHeight(phase),
                                          numTiles / tilesPerX);
       for (unsigned tilesPerY = 1; tilesPerY <= maxTilesPerY; ++tilesPerY) {
         const auto maxTilesPerZ =
@@ -436,7 +444,7 @@ choosePartition(const DeviceInfo &deviceInfo,
               std::min(params.inputDepth / inChansPerGroup,
                        numTiles / (tilesPerX * tilesPerY * tilesPerZ));
           auto maxVerticesPerTilePerY =
-              (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
+              (params.getOutputHeight(phase) + tilesPerY - 1) / tilesPerY;
           auto minVerticesPerTilePerY = 1;
           if (canUseConvolutionInstruction(floatActivations, false,
                                            params.stride, inChansPerGroup,

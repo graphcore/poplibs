@@ -155,8 +155,8 @@ partitionConvPartialByWorker(unsigned numConvolutions, unsigned convSize,
                              unsigned numContexts, unsigned stride) {
   std::vector<std::vector<PartialRow>> partitionByWorker;
   partitionByWorker.reserve(numContexts);
-  const auto elementsPerRow = convSize / stride;
-  const auto activeRows = numConvolutions / stride;
+  const auto elementsPerRow = (convSize + stride - 1) / stride;
+  const auto activeRows = (numConvolutions + stride - 1) / stride;
   const auto numElements = activeRows * elementsPerRow;
   for (unsigned i = 0; i != numContexts; ++i) {
     partitionByWorker.emplace_back();
@@ -175,9 +175,9 @@ partitionConvPartialByWorker(unsigned numConvolutions, unsigned convSize,
       }
       unsigned endIndex;
       if (j + 1 == endRow) {
-        endIndex = 1 + ((endElement- 1) % elementsPerRow) * stride;
+        endIndex = 1 + ((endElement - 1) % elementsPerRow) * stride;
       } else {
-        endIndex = elementsPerRow * stride;
+        endIndex = ((elementsPerRow - 1) * stride) + 1;
       }
       unsigned rowIndex = j * stride;
       partitionByWorker.back().emplace_back(rowIndex, beginIndex, endIndex);
