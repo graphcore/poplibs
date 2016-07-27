@@ -18,27 +18,15 @@ struct ReusableLayer {
 
 class ConvImplSpec {
 public:
-  unsigned inNumChans, inNumChanGroups, inDimX, inDimY;
-  unsigned outNumChans, outNumChanGroups, outDimX, outDimY;
-  unsigned resNumChans, resNumChanGroups, resDimX, resDimY;
+  std::vector<std::vector<size_t>> tensorDims;
   unsigned kernelSize, stride, padding;
   NonLinearityType nonLinearityType;
   ResidualMethod resMethod;
-  ConvImplSpec(unsigned inNumChans, unsigned inNumChanGroups,
-               unsigned inDimX, unsigned inDimY,
-               unsigned outNumChans, unsigned outNumChanGroups,
-               unsigned outDimX, unsigned outDimY,
-               unsigned resNumChans, unsigned resNumChanGroups,
-               unsigned resDimX, unsigned resDimY,
+  ConvImplSpec(std::vector<std::vector<size_t>> tensorDims,
                unsigned kernelSize, unsigned stride, unsigned padding,
                NonLinearityType nonLinearityType,
                ResidualMethod resMethod) :
-    inNumChans(inNumChans), inNumChanGroups(inNumChanGroups),
-    inDimX(inDimX), inDimY(inDimY),
-    outNumChans(outNumChans), outNumChanGroups(outNumChanGroups),
-    outDimX(outDimX), outDimY(outDimY),
-    resNumChans(resNumChans), resNumChanGroups(resNumChanGroups),
-    resDimX(resDimX), resDimY(resDimY),
+    tensorDims(std::move(tensorDims)),
     kernelSize(kernelSize), stride(stride), padding(padding),
     nonLinearityType(nonLinearityType), resMethod(resMethod) {}
 

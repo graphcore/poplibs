@@ -308,38 +308,29 @@ getOrCreateConvImpl(Graph &graph,
       return it->second;
     }
   }
-  auto inChansPerGroups = impl.inNumChans / impl.inNumChanGroups;
-  auto in = graph.addTensor(dType, {impl.inNumChanGroups, impl.inDimY,
-                                    impl.inDimX, inChansPerGroups},
-                            "activations");
+  auto &inDims = impl.tensorDims[0];
+  auto &resDims = impl.tensorDims[1];
+  auto &outDims = impl.tensorDims[2];
+  auto in = graph.addTensor(dType, inDims, "activations");
   mapActivations(in, mapping, deviceInfo);
   Tensor weights, biases;
+  auto inNumChans = inDims[0] * inDims[3];
+  auto outNumChans = outDims[0] * outDims[3];
   std::tie(weights, biases) =
-      conv::createParams(graph, dType, impl.inNumChans,
-                         impl.kernelSize, impl.outNumChans, plan);
-  auto z = graph.addTensor(dType,
-                           {impl.outNumChanGroups,
-                            impl.outDimY, impl.outDimX,
-                            impl.outNumChans / impl.outNumChanGroups},
-                           "z");
+      conv::createParams(graph, dType, inNumChans, impl.kernelSize,
+                         outNumChans, plan);
+  auto z = graph.addTensor(dType, outDims, "z");
   mapActivations(z, mapping, deviceInfo);
-  auto out = graph.addTensor(dType,
-                           {impl.outNumChanGroups,
-                            impl.outDimY, impl.outDimX,
-                            impl.outNumChans / impl.outNumChanGroups},
-                           "z");
+  auto out = graph.addTensor(dType, outDims, "activations");
   mapActivations(out, mapping, deviceInfo);
   Tensor residual;
   if (impl.resMethod != RESIDUAL_NONE) {
-    residual = graph.addTensor(dType,
-                               {impl.resNumChanGroups,
-                                impl.resDimY, impl.resDimX,
-                                impl.resNumChans / impl.resNumChanGroups});
+    residual = graph.addTensor(dType, resDims, "residual");
     mapActivations(residual, mapping, deviceInfo);
   }
   auto prog = conv::convolution(graph, mapping, deviceInfo, plan,
                                 impl.kernelSize, impl.stride, impl.padding,
-                                impl.outNumChans, impl.nonLinearityType,
+                                outNumChans, impl.nonLinearityType,
                                 dType, in, weights, biases, z, out,
                                 impl.resMethod, residual);
   auto reusableLayer = ReusableLayer(prog,
@@ -393,21 +384,17 @@ Net::createConvLayerFwd(unsigned i,
   params[i].push_back(weights);
   params[i].push_back(biases);
   Tensor residual;
-  unsigned resDimY = 0, resDimX = 0, resNumChans = 0, resNumChanGroups = 0;
+  std::vector<size_t> resDims;
   if (resMethod != RESIDUAL_NONE) {
     residual = acts[i - resIndex + 1];
-    resDimY = residual.dim(1);
-    resDimX = residual.dim(2);
-    resNumChans = residual.dim(0) * residual.dim(3);
-    resNumChanGroups = residual.dim(0);
+    resDims = residual.dims();
+  } else {
+    resDims = {0, 0, 0, 0};
   }
   ReusableLayer reusableLayer =
       getOrCreateConvImpl(*graph, *mapping, *deviceInfo, plan, dType,
                           convImpls,
-                          {inNumChans, inNumChanGroups, inDimX, inDimY,
-                           numChannels, outNumChanGroups, outDimX,
-                           outDimY,
-                           resNumChans, resNumChanGroups, resDimX, resDimY,
+                          {{in.dims(), resDims, acts[i + 1].dims()},
                            kernelSize, stride, padding,
                            nonLinearityType, resMethod},
                           options.reuseLayerImplGraphs);
