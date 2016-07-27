@@ -161,7 +161,7 @@ class Net {
   unsigned hNumCorrect;
   std::string dType;
 
-  std::map<ConvImplSpec, ReusableLayer> convImpls;
+  std::map<ConvImplSpec, ReusableLayer> convFwdImpls, convBwdImpls;
   std::map<unsigned, fc::Plan> fullyConnectedPlan;
   std::vector<poplar::Tensor> acts, z, deltas;
   std::vector<std::vector<poplar::Tensor>> params;
@@ -178,12 +178,25 @@ class Net {
 
   unsigned getRequiredChansPerGroupBwd(int i);
 
+  ReusableLayer
+  getOrCreateConvImplFwd(const conv::ConvPlan &plan,
+                      const ConvImplSpec &impl);
+
   poplar::program::Program
   createConvLayerFwd(unsigned i, unsigned kernelSize, unsigned stride,
                      unsigned padding, unsigned numChannels,
                      NonLinearityType nonLinearityType,
                      unsigned resIndex, ResidualMethod resMethod,
                      poplar::program::Sequence &initParamsProg);
+
+  ReusableLayer
+  getOrCreateConvImplBwd(const conv::ConvPlan &plan,
+                         const ConvImplSpec &impl);
+
+  poplar::program::Program
+  createConvLayerBwd(unsigned i, unsigned kernelSize, unsigned stride,
+                     unsigned padding, NonLinearityType nonLinearityType,
+                     bool backwardPassRequired);
 
   void outputConvDescription(unsigned inDimY, unsigned inDimX,
                              unsigned inNumChans,

@@ -27,12 +27,16 @@ double getPerfectCycleCount(const DeviceInfo &deviceInfo,
                             unsigned outNumChans, bool doResidual,
                             bool forwardOnly);
 
-std::pair<poplar::Tensor, poplar::Tensor>
-createParams(poplar::Graph &graph, std::string dType,
+poplar::Tensor
+createWeights(poplar::Graph &graph, std::string dType,
              unsigned inNumChans,
              unsigned kernelSize,
              unsigned outNumChans,
              const ConvPlan &plan);
+
+poplar::Tensor
+createBiases(poplar::Graph &graph, std::string dType,
+             unsigned outNumChans);
 
 poplar::program::Program
 convolution(poplar::Graph &graph,

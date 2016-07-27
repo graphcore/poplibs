@@ -22,9 +22,8 @@ getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSize,
   return {outDimY, outDimX};
 }
 
-
-std::pair<poplar::Tensor, poplar::Tensor>
-createParams(poplar::Graph &graph, std::string dType,
+poplar::Tensor
+createWeights(poplar::Graph &graph, std::string dType,
              unsigned inNumChans,
              unsigned kernelSize,
              unsigned outNumChans,
@@ -40,8 +39,14 @@ createParams(poplar::Graph &graph, std::string dType,
                                          partialChansPerGroup,
                                          inChansPerGroup},
                                  "weights");
+  return weights;
+}
+
+poplar::Tensor
+createBiases(poplar::Graph &graph, std::string dType,
+             unsigned outNumChans) {
   auto biases = graph.addTensor(dType, {outNumChans}, "biases");
-  return {weights, biases};
+  return biases;
 }
 
 static unsigned

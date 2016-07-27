@@ -14,6 +14,10 @@ struct ReusableLayer {
     prog(prog),
     inputs(std::move(inputs)),
     outputs(std::move(outputs)) {}
+
+  poplar::program::Program
+  apply(const std::vector<poplar::Tensor> &in,
+        const std::vector<poplar::Tensor> &out);
 };
 
 class ConvImplSpec {
