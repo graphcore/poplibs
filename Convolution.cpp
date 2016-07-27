@@ -1576,6 +1576,8 @@ convolutionWeightUpdate(Graph &graph,
                         Tensor activations,
                         unsigned kernelSize, unsigned stride,
                         unsigned padding, float learningRate) {
+  if (deviceInfo.isIPU)
+    return Sequence();
   const auto inNumChanGroups = activations.dim(0);
   const auto inDimY = activations.dim(1);
   const auto inDimX = activations.dim(2);
