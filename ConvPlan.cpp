@@ -156,40 +156,6 @@ getConvPartial1x1CycleEstimate(unsigned kernelWidth,
                                               numConvUnitsPerTile);
 }
 
-
-static std::uint64_t
-getConvPartialCycleEstimate(const Partition &partition,
-                            bool floatActivations,
-                            unsigned inChansPerGroup,
-                            unsigned outputStride,
-                            unsigned kernelWidth,
-                            unsigned inputGroupsPerOutput,
-                            unsigned outputHeight,
-                            unsigned outputWidth,
-                            unsigned outChansPerGroup,
-                            const DeviceInfo &deviceInfo,
-                            bool useSupervisorVertices)
-{
-  if (partition.useConvolutionInstructions) {
-    return getConvPartial1x1CycleEstimate(
-          kernelWidth, inputGroupsPerOutput, outputHeight, outputWidth,
-          deviceInfo.convUnitPipelineDepth,
-          getNumConvUnits(partition.floatPartials, deviceInfo),
-          useSupervisorVertices,
-          outputStride);
-  }
-  assert(!useSupervisorVertices);
-  return getConvPartialByDotProductCycleEstimate(floatActivations,
-                                                 inChansPerGroup,
-                                                 kernelWidth,
-                                                 inputGroupsPerOutput,
-                                                 outputHeight,
-                                                 outputWidth,
-                                                 outChansPerGroup,
-                                                 deviceInfo.dataPathWidth,
-                                                 outputStride);
-}
-
 static unsigned
 estimateExchangeCost(const DeviceInfo &deviceInfo,
                      bool floatActivations, const ConvolutionParams &params,
@@ -270,15 +236,24 @@ estimateVertexCycles(bool floatActivations,
       (tileOutHeight + verticesPerTilePerY - 1) / verticesPerTilePerY;
   const auto inputGroupsPerOutput = params.kernelSize * tileNumInGroups;
   const auto outputStride = phase != Phase::BACKWARD ? 1 : params.stride;
-  return getConvPartialCycleEstimate(partition,
-                                     floatActivations,
-                                     inChansPerGroup,
-                                     outputStride,
-                                     params.kernelSize, inputGroupsPerOutput,
-                                     outRowsPerVertex, tileOutWidth,
-                                     outChansPerGroup,
-                                     deviceInfo,
-                                     useSupervisorVertices);
+  if (partition.useConvolutionInstructions) {
+    return getConvPartial1x1CycleEstimate(
+          params.kernelSize, inputGroupsPerOutput, outRowsPerVertex,
+          tileOutWidth, deviceInfo.convUnitPipelineDepth,
+          getNumConvUnits(partition.floatPartials, deviceInfo),
+          useSupervisorVertices,
+          outputStride);
+  }
+  assert(!useSupervisorVertices);
+  return getConvPartialByDotProductCycleEstimate(floatActivations,
+                                                 inChansPerGroup,
+                                                 params.kernelSize,
+                                                 inputGroupsPerOutput,
+                                                 outRowsPerVertex,
+                                                 tileOutWidth,
+                                                 outChansPerGroup,
+                                                 deviceInfo.dataPathWidth,
+                                                 outputStride);
 }
 
 static unsigned
