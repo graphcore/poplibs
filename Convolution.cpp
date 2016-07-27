@@ -1293,7 +1293,7 @@ double getPerfectCycleCount(const DeviceInfo &deviceInfo,
   bool canUseConvolutions = true;
   if (stride >= (1 << 4))
     canUseConvolutions = false;
-  if (inNumChans < deviceInfo.getInputChannelsPerConvUnit(false))
+  if (inNumChans < deviceInfo.getWeightsPerConvUnit(false))
      canUseConvolutions = false;
   if (outNumChans % deviceInfo.fp16AccumConvUnitsPerTile != 0)
     canUseConvolutions = false;

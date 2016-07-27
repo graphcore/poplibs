@@ -62,7 +62,7 @@ canUseConvolutionInstruction(bool floatActivations, bool floatPartials,
     return false;
   if ((floatActivations && !deviceInfo.convInstructionsFloat) ||
       stride >= (1 << 4) ||
-      inChansPerGroup != deviceInfo.getInputChannelsPerConvUnit(floatActivations))
+      inChansPerGroup != deviceInfo.getWeightsPerConvUnit(floatActivations))
     return false;
   return partialChansPerGroup == getNumConvUnits(floatPartials, deviceInfo);
 }

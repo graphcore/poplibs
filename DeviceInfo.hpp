@@ -52,7 +52,7 @@ public:
     return dataPathWidth / 16;
   }
 
-  unsigned getInputChannelsPerConvUnit(bool floatActivations) const {
+  unsigned getWeightsPerConvUnit(bool floatActivations) const {
     if (floatActivations)
       return getFloatVectorWidth() * convUnitPipelineDepth;
     else
