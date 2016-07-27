@@ -326,9 +326,10 @@ Net::getOrCreateConvImplFwd(const conv::ConvPlan &plan,
                                 outNumChans, impl.nonLinearityType,
                                 dType, in, weights, biases, z, out,
                                 impl.resMethod, residual);
-  auto reusableLayer = ReusableLayer(prog,
-                                     {in, weights, biases, residual},
-                                     {z, out});
+  std::vector<Tensor> inputs = {in, weights, biases};
+  if (impl.resMethod != RESIDUAL_NONE)
+    inputs.push_back(residual);
+  auto reusableLayer = ReusableLayer(prog, inputs, {z, out});
   if (options.reuseLayerImplGraphs) {
     convFwdImpls.emplace(impl, reusableLayer);
   }
