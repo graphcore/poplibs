@@ -24,7 +24,8 @@ struct Partition {
            unsigned tilesPerInZGroupAxis,
            unsigned inChansPerGroup,
            unsigned partialChansPerGroup,
-           bool floatPartials) :
+           bool floatPartials,
+           bool useConvolutionInstructions) :
     tilesPerXAxis(tilesPerXAxis),
     tilesPerYAxis(tilesPerYAxis),
     tilesPerZAxis(tilesPerZAxis),
@@ -32,7 +33,8 @@ struct Partition {
     tilesPerInZGroupAxis(tilesPerInZGroupAxis),
     inChansPerGroup(inChansPerGroup),
     partialChansPerGroup(partialChansPerGroup),
-    floatPartials(floatPartials) {}
+    floatPartials(floatPartials),
+    useConvolutionInstructions(useConvolutionInstructions) {}
   const char *getPartialType() const {
     return floatPartials ? "float" : "half";
   }  
