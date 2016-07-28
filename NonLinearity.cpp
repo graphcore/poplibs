@@ -16,7 +16,6 @@ bwdNonLinearity(Graph &graph,
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   auto deltasInMapping = computeActivationsMapping(z, deviceInfo);
   deltasIn = deltasIn.flatten();
-  const auto size = deltasIn.numElements();
   auto bwdNonLinearityCS = graph.createComputeSet("NonLinearity.bwd");
   buildTransform(deltasInMapping, deviceInfo, [&](unsigned deltaBegin,
                                                   unsigned deltaEnd,

@@ -487,7 +487,6 @@ Program Net::createConvLayerBwd(unsigned i,
 
 void Net::initialize(DataSet &dataSet, LossType lossType) {
   assert(batchSize == 1 && "Only batch size of 1 is supported");
-  unsigned inputSize = dataSet.dataSize;
   numTestBatches = dataSet.numTest / batchSize;
   env = std::unique_ptr<GraphProgEnv>(
     new GraphProgEnv("obj/neural_net_graph.gp", GraphProgFileType::Object));

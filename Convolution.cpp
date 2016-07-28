@@ -227,8 +227,6 @@ createConvPartial1x1OutVertex(Graph &graph,
 
   const auto outHeight = outYEnd - outYBegin;
   const auto outWidth = outXEnd - outXBegin;
-  const auto outDimY = out.dim(1);
-  const auto outDimX = out.dim(2);
   const auto partialType = partition.getPartialType();
   unsigned inYBegin, inYEnd, inXBegin, inXEnd;
   std::tie(inYBegin, inYEnd) =
@@ -706,7 +704,6 @@ addResidualCalc(Graph &graph,
   size_t outChansPerGroup = outNumChans / outNumChanGroups;
   size_t resOutNumChanGroups =
       (resNumChans + outChansPerGroup - 1) / outChansPerGroup;
-  size_t resOutNumChans = resOutNumChanGroups * outChansPerGroup;
   residual = graph.addTensor(dType, {resOutNumChanGroups,
                                      outDimY, outDimX,
                                      outChansPerGroup},
@@ -801,8 +798,6 @@ calcPartialSums(Graph &graph,
   const auto tilesPerZ = partition.tilesPerZAxis;
   const auto tilesPerInZGroup = partition.tilesPerInZGroupAxis;
   const auto numInZGroups = inNumChans / inChansPerGroup;
-  const auto inDimY = in.dim(1);
-  const auto inDimX = in.dim(2);
 
   Sequence prog;
   ComputeSet zeroCS;
@@ -898,7 +893,6 @@ reduce(Graph &graph,
       unsigned elemEnd = ((vertex + 1) * elems.size()) / verticesToCreate;
       if (elemBegin == elemEnd)
         continue;
-      unsigned numWorkerElems = elemEnd - elemBegin;
       auto regions = getContiguousRegions(elems.begin() + elemBegin,
                                           elems.begin() + elemEnd);
       const auto v = graph.addVertex(reduceCS,
