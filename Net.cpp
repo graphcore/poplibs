@@ -131,11 +131,13 @@ Net::getConvPlan(unsigned i, unsigned inDimY, unsigned inDimX,
   if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
     plan = conv::createPlan(inDimY, inDimX, inNumChans,
                             c->kernelSize, c->stride, c->padding,
-                            c->numChannels, dType, *deviceInfo);
+                            c->numChannels, dType, *deviceInfo,
+                            netType == TestOnlyNet);
   } else if (const auto *c = dynamic_cast<const ConvResLayer *>(layer)) {
     plan = conv::createPlan(inDimY, inDimX, inNumChans,
                             c->kernelSize, c->stride, c->padding,
-                            c->numChannels, dType, *deviceInfo);
+                            c->numChannels, dType, *deviceInfo,
+                            netType == TestOnlyNet);
   } else {
     assert(0);
   }
@@ -175,7 +177,10 @@ Net::getRequiredChansPerGroupFwd(unsigned i, unsigned inDimY, unsigned inDimX,
   if (const auto *fc = dynamic_cast<const FullyConnectedLayer *>(layer)) {
     // A fully connected layer wants the channel grouping to be
     // the same forwards and backwards.
-    return getRequiredChansPerGroupBwd(i - 1);
+    if (netType == TrainingNet)
+      return getRequiredChansPerGroupBwd(i - 1);
+    else
+      return 0;
   } else if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
     auto plan = getConvPlan(i, inDimY, inDimX, inNumChans);
     return plan.fwdPartition.inChansPerGroup;
@@ -451,6 +456,42 @@ Net::getOrCreateConvImplBwd(const conv::ConvPlan &plan,
   return reusableLayer;
 }
 
+ReusableLayer
+Net::getOrCreateConvImplWeightUpdate(const conv::ConvPlan &plan,
+                                     const ConvImplSpec &impl) {
+  if (options.reuseLayerImplGraphs) {
+    auto it = convWUImpls.find(impl);
+    if (it != convWUImpls.end()) {
+      return it->second;
+    }
+  }
+  auto &deltasInDims = impl.tensorDims[0];
+  auto &actDims = impl.tensorDims[1];
+  auto deltasIn = graph->addTensor(dType, deltasInDims, "zDeltas");
+  mapActivations(deltasIn, *mapping, *deviceInfo);
+  auto activations = graph->addTensor(dType, actDims, "activations");
+  mapActivations(activations, *mapping, *deviceInfo);
+  auto inNumChans = actDims[0] * actDims[3];
+  auto outNumChans = deltasInDims[0] * deltasInDims[3];
+  Tensor weights = conv::createWeights(*graph, dType, inNumChans,
+                                       impl.kernelSize, outNumChans, plan);
+  conv::mapWeights(weights, *mapping, *deviceInfo, plan);
+  Tensor biases = conv::createBiases(*graph, dType, outNumChans);
+  conv::mapBiases(biases, *mapping, *deviceInfo, deltasIn);
+  auto prog =
+      conv::convolutionWeightUpdate(*graph, *mapping, *deviceInfo,
+                                    plan, dType, deltasIn, weights, biases,
+                                    activations, impl.kernelSize,
+                                    impl.stride, impl.padding, eta);
+  auto reusableLayer = ReusableLayer(prog,
+                                     {deltasIn, activations, weights, biases},
+                                     {weights, biases});
+  if (options.reuseLayerImplGraphs) {
+    convWUImpls.emplace(impl, reusableLayer);
+  }
+  return reusableLayer;
+}
+
 Program Net::createConvLayerBwd(unsigned i,
                                 unsigned kernelSize, unsigned stride,
                                 unsigned padding,
@@ -470,18 +511,21 @@ Program Net::createConvLayerBwd(unsigned i,
                            nonLinearityType));
 
   if (backwardPassRequired) {
-    ReusableLayer reusableLayer =
+    ReusableLayer bwdReusableLayer =
       getOrCreateConvImplBwd(plan,
                             {{zDeltas.dims(), deltas[i].dims()},
                              kernelSize, stride, padding,
                              nonLinearityType, RESIDUAL_NONE});
-    prog.add(reusableLayer.apply({zDeltas, weights}, {deltas[i]}));
+    prog.add(bwdReusableLayer.apply({zDeltas, weights}, {deltas[i]}));
   }
 
-  prog.add(conv::convolutionWeightUpdate(*graph, *mapping, *deviceInfo,
-                                         dType, zDeltas, weights, biases,
-                                         acts[i], kernelSize,
-                                         stride, padding, eta));
+  ReusableLayer wuReusableLayer =
+      getOrCreateConvImplWeightUpdate(plan,
+                                      {{zDeltas.dims(), acts[i].dims()},
+                                       kernelSize, stride, padding,
+                                      nonLinearityType, RESIDUAL_NONE});
+  prog.add(wuReusableLayer.apply({zDeltas, acts[i], weights, biases},
+                                 {weights, biases}));
   return prog;
 }
 

@@ -44,14 +44,14 @@ struct ConvPlan {
 public:
   Partition fwdPartition;
   Partition bwdPartition;
+  Partition wuPartition;
   bool flattenXY;
 };
 
 ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                     unsigned kernelSize, unsigned stride, unsigned padding,
                     unsigned numChannels, std::string dType,
-                    const DeviceInfo &deviceInfo);
-
+                    const DeviceInfo &deviceInfo, bool forwardOnly);
 
 }
 #endif // __ConvPlan_hpp__

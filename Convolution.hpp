@@ -75,6 +75,7 @@ poplar::program::Program
 convolutionWeightUpdate(poplar::Graph &graph,
                         poplar::IPUModelEngineBuilder::TileMapping &mapping,
                         const DeviceInfo &deviceInfo,
+                        const ConvPlan &plan,
                         std::string dType,
                         poplar::Tensor zDeltas, poplar::Tensor weights,
                         poplar::Tensor biases,

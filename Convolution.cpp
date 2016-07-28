@@ -76,9 +76,12 @@ linearizeTileIndices(unsigned izg, unsigned ox, unsigned oy,
                izg));
 }
 
+template <typename Builder>
 static void
-mapWeights(Tensor w, IPUModelEngineBuilder::TileMapping &mapping,
-           const DeviceInfo &deviceInfo, const Partition &partition) {
+iterateWeightMapping(Tensor w,
+                     const DeviceInfo &deviceInfo,
+                     const Partition &partition,
+                     Builder &&builder) {
   const auto isMultiIPU = deviceInfo.getNumIPUs() > 1;
   const auto inChansPerGroup = partition.inChansPerGroup;
   const auto partialChansPerGroup = partition.partialChansPerGroup;
@@ -144,16 +147,28 @@ mapWeights(Tensor w, IPUModelEngineBuilder::TileMapping &mapping,
               (iw * numSharedWeightGroups) / (tilesPerY * tilesPerX);
           const auto sharedWeightGroupEnd =
               ((iw + 1) * numSharedWeightGroups) / (tilesPerY * tilesPerX);
+          if (sharedWeightGroupBegin == sharedWeightGroupEnd)
+            continue;
           const auto tileWeights =
               sharedWeights.slice(sharedWeightGroupBegin,
                                   sharedWeightGroupEnd);
           const auto tile = linearizeTileIndices(izg, ox, oy, ozg, partition,
                                                  isMultiIPU);
-          mapping.setMapping(tileWeights, tile);
+          builder(tileWeights, tile);
         }
       }
     }
   }
+}
+
+
+static void
+mapWeights(Tensor w, IPUModelEngineBuilder::TileMapping &mapping,
+           const DeviceInfo &deviceInfo, const Partition &partition) {
+  iterateWeightMapping(w, deviceInfo, partition,
+    [&](Tensor tileWeights, unsigned tile) {
+    mapping.setMapping(tileWeights, tile);
+  });
 }
 
 void mapWeights(Tensor w, IPUModelEngineBuilder::TileMapping &mapping,
@@ -161,10 +176,11 @@ void mapWeights(Tensor w, IPUModelEngineBuilder::TileMapping &mapping,
   mapWeights(w, mapping, deviceInfo, plan.fwdPartition);
 }
 
-void mapBiases(Tensor b,
-               IPUModelEngineBuilder::TileMapping &mapping,
-               const DeviceInfo &deviceInfo,
-               Tensor activations) {
+template <typename Builder>
+static void iterateBiasMapping(Tensor b, const DeviceInfo &deviceInfo,
+                               Tensor activations,
+                               Builder &&builder) {
+
   const auto activationsMapping = computeActivationsMapping(activations,
                                                             deviceInfo);
   const auto numTiles = deviceInfo.getNumTiles();
@@ -172,6 +188,7 @@ void mapBiases(Tensor b,
   const auto outNumChanGroups = activations.dim(0);
   const auto outDimY = activations.dim(1);
   const auto outDimX = activations.dim(2);
+  std::vector<unsigned> mapping(outNumChanGroups);
   size_t outChansPerGroup = outNumChans / outNumChanGroups;
   Tensor biasesByChanGroup =
       b.reshape({outNumChanGroups, outChansPerGroup});
@@ -187,10 +204,32 @@ void mapBiases(Tensor b,
       continue;
     const auto minOutChanGroup = tileGroupBegin / (outDimX * outDimY);
     const auto maxOutChanGroup = (tileGroupEnd - 1) / (outDimX * outDimY);
-    Tensor biasSlice = biasesByChanGroup.slice(minOutChanGroup,
-                                               maxOutChanGroup + 1);
-    mapping.setMapping(biasSlice, tile);
+    for (unsigned grp = minOutChanGroup; grp <= maxOutChanGroup; ++grp)
+      mapping[grp] = tile;
   }
+
+  unsigned beginGroup = 0;
+  unsigned curTile = mapping[0];
+  for (unsigned grp = 1; grp < outNumChanGroups; ++grp) {
+    if (mapping[grp] != curTile) {
+      Tensor biasSlice = biasesByChanGroup.slice(beginGroup, grp);
+      builder(biasSlice, curTile);
+      curTile = mapping[grp];
+      beginGroup = grp;
+    }
+  }
+  Tensor finalSlice = biasesByChanGroup.slice(beginGroup, outNumChanGroups);
+  builder(finalSlice, curTile);
+}
+
+void mapBiases(Tensor b,
+               IPUModelEngineBuilder::TileMapping &mapping,
+               const DeviceInfo &deviceInfo,
+               Tensor activations) {
+  iterateBiasMapping(b, deviceInfo, activations,
+    [&](Tensor biasSlice, unsigned tile) {
+      mapping.setMapping(biasSlice, tile);
+    });
 }
 
 static void
@@ -1279,7 +1318,7 @@ static std::uint64_t getNumberOfMACs(unsigned outDimY, unsigned outDimX,
   if (forwardOnly)
     return numMACs;
   else
-    return numMACs * 2;
+    return numMACs * 3;
 }
 
 static std::uint64_t getNumberOfAdds(unsigned outDimY, unsigned outDimX,
@@ -1363,133 +1402,65 @@ Program transformWeights(Graph &graph,
                          Tensor bwdWeights) {
   const Partition &bwdPartition = plan.bwdPartition;
   const Partition &fwdPartition = plan.fwdPartition;
-  const auto isMultiIPU = deviceInfo.getNumIPUs() > 1;
   const auto inChansPerGroup = bwdPartition.inChansPerGroup;
   const auto partialChansPerGroup = bwdPartition.partialChansPerGroup;
-  const auto tilesPerX = bwdPartition.tilesPerXAxis;
-  const auto tilesPerY = bwdPartition.tilesPerYAxis;
-  const auto tilesPerZ = bwdPartition.tilesPerZAxis;
-  const auto tilesPerInZGroup = bwdPartition.tilesPerInZGroupAxis;
-  const auto inNumChans = bwdWeights.dim(1) * bwdWeights.dim(5);
-  const auto outNumChans = bwdWeights.dim(0) * bwdWeights.dim(4);
-  const auto kernelSize = bwdWeights.dim(2);
-  const auto numInZGroups = inNumChans / inChansPerGroup;
-  assert(outNumChans % partialChansPerGroup == 0);
-  const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
   auto cs = graph.createComputeSet(layerName + ".transformWeights");
-  // This loop is duplicated from mapWeights to place work at the destination
-  // weight location.
-  // TODO: avoid this duplication (use introspection?)
-  // TODO: is this mapping still the best given this transformation?
-  for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
-    const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
-    const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
-    const auto numInZGroups = inZGroupEnd - inZGroupBegin;
-    assert(numInZGroups != 0);
-    for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
-      const auto outZGroupBegin =
-          (ozg * partialNumChanGroups) / tilesPerZ;
-      const auto outZGroupEnd =
-          ((ozg + 1) * partialNumChanGroups) / tilesPerZ;
-      const auto numOutZGroups = outZGroupEnd - outZGroupBegin;
-      assert(numOutZGroups != 0);
-      Tensor sharedWeights;
-      if (bwdPartition.useConvolutionInstructions) {
-        if (kernelSize == 1) {
-          sharedWeights =
-              bwdWeights.slice(
-          {outZGroupBegin, inZGroupBegin, 0, 0, 0, 0},
-          {outZGroupEnd, inZGroupEnd, kernelSize, kernelSize,
-           partialChansPerGroup, inChansPerGroup}
-                ).reshape({numOutZGroups,
-                           numInZGroups * partialChansPerGroup *
-                           inChansPerGroup});
-        } else {
-          sharedWeights =
-              bwdWeights.slice(
-          {outZGroupBegin, inZGroupBegin, 0, 0, 0, 0},
-          {outZGroupEnd, inZGroupEnd, kernelSize, kernelSize,
-           partialChansPerGroup, inChansPerGroup}
-                ).reshape({numOutZGroups * numInZGroups * kernelSize *
-                           kernelSize,
-                           partialChansPerGroup * inChansPerGroup});
-        }
-      } else {
-        assert(0 && "Backward pass for non dot product style "
-                    "conv not implemented");
-        sharedWeights =
-            bwdWeights.slice(
-        {outZGroupBegin, inZGroupBegin, 0, 0, 0, 0},
-        {outZGroupEnd, inZGroupEnd, kernelSize, kernelSize,
-         1, inChansPerGroup}
-              ).reshape({numInZGroups * numOutZGroups * kernelSize,
-                         kernelSize * inChansPerGroup});
+
+  // TODO: is the weight mapping still the best given this transformation?
+
+  assert(bwdPartition.useConvolutionInstructions &&
+         "Backward pass for non dot product style conv not implemented");
+
+  iterateWeightMapping(bwdWeights, deviceInfo, bwdPartition,
+    [&](const Tensor &tileWeights, unsigned tile) {
+    const auto flatTileWeights = tileWeights.flatten();
+    const auto tileNumElements = flatTileWeights.numElements();
+    const auto workersPerTile = deviceInfo.getNumWorkerContexts();
+    const auto maxElemsPerWorker =
+        (tileNumElements + workersPerTile - 1) / workersPerTile;
+    const auto verticesToCreate =
+        (tileNumElements + maxElemsPerWorker - 1) / maxElemsPerWorker;
+    for (unsigned vertex = 0; vertex != verticesToCreate; ++vertex) {
+      const auto elemBegin =
+          (vertex * tileNumElements) / verticesToCreate;
+      const auto elemEnd =
+          ((vertex + 1) * tileNumElements) / verticesToCreate;
+      if (elemBegin == elemEnd)
+        continue;
+      const auto vertexWeights = flatTileWeights.slice(elemBegin, elemEnd);
+      const auto elements = vertexWeights.getElementIndices();
+      auto numElements = elements.size();
+      auto regions = getContiguousRegions(elements.begin(),
+                                          elements.end());
+      auto v = graph.addVertex(cs, templateVertex("ConvTransformWeights",
+                                                  dType));
+      graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+      graph.setFieldSize(v["out"], regions.size());
+      for (unsigned i = 0; i < regions.size(); i++) {
+        auto &region = regions[i];
+        graph.connect(v["out"][i],
+                      bwdWeights.flatten().slice(region.first,
+                                                 region.second));
+      };
+      graph.setFieldSize(v["in"], numElements);
+      for (unsigned i = 0; i < numElements; ++i) {
+        const auto &elem = elements[i];
+        auto coord = getElementCoord(elem, bwdWeights.dims());
+        auto wx = coord[2]; auto wy = coord[3];
+        auto outChan = coord[0] * partialChansPerGroup + coord[4];
+        auto inChan = coord[1] * inChansPerGroup + coord[5];
+        auto fwdPartialChansPerGroup = fwdPartition.partialChansPerGroup;
+        auto fwdInChansPerGroup = fwdPartition.inChansPerGroup;
+        auto w = weights[inChan / fwdPartialChansPerGroup]
+            [outChan / fwdInChansPerGroup]
+            [wx][wy]
+            [inChan % fwdPartialChansPerGroup]
+            [outChan % fwdInChansPerGroup];
+        graph.connect(v["in"][i], w);
       }
-      const auto numSharedWeightGroups = sharedWeights.dim(0);
-      for (unsigned oy = 0; oy != tilesPerY; ++oy) {
-        for (unsigned ox = 0; ox != tilesPerX; ++ox) {
-          const auto iw = ox + tilesPerX * oy;
-          const auto sharedWeightGroupBegin =
-              (iw * numSharedWeightGroups) / (tilesPerY * tilesPerX);
-          const auto sharedWeightGroupEnd =
-              ((iw + 1) * numSharedWeightGroups) / (tilesPerY * tilesPerX);
-          if (sharedWeightGroupBegin == sharedWeightGroupEnd)
-            continue;
-          const auto tileWeights = sharedWeights.slice(sharedWeightGroupBegin,
-                                                       sharedWeightGroupEnd)
-                                                .flatten();
-          const auto tileNumElements = tileWeights.numElements();
-          const auto tile = linearizeTileIndices(izg, ox, oy, ozg, bwdPartition,
-                                                 isMultiIPU);
-          const auto workersPerTile = deviceInfo.getNumWorkerContexts();
-          const auto maxElemsPerWorker =
-              (tileNumElements + workersPerTile - 1) / workersPerTile;
-          const auto verticesToCreate =
-              (tileNumElements + maxElemsPerWorker - 1) / maxElemsPerWorker;
-          for (unsigned vertex = 0; vertex != verticesToCreate; ++vertex) {
-            const auto elemBegin =
-                (vertex * tileNumElements) / verticesToCreate;
-            const auto elemEnd =
-                ((vertex + 1) * tileNumElements) / verticesToCreate;
-            if (elemBegin == elemEnd)
-              continue;
-            const auto vertexWeights = tileWeights.slice(elemBegin, elemEnd);
-            const auto elements = vertexWeights.getElementIndices();
-            auto numElements = elements.size();
-            auto regions = getContiguousRegions(elements.begin(),
-                                                elements.end());
-            auto v = graph.addVertex(cs, templateVertex("ConvTransformWeights",
-                                                        dType));
-            graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
-            graph.setFieldSize(v["out"], regions.size());
-            for (unsigned i = 0; i < regions.size(); i++) {
-              auto &region = regions[i];
-              graph.connect(v["out"][i],
-                            bwdWeights.flatten().slice(region.first,
-                                                       region.second));
-            };
-            graph.setFieldSize(v["in"], numElements);
-            for (unsigned i = 0; i < numElements; ++i) {
-              const auto &elem = elements[i];
-              auto coord = getElementCoord(elem, bwdWeights.dims());
-              auto wx = coord[2]; auto wy = coord[3];
-              auto outChan = coord[0] * partialChansPerGroup + coord[4];
-              auto inChan = coord[1] * inChansPerGroup + coord[5];
-              auto fwdPartialChansPerGroup = fwdPartition.partialChansPerGroup;
-              auto fwdInChansPerGroup = fwdPartition.inChansPerGroup;
-              auto w = weights[inChan / fwdPartialChansPerGroup]
-                  [outChan / fwdInChansPerGroup]
-                  [wx][wy]
-                  [inChan % fwdPartialChansPerGroup]
-                  [outChan % fwdInChansPerGroup];
-              graph.connect(v["in"][i], w);
-            }
-            mapping.setMapping(v, tile);
-          }
-        }
-      }
+      mapping.setMapping(v, tile);
     }
-  }
+  });
   return Execute(cs);
 }
 
@@ -1505,8 +1476,6 @@ Program convolutionBackward(Graph &graph,
   const auto layerName =
       "Conv" + std::to_string(kernelSize) + "x" + std::to_string(kernelSize)
              + ".bwd";
-
-
   const auto outDimY = deltasOut.dim(1);
   const auto outDimX = deltasOut.dim(2);
   unsigned partialOutDimY, partialOutDimX;
@@ -1579,116 +1548,284 @@ Program convolutionBackward(Graph &graph,
   return bwdProg;
 }
 
+static void
+createWeightGradVertex(Graph &graph,
+                       IPUModelEngineBuilder::TileMapping &mapping,
+                       const DeviceInfo &deviceInfo,
+                       const Partition &partition,
+                       unsigned tile, const std::string &dType,
+                       unsigned outXBegin, unsigned outXEnd,
+                       unsigned outYBegin, unsigned outYEnd,
+                       unsigned outZGroupBegin, unsigned outZGroup,
+                       unsigned inZGroupBegin, unsigned inZGroupEnd,
+                       unsigned kernelSize, unsigned stride,
+                       unsigned padding,
+                       ComputeSet cs,
+                       const Tensor &in, const Tensor &deltas,
+                       const Tensor &weights) {
+  const auto inDimY = in.dim(1);
+  const auto inDimX = in.dim(2);
+  const auto inChansPerGroup = partition.inChansPerGroup;
+  const auto outChansPerGroup = partition.partialChansPerGroup;
+  const auto outHeight = outYEnd - outYBegin;
+  const auto outWidth = outXEnd - outXBegin;
+  for (unsigned izg = inZGroupBegin; izg != inZGroupEnd; ++izg) {
+    auto v = graph.addVertex(cs, templateVertex("ConvWeightGradCalc",
+                                                dType));
+    mapping.setMapping(v, tile);
+    graph.setInitialValue(v["kernelSize"], kernelSize);
+    graph.setInitialValue(v["stride"], stride);
+    graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
+    graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
+    graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+    unsigned inYBegin, inYEnd;
+    std::tie(inYBegin, inYEnd) =
+        getInputRange({outYBegin, outYEnd}, stride,
+                      kernelSize, padding, inDimY, true);
+    const auto inHeight = inYEnd - inYBegin;
+    assert (inHeight != 0);
+    unsigned inXBegin, inXEnd;
+    std::tie(inXBegin, inXEnd) =
+        getInputRange({outXBegin, outXEnd}, stride,
+                      kernelSize, padding, inDimX, true);
+    graph.setInitialValue(v["ypadding"],
+                          inYBegin < padding ? padding - inYBegin : 0);
+    graph.setInitialValue(v["xpadding"],
+                          inXBegin < padding ? padding - inXBegin : 0);
+    const auto convInWidth = inXEnd - inXBegin;
+    Tensor acts =
+        in[izg].slice(
+          {inYBegin, inXBegin, 0},
+          {inYEnd, inXEnd, inChansPerGroup}
+        ).reshape({inHeight, convInWidth * inChansPerGroup});
+    Tensor ds =
+        deltas[outZGroup].slice(
+          {outYBegin, outXBegin, 0},
+          {outYEnd, outXEnd, outChansPerGroup}
+        ).reshape({outHeight, outWidth * outChansPerGroup});
+    graph.connect(v["acts"], acts);
+    graph.connect(v["deltas"], ds);
+    auto w = weights[outZGroup][izg].flatten();
+    graph.connect(v["weights"], w);
+  }
+}
+
+static void
+calcPartialWeightGrads(Graph &graph,
+                       IPUModelEngineBuilder::TileMapping &mapping,
+                       const DeviceInfo &deviceInfo,
+                       const Partition &partition,
+                       std::string dType,
+                       unsigned tile,
+                       unsigned outXBegin, unsigned outXEnd,
+                       unsigned outYBegin, unsigned outYEnd,
+                       unsigned outZGroupBegin, unsigned outZGroupEnd,
+                       unsigned inZGroupBegin, unsigned inZGroupEnd,
+                       unsigned kernelSize, unsigned stride, unsigned padding,
+                       ComputeSet cs,
+                       Tensor in, Tensor deltas, Tensor weights) {
+  for (unsigned ozg = outZGroupBegin; ozg != outZGroupEnd; ++ozg) {
+    createWeightGradVertex(graph, mapping, deviceInfo, partition, tile,
+                           dType,
+                           outXBegin, outXEnd, outYBegin,
+                           outYEnd, outZGroupBegin, ozg, inZGroupBegin,
+                           inZGroupEnd, kernelSize, stride,
+                           padding,
+                           cs, in, deltas, weights);
+  }
+}
+
 Program
 convolutionWeightUpdate(Graph &graph,
                         IPUModelEngineBuilder::TileMapping &mapping,
                         const DeviceInfo &deviceInfo,
+                        const ConvPlan &plan,
                         std::string dType,
                         Tensor zDeltas, Tensor weights, Tensor biases,
                         Tensor activations,
                         unsigned kernelSize, unsigned stride,
                         unsigned padding, float learningRate) {
-  if (deviceInfo.isIPU)
-    return Sequence();
+  const auto layerName =
+      "Conv" + std::to_string(kernelSize) + "x" + std::to_string(kernelSize)
+             + ".weight_update";
+  assert(activations.dim(0) == weights.dim(1));
+  auto outChansPerGroup = weights.dim(4);
+  auto outNumChanGroups = weights.dim(0);
+  auto outNumChans = outChansPerGroup * outNumChanGroups;
+  auto outDimY = zDeltas.dim(1), outDimX = zDeltas.dim(2);
+  Tensor regroupedDeltas = graph.addTensor(dType, {outNumChanGroups,
+                                                   outDimY, outDimX,
+                                                   outChansPerGroup},
+                                           "zDeltas'");
+  mapActivations(regroupedDeltas, mapping, deviceInfo);
+  auto regroupedDeltaMapping = computeActivationsMapping(regroupedDeltas,
+                                                         deviceInfo);
+  auto prog = Sequence();
+  prog.add(regroup(graph, mapping, deviceInfo, layerName, dType,
+                   dType, regroupedDeltaMapping, zDeltas, regroupedDeltas));
+
+  const auto &partition = plan.wuPartition;
+  const auto isMultiIPU = deviceInfo.getNumIPUs() > 1;
+  const auto inNumChans = activations.dim(0) * activations.dim(3);
+  const auto inChansPerGroup = partition.inChansPerGroup;
   const auto inNumChanGroups = activations.dim(0);
-  const auto inDimY = activations.dim(1);
-  const auto inDimX = activations.dim(2);
-  const auto inChansPerGroup = activations.dim(3);
-  const auto partialChansPerGroup = weights.dim(4);
-  const auto inNumChans = inNumChanGroups * inChansPerGroup;
-  const auto outNumChanGroups = zDeltas.dim(0);
-  const auto outDimY = zDeltas.dim(1);
-  const auto outDimX = zDeltas.dim(2);
-  const auto outChansPerGroup = zDeltas.dim(3);
-  const auto outNumChans = outChansPerGroup * outNumChanGroups;
-  const auto layerName = "Conv" + std::to_string(kernelSize) + "x" +
-                          std::to_string(kernelSize);
+  const auto partialChansPerGroup = partition.partialChansPerGroup;
+  assert(outNumChans % partialChansPerGroup == 0);
+  const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
+  const auto tilesPerX = partition.tilesPerXAxis;
+  const auto tilesPerY = partition.tilesPerYAxis;
+  const auto tilesPerZ = partition.tilesPerZAxis;
+  const auto tilesPerInZGroup = partition.tilesPerInZGroupAxis;
+  const auto numInZGroups = inNumChans / inChansPerGroup;
 
-  auto wPartials = graph.addTensor(dType,
-                                   {outNumChans, outDimY, outDimX,
-                                    kernelSize, kernelSize, inNumChans},
-                                   "wPartials");
-  auto zeroCS = graph.createComputeSet(layerName + ".weight_update.zero");
-  graph.addVertex(zeroCS, templateVertex("Zero", dType),
-                  {{"out",wPartials.flatten()}});
-  auto partialCS = graph.createComputeSet(layerName + ".weight_update.partial");
-  for (unsigned outChanGroup = 0; outChanGroup < outNumChanGroups;
-       ++outChanGroup) {
-    for (unsigned y = 0; y < outDimY; ++y) {
-      for (unsigned x = 0; x < outDimX; ++x) {
-        for (unsigned outChanInGroup = 0; outChanInGroup < outChansPerGroup;
-             ++outChanInGroup) {
-          for (unsigned wy = 0; wy < kernelSize; ++wy) {
-            for (unsigned wx = 0; wx < kernelSize; ++wx) {
-              auto inX = getInputIndex(x, stride, kernelSize,
-                                       padding, inDimX, wx, true);
-              if (inX == ~0U)
-                continue;
-              auto inY = getInputIndex(y, stride, kernelSize,
-                                       padding, inDimY, wy, true);
-              if (inY == ~0U)
-                continue;
-              auto outChan = outChanGroup * outChansPerGroup + outChanInGroup;
-              auto w = wPartials[outChan][y][x][wy][wx].flatten();
-              auto d = zDeltas[outChanGroup][y][x][outChanInGroup];
-              auto ii = activations.slice({0, inY, inX, 0},
-                                          {inNumChanGroups, inY + 1,
-                                           inX + 1, inChansPerGroup})
-                                   .flatten();
-              auto v = graph.addVertex(partialCS,
-                                       templateVertex("ConvPartialWeightUpdate",
-                                                      dType),
-                                       {{"d", d},
-                                        {"in", ii},
-                                        {"weightUpdates", w}});
-            }
-          }
+  Tensor partials = graph.addTensor(dType, {tilesPerY, tilesPerX,
+                                            outNumChanGroups,
+                                            inNumChanGroups,
+                                            kernelSize, kernelSize,
+                                            outChansPerGroup,
+                                            inChansPerGroup},
+                                    "partialWeightGrads");
+
+
+
+  ComputeSet weightGradCS = graph.createComputeSet(layerName + ".weightGrad");
+  for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
+    const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
+    const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
+    for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
+      const auto outZGroupBegin = (ozg * partialNumChanGroups) / tilesPerZ;
+      const auto outZGroupEnd = ((ozg + 1) * partialNumChanGroups) / tilesPerZ;
+      for (unsigned oy = 0; oy != tilesPerY; ++oy) {
+        const auto outYBegin = (oy * outDimY) / tilesPerY;
+        const auto outYEnd = ((oy + 1) * outDimY) / tilesPerY;
+        for (unsigned ox = 0; ox != tilesPerX; ++ox) {
+          const auto outXBegin = (ox * outDimX) / tilesPerX;
+          const auto outXEnd = ((ox + 1) * outDimX) / tilesPerX;
+          const auto tile = linearizeTileIndices(izg, ox, oy, ozg,
+                                                 partition,
+                                                 isMultiIPU);
+          calcPartialWeightGrads(graph, mapping, deviceInfo, partition, dType,
+                                 tile, outXBegin, outXEnd, outYBegin, outYEnd,
+                                 outZGroupBegin, outZGroupEnd, inZGroupBegin,
+                                 inZGroupEnd, kernelSize, stride, padding,
+                                 weightGradCS, activations, regroupedDeltas,
+                                 partials[oy][ox]);
         }
       }
     }
   }
-  auto reduceCS = graph.createComputeSet(layerName + ".weight_update.reduce");
+  prog.add(Execute(weightGradCS));
 
-  for (unsigned inChan = 0; inChan < inNumChans; ++inChan) {
-    for (unsigned outChan = 0; outChan < outNumChans; ++outChan) {
-      for (unsigned wy = 0; wy < kernelSize; ++wy) {
-        for (unsigned wx = 0; wx < kernelSize; ++wx) {
-          auto w = weights[outChan / partialChansPerGroup]
-                          [inChan / inChansPerGroup]
-                          [wy][wx]
-                          [outChan % partialChansPerGroup]
-                          [inChan % inChansPerGroup];
-          auto in =
-              wPartials[outChan].slice({0, 0, wy, wx, inChan},
-                                       {outDimY, outDimX,
-                                        wy + 1, wx + 1,
-                                        inChan + 1})
-                                .flatten();
-          auto v = graph.addVertex(reduceCS,
-                                   templateVertex("ConvWeightUpdateReduce",
-                                                  dType),
-                                   {{"weight", w}, {"partials", in}});
-          graph.setInitialValue(v["eta"], learningRate);
-        }
-      }
-    }
-  }
 
-  for (unsigned outChan = 0; outChan < outNumChans; ++outChan) {
-    const auto outChanGroup = outChan / outChansPerGroup;
-    const auto outChanInGroup = outChan % outChansPerGroup;
-    auto in = zDeltas.slice({outChanGroup, 0, 0, outChanInGroup},
-                            {outChanGroup + 1, outDimY, outDimX,
-                             outChanInGroup + 1}).flatten();
+  auto reduceCS = graph.createComputeSet(layerName + ".reduce");
+
+  /** The reduction of weights is not performed where the weights are
+   *  stored in the weight tensor. This causes some output exchange
+   *  after the reduction but allows balancing of compute.
+   */
+  auto numWorkers =
+      deviceInfo.getNumWorkerContexts() * deviceInfo.getNumTiles();
+  for (unsigned worker = 0; worker < numWorkers; ++worker) {
+    auto beginElem = (worker * weights.numElements()) / numWorkers;
+    auto endElem = ((worker + 1) * weights.numElements()) / numWorkers;
+    if (beginElem == endElem)
+      continue;
+    auto numElems = endElem - beginElem;
+    auto flatPartials = partials.reshape({tilesPerY * tilesPerX,
+                                          weights.numElements()});
+    auto p = flatPartials.slice({0, beginElem},
+                                {tilesPerY * tilesPerX, endElem})
+                         .reshape({tilesPerY * tilesPerX,
+                                   numElems});
+    auto w = weights.flatten().slice(beginElem, endElem);
     auto v = graph.addVertex(reduceCS,
-                             templateVertex("ConvBiasUpdate", dType),
-                             {{"bias", biases[outChan]}, {"deltas", in}});
-    graph.setInitialValue(v["eta"],
-                          learningRate);
+                             templateVertex("ConvWeightUpdate", dType),
+                             {{"weights", w}, {"partials", p}});
+    graph.setInitialValue(v["eta"], learningRate);
+    graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+    mapping.setMapping(v, worker / deviceInfo.getNumWorkerContexts());
+  }
+  /** The number of biases is often small. So the reduction of bias
+   *  updates is done in two stages to balance compute.
+   *  TODO: This can probably be improved by reducing the biases on
+   *  each tile according to the mapping of the deltas.
+   */
+  auto numBiases = biases.numElements();
+  unsigned workersPerBias, usedWorkers, maxBiasPerWorker;
+  if (numWorkers > numBiases) {
+    workersPerBias = numWorkers / numBiases;
+    usedWorkers = workersPerBias * numBiases;
+    maxBiasPerWorker = 1;
+  } else {
+    workersPerBias = 1;
+    usedWorkers = numWorkers;
+    maxBiasPerWorker = (numBiases + numWorkers - 1) / numWorkers;
+  }
+  auto elemsPerBias = outDimY * outDimX;
+  auto biasPartials = graph.addTensor(dType, {numWorkers, maxBiasPerWorker},
+                                      "biasPartials");
+
+  for (unsigned worker = 0; worker  < usedWorkers; ++worker ) {
+    unsigned biasBegin = (worker  * numBiases) / usedWorkers;
+    unsigned biasEnd = ((worker  + workersPerBias) * numBiases) / usedWorkers;
+    if (biasBegin == biasEnd)
+      continue;
+    unsigned elemBegin =
+        ((worker  % workersPerBias) * elemsPerBias) / workersPerBias;
+    unsigned elemEnd =
+        (((worker  % workersPerBias) + 1) * elemsPerBias) / workersPerBias;
+    if (elemBegin == elemEnd)
+      continue;
+    auto numElems = elemEnd - elemBegin;
+    unsigned numBiases = biasEnd - biasBegin;
+    auto v = graph.addVertex(reduceCS,
+                             templateVertex("ConvBiasReduce", dType));
+    graph.setFieldSize(v["deltas"], numElems * numBiases);
+    auto zDeltasFlat = zDeltas.reshape({zDeltas.dim(0),
+                                        outDimY * outDimX,
+                                        zDeltas.dim(3)});
+    for (unsigned i = 0; i < numBiases; ++i) {
+      unsigned deltaGroup = (biasBegin + i) / zDeltas.dim(3);
+      unsigned deltaInGroup = (biasEnd + i) % zDeltas.dim(3);
+      auto in = zDeltasFlat.slice({deltaGroup, elemBegin, deltaInGroup},
+                                  {deltaGroup + 1, elemEnd, deltaInGroup + 1})
+                           .flatten();
+      for (unsigned j = 0; j < numElems; ++j) {
+        graph.connect(v["deltas"][i * numElems + j], in[j]);
+      }
+    }
+    graph.connect(v["biases"], biasPartials[worker].slice(0, numBiases));
+    auto tile =  worker / deviceInfo.getNumWorkerContexts();
+    mapping.setMapping(v, tile);
+    mapping.setMapping(biasPartials[worker].slice(0, numBiases), tile);
   }
 
+  auto updateBiasCS = graph.createComputeSet(layerName + ".update_bias");
+  iterateBiasMapping(biases, deviceInfo, zDeltas,
+    [&](Tensor biasSlice, unsigned tile){
+      for (auto bias : biasSlice.getElementIndices()) {
+        auto v = graph.addVertex(updateBiasCS,
+                                 templateVertex("ConvBiasUpdate", dType));
+        unsigned numDeltas = 0;
+        for (unsigned srcWorker = 0; srcWorker < usedWorkers; ++srcWorker) {
+          unsigned biasBegin = (srcWorker * numBiases) / usedWorkers;
+          unsigned biasEnd =
+              ((srcWorker + workersPerBias) * numBiases) / usedWorkers;
+          if (biasBegin > bias || biasEnd <= bias)
+            continue;
+          graph.connect(v["deltas"][numDeltas++],
+                        biasPartials[srcWorker][bias - biasBegin]);
+        }
+        graph.setFieldSize(v["deltas"], numDeltas);
+        graph.connect(v["bias"], biases[bias]);
+        graph.setInitialValue(v["eta"], learningRate);
+        mapping.setMapping(v, tile);
+      }
+     });
 
-  return Sequence(Execute(zeroCS), Execute(partialCS), Execute(reduceCS));
+  prog.add(Execute(reduceCS));
+  prog.add(Execute(updateBiasCS));
+  return prog;
 }
 
 

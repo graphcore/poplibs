@@ -122,4 +122,45 @@ getFullyConnectedBwdCycleEstimate(unsigned size) {
   return 5 + size * 3;
 }
 
+inline std::uint64_t
+getWeightGradCalcCycles(unsigned numOutRows, unsigned numInRows,
+                        unsigned outputWidth, unsigned inputWidth,
+                        unsigned outChansPerGroup, unsigned inChansPerGroup,
+                        unsigned stride, unsigned kernelSize,
+                        unsigned xpadding, unsigned ypadding,
+                        unsigned vectorWidth) {
+  std::uint64_t cycles = 0;
+  for (int wy = 0; wy < kernelSize; ++wy) {
+    cycles += 2;
+    for (int wx = 0; wx < kernelSize; ++wx) {
+      cycles += 5;
+      int inRow = wy - static_cast<int>(ypadding);
+      unsigned outRow = 0;
+      while (inRow < 0) {
+        inRow += stride;
+        outRow += 1;
+      }
+      while (outRow < numOutRows && inRow < numInRows) {
+        cycles += 5;
+        int inCol = wx - static_cast<int>(xpadding);
+        unsigned outCol = 0;
+        while (inCol < 0) {
+          inCol += stride;
+          outCol += 1;
+        }
+        while (outCol < outputWidth && inCol < inputWidth) {
+          for (unsigned outChan = 0; outChan < outChansPerGroup; ++outChan) {
+            cycles += (inChansPerGroup + vectorWidth - 1) / vectorWidth;
+          }
+          outCol += 1;
+          inCol += stride;
+        }
+        outRow += 1;
+        inRow += stride;
+      }
+    }
+  }
+  return 15 + cycles;
+}
+
 #endif // _performance_estimation_h_

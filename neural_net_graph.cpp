@@ -494,53 +494,162 @@ template class ConvCompleteBwd<float, float>;
 template class ConvCompleteBwd<float, half>;
 template class ConvCompleteBwd<half, half>;
 
-template <typename FPType>
-class ConvPartialWeightUpdate : public Vertex {
+
+template <class FPType>
+class ConvWeightGradCalc : public Vertex {
 public:
-  Input<FPType> d;
-  Output<Vector<FPType>> weightUpdates;
-  Vector<Input<FPType>> in;
+  Vector<Input<Vector<FPType>>> acts;
+  Vector<Input<Vector<FPType>>> deltas;
+  Output<Vector<FPType>> weights;
+
+  unsigned kernelSize;
+  unsigned xpadding, ypadding;
+  unsigned stride;
+  unsigned inChansPerGroup;
+  unsigned outChansPerGroup;
+
+  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    for (unsigned i = 0; i < weightUpdates.size(); ++i) {
-      weightUpdates[i] = *d * in[i];
+    unsigned numInRows = acts.size();
+    unsigned numOutRows = deltas.size();
+    assert(acts[0].size() % inChansPerGroup == 0);
+    unsigned inputWidth = acts[0].size() / inChansPerGroup;
+    assert(deltas[0].size() % outChansPerGroup == 0);
+    unsigned outputWidth = deltas[0].size() / outChansPerGroup;
+
+    for (FPType &o : weights) {
+      o = 0.0;
     }
+    for (int wy = 0; wy < kernelSize; ++wy) {
+      for (int wx = 0; wx < kernelSize; ++wx) {
+        auto weightsPerKernelElement = outChansPerGroup * inChansPerGroup;
+        FPType *w = &weights[(wy * kernelSize + wx) * weightsPerKernelElement];
+        int inRow = wy - static_cast<int>(ypadding);
+        unsigned outRow = 0;
+        while (inRow < 0) {
+          inRow += stride;
+          outRow += 1;
+        }
+        while (outRow < numOutRows && inRow < numInRows) {
+          int inCol = wx - static_cast<int>(xpadding);
+          unsigned outCol = 0;
+          while (inCol < 0) {
+            inCol += stride;
+            outCol += 1;
+          }
+          while (outCol < outputWidth && inCol < inputWidth) {
+            for (unsigned inChan = 0; inChan < inChansPerGroup; ++inChan) {
+              FPType a = acts[inRow][inCol * inChansPerGroup + inChan];
+              for (unsigned outChan = 0; outChan < outChansPerGroup; ++outChan)
+              {
+                w[outChan * inChansPerGroup + inChan] +=
+                    a * deltas[outRow][outCol * outChansPerGroup + outChan];
+              }
+            }
+            outCol += 1;
+            inCol += stride;
+          }
+          outRow += 1;
+          inRow += stride;
+        }
+      }
+    }
+
     return true;
   }
 
   uint64_t getCycleEstimate() const {
-    // TODO
-    return 0;
+    unsigned numInRows = acts.size();
+    unsigned numOutRows = deltas.size();
+    unsigned inputWidth = acts[0].size() / inChansPerGroup;
+    unsigned outputWidth = deltas.size() / outChansPerGroup;
+    bool isFloat = std::is_same<FPType, float>::value;
+    unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    return getWeightGradCalcCycles(numOutRows, numInRows,
+                                   outputWidth, inputWidth,
+                                   outChansPerGroup, inChansPerGroup,
+                                   stride, kernelSize,
+                                   xpadding, ypadding,
+                                   vectorWidth);
+
   }
 };
 
-template class ConvPartialWeightUpdate<float>;
-template class ConvPartialWeightUpdate<half>;
+template class ConvWeightGradCalc<float>;
+template class ConvWeightGradCalc<half>;
 
 template <typename FPType>
-class ConvWeightUpdateReduce: public Vertex {
+class ConvWeightUpdate : public Vertex {
 public:
-  InOut<FPType> weight;
-  Vector<Input<FPType>> partials;
+  Vector<Input<Vector<FPType>>> partials;
+  InOut<Vector<FPType>> weights;
+
   float eta;
 
+  SimOnlyField<unsigned> dataPathWidth;
+
   bool compute() {
-    float sum = 0;
-    for (unsigned i = 0; i < partials.size(); ++i) {
-      sum += partials[i];
+    for (unsigned w = 0; w < weights.size(); ++w) {
+      float sum = 0;
+      for (unsigned i = 0; i < partials.size(); ++i) {
+        assert(w < partials[i].size());
+        sum += partials[i][w];
+      }
+      weights[w] -= eta * sum;
     }
-    *weight = *weight - sum * eta;
     return true;
   }
 
   uint64_t getCycleEstimate() const {
-    // TODO
-    return 0;
+    unsigned numPartials = partials.size();
+    unsigned numElem = weights.size();
+    bool isFloat = std::is_same<FPType, float>::value;
+    unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    return 4 + 2 * numElem * (1 + (numPartials + vectorWidth - 1) / vectorWidth);
   }
 };
 
-template class ConvWeightUpdateReduce<float>;
-template class ConvWeightUpdateReduce<half>;
+template class ConvWeightUpdate<float>;
+template class ConvWeightUpdate<half>;
+
+
+template <typename FPType>
+class ConvBiasReduce: public Vertex {
+public:
+  Vector<Output<FPType>> biases;
+  Vector<Input<FPType>> deltas;
+
+  bool compute() {
+    assert(deltas.size() % biases.size() == 0);
+    auto numBiases = biases.size();
+    auto deltasPerBias = deltas.size() / biases.size();
+
+    for (unsigned bias = 0; bias < numBiases; ++bias) {
+      float sum = 0;
+      for (unsigned i = 0; i < deltasPerBias; ++i) {
+        sum += deltas[bias * deltasPerBias + i];
+      }
+      biases[bias] = sum;
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    auto numBiases= biases.size();
+    auto deltasPerBias = deltas.size() / biases.size();
+    uint64_t cycles = 10;
+
+    for (unsigned bias = 0; bias < numBiases; ++bias) {
+      cycles += deltasPerBias;
+    }
+    return cycles;
+  }
+};
+
+
+template class ConvBiasReduce<float>;
+template class ConvBiasReduce<half>;
 
 template <typename FPType>
 class ConvBiasUpdate: public Vertex {
@@ -554,13 +663,12 @@ public:
     for (unsigned i = 0; i < deltas.size(); ++i) {
       sum += deltas[i];
     }
-    *bias -= sum * eta;
+    *bias -= eta * sum;
     return true;
   }
 
   uint64_t getCycleEstimate() const {
-    // TODO
-    return 0;
+    return 15 + deltas.size();
   }
 };
 
