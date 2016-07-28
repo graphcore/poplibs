@@ -23,7 +23,7 @@ void mapTensor(poplar::Tensor t,
 /// decided based on the number of worker contexts.
 template <class Builder>
 void buildTransform(const std::vector<unsigned> &tileMapping,
-                    DeviceInfo &deviceInfo, Builder &&builder) {
+                    const DeviceInfo &deviceInfo, Builder &&builder) {
   const auto numTiles = deviceInfo.getNumTiles();
   const auto workersPerTile = deviceInfo.getNumWorkerContexts();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
