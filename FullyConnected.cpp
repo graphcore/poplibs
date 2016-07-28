@@ -313,6 +313,7 @@ fullyConnectedWeightUpdate(Graph &graph,
                                     {"in", actWindow}});
           graph.setInitialValue(v["eta"],
                                 learningRate);
+          graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
           mapping.setMapping(v, tile);
         }
       }

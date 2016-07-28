@@ -188,6 +188,8 @@ public:
   Input<Vector<FPType>> in;
   float eta;
 
+  SimOnlyField<unsigned> dataPathWidth;
+
   bool compute() {
     for (unsigned i = 0; i < weights.size(); ++i) {
       auto grad = *d * in[i];
@@ -197,8 +199,11 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    // TODO
-    return 0;
+    bool isFloat = std::is_same<FPType, float>::value;
+    unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    unsigned numVectors = (weights.size() + vectorWidth - 1) / vectorWidth;
+    // Inner loop involves multiplication by (*d * eta) and addition.
+    return 5 + 2 * numVectors;
   }
 };
 
