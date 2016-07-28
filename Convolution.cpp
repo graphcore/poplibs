@@ -482,7 +482,8 @@ createConvPartialDotProductVertex(Graph &graph,
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
   graph.setInitialValue(v["stride"], stride);
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
-  graph.setInitialValue(v["padding"], padding);
+  unsigned vPadding = inXBegin < padding ? padding - inXBegin : 0;
+  graph.setInitialValue(v["padding"], vPadding);
   // Map the vertex and output.
   mapping.setMapping(v, tile);
   mapping.setMapping(outWindow, tile);
