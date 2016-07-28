@@ -202,9 +202,10 @@ class Net {
                              unsigned inNumChans,
                              unsigned kernelSize, unsigned stride,
                              unsigned padding, unsigned outNumChans,
-                             bool doResidual);
+                             bool doResidual, bool forwardOnly);
 
-  void outputDescription(const Layer *layer, poplar::Tensor in);
+  void outputDescription(const Layer *layer, poplar::Tensor in,
+                         bool forwardOnly);
 
   void initialize(DataSet &dataSet, LossType lossType);
 

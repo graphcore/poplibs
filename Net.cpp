@@ -219,7 +219,7 @@ Net::outputConvDescription(unsigned inDimY, unsigned inDimX,
                            unsigned inNumChans,
                            unsigned kernelSize, unsigned stride,
                            unsigned padding, unsigned outNumChans,
-                           bool doResidual) {
+                           bool doResidual, bool forwardOnly) {
   unsigned outDimY, outDimX;
   std::tie(outDimY, outDimX) = conv::getOutputDim(inDimY,
                                                   inDimX,
@@ -230,7 +230,7 @@ Net::outputConvDescription(unsigned inDimY, unsigned inDimX,
       kernelSize * kernelSize * inNumChans * outNumChans + outNumChans;
   auto flops = conv::getFlops(inDimY, inDimX, inNumChans,
                               kernelSize, stride, padding, outNumChans,
-                              doResidual, netType == TestOnlyNet);
+                              doResidual, forwardOnly);
   if (doResidual) {
     std::cout << "   -- Convolutional layer (residual):\n";
   } else {
@@ -247,23 +247,25 @@ Net::outputConvDescription(unsigned inDimY, unsigned inDimX,
             << "        FLOPs: " << flops << "\n";
 }
 
-void Net::outputDescription(const Layer *layer, Tensor in) {
+void Net::outputDescription(const Layer *layer, Tensor in,
+                            bool forwardOnly) {
   if (const auto *fc = dynamic_cast<const FullyConnectedLayer *>(layer)) {
     const auto prevSize = in.numElements();
     const auto size = fc->size;
+    const auto flops = fc::getNumFlops(prevSize, size, forwardOnly);
     std::cout << "   -- Fully connected layer:\n"
               << "        Input: "  << prevSize << "\n"
               << "        Output: " << size << "\n"
               << "        Params: " << size * (prevSize + 1) << "\n"
-              << "        FLOPs: " << fc::getNumFlops(prevSize, size) << "\n";
+              << "        FLOPs: " << flops << "\n";
   } else if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
     outputConvDescription(in.dim(1), in.dim(2), in.dim(0) * in.dim(3),
                           c->kernelSize, c->stride, c->padding,
-                          c->numChannels, false);
+                          c->numChannels, false, forwardOnly);
   } else if (const auto *c = dynamic_cast<const ConvResLayer *>(layer)) {
     outputConvDescription(in.dim(1), in.dim(2), in.dim(0) * in.dim(3),
                           c->kernelSize, c->stride, c->padding,
-                          c->numChannels, true);
+                          c->numChannels, true, forwardOnly);
   } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
     unsigned outDimY, outDimX;
     std::tie(outDimY, outDimX) = maxpool::getOutputDim(in.dim(1),
@@ -405,12 +407,12 @@ Net::createConvLayerFwd(unsigned i,
  numFlops += conv::getFlops(inDimY, inDimX, inNumChans, kernelSize,
                             stride, padding, numChannels,
                             resMethod != RESIDUAL_NONE,
-                            netType == TestOnlyNet && i != 0);
- perfectCycleTime += conv::getPerfectCycleCount(*deviceInfo, dType, inDimY,
-                                                inDimX, inNumChans, kernelSize,
-                                                stride, padding, numChannels,
-                                                resMethod != RESIDUAL_NONE,
-                                                netType == TestOnlyNet && i != 0);
+                            netType == TestOnlyNet || i == 0);
+ perfectCycleTime +=
+     conv::getPerfectCycleCount(*deviceInfo, dType, inDimY, inDimX,
+                                inNumChans, kernelSize, stride, padding,
+                                numChannels, resMethod != RESIDUAL_NONE,
+                                netType == TestOnlyNet || i == 0);
  if (resMethod == RESIDUAL_NONE)
    return reusableLayer.apply({in, weights, biases}, {z[i + 1], acts[i + 1]});
  else
@@ -569,7 +571,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   for (unsigned i = 0; i < layers.size(); ++i) {
     const auto *layer = layers[i].get();
     std::cout << "-- Layer " << i << "\n";
-    outputDescription(layer, acts[i]);
+    outputDescription(layer, acts[i], netType == TestOnlyNet || i == 0);
     if (const auto *fc = dynamic_cast<const FullyConnectedLayer *>(layer)) {
       const auto prevSize = acts[i].numElements();
       const auto size = fc->size;
@@ -608,9 +610,12 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                                      size, fc->nonLinearityType, dType,
                                      acts[i], weights, biases, z[i + 1],
                                      acts[i + 1], plan));
-      numFlops += fc::getNumFlops(prevSize, size);
-      perfectCycleTime += fc::getPerfectCycleCount(*deviceInfo, prevSize,
-                                                   size, dType);
+      numFlops += fc::getNumFlops(prevSize, size,
+                                  netType == TestOnlyNet || i == 0);
+      perfectCycleTime +=
+          fc::getPerfectCycleCount(*deviceInfo, prevSize,
+                                   size, dType,
+                                   netType == TestOnlyNet || i == 0);
     } else if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
       fwdProg.add(createConvLayerFwd(i, c->kernelSize, c->stride, c->padding,
                                      c->numChannels, c->nonLinearityType,

@@ -11,11 +11,11 @@ namespace fc {
 
 struct Plan;
 
-uint64_t getNumFlops(unsigned inSize, unsigned outSize);
+uint64_t getNumFlops(unsigned inSize, unsigned outSize, bool forwardOnly);
 
 double getPerfectCycleCount(const DeviceInfo &deviceInfo,
                             unsigned inSize, unsigned outSize,
-                            std::string dType);
+                            std::string dType, bool forwardOnly);
 
 std::pair<poplar::Tensor, poplar::Tensor>
 createParams(poplar::Graph &graph, std::string dType, unsigned inSize,

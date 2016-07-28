@@ -114,16 +114,19 @@ fullyConnected(Graph &graph,
   return prog;
 }
 
-uint64_t getNumFlops(unsigned inSize, unsigned outSize) {
-  return 2 * inSize * outSize;
+uint64_t getNumFlops(unsigned inSize, unsigned outSize, bool forwardOnly) {
+  if (forwardOnly)
+    return (2 * inSize * outSize);
+  else
+    return 3 * (2 * inSize * outSize);
 }
 
 double getPerfectCycleCount(const DeviceInfo &deviceInfo,
                             unsigned inSize, unsigned outSize,
-                            std::string dType) {
+                            std::string dType, bool forwardOnly) {
   unsigned dTypeSize = dType == "float" ? 4 : 2;
   const auto numTiles = deviceInfo.getNumTiles();
-  const auto numFLOPs = getNumFlops(inSize, outSize);
+  const auto numFLOPs = getNumFlops(inSize, outSize, forwardOnly);
   const auto vectorWidth = deviceInfo.dataPathWidth / (8 * dTypeSize);
   return static_cast<double>(numFLOPs) / (2 * vectorWidth * numTiles);
 }
