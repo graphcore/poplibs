@@ -49,7 +49,7 @@ getConvPartial1x1SupervisorCycleEstimate(
       const auto coolDownCycles = 5U;
       workerCycles += vertexOverhead;
       for (const auto convSize : convSizes) {
-        workerCycles += 1 + convSize * convUnitPipelineDepth;
+        workerCycles += 2 + convSize * convUnitPipelineDepth;
       }
       workerCycles += coolDownCycles;
       maxWorkerCycles = std::max(maxWorkerCycles, workerCycles);
@@ -71,7 +71,7 @@ getConvPartial1x1CycleWorkerEstimate(
   for (const auto &convSizes : convSizesByWeight) {
     const auto numElements = std::accumulate(convSizes.begin(), convSizes.end(),
                                              0);
-    const auto pointerLoadCycles = convSizes.size();
+    const auto pointerLoadCycles = 2 * convSizes.size();
     unsigned warmUpCycles = numConvUnitsPerTile * convUnitPipelineDepth + 3;
 
 
