@@ -24,6 +24,14 @@ getOutputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
                unsigned padding, unsigned kernelSize, unsigned inputSize,
                unsigned kernelIndex, bool forward);
 
+/// Given an output range, return the subset whose calculation
+/// involves the specified range of kernel indicies.
+std::pair<unsigned, unsigned>
+getOutputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
+               unsigned kernelSize, unsigned padding, unsigned inputSize,
+               std::pair<unsigned, unsigned> kernelIndexRange,
+               bool forward);
+
 /// Return the input range that is associate with
 /// the specified kernel index when calculating the specified output range.
 std::pair<unsigned, unsigned>

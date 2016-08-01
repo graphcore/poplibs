@@ -54,6 +54,32 @@ getOutputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
 }
 
 std::pair<unsigned, unsigned>
+getOutputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
+               unsigned kernelSize, unsigned padding, unsigned inputSize,
+               std::pair<unsigned, unsigned> kernelIndexRange,
+               bool forward) {
+  unsigned outputBegin = 0, outputEnd = 0;
+  bool first = true;
+  for (unsigned kernelIndex = kernelIndexRange.first;
+       kernelIndex != kernelIndexRange.second; ++kernelIndex) {
+    const auto trimmedOutputRange =
+        getOutputRange(outputRange, stride, kernelSize, padding, inputSize,
+                       kernelIndex, forward);
+    if (trimmedOutputRange.first != trimmedOutputRange.second) {
+      if (first) {
+        outputBegin = trimmedOutputRange.first;
+        outputEnd = trimmedOutputRange.second;
+        first = false;
+      } else {
+        outputBegin = std::min(outputBegin, trimmedOutputRange.first);
+        outputEnd = std::max(outputEnd, trimmedOutputRange.second);
+      }
+    }
+  }
+  return {outputBegin, outputEnd};
+}
+
+std::pair<unsigned, unsigned>
 getInputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
               unsigned kernelSize, unsigned padding,
               unsigned inputSize, unsigned kernelIndex,

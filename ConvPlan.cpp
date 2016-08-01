@@ -66,11 +66,24 @@ canUseConvolutionInstruction(bool floatActivations, bool floatPartials,
                              unsigned stride,
                              unsigned inChansPerGroup,
                              const DeviceInfo &deviceInfo) {
-  if (floatActivations && !floatPartials)
+  if (floatActivations) {
+    if (!deviceInfo.convInstructionsFloat) {
+      return false;
+    }
+    if (!floatPartials) {
+      return false;
+    }
+  }
+  if (deviceInfo.getWeightsPerConvUnit(floatActivations) %
+      inChansPerGroup != 0) {
     return false;
-  if ((floatActivations && !deviceInfo.convInstructionsFloat) ||
-      stride >= (1 << 4) ||
-      inChansPerGroup != deviceInfo.getWeightsPerConvUnit(floatActivations))
+  }
+  // Check we can use aligned loads.
+  if ((inChansPerGroup * (floatActivations ? 32 : 16)) %
+      deviceInfo.dataPathWidth != 0) {
+    return false;
+  }
+  if (stride >= (1 << 4))
     return false;
   return true;
 }
@@ -113,18 +126,18 @@ getMaxInputRangeSize(unsigned outputRangeSize, unsigned stride,
 }
 
 static std::uint64_t
-getConvPartial1x1CycleEstimate(unsigned kernelWidth,
-                               unsigned inputGroupsPerOutput,
+getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
                                unsigned outputHeight,
                                unsigned outputWidth,
                                unsigned convUnitPipelineDepth,
                                unsigned numConvUnitsPerTile,
                                bool useSupervisorVertices,
-                               unsigned outputStride)
+                               unsigned outputStride,
+                               unsigned numInputPointers)
 {
   if (useSupervisorVertices) {
     std::vector<std::vector<std::vector<unsigned>>> convSizesByWeightAndWorker;
-    for (unsigned i = 0; i != inputGroupsPerOutput * kernelWidth; ++i) {
+    for (unsigned i = 0; i != passesPerOutput; ++i) {
       const auto numWorkerContexts = 6;
       std::vector<std::vector<PartialRow>> partition =
           partitionConvPartialByWorker(outputHeight, outputWidth,
@@ -140,20 +153,22 @@ getConvPartial1x1CycleEstimate(unsigned kernelWidth,
         }
       }
     }
-    return getConvPartial1x1SupervisorCycleEstimate(convSizesByWeightAndWorker,
+    return getConvPartialnx1SupervisorCycleEstimate(convSizesByWeightAndWorker,
                                                     convUnitPipelineDepth,
-                                                    numConvUnitsPerTile);
+                                                    numConvUnitsPerTile,
+                                                    numInputPointers);
   }
   std::vector<std::vector<unsigned>> convSizesByWeight;
-  for (unsigned i = 0; i != inputGroupsPerOutput * kernelWidth; ++i) {
+  for (unsigned i = 0; i != passesPerOutput; ++i) {
     convSizesByWeight.emplace_back();
     for (unsigned j = 0; j != outputHeight; ++j) {
       convSizesByWeight.back().push_back(outputWidth);
     }
   }
-  return getConvPartial1x1CycleWorkerEstimate(convSizesByWeight,
+  return getConvPartialnx1CycleWorkerEstimate(convSizesByWeight,
                                               convUnitPipelineDepth,
-                                              numConvUnitsPerTile);
+                                              numConvUnitsPerTile,
+                                              numInputPointers);
 }
 
 static unsigned
@@ -234,25 +249,31 @@ estimateVertexCycles(bool floatActivations,
 
   const auto outRowsPerVertex =
       (tileOutHeight + verticesPerTilePerY - 1) / verticesPerTilePerY;
-  const auto inputGroupsPerOutput = params.kernelSize * tileNumInGroups;
   const auto outputStride = phase != Phase::BACKWARD ? 1 : params.stride;
   if (partition.useConvolutionInstructions) {
-    return getConvPartial1x1CycleEstimate(
-          params.kernelSize, inputGroupsPerOutput, outRowsPerVertex,
+    assert(deviceInfo.getWeightsPerConvUnit(floatActivations) %
+           inChansPerGroup == 0);
+    const auto convUnitWeightHeight =
+        deviceInfo.getWeightsPerConvUnit(floatActivations) / inChansPerGroup;
+    const auto passesPerFilter =
+        params.kernelSize *
+        (params.kernelSize + convUnitWeightHeight - 1) / convUnitWeightHeight;
+    const auto passesPerOutput = passesPerFilter * tileNumInGroups;
+    return getConvPartialnx1CycleEstimate(
+          passesPerOutput, outRowsPerVertex,
           tileOutWidth, deviceInfo.convUnitPipelineDepth,
           getNumConvUnits(partition.floatPartials, deviceInfo),
           useSupervisorVertices,
-          outputStride);
+          outputStride,
+          convUnitWeightHeight);
   }
   assert(!useSupervisorVertices);
   return outRowsPerVertex * outChansPerGroup *
-         getConvPartialByDotProductCycleEstimate(floatActivations,
-                                                 inChansPerGroup,
-                                                 params.kernelSize,
-                                                 inputGroupsPerOutput,
-                                                 tileOutWidth,
-                                                 deviceInfo.dataPathWidth,
-                                                 outputStride);
+         getConvPartialByDotProductCycleEstimate(
+           floatActivations, inChansPerGroup, params.kernelSize,
+           params.kernelSize * tileNumInGroups, tileOutWidth,
+           deviceInfo.dataPathWidth, outputStride
+         );
 }
 
 static unsigned

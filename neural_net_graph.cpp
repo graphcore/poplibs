@@ -240,10 +240,10 @@ template class FullyConnectedBiasUpdate<float>;
 template class FullyConnectedBiasUpdate<half>;
 
 /**
- * Compute 1x1 convolutions and accumulate them with partial sums in memory.
+ * Compute nx1 convolutions and accumulate them with partial sums in memory.
  **/
 template <class Base, class FPType, class AccumType, bool forward>
-class ConvPartial1x1InOut: public Base {
+class ConvPartialnx1InOut: public Base {
 public:
   Vector<Input<Vector<FPType>>> in;
   Vector<Input<Vector<FPType>>> weights;
@@ -256,15 +256,19 @@ public:
 
   bool compute() {
     assert(out.size() > 0);
-    assert(out.size() == in.size());
-    assert(weightReuseCount.size() % weights.size() == 0);
-    const auto numContexts = weightReuseCount.size() / weights.size();
+    assert(in.size() % out.size() == 0);
+    const auto filterHeight = in.size() / out.size();
+    assert(weights.size() % filterHeight == 0);
+    assert(weightReuseCount.size() % (weights.size() / filterHeight) == 0);
+    const auto numContexts = weightReuseCount.size() /
+                             (weights.size() / filterHeight);
     unsigned convNum = 0;
-    for (unsigned w = 0; w != weights.size(); ++w) {
+    for (unsigned w = 0; w != weights.size() / filterHeight; ++w) {
       for (unsigned c = 0; c != numContexts; ++c) {
         for (unsigned i = 0; i != weightReuseCount[w * numContexts + c]; ++i) {
           const auto outWidth = out[convNum].size() / outChansPerGroup;
-          const auto inWidth = in[convNum].size() / inChansPerGroup;
+          const auto inWidth = in[convNum * filterHeight].size() /
+                               inChansPerGroup;
           unsigned inStride, outStride;
           if (forward) {
             inStride = (inWidth + outWidth - 1) / outWidth;
@@ -276,18 +280,22 @@ public:
             inStride = 1;
           }
           for (unsigned x = 0; x != outWidth; ++x) {
-            for (unsigned inChanIndex = 0; inChanIndex != inChansPerGroup;
-                 ++inChanIndex) {
-              for (unsigned outChanIndex = 0; outChanIndex != outChansPerGroup;
-                   ++outChanIndex) {
-                const auto outIndex =
-                    outChanIndex + outChansPerGroup * x * outStride;
-                const auto weightIndex =
-                    inChanIndex + inChansPerGroup * outChanIndex;
-                const auto inIndex =
-                    inChanIndex + inChansPerGroup * x * inStride;
-                out[convNum][outIndex] += weights[w][weightIndex] *
-                                          in[convNum][inIndex];
+            for (unsigned fy = 0; fy != filterHeight; ++fy) {
+              for (unsigned inChanIndex = 0; inChanIndex != inChansPerGroup;
+                   ++inChanIndex) {
+                for (unsigned outChanIndex = 0;
+                     outChanIndex != outChansPerGroup;
+                     ++outChanIndex) {
+                  const auto outIndex =
+                      outChanIndex + outChansPerGroup * x * outStride;
+                  const auto weightIndex =
+                      inChanIndex + inChansPerGroup * outChanIndex;
+                  const auto inIndex =
+                      inChanIndex + inChansPerGroup * x * inStride;
+                  out[convNum][outIndex] +=
+                      weights[w * filterHeight + fy][weightIndex] *
+                      in[convNum * filterHeight + fy][inIndex];
+                }
               }
             }
           }
@@ -301,7 +309,9 @@ public:
 
   std::uint64_t getCycleEstimate() const {
     bool isSupervisorVertex = std::is_same<Base, SupervisorVertex>::value;
-    const auto numContexts = weightReuseCount.size() / weights.size();
+    const auto filterHeight = in.size() / out.size();
+    const auto numContexts = weightReuseCount.size() /
+                             (weights.size() / filterHeight);
     const auto numConvUnitsPerTile = outChansPerGroup;
     assert(dataPathWidth % 16 == 0);
     const auto halfVectorWidth = dataPathWidth / 16;
@@ -311,7 +321,7 @@ public:
       std::vector<std::vector<std::vector<unsigned>>>
           convolutionsByWeightAndWorker;
       unsigned convNum = 0;
-      for (unsigned w = 0; w != weights.size(); ++w) {
+      for (unsigned w = 0; w != weights.size() / filterHeight; ++w) {
         convolutionsByWeightAndWorker.emplace_back();
         auto &convolutionsByWeight = convolutionsByWeightAndWorker.back();
         for (unsigned c = 0; c != numContexts; ++c) {
@@ -321,7 +331,8 @@ public:
             auto convSize = out[convNum].size() / outChansPerGroup;
             if (!forward) {
               const auto outWidth = out[convNum].size() / outChansPerGroup;
-              const auto inWidth = in[convNum].size() / inChansPerGroup;
+              const auto inWidth = in[convNum * filterHeight].size() /
+                                   inChansPerGroup;
               const auto stride = (outWidth + inWidth - 1) / inWidth;
               assert((outWidth + stride - 1) / stride == inWidth);
               convSize = convSize / stride;
@@ -332,22 +343,24 @@ public:
         }
       }
       assert(convNum == out.size());
-      return getConvPartial1x1SupervisorCycleEstimate(
+      return getConvPartialnx1SupervisorCycleEstimate(
         convolutionsByWeightAndWorker,
         convUnitPipelineDepth,
-        numConvUnitsPerTile
+        numConvUnitsPerTile,
+        filterHeight
       );
     }
     assert(numContexts == 1);
     std::vector<std::vector<unsigned>> convolutionsByWeight(1);
     unsigned convNum = 0;
-    for (unsigned w = 0; w != weights.size(); ++w) {
+    for (unsigned w = 0; w != weights.size() / filterHeight; ++w) {
       convolutionsByWeight.emplace_back();
       for (unsigned i = 0; i != weightReuseCount[w]; ++i) {
         auto convSize = out[convNum].size() / outChansPerGroup;
         if (!forward) {
           const auto outWidth = out[convNum].size() / outChansPerGroup;
-          const auto inWidth = in[convNum].size() / inChansPerGroup;
+          const auto inWidth = in[convNum * filterHeight].size() /
+                               inChansPerGroup;
           const auto stride = (outWidth + inWidth - 1) / inWidth;
           assert((outWidth + stride - 1) / stride == inWidth);
           convSize = convSize / stride;
@@ -357,29 +370,30 @@ public:
       }
     }
     assert(convNum == out.size());
-    return getConvPartial1x1CycleWorkerEstimate(convolutionsByWeight,
+    return getConvPartialnx1CycleWorkerEstimate(convolutionsByWeight,
                                                 convUnitPipelineDepth,
-                                                numConvUnitsPerTile);
+                                                numConvUnitsPerTile,
+                                                filterHeight);
   }
 };
 
-template class ConvPartial1x1InOut<Vertex, float, half, false>;
-template class ConvPartial1x1InOut<Vertex, float, float, false>;
-template class ConvPartial1x1InOut<SupervisorVertex, float, half, false>;
-template class ConvPartial1x1InOut<SupervisorVertex, float, float, false>;
-template class ConvPartial1x1InOut<Vertex, float, half, true>;
-template class ConvPartial1x1InOut<Vertex, float, float, true>;
-template class ConvPartial1x1InOut<SupervisorVertex, float, half, true>;
-template class ConvPartial1x1InOut<SupervisorVertex, float, float, true>;
+template class ConvPartialnx1InOut<Vertex, float, half, false>;
+template class ConvPartialnx1InOut<Vertex, float, float, false>;
+template class ConvPartialnx1InOut<SupervisorVertex, float, half, false>;
+template class ConvPartialnx1InOut<SupervisorVertex, float, float, false>;
+template class ConvPartialnx1InOut<Vertex, float, half, true>;
+template class ConvPartialnx1InOut<Vertex, float, float, true>;
+template class ConvPartialnx1InOut<SupervisorVertex, float, half, true>;
+template class ConvPartialnx1InOut<SupervisorVertex, float, float, true>;
 
-template class ConvPartial1x1InOut<Vertex, half, half, false>;
-template class ConvPartial1x1InOut<Vertex, half, float, false>;
-template class ConvPartial1x1InOut<SupervisorVertex, half, half, false>;
-template class ConvPartial1x1InOut<SupervisorVertex, half, float, false>;
-template class ConvPartial1x1InOut<Vertex, half, half, true>;
-template class ConvPartial1x1InOut<Vertex, half, float, true>;
-template class ConvPartial1x1InOut<SupervisorVertex, half, half, true>;
-template class ConvPartial1x1InOut<SupervisorVertex, half, float, true>;
+template class ConvPartialnx1InOut<Vertex, half, half, false>;
+template class ConvPartialnx1InOut<Vertex, half, float, false>;
+template class ConvPartialnx1InOut<SupervisorVertex, half, half, false>;
+template class ConvPartialnx1InOut<SupervisorVertex, half, float, false>;
+template class ConvPartialnx1InOut<Vertex, half, half, true>;
+template class ConvPartialnx1InOut<Vertex, half, float, true>;
+template class ConvPartialnx1InOut<SupervisorVertex, half, half, true>;
+template class ConvPartialnx1InOut<SupervisorVertex, half, float, true>;
 
 template <typename FPType, typename AccumType>
 class ConvBwd : public Vertex {
@@ -694,10 +708,11 @@ public:
         }
       }
       assert(convNum == out.size());
-      return getConvPartial1x1SupervisorCycleEstimate(
+      return getConvPartialnx1SupervisorCycleEstimate(
         convolutionsByWeightAndWorker,
         convUnitPipelineDepth,
-        numConvUnitsPerTile
+        numConvUnitsPerTile,
+        1
       );
     }
     assert(numContexts == 1);
@@ -719,9 +734,10 @@ public:
       }
     }
     assert(convNum == out.size());
-    return getConvPartial1x1CycleWorkerEstimate(convolutionsByWeight,
+    return getConvPartialnx1CycleWorkerEstimate(convolutionsByWeight,
                                                 convUnitPipelineDepth,
-                                                numConvUnitsPerTile);
+                                                numConvUnitsPerTile,
+                                                1);
   }
 };
 

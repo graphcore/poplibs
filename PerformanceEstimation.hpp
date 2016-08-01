@@ -28,11 +28,13 @@ bool allEqual(InputIterator begin, InputIterator end) {
 }
 
 inline std::uint64_t
-getConvPartial1x1SupervisorCycleEstimate(
+getConvPartialnx1SupervisorCycleEstimate(
     const std::vector<std::vector<std::vector<unsigned>>> &
     convSizesByWeightAndWorker,
     unsigned convUnitPipelineDepth,
-    unsigned numConvUnitsPerTile) {
+    unsigned numConvUnitsPerTile,
+    unsigned numInputPointers) {
+  const unsigned numOutputPointers = 1;
   const auto numWorkerContexts = 6;
 
   unsigned cycles = 0;
@@ -49,7 +51,8 @@ getConvPartial1x1SupervisorCycleEstimate(
       const auto coolDownCycles = 5U;
       workerCycles += vertexOverhead;
       for (const auto convSize : convSizes) {
-        workerCycles += 2 + convSize * convUnitPipelineDepth;
+        workerCycles += numInputPointers + numOutputPointers +
+                        convSize * convUnitPipelineDepth;
       }
       workerCycles += coolDownCycles;
       maxWorkerCycles = std::max(maxWorkerCycles, workerCycles);
@@ -62,16 +65,19 @@ getConvPartial1x1SupervisorCycleEstimate(
 }
 
 inline std::uint64_t
-getConvPartial1x1CycleWorkerEstimate(
+getConvPartialnx1CycleWorkerEstimate(
     const std::vector<std::vector<unsigned>> &convSizesByWeight,
     unsigned convUnitPipelineDepth,
-    unsigned numConvUnitsPerTile) {
+    unsigned numConvUnitsPerTile,
+    unsigned numInputPointers) {
+  const unsigned numOutputPointers = 1;
   const unsigned vertexOverhead = 5;
   unsigned cycleCount = vertexOverhead;
   for (const auto &convSizes : convSizesByWeight) {
     const auto numElements = std::accumulate(convSizes.begin(), convSizes.end(),
                                              0);
-    const auto pointerLoadCycles = 2 * convSizes.size();
+    const auto pointerLoadCycles =
+        convSizes.size() * (numInputPointers + numOutputPointers);
     unsigned warmUpCycles = numConvUnitsPerTile * convUnitPipelineDepth + 3;
 
 

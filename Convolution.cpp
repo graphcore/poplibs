@@ -224,7 +224,14 @@ createConvPartial1x1OutVertex(Graph &graph,
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto contextsPerVertex =
       deviceInfo.sharedConvWeights ? deviceInfo.getNumWorkerContexts() : 1;
-
+  const auto weightsPerConvUnit =
+      deviceInfo.getWeightsPerConvUnit(dType == "float");
+  assert(weightsPerConvUnit % inChansPerGroup == 0);
+  const auto convUnitWeightHeight = weightsPerConvUnit / inChansPerGroup;
+  if (convUnitWeightHeight != 1) {
+    // Unimplemented.
+    std::abort();
+  }
   const auto outHeight = outYEnd - outYBegin;
   const auto outWidth = outXEnd - outXBegin;
   const auto partialType = partition.getPartialType();
@@ -308,7 +315,7 @@ createConvPartial1x1OutVertex(Graph &graph,
 }
 
 static void
-createConvPartial1x1InOutVertex(Graph &graph,
+createConvPartialnx1InOutVertex(Graph &graph,
                                 IPUModelEngineBuilder::TileMapping &mapping,
                                 const DeviceInfo &deviceInfo,
                                 const Partition &partition,
@@ -324,6 +331,7 @@ createConvPartial1x1InOutVertex(Graph &graph,
                                 const Tensor &in,
                                 const Tensor &weights,
                                 const Tensor &out,
+                                const Tensor &zeros,
                                 bool forward) {
   const auto inDimY = in.dim(1);
   const auto inDimX = in.dim(2);
@@ -335,11 +343,14 @@ createConvPartial1x1InOutVertex(Graph &graph,
   const char *baseClass =
       deviceInfo.sharedConvWeights ? "poplar::SupervisorVertex" :
                                   "poplar::Vertex";
-
+  const auto weightsPerConvUnit =
+      deviceInfo.getWeightsPerConvUnit(dType == "float");
+  assert(weightsPerConvUnit % inChansPerGroup == 0);
+  const auto convUnitWeightHeight = weightsPerConvUnit / inChansPerGroup;
   // Add the vertex.
   auto v =
       graph.addVertex(fwdCS,
-                      templateVertex("ConvPartial1x1InOut", baseClass,
+                      templateVertex("ConvPartialnx1InOut", baseClass,
                                      dType, partition.getPartialType(),
                                      forward ? "true" : "false"));
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
@@ -348,11 +359,13 @@ createConvPartial1x1InOutVertex(Graph &graph,
   mapping.setMapping(v, tile);
   unsigned numWeights = 0;
   unsigned numConvolutions = 0;
-  for (unsigned wy = 0; wy != kernelSize; ++wy) {
+  for (unsigned wyBegin = 0; wyBegin < kernelSize;
+       wyBegin += convUnitWeightHeight) {
+    const auto wyEnd = std::min(kernelSize, wyBegin + convUnitWeightHeight);
     unsigned convOutYBegin, convOutYEnd;
     std::tie(convOutYBegin, convOutYEnd) =
         getOutputRange({outYBegin, outYEnd}, stride, kernelSize,
-                       padding, inDimY, wy, forward);
+                       padding, inDimY, {wyBegin, wyEnd}, forward);
     const auto convOutHeight = convOutYEnd - convOutYBegin;
     if (convOutHeight == 0)
       continue;
@@ -370,9 +383,18 @@ createConvPartial1x1InOutVertex(Graph &graph,
                                        contextsPerVertex, outputStride);
       assert(workerPartition.size() == contextsPerVertex);
       for (unsigned izg = inZGroupBegin; izg != inZGroupEnd; ++izg) {
-        Tensor w =
-            weights[outZGroup][izg][wy][wx].flatten();
-        graph.connect(v["weights"][numWeights], w);
+        for (unsigned wy = wyBegin; wy != wyBegin + convUnitWeightHeight;
+             ++wy) {
+          Tensor w;
+          if (wy < wyEnd) {
+            w = weights[outZGroup][izg][wy][wx].flatten();
+          } else {
+            w = zeros.slice(0, inChansPerGroup);
+          }
+          const auto weightsIndex =
+              numWeights * convUnitWeightHeight + wy - wyBegin;
+          graph.connect(v["weights"][weightsIndex], w);
+        }
         for (unsigned i = 0; i != contextsPerVertex; ++i) {
           graph.setInitialValue(
             v["weightReuseCount"][numWeights * contextsPerVertex + i],
@@ -383,27 +405,36 @@ createConvPartial1x1InOutVertex(Graph &graph,
             const auto workerOutXBegin = convOutXBegin + partialRow.begin;
             const auto workerOutXEnd = convOutXBegin + partialRow.end;
             const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
-            const auto workerInY =
-                getInputIndex(workerOutY, stride, kernelSize,
-                              padding, inDimY, wy, forward);
-            assert(workerInY != ~0U);
             unsigned workerInXBegin, workerInXEnd;
             std::tie(workerInXBegin, workerInXEnd) =
                 getInputRange({workerOutXBegin, workerOutXEnd}, stride,
                               kernelSize, padding, inDimX, wx, forward);
             const auto workerInWidth = workerInXEnd - workerInXBegin;
-            Tensor inWindow =
-                in[izg][workerInY].slice(
-                  {workerInXBegin, 0},
-                  {workerInXEnd, inChansPerGroup}
-                ).reshape({workerInWidth * inChansPerGroup});
+            for (unsigned wy = wyBegin; wy != wyBegin + convUnitWeightHeight;
+                 ++wy) {
+              const auto workerInY =
+                  getInputIndex(workerOutY, stride, kernelSize,
+                                padding, inDimY, wy, forward);
+              Tensor inWindow;
+              if (workerInY == ~0U) {
+                inWindow = zeros.slice(0, workerInWidth * inChansPerGroup);
+              } else {
+                inWindow =
+                    in[izg][workerInY].slice(
+                      {workerInXBegin, 0},
+                      {workerInXEnd, inChansPerGroup}
+                    ).reshape({workerInWidth * inChansPerGroup});
+              }
+              const auto inIndex =
+                  numConvolutions * convUnitWeightHeight + wy - wyBegin;
+              graph.connect(v["in"][inIndex], inWindow);
+            }
             Tensor outWindow =
                 out[outZGroup][workerOutY].slice(
                   {workerOutXBegin, 0},
                   {workerOutXEnd, outChansPerGroup}
                 ).reshape({workerOutWidth * outChansPerGroup});
             mapping.setMapping(outWindow, tile);
-            graph.connect(v["in"][numConvolutions], inWindow);
             graph.connect(v["out"][numConvolutions], outWindow);
             ++numConvolutions;
           }
@@ -412,9 +443,9 @@ createConvPartial1x1InOutVertex(Graph &graph,
       }
     }
   }
-  graph.setFieldSize(v["in"], numConvolutions);
+  graph.setFieldSize(v["in"], numConvolutions * convUnitWeightHeight);
   graph.setFieldSize(v["out"], numConvolutions);
-  graph.setFieldSize(v["weights"], numWeights);
+  graph.setFieldSize(v["weights"], numWeights * convUnitWeightHeight);
   graph.setFieldSize(v["weightReuseCount"], numWeights * contextsPerVertex);
 }
 
@@ -549,13 +580,37 @@ calcPartialConvOutput(Graph &graph,
                       ComputeSet zeroCS,
                       ComputeSet fwdCS,
                       Tensor in, Tensor weights, Tensor out, bool forward) {
-  if (partition.useConvolutionInstructions && kernelSize != 1) {
-    zeroPartialSums(graph, mapping, deviceInfo, partition,
-                    outXBegin, outXEnd, outYBegin, outYEnd,
-                    outZGroupBegin, outZGroupEnd,
-                    tile, zeroCS, out);
+  const auto inChansPerGroup = partition.inChansPerGroup;
+  const auto dataPathWidth = deviceInfo.dataPathWidth;
+  Tensor zeros;
+  if (partition.useConvolutionInstructions) {
+    const auto weightsPerConvUnit =
+        deviceInfo.getWeightsPerConvUnit(dType == "float");
+    assert(weightsPerConvUnit % inChansPerGroup == 0);
+    const auto convUnitWeightHeight = weightsPerConvUnit / inChansPerGroup;
+    if (convUnitWeightHeight != 1) {
+      assert(partition.useConvolutionInstructions);
+      const auto inDimX = in.dim(2);
+      const auto inputRange = getInputRange({outXBegin, outXEnd}, stride,
+                                            kernelSize, padding,
+                                            inDimX, forward);
+      const auto inputRangeSize = inputRange.second - inputRange.first;
+      // This isn't split across multiple workers since it can happen in
+      // parallel with zeroing the partial sums.
+      zeros = graph.addTensor(dType, {inputRangeSize * inChansPerGroup},
+                              "zeros");
+      auto v = graph.addVertex(zeroCS, templateVertex("Zero", dType),
+                               {{"out", zeros}});
+      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
+      mapping.setMapping(v, tile);
+    }
+    if (kernelSize != 1) {
+      zeroPartialSums(graph, mapping, deviceInfo, partition,
+                      outXBegin, outXEnd, outYBegin, outYEnd,
+                      outZGroupBegin, outZGroupEnd,
+                      tile, zeroCS, out);
+    }
   }
-
   const auto outHeight = outYEnd - outYBegin;
   const auto verticesPerY = partition.verticesPerTilePerYAxis;
   for (unsigned ozg = outZGroupBegin; ozg != outZGroupEnd; ++ozg) {
@@ -578,7 +633,7 @@ calcPartialConvOutput(Graph &graph,
                                       fwdCS, in, weights, out,
                                       forward);
       } else if (partition.useConvolutionInstructions) {
-        createConvPartial1x1InOutVertex(graph, mapping, deviceInfo,
+        createConvPartialnx1InOutVertex(graph, mapping, deviceInfo,
                                         partition, dType, tile,
                                         outXBegin, outXEnd,
                                         vertexOutYBegin, vertexOutYEnd,
@@ -586,7 +641,7 @@ calcPartialConvOutput(Graph &graph,
                                         inZGroupBegin, inZGroupEnd,
                                         kernelSize, stride, padding,
                                         fwdCS, in, weights, out,
-                                        forward);
+                                        zeros, forward);
       } else {
         if (!forward)
           assert(0 && "Non convolution instruction backward "
@@ -800,12 +855,7 @@ calcPartialSums(Graph &graph,
   const auto tilesPerInZGroup = partition.tilesPerInZGroupAxis;
   const auto numInZGroups = inNumChans / inChansPerGroup;
 
-  Sequence prog;
-  ComputeSet zeroCS;
-  if (partition.useConvolutionInstructions && kernelSize != 1) {
-    zeroCS = graph.createComputeSet(layerName +".zero");
-    prog.add(Execute(zeroCS));
-  }
+  ComputeSet zeroCS = graph.createComputeSet(layerName +".zero");
   ComputeSet convolveCS = graph.createComputeSet(layerName + ".convolve");
   for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
     const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
@@ -830,6 +880,10 @@ calcPartialSums(Graph &graph,
         }
       }
     }
+  }
+  Sequence prog;
+  if (!graph.getComputeSet(zeroCS).empty()) {
+    prog.add(Execute(zeroCS));
   }
   prog.add(Execute(convolveCS));
   return prog;
@@ -1290,18 +1344,7 @@ double getPerfectCycleCount(const DeviceInfo &deviceInfo,
       std::max(deviceInfo.fp16AccumConvUnitsPerTile,
                deviceInfo.fp32AccumConvUnitsPerTile);
   const auto halfVectorWidth = deviceInfo.getHalfVectorWidth();
-  bool canUseConvolutions = true;
-  if (stride >= (1 << 4))
-    canUseConvolutions = false;
-  if (inNumChans < deviceInfo.getWeightsPerConvUnit(false))
-     canUseConvolutions = false;
-  if (outNumChans % deviceInfo.fp16AccumConvUnitsPerTile != 0)
-    canUseConvolutions = false;
-  if (outNumChans % deviceInfo.fp32AccumConvUnitsPerTile != 0)
-    canUseConvolutions = false;
-  auto macsPerCycle =
-      canUseConvolutions ? convUnitsPerTile * halfVectorWidth :
-                           halfVectorWidth;
+  auto macsPerCycle = convUnitsPerTile * halfVectorWidth;
   auto macCycles = static_cast<double>(numMacs) / (macsPerCycle * numTiles);
   auto addCycles = static_cast<double>(numAdds) / (halfVectorWidth * numTiles);
   return macCycles + addCycles;
