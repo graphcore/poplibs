@@ -1350,25 +1350,6 @@ double getPerfectCycleCount(const DeviceInfo &deviceInfo,
   return macCycles + addCycles;
 }
 
-Program convolutionBwdNonLinearity(Graph &graph,
-                                   IPUModelEngineBuilder::TileMapping &mapping,
-                                   const DeviceInfo &deviceInfo,
-                                   std::string dType,
-                                   Tensor deltasIn, Tensor z, Tensor zDeltas,
-                                   NonLinearityType nonLinearityType) {
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
-  auto bwdNonLinearityCS = graph.createComputeSet("conv.bwd.nonLinearity");
-  auto v = graph.addVertex(bwdNonLinearityCS,
-                           templateVertex("NonLinearityBwd", dType),
-                           {{"deltasIn", deltasIn.flatten()},
-                            {"z", z.flatten()},
-                            {"deltasOut", zDeltas.flatten()},
-                           });
-  graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
-  graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-  return Execute(bwdNonLinearityCS);
-}
-
 std::vector<size_t> getElementCoord(size_t element,
                                     const std::vector<size_t> dims) {
   std::vector<size_t> coord(dims.size());
