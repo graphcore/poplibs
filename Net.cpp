@@ -633,7 +633,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                                       outDimY, outDimX,
                                       in.dim(3)},
                                      "activations." + std::to_string(i));
-      mapActivations(acts[i], *mapping, *deviceInfo);
+      mapActivations(acts[i + 1], *mapping, *deviceInfo);
       fwdProg.add(maxpool::maxPool(*graph, *mapping, *deviceInfo,
                                    m->kernelSize, m->stride, m->padding,
                                    dType, acts[i], acts[i + 1]));
