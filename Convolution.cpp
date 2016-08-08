@@ -603,6 +603,7 @@ calcPartialConvOutput(Graph &graph,
                                {{"out", zeros}});
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       mapping.setMapping(v, tile);
+      mapping.setMapping(zeros, tile);
     }
     if (kernelSize != 1) {
       zeroPartialSums(graph, mapping, deviceInfo, partition,

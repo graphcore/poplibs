@@ -662,6 +662,9 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                             {"label", expected[0]},
                             {"loss", loss[0]},
                             {"numCorrect", numCorrect[0]}});
+  mapping->setMapping(expected, 0);
+  mapping->setMapping(numCorrect, 0);
+  mapping->setMapping(loss, 0);
   mapping->setMapping(v, 0);
   graph->setFieldSize(v["probs"], lastAct.numElements());
   graph->setInitialValue(v["lossType"], lossType);;
