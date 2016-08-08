@@ -314,8 +314,6 @@ Net::getOrCreateConvImplFwd(const conv::ConvPlan &plan,
   Tensor weights = conv::createWeights(*graph, dType, inNumChans,
                                        impl.kernelSize, outNumChans, plan);
   Tensor biases = conv::createBiases(*graph, dType, outNumChans);
-  auto z = graph->addTensor(dType, outDims, "z");
-  mapActivations(z, *mapping, *deviceInfo);
   auto out = graph->addTensor(dType, outDims, "activations");
   mapActivations(out, *mapping, *deviceInfo);
   Tensor residual;
@@ -326,12 +324,12 @@ Net::getOrCreateConvImplFwd(const conv::ConvPlan &plan,
   auto prog = conv::convolution(*graph, *mapping, *deviceInfo, plan,
                                 impl.kernelSize, impl.stride, impl.padding,
                                 outNumChans, impl.nonLinearityType,
-                                dType, in, weights, biases, z, out,
+                                dType, in, weights, biases, out,
                                 impl.resMethod, residual);
   std::vector<Tensor> inputs = {in, weights, biases};
   if (impl.resMethod != RESIDUAL_NONE)
     inputs.push_back(residual);
-  auto reusableLayer = ReusableLayer(prog, inputs, {z, out});
+  auto reusableLayer = ReusableLayer(prog, inputs, {out});
   if (options.reuseLayerImplGraphs) {
     convFwdImpls.emplace(impl, reusableLayer);
   }
@@ -363,12 +361,12 @@ Net::createConvLayerFwd(unsigned i,
                                   outChansPerGroup},
                                  "activations." + std::to_string(i));
   mapActivations(acts[i + 1], *mapping, *deviceInfo);
-  z[i + 1] = graph->addTensor(dType,
+  Tensor z = graph->addTensor(dType,
                               {outNumChanGroups,
                                outDimY, outDimX,
                                outChansPerGroup},
                                "z." + std::to_string(i));
-  mapActivations(z[i + 1], *mapping, *deviceInfo);
+  mapActivations(z, *mapping, *deviceInfo);
   unsigned inNumChans = in.dim(0) * in.dim(3);
   unsigned inNumChanGroups = in.dim(0);
   unsigned inDimY = in.dim(1), inDimX = in.dim(2);
@@ -414,10 +412,10 @@ Net::createConvLayerFwd(unsigned i,
                                 numChannels, resMethod != RESIDUAL_NONE,
                                 netType == TestOnlyNet || i == 0);
  if (resMethod == RESIDUAL_NONE)
-   return reusableLayer.apply({in, weights, biases}, {z[i + 1], acts[i + 1]});
+   return reusableLayer.apply({in, weights, biases}, {acts[i + 1]});
  else
    return reusableLayer.apply({in, weights, biases, residual},
-                              {z[i + 1], acts[i + 1]});
+                              {acts[i + 1]});
 }
 
 ReusableLayer
@@ -563,7 +561,6 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                                         dataSet.dim[0], dataSet.dim[1],
                                         chansPerGroup});
   acts.resize(layers.size() + 1);
-  z.resize(layers.size() + 1);
   deltas.resize(layers.size() + 1);
   params.resize(layers.size());
   acts[0] = graph->addTensor(dType, dim, "input");
@@ -578,10 +575,8 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
       acts[i + 1] = graph->addTensor(dType, {size},
                                  "activations." + std::to_string(i));
       mapActivations(acts[i + 1], *mapping, *deviceInfo);
-      z[i + 1] = graph->addTensor(dType, {size}, "z." + std::to_string(i));
-      mapActivations(z[i + 1], *mapping, *deviceInfo);
       auto activationsMapping =
-          computeActivationsMapping(z[i + 1], *deviceInfo);
+          computeActivationsMapping(acts[i + 1], *deviceInfo);
       bool forwardOnly = i == 0 || netType == TestOnlyNet;
       const auto &plan =
           fullyConnectedPlan.emplace(
@@ -608,7 +603,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
       }
       fwdProg.add(fc::fullyConnected(*graph, *mapping, *deviceInfo,
                                      size, fc->nonLinearityType, dType,
-                                     acts[i], weights, biases, z[i + 1],
+                                     acts[i], weights, biases,
                                      acts[i + 1], plan));
       numFlops += fc::getNumFlops(prevSize, size,
                                   netType == TestOnlyNet || i == 0);

@@ -25,8 +25,7 @@ fullyConnected(Graph &graph,
                unsigned size, NonLinearityType nonLinearityType,
                std::string dType,
                Tensor in0, Tensor weights,
-               Tensor biases,
-               Tensor z, Tensor activations,
+               Tensor biases, Tensor activations,
                const Plan &plan) {
   const auto layerName = "FullyConnected" + std::to_string(size);
   Tensor in = in0.flatten();
@@ -103,7 +102,6 @@ fullyConnected(Graph &graph,
                                          dType),
                           {{"partials", partials[i]},
                            {"bias", biases[i]},
-                           {"zOut", z[i]},
                            {"activationOut", activations[i]}});
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setInitialValue(v["nonLinearityType"], nonLinearityType);

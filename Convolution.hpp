@@ -47,7 +47,7 @@ convolution(poplar::Graph &graph,
             unsigned numChannels, NonLinearityType nonLinearityType,
             std::string dType,
             poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
-            poplar::Tensor z, poplar::Tensor out,
+            poplar::Tensor out,
             ResidualMethod resMethod = RESIDUAL_NONE,
             poplar::Tensor residual={});
 

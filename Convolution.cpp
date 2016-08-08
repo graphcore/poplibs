@@ -979,7 +979,7 @@ complete(Graph &graph,
          const ConvPlan &plan,
          unsigned outNumChans, NonLinearityType nonLinearityType,
          std::string dType,
-         Tensor in, Tensor biases, Tensor z, Tensor activations,
+         Tensor in, Tensor biases, Tensor activations,
          bool doResidual, Tensor residual, unsigned resStride,
          const std::vector<unsigned> &activationsMapping,
          const std::string &layerName) {
@@ -1058,7 +1058,6 @@ complete(Graph &graph,
 
       // Connect the output channel groups and inputs from the partial sums.
       graph.setFieldSize(v["out"], numGroups);
-      graph.setFieldSize(v["z"], numGroups);
       graph.setFieldSize(v["in"],
                          numGroups * outChansPerGroup / partialChanChunkSize);
       unsigned numIn = 0;
@@ -1068,9 +1067,7 @@ complete(Graph &graph,
         auto y = group % (outDimX * outDimY) / outDimX;
         auto x = group % outDimX;
         auto out = activations[outChanGroup][y][x];
-        auto zz = z[outChanGroup][y][x];
         graph.connect(v["out"][group - groupBegin], out);
-        graph.connect(v["z"][group - groupBegin], zz);
         Tensor reducedChans = in.slice(
            {0, y, x, 0},
            {in.dim(0), y + 1, x + 1, partialChansPerGroup}
@@ -1187,8 +1184,7 @@ convolution(Graph &graph,
             unsigned kernelSize, unsigned stride, unsigned padding,
             unsigned outNumChans, NonLinearityType nonLinearityType,
             std::string dType,
-            Tensor in, Tensor weights, Tensor biases,
-            Tensor z, Tensor activations,
+            Tensor in, Tensor weights, Tensor biases, Tensor activations,
             ResidualMethod resMethod, Tensor resIn) {
   const auto layerName =
       "Conv" + std::to_string(kernelSize) + "x" + std::to_string(kernelSize)
@@ -1256,7 +1252,7 @@ convolution(Graph &graph,
   // to required output channel grouping.
   forwardProg.add(complete(graph, mapping, deviceInfo, plan, outNumChans,
                            nonLinearityType, dType, reduced, biases,
-                           z, activations, doResidual, residual, resStride,
+                           activations, doResidual, residual, resStride,
                            activationsMapping, layerName));
 
   return forwardProg;

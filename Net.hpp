@@ -163,7 +163,7 @@ class Net {
 
   std::map<ConvImplSpec, ReusableLayer> convFwdImpls, convBwdImpls;
   std::map<unsigned, fc::Plan> fullyConnectedPlan;
-  std::vector<poplar::Tensor> acts, z, deltas;
+  std::vector<poplar::Tensor> acts, deltas;
   std::vector<std::vector<poplar::Tensor>> params;
   std::map<unsigned, conv::ConvPlan> convPlans;
   std::uint64_t numFlops;

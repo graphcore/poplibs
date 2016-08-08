@@ -100,7 +100,6 @@ public:
   Input<Vector<float>> partials;
   Input<FPType> bias;
   NonLinearityType nonLinearityType;
-  Output<FPType> zOut;
   Output<FPType> activationOut;
 
   SimOnlyField<unsigned> dataPathWidth;
@@ -111,7 +110,6 @@ public:
       sum += partials[i];
     }
     sum += *bias;
-    *zOut = sum;
     *activationOut = nonlinearity(nonLinearityType, sum);
     return true;
   }
@@ -873,7 +871,6 @@ public:
   Vector<Input<Vector<InType>>> in;
   Vector<Input<Vector<OutType>>> bias;
   Vector<Output<Vector<OutType>>> out;
-  Vector<Output<Vector<OutType>>> z;
   NonLinearityType nonLinearityType;
   Vector<unsigned> outputChanGroupsPerBias;
   Vector<Input<Vector<OutType>>> res;
@@ -901,7 +898,6 @@ public:
           // the output.
           if (o < res.size())
             sum += res[o][outIndex];
-          z[o][outIndex] = sum;
           out[o][outIndex] = nonlinearity(nonLinearityType, sum);
         }
       }

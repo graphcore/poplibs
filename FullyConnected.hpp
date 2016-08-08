@@ -29,7 +29,6 @@ fullyConnected(poplar::Graph &graph,
                std::string dType,
                poplar::Tensor in, poplar::Tensor weights,
                poplar::Tensor biases,
-               poplar::Tensor z,
                poplar::Tensor out,
                const Plan &plan);
 
