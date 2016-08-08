@@ -1609,7 +1609,8 @@ convolutionWeightUpdate(Graph &graph,
 
   auto wPartials = graph.addTensor(dType,
                                    {outNumChans, outDimY, outDimX,
-                                    kernelSize, kernelSize, inNumChans});
+                                    kernelSize, kernelSize, inNumChans},
+                                   "wPartials");
   auto zeroCS = graph.createComputeSet(layerName + ".weight_update.zero");
   graph.addVertex(zeroCS, templateVertex("Zero", dType),
                   {{"out",wPartials.flatten()}});

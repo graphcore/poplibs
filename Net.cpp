@@ -651,10 +651,10 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   }
   auto lossCS = graph->createComputeSet("LossLayer");
   auto lastAct = *(acts.end() - 1);
-  Tensor expected = graph->addTensor("unsigned", {1});
-  Tensor numCorrect = graph->addTensor("unsigned", {1});
-  Tensor loss = graph->addTensor(dType, {1});
-  deltas[layers.size()] = graph->addTensor(dType, lastAct.dims());
+  Tensor expected = graph->addTensor("unsigned", {1}, "expected");
+  Tensor numCorrect = graph->addTensor("unsigned", {1}, "numCorrect");
+  Tensor loss = graph->addTensor(dType, {1}, "loss");
+  deltas[layers.size()] = graph->addTensor(dType, lastAct.dims(), "deltas");
   mapActivations(deltas[layers.size()], *mapping, *deviceInfo);
   auto v = graph->addVertex(lossCS, templateVertex("CalcLoss", dType),
                            {{"in", lastAct.flatten()},
