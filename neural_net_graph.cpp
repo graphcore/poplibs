@@ -20,9 +20,9 @@ static float sigmoid(float x)
   return (1. / (1. + exp(-x)));
 }
 
-static float sigmoid_derivative(float x)
+static float sigmoid_derivative(float activation)
 {
-  return sigmoid(x) * (1. - sigmoid(x));
+  return activation * (1. - activation);
 }
 
 static float relu(float x)
@@ -32,9 +32,9 @@ static float relu(float x)
   return 0;
 }
 
-static float relu_derivative(float x)
+static float relu_derivative(float activation)
 {
-  if (x > 0)
+  if (activation > 0)
     return 1;
   return 0;
 }
@@ -50,12 +50,12 @@ static float nonlinearity(NonLinearityType t, float x) {
   }
 }
 
-static float nonlinearity_derivative(NonLinearityType t, float x) {
+static float nonlinearity_derivative(NonLinearityType t, float activation) {
   switch (t) {
   case NON_LINEARITY_SIGMOID:
-    return sigmoid_derivative(x);
+    return sigmoid_derivative(activation);
   case NON_LINEARITY_RELU:
-    return relu_derivative(x);
+    return relu_derivative(activation);
   case NON_LINEARITY_NONE:
     return 1;
   }
@@ -573,7 +573,7 @@ template <typename FPType>
 class NonLinearityBwd : public Vertex {
 public:
   Input<Vector<FPType>> deltasIn;
-  Input<Vector<FPType>> z;
+  Input<Vector<FPType>> activations;
   Output<Vector<FPType>> deltasOut;
   NonLinearityType nonLinearityType;
 
@@ -581,10 +581,10 @@ public:
 
   bool compute() {
     assert(deltasIn.size() == deltasOut.size());
-    assert(deltasIn.size() == z.size());
+    assert(deltasIn.size() == activations.size());
     for (unsigned i = 0; i < deltasIn.size(); ++i) {
       deltasOut[i] = deltasIn[i] * nonlinearity_derivative(nonLinearityType,
-                                                           z[i]);
+                                                           activations[i]);
     }
     return true;
   }

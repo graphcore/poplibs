@@ -468,7 +468,7 @@ Program Net::createConvLayerBwd(unsigned i,
   auto weights = params[i][0];
   auto biases = params[i][1];
   prog.add(bwdNonLinearity(*graph, *mapping, *deviceInfo, dType,
-                           z[i + 1], deltas[i + 1], zDeltas,
+                           acts[i + 1], deltas[i + 1], zDeltas,
                            nonLinearityType));
 
   if (backwardPassRequired) {
@@ -705,7 +705,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
         const auto &plan = fullyConnectedPlan.find(i)->second;
         bwdProg.add(bwdNonLinearity(*graph, *mapping,
                                     *deviceInfo, dType,
-                                    z[i + 1], deltas[i + 1],
+                                    acts[i + 1], deltas[i + 1],
                                     zDeltas,
                                     fc->nonLinearityType));
 
