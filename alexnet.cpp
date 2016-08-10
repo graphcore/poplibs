@@ -5,8 +5,8 @@ int main(int argc, char **argv) {
   DataSet IMAGENET;
   IMAGENET.dataSize = 224*224*4;
   IMAGENET.dim = std::vector<std::size_t>{224,224,4};
-  IMAGENET.numTraining = 1000;
-  IMAGENET.numTest = 1000;
+  IMAGENET.numTraining = 1;
+  IMAGENET.numTest = 1;
   IMAGENET.testLabels =
     std::unique_ptr<unsigned[]>(new unsigned[IMAGENET.numTest]);
   IMAGENET.testData =
