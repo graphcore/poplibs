@@ -62,7 +62,7 @@ fields = [
     ('Global sync',
      '    Global sync: (?P<value>[0-9.]+)'),
     ('Exchange activity',
-     '    Exchange activity: (?P<value>[0-9.]+)'),
+     '    Exchange activity: (?P<value>[0-9.]+%)'),
     ('FLOPS',
      'Total number of FLOPs: (?P<value>[0-9.]+)'),
     ('Perfect cycles',
@@ -109,11 +109,13 @@ def write(runs, filename):
     def setParamCell(heading, cell, params, data):
         cell.value = params[heading]
 
-    def setDataCell(heading, cell, params, data):
+    def setDataCell(heading, cell, params, data, number_format=None):
         # Infomation may be missing in some cases, for example the number of
         # global exchange cycles is not reported if only 1 IPU is targeted.
         if heading in data:
             cell.value = data[heading]
+        if number_format:
+            cell.number_format = number_format
 
     def setTotalCell(firstOffset, lastOffset, heading, cell, params, data):
         first = cell.offset(column=firstOffset)
@@ -156,6 +158,7 @@ def write(runs, filename):
         ('IPU sync', setDataCell),
         ('Global sync', setDataCell),
         ('Total cycle count', partial(setTotalCell, -9, -1)),
+        ('Exchange activity', partial(setDataCell, number_format='0.0%')),
         ('Exchange supervisor code', setDataCell),
         ('Message memory', setDataCell),
         ('Run instructions', setDataCell),
@@ -222,7 +225,11 @@ def parse(lines):
                 continue
             m = re.match(expr, line)
             if m:
-                data[name] = float(m.group('value'))
+                str = m.group('value')
+                if str.endswith('%'):
+                    data[name] = float(str[:-1]) / 100
+                else:
+                    data[name] = float(str)
 
         for (name, expr) in aggregated_fields:
             # Aggregated fields get summed into the first dictionary.
