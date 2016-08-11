@@ -1223,7 +1223,7 @@ convolution(Graph &graph,
   forwardProg.add(calcPartialSums(graph, mapping, deviceInfo, plan.fwdPartition,
                                   kernelSize, stride, padding, outNumChans,
                                   dType, in, weights, partials, layerName,
-                                  outDimX, outDimY,
+                                  partialOutDimX, partialOutDimY,
                                   true));
 
 
@@ -1559,7 +1559,7 @@ Program convolutionBackward(Graph &graph,
   bwdProg.add(calcPartialSums(graph, mapping, deviceInfo, plan.bwdPartition,
                               kernelSize, stride, padding, outNumChans, dType,
                               zDeltas, bwdWeights, partials, layerName,
-                              outDimX, outDimY, false));
+                              partialOutDimX, partialOutDimY, false));
 
   // TODO - residuals
 
