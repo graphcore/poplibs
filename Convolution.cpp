@@ -200,8 +200,8 @@ createConvPartial1x1OutVertex(Graph &graph,
                               const Partition &partition,
                               const std::string &dType,
                               unsigned tile,
-                              unsigned outXBegin0, unsigned outXEnd0,
-                              unsigned outYBegin0, unsigned outYEnd0,
+                              unsigned outXBegin, unsigned outXEnd,
+                              unsigned outYBegin, unsigned outYEnd,
                               unsigned ozg,
                               unsigned inZGroupBegin, unsigned inZGroupEnd,
                               unsigned kernelSize, unsigned stride,
@@ -209,16 +209,10 @@ createConvPartial1x1OutVertex(Graph &graph,
                               ComputeSet fwdCS,
                               const Tensor &in, const Tensor &weights,
                               const Tensor &out, bool forward) {
+  assert(kernelSize == 1);
+  assert(forward || stride == 1);
   const auto inDimY = in.dim(1);
   const auto inDimX = in.dim(2);
-  unsigned outXBegin, outXEnd;
-  std::tie(outXBegin, outXEnd) =
-      getOutputRange({outXBegin0, outXEnd0}, stride, kernelSize,
-                     padding, inDimX, 0, forward);
-  unsigned outYBegin, outYEnd;
-  std::tie(outYBegin, outYEnd) =
-      getOutputRange({outYBegin0, outYEnd0}, stride, kernelSize,
-                     padding, inDimY, 0, forward);
   const auto inChansPerGroup = partition.inChansPerGroup;
   const auto outChansPerGroup = partition.partialChansPerGroup;
   const auto dataPathWidth = deviceInfo.dataPathWidth;
@@ -254,15 +248,14 @@ createConvPartial1x1OutVertex(Graph &graph,
         ).flatten();
   auto v = graph.addVertex(
         fwdCS,
-        templateVertex("ConvPartial1x1Out", baseClass, dType, partialType,
-                       forward ? "true" : "false"),
+        templateVertex("ConvPartial1x1Out", baseClass, dType, partialType),
   {{"weights", w}}
         );
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
   graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
   std::vector<std::vector<PartialRow>> workerPartition;
-  unsigned outputStride = forward ? 1 : stride;
+  unsigned outputStride = 1;
   workerPartition =
       partitionConvPartialByWorker(outHeight, outWidth,
                                    contextsPerVertex, outputStride);
@@ -434,7 +427,7 @@ createConvPartialnx1InOutVertex(Graph &graph,
                   {workerOutXBegin, 0},
                   {workerOutXEnd, outChansPerGroup}
                 ).reshape({workerOutWidth * outChansPerGroup});
-            mapping.setMapping(outWindow, tile);
+            // Note the output tensor is mapped in zeroPartialSums.
             graph.connect(v["out"][numConvolutions], outWindow);
             ++numConvolutions;
           }
@@ -543,6 +536,7 @@ zeroPartialSums(Graph &graph,
                 {tileOutZGroupEnd, outYEnd, outXEnd, outChansPerGroup})
          .reshape({outZGroups * outHeight,
                    outWidth * outChansPerGroup});
+  mapping.setMapping(toZero, tile);
   const auto workersPerTile = deviceInfo.getNumWorkerContexts();
   const auto tileOutRows = toZero.dim(0);
   const auto maxRowsPerWorker =
@@ -583,6 +577,7 @@ calcPartialConvOutput(Graph &graph,
   const auto inChansPerGroup = partition.inChansPerGroup;
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   Tensor zeros;
+  bool useConvPartial1x1OutVertex = false;
   if (partition.useConvolutionInstructions) {
     const auto weightsPerConvUnit =
         deviceInfo.getWeightsPerConvUnit(dType == "float");
@@ -605,7 +600,8 @@ calcPartialConvOutput(Graph &graph,
       mapping.setMapping(v, tile);
       mapping.setMapping(zeros, tile);
     }
-    if (kernelSize != 1) {
+    useConvPartial1x1OutVertex = kernelSize == 1 && (forward || stride == 1);
+    if (!useConvPartial1x1OutVertex) {
       zeroPartialSums(graph, mapping, deviceInfo, partition,
                       outXBegin, outXEnd, outYBegin, outYEnd,
                       outZGroupBegin, outZGroupEnd,
@@ -623,7 +619,7 @@ calcPartialConvOutput(Graph &graph,
       const auto outHeight = vertexOutYEnd - vertexOutYBegin;
       if (outHeight == 0)
         continue;
-      if (partition.useConvolutionInstructions && kernelSize == 1) {
+      if (useConvPartial1x1OutVertex) {
         createConvPartial1x1OutVertex(graph, mapping, deviceInfo,
                                       partition, dType, tile,
                                       outXBegin, outXEnd,

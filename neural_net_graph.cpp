@@ -602,7 +602,7 @@ template class NonLinearityBwd<half>;
  * Compute a sum of 1x1 convolutions over a subset of the input channels for
  * multiple output channels.
  **/
-template <class Base, class FPType, class AccumType, bool forward>
+template <class Base, class FPType, class AccumType>
 class ConvPartial1x1Out: public Base {
 public:
   Vector<Input<Vector<FPType>>> in;
@@ -630,21 +630,13 @@ public:
           const auto outWidth = out[conv].size() / outChansPerGroup;
           assert(in[conv].size() % inChansPerGroup == 0);
           const auto inWidth = in[conv].size() / inChansPerGroup;
-          unsigned inStride, outStride;
-          if (forward) {
-            inStride = (inWidth + outWidth - 1) / outWidth;
-            assert((inWidth + inStride - 1) / inStride == outWidth);
-            outStride = 1;
-          } else {
-            outStride = (outWidth + inWidth - 1) / inWidth;
-            assert((outWidth + outStride - 1) / outStride == inWidth);
-            inStride = 1;
-          }
+          unsigned inStride = (inWidth + outWidth - 1) / outWidth;
+          assert((inWidth + inStride - 1) / inStride == outWidth);
           for (unsigned x = 0; x != outWidth; ++x) {
             for (unsigned outChanIndex = 0; outChanIndex != outChansPerGroup;
                  ++outChanIndex) {
               const auto outIndex =
-                  outChanIndex + outChansPerGroup * x * outStride;
+                  outChanIndex + outChansPerGroup * x;
               if (inChanGroup == 0)
                 out[conv][outIndex] = 0;
               float sum = 0;
@@ -693,13 +685,6 @@ public:
           for (unsigned i = 0; i != weightReuseCount[c];
                ++i) {
             auto convSize = out[convNum].size() / outChansPerGroup;
-            if (!forward) {
-              const auto outWidth = out[convNum].size() / outChansPerGroup;
-              const auto inWidth = in[convNum].size() / inChansPerGroup;
-              const auto stride = (outWidth + inWidth - 1) / inWidth;
-              assert((outWidth + stride - 1) / stride == inWidth);
-              convSize = convSize / stride;
-            }
             convolutionsByWeight.back().push_back(convSize);
             ++convNum;
           }
@@ -720,13 +705,6 @@ public:
       convolutionsByWeight.emplace_back();
       for (unsigned i = 0; i != weightReuseCount[w]; ++i) {
         auto convSize = out[convNum].size() / outChansPerGroup;
-        if (!forward) {
-          const auto outWidth = out[convNum].size() / outChansPerGroup;
-          const auto inWidth = in[convNum].size() / inChansPerGroup;
-          const auto stride = (outWidth + inWidth - 1) / inWidth;
-          assert((outWidth + stride - 1) / stride == inWidth);
-          convSize = convSize / stride;
-        }
         convolutionsByWeight.back().push_back(convSize);
         ++convNum;
       }
@@ -739,22 +717,14 @@ public:
   }
 };
 
-template class ConvPartial1x1Out<Vertex, float, float, true>;
-template class ConvPartial1x1Out<Vertex, float, half, true>;
-template class ConvPartial1x1Out<SupervisorVertex, float, float, true>;
-template class ConvPartial1x1Out<SupervisorVertex, float, half, true>;
-template class ConvPartial1x1Out<Vertex, float, float, false>;
-template class ConvPartial1x1Out<Vertex, float, half, false>;
-template class ConvPartial1x1Out<SupervisorVertex, float, float, false>;
-template class ConvPartial1x1Out<SupervisorVertex, float, half, false>;
-template class ConvPartial1x1Out<Vertex, half, float, true>;
-template class ConvPartial1x1Out<Vertex, half, half, true>;
-template class ConvPartial1x1Out<SupervisorVertex, half, float, true>;
-template class ConvPartial1x1Out<SupervisorVertex, half, half, true>;
-template class ConvPartial1x1Out<Vertex, half, float, false>;
-template class ConvPartial1x1Out<Vertex, half, half, false>;
-template class ConvPartial1x1Out<SupervisorVertex, half, float, false>;
-template class ConvPartial1x1Out<SupervisorVertex, half, half, false>;
+template class ConvPartial1x1Out<Vertex, float, float>;
+template class ConvPartial1x1Out<Vertex, float, half>;
+template class ConvPartial1x1Out<SupervisorVertex, float, float>;
+template class ConvPartial1x1Out<SupervisorVertex, float, half>;
+template class ConvPartial1x1Out<Vertex, half, float>;
+template class ConvPartial1x1Out<Vertex, half, half>;
+template class ConvPartial1x1Out<SupervisorVertex, half, float>;
+template class ConvPartial1x1Out<SupervisorVertex, half, half>;
 
 /* Compute a partial convolution for a sub-set of input channels and
  * output channels over a number of rows of the input field. */
