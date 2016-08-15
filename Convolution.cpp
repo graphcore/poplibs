@@ -1607,6 +1607,7 @@ createWeightGradVertex(Graph &graph,
     graph.connect(v["deltas"], ds);
     auto w = weights[outZGroup][izg].flatten();
     graph.connect(v["weights"], w);
+    mapping.setMapping(w, tile);
   }
 }
 
