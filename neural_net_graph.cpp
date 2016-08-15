@@ -525,37 +525,36 @@ public:
       for (int wx = 0; wx < kernelSize; ++wx) {
         auto weightsPerKernelElement = outChansPerGroup * inChansPerGroup;
         FPType *w = &weights[(wy * kernelSize + wx) * weightsPerKernelElement];
-        int inRow = wy - static_cast<int>(ypadding);
-        unsigned outRow = 0;
-        while (inRow < 0) {
-          inRow += stride;
-          outRow += 1;
-        }
-        while (outRow < numOutRows && inRow < numInRows) {
-          int inCol = wx - static_cast<int>(xpadding);
-          unsigned outCol = 0;
-          while (inCol < 0) {
-            inCol += stride;
-            outCol += 1;
+        for (unsigned outChan = 0; outChan < outChansPerGroup; ++outChan)
+        {
+          int inRow = wy - static_cast<int>(ypadding);
+          unsigned outRow = 0;
+          while (inRow < 0) {
+            inRow += stride;
+            outRow += 1;
           }
-          while (outCol < outputWidth && inCol < inputWidth) {
-            for (unsigned inChan = 0; inChan < inChansPerGroup; ++inChan) {
-              FPType a = acts[inRow][inCol * inChansPerGroup + inChan];
-              for (unsigned outChan = 0; outChan < outChansPerGroup; ++outChan)
-              {
+          while (outRow < numOutRows && inRow < numInRows) {
+            int inCol = wx - static_cast<int>(xpadding);
+            unsigned outCol = 0;
+            while (inCol < 0) {
+              inCol += stride;
+              outCol += 1;
+            }
+            while (outCol < outputWidth && inCol < inputWidth) {
+              for (unsigned inChan = 0; inChan < inChansPerGroup; ++inChan) {
+                FPType a = acts[inRow][inCol * inChansPerGroup + inChan];
                 w[outChan * inChansPerGroup + inChan] +=
                     a * deltas[outRow][outCol * outChansPerGroup + outChan];
               }
+              outCol += 1;
+              inCol += stride;
             }
-            outCol += 1;
-            inCol += stride;
+            outRow += 1;
+            inRow += stride;
           }
-          outRow += 1;
-          inRow += stride;
         }
       }
     }
-
     return true;
   }
 
