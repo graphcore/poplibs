@@ -1763,7 +1763,7 @@ convolutionWeightUpdate(Graph &graph,
     maxBiasPerWorker = (numBiases + numWorkers - 1) / numWorkers;
   }
   auto elemsPerBias = outDimY * outDimX;
-  auto biasPartials = graph.addTensor(dType, {numWorkers, maxBiasPerWorker},
+  auto biasPartials = graph.addTensor(dType, {usedWorkers, maxBiasPerWorker},
                                       "biasPartials");
 
   for (unsigned worker = 0; worker  < usedWorkers; ++worker ) {
