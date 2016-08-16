@@ -1392,6 +1392,11 @@ std::vector<size_t> getElementCoord(size_t element,
   return coord;
 }
 
+/** Copy the weights in 'weights' into 'bwdWeights' such that
+ *  each element of the kernel is transposed w.r.t. the input and output
+ *  channels. Note that the ordering of the kernel elements is not changed, just
+ *  the ordering within each element.
+ */
 Program transformWeights(Graph &graph,
                          IPUModelEngineBuilder::TileMapping &mapping,
                          const DeviceInfo &deviceInfo,
