@@ -7,8 +7,16 @@ namespace {
   struct ConvVertexType {
     bool useConvInstruction;
     bool floatPartials;
+    bool overridePartialChansPerGroup;
+    unsigned partialChansPerGroup;
   ConvVertexType(bool useConvInstruction, bool floatPartials) :
-    useConvInstruction(useConvInstruction), floatPartials(floatPartials) {}
+    useConvInstruction(useConvInstruction), floatPartials(floatPartials),
+    overridePartialChansPerGroup(false) {}
+  ConvVertexType(bool useConvInstruction, bool floatPartials,
+                 unsigned partialChansPerGroup) :
+    useConvInstruction(useConvInstruction), floatPartials(floatPartials),
+    overridePartialChansPerGroup(true),
+    partialChansPerGroup(partialChansPerGroup) {}
   };
 }
 
@@ -213,12 +221,15 @@ estimateExchangeCost(const DeviceInfo &deviceInfo,
       tileOutWidth * tileOutHeight * tileOutDepth;
 
   const auto activationSize = floatActivations ? 4 : 2;
-  const auto inputElementsBytes = numberOfInputElements * activationSize;
-  const auto weightBytes = numberOfWeights * activationSize;
+  auto inputElementsBytes = numberOfInputElements * activationSize;
+  auto weightBytes = numberOfWeights * activationSize;
   unsigned partialSumBytes;
   const auto partialSize = partition.floatPartials ? 4 : 2;
   if (phase == Phase::WEIGHTUPDATE) {
-    partialSumBytes = weightBytes;
+    const auto deltaElementBytes = numberOfOutputElements * activationSize;
+    inputElementsBytes += deltaElementBytes;
+    partialSumBytes = numberOfWeights * partialSize;
+    weightBytes = 0;
   } else {
     const auto numberOfPartialSums = numberOfOutputElements;
     partialSumBytes = numberOfPartialSums * partialSize;
@@ -301,19 +312,27 @@ estimatePartialCalcComputeCost(const DeviceInfo &deviceInfo,
                                Phase phase) {
   const auto tilesPerY = partition.tilesPerYAxis;
   const auto tilesPerZ = partition.tilesPerZAxis;
+  const auto tilesPerInZGroup = partition.tilesPerInZGroupAxis;
   const auto outChansPerGroup = partition.partialChansPerGroup;
+  const auto inChansPerGroup = partition.inChansPerGroup;
 
   const auto tileOutHeight =
       (params.getOutputHeight(phase) + tilesPerY - 1) / tilesPerY;
   const auto numOutGroups =
       (params.outputDepth + (outChansPerGroup - 1)) / outChansPerGroup;
+  const auto numInGroups =
+      (params.inputDepth + (inChansPerGroup - 1)) / inChansPerGroup;
 
   const auto tileNumOutGroups =
       (numOutGroups + tilesPerZ - 1) / tilesPerZ;
+  const auto tileNumInGroups =
+      (numInGroups + tilesPerInZGroup - 1) / tilesPerInZGroup;
 
   const auto verticesPerTilePerY =
       std::min(tileOutHeight, partition.verticesPerTilePerYAxis);
-  const auto tileVertices = verticesPerTilePerY * tileNumOutGroups;
+  const auto tileVertices =
+      phase == Phase::WEIGHTUPDATE ? tileNumOutGroups * tileNumInGroups
+                                   :  verticesPerTilePerY * tileNumOutGroups;
   // The use of supervisor vertices only affects vertices that use the
   // convolution instructions.
   bool useSupervisorVertices = false;
@@ -400,6 +419,9 @@ estimatePartitionCost(const DeviceInfo &deviceInfo,
 static unsigned
 getPartialChansPerGroup(const DeviceInfo &deviceInfo,
                         const ConvVertexType &convVertexType) {
+  if (convVertexType.overridePartialChansPerGroup) {
+    return convVertexType.partialChansPerGroup;
+  }
   if (!convVertexType.useConvInstruction) {
     return 1;
   }
@@ -598,7 +620,10 @@ ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
   unsigned bestCost = std::numeric_limits<unsigned>::max();
   auto inChansPerGroupCandidates =
       getInChansPerGroupCandidates(fwdParams, floatActivations);
-
+  if (!forwardOnly) {
+    plan.bwdPartition = choosePartition(deviceInfo, floatActivations,
+                                        bwdParams, Phase::BACKWARD).first;
+  }
   for (auto inChansPerGroup : inChansPerGroupCandidates) {
     const auto convVertexTypeCandidates =
         getConvVertexTypeCandidates(deviceInfo, floatActivations,
@@ -613,9 +638,12 @@ ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
       Partition wuCandidate;
       unsigned wuCandidateCost = 0;
       if (!forwardOnly) {
+        ConvVertexType wuVertexType(false, floatActivations,
+                                    getPartialChansPerGroup(deviceInfo,
+                                                            convVertexType));
         std::tie(wuCandidate, wuCandidateCost) =
             choosePartition(deviceInfo, floatActivations, inChansPerGroup,
-                            convVertexType, fwdParams,
+                            wuVertexType, fwdParams,
                             Phase::WEIGHTUPDATE);
       }
       unsigned cost = fwdCandidateCost + wuCandidateCost;
@@ -626,10 +654,6 @@ ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
           plan.wuPartition = wuCandidate;
       }
     }
-  }
-  if (!forwardOnly) {
-    plan.bwdPartition = choosePartition(deviceInfo, floatActivations,
-                                        bwdParams, Phase::BACKWARD).first;
   }
   return plan;
 }

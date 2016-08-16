@@ -1572,6 +1572,7 @@ createWeightGradVertex(Graph &graph,
   const auto inDimX = in.dim(2);
   const auto inChansPerGroup = partition.inChansPerGroup;
   const auto outChansPerGroup = partition.partialChansPerGroup;
+  assert(outChansPerGroup == deltas.dim(3));
   const auto outHeight = outYEnd - outYBegin;
   const auto outWidth = outXEnd - outXBegin;
   for (unsigned izg = inZGroupBegin; izg != inZGroupEnd; ++izg) {
