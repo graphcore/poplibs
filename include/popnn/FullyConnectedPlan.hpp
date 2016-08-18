@@ -24,7 +24,7 @@ struct Plan {
 
 Plan
 createPlan(const DeviceInfo &deviceInfo,
-           const std::string &dType, unsigned numCols,
+           const std::string &dType, unsigned numIn,
            std::vector<unsigned> outputMapping,
            bool forwardOnly);
 

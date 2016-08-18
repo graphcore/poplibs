@@ -9,5 +9,6 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 add_subdirectory(lib)
 add_subdirectory(examples)
 add_subdirectory(benchmarks)
+add_subdirectory(tests)
 
 install(FILES)

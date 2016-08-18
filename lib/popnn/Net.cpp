@@ -9,6 +9,7 @@
 #include "popnn/ActivationMapping.hpp"
 #include "VertexTemplates.hpp"
 #include "popnn/NonLinearity.hpp"
+#include <fstream>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -529,11 +530,23 @@ Program Net::createConvLayerBwd(unsigned i,
   return prog;
 }
 
+namespace popnn {
+std::string findGraphProg() {
+  // TODO: This needs to be replaced with a proper object search mechanism
+  // in poplar.
+  std::string path = "lib/popnn/popnn.gp";
+  if (std::ifstream(path).good())
+    return path;
+  path = "../" + path;
+  return path;
+}
+}
+
 void Net::initialize(DataSet &dataSet, LossType lossType) {
   assert(batchSize == 1 && "Only batch size of 1 is supported");
   numTestBatches = dataSet.numTest / batchSize;
   env = std::unique_ptr<GraphProgEnv>(
-    new GraphProgEnv("lib/popnn/popnn.gp", GraphProgFileType::Object));
+      new GraphProgEnv(popnn::findGraphProg(), GraphProgFileType::Object));
 
   graph = std::unique_ptr<Graph>(new Graph(*env));
   mapping = std::unique_ptr<IPUModelEngineBuilder::TileMapping>(

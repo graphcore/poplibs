@@ -237,4 +237,9 @@ public:
   void run(unsigned numBatches);
 };
 
+
+namespace popnn {
+  std::string findGraphProg();
+}
+
 #endif //_net_hpp_
