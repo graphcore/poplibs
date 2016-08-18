@@ -1,5 +1,5 @@
 #include <initializer_list>
-#include "Net.hpp"
+#include "popnn/Net.hpp"
 
 /** This model is derived from the paper:
 

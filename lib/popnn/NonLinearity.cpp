@@ -1,5 +1,5 @@
-#include "NonLinearity.hpp"
-#include "ActivationMapping.hpp"
+#include "popnn/NonLinearity.hpp"
+#include "popnn/ActivationMapping.hpp"
 #include "VertexTemplates.hpp"
 
 using namespace poplar;

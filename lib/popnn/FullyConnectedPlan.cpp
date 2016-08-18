@@ -1,6 +1,5 @@
-#include "FullyConnectedPlan.hpp"
-
-#include "DeviceInfo.hpp"
+#include "popnn/FullyConnectedPlan.hpp"
+#include "popnn/DeviceInfo.hpp"
 #include "PerformanceEstimation.hpp"
 #include <limits>
 

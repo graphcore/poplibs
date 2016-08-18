@@ -1,7 +1,7 @@
 #ifndef __NonLinearity_hpp__
 #define __NonLinearity_hpp__
-#include "neural_net_common.h"
-#include "DeviceInfo.hpp"
+#include "popnn/NonLinearityDef.hpp"
+#include "popnn/DeviceInfo.hpp"
 #include "poplar/IPUModelEngine.hpp"
 #include "poplar/Program.hpp"
 

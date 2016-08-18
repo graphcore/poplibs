@@ -4,9 +4,10 @@
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <poplar/IPUModelEngine.hpp>
-#include "DeviceInfo.hpp"
-#include "neural_net_common.h"
-#include "ConvPlan.hpp"
+#include "popnn/DeviceInfo.hpp"
+#include "popnn/ConvPlan.hpp"
+#include "popnn/ConvDef.hpp"
+#include "popnn/NonLinearityDef.hpp"
 
 namespace conv {
 

@@ -1,9 +1,9 @@
-#include "MaxPool.hpp"
+#include "popnn/MaxPool.hpp"
 #include "VertexTemplates.hpp"
-#include "ActivationMapping.hpp"
+#include "popnn/ActivationMapping.hpp"
 #include "ConvUtil.hpp"
 #include "gcd.hpp"
-#include "exceptions.hpp"
+#include "popnn/exceptions.hpp"
 #include <cassert>
 
 using namespace poplar;

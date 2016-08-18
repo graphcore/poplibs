@@ -6,7 +6,9 @@
 #include <cmath>
 #include <type_traits>
 #include <vector>
-#include "neural_net_common.h"
+#include "popnn/NonLinearityDef.hpp"
+#include "popnn/ConvDef.hpp"
+#include "popnn/NetDef.hpp"
 #include "PerformanceEstimation.hpp"
 
 using namespace poplar;

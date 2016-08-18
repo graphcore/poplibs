@@ -2,7 +2,8 @@
 #define __ConvReuse_hpp__
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
-#include "neural_net_common.h"
+#include "popnn/ConvDef.hpp"
+#include "popnn/NonLinearityDef.hpp"
 
 struct ReusableLayer {
   poplar::program::Program prog;

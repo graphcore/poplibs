@@ -1,5 +1,5 @@
 #include <initializer_list>
-#include "Net.hpp"
+#include "popnn/Net.hpp"
 
 int main(int argc, char **argv) {
   DataSet IMAGENET;

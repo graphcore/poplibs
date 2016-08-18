@@ -85,7 +85,7 @@ param_info = {'--ipus': {'desc': 'Num IPUs', 'default': '1'},
 
 
 def run(prog, params):
-    cmd = ['bin/{}'.format(prog)]
+    cmd = ['benchmarks/{}'.format(prog)]
     cmd += ['%s=%s'%(p,v) for (p,v) in params]
     return subprocess.check_output(cmd).split('\n')
 
@@ -306,30 +306,30 @@ def main():
     large_tile_opts = '--tiles-per-ipu=608 --ipu-exchange-bandwidth=8 --bytes-per-tile=524288 --data-path-width=128'
     xlarge_tile_opts = '--tiles-per-ipu=304 --ipu-exchange-bandwidth=16 --bytes-per-tile=1048576 --data-path-width=256'
     benchmarks = ['alexnet --ipus={1,2}',
-                  'resnet34b',
+                  'resnet34',
                   'resnet50']
 
     training_benchmarks = ['alexnet --train=1',
-                           'resnet34b --train=1',
+                           'resnet34 --train=1',
                            'resnet50 --train=1']
 
     arch_explore_benchmarks = ['alexnet ' + large_tile_opts,
                                'alexnet ' + xlarge_tile_opts,
-                               'resnet34b ' + large_tile_opts,
-                               'resnet34b ' + xlarge_tile_opts,
+                               'resnet34 ' + large_tile_opts,
+                               'resnet34 ' + xlarge_tile_opts,
                                'resnet50 ' + large_tile_opts,
                                'resnet50 ' + xlarge_tile_opts,
                                'alexnet --ipu-exchange-bandwidth=8',
-                               'resnet34b --ipu-exchange-bandwidth=8',
+                               'resnet34 --ipu-exchange-bandwidth=8',
                                'resnet50 --ipu-exchange-bandwidth=8',
                                'alexnet --ipu-exchange-bandwidth=16',
-                               'resnet34b --ipu-exchange-bandwidth=16',
+                               'resnet34 --ipu-exchange-bandwidth=16',
                                'resnet50 --ipu-exchange-bandwidth=16',
                                'alexnet --ipu-exchange-bandwidth=8 --tiles-per-ipu=1024',
-                               'resnet34b --ipu-exchange-bandwidth=8 --tiles-per-ipu=1024',
+                               'resnet34 --ipu-exchange-bandwidth=8 --tiles-per-ipu=1024',
                                'resnet50 --ipu-exchange-bandwidth=8 --tiles-per-ipu=1024',
                                'alexnet --ipu-exchange-bandwidth=16 --tiles-per-ipu=1024',
-                               'resnet34b --ipu-exchange-bandwidth=16 --tiles-per-ipu=1024',
+                               'resnet34 --ipu-exchange-bandwidth=16 --tiles-per-ipu=1024',
                                'resnet50 --ipu-exchange-bandwidth=16 --tiles-per-ipu=1024'
     ]
 
@@ -350,7 +350,7 @@ def main():
 
     args = parser.parse_args()
     if args.test_reuse:
-        benchmarks.append['resnet34b --graph-reuse=0']
+        benchmarks.append['resnet34 --graph-reuse=0']
         benchmarks.append['resnet50 --graph-reuse=0']
 
     if args.arch_explore:

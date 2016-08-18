@@ -8,12 +8,14 @@
 #include <vector>
 #include <map>
 #include <random>
-#include "neural_net_common.h"
-#include "DeviceInfo.hpp"
-#include "ConvReuse.hpp"
-#include "exceptions.hpp"
-#include "FullyConnectedPlan.hpp"
-#include "ConvPlan.hpp"
+#include "popnn/DeviceInfo.hpp"
+#include "popnn/exceptions.hpp"
+#include "popnn/FullyConnectedPlan.hpp"
+#include "popnn/ConvPlan.hpp"
+#include "popnn/NonLinearityDef.hpp"
+#include "popnn/ConvDef.hpp"
+#include "popnn/NetDef.hpp"
+#include "popnn/internal/ConvReuse.hpp"
 
 class Layer { public: virtual ~Layer() {};};
 

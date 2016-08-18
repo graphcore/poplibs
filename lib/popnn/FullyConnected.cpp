@@ -1,8 +1,8 @@
-#include "FullyConnected.hpp"
-#include "FullyConnectedPlan.hpp"
+#include "popnn/FullyConnected.hpp"
+#include "popnn/FullyConnectedPlan.hpp"
 #include "PerformanceEstimation.hpp"
 #include "VertexTemplates.hpp"
-#include "ActivationMapping.hpp"
+#include "popnn/ActivationMapping.hpp"
 #include <cassert>
 
 using namespace poplar;

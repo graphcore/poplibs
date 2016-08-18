@@ -1,14 +1,14 @@
-#include "Net.hpp"
+#include "popnn/Net.hpp"
 #include <boost/program_options.hpp>
 #include <poplar/HalfFloat.hpp>
-#include "Convolution.hpp"
-#include "MaxPool.hpp"
-#include "FullyConnected.hpp"
-#include "FullyConnectedPlan.hpp"
-#include "DeviceInfo.hpp"
-#include "ActivationMapping.hpp"
+#include "popnn/Convolution.hpp"
+#include "popnn/MaxPool.hpp"
+#include "popnn/FullyConnected.hpp"
+#include "popnn/FullyConnectedPlan.hpp"
+#include "popnn/DeviceInfo.hpp"
+#include "popnn/ActivationMapping.hpp"
 #include "VertexTemplates.hpp"
-#include "NonLinearity.hpp"
+#include "popnn/NonLinearity.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
@@ -533,7 +533,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   assert(batchSize == 1 && "Only batch size of 1 is supported");
   numTestBatches = dataSet.numTest / batchSize;
   env = std::unique_ptr<GraphProgEnv>(
-    new GraphProgEnv("obj/neural_net_graph.gp", GraphProgFileType::Object));
+    new GraphProgEnv("lib/popnn/popnn.gp", GraphProgFileType::Object));
 
   graph = std::unique_ptr<Graph>(new Graph(*env));
   mapping = std::unique_ptr<IPUModelEngineBuilder::TileMapping>(

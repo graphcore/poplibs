@@ -1,13 +1,12 @@
-#include "Convolution.hpp"
+#include "popnn/Convolution.hpp"
 #include <limits>
 #include <cassert>
 #include "ConvUtil.hpp"
-#include "ActivationMapping.hpp"
+#include "popnn/ActivationMapping.hpp"
 #include "VertexTemplates.hpp"
-#include "neural_net_common.h"
 #include "gcd.hpp"
 #include "PerformanceEstimation.hpp"
-#include "exceptions.hpp"
+#include "popnn/exceptions.hpp"
 
 using namespace poplar;
 using namespace poplar::program;

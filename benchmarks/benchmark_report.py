@@ -65,8 +65,8 @@ def create_report(runs, filename, param_info, arch_explore, training):
         return get_gflops(data)/1000
 
     alexnet_1_ipu = find_run('alexnet', {'--ipus': '1'})
-    resnet34 = find_run('resnet34b', {'--graph-reuse': '1'})
-    resnet34_no_reuse = find_run('resnet34b', {'--graph-reuse': '0'})
+    resnet34 = find_run('resnet34', {'--graph-reuse': '1'})
+    resnet34_no_reuse = find_run('resnet34', {'--graph-reuse': '0'})
     resnet50 = find_run('resnet50', {'--graph-reuse': '1'})
     resnet50_no_reuse = find_run('resnet50', {'--graph-reuse': '0'})
     alexnet_large_tiles = find_run('alexnet', {'--tiles-per-ipu': '608'})
@@ -82,16 +82,16 @@ def create_report(runs, filename, param_info, arch_explore, training):
                                            {'--ipu-exchange-bandwidth':'16',
                                             '--tiles-per-ipu':'1024'})
 
-    resnet34_large_tiles = find_run('resnet34b', {'--tiles-per-ipu': '608'})
-    resnet34_xlarge_tiles = find_run('resnet34b', {'--tiles-per-ipu': '304'})
-    resnet34_exchange8 = find_run('resnet34b',
+    resnet34_large_tiles = find_run('resnet34', {'--tiles-per-ipu': '608'})
+    resnet34_xlarge_tiles = find_run('resnet34', {'--tiles-per-ipu': '304'})
+    resnet34_exchange8 = find_run('resnet34',
                                      {'--ipu-exchange-bandwidth':'8'}, True)
-    resnet34_exchange8_reduce = find_run('resnet34b',
+    resnet34_exchange8_reduce = find_run('resnet34',
                                            {'--ipu-exchange-bandwidth':'8',
                                             '--tiles-per-ipu':'1024'})
-    resnet34_exchange16 = find_run('resnet34b',
+    resnet34_exchange16 = find_run('resnet34',
                                      {'--ipu-exchange-bandwidth':'16'}, True)
-    resnet34_exchange16_reduce = find_run('resnet34b',
+    resnet34_exchange16_reduce = find_run('resnet34',
                                            {'--ipu-exchange-bandwidth':'16',
                                             '--tiles-per-ipu':'1024'})
 
@@ -109,7 +109,7 @@ def create_report(runs, filename, param_info, arch_explore, training):
                                             '--tiles-per-ipu':'1024'})
 
     alexnet_train = find_run('alexnet', {'--train':'1'})
-    resnet34_train = find_run('resnet34b', {'--train':'1'})
+    resnet34_train = find_run('resnet34', {'--train':'1'})
     resnet50_train = find_run('resnet50', {'--train':'1'})
 
     ipu_tiles = 1216

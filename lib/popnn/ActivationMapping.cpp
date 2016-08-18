@@ -1,4 +1,4 @@
-#include "ActivationMapping.hpp"
+#include "popnn/ActivationMapping.hpp"
 #include <cassert>
 
 std::vector<unsigned>

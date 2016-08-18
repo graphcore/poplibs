@@ -1,8 +1,6 @@
 #include <initializer_list>
-#include "Net.hpp"
+#include "popnn/Net.hpp"
 #include "mnist.h"
-
-#define LARGE_DNN_MODEL 0
 
 int main() {
   DataSet MNIST;
@@ -26,11 +24,13 @@ int main() {
   Net net(MNIST,
           1, // batch size
           makeLayers({
-            new FullyConnectedLayer(30, NON_LINEARITY_SIGMOID),
-            new FullyConnectedLayer(10, NON_LINEARITY_SIGMOID),
+            new MaxPoolLayer(2,2),
+            new ConvLayer(5, 1, 2, 2, NON_LINEARITY_NONE),
+            new MaxPoolLayer(2,2),
+            new ConvLayer(7, 1, 0, 10, NON_LINEARITY_SIGMOID),
           }),
-          SUM_SQUARED_LOSS,
-          0.3, // learning rate
+          SOFTMAX_CROSS_ENTROPY_LOSS,
+          0.01,
           netType,
           FP32
           );

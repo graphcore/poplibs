@@ -1,5 +1,5 @@
-#include "ConvPlan.hpp"
-#include "Convolution.hpp"
+#include "popnn/ConvPlan.hpp"
+#include "popnn/Convolution.hpp"
 #include "ConvUtil.hpp"
 #include "PerformanceEstimation.hpp"
 

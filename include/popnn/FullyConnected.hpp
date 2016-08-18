@@ -5,7 +5,7 @@
 #include <poplar/Program.hpp>
 #include <poplar/IPUModelEngine.hpp>
 #include "DeviceInfo.hpp"
-#include "neural_net_common.h"
+#include "popnn/NonLinearityDef.hpp"
 
 namespace fc {
 

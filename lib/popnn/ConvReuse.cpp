@@ -1,4 +1,4 @@
-#include "ConvReuse.hpp"
+#include "popnn/internal/ConvReuse.hpp"
 #include <tuple>
 #include <cassert>
 
