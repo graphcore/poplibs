@@ -42,8 +42,12 @@ add_custom_command(
     popnn.gp
   COMMAND
     popc -O3 -I ${CMAKE_CURRENT_SOURCE_DIR} -I ${CMAKE_SOURCE_DIR}/include -g ${CMAKE_CURRENT_SOURCE_DIR}/popnn.cpp -o popnn.gp
-  IMPLICIT_DEPENDS
-  popnn.cpp
+  DEPENDS
+    popnn.cpp
+    PerformanceEstimation.hpp
+    ${CMAKE_SOURCE_DIR}/include/popnn/NetDef.hpp
+    ${CMAKE_SOURCE_DIR}/include/popnn/ConvDef.hpp
+    ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearityDef.hpp
 )
 
 add_custom_target(graph_program DEPENDS popnn.gp)
