@@ -3,21 +3,32 @@
 #include "ConvUtil.hpp"
 #include "PerformanceEstimation.hpp"
 
+
+static unsigned getNumConvUnits(bool floatPartial,
+                                const DeviceInfo &deviceInfo) {
+  return floatPartial ? deviceInfo.fp32AccumConvUnitsPerTile :
+                        deviceInfo.fp16AccumConvUnitsPerTile;
+}
+
 namespace {
-  struct ConvVertexType {
-    bool useConvInstruction;
-    bool floatPartials;
-    bool overridePartialChansPerGroup;
-    unsigned partialChansPerGroup;
-  ConvVertexType(bool useConvInstruction, bool floatPartials) :
-    useConvInstruction(useConvInstruction), floatPartials(floatPartials),
-    overridePartialChansPerGroup(false) {}
+struct ConvVertexType {
+  bool useConvInstruction;
+  bool floatPartials;
+  unsigned partialChansPerGroup;
+  ConvVertexType(const DeviceInfo &deviceInfo,
+                 bool useConvInstruction, bool floatPartials) :
+    useConvInstruction(useConvInstruction), floatPartials(floatPartials) {
+    if (!useConvInstruction) {
+      partialChansPerGroup = 1;
+    } else {
+      partialChansPerGroup = getNumConvUnits(floatPartials, deviceInfo);
+    }
+  }
   ConvVertexType(bool useConvInstruction, bool floatPartials,
                  unsigned partialChansPerGroup) :
     useConvInstruction(useConvInstruction), floatPartials(floatPartials),
-    overridePartialChansPerGroup(true),
     partialChansPerGroup(partialChansPerGroup) {}
-  };
+};
 }
 
 namespace conv {
@@ -63,12 +74,6 @@ struct ConvolutionParams {
     padding(padding),
     outputDepth(outputDepth) {}
 };
-
-static unsigned getNumConvUnits(bool floatPartial,
-                                const DeviceInfo &deviceInfo) {
-  return floatPartial ? deviceInfo.fp32AccumConvUnitsPerTile :
-                        deviceInfo.fp16AccumConvUnitsPerTile;
-}
 
 static bool
 canUseConvolutionInstruction(bool floatActivations, bool floatPartials,
@@ -416,18 +421,6 @@ estimatePartitionCost(const DeviceInfo &deviceInfo,
                                       phase);
 }
 
-static unsigned
-getPartialChansPerGroup(const DeviceInfo &deviceInfo,
-                        const ConvVertexType &convVertexType) {
-  if (convVertexType.overridePartialChansPerGroup) {
-    return convVertexType.partialChansPerGroup;
-  }
-  if (!convVertexType.useConvInstruction) {
-    return 1;
-  }
-  return getNumConvUnits(convVertexType.floatPartials, deviceInfo);
-}
-
 static std::pair<Partition, unsigned>
 choosePartition(const DeviceInfo &deviceInfo,
                 bool floatActivations,
@@ -435,8 +428,7 @@ choosePartition(const DeviceInfo &deviceInfo,
                 const ConvVertexType &convVertexType,
                 const ConvolutionParams &params,
                 Phase phase) {
-  const auto partialChansPerGroup =
-    getPartialChansPerGroup(deviceInfo, convVertexType);
+  const auto partialChansPerGroup = convVertexType.partialChansPerGroup;
   unsigned bestCost = std::numeric_limits<unsigned>::max();
   Partition bestPartition;
   // If tilesPerY is greater than one we end up splitting across the y axis of
@@ -518,15 +510,15 @@ getConvVertexTypeCandidates(const DeviceInfo &deviceInfo,
       canUseConvolutionInstruction(floatActivations, false,
                                    params.stride, inChansPerGroup,
                                    deviceInfo)) {
-    convVertexTypeCandidates.emplace_back(true, false);
+    convVertexTypeCandidates.emplace_back(deviceInfo, true, false);
   }
   if (deviceInfo.fp32AccumConvUnitsPerTile > 0 &&
       canUseConvolutionInstruction(floatActivations, true,
                                    params.stride, inChansPerGroup,
                                    deviceInfo)) {
-    convVertexTypeCandidates.emplace_back(true, true);
+    convVertexTypeCandidates.emplace_back(deviceInfo, true, true);
   }
-  convVertexTypeCandidates.emplace_back(false, true);
+  convVertexTypeCandidates.emplace_back(deviceInfo, false, true);
   return convVertexTypeCandidates;
 }
 
@@ -639,8 +631,7 @@ ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
       unsigned wuCandidateCost = 0;
       if (!forwardOnly) {
         ConvVertexType wuVertexType(false, floatActivations,
-                                    getPartialChansPerGroup(deviceInfo,
-                                                            convVertexType));
+                                    convVertexType.partialChansPerGroup);
         std::tie(wuCandidate, wuCandidateCost) =
             choosePartition(deviceInfo, floatActivations, inChansPerGroup,
                             wuVertexType, fwdParams,
