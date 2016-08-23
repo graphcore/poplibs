@@ -5,7 +5,6 @@
 #include "popnn/MaxPool.hpp"
 #include "popnn/FullyConnected.hpp"
 #include "popnn/FullyConnectedPlan.hpp"
-#include "popnn/DeviceInfo.hpp"
 #include "popnn/ActivationMapping.hpp"
 #include "VertexTemplates.hpp"
 #include "popnn/NonLinearity.hpp"
@@ -132,12 +131,12 @@ Net::getConvPlan(unsigned i, unsigned inDimY, unsigned inDimX,
   if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
     plan = conv::createPlan(inDimY, inDimX, inNumChans,
                             c->kernelSize, c->stride, c->padding,
-                            c->numChannels, dType, *deviceInfo,
+                            c->numChannels, dType, *graph,
                             netType == TestOnlyNet);
   } else if (const auto *c = dynamic_cast<const ConvResLayer *>(layer)) {
     plan = conv::createPlan(inDimY, inDimX, inNumChans,
                             c->kernelSize, c->stride, c->padding,
-                            c->numChannels, dType, *deviceInfo,
+                            c->numChannels, dType, *graph,
                             netType == TestOnlyNet);
   } else {
     assert(0);
@@ -314,23 +313,23 @@ Net::getOrCreateConvImplFwd(const conv::ConvPlan &plan,
   auto &resDims = impl.tensorDims[1];
   auto &outDims = impl.tensorDims[2];
   auto in = graph->addTensor(dType, inDims, "activations");
-  mapActivations(in, *mapping, *deviceInfo);
+  mapActivations(*graph, in);
   auto inNumChans = inDims[0] * inDims[3];
   auto outNumChans = outDims[0] * outDims[3];
   Tensor weights = conv::createWeights(*graph, dType, inNumChans,
                                        impl.kernelSize, outNumChans, plan);
   Tensor biases = conv::createBiases(*graph, dType, outNumChans);
   auto out = graph->addTensor(dType, outDims, "activations");
-  mapActivations(out, *mapping, *deviceInfo);
+  mapActivations(*graph, out);
   Tensor residual;
   if (impl.resMethod != RESIDUAL_NONE) {
     residual = graph->addTensor(dType, resDims, "residual");
-    mapActivations(residual, *mapping, *deviceInfo);
+    mapActivations(*graph, residual);
   }
-  auto prog = conv::convolution(*graph, *mapping, *deviceInfo, plan,
+  auto prog = conv::convolution(*graph, plan,
                                 impl.kernelSize, impl.stride, impl.padding,
                                 outNumChans, impl.nonLinearityType,
-                                dType, in, weights, biases, out,
+                                in, weights, biases, out,
                                 impl.resMethod, residual);
   std::vector<Tensor> inputs = {in, weights, biases};
   if (impl.resMethod != RESIDUAL_NONE)
@@ -366,13 +365,13 @@ Net::createConvLayerFwd(unsigned i,
                                   outDimY, outDimX,
                                   outChansPerGroup},
                                  "activations." + std::to_string(i));
-  mapActivations(acts[i + 1], *mapping, *deviceInfo);
+  mapActivations(*graph, acts[i + 1]);
   Tensor z = graph->addTensor(dType,
                               {outNumChanGroups,
                                outDimY, outDimX,
                                outChansPerGroup},
                                "z." + std::to_string(i));
-  mapActivations(z, *mapping, *deviceInfo);
+  mapActivations(*graph, z);
   unsigned inNumChans = in.dim(0) * in.dim(3);
   unsigned inNumChanGroups = in.dim(0);
   unsigned inDimY = in.dim(1), inDimX = in.dim(2);
@@ -394,8 +393,8 @@ Net::createConvLayerFwd(unsigned i,
       getOrCreateConvImplFwd(plan, {{in.dims(), resDims, acts[i + 1].dims()},
                                  kernelSize, stride, padding,
                                  nonLinearityType, resMethod});
- conv::mapWeights(weights, *mapping, *deviceInfo, plan);
- conv::mapBiases(biases, *mapping, *deviceInfo, acts[i + 1]);
+ conv::mapWeights(weights, *graph, plan);
+ conv::mapBiases(biases, *graph, acts[i + 1]);
  if (dType == "float") {
     auto hWeights =
         createRandomWeightInitializers(weights, 0, 1.0 / kernelSize,
@@ -413,7 +412,7 @@ Net::createConvLayerFwd(unsigned i,
                             resMethod != RESIDUAL_NONE,
                             netType == TestOnlyNet || i == 0);
  perfectCycleTime +=
-     conv::getPerfectCycleCount(*deviceInfo, dType, inDimY, inDimX,
+     conv::getPerfectCycleCount(*graph, dType, inDimY, inDimX,
                                 inNumChans, kernelSize, stride, padding,
                                 numChannels, resMethod != RESIDUAL_NONE,
                                 netType == TestOnlyNet || i == 0);
@@ -436,17 +435,16 @@ Net::getOrCreateConvImplBwd(const conv::ConvPlan &plan,
   auto &deltasInDims = impl.tensorDims[0];
   auto &deltasOutDims = impl.tensorDims[1];
   auto deltasIn = graph->addTensor(dType, deltasInDims, "zDeltas");
-  mapActivations(deltasIn, *mapping, *deviceInfo);
+  mapActivations(*graph, deltasIn);
   auto inNumChans = deltasInDims[0] * deltasInDims[3];
   auto outNumChans = deltasOutDims[0] * deltasOutDims[3];
   Tensor weights = conv::createWeights(*graph, dType, outNumChans,
                                        impl.kernelSize, inNumChans, plan);
-  conv::mapWeights(weights, *mapping, *deviceInfo, plan);
+  conv::mapWeights(weights, *graph, plan);
   auto deltasOut = graph->addTensor(dType, deltasOutDims, "deltasOut");
-  mapActivations(deltasOut, *mapping, *deviceInfo);
+  mapActivations(*graph, deltasOut);
   auto prog =
-      conv::convolutionBackward(*graph, *mapping, *deviceInfo, plan,
-                                dType, deltasIn, weights, deltasOut,
+      conv::convolutionBackward(*graph, plan, deltasIn, weights, deltasOut,
                                 impl.kernelSize, impl.stride, impl.padding);
   auto reusableLayer = ReusableLayer(prog,
                                      {deltasIn, weights},
@@ -469,19 +467,18 @@ Net::getOrCreateConvImplWeightUpdate(const conv::ConvPlan &plan,
   auto &deltasInDims = impl.tensorDims[0];
   auto &actDims = impl.tensorDims[1];
   auto deltasIn = graph->addTensor(dType, deltasInDims, "zDeltas");
-  mapActivations(deltasIn, *mapping, *deviceInfo);
+  mapActivations(*graph, deltasIn);
   auto activations = graph->addTensor(dType, actDims, "activations");
-  mapActivations(activations, *mapping, *deviceInfo);
+  mapActivations(*graph, activations);
   auto inNumChans = actDims[0] * actDims[3];
   auto outNumChans = deltasInDims[0] * deltasInDims[3];
   Tensor weights = conv::createWeights(*graph, dType, inNumChans,
                                        impl.kernelSize, outNumChans, plan);
-  conv::mapWeights(weights, *mapping, *deviceInfo, plan);
+  conv::mapWeights(weights, *graph, plan);
   Tensor biases = conv::createBiases(*graph, dType, outNumChans);
-  conv::mapBiases(biases, *mapping, *deviceInfo, deltasIn);
+  conv::mapBiases(biases, *graph, deltasIn);
   auto prog =
-      conv::convolutionWeightUpdate(*graph, *mapping, *deviceInfo,
-                                    plan, dType, deltasIn, weights, biases,
+      conv::convolutionWeightUpdate(*graph, plan, deltasIn, weights, biases,
                                     activations, impl.kernelSize,
                                     impl.stride, impl.padding, eta);
   auto reusableLayer = ReusableLayer(prog,
@@ -504,11 +501,10 @@ Program Net::createConvLayerBwd(unsigned i,
   auto &plan = it->second;
   Tensor zDeltas = graph->addTensor(dType, deltas[i + 1].dims(),
                                     "zDeltas");
-  mapActivations(zDeltas, *mapping, *deviceInfo);
+  mapActivations(*graph, zDeltas);
   auto weights = params[i][0];
   auto biases = params[i][1];
-  prog.add(bwdNonLinearity(*graph, *mapping, *deviceInfo, dType,
-                           acts[i + 1], deltas[i + 1], zDeltas,
+  prog.add(bwdNonLinearity(*graph, acts[i + 1], deltas[i + 1], zDeltas,
                            nonLinearityType));
 
   if (backwardPassRequired) {
@@ -547,60 +543,41 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   numTestBatches = dataSet.numTest / batchSize;
   env = std::unique_ptr<GraphProgEnv>(
       new GraphProgEnv(popnn::findGraphProg(), GraphProgFileType::Object));
-
-  graph = std::unique_ptr<Graph>(new Graph(*env));
-  mapping = std::unique_ptr<IPUModelEngineBuilder::TileMapping>(
-    new IPUModelEngineBuilder::TileMapping(*graph)
-  );
-  IPUModelEngineBuilder ipuEB(*env);
   bool convInstructionsFloat = false,
        preferConvInstructions = false;
   if (options.useIPUModel) {
-    ipuEB.setMemcpyBytesPerCycle(options.dataPathWidth / 8);
-    ipuEB.setNumIPUs(options.numIPUs);
-    ipuEB.setTilesPerIPU(options.tilesPerIPU);
-    ipuEB.setNumBytesPerTile(options.memoryBytesPerTile);
-    ipuEB.setIPUExchangeBandwidth(options.ipuExchangeBandwidth);
-    ipuEB.setIPUExchangeImplementation(
-        IPUModelEngineBuilder::BARE_NAKED_WITH_AGGRESSIVE_MULTICAST
-    );
-    ipuEB.setGlobalSyncCycles(500);
-    switch (ipuEB.getNumIPUs()) {
+    DeviceInfo info;
+    info.memcpyBytesPerCycle = options.dataPathWidth / 8;
+    info.numIPUs = options.numIPUs;
+    info.tilesPerIPU = options.tilesPerIPU;
+    info.memoryBytesPerTile = options.memoryBytesPerTile;
+    info.exchangeBytesPerCycle = options.ipuExchangeBandwidth;
+    info.IPUExchangeType =
+        DeviceInfo::ExchangeType::BARE_NAKED_WITH_AGGRESSIVE_MULTICAST;
+    info.globalSyncCycles = 500;
+    info.dataPathWidth = options.dataPathWidth;
+    info.convUnitPipelineDepth = options.convUnitPipelineDepth;
+    info.fp16AccumConvUnitsPerTile = options.fp16AccumConvUnitsPerTile;
+    info.fp32AccumConvUnitsPerTile = options.fp32AccumConvUnitsPerTile;
+    switch (info.numIPUs) {
     case 1:
       break;
     case 2:
-      ipuEB.setGlobalExchangeConstraints({
-          IPUModelEngineBuilder::GlobalExchangeConstraint(140*1024*1024*1024LL,
-            {IPUModelEngineBuilder::GlobalExchangeFlow(0,1)}),
-          IPUModelEngineBuilder::GlobalExchangeConstraint(140*1024*1024*1024LL,
-            {IPUModelEngineBuilder::GlobalExchangeFlow(1,0)}),
-           });
+      info.globalExchangeConstraints = {
+          GlobalExchangeConstraint(140*1024*1024*1024LL,
+            {GlobalExchangeFlow(0,1)}),
+          GlobalExchangeConstraint(140*1024*1024*1024LL,
+            {GlobalExchangeFlow(1,0)}),
+           };
       break;
     default:
       std::cerr << "IPU modeling does not support > 2 IPUs\n";
       std::abort();
     }
+    graph = std::unique_ptr<Graph>(new Graph(*env, createIPUModelDevice(info)));
   } else {
-    ipuEB.setNumIPUs(1);
-    ipuEB.setTilesPerIPU(1);
-    ipuEB.setNumWorkerContexts(1);
-    // For now we set up the mock IPU to work with convolution instructions
-    // on small layers since this is what we want to test.
-    options.dataPathWidth = 32;
-    options.fp16AccumConvUnitsPerTile = 1;
-    options.fp32AccumConvUnitsPerTile = 1;
-    options.convUnitPipelineDepth = 1;
-    convInstructionsFloat = true;
-    preferConvInstructions = true;
+    graph = std::unique_ptr<Graph>(new Graph(*env, createCPUDevice()));
   }
-  deviceInfo = std::unique_ptr<DeviceInfo>(
-        new DeviceInfo(ipuEB, options.dataPathWidth,
-                       options.convUnitPipelineDepth,
-                       options.fp16AccumConvUnitsPerTile,
-                       options.fp32AccumConvUnitsPerTile,
-                       convInstructionsFloat,
-                       preferConvInstructions,
-                       options.useIPUModel));
   std::cerr << "Constructing program\n";
   numFlops = 0;
   perfectCycleTime = 0;
@@ -621,7 +598,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   deltas.resize(layers.size() + 1);
   params.resize(layers.size());
   acts[0] = graph->addTensor(dType, dim, "input");
-  mapActivations(acts[0], *mapping, *deviceInfo);
+  mapActivations(*graph, acts[0]);
   for (unsigned i = 0; i < layers.size(); ++i) {
     const auto *layer = layers[i].get();
     std::cout << "-- Layer " << i << "\n";
@@ -631,14 +608,14 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
       const auto size = fc->size;
       acts[i + 1] = graph->addTensor(dType, {size},
                                  "activations." + std::to_string(i));
-      mapActivations(acts[i + 1], *mapping, *deviceInfo);
+      mapActivations(*graph, acts[i + 1]);
       auto activationsMapping =
-          computeActivationsMapping(acts[i + 1], *deviceInfo);
+          computeActivationsMapping(*graph, acts[i + 1]);
       bool forwardOnly = i == 0 || netType == TestOnlyNet;
       const auto &plan =
           fullyConnectedPlan.emplace(
             i,
-            fc::createPlan(*deviceInfo, dType, prevSize,
+            fc::createPlan(*graph, dType, prevSize,
                            std::move(activationsMapping),
                            forwardOnly)
          ).first->second;
@@ -658,14 +635,13 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
          hParams.push_back(std::move(hWeights));
          hParams.push_back(std::move(hBiases));
       }
-      fwdProg.add(fc::fullyConnected(*graph, *mapping, *deviceInfo,
-                                     size, fc->nonLinearityType, dType,
+      fwdProg.add(fc::fullyConnected(*graph, size, fc->nonLinearityType,
                                      acts[i], weights, biases,
                                      acts[i + 1], plan));
       numFlops += fc::getNumFlops(prevSize, size,
                                   netType == TestOnlyNet || i == 0);
       perfectCycleTime +=
-          fc::getPerfectCycleCount(*deviceInfo, prevSize,
+          fc::getPerfectCycleCount(*graph, prevSize,
                                    size, dType,
                                    netType == TestOnlyNet || i == 0);
     } else if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
@@ -690,15 +666,15 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                                       outDimY, outDimX,
                                       in.dim(3)},
                                      "activations." + std::to_string(i));
-      mapActivations(acts[i + 1], *mapping, *deviceInfo);
-      fwdProg.add(maxpool::maxPool(*graph, *mapping, *deviceInfo,
+      mapActivations(*graph, acts[i + 1]);
+      fwdProg.add(maxpool::maxPool(*graph,
                                    m->kernelSize, m->stride, m->padding,
-                                   dType, acts[i], acts[i + 1]));
+                                   acts[i], acts[i + 1]));
       numFlops += maxpool::getNumFlops(in.dim(1), in.dim(2),
                                        in.dim(0) * in.dim(3), m->kernelSize,
                                        m->stride, m->padding);
       perfectCycleTime +=
-          maxpool::getPerfectCycleCount(*deviceInfo, dType,
+          maxpool::getPerfectCycleCount(*graph, dType,
                                         in.dim(1), in.dim(2),
                                         in.dim(0) * in.dim(3), m->kernelSize,
                                         m->stride, m->padding);
@@ -712,17 +688,17 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   Tensor numCorrect = graph->addTensor("unsigned", {1}, "numCorrect");
   Tensor loss = graph->addTensor(dType, {1}, "loss");
   deltas[layers.size()] = graph->addTensor(dType, lastAct.dims(), "deltas");
-  mapActivations(deltas[layers.size()], *mapping, *deviceInfo);
+  mapActivations(*graph, deltas[layers.size()]);
   auto v = graph->addVertex(lossCS, templateVertex("CalcLoss", dType),
                            {{"in", lastAct.flatten()},
                             {"deltaOut", deltas[layers.size()].flatten()},
                             {"label", expected[0]},
                             {"loss", loss[0]},
                             {"numCorrect", numCorrect[0]}});
-  mapping->setMapping(expected, 0);
-  mapping->setMapping(numCorrect, 0);
-  mapping->setMapping(loss, 0);
-  mapping->setMapping(v, 0);
+  graph->setTileMapping(expected, 0);
+  graph->setTileMapping(numCorrect, 0);
+  graph->setTileMapping(loss, 0);
+  graph->setTileMapping(v, 0);
   graph->setFieldSize(v["probs"], lastAct.numElements());
   graph->setInitialValue(v["lossType"], lossType);;
   fwdProg.add(Sequence(Copy(numCorrect, &hNumCorrect),
@@ -747,32 +723,26 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
            assert(acts[i].dims().size() == 1);
            deltas[i] = graph->addTensor(dType, acts[i].dims(), "deltas");
         }
-        mapActivations(deltas[i], *mapping, *deviceInfo);
+        mapActivations(*graph, deltas[i]);
       }
       const auto *layer = layers[i].get();
       if (const auto *fc = dynamic_cast<const FullyConnectedLayer *>(layer)) {
         Tensor zDeltas = graph->addTensor(dType, deltas[i + 1].dims(),
                                           "zDeltas");
 
-        mapActivations(zDeltas, *mapping, *deviceInfo);
+        mapActivations(*graph, zDeltas);
         auto weights = params[i][0];
         auto biases = params[i][1];
         const auto &plan = fullyConnectedPlan.find(i)->second;
-        bwdProg.add(bwdNonLinearity(*graph, *mapping,
-                                    *deviceInfo, dType,
-                                    acts[i + 1], deltas[i + 1],
+        bwdProg.add(bwdNonLinearity(*graph, acts[i + 1], deltas[i + 1],
                                     zDeltas,
                                     fc->nonLinearityType));
 
         if (backwardPassRequired)
-          bwdProg.add(fc::fullyConnectedBackward(*graph, *mapping, *deviceInfo,
-                                                 dType, zDeltas,
-                                                 weights, deltas[i],
-                                                 plan));
-        bwdProg.add(fc::fullyConnectedWeightUpdate(*graph, *mapping,
-                                                   *deviceInfo, dType, zDeltas,
-                                                   acts[i], weights, biases,
-                                                   eta, plan));
+          bwdProg.add(fc::fullyConnectedBackward(*graph, zDeltas, weights,
+                                                 deltas[i], plan));
+        bwdProg.add(fc::fullyConnectedWeightUpdate(*graph, zDeltas, acts[i],
+                                                   weights, biases, eta, plan));
       } else if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
         bwdProg.add(createConvLayerBwd(i, c->kernelSize, c->stride, c->padding,
                                        c->nonLinearityType,
@@ -784,10 +754,8 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                                        backwardPassRequired));
       } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
         if (backwardPassRequired)
-          bwdProg.add(maxpool::maxPoolBackward(*graph, *mapping, *deviceInfo,
-                                               m->kernelSize, m->stride,
-                                               m->padding, dType,
-                                               acts[i], acts[i + 1],
+          bwdProg.add(maxpool::maxPoolBackward(*graph, m->kernelSize, m->stride,
+                                               m->padding, acts[i], acts[i + 1],
                                                deltas[i + 1], deltas[i]));
       } else {
         assert(0 && "Unrecognized layer type");
@@ -823,14 +791,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   progs[INIT_PARAMS_PROG] = &initParamsProg;
   progs[TRAIN_PROG] = &trainProg;
   progs[TEST_PROG] = &testProg;
-  if (options.useIPUModel) {
-    IPUModelEngineBuilder::UserTilePartitioner p(*mapping);
-    ipuEB.setTilePartitioner(p);
-    engine = ipuEB.makeEngine(*graph, progs);
-  } else {
-    CPUEngineBuilder cpuEB(*env);
-    engine = cpuEB.makeEngine(*graph, progs);
-  }
+  engine = std::unique_ptr<Engine>(new Engine(*graph, progs));
 }
 
 void Net::run(unsigned numBatches) {
@@ -866,9 +827,8 @@ void Net::run(unsigned numBatches) {
     }
   }
   if (options.useIPUModel) {
-    IPUModelEngine *ipuEngine = static_cast<IPUModelEngine *>(&*engine);
-    IPUModelEngine::ReportOptions opt;
+    Engine::ReportOptions opt;
     opt.doLayerWiseProfile = true;
-    ipuEngine->report(std::cout, opt);
+    engine->report(std::cout, opt);
   }
 }

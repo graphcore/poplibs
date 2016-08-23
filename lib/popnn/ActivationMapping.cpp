@@ -2,8 +2,7 @@
 #include <cassert>
 
 std::vector<unsigned>
-computeActivationsMapping(poplar::Tensor act,
-                          const DeviceInfo &deviceInfo) {
+computeActivationsMapping(const poplar::Graph &graph, poplar::Tensor act) {
   const auto numActivations = act.numElements();
   unsigned chansPerGroup;
   if (act.getDimensionality() == 1) {
@@ -12,7 +11,7 @@ computeActivationsMapping(poplar::Tensor act,
     assert(act.getDimensionality() == 4);
     chansPerGroup = act.dim(3);
   }
-  const auto numTiles = deviceInfo.getTilesPerIPU() * deviceInfo.getNumIPUs();
+  const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
   std::vector<unsigned> mapping;
   mapping.reserve(numTiles + 1);
   mapping.emplace_back(0);
@@ -40,29 +39,25 @@ computeActivationsMapping(poplar::Tensor act,
   return mapping;
 }
 
-void mapActivations(poplar::Tensor act,
-                    poplar::IPUModelEngineBuilder::TileMapping &mapping,
-                    const DeviceInfo &deviceInfo) {
-  auto actMapping = computeActivationsMapping(act, deviceInfo);
-  const auto numTiles = deviceInfo.getTilesPerIPU() * deviceInfo.getNumIPUs();
+void mapActivations(poplar::Graph &graph, poplar::Tensor act) {
+  auto actMapping = computeActivationsMapping(graph, act);
+  const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
   assert(actMapping.size() == numTiles + 1);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
-    mapping.setMapping(act.flatten().slice(actMapping[tile],
-                                           actMapping[tile + 1]),
-                       tile);
+    graph.setTileMapping(act.flatten().slice(actMapping[tile],
+                                             actMapping[tile + 1]),
+                         tile);
   }
 }
 
-void mapTensor(poplar::Tensor t,
-               poplar::IPUModelEngineBuilder::TileMapping &mapping,
-               const DeviceInfo &deviceInfo) {
+void mapTensor(poplar::Graph &graph, poplar::Tensor t) {
   std::uint64_t size = t.numElements();
-  const auto numTiles = deviceInfo.getTilesPerIPU() * deviceInfo.getNumIPUs();
+  const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
   for (unsigned i = 0; i < numTiles; ++i) {
     const auto begin = (size * i) / numTiles;
     const auto end = (size * (i + 1)) / numTiles;
     if (begin == end)
       continue;
-    mapping.setMapping(t.flatten().slice(begin, end), i);
+    graph.setTileMapping(t.flatten().slice(begin, end), i);
   }
 }

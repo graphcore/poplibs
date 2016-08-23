@@ -19,7 +19,6 @@ add_library(popnn SHARED
   ${CMAKE_SOURCE_DIR}/include/popnn/ActivationMapping.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Convolution.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/ConvPlan.hpp
-  ${CMAKE_SOURCE_DIR}/include/popnn/DeviceInfo.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/exceptions.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/FullyConnected.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/FullyConnectedPlan.hpp

@@ -1,11 +1,12 @@
 #include "popnn/ConvPlan.hpp"
 #include "popnn/Convolution.hpp"
+#include "poplar/Graph.hpp"
 #include "ConvUtil.hpp"
 #include "PerformanceEstimation.hpp"
 
 
 static unsigned getNumConvUnits(bool floatPartial,
-                                const DeviceInfo &deviceInfo) {
+                                const poplar::DeviceInfo &deviceInfo) {
   return floatPartial ? deviceInfo.fp32AccumConvUnitsPerTile :
                         deviceInfo.fp16AccumConvUnitsPerTile;
 }
@@ -15,7 +16,7 @@ struct ConvVertexType {
   bool useConvInstruction;
   bool floatPartials;
   unsigned partialChansPerGroup;
-  ConvVertexType(const DeviceInfo &deviceInfo,
+  ConvVertexType(const poplar::DeviceInfo &deviceInfo,
                  bool useConvInstruction, bool floatPartials) :
     useConvInstruction(useConvInstruction), floatPartials(floatPartials) {
     if (!useConvInstruction) {
@@ -79,7 +80,7 @@ static bool
 canUseConvolutionInstruction(bool floatActivations, bool floatPartials,
                              unsigned stride,
                              unsigned inChansPerGroup,
-                             const DeviceInfo &deviceInfo) {
+                             const poplar::DeviceInfo &deviceInfo) {
   if (floatActivations) {
     if (!deviceInfo.convInstructionsFloat) {
       return false;
@@ -186,7 +187,7 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
 }
 
 static unsigned
-estimateExchangeCost(const DeviceInfo &deviceInfo,
+estimateExchangeCost(const poplar::DeviceInfo &deviceInfo,
                      bool floatActivations, const ConvolutionParams &params,
                      const Partition &partition,
                      Phase phase) {
@@ -240,7 +241,7 @@ estimateExchangeCost(const DeviceInfo &deviceInfo,
     partialSumBytes = numberOfPartialSums * partialSize;
   }
 
-  const auto exchangeBytesPerCycle = deviceInfo.getIPUExchangeBandwidth();
+  const auto exchangeBytesPerCycle = deviceInfo.exchangeBytesPerCycle;
   const auto numCycles =
       (inputElementsBytes + exchangeBytesPerCycle - 1) / exchangeBytesPerCycle +
       (weightBytes + exchangeBytesPerCycle - 1) / exchangeBytesPerCycle +
@@ -252,7 +253,7 @@ static unsigned
 estimateVertexCycles(bool floatActivations,
                      const ConvolutionParams &params,
                      const Partition &partition,
-                     const DeviceInfo &deviceInfo,
+                     const poplar::DeviceInfo &deviceInfo,
                      bool useSupervisorVertices,
                      Phase phase) {
   const auto tilesPerY = partition.tilesPerYAxis;
@@ -310,7 +311,7 @@ estimateVertexCycles(bool floatActivations,
 }
 
 static unsigned
-estimatePartialCalcComputeCost(const DeviceInfo &deviceInfo,
+estimatePartialCalcComputeCost(const poplar::DeviceInfo &deviceInfo,
                                bool floatActivations,
                                const ConvolutionParams &params,
                                const Partition &partition,
@@ -341,7 +342,7 @@ estimatePartialCalcComputeCost(const DeviceInfo &deviceInfo,
   // The use of supervisor vertices only affects vertices that use the
   // convolution instructions.
   bool useSupervisorVertices = false;
-  unsigned numContexts = deviceInfo.getNumWorkerContexts();
+  unsigned numContexts = deviceInfo.numWorkerContexts;
   if (deviceInfo.sharedConvWeights &&
       partition.useConvolutionInstructions) {
     useSupervisorVertices = true;
@@ -359,7 +360,7 @@ estimatePartialCalcComputeCost(const DeviceInfo &deviceInfo,
 }
 
 static unsigned
-estimateReduceComputeCost(const DeviceInfo &deviceInfo,
+estimateReduceComputeCost(const poplar::DeviceInfo &deviceInfo,
                           const ConvolutionParams &params,
                           const Partition &partition,
                           Phase phase) {
@@ -381,7 +382,7 @@ estimateReduceComputeCost(const DeviceInfo &deviceInfo,
 }
 
 static unsigned
-estimateComputeCost(const DeviceInfo &deviceInfo,
+estimateComputeCost(const poplar::DeviceInfo &deviceInfo,
                     bool floatActivations, const ConvolutionParams &params,
                     const Partition &partition,
                     Phase phase) {
@@ -393,7 +394,7 @@ estimateComputeCost(const DeviceInfo &deviceInfo,
 }
 
 static unsigned
-estimatePartitionCostBounded(const DeviceInfo &deviceInfo,
+estimatePartitionCostBounded(const poplar::DeviceInfo &deviceInfo,
                              bool floatActivations,
                              const ConvolutionParams &params,
                              const Partition &partition,
@@ -410,7 +411,7 @@ estimatePartitionCostBounded(const DeviceInfo &deviceInfo,
 }
 
 static unsigned
-estimatePartitionCost(const DeviceInfo &deviceInfo,
+estimatePartitionCost(const poplar::DeviceInfo &deviceInfo,
                       bool floatActivations,
                       const ConvolutionParams &params,
                       const Partition &partition,
@@ -422,8 +423,9 @@ estimatePartitionCost(const DeviceInfo &deviceInfo,
 }
 
 static std::pair<Partition, unsigned>
-choosePartition(const DeviceInfo &deviceInfo,
+choosePartition(const poplar::DeviceInfo &deviceInfo,
                 bool floatActivations,
+                bool preferConvInstructions,
                 unsigned inChansPerGroup,
                 const ConvVertexType &convVertexType,
                 const ConvolutionParams &params,
@@ -486,7 +488,7 @@ choosePartition(const DeviceInfo &deviceInfo,
               estimatePartitionCostBounded(deviceInfo, floatActivations,
                                            params, candidate,
                                            bestCost, phase);
-          if (deviceInfo.preferConvInstructions &&
+          if (preferConvInstructions &&
               !convVertexType.useConvInstruction)
             candidateCost *= 100000;
           if (candidateCost < bestCost) {
@@ -501,7 +503,7 @@ choosePartition(const DeviceInfo &deviceInfo,
 }
 
 static std::vector<ConvVertexType>
-getConvVertexTypeCandidates(const DeviceInfo &deviceInfo,
+getConvVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
                             bool floatActivations,
                             unsigned inChansPerGroup,
                             const ConvolutionParams &params) {
@@ -523,8 +525,9 @@ getConvVertexTypeCandidates(const DeviceInfo &deviceInfo,
 }
 
 static std::pair<Partition, unsigned>
-choosePartition(const DeviceInfo &deviceInfo,
+choosePartition(const poplar::DeviceInfo &deviceInfo,
                 bool floatActivations,
+                bool preferConvInstructions,
                 unsigned inChansPerGroup,
                 const ConvolutionParams &params,
                 Phase phase) {
@@ -541,8 +544,8 @@ choosePartition(const DeviceInfo &deviceInfo,
     Partition candidate;
     unsigned candidateCost;
     std::tie(candidate, candidateCost) =
-        choosePartition(deviceInfo, floatActivations, inChansPerGroup,
-                        convVertexType, params, phase);
+        choosePartition(deviceInfo, floatActivations, preferConvInstructions,
+                        inChansPerGroup, convVertexType, params, phase);
     if (candidateCost < bestCost) {
       bestPartition = candidate;
       bestCost = candidateCost;
@@ -568,7 +571,8 @@ getInChansPerGroupCandidates(const ConvolutionParams &params,
 }
 
 static std::pair<Partition, unsigned>
-choosePartition(const DeviceInfo &deviceInfo, bool floatActivations,
+choosePartition(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
+                bool preferConvInstructions,
                 const ConvolutionParams &params, Phase phase) {
   unsigned bestCost = std::numeric_limits<unsigned>::max();
   Partition best;
@@ -578,7 +582,8 @@ choosePartition(const DeviceInfo &deviceInfo, bool floatActivations,
     Partition candidate;
     unsigned candidateCost;
     std::tie(candidate, candidateCost) =
-        choosePartition(deviceInfo, floatActivations, inChansPerGroup, params,
+        choosePartition(deviceInfo, floatActivations,
+                        preferConvInstructions, inChansPerGroup, params,
                         phase);
     assert(candidate.inChansPerGroup == inChansPerGroup);
     if (candidateCost < bestCost) {
@@ -592,7 +597,10 @@ choosePartition(const DeviceInfo &deviceInfo, bool floatActivations,
 ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                     unsigned kernelSize, unsigned stride, unsigned padding,
                     unsigned numChannels, std::string dType,
-                    const DeviceInfo &deviceInfo, bool forwardOnly) {
+                    const poplar::Graph &graph, bool forwardOnly) {
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  bool preferConvInstructions =
+      graph.getDevice().getDeviceType() == poplar::DeviceType::CPU;
   ConvPlan plan;
   if (kernelSize == 1 && stride == 1 && padding == 0) {
     plan.flattenXY = true;
@@ -614,6 +622,7 @@ ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
       getInChansPerGroupCandidates(fwdParams, floatActivations);
   if (!forwardOnly) {
     plan.bwdPartition = choosePartition(deviceInfo, floatActivations,
+                                        preferConvInstructions,
                                         bwdParams, Phase::BACKWARD).first;
   }
   for (auto inChansPerGroup : inChansPerGroupCandidates) {
@@ -624,7 +633,7 @@ ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
       Partition fwdCandidate;
       unsigned fwdCandidateCost;
       std::tie(fwdCandidate, fwdCandidateCost) =
-          choosePartition(deviceInfo, floatActivations,
+          choosePartition(deviceInfo, floatActivations, preferConvInstructions,
                           inChansPerGroup, convVertexType,
                           fwdParams, Phase::FORWARD);
       Partition wuCandidate;
@@ -633,7 +642,8 @@ ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
         ConvVertexType wuVertexType(false, floatActivations,
                                     convVertexType.partialChansPerGroup);
         std::tie(wuCandidate, wuCandidateCost) =
-            choosePartition(deviceInfo, floatActivations, inChansPerGroup,
+            choosePartition(deviceInfo, floatActivations,
+                            preferConvInstructions, inChansPerGroup,
                             wuVertexType, fwdParams,
                             Phase::WEIGHTUPDATE);
       }

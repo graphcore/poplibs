@@ -1,14 +1,12 @@
 #ifndef _net_hpp_
 #define _net_hpp_
 #include <poplar/Graph.hpp>
-#include <poplar/CPUEngine.hpp>
-#include <poplar/IPUModelEngine.hpp>
+#include <poplar/Engine.hpp>
 #include <cstdint>
 #include <memory>
 #include <vector>
 #include <map>
 #include <random>
-#include "popnn/DeviceInfo.hpp"
 #include "popnn/exceptions.hpp"
 #include "popnn/FullyConnectedPlan.hpp"
 #include "popnn/ConvPlan.hpp"
@@ -151,10 +149,7 @@ class Net {
   /* Poplar program creation state. */
   std::unique_ptr<poplar::GraphProgEnv> env;
   std::unique_ptr<poplar::Graph> graph;
-  std::unique_ptr<poplar::EngineBuilder> engineBuilder;
-  std::unique_ptr<DeviceInfo> deviceInfo;
   std::unique_ptr<poplar::Engine> engine;
-  std::unique_ptr<poplar::IPUModelEngineBuilder::TileMapping> mapping;
   std::unique_ptr<char[]> hAct;
   std::vector<std::unique_ptr<float[]>> hParams;
   std::mt19937 randomEngine;

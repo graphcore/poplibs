@@ -1,6 +1,6 @@
 #define BOOST_TEST_MODULE FullyConnectedTest
 #include <boost/test/unit_test.hpp>
-#include <poplar/IPUModelEngine.hpp>
+#include <poplar/Engine.hpp>
 #include <popnn/FullyConnected.hpp>
 #include <popnn/FullyConnectedPlan.hpp>
 #include <popnn/ActivationMapping.hpp>
@@ -15,23 +15,19 @@ BOOST_AUTO_TEST_CASE(FullyConnected,
                        *utf::tolerance<float>(
                           fpc::percent_tolerance<float>(0.01))) {
   GraphProgEnv env(popnn::findGraphProg(), GraphProgFileType::Object);
-  Graph graph(env);
-  IPUModelEngineBuilder ipuEB(env);
-  DeviceInfo deviceInfo(ipuEB, 64, 4, 8, 4, true, false, true);
-  IPUModelEngineBuilder::TileMapping mapping(graph);
+  Graph graph(env, createIPUModelDevice());
   std::size_t inSize = 1000;
   std::size_t outSize = 10;
   auto in = graph.addTensor("float", {inSize}, "in");
   auto out = graph.addTensor("float", {outSize}, "out");
-  mapActivations(in, mapping, deviceInfo);
-  mapActivations(out, mapping, deviceInfo);
+  mapActivations(graph, in);
+  mapActivations(graph, out);
   Tensor weights, biases;
   std::tie(weights, biases) = fc::createParams(graph, "float", inSize, outSize);
-  auto outMapping = computeActivationsMapping(out, deviceInfo);
-  auto plan = fc::createPlan(deviceInfo, "float", inSize, outMapping, true);
-  auto fc = fc::fullyConnected(graph, mapping, deviceInfo,
-                               outSize, NON_LINEARITY_NONE,
-                               "float", in, weights, biases, out, plan);
+  auto outMapping = computeActivationsMapping(graph, out);
+  auto plan = fc::createPlan(graph, "float", inSize, outMapping, true);
+  auto fc = fc::fullyConnected(graph, outSize, NON_LINEARITY_NONE,
+                               in, weights, biases, out, plan);
   float hIn[inSize];
   float hOut[outSize], hRefOut[outSize];
   float hWeights[outSize][inSize];
@@ -41,9 +37,8 @@ BOOST_AUTO_TEST_CASE(FullyConnected,
                        Copy(biases, &hBiases[0]),
                        fc,
                        Copy(&hOut[0], out));
-  IPUModelEngineBuilder::UserTilePartitioner p(mapping);
-  ipuEB.setTilePartitioner(p);
-  auto eng = ipuEB.makeEngine(graph, prog);
+  Engine eng(graph, prog);
+
   for (unsigned i = 0; i < inSize; ++i)
     hIn[i] = i;
   for (unsigned i = 0; i < outSize; ++i)
@@ -62,7 +57,7 @@ BOOST_AUTO_TEST_CASE(FullyConnected,
     }
     hRefOut[i] = sum;
   }
-  eng->run();
+  eng.run();
   for (unsigned i = 0; i < outSize; ++i)
     BOOST_TEST(hOut[i] == hRefOut[i]);
 }

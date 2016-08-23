@@ -3,8 +3,6 @@
 #include <tuple>
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
-#include <poplar/IPUModelEngine.hpp>
-#include "DeviceInfo.hpp"
 #include <cstdint>
 
 namespace maxpool {
@@ -17,7 +15,7 @@ uint64_t getNumFlops(unsigned inDimY, unsigned inDimX,
                      unsigned numChannels, unsigned kernelSize,
                      unsigned stride, unsigned padding);
 
-double getPerfectCycleCount(const DeviceInfo &deviceInfo,
+double getPerfectCycleCount(const poplar::Graph &graph,
                             std::string dType,
                             unsigned inDimY, unsigned inDimX,
                             unsigned numChannels, unsigned kernelSize,
@@ -25,18 +23,13 @@ double getPerfectCycleCount(const DeviceInfo &deviceInfo,
 
 poplar::program::Program
 maxPool(poplar::Graph &graph,
-        poplar::IPUModelEngineBuilder::TileMapping &mapping,
-        DeviceInfo &deviceInfo,
         unsigned kernelSize, unsigned stride, unsigned padding,
-        std::string dType,
         poplar::Tensor in, poplar::Tensor out);
 
 poplar::program::Program
 maxPoolBackward(poplar::Graph &graph,
-                poplar::IPUModelEngineBuilder::TileMapping &mapping,
-                DeviceInfo &deviceInfo,
                 unsigned kernelSize, unsigned stride, unsigned padding,
-                std::string dType, poplar::Tensor actIn,
+                poplar::Tensor actIn,
                 poplar::Tensor actOut, poplar::Tensor deltasIn,
                 poplar::Tensor deltasOut);
 }

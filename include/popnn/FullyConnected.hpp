@@ -3,8 +3,6 @@
 #include <tuple>
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
-#include <poplar/IPUModelEngine.hpp>
-#include "DeviceInfo.hpp"
 #include "popnn/NonLinearityDef.hpp"
 
 namespace fc {
@@ -13,7 +11,7 @@ struct Plan;
 
 uint64_t getNumFlops(unsigned inSize, unsigned outSize, bool forwardOnly);
 
-double getPerfectCycleCount(const DeviceInfo &deviceInfo,
+double getPerfectCycleCount(const poplar::Graph &graph,
                             unsigned inSize, unsigned outSize,
                             std::string dType, bool forwardOnly);
 
@@ -23,10 +21,7 @@ createParams(poplar::Graph &graph, std::string dType, unsigned inSize,
 
 poplar::program::Program
 fullyConnected(poplar::Graph &graph,
-               poplar::IPUModelEngineBuilder::TileMapping &mapping,
-               DeviceInfo &deviceInfo,
                unsigned size, NonLinearityType nonLinearityType,
-               std::string dType,
                poplar::Tensor in, poplar::Tensor weights,
                poplar::Tensor biases,
                poplar::Tensor out,
@@ -34,18 +29,12 @@ fullyConnected(poplar::Graph &graph,
 
 poplar::program::Program
 fullyConnectedBackward(poplar::Graph &graph,
-                       poplar::IPUModelEngineBuilder::TileMapping &mapping,
-                       DeviceInfo &deviceInfo,
-                       std::string dType,
                        poplar::Tensor zDeltas,
                        poplar::Tensor weights, poplar::Tensor deltasOut,
                        const Plan &plan);
 
 poplar::program::Program
 fullyConnectedWeightUpdate(poplar::Graph &graph,
-                           poplar::IPUModelEngineBuilder::TileMapping &mapping,
-                           DeviceInfo &deviceInfo,
-                           std::string dType,
                            poplar::Tensor zDeltas,
                            poplar::Tensor activations,
                            poplar::Tensor weights, poplar::Tensor biases,

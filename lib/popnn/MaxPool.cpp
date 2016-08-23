@@ -42,11 +42,12 @@ uint64_t getNumFlops(unsigned inDimY, unsigned inDimX,
   return numFlops;
 }
 
-double getPerfectCycleCount(const DeviceInfo &deviceInfo,
+double getPerfectCycleCount(const Graph &graph,
                             std::string dType,
                             unsigned inDimY, unsigned inDimX,
                             unsigned numChannels, unsigned kernelSize,
                             unsigned stride, unsigned padding) {
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   unsigned dTypeSize = dType == "float" ? 4 : 2;
   const auto numTiles = deviceInfo.getNumTiles();
   const auto numFLOPs = getNumFlops(inDimY, inDimX, numChannels, kernelSize,
@@ -56,11 +57,11 @@ double getPerfectCycleCount(const DeviceInfo &deviceInfo,
 }
 
 Program
-maxPool(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping,
-        DeviceInfo &deviceInfo,
+maxPool(Graph &graph,
         unsigned kernelSize, unsigned stride, unsigned padding,
-        std::string dType,
         Tensor in, Tensor out) {
+  const auto dType = graph.getTensorElementType(in);
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto layerName = "MaxPool" + std::to_string(kernelSize) + "x" +
                           std::to_string(kernelSize);
@@ -81,8 +82,8 @@ maxPool(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping,
   const auto chunksPerChanGroup = chansPerGroup / chunkSize;
   ComputeSet fwd = graph.createComputeSet(layerName + ".fwd");
   //mapping over this MaxPool layer's outputs
-  const auto outMapping = computeActivationsMapping(out, deviceInfo);
-  const auto numTiles = deviceInfo.getNumIPUs() * deviceInfo.getTilesPerIPU();
+  const auto outMapping = computeActivationsMapping(graph, out);
+  const auto numTiles = deviceInfo.getNumTiles();
 
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto tileOutBegin = outMapping[tile];
@@ -110,7 +111,7 @@ maxPool(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping,
         graph.addVertex(fwd, templateVertex("MaxPooling", dType),
           { {"activationOut", out[chanGroup][y][x]} });
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-      mapping.setMapping(v, tile);
+      graph.setTileMapping(v, tile);
       graph.setFieldSize(v["activationIn"],
                          chunksPerChanGroup * inYSize * inXSize);
       unsigned chunkIndex = 0;
@@ -137,11 +138,12 @@ maxPool(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping,
 }
 
 Program
-maxPoolBackward(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping,
-                DeviceInfo &deviceInfo,
+maxPoolBackward(Graph &graph,
                 unsigned kernelSize, unsigned stride, unsigned padding,
-                std::string dType, Tensor actIn, Tensor actOut,
+                Tensor actIn, Tensor actOut,
                 Tensor deltasIn, Tensor deltasOut) {
+  const auto dType = graph.getTensorElementType(actIn);
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   // actIn is from the previous layer
   // actOut went to the next layer
   // deltasIn is from the next layer
@@ -170,9 +172,8 @@ maxPoolBackward(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping,
   const auto xDimNext = actOut.dim(2);
   unsigned calcNextX, calcNextY;
 
-  if (deviceInfo.isIPU
-      && (padding != 0 || xDimPrev % stride != 0 || yDimPrev % stride != 0 ||
-          kernelSize != stride)) {
+  if (padding != 0 || xDimPrev % stride != 0 || yDimPrev % stride != 0 ||
+      kernelSize != stride) {
     std::cerr << "WARNING: padding, overlapped pooling or pooling that"
                  " doesn't exactly divide\n"
                  "input not implemented yet, skipping tile mapping for"
@@ -191,8 +192,8 @@ maxPoolBackward(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping,
 
   auto bwdCS = graph.createComputeSet(layerName + ".bwd");
   // map over the Pool kernels - all will be mapped to the same tile
-  const auto nextMapping = computeActivationsMapping(actOut, deviceInfo);
-  const auto numTiles = deviceInfo.getNumIPUs() * deviceInfo.getTilesPerIPU();
+  const auto nextMapping = computeActivationsMapping(graph, actOut);
+  const auto numTiles = deviceInfo.getNumTiles();
 
   for (auto tile = 0; tile != numTiles; ++tile) {
     const auto tileBegin = nextMapping[tile];
@@ -236,7 +237,7 @@ maxPoolBackward(Graph &graph, IPUModelEngineBuilder::TileMapping &mapping,
                   {"errOut", deltasOut[chan / deltasOut.dim(3)][yPrev][xPrev]
                                       [chan % deltasOut.dim(3)]}
                 });
-              mapping.setMapping(v, tile);
+              graph.setTileMapping(v, tile);
 
             }
           }

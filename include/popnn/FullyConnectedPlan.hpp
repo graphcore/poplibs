@@ -1,10 +1,8 @@
 #ifndef _FullyConnectedPlan_hpp_
 #define _FullyConnectedPlan_hpp_
-
 #include <string>
 #include <vector>
-
-class DeviceInfo;
+#include <poplar/Graph.hpp>
 
 namespace fc {
 
@@ -23,7 +21,7 @@ struct Plan {
 };
 
 Plan
-createPlan(const DeviceInfo &deviceInfo,
+createPlan(const poplar::Graph &graph,
            const std::string &dType, unsigned numIn,
            std::vector<unsigned> outputMapping,
            bool forwardOnly);

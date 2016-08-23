@@ -1,7 +1,7 @@
 #ifndef __ConvPlan_hpp__
 #define __ConvPlan_hpp__
 #include <string>
-#include "DeviceInfo.hpp"
+#include <poplar/Graph.hpp>
 
 namespace conv {
 
@@ -51,7 +51,7 @@ public:
 ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                     unsigned kernelSize, unsigned stride, unsigned padding,
                     unsigned numChannels, std::string dType,
-                    const DeviceInfo &deviceInfo, bool forwardOnly);
+                    const poplar::Graph &graph, bool forwardOnly);
 
 }
 #endif // __ConvPlan_hpp__

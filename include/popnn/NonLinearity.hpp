@@ -1,15 +1,10 @@
 #ifndef __NonLinearity_hpp__
 #define __NonLinearity_hpp__
 #include "popnn/NonLinearityDef.hpp"
-#include "popnn/DeviceInfo.hpp"
-#include "poplar/IPUModelEngine.hpp"
 #include "poplar/Program.hpp"
 
 poplar::program::Program
 bwdNonLinearity(poplar::Graph &graph,
-                poplar::IPUModelEngineBuilder::TileMapping &mapping,
-                DeviceInfo &deviceInfo,
-                std::string dType,
                 poplar::Tensor activations, poplar::Tensor deltasIn,
                 poplar::Tensor zDeltas,
                 NonLinearityType nonLinearityType);

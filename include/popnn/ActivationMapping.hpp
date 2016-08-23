@@ -1,21 +1,15 @@
 #ifndef __ActivationMapping_hpp__
 #define __ActivationMapping_hpp__
 #include <vector>
-#include "DeviceInfo.hpp"
-#include "poplar/Tensor.hpp"
-#include "poplar/IPUModelEngine.hpp"
+#include "poplar/Graph.hpp"
 
-std::vector<unsigned> computeActivationsMapping(poplar::Tensor t,
-                                                const DeviceInfo &deviceInfo);
+std::vector<unsigned> computeActivationsMapping(const poplar::Graph &graph,
+                                                poplar::Tensor t);
 
-void mapActivations(poplar::Tensor t,
-                    poplar::IPUModelEngineBuilder::TileMapping &mapping,
-                    const DeviceInfo &deviceInfo);
+void mapActivations(poplar::Graph &graph, poplar::Tensor t);
 
 
-void mapTensor(poplar::Tensor t,
-               poplar::IPUModelEngineBuilder::TileMapping &mapping,
-               const DeviceInfo &deviceInfo);
+void mapTensor(poplar::Graph &graph, poplar::Tensor t);
 
 /// Given a mapping of data to tiles, use the specified builder function to
 /// create vertices that operate on that data. Each vertex operates on data
@@ -23,9 +17,10 @@ void mapTensor(poplar::Tensor t,
 /// decided based on the number of worker contexts.
 template <class Builder>
 void buildTransform(const std::vector<unsigned> &tileMapping,
-                    const DeviceInfo &deviceInfo, Builder &&builder) {
+                    const poplar::Graph &graph, Builder &&builder) {
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto numTiles = deviceInfo.getNumTiles();
-  const auto workersPerTile = deviceInfo.getNumWorkerContexts();
+  const auto workersPerTile = deviceInfo.numWorkerContexts;
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto tileElementBegin = tileMapping[tile];
     const auto tileElementEnd = tileMapping[tile + 1];

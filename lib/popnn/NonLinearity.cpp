@@ -7,17 +7,16 @@ using namespace poplar::program;
 
 Program
 bwdNonLinearity(Graph &graph,
-                IPUModelEngineBuilder::TileMapping &mapping,
-                DeviceInfo &deviceInfo,
-                std::string dType,
                 Tensor activations, Tensor deltasIn,
                 Tensor zDeltas,
                 NonLinearityType nonLinearityType) {
+  const auto dType = graph.getTensorElementType(activations);
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
-  auto deltasInMapping = computeActivationsMapping(activations, deviceInfo);
+  auto deltasInMapping = computeActivationsMapping(graph, activations);
   deltasIn = deltasIn.flatten();
   auto bwdNonLinearityCS = graph.createComputeSet("NonLinearity.bwd");
-  buildTransform(deltasInMapping, deviceInfo, [&](unsigned deltaBegin,
+  buildTransform(deltasInMapping, graph, [&](unsigned deltaBegin,
                                                   unsigned deltaEnd,
                                                   unsigned tile) {
     auto v =
@@ -32,7 +31,7 @@ bwdNonLinearity(Graph &graph,
                         });
     graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
     graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-    mapping.setMapping(v, tile);
+    graph.setTileMapping(v, tile);
   });
   return Execute(bwdNonLinearityCS);
 }

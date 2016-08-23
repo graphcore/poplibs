@@ -20,13 +20,12 @@ createParams(Graph &graph, std::string dType, unsigned inSize,
 
 Program
 fullyConnected(Graph &graph,
-               IPUModelEngineBuilder::TileMapping &mapping,
-               DeviceInfo &deviceInfo,
                unsigned size, NonLinearityType nonLinearityType,
-               std::string dType,
                Tensor in0, Tensor weights,
                Tensor biases, Tensor activations,
                const Plan &plan) {
+  const auto dType = graph.getTensorElementType(in0);
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto layerName = "FullyConnected" + std::to_string(size);
   Tensor in = in0.flatten();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
@@ -34,8 +33,8 @@ fullyConnected(Graph &graph,
 
   const auto numRows = size;
   const auto numCols = prevSize;
-  const auto numIPUs = deviceInfo.getNumIPUs();
-  const auto tilesPerIPU = deviceInfo.getTilesPerIPU();
+  const auto numIPUs = deviceInfo.numIPUs;
+  const auto tilesPerIPU = deviceInfo.tilesPerIPU;
   const auto &activationsOutMapping = plan.outputMapping;
   bool isFloat = dType == "float";
   assert(isFloat || dType == "half");
@@ -81,9 +80,9 @@ fullyConnected(Graph &graph,
                                  {"weights", partialWeights},
                                  {"out", partials[i][j]}});
             graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-            mapping.setMapping(partialWeights, tile);
-            mapping.setMapping(partials[i][j], tile);
-            mapping.setMapping(v, tile);
+            graph.setTileMapping(partialWeights, tile);
+            graph.setTileMapping(partials[i][j], tile);
+            graph.setTileMapping(v, tile);
         }
       }
     }
@@ -105,8 +104,8 @@ fullyConnected(Graph &graph,
                            {"activationOut", activations[i]}});
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
-      mapping.setMapping(v, tile);
-      mapping.setMapping(biases[i], tile);
+      graph.setTileMapping(v, tile);
+      graph.setTileMapping(biases[i], tile);
     }
   }
   return prog;
@@ -119,9 +118,10 @@ uint64_t getNumFlops(unsigned inSize, unsigned outSize, bool forwardOnly) {
     return 3 * (2 * inSize * outSize);
 }
 
-double getPerfectCycleCount(const DeviceInfo &deviceInfo,
+double getPerfectCycleCount(const Graph &graph,
                             unsigned inSize, unsigned outSize,
                             std::string dType, bool forwardOnly) {
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   unsigned dTypeSize = dType == "float" ? 4 : 2;
   const auto numTiles = deviceInfo.getNumTiles();
   const auto numFLOPs = getNumFlops(inSize, outSize, forwardOnly);
@@ -130,12 +130,11 @@ double getPerfectCycleCount(const DeviceInfo &deviceInfo,
 }
 
 Program fullyConnectedBackward(Graph &graph,
-                               IPUModelEngineBuilder::TileMapping &mapping,
-                               DeviceInfo &deviceInfo,
-                               std::string dType,
                                Tensor zDeltas,
                                Tensor weights, Tensor deltasOut,
                                const Plan &plan) {
+  const auto dType = graph.getTensorElementType(zDeltas);
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto size = static_cast<unsigned>(zDeltas.numElements());
   const auto prevSize = static_cast<unsigned>(weights.dim(1));
   const auto layerName = "FullyConnected" + std::to_string(size);
@@ -143,8 +142,8 @@ Program fullyConnectedBackward(Graph &graph,
   auto bwdCS = graph.createComputeSet(layerName + ".bwd");
   prog.add(Execute(bwdCS));
   const auto &ipuPartition = plan.ipuPartition;
-  const auto numIPUs = deviceInfo.getNumIPUs();
-  const auto tilesPerIPU = deviceInfo.getTilesPerIPU();
+  const auto numIPUs = deviceInfo.numIPUs;
+  const auto tilesPerIPU = deviceInfo.tilesPerIPU;
   const auto numCols = prevSize;
    Tensor partials =
        graph.addTensor("float", {numCols, numIPUs, ipuPartition.tilesPerColumn},
@@ -190,14 +189,14 @@ Program fullyConnectedBackward(Graph &graph,
                                     {"weights", w},
                                     {"out", outWindow},
                                    });
-          mapping.setMapping(v, tile);
-          mapping.setMapping(outWindow, tile);
+          graph.setTileMapping(v, tile);
+          graph.setTileMapping(outWindow, tile);
         }
       }
     }
   }
   const auto deltasOutMapping =
-      computeActivationsMapping(deltasOut, deviceInfo);
+      computeActivationsMapping(graph, deltasOut);
   deltasOut = deltasOut.flatten();
   ComputeSet intraIPUReduce = graph.createComputeSet(layerName + ".bwd.reduce");
   prog.add(Execute(intraIPUReduce));
@@ -225,10 +224,10 @@ Program fullyConnectedBackward(Graph &graph,
                                                                       outType),
                             {{"partials", partials[i][ipu]},
                              {"out", intraIPUPartialSums[i][ipu]}});
-        mapping.setMapping(v, tile);
+        graph.setTileMapping(v, tile);
         graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
         if (numIPUs > 1) {
-          mapping.setMapping(intraIPUPartialSums[i][ipu], tile);
+          graph.setTileMapping(intraIPUPartialSums[i][ipu], tile);
         }
       }
     }
@@ -251,7 +250,7 @@ Program fullyConnectedBackward(Graph &graph,
                                            dType),
                             {{"partials", intraIPUPartialSums[i]},
                              {"out", deltasOut[i]}});
-        mapping.setMapping(v, tile);
+        graph.setTileMapping(v, tile);
         graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
       }
     }
@@ -261,14 +260,13 @@ Program fullyConnectedBackward(Graph &graph,
 
 Program
 fullyConnectedWeightUpdate(Graph &graph,
-                           IPUModelEngineBuilder::TileMapping &mapping,
-                           DeviceInfo &deviceInfo,
-                           std::string dType,
                            Tensor zDeltas,
                            Tensor activations,
                            Tensor weights, Tensor biases,
                            float learningRate,
                            const Plan &plan) {
+  const auto dType = graph.getTensorElementType(activations);
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto &activationsOutMapping = plan.outputMapping;
   activations = activations.flatten();
@@ -277,8 +275,8 @@ fullyConnectedWeightUpdate(Graph &graph,
   auto cs = graph.createComputeSet(layerName + ".weight_update");
 
   const auto numCols = activations.numElements();
-  const auto numIPUs = deviceInfo.getNumIPUs();
-  const auto tilesPerIPU = deviceInfo.getTilesPerIPU();
+  const auto numIPUs = deviceInfo.numIPUs;
+  const auto tilesPerIPU = deviceInfo.tilesPerIPU;
   const auto &ipuPartition = plan.ipuPartition;
   // Update the weights.
   for (unsigned ipu = 0; ipu != numIPUs; ++ipu) {
@@ -315,14 +313,14 @@ fullyConnectedWeightUpdate(Graph &graph,
           graph.setInitialValue(v["eta"],
                                 learningRate);
           graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-          mapping.setMapping(v, tile);
+          graph.setTileMapping(v, tile);
         }
       }
     }
   }
 
   // Update the biases.
-  buildTransform(activationsOutMapping, deviceInfo,
+  buildTransform(activationsOutMapping, graph,
                  [&](unsigned activationBegin, unsigned activationEnd,
                  unsigned tile) {
     auto v =
@@ -335,7 +333,7 @@ fullyConnectedWeightUpdate(Graph &graph,
                                                activationEnd)}});
     graph.setInitialValue(v["eta"], learningRate);
     graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-    mapping.setMapping(v, tile);
+    graph.setTileMapping(v, tile);
   });
   return Execute(cs);
 }
