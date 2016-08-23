@@ -37,7 +37,7 @@ struct Partition {
     useConvolutionInstructions(useConvolutionInstructions) {}
   const char *getPartialType() const {
     return floatPartials ? "float" : "half";
-  }  
+  }
 };
 
 struct ConvPlan {

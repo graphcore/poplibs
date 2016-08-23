@@ -340,4 +340,3 @@ fullyConnectedWeightUpdate(Graph &graph,
 
 
 }
-

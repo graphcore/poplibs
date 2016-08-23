@@ -1230,7 +1230,7 @@ convolution(Graph &graph,
                                      partialNumChanGroups,
                                      partialOutDimY,
                                      partialOutDimX,
-                                     partialChansPerGroup}, 
+                                     partialChansPerGroup},
                                     "partials");
   forwardProg.add(calcPartialSums(graph, plan.fwdPartition,
                                   kernelSize, stride, padding, outNumChans,

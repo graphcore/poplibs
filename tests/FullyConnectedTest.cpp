@@ -61,5 +61,3 @@ BOOST_AUTO_TEST_CASE(FullyConnected,
   for (unsigned i = 0; i < outSize; ++i)
     BOOST_TEST(hOut[i] == hRefOut[i]);
 }
-
-

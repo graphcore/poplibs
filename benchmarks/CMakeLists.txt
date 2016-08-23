@@ -33,4 +33,3 @@ add_custom_command(
   DEPENDS
     benchmark_report.py
 )
-
