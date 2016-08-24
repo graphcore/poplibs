@@ -16,8 +16,8 @@ BOOST_AUTO_TEST_CASE(FullyConnected,
                           fpc::percent_tolerance<float>(0.01))) {
   GraphProgEnv env(popnn::findGraphProg(), GraphProgFileType::Object);
   Graph graph(env, createIPUModelDevice());
-  std::size_t inSize = 1000;
-  std::size_t outSize = 10;
+  const std::size_t inSize = 1000;
+  const std::size_t outSize = 10;
   auto in = graph.addTensor("float", {inSize}, "in");
   auto out = graph.addTensor("float", {outSize}, "out");
   mapActivations(graph, in);

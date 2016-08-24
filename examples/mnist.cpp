@@ -55,9 +55,9 @@ std::unique_ptr<float[]> readMNISTData(int numberOfImages,
     n_rows = reverseInt(n_rows);
     file.read((char*) &n_cols, sizeof(n_cols));
     n_cols = reverseInt(n_cols);
-    unsigned char buf[n_rows * n_cols];
+    std::vector<unsigned char> buf(n_rows * n_cols);
     for(int i = 0; i < number_of_images; ++i) {
-      file.read((char*) buf, n_rows * n_cols);
+      file.read((char*) buf.data(), n_rows * n_cols);
       for(int r = 0; r < n_rows; ++r) {
         for(int c = 0; c < n_cols; ++c) {
           float pixel = ((float) buf[r * n_cols + c]) / 256;
