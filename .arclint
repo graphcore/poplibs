@@ -1,0 +1,41 @@
+{
+  "linters": {
+    "chmod": {
+      "type": "chmod"
+    },
+    "merge-conflict": {
+      "type": "merge-conflict"
+    },
+    "text": {
+      "type": "text",
+      "exclude": "(\\.(c|cpp|C|cc|c\\+\\+|cxx|h|hpp|py)$)",
+      "severity": {
+        "1": "autofix",
+        "2": "disabled",
+        "3": "disabled",
+        "4": "autofix",
+        "5": "error",
+        "6": "disabled",
+        "7": "disabled",
+        "8": "autofix"
+      }
+    },
+    "text-cxx": {
+      "type": "text",
+      "include": "(\\.(c|cpp|C|cc|c\\+\\+|cxx|h|hpp)$)",
+      "severity": {
+        "1": "autofix",
+        "2": "warning",
+        "3": "warning",
+        "4": "autofix",
+        "5": "error",
+        "6": "autofix",
+        "7": "autofix",
+        "8": "autofix"
+      }
+    },
+    "spelling": {
+      "type": "spelling"
+    }
+  }
+}
