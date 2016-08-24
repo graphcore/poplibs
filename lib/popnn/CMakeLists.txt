@@ -1,5 +1,7 @@
 include(GNUInstallDirs)
 find_package(Boost REQUIRED)
+find_package(poplar REQUIRED)
+get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(popnn SHARED
   ActivationMapping.cpp
@@ -28,6 +30,8 @@ add_library(popnn SHARED
   ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearity.hpp
 )
 
+target_link_libraries(popnn PUBLIC poplar)
+
 target_include_directories(popnn
   PUBLIC
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
@@ -40,7 +44,11 @@ add_custom_command(
   OUTPUT
     popnn.gp
   COMMAND
-    popc -O3 -I ${CMAKE_CURRENT_SOURCE_DIR} -I ${CMAKE_SOURCE_DIR}/include -g ${CMAKE_CURRENT_SOURCE_DIR}/popnn.cpp -o popnn.gp
+    ${POPC_EXECUTABLE} -O3 -g
+    -I ${CMAKE_CURRENT_SOURCE_DIR}
+    -I ${CMAKE_SOURCE_DIR}/include
+    -o popnn.gp
+    ${CMAKE_CURRENT_SOURCE_DIR}/popnn.cpp
   DEPENDS
     popnn.cpp
     PerformanceEstimation.hpp
