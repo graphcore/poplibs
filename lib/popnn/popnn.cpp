@@ -1317,9 +1317,10 @@ public:
       for (unsigned ocol = 0; ocol < outCols; ++ocol) {
         assert(outChans % chunkSize == 0);
         for (unsigned chunk = 0; chunk != outChans / chunkSize; ++chunk) {
-          // load input, load bias and add
-          // - dual loads, dual issue = 2 vectors in 2 cycles
-          numCycles += (chunkSize + inVectorWidth - 1) / inVectorWidth;
+          // This assumes the loop is pipelined such that loads and stores
+          // of data being transposed happen in the same cycle. An additional
+          // cycle is required to load the pointer to the chunk.
+          numCycles += 1 + (chunkSize + inVectorWidth - 1) / inVectorWidth;
         }
       }
     }
