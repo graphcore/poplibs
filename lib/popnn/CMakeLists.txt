@@ -1,5 +1,5 @@
 include(GNUInstallDirs)
-find_package(Boost REQUIRED)
+find_package(Boost REQUIRED program_options)
 find_package(poplar REQUIRED)
 get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
@@ -30,7 +30,7 @@ add_library(popnn SHARED
   ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearity.hpp
 )
 
-target_link_libraries(popnn PUBLIC poplar)
+target_link_libraries(popnn poplar ${Boost_LIBRARIES})
 
 target_include_directories(popnn
   PUBLIC

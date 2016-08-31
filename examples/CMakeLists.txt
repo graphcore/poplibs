@@ -1,5 +1,4 @@
 include(GNUInstallDirs)
-find_package(Boost REQUIRED)
 
 function(add_example name)
   add_executable(${name} ${ARGN})
@@ -7,7 +6,7 @@ function(add_example name)
     PRIVATE
       ${CMAKE_SOURCE_DIR}/include
       ${Boost_INCLUDE_DIRS})
-  target_link_libraries(${name} popnn poplar boost_program_options)
+  target_link_libraries(${name} popnn)
 endfunction()
 
 add_example(conv_mnist
