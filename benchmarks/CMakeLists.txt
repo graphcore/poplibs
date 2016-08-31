@@ -2,10 +2,6 @@ include(GNUInstallDirs)
 
 function(add_benchmark name)
   add_executable(${name} ${ARGN})
-  target_include_directories(${name}
-    PRIVATE
-      ${CMAKE_SOURCE_DIR}/include
-      ${Boost_INCLUDE_DIRS})
   target_link_libraries(${name} popnn)
 endfunction()
 

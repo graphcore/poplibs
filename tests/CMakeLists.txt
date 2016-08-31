@@ -4,7 +4,6 @@ function(add_popnn_test name)
   add_executable(${name} ${ARGN})
   target_include_directories(${name}
     PRIVATE
-      ${CMAKE_SOURCE_DIR}/include
       ${Boost_INCLUDE_DIRS})
   target_link_libraries(${name} popnn poplar ${Boost_LIBRARIES})
   target_compile_definitions(${name} PRIVATE -DBOOST_TEST_DYN_LINK)
