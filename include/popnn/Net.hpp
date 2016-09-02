@@ -132,6 +132,8 @@ public:
   unsigned fp16AccumConvUnitsPerTile = 8;
   unsigned fp32AccumConvUnitsPerTile = 4;
   bool sharedConvWeights = true;
+  bool useWinogradConv = false;
+  unsigned winogradPatchSize = 4;
 };
 
 bool parseCommandLine(int argc, char **argv, NetOptions &options,

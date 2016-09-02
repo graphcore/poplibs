@@ -1197,7 +1197,8 @@ convolution(Graph &graph,
             unsigned kernelSize, unsigned stride, unsigned padding,
             unsigned outNumChans, NonLinearityType nonLinearityType,
             Tensor in, Tensor weights, Tensor biases, Tensor activations,
-            ResidualMethod resMethod, Tensor resIn) {
+            ResidualMethod resMethod, Tensor resIn, bool useWinogradConv,
+            unsigned winogradPatchSize) {
   const auto dType = graph.getTensorElementType(in);
   const auto layerName =
       "Conv" + std::to_string(kernelSize) + "x" + std::to_string(kernelSize)
@@ -1224,49 +1225,66 @@ convolution(Graph &graph,
 
   auto forwardProg = Sequence();
 
-  // Calculate a set of partial sums of the convolutions.
-  Tensor partials = graph.addTensor(partialType,
-                                    {tilesPerInZGroup,
-                                     partialNumChanGroups,
-                                     partialOutDimY,
-                                     partialOutDimX,
-                                     partialChansPerGroup},
-                                    "partials");
-  forwardProg.add(calcPartialSums(graph, plan.fwdPartition,
-                                  kernelSize, stride, padding, outNumChans,
-                                  dType, in, weights, partials, layerName,
-                                  partialOutDimX, partialOutDimY,
-                                  true));
+  if (useWinogradConv
+      && winogradPatchSize == 4
+      && stride == 1
+      && kernelSize == 3
+      && !plan.flattenXY
+      && resMethod == RESIDUAL_NONE
+      && weights.dim(4) <= activations.dim(3)) {
+
+      forwardProg.add(winogradConvolution(graph, kernelSize, stride, padding, in.dim(2),
+                      in.dim(1), outNumChans,
+                      winogradPatchSize, winogradPatchSize,
+                      nonLinearityType, dType, in, weights, biases,
+                      activations, resMethod, resIn));
+
+   } else {
+
+    // Calculate a set of partial sums of the convolutions.
+    Tensor partials = graph.addTensor(partialType,
+                                      {tilesPerInZGroup,
+                                       partialNumChanGroups,
+                                       partialOutDimY,
+                                       partialOutDimX,
+                                       partialChansPerGroup},
+                                      "partials");
+    forwardProg.add(calcPartialSums(graph, plan.fwdPartition,
+                                    kernelSize, stride, padding, outNumChans,
+                                    dType, in, weights, partials, layerName,
+                                    partialOutDimX, partialOutDimY,
+                                    true));
 
 
-  // Before the reduction step we add any copying of the residual into the
-  // reduce compute set
-  ComputeSet reduceCS = graph.createComputeSet(layerName + ".reduce");
-  unsigned resStride; Tensor residual;
-  bool doResidual = resMethod != RESIDUAL_NONE;
-  if (doResidual) {
-    std::tie(resStride, residual) =
-        addResidualCalc(graph, resIn, reduceCS,
-                        outDimY, outDimX, outNumChans, outNumChanGroups, dType,
-                        resMethod);
+    // Before the reduction step we add any copying of the residual into the
+    // reduce compute set
+    ComputeSet reduceCS = graph.createComputeSet(layerName + ".reduce");
+    unsigned resStride; Tensor residual;
+    bool doResidual = resMethod != RESIDUAL_NONE;
+    if (doResidual) {
+      std::tie(resStride, residual) =
+          addResidualCalc(graph, resIn, reduceCS,
+                          outDimY, outDimX, outNumChans, outNumChanGroups, dType,
+                          resMethod);
+    }
+
+    // Perform the reduction of partial sums
+    auto activationsMapping = computeActivationsMapping(graph, activations);
+    auto r = reduce(graph, plan.fwdPartition, outNumChans,
+                    outNumChanGroups, partials, activationsMapping, reduceCS);
+    Tensor reduced = r.first;
+    Program &reduceProg = r.second;
+    forwardProg.add(reduceProg);
+    reduced = reduced.reshape({partialNumChanGroups, outDimY, outDimX,
+                              partialChansPerGroup});
+
+    // Add the residual (if any), apply the non-linearity and rearrange tensor
+    // to required output channel grouping.
+    forwardProg.add(complete(graph, plan, outNumChans,
+                             nonLinearityType, dType, reduced, biases,
+                             activations, doResidual, residual, resStride,
+                             activationsMapping, layerName));
   }
-
-  // Perform the reduction of partial sums
-  auto activationsMapping = computeActivationsMapping(graph, activations);
-  auto r = reduce(graph, plan.fwdPartition, outNumChans,
-                  outNumChanGroups, partials, activationsMapping, reduceCS);
-  Tensor reduced = r.first;
-  Program &reduceProg = r.second;
-  forwardProg.add(reduceProg);
-  reduced = reduced.reshape({partialNumChanGroups, outDimY, outDimX,
-                             partialChansPerGroup});
-
-  // Add the residual (if any), apply the non-linearity and rearrange tensor
-  // to required output channel grouping.
-  forwardProg.add(complete(graph, plan, outNumChans,
-                           nonLinearityType, dType, reduced, biases,
-                           activations, doResidual, residual, resStride,
-                           activationsMapping, layerName));
 
   return forwardProg;
 }

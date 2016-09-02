@@ -60,6 +60,16 @@ bool parseCommandLine(int argc, char **argv, NetOptions &options,
        &doTraining
      )->default_value(false),
      "Do training (forward, backward and weight update pass)")
+    ("use-winograd-conv",
+     po::value<bool>(
+       &options.useWinogradConv
+     )->default_value(false),
+     "Use winograd for convolution layers")
+    ("winograd-patch-size",
+     po::value<unsigned>(
+       &options.winogradPatchSize
+     )->default_value(4),
+     "Patch size for winograd convolution")
   ;
   po::variables_map vm;
   try {
@@ -330,7 +340,7 @@ Net::getOrCreateConvImplFwd(const conv::ConvPlan &plan,
                                 impl.kernelSize, impl.stride, impl.padding,
                                 outNumChans, impl.nonLinearityType,
                                 in, weights, biases, out,
-                                impl.resMethod, residual);
+                                impl.resMethod, residual, options.useWinogradConv);
   std::vector<Tensor> inputs = {in, weights, biases};
   if (impl.resMethod != RESIDUAL_NONE)
     inputs.push_back(residual);

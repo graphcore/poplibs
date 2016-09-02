@@ -16,6 +16,7 @@ add_library(popnn SHARED
   MaxPool.cpp
   Net.cpp
   NonLinearity.cpp
+  Winograd.cpp
   PerformanceEstimation.hpp
   VertexTemplates.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/ActivationMapping.hpp

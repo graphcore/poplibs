@@ -12,3 +12,4 @@ function(add_popnn_test name)
 endfunction()
 
 add_popnn_test(FullyConnectedTest FullyConnectedTest.cpp)
+add_popnn_test(WinogradConvolution WinogradConv.cpp)

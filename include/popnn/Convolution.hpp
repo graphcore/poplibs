@@ -45,7 +45,8 @@ convolution(poplar::Graph &graph, const ConvPlan &plan,
             poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
             poplar::Tensor out,
             ResidualMethod resMethod = RESIDUAL_NONE,
-            poplar::Tensor residual={});
+            poplar::Tensor residual={}, bool useWinogradConv = false,
+            unsigned winogradPatchSize = 4);
 
 void mapWeights(poplar::Tensor w, poplar::Graph &graph, const ConvPlan &plan);
 
@@ -68,6 +69,15 @@ convolutionWeightUpdate(poplar::Graph &graph,
                         poplar::Tensor activations,
                         unsigned kernelSize, unsigned stride,
                         unsigned padding, float learningRate);
+
+extern poplar::program::Program winogradConvolution(poplar::Graph &graph,
+            unsigned kernelSize, unsigned stride, unsigned padding,
+            unsigned xDim, unsigned yDim,
+            unsigned outNumChans, unsigned patchSizeX, unsigned patchSizeY,
+            NonLinearityType nonLinearityType,
+            std::string dType,
+            poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases, poplar::Tensor activations,
+            ResidualMethod resMethod, poplar::Tensor resIn);
 
 }
 #endif  // __Convolution_hpp__
