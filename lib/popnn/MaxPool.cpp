@@ -152,6 +152,8 @@ maxPoolBackward(Graph &graph,
   assert(actIn.dim(2) == deltasOut.dim(2));
   assert(actOut.dim(1) == deltasIn.dim(1));
   assert(actOut.dim(2) == deltasIn.dim(2));
+  assert(deltasIn.dim(0) * deltasIn.dim(3)
+         == deltasOut.dim(0) * deltasOut.dim(3));
 
   // "prev" refers to the layer nearer the input
   // "next" refers to the layer nearer the output
@@ -166,38 +168,38 @@ maxPoolBackward(Graph &graph,
   //MaxPool so no change in channel dimension
   assert(nextNumChannels == prevNumChannels);
 
-  const auto yDimPrev = actIn.dim(1);
-  const auto xDimPrev = actIn.dim(2);
-  const auto yDimNext = actOut.dim(1);
-  const auto xDimNext = actOut.dim(2);
+  const auto yDimPrev = deltasOut.dim(1);
+  const auto xDimPrev = deltasOut.dim(2);
+  const auto yDimNext = deltasIn.dim(1);
+  const auto xDimNext = deltasIn.dim(2);
   unsigned calcNextX, calcNextY;
-
-  if (padding != 0 || xDimPrev % stride != 0 || yDimPrev % stride != 0 ||
-      kernelSize != stride) {
-    std::cerr << "WARNING: padding, overlapped pooling or pooling that"
-                 " doesn't exactly divide\n"
-                 "input not implemented yet, skipping tile mapping for"
-                 " this layer\n";
-    return Sequence();
-  }
   std::tie(calcNextY, calcNextX) = getOutputDim(yDimPrev, xDimPrev,
                                               kernelSize, stride, padding);
   assert(calcNextY == yDimNext);
   assert(calcNextX == xDimNext);
   // The input and output tensors may have different group sizes
+  // \a chunkSize is the group size we will operate on
   const auto prevChunkSize = gcd<unsigned>(actOut.dim(3), deltasOut.dim(3));
   const auto nextChunkSize = gcd<unsigned>(actIn.dim(3), deltasIn.dim(3));
   const auto chunkSize = gcd<unsigned>(prevChunkSize, nextChunkSize);
-  const auto nextChunksPerChanGroup = nextChansPerGroup / chunkSize;
+  const auto prevChunksPerChanGroup = prevChansPerGroup / chunkSize;
+
+  if (graph.getDevice().getDeviceType() == DeviceType::IPU_MODEL
+      && dType == "half"
+      && chunkSize % 2 != 0) {
+    // Possible race with different vertices writing to the same 32bit word
+    std::cerr << "WARNING: When Z is odd and dType is half the IPU Model only"
+                 "supports\nnon-overlapping, even-sized kernels\n";
+  }
 
   auto bwdCS = graph.createComputeSet(layerName + ".bwd");
-  // map over the Pool kernels - all will be mapped to the same tile
-  const auto nextMapping = computeActivationsMapping(graph, actOut);
+  // map over deltaOut so that no reduce will be required.
+  const auto prevDeltaMapping = computeActivationsMapping(graph, deltasOut);
   const auto numTiles = deviceInfo.getNumTiles();
 
-  for (auto tile = 0; tile != numTiles; ++tile) {
-    const auto tileBegin = nextMapping[tile];
-    const auto tileEnd = nextMapping[tile + 1];
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    const auto tileBegin = prevDeltaMapping[tile];
+    const auto tileEnd = prevDeltaMapping[tile + 1];
     assert(tileBegin % nextChansPerGroup == 0);
     assert(tileEnd % nextChansPerGroup == 0);
     const auto tileGroupBegin = tileBegin / nextChansPerGroup;
@@ -206,40 +208,58 @@ maxPoolBackward(Graph &graph,
     if (tileNumGroups == 0)
       continue;
     for (unsigned i = tileGroupBegin; i != tileGroupEnd; ++i) {
-      unsigned xNext = i % xDimNext;
-      unsigned yNext = (i / xDimNext) % yDimNext;
-      unsigned chanGroupNext = i / (yDimNext * xDimNext);
-      unsigned prevYBegin, prevYEnd;
-      std::tie(prevYBegin, prevYEnd) = getInputRange(yNext, stride, kernelSize,
-                                                     padding, yDimPrev, true);
-      const auto prevYSize = prevYEnd - prevYBegin;
-      unsigned prevXBegin, prevXEnd;
-      std::tie(prevXBegin, prevXEnd) = getInputRange(xNext, stride, kernelSize,
-                                                     padding, xDimPrev, true);
-      const auto prevXSize = prevXEnd - prevXBegin;
-      for (unsigned chunk = 0; chunk != nextChunksPerChanGroup; chunk++) {
-        // Generate one vertex for each individual output pixel
-        unsigned baseChan = chanGroupNext * nextChansPerGroup + chunk * chunkSize;
-        unsigned prevChanGroup = baseChan / prevChansPerGroup;
-        unsigned prevChanInGroup = baseChan % prevChansPerGroup;
-        for (auto yPrev = prevYBegin; yPrev != prevYEnd; ++yPrev) {
-          for (auto xPrev = prevXBegin; xPrev != prevXEnd; ++xPrev) {
-            for (auto chan = baseChan; chan != baseChan + chunkSize; ++chan) {
-              // add a new vertex for every input activation
-              auto v = graph.addVertex(bwdCS, templateVertex("MaxPoolingBwd", dType),
-                {
-                  {"actOut", actOut[chan / actOut.dim(3)][yNext][xNext]
-                                   [chan % actOut.dim(3)]},
-                  {"actIn", actIn[chan / actIn.dim(3)][yPrev][xPrev]
-                                 [chan % actIn.dim(3)]},
-                  {"errIn", deltasIn[chan / deltasIn.dim(3)][yNext][xNext]
-                                    [chan % deltasIn.dim(3)]},
-                  {"errOut", deltasOut[chan / deltasOut.dim(3)][yPrev][xPrev]
-                                      [chan % deltasOut.dim(3)]}
-                });
-              graph.setTileMapping(v, tile);
+      unsigned xPrev = i % xDimPrev;
+      unsigned yPrev = (i / xDimPrev) % yDimPrev;
+      unsigned chanGroupPrev = i / (yDimPrev * xDimPrev);
+      auto nextYRange = getInputRange(yPrev, stride, kernelSize,
+                                      padding, yDimNext, false);
+      auto nextXRange = getInputRange(xPrev, stride, kernelSize,
+                                      padding, xDimNext, false);
+      const auto nextYSize = nextYRange.second - nextYRange.first;
+      const auto nextXSize = nextXRange.second - nextXRange.first;
 
-            }
+      for (unsigned chunk = 0; chunk != prevChunksPerChanGroup; chunk++) {
+        unsigned chanBase = chanGroupPrev * prevChansPerGroup
+                            + chunk * chunkSize;
+        auto v =
+          graph.addVertex(bwdCS, templateVertex("MaxPoolingBwd", dType));
+        graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+        graph.setTileMapping(v, tile);
+
+        unsigned chunkBase = chanBase % deltasOut.dim(3);
+        Tensor chunkErrOut =
+          deltasOut[chanBase / deltasOut.dim(3)][yPrev][xPrev]
+            .slice(chunkBase, chunkBase + chunkSize);
+        graph.connect(chunkErrOut, v["errOut"]);
+
+        chunkBase = chanBase % actIn.dim(3);
+        Tensor chunkActIn = actIn[chanBase / actIn.dim(3)][yPrev][xPrev]
+          .slice(chunkBase, chunkBase + chunkSize);
+        graph.connect(chunkActIn, v["actIn"]);
+
+        graph.setFieldSize(v["actOut"], nextXSize * nextYSize);
+        graph.setFieldSize(v["errIn"],  nextXSize * nextYSize);
+
+        unsigned chunkIndex = 0;
+//TODO: can we combine multiple X into a contiguous vector? If so pointer
+// storage would be considerably reduced. Revisit once we're using a decision
+// vector rather than actIn/actOut comparisons
+        for (auto yNext = nextYRange.first; yNext != nextYRange.second;
+             ++yNext) {
+          for (auto xNext = nextXRange.first; xNext != nextXRange.second;
+               ++xNext) {
+
+            auto chunkBase = chanBase % actOut.dim(3);
+            Tensor chunkActOut = actOut[chanBase / actOut.dim(3)][yNext][xNext]
+              .slice(chunkBase, chunkBase + chunkSize);
+              graph.connect(chunkActOut, v["actOut"][chunkIndex]);
+
+            chunkBase = chanBase % deltasIn.dim(3);
+            Tensor chunkDeltasIn =
+              deltasIn[chanBase / deltasIn.dim(3)][yNext][xNext]
+                .slice(chunkBase, chunkBase + chunkSize);
+              graph.connect(chunkDeltasIn, v["errIn"][chunkIndex]);
+            chunkIndex++;
           }
         }
       }

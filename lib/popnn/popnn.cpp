@@ -1156,23 +1156,51 @@ template class MaxPooling<half>;
 template <typename FPType>
 class MaxPoolingBwd : public Vertex {
 public:
-  Input<FPType> actOut;
-  Input<FPType> actIn;
-  Input<FPType> errIn;
-  Output<FPType> errOut;
+  Vector<Input<Vector<FPType>>> actOut;
+  Input<Vector<FPType>> actIn;
+  Vector<Input<Vector<FPType>>> errIn;
+  Output<Vector<FPType>> errOut;
+
+  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    if (*actIn == *actOut) {
-      *errOut = *errIn;
-    } else {
-      *errOut = 0;
+    // Update errOut with the sum of errors from all kernels that it updated
+    auto nOutChannels = errOut.size();
+    auto chunkSize = errIn[0].size();
+    auto nextFieldSize = errIn.size();
+    assert(chunkSize == nOutChannels);
+    assert(nOutChannels % chunkSize == 0);
+    auto nChunks = nOutChannels / chunkSize;
+    for (unsigned i = 0; i != nextFieldSize; ++i) {
+      for (unsigned chan = 0; chan != nOutChannels; ++chan) {
+        if (i == 0)
+          errOut[chan] = 0;
+        if (actIn[chan] == actOut[i][chan])
+          errOut[chan] += errIn[i][chan];
+      }
     }
+
     return true;
   }
 
   uint64_t getCycleEstimate() const {
-    // TODO
-    return 0;
+    unsigned numCycles = 10;
+    bool isFloat = std::is_same<FPType, float>::value;
+    const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    auto nChanGroups = (errOut.size() + vectorWidth - 1) / vectorWidth;
+    auto nextFieldSize = errIn.size();
+    // Expected implementation per group:
+    // load group of actIn
+    // for fieldsize:
+    // load actOut
+    //  compare
+    //  res<<=14 (covert to 0.5/0)
+    //  mac
+    // getacc
+    // double
+    // store
+    numCycles += ((3 * nextFieldSize) + 5) * nChanGroups;
+    return numCycles;
   }
 };
 

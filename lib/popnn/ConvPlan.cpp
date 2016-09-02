@@ -52,13 +52,17 @@ struct ConvolutionParams {
     if (phase == Phase::BACKWARD)
       return (inputWidth * stride + kernelSize - 1) - (padding * 2);
     else
-      return (inputWidth + (padding * 2) - kernelSize) / stride + 1;
+      return inputWidth + padding * 2 < kernelSize
+        ? 0
+        : (inputWidth + (padding * 2) - kernelSize) / stride + 1;
   }
   unsigned getOutputHeight(Phase phase) const {
     if (phase == Phase::BACKWARD)
       return (inputHeight * stride + kernelSize - 1) - (padding * 2);
     else
-      return (inputHeight + (padding * 2) - kernelSize) / stride + 1;
+      return inputHeight + padding * 2 < kernelSize
+        ? 0
+        : (inputHeight + (padding * 2) - kernelSize) / stride + 1;
   }
   ConvolutionParams(unsigned kernelSize,
                     unsigned stride,
