@@ -1143,6 +1143,7 @@ public:
     unsigned numCycles = 10;
     bool isFloat = std::is_same<FPType, float>::value;
     const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    //numChunks = inputFieldSize * chunksPerGroup
     auto numChunks = activationIn.size();
     auto chunkSize = activationIn[0].size();
     numCycles += numChunks * (1 + (chunkSize + vectorWidth - 1) / vectorWidth);
