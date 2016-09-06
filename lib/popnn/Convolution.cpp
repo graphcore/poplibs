@@ -2,6 +2,7 @@
 #include <limits>
 #include <cassert>
 #include "ConvUtil.hpp"
+#include "DimShuffle.hpp"
 #include "popnn/ActivationMapping.hpp"
 #include "VertexTemplates.hpp"
 #include "gcd.hpp"
@@ -1115,19 +1116,47 @@ regroup(Graph &graph,
         const std::string &inType, const std::string &outType,
         const std::vector<unsigned> &outTileMapping,
         Tensor in, Tensor out) {
-  const auto outDimY = out.dim(1);
-  const auto outDimX = out.dim(2);
   const auto outNumChanGroups = out.dim(0);
-  const auto outNumChans = out.dim(0) * out.dim(3);
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
+  const auto dimY = out.dim(1);
+  const auto dimX = out.dim(2);
+  const auto outChansPerGroup = out.dim(3);
+  const auto numChans = outNumChanGroups * outChansPerGroup;
+  const auto inNumChanGroups = in.dim(0);
+  assert(in.dim(1) == dimY);
+  assert(in.dim(2) == dimX);
   const auto inChansPerGroup = in.dim(3);
-  ComputeSet cs = graph.createComputeSet(layerName + ".regroup");
-  unsigned outChansPerGroup = outNumChans / outNumChanGroups;
+  assert(inNumChanGroups * inChansPerGroup == numChans);
+  // Try to implement regrouping using a dimshuffle.
+  if (inType == outType && inChansPerGroup % outChansPerGroup == 0) {
+    out = out.reshape({inNumChanGroups, inChansPerGroup / outChansPerGroup,
+                       dimY,
+                       dimX,
+                       outChansPerGroup});
+    in = in.reshape({inNumChanGroups,
+                     dimY,
+                     dimX,
+                     inChansPerGroup / outChansPerGroup, outChansPerGroup});
+    std::vector<unsigned> permutation = {0, 3, 1, 2, 4};
+    return dimShuffle(graph, in, out, permutation, outTileMapping);
+  }
+  if (inType == outType && outChansPerGroup % inChansPerGroup == 0) {
+    out = out.reshape({outNumChanGroups,
+                       dimY,
+                       dimX,
+                       outChansPerGroup / inChansPerGroup, inChansPerGroup});
+    in = in.reshape({outNumChanGroups, outChansPerGroup / inChansPerGroup,
+                     dimY,
+                     dimX,
+                     inChansPerGroup});
+    std::vector<unsigned> permutation = {0, 2, 3, 1, 4};
+    return dimShuffle(graph, in, out, permutation, outTileMapping);
+  }
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto numTiles = deviceInfo.getNumTiles();
+  const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto workersPerTile = deviceInfo.numWorkerContexts;
-  const auto inChanChunkSize = gcd<unsigned>(outChansPerGroup, inChansPerGroup);
-
+  ComputeSet cs = graph.createComputeSet(layerName + ".regroup");
+  const auto chunkSize = gcd<unsigned>(outChansPerGroup, inChansPerGroup);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto tileActivationsBegin = outTileMapping[tile];
     const auto tileActivationsEnd = outTileMapping[tile + 1];
@@ -1159,16 +1188,16 @@ regroup(Graph &graph,
                                               inType, outType));
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setTileMapping(v, tile);
-      graph.setInitialValue(v["outChans"], outChansPerGroup);
+      graph.setInitialValue<unsigned>(v["outChans"], outChansPerGroup);
       // Connect the output channel groups and inputs from the partial sums.
       graph.setFieldSize(v["out"], numGroups);
       graph.setFieldSize(v["in"],
-                         numGroups * outChansPerGroup / inChanChunkSize);
+                         numGroups * outChansPerGroup / chunkSize);
       unsigned numIn = 0;
       for (auto group = groupBegin; group != groupEnd; ++group) {
-        auto outChanGroup = group / (outDimX * outDimY);
-        auto y = group % (outDimX * outDimY) / outDimX;
-        auto x = group % outDimX;
+        auto outChanGroup = group / (dimX * dimY);
+        auto y = group % (dimX * dimY) / dimX;
+        auto x = group % dimX;
         auto groupOut = out[outChanGroup][y][x];
         graph.connect(v["out"][group - groupBegin], groupOut);
         Tensor inChans = in.slice(
@@ -1177,8 +1206,8 @@ regroup(Graph &graph,
         ).flatten();
         Tensor inByChanGroup =
             inChans.reshape({outNumChanGroups,
-                             outChansPerGroup / inChanChunkSize,
-                             inChanChunkSize});
+                             outChansPerGroup / chunkSize,
+                             chunkSize});
         Tensor in = inByChanGroup[outChanGroup];
         for (unsigned i = 0; i < in.dim(0); ++i) {
           graph.connect(in[i], v["in"][numIn++]);

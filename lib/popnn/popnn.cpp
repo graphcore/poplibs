@@ -1362,6 +1362,40 @@ template class RegroupChans<float, float>;
 template class RegroupChans<float, half>;
 template class RegroupChans<half, half>;
 
+
+template <class Type>
+class DimShuffle : public Vertex {
+public:
+  Vector<Input<Vector<Type>>> in;
+  Output<Vector<Type>> out;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    unsigned numOut = out.size();
+    assert(numOut % in.size() == 0);
+    unsigned chunkSize = numOut / in.size();
+    unsigned numChunks = numOut / chunkSize;
+    for (unsigned i = 0; i != numChunks; ++i) {
+      for (unsigned j = 0; j != chunkSize; ++j) {
+        out[i * chunkSize + j] = in[i][j];
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    bool isFloat = std::is_same<Type, float>::value;
+    const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    unsigned numOut = out.size();
+    unsigned chunkSize = numOut / in.size();
+    unsigned numChunks = numOut / chunkSize;
+    return 5 + numChunks * (1 + (chunkSize + vectorWidth - 1) / vectorWidth);
+  }
+};
+
+template class DimShuffle<half>;
+template class DimShuffle<float>;
+
 template <class FPType>
 class ConvTransformWeights : public Vertex {
 public:
