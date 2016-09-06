@@ -1612,6 +1612,91 @@ calcPartialWeightGrads(Graph &graph,
   }
 }
 
+static void
+convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
+                      float learningRate, ComputeSet reduceCS,
+                      ComputeSet updateBiasCS) {
+  /** The number of biases is often small. So the reduction of bias
+   *  updates is done in two stages to balance compute.
+   *  TODO: This can probably be improved by reducing the biases on
+   *  each tile according to the mapping of the deltas.
+   */
+  const auto dType = graph.getTensorElementType(zDeltas);
+  auto outDimY = zDeltas.dim(1), outDimX = zDeltas.dim(2);
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  auto numWorkers = deviceInfo.numWorkerContexts * deviceInfo.getNumTiles();
+  auto numBiases = biases.numElements();
+  unsigned workersPerBias, usedWorkers, maxBiasPerWorker;
+  if (numWorkers > numBiases) {
+    workersPerBias = numWorkers / numBiases;
+    usedWorkers = workersPerBias * numBiases;
+    maxBiasPerWorker = 1;
+  } else {
+    workersPerBias = 1;
+    usedWorkers = numWorkers;
+    maxBiasPerWorker = (numBiases + numWorkers - 1) / numWorkers;
+  }
+  auto elemsPerBias = outDimY * outDimX;
+  auto biasPartials = graph.addTensor(dType, {usedWorkers, maxBiasPerWorker},
+                                      "biasPartials");
+
+  for (unsigned worker = 0; worker  < usedWorkers; ++worker ) {
+    unsigned biasBegin = (worker  * numBiases) / usedWorkers;
+    unsigned biasEnd = ((worker  + workersPerBias) * numBiases) / usedWorkers;
+    if (biasBegin == biasEnd)
+      continue;
+    unsigned elemBegin =
+        ((worker  % workersPerBias) * elemsPerBias) / workersPerBias;
+    unsigned elemEnd =
+        (((worker  % workersPerBias) + 1) * elemsPerBias) / workersPerBias;
+    if (elemBegin == elemEnd)
+      continue;
+    auto numElems = elemEnd - elemBegin;
+    unsigned numBiases = biasEnd - biasBegin;
+    auto v = graph.addVertex(reduceCS,
+                             templateVertex("ConvBiasReduce", dType));
+    graph.setFieldSize(v["deltas"], numElems * numBiases);
+    auto zDeltasFlat = zDeltas.reshape({zDeltas.dim(0),
+                                        outDimY * outDimX,
+                                        zDeltas.dim(3)});
+    for (unsigned i = 0; i < numBiases; ++i) {
+      unsigned deltaGroup = (biasBegin + i) / zDeltas.dim(3);
+      unsigned deltaInGroup = (biasEnd + i) % zDeltas.dim(3);
+      auto in = zDeltasFlat.slice({deltaGroup, elemBegin, deltaInGroup},
+                                  {deltaGroup + 1, elemEnd, deltaInGroup + 1})
+                           .flatten();
+      for (unsigned j = 0; j < numElems; ++j) {
+        graph.connect(v["deltas"][i * numElems + j], in[j]);
+      }
+    }
+    graph.connect(v["biases"], biasPartials[worker].slice(0, numBiases));
+    auto tile =  worker / deviceInfo.numWorkerContexts;
+    graph.setTileMapping(v, tile);
+    graph.setTileMapping(biasPartials[worker].slice(0, numBiases), tile);
+  }
+  iterateBiasMapping(biases, graph, zDeltas,
+    [&](Tensor biasSlice, unsigned tile){
+      for (auto bias : biasSlice.getElementIndices()) {
+        auto v = graph.addVertex(updateBiasCS,
+                                 templateVertex("ConvBiasUpdate", dType));
+        unsigned numDeltas = 0;
+        for (unsigned srcWorker = 0; srcWorker < usedWorkers; ++srcWorker) {
+          unsigned biasBegin = (srcWorker * numBiases) / usedWorkers;
+          unsigned biasEnd =
+              ((srcWorker + workersPerBias) * numBiases) / usedWorkers;
+          if (biasBegin > bias || biasEnd <= bias)
+            continue;
+          graph.connect(v["deltas"][numDeltas++],
+                        biasPartials[srcWorker][bias - biasBegin]);
+        }
+        graph.setFieldSize(v["deltas"], numDeltas);
+        graph.connect(v["bias"], biases[bias]);
+        graph.setInitialValue(v["eta"], learningRate);
+        graph.setTileMapping(v, tile);
+      }
+     });
+}
+
 Program
 convolutionWeightUpdate(Graph &graph,
                         const ConvPlan &plan,
@@ -1720,84 +1805,9 @@ convolutionWeightUpdate(Graph &graph,
     graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
     graph.setTileMapping(v, worker / deviceInfo.numWorkerContexts);
   }
-  /** The number of biases is often small. So the reduction of bias
-   *  updates is done in two stages to balance compute.
-   *  TODO: This can probably be improved by reducing the biases on
-   *  each tile according to the mapping of the deltas.
-   */
-  auto numBiases = biases.numElements();
-  unsigned workersPerBias, usedWorkers, maxBiasPerWorker;
-  if (numWorkers > numBiases) {
-    workersPerBias = numWorkers / numBiases;
-    usedWorkers = workersPerBias * numBiases;
-    maxBiasPerWorker = 1;
-  } else {
-    workersPerBias = 1;
-    usedWorkers = numWorkers;
-    maxBiasPerWorker = (numBiases + numWorkers - 1) / numWorkers;
-  }
-  auto elemsPerBias = outDimY * outDimX;
-  auto biasPartials = graph.addTensor(dType, {usedWorkers, maxBiasPerWorker},
-                                      "biasPartials");
-
-  for (unsigned worker = 0; worker  < usedWorkers; ++worker ) {
-    unsigned biasBegin = (worker  * numBiases) / usedWorkers;
-    unsigned biasEnd = ((worker  + workersPerBias) * numBiases) / usedWorkers;
-    if (biasBegin == biasEnd)
-      continue;
-    unsigned elemBegin =
-        ((worker  % workersPerBias) * elemsPerBias) / workersPerBias;
-    unsigned elemEnd =
-        (((worker  % workersPerBias) + 1) * elemsPerBias) / workersPerBias;
-    if (elemBegin == elemEnd)
-      continue;
-    auto numElems = elemEnd - elemBegin;
-    unsigned numBiases = biasEnd - biasBegin;
-    auto v = graph.addVertex(reduceCS,
-                             templateVertex("ConvBiasReduce", dType));
-    graph.setFieldSize(v["deltas"], numElems * numBiases);
-    auto zDeltasFlat = zDeltas.reshape({zDeltas.dim(0),
-                                        outDimY * outDimX,
-                                        zDeltas.dim(3)});
-    for (unsigned i = 0; i < numBiases; ++i) {
-      unsigned deltaGroup = (biasBegin + i) / zDeltas.dim(3);
-      unsigned deltaInGroup = (biasEnd + i) % zDeltas.dim(3);
-      auto in = zDeltasFlat.slice({deltaGroup, elemBegin, deltaInGroup},
-                                  {deltaGroup + 1, elemEnd, deltaInGroup + 1})
-                           .flatten();
-      for (unsigned j = 0; j < numElems; ++j) {
-        graph.connect(v["deltas"][i * numElems + j], in[j]);
-      }
-    }
-    graph.connect(v["biases"], biasPartials[worker].slice(0, numBiases));
-    auto tile =  worker / deviceInfo.numWorkerContexts;
-    graph.setTileMapping(v, tile);
-    graph.setTileMapping(biasPartials[worker].slice(0, numBiases), tile);
-  }
-
   auto updateBiasCS = graph.createComputeSet(layerName + ".update_bias");
-  iterateBiasMapping(biases, graph, zDeltas,
-    [&](Tensor biasSlice, unsigned tile){
-      for (auto bias : biasSlice.getElementIndices()) {
-        auto v = graph.addVertex(updateBiasCS,
-                                 templateVertex("ConvBiasUpdate", dType));
-        unsigned numDeltas = 0;
-        for (unsigned srcWorker = 0; srcWorker < usedWorkers; ++srcWorker) {
-          unsigned biasBegin = (srcWorker * numBiases) / usedWorkers;
-          unsigned biasEnd =
-              ((srcWorker + workersPerBias) * numBiases) / usedWorkers;
-          if (biasBegin > bias || biasEnd <= bias)
-            continue;
-          graph.connect(v["deltas"][numDeltas++],
-                        biasPartials[srcWorker][bias - biasBegin]);
-        }
-        graph.setFieldSize(v["deltas"], numDeltas);
-        graph.connect(v["bias"], biases[bias]);
-        graph.setInitialValue(v["eta"], learningRate);
-        graph.setTileMapping(v, tile);
-      }
-     });
-
+  convolutionBiasUpdate(graph, zDeltas, biases, learningRate, reduceCS,
+                        updateBiasCS);
   prog.add(Execute(reduceCS));
   prog.add(Execute(updateBiasCS));
   return prog;
