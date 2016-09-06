@@ -71,4 +71,4 @@ install(EXPORT popnn DESTINATION ${CMAKE_INSTALL_LIBDIR}
 
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/popnn
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-        COMPONENT popnn)      
+        COMPONENT popnn)
