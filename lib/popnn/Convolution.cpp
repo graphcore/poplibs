@@ -1672,7 +1672,7 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
     graph.connect(v["biases"], biasPartials[worker].slice(0, numBiases));
     auto tile =  worker / deviceInfo.numWorkerContexts;
     graph.setTileMapping(v, tile);
-    graph.setTileMapping(biasPartials[worker].slice(0, numBiases), tile);
+    graph.setTileMapping(biasPartials[worker].slice(0, maxBiasPerWorker), tile);
   }
   iterateBiasMapping(biases, graph, zDeltas,
     [&](Tensor biasSlice, unsigned tile){
