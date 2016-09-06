@@ -279,7 +279,8 @@ public:
             assert((outWidth + outStride - 1) / outStride == inWidth);
             inStride = 1;
           }
-          for (unsigned x = 0; x != outWidth; ++x) {
+          const auto numOutputs = (outWidth + outStride - 1) / outStride;
+          for (unsigned x = 0; x != numOutputs; ++x) {
             for (unsigned fy = 0; fy != filterHeight; ++fy) {
               for (unsigned inChanIndex = 0; inChanIndex != inChansPerGroup;
                    ++inChanIndex) {
