@@ -3,11 +3,16 @@
 #include <vector>
 #include "poplar/Graph.hpp"
 
+void applyTensorMapping(poplar::Graph &graph, poplar::Tensor t,
+                        const std::vector<unsigned> &mapping);
+
 std::vector<unsigned> computeActivationsMapping(const poplar::Graph &graph,
                                                 poplar::Tensor t);
 
 void mapActivations(poplar::Graph &graph, poplar::Tensor t);
 
+std::vector<unsigned> computeTensorMapping(const poplar::Graph &graph,
+                                           poplar::Tensor t);
 
 void mapTensor(poplar::Graph &graph, poplar::Tensor t);
 
