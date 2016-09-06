@@ -906,24 +906,15 @@ calcPartialSums(Graph &graph,
   return prog;
 }
 
-static std::pair<Tensor, Program>
+static Program
 reduce(Graph &graph,
        const Partition &partition,
        unsigned outNumChans, unsigned outNumChanGroups,
        Tensor partials,
-       const std::vector<unsigned> &activationsMapping,
+       Tensor reduced,
+       const std::vector<unsigned> &reducedMapping,
        ComputeSet reduceCS) {
-  if (partials.dim(0) == 1) {
-    // Since only one partial sum was created, there is no need to
-    // do a reduction.
-    if (graph.getComputeSet(reduceCS).empty())
-      return {partials[0], Sequence()};
-    else
-      return {partials[0], Execute(reduceCS)};
-  }
-
   const auto partialType = partition.getPartialType();
-  const auto partialNumChanGroups = partials.dim(1);
   const auto outDimY = partials.dim(2);
   const auto outDimX = partials.dim(3);
   const auto partialChansPerGroup = partition.partialChansPerGroup;
@@ -931,16 +922,12 @@ reduce(Graph &graph,
   const auto tilesPerInZGroup = partition.tilesPerInZGroupAxis;
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
-
-  Tensor reduced = graph.addTensor(partialType,
-                                   {partialNumChanGroups, outDimY, outDimX,
-                                    partialChansPerGroup}, "reduced");
   // Accumulate the partial sums.
   const auto numTiles = deviceInfo.getNumTiles();
   size_t outChansPerGroup = outNumChans / outNumChanGroups;
   for (unsigned tile = 0; tile != numTiles; ++tile) {
-    const auto activationsBegin = activationsMapping[tile];
-    const auto activationsEnd = activationsMapping[tile + 1];
+    const auto activationsBegin = reducedMapping[tile];
+    const auto activationsEnd = reducedMapping[tile + 1];
     if (activationsBegin == activationsEnd)
       continue;
     auto elems = getUngroupedIndices(activationsBegin,
@@ -975,7 +962,6 @@ reduce(Graph &graph,
       for (unsigned i = 0; i < regions.size(); ++i) {
         auto out = flatReduced.slice(regions[i].first, regions[i].second);
         graph.connect(v["out"][i], out);
-        graph.setTileMapping(out, tile);
         for (unsigned j = 0; j < tilesPerInZGroup; ++j) {
           graph.connect(v["partials"][i * tilesPerInZGroup + j],
                         flatPartials[j].slice(regions[i].first,
@@ -985,7 +971,37 @@ reduce(Graph &graph,
       graph.setTileMapping(v, tile);
     }
   }
-  return {reduced, Execute(reduceCS)};
+  return Execute(reduceCS);
+}
+
+static std::pair<Tensor, Program>
+reduce(Graph &graph,
+       const Partition &partition,
+       unsigned outNumChans, unsigned outNumChanGroups,
+       Tensor partials,
+       const std::vector<unsigned> &activationsMapping,
+       ComputeSet reduceCS) {
+  if (partials.dim(0) == 1) {
+    // Since only one partial sum was created, there is no need to
+    // do a reduction.
+    if (graph.getComputeSet(reduceCS).empty())
+      return {partials[0], Sequence()};
+    else
+      return {partials[0], Execute(reduceCS)};
+  }
+
+  const auto partialType = partition.getPartialType();
+  const auto partialNumChanGroups = partials.dim(1);
+  const auto outDimY = partials.dim(2);
+  const auto outDimX = partials.dim(3);
+  const auto partialChansPerGroup = partition.partialChansPerGroup;
+  assert(outNumChans % partialChansPerGroup == 0);
+  Tensor reduced = graph.addTensor(partialType,
+                                   {partialNumChanGroups, outDimY, outDimX,
+                                    partialChansPerGroup}, "reduced");
+  applyTensorMapping(graph, reduced, activationsMapping);
+  return {reduced, reduce(graph, partition, outNumChans, outNumChanGroups,
+                          partials, reduced, activationsMapping, reduceCS)};
 }
 
 static Program
