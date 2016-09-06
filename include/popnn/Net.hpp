@@ -86,7 +86,7 @@ public:
 /* This utility function wraps a vector of normal pointers as unique_ptrs.
    It allows the hidden layer array to be initializes with an
    initializer list. */
-static std::vector<std::unique_ptr<Layer>>
+inline std::vector<std::unique_ptr<Layer>>
 makeLayers(std::vector<Layer *> vs)
 {
   std::vector<std::unique_ptr<Layer>> xs;

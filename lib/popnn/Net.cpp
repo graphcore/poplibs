@@ -97,8 +97,8 @@ Net::Net(DataSet &data, unsigned batchSize,
          NetOptions options) :
   netType(netType), options(options),
   batchSize(batchSize),
-  layers(std::move(layers)),
   eta(learningRate),
+  layers(std::move(layers)),
   dType(getDTypeString(dType))
 {
   initialize(data, lossType);
@@ -113,8 +113,8 @@ Net::Net(DataSet &data, unsigned batchSize,
          NetOptions options) :
   netType(netType), options(options),
   batchSize(batchSize),
-  layers(std::move(layers)),
   eta(learningRate),
+  layers(std::move(layers)),
   dType(getDTypeString(dType))
 {
   initialize(data, lossType);
@@ -151,17 +151,17 @@ Net::getRequiredChansPerGroupBwd(int i) {
   if (i < 0)
     return 0;
   const auto *layer = layers[i].get();
-  if (const auto *fc = dynamic_cast<const FullyConnectedLayer *>(layer)) {
+  if (dynamic_cast<const FullyConnectedLayer *>(layer)) {
     return 0;
-  } else if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
+  } else if (dynamic_cast<const ConvLayer *>(layer)) {
     auto it = convPlans.find(i);
     assert(it != convPlans.end());
     return it->second.bwdPartition.inChansPerGroup;
-  } else if (const auto *c = dynamic_cast<const ConvResLayer *>(layer)) {
+  } else if (dynamic_cast<const ConvResLayer *>(layer)) {
     auto it = convPlans.find(i);
     assert(it != convPlans.end());
     return it->second.bwdPartition.inChansPerGroup;
-  } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
+  } else if (dynamic_cast<const MaxPoolLayer *>(layer)) {
     return getRequiredChansPerGroupBwd(i - 1);
   } else {
     assert(0 && "Unrecognized layer type");
@@ -174,17 +174,17 @@ Net::getRequiredChansPerGroupFwd(unsigned i, unsigned inDimY, unsigned inDimX,
   if (i >= layers.size())
     return 0;
   const auto *layer = layers[i].get();
-  if (const auto *fc = dynamic_cast<const FullyConnectedLayer *>(layer)) {
+  if (dynamic_cast<const FullyConnectedLayer *>(layer)) {
     // A fully connected layer wants the channel grouping to be
     // the same forwards and backwards.
     if (netType == TrainingNet)
       return getRequiredChansPerGroupBwd(i - 1);
     else
       return 0;
-  } else if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
+  } else if (dynamic_cast<const ConvLayer *>(layer)) {
     auto plan = getConvPlan(i, inDimY, inDimX, inNumChans);
     return plan.fwdPartition.inChansPerGroup;
-  } else if (const auto *c = dynamic_cast<const ConvResLayer *>(layer)) {
+  } else if (dynamic_cast<const ConvResLayer *>(layer)) {
     auto plan = getConvPlan(i, inDimY, inDimX, inNumChans);
     return plan.fwdPartition.inChansPerGroup;
   } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
@@ -372,8 +372,8 @@ Net::createConvLayerFwd(unsigned i,
                                outChansPerGroup},
                                "z." + std::to_string(i));
   mapActivations(*graph, z);
-  unsigned inNumChans = in.dim(0) * in.dim(3);
   unsigned inNumChanGroups = in.dim(0);
+  unsigned inNumChans = inNumChanGroups * in.dim(3);
   unsigned inDimY = in.dim(1), inDimX = in.dim(2);
   auto plan = getConvPlan(i, inDimY, inDimX, inNumChans);
   Tensor weights = conv::createWeights(*graph, dType, inNumChans,
@@ -543,8 +543,6 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   numTestBatches = dataSet.numTest / batchSize;
   env = std::unique_ptr<GraphProgEnv>(
       new GraphProgEnv(popnn::findGraphProg(), GraphProgFileType::Object));
-  bool convInstructionsFloat = false,
-       preferConvInstructions = false;
   if (options.useIPUModel) {
     DeviceInfo info;
     info.memcpyBytesPerCycle = options.dataPathWidth / 8;
