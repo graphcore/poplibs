@@ -351,7 +351,7 @@ int main(int argc, char **argv) {
      po::value<unsigned>(&outChansPerGroup),
      "The number of channels per group of the activations written in the "
      "forward pass")
-    ("tolerance", po::value<double>(&relativeTolerance),
+    ("tolerance", po::value<double>(&relativeTolerance)->default_value(0.01),
      "Relative tolerance to use when validating results against the reference "
      "model")
   ;
