@@ -207,12 +207,12 @@ enum {
 };
 
 static std::unique_ptr<float[]>
-createRandomWeightInitializers(Tensor t, float mean, float variance,
+createRandomWeightInitializers(Tensor t, float mean, float stdDev,
                                std::mt19937 &randomEngine) {
   const auto numWeights = t.numElements();
   auto inits = std::unique_ptr<float[]>(new float[numWeights]);
 
-  std::normal_distribution<> dist(mean, variance);
+  std::normal_distribution<> dist(mean, stdDev);
   for (unsigned i = 0; i < numWeights; ++i)
     inits[i] = dist(randomEngine);
 
