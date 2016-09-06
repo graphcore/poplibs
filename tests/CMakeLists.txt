@@ -28,4 +28,4 @@ add_test(NAME conv3x3_stride_2_fwd
                  --data-type=half
                  --padding=2
                  --stride=2
-                 --output-chans-per-group=16)
+                 --out-chans-per-group=16)
