@@ -1706,7 +1706,7 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
                                         zDeltas.dim(3)});
     for (unsigned i = 0; i < numBiases; ++i) {
       unsigned deltaGroup = (biasBegin + i) / zDeltas.dim(3);
-      unsigned deltaInGroup = (biasEnd + i) % zDeltas.dim(3);
+      unsigned deltaInGroup = (biasBegin + i) % zDeltas.dim(3);
       for (unsigned j = 0; j < numElems; ++j) {
         graph.connect(v["deltas"][i * numElems + j],
                       zDeltasFlat[deltaGroup][elemBegin + j][deltaInGroup]);
