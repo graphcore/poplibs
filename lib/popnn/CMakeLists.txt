@@ -10,6 +10,8 @@ add_library(popnn SHARED
   ConvReuse.cpp
   ConvUtil.cpp
   ConvUtil.hpp
+  DimShuffle.hpp
+  DimShuffle.cpp
   FullyConnected.cpp
   FullyConnectedPlan.cpp
   gcd.hpp
@@ -72,4 +74,4 @@ install(EXPORT popnn DESTINATION ${CMAKE_INSTALL_LIBDIR}
 
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/popnn
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-        COMPONENT popnn)      
+        COMPONENT popnn)

@@ -116,7 +116,7 @@ getInputRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
     unsigned end = outputIndex + padding + 1;
     unsigned begin =
         std::max(static_cast<int>(end) - static_cast<int>(kernelSize), 0);
-    begin = begin / stride;
+    begin = (begin + stride - 1) / stride;
     end = (end + stride - 1) / stride;
     end = std::min(end, inputSize);
     return {begin, end};

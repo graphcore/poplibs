@@ -279,7 +279,8 @@ public:
             assert((outWidth + outStride - 1) / outStride == inWidth);
             inStride = 1;
           }
-          for (unsigned x = 0; x != outWidth; ++x) {
+          const auto numOutputs = (outWidth + outStride - 1) / outStride;
+          for (unsigned x = 0; x != numOutputs; ++x) {
             for (unsigned fy = 0; fy != filterHeight; ++fy) {
               for (unsigned inChanIndex = 0; inChanIndex != inChansPerGroup;
                    ++inChanIndex) {
@@ -1143,6 +1144,7 @@ public:
     unsigned numCycles = 10;
     bool isFloat = std::is_same<FPType, float>::value;
     const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    //numChunks = inputFieldSize * chunksPerGroup
     auto numChunks = activationIn.size();
     auto chunkSize = activationIn[0].size();
     numCycles += numChunks * (1 + (chunkSize + vectorWidth - 1) / vectorWidth);
@@ -1156,23 +1158,51 @@ template class MaxPooling<half>;
 template <typename FPType>
 class MaxPoolingBwd : public Vertex {
 public:
-  Input<FPType> actOut;
-  Input<FPType> actIn;
-  Input<FPType> errIn;
-  Output<FPType> errOut;
+  Vector<Input<Vector<FPType>>> actOut;
+  Input<Vector<FPType>> actIn;
+  Vector<Input<Vector<FPType>>> errIn;
+  Output<Vector<FPType>> errOut;
+
+  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    if (*actIn == *actOut) {
-      *errOut = *errIn;
-    } else {
-      *errOut = 0;
+    // Update errOut with the sum of errors from all kernels that it updated
+    auto nOutChannels = errOut.size();
+    auto chunkSize = errIn[0].size();
+    auto nextFieldSize = errIn.size();
+    assert(chunkSize == nOutChannels);
+    assert(nOutChannels % chunkSize == 0);
+    auto nChunks = nOutChannels / chunkSize;
+    for (unsigned i = 0; i != nextFieldSize; ++i) {
+      for (unsigned chan = 0; chan != nOutChannels; ++chan) {
+        if (i == 0)
+          errOut[chan] = 0;
+        if (actIn[chan] == actOut[i][chan])
+          errOut[chan] += errIn[i][chan];
+      }
     }
+
     return true;
   }
 
   uint64_t getCycleEstimate() const {
-    // TODO
-    return 0;
+    unsigned numCycles = 10;
+    bool isFloat = std::is_same<FPType, float>::value;
+    const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    auto nChanGroups = (errOut.size() + vectorWidth - 1) / vectorWidth;
+    auto nextFieldSize = errIn.size();
+    // Expected implementation per group:
+    // load group of actIn
+    // for fieldsize:
+    // load actOut
+    //  compare
+    //  res<<=14 (covert to 0.5/0)
+    //  mac
+    // getacc
+    // double
+    // store
+    numCycles += ((3 * nextFieldSize) + 5) * nChanGroups;
+    return numCycles;
   }
 };
 
@@ -1331,6 +1361,40 @@ public:
 template class RegroupChans<float, float>;
 template class RegroupChans<float, half>;
 template class RegroupChans<half, half>;
+
+
+template <class Type>
+class DimShuffle : public Vertex {
+public:
+  Vector<Input<Vector<Type>>> in;
+  Output<Vector<Type>> out;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    unsigned numOut = out.size();
+    assert(numOut % in.size() == 0);
+    unsigned chunkSize = numOut / in.size();
+    unsigned numChunks = numOut / chunkSize;
+    for (unsigned i = 0; i != numChunks; ++i) {
+      for (unsigned j = 0; j != chunkSize; ++j) {
+        out[i * chunkSize + j] = in[i][j];
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    bool isFloat = std::is_same<Type, float>::value;
+    const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    unsigned numOut = out.size();
+    unsigned chunkSize = numOut / in.size();
+    unsigned numChunks = numOut / chunkSize;
+    return 5 + numChunks * (1 + (chunkSize + vectorWidth - 1) / vectorWidth);
+  }
+};
+
+template class DimShuffle<half>;
+template class DimShuffle<float>;
 
 template <class FPType>
 class ConvTransformWeights : public Vertex {

@@ -1,6 +1,16 @@
 #include "popnn/ActivationMapping.hpp"
 #include <cassert>
 
+void applyTensorMapping(poplar::Graph &graph, poplar::Tensor t,
+                        const std::vector<unsigned> &mapping) {
+  const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
+  assert(mapping.size() == numTiles + 1);
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    graph.setTileMapping(t.flatten().slice(mapping[tile], mapping[tile + 1]),
+                         tile);
+  }
+}
+
 std::vector<unsigned>
 computeActivationsMapping(const poplar::Graph &graph, poplar::Tensor act) {
   const auto numActivations = act.numElements();
@@ -40,24 +50,25 @@ computeActivationsMapping(const poplar::Graph &graph, poplar::Tensor act) {
 }
 
 void mapActivations(poplar::Graph &graph, poplar::Tensor act) {
-  auto actMapping = computeActivationsMapping(graph, act);
+  applyTensorMapping(graph, act, computeActivationsMapping(graph, act));
+}
+
+std::vector<unsigned> computeTensorMapping(const poplar::Graph &graph,
+                                           poplar::Tensor t)
+{
+  const auto numElements = t.numElements();
   const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
-  assert(actMapping.size() == numTiles + 1);
+  std::vector<unsigned> mapping;
+  mapping.reserve(numTiles + 1);
+  mapping.emplace_back(0);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
-    graph.setTileMapping(act.flatten().slice(actMapping[tile],
-                                             actMapping[tile + 1]),
-                         tile);
+    const auto end = (numElements * (tile + 1)) / numTiles;
+    mapping.emplace_back(end);
   }
+  mapping.resize(numTiles + 1, mapping.back());
+  return mapping;
 }
 
 void mapTensor(poplar::Graph &graph, poplar::Tensor t) {
-  std::uint64_t size = t.numElements();
-  const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
-  for (unsigned i = 0; i < numTiles; ++i) {
-    const auto begin = (size * i) / numTiles;
-    const auto end = (size * (i + 1)) / numTiles;
-    if (begin == end)
-      continue;
-    graph.setTileMapping(t.flatten().slice(begin, end), i);
-  }
+  applyTensorMapping(graph, t, computeTensorMapping(graph, t));
 }
