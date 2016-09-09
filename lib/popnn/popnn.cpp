@@ -1392,8 +1392,8 @@ class Wgd3x3DataTransform2x2 : public Vertex {
 public:
   /* The input is an array of one dimensional vectors each of size equal
    * to a number of independent input channels. This implementation differs from
-   * assembler implementation in that it assumes a vector for every X,Y point and
-   * doesn't require the vector length to be a multiple of 4.
+   * assembler implementation in that it assumes a vector for every X,Y point 
+   * and doesn't require the vector length to be a multiple of 4.
    * The assembler implementation assumes a pointer to every Y with known
    * dim(X)*dim(Z_in_partial).
    */
@@ -1403,25 +1403,18 @@ public:
    */
   Vector<Output<Vector<FPType>>> dTf;
 
-  /* Length of each 1D vector
-   */
-  unsigned depth;
-
-  /* Number of input tiles to process. Each tile is a set of numInpCols*numInpRows pointers.
-   * Padding if any must be setup as vectors of zero elements. i.e. padding must be handled
-   * external to the vertex.
-   */
-  unsigned nPatches;
-
   bool compute() {
-    assert(dIn.size() == numInpCols * numInpRows * nPatches);
-    assert(dTf.size() == numOutCols * numOutCols * nPatches);
+
+    const unsigned nPatches = dIn.size() / (numInpCols * numInpRows);
+
     static_assert(numInpRows == numInpCols, "Input tile must be square");
     static_assert(numOutRows == numOutCols, "Output tile must be squre");
 
     for (auto patch = 0; patch < nPatches; ++patch) {
       /* patch Base */
       unsigned pBase = patch * numInpCols * numInpRows;
+
+      const unsigned depth = dIn[0].size();
 
       for (int elem = 0; elem < depth; ++elem) {
         FPType dTemp[numOutCols][numOutCols];
@@ -1450,11 +1443,9 @@ public:
   uint64_t getCycleEstimate() const {
     bool isFloat = std::is_same<FPType, float>::value;
 
-    if (isFloat) {
-      return 12 + depth*nPatches*56/2;
-    } else {
-      return 12 + depth*nPatches*56/4;
-    }
+    const unsigned nPatches = dIn.size() / (numInpCols * numInpRows);
+
+    return getWgdDataTransformCycles(nPatches * dIn[0].size(), isFloat);
   }
 };
 
@@ -1477,9 +1468,13 @@ class Wgd3x3KernelTransform2x2 : public Vertex {
   /* Set this to true if transform is stored in transposed order */
   static constexpr bool transpose = true;
 
-  /* storage depends on whether transpose or normal form of transform is stored */
-  FPType& wrTf(const unsigned base, const unsigned row, const unsigned col, const unsigned elem) {
-    return transpose ? wTf[base + row * numOutCols + col][elem]:wTf[base + col * numOutRows + row][elem];
+  /* storage depends on whether transpose or normal form of transform is 
+   * stored 
+   */
+  FPType& wrTf(const unsigned base, const unsigned row, const unsigned col, 
+               const unsigned elem) {
+    return transpose ? wTf[base + row * numOutCols + col][elem] : 
+                           wTf[base + col * numOutRows + row][elem];
   }
 
   FPType rdIn(unsigned base, unsigned row, unsigned col, unsigned elem) const {
@@ -1487,29 +1482,28 @@ class Wgd3x3KernelTransform2x2 : public Vertex {
   }
 
 public:
-  /* Each input is a 1D vector of independent channels which may be a mix of input
-   * and output channels. Therefore kernelCols*kernelRow vectors are required to have
-   * all elements of a kernel. The 1D vectors are stored in row order
+  /* Each input is a 1D vector of independent channels which may be a mix of 
+   * input and output channels. Therefore kernelCols*kernelRow vectors are 
+   * required to have all elements of a kernel. The 1D vectors are stored in row 
+   * order
    */
   Vector<Input<Vector<FPType>>> wIn;
 
-  /* Same as wIn except that numOutCols*numOutRows vectors each of dimension 1xdepth
-   * are stored
+  /* Same as wIn except that numOutCols*numOutRows vectors each of dimension 
+   * 1xdepth are stored
    */
   Vector<Output<Vector<FPType>>> wTf;
 
-  unsigned depth;
-  unsigned nGroups;
-
   bool compute() {
-    assert(wIn.size() == kernelCols * kernelCols * nGroups);
-    assert(wTf.size() == numOutCols * numOutRows * nGroups);
+    const unsigned nGroups = wTf.size() / (numOutCols * numOutRows);
     static_assert(kernelCols == 3, "Support for kernel size of 3");
     static_assert(kernelRows == 3, "Support for kernel size of 3");
     static_assert(numOutRows == numOutCols, "Output tile must be square");
 
     for (int group = 0; group < nGroups; ++group) {
       unsigned gBase = kernelCols * kernelRows * group;
+
+      const unsigned depth = wIn[0].size();
 
       for (unsigned elem = 0; elem < depth; ++elem) {
         FPType g[kernelRows][kernelCols];
@@ -1563,11 +1557,9 @@ public:
   uint64_t getCycleEstimate() const {
     bool isFloat = std::is_same<FPType, float>::value;
 
-    if (isFloat) {
-      return 2 + depth*nGroups*35/2;
-    } else {
-      return 2 + depth*nGroups*35/4;
-    }
+    const unsigned nGroups = wTf.size() / (numOutCols * numOutRows);
+
+    return getWgdKernelTransformCycles(wIn[0].size() * nGroups, isFloat);
   }
 };
 
@@ -1591,36 +1583,29 @@ public:
    */
   Vector<Input<Vector<FPType>>> wTf;
 
-  /* Output for each of the nGroups 1D vectors. Each input vector results in a 1xoutChanDepth
-   * vector.
+  /* Output for each of the nGroups 1D vectors. Each input vector results in a 
+   * 1xoutChanDepth vector.
    */
   Vector<Output<Vector<FPType>>> partials;
 
-  unsigned inpChanDepth;
-  unsigned outChanDepth;
-
-  /* Number of elements in a feature which share the same weights for a given combination
-   * of input and output channels. Each feature element is of size inpChanDepth
-   */
-  unsigned elemsPerFeature;
-  unsigned nGroups;
 
   SimOnlyField<unsigned> numWorkers;
 
   bool compute() {
-    assert(dTf.size() == nGroups * elemsPerFeature);
-    assert(partials.size() == nGroups * elemsPerFeature);
-    assert(wTf.size() == nGroups);
+    const unsigned nGroups = wTf.size();
+    const unsigned elemsPerFeature = dTf.size() / nGroups;
+
 
     for (unsigned gr = 0; gr < nGroups; ++gr) {
+
+      const unsigned inpChanDepth = dTf[0].size();
+      const unsigned outChanDepth = partials[0].size();
 
       /* all feature elements share the same weights */
       assert(wTf[gr].size() == inpChanDepth * outChanDepth);
 
       for (unsigned elem = 0; elem < elemsPerFeature; ++elem) {
         unsigned eBase = gr * elemsPerFeature + elem;
-        assert(dTf[eBase].size() == inpChanDepth);
-        assert(partials[eBase].size() == outChanDepth);
 
         for (unsigned outIdx = 0; outIdx < outChanDepth; ++outIdx) {
           FPType acc{0};
@@ -1639,7 +1624,14 @@ public:
     bool isSupervisorVertex = std::is_same<Base, SupervisorVertex>::value;
     bool isFloat = std::is_same<FPType, float>::value;
 
-    /* @TODO implicit assumption here on size of exec units and they being equal to depthOutChannel */
+    const unsigned nGroups = wTf.size();
+    const unsigned elemsPerFeature = dTf.size() / nGroups;
+    const unsigned inpChanDepth = dTf[0].size();
+    const unsigned outChanDepth = partials[0].size();
+
+    /* @TODO implicit assumption here on size of exec units and they being 
+     * equal to depthOutChannel 
+     */
     if (isSupervisorVertex) {
       if (isFloat)
         return elemsPerFeature * inpChanDepth/(2 * numWorkers) + 10;
@@ -1664,25 +1656,27 @@ template class WgdPartials<Vertex, half>;
 template <class FPType>
 class WgdReduce: public Vertex {
 public:
-  /* The vector of partial contains 1D vectors of length inpLength. The partialSumLen 1D vectors
-   * are summed to produce a single output vector of the same length as the input vector.
-   * Several such operations may be performed to produce nGroups vectors of 1D vectors.
+  /* The vector of partial contains 1D vectors of length inpLength. The 
+   * partialSumLen 1D vectors are summed to produce a single output vector of 
+   * the same length as the input vector. Several such operations may be 
+   * performed to produce nGroups vectors of 1D vectors.
    */
   Vector<Input<Vector<FPType>>> partials;
 
   /*
-   * The output may be a sum of all partials to produce partial sum or a full sum
+   * The output may be a sum of all partials to produce partial sum or a full 
+   * sum
    */
   Vector<Output<Vector<FPType>>> outPartial;
-  unsigned inpLength;
-  unsigned partialSumLength;
-  unsigned nGroups;
 
   bool compute() {
-    assert(partials.size() == partialSumLength * nGroups);
+
+    const unsigned nGroups = outPartial.size(); 
+    const unsigned partialSumLength = partials.size() / nGroups;
 
     for (unsigned gr = 0; gr < nGroups; ++gr) {
       unsigned offInGroup = gr * partialSumLength;
+      const unsigned inpLength = partials[0].size();
 
       for (unsigned inpElem = 0; inpElem < inpLength; ++inpElem) {
         FPType  acc{0};
@@ -1698,6 +1692,9 @@ public:
 
   uint64_t getCycleEstimate() const {
     bool isFloat = std::is_same<FPType, float>::value;
+    const unsigned nGroups = outPartial.size(); 
+    const unsigned inpLength = partials[0].size();
+    const unsigned partialSumLength = partials.size() / nGroups;
 
     if (isFloat) {
       return 10 + 2 * partialSumLength * inpLength * nGroups/4;
@@ -1726,11 +1723,13 @@ class Wgd3x3InverseTransform2x2 : public Vertex {
   /* Set this to true if transform is stored in transposed order */
   static constexpr bool transpose = true;
 
-  FPType rdTf(const unsigned base, const unsigned row, const unsigned col, const unsigned el) const {
+  FPType rdTf(const unsigned base, const unsigned row, const unsigned col, 
+              const unsigned el) const {
     return dTf[base+col*numInRows+row][el];
   }
 
-  FPType& wrOut(const unsigned base,  unsigned row, const unsigned col, const unsigned el) {
+  FPType& wrOut(const unsigned base,  unsigned row, const unsigned col, 
+                const unsigned el) {
     if (!transpose) {
       return dOut[base + col * numOutRows + row][el];
     }
@@ -1741,40 +1740,47 @@ class Wgd3x3InverseTransform2x2 : public Vertex {
   }
 
 public:
-  /* The data transform vector dTf is an array of vectors each of length depthDim. The 1D vectors are
-   * stacked to have 16 elements called a group which are rows and columns needed to compute the inverse transform.
+  /* The data transform vector dTf is an array of vectors each of length 
+   * depthDim. The 1D vectors are stacked to have 16 elements called a group 
+   * which are rows and columns needed to compute the inverse transform.
    */
   Vector<Input<Vector<FPType>>> dTf;
 
-  /* Each output vector in the array of vectors is of length depthDim. numOutCols*numOutRows vectors are
-   * produced for each group
+  /* Each output vector in the array of vectors is of length depthDim. 
+   * numOutCols*numOutRows vectors are produced for each group
    */
   Vector<Output<Vector<FPType>>> dOut;
-  unsigned depthDim;
-  unsigned nGroups;
 
   bool compute() {
-    assert(dTf.size() == nGroups * numInCols * numInRows);
-    assert(dOut.size() == nGroups * numOutCols * numOutRows);
+    const unsigned nGroups = dTf.size() / (numInCols * numInRows);
     static_assert(numInRows == numInCols, "Input tile must be square");
     static_assert(numOutRows == numOutCols, "Output tile must be square");
 
     for (unsigned gr = 0; gr < nGroups; ++gr) {
       unsigned grInOff = gr * numInCols * numInRows;
       unsigned grOutOff = gr * numOutCols * numOutRows;
+      const unsigned depthDim = dTf[0].size();
 
       for (unsigned elem = 0; elem < depthDim; ++elem) {
-        FPType e = rdTf(grInOff, 0, 0, elem) + rdTf(grInOff, 0, 1, elem) + rdTf(grInOff, 0, 2, elem);
-        FPType f = rdTf(grInOff, 0, 1, elem) - rdTf(grInOff, 0, 2, elem) - rdTf(grInOff, 0, 3, elem);
+        FPType e = rdTf(grInOff, 0, 0, elem) + rdTf(grInOff, 0, 1, elem) 
+                                             + rdTf(grInOff, 0, 2, elem);
+        FPType f = rdTf(grInOff, 0, 1, elem) - rdTf(grInOff, 0, 2, elem) 
+                                             - rdTf(grInOff, 0, 3, elem);
 
-        FPType a = rdTf(grInOff, 1, 0, elem) + rdTf(grInOff, 1, 1, elem) + rdTf(grInOff, 1, 2, elem);
-        FPType c = rdTf(grInOff, 1, 1, elem) - rdTf(grInOff, 1, 2, elem) - rdTf(grInOff, 1, 3, elem);
+        FPType a = rdTf(grInOff, 1, 0, elem) + rdTf(grInOff, 1, 1, elem) 
+                                             + rdTf(grInOff, 1, 2, elem);
+        FPType c = rdTf(grInOff, 1, 1, elem) - rdTf(grInOff, 1, 2, elem) 
+                                             - rdTf(grInOff, 1, 3, elem);
 
-        FPType b = rdTf(grInOff, 2, 0, elem) + rdTf(grInOff, 2, 1, elem) + rdTf(grInOff, 2, 2, elem);
-        FPType d = rdTf(grInOff, 2, 1, elem) - rdTf(grInOff, 2, 2, elem) - rdTf(grInOff, 2, 3, elem);
+        FPType b = rdTf(grInOff, 2, 0, elem) + rdTf(grInOff, 2, 1, elem) 
+                                             + rdTf(grInOff, 2, 2, elem);
+        FPType d = rdTf(grInOff, 2, 1, elem) - rdTf(grInOff, 2, 2, elem) 
+                                             - rdTf(grInOff, 2, 3, elem);
 
-        FPType g = rdTf(grInOff, 3, 0, elem) + rdTf(grInOff, 3, 1, elem) + rdTf(grInOff, 3, 2, elem);
-        FPType h = rdTf(grInOff, 3, 1, elem) - rdTf(grInOff, 3, 2, elem) - rdTf(grInOff, 3, 3, elem);
+        FPType g = rdTf(grInOff, 3, 0, elem) + rdTf(grInOff, 3, 1, elem) 
+                                             + rdTf(grInOff, 3, 2, elem);
+        FPType h = rdTf(grInOff, 3, 1, elem) - rdTf(grInOff, 3, 2, elem) 
+                                             - rdTf(grInOff, 3, 3, elem);
 
         wrOut(grOutOff, 0, 0, elem) = a + b + e;
         wrOut(grOutOff, 1, 0, elem) = a - b - g;
@@ -1787,6 +1793,9 @@ public:
 
   uint64_t getCycleEstimate() const {
     bool isFloat = std::is_same<FPType, float>::value;
+    const unsigned nGroups = dTf.size() / (numInCols * numInRows);
+    const unsigned depthDim = dOut[0].size();
+
     if (isFloat)
       return 15 + nGroups * depthDim * 30/2;
     else
@@ -1814,20 +1823,12 @@ public:
    */
   Vector<Output<Vector<FPType>>> act;
 
-  /* length of each vector */
-  unsigned  vecLen;
-
-  /* nGroup vectors each of length "vecLen"
-   */
-  unsigned  nGroups;
-
   /* Non linearity applied to compute activation */
   NonLinearityType nonLinearityType;
 
   bool compute() {
-    assert(dIn.size() == nGroups);
-    assert(bias.size() == nGroups);
-    assert(act.size() == nGroups);
+    const unsigned nGroups = dIn.size();
+    const unsigned vecLen = dIn[0].size();
 
     for (unsigned gr = 0; gr < nGroups; ++gr) {
       for (unsigned el = 0; el < vecLen; ++el) {
@@ -1837,7 +1838,9 @@ public:
     return true;
   }
 
-    uint64_t getCycleEstimate() const {
+  uint64_t getCycleEstimate() const {
+    const unsigned nGroups = dIn.size();    
+    const unsigned vecLen = dIn[0].size();
     return 10 + vecLen * nGroups;
   }
 };

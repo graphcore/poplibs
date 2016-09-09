@@ -1,5 +1,4 @@
 #include "popnn/Convolution.hpp"
-#include <limits>
 #include <cassert>
 #include "ConvUtil.hpp"
 #include "popnn/ActivationMapping.hpp"
@@ -19,22 +18,22 @@ struct WgdFwdTrfPartition {
     /**
      * Maximum Number of tiles allocated to kernel transforms
      */
-    unsigned maxTilesForKernel;
+    unsigned numTilesForKernel;
 
     /**
      * Maximum number of kernel transform blocks allocated to a tile
      */
-    unsigned maxBlocksForKernel;
+    unsigned numBlocksForKernel;
 
     /**
      * Maximum number of tiles allocated to data transforms
      */
-    unsigned maxTilesForData;
+    unsigned numTilesForData;
 
     /**
      * Maximum number of data transform blocks allocated to a tile
      */
-    unsigned maxBlocksForData;
+    unsigned numBlocksForData;
 };
 
 /**
@@ -43,21 +42,22 @@ struct WgdFwdTrfPartition {
 enum class TransformMapOption {SEPARATE, JOINT};
 
 /**
- * @brief Mapping of tiles for Data and Kernel transforms to be done concurrently
+ * \brief Mapping of tiles for Data and Kernel transforms to be done 
+ *        concurrently
  *
- * @param kernelUnitCost
+ * \param kernelUnitCost
  *        cost to compute a kernel transform unit
  *
- * @param dataUnitCost
+ * \param dataUnitCost
  *        cost to compute a data transform unit
  *
- * @param kernelUnits
+ * \param kernelUnits
  *        number of kernel transform units
  *
- * @param unitsData
+ * \param unitsData
  *        number of data transform units
  *
- * @partition
+ * \param partition
  *        computed partition
  */
 static void wgdTrfTileMapping(
@@ -71,24 +71,27 @@ static void wgdTrfTileMapping(
   /* This is a simplification to ensure that the default case of rounding
    * both up fits
    */
-  unsigned workers = deviceInfo.numWorkerContexts;
+  unsigned workersPerTile = deviceInfo.numWorkerContexts;
 
-  /* assumption here that the two different transform types are not assigned to the same tile.
+  /* assumption here that the two different transform types are not assigned to 
+   * the same tile.
    * Units are grouped as blocks.
    */
-  unsigned kernelBlocks = (kernelUnits + workers - 1)/workers;
-  unsigned dataBlocks = (dataUnits + workers - 1)/workers;
+  unsigned kernelBlocks = (kernelUnits + workersPerTile - 1)/workersPerTile;
+  unsigned dataBlocks = (dataUnits + workersPerTile - 1)/workersPerTile;
 
   if (mapOption == TransformMapOption::JOINT) {
-    const double   maxTiles = deviceInfo.getNumTiles() - 2.0;
+    const double   numTiles = deviceInfo.getNumTiles() - 2.0;
 
     /* tiles assigned to each transform assuming an equal average cost
-     * per tile is attributed to each tile. Note that this will result in allocations
-     * with fractional cost per tile and is the average we wish to achieve.
+     * per tile is attributed to each tile. Note that this will result in 
+     * allocations with fractional cost per tile and is the average we wish 
+     * to achieve.
      */
-    double dataTiles = maxTiles/
-                       (1.0 + static_cast<double>(kernelBlocks)/dataBlocks * (static_cast<double>(kernelUnitCost)/dataUnitCost));
-    double kernelTiles = maxTiles - dataTiles;
+    double dataTiles = numTiles/
+                       (1.0 + static_cast<double>(kernelBlocks)/dataBlocks 
+                        * (static_cast<double>(kernelUnitCost)/dataUnitCost));
+    double kernelTiles = numTiles - dataTiles;
 
     const double   maxDataBlocks = std::ceil(dataBlocks/dataTiles);
     const double   maxKernelBlocks = std::ceil(kernelBlocks/kernelTiles);
@@ -96,12 +99,12 @@ static void wgdTrfTileMapping(
     unsigned bestDataTiles = std::ceil(dataTiles);
     unsigned bestKernelTiles = std::ceil(kernelTiles);
 
-    /* Use unit cost in the computation of block cost as both kernel and data are multiplies
-     * by the same factor
+    /* Use unit cost in the computation of block cost as both kernel and data 
+     * are multiplies by the same factor
      */
-    double bestCost = std::max(maxDataBlocks * dataUnitCost, maxKernelBlocks * kernelUnitCost);
+    double bestCost = std::max(maxDataBlocks * dataUnitCost, 
+                               maxKernelBlocks * kernelUnitCost);
 
-    //std::cout << "Candidate 0:" << bestKernelTiles << " tilesData: " << bestDataTiles << " cost: " << bestCost << std::endl;
 
     /* At least 1 block must be allocated */
     double minDataBlocks = std::max(maxDataBlocks - 1, 1.0);
@@ -110,12 +113,11 @@ static void wgdTrfTileMapping(
     /* Try first candidate: (minDataBlocks) */
     double tilesThisCand = std::ceil(dataBlocks/minDataBlocks);
 
-    if (tilesThisCand < maxTiles) {
+    if (tilesThisCand < numTiles) {
       const double tilesData = tilesThisCand;
-      const double tilesKernel = maxTiles - tilesData;
-      const double cost = std::max(minDataBlocks * dataUnitCost, std::ceil(kernelBlocks/tilesKernel) * kernelUnitCost);
-
-      //std::cout << "Candidate 1:" << tilesKernel << " tilesData: " << tilesData << " cost: " << cost << std::endl;
+      const double tilesKernel = numTiles - tilesData;
+      const double cost = std::max(minDataBlocks * dataUnitCost, 
+                         std::ceil(kernelBlocks/tilesKernel) * kernelUnitCost);
 
       /* select candidate if cost is lower */
       if (cost < bestCost) {
@@ -129,12 +131,12 @@ static void wgdTrfTileMapping(
 
     /* Try second candidate: (minKernelBlocks) */
     tilesThisCand = ceil(kernelBlocks/minKernelBlocks);
-    if (tilesThisCand < maxTiles) {
+    if (tilesThisCand < numTiles) {
       const double tilesKernel = tilesThisCand;
-      const double tilesData = maxTiles - tilesKernel;
-      const double cost = std::max(minKernelBlocks * kernelUnitCost, ceil(dataBlocks/tilesData) * dataUnitCost);
+      const double tilesData = numTiles - tilesKernel;
+      const double cost = std::max(minKernelBlocks * kernelUnitCost, 
+                               ceil(dataBlocks/tilesData) * dataUnitCost);
 
-      //std::cout << "Candidate 2:" << tilesKernel << " tilesData: " << tilesData << " cost: " << cost << std::endl;
 
       /* select candidate if cost is lower */
       if (cost < bestCost) {
@@ -148,26 +150,32 @@ static void wgdTrfTileMapping(
     /* Split data and kernel transform across tiles:
      * Not all tiles may have the same number of units
      */
-    partition.maxBlocksForData = (dataBlocks + bestDataTiles - 1)/bestDataTiles;
-    partition.maxTilesForData = bestDataTiles;
+    partition.numBlocksForData = (dataBlocks + bestDataTiles - 1)/bestDataTiles;
+    partition.numTilesForData = bestDataTiles;
 
-    partition.maxBlocksForKernel = (kernelBlocks + bestKernelTiles - 1)/bestKernelTiles;
-    partition.maxTilesForKernel = bestKernelTiles;
+    partition.numBlocksForKernel = (kernelBlocks 
+                                    + bestKernelTiles - 1)/bestKernelTiles;
+    partition.numTilesForKernel = bestKernelTiles;
 
-    assert( (partition.maxTilesForData + partition.maxTilesForKernel) <= deviceInfo.getNumTiles());
-    assert( (partition.maxBlocksForData * partition.maxTilesForData + partition.maxBlocksForKernel * partition.maxTilesForKernel) * deviceInfo.numWorkerContexts >= (kernelUnits + dataUnits));
+    assert( (partition.numTilesForData + partition.numTilesForKernel) 
+                                               <= deviceInfo.getNumTiles());
+    assert( (partition.numBlocksForData * partition.numTilesForData 
+                  + partition.numBlocksForKernel * partition.numTilesForKernel) 
+                  * deviceInfo.numWorkerContexts >= (kernelUnits + dataUnits));
   } else {
-    const unsigned maxTiles = deviceInfo.getNumTiles();
-    partition.maxBlocksForData = (dataBlocks + maxTiles - 1)/maxTiles;
-    partition.maxBlocksForKernel = (kernelBlocks + maxTiles -1)/maxTiles;
+    const unsigned numTiles = deviceInfo.getNumTiles();
+    partition.numBlocksForData = (dataBlocks + numTiles - 1)/numTiles;
+    partition.numBlocksForKernel = (kernelBlocks + numTiles -1)/numTiles;
   }
 }
 
 /**
- * @brief Number of output patches of size patchSize given
+ * \brief Number of output patches of size patchSize given
  *        an input length and kernel size
  */
-static unsigned getNumPatches(unsigned dim, unsigned kernelSize, unsigned patchSize) {
+static unsigned getNumPatches(unsigned dim, 
+                              unsigned kernelSize, 
+                              unsigned patchSize) {
   assert(patchSize >= kernelSize);
   auto overlap = patchSize - kernelSize + 1;
   return (dim + patchSize - 1)/overlap - 1;
@@ -175,7 +183,7 @@ static unsigned getNumPatches(unsigned dim, unsigned kernelSize, unsigned patchS
 
 
 /**
- *  @brief Maximum number of valid outputs per patch
+ *  \brief Maximum number of valid outputs per patch
  */
 static unsigned getNumOutputsPerPatch(unsigned kernelSize, unsigned patchSize) {
   return patchSize - kernelSize + 1;
@@ -209,40 +217,56 @@ private:
   unsigned xout = 0;
   unsigned yout = 0;
   unsigned inGroup = 0;
+  int paddingX;
+  int paddingY;
 
 public:
-  DataPatchGen(unsigned x, unsigned y, unsigned inGroups, unsigned patchX, unsigned patchY, unsigned kernelX, unsigned kernelY) : maxX(x), maxY(y), numInGroups(inGroups), patchX(patchX), patchY(patchY), kernelX(kernelX), kernelY(kernelY) {
+  DataPatchGen(unsigned x, unsigned y, 
+              unsigned inGroups, unsigned patchX, 
+              unsigned patchY, unsigned kernelX, 
+              unsigned kernelY, unsigned paddingX, unsigned paddingY) : 
+                                  maxX(x), maxY(y), numInGroups(inGroups), 
+                                  patchX(patchX), patchY(patchY), 
+                                  kernelX(kernelX), kernelY(kernelY),
+                                  paddingX(paddingX), paddingY(paddingY) {
     assert(kernelX == 3);
     assert(kernelY == 3);
     assert(patchX == 4);
     assert(patchY == 4);
-    xin = -static_cast<int>(kernelX - 1)/2;
-    yin = -static_cast<int>(kernelY - 1)/2;
+    xin = -paddingX;
+    yin = -paddingY;
   }
 
-  void alloc(WgdMapElem& el) {
+  WgdMapElem alloc() {
+    WgdMapElem el;
+
     assert(inGroup < numInGroups);
     el.xin = (static_cast<int>(xin) < 0) ? 0 : xin;
     el.prepadX = (static_cast<int>(xin) < 0)? -xin : 0;
-    el.postpadX = (xin > static_cast<int>(maxX - patchX)) ? patchX - (maxX - xin) : 0;
+    el.postpadX = (xin > static_cast<int>(maxX - patchX)) ?
+                                           patchX - (maxX - xin) : 0;
     el.yin = (static_cast<int>(yin) < 0) ? 0 : yin;
     el.prepadY = (static_cast<int>(yin) < 0) ? -yin : 0;
-    el.postpadY = (yin > static_cast<int>(maxY - patchY)) ? patchY - (maxY - yin) : 0;
+    el.postpadY = (yin > static_cast<int>(maxY - patchY)) ? 
+                                           patchY - (maxY - yin) : 0;
     el.inGroup = inGroup;
     el.xout = xout;
     el.yout = yout;
 
     ++xout;
-    if ((xin += static_cast<int>(patchX - kernelX + 1)) > (maxX - 1 -(kernelX - 1)/2)) {
-      xin = -static_cast<int>(kernelX - 1)/2;
+    if ((xin += static_cast<int>(patchX - kernelX + 1)) > 
+                                 (maxX - paddingX -(kernelX - 1)/2)) {
+      xin = -paddingX;
       xout = 0;
       ++yout;
-      if ((yin += static_cast<int>(patchY - kernelY + 1)) > (maxY -1 - (kernelY - 1)/2)) {
-        yin = -static_cast<int>(kernelY - 1)/2;
+      if ((yin += static_cast<int>(patchY - kernelY + 1)) > 
+                                 (maxY -paddingY - (kernelY - 1)/2)) {
+        yin = -paddingY;
         yout = 0;
         ++inGroup;
       }
     }
+    return el;
   }
 };
 
@@ -263,26 +287,30 @@ static void computeDataTransform(Graph &graph,
   const unsigned numInpChanGroups = in.dim(0);
   const unsigned numInpChansInGroup = in.dim(3);
 
-  const auto nMaxWorkers = deviceInfo.numWorkerContexts;
-  const auto maxTiles = deviceInfo.getNumTiles();
+  const auto workersPerTile = deviceInfo.numWorkerContexts;
+  const auto numTiles = deviceInfo.getNumTiles();
 
-  assert(partition.maxBlocksForData);
+  assert(partition.numBlocksForData);
 
-  /* Map data transform units to workers on tiles. Each worker is assigned the Maximum
-   * number of units until all units are consumed
+  /* Map data transform units to workers on tiles. Each worker is assigned 
+   * the Maximum number of units until all units are consumed
    */
-  DataPatchGen dTfPatch(xDim, yDim, numInpChanGroups, patchSizeX, patchSizeY, kernelSize, kernelSize);
+  DataPatchGen dTfPatch(xDim, yDim, numInpChanGroups, patchSizeX, 
+                        patchSizeY, kernelSize, kernelSize, padding, padding);
   do {
     unsigned vertex = 0;
     bool zeroTensorCreated = false;
     Tensor zeroVec;
 
     /* allocated data units to workers */
-    for (; vertex < nMaxWorkers&&numDataUnits; vertex++) {
-      const auto numUnitsThisVertex = (numDataUnits > partition.maxBlocksForData) ? partition.maxBlocksForData : numDataUnits;
+    for (; vertex < workersPerTile&&numDataUnits; vertex++) {
+      const auto numUnitsThisVertex = std::min(numDataUnits, 
+                                               partition.numBlocksForData); 
 
 #if DEBUG_PRINT==1
-      std::cout << "tile: " << tile << " vertex: " << vertex << "  numUnitsThisVertex: " << numUnitsThisVertex << " numDataUnits :" << numDataUnits << std::endl;
+      std::cout << "tile: " << tile << " vertex: " << vertex;
+      std::cout << "  numUnitsThisVertex: " << numUnitsThisVertex;
+      std::cout << " numDataUnits :" << numDataUnits << std::endl;
 #endif
 
       /* allocate units to this vertex */
@@ -290,18 +318,16 @@ static void computeDataTransform(Graph &graph,
                                templateVertex("Wgd3x3DataTransform2x2", dType));
 
       /* Each unit requires patchSizeX x patchSize vectors */
-      graph.setFieldSize(v["dIn"], numUnitsThisVertex * patchSizeX * patchSizeY);
-      graph.setFieldSize(v["dTf"], numUnitsThisVertex * patchSizeX * patchSizeY);
+      graph.setFieldSize(v["dIn"], 
+                         numUnitsThisVertex * patchSizeX * patchSizeY);
+      graph.setFieldSize(v["dTf"], 
+                         numUnitsThisVertex * patchSizeX * patchSizeY);
       const unsigned numOutChansPerGroup = in.dim(3);
-      graph.setInitialValue(v["depth"], numInpChanGroups);
-      graph.setInitialValue(v["nPatches"], numUnitsThisVertex);
-
 
       graph.setTileMapping(v, tile);
 
       for (auto unit = 0; unit < numUnitsThisVertex; ++unit) {
-        WgdMapElem el;
-        dTfPatch.alloc(el);
+        WgdMapElem el = dTfPatch.alloc();
 
         auto yin_off = 0;
         for (auto y = 0; y < patchSizeY; ++y) {
@@ -319,13 +345,17 @@ static void computeDataTransform(Graph &graph,
               zeroTensorCreated = true;
 
               auto v = graph.addVertex(zeroCS, templateVertex("Zero", dType));
-              graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+              graph.setInitialValue(v["dataPathWidth"], 
+                                    deviceInfo.dataPathWidth);
               graph.connect(v["out"], zeroVec);
               graph.setTileMapping(v, tile);
               graph.setTileMapping(zeroVec, tile);
             }
 
-            graph.connect((addZeroVecX || addZeroVecY)?zeroVec:in[el.inGroup][el.yin+yin_off][el.xin+xin_off], v["dIn"][idx]);
+            graph.connect((addZeroVecX || addZeroVecY) ? 
+                              zeroVec : 
+                              in[el.inGroup][el.yin+yin_off][el.xin+xin_off], 
+                           v["dIn"][idx]);
 
             if (!addZeroVecX)
               ++xin_off;
@@ -361,7 +391,7 @@ static void computeKernelTransform(Graph &graph,
             ComputeSet &cs, unsigned &tile) {
 
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto nMaxWorkers = deviceInfo.numWorkerContexts;
+  const auto workersPerTile = deviceInfo.numWorkerContexts;
 
   const unsigned numOutPartialChanGroups = weights.dim(0);
   const unsigned numInpChanGroups = weights.dim(1);
@@ -376,35 +406,43 @@ static void computeKernelTransform(Graph &graph,
     unsigned vertex = 0;
 
     /* allocate data units to workers */
-    for (; vertex < nMaxWorkers && numKernelUnits; ++vertex) {
-      const unsigned numUnitsThisVertex = (numKernelUnits > partition.maxBlocksForKernel) ? partition.maxBlocksForKernel : numKernelUnits;
+    for (; vertex < workersPerTile && numKernelUnits; ++vertex) {
+      const unsigned numUnitsThisVertex = std::min(numKernelUnits, 
+                                                 partition.numBlocksForKernel);
 
 #if DEBUG_PRINT==1
-      std::cout << "tile: " << tile << " vertex: " << vertex << "  numUnitsThisVertex: " << numUnitsThisVertex << " numKernelUnits :" << numKernelUnits << std::endl;
+      std::cout << "tile: " << tile << " vertex: " << vertex;
+      std::cout << "  numUnitsThisVertex: " << numUnitsThisVertex;
+      std::cout << " numKernelUnits :" << numKernelUnits << std::endl;
 #endif
 
       /* allocate units to this worker */
       auto v = graph.addVertex(cs,
-                               templateVertex("Wgd3x3KernelTransform2x2", dType));
-      graph.setFieldSize(v["wIn"], numUnitsThisVertex * kernelSize * kernelSize);
-      graph.setFieldSize(v["wTf"], numUnitsThisVertex * patchSizeX * patchSizeY);
-      graph.setInitialValue(v["depth"], numInpChansInGroup);
-      graph.setInitialValue(v["nGroups"], numUnitsThisVertex);
-
+                            templateVertex("Wgd3x3KernelTransform2x2", dType));
+      graph.setFieldSize(v["wIn"], 
+                         numUnitsThisVertex * kernelSize * kernelSize);
+      graph.setFieldSize(v["wTf"], 
+                         numUnitsThisVertex * patchSizeX * patchSizeY);
 
       graph.setTileMapping(v, tile);
 
       for (auto unit = 0; unit < numUnitsThisVertex; ++unit) {
         for (auto x = 0; x < kernelSize; ++x) {
           for (auto y = 0; y < kernelSize; ++y) {
-            graph.connect(weights[outChanGroup][inpChanGroup][y][x][outPartialChan].flatten(), v["wIn"][unit * kernelSize * kernelSize + y * kernelSize + x]);
+            graph.connect(
+                weights[outChanGroup][inpChanGroup][y][x]
+                       [outPartialChan].flatten(), 
+                v["wIn"][unit * kernelSize * kernelSize + y * kernelSize + x]);
           }
         }
 
         for (auto x = 0; x < patchSizeX; ++x) {
           for (auto y = 0; y < patchSizeY; ++y) {
-            Tensor wTfPart = kernelTf[outChanGroup][inpChanGroup][y][x][outPartialChan].flatten();
-            graph.connect(v["wTf"][unit * patchSizeX * patchSizeY + y * patchSizeX + x], wTfPart);
+            Tensor wTfPart = kernelTf[outChanGroup][inpChanGroup]
+                                     [y][x][outPartialChan].flatten();
+            graph.connect(
+               v["wTf"][unit * patchSizeX * patchSizeY + y * patchSizeX + x], 
+               wTfPart);
             graph.setTileMapping(wTfPart, tile);
           }
         }
@@ -426,7 +464,7 @@ static void computeKernelTransform(Graph &graph,
 }
 
 /**
- * @brief  construct program for joint computation of data and kernel transforms
+ * \brief  construct program for joint computation of data and kernel transforms
  */
 static Program computeFwdTransforms(Graph &graph,
             unsigned kernelSize, unsigned stride, unsigned padding,
@@ -444,22 +482,30 @@ static Program computeFwdTransforms(Graph &graph,
   const unsigned numOutPartialChansInGroup = weights.dim(4);
   const unsigned numInpChansInGroup = weights.dim(5);
 
-  unsigned numKernelUnits = numOutPartialChanGroups * numInpChanGroups * numOutPartialChansInGroup;
-  const unsigned kernelUnitCost = numInpChansInGroup * 35/4 + 2;
+  unsigned numKernelUnits = numOutPartialChanGroups 
+                            * numInpChanGroups 
+                            * numOutPartialChansInGroup;
+  const unsigned kernelUnitCost = getWgdKernelTransformCycles(
+                                                         numInpChansInGroup,
+                                                         dType=="float");
 
-  const auto oneDTransformX = getNumPatches(xDim, kernelSize, patchSizeX);
-  const auto oneDTransformY = getNumPatches(yDim, kernelSize, patchSizeY);
+  const auto numPatchesX = getNumPatches(xDim, kernelSize, patchSizeX);
+  const auto numPatchesY = getNumPatches(yDim, kernelSize, patchSizeY);
 
-  unsigned numDataUnits = numInpChanGroups * oneDTransformX * oneDTransformY;
-  const unsigned dataUnitCost = numInpChansInGroup * 56/4 + 15;
+  unsigned numDataUnits = numInpChanGroups * numPatchesX * numPatchesY;
+  const unsigned dataUnitCost = getWgdDataTransformCycles(numInpChansInGroup,
+                                                          dType == "float");
 
   WgdFwdTrfPartition partition;
-  wgdTrfTileMapping(kernelUnitCost, dataUnitCost, numKernelUnits, numDataUnits, deviceInfo, fwdMapOption, partition);
+  wgdTrfTileMapping(kernelUnitCost, dataUnitCost, numKernelUnits, 
+                    numDataUnits, deviceInfo, fwdMapOption, partition);
 
   unsigned tile = 0;
 
   ComputeSet zeroCS = graph.createComputeSet(layerName + ".WgdZeros");
-  ComputeSet jointCS = graph.createComputeSet(layerName + ((fwdMapOption == TransformMapOption::JOINT) ? ".kernelAndDataTrf" : ".dataTrf"));
+  ComputeSet jointCS = graph.createComputeSet(
+              layerName + ((fwdMapOption == TransformMapOption::JOINT) ? 
+              ".kernelAndDataTrf" : ".dataTrf"));
 
   computeDataTransform(graph, kernelSize, stride, padding,
                        xDim, yDim,
@@ -496,7 +542,8 @@ static Program computeFwdTransforms(Graph &graph,
 
 
 /**
- * @brief  compute product of kernel and data transform and accumulate over partial input dimension
+ * \brief  compute product of kernel and data transform and accumulate over 
+ *         partial input dimension
  */
 static Program accumulate(Graph &graph,
             unsigned kernelSize, unsigned stride, unsigned padding,
@@ -504,24 +551,29 @@ static Program accumulate(Graph &graph,
             unsigned patchSizeX, unsigned patchSizeY,
             const std::string dType,
             const std::string layerName,
-            Tensor in, Tensor weights, Tensor dataTf, Tensor kernelTf, Tensor accumTf)
+            Tensor in, Tensor weights, Tensor dataTf, Tensor kernelTf, 
+            Tensor accumTf)
 {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
 
-  const auto nMaxWorkers = deviceInfo.sharedConvWeights?1:deviceInfo.numWorkerContexts;
-  const char *baseClass = deviceInfo.sharedConvWeights ? "poplar::SupervisorVertex" : "poplar::Vertex";
-  const auto maxTiles = deviceInfo.getNumTiles();
+  const auto workersPerTile = deviceInfo.sharedConvWeights ?
+                                   1 : deviceInfo.numWorkerContexts;
+  const char *baseClass = deviceInfo.sharedConvWeights ? 
+                           "poplar::SupervisorVertex" : "poplar::Vertex";
+  const auto numTiles = deviceInfo.getNumTiles();
 
-  const auto oneDTransformX = getNumPatches(xDim, kernelSize, patchSizeX);
-  const auto oneDTransformY = getNumPatches(yDim, kernelSize, patchSizeY);
+  const auto numPatchesX = getNumPatches(xDim, kernelSize, patchSizeX);
+  const auto numPatchesY = getNumPatches(yDim, kernelSize, patchSizeY);
 
   const unsigned numInpChanGroups = kernelTf.dim(1);
   const unsigned numOutPartialChanGroups = kernelTf.dim(0);
   const unsigned numOutPartialChansInGroup = kernelTf.dim(4);
   const unsigned numInpChansInGroup = kernelTf.dim(5);
 
-  auto totalAccUnits = numOutPartialChanGroups * numInpChanGroups * patchSizeX * patchSizeY;
-  const auto accUnitsPerVertex = (totalAccUnits + nMaxWorkers * maxTiles - 1)/(nMaxWorkers * maxTiles);
+  auto totalAccUnits = numOutPartialChanGroups 
+                       * numInpChanGroups * patchSizeX * patchSizeY;
+  const auto accUnitsPerVertex = 
+         (totalAccUnits + workersPerTile * numTiles - 1)/(workersPerTile * numTiles);
 
   ComputeSet cs = graph.createComputeSet(layerName +".accumulate");
 
@@ -533,41 +585,51 @@ static Program accumulate(Graph &graph,
   unsigned outChanGroup = 0;
   do {
     unsigned vertex = 0;
-    for (; vertex < nMaxWorkers && totalAccUnits; ++vertex) {
-      const unsigned numUnitsThisVertex = totalAccUnits >= accUnitsPerVertex ? accUnitsPerVertex : totalAccUnits;
-
+    for (; vertex < workersPerTile && totalAccUnits; ++vertex) {
+      const unsigned numUnitsThisVertex = std::min(totalAccUnits, 
+                                                   accUnitsPerVertex);
 #if DEBUG_PRINT == 1
-      std::cout << "tile: " << tile << " vertex: " << vertex << "  numUnitsThisVertex: " << numUnitsThisVertex << " totalAccUnits :" << totalAccUnits << std::endl;
+      std::cout << "tile: " << tile << " vertex: " << vertex;
+      std::cout << "  numUnitsThisVertex: " << numUnitsThisVertex;
+      std::cout << " totalAccUnits :" << totalAccUnits << std::endl;
 #endif
 
       auto v = graph.addVertex(cs,
                                templateVertex("WgdPartials", baseClass, dType));
 
-      graph.setInitialValue(v["inpChanDepth"], numInpChansInGroup);
-      graph.setInitialValue(v["outChanDepth"], numOutPartialChansInGroup);
-      graph.setInitialValue(v["nGroups"], numUnitsThisVertex);
-      graph.setInitialValue(v["elemsPerFeature"], oneDTransformX * oneDTransformY);
       graph.setInitialValue(v["numWorkers"], deviceInfo.numWorkerContexts);
       graph.setFieldSize(v["wTf"], numUnitsThisVertex);
-      graph.setFieldSize(v["dTf"], numUnitsThisVertex * oneDTransformX * oneDTransformY);
-      graph.setFieldSize(v["partials"], numUnitsThisVertex * oneDTransformX * oneDTransformY);
+      graph.setFieldSize(v["dTf"], 
+                         numUnitsThisVertex * numPatchesX * numPatchesY);
+      graph.setFieldSize(v["partials"], 
+                         numUnitsThisVertex * numPatchesX * numPatchesY);
 
       for (auto unit = 0; unit < numUnitsThisVertex; ++unit) {
-        for (auto x = 0; x < oneDTransformX; ++x) {
-          for (auto y = 0; y < oneDTransformY; ++y) {
-            const auto idx = unit * oneDTransformX * oneDTransformY + y * oneDTransformX + x;
-            graph.connect(dataTf[inpChanGroup][y][x][patchElemY][patchElemX], v["dTf"][idx]);
-            auto aPart = accumTf[outChanGroup][inpChanGroup][y][x][patchElemY][patchElemX];
+        for (auto x = 0; x < numPatchesX; ++x) {
+          for (auto y = 0; y < numPatchesY; ++y) {
+            const auto idx =
+                      unit * numPatchesX * numPatchesY + y * numPatchesX + x;
+            graph.connect(dataTf[inpChanGroup][y][x][patchElemY][patchElemX], 
+                          v["dTf"][idx]);
+            auto aPart = accumTf[outChanGroup]
+                                [inpChanGroup]
+                                [y][x]
+                                [patchElemY][patchElemX];
             graph.connect(v["partials"][idx], aPart);
             graph.setTileMapping(aPart, tile);
           }
         }
 
 #if DEBUG_PRINT == 1
-        std::cout << "outChanGroup: " << outChanGroup << " inChanGroup: " << inpChanGroup << "  patchElemX: " << patchElemX << " patchElemY :" << patchElemY << std::endl;
+        std::cout << "outChanGroup: " << outChanGroup;
+        std::cout << " inChanGroup: " << inpChanGroup;
+        std::cout << " patchElemX: " << patchElemX;
+        std::cout << " patchElemY :" << patchElemY << std::endl;
 #endif
 
-        graph.connect(kernelTf[outChanGroup][inpChanGroup][patchElemY][patchElemX].flatten(), v["wTf"][unit]);
+        graph.connect(kernelTf[outChanGroup]
+                              [inpChanGroup][patchElemY][patchElemX].flatten(), 
+                      v["wTf"][unit]);
         if (++patchElemX == patchSizeX) {
           patchElemX = 0;
           if (++patchElemY == patchSizeY) {
@@ -589,8 +651,8 @@ static Program accumulate(Graph &graph,
 }
 
 /**
- * @brief reduce accumulated transform product. Each element of patchSizeX x patchSizeY
- *        is assigned to a different vertex
+ * \brief reduce accumulated transform product. Each element of 
+ *        patchSizeX x patchSizeY is assigned to a different vertex
  */
 static Program reduce(Graph &graph,
             unsigned kernelSize, unsigned stride, unsigned padding,
@@ -600,11 +662,11 @@ static Program reduce(Graph &graph,
             const std::string layerName,
             Tensor weights, Tensor accumTf, Tensor invTf) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto nMaxWorkers = deviceInfo.numWorkerContexts;
-  const auto maxTiles = deviceInfo.getNumTiles();
+  const auto workersPerTile = deviceInfo.numWorkerContexts;
+  const auto numTiles = deviceInfo.getNumTiles();
 
-  const auto oneDTransformX = getNumPatches(xDim, kernelSize, patchSizeX);
-  const auto oneDTransformY = getNumPatches(yDim, kernelSize, patchSizeY);
+  const auto numPatchesX = getNumPatches(xDim, kernelSize, patchSizeX);
+  const auto numPatchesY = getNumPatches(yDim, kernelSize, patchSizeY);
 
   const unsigned numInpChanGroups = weights.dim(1);
   const unsigned numOutPartialChanGroups = weights.dim(0);
@@ -612,8 +674,13 @@ static Program reduce(Graph &graph,
 
   ComputeSet cs = graph.createComputeSet(layerName +".reduce");
 
-  auto totalReduceUnits = numOutPartialChanGroups * oneDTransformY * oneDTransformX * patchSizeY * patchSizeX;
-  const auto redUnitsPerVertex = (totalReduceUnits + maxTiles * nMaxWorkers - 1)/(nMaxWorkers * maxTiles);
+  auto totalReduceUnits = numOutPartialChanGroups 
+                          * numPatchesY 
+                          * numPatchesX 
+                          * patchSizeY 
+                          * patchSizeX;
+  const auto redUnitsPerVertex = 
+       (totalReduceUnits + numTiles * workersPerTile - 1)/(workersPerTile * numTiles);
   unsigned tile = 0;
   unsigned outChanGroup = 0;
   unsigned xPatch = 0;
@@ -623,35 +690,37 @@ static Program reduce(Graph &graph,
 
   do {
     unsigned vertex = 0;
-    for (; vertex < nMaxWorkers && totalReduceUnits; ++vertex){
-      const unsigned numUnitsThisVertex = totalReduceUnits>=redUnitsPerVertex?redUnitsPerVertex:totalReduceUnits;
+    for (; vertex < workersPerTile && totalReduceUnits; ++vertex){
+      const unsigned numUnitsThisVertex = std::min(totalReduceUnits,
+                                                   redUnitsPerVertex);
 
 #if DEBUG_PRINT == 1
-      std::cout << "tile: " << tile << " vertex: " << vertex << "  numUnitsThisVertex: " << numUnitsThisVertex << " totalReduceUnits :" << totalReduceUnits << std::endl;
+      std::cout << "tile: " << tile << " vertex: " << vertex;
+      std::cout << "  numUnitsThisVertex: " << numUnitsThisVertex;
+      std::cout << " totalReduceUnits :" << totalReduceUnits << std::endl;
 #endif
 
       auto v = graph.addVertex(cs,
                                templateVertex("WgdReduce", dType));
       graph.setFieldSize(v["partials"], numUnitsThisVertex * numInpChanGroups);
       graph.setFieldSize(v["outPartial"], numUnitsThisVertex);
-      graph.setInitialValue(v["inpLength"], numPartialChansInGroup);
-      graph.setInitialValue(v["partialSumLength"], numInpChanGroups);
-      graph.setInitialValue(v["nGroups"], numUnitsThisVertex);
 
       graph.setTileMapping(v, tile);
 
       /* set up tensors */
       for (auto unit = 0; unit < numUnitsThisVertex; ++unit) {
         for (auto part = 0; part < numInpChanGroups; ++part) {
-          graph.connect(accumTf[outChanGroup][part][yPatch][xPatch][yElem][xElem], v["partials"][unit * numInpChanGroups + part]);
+          graph.connect(accumTf[outChanGroup]
+                               [part][yPatch][xPatch][yElem][xElem], 
+                         v["partials"][unit * numInpChanGroups + part]);
         }
         Tensor iPart = invTf[outChanGroup][yPatch][xPatch][yElem][xElem];
         graph.connect(v["outPartial"][unit], iPart);
         graph.setTileMapping(iPart, tile);
 
-        if (++xPatch == oneDTransformX){
+        if (++xPatch == numPatchesX){
           xPatch = 0;
-          if (++yPatch == oneDTransformY) {
+          if (++yPatch == numPatchesY) {
             yPatch = 0;
             if (++yElem == patchSizeY) {
               yElem = 0;
@@ -674,7 +743,7 @@ static Program reduce(Graph &graph,
 
 
 /**
- * @brief compute inverse winograd transform
+ * \brief compute inverse winograd transform
  */
 static Program inverseTransform(Graph &graph,
             unsigned kernelSize, unsigned stride, unsigned padding,
@@ -684,11 +753,11 @@ static Program inverseTransform(Graph &graph,
             const std::string layerName,
             Tensor invTfIn, Tensor invTfOut) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto nMaxWorkers = deviceInfo.numWorkerContexts;
-  const auto maxTiles = deviceInfo.getNumTiles();
+  const auto workersPerTile = deviceInfo.numWorkerContexts;
+  const auto numTiles = deviceInfo.getNumTiles();
 
-  const auto oneDTransformX = getNumPatches(xDim, kernelSize, patchSizeX);
-  const auto oneDTransformY = getNumPatches(yDim, kernelSize, patchSizeY);
+  const auto numPatchesX = getNumPatches(xDim, kernelSize, patchSizeX);
+  const auto numPatchesY = getNumPatches(yDim, kernelSize, patchSizeY);
   const auto outputsPerPatchX = getNumOutputsPerPatch(kernelSize, patchSizeX);
   const auto outputsPerPatchY = getNumOutputsPerPatch(kernelSize, patchSizeX);
 
@@ -697,8 +766,9 @@ static Program inverseTransform(Graph &graph,
 
   ComputeSet cs = graph.createComputeSet(layerName + ".inverseTf");
 
-  auto totalInvTfUnits = numOutChanPartialGroups * oneDTransformY * oneDTransformX;
-  const auto invUnitsPerWorker = (totalInvTfUnits + maxTiles * nMaxWorkers - 1)/(nMaxWorkers * maxTiles);
+  auto totalInvTfUnits = numOutChanPartialGroups * numPatchesY * numPatchesX;
+  const auto invUnitsPerWorker = 
+       (totalInvTfUnits + numTiles * workersPerTile - 1)/(workersPerTile * numTiles);
 
   unsigned tile = 0;
   unsigned outChanGroup = 0;
@@ -707,19 +777,23 @@ static Program inverseTransform(Graph &graph,
 
   do {
     unsigned vertex = 0;
-    for (; vertex < nMaxWorkers && totalInvTfUnits; ++vertex) {
-      const unsigned numUnitsThisVertex = totalInvTfUnits >= invUnitsPerWorker ? invUnitsPerWorker : totalInvTfUnits;
+    for (; vertex < workersPerTile && totalInvTfUnits; ++vertex) {
+      const unsigned numUnitsThisVertex = std::min(totalInvTfUnits, 
+                                                   invUnitsPerWorker);
 
 #if DEBUG_PRINT == 1
-      std::cout << "tile: " << tile << " vertex: " << vertex << "  numUnitsThisVertex: " << numUnitsThisVertex << " totalInvTfUnits :" << totalInvTfUnits << std::endl;
+      std::cout << "tile: " << tile << " vertex: " << vertex;
+      std::cout << "  numUnitsThisVertex: " << numUnitsThisVertex;
+      std::cout << " totalInvTfUnits :" << totalInvTfUnits << std::endl;
 #endif
 
       auto v = graph.addVertex(cs,
-                               templateVertex("Wgd3x3InverseTransform2x2", dType));
-      graph.setFieldSize(v["dTf"], numUnitsThisVertex * patchSizeX * patchSizeY);
-      graph.setFieldSize(v["dOut"], numUnitsThisVertex * outputsPerPatchX * outputsPerPatchY);
-      graph.setInitialValue(v["depthDim"], partialChansPerGroup);
-      graph.setInitialValue(v["nGroups"], numUnitsThisVertex);
+                               templateVertex("Wgd3x3InverseTransform2x2", 
+                                              dType));
+      graph.setFieldSize(v["dTf"], 
+                         numUnitsThisVertex * patchSizeX * patchSizeY);
+      graph.setFieldSize(v["dOut"], 
+                    numUnitsThisVertex * outputsPerPatchX * outputsPerPatchY);
 
       graph.setTileMapping(v, tile);
 
@@ -728,7 +802,8 @@ static Program inverseTransform(Graph &graph,
         /* connect input */
         for (auto x = 0; x < patchSizeX; ++x) {
           for (auto y = 0; y < patchSizeY; ++y) {
-            graph.connect(invTfIn[outChanGroup][patchY][patchX][y][x], v["dTf"][unit * patchSizeX * patchSizeY + patchSizeX * y + x]);
+            graph.connect(invTfIn[outChanGroup][patchY][patchX][y][x], 
+                 v["dTf"][unit * patchSizeX * patchSizeY + patchSizeX * y + x]);
           }
         }
 
@@ -736,14 +811,16 @@ static Program inverseTransform(Graph &graph,
         for (auto x = 0; x < outputsPerPatchX; ++x) {
           for (auto y = 0; y < outputsPerPatchY; ++y) {
             Tensor oPart = invTfOut[outChanGroup][patchY][patchX][y][x];
-            graph.connect(v["dOut"][unit * outputsPerPatchX * outputsPerPatchY + outputsPerPatchX * y + x], oPart);
+            const auto idx = unit * outputsPerPatchX * outputsPerPatchY 
+                             + outputsPerPatchX * y + x;
+            graph.connect(v["dOut"][idx], oPart);
             graph.setTileMapping(oPart, tile);
           }
         }
 
-        if (++patchX == oneDTransformX) {
+        if (++patchX == numPatchesX) {
           patchX = 0;
-          if (++patchY == oneDTransformY) {
+          if (++patchY == numPatchesY) {
             patchY = 0;
             ++outChanGroup;
           }
@@ -768,11 +845,11 @@ static Program complete(Graph &graph,
             Tensor biases, Tensor activations,
             ResidualMethod resMethod, Tensor resIn, Tensor invTrfOut) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto nMaxWorkers = deviceInfo.numWorkerContexts;
-  const auto maxTiles = deviceInfo.getNumTiles();
+  const auto workersPerTile = deviceInfo.numWorkerContexts;
+  const auto numTiles = deviceInfo.getNumTiles();
 
-  const auto oneDTransformX = getNumPatches(xDim, kernelSize, patchSizeX);
-  const auto oneDTransformY = getNumPatches(yDim, kernelSize, patchSizeY);
+  const auto numPatchesX = getNumPatches(xDim, kernelSize, patchSizeX);
+  const auto numPatchesY = getNumPatches(yDim, kernelSize, patchSizeY);
 
   const auto outputsPerPatchX = getNumOutputsPerPatch(kernelSize, patchSizeX);
   const auto outputsPerPatchY = getNumOutputsPerPatch(kernelSize, patchSizeY);
@@ -781,27 +858,34 @@ static Program complete(Graph &graph,
   assert(yDim == activations.dim(1));
 
   /* work with partialGroups per channel as some of them are to be discarded */
-  const auto padX = outputsPerPatchX * oneDTransformX - activations.dim(1);
-  const auto padY = outputsPerPatchX * oneDTransformY - activations.dim(2);
+  const auto padX = outputsPerPatchX * numPatchesX - activations.dim(1);
+  const auto padY = outputsPerPatchX * numPatchesY - activations.dim(2);
 
   auto cs = graph.createComputeSet(layerName + ".complete");
 
   const unsigned numChansPerPartialGroup = invTrfOut.dim(5);
-  const unsigned numPartialGroupsPerOutChanGroup = activations.dim(3)/numChansPerPartialGroup;
+  const unsigned numPartialGroupsPerOutChanGroup 
+                            = activations.dim(3)/numChansPerPartialGroup;
   const unsigned numPartialChanGroups = invTrfOut.dim(0);
 
   assert(activations.dim(3) % invTrfOut.dim(5) == 0);
   assert(numPartialGroupsPerOutChanGroup);
 
 #if DEBUG_PRINT == 1
-  std::cout << "numChansPerPartialGroup :" << numChansPerPartialGroup << " numPartialGroupsPerOutChanGroup " << numPartialGroupsPerOutChanGroup << " activations.dim(3): " << activations.dim(3) << std::endl;
-  std::cout << "activations dimensions " << activations.dim(0) << "  " << activations.dim(1) << " " << activations.dim(2) << " " << activations.dim(3) << std::endl;
+  std::cout << "numChansPerPartialGroup :" << numChansPerPartialGroup;
+  std::cout << " numPartialGroupsPerOutChanGroup ";
+  std::cout << numPartialGroupsPerOutChanGroup;
+  std::cout << " activations.dim(3): " << activations.dim(3) << std::endl;
+  std::cout << "activations dimensions " << activations.dim(0);
+  std::cout << "  " << activations.dim(1) << " " << activations.dim(2);
+  std::cout << " " << activations.dim(3) << std::endl;
 #endif
 
   /* these excludes elements arising from post padding */
-  auto totalUnits = numPartialChanGroups * oneDTransformX * oneDTransformY;
+  auto totalUnits = numPartialChanGroups * numPatchesX * numPatchesY;
 
-  auto numUnitsPerWorker = (totalUnits + maxTiles * nMaxWorkers - 1)/(nMaxWorkers * maxTiles);
+  auto numUnitsPerWorker = (totalUnits + numTiles * workersPerTile - 1) / 
+                            (workersPerTile * numTiles);
   unsigned tile = 0;
 
   unsigned outPartialGroup = 0;
@@ -809,8 +893,9 @@ static Program complete(Graph &graph,
   unsigned patchY = 0;
   do {
     unsigned vertex = 0;
-    for (; vertex < nMaxWorkers && totalUnits; ++vertex) {
-      const unsigned numUnitsThisVertex = totalUnits >= numUnitsPerWorker ? numUnitsPerWorker : totalUnits;
+    for (; vertex < workersPerTile && totalUnits; ++vertex) {
+      const unsigned numUnitsThisVertex = std::min(totalUnits, 
+                                                   numUnitsPerWorker);
 
       auto v = graph.addVertex(cs, templateVertex("WgdConvComplete", dType));
 
@@ -819,30 +904,44 @@ static Program complete(Graph &graph,
       for (auto unit = 0; unit < numUnitsThisVertex; ++unit) {
         for (auto y = 0; y < outputsPerPatchY; ++y) {
           for (auto x = 0; x < outputsPerPatchX; ++x) {
-            if (!( ((patchX == oneDTransformX - 1) && (x >= outputsPerPatchX - padX)) ||
-                 ((patchY == oneDTransformY - 1) && (y >= outputsPerPatchY - padY)) )) {
+            if (!( ((patchX == numPatchesX - 1) && 
+                    (x >= outputsPerPatchX - padX)) ||
+                 ((patchY == numPatchesY - 1) && 
+                  (y >= outputsPerPatchY - padY)) )) {
 #if DEBUG_PRINT == 1
-              std::cout << " outPartialGroup: " << outPartialGroup << " patchX: " << patchX << " patchY: " << patchY << " x: " << x << " y: " << y << std::endl;
+              std::cout << " outPartialGroup: " << outPartialGroup;
+              std::cout << " patchX: " << patchX << " patchY: " << patchY;
+              std::cout << " x: " << x << " y: " << y << std::endl;
 #endif
-              graph.connect(invTrfOut[outPartialGroup][patchY][patchX][y][x], v["dIn"][patch]);
+              graph.connect(invTrfOut[outPartialGroup][patchY][patchX][y][x], 
+                            v["dIn"][patch]);
 
               const auto outX = patchX * outputsPerPatchX + x;
               const auto outY = patchY * outputsPerPatchY + y;
-              const auto outCGroup = outPartialGroup / numPartialGroupsPerOutChanGroup;
-              const auto outPGroup = outPartialGroup % numPartialGroupsPerOutChanGroup;
-              graph.connect(v["act"][patch], activations[outCGroup][outY][outX].slice(outPGroup * numChansPerPartialGroup, (outPGroup + 1) * numChansPerPartialGroup));
-              graph.connect(biases.slice(outPartialGroup * numChansPerPartialGroup, (outPartialGroup + 1) * numChansPerPartialGroup), v["bias"][patch]);
+              const auto outCGroup = outPartialGroup / 
+                                            numPartialGroupsPerOutChanGroup;
+              const auto outPGroup = outPartialGroup % 
+                                            numPartialGroupsPerOutChanGroup;
+              const auto aS = outPGroup * numChansPerPartialGroup;
+              const auto aE = (outPGroup + 1) * numChansPerPartialGroup;       
+              graph.connect(v["act"][patch], 
+                            activations[outCGroup][outY][outX].slice(aS, aE));
+              const auto bS = outPartialGroup * numChansPerPartialGroup;
+              const auto bE = (outPartialGroup + 1) * numChansPerPartialGroup;
+              graph.connect(biases.slice(bS, bE), v["bias"][patch]);
               ++patch;
             }
           }
         }
 #if DEBUG_PRINT == 1
-      std::cout << "tile: " << tile << " vertex: " << vertex << "  numUnitsThisVertex: " << numUnitsThisVertex << " totalUnits :" << totalUnits << std::endl;
+      std::cout << "tile: " << tile << " vertex: " << vertex;
+      std::cout << "  numUnitsThisVertex: " << numUnitsThisVertex;
+      std::cout << " totalUnits :" << totalUnits << std::endl;
 #endif
 
-        if (++patchX == oneDTransformX) {
+        if (++patchX == numPatchesX) {
           patchX = 0;
-          if (++patchY == oneDTransformY) {
+          if (++patchY == numPatchesY) {
             patchY = 0;
             ++outPartialGroup;
           }
@@ -851,9 +950,7 @@ static Program complete(Graph &graph,
       graph.setFieldSize(v["dIn"], patch);
       graph.setFieldSize(v["act"], patch);
       graph.setFieldSize(v["bias"], patch);
-      graph.setInitialValue(v["vecLen"], numChansPerPartialGroup);
       graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
-      graph.setInitialValue(v["nGroups"], patch);
       graph.setTileMapping(v, tile);
       totalUnits -= numUnitsThisVertex;
     }
@@ -888,25 +985,28 @@ extern Program winogradConvolution(Graph &graph,
   std::cout << "weights.dim(5) :" << weights.dim(5) << std::endl;
 #endif
 
-  /* assumption that number of input channels per group must be same for input activations and weights */
+  /* assumption that number of input channels per group must be same 
+   * for input activations and weights 
+   */
   assert(in.dim(0) == weights.dim(1));
   assert(in.dim(3) == weights.dim(5));
 
 
   /* Number of patchSizeX x patchSizeY dimension patches per feature */
-  const auto oneDTransformX = getNumPatches(xDim, kernelSize, patchSizeX);
-  const auto oneDTransformY = getNumPatches(yDim, kernelSize, patchSizeY);
+  const auto numPatchesX = getNumPatches(xDim, kernelSize, patchSizeX);
+  const auto numPatchesY = getNumPatches(yDim, kernelSize, patchSizeY);
 
   auto prog = Sequence();
 
-  const auto layerName = "Wgd Conv" + std::to_string(kernelSize) + "x" + std::to_string(kernelSize) + ".fwd";
+  const auto layerName = "Wgd Conv" + std::to_string(kernelSize) 
+                         + "x" + std::to_string(kernelSize) + ".fwd";
 
 
   /* create tensor for Data transform */
   Tensor dataTf = graph.addTensor(dType,
                                   { in.dim(0),
-                                    oneDTransformY,
-                                    oneDTransformX,
+                                    numPatchesY,
+                                    numPatchesX,
                                     patchSizeY, patchSizeX,
                                     in.dim(3)},
                                   "WgdDataTransform");
@@ -933,8 +1033,8 @@ extern Program winogradConvolution(Graph &graph,
   Tensor accumTf = graph.addTensor(dType,
                                    {numOutChanPartialGroups,
                                     numInChanGroups,
-                                    oneDTransformY,
-                                    oneDTransformX,
+                                    numPatchesY,
+                                    numPatchesX,
                                     patchSizeY, patchSizeX,
                                     partialChansPerGroup},
                                   "WgdAccumulate");
@@ -945,8 +1045,8 @@ extern Program winogradConvolution(Graph &graph,
 
   Tensor invTfIn = graph.addTensor(dType,
                                    {numOutChanPartialGroups,
-                                    oneDTransformY,
-                                    oneDTransformX,
+                                    numPatchesY,
+                                    numPatchesX,
                                     patchSizeY, patchSizeX,
                                     partialChansPerGroup},
                                    "WgdInvTrfIn");
@@ -961,8 +1061,8 @@ extern Program winogradConvolution(Graph &graph,
 
   Tensor invTfOut = graph.addTensor(dType,
                                    {numOutChanPartialGroups,
-                                    oneDTransformY,
-                                    oneDTransformX,
+                                    numPatchesY,
+                                    numPatchesX,
                                     outputsPerPatchY, outputsPerPatchX,
                                     partialChansPerGroup},
                                    "WgdInvTrfOut");
@@ -974,7 +1074,8 @@ extern Program winogradConvolution(Graph &graph,
                        invTfIn, invTfOut));
 
   prog.add(complete(graph, kernelSize, stride, padding,
-                    xDim, yDim, patchSizeX, patchSizeY, nonLinearityType, dType, layerName, biases, activations,
+                    xDim, yDim, patchSizeX, patchSizeY, nonLinearityType, 
+                    dType, layerName, biases, activations,
                     resMethod, resIn, invTfOut));
 
   return prog;

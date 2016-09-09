@@ -64,8 +64,11 @@ static unsigned filterLengthPost(unsigned a, unsigned kernel, unsigned aLim) {
 
 
 /* Reference convolution layer implementation using naive convolution method */
-static void computeReference(Tensor in, Tensor weights, Tensor biases, Tensor activations, NonLinearityType nonLin,
-                      const float *inpBuffer, const float *weightBuffer, const float *biasBuffer, float *outBuffer) {
+static void computeReference(Tensor in, Tensor weights, Tensor biases, 
+                             Tensor activations, NonLinearityType nonLin,
+                             const float *inpBuffer, const float *weightBuffer, 
+                             const float *biasBuffer, float *outBuffer,
+                             unsigned padding) {
 
   unsigned numInpChanGroups = in.dim(0);
   unsigned numInpChansInGroup = in.dim(3);
@@ -88,16 +91,21 @@ static void computeReference(Tensor in, Tensor weights, Tensor biases, Tensor ac
   for (unsigned ozg = 0; ozg <  numOutChanGroups; ++ozg) {
     for (unsigned ozc = 0; ozc < numOutChansInGroup; ++ozc) {
 
-      const auto wozc = (ozg * numOutChansInGroup + ozc)%numOutChansInGroupWeight;
-      const auto wozg = (ozg * numOutChansInGroup + ozc)/numOutChansInGroupWeight;
-      const auto outIdx = ozg * (numOutChansInGroup * featureX * featureY) + ozc;
+      const auto wozc = (ozg * numOutChansInGroup + ozc) % 
+                            numOutChansInGroupWeight;
+      const auto wozg = (ozg * numOutChansInGroup + ozc) / 
+                            numOutChansInGroupWeight;
+      const auto outIdx = ozg * (numOutChansInGroup * featureX * featureY) 
+                          + ozc;
       const auto biasIdx = ozg * numOutChansInGroup + ozc;
 
 
       for (unsigned y = 0; y < featureY; ++y) {
         for (unsigned x = 0; x < featureX; ++x) {
 
-          /* pre and post filter segments from centre tap: needed to include padding */
+          /* pre and post filter segments from centre tap: needed to include 
+           * padding 
+           */
           const unsigned filtLenLX = filterLengthPre(x, kernelX);
           const unsigned filtLenLY = filterLengthPre(y, kernelY);
           const unsigned filtLenRX = filterLengthPost(x, kernelX, featureX);
@@ -107,26 +115,38 @@ static void computeReference(Tensor in, Tensor weights, Tensor biases, Tensor ac
 
           for (unsigned izg = 0; izg < numInpChanGroups; ++izg) {
             for (unsigned izc = 0; izc < numInpChansInGroup; ++izc) {
-              const auto wizc = (izg * numInpChansInGroup + izc)%numInpChansInGroupWeight;
-              const auto wizg = (izg * numInpChansInGroup + izc)/numInpChansInGroupWeight;
+              const auto wizc = (izg * numInpChansInGroup + izc) % 
+                                     numInpChansInGroupWeight;
+              const auto wizg = (izg * numInpChansInGroup + izc) / 
+                                     numInpChansInGroupWeight;
 
-              const auto wIdx = wozg * (numInpChanGroupsWeight * kernelX * kernelY * numOutChansInGroupWeight * numInpChansInGroupWeight)
-                     + wizg * (kernelX * kernelY * numOutChansInGroupWeight * numInpChansInGroupWeight)
+              const auto wIdx = wozg * (numInpChanGroupsWeight * kernelX 
+                                        * kernelY * numOutChansInGroupWeight 
+                                        * numInpChansInGroupWeight)
+                     + wizg * (kernelX * kernelY * numOutChansInGroupWeight 
+                                       * numInpChansInGroupWeight)
                      + wozc * (numInpChansInGroupWeight)
                      + wizc;
 
-              const auto inIdx = izg * (featureX * featureY * numInpChansInGroup) + izc;
+              const auto inIdx = izg * (featureX * featureY 
+                                     * numInpChansInGroup) + izc;
               float acc = 0;
 
-              for (int ix = (kernelX - 1)/2 - filtLenLX; ix <= (kernelX - 1)/2 + filtLenRX; ++ix) {
-                for (int iy = (kernelY - 1)/2 - filtLenLY; iy <= (kernelY - 1)/2 + filtLenRY; ++iy) {
+              for (int ix = (kernelX - 1)/2 - filtLenLX; ix <= (kernelX - 1)/2 
+                                            + filtLenRX; ++ix) {
+                for (int iy = (kernelY - 1)/2 - filtLenLY; iy <= (kernelY - 1)/2 
+                                              + filtLenRY; ++iy) {
                   const auto finIdx = inIdx
-                                + (x + ix - (kernelX - 1)/2) * numInpChansInGroup
-                                + (y + iy - (kernelY - 1)/2) * featureX * numInpChansInGroup;
+                                + (x + ix - (kernelX - 1)/2) 
+                                   * numInpChansInGroup
+                                + (y + iy - (kernelY - 1)/2) 
+                                   * featureX * numInpChansInGroup;
 
                   const auto fwIdx  = wIdx
-                                + ix * numOutChansInGroupWeight * numInpChansInGroupWeight
-                                + iy * kernelX * numOutChansInGroupWeight * numInpChansInGroupWeight;
+                                + ix * numOutChansInGroupWeight 
+                                     * numInpChansInGroupWeight
+                                + iy * kernelX * numOutChansInGroupWeight 
+                                     * numInpChansInGroupWeight;
 
                   acc += inpBuffer[finIdx] * weightBuffer[fwIdx];
 
@@ -136,7 +156,8 @@ static void computeReference(Tensor in, Tensor weights, Tensor biases, Tensor ac
             }
           }
 
-          const auto foIdx = outIdx + x * numOutChansInGroup + y * numOutChansInGroup * featureX;
+          const auto foIdx = outIdx + x * numOutChansInGroup + y 
+                                        * numOutChansInGroup * featureX;
           outBuffer[foIdx] = outRes + biasBuffer[biasIdx];
         }
       }
@@ -167,13 +188,27 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   const NonLinearityType nonLin = NON_LINEARITY_NONE;
   const unsigned patchSizeX = 4;
   const unsigned patchSizeY = 4;
+  const unsigned padding = 1;
 
 
 
-  auto in = graph.addTensor(dType, {numInpChanGroups, featureY, featureX, numInpChansInGroup}, "in");
-  auto weights = graph.addTensor(dType, {numOutPartialChanGroups, numInpChanGroups, kernelSizeY, kernelSizeX, numOutPartialChansInGroup, numInpChansInGroup}, "weights");
-  auto biases = graph.addTensor(dType, {numOutPartialChanGroups*numOutPartialChansInGroup}, "biases");
-  auto activations = graph.addTensor(dType, {numOutChanGroups, featureY, featureX, numOutChansInGroup}, "activations");
+  auto in = graph.addTensor(
+                  dType, 
+                  {numInpChanGroups, featureY, featureX, numInpChansInGroup}, 
+                  "in");
+  auto weights = graph.addTensor(
+          dType, 
+          {numOutPartialChanGroups, numInpChanGroups, kernelSizeY, 
+           kernelSizeX, numOutPartialChansInGroup, numInpChansInGroup}, 
+          "weights");
+  auto biases = graph.addTensor(
+          dType, 
+          {numOutPartialChanGroups*numOutPartialChansInGroup}, 
+          "biases");
+  auto activations = graph.addTensor(
+          dType, 
+          {numOutChanGroups, featureY, featureX, numOutChansInGroup}, 
+          "activations");
   Tensor residual;
 
 
@@ -182,10 +217,15 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   conv::mapBiases(biases, graph, activations);
   mapWeights(graph, weights);
 
-  const std::size_t inSize = numInpChanGroups * featureY * featureX * numInpChansInGroup;
-  const std::size_t wSize = numOutPartialChanGroups * numInpChanGroups * kernelSizeY * kernelSizeX * numOutPartialChansInGroup * numInpChansInGroup;
-  const std::size_t outSize = numOutChanGroups * featureX * featureY * numOutChansInGroup;
-  const std::size_t biasSize = numOutPartialChanGroups * numOutPartialChansInGroup;
+  const std::size_t inSize = numInpChanGroups * featureY 
+                             * featureX * numInpChansInGroup;
+  const std::size_t wSize = numOutPartialChanGroups * numInpChanGroups 
+                            * kernelSizeY * kernelSizeX 
+                            * numOutPartialChansInGroup * numInpChansInGroup;
+  const std::size_t outSize = numOutChanGroups 
+                             * featureX * featureY * numOutChansInGroup;
+  const std::size_t biasSize = numOutPartialChanGroups 
+                               * numOutPartialChansInGroup;
 
   std::vector<float> inBuffer(inSize);
   std::vector<float> outBuffer(outSize);
@@ -206,8 +246,11 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   }
 
 
-  auto wgdConv = conv::winogradConvolution(graph, kernelSizeX, 0, 0, featureX, featureY, numOutChanGroups*numOutChansInGroup,
-                                           patchSizeX, patchSizeY, nonLin, "float", in, weights, biases, activations, RESIDUAL_NONE, activations);
+  auto wgdConv = conv::winogradConvolution(
+           graph, kernelSizeX, 0, padding, featureX, 
+           featureY, numOutChanGroups*numOutChansInGroup,
+           patchSizeX, patchSizeY, nonLin, "float", in, weights, biases, 
+           activations, RESIDUAL_NONE, activations);
 
   auto prog = Sequence(Copy(in, &inBuffer[0]),
                        Copy(weights, &weightsBuffer[0]),
@@ -220,11 +263,14 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
 
   eng.run();
 
-  computeReference(in, weights, biases, activations, nonLin, &inBuffer[0], &weightsBuffer[0], &biasBuffer[0], &outBufferRef[0]);
+  computeReference(in, weights, biases, activations, nonLin, &inBuffer[0], 
+                   &weightsBuffer[0], &biasBuffer[0], &outBufferRef[0],
+                   padding);
 
 
   for (int i = 0; i < outSize; ++i) {
-    //std::cout << outBuffer[i] << "  " << outBufferRef[i] << " " << outBuffer[i]-outBufferRef[i] << std::endl;
+    //std::cout << outBuffer[i] << "  " << outBufferRef[i] ;
+    //std::cout << " " << outBuffer[i]-outBufferRef[i] << std::endl;
     BOOST_TEST(outBuffer[i] == outBufferRef[i]);
   }
 }

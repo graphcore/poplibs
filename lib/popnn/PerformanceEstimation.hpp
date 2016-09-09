@@ -164,4 +164,22 @@ getWeightGradCalcCycles(unsigned numOutRows, unsigned numInRows,
   return 15 + cycles;
 }
 
+
+inline std::uint64_t getWgdKernelTransformCycles(unsigned int numChannels, 
+                                                 bool isFloat) {
+  if (isFloat)
+    return 2 + (numChannels + 1 )/2  * 35;
+  else
+    return 2 + (numChannels + 3 )/4  * 35;    
+}
+
+
+inline std::uint64_t getWgdDataTransformCycles(unsigned int numChannels, 
+                                               bool isFloat) {
+  if (isFloat)
+    return 15 + (numChannels + 1 )/2  * 56;
+  else
+    return 15 + (numChannels + 3 )/4  * 56;    
+}
+
 #endif // _performance_estimation_h_
