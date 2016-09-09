@@ -10,6 +10,8 @@ add_library(popnn SHARED
   ConvReuse.cpp
   ConvUtil.cpp
   ConvUtil.hpp
+  ConvValidation.hpp
+  ConvValidation.cpp
   DimShuffle.hpp
   DimShuffle.cpp
   FullyConnected.cpp

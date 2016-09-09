@@ -1,7 +1,9 @@
 #include "popnn/ConvPlan.hpp"
+
 #include "popnn/Convolution.hpp"
 #include "poplar/Graph.hpp"
 #include "ConvUtil.hpp"
+#include "ConvValidation.hpp"
 #include "PerformanceEstimation.hpp"
 
 
@@ -602,6 +604,8 @@ ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                     unsigned kernelSize, unsigned stride, unsigned padding,
                     unsigned numChannels, std::string dType,
                     const poplar::Graph &graph, bool forwardOnly) {
+  validateLayerParams(inDimY, inDimX, inNumChans, kernelSize, stride, padding,
+                      numChannels, dType);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   bool preferConvInstructions =
       graph.getDevice().getDeviceType() == poplar::DeviceType::CPU;
