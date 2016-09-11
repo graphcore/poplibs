@@ -414,7 +414,7 @@ createConvPartialnx1InOutVertex(Graph &graph,
           if (wy < wyEnd) {
             w = weights[outZGroup][izg][wy][wx].flatten();
           } else {
-            w = zeros.slice(0, inChansPerGroup);
+            w = zeros.slice(0, inChansPerGroup * outChansPerGroup);
           }
           const auto weightsIndex =
               numWeights * convUnitWeightHeight + wy - wyBegin;
