@@ -13,6 +13,17 @@ namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
 
 
+static float nonlinearity(NonLinearityType t, float x) {
+  switch (t) {
+  case NON_LINEARITY_SIGMOID:
+    return (1. / (1. + exp(-x)));
+  case NON_LINEARITY_RELU:
+    return std::max(0.0f, x);
+  case NON_LINEARITY_NONE:
+    return x;
+  }
+}
+
 /* Trivial mapping of weights */
 void mapWeights(Graph &graph, Tensor weights)
 {
@@ -158,7 +169,7 @@ static void computeReference(Tensor in, Tensor weights, Tensor biases,
 
           const auto foIdx = outIdx + x * numOutChansInGroup + y 
                                         * numOutChansInGroup * featureX;
-          outBuffer[foIdx] = outRes + biasBuffer[biasIdx];
+          outBuffer[foIdx] = nonlinearity(nonLin, outRes + biasBuffer[biasIdx]);
         }
       }
     }
@@ -185,7 +196,7 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   const unsigned kernelSizeY = 3;
   const unsigned numOutChanGroups = 2;
   const unsigned numOutChansInGroup = 8;
-  const NonLinearityType nonLin = NON_LINEARITY_NONE;
+  const NonLinearityType nonLin = NON_LINEARITY_SIGMOID;
   const unsigned patchSizeX = 4;
   const unsigned patchSizeY = 4;
   const unsigned padding = 1;

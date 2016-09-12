@@ -255,12 +255,12 @@ public:
 
     ++xout;
     if ((xin += static_cast<int>(patchX - kernelX + 1)) > 
-                                 (maxX - paddingX -(kernelX - 1)/2)) {
+                                 (maxX - 1 - paddingX)) {
       xin = -paddingX;
       xout = 0;
       ++yout;
       if ((yin += static_cast<int>(patchY - kernelY + 1)) > 
-                                 (maxY -paddingY - (kernelY - 1)/2)) {
+                                 (maxY - 1 - paddingY)) {
         yin = -paddingY;
         yout = 0;
         ++inGroup;
@@ -573,7 +573,8 @@ static Program accumulate(Graph &graph,
   auto totalAccUnits = numOutPartialChanGroups 
                        * numInpChanGroups * patchSizeX * patchSizeY;
   const auto accUnitsPerVertex = 
-         (totalAccUnits + workersPerTile * numTiles - 1)/(workersPerTile * numTiles);
+         (totalAccUnits + workersPerTile * numTiles - 1) 
+         / (workersPerTile * numTiles);
 
   ComputeSet cs = graph.createComputeSet(layerName +".accumulate");
 
@@ -680,7 +681,8 @@ static Program reduce(Graph &graph,
                           * patchSizeY 
                           * patchSizeX;
   const auto redUnitsPerVertex = 
-       (totalReduceUnits + numTiles * workersPerTile - 1)/(workersPerTile * numTiles);
+               (totalReduceUnits + numTiles * workersPerTile - 1)
+                / (workersPerTile * numTiles);
   unsigned tile = 0;
   unsigned outChanGroup = 0;
   unsigned xPatch = 0;
@@ -768,7 +770,8 @@ static Program inverseTransform(Graph &graph,
 
   auto totalInvTfUnits = numOutChanPartialGroups * numPatchesY * numPatchesX;
   const auto invUnitsPerWorker = 
-       (totalInvTfUnits + numTiles * workersPerTile - 1)/(workersPerTile * numTiles);
+       (totalInvTfUnits + numTiles * workersPerTile - 1) 
+       / (workersPerTile * numTiles);
 
   unsigned tile = 0;
   unsigned outChanGroup = 0;

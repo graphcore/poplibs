@@ -41,7 +41,7 @@ static float relu_derivative(float activation)
   return 0;
 }
 
-float nonlinearity(NonLinearityType t, float x) {
+static float nonlinearity(NonLinearityType t, float x) {
   switch (t) {
   case NON_LINEARITY_SIGMOID:
     return sigmoid(x);
@@ -52,7 +52,7 @@ float nonlinearity(NonLinearityType t, float x) {
   }
 }
 
-float nonlinearity_derivative(NonLinearityType t, float activation) {
+static float nonlinearity_derivative(NonLinearityType t, float activation) {
   switch (t) {
   case NON_LINEARITY_SIGMOID:
     return sigmoid_derivative(activation);
