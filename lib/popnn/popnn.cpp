@@ -740,8 +740,14 @@ public:
           const auto outWidth = out[conv].size() / outChansPerGroup;
           assert(in[conv].size() % inChansPerGroup == 0);
           const auto inWidth = in[conv].size() / inChansPerGroup;
-          unsigned inStride = (inWidth + outWidth - 1) / outWidth;
-          assert((inWidth + inStride - 1) / inStride == outWidth);
+          unsigned inStride;
+          if (outWidth == 1) {
+            assert(inWidth == 1);
+            inStride = 0;
+          } else {
+            assert((inWidth - 1) % (outWidth - 1) == 0);
+            inStride = (inWidth - 1) / (outWidth - 1);
+          }
           for (unsigned x = 0; x != outWidth; ++x) {
             for (unsigned outChanIndex = 0; outChanIndex != outChansPerGroup;
                  ++outChanIndex) {
