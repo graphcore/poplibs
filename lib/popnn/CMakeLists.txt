@@ -22,6 +22,8 @@ add_library(popnn SHARED
   NonLinearity.cpp
   Winograd.cpp
   PerformanceEstimation.hpp
+  Regroup.hpp
+  Regroup.cpp
   VertexTemplates.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/ActivationMapping.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Convolution.hpp
