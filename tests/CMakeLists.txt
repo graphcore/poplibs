@@ -15,6 +15,7 @@ endfunction()
 add_popnn_unit_test(DimShuffleTest DimShuffleTest.cpp)
 add_popnn_unit_test(FullyConnectedTest FullyConnectedTest.cpp)
 add_popnn_unit_test(WinogradConvolution WinogradConv.cpp)
+add_popnn_unit_test(MaxPoolTest MaxPoolTest.cpp)
 
 # Layer tests
 add_test(NAME conv3x3_stride_2_fwd

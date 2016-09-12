@@ -1,6 +1,8 @@
 #ifndef __neural_net_exceptions_hpp__
 #define __neural_net_exceptions_hpp__
+
 #include <string>
+#include <stdexcept>
 
 struct net_creation_error : std::logic_error {
   std::string type;
