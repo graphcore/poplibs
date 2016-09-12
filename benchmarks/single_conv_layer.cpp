@@ -306,11 +306,12 @@ static bool checkIsClose(double a, double b, double relativeTolerance) {
 }
 
 template <std::size_t N>
-static bool checkIsClose(const boost::multi_array<double, N> &actual,
+static bool checkIsClose(const std::string &name,
+                         const boost::multi_array<double, N> &actual,
                          const boost::multi_array<double, N> &expected,
                          double relativeTolerance) {
   if (actual.num_elements() != expected.num_elements()) {
-    std::cerr << "mismatched number of elements: ";
+    std::cerr << "mismatched number of elements [" + name + "]:";
     std::cerr << " expected=" << expected.num_elements();
     std::cerr << " actual=" << actual.num_elements() << '\n';
     return false;
@@ -322,7 +323,7 @@ static bool checkIsClose(const boost::multi_array<double, N> &actual,
   for (; it != end; ++it, ++expectedIt) {
     if (!checkIsClose(*it, *expectedIt, relativeTolerance)) {
       const auto n = it - actual.data();
-      std::cerr << "mismatch on element " << n << ':';
+      std::cerr << "mismatch on element [" + name + "] " << n << ':';
       std::cerr << " expected=" << *expectedIt;
       std::cerr << " actual=" << *it << '\n';
       isClose = false;
@@ -593,7 +594,7 @@ int main(int argc, char **argv) {
       modelNextAct(boost::extents[fwdOutChans][outHeight][outWidth]);
   ref::conv::convolution(stride, padding, nonLinearityType, hostPrevAct,
                          hostWeights, hostBiases, modelNextAct);
-  bool matchesModel = checkIsClose(hostNextAct, modelNextAct,
+  bool matchesModel = checkIsClose("fwd", hostNextAct, modelNextAct,
                                    relativeTolerance);
 
   if (!inferenceOnly) {
@@ -626,17 +627,20 @@ int main(int argc, char **argv) {
     // Validate against a reference model.
     auto modelZDeltas = hostNextDeltas;
     ref::bwdNonLinearity(nonLinearityType, hostNextAct, modelZDeltas);
-    matchesModel &= checkIsClose(hostZDeltas, modelZDeltas, relativeTolerance);
+    matchesModel &= checkIsClose("zdeltas",
+                                 hostZDeltas, modelZDeltas, relativeTolerance);
     boost::multi_array<double, 3>
         modelPrevDeltas(boost::extents[fwdInChans][height][width]);
     ref::conv::convolutionBackward(stride, padding, hostZDeltas, modelWeights,
                                    modelPrevDeltas);
-    matchesModel &= checkIsClose(hostPrevDeltas, modelPrevDeltas,
+    matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
                                  relativeTolerance);
     ref::conv::weightUpdate(stride, padding, learningRate, hostPrevAct,
                             hostZDeltas, modelWeights, modelBiases);
-    matchesModel &= checkIsClose(hostWeights, modelWeights, relativeTolerance);
-    matchesModel &= checkIsClose(hostBiases, modelBiases, relativeTolerance);
+    matchesModel &= checkIsClose("weights",
+                                 hostWeights, modelWeights, relativeTolerance);
+    matchesModel &= checkIsClose("biases",
+                                 hostBiases, modelBiases, relativeTolerance);
   }
 
   Engine::ReportOptions opt;
