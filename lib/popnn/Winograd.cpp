@@ -610,7 +610,7 @@ static Program accumulate(Graph &graph,
           for (auto y = 0; y < numPatchesY; ++y) {
             const auto idx =
                       unit * numPatchesX * numPatchesY + y * numPatchesX + x;
-            graph.connect(dataTf[inpChanGroup][y][x][patchElemY][patchElemX], 
+            graph.connect(dataTf[inpChanGroup][y][x][patchElemY][patchElemX],
                           v["dTf"][idx]);
             auto aPart = accumTf[outChanGroup]
                                 [inpChanGroup]
@@ -629,7 +629,7 @@ static Program accumulate(Graph &graph,
 #endif
 
         graph.connect(kernelTf[outChanGroup]
-                              [inpChanGroup][patchElemY][patchElemX].flatten(), 
+                              [inpChanGroup][patchElemY][patchElemX].flatten(),
                       v["wTf"][unit]);
         if (++patchElemX == patchSizeX) {
           patchElemX = 0;
@@ -916,7 +916,7 @@ static Program complete(Graph &graph,
               std::cout << " patchX: " << patchX << " patchY: " << patchY;
               std::cout << " x: " << x << " y: " << y << std::endl;
 #endif
-              graph.connect(invTrfOut[outPartialGroup][patchY][patchX][y][x], 
+              graph.connect(invTrfOut[outPartialGroup][patchY][patchX][y][x],
                             v["dIn"][patch]);
 
               const auto outX = patchX * outputsPerPatchX + x;
@@ -926,7 +926,7 @@ static Program complete(Graph &graph,
               const auto outPGroup = outPartialGroup % 
                                             numPartialGroupsPerOutChanGroup;
               const auto aS = outPGroup * numChansPerPartialGroup;
-              const auto aE = (outPGroup + 1) * numChansPerPartialGroup;       
+              const auto aE = (outPGroup + 1) * numChansPerPartialGroup;
               graph.connect(v["act"][patch], 
                             activations[outCGroup][outY][outX].slice(aS, aE));
               const auto bS = outPartialGroup * numChansPerPartialGroup;
@@ -1066,7 +1066,7 @@ extern Program winogradConvolution(Graph &graph,
                                    {numOutChanPartialGroups,
                                     numPatchesY,
                                     numPatchesX,
-                                    outputsPerPatchY, outputsPerPatchX,
+                                    outputsPerPatchY, outputsPerPatchX,  
                                     partialChansPerGroup},
                                    "WgdInvTrfOut");
 
