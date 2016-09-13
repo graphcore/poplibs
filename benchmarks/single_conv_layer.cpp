@@ -13,7 +13,9 @@
 #include <popnn/ConvPlan.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <popnn/Net.hpp>
+#include <popnn/NonLinearity.hpp>
 #include <popnn_ref/Convolution.hpp>
+#include <popnn_ref/NonLinearity.hpp>
 #include <random>
 
 using namespace poplar;
@@ -32,6 +34,15 @@ allocateHostMemoryForTensor(Graph &graph, const Tensor &t) {
   return p;
 }
 
+static std::unique_ptr<char []>
+allocateHostMemoryForTensor(Graph &graph, const Tensor &t,
+                            Sequence &upload, Sequence &download) {
+  std::unique_ptr<char []> p = allocateHostMemoryForTensor(graph, t);
+  upload.add(Copy(t, p.get()));
+  download.add(Copy(p.get(), t));
+  return p;
+}
+
 void
 writeRandomValues(double *begin, double *end, double mean,
                   double stdDev, std::mt19937 &randomEngine) {
@@ -46,20 +57,6 @@ writeRandomValues(boost::multi_array<T, N> &a, double mean,
                   double stdDev, std::mt19937 &randomEngine) {
   return writeRandomValues(a.data(), a.data() + a.num_elements(),
                            mean, stdDev, randomEngine);
-}
-
-static std::unique_ptr<char []>
-addTensorUpload(Graph &graph, const Tensor &t, Sequence &prog) {
-  std::unique_ptr<char []> p = allocateHostMemoryForTensor(graph, t);
-  prog.add(Copy(t, p.get()));
-  return p;
-}
-
-static std::unique_ptr<char []>
-addTensorDownload(Graph &graph, const Tensor &t, Sequence &prog) {
-  std::unique_ptr<char []> p = allocateHostMemoryForTensor(graph, t);
-  prog.add(Copy(p.get(), t));
-  return p;
 }
 
 template <class T>
@@ -167,6 +164,68 @@ groupWeights(boost::const_multi_array_ref<double, 4> src,
   }
 }
 
+template <class T>
+static void
+ungroupWeights(boost::const_multi_array_ref<T, 6> src,
+               boost::multi_array_ref<double, 4> dst) {
+  unsigned outputChannels = dst.shape()[0];
+  unsigned inputChannels = dst.shape()[1];
+  unsigned kernelHeight = dst.shape()[2];
+  unsigned kernelWidth = dst.shape()[3];
+
+  unsigned outputChansPerGroup = src.shape()[4];
+  unsigned inputChansPerGroup = src.shape()[5];
+  assert(src.shape()[0] * outputChansPerGroup == outputChannels);
+  assert(src.shape()[1] * inputChansPerGroup == inputChannels);
+  assert(src.shape()[2] == kernelHeight);
+  assert(src.shape()[3] == kernelWidth);
+
+  for (unsigned oc = 0; oc != outputChannels; ++oc) {
+    for (unsigned ic = 0; ic != inputChannels; ++ic) {
+      for (unsigned y = 0; y != kernelHeight; ++y) {
+        for (unsigned x = 0; x != kernelWidth; ++x) {
+          dst[oc][ic][y][x] =
+            src[oc / outputChansPerGroup]
+               [ic / inputChansPerGroup]
+               [y]
+               [x]
+               [oc % outputChansPerGroup]
+               [ic % inputChansPerGroup];
+        }
+      }
+    }
+  }
+}
+
+static void
+ungroupWeights(const std::string &srcType,
+               const std::vector<std::size_t> &srcDims,
+               const void *src,
+               boost::multi_array_ref<double, 4> dst) {
+  assert(srcDims.size() == 6);
+  const auto &multiArrayDims =
+      boost::extents[srcDims[0]][srcDims[1]][srcDims[2]][srcDims[3]]
+                    [srcDims[4]][srcDims[5]];
+  if (srcType == "float") {
+    ungroupWeights(
+      boost::const_multi_array_ref<float, 6>(
+        reinterpret_cast<const float*>(src),
+        multiArrayDims
+      ),
+      dst
+    );
+  } else {
+    assert(srcType == "half");
+    ungroupWeights(
+      boost::const_multi_array_ref<half, 6>(
+        reinterpret_cast<const half*>(src),
+        multiArrayDims
+      ),
+      dst
+    );
+  }
+}
+
 static void
 copy(boost::const_multi_array_ref<double, 1> src,
      const std::string &dstType,
@@ -176,6 +235,22 @@ copy(boost::const_multi_array_ref<double, 1> src,
   } else {
     assert(dstType == "half");
     std::copy(src.begin(), src.end(), reinterpret_cast<half*>(dst));
+  }
+}
+
+static void
+copy(const std::string &srcType,
+     void *src,
+     boost::multi_array_ref<double, 1> dst) {
+  if (srcType == "float") {
+    std::copy(reinterpret_cast<float*>(src),
+              reinterpret_cast<float*>(src) + dst.size(),
+              dst.begin());
+  } else {
+    assert(srcType == "half");
+    std::copy(reinterpret_cast<half*>(src),
+              reinterpret_cast<half*>(src) + dst.size(),
+              dst.begin());
   }
 }
 
@@ -314,23 +389,25 @@ inline std::istream &operator>>(std::istream &in, NonLinearityType &type) {
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
-  unsigned inputChannels;
-  unsigned outputChannels;
+  unsigned fwdInChans;
+  unsigned fwdOutChans;
   unsigned width;
   unsigned height;
   unsigned kernelSize;
   unsigned padding;
   unsigned stride;
-  unsigned outChansPerGroup;
+  unsigned fwdOutChansPerGroup;
+  unsigned bwdOutChansPerGroup;
   NonLinearityType nonLinearityType;
   FPDataType dataType;
   double relativeTolerance;
+  DeviceInfo info;
   po::options_description desc("Options");
   desc.add_options()
     ("help", "Produce help message")
-    ("input-channels", po::value<unsigned>(&inputChannels)->required(),
+    ("input-channels", po::value<unsigned>(&fwdInChans)->required(),
      "Number of input channels")
-    ("output-channels", po::value<unsigned>(&outputChannels)->required(),
+    ("output-channels", po::value<unsigned>(&fwdOutChans)->required(),
      "Number of output channels")
     ("width", po::value<unsigned>(&width)->required(), "Field width")
     ("height", po::value<unsigned>(&height)->required(), "Field height")
@@ -347,13 +424,21 @@ int main(int argc, char **argv) {
      "Amount of zero padding")
     ("stride", po::value<unsigned>(&stride)->default_value(1),
      "Kernel stride")
-    ("out-chans-per-group",
-     po::value<unsigned>(&outChansPerGroup),
+    ("fwd-out-chans-per-group",
+     po::value<unsigned>(&fwdOutChansPerGroup),
      "The number of channels per group of the activations written in the "
      "forward pass")
+    ("bwd-out-chans-per-group",
+     po::value<unsigned>(&bwdOutChansPerGroup),
+     "The number of channels per group of the deltas written in the backwards "
+     "pass")
+    ("inference-only", "Benchmark inference only")
     ("tolerance", po::value<double>(&relativeTolerance)->default_value(0.01),
      "Relative tolerance to use when validating results against the reference "
      "model")
+    ("tiles-per-ipu",
+     po::value<unsigned>(&info.tilesPerIPU)->default_value(info.tilesPerIPU),
+     "Number of tiles per IPU")
   ;
   po::variables_map vm;
   try {
@@ -367,82 +452,192 @@ int main(int argc, char **argv) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }
+  bool inferenceOnly = vm.count("inference-only");
   GraphProgEnv env(popnn::findGraphProg(), GraphProgFileType::Object);
-  DeviceInfo info;
   Graph graph(env, createIPUModelDevice(info));
 
   std::string dataTypeStr(asString(dataType));
-  // TODO support backwards pass.
-  bool forwardOnly = true;
   // TODO support residual connections.
-  auto plan = conv::createPlan(height, width, inputChannels,
+  auto plan = conv::createPlan(height, width, fwdInChans,
                                kernelSize, stride, padding,
-                               outputChannels, dataTypeStr, graph, forwardOnly);
-  auto inChansPerGroup = plan.fwdPartition.inChansPerGroup;
-  if (!vm.count("output-chans-per-group")) {
-    // If the output grouping is unspecified, assume the output uses the same
-    // grouping as the input unless that is impossible.
-    outChansPerGroup = (outputChannels % inChansPerGroup == 0) ?
-                        inChansPerGroup :
-                        plan.fwdPartition.partialChansPerGroup;
+                               fwdOutChans, dataTypeStr, graph,
+                               inferenceOnly);
+  auto fwdInChansPerGroup = plan.fwdPartition.inChansPerGroup;
+  // If the output grouping is unspecified, assume the output uses the same
+  // grouping as the input unless that is impossible.
+  if (!vm.count("forward-output-chans-per-group")) {
+    fwdOutChansPerGroup = (fwdOutChans % fwdInChansPerGroup == 0) ?
+                          fwdInChansPerGroup :
+                          plan.fwdPartition.partialChansPerGroup;
+  }
+  const auto bwdInChans = fwdOutChans;
+  const auto bwdOutChans = fwdInChans;
+  auto bwdInChansPerGroup = plan.bwdPartition.inChansPerGroup;
+  if (!inferenceOnly &&
+      !vm.count("backward-output-chans-per-group")) {
+    bwdOutChansPerGroup = (bwdOutChans % bwdInChansPerGroup == 0) ?
+                          bwdInChansPerGroup :
+                          plan.bwdPartition.partialChansPerGroup;
   }
   const auto outDims =
       conv::getOutputDim(height, width, kernelSize, stride, padding);
   const auto outHeight = outDims.first;
   const auto outWidth = outDims.second;
   // Create tensors.
-  Tensor in = graph.addTensor(dataTypeStr,
-                              {inputChannels / inChansPerGroup,
-                               height,
-                               width,
-                               inChansPerGroup}, "in");
-  mapActivations(graph, in);
-  Tensor weights = conv::createWeights(graph, dataTypeStr, inputChannels,
-                                       kernelSize, outputChannels, plan);
-  Tensor biases = conv::createBiases(graph, dataTypeStr, outputChannels);
-  Tensor out = graph.addTensor(dataTypeStr,
-                               {outputChannels / outChansPerGroup, outHeight,
-                                outWidth, outChansPerGroup}, "out");
-  mapActivations(graph, out);
+  Tensor prevAct = graph.addTensor(dataTypeStr,
+                                   {fwdInChans / fwdInChansPerGroup,
+                                    height,
+                                    width,
+                                    fwdInChansPerGroup}, "prevAct");
+  mapActivations(graph, prevAct);
+  Tensor weights = conv::createWeights(graph, dataTypeStr, fwdInChans,
+                                       kernelSize, fwdOutChans, plan);
+  Tensor biases = conv::createBiases(graph, dataTypeStr, fwdOutChans);
+  Tensor nextAct =
+      graph.addTensor(dataTypeStr, {fwdOutChans / fwdOutChansPerGroup,
+                                    outHeight,
+                                    outWidth, fwdOutChansPerGroup},
+                      "nextAct");
+  mapActivations(graph, nextAct);
+  Tensor prevDeltas, zDeltas, nextDeltas;
+  if (!inferenceOnly) {
+    nextDeltas =
+        graph.addTensor(dataTypeStr, {bwdInChans / bwdInChansPerGroup,
+                                      outHeight,
+                                      outWidth, bwdInChansPerGroup},
+                        "nextDeltas");
+    mapActivations(graph, nextDeltas);
+    zDeltas =
+        graph.addTensor(dataTypeStr, nextDeltas.dims(),
+                        "zDeltas");
+    mapActivations(graph, zDeltas);
+    prevDeltas =
+        graph.addTensor(dataTypeStr, {bwdOutChans / bwdOutChansPerGroup,
+                                      height,
+                                      width, bwdOutChansPerGroup},
+                        "prevDeltas");
+    mapActivations(graph, prevDeltas);
+  }
   auto upload = Sequence();
   auto download = Sequence();
-  auto convProg =
+  auto rawHostPrevAct = allocateHostMemoryForTensor(graph, prevAct, upload,
+                                                    download);
+  auto rawHostWeights = allocateHostMemoryForTensor(graph, weights, upload,
+                                                    download);
+  auto rawHostBiases = allocateHostMemoryForTensor(graph, biases, upload,
+                                                   download);
+  auto rawHostNextAct = allocateHostMemoryForTensor(graph, nextAct, upload,
+                                                    download);
+  std::unique_ptr<char[]> rawHostNextDeltas;
+  std::unique_ptr<char[]> rawHostZDeltas;
+  std::unique_ptr<char[]> rawHostPrevDeltas;
+  if (!inferenceOnly) {
+    rawHostNextDeltas = allocateHostMemoryForTensor(graph, nextDeltas, upload,
+                                                    download);
+    rawHostZDeltas = allocateHostMemoryForTensor(graph, zDeltas, upload,
+                                                 download);
+    rawHostPrevDeltas = allocateHostMemoryForTensor(graph, prevDeltas, upload,
+                                                    download);
+  }
+
+  auto fwdProg =
     conv::convolution(graph, plan,
-                      kernelSize, stride, padding, outputChannels,
-                      nonLinearityType, in, weights, biases, out);
-  auto rawHostIn = addTensorUpload(graph, in, upload);
-  auto rawHostWeights = addTensorUpload(graph, weights, upload);
-  auto rawhostBiases = addTensorUpload(graph, biases, upload);
-  auto rawHostOut = addTensorDownload(graph, out, download);
-  Engine engine(graph, {&upload, &convProg, &download});
+                      kernelSize, stride, padding, fwdOutChans,
+                      nonLinearityType, prevAct, weights, biases, nextAct);
+
+  auto bwdProg = Sequence();
+  const auto learningRate = 0.5;
+  if (!inferenceOnly) {
+    bwdProg.add(
+      bwdNonLinearity(graph, nextAct, nextDeltas, zDeltas, nonLinearityType)
+    );
+    bwdProg.add(
+      conv::convolutionBackward(graph, plan, zDeltas, weights, prevDeltas,
+                                kernelSize, stride, padding)
+    );
+    bwdProg.add(
+      conv::convolutionWeightUpdate(graph, plan, zDeltas, weights, biases,
+                                    prevAct, kernelSize, stride, padding,
+                                    learningRate)
+    );
+  }
+  Engine engine(graph, {&upload, &download, &fwdProg, &bwdProg});
 
   boost::multi_array<double, 3>
-      hostIn(boost::extents[inputChannels][height][width]);
+      hostPrevAct(boost::extents[fwdInChans][height][width]);
   boost::multi_array<double, 4>
-      hostWeights(boost::extents[outputChannels][inputChannels][kernelSize]
+      hostWeights(boost::extents[fwdOutChans][fwdInChans][kernelSize]
                                  [kernelSize]);
   boost::multi_array<double, 1>
-      hostBiases(boost::extents[outputChannels]);
+      hostBiases(boost::extents[fwdOutChans]);
   boost::multi_array<double, 3>
-      hostOut(boost::extents[outputChannels][outHeight][outWidth]);
+      hostNextAct(boost::extents[fwdOutChans][outHeight][outWidth]);
   std::mt19937 randomEngine;
-  writeRandomValues(hostIn, 0.0, 1.0, randomEngine);
+  writeRandomValues(hostPrevAct, 0.0, 1.0, randomEngine);
   writeRandomValues(hostWeights, 0.0, 1.0, randomEngine);
   writeRandomValues(hostBiases, 0.0, 1.0, randomEngine);
-  groupActivations(hostIn, dataTypeStr, in.dims(), rawHostIn.get());
+  groupActivations(hostPrevAct, dataTypeStr, prevAct.dims(),
+                   rawHostPrevAct.get());
   groupWeights(hostWeights, dataTypeStr, weights.dims(), rawHostWeights.get());
-  copy(hostBiases, dataTypeStr, rawhostBiases.get());
-  engine.run(0); // Upload.
-  engine.run(1); // Run.
-  engine.run(2); // Download.
-  ungroupActivations(dataTypeStr, out.dims(), rawHostOut.get(), hostOut);
+  copy(hostBiases, dataTypeStr, rawHostBiases.get());
 
-  // Validate the results against a reference model.
+  // Run the forward pass.
+  engine.run(0); // Upload.
+  engine.run(2); // Run.
+  engine.run(1); // Download.
+
+  // Validate against a reference model.
+  ungroupActivations(dataTypeStr, nextAct.dims(), rawHostNextAct.get(),
+                     hostNextAct);
   boost::multi_array<double, 3>
-      modelOut(boost::extents[outputChannels][outHeight][outWidth]);
-  ref::conv::convolution(stride, padding, nonLinearityType, hostIn,
-                         hostWeights, hostBiases, modelOut);
-  bool matchesModel = checkIsClose(hostOut, modelOut, relativeTolerance);
+      modelNextAct(boost::extents[fwdOutChans][outHeight][outWidth]);
+  ref::conv::convolution(stride, padding, nonLinearityType, hostPrevAct,
+                         hostWeights, hostBiases, modelNextAct);
+  bool matchesModel = checkIsClose(hostNextAct, modelNextAct,
+                                   relativeTolerance);
+
+  if (!inferenceOnly) {
+    boost::multi_array<double, 3> hostNextDeltas(
+      boost::extents[bwdInChans][outHeight][outWidth]
+    );
+    boost::multi_array<double, 3> hostZDeltas(
+      boost::extents[bwdInChans][outHeight][outWidth]
+    );
+    boost::multi_array<double, 3> hostPrevDeltas(
+      boost::extents[bwdOutChans][height][width]
+    );
+    auto modelWeights = hostWeights;
+    auto modelBiases = hostBiases;
+    // Run the backwards pass.
+    writeRandomValues(hostNextDeltas, 0.0, 1.0, randomEngine);
+    groupActivations(hostNextDeltas, dataTypeStr, nextDeltas.dims(),
+                     rawHostNextDeltas.get());
+    engine.run(0); // Upload.
+    engine.run(3); // Run.
+    engine.run(1); // Download.
+    ungroupActivations(dataTypeStr, zDeltas.dims(), rawHostZDeltas.get(),
+                       hostZDeltas);
+    ungroupActivations(dataTypeStr, prevDeltas.dims(), rawHostPrevDeltas.get(),
+                       hostPrevDeltas);
+    ungroupWeights(dataTypeStr, weights.dims(), rawHostWeights.get(),
+                   hostWeights);
+    copy(dataTypeStr, rawHostBiases.get(), hostBiases);
+
+    // Validate against a reference model.
+    auto modelZDeltas = hostNextDeltas;
+    ref::bwdNonLinearity(nonLinearityType, hostNextAct, modelZDeltas);
+    matchesModel &= checkIsClose(hostZDeltas, modelZDeltas, relativeTolerance);
+    boost::multi_array<double, 3>
+        modelPrevDeltas(boost::extents[fwdInChans][height][width]);
+    ref::conv::convolutionBackward(stride, padding, hostZDeltas, modelWeights,
+                                   modelPrevDeltas);
+    matchesModel &= checkIsClose(hostPrevDeltas, modelPrevDeltas,
+                                 relativeTolerance);
+    ref::conv::weightUpdate(stride, padding, learningRate, hostPrevAct,
+                            hostZDeltas, modelWeights, modelBiases);
+    matchesModel &= checkIsClose(hostWeights, modelWeights, relativeTolerance);
+    matchesModel &= checkIsClose(hostBiases, modelBiases, relativeTolerance);
+  }
 
   Engine::ReportOptions opt;
   opt.doLayerWiseProfile = true;

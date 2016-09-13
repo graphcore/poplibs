@@ -20,6 +20,7 @@ add_popnn_unit_test(MaxPoolTest MaxPoolTest.cpp)
 # Layer tests
 add_test(NAME conv3x3_stride_2_fwd
          COMMAND single_conv_layer
+                 --inference-only
                  --input-channels=128
                  --output-channels=256
                  --width=20
@@ -29,4 +30,4 @@ add_test(NAME conv3x3_stride_2_fwd
                  --data-type=half
                  --padding=2
                  --stride=2
-                 --out-chans-per-group=16)
+                 --fwd-out-chans-per-group=16)

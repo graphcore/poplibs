@@ -6,8 +6,12 @@
 
 namespace ref {
 
-void fwdNonLinearity(NonLinearityType nonLinearityType,
-                     boost::multi_array<double, 3> &array);
+void nonLinearity(NonLinearityType nonLinearityType,
+                  boost::multi_array<double, 3> &array);
+
+void bwdNonLinearity(NonLinearityType nonLinearityType,
+                     const boost::multi_array<double, 3> &activations,
+                     boost::multi_array<double, 3> &deltas);
 
 } // End namespace ref.
 

@@ -14,6 +14,18 @@ void convolution(unsigned stride, unsigned padding,
                  const boost::multi_array<double, 1> &biases,
                  boost::multi_array<double, 3> &out);
 
+void convolutionBackward(unsigned stride, unsigned padding,
+                         const boost::multi_array<double, 3> &in,
+                         const boost::multi_array<double, 4> &weights,
+                         boost::multi_array<double, 3> &out);
+
+void weightUpdate(unsigned stride, unsigned padding,
+                  double learningRate,
+                  const boost::multi_array<double, 3> &activations,
+                  const boost::multi_array<double, 3> &deltas,
+                  boost::multi_array<double, 4> &weights,
+                  boost::multi_array<double, 1> &biases);
+
 } // End namespace ref.
 } // End namespace conv.
 
