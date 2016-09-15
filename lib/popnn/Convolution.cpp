@@ -50,7 +50,8 @@ createBiases(poplar::Graph &graph, std::string dType,
 }
 
 static unsigned
-linearizeTileIndices(unsigned izg, unsigned ox, unsigned oy,
+linearizeTileIndices(unsigned batchNum,
+                     unsigned izg, unsigned ox, unsigned oy,
                      unsigned ozg,
                      const Partition &partition,
                      bool isMultiIPU) {
@@ -65,7 +66,8 @@ linearizeTileIndices(unsigned izg, unsigned ox, unsigned oy,
     return izg + tilesPerInZGroup *
              (ox + tilesPerX *
                (oy + tilesPerY *
-                 ozg));
+                 (ozg + tilesPerZ *
+                   batchNum)));
   // For single IPU systems this order appears to give the best results.
   // TODO understand why this is. Intuitively I'd expect the an ordering
   // that matches the input tensor, i.e. (izg, iy, ix, iz) to result in
@@ -73,7 +75,8 @@ linearizeTileIndices(unsigned izg, unsigned ox, unsigned oy,
   return ox + tilesPerX *
            (oy + tilesPerY *
              (ozg + tilesPerZ *
-               izg));
+               (izg + tilesPerInZGroup *
+                 batchNum)));
 }
 
 template <typename Builder>
@@ -81,11 +84,31 @@ static void
 iterateWeightMapping(Tensor w,
                      const poplar::Graph &graph,
                      const Partition &partition,
+                     unsigned batchSize,
                      Builder &&builder) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto isMultiIPU = deviceInfo.numIPUs > 1;
   const auto inChansPerGroup = partition.inChansPerGroup;
   const auto partialChansPerGroup = partition.partialChansPerGroup;
+  if (batchSize > 1) {
+    // For multi-item batches the weights are going to be sent across
+    // exchange independently of mapping. So just map weights across the
+    // tile array.
+    const auto numTiles = deviceInfo.getNumTiles();
+    unsigned groupSize = partialChansPerGroup * inChansPerGroup;
+    unsigned numGroups = w.numElements() / groupSize;
+    for (unsigned tile = 0; tile < numTiles; ++tile) {
+      const auto groupBegin = numGroups * tile / numTiles;
+      const auto groupEnd = numGroups * (tile + 1) / numTiles;
+      if (groupBegin == groupEnd)
+        continue;
+      const auto tileWeights = w.reshape({numGroups, groupSize})
+                                .slice(groupBegin, groupEnd);
+      builder(tileWeights, tile);
+    }
+    return;
+  }
+
+  const auto isMultiIPU = deviceInfo.numIPUs > 1;
   const auto tilesPerX = partition.tilesPerXAxis;
   const auto tilesPerY = partition.tilesPerYAxis;
   const auto tilesPerZ = partition.tilesPerZAxis;
@@ -96,6 +119,7 @@ iterateWeightMapping(Tensor w,
   const auto numInZGroups = inNumChans / inChansPerGroup;
   assert(outNumChans % partialChansPerGroup == 0);
   const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
+
 
   for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
     const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
@@ -153,8 +177,8 @@ iterateWeightMapping(Tensor w,
           const auto tileWeights =
               sharedWeights.slice(sharedWeightGroupBegin,
                                   sharedWeightGroupEnd);
-          const auto tile = linearizeTileIndices(izg, ox, oy, ozg, partition,
-                                                 isMultiIPU);
+          const auto tile = linearizeTileIndices(0, izg, ox, oy, ozg,
+                                                 partition, isMultiIPU);
           builder(tileWeights, tile);
         }
       }
@@ -164,24 +188,29 @@ iterateWeightMapping(Tensor w,
 
 
 static void
-mapWeights(Tensor w, Graph &graph, const Partition &partition) {
-  iterateWeightMapping(w, graph, partition,
+mapWeights(Tensor w, Graph &graph, const Partition &partition,
+           unsigned batchSize) {
+  iterateWeightMapping(w, graph, partition, batchSize,
     [&](Tensor tileWeights, unsigned tile) {
     graph.setTileMapping(tileWeights, tile);
   });
 }
 
-void mapWeights(Tensor w, Graph &graph, const ConvPlan &plan) {
-  mapWeights(w, graph, plan.fwdPartition);
+void mapWeights(Tensor w, Graph &graph, const ConvPlan &plan,
+                unsigned batchSize) {
+  mapWeights(w, graph, plan.fwdPartition, batchSize);
 }
 
 template <typename Builder>
 static void iterateBiasMapping(Tensor b, const Graph &graph,
                                Tensor activations,
+                               unsigned batchNum,
+                               unsigned batchSize,
                                Builder &&builder) {
-
   const auto activationsMapping = computeActivationsMapping(graph,
-                                                            activations);
+                                                            activations,
+                                                            batchNum,
+                                                            batchSize);
   const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
   const auto outNumChans = activations.dim(0) * activations.dim(3);
   const auto outNumChanGroups = activations.dim(0);
@@ -221,11 +250,14 @@ static void iterateBiasMapping(Tensor b, const Graph &graph,
   builder(finalSlice, curTile);
 }
 
-void mapBiases(Tensor b, Graph &graph, Tensor activations) {
-  iterateBiasMapping(b, graph, activations,
-    [&](Tensor biasSlice, unsigned tile) {
-      graph.setTileMapping(biasSlice, tile);
-    });
+void mapBiases(Tensor biases, Graph &graph, Tensor activations) {
+  auto batchSize = activations.dim(0);
+  for (unsigned b = 0; b < batchSize; ++b) {
+    iterateBiasMapping(biases, graph, activations[b], b, batchSize,
+                       [&](Tensor biasSlice, unsigned tile) {
+                           graph.setTileMapping(biasSlice, tile);
+                       });
+  }
 }
 
 static void
@@ -752,8 +784,9 @@ addResidualCalc(Graph &graph,
                 unsigned outNumChans, unsigned outNumChanGroups,
                 std::string dType,
                 ResidualMethod resMethod) {
-  auto resDimY = resIn.dim(1);
-  auto resDimX = resIn.dim(2);
+  const auto batchSize = resIn.dim(0);
+  auto resDimY = resIn.dim(2);
+  auto resDimX = resIn.dim(3);
   if (resDimX < outDimX || resDimY < outDimY) {
     throw net_creation_error("Residual layers must use previous layers "
                              "with X and Y dimensions that are larger"
@@ -765,8 +798,8 @@ addResidualCalc(Graph &graph,
                              "are supported");
   }
   const auto dataPathWidth = graph.getDevice().getDeviceInfo().dataPathWidth;
-  auto resNumChanGroups = resIn.dim(0);
-  auto resChansPerGroup = resIn.dim(3);
+  auto resNumChanGroups = resIn.dim(1);
+  auto resChansPerGroup = resIn.dim(4);
   auto resNumChans = resNumChanGroups * resChansPerGroup;
   if (resMethod != RESIDUAL_WEIGHTED_CONV &&
       resNumChans == outNumChans &&
@@ -779,7 +812,8 @@ addResidualCalc(Graph &graph,
   size_t outChansPerGroup = outNumChans / outNumChanGroups;
   size_t resOutNumChanGroups =
       (resNumChans + outChansPerGroup - 1) / outChansPerGroup;
-  residual = graph.addTensor(dType, {resOutNumChanGroups,
+  residual = graph.addTensor(dType, {batchSize,
+                                     resOutNumChanGroups,
                                      outDimY, outDimX,
                                      outChansPerGroup},
                              "residual");
@@ -789,38 +823,40 @@ addResidualCalc(Graph &graph,
     for (unsigned outChanGroup = 0;
          outChanGroup < resOutNumChanGroups;
          ++outChanGroup) {
-      for (unsigned y = 0; y < outDimY; ++y) {
-        for (unsigned x = 0; x < outDimX; ++x) {
-          auto chansPerVertex = dType == "float" ? 1 : 2;
-          assert(outChansPerGroup % chansPerVertex == 0);
-          assert(resChansPerGroup % chansPerVertex == 0);
-          for (unsigned outChanGroupElement = 0;
-               outChanGroupElement < outChansPerGroup;
-               outChanGroupElement += chansPerVertex) {
-            Tensor out = residual[outChanGroup][y][x]
-              .slice(outChanGroupElement,
-                     outChanGroupElement + chansPerVertex);
-            auto outChan = outChanGroup * outChansPerGroup +
-              outChanGroupElement;
-            if (outChan >= resNumChans) {
-              auto v = graph.addVertex(cs, templateVertex("Zero", dType),
-                                       {{"out",out}});
+      for (unsigned b = 0; b < batchSize; ++b) {
+        for (unsigned y = 0; y < outDimY; ++y) {
+          for (unsigned x = 0; x < outDimX; ++x) {
+            auto chansPerVertex = dType == "float" ? 1 : 2;
+            assert(outChansPerGroup % chansPerVertex == 0);
+            assert(resChansPerGroup % chansPerVertex == 0);
+            for (unsigned outChanGroupElement = 0;
+                 outChanGroupElement < outChansPerGroup;
+                 outChanGroupElement += chansPerVertex) {
+              Tensor out = residual[b][outChanGroup][y][x]
+                    .slice(outChanGroupElement,
+                           outChanGroupElement + chansPerVertex);
+              auto outChan = outChanGroup * outChansPerGroup +
+                  outChanGroupElement;
+              if (outChan >= resNumChans) {
+                auto v = graph.addVertex(cs, templateVertex("Zero", dType),
+                                         {{"out",out}});
+                graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
+                continue;
+              }
+              auto resChanGroup = outChan / resChansPerGroup;
+              auto resChanGroupElement = outChan % resChansPerGroup;
+              assert(resChanGroup < resNumChanGroups);
+              assert(resChanGroupElement < resChansPerGroup);
+              assert(y * resStride < resIn.dim(1));
+              assert(x * resStride < resIn.dim(2));
+              Tensor in = resIn[b][resChanGroup][y * resStride][x * resStride]
+                .slice(resChanGroupElement,
+                       resChanGroupElement + chansPerVertex);
+              auto v = graph.addVertex(cs,
+                                       templateVertex("CopyResidual", dType),
+                                       {{"in", in}, {"out",out}});
               graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-              continue;
             }
-            auto resChanGroup = outChan / resChansPerGroup;
-            auto resChanGroupElement = outChan % resChansPerGroup;
-            assert(resChanGroup < resNumChanGroups);
-            assert(resChanGroupElement < resChansPerGroup);
-            assert(y * resStride < resIn.dim(1));
-            assert(x * resStride < resIn.dim(2));
-            Tensor in = resIn[resChanGroup][y * resStride][x * resStride]
-              .slice(resChanGroupElement,
-                     resChanGroupElement + chansPerVertex);
-            auto v = graph.addVertex(cs,
-                                     templateVertex("CopyResidual", dType),
-                                     {{"in", in}, {"out",out}});
-            graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
           }
         }
       }
@@ -860,8 +896,9 @@ calcPartialSums(Graph &graph,
                 const std::string &layerName,
                 unsigned outDimX, unsigned outDimY,
                 bool forward) {
+  const auto batchSize = in.dim(0);
   const auto isMultiIPU = graph.getDevice().getDeviceInfo().numIPUs > 1;
-  const auto inNumChans = in.dim(0) * in.dim(3);
+  const auto inNumChans = in.dim(1) * in.dim(4);
   const auto inChansPerGroup = partition.inChansPerGroup;
   const auto partialChansPerGroup = partition.partialChansPerGroup;
   assert(outNumChans % partialChansPerGroup == 0);
@@ -874,26 +911,33 @@ calcPartialSums(Graph &graph,
 
   ComputeSet zeroCS = graph.createComputeSet(layerName +".zero");
   ComputeSet convolveCS = graph.createComputeSet(layerName + ".convolve");
-  for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
-    const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
-    const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
-    for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
-      const auto outZGroupBegin = (ozg * partialNumChanGroups) / tilesPerZ;
-      const auto outZGroupEnd = ((ozg + 1) * partialNumChanGroups) / tilesPerZ;
-      for (unsigned oy = 0; oy != tilesPerY; ++oy) {
-        const auto outYBegin = (oy * outDimY) / tilesPerY;
-        const auto outYEnd = ((oy + 1) * outDimY) / tilesPerY;
-        for (unsigned ox = 0; ox != tilesPerX; ++ox) {
-          const auto outXBegin = (ox * outDimX) / tilesPerX;
-          const auto outXEnd = ((ox + 1) * outDimX) / tilesPerX;
-          const auto tile = linearizeTileIndices(izg, ox, oy, ozg,
-                                                 partition,
-                                                 isMultiIPU);
-          calcPartialConvOutput(graph, partition, dType,
-                      tile, outXBegin, outXEnd, outYBegin, outYEnd,
-                      outZGroupBegin, outZGroupEnd, inZGroupBegin, inZGroupEnd,
-                      kernelSize, stride, padding,zeroCS, convolveCS,
-                      in, weights, partials[izg], forward);
+  for (unsigned b = 0; b < batchSize; ++b) {
+    for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
+      const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
+      const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
+      for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
+        const auto outZGroupBegin = (ozg * partialNumChanGroups) / tilesPerZ;
+        const auto outZGroupEnd =
+            ((ozg + 1) * partialNumChanGroups) / tilesPerZ;
+        for (unsigned oy = 0; oy != tilesPerY; ++oy) {
+          const auto outYBegin = (oy * outDimY) / tilesPerY;
+          const auto outYEnd = ((oy + 1) * outDimY) / tilesPerY;
+          for (unsigned ox = 0; ox != tilesPerX; ++ox) {
+            const auto outXBegin = (ox * outDimX) / tilesPerX;
+            const auto outXEnd = ((ox + 1) * outDimX) / tilesPerX;
+            const auto tile = linearizeTileIndices(b, izg, ox, oy, ozg,
+                                                   partition,
+                                                   isMultiIPU);
+            calcPartialConvOutput(graph, partition, dType,
+                                  tile, outXBegin, outXEnd, outYBegin, outYEnd,
+                                  outZGroupBegin, outZGroupEnd, inZGroupBegin,
+                                  inZGroupEnd,
+                                  kernelSize, stride, padding, zeroCS,
+                                  convolveCS,
+                                  in[b], weights,
+                                  partials[b][izg],
+                                  forward);
+          }
         }
       }
     }
@@ -906,7 +950,7 @@ calcPartialSums(Graph &graph,
   return prog;
 }
 
-static Program
+static void
 reduce(Graph &graph,
        const Partition &partition,
        unsigned outNumChans, unsigned outNumChanGroups,
@@ -971,10 +1015,9 @@ reduce(Graph &graph,
       graph.setTileMapping(v, tile);
     }
   }
-  return Execute(reduceCS);
 }
 
-static std::pair<Tensor, Program>
+static Tensor
 reduce(Graph &graph,
        const Partition &partition,
        unsigned outNumChans, unsigned outNumChanGroups,
@@ -982,12 +1025,7 @@ reduce(Graph &graph,
        const std::vector<unsigned> &activationsMapping,
        ComputeSet reduceCS) {
   if (partials.dim(0) == 1) {
-    // Since only one partial sum was created, there is no need to
-    // do a reduction.
-    if (graph.getComputeSet(reduceCS).empty())
-      return {partials[0], Sequence()};
-    else
-      return {partials[0], Execute(reduceCS)};
+    return partials[0];
   }
 
   const auto partialType = partition.getPartialType();
@@ -1000,11 +1038,12 @@ reduce(Graph &graph,
                                    {partialNumChanGroups, outDimY, outDimX,
                                     partialChansPerGroup}, "reduced");
   applyTensorMapping(graph, reduced, activationsMapping);
-  return {reduced, reduce(graph, partition, outNumChans, outNumChanGroups,
-                          partials, reduced, activationsMapping, reduceCS)};
+  reduce(graph, partition, outNumChans, outNumChanGroups,
+         partials, reduced, activationsMapping, reduceCS);
+  return reduced;
 }
 
-static Program
+static void
 complete(Graph &graph,
          const ConvPlan &plan,
          unsigned outNumChans, NonLinearityType nonLinearityType,
@@ -1012,7 +1051,8 @@ complete(Graph &graph,
          Tensor in, Tensor biases, Tensor activations,
          bool doResidual, Tensor residual, unsigned resStride,
          const std::vector<unsigned> &activationsMapping,
-         const std::string &layerName) {
+         const std::string &layerName,
+         ComputeSet cs) {
   // Apply the non linearity and write back results in the layout desired by
   // the next layer. Each vertex handles outChansPerGroup output elements.
   // TODO: This step could be merged with the reduction step.
@@ -1023,7 +1063,6 @@ complete(Graph &graph,
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto partialChansPerGroup = plan.fwdPartition.partialChansPerGroup;
   const auto partialType = plan.fwdPartition.getPartialType();
-  ComputeSet cs = graph.createComputeSet(layerName + ".complete");
   size_t outChansPerGroup = outNumChans / outNumChanGroups;
   Tensor biasesByChanGroup =
       biases.reshape({outNumChanGroups, outChansPerGroup});
@@ -1123,7 +1162,6 @@ complete(Graph &graph,
       graph.setFieldSize(v["res"], numResUsed);
     }
   }
-  return Execute(cs);
 }
 
 Program
@@ -1138,25 +1176,27 @@ convolution(Graph &graph,
   const auto layerName =
       "Conv" + std::to_string(kernelSize) + "x" + std::to_string(kernelSize)
           + ".fwd";
-  const auto outDimY = activations.dim(1);
-  const auto outDimX = activations.dim(2);
+  const auto outDimY = activations.dim(2);
+  const auto outDimX = activations.dim(3);
   unsigned partialOutDimY, partialOutDimX;
   if (plan.flattenXY) {
     partialOutDimY = 1;
     partialOutDimX = outDimX * outDimY;
-    in = in.reshape({in.dim(0), 1, in.dim(1) * in.dim(2), in.dim(3)});
+    in = in.reshape({in.dim(0),
+                     in.dim(1), 1, in.dim(2) * in.dim(3), in.dim(4)});
   } else {
     partialOutDimY = outDimY;
     partialOutDimX = outDimX;
   }
-  const auto outNumChanGroups = activations.dim(0);
+  const auto batchSize = activations.dim(0);
+  const auto outNumChanGroups = activations.dim(1);
   const auto partialChansPerGroup = plan.fwdPartition.partialChansPerGroup;
   const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
   const auto tilesPerInZGroup = plan.fwdPartition.tilesPerInZGroupAxis;
   const auto partialType = plan.fwdPartition.getPartialType();
 
   mapBiases(biases, graph, activations);
-  mapWeights(weights, graph, plan);
+  mapWeights(weights, graph, plan, batchSize);
 
   auto forwardProg = Sequence();
 
@@ -1168,17 +1208,20 @@ convolution(Graph &graph,
       && resMethod == RESIDUAL_NONE
       && weights.dim(4) <= activations.dim(3)) {
 
-      forwardProg.add(winogradConvolution(graph, kernelSize, stride, padding, in.dim(2),
-                      in.dim(1), outNumChans,
-                      winogradPatchSize, winogradPatchSize,
-                      nonLinearityType, dType, in, weights, biases,
-                      activations, resMethod, resIn));
-
-   } else {
-
+    // Perform each element of the batch serially
+    for (unsigned b = 0; b < batchSize; ++b) {
+      forwardProg.add(winogradConvolution(graph, kernelSize, stride, padding,
+                                          in.dim(3), in.dim(2), outNumChans,
+                                          winogradPatchSize, winogradPatchSize,
+                                          nonLinearityType, dType, in[b],
+                                          weights, biases,
+                                          activations[b], resMethod, resIn));
+    }
+  } else {
     // Calculate a set of partial sums of the convolutions.
     Tensor partials = graph.addTensor(partialType,
-                                      {tilesPerInZGroup,
+                                      {batchSize,
+                                       tilesPerInZGroup,
                                        partialNumChanGroups,
                                        partialOutDimY,
                                        partialOutDimX,
@@ -1189,7 +1232,6 @@ convolution(Graph &graph,
                                     dType, in, weights, partials, layerName,
                                     partialOutDimX, partialOutDimY,
                                     true));
-
 
     // Before the reduction step we add any copying of the residual into the
     // reduce compute set
@@ -1203,24 +1245,35 @@ convolution(Graph &graph,
                           resMethod);
     }
 
-    // Perform the reduction of partial sums
-    auto activationsMapping = computeActivationsMapping(graph, activations);
-    auto r = reduce(graph, plan.fwdPartition, outNumChans,
-                    outNumChanGroups, partials, activationsMapping, reduceCS);
-    Tensor reduced = r.first;
-    Program &reduceProg = r.second;
-    forwardProg.add(reduceProg);
-    reduced = reduced.reshape({partialNumChanGroups, outDimY, outDimX,
-                              partialChansPerGroup});
+    // For each element of the batch, we add the reduction and complete
+    // vertices to same compute sets so the batch will be executed in parallel.
+    ComputeSet completeCS = graph.createComputeSet(layerName + ".complete");
+    for (unsigned b = 0; b < batchSize; ++b) {
+      // Perform the reduction of partial sums
+      auto activationsMapping = computeActivationsMapping(graph,
+                                                          activations[b],
+                                                          b,
+                                                          batchSize);
+      Tensor reduced = reduce(graph, plan.fwdPartition, outNumChans,
+                              outNumChanGroups, partials[b],
+                              activationsMapping, reduceCS);
+      reduced = reduced.reshape({partialNumChanGroups, outDimY, outDimX,
+                                 partialChansPerGroup});
 
-    // Add the residual (if any), apply the non-linearity and rearrange tensor
-    // to required output channel grouping.
-    forwardProg.add(complete(graph, plan, outNumChans,
-                             nonLinearityType, dType, reduced, biases,
-                             activations, doResidual, residual, resStride,
-                             activationsMapping, layerName));
+      Tensor bResidual;
+      if (doResidual)
+        bResidual = residual[b];
+      // Add the residual (if any), apply the non-linearity and rearrange tensor
+      // to required output channel grouping.
+      complete(graph, plan, outNumChans,
+               nonLinearityType, dType, reduced, biases,
+               activations[b], doResidual, bResidual, resStride,
+               activationsMapping, layerName, completeCS);
+    }
+    if (!graph.getComputeSet(reduceCS).empty())
+      forwardProg.add(Execute(reduceCS));
+    forwardProg.add(Execute(completeCS));
   }
-
   return forwardProg;
 }
 
@@ -1262,21 +1315,25 @@ static std::uint64_t getNumberOfAdds(unsigned outDimY, unsigned outDimX,
   return outNumChans * outDimX * outDimY;
 }
 
-uint64_t getFlops(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
+uint64_t getFlops(unsigned batchSize,
+                  unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                   unsigned kernelSize, unsigned stride, unsigned padding,
                   unsigned outNumChans, bool doResidual, bool forwardOnly) {
   unsigned outDimY, outDimX;
   std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX, kernelSize,
                                             stride, padding);
-  return 2 * getNumberOfMACs(outDimY, outDimX, outNumChans,
-                             kernelSize, stride, padding,
-                             inDimY, inDimX, inNumChans, forwardOnly) +
-         getNumberOfAdds(outDimY, outDimX, outNumChans, doResidual,
-                         forwardOnly);
+  auto flopsPerItem =
+      2 * getNumberOfMACs(outDimY, outDimX, outNumChans,
+                          kernelSize, stride, padding,
+                          inDimY, inDimX, inNumChans, forwardOnly) +
+      getNumberOfAdds(outDimY, outDimX, outNumChans, doResidual,
+                      forwardOnly);
+  return batchSize * flopsPerItem;
 }
 
 double getPerfectCycleCount(const Graph &graph,
                             std::string dType,
+                            unsigned batchSize,
                             unsigned inDimY, unsigned inDimX,
                             unsigned inNumChans,
                             unsigned kernelSize, unsigned stride,
@@ -1288,11 +1345,13 @@ double getPerfectCycleCount(const Graph &graph,
   std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX, kernelSize,
                                             stride, padding);
   const auto numTiles = deviceInfo.getNumTiles();
-  auto numMacs = getNumberOfMACs(outDimY, outDimX, outNumChans, kernelSize,
-                                 stride, padding, inDimY, inDimX,
-                                 inNumChans, forwardOnly);
-  auto numAdds = getNumberOfAdds(outDimY, outDimX, outNumChans, doResidual,
-                                 forwardOnly);
+  auto numMacs =
+      batchSize * getNumberOfMACs(outDimY, outDimX, outNumChans, kernelSize,
+                                  stride, padding, inDimY, inDimX,
+                                  inNumChans, forwardOnly);
+  auto numAdds =
+      batchSize * getNumberOfAdds(outDimY, outDimX, outNumChans, doResidual,
+                                  forwardOnly);
   if (dType == "float") {
     const auto floatVectorWidth = deviceInfo.getFloatVectorWidth();
 
@@ -1346,7 +1405,7 @@ Program transformWeights(Graph &graph,
          "Backward pass for non dot product style conv not implemented");
 
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  iterateWeightMapping(bwdWeights, graph, bwdPartition,
+  iterateWeightMapping(bwdWeights, graph, bwdPartition, 1,
     [&](const Tensor &tileWeights, unsigned tile) {
     const auto flatTileWeights = tileWeights.flatten();
     const auto tileNumElements = flatTileWeights.numElements();
@@ -1409,26 +1468,27 @@ Program convolutionBackward(Graph &graph,
   const auto layerName =
       "Conv" + std::to_string(kernelSize) + "x" + std::to_string(kernelSize)
              + ".bwd";
-  const auto outDimY = deltasOut.dim(1);
-  const auto outDimX = deltasOut.dim(2);
+  const auto batchSize = deltasOut.dim(0);
+  const auto outDimY = deltasOut.dim(2);
+  const auto outDimX = deltasOut.dim(3);
   unsigned partialOutDimY, partialOutDimX;
   if (plan.flattenXY) {
     partialOutDimY = 1;
     partialOutDimX = outDimX * outDimY;
-    zDeltas = zDeltas.reshape({zDeltas.dim(0), 1,
-                               zDeltas.dim(1) * zDeltas.dim(2),
-                               zDeltas.dim(3)});
+    zDeltas = zDeltas.reshape({batchSize, zDeltas.dim(1), 1,
+                               zDeltas.dim(2) * zDeltas.dim(3),
+                               zDeltas.dim(4)});
   } else {
     partialOutDimY = outDimY;
     partialOutDimX = outDimX;
   }
-  const auto outNumChans = deltasOut.dim(0) * deltasOut.dim(3);
-  const auto outNumChanGroups = deltasOut.dim(0);
+  const auto outNumChans = deltasOut.dim(1) * deltasOut.dim(4);
+  const auto outNumChanGroups = deltasOut.dim(1);
   const auto partialChansPerGroup = plan.bwdPartition.partialChansPerGroup;
   const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
   const auto tilesPerInZGroup = plan.bwdPartition.tilesPerInZGroupAxis;
   const auto partialType = plan.bwdPartition.getPartialType();
-  const auto inNumChanGroups = zDeltas.dim(0), inChansPerGroup = zDeltas.dim(3);
+  const auto inNumChanGroups = zDeltas.dim(1), inChansPerGroup = zDeltas.dim(4);
   assert(inChansPerGroup == plan.bwdPartition.inChansPerGroup);
 
   auto bwdProg = Sequence();
@@ -1441,14 +1501,15 @@ Program convolutionBackward(Graph &graph,
                                             "bwdWeights");
 
   assert(bwdWeights.numElements() == weights.numElements());
-  mapWeights(bwdWeights, graph, plan.bwdPartition);
+  mapWeights(bwdWeights, graph, plan.bwdPartition, batchSize);
 
   bwdProg.add(transformWeights(graph, layerName, plan, dType, weights,
                                bwdWeights));
 
   // Calculate a set of partial sums of the convolutions.
   Tensor partials = graph.addTensor(partialType,
-                                    {tilesPerInZGroup,
+                                    {batchSize,
+                                     tilesPerInZGroup,
                                      partialNumChanGroups,
                                      partialOutDimY,
                                      partialOutDimX,
@@ -1462,21 +1523,33 @@ Program convolutionBackward(Graph &graph,
   // TODO - residuals
 
   // Perform the reduction of partial sums
-  ComputeSet reduceCS = graph.createComputeSet(layerName + ".reduce");
-  auto activationsMapping = computeActivationsMapping(graph, deltasOut);
-  auto r = reduce(graph, plan.bwdPartition, outNumChans,
-                  outNumChanGroups, partials, activationsMapping, reduceCS);
-  Tensor reduced = r.first;
-  Program &reduceProg = r.second;
-  bwdProg.add(reduceProg);
 
-  // Rearrange tensor to required output channel grouping.
-  // TODO: the next layer's non-linearity derivative could be merged
-  // into this.
-  reduced = reduced.reshape({partialNumChanGroups, outDimY, outDimX,
-                             partialChansPerGroup});
-  bwdProg.add(regroup(graph, layerName, partialType,
-                      dType, activationsMapping, reduced, deltasOut));
+  // For each element of the batch, we add the reduction and regroup
+  // vertices to same compute sets so the batch will be executed in parallel.
+  ComputeSet reduceCS = graph.createComputeSet(layerName + ".reduce");
+  ComputeSet regroupCS = graph.createComputeSet(layerName + ".regroup");
+  for (unsigned b = 0; b < batchSize; ++b) {
+    auto activationsMapping =
+        computeActivationsMapping(graph, deltasOut[b], b,
+                                  batchSize);
+    auto reduced = reduce(graph, plan.bwdPartition, outNumChans,
+                          outNumChanGroups,
+                          partials[b],
+                          activationsMapping, reduceCS);
+    // Rearrange tensor to required output channel grouping.
+    // TODO: the next layer's non-linearity derivative could be merged
+    // into this.
+    reduced = reduced.reshape({partialNumChanGroups, outDimY, outDimX,
+                               partialChansPerGroup});
+    regroup(graph, regroupCS, partialType,
+            dType, activationsMapping, reduced,
+            deltasOut[b]);
+  }
+
+  if (!graph.getComputeSet(reduceCS).empty())
+    bwdProg.add(Execute(reduceCS));
+  bwdProg.add(Execute(regroupCS));
+
 
   return bwdProg;
 }
@@ -1627,7 +1700,7 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
     graph.setTileMapping(v, tile);
     graph.setTileMapping(biasPartials[worker].slice(0, maxBiasPerWorker), tile);
   }
-  iterateBiasMapping(biases, graph, zDeltas,
+  iterateBiasMapping(biases, graph, zDeltas, 0, 1,
     [&](Tensor biasSlice, unsigned tile){
       for (auto bias : biasSlice.getElementIndices()) {
         auto v = graph.addVertex(updateBiasCS,
@@ -1657,32 +1730,39 @@ convolutionWeightUpdate(Graph &graph,
                         Tensor activations,
                         unsigned kernelSize, unsigned stride,
                         unsigned padding, float learningRate) {
-  const auto dType = graph.getTensorElementType(zDeltas);
+  if (activations.dim(0) != 1) {
+    std::cerr << "Batch size != 1 not implemented for backwards pass\n";
+    std::abort();
+  }
+  auto activations0 = activations[0];
+  auto zDeltas0 = zDeltas[0];
+  const auto dType = graph.getTensorElementType(zDeltas0);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto layerName =
       "Conv" + std::to_string(kernelSize) + "x" + std::to_string(kernelSize)
              + ".weight_update";
-  assert(activations.dim(0) == weights.dim(1));
+  assert(activations0.dim(0) == weights.dim(1));
   auto outChansPerGroup = weights.dim(4);
   auto outNumChanGroups = weights.dim(0);
   auto outNumChans = outChansPerGroup * outNumChanGroups;
-  auto outDimY = zDeltas.dim(1), outDimX = zDeltas.dim(2);
+  auto outDimY = zDeltas0.dim(1), outDimX = zDeltas0.dim(2);
   Tensor regroupedDeltas = graph.addTensor(dType, {outNumChanGroups,
                                                    outDimY, outDimX,
                                                    outChansPerGroup},
                                            "zDeltas'");
-  mapActivations(graph, regroupedDeltas);
   auto regroupedDeltaMapping = computeActivationsMapping(graph,
-                                                         regroupedDeltas);
+                                                         regroupedDeltas, 0, 1);
+  applyTensorMapping(graph, regroupedDeltas, regroupedDeltaMapping);
   auto prog = Sequence();
-  prog.add(regroup(graph, layerName, dType,
-                   dType, regroupedDeltaMapping, zDeltas, regroupedDeltas));
-
+  auto regroupCS = graph.createComputeSet(layerName + ".regroup");
+  regroup(graph, regroupCS, dType, dType, regroupedDeltaMapping, zDeltas0,
+          regroupedDeltas);
+  prog.add(Execute(regroupCS));
   const auto &partition = plan.wuPartition;
   const auto isMultiIPU = deviceInfo.numIPUs > 1;
-  const auto inNumChans = activations.dim(0) * activations.dim(3);
+  const auto inNumChans = activations0.dim(0) * activations0.dim(3);
   const auto inChansPerGroup = partition.inChansPerGroup;
-  const auto inNumChanGroups = activations.dim(0);
+  const auto inNumChanGroups = activations0.dim(0);
   const auto partialChansPerGroup = partition.partialChansPerGroup;
   assert(outNumChans % partialChansPerGroup == 0);
   const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
@@ -1700,8 +1780,6 @@ convolutionWeightUpdate(Graph &graph,
                                             inChansPerGroup},
                                     "partialWeightGrads");
 
-
-
   ComputeSet weightGradCS = graph.createComputeSet(layerName + ".weightGrad");
   for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
     const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
@@ -1715,14 +1793,14 @@ convolutionWeightUpdate(Graph &graph,
         for (unsigned ox = 0; ox != tilesPerX; ++ox) {
           const auto outXBegin = (ox * outDimX) / tilesPerX;
           const auto outXEnd = ((ox + 1) * outDimX) / tilesPerX;
-          const auto tile = linearizeTileIndices(izg, ox, oy, ozg,
+          const auto tile = linearizeTileIndices(0, izg, ox, oy, ozg,
                                                  partition,
                                                  isMultiIPU);
           calcPartialWeightGrads(graph, partition, dType,
                                  tile, outXBegin, outXEnd, outYBegin, outYEnd,
                                  outZGroupBegin, outZGroupEnd, inZGroupBegin,
                                  inZGroupEnd, kernelSize, stride, padding,
-                                 weightGradCS, activations, regroupedDeltas,
+                                 weightGradCS, activations0, regroupedDeltas,
                                  partials[oy][ox]);
         }
       }
@@ -1759,7 +1837,7 @@ convolutionWeightUpdate(Graph &graph,
     graph.setTileMapping(v, worker / deviceInfo.numWorkerContexts);
   }
   auto updateBiasCS = graph.createComputeSet(layerName + ".update_bias");
-  convolutionBiasUpdate(graph, zDeltas, biases, learningRate, reduceCS,
+  convolutionBiasUpdate(graph, zDeltas0, biases, learningRate, reduceCS,
                         updateBiasCS);
   prog.add(Execute(reduceCS));
   prog.add(Execute(updateBiasCS));

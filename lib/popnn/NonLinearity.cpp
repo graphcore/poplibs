@@ -8,13 +8,20 @@ using namespace poplar::program;
 
 Program
 bwdNonLinearity(Graph &graph,
-                Tensor activations, Tensor deltasIn,
-                Tensor zDeltas,
+                Tensor batchActivations, Tensor batchDeltasIn,
+                Tensor batchZDeltas,
                 NonLinearityType nonLinearityType) {
+  if (batchActivations.dim(0) != 1) {
+    std::cerr << "Batch size != 1 not implemented for backwards pass\n";
+    std::abort();
+  }
+  auto activations = batchActivations[0];
+  auto deltasIn = batchDeltasIn[0];
+  auto zDeltas = batchZDeltas[0];
   const auto dType = graph.getTensorElementType(activations);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
-  auto deltasInMapping = computeActivationsMapping(graph, activations);
+  auto deltasInMapping = computeActivationsMapping(graph, activations, 0, 1);
   deltasIn = deltasIn.flatten();
   auto bwdNonLinearityCS = graph.createComputeSet("NonLinearity.bwd");
   auto prog = Sequence();
@@ -26,10 +33,13 @@ bwdNonLinearity(Graph &graph,
     regroupedActs = activations;
   } else {
     auto dType = graph.getTensorElementType(activations);
-    regroupedActs = graph.addTensor(dType, zDeltas.dims(), "regoupedActs");
-    mapActivations(graph, regroupedActs);
-    prog.add(regroup(graph, "NonLinearity.bwd", dType, dType, deltasInMapping,
-                     activations, regroupedActs));
+    regroupedActs = graph.addTensor(dType, zDeltas.dims(), "regroupedActs");
+    auto mapping = computeActivationsMapping(graph, regroupedActs, 0, 1);
+    applyTensorMapping(graph, regroupedActs, mapping);
+    auto regroupCS = graph.createComputeSet("NonLinearity.bwd.regroup");
+    regroup(graph, regroupCS, dType, dType, mapping,
+            activations, regroupedActs);
+    prog.add(Execute(regroupCS));
   }
   buildTransform(deltasInMapping, graph, [&](unsigned deltaBegin,
                                                   unsigned deltaEnd,

@@ -28,13 +28,17 @@ BOOST_AUTO_TEST_CASE(MaxPool,
   const std::size_t zChunk = 1;
   const std::size_t prevSize = 100;
   const std::size_t nextSize = (prevSize + padding) / stride;
-  auto actIn = graph.addTensor("float", {zNGroups, prevSize, prevSize, zChunk},
+  auto actIn = graph.addTensor("float", {1,
+                                         zNGroups, prevSize, prevSize, zChunk},
                                "actIn");
-  auto actOut = graph.addTensor("float", {zNGroups, nextSize, nextSize, zChunk},
+  auto actOut = graph.addTensor("float", {1,
+                                          zNGroups, nextSize, nextSize, zChunk},
                                 "actOut");
-  auto errIn = graph.addTensor("float", {zNGroups, nextSize, nextSize, zChunk},
+  auto errIn = graph.addTensor("float", {1,
+                                         zNGroups, nextSize, nextSize, zChunk},
                                "errIn");
-  auto errOut = graph.addTensor("float", {zNGroups, prevSize, prevSize, zChunk},
+  auto errOut = graph.addTensor("float", {1,
+                                          zNGroups, prevSize, prevSize, zChunk},
                                 "errOut");
   // arbitraray mappings
   mapActivations(graph, actIn);

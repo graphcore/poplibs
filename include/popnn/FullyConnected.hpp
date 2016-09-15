@@ -9,9 +9,11 @@ namespace fc {
 
 struct Plan;
 
-uint64_t getNumFlops(unsigned inSize, unsigned outSize, bool forwardOnly);
+uint64_t getNumFlops(unsigned batchSize,
+                     unsigned inSize, unsigned outSize, bool forwardOnly);
 
 double getPerfectCycleCount(const poplar::Graph &graph,
+                            unsigned batchSize,
                             unsigned inSize, unsigned outSize,
                             std::string dType, bool forwardOnly);
 

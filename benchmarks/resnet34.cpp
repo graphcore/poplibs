@@ -39,7 +39,7 @@ int main(int argc, char **argv) {
   auto resMethod = RESIDUAL_PAD;
 
   Net net(IMAGENET,
-          1, // batch size
+          options.batchSize,
           makeLayers({
             new ConvLayer(7, 2, 3, 64,
                           NON_LINEARITY_RELU),

@@ -6,9 +6,8 @@
 using namespace poplar;
 using namespace poplar::program;
 
-Program
-regroup(Graph &graph,
-        const std::string &layerName,
+void
+regroup(Graph &graph, const ComputeSet &cs,
         const std::string &inType, const std::string &outType,
         const std::vector<unsigned> &outTileMapping,
         Tensor in, Tensor out) {
@@ -33,7 +32,8 @@ regroup(Graph &graph,
                      dimX,
                      inChansPerGroup / outChansPerGroup, outChansPerGroup});
     std::vector<unsigned> permutation = {0, 3, 1, 2, 4};
-    return dimShuffle(graph, in, out, permutation, outTileMapping);
+    dimShuffle(graph, cs, in, out, permutation, outTileMapping);
+    return;
   }
   if (inType == outType && outChansPerGroup % inChansPerGroup == 0) {
     out = out.reshape({outNumChanGroups,
@@ -45,13 +45,13 @@ regroup(Graph &graph,
                      dimX,
                      inChansPerGroup});
     std::vector<unsigned> permutation = {0, 2, 3, 1, 4};
-    return dimShuffle(graph, in, out, permutation, outTileMapping);
+    dimShuffle(graph, cs, in, out, permutation, outTileMapping);
+    return;
   }
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto numTiles = deviceInfo.getNumTiles();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto workersPerTile = deviceInfo.numWorkerContexts;
-  ComputeSet cs = graph.createComputeSet(layerName + ".regroup");
   const auto chunkSize = gcd<unsigned>(outChansPerGroup, inChansPerGroup);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto tileActivationsBegin = outTileMapping[tile];
@@ -111,5 +111,4 @@ regroup(Graph &graph,
       }
     }
   }
-  return Execute(cs);
 }

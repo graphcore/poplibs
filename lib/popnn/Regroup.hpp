@@ -5,9 +5,8 @@
 #include <string>
 #include <vector>
 
-poplar::program::Program
-regroup(poplar::Graph &graph,
-        const std::string &layerName,
+void
+regroup(poplar::Graph &graph, const poplar::ComputeSet &cs,
         const std::string &inType, const std::string &outType,
         const std::vector<unsigned> &outTileMapping,
         poplar::Tensor in, poplar::Tensor out);

@@ -9,20 +9,20 @@ namespace conv {
 
 void convolution(unsigned stride, unsigned padding,
                  NonLinearityType nonLinearityType,
-                 const boost::multi_array<double, 3> &in,
+                 const boost::multi_array<double, 4> &in,
                  const boost::multi_array<double, 4> &weights,
                  const boost::multi_array<double, 1> &biases,
-                 boost::multi_array<double, 3> &out);
+                 boost::multi_array<double, 4> &out);
 
 void convolutionBackward(unsigned stride, unsigned padding,
-                         const boost::multi_array<double, 3> &in,
+                         const boost::multi_array<double, 4> &in,
                          const boost::multi_array<double, 4> &weights,
-                         boost::multi_array<double, 3> &out);
+                         boost::multi_array<double, 4> &out);
 
 void weightUpdate(unsigned stride, unsigned padding,
                   double learningRate,
-                  const boost::multi_array<double, 3> &activations,
-                  const boost::multi_array<double, 3> &deltas,
+                  const boost::multi_array<double, 4> &activations,
+                  const boost::multi_array<double, 4> &deltas,
                   boost::multi_array<double, 4> &weights,
                   boost::multi_array<double, 1> &biases);
 

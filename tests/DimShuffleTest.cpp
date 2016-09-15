@@ -19,13 +19,13 @@ BOOST_AUTO_TEST_CASE(DimShuffle) {
   std::vector<unsigned> permutation = {2, 0, 1, 3};
   mapTensor(graph, in);
   mapTensor(graph, out);
-  auto outMapping = computeActivationsMapping(graph, out);
-  auto shuffle = dimShuffle(graph, in, out, permutation,
-                            outMapping);
+  auto outMapping = computeActivationsMapping(graph, out, 0, 1);
+  auto shuffleCS = graph.createComputeSet("shuffle");
+  dimShuffle(graph, shuffleCS, in, out, permutation, outMapping);
   std::vector<float> hIn(in.numElements());
   std::vector<float> hOut(out.numElements());
   auto prog = Sequence(Copy(in, &hIn[0]),
-                       shuffle,
+                       Execute(shuffleCS),
                        Copy(&hOut[0], out));
   Engine eng(graph, prog);
 

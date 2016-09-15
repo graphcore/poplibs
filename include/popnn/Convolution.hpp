@@ -14,12 +14,14 @@ std::pair<unsigned, unsigned>
 getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSize,
              unsigned stride, unsigned padding);
 
-uint64_t getFlops(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
+uint64_t getFlops(unsigned batchSize,
+                  unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                   unsigned kernelSize, unsigned stride, unsigned padding,
                   unsigned outNumChans, bool doResidual, bool forwardOnly);
 
 double getPerfectCycleCount(const poplar::Graph &graph,
                             std::string dType,
+                            unsigned batchSize,
                             unsigned inDimY, unsigned inDimX,
                             unsigned inNumChans,
                             unsigned kernelSize, unsigned stride,
@@ -48,7 +50,8 @@ convolution(poplar::Graph &graph, const ConvPlan &plan,
             poplar::Tensor residual={}, bool useWinogradConv = false,
             unsigned winogradPatchSize = 4);
 
-void mapWeights(poplar::Tensor w, poplar::Graph &graph, const ConvPlan &plan);
+void mapWeights(poplar::Tensor w, poplar::Graph &graph, const ConvPlan &plan,
+                unsigned batchSize);
 
 void mapBiases(poplar::Tensor b, poplar::Graph &graph,
                poplar::Tensor activations);

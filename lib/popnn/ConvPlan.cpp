@@ -50,6 +50,7 @@ struct ConvolutionParams {
   unsigned inputHeight;
   unsigned padding;
   unsigned outputDepth;
+  unsigned batchSize;
   unsigned getOutputWidth(Phase phase) const {
     if (phase == Phase::BACKWARD)
       return (inputWidth * stride + kernelSize - 1) - (padding * 2);
@@ -72,14 +73,16 @@ struct ConvolutionParams {
                     unsigned inputWidth,
                     unsigned inputHeight,
                     unsigned padding,
-                    unsigned outputDepth) :
+                    unsigned outputDepth,
+                    unsigned batchSize) :
     kernelSize(kernelSize),
     stride(stride),
     inputDepth(inputDepth),
     inputWidth(inputWidth),
     inputHeight(inputHeight),
     padding(padding),
-    outputDepth(outputDepth) {}
+    outputDepth(outputDepth),
+    batchSize(batchSize) {}
 };
 
 static bool
@@ -372,7 +375,7 @@ estimateReduceComputeCost(const poplar::DeviceInfo &deviceInfo,
                           Phase phase) {
   if (partition.tilesPerInZGroupAxis == 1)
     return 0;
-  const auto numTiles = deviceInfo.getNumTiles();
+  const auto numTiles = deviceInfo.getNumTiles() / params.batchSize;
   const auto numOutputs = params.getOutputHeight(phase) *
                           params.getOutputWidth(phase) *
                           params.outputDepth;
@@ -453,7 +456,7 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
   // but it needs to sends (outputChannelsPerTile * (filterSize - 1) / 2) extra
   // rows of partial sum per tile pair.
   // TODO investigate the alternative strategy outlined above.
-  const auto numTiles = deviceInfo.getNumTiles();
+  const auto numTiles = deviceInfo.getNumTiles() / params.batchSize;
   const auto maxTilesPerX = std::min(params.getOutputWidth(phase), numTiles);
   for (unsigned tilesPerX = 1; tilesPerX <= maxTilesPerX; ++tilesPerX) {
     const auto maxTilesPerY = std::min(params.getOutputHeight(phase),
@@ -602,7 +605,8 @@ choosePartition(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
 
 ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                     unsigned kernelSize, unsigned stride, unsigned padding,
-                    unsigned numChannels, std::string dType,
+                    unsigned numChannels, unsigned batchSize,
+                    std::string dType,
                     const poplar::Graph &graph, bool forwardOnly) {
   validateLayerParams(inDimY, inDimX, inNumChans, kernelSize, stride, padding,
                       numChannels, dType);
@@ -621,9 +625,9 @@ ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
   std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX, kernelSize,
                                             stride, padding);
   ConvolutionParams fwdParams(kernelSize, stride, inNumChans, inDimX, inDimY,
-                              padding, numChannels);
+                              padding, numChannels, batchSize);
   ConvolutionParams bwdParams(kernelSize, stride, numChannels, outDimX,
-                              outDimY, padding, inNumChans);
+                              outDimY, padding, inNumChans, batchSize);
   const bool floatActivations = dType == "float";
   unsigned bestCost = std::numeric_limits<unsigned>::max();
   auto inChansPerGroupCandidates =

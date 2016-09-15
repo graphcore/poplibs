@@ -8,7 +8,7 @@ static double sigmoid(double x) {
 }
 
 static double nonLinearity(NonLinearityType nonLinearityType,
-                              double x) {
+                           double x) {
   switch (nonLinearityType) {
   case NON_LINEARITY_NONE:
     return x;
@@ -20,7 +20,9 @@ static double nonLinearity(NonLinearityType nonLinearityType,
 }
 
 void ref::nonLinearity(NonLinearityType nonLinearityType,
-                          boost::multi_array<double, 3> &array) {
+                       boost::multi_array<double, 4> &array) {
+  if (nonLinearityType == NON_LINEARITY_NONE)
+    return;
   for (auto it = array.data(), end = array.data() + array.num_elements();
        it != end; ++it) {
     *it = nonLinearity(nonLinearityType, *it);
@@ -45,9 +47,9 @@ static double bwdNonLinearity(NonLinearityType nonLinearityType,
 }
 
 void ref::bwdNonLinearity(NonLinearityType nonLinearityType,
-                          const boost::multi_array<double, 3> &activations,
-                          boost::multi_array<double, 3> &deltas) {
-  assert(std::equal(activations.shape(), activations.shape() + 3,
+                          const boost::multi_array<double, 4> &activations,
+                          boost::multi_array<double, 4> &deltas) {
+  assert(std::equal(activations.shape(), activations.shape() + 4,
                     deltas.shape()));
   auto actIt = activations.data();
   for (auto it = deltas.data(), end = deltas.data() + deltas.num_elements();

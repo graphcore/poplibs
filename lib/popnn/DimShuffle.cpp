@@ -46,15 +46,12 @@ static void validateDimShuffleArgs(poplar::Graph &graph,
   }
 }
 
-poplar::program::Program
-dimShuffle(poplar::Graph &graph,
+void
+dimShuffle(poplar::Graph &graph, const poplar::ComputeSet &cs,
            poplar::Tensor in, poplar::Tensor out,
            const std::vector<unsigned> &permutation,
            const std::vector<unsigned> &outTileMapping) {
   validateDimShuffleArgs(graph, in, out, permutation);
-  if (isIdentityPermutation(permutation)) {
-    return Copy(out, in);
-  }
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dType = graph.getTensorElementType(in);
   const auto &inDims = in.dims();
@@ -67,7 +64,6 @@ dimShuffle(poplar::Graph &graph,
   const auto numTiles = deviceInfo.getNumTiles();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto workersPerTile = deviceInfo.numWorkerContexts;
-  ComputeSet cs = graph.createComputeSet("dimShuffle");
   std::vector<unsigned> inIndices(numDims);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto tileChunkBegin = outTileMapping[tile] / chunkSize;
@@ -116,5 +112,4 @@ dimShuffle(poplar::Graph &graph,
       }
     }
   }
-  return Execute(cs);
 }

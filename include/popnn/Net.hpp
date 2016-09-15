@@ -134,6 +134,7 @@ public:
   bool sharedConvWeights = true;
   bool useWinogradConv = false;
   unsigned winogradPatchSize = 4;
+  unsigned batchSize = 1;
 };
 
 bool parseCommandLine(int argc, char **argv, NetOptions &options,

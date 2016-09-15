@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
   NetType netType = doTraining ? TrainingNet : TestOnlyNet;
 
   Net net(IMAGENET,
-          1, // batch size
+          options.batchSize,
           makeLayers({
             new ConvLayer(11, 4, 3, 64, NON_LINEARITY_RELU),
             new MaxPoolLayer(3, 2),

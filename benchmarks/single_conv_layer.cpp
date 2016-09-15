@@ -61,42 +61,46 @@ writeRandomValues(boost::multi_array<T, N> &a, double mean,
 
 template <class T>
 static void
-groupActivations(boost::const_multi_array_ref<double, 3> src,
-                 boost::multi_array_ref<T, 4> dst) {
-  unsigned channels = src.shape()[0];
-  unsigned height = src.shape()[1];
-  unsigned width = src.shape()[2];
-  unsigned channelsPerGroup = dst.shape()[3];
-  assert(dst.shape()[0] * channelsPerGroup == channels);
-  for (unsigned c = 0; c != channels; ++c) {
-    for (unsigned y = 0; y != height; ++y) {
-      for (unsigned x = 0; x != width; ++x) {
-        dst[c  /channelsPerGroup][y][x][c % channelsPerGroup] =
-            src[c][y][x];
+groupActivations(boost::const_multi_array_ref<double, 4> src,
+                 boost::multi_array_ref<T, 5> dst) {
+  unsigned batchSize = src.shape()[0];
+  unsigned channels = src.shape()[1];
+  unsigned height = src.shape()[2];
+  unsigned width = src.shape()[3];
+  unsigned channelsPerGroup = dst.shape()[4];
+  assert(dst.shape()[0] == batchSize);
+  assert(dst.shape()[1] * channelsPerGroup == channels);
+  for (unsigned b = 0; b != batchSize; ++b) {
+    for (unsigned c = 0; c != channels; ++c) {
+      for (unsigned y = 0; y != height; ++y) {
+        for (unsigned x = 0; x != width; ++x) {
+          dst[b][c  /channelsPerGroup][y][x][c % channelsPerGroup] =
+              src[b][c][y][x];
+         }
       }
     }
   }
 }
 
 static void
-groupActivations(boost::const_multi_array_ref<double, 3> src,
+groupActivations(boost::const_multi_array_ref<double, 4> src,
                  const std::string &dstType,
                  const std::vector<std::size_t> &dstDims,
                  void *dst) {
-  assert(dstDims.size() == 4);
+  assert(dstDims.size() == 5);
   const auto &multiArrayDims =
-      boost::extents[dstDims[0]][dstDims[1]][dstDims[2]][dstDims[3]];
+    boost::extents[dstDims[0]][dstDims[1]][dstDims[2]][dstDims[3]][dstDims[4]];
   if (dstType == "float") {
     groupActivations(
       src,
-      boost::multi_array_ref<float, 4>(reinterpret_cast<float*>(dst),
+      boost::multi_array_ref<float, 5>(reinterpret_cast<float*>(dst),
                                        multiArrayDims)
     );
   } else {
     assert(dstType == "half");
     groupActivations(
       src,
-      boost::multi_array_ref<poplar::half, 4>(
+      boost::multi_array_ref<poplar::half, 5>(
         reinterpret_cast<poplar::half*>(dst),
         multiArrayDims
       )
@@ -256,18 +260,22 @@ copy(const std::string &srcType,
 
 template <class T>
 static void
-ungroupActivations(boost::const_multi_array_ref<T, 4> src,
-                   boost::multi_array_ref<double, 3> dst) {
-  unsigned channels = dst.shape()[0];
-  unsigned height = dst.shape()[1];
-  unsigned width = dst.shape()[2];
-  unsigned channelsPerGroup = src.shape()[3];
-  assert(src.shape()[0] * channelsPerGroup == channels);
-  for (unsigned c = 0; c != channels; ++c) {
-    for (unsigned y = 0; y != height; ++y) {
-      for (unsigned x = 0; x != width; ++x) {
-        dst[c][y][x] =
-            src[c / channelsPerGroup][y][x][c % channelsPerGroup];
+ungroupActivations(boost::const_multi_array_ref<T, 5> src,
+                   boost::multi_array_ref<double, 4> dst) {
+  unsigned batchSize = dst.shape()[0];
+  unsigned channels = dst.shape()[1];
+  unsigned height = dst.shape()[2];
+  unsigned width = dst.shape()[3];
+  unsigned channelsPerGroup = src.shape()[4];
+  assert(src.shape()[0] == batchSize);
+  assert(src.shape()[1] * channelsPerGroup == channels);
+  for (unsigned b = 0; b < batchSize; ++b) {
+    for (unsigned c = 0; c != channels; ++c) {
+      for (unsigned y = 0; y != height; ++y) {
+        for (unsigned x = 0; x != width; ++x) {
+          dst[b][c][y][x] =
+              src[b][c / channelsPerGroup][y][x][c % channelsPerGroup];
+        }
       }
     }
   }
@@ -277,13 +285,13 @@ static void
 ungroupActivations(const std::string &srcType,
                    const std::vector<std::size_t> &srcDims,
                    const void *src,
-                   boost::multi_array_ref<double, 3> dst) {
-  assert(srcDims.size() == 4);
+                   boost::multi_array_ref<double, 4> dst) {
+  assert(srcDims.size() == 5);
   const auto &multiArrayDims =
-      boost::extents[srcDims[0]][srcDims[1]][srcDims[2]][srcDims[3]];
+    boost::extents[srcDims[0]][srcDims[1]][srcDims[2]][srcDims[3]][srcDims[4]];
   if (srcType == "float") {
     ungroupActivations(
-      boost::const_multi_array_ref<float, 4>(
+      boost::const_multi_array_ref<float, 5>(
         reinterpret_cast<const float*>(src),
         multiArrayDims
       ),
@@ -292,7 +300,7 @@ ungroupActivations(const std::string &srcType,
   } else {
     assert(srcType == "half");
     ungroupActivations(
-      boost::const_multi_array_ref<half, 4>(
+      boost::const_multi_array_ref<half, 5>(
         reinterpret_cast<const half*>(src),
         multiArrayDims
       ),
@@ -399,6 +407,7 @@ int main(int argc, char **argv) {
   unsigned stride;
   unsigned fwdOutChansPerGroup;
   unsigned bwdOutChansPerGroup;
+  unsigned batchSize;
   NonLinearityType nonLinearityType;
   FPDataType dataType;
   double relativeTolerance;
@@ -440,6 +449,9 @@ int main(int argc, char **argv) {
     ("tiles-per-ipu",
      po::value<unsigned>(&info.tilesPerIPU)->default_value(info.tilesPerIPU),
      "Number of tiles per IPU")
+    ("batch-size",
+     po::value<unsigned>(&batchSize)->default_value(1),
+     "Batch size")
   ;
   po::variables_map vm;
   try {
@@ -461,7 +473,8 @@ int main(int argc, char **argv) {
   // TODO support residual connections.
   auto plan = conv::createPlan(height, width, fwdInChans,
                                kernelSize, stride, padding,
-                               fwdOutChans, dataTypeStr, graph,
+                               fwdOutChans, batchSize,
+                               dataTypeStr, graph,
                                inferenceOnly);
   auto fwdInChansPerGroup = plan.fwdPartition.inChansPerGroup;
   // If the output grouping is unspecified, assume the output uses the same
@@ -486,7 +499,8 @@ int main(int argc, char **argv) {
   const auto outWidth = outDims.second;
   // Create tensors.
   Tensor prevAct = graph.addTensor(dataTypeStr,
-                                   {fwdInChans / fwdInChansPerGroup,
+                                   {batchSize,
+                                    fwdInChans / fwdInChansPerGroup,
                                     height,
                                     width,
                                     fwdInChansPerGroup}, "prevAct");
@@ -495,7 +509,8 @@ int main(int argc, char **argv) {
                                        kernelSize, fwdOutChans, plan);
   Tensor biases = conv::createBiases(graph, dataTypeStr, fwdOutChans);
   Tensor nextAct =
-      graph.addTensor(dataTypeStr, {fwdOutChans / fwdOutChansPerGroup,
+      graph.addTensor(dataTypeStr, {batchSize,
+                                    fwdOutChans / fwdOutChansPerGroup,
                                     outHeight,
                                     outWidth, fwdOutChansPerGroup},
                       "nextAct");
@@ -503,7 +518,8 @@ int main(int argc, char **argv) {
   Tensor prevDeltas, zDeltas, nextDeltas;
   if (!inferenceOnly) {
     nextDeltas =
-        graph.addTensor(dataTypeStr, {bwdInChans / bwdInChansPerGroup,
+        graph.addTensor(dataTypeStr, {batchSize,
+                                      bwdInChans / bwdInChansPerGroup,
                                       outHeight,
                                       outWidth, bwdInChansPerGroup},
                         "nextDeltas");
@@ -513,12 +529,14 @@ int main(int argc, char **argv) {
                         "zDeltas");
     mapActivations(graph, zDeltas);
     prevDeltas =
-        graph.addTensor(dataTypeStr, {bwdOutChans / bwdOutChansPerGroup,
+        graph.addTensor(dataTypeStr, {batchSize,
+                                      bwdOutChans / bwdOutChansPerGroup,
                                       height,
                                       width, bwdOutChansPerGroup},
                         "prevDeltas");
     mapActivations(graph, prevDeltas);
   }
+
   auto upload = Sequence();
   auto download = Sequence();
   auto rawHostPrevAct = allocateHostMemoryForTensor(graph, prevAct, upload,
@@ -564,15 +582,15 @@ int main(int argc, char **argv) {
   }
   Engine engine(graph, {&upload, &download, &fwdProg, &bwdProg});
 
-  boost::multi_array<double, 3>
-      hostPrevAct(boost::extents[fwdInChans][height][width]);
+  boost::multi_array<double, 4>
+      hostPrevAct(boost::extents[batchSize][fwdInChans][height][width]);
   boost::multi_array<double, 4>
       hostWeights(boost::extents[fwdOutChans][fwdInChans][kernelSize]
                                  [kernelSize]);
   boost::multi_array<double, 1>
       hostBiases(boost::extents[fwdOutChans]);
-  boost::multi_array<double, 3>
-      hostNextAct(boost::extents[fwdOutChans][outHeight][outWidth]);
+  boost::multi_array<double, 4>
+      hostNextAct(boost::extents[batchSize][fwdOutChans][outHeight][outWidth]);
   std::mt19937 randomEngine;
   writeRandomValues(hostPrevAct, 0.0, 1.0, randomEngine);
   writeRandomValues(hostWeights, 0.0, 1.0, randomEngine);
@@ -590,22 +608,22 @@ int main(int argc, char **argv) {
   // Validate against a reference model.
   ungroupActivations(dataTypeStr, nextAct.dims(), rawHostNextAct.get(),
                      hostNextAct);
-  boost::multi_array<double, 3>
-      modelNextAct(boost::extents[fwdOutChans][outHeight][outWidth]);
+  boost::multi_array<double, 4>
+      modelNextAct(boost::extents[batchSize][fwdOutChans][outHeight][outWidth]);
   ref::conv::convolution(stride, padding, nonLinearityType, hostPrevAct,
                          hostWeights, hostBiases, modelNextAct);
   bool matchesModel = checkIsClose("fwd", hostNextAct, modelNextAct,
                                    relativeTolerance);
 
   if (!inferenceOnly) {
-    boost::multi_array<double, 3> hostNextDeltas(
-      boost::extents[bwdInChans][outHeight][outWidth]
+    boost::multi_array<double, 4> hostNextDeltas(
+      boost::extents[batchSize][bwdInChans][outHeight][outWidth]
     );
-    boost::multi_array<double, 3> hostZDeltas(
-      boost::extents[bwdInChans][outHeight][outWidth]
+    boost::multi_array<double, 4> hostZDeltas(
+      boost::extents[batchSize][bwdInChans][outHeight][outWidth]
     );
-    boost::multi_array<double, 3> hostPrevDeltas(
-      boost::extents[bwdOutChans][height][width]
+    boost::multi_array<double, 4> hostPrevDeltas(
+      boost::extents[batchSize][bwdOutChans][height][width]
     );
     auto modelWeights = hostWeights;
     auto modelBiases = hostBiases;
@@ -629,8 +647,8 @@ int main(int argc, char **argv) {
     ref::bwdNonLinearity(nonLinearityType, hostNextAct, modelZDeltas);
     matchesModel &= checkIsClose("zdeltas",
                                  hostZDeltas, modelZDeltas, relativeTolerance);
-    boost::multi_array<double, 3>
-        modelPrevDeltas(boost::extents[fwdInChans][height][width]);
+    boost::multi_array<double, 4>
+        modelPrevDeltas(boost::extents[batchSize][fwdInChans][height][width]);
     ref::conv::convolutionBackward(stride, padding, hostZDeltas, modelWeights,
                                    modelPrevDeltas);
     matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,

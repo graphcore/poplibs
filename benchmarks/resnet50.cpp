@@ -39,7 +39,7 @@ int main(int argc, char **argv) {
   auto resMethod = RESIDUAL_PAD;
 
   Net net(IMAGENET,
-          1, // batch size
+          options.batchSize,
           makeLayers({
 
             // 7x7,64, stride 2

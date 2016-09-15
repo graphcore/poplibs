@@ -12,19 +12,24 @@ void applyTensorMapping(poplar::Graph &graph, poplar::Tensor t,
 }
 
 std::vector<unsigned>
-computeActivationsMapping(const poplar::Graph &graph, poplar::Tensor act) {
+computeActivationsMapping(const poplar::Graph &graph, poplar::Tensor act,
+                          unsigned batchNum, unsigned batchSize) {
+  const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
   const auto numActivations = act.numElements();
-  unsigned chansPerGroup;
+  unsigned chansPerGroup, beginTile, endTile;
   if (act.getDimensionality() == 1) {
     chansPerGroup = 1;
+    beginTile = 0;
+    endTile = numTiles;
   } else {
     assert(act.getDimensionality() == 4);
     chansPerGroup = act.dim(3);
+    beginTile = batchNum * numTiles / batchSize;
+    endTile = (batchNum + 1) * numTiles / batchSize;
   }
-  const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
+  const auto numBatchTiles = endTile - beginTile;
   std::vector<unsigned> mapping;
-  mapping.reserve(numTiles + 1);
-  mapping.emplace_back(0);
+  mapping.resize(numTiles + 1);
   const auto numGroups = numActivations / chansPerGroup;
   // Instead of spreading activations across all tiles, compute the maximum
   // number of activations that would need to be stored on a tile if activations
@@ -39,18 +44,23 @@ computeActivationsMapping(const poplar::Graph &graph, poplar::Tensor act) {
   // does not increase the maximum number of activations on a tile, the
   // execution time of the reduce and complete phases should remain roughly the
   // same.
-  const auto maxGroupsPerTile = (numGroups + numTiles - 1) / numTiles;
+  const auto maxGroupsPerTile = (numGroups + numBatchTiles - 1) / numBatchTiles;
   const auto tilesToUse = (numGroups + maxGroupsPerTile - 1) / maxGroupsPerTile;
   for (unsigned tile = 0; tile != tilesToUse; ++tile) {
-    const auto groupEnd = ((tile + 1) * numGroups) / tilesToUse;
-    mapping.emplace_back(groupEnd * chansPerGroup);
+    const auto groupEnd = (tile * numGroups) / tilesToUse;
+    mapping[tile + beginTile] = groupEnd * chansPerGroup;
   }
-  mapping.resize(numTiles + 1, mapping.back());
+  for (unsigned tile = beginTile + tilesToUse; tile != numTiles + 1; ++tile)
+    mapping[tile] = numGroups * chansPerGroup;
   return mapping;
 }
 
 void mapActivations(poplar::Graph &graph, poplar::Tensor act) {
-  applyTensorMapping(graph, act, computeActivationsMapping(graph, act));
+  auto batchSize = act.dim(0);
+  for (unsigned i = 0; i != batchSize; ++i) {
+    auto actMapping = computeActivationsMapping(graph, act[i], i, batchSize);
+    applyTensorMapping(graph, act[i], actMapping);
+  }
 }
 
 std::vector<unsigned> computeTensorMapping(const poplar::Graph &graph,

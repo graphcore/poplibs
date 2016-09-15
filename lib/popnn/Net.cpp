@@ -70,6 +70,11 @@ bool parseCommandLine(int argc, char **argv, NetOptions &options,
        &options.winogradPatchSize
      )->default_value(4),
      "Patch size for winograd convolution")
+    ("batch-size",
+     po::value<unsigned>(
+       &options.batchSize
+     )->default_value(1),
+     "Batch size")
   ;
   po::variables_map vm;
   try {
@@ -141,12 +146,12 @@ Net::getConvPlan(unsigned i, unsigned inDimY, unsigned inDimX,
   if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
     plan = conv::createPlan(inDimY, inDimX, inNumChans,
                             c->kernelSize, c->stride, c->padding,
-                            c->numChannels, dType, *graph,
+                            c->numChannels, batchSize, dType, *graph,
                             netType == TestOnlyNet);
   } else if (const auto *c = dynamic_cast<const ConvResLayer *>(layer)) {
     plan = conv::createPlan(inDimY, inDimX, inNumChans,
                             c->kernelSize, c->stride, c->padding,
-                            c->numChannels, dType, *graph,
+                            c->numChannels, batchSize, dType, *graph,
                             netType == TestOnlyNet);
   } else {
     assert(0);
@@ -243,7 +248,7 @@ Net::outputConvDescription(unsigned inDimY, unsigned inDimX,
                                                   padding);
   const auto numParams =
       kernelSize * kernelSize * inNumChans * outNumChans + outNumChans;
-  auto flops = conv::getFlops(inDimY, inDimX, inNumChans,
+  auto flops = conv::getFlops(batchSize, inDimY, inDimX, inNumChans,
                               kernelSize, stride, padding, outNumChans,
                               doResidual, forwardOnly);
   if (doResidual) {
@@ -265,32 +270,33 @@ Net::outputConvDescription(unsigned inDimY, unsigned inDimX,
 void Net::outputDescription(const Layer *layer, Tensor in,
                             bool forwardOnly) {
   if (const auto *fc = dynamic_cast<const FullyConnectedLayer *>(layer)) {
-    const auto prevSize = in.numElements();
+    const auto prevSize = in[0].numElements();
     const auto size = fc->size;
-    const auto flops = fc::getNumFlops(prevSize, size, forwardOnly);
+    const auto flops = fc::getNumFlops(batchSize, prevSize, size, forwardOnly);
     std::cout << "   -- Fully connected layer:\n"
               << "        Input: "  << prevSize << "\n"
               << "        Output: " << size << "\n"
               << "        Params: " << size * (prevSize + 1) << "\n"
               << "        FLOPs: " << flops << "\n";
   } else if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
-    outputConvDescription(in.dim(1), in.dim(2), in.dim(0) * in.dim(3),
+    outputConvDescription(in.dim(2), in.dim(3), in.dim(1) * in.dim(4),
                           c->kernelSize, c->stride, c->padding,
                           c->numChannels, false, forwardOnly);
   } else if (const auto *c = dynamic_cast<const ConvResLayer *>(layer)) {
-    outputConvDescription(in.dim(1), in.dim(2), in.dim(0) * in.dim(3),
+    outputConvDescription(in.dim(2), in.dim(3), in.dim(1) * in.dim(4),
                           c->kernelSize, c->stride, c->padding,
                           c->numChannels, true, forwardOnly);
   } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
     unsigned outDimY, outDimX;
-    std::tie(outDimY, outDimX) = maxpool::getOutputDim(in.dim(1),
-                                                       in.dim(2),
+    std::tie(outDimY, outDimX) = maxpool::getOutputDim(in.dim(2),
+                                                       in.dim(3),
                                                        m->kernelSize,
                                                        m->stride,
                                                        m->padding);
-    const auto numChannels = in.dim(0) * in.dim(3);
-    const auto flops = maxpool::getNumFlops(in.dim(1),
+    const auto numChannels = in.dim(1) * in.dim(4);
+    const auto flops = maxpool::getNumFlops(batchSize,
                                             in.dim(2),
+                                            in.dim(3),
                                             numChannels,
                                             m->kernelSize,
                                             m->stride,
@@ -299,7 +305,7 @@ void Net::outputDescription(const Layer *layer, Tensor in,
               << "        Size: " << m->kernelSize << "x"
               << m->kernelSize << "\n"
               << "        Stride: " << m->stride << "\n"
-              << "        Input: " << in.dim(1) << "x" << in.dim(2)
+              << "        Input: " << in.dim(2) << "x" << in.dim(3)
               <<   "x" << numChannels << "\n"
               << "        Output: " << outDimY << "x" << outDimX
               <<   "x" << numChannels << "\n"
@@ -324,8 +330,8 @@ Net::getOrCreateConvImplFwd(const conv::ConvPlan &plan,
   auto &outDims = impl.tensorDims[2];
   auto in = graph->addTensor(dType, inDims, "activations");
   mapActivations(*graph, in);
-  auto inNumChans = inDims[0] * inDims[3];
-  auto outNumChans = outDims[0] * outDims[3];
+  auto inNumChans = inDims[1] * inDims[4];
+  auto outNumChans = outDims[1] * outDims[4];
   Tensor weights = conv::createWeights(*graph, dType, inNumChans,
                                        impl.kernelSize, outNumChans, plan);
   Tensor biases = conv::createBiases(*graph, dType, outNumChans);
@@ -361,7 +367,8 @@ Net::createConvLayerFwd(unsigned i,
   auto &in = acts[i];
   unsigned outDimY, outDimX;
   std::tie(outDimY, outDimX) =
-      conv::getOutputDim(in.dim(1), in.dim(2), kernelSize, stride, padding);
+      conv::getOutputDim(in.dim(2), in.dim(3), kernelSize,
+                         stride, padding);
   auto outChansPerGroup = getRequiredChansPerGroupFwd(i + 1,
                                                       outDimY, outDimX,
                                                       numChannels);
@@ -371,20 +378,22 @@ Net::createConvLayerFwd(unsigned i,
   assert(numChannels % outChansPerGroup == 0);
   const auto outNumChanGroups = numChannels / outChansPerGroup;
   acts[i + 1] = graph->addTensor(dType,
-                                 {outNumChanGroups,
+                                 {batchSize,
+                                  outNumChanGroups,
                                   outDimY, outDimX,
                                   outChansPerGroup},
                                  "activations." + std::to_string(i));
   mapActivations(*graph, acts[i + 1]);
   Tensor z = graph->addTensor(dType,
-                              {outNumChanGroups,
+                              {batchSize,
+                               outNumChanGroups,
                                outDimY, outDimX,
                                outChansPerGroup},
                                "z." + std::to_string(i));
   mapActivations(*graph, z);
-  unsigned inNumChanGroups = in.dim(0);
-  unsigned inNumChans = inNumChanGroups * in.dim(3);
-  unsigned inDimY = in.dim(1), inDimX = in.dim(2);
+  unsigned inNumChanGroups = in.dim(1);
+  unsigned inNumChans = inNumChanGroups * in.dim(4);
+  unsigned inDimY = in.dim(2), inDimX = in.dim(3);
   auto plan = getConvPlan(i, inDimY, inDimX, inNumChans);
   Tensor weights = conv::createWeights(*graph, dType, inNumChans,
                                        kernelSize, numChannels, plan);
@@ -403,7 +412,7 @@ Net::createConvLayerFwd(unsigned i,
       getOrCreateConvImplFwd(plan, {{in.dims(), resDims, acts[i + 1].dims()},
                                  kernelSize, stride, padding,
                                  nonLinearityType, resMethod});
- conv::mapWeights(weights, *graph, plan);
+ conv::mapWeights(weights, *graph, plan, batchSize);
  conv::mapBiases(biases, *graph, acts[i + 1]);
  if (dType == "float") {
     auto hWeights =
@@ -417,12 +426,13 @@ Net::createConvLayerFwd(unsigned i,
     hParams.push_back(std::move(hWeights));
     hParams.push_back(std::move(hBiases));
  }
- numFlops += conv::getFlops(inDimY, inDimX, inNumChans, kernelSize,
+ numFlops += conv::getFlops(batchSize,
+                            inDimY, inDimX, inNumChans, kernelSize,
                             stride, padding, numChannels,
                             resMethod != RESIDUAL_NONE,
                             netType == TestOnlyNet || i == 0);
  perfectCycleTime +=
-     conv::getPerfectCycleCount(*graph, dType, inDimY, inDimX,
+     conv::getPerfectCycleCount(*graph, dType, batchSize, inDimY, inDimX,
                                 inNumChans, kernelSize, stride, padding,
                                 numChannels, resMethod != RESIDUAL_NONE,
                                 netType == TestOnlyNet || i == 0);
@@ -446,11 +456,11 @@ Net::getOrCreateConvImplBwd(const conv::ConvPlan &plan,
   auto &deltasOutDims = impl.tensorDims[1];
   auto deltasIn = graph->addTensor(dType, deltasInDims, "zDeltas");
   mapActivations(*graph, deltasIn);
-  auto inNumChans = deltasInDims[0] * deltasInDims[3];
-  auto outNumChans = deltasOutDims[0] * deltasOutDims[3];
+  auto inNumChans = deltasInDims[1] * deltasInDims[4];
+  auto outNumChans = deltasOutDims[1] * deltasOutDims[4];
   Tensor weights = conv::createWeights(*graph, dType, outNumChans,
                                        impl.kernelSize, inNumChans, plan);
-  conv::mapWeights(weights, *graph, plan);
+  conv::mapWeights(weights, *graph, plan, batchSize);
   auto deltasOut = graph->addTensor(dType, deltasOutDims, "deltasOut");
   mapActivations(*graph, deltasOut);
   auto prog =
@@ -480,11 +490,11 @@ Net::getOrCreateConvImplWeightUpdate(const conv::ConvPlan &plan,
   mapActivations(*graph, deltasIn);
   auto activations = graph->addTensor(dType, actDims, "activations");
   mapActivations(*graph, activations);
-  auto inNumChans = actDims[0] * actDims[3];
-  auto outNumChans = deltasInDims[0] * deltasInDims[3];
+  auto inNumChans = actDims[1] * actDims[4];
+  auto outNumChans = deltasInDims[1] * deltasInDims[4];
   Tensor weights = conv::createWeights(*graph, dType, inNumChans,
                                        impl.kernelSize, outNumChans, plan);
-  conv::mapWeights(weights, *graph, plan);
+  conv::mapWeights(weights, *graph, plan, batchSize);
   Tensor biases = conv::createBiases(*graph, dType, outNumChans);
   conv::mapBiases(biases, *graph, deltasIn);
   auto prog =
@@ -549,7 +559,12 @@ std::string findGraphProg() {
 }
 
 void Net::initialize(DataSet &dataSet, LossType lossType) {
-  assert(batchSize == 1 && "Only batch size of 1 is supported");
+  if (netType == TrainingNet &&
+      batchSize != 1) {
+    // Currently only batch size of 1 implemented for training
+    std::cerr << "Training only implemented with batch size of 1\n";
+    std::abort();
+  }
   numTestBatches = dataSet.numTest / batchSize;
   env = std::unique_ptr<GraphProgEnv>(
       new GraphProgEnv(popnn::findGraphProg(), GraphProgFileType::Object));
@@ -599,7 +614,8 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
     chansPerGroup = dataSet.dim[2];
   assert(dataSet.dim[2] % chansPerGroup == 0);
   const auto numChanGroups = dataSet.dim[2] / chansPerGroup;
-  const auto dim = std::vector<size_t>({numChanGroups,
+  const auto dim = std::vector<size_t>({batchSize,
+                                        numChanGroups,
                                         dataSet.dim[0], dataSet.dim[1],
                                         chansPerGroup});
   acts.resize(layers.size() + 1);
@@ -612,13 +628,13 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
     std::cout << "-- Layer " << i << "\n";
     outputDescription(layer, acts[i], netType == TestOnlyNet || i == 0);
     if (const auto *fc = dynamic_cast<const FullyConnectedLayer *>(layer)) {
-      const auto prevSize = acts[i].numElements();
+      const auto prevSize = acts[i][0].numElements();
       const auto size = fc->size;
-      acts[i + 1] = graph->addTensor(dType, {size},
+      acts[i + 1] = graph->addTensor(dType, {batchSize, size},
                                  "activations." + std::to_string(i));
       mapActivations(*graph, acts[i + 1]);
       auto activationsMapping =
-          computeActivationsMapping(*graph, acts[i + 1]);
+          computeActivationsMapping(*graph, acts[i + 1][0], 0, batchSize);
       bool forwardOnly = i == 0 || netType == TestOnlyNet;
       const auto &plan =
           fullyConnectedPlan.emplace(
@@ -646,10 +662,10 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
       fwdProg.add(fc::fullyConnected(*graph, size, fc->nonLinearityType,
                                      acts[i], weights, biases,
                                      acts[i + 1], plan));
-      numFlops += fc::getNumFlops(prevSize, size,
+      numFlops += fc::getNumFlops(batchSize, prevSize, size,
                                   netType == TestOnlyNet || i == 0);
       perfectCycleTime +=
-          fc::getPerfectCycleCount(*graph, prevSize,
+          fc::getPerfectCycleCount(*graph, batchSize, prevSize,
                                    size, dType,
                                    netType == TestOnlyNet || i == 0);
     } else if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
@@ -664,27 +680,31 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
     } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
       const auto &in = acts[i];
       unsigned outDimY, outDimX;
-      std::tie(outDimY, outDimX) = maxpool::getOutputDim(in.dim(1),
-                                                         in.dim(2),
+      std::tie(outDimY, outDimX) = maxpool::getOutputDim(in.dim(2),
+                                                         in.dim(3),
                                                          m->kernelSize,
                                                          m->stride,
                                                          m->padding);
       acts[i + 1] = graph->addTensor(dType,
-                                     {in.dim(0),
+                                     {batchSize,
+                                      in.dim(1),
                                       outDimY, outDimX,
-                                      in.dim(3)},
+                                      in.dim(4)},
                                      "activations." + std::to_string(i));
       mapActivations(*graph, acts[i + 1]);
       fwdProg.add(maxpool::maxPool(*graph,
                                    m->kernelSize, m->stride, m->padding,
                                    acts[i], acts[i + 1]));
-      numFlops += maxpool::getNumFlops(in.dim(1), in.dim(2),
-                                       in.dim(0) * in.dim(3), m->kernelSize,
+      numFlops += maxpool::getNumFlops(batchSize,
+                                       in.dim(2), in.dim(3),
+                                       in.dim(1) * in.dim(4),
+                                       m->kernelSize,
                                        m->stride, m->padding);
       perfectCycleTime +=
-          maxpool::getPerfectCycleCount(*graph, dType,
-                                        in.dim(1), in.dim(2),
-                                        in.dim(0) * in.dim(3), m->kernelSize,
+          maxpool::getPerfectCycleCount(*graph, dType, batchSize,
+                                        in.dim(2), in.dim(3),
+                                        in.dim(1) * in.dim(4),
+                                        m->kernelSize,
                                         m->stride, m->padding);
     } else {
       assert(0 && "Unrecognized layer type");
@@ -697,9 +717,12 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   Tensor loss = graph->addTensor(dType, {1}, "loss");
   deltas[layers.size()] = graph->addTensor(dType, lastAct.dims(), "deltas");
   mapActivations(*graph, deltas[layers.size()]);
+  lastAct = lastAct.reshape({batchSize, lastAct.numElements() / batchSize});
+  auto firstDeltas = deltas[layers.size()];
+  firstDeltas = firstDeltas.reshape(lastAct.dims());
   auto v = graph->addVertex(lossCS, templateVertex("CalcLoss", dType),
-                           {{"in", lastAct.flatten()},
-                            {"deltaOut", deltas[layers.size()].flatten()},
+                           {{"batchIn", lastAct},
+                            {"batchDeltaOut", firstDeltas},
                             {"label", expected[0]},
                             {"loss", loss[0]},
                             {"numCorrect", numCorrect[0]}});
@@ -707,7 +730,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   graph->setTileMapping(numCorrect, 0);
   graph->setTileMapping(loss, 0);
   graph->setTileMapping(v, 0);
-  graph->setFieldSize(v["probs"], lastAct.numElements());
+  graph->setFieldSize(v["probs"], lastAct[0].numElements());
   graph->setInitialValue(v["lossType"], lossType);;
   fwdProg.add(Sequence(Copy(numCorrect, &hNumCorrect),
                        Execute(lossCS),
@@ -716,19 +739,20 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
     for (int i = layers.size() - 1; i >= 0; --i) {
       bool backwardPassRequired = (i != 0);
       if (backwardPassRequired) {
-        if (acts[i].dims().size() == 4) {
-          auto numChannels = acts[i].dim(0) * acts[i].dim(3);
+        if (acts[i].dims().size() == 5) {
+          auto numChannels = acts[i].dim(1) * acts[i].dim(4);
           auto chansPerGroup = getRequiredChansPerGroupBwd(i - 1);
           if (chansPerGroup == 0)
             chansPerGroup = numChannels;
           assert(numChannels % chansPerGroup == 0);
           const auto numChanGroups = numChannels / chansPerGroup;
-          deltas[i] = graph->addTensor(dType, {numChanGroups,
-                                               acts[i].dim(1),
+          deltas[i] = graph->addTensor(dType, {batchSize,
+                                               numChanGroups,
                                                acts[i].dim(2),
+                                               acts[i].dim(3),
                                                chansPerGroup} , "deltas");
          } else {
-           assert(acts[i].dims().size() == 1);
+           assert(acts[i].dims().size() == 2);
            deltas[i] = graph->addTensor(dType, acts[i].dims(), "deltas");
         }
         mapActivations(*graph, deltas[i]);
@@ -763,7 +787,8 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
       } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
         if (backwardPassRequired)
           bwdProg.add(maxpool::maxPoolBackward(*graph, m->kernelSize, m->stride,
-                                               m->padding, acts[i], acts[i + 1],
+                                               m->padding, acts[i],
+                                               acts[i + 1],
                                                deltas[i + 1], deltas[i]));
       } else {
         assert(0 && "Unrecognized layer type");

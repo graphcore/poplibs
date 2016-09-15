@@ -32,7 +32,7 @@ add_test(NAME conv3x3_stride_2_fwd
                  --stride=2
                  --fwd-out-chans-per-group=16)
 
-add_test(NAME conv3x3_stride_2_multie_tile
+add_test(NAME conv3x3_stride_2_multi_tile
          COMMAND single_conv_layer
                  --input-channels=16
                  --output-channels=16
@@ -54,3 +54,17 @@ add_test(NAME conv1x1_stride_3_fwd
                  --fwd-out-chans-per-group=16
                  --tiles-per-ipu=1
                  --stride=3)
+
+ add_test(NAME conv3x3_batch_2
+          COMMAND single_conv_layer
+                  --inference-only
+                  --input-channels=16
+                  --output-channels=16
+                  --width=7
+                  --height=7
+                  --fwd-out-chans-per-group=16
+                  --bwd-out-chans-per-group=16
+                  --tiles-per-ipu=2
+                  --stride=2
+                  --kernel-size=3
+                  --batch-size=2)

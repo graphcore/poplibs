@@ -11,12 +11,14 @@ std::pair<unsigned, unsigned>
 getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSize,
              unsigned stride, unsigned padding);
 
-uint64_t getNumFlops(unsigned inDimY, unsigned inDimX,
+uint64_t getNumFlops(unsigned batchSize,
+                     unsigned inDimY, unsigned inDimX,
                      unsigned numChannels, unsigned kernelSize,
                      unsigned stride, unsigned padding);
 
 double getPerfectCycleCount(const poplar::Graph &graph,
                             std::string dType,
+                            unsigned batchSize,
                             unsigned inDimY, unsigned inDimX,
                             unsigned numChannels, unsigned kernelSize,
                             unsigned stride, unsigned padding);

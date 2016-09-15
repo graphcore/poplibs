@@ -50,7 +50,7 @@ public:
 
 ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                     unsigned kernelSize, unsigned stride, unsigned padding,
-                    unsigned numChannels, std::string dType,
+                    unsigned numChannels, unsigned batchSize, std::string dType,
                     const poplar::Graph &graph, bool forwardOnly);
 
 }

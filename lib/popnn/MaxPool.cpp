@@ -19,7 +19,8 @@ getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSize,
   return {outDimY, outDimX};
 }
 
-uint64_t getNumFlops(unsigned inDimY, unsigned inDimX,
+uint64_t getNumFlops(unsigned batchSize,
+                     unsigned inDimY, unsigned inDimX,
                      unsigned numChannels, unsigned kernelSize,
                      unsigned stride, unsigned padding) {
   unsigned outDimY, outDimX;
@@ -39,18 +40,19 @@ uint64_t getNumFlops(unsigned inDimY, unsigned inDimX,
       numFlops += width * height;
     }
   }
-  return numFlops;
+  return batchSize * numFlops;
 }
 
 double getPerfectCycleCount(const Graph &graph,
-                            std::string dType,
+                            std::string dType, unsigned batchSize,
                             unsigned inDimY, unsigned inDimX,
                             unsigned numChannels, unsigned kernelSize,
                             unsigned stride, unsigned padding) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   unsigned dTypeSize = dType == "float" ? 4 : 2;
   const auto numTiles = deviceInfo.getNumTiles();
-  const auto numFLOPs = getNumFlops(inDimY, inDimX, numChannels, kernelSize,
+  const auto numFLOPs = getNumFlops(batchSize,
+                                    inDimY, inDimX, numChannels, kernelSize,
                                     stride, padding);
   const auto vectorWidth = deviceInfo.dataPathWidth / (8 * dTypeSize);
   return static_cast<double>(numFLOPs) / (vectorWidth * numTiles);
@@ -65,70 +67,75 @@ maxPool(Graph &graph,
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto layerName = "MaxPool" + std::to_string(kernelSize) + "x" +
                           std::to_string(kernelSize);
-  const auto prevNumChanGroups = in.dim(0);
-  const auto prevChansPerGroup = in.dim(3);
+  const auto batchSize = in.dim(0);
+  const auto prevNumChanGroups = in.dim(1);
+  const auto prevChansPerGroup = in.dim(4);
   const auto prevNumChannels = prevNumChanGroups * prevChansPerGroup;
-  const auto numChanGroups = out.dim(0);
-  const auto chansPerGroup = out.dim(3);
+  const auto numChanGroups = out.dim(1);
+  const auto chansPerGroup = out.dim(4);
   const auto numChannels = numChanGroups * chansPerGroup;
   assert(numChannels == prevNumChannels);
-  unsigned inDimY = in.dim(1), inDimX = in.dim(2);
+  unsigned inDimY = in.dim(2), inDimX = in.dim(3);
   unsigned outDimY, outDimX;
   std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX,
                                             kernelSize, stride, padding);
-  assert(outDimY == out.dim(1));
-  assert(outDimX == out.dim(2));
+  assert(outDimY == out.dim(2));
+  assert(outDimX == out.dim(3));
   const auto chunkSize = gcd<unsigned>(prevChansPerGroup, chansPerGroup);
   const auto chunksPerChanGroup = chansPerGroup / chunkSize;
   ComputeSet fwd = graph.createComputeSet(layerName + ".fwd");
-  //mapping over this MaxPool layer's outputs
-  const auto outMapping = computeActivationsMapping(graph, out);
-  const auto numTiles = deviceInfo.getNumTiles();
+  // Iterate through the batch adding vertices to the same compute set (so
+  // batch is executed in parallel).
+  for (unsigned b = 0; b < batchSize; ++b) {
+    //mapping over this MaxPool layer's outputs
+    const auto outMapping = computeActivationsMapping(graph, out[b], b,
+                                                      batchSize);
+    const auto numTiles = deviceInfo.getNumTiles();
 
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
-    const auto tileOutBegin = outMapping[tile];
-    const auto tileOutEnd = outMapping[tile + 1];
-    assert(tileOutBegin % chansPerGroup == 0);
-    assert(tileOutEnd % chansPerGroup == 0);
-    const auto tileGroupBegin = tileOutBegin / chansPerGroup;
-    const auto tileGroupEnd = tileOutEnd / chansPerGroup;
-    const auto tileNumGroups = tileGroupEnd - tileGroupBegin;
-    if (tileNumGroups == 0)
-      continue;
-    for (unsigned i = tileGroupBegin; i != tileGroupEnd; ++i) {
-      unsigned x = i % outDimX;
-      unsigned y = (i / outDimX) % outDimY;
-      unsigned chanGroup = i / (outDimY * outDimX);
-      unsigned inYBegin, inYEnd;
-      std::tie(inYBegin, inYEnd) = getInputRange(y, stride, kernelSize,
-                                                 padding, inDimY, true);
-      const auto inYSize = inYEnd - inYBegin;
-      unsigned inXBegin, inXEnd;
-      std::tie(inXBegin, inXEnd) = getInputRange(x, stride, kernelSize,
-                                                 padding, inDimX, true);
-      const auto inXSize = inXEnd - inXBegin;
-      auto v =
-        graph.addVertex(fwd, templateVertex("MaxPooling", dType),
-          { {"activationOut", out[chanGroup][y][x]} });
-      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-      graph.setTileMapping(v, tile);
-      graph.setFieldSize(v["activationIn"],
-                         chunksPerChanGroup * inYSize * inXSize);
-      unsigned chunkIndex = 0;
+    for (unsigned tile = 0; tile != numTiles; ++tile) {
+      const auto tileOutBegin = outMapping[tile];
+      const auto tileOutEnd = outMapping[tile + 1];
+      assert(tileOutBegin % chansPerGroup == 0);
+      assert(tileOutEnd % chansPerGroup == 0);
+      const auto tileGroupBegin = tileOutBegin / chansPerGroup;
+      const auto tileGroupEnd = tileOutEnd / chansPerGroup;
+      const auto tileNumGroups = tileGroupEnd - tileGroupBegin;
+      if (tileNumGroups == 0)
+        continue;
+      for (unsigned i = tileGroupBegin; i != tileGroupEnd; ++i) {
+        unsigned x = i % outDimX;
+        unsigned y = (i / outDimX) % outDimY;
+        unsigned chanGroup = i / (outDimY * outDimX);
+        unsigned inYBegin, inYEnd;
+        std::tie(inYBegin, inYEnd) = getInputRange(y, stride, kernelSize,
+                                                   padding, inDimY, true);
+        const auto inYSize = inYEnd - inYBegin;
+        unsigned inXBegin, inXEnd;
+        std::tie(inXBegin, inXEnd) = getInputRange(x, stride, kernelSize,
+                                                   padding, inDimX, true);
+        const auto inXSize = inXEnd - inXBegin;
+        auto v =
+          graph.addVertex(fwd, templateVertex("MaxPooling", dType),
+            { {"activationOut", out[b][chanGroup][y][x]} });
+        graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
+        graph.setTileMapping(v, tile);
+        graph.setFieldSize(v["activationIn"],
+                           chunksPerChanGroup * inYSize * inXSize);
+        unsigned chunkIndex = 0;
+        for (unsigned j = 0; j != chunksPerChanGroup; ++j) {
+          unsigned chan = chanGroup * chansPerGroup + j * chunksPerChanGroup;
+          unsigned prevChanGroup = chan / prevChansPerGroup;
+          unsigned prevChanInGroup = chan % prevChansPerGroup;
 
-      for (unsigned j = 0; j != chunksPerChanGroup; ++j) {
-        unsigned chan = chanGroup * chansPerGroup + j * chunksPerChanGroup;
-        unsigned prevChanGroup = chan / prevChansPerGroup;
-        unsigned prevChanInGroup = chan % prevChansPerGroup;
-
-        for (unsigned inY = inYBegin; inY != inYEnd; ++inY) {
-          for (unsigned inX = inXBegin; inX != inXEnd; ++inX) {
-            Tensor inWindow =
-                in[prevChanGroup][inY][inX].slice(prevChanInGroup,
-                                                  prevChanInGroup + chunkSize);
-
-            graph.connect(inWindow, v["activationIn"][chunkIndex]);
-            chunkIndex++;
+          for (unsigned inY = inYBegin; inY != inYEnd; ++inY) {
+            for (unsigned inX = inXBegin; inX != inXEnd; ++inX) {
+              Tensor inWindow =
+                  in[b][prevChanGroup][inY][inX]
+                     .slice(prevChanInGroup,
+                            prevChanInGroup + chunkSize);
+              graph.connect(inWindow, v["activationIn"][chunkIndex]);
+              chunkIndex++;
+            }
           }
         }
       }
@@ -142,36 +149,44 @@ maxPoolBackward(Graph &graph,
                 unsigned kernelSize, unsigned stride, unsigned padding,
                 Tensor actIn, Tensor actOut,
                 Tensor deltasIn, Tensor deltasOut) {
-  const auto dType = graph.getTensorElementType(actIn);
+  if (actIn.dim(0) != 1) {
+    std::cerr << "Batch size != 1 not implemented for backwards pass\n";
+    std::abort();
+  }
+  auto actIn0 = actIn[0];
+  auto actOut0 = actOut[0];
+  auto deltasIn0 = deltasIn[0];
+  auto deltasOut0 = deltasOut[0];
+  const auto dType = graph.getTensorElementType(actIn0);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   // actIn is from the previous layer
   // actOut went to the next layer
   // deltasIn is from the next layer
   // deltasOut is to the previous layer
-  assert(actIn.dim(1) == deltasOut.dim(1));
-  assert(actIn.dim(2) == deltasOut.dim(2));
-  assert(actOut.dim(1) == deltasIn.dim(1));
-  assert(actOut.dim(2) == deltasIn.dim(2));
-  assert(deltasIn.dim(0) * deltasIn.dim(3)
-         == deltasOut.dim(0) * deltasOut.dim(3));
+  assert(actIn0.dim(1) == deltasOut0.dim(1));
+  assert(actIn0.dim(2) == deltasOut0.dim(2));
+  assert(actOut0.dim(1) == deltasIn0.dim(1));
+  assert(actOut0.dim(2) == deltasIn0.dim(2));
+  assert(deltasIn0.dim(0) * deltasIn0.dim(3)
+         == deltasOut0.dim(0) * deltasOut0.dim(3));
 
   // "prev" refers to the layer nearer the input
   // "next" refers to the layer nearer the output
   const auto layerName = "MaxPool" + std::to_string(kernelSize) + "x" +
                           std::to_string(kernelSize);
-  const auto nextNumChanGroups = actOut.dim(0);
-  const auto nextChansPerGroup = actOut.dim(3);
+  const auto nextNumChanGroups = actOut0.dim(0);
+  const auto nextChansPerGroup = actOut0.dim(3);
   const auto nextNumChannels = nextNumChanGroups * nextChansPerGroup;
-  const auto prevNumChanGroups = actIn.dim(0);
-  const auto prevChansPerGroup = actIn.dim(3);
+  const auto prevNumChanGroups = actIn0.dim(0);
+  const auto prevChansPerGroup = actIn0.dim(3);
   const auto prevNumChannels = prevNumChanGroups * prevChansPerGroup;
   //MaxPool so no change in channel dimension
   assert(nextNumChannels == prevNumChannels);
 
-  const auto yDimPrev = deltasOut.dim(1);
-  const auto xDimPrev = deltasOut.dim(2);
-  const auto yDimNext = deltasIn.dim(1);
-  const auto xDimNext = deltasIn.dim(2);
+  const auto yDimPrev = deltasOut0.dim(1);
+  const auto xDimPrev = deltasOut0.dim(2);
+  const auto yDimNext = deltasIn0.dim(1);
+  const auto xDimNext = deltasIn0.dim(2);
   unsigned calcNextX, calcNextY;
   std::tie(calcNextY, calcNextX) = getOutputDim(yDimPrev, xDimPrev,
                                               kernelSize, stride, padding);
@@ -179,8 +194,8 @@ maxPoolBackward(Graph &graph,
   assert(calcNextX == xDimNext);
   // The input and output tensors may have different group sizes
   // \a chunkSize is the group size we will operate on
-  const auto prevChunkSize = gcd<unsigned>(actOut.dim(3), deltasOut.dim(3));
-  const auto nextChunkSize = gcd<unsigned>(actIn.dim(3), deltasIn.dim(3));
+  const auto prevChunkSize = gcd<unsigned>(actOut0.dim(3), deltasOut0.dim(3));
+  const auto nextChunkSize = gcd<unsigned>(actIn0.dim(3), deltasIn0.dim(3));
   const auto chunkSize = gcd<unsigned>(prevChunkSize, nextChunkSize);
   const auto prevChunksPerChanGroup = prevChansPerGroup / chunkSize;
 
@@ -194,7 +209,8 @@ maxPoolBackward(Graph &graph,
 
   auto bwdCS = graph.createComputeSet(layerName + ".bwd");
   // map over deltaOut so that no reduce will be required.
-  const auto prevDeltaMapping = computeActivationsMapping(graph, deltasOut);
+  const auto prevDeltaMapping = computeActivationsMapping(graph, deltasOut0,
+                                                          0, 1);
   const auto numTiles = deviceInfo.getNumTiles();
 
   for (unsigned tile = 0; tile != numTiles; ++tile) {
@@ -226,14 +242,14 @@ maxPoolBackward(Graph &graph,
         graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
         graph.setTileMapping(v, tile);
 
-        unsigned chunkBase = chanBase % deltasOut.dim(3);
+        unsigned chunkBase = chanBase % deltasOut0.dim(3);
         Tensor chunkErrOut =
-          deltasOut[chanBase / deltasOut.dim(3)][yPrev][xPrev]
+          deltasOut0[chanBase / deltasOut0.dim(3)][yPrev][xPrev]
             .slice(chunkBase, chunkBase + chunkSize);
         graph.connect(chunkErrOut, v["errOut"]);
 
-        chunkBase = chanBase % actIn.dim(3);
-        Tensor chunkActIn = actIn[chanBase / actIn.dim(3)][yPrev][xPrev]
+        chunkBase = chanBase % actIn0.dim(3);
+        Tensor chunkActIn = actIn0[chanBase / actIn0.dim(3)][yPrev][xPrev]
           .slice(chunkBase, chunkBase + chunkSize);
         graph.connect(chunkActIn, v["actIn"]);
 
@@ -249,14 +265,15 @@ maxPoolBackward(Graph &graph,
           for (auto xNext = nextXRange.first; xNext != nextXRange.second;
                ++xNext) {
 
-            auto chunkBase = chanBase % actOut.dim(3);
-            Tensor chunkActOut = actOut[chanBase / actOut.dim(3)][yNext][xNext]
-              .slice(chunkBase, chunkBase + chunkSize);
-              graph.connect(chunkActOut, v["actOut"][chunkIndex]);
+            auto chunkBase = chanBase % actOut0.dim(3);
+            Tensor chunkActOut =
+                actOut0[chanBase / actOut0.dim(3)][yNext][xNext]
+                  .slice(chunkBase, chunkBase + chunkSize);
+            graph.connect(chunkActOut, v["actOut"][chunkIndex]);
 
-            chunkBase = chanBase % deltasIn.dim(3);
+            chunkBase = chanBase % deltasIn0.dim(3);
             Tensor chunkDeltasIn =
-              deltasIn[chanBase / deltasIn.dim(3)][yNext][xNext]
+              deltasIn0[chanBase / deltasIn0.dim(3)][yNext][xNext]
                 .slice(chunkBase, chunkBase + chunkSize);
               graph.connect(chunkDeltasIn, v["errIn"][chunkIndex]);
             chunkIndex++;

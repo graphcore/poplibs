@@ -18,13 +18,13 @@ BOOST_AUTO_TEST_CASE(FullyConnected,
   Graph graph(env, createIPUModelDevice());
   const std::size_t inSize = 1000;
   const std::size_t outSize = 10;
-  auto in = graph.addTensor("float", {inSize}, "in");
-  auto out = graph.addTensor("float", {outSize}, "out");
+  auto in = graph.addTensor("float", {1, inSize}, "in");
+  auto out = graph.addTensor("float", {1, outSize}, "out");
   mapActivations(graph, in);
   mapActivations(graph, out);
   Tensor weights, biases;
   std::tie(weights, biases) = fc::createParams(graph, "float", inSize, outSize);
-  auto outMapping = computeActivationsMapping(graph, out);
+  auto outMapping = computeActivationsMapping(graph, out[0], 0, 1);
   auto plan = fc::createPlan(graph, "float", inSize, outMapping, true);
   auto fc = fc::fullyConnected(graph, outSize, NON_LINEARITY_NONE,
                                in, weights, biases, out, plan);

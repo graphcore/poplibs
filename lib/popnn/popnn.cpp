@@ -1218,10 +1218,10 @@ template class MaxPoolingBwd<half>;
 template <typename FPType>
 class CalcLoss : public Vertex {
 public:
-  Input<Vector<FPType>> in;
+  Vector<Input<Vector<FPType>>> batchIn;
   Input<unsigned> label;
 
-  Output<Vector<FPType>> deltaOut;
+  Vector<Output<Vector<FPType>>> batchDeltaOut;
   Output<FPType> loss;
   InOut<unsigned> numCorrect;
 
@@ -1230,82 +1230,75 @@ public:
   LossType lossType;
 
   bool compute() {
-    switch (lossType) {
-    case SUM_SQUARED_LOSS: {
-      /* Calculate the sum-squared error and the partial derivative
+    const auto batchSize = batchIn.size();
+    assert(batchIn.size() == batchDeltaOut.size());
+    for (unsigned batchNum = 0; batchNum < batchSize; ++batchNum) {
+      auto in = batchIn[batchNum];
+      auto deltaOut = batchDeltaOut[batchNum];
+      assert(in.size() == deltaOut.size());
+      assert(probs.size() == in.size());
+      switch (lossType) {
+      case SUM_SQUARED_LOSS: {
+        /* Calculate the sum-squared error and the partial derivative
+           to pass back. */
+        FPType sum = 0;
+        for (unsigned i = 0;  i < in.size(); ++i) {
+          FPType expected = (i == label ? 1 : 0);
+          FPType actual = in[i];
+          deltaOut[i] = (actual - expected);
+          sum += 0.5 * (actual - expected) *  (actual - expected);
+        }
+        *loss = sum;
+        }
+        break;
+      case SOFTMAX_CROSS_ENTROPY_LOSS:
+        /* Calculate the softmax probability distribution */
+        for (unsigned i = 0;  i < in.size(); ++i) {
+          FPType act = in[i];
+          probs[i] = exp(act);
+        }
+        FPType sum = 0;
+        for (FPType p : probs)
+          sum += p;
+
+        for (unsigned i = 0;  i < in.size(); ++i) {
+          probs[i] /= sum;
+        }
+
+        /* Calculate the cross-entropy error and the partial derivative
          to pass back. */
-      FPType sum = 0;
-      for (unsigned i = 0;  i < in.size(); ++i) {
-        FPType expected = (i == label ? 1 : 0);
-        FPType actual = in[i];
-        deltaOut[i] = (actual - expected);
-        sum += 0.5 * (actual - expected) *  (actual - expected);
-      }
-      *loss = sum;
-    }
-      break;
-    case SOFTMAX_CROSS_ENTROPY_LOSS:
-      /* Calculate the softmax probability distribution */
-      for (unsigned i = 0;  i < in.size(); ++i) {
-        FPType act = in[i];
-        probs[i] = exp(act);
-      }
-      FPType sum = 0;
-      for (FPType p : probs)
-        sum += p;
-
-      for (unsigned i = 0;  i < in.size(); ++i) {
-        probs[i] /= sum;
+        FPType error = 0;
+        for (unsigned i = 0;  i < probs.size(); ++i) {
+          FPType expected = (i == label ? 1 : 0);
+          deltaOut[i] = (probs[i] - expected);
+          error += expected * log(probs[i]);
+        }
+        *loss = error;
+        break;
       }
 
-      /* Calculate the cross-entropy error and the partial derivative
-         to pass back. */
-      FPType error = 0;
-      for (unsigned i = 0;  i < probs.size(); ++i) {
-        FPType expected = (i == label ? 1 : 0);
-        deltaOut[i] = (probs[i] - expected);
-        error += expected * log(probs[i]);
+      // Calculate the classification error for reporting test results
+      // This assumes that the
+      // non-linearity is monotonic, so the max output of the previous
+      // layer is the max z-term of the previous layer.
+      FPType max = in[0];
+      unsigned maxIndex = 0;
+      for (unsigned i = 0;  i < in.size(); ++i) {
+        if (in[i] > max) {
+          max = in[i];
+          maxIndex = i;
+        }
       }
-      *loss = error;
-      break;
-    }
-
-    // Calculate the classification error for reporting test results
-    // This assumes that the
-    // non-linearity is monotonic, so the max output of the previous
-    // layer is the max z-term of the previous layer.
-    FPType max = in[0];
-    unsigned maxIndex = 0;
-    for (unsigned i = 0;  i < in.size(); ++i) {
-      if (in[i] > max) {
-        max = in[i];
-        maxIndex = i;
+      bool correct = (maxIndex == label);
+      if (correct) {
+        *numCorrect += 1;
       }
-    }
-    bool correct = (maxIndex == label);
-    if (correct) {
-      *numCorrect += 1;
     }
     return true;
   }
 
   uint64_t getCycleEstimate() const {
     return 0;
-    uint64_t cycles = 5;
-    switch (lossType) {
-    case SUM_SQUARED_LOSS:
-      cycles += in.size() * 30;
-      break;
-    case SOFTMAX_CROSS_ENTROPY_LOSS:
-      cycles += in.size() * 50;
-      break;
-    }
-
-    cycles += in.size() * 10;
-
-    cycles += 5;
-
-    return cycles;
   }
 };
 

@@ -81,10 +81,10 @@ static void computeReference(Tensor in, Tensor weights, Tensor biases,
                              const float *biasBuffer, float *outBuffer,
                              unsigned padding) {
 
-  unsigned numInpChanGroups = in.dim(0);
-  unsigned numInpChansInGroup = in.dim(3);
-  unsigned featureX           = in.dim(2);
-  unsigned featureY           = in.dim(1);
+  unsigned numInpChanGroups = in.dim(1);
+  unsigned numInpChansInGroup = in.dim(4);
+  unsigned featureX           = in.dim(3);
+  unsigned featureY           = in.dim(2);
   unsigned kernelX            = weights.dim(3);
   unsigned kernelY            = weights.dim(2);
 
@@ -93,8 +93,8 @@ static void computeReference(Tensor in, Tensor weights, Tensor biases,
   unsigned numInpChanGroupsWeight   = weights.dim(1);
   unsigned numOutChanGroupsWeight   = weights.dim(0);
 
-  unsigned numOutChansInGroup = activations.dim(3);
-  unsigned numOutChanGroups   = activations.dim(0);
+  unsigned numOutChansInGroup = activations.dim(4);
+  unsigned numOutChanGroups   = activations.dim(1);
 
   auto hLenX = (kernelX - 1)/2;
   auto hLenY = (kernelY - 1)/2;
@@ -205,7 +205,7 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
 
   auto in = graph.addTensor(
                   dType, 
-                  {numInpChanGroups, featureY, featureX, numInpChansInGroup}, 
+                  {1, numInpChanGroups, featureY, featureX, numInpChansInGroup},
                   "in");
   auto weights = graph.addTensor(
           dType, 
@@ -214,11 +214,11 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
           "weights");
   auto biases = graph.addTensor(
           dType, 
-          {numOutPartialChanGroups*numOutPartialChansInGroup}, 
+          {numOutPartialChanGroups*numOutPartialChansInGroup},
           "biases");
   auto activations = graph.addTensor(
           dType, 
-          {numOutChanGroups, featureY, featureX, numOutChansInGroup}, 
+          {1, numOutChanGroups, featureY, featureX, numOutChansInGroup},
           "activations");
   Tensor residual;
 
@@ -260,8 +260,8 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   auto wgdConv = conv::winogradConvolution(
            graph, kernelSizeX, 0, padding, featureX, 
            featureY, numOutChanGroups*numOutChansInGroup,
-           patchSizeX, patchSizeY, nonLin, "float", in, weights, biases, 
-           activations, RESIDUAL_NONE, activations);
+           patchSizeX, patchSizeY, nonLin, "float", in[0], weights, biases,
+           activations[0], RESIDUAL_NONE, activations[0]);
 
   auto prog = Sequence(Copy(in, &inBuffer[0]),
                        Copy(weights, &weightsBuffer[0]),

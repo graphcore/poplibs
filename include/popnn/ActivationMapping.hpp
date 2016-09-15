@@ -7,7 +7,9 @@ void applyTensorMapping(poplar::Graph &graph, poplar::Tensor t,
                         const std::vector<unsigned> &mapping);
 
 std::vector<unsigned> computeActivationsMapping(const poplar::Graph &graph,
-                                                poplar::Tensor t);
+                                                poplar::Tensor t,
+                                                unsigned batchNum,
+                                                unsigned batchSize);
 
 void mapActivations(poplar::Graph &graph, poplar::Tensor t);
 
