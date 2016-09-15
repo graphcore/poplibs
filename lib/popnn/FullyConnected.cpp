@@ -3,6 +3,7 @@
 #include "PerformanceEstimation.hpp"
 #include "VertexTemplates.hpp"
 #include "popnn/ActivationMapping.hpp"
+#include "popnn/exceptions.hpp"
 #include <cassert>
 
 using namespace poplar;
@@ -138,8 +139,8 @@ Program fullyConnectedBackward(Graph &graph,
                                Tensor weights, Tensor deltasOut,
                                const Plan &plan) {
   if (zDeltas.dim(0) != 1) {
-    std::cerr << "Batch size != 1 not implemented for backwards pass\n";
-    std::abort();
+    throw popnn::popnn_error("Batch size != 1 not implemented for backwards "
+                             "pass");
   }
   auto zDeltas0 = zDeltas[0];
   auto deltasOut0 = deltasOut[0];
@@ -276,8 +277,8 @@ fullyConnectedWeightUpdate(Graph &graph,
                            float learningRate,
                            const Plan &plan) {
   if (zDeltas.dim(0) != 1) {
-    std::cerr << "Batch size != 1 not implemented for backwards pass\n";
-    std::abort();
+    throw popnn::popnn_error("Batch size != 1 not implemented for backwards "
+                             "pass");
   }
   auto zDeltas0 = zDeltas[0];
   auto activations0 = activations[0];

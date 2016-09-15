@@ -99,7 +99,7 @@ static std::string getDTypeString(DType dType) {
   case FP16:
     return "half";
   default:
-    throw net_creation_error("dType must be FP16 or FP32");
+    throw popnn::popnn_error("dType must be FP16 or FP32");
   }
 }
 
@@ -182,7 +182,7 @@ Net::getRequiredChansPerGroupBwd(int i) {
   } else if (dynamic_cast<const MaxPoolLayer *>(layer)) {
     return getRequiredChansPerGroupBwd(i - 1);
   } else {
-    throw net_creation_error("Unrecognized layer type");
+    throw popnn::popnn_error("Unrecognized layer type");
   }
 }
 
@@ -213,7 +213,7 @@ Net::getRequiredChansPerGroupFwd(unsigned i, unsigned inDimY, unsigned inDimX,
                                                        m->padding);
     return getRequiredChansPerGroupFwd(i + 1, outDimY, outDimX, inNumChans);
   } else {
-    throw net_creation_error("Unrecognized layer type");
+    throw popnn::popnn_error("Unrecognized layer type");
   }
 }
 
@@ -566,8 +566,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   if (netType == TrainingNet &&
       batchSize != 1) {
     // Currently only batch size of 1 implemented for training
-    std::cerr << "Training only implemented with batch size of 1\n";
-    std::abort();
+    throw popnn::popnn_error("Training only implemented with batch size of 1");
   }
   numTestBatches = dataSet.numTest / batchSize;
   env = std::unique_ptr<GraphProgEnv>(
@@ -598,8 +597,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
            };
       break;
     default:
-      std::cerr << "IPU modeling does not support > 2 IPUs\n";
-      std::abort();
+      throw popnn::popnn_error("IPU modeling does not support > 2 IPUs");
     }
     graph = std::unique_ptr<Graph>(new Graph(*env, createIPUModelDevice(info)));
   } else {

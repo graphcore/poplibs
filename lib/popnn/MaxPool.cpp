@@ -150,8 +150,8 @@ maxPoolBackward(Graph &graph,
                 Tensor actIn, Tensor actOut,
                 Tensor deltasIn, Tensor deltasOut) {
   if (actIn.dim(0) != 1) {
-    std::cerr << "Batch size != 1 not implemented for backwards pass\n";
-    std::abort();
+    throw popnn::popnn_error("Batch size != 1 not implemented for backwards "
+                             "pass");
   }
   auto actIn0 = actIn[0];
   auto actOut0 = actOut[0];

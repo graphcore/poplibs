@@ -290,8 +290,10 @@ createConvPartial1x1OutVertex(Graph &graph,
   assert(weightsPerConvUnit % inChansPerGroup == 0);
   const auto convUnitWeightHeight = weightsPerConvUnit / inChansPerGroup;
   if (convUnitWeightHeight != 1) {
-    // Unimplemented.
-    std::abort();
+    throw popnn::popnn_error("Using convolution units for 1x1 convolutions "
+                             "where channel grouping is not equal to weights "
+                             "stored per convolution unit has not "
+                             "been implemented");
   }
   const auto outHeight = outYEnd - outYBegin;
   const auto outWidth = outXEnd - outXBegin;
@@ -790,13 +792,13 @@ addResidualCalc(Graph &graph,
   auto resDimY = resIn.dim(2);
   auto resDimX = resIn.dim(3);
   if (resDimX < outDimX || resDimY < outDimY) {
-    throw net_creation_error("Residual layers must use previous layers "
+    throw popnn::popnn_error("Residual layers must use previous layers "
                              "with X and Y dimensions that are larger"
                              "than the current layer's output.");
   }
   unsigned resStride = resDimX / outDimX;
   if (resDimY / outDimY != resStride) {
-    throw net_creation_error("Only residual layers with the same X/Y stride"
+    throw popnn::popnn_error("Only residual layers with the same X/Y stride"
                              "are supported");
   }
   const auto dataPathWidth = graph.getDevice().getDeviceInfo().dataPathWidth;
@@ -2038,8 +2040,8 @@ convolutionWeightUpdate(Graph &graph,
                         unsigned kernelSize, unsigned stride,
                         unsigned padding, float learningRate) {
   if (activations.dim(0) != 1) {
-    std::cerr << "Batch size != 1 not implemented for backwards pass\n";
-    std::abort();
+    throw popnn::popnn_error("Batch size != 1 not implemented for backwards "
+                             "pass");
   }
   auto activations0 = activations[0];
   auto zDeltas0 = zDeltas[0];

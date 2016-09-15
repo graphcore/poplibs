@@ -1,6 +1,6 @@
 #include "popnn/ConvPlan.hpp"
-
 #include "popnn/Convolution.hpp"
+#include "popnn/exceptions.hpp"
 #include "poplar/Graph.hpp"
 #include "ConvUtil.hpp"
 #include "ConvValidation.hpp"
@@ -595,8 +595,8 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
   unsigned bestCost = std::numeric_limits<unsigned>::max();
   Partition bestPartition;
   if (params.inputDepth % inChansPerGroup != 0) {
-    // TODO handle this case.
-    std::abort();
+    throw popnn::popnn_error("Input depths that are not a multiple of the "
+                             "channel grouping are not supported");
   }
   const auto convVertexTypeCandidates =
       getConvVertexTypeCandidates(deviceInfo, floatActivations, inChansPerGroup,

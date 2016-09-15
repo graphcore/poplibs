@@ -1,5 +1,6 @@
 #include <popnn_ref/Convolution.hpp>
 #include <popnn_ref/NonLinearity.hpp>
+#include <popnn_ref/exceptions.hpp>
 
 void ref::conv::
 convolution(unsigned stride, unsigned padding,
@@ -34,7 +35,8 @@ convolution(unsigned stride, unsigned padding,
     const auto kernelWidth = weights.shape()[3];
     if (paddedHeight < kernelHeight ||
         paddedWidth < kernelWidth) {
-      std::abort();
+      throw popnn_ref::popnn_ref_error("Kernels larger than (padded) input "
+                                       "not supported");
     }
     const auto convOutHeight = paddedHeight - (kernelHeight - 1);
     const auto convOutWidth = paddedWidth - (kernelWidth - 1);
@@ -64,7 +66,8 @@ convolution(unsigned stride, unsigned padding,
     const auto outWidth = (convOutWidth + stride - 1) / stride;
     if (outHeight != out.shape()[2] ||
         outWidth != out.shape()[3]) {
-      std::abort();
+      throw popnn_ref::popnn_ref_error("Output tensor dimensions do not match "
+                                       "expected dimensions");
     }
     for (unsigned oc = 0; oc != outputChannels; ++oc) {
       for (unsigned y = 0; y != outHeight; ++y) {
@@ -99,7 +102,8 @@ convolutionBackward(unsigned stride, unsigned padding,
     const auto upsampledWidth = outputWidth + 2 * padding - (kernelWidth - 1);
     if ((upsampledHeight + stride - 1)/ stride != inputHeight ||
         (upsampledWidth + stride - 1)/ stride != inputWidth) {
-      std::abort();
+      throw popnn_ref::popnn_ref_error("Output and input tensor dimensions "
+                                       "do not match");
     }
     boost::multi_array<double, 3>
         upsampledIn(boost::extents[inputChannels][upsampledHeight]
@@ -205,7 +209,8 @@ void ref::conv::weightUpdate(unsigned stride, unsigned padding,
         inputWidth + 2 * padding - (kernelWidth - 1);
     if ((upsampledDeltasHeight + stride - 1) / stride != outputHeight ||
         (upsampledDeltasWidth + stride - 1) / stride != outputWidth) {
-      std::abort();
+      throw popnn_ref::popnn_ref_error("Output and input tensor dimensions "
+                                       "do not match");
     }
     boost::multi_array<double, 3>
         upsampledDeltas(boost::extents[outputChannels][upsampledDeltasHeight]
