@@ -43,6 +43,8 @@ fields = [
      'Num tiles computing\s*:\s*(?P<value>[0-9.]+)'),
     ('Exchange supervisor code',
      'Exchange supervisor code\s*:\s*(?P<value>[0-9.]+)'),
+    ('Execution time(us)',
+     'Number of cycles: [0-9]+ \((?P<value>[0-9.]+)us @'),
     ('Compute cycles',
      'Compute cycles\s*:\s*(?P<value>[0-9.]+)'),
     ('Global exchange cycles',
@@ -79,6 +81,7 @@ param_info = {'--ipus': {'desc': 'Num IPUs', 'default': '1'},
               '--tiles-per-ipu': {'desc':'Tiles per IPU', 'default': '1216'},
               '--ipu-exchange-bandwidth': {'desc':'IPU exchange bandwidth',
                                             'default':'4'},
+              '--batch-size' : {'desc':'Batch size', 'default': '1'},
               '--bytes-per-tile': {'desc':'Bytes per tile', 'default': '262144'},
               '--data-path-width': {'desc':'Datapath width', 'default': '64'},
               '--train':{'desc':'Training', 'default': 0}}
@@ -87,8 +90,11 @@ param_info = {'--ipus': {'desc': 'Num IPUs', 'default': '1'},
 def run(prog, params):
     cmd = ['benchmarks/{}'.format(prog)]
     cmd += ['%s=%s'%(p,v) for (p,v) in params]
-    return subprocess.check_output(cmd).split('\n')
-
+    try:
+      result = subprocess.check_output(cmd).split('\n')
+      return result
+    except OSError:
+      sys.exit("Failure running test command: <" + ' '.join(cmd) + '>')
 
 def write_headings(ws, headings, row):
     bold_font = Font(bold=True)
@@ -145,6 +151,7 @@ def write(runs, filename):
         ('Run instructions', setDataCell),
         ('Exchange supervisor code', setDataCell),
         ('Total memory usage', partial(setTotalCell, -7, -1)),
+        ('Execution time(us)', setDataCell),
     ]
 
     headings2 = [
@@ -208,14 +215,14 @@ def parse(lines):
     data = data0
     found_start = False
     for line in lines:
-        line = line.rstrip()
-        m = re.match('(?P<name>.*) \(\d+ execution.*', line)
+        line = line.rstrip().lstrip()
+        m = re.match('(?P<name>.*)\s*\(\d+ execution.*', line)
         if m:
             layer_data.append(data)
             data = dict()
             data['Layer ID'] = m.group('name')
         for (name, expr) in fields:
-            # The report starts with an summary of the overall cycle count for
+            # The report starts with a summary of the overall cycle count for
             # the whole application. This is followed by per IPU cycle counts
             # (if there are multiple IPUs) and per compute set cycle counts.
             # As a result the same field may appear multiple times in the
@@ -331,6 +338,28 @@ def main():
                                'alexnet --ipu-exchange-bandwidth=16 --tiles-per-ipu=1024',
                                'resnet34 --ipu-exchange-bandwidth=16 --tiles-per-ipu=1024',
                                'resnet50 --ipu-exchange-bandwidth=16 --tiles-per-ipu=1024'
+
+    ]
+
+    batch_benchmarks = ['alexnet --batch-size=1',
+                        'resnet34 --batch-size=1',
+                        'resnet50 --batch-size=1',
+                        'alexnet --batch-size=2',
+                        'resnet34 --batch-size=2',
+                        'resnet50 --batch-size=2',
+                        'alexnet --batch-size=4',
+                        'resnet34 --batch-size=4',
+                        'resnet50 --batch-size=4',
+                        'alexnet --batch-size=8',
+                        'resnet34 --batch-size=8',
+                        'resnet50 --batch-size=8',
+                        'alexnet --batch-size=16',
+                        'resnet34 --batch-size=16',
+                        'resnet50 --batch-size=16',
+                        'resnet34 --batch-size=32',
+                        'resnet50 --batch-size=32',
+                        'resnet34 --batch-size=64',
+                        #'resnet50 --batch-size=64' # this is too big, it causes a std::bad_alloc
     ]
 
     parser = argparse.ArgumentParser(description='Run neural net benchmarks')
@@ -340,6 +369,8 @@ def main():
                         help='Test graph reuse option in resnet benchmarks.')
     parser.add_argument('--arch-explore', dest='arch_explore', action='store_true',
                         help='Explore a number of architectural configurations.')
+    parser.add_argument('--batch-explore', dest='batch_explore', action='store_true',
+                        help='Explore different batch sizes')
     parser.add_argument('--training', dest='training', action='store_true',
                         help='Benchmark training.')
     parser.add_argument('--report', dest='create_report', action='store_true',
@@ -355,6 +386,10 @@ def main():
 
     if args.arch_explore:
         benchmarks += arch_explore_benchmarks
+
+    # only batch benchamarks, no others
+    if args.batch_explore:
+        benchmarks = batch_benchmarks
 
     if args.training:
         benchmarks += training_benchmarks

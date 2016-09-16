@@ -801,10 +801,12 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
       }
     }
   }
-  std::cout << "Total number of FLOPs: " << numFlops << "\n";
+  std::cout << "Total number of FLOPs:  "
+            << std::right << std::setw(12) << numFlops << "\n";
   std::cout << "Total number of Params: " << std::setw(12) << numParams << "\n";
-  std::cout << "Perfect cycle time: ";
-  std::cout << static_cast<std::uint64_t>(perfectCycleTime) << "\n";
+  std::cout << "Perfect cycle time:     ";
+  std::cout << std::setw(12) << static_cast<std::uint64_t>(perfectCycleTime)
+            << "\n";
   std::cerr << "Creating engine\n";
   auto trainProg = Sequence();
   if (netType == TrainingNet) {
