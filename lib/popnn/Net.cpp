@@ -97,6 +97,8 @@ static std::string getDTypeString(DType dType) {
     return "float";
   case FP16:
     return "half";
+  default:
+    throw net_creation_error("dType must be FP16 or FP32");
   }
 }
 
@@ -179,7 +181,7 @@ Net::getRequiredChansPerGroupBwd(int i) {
   } else if (dynamic_cast<const MaxPoolLayer *>(layer)) {
     return getRequiredChansPerGroupBwd(i - 1);
   } else {
-    assert(0 && "Unrecognized layer type");
+    throw net_creation_error("Unrecognized layer type");
   }
 }
 
@@ -210,7 +212,7 @@ Net::getRequiredChansPerGroupFwd(unsigned i, unsigned inDimY, unsigned inDimX,
                                                        m->padding);
     return getRequiredChansPerGroupFwd(i + 1, outDimY, outDimX, inNumChans);
   } else {
-    assert(0 && "Unrecognized layer type");
+    throw net_creation_error("Unrecognized layer type");
   }
 }
 
