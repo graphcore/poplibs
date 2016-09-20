@@ -9,6 +9,7 @@
 #include "VertexTemplates.hpp"
 #include "popnn/NonLinearity.hpp"
 #include <fstream>
+#include <iomanip>
 
 using namespace poplar;
 using namespace poplar::program;
