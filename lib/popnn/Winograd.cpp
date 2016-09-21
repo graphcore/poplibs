@@ -640,6 +640,7 @@ static Program dataTransform(Graph &graph,
 
   assert(tp.zic % WgdTilePartition::dUnitSize == 0);
 
+
   ComputeSet dCs = graph.createComputeSet(layerName + ".dataTrf");
   ComputeSet zCs = graph.createComputeSet(layerName + ".zeros");
 

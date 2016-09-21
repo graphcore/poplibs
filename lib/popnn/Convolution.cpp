@@ -1208,7 +1208,8 @@ convolution(Graph &graph,
       && !plan.flattenXY
       && resMethod == RESIDUAL_NONE
       && (weights.dim(4) % 4 == 0) 
-      && (activations.dim(3) % 4 == 0)) {
+      && (activations.dim(4) % 4 == 0)) {
+
 
     // Perform each element of the batch serially
     for (unsigned b = 0; b < batchSize; ++b) {

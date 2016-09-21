@@ -169,7 +169,7 @@ inline uint64_t getWgdDataTransformCycles(
                               unsigned numChannels, 
                               bool isFloat) {
   unsigned chansPerOp = isFloat ? 2 : 4;  
-  return 13 + 56 * (numChannels + chansPerOp - 1)/chansPerOp;
+  return 13 + 56 * ((numChannels + chansPerOp - 1)/chansPerOp);
 }
 
 
@@ -177,14 +177,14 @@ inline uint64_t getWgdKernelTransformCycles(
                               unsigned numChannels, 
                               bool isFloat) {
   unsigned chansPerOp = isFloat ? 2 : 4;  
-  return 2 + 35 * (numChannels + chansPerOp - 1)/chansPerOp;
+  return 2 + 35 * ((numChannels + chansPerOp - 1)/chansPerOp);
 }
 
 inline uint64_t getWgdInvTransformCycles(
                               unsigned numChannels, 
                               bool isFloat) {
   unsigned chansPerOp = isFloat ? 2 : 4;  
-  return 15 + 30 * (numChannels + chansPerOp - 1)/chansPerOp;     
+  return 15 + 30 * ((numChannels + chansPerOp - 1)/chansPerOp);     
 }
 
 /**
@@ -218,7 +218,7 @@ inline uint64_t getWgdAccumCycles(
 inline uint64_t getWgdReduceCycles(unsigned numPencils, unsigned depth, 
                           bool isFloat) {
   unsigned chansPerOp = isFloat ? 2 : 4;  
-  return 5 + (depth + chansPerOp - 1)/chansPerOp * numPencils;
+  return 5 + ((depth + chansPerOp - 1)/chansPerOp) * numPencils;
 }
 
 

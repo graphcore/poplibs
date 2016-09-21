@@ -570,7 +570,8 @@ int main(int argc, char **argv) {
   auto fwdProg =
     conv::convolution(graph, plan,
                       kernelSize, stride, padding, fwdOutChans,
-                      nonLinearityType, prevAct, weights, biases, nextAct);
+                      nonLinearityType, prevAct, weights, biases, nextAct,
+                      RESIDUAL_NONE, {}, useWinogradConv, winogradPatchSize);
 
   auto bwdProg = Sequence();
   const auto learningRate = 0.5;
