@@ -165,21 +165,66 @@ getWeightGradCalcCycles(unsigned numOutRows, unsigned numInRows,
 }
 
 
-inline std::uint64_t getWgdKernelTransformCycles(unsigned int numChannels, 
-                                                 bool isFloat) {
-  if (isFloat)
-    return 2 + (numChannels + 1 )/2  * 35;
-  else
-    return 2 + (numChannels + 3 )/4  * 35;    
+inline uint64_t getWgdDataTransformCycles(
+                              unsigned numChannels, 
+                              bool isFloat) {
+  unsigned chansPerOp = isFloat ? 2 : 4;  
+  return 13 + 56 * (numChannels + chansPerOp - 1)/chansPerOp;
 }
 
 
-inline std::uint64_t getWgdDataTransformCycles(unsigned int numChannels, 
-                                               bool isFloat) {
-  if (isFloat)
-    return 15 + (numChannels + 1 )/2  * 56;
-  else
-    return 15 + (numChannels + 3 )/4  * 56;    
+inline uint64_t getWgdKernelTransformCycles(
+                              unsigned numChannels, 
+                              bool isFloat) {
+  unsigned chansPerOp = isFloat ? 2 : 4;  
+  return 2 + 35 * (numChannels + chansPerOp - 1)/chansPerOp;
 }
+
+inline uint64_t getWgdInvTransformCycles(
+                              unsigned numChannels, 
+                              bool isFloat) {
+  unsigned chansPerOp = isFloat ? 2 : 4;  
+  return 15 + 30 * (numChannels + chansPerOp - 1)/chansPerOp;     
+}
+
+/**
+ * The accumulator operates on pencils which are of depth "pencilDepth". 
+ * An inner product of a coefficient vector and data vector is computed.
+ * "comPencils" gives the number of pencils which share a common coefficient
+ * vector. "numPencils" gives a set of pencils which share common coefficients
+ */ 
+inline uint64_t getWgdAccumCycles(
+                             bool     isSupervisorVertex,
+                             unsigned numPencils, 
+                             unsigned comPencils,
+                             unsigned pencilDepth, 
+                             unsigned outDepth,
+                             bool isFloat) {
+  unsigned divFactor = isFloat ? 2 : 4;
+
+  /* TODO: use output depth parameter. Implicit assumption here that
+   * it is the same as the  number of execution units
+   */
+
+  if (isSupervisorVertex) {
+    /* TODO: correct this */
+    return (42 + comPencils * pencilDepth/divFactor) * numPencils;
+  } else {
+
+    return (7 + comPencils * pencilDepth/divFactor) * numPencils;
+  }
+}
+
+inline uint64_t getWgdReduceCycles(unsigned numPencils, unsigned depth, 
+                          bool isFloat) {
+  unsigned chansPerOp = isFloat ? 2 : 4;  
+  return 5 + (depth + chansPerOp - 1)/chansPerOp * numPencils;
+}
+
+
+inline uint64_t getWgdCompleteCycles(unsigned numChannels, bool isFloat) {
+  return 5 + numChannels * 2; 
+}
+
 
 #endif // _performance_estimation_h_

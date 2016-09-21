@@ -1195,6 +1195,7 @@ convolution(Graph &graph,
   const auto tilesPerInZGroup = plan.fwdPartition.tilesPerInZGroupAxis;
   const auto partialType = plan.fwdPartition.getPartialType();
 
+
   mapBiases(biases, graph, activations);
   mapWeights(weights, graph, plan, batchSize);
 
@@ -1206,7 +1207,8 @@ convolution(Graph &graph,
       && kernelSize == 3
       && !plan.flattenXY
       && resMethod == RESIDUAL_NONE
-      && weights.dim(4) <= activations.dim(3)) {
+      && (weights.dim(4) % 4 == 0) 
+      && (activations.dim(3) % 4 == 0)) {
 
     // Perform each element of the batch serially
     for (unsigned b = 0; b < batchSize; ++b) {
@@ -1218,6 +1220,7 @@ convolution(Graph &graph,
                                           activations[b], resMethod, resIn));
     }
   } else {
+
     // Calculate a set of partial sums of the convolutions.
     Tensor partials = graph.addTensor(partialType,
                                       {batchSize,

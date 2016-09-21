@@ -412,6 +412,9 @@ int main(int argc, char **argv) {
   FPDataType dataType;
   double relativeTolerance;
   DeviceInfo info;
+  bool useWinogradConv;
+  unsigned winogradPatchSize;
+
   po::options_description desc("Options");
   desc.add_options()
     ("help", "Produce help message")
@@ -452,6 +455,10 @@ int main(int argc, char **argv) {
     ("batch-size",
      po::value<unsigned>(&batchSize)->default_value(1),
      "Batch size")
+    ("use-winograd-conv", po::value<bool>(&useWinogradConv)->default_value(0),
+     "Use winograd convolution")
+    ("winograd-patch-size", po::value<unsigned>(&winogradPatchSize)->default_value(4),
+     "Square patch size to use in winograd convolution")
   ;
   po::variables_map vm;
   try {
@@ -537,6 +544,7 @@ int main(int argc, char **argv) {
     mapActivations(graph, prevDeltas);
   }
 
+
   auto upload = Sequence();
   auto download = Sequence();
   auto rawHostPrevAct = allocateHostMemoryForTensor(graph, prevAct, upload,
@@ -581,6 +589,7 @@ int main(int argc, char **argv) {
     );
   }
   Engine engine(graph, {&upload, &download, &fwdProg, &bwdProg});
+
 
   boost::multi_array<double, 4>
       hostPrevAct(boost::extents[batchSize][fwdInChans][height][width]);
