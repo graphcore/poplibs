@@ -325,6 +325,9 @@ int main(int argc, char **argv) {
   NonLinearityType nonLinearityType;
   FPDataType dataType;
   double relativeTolerance;
+  bool useWinogradConv;
+  unsigned winogradPatchSize;
+
   po::options_description desc("Options");
   desc.add_options()
     ("help", "Produce help message")
@@ -354,6 +357,10 @@ int main(int argc, char **argv) {
     ("tolerance", po::value<double>(&relativeTolerance)->default_value(0.01),
      "Relative tolerance to use when validating results against the reference "
      "model")
+    ("use-winograd-conv", po::value<bool>(&useWinogradConv)->default_value(0),
+     "Use winograd convolution")
+    ("winograd-patch-size", po::value<unsigned>(&winogradPatchSize)->default_value(4),
+     "Square patch size to use in winograd convolution")
   ;
   po::variables_map vm;
   try {
@@ -403,13 +410,15 @@ int main(int argc, char **argv) {
   Tensor out = graph.addTensor(dataTypeStr,
                                {outputChannels / outChansPerGroup, outHeight,
                                 outWidth, outChansPerGroup}, "out");
+  Tensor residual;
   mapActivations(graph, out);
   auto upload = Sequence();
   auto download = Sequence();
   auto convProg =
     conv::convolution(graph, plan,
                       kernelSize, stride, padding, outputChannels,
-                      nonLinearityType, in, weights, biases, out);
+                      nonLinearityType, in, weights, biases, out, RESIDUAL_NONE,
+                      residual, useWinogradConv, winogradPatchSize);
   auto rawHostIn = addTensorUpload(graph, in, upload);
   auto rawHostWeights = addTensorUpload(graph, weights, upload);
   auto rawhostBiases = addTensorUpload(graph, biases, upload);

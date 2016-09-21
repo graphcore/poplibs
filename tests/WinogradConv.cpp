@@ -5,6 +5,8 @@
 #include <popnn/Net.hpp>
 #include <popnn/NonLinearityDef.hpp>
 #include <string>
+#include <random>
+
 
 using namespace poplar;
 using namespace poplar::program;
@@ -180,27 +182,29 @@ static void computeReference(Tensor in, Tensor weights, Tensor biases,
 
 BOOST_AUTO_TEST_CASE(WinogradConvolution,
                        *utf::tolerance<float>(
-                          fpc::percent_tolerance<float>(0.01))) {
+                          fpc::percent_tolerance<float>(1))) {
   GraphProgEnv env(popnn::findGraphProg(), GraphProgFileType::Object);
   Graph graph(env, createIPUModelDevice());
 
   /* Test configuration */
+
   const std::string dType = "float";
-  const unsigned numOutPartialChanGroups = 2;
+  const unsigned numOutPartialChanGroups = 256/8;
   const unsigned numOutPartialChansInGroup = 8;
-  const unsigned numInpChanGroups = 2;
-  const unsigned featureX = 26;
-  const unsigned featureY = 26;
-  const unsigned numInpChansInGroup = 2;
+  const unsigned numInpChanGroups = 128/16;
+  const unsigned featureX = 13;
+  const unsigned featureY = 13;
+  const unsigned numInpChansInGroup = 16;
   const unsigned kernelSizeX = 3;
   const unsigned kernelSizeY = 3;
-  const unsigned numOutChanGroups = 2;
+  const unsigned numOutChanGroups = 256/8;
   const unsigned numOutChansInGroup = 8;
-  const NonLinearityType nonLin = NON_LINEARITY_SIGMOID;
+  const NonLinearityType nonLin = NON_LINEARITY_RELU;
   const unsigned patchSizeX = 4;
   const unsigned patchSizeY = 4;
   const unsigned padding = 1;
-
+  const float    mean = 0;
+  const float    stdDev = 1.0;
 
 
   auto in = graph.addTensor(
@@ -243,19 +247,24 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   std::vector<float> outBufferRef(outSize);
   std::vector<float> weightsBuffer(wSize);
   std::vector<float> biasBuffer(biasSize);
+  std::vector<float> debugBuffer(inSize*16);
+  std::fill(debugBuffer.begin(), debugBuffer.end(), 0);
 
+  std::mt19937 randomEngine;
+  std::normal_distribution<> dist(mean, stdDev);
+  
   for (unsigned i = 0; i < inSize; ++i) {
-    inBuffer[i] = i;
+    inBuffer[i] = dist(randomEngine);
   }
 
+
   for (unsigned i = 0; i < wSize; ++i) {
-    weightsBuffer[i] = i;
+    weightsBuffer[i] = dist(randomEngine);
   }
 
   for (unsigned i = 0; i < biasSize; ++i) {
-    biasBuffer[i] = i;
+    biasBuffer[i] = dist(randomEngine);
   }
-
 
   auto wgdConv = conv::winogradConvolution(
            graph, kernelSizeX, 0, padding, featureX, 
@@ -277,11 +286,14 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   computeReference(in, weights, biases, activations, nonLin, &inBuffer[0], 
                    &weightsBuffer[0], &biasBuffer[0], &outBufferRef[0],
                    padding);
-
-
+ 
+ 
   for (int i = 0; i < outSize; ++i) {
-    //std::cout << outBuffer[i] << "  " << outBufferRef[i] ;
-    //std::cout << " " << outBuffer[i]-outBufferRef[i] << std::endl;
+    // float relDiff = fabs((outBuffer[i]-outBufferRef[i])/outBufferRef[i]*100);
+    // std::cout << outBuffer[i] << "  " << outBufferRef[i] << "  " 
+    // std::cout << relDiff << std::endl;
+    // if (relDiff > 0.01)
+    //  std::cout << " error ... " << i << std::endl;
     BOOST_TEST(outBuffer[i] == outBufferRef[i]);
   }
 }

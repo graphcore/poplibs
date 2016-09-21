@@ -1263,6 +1263,7 @@ convolution(Graph &graph,
   const auto tilesPerInZGroup = plan.fwdPartition.tilesPerInZGroupAxis;
   const auto partialType = plan.fwdPartition.getPartialType();
 
+
   mapBiases(biases, graph, activations);
   mapWeights(weights, graph, plan);
 
@@ -1274,10 +1275,11 @@ convolution(Graph &graph,
       && kernelSize == 3
       && !plan.flattenXY
       && resMethod == RESIDUAL_NONE
-      && weights.dim(4) <= activations.dim(3)) {
+      && (weights.dim(4) % 4 == 0) 
+      && (activations.dim(3) % 4 == 0)) {
 
-      forwardProg.add(winogradConvolution(graph, kernelSize, stride, padding, in.dim(2),
-                      in.dim(1), outNumChans,
+      forwardProg.add(winogradConvolution(graph, kernelSize, stride, padding, 
+                      in.dim(2), in.dim(1), outNumChans,
                       winogradPatchSize, winogradPatchSize,
                       nonLinearityType, dType, in, weights, biases,
                       activations, resMethod, resIn));
