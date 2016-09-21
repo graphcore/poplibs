@@ -20,11 +20,15 @@ add_library(popnn SHARED
   MaxPool.cpp
   Net.cpp
   NonLinearity.cpp
-  Winograd.cpp
+  Pad.cpp
+  Pad.hpp
   PerformanceEstimation.hpp
   Regroup.hpp
   Regroup.cpp
   VertexTemplates.hpp
+  Winograd.cpp
+  Zero.cpp
+  Zero.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/ActivationMapping.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Convolution.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/ConvPlan.hpp

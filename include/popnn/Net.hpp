@@ -167,6 +167,7 @@ class Net {
   std::vector<std::vector<poplar::Tensor>> params;
   std::map<unsigned, conv::ConvPlan> convPlans;
   std::uint64_t numFlops;
+  std::uint64_t numParams;
   double perfectCycleTime;
 
   conv::ConvPlan getConvPlan(unsigned i, unsigned inDimY, unsigned inDimX,

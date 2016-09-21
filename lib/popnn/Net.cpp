@@ -9,6 +9,7 @@
 #include "VertexTemplates.hpp"
 #include "popnn/NonLinearity.hpp"
 #include <fstream>
+#include <iomanip>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -97,6 +98,8 @@ static std::string getDTypeString(DType dType) {
     return "float";
   case FP16:
     return "half";
+  default:
+    throw net_creation_error("dType must be FP16 or FP32");
   }
 }
 
@@ -179,7 +182,7 @@ Net::getRequiredChansPerGroupBwd(int i) {
   } else if (dynamic_cast<const MaxPoolLayer *>(layer)) {
     return getRequiredChansPerGroupBwd(i - 1);
   } else {
-    assert(0 && "Unrecognized layer type");
+    throw net_creation_error("Unrecognized layer type");
   }
 }
 
@@ -210,7 +213,7 @@ Net::getRequiredChansPerGroupFwd(unsigned i, unsigned inDimY, unsigned inDimX,
                                                        m->padding);
     return getRequiredChansPerGroupFwd(i + 1, outDimY, outDimX, inNumChans);
   } else {
-    assert(0 && "Unrecognized layer type");
+    throw net_creation_error("Unrecognized layer type");
   }
 }
 
@@ -431,6 +434,7 @@ Net::createConvLayerFwd(unsigned i,
                             stride, padding, numChannels,
                             resMethod != RESIDUAL_NONE,
                             netType == TestOnlyNet || i == 0);
+ numParams += weights.numElements() + biases.numElements();
  perfectCycleTime +=
      conv::getPerfectCycleCount(*graph, dType, batchSize, inDimY, inDimX,
                                 inNumChans, kernelSize, stride, padding,
@@ -603,6 +607,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   }
   std::cerr << "Constructing program\n";
   numFlops = 0;
+  numParams = 0;
   perfectCycleTime = 0;
   auto initParamsProg = Sequence();
   auto fwdProg = Sequence();
@@ -664,6 +669,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                                      acts[i + 1], plan));
       numFlops += fc::getNumFlops(batchSize, prevSize, size,
                                   netType == TestOnlyNet || i == 0);
+      numParams += weights.numElements() + biases.numElements();
       perfectCycleTime +=
           fc::getPerfectCycleCount(*graph, batchSize, prevSize,
                                    size, dType,
@@ -796,6 +802,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
     }
   }
   std::cout << "Total number of FLOPs: " << numFlops << "\n";
+  std::cout << "Total number of Params: " << std::setw(12) << numParams << "\n";
   std::cout << "Perfect cycle time: ";
   std::cout << static_cast<std::uint64_t>(perfectCycleTime) << "\n";
   std::cerr << "Creating engine\n";

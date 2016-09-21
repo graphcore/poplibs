@@ -439,6 +439,40 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
                 const ConvVertexType &convVertexType,
                 const ConvolutionParams &params,
                 Phase phase) {
+  if (convVertexType.useConvInstruction &&
+      phase == Phase::WEIGHTUPDATE) {
+    assert(params.kernelSize == 1);
+    assert(params.stride == 1);
+    assert(params.padding == 0);
+    assert(params.batchSize == 1);
+    // The weight update can be implemented as a convolution with a different
+    // axis of accumulation.
+    // weight update field: fwd out channels.
+    // weight update in chans: flattened fwd field.
+    // weight update out chans: fwd in channels.
+    // See the implementation of the Convolution layer for more details.
+    // Partition the weight update phase by populating ConvolutionParams
+    // struct with the dimensions of this convolution and performing
+    // a recursive call using these parameters.
+    const auto fieldGroupSize =
+        deviceInfo.getWeightsPerConvUnit(floatActivations);
+    const auto fieldSize = params.getOutputHeight(phase) *
+                           params.getOutputWidth(phase);
+    const auto paddedFieldSize =
+        ((fieldSize + fieldGroupSize - 1) / fieldGroupSize) * fieldGroupSize;
+    auto newParams = ConvolutionParams(
+                       params.kernelSize,
+                       params.stride,
+                       paddedFieldSize,
+                       params.outputDepth,
+                       1,
+                       0 /*padding*/,
+                       params.inputDepth,
+                       params.batchSize);
+    return choosePartition(deviceInfo, floatActivations, false,
+                           deviceInfo.getWeightsPerConvUnit(floatActivations),
+                           convVertexType, newParams, Phase::FORWARD);
+  }
   const auto partialChansPerGroup = convVertexType.partialChansPerGroup;
   unsigned bestCost = std::numeric_limits<unsigned>::max();
   Partition bestPartition;
@@ -530,6 +564,25 @@ getConvVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
     convVertexTypeCandidates.emplace_back(deviceInfo, true, true);
   }
   convVertexTypeCandidates.emplace_back(deviceInfo, false, true);
+  return convVertexTypeCandidates;
+}
+
+static std::vector<ConvVertexType>
+getWeightUpdateVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
+                                    bool floatActivations,
+                                    unsigned deltasChansPerGroup,
+                                    const ConvolutionParams &params) {
+  std::vector<ConvVertexType> convVertexTypeCandidates;
+  if (params.stride == 1 && params.kernelSize == 1 && params.padding == 0) {
+    if (deviceInfo.fp16AccumConvUnitsPerTile > 0) {
+      convVertexTypeCandidates.emplace_back(deviceInfo, true, false);
+    }
+    if (deviceInfo.fp32AccumConvUnitsPerTile > 0) {
+      convVertexTypeCandidates.emplace_back(deviceInfo, true, true);
+    }
+  }
+  convVertexTypeCandidates.emplace_back(false, floatActivations,
+                                        deltasChansPerGroup);
   return convVertexTypeCandidates;
 }
 
@@ -648,23 +701,33 @@ ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
           choosePartition(deviceInfo, floatActivations, preferConvInstructions,
                           inChansPerGroup, convVertexType,
                           fwdParams, Phase::FORWARD);
-      Partition wuCandidate;
-      unsigned wuCandidateCost = 0;
+      Partition bestwuCandidate;
+      unsigned bestwuCandidateCost = std::numeric_limits<unsigned>::max();
       if (!forwardOnly) {
-        ConvVertexType wuVertexType(false, floatActivations,
-                                    convVertexType.partialChansPerGroup);
-        std::tie(wuCandidate, wuCandidateCost) =
-            choosePartition(deviceInfo, floatActivations,
-                            preferConvInstructions, inChansPerGroup,
-                            wuVertexType, fwdParams,
-                            Phase::WEIGHTUPDATE);
+        const auto wuVertexTypeCandidates =
+            getWeightUpdateVertexTypeCandidates(
+              deviceInfo, floatActivations, convVertexType.partialChansPerGroup,
+              fwdParams);
+        Partition wuCandidate;
+        unsigned wuCandidateCost = std::numeric_limits<unsigned>::max();
+        for (const auto &wuVertexType : wuVertexTypeCandidates) {
+          std::tie(wuCandidate, wuCandidateCost) =
+              choosePartition(deviceInfo, floatActivations,
+                              preferConvInstructions, inChansPerGroup,
+                              wuVertexType, fwdParams,
+                              Phase::WEIGHTUPDATE);
+          if (wuCandidateCost < bestwuCandidateCost) {
+            bestwuCandidate = wuCandidate;
+            bestwuCandidateCost = wuCandidateCost;
+          }
+        }
       }
-      unsigned cost = fwdCandidateCost + wuCandidateCost;
+      unsigned cost = fwdCandidateCost + bestwuCandidateCost;
       if (cost < bestCost) {
         bestCost = cost;
         plan.fwdPartition = fwdCandidate;
         if (!forwardOnly)
-          plan.wuPartition = wuCandidate;
+          plan.wuPartition = bestwuCandidate;
       }
     }
   }

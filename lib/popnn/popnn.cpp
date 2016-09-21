@@ -581,11 +581,11 @@ public:
 template class ConvWeightGradCalc<float>;
 template class ConvWeightGradCalc<half>;
 
-template <typename FPType>
+template <typename WeightType, typename PartialsType>
 class ConvWeightUpdate : public Vertex {
 public:
-  Vector<Input<Vector<FPType>>> partials;
-  InOut<Vector<FPType>> weights;
+  Vector<Input<Vector<PartialsType>>> partials;
+  InOut<Vector<WeightType>> weights;
 
   float eta;
 
@@ -606,14 +606,15 @@ public:
   uint64_t getCycleEstimate() const {
     unsigned numPartials = partials.size();
     unsigned numElem = weights.size();
-    bool isFloat = std::is_same<FPType, float>::value;
+    bool isFloat = std::is_same<PartialsType, float>::value;
     unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
     return 4 + 2 * numElem * (1 + (numPartials + vectorWidth - 1) / vectorWidth);
   }
 };
 
-template class ConvWeightUpdate<float>;
-template class ConvWeightUpdate<half>;
+template class ConvWeightUpdate<float, float>;
+template class ConvWeightUpdate<half, half>;
+template class ConvWeightUpdate<half, float>;
 
 
 template <typename FPType>
