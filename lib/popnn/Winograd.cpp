@@ -37,31 +37,31 @@ enum WgdStage {
  * Class containing information to compute tile partition for the
  * Winograd transform. The naming convention for input and output
  * channels is the following
- *  All channels used variable name "z"" followed by "i" or "o" 
+ *  All channels used variable name "z"" followed by "i" or "o"
  *  which indicates input or output. The following character could
- *  be wither "c" or "g" to indicate channels per grouping and 
+ *  be wither "c" or "g" to indicate channels per grouping and
  *  the number of groups respectively.
  *
  * eg: zi is total number of input channels
  *     zoc is the total number of output channels in a group
- */ 
+ */
 
 class WgdTilePartition {
   unsigned getOverlapX() const { return patchSizeX - kernelX + 1; }
   unsigned getOverlapY() const { return patchSizeY - kernelY + 1; }
-  
+
 public:
   using Cost = uint64_t;
 
-  WgdTilePartition(unsigned padX, unsigned padY, 
+  WgdTilePartition(unsigned padX, unsigned padY,
                   unsigned dimInX, unsigned dimInY,
-                  unsigned patchSizeX, unsigned patchSizeY, 
+                  unsigned patchSizeX, unsigned patchSizeY,
                   unsigned kernelX, unsigned kernelY,
                   unsigned zi, unsigned zo, std::string dType) :
 
                   padX(padX), padY(padY), dimInX(dimInX), dimInY(dimInY),
                   patchSizeX(patchSizeX), patchSizeY(patchSizeY),
-                  kernelX(kernelX), kernelY(kernelY), 
+                  kernelX(kernelX), kernelY(kernelY),
                   zi(zi), zo(zo), dType(dType) {
   }
   static constexpr unsigned dUnitSize = 4;
@@ -69,7 +69,7 @@ public:
   static constexpr unsigned iUnitSize = 4;
 
   const unsigned padX, padY;
-  const unsigned dimInX, dimInY;  
+  const unsigned dimInX, dimInY;
   const std::string dType;
   const unsigned zi, zo;
   const unsigned patchSizeX, patchSizeY;
@@ -116,17 +116,17 @@ public:
   unsigned zog;
 
   /* number of channels in an output channel group
-   */    
-  unsigned zoc; 
+   */
+  unsigned zoc;
 
-  /* Number in channels in output channel groups 
+  /* Number in channels in output channel groups
    */
   unsigned zocOut;
 
   unsigned outTotalPatches;
 
   /* Number of patches over which output activtions are kept.
-   * These patches are over the whole output space and hence 
+   * These patches are over the whole output space and hence
    * differs from what is defined as "patchesPerTile"
    */
   unsigned outPatchesPerTile;
@@ -136,9 +136,10 @@ public:
   std::array<Cost, NUM_STAGES> cc;
   std::array<Cost, NUM_STAGES> ec;
 
-  uint64_t tilePartition(unsigned inpZic, 
+  uint64_t tilePartition(unsigned inpZic,
                      unsigned weightsZoc,
                      unsigned outZoc,
+                     NonLinearityType nonLinearityType,
                      const DeviceInfo &deviceInfo);
 
   std::pair<unsigned, unsigned> getPaddingX(unsigned patchX) const {
@@ -147,11 +148,11 @@ public:
     unsigned overlapX = getOverlapX();
 
     if (patchX * overlapX < padX) {
-      prepad = std::min(padX - patchX * overlapX, patchSizeX);    
+      prepad = std::min(padX - patchX * overlapX, patchSizeX);
     }
 
     if (patchX * overlapX + patchSizeX > dimInX + padX) {
-      postpad = std::min(patchX * overlapX + patchSizeX - (dimInX + padX), 
+      postpad = std::min(patchX * overlapX + patchSizeX - (dimInX + padX),
                          patchSizeX);
     }
     return std::make_pair(prepad, postpad);
@@ -163,11 +164,11 @@ public:
     unsigned overlapY = getOverlapY();
 
     if (patchY * overlapY < padY) {
-      prepad = std::min(padY - patchY * overlapY, patchSizeY);    
+      prepad = std::min(padY - patchY * overlapY, patchSizeY);
     }
 
     if (patchY * overlapY + patchSizeY > dimInY + padY) {
-      postpad = std::min(patchY * overlapY + patchSizeY - (dimInY + padY), 
+      postpad = std::min(patchY * overlapY + patchSizeY - (dimInY + padY),
                          patchSizeY);
     }
     return std::make_pair(prepad, postpad);
@@ -180,7 +181,7 @@ public:
       inpPos = patchX * overlapX - padX;
     if (patchX * overlapX > padX + dimInX)
       inpPos = dimInX;
-    return inpPos; 
+    return inpPos;
   }
 
   unsigned getInpPosY(unsigned patchY) const {
@@ -190,7 +191,7 @@ public:
       inpPos = patchY * overlapY - padY;
     if (patchY * overlapY > padY + dimInY)
       inpPos = dimInY-1;
-    return inpPos; 
+    return inpPos;
   }
 
   std::pair<unsigned, unsigned> getPatchIdx(unsigned patch) const {
@@ -200,8 +201,8 @@ public:
   std::pair<unsigned, unsigned> getOutIdxForPatch(unsigned patch) const {
     unsigned outX, outY;
     unsigned patchX, patchY;
-    std::tie(patchX, patchY) = getPatchIdx(patch);   
-    return std::make_pair(patchX * getOverlapX(), patchY * getOverlapY());  
+    std::tie(patchX, patchY) = getPatchIdx(patch);
+    return std::make_pair(patchX * getOverlapX(), patchY * getOverlapY());
   }
 
   unsigned getOutputSizeX() const {
@@ -213,11 +214,11 @@ public:
   }
 
   unsigned getNumPatchesX() const {
-    return (getOutputSizeX() + getOverlapX() - 1)/getOverlapX();;  
+    return (getOutputSizeX() + getOverlapX() - 1)/getOverlapX();;
   }
 
   unsigned getNumPatchesY() const {
-    return (getOutputSizeY() + getOverlapY() - 1)/getOverlapY();;      
+    return (getOutputSizeY() + getOverlapY() - 1)/getOverlapY();;
   }
 
   unsigned getNumPatches() const {
@@ -238,9 +239,10 @@ public:
 
 };
 
-uint64_t WgdTilePartition::tilePartition(unsigned inpZic, 
+uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
                                      unsigned weightsZoc,
                                      unsigned outZoc,
+                                     NonLinearityType nonLinearityType,
                                      const DeviceInfo &deviceInfo) {
 
   const unsigned numTiles = deviceInfo.getNumTiles();
@@ -269,20 +271,20 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
   std::get<REDUCTION>(enableCost) = 1;
   std::get<COMPLETE>(enableCost) = 1;
 
-  outPatchesPerTile = (getNumPatches() * zo/outZoc + numTiles - 1) 
+  outPatchesPerTile = (getNumPatches() * zo/outZoc + numTiles - 1)
                             / numTiles;
-  
+
   /* exchange transfer wordlength */
   const unsigned eWl = deviceInfo.exchangeBytesPerCycle;
 
   /* this may not be portable: use boost?? */
   Cost bestCost = std::numeric_limits<uint64_t>::max();
 
-  for (unsigned tilesForPatches = 1; 
-                tilesForPatches <= std::min(numTiles, numPatches); 
+  for (unsigned tilesForPatches = 1;
+                tilesForPatches <= std::min(numTiles, numPatches);
                 ++tilesForPatches) {
 
-    /* assign all remaining tiles to input channel groups */                
+    /* assign all remaining tiles to input channel groups */
     const unsigned numTilesZig = numTiles/tilesForPatches;
     const unsigned patchesPerTile = (numPatches + tilesForPatches - 1)
                                     / tilesForPatches;
@@ -315,8 +317,8 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
 
         /* the kernel transform could be computed in different ways:
          * 1) Copy untransformed data into tiles that need the kernels and
-         *    transform them on those tiles. 
-         * 2) Use all available tiles to minimise computation cost and copy 
+         *    transform them on those tiles.
+         * 2) Use all available tiles to minimise computation cost and copy
          *    transform to the tiles that need the transformed kernels
          *
          * we compute both costs and select the one which is cheaper
@@ -328,23 +330,23 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
 
         Cost ecKTf1 = (numKTfUnits1 * kernelX * kernelY * kWl) / eWl;
         Cost ccKTf1 = getWgdKernelTransformCycles(
-                                                  numKTfBlocks1, 
-                                                  dType == "float") 
+                                                  numKTfBlocks1,
+                                                  dType == "float")
                       * numWorkers;
 
-        const unsigned numKTfUnits2 = (zi * zo/kUnitSize 
+        const unsigned numKTfUnits2 = (zi * zo/kUnitSize
                                        + numTiles - 1)/numTiles;
         const unsigned numKTfBlocks2 = (numKTfUnits2 + numWorkers - 1)
                                        / numWorkers;
         Cost ecKTf2 = (numKTfUnits1 * patchSizeX * patchSizeY * kTfWl
                       + kUnitSize * numKTfUnits2 * kernelX * kernelY * kWl)/eWl;
-        Cost ccKTf2 = getWgdKernelTransformCycles(numKTfBlocks2 * kUnitSize, 
-                                                isFloat) * numWorkers; 
-         
+        Cost ccKTf2 = getWgdKernelTransformCycles(numKTfBlocks2 * kUnitSize,
+                                                isFloat) * numWorkers;
+
         bool replicateKTf = true;
         std::get<KERNEL_TRANSFORM>(cc) = ccKTf1;
         std::get<KERNEL_TRANSFORM>(ec) = ecKTf1;
-        
+
         if (ecKTf2 + ccKTf2 < ecKTf1 + ccKTf1) {
           replicateKTf = false;
           std::get<KERNEL_TRANSFORM>(cc) = ccKTf2;
@@ -360,8 +362,8 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
 
         /* the data transform could be computed in different ways:
          * 1) Copy untransformed data into tiles that need the transform and
-         *    transform them on those tiles. 
-         * 2) Use all available tiles to minimise computation cost and copy 
+         *    transform them on those tiles.
+         * 2) Use all available tiles to minimise computation cost and copy
          *    transforms to the tiles that need them
          *
          * we compute both costs and select the one which is cheaper
@@ -372,21 +374,21 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
         const unsigned numDTfUnits1 = patchesPerTile * zigPerTile * zic;
         const unsigned numDTfBlocks1 = (numDTfUnits1 + numWorkers - 1)
                                        / numWorkers;
-        const unsigned numDTfUnits2 = (numPatches * zi/dUnitSize 
+        const unsigned numDTfUnits2 = (numPatches * zi/dUnitSize
                                        + numTiles - 1)/numTiles;
         const unsigned numDTfBlocks2 = (numDTfUnits2 + numWorkers -1)
                                         / numWorkers;
 
         Cost ecDTf1 = (numDTfUnits1 * patchSizeX * patchSizeY * dWl) / eWl;
-        Cost ccDTf1 = getWgdDataTransformCycles(numDTfBlocks1, isFloat) 
+        Cost ccDTf1 = getWgdDataTransformCycles(numDTfBlocks1, isFloat)
                       * numWorkers;
         Cost ecDTf2 = (numDTfUnits1 * patchSizeX * patchSizeY * dTfWl
-                      + dUnitSize * numDTfUnits2 * patchSizeX * patchSizeY 
+                      + dUnitSize * numDTfUnits2 * patchSizeX * patchSizeY
                         * dWl) / eWl;
-        Cost ccDTf2 = getWgdDataTransformCycles(numDTfBlocks2 * dUnitSize, 
+        Cost ccDTf2 = getWgdDataTransformCycles(numDTfBlocks2 * dUnitSize,
                                               isFloat) * numWorkers;
         bool replicateDTf = true;
-        
+
         std::get<DATA_TRANSFORM>(cc) = ccDTf1;
         std::get<DATA_TRANSFORM>(ec) = ecDTf1;
 
@@ -409,12 +411,29 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
          */
         const unsigned accWl = isFloat ? 4 : 2;
         Cost ecAcc = 0;
-        unsigned numAccBlocks = (patchesPerTile + numWorkers - 1)/numWorkers;
-        Cost ccAcc = (patchSizeX * patchSizeY * zogPerTile * zigPerTile 
-                      * getWgdAccumCycles(false, 1, 1, numAccBlocks, 
-                                          zoc, isFloat)) 
-                     * numWorkers; 
-        
+        const auto weightsPerConvUnit =
+                                deviceInfo.getWeightsPerConvUnit(isFloat);
+        const auto numConvUnits = isFloat ?
+                                deviceInfo.fp32AccumConvUnitsPerTile :
+                                deviceInfo.fp16AccumConvUnitsPerTile;
+
+        Cost ccAcc;
+        if (deviceInfo.sharedConvWeights) {
+          unsigned numBlocks = patchSizeX * patchSizeY * zogPerTile
+                               * zigPerTile;
+          ccAcc = getWgdAccumCycles(true, numBlocks, patchesPerTile, zic,
+                                    zoc, numWorkers, numConvUnits,
+                                    weightsPerConvUnit, isFloat);
+
+        } else {
+          unsigned numBlocks = (patchSizeX * patchSizeY * zogPerTile *
+                                zigPerTile + numWorkers - 1)/numWorkers;
+
+          ccAcc = getWgdAccumCycles(false, numBlocks, patchesPerTile, zic,
+                                    zoc, numWorkers, numConvUnits,
+                                    weightsPerConvUnit, isFloat) * numWorkers;
+        }
+
         std::get<ACCUM>(cc) = ccAcc;
         std::get<ACCUM>(ec) = ecAcc;
 
@@ -424,22 +443,22 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
         #endif
 
 
-        /* compute exchange cost for reduction. All the input channels 
+        /* compute exchange cost for reduction. All the input channels
          * must be brought onto a tile. The exchange cost is the max between
-         * the amount a tile has to receive and the amount each tile has to 
-         * send 
+         * the amount a tile has to receive and the amount each tile has to
+         * send
          */
         const unsigned redWl = dType == "float" ? 4 : 2;
         const auto sendCost = zogPerTile * patchesPerTile * zigPerTile * zoc
                               * patchSizeX * patchSizeY * redWl/eWl;
-        const auto recvCost = outPatchesPerTile * outZoc * patchSizeX 
+        const auto recvCost = outPatchesPerTile * outZoc * patchSizeX
                               * patchSizeY * redWl/eWl;
-        Cost ecRed =  std::max(sendCost, recvCost); 
+        Cost ecRed =  std::max(sendCost, recvCost);
 
-        unsigned numRedBlocks = (outPatchesPerTile * zocOut 
-                                * patchSizeX * patchSizeY 
+        unsigned numRedBlocks = (outPatchesPerTile * zocOut
+                                * patchSizeX * patchSizeY
                                 + numWorkers - 1)/numWorkers;
-        Cost ccRed = getWgdReduceCycles(numRedBlocks, zig, isFloat) 
+        Cost ccRed = getWgdReduceCycles(numRedBlocks, zig, isFloat)
                      * numWorkers;
 
         std::get<REDUCTION>(cc) = ccRed;
@@ -456,8 +475,8 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
         const unsigned numITfUnits = outPatchesPerTile * outZoc/iUnitSize;
         const unsigned numItfBlocks = (numITfUnits + numWorkers -1)/numWorkers;
         Cost ccITf = getWgdInvTransformCycles(
-                                              iUnitSize * numItfBlocks, 
-                                              isFloat) 
+                                              iUnitSize * numItfBlocks,
+                                              isFloat)
                      * numWorkers;
 
         std::get<INVERSE_TRANSFORM>(cc) = ccITf;
@@ -471,26 +490,27 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
 
         /* cost to complete */
         const unsigned cWl = isFloat ? 4 : 2;
-        Cost ecComp = (outPatchesPerTile * zocOut  
+        Cost ecComp = (outPatchesPerTile * zocOut
                        * getOverlapX() * getOverlapY() * cWl) / eWl;
 
         std::get<COMPLETE>(ec) = ecComp;
 
-        Cost ccComp = outPatchesPerTile 
+        Cost ccComp = outPatchesPerTile
                       * getWgdCompleteCycles(
                               zocOut * getOverlapX() * getOverlapY(),
+                              nonLinearityType,
                               isFloat);
         std::get<COMPLETE>(cc) = ccComp;
 
         #if DEBUG_PRINT >= 3
         std::cout << "Complete cost: ec: " << ecComp << "\n\n\n";
-        #endif                       
+        #endif
 
-        Cost totalECost = std::inner_product(ec.begin(), ec.end(), 
+        Cost totalECost = std::inner_product(ec.begin(), ec.end(),
                                             enableCost.begin(), 0);
-        Cost totalCCost = std::inner_product(cc.begin(), cc.end(), 
-                                             enableCost.begin(), 0);  
-        Cost totalCost  = totalECost + totalCCost;      
+        Cost totalCCost = std::inner_product(cc.begin(), cc.end(),
+                                             enableCost.begin(), 0);
+        Cost totalCost  = totalECost + totalCCost;
 
         if (totalCost < bestCost) {
             bestCost = totalCost;
@@ -520,7 +540,8 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
   std::cout << "zigPerTile :" << WgdTilePartition::zigPerTile << "\n";
   std::cout << "zogPerTile :" << WgdTilePartition::zogPerTile << "\n";
   std::cout << "replicateDTf :" << WgdTilePartition::replicateDTf << "\n";
-  std::cout << "replicateKTf :" << WgdTilePartition::replicateKTf << "\n\n";
+  std::cout << "replicateKTf :" << WgdTilePartition::replicateKTf << "\n";
+  std::cout << "outPatchesPerTile :" << outPatchesPerTile << "\n\n";
   std::cout << "Exchange cost :\n";
   std::cout << " DATA_TRANSFORM " << WgdTilePartition::ec[DATA_TRANSFORM]<<"\n";
   std::cout << " KER_TRANSFORM "<< WgdTilePartition::ec[KERNEL_TRANSFORM]<<"\n";
@@ -545,7 +566,7 @@ static Program kernelTransform(Graph &graph,
                         const std::string layerName,
                         Tensor weights,
                         Tensor kernelTf) {
-  unsigned numUnits = (tp.zi * tp.zo + WgdTilePartition::kUnitSize - 1) 
+  unsigned numUnits = (tp.zi * tp.zo + WgdTilePartition::kUnitSize - 1)
                       / WgdTilePartition::kUnitSize;
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
 
@@ -559,17 +580,17 @@ static Program kernelTransform(Graph &graph,
   unsigned unitsPerTile = (numUnits + numTiles - 1)/numTiles;
 
   for (unsigned tile = 0; tile < numTiles && numUnits; ++tile) {
-    auto unitsThisTile = std::min(numUnits, unitsPerTile);    
+    auto unitsThisTile = std::min(numUnits, unitsPerTile);
     const auto unitsPerVertex = (unitsPerTile + numWorkers - 1)/numWorkers;
-    numUnits -= unitsThisTile; 
+    numUnits -= unitsThisTile;
 
     /* split units assigned to this tile over vertices */
     for (unsigned vertex = 0; vertex < numWorkers && unitsThisTile; ++vertex) {
       const auto unitsThisVertex =  std::min(unitsPerVertex, unitsThisTile);
 
       /* allocate units to this worker */
-      auto v = graph.addVertex(cs, 
-                            templateVertex("WgdKernelTransform", tp.dType, 
+      auto v = graph.addVertex(cs,
+                            templateVertex("WgdKernelTransform", tp.dType,
                                            tp.patchSizeX, tp.patchSizeY,
                                            tp.kernelX, tp.kernelY));
       graph.setFieldSize(v["wIn"], 
@@ -580,27 +601,27 @@ static Program kernelTransform(Graph &graph,
 
 
       for (unsigned unit = 0; unit < unitsThisVertex; ++unit) {
-        const auto sUnit = (tile * unitsPerTile 
-                            + vertex * unitsPerVertex + unit) 
+        const auto sUnit = (tile * unitsPerTile
+                            + vertex * unitsPerVertex + unit)
                             * WgdTilePartition::kUnitSize;
 
         const auto ig = (sUnit / (tp.zic * tp.zoc)) % tp.zig;
-        const auto og = sUnit / (tp.zoc * tp.zic * tp.zig);  
+        const auto og = sUnit / (tp.zoc * tp.zic * tp.zig);
 
 
         const auto slS = sUnit - sUnit/(tp.zic * tp.zoc) * (tp.zic * tp.zoc);
-        const auto slE = slS + WgdTilePartition::kUnitSize; 
+        const auto slE = slS + WgdTilePartition::kUnitSize;
         for (auto y = 0; y < tp.kernelY; ++y) {
           for (auto x = 0; x < tp.kernelX; ++x) {
             graph.connect(weights[og][ig][y][x].flatten().slice(slS, slE),
-                          v["wIn"][unit * tp.kernelX * tp.kernelY 
+                          v["wIn"][unit * tp.kernelX * tp.kernelY
                                    + y * tp.kernelX + x]);
           }
         }
 
         for (auto y = 0; y < tp.patchSizeY; ++y) {
           for (auto x = 0; x < tp.patchSizeX; ++x) {
-            graph.connect(v["wTf"][unit * tp.patchSizeX * tp.patchSizeY 
+            graph.connect(v["wTf"][unit * tp.patchSizeX * tp.patchSizeY
                                    + y * tp.patchSizeX + x],
                           kernelTf[og][ig][y][x].flatten().slice(slS, slE));
             graph.setTileMapping(
@@ -614,7 +635,7 @@ static Program kernelTransform(Graph &graph,
         std::cout << "(KTF)unit " << sUnit  << " [" << og << "][" << ig << "][";
         std::cout << oc << "][" << ic << "] " << slS << " : " << slE;
         std::cout << " on tile " << tile << ":";
-        std::cout << vertex << std::endl; 
+        std::cout << vertex << std::endl;
         #endif
       }
 
@@ -630,8 +651,8 @@ static Program dataTransform(Graph &graph,
                                 const std::string layerName,
                                 Tensor in,
                                 Tensor dataTf) {
-  unsigned numUnits = (tp.zi * tp.getNumPatches() 
-                       + WgdTilePartition::dUnitSize - 1) 
+  unsigned numUnits = (tp.zi * tp.getNumPatches()
+                       + WgdTilePartition::dUnitSize - 1)
                       / WgdTilePartition::dUnitSize;
 
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
@@ -647,9 +668,9 @@ static Program dataTransform(Graph &graph,
   unsigned unitsPerTile = (numUnits + numTiles - 1)/numTiles;
 
   for (unsigned tile = 0; tile < numTiles && numUnits; ++tile) {
-    auto unitsThisTile = std::min(numUnits, unitsPerTile);    
+    auto unitsThisTile = std::min(numUnits, unitsPerTile);
     const auto unitsPerVertex = (unitsPerTile + numWorkers - 1)/numWorkers;
-    numUnits -= unitsThisTile; 
+    numUnits -= unitsThisTile;
 
     bool zeroTensorCreated = false;
     Tensor zeroVec;
@@ -659,11 +680,11 @@ static Program dataTransform(Graph &graph,
       const auto unitsThisVertex =  std::min(unitsPerVertex, unitsThisTile);
 
       auto v = graph.addVertex(
-                        dCs, 
-                        templateVertex("WgdDataTransform", tp.dType, 
+                        dCs,
+                        templateVertex("WgdDataTransform", tp.dType,
                                        tp.patchSizeX, tp.patchSizeY,
                                        tp.kernelX, tp.kernelY));
-      graph.setFieldSize(v["dIn"], 
+      graph.setFieldSize(v["dIn"],
                          unitsThisVertex * tp.patchSizeX * tp.patchSizeY);
 
       graph.setFieldSize(v["dTf"], 
@@ -672,7 +693,7 @@ static Program dataTransform(Graph &graph,
       graph.setTileMapping(v, tile);
 
       for (unsigned unit = 0; unit < unitsThisVertex; ++unit) {
-        const auto sUnit = (tile * unitsPerTile + vertex * unitsPerVertex 
+        const auto sUnit = (tile * unitsPerTile + vertex * unitsPerVertex
                             + unit) * WgdTilePartition::dUnitSize;
         const auto ic = sUnit % tp.zic;
         const auto patch = (sUnit / tp.zic) % tp.getNumPatches();
@@ -686,21 +707,21 @@ static Program dataTransform(Graph &graph,
         std::cout << "(DTF) unit " << sUnit  << " [" << ig << "][";
         std::cout << patchY << "][";
         std::cout << patchX << "][" << ic << "] on tile " << tile << ":";
-        std::cout << vertex << std::endl; 
+        std::cout << vertex << std::endl;
         #endif
 
 
-        if ((prepadX || prepadY || postpadX || postpadY) 
+        if ((prepadX || prepadY || postpadX || postpadY)
              && !zeroTensorCreated) {
           zeroVec = graph.addTensor(tp.dType,
-                                    {WgdTilePartition::dUnitSize}, 
+                                    {WgdTilePartition::dUnitSize},
                                     "zero");
           graph.setTileMapping(zeroVec, tile);
 
           auto v = graph.addVertex(zCs, templateVertex("Zero", tp.dType));
-          graph.setInitialValue(v["dataPathWidth"], 
+          graph.setInitialValue(v["dataPathWidth"],
                                 deviceInfo.dataPathWidth);
-              
+
           graph.connect(v["out"], zeroVec);
           graph.setTileMapping(v, tile);
           zeroTensorCreated = true;
@@ -721,7 +742,7 @@ static Program dataTransform(Graph &graph,
                             in[ig][inPosY][inPosX].flatten().slice(slS, slE);
 
             inPosX += !zeroX;
-            auto idx = unit * tp.patchSizeX * tp.patchSizeY 
+            auto idx = unit * tp.patchSizeX * tp.patchSizeY
                        + y * tp.patchSizeX + x;
             graph.connect(iPart, v["dIn"][idx]);
 
@@ -750,7 +771,15 @@ static Program accum(Graph &graph,
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
 
   ComputeSet cs = graph.createComputeSet(layerName + ".accum");
-  const char *baseClass = "poplar::Vertex";
+  const char *baseClass = deviceInfo.sharedConvWeights ?
+                                     "poplar::SupervisorVertex" :
+                                     "poplar::Vertex";
+  const auto weightsPerConvUnit =
+      deviceInfo.getWeightsPerConvUnit(tp.dType == "float");
+
+  const auto numConvUnits = tp.dType == "float" ?
+                              deviceInfo.fp32AccumConvUnitsPerTile :
+                              deviceInfo.fp16AccumConvUnitsPerTile;
 
   unsigned numZig = tp.zig;
   for (unsigned zigTile = 0; zigTile < tp.tilesForZig; ++zigTile) {
@@ -765,7 +794,7 @@ static Program accum(Graph &graph,
         const auto tile = zigTile * tp.tilesForZog * tp.tilesForPatches
                     + zogTile * tp.tilesForPatches
                     + pTile;
-        
+
         /* number assigned this tile */
         const auto patchesThisTile = std::min(numPatches, tp.patchesPerTile);
 
@@ -778,7 +807,7 @@ static Program accum(Graph &graph,
           for (unsigned og = zogS; og < zogS + zogThisTile; ++og) {
             /* now all patches assigned to the same input channel group
              * and output channel groups can be processed together.
-             * ceate a vertex for all patches (each patch has 
+             * ceate a vertex for all patches (each patch has
              * patchSize * patchSize elements)
              */
 
@@ -786,14 +815,17 @@ static Program accum(Graph &graph,
                            ++pencil) {
               /* create vertex for each pencil */
               auto v = graph.addVertex(
-                        cs, 
+                        cs,
                         templateVertex("WgdPartials", baseClass, tp.dType));
               graph.setInitialValue(v["numWorkers"], numWorkers);
+              graph.setInitialValue(v["numConvUnits"], numConvUnits);
+              graph.setInitialValue(v["weightsPerConvUnit"],
+                                      weightsPerConvUnit);
               graph.setFieldSize(v["wTf"], 1);
               graph.setFieldSize(v["dTf"], patchesThisTile);
               graph.setFieldSize(v["partials"], patchesThisTile);
               graph.setTileMapping(v, tile);
-              
+
               graph.connect(kernelTf[og][ig][pencil / tp.patchSizeX]
                                     [pencil % tp.patchSizeX].flatten(),
                             v["wTf"][0]);
@@ -816,17 +848,17 @@ static Program accum(Graph &graph,
             std::cout << "(Accum) tile: " << tile <<   " ig: " << ig;
             std::cout << " og: " << og << " patch: " << patchS;
             std::cout  << ":" << patchesThisTile << std::endl;
-            #endif          
+            #endif
           }
-        }   
+        }
         numPatches -= patchesThisTile;
       }
       numZog -= zogThisTile;
     }
-    numZig -= zigThisTile;  
+    numZig -= zigThisTile;
   }
   return Execute(cs);
-}  
+}
 
 
 static Program reduce(Graph &graph,
@@ -840,7 +872,7 @@ static Program reduce(Graph &graph,
 
   ComputeSet cs = graph.createComputeSet(layerName + ".reduce");
 
-  for (unsigned tile = 0, patch = 0; patch < tp.getTotalOutputPatches(); 
+  for (unsigned tile = 0, patch = 0; patch < tp.getTotalOutputPatches();
                ++tile, patch += tp.outPatchesPerTile) {
     auto patchesThisTile = std::min(tp.outPatchesPerTile,
                                     tp.getTotalOutputPatches() - patch);
@@ -849,7 +881,7 @@ static Program reduce(Graph &graph,
     auto zFactor = tp.zocOut/depth;
 
     /* each element is of size depth */
-    auto totalElems = patchesThisTile * zFactor 
+    auto totalElems = patchesThisTile * zFactor
                       * tp.patchSizeX * tp.patchSizeY;
 
     auto elemsPerVertex = (totalElems + numWorkers - 1)
@@ -858,7 +890,7 @@ static Program reduce(Graph &graph,
     for (unsigned vertex = 0; vertex < numWorkers && totalElems; ++vertex) {
       auto elemsThisVertex = std::min(elemsPerVertex, totalElems);
 
-      auto v = graph.addVertex(cs, 
+      auto v = graph.addVertex(cs,
                                templateVertex("WgdReduce", tp.dType,
                                               tp.patchSizeX, tp.patchSizeY));
       graph.setTileMapping(v, tile);
@@ -878,19 +910,19 @@ static Program reduce(Graph &graph,
         const auto absPatch = thisElem /
                              (zFactor * tp.patchSizeX * tp.patchSizeY);
         const auto thisPatch = absPatch % tp.getNumPatches();
-        const auto thisOutCh  = (thisElem / 
-                                          (tp.patchSizeX * tp.patchSizeY 
-                                           * tp.getNumPatches() * zFactor)) 
-                                * tp.zocOut 
-                                + (thisElem % zFactor) * depth; 
-                            
+        const auto thisOutCh  = (thisElem /
+                                          (tp.patchSizeX * tp.patchSizeY
+                                           * tp.getNumPatches() * zFactor))
+                                * tp.zocOut
+                                + (thisElem % zFactor) * depth;
+
         const auto ogOut = thisOutCh / tp.zocOut;
         const auto ogIn = thisOutCh / tp.zoc;
         const auto slSIn = thisOutCh % depth;
         const auto slEIn = slSIn + depth;
         const auto slSOut = thisOutCh % tp.zocOut;
         const auto slEOut = slSOut + depth;
-        const auto patchElem = (thisElem / zFactor) 
+        const auto patchElem = (thisElem / zFactor)
                                % (tp.patchSizeX * tp.patchSizeY);
         const auto y = patchElem / tp.patchSizeX;
         const auto x = patchElem % tp.patchSizeX;
@@ -915,11 +947,11 @@ static Program reduce(Graph &graph,
 
         std::cout << "Output: " << elem << " <- [" << ogOut;
         std::cout << "][" << thisPatch << "][" << y << "][" << x;
-        std::cout << "]" << slSOut << ":" << slEOut << std::endl;  
-              
+        std::cout << "]" << slSOut << ":" << slEOut << std::endl;
+
         #endif
 
-        graph.connect(v["outPartial"][elem], 
+        graph.connect(v["outPartial"][elem],
                       red[ogOut][thisPatch][y][x].flatten().slice(
                       slSOut, slEOut));
         graph.setTileMapping(red[ogOut][thisPatch][y][x].flatten().slice(
@@ -927,7 +959,7 @@ static Program reduce(Graph &graph,
 
       }
       totalElems -= elemsThisVertex;
-    } 
+    }
   }
   return Execute(cs);
 }
@@ -942,35 +974,35 @@ static Program inverseTransform(Graph &graph,
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
   const unsigned numTiles = deviceInfo.getNumTiles();
 
-  ComputeSet cs = graph.createComputeSet(layerName + ".invTransform");  
+  ComputeSet cs = graph.createComputeSet(layerName + ".invTransform");
 
-  for (unsigned tile = 0, patch = 0; patch < tp.getTotalOutputPatches(); 
+  for (unsigned tile = 0, patch = 0; patch < tp.getTotalOutputPatches();
                ++tile, patch += tp.outPatchesPerTile) {
     auto tuplesPerZoc = tp.zocOut/4;
 
     auto tuplesThisTile = std::min(tp.outPatchesPerTile,
-                                    tp.getTotalOutputPatches() - patch) 
+                                    tp.getTotalOutputPatches() - patch)
                           * tuplesPerZoc;
 
     /* split across number of workers */
 
     const auto tuplesPerVertex = (tuplesThisTile + numWorkers - 1)
                                             / numWorkers;
-    for (unsigned vertex = 0; vertex < numWorkers && tuplesThisTile; 
+    for (unsigned vertex = 0; vertex < numWorkers && tuplesThisTile;
                   ++vertex) {
 
       auto tuplesThisVertex = std::min(tuplesPerVertex, tuplesThisTile);
-      auto v = graph.addVertex(cs, 
+      auto v = graph.addVertex(cs,
                                templateVertex("WgdInverseTransform", tp.dType,
                                               tp.patchSizeX, tp.patchSizeY,
                                               tp.kernelX, tp.kernelY));
-      graph.setFieldSize(v["dTf"], tp.patchSizeX * tp.patchSizeY 
+      graph.setFieldSize(v["dTf"], tp.patchSizeX * tp.patchSizeY
                                    * tuplesThisVertex);
-      graph.setFieldSize(v["dOut"], tp.getNumOutputsPerPatchY() 
-                                    * tp.getNumOutputsPerPatchX() 
-                                    * tuplesThisVertex);      
+      graph.setFieldSize(v["dOut"], tp.getNumOutputsPerPatchY()
+                                    * tp.getNumOutputsPerPatchX()
+                                    * tuplesThisVertex);
       graph.setTileMapping(v, tile);
-      
+
 
       for (auto tuple = 0; tuple < tuplesThisVertex; ++tuple) {
         auto thisTuple = patch * tuplesPerZoc + vertex * tuplesPerVertex
@@ -986,7 +1018,7 @@ static Program inverseTransform(Graph &graph,
             auto idxIn = tuple * tp.patchSizeX * tp.patchSizeY +
                          y * tp.patchSizeX + x ;
             auto slS = (thisTuple % tuplesPerZoc)*4;
-            auto slE = slS + 4;             
+            auto slE = slS + 4;
             graph.connect(in[ogOut][thisPatch][y][x].flatten().slice(slS, slE),
                               v["dTf"][idxIn]);
             #if DEBUG_PRINT >= 2
@@ -999,8 +1031,8 @@ static Program inverseTransform(Graph &graph,
 
         for (auto y = 0; y < tp.getNumOutputsPerPatchY(); ++y) {
           for (auto x = 0; x < tp.getNumOutputsPerPatchX(); ++x) {
-            auto idxOut = tuple * tp.getNumOutputsPerPatchY() 
-                            * tp.getNumOutputsPerPatchX() 
+            auto idxOut = tuple * tp.getNumOutputsPerPatchY()
+                            * tp.getNumOutputsPerPatchX()
                           + y * tp.getNumOutputsPerPatchX() + x;
 
             #if DEBUG_PRINT >= 2
@@ -1008,9 +1040,9 @@ static Program inverseTransform(Graph &graph,
             std::cout << x<<"] <- " << idxOut << std::endl;
             #endif
             auto slS = (thisTuple % tuplesPerZoc)*4;
-            auto slE = slS + 4;             
+            auto slE = slS + 4;
 
-            graph.connect(v["dOut"][idxOut], 
+            graph.connect(v["dOut"][idxOut],
                              out[ogOut]
                                 [thisPatch][y][x].flatten().slice(slS, slE));
 
@@ -1021,7 +1053,7 @@ static Program inverseTransform(Graph &graph,
         }
       }
       tuplesThisTile -= tuplesThisVertex;
-    } 
+    }
   }
   return Execute(cs);
 }
@@ -1035,14 +1067,14 @@ static Program complete(Graph &graph,
                         Tensor bias,
                         NonLinearityType nonLinearityType) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const unsigned numWorkers = deviceInfo.numWorkerContexts;  
+  const unsigned numWorkers = deviceInfo.numWorkerContexts;
 
   unsigned actChanGroups = act.dim(0);
   unsigned actChansInGroup = act.dim(3);
 
   ComputeSet cs = graph.createComputeSet(layerName + ".complete");
 
-  for (unsigned tile = 0, patch = 0; patch < tp.getTotalOutputPatches(); 
+  for (unsigned tile = 0, patch = 0; patch < tp.getTotalOutputPatches();
                ++tile, patch += tp.outPatchesPerTile) {
     auto patchesThisTile = std::min(tp.outPatchesPerTile,
                                     tp.getTotalOutputPatches() - patch);
@@ -1052,7 +1084,7 @@ static Program complete(Graph &graph,
       auto absPatch = patch + p;
       auto thisPatch = absPatch % tp.getNumPatches();
       auto ogOut = absPatch/tp.getNumPatches();
-        
+
       auto v = graph.addVertex(cs, templateVertex("WgdConvComplete", tp.dType));
       graph.setTileMapping(v, tile);
 
@@ -1094,7 +1126,7 @@ static Program complete(Graph &graph,
           ++elem;
         }
       }
-        
+
       #if DEBUG_PRINT >= 2
       std::cout << "bias " << (ogOut * tp.zocOut) << ":";
       std::cout << ((ogOut + 1) * tp.zocOut) << " -> " << p << std::endl;
@@ -1105,10 +1137,10 @@ static Program complete(Graph &graph,
       graph.setFieldSize(v["dIn"], elem);
       graph.setFieldSize(v["act"], elem);
       graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
-    } 
+    }
   }
 
-  return Execute(cs);      
+  return Execute(cs);
 }
 
 
@@ -1144,17 +1176,18 @@ extern Program winogradConvolution(Graph &graph,
   assert(in.dim(3) == weights.dim(5));
 
 
-  WgdTilePartition tp(padding, padding, 
-                      xDim, yDim, 
+  WgdTilePartition tp(padding, padding,
+                      xDim, yDim,
                       patchSizeX, patchSizeY,
                       kernelSize, kernelSize,
                       weights.dim(1) * weights.dim(5),
                       weights.dim(0) * weights.dim(4),
                       dType);
 
-  tp.tilePartition(weights.dim(5), 
+  tp.tilePartition(weights.dim(5),
                    weights.dim(4),
                    activations.dim(3),
+                   nonLinearityType,
                    graph.getDevice().getDeviceInfo());
 
   auto prog = Sequence();
@@ -1165,10 +1198,10 @@ extern Program winogradConvolution(Graph &graph,
 
   /* create tensor for Data transform */
   Tensor dataTf = graph.addTensor(dType,
-                                  { 
+                                  {
                                     tp.zig,
                                     tp.getNumPatches(),
-                                    patchSizeY, 
+                                    patchSizeY,
                                     patchSizeX,
                                     tp.zic
                                   },
@@ -1177,10 +1210,10 @@ extern Program winogradConvolution(Graph &graph,
 
 
   Tensor kernelTf = graph.addTensor(dType,
-                                    { 
+                                    {
                                       tp.zog,
                                       tp.zig,
-                                      patchSizeY, 
+                                      patchSizeY,
                                       patchSizeX,
                                       tp.zoc,
                                       tp.zic
@@ -1198,7 +1231,7 @@ extern Program winogradConvolution(Graph &graph,
                                      tp.zog,
                                      tp.zig,
                                      tp.getNumPatches(),
-                                     patchSizeY, 
+                                     patchSizeY,
                                      patchSizeX,
                                      tp.zoc
                                    },
@@ -1211,7 +1244,7 @@ extern Program winogradConvolution(Graph &graph,
                                    {
                                      tp.zo/tp.zocOut,
                                      tp.getNumPatches(),
-                                     patchSizeY, 
+                                     patchSizeY,
                                      patchSizeX,
                                      tp.zocOut
                                    },
@@ -1224,15 +1257,15 @@ extern Program winogradConvolution(Graph &graph,
                                    {
                                      tp.zo/tp.zocOut,
                                      tp.getNumPatches(),
-                                     tp.getNumOutputsPerPatchY(), 
+                                     tp.getNumOutputsPerPatchY(),
                                      tp.getNumOutputsPerPatchX(),
-                                     tp.zocOut  
+                                     tp.zocOut
                                    },
-                                   "WgdInvTrfOut");  
+                                   "WgdInvTrfOut");
 
   prog.add(inverseTransform(graph, tp, layerName, invTfIn, invTfOut));
 
-  prog.add(complete(graph, tp, layerName, invTfOut, activations, biases, 
+  prog.add(complete(graph, tp, layerName, invTfOut, activations, biases,
                     nonLinearityType));
 
   return prog;

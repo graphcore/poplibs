@@ -1425,7 +1425,7 @@ template class ConvTransformWeights<half>;
 
 
 
-template <class FPType, unsigned patchSizeX, unsigned patchSizeY, 
+template <class FPType, unsigned patchSizeX, unsigned patchSizeY,
           unsigned kernelX, unsigned kernelY>
 class WgdDataTransform : public Vertex {
 
@@ -1468,7 +1468,7 @@ public:
     const unsigned numInpCols = patchSizeY;
     const unsigned numInpRows = patchSizeX;
     const unsigned numOutCols = patchSizeY;
-    const unsigned numOutRows = patchSizeX; 
+    const unsigned numOutRows = patchSizeX;
 
     const unsigned nPatches = dIn.size() / (numInpRows * numInpCols);
 
@@ -1530,7 +1530,7 @@ class WgdKernelTransform : public Vertex {
    */
   FPType& wrTf(const unsigned base, const unsigned row, const unsigned col, 
                const unsigned elem) {
-    return transpose ? wTf[base + row * patchSizeY + col][elem] : 
+    return transpose ? wTf[base + row * patchSizeY + col][elem] :
                            wTf[base + col * patchSizeX + row][elem];
   }
 
@@ -1654,6 +1654,8 @@ public:
 
 
   SimOnlyField<unsigned> numWorkers;
+  SimOnlyField<unsigned> weightsPerConvUnit;
+  SimOnlyField<unsigned> numConvUnits;
 
   bool compute() {
 
@@ -1684,14 +1686,17 @@ public:
     bool isFloat = std::is_same<FPType, float>::value;
     const unsigned outChanDepth = partials[0].size();
     const unsigned inpChanDepth = dTf[0].size();
-    const unsigned comPencils = partials.size();    
+    const unsigned comPencils = partials.size();
 
     return getWgdAccumCycles(
                       isSupervisorVertex,
-                      1, 
-                      comPencils, 
+                      1,
+                      comPencils,
                       inpChanDepth,
                       outChanDepth,
+                      numWorkers,
+                      numConvUnits,
+                      weightsPerConvUnit,
                       isFloat);
   }
 
@@ -1706,7 +1711,7 @@ template class WgdPartials<Vertex, half>;
 
 template <class FPType, unsigned patchSizeX, unsigned patchSizeY>
 class WgdReduce: public Vertex {
-  
+
 public:
   /* The vector of partial contains 1D vectors of length inpLength. The 
    * partialSumLen 1D vectors are summed to produce a single output vector of 
@@ -1731,9 +1736,9 @@ public:
 
 
     for (unsigned elem = 0; elem < numElems ; ++elem) {
-          
+
       auto inIdx = elem * numInpChans;
-      
+
       for (unsigned oc = 0; oc < numOutChans; ++oc) {
 
         FPType acc {0};
@@ -1894,7 +1899,7 @@ public:
   bool compute() {
     const unsigned nGroups = dIn.size();
     const unsigned vecLen = dIn[0].size();
-    
+
     for (unsigned gr = 0; gr < nGroups; ++gr) {
       for (unsigned el = 0; el < vecLen; ++el) {
         act[gr][el] = nonlinearity(nonLinearityType, bias[el]+dIn[gr][el]);
@@ -1907,7 +1912,10 @@ public:
     bool isFloat = std::is_same<FPType, float>::value;
     const unsigned nGroups = dIn.size();    
     const unsigned vecLen = dIn[0].size();
-    return getWgdCompleteCycles(vecLen * nGroups, isFloat);
+    return getWgdCompleteCycles(
+                               vecLen * nGroups,
+                               nonLinearityType,
+                               isFloat);
   }
 };
 

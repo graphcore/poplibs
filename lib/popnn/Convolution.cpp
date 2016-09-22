@@ -1209,7 +1209,7 @@ convolution(Graph &graph,
       && kernelSize == 3
       && !plan.flattenXY
       && resMethod == RESIDUAL_NONE
-      && (weights.dim(4) % 4 == 0) 
+      && (weights.dim(4) % 4 == 0)
       && (activations.dim(4) % 4 == 0)) {
 
 

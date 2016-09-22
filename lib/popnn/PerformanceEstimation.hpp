@@ -1,6 +1,7 @@
 #ifndef _performance_estimation_h_
 #define _performance_estimation_h_
 
+#include "popnn/NonLinearityDef.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
@@ -166,64 +167,80 @@ getWeightGradCalcCycles(unsigned numOutRows, unsigned numInRows,
 
 
 inline uint64_t getWgdDataTransformCycles(
-                              unsigned numChannels, 
+                              unsigned numChannels,
                               bool isFloat) {
-  unsigned chansPerOp = isFloat ? 2 : 4;  
+  unsigned chansPerOp = isFloat ? 2 : 4;
   return 13 + 56 * ((numChannels + chansPerOp - 1)/chansPerOp);
 }
 
 
 inline uint64_t getWgdKernelTransformCycles(
-                              unsigned numChannels, 
+                              unsigned numChannels,
                               bool isFloat) {
-  unsigned chansPerOp = isFloat ? 2 : 4;  
+  unsigned chansPerOp = isFloat ? 2 : 4;
   return 2 + 35 * ((numChannels + chansPerOp - 1)/chansPerOp);
 }
 
 inline uint64_t getWgdInvTransformCycles(
-                              unsigned numChannels, 
+                              unsigned numChannels,
                               bool isFloat) {
-  unsigned chansPerOp = isFloat ? 2 : 4;  
-  return 15 + 30 * ((numChannels + chansPerOp - 1)/chansPerOp);     
+  unsigned chansPerOp = isFloat ? 2 : 4;
+  return 15 + 30 * ((numChannels + chansPerOp - 1)/chansPerOp);
 }
 
 /**
- * The accumulator operates on pencils which are of depth "pencilDepth". 
+ * The accumulator operates on pencils which are of depth "pencilDepth".
  * An inner product of a coefficient vector and data vector is computed.
  * "comPencils" gives the number of pencils which share a common coefficient
  * vector. "numPencils" gives a set of pencils which share common coefficients
- */ 
+ */
 inline uint64_t getWgdAccumCycles(
                              bool     isSupervisorVertex,
-                             unsigned numPencils, 
+                             unsigned numPencils,
                              unsigned comPencils,
-                             unsigned pencilDepth, 
+                             unsigned pencilDepth,
                              unsigned outDepth,
+                             unsigned numWorkers,
+                             unsigned numConvUnits,
+                             unsigned weightsPerConvUnit,
                              bool isFloat) {
-  unsigned divFactor = isFloat ? 2 : 4;
 
-  /* TODO: use output depth parameter. Implicit assumption here that
-   * it is the same as the  number of execution units
-   */
+  unsigned numCoeffSets = (outDepth + numConvUnits - 1)/numConvUnits;
+  numCoeffSets *= (pencilDepth + weightsPerConvUnit - 1)/weightsPerConvUnit;
+  numCoeffSets *= numPencils;
 
   if (isSupervisorVertex) {
-    /* TODO: correct this */
-    return (42 + comPencils * pencilDepth/divFactor) * numPencils;
+    const auto numPencilsPerWorker = (comPencils + numWorkers - 1) / numWorkers;
+    return (36 + numPencilsPerWorker * numWorkers * 4) * numCoeffSets;
   } else {
-
-    return (7 + comPencils * pencilDepth/divFactor) * numPencils;
+    return (36 + comPencils * 4) * numCoeffSets;
   }
 }
 
-inline uint64_t getWgdReduceCycles(unsigned numPencils, unsigned depth, 
+inline uint64_t getWgdReduceCycles(unsigned numPencils, unsigned depth,
                           bool isFloat) {
-  unsigned chansPerOp = isFloat ? 2 : 4;  
+  unsigned chansPerOp = isFloat ? 2 : 4;
   return 5 + ((depth + chansPerOp - 1)/chansPerOp) * numPencils;
 }
 
 
-inline uint64_t getWgdCompleteCycles(unsigned numChannels, bool isFloat) {
-  return 5 + numChannels * 2; 
+inline uint64_t getWgdCompleteCycles(
+                            unsigned numChannels,
+                            NonLinearityType nonLinearityType,
+                            bool isFloat) {
+  unsigned divFactor = isFloat ? 2 : 4;
+
+  switch (nonLinearityType) {
+  case NON_LINEARITY_NONE:
+    return 5 + numChannels/divFactor;
+
+  case NON_LINEARITY_SIGMOID:
+    return 6 + numChannels*3/2;
+
+  case NON_LINEARITY_RELU:
+    return 5 + numChannels/divFactor;
+  }
+  return 5 + numChannels * 2;
 }
 
 

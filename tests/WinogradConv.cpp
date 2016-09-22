@@ -252,7 +252,7 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
 
   std::mt19937 randomEngine;
   std::normal_distribution<> dist(mean, stdDev);
-  
+
   for (unsigned i = 0; i < inSize; ++i) {
     inBuffer[i] = dist(randomEngine);
   }
@@ -286,11 +286,11 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   computeReference(in, weights, biases, activations, nonLin, &inBuffer[0], 
                    &weightsBuffer[0], &biasBuffer[0], &outBufferRef[0],
                    padding);
- 
- 
+
+
   for (int i = 0; i < outSize; ++i) {
     // float relDiff = fabs((outBuffer[i]-outBufferRef[i])/outBufferRef[i]*100);
-    // std::cout << outBuffer[i] << "  " << outBufferRef[i] << "  " 
+    // std::cout << outBuffer[i] << "  " << outBufferRef[i] << "  "
     // std::cout << relDiff << std::endl;
     // if (relDiff > 0.01)
     //  std::cout << " error ... " << i << std::endl;
