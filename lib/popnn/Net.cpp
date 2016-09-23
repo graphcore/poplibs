@@ -262,12 +262,12 @@ Net::outputConvDescription(unsigned inDimY, unsigned inDimX,
   std::cout << "        Size: " << kernelSize << "x" << kernelSize << "\n"
             << "        Stride: " << stride << "\n"
             << "        Padding: " << padding << "\n"
-            << "        Input: " << inDimY << "x" << inDimX
+            << "        Input:  " << inDimY << "x" << inDimX
             <<   "x" << inNumChans << "\n"
             << "        Output: " << outDimY << "x" << outDimX
             <<   "x" << outNumChans << "\n"
             << "        Params: " << numParams << "\n"
-            << "        FLOPs: " << flops << "\n";
+            << "        FLOPs:  " << flops << "\n";
 }
 
 void Net::outputDescription(const Layer *layer, Tensor in,
@@ -277,10 +277,10 @@ void Net::outputDescription(const Layer *layer, Tensor in,
     const auto size = fc->size;
     const auto flops = fc::getNumFlops(batchSize, prevSize, size, forwardOnly);
     std::cout << "   -- Fully connected layer:\n"
-              << "        Input: "  << prevSize << "\n"
+              << "        Input:  "  << prevSize << "\n"
               << "        Output: " << size << "\n"
               << "        Params: " << size * (prevSize + 1) << "\n"
-              << "        FLOPs: " << flops << "\n";
+              << "        FLOPs:  " << flops << "\n";
   } else if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
     outputConvDescription(in.dim(2), in.dim(3), in.dim(1) * in.dim(4),
                           c->kernelSize, c->stride, c->padding,
@@ -308,11 +308,11 @@ void Net::outputDescription(const Layer *layer, Tensor in,
               << "        Size: " << m->kernelSize << "x"
               << m->kernelSize << "\n"
               << "        Stride: " << m->stride << "\n"
-              << "        Input: " << in.dim(2) << "x" << in.dim(3)
+              << "        Input:  " << in.dim(2) << "x" << in.dim(3)
               <<   "x" << numChannels << "\n"
               << "        Output: " << outDimY << "x" << outDimX
               <<   "x" << numChannels << "\n"
-              << "        FLOPs: " << flops << "\n";
+              << "        FLOPs:  " << flops << "\n";
   } else {
     assert(0 && "Unrecognized layer type");
   }
