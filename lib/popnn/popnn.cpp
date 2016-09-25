@@ -1461,6 +1461,7 @@ public:
   Vector<Output<Vector<FPType>>> dTf;
 
   bool compute() {
+
     assert(patchSizeX == 4);
     assert(patchSizeY == 4);
     assert(kernelX == 3);
@@ -1631,7 +1632,7 @@ template class WgdKernelTransform<float, 4, 4, 3, 3>;
 template class WgdKernelTransform<half, 4, 4, 3, 3>;
 
 
-template <class Base, class FPType>
+template <class Base, class FPType, bool accumulate>
 class WgdPartials : public Base {
 
 public:
@@ -1650,7 +1651,7 @@ public:
   /* Output for each of the nGroups 1D vectors. Each input vector results in a 
    * 1xoutChanDepth vector.
    */
-  Vector<Output<Vector<FPType>>> partials;
+  Vector<InOut<Vector<FPType>>> partials;
 
 
   SimOnlyField<unsigned> numWorkers;
@@ -1661,6 +1662,7 @@ public:
 
     const unsigned outChanDepth = partials[0].size();
     const unsigned inpChanDepth = dTf[0].size();
+    const unsigned numInpGroups = wTf.size();
     const unsigned comPencils = partials.size();
 
 
@@ -1668,14 +1670,21 @@ public:
     /* all feature elements share the same weights */
     assert(wTf[0].size() == inpChanDepth * outChanDepth);
 
-    for (unsigned gr = 0; gr < comPencils; ++gr) {
-      for (unsigned outIdx = 0; outIdx < outChanDepth; ++outIdx) {
-        FPType acc{0};
+    for (unsigned ig = 0; ig < numInpGroups; ++ig) {
+      for (unsigned gr = 0; gr < comPencils; ++gr) {
+        for (unsigned oc = 0; oc < outChanDepth; ++oc) {
+          FPType acc{0};
 
-        for (unsigned inIdx = 0; inIdx < inpChanDepth; ++inIdx) {
-          acc += dTf[gr][inIdx] * wTf[0][outIdx * inpChanDepth + inIdx];
+          for (unsigned ic = 0; ic < inpChanDepth; ++ic) {
+            const auto idx = ig * comPencils + gr;
+            acc += dTf[idx][ic] * wTf[ig][oc * inpChanDepth + ic];
+          }
+          if (accumulate) {
+            partials[gr][oc] += acc;
+          } else {
+            partials[gr][oc] = acc;
+          }
         }
-        partials[gr][outIdx] = acc;
       }
     }
     return true;
@@ -1687,10 +1696,12 @@ public:
     const unsigned outChanDepth = partials[0].size();
     const unsigned inpChanDepth = dTf[0].size();
     const unsigned comPencils = partials.size();
+    const unsigned numInpGroups = wTf.size();
+
 
     return getWgdAccumCycles(
                       isSupervisorVertex,
-                      1,
+                      numInpGroups,
                       comPencils,
                       inpChanDepth,
                       outChanDepth,
@@ -1702,11 +1713,15 @@ public:
 
 };
 
-template class WgdPartials<SupervisorVertex, float>;
-template class WgdPartials<Vertex, float>;
-template class WgdPartials<SupervisorVertex, half>;
-template class WgdPartials<Vertex, half>;
+template class WgdPartials<poplar::SupervisorVertex, float, true>;
+template class WgdPartials<poplar::Vertex, float, true>;
+template class WgdPartials<poplar::SupervisorVertex, float, false>;
+template class WgdPartials<poplar::Vertex, float, false>;
 
+template class WgdPartials<poplar::SupervisorVertex, half, true>;
+template class WgdPartials<poplar::Vertex, half, true>;
+template class WgdPartials<poplar::SupervisorVertex, half, false>;
+template class WgdPartials<poplar::Vertex, half, false>;
 
 
 template <class FPType, unsigned patchSizeX, unsigned patchSizeY>

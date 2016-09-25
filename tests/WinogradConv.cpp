@@ -24,6 +24,7 @@ static float nonlinearity(NonLinearityType t, float x) {
   case NON_LINEARITY_NONE:
     return x;
   }
+  return 0;
 }
 
 /* Trivial mapping of weights */
@@ -93,13 +94,9 @@ static void computeReference(Tensor in, Tensor weights, Tensor biases,
   unsigned numInpChansInGroupWeight = weights.dim(5);
   unsigned numOutChansInGroupWeight = weights.dim(4);
   unsigned numInpChanGroupsWeight   = weights.dim(1);
-  unsigned numOutChanGroupsWeight   = weights.dim(0);
 
   unsigned numOutChansInGroup = activations.dim(4);
   unsigned numOutChanGroups   = activations.dim(1);
-
-  auto hLenX = (kernelX - 1)/2;
-  auto hLenY = (kernelY - 1)/2;
 
   for (unsigned ozg = 0; ozg <  numOutChanGroups; ++ozg) {
     for (unsigned ozc = 0; ozc < numOutChansInGroup; ++ozc) {
@@ -288,7 +285,7 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
                    padding);
 
 
-  for (int i = 0; i < outSize; ++i) {
+  for (unsigned i = 0; i < outSize; ++i) {
     // float relDiff = fabs((outBuffer[i]-outBufferRef[i])/outBufferRef[i]*100);
     // std::cout << outBuffer[i] << "  " << outBufferRef[i] << "  "
     // std::cout << relDiff << std::endl;

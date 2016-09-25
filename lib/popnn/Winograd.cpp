@@ -70,10 +70,11 @@ public:
 
   const unsigned padX, padY;
   const unsigned dimInX, dimInY;
-  const std::string dType;
-  const unsigned zi, zo;
   const unsigned patchSizeX, patchSizeY;
   const unsigned kernelX, kernelY;
+  const unsigned zi, zo;
+  const std::string dType;
+
 
   /* Tiles over which all patches are distributed */
   unsigned tilesForPatches;
@@ -199,7 +200,6 @@ public:
   }
 
   std::pair<unsigned, unsigned> getOutIdxForPatch(unsigned patch) const {
-    unsigned outX, outY;
     unsigned patchX, patchY;
     std::tie(patchX, patchY) = getPatchIdx(patch);
     return std::make_pair(patchX * getOverlapX(), patchY * getOverlapY());
@@ -433,6 +433,13 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
                                     zoc, numWorkers, numConvUnits,
                                     weightsPerConvUnit, isFloat) * numWorkers;
         }
+        /* add cost of zeroing of partials */
+        if (zigPerTile > 1) {
+          auto numZeroUnits = (patchSizeX * patchSizeY * zoc 
+                              * patchesPerTile * zigPerTile + numWorkers - 1)
+                              / numWorkers;
+          ccAcc += numZeroUnits * accWl/4 * numWorkers;
+        }
 
         std::get<ACCUM>(cc) = ccAcc;
         std::get<ACCUM>(ec) = ecAcc;
@@ -448,17 +455,23 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
          * the amount a tile has to receive and the amount each tile has to
          * send
          */
-        const unsigned redWl = dType == "float" ? 4 : 2;
+        //const unsigned redWl = dType == "float" ? 4 : 2;
         const auto sendCost = zogPerTile * patchesPerTile * zigPerTile * zoc
-                              * patchSizeX * patchSizeY * redWl/eWl;
+                              * patchSizeX * patchSizeY * accWl/eWl;
+
         const auto recvCost = outPatchesPerTile * outZoc * patchSizeX
-                              * patchSizeY * redWl/eWl;
+                              * patchSizeY 
+                              * ((zig + zigPerTile - 1)/zigPerTile)
+                              * accWl/eWl;
+
         Cost ecRed =  std::max(sendCost, recvCost);
 
         unsigned numRedBlocks = (outPatchesPerTile * zocOut
                                 * patchSizeX * patchSizeY
                                 + numWorkers - 1)/numWorkers;
-        Cost ccRed = getWgdReduceCycles(numRedBlocks, zig, isFloat)
+        const auto numPartials = (zig + zigPerTile - 1)/zigPerTile;
+
+        Cost ccRed = getWgdReduceCycles(numRedBlocks, numPartials, isFloat)
                      * numWorkers;
 
         std::get<REDUCTION>(cc) = ccRed;
@@ -470,7 +483,7 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
         #endif
 
         /* Inverse kernel transform doesn't require exchange */
-        const unsigned iTfWl = isFloat ? 4 : 2;
+        //const unsigned iTfWl = isFloat ? 4 : 2;
         Cost ecITf = 0;
         const unsigned numITfUnits = outPatchesPerTile * outZoc/iUnitSize;
         const unsigned numItfBlocks = (numITfUnits + numWorkers -1)/numWorkers;
@@ -558,6 +571,8 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
   std::cout << " INVERSE "<< WgdTilePartition::cc[INVERSE_TRANSFORM]<<"\n";
   std::cout << " COMPLETE "<< WgdTilePartition::cc[COMPLETE]<<"\n\n";
   #endif
+
+  return bestCost;
 }
 
 
@@ -611,16 +626,16 @@ static Program kernelTransform(Graph &graph,
 
         const auto slS = sUnit - sUnit/(tp.zic * tp.zoc) * (tp.zic * tp.zoc);
         const auto slE = slS + WgdTilePartition::kUnitSize;
-        for (auto y = 0; y < tp.kernelY; ++y) {
-          for (auto x = 0; x < tp.kernelX; ++x) {
+        for (unsigned y = 0; y < tp.kernelY; ++y) {
+          for (unsigned x = 0; x < tp.kernelX; ++x) {
             graph.connect(weights[og][ig][y][x].flatten().slice(slS, slE),
                           v["wIn"][unit * tp.kernelX * tp.kernelY
                                    + y * tp.kernelX + x]);
           }
         }
 
-        for (auto y = 0; y < tp.patchSizeY; ++y) {
-          for (auto x = 0; x < tp.patchSizeX; ++x) {
+        for (unsigned y = 0; y < tp.patchSizeY; ++y) {
+          for (unsigned x = 0; x < tp.patchSizeX; ++x) {
             graph.connect(v["wTf"][unit * tp.patchSizeX * tp.patchSizeY
                                    + y * tp.patchSizeX + x],
                           kernelTf[og][ig][y][x].flatten().slice(slS, slE));
@@ -732,10 +747,10 @@ static Program dataTransform(Graph &graph,
 
 
         auto inPosY = tp.getInpPosY(patchY);
-        for (auto y = 0; y < tp.patchSizeY; ++y) {
+        for (unsigned y = 0; y < tp.patchSizeY; ++y) {
           bool zeroY  = y < prepadY || (y >= tp.patchSizeY - postpadY);
           auto inPosX = tp.getInpPosX(patchX);
-          for (auto x = 0; x < tp.patchSizeX; ++x) {
+          for (unsigned x = 0; x < tp.patchSizeX; ++x) {
             bool zeroX = x < prepadX || (x >= tp.patchSizeX - postpadX);
             Tensor iPart = (zeroX || zeroY) ?
                             zeroVec :
@@ -771,6 +786,8 @@ static Program accum(Graph &graph,
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
 
   ComputeSet cs = graph.createComputeSet(layerName + ".accum");
+  ComputeSet zeroCS = graph.createComputeSet(layerName + ".zeroAccum");
+
   const char *baseClass = deviceInfo.sharedConvWeights ?
                                      "poplar::SupervisorVertex" :
                                      "poplar::Vertex";
@@ -784,11 +801,11 @@ static Program accum(Graph &graph,
   unsigned numZig = tp.zig;
   for (unsigned zigTile = 0; zigTile < tp.tilesForZig; ++zigTile) {
     unsigned numZog = tp.zog;
-    const auto zigThisTile = std::min(numZig, tp.zigPerTile);
+    const unsigned zigThisTile = std::min(numZig, tp.zigPerTile);
 
     for (unsigned zogTile = 0; zogTile < tp.tilesForZog; ++zogTile) {
       unsigned numPatches = tp.getNumPatches();
-      const auto zogThisTile = std::min(numZog, tp.zogPerTile);
+      const unsigned zogThisTile = std::min(numZog, tp.zogPerTile);
 
       for (unsigned pTile = 0; pTile < tp.tilesForPatches; ++pTile) {
         const auto tile = zigTile * tp.tilesForZog * tp.tilesForPatches
@@ -803,52 +820,106 @@ static Program accum(Graph &graph,
         auto zogS = zogTile * tp.zogPerTile;
         auto patchS = pTile * tp.patchesPerTile;
 
-        for (unsigned ig = zigS; ig < zigS + zigThisTile; ++ig) {
-          for (unsigned og = zogS; og < zogS + zogThisTile; ++og) {
-            /* now all patches assigned to the same input channel group
-             * and output channel groups can be processed together.
-             * ceate a vertex for all patches (each patch has
-             * patchSize * patchSize elements)
-             */
+        /* we use accumulation of partials only if there is more than one input
+         * group on a tile
+         */
+        bool accumulatePartials = zigThisTile > 1;
 
-             for (unsigned pencil = 0; pencil < tp.patchSizeX * tp.patchSizeY;
-                           ++pencil) {
-              /* create vertex for each pencil */
-              auto v = graph.addVertex(
-                        cs,
-                        templateVertex("WgdPartials", baseClass, tp.dType));
-              graph.setInitialValue(v["numWorkers"], numWorkers);
-              graph.setInitialValue(v["numConvUnits"], numConvUnits);
-              graph.setInitialValue(v["weightsPerConvUnit"],
-                                      weightsPerConvUnit);
-              graph.setFieldSize(v["wTf"], 1);
-              graph.setFieldSize(v["dTf"], patchesThisTile);
-              graph.setFieldSize(v["partials"], patchesThisTile);
-              graph.setTileMapping(v, tile);
+        if (accumulatePartials) {
+          /* total elements to zero */
+          auto numZeroElems = tp.patchSizeX * tp.patchSizeY * patchesThisTile
+                              * zogThisTile;
+          const auto numElemsPerVertex = (numZeroElems + numWorkers - 1) 
+                                          / numWorkers;
+  
+          /* divide zeroing over number of vertices */
+          const auto reshapeRows = patchesThisTile * zogThisTile 
+                                   * tp.patchSizeY * tp.patchSizeX; 
+          Tensor zeroTen = acc.slice(
+                                     {zogS, zigTile, patchS, 0, 0, 0},
+                                     {zogS + zogThisTile, zigTile + 1,
+                                      patchS + patchesThisTile,
+                                      tp.patchSizeY, tp.patchSizeX, 
+                                      tp.zoc}).reshape({reshapeRows,
+                                                        tp.zoc});
 
-              graph.connect(kernelTf[og][ig][pencil / tp.patchSizeX]
-                                    [pencil % tp.patchSizeX].flatten(),
-                            v["wTf"][0]);
+          for (unsigned vertex = 0; vertex < numWorkers &&  numZeroElems; ++vertex){
+            const auto slS = vertex * numElemsPerVertex;
+  
+            const auto elemsThisVertex = std::min(numElemsPerVertex, 
+                                                numZeroElems);
+            const auto slE = slS + elemsThisVertex;
 
-              for (unsigned patch = patchS; patch < patchS + patchesThisTile;
+            auto vZ = graph.addVertex(zeroCS, 
+                                      templateVertex("Zero2D", tp.dType),
+                                      {{"out", zeroTen.slice(slS, slE)}});
+            graph.setTileMapping(vZ, tile);
+            const auto dataPathWidth = deviceInfo.dataPathWidth;
+            graph.setInitialValue(vZ["dataPathWidth"], dataPathWidth);
+            numZeroElems -= elemsThisVertex;
+         }
+        }
+
+        for (unsigned og = zogS; og < zogS + zogThisTile; ++og) {
+          /* all patches assigned to the same input channel group
+           * and output channel groups can be processed together.
+           * ceate a vertex for all patches (each patch has
+           * patchSize * patchSize elements)
+           */
+
+          for (unsigned pencil = 0; pencil < tp.patchSizeX * tp.patchSizeY;
+                        ++pencil) {
+            const auto ptY = pencil / tp.patchSizeX;
+            const auto ptX = pencil % tp.patchSizeX;
+          
+            /* create vertex for each pencil */
+            auto v = graph.addVertex(
+                                     cs,
+                                     templateVertex("WgdPartials", 
+                                                     baseClass, 
+                                                     tp.dType, 
+                                                     accumulatePartials?
+                                                          "true" : "false"));
+            graph.setInitialValue(v["numWorkers"], numWorkers);
+            graph.setInitialValue(v["numConvUnits"], numConvUnits);
+            graph.setInitialValue(v["weightsPerConvUnit"],
+                                    weightsPerConvUnit);
+            graph.setFieldSize(v["wTf"], zigThisTile);
+            graph.setFieldSize(v["dTf"], patchesThisTile * zigThisTile);
+            graph.setFieldSize(v["partials"], patchesThisTile);
+            graph.setTileMapping(v, tile);
+
+
+            graph.connect(
+              kernelTf.slice(
+                {og, zigS, ptY, ptX, 0, 0},
+                {og + 1, zigS + zigThisTile, ptY + 1, ptX+1, tp.zoc, tp.zic}).
+                reshape({zigThisTile, tp.zoc * tp.zic}), v["wTf"]);
+
+
+            for (unsigned patch = patchS; patch < patchS + patchesThisTile;
                            ++patch) {
 
-                graph.connect(dataTf[ig][patch][pencil / tp.patchSizeX]
-                                    [pencil % tp.patchSizeX].flatten(),
-                              v["dTf"][patch-patchS]);
-                Tensor out = acc[og][ig][patch][pencil / tp.patchSizeX]
-                                [pencil % tp.patchSizeX].flatten();
-                graph.connect(v["partials"][patch-patchS], out);
-                graph.setTileMapping(out, tile);
+              for (unsigned ig = zigS; ig < zigS + zigThisTile; ++ig) {
 
+                const auto groupIdx = patchesThisTile * (ig - zigS) 
+                                      + (patch - patchS); 
+
+                graph.connect(dataTf[ig][patch][ptY][ptX].flatten(),
+                              v["dTf"][groupIdx]);
               }
 
+              Tensor out = acc[og][zigTile][patch][ptY][ptX].flatten();
+              graph.connect(v["partials"][patch - patchS], out);
+              graph.setTileMapping(out, tile);
+
+
+              #if DEBUG_PRINT >= 2
+              std::cout << "(Accum) tile: " << tile <<   " ig: " << ig;
+              std::cout << " og: " << og << " patch: " << patchS;
+              std::cout  << ":" << patchesThisTile << std::endl;
+              #endif
             }
-            #if DEBUG_PRINT >= 2
-            std::cout << "(Accum) tile: " << tile <<   " ig: " << ig;
-            std::cout << " og: " << og << " patch: " << patchS;
-            std::cout  << ":" << patchesThisTile << std::endl;
-            #endif
           }
         }
         numPatches -= patchesThisTile;
@@ -857,7 +928,13 @@ static Program accum(Graph &graph,
     }
     numZig -= zigThisTile;
   }
-  return Execute(cs);
+
+  Sequence prog;
+  if (!graph.getComputeSet(zeroCS).empty()) {
+    prog.add(Execute(zeroCS));
+  }
+  prog.add(Execute(cs));
+  return prog;
 }
 
 
@@ -868,7 +945,6 @@ static Program reduce(Graph &graph,
                Tensor red) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
-  const unsigned numTiles = deviceInfo.getNumTiles();
 
   ComputeSet cs = graph.createComputeSet(layerName + ".reduce");
 
@@ -894,16 +970,17 @@ static Program reduce(Graph &graph,
                                templateVertex("WgdReduce", tp.dType,
                                               tp.patchSizeX, tp.patchSizeY));
       graph.setTileMapping(v, tile);
-      graph.setFieldSize(v["inPartial"], elemsThisVertex * tp.zig);
+      graph.setFieldSize(v["inPartial"], elemsThisVertex * tp.tilesForZig);
       graph.setFieldSize(v["outPartial"], elemsThisVertex);
 
       #if DEBUG_PRINT >= 2
       std::cout << "Reduce:: tile : "<< tile << "   vertex : ";
-      std::cout << vertex << std::endl;
+      std::cout << vertex << " elems this vertex :";
+      std::cout << elemsThisVertex << std::endl;
 
       #endif
 
-      for (auto elem = 0; elem < elemsThisVertex; ++elem) {
+      for (unsigned elem = 0; elem < elemsThisVertex; ++elem) {
         const auto thisElem = patch * zFactor *  tp.patchSizeX * tp.patchSizeY
                               + vertex * elemsPerVertex + elem;
 
@@ -922,23 +999,22 @@ static Program reduce(Graph &graph,
         const auto slEIn = slSIn + depth;
         const auto slSOut = thisOutCh % tp.zocOut;
         const auto slEOut = slSOut + depth;
-        const auto patchElem = (thisElem / zFactor)
+        const auto patchElem = (thisElem / zFactor) 
                                % (tp.patchSizeX * tp.patchSizeY);
         const auto y = patchElem / tp.patchSizeX;
         const auto x = patchElem % tp.patchSizeX;
 
-
-        for (auto ig = 0; ig < tp.zig; ++ig) {
+        for (unsigned ig = 0; ig < tp.tilesForZig; ++ig) {
 
           #if DEBUG_PRINT >= 2
           std::cout << "Input: [" << ogIn << "][" << ig;
           std::cout << "][" << thisPatch << "][" << y << "][" << x;
           std::cout << "] " << slSIn << ":" << slEIn << " -> ";
-          std::cout << (elem * tp.zig + ig) << std::endl;
+          std::cout << (elem * ig) << std::endl;
           #endif
           graph.connect(acc[ogIn][ig][thisPatch][y][x].flatten().slice(
                         slSIn, slEIn),
-                        v["inPartial"][elem * tp.zig + ig]);
+                        v["inPartial"][elem * tp.tilesForZig + ig]);
 
         }
 
@@ -972,7 +1048,6 @@ static Program inverseTransform(Graph &graph,
                                 Tensor out) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
-  const unsigned numTiles = deviceInfo.getNumTiles();
 
   ComputeSet cs = graph.createComputeSet(layerName + ".invTransform");
 
@@ -1004,7 +1079,7 @@ static Program inverseTransform(Graph &graph,
       graph.setTileMapping(v, tile);
 
 
-      for (auto tuple = 0; tuple < tuplesThisVertex; ++tuple) {
+      for (unsigned tuple = 0; tuple < tuplesThisVertex; ++tuple) {
         auto thisTuple = patch * tuplesPerZoc + vertex * tuplesPerVertex
                          + tuple;
 
@@ -1013,8 +1088,8 @@ static Program inverseTransform(Graph &graph,
         auto ogOut = absPatch/tp.getNumPatches();
 
 
-        for (auto y = 0; y < tp.patchSizeY; ++y) {
-          for (auto x = 0; x < tp.patchSizeX; ++x) {
+        for (unsigned y = 0; y < tp.patchSizeY; ++y) {
+          for (unsigned x = 0; x < tp.patchSizeX; ++x) {
             auto idxIn = tuple * tp.patchSizeX * tp.patchSizeY +
                          y * tp.patchSizeX + x ;
             auto slS = (thisTuple % tuplesPerZoc)*4;
@@ -1029,8 +1104,8 @@ static Program inverseTransform(Graph &graph,
           }
         }
 
-        for (auto y = 0; y < tp.getNumOutputsPerPatchY(); ++y) {
-          for (auto x = 0; x < tp.getNumOutputsPerPatchX(); ++x) {
+        for (unsigned y = 0; y < tp.getNumOutputsPerPatchY(); ++y) {
+          for (unsigned x = 0; x < tp.getNumOutputsPerPatchX(); ++x) {
             auto idxOut = tuple * tp.getNumOutputsPerPatchY()
                             * tp.getNumOutputsPerPatchX()
                           + y * tp.getNumOutputsPerPatchX() + x;
@@ -1066,12 +1141,6 @@ static Program complete(Graph &graph,
                         Tensor act,
                         Tensor bias,
                         NonLinearityType nonLinearityType) {
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const unsigned numWorkers = deviceInfo.numWorkerContexts;
-
-  unsigned actChanGroups = act.dim(0);
-  unsigned actChansInGroup = act.dim(3);
-
   ComputeSet cs = graph.createComputeSet(layerName + ".complete");
 
   for (unsigned tile = 0, patch = 0; patch < tp.getTotalOutputPatches();
@@ -1106,8 +1175,8 @@ static Program complete(Graph &graph,
       #endif
 
 
-      for (auto y = yPosS; y < yPosE; ++y) {
-        for (auto x = xPosS; x < xPosE; ++x) {
+      for (unsigned y = yPosS; y < yPosE; ++y) {
+        for (unsigned x = xPosS; x < xPosE; ++x) {
 
           #if DEBUG_PRINT >= 2
           std::cout << "in[" << ogOut << "][" << thisPatch << "][";
@@ -1223,13 +1292,11 @@ extern Program winogradConvolution(Graph &graph,
   prog.add(kernelTransform(graph, tp, layerName, weights, kernelTf));
 
 
-
-
   /* accumulate across tiles */
   Tensor accumTen = graph.addTensor(dType,
                                    {
                                      tp.zog,
-                                     tp.zig,
+                                     tp.tilesForZig,
                                      tp.getNumPatches(),
                                      patchSizeY,
                                      patchSizeX,
