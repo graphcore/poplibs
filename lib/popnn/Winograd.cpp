@@ -290,7 +290,7 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
                                     / tilesForPatches;
 
     for (unsigned tilesForZig = 1;
-                  tilesForZig <= numTilesZig;
+                  tilesForZig <= std::min(numTilesZig, zig);
                   ++tilesForZig) {
       const unsigned zigPerTile = (zig + tilesForZig - 1)/tilesForZig;
 
@@ -298,7 +298,7 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
       const unsigned numTilesZog = numTiles/(tilesForPatches * tilesForZig);
 
       for (unsigned tilesForZog = 1;
-                    tilesForZog <= numTilesZog;
+                    tilesForZog <= std::min(numTilesZog, zog);
                     ++tilesForZog) {
         const unsigned zogPerTile = (zog + tilesForZog - 1)/tilesForZog;
 
@@ -456,7 +456,7 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
          * send
          */
         //const unsigned redWl = dType == "float" ? 4 : 2;
-        const auto sendCost = zogPerTile * patchesPerTile * zigPerTile * zoc
+        const auto sendCost = zogPerTile * patchesPerTile * zoc
                               * patchSizeX * patchSizeY * accWl/eWl;
 
         const auto recvCost = outPatchesPerTile * outZoc * patchSizeX
@@ -516,7 +516,7 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
         std::get<COMPLETE>(cc) = ccComp;
 
         #if DEBUG_PRINT >= 3
-        std::cout << "Complete cost: ec: " << ecComp << "\n\n\n";
+        std::cout << "Complete cost: ec: " << ecComp << "\n";
         #endif
 
         Cost totalECost = std::inner_product(ec.begin(), ec.end(),
@@ -524,6 +524,12 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
         Cost totalCCost = std::inner_product(cc.begin(), cc.end(),
                                              enableCost.begin(), 0);
         Cost totalCost  = totalECost + totalCCost;
+
+        #if DEBUG_PRINT >= 3
+        std::cout << "Total cost: ec: " << totalECost;
+        std::cout << "  cc: " << totalCCost << "\n\n\n";
+        #endif
+
 
         if (totalCost < bestCost) {
             bestCost = totalCost;
