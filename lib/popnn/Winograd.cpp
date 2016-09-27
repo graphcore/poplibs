@@ -435,7 +435,7 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
         }
         /* add cost of zeroing of partials */
         if (zigPerTile > 1) {
-          auto numZeroUnits = (patchSizeX * patchSizeY * zoc 
+          auto numZeroUnits = (patchSizeX * patchSizeY * zoc
                               * patchesPerTile * zigPerTile + numWorkers - 1)
                               / numWorkers;
           ccAcc += numZeroUnits * accWl/4 * numWorkers;
@@ -460,7 +460,7 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
                               * patchSizeX * patchSizeY * accWl/eWl;
 
         const auto recvCost = outPatchesPerTile * outZoc * patchSizeX
-                              * patchSizeY 
+                              * patchSizeY
                               * ((zig + zigPerTile - 1)/zigPerTile)
                               * accWl/eWl;
 
@@ -599,12 +599,12 @@ static Program kernelTransform(Graph &graph,
     const unsigned zigThisTile = std::min(numZig, tp.zigPerTile);
 
     for (unsigned zogTile = 0; zogTile < tp.tilesForZog; ++zogTile) {
-    
+
       unsigned numPatches = tp.getNumPatches();
       const unsigned zogThisTile = std::min(numZog, tp.zogPerTile);
 
       for (unsigned pTile = 0; pTile < tp.tilesForPatches; ++pTile) {
-    
+
         const auto tile = zigTile * tp.tilesForZog * tp.tilesForPatches
                           + zogTile * tp.tilesForPatches
                           + pTile;
@@ -619,10 +619,10 @@ static Program kernelTransform(Graph &graph,
         const auto zigS = zigTile * tp.zigPerTile;
         const auto zogS = zogTile * tp.zogPerTile;
 
-        auto numUnits = (tp.zic * tp.zoc + WgdTilePartition::kUnitSize - 1) 
+        auto numUnits = (tp.zic * tp.zoc + WgdTilePartition::kUnitSize - 1)
                         / WgdTilePartition::kUnitSize;
 
-        Tensor kTf = graph.addTensor(tp.dType, 
+        Tensor kTf = graph.addTensor(tp.dType,
                                      {
                                       zogThisTile,
                                       zigThisTile,
@@ -654,53 +654,53 @@ static Program kernelTransform(Graph &graph,
           std::cout << (zigS + zigThisTile) << "][3][3][";
           std::cout <<  unitS << " : " << unitE << "]\n";
           #endif
-          
-          Tensor inp = 
+
+          Tensor inp =
             weights.slice(
             {
              zogS, zigS, 0, 0, 0, 0
             },
             {
              zogS + zogThisTile, zigS + zigThisTile, tp.kernelY, tp.kernelX,
-             tp.zoc, tp.zic 
+             tp.zoc, tp.zic
             }).reshape(
                {
-                zogThisTile * zigThisTile * tp.kernelY * tp.kernelX, 
+                zogThisTile * zigThisTile * tp.kernelY * tp.kernelX,
                 tp.zic * tp.zoc
                }).slice(
                   {0, unitS},
-                  {zogThisTile * zigThisTile * tp.kernelY * tp.kernelX, 
+                  {zogThisTile * zigThisTile * tp.kernelY * tp.kernelX,
                    unitE});
 
-          Tensor out = 
+          Tensor out =
             kTf.slice(
               {
                0, 0, 0, 0, 0, 0
               },
               {
-               zogThisTile, zigThisTile, tp.patchSizeY, tp.patchSizeX, 
+               zogThisTile, zigThisTile, tp.patchSizeY, tp.patchSizeX,
                tp.zoc, tp.zic
               }).reshape(
-                 { 
-                  zogThisTile * zigThisTile * tp.patchSizeY * tp.patchSizeX, 
+                 {
+                  zogThisTile * zigThisTile * tp.patchSizeY * tp.patchSizeX,
                   tp.zic * tp.zoc
                  }).slice(
                     {0, unitS},
-                    {zogThisTile * zigThisTile * tp.patchSizeY * tp.patchSizeX, 
+                    {zogThisTile * zigThisTile * tp.patchSizeY * tp.patchSizeX,
                          unitE});
 
           auto v = graph.addVertex(
-                      cs,             
+                      cs,
                       templateVertex("WgdKernelTransform", tp.dType,
                                      tp.patchSizeX, tp.patchSizeY,
                                      tp.kernelX, tp.kernelY));
 
           graph.connect(inp, v["wIn"]);
           graph.connect(v["wTf"], out);
-          graph.setFieldSize(v["wIn"], 
-                         tp.kernelX * tp.kernelY 
+          graph.setFieldSize(v["wIn"],
+                         tp.kernelX * tp.kernelY
                          * zogThisTile * zigThisTile);
-          graph.setFieldSize(v["wTf"], 
+          graph.setFieldSize(v["wTf"],
                          tp.patchSizeX * tp.patchSizeY
                          * zogThisTile * zigThisTile);
           graph.setTileMapping(v, tile);
@@ -714,7 +714,7 @@ static Program kernelTransform(Graph &graph,
     numZig -= zigThisTile;
   }
   return Sequence(Execute(cs));
-} 
+}
 
 
 static Program kernelTransform(Graph &graph,
@@ -749,9 +749,9 @@ static Program kernelTransform(Graph &graph,
                             templateVertex("WgdKernelTransform", tp.dType,
                                            tp.patchSizeX, tp.patchSizeY,
                                            tp.kernelX, tp.kernelY));
-      graph.setFieldSize(v["wIn"], 
+      graph.setFieldSize(v["wIn"],
                          unitsThisVertex * tp.kernelX * tp.kernelY);
-      graph.setFieldSize(v["wTf"], 
+      graph.setFieldSize(v["wTf"],
                          unitsThisVertex * tp.patchSizeX * tp.patchSizeY);
       graph.setTileMapping(v, tile);
 
@@ -797,7 +797,7 @@ static Program kernelTransform(Graph &graph,
 
       unitsThisTile -= unitsThisVertex;
     }
-  } 
+  }
   return Sequence(Execute(cs));
 }
 
@@ -878,8 +878,8 @@ static Program dataTransform(Graph &graph,
         const auto patchS = pTile * tp.patchesPerTile;
 
         Tensor dTf = graph.addTensor(
-                            tp.dType, 
-                            { 
+                            tp.dType,
+                            {
                               zigThisTile,
                               patchesThisTile,
                               tp.patchSizeY,
@@ -891,7 +891,8 @@ static Program dataTransform(Graph &graph,
         dTfMapping[tile] = dTf;
         graph.setTileMapping(dTf, tile);
 
-        auto numUnits = (zigThisTile * tp.zic + WgdTilePartition::dUnitSize - 1) 
+        auto numUnits = (zigThisTile * tp.zic * patchesThisTile +
+                         WgdTilePartition::dUnitSize - 1)
                         / WgdTilePartition::dUnitSize;
 
         auto numUnitsPerVertex = (numUnits + numWorkers - 1) / numWorkers;
@@ -905,88 +906,84 @@ static Program dataTransform(Graph &graph,
           std::cout << "Tile : " << tile << "  vertex : " << vertex << "\n";
           #endif
 
-          auto v = graph.addVertex(cs, 
+          auto v = graph.addVertex(cs,
                                    templateVertex("WgdDataTransform", tp.dType,
                                        tp.patchSizeX, tp.patchSizeY,
                                        tp.kernelX, tp.kernelY));
 
           graph.setFieldSize(v["dIn"],
-                             unitsThisVertex * tp.patchSizeX * tp.patchSizeY
-                             * patchesThisTile);
+                             unitsThisVertex * tp.patchSizeX * tp.patchSizeY);
 
-          graph.setFieldSize(v["dTf"], 
-                             unitsThisVertex * tp.patchSizeX * tp.patchSizeY
-                             * patchesThisTile);
+          graph.setFieldSize(v["dTf"],
+                             unitsThisVertex * tp.patchSizeX * tp.patchSizeY);
 
           graph.setTileMapping(v, tile);
 
           for (unsigned unit = 0; unit < unitsThisVertex; ++unit) {
+            const auto unitS = (vertex * numUnitsPerVertex + unit)
+                               * WgdTilePartition::dUnitSize;
 
-            for (unsigned p = 0; p < patchesThisTile; ++p) {
+            const auto ig = unitS / (tp.zic * patchesThisTile);
+            const auto p = (unitS / tp.zic) % patchesThisTile;
 
-              #if DEBUG_PRINT >= 2
-              std::cout <<"unit : "<< unit<<" patch : "<< (p + patchS) << "\n";
-              #endif
 
-              unsigned patchX, patchY, prepadX, postpadX, prepadY, postpadY;
-              std::tie(patchX, patchY) = tp.getPatchIdx(patchS + p);
-              std::tie(prepadX, postpadX) = tp.getPaddingX(patchX);
-              std::tie(prepadY, postpadY) = tp.getPaddingY(patchY);
+            #if DEBUG_PRINT >= 2
+            std::cout <<"unit : "<< unit<<" patch : "<< (p + patchS) << "\n";
+            #endif
 
-              if ((prepadX || prepadY || postpadX || postpadY)
-                     && !zeroTensorCreated) {
-                zeroVec = graph.addTensor(tp.dType,
-                                          {WgdTilePartition::dUnitSize},
-                                          "zero");
-                graph.setTileMapping(zeroVec, tile);
+            unsigned patchX, patchY, prepadX, postpadX, prepadY, postpadY;
+            std::tie(patchX, patchY) = tp.getPatchIdx(patchS + p);
+            std::tie(prepadX, postpadX) = tp.getPaddingX(patchX);
+            std::tie(prepadY, postpadY) = tp.getPaddingY(patchY);
 
-                auto vZ = graph.addVertex(zCs, 
-                                         templateVertex("Zero", tp.dType));
-                graph.setInitialValue(vZ["dataPathWidth"],
-                                      deviceInfo.dataPathWidth);
+            if ((prepadX || prepadY || postpadX || postpadY)
+                   && !zeroTensorCreated) {
+              zeroVec = graph.addTensor(tp.dType,
+                                        {WgdTilePartition::dUnitSize},
+                                        "zero");
+              graph.setTileMapping(zeroVec, tile);
 
-                graph.connect(vZ["out"], zeroVec);
-                graph.setTileMapping(vZ, tile);
-                zeroTensorCreated = true;
+              auto vZ = graph.addVertex(zCs,
+                                        templateVertex("Zero", tp.dType));
+              graph.setInitialValue(vZ["dataPathWidth"],
+                                    deviceInfo.dataPathWidth);
+
+              graph.connect(vZ["out"], zeroVec);
+              graph.setTileMapping(vZ, tile);
+              zeroTensorCreated = true;
+            }
+
+            const auto slS = unitS % tp.zic;
+            const auto slE = slS + WgdTilePartition::dUnitSize;
+
+
+            auto inPosY = tp.getInpPosY(patchY);
+            for (unsigned y = 0; y < tp.patchSizeY; ++y) {
+              bool zeroY  = y < prepadY || (y >= tp.patchSizeY - postpadY);
+              auto inPosX = tp.getInpPosX(patchX);
+              for (unsigned x = 0; x < tp.patchSizeX; ++x) {
+                bool zeroX = x < prepadX || (x >= tp.patchSizeX - postpadX);
+                Tensor iPart = (zeroX || zeroY) ?
+                                zeroVec :
+                                in[zigS + ig][inPosY]
+                                  [inPosX].flatten().slice(slS, slE);
+
+                #if DEBUG_PRINT >= 2
+                std::cout <<" ig "<<(zigS + ig)<<"  " << slS <<":"<<slE<<"\n";
+                std::cout <<"inPosX: "<< inPosX<<" inPosY: "<< inPosY << "\n";
+                #endif
+
+                inPosX += !zeroX;
+                const auto idx = unit * tp.patchSizeX * tp.patchSizeY
+                                 + y * tp.patchSizeX + x;
+
+                graph.connect(iPart, v["dIn"][idx]);
+
+                Tensor oPart = dTf[ig][p][y][x].flatten().slice(slS, slE);
+
+                graph.connect(v["dTf"][idx], oPart);
               }
-
-              const auto unitS = (vertex * numUnitsPerVertex + unit)
-                                 * WgdTilePartition::dUnitSize;
-              const auto ig = unitS / tp.zic;
-              const auto slS = unitS % tp.zic;
-              const auto slE = slS + WgdTilePartition::dUnitSize;
-
-
-              auto inPosY = tp.getInpPosY(patchY);
-              for (unsigned y = 0; y < tp.patchSizeY; ++y) {
-                bool zeroY  = y < prepadY || (y >= tp.patchSizeY - postpadY);
-                auto inPosX = tp.getInpPosX(patchX);
-                for (unsigned x = 0; x < tp.patchSizeX; ++x) {
-                  bool zeroX = x < prepadX || (x >= tp.patchSizeX - postpadX);
-                  Tensor iPart = (zeroX || zeroY) ?
-                                  zeroVec :
-                                  in[zigS + ig][inPosY]
-                                    [inPosX].flatten().slice(slS, slE);
-
-                  #if DEBUG_PRINT >= 2
-                  std::cout <<" ig "<<(zigS + ig)<<"  " << slS <<":"<<slE<<"\n";
-                  std::cout <<"inPosX: "<< inPosX<<" inPosY: "<< inPosY << "\n";
-                  #endif
-
-                  inPosX += !zeroX;
-                  const auto idx = unit * tp.patchSizeX * tp.patchSizeY 
-                                        * patchesThisTile 
-                                   + p * tp.patchSizeX * tp.patchSizeY
-                                   + y * tp.patchSizeX + x;
-                
-                  graph.connect(iPart, v["dIn"][idx]);
-
-                  Tensor oPart = dTf[ig][p][y][x].flatten().slice(slS, slE);
-
-                  graph.connect(v["dTf"][idx], oPart);
-                }
-                inPosY += !zeroY;
-              }
+              inPosY += !zeroY;
             }
           }
           numUnits -= unitsThisVertex;
@@ -997,8 +994,8 @@ static Program dataTransform(Graph &graph,
     }
     numZig -= zigThisTile;
   }
-  return Sequence(Execute(cs));
-} 
+  return Sequence(Execute(zCs), Execute(cs));
+}
 
 
 
@@ -1040,7 +1037,7 @@ static Program dataTransform(Graph &graph,
       graph.setFieldSize(v["dIn"],
                          unitsThisVertex * tp.patchSizeX * tp.patchSizeY);
 
-      graph.setFieldSize(v["dTf"], 
+      graph.setFieldSize(v["dTf"],
                          unitsThisVertex * tp.patchSizeX * tp.patchSizeY);
 
       graph.setTileMapping(v, tile);
@@ -1148,7 +1145,7 @@ static Program computeDataTransform(Graph &graph,
                                   Tensor prevAct,
                                   std::vector<Tensor> &dataTf) {
 
-  return tp.replicateDTf ? 
+  return tp.replicateDTf ?
           dataTransform(graph, tp, layerName, prevAct, dataTf) :
           dataTransform(graph, tp, layerName, prevAct, dataTf[0]);
 }
@@ -1207,28 +1204,28 @@ static Program accum(Graph &graph,
           /* total elements to zero */
           auto numZeroElems = tp.patchSizeX * tp.patchSizeY * patchesThisTile
                               * zogThisTile;
-          const auto numElemsPerVertex = (numZeroElems + numWorkers - 1) 
+          const auto numElemsPerVertex = (numZeroElems + numWorkers - 1)
                                           / numWorkers;
-  
+
           /* divide zeroing over number of vertices */
-          const auto reshapeRows = patchesThisTile * zogThisTile 
-                                   * tp.patchSizeY * tp.patchSizeX; 
+          const auto reshapeRows = patchesThisTile * zogThisTile
+                                   * tp.patchSizeY * tp.patchSizeX;
           Tensor zeroTen = acc.slice(
                                      {zogS, zigTile, patchS, 0, 0, 0},
                                      {zogS + zogThisTile, zigTile + 1,
                                       patchS + patchesThisTile,
-                                      tp.patchSizeY, tp.patchSizeX, 
+                                      tp.patchSizeY, tp.patchSizeX,
                                       tp.zoc}).reshape({reshapeRows,
                                                         tp.zoc});
 
           for (unsigned vertex = 0; vertex < numWorkers &&  numZeroElems; ++vertex){
             const auto slS = vertex * numElemsPerVertex;
-  
-            const auto elemsThisVertex = std::min(numElemsPerVertex, 
+
+            const auto elemsThisVertex = std::min(numElemsPerVertex,
                                                 numZeroElems);
             const auto slE = slS + elemsThisVertex;
 
-            auto vZ = graph.addVertex(zeroCS, 
+            auto vZ = graph.addVertex(zeroCS,
                                       templateVertex("Zero2D", tp.dType),
                                       {{"out", zeroTen.slice(slS, slE)}});
             graph.setTileMapping(vZ, tile);
@@ -1249,13 +1246,13 @@ static Program accum(Graph &graph,
                         ++pencil) {
             const auto ptY = pencil / tp.patchSizeX;
             const auto ptX = pencil % tp.patchSizeX;
-          
+
             /* create vertex for each pencil */
             auto v = graph.addVertex(
                                      cs,
-                                     templateVertex("WgdPartials", 
-                                                     baseClass, 
-                                                     tp.dType, 
+                                     templateVertex("WgdPartials",
+                                                     baseClass,
+                                                     tp.dType,
                                                      accumulatePartials?
                                                           "true" : "false"));
             graph.setInitialValue(v["numWorkers"], numWorkers);
@@ -1299,14 +1296,14 @@ static Program accum(Graph &graph,
               graph.connect(
                 dataTf[0].slice(
                   {zigS, patchS, ptY, ptX, 0},
-                  {zigS + zigThisTile, patchS + patchesThisTile, ptY + 1, 
+                  {zigS + zigThisTile, patchS + patchesThisTile, ptY + 1,
                    ptX + 1, tp.zic}).
                   reshape({zigThisTile * patchesThisTile, tp.zic}), v["dTf"]);
             }
 
             Tensor out = acc.slice(
               {og, zigTile, patchS, ptY, ptX, 0},
-              {og + 1, zigTile + 1, patchS + patchesThisTile, ptY + 1, 
+              {og + 1, zigTile + 1, patchS + patchesThisTile, ptY + 1,
                ptX + 1, tp.zoc}).
               reshape({patchesThisTile, tp.zoc});
 
@@ -1393,7 +1390,7 @@ static Program reduce(Graph &graph,
         const auto slEIn = slSIn + depth;
         const auto slSOut = thisOutCh % tp.zocOut;
         const auto slEOut = slSOut + depth;
-        const auto patchElem = (thisElem / zFactor) 
+        const auto patchElem = (thisElem / zFactor)
                                % (tp.patchSizeX * tp.patchSizeY);
         const auto y = patchElem / tp.patchSizeX;
         const auto x = patchElem % tp.patchSizeX;
