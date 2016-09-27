@@ -153,7 +153,7 @@ convolutionBackward(unsigned stride, unsigned padding,
     }
 
     // Truncate.
-    for (unsigned c = 0; c != inputChannels; ++c) {
+    for (unsigned c = 0; c != outputChannels; ++c) {
       for (unsigned y = 0; y != outputHeight; ++y) {
         for (unsigned x = 0; x != outputWidth; ++x) {
           out[b][c][y][x] = convOut[c][y + padding][x + padding];
@@ -208,7 +208,7 @@ void ref::conv::weightUpdate(unsigned stride, unsigned padding,
       std::abort();
     }
     boost::multi_array<double, 3>
-        upsampledDeltas(boost::extents[inputChannels][upsampledDeltasHeight]
+        upsampledDeltas(boost::extents[outputChannels][upsampledDeltasHeight]
                                   [upsampledDeltasWidth]);
     for (unsigned oc = 0; oc != outputChannels; ++oc) {
       for (unsigned y = 0; y != upsampledDeltasHeight; ++y) {
