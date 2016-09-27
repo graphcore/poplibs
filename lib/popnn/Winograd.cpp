@@ -249,6 +249,7 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
   const auto numPatches = getNumPatches();
   const auto isFloat = dType == "float";
+  const unsigned exchEfficiency = 100;
 
   /* for now use number of channel groups to be what is input.
    * this may change later
@@ -269,6 +270,7 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
   std::get<KERNEL_TRANSFORM>(enableCost) = 1;
   std::get<ACCUM>(enableCost) = 1;
   std::get<REDUCTION>(enableCost) = 1;
+  std::get<INVERSE_TRANSFORM>(enableCost) = 1;
   std::get<COMPLETE>(enableCost) = 1;
 
   outPatchesPerTile = (getNumPatches() * zo/outZoc + numTiles - 1)
@@ -347,7 +349,8 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
         std::get<KERNEL_TRANSFORM>(cc) = ccKTf1;
         std::get<KERNEL_TRANSFORM>(ec) = ecKTf1;
 
-        if (ecKTf2 + ccKTf2 < ecKTf1 + ccKTf1) {
+        if (ecKTf2 * 100/exchEfficiency + ccKTf2 < 
+                                 ecKTf1 * 100/exchEfficiency + ccKTf1) {
           replicateKTf = false;
           std::get<KERNEL_TRANSFORM>(cc) = ccKTf2;
           std::get<KERNEL_TRANSFORM>(ec) = ecKTf2;
@@ -392,7 +395,8 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
         std::get<DATA_TRANSFORM>(cc) = ccDTf1;
         std::get<DATA_TRANSFORM>(ec) = ecDTf1;
 
-        if (ecDTf2 + ccDTf2 < ecDTf1 + ccDTf1) {
+        if (ecDTf2 * 100/exchEfficiency + ccDTf2 < 
+                        ecDTf1 * 100/exchEfficiency + ccDTf1) {
           replicateDTf = false;
 
           std::get<DATA_TRANSFORM>(cc) = ccDTf2;
@@ -520,7 +524,8 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
         #endif
 
         Cost totalECost = std::inner_product(ec.begin(), ec.end(),
-                                            enableCost.begin(), 0);
+                                            enableCost.begin(), 0) 
+                          * 100/exchEfficiency;
         Cost totalCCost = std::inner_product(cc.begin(), cc.end(),
                                              enableCost.begin(), 0);
         Cost totalCost  = totalECost + totalCCost;
@@ -576,6 +581,7 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
   std::cout << " REDUCE "<< WgdTilePartition::cc[REDUCTION]<<"\n";
   std::cout << " INVERSE "<< WgdTilePartition::cc[INVERSE_TRANSFORM]<<"\n";
   std::cout << " COMPLETE "<< WgdTilePartition::cc[COMPLETE]<<"\n\n";
+  std::cout << "Total cost : " << bestCost << "\n\n";
   #endif
 
   return bestCost;
