@@ -36,3 +36,6 @@ add_custom_command(
   DEPENDS
     benchmark_report.py
 )
+
+add_custom_target(python_scripts DEPENDS benchmark_report.py run_benchmarks.py)
+add_dependencies(alexnet python_scripts)
