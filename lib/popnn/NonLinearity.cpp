@@ -36,10 +36,7 @@ bwdNonLinearity(Graph &graph,
     regroupedActs = graph.addTensor(dType, zDeltas.dims(), "regroupedActs");
     auto mapping = computeActivationsMapping(graph, regroupedActs, 0, 1);
     applyTensorMapping(graph, regroupedActs, mapping);
-    auto regroupCS = graph.createComputeSet("NonLinearity.bwd.regroup");
-    regroup(graph, regroupCS, dType, dType, mapping,
-            activations, regroupedActs);
-    prog.add(Execute(regroupCS));
+    prog.add(Copy(regroupedActs, regroup(activations, zDeltas.dim(3))));
   }
   buildTransform(deltasInMapping, graph, [&](unsigned deltaBegin,
                                                   unsigned deltaEnd,
