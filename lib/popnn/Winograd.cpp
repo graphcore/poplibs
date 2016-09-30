@@ -222,7 +222,7 @@ public:
   }
 
   unsigned getNumPatches() const {
-      return getNumPatchesX() * getNumPatchesY();
+    return getNumPatchesX() * getNumPatchesY();
   }
 
   unsigned getNumOutputsPerPatchX() const {
@@ -338,23 +338,31 @@ uint64_t WgdTilePartition::tilePartition(
          *
          * we compute both costs and select the one which is cheaper
          */
-        const unsigned kWl   = isFloat ? 4 : 2;
-        const unsigned kTfWl = isFloat ? 4 : 2;
-        const unsigned numKTfUnits1 = zigPerTile * zogPerTile * zic * zoc;
-        unsigned numKTfBlocks1 = (numKTfUnits1 + numWorkers - 1)/numWorkers;
 
-        Cost ecKTf1 = (numKTfUnits1 * kernelX * kernelY * kWl) / eWl;
+
+        /* Wordlength of untransformed kernel */
+        const unsigned kWl   = isFloat ? 4 : 2;
+
+        /* Wordlength of transformed kernel :
+         * numkTfElems represent the number of transforms. A group of elements
+         * of size kUnitSize is called an unit
+         */
+        const unsigned kTfWl = isFloat ? 4 : 2;
+        const unsigned numKTfElems = zigPerTile * zogPerTile * zic * zoc;
+        unsigned numKTfBlocks1 = (numKTfElems + numWorkers - 1)/numWorkers;
+
+        Cost ecKTf1 = (numKTfElems * kernelX * kernelY * kWl) / eWl;
         Cost ccKTf1 = getWgdKernelTransformCycles(
                                                   numKTfBlocks1,
                                                   dType == "float")
                       * numWorkers;
 
-        const unsigned numKTfUnits2 = (zi * zo/kUnitSize
+        const unsigned numKTfUnits = (zi * zo/kUnitSize
                                        + numTiles - 1)/numTiles;
-        const unsigned numKTfBlocks2 = (numKTfUnits2 + numWorkers - 1)
+        const unsigned numKTfBlocks2 = (numKTfUnits + numWorkers - 1)
                                        / numWorkers;
-        Cost ecKTf2 = (numKTfUnits1 * patchSizeX * patchSizeY * kTfWl
-                      + kUnitSize * numKTfUnits2 * kernelX * kernelY * kWl)/eWl;
+        Cost ecKTf2 = (numKTfElems * patchSizeX * patchSizeY * kTfWl
+                      + kUnitSize * numKTfUnits * kernelX * kernelY * kWl)/eWl;
         Cost ccKTf2 = getWgdKernelTransformCycles(numKTfBlocks2 * kUnitSize,
                                                 isFloat) * numWorkers;
 
@@ -362,7 +370,7 @@ uint64_t WgdTilePartition::tilePartition(
         std::get<KERNEL_TRANSFORM>(cc) = ccKTf1;
         std::get<KERNEL_TRANSFORM>(ec) = ecKTf1;
 
-        if (ecKTf2 * 100/exchEfficiency + ccKTf2 < 
+        if (ecKTf2 * 100/exchEfficiency + ccKTf2 <
                                  ecKTf1 * 100/exchEfficiency + ccKTf1) {
           replicateKTf = false;
           std::get<KERNEL_TRANSFORM>(cc) = ccKTf2;
@@ -385,21 +393,28 @@ uint64_t WgdTilePartition::tilePartition(
          * we compute both costs and select the one which is cheaper
          */
 
+        /* wordlength of transformed data */
         const unsigned dTfWl = isFloat ? 4 : 2;
+
+        /* wordlength of input data */
         const unsigned dWl = isFloat ? 4 : 2;
-        const unsigned numDTfUnits1 = patchesPerTile * zigPerTile * zic;
-        const unsigned numDTfBlocks1 = (numDTfUnits1 + numWorkers - 1)
+
+        /* numDtfElems is the number of transforms and a group containing
+         * dUnitSize is called an unit
+         */
+        const unsigned numDTfElems = patchesPerTile * zigPerTile * zic;
+        const unsigned numDTfBlocks1 = (numDTfElems + numWorkers - 1)
                                        / numWorkers;
-        const unsigned numDTfUnits2 = (numPatches * zi/dUnitSize
+        const unsigned numDTfUnits = (numPatches * zi/dUnitSize
                                        + numTiles - 1)/numTiles;
-        const unsigned numDTfBlocks2 = (numDTfUnits2 + numWorkers -1)
+        const unsigned numDTfBlocks2 = (numDTfUnits + numWorkers -1)
                                         / numWorkers;
 
-        Cost ecDTf1 = (numDTfUnits1 * patchSizeX * patchSizeY * dWl) / eWl;
+        Cost ecDTf1 = (numDTfElems * patchSizeX * patchSizeY * dWl) / eWl;
         Cost ccDTf1 = getWgdDataTransformCycles(numDTfBlocks1, isFloat)
                       * numWorkers;
-        Cost ecDTf2 = (numDTfUnits1 * patchSizeX * patchSizeY * dTfWl
-                      + dUnitSize * numDTfUnits2 * patchSizeX * patchSizeY
+        Cost ecDTf2 = (numDTfElems * patchSizeX * patchSizeY * dTfWl
+                      + dUnitSize * numDTfUnits * patchSizeX * patchSizeY
                         * dWl) / eWl;
         Cost ccDTf2 = getWgdDataTransformCycles(numDTfBlocks2 * dUnitSize,
                                               isFloat) * numWorkers;
@@ -408,7 +423,7 @@ uint64_t WgdTilePartition::tilePartition(
         std::get<DATA_TRANSFORM>(cc) = ccDTf1;
         std::get<DATA_TRANSFORM>(ec) = ecDTf1;
 
-        if (ecDTf2 * 100/exchEfficiency + ccDTf2 < 
+        if (ecDTf2 * 100/exchEfficiency + ccDTf2 <
                         ecDTf1 * 100/exchEfficiency + ccDTf1) {
           replicateDTf = false;
 
@@ -426,6 +441,7 @@ uint64_t WgdTilePartition::tilePartition(
         /* compute accumulate cost: all the data is local to a tile and hence
          * needn't be exchanged
          */
+        /* wordlength of accumulated output (or partials) */
         const unsigned accWl = isFloat ? 4 : 2;
         Cost ecAcc = 0;
         const auto weightsPerConvUnit =
@@ -472,6 +488,7 @@ uint64_t WgdTilePartition::tilePartition(
          * the amount a tile has to receive and the amount each tile has to
          * send
          */
+        /* wordlength of reduced data */
         //const unsigned redWl = dType == "float" ? 4 : 2;
         const auto sendCost = zogPerTile * patchesPerTile * zoc
                               * patchSizeX * patchSizeY * accWl/eWl;
@@ -500,6 +517,7 @@ uint64_t WgdTilePartition::tilePartition(
         #endif
 
         /* Inverse kernel transform doesn't require exchange */
+        /* wordlength on inverse transformed data */
         //const unsigned iTfWl = isFloat ? 4 : 2;
         Cost ecITf = 0;
         const unsigned numITfUnits = outPatchesPerTile * outZoc/iUnitSize;
@@ -518,7 +536,7 @@ uint64_t WgdTilePartition::tilePartition(
         #endif
 
 
-        /* cost to complete */
+        /* word length of layer output */
         const unsigned cWl = isFloat ? 4 : 2;
         Cost ecComp = (outPatchesPerTile * zocOut
                        * getOverlapX() * getOverlapY() * cWl) / eWl;
@@ -537,7 +555,7 @@ uint64_t WgdTilePartition::tilePartition(
         #endif
 
         Cost totalECost = std::inner_product(ec.begin(), ec.end(),
-                                            enableCost.begin(), 0) 
+                                            enableCost.begin(), 0)
                           * 100/exchEfficiency;
         Cost totalCCost = std::inner_product(cc.begin(), cc.end(),
                                              enableCost.begin(), 0);
@@ -1241,7 +1259,8 @@ static Program accum(
                                       tp.zoc}).reshape({reshapeRows,
                                                         tp.zoc});
 
-          for (unsigned vertex = 0; vertex < numWorkers &&  numZeroElems; ++vertex){
+          for (unsigned vertex = 0; vertex < numWorkers &&  numZeroElems;
+                        ++vertex){
             const auto slS = vertex * numElemsPerVertex;
 
             const auto elemsThisVertex = std::min(numElemsPerVertex,
@@ -1632,21 +1651,21 @@ static Program complete(
 
 extern Program winogradConvolution(
               Graph &graph,
-              unsigned kernelSize, 
-              unsigned stride, 
+              unsigned kernelSize,
+              unsigned stride,
               unsigned padding,
-              unsigned xDim, 
+              unsigned xDim,
               unsigned yDim,
-              unsigned outNumChans, 
-              unsigned patchSizeX, 
+              unsigned outNumChans,
+              unsigned patchSizeX,
               unsigned patchSizeY,
               NonLinearityType nonLinearityType,
               std::string dType,
-              Tensor in, 
-              Tensor weights, 
-              Tensor biases, 
+              Tensor in,
+              Tensor weights,
+              Tensor biases,
               Tensor activations,
-              ResidualMethod resMethod, 
+              ResidualMethod resMethod,
               Tensor resIn) {
 
 #if DEBUG_PRINT >= 1
