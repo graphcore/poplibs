@@ -1199,7 +1199,6 @@ convolution(Graph &graph,
 
 
   mapBiases(biases, graph, activations);
-  mapWeights(weights, graph, plan, batchSize);
 
   auto forwardProg = Sequence();
 
@@ -1223,6 +1222,8 @@ convolution(Graph &graph,
                                           activations[b], resMethod, resIn));
     }
   } else {
+
+    mapWeights(weights, graph, plan, batchSize);
 
     // Calculate a set of partial sums of the convolutions.
     Tensor partials = graph.addTensor(partialType,

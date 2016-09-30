@@ -27,34 +27,6 @@ static float nonlinearity(NonLinearityType t, float x) {
   return 0;
 }
 
-/* Trivial mapping of weights */
-void mapWeights(Graph &graph, Tensor weights)
-{
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  unsigned numUnits = weights.dim(0)*weights.dim(1);
-  const unsigned nMaxTiles = deviceInfo.getNumTiles();
-  const unsigned numInpChanGroups = weights.dim(1);
-  unsigned unitsPerTile = (numUnits+nMaxTiles - 1)/nMaxTiles;
-  unsigned tile = 0;
-  unsigned outChanGroup = 0;
-  unsigned inpChanGroup = 0;
-
-  do {
-    unsigned unitsThisTile = numUnits >= unitsPerTile ? unitsPerTile : numUnits;
-    for (unsigned unit = 0; unit < unitsThisTile; ++unit) {
-
-      graph.setTileMapping(weights[outChanGroup][inpChanGroup].flatten(), tile);
-      if (++inpChanGroup == numInpChanGroups) {
-        inpChanGroup = 0;
-        ++outChanGroup;
-      }
-
-    }
-    ++tile;
-    numUnits -= unitsThisTile;
-  } while (numUnits);
-}
-
 
 static unsigned filterLengthPre(unsigned a, unsigned kernel) {
   unsigned hLen = (kernel - 1)/2;
@@ -227,7 +199,6 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   mapActivations(graph, in);
   mapActivations(graph, activations);
   conv::mapBiases(biases, graph, activations);
-  mapWeights(graph, weights);
 
   const std::size_t inSize = numInpChanGroups * featureY 
                              * featureX * numInpChansInGroup;

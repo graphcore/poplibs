@@ -339,7 +339,6 @@ uint64_t WgdTilePartition::tilePartition(
          * we compute both costs and select the one which is cheaper
          */
 
-
         /* Wordlength of untransformed kernel */
         const unsigned kWl   = isFloat ? 4 : 2;
 
@@ -361,8 +360,7 @@ uint64_t WgdTilePartition::tilePartition(
                                        + numTiles - 1)/numTiles;
         const unsigned numKTfBlocks2 = (numKTfUnits + numWorkers - 1)
                                        / numWorkers;
-        Cost ecKTf2 = (numKTfElems * patchSizeX * patchSizeY * kTfWl
-                      + kUnitSize * numKTfUnits * kernelX * kernelY * kWl)/eWl;
+        Cost ecKTf2 = (numKTfElems * patchSizeX * patchSizeY * kTfWl;
         Cost ccKTf2 = getWgdKernelTransformCycles(numKTfBlocks2 * kUnitSize,
                                                 isFloat) * numWorkers;
 
@@ -618,6 +616,47 @@ uint64_t WgdTilePartition::tilePartition(
   return bestCost;
 }
 
+
+static void wgdMapWeights(
+              Graph &graph,
+              WgdTilePartition &tp,
+              Tensor weights) {
+  unsigned numUnits = (tp.zi * tp.zo + WgdTilePartition::kUnitSize - 1)
+                      / WgdTilePartition::kUnitSize;
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+
+  const unsigned numTiles = deviceInfo.getNumTiles();
+  const unsigned numWorkers = deviceInfo.numWorkerContexts;
+
+  assert(tp.zic % WgdTilePartition::kUnitSize == 0);
+
+  unsigned unitsPerTile = (numUnits + numTiles - 1)/numTiles;
+
+  for (unsigned tile = 0; tile < numTiles && numUnits; ++tile) {
+    auto unitsThisTile = std::min(numUnits, unitsPerTile);
+
+
+    numUnits -= unitsThisTile;
+    for (auto unit = 0U; unit < unitsThisTile; ++unit) {
+      auto thisUnit = (tile * unitsPerTile + unit)
+                      * WgdTilePartition::kUnitSize;
+
+      const auto ig = (thisUnit / (tp.zic * tp.zoc)) % tp.zig;
+      const auto og = thisUnit / (tp.zoc * tp.zic * tp.zig);
+
+      const auto slS = thisUnit
+                       - thisUnit/(tp.zic * tp.zoc) * (tp.zic * tp.zoc);
+      const auto slE = slS + WgdTilePartition::kUnitSize;
+
+      for (auto y = 0U; y < tp.kernelY; ++y) {
+        for (auto x = 0U; x < tp.kernelX; ++x) {
+          graph.setTileMapping(
+                weights[og][ig][y][x].flatten().slice(slS, slE), tile);
+        }
+      }
+    }
+  }
+}
 
 static Program kernelTransform(
               Graph &graph,
@@ -1710,6 +1749,11 @@ extern Program winogradConvolution(
   const auto layerName = "Wgd Conv" + std::to_string(kernelSize) 
                          + "x" + std::to_string(kernelSize) + ".fwd";
 
+
+  wgdMapWeights(
+              graph,
+              tp,
+              weights);
 
   std::vector<Tensor> dataTf = allocateDataTfTensor(graph, tp);
   prog.add(computeDataTransform(graph, tp, layerName, in, dataTf));
