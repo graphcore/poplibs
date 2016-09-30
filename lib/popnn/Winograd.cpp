@@ -237,13 +237,26 @@ public:
     return getNumPatches() * zo/zocOut;
   }
 
+  unsigned getTileForInputPatch(
+            unsigned zigTile,
+            unsigned zogTile,
+            unsigned pTile) const {
+
+    return zigTile * tilesForZog * tilesForPatches
+            + zogTile * tilesForPatches
+            + pTile;
+  }
+
+
+
 };
 
-uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
-                                     unsigned weightsZoc,
-                                     unsigned outZoc,
-                                     NonLinearityType nonLinearityType,
-                                     const DeviceInfo &deviceInfo) {
+uint64_t WgdTilePartition::tilePartition(
+              unsigned inpZic,
+              unsigned weightsZoc,
+              unsigned outZoc,
+              NonLinearityType nonLinearityType,
+              const DeviceInfo &deviceInfo) {
 
   const unsigned numTiles = deviceInfo.getNumTiles();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
@@ -588,11 +601,12 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic,
 }
 
 
-static Program kernelTransform(Graph &graph,
-                        const WgdTilePartition &tp,
-                        const std::string layerName,
-                        Tensor weights,
-                        std::vector<Tensor> &kTfMapping) {
+static Program kernelTransform(
+              Graph &graph,
+              const WgdTilePartition &tp,
+              const std::string layerName,
+              Tensor weights,
+              std::vector<Tensor> &kTfMapping) {
 
   ComputeSet cs = graph.createComputeSet(layerName + ".kernelTrf");
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
@@ -611,9 +625,7 @@ static Program kernelTransform(Graph &graph,
 
       for (unsigned pTile = 0; pTile < tp.tilesForPatches; ++pTile) {
 
-        const auto tile = zigTile * tp.tilesForZog * tp.tilesForPatches
-                          + zogTile * tp.tilesForPatches
-                          + pTile;
+        const auto tile = tp.getTileForInputPatch(zigTile, zogTile, pTile);
 
         /* number assigned this tile */
         const auto patchesThisTile = std::min(numPatches, tp.patchesPerTile);
@@ -723,11 +735,12 @@ static Program kernelTransform(Graph &graph,
 }
 
 
-static Program kernelTransform(Graph &graph,
-                        const WgdTilePartition &tp,
-                        const std::string layerName,
-                        Tensor weights,
-                        Tensor kernelTf) {
+static Program kernelTransform(
+              Graph &graph,
+              const WgdTilePartition &tp,
+              const std::string layerName,
+              Tensor weights,
+              Tensor kernelTf) {
   unsigned numUnits = (tp.zi * tp.zo + WgdTilePartition::kUnitSize - 1)
                       / WgdTilePartition::kUnitSize;
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
@@ -809,8 +822,8 @@ static Program kernelTransform(Graph &graph,
 
 
 static std::vector<Tensor> allocateKernelTfTensor(
-                                  Graph &graph,
-                                  const WgdTilePartition &tp) {
+              Graph &graph,
+              const WgdTilePartition &tp) {
   std::vector<Tensor> kernelTf;
 
   if (!tp.replicateKTf) {
@@ -835,11 +848,12 @@ static std::vector<Tensor> allocateKernelTfTensor(
 }
 
 
-static Program computeKernelTransform(Graph &graph,
-                                  const WgdTilePartition &tp,
-                                  const std::string layerName,
-                                  Tensor weights,
-                                  std::vector<Tensor> &kernelTf) {
+static Program computeKernelTransform(
+              Graph &graph,
+              const WgdTilePartition &tp,
+              const std::string layerName,
+              Tensor weights,
+              std::vector<Tensor> &kernelTf) {
   return tp.replicateKTf ?
             kernelTransform(graph, tp, layerName, weights, kernelTf) :
             kernelTransform(graph, tp, layerName, weights, kernelTf[0]);
@@ -847,11 +861,12 @@ static Program computeKernelTransform(Graph &graph,
 
 
 
-static Program dataTransform(Graph &graph,
-                        const WgdTilePartition &tp,
-                        const std::string layerName,
-                        Tensor in,
-                        std::vector<Tensor> &dTfMapping) {
+static Program dataTransform(
+              Graph &graph,
+              const WgdTilePartition &tp,
+              const std::string layerName,
+              Tensor in,
+              std::vector<Tensor> &dTfMapping) {
 
   ComputeSet cs = graph.createComputeSet(layerName + ".dataTrf");
   ComputeSet zCs = graph.createComputeSet(layerName + ".zeros");
@@ -869,9 +884,9 @@ static Program dataTransform(Graph &graph,
       const unsigned zogThisTile = std::min(numZog, tp.zogPerTile);
 
       for (unsigned pTile = 0; pTile < tp.tilesForPatches; ++pTile) {
-        const auto tile = zigTile * tp.tilesForZog * tp.tilesForPatches
-                    + zogTile * tp.tilesForPatches
-                    + pTile;
+
+        const auto tile = tp.getTileForInputPatch(zigTile, zogTile, pTile);
+
 
         /* number assigned this tile */
         const auto patchesThisTile = std::min(numPatches, tp.patchesPerTile);
@@ -1005,11 +1020,12 @@ static Program dataTransform(Graph &graph,
 
 
 
-static Program dataTransform(Graph &graph,
-                                const WgdTilePartition &tp,
-                                const std::string layerName,
-                                Tensor in,
-                                Tensor dataTf) {
+static Program dataTransform(
+              Graph &graph,
+              const WgdTilePartition &tp,
+              const std::string layerName,
+              Tensor in,
+              Tensor dataTf) {
   unsigned numUnits = (tp.zi * tp.getNumPatches()
                        + WgdTilePartition::dUnitSize - 1)
                       / WgdTilePartition::dUnitSize;
@@ -1118,8 +1134,8 @@ static Program dataTransform(Graph &graph,
 
 
 static std::vector<Tensor> allocateDataTfTensor(
-                                  Graph &graph,
-                                  const WgdTilePartition &tp) {
+              Graph &graph,
+              const WgdTilePartition &tp) {
   std::vector<Tensor> dataTf;
 
   assert(tp.zic % WgdTilePartition::dUnitSize == 0);
@@ -1145,11 +1161,12 @@ static std::vector<Tensor> allocateDataTfTensor(
 }
 
 
-static Program computeDataTransform(Graph &graph,
-                                  const WgdTilePartition &tp,
-                                  const std::string layerName,
-                                  Tensor prevAct,
-                                  std::vector<Tensor> &dataTf) {
+static Program computeDataTransform(
+              Graph &graph,
+              const WgdTilePartition &tp,
+              const std::string layerName,
+              Tensor prevAct,
+              std::vector<Tensor> &dataTf) {
 
   return tp.replicateDTf ?
           dataTransform(graph, tp, layerName, prevAct, dataTf) :
@@ -1157,12 +1174,13 @@ static Program computeDataTransform(Graph &graph,
 }
 
 
-static Program accum(Graph &graph,
-                     const WgdTilePartition &tp,
-                     const std::string layerName,
-                     std::vector<Tensor> &dataTf,
-                     std::vector<Tensor> &kernelTf,
-                     Tensor acc) {
+static Program accum(
+              Graph &graph,
+              const WgdTilePartition &tp,
+              const std::string layerName,
+              std::vector<Tensor> &dataTf,
+              std::vector<Tensor> &kernelTf,
+              Tensor acc) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
 
@@ -1189,9 +1207,8 @@ static Program accum(Graph &graph,
       const unsigned zogThisTile = std::min(numZog, tp.zogPerTile);
 
       for (unsigned pTile = 0; pTile < tp.tilesForPatches; ++pTile) {
-        const auto tile = zigTile * tp.tilesForZog * tp.tilesForPatches
-                    + zogTile * tp.tilesForPatches
-                    + pTile;
+
+        const auto tile = tp.getTileForInputPatch(zigTile, zogTile, pTile);
 
         /* number assigned this tile */
         const auto patchesThisTile = std::min(numPatches, tp.patchesPerTile);
@@ -1335,11 +1352,12 @@ static Program accum(Graph &graph,
 }
 
 
-static Program reduce(Graph &graph,
-               const WgdTilePartition &tp,
-               const std::string layerName,
-               Tensor acc,
-               Tensor red) {
+static Program reduce(
+              Graph &graph,
+              const WgdTilePartition &tp,
+              const std::string layerName,
+              Tensor acc,
+              Tensor red) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
 
@@ -1438,11 +1456,12 @@ static Program reduce(Graph &graph,
 }
 
 
-static Program inverseTransform(Graph &graph,
-                                const WgdTilePartition &tp,
-                                const std::string layerName,
-                                Tensor in,
-                                Tensor out) {
+static Program inverseTransform(
+              Graph &graph,
+              const WgdTilePartition &tp,
+              const std::string layerName,
+              Tensor in,
+              Tensor out) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
 
@@ -1531,13 +1550,14 @@ static Program inverseTransform(Graph &graph,
 }
 
 
-static Program complete(Graph &graph,
-                        const WgdTilePartition &tp,
-                        const std::string layerName,
-                        Tensor in,
-                        Tensor act,
-                        Tensor bias,
-                        NonLinearityType nonLinearityType) {
+static Program complete(
+              Graph &graph,
+              const WgdTilePartition &tp,
+              const std::string layerName,
+              Tensor in,
+              Tensor act,
+              Tensor bias,
+              NonLinearityType nonLinearityType) {
   ComputeSet cs = graph.createComputeSet(layerName + ".complete");
 
   for (unsigned tile = 0, patch = 0; patch < tp.getTotalOutputPatches();
@@ -1610,14 +1630,24 @@ static Program complete(Graph &graph,
 }
 
 
-extern Program winogradConvolution(Graph &graph,
-            unsigned kernelSize, unsigned stride, unsigned padding,
-            unsigned xDim, unsigned yDim,
-            unsigned outNumChans, unsigned patchSizeX, unsigned patchSizeY,
-            NonLinearityType nonLinearityType,
-            std::string dType,
-            Tensor in, Tensor weights, Tensor biases, Tensor activations,
-            ResidualMethod resMethod, Tensor resIn) {
+extern Program winogradConvolution(
+              Graph &graph,
+              unsigned kernelSize, 
+              unsigned stride, 
+              unsigned padding,
+              unsigned xDim, 
+              unsigned yDim,
+              unsigned outNumChans, 
+              unsigned patchSizeX, 
+              unsigned patchSizeY,
+              NonLinearityType nonLinearityType,
+              std::string dType,
+              Tensor in, 
+              Tensor weights, 
+              Tensor biases, 
+              Tensor activations,
+              ResidualMethod resMethod, 
+              Tensor resIn) {
 
 #if DEBUG_PRINT >= 1
   std::cout << "xDim: " << xDim << std::endl;
