@@ -1902,7 +1902,7 @@ public:
 
   /* Each bias vector is of length "vecLen"
    */
-  Input<Vector<FPType>> bias;
+  Vector<Input<Vector<FPType>>> bias;
 
   /* The output activation once non-linearity is applied
    */
@@ -1917,7 +1917,7 @@ public:
 
     for (unsigned gr = 0; gr < nGroups; ++gr) {
       for (unsigned el = 0; el < vecLen; ++el) {
-        act[gr][el] = nonlinearity(nonLinearityType, bias[el]+dIn[gr][el]);
+        act[gr][el] = nonlinearity(nonLinearityType, bias[gr][el]+dIn[gr][el]);
       }
     }
     return true;

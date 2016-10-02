@@ -12,10 +12,10 @@
 #include <utility>
 
 
-#define DEBUG_PRINT 0
+#define DEBUG_PRINT 1
 
 
-using namespace poplar;
+using namespace poplar; 
 using namespace poplar::program;
 
 namespace conv {
@@ -222,7 +222,7 @@ public:
   }
 
   unsigned getNumPatches() const {
-    return getNumPatchesX() * getNumPatchesY();
+      return getNumPatchesX() * getNumPatchesY();
   }
 
   unsigned getNumOutputsPerPatchX() const {
@@ -237,6 +237,8 @@ public:
     return getNumPatches() * zo/zocOut;
   }
 
+  /* Tile mapping for input patch 
+   */
   unsigned getTileForInputPatch(
             unsigned zigTile,
             unsigned zogTile,
@@ -248,7 +250,48 @@ public:
   }
 
 
+  std::pair<unsigned, unsigned> getOutPatchInfo(unsigned tile) const {
+    /*
+     * Input patches are mapped such that all patches for a some input and 
+     * output channel groups are mapped first
+     */
+    const auto inputTile = tile % tilesForPatches;
+    const auto patchS = inputTile * patchesPerTile;
+    const auto patchE = std::min(getNumPatches(), patchS + patchesPerTile);
 
+    const auto patches = patchE - patchS;
+
+    /* the input patches per tile are sub-divided such that they are distributed
+     * across tilesForZig. 
+     */
+    const auto outPatchesPerTile = (patches + tilesForZig - 1)/tilesForZig;
+
+    /* get to which tile group the output patch is assigned to */
+    const auto tileGroup = tile/(tilesForZog * tilesForPatches);
+
+    /* "patches" are distributed evenly with constraint the there can be 
+     * at most "outPatchesPerTile patches assigned 
+     */ 
+    const auto numPatchesInTile =  
+          std::min(patches - std::min(tileGroup * outPatchesPerTile, patches),
+                   outPatchesPerTile);
+
+    /* it is possible that this gives the wrong result but the number of
+     * patches in tile will be zero in such a case
+     */
+    const auto startPatchInTile = patchS + outPatchesPerTile * tileGroup;
+
+    return std::make_pair(startPatchInTile, numPatchesInTile);
+  }
+
+  std::pair<unsigned, unsigned> getOutZogInfo(unsigned tile) const {
+    const auto zogS = std::min(
+                        ((tile / tilesForPatches) % tilesForZog) * zogPerTile,
+                        zog);
+    const auto numZog = std::min(zog - zogS, zogPerTile); 
+
+    return std::make_pair(zogS, numZog);
+  }
 };
 
 uint64_t WgdTilePartition::tilePartition(
@@ -353,14 +396,14 @@ uint64_t WgdTilePartition::tilePartition(
         Cost ecKTf1 = (numKTfElems * kernelX * kernelY * kWl) / eWl;
         Cost ccKTf1 = getWgdKernelTransformCycles(
                                                   numKTfBlocks1,
-                                                  dType == "float")
+                                                  isFloat)
                       * numWorkers;
 
         const unsigned numKTfUnits = (zi * zo/kUnitSize
                                        + numTiles - 1)/numTiles;
         const unsigned numKTfBlocks2 = (numKTfUnits + numWorkers - 1)
                                        / numWorkers;
-        Cost ecKTf2 = (numKTfElems * patchSizeX * patchSizeY * kTfWl;
+        Cost ecKTf2 = (numKTfElems * patchSizeX * patchSizeY * kTfWl) / eWl;
         Cost ccKTf2 = getWgdKernelTransformCycles(numKTfBlocks2 * kUnitSize,
                                                 isFloat) * numWorkers;
 
@@ -553,7 +596,7 @@ uint64_t WgdTilePartition::tilePartition(
         #endif
 
         Cost totalECost = std::inner_product(ec.begin(), ec.end(),
-                                            enableCost.begin(), 0)
+                                            enableCost.begin(), 0) 
                           * 100/exchEfficiency;
         Cost totalCCost = std::inner_product(cc.begin(), cc.end(),
                                              enableCost.begin(), 0);
@@ -1421,23 +1464,21 @@ static Program reduce(
 
   ComputeSet cs = graph.createComputeSet(layerName + ".reduce");
 
-  for (unsigned tile = 0, patch = 0; patch < tp.getTotalOutputPatches();
-               ++tile, patch += tp.outPatchesPerTile) {
-    auto patchesThisTile = std::min(tp.outPatchesPerTile,
-                                    tp.getTotalOutputPatches() - patch);
+  for (unsigned tile = 0; tile < deviceInfo.getNumTiles(); ++tile) { 
 
-    auto depth = std::min(tp.zocOut, tp.zoc);
-    auto zFactor = tp.zocOut/depth;
+    /* get information on patches assigned to this tile */
+    unsigned patchS, patchesThisTile, zogS, numZog;
+    std::tie(patchS, patchesThisTile) = tp.getOutPatchInfo(tile);
+    std::tie(zogS, numZog) = tp.getOutZogInfo(tile);
+
 
     /* each element is of size depth */
-    auto totalElems = patchesThisTile * zFactor
-                      * tp.patchSizeX * tp.patchSizeY;
+    auto totalElems = patchesThisTile * tp.patchSizeX * tp.patchSizeY * numZog;
 
-    auto elemsPerVertex = (totalElems + numWorkers - 1)
-                          / numWorkers;
+    const auto elemsPerVertex = (totalElems + numWorkers - 1) / numWorkers;
 
     for (unsigned vertex = 0; vertex < numWorkers && totalElems; ++vertex) {
-      auto elemsThisVertex = std::min(elemsPerVertex, totalElems);
+      const auto elemsThisVertex = std::min(elemsPerVertex, totalElems);
 
       auto v = graph.addVertex(cs,
                                templateVertex("WgdReduce", tp.dType,
@@ -1446,65 +1487,38 @@ static Program reduce(
       graph.setFieldSize(v["inPartial"], elemsThisVertex * tp.tilesForZig);
       graph.setFieldSize(v["outPartial"], elemsThisVertex);
 
-      #if DEBUG_PRINT >= 2
+      #if DEBUG_PRINT >= 0
       std::cout << "Reduce:: tile : "<< tile << "   vertex : ";
       std::cout << vertex << " elems this vertex :";
-      std::cout << elemsThisVertex << std::endl;
+      std::cout << elemsThisVertex << " #inputss " << tp.tilesForZig<<std::endl;
 
       #endif
 
       for (unsigned elem = 0; elem < elemsThisVertex; ++elem) {
-        const auto thisElem = patch * zFactor *  tp.patchSizeX * tp.patchSizeY
-                              + vertex * elemsPerVertex + elem;
+        const auto thisElem = vertex * elemsPerVertex + elem;
 
-        const auto absPatch = thisElem /
-                             (zFactor * tp.patchSizeX * tp.patchSizeY);
-        const auto thisPatch = absPatch % tp.getNumPatches();
-        const auto thisOutCh  = (thisElem /
-                                          (tp.patchSizeX * tp.patchSizeY
-                                           * tp.getNumPatches() * zFactor))
-                                * tp.zocOut
-                                + (thisElem % zFactor) * depth;
+        const auto thisPatch = patchS + 
+                (thisElem / (tp.patchSizeX * tp.patchSizeY)) % patchesThisTile;
+                            
+        const auto thisZog  = thisElem / (tp.patchSizeX * tp.patchSizeY
+                                          * patchesThisTile);
 
-        const auto ogOut = thisOutCh / tp.zocOut;
-        const auto ogIn = thisOutCh / tp.zoc;
-        const auto slSIn = thisOutCh % depth;
-        const auto slEIn = slSIn + depth;
-        const auto slSOut = thisOutCh % tp.zocOut;
-        const auto slEOut = slSOut + depth;
-        const auto patchElem = (thisElem / zFactor)
-                               % (tp.patchSizeX * tp.patchSizeY);
+        const auto patchElem = thisElem % (tp.patchSizeX * tp.patchSizeY);
         const auto y = patchElem / tp.patchSizeX;
         const auto x = patchElem % tp.patchSizeX;
 
         for (unsigned ig = 0; ig < tp.tilesForZig; ++ig) {
 
-          #if DEBUG_PRINT >= 2
-          std::cout << "Input: [" << ogIn << "][" << ig;
-          std::cout << "][" << thisPatch << "][" << y << "][" << x;
-          std::cout << "] " << slSIn << ":" << slEIn << " -> ";
-          std::cout << (elem * ig) << std::endl;
-          #endif
-          graph.connect(acc[ogIn][ig][thisPatch][y][x].flatten().slice(
-                        slSIn, slEIn),
+          graph.connect(acc[zogS + thisZog][ig][thisPatch][y][x].flatten(),
                         v["inPartial"][elem * tp.tilesForZig + ig]);
 
         }
 
+        Tensor redPart = red[zogS + thisZog][thisPatch][y][x].flatten();
 
-        #if DEBUG_PRINT >= 2
+        graph.connect(v["outPartial"][elem], redPart);
 
-        std::cout << "Output: " << elem << " <- [" << ogOut;
-        std::cout << "][" << thisPatch << "][" << y << "][" << x;
-        std::cout << "]" << slSOut << ":" << slEOut << std::endl;
-
-        #endif
-
-        graph.connect(v["outPartial"][elem],
-                      red[ogOut][thisPatch][y][x].flatten().slice(
-                      slSOut, slEOut));
-        graph.setTileMapping(red[ogOut][thisPatch][y][x].flatten().slice(
-                      slSOut, slEOut), tile);
+        graph.setTileMapping(redPart, tile);
 
       }
       totalElems -= elemsThisVertex;
@@ -1525,16 +1539,17 @@ static Program inverseTransform(
 
   ComputeSet cs = graph.createComputeSet(layerName + ".invTransform");
 
-  for (unsigned tile = 0, patch = 0; patch < tp.getTotalOutputPatches();
-               ++tile, patch += tp.outPatchesPerTile) {
-    auto tuplesPerZoc = tp.zocOut / WgdTilePartition::iUnitSize;
+  for (unsigned tile = 0; tile < deviceInfo.getNumTiles(); ++tile) {
 
-    auto tuplesThisTile = std::min(tp.outPatchesPerTile,
-                                    tp.getTotalOutputPatches() - patch)
-                          * tuplesPerZoc;
+    unsigned patchS, patchesThisTile, zogS, numZog;
+    std::tie(patchS, patchesThisTile) = tp.getOutPatchInfo(tile);
+    std::tie(zogS, numZog) = tp.getOutZogInfo(tile);
+
+
+    auto tuplesThisTile = numZog * patchesThisTile * tp.zoc 
+                          / WgdTilePartition::iUnitSize;
 
     /* split across number of workers */
-
     const auto tuplesPerVertex = (tuplesThisTile + numWorkers - 1)
                                             / numWorkers;
     for (unsigned vertex = 0; vertex < numWorkers && tuplesThisTile;
@@ -1554,22 +1569,22 @@ static Program inverseTransform(
 
 
       for (unsigned tuple = 0; tuple < tuplesThisVertex; ++tuple) {
-        auto thisTuple = patch * tuplesPerZoc + vertex * tuplesPerVertex
-                         + tuple;
+        auto thisTuple = (vertex * tuplesPerVertex + tuple) 
+                         * WgdTilePartition::iUnitSize;
+        auto patch = (thisTuple / tp.zoc) % patchesThisTile;
+        auto og = thisTuple / (tp.zoc * patchesThisTile);
 
-        auto absPatch = thisTuple / tuplesPerZoc;
-        auto thisPatch = absPatch % tp.getNumPatches();
-        auto ogOut = absPatch/tp.getNumPatches();
 
 
         for (unsigned y = 0; y < tp.patchSizeY; ++y) {
           for (unsigned x = 0; x < tp.patchSizeX; ++x) {
             auto idxIn = tuple * tp.patchSizeX * tp.patchSizeY +
                          y * tp.patchSizeX + x ;
-            auto slS = (thisTuple % tuplesPerZoc) * WgdTilePartition::iUnitSize;
+            auto slS = thisTuple % tp.zoc;
             auto slE = slS + WgdTilePartition::iUnitSize;
-            graph.connect(in[ogOut][thisPatch][y][x].flatten().slice(slS, slE),
-                              v["dTf"][idxIn]);
+            graph.connect(in[og + zogS][patchS + patch][y][x].flatten().slice(
+                            slS, slE),
+                          v["dTf"][idxIn]);
             #if DEBUG_PRINT >= 2
             std::cout << "Inv: tile : "<<tile<< " vertex : "<<vertex<<std::endl;
             std::cout << "input: [" << ogOut <<"]["<<thisPatch<<"]["<<y<<"][";
@@ -1588,16 +1603,17 @@ static Program inverseTransform(
             std::cout << "output: [" << ogOut <<"]["<<thisPatch<<"]["<<y<<"][";
             std::cout << x<<"] <- " << idxOut << std::endl;
             #endif
-            auto slS = (thisTuple % tuplesPerZoc)*4;
+            auto slS = thisTuple % tp.zoc;
             auto slE = slS + 4;
 
-            graph.connect(v["dOut"][idxOut],
-                             out[ogOut]
-                                [thisPatch][y][x].flatten().slice(slS, slE));
+            Tensor outPart = out[zogS + og]
+                                [patchS + patch][y]
+                                [x].flatten().slice(slS, slE);
 
-            graph.setTileMapping(out[ogOut]
-                                    [thisPatch]
-                                    [y][x].flatten().slice(slS, slE), tile);
+
+            graph.connect(v["dOut"][idxOut], outPart);
+                             
+            graph.setTileMapping(outPart, tile);
           }
         }
       }
@@ -1606,6 +1622,7 @@ static Program inverseTransform(
   }
   return Execute(cs);
 }
+
 
 
 static Program complete(
@@ -1617,95 +1634,112 @@ static Program complete(
               Tensor bias,
               NonLinearityType nonLinearityType) {
   ComputeSet cs = graph.createComputeSet(layerName + ".complete");
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const unsigned numWorkers = deviceInfo.numWorkerContexts;
 
-  for (unsigned tile = 0, patch = 0; patch < tp.getTotalOutputPatches();
-               ++tile, patch += tp.outPatchesPerTile) {
-    auto patchesThisTile = std::min(tp.outPatchesPerTile,
-                                    tp.getTotalOutputPatches() - patch);
+  for (unsigned tile = 0; tile < deviceInfo.getNumTiles(); ++tile) {
 
+    unsigned patchS, patchesThisTile, zogS, numZog;
+    std::tie(patchS, patchesThisTile) = tp.getOutPatchInfo(tile);
+    std::tie(zogS, numZog) = tp.getOutZogInfo(tile);
 
-    for (unsigned p = 0; p < patchesThisTile; ++p) {
-      auto absPatch = patch + p;
-      auto thisPatch = absPatch % tp.getNumPatches();
-      auto ogOut = absPatch/tp.getNumPatches();
+    #if DEBUG_PRINT >= 2
+    std::cout << "tile " << tile << " patches: " << patchS << ":";
+    std::cout << patchesThisTile << " zog :" << zogS;
+    std::cout << ":" << numZog << std::endl;
+    #endif
+
+    assert(std::max(tp.zoc, tp.zocOut) % std::min(tp.zoc. to.zocOut) == 0);
+    const auto depth =  std::min(tp.zoc, tp.zocOut);
+    const auto zFactor = tp.zoc <= tp.zocOut ? 1 : tp.zocOut/tp.zoc;
+
+    auto totalUnits = zFactor * patchesThisTile * numZog;
+
+    const auto unitsPerVertex = (totalUnits + numWorkers - 1)/numWorkers;
+
+    for (auto vertex = 0U; vertex < numWorkers && totalUnits; ++vertex) {
+      const auto unitsThisVertex = std::min(unitsPerVertex, totalUnits);
 
       auto v = graph.addVertex(cs, templateVertex("WgdConvComplete", tp.dType));
       graph.setTileMapping(v, tile);
 
-      /* keep track of number of elements as some may be skipped */
       unsigned elem = 0;
 
-      unsigned xPosS, yPosS;
-      std::tie(xPosS, yPosS) = tp.getOutIdxForPatch(thisPatch);
+      for (auto unit = 0U; unit < unitsThisVertex; ++unit) {
+        const auto thisUnit = vertex * unitsPerVertex + unit;
+        const auto patch = (thisUnit/zFactor) % patchesThisTile;
+        const auto thisPatch = patchS + patch;
+        const auto oc = (zogS + thisUnit/(patchesThisTile * zFactor)) * tp.zoc 
+                        + (thisUnit % zFactor) * depth;
 
-      auto xPosE = std::min(xPosS + tp.getNumOutputsPerPatchX(),
-                            tp.getOutputSizeX());
-      auto yPosE = std::min(yPosS + tp.getNumOutputsPerPatchY(),
-                            tp.getOutputSizeY());
+        #if DEBUG_PRINT == 2
+        std::cout << "unit " << thisUnit << " " << tp.zoc << " ";
+        std::cout << tp.zocOut << " " << depth << " " << zFactor;
+        std::cout << " oc " << oc << std::endl; 
+        #endif
 
-      #if DEBUG_PRINT >= 2
-      std::cout << "(complete) tile: " << tile << " patch : " << thisPatch;
-      std::cout << " xPosS:xPosE " << xPosS << " " << xPosE;
-      std::cout << " yPosS:yPosE " << yPosS << " " << yPosE << std::endl;
-      #endif
+        auto ogIn = oc / tp.zoc;
+        auto ocIn = oc % tp.zoc;
+        auto ogOut = oc / tp.zocOut;
+        auto ocOut = oc % tp.zocOut;
 
 
-      for (unsigned y = yPosS; y < yPosE; ++y) {
-        for (unsigned x = xPosS; x < xPosE; ++x) {
+        unsigned xPosS, yPosS;
+        std::tie(xPosS, yPosS) = tp.getOutIdxForPatch(thisPatch);
 
-          #if DEBUG_PRINT >= 2
-          std::cout << "in[" << ogOut << "][" << thisPatch << "][";
-          std::cout << (y-yPosS) << "][" << (x-xPosS) << "] -> ";
-          std::cout << elem << std::endl;
-          #endif
+        auto xPosE = std::min(xPosS + tp.getNumOutputsPerPatchX(),
+                              tp.getOutputSizeX());
+        auto yPosE = std::min(yPosS + tp.getNumOutputsPerPatchY(),
+                              tp.getOutputSizeY());
 
-          #if DEBUG_PRINT >= 2
-          std::cout << "act[" << ogOut << "][" << y << "][";
-          std::cout << x << "] -> " << elem << std::endl;
-          #endif
 
-          graph.connect(in[ogOut][thisPatch][y-yPosS][x-xPosS].flatten(),
-                        v["dIn"][elem]);
-          graph.connect(v["act"][elem], act[ogOut][y][x].flatten());
-          ++elem;
+        for (unsigned y = yPosS; y < yPosE; ++y) {
+          for (unsigned x = xPosS; x < xPosE; ++x) {
+
+            #if DEBUG_PRINT >= 2
+            std::cout << "in[" << ogOut << "][" << thisPatch << "][";
+            std::cout << (y-yPosS) << "][" << (x-xPosS) << "] -> ";
+            std::cout << elem << std::endl;
+            #endif
+
+            #if DEBUG_PRINT >= 2
+            std::cout << "act[" << ogOut << "][" << y << "][";
+            std::cout << x << "][" << ocOut << ":" << (ocOut+depth) << "] <- ";
+            std::cout << elem << std::endl;
+            #endif
+
+            graph.connect(in[ogIn][thisPatch][y-yPosS][x-xPosS].flatten().slice(
+                              ocIn, ocIn + depth),
+                          v["dIn"][elem]);
+            graph.connect(v["act"][elem], 
+                          act[ogOut][y][x].flatten().slice(ocOut, ocOut + depth));
+            graph.connect(bias.slice(oc, oc + depth), v["bias"][elem]);
+            ++elem;
+          }
         }
       }
 
-      #if DEBUG_PRINT >= 2
-      std::cout << "bias " << (ogOut * tp.zocOut) << ":";
-      std::cout << ((ogOut + 1) * tp.zocOut) << " -> " << p << std::endl;
-      #endif
-      graph.connect(bias.slice(ogOut * tp.zocOut, (ogOut + 1) * tp.zocOut),
-                    v["bias"]);
-
       graph.setFieldSize(v["dIn"], elem);
       graph.setFieldSize(v["act"], elem);
+      graph.setFieldSize(v["bias"], elem);
+
       graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
+
+      totalUnits -= unitsThisVertex;
     }
   }
-
   return Execute(cs);
 }
 
 
-extern Program winogradConvolution(
-              Graph &graph,
-              unsigned kernelSize,
-              unsigned stride,
-              unsigned padding,
-              unsigned xDim,
-              unsigned yDim,
-              unsigned outNumChans,
-              unsigned patchSizeX,
-              unsigned patchSizeY,
-              NonLinearityType nonLinearityType,
-              std::string dType,
-              Tensor in,
-              Tensor weights,
-              Tensor biases,
-              Tensor activations,
-              ResidualMethod resMethod,
-              Tensor resIn) {
+extern Program winogradConvolution(Graph &graph,
+            unsigned kernelSize, unsigned stride, unsigned padding,
+            unsigned xDim, unsigned yDim,
+            unsigned outNumChans, unsigned patchSizeX, unsigned patchSizeY,
+            NonLinearityType nonLinearityType,
+            std::string dType,
+            Tensor in, Tensor weights, Tensor biases, Tensor activations,
+            ResidualMethod resMethod, Tensor resIn) {
 
 #if DEBUG_PRINT >= 1
   std::cout << "xDim: " << xDim << std::endl;
@@ -1721,6 +1755,9 @@ extern Program winogradConvolution(
   std::cout << "weights.dim(3) :" << weights.dim(3) << std::endl;
   std::cout << "weights.dim(4) :" << weights.dim(4) << std::endl;
   std::cout << "weights.dim(5) :" << weights.dim(5) << std::endl;
+
+  std::cout << "activations.dim(3) :" << activations.dim(3) << std::endl;
+
 #endif
 
   /* assumption that number of input channels per group must be same 
@@ -1749,11 +1786,7 @@ extern Program winogradConvolution(
   const auto layerName = "Wgd Conv" + std::to_string(kernelSize) 
                          + "x" + std::to_string(kernelSize) + ".fwd";
 
-
-  wgdMapWeights(
-              graph,
-              tp,
-              weights);
+  wgdMapWeights(graph, tp, weights);
 
   std::vector<Tensor> dataTf = allocateDataTfTensor(graph, tp);
   prog.add(computeDataTransform(graph, tp, layerName, in, dataTf));
@@ -1779,11 +1812,11 @@ extern Program winogradConvolution(
 
   Tensor invTfIn = graph.addTensor(dType,
                                    {
-                                     tp.zo/tp.zocOut,
+                                     tp.zog,
                                      tp.getNumPatches(),
                                      patchSizeY,
                                      patchSizeX,
-                                     tp.zocOut
+                                     tp.zoc
                                    },
                                    "WgdInvTrfIn");
 
@@ -1792,11 +1825,11 @@ extern Program winogradConvolution(
 
   Tensor invTfOut = graph.addTensor(dType,
                                    {
-                                     tp.zo/tp.zocOut,
+                                     tp.zog,
                                      tp.getNumPatches(),
                                      tp.getNumOutputsPerPatchY(),
                                      tp.getNumOutputsPerPatchX(),
-                                     tp.zocOut
+                                     tp.zoc
                                    },
                                    "WgdInvTrfOut");
 
