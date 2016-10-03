@@ -1734,7 +1734,7 @@ matrixMultiplyByConvInstruction(Graph &graph, Partition partition,
   if (partition.tilesPerInZGroupAxis > 1) {
     auto reduceCS = graph.createComputeSet("reduce");
     reduce(graph, partition, outNumChans, outNumChans / outChansPerGroup,
-           partials, out, cTileMapping, reduceCS);
+           partials[0], out[0], cTileMapping, reduceCS);
     prog.add(Execute(reduceCS));
   }
   return prog;

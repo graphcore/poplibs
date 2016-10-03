@@ -313,11 +313,30 @@ static bool checkIsClose(double a, double b, double relativeTolerance) {
   return boost::math::fpc::close_at_tolerance<double>(relativeTolerance)(a, b);
 }
 
+std::string prettyCoord(const std::string &name, std::size_t index,
+                        const std::vector<std::size_t> &dims) {
+  std::string str = name + "[";
+  auto N = std::accumulate(dims.begin(), dims.end(), std::size_t(1),
+                           std::multiplies<size_t>());
+  for (unsigned i = 0; i != dims.size(); ++i) {
+    N = N / dims[i];
+    if (i != 0)
+        str = str += ",";
+    str = str += std::to_string(index / N);
+    index = index % N;
+  }
+  str += "]";
+  return str;
+}
+
 template <std::size_t N>
 static bool checkIsClose(const std::string &name,
                          const boost::multi_array<double, N> &actual,
                          const boost::multi_array<double, N> &expected,
                          double relativeTolerance) {
+  std::vector<std::size_t> dims;
+  for (unsigned i = 0; i != N; ++i)
+    dims.push_back(actual.shape()[i]);
   if (actual.num_elements() != expected.num_elements()) {
     std::cerr << "mismatched number of elements [" + name + "]:";
     std::cerr << " expected=" << expected.num_elements();
@@ -331,7 +350,7 @@ static bool checkIsClose(const std::string &name,
   for (; it != end; ++it, ++expectedIt) {
     if (!checkIsClose(*it, *expectedIt, relativeTolerance)) {
       const auto n = it - actual.data();
-      std::cerr << "mismatch on element [" + name + "] " << n << ':';
+      std::cerr << "mismatch on element " << prettyCoord(name, n, dims) << ':';
       std::cerr << " expected=" << *expectedIt;
       std::cerr << " actual=" << *it << '\n';
       isClose = false;

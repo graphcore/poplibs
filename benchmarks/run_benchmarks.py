@@ -50,13 +50,13 @@ fields = [
     ('Global exchange cycles',
      'Global exchange cycles\s*:\s*(?P<value>[0-9.]+)'),
     ('Send',
-     'Send\s*:\s*(?P<value>[0-9.]+)'),
+     'Send\s*:\s*(?P<value>[0-9.]+) (?!\s*bytes)'),
     ('Receive mux',
-     'Receive mux\s*:\s*(?P<value>[0-9.]+)'),
+     'Receive mux\s*:\s*(?P<value>[0-9.]+) (?!\s*bytes)'),
     ('Receive ptr',
-     'Receive ptr\s*:\s*(?P<value>[0-9.]+)'),
+     'Receive ptr\s*:\s*(?P<value>[0-9.]+) (?!\s*bytes)'),
     ('Nop',
-     'Nop\s*:\s*(?P<value>[0-9.]+)'),
+     'Nop\s*:\s*(?P<value>[0-9.]+) (?!\s*bytes)'),
     ('Tile sync',
      'Tile sync\s+:\s+(?P<value>[0-9.]+)'),
     ('IPU sync',
@@ -73,7 +73,7 @@ fields = [
 
 aggregated_fields = [
     ('Parameters',
-     '        Params: (?P<value>[0-9.]+)')
+     'Params: (?P<value>[0-9.]+)')
 ]
 
 param_info = {'--ipus': {'desc': 'Num IPUs', 'default': '1'},
@@ -115,6 +115,7 @@ def write(runs, filename):
     def setParamCell(heading, cell, params, data):
         cell.value = params[heading]
 
+
     def setDataCell(heading, cell, params, data, number_format=None):
         # Infomation may be missing in some cases, for example the number of
         # global exchange cycles is not reported if only 1 IPU is targeted.
@@ -123,10 +124,22 @@ def write(runs, filename):
         if number_format:
             cell.number_format = number_format
 
-    def setTotalCell(firstOffset, lastOffset, heading, cell, params, data):
-        first = cell.offset(column=firstOffset)
-        last = cell.offset(column=lastOffset)
+    def setTotalCell(firstOffset, lastOffset, direction, heading, cell, params,
+                     data):
+        if (direction=='row'):
+            first = cell.offset(column=firstOffset)
+            last = cell.offset(column=lastOffset)
+        else:
+            first = cell.offset(row=firstOffset)
+            last = cell.offset(row=lastOffset)
         cell.value = '=SUM({}:{})'.format(first.coordinate, last.coordinate)
+
+    def calcIdleExchange(heading, cell, params, data):
+        # Calculate the number of cycles in the exchange phase with no
+        # transmit or receive activity
+        cell.value = '=SUM({}:{})*(1-{})'.format(cell.offset(column=-8).coordinate,
+                                             cell.offset(column=-5).coordinate,
+                                             cell.offset(column=+1).coordinate)
 
     def completeParams(params):
         params = dict(params)
@@ -150,11 +163,12 @@ def write(runs, filename):
         ('Message memory', setDataCell),
         ('Run instructions', setDataCell),
         ('Exchange supervisor code', setDataCell),
-        ('Total memory usage', partial(setTotalCell, -7, -1)),
+        ('Total memory usage', partial(setTotalCell, -7, -1, 'row')),
         ('Execution time(us)', setDataCell),
     ]
 
     headings2 = [
+        ('Executions', setDataCell),
         ('Compute cycles', setDataCell),
         ('Global exchange cycles', setDataCell),
         ('Send', setDataCell),
@@ -164,7 +178,8 @@ def write(runs, filename):
         ('Tile sync', setDataCell),
         ('IPU sync', setDataCell),
         ('Global sync', setDataCell),
-        ('Total cycle count', partial(setTotalCell, -9, -1)),
+        ('Total cycle count', partial(setTotalCell, -9, -1, 'row')),
+        ('Idle exchange cycles', calcIdleExchange),
         ('Exchange activity', partial(setDataCell, number_format='0.0%')),
         ('Exchange supervisor code', setDataCell),
         ('Message memory', setDataCell),
@@ -193,10 +208,10 @@ def write(runs, filename):
     for y, (params, logname, layer_data) in enumerate(runs):
         cparams = completeParams(params)
         description = ','.join(["{0}={1}".format(*p) for p in cparams.iteritems()])
-        ws.cell(row=1, column=1).value = description
-        ws.cell(row=1, column=1).font = Font(bold=True)
         title = "Scenario %d" % y
         ws = wb.create_sheet(title = title)
+        ws.cell(row=1, column=1).value = description
+        ws.cell(row=1, column=1).font = Font(bold=True)
         write_headings(ws, layer_headings, 2)
 
         for y, data in enumerate(layer_data[1:]):
@@ -216,11 +231,12 @@ def parse(lines):
     found_start = False
     for line in lines:
         line = line.rstrip().lstrip()
-        m = re.match('(?P<name>.*)\s*\(\d+ execution.*', line)
+        m = re.match('(?P<name>.*)\s*\((?P<executions>\d+) execution.*', line)
         if m:
             layer_data.append(data)
             data = dict()
             data['Layer ID'] = m.group('name')
+            data['Executions'] = int(m.group('executions'))
         for (name, expr) in fields:
             # The report starts with a summary of the overall cycle count for
             # the whole application. This is followed by per IPU cycle counts
@@ -356,6 +372,7 @@ def main():
                         'alexnet --batch-size=16',
                         'resnet34 --batch-size=16',
                         'resnet50 --batch-size=16',
+                        #'alexnet --batch-size=32', # this is too big, it takes >1hour to generate
                         'resnet34 --batch-size=32',
                         'resnet50 --batch-size=32',
                         'resnet34 --batch-size=64',

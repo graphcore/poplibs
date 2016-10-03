@@ -271,13 +271,23 @@ public:
                                inChansPerGroup;
           unsigned inStride, outStride;
           if (forward) {
-            inStride = (inWidth + outWidth - 1) / outWidth;
-            assert((inWidth + inStride - 1) / inStride == outWidth);
-            outStride = 1;
+            if (outWidth == 1) {
+              assert(inWidth == 1);
+              inStride = outStride = 1;
+            } else {
+              assert((inWidth - 1) % (outWidth - 1) == 0);
+              inStride = (inWidth - 1) / (outWidth - 1);
+              outStride = 1;
+            }
           } else {
-            outStride = (outWidth + inWidth - 1) / inWidth;
-            assert((outWidth + outStride - 1) / outStride == inWidth);
-            inStride = 1;
+            if (inWidth == 1) {
+              assert(outWidth == 1);
+              inStride = outStride = 1;
+            } else {
+              assert((outWidth - 1) % (inWidth - 1) == 0);
+              outStride = (outWidth - 1) / (inWidth - 1);
+              inStride = 1;
+            }
           }
           const auto numOutputs = (outWidth + outStride - 1) / outStride;
           for (unsigned x = 0; x != numOutputs; ++x) {
