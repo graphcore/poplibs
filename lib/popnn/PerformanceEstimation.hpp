@@ -220,7 +220,7 @@ inline uint64_t getWgdAccumCycles(
 inline uint64_t getWgdReduceCycles(unsigned numPencils, unsigned depth,
                           bool isFloat) {
   unsigned chansPerOp = isFloat ? 2 : 4;
-  return 5 + ((depth + chansPerOp - 1)/chansPerOp) * numPencils;
+  return 5 + ((numPencils * depth + chansPerOp - 1)/chansPerOp);
 }
 
 

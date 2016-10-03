@@ -12,7 +12,7 @@
 #include <utility>
 
 
-#define DEBUG_PRINT 1
+#define DEBUG_PRINT 0
 
 
 using namespace poplar; 
@@ -332,10 +332,9 @@ uint64_t WgdTilePartition::tilePartition(
   outPatchesPerTile = (getNumPatches() * zo/outZoc + numTiles - 1)
                             / numTiles;
 
-  /* exchange transfer wordlength */
-  const unsigned eWl = deviceInfo.exchangeBytesPerCycle;
+  /* exchange transfer bytes per cycle */
+  const unsigned eBytesPerCycle = deviceInfo.exchangeBytesPerCycle;
 
-  /* this may not be portable: use boost?? */
   Cost bestCost = std::numeric_limits<uint64_t>::max();
 
   for (unsigned tilesForPatches = 1;
@@ -382,18 +381,19 @@ uint64_t WgdTilePartition::tilePartition(
          * we compute both costs and select the one which is cheaper
          */
 
-        /* Wordlength of untransformed kernel */
-        const unsigned kWl   = isFloat ? 4 : 2;
+        /* size in bytes of each element of untransformed kernel */
+        const unsigned kSizeInBytes   = isFloat ? 4 : 2;
 
-        /* Wordlength of transformed kernel :
+        /* size in bytes of each element of transformed kernel :
          * numkTfElems represent the number of transforms. A group of elements
          * of size kUnitSize is called an unit
          */
-        const unsigned kTfWl = isFloat ? 4 : 2;
+        const unsigned kTfSizeInBytes = isFloat ? 4 : 2;
         const unsigned numKTfElems = zigPerTile * zogPerTile * zic * zoc;
         unsigned numKTfBlocks1 = (numKTfElems + numWorkers - 1)/numWorkers;
 
-        Cost ecKTf1 = (numKTfElems * kernelX * kernelY * kWl) / eWl;
+        Cost ecKTf1 = (numKTfElems * kernelX * kernelY * kSizeInBytes) 
+                      / eBytesPerCycle;
         Cost ccKTf1 = getWgdKernelTransformCycles(
                                                   numKTfBlocks1,
                                                   isFloat)
@@ -403,7 +403,8 @@ uint64_t WgdTilePartition::tilePartition(
                                        + numTiles - 1)/numTiles;
         const unsigned numKTfBlocks2 = (numKTfUnits + numWorkers - 1)
                                        / numWorkers;
-        Cost ecKTf2 = (numKTfElems * patchSizeX * patchSizeY * kTfWl) / eWl;
+        Cost ecKTf2 = (numKTfElems * patchSizeX * patchSizeY * kTfSizeInBytes) 
+                      / eBytesPerCycle;
         Cost ccKTf2 = getWgdKernelTransformCycles(numKTfBlocks2 * kUnitSize,
                                                 isFloat) * numWorkers;
 
@@ -434,11 +435,11 @@ uint64_t WgdTilePartition::tilePartition(
          * we compute both costs and select the one which is cheaper
          */
 
-        /* wordlength of transformed data */
-        const unsigned dTfWl = isFloat ? 4 : 2;
+        /* Size in bytes of each element of transformed data */
+        const unsigned dTfSizeInBytes = isFloat ? 4 : 2;
 
-        /* wordlength of input data */
-        const unsigned dWl = isFloat ? 4 : 2;
+        /* Size in bytes of each element of input data*/
+        const unsigned dSizeInBytes = isFloat ? 4 : 2;
 
         /* numDtfElems is the number of transforms and a group containing
          * dUnitSize is called an unit
@@ -451,12 +452,13 @@ uint64_t WgdTilePartition::tilePartition(
         const unsigned numDTfBlocks2 = (numDTfUnits + numWorkers -1)
                                         / numWorkers;
 
-        Cost ecDTf1 = (numDTfElems * patchSizeX * patchSizeY * dWl) / eWl;
+        Cost ecDTf1 = (numDTfElems * patchSizeX * patchSizeY * dSizeInBytes) 
+                       / eBytesPerCycle;
         Cost ccDTf1 = getWgdDataTransformCycles(numDTfBlocks1, isFloat)
                       * numWorkers;
-        Cost ecDTf2 = (numDTfElems * patchSizeX * patchSizeY * dTfWl
+        Cost ecDTf2 = (numDTfElems * patchSizeX * patchSizeY * dTfSizeInBytes
                       + dUnitSize * numDTfUnits * patchSizeX * patchSizeY
-                        * dWl) / eWl;
+                        * dSizeInBytes) / eBytesPerCycle;
         Cost ccDTf2 = getWgdDataTransformCycles(numDTfBlocks2 * dUnitSize,
                                               isFloat) * numWorkers;
         bool replicateDTf = true;
@@ -482,8 +484,8 @@ uint64_t WgdTilePartition::tilePartition(
         /* compute accumulate cost: all the data is local to a tile and hence
          * needn't be exchanged
          */
-        /* wordlength of accumulated output (or partials) */
-        const unsigned accWl = isFloat ? 4 : 2;
+        /* size in bytes of accumulated output (or partials) */
+        const unsigned accSizeInBytes = isFloat ? 4 : 2;
         Cost ecAcc = 0;
         const auto weightsPerConvUnit =
                                 deviceInfo.getWeightsPerConvUnit(isFloat);
@@ -507,13 +509,6 @@ uint64_t WgdTilePartition::tilePartition(
                                     zoc, numWorkers, numConvUnits,
                                     weightsPerConvUnit, isFloat) * numWorkers;
         }
-        /* add cost of zeroing of partials */
-        if (zigPerTile > 1) {
-          auto numZeroUnits = (patchSizeX * patchSizeY * zoc
-                              * patchesPerTile * zigPerTile + numWorkers - 1)
-                              / numWorkers;
-          ccAcc += numZeroUnits * accWl/4 * numWorkers;
-        }
 
         std::get<ACCUM>(cc) = ccAcc;
         std::get<ACCUM>(ec) = ecAcc;
@@ -523,31 +518,32 @@ uint64_t WgdTilePartition::tilePartition(
         std::cout << " cc: " << ccAcc << std::endl;
         #endif
 
-
-        /* compute exchange cost for reduction. All the input channels
-         * must be brought onto a tile. The exchange cost is the max between
-         * the amount a tile has to receive and the amount each tile has to
-         * send
+        /* patches  on each tile are redistributed across number of tiles
+         * over which inout groups are spread
          */
-        /* wordlength of reduced data */
-        //const unsigned redWl = dType == "float" ? 4 : 2;
-        const auto sendCost = zogPerTile * patchesPerTile * zoc
-                              * patchSizeX * patchSizeY * accWl/eWl;
+          const auto outPatchesPerTileMin = patchesPerTile/tilesForZig;
+          const auto outPatchesPerTileMax = (patchesPerTile + tilesForZig - 1)
+                                             /tilesForZig;
 
-        const auto recvCost = outPatchesPerTile * outZoc * patchSizeX
-                              * patchSizeY
-                              * ((zig + zigPerTile - 1)/zigPerTile)
-                              * accWl/eWl;
 
-        Cost ecRed =  std::max(sendCost, recvCost);
+        /* exchange cost and compute cost is zero if all input channel groups
+         * are allocated on  single tile
+         */
+        Cost ccRed = 0;
+        Cost ecRed = 0;
+        if (tilesForZig > 1) {
 
-        unsigned numRedBlocks = (outPatchesPerTile * zocOut
-                                * patchSizeX * patchSizeY
-                                + numWorkers - 1)/numWorkers;
-        const auto numPartials = (zig + zigPerTile - 1)/zigPerTile;
+          ecRed = zoc * zogPerTile 
+                       * (patchesPerTile - outPatchesPerTileMin) 
+                       * patchSizeY * patchSizeY * dSizeInBytes/eBytesPerCycle;
 
-        Cost ccRed = getWgdReduceCycles(numRedBlocks, numPartials, isFloat)
-                     * numWorkers;
+
+          unsigned numRedBlocks = (outPatchesPerTileMax * zogPerTile 
+                                   * patchSizeX 
+                                   * patchSizeY + numWorkers - 1) / numWorkers;
+          ccRed = getWgdReduceCycles(numRedBlocks * zoc, tilesForZig, isFloat)
+                       * numWorkers;              
+        }
 
         std::get<REDUCTION>(cc) = ccRed;
         std::get<REDUCTION>(ec) = ecRed;
@@ -558,10 +554,11 @@ uint64_t WgdTilePartition::tilePartition(
         #endif
 
         /* Inverse kernel transform doesn't require exchange */
-        /* wordlength on inverse transformed data */
-        //const unsigned iTfWl = isFloat ? 4 : 2;
+        /* size in bytes of inverse transformed data */
+        //const unsigned iTfSizeInBytes = isFloat ? 4 : 2;
         Cost ecITf = 0;
-        const unsigned numITfUnits = outPatchesPerTile * outZoc/iUnitSize;
+        const unsigned numITfUnits = outPatchesPerTileMax * zoc * zogPerTile
+                                     / iUnitSize;
         const unsigned numItfBlocks = (numITfUnits + numWorkers -1)/numWorkers;
         Cost ccITf = getWgdInvTransformCycles(
                                               iUnitSize * numItfBlocks,
@@ -577,14 +574,15 @@ uint64_t WgdTilePartition::tilePartition(
         #endif
 
 
-        /* word length of layer output */
-        const unsigned cWl = isFloat ? 4 : 2;
-        Cost ecComp = (outPatchesPerTile * zocOut
-                       * getOverlapX() * getOverlapY() * cWl) / eWl;
+        /* size in bytes of layer output */
+        const unsigned cSizeInBytes = isFloat ? 4 : 2;
+        Cost ecComp = (outPatchesPerTileMax * zocOut
+                       * getOverlapX() * getOverlapY() * cSizeInBytes) 
+                       / eBytesPerCycle;
 
         std::get<COMPLETE>(ec) = ecComp;
 
-        Cost ccComp = outPatchesPerTile
+        Cost ccComp = outPatchesPerTileMax
                       * getWgdCompleteCycles(
                               zocOut * getOverlapX() * getOverlapY(),
                               nonLinearityType,
@@ -689,14 +687,17 @@ static void wgdMapWeights(
 
       const auto slS = thisUnit
                        - thisUnit/(tp.zic * tp.zoc) * (tp.zic * tp.zoc);
-      const auto slE = slS + WgdTilePartition::kUnitSize;
+      const auto oc  = (slS / tp.zic) % tp.zoc;
 
-      for (auto y = 0U; y < tp.kernelY; ++y) {
-        for (auto x = 0U; x < tp.kernelX; ++x) {
-          graph.setTileMapping(
-                weights[og][ig][y][x].flatten().slice(slS, slE), tile);
-        }
-      }
+      const auto icS = slS % tp.zic;
+
+      Tensor wPart = weights.slice(
+          {og, ig, 0, 0, oc, icS},
+          {og + 1, ig + 1, tp.kernelY, tp.kernelX, oc + 1, 
+            icS + WgdTilePartition::kUnitSize});
+
+      graph.setTileMapping(wPart, tile);
+    
     }
   }
 }
@@ -1323,7 +1324,7 @@ static Program accum(
          */
         bool accumulatePartials = zigThisTile > 1;
 
-        if (accumulatePartials) {
+        if (0) {
           /* total elements to zero */
           auto numZeroElems = tp.patchSizeX * tp.patchSizeY * patchesThisTile
                               * zogThisTile;
@@ -1487,11 +1488,10 @@ static Program reduce(
       graph.setFieldSize(v["inPartial"], elemsThisVertex * tp.tilesForZig);
       graph.setFieldSize(v["outPartial"], elemsThisVertex);
 
-      #if DEBUG_PRINT >= 0
+      #if DEBUG_PRINT >= 2
       std::cout << "Reduce:: tile : "<< tile << "   vertex : ";
       std::cout << vertex << " elems this vertex :";
-      std::cout << elemsThisVertex << " #inputss " << tp.tilesForZig<<std::endl;
-
+      std::cout << elemsThisVertex << " #inputs " << tp.tilesForZig<<std::endl;
       #endif
 
       for (unsigned elem = 0; elem < elemsThisVertex; ++elem) {
@@ -1712,7 +1712,8 @@ static Program complete(
                               ocIn, ocIn + depth),
                           v["dIn"][elem]);
             graph.connect(v["act"][elem], 
-                          act[ogOut][y][x].flatten().slice(ocOut, ocOut + depth));
+                          act[ogOut][y][x].flatten().slice(ocOut, 
+                                                           ocOut + depth));
             graph.connect(bias.slice(oc, oc + depth), v["bias"][elem]);
             ++elem;
           }

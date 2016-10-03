@@ -1680,7 +1680,10 @@ public:
             acc += dTf[idx][ic] * wTf[ig][oc * inpChanDepth + ic];
           }
           if (accumulate) {
-            partials[gr][oc] += acc;
+            if (ig == 0)
+              partials[gr][oc] = acc;
+            else
+              partials[gr][oc] += acc;              
           } else {
             partials[gr][oc] = acc;
           }
@@ -1884,7 +1887,7 @@ public:
     const unsigned nGroups = dTf.size() / (numInCols * numInRows);
     const unsigned depthDim = dOut[0].size();
 
-    return getWgdInvTransformCycles(nGroups, isFloat);
+    return getWgdInvTransformCycles(nGroups * depthDim, isFloat);
   }
 };
 
