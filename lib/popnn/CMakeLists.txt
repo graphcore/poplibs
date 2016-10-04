@@ -12,8 +12,6 @@ add_library(popnn SHARED
   ConvUtil.hpp
   ConvValidation.hpp
   ConvValidation.cpp
-  DimShuffle.hpp
-  DimShuffle.cpp
   FullyConnected.cpp
   FullyConnectedPlan.cpp
   gcd.hpp

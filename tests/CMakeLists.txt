@@ -12,7 +12,6 @@ function(add_popnn_unit_test name)
     COMMAND ${name})
 endfunction()
 # Unit tests
-add_popnn_unit_test(DimShuffleTest DimShuffleTest.cpp)
 add_popnn_unit_test(FullyConnectedTest FullyConnectedTest.cpp)
 add_popnn_unit_test(WinogradConvolution WinogradConv.cpp)
 add_popnn_unit_test(MaxPoolTest MaxPoolTest.cpp)

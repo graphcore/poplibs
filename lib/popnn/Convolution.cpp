@@ -2,7 +2,6 @@
 #include <limits>
 #include <cassert>
 #include "ConvUtil.hpp"
-#include "DimShuffle.hpp"
 #include "Pad.hpp"
 #include "popnn/ActivationMapping.hpp"
 #include "Regroup.hpp"
@@ -1534,7 +1533,8 @@ Program convolutionBackward(Graph &graph,
   // For each element of the batch, we add the reduction and regroup
   // vertices to same compute sets so the batch will be executed in parallel.
   ComputeSet reduceCS = graph.createComputeSet(layerName + ".reduce");
-  ComputeSet regroupCS = graph.createComputeSet(layerName + ".regroup");
+  auto regroups = Sequence();
+  const auto outChansPerGroup = deltasOut.dim(4);
   for (unsigned b = 0; b < batchSize; ++b) {
     auto activationsMapping =
         computeActivationsMapping(graph, deltasOut[b], b,
@@ -1548,14 +1548,12 @@ Program convolutionBackward(Graph &graph,
     // into this.
     reduced = reduced.reshape({partialNumChanGroups, outDimY, outDimX,
                                partialChansPerGroup});
-    regroup(graph, regroupCS, partialType,
-            dType, activationsMapping, reduced,
-            deltasOut[b]);
+    regroups.add(Copy(deltasOut[b], regroup(reduced, outChansPerGroup)));
   }
 
   if (!graph.getComputeSet(reduceCS).empty())
     bwdProg.add(Execute(reduceCS));
-  bwdProg.add(Execute(regroupCS));
+  bwdProg.add(regroups);
 
 
   return bwdProg;
@@ -1877,20 +1875,11 @@ convolutionWeightUpdateConvInst(Graph &graph,
   // convolutional unit.
   const auto paddedFieldSize =
       ((fieldSize + fieldGroupSize - 1) / fieldGroupSize) * fieldGroupSize;
-  Tensor zDeltasPadded;
-  if (paddedFieldSize == fieldSize) {
-    zDeltasPadded = zDeltasFlattened;
-  } else {
-    zDeltasPadded =
-        graph.addTensor(dType,
-                        {deltasNumChanGroups, paddedFieldSize,
-                         deltasChansPerGroup},
-                        "zDeltasPadded");
-    auto zDeltasPaddedMapping = computeTensorMapping(graph, zDeltasPadded);
-    applyTensorMapping(graph, zDeltasPadded, zDeltasPaddedMapping);
-    prog.add(pad(graph, zDeltasFlattened, zDeltasPadded, {0, 0, 0},
-                 zDeltasPaddedMapping));
-  }
+  auto zDeltasPadded = pad(graph,
+                           zDeltasFlattened,
+                           {deltasNumChanGroups, paddedFieldSize,
+                            deltasChansPerGroup},
+                           {0, 0, 0});
   // Transpose the deltas.
   auto zDeltasTransposed =
       graph.addTensor(dType,
@@ -1901,39 +1890,19 @@ convolutionWeightUpdateConvInst(Graph &graph,
   auto zDeltasTransposedMapping =
       computeTensorMapping(graph, zDeltasTransposed);
   applyTensorMapping(graph, zDeltasTransposed, zDeltasTransposedMapping);
-  auto deltasDimShuffleCS =
-      graph.createComputeSet(layerName + ".deltas.dimShuffle");
-  dimShuffle(
-    graph,
-    deltasDimShuffleCS,
-    zDeltasPadded.reshape({deltasNumChanGroups,
-                           paddedFieldSize / fieldGroupSize,
-                           fieldGroupSize,
-                           deltasChansPerGroup}),
-    zDeltasTransposed.reshape({paddedFieldSize / fieldGroupSize,
-                               deltasNumChanGroups,
-                               deltasChansPerGroup,
-                               fieldGroupSize}),
-    {1, 0, 3, 2}, zDeltasTransposedMapping
-  );
-  prog.add(Execute(deltasDimShuffleCS));
+  prog.add(Copy(zDeltasTransposed,
+                zDeltasPadded.reshape({deltasNumChanGroups,
+                             paddedFieldSize / fieldGroupSize,
+                             fieldGroupSize,
+                             deltasChansPerGroup})
+                   .dimShuffle({1, 0, 3, 2})));
   // Pad the activations so the field size is a multiple of the number of
   // weights in the convolutional unit.
-  Tensor activationsPadded;
-  if (paddedFieldSize == fieldSize) {
-    activationsPadded = activationsFlattened;
-  } else {
-    activationsPadded =
-        graph.addTensor(dType,
-                        {activationsNumChanGroups, paddedFieldSize,
-                         activationsChansPerGroup},
-                        "activationsPadded");
-    auto activationsPaddedMapping =
-        computeTensorMapping(graph, activationsPadded);
-    applyTensorMapping(graph, activationsPadded, activationsPaddedMapping);
-    prog.add(pad(graph, activationsFlattened, activationsPadded, {0, 0, 0},
-                 activationsPaddedMapping));
-  }
+  auto activationsPadded = pad(graph, activationsFlattened,
+                               {activationsNumChanGroups,
+                                paddedFieldSize,
+                                activationsChansPerGroup},
+                               {0, 0, 0});
   // Transpose the activations.
   const auto outputGroupSize = partition.partialChansPerGroup;
   auto activationsTransposed =
@@ -1950,25 +1919,15 @@ convolutionWeightUpdateConvInst(Graph &graph,
   if (activationsChansPerGroup % outputGroupSize != 0) {
     std::abort();
   }
-  auto actsDimShuffleCS =
-      graph.createComputeSet(layerName + ".acts.dimShuffle");
-  dimShuffle(graph,
-             actsDimShuffleCS,
-             activationsPadded.reshape(
-               {activationsNumChanGroups,
-                paddedFieldSize / fieldGroupSize,
-                fieldGroupSize,
-                activationsChansPerGroup / outputGroupSize,
-                outputGroupSize}
-             ),
-             activationsTransposed.reshape(
-               {activationsNumChanGroups,
-                activationsChansPerGroup / outputGroupSize,
-                paddedFieldSize / fieldGroupSize,
-                outputGroupSize,
-                fieldGroupSize}),
-             {0, 3, 1, 4, 2}, activationsTransposedMapping);
-  prog.add(Execute(actsDimShuffleCS));
+  prog.add(Copy(activationsTransposed,
+                activationsPadded
+                  .reshape(
+                    {activationsNumChanGroups,
+                     paddedFieldSize / fieldGroupSize,
+                     fieldGroupSize,
+                     activationsChansPerGroup / outputGroupSize,
+                     outputGroupSize})
+                  .dimShuffle({0, 3, 1, 4, 2})));
   const auto weightDeltasType = partition.floatPartials ? "float" : "half";
   auto weightDeltasTransposed =
       graph.addTensor(weightDeltasType,
@@ -2006,26 +1965,14 @@ convolutionWeightUpdateConvInst(Graph &graph,
                       "weightDeltas");
   auto weightDeltasMapping = computeTensorMapping(graph, weightDeltas);
   applyTensorMapping(graph, weightDeltas, weightDeltasMapping);
-  auto weightDeltasDimShuffleCS =
-      graph.createComputeSet(layerName + ".weightDeltas.dimShuffle");
-  dimShuffle(graph,
-             weightDeltasDimShuffleCS,
-             weightDeltasTransposed.reshape(
-               {activationsChans / fwdInChansPerGroup,
-                fwdInChansPerGroup / outputGroupSize,
-                deltasChans / fwdPartialChansPerGroup,
-                fwdPartialChansPerGroup,
-                outputGroupSize}
-             ),
-             weightDeltas.reshape(
-               {deltasChans / fwdPartialChansPerGroup,
-                activationsChans / fwdInChansPerGroup,
-                fwdPartialChansPerGroup,
-                fwdInChansPerGroup / outputGroupSize,
-                outputGroupSize}
-             ),
-             {2, 0, 3, 1, 4}, weightDeltasMapping);
-  prog.add(Execute(weightDeltasDimShuffleCS));
+  prog.add(Copy(weightDeltas,
+                weightDeltasTransposed
+                  .reshape({activationsChans / fwdInChansPerGroup,
+                            fwdInChansPerGroup / outputGroupSize,
+                            deltasChans / fwdPartialChansPerGroup,
+                            fwdPartialChansPerGroup,
+                            outputGroupSize})
+                  .dimShuffle({2, 0, 3, 1, 4})));
   // Add the weight deltas to the weights.
   auto addCS = graph.createComputeSet(layerName + ".update_weights");
   const auto dataPathWidth = deviceInfo.dataPathWidth;
@@ -2109,11 +2056,9 @@ convolutionWeightUpdate(Graph &graph,
   auto regroupedDeltaMapping = computeActivationsMapping(graph,
                                                          regroupedDeltas, 0, 1);
   applyTensorMapping(graph, regroupedDeltas, regroupedDeltaMapping);
+
   auto prog = Sequence();
-  auto regroupCS = graph.createComputeSet(layerName + ".regroup");
-  regroup(graph, regroupCS, dType, dType, regroupedDeltaMapping, zDeltas0,
-          regroupedDeltas);
-  prog.add(Execute(regroupCS));
+  prog.add(Copy(regroupedDeltas, regroup(zDeltas0, outChansPerGroup)));
   const auto &partition = plan.wuPartition;
   const auto isMultiIPU = deviceInfo.numIPUs > 1;
   const auto inNumChans = activations0.dim(0) * activations0.dim(3);

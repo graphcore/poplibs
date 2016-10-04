@@ -5,10 +5,5 @@
 #include <string>
 #include <vector>
 
-void
-regroup(poplar::Graph &graph, const poplar::ComputeSet &cs,
-        const std::string &inType, const std::string &outType,
-        const std::vector<unsigned> &outTileMapping,
-        poplar::Tensor in, poplar::Tensor out);
-
+poplar::Tensor regroup(poplar::Tensor in, unsigned outChansPerGroup);
 #endif //__Regroup_hpp__
