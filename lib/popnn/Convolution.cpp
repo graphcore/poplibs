@@ -1864,16 +1864,19 @@ convolutionWeightUpdateConvInst(Graph &graph,
   auto deltasChansPerGroup = zDeltas.dim(3);
   auto deltasChans = deltasNumChanGroups * deltasChansPerGroup;
   auto activationsNumChanGroups = activations.dim(0);
-  assert(activations.dim(1) == height);
-  assert(activations.dim(2) == width);
   auto activationsChansPerGroup = activations.dim(3);
   auto activationsChans = activationsNumChanGroups * activationsChansPerGroup;
   // Flatten x and y into a single dimension.
   auto zDeltasFlattened = zDeltas.reshape({deltasNumChanGroups, fieldSize,
                                            deltasChansPerGroup});
-  auto activationsFlattened = activations.reshape({activationsNumChanGroups,
-                                                   fieldSize,
-                                                   activationsChansPerGroup});
+  auto activationsStrided = activations.subSample(stride, 1)
+                                       .subSample(stride, 2);
+  assert(activationsStrided.dim(1) == height);
+  assert(activationsStrided.dim(2) == width);
+  auto activationsFlattened =
+      activationsStrided.reshape({activationsNumChanGroups,
+                                  fieldSize,
+                                  activationsChansPerGroup});
   auto prog = Sequence();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto fieldGroupSize = plan.wuPartition.inChansPerGroup;

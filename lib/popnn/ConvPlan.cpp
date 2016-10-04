@@ -442,7 +442,6 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
   if (convVertexType.useConvInstruction &&
       phase == Phase::WEIGHTUPDATE) {
     assert(params.kernelSize == 1);
-    assert(params.stride == 1);
     assert(params.padding == 0);
     assert(params.batchSize == 1);
     // The weight update can be implemented as a convolution with a different
@@ -573,7 +572,7 @@ getWeightUpdateVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
                                     unsigned deltasChansPerGroup,
                                     const ConvolutionParams &params) {
   std::vector<ConvVertexType> convVertexTypeCandidates;
-  if (params.stride == 1 && params.kernelSize == 1 && params.padding == 0) {
+  if (params.kernelSize == 1 && params.padding == 0) {
     if (deviceInfo.fp16AccumConvUnitsPerTile > 0) {
       convVertexTypeCandidates.emplace_back(deviceInfo, true, false);
     }
