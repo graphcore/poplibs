@@ -575,7 +575,7 @@ public:
     unsigned numInRows = acts.size();
     unsigned numOutRows = deltas.size();
     unsigned inputWidth = acts[0].size() / inChansPerGroup;
-    unsigned outputWidth = deltas.size() / outChansPerGroup;
+    unsigned outputWidth = deltas[0].size() / outChansPerGroup;
     bool isFloat = std::is_same<FPType, float>::value;
     unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
     return getWeightGradCalcCycles(numOutRows, numInRows,
