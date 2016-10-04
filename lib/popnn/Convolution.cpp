@@ -438,7 +438,11 @@ createConvPartialnx1InOutVertex(Graph &graph,
       const auto convOutWidth = convOutXEnd - convOutXBegin;
       if (convOutWidth == 0)
         continue;
-      unsigned outputStride = forward ? 1 : stride;
+      // In the backwards pass, if we are handling one row of the kernel at
+      // a time, the partitioning of work across the workers can be aware of
+      // the stride and only allocate work on the rows that get affected.
+      unsigned outputStride =
+          (!forward && convUnitWeightHeight == 1) ? stride : 1;
       std::vector<std::vector<PartialRow>> workerPartition =
           partitionConvPartialByWorker(convOutHeight, convOutWidth,
                                        contextsPerVertex, outputStride);
@@ -463,8 +467,12 @@ createConvPartialnx1InOutVertex(Graph &graph,
           );
           for (const auto &partialRow : workerPartition[i]) {
             const auto workerOutY = convOutYBegin + partialRow.rowNumber;
-            const auto workerOutXBegin = convOutXBegin + partialRow.begin;
-            const auto workerOutXEnd = convOutXBegin + partialRow.end;
+            unsigned workerOutXBegin, workerOutXEnd;
+            std::tie(workerOutXBegin, workerOutXEnd) =
+                getOutputRange({convOutXBegin + partialRow.begin,
+                                convOutXBegin + partialRow.end},
+                               stride, kernelSize, padding, inDimX, wx,
+                               forward);
             const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
             unsigned workerInXBegin, workerInXEnd;
             std::tie(workerInXBegin, workerInXEnd) =
@@ -638,6 +646,7 @@ calcPartialConvOutput(Graph &graph,
                       ComputeSet fwdCS,
                       Tensor in, Tensor weights, Tensor out, bool forward) {
   const auto inChansPerGroup = partition.inChansPerGroup;
+  const auto outChansPerGroup = partition.partialChansPerGroup;
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   Tensor zeros;
@@ -656,7 +665,10 @@ calcPartialConvOutput(Graph &graph,
       const auto inputRangeSize = inputRange.second - inputRange.first;
       // This isn't split across multiple workers since it can happen in
       // parallel with zeroing the partial sums.
-      zeros = graph.addTensor(dType, {inputRangeSize * inChansPerGroup},
+      const auto zeroSize = std::max(inputRangeSize * inChansPerGroup,
+                                     inChansPerGroup * outChansPerGroup);
+      zeros = graph.addTensor(dType,
+                              {zeroSize},
                               "zeros");
       auto v = graph.addVertex(zeroCS, templateVertex("Zero", dType),
                                {{"out", zeros}});
