@@ -1319,47 +1319,6 @@ static Program accum(
         auto zogS = zogTile * tp.zogPerTile;
         auto patchS = pTile * tp.patchesPerTile;
 
-        /* we use accumulation of partials only if there is more than one input
-         * group on a tile
-         */
-        bool accumulatePartials = zigThisTile > 1;
-
-        if (0) {
-          /* total elements to zero */
-          auto numZeroElems = tp.patchSizeX * tp.patchSizeY * patchesThisTile
-                              * zogThisTile;
-          const auto numElemsPerVertex = (numZeroElems + numWorkers - 1)
-                                          / numWorkers;
-
-          /* divide zeroing over number of vertices */
-          const auto reshapeRows = patchesThisTile * zogThisTile
-                                   * tp.patchSizeY * tp.patchSizeX;
-          Tensor zeroTen = acc.slice(
-                                     {zogS, zigTile, patchS, 0, 0, 0},
-                                     {zogS + zogThisTile, zigTile + 1,
-                                      patchS + patchesThisTile,
-                                      tp.patchSizeY, tp.patchSizeX,
-                                      tp.zoc}).reshape({reshapeRows,
-                                                        tp.zoc});
-
-          for (unsigned vertex = 0; vertex < numWorkers &&  numZeroElems;
-                        ++vertex){
-            const auto slS = vertex * numElemsPerVertex;
-
-            const auto elemsThisVertex = std::min(numElemsPerVertex,
-                                                numZeroElems);
-            const auto slE = slS + elemsThisVertex;
-
-            auto vZ = graph.addVertex(zeroCS,
-                                      templateVertex("Zero2D", tp.dType),
-                                      {{"out", zeroTen.slice(slS, slE)}});
-            graph.setTileMapping(vZ, tile);
-            const auto dataPathWidth = deviceInfo.dataPathWidth;
-            graph.setInitialValue(vZ["dataPathWidth"], dataPathWidth);
-            numZeroElems -= elemsThisVertex;
-         }
-        }
-
         for (unsigned og = zogS; og < zogS + zogThisTile; ++og) {
           /* all patches assigned to the same input channel group
            * and output channel groups can be processed together.
@@ -1377,9 +1336,8 @@ static Program accum(
                                      cs,
                                      templateVertex("WgdPartials",
                                                      baseClass,
-                                                     tp.dType,
-                                                     accumulatePartials?
-                                                          "true" : "false"));
+                                                     tp.dType));
+
             graph.setInitialValue(v["numWorkers"], numWorkers);
             graph.setInitialValue(v["numConvUnits"], numConvUnits);
             graph.setInitialValue(v["weightsPerConvUnit"],

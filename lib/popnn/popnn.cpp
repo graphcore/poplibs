@@ -1642,7 +1642,7 @@ template class WgdKernelTransform<float, 4, 4, 3, 3>;
 template class WgdKernelTransform<half, 4, 4, 3, 3>;
 
 
-template <class Base, class FPType, bool accumulate>
+template <class Base, class FPType>
 class WgdPartials : public Base {
 
 public:
@@ -1689,13 +1689,11 @@ public:
             const auto idx = ig * comPencils + gr;
             acc += dTf[idx][ic] * wTf[ig][oc * inpChanDepth + ic];
           }
-          if (accumulate) {
-            if (ig == 0)
-              partials[gr][oc] = acc;
-            else
-              partials[gr][oc] += acc;
-          } else {
+
+          if (ig == 0) {
             partials[gr][oc] = acc;
+          } else {
+            partials[gr][oc] += acc;
           }
         }
       }
@@ -1723,18 +1721,13 @@ public:
                       weightsPerConvUnit,
                       isFloat);
   }
-
 };
 
-template class WgdPartials<poplar::SupervisorVertex, float, true>;
-template class WgdPartials<poplar::Vertex, float, true>;
-template class WgdPartials<poplar::SupervisorVertex, float, false>;
-template class WgdPartials<poplar::Vertex, float, false>;
+template class WgdPartials<poplar::SupervisorVertex, float>;
+template class WgdPartials<poplar::Vertex, float>;
 
-template class WgdPartials<poplar::SupervisorVertex, half, true>;
-template class WgdPartials<poplar::Vertex, half, true>;
-template class WgdPartials<poplar::SupervisorVertex, half, false>;
-template class WgdPartials<poplar::Vertex, half, false>;
+template class WgdPartials<poplar::SupervisorVertex, half>;
+template class WgdPartials<poplar::Vertex, half>;
 
 
 template <class FPType, unsigned patchSizeX, unsigned patchSizeY>
