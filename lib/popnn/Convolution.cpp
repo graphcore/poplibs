@@ -1256,19 +1256,21 @@ convolution(Graph &graph,
     ComputeSet completeCS = graph.createComputeSet(layerName + ".complete");
     for (unsigned b = 0; b < batchSize; ++b) {
       // Perform the reduction of partial sums
-      auto activationsMapping = computeActivationsMapping(graph,
-                                                          activations[b],
-                                                          b,
-                                                          batchSize);
+      auto reducedMapping =
+          computeActivationsMapping(graph, partials[b][0], b, batchSize);
       Tensor reduced = reduce(graph, plan.fwdPartition, outNumChans,
                               outNumChanGroups, partials[b],
-                              activationsMapping, reduceCS);
+                              reducedMapping, reduceCS);
       reduced = reduced.reshape({partialNumChanGroups, outDimY, outDimX,
                                  partialChansPerGroup});
 
       Tensor bResidual;
       if (doResidual)
         bResidual = residual[b];
+      auto activationsMapping = computeActivationsMapping(graph,
+                                                          activations[b],
+                                                          b,
+                                                          batchSize);
       // Add the residual (if any), apply the non-linearity and rearrange tensor
       // to required output channel grouping.
       complete(graph, plan, outNumChans,
@@ -1536,13 +1538,12 @@ Program convolutionBackward(Graph &graph,
   auto regroups = Sequence();
   const auto outChansPerGroup = deltasOut.dim(4);
   for (unsigned b = 0; b < batchSize; ++b) {
-    auto activationsMapping =
-        computeActivationsMapping(graph, deltasOut[b], b,
-                                  batchSize);
+    auto reducedMapping =
+        computeActivationsMapping(graph, partials[b][0], b, batchSize);
     auto reduced = reduce(graph, plan.bwdPartition, outNumChans,
                           outNumChanGroups,
                           partials[b],
-                          activationsMapping, reduceCS);
+                          reducedMapping, reduceCS);
     // Rearrange tensor to required output channel grouping.
     // TODO: the next layer's non-linearity derivative could be merged
     // into this.
