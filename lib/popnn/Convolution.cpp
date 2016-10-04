@@ -9,6 +9,7 @@
 #include "gcd.hpp"
 #include "PerformanceEstimation.hpp"
 #include "popnn/exceptions.hpp"
+#include "Cast.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
@@ -1548,8 +1549,12 @@ Program convolutionBackward(Graph &graph,
     // TODO: the next layer's non-linearity derivative could be merged
     // into this.
     reduced = reduced.reshape({partialNumChanGroups, outDimY, outDimX,
-                               partialChansPerGroup});
-    regroups.add(Copy(deltasOut[b], regroup(reduced, outChansPerGroup)));
+                             partialChansPerGroup});
+    auto activationsMapping =
+        computeActivationsMapping(graph, deltasOut[b], b, batchSize);
+    regroups.add(cast(graph, activationsMapping,
+                      regroup(reduced, outChansPerGroup),
+                      deltasOut[b]));
   }
 
   if (!graph.getComputeSet(reduceCS).empty())

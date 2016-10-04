@@ -1942,3 +1942,28 @@ public:
 
 template class WgdConvComplete<float>;
 template class WgdConvComplete<half>;
+
+template <typename SrcType, typename DstType>
+class Cast : public Vertex {
+public:
+  Input<Vector<SrcType>> src;
+  Output<Vector<DstType>> dst;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    for (unsigned i = 0; i < dst.size(); ++i) {
+      dst[i] = static_cast<DstType>(src[i]);
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    const auto floatVectorWidth = dataPathWidth / 32;
+    return (dst.size() + floatVectorWidth - 1) / floatVectorWidth + 5;
+  }
+};
+
+template class Cast<float, half>;
+template class Cast<half, float>;
+template class Cast<float, float>;
+template class Cast<half, half>;

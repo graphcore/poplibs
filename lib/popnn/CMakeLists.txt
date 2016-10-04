@@ -5,6 +5,7 @@ get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(popnn SHARED
   ActivationMapping.cpp
+  Cast.cpp
   Convolution.cpp
   ConvPlan.cpp
   ConvReuse.cpp
