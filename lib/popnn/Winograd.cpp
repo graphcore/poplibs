@@ -15,7 +15,7 @@
 #define DEBUG_PRINT 0
 
 
-using namespace poplar; 
+using namespace poplar;
 using namespace poplar::program;
 
 namespace conv {
@@ -237,7 +237,7 @@ public:
     return getNumPatches() * zo/zocOut;
   }
 
-  /* Tile mapping for input patch 
+  /* Tile mapping for input patch
    */
   unsigned getTileForInputPatch(
             unsigned zigTile,
@@ -252,7 +252,7 @@ public:
 
   std::pair<unsigned, unsigned> getOutPatchInfo(unsigned tile) const {
     /*
-     * Input patches are mapped such that all patches for a some input and 
+     * Input patches are mapped such that all patches for a some input and
      * output channel groups are mapped first
      */
     const auto inputTile = tile % tilesForPatches;
@@ -262,17 +262,17 @@ public:
     const auto patches = patchE - patchS;
 
     /* the input patches per tile are sub-divided such that they are distributed
-     * across tilesForZig. 
+     * across tilesForZig.
      */
     const auto outPatchesPerTile = (patches + tilesForZig - 1)/tilesForZig;
 
     /* get to which tile group the output patch is assigned to */
     const auto tileGroup = tile/(tilesForZog * tilesForPatches);
 
-    /* "patches" are distributed evenly with constraint the there can be 
-     * at most "outPatchesPerTile patches assigned 
-     */ 
-    const auto numPatchesInTile =  
+    /* "patches" are distributed evenly with constraint the there can be
+     * at most "outPatchesPerTile patches assigned
+     */
+    const auto numPatchesInTile =
           std::min(patches - std::min(tileGroup * outPatchesPerTile, patches),
                    outPatchesPerTile);
 
@@ -288,7 +288,7 @@ public:
     const auto zogS = std::min(
                         ((tile / tilesForPatches) % tilesForZog) * zogPerTile,
                         zog);
-    const auto numZog = std::min(zog - zogS, zogPerTile); 
+    const auto numZog = std::min(zog - zogS, zogPerTile);
 
     return std::make_pair(zogS, numZog);
   }
@@ -382,17 +382,17 @@ uint64_t WgdTilePartition::tilePartition(
          */
 
         /* size in bytes of each element of untransformed kernel */
-        const unsigned kSizeInBytes   = isFloat ? 4 : 2;
+        const unsigned kAtomSize   = isFloat ? 4 : 2;
 
         /* size in bytes of each element of transformed kernel :
          * numkTfElems represent the number of transforms. A group of elements
          * of size kUnitSize is called an unit
          */
-        const unsigned kTfSizeInBytes = isFloat ? 4 : 2;
+        const unsigned kTfAtomSize = isFloat ? 4 : 2;
         const unsigned numKTfElems = zigPerTile * zogPerTile * zic * zoc;
         unsigned numKTfBlocks1 = (numKTfElems + numWorkers - 1)/numWorkers;
 
-        Cost ecKTf1 = (numKTfElems * kernelX * kernelY * kSizeInBytes) 
+        Cost ecKTf1 = (numKTfElems * kernelX * kernelY * kAtomSize)
                       / eBytesPerCycle;
         Cost ccKTf1 = getWgdKernelTransformCycles(
                                                   numKTfBlocks1,
@@ -403,7 +403,7 @@ uint64_t WgdTilePartition::tilePartition(
                                        + numTiles - 1)/numTiles;
         const unsigned numKTfBlocks2 = (numKTfUnits + numWorkers - 1)
                                        / numWorkers;
-        Cost ecKTf2 = (numKTfElems * patchSizeX * patchSizeY * kTfSizeInBytes) 
+        Cost ecKTf2 = (numKTfElems * patchSizeX * patchSizeY * kTfAtomSize)
                       / eBytesPerCycle;
         Cost ccKTf2 = getWgdKernelTransformCycles(numKTfBlocks2 * kUnitSize,
                                                 isFloat) * numWorkers;
@@ -436,10 +436,10 @@ uint64_t WgdTilePartition::tilePartition(
          */
 
         /* Size in bytes of each element of transformed data */
-        const unsigned dTfSizeInBytes = isFloat ? 4 : 2;
+        const unsigned dTfAtomSize = isFloat ? 4 : 2;
 
         /* Size in bytes of each element of input data*/
-        const unsigned dSizeInBytes = isFloat ? 4 : 2;
+        const unsigned dAtomSize = isFloat ? 4 : 2;
 
         /* numDtfElems is the number of transforms and a group containing
          * dUnitSize is called an unit
@@ -452,13 +452,13 @@ uint64_t WgdTilePartition::tilePartition(
         const unsigned numDTfBlocks2 = (numDTfUnits + numWorkers -1)
                                         / numWorkers;
 
-        Cost ecDTf1 = (numDTfElems * patchSizeX * patchSizeY * dSizeInBytes) 
+        Cost ecDTf1 = (numDTfElems * patchSizeX * patchSizeY * dAtomSize)
                        / eBytesPerCycle;
         Cost ccDTf1 = getWgdDataTransformCycles(numDTfBlocks1, isFloat)
                       * numWorkers;
-        Cost ecDTf2 = (numDTfElems * patchSizeX * patchSizeY * dTfSizeInBytes
+        Cost ecDTf2 = (numDTfElems * patchSizeX * patchSizeY * dTfAtomSize
                       + dUnitSize * numDTfUnits * patchSizeX * patchSizeY
-                        * dSizeInBytes) / eBytesPerCycle;
+                        * dAtomSize) / eBytesPerCycle;
         Cost ccDTf2 = getWgdDataTransformCycles(numDTfBlocks2 * dUnitSize,
                                               isFloat) * numWorkers;
         bool replicateDTf = true;
@@ -485,7 +485,7 @@ uint64_t WgdTilePartition::tilePartition(
          * needn't be exchanged
          */
         /* size in bytes of accumulated output (or partials) */
-        const unsigned accSizeInBytes = isFloat ? 4 : 2;
+        const unsigned accAtomSize = isFloat ? 4 : 2;
         Cost ecAcc = 0;
         const auto weightsPerConvUnit =
                                 deviceInfo.getWeightsPerConvUnit(isFloat);
@@ -533,16 +533,16 @@ uint64_t WgdTilePartition::tilePartition(
         Cost ecRed = 0;
         if (tilesForZig > 1) {
 
-          ecRed = zoc * zogPerTile 
-                       * (patchesPerTile - outPatchesPerTileMin) 
-                       * patchSizeY * patchSizeY * dSizeInBytes/eBytesPerCycle;
+          ecRed = zoc * zogPerTile
+                       * (patchesPerTile - outPatchesPerTileMin)
+                       * patchSizeY * patchSizeY * dAtomSize/eBytesPerCycle;
 
 
-          unsigned numRedBlocks = (outPatchesPerTileMax * zogPerTile 
-                                   * patchSizeX 
+          unsigned numRedBlocks = (outPatchesPerTileMax * zogPerTile
+                                   * patchSizeX
                                    * patchSizeY + numWorkers - 1) / numWorkers;
           ccRed = getWgdReduceCycles(numRedBlocks * zoc, tilesForZig, isFloat)
-                       * numWorkers;              
+                       * numWorkers;
         }
 
         std::get<REDUCTION>(cc) = ccRed;
@@ -555,7 +555,7 @@ uint64_t WgdTilePartition::tilePartition(
 
         /* Inverse kernel transform doesn't require exchange */
         /* size in bytes of inverse transformed data */
-        //const unsigned iTfSizeInBytes = isFloat ? 4 : 2;
+        //const unsigned iTfAtomSize = isFloat ? 4 : 2;
         Cost ecITf = 0;
         const unsigned numITfUnits = outPatchesPerTileMax * zoc * zogPerTile
                                      / iUnitSize;
@@ -575,9 +575,9 @@ uint64_t WgdTilePartition::tilePartition(
 
 
         /* size in bytes of layer output */
-        const unsigned cSizeInBytes = isFloat ? 4 : 2;
+        const unsigned cAtomSize = isFloat ? 4 : 2;
         Cost ecComp = (outPatchesPerTileMax * zocOut
-                       * getOverlapX() * getOverlapY() * cSizeInBytes) 
+                       * getOverlapX() * getOverlapY() * cAtomSize)
                        / eBytesPerCycle;
 
         std::get<COMPLETE>(ec) = ecComp;
@@ -594,7 +594,7 @@ uint64_t WgdTilePartition::tilePartition(
         #endif
 
         Cost totalECost = std::inner_product(ec.begin(), ec.end(),
-                                            enableCost.begin(), 0) 
+                                            enableCost.begin(), 0)
                           * 100/exchEfficiency;
         Cost totalCCost = std::inner_product(cc.begin(), cc.end(),
                                              enableCost.begin(), 0);
@@ -693,11 +693,11 @@ static void wgdMapWeights(
 
       Tensor wPart = weights.slice(
           {og, ig, 0, 0, oc, icS},
-          {og + 1, ig + 1, tp.kernelY, tp.kernelX, oc + 1, 
+          {og + 1, ig + 1, tp.kernelY, tp.kernelX, oc + 1,
             icS + WgdTilePartition::kUnitSize});
 
       graph.setTileMapping(wPart, tile);
-    
+
     }
   }
 }
@@ -1465,7 +1465,7 @@ static Program reduce(
 
   ComputeSet cs = graph.createComputeSet(layerName + ".reduce");
 
-  for (unsigned tile = 0; tile < deviceInfo.getNumTiles(); ++tile) { 
+  for (unsigned tile = 0; tile < deviceInfo.getNumTiles(); ++tile) {
 
     /* get information on patches assigned to this tile */
     unsigned patchS, patchesThisTile, zogS, numZog;
@@ -1497,9 +1497,9 @@ static Program reduce(
       for (unsigned elem = 0; elem < elemsThisVertex; ++elem) {
         const auto thisElem = vertex * elemsPerVertex + elem;
 
-        const auto thisPatch = patchS + 
+        const auto thisPatch = patchS +
                 (thisElem / (tp.patchSizeX * tp.patchSizeY)) % patchesThisTile;
-                            
+
         const auto thisZog  = thisElem / (tp.patchSizeX * tp.patchSizeY
                                           * patchesThisTile);
 
@@ -1546,7 +1546,7 @@ static Program inverseTransform(
     std::tie(zogS, numZog) = tp.getOutZogInfo(tile);
 
 
-    auto tuplesThisTile = numZog * patchesThisTile * tp.zoc 
+    auto tuplesThisTile = numZog * patchesThisTile * tp.zoc
                           / WgdTilePartition::iUnitSize;
 
     /* split across number of workers */
@@ -1569,7 +1569,7 @@ static Program inverseTransform(
 
 
       for (unsigned tuple = 0; tuple < tuplesThisVertex; ++tuple) {
-        auto thisTuple = (vertex * tuplesPerVertex + tuple) 
+        auto thisTuple = (vertex * tuplesPerVertex + tuple)
                          * WgdTilePartition::iUnitSize;
         auto patch = (thisTuple / tp.zoc) % patchesThisTile;
         auto og = thisTuple / (tp.zoc * patchesThisTile);
@@ -1612,7 +1612,7 @@ static Program inverseTransform(
 
 
             graph.connect(v["dOut"][idxOut], outPart);
-                             
+
             graph.setTileMapping(outPart, tile);
           }
         }
@@ -1669,13 +1669,13 @@ static Program complete(
         const auto thisUnit = vertex * unitsPerVertex + unit;
         const auto patch = (thisUnit/zFactor) % patchesThisTile;
         const auto thisPatch = patchS + patch;
-        const auto oc = (zogS + thisUnit/(patchesThisTile * zFactor)) * tp.zoc 
+        const auto oc = (zogS + thisUnit/(patchesThisTile * zFactor)) * tp.zoc
                         + (thisUnit % zFactor) * depth;
 
         #if DEBUG_PRINT == 2
         std::cout << "unit " << thisUnit << " " << tp.zoc << " ";
         std::cout << tp.zocOut << " " << depth << " " << zFactor;
-        std::cout << " oc " << oc << std::endl; 
+        std::cout << " oc " << oc << std::endl;
         #endif
 
         auto ogIn = oc / tp.zoc;
@@ -1711,8 +1711,8 @@ static Program complete(
             graph.connect(in[ogIn][thisPatch][y-yPosS][x-xPosS].flatten().slice(
                               ocIn, ocIn + depth),
                           v["dIn"][elem]);
-            graph.connect(v["act"][elem], 
-                          act[ogOut][y][x].flatten().slice(ocOut, 
+            graph.connect(v["act"][elem],
+                          act[ogOut][y][x].flatten().slice(ocOut,
                                                            ocOut + depth));
             graph.connect(bias.slice(oc, oc + depth), v["bias"][elem]);
             ++elem;

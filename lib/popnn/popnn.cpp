@@ -1693,7 +1693,7 @@ public:
             if (ig == 0)
               partials[gr][oc] = acc;
             else
-              partials[gr][oc] += acc;              
+              partials[gr][oc] += acc;
           } else {
             partials[gr][oc] = acc;
           }

@@ -476,7 +476,8 @@ int main(int argc, char **argv) {
      "Batch size")
     ("use-winograd-conv", po::value<bool>(&useWinogradConv)->default_value(0),
      "Use winograd convolution")
-    ("winograd-patch-size", po::value<unsigned>(&winogradPatchSize)->default_value(4),
+    ("winograd-patch-size",
+      po::value<unsigned>(&winogradPatchSize)->default_value(4),
      "Square patch size to use in winograd convolution")
   ;
   po::variables_map vm;
