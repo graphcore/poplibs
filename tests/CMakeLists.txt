@@ -33,25 +33,25 @@ add_test(NAME conv3x3_stride_2_fwd
 
 add_test(NAME conv1x1_stride_1
          COMMAND single_conv_layer
-             --input-channels=256
-             --output-channels=512
+             --input-channels=128
+             --output-channels=256
              --width=7
              --height=7
              --fwd-out-chans-per-group=8
              --bwd-out-chans-per-group=8
-             --tiles-per-ipu=64
+             --tiles-per-ipu=16
              --stride=1
              --kernel-size=1)
 
 add_test(NAME conv1x1_stride_3
          COMMAND single_conv_layer
-             --input-channels=256
-             --output-channels=512
+             --input-channels=64
+             --output-channels=128
              --width=14
              --height=14
              --fwd-out-chans-per-group=8
              --bwd-out-chans-per-group=8
-             --tiles-per-ipu=64
+             --tiles-per-ipu=8
              --stride=3
              --kernel-size=1)
 
