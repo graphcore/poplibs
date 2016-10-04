@@ -1870,11 +1870,20 @@ convolutionWeightUpdateConvInst(Graph &graph,
   // convolutional unit.
   const auto paddedFieldSize =
       ((fieldSize + fieldGroupSize - 1) / fieldGroupSize) * fieldGroupSize;
-  auto zDeltasPadded = pad(graph,
-                           zDeltasFlattened,
-                           {deltasNumChanGroups, paddedFieldSize,
-                            deltasChansPerGroup},
-                           {0, 0, 0});
+  Tensor zDeltasPadded;
+  if (paddedFieldSize == fieldSize) {
+    zDeltasPadded = zDeltasFlattened;
+  } else {
+    zDeltasPadded =
+        graph.addTensor(dType,
+                        {deltasNumChanGroups, paddedFieldSize,
+                         deltasChansPerGroup},
+                        "zDeltasPadded");
+    auto zDeltasPaddedMapping = computeTensorMapping(graph, zDeltasPadded);
+    applyTensorMapping(graph, zDeltasPadded, zDeltasPaddedMapping);
+    prog.add(pad(graph, zDeltasFlattened, zDeltasPadded, {0, 0, 0},
+                 zDeltasPaddedMapping));
+  }
   // Transpose the deltas.
   auto zDeltasTransposed =
       graph.addTensor(dType,
@@ -1893,11 +1902,21 @@ convolutionWeightUpdateConvInst(Graph &graph,
                    .dimShuffle({1, 0, 3, 2})));
   // Pad the activations so the field size is a multiple of the number of
   // weights in the convolutional unit.
-  auto activationsPadded = pad(graph, activationsFlattened,
-                               {activationsNumChanGroups,
-                                paddedFieldSize,
-                                activationsChansPerGroup},
-                               {0, 0, 0});
+  Tensor activationsPadded;
+  if (paddedFieldSize == fieldSize) {
+    activationsPadded = activationsFlattened;
+  } else {
+    activationsPadded =
+        graph.addTensor(dType,
+                        {activationsNumChanGroups, paddedFieldSize,
+                         activationsChansPerGroup},
+                        "activationsPadded");
+    auto activationsPaddedMapping =
+        computeTensorMapping(graph, activationsPadded);
+    applyTensorMapping(graph, activationsPadded, activationsPaddedMapping);
+    prog.add(pad(graph, activationsFlattened, activationsPadded, {0, 0, 0},
+                 activationsPaddedMapping));
+  }
   // Transpose the activations.
   const auto outputGroupSize = partition.partialChansPerGroup;
   auto activationsTransposed =
