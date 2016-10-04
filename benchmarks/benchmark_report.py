@@ -154,10 +154,10 @@ def create_report(runs, filename, param_info, arch_explore, training):
         compute_cycles_percent = \
           alexnet_1_ipu[0]['Compute cycles'] / all_cycles * 100
         exchange_cycles_percent = \
-          sum_fields(alexnet_1_ipu[0], ['Send',
-                                       'Receive mux',
-                                       'Receive ptr',
-                                       'Nop']) / all_cycles * 100
+          sum_fields_if_there(alexnet_1_ipu[0], ['Send',
+                                                 'Receive mux',
+                                                 'Receive ptr',
+                                                 'Nop']) / all_cycles * 100
         sync_cycles_percent = \
           sum_fields(alexnet_1_ipu[0], ['Tile sync',
                                        'IPU sync']) / all_cycles * 100
@@ -178,10 +178,10 @@ def create_report(runs, filename, param_info, arch_explore, training):
 
         f.write(',\nALEXNET 1 IPU EXCHANGE BREAKDOWN,\n,\n')
 
-        exchange_cycles = sum_fields(alexnet_1_ipu[0], ['Send',
-                                                       'Receive mux',
-                                                       'Receive ptr',
-                                                       'Nop'])
+        exchange_cycles = sum_fields_if_there(alexnet_1_ipu[0], ['Send',
+                                                                 'Receive mux',
+                                                                 'Receive ptr',
+                                                                 'Nop'])
 
         for field in ['Send', 'Receive mux', 'Receive ptr', 'Nop']:
             cycles_percent = alexnet_1_ipu[0][field] / exchange_cycles * 100
@@ -417,13 +417,13 @@ def create_report(runs, filename, param_info, arch_explore, training):
             sum_send_ratio = 0
             sum_cycles = 0
             for d in data:
-                exchange_cycles = sum_fields(d, ['Send',
-                                                 'Receive mux',
-                                                 'Receive ptr',
-                                                 'Nop'])
+                exchange_cycles = sum_fields_if_there(d, ['Send',
+                                                          'Receive mux',
+                                                          'Receive ptr',
+                                                          'Nop'])
                 if exchange_cycles == 0:
                     continue
-                ratio = d['Send'] / exchange_cycles
+                ratio = d.get('Send', 0) / exchange_cycles
                 min_send_ratio = min(min_send_ratio, ratio)
                 max_send_ratio = max(max_send_ratio, ratio)
                 sum_send_ratio += ratio * exchange_cycles
@@ -437,10 +437,10 @@ def create_report(runs, filename, param_info, arch_explore, training):
             sum_recv_ratio = 0
             sum_cycles = 0
             for d in data:
-                exchange_cycles = sum_fields(d, ['Send',
-                                                 'Receive mux',
-                                                 'Receive ptr',
-                                                 'Nop'])
+                exchange_cycles = sum_fields_if_there(d, ['Send',
+                                                          'Receive mux',
+                                                          'Receive ptr',
+                                                          'Nop'])
                 if exchange_cycles == 0:
                     continue
                 ratio = d['Exchange activity'] / 100

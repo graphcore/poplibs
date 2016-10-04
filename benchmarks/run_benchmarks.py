@@ -141,6 +141,12 @@ def write(runs, filename):
                                              cell.offset(column=-5).coordinate,
                                              cell.offset(column=+1).coordinate)
 
+    def calcTflops(heading, cell, params, data):
+        cell.value = '={} * (1e6 / {})/1e12'.format(
+            data['FLOPS'],
+            cell.offset(column=-1).coordinate)
+        cell.number_format = '0.00'
+
     def completeParams(params):
         params = dict(params)
         complete_params = {}
@@ -165,6 +171,7 @@ def write(runs, filename):
         ('Exchange supervisor code', setDataCell),
         ('Total memory usage', partial(setTotalCell, -7, -1, 'row')),
         ('Execution time(us)', setDataCell),
+        ('TFLOPs/s', calcTflops),
     ]
 
     headings2 = [
