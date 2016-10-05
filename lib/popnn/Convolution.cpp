@@ -1826,6 +1826,8 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
                                       "biasPartials");
 
   for (unsigned worker = 0; worker  < usedWorkers; ++worker ) {
+    auto tile =  worker / deviceInfo.numWorkerContexts;
+    graph.setTileMapping(biasPartials[worker].slice(0, maxBiasPerWorker), tile);
     unsigned biasBegin = (worker  * numBiases) / usedWorkers;
     unsigned biasEnd = ((worker  + workersPerBias) * numBiases) / usedWorkers;
     if (biasBegin == biasEnd)
@@ -1853,9 +1855,7 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
       }
     }
     graph.connect(v["biases"], biasPartials[worker].slice(0, numBiases));
-    auto tile =  worker / deviceInfo.numWorkerContexts;
     graph.setTileMapping(v, tile);
-    graph.setTileMapping(biasPartials[worker].slice(0, maxBiasPerWorker), tile);
   }
   iterateBiasMapping(biases, graph, zDeltas, 0, 1,
     [&](Tensor biasSlice, unsigned tile){

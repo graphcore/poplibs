@@ -116,3 +116,11 @@ add_test(NAME conv1x1_stride_3_fwd
                   --stride=2
                   --kernel-size=3
                   --batch-size=2)
+
+add_test(NAME small_conv_many_tiles
+         COMMAND single_conv_layer
+                 --input-channels=32
+                 --output-channels=32
+                 --width=14
+                 --height=14
+                 --tiles-per-ipu=1216)
