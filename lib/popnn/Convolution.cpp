@@ -849,8 +849,8 @@ addResidualCalc(Graph &graph,
               auto resChanGroupElement = outChan % resChansPerGroup;
               assert(resChanGroup < resNumChanGroups);
               assert(resChanGroupElement < resChansPerGroup);
-              assert(y * resStride < resIn.dim(1));
-              assert(x * resStride < resIn.dim(2));
+              assert(y * resStride < resIn.dim(2));
+              assert(x * resStride < resIn.dim(3));
               Tensor in = resIn[b][resChanGroup][y * resStride][x * resStride]
                 .slice(resChanGroupElement,
                        resChanGroupElement + chansPerVertex);
