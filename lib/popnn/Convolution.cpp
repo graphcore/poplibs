@@ -1883,21 +1883,85 @@ convolutionWeightUpdateConvInst(Graph &graph,
   // Flatten x and y into a single dimension.
   auto zDeltasFlattened = zDeltas.reshape({deltasNumChanGroups, fieldSize,
                                            deltasChansPerGroup});
-  auto activationsStrided = activations.subSample(stride, 1)
-                                       .subSample(stride, 2);
-  assert(activationsStrided.dim(1) == height);
-  assert(activationsStrided.dim(2) == width);
-  auto activationsFlattened =
-      activationsStrided.reshape({activationsNumChanGroups,
-                                  fieldSize,
-                                  activationsChansPerGroup});
-  auto prog = Sequence();
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto fieldGroupSize = plan.wuPartition.inChansPerGroup;
+  const auto fieldGroupSize = partition.inChansPerGroup;
   // Pad the field so the size is a multiple of the number of weights in the
   // convolutional unit.
   const auto paddedFieldSize =
       ((fieldSize + fieldGroupSize - 1) / fieldGroupSize) * fieldGroupSize;
+  const auto outputGroupSize = partition.partialChansPerGroup;
+  // The activationViews tensor contains the view on the activations for
+  // each element of the kernel.
+  auto activationViews =
+      graph.addTensor(dType, {0,
+                              activationsNumChanGroups,
+                              paddedFieldSize,
+                              activationsChansPerGroup});
+  auto prog = Sequence();
+  for (unsigned wy = 0; wy != kernelSize; ++wy) {
+    for (unsigned wx = 0; wx != kernelSize; ++wx) {
+      auto paddedActivations = pad(graph, activations,
+                                   {activations.dim(0),
+                                    activations.dim(1) + 2 * padding,
+                                    activations.dim(2) + 2 * padding,
+                                    activations.dim(3)},
+                                   {0, padding, padding, 0});
+      auto usedActivations =
+          paddedActivations.slice({0, wy, wx, 0},
+                                  {activationsNumChanGroups,
+                                   wy + (height - 1) * stride + 1,
+                                   wx + (width - 1) * stride + 1,
+                                   activationsChansPerGroup});
+      auto activationsStrided = usedActivations.subSample(stride, 1)
+                                               .subSample(stride, 2);
+      assert(activationsStrided.dim(1) == height);
+      assert(activationsStrided.dim(2) == width);
+      auto activationsFlattened =
+          activationsStrided.reshape({activationsNumChanGroups,
+                                      fieldSize,
+                                      activationsChansPerGroup});
+      // Pad the activations so the field size is a multiple of the number of
+      // weights in the convolutional unit.
+      activationViews = append(activationViews,
+                               pad(graph, activationsFlattened,
+                                   {activationsNumChanGroups,
+                                    paddedFieldSize,
+                                    activationsChansPerGroup},
+                                   {0, 0, 0}));
+    }
+  }
+  const auto actViewSize = kernelSize * kernelSize * activationsChans;
+  const auto paddedActViewSize =
+     ((actViewSize + outputGroupSize - 1) / outputGroupSize) * outputGroupSize;
+  auto activationsTransposed =
+      graph.addTensor(dType,
+          {paddedActViewSize / outputGroupSize,
+           paddedFieldSize / fieldGroupSize,
+           outputGroupSize,
+           fieldGroupSize},
+          "activationsTransposed");
+  auto activationsTransposedMapping =
+      computeTensorMapping(graph, activationsTransposed);
+  applyTensorMapping(graph, activationsTransposed,
+                     activationsTransposedMapping);
+  activationViews =
+      activationViews.dimShuffle({0, 1, 3, 2})
+                          .reshape({actViewSize,
+                                    paddedFieldSize / fieldGroupSize,
+                                    fieldGroupSize});
+  activationViews = pad(graph, activationViews,
+                             {paddedActViewSize,
+                              paddedFieldSize / fieldGroupSize,
+                              fieldGroupSize}, {0, 0, 0});
+  auto activationsTransposedIn =
+     activationViews.reshape({paddedActViewSize / outputGroupSize,
+                              outputGroupSize,
+                              paddedFieldSize / fieldGroupSize,
+                              fieldGroupSize})
+                         .dimShuffle({0, 2, 1, 3});
+  prog.add(Copy(activationsTransposed, activationsTransposedIn));
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  // Pad the field so the size is a multiple of the number of weights in the
+  // convolutional unit.
   auto zDeltasPadded = pad(graph,
                            zDeltasFlattened,
                            {deltasNumChanGroups, paddedFieldSize,
@@ -1919,45 +1983,14 @@ convolutionWeightUpdateConvInst(Graph &graph,
                              fieldGroupSize,
                              deltasChansPerGroup})
                    .dimShuffle({1, 0, 3, 2})));
-  // Pad the activations so the field size is a multiple of the number of
-  // weights in the convolutional unit.
-  auto activationsPadded = pad(graph, activationsFlattened,
-                               {activationsNumChanGroups,
-                                paddedFieldSize,
-                                activationsChansPerGroup},
-                               {0, 0, 0});
-  // Transpose the activations.
-  const auto outputGroupSize = partition.partialChansPerGroup;
-  auto activationsTransposed =
-      graph.addTensor(dType,
-                      {activationsChans / outputGroupSize,
-                       paddedFieldSize / fieldGroupSize,
-                       outputGroupSize,
-                       fieldGroupSize},
-                      "activationsTransposed");
-  auto activationsTransposedMapping =
-      computeTensorMapping(graph, activationsTransposed);
-  applyTensorMapping(graph, activationsTransposed,
-                     activationsTransposedMapping);
-  if (activationsChansPerGroup % outputGroupSize != 0) {
-    std::abort();
-  }
-  prog.add(Copy(activationsTransposed,
-                activationsPadded
-                  .reshape(
-                    {activationsNumChanGroups,
-                     paddedFieldSize / fieldGroupSize,
-                     fieldGroupSize,
-                     activationsChansPerGroup / outputGroupSize,
-                     outputGroupSize})
-                  .dimShuffle({0, 3, 1, 4, 2})));
   const auto weightDeltasType = partition.floatPartials ? "float" : "half";
   auto weightDeltasTransposed =
-      graph.addTensor(weightDeltasType,
-                      {activationsChans / outputGroupSize,
-                       deltasChans,
-                       outputGroupSize},
-                      "weightDeltas");
+      graph.addTensor(
+          weightDeltasType,
+          {paddedActViewSize / outputGroupSize,
+           deltasChans,
+           outputGroupSize},
+          "weightDeltas");
   auto weightDeltasTransposedMapping =
       computeTensorMapping(graph, weightDeltasTransposed);
   applyTensorMapping(graph, weightDeltasTransposed,
@@ -1971,12 +2004,6 @@ convolutionWeightUpdateConvInst(Graph &graph,
   // Transpose the weight deltas.
   auto fwdInChansPerGroup = plan.fwdPartition.inChansPerGroup;
   auto fwdPartialChansPerGroup = plan.fwdPartition.partialChansPerGroup;
-  if (deltasChans % fwdPartialChansPerGroup != 0) {
-    std::abort();
-  }
-  if (fwdPartialChansPerGroup % outputGroupSize != 0) {
-    std::abort();
-  }
   auto weightDeltas =
       graph.addTensor(weightDeltasType,
                       {deltasChans / fwdPartialChansPerGroup,
@@ -1990,12 +2017,15 @@ convolutionWeightUpdateConvInst(Graph &graph,
   applyTensorMapping(graph, weightDeltas, weightDeltasMapping);
   prog.add(Copy(weightDeltas,
                 weightDeltasTransposed
-                  .reshape({activationsChans / fwdInChansPerGroup,
-                            fwdInChansPerGroup / outputGroupSize,
-                            deltasChans / fwdPartialChansPerGroup,
+                  .dimShuffle({1, 0, 2})
+                  .reshape({deltasChans, paddedActViewSize})
+                  .slice(0, actViewSize, 1)
+                  .reshape({deltasChans / fwdPartialChansPerGroup,
                             fwdPartialChansPerGroup,
-                            outputGroupSize})
-                  .dimShuffle({2, 0, 3, 1, 4})));
+                            kernelSize, kernelSize,
+                            activationsChans / fwdInChansPerGroup,
+                            fwdInChansPerGroup})
+                  .dimShuffle({0, 4, 2, 3, 1, 5})));
   // Add the weight deltas to the weights.
   auto addCS = graph.createComputeSet(layerName + ".update_weights");
   const auto dataPathWidth = deviceInfo.dataPathWidth;
