@@ -515,9 +515,9 @@ public:
   Vector<Input<Vector<FPType>>> deltas;
   Output<Vector<FPType>> weights;
 
-  unsigned kernelSize;
+  unsigned kernelSizeY, kernelSizeX;
   unsigned xpadding, ypadding;
-  unsigned stride;
+  unsigned strideY, strideX;
   unsigned inChansPerGroup;
   unsigned outChansPerGroup;
 
@@ -534,23 +534,23 @@ public:
     for (FPType &o : weights) {
       o = 0.0;
     }
-    for (int wy = 0; wy < kernelSize; ++wy) {
-      for (int wx = 0; wx < kernelSize; ++wx) {
+    for (int wy = 0; wy < kernelSizeY; ++wy) {
+      for (int wx = 0; wx < kernelSizeX; ++wx) {
         auto weightsPerKernelElement = outChansPerGroup * inChansPerGroup;
-        FPType *w = &weights[(wy * kernelSize + wx) * weightsPerKernelElement];
+        FPType *w = &weights[(wy * kernelSizeX + wx) * weightsPerKernelElement];
         for (unsigned outChan = 0; outChan < outChansPerGroup; ++outChan)
         {
           int inRow = wy - static_cast<int>(ypadding);
           unsigned outRow = 0;
           while (inRow < 0) {
-            inRow += stride;
+            inRow += strideY;
             outRow += 1;
           }
           while (outRow < numOutRows && inRow < numInRows) {
             int inCol = wx - static_cast<int>(xpadding);
             unsigned outCol = 0;
             while (inCol < 0) {
-              inCol += stride;
+              inCol += strideX;
               outCol += 1;
             }
             while (outCol < outputWidth && inCol < inputWidth) {
@@ -560,10 +560,10 @@ public:
                     a * deltas[outRow][outCol * outChansPerGroup + outChan];
               }
               outCol += 1;
-              inCol += stride;
+              inCol += strideX;
             }
             outRow += 1;
-            inRow += stride;
+            inRow += strideY;
           }
         }
       }
@@ -581,7 +581,8 @@ public:
     return getWeightGradCalcCycles(numOutRows, numInRows,
                                    outputWidth, inputWidth,
                                    outChansPerGroup, inChansPerGroup,
-                                   stride, kernelSize,
+                                   strideY, strideX, kernelSizeY,
+                                   kernelSizeX,
                                    xpadding, ypadding,
                                    vectorWidth);
 

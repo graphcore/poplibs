@@ -11,12 +11,16 @@
 namespace conv {
 
 std::pair<unsigned, unsigned>
-getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSize,
-             unsigned stride, unsigned padding);
+getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSizeY,
+             unsigned kernelSizeX,
+             unsigned strideY, unsigned strideX, unsigned paddingY,
+             unsigned paddingX);
 
 uint64_t getFlops(unsigned batchSize,
                   unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                  unsigned kernelSize, unsigned stride, unsigned padding,
+                  unsigned kernelSizeY, unsigned kernelSizeX,
+                  unsigned strideY, unsigned strideX, unsigned paddingY,
+                  unsigned paddingX,
                   unsigned outNumChans, bool doResidual, bool forwardOnly);
 
 double getPerfectCycleCount(const poplar::Graph &graph,
@@ -24,15 +28,17 @@ double getPerfectCycleCount(const poplar::Graph &graph,
                             unsigned batchSize,
                             unsigned inDimY, unsigned inDimX,
                             unsigned inNumChans,
-                            unsigned kernelSize, unsigned stride,
-                            unsigned padding,
+                            unsigned kernelSizeY, unsigned kernelSizeX,
+                            unsigned strideY, unsigned strideX,
+                            unsigned paddingY, unsigned paddingX,
                             unsigned outNumChans, bool doResidual,
                             bool forwardOnly);
 
 poplar::Tensor
 createWeights(poplar::Graph &graph, std::string dType,
              unsigned inNumChans,
-             unsigned kernelSize,
+             unsigned kernelSizeY,
+             unsigned kernelSizeX,
              unsigned outNumChans,
              const ConvPlan &plan);
 
@@ -42,7 +48,9 @@ createBiases(poplar::Graph &graph, std::string dType,
 
 poplar::program::Program
 convolution(poplar::Graph &graph, const ConvPlan &plan,
-            unsigned kernelSize, unsigned stride, unsigned padding,
+            unsigned kernelSizeY, unsigned kernelSizeX,
+            unsigned strideY, unsigned strideX, unsigned paddingY,
+            unsigned paddingX,
             unsigned numChannels, NonLinearityType nonLinearityType,
             poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
             poplar::Tensor out,
@@ -61,8 +69,9 @@ convolutionBackward(poplar::Graph &graph,
                     const ConvPlan &plan,
                     poplar::Tensor zDeltas, poplar::Tensor weights,
                     poplar::Tensor deltasOut,
-                    unsigned kernelSize, unsigned stride,
-                    unsigned padding);
+                    unsigned kernelSizeY, unsigned kernelSizeX,
+                    unsigned strideY, unsigned strideX,
+                    unsigned paddingY, unsigned paddingX);
 
 poplar::program::Program
 convolutionWeightUpdate(poplar::Graph &graph,
@@ -70,11 +79,13 @@ convolutionWeightUpdate(poplar::Graph &graph,
                         poplar::Tensor zDeltas, poplar::Tensor weights,
                         poplar::Tensor biases,
                         poplar::Tensor activations,
-                        unsigned kernelSize, unsigned stride,
-                        unsigned padding, float learningRate);
+                        unsigned kernelSizeY, unsigned kernelSizeX,
+                        unsigned strideY, unsigned strideX, unsigned paddingY,
+                        unsigned paddingX, float learningRate);
 
 extern poplar::program::Program winogradConvolution(poplar::Graph &graph,
-            unsigned kernelSize, unsigned stride, unsigned padding,
+            unsigned kernelSizeY, unsigned kernelSizeX, unsigned strideY,
+            unsigned strideX, unsigned paddingY, unsigned paddingX,
             unsigned xDim, unsigned yDim,
             unsigned outNumChans, unsigned patchSizeX, unsigned patchSizeY,
             NonLinearityType nonLinearityType,

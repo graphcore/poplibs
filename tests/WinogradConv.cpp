@@ -54,7 +54,7 @@ static void computeReference(Tensor in, Tensor weights, Tensor biases,
                              Tensor activations, NonLinearityType nonLin,
                              const float *inpBuffer, const float *weightBuffer, 
                              const float *biasBuffer, float *outBuffer,
-                             unsigned padding) {
+                             unsigned paddingY, unsigned paddingX) {
 
   unsigned numInpChanGroups = in.dim(1);
   unsigned numInpChansInGroup = in.dim(4);
@@ -171,7 +171,8 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   const NonLinearityType nonLin = NON_LINEARITY_RELU;
   const unsigned patchSizeX = 4;
   const unsigned patchSizeY = 4;
-  const unsigned padding = 1;
+  const unsigned paddingY = 1;
+  const unsigned paddingX = 1;
   const float    mean = 0;
   const float    stdDev = 1.0;
 
@@ -235,8 +236,9 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   }
 
   auto wgdConv = conv::winogradConvolution(
-           graph, kernelSizeX, 0, padding, featureX, 
-           featureY, numOutChanGroups*numOutChansInGroup,
+           graph, kernelSizeY, kernelSizeX, 1, 1, paddingY,
+           paddingX, featureY,
+           featureX, numOutChanGroups*numOutChansInGroup,
            patchSizeX, patchSizeY, nonLin, "float", in[0], weights, biases,
            activations[0], RESIDUAL_NONE, activations[0]);
 
@@ -253,7 +255,7 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
 
   computeReference(in, weights, biases, activations, nonLin, &inBuffer[0], 
                    &weightsBuffer[0], &biasBuffer[0], &outBufferRef[0],
-                   padding);
+                   paddingX, paddingY);
 
 
   for (unsigned i = 0; i < outSize; ++i) {

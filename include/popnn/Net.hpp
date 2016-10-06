@@ -19,42 +19,60 @@ class Layer { public: virtual ~Layer() {};};
 
 class ConvLayer : public Layer {
 public:
-  unsigned kernelSize;
-  unsigned stride;
-  unsigned padding;
+  unsigned kernelSizeX;
+  unsigned kernelSizeY;
+  unsigned strideX;
+  unsigned strideY;
+  unsigned paddingX;
+  unsigned paddingY;
   unsigned numChannels;
   NonLinearityType nonLinearityType;
-  ConvLayer(unsigned kernelSize,
-            unsigned stride,
-            unsigned padding,
+  ConvLayer(unsigned kernelSizeY,
+            unsigned kernelSizeX,
+            unsigned strideY,
+            unsigned strideX,
+            unsigned paddingY,
+            unsigned paddingX,
             unsigned numChannels,
             NonLinearityType nonLinearityType) :
-  kernelSize(kernelSize),
-  stride(stride),
-  padding(padding),
+  kernelSizeY(kernelSizeY),
+  kernelSizeX(kernelSizeX),
+  strideY(strideY),
+  strideX(strideX),
+  paddingY(paddingY),
+  paddingX(paddingX),
   numChannels(numChannels),
   nonLinearityType(nonLinearityType) {}
 };
 
 class ConvResLayer : public Layer {
 public:
-  unsigned kernelSize;
-  unsigned stride;
-  unsigned padding;
+  unsigned kernelSizeY;
+  unsigned kernelSizeX;
+  unsigned strideY;
+  unsigned strideX;
+  unsigned paddingY;
+  unsigned paddingX;
   unsigned numChannels;
   NonLinearityType nonLinearityType;
   unsigned resIndex;
   enum ResidualMethod resMethod;
-  ConvResLayer(unsigned kernelSize,
-               unsigned stride,
-               unsigned padding,
+  ConvResLayer(unsigned kernelSizeY,
+               unsigned kernelSizeX,
+               unsigned strideY,
+               unsigned strideX,
+               unsigned paddingY,
+               unsigned paddingX,
                unsigned numChannels,
                NonLinearityType nonLinearityType,
                unsigned resIndex,
                enum ResidualMethod resMethod) :
-    kernelSize(kernelSize),
-    stride(stride),
-    padding(padding),
+    kernelSizeY(kernelSizeY),
+    kernelSizeX(kernelSizeX),
+    strideY(strideY),
+    strideX(strideX),
+    paddingY(paddingY),
+    paddingX(paddingX),
     numChannels(numChannels),
     nonLinearityType(nonLinearityType),
     resIndex(resIndex), resMethod(resMethod) {}
@@ -184,8 +202,9 @@ class Net {
                       const ConvImplSpec &impl);
 
   poplar::program::Program
-  createConvLayerFwd(unsigned i, unsigned kernelSize, unsigned stride,
-                     unsigned padding, unsigned numChannels,
+  createConvLayerFwd(unsigned i, unsigned kernelSizeY, unsigned kernelSizeX,
+                     unsigned strideY, unsigned strideX,
+                     unsigned paddingY, unsigned paddingX, unsigned numChannels,
                      NonLinearityType nonLinearityType,
                      unsigned resIndex, ResidualMethod resMethod,
                      poplar::program::Sequence &initParamsProg);
@@ -195,8 +214,10 @@ class Net {
                          const ConvImplSpec &impl);
 
   poplar::program::Program
-  createConvLayerBwd(unsigned i, unsigned kernelSize, unsigned stride,
-                     unsigned padding, NonLinearityType nonLinearityType,
+  createConvLayerBwd(unsigned i, unsigned kernelSizeY, unsigned kernelSizeX,
+                     unsigned strideY, unsigned strideX,
+                     unsigned paddingY, unsigned paddingX,
+                     NonLinearityType nonLinearityType,
                      bool backwardPassRequired);
 
   ReusableLayer
@@ -205,8 +226,10 @@ class Net {
 
   void outputConvDescription(unsigned inDimY, unsigned inDimX,
                              unsigned inNumChans,
-                             unsigned kernelSize, unsigned stride,
-                             unsigned padding, unsigned outNumChans,
+                             unsigned kernelSizeY, unsigned kernelSizeX,
+                             unsigned strideY, unsigned strideX,
+                             unsigned paddingY, unsigned paddingX,
+                             unsigned outNumChans,
                              bool doResidual, bool forwardOnly);
 
   void outputDescription(const Layer *layer, poplar::Tensor in,

@@ -24,11 +24,14 @@ add_test(NAME conv3x3_stride_2_fwd
                  --output-channels=256
                  --width=20
                  --height=28
-                 --kernel-size=3
+                 --kernel-height=3
+                 --kernel-width=3
                  --non-linearity=relu
                  --data-type=half
-                 --padding=2
-                 --stride=2
+                 --padding-height=2
+                 --padding-width=2
+                 --stride-height=2
+                 --stride-weight=2
                  --fwd-out-chans-per-group=16)
 
 add_test(NAME conv1x1_stride_1
@@ -40,8 +43,10 @@ add_test(NAME conv1x1_stride_1
              --fwd-out-chans-per-group=8
              --bwd-out-chans-per-group=8
              --tiles-per-ipu=16
-             --stride=1
-             --kernel-size=1)
+             --stride-height=1
+             --stride-width=1
+             --kernel-height=1
+             --kernel-width=1)
 
 add_test(NAME conv1x1_stride_3
          COMMAND single_conv_layer
@@ -52,8 +57,10 @@ add_test(NAME conv1x1_stride_3
              --fwd-out-chans-per-group=8
              --bwd-out-chans-per-group=8
              --tiles-per-ipu=8
-             --stride=3
-             --kernel-size=1)
+             --stride-height=3
+             --stride-width=3
+             --kernel-height=1
+             --kernel-width=1)
 
 add_test(NAME conv3x3_stride_2_multi_tile
          COMMAND single_conv_layer
@@ -64,8 +71,10 @@ add_test(NAME conv3x3_stride_2_multi_tile
                  --fwd-out-chans-per-group=16
                  --bwd-out-chans-per-group=16
                  --tiles-per-ipu=2
-                 --stride=2
-                 --kernel-size=3)
+                 --stride-height=2
+                 --stride-width=2
+                 --kernel-height=3
+                 --kernel-width=3)
 
 add_test(NAME conv1x1_stride_3_fwd
          COMMAND single_conv_layer
@@ -76,7 +85,8 @@ add_test(NAME conv1x1_stride_3_fwd
                  --height=7
                  --fwd-out-chans-per-group=16
                  --tiles-per-ipu=1
-                 --stride=3)
+                 --stride-height=3
+                 --stride-width=3)
 
  add_test(NAME conv3x3_batch_2
           COMMAND single_conv_layer
@@ -88,6 +98,8 @@ add_test(NAME conv1x1_stride_3_fwd
                   --fwd-out-chans-per-group=16
                   --bwd-out-chans-per-group=16
                   --tiles-per-ipu=2
-                  --stride=2
-                  --kernel-size=3
+                  --stride-height=2
+                  --stride-width=2
+                  --kernel-height=3
+                  --kernel-width=3
                   --batch-size=2)

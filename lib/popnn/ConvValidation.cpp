@@ -4,13 +4,22 @@
 
 void conv::
 validateLayerParams(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                    unsigned kernelSize, unsigned stride, unsigned padding,
+                    unsigned kernelSizeY, unsigned kernelSizeX,
+                    unsigned strideY, unsigned strideX,
+                    unsigned paddingY, unsigned paddingX,
                     unsigned numChannels, const std::string &dType) {
-  if (padding >= kernelSize) {
+  if (paddingY >= kernelSizeY) {
     throw net_creation_error(
-      "Padding is greater than or equal to the kernel size"
+      "Padding of height is greater than or equal to the kernel size"
     );
   }
+
+  if (paddingX >= kernelSizeX) {
+    throw net_creation_error(
+      "Padding of width is greater than or equal to the kernel size"
+    );
+  }
+
   if (dType != "half" && dType != "float") {
     throw net_creation_error("Unknown element type");
   }

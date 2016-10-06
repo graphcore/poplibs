@@ -43,51 +43,60 @@ enum class Phase {
 };
 
 struct ConvolutionParams {
-  unsigned kernelSize;
-  unsigned stride;
+  unsigned kernelSizeY;
+  unsigned kernelSizeX;
+  unsigned strideY;
+  unsigned strideX;
   unsigned inputDepth;
   unsigned inputWidth;
   unsigned inputHeight;
-  unsigned padding;
+  unsigned paddingY;
+  unsigned paddingX;
   unsigned outputDepth;
   unsigned batchSize;
   unsigned getOutputWidth(Phase phase) const {
     if (phase == Phase::BACKWARD)
-      return (inputWidth * stride + kernelSize - 1) - (padding * 2);
+      return (inputWidth * strideX + kernelSizeX - 1) - (paddingX * 2);
     else
-      return inputWidth + padding * 2 < kernelSize
+      return inputWidth + paddingX * 2 < kernelSizeX
         ? 0
-        : (inputWidth + (padding * 2) - kernelSize) / stride + 1;
+        : (inputWidth + (paddingX * 2) - kernelSizeX) / strideX + 1;
   }
   unsigned getOutputHeight(Phase phase) const {
     if (phase == Phase::BACKWARD)
-      return (inputHeight * stride + kernelSize - 1) - (padding * 2);
+      return (inputHeight * strideY + kernelSizeY - 1) - (paddingY * 2);
     else
-      return inputHeight + padding * 2 < kernelSize
+      return inputHeight + paddingY * 2 < kernelSizeY
         ? 0
-        : (inputHeight + (padding * 2) - kernelSize) / stride + 1;
+        : (inputHeight + (paddingY * 2) - kernelSizeY) / strideY + 1;
   }
-  ConvolutionParams(unsigned kernelSize,
-                    unsigned stride,
+  ConvolutionParams(unsigned kernelSizeY,
+                    unsigned kernelSizeX,
+                    unsigned strideY,
+                    unsigned strideX,
                     unsigned inputDepth,
                     unsigned inputWidth,
                     unsigned inputHeight,
-                    unsigned padding,
+                    unsigned paddingY,
+                    unsigned paddingX,
                     unsigned outputDepth,
                     unsigned batchSize) :
-    kernelSize(kernelSize),
-    stride(stride),
+    kernelSizeY(kernelSizeY),
+    kernelSizeX(kernelSizeX),
+    strideY(strideY),
+    strideX(strideX),
     inputDepth(inputDepth),
     inputWidth(inputWidth),
     inputHeight(inputHeight),
-    padding(padding),
+    paddingY(paddingY),
+    paddingX(paddingX),
     outputDepth(outputDepth),
     batchSize(batchSize) {}
 };
 
 static bool
 canUseConvolutionInstruction(bool floatActivations, bool floatPartials,
-                             unsigned stride,
+                             unsigned strideY, unsigned strideX,
                              unsigned inChansPerGroup,
                              const poplar::DeviceInfo &deviceInfo) {
   if (floatActivations) {
@@ -107,7 +116,7 @@ canUseConvolutionInstruction(bool floatActivations, bool floatPartials,
       deviceInfo.dataPathWidth != 0) {
     return false;
   }
-  if (stride >= (1 << 4))
+  if ((strideY >= (1 << 4)) || (strideX >= (1 << 4)))
     return false;
   return true;
 }
@@ -222,16 +231,16 @@ estimateExchangeCost(const poplar::DeviceInfo &deviceInfo,
       (numInGroups + tilesPerInZGroupAxis - 1) / tilesPerInZGroupAxis;
   const auto tileInDepth = tileNumInGroups * inChansPerGroup;
   const auto tileInWidth =
-      getMaxInputRangeSize(tileOutWidth, params.stride, params.kernelSize,
-                           params.padding,
+      getMaxInputRangeSize(tileOutWidth, params.strideX, params.kernelSizeX,
+                           params.paddingX,
                            tilesPerX, params.inputWidth, true, phase);
   const auto tileInHeight =
-      getMaxInputRangeSize(tileOutHeight, params.stride, params.kernelSize,
-                           params.padding,
+      getMaxInputRangeSize(tileOutHeight, params.strideY, params.kernelSizeY,
+                           params.paddingY,
                            tilesPerY, params.inputWidth, false, phase);
   const auto numberOfInputElements = tileInWidth * tileInHeight * tileInDepth;
   const auto numberOfWeights =
-      params.kernelSize * params.kernelSize * tileOutDepth * tileInDepth;
+      params.kernelSizeY * params.kernelSizeX * tileOutDepth * tileInDepth;
   const auto numberOfOutputElements =
       tileOutWidth * tileOutHeight * tileOutDepth;
 
@@ -283,14 +292,19 @@ estimateVertexCycles(bool floatActivations,
 
   const auto outRowsPerVertex =
       (tileOutHeight + verticesPerTilePerY - 1) / verticesPerTilePerY;
-  const auto outputStride = phase != Phase::BACKWARD ? 1 : params.stride;
-  const auto inputStride = phase != Phase::BACKWARD ? params.stride : 1;
+  const auto outputStrideY = phase != Phase::BACKWARD ? 1 : params.strideY;
+  const auto inputStrideY = phase != Phase::BACKWARD ? params.strideY : 1;
+  const auto outputStrideX = phase != Phase::BACKWARD ? 1 : params.strideX;
+  const auto inputStrideX = phase != Phase::BACKWARD ? params.strideX : 1;
+
   if (phase == Phase::WEIGHTUPDATE) {
     auto vectorWidth = deviceInfo.dataPathWidth / (floatActivations ? 32 : 16);
-    return getWeightGradCalcCycles(tileOutHeight, tileOutHeight * inputStride,
-                                   tileOutWidth, tileOutWidth * inputStride,
+    return getWeightGradCalcCycles(tileOutHeight, tileOutHeight * inputStrideY,
+                                   tileOutWidth, tileOutWidth * inputStrideX,
                                    outChansPerGroup, inChansPerGroup,
-                                   inputStride, params.kernelSize,
+                                   inputStrideY, inputStrideX,
+                                   params.kernelSizeY,
+                                   params.kernelSizeX,
                                    0, 0, vectorWidth);
   }
   if (partition.useConvolutionInstructions) {
@@ -299,23 +313,23 @@ estimateVertexCycles(bool floatActivations,
     const auto convUnitWeightHeight =
         deviceInfo.getWeightsPerConvUnit(floatActivations) / inChansPerGroup;
     const auto passesPerFilter =
-        params.kernelSize *
-        (params.kernelSize + convUnitWeightHeight - 1) / convUnitWeightHeight;
+        params.kernelSizeX *
+        (params.kernelSizeY + convUnitWeightHeight - 1) / convUnitWeightHeight;
     const auto passesPerOutput = passesPerFilter * tileNumInGroups;
     return getConvPartialnx1CycleEstimate(
           passesPerOutput, outRowsPerVertex,
           tileOutWidth, deviceInfo.convUnitPipelineDepth,
           getNumConvUnits(partition.floatPartials, deviceInfo),
           useSupervisorVertices,
-          outputStride,
+          outputStrideY,
           convUnitWeightHeight);
   }
   assert(!useSupervisorVertices);
   return outRowsPerVertex * outChansPerGroup *
          getConvPartialByDotProductCycleEstimate(
-           floatActivations, inChansPerGroup, params.kernelSize,
-           params.kernelSize * tileNumInGroups, tileOutWidth,
-           deviceInfo.dataPathWidth, outputStride
+           floatActivations, inChansPerGroup, params.kernelSizeY,
+           params.kernelSizeX * tileNumInGroups, tileOutWidth,
+           deviceInfo.dataPathWidth, outputStrideY
          );
 }
 
@@ -441,9 +455,9 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
                 Phase phase) {
   if (convVertexType.useConvInstruction &&
       phase == Phase::WEIGHTUPDATE) {
-    assert(params.kernelSize == 1);
-    assert(params.stride == 1);
-    assert(params.padding == 0);
+    assert(params.kernelSizeY == 1 && params.kernelSizeX == 1);
+    assert(params.strideY == 1 && params.strideX == 1);
+    assert(params.paddingY == 0 && params.paddingX == 0);
     assert(params.batchSize == 1);
     // The weight update can be implemented as a convolution with a different
     // axis of accumulation.
@@ -461,12 +475,15 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
     const auto paddedFieldSize =
         ((fieldSize + fieldGroupSize - 1) / fieldGroupSize) * fieldGroupSize;
     auto newParams = ConvolutionParams(
-                       params.kernelSize,
-                       params.stride,
+                       params.kernelSizeY,
+                       params.kernelSizeX,
+                       params.strideY,
+                       params.strideX,
                        paddedFieldSize,
                        params.outputDepth,
                        1,
-                       0 /*padding*/,
+                       0 /*paddingY*/,
+                       0, /*padingX*/
                        params.inputDepth,
                        params.batchSize);
     return choosePartition(deviceInfo, floatActivations, false,
@@ -553,13 +570,14 @@ getConvVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
   std::vector<ConvVertexType> convVertexTypeCandidates;
   if (deviceInfo.fp16AccumConvUnitsPerTile > 0 &&
       canUseConvolutionInstruction(floatActivations, false,
-                                   params.stride, inChansPerGroup,
-                                   deviceInfo)) {
+                                   params.strideY, params.strideX,
+                                   inChansPerGroup, deviceInfo)) {
     convVertexTypeCandidates.emplace_back(deviceInfo, true, false);
   }
   if (deviceInfo.fp32AccumConvUnitsPerTile > 0 &&
       canUseConvolutionInstruction(floatActivations, true,
-                                   params.stride, inChansPerGroup,
+                                   params.strideY, params.strideX,
+                                   inChansPerGroup,
                                    deviceInfo)) {
     convVertexTypeCandidates.emplace_back(deviceInfo, true, true);
   }
@@ -573,7 +591,9 @@ getWeightUpdateVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
                                     unsigned deltasChansPerGroup,
                                     const ConvolutionParams &params) {
   std::vector<ConvVertexType> convVertexTypeCandidates;
-  if (params.stride == 1 && params.kernelSize == 1 && params.padding == 0) {
+  if (params.strideY == 1 && params .strideX == 1
+      && params.kernelSizeY == 1 && params.kernelSizeX == 1
+      && params.paddingY == 0 && params.paddingX == 0) {
     if (deviceInfo.fp16AccumConvUnitsPerTile > 0) {
       convVertexTypeCandidates.emplace_back(deviceInfo, true, false);
     }
@@ -657,17 +677,22 @@ choosePartition(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
 }
 
 ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                    unsigned kernelSize, unsigned stride, unsigned padding,
+                    unsigned kernelSizeY, unsigned kernelSizeX,
+                    unsigned strideY, unsigned strideX, unsigned paddingY,
+                    unsigned paddingX,
                     unsigned numChannels, unsigned batchSize,
                     std::string dType,
                     const poplar::Graph &graph, bool forwardOnly) {
-  validateLayerParams(inDimY, inDimX, inNumChans, kernelSize, stride, padding,
+  validateLayerParams(inDimY, inDimX, inNumChans, kernelSizeY, kernelSizeX,
+                      strideY, strideX, paddingY, paddingX,
                       numChannels, dType);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   bool preferConvInstructions =
       graph.getDevice().getDeviceType() == poplar::DeviceType::CPU;
   ConvPlan plan;
-  if (kernelSize == 1 && stride == 1 && padding == 0) {
+  if (kernelSizeY == 1 && kernelSizeX == 1
+      && strideY == 1 && strideX == 1
+      && paddingY == 0 && paddingX == 0) {
     plan.flattenXY = true;
     inDimX = inDimX * inDimY;
     inDimY = 1;
@@ -675,12 +700,16 @@ ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
     plan.flattenXY = false;
   }
   unsigned outDimY, outDimX;
-  std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX, kernelSize,
-                                            stride, padding);
-  ConvolutionParams fwdParams(kernelSize, stride, inNumChans, inDimX, inDimY,
-                              padding, numChannels, batchSize);
-  ConvolutionParams bwdParams(kernelSize, stride, numChannels, outDimX,
-                              outDimY, padding, inNumChans, batchSize);
+  std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX,
+                                            kernelSizeY, kernelSizeX,
+                                            strideY, strideX,
+                                            paddingY, paddingX);
+  ConvolutionParams fwdParams(kernelSizeY, kernelSizeX, strideY, strideX,
+                              inNumChans, inDimX, inDimY,
+                              paddingY, paddingX, numChannels, batchSize);
+  ConvolutionParams bwdParams(kernelSizeY, kernelSizeX, strideY, strideX,
+                              numChannels, outDimX, outDimY,
+                              paddingY, paddingX, inNumChans, batchSize);
   const bool floatActivations = dType == "float";
   unsigned bestCost = std::numeric_limits<unsigned>::max();
   auto inChansPerGroupCandidates =

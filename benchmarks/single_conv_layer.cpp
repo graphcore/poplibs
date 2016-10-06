@@ -421,9 +421,12 @@ int main(int argc, char **argv) {
   unsigned fwdOutChans;
   unsigned width;
   unsigned height;
-  unsigned kernelSize;
-  unsigned padding;
-  unsigned stride;
+  unsigned kernelHeight;
+  unsigned kernelWidth;
+  unsigned paddingHeight;
+  unsigned paddingWidth;
+  unsigned strideH;
+  unsigned strideW;
   unsigned fwdOutChansPerGroup;
   unsigned bwdOutChansPerGroup;
   unsigned batchSize;
@@ -443,8 +446,12 @@ int main(int argc, char **argv) {
      "Number of output channels")
     ("width", po::value<unsigned>(&width)->required(), "Field width")
     ("height", po::value<unsigned>(&height)->required(), "Field height")
-    ("kernel-size", po::value<unsigned>(&kernelSize)->default_value(1),
-     "Size of kernel")
+    ("kernel-height",
+      po::value<unsigned>(&kernelHeight)->default_value(1),
+     "Size of kernel height")
+    ("kernel-width",
+      po::value<unsigned>(&kernelWidth)->default_value(1),
+     "Size of kernel width")
     ("non-linearity",
      po::value<NonLinearityType>(&nonLinearityType)
          ->default_value(NON_LINEARITY_RELU),
@@ -452,10 +459,14 @@ int main(int argc, char **argv) {
     ("data-type",
      po::value<FPDataType>(&dataType)->default_value(FPDataType::HALF),
      "Type of the data and the parameters")
-    ("padding", po::value<unsigned>(&padding)->default_value(0),
-     "Amount of zero padding")
-    ("stride", po::value<unsigned>(&stride)->default_value(1),
-     "Kernel stride")
+    ("padding-height", po::value<unsigned>(&paddingHeight)->default_value(0),
+     "Amount of zero padding in the height dimension")
+    ("padding-width", po::value<unsigned>(&paddingWidth)->default_value(0),
+     "Amount of zero padding in the width dimension")
+    ("stride-height", po::value<unsigned>(&strideH)->default_value(1),
+     "Kernel stride in the height dimension")
+    ("stride-width", po::value<unsigned>(&strideW)->default_value(1),
+     "Kernel stride in the width dimension")
     ("fwd-out-chans-per-group",
      po::value<unsigned>(&fwdOutChansPerGroup),
      "The number of channels per group of the activations written in the "
@@ -492,6 +503,7 @@ int main(int argc, char **argv) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }
+
   bool inferenceOnly = vm.count("inference-only");
   GraphProgEnv env(popnn::findGraphProg(), GraphProgFileType::Object);
   Graph graph(env, createIPUModelDevice(info));
@@ -499,7 +511,9 @@ int main(int argc, char **argv) {
   std::string dataTypeStr(asString(dataType));
   // TODO support residual connections.
   auto plan = conv::createPlan(height, width, fwdInChans,
-                               kernelSize, stride, padding,
+                               kernelHeight, kernelWidth, strideH,
+                               strideW, paddingHeight,
+                               paddingWidth,
                                fwdOutChans, batchSize,
                                dataTypeStr, graph,
                                inferenceOnly);
@@ -521,7 +535,9 @@ int main(int argc, char **argv) {
                           plan.bwdPartition.partialChansPerGroup;
   }
   const auto outDims =
-      conv::getOutputDim(height, width, kernelSize, stride, padding);
+      conv::getOutputDim(height, width, kernelHeight, kernelWidth,
+                         strideH, strideW,
+                         paddingHeight, paddingWidth);
   const auto outHeight = outDims.first;
   const auto outWidth = outDims.second;
   // Create tensors.
@@ -533,7 +549,8 @@ int main(int argc, char **argv) {
                                     fwdInChansPerGroup}, "prevAct");
   mapActivations(graph, prevAct);
   Tensor weights = conv::createWeights(graph, dataTypeStr, fwdInChans,
-                                       kernelSize, fwdOutChans, plan);
+                                       kernelHeight, kernelWidth,
+                                       fwdOutChans, plan);
   Tensor biases = conv::createBiases(graph, dataTypeStr, fwdOutChans);
   Tensor nextAct =
       graph.addTensor(dataTypeStr, {batchSize,
@@ -589,7 +606,9 @@ int main(int argc, char **argv) {
 
   auto fwdProg =
     conv::convolution(graph, plan,
-                      kernelSize, stride, padding, fwdOutChans,
+                      kernelHeight, kernelWidth, strideH,
+                      strideW, paddingHeight,
+                      paddingWidth, fwdOutChans,
                       nonLinearityType, prevAct, weights, biases, nextAct,
                       RESIDUAL_NONE, {}, useWinogradConv, winogradPatchSize);
 
@@ -601,12 +620,15 @@ int main(int argc, char **argv) {
     );
     bwdProg.add(
       conv::convolutionBackward(graph, plan, zDeltas, weights, prevDeltas,
-                                kernelSize, stride, padding)
+                                kernelHeight, kernelWidth, strideH,
+                                strideW,
+                                paddingHeight, paddingWidth)
     );
     bwdProg.add(
       conv::convolutionWeightUpdate(graph, plan, zDeltas, weights, biases,
-                                    prevAct, kernelSize, stride, padding,
-                                    learningRate)
+                                    prevAct, kernelHeight, kernelWidth,
+                                    strideH, strideW, paddingHeight,
+                                    paddingWidth, learningRate)
     );
   }
   Engine engine(graph, {&upload, &download, &fwdProg, &bwdProg});
@@ -615,8 +637,8 @@ int main(int argc, char **argv) {
   boost::multi_array<double, 4>
       hostPrevAct(boost::extents[batchSize][fwdInChans][height][width]);
   boost::multi_array<double, 4>
-      hostWeights(boost::extents[fwdOutChans][fwdInChans][kernelSize]
-                                 [kernelSize]);
+      hostWeights(boost::extents[fwdOutChans][fwdInChans][kernelHeight]
+                                 [kernelWidth]);
   boost::multi_array<double, 1>
       hostBiases(boost::extents[fwdOutChans]);
   boost::multi_array<double, 4>
@@ -640,7 +662,8 @@ int main(int argc, char **argv) {
                      hostNextAct);
   boost::multi_array<double, 4>
       modelNextAct(boost::extents[batchSize][fwdOutChans][outHeight][outWidth]);
-  ref::conv::convolution(stride, padding, nonLinearityType, hostPrevAct,
+  ref::conv::convolution(strideH, strideW, paddingHeight, paddingWidth,
+                         nonLinearityType, hostPrevAct,
                          hostWeights, hostBiases, modelNextAct);
   bool matchesModel = checkIsClose("fwd", hostNextAct, modelNextAct,
                                    relativeTolerance);
@@ -679,11 +702,13 @@ int main(int argc, char **argv) {
                                  hostZDeltas, modelZDeltas, relativeTolerance);
     boost::multi_array<double, 4>
         modelPrevDeltas(boost::extents[batchSize][fwdInChans][height][width]);
-    ref::conv::convolutionBackward(stride, padding, hostZDeltas, modelWeights,
+    ref::conv::convolutionBackward(strideH, strideW, paddingHeight,
+                                   paddingWidth, hostZDeltas, modelWeights,
                                    modelPrevDeltas);
     matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
                                  relativeTolerance);
-    ref::conv::weightUpdate(stride, padding, learningRate, hostPrevAct,
+    ref::conv::weightUpdate(strideH, strideW, paddingHeight, paddingWidth,
+                            learningRate, hostPrevAct,
                             hostZDeltas, modelWeights, modelBiases);
     matchesModel &= checkIsClose("weights",
                                  hostWeights, modelWeights, relativeTolerance);

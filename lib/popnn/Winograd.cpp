@@ -1692,7 +1692,8 @@ static Program complete(
 
 
 extern Program winogradConvolution(Graph &graph,
-            unsigned kernelSize, unsigned stride, unsigned padding,
+            unsigned kernelSizeY, unsigned kernelSizeX, unsigned strideY,
+            unsigned strideX, unsigned paddingY, unsigned paddingX,
             unsigned xDim, unsigned yDim,
             unsigned outNumChans, unsigned patchSizeX, unsigned patchSizeY,
             NonLinearityType nonLinearityType,
@@ -1726,10 +1727,10 @@ extern Program winogradConvolution(Graph &graph,
   assert(in.dim(3) == weights.dim(5));
 
 
-  WgdTilePartition tp(padding, padding,
+  WgdTilePartition tp(paddingX, paddingY,
                       xDim, yDim,
                       patchSizeX, patchSizeY,
-                      kernelSize, kernelSize,
+                      kernelSizeX, kernelSizeY,
                       weights.dim(1) * weights.dim(5),
                       weights.dim(0) * weights.dim(4),
                       dType);
@@ -1742,8 +1743,8 @@ extern Program winogradConvolution(Graph &graph,
 
   auto prog = Sequence();
 
-  const auto layerName = "Wgd Conv" + std::to_string(kernelSize) 
-                         + "x" + std::to_string(kernelSize) + ".fwd";
+  const auto layerName = "Wgd Conv" + std::to_string(kernelSizeX)
+                         + "x" + std::to_string(kernelSizeY) + ".fwd";
 
   wgdMapWeights(graph, tp, weights);
 

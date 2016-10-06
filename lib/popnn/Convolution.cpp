@@ -17,17 +17,20 @@ using namespace poplar::program;
 namespace conv {
 
 std::pair<unsigned, unsigned>
-getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSize,
-             unsigned stride, unsigned padding) {
-  unsigned outDimX = (inDimX + (padding * 2) - kernelSize) / stride + 1;
-  unsigned outDimY = (inDimY + (padding * 2) - kernelSize) / stride + 1;
+getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSizeY,
+             unsigned kernelSizeX, unsigned strideY,
+             unsigned strideX, unsigned paddingY,
+             unsigned paddingX) {
+  unsigned outDimX = (inDimX + (paddingX * 2) - kernelSizeX) / strideX + 1;
+  unsigned outDimY = (inDimY + (paddingY * 2) - kernelSizeY) / strideY + 1;
   return {outDimY, outDimX};
 }
 
 poplar::Tensor
 createWeights(poplar::Graph &graph, std::string dType,
              unsigned inNumChans,
-             unsigned kernelSize,
+             unsigned kernelSizeY,
+             unsigned kernelSizeX,
              unsigned outNumChans,
              const ConvPlan &plan) {
   const auto partialChansPerGroup = plan.fwdPartition.partialChansPerGroup;
@@ -36,8 +39,8 @@ createWeights(poplar::Graph &graph, std::string dType,
   const auto inNumChanGroups = inNumChans / inChansPerGroup;
   auto weights = graph.addTensor(dType, {partialNumChanGroups,
                                          inNumChanGroups,
-                                         kernelSize,
-                                         kernelSize,
+                                         kernelSizeY,
+                                         kernelSizeX,
                                          partialChansPerGroup,
                                          inChansPerGroup},
                                  "weights");
@@ -117,7 +120,8 @@ iterateWeightMapping(Tensor w,
   const auto tilesPerInZGroup = partition.tilesPerInZGroupAxis;
   const auto inNumChans = w.dim(1) * w.dim(5);
   const auto outNumChans = w.dim(0) * w.dim(4);
-  const auto kernelSize = w.dim(2);
+  const auto kernelSizeY = w.dim(2);
+  const auto kernelSizeX = w.dim(3);
   const auto numInZGroups = inNumChans / inChansPerGroup;
   assert(outNumChans % partialChansPerGroup == 0);
   const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
@@ -137,11 +141,11 @@ iterateWeightMapping(Tensor w,
       // loop body.
       Tensor sharedWeights;
       if (partition.useConvolutionInstructions) {
-        if (kernelSize == 1) {
+        if (kernelSizeY == 1 && kernelSizeX == 1) {
           sharedWeights =
               w.slice(
           {outZGroupBegin, inZGroupBegin, 0, 0, 0, 0},
-          {outZGroupEnd, inZGroupEnd, kernelSize, kernelSize,
+          {outZGroupEnd, inZGroupEnd, kernelSizeY, kernelSizeX,
            partialChansPerGroup, inChansPerGroup}
                 ).reshape({numOutZGroups,
                            numInZGroups * partialChansPerGroup *
@@ -150,20 +154,20 @@ iterateWeightMapping(Tensor w,
           sharedWeights =
               w.slice(
           {outZGroupBegin, inZGroupBegin, 0, 0, 0, 0},
-          {outZGroupEnd, inZGroupEnd, kernelSize, kernelSize,
+          {outZGroupEnd, inZGroupEnd, kernelSizeY, kernelSizeX,
            partialChansPerGroup, inChansPerGroup}
-                ).reshape({numOutZGroups * numInZGroups * kernelSize *
-                           kernelSize,
+                ).reshape({numOutZGroups * numInZGroups * kernelSizeY *
+                           kernelSizeX,
                            partialChansPerGroup * inChansPerGroup});
         }
       } else {
         sharedWeights =
             w.slice(
         {outZGroupBegin, inZGroupBegin, 0, 0, 0, 0},
-        {outZGroupEnd, inZGroupEnd, kernelSize, kernelSize,
+        {outZGroupEnd, inZGroupEnd, kernelSizeY, kernelSizeX,
          1, inChansPerGroup}
-              ).reshape({numInZGroups * numOutZGroups * kernelSize,
-                         kernelSize * inChansPerGroup});
+              ).reshape({numInZGroups * numOutZGroups * kernelSizeY,
+                         kernelSizeX * inChansPerGroup});
       }
       const auto numSharedWeightGroups = sharedWeights.dim(0);
       // Spread groups of weights equally across the tiles that read them.
@@ -269,12 +273,16 @@ createConvPartial1x1OutVertex(Graph &graph,
                               unsigned outYBegin, unsigned outYEnd,
                               unsigned ozg,
                               unsigned inZGroupBegin, unsigned inZGroupEnd,
-                              unsigned kernelSize, unsigned stride,
-                              unsigned padding,
+                              unsigned kernelSizeY,
+                              unsigned kernelSizeX,
+                              unsigned strideY,
+                              unsigned strideX,
+                              unsigned paddingY,
+                              unsigned paddingX,
                               ComputeSet fwdCS,
                               const Tensor &in, const Tensor &weights,
                               const Tensor &out, bool forward) {
-  assert(kernelSize == 1);
+  assert(kernelSizeY == 1 && kernelSizeX == 1);
   assert(forward || stride == 1);
   const auto inDimY = in.dim(1);
   const auto inDimX = in.dim(2);
@@ -298,11 +306,11 @@ createConvPartial1x1OutVertex(Graph &graph,
   const auto partialType = graph.getTensorElementType(out);
   unsigned inYBegin, inYEnd, inXBegin, inXEnd;
   std::tie(inYBegin, inYEnd) =
-      getInputRange({outYBegin, outYEnd}, stride, kernelSize,
-                     padding, inDimY, forward);
+      getInputRange({outYBegin, outYEnd}, strideY, kernelSizeY,
+                     paddingY, inDimY, forward);
   std::tie(inXBegin, inXEnd) =
-      getInputRange({outXBegin, outXEnd}, stride,
-                     kernelSize, padding, inDimX, forward);
+      getInputRange({outXBegin, outXEnd}, strideX,
+                     kernelSizeX, paddingX, inDimX, forward);
 
   // Add the vertex.
   const char *baseClass =
@@ -342,13 +350,13 @@ createConvPartial1x1OutVertex(Graph &graph,
         const auto workerOutXEnd = outXBegin + partialRow.end;
         const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
         const auto workerInY =
-            getInputIndex(workerOutY, stride, kernelSize,
-                          padding, inDimY, 0, forward);
+            getInputIndex(workerOutY, strideY, kernelSizeY,
+                          paddingY, inDimY, 0, forward);
         assert(workerInY != ~0U);
         unsigned workerInXBegin, workerInXEnd;
         std::tie(workerInXBegin, workerInXEnd) =
-            getInputRange({workerOutXBegin, workerOutXEnd}, stride,
-                          kernelSize, padding, inDimX, forward);
+            getInputRange({workerOutXBegin, workerOutXEnd}, strideX,
+                          kernelSizeX, paddingX, inDimX, forward);
         const auto workerInWidth = workerInXEnd - workerInXBegin;
         assert(workerInWidth != 0);
         Tensor inWindow =
@@ -381,8 +389,10 @@ createConvPartialnx1InOutVertex(Graph &graph,
                                 unsigned outYBegin, unsigned outYEnd,
                                 unsigned outZGroup,
                                 unsigned inZGroupBegin, unsigned inZGroupEnd,
-                                unsigned kernelSize, unsigned stride,
-                                unsigned padding,
+                                unsigned kernelSizeY,
+                                unsigned kernelSizeX,
+                                unsigned strideY, unsigned strideX,
+                                unsigned paddingY, unsigned paddingX,
                                 ComputeSet fwdCS,
                                 const Tensor &in,
                                 const Tensor &weights,
@@ -418,25 +428,25 @@ createConvPartialnx1InOutVertex(Graph &graph,
   graph.setTileMapping(v, tile);
   unsigned numWeights = 0;
   unsigned numConvolutions = 0;
-  for (unsigned wyBegin = 0; wyBegin < kernelSize;
+  for (unsigned wyBegin = 0; wyBegin < kernelSizeY;
        wyBegin += convUnitWeightHeight) {
-    const auto wyEnd = std::min(kernelSize, wyBegin + convUnitWeightHeight);
+    const auto wyEnd = std::min(kernelSizeY, wyBegin + convUnitWeightHeight);
     unsigned convOutYBegin, convOutYEnd;
     std::tie(convOutYBegin, convOutYEnd) =
-        getOutputRange({outYBegin, outYEnd}, stride, kernelSize,
-                       padding, inDimY, {wyBegin, wyEnd}, forward);
+        getOutputRange({outYBegin, outYEnd}, strideY, kernelSizeY,
+                       paddingY, inDimY, {wyBegin, wyEnd}, forward);
     const auto convOutHeight = convOutYEnd - convOutYBegin;
     if (convOutHeight == 0)
       continue;
-    for (unsigned wx = 0; wx != kernelSize; ++wx) {
+    for (unsigned wx = 0; wx != kernelSizeX; ++wx) {
       unsigned convOutXBegin, convOutXEnd;
       std::tie(convOutXBegin, convOutXEnd) =
-          getOutputRange({outXBegin, outXEnd}, stride, kernelSize,
-                         padding, inDimX, wx, forward);
+          getOutputRange({outXBegin, outXEnd}, strideX, kernelSizeX,
+                         paddingX, inDimX, wx, forward);
       const auto convOutWidth = convOutXEnd - convOutXBegin;
       if (convOutWidth == 0)
         continue;
-      unsigned outputStride = forward ? 1 : stride;
+      unsigned outputStride = forward ? 1 : strideY;
       std::vector<std::vector<PartialRow>> workerPartition =
           partitionConvPartialByWorker(convOutHeight, convOutWidth,
                                        contextsPerVertex, outputStride);
@@ -466,14 +476,14 @@ createConvPartialnx1InOutVertex(Graph &graph,
             const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
             unsigned workerInXBegin, workerInXEnd;
             std::tie(workerInXBegin, workerInXEnd) =
-                getInputRange({workerOutXBegin, workerOutXEnd}, stride,
-                              kernelSize, padding, inDimX, wx, forward);
+                getInputRange({workerOutXBegin, workerOutXEnd}, strideX,
+                              kernelSizeX, paddingX, inDimX, wx, forward);
             const auto workerInWidth = workerInXEnd - workerInXBegin;
             for (unsigned wy = wyBegin; wy != wyBegin + convUnitWeightHeight;
                  ++wy) {
               const auto workerInY =
-                  getInputIndex(workerOutY, stride, kernelSize,
-                                padding, inDimY, wy, forward);
+                  getInputIndex(workerOutY, strideY, kernelSizeY,
+                                paddingY, inDimY, wy, forward);
               Tensor inWindow;
               if (workerInY == ~0U) {
                 inWindow = zeros.slice(0, workerInWidth * inChansPerGroup);
@@ -516,8 +526,9 @@ createConvPartialDotProductVertex(Graph &graph,
                                   unsigned outYBegin, unsigned outYEnd,
                                   unsigned z,
                                   unsigned inZGroupBegin, unsigned inZGroupEnd,
-                                  unsigned kernelSize, unsigned stride,
-                                  unsigned padding,
+                                  unsigned kernelSizeY, unsigned kernelSizeX,
+                                  unsigned strideY, unsigned strideX,
+                                  unsigned paddingY, unsigned paddingX,
                                   std::string dType,
                                   ComputeSet fwdCS,
                                   const Tensor &in,
@@ -535,17 +546,17 @@ createConvPartialDotProductVertex(Graph &graph,
   const auto y = outYBegin;
   unsigned inYBegin, inYEnd, inXBegin, inXEnd;
   std::tie(inYBegin, inYEnd) =
-      getInputRange(y, stride, kernelSize, padding, inDimY, true);
+      getInputRange(y, strideY, kernelSizeY, paddingY, inDimY, true);
   std::tie(inXBegin, inXEnd) =
-      getInputRange({outXBegin, outXEnd}, stride, kernelSize,
-                    padding, inDimX, true);
+      getInputRange({outXBegin, outXEnd}, strideX, kernelSizeX,
+                    paddingX, inDimX, true);
   // Window into previous layer.
   const auto inWidth = inXEnd - inXBegin;
   const auto inHeight = inYEnd - inYBegin;
   // Weights that match the window.
   unsigned weightYBegin, weightYEnd;
   std::tie(weightYBegin, weightYEnd) =
-      getKernelRange(y, stride, kernelSize, padding, inDimY, true);
+      getKernelRange(y, strideY, kernelSizeY, paddingY, inDimY, true);
   Tensor inWindow =
       in.slice(
   {inZGroupBegin, inYBegin, inXBegin, 0},
@@ -555,9 +566,9 @@ createConvPartialDotProductVertex(Graph &graph,
   Tensor w =
       weights[z].slice(
   {inZGroupBegin, weightYBegin, 0, 0, 0},
-  {inZGroupEnd, weightYEnd, kernelSize, 1, inChansPerGroup}
+  {inZGroupEnd, weightYEnd, kernelSizeX, 1, inChansPerGroup}
         ).reshape({inHeight * inZGroups,
-                   inChansPerGroup * kernelSize});
+                   inChansPerGroup * kernelSizeX});
   Tensor outWindow = out[z][y].slice(outXBegin, outXEnd).flatten();
   // Add the vertex.
   auto v = graph.addVertex(fwdCS,
@@ -568,9 +579,9 @@ createConvPartialDotProductVertex(Graph &graph,
     {"out", outWindow },
                            });
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-  graph.setInitialValue(v["stride"], stride);
+  graph.setInitialValue(v["stride"], strideX);
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
-  unsigned vPadding = inXBegin < padding ? padding - inXBegin : 0;
+  unsigned vPadding = inXBegin < paddingX ? paddingX - inXBegin : 0;
   graph.setInitialValue(v["padding"], vPadding);
   // Map the vertex and output.
   graph.setTileMapping(v, tile);
@@ -631,7 +642,9 @@ calcPartialConvOutput(Graph &graph,
                       unsigned outYBegin, unsigned outYEnd,
                       unsigned outZGroupBegin, unsigned outZGroupEnd,
                       unsigned inZGroupBegin, unsigned inZGroupEnd,
-                      unsigned kernelSize, unsigned stride, unsigned padding,
+                      unsigned kernelSizeY, unsigned kernelSizeX,
+                      unsigned strideY, unsigned strideX, unsigned paddingY,
+                      unsigned paddingX,
                       ComputeSet zeroCS,
                       ComputeSet fwdCS,
                       Tensor in, Tensor weights, Tensor out, bool forward) {
@@ -648,8 +661,8 @@ calcPartialConvOutput(Graph &graph,
     if (convUnitWeightHeight != 1) {
       assert(partition.useConvolutionInstructions);
       const auto inDimX = in.dim(2);
-      const auto inputRange = getInputRange({outXBegin, outXEnd}, stride,
-                                            kernelSize, padding,
+      const auto inputRange = getInputRange({outXBegin, outXEnd}, strideX,
+                                            kernelSizeX, paddingX,
                                             inDimX, forward);
       const auto inputRangeSize = inputRange.second - inputRange.first;
       // This isn't split across multiple workers since it can happen in
@@ -662,7 +675,8 @@ calcPartialConvOutput(Graph &graph,
       graph.setTileMapping(v, tile);
       graph.setTileMapping(zeros, tile);
     }
-    useConvPartial1x1OutVertex = kernelSize == 1 && (forward || stride == 1);
+    useConvPartial1x1OutVertex = kernelSizeX == 1 && kernelSizeY == 1 &&
+                                 (forward || (strideX == 1 && strideY == 1));
     if (!useConvPartial1x1OutVertex) {
       zeroPartialSums(graph, partition,
                       outXBegin, outXEnd, outYBegin, outYEnd,
@@ -687,7 +701,8 @@ calcPartialConvOutput(Graph &graph,
                                       vertexOutYBegin, vertexOutYEnd,
                                       ozg,
                                       inZGroupBegin, inZGroupEnd,
-                                      kernelSize, stride, padding,
+                                      kernelSizeY, kernelSizeX, strideY,
+                                      strideX, paddingY, paddingX,
                                       fwdCS, in, weights, out,
                                       forward);
       } else if (partition.useConvolutionInstructions) {
@@ -695,7 +710,8 @@ calcPartialConvOutput(Graph &graph,
                                         vertexOutYBegin, vertexOutYEnd,
                                         ozg,
                                         inZGroupBegin, inZGroupEnd,
-                                        kernelSize, stride, padding,
+                                        kernelSizeY, kernelSizeX, strideY,
+                                        strideX, paddingY, paddingX,
                                         fwdCS, in, weights, out,
                                         zeros, forward);
       } else {
@@ -707,7 +723,8 @@ calcPartialConvOutput(Graph &graph,
                                           vertexOutYBegin, vertexOutYEnd,
                                           ozg,
                                           inZGroupBegin, inZGroupEnd,
-                                          kernelSize, stride, padding,
+                                          kernelSizeY, kernelSizeX, strideY,
+                                          strideX, paddingY, paddingX,
                                           dType, fwdCS, in, weights, out);
       }
     }
@@ -891,7 +908,8 @@ addResidualCalc(Graph &graph,
 static Program
 calcPartialSums(Graph &graph,
                 const Partition &partition,
-                unsigned kernelSize, unsigned stride, unsigned padding,
+                unsigned kernelSizeY, unsigned kernelSizeX, unsigned strideY,
+                unsigned strideX, unsigned paddingY, unsigned paddingX,
                 unsigned outNumChans,
                 std::string dType,
                 Tensor in, Tensor weights, Tensor partials,
@@ -934,7 +952,8 @@ calcPartialSums(Graph &graph,
                                   tile, outXBegin, outXEnd, outYBegin, outYEnd,
                                   outZGroupBegin, outZGroupEnd, inZGroupBegin,
                                   inZGroupEnd,
-                                  kernelSize, stride, padding, zeroCS,
+                                  kernelSizeY, kernelSizeX, strideY, strideX,
+                                  paddingY, paddingX, zeroCS,
                                   convolveCS,
                                   in[b], weights,
                                   partials[b][izg],
@@ -1169,14 +1188,15 @@ complete(Graph &graph,
 Program
 convolution(Graph &graph,
             const ConvPlan &plan,
-            unsigned kernelSize, unsigned stride, unsigned padding,
+            unsigned kernelSizeY, unsigned kernelSizeX, unsigned strideY,
+            unsigned strideX, unsigned paddingY, unsigned paddingX,
             unsigned outNumChans, NonLinearityType nonLinearityType,
             Tensor in, Tensor weights, Tensor biases, Tensor activations,
             ResidualMethod resMethod, Tensor resIn, bool useWinogradConv,
             unsigned winogradPatchSize) {
   const auto dType = graph.getTensorElementType(in);
   const auto layerName =
-      "Conv" + std::to_string(kernelSize) + "x" + std::to_string(kernelSize)
+      "Conv" + std::to_string(kernelSizeX) + "x" + std::to_string(kernelSizeY)
           + ".fwd";
   const auto outDimY = activations.dim(2);
   const auto outDimX = activations.dim(3);
@@ -1204,8 +1224,8 @@ convolution(Graph &graph,
 
   if (useWinogradConv
       && winogradPatchSize == 4
-      && stride == 1
-      && kernelSize == 3
+      && strideY == 1 && strideX == 1
+      && kernelSizeY == 3 && kernelSizeX == 3
       && !plan.flattenXY
       && resMethod == RESIDUAL_NONE
       && (weights.dim(4) % 4 == 0)
@@ -1214,12 +1234,14 @@ convolution(Graph &graph,
 
     // Perform each element of the batch serially
     for (unsigned b = 0; b < batchSize; ++b) {
-      forwardProg.add(winogradConvolution(graph, kernelSize, stride, padding,
-                                          in.dim(3), in.dim(2), outNumChans,
-                                          winogradPatchSize, winogradPatchSize,
-                                          nonLinearityType, dType, in[b],
-                                          weights, biases,
-                                          activations[b], resMethod, resIn));
+      forwardProg.add(winogradConvolution(
+          graph, kernelSizeY, kernelSizeX, strideY, strideX,
+          paddingY, paddingX,
+          in.dim(3), in.dim(2), outNumChans,
+          winogradPatchSize, winogradPatchSize,
+          nonLinearityType, dType, in[b],
+          weights, biases,
+          activations[b], resMethod, resIn));
     }
   } else {
 
@@ -1235,7 +1257,8 @@ convolution(Graph &graph,
                                        partialChansPerGroup},
                                       "partials");
     forwardProg.add(calcPartialSums(graph, plan.fwdPartition,
-                                    kernelSize, stride, padding, outNumChans,
+                                    kernelSizeY, kernelSizeX, strideY, strideX,
+                                    paddingY, paddingX, outNumChans,
                                     dType, in, weights, partials, layerName,
                                     partialOutDimX, partialOutDimY,
                                     true));
@@ -1288,21 +1311,22 @@ convolution(Graph &graph,
 
 static std::uint64_t getNumberOfMACs(unsigned outDimY, unsigned outDimX,
                                      unsigned outNumChans,
-                                     unsigned kernelSize, unsigned stride,
-                                     unsigned padding,
+                                     unsigned kernelSizeY, unsigned kernelSizeX,
+                                     unsigned strideY, unsigned strideX,
+                                     unsigned paddingY, unsigned paddingX,
                                      unsigned inDimY, unsigned inDimX,
                                      unsigned inNumChans,
                                      bool forwardOnly) {
   std::uint64_t numMACs = 0;
   for (unsigned y = 0; y < outDimY; ++y) {
     unsigned inYBegin, inYEnd;
-    std::tie(inYBegin, inYEnd) = getInputRange(y, stride, kernelSize,
-                                               padding, inDimY, true);
+    std::tie(inYBegin, inYEnd) = getInputRange(y, strideY, kernelSizeY,
+                                               paddingY, inDimY, true);
     const auto height = inYEnd - inYBegin;
     for (unsigned x = 0; x < outDimX; ++x) {
       unsigned inXBegin, inXEnd;
-      std::tie(inXBegin, inXEnd) = getInputRange(x, stride, kernelSize,
-                                                 padding, inDimX, true);
+      std::tie(inXBegin, inXEnd) = getInputRange(x, strideX, kernelSizeX,
+                                                 paddingX, inDimX, true);
       const auto width = inXEnd - inXBegin;
       numMACs += width * height * outNumChans * inNumChans;
     }
@@ -1326,14 +1350,17 @@ static std::uint64_t getNumberOfAdds(unsigned outDimY, unsigned outDimX,
 
 uint64_t getFlops(unsigned batchSize,
                   unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                  unsigned kernelSize, unsigned stride, unsigned padding,
+                  unsigned kernelSizeY, unsigned kernelSizeX, unsigned strideY,
+                  unsigned strideX, unsigned paddingY, unsigned paddingX,
                   unsigned outNumChans, bool doResidual, bool forwardOnly) {
   unsigned outDimY, outDimX;
-  std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX, kernelSize,
-                                            stride, padding);
+  std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX, kernelSizeY,
+                                            kernelSizeX, strideY, strideX,
+                                            paddingY, paddingX);
   auto flopsPerItem =
       2 * getNumberOfMACs(outDimY, outDimX, outNumChans,
-                          kernelSize, stride, padding,
+                          kernelSizeY, kernelSizeX, strideY, strideX,
+                          paddingY, paddingX,
                           inDimY, inDimX, inNumChans, forwardOnly) +
       getNumberOfAdds(outDimY, outDimX, outNumChans, doResidual,
                       forwardOnly);
@@ -1345,18 +1372,21 @@ double getPerfectCycleCount(const Graph &graph,
                             unsigned batchSize,
                             unsigned inDimY, unsigned inDimX,
                             unsigned inNumChans,
-                            unsigned kernelSize, unsigned stride,
-                            unsigned padding,
+                            unsigned kernelSizeY, unsigned kernelSizeX,
+                            unsigned strideY, unsigned strideX,
+                            unsigned paddingY, unsigned paddingX,
                             unsigned outNumChans, bool doResidual,
                             bool forwardOnly) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   unsigned outDimY, outDimX;
-  std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX, kernelSize,
-                                            stride, padding);
+  std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX, kernelSizeY,
+                                            kernelSizeX, strideY,
+                                            strideX, paddingY, paddingX);
   const auto numTiles = deviceInfo.getNumTiles();
   auto numMacs =
-      batchSize * getNumberOfMACs(outDimY, outDimX, outNumChans, kernelSize,
-                                  stride, padding, inDimY, inDimX,
+      batchSize * getNumberOfMACs(outDimY, outDimX, outNumChans, kernelSizeY,
+                                  kernelSizeX, strideY, strideX,
+                                  paddingY, paddingX, inDimY, inDimX,
                                   inNumChans, forwardOnly);
   auto numAdds =
       batchSize * getNumberOfAdds(outDimY, outDimX, outNumChans, doResidual,
@@ -1471,11 +1501,12 @@ Program convolutionBackward(Graph &graph,
                             const ConvPlan &plan,
                             Tensor zDeltas, Tensor weights,
                             Tensor deltasOut,
-                            unsigned kernelSize, unsigned stride,
-                            unsigned padding) {
+                            unsigned kernelSizeY, unsigned kernelSizeX,
+                            unsigned strideY, unsigned strideX,
+                            unsigned paddingY, unsigned paddingX) {
   const auto dType = graph.getTensorElementType(zDeltas);
   const auto layerName =
-      "Conv" + std::to_string(kernelSize) + "x" + std::to_string(kernelSize)
+      "Conv" + std::to_string(kernelSizeX) + "x" + std::to_string(kernelSizeY)
              + ".bwd";
   const auto batchSize = deltasOut.dim(0);
   const auto outDimY = deltasOut.dim(2);
@@ -1503,8 +1534,8 @@ Program convolutionBackward(Graph &graph,
   auto bwdProg = Sequence();
   auto bwdWeights = graph.addTensor(dType, {partialNumChanGroups,
                                             inNumChanGroups,
-                                            kernelSize,
-                                            kernelSize,
+                                            kernelSizeY,
+                                            kernelSizeX,
                                             partialChansPerGroup,
                                             inChansPerGroup},
                                             "bwdWeights");
@@ -1525,7 +1556,8 @@ Program convolutionBackward(Graph &graph,
                                      partialChansPerGroup},
                                     "partials");
   bwdProg.add(calcPartialSums(graph, plan.bwdPartition,
-                              kernelSize, stride, padding, outNumChans, dType,
+                              kernelSizeY, kernelSizeX, strideY, strideX,
+                              paddingY, paddingX, outNumChans, dType,
                               zDeltas, bwdWeights, partials, layerName,
                               partialOutDimX, partialOutDimY, false));
 
@@ -1573,8 +1605,9 @@ createWeightGradVertex(Graph &graph,
                        unsigned outYBegin, unsigned outYEnd,
                        unsigned outZGroupBegin, unsigned outZGroup,
                        unsigned inZGroupBegin, unsigned inZGroupEnd,
-                       unsigned kernelSize, unsigned stride,
-                       unsigned padding,
+                       unsigned kernelSizeY, unsigned kernelSizeX,
+                       unsigned strideY, unsigned strideX,
+                       unsigned paddingY, unsigned paddingX,
                        ComputeSet cs,
                        const Tensor &in, const Tensor &deltas,
                        const Tensor &weights) {
@@ -1590,25 +1623,27 @@ createWeightGradVertex(Graph &graph,
     auto v = graph.addVertex(cs, templateVertex("ConvWeightGradCalc",
                                                 dType));
     graph.setTileMapping(v, tile);
-    graph.setInitialValue(v["kernelSize"], kernelSize);
-    graph.setInitialValue(v["stride"], stride);
+    graph.setInitialValue(v["kernelSizeY"], kernelSizeY);
+    graph.setInitialValue(v["kernelSizeX"], kernelSizeX);
+    graph.setInitialValue(v["strideY"], strideY);
+    graph.setInitialValue(v["strideX"], strideX);
     graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
     graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
     graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
     unsigned inYBegin, inYEnd;
     std::tie(inYBegin, inYEnd) =
-        getInputRange({outYBegin, outYEnd}, stride,
-                      kernelSize, padding, inDimY, true);
+        getInputRange({outYBegin, outYEnd}, strideY,
+                      kernelSizeY, paddingY, inDimY, true);
     const auto inHeight = inYEnd - inYBegin;
     assert (inHeight != 0);
     unsigned inXBegin, inXEnd;
     std::tie(inXBegin, inXEnd) =
-        getInputRange({outXBegin, outXEnd}, stride,
-                      kernelSize, padding, inDimX, true);
+        getInputRange({outXBegin, outXEnd}, strideX,
+                      kernelSizeX, paddingX, inDimX, true);
     graph.setInitialValue(v["ypadding"],
-                          inYBegin < padding ? padding - inYBegin : 0);
+                          inYBegin < paddingY ? paddingY - inYBegin : 0);
     graph.setInitialValue(v["xpadding"],
-                          inXBegin < padding ? padding - inXBegin : 0);
+                          inXBegin < paddingX ? paddingX - inXBegin : 0);
     const auto convInWidth = inXEnd - inXBegin;
     Tensor acts =
         in[izg].slice(
@@ -1637,7 +1672,9 @@ calcPartialWeightGrads(Graph &graph,
                        unsigned outYBegin, unsigned outYEnd,
                        unsigned outZGroupBegin, unsigned outZGroupEnd,
                        unsigned inZGroupBegin, unsigned inZGroupEnd,
-                       unsigned kernelSize, unsigned stride, unsigned padding,
+                       unsigned kernelSizeY, unsigned kernelSizeX,
+                       unsigned strideY, unsigned strideX,
+                       unsigned paddingY, unsigned paddingX,
                        ComputeSet cs,
                        Tensor in, Tensor deltas, Tensor weights) {
   for (unsigned ozg = outZGroupBegin; ozg != outZGroupEnd; ++ozg) {
@@ -1645,8 +1682,8 @@ calcPartialWeightGrads(Graph &graph,
                            dType,
                            outXBegin, outXEnd, outYBegin,
                            outYEnd, outZGroupBegin, ozg, inZGroupBegin,
-                           inZGroupEnd, kernelSize, stride,
-                           padding,
+                           inZGroupEnd, kernelSizeY, kernelSizeX, strideY,
+                           strideX, paddingY, paddingX,
                            cs, in, deltas, weights);
   }
 }
@@ -1730,7 +1767,8 @@ matrixMultiplyByConvInstruction(Graph &graph, Partition partition,
   }
   // Calculate a set of partial sums of the convolutions.
   prog.add(calcPartialSums(graph, partition,
-                           kernelSize, stride, padding, outNumChans,
+                           kernelSize, kernelSize, stride, stride,
+                           padding, padding, outNumChans,
                            dType, in, weights, partials, "matrixMul",
                            outDimX, outDimY,
                            true));
@@ -1832,10 +1870,12 @@ convolutionWeightUpdateConvInst(Graph &graph,
                                 const ConvPlan &plan,
                                 Tensor zDeltas, Tensor weights, Tensor biases,
                                 Tensor activations,
-                                unsigned kernelSize, unsigned stride,
-                                unsigned padding, float learningRate) {
+                                unsigned kernelSizeY, unsigned kernelSizeX,
+                                unsigned strideY, unsigned strideX,
+                                unsigned paddingY, unsigned paddingX,
+                                float learningRate) {
   const auto layerName =
-      "Conv" + std::to_string(kernelSize) + "x" + std::to_string(kernelSize)
+      "Conv" + std::to_string(kernelSizeX) + "x" + std::to_string(kernelSizeY)
              + ".weight_update";
   const auto &partition = plan.wuPartition;
   // We can calculate weight deltas using the convolution instruction where we
@@ -1964,8 +2004,8 @@ convolutionWeightUpdateConvInst(Graph &graph,
       graph.addTensor(weightDeltasType,
                       {deltasChans / fwdPartialChansPerGroup,
                        activationsChans / fwdInChansPerGroup,
-                       kernelSize,
-                       kernelSize,
+                       kernelSizeY,
+                       kernelSizeX,
                        fwdPartialChansPerGroup,
                        fwdInChansPerGroup},
                       "weightDeltas");
@@ -2032,8 +2072,10 @@ convolutionWeightUpdate(Graph &graph,
                         const ConvPlan &plan,
                         Tensor zDeltas, Tensor weights, Tensor biases,
                         Tensor activations,
-                        unsigned kernelSize, unsigned stride,
-                        unsigned padding, float learningRate) {
+                        unsigned kernelSizeY, unsigned kernelSizeX,
+                        unsigned strideY, unsigned strideX,
+                        unsigned paddingY, unsigned paddingX,
+                        float learningRate) {
   if (activations.dim(0) != 1) {
     std::cerr << "Batch size != 1 not implemented for backwards pass\n";
     std::abort();
@@ -2043,12 +2085,14 @@ convolutionWeightUpdate(Graph &graph,
   const auto dType = graph.getTensorElementType(zDeltas0);
   if (plan.wuPartition.useConvolutionInstructions) {
     return convolutionWeightUpdateConvInst(graph, plan, zDeltas0, weights,
-                                           biases, activations0, kernelSize,
-                                           stride, padding, learningRate);
+                                           biases, activations0, kernelSizeY,
+                                           kernelSizeX, strideY,
+                                           strideX, paddingY,
+                                           paddingX, learningRate);
   }
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto layerName =
-      "Conv" + std::to_string(kernelSize) + "x" + std::to_string(kernelSize)
+      "Conv" + std::to_string(kernelSizeX) + "x" + std::to_string(kernelSizeY)
              + ".weight_update";
   assert(activations0.dim(0) == weights.dim(1));
   auto outChansPerGroup = weights.dim(4);
@@ -2082,7 +2126,7 @@ convolutionWeightUpdate(Graph &graph,
   Tensor partials = graph.addTensor(dType, {tilesPerY, tilesPerX,
                                             outNumChanGroups,
                                             inNumChanGroups,
-                                            kernelSize, kernelSize,
+                                            kernelSizeY, kernelSizeX,
                                             outChansPerGroup,
                                             inChansPerGroup},
                                     "partialWeightGrads");
@@ -2106,7 +2150,8 @@ convolutionWeightUpdate(Graph &graph,
           calcPartialWeightGrads(graph, partition, dType,
                                  tile, outXBegin, outXEnd, outYBegin, outYEnd,
                                  outZGroupBegin, outZGroupEnd, inZGroupBegin,
-                                 inZGroupEnd, kernelSize, stride, padding,
+                                 inZGroupEnd, kernelSizeY, kernelSizeX,
+                                 strideY, strideX, paddingY, paddingX,
                                  weightGradCS, activations0, regroupedDeltas,
                                  partials[oy][ox]);
         }

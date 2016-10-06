@@ -6,7 +6,9 @@
 namespace conv {
 
 void validateLayerParams(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                         unsigned kernelSize, unsigned stride, unsigned padding,
+                         unsigned kernelSizeY, unsigned kernelSizeX,
+                         unsigned strideY, unsigned strideX,
+                         unsigned paddingY, unsigned paddingX,
                          unsigned numChannels, const std::string &dType);
 
 } // End namespace conv

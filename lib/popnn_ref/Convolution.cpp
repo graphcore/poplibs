@@ -2,7 +2,8 @@
 #include <popnn_ref/NonLinearity.hpp>
 
 void ref::conv::
-convolution(unsigned stride, unsigned padding,
+convolution(unsigned strideH, unsigned strideW,
+            unsigned paddingHeight, unsigned paddingWidth,
             NonLinearityType nonLinearityType,
             const boost::multi_array<double, 4> &in,
             const boost::multi_array<double, 4> &weights,
@@ -13,8 +14,8 @@ convolution(unsigned stride, unsigned padding,
   const auto inputChannels = in.shape()[1];
   const auto inputHeight = in.shape()[2];
   const auto inputWidth = in.shape()[3];
-  const auto paddedHeight = inputHeight + 2 * padding;
-  const auto paddedWidth = inputWidth + 2 * padding;
+  const auto paddedHeight = inputHeight + 2 * paddingHeight;
+  const auto paddedWidth = inputWidth + 2 * paddingWidth;
 
   for (unsigned b = 0; b != batchSize; ++b) {
     boost::multi_array<double, 3>
@@ -23,7 +24,7 @@ convolution(unsigned stride, unsigned padding,
     for (unsigned c = 0; c != inputChannels; ++c) {
       for (unsigned y = 0; y != inputHeight; ++y) {
         for (unsigned x = 0; x != inputWidth; ++x) {
-          paddedIn[c][y + padding][x + padding] = in[b][c][y][x];
+          paddedIn[c][y + paddingHeight][x + paddingWidth] = in[b][c][y][x];
         }
       }
     }
@@ -60,8 +61,8 @@ convolution(unsigned stride, unsigned padding,
     }
 
     // Downsample.
-    const auto outHeight = (convOutHeight + stride - 1) / stride;
-    const auto outWidth = (convOutWidth + stride - 1) / stride;
+    const auto outHeight = (convOutHeight + strideH - 1) / strideH;
+    const auto outWidth = (convOutWidth + strideW - 1) / strideW;
     if (outHeight != out.shape()[2] ||
         outWidth != out.shape()[3]) {
       std::abort();
@@ -69,7 +70,7 @@ convolution(unsigned stride, unsigned padding,
     for (unsigned oc = 0; oc != outputChannels; ++oc) {
       for (unsigned y = 0; y != outHeight; ++y) {
         for (unsigned x = 0; x != outWidth; ++x) {
-          out[b][oc][y][x] = convOut[oc][y * stride][x * stride];
+          out[b][oc][y][x] = convOut[oc][y * strideH][x * strideW];
         }
       }
     }
@@ -79,7 +80,8 @@ convolution(unsigned stride, unsigned padding,
 }
 
 void ref::conv::
-convolutionBackward(unsigned stride, unsigned padding,
+convolutionBackward(unsigned strideH, unsigned strideW,
+                    unsigned paddingHeight, unsigned paddingWidth,
                     const boost::multi_array<double, 4> &in,
                     const boost::multi_array<double, 4> &weights,
                     boost::multi_array<double, 4> &out) {
@@ -95,10 +97,11 @@ convolutionBackward(unsigned stride, unsigned padding,
   for (unsigned b = 0; b != batchSize; ++b) {
     // Upsample.
     const auto upsampledHeight =
-        outputHeight + 2 * padding - (kernelHeight - 1) ;
-    const auto upsampledWidth = outputWidth + 2 * padding - (kernelWidth - 1);
-    if ((upsampledHeight + stride - 1)/ stride != inputHeight ||
-        (upsampledWidth + stride - 1)/ stride != inputWidth) {
+        outputHeight + 2 * paddingHeight - (kernelHeight - 1) ;
+    const auto upsampledWidth = outputWidth
+                                + 2 * paddingWidth - (kernelWidth - 1);
+    if ((upsampledHeight + strideH - 1)/ strideH != inputHeight ||
+        (upsampledWidth + strideW - 1)/ strideW != inputWidth) {
       std::abort();
     }
     boost::multi_array<double, 3>
@@ -107,9 +110,9 @@ convolutionBackward(unsigned stride, unsigned padding,
     for (unsigned c = 0; c != inputChannels; ++c) {
       for (unsigned y = 0; y != upsampledHeight; ++y) {
         for (unsigned x = 0; x != upsampledWidth; ++x) {
-          if (y % stride == 0 &&
-              x % stride == 0) {
-            upsampledIn[c][y][x] = in[b][c][y / stride][x / stride];
+          if (y % strideH == 0 &&
+              x % strideW == 0) {
+            upsampledIn[c][y][x] = in[b][c][y / strideH][x / strideW];
           } else {
             upsampledIn[c][y][x] = 0;
           }
@@ -156,14 +159,15 @@ convolutionBackward(unsigned stride, unsigned padding,
     for (unsigned c = 0; c != outputChannels; ++c) {
       for (unsigned y = 0; y != outputHeight; ++y) {
         for (unsigned x = 0; x != outputWidth; ++x) {
-          out[b][c][y][x] = convOut[c][y + padding][x + padding];
+          out[b][c][y][x] = convOut[c][y + paddingHeight][x + paddingWidth];
         }
       }
     }
   }
 }
 
-void ref::conv::weightUpdate(unsigned stride, unsigned padding,
+void ref::conv::weightUpdate(unsigned strideH, unsigned strideW,
+                             unsigned paddingHeight, unsigned paddingWidth,
                              double learningRate,
                              const boost::multi_array<double, 4> &activations,
                              const boost::multi_array<double, 4> &deltas,
@@ -174,8 +178,8 @@ void ref::conv::weightUpdate(unsigned stride, unsigned padding,
   const auto inputChannels = activations.shape()[1];
   const auto inputHeight = activations.shape()[2];
   const auto inputWidth = activations.shape()[3];
-  const auto paddedHeight = inputHeight + 2 * padding;
-  const auto paddedWidth = inputWidth + 2 * padding;
+  const auto paddedHeight = inputHeight + 2 * paddingHeight;
+  const auto paddedWidth = inputWidth + 2 * paddingWidth;
 
   for (unsigned b = 0; b != batchSize; ++b) {
     boost::multi_array<double, 3>
@@ -187,7 +191,7 @@ void ref::conv::weightUpdate(unsigned stride, unsigned padding,
     for (unsigned c = 0; c != inputChannels; ++c) {
       for (unsigned y = 0; y != inputHeight; ++y) {
         for (unsigned x = 0; x != inputWidth; ++x) {
-          paddedActivations[c][y + padding][x + padding] =
+          paddedActivations[c][y + paddingHeight][x + paddingWidth] =
               activations[b][c][y][x];
         }
       }
@@ -200,11 +204,12 @@ void ref::conv::weightUpdate(unsigned stride, unsigned padding,
     const auto kernelHeight = weights.shape()[2];
     const auto kernelWidth = weights.shape()[3];
     const auto upsampledDeltasHeight =
-        inputHeight + 2 * padding - (kernelHeight - 1);
+        inputHeight + 2 * paddingHeight - (kernelHeight - 1);
     const auto upsampledDeltasWidth =
-        inputWidth + 2 * padding - (kernelWidth - 1);
-    if ((upsampledDeltasHeight + stride - 1) / stride != outputHeight ||
-        (upsampledDeltasWidth + stride - 1) / stride != outputWidth) {
+        inputWidth + 2 * paddingWidth - (kernelWidth - 1);
+    if ((upsampledDeltasHeight + strideH - 1)
+         / strideH != outputHeight ||
+        (upsampledDeltasWidth + strideW - 1) / strideW != outputWidth) {
       std::abort();
     }
     boost::multi_array<double, 3>
@@ -213,9 +218,10 @@ void ref::conv::weightUpdate(unsigned stride, unsigned padding,
     for (unsigned oc = 0; oc != outputChannels; ++oc) {
       for (unsigned y = 0; y != upsampledDeltasHeight; ++y) {
         for (unsigned x = 0; x != upsampledDeltasWidth; ++x) {
-          if (y % stride == 0 &&
-              x % stride == 0) {
-            upsampledDeltas[oc][y][x] = deltas[b][oc][y / stride][x / stride];
+          if (y % strideH == 0 &&
+              x % strideW == 0) {
+            upsampledDeltas[oc][y][x] = deltas[b][oc][y / strideH]
+                                                 [x / strideW];
           } else {
             upsampledDeltas[oc][y][x] = 0;
           }

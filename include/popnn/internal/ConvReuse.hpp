@@ -24,15 +24,20 @@ struct ReusableLayer {
 class ConvImplSpec {
 public:
   std::vector<std::vector<size_t>> tensorDims;
-  unsigned kernelSize, stride, padding;
+  unsigned kernelSizeY, kernelSizeX, strideY, strideX;
+  unsigned paddingY, paddingX;
   NonLinearityType nonLinearityType;
   ResidualMethod resMethod;
   ConvImplSpec(std::vector<std::vector<size_t>> tensorDims,
-               unsigned kernelSize, unsigned stride, unsigned padding,
+               unsigned kernelSizeY, unsigned kernelSizeX,
+               unsigned strideY, unsigned strideX,
+               unsigned paddingY, unsigned paddingX,
                NonLinearityType nonLinearityType,
                ResidualMethod resMethod) :
     tensorDims(std::move(tensorDims)),
-    kernelSize(kernelSize), stride(stride), padding(padding),
+    kernelSizeY(kernelSizeY), kernelSizeX(kernelSizeX),
+    strideY(strideY), strideX(strideX),
+    paddingY(paddingY), paddingX(paddingX),
     nonLinearityType(nonLinearityType), resMethod(resMethod) {}
 
   bool operator<(const ConvImplSpec &other) const;

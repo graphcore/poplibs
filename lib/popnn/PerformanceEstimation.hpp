@@ -127,20 +127,22 @@ inline std::uint64_t
 getWeightGradCalcCycles(unsigned numOutRows, unsigned numInRows,
                         unsigned outputWidth, unsigned inputWidth,
                         unsigned outChansPerGroup, unsigned inChansPerGroup,
-                        unsigned stride, unsigned kernelSize,
+                        unsigned strideY, unsigned strideX,
+                        unsigned kernelSizeY,
+                        unsigned kernelSizeX,
                         unsigned xpadding, unsigned ypadding,
                         unsigned vectorWidth) {
   std::uint64_t cycles = 0;
-  for (int wy = 0; wy < kernelSize; ++wy) {
+  for (int wy = 0; wy < kernelSizeY; ++wy) {
     cycles += 2;
-    for (int wx = 0; wx < kernelSize; ++wx) {
+    for (int wx = 0; wx < kernelSizeX; ++wx) {
       cycles += 5;
       for (unsigned outChan = 0; outChan < outChansPerGroup; ++outChan) {
         cycles += 1;
         int inRow = wy - static_cast<int>(ypadding);
         unsigned outRow = 0;
         while (inRow < 0) {
-          inRow += stride;
+          inRow += strideY;
           outRow += 1;
         }
         while (outRow < numOutRows && inRow < numInRows) {
@@ -148,16 +150,16 @@ getWeightGradCalcCycles(unsigned numOutRows, unsigned numInRows,
           int inCol = wx - static_cast<int>(xpadding);
           unsigned outCol = 0;
           while (inCol < 0) {
-            inCol += stride;
+            inCol += strideX;
             outCol += 1;
           }
           while (outCol < outputWidth && inCol < inputWidth) {
             cycles += 2 * (inChansPerGroup + vectorWidth - 1) / vectorWidth;
             outCol += 1;
-            inCol += stride;
+            inCol += strideX;
           }
           outRow += 1;
-          inRow += stride;
+          inRow += strideY;
         }
       }
     }

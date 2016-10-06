@@ -7,19 +7,22 @@
 namespace ref {
 namespace conv {
 
-void convolution(unsigned stride, unsigned padding,
+void convolution(unsigned strideHeight, unsigned strideWidth,
+                 unsigned paddingHeight, unsigned paddingWidth,
                  NonLinearityType nonLinearityType,
                  const boost::multi_array<double, 4> &in,
                  const boost::multi_array<double, 4> &weights,
                  const boost::multi_array<double, 1> &biases,
                  boost::multi_array<double, 4> &out);
 
-void convolutionBackward(unsigned stride, unsigned padding,
+void convolutionBackward(unsigned strideHeight, unsigned strideWidth,
+                         unsigned paddingHeight, unsigned paddingWidth,
                          const boost::multi_array<double, 4> &in,
                          const boost::multi_array<double, 4> &weights,
                          boost::multi_array<double, 4> &out);
 
-void weightUpdate(unsigned stride, unsigned padding,
+void weightUpdate(unsigned strideHeight, unsigned strideWidth,
+                  unsigned paddingHeight, unsigned paddingWidth,
                   double learningRate,
                   const boost::multi_array<double, 4> &activations,
                   const boost::multi_array<double, 4> &deltas,
