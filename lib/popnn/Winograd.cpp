@@ -1607,7 +1607,7 @@ static Program complete(
     std::cout << ":" << numZog << std::endl;
     #endif
 
-    assert(std::max(tp.zoc, tp.zocOut) % std::min(tp.zoc. to.zocOut) == 0);
+    assert(std::max(tp.zoc, tp.zocOut) % std::min(tp.zoc, tp.zocOut) == 0);
     const auto depth =  std::min(tp.zoc, tp.zocOut);
     const auto zFactor = tp.zoc <= tp.zocOut ? 1 : tp.zocOut/tp.zoc;
 
