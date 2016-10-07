@@ -116,7 +116,7 @@ canUseConvolutionInstruction(bool floatActivations, bool floatPartials,
       deviceInfo.dataPathWidth != 0) {
     return false;
   }
-  if ((strideY >= (1 << 4)) || (strideX >= (1 << 4)))
+  if (strideX >= (1 << 4))
     return false;
   return true;
 }

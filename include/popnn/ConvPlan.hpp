@@ -49,8 +49,9 @@ public:
 };
 
 ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                    unsigned kernelSizeY, unsigned kernelSizeX, unsigned strideY,
-                    unsigned strideX, unsigned paddingY, unsigned paddingX,
+                    unsigned kernelSizeY, unsigned kernelSizeX,
+                    unsigned strideY, unsigned strideX, unsigned paddingY,
+                    unsigned paddingX,
                     unsigned numChannels, unsigned batchSize, std::string dType,
                     const poplar::Graph &graph, bool forwardOnly);
 

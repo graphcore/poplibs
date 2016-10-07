@@ -90,7 +90,8 @@ extern poplar::program::Program winogradConvolution(poplar::Graph &graph,
             unsigned outNumChans, unsigned patchSizeX, unsigned patchSizeY,
             NonLinearityType nonLinearityType,
             std::string dType,
-            poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases, poplar::Tensor activations,
+            poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
+            poplar::Tensor activations,
             ResidualMethod resMethod, poplar::Tensor resIn);
 
 }

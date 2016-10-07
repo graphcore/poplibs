@@ -27,23 +27,35 @@ public:
   unsigned paddingY;
   unsigned numChannels;
   NonLinearityType nonLinearityType;
-  ConvLayer(unsigned kernelSizeY,
-            unsigned kernelSizeX,
-            unsigned strideY,
-            unsigned strideX,
-            unsigned paddingY,
-            unsigned paddingX,
+  ConvLayer(unsigned kernelSize,
+            unsigned stride,
+            unsigned padding,
             unsigned numChannels,
             NonLinearityType nonLinearityType) :
-  kernelSizeY(kernelSizeY),
-  kernelSizeX(kernelSizeX),
-  strideY(strideY),
-  strideX(strideX),
-  paddingY(paddingY),
-  paddingX(paddingX),
+  kernelSizeY(kernelSize),
+  kernelSizeX(kernelSize),
+  strideY(stride),
+  strideX(stride),
+  paddingY(padding),
+  paddingX(padding),
+  numChannels(numChannels),
+  nonLinearityType(nonLinearityType) {}
+
+  ConvLayer(std::array<unsigned, 2> kernelSize,
+            std::array<unsigned, 2> stride,
+            std::array<unsigned, 2> padding,
+            unsigned numChannels,
+            NonLinearityType nonLinearityType) :
+  kernelSizeY(kernelSize[0]),
+  kernelSizeX(kernelSize[1]),
+  strideY(stride[0]),
+  strideX(stride[1]),
+  paddingY(padding[0]),
+  paddingX(padding[1]),
   numChannels(numChannels),
   nonLinearityType(nonLinearityType) {}
 };
+
 
 class ConvResLayer : public Layer {
 public:
@@ -57,25 +69,40 @@ public:
   NonLinearityType nonLinearityType;
   unsigned resIndex;
   enum ResidualMethod resMethod;
-  ConvResLayer(unsigned kernelSizeY,
-               unsigned kernelSizeX,
-               unsigned strideY,
-               unsigned strideX,
-               unsigned paddingY,
-               unsigned paddingX,
+  ConvResLayer(unsigned kernelSize,
+               unsigned stride,
+               unsigned padding,
                unsigned numChannels,
                NonLinearityType nonLinearityType,
                unsigned resIndex,
                enum ResidualMethod resMethod) :
-    kernelSizeY(kernelSizeY),
-    kernelSizeX(kernelSizeX),
-    strideY(strideY),
-    strideX(strideX),
-    paddingY(paddingY),
-    paddingX(paddingX),
+    kernelSizeY(kernelSize),
+    kernelSizeX(kernelSize),
+    strideY(stride),
+    strideX(stride),
+    paddingY(padding),
+    paddingX(padding),
     numChannels(numChannels),
     nonLinearityType(nonLinearityType),
     resIndex(resIndex), resMethod(resMethod) {}
+
+    ConvResLayer(std::array<unsigned, 2> kernelSize,
+               std::array<unsigned, 2> stride,
+               std::array<unsigned, 2> padding,
+               unsigned numChannels,
+               NonLinearityType nonLinearityType,
+               unsigned resIndex,
+               enum ResidualMethod resMethod) :
+    kernelSizeY(kernelSize[0]),
+    kernelSizeX(kernelSize[1]),
+    strideY(stride[0]),
+    strideX(stride[1]),
+    paddingY(padding[0]),
+    paddingX(padding[1]),
+    numChannels(numChannels),
+    nonLinearityType(nonLinearityType),
+    resIndex(resIndex), resMethod(resMethod) {}
+
 };
 
 

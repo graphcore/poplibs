@@ -437,6 +437,11 @@ int main(int argc, char **argv) {
   bool useWinogradConv;
   unsigned winogradPatchSize;
 
+  /* these are used when the same value is shared across both height and width*/
+  unsigned kernelSize;
+  unsigned padding;
+  unsigned stride;
+
   po::options_description desc("Options");
   desc.add_options()
     ("help", "Produce help message")
@@ -446,12 +451,18 @@ int main(int argc, char **argv) {
      "Number of output channels")
     ("width", po::value<unsigned>(&width)->required(), "Field width")
     ("height", po::value<unsigned>(&height)->required(), "Field height")
+
+    ("kernel-size",
+      po::value<unsigned>(&kernelSize)->default_value(1),
+     "Size of square kernel. If set, it is an error to also set either "
+     "kernel-height and/or kernel-width")
     ("kernel-height",
       po::value<unsigned>(&kernelHeight)->default_value(1),
      "Size of kernel height")
     ("kernel-width",
       po::value<unsigned>(&kernelWidth)->default_value(1),
      "Size of kernel width")
+
     ("non-linearity",
      po::value<NonLinearityType>(&nonLinearityType)
          ->default_value(NON_LINEARITY_RELU),
@@ -459,14 +470,23 @@ int main(int argc, char **argv) {
     ("data-type",
      po::value<FPDataType>(&dataType)->default_value(FPDataType::HALF),
      "Type of the data and the parameters")
+
+    ("padding", po::value<unsigned>(&padding)->default_value(0),
+     "Amount of zero padding for height and width. If set, it is an "
+     "error to also set either padding-height and/or padding-width")
     ("padding-height", po::value<unsigned>(&paddingHeight)->default_value(0),
      "Amount of zero padding in the height dimension")
     ("padding-width", po::value<unsigned>(&paddingWidth)->default_value(0),
      "Amount of zero padding in the width dimension")
+
+    ("stride", po::value<unsigned>(&stride)->default_value(1),
+     "Kernel stride for both height and width. If set, it is an error "
+     "to also set either stride-height and/or stride-width")
     ("stride-height", po::value<unsigned>(&strideH)->default_value(1),
      "Kernel stride in the height dimension")
     ("stride-width", po::value<unsigned>(&strideW)->default_value(1),
      "Kernel stride in the width dimension")
+
     ("fwd-out-chans-per-group",
      po::value<unsigned>(&fwdOutChansPerGroup),
      "The number of channels per group of the activations written in the "
@@ -502,6 +522,45 @@ int main(int argc, char **argv) {
   } catch (std::exception& e) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
+  }
+
+  if (!vm["kernel-size"].defaulted()) {
+    if (!vm["kernel-height"].defaulted()) {
+      std::cerr << "--kernel as well as --kernel-height set\n";
+      return 1;
+    }
+    if (!vm["kernel-width"].defaulted()) {
+      std::cerr << "--kernel as well as --kernel-width set\n";
+      return 1;
+    }
+    kernelHeight = kernelSize;
+    kernelWidth = kernelSize;
+  }
+
+  if (!vm["padding"].defaulted()) {
+    if (!vm["padding-height"].defaulted()) {
+      std::cerr << "--padding as well as --padding-height set\n";
+      return 1;
+    }
+    if (!vm["padding-width"].defaulted()) {
+      std::cerr << "--padding as well as --padding-width set\n";
+      return 1;
+    }
+    paddingHeight = padding;
+    paddingWidth = padding;
+  }
+
+  if (!vm["stride"].defaulted()) {
+    if (!vm["stride-height"].defaulted()) {
+      std::cerr << "--stride as well as --stride-height set\n";
+      return 1;
+    }
+    if (!vm["stride-width"].defaulted()) {
+      std::cerr << "--stride as well as --stride-width set\n";
+      return 1;
+    }
+    strideH = stride;
+    strideW = stride;
   }
 
   bool inferenceOnly = vm.count("inference-only");
