@@ -364,7 +364,8 @@ Net::getOrCreateConvImplFwd(const conv::ConvPlan &plan,
                                 impl.paddingY, impl.paddingX,
                                 outNumChans, impl.nonLinearityType,
                                 in, weights, biases, out,
-                                impl.resMethod, residual, options.useWinogradConv);
+                                impl.resMethod, residual,
+                                options.useWinogradConv);
   std::vector<Tensor> inputs = {in, weights, biases};
   if (impl.resMethod != RESIDUAL_NONE)
     inputs.push_back(residual);

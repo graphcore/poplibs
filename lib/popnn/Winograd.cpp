@@ -1720,8 +1720,8 @@ extern Program winogradConvolution(Graph &graph,
 
 #endif
 
-  /* assumption that number of input channels per group must be same 
-   * for input activations and weights 
+  /* assumption that number of input channels per group must be same
+   * for input activations and weights
    */
   assert(in.dim(0) == weights.dim(1));
   assert(in.dim(3) == weights.dim(5));

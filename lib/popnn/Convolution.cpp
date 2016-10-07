@@ -1271,8 +1271,8 @@ convolution(Graph &graph,
     if (doResidual) {
       std::tie(resStride, residual) =
           addResidualCalc(graph, resIn, reduceCS,
-                          outDimY, outDimX, outNumChans, outNumChanGroups, dType,
-                          resMethod);
+                          outDimY, outDimX, outNumChans, outNumChanGroups,
+                          dType, resMethod);
     }
 
     // For each element of the batch, we add the reduction and complete

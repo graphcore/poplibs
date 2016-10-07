@@ -619,7 +619,8 @@ public:
     unsigned numElem = weights.size();
     bool isFloat = std::is_same<PartialsType, float>::value;
     unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    return 4 + 2 * numElem * (1 + (numPartials + vectorWidth - 1) / vectorWidth);
+    return 4 + 2 * numElem * (1 + (numPartials + vectorWidth - 1)
+                            / vectorWidth);
   }
 };
 
@@ -953,7 +954,8 @@ public:
     unsigned numPartials = partials.size() / numReductions;
     for (unsigned r = 0; r < numReductions; ++r) {
       unsigned numElem = out[r].size();
-      cycles += 1 + numElem * (1 + (numPartials + vectorWidth - 1) / vectorWidth);
+      cycles += 1 + numElem * (1 + (numPartials + vectorWidth - 1)
+                                   / vectorWidth);
     }
 
     return cycles;
@@ -1460,7 +1462,7 @@ class WgdDataTransform : public Vertex {
 public:
   /* The input is an array of one dimensional vectors each of size equal
    * to a number of independent input channels. This implementation differs from
-   * assembler implementation in that it assumes a vector for every X,Y point 
+   * assembler implementation in that it assumes a vector for every X,Y point
    * and doesn't require the vector length to be a multiple of 4.
    * The assembler implementation assumes a pointer to every Y with known
    * dim(X)*dim(Z_in_partial).
@@ -1537,10 +1539,10 @@ class WgdKernelTransform : public Vertex {
   /* Set this to true if transform is stored in transposed order */
   static constexpr bool transpose = true;
 
-  /* storage depends on whether transpose or normal form of transform is 
-   * stored 
+  /* storage depends on whether transpose or normal form of transform is
+   * stored
    */
-  FPType& wrTf(const unsigned base, const unsigned row, const unsigned col, 
+  FPType& wrTf(const unsigned base, const unsigned row, const unsigned col,
                const unsigned elem) {
     return transpose ? wTf[base + row * patchSizeY + col][elem] :
                            wTf[base + col * patchSizeX + row][elem];
@@ -1551,14 +1553,14 @@ class WgdKernelTransform : public Vertex {
   }
 
 public:
-  /* Each input is a 1D vector of independent channels which may be a mix of 
-   * input and output channels. Therefore kernelCols*kernelRow vectors are 
-   * required to have all elements of a kernel. The 1D vectors are stored in row 
+  /* Each input is a 1D vector of independent channels which may be a mix of
+   * input and output channels. Therefore kernelCols*kernelRow vectors are
+   * required to have all elements of a kernel. The 1D vectors are stored in row
    * order
    */
   Vector<Input<Vector<FPType>>> wIn;
 
-  /* Same as wIn except that numOutCols*numOutRows vectors each of dimension 
+  /* Same as wIn except that numOutCols*numOutRows vectors each of dimension
    * 1xdepth are stored
    */
   Vector<Output<Vector<FPType>>> wTf;
@@ -1659,7 +1661,7 @@ public:
    */
   Vector<Input<Vector<FPType>>> wTf;
 
-  /* Output for each of the nGroups 1D vectors. Each input vector results in a 
+  /* Output for each of the nGroups 1D vectors. Each input vector results in a
    * 1xoutChanDepth vector.
    */
   Vector<InOut<Vector<FPType>>> partials;
@@ -1735,15 +1737,15 @@ template <class FPType, unsigned patchSizeX, unsigned patchSizeY>
 class WgdReduce: public Vertex {
 
 public:
-  /* The vector of partial contains 1D vectors of length inpLength. The 
-   * partialSumLen 1D vectors are summed to produce a single output vector of 
-   * the same length as the input vector. Several such operations may be 
+  /* The vector of partial contains 1D vectors of length inpLength. The
+   * partialSumLen 1D vectors are summed to produce a single output vector of
+   * the same length as the input vector. Several such operations may be
    * performed to produce nGroups vectors of 1D vectors.
    */
   Vector<Input<Vector<FPType>>> inPartial;
 
   /*
-   * The output may be a sum of all partials to produce partial sum or a full 
+   * The output may be a sum of all partials to produce partial sum or a full
    * sum
    */
   Vector<Output<Vector<FPType>>> outPartial;
@@ -1804,12 +1806,12 @@ class WgdInverseTransform : public Vertex {
   /* Set this to true if transform is stored in transposed order */
   static constexpr bool transpose = true;
 
-  FPType rdTf(const unsigned base, const unsigned row, const unsigned col, 
+  FPType rdTf(const unsigned base, const unsigned row, const unsigned col,
               const unsigned el) const {
     return dTf[base+col*patchSizeX+row][el];
   }
 
-  FPType& wrOut(const unsigned base,  unsigned row, const unsigned col, 
+  FPType& wrOut(const unsigned base,  unsigned row, const unsigned col,
                 const unsigned el) {
     const unsigned numOutCols = patchSizeY - kernelY + 1;
     const unsigned numOutRows = patchSizeX - kernelX + 1;
@@ -1823,13 +1825,13 @@ class WgdInverseTransform : public Vertex {
   }
 
 public:
-  /* The data transform vector dTf is an array of vectors each of length 
-   * depthDim. The 1D vectors are stacked to have 16 elements called a group 
+  /* The data transform vector dTf is an array of vectors each of length
+   * depthDim. The 1D vectors are stacked to have 16 elements called a group
    * which are rows and columns needed to compute the inverse transform.
    */
   Vector<Input<Vector<FPType>>> dTf;
 
-  /* Each output vector in the array of vectors is of length depthDim. 
+  /* Each output vector in the array of vectors is of length depthDim.
    * numOutCols*numOutRows vectors are produced for each group
    */
   Vector<Output<Vector<FPType>>> dOut;
@@ -1854,24 +1856,24 @@ public:
       const unsigned depthDim = dTf[0].size();
 
       for (unsigned elem = 0; elem < depthDim; ++elem) {
-        FPType e = rdTf(grInOff, 0, 0, elem) + rdTf(grInOff, 0, 1, elem) 
+        FPType e = rdTf(grInOff, 0, 0, elem) + rdTf(grInOff, 0, 1, elem)
                                              + rdTf(grInOff, 0, 2, elem);
-        FPType f = rdTf(grInOff, 0, 1, elem) - rdTf(grInOff, 0, 2, elem) 
+        FPType f = rdTf(grInOff, 0, 1, elem) - rdTf(grInOff, 0, 2, elem)
                                              - rdTf(grInOff, 0, 3, elem);
 
-        FPType a = rdTf(grInOff, 1, 0, elem) + rdTf(grInOff, 1, 1, elem) 
+        FPType a = rdTf(grInOff, 1, 0, elem) + rdTf(grInOff, 1, 1, elem)
                                              + rdTf(grInOff, 1, 2, elem);
-        FPType c = rdTf(grInOff, 1, 1, elem) - rdTf(grInOff, 1, 2, elem) 
+        FPType c = rdTf(grInOff, 1, 1, elem) - rdTf(grInOff, 1, 2, elem)
                                              - rdTf(grInOff, 1, 3, elem);
 
-        FPType b = rdTf(grInOff, 2, 0, elem) + rdTf(grInOff, 2, 1, elem) 
+        FPType b = rdTf(grInOff, 2, 0, elem) + rdTf(grInOff, 2, 1, elem)
                                              + rdTf(grInOff, 2, 2, elem);
-        FPType d = rdTf(grInOff, 2, 1, elem) - rdTf(grInOff, 2, 2, elem) 
+        FPType d = rdTf(grInOff, 2, 1, elem) - rdTf(grInOff, 2, 2, elem)
                                              - rdTf(grInOff, 2, 3, elem);
 
-        FPType g = rdTf(grInOff, 3, 0, elem) + rdTf(grInOff, 3, 1, elem) 
+        FPType g = rdTf(grInOff, 3, 0, elem) + rdTf(grInOff, 3, 1, elem)
                                              + rdTf(grInOff, 3, 2, elem);
-        FPType h = rdTf(grInOff, 3, 1, elem) - rdTf(grInOff, 3, 2, elem) 
+        FPType h = rdTf(grInOff, 3, 1, elem) - rdTf(grInOff, 3, 2, elem)
                                              - rdTf(grInOff, 3, 3, elem);
 
         wrOut(grOutOff, 0, 0, elem) = a + b + e;
@@ -1932,7 +1934,7 @@ public:
 
   uint64_t getCycleEstimate() const {
     bool isFloat = std::is_same<FPType, float>::value;
-    const unsigned nGroups = dIn.size();    
+    const unsigned nGroups = dIn.size();
     const unsigned vecLen = dIn[0].size();
     return getWgdCompleteCycles(
                                vecLen * nGroups,
