@@ -1,5 +1,6 @@
 #include <popnn_ref/Convolution.hpp>
 #include <popnn_ref/NonLinearity.hpp>
+#include <popnn_ref/exceptions.hpp>
 
 void ref::conv::
 convolution(unsigned strideH, unsigned strideW,
@@ -35,7 +36,8 @@ convolution(unsigned strideH, unsigned strideW,
     const auto kernelWidth = weights.shape()[3];
     if (paddedHeight < kernelHeight ||
         paddedWidth < kernelWidth) {
-      std::abort();
+      throw popnn_ref::popnn_ref_error("Kernels larger than (padded) input "
+                                       "not supported");
     }
     const auto convOutHeight = paddedHeight - (kernelHeight - 1);
     const auto convOutWidth = paddedWidth - (kernelWidth - 1);
@@ -65,7 +67,8 @@ convolution(unsigned strideH, unsigned strideW,
     const auto outWidth = (convOutWidth + strideW - 1) / strideW;
     if (outHeight != out.shape()[2] ||
         outWidth != out.shape()[3]) {
-      std::abort();
+      throw popnn_ref::popnn_ref_error("Output tensor dimensions do not match "
+                                       "expected dimensions");
     }
     for (unsigned oc = 0; oc != outputChannels; ++oc) {
       for (unsigned y = 0; y != outHeight; ++y) {
@@ -98,11 +101,11 @@ convolutionBackward(unsigned strideH, unsigned strideW,
     // Upsample.
     const auto upsampledHeight =
         outputHeight + 2 * paddingHeight - (kernelHeight - 1) ;
-    const auto upsampledWidth = outputWidth
-                                + 2 * paddingWidth - (kernelWidth - 1);
+    const auto upsampledWidth = outputWidth + 2 * paddingWidth - (kernelWidth - 1);
     if ((upsampledHeight + strideH - 1)/ strideH != inputHeight ||
         (upsampledWidth + strideW - 1)/ strideW != inputWidth) {
-      std::abort();
+      throw popnn_ref::popnn_ref_error("Output and input tensor dimensions "
+                                       "do not match");
     }
     boost::multi_array<double, 3>
         upsampledIn(boost::extents[inputChannels][upsampledHeight]
@@ -207,10 +210,10 @@ void ref::conv::weightUpdate(unsigned strideH, unsigned strideW,
         inputHeight + 2 * paddingHeight - (kernelHeight - 1);
     const auto upsampledDeltasWidth =
         inputWidth + 2 * paddingWidth - (kernelWidth - 1);
-    if ((upsampledDeltasHeight + strideH - 1)
-         / strideH != outputHeight ||
+    if ((upsampledDeltasHeight + strideH - 1) / strideH != outputHeight ||
         (upsampledDeltasWidth + strideW - 1) / strideW != outputWidth) {
-      std::abort();
+      throw popnn_ref::popnn_ref_error("Output and input tensor dimensions "
+                                       "do not match");
     }
     boost::multi_array<double, 3>
         upsampledDeltas(boost::extents[outputChannels][upsampledDeltasHeight]

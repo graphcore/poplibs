@@ -1,5 +1,6 @@
 #include "popnn/NonLinearity.hpp"
 #include "popnn/ActivationMapping.hpp"
+#include "popnn/exceptions.hpp"
 #include "VertexTemplates.hpp"
 #include "Regroup.hpp"
 
@@ -12,8 +13,8 @@ bwdNonLinearity(Graph &graph,
                 Tensor batchZDeltas,
                 NonLinearityType nonLinearityType) {
   if (batchActivations.dim(0) != 1) {
-    std::cerr << "Batch size != 1 not implemented for backwards pass\n";
-    std::abort();
+    throw popnn::popnn_error("Batch size != 1 not implemented for backwards "
+                             "pass");
   }
   auto activations = batchActivations[0];
   auto deltasIn = batchDeltasIn[0];

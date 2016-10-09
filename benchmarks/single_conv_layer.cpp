@@ -579,7 +579,7 @@ int main(int argc, char **argv) {
   auto fwdInChansPerGroup = plan.fwdPartition.inChansPerGroup;
   // If the output grouping is unspecified, assume the output uses the same
   // grouping as the input unless that is impossible.
-  if (!vm.count("forward-output-chans-per-group")) {
+  if (!vm.count("fwd-out-chans-per-group")) {
     fwdOutChansPerGroup = (fwdOutChans % fwdInChansPerGroup == 0) ?
                           fwdInChansPerGroup :
                           plan.fwdPartition.partialChansPerGroup;
@@ -588,7 +588,7 @@ int main(int argc, char **argv) {
   const auto bwdOutChans = fwdInChans;
   auto bwdInChansPerGroup = plan.bwdPartition.inChansPerGroup;
   if (!inferenceOnly &&
-      !vm.count("backward-output-chans-per-group")) {
+      !vm.count("bwd-out-chans-per-group")) {
     bwdOutChansPerGroup = (bwdOutChans % bwdInChansPerGroup == 0) ?
                           bwdInChansPerGroup :
                           plan.bwdPartition.partialChansPerGroup;

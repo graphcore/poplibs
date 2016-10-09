@@ -298,8 +298,10 @@ createConvPartial1x1OutVertex(Graph &graph,
   assert(weightsPerConvUnit % inChansPerGroup == 0);
   const auto convUnitWeightHeight = weightsPerConvUnit / inChansPerGroup;
   if (convUnitWeightHeight != 1) {
-    // Unimplemented.
-    std::abort();
+    throw popnn::popnn_error("Using convolution units for 1x1 convolutions "
+                             "where channel grouping is not equal to weights "
+                             "stored per convolution unit has not "
+                             "been implemented");
   }
   const auto outHeight = outYEnd - outYBegin;
   const auto outWidth = outXEnd - outXBegin;
@@ -446,7 +448,12 @@ createConvPartialnx1InOutVertex(Graph &graph,
       const auto convOutWidth = convOutXEnd - convOutXBegin;
       if (convOutWidth == 0)
         continue;
-      unsigned outputStride = forward ? 1 : strideY;
+
+      // In the backwards pass, if we are handling one row of the kernel at
+      // a time, the partitioning of work across the workers can be aware of
+      // the stride and only allocate work on the rows that get affected.
+      unsigned outputStride =
+          (!forward && convUnitWeightHeight == 1) ? strideY : 1;
       std::vector<std::vector<PartialRow>> workerPartition =
           partitionConvPartialByWorker(convOutHeight, convOutWidth,
                                        contextsPerVertex, outputStride);
@@ -471,8 +478,12 @@ createConvPartialnx1InOutVertex(Graph &graph,
           );
           for (const auto &partialRow : workerPartition[i]) {
             const auto workerOutY = convOutYBegin + partialRow.rowNumber;
-            const auto workerOutXBegin = convOutXBegin + partialRow.begin;
-            const auto workerOutXEnd = convOutXBegin + partialRow.end;
+            unsigned workerOutXBegin, workerOutXEnd;
+            std::tie(workerOutXBegin, workerOutXEnd) =
+                getOutputRange({convOutXBegin + partialRow.begin,
+                                convOutXBegin + partialRow.end},
+                                strideX, kernelSizeX, paddingX, inDimX, wx,
+                               forward);
             const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
             unsigned workerInXBegin, workerInXEnd;
             std::tie(workerInXBegin, workerInXEnd) =
@@ -649,6 +660,7 @@ calcPartialConvOutput(Graph &graph,
                       ComputeSet fwdCS,
                       Tensor in, Tensor weights, Tensor out, bool forward) {
   const auto inChansPerGroup = partition.inChansPerGroup;
+  const auto outChansPerGroup = partition.partialChansPerGroup;
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   Tensor zeros;
@@ -667,7 +679,10 @@ calcPartialConvOutput(Graph &graph,
       const auto inputRangeSize = inputRange.second - inputRange.first;
       // This isn't split across multiple workers since it can happen in
       // parallel with zeroing the partial sums.
-      zeros = graph.addTensor(dType, {inputRangeSize * inChansPerGroup},
+      const auto zeroSize = std::max(inputRangeSize * inChansPerGroup,
+                                     inChansPerGroup * outChansPerGroup);
+      zeros = graph.addTensor(dType,
+                              {zeroSize},
                               "zeros");
       auto v = graph.addVertex(zeroCS, templateVertex("Zero", dType),
                                {{"out", zeros}});
@@ -807,13 +822,13 @@ addResidualCalc(Graph &graph,
   auto resDimY = resIn.dim(2);
   auto resDimX = resIn.dim(3);
   if (resDimX < outDimX || resDimY < outDimY) {
-    throw net_creation_error("Residual layers must use previous layers "
+    throw popnn::popnn_error("Residual layers must use previous layers "
                              "with X and Y dimensions that are larger"
                              "than the current layer's output.");
   }
   unsigned resStride = resDimX / outDimX;
   if (resDimY / outDimY != resStride) {
-    throw net_creation_error("Only residual layers with the same X/Y stride"
+    throw popnn::popnn_error("Only residual layers with the same X/Y stride"
                              "are supported");
   }
   const auto dataPathWidth = graph.getDevice().getDeviceInfo().dataPathWidth;
@@ -866,8 +881,8 @@ addResidualCalc(Graph &graph,
               auto resChanGroupElement = outChan % resChansPerGroup;
               assert(resChanGroup < resNumChanGroups);
               assert(resChanGroupElement < resChansPerGroup);
-              assert(y * resStride < resIn.dim(1));
-              assert(x * resStride < resIn.dim(2));
+              assert(y * resStride < resIn.dim(2));
+              assert(x * resStride < resIn.dim(3));
               Tensor in = resIn[b][resChanGroup][y * resStride][x * resStride]
                 .slice(resChanGroupElement,
                        resChanGroupElement + chansPerVertex);
@@ -1904,23 +1919,90 @@ convolutionWeightUpdateConvInst(Graph &graph,
   auto deltasChansPerGroup = zDeltas.dim(3);
   auto deltasChans = deltasNumChanGroups * deltasChansPerGroup;
   auto activationsNumChanGroups = activations.dim(0);
-  assert(activations.dim(1) == height);
-  assert(activations.dim(2) == width);
   auto activationsChansPerGroup = activations.dim(3);
   auto activationsChans = activationsNumChanGroups * activationsChansPerGroup;
   // Flatten x and y into a single dimension.
   auto zDeltasFlattened = zDeltas.reshape({deltasNumChanGroups, fieldSize,
                                            deltasChansPerGroup});
-  auto activationsFlattened = activations.reshape({activationsNumChanGroups,
-                                                   fieldSize,
-                                                   activationsChansPerGroup});
-  auto prog = Sequence();
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto fieldGroupSize = plan.wuPartition.inChansPerGroup;
+  const auto fieldGroupSize = partition.inChansPerGroup;
   // Pad the field so the size is a multiple of the number of weights in the
   // convolutional unit.
   const auto paddedFieldSize =
       ((fieldSize + fieldGroupSize - 1) / fieldGroupSize) * fieldGroupSize;
+  const auto outputGroupSize = partition.partialChansPerGroup;
+  // The activationViews tensor contains the view on the activations for
+  // each element of the kernel.
+  auto activationViews =
+      graph.addTensor(dType, {0,
+                              activationsNumChanGroups,
+                              paddedFieldSize,
+                              activationsChansPerGroup});
+  auto prog = Sequence();
+  for (unsigned wy = 0; wy != kernelSizeY; ++wy) {
+    for (unsigned wx = 0; wx != kernelSizeX; ++wx) {
+      auto paddedActivations = pad(graph, activations,
+                                   {activations.dim(0),
+                                    activations.dim(1) + 2 * paddingY,
+                                    activations.dim(2) + 2 * paddingX,
+                                    activations.dim(3)},
+                                   {0, paddingY, paddingX, 0});
+      auto usedActivations =
+          paddedActivations.slice({0, wy, wx, 0},
+                                  {activationsNumChanGroups,
+                                   wy + (height - 1) * strideY + 1,
+                                   wx + (width - 1) * strideX + 1,
+                                   activationsChansPerGroup});
+      auto activationsStrided = usedActivations.subSample(strideY, 1)
+                                               .subSample(strideX, 2);
+      assert(activationsStrided.dim(1) == height);
+      assert(activationsStrided.dim(2) == width);
+      auto activationsFlattened =
+          activationsStrided.reshape({activationsNumChanGroups,
+                                      fieldSize,
+                                      activationsChansPerGroup});
+      // Pad the activations so the field size is a multiple of the number of
+      // weights in the convolutional unit.
+      activationViews = append(activationViews,
+                               pad(graph, activationsFlattened,
+                                   {activationsNumChanGroups,
+                                    paddedFieldSize,
+                                    activationsChansPerGroup},
+                                   {0, 0, 0}));
+    }
+  }
+  const auto actViewSize = kernelSizeY * kernelSizeX * activationsChans;
+  const auto paddedActViewSize =
+     ((actViewSize + outputGroupSize - 1) / outputGroupSize) * outputGroupSize;
+  auto activationsTransposed =
+      graph.addTensor(dType,
+          {paddedActViewSize / outputGroupSize,
+           paddedFieldSize / fieldGroupSize,
+           outputGroupSize,
+           fieldGroupSize},
+          "activationsTransposed");
+  auto activationsTransposedMapping =
+      computeTensorMapping(graph, activationsTransposed);
+  applyTensorMapping(graph, activationsTransposed,
+                     activationsTransposedMapping);
+  activationViews =
+      activationViews.dimShuffle({0, 1, 3, 2})
+                          .reshape({actViewSize,
+                                    paddedFieldSize / fieldGroupSize,
+                                    fieldGroupSize});
+  activationViews = pad(graph, activationViews,
+                             {paddedActViewSize,
+                              paddedFieldSize / fieldGroupSize,
+                              fieldGroupSize}, {0, 0, 0});
+  auto activationsTransposedIn =
+     activationViews.reshape({paddedActViewSize / outputGroupSize,
+                              outputGroupSize,
+                              paddedFieldSize / fieldGroupSize,
+                              fieldGroupSize})
+                         .dimShuffle({0, 2, 1, 3});
+  prog.add(Copy(activationsTransposed, activationsTransposedIn));
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  // Pad the field so the size is a multiple of the number of weights in the
+  // convolutional unit.
   auto zDeltasPadded = pad(graph,
                            zDeltasFlattened,
                            {deltasNumChanGroups, paddedFieldSize,
@@ -1942,45 +2024,14 @@ convolutionWeightUpdateConvInst(Graph &graph,
                              fieldGroupSize,
                              deltasChansPerGroup})
                    .dimShuffle({1, 0, 3, 2})));
-  // Pad the activations so the field size is a multiple of the number of
-  // weights in the convolutional unit.
-  auto activationsPadded = pad(graph, activationsFlattened,
-                               {activationsNumChanGroups,
-                                paddedFieldSize,
-                                activationsChansPerGroup},
-                               {0, 0, 0});
-  // Transpose the activations.
-  const auto outputGroupSize = partition.partialChansPerGroup;
-  auto activationsTransposed =
-      graph.addTensor(dType,
-                      {activationsChans / outputGroupSize,
-                       paddedFieldSize / fieldGroupSize,
-                       outputGroupSize,
-                       fieldGroupSize},
-                      "activationsTransposed");
-  auto activationsTransposedMapping =
-      computeTensorMapping(graph, activationsTransposed);
-  applyTensorMapping(graph, activationsTransposed,
-                     activationsTransposedMapping);
-  if (activationsChansPerGroup % outputGroupSize != 0) {
-    std::abort();
-  }
-  prog.add(Copy(activationsTransposed,
-                activationsPadded
-                  .reshape(
-                    {activationsNumChanGroups,
-                     paddedFieldSize / fieldGroupSize,
-                     fieldGroupSize,
-                     activationsChansPerGroup / outputGroupSize,
-                     outputGroupSize})
-                  .dimShuffle({0, 3, 1, 4, 2})));
   const auto weightDeltasType = partition.floatPartials ? "float" : "half";
   auto weightDeltasTransposed =
-      graph.addTensor(weightDeltasType,
-                      {activationsChans / outputGroupSize,
-                       deltasChans,
-                       outputGroupSize},
-                      "weightDeltas");
+      graph.addTensor(
+          weightDeltasType,
+          {paddedActViewSize / outputGroupSize,
+           deltasChans,
+           outputGroupSize},
+          "weightDeltas");
   auto weightDeltasTransposedMapping =
       computeTensorMapping(graph, weightDeltasTransposed);
   applyTensorMapping(graph, weightDeltasTransposed,
@@ -1994,12 +2045,6 @@ convolutionWeightUpdateConvInst(Graph &graph,
   // Transpose the weight deltas.
   auto fwdInChansPerGroup = plan.fwdPartition.inChansPerGroup;
   auto fwdPartialChansPerGroup = plan.fwdPartition.partialChansPerGroup;
-  if (deltasChans % fwdPartialChansPerGroup != 0) {
-    std::abort();
-  }
-  if (fwdPartialChansPerGroup % outputGroupSize != 0) {
-    std::abort();
-  }
   auto weightDeltas =
       graph.addTensor(weightDeltasType,
                       {deltasChans / fwdPartialChansPerGroup,
@@ -2013,12 +2058,15 @@ convolutionWeightUpdateConvInst(Graph &graph,
   applyTensorMapping(graph, weightDeltas, weightDeltasMapping);
   prog.add(Copy(weightDeltas,
                 weightDeltasTransposed
-                  .reshape({activationsChans / fwdInChansPerGroup,
-                            fwdInChansPerGroup / outputGroupSize,
-                            deltasChans / fwdPartialChansPerGroup,
+                  .dimShuffle({1, 0, 2})
+                  .reshape({deltasChans, paddedActViewSize})
+                  .slice(0, actViewSize, 1)
+                  .reshape({deltasChans / fwdPartialChansPerGroup,
                             fwdPartialChansPerGroup,
-                            outputGroupSize})
-                  .dimShuffle({2, 0, 3, 1, 4})));
+                            kernelSizeY, kernelSizeX,
+                            activationsChans / fwdInChansPerGroup,
+                            fwdInChansPerGroup})
+                  .dimShuffle({0, 4, 2, 3, 1, 5})));
   // Add the weight deltas to the weights.
   auto addCS = graph.createComputeSet(layerName + ".update_weights");
   const auto dataPathWidth = deviceInfo.dataPathWidth;
@@ -2077,8 +2125,8 @@ convolutionWeightUpdate(Graph &graph,
                         unsigned paddingY, unsigned paddingX,
                         float learningRate) {
   if (activations.dim(0) != 1) {
-    std::cerr << "Batch size != 1 not implemented for backwards pass\n";
-    std::abort();
+    throw popnn::popnn_error("Batch size != 1 not implemented for backwards "
+                             "pass");
   }
   auto activations0 = activations[0];
   auto zDeltas0 = zDeltas[0];
