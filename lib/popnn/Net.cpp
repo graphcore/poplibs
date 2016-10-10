@@ -148,19 +148,19 @@ Net::getConvPlan(unsigned i, unsigned inDimY, unsigned inDimX,
   const auto *layer = layers[i].get();
   conv::ConvPlan plan;
   if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
-    plan = conv::createPlan(inDimY, inDimX, inNumChans,
-                            c->kernelSizeY, c->kernelSizeX,
-                            c->strideY, c->strideX, c->paddingY,
-                            c->paddingX,
-                            c->numChannels, batchSize, dType, *graph,
-                            netType == TestOnlyNet);
+    plan = planner.createPlan(inDimY, inDimX, inNumChans,
+                              c->kernelSizeY, c->kernelSizeX,
+                              c->strideY, c->strideX, c->paddingY,
+                              c->paddingX,
+                              c->numChannels, batchSize, dType, *graph,
+                              netType == TestOnlyNet);
   } else if (const auto *c = dynamic_cast<const ConvResLayer *>(layer)) {
-    plan = conv::createPlan(inDimY, inDimX, inNumChans,
-                            c->kernelSizeY, c->kernelSizeX,
-                            c->strideY, c->strideX,
-                            c->paddingY, c->paddingX,
-                            c->numChannels, batchSize, dType, *graph,
-                            netType == TestOnlyNet);
+    plan = planner.createPlan(inDimY, inDimX, inNumChans,
+                              c->kernelSizeY, c->kernelSizeX,
+                              c->strideY, c->strideX,
+                              c->paddingY, c->paddingX,
+                              c->numChannels, batchSize, dType, *graph,
+                              netType == TestOnlyNet);
   } else {
     assert(0);
   }

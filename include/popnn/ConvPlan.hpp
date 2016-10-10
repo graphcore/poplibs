@@ -48,12 +48,20 @@ public:
   bool flattenXY;
 };
 
-ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                    unsigned kernelSizeY, unsigned kernelSizeX,
-                    unsigned strideY, unsigned strideX, unsigned paddingY,
-                    unsigned paddingX,
-                    unsigned numChannels, unsigned batchSize, std::string dType,
-                    const poplar::Graph &graph, bool forwardOnly);
+class PlannerCache;
+class Planner {
+  std::unique_ptr<PlannerCache> cache;
+public:
+  ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
+                      unsigned kernelSizeY, unsigned kernelSizeX,
+                      unsigned strideY, unsigned strideX,
+                      unsigned paddingY, unsigned paddingX,
+                      unsigned numChannels, unsigned batchSize,
+                      std::string dType,
+                      const poplar::Graph &graph, bool forwardOnly);
+  Planner();
+  ~Planner();
+};
 
 }
 #endif // __ConvPlan_hpp__

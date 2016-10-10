@@ -216,6 +216,7 @@ class Net {
   std::uint64_t numParams;
   double perfectCycleTime;
 
+  conv::Planner planner;
   conv::ConvPlan getConvPlan(unsigned i, unsigned inDimY, unsigned inDimX,
                              unsigned inNumChans);
 

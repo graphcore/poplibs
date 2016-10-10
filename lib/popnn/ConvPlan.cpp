@@ -5,7 +5,37 @@
 #include "ConvUtil.hpp"
 #include "ConvValidation.hpp"
 #include "PerformanceEstimation.hpp"
+#include <map>
+#include <tuple>
 
+// A simple function to memoize other functions. Any recursive calls
+// with the function are non memoized
+template <typename Ret, typename... Args>
+class Memo {
+  std::map<std::tuple<Args...>, Ret> table;
+  Ret (*fn)(Args...);
+ public:
+  Memo(Ret (*fn)(Args...)) : fn(fn) {}
+  Ret operator()(Args... args) {
+    const auto key = std::make_tuple(args...);
+    const auto match = table.find(key);
+    if(match == table.end()) {
+      auto result = fn(args...);
+      table[key] = result;
+      return result;
+    } else {
+      return match->second;
+    }
+  }
+  void clearTable() {
+    table.clear();
+  }
+};
+
+template <typename Ret, typename... Args>
+static Memo<Ret, Args...> memoize(Ret (*fn)(Args...)) {
+  return Memo<Ret, Args...>(fn);
+}
 
 static unsigned getNumConvUnits(bool floatPartial,
                                 const poplar::DeviceInfo &deviceInfo) {
@@ -35,6 +65,36 @@ struct ConvVertexType {
 }
 
 namespace conv {
+
+static std::uint64_t
+getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
+                               unsigned outputHeight,
+                               unsigned outputWidth,
+                               unsigned convUnitPipelineDepth,
+                               unsigned numConvUnitsPerTile,
+                               bool useSupervisorVertices,
+                               unsigned outputStride,
+                               unsigned numInputPointers,
+                               PlannerCache *cache);
+
+class PlannerCache {
+public:
+  decltype(memoize(partitionConvPartialByWorker))
+    mPartitionConvPartialByWorker;
+  decltype(memoize(getConvPartialnx1CycleEstimate))
+    mGetConvPartialnx1CycleEstimate;
+  PlannerCache() :
+    mPartitionConvPartialByWorker(memoize(partitionConvPartialByWorker)),
+    mGetConvPartialnx1CycleEstimate(
+      memoize(getConvPartialnx1CycleEstimate)
+    ) {}
+};
+
+Planner::Planner() {
+  cache = std::unique_ptr<PlannerCache>(new PlannerCache());
+}
+
+Planner::~Planner() = default;
 
 enum class Phase {
   FORWARD,
@@ -166,15 +226,16 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
                                unsigned numConvUnitsPerTile,
                                bool useSupervisorVertices,
                                unsigned outputStride,
-                               unsigned numInputPointers)
+                               unsigned numInputPointers,
+                               PlannerCache * cache)
 {
   if (useSupervisorVertices) {
     std::vector<std::vector<std::vector<unsigned>>> convSizesByWeightAndWorker;
     for (unsigned i = 0; i != passesPerOutput; ++i) {
       const auto numWorkerContexts = 6;
       std::vector<std::vector<PartialRow>> partition =
-          partitionConvPartialByWorker(outputHeight, outputWidth,
-                                       numWorkerContexts, outputStride);
+          cache->mPartitionConvPartialByWorker(outputHeight, outputWidth,
+                                               numWorkerContexts, outputStride);
       convSizesByWeightAndWorker.emplace_back();
       convSizesByWeightAndWorker.back().reserve(partition.size());
       for (const auto &entry : partition) {
@@ -273,7 +334,8 @@ estimateVertexCycles(bool floatActivations,
                      const Partition &partition,
                      const poplar::DeviceInfo &deviceInfo,
                      bool useSupervisorVertices,
-                     Phase phase) {
+                     Phase phase,
+                     PlannerCache *cache) {
   const auto tilesPerY = partition.tilesPerYAxis;
   const auto tilesPerX = partition.tilesPerXAxis;
   const auto tilesPerInZGroupAxis = partition.tilesPerInZGroupAxis;
@@ -316,13 +378,14 @@ estimateVertexCycles(bool floatActivations,
         params.kernelSizeX *
         (params.kernelSizeY + convUnitWeightHeight - 1) / convUnitWeightHeight;
     const auto passesPerOutput = passesPerFilter * tileNumInGroups;
-    return getConvPartialnx1CycleEstimate(
+    return cache->mGetConvPartialnx1CycleEstimate(
           passesPerOutput, outRowsPerVertex,
           tileOutWidth, deviceInfo.convUnitPipelineDepth,
           getNumConvUnits(partition.floatPartials, deviceInfo),
           useSupervisorVertices,
           outputStrideY,
-          convUnitWeightHeight);
+          convUnitWeightHeight,
+          cache);
   }
   assert(!useSupervisorVertices);
   return outRowsPerVertex * outChansPerGroup *
@@ -338,7 +401,8 @@ estimatePartialCalcComputeCost(const poplar::DeviceInfo &deviceInfo,
                                bool floatActivations,
                                const ConvolutionParams &params,
                                const Partition &partition,
-                               Phase phase) {
+                               Phase phase,
+                               PlannerCache *cache) {
   const auto tilesPerY = partition.tilesPerYAxis;
   const auto tilesPerZ = partition.tilesPerZAxis;
   const auto tilesPerInZGroup = partition.tilesPerInZGroupAxis;
@@ -375,7 +439,8 @@ estimatePartialCalcComputeCost(const poplar::DeviceInfo &deviceInfo,
                                                   partition,
                                                   deviceInfo,
                                                   useSupervisorVertices,
-                                                  phase);
+                                                  phase,
+                                                  cache);
   auto verticesPerWorker = (tileVertices + numContexts - 1) /
                            numContexts;
   auto computeCycles = vertexRuntime * verticesPerWorker * numContexts;
@@ -408,9 +473,10 @@ static unsigned
 estimateComputeCost(const poplar::DeviceInfo &deviceInfo,
                     bool floatActivations, const ConvolutionParams &params,
                     const Partition &partition,
-                    Phase phase) {
+                    Phase phase,
+                    PlannerCache *cache) {
   return estimatePartialCalcComputeCost(deviceInfo, floatActivations, params,
-                                     partition, phase) +
+                                        partition, phase, cache) +
          estimateReduceComputeCost(deviceInfo, params,
                                    partition, phase);
 
@@ -422,14 +488,15 @@ estimatePartitionCostBounded(const poplar::DeviceInfo &deviceInfo,
                              const ConvolutionParams &params,
                              const Partition &partition,
                              unsigned maxBound,
-                             Phase phase) {
+                             Phase phase,
+                             PlannerCache *cache) {
   auto cost = estimateExchangeCost(deviceInfo,
                                    floatActivations, params, partition,
                                    phase);
   if (cost > maxBound)
     return maxBound;
   cost += estimateComputeCost(deviceInfo, floatActivations, params,
-                              partition, phase);
+                              partition, phase, cache);
   return std::min(cost, maxBound);
 }
 
@@ -438,11 +505,13 @@ estimatePartitionCost(const poplar::DeviceInfo &deviceInfo,
                       bool floatActivations,
                       const ConvolutionParams &params,
                       const Partition &partition,
-                      Phase phase) {
+                      Phase phase,
+                      PlannerCache *cache) {
   return estimatePartitionCostBounded(deviceInfo,
                                       floatActivations, params, partition,
                                       std::numeric_limits<unsigned>::max(),
-                                      phase);
+                                      phase,
+                                      cache);
 }
 
 static std::pair<Partition, unsigned>
@@ -452,7 +521,8 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
                 unsigned inChansPerGroup,
                 const ConvVertexType &convVertexType,
                 const ConvolutionParams &params,
-                Phase phase) {
+                Phase phase,
+                PlannerCache *cache) {
   if (convVertexType.useConvInstruction &&
       phase == Phase::WEIGHTUPDATE) {
     assert(params.batchSize == 1);
@@ -491,7 +561,7 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
                        params.batchSize);
     return choosePartition(deviceInfo, floatActivations, false,
                            deviceInfo.getWeightsPerConvUnit(floatActivations),
-                           convVertexType, newParams, Phase::FORWARD);
+                           convVertexType, newParams, Phase::FORWARD, cache);
   }
   const auto partialChansPerGroup = convVertexType.partialChansPerGroup;
   unsigned bestCost = std::numeric_limits<unsigned>::max();
@@ -550,7 +620,7 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
           auto candidateCost =
               estimatePartitionCostBounded(deviceInfo, floatActivations,
                                            params, candidate,
-                                           bestCost, phase);
+                                           bestCost, phase, cache);
           if (preferConvInstructions &&
               !convVertexType.useConvInstruction)
             candidateCost *= 100000;
@@ -611,7 +681,8 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
                 bool preferConvInstructions,
                 unsigned inChansPerGroup,
                 const ConvolutionParams &params,
-                Phase phase) {
+                Phase phase,
+                PlannerCache *cache) {
   unsigned bestCost = std::numeric_limits<unsigned>::max();
   Partition bestPartition;
   if (params.inputDepth % inChansPerGroup != 0) {
@@ -626,7 +697,8 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
     unsigned candidateCost;
     std::tie(candidate, candidateCost) =
         choosePartition(deviceInfo, floatActivations, preferConvInstructions,
-                        inChansPerGroup, convVertexType, params, phase);
+                        inChansPerGroup, convVertexType, params, phase,
+                        cache);
     if (candidateCost < bestCost) {
       bestPartition = candidate;
       bestCost = candidateCost;
@@ -654,7 +726,8 @@ getInChansPerGroupCandidates(const ConvolutionParams &params,
 static std::pair<Partition, unsigned>
 choosePartition(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
                 bool preferConvInstructions,
-                const ConvolutionParams &params, Phase phase) {
+                const ConvolutionParams &params, Phase phase,
+                PlannerCache *cache) {
   unsigned bestCost = std::numeric_limits<unsigned>::max();
   Partition best;
   auto inChansPerGroupCandidates =
@@ -665,7 +738,7 @@ choosePartition(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
     std::tie(candidate, candidateCost) =
         choosePartition(deviceInfo, floatActivations,
                         preferConvInstructions, inChansPerGroup, params,
-                        phase);
+                        phase, cache);
     assert(candidate.inChansPerGroup == inChansPerGroup);
     if (candidateCost < bestCost) {
       best = candidate;
@@ -675,10 +748,11 @@ choosePartition(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
   return {best, bestCost};
 }
 
-ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
+ConvPlan
+Planner::createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                     unsigned kernelSizeY, unsigned kernelSizeX,
-                    unsigned strideY, unsigned strideX, unsigned paddingY,
-                    unsigned paddingX,
+                    unsigned strideY, unsigned strideX,
+                    unsigned paddingY, unsigned paddingX,
                     unsigned numChannels, unsigned batchSize,
                     std::string dType,
                     const poplar::Graph &graph, bool forwardOnly) {
@@ -716,7 +790,8 @@ ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
   if (!forwardOnly) {
     plan.bwdPartition = choosePartition(deviceInfo, floatActivations,
                                         preferConvInstructions,
-                                        bwdParams, Phase::BACKWARD).first;
+                                        bwdParams, Phase::BACKWARD,
+                                        cache.get()).first;
   }
   for (auto inChansPerGroup : inChansPerGroupCandidates) {
     const auto convVertexTypeCandidates =
@@ -728,7 +803,7 @@ ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
       std::tie(fwdCandidate, fwdCandidateCost) =
           choosePartition(deviceInfo, floatActivations, preferConvInstructions,
                           inChansPerGroup, convVertexType,
-                          fwdParams, Phase::FORWARD);
+                          fwdParams, Phase::FORWARD, cache.get());
       Partition bestwuCandidate;
       unsigned bestwuCandidateCost = std::numeric_limits<unsigned>::max();
       if (!forwardOnly) {
@@ -743,7 +818,7 @@ ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
               choosePartition(deviceInfo, floatActivations,
                               preferConvInstructions, inChansPerGroup,
                               wuVertexType, fwdParams,
-                              Phase::WEIGHTUPDATE);
+                              Phase::WEIGHTUPDATE, cache.get());
           if (wuCandidateCost < bestwuCandidateCost) {
             bestwuCandidate = wuCandidate;
             bestwuCandidateCost = wuCandidateCost;

@@ -569,13 +569,14 @@ int main(int argc, char **argv) {
 
   std::string dataTypeStr(asString(dataType));
   // TODO support residual connections.
-  auto plan = conv::createPlan(height, width, fwdInChans,
-                               kernelHeight, kernelWidth, strideH,
-                               strideW, paddingHeight,
-                               paddingWidth,
-                               fwdOutChans, batchSize,
-                               dataTypeStr, graph,
-                               inferenceOnly);
+  conv::Planner planner;
+  auto plan = planner.createPlan(height, width, fwdInChans,
+                                 kernelHeight, kernelWidth,
+                                 strideH, strideW,
+                                 paddingHeight, paddingWidth,
+                                 fwdOutChans, batchSize,
+                                 dataTypeStr, graph,
+                                 inferenceOnly);
   auto fwdInChansPerGroup = plan.fwdPartition.inChansPerGroup;
   // If the output grouping is unspecified, assume the output uses the same
   // grouping as the input unless that is impossible.
