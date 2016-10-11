@@ -7,6 +7,7 @@
 #include <vector>
 #include <map>
 #include <random>
+#include <array>
 #include "popnn/exceptions.hpp"
 #include "popnn/FullyConnectedPlan.hpp"
 #include "popnn/ConvPlan.hpp"

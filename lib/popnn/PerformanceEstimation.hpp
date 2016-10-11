@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
+#include <numeric>
 
 inline std::uint64_t
 getDenseDotProductCycles(bool isFloat, unsigned size, unsigned dataPathWidth) {

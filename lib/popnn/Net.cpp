@@ -10,6 +10,7 @@
 #include "popnn/NonLinearity.hpp"
 #include <fstream>
 #include <iomanip>
+#include <array>
 
 using namespace poplar;
 using namespace poplar::program;
