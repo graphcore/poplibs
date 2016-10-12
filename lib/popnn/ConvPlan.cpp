@@ -594,7 +594,7 @@ getWeightUpdateVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
                                     unsigned deltasChansPerGroup,
                                     const ConvolutionParams &params) {
   std::vector<ConvVertexType> convVertexTypeCandidates;
-  if (deviceInfo.fp16AccumConvUnitsPerTile > 0) {
+  if (!floatActivations && deviceInfo.fp16AccumConvUnitsPerTile > 0) {
     convVertexTypeCandidates.emplace_back(deviceInfo, true, false);
   }
   if (deviceInfo.fp32AccumConvUnitsPerTile > 0) {
