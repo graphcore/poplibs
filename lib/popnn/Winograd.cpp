@@ -140,7 +140,6 @@ public:
   uint64_t tilePartition(unsigned inpZic,
                      unsigned weightsZoc,
                      unsigned outZoc,
-                     NonLinearityType nonLinearityType,
                      const DeviceInfo &deviceInfo);
 
   std::pair<unsigned, unsigned> getPaddingX(unsigned patchX) const {
@@ -298,7 +297,6 @@ uint64_t WgdTilePartition::tilePartition(
               unsigned inpZic,
               unsigned weightsZoc,
               unsigned outZoc,
-              NonLinearityType nonLinearityType,
               const DeviceInfo &deviceInfo) {
 
   const unsigned numTiles = deviceInfo.getNumTiles();
@@ -583,7 +581,6 @@ uint64_t WgdTilePartition::tilePartition(
         Cost ccComp = outPatchesPerTileMax
                       * getWgdCompleteCycles(
                               zocOut * getOverlapX() * getOverlapY(),
-                              nonLinearityType,
                               isFloat);
         std::get<COMPLETE>(cc) = ccComp;
 
@@ -1586,8 +1583,7 @@ static Program complete(
               const std::string layerName,
               Tensor in,
               Tensor act,
-              Tensor bias,
-              NonLinearityType nonLinearityType) {
+              Tensor bias) {
   ComputeSet cs = graph.createComputeSet(layerName + ".complete");
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
@@ -1679,8 +1675,6 @@ static Program complete(
       graph.setFieldSize(v["act"], elem);
       graph.setFieldSize(v["bias"], elem);
 
-      graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
-
       totalUnits -= unitsThisVertex;
     }
   }
@@ -1693,7 +1687,6 @@ extern Program winogradConvolution(Graph &graph,
             unsigned strideX, unsigned paddingY, unsigned paddingX,
             unsigned xDim, unsigned yDim,
             unsigned outNumChans, unsigned patchSizeX, unsigned patchSizeY,
-            NonLinearityType nonLinearityType,
             std::string dType,
             Tensor in, Tensor weights, Tensor biases, Tensor activations,
             ResidualMethod resMethod, Tensor resIn) {
@@ -1735,7 +1728,6 @@ extern Program winogradConvolution(Graph &graph,
   tp.tilePartition(weights.dim(5),
                    weights.dim(4),
                    activations.dim(3),
-                   nonLinearityType,
                    graph.getDevice().getDeviceInfo());
 
   auto prog = Sequence();
@@ -1792,8 +1784,7 @@ extern Program winogradConvolution(Graph &graph,
 
   prog.add(inverseTransform(graph, tp, layerName, invTfIn, invTfOut));
 
-  prog.add(complete(graph, tp, layerName, invTfOut, activations, biases,
-                    nonLinearityType));
+  prog.add(complete(graph, tp, layerName, invTfOut, activations, biases));
 
   return prog;
 }

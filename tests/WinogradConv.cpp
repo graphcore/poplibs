@@ -3,7 +3,6 @@
 #include <popnn/Convolution.hpp>
 #include <popnn/ActivationMapping.hpp>
 #include <popnn/Net.hpp>
-#include <popnn/NonLinearityDef.hpp>
 #include <string>
 #include <random>
 
@@ -13,20 +12,6 @@ using namespace poplar::program;
 
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
-
-
-static float nonlinearity(NonLinearityType t, float x) {
-  switch (t) {
-  case NON_LINEARITY_SIGMOID:
-    return (1. / (1. + exp(-x)));
-  case NON_LINEARITY_RELU:
-    return std::max(0.0f, x);
-  case NON_LINEARITY_NONE:
-    return x;
-  }
-  return 0;
-}
-
 
 static unsigned filterLengthPre(unsigned a, unsigned kernel) {
   unsigned hLen = (kernel - 1)/2;
@@ -51,7 +36,7 @@ static unsigned filterLengthPost(unsigned a, unsigned kernel, unsigned aLim) {
 
 /* Reference convolution layer implementation using naive convolution method */
 static void computeReference(Tensor in, Tensor weights, Tensor biases,
-                             Tensor activations, NonLinearityType nonLin,
+                             Tensor activations,
                              const float *inpBuffer, const float *weightBuffer,
                              const float *biasBuffer, float *outBuffer,
                              unsigned paddingY, unsigned paddingX) {
@@ -142,7 +127,7 @@ static void computeReference(Tensor in, Tensor weights, Tensor biases,
 
           const auto foIdx = outIdx + x * numOutChansInGroup + y
                                         * numOutChansInGroup * featureX;
-          outBuffer[foIdx] = nonlinearity(nonLin, outRes + biasBuffer[biasIdx]);
+          outBuffer[foIdx] = outRes + biasBuffer[biasIdx];
         }
       }
     }
@@ -170,7 +155,6 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   const unsigned kernelSizeY = 3;
   const unsigned numOutChanGroups = 256/8;
   const unsigned numOutChansInGroup = 8;
-  const NonLinearityType nonLin = NON_LINEARITY_RELU;
   const unsigned patchSizeX = 4;
   const unsigned patchSizeY = 4;
   const unsigned paddingY = 1;
@@ -241,7 +225,7 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
            graph, kernelSizeY, kernelSizeX, 1, 1, paddingY,
            paddingX, featureY,
            featureX, numOutChanGroups*numOutChansInGroup,
-           patchSizeX, patchSizeY, nonLin, "float", in[0], weights, biases,
+           patchSizeX, patchSizeY, "float", in[0], weights, biases,
            activations[0], RESIDUAL_NONE, activations[0]);
 
   auto prog = Sequence(Copy(in, &inBuffer[0]),
@@ -255,7 +239,7 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
 
   eng.run();
 
-  computeReference(in, weights, biases, activations, nonLin, &inBuffer[0],
+  computeReference(in, weights, biases, activations, &inBuffer[0],
                    &weightsBuffer[0], &biasBuffer[0], &outBufferRef[0],
                    paddingX, paddingY);
 

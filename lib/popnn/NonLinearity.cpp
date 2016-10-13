@@ -59,3 +59,37 @@ bwdNonLinearity(Graph &graph,
   prog.add(Execute(bwdNonLinearityCS));
   return prog;
 }
+
+Program
+fwdNonLinearity(Graph &graph,
+                Tensor activations,
+                NonLinearityType nonLinearityType) {
+  auto prog = Sequence();
+  const auto dType = graph.getTensorElementType(activations);
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  ComputeSet nonLinCs = graph.createComputeSet("FwdNonlinearity");
+  prog.add(Execute(nonLinCs));
+  const auto batchSize = activations.dim(0);
+  for (unsigned b = 0; b < batchSize; b++) {
+
+    const auto &activationMapping =
+      computeActivationsMapping(graph, activations[b], b, batchSize);
+    buildTransform(activationMapping, graph, [&](unsigned deltaBegin,
+                                                 unsigned deltaEnd,
+                                                 unsigned tile)
+      {
+        auto v =
+          graph.addVertex(
+              nonLinCs,
+              templateVertex("NonLinearityFwd", dType),
+              {{"activationIn", activations[b].flatten().slice(deltaBegin,
+                                                            deltaEnd)},
+               {"activationOut", activations[b].flatten().slice(deltaBegin,
+                                                             deltaEnd)}});
+        graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
+        graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+        graph.setTileMapping(v, tile);
+      });
+  }
+  return prog;
+}

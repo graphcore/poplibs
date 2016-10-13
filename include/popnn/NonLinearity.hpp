@@ -9,5 +9,9 @@ bwdNonLinearity(poplar::Graph &graph,
                 poplar::Tensor zDeltas,
                 NonLinearityType nonLinearityType);
 
+poplar::program::Program
+fwdNonLinearity(poplar::Graph &graph,
+                poplar::Tensor activations,
+                NonLinearityType nonLinearityType);
 
 #endif // __NonLinearity_hpp__

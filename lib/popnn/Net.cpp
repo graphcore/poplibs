@@ -363,7 +363,7 @@ Net::getOrCreateConvImplFwd(const conv::ConvPlan &plan,
                                 impl.kernelSizeY, impl.kernelSizeX,
                                 impl.strideY, impl.strideX,
                                 impl.paddingY, impl.paddingX,
-                                outNumChans, impl.nonLinearityType,
+                                outNumChans,
                                 in, weights, biases, out,
                                 impl.resMethod, residual,
                                 options.useWinogradConv);
@@ -383,7 +383,6 @@ Net::createConvLayerFwd(unsigned i,
                         unsigned strideY, unsigned strideX,
                         unsigned paddingY, unsigned paddingX,
                         unsigned numChannels,
-                        NonLinearityType nonLinearityType,
                         unsigned resIndex, ResidualMethod resMethod,
                         Sequence &initParamsProg) {
   auto &in = acts[i];
@@ -434,8 +433,7 @@ Net::createConvLayerFwd(unsigned i,
   ReusableLayer reusableLayer =
       getOrCreateConvImplFwd(plan, {{in.dims(), resDims, acts[i + 1].dims()},
                                  kernelSizeY, kernelSizeX, strideY, strideX,
-                                 paddingY, paddingX,
-                                 nonLinearityType, resMethod});
+                                 paddingY, paddingX, resMethod});
  conv::mapWeights(weights, *graph, plan, batchSize);
  conv::mapBiases(biases, *graph, acts[i + 1]);
  if (dType == "float") {
@@ -566,8 +564,7 @@ Program Net::createConvLayerBwd(unsigned i,
       getOrCreateConvImplBwd(plan,
                             {{zDeltas.dims(), deltas[i].dims()},
                              kernelSizeY, kernelSizeX, strideY, strideX,
-                             paddingY, paddingX,
-                             nonLinearityType, RESIDUAL_NONE});
+                             paddingY, paddingX, RESIDUAL_NONE});
     prog.add(bwdReusableLayer.apply({zDeltas, weights}, {deltas[i]}));
   }
 
@@ -576,7 +573,7 @@ Program Net::createConvLayerBwd(unsigned i,
                                       {{zDeltas.dims(), acts[i].dims()},
                                        kernelSizeY, kernelSizeX, strideY,
                                        strideX, paddingY, paddingX,
-                                      nonLinearityType, RESIDUAL_NONE});
+                                       RESIDUAL_NONE});
   prog.add(wuReusableLayer.apply({zDeltas, acts[i], weights, biases},
                                  {weights, biases}));
   return prog;
@@ -699,6 +696,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                                      acts[i + 1], plan));
       numFlops += fc::getNumFlops(batchSize, prevSize, size,
                                   netType == TestOnlyNet || i == 0);
+      fwdProg.add(fwdNonLinearity(*graph, acts[i + 1], fc->nonLinearityType));
       numParams += weights.numElements() + biases.numElements();
       perfectCycleTime +=
           fc::getPerfectCycleCount(*graph, batchSize, prevSize,
@@ -708,15 +706,17 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
       fwdProg.add(createConvLayerFwd(i, c->kernelSizeY, c->kernelSizeX,
                                      c->strideY, c->strideX, c->paddingY,
                                      c->paddingX,
-                                     c->numChannels, c->nonLinearityType,
+                                     c->numChannels,
                                      0, RESIDUAL_NONE, initParamsProg));
+      fwdProg.add(fwdNonLinearity(*graph, acts[i + 1], c->nonLinearityType));
     } else if (const auto *c = dynamic_cast<const ConvResLayer *>(layer)) {
       fwdProg.add(createConvLayerFwd(i, c->kernelSizeY, c->kernelSizeX,
                                      c->strideY, c->strideX,
                                      c->paddingY, c->paddingX,
-                                     c->numChannels, c->nonLinearityType,
+                                     c->numChannels,
                                      c->resIndex, c->resMethod,
                                      initParamsProg));
+      fwdProg.add(fwdNonLinearity(*graph, acts[i + 1], c->nonLinearityType));
     } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
       const auto &in = acts[i];
       unsigned outDimY, outDimX;

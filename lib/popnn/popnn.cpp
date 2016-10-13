@@ -97,11 +97,37 @@ template class FullyConnectedPartial<float>;
 template class FullyConnectedPartial<half>;
 
 template <typename FPType>
+class NonLinearityFwd : public Vertex {
+public:
+  Input<Vector<FPType>> activationIn;
+  NonLinearityType nonLinearityType;
+  Output<Vector<FPType>> activationOut;
+
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    for (unsigned i = 0; i < activationIn.size(); ++i) {
+      activationOut[i] = nonlinearity(nonLinearityType, activationIn[i]);
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    bool isFloat = std::is_same<FPType, float>::value;
+    return getNonLinearityCycles(activationIn.size(), nonLinearityType,
+                                 isFloat, dataPathWidth);
+
+  }
+};
+
+template class NonLinearityFwd<float>;
+template class NonLinearityFwd<half>;
+
+template <typename FPType>
 class FullyConnectedReduce : public Vertex {
 public:
   Input<Vector<float>> partials;
   Input<FPType> bias;
-  NonLinearityType nonLinearityType;
   Output<FPType> activationOut;
 
   SimOnlyField<unsigned> dataPathWidth;
@@ -112,7 +138,7 @@ public:
       sum += partials[i];
     }
     sum += *bias;
-    *activationOut = nonlinearity(nonLinearityType, sum);
+    *activationOut = sum;
     return true;
   }
 
@@ -971,7 +997,6 @@ public:
   Vector<Input<Vector<InType>>> in;
   Vector<Input<Vector<OutType>>> bias;
   Vector<Output<Vector<OutType>>> out;
-  NonLinearityType nonLinearityType;
   Vector<unsigned> outputChanGroupsPerBias;
   Vector<Input<Vector<OutType>>> res;
 
@@ -998,7 +1023,7 @@ public:
           // the output.
           if (o < res.size())
             sum += res[o][outIndex];
-          out[o][outIndex] = nonlinearity(nonLinearityType, sum);
+          out[o][outIndex] = sum;
         }
       }
       --biasCount;
@@ -1938,7 +1963,6 @@ public:
     const unsigned vecLen = dIn[0].size();
     return getWgdCompleteCycles(
                                vecLen * nGroups,
-                               nonLinearityType,
                                isFloat);
   }
 };

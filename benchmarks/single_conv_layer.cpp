@@ -667,13 +667,17 @@ int main(int argc, char **argv) {
                                                     download);
   }
 
-  auto fwdProg =
-    conv::convolution(graph, plan,
+  auto fwdProg = Sequence();
+  fwdProg.add(conv::convolution(graph, plan,
                       kernelHeight, kernelWidth, strideH,
                       strideW, paddingHeight,
                       paddingWidth, fwdOutChans,
-                      nonLinearityType, prevAct, weights, biases, nextAct,
-                      RESIDUAL_NONE, {}, useWinogradConv, winogradPatchSize);
+                      prevAct, weights, biases, nextAct,
+                      RESIDUAL_NONE, {}, useWinogradConv, winogradPatchSize));
+
+
+  fwdProg.add(fwdNonLinearity(graph, nextAct, nonLinearityType));
+
 
   auto bwdProg = Sequence();
   const auto learningRate = 0.5;

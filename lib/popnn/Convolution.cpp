@@ -1083,7 +1083,7 @@ reduce(Graph &graph,
 static void
 complete(Graph &graph,
          const ConvPlan &plan,
-         unsigned outNumChans, NonLinearityType nonLinearityType,
+         unsigned outNumChans,
          std::string dType,
          Tensor in, Tensor biases, Tensor activations,
          bool doResidual, Tensor residual, unsigned resStride,
@@ -1140,7 +1140,6 @@ complete(Graph &graph,
                                               partialType,
                                               dType));
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-      graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
       graph.setTileMapping(v, tile);
 
       // Add the biases and a vector that tells the vertex how many output
@@ -1206,7 +1205,7 @@ convolution(Graph &graph,
             const ConvPlan &plan,
             unsigned kernelSizeY, unsigned kernelSizeX, unsigned strideY,
             unsigned strideX, unsigned paddingY, unsigned paddingX,
-            unsigned outNumChans, NonLinearityType nonLinearityType,
+            unsigned outNumChans,
             Tensor in, Tensor weights, Tensor biases, Tensor activations,
             ResidualMethod resMethod, Tensor resIn, bool useWinogradConv,
             unsigned winogradPatchSize) {
@@ -1255,7 +1254,7 @@ convolution(Graph &graph,
           paddingY, paddingX,
           in.dim(3), in.dim(2), outNumChans,
           winogradPatchSize, winogradPatchSize,
-          nonLinearityType, dType, in[b],
+          dType, in[b],
           weights, biases,
           activations[b], resMethod, resIn));
     }
@@ -1313,8 +1312,7 @@ convolution(Graph &graph,
                                                           batchSize);
       // Add the residual (if any), apply the non-linearity and rearrange tensor
       // to required output channel grouping.
-      complete(graph, plan, outNumChans,
-               nonLinearityType, dType, reduced, biases,
+      complete(graph, plan, outNumChans, dType, reduced, biases,
                activations[b], doResidual, bResidual, resStride,
                activationsMapping, layerName, completeCS);
     }

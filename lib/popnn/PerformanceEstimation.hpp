@@ -231,21 +231,42 @@ inline uint64_t getWgdReduceCycles(unsigned numPencils, unsigned depth,
 
 inline uint64_t getWgdCompleteCycles(
                             unsigned numChannels,
-                            NonLinearityType nonLinearityType,
                             bool isFloat) {
   unsigned divFactor = isFloat ? 2 : 4;
 
+  return 5 + numChannels/divFactor;
+}
+
+inline uint64_t getNonLinearityCycles(unsigned numActivations,
+                                      NonLinearityType nonLinearityType,
+                                      bool isFloat,
+                                      unsigned dataPathWidth)
+{
+  const auto floatVectorWidth = dataPathWidth / 32;
+  const auto halfVectorWidth =  dataPathWidth / 16;
+  const auto overhead = 15;
   switch (nonLinearityType) {
   case NON_LINEARITY_NONE:
-    return 5 + numChannels/divFactor;
-
-  case NON_LINEARITY_SIGMOID:
-    return 6 + numChannels*3/2;
-
   case NON_LINEARITY_RELU:
-    return 5 + numChannels/divFactor;
+    //2 cycles per dataPathWidth bits allowing same memory Element for src
+    // and dest, 2 cycles to do a simple nonlinearity
+    if (isFloat)
+      return overhead + (numActivations + floatVectorWidth - 1) * 2
+                        / floatVectorWidth;
+    else
+      return overhead + (numActivations + halfVectorWidth - 1) * 2
+                        / halfVectorWidth;
+  case NON_LINEARITY_SIGMOID:
+    // scalar operation for floats, vector operation for halves
+    // transcendtal operations are ~10cyles for float, ~1cycles for half
+    if (isFloat) {
+      return overhead + numActivations * 10;
+    } else {
+      return overhead + (numActivations + halfVectorWidth - 1)
+                        / halfVectorWidth;
+    }
   }
-  return 5 + numChannels * 2;
+  throw std::runtime_error("Invalid nonlinearity type");
 }
 
 

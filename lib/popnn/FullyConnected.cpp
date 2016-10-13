@@ -37,13 +37,14 @@ fullyConnected(Graph &graph,
   const auto numCols = prevSize;
   const auto numIPUs = deviceInfo.numIPUs;
   const auto tilesPerIPU = deviceInfo.tilesPerIPU;
-  const auto &activationsOutMapping = plan.outputMapping;
   assert(dType == "float" || dType == "half");
   const auto &ipuPartition = plan.ipuPartition;
   auto prog = Sequence();
   // Iterate through the batch creating new compute sets to add to the
   // program (i.e. execute the batch in sequence).
   for (unsigned b = 0; b < batchSize; ++b) {
+    const auto &activationsOutMapping =
+      computeActivationsMapping(graph, activations[b], b, batchSize);
     ComputeSet dotProductCS = graph.createComputeSet(layerName + ".fwd");
     prog.add(Execute(dotProductCS));
     Tensor partials = graph.addTensor("float", {numRows,
@@ -104,7 +105,6 @@ fullyConnected(Graph &graph,
          {"bias", biases[i]},
          {"activationOut", activations[b][i]}});
         graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-        graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
         graph.setTileMapping(v, tile);
         graph.setTileMapping(biases[i], tile);
       }

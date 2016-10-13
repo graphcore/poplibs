@@ -234,7 +234,6 @@ class Net {
   createConvLayerFwd(unsigned i, unsigned kernelSizeY, unsigned kernelSizeX,
                      unsigned strideY, unsigned strideX,
                      unsigned paddingY, unsigned paddingX, unsigned numChannels,
-                     NonLinearityType nonLinearityType,
                      unsigned resIndex, ResidualMethod resMethod,
                      poplar::program::Sequence &initParamsProg);
 

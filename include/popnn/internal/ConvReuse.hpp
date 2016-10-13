@@ -32,13 +32,11 @@ public:
                unsigned kernelSizeY, unsigned kernelSizeX,
                unsigned strideY, unsigned strideX,
                unsigned paddingY, unsigned paddingX,
-               NonLinearityType nonLinearityType,
                ResidualMethod resMethod) :
     tensorDims(std::move(tensorDims)),
     kernelSizeY(kernelSizeY), kernelSizeX(kernelSizeX),
     strideY(strideY), strideX(strideX),
-    paddingY(paddingY), paddingX(paddingX),
-    nonLinearityType(nonLinearityType), resMethod(resMethod) {}
+    paddingY(paddingY), paddingX(paddingX), resMethod(resMethod) {}
 
   bool operator<(const ConvImplSpec &other) const;
 };
