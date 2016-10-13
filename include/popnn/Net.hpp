@@ -20,12 +20,12 @@ class Layer { public: virtual ~Layer() {};};
 
 class ConvLayer : public Layer {
 public:
-  unsigned kernelSizeX;
   unsigned kernelSizeY;
-  unsigned strideX;
+  unsigned kernelSizeX;
   unsigned strideY;
-  unsigned paddingX;
+  unsigned strideX;
   unsigned paddingY;
+  unsigned paddingX;
   unsigned numChannels;
   NonLinearityType nonLinearityType;
   ConvLayer(unsigned kernelSize,
