@@ -16,6 +16,7 @@
 #include <popnn/NonLinearity.hpp>
 #include <popnn_ref/Convolution.hpp>
 #include <popnn_ref/NonLinearity.hpp>
+#include <popnn/Compiler.hpp>
 #include <random>
 
 using namespace poplar;
@@ -369,6 +370,7 @@ const char *asString(const FPDataType &type) {
   case FPDataType::HALF: return "half";
   case FPDataType::FLOAT: return "float";
   }
+  POPNN_UNREACHABLE();
 }
 
 inline std::ostream &operator<<(std::ostream &os, const FPDataType &type) {
@@ -383,7 +385,7 @@ inline std::istream &operator>>(std::istream &in, FPDataType &type) {
   else if (token == "float")
     type = FPDataType::FLOAT;
   else
-    throw std::runtime_error("Invalid data type name");
+    POPNN_UNREACHABLE();
   return in;
 }
 
@@ -393,6 +395,7 @@ const char *asString(const NonLinearityType &type) {
   case NON_LINEARITY_RELU: return "relu";
   case NON_LINEARITY_SIGMOID: return "sigmoid";
   }
+  POPNN_UNREACHABLE();
 }
 
 inline std::ostream &operator<<(std::ostream &os,
@@ -410,7 +413,7 @@ inline std::istream &operator>>(std::istream &in, NonLinearityType &type) {
   else if (token == "sigmoid")
     type = NON_LINEARITY_SIGMOID;
   else
-    throw std::runtime_error("Invalid non-linearity type");
+    POPNN_UNREACHABLE();
   return in;
 }
 

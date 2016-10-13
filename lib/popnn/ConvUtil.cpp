@@ -9,7 +9,7 @@ getInputIndex(unsigned outputIndex, unsigned stride, unsigned kernelSize,
     const auto start = static_cast<int>(outputIndex * stride) -
                        static_cast<int>(padding);
     auto inputIndex = start + static_cast<int>(kernelIndex);
-    if (inputIndex < 0 || inputIndex >= inputSize)
+    if (inputIndex < 0 || static_cast<unsigned>(inputIndex) >= inputSize)
       return ~0U;
     return inputIndex;
   } else {

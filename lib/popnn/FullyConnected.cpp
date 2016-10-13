@@ -38,8 +38,7 @@ fullyConnected(Graph &graph,
   const auto numIPUs = deviceInfo.numIPUs;
   const auto tilesPerIPU = deviceInfo.tilesPerIPU;
   const auto &activationsOutMapping = plan.outputMapping;
-  bool isFloat = dType == "float";
-  assert(isFloat || dType == "half");
+  assert(dType == "float" || dType == "half");
   const auto &ipuPartition = plan.ipuPartition;
   auto prog = Sequence();
   // Iterate through the batch creating new compute sets to add to the

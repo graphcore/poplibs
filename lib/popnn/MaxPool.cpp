@@ -74,7 +74,8 @@ maxPool(Graph &graph,
   const auto numChanGroups = out.dim(1);
   const auto chansPerGroup = out.dim(4);
   const auto numChannels = numChanGroups * chansPerGroup;
-  assert(numChannels == prevNumChannels);
+  if (numChannels != prevNumChannels)
+    assert(!"maxPool's input and output numChannels differ");
   unsigned inDimY = in.dim(2), inDimX = in.dim(3);
   unsigned outDimY, outDimX;
   std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX,
@@ -181,7 +182,8 @@ maxPoolBackward(Graph &graph,
   const auto prevChansPerGroup = actIn0.dim(3);
   const auto prevNumChannels = prevNumChanGroups * prevChansPerGroup;
   //MaxPool so no change in channel dimension
-  assert(nextNumChannels == prevNumChannels);
+  if(nextNumChannels == prevNumChannels)
+    assert(!"maxPoolBackwards: prev and next NumChannels must match");
 
   const auto yDimPrev = deltasOut0.dim(1);
   const auto xDimPrev = deltasOut0.dim(2);

@@ -484,8 +484,6 @@ uint64_t WgdTilePartition::tilePartition(
         /* compute accumulate cost: all the data is local to a tile and hence
          * needn't be exchanged
          */
-        /* size in bytes of accumulated output (or partials) */
-        const unsigned accAtomSize = isFloat ? 4 : 2;
         Cost ecAcc = 0;
         const auto weightsPerConvUnit =
                                 deviceInfo.getWeightsPerConvUnit(isFloat);
@@ -667,7 +665,6 @@ static void wgdMapWeights(
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
 
   const unsigned numTiles = deviceInfo.getNumTiles();
-  const unsigned numWorkers = deviceInfo.numWorkerContexts;
 
   assert(tp.zic % WgdTilePartition::kUnitSize == 0);
 

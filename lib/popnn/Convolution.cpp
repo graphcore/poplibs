@@ -283,7 +283,7 @@ createConvPartial1x1OutVertex(Graph &graph,
                               const Tensor &in, const Tensor &weights,
                               const Tensor &out, bool forward) {
   assert(kernelSizeY == 1 && kernelSizeX == 1);
-  assert(forward || stride == 1);
+  assert(forward || (strideY == 1 && strideX == 1));
   const auto inDimY = in.dim(1);
   const auto inDimX = in.dim(2);
   const auto inChansPerGroup = static_cast<unsigned>(in.dim(3));
@@ -552,7 +552,8 @@ createConvPartialDotProductVertex(Graph &graph,
   const auto inDimY = in.dim(1);
   const auto inDimX = in.dim(2);
   const auto partialType = partition.getPartialType();
-  assert(outChansPerGroup == 1);
+  if (outChansPerGroup != 1)
+    assert(!"outChansPerGroup must be 1");
   assert(outYEnd - outYBegin == 1);
   const auto y = outYBegin;
   unsigned inYBegin, inYEnd, inXBegin, inXEnd;

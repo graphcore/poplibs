@@ -1,4 +1,5 @@
 #include <popnn_ref/NonLinearity.hpp>
+#include <popnn/Compiler.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -17,6 +18,7 @@ static double nonLinearity(NonLinearityType nonLinearityType,
   case NON_LINEARITY_RELU:
     return std::max(0.0, x);
   }
+  POPNN_UNREACHABLE();
 }
 
 void ref::nonLinearity(NonLinearityType nonLinearityType,
@@ -39,6 +41,7 @@ static double nonLinearityDerivative(NonLinearityType nonLinearityType,
   case NON_LINEARITY_RELU:
     return (act > 0) ? 1 : 0;
   }
+  POPNN_UNREACHABLE();
 }
 
 static double bwdNonLinearity(NonLinearityType nonLinearityType,

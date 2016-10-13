@@ -114,10 +114,12 @@ static void computeReference(Tensor in, Tensor weights, Tensor biases,
                                      * numInpChansInGroup) + izc;
               float acc = 0;
 
-              for (int ix = (kernelX - 1)/2 - filtLenLX; ix <= (kernelX - 1)/2
-                                            + filtLenRX; ++ix) {
-                for (int iy = (kernelY - 1)/2 - filtLenLY; iy <= (kernelY - 1)/2
-                                              + filtLenRY; ++iy) {
+              for (unsigned ix = (kernelX - 1)/2 - filtLenLX;
+                            ix <= (kernelX - 1)/2 + filtLenRX;
+                            ++ix) {
+                for (unsigned iy = (kernelY - 1)/2 - filtLenLY;
+                              iy <= (kernelY - 1)/2 + filtLenRY;
+                              ++iy) {
                   const auto finIdx = inIdx
                                 + (x + ix - (kernelX - 1)/2)
                                    * numInpChansInGroup
