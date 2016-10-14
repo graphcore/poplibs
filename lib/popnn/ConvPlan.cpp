@@ -356,7 +356,6 @@ estimateVertexCycles(bool floatActivations,
       (tileOutHeight + verticesPerTilePerY - 1) / verticesPerTilePerY;
   const auto outputStrideY = phase != Phase::BACKWARD ? 1 : params.strideY;
   const auto inputStrideY = phase != Phase::BACKWARD ? params.strideY : 1;
-  const auto outputStrideX = phase != Phase::BACKWARD ? 1 : params.strideX;
   const auto inputStrideX = phase != Phase::BACKWARD ? params.strideX : 1;
 
   if (phase == Phase::WEIGHTUPDATE) {
@@ -498,20 +497,6 @@ estimatePartitionCostBounded(const poplar::DeviceInfo &deviceInfo,
   cost += estimateComputeCost(deviceInfo, floatActivations, params,
                               partition, phase, cache);
   return std::min(cost, maxBound);
-}
-
-static unsigned
-estimatePartitionCost(const poplar::DeviceInfo &deviceInfo,
-                      bool floatActivations,
-                      const ConvolutionParams &params,
-                      const Partition &partition,
-                      Phase phase,
-                      PlannerCache *cache) {
-  return estimatePartitionCostBounded(deviceInfo,
-                                      floatActivations, params, partition,
-                                      std::numeric_limits<unsigned>::max(),
-                                      phase,
-                                      cache);
 }
 
 static std::pair<Partition, unsigned>
