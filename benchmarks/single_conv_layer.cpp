@@ -385,7 +385,8 @@ inline std::istream &operator>>(std::istream &in, FPDataType &type) {
   else if (token == "float")
     type = FPDataType::FLOAT;
   else
-    POPNN_UNREACHABLE();
+    throw popnn::popnn_error(
+      "Invalid data-type <" + token + ">; must be half or float");
   return in;
 }
 

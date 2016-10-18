@@ -3,6 +3,7 @@
 
 #include "popnn/NonLinearityDef.hpp"
 #include "popnn/Compiler.hpp"
+#include "popnn_ref/exceptions.hpp"
 #include <boost/multi_array.hpp>
 
 namespace ref {
@@ -31,7 +32,9 @@ inline std::istream &operator>>(std::istream &in, NonLinearityType &type) {
   else if (token == "sigmoid")
     type = NON_LINEARITY_SIGMOID;
   else
-    POPNN_UNREACHABLE();
+    throw popnn_ref::popnn_ref_error(
+        "Unsupported nonlinearity <" + token + ">");
+
   return in;
 }
 
