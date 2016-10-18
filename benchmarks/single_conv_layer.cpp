@@ -389,34 +389,6 @@ inline std::istream &operator>>(std::istream &in, FPDataType &type) {
   return in;
 }
 
-const char *asString(const NonLinearityType &type) {
-  switch (type) {
-  case NON_LINEARITY_NONE: return "none";
-  case NON_LINEARITY_RELU: return "relu";
-  case NON_LINEARITY_SIGMOID: return "sigmoid";
-  }
-  POPNN_UNREACHABLE();
-}
-
-inline std::ostream &operator<<(std::ostream &os,
-                                const NonLinearityType &type) {
-  return os << asString(type);
-}
-
-inline std::istream &operator>>(std::istream &in, NonLinearityType &type) {
-  std::string token;
-  in >> token;
-  if (token == "none")
-    type = NON_LINEARITY_NONE;
-  else if (token == "relu")
-    type = NON_LINEARITY_RELU;
-  else if (token == "sigmoid")
-    type = NON_LINEARITY_SIGMOID;
-  else
-    POPNN_UNREACHABLE();
-  return in;
-}
-
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
@@ -433,7 +405,6 @@ int main(int argc, char **argv) {
   unsigned fwdOutChansPerGroup;
   unsigned bwdOutChansPerGroup;
   unsigned batchSize;
-  NonLinearityType nonLinearityType;
   FPDataType dataType;
   double relativeTolerance;
   DeviceInfo info;
@@ -465,11 +436,6 @@ int main(int argc, char **argv) {
     ("kernel-width",
       po::value<unsigned>(&kernelWidth)->default_value(1),
      "Size of kernel width")
-
-    ("non-linearity",
-     po::value<NonLinearityType>(&nonLinearityType)
-         ->default_value(NON_LINEARITY_RELU),
-     "Non-linearity type")
     ("data-type",
      po::value<FPDataType>(&dataType)->default_value(FPDataType::HALF),
      "Type of the data and the parameters")
@@ -622,17 +588,13 @@ int main(int argc, char **argv) {
                                     outWidth, fwdOutChansPerGroup},
                       "nextAct");
   mapActivations(graph, nextAct);
-  Tensor prevDeltas, zDeltas, nextDeltas;
+  Tensor prevDeltas, zDeltas;
   if (!inferenceOnly) {
-    nextDeltas =
+    zDeltas =
         graph.addTensor(dataTypeStr, {batchSize,
                                       bwdInChans / bwdInChansPerGroup,
                                       outHeight,
                                       outWidth, bwdInChansPerGroup},
-                        "nextDeltas");
-    mapActivations(graph, nextDeltas);
-    zDeltas =
-        graph.addTensor(dataTypeStr, nextDeltas.dims(),
                         "zDeltas");
     mapActivations(graph, zDeltas);
     prevDeltas =
@@ -655,12 +617,9 @@ int main(int argc, char **argv) {
                                                    download);
   auto rawHostNextAct = allocateHostMemoryForTensor(graph, nextAct, upload,
                                                     download);
-  std::unique_ptr<char[]> rawHostNextDeltas;
   std::unique_ptr<char[]> rawHostZDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
   if (!inferenceOnly) {
-    rawHostNextDeltas = allocateHostMemoryForTensor(graph, nextDeltas, upload,
-                                                    download);
     rawHostZDeltas = allocateHostMemoryForTensor(graph, zDeltas, upload,
                                                  download);
     rawHostPrevDeltas = allocateHostMemoryForTensor(graph, prevDeltas, upload,
@@ -676,15 +635,9 @@ int main(int argc, char **argv) {
                       RESIDUAL_NONE, {}, useWinogradConv, winogradPatchSize));
 
 
-  fwdProg.add(fwdNonLinearity(graph, nextAct, nonLinearityType));
-
-
   auto bwdProg = Sequence();
   const auto learningRate = 0.5;
   if (!inferenceOnly) {
-    bwdProg.add(
-      bwdNonLinearity(graph, nextAct, nextDeltas, zDeltas, nonLinearityType)
-    );
     bwdProg.add(
       conv::convolutionBackward(graph, plan, zDeltas, weights, prevDeltas,
                                 kernelHeight, kernelWidth, strideH,
@@ -730,15 +683,12 @@ int main(int argc, char **argv) {
   boost::multi_array<double, 4>
       modelNextAct(boost::extents[batchSize][fwdOutChans][outHeight][outWidth]);
   ref::conv::convolution(strideH, strideW, paddingHeight, paddingWidth,
-                         nonLinearityType, hostPrevAct,
+                         hostPrevAct,
                          hostWeights, hostBiases, modelNextAct);
   bool matchesModel = checkIsClose("fwd", hostNextAct, modelNextAct,
                                    relativeTolerance);
 
   if (!inferenceOnly) {
-    boost::multi_array<double, 4> hostNextDeltas(
-      boost::extents[batchSize][bwdInChans][outHeight][outWidth]
-    );
     boost::multi_array<double, 4> hostZDeltas(
       boost::extents[batchSize][bwdInChans][outHeight][outWidth]
     );
@@ -748,9 +698,9 @@ int main(int argc, char **argv) {
     auto modelWeights = hostWeights;
     auto modelBiases = hostBiases;
     // Run the backwards pass.
-    writeRandomValues(hostNextDeltas, 0.0, 1.0, randomEngine);
-    groupActivations(hostNextDeltas, dataTypeStr, nextDeltas.dims(),
-                     rawHostNextDeltas.get());
+    writeRandomValues(hostZDeltas, 0.0, 1.0, randomEngine);
+    groupActivations(hostZDeltas, dataTypeStr, zDeltas.dims(),
+                     rawHostZDeltas.get());
     engine.run(0); // Upload.
     engine.run(3); // Run.
     engine.run(1); // Download.
@@ -763,10 +713,6 @@ int main(int argc, char **argv) {
     copy(dataTypeStr, rawHostBiases.get(), hostBiases);
 
     // Validate against a reference model.
-    auto modelZDeltas = hostNextDeltas;
-    ref::bwdNonLinearity(nonLinearityType, hostNextAct, modelZDeltas);
-    matchesModel &= checkIsClose("zdeltas",
-                                 hostZDeltas, modelZDeltas, relativeTolerance);
     boost::multi_array<double, 4>
         modelPrevDeltas(boost::extents[batchSize][fwdInChans][height][width]);
     ref::conv::convolutionBackward(strideH, strideW, paddingHeight,

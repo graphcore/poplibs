@@ -6,7 +6,7 @@ function(add_popnn_unit_test name)
     PRIVATE
       $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
       ${Boost_INCLUDE_DIRS})
-  target_link_libraries(${name} popnn poplar ${Boost_LIBRARIES})
+  target_link_libraries(${name} popnn poplar popnn_ref ${Boost_LIBRARIES})
   target_compile_definitions(${name} PRIVATE -DBOOST_TEST_DYN_LINK)
   add_test(NAME ${name}
     COMMAND ${name})
@@ -26,7 +26,6 @@ add_test(NAME conv3x3_stride_2_fwd
                  --width=20
                  --height=28
                  --kernel-size=3
-                 --non-linearity=relu
                  --data-type=half
                  --padding=2
                  --stride=2

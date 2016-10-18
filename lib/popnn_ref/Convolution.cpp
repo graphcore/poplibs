@@ -1,11 +1,9 @@
 #include <popnn_ref/Convolution.hpp>
-#include <popnn_ref/NonLinearity.hpp>
 #include <popnn_ref/exceptions.hpp>
 
 void ref::conv::
 convolution(unsigned strideH, unsigned strideW,
             unsigned paddingHeight, unsigned paddingWidth,
-            NonLinearityType nonLinearityType,
             const boost::multi_array<double, 4> &in,
             const boost::multi_array<double, 4> &weights,
             const boost::multi_array<double, 1> &biases,
@@ -78,8 +76,6 @@ convolution(unsigned strideH, unsigned strideW,
       }
     }
   }
-  // Apply nonlinearity.
-  ref::nonLinearity(nonLinearityType, out);
 }
 
 void ref::conv::
