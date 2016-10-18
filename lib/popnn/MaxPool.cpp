@@ -182,7 +182,7 @@ maxPoolBackward(Graph &graph,
   const auto prevChansPerGroup = actIn0.dim(3);
   const auto prevNumChannels = prevNumChanGroups * prevChansPerGroup;
   //MaxPool so no change in channel dimension
-  if(nextNumChannels == prevNumChannels)
+  if(nextNumChannels != prevNumChannels)
     assert(!"maxPoolBackwards: prev and next NumChannels must match");
 
   const auto yDimPrev = deltasOut0.dim(1);
