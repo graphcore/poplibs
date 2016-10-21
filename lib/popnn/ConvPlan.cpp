@@ -510,7 +510,6 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
                 PlannerCache *cache) {
   if (convVertexType.useConvInstruction &&
       phase == Phase::WEIGHTUPDATE) {
-    assert(params.batchSize == 1);
     // The weight update can be implemented as a convolution with a different
     // axis of accumulation.
     // weight update field: fwd out channels.
@@ -523,7 +522,8 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
     const auto fieldGroupSize =
         deviceInfo.getWeightsPerConvUnit(floatActivations);
     const auto fieldSize = params.getOutputHeight(phase) *
-                           params.getOutputWidth(phase);
+                           params.getOutputWidth(phase) *
+                           params.batchSize;
     const auto paddedFieldSize =
         ((fieldSize + fieldGroupSize - 1) / fieldGroupSize) * fieldGroupSize;
     const auto numKernelElements = params.kernelSizeY * params.kernelSizeX;
@@ -543,7 +543,7 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
                        0 /*paddingY*/,
 					             0 /*paddingX*/,
                        paddedOutputSize,
-                       params.batchSize);
+                       1);
     return choosePartition(deviceInfo, floatActivations, false,
                            deviceInfo.getWeightsPerConvUnit(floatActivations),
                            convVertexType, newParams, Phase::FORWARD, cache);

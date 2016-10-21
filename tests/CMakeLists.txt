@@ -124,3 +124,23 @@ add_test(NAME small_conv_many_tiles
                  --width=14
                  --height=14
                  --tiles-per-ipu=1216)
+
+add_test(NAME conv_batch_bwd
+         COMMAND single_conv_layer
+                 --width 14
+                 --height 14
+                 --input-channels 32
+                 --output-channels 32
+                 --tiles-per-ipu=16
+                 --data-type=half
+                 --batch-size=4)
+
+add_test(NAME conv_batch_bwd_float
+         COMMAND single_conv_layer
+                 --width 14
+                 --height 14
+                 --input-channels 32
+                 --output-channels 32
+                 --tiles-per-ipu=16
+                 --data-type=float
+                 --batch-size=4)
