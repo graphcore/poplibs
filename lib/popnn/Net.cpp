@@ -760,7 +760,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   lastAct = lastAct.reshape({batchSize, lastAct.numElements() / batchSize});
   auto firstDeltas = deltas[layers.size()];
   firstDeltas = firstDeltas.reshape(lastAct.dims());
-  auto v = graph->addVertex(lossCS, templateVertex("CalcLoss", dType),
+  auto v = graph->addVertex(lossCS, templateVertex("popnn::CalcLoss", dType),
                            {{"batchIn", lastAct},
                             {"batchDeltaOut", firstDeltas},
                             {"label", expected[0]},

@@ -116,7 +116,7 @@ maxPool(Graph &graph,
                                                    padding, inDimX, true);
         const auto inXSize = inXEnd - inXBegin;
         auto v =
-          graph.addVertex(fwd, templateVertex("MaxPooling", dType),
+          graph.addVertex(fwd, templateVertex("popnn::MaxPooling", dType),
             { {"activationOut", out[b][chanGroup][y][x]} });
         graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
         graph.setTileMapping(v, tile);
@@ -240,7 +240,7 @@ maxPoolBackward(Graph &graph,
         unsigned chanBase = chanGroupPrev * prevChansPerGroup
                             + chunk * chunkSize;
         auto v =
-          graph.addVertex(bwdCS, templateVertex("MaxPoolingBwd", dType));
+          graph.addVertex(bwdCS, templateVertex("popnn::MaxPoolingBwd", dType));
         graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
         graph.setTileMapping(v, tile);
 

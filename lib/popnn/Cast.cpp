@@ -21,7 +21,7 @@ cast(Graph &graph, const std::vector<unsigned> &dstActivationMapping,
                                                   unsigned end,
                                                   unsigned tile) {
     auto v = graph.addVertex(cs,
-                             templateVertex("Cast", srcType, dstType),
+                             templateVertex("popnn::Cast", srcType, dstType),
                              {{"src", src.flatten().slice(begin, end)},
                               {"dst", dst.flatten().slice(begin, end)}});
     graph.setInitialValue(v["dataPathWidth"], dataPathWidth);

@@ -68,6 +68,9 @@ static float nonlinearity_derivative(NonLinearityType t, float activation) {
 /*            Vertices                                                      */
 /****************************************************************************/
 
+
+namespace popnn {
+
 template <typename FPType>
 class FullyConnectedPartial : public Vertex {
 public:
@@ -1994,3 +1997,5 @@ template class Cast<float, half>;
 template class Cast<half, float>;
 template class Cast<float, float>;
 template class Cast<half, half>;
+
+} // end namespace popnn

@@ -44,7 +44,7 @@ bwdNonLinearity(Graph &graph,
                                                   unsigned tile) {
     auto v =
         graph.addVertex(bwdNonLinearityCS,
-                        templateVertex("NonLinearityBwd", dType),
+                        templateVertex("popnn::NonLinearityBwd", dType),
                         {{"deltasIn",
                           deltasIn.flatten().slice(deltaBegin, deltaEnd)},
                          {"activations",

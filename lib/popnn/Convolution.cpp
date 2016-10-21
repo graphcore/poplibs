@@ -325,7 +325,8 @@ createConvPartial1x1OutVertex(Graph &graph,
         ).flatten();
   auto v = graph.addVertex(
         fwdCS,
-        templateVertex("ConvPartial1x1Out", baseClass, dType, partialType),
+        templateVertex("popnn::ConvPartial1x1Out", baseClass, dType,
+                       partialType),
   {{"weights", w}}
         );
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
@@ -421,7 +422,7 @@ createConvPartialnx1InOutVertex(Graph &graph,
   // Add the vertex.
   auto v =
       graph.addVertex(fwdCS,
-                      templateVertex("ConvPartialnx1InOut", baseClass,
+                      templateVertex("popnn::ConvPartialnx1InOut", baseClass,
                                      dType, partialType,
                                      forward ? "true" : "false"));
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
@@ -584,7 +585,7 @@ createConvPartialDotProductVertex(Graph &graph,
   Tensor outWindow = out[z][y].slice(outXBegin, outXEnd).flatten();
   // Add the vertex.
   auto v = graph.addVertex(fwdCS,
-                           templateVertex("ConvPartial", dType,
+                           templateVertex("popnn::ConvPartial", dType,
                                           partialType),
   { {"in", inWindow },
     {"weights", w },
@@ -637,7 +638,7 @@ zeroPartialSums(Graph &graph,
     if (beginRow == endRow)
       continue;
     auto zv = graph.addVertex(
-      zeroCS, templateVertex("Zero2D", partialType),
+      zeroCS, templateVertex("popnn::Zero2D", partialType),
       {{"out", toZero.slice(beginRow, endRow)}}
     );
     graph.setInitialValue(zv["dataPathWidth"], dataPathWidth);
@@ -685,7 +686,7 @@ calcPartialConvOutput(Graph &graph,
       zeros = graph.addTensor(dType,
                               {zeroSize},
                               "zeros");
-      auto v = graph.addVertex(zeroCS, templateVertex("Zero", dType),
+      auto v = graph.addVertex(zeroCS, templateVertex("popnn::Zero", dType),
                                {{"out", zeros}});
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setTileMapping(v, tile);
@@ -873,7 +874,8 @@ addResidualCalc(Graph &graph,
               auto outChan = outChanGroup * outChansPerGroup +
                   outChanGroupElement;
               if (outChan >= resNumChans) {
-                auto v = graph.addVertex(cs, templateVertex("Zero", dType),
+                auto v = graph.addVertex(cs, templateVertex("popnn::Zero",
+                                                            dType),
                                          {{"out",out}});
                 graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
                 continue;
@@ -888,7 +890,8 @@ addResidualCalc(Graph &graph,
                 .slice(resChanGroupElement,
                        resChanGroupElement + chansPerVertex);
               auto v = graph.addVertex(cs,
-                                       templateVertex("CopyResidual", dType),
+                                       templateVertex("popnn::CopyResidual",
+                                                      dType),
                                        {{"in", in}, {"out",out}});
               graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
             }
@@ -1035,7 +1038,7 @@ reduce(Graph &graph,
       auto regions = getContiguousRegions(elems.begin() + elemBegin,
                                           elems.begin() + elemEnd);
       const auto v = graph.addVertex(reduceCS,
-                                     templateVertex("ConvReduce",
+                                     templateVertex("popnn::ConvReduce",
                                                     partialType));
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setFieldSize(v["partials"], tilesPerInZGroup * regions.size());
@@ -1136,7 +1139,7 @@ complete(Graph &graph,
       // groups.
       const auto numGroups = groupEnd - groupBegin;
       auto v = graph.addVertex(cs,
-                               templateVertex("ConvComplete",
+                               templateVertex("popnn::ConvComplete",
                                               partialType,
                                               dType));
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
@@ -1479,7 +1482,7 @@ Program transformWeights(Graph &graph,
       auto numElements = elements.size();
       auto regions = getContiguousRegions(elements.begin(),
                                           elements.end());
-      auto v = graph.addVertex(cs, templateVertex("ConvTransformWeights",
+      auto v = graph.addVertex(cs, templateVertex("popnn::ConvTransformWeights",
                                                   dType));
       graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
       graph.setFieldSize(v["out"], regions.size());
@@ -1634,7 +1637,7 @@ createWeightGradVertex(Graph &graph,
   const auto outHeight = outYEnd - outYBegin;
   const auto outWidth = outXEnd - outXBegin;
   for (unsigned izg = inZGroupBegin; izg != inZGroupEnd; ++izg) {
-    auto v = graph.addVertex(cs, templateVertex("ConvWeightGradCalc",
+    auto v = graph.addVertex(cs, templateVertex("popnn::ConvWeightGradCalc",
                                                 dType));
     graph.setTileMapping(v, tile);
     graph.setInitialValue(v["kernelSizeY"], kernelSizeY);
@@ -1840,7 +1843,7 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
     auto numElems = elemEnd - elemBegin;
     unsigned numBiases = biasEnd - biasBegin;
     auto v = graph.addVertex(reduceCS,
-                             templateVertex("ConvBiasReduce", dType));
+                             templateVertex("popnn::ConvBiasReduce", dType));
     graph.setFieldSize(v["deltas"], numElems * numBiases);
     auto zDeltasFlat = zDeltas.reshape({zDeltas.dim(0),
                                         outDimY * outDimX,
@@ -1860,7 +1863,8 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
     [&](Tensor biasSlice, unsigned tile){
       for (auto bias : biasSlice.getElementIndices()) {
         auto v = graph.addVertex(updateBiasCS,
-                                 templateVertex("ConvBiasUpdate", dType));
+                                 templateVertex("popnn::ConvBiasUpdate",
+                                                dType));
         unsigned numDeltas = 0;
         for (unsigned srcWorker = 0; srcWorker < usedWorkers; ++srcWorker) {
           unsigned biasBegin = (srcWorker * numBiases) / usedWorkers;
@@ -2091,7 +2095,7 @@ convolutionWeightUpdateConvInst(Graph &graph,
                                           elementIndices.begin() + elemEnd);
       for (unsigned i = 0, numRegions = regions.size(); i != numRegions; ++i) {
         const auto v = graph.addVertex(addCS,
-                                       templateVertex("ConvWeightUpdate",
+                                       templateVertex("popnn::ConvWeightUpdate",
                                                       dType, weightDeltasType));
         graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
         graph.setInitialValue(v["eta"], learningRate);
@@ -2229,7 +2233,8 @@ convolutionWeightUpdate(Graph &graph,
                                    numElems});
     auto w = weights.flatten().slice(beginElem, endElem);
     auto v = graph.addVertex(reduceCS,
-                             templateVertex("ConvWeightUpdate", dType, dType),
+                             templateVertex("popnn::ConvWeightUpdate", dType,
+                                            dType),
                              {{"weights", w}, {"partials", p}});
     graph.setInitialValue(v["eta"], learningRate);
     graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);

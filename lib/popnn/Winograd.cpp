@@ -804,7 +804,7 @@ static Program kernelTransform(
 
           auto v = graph.addVertex(
                       cs,
-                      templateVertex("WgdKernelTransform", tp.dType,
+                      templateVertex("popnn::WgdKernelTransform", tp.dType,
                                      tp.patchSizeX, tp.patchSizeY,
                                      tp.kernelX, tp.kernelY));
 
@@ -860,7 +860,8 @@ static Program kernelTransform(
 
       /* allocate units to this worker */
       auto v = graph.addVertex(cs,
-                            templateVertex("WgdKernelTransform", tp.dType,
+                            templateVertex("popnn::WgdKernelTransform",
+                                           tp.dType,
                                            tp.patchSizeX, tp.patchSizeY,
                                            tp.kernelX, tp.kernelY));
       graph.setFieldSize(v["wIn"],
@@ -1023,7 +1024,8 @@ static Program dataTransform(
           #endif
 
           auto v = graph.addVertex(cs,
-                                   templateVertex("WgdDataTransform", tp.dType,
+                                   templateVertex("popnn::WgdDataTransform",
+                                       tp.dType,
                                        tp.patchSizeX, tp.patchSizeY,
                                        tp.kernelX, tp.kernelY));
 
@@ -1060,7 +1062,8 @@ static Program dataTransform(
               graph.setTileMapping(zeroVec, tile);
 
               auto vZ = graph.addVertex(zCs,
-                                        templateVertex("Zero", tp.dType));
+                                        templateVertex("popnn::Zero",
+                                                       tp.dType));
               graph.setInitialValue(vZ["dataPathWidth"],
                                     deviceInfo.dataPathWidth);
 
@@ -1148,7 +1151,7 @@ static Program dataTransform(
 
       auto v = graph.addVertex(
                         dCs,
-                        templateVertex("WgdDataTransform", tp.dType,
+                        templateVertex("popnn::WgdDataTransform", tp.dType,
                                        tp.patchSizeX, tp.patchSizeY,
                                        tp.kernelX, tp.kernelY));
       graph.setFieldSize(v["dIn"],
@@ -1185,7 +1188,8 @@ static Program dataTransform(
                                     "zero");
           graph.setTileMapping(zeroVec, tile);
 
-          auto v = graph.addVertex(zCs, templateVertex("Zero", tp.dType));
+          auto v = graph.addVertex(zCs, templateVertex("popnn::Zero",
+                                                       tp.dType));
           graph.setInitialValue(v["dataPathWidth"],
                                 deviceInfo.dataPathWidth);
 
@@ -1328,7 +1332,7 @@ static Program accum(
             /* create vertex for each pencil */
             auto v = graph.addVertex(
                                      cs,
-                                     templateVertex("WgdPartials",
+                                     templateVertex("popnn::WgdPartials",
                                                      baseClass,
                                                      tp.dType));
 
@@ -1434,7 +1438,7 @@ static Program reduce(
       const auto elemsThisVertex = std::min(elemsPerVertex, totalElems);
 
       auto v = graph.addVertex(cs,
-                               templateVertex("WgdReduce", tp.dType,
+                               templateVertex("popnn::WgdReduce", tp.dType,
                                               tp.patchSizeX, tp.patchSizeY));
       graph.setTileMapping(v, tile);
       graph.setFieldSize(v["inPartial"], elemsThisVertex * tp.tilesForZig);
@@ -1509,7 +1513,8 @@ static Program inverseTransform(
 
       auto tuplesThisVertex = std::min(tuplesPerVertex, tuplesThisTile);
       auto v = graph.addVertex(cs,
-                               templateVertex("WgdInverseTransform", tp.dType,
+                               templateVertex("popnn::WgdInverseTransform",
+                                              tp.dType,
                                               tp.patchSizeX, tp.patchSizeY,
                                               tp.kernelX, tp.kernelY));
       graph.setFieldSize(v["dTf"], tp.patchSizeX * tp.patchSizeY
@@ -1611,7 +1616,8 @@ static Program complete(
     for (auto vertex = 0U; vertex < numWorkers && totalUnits; ++vertex) {
       const auto unitsThisVertex = std::min(unitsPerVertex, totalUnits);
 
-      auto v = graph.addVertex(cs, templateVertex("WgdConvComplete", tp.dType));
+      auto v = graph.addVertex(cs, templateVertex("popnn::WgdConvComplete",
+                                                  tp.dType));
       graph.setTileMapping(v, tile);
 
       unsigned elem = 0;

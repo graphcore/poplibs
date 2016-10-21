@@ -77,7 +77,8 @@ fullyConnected(Graph &graph,
             Tensor partialWeights = weights[i].slice(beginElement, endElement);
             auto v =
                 graph.addVertex(dotProductCS,
-                                templateVertex("FullyConnectedPartial", dType),
+                                templateVertex("popnn::FullyConnectedPartial",
+                                               dType),
                                 {{"in", partialIn},
                                  {"weights", partialWeights},
                                  {"out", partials[i][j]}});
@@ -99,7 +100,7 @@ fullyConnected(Graph &graph,
         // Sum the partial sums.
         auto v =
             graph.addVertex(reduceCS,
-                            templateVertex("FullyConnectedReduce",
+                            templateVertex("popnn::FullyConnectedReduce",
                                            dType),
         {{"partials", partials[i]},
          {"bias", biases[i]},
@@ -193,7 +194,7 @@ Program fullyConnectedBackward(Graph &graph,
               partials.slice({i, ipu, j},
                              {i + vectorNumElements, ipu + 1, j + 1}).flatten();
           auto v = graph.addVertex(bwdCS,
-                                   templateVertex("FullyConnectedBwd",
+                                   templateVertex("popnn::FullyConnectedBwd",
                                                   dType),
                                    {{"in", inWindow},
                                     {"weights", w},
@@ -230,8 +231,9 @@ Program fullyConnectedBackward(Graph &graph,
         const char *outType = numIPUs > 1 ? "float" : dType.c_str();
         auto v =
             graph.addVertex(intraIPUReduce,
-                            templateVertex("FullyConnectedBwdReduce", "float",
-                                                                      outType),
+                            templateVertex("popnn::FullyConnectedBwdReduce",
+                                           "float",
+                                           outType),
                             {{"partials", partials[i][ipu]},
                              {"out", intraIPUPartialSums[i][ipu]}});
         graph.setTileMapping(v, tile);
@@ -256,7 +258,8 @@ Program fullyConnectedBackward(Graph &graph,
       for (unsigned i = deltasBegin; i != deltasEnd; ++i) {
         auto v =
             graph.addVertex(intraIPUReduce,
-                            templateVertex("FullyConnectedBwdReduce", "float",
+                            templateVertex("popnn::FullyConnectedBwdReduce",
+                                           "float",
                                            dType),
                             {{"partials", intraIPUPartialSums[i]},
                              {"out", deltasOut0[i]}});
@@ -320,9 +323,9 @@ fullyConnectedWeightUpdate(Graph &graph,
         for (unsigned i = tileRowBegin; i != tileRowEnd; ++i) {
           auto w = weights[i].slice(beginElement, endElement);
           auto actWindow = activations0.slice(beginElement, endElement);
-          auto v = graph.addVertex(cs,
-                                   templateVertex("FullyConnectedWeightUpdate",
-                                                  dType),
+          auto vertexType = templateVertex("popnn::FullyConnectedWeightUpdate",
+                                           dType);
+          auto v = graph.addVertex(cs, vertexType,
                                    {{"d", zDeltas0[i]},
                                     {"weights", w},
                                     {"in", actWindow}});
@@ -341,7 +344,7 @@ fullyConnectedWeightUpdate(Graph &graph,
                  unsigned tile) {
     auto v =
         graph.addVertex(cs,
-                        templateVertex("FullyConnectedBiasUpdate",
+                        templateVertex("popnn::FullyConnectedBiasUpdate",
                                        dType),
                         {{"d", zDeltas0.slice(activationBegin,
                                              activationEnd)},
