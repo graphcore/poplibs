@@ -82,7 +82,7 @@ fwdNonLinearity(Graph &graph,
         auto v =
           graph.addVertex(
               nonLinCs,
-              templateVertex("NonLinearityFwd", dType),
+              templateVertex("popnn::NonLinearityFwd", dType),
               {{"activationIn", activations[b].flatten().slice(deltaBegin,
                                                             deltaEnd)},
                {"activationOut", activations[b].flatten().slice(deltaBegin,
