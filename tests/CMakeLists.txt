@@ -157,3 +157,19 @@ add_test(NAME fully_connected_float
                  --output-size 100
                  --tiles-per-ipu 16
                  --data-type float)
+
+add_test(NAME fully_connected_half_batch_4
+         COMMAND fully_connected_layer
+                 --input-size 300
+                 --output-size 100
+                 --tiles-per-ipu 16
+                 --data-type half
+                 --batch-size 4)
+
+add_test(NAME fully_connected_float_batch_4
+         COMMAND fully_connected_layer
+                 --input-size 300
+                 --output-size 100
+                 --tiles-per-ipu 16
+                 --data-type float
+                 --batch-size 4)

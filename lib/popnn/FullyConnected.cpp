@@ -40,13 +40,15 @@ fullyConnected(Graph &graph,
   assert(dType == "float" || dType == "half");
   const auto &ipuPartition = plan.ipuPartition;
   auto prog = Sequence();
-  // Iterate through the batch creating new compute sets to add to the
-  // program (i.e. execute the batch in sequence).
+  ComputeSet dotProductCS = graph.createComputeSet(layerName + ".fwd");
+  prog.add(Execute(dotProductCS));
+  ComputeSet reduceCS = graph.createComputeSet(layerName + ".fwd.reduce");
+  prog.add(Execute(reduceCS));
+  // Iterate through the batch add to the same compute set
+  // (i.e. execute the batch in parallel).
   for (unsigned b = 0; b < batchSize; ++b) {
     const auto &activationsOutMapping =
       computeActivationsMapping(graph, activations[b], b, batchSize);
-    ComputeSet dotProductCS = graph.createComputeSet(layerName + ".fwd");
-    prog.add(Execute(dotProductCS));
     Tensor partials = graph.addTensor("float", {numRows,
                                                 ipuPartition.tilesPerRow},
                                       "partials");
@@ -90,8 +92,6 @@ fullyConnected(Graph &graph,
         }
       }
     }
-    ComputeSet reduceCS = graph.createComputeSet(layerName + ".fwd.reduce");
-    prog.add(Execute(reduceCS));
     const auto numTiles = numIPUs * tilesPerIPU;
     for (unsigned tile = 0; tile != numTiles; ++tile) {
       const auto activationsBegin = activationsOutMapping[tile];
@@ -138,133 +138,139 @@ Program fullyConnectedBackward(Graph &graph,
                                Tensor zDeltas,
                                Tensor weights, Tensor deltasOut,
                                const Plan &plan) {
-  if (zDeltas.dim(0) != 1) {
-    throw popnn::popnn_error("Batch size != 1 not implemented for backwards "
-                             "pass");
-  }
-  auto zDeltas0 = zDeltas[0];
-  auto deltasOut0 = deltasOut[0];
-  const auto dType = graph.getTensorElementType(zDeltas0);
+  const auto dType = graph.getTensorElementType(zDeltas);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto size = static_cast<unsigned>(zDeltas0.numElements());
+  const auto batchSize = zDeltas.dim(0);
+  const auto size = static_cast<unsigned>(zDeltas[0].numElements());
   const auto prevSize = static_cast<unsigned>(weights.dim(1));
   const auto layerName = "FullyConnected" + std::to_string(size);
-  auto prog = Sequence();
-  auto bwdCS = graph.createComputeSet(layerName + ".bwd");
-  prog.add(Execute(bwdCS));
   const auto &ipuPartition = plan.ipuPartition;
   const auto numIPUs = deviceInfo.numIPUs;
   const auto tilesPerIPU = deviceInfo.tilesPerIPU;
   const auto numCols = prevSize;
-   Tensor partials =
-       graph.addTensor("float", {numCols, numIPUs, ipuPartition.tilesPerColumn},
-                       "partials");
-  const auto &activationsOutMapping = plan.outputMapping;
-  for (unsigned ipu = 0; ipu != numIPUs; ++ipu) {
-    const auto ipuBeginRow = activationsOutMapping[ipu * tilesPerIPU];
-    const auto ipuEndRow = activationsOutMapping[(ipu + 1) * tilesPerIPU];
-    const auto ipuRows = ipuEndRow - ipuBeginRow;
-    for (unsigned tileY = 0; tileY != ipuPartition.tilesPerColumn; ++tileY) {
-      const auto tileRowBegin = ipuBeginRow + (tileY * ipuRows) /
-                                ipuPartition.tilesPerColumn;
-      const auto tileRowEnd = ipuBeginRow + ((tileY + 1) * ipuRows) /
-                              ipuPartition.tilesPerColumn;
-      if (tileRowBegin == tileRowEnd)
-        continue;
-      for (unsigned tileX = 0; tileX != ipuPartition.tilesPerRow; ++tileX) {
-        const auto tile = ipu * tilesPerIPU +
-                          tileY * ipuPartition.tilesPerRow +
-                          tileX;
-        const auto j = tileY;
-        const auto beginElement =
-            (numCols * tileX) / ipuPartition.tilesPerRow;
-        const auto endElement =
-            (numCols * (tileX + 1)) / ipuPartition.tilesPerRow;
-        if (beginElement == endElement)
-          continue;
-        const auto vectorWidth =
-            dType == "float" ? deviceInfo.getFloatVectorWidth() :
-                               deviceInfo.getHalfVectorWidth();
-        for (unsigned i = beginElement; i < endElement; i += vectorWidth) {
-          const auto vectorNumElements = std::min(endElement - i, vectorWidth);
-          auto w = weights.slice({tileRowBegin, i},
-                                 {tileRowEnd, i + vectorNumElements});
-          Tensor inWindow = zDeltas0.slice(tileRowBegin, tileRowEnd);
-          Tensor outWindow =
-              partials.slice({i, ipu, j},
-                             {i + vectorNumElements, ipu + 1, j + 1}).flatten();
-          auto v = graph.addVertex(bwdCS,
-                                   templateVertex("popnn::FullyConnectedBwd",
-                                                  dType),
-                                   {{"in", inWindow},
-                                    {"weights", w},
-                                    {"out", outWindow},
-                                   });
-          graph.setTileMapping(v, tile);
-          graph.setTileMapping(outWindow, tile);
-        }
-      }
-    }
-  }
-  const auto deltasOutMapping =
-      computeActivationsMapping(graph, deltasOut0, 0, 1);
-  deltasOut0 = deltasOut0.flatten();
+  auto prog = Sequence();
+  auto bwdCS = graph.createComputeSet(layerName + ".bwd");
+  prog.add(Execute(bwdCS));
   ComputeSet intraIPUReduce = graph.createComputeSet(layerName + ".bwd.reduce");
   prog.add(Execute(intraIPUReduce));
-  Tensor intraIPUPartialSums;
+  ComputeSet interIPUReduce;
   if (numIPUs > 1) {
-    Tensor intraIPUPartialSums =
-        graph.addTensor("float", {size, numIPUs}, "ipu_partials");
-  } else {
-    intraIPUPartialSums = deltasOut0.reshape({deltasOut0.numElements(), 1});
+    interIPUReduce =
+        graph.createComputeSet(layerName + ".bwd.reduce2");
+    prog.add(Execute(interIPUReduce));
   }
-  // Sum the partial sums on each IPU.
-  const auto numTiles = deviceInfo.getNumTiles();
-  for (unsigned ipu = 0; ipu != numIPUs; ++ipu) {
-    for (unsigned resultTile = 0; resultTile != numTiles; ++resultTile) {
-      const auto deltasBegin = deltasOutMapping[resultTile];
-      const auto deltasEnd = deltasOutMapping[resultTile + 1];
-      if (deltasBegin == deltasEnd)
-        continue;
-      const auto tile = resultTile % tilesPerIPU;
-      for (unsigned i = deltasBegin; i != deltasEnd; ++i) {
-        const char *outType = numIPUs > 1 ? "float" : dType.c_str();
-        auto v =
-            graph.addVertex(intraIPUReduce,
-                            templateVertex("popnn::FullyConnectedBwdReduce",
-                                           "float",
-                                           outType),
-                            {{"partials", partials[i][ipu]},
-                             {"out", intraIPUPartialSums[i][ipu]}});
-        graph.setTileMapping(v, tile);
-        graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
-        if (numIPUs > 1) {
-          graph.setTileMapping(intraIPUPartialSums[i][ipu], tile);
+  for (unsigned b = 0; b < batchSize; ++b) {
+    Tensor partials =
+        graph.addTensor("float", {numCols, numIPUs,
+                                  ipuPartition.tilesPerColumn},
+                        "partials");
+    auto activationsOutMapping = computeActivationsMapping(graph,
+                                                           zDeltas[b],
+                                                           b, batchSize);
+    for (unsigned ipu = 0; ipu != numIPUs; ++ipu) {
+      const auto ipuBeginRow = activationsOutMapping[ipu * tilesPerIPU];
+      const auto ipuEndRow = activationsOutMapping[(ipu + 1) * tilesPerIPU];
+      const auto ipuRows = ipuEndRow - ipuBeginRow;
+      for (unsigned tileY = 0; tileY != ipuPartition.tilesPerColumn; ++tileY) {
+        const auto tileRowBegin = ipuBeginRow + (tileY * ipuRows) /
+                                  ipuPartition.tilesPerColumn;
+        const auto tileRowEnd = ipuBeginRow + ((tileY + 1) * ipuRows) /
+                                ipuPartition.tilesPerColumn;
+        if (tileRowBegin == tileRowEnd)
+          continue;
+        for (unsigned tileX = 0; tileX != ipuPartition.tilesPerRow; ++tileX) {
+          const auto tile = ipu * tilesPerIPU +
+                            tileY * ipuPartition.tilesPerRow +
+                            tileX;
+          const auto j = tileY;
+          const auto beginElement =
+              (numCols * tileX) / ipuPartition.tilesPerRow;
+          const auto endElement =
+              (numCols * (tileX + 1)) / ipuPartition.tilesPerRow;
+          if (beginElement == endElement)
+            continue;
+          const auto vectorWidth =
+              dType == "float" ? deviceInfo.getFloatVectorWidth() :
+                                 deviceInfo.getHalfVectorWidth();
+          for (unsigned i = beginElement; i < endElement; i += vectorWidth) {
+            const auto vectorNumElements = std::min(endElement - i,
+                                                    vectorWidth);
+            auto w = weights.slice({tileRowBegin, i},
+                                   {tileRowEnd, i + vectorNumElements});
+            Tensor inWindow = zDeltas[b].slice(tileRowBegin, tileRowEnd);
+            Tensor outWindow =
+                partials.slice({i, ipu, j},
+                               {i + vectorNumElements, ipu + 1, j + 1})
+                        .flatten();
+          auto v = graph.addVertex(bwdCS,
+                                     templateVertex("popnn::FullyConnectedBwd",
+                                                    dType),
+                                     {{"in", inWindow},
+                                      {"weights", w},
+                                      {"out", outWindow},
+                                     });
+            graph.setTileMapping(v, tile);
+            graph.setTileMapping(outWindow, tile);
+          }
         }
       }
     }
-  }
-  // Sum the partial sums from different IPUs.
-  if (numIPUs > 1) {
-    ComputeSet interIPUReduce =
-        graph.createComputeSet(layerName + ".bwd.reduce2");
-    prog.add(Execute(interIPUReduce));
+    const auto deltasOutMapping =
+        computeActivationsMapping(graph, deltasOut[b], b, batchSize);
+    const auto deltasOutFlat = deltasOut[b].flatten();
+    Tensor intraIPUPartialSums;
+    if (numIPUs > 1) {
+      intraIPUPartialSums =
+          graph.addTensor("float", {size, numIPUs}, "ipu_partials");
+    } else {
+      intraIPUPartialSums = deltasOutFlat.reshape({deltasOutFlat.numElements(),
+                                                   1});
+    }
+    // Sum the partial sums on each IPU.
     const auto numTiles = deviceInfo.getNumTiles();
-    for (unsigned tile = 0; tile != numTiles; ++tile) {
-      const auto deltasBegin = deltasOutMapping[tile];
-      const auto deltasEnd = deltasOutMapping[tile + 1];
-      if (deltasBegin == deltasEnd)
-        continue;
-      for (unsigned i = deltasBegin; i != deltasEnd; ++i) {
-        auto v =
-            graph.addVertex(intraIPUReduce,
-                            templateVertex("popnn::FullyConnectedBwdReduce",
-                                           "float",
-                                           dType),
-                            {{"partials", intraIPUPartialSums[i]},
-                             {"out", deltasOut0[i]}});
-        graph.setTileMapping(v, tile);
-        graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+    for (unsigned ipu = 0; ipu != numIPUs; ++ipu) {
+      for (unsigned resultTile = 0; resultTile != numTiles; ++resultTile) {
+        const auto deltasBegin = deltasOutMapping[resultTile];
+        const auto deltasEnd = deltasOutMapping[resultTile + 1];
+        if (deltasBegin == deltasEnd)
+          continue;
+        const auto tile = resultTile % tilesPerIPU;
+        for (unsigned i = deltasBegin; i != deltasEnd; ++i) {
+          const char *outType = numIPUs > 1 ? "float" : dType.c_str();
+          auto v =
+              graph.addVertex(intraIPUReduce,
+                              templateVertex("popnn::FullyConnectedBwdReduce",
+                                             "float",
+                                             outType),
+                              {{"partials", partials[i][ipu]},
+                               {"out", intraIPUPartialSums[i][ipu]}});
+          graph.setTileMapping(v, tile);
+          graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+          if (numIPUs > 1) {
+            graph.setTileMapping(intraIPUPartialSums[i][ipu], tile);
+          }
+        }
+      }
+    }
+    // Sum the partial sums from different IPUs.
+    if (numIPUs > 1) {
+      const auto numTiles = deviceInfo.getNumTiles();
+      for (unsigned tile = 0; tile != numTiles; ++tile) {
+        const auto deltasBegin = deltasOutMapping[tile];
+        const auto deltasEnd = deltasOutMapping[tile + 1];
+        if (deltasBegin == deltasEnd)
+          continue;
+        for (unsigned i = deltasBegin; i != deltasEnd; ++i) {
+          auto v =
+              graph.addVertex(intraIPUReduce,
+                              templateVertex("popnn::FullyConnectedBwdReduce",
+                                             "float",
+                                             dType),
+                              {{"partials", intraIPUPartialSums[i]},
+                               {"out", deltasOutFlat[i]}});
+          graph.setTileMapping(v, tile);
+          graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+        }
       }
     }
   }
@@ -278,22 +284,16 @@ fullyConnectedWeightUpdate(Graph &graph,
                            Tensor weights, Tensor biases,
                            float learningRate,
                            const Plan &plan) {
-  if (zDeltas.dim(0) != 1) {
-    throw popnn::popnn_error("Batch size != 1 not implemented for backwards "
-                             "pass");
-  }
-  auto zDeltas0 = zDeltas[0];
-  auto activations0 = activations[0];
-  const auto dType = graph.getTensorElementType(activations0);
+  const auto dType = graph.getTensorElementType(activations);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto &activationsOutMapping = plan.outputMapping;
-  activations0 = activations0.flatten();
-  const auto size = zDeltas0.numElements();
+  const auto batchSize = zDeltas.dim(0);
+  const auto size = zDeltas[0].numElements();
   const auto layerName = "FullyConnected" + std::to_string(size);
   auto cs = graph.createComputeSet(layerName + ".weight_update");
 
-  const auto numCols = activations0.numElements();
+  const auto numCols = activations[0].numElements();
   const auto numIPUs = deviceInfo.numIPUs;
   const auto tilesPerIPU = deviceInfo.tilesPerIPU;
   const auto &ipuPartition = plan.ipuPartition;
@@ -322,11 +322,16 @@ fullyConnectedWeightUpdate(Graph &graph,
           continue;
         for (unsigned i = tileRowBegin; i != tileRowEnd; ++i) {
           auto w = weights[i].slice(beginElement, endElement);
-          auto actWindow = activations0.slice(beginElement, endElement);
+          auto activationsFlat = activations.reshape({batchSize, numCols});
+          auto actWindow = activationsFlat.slice({0, beginElement},
+                                                 {batchSize, endElement});
+          auto deltasWindow = zDeltas.slice({0, i},
+                                            {batchSize, i + 1})
+                                     .flatten();
           auto vertexType = templateVertex("popnn::FullyConnectedWeightUpdate",
                                            dType);
           auto v = graph.addVertex(cs, vertexType,
-                                   {{"d", zDeltas0[i]},
+                                   {{"d", deltasWindow},
                                     {"weights", w},
                                     {"in", actWindow}});
           graph.setInitialValue(v["eta"],
@@ -342,12 +347,13 @@ fullyConnectedWeightUpdate(Graph &graph,
   buildTransform(activationsOutMapping, graph,
                  [&](unsigned activationBegin, unsigned activationEnd,
                  unsigned tile) {
+    auto deltasWindow =  zDeltas.slice({0, activationBegin},
+                                       {batchSize, activationEnd});
     auto v =
         graph.addVertex(cs,
                         templateVertex("popnn::FullyConnectedBiasUpdate",
                                        dType),
-                        {{"d", zDeltas0.slice(activationBegin,
-                                             activationEnd)},
+                        {{"d", deltasWindow},
                          {"bias", biases.slice(activationBegin,
                                                activationEnd)}});
     graph.setInitialValue(v["eta"], learningRate);

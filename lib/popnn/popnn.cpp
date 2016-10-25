@@ -212,27 +212,50 @@ template class FullyConnectedBwdReduce<half, half>;
 template <typename FPType>
 class FullyConnectedWeightUpdate : public Vertex {
 public:
-  Input<FPType> d;
+  Vector<Input<FPType>> d;
   InOut<Vector<FPType>> weights;
-  Input<Vector<FPType>> in;
+  Vector<Input<Vector<FPType>>> in;
   float eta;
 
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
+    const auto batchSize = d.size();
     for (unsigned i = 0; i < weights.size(); ++i) {
-      auto grad = *d * in[i];
+      float grad = 0;
+      for (unsigned b = 0; b < batchSize; ++b) {
+        grad += d[b] * in[b][i];
+      }
       weights[i] = weights[i] - grad * eta;
     }
     return true;
   }
 
   uint64_t getCycleEstimate() const {
+    const auto batchSize = d.size();
     bool isFloat = std::is_same<FPType, float>::value;
     unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
     unsigned numVectors = (weights.size() + vectorWidth - 1) / vectorWidth;
-    // Inner loop involves multiplication by (*d * eta) and addition.
-    return 5 + 2 * numVectors;
+
+    if (batchSize == 1) {
+      // Assume a specialized version that accumulates directly into the
+      // weight vector.
+      // Inner loop involves multiplication by (*d * eta) and addition.
+      return 5 + 2 * numVectors;
+    } else if (batchSize <= 4) {
+      // Assume a specialized version where each delta is loaded to a register
+      auto deltaLoadCycles = batchSize * 3; // Load, conversion and multiply
+                                            // by eta for each delta
+      // Unrolled inner loop  involves multiplication by (*d * eta) and
+      // addition for each element in batch
+      return 5 + deltaLoadCycles + 2 * numVectors * batchSize;
+    } else {
+      // Use broadcast mac
+      // 5 cycles to load/store accumulators in outer loop
+      // Inner loop requires 2 cycles per mac to load vector and scalar
+      // and  convert scalar to 32 bits in the case of halves.
+      return 5 + numVectors * (5 + 2 * batchSize);
+    }
   }
 };
 
@@ -242,22 +265,30 @@ template class FullyConnectedWeightUpdate<half>;
 template <typename FPType>
 class FullyConnectedBiasUpdate : public Vertex {
 public:
-  Vector<Input<FPType>> d;
+  Vector<Input<Vector<FPType>>> d;
   Vector<InOut<FPType>> bias;
   float eta;
 
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
+    const auto batchSize = d.size();
     const auto numBiases = bias.size();
-    assert(d.size() == numBiases);
+    assert(d[0].size() == numBiases);
     for (unsigned i = 0; i != numBiases; ++i) {
-      bias[i] = bias[i] - d[i] * eta;
+      float grad = 0;
+      for (unsigned b = 0; b < batchSize; ++b) {
+        grad += d[b][i];
+      }
+      bias[i] = bias[i] - grad * eta;
     }
     return true;
   }
 
   uint64_t getCycleEstimate() const {
+    const auto batchSize = d.size();
+    return 5 + bias.size() * (2 + batchSize * 1);
+
     bool isFloat = std::is_same<FPType, float>::value;
     unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
     unsigned numVectors = (bias.size() + vectorWidth - 1) / vectorWidth;
