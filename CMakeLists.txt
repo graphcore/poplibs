@@ -25,5 +25,6 @@ add_subdirectory(lib)
 add_subdirectory(examples)
 add_subdirectory(benchmarks)
 add_subdirectory(tests)
+add_subdirectory(tools)
 
 install(FILES)

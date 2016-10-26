@@ -2,9 +2,13 @@ include(GNUInstallDirs)
 
 add_library(popnn_ref SHARED
   Convolution.cpp
+  FullyConnected.cpp
   NonLinearity.cpp
+  Util.cpp
   ${PROJECT_SOURCE_DIR}/include/popnn_ref/Convolution.hpp
+  ${PROJECT_SOURCE_DIR}/include/popnn_ref/FullyConnected.hpp
   ${PROJECT_SOURCE_DIR}/include/popnn_ref/NonLinearity.hpp
+  ${PROJECT_SOURCE_DIR}/include/popnn_ref/Util.hpp
 )
 
 target_include_directories(popnn_ref

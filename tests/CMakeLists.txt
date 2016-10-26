@@ -12,7 +12,6 @@ function(add_popnn_unit_test name)
     COMMAND ${name})
 endfunction()
 # Unit tests
-add_popnn_unit_test(FullyConnectedTest FullyConnectedTest.cpp)
 add_popnn_unit_test(WinogradConvolution WinogradConv.cpp)
 add_popnn_unit_test(MaxPoolTest MaxPoolTest.cpp)
 add_popnn_unit_test(NonLinearityTest NonLinearityTest.cpp)
@@ -144,3 +143,17 @@ add_test(NAME conv_batch_bwd_float
                  --tiles-per-ipu=16
                  --data-type=float
                  --batch-size=4)
+
+add_test(NAME fully_connected_half
+         COMMAND fully_connected_layer
+                 --input-size 300
+                 --output-size 100
+                 --tiles-per-ipu 16
+                 --data-type half)
+
+add_test(NAME fully_connected_float
+         COMMAND fully_connected_layer
+                 --input-size 300
+                 --output-size 100
+                 --tiles-per-ipu 16
+                 --data-type float)
