@@ -1,5 +1,4 @@
 include(GNUInstallDirs)
-find_package(Boost REQUIRED)
 
 add_library(popnn_ref SHARED
   Convolution.cpp

@@ -1,6 +1,5 @@
 include(GNUInstallDirs)
 find_package(Boost REQUIRED program_options)
-find_package(poplar REQUIRED)
 get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(popnn SHARED
