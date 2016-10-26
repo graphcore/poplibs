@@ -24,8 +24,13 @@ computeActivationsMapping(const poplar::Graph &graph, poplar::Tensor act,
   } else {
     assert(act.getDimensionality() == 4);
     chansPerGroup = act.dim(3);
-    beginTile = batchNum * numTiles / batchSize;
-    endTile = (batchNum + 1) * numTiles / batchSize;
+    const auto batchElemsPerTile = (batchSize + numTiles - 1) / numTiles;
+    const auto numBatchGroups =
+        (batchSize + batchElemsPerTile - 1) / batchElemsPerTile;
+    const auto tilesPerBatchGroup =
+        numTiles / numBatchGroups;
+    beginTile = batchNum / batchElemsPerTile * tilesPerBatchGroup;
+    endTile = beginTile + tilesPerBatchGroup;
   }
   const auto numBatchTiles = endTile - beginTile;
   std::vector<unsigned> mapping;

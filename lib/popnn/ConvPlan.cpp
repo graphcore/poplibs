@@ -446,6 +446,13 @@ estimatePartialCalcComputeCost(const poplar::DeviceInfo &deviceInfo,
   return computeCycles;
 }
 
+static unsigned calcNumUsableTiles(unsigned numTiles, unsigned batchSize) {
+  const auto batchElemsPerTile = (batchSize + numTiles - 1) / numTiles;
+  const auto numBatchGroups =
+      (batchSize + batchElemsPerTile - 1) / batchElemsPerTile;
+  return numTiles / numBatchGroups;
+}
+
 static unsigned
 estimateReduceComputeCost(const poplar::DeviceInfo &deviceInfo,
                           const ConvolutionParams &params,
@@ -453,7 +460,8 @@ estimateReduceComputeCost(const poplar::DeviceInfo &deviceInfo,
                           Phase phase) {
   if (partition.tilesPerInZGroupAxis == 1)
     return 0;
-  const auto numTiles = deviceInfo.getNumTiles() / params.batchSize;
+  const auto numTiles = calcNumUsableTiles(deviceInfo.getNumTiles(),
+                                           params.batchSize);
   const auto numOutputs = params.getOutputHeight(phase) *
                           params.getOutputWidth(phase) *
                           params.outputDepth;
@@ -565,7 +573,8 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
   // but it needs to sends (outputChannelsPerTile * (filterSize - 1) / 2) extra
   // rows of partial sum per tile pair.
   // TODO investigate the alternative strategy outlined above.
-  const auto numTiles = deviceInfo.getNumTiles() / params.batchSize;
+  const auto numTiles = calcNumUsableTiles(deviceInfo.getNumTiles(),
+                                           params.batchSize);
   const auto maxTilesPerX = std::min(params.getOutputWidth(phase), numTiles);
   for (unsigned tilesPerX = 1; tilesPerX <= maxTilesPerX; ++tilesPerX) {
     const auto maxTilesPerY = std::min(params.getOutputHeight(phase),

@@ -173,3 +173,12 @@ add_test(NAME fully_connected_float_batch_4
                  --tiles-per-ipu 16
                  --data-type float
                  --batch-size 4)
+
+add_test(NAME fully_connected_batch_fwd_one_tile
+         COMMAND fully_connected_layer
+                 --input-size 300
+                 --output-size 100
+                 --tiles-per-ipu 1
+                 --data-type half
+                 --batch-size 4
+                 --inference-only)

@@ -55,7 +55,8 @@ createBiases(poplar::Graph &graph, std::string dType,
 }
 
 static unsigned
-linearizeTileIndices(unsigned batchNum,
+linearizeTileIndices(unsigned batchNum, unsigned batchSize,
+                     unsigned numTiles,
                      unsigned izg, unsigned ox, unsigned oy,
                      unsigned ozg,
                      const Partition &partition,
@@ -64,24 +65,27 @@ linearizeTileIndices(unsigned batchNum,
   const auto tilesPerY = partition.tilesPerYAxis;
   const auto tilesPerZ = partition.tilesPerZAxis;
   const auto tilesPerInZGroup = partition.tilesPerInZGroupAxis;
-
+  const auto batchElemsPerTile = (batchSize + numTiles - 1) / numTiles;
+  const auto numBatchGroups =
+      (batchSize + batchElemsPerTile - 1) / batchElemsPerTile;
+  const auto tilesPerBatchGroup =
+      numTiles / numBatchGroups;
+  const auto beginTile = batchNum / batchElemsPerTile * tilesPerBatchGroup;
   // If this is a multi IPU system then choose an order that avoids splitting
   // partial sums over IPUs
   if (isMultiIPU)
-    return izg + tilesPerInZGroup *
-             (ox + tilesPerX *
-               (oy + tilesPerY *
-                 (ozg + tilesPerZ *
-                   batchNum)));
+    return beginTile +
+      (izg + tilesPerInZGroup *
+        (ox + tilesPerX *
+          (oy + tilesPerY * ozg)));
   // For single IPU systems this order appears to give the best results.
   // TODO understand why this is. Intuitively I'd expect the an ordering
   // that matches the input tensor, i.e. (izg, iy, ix, iz) to result in
   // less exchange.
-  return ox + tilesPerX *
+  return beginTile +
+        (ox + tilesPerX *
            (oy + tilesPerY *
-             (ozg + tilesPerZ *
-               (izg + tilesPerInZGroup *
-                 batchNum)));
+             (ozg + tilesPerZ * izg)));
 }
 
 template <typename Builder>
@@ -118,6 +122,7 @@ iterateWeightMapping(Tensor w,
   const auto tilesPerY = partition.tilesPerYAxis;
   const auto tilesPerZ = partition.tilesPerZAxis;
   const auto tilesPerInZGroup = partition.tilesPerInZGroupAxis;
+  const auto numTiles = deviceInfo.getNumTiles();
   const auto inNumChans = w.dim(1) * w.dim(5);
   const auto outNumChans = w.dim(0) * w.dim(4);
   const auto kernelSizeY = w.dim(2);
@@ -183,7 +188,8 @@ iterateWeightMapping(Tensor w,
           const auto tileWeights =
               sharedWeights.slice(sharedWeightGroupBegin,
                                   sharedWeightGroupEnd);
-          const auto tile = linearizeTileIndices(0, izg, ox, oy, ozg,
+          const auto tile = linearizeTileIndices(0, batchSize, numTiles,
+                                                 izg, ox, oy, ozg,
                                                  partition, isMultiIPU);
           builder(tileWeights, tile);
         }
@@ -947,6 +953,7 @@ calcPartialSums(Graph &graph,
   const auto tilesPerZ = partition.tilesPerZAxis;
   const auto tilesPerInZGroup = partition.tilesPerInZGroupAxis;
   const auto numInZGroups = inNumChans / inChansPerGroup;
+  const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
 
   ComputeSet zeroCS = graph.createComputeSet(layerName +".zero");
   ComputeSet convolveCS = graph.createComputeSet(layerName + ".convolve");
@@ -964,7 +971,8 @@ calcPartialSums(Graph &graph,
           for (unsigned ox = 0; ox != tilesPerX; ++ox) {
             const auto outXBegin = (ox * outDimX) / tilesPerX;
             const auto outXEnd = ((ox + 1) * outDimX) / tilesPerX;
-            const auto tile = linearizeTileIndices(b, izg, ox, oy, ozg,
+            const auto tile = linearizeTileIndices(b, batchSize, numTiles,
+                                                   izg, ox, oy, ozg,
                                                    partition,
                                                    isMultiIPU);
             calcPartialConvOutput(graph, partition, dType,
@@ -2173,6 +2181,7 @@ convolutionWeightUpdate(Graph &graph,
   const auto tilesPerZ = partition.tilesPerZAxis;
   const auto tilesPerInZGroup = partition.tilesPerInZGroupAxis;
   const auto numInZGroups = inNumChans / inChansPerGroup;
+  const auto numTiles = deviceInfo.getNumTiles();
 
   Tensor partials = graph.addTensor(dType, {batchSize,
                                             tilesPerY, tilesPerX,
@@ -2206,7 +2215,8 @@ convolutionWeightUpdate(Graph &graph,
           for (unsigned ox = 0; ox != tilesPerX; ++ox) {
             const auto outXBegin = (ox * outDimX) / tilesPerX;
             const auto outXEnd = ((ox + 1) * outDimX) / tilesPerX;
-            const auto tile = linearizeTileIndices(b, izg, ox, oy, ozg,
+            const auto tile = linearizeTileIndices(b, batchSize, numTiles,
+                                                   izg, ox, oy, ozg,
                                                    partition,
                                                    isMultiIPU);
             calcPartialWeightGrads(graph, partition, dType,
