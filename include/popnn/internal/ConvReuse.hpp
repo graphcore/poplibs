@@ -26,7 +26,6 @@ public:
   std::vector<std::vector<size_t>> tensorDims;
   unsigned kernelSizeY, kernelSizeX, strideY, strideX;
   unsigned paddingY, paddingX;
-  NonLinearityType nonLinearityType;
   ResidualMethod resMethod;
   ConvImplSpec(std::vector<std::vector<size_t>> tensorDims,
                unsigned kernelSizeY, unsigned kernelSizeX,
