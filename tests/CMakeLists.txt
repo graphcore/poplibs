@@ -13,7 +13,6 @@ function(add_popnn_unit_test name)
 endfunction()
 # Unit tests
 add_popnn_unit_test(WinogradConvolution WinogradConv.cpp)
-add_popnn_unit_test(MaxPoolTest MaxPoolTest.cpp)
 add_popnn_unit_test(NonLinearityTest NonLinearityTest.cpp)
 
 # Layer tests
@@ -182,3 +181,31 @@ add_test(NAME fully_connected_batch_fwd_one_tile
                  --data-type half
                  --batch-size 4
                  --inference-only)
+
+add_test(NAME max_pool_layer_half
+         COMMAND max_pool_layer
+                 --channels 32
+                 --width 28
+                 --height 28
+                 --kernel-size 2
+                 --stride 2
+                 --data-type half)
+
+add_test(NAME max_pool_layer_float
+         COMMAND max_pool_layer
+                 --channels 32
+                 --width 28
+                 --height 28
+                 --kernel-size 2
+                 --stride 2
+                 --data-type float)
+
+add_test(NAME max_pool_layer_1chan_overlapping_kernel
+         COMMAND max_pool_layer
+                 --channels 1
+                 --width 100
+                 --height 100
+                 --kernel-size 3
+                 --stride 2
+                 --padding 1
+                 --data-type float)
