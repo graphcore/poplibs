@@ -592,11 +592,6 @@ std::string findGraphProg() {
 }
 
 void Net::initialize(DataSet &dataSet, LossType lossType) {
-  if (netType == TrainingNet &&
-      batchSize != 1) {
-    // Currently only batch size of 1 implemented for training
-    throw popnn::popnn_error("Training only implemented with batch size of 1");
-  }
   numTestBatches = dataSet.numTest / batchSize;
   env = std::unique_ptr<GraphProgEnv>(
       new GraphProgEnv(popnn::findGraphProg(), GraphProgFileType::Object));
@@ -752,7 +747,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   }
   auto lossCS = graph->createComputeSet("LossLayer");
   auto lastAct = *(acts.end() - 1);
-  Tensor expected = graph->addTensor("unsigned", {1}, "expected");
+  Tensor expected = graph->addTensor("unsigned", {batchSize}, "expected");
   Tensor numCorrect = graph->addTensor("unsigned", {1}, "numCorrect");
   Tensor loss = graph->addTensor(dType, {1}, "loss");
   deltas[layers.size()] = graph->addTensor(dType, lastAct.dims(), "deltas");
@@ -763,7 +758,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   auto v = graph->addVertex(lossCS, templateVertex("popnn::CalcLoss", dType),
                            {{"batchIn", lastAct},
                             {"batchDeltaOut", firstDeltas},
-                            {"label", expected[0]},
+                            {"label", expected},
                             {"loss", loss[0]},
                             {"numCorrect", numCorrect[0]}});
   graph->setTileMapping(expected, 0);

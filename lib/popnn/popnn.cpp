@@ -1292,7 +1292,7 @@ template <typename FPType>
 class CalcLoss : public Vertex {
 public:
   Vector<Input<Vector<FPType>>> batchIn;
-  Input<unsigned> label;
+  Input<Vector<unsigned>> label;
 
   Vector<Output<Vector<FPType>>> batchDeltaOut;
   Output<FPType> loss;
@@ -1316,7 +1316,7 @@ public:
            to pass back. */
         FPType sum = 0;
         for (unsigned i = 0;  i < in.size(); ++i) {
-          FPType expected = (i == label ? 1 : 0);
+          FPType expected = (i == label[batchNum] ? 1 : 0);
           FPType actual = in[i];
           deltaOut[i] = (actual - expected);
           sum += 0.5 * (actual - expected) *  (actual - expected);
@@ -1342,7 +1342,7 @@ public:
          to pass back. */
         FPType error = 0;
         for (unsigned i = 0;  i < probs.size(); ++i) {
-          FPType expected = (i == label ? 1 : 0);
+          FPType expected = (i == label[batchNum] ? 1 : 0);
           deltaOut[i] = (probs[i] - expected);
           error += expected * log(probs[i]);
         }
@@ -1362,7 +1362,7 @@ public:
           maxIndex = i;
         }
       }
-      bool correct = (maxIndex == label);
+      bool correct = (maxIndex == label[batchNum]);
       if (correct) {
         *numCorrect += 1;
       }
