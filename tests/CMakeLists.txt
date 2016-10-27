@@ -209,3 +209,23 @@ add_test(NAME max_pool_layer_1chan_overlapping_kernel
                  --stride 2
                  --padding 1
                  --data-type float)
+
+add_test(NAME max_pool_layer_half_batch
+         COMMAND max_pool_layer
+                 --batch-size 4
+                 --channels 32
+                 --width 28
+                 --height 28
+                 --kernel-size 2
+                 --stride 2
+                 --data-type half)
+
+add_test(NAME max_pool_layer_float_batch
+         COMMAND max_pool_layer
+                 --batch-size 4
+                 --channels 32
+                 --width 28
+                 --height 28
+                 --kernel-size 2
+                 --stride 2
+                 --data-type float)
