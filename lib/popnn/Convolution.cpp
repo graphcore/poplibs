@@ -78,14 +78,26 @@ linearizeTileIndices(unsigned batchNum, unsigned batchSize,
       (izg + tilesPerInZGroup *
         (ox + tilesPerX *
           (oy + tilesPerY * ozg)));
-  // For single IPU systems this order appears to give the best results.
-  // TODO understand why this is. Intuitively I'd expect the an ordering
-  // that matches the input tensor, i.e. (izg, iy, ix, iz) to result in
-  // less exchange.
+  // Use ozg as the innermost dimension to increase the chance that
+  // tiles in a supertile both read the same activations. This reduces
+  // exchange time when supertile send / receive is used.
   return beginTile +
-        (ox + tilesPerX *
-           (oy + tilesPerY *
-             (ozg + tilesPerZ * izg)));
+           (ozg + tilesPerZ *
+             (ox + tilesPerX *
+               (oy + tilesPerY * izg)));
+}
+
+static std::pair<unsigned,unsigned>
+getOutZGroupRange(unsigned ozgIndex, unsigned partialNumChanGroups,
+                  const Partition &partition) {
+  const auto tilesPerZAxis = partition.tilesPerZAxis;
+  const auto maxZGroupsPerTile = (partialNumChanGroups + tilesPerZAxis - 1) /
+                                 tilesPerZAxis;
+  const auto outZBegin =
+      std::min(ozgIndex * maxZGroupsPerTile, partialNumChanGroups);
+  const auto outZEnd =
+      std::min((ozgIndex + 1) * maxZGroupsPerTile, partialNumChanGroups);
+  return {outZBegin, outZEnd};
 }
 
 template <typename Builder>
@@ -137,10 +149,9 @@ iterateWeightMapping(Tensor w,
     const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
     const auto numInZGroups = inZGroupEnd - inZGroupBegin;
     for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
-      const auto outZGroupBegin =
-          (ozg * partialNumChanGroups) / tilesPerZ;
-      const auto outZGroupEnd =
-          ((ozg + 1) * partialNumChanGroups) / tilesPerZ;
+      unsigned outZGroupBegin, outZGroupEnd;
+      std::tie(outZGroupBegin, outZGroupEnd) =
+          getOutZGroupRange(ozg, partialNumChanGroups, partition);
       const auto numOutZGroups = outZGroupEnd - outZGroupBegin;
       // Group weights that are accessed contiguously by tiles within this
       // loop body.
@@ -632,6 +643,8 @@ zeroPartialSums(Graph &graph,
   graph.setTileMapping(toZero, tile);
   const auto workersPerTile = deviceInfo.numWorkerContexts;
   const auto tileOutRows = toZero.dim(0);
+  if (tileOutRows == 0)
+    return;
   const auto maxRowsPerWorker =
       (tileOutRows + workersPerTile - 1) / workersPerTile;
   // Choose the number of vertices such that each vertices is reponsible for
@@ -962,9 +975,11 @@ calcPartialSums(Graph &graph,
       const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
       const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
       for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
-        const auto outZGroupBegin = (ozg * partialNumChanGroups) / tilesPerZ;
-        const auto outZGroupEnd =
-            ((ozg + 1) * partialNumChanGroups) / tilesPerZ;
+        unsigned outZGroupBegin, outZGroupEnd;
+        std::tie(outZGroupBegin, outZGroupEnd) =
+            getOutZGroupRange(ozg, partialNumChanGroups, partition);
+        if (outZGroupBegin == outZGroupEnd)
+          continue;
         for (unsigned oy = 0; oy != tilesPerY; ++oy) {
           const auto outYBegin = (oy * outDimY) / tilesPerY;
           const auto outYEnd = ((oy + 1) * outDimY) / tilesPerY;

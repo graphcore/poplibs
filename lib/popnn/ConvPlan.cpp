@@ -320,9 +320,16 @@ estimateExchangeCost(const poplar::DeviceInfo &deviceInfo,
     partialSumBytes = numberOfPartialSums * partialSize;
   }
 
+  const auto tilesPerSuperTile = deviceInfo.tilesPerSuperTile;
   const auto exchangeBytesPerCycle = deviceInfo.exchangeBytesPerCycle;
+
+  const auto inputElementBytesPerCycle =
+      (tilesPerZ % tilesPerSuperTile) == 0 ? exchangeBytesPerCycle :
+                                             exchangeBytesPerCycle *
+                                             tilesPerSuperTile;
   const auto numCycles =
-      (inputElementsBytes + exchangeBytesPerCycle - 1) / exchangeBytesPerCycle +
+      (inputElementsBytes + inputElementBytesPerCycle - 1) /
+      inputElementBytesPerCycle +
       (weightBytes + exchangeBytesPerCycle - 1) / exchangeBytesPerCycle +
       (partialSumBytes + exchangeBytesPerCycle - 1) / exchangeBytesPerCycle;
   return numCycles;
