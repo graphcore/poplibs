@@ -16,6 +16,9 @@ struct Partition {
   bool floatPartials;
   bool useConvolutionInstructions;
 
+  unsigned batchesPerGroup;
+  unsigned numBatchGroups;
+
   Partition() = default;
   Partition(unsigned tilesPerXAxis,
            unsigned tilesPerYAxis,

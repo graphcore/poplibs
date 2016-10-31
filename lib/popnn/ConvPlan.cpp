@@ -446,22 +446,32 @@ estimatePartialCalcComputeCost(const poplar::DeviceInfo &deviceInfo,
   return computeCycles;
 }
 
-static unsigned calcNumUsableTiles(unsigned numTiles, unsigned batchSize) {
-  const auto batchElemsPerTile = (batchSize + numTiles - 1) / numTiles;
-  const auto numBatchGroups =
-      (batchSize + batchElemsPerTile - 1) / batchElemsPerTile;
-  return numTiles / numBatchGroups;
+static unsigned calcNumUsableTiles(
+    unsigned numTiles,
+    unsigned numBatchGroups) {
+  const auto batchElemsPerTile = (numBatchGroups + numTiles - 1) / numTiles;
+  const auto batchSubGroups =
+      (numBatchGroups + batchElemsPerTile - 1) / batchElemsPerTile;
+
+  return numTiles / batchSubGroups;
 }
 
 static unsigned
 estimateReduceComputeCost(const poplar::DeviceInfo &deviceInfo,
                           const ConvolutionParams &params,
                           const Partition &partition,
+                          unsigned numBatchGroups,
                           Phase phase) {
   if (partition.tilesPerInZGroupAxis == 1)
     return 0;
+
+  /* The reduction is actually done on tiles in which the output
+   * activations reside. Thus the output height here may be different
+   * from the one the tensor uses in the reduction. The numOutputsPerTile
+   * below however is approximately the same except for any rounding
+   */
   const auto numTiles = calcNumUsableTiles(deviceInfo.getNumTiles(),
-                                           params.batchSize);
+                                           numBatchGroups);
   const auto numOutputs = params.getOutputHeight(phase) *
                           params.getOutputWidth(phase) *
                           params.outputDepth;
@@ -480,12 +490,13 @@ static unsigned
 estimateComputeCost(const poplar::DeviceInfo &deviceInfo,
                     bool floatActivations, const ConvolutionParams &params,
                     const Partition &partition,
+                    unsigned numBatchGroups,
                     Phase phase,
                     PlannerCache *cache) {
   return estimatePartialCalcComputeCost(deviceInfo, floatActivations, params,
                                         partition, phase, cache) +
          estimateReduceComputeCost(deviceInfo, params,
-                                   partition, phase);
+                                   partition, numBatchGroups, phase);
 
 }
 
@@ -495,6 +506,7 @@ estimatePartitionCostBounded(const poplar::DeviceInfo &deviceInfo,
                              const ConvolutionParams &params,
                              const Partition &partition,
                              unsigned maxBound,
+                             unsigned numBatchGroups,
                              Phase phase,
                              PlannerCache *cache) {
   auto cost = estimateExchangeCost(deviceInfo,
@@ -503,7 +515,7 @@ estimatePartitionCostBounded(const poplar::DeviceInfo &deviceInfo,
   if (cost > maxBound)
     return maxBound;
   cost += estimateComputeCost(deviceInfo, floatActivations, params,
-                              partition, phase, cache);
+                              partition, numBatchGroups, phase, cache);
   return std::min(cost, maxBound);
 }
 
@@ -515,6 +527,7 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
                 const ConvVertexType &convVertexType,
                 const ConvolutionParams &params,
                 Phase phase,
+                const unsigned numBatchGroups,
                 PlannerCache *cache) {
   if (convVertexType.useConvInstruction &&
       phase == Phase::WEIGHTUPDATE) {
@@ -554,7 +567,8 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
                        1);
     return choosePartition(deviceInfo, floatActivations, false,
                            deviceInfo.getWeightsPerConvUnit(floatActivations),
-                           convVertexType, newParams, Phase::FORWARD, cache);
+                           convVertexType, newParams, Phase::FORWARD,
+                           1, cache);
   }
   const auto partialChansPerGroup = convVertexType.partialChansPerGroup;
   unsigned bestCost = std::numeric_limits<unsigned>::max();
@@ -574,7 +588,8 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
   // rows of partial sum per tile pair.
   // TODO investigate the alternative strategy outlined above.
   const auto numTiles = calcNumUsableTiles(deviceInfo.getNumTiles(),
-                                           params.batchSize);
+                                           numBatchGroups);
+
   const auto maxTilesPerX = std::min(params.getOutputWidth(phase), numTiles);
   for (unsigned tilesPerX = 1; tilesPerX <= maxTilesPerX; ++tilesPerX) {
     const auto maxTilesPerY = std::min(params.getOutputHeight(phase),
@@ -614,7 +629,8 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
           auto candidateCost =
               estimatePartitionCostBounded(deviceInfo, floatActivations,
                                            params, candidate,
-                                           bestCost, phase, cache);
+                                           bestCost, numBatchGroups,
+                                           phase, cache);
           if (preferConvInstructions &&
               !convVertexType.useConvInstruction)
             candidateCost *= 100000;
@@ -626,6 +642,8 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
       }
     }
   }
+  bestPartition.batchesPerGroup = params.batchSize / numBatchGroups;
+  bestPartition.numBatchGroups = numBatchGroups;
   return {bestPartition, bestCost};
 }
 
@@ -676,6 +694,7 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
                 unsigned inChansPerGroup,
                 const ConvolutionParams &params,
                 Phase phase,
+                unsigned numBatchGroups,
                 PlannerCache *cache) {
   unsigned bestCost = std::numeric_limits<unsigned>::max();
   Partition bestPartition;
@@ -692,7 +711,7 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
     std::tie(candidate, candidateCost) =
         choosePartition(deviceInfo, floatActivations, preferConvInstructions,
                         inChansPerGroup, convVertexType, params, phase,
-                        cache);
+                        numBatchGroups, cache);
     if (candidateCost < bestCost) {
       bestPartition = candidate;
       bestCost = candidateCost;
@@ -721,6 +740,7 @@ static std::pair<Partition, unsigned>
 choosePartition(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
                 bool preferConvInstructions,
                 const ConvolutionParams &params, Phase phase,
+                unsigned numBatchGroups,
                 PlannerCache *cache) {
   unsigned bestCost = std::numeric_limits<unsigned>::max();
   Partition best;
@@ -732,7 +752,7 @@ choosePartition(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
     std::tie(candidate, candidateCost) =
         choosePartition(deviceInfo, floatActivations,
                         preferConvInstructions, inChansPerGroup, params,
-                        phase, cache);
+                        phase, numBatchGroups, cache);
     assert(candidate.inChansPerGroup == inChansPerGroup);
     if (candidateCost < bestCost) {
       best = candidate;
@@ -766,68 +786,156 @@ Planner::createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
   } else {
     plan.flattenXY = false;
   }
-  unsigned outDimY, outDimX;
-  std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX,
-                                            kernelSizeY, kernelSizeX,
-                                            strideY, strideX,
-                                            paddingY, paddingX);
-  ConvolutionParams fwdParams(kernelSizeY, kernelSizeX, strideY, strideX,
-                              inNumChans, inDimX, inDimY,
-                              paddingY, paddingX, numChannels, batchSize);
-  ConvolutionParams bwdParams(kernelSizeY, kernelSizeX, strideY, strideX,
-                              numChannels, outDimX, outDimY,
-                              paddingY, paddingX, inNumChans, batchSize);
+
   const bool floatActivations = dType == "float";
-  unsigned bestCost = std::numeric_limits<unsigned>::max();
-  auto inChansPerGroupCandidates =
-      getInChansPerGroupCandidates(fwdParams, floatActivations);
+
   if (!forwardOnly) {
-    plan.bwdPartition = choosePartition(deviceInfo, floatActivations,
-                                        preferConvInstructions,
-                                        bwdParams, Phase::BACKWARD,
-                                        cache.get()).first;
+
+    unsigned bwdCandidateCost = std::numeric_limits<unsigned>::max();
+    Partition bwdCandidate;
+
+    for (auto batchesPerGroup = 1U; batchesPerGroup <= batchSize;
+              ++batchesPerGroup) {
+
+      /* only allow integer division of batches.
+       *  i.e. batchSize = batchesPerGroup * numBatchGroups
+       */
+
+      if ((batchSize % batchesPerGroup) ||
+          (!plan.flattenXY && batchesPerGroup > 1)) {
+        continue;
+      }
+
+      const unsigned numBatchGroups = batchSize / batchesPerGroup;
+
+      unsigned outDimY, outDimX;
+      std::tie(outDimY, outDimX) = getOutputDim(inDimY * batchesPerGroup,
+                                                inDimX,
+                                                kernelSizeY, kernelSizeX,
+                                                strideY, strideX,
+                                                paddingY, paddingX);
+
+      ConvolutionParams bwdParams(kernelSizeY, kernelSizeX,
+                                  strideY, strideX,
+                                  numChannels, outDimX, outDimY,
+                                  paddingY, paddingX, inNumChans, batchSize);
+
+      Partition candidate;
+      unsigned candidateCost;
+      std::tie(candidate, candidateCost) =
+          choosePartition(deviceInfo, floatActivations,
+                          preferConvInstructions,
+                          bwdParams, Phase::BACKWARD,
+                          numBatchGroups,
+                          cache.get());
+
+      if (candidateCost < bwdCandidateCost) {
+        bwdCandidateCost = candidateCost;
+        bwdCandidate = candidate;
+      }
+    }
+    plan.bwdPartition = bwdCandidate;
   }
-  for (auto inChansPerGroup : inChansPerGroupCandidates) {
-    const auto convVertexTypeCandidates =
-        getConvVertexTypeCandidates(deviceInfo, floatActivations,
-                                    inChansPerGroup, fwdParams);
-    for (const auto &convVertexType : convVertexTypeCandidates) {
-      Partition fwdCandidate;
-      unsigned fwdCandidateCost;
-      std::tie(fwdCandidate, fwdCandidateCost) =
-          choosePartition(deviceInfo, floatActivations, preferConvInstructions,
-                          inChansPerGroup, convVertexType,
-                          fwdParams, Phase::FORWARD, cache.get());
-      Partition bestwuCandidate;
-      unsigned bestwuCandidateCost = std::numeric_limits<unsigned>::max();
-      if (!forwardOnly) {
-        const auto wuVertexTypeCandidates =
-            getWeightUpdateVertexTypeCandidates(
-              deviceInfo, floatActivations, convVertexType.partialChansPerGroup,
-              fwdParams);
-        Partition wuCandidate;
-        unsigned wuCandidateCost = std::numeric_limits<unsigned>::max();
-        for (const auto &wuVertexType : wuVertexTypeCandidates) {
-          std::tie(wuCandidate, wuCandidateCost) =
-              choosePartition(deviceInfo, floatActivations,
-                              preferConvInstructions, inChansPerGroup,
-                              wuVertexType, fwdParams,
-                              Phase::WEIGHTUPDATE, cache.get());
-          if (wuCandidateCost < bestwuCandidateCost) {
-            bestwuCandidate = wuCandidate;
-            bestwuCandidateCost = wuCandidateCost;
+
+
+  unsigned bestCost = std::numeric_limits<unsigned>::max();
+
+  for (auto batchesPerGroup = 1U; batchesPerGroup <= batchSize;
+            ++batchesPerGroup) {
+
+    /* only allow integer division of batches.
+     *  i.e. batchSize = batchesPerGroup * numBatchGroups
+     */
+
+    if ((batchSize % batchesPerGroup) ||
+        (!plan.flattenXY && batchesPerGroup > 1)) {
+      continue;
+    }
+
+    const unsigned numBatchGroups = batchSize / batchesPerGroup;
+
+    unsigned outDimY, outDimX;
+    std::tie(outDimY, outDimX) = getOutputDim(inDimY * batchesPerGroup,
+                                              inDimX,
+                                              kernelSizeY, kernelSizeX,
+                                              strideY, strideX,
+                                              paddingY, paddingX);
+
+    ConvolutionParams fwdParams(kernelSizeY, kernelSizeX, strideY, strideX,
+                                inNumChans, inDimX, inDimY * batchesPerGroup,
+                                paddingY, paddingX, numChannels, batchSize);
+
+    ConvolutionParams wuParams(kernelSizeY, kernelSizeX, strideY, strideX,
+                               inNumChans, inDimX, inDimY,
+                               paddingY, paddingX, numChannels, batchSize);
+
+
+    auto inChansPerGroupCandidates =
+          getInChansPerGroupCandidates(fwdParams, floatActivations);
+
+
+    unsigned fwdWuCandidateCost = std::numeric_limits<unsigned>::max();
+    Partition fwdCandidateSelected, wuCandidateSelected;
+
+
+    for (auto inChansPerGroup : inChansPerGroupCandidates) {
+      const auto convVertexTypeCandidates =
+          getConvVertexTypeCandidates(deviceInfo, floatActivations,
+                                      inChansPerGroup, fwdParams);
+      for (const auto &convVertexType : convVertexTypeCandidates) {
+        Partition fwdCandidate;
+        unsigned fwdCandidateCost;
+        std::tie(fwdCandidate, fwdCandidateCost) =
+            choosePartition(deviceInfo, floatActivations,
+                            preferConvInstructions,
+                            inChansPerGroup, convVertexType,
+                            fwdParams, Phase::FORWARD, numBatchGroups,
+                            cache.get());
+
+        Partition bestwuCandidate;
+        unsigned bestwuCandidateCost = 0;
+        if (!forwardOnly) {
+          bestwuCandidateCost = std::numeric_limits<unsigned>::max();
+          const auto wuVertexTypeCandidates =
+              getWeightUpdateVertexTypeCandidates(
+                deviceInfo, floatActivations,
+                convVertexType.partialChansPerGroup,
+                wuParams);
+          Partition wuCandidate;
+          unsigned wuCandidateCost = std::numeric_limits<unsigned>::max();
+          for (const auto &wuVertexType : wuVertexTypeCandidates) {
+            std::tie(wuCandidate, wuCandidateCost) =
+                choosePartition(deviceInfo, floatActivations,
+                                preferConvInstructions, inChansPerGroup,
+                                wuVertexType, wuParams,
+                                Phase::WEIGHTUPDATE, batchSize, cache.get());
+            if (wuCandidateCost < bestwuCandidateCost) {
+              bestwuCandidate = wuCandidate;
+              bestwuCandidateCost = wuCandidateCost;
+            }
           }
         }
+
+        unsigned cost = fwdCandidateCost + bestwuCandidateCost;
+        if (cost < fwdWuCandidateCost) {
+          fwdWuCandidateCost = cost;
+          fwdCandidateSelected = fwdCandidate;
+          if (!forwardOnly)
+              wuCandidateSelected = bestwuCandidate;
+        }
       }
-      unsigned cost = fwdCandidateCost + bestwuCandidateCost;
-      if (cost < bestCost) {
-        bestCost = cost;
-        plan.fwdPartition = fwdCandidate;
-        if (!forwardOnly)
-          plan.wuPartition = bestwuCandidate;
+    }
+
+    if (fwdWuCandidateCost < bestCost) {
+      bestCost = fwdWuCandidateCost;
+      plan.fwdPartition = fwdCandidateSelected;
+
+      if (!forwardOnly) {
+        plan.wuPartition = wuCandidateSelected;
       }
     }
   }
+
   return plan;
 }
 

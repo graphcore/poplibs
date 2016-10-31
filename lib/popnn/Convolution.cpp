@@ -1228,10 +1228,24 @@ convolution(Graph &graph,
   const auto outDimX = activations.dim(3);
   unsigned partialOutDimY, partialOutDimX;
   if (plan.flattenXY) {
-    partialOutDimY = 1;
+    partialOutDimY = plan.fwdPartition.batchesPerGroup;
     partialOutDimX = outDimX * outDimY;
-    in = in.reshape({in.dim(0),
-                     in.dim(1), 1, in.dim(2) * in.dim(3), in.dim(4)});
+    const auto inDimY = in.dim(2);
+    const auto inDimX = in.dim(3);
+    in = in.dimShuffle({1, 0, 2, 3, 4}).reshape(
+                          {in.dim(1),
+                           plan.fwdPartition.numBatchGroups,
+                           plan.fwdPartition.batchesPerGroup * inDimY,
+                           inDimX,
+                           in.dim(4)
+                          }).dimShuffle({1, 0, 2, 3, 4});
+
+    in = in.reshape({plan.fwdPartition.numBatchGroups,
+                     in.dim(1),
+                     plan.fwdPartition.batchesPerGroup,
+                     inDimY * inDimX,
+                     in.dim(4)});
+
   } else {
     partialOutDimY = outDimY;
     partialOutDimX = outDimX;
@@ -1242,7 +1256,6 @@ convolution(Graph &graph,
   const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
   const auto tilesPerInZGroup = plan.fwdPartition.tilesPerInZGroupAxis;
   const auto partialType = plan.fwdPartition.getPartialType();
-
 
   mapBiases(biases, graph, activations);
 
@@ -1275,7 +1288,7 @@ convolution(Graph &graph,
 
     // Calculate a set of partial sums of the convolutions.
     Tensor partials = graph.addTensor(partialType,
-                                      {batchSize,
+                                       {plan.fwdPartition.numBatchGroups,
                                        tilesPerInZGroup,
                                        partialNumChanGroups,
                                        partialOutDimY,
@@ -1288,6 +1301,15 @@ convolution(Graph &graph,
                                     dType, in, weights, partials, layerName,
                                     partialOutDimX, partialOutDimY,
                                     true));
+
+    if (plan.flattenXY) {
+      partials = partials.dimShuffle({1, 2, 0, 3, 4, 5 }).reshape(
+        {tilesPerInZGroup, partialNumChanGroups,
+         plan.fwdPartition.numBatchGroups * plan.fwdPartition.batchesPerGroup,
+         partialOutDimY / plan.fwdPartition.batchesPerGroup,
+         partialOutDimX, partialChansPerGroup}).dimShuffle(
+            {2, 0, 1, 3, 4, 5});
+    }
 
     // Before the reduction step we add any copying of the residual into the
     // reduce compute set
@@ -1311,6 +1333,7 @@ convolution(Graph &graph,
       Tensor reduced = reduce(graph, plan.fwdPartition, outNumChans,
                               outNumChanGroups, partials[b],
                               reducedMapping, reduceCS);
+
       reduced = reduced.reshape({partialNumChanGroups, outDimY, outDimX,
                                  partialChansPerGroup});
 
@@ -1538,11 +1561,25 @@ Program convolutionBackward(Graph &graph,
   const auto outDimX = deltasOut.dim(3);
   unsigned partialOutDimY, partialOutDimX;
   if (plan.flattenXY) {
-    partialOutDimY = 1;
+    partialOutDimY = plan.bwdPartition.batchesPerGroup;
     partialOutDimX = outDimX * outDimY;
-    zDeltas = zDeltas.reshape({batchSize, zDeltas.dim(1), 1,
-                               zDeltas.dim(2) * zDeltas.dim(3),
+    const auto inDimY = zDeltas.dim(2);
+    const auto inDimX = zDeltas.dim(3);
+
+    zDeltas = zDeltas.dimShuffle({1, 0, 2, 3, 4}).reshape(
+           {zDeltas.dim(1),
+            plan.bwdPartition.numBatchGroups,
+            plan.bwdPartition.batchesPerGroup * inDimY,
+            inDimX,
+            zDeltas.dim(4)
+           }).dimShuffle({1, 0, 2, 3, 4});
+
+    zDeltas = zDeltas.reshape({plan.bwdPartition.numBatchGroups,
+                               zDeltas.dim(1),
+                               plan.bwdPartition.batchesPerGroup,
+                               inDimY * inDimX,
                                zDeltas.dim(4)});
+
   } else {
     partialOutDimY = outDimY;
     partialOutDimX = outDimX;
@@ -1573,7 +1610,7 @@ Program convolutionBackward(Graph &graph,
 
   // Calculate a set of partial sums of the convolutions.
   Tensor partials = graph.addTensor(partialType,
-                                    {batchSize,
+                                    {plan.bwdPartition.numBatchGroups,
                                      tilesPerInZGroup,
                                      partialNumChanGroups,
                                      partialOutDimY,
@@ -1585,6 +1622,18 @@ Program convolutionBackward(Graph &graph,
                               paddingY, paddingX, outNumChans, dType,
                               zDeltas, bwdWeights, partials, layerName,
                               partialOutDimX, partialOutDimY, false));
+
+
+  if (plan.flattenXY) {
+    partials = partials.dimShuffle({1, 2, 0, 3, 4, 5 }).reshape(
+      {tilesPerInZGroup,
+       partialNumChanGroups,
+       plan.bwdPartition.numBatchGroups * plan.bwdPartition.batchesPerGroup,
+       partialOutDimY / plan.bwdPartition.batchesPerGroup,
+       partialOutDimX,
+       partialChansPerGroup
+      }).dimShuffle({2, 0, 1, 3, 4, 5});
+  }
 
   // TODO - residuals
 
