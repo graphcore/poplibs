@@ -37,7 +37,7 @@ uint64_t getNumFlops(unsigned batchSize,
       std::tie(inXBegin, inXEnd) = getInputRange(x, stride, kernelSize,
                                                  padding, inDimX, true);
       const auto width = inXEnd - inXBegin;
-      numFlops += width * height;
+      numFlops += numChannels * width * height;
     }
   }
   return batchSize * numFlops;
