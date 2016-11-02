@@ -13,6 +13,8 @@ add_library(popnn_ref SHARED
   ${PROJECT_SOURCE_DIR}/include/popnn_ref/Util.hpp
 )
 
+target_link_libraries(popnn_ref poplar ${Boost_LIBRARIES})
+
 target_include_directories(popnn_ref
   PUBLIC
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
