@@ -1288,11 +1288,11 @@ public:
 template class MaxPoolingBwd<float>;
 template class MaxPoolingBwd<half>;
 
-template <typename FPType>
+template <typename FPType, typename LabelType>
 class CalcLoss : public Vertex {
 public:
   Vector<Input<Vector<FPType>>> batchIn;
-  Input<Vector<unsigned>> label;
+  Input<Vector<LabelType>> label;
 
   Vector<Output<Vector<FPType>>> batchDeltaOut;
   Output<FPType> loss;
@@ -1315,7 +1315,7 @@ public:
         /* Calculate the sum-squared error and the partial derivative
            to pass back. */
         FPType sum = 0;
-        for (unsigned i = 0;  i < in.size(); ++i) {
+        for (LabelType i = 0;  i < in.size(); ++i) {
           FPType expected = (i == label[batchNum] ? 1 : 0);
           FPType actual = in[i];
           deltaOut[i] = (actual - expected);
@@ -1326,7 +1326,7 @@ public:
         break;
       case SOFTMAX_CROSS_ENTROPY_LOSS:
         /* Calculate the softmax probability distribution */
-        for (unsigned i = 0;  i < in.size(); ++i) {
+        for (LabelType i = 0;  i < in.size(); ++i) {
           FPType act = in[i];
           probs[i] = exp(act);
         }
@@ -1334,14 +1334,14 @@ public:
         for (FPType p : probs)
           sum += p;
 
-        for (unsigned i = 0;  i < in.size(); ++i) {
+        for (LabelType i = 0;  i < in.size(); ++i) {
           probs[i] /= sum;
         }
 
         /* Calculate the cross-entropy error and the partial derivative
          to pass back. */
         FPType error = 0;
-        for (unsigned i = 0;  i < probs.size(); ++i) {
+        for (LabelType i = 0;  i < probs.size(); ++i) {
           FPType expected = (i == label[batchNum] ? 1 : 0);
           deltaOut[i] = (probs[i] - expected);
           error += expected * log(probs[i]);
@@ -1355,8 +1355,8 @@ public:
       // non-linearity is monotonic, so the max output of the previous
       // layer is the max z-term of the previous layer.
       FPType max = in[0];
-      unsigned maxIndex = 0;
-      for (unsigned i = 0;  i < in.size(); ++i) {
+      LabelType maxIndex = 0;
+      for (LabelType i = 0;  i < in.size(); ++i) {
         if (in[i] > max) {
           max = in[i];
           maxIndex = i;
@@ -1376,8 +1376,10 @@ public:
 };
 
 
-template class CalcLoss<float>;
-template class CalcLoss<half>;
+template class CalcLoss<float,unsigned int>;
+template class CalcLoss<float,int>;
+template class CalcLoss<half,unsigned int>;
+template class CalcLoss<half,int>;
 
 
 template <class InType, class OutType>
