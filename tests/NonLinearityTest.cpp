@@ -19,8 +19,10 @@ namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
 
 BOOST_AUTO_TEST_CASE(NonLinearity,
-                     *utf::tolerance<float>(
-                     fpc::percent_tolerance<float>(0.0))) {
+                    *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
+                    *utf::tolerance<float>(fpc::percent_tolerance<float>(0.1))
+                    *utf::tolerance<double>(fpc::percent_tolerance<double>(0.1))
+                     ) {
   GraphProgEnv env(popnn::findGraphProg(), GraphProgFileType::Object);
   Graph graph(env, createIPUModelDevice());
 
@@ -74,9 +76,11 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
   for (unsigned b = 0; b < batchSize; ++b) {
     for (unsigned y = 0; y < ySize; ++y) {
       for (unsigned x = 0; x < xSize; ++x) {
-        for (unsigned chan = 0; chan < zNGroups; chan++) {
-          hDeltaInH[b][y][x][chan] = hDeltaInF[b][y][x][chan] =
-            hDeltaIn[b][y][x][chan] = val / 2;
+        for (unsigned chan = 0; chan < zChunk; chan++) {
+          hRefDeltaOut[b][y][x][chan]
+            = hDeltaInH[b][y][x][chan]
+            = hDeltaInF[b][y][x][chan]
+            = hDeltaIn[b][y][x][chan] = val / 20;
           hActInH[b][y][x][chan] = hActInF[b][y][x][chan] =
            hActIn[b][y][x][chan] = val + 1000 * chan;
         }
@@ -88,8 +92,9 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
   }
 
   for (enum NonLinearityType n = NON_LINEARITY_NONE;
-     n != NON_LINEARITY_SIGMOID;
-     n=(enum NonLinearityType)((unsigned int)n+1)) {
+       n <= NON_LINEARITY_RELU;
+       n=(enum NonLinearityType)((unsigned int)n+1)) {
+    std::cerr<<"Check nl type "<< n << "\n";
     //Check forward activation calculation
     hRefActOut = hActIn;
     ref::nonLinearity(n, hRefActOut);
@@ -104,40 +109,44 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     Engine fwdEng(graph, fwdProg);
     fwdEng.run();
 
-
     for (unsigned b = 0; b < batchSize; ++b) {
       for (unsigned y = 0; y < xSize; ++y) {
         for (unsigned x = 0; x < xSize; ++x) {
-          for (unsigned chan = 0; chan < zNGroups; chan++) {
-            BOOST_TEST(hActOutF[b][y][x][chan] == hRefActOut[b][y][x][chan]);
-            BOOST_TEST(hActOutH[b][y][x][chan] == hRefActOut[b][y][x][chan]);
+          for (unsigned chan = 0; chan < zChunk; chan++) {
+            BOOST_TEST(hActOutF[b][y][x][chan]
+                       == (float)hRefActOut[b][y][x][chan]);
+            BOOST_TEST(hActOutH[b][y][x][chan]
+                       == (half)hRefActOut[b][y][x][chan]);
           }
         }
       }
     }
 
-    //Check backward activation calculation
-    ref::bwdNonLinearity(n, hRefDeltaOut, hActIn);
+    //Check backward gradient calculations
+
+    hRefDeltaOut = hDeltaIn;
+    ref::bwdNonLinearity(n, hActIn, hRefDeltaOut);
     // build and run the target code
     auto bwdProg = Sequence();
+    bwdProg.add(Copy(deltaF, hDeltaInF));
+    bwdProg.add(Copy(deltaH, hDeltaInH));
     bwdProg.add(Copy(actF, hActInF));
     bwdProg.add(Copy(actH, hActInH));
     bwdProg.add(bwdNonLinearity(graph, actF, deltaF, deltaF, n));
     bwdProg.add(bwdNonLinearity(graph, actH, deltaH, deltaH, n));
-    bwdProg.add(Copy(hDeltaOutF[n], deltaF));
-    bwdProg.add(Copy(hDeltaOutH[n], deltaH));
+    bwdProg.add(Copy(hDeltaOutF, deltaF));
+    bwdProg.add(Copy(hDeltaOutH, deltaH));
     Engine bwdEng(graph, bwdProg);
     bwdEng.run();
-
 
     for (unsigned b = 0; b < batchSize; ++b) {
       for (unsigned y = 0; y < xSize; ++y) {
         for (unsigned x = 0; x < xSize; ++x) {
-          for (unsigned chan = 0; chan < zNGroups; chan++) {
-            BOOST_TEST(hDeltaOutF[b][y][x][chan] ==
-                        hRefDeltaOut[b][y][x][chan]);
-            BOOST_TEST(hDeltaOutH[b][y][x][chan] ==
-                        hRefDeltaOut[b][y][x][chan]);
+          for (unsigned chan = 0; chan < zChunk; chan++) {
+            BOOST_TEST(hDeltaOutF[b][y][x][chan]
+                       == (float)hRefDeltaOut[b][y][x][chan]);
+            BOOST_TEST((float)hDeltaOutH[b][y][x][chan]
+                       == (float)hRefDeltaOut[b][y][x][chan]);
           }
         }
       }
