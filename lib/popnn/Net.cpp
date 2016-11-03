@@ -2,6 +2,7 @@
 #include <boost/program_options.hpp>
 #include <poplar/HalfFloat.hpp>
 #include "popnn/Convolution.hpp"
+#include "popnn/Loss.hpp"
 #include "popnn/MaxPool.hpp"
 #include "popnn/FullyConnected.hpp"
 #include "popnn/FullyConnectedPlan.hpp"
@@ -832,31 +833,28 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
       assert(0 && "Unrecognized layer type");
     }
   }
-  auto lossCS = graph->createComputeSet("LossLayer");
   auto lastAct = *(acts.end() - 1);
   Tensor expected = graph->addTensor("unsigned", {batchSize}, "expected");
+  graph->setTileMapping(expected, 0);
   Tensor numCorrect = graph->addTensor("unsigned", {1}, "numCorrect");
+  graph->setTileMapping(numCorrect, 0);
   Tensor loss = graph->addTensor(dType, {1}, "loss");
+  graph->setTileMapping(loss, 0);
   deltas[layers.size()] = graph->addTensor(dType, lastAct.dims(), "deltas");
   mapActivations(*graph, deltas[layers.size()]);
   lastAct = lastAct.reshape({batchSize, lastAct.numElements() / batchSize});
   auto firstDeltas = deltas[layers.size()];
   firstDeltas = firstDeltas.reshape(lastAct.dims());
-  auto v = graph->addVertex(lossCS, templateVertex("popnn::CalcLoss",
-                                                   dType, "unsigned int"),
-                           {{"batchIn", lastAct},
-                            {"batchDeltaOut", firstDeltas},
-                            {"label", expected},
-                            {"loss", loss[0]},
-                            {"numCorrect", numCorrect[0]}});
-  graph->setTileMapping(expected, 0);
-  graph->setTileMapping(numCorrect, 0);
-  graph->setTileMapping(loss, 0);
-  graph->setTileMapping(v, 0);
-  graph->setFieldSize(v["probs"], lastAct[0].numElements());
-  graph->setInitialValue(v["lossType"], lossType);;
+  auto calcLossProg = calcLoss(*graph,
+                               lastAct,
+                               expected,
+                               loss,
+                               firstDeltas,
+                               numCorrect,
+                               dType, "unsigned int",
+                               lossType);
   fwdProg.add(Sequence(Copy(numCorrect, &hNumCorrect),
-                       Execute(lossCS),
+                       calcLossProg,
                        Copy(&hNumCorrect, numCorrect)));
   if (netType == TrainingNet) {
     for (int i = layers.size() - 1; i >= 0; --i) {

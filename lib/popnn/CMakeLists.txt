@@ -15,6 +15,7 @@ add_library(popnn SHARED
   FullyConnected.cpp
   FullyConnectedPlan.cpp
   gcd.hpp
+  Loss.cpp
   MaxPool.cpp
   Net.cpp
   NonLinearity.cpp
@@ -35,6 +36,7 @@ add_library(popnn SHARED
   ${CMAKE_SOURCE_DIR}/include/popnn/FullyConnected.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/FullyConnectedPlan.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/internal/ConvReuse.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/Loss.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/MaxPool.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Net.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearity.hpp
