@@ -15,6 +15,11 @@ add_example(fc_mnist
   mnist.cpp
   mnist.h)
 
+add_example(rn5_mnist
+  rn5_mnist.cpp
+  mnist.cpp
+  mnist.h)
+
 add_custom_command(
   OUTPUT
     get_mnist.sh

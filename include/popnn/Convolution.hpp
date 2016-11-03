@@ -5,7 +5,7 @@
 #include <poplar/Program.hpp>
 #include <poplar/Engine.hpp>
 #include "popnn/ConvPlan.hpp"
-#include "popnn/ConvDef.hpp"
+#include "popnn/ResidualDef.hpp"
 #include "popnn/NonLinearityDef.hpp"
 
 namespace conv {
@@ -21,7 +21,7 @@ uint64_t getFlops(unsigned batchSize,
                   unsigned kernelSizeY, unsigned kernelSizeX,
                   unsigned strideY, unsigned strideX, unsigned paddingY,
                   unsigned paddingX,
-                  unsigned outNumChans, bool doResidual, bool forwardOnly);
+                  unsigned outNumChans, bool forwardOnly);
 
 double getPerfectCycleCount(const poplar::Graph &graph,
                             std::string dType,
@@ -31,8 +31,7 @@ double getPerfectCycleCount(const poplar::Graph &graph,
                             unsigned kernelSizeY, unsigned kernelSizeX,
                             unsigned strideY, unsigned strideX,
                             unsigned paddingY, unsigned paddingX,
-                            unsigned outNumChans, bool doResidual,
-                            bool forwardOnly);
+                            unsigned outNumChans, bool forwardOnly);
 
 poplar::Tensor
 createWeights(poplar::Graph &graph, std::string dType,
@@ -54,8 +53,7 @@ convolution(poplar::Graph &graph, const ConvPlan &plan,
             unsigned numChannels,
             poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
             poplar::Tensor out,
-            ResidualMethod resMethod = RESIDUAL_NONE,
-            poplar::Tensor residual={}, bool useWinogradConv = false,
+            bool useWinogradConv = false,
             unsigned winogradPatchSize = 4);
 
 void mapWeights(poplar::Tensor w, poplar::Graph &graph, const ConvPlan &plan,
@@ -90,8 +88,7 @@ extern poplar::program::Program winogradConvolution(poplar::Graph &graph,
             unsigned outNumChans, unsigned patchSizeX, unsigned patchSizeY,
             std::string dType,
             poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
-            poplar::Tensor activations,
-            ResidualMethod resMethod, poplar::Tensor resIn);
+            poplar::Tensor activations);
 
 }
 #endif  // __Convolution_hpp__

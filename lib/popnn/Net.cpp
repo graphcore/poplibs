@@ -6,8 +6,10 @@
 #include "popnn/FullyConnected.hpp"
 #include "popnn/FullyConnectedPlan.hpp"
 #include "popnn/ActivationMapping.hpp"
+#include "Residual.hpp"
 #include "VertexTemplates.hpp"
 #include "popnn/NonLinearity.hpp"
+#include "popnn/Compiler.hpp"
 #include <fstream>
 #include <iomanip>
 #include <array>
@@ -147,23 +149,14 @@ Net::getConvPlan(unsigned i, unsigned inDimY, unsigned inDimX,
     return it->second;
   const auto *layer = layers[i].get();
   conv::ConvPlan plan;
-  if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
-    plan = planner.createPlan(inDimY, inDimX, inNumChans,
-                              c->kernelSizeY, c->kernelSizeX,
-                              c->strideY, c->strideX, c->paddingY,
-                              c->paddingX,
-                              c->numChannels, batchSize, dType, *graph,
-                              netType == TestOnlyNet);
-  } else if (const auto *c = dynamic_cast<const ConvResLayer *>(layer)) {
-    plan = planner.createPlan(inDimY, inDimX, inNumChans,
-                              c->kernelSizeY, c->kernelSizeX,
-                              c->strideY, c->strideX,
-                              c->paddingY, c->paddingX,
-                              c->numChannels, batchSize, dType, *graph,
-                              netType == TestOnlyNet);
-  } else {
-    assert(0);
-  }
+  const auto *c = dynamic_cast<const ConvLayer *>(layer);
+  assert(c);
+  plan = planner.createPlan(inDimY, inDimX, inNumChans,
+                            c->kernelSizeY, c->kernelSizeX,
+                            c->strideY, c->strideX, c->paddingY,
+                            c->paddingX,
+                            c->numChannels, batchSize, dType, *graph,
+                            netType == TestOnlyNet);
   convPlans.emplace(i, plan);
   return plan;
 }
@@ -180,12 +173,10 @@ Net::getRequiredChansPerGroupBwd(int i) {
     auto it = convPlans.find(i);
     assert(it != convPlans.end());
     return it->second.bwdPartition.inChansPerGroup;
-  } else if (dynamic_cast<const ConvResLayer *>(layer)) {
-    auto it = convPlans.find(i);
-    assert(it != convPlans.end());
-    return it->second.bwdPartition.inChansPerGroup;
   } else if (dynamic_cast<const MaxPoolLayer *>(layer)) {
     return getRequiredChansPerGroupBwd(i - 1);
+  } else if (const auto *r = dynamic_cast<const ResidualLayer *>(layer)) {
+    return getRequiredChansPerGroupBwd(i - r->resIndex[0]);
   } else {
     throw popnn::popnn_error("Unrecognized layer type");
   }
@@ -207,9 +198,10 @@ Net::getRequiredChansPerGroupFwd(unsigned i, unsigned inDimY, unsigned inDimX,
   } else if (dynamic_cast<const ConvLayer *>(layer)) {
     auto plan = getConvPlan(i, inDimY, inDimX, inNumChans);
     return plan.fwdPartition.inChansPerGroup;
-  } else if (dynamic_cast<const ConvResLayer *>(layer)) {
-    auto plan = getConvPlan(i, inDimY, inDimX, inNumChans);
-    return plan.fwdPartition.inChansPerGroup;
+  } else if (dynamic_cast<const ResidualLayer *>(layer)) {
+    // Use grouping of the following layer
+    // For Inception type networks this cannot rely on (i+1), but must search
+    return getRequiredChansPerGroupFwd(i + 1, inDimY, inDimX, inNumChans);
   } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
     unsigned outDimY, outDimX;
     std::tie(outDimY, outDimX) = maxpool::getOutputDim(inDimY, inDimX,
@@ -242,14 +234,38 @@ createRandomWeightInitializers(Tensor t, float mean, float stdDev,
   return inits;
 }
 
+static void
+outputResidualDescription(const ResidualLayer &rLayer,
+                          unsigned thisLayer,
+                          const std::vector<poplar::Tensor> &acts,
+                          const Tensor &in,
+                          bool forwardOnly)
+{
+  std::cout << "   -- Residual layer:\n";
+  for (auto inputOffset : rLayer.resIndex) {
+    auto idx = thisLayer - inputOffset + 1;
+    assert(acts[idx].getDimensionality() == 5);
+    const auto &dims = acts[idx].dims();
+    std::cout << "        Input(-"<<inputOffset<<"):  "
+              << dims[2] << "x" << dims[3] <<"x" << dims[1] * dims[4] << "\n";
+  }
+
+  const auto &dims = acts[thisLayer - rLayer.resIndex[0] + 1].dims();
+  auto flops = residual::getNumberOfAdds(dims[2], dims[3],
+                                         dims[1] * dims[4],
+                                         forwardOnly);
+  std::cout << "        Output:     "
+            << dims[2] << "x" << dims[3] <<"x" << dims[1] * dims[4] << "\n"
+            << "        FLOPs:      " << flops << "\n";
+}
+
 void
 Net::outputConvDescription(unsigned inDimY, unsigned inDimX,
                            unsigned inNumChans,
                            unsigned kernelSizeY, unsigned kernelSizeX,
                            unsigned strideY, unsigned strideX,
                            unsigned paddingY, unsigned paddingX,
-                           unsigned outNumChans,
-                           bool doResidual, bool forwardOnly) {
+                           unsigned outNumChans, bool forwardOnly) {
   unsigned outDimY, outDimX;
   std::tie(outDimY, outDimX) = conv::getOutputDim(inDimY,
                                                   inDimX,
@@ -264,13 +280,9 @@ Net::outputConvDescription(unsigned inDimY, unsigned inDimX,
   auto flops = conv::getFlops(batchSize, inDimY, inDimX, inNumChans,
                               kernelSizeY, kernelSizeX, strideY,
                               strideX, paddingY, paddingX, outNumChans,
-                              doResidual, forwardOnly);
-  if (doResidual) {
-    std::cout << "   -- Convolutional layer (residual):\n";
-  } else {
-    std::cout << "   -- Convolutional layer:\n";
-  }
-  std::cout << "        Size: " << kernelSizeX << "x" << kernelSizeY << "\n"
+                              forwardOnly);
+  std::cout << "   -- Convolutional layer:\n"
+            << "        Size: " << kernelSizeX << "x" << kernelSizeY << "\n"
             << "        Stride: " << strideX << "x" << strideY << "\n"
             << "        Padding: " << paddingX << "x" << paddingY << "\n"
             << "        Input:  " << inDimY << "x" << inDimX
@@ -281,7 +293,7 @@ Net::outputConvDescription(unsigned inDimY, unsigned inDimX,
             << "        FLOPs:  " << flops << "\n";
 }
 
-void Net::outputDescription(const Layer *layer, Tensor in,
+void Net::outputDescription(const Layer *layer, unsigned i, Tensor in,
                             bool forwardOnly) {
   if (const auto *fc = dynamic_cast<const FullyConnectedLayer *>(layer)) {
     const auto prevSize = in[0].numElements();
@@ -296,12 +308,9 @@ void Net::outputDescription(const Layer *layer, Tensor in,
     outputConvDescription(in.dim(2), in.dim(3), in.dim(1) * in.dim(4),
                           c->kernelSizeY, c->kernelSizeX, c->strideY,
                           c->strideX, c->paddingY, c->paddingX,
-                          c->numChannels, false, forwardOnly);
-  } else if (const auto *c = dynamic_cast<const ConvResLayer *>(layer)) {
-    outputConvDescription(in.dim(2), in.dim(3), in.dim(1) * in.dim(4),
-                          c->kernelSizeY, c->kernelSizeX, c->strideY,
-                          c->strideX, c->paddingY, c->paddingX,
-                          c->numChannels, true, forwardOnly);
+                          c->numChannels, forwardOnly);
+  } else if (const auto *r = dynamic_cast<const ResidualLayer *>(layer)) {
+    outputResidualDescription(*r, i, acts, in, forwardOnly);
   } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
     unsigned outDimY, outDimX;
     std::tie(outDimY, outDimX) = maxpool::getOutputDim(in.dim(2),
@@ -342,8 +351,7 @@ Net::getOrCreateConvImplFwd(const conv::ConvPlan &plan,
     }
   }
   auto &inDims = impl.tensorDims[0];
-  auto &resDims = impl.tensorDims[1];
-  auto &outDims = impl.tensorDims[2];
+  auto &outDims = impl.tensorDims[1];
   auto in = graph->addTensor(dType, inDims, "activations");
   mapActivations(*graph, in);
   auto inNumChans = inDims[1] * inDims[4];
@@ -354,22 +362,15 @@ Net::getOrCreateConvImplFwd(const conv::ConvPlan &plan,
   Tensor biases = conv::createBiases(*graph, dType, outNumChans);
   auto out = graph->addTensor(dType, outDims, "activations");
   mapActivations(*graph, out);
-  Tensor residual;
-  if (impl.resMethod != RESIDUAL_NONE) {
-    residual = graph->addTensor(dType, resDims, "residual");
-    mapActivations(*graph, residual);
-  }
   auto prog = conv::convolution(*graph, plan,
                                 impl.kernelSizeY, impl.kernelSizeX,
                                 impl.strideY, impl.strideX,
                                 impl.paddingY, impl.paddingX,
                                 outNumChans,
                                 in, weights, biases, out,
-                                impl.resMethod, residual,
                                 options.useWinogradConv);
+
   std::vector<Tensor> inputs = {in, weights, biases};
-  if (impl.resMethod != RESIDUAL_NONE)
-    inputs.push_back(residual);
   auto reusableLayer = ReusableLayer(prog, inputs, {out});
   if (options.reuseLayerImplGraphs) {
     convFwdImpls.emplace(impl, reusableLayer);
@@ -378,12 +379,109 @@ Net::getOrCreateConvImplFwd(const conv::ConvPlan &plan,
 }
 
 Program
+Net::createResidualLayerFwd(unsigned i,
+                            const ResidualLayer &residualLayer) {
+  if (residualLayer.resIndex.size() != 2) {
+    throw popnn::popnn_error("A residual layer must have exactly two inputs");
+  }
+  if (residualLayer.resIndex[0] == 0 || residualLayer.resIndex[1] == 0) {
+    throw popnn::popnn_error(
+        "Residual layer inputs must be from earlier layers");
+  }
+  if (residualLayer.resIndex[0] > i + 1|| residualLayer.resIndex[1] > i + 1) {
+    throw popnn::popnn_error("Residual offset points beyond start of network");
+  }
+  unsigned numChannels, outDimY, outDimX;
+  //The output will be the same batch/y/x dimensions as the first input with
+  //channel grouping chosen to match the following layer
+  const auto &in0Dims = acts[i - residualLayer.resIndex[0] + 1].dims();
+  numChannels = in0Dims[1] * in0Dims[4];
+  outDimY = in0Dims[2];
+  outDimX = in0Dims[3];
+  auto outChansPerGroup = getRequiredChansPerGroupFwd(i + 1, outDimY, outDimX,
+                                                      numChannels);
+  if (!outChansPerGroup) {
+    outChansPerGroup = (dType == "float") ? 1 : 2;
+  }
+
+  acts[i + 1] = graph->addTensor(dType,
+                                 {in0Dims[0], numChannels / outChansPerGroup,
+                                   outDimY, outDimX, outChansPerGroup},
+                                 "activations." + std::to_string(i));
+  mapActivations(*graph, acts[i + 1]);
+  Tensor in0 =
+    residual::arrangeResidualInput(*graph,
+                                   acts[i - residualLayer.resIndex[0] + 1],
+                                   acts[i + 1].dims(), dType,
+                                   residualLayer.resMethod);
+  Tensor in1 =
+    residual::arrangeResidualInput(*graph,
+                                   acts[i - residualLayer.resIndex[1] + 1],
+                                   acts[i + 1].dims(), dType,
+                                   residualLayer.resMethod);
+  mapActivations(*graph, acts[i + 1]);
+  mapActivations(*graph, in0);
+  mapActivations(*graph, in1);
+  switch (residualLayer.resMethod) {
+  case RESIDUAL_PAD:
+    {
+      Program fwdProg =
+        residual::joinResidual(*graph,
+                               in0,
+                               in1,
+                               acts[i + 1]);
+      auto outDims = acts[i].dims();
+      numFlops += outDims[0] *
+        residual::getNumberOfAdds(outDims[2], outDims[3],
+                                  outDims[1] * outDims[4],
+                                  netType == TestOnlyNet);
+      perfectCycleTime +=
+        residual::getPerfectCycleCount(*graph, dType,
+                                       outDims[0], outDims[2], outDims[3],
+                                       outDims[1] * outDims[4],
+                                       netType == TestOnlyNet);
+      return fwdProg;
+    }
+  default:
+    throw popnn::popnn_error("This residual type not supported yet");
+  }
+  POPNN_UNREACHABLE();
+}
+
+// Combined deltas at the branch towards a residual layer
+// \a i index of the layer that will take the combined deltas
+Program
+Net::createResidualLayerBwd(unsigned i) {
+  // Add the residual deltas to the existing deltas[i]
+
+  assert(residualDeltaIdxs[i].first == i + 1);
+  // The residual path must come from a later layer
+  assert(residualDeltaIdxs[i].second > i + 1);
+  Tensor &outIn0 = deltas[residualDeltaIdxs[i].first];
+  Tensor &in1 = deltas[residualDeltaIdxs[i].second];
+  const auto &in0Dims = outIn0.dims();
+
+  switch (RESIDUAL_PAD) {
+  case RESIDUAL_PAD:
+    {
+      Program fwdProg =
+        residual::joinDeltas(*graph,
+                             outIn0,
+                             in1);
+      return fwdProg;
+    }
+  case RESIDUAL_CONCATENATE:
+    throw popnn::popnn_error("this residual type not supported yet");
+  }
+  POPNN_UNREACHABLE();
+}
+
+Program
 Net::createConvLayerFwd(unsigned i,
                         unsigned kernelSizeY, unsigned kernelSizeX,
                         unsigned strideY, unsigned strideX,
                         unsigned paddingY, unsigned paddingX,
                         unsigned numChannels,
-                        unsigned resIndex, ResidualMethod resMethod,
                         Sequence &initParamsProg) {
   auto &in = acts[i];
   unsigned outDimY, outDimX;
@@ -422,18 +520,11 @@ Net::createConvLayerFwd(unsigned i,
   Tensor biases = conv::createBiases(*graph, dType, numChannels);
   params[i].push_back(weights);
   params[i].push_back(biases);
-  Tensor residual;
-  std::vector<size_t> resDims;
-  if (resMethod != RESIDUAL_NONE) {
-    residual = acts[i - resIndex + 1];
-    resDims = residual.dims();
-  } else {
-    resDims = {0, 0, 0, 0};
-  }
+
   ReusableLayer reusableLayer =
-      getOrCreateConvImplFwd(plan, {{in.dims(), resDims, acts[i + 1].dims()},
+      getOrCreateConvImplFwd(plan, {{in.dims(), acts[i + 1].dims()},
                                  kernelSizeY, kernelSizeX, strideY, strideX,
-                                 paddingY, paddingX, resMethod});
+                                 paddingY, paddingX});
  conv::mapWeights(weights, *graph, plan, batchSize);
  conv::mapBiases(biases, *graph, acts[i + 1]);
  if (dType == "float") {
@@ -452,20 +543,15 @@ Net::createConvLayerFwd(unsigned i,
                             inDimY, inDimX, inNumChans, kernelSizeY,
                             kernelSizeX, strideY,
                             strideX, paddingY, paddingX, numChannels,
-                            resMethod != RESIDUAL_NONE,
                             netType == TestOnlyNet || i == 0);
  numParams += weights.numElements() + biases.numElements();
  perfectCycleTime +=
      conv::getPerfectCycleCount(*graph, dType, batchSize, inDimY, inDimX,
                                 inNumChans, kernelSizeY, kernelSizeX,
                                 strideY, strideX, paddingY, paddingX,
-                                numChannels, resMethod != RESIDUAL_NONE,
-                                netType == TestOnlyNet || i == 0);
- if (resMethod == RESIDUAL_NONE)
+                                numChannels, netType == TestOnlyNet || i == 0);
+
    return reusableLayer.apply({in, weights, biases}, {acts[i + 1]});
- else
-   return reusableLayer.apply({in, weights, biases, residual},
-                              {acts[i + 1]});
 }
 
 ReusableLayer
@@ -551,20 +637,23 @@ Program Net::createConvLayerBwd(unsigned i,
   auto it = convPlans.find(i);
   assert(it != convPlans.end());
   auto &plan = it->second;
-  Tensor zDeltas = graph->addTensor(dType, deltas[i + 1].dims(),
-                                    "zDeltas");
-  mapActivations(*graph, zDeltas);
   auto weights = params[i][0];
   auto biases = params[i][1];
-  prog.add(bwdNonLinearity(*graph, acts[i + 1], deltas[i + 1], zDeltas,
-                           nonLinearityType));
+  Tensor zDeltas = deltas[i + 1];
+  if (nonLinearityType != NON_LINEARITY_NONE) {
+    zDeltas = graph->addTensor(dType, deltas[i + 1].dims(),
+                                      "zDeltas");
+    mapActivations(*graph, zDeltas);
+    prog.add(bwdNonLinearity(*graph, acts[i + 1], deltas[i + 1], zDeltas,
+                             nonLinearityType));
+  }
 
   if (backwardPassRequired) {
     ReusableLayer bwdReusableLayer =
       getOrCreateConvImplBwd(plan,
                             {{zDeltas.dims(), deltas[i].dims()},
                              kernelSizeY, kernelSizeX, strideY, strideX,
-                             paddingY, paddingX, RESIDUAL_NONE});
+                             paddingY, paddingX});
     prog.add(bwdReusableLayer.apply({zDeltas, weights}, {deltas[i]}));
   }
 
@@ -572,8 +661,7 @@ Program Net::createConvLayerBwd(unsigned i,
       getOrCreateConvImplWeightUpdate(plan,
                                       {{zDeltas.dims(), acts[i].dims()},
                                        kernelSizeY, kernelSizeX, strideY,
-                                       strideX, paddingY, paddingX,
-                                       RESIDUAL_NONE});
+                                       strideX, paddingY, paddingX});
   prog.add(wuReusableLayer.apply({zDeltas, acts[i], weights, biases},
                                  {weights, biases}));
   return prog;
@@ -647,13 +735,14 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                                         chansPerGroup});
   acts.resize(layers.size() + 1);
   deltas.resize(layers.size() + 1);
+  residualDeltaIdxs.resize(layers.size() + 1);// last 2 entries always empty
   params.resize(layers.size());
   acts[0] = graph->addTensor(dType, dim, "input");
   mapActivations(*graph, acts[0]);
   for (unsigned i = 0; i < layers.size(); ++i) {
     const auto *layer = layers[i].get();
     std::cout << "-- Layer " << i << "\n";
-    outputDescription(layer, acts[i], netType == TestOnlyNet || i == 0);
+    outputDescription(layer, i, acts[i], netType == TestOnlyNet || i == 0);
     if (const auto *fc = dynamic_cast<const FullyConnectedLayer *>(layer)) {
       const auto prevSize = acts[i][0].numElements();
       const auto size = fc->size;
@@ -702,16 +791,14 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                                      c->strideY, c->strideX, c->paddingY,
                                      c->paddingX,
                                      c->numChannels,
-                                     0, RESIDUAL_NONE, initParamsProg));
-      fwdProg.add(fwdNonLinearity(*graph, acts[i + 1], c->nonLinearityType));
-    } else if (const auto *c = dynamic_cast<const ConvResLayer *>(layer)) {
-      fwdProg.add(createConvLayerFwd(i, c->kernelSizeY, c->kernelSizeX,
-                                     c->strideY, c->strideX,
-                                     c->paddingY, c->paddingX,
-                                     c->numChannels,
-                                     c->resIndex, c->resMethod,
                                      initParamsProg));
       fwdProg.add(fwdNonLinearity(*graph, acts[i + 1], c->nonLinearityType));
+    } else if (const auto *r = dynamic_cast<const ResidualLayer *>(layer)) {
+      fwdProg.add(createResidualLayerFwd(i, *r));
+      if (r->nonLinearityType != NON_LINEARITY_NONE) {
+        fwdProg.add(fwdNonLinearity(*graph, acts[i + 1], r->nonLinearityType));
+      }
+
     } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
       const auto &in = acts[i];
       unsigned outDimY, outDimX;
@@ -774,6 +861,12 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   if (netType == TrainingNet) {
     for (int i = layers.size() - 1; i >= 0; --i) {
       bool backwardPassRequired = (i != 0);
+
+      if (residualDeltaIdxs[i].first != 0) {
+        // A residual path was taken from this layer
+        bwdProg.add(createResidualLayerBwd(i));
+      }
+
       if (backwardPassRequired) {
         if (acts[i].dims().size() == 5) {
           auto numChannels = acts[i].dim(1) * acts[i].dim(4);
@@ -793,11 +886,11 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
         }
         mapActivations(*graph, deltas[i]);
       }
+
       const auto *layer = layers[i].get();
       if (const auto *fc = dynamic_cast<const FullyConnectedLayer *>(layer)) {
         Tensor zDeltas = graph->addTensor(dType, deltas[i + 1].dims(),
                                           "zDeltas");
-
         mapActivations(*graph, zDeltas);
         auto weights = params[i][0];
         auto biases = params[i][1];
@@ -817,23 +910,36 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                                        c->paddingX,
                                        c->nonLinearityType,
                                        backwardPassRequired));
-      } else if (const auto *c = dynamic_cast<const ConvResLayer *>(layer)) {
-        // TODO residuals
-        bwdProg.add(createConvLayerBwd(i, c->kernelSizeY, c->kernelSizeX,
-                                       c->strideY, c->strideX, c->paddingY,
-                                       c->paddingX, c->nonLinearityType,
-                                       backwardPassRequired));
       } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
         if (backwardPassRequired)
           bwdProg.add(maxpool::maxPoolBackward(*graph, m->kernelSize, m->stride,
                                                m->padding, acts[i],
                                                acts[i + 1],
                                                deltas[i + 1], deltas[i]));
+      } else if (const auto *r = dynamic_cast<const ResidualLayer *>(layer)) {
+        if (r->nonLinearityType == NON_LINEARITY_NONE) {
+          // Pass deltas directly to previous layer
+          deltas[i]=deltas[i+1];
+        } else {
+
+          bwdProg.add(bwdNonLinearity(*graph, acts[i + 1], deltas[i + 1],
+                                      deltas[i],
+                                      r->nonLinearityType));
+        }
+
+        // record index for earlier layer
+        if (residualDeltaIdxs[i - r->resIndex[1]].second != 0)
+          throw popnn::popnn_error(
+              "Attempting to connect residual bwd pass to layer that is already"
+              "connected to a residual");
+        residualDeltaIdxs[i - r->resIndex[1]] = {i - r->resIndex[1] + 1,
+                                                 i - r->resIndex[0] + 1};
       } else {
-        assert(0 && "Unrecognized layer type");
+        throw popnn::popnn_error("Unrecognized layer type");
       }
     }
   }
+
   std::cout << "Total number of FLOPs:  "
             << std::right << std::setw(12) << numFlops << "\n";
   std::cout << "Total number of Params: " << std::setw(12) << numParams << "\n";

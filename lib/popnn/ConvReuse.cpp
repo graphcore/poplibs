@@ -7,11 +7,10 @@ using namespace poplar::program;
 
 bool ConvImplSpec::operator<(const ConvImplSpec &other) const {
   auto t1 = std::tie(tensorDims, kernelSizeY, kernelSizeX,
-                     strideY, strideX, paddingY, paddingX,
-                     resMethod);
+                     strideY, strideX, paddingY, paddingX);
   auto t2 = std::tie(other.tensorDims, other.kernelSizeY, other.kernelSizeX,
                      other.strideY, other.strideX, other.paddingY,
-                     other.paddingX, other.resMethod);
+                     other.paddingX);
   return t1 < t2;
 }
 

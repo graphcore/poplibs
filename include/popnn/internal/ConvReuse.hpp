@@ -2,7 +2,7 @@
 #define __ConvReuse_hpp__
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
-#include "popnn/ConvDef.hpp"
+#include "popnn/ResidualDef.hpp"
 #include "popnn/NonLinearityDef.hpp"
 
 struct ReusableLayer {
@@ -26,16 +26,14 @@ public:
   std::vector<std::vector<size_t>> tensorDims;
   unsigned kernelSizeY, kernelSizeX, strideY, strideX;
   unsigned paddingY, paddingX;
-  ResidualMethod resMethod;
   ConvImplSpec(std::vector<std::vector<size_t>> tensorDims,
                unsigned kernelSizeY, unsigned kernelSizeX,
                unsigned strideY, unsigned strideX,
-               unsigned paddingY, unsigned paddingX,
-               ResidualMethod resMethod) :
+               unsigned paddingY, unsigned paddingX) :
     tensorDims(std::move(tensorDims)),
     kernelSizeY(kernelSizeY), kernelSizeX(kernelSizeX),
     strideY(strideY), strideX(strideX),
-    paddingY(paddingY), paddingX(paddingX), resMethod(resMethod) {}
+    paddingY(paddingY), paddingX(paddingX) {}
 
   bool operator<(const ConvImplSpec &other) const;
 };

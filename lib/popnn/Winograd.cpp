@@ -1694,8 +1694,7 @@ extern Program winogradConvolution(Graph &graph,
             unsigned xDim, unsigned yDim,
             unsigned outNumChans, unsigned patchSizeX, unsigned patchSizeY,
             std::string dType,
-            Tensor in, Tensor weights, Tensor biases, Tensor activations,
-            ResidualMethod resMethod, Tensor resIn) {
+            Tensor in, Tensor weights, Tensor biases, Tensor activations) {
 
 #if DEBUG_PRINT >= 1
   std::cout << "xDim: " << xDim << std::endl;

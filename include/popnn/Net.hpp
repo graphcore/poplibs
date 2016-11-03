@@ -12,7 +12,7 @@
 #include "popnn/FullyConnectedPlan.hpp"
 #include "popnn/ConvPlan.hpp"
 #include "popnn/NonLinearityDef.hpp"
-#include "popnn/ConvDef.hpp"
+#include "popnn/ResidualDef.hpp"
 #include "popnn/NetDef.hpp"
 #include "popnn/internal/ConvReuse.hpp"
 
@@ -57,55 +57,20 @@ public:
   nonLinearityType(nonLinearityType) {}
 };
 
-
-class ConvResLayer : public Layer {
+class ResidualLayer : public Layer {
 public:
-  unsigned kernelSizeY;
-  unsigned kernelSizeX;
-  unsigned strideY;
-  unsigned strideX;
-  unsigned paddingY;
-  unsigned paddingX;
-  unsigned numChannels;
+  // resIndex is a list of offsets to the layers that input to this layer; 1
+  // is the immediately preceding layer. Exactly two offsets must be supplied
+  std::vector<unsigned> resIndex;
   NonLinearityType nonLinearityType;
-  unsigned resIndex;
   enum ResidualMethod resMethod;
-  ConvResLayer(unsigned kernelSize,
-               unsigned stride,
-               unsigned padding,
-               unsigned numChannels,
-               NonLinearityType nonLinearityType,
-               unsigned resIndex,
-               enum ResidualMethod resMethod) :
-    kernelSizeY(kernelSize),
-    kernelSizeX(kernelSize),
-    strideY(stride),
-    strideX(stride),
-    paddingY(padding),
-    paddingX(padding),
-    numChannels(numChannels),
+  ResidualLayer(std::vector<unsigned> resIndex,
+                NonLinearityType nonLinearityType,
+                enum ResidualMethod resMethod) :
+    resIndex(resIndex),
     nonLinearityType(nonLinearityType),
-    resIndex(resIndex), resMethod(resMethod) {}
-
-    ConvResLayer(std::array<unsigned, 2> kernelSize,
-               std::array<unsigned, 2> stride,
-               std::array<unsigned, 2> padding,
-               unsigned numChannels,
-               NonLinearityType nonLinearityType,
-               unsigned resIndex,
-               enum ResidualMethod resMethod) :
-    kernelSizeY(kernelSize[0]),
-    kernelSizeX(kernelSize[1]),
-    strideY(stride[0]),
-    strideX(stride[1]),
-    paddingY(padding[0]),
-    paddingX(padding[1]),
-    numChannels(numChannels),
-    nonLinearityType(nonLinearityType),
-    resIndex(resIndex), resMethod(resMethod) {}
-
+    resMethod(resMethod) {}
 };
-
 
 class MaxPoolLayer : public Layer {
 public:
@@ -210,6 +175,7 @@ class Net {
   std::map<ConvImplSpec, ReusableLayer> convFwdImpls, convBwdImpls, convWUImpls;
   std::map<unsigned, fc::Plan> fullyConnectedPlan;
   std::vector<poplar::Tensor> acts, deltas;
+  std::vector<std::pair<unsigned, unsigned>> residualDeltaIdxs;
   std::vector<std::vector<poplar::Tensor>> params;
   std::map<unsigned, conv::ConvPlan> convPlans;
   std::uint64_t numFlops;
@@ -234,7 +200,6 @@ class Net {
   createConvLayerFwd(unsigned i, unsigned kernelSizeY, unsigned kernelSizeX,
                      unsigned strideY, unsigned strideX,
                      unsigned paddingY, unsigned paddingX, unsigned numChannels,
-                     unsigned resIndex, ResidualMethod resMethod,
                      poplar::program::Sequence &initParamsProg);
 
   ReusableLayer
@@ -248,6 +213,14 @@ class Net {
                      NonLinearityType nonLinearityType,
                      bool backwardPassRequired);
 
+  poplar::program::Program
+  createResidualLayerFwd(unsigned i,
+                         const ResidualLayer &resLayer);
+
+  poplar::program::Program
+  createResidualLayerBwd(unsigned i);
+
+
   ReusableLayer
   getOrCreateConvImplWeightUpdate(const conv::ConvPlan &plan,
                                   const ConvImplSpec &impl);
@@ -257,10 +230,9 @@ class Net {
                              unsigned kernelSizeY, unsigned kernelSizeX,
                              unsigned strideY, unsigned strideX,
                              unsigned paddingY, unsigned paddingX,
-                             unsigned outNumChans,
-                             bool doResidual, bool forwardOnly);
+                             unsigned outNumChans, bool forwardOnly);
 
-  void outputDescription(const Layer *layer, poplar::Tensor in,
+  void outputDescription(const Layer *layer, unsigned i, poplar::Tensor in,
                          bool forwardOnly);
 
   void initialize(DataSet &dataSet, LossType lossType);

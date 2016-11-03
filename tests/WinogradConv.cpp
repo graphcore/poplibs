@@ -226,7 +226,7 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
            paddingX, featureY,
            featureX, numOutChanGroups*numOutChansInGroup,
            patchSizeX, patchSizeY, "float", in[0], weights, biases,
-           activations[0], RESIDUAL_NONE, activations[0]);
+           activations[0]);
 
   auto prog = Sequence(Copy(in, &inBuffer[0]),
                        Copy(weights, &weightsBuffer[0]),

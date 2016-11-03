@@ -23,6 +23,7 @@ add_library(popnn SHARED
   PerformanceEstimation.hpp
   Regroup.hpp
   Regroup.cpp
+  Residual.cpp
   VertexTemplates.hpp
   Winograd.cpp
   Zero.cpp
@@ -69,7 +70,7 @@ add_custom_command(
     popnn.cpp
     PerformanceEstimation.hpp
     ${CMAKE_SOURCE_DIR}/include/popnn/NetDef.hpp
-    ${CMAKE_SOURCE_DIR}/include/popnn/ConvDef.hpp
+    ${CMAKE_SOURCE_DIR}/include/popnn/ResidualDef.hpp
     ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearityDef.hpp
 )
 

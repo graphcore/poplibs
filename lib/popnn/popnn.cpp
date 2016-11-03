@@ -7,7 +7,7 @@
 #include <type_traits>
 #include <vector>
 #include "popnn/NonLinearityDef.hpp"
-#include "popnn/ConvDef.hpp"
+#include "popnn/ResidualDef.hpp"
 #include "popnn/NetDef.hpp"
 #include "PerformanceEstimation.hpp"
 
@@ -1032,7 +1032,6 @@ public:
   Vector<Input<Vector<OutType>>> bias;
   Vector<Output<Vector<OutType>>> out;
   Vector<unsigned> outputChanGroupsPerBias;
-  Vector<Input<Vector<OutType>>> res;
 
   SimOnlyField<unsigned> dataPathWidth;
 
@@ -1051,12 +1050,7 @@ public:
           float sum = in[inIndex / chunkSize][inIndex % chunkSize];
           ++inIndex;
           sum += bias[biasIndex][ochan];
-          // The outputs are ordered in a way such that residuals may
-          // only be needed for outputs at the beginning of the sequence
-          // (or none at all) if the residual has fewer channels than
-          // the output.
-          if (o < res.size())
-            sum += res[o][outIndex];
+
           out[o][outIndex] = sum;
         }
       }
@@ -1083,18 +1077,12 @@ public:
     unsigned numCycles = 5;
     for (unsigned o = 0; o < numOut; ++o) {
       unsigned outCols = out[o].size() / outChans;
-      for (unsigned ocol = 0; ocol < outCols; ++ocol) {
-        assert(outChans % chunkSize == 0);
-        for (unsigned chunk = 0; chunk != outChans / chunkSize; ++chunk) {
-          // load input, load bias and add
-          // - dual loads, dual issue = 2 vectors in 2 cycles
-          numCycles += (chunkSize + inVectorWidth - 1) / inVectorWidth;
-          if (o < res.size())
-            // Load residual and add.
-            numCycles += (chunkSize + inVectorWidth - 1) / inVectorWidth;
-          numCycles += (chunkSize + inVectorWidth - 1) / inVectorWidth; // RELU
-        }
-      }
+      assert(outChans % chunkSize == 0);
+      // load input, load bias and add
+      // - dual loads, dual issue = 2 vectors in 2 cycles
+      numCycles += (chunkSize + inVectorWidth - 1) / inVectorWidth
+                   * (outChans / chunkSize)
+                   * outCols;
     }
     return numCycles;
   }
@@ -1103,6 +1091,98 @@ public:
 template class ConvComplete<float, float>;
 template class ConvComplete<float, half>;
 template class ConvComplete<half, half>;
+
+// AddTensors
+// Sum the input tensors into the output
+// \a out and \a in1 must have the same sizes. \a in2 may be smaller than the
+// output, missing elements are treated as zero
+template <class InType, class OutType>
+class AddTensors : public Vertex {
+public:
+  Input<Vector<InType>> in0;
+  Input<Vector<InType>> in1;
+  Output<Vector<OutType>> out;
+
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    unsigned outSize = out.size();
+    unsigned in1Size = in1.size();
+    for (unsigned o = 0; o < in1Size; ++o) {
+      out[o] = in0[o] + in1[o];
+    }
+    // elements not present in \a in2
+    for (unsigned o = in1Size; o < outSize; ++o) {
+        out[o] = in0[o];
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    assert(out.size() >= in1.size());
+    assert(out.size() == in0.size());
+    bool inIsFloat = std::is_same<InType, float>::value;
+    bool outIsFloat = std::is_same<InType, float>::value;
+    assert(!outIsFloat || inIsFloat && "Output is wider than input");
+    const auto inVectorWidth = dataPathWidth / (inIsFloat ? 32 : 16);
+    const auto outVectorWidth = dataPathWidth / (outIsFloat ? 32 : 16);
+    unsigned numOut = out.size();
+    unsigned numIn2 = in1.size();
+    // 2*loads + 1*store per operation, memory accesses will dominate,
+    // assume common memory element
+    unsigned numCycles = 15
+      + (numOut + inVectorWidth - 1) / inVectorWidth   //1*load
+      + (numOut + outVectorWidth - 1) / outVectorWidth //1*store
+      + (numIn2 + inVectorWidth - 1) / inVectorWidth;  //1*load
+
+    return numCycles;
+  }
+};
+template class AddTensors<float, float>;
+template class AddTensors<float, half>;
+template class AddTensors<half, half>;
+
+// Acumulate
+// Accumulate the input tensors with the output, striding through the output
+// vector. Only min(inOut channels, in1 channels) are combined
+template <class InType, class OutType>
+class Accumulate : public Vertex {
+public:
+  InOut<Vector<OutType>> outIn0;
+  Input<Vector<InType>> in1;
+
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    unsigned outSize = std::min(outIn0.size(), in1.size());
+    for (unsigned o = 0; o < outSize; ++o) {
+      outIn0[o] += in1[o];
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    bool inIsFloat = std::is_same<InType, float>::value;
+    bool outIsFloat = std::is_same<InType, float>::value;
+    assert(outIn0.size() >= in1.size());
+    assert(!outIsFloat || inIsFloat && "Output is wider than input");
+    const auto inVectorWidth = dataPathWidth / (inIsFloat ? 32 : 16);
+    const auto outVectorWidth = dataPathWidth / (outIsFloat ? 32 : 16);
+    unsigned numOut = std::min(outIn0.size(), in1.size());
+    // 2*loads + 1*store per operation, memory accesses will dominate,
+    // assume common memory element
+    unsigned numCycles = 15
+      + (numOut + inVectorWidth - 1) / inVectorWidth   //1*load
+      + (numOut + outVectorWidth - 1) / outVectorWidth //1*store
+      + (numOut + inVectorWidth - 1) / inVectorWidth;  //1*load
+
+    return numCycles;
+  }
+};
+template class Accumulate<float, float>;
+template class Accumulate<float, half>;
+template class Accumulate<half, half>;
+
 
 template <typename FPType>
 class CopyResidual : public Vertex {
