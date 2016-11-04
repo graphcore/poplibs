@@ -966,10 +966,10 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                       &dataSet.testLabels[dataSet.numTest]));
   }
   testProg.add(fwdProg);
-  std::vector<const Program *> progs(NUM_PROGS);
-  progs[INIT_PARAMS_PROG] = &initParamsProg;
-  progs[TRAIN_PROG] = &trainProg;
-  progs[TEST_PROG] = &testProg;
+  std::vector<Program> progs(NUM_PROGS);
+  progs[INIT_PARAMS_PROG] = std::move(initParamsProg);
+  progs[TRAIN_PROG] = std::move(trainProg);
+  progs[TEST_PROG] = std::move(testProg);
   engine = std::unique_ptr<Engine>(new Engine(*graph, progs));
 }
 

@@ -136,7 +136,8 @@ int main(int argc, char **argv) {
                                      biases, learningRate, plan)
     );
   }
-  Engine engine(graph, {&upload, &download, &fwdProg, &bwdProg});
+  Engine engine(graph, {std::move(upload), std::move(download),
+                        std::move(fwdProg), std::move(bwdProg)});
 
   boost::multi_array<double, 2>
       hostPrevAct(boost::extents[batchSize][inputSize]);
