@@ -1200,9 +1200,6 @@ convolution(Graph &graph,
          partialOutDimX, partialChansPerGroup}).dimShuffle(
             {2, 0, 1, 3, 4, 5});
     }
-
-    // Before the reduction step we add any copying of the residual into the
-    // reduce compute set
     ComputeSet reduceCS = graph.createComputeSet(layerName + ".reduce");
 
     // For each element of the batch, we add the reduction and complete
