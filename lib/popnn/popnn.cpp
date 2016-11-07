@@ -1375,7 +1375,7 @@ public:
   Input<Vector<LabelType>> label;
 
   Vector<Output<Vector<FPType>>> batchDeltaOut;
-  Output<FPType> loss;
+  Vector<Output<FPType>> loss;
   InOut<unsigned> numCorrect;
 
   Vector<FPType> probs;
@@ -1401,7 +1401,7 @@ public:
           deltaOut[i] = (actual - expected);
           sum += 0.5 * (actual - expected) *  (actual - expected);
         }
-        *loss = sum;
+        loss[batchNum] = sum;
         }
         break;
       case SOFTMAX_CROSS_ENTROPY_LOSS:
@@ -1424,9 +1424,9 @@ public:
         for (LabelType i = 0;  i < probs.size(); ++i) {
           FPType expected = (i == label[batchNum] ? 1 : 0);
           deltaOut[i] = (probs[i] - expected);
-          error += expected * log(probs[i]);
+          error += -expected * log(probs[i]);
         }
-        *loss = error;
+        loss[batchNum] = error;
         break;
       }
 

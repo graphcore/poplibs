@@ -838,7 +838,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   graph->setTileMapping(expected, 0);
   Tensor numCorrect = graph->addTensor("unsigned", {1}, "numCorrect");
   graph->setTileMapping(numCorrect, 0);
-  Tensor loss = graph->addTensor(dType, {1}, "loss");
+  Tensor loss = graph->addTensor(dType, {batchSize}, "loss");
   graph->setTileMapping(loss, 0);
   deltas[layers.size()] = graph->addTensor(dType, lastAct.dims(), "deltas");
   mapActivations(*graph, deltas[layers.size()]);

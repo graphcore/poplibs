@@ -22,7 +22,7 @@ calcLoss(poplar::Graph &graph,
                           {{"batchIn", activations},
                            {"batchDeltaOut", deltas},
                            {"label", expected},
-                           {"loss", loss[0]},
+                           {"loss", loss},
                            {"numCorrect", numCorrect[0]}});
   graph.setTileMapping(v, 0);
   graph.setFieldSize(v["probs"], activations[0].numElements());
