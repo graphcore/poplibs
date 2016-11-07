@@ -56,6 +56,7 @@ estimateBwdCost(const poplar::DeviceInfo &deviceInfo, bool isFloat,
 Plan
 fc::createPlan(const poplar::Graph &graph,
                const std::string &dType,
+               const std::string &partialsType,
                unsigned numCols, std::vector<unsigned> outputMapping,
                bool forwardOnly) {
   // In theory a 2D tiling of the matrix across IPUs could decrease the

@@ -35,15 +35,22 @@ getConvPartialnx1SupervisorCycleEstimate(
     convSizesByWeightAndWorker,
     unsigned convUnitPipelineDepth,
     unsigned numConvUnitsPerTile,
+    unsigned convUnitCoeffLoadBytesPerCycle,
     unsigned numInputPointers) {
   const unsigned numOutputPointers = 1;
   const auto numWorkerContexts = 6;
+  const auto coeffBytesPerPipelineStage = 8;
+
 
   unsigned cycles = 0;
   for (const auto &convSizesByWorker : convSizesByWeightAndWorker) {
     assert(convSizesByWorker.size() <= numWorkerContexts);
     // Load weights in the supervisor.
-    const auto numLoads = convUnitPipelineDepth * numConvUnitsPerTile;
+    const auto numLoads = convUnitPipelineDepth
+                          * numConvUnitsPerTile
+                          * coeffBytesPerPipelineStage
+                          / convUnitCoeffLoadBytesPerCycle;
+
     cycles += numLoads;
     unsigned maxWorkerCycles = 0;
     // Start workers.
@@ -71,16 +78,21 @@ getConvPartialnx1CycleWorkerEstimate(
     const std::vector<std::vector<unsigned>> &convSizesByWeight,
     unsigned convUnitPipelineDepth,
     unsigned numConvUnitsPerTile,
+    unsigned convUnitCoeffLoadBytesPerCycle,
     unsigned numInputPointers) {
   const unsigned numOutputPointers = 1;
   const unsigned vertexOverhead = 5;
+  const unsigned coeffBytesPerPipelineStage = 8;
   unsigned cycleCount = vertexOverhead;
   for (const auto &convSizes : convSizesByWeight) {
     const auto numElements = std::accumulate(convSizes.begin(), convSizes.end(),
                                              0);
     const auto pointerLoadCycles =
         convSizes.size() * (numInputPointers + numOutputPointers);
-    unsigned warmUpCycles = numConvUnitsPerTile * convUnitPipelineDepth + 3;
+    unsigned warmUpCycles = numConvUnitsPerTile
+                            * convUnitPipelineDepth
+                            * coeffBytesPerPipelineStage
+                            / convUnitCoeffLoadBytesPerCycle + 3;
 
 
     unsigned innerLoopCycles =
@@ -208,17 +220,22 @@ inline uint64_t getWgdAccumCycles(
                              unsigned numWorkers,
                              unsigned numConvUnits,
                              unsigned weightsPerConvUnit,
+                             unsigned convUnitCoeffLoadBytesPerCycle,
                              bool isFloat) {
 
   unsigned numCoeffSets = (outDepth + numConvUnits - 1)/numConvUnits;
   numCoeffSets *= (pencilDepth + weightsPerConvUnit - 1)/weightsPerConvUnit;
   numCoeffSets *= numPencils;
+  const auto coeffLoadCycles = numConvUnits * weightsPerConvUnit
+                          * (isFloat ? 2 : 4) / convUnitCoeffLoadBytesPerCycle;
+  const auto overhead = 4;
 
   if (isSupervisorVertex) {
     const auto numPencilsPerWorker = (comPencils + numWorkers - 1) / numWorkers;
-    return (36 + numPencilsPerWorker * numWorkers * 4) * numCoeffSets;
+    return (overhead + coeffLoadCycles + numPencilsPerWorker
+            * numWorkers * 4) * numCoeffSets;
   } else {
-    return (36 + comPencils * 4) * numCoeffSets;
+    return (overhead + coeffLoadCycles + comPencils * 4) * numCoeffSets;
   }
 }
 

@@ -31,6 +31,7 @@ int main(int argc, char **argv) {
   unsigned outputSize;
   unsigned batchSize;
   FPDataType dataType;
+  FPDataType partialsType;
   double relativeTolerance;
   DeviceInfo info;
   info.IPUExchangeType =
@@ -46,6 +47,9 @@ int main(int argc, char **argv) {
     ("data-type",
      po::value<FPDataType>(&dataType)->default_value(FPDataType::HALF),
      "Type of the data and the parameters")
+    ("partials-type",
+     po::value<FPDataType>(&partialsType)->default_value(FPDataType::HALF),
+     "Type of the partials")
     ("inference-only", "Benchmark inference only")
     ("tolerance", po::value<double>(&relativeTolerance)->default_value(0.01),
      "Relative tolerance to use when validating results against the reference "
@@ -75,6 +79,8 @@ int main(int argc, char **argv) {
   Graph graph(env, createIPUModelDevice(info));
 
   std::string dataTypeStr(asString(dataType));
+  std::string partialsTypeStr(asString(partialsType));
+
 
   // Create tensors.
   Tensor prevAct = graph.addTensor(dataTypeStr, {batchSize, inputSize},
@@ -99,7 +105,7 @@ int main(int argc, char **argv) {
   }
 
   auto outMapping = computeActivationsMapping(graph, nextAct[0], 0, 1);
-  auto plan = fc::createPlan(graph, dataTypeStr, inputSize,
+  auto plan = fc::createPlan(graph, dataTypeStr, partialsTypeStr, inputSize,
                              outMapping, inferenceOnly);
 
   auto upload = Sequence();

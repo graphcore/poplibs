@@ -57,12 +57,13 @@ public:
                   unsigned dimInX, unsigned dimInY,
                   unsigned patchSizeX, unsigned patchSizeY,
                   unsigned kernelX, unsigned kernelY,
-                  unsigned zi, unsigned zo, std::string dType) :
+                  unsigned zi, unsigned zo, std::string dType,
+                  std::string partialsType) :
 
                   padX(padX), padY(padY), dimInX(dimInX), dimInY(dimInY),
                   patchSizeX(patchSizeX), patchSizeY(patchSizeY),
                   kernelX(kernelX), kernelY(kernelY),
-                  zi(zi), zo(zo), dType(dType) {
+                  zi(zi), zo(zo), dType(dType), partialsType(partialsType) {
   }
   static constexpr unsigned dUnitSize = 4;
   static constexpr unsigned kUnitSize = 4;
@@ -74,6 +75,7 @@ public:
   const unsigned kernelX, kernelY;
   const unsigned zi, zo;
   const std::string dType;
+  const std::string partialsType;
 
 
   /* Tiles over which all patches are distributed */
@@ -486,8 +488,10 @@ uint64_t WgdTilePartition::tilePartition(
         const auto weightsPerConvUnit =
                                 deviceInfo.getWeightsPerConvUnit(isFloat);
         const auto numConvUnits = isFloat ?
-                                deviceInfo.fp32AccumConvUnitsPerTile :
-                                deviceInfo.fp16AccumConvUnitsPerTile;
+                                deviceInfo.fp32InFp32OutConvUnitsPerTile :
+                                deviceInfo.fp16InFp16OutConvUnitsPerTile;
+        const auto convUnitCoeffLoadBytesPerCycle =
+                              deviceInfo.convUnitCoeffLoadBytesPerCycle;
 
         Cost ccAcc;
         if (deviceInfo.sharedConvWeights) {
@@ -495,7 +499,9 @@ uint64_t WgdTilePartition::tilePartition(
                                * zigPerTile;
           ccAcc = getWgdAccumCycles(true, numBlocks, patchesPerTile, zic,
                                     zoc, numWorkers, numConvUnits,
-                                    weightsPerConvUnit, isFloat);
+                                    weightsPerConvUnit,
+                                    convUnitCoeffLoadBytesPerCycle,
+                                    isFloat);
 
         } else {
           unsigned numBlocks = (patchSizeX * patchSizeY * zogPerTile *
@@ -503,7 +509,9 @@ uint64_t WgdTilePartition::tilePartition(
 
           ccAcc = getWgdAccumCycles(false, numBlocks, patchesPerTile, zic,
                                     zoc, numWorkers, numConvUnits,
-                                    weightsPerConvUnit, isFloat) * numWorkers;
+                                    weightsPerConvUnit,
+                                    convUnitCoeffLoadBytesPerCycle,
+                                    isFloat) * numWorkers;
         }
 
         std::get<ACCUM>(cc) = ccAcc;
@@ -537,8 +545,8 @@ uint64_t WgdTilePartition::tilePartition(
           unsigned numRedBlocks = (outPatchesPerTileMax * zogPerTile
                                    * patchSizeX
                                    * patchSizeY + numWorkers - 1) / numWorkers;
-          ccRed = getWgdReduceCycles(numRedBlocks * zoc, tilesForZig, isFloat)
-                       * numWorkers;
+          ccRed = getWgdReduceCycles(numRedBlocks * zoc, tilesForZig,
+                                     partialsType == "float") * numWorkers;
         }
 
         std::get<REDUCTION>(cc) = ccRed;
@@ -1293,8 +1301,13 @@ static Program accum(
       deviceInfo.getWeightsPerConvUnit(tp.dType == "float");
 
   const auto numConvUnits = tp.dType == "float" ?
-                              deviceInfo.fp32AccumConvUnitsPerTile :
-                              deviceInfo.fp16AccumConvUnitsPerTile;
+                              deviceInfo.fp32InFp32OutConvUnitsPerTile :
+                              tp.partialsType == "float" ?
+                                  deviceInfo.fp16InFp32OutConvUnitsPerTile:
+                                  deviceInfo.fp16InFp16OutConvUnitsPerTile;
+
+  const auto convUnitCoeffLoadBytesPerCycle =
+                              deviceInfo.convUnitCoeffLoadBytesPerCycle;
 
   unsigned numZig = tp.zig;
   for (unsigned zigTile = 0; zigTile < tp.tilesForZig; ++zigTile) {
@@ -1340,6 +1353,8 @@ static Program accum(
             graph.setInitialValue(v["numConvUnits"], numConvUnits);
             graph.setInitialValue(v["weightsPerConvUnit"],
                                     weightsPerConvUnit);
+            graph.setInitialValue(v["convUnitCoeffLoadBytesPerCycle"],
+                                  convUnitCoeffLoadBytesPerCycle);
             graph.setFieldSize(v["wTf"], zigThisTile);
             graph.setFieldSize(v["dTf"], patchesThisTile * zigThisTile);
             graph.setFieldSize(v["partials"], patchesThisTile);
@@ -1693,7 +1708,7 @@ extern Program winogradConvolution(Graph &graph,
             unsigned strideX, unsigned paddingY, unsigned paddingX,
             unsigned xDim, unsigned yDim,
             unsigned outNumChans, unsigned patchSizeX, unsigned patchSizeY,
-            std::string dType,
+            const std::string &dType, const std::string &partialsType,
             Tensor in, Tensor weights, Tensor biases, Tensor activations) {
 
 #if DEBUG_PRINT >= 1
@@ -1728,7 +1743,7 @@ extern Program winogradConvolution(Graph &graph,
                       kernelSizeX, kernelSizeY,
                       weights.dim(1) * weights.dim(5),
                       weights.dim(0) * weights.dim(4),
-                      dType);
+                      dType, partialsType);
 
   tp.tilePartition(weights.dim(5),
                    weights.dim(4),
@@ -1750,7 +1765,7 @@ extern Program winogradConvolution(Graph &graph,
   prog.add(computeKernelTransform(graph, tp, layerName, weights, kernelTf));
 
   /* accumulate across tiles */
-  Tensor accumTen = graph.addTensor(dType,
+  Tensor accumTen = graph.addTensor(partialsType,
                                    {
                                      tp.zog,
                                      tp.tilesForZig,

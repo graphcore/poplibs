@@ -140,8 +140,10 @@ public:
   bool ignoreData = false;
   unsigned dataPathWidth = 64;
   unsigned convUnitPipelineDepth = 4;
-  unsigned fp16AccumConvUnitsPerTile = 8;
-  unsigned fp32AccumConvUnitsPerTile = 4;
+  unsigned fp16InFp16OutConvUnitsPerTile = 8;
+  unsigned fp16InFp32OutConvUnitsPerTile = 8;
+  unsigned fp32InFp32OutConvUnitsPerTile = 4;
+  unsigned convUnitCoeffLoadBytesPerCycle = 16;
   bool sharedConvWeights = true;
   bool useWinogradConv = false;
   unsigned winogradPatchSize = 4;
@@ -171,6 +173,7 @@ class Net {
   unsigned numTestBatches;
   unsigned hNumCorrect;
   std::string dType;
+  std::string partialsType;
 
   std::map<ConvImplSpec, ReusableLayer> convFwdImpls, convBwdImpls, convWUImpls;
   std::map<unsigned, fc::Plan> fullyConnectedPlan;
@@ -254,6 +257,24 @@ public:
       float learningRate,
       NetType netType,
       DType dType,
+      NetOptions options = NetOptions());
+
+  Net(DataSet &data, unsigned batchSize,
+      std::vector<std::unique_ptr<Layer>> &layers,
+      LossType lossType,
+      float learningRate,
+      NetType netType,
+      DType dType,
+      DType partialsType,
+      NetOptions options = NetOptions());
+
+  Net(DataSet &data, unsigned batchSize,
+      std::vector<std::unique_ptr<Layer>> &&layers,
+      LossType lossType,
+      float learningRate,
+      NetType netType,
+      DType dType,
+      DType partialsType,
       NetOptions options = NetOptions());
 
   void run(unsigned numBatches);

@@ -314,6 +314,8 @@ createConvPartial1x1OutVertex(Graph &graph,
       deviceInfo.getWeightsPerConvUnit(dType == "float");
   assert(weightsPerConvUnit % inChansPerGroup == 0);
   const auto convUnitWeightHeight = weightsPerConvUnit / inChansPerGroup;
+  const auto convUnitCoeffLoadBytesPerCycle =
+                deviceInfo.convUnitCoeffLoadBytesPerCycle;
   if (convUnitWeightHeight != 1) {
     throw popnn::popnn_error("Using convolution units for 1x1 convolutions "
                              "where channel grouping is not equal to weights "
@@ -349,6 +351,8 @@ createConvPartial1x1OutVertex(Graph &graph,
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
   graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
+  graph.setInitialValue(v["convUnitCoeffLoadBytesPerCycle"],
+                        convUnitCoeffLoadBytesPerCycle);
   std::vector<std::vector<PartialRow>> workerPartition;
   unsigned outputStride = 1;
   workerPartition =
@@ -435,6 +439,9 @@ createConvPartialnx1InOutVertex(Graph &graph,
       deviceInfo.getWeightsPerConvUnit(dType == "float");
   assert(weightsPerConvUnit % inChansPerGroup == 0);
   const auto convUnitWeightHeight = weightsPerConvUnit / inChansPerGroup;
+  const auto convUnitCoeffLoadBytesPerCycle
+                      = deviceInfo.convUnitCoeffLoadBytesPerCycle;
+
   const auto partialType = graph.getTensorElementType(out);
   // Add the vertex.
   auto v =
@@ -445,6 +452,8 @@ createConvPartialnx1InOutVertex(Graph &graph,
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
   graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
+  graph.setInitialValue(v["convUnitCoeffLoadBytesPerCycle"],
+                        convUnitCoeffLoadBytesPerCycle);
   graph.setTileMapping(v, tile);
   unsigned numWeights = 0;
   unsigned numConvolutions = 0;
@@ -1110,7 +1119,9 @@ convolution(Graph &graph,
             unsigned strideX, unsigned paddingY, unsigned paddingX,
             unsigned outNumChans,
             Tensor in, Tensor weights, Tensor biases, Tensor activations,
-            bool useWinogradConv, unsigned winogradPatchSize) {
+            const std::string &partialsType,
+            bool useWinogradConv,
+            unsigned winogradPatchSize) {
   const auto dType = graph.getTensorElementType(in);
   const auto layerName =
       "Conv" + std::to_string(kernelSizeX) + "x" + std::to_string(kernelSizeY)
@@ -1168,7 +1179,7 @@ convolution(Graph &graph,
           paddingY, paddingX,
           in.dim(3), in.dim(2), outNumChans,
           winogradPatchSize, winogradPatchSize,
-          dType, in[b],
+          dType, partialsType, in[b],
           weights, biases,
           activations[b]));
     }
@@ -1311,8 +1322,9 @@ double getPerfectCycleCount(const Graph &graph,
   }
   assert(dType == "half");
   const auto convUnitsPerTile =
-      std::max(deviceInfo.fp16AccumConvUnitsPerTile,
-               deviceInfo.fp32AccumConvUnitsPerTile);
+      std::max(std::max(deviceInfo.fp16InFp16OutConvUnitsPerTile,
+                        deviceInfo.fp32InFp32OutConvUnitsPerTile),
+               deviceInfo.fp16InFp32OutConvUnitsPerTile);
   const auto halfVectorWidth = deviceInfo.getHalfVectorWidth();
   auto macsPerCycle = convUnitsPerTile * halfVectorWidth;
   auto macCycles = static_cast<double>(numMacs) / (macsPerCycle * numTiles);

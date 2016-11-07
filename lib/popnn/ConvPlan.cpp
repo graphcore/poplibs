@@ -37,29 +37,42 @@ static Memo<Ret, Args...> memoize(Ret (*fn)(Args...)) {
   return Memo<Ret, Args...>(fn);
 }
 
-static unsigned getNumConvUnits(bool floatPartial,
+static unsigned getNumConvUnits(bool floatActivations,
+                                bool floatPartial,
                                 const poplar::DeviceInfo &deviceInfo) {
-  return floatPartial ? deviceInfo.fp32AccumConvUnitsPerTile :
-                        deviceInfo.fp16AccumConvUnitsPerTile;
+  if (floatActivations) {
+    return deviceInfo.fp32InFp32OutConvUnitsPerTile;
+  } else {
+    return floatPartial ? deviceInfo.fp16InFp32OutConvUnitsPerTile :
+                          deviceInfo.fp16InFp16OutConvUnitsPerTile;
+  }
 }
 
 namespace {
 struct ConvVertexType {
   bool useConvInstruction;
+  bool floatActivations;
   bool floatPartials;
   unsigned partialChansPerGroup;
   ConvVertexType(const poplar::DeviceInfo &deviceInfo,
-                 bool useConvInstruction, bool floatPartials) :
-    useConvInstruction(useConvInstruction), floatPartials(floatPartials) {
+                 bool useConvInstruction, bool floatActivations,
+                 bool floatPartials) :
+    useConvInstruction(useConvInstruction),
+    floatActivations(floatActivations),
+    floatPartials(floatPartials) {
     if (!useConvInstruction) {
       partialChansPerGroup = 1;
     } else {
-      partialChansPerGroup = getNumConvUnits(floatPartials, deviceInfo);
+      partialChansPerGroup = getNumConvUnits(floatActivations,
+                                             floatPartials, deviceInfo);
     }
   }
-  ConvVertexType(bool useConvInstruction, bool floatPartials,
+  ConvVertexType(bool useConvInstruction, bool floatActivations,
+                 bool floatPartials,
                  unsigned partialChansPerGroup) :
-    useConvInstruction(useConvInstruction), floatPartials(floatPartials),
+    useConvInstruction(useConvInstruction),
+    floatActivations(floatActivations),
+    floatPartials(floatPartials),
     partialChansPerGroup(partialChansPerGroup) {}
 };
 }
@@ -72,6 +85,7 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
                                unsigned outputWidth,
                                unsigned convUnitPipelineDepth,
                                unsigned numConvUnitsPerTile,
+                               unsigned convUnitCoeffLoadBytesPerCycle,
                                bool useSupervisorVertices,
                                unsigned outputStride,
                                unsigned numInputPointers,
@@ -224,6 +238,7 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
                                unsigned outputWidth,
                                unsigned convUnitPipelineDepth,
                                unsigned numConvUnitsPerTile,
+                               unsigned convUnitCoeffLoadBytesPerCycle,
                                bool useSupervisorVertices,
                                unsigned outputStride,
                                unsigned numInputPointers,
@@ -247,10 +262,12 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
         }
       }
     }
-    return getConvPartialnx1SupervisorCycleEstimate(convSizesByWeightAndWorker,
-                                                    convUnitPipelineDepth,
-                                                    numConvUnitsPerTile,
-                                                    numInputPointers);
+    return getConvPartialnx1SupervisorCycleEstimate(
+                  convSizesByWeightAndWorker,
+                  convUnitPipelineDepth,
+                  numConvUnitsPerTile,
+                  convUnitCoeffLoadBytesPerCycle,
+                  numInputPointers);
   }
   std::vector<std::vector<unsigned>> convSizesByWeight;
   for (unsigned i = 0; i != passesPerOutput; ++i) {
@@ -262,6 +279,7 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
   return getConvPartialnx1CycleWorkerEstimate(convSizesByWeight,
                                               convUnitPipelineDepth,
                                               numConvUnitsPerTile,
+                                              convUnitCoeffLoadBytesPerCycle,
                                               numInputPointers);
 }
 
@@ -387,7 +405,9 @@ estimateVertexCycles(bool floatActivations,
     return cache->mGetConvPartialnx1CycleEstimate(
           passesPerOutput, outRowsPerVertex,
           tileOutWidth, deviceInfo.convUnitPipelineDepth,
-          getNumConvUnits(partition.floatPartials, deviceInfo),
+          getNumConvUnits(floatActivations,
+                          partition.floatPartials, deviceInfo),
+          deviceInfo.convUnitCoeffLoadBytesPerCycle,
           useSupervisorVertices,
           outputStrideY,
           convUnitWeightHeight,
@@ -657,39 +677,61 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
 static std::vector<ConvVertexType>
 getConvVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
                             bool floatActivations,
+                            bool floatPartials,
                             unsigned inChansPerGroup,
                             const ConvolutionParams &params) {
   std::vector<ConvVertexType> convVertexTypeCandidates;
-  if (deviceInfo.fp16AccumConvUnitsPerTile > 0 &&
+
+  if (deviceInfo.fp16InFp16OutConvUnitsPerTile > 0 &&
+      !floatPartials &&
       canUseConvolutionInstruction(floatActivations, false,
                                    params.strideY, params.strideX,
                                    inChansPerGroup, deviceInfo)) {
-    convVertexTypeCandidates.emplace_back(deviceInfo, true, false);
+
+    convVertexTypeCandidates.emplace_back(deviceInfo, true, false, false);
+  } else {
+
+    if (deviceInfo.fp16InFp32OutConvUnitsPerTile > 0 &&
+        canUseConvolutionInstruction(floatActivations, true,
+                                     params.strideY, params.strideX,
+                                     inChansPerGroup, deviceInfo)) {
+      convVertexTypeCandidates.emplace_back(deviceInfo, true, false, true);
+    }
   }
-  if (deviceInfo.fp32AccumConvUnitsPerTile > 0 &&
+
+  if (deviceInfo.fp32InFp32OutConvUnitsPerTile > 0 &&
       canUseConvolutionInstruction(floatActivations, true,
                                    params.strideY, params.strideX,
                                    inChansPerGroup,
                                    deviceInfo)) {
-    convVertexTypeCandidates.emplace_back(deviceInfo, true, true);
+    convVertexTypeCandidates.emplace_back(deviceInfo, true, true, true);
   }
-  convVertexTypeCandidates.emplace_back(deviceInfo, false, true);
+  convVertexTypeCandidates.emplace_back(deviceInfo, false, floatActivations,
+                                        true);
   return convVertexTypeCandidates;
 }
 
 static std::vector<ConvVertexType>
 getWeightUpdateVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
                                     bool floatActivations,
+                                    bool floatPartials,
                                     unsigned deltasChansPerGroup,
                                     const ConvolutionParams &params) {
   std::vector<ConvVertexType> convVertexTypeCandidates;
-  if (!floatActivations && deviceInfo.fp16AccumConvUnitsPerTile > 0) {
-    convVertexTypeCandidates.emplace_back(deviceInfo, true, false);
+  if (!floatActivations) {
+    if (!floatPartials && deviceInfo.fp16InFp16OutConvUnitsPerTile > 0) {
+      convVertexTypeCandidates.emplace_back(deviceInfo, true, false, false);
+    } else {
+      if (deviceInfo.fp16InFp32OutConvUnitsPerTile > 0) {
+        convVertexTypeCandidates.emplace_back(deviceInfo, true, false, true);
+      }
+	}
   }
-  if (deviceInfo.fp32AccumConvUnitsPerTile > 0) {
-    convVertexTypeCandidates.emplace_back(deviceInfo, true, true);
+
+  if (deviceInfo.fp32InFp32OutConvUnitsPerTile > 0) {
+    convVertexTypeCandidates.emplace_back(deviceInfo, true, true, true);
   }
-  convVertexTypeCandidates.emplace_back(false, floatActivations,
+  convVertexTypeCandidates.emplace_back(false, floatActivations, floatPartials,
                                         deltasChansPerGroup);
   return convVertexTypeCandidates;
 }
@@ -697,6 +739,7 @@ getWeightUpdateVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
 static std::pair<Partition, unsigned>
 choosePartition(const poplar::DeviceInfo &deviceInfo,
                 bool floatActivations,
+                bool floatPartials,
                 bool preferConvInstructions,
                 unsigned inChansPerGroup,
                 const ConvolutionParams &params,
@@ -710,7 +753,8 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
                              "channel grouping are not supported");
   }
   const auto convVertexTypeCandidates =
-      getConvVertexTypeCandidates(deviceInfo, floatActivations, inChansPerGroup,
+      getConvVertexTypeCandidates(deviceInfo, floatActivations,
+                                  floatPartials, inChansPerGroup,
                                   params);
   for (const auto &convVertexType : convVertexTypeCandidates) {
     Partition candidate;
@@ -745,6 +789,7 @@ getInChansPerGroupCandidates(const ConvolutionParams &params,
 
 static std::pair<Partition, unsigned>
 choosePartition(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
+                bool floatPartials,
                 bool preferConvInstructions,
                 const ConvolutionParams &params, Phase phase,
                 unsigned numBatchGroups,
@@ -757,7 +802,7 @@ choosePartition(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
     Partition candidate;
     unsigned candidateCost;
     std::tie(candidate, candidateCost) =
-        choosePartition(deviceInfo, floatActivations,
+        choosePartition(deviceInfo, floatActivations, floatPartials,
                         preferConvInstructions, inChansPerGroup, params,
                         phase, numBatchGroups, cache);
     assert(candidate.inChansPerGroup == inChansPerGroup);
@@ -776,6 +821,7 @@ Planner::createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                     unsigned paddingY, unsigned paddingX,
                     unsigned numChannels, unsigned batchSize,
                     std::string dType,
+                    std::string partialsType,
                     const poplar::Graph &graph, bool forwardOnly) {
   validateLayerParams(inDimY, inDimX, inNumChans, kernelSizeY, kernelSizeX,
                       strideY, strideX, paddingY, paddingX,
@@ -795,6 +841,7 @@ Planner::createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
   }
 
   const bool floatActivations = dType == "float";
+  const bool floatPartials = partialsType == "float";
 
   if (!forwardOnly) {
 
@@ -831,6 +878,7 @@ Planner::createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
       unsigned candidateCost;
       std::tie(candidate, candidateCost) =
           choosePartition(deviceInfo, floatActivations,
+                          floatPartials,
                           preferConvInstructions,
                           bwdParams, Phase::BACKWARD,
                           numBatchGroups,
@@ -888,6 +936,7 @@ Planner::createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
     for (auto inChansPerGroup : inChansPerGroupCandidates) {
       const auto convVertexTypeCandidates =
           getConvVertexTypeCandidates(deviceInfo, floatActivations,
+                                      floatPartials,
                                       inChansPerGroup, fwdParams);
       for (const auto &convVertexType : convVertexTypeCandidates) {
         Partition fwdCandidate;
@@ -905,7 +954,7 @@ Planner::createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
           bestwuCandidateCost = std::numeric_limits<unsigned>::max();
           const auto wuVertexTypeCandidates =
               getWeightUpdateVertexTypeCandidates(
-                deviceInfo, floatActivations,
+                deviceInfo, floatActivations, floatPartials,
                 convVertexType.partialChansPerGroup,
                 wuParams);
           Partition wuCandidate;
@@ -942,7 +991,6 @@ Planner::createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
       }
     }
   }
-
   return plan;
 }
 

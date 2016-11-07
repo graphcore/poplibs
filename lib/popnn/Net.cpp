@@ -50,16 +50,27 @@ bool parseCommandLine(int argc, char **argv, NetOptions &options,
        &options.dataPathWidth
      )->default_value(64),
      "Width of the data path in bits")
-    ("num-fp16-accum-conv-units",
+    ("num-fp16-in-fp16-out-conv-units",
      po::value<unsigned>(
-       &options.fp16AccumConvUnitsPerTile
+       &options.fp16InFp16OutConvUnitsPerTile
      )->default_value(8),
-     "Number of convolutional units per tile with fp16 accumulation")
-    ("num-fp32-accum-conv-units",
+     "Number of convolutional units per tile with fp16 input and fp16 output")
+    ("num-fp16-in-fp32-out-conv-units",
      po::value<unsigned>(
-       &options.fp32AccumConvUnitsPerTile
+         &options.fp16InFp32OutConvUnitsPerTile
+     )->default_value(8),
+     "Number of convolutional units per tile with fp16 input and fp32 output")
+    ("num-fp32-in-fp32-out-conv-units",
+     po::value<unsigned>(
+         &options.fp32InFp32OutConvUnitsPerTile
      )->default_value(4),
-     "Number of convolutional units per tile with fp32 accumulation")
+     "Number of convolutional units per tile with fp32 input and fp32 output")
+    ("conv-coeff-load-bytes-per-cycle",
+     po::value<unsigned>(
+         &options.convUnitCoeffLoadBytesPerCycle
+     )->default_value(16),
+     "Number of bytes of coefficients loaded in the convolutional"
+     " unit per cycle")
     ("train",
      po::value<bool>(
        &doTraining
@@ -121,7 +132,8 @@ Net::Net(DataSet &data, unsigned batchSize,
   batchSize(batchSize),
   eta(learningRate),
   layers(std::move(layers)),
-  dType(getDTypeString(dType))
+  dType(getDTypeString(dType)),
+  partialsType(getDTypeString(FP32))
 {
   initialize(data, lossType);
 }
@@ -137,7 +149,44 @@ Net::Net(DataSet &data, unsigned batchSize,
   batchSize(batchSize),
   eta(learningRate),
   layers(std::move(layers)),
-  dType(getDTypeString(dType))
+  dType(getDTypeString(dType)),
+  partialsType(getDTypeString(FP32))
+{
+  initialize(data, lossType);
+}
+
+Net::Net(DataSet &data, unsigned batchSize,
+         std::vector<std::unique_ptr<Layer>> &layers,
+         LossType lossType,
+         float learningRate,
+         NetType netType,
+         DType dType,
+         DType partialsType,
+         NetOptions options) :
+  netType(netType), options(options),
+  batchSize(batchSize),
+  eta(learningRate),
+  layers(std::move(layers)),
+  dType(getDTypeString(dType)),
+  partialsType(getDTypeString(partialsType))
+{
+  initialize(data, lossType);
+}
+
+Net::Net(DataSet &data, unsigned batchSize,
+         std::vector<std::unique_ptr<Layer>> &&layers,
+         LossType lossType,
+         float learningRate,
+         NetType netType,
+         DType dType,
+         DType partialsType,
+         NetOptions options) :
+  netType(netType), options(options),
+  batchSize(batchSize),
+  eta(learningRate),
+  layers(std::move(layers)),
+  dType(getDTypeString(dType)),
+  partialsType(getDTypeString(partialsType))
 {
   initialize(data, lossType);
 }
@@ -156,8 +205,10 @@ Net::getConvPlan(unsigned i, unsigned inDimY, unsigned inDimX,
                             c->kernelSizeY, c->kernelSizeX,
                             c->strideY, c->strideX, c->paddingY,
                             c->paddingX,
-                            c->numChannels, batchSize, dType, *graph,
+                            c->numChannels, batchSize, dType, 
+                            partialsType, *graph,
                             netType == TestOnlyNet);
+
   convPlans.emplace(i, plan);
   return plan;
 }
@@ -369,7 +420,9 @@ Net::getOrCreateConvImplFwd(const conv::ConvPlan &plan,
                                 impl.paddingY, impl.paddingX,
                                 outNumChans,
                                 in, weights, biases, out,
-                                options.useWinogradConv);
+                                partialsType,
+                                options.useWinogradConv,
+                                options.winogradPatchSize);
 
   std::vector<Tensor> inputs = {in, weights, biases};
   auto reusableLayer = ReusableLayer(prog, inputs, {out});
@@ -696,8 +749,13 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
     info.globalSyncCycles = 500;
     info.dataPathWidth = options.dataPathWidth;
     info.convUnitPipelineDepth = options.convUnitPipelineDepth;
-    info.fp16AccumConvUnitsPerTile = options.fp16AccumConvUnitsPerTile;
-    info.fp32AccumConvUnitsPerTile = options.fp32AccumConvUnitsPerTile;
+    info.fp16InFp16OutConvUnitsPerTile
+         = options.fp16InFp16OutConvUnitsPerTile;
+    info.fp16InFp32OutConvUnitsPerTile
+         = options.fp16InFp32OutConvUnitsPerTile;
+    info.fp32InFp32OutConvUnitsPerTile
+         = options.fp32InFp32OutConvUnitsPerTile;
+
     switch (info.numIPUs) {
     case 1:
       break;
@@ -756,7 +814,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
       const auto &plan =
           fullyConnectedPlan.emplace(
             i,
-            fc::createPlan(*graph, dType, prevSize,
+            fc::createPlan(*graph, dType, partialsType, prevSize,
                            std::move(activationsMapping),
                            forwardOnly)
          ).first->second;

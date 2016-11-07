@@ -313,6 +313,7 @@ public:
   SimOnlyField<unsigned> dataPathWidth;
   SimOnlyField<unsigned> inChansPerGroup;
   SimOnlyField<unsigned> outChansPerGroup;
+  SimOnlyField<unsigned> convUnitCoeffLoadBytesPerCycle;
 
   bool compute() {
     assert(out.size() > 0);
@@ -418,6 +419,7 @@ public:
         convolutionsByWeightAndWorker,
         convUnitPipelineDepth,
         numConvUnitsPerTile,
+        convUnitCoeffLoadBytesPerCycle,
         filterHeight
       );
     }
@@ -444,6 +446,7 @@ public:
     return getConvPartialnx1CycleWorkerEstimate(convolutionsByWeight,
                                                 convUnitPipelineDepth,
                                                 numConvUnitsPerTile,
+                                                convUnitCoeffLoadBytesPerCycle,
                                                 filterHeight);
   }
 };
@@ -796,6 +799,7 @@ public:
   SimOnlyField<unsigned> dataPathWidth;
   SimOnlyField<unsigned> inChansPerGroup;
   SimOnlyField<unsigned> outChansPerGroup;
+  SimOnlyField<unsigned> convUnitCoeffLoadBytesPerCycle;
 
   bool compute() {
     unsigned numContexts = weightReuseCount.size();
@@ -884,6 +888,7 @@ public:
         convolutionsByWeightAndWorker,
         convUnitPipelineDepth,
         numConvUnitsPerTile,
+        convUnitCoeffLoadBytesPerCycle,
         1
       );
     }
@@ -902,6 +907,7 @@ public:
     return getConvPartialnx1CycleWorkerEstimate(convolutionsByWeight,
                                                 convUnitPipelineDepth,
                                                 numConvUnitsPerTile,
+                                                convUnitCoeffLoadBytesPerCycle,
                                                 1);
   }
 };
@@ -1811,6 +1817,7 @@ public:
   SimOnlyField<unsigned> numWorkers;
   SimOnlyField<unsigned> weightsPerConvUnit;
   SimOnlyField<unsigned> numConvUnits;
+  SimOnlyField<unsigned> convUnitCoeffLoadBytesPerCycle;
 
   bool compute() {
 
@@ -1863,6 +1870,7 @@ public:
                       numWorkers,
                       numConvUnits,
                       weightsPerConvUnit,
+                      convUnitCoeffLoadBytesPerCycle,
                       isFloat);
   }
 };

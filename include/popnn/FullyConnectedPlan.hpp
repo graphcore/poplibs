@@ -22,7 +22,8 @@ struct Plan {
 
 Plan
 createPlan(const poplar::Graph &graph,
-           const std::string &dType, unsigned numIn,
+           const std::string &dType,
+           const std::string &partialsStr, unsigned numIn,
            std::vector<unsigned> outputMapping,
            bool forwardOnly);
 

@@ -53,6 +53,7 @@ convolution(poplar::Graph &graph, const ConvPlan &plan,
             unsigned numChannels,
             poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
             poplar::Tensor out,
+            const std::string &partialsType,
             bool useWinogradConv = false,
             unsigned winogradPatchSize = 4);
 
@@ -86,7 +87,8 @@ extern poplar::program::Program winogradConvolution(poplar::Graph &graph,
             unsigned strideX, unsigned paddingY, unsigned paddingX,
             unsigned xDim, unsigned yDim,
             unsigned outNumChans, unsigned patchSizeX, unsigned patchSizeY,
-            std::string dType,
+            const std::string &dType,
+            const std::string &partialsType,
             poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
             poplar::Tensor activations);
 

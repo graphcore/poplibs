@@ -41,6 +41,7 @@ int main(int argc, char **argv) {
   unsigned bwdOutChansPerGroup;
   unsigned batchSize;
   FPDataType dataType;
+  FPDataType partialsType;
   double relativeTolerance;
   DeviceInfo info;
   info.IPUExchangeType =
@@ -76,7 +77,9 @@ int main(int argc, char **argv) {
     ("data-type",
      po::value<FPDataType>(&dataType)->default_value(FPDataType::HALF),
      "Type of the data and the parameters")
-
+    ("partials-type",
+     po::value<FPDataType>(&partialsType)->default_value(FPDataType::HALF),
+     "Type of partials")
     ("padding", po::value<unsigned>(&padding)->default_value(0),
      "Amount of zero padding for height and width. If set, it is an "
      "error to also set either padding-height and/or padding-width")
@@ -174,6 +177,8 @@ int main(int argc, char **argv) {
   Graph graph(env, createIPUModelDevice(info));
 
   std::string dataTypeStr(asString(dataType));
+  std::string partialsTypeStr(asString(partialsType));
+
   // TODO support residual connections.
   conv::Planner planner;
   auto plan = planner.createPlan(height, width, fwdInChans,
@@ -181,8 +186,8 @@ int main(int argc, char **argv) {
                                  strideH, strideW,
                                  paddingHeight, paddingWidth,
                                  fwdOutChans, batchSize,
-                                 dataTypeStr, graph,
-                                 inferenceOnly);
+                                 dataTypeStr, partialsTypeStr,
+                                 graph, inferenceOnly);
   auto fwdInChansPerGroup = plan.fwdPartition.inChansPerGroup;
   // If the output grouping is unspecified, assume the output uses the same
   // grouping as the input unless that is impossible.
@@ -269,8 +274,8 @@ int main(int argc, char **argv) {
                       strideW, paddingHeight,
                       paddingWidth, fwdOutChans,
                       prevAct, weights, biases, nextAct,
+                      partialsTypeStr,
                       useWinogradConv, winogradPatchSize));
-
 
   auto bwdProg = Sequence();
   const auto learningRate = 0.5;

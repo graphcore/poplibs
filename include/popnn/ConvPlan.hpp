@@ -61,6 +61,7 @@ public:
                       unsigned paddingY, unsigned paddingX,
                       unsigned numChannels, unsigned batchSize,
                       std::string dType,
+                      std::string partialsType,
                       const poplar::Graph &graph, bool forwardOnly);
   Planner();
   ~Planner();
