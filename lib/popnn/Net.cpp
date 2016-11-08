@@ -473,9 +473,6 @@ Net::createResidualLayerFwd(unsigned i,
                                    acts[i - residualLayer.resIndex[1] + 1],
                                    acts[i + 1].dims(), dType,
                                    residualLayer.resMethod);
-  mapActivations(*graph, acts[i + 1]);
-  mapActivations(*graph, in0);
-  mapActivations(*graph, in1);
   switch (residualLayer.resMethod) {
   case RESIDUAL_PAD:
     {
