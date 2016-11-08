@@ -65,6 +65,7 @@ add_test(NAME conv3x3_stride_1
              --stride=1
              --kernel-size=3)
 
+
 add_test(NAME conv3x3_stride_2
          COMMAND single_conv_layer
              --input-channels=32
@@ -77,6 +78,31 @@ add_test(NAME conv3x3_stride_2
              --stride=2
              --kernel-size=3)
 
+add_test(NAME conv3x3_stride_1_padding_1
+         COMMAND single_conv_layer
+              --input-channels=32
+              --output-channels=16
+              --width=7
+              --height=7
+              --fwd-out-chans-per-group=8
+              --bwd-out-chans-per-group=8
+              --tiles-per-ipu=16
+              --stride=1
+              --kernel-size=3
+              --padding 1)
+
+add_test(NAME conv4x4_stride_1_padding_2
+         COMMAND single_conv_layer
+              --input-channels=32
+              --output-channels=16
+              --width=7
+              --height=7
+              --fwd-out-chans-per-group=8
+              --bwd-out-chans-per-group=8
+              --tiles-per-ipu=16
+              --stride=1
+              --kernel-size=4
+              --padding 2)
 
 add_test(NAME conv3x3_stride_2_multi_tile
          COMMAND single_conv_layer

@@ -30,12 +30,12 @@ uint64_t getNumFlops(unsigned batchSize,
   for (unsigned y = 0; y < outDimY; ++y) {
     unsigned inYBegin, inYEnd;
     std::tie(inYBegin, inYEnd) = getInputRange(y, stride, kernelSize,
-                                               padding, inDimY, true);
+                                               padding, inDimY, false);
     const auto height = inYEnd - inYBegin;
     for (unsigned x = 0; x < outDimX; ++x) {
       unsigned inXBegin, inXEnd;
       std::tie(inXBegin, inXEnd) = getInputRange(x, stride, kernelSize,
-                                                 padding, inDimX, true);
+                                                 padding, inDimX, false);
       const auto width = inXEnd - inXBegin;
       numFlops += numChannels * width * height;
     }
@@ -109,11 +109,11 @@ maxPool(Graph &graph,
         unsigned chanGroup = i / (outDimY * outDimX);
         unsigned inYBegin, inYEnd;
         std::tie(inYBegin, inYEnd) = getInputRange(y, stride, kernelSize,
-                                                   padding, inDimY, true);
+                                                   padding, inDimY, false);
         const auto inYSize = inYEnd - inYBegin;
         unsigned inXBegin, inXEnd;
         std::tie(inXBegin, inXEnd) = getInputRange(x, stride, kernelSize,
-                                                   padding, inDimX, true);
+                                                   padding, inDimX, false);
         const auto inXSize = inXEnd - inXBegin;
         auto v =
           graph.addVertex(fwd, templateVertex("popnn::MaxPooling", dType),
@@ -225,9 +225,9 @@ maxPoolBackward(Graph &graph,
         unsigned yPrev = (i / xDimPrev) % yDimPrev;
         unsigned chanGroupPrev = i / (yDimPrev * xDimPrev);
         auto nextYRange = getInputRange(yPrev, stride, kernelSize,
-                                        padding, yDimNext, false);
+                                        padding, yDimNext, true);
         auto nextXRange = getInputRange(xPrev, stride, kernelSize,
-                                        padding, xDimNext, false);
+                                        padding, xDimNext, true);
         const auto nextYSize = nextYRange.second - nextYRange.first;
         const auto nextXSize = nextXRange.second - nextXRange.first;
 

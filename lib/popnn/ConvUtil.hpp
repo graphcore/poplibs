@@ -14,7 +14,7 @@
 unsigned
 getInputIndex(unsigned outputIndex, unsigned stride, unsigned kernelSize,
               unsigned padding, unsigned inputSize, unsigned kernelIndex,
-              bool forward);
+              bool isFractional);
 
 
 /// Given an output range, return the subset whose calculation
@@ -22,7 +22,7 @@ getInputIndex(unsigned outputIndex, unsigned stride, unsigned kernelSize,
 std::pair<unsigned, unsigned>
 getOutputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
                unsigned padding, unsigned kernelSize, unsigned inputSize,
-               unsigned kernelIndex, bool forward);
+               unsigned kernelIndex, bool isFractional);
 
 /// Given an output range, return the subset whose calculation
 /// involves the specified range of kernel indicies.
@@ -30,33 +30,34 @@ std::pair<unsigned, unsigned>
 getOutputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
                unsigned kernelSize, unsigned padding, unsigned inputSize,
                std::pair<unsigned, unsigned> kernelIndexRange,
-               bool forward);
+               bool isFractional);
 
 /// Return the input range that is associate with
 /// the specified kernel index when calculating the specified output range.
 std::pair<unsigned, unsigned>
 getInputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
               unsigned kernelSize, unsigned padding,
-              unsigned inputSize, unsigned kernelIndex, bool forward);
+              unsigned inputSize, unsigned kernelIndex,
+              bool isFractional);
 
 std::pair<unsigned, unsigned>
 getInputRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
-              unsigned padding, unsigned inputSize, bool forward);
+              unsigned padding, unsigned inputSize, bool isFractional);
 
 std::pair<unsigned, unsigned>
 getInputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
               unsigned kernelSize, unsigned padding, unsigned inputSize,
-              bool forward);
+              bool isFractional);
 
 std::pair<unsigned, unsigned>
 getKernelRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
                unsigned padding, unsigned inputSize,
-               bool forward);
+               bool isFractional);
 
 std::pair<unsigned, unsigned>
 getKernelRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
                unsigned kernelSize, unsigned padding, unsigned inputSize,
-               bool forward);
+               bool isFractional);
 
 
 struct PartialRow {

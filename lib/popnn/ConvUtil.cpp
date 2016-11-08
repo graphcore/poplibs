@@ -4,8 +4,8 @@
 unsigned
 getInputIndex(unsigned outputIndex, unsigned stride, unsigned kernelSize,
               unsigned padding, unsigned inputSize, unsigned kernelIndex,
-              bool forward) {
-  if (forward) {
+              bool isFractionallyStrided) {
+  if (!isFractionallyStrided) {
     const auto start = static_cast<int>(outputIndex * stride) -
                        static_cast<int>(padding);
     auto inputIndex = start + static_cast<int>(kernelIndex);
@@ -14,7 +14,7 @@ getInputIndex(unsigned outputIndex, unsigned stride, unsigned kernelSize,
     return inputIndex;
   } else {
     int adjusted = static_cast<int>(outputIndex + padding) -
-                static_cast<int>(kernelIndex);
+                   static_cast<int>(kernelSize - 1 - kernelIndex);
     if (adjusted < 0 || adjusted % stride != 0)
       return ~0U;
     auto inputIndex = (static_cast<unsigned>(adjusted) / stride);
@@ -28,7 +28,7 @@ std::pair<unsigned, unsigned>
 getOutputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
                unsigned kernelSize, unsigned padding,
                unsigned inputSize, unsigned kernelIndex,
-               bool forward) {
+               bool isFractionallyStrided) {
   assert(outputRange.first <= outputRange.second);
   if (outputRange.first == outputRange.second) {
     return {0, 0};
@@ -36,7 +36,7 @@ getOutputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
   unsigned outputBegin = 0, outputEnd = 0;
   for (unsigned i = outputRange.first; i != outputRange.second; ++i) {
     if (getInputIndex(i, stride, kernelSize, padding,
-                      inputSize, kernelIndex, forward) == ~0U) {
+                      inputSize, kernelIndex, isFractionallyStrided) == ~0U) {
       continue;
     }
     outputBegin = i;
@@ -44,7 +44,7 @@ getOutputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
   }
   for (unsigned i = outputRange.second; i != outputRange.first; --i) {
     if (getInputIndex(i - 1, stride, kernelSize, padding, inputSize,
-                      kernelIndex, forward) == ~0U) {
+                      kernelIndex, isFractionallyStrided) == ~0U) {
       continue;
     }
     outputEnd = i;
@@ -57,14 +57,14 @@ std::pair<unsigned, unsigned>
 getOutputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
                unsigned kernelSize, unsigned padding, unsigned inputSize,
                std::pair<unsigned, unsigned> kernelIndexRange,
-               bool forward) {
+               bool isFractionallyStrided) {
   unsigned outputBegin = 0, outputEnd = 0;
   bool first = true;
   for (unsigned kernelIndex = kernelIndexRange.first;
        kernelIndex != kernelIndexRange.second; ++kernelIndex) {
     const auto trimmedOutputRange =
         getOutputRange(outputRange, stride, kernelSize, padding, inputSize,
-                       kernelIndex, forward);
+                       kernelIndex, isFractionallyStrided);
     if (trimmedOutputRange.first != trimmedOutputRange.second) {
       if (first) {
         outputBegin = trimmedOutputRange.first;
@@ -83,25 +83,26 @@ std::pair<unsigned, unsigned>
 getInputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
               unsigned kernelSize, unsigned padding,
               unsigned inputSize, unsigned kernelIndex,
-              bool forward) {
+              bool isFractionallyStrided) {
   auto truncatedOutputRange =
     getOutputRange(outputRange, stride, kernelSize, padding, inputSize,
-                   kernelIndex, forward);
+                   kernelIndex, isFractionallyStrided);
   if (truncatedOutputRange.first == truncatedOutputRange.second) {
     return {0, 0};
   }
   return {
     getInputIndex(truncatedOutputRange.first, stride, kernelSize,
-                  padding, inputSize, kernelIndex, forward),
+                  padding, inputSize, kernelIndex, isFractionallyStrided),
     getInputIndex(truncatedOutputRange.second - 1, stride, kernelSize,
-                  padding, inputSize, kernelIndex, forward) + 1
+                  padding, inputSize, kernelIndex, isFractionallyStrided) + 1
   };
 }
 
 std::pair<unsigned, unsigned>
 getInputRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
-              unsigned padding, unsigned inputSize, bool forward) {
-  if (forward) {
+              unsigned padding, unsigned inputSize,
+              bool isFractionallyStrided) {
+  if (!isFractionallyStrided) {
     int begin = static_cast<int>(outputIndex * stride) -
         static_cast<int>(padding);
     unsigned underflow = 0;
@@ -126,7 +127,7 @@ getInputRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
 std::pair<unsigned, unsigned>
 getInputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
               unsigned kernelSize, unsigned padding, unsigned inputSize,
-              bool forward) {
+              bool isFractionallyStrided) {
 
   assert(outputRange.first <= outputRange.second);
   if (outputRange.first == outputRange.second) {
@@ -134,24 +135,26 @@ getInputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
   }
   const auto begin =
       getInputRange(outputRange.first, stride, kernelSize,
-                    padding, inputSize, forward).first;
+                    padding, inputSize, isFractionallyStrided).first;
   const auto end =
       getInputRange(outputRange.second - 1, stride, kernelSize, padding,
-                    inputSize, forward).second;
+                    inputSize, isFractionallyStrided).second;
   return {begin, end};
 }
 
 std::pair<unsigned, unsigned>
 getKernelRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
-               unsigned padding, unsigned inputSize, bool forward) {
-  if (!forward)
+               unsigned padding, unsigned inputSize,
+               bool isFractionallyStrided) {
+  if (isFractionallyStrided)
     assert(0 && "non implemented");
   int begin = static_cast<int>(outputIndex * stride) -
               static_cast<int>(padding);
   unsigned inputBegin, inputEnd;
   std::tie(inputBegin, inputEnd) = getInputRange(outputIndex, stride,
                                                  kernelSize, padding,
-                                                 inputSize, forward);
+                                                 inputSize,
+                                                 isFractionallyStrided);
   const auto kernelBegin = inputBegin - begin;
   const auto kernelEnd = inputEnd - begin;
   return { kernelBegin, kernelEnd };
@@ -160,8 +163,8 @@ getKernelRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
 std::pair<unsigned, unsigned>
 getKernelRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
                unsigned kernelSize, unsigned padding,
-               unsigned inputSize, bool forward) {
-  if (!forward)
+               unsigned inputSize, bool isFractionallyStrided) {
+  if (isFractionallyStrided)
     assert(0 && "non implemented");
   assert(outputRange.first <= outputRange.second);
   if (outputRange.first == outputRange.second) {
@@ -169,10 +172,10 @@ getKernelRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
   }
   const auto begin =
       getKernelRange(outputRange.first, stride, kernelSize,
-                     padding, inputSize, forward).first;
+                     padding, inputSize, isFractionallyStrided).first;
   const auto end =
       getKernelRange(outputRange.second - 1, stride, kernelSize, padding,
-                     inputSize, forward).second;
+                     inputSize, isFractionallyStrided).second;
   return {begin, end};
 }
 

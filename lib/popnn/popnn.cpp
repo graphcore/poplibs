@@ -302,7 +302,8 @@ template class FullyConnectedBiasUpdate<half>;
 /**
  * Compute nx1 convolutions and accumulate them with partial sums in memory.
  **/
-template <class Base, class FPType, class AccumType, bool forward>
+template <class Base, class FPType, class AccumType,
+          bool isFractional>
 class ConvPartialnx1InOut: public Base {
 public:
   Vector<Input<Vector<FPType>>> in;
@@ -331,7 +332,7 @@ public:
           const auto inWidth = in[convNum * filterHeight].size() /
                                inChansPerGroup;
           unsigned inStride, outStride;
-          if (forward) {
+          if (!isFractional) {
             if (outWidth == 1) {
               assert(inWidth == 1);
               inStride = outStride = 1;
@@ -401,7 +402,7 @@ public:
           for (unsigned i = 0; i != weightReuseCount[w * numContexts + c];
                ++i) {
             auto convSize = out[convNum].size() / outChansPerGroup;
-            if (!forward) {
+            if (isFractional) {
               if (!in[convNum * filterHeight].empty() ) {
                 const auto outWidth = out[convNum].size() / outChansPerGroup;
                 const auto inWidth = in[convNum * filterHeight].size() /
@@ -435,7 +436,7 @@ public:
       convolutionsByWeight.emplace_back();
       for (unsigned i = 0; i != weightReuseCount[w]; ++i) {
         auto convSize = out[convNum].size() / outChansPerGroup;
-        if (!forward) {
+        if (isFractional) {
           const auto outWidth = out[convNum].size() / outChansPerGroup;
           const auto inWidth = in[convNum * filterHeight].size() /
                                inChansPerGroup;

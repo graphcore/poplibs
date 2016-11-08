@@ -298,9 +298,8 @@ createConvPartial1x1OutVertex(Graph &graph,
                               unsigned paddingX,
                               ComputeSet fwdCS,
                               const Tensor &in, const Tensor &weights,
-                              const Tensor &out, bool forward) {
+                              const Tensor &out) {
   assert(kernelSizeY == 1 && kernelSizeX == 1);
-  assert(forward || (strideY == 1 && strideX == 1));
   const auto inDimY = in.dim(1);
   const auto inDimX = in.dim(2);
   const auto inChansPerGroup = static_cast<unsigned>(in.dim(3));
@@ -328,10 +327,10 @@ createConvPartial1x1OutVertex(Graph &graph,
   unsigned inYBegin, inYEnd, inXBegin, inXEnd;
   std::tie(inYBegin, inYEnd) =
       getInputRange({outYBegin, outYEnd}, strideY, kernelSizeY,
-                     paddingY, inDimY, forward);
+                     paddingY, inDimY, false);
   std::tie(inXBegin, inXEnd) =
       getInputRange({outXBegin, outXEnd}, strideX,
-                     kernelSizeX, paddingX, inDimX, forward);
+                     kernelSizeX, paddingX, inDimX, false);
 
   // Add the vertex.
   const char *baseClass =
@@ -375,12 +374,12 @@ createConvPartial1x1OutVertex(Graph &graph,
         const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
         const auto workerInY =
             getInputIndex(workerOutY, strideY, kernelSizeY,
-                          paddingY, inDimY, 0, forward);
+                          paddingY, inDimY, 0, false);
         assert(workerInY != ~0U);
         unsigned workerInXBegin, workerInXEnd;
         std::tie(workerInXBegin, workerInXEnd) =
             getInputRange({workerOutXBegin, workerOutXEnd}, strideX,
-                          kernelSizeX, paddingX, inDimX, forward);
+                          kernelSizeX, paddingX, inDimX, false);
         const auto workerInWidth = workerInXEnd - workerInXBegin;
         assert(workerInWidth != 0);
         Tensor inWindow =
@@ -422,7 +421,8 @@ createConvPartialnx1InOutVertex(Graph &graph,
                                 const Tensor &weights,
                                 const Tensor &out,
                                 const Tensor &zeros,
-                                bool forward) {
+                                bool isFractional,
+                                bool flipWeights) {
   const auto inDimY = in.dim(1);
   const auto inDimX = in.dim(2);
   const auto inChansPerGroup = static_cast<unsigned>(in.dim(3));
@@ -448,7 +448,7 @@ createConvPartialnx1InOutVertex(Graph &graph,
       graph.addVertex(fwdCS,
                       templateVertex("popnn::ConvPartialnx1InOut", baseClass,
                                      dType, partialType,
-                                     forward ? "true" : "false"));
+                                     isFractional ? "true" : "false"));
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
   graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
@@ -463,7 +463,8 @@ createConvPartialnx1InOutVertex(Graph &graph,
     unsigned convOutYBegin, convOutYEnd;
     std::tie(convOutYBegin, convOutYEnd) =
         getOutputRange({outYBegin, outYEnd}, strideY, kernelSizeY,
-                       paddingY, inDimY, {wyBegin, wyEnd}, forward);
+                       paddingY, inDimY, {wyBegin, wyEnd},
+                       isFractional);
     const auto convOutHeight = convOutYEnd - convOutYBegin;
     if (convOutHeight == 0)
       continue;
@@ -471,16 +472,18 @@ createConvPartialnx1InOutVertex(Graph &graph,
       unsigned convOutXBegin, convOutXEnd;
       std::tie(convOutXBegin, convOutXEnd) =
           getOutputRange({outXBegin, outXEnd}, strideX, kernelSizeX,
-                         paddingX, inDimX, wx, forward);
+                         paddingX, inDimX, wx,
+                         isFractional);
       const auto convOutWidth = convOutXEnd - convOutXBegin;
       if (convOutWidth == 0)
         continue;
 
-      // In the backwards pass, if we are handling one row of the kernel at
-      // a time, the partitioning of work across the workers can be aware of
-      // the stride and only allocate work on the rows that get affected.
+      // In a fractionally strided pass, if we are handling one row of the
+      // kernel at a time, the partitioning of work across the workers can be
+      // aware of the stride and only allocate work on the rows that get
+      // affected.
       unsigned outputStride =
-          (!forward && convUnitWeightHeight == 1) ? strideY : 1;
+          (isFractional && convUnitWeightHeight == 1) ? strideY : 1;
       std::vector<std::vector<PartialRow>> workerPartition =
           partitionConvPartialByWorker(convOutHeight, convOutWidth,
                                        contextsPerVertex, outputStride);
@@ -490,7 +493,9 @@ createConvPartialnx1InOutVertex(Graph &graph,
              ++wy) {
           Tensor w;
           if (wy < wyEnd) {
-            w = weights[outZGroup][izg][wy][wx].flatten();
+            auto wxx = flipWeights ? kernelSizeX - 1 - wx : wx;
+            auto wyy = flipWeights ? kernelSizeY - 1 - wy : wy;
+            w = weights[outZGroup][izg][wyy][wxx].flatten();
           } else {
             w = zeros.slice(0, inChansPerGroup * outChansPerGroup);
           }
@@ -509,19 +514,22 @@ createConvPartialnx1InOutVertex(Graph &graph,
             std::tie(workerOutXBegin, workerOutXEnd) =
                 getOutputRange({convOutXBegin + partialRow.begin,
                                 convOutXBegin + partialRow.end},
-                                strideX, kernelSizeX, paddingX, inDimX, wx,
-                               forward);
+                                strideX, kernelSizeX, paddingX, inDimX,
+                                wx,
+                                isFractional);
             const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
             unsigned workerInXBegin, workerInXEnd;
             std::tie(workerInXBegin, workerInXEnd) =
                 getInputRange({workerOutXBegin, workerOutXEnd}, strideX,
-                              kernelSizeX, paddingX, inDimX, wx, forward);
+                              kernelSizeX, paddingX, inDimX, wx,
+                              isFractional);
             const auto workerInWidth = workerInXEnd - workerInXBegin;
             for (unsigned wy = wyBegin; wy != wyBegin + convUnitWeightHeight;
                  ++wy) {
               const auto workerInY =
                   getInputIndex(workerOutY, strideY, kernelSizeY,
-                                paddingY, inDimY, wy, forward);
+                                paddingY, inDimY, wy,
+                                isFractional);
               Tensor inWindow;
               if (workerInY == ~0U) {
                 inWindow = zeros.slice(0, workerInWidth * inChansPerGroup);
@@ -585,17 +593,17 @@ createConvPartialDotProductVertex(Graph &graph,
   const auto y = outYBegin;
   unsigned inYBegin, inYEnd, inXBegin, inXEnd;
   std::tie(inYBegin, inYEnd) =
-      getInputRange(y, strideY, kernelSizeY, paddingY, inDimY, true);
+      getInputRange(y, strideY, kernelSizeY, paddingY, inDimY, false);
   std::tie(inXBegin, inXEnd) =
       getInputRange({outXBegin, outXEnd}, strideX, kernelSizeX,
-                    paddingX, inDimX, true);
+                    paddingX, inDimX, false);
   // Window into previous layer.
   const auto inWidth = inXEnd - inXBegin;
   const auto inHeight = inYEnd - inYBegin;
   // Weights that match the window.
   unsigned weightYBegin, weightYEnd;
   std::tie(weightYBegin, weightYEnd) =
-      getKernelRange(y, strideY, kernelSizeY, paddingY, inDimY, true);
+      getKernelRange(y, strideY, kernelSizeY, paddingY, inDimY, false);
   Tensor inWindow =
       in.slice(
   {inZGroupBegin, inYBegin, inXBegin, 0},
@@ -688,7 +696,8 @@ calcPartialConvOutput(Graph &graph,
                       unsigned paddingX,
                       ComputeSet zeroCS,
                       ComputeSet fwdCS,
-                      Tensor in, Tensor weights, Tensor out, bool forward) {
+                      Tensor in, Tensor weights, Tensor out,
+                      bool isFractional, bool flipWeights) {
   const auto inChansPerGroup = partition.inChansPerGroup;
   const auto outChansPerGroup = partition.partialChansPerGroup;
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
@@ -705,7 +714,7 @@ calcPartialConvOutput(Graph &graph,
       const auto inDimX = in.dim(2);
       const auto inputRange = getInputRange({outXBegin, outXEnd}, strideX,
                                             kernelSizeX, paddingX,
-                                            inDimX, forward);
+                                            inDimX, isFractional);
       const auto inputRangeSize = inputRange.second - inputRange.first;
       // This isn't split across multiple workers since it can happen in
       // parallel with zeroing the partial sums.
@@ -721,7 +730,8 @@ calcPartialConvOutput(Graph &graph,
       graph.setTileMapping(zeros, tile);
     }
     useConvPartial1x1OutVertex = kernelSizeX == 1 && kernelSizeY == 1 &&
-                                 (forward || (strideX == 1 && strideY == 1));
+                                 (!isFractional ||
+                                    (strideX == 1 && strideY == 1));
     if (!useConvPartial1x1OutVertex) {
       zeroPartialSums(graph, partition,
                       outXBegin, outXEnd, outYBegin, outYEnd,
@@ -748,8 +758,7 @@ calcPartialConvOutput(Graph &graph,
                                       inZGroupBegin, inZGroupEnd,
                                       kernelSizeY, kernelSizeX, strideY,
                                       strideX, paddingY, paddingX,
-                                      fwdCS, in, weights, out,
-                                      forward);
+                                      fwdCS, in, weights, out);
       } else if (partition.useConvolutionInstructions) {
         createConvPartialnx1InOutVertex(graph, tile, outXBegin, outXEnd,
                                         vertexOutYBegin, vertexOutYEnd,
@@ -758,11 +767,12 @@ calcPartialConvOutput(Graph &graph,
                                         kernelSizeY, kernelSizeX, strideY,
                                         strideX, paddingY, paddingX,
                                         fwdCS, in, weights, out,
-                                        zeros, forward);
+                                        zeros, isFractional,
+                                        flipWeights);
       } else {
-        if (!forward)
+        if (isFractional || flipWeights)
           assert(0 && "Non convolution instruction backward "
-                      "pass not yet implemented");
+                      "pass with striding or flipped weights not implemented");
         createConvPartialDotProductVertex(graph, partition, tile,
                                           outXBegin, outXEnd,
                                           vertexOutYBegin, vertexOutYEnd,
@@ -851,7 +861,7 @@ calcPartialSums(Graph &graph,
                 Tensor in, Tensor weights, Tensor partials,
                 const std::string &layerName,
                 unsigned outDimX, unsigned outDimY,
-                bool forward) {
+                bool isFractional, bool flipWeights) {
   const auto batchSize = in.dim(0);
   const auto isMultiIPU = graph.getDevice().getDeviceInfo().numIPUs > 1;
   const auto inNumChans = in.dim(1) * in.dim(4);
@@ -897,7 +907,7 @@ calcPartialSums(Graph &graph,
                                   convolveCS,
                                   in[b], weights,
                                   partials[b][izg],
-                                  forward);
+                                  isFractional, flipWeights);
           }
         }
       }
@@ -1201,7 +1211,7 @@ convolution(Graph &graph,
                                     paddingY, paddingX, outNumChans,
                                     dType, in, weights, partials, layerName,
                                     partialOutDimX, partialOutDimY,
-                                    true));
+                                    false, false));
 
     if (plan.flattenXY) {
       partials = partials.dimShuffle({1, 2, 0, 3, 4, 5 }).reshape(
@@ -1256,12 +1266,12 @@ static std::uint64_t getNumberOfMACs(unsigned outDimY, unsigned outDimX,
   for (unsigned y = 0; y < outDimY; ++y) {
     unsigned inYBegin, inYEnd;
     std::tie(inYBegin, inYEnd) = getInputRange(y, strideY, kernelSizeY,
-                                               paddingY, inDimY, true);
+                                               paddingY, inDimY, false);
     const auto height = inYEnd - inYBegin;
     for (unsigned x = 0; x < outDimX; ++x) {
       unsigned inXBegin, inXEnd;
       std::tie(inXBegin, inXEnd) = getInputRange(x, strideX, kernelSizeX,
-                                                 paddingX, inDimX, true);
+                                                 paddingX, inDimX, false);
       const auto width = inXEnd - inXBegin;
       numMACs += width * height * outNumChans * inNumChans;
     }
@@ -1490,12 +1500,27 @@ Program convolutionBackward(Graph &graph,
                                      partialOutDimX,
                                      partialChansPerGroup},
                                     "partials");
+  const auto inDimY = zDeltas.dim(2);
+  const auto inDimX = zDeltas.dim(3);
+  bool isFractional = strideX != 1 || strideY != 1;
+
+  if (paddingX >= kernelSizeX || paddingY >= kernelSizeY) {
+    throw popnn::popnn_error("Backwards convolution pass does not support "
+                             "padding that is greater than or equal to the "
+                             "kernel size");
+  }
+
+  if (!isFractional) {
+    paddingX = kernelSizeX - 1 - paddingX;
+    paddingY = kernelSizeY - 1 - paddingY;
+  }
+
   bwdProg.add(calcPartialSums(graph, plan.bwdPartition,
                               kernelSizeY, kernelSizeX, strideY, strideX,
                               paddingY, paddingX, outNumChans, dType,
                               zDeltas, bwdWeights, partials, layerName,
-                              partialOutDimX, partialOutDimY, false));
-
+                              partialOutDimX, partialOutDimY,
+                              isFractional, true));
 
   if (plan.flattenXY) {
     partials = partials.dimShuffle({1, 2, 0, 3, 4, 5 }).reshape(
@@ -1578,13 +1603,13 @@ createWeightGradVertex(Graph &graph,
     unsigned inYBegin, inYEnd;
     std::tie(inYBegin, inYEnd) =
         getInputRange({outYBegin, outYEnd}, strideY,
-                      kernelSizeY, paddingY, inDimY, true);
+                      kernelSizeY, paddingY, inDimY, false);
     const auto inHeight = inYEnd - inYBegin;
     assert (inHeight != 0);
     unsigned inXBegin, inXEnd;
     std::tie(inXBegin, inXEnd) =
         getInputRange({outXBegin, outXEnd}, strideX,
-                      kernelSizeX, paddingX, inDimX, true);
+                      kernelSizeX, paddingX, inDimX, false);
     graph.setInitialValue(v["ypadding"],
                           inYBegin < paddingY ? paddingY - inYBegin : 0);
     graph.setInitialValue(v["xpadding"],
@@ -1715,8 +1740,7 @@ matrixMultiplyByConvInstruction(Graph &graph, Partition partition,
                            kernelSize, kernelSize, stride, stride,
                            padding, padding, outNumChans,
                            dType, in, weights, partials, "matrixMul",
-                           outDimX, outDimY,
-                           true));
+                           outDimX, outDimY, false, false));
   // Perform the reduction of partial sums.
   if (partition.tilesPerInZGroupAxis > 1) {
     auto reduceCS = graph.createComputeSet("reduce");
