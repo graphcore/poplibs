@@ -1360,7 +1360,8 @@ Program transformWeights(Graph &graph,
 
   // TODO: is the weight mapping still the best given this transformation?
 
-  assert(bwdPartition.useConvolutionInstructions &&
+  if (!bwdPartition.useConvolutionInstructions)
+    throw popnn::popnn_error(
          "Backward pass for non dot product style conv not implemented");
 
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
