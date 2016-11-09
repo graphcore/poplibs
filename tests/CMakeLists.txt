@@ -121,6 +121,7 @@ add_test(NAME small_conv_many_tiles
                  --output-channels=32
                  --width=14
                  --height=14
+                 --partials-type=float
                  --tiles-per-ipu=1216)
 
 add_test(NAME conv_batch_bwd
