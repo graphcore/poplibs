@@ -44,10 +44,7 @@ def create_report(runs, filename, param_info, arch_explore, training):
     def get_total_cycles(data):
         return sum_fields_if_there(data, ['Compute cycles',
                                           'Global exchange cycles',
-                                          'Send',
-                                          'Receive mux',
-                                          'Receive ptr',
-                                          'Nop',
+                                          'IPU exchange cycles',
                                           'Tile sync',
                                           'IPU sync',
                                           'Global sync'])
@@ -154,10 +151,7 @@ def create_report(runs, filename, param_info, arch_explore, training):
         compute_cycles_percent = \
           alexnet_1_ipu[0]['Compute cycles'] / all_cycles * 100
         exchange_cycles_percent = \
-          sum_fields_if_there(alexnet_1_ipu[0], ['Send',
-                                                 'Receive mux',
-                                                 'Receive ptr',
-                                                 'Nop']) / all_cycles * 100
+          alexnet_1_ipu[0]['IPU exchange cycles'] / all_cycles * 100
         sync_cycles_percent = \
           sum_fields(alexnet_1_ipu[0], ['Tile sync',
                                        'IPU sync']) / all_cycles * 100
@@ -175,23 +169,6 @@ def create_report(runs, filename, param_info, arch_explore, training):
                       'Exchange supervisor code']:
             mem = alexnet_1_ipu[0][field]
             f.write('{}, {:.1f}%\n'.format(field, mem / alexnet_total_mem * 100))
-
-        f.write(',\nALEXNET 1 IPU EXCHANGE BREAKDOWN,\n,\n')
-
-        exchange_cycles = sum_fields_if_there(alexnet_1_ipu[0], ['Send',
-                                                                 'Receive mux',
-                                                                 'Receive ptr',
-                                                                 'Nop'])
-
-        for field in ['Send', 'Receive mux', 'Receive ptr', 'Nop']:
-            cycles_percent = alexnet_1_ipu[0][field] / exchange_cycles * 100
-            f.write('{}, {:.1f}%\n'.format(field, cycles_percent))
-
-        f.write(',\n')
-
-        exchange_activity = alexnet_1_ipu[0]['Exchange activity']
-        f.write('Receiving, {:.1f}%\n'.format(exchange_activity));
-        f.write('Not receiving, {:.1f}%\n'.format(100-exchange_activity));
 
         f.write(',\nALEXNET 1 IPU PERFORMANCE,\n,\n')
 
@@ -410,54 +387,6 @@ def create_report(runs, filename, param_info, arch_explore, training):
                     format(*meminfo(alexnet_xlarge_tiles,
                                     resnet34_xlarge_tiles,
                                     resnet50_xlarge_tiles)))
-        
-        def get_send_stats(data):
-            min_send_ratio = 1
-            max_send_ratio = 0
-            sum_send_ratio = 0
-            sum_cycles = 0
-            for d in data:
-                exchange_cycles = sum_fields_if_there(d, ['Send',
-                                                          'Receive mux',
-                                                          'Receive ptr',
-                                                          'Nop'])
-                if exchange_cycles == 0:
-                    continue
-                ratio = d.get('Send', 0) / exchange_cycles
-                min_send_ratio = min(min_send_ratio, ratio)
-                max_send_ratio = max(max_send_ratio, ratio)
-                sum_send_ratio += ratio * exchange_cycles
-                sum_cycles += exchange_cycles
-
-            return (min_send_ratio * 100, sum_send_ratio / sum_cycles*100, max_send_ratio*100)
-
-        def get_recv_stats(data):
-            min_recv_ratio = 1
-            max_recv_ratio = 0
-            sum_recv_ratio = 0
-            sum_cycles = 0
-            for d in data:
-                exchange_cycles = sum_fields_if_there(d, ['Send',
-                                                          'Receive mux',
-                                                          'Receive ptr',
-                                                          'Nop'])
-                if exchange_cycles == 0:
-                    continue
-                ratio = d['Exchange activity'] / 100
-                min_recv_ratio = min(min_recv_ratio, ratio)
-                max_recv_ratio = max(max_recv_ratio, ratio)
-                sum_recv_ratio += ratio * exchange_cycles
-                sum_cycles += exchange_cycles
-
-            return (min_recv_ratio * 100, sum_recv_ratio / sum_cycles*100, max_recv_ratio*100)
-
-
-        f.write(',\nEXCHANGE DENSITY,\n,\n')
-
-        f.write('% cycles, min, mean, max\n')
-        all_layers = alexnet_1_ipu[1:] + resnet34[1:] + resnet50[1:]
-        f.write('Sending, {:.1f}%, {:.1f}%, {:.1f}%\n'.format(*get_send_stats(all_layers)))
-        f.write('Receiving, {:.1f}%, {:.1f}%, {:.1f}%\n'.format(*get_recv_stats(all_layers)))
 
         f.write(',\nALEXNET TILE USAGE,\n,\n')
 
@@ -477,187 +406,187 @@ def create_report(runs, filename, param_info, arch_explore, training):
             f.write('{}, {}, {}\n'.format(d['Layer ID'],
                                           int(d['Num tiles computing']),
                                           int(d['Num tiles exchanging'])))
-            
-        alexnet_train_cycles = get_total_cycles(alexnet_train[0])
-        resnet34_train_cycles = get_total_cycles(resnet34_train[0])
-        resnet50_train_cycles = get_total_cycles(resnet50_train[0])
 
-        alexnet_bwd_cycles = alexnet_train_cycles - alexnet_cycles
-        resnet34_bwd_cycles = resnet34_train_cycles - resnet34_cycles
-        resnet50_bwd_cycles = resnet50_train_cycles - resnet50_cycles
+        if alexnet_train and resnet34_train and resnet50_train:
+            alexnet_train_cycles = get_total_cycles(alexnet_train[0])
+            resnet34_train_cycles = get_total_cycles(resnet34_train[0])
+            resnet50_train_cycles = get_total_cycles(resnet50_train[0])
 
-        alexnet_train_flops = alexnet_train[0]['FLOPS']
-        resnet34_train_flops = resnet34_train[0]['FLOPS']
-        resnet50_train_flops = resnet50_train[0]['FLOPS']
+            alexnet_bwd_cycles = alexnet_train_cycles - alexnet_cycles
+            resnet34_bwd_cycles = resnet34_train_cycles - resnet34_cycles
+            resnet50_bwd_cycles = resnet50_train_cycles - resnet50_cycles
 
-        alexnet_bwd_flops = alexnet_train[0]['FLOPS'] - alexnet_flops
-        resnet34_bwd_flops = resnet34_train[0]['FLOPS'] - resnet34_flops
-        resnet50_bwd_flops = resnet50_train[0]['FLOPS'] - resnet50_flops
+            alexnet_train_flops = alexnet_train[0]['FLOPS']
+            resnet34_train_flops = resnet34_train[0]['FLOPS']
+            resnet50_train_flops = resnet50_train[0]['FLOPS']
 
-        alexnet_bwd_us_per_image = alexnet_bwd_cycles / CYCLES_PER_SEC * 1000000
-        alexnet_bwd_gflops_per_sec = alexnet_bwd_flops / alexnet_bwd_us_per_image / 1000
-        resnet34_bwd_us_per_image = resnet34_bwd_cycles / CYCLES_PER_SEC * 1000000
-        resnet34_bwd_gflops_per_sec = resnet34_bwd_flops / resnet34_bwd_us_per_image / 1000
-        resnet50_bwd_us_per_image = resnet50_bwd_cycles / CYCLES_PER_SEC * 1000000
-        resnet50_bwd_gflops_per_sec = resnet50_bwd_flops / resnet50_bwd_us_per_image / 1000
+            alexnet_bwd_flops = alexnet_train[0]['FLOPS'] - alexnet_flops
+            resnet34_bwd_flops = resnet34_train[0]['FLOPS'] - resnet34_flops
+            resnet50_bwd_flops = resnet50_train[0]['FLOPS'] - resnet50_flops
 
-
-
-        f.write(',\nTRAIN PERFORMANCE,\n,\n')
-
-        f.write('Benchmark, Foward, Backward\n')
-        f.write('alexnet,{:.1f},{:.1f}\n'.format(alexnet_gflops_per_sec/1000,
-                                               alexnet_bwd_gflops_per_sec/1000));
-        f.write('resnet34,{:.1f},{:.1f}\n'.format(resnet34_gflops_per_sec/1000,
-                                               resnet34_bwd_gflops_per_sec/1000));
-        f.write('resnet50,{:.1f},{:.1f}\n'.format(resnet50_gflops_per_sec/1000,
-                                               resnet50_bwd_gflops_per_sec/1000));
+            alexnet_bwd_us_per_image = alexnet_bwd_cycles / CYCLES_PER_SEC * 1000000
+            alexnet_bwd_gflops_per_sec = alexnet_bwd_flops / alexnet_bwd_us_per_image / 1000
+            resnet34_bwd_us_per_image = resnet34_bwd_cycles / CYCLES_PER_SEC * 1000000
+            resnet34_bwd_gflops_per_sec = resnet34_bwd_flops / resnet34_bwd_us_per_image / 1000
+            resnet50_bwd_us_per_image = resnet50_bwd_cycles / CYCLES_PER_SEC * 1000000
+            resnet50_bwd_gflops_per_sec = resnet50_bwd_flops / resnet50_bwd_us_per_image / 1000
 
 
-        f.write(',\nTRAIN MEMORY,\n,\n')
 
-        ipu_mem = 1216 * .25
+            f.write(',\nTRAIN PERFORMANCE,\n,\n')
 
-        f.write('Benchmark, Memory (MB)\n')
-        f.write('alexnet, {:.0f}, {:.0f}% \nresnet34,{:.0f}, {:.0f}%\nresnet50,{:.0f}, {:.0f}%\n'.format(
-                MB(get_total_mem(alexnet_train[0])), MB(get_total_mem(alexnet_train[0])) / ipu_mem * 100,
-                MB(get_total_mem(resnet34_train[0])), MB(get_total_mem(resnet34_train[0])) / ipu_mem * 100,
-                MB(get_total_mem(resnet50_train[0])), MB(get_total_mem(resnet50_train[0])) / ipu_mem * 100))
-
-        f.write(',\n\nTRAINING OVERALL MEMORY USAGE,\n,\n')
-
-        f.write('Category, Alexnet, ResNet34, ResNet50\n')
-        for field in ['Vertex data',
-                      'Tensor data',
-                      'In edge pointers',
-                      'Message memory',
-                      'Run instructions',
-                      'Exchange supervisor code']:
-            f.write('{} (MB), {:.0f},{:.0f},{:.0f}\n'.format(
-                    field,
-                    MB(alexnet_train[0][field]),
-                    MB(resnet34_train[0][field]),
-                    MB(resnet50_train[0][field])))
-        f.write('TOTAL (MB), {:.0f},{:.0f},{:.0f}\n'.format(
-                MB(get_total_mem(alexnet_train[0])),
-                MB(get_total_mem(resnet34_train[0])),
-                MB(get_total_mem(resnet50_train[0]))))
-        f.write(',,,\n')
-        bytes_per_param = 2
-        alexnet_params_mb = MB(alexnet_train[0]['Parameters'] * bytes_per_param)
-        resnet34_params_mb = MB(resnet34_train[0]['Parameters'] * bytes_per_param)
-        resnet50_params_mb = MB(resnet50_train[0]['Parameters'] * bytes_per_param)
-        f.write('Parameters (MB), {:.0f},{:.0f},{:.0f}\n'.format(
-                alexnet_params_mb,
-                resnet34_params_mb,
-                resnet50_params_mb))
-        f.write('Tensor data/param, {:.2f},{:.2f},{:.2f}\n'.format(
-                MB(alexnet_train[0]['Tensor data']) / alexnet_params_mb,
-                MB(resnet34_train[0]['Tensor data']) / resnet34_params_mb,
-                MB(resnet50_train[0]['Tensor data']) / resnet50_params_mb))
-        f.write('Num vertices,{:.0f},{:.0f},{:.0f}\n'.format(
-                alexnet_train[0]['Number of vertices'],
-                resnet34_train[0]['Number of vertices'],
-                resnet50_train[0]['Number of vertices'],
-               ))
-        f.write('Num edges,{:.0f},{:.0f},{:.0f}\n'.format(
-                alexnet_train[0]['Number of edges'],
-                resnet34_train[0]['Number of edges'],
-                resnet50_train[0]['Number of edges'],
-               ))
-        vertex_bytes_fields = ['Vertex data', 'Run instructions']
-        alexnet_vertex_bytes = sum_fields(alexnet_train[0], vertex_bytes_fields)
-        resnet34_vertex_bytes = sum_fields(resnet34_train[0], vertex_bytes_fields)
-        resnet50_vertex_bytes = sum_fields(resnet50_train[0], vertex_bytes_fields)
-        f.write('Bytes/vertex,{:.1f},{:.1f},{:.1f}\n'.format(
-                alexnet_vertex_bytes/alexnet_train[0]['Number of vertices'],
-                resnet34_vertex_bytes/resnet34_train[0]['Number of vertices'],
-                resnet50_vertex_bytes/resnet50_train[0]['Number of vertices'],
-               ))
-        edge_bytes_fields = ['In edge pointers', 'Exchange supervisor code']
-        alexnet_edge_bytes = sum_fields(alexnet_train[0], edge_bytes_fields)
-        resnet34_edge_bytes = sum_fields(resnet34_train[0], edge_bytes_fields)
-        resnet50_edge_bytes = sum_fields(resnet50_train[0], edge_bytes_fields)
-        f.write('Bytes/edge,{:.1f},{:.1f},{:.1f}\n'.format(
-                alexnet_edge_bytes/alexnet_train[0]['Number of edges'],
-                resnet34_edge_bytes/resnet34_train[0]['Number of edges'],
-                resnet50_edge_bytes/resnet50_train[0]['Number of edges'],
-               ))
+            f.write('Benchmark, Foward, Backward\n')
+            f.write('alexnet,{:.1f},{:.1f}\n'.format(alexnet_gflops_per_sec/1000,
+                                                   alexnet_bwd_gflops_per_sec/1000));
+            f.write('resnet34,{:.1f},{:.1f}\n'.format(resnet34_gflops_per_sec/1000,
+                                                   resnet34_bwd_gflops_per_sec/1000));
+            f.write('resnet50,{:.1f},{:.1f}\n'.format(resnet50_gflops_per_sec/1000,
+                                                   resnet50_bwd_gflops_per_sec/1000));
 
 
-        f.write(',\nTRAINING PERFORMANCE,\n,\n')
+            f.write(',\nTRAIN MEMORY,\n,\n')
 
-        alexnet_cycles = get_total_cycles(alexnet_train[0])
-        alexnet_compute_ratio = \
-          alexnet_train[0]['Compute cycles'] / alexnet_cycles
-        resnet34_cycles = get_total_cycles(resnet34_train[0])
-        resnet34_compute_ratio = \
-          resnet34_train[0]['Compute cycles'] / resnet34_cycles
-        resnet50_cycles = get_total_cycles(resnet50_train[0])
-        resnet50_compute_ratio = \
-          resnet50_train[0]['Compute cycles'] / resnet50_cycles
+            ipu_mem = 1216 * .25
 
-        alexnet_flops = alexnet_train[0]['FLOPS']
-        resnet34_flops = resnet34_train[0]['FLOPS']
-        resnet50_flops = resnet50_train[0]['FLOPS']
-        alexnet_us_per_image = alexnet_cycles / CYCLES_PER_SEC * 1000000
-        alexnet_gflops_per_sec = alexnet_flops / alexnet_us_per_image / 1000
-        resnet34_us_per_image = resnet34_cycles / CYCLES_PER_SEC * 1000000
-        resnet34_gflops_per_sec = resnet34_flops / resnet34_us_per_image / 1000
-        resnet50_us_per_image = resnet50_cycles / CYCLES_PER_SEC * 1000000
-        resnet50_gflops_per_sec = resnet50_flops / resnet50_us_per_image / 1000
+            f.write('Benchmark, Memory (MB)\n')
+            f.write('alexnet, {:.0f}, {:.0f}% \nresnet34,{:.0f}, {:.0f}%\nresnet50,{:.0f}, {:.0f}%\n'.format(
+                    MB(get_total_mem(alexnet_train[0])), MB(get_total_mem(alexnet_train[0])) / ipu_mem * 100,
+                    MB(get_total_mem(resnet34_train[0])), MB(get_total_mem(resnet34_train[0])) / ipu_mem * 100,
+                    MB(get_total_mem(resnet50_train[0])), MB(get_total_mem(resnet50_train[0])) / ipu_mem * 100))
 
-        alexnet_vertex_ratio =  alexnet_train[0]['Perfect cycles'] / \
-                                alexnet_train[0]['Compute cycles']
-        resnet34_vertex_ratio = resnet34_train[0]['Perfect cycles'] / \
-                                resnet34_train[0]['Compute cycles']
-        resnet50_vertex_ratio = resnet50_train[0]['Perfect cycles'] / \
-                                resnet50_train[0]['Compute cycles']
+            f.write(',\n\nTRAINING OVERALL MEMORY USAGE,\n,\n')
 
-        alexnet_ratio = alexnet_train[0]['Perfect cycles'] / alexnet_cycles
-        resnet34_ratio = resnet34_train[0]['Perfect cycles'] / resnet34_cycles
-        resnet50_ratio = resnet50_train[0]['Perfect cycles'] / resnet50_cycles
+            f.write('Category, Alexnet, ResNet34, ResNet50\n')
+            for field in ['Vertex data',
+                          'Tensor data',
+                          'In edge pointers',
+                          'Message memory',
+                          'Run instructions',
+                          'Exchange supervisor code']:
+                f.write('{} (MB), {:.0f},{:.0f},{:.0f}\n'.format(
+                        field,
+                        MB(alexnet_train[0][field]),
+                        MB(resnet34_train[0][field]),
+                        MB(resnet50_train[0][field])))
+            f.write('TOTAL (MB), {:.0f},{:.0f},{:.0f}\n'.format(
+                    MB(get_total_mem(alexnet_train[0])),
+                    MB(get_total_mem(resnet34_train[0])),
+                    MB(get_total_mem(resnet50_train[0]))))
+            f.write(',,,\n')
+            bytes_per_param = 2
+            alexnet_params_mb = MB(alexnet_train[0]['Parameters'] * bytes_per_param)
+            resnet34_params_mb = MB(resnet34_train[0]['Parameters'] * bytes_per_param)
+            resnet50_params_mb = MB(resnet50_train[0]['Parameters'] * bytes_per_param)
+            f.write('Parameters (MB), {:.0f},{:.0f},{:.0f}\n'.format(
+                    alexnet_params_mb,
+                    resnet34_params_mb,
+                    resnet50_params_mb))
+            f.write('Tensor data/param, {:.2f},{:.2f},{:.2f}\n'.format(
+                    MB(alexnet_train[0]['Tensor data']) / alexnet_params_mb,
+                    MB(resnet34_train[0]['Tensor data']) / resnet34_params_mb,
+                    MB(resnet50_train[0]['Tensor data']) / resnet50_params_mb))
+            f.write('Num vertices,{:.0f},{:.0f},{:.0f}\n'.format(
+                    alexnet_train[0]['Number of vertices'],
+                    resnet34_train[0]['Number of vertices'],
+                    resnet50_train[0]['Number of vertices'],
+                   ))
+            f.write('Num edges,{:.0f},{:.0f},{:.0f}\n'.format(
+                    alexnet_train[0]['Number of edges'],
+                    resnet34_train[0]['Number of edges'],
+                    resnet50_train[0]['Number of edges'],
+                   ))
+            vertex_bytes_fields = ['Vertex data', 'Run instructions']
+            alexnet_vertex_bytes = sum_fields(alexnet_train[0], vertex_bytes_fields)
+            resnet34_vertex_bytes = sum_fields(resnet34_train[0], vertex_bytes_fields)
+            resnet50_vertex_bytes = sum_fields(resnet50_train[0], vertex_bytes_fields)
+            f.write('Bytes/vertex,{:.1f},{:.1f},{:.1f}\n'.format(
+                    alexnet_vertex_bytes/alexnet_train[0]['Number of vertices'],
+                    resnet34_vertex_bytes/resnet34_train[0]['Number of vertices'],
+                    resnet50_vertex_bytes/resnet50_train[0]['Number of vertices'],
+                   ))
+            edge_bytes_fields = ['In edge pointers', 'Exchange supervisor code']
+            alexnet_edge_bytes = sum_fields(alexnet_train[0], edge_bytes_fields)
+            resnet34_edge_bytes = sum_fields(resnet34_train[0], edge_bytes_fields)
+            resnet50_edge_bytes = sum_fields(resnet50_train[0], edge_bytes_fields)
+            f.write('Bytes/edge,{:.1f},{:.1f},{:.1f}\n'.format(
+                    alexnet_edge_bytes/alexnet_train[0]['Number of edges'],
+                    resnet34_edge_bytes/resnet34_train[0]['Number of edges'],
+                    resnet50_edge_bytes/resnet50_train[0]['Number of edges'],
+                   ))
 
-        
-        f.write(', Alexnet, ResNet34, ResNet50\n')
-        f.write('Effective GFLOP/s,{:.0f},{:.0f},{:.0f}\n'.format(
-                alexnet_gflops_per_sec,
-                resnet34_gflops_per_sec,
-                resnet50_gflops_per_sec))
 
-        f.write(',,,\n')
-        f.write('Compute ratio,{:.2f},{:.2f},{:.2f}\n'.format(
-                alexnet_compute_ratio,
-                resnet34_compute_ratio,
-                resnet50_compute_ratio))
-        f.write('Vertex overhead ratio,{:.2f},{:.2f},{:.2f}\n'.format(
-                alexnet_vertex_ratio,
-                resnet34_vertex_ratio,
-                resnet50_vertex_ratio))
-        f.write('Overall ratio,{:.2f},{:.2f},{:.2f}\n'.format(
-                alexnet_ratio,
-                resnet34_ratio,
-                resnet50_ratio))
+            f.write(',\nTRAINING PERFORMANCE,\n,\n')
 
-        f.write('\n\nRESNET50 AGGREGATED LAYER BREAKDOWN\n\n')
+            alexnet_cycles = get_total_cycles(alexnet_train[0])
+            alexnet_compute_ratio = \
+              alexnet_train[0]['Compute cycles'] / alexnet_cycles
+            resnet34_cycles = get_total_cycles(resnet34_train[0])
+            resnet34_compute_ratio = \
+              resnet34_train[0]['Compute cycles'] / resnet34_cycles
+            resnet50_cycles = get_total_cycles(resnet50_train[0])
+            resnet50_compute_ratio = \
+              resnet50_train[0]['Compute cycles'] / resnet50_cycles
 
-        layer_name = ''
-        layer_total = 0
-        layer_info = {}
-        all_layer_total = 0
-        for layer in resnet50_train[1:]:
-            id = layer['Layer ID']
-            if id.startswith('TensorCopy'):
-                id = 'TensorCopy'
-            if id not in layer_info:
-                layer_info[id] = 0
-            layer_info[id] += get_total_cycles(layer)
-            all_layer_total += get_total_cycles(layer)
+            alexnet_flops = alexnet_train[0]['FLOPS']
+            resnet34_flops = resnet34_train[0]['FLOPS']
+            resnet50_flops = resnet50_train[0]['FLOPS']
+            alexnet_us_per_image = alexnet_cycles / CYCLES_PER_SEC * 1000000
+            alexnet_gflops_per_sec = alexnet_flops / alexnet_us_per_image / 1000
+            resnet34_us_per_image = resnet34_cycles / CYCLES_PER_SEC * 1000000
+            resnet34_gflops_per_sec = resnet34_flops / resnet34_us_per_image / 1000
+            resnet50_us_per_image = resnet50_cycles / CYCLES_PER_SEC * 1000000
+            resnet50_gflops_per_sec = resnet50_flops / resnet50_us_per_image / 1000
 
-        info = list(layer_info.iteritems())
+            alexnet_vertex_ratio =  alexnet_train[0]['Perfect cycles'] / \
+                                    alexnet_train[0]['Compute cycles']
+            resnet34_vertex_ratio = resnet34_train[0]['Perfect cycles'] / \
+                                    resnet34_train[0]['Compute cycles']
+            resnet50_vertex_ratio = resnet50_train[0]['Perfect cycles'] / \
+                                    resnet50_train[0]['Compute cycles']
 
-        info.sort(key=lambda x:-x[1])
-        for (layer_name, layer_total) in info:
-            percent = layer_total / all_layer_total * 100
-            f.write('{}, {:.1f}%\n'.format(layer_name, percent))
+            alexnet_ratio = alexnet_train[0]['Perfect cycles'] / alexnet_cycles
+            resnet34_ratio = resnet34_train[0]['Perfect cycles'] / resnet34_cycles
+            resnet50_ratio = resnet50_train[0]['Perfect cycles'] / resnet50_cycles
+
+            f.write(', Alexnet, ResNet34, ResNet50\n')
+            f.write('Effective GFLOP/s,{:.0f},{:.0f},{:.0f}\n'.format(
+                    alexnet_gflops_per_sec,
+                    resnet34_gflops_per_sec,
+                    resnet50_gflops_per_sec))
+
+            f.write(',,,\n')
+            f.write('Compute ratio,{:.2f},{:.2f},{:.2f}\n'.format(
+                    alexnet_compute_ratio,
+                    resnet34_compute_ratio,
+                    resnet50_compute_ratio))
+            f.write('Vertex overhead ratio,{:.2f},{:.2f},{:.2f}\n'.format(
+                    alexnet_vertex_ratio,
+                    resnet34_vertex_ratio,
+                    resnet50_vertex_ratio))
+            f.write('Overall ratio,{:.2f},{:.2f},{:.2f}\n'.format(
+                    alexnet_ratio,
+                    resnet34_ratio,
+                    resnet50_ratio))
+
+            f.write('\n\nRESNET50 AGGREGATED LAYER BREAKDOWN\n\n')
+
+            layer_name = ''
+            layer_total = 0
+            layer_info = {}
+            all_layer_total = 0
+            for layer in resnet50_train[1:]:
+                id = layer['Layer ID']
+                if id.startswith('TensorCopy'):
+                    id = 'TensorCopy'
+                if id not in layer_info:
+                    layer_info[id] = 0
+                layer_info[id] += get_total_cycles(layer)
+                all_layer_total += get_total_cycles(layer)
+
+            info = list(layer_info.iteritems())
+
+            info.sort(key=lambda x:-x[1])
+            for (layer_name, layer_total) in info:
+                percent = layer_total / all_layer_total * 100
+                f.write('{}, {:.1f}%\n'.format(layer_name, percent))
         
