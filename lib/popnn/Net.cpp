@@ -205,7 +205,7 @@ Net::getConvPlan(unsigned i, unsigned inDimY, unsigned inDimX,
                             c->kernelSizeY, c->kernelSizeX,
                             c->strideY, c->strideX, c->paddingY,
                             c->paddingX,
-                            c->numChannels, batchSize, dType, 
+                            c->numChannels, batchSize, dType,
                             partialsType, *graph,
                             netType == TestOnlyNet);
 
