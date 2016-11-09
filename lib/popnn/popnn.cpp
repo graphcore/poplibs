@@ -1020,7 +1020,7 @@ public:
     unsigned numPartials = partials.size() / numReductions;
     for (unsigned r = 0; r < numReductions; ++r) {
       unsigned numElem = out[r].size();
-      cycles += 1 + numElem * (1 + (numPartials + vectorWidth - 1)
+      cycles += 1 + numPartials * (1 + (numElem + vectorWidth - 1)
                                    / vectorWidth);
     }
 
