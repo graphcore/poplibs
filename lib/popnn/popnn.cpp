@@ -402,12 +402,17 @@ public:
                ++i) {
             auto convSize = out[convNum].size() / outChansPerGroup;
             if (!forward) {
-              const auto outWidth = out[convNum].size() / outChansPerGroup;
-              const auto inWidth = in[convNum * filterHeight].size() /
-                                   inChansPerGroup;
-              const auto stride = (outWidth + inWidth - 1) / inWidth;
-              assert((outWidth + stride - 1) / stride == inWidth);
-              convSize = convSize / stride;
+              if (!in[convNum * filterHeight].empty() ) {
+                const auto outWidth = out[convNum].size() / outChansPerGroup;
+                const auto inWidth = in[convNum * filterHeight].size() /
+                                     inChansPerGroup;
+                const auto stride = (outWidth + inWidth - 1) / inWidth;
+                assert((outWidth + stride - 1) / stride == inWidth);
+                convSize = convSize / stride;
+              } else {
+                //nothing for this worker thread
+                convSize = 0;
+              }
             }
             convolutionsByWeight.back().push_back(convSize);
             ++convNum;
