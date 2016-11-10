@@ -454,8 +454,8 @@ Net::createResidualLayerFwd(unsigned i,
   outDimX = in0Dims[3];
   auto outChansPerGroup = getRequiredChansPerGroupFwd(i + 1, outDimY, outDimX,
                                                       numChannels);
-  if (!outChansPerGroup) {
-    outChansPerGroup = (dType == "float") ? 1 : 2;
+  if (outChansPerGroup == 0) {
+    outChansPerGroup = in0Dims[4];
   }
 
   acts[i + 1] = graph->addTensor(dType,
@@ -542,8 +542,19 @@ Net::createConvLayerFwd(unsigned i,
   auto outChansPerGroup = getRequiredChansPerGroupFwd(i + 1,
                                                       outDimY, outDimX,
                                                       numChannels);
-  if (!outChansPerGroup) {
-    outChansPerGroup = (dType == "float") ? 1 : 2;
+  if (outChansPerGroup == 0) {
+    // The next layer has no preference on channel grouping. Set the
+    // output channel group size to match the channel grouping of the partial
+    // sums. This is likely to be more efficient as it avoids regrouping of data
+    // after the reduction of partial sums.
+    const auto &deviceInfo = graph->getDevice().getDeviceInfo();
+    if (dType == "float") {
+      outChansPerGroup = deviceInfo.fp32InFp32OutConvUnitsPerTile;
+    } else if (partialsType == "float") {
+      outChansPerGroup = deviceInfo.fp16InFp32OutConvUnitsPerTile;
+    } else {
+      outChansPerGroup = deviceInfo.fp16InFp16OutConvUnitsPerTile;
+    }
   }
   assert(numChannels % outChansPerGroup == 0);
   const auto outNumChanGroups = numChannels / outChansPerGroup;
