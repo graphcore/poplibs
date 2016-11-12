@@ -7,7 +7,6 @@ add_library(popnn SHARED
   Cast.cpp
   Convolution.cpp
   ConvPlan.cpp
-  ConvReuse.cpp
   ConvUtil.cpp
   ConvUtil.hpp
   ConvValidation.hpp
@@ -25,6 +24,7 @@ add_library(popnn SHARED
   Regroup.hpp
   Regroup.cpp
   Residual.cpp
+  TensorOp.hpp
   VertexTemplates.hpp
   Winograd.cpp
   Zero.cpp
@@ -35,7 +35,6 @@ add_library(popnn SHARED
   ${CMAKE_SOURCE_DIR}/include/popnn/exceptions.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/FullyConnected.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/FullyConnectedPlan.hpp
-  ${CMAKE_SOURCE_DIR}/include/popnn/internal/ConvReuse.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Loss.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/MaxPool.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Net.hpp

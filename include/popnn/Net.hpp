@@ -14,7 +14,6 @@
 #include "popnn/NonLinearityDef.hpp"
 #include "popnn/ResidualDef.hpp"
 #include "popnn/NetDef.hpp"
-#include "popnn/internal/ConvReuse.hpp"
 
 class Layer { public: virtual ~Layer() {};};
 
@@ -175,7 +174,6 @@ class Net {
   std::string dType;
   std::string partialsType;
 
-  std::map<ConvImplSpec, ReusableLayer> convFwdImpls, convBwdImpls, convWUImpls;
   std::map<unsigned, fc::Plan> fullyConnectedPlan;
   std::vector<poplar::Tensor> acts, deltas;
   std::vector<std::pair<unsigned, unsigned>> residualDeltaIdxs;
@@ -195,26 +193,22 @@ class Net {
 
   unsigned getRequiredChansPerGroupBwd(int i);
 
-  ReusableLayer
-  getOrCreateConvImplFwd(const conv::ConvPlan &plan,
-                      const ConvImplSpec &impl);
-
+  struct ConvOp;
   poplar::program::Program
   createConvLayerFwd(unsigned i, unsigned kernelSizeY, unsigned kernelSizeX,
                      unsigned strideY, unsigned strideX,
                      unsigned paddingY, unsigned paddingX, unsigned numChannels,
-                     poplar::program::Sequence &initParamsProg);
+                     poplar::program::Sequence &initParamsProg,
+                     ConvOp &op);
 
-  ReusableLayer
-  getOrCreateConvImplBwd(const conv::ConvPlan &plan,
-                         const ConvImplSpec &impl);
-
+  struct ConvBwdOp; struct ConvWuOp;
   poplar::program::Program
   createConvLayerBwd(unsigned i, unsigned kernelSizeY, unsigned kernelSizeX,
                      unsigned strideY, unsigned strideX,
                      unsigned paddingY, unsigned paddingX,
                      NonLinearityType nonLinearityType,
-                     bool backwardPassRequired);
+                     bool backwardPassRequired, ConvBwdOp &bwdOp,
+                     ConvWuOp &wuOp);
 
   poplar::program::Program
   createResidualLayerFwd(unsigned i,
@@ -222,11 +216,6 @@ class Net {
 
   poplar::program::Program
   createResidualLayerBwd(unsigned i);
-
-
-  ReusableLayer
-  getOrCreateConvImplWeightUpdate(const conv::ConvPlan &plan,
-                                  const ConvImplSpec &impl);
 
   void outputConvDescription(unsigned inDimY, unsigned inDimX,
                              unsigned inNumChans,

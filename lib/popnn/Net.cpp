@@ -11,6 +11,7 @@
 #include "VertexTemplates.hpp"
 #include "popnn/NonLinearity.hpp"
 #include "popnn/Compiler.hpp"
+#include "TensorOp.hpp"
 #include <fstream>
 #include <iomanip>
 #include <array>
@@ -118,6 +119,93 @@ static std::string getDTypeString(DType dType) {
   }
 }
 
+
+// Wrapper functions to map tensors and then execute convolution
+static Program
+convolution(Graph &graph,
+     const conv::ConvPlan &plan,
+     unsigned kernelSizeY, unsigned kernelSizeX, unsigned strideY,
+     unsigned strideX, unsigned paddingY, unsigned paddingX,
+     Tensor in, Tensor weights, Tensor biases, Tensor activations,
+     const std::string &partialsType,
+     bool useWinogradConv,
+     unsigned winogradPatchSize) {
+  const auto batchSize = activations.dim(0);
+  mapActivations(graph, in);
+  conv::mapWeights(weights, graph, plan, batchSize);
+  conv::mapBiases(biases, graph, activations);
+  mapActivations(graph, activations);
+  return conv::convolution(graph, plan, kernelSizeY, kernelSizeX, strideY,
+                           strideX, paddingY, paddingX, in, weights, biases,
+                           activations, partialsType, useWinogradConv,
+                           winogradPatchSize);
+}
+
+static Program
+convolutionBackward(poplar::Graph &graph,
+                    const conv::ConvPlan &plan,
+                    poplar::Tensor zDeltas, poplar::Tensor weights,
+                    poplar::Tensor deltasOut,
+                    unsigned kernelSizeY, unsigned kernelSizeX,
+                    unsigned strideY, unsigned strideX,
+                    unsigned paddingY, unsigned paddingX) {
+  const auto batchSize = zDeltas.dim(0);
+  mapActivations(graph, zDeltas);
+  conv::mapWeights(weights, graph, plan, batchSize);
+  mapActivations(graph, deltasOut);
+  return conv::convolutionBackward(graph, plan, zDeltas, weights, deltasOut,
+                                   kernelSizeY, kernelSizeX, strideY, strideX,
+                                   paddingY, paddingX);
+}
+
+static Program
+convolutionWeightUpdate(poplar::Graph &graph,
+                        const conv::ConvPlan &plan,
+                        poplar::Tensor zDeltas, poplar::Tensor weights,
+                        poplar::Tensor biases,
+                        poplar::Tensor activations,
+                        unsigned kernelSizeY, unsigned kernelSizeX,
+                        unsigned strideY, unsigned strideX, unsigned paddingY,
+                        unsigned paddingX, float learningRate) {
+  const auto batchSize = zDeltas.dim(0);
+  mapActivations(graph, zDeltas);
+  conv::mapWeights(weights, graph, plan, batchSize);
+  conv::mapBiases(biases, graph, zDeltas);
+  mapActivations(graph, activations);
+  return conv::convolutionWeightUpdate(graph, plan, zDeltas, weights, biases,
+                                       activations, kernelSizeY, kernelSizeX,
+                                       strideY, strideX, paddingY, paddingX,
+                                       learningRate);
+}
+
+// Define structures containing tensor ops to pass between functions/methods.
+struct Net::ConvOp {
+  POPNN_TENSOR_OP_TYPE(convolution, conv::ConvPlan) op;
+  ConvOp(POPNN_TENSOR_OP_TYPE(convolution, conv::ConvPlan) op) :
+    op(std::move(op)) {}
+  template<typename ...Args>
+  Program operator()(Args&&... args) {
+    return op(std::forward<Args>(args)...);
+  };
+};
+struct Net::ConvBwdOp {
+  POPNN_TENSOR_OP_TYPE(convolutionBackward, conv::ConvPlan) op;
+  ConvBwdOp(POPNN_TENSOR_OP_TYPE(convolutionBackward, conv::ConvPlan) op) :
+    op(std::move(op)) {}
+  template<typename ...Args>
+  Program operator()(Args&&... args) {
+    return op(std::forward<Args>(args)...);
+  };
+};
+struct Net::ConvWuOp {
+  POPNN_TENSOR_OP_TYPE(convolutionWeightUpdate, conv::ConvPlan) op;
+  ConvWuOp(POPNN_TENSOR_OP_TYPE(convolutionWeightUpdate, conv::ConvPlan) op) :
+    op(std::move(op)) {}
+  template<typename ...Args>
+  Program operator()(Args&&... args) {
+    return op(std::forward<Args>(args)...);
+  };
+};
 
 /* When a Net object is constructed the corrensponding poplar graph is
    made */
@@ -392,45 +480,6 @@ void Net::outputDescription(const Layer *layer, unsigned i, Tensor in,
   }
 }
 
-
-ReusableLayer
-Net::getOrCreateConvImplFwd(const conv::ConvPlan &plan,
-                            const ConvImplSpec &impl) {
-  if (options.reuseLayerImplGraphs) {
-    auto it = convFwdImpls.find(impl);
-    if (it != convFwdImpls.end()) {
-      return it->second;
-    }
-  }
-  auto &inDims = impl.tensorDims[0];
-  auto &outDims = impl.tensorDims[1];
-  auto in = graph->addTensor(dType, inDims, "activations");
-  mapActivations(*graph, in);
-  auto inNumChans = inDims[1] * inDims[4];
-  auto outNumChans = outDims[1] * outDims[4];
-  Tensor weights = conv::createWeights(*graph, dType, inNumChans,
-                                       impl.kernelSizeY, impl.kernelSizeX,
-                                       outNumChans, plan);
-  Tensor biases = conv::createBiases(*graph, dType, outNumChans);
-  auto out = graph->addTensor(dType, outDims, "activations");
-  mapActivations(*graph, out);
-  auto prog = conv::convolution(*graph, plan,
-                                impl.kernelSizeY, impl.kernelSizeX,
-                                impl.strideY, impl.strideX,
-                                impl.paddingY, impl.paddingX,
-                                in, weights, biases, out,
-                                partialsType,
-                                options.useWinogradConv,
-                                options.winogradPatchSize);
-
-  std::vector<Tensor> inputs = {in, weights, biases};
-  auto reusableLayer = ReusableLayer(prog, inputs, {out});
-  if (options.reuseLayerImplGraphs) {
-    convFwdImpls.emplace(impl, reusableLayer);
-  }
-  return reusableLayer;
-}
-
 Program
 Net::createResidualLayerFwd(unsigned i,
                             const ResidualLayer &residualLayer) {
@@ -526,13 +575,15 @@ Net::createResidualLayerBwd(unsigned i) {
   POPNN_UNREACHABLE();
 }
 
+
 Program
 Net::createConvLayerFwd(unsigned i,
                         unsigned kernelSizeY, unsigned kernelSizeX,
                         unsigned strideY, unsigned strideX,
                         unsigned paddingY, unsigned paddingX,
                         unsigned numChannels,
-                        Sequence &initParamsProg) {
+                        Sequence &initParamsProg,
+                        ConvOp &doConv) {
   auto &in = acts[i];
   unsigned outDimY, outDimX;
   std::tie(outDimY, outDimX) =
@@ -564,13 +615,7 @@ Net::createConvLayerFwd(unsigned i,
                                   outChansPerGroup},
                                  "activations." + std::to_string(i));
   mapActivations(*graph, acts[i + 1]);
-  Tensor z = graph->addTensor(dType,
-                              {batchSize,
-                               outNumChanGroups,
-                               outDimY, outDimX,
-                               outChansPerGroup},
-                               "z." + std::to_string(i));
-  mapActivations(*graph, z);
+
   unsigned inNumChanGroups = in.dim(1);
   unsigned inNumChans = inNumChanGroups * in.dim(4);
   unsigned inDimY = in.dim(2), inDimX = in.dim(3);
@@ -582,13 +627,9 @@ Net::createConvLayerFwd(unsigned i,
   params[i].push_back(weights);
   params[i].push_back(biases);
 
-  ReusableLayer reusableLayer =
-      getOrCreateConvImplFwd(plan, {{in.dims(), acts[i + 1].dims()},
-                                 kernelSizeY, kernelSizeX, strideY, strideX,
-                                 paddingY, paddingX});
- conv::mapWeights(weights, *graph, plan, batchSize);
- conv::mapBiases(biases, *graph, acts[i + 1]);
- if (dType == "float") {
+  conv::mapWeights(weights, *graph, plan, batchSize);
+  conv::mapBiases(biases, *graph, acts[i + 1]);
+  if (dType == "float") {
     auto hWeights =
         createRandomWeightInitializers(weights, 0, 1.0 / kernelSizeY,
                                        randomEngine);
@@ -599,93 +640,21 @@ Net::createConvLayerFwd(unsigned i,
     initParamsProg.add(Copy(biases, hBiases.get()));
     hParams.push_back(std::move(hWeights));
     hParams.push_back(std::move(hBiases));
- }
- numFlops += conv::getFlops(batchSize,
-                            inDimY, inDimX, inNumChans, kernelSizeY,
-                            kernelSizeX, strideY,
-                            strideX, paddingY, paddingX, numChannels,
-                            netType == TestOnlyNet || i == 0);
- numParams += weights.numElements() + biases.numElements();
- perfectCycleTime +=
-     conv::getPerfectCycleCount(*graph, dType, batchSize, inDimY, inDimX,
-                                inNumChans, kernelSizeY, kernelSizeX,
-                                strideY, strideX, paddingY, paddingX,
-                                numChannels, netType == TestOnlyNet || i == 0);
-
-   return reusableLayer.apply({in, weights, biases}, {acts[i + 1]});
-}
-
-ReusableLayer
-Net::getOrCreateConvImplBwd(const conv::ConvPlan &plan,
-                            const ConvImplSpec &impl) {
-  if (options.reuseLayerImplGraphs) {
-    auto it = convBwdImpls.find(impl);
-    if (it != convBwdImpls.end()) {
-      return it->second;
-    }
   }
-  auto &deltasInDims = impl.tensorDims[0];
-  auto &deltasOutDims = impl.tensorDims[1];
-  auto deltasIn = graph->addTensor(dType, deltasInDims, "zDeltas");
-  mapActivations(*graph, deltasIn);
-  auto inNumChans = deltasInDims[1] * deltasInDims[4];
-  auto outNumChans = deltasOutDims[1] * deltasOutDims[4];
-  Tensor weights = conv::createWeights(*graph, dType, outNumChans,
-                                       impl.kernelSizeY, impl.kernelSizeX,
-                                       inNumChans, plan);
-  conv::mapWeights(weights, *graph, plan, batchSize);
-  auto deltasOut = graph->addTensor(dType, deltasOutDims, "deltasOut");
-  mapActivations(*graph, deltasOut);
-  auto prog =
-      conv::convolutionBackward(*graph, plan, deltasIn, weights, deltasOut,
-                                impl.kernelSizeY, impl.kernelSizeX,
-                                impl.strideY, impl.strideX,
-                                impl.paddingY, impl.paddingX);
-  auto reusableLayer = ReusableLayer(prog,
-                                     {deltasIn, weights},
-                                     {deltasOut});
-  if (options.reuseLayerImplGraphs) {
-    convBwdImpls.emplace(impl, reusableLayer);
-  }
-  return reusableLayer;
-}
-
-ReusableLayer
-Net::getOrCreateConvImplWeightUpdate(const conv::ConvPlan &plan,
-                                     const ConvImplSpec &impl) {
-  if (options.reuseLayerImplGraphs) {
-    auto it = convWUImpls.find(impl);
-    if (it != convWUImpls.end()) {
-      return it->second;
-    }
-  }
-  auto &deltasInDims = impl.tensorDims[0];
-  auto &actDims = impl.tensorDims[1];
-  auto deltasIn = graph->addTensor(dType, deltasInDims, "zDeltas");
-  mapActivations(*graph, deltasIn);
-  auto activations = graph->addTensor(dType, actDims, "activations");
-  mapActivations(*graph, activations);
-  auto inNumChans = actDims[1] * actDims[4];
-  auto outNumChans = deltasInDims[1] * deltasInDims[4];
-  Tensor weights = conv::createWeights(*graph, dType, inNumChans,
-                                       impl.kernelSizeY, impl.kernelSizeX,
-                                       outNumChans, plan);
-  conv::mapWeights(weights, *graph, plan, batchSize);
-  Tensor biases = conv::createBiases(*graph, dType, outNumChans);
-  conv::mapBiases(biases, *graph, deltasIn);
-  auto prog =
-      conv::convolutionWeightUpdate(*graph, plan, deltasIn, weights, biases,
-                                    activations, impl.kernelSizeY,
-                                    impl.kernelSizeX, impl.strideY,
-                                    impl.strideX, impl.paddingY, impl.paddingX,
-                                    eta);
-  auto reusableLayer = ReusableLayer(prog,
-                                     {deltasIn, activations, weights, biases},
-                                     {weights, biases});
-  if (options.reuseLayerImplGraphs) {
-    convWUImpls.emplace(impl, reusableLayer);
-  }
-  return reusableLayer;
+  numFlops += conv::getFlops(batchSize,
+                             inDimY, inDimX, inNumChans, kernelSizeY,
+                             kernelSizeX, strideY,
+                             strideX, paddingY, paddingX, numChannels,
+                             netType == TestOnlyNet || i == 0);
+  numParams += weights.numElements() + biases.numElements();
+  perfectCycleTime +=
+      conv::getPerfectCycleCount(*graph, dType, batchSize, inDimY, inDimX,
+                                 inNumChans, kernelSizeY, kernelSizeX,
+                                 strideY, strideX, paddingY, paddingX,
+                                 numChannels, netType == TestOnlyNet || i == 0);
+  return doConv(*graph, plan, kernelSizeY, kernelSizeX, strideY, strideX,
+                paddingY, paddingX, in, weights, biases, acts[i + 1],
+                partialsType, false, 4);
 }
 
 Program Net::createConvLayerBwd(unsigned i,
@@ -693,7 +662,8 @@ Program Net::createConvLayerBwd(unsigned i,
                                 unsigned strideY, unsigned strideX,
                                 unsigned paddingY, unsigned paddingX,
                                 NonLinearityType nonLinearityType,
-                                bool backwardPassRequired) {
+                                bool backwardPassRequired,
+                                ConvBwdOp &convBwd, ConvWuOp &convWU) {
   auto prog = Sequence();
   auto it = convPlans.find(i);
   assert(it != convPlans.end());
@@ -710,21 +680,13 @@ Program Net::createConvLayerBwd(unsigned i,
   }
 
   if (backwardPassRequired) {
-    ReusableLayer bwdReusableLayer =
-      getOrCreateConvImplBwd(plan,
-                            {{zDeltas.dims(), deltas[i].dims()},
-                             kernelSizeY, kernelSizeX, strideY, strideX,
-                             paddingY, paddingX});
-    prog.add(bwdReusableLayer.apply({zDeltas, weights}, {deltas[i]}));
+    prog.add(convBwd(*graph, plan, zDeltas, weights, deltas[i], kernelSizeY,
+                     kernelSizeX, strideY, strideX, paddingY, paddingX));
   }
 
-  ReusableLayer wuReusableLayer =
-      getOrCreateConvImplWeightUpdate(plan,
-                                      {{zDeltas.dims(), acts[i].dims()},
-                                       kernelSizeY, kernelSizeX, strideY,
-                                       strideX, paddingY, paddingX});
-  prog.add(wuReusableLayer.apply({zDeltas, acts[i], weights, biases},
-                                 {weights, biases}));
+  prog.add(convWU(*graph, plan, zDeltas, weights, biases, acts[i],
+                  kernelSizeY, kernelSizeX, strideY, strideX, paddingY,
+                  paddingX, eta));
   return prog;
 }
 
@@ -739,6 +701,8 @@ std::string findGraphProg() {
   return path;
 }
 }
+
+using namespace popnn;
 
 void Net::initialize(DataSet &dataSet, LossType lossType) {
   numTestBatches = dataSet.numTest / batchSize;
@@ -784,6 +748,26 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
     graph = std::unique_ptr<Graph>(new Graph(*env, createCPUDevice()));
   }
   std::cerr << "Constructing program\n";
+  ConvOp convOp =
+      createTensorOp<conv::ConvPlan>(
+        *graph, convolution, "conv",
+        {{TensorOpParamType::InputTensor},
+         {TensorOpParamType::InputTensor},
+         {TensorOpParamType::InputTensor},
+         {TensorOpParamType::OutputTensor}});
+  ConvBwdOp convBwdOp =
+      createTensorOp<conv::ConvPlan>(
+        *graph, convolutionBackward, "convBwd",
+        {{TensorOpParamType::InputTensor},
+         {TensorOpParamType::InputTensor},
+         {TensorOpParamType::OutputTensor}});
+  ConvWuOp convWuOp =
+      createTensorOp<conv::ConvPlan>(
+        *graph, convolutionWeightUpdate, "convWeightUpdate",
+        {{TensorOpParamType::InputTensor},
+         {TensorOpParamType::InOutTensor},
+         {TensorOpParamType::InOutTensor},
+         {TensorOpParamType::InputTensor}});
   numFlops = 0;
   numParams = 0;
   perfectCycleTime = 0;
@@ -859,7 +843,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                                      c->strideY, c->strideX, c->paddingY,
                                      c->paddingX,
                                      c->numChannels,
-                                     initParamsProg));
+                                     initParamsProg, convOp));
       fwdProg.add(fwdNonLinearity(*graph, acts[i + 1], c->nonLinearityType));
     } else if (const auto *r = dynamic_cast<const ResidualLayer *>(layer)) {
       fwdProg.add(createResidualLayerFwd(i, *r));
@@ -974,7 +958,8 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                                        c->strideY, c->strideX, c->paddingY,
                                        c->paddingX,
                                        c->nonLinearityType,
-                                       backwardPassRequired));
+                                       backwardPassRequired,
+                                       convBwdOp, convWuOp));
       } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
         if (backwardPassRequired)
           bwdProg.add(maxpool::maxPoolBackward(*graph, m->kernelSize, m->stride,
