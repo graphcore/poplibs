@@ -53,6 +53,7 @@ convolution(poplar::Graph &graph, const ConvPlan &plan,
             poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
             poplar::Tensor out,
             const std::string &partialsType,
+            bool isFractional, bool flipWeights,
             bool useWinogradConv = false,
             unsigned winogradPatchSize = 4);
 

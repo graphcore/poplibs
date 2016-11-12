@@ -128,6 +128,7 @@ convolution(Graph &graph,
      unsigned strideX, unsigned paddingY, unsigned paddingX,
      Tensor in, Tensor weights, Tensor biases, Tensor activations,
      const std::string &partialsType,
+     bool isFractional, bool flipWeights,
      bool useWinogradConv,
      unsigned winogradPatchSize) {
   const auto batchSize = activations.dim(0);
@@ -137,8 +138,8 @@ convolution(Graph &graph,
   mapActivations(graph, activations);
   return conv::convolution(graph, plan, kernelSizeY, kernelSizeX, strideY,
                            strideX, paddingY, paddingX, in, weights, biases,
-                           activations, partialsType, useWinogradConv,
-                           winogradPatchSize);
+                           activations, partialsType, isFractional,
+                           flipWeights, useWinogradConv, winogradPatchSize);
 }
 
 static Program
@@ -654,7 +655,7 @@ Net::createConvLayerFwd(unsigned i,
                                  numChannels, netType == TestOnlyNet || i == 0);
   return doConv(*graph, plan, kernelSizeY, kernelSizeX, strideY, strideX,
                 paddingY, paddingX, in, weights, biases, acts[i + 1],
-                partialsType, false, 4);
+                partialsType, false, false, false, 4);
 }
 
 Program Net::createConvLayerBwd(unsigned i,

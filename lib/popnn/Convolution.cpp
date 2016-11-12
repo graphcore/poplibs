@@ -1210,6 +1210,7 @@ convolution(Graph &graph,
             unsigned strideX, unsigned paddingY, unsigned paddingX,
             Tensor in, Tensor weights, Tensor biases, Tensor activations,
             const std::string &partialsType,
+            bool isFractional, bool flipWeights,
             bool useWinogradConv,
             unsigned winogradPatchSize) {
   const auto dType = graph.getTensorElementType(in);
@@ -1291,7 +1292,7 @@ convolution(Graph &graph,
                                     paddingY, paddingX, outNumChans,
                                     dType, in, weights, partials, layerName,
                                     partialOutDimX, partialOutDimY,
-                                    false, false));
+                                    isFractional, flipWeights));
 
     if (plan.flattenXY) {
       partials = partials.dimShuffle({1, 2, 0, 3, 4, 5 }).reshape(
