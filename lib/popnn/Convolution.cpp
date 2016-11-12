@@ -1127,7 +1127,6 @@ convolution(Graph &graph,
             const ConvPlan &plan,
             unsigned kernelSizeY, unsigned kernelSizeX, unsigned strideY,
             unsigned strideX, unsigned paddingY, unsigned paddingX,
-            unsigned outNumChans,
             Tensor in, Tensor weights, Tensor biases, Tensor activations,
             const std::string &partialsType,
             bool useWinogradConv,
@@ -1164,6 +1163,7 @@ convolution(Graph &graph,
   }
   const auto batchSize = activations.dim(0);
   const auto outNumChanGroups = activations.dim(1);
+  const auto outNumChans = activations.dim(1) * activations.dim(4);
   const auto partialChansPerGroup = plan.fwdPartition.partialChansPerGroup;
   const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
   const auto tilesPerInZGroup = plan.fwdPartition.tilesPerInZGroupAxis;

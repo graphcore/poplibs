@@ -272,7 +272,7 @@ int main(int argc, char **argv) {
   fwdProg.add(conv::convolution(graph, plan,
                       kernelHeight, kernelWidth, strideH,
                       strideW, paddingHeight,
-                      paddingWidth, fwdOutChans,
+                      paddingWidth,
                       prevAct, weights, biases, nextAct,
                       partialsTypeStr,
                       useWinogradConv, winogradPatchSize));
