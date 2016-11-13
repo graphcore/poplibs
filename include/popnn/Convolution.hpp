@@ -39,14 +39,14 @@ createWeights(poplar::Graph &graph, std::string dType,
              unsigned kernelSizeY,
              unsigned kernelSizeX,
              unsigned outNumChans,
-             const ConvPlan &plan);
+             const Plan &plan);
 
 poplar::Tensor
 createBiases(poplar::Graph &graph, std::string dType,
              unsigned outNumChans);
 
 poplar::program::Program
-convolution(poplar::Graph &graph, const ConvPlan &plan,
+convolution(poplar::Graph &graph, const Plan &plan,
             unsigned kernelSizeY, unsigned kernelSizeX,
             unsigned strideY, unsigned strideX, unsigned paddingY,
             unsigned paddingX,
@@ -57,7 +57,7 @@ convolution(poplar::Graph &graph, const ConvPlan &plan,
             bool useWinogradConv = false,
             unsigned winogradPatchSize = 4);
 
-void mapWeights(poplar::Tensor w, poplar::Graph &graph, const ConvPlan &plan,
+void mapWeights(poplar::Tensor w, poplar::Graph &graph, const Plan &plan,
                 unsigned batchSize);
 
 void mapBiases(poplar::Tensor b, poplar::Graph &graph,
@@ -65,7 +65,7 @@ void mapBiases(poplar::Tensor b, poplar::Graph &graph,
 
 poplar::program::Program
 convolutionBackward(poplar::Graph &graph,
-                    const ConvPlan &plan,
+                    const Plan &plan,
                     poplar::Tensor zDeltas, poplar::Tensor weights,
                     poplar::Tensor deltasOut,
                     unsigned kernelSizeY, unsigned kernelSizeX,
@@ -74,7 +74,7 @@ convolutionBackward(poplar::Graph &graph,
 
 poplar::program::Program
 convolutionWeightUpdate(poplar::Graph &graph,
-                        const ConvPlan &plan,
+                        const Plan &plan, const Plan &fwdPlan,
                         poplar::Tensor zDeltas, poplar::Tensor weights,
                         poplar::Tensor biases,
                         poplar::Tensor activations,

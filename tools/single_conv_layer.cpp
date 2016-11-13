@@ -179,38 +179,56 @@ int main(int argc, char **argv) {
   std::string dataTypeStr(asString(dataType));
   std::string partialsTypeStr(asString(partialsType));
 
-  // TODO support residual connections.
-  conv::Planner planner;
-  auto plan = planner.createPlan(height, width, fwdInChans,
-                                 kernelHeight, kernelWidth,
-                                 strideH, strideW,
-                                 paddingHeight, paddingWidth,
-                                 fwdOutChans, batchSize,
-                                 dataTypeStr, partialsTypeStr,
-                                 graph, inferenceOnly);
-  auto fwdInChansPerGroup = plan.fwdPartition.inChansPerGroup;
-  // If the output grouping is unspecified, assume the output uses the same
-  // grouping as the input unless that is impossible.
-  if (!vm.count("fwd-out-chans-per-group")) {
-    fwdOutChansPerGroup = (fwdOutChans % fwdInChansPerGroup == 0) ?
-                          fwdInChansPerGroup :
-                          plan.fwdPartition.partialChansPerGroup;
-  }
-  const auto bwdInChans = fwdOutChans;
-  const auto bwdOutChans = fwdInChans;
-  auto bwdInChansPerGroup = plan.bwdPartition.inChansPerGroup;
-  if (!inferenceOnly &&
-      !vm.count("bwd-out-chans-per-group")) {
-    bwdOutChansPerGroup = (bwdOutChans % bwdInChansPerGroup == 0) ?
-                          bwdInChansPerGroup :
-                          plan.bwdPartition.partialChansPerGroup;
-  }
   const auto outDims =
       conv::getOutputDim(height, width, kernelHeight, kernelWidth,
                          strideH, strideW,
                          paddingHeight, paddingWidth);
   const auto outHeight = outDims.first;
   const auto outWidth = outDims.second;
+  // TODO support residual connections.
+  conv::Planner planner;
+  auto fwdPlan = planner.createPlan(height, width, fwdInChans,
+                                    kernelHeight, kernelWidth,
+                                    strideH, strideW,
+                                    paddingHeight, paddingWidth,
+                                    fwdOutChans, batchSize,
+                                    dataTypeStr, partialsTypeStr,
+                                    false, false,
+                                    graph);
+  auto bwdPlan = planner.createPlan(outHeight, outWidth, fwdOutChans,
+                                    kernelHeight, kernelWidth,
+                                    strideH, strideW,
+                                    paddingHeight, paddingWidth,
+                                    fwdInChans, batchSize,
+                                    dataTypeStr, partialsTypeStr,
+                                    true, false,
+                                    graph);
+  auto wuPlan = planner.createPlan(height, width, fwdInChans,
+                                   kernelHeight, kernelWidth,
+                                   strideH, strideW,
+                                   paddingHeight, paddingWidth,
+                                   fwdOutChans, batchSize,
+                                   dataTypeStr, partialsTypeStr,
+                                   false, true,
+                                   graph);
+  auto fwdInChansPerGroup = fwdPlan.inChansPerGroup;
+  // If the output grouping is unspecified, assume the output uses the same
+  // grouping as the input unless that is impossible.
+  if (!vm.count("fwd-out-chans-per-group")) {
+    fwdOutChansPerGroup = (fwdOutChans % fwdInChansPerGroup == 0) ?
+                          fwdInChansPerGroup :
+                          fwdPlan.partialChansPerGroup;
+  }
+  const auto bwdInChans = fwdOutChans;
+  const auto bwdOutChans = fwdInChans;
+  auto bwdInChansPerGroup = bwdPlan.inChansPerGroup;
+  if (!inferenceOnly &&
+      !vm.count("bwd-out-chans-per-group")) {
+    bwdOutChansPerGroup = (bwdOutChans % bwdInChansPerGroup == 0) ?
+                          bwdInChansPerGroup :
+                          bwdPlan.partialChansPerGroup;
+  }
+
   // Create tensors.
   Tensor prevAct = graph.addTensor(dataTypeStr,
                                    {batchSize,
@@ -221,7 +239,7 @@ int main(int argc, char **argv) {
   mapActivations(graph, prevAct);
   Tensor weights = conv::createWeights(graph, dataTypeStr, fwdInChans,
                                        kernelHeight, kernelWidth,
-                                       fwdOutChans, plan);
+                                       fwdOutChans, fwdPlan);
   Tensor biases = conv::createBiases(graph, dataTypeStr, fwdOutChans);
   Tensor nextAct =
       graph.addTensor(dataTypeStr, {batchSize,
@@ -269,7 +287,7 @@ int main(int argc, char **argv) {
   }
 
   auto fwdProg = Sequence();
-  fwdProg.add(conv::convolution(graph, plan,
+  fwdProg.add(conv::convolution(graph, fwdPlan,
                       kernelHeight, kernelWidth, strideH,
                       strideW, paddingHeight,
                       paddingWidth,
@@ -281,13 +299,14 @@ int main(int argc, char **argv) {
   const auto learningRate = 0.5;
   if (!inferenceOnly) {
     bwdProg.add(
-      conv::convolutionBackward(graph, plan, zDeltas, weights, prevDeltas,
+      conv::convolutionBackward(graph, bwdPlan, zDeltas, weights, prevDeltas,
                                 kernelHeight, kernelWidth, strideH,
                                 strideW,
                                 paddingHeight, paddingWidth)
     );
     bwdProg.add(
-      conv::convolutionWeightUpdate(graph, plan, zDeltas, weights, biases,
+      conv::convolutionWeightUpdate(graph, wuPlan, fwdPlan,
+                                    zDeltas, weights, biases,
                                     prevAct, kernelHeight, kernelWidth,
                                     strideH, strideW, paddingHeight,
                                     paddingWidth, learningRate)

@@ -5,7 +5,7 @@
 
 namespace conv {
 
-struct Partition {
+struct Plan {
   unsigned tilesPerXAxis;
   unsigned tilesPerYAxis;
   unsigned tilesPerZAxis;
@@ -18,17 +18,18 @@ struct Partition {
 
   unsigned batchesPerGroup;
   unsigned numBatchGroups;
+  bool flattenXY;
 
-  Partition() = default;
-  Partition(unsigned tilesPerXAxis,
-           unsigned tilesPerYAxis,
-           unsigned tilesPerZAxis,
-           unsigned verticesPerTilePerYAxis,
-           unsigned tilesPerInZGroupAxis,
-           unsigned inChansPerGroup,
-           unsigned partialChansPerGroup,
-           bool floatPartials,
-           bool useConvolutionInstructions) :
+  Plan() = default;
+  Plan(unsigned tilesPerXAxis,
+       unsigned tilesPerYAxis,
+       unsigned tilesPerZAxis,
+       unsigned verticesPerTilePerYAxis,
+       unsigned tilesPerInZGroupAxis,
+       unsigned inChansPerGroup,
+       unsigned partialChansPerGroup,
+       bool floatPartials,
+       bool useConvolutionInstructions) :
     tilesPerXAxis(tilesPerXAxis),
     tilesPerYAxis(tilesPerYAxis),
     tilesPerZAxis(tilesPerZAxis),
@@ -43,26 +44,19 @@ struct Partition {
   }
 };
 
-struct ConvPlan {
-public:
-  Partition fwdPartition;
-  Partition bwdPartition;
-  Partition wuPartition;
-  bool flattenXY;
-};
-
 class PlannerCache;
 class Planner {
   std::unique_ptr<PlannerCache> cache;
 public:
-  ConvPlan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                      unsigned kernelSizeY, unsigned kernelSizeX,
-                      unsigned strideY, unsigned strideX,
-                      unsigned paddingY, unsigned paddingX,
-                      unsigned numChannels, unsigned batchSize,
-                      std::string dType,
-                      std::string partialsType,
-                      const poplar::Graph &graph, bool forwardOnly);
+  Plan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
+                  unsigned kernelSizeY, unsigned kernelSizeX,
+                  unsigned strideY, unsigned strideX,
+                  unsigned paddingY, unsigned paddingX,
+                  unsigned numChannels, unsigned batchSize,
+                  std::string dType,
+                  std::string partialsType, bool isFractional,
+                  bool isWeightUpdate,
+                  const poplar::Graph &graph);
   Planner();
   ~Planner();
 };

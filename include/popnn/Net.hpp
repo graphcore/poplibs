@@ -152,6 +152,16 @@ public:
 bool parseCommandLine(int argc, char **argv, NetOptions &options,
                       bool &doTraining);
 
+
+poplar::program::Program
+convolutionBackwardMapTensors(poplar::Graph &graph,
+                              const conv::Plan &plan, const conv::Plan &fwdPlan,
+                              poplar::Tensor zDeltas, poplar::Tensor weights,
+                              poplar::Tensor deltasOut,
+                              unsigned kernelSizeY, unsigned kernelSizeX,
+                              unsigned strideY, unsigned strideX,
+                              unsigned paddingY, unsigned paddingX);
+
 /* This class represent the entire network. */
 class Net {
   NetType netType;
@@ -178,18 +188,21 @@ class Net {
   std::vector<poplar::Tensor> acts, deltas;
   std::vector<std::pair<unsigned, unsigned>> residualDeltaIdxs;
   std::vector<std::vector<poplar::Tensor>> params;
-  std::map<unsigned, conv::ConvPlan> convPlans;
+  std::map<unsigned, conv::Plan> fwdConvPlans, bwdConvPlans, wuConvPlans;
   std::uint64_t numFlops;
   std::uint64_t numParams;
   double perfectCycleTime;
 
   conv::Planner planner;
-  conv::ConvPlan getConvPlan(unsigned i, unsigned inDimY, unsigned inDimX,
-                             unsigned inNumChans);
-
+  conv::Plan getFwdConvPlan(unsigned i, unsigned prevDimY, unsigned prevDimX,
+                            unsigned prevNumChans);
+  conv::Plan getBwdConvPlan(unsigned i, unsigned prevDimY, unsigned prevDimX,
+                            unsigned prevNumChans);
+  conv::Plan getWuConvPlan(unsigned i, unsigned prevDimY, unsigned prevDimX,
+                            unsigned prevNumChans);
   unsigned
-  getRequiredChansPerGroupFwd(unsigned i, unsigned inDimY, unsigned inDimX,
-                              unsigned inNumChans);
+  getRequiredChansPerGroupFwd(unsigned i, unsigned prevDimY, unsigned prevDimX,
+                              unsigned prevNumChans);
 
   unsigned getRequiredChansPerGroupBwd(int i);
 

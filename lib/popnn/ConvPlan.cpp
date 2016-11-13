@@ -110,12 +110,6 @@ Planner::Planner() {
 
 Planner::~Planner() = default;
 
-enum class Phase {
-  FORWARD,
-  BACKWARD,
-  WEIGHTUPDATE
-};
-
 struct ConvolutionParams {
   unsigned kernelSizeY;
   unsigned kernelSizeX;
@@ -128,16 +122,18 @@ struct ConvolutionParams {
   unsigned paddingX;
   unsigned outputDepth;
   unsigned batchSize;
-  unsigned getOutputWidth(Phase phase) const {
-    if (phase == Phase::BACKWARD)
+  bool isFractional;
+  bool isWeightUpdate;
+  unsigned getOutputWidth() const {
+    if (isFractional)
       return (inputWidth * strideX + kernelSizeX - 1) - (paddingX * 2);
     else
       return inputWidth + paddingX * 2 < kernelSizeX
         ? 0
         : (inputWidth + (paddingX * 2) - kernelSizeX) / strideX + 1;
   }
-  unsigned getOutputHeight(Phase phase) const {
-    if (phase == Phase::BACKWARD)
+  unsigned getOutputHeight() const {
+    if (isFractional)
       return (inputHeight * strideY + kernelSizeY - 1) - (paddingY * 2);
     else
       return inputHeight + paddingY * 2 < kernelSizeY
@@ -154,7 +150,9 @@ struct ConvolutionParams {
                     unsigned paddingY,
                     unsigned paddingX,
                     unsigned outputDepth,
-                    unsigned batchSize) :
+                    unsigned batchSize,
+                    bool isFractional,
+                    bool isWeightUpdate) :
     kernelSizeY(kernelSizeY),
     kernelSizeX(kernelSizeX),
     strideY(strideY),
@@ -165,7 +163,9 @@ struct ConvolutionParams {
     paddingY(paddingY),
     paddingX(paddingX),
     outputDepth(outputDepth),
-    batchSize(batchSize) {}
+    batchSize(batchSize),
+    isFractional(isFractional),
+    isWeightUpdate(isWeightUpdate) {}
 };
 
 static bool
@@ -200,7 +200,7 @@ getMaxInputRangeSize(unsigned outputRangeSize, unsigned stride,
                      unsigned kernelSize, unsigned padding,
                      unsigned numPartitions,
                      unsigned inputSize, bool contiguousAccess,
-                     Phase phase) {
+                     bool isFractional, bool isWeightUpdate) {
   if (outputRangeSize == 0)
     return 0;
   unsigned inputRangeSize;
@@ -213,19 +213,19 @@ getMaxInputRangeSize(unsigned outputRangeSize, unsigned stride,
     {
       auto inputRange = getInputRange({0, outputRangeSize}, stride,
                                       kernelSize, padding,
-                                      inputSize, phase != Phase::BACKWARD);
+                                      inputSize, !isFractional);
       inputRangeSize = inputRange.second - inputRange.first;
     }
     break;
   default:
-    if (phase != Phase::BACKWARD) {
+    if (!isFractional) {
       inputRangeSize = (outputRangeSize - 1) * stride + 1 + (kernelSize - 1);
     } else {
       inputRangeSize = (outputRangeSize - kernelSize ) / stride + 1;
     }
     break;
   }
-  if (phase == Phase::FORWARD &&
+  if (!isFractional && !isWeightUpdate &&
       !contiguousAccess && kernelSize == 1 && stride > 1) {
     inputRangeSize = (inputRangeSize - 1) / stride + 1;
   }
@@ -286,19 +286,18 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
 static unsigned
 estimateExchangeCost(const poplar::DeviceInfo &deviceInfo,
                      bool floatActivations, const ConvolutionParams &params,
-                     const Partition &partition,
-                     Phase phase) {
-  const auto tilesPerX = partition.tilesPerXAxis;
-  const auto tilesPerY = partition.tilesPerYAxis;
-  const auto tilesPerZ = partition.tilesPerZAxis;
-  const auto tilesPerInZGroupAxis = partition.tilesPerInZGroupAxis;
-  const auto inChansPerGroup = partition.inChansPerGroup;
-  const auto partialChansPerGroup = partition.partialChansPerGroup;
+                     const Plan &plan) {
+  const auto tilesPerX = plan.tilesPerXAxis;
+  const auto tilesPerY = plan.tilesPerYAxis;
+  const auto tilesPerZ = plan.tilesPerZAxis;
+  const auto tilesPerInZGroupAxis = plan.tilesPerInZGroupAxis;
+  const auto inChansPerGroup = plan.inChansPerGroup;
+  const auto partialChansPerGroup = plan.partialChansPerGroup;
 
   const auto tileOutWidth =
-      (params.getOutputWidth(phase) + tilesPerX - 1) / tilesPerX;
+      (params.getOutputWidth() + tilesPerX - 1) / tilesPerX;
   const auto tileOutHeight =
-      (params.getOutputHeight(phase) + tilesPerY - 1) / tilesPerY;
+      (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
   const auto numOutGroups =
       (params.outputDepth + (partialChansPerGroup - 1)) / partialChansPerGroup;
   const auto tileNumOutGroups =
@@ -312,11 +311,13 @@ estimateExchangeCost(const poplar::DeviceInfo &deviceInfo,
   const auto tileInWidth =
       getMaxInputRangeSize(tileOutWidth, params.strideX, params.kernelSizeX,
                            params.paddingX,
-                           tilesPerX, params.inputWidth, true, phase);
+                           tilesPerX, params.inputWidth, true,
+                           params.isFractional, params.isWeightUpdate);
   const auto tileInHeight =
       getMaxInputRangeSize(tileOutHeight, params.strideY, params.kernelSizeY,
                            params.paddingY,
-                           tilesPerY, params.inputWidth, false, phase);
+                           tilesPerY, params.inputWidth,
+                           false, params.isFractional, params.isWeightUpdate);
   const auto numberOfInputElements = tileInWidth * tileInHeight * tileInDepth;
   const auto numberOfWeights =
       params.kernelSizeY * params.kernelSizeX * tileOutDepth * tileInDepth;
@@ -327,8 +328,8 @@ estimateExchangeCost(const poplar::DeviceInfo &deviceInfo,
   auto inputElementsBytes = numberOfInputElements * activationSize;
   auto weightBytes = numberOfWeights * activationSize;
   unsigned partialSumBytes;
-  const auto partialSize = partition.floatPartials ? 4 : 2;
-  if (phase == Phase::WEIGHTUPDATE) {
+  const auto partialSize = plan.floatPartials ? 4 : 2;
+  if (params.isWeightUpdate) {
     const auto deltaElementBytes = numberOfOutputElements * activationSize;
     inputElementsBytes += deltaElementBytes;
     partialSumBytes = numberOfWeights * partialSize;
@@ -356,22 +357,21 @@ estimateExchangeCost(const poplar::DeviceInfo &deviceInfo,
 static unsigned
 estimateVertexCycles(bool floatActivations,
                      const ConvolutionParams &params,
-                     const Partition &partition,
+                     const Plan &plan,
                      const poplar::DeviceInfo &deviceInfo,
                      bool useSupervisorVertices,
-                     Phase phase,
                      PlannerCache *cache) {
-  const auto tilesPerY = partition.tilesPerYAxis;
-  const auto tilesPerX = partition.tilesPerXAxis;
-  const auto tilesPerInZGroupAxis = partition.tilesPerInZGroupAxis;
-  const auto verticesPerTilePerY = partition.verticesPerTilePerYAxis;
-  const auto inChansPerGroup = partition.inChansPerGroup;
-  const auto outChansPerGroup = partition.partialChansPerGroup;
+  const auto tilesPerY = plan.tilesPerYAxis;
+  const auto tilesPerX = plan.tilesPerXAxis;
+  const auto tilesPerInZGroupAxis = plan.tilesPerInZGroupAxis;
+  const auto verticesPerTilePerY = plan.verticesPerTilePerYAxis;
+  const auto inChansPerGroup = plan.inChansPerGroup;
+  const auto outChansPerGroup = plan.partialChansPerGroup;
 
   const auto tileOutHeight =
-      (params.getOutputHeight(phase) + tilesPerY - 1) / tilesPerY;
+      (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
   const auto tileOutWidth =
-      (params.getOutputWidth(phase) + tilesPerX - 1) / tilesPerX;
+      (params.getOutputWidth() + tilesPerX - 1) / tilesPerX;
   const auto numInGroups =
       (params.inputDepth + (inChansPerGroup - 1)) / inChansPerGroup;
   const auto tileNumInGroups =
@@ -379,11 +379,11 @@ estimateVertexCycles(bool floatActivations,
 
   const auto outRowsPerVertex =
       (tileOutHeight + verticesPerTilePerY - 1) / verticesPerTilePerY;
-  const auto outputStrideY = phase != Phase::BACKWARD ? 1 : params.strideY;
-  const auto inputStrideY = phase != Phase::BACKWARD ? params.strideY : 1;
-  const auto inputStrideX = phase != Phase::BACKWARD ? params.strideX : 1;
+  const auto outputStrideY = params.isFractional ? params.strideY : 1;
+  const auto inputStrideY = params.isFractional ? 1 : params.strideY;
+  const auto inputStrideX = params.isFractional ? 1 : params.strideX;
 
-  if (phase == Phase::WEIGHTUPDATE) {
+  if (params.isWeightUpdate) {
     auto vectorWidth = deviceInfo.dataPathWidth / (floatActivations ? 32 : 16);
     return getWeightGradCalcCycles(tileOutHeight, tileOutHeight * inputStrideY,
                                    tileOutWidth, tileOutWidth * inputStrideX,
@@ -393,7 +393,7 @@ estimateVertexCycles(bool floatActivations,
                                    params.kernelSizeX,
                                    0, 0, vectorWidth);
   }
-  if (partition.useConvolutionInstructions) {
+  if (plan.useConvolutionInstructions) {
     assert(deviceInfo.getWeightsPerConvUnit(floatActivations) %
            inChansPerGroup == 0);
     const auto convUnitWeightHeight =
@@ -406,7 +406,7 @@ estimateVertexCycles(bool floatActivations,
           passesPerOutput, outRowsPerVertex,
           tileOutWidth, deviceInfo.convUnitPipelineDepth,
           getNumConvUnits(floatActivations,
-                          partition.floatPartials, deviceInfo),
+                          plan.floatPartials, deviceInfo),
           deviceInfo.convUnitCoeffLoadBytesPerCycle,
           useSupervisorVertices,
           outputStrideY,
@@ -426,17 +426,16 @@ static unsigned
 estimatePartialCalcComputeCost(const poplar::DeviceInfo &deviceInfo,
                                bool floatActivations,
                                const ConvolutionParams &params,
-                               const Partition &partition,
-                               Phase phase,
+                               const Plan &plan,
                                PlannerCache *cache) {
-  const auto tilesPerY = partition.tilesPerYAxis;
-  const auto tilesPerZ = partition.tilesPerZAxis;
-  const auto tilesPerInZGroup = partition.tilesPerInZGroupAxis;
-  const auto outChansPerGroup = partition.partialChansPerGroup;
-  const auto inChansPerGroup = partition.inChansPerGroup;
+  const auto tilesPerY = plan.tilesPerYAxis;
+  const auto tilesPerZ = plan.tilesPerZAxis;
+  const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
+  const auto outChansPerGroup = plan.partialChansPerGroup;
+  const auto inChansPerGroup = plan.inChansPerGroup;
 
   const auto tileOutHeight =
-      (params.getOutputHeight(phase) + tilesPerY - 1) / tilesPerY;
+      (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
   const auto numOutGroups =
       (params.outputDepth + (outChansPerGroup - 1)) / outChansPerGroup;
   const auto numInGroups =
@@ -448,24 +447,23 @@ estimatePartialCalcComputeCost(const poplar::DeviceInfo &deviceInfo,
       (numInGroups + tilesPerInZGroup - 1) / tilesPerInZGroup;
 
   const auto verticesPerTilePerY =
-      std::min(tileOutHeight, partition.verticesPerTilePerYAxis);
+      std::min(tileOutHeight, plan.verticesPerTilePerYAxis);
   const auto tileVertices =
-      phase == Phase::WEIGHTUPDATE ? tileNumOutGroups * tileNumInGroups
-                                   :  verticesPerTilePerY * tileNumOutGroups;
+      params.isWeightUpdate ? tileNumOutGroups * tileNumInGroups
+                            :  verticesPerTilePerY * tileNumOutGroups;
   // The use of supervisor vertices only affects vertices that use the
   // convolution instructions.
   bool useSupervisorVertices = false;
   unsigned numContexts = deviceInfo.numWorkerContexts;
   if (deviceInfo.sharedConvWeights &&
-      partition.useConvolutionInstructions) {
+      plan.useConvolutionInstructions) {
     useSupervisorVertices = true;
     numContexts = 1;
   }
   const auto vertexRuntime = estimateVertexCycles(floatActivations, params,
-                                                  partition,
+                                                  plan,
                                                   deviceInfo,
                                                   useSupervisorVertices,
-                                                  phase,
                                                   cache);
   auto verticesPerWorker = (tileVertices + numContexts - 1) /
                            numContexts;
@@ -486,10 +484,9 @@ static unsigned calcNumUsableTiles(
 static unsigned
 estimateReduceComputeCost(const poplar::DeviceInfo &deviceInfo,
                           const ConvolutionParams &params,
-                          const Partition &partition,
-                          unsigned numBatchGroups,
-                          Phase phase) {
-  if (partition.tilesPerInZGroupAxis == 1)
+                          const Plan &plan,
+                          unsigned numBatchGroups) {
+  if (plan.tilesPerInZGroupAxis == 1)
     return 0;
 
   /* The reduction is actually done on tiles in which the output
@@ -499,14 +496,14 @@ estimateReduceComputeCost(const poplar::DeviceInfo &deviceInfo,
    */
   const auto numTiles = calcNumUsableTiles(deviceInfo.getNumTiles(),
                                            numBatchGroups);
-  const auto numOutputs = params.getOutputHeight(phase) *
-                          params.getOutputWidth(phase) *
+  const auto numOutputs = params.getOutputHeight() *
+                          params.getOutputWidth() *
                           params.outputDepth;
   const auto numOutputsPerTile = (numOutputs + numTiles - 1) / numTiles;
   const auto numPartialSumsPerTile = numOutputsPerTile *
-                                     partition.tilesPerInZGroupAxis;
+                                     plan.tilesPerInZGroupAxis;
   const auto vectorWidth =
-      partition.floatPartials ? deviceInfo.getFloatVectorWidth() :
+      plan.floatPartials ? deviceInfo.getFloatVectorWidth() :
                                 deviceInfo.getHalfVectorWidth();
   const auto numCycles = (numPartialSumsPerTile + vectorWidth - 1) /
                           vectorWidth;
@@ -516,48 +513,44 @@ estimateReduceComputeCost(const poplar::DeviceInfo &deviceInfo,
 static unsigned
 estimateComputeCost(const poplar::DeviceInfo &deviceInfo,
                     bool floatActivations, const ConvolutionParams &params,
-                    const Partition &partition,
+                    const Plan &plan,
                     unsigned numBatchGroups,
-                    Phase phase,
                     PlannerCache *cache) {
   return estimatePartialCalcComputeCost(deviceInfo, floatActivations, params,
-                                        partition, phase, cache) +
+                                        plan, cache) +
          estimateReduceComputeCost(deviceInfo, params,
-                                   partition, numBatchGroups, phase);
+                                   plan, numBatchGroups);
 
 }
 
 static unsigned
-estimatePartitionCostBounded(const poplar::DeviceInfo &deviceInfo,
+estimatePlanCostBounded(const poplar::DeviceInfo &deviceInfo,
                              bool floatActivations,
                              const ConvolutionParams &params,
-                             const Partition &partition,
+                             const Plan &plan,
                              unsigned maxBound,
                              unsigned numBatchGroups,
-                             Phase phase,
                              PlannerCache *cache) {
   auto cost = estimateExchangeCost(deviceInfo,
-                                   floatActivations, params, partition,
-                                   phase);
+                                   floatActivations, params, plan);
   if (cost > maxBound)
     return maxBound;
   cost += estimateComputeCost(deviceInfo, floatActivations, params,
-                              partition, numBatchGroups, phase, cache);
+                              plan, numBatchGroups, cache);
   return std::min(cost, maxBound);
 }
 
-static std::pair<Partition, unsigned>
-choosePartition(const poplar::DeviceInfo &deviceInfo,
+static std::pair<Plan, unsigned>
+choosePlan(const poplar::DeviceInfo &deviceInfo,
                 bool floatActivations,
                 bool preferConvInstructions,
                 unsigned inChansPerGroup,
                 const ConvVertexType &convVertexType,
                 const ConvolutionParams &params,
-                Phase phase,
                 const unsigned numBatchGroups,
                 PlannerCache *cache) {
   if (convVertexType.useConvInstruction &&
-      phase == Phase::WEIGHTUPDATE) {
+      params.isWeightUpdate) {
     // The weight update can be implemented as a convolution with a different
     // axis of accumulation.
     // weight update field: fwd out channels.
@@ -569,8 +562,8 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
     // a recursive call using these parameters.
     const auto fieldGroupSize =
         deviceInfo.getWeightsPerConvUnit(floatActivations);
-    const auto fieldSize = params.getOutputHeight(phase) *
-                           params.getOutputWidth(phase) *
+    const auto fieldSize = params.getOutputHeight() *
+                           params.getOutputWidth() *
                            params.batchSize;
     const auto paddedFieldSize =
         ((fieldSize + fieldGroupSize - 1) / fieldGroupSize) * fieldGroupSize;
@@ -591,15 +584,15 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
                        0 /*paddingY*/,
 					             0 /*paddingX*/,
                        paddedOutputSize,
-                       1);
-    return choosePartition(deviceInfo, floatActivations, false,
-                           deviceInfo.getWeightsPerConvUnit(floatActivations),
-                           convVertexType, newParams, Phase::FORWARD,
-                           1, cache);
+                       1, false, false);
+    return choosePlan(deviceInfo, floatActivations, false,
+                      deviceInfo.getWeightsPerConvUnit(floatActivations),
+                      convVertexType, newParams,
+                      1, cache);
   }
   const auto partialChansPerGroup = convVertexType.partialChansPerGroup;
   unsigned bestCost = std::numeric_limits<unsigned>::max();
-  Partition bestPartition;
+  Plan bestPlan;
   // If tilesPerY is greater than one we end up splitting across the y axis of
   // the output volume. The input elements required to compute output elements
   // on one side of the split will overlap with the input elements required for
@@ -617,9 +610,9 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
   const auto numTiles = calcNumUsableTiles(deviceInfo.getNumTiles(),
                                            numBatchGroups);
 
-  const auto maxTilesPerX = std::min(params.getOutputWidth(phase), numTiles);
+  const auto maxTilesPerX = std::min(params.getOutputWidth(), numTiles);
   for (unsigned tilesPerX = 1; tilesPerX <= maxTilesPerX; ++tilesPerX) {
-    const auto maxTilesPerY = std::min(params.getOutputHeight(phase),
+    const auto maxTilesPerY = std::min(params.getOutputHeight(),
                                        numTiles / tilesPerX);
     for (unsigned tilesPerY = 1; tilesPerY <= maxTilesPerY; ++tilesPerY) {
       const auto maxTilesPerZ =
@@ -630,7 +623,7 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
             std::min(params.inputDepth / inChansPerGroup,
                      numTiles / (tilesPerX * tilesPerY * tilesPerZ));
         auto maxVerticesPerTilePerY =
-            (params.getOutputHeight(phase) + tilesPerY - 1) / tilesPerY;
+            (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
         auto minVerticesPerTilePerY = 1;
         if (convVertexType.useConvInstruction) {
           if (deviceInfo.sharedConvWeights) {
@@ -647,31 +640,30 @@ choosePartition(const poplar::DeviceInfo &deviceInfo,
         for (unsigned verticesPerTilePerY = minVerticesPerTilePerY;
              verticesPerTilePerY <= maxVerticesPerTilePerY;
              ++verticesPerTilePerY) {
-          Partition candidate(tilesPerX, tilesPerY, tilesPerZ,
-                              verticesPerTilePerY, tilesPerInZ,
-                              inChansPerGroup, partialChansPerGroup,
-                              convVertexType.floatPartials,
-                              convVertexType.useConvInstruction);
+          Plan candidate(tilesPerX, tilesPerY, tilesPerZ,
+                         verticesPerTilePerY, tilesPerInZ,
+                         inChansPerGroup, partialChansPerGroup,
+                         convVertexType.floatPartials,
+                         convVertexType.useConvInstruction);
 
           auto candidateCost =
-              estimatePartitionCostBounded(deviceInfo, floatActivations,
+              estimatePlanCostBounded(deviceInfo, floatActivations,
                                            params, candidate,
-                                           bestCost, numBatchGroups,
-                                           phase, cache);
+                                           bestCost, numBatchGroups, cache);
           if (preferConvInstructions &&
               !convVertexType.useConvInstruction)
             candidateCost *= 100000;
           if (candidateCost < bestCost) {
-            bestPartition = candidate;
+            bestPlan = candidate;
             bestCost = candidateCost;
           }
         }
       }
     }
   }
-  bestPartition.batchesPerGroup = params.batchSize / numBatchGroups;
-  bestPartition.numBatchGroups = numBatchGroups;
-  return {bestPartition, bestCost};
+  bestPlan.batchesPerGroup = params.batchSize / numBatchGroups;
+  bestPlan.numBatchGroups = numBatchGroups;
+  return {bestPlan, bestCost};
 }
 
 static std::vector<ConvVertexType>
@@ -736,39 +728,42 @@ getWeightUpdateVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
   return convVertexTypeCandidates;
 }
 
-static std::pair<Partition, unsigned>
-choosePartition(const poplar::DeviceInfo &deviceInfo,
+static std::pair<Plan, unsigned>
+choosePlan(const poplar::DeviceInfo &deviceInfo,
                 bool floatActivations,
                 bool floatPartials,
                 bool preferConvInstructions,
                 unsigned inChansPerGroup,
                 const ConvolutionParams &params,
-                Phase phase,
                 unsigned numBatchGroups,
                 PlannerCache *cache) {
   unsigned bestCost = std::numeric_limits<unsigned>::max();
-  Partition bestPartition;
+  Plan bestPlan;
   if (params.inputDepth % inChansPerGroup != 0) {
     throw popnn::popnn_error("Input depths that are not a multiple of the "
                              "channel grouping are not supported");
   }
   const auto convVertexTypeCandidates =
-      getConvVertexTypeCandidates(deviceInfo, floatActivations,
-                                  floatPartials, inChansPerGroup,
-                                  params);
+      params.isWeightUpdate
+        ? getWeightUpdateVertexTypeCandidates(deviceInfo, floatActivations,
+                                              floatPartials, inChansPerGroup,
+                                              params)
+        : getConvVertexTypeCandidates(deviceInfo, floatActivations,
+                                      floatPartials, inChansPerGroup,
+                                      params);
   for (const auto &convVertexType : convVertexTypeCandidates) {
-    Partition candidate;
+    Plan candidate;
     unsigned candidateCost;
     std::tie(candidate, candidateCost) =
-        choosePartition(deviceInfo, floatActivations, preferConvInstructions,
-                        inChansPerGroup, convVertexType, params, phase,
+        choosePlan(deviceInfo, floatActivations, preferConvInstructions,
+                        inChansPerGroup, convVertexType, params,
                         numBatchGroups, cache);
     if (candidateCost < bestCost) {
-      bestPartition = candidate;
+      bestPlan = candidate;
       bestCost = candidateCost;
     }
   }
-  return {bestPartition, bestCost};
+  return {bestPlan, bestCost};
 }
 
 std::vector<unsigned>
@@ -787,24 +782,24 @@ getInChansPerGroupCandidates(const ConvolutionParams &params,
   return candidates;
 }
 
-static std::pair<Partition, unsigned>
-choosePartition(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
+static std::pair<Plan, unsigned>
+choosePlan(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
                 bool floatPartials,
                 bool preferConvInstructions,
-                const ConvolutionParams &params, Phase phase,
+                const ConvolutionParams &params,
                 unsigned numBatchGroups,
                 PlannerCache *cache) {
   unsigned bestCost = std::numeric_limits<unsigned>::max();
-  Partition best;
+  Plan best;
   auto inChansPerGroupCandidates =
       getInChansPerGroupCandidates(params, floatActivations);
   for (auto inChansPerGroup : inChansPerGroupCandidates) {
-    Partition candidate;
+    Plan candidate;
     unsigned candidateCost;
     std::tie(candidate, candidateCost) =
-        choosePartition(deviceInfo, floatActivations, floatPartials,
+        choosePlan(deviceInfo, floatActivations, floatPartials,
                         preferConvInstructions, inChansPerGroup, params,
-                        phase, numBatchGroups, cache);
+                        numBatchGroups, cache);
     assert(candidate.inChansPerGroup == inChansPerGroup);
     if (candidateCost < bestCost) {
       best = candidate;
@@ -814,96 +809,46 @@ choosePartition(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
   return {best, bestCost};
 }
 
-ConvPlan
+Plan
 Planner::createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                     unsigned kernelSizeY, unsigned kernelSizeX,
                     unsigned strideY, unsigned strideX,
                     unsigned paddingY, unsigned paddingX,
                     unsigned numChannels, unsigned batchSize,
                     std::string dType,
-                    std::string partialsType,
-                    const poplar::Graph &graph, bool forwardOnly) {
+                    std::string partialsType, bool isFractional,
+                    bool isWeightUpdate,
+                    const poplar::Graph &graph) {
   validateLayerParams(inDimY, inDimX, inNumChans, kernelSizeY, kernelSizeX,
                       strideY, strideX, paddingY, paddingX,
                       numChannels, dType);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   bool preferConvInstructions =
       graph.getDevice().getDeviceType() == poplar::DeviceType::CPU;
-  ConvPlan plan;
+  bool flattenXY;
   if (kernelSizeY == 1 && kernelSizeX == 1
       && strideY == 1 && strideX == 1
       && paddingY == 0 && paddingX == 0) {
-    plan.flattenXY = true;
+    flattenXY = true;
     inDimX = inDimX * inDimY;
     inDimY = 1;
   } else {
-    plan.flattenXY = false;
+    flattenXY = false;
   }
 
   const bool floatActivations = dType == "float";
   const bool floatPartials = partialsType == "float";
+  unsigned bestCandidateCost = std::numeric_limits<unsigned>::max();
+  Plan bestCandidate;
+  for (auto batchesPerGroup = 1U; batchesPerGroup <= batchSize;
+       ++batchesPerGroup) {
 
-  if (!forwardOnly) {
-
-    unsigned bwdCandidateCost = std::numeric_limits<unsigned>::max();
-    Partition bwdCandidate;
-
-    for (auto batchesPerGroup = 1U; batchesPerGroup <= batchSize;
-              ++batchesPerGroup) {
-
-      /* only allow integer division of batches.
+    /* only allow integer division of batches.
        *  i.e. batchSize = batchesPerGroup * numBatchGroups
        */
 
-      if ((batchSize % batchesPerGroup) ||
-          (!plan.flattenXY && batchesPerGroup > 1)) {
-        continue;
-      }
-
-      const unsigned numBatchGroups = batchSize / batchesPerGroup;
-
-      unsigned outDimY, outDimX;
-      std::tie(outDimY, outDimX) = getOutputDim(inDimY * batchesPerGroup,
-                                                inDimX,
-                                                kernelSizeY, kernelSizeX,
-                                                strideY, strideX,
-                                                paddingY, paddingX);
-
-      ConvolutionParams bwdParams(kernelSizeY, kernelSizeX,
-                                  strideY, strideX,
-                                  numChannels, outDimX, outDimY,
-                                  paddingY, paddingX, inNumChans, batchSize);
-
-      Partition candidate;
-      unsigned candidateCost;
-      std::tie(candidate, candidateCost) =
-          choosePartition(deviceInfo, floatActivations,
-                          floatPartials,
-                          preferConvInstructions,
-                          bwdParams, Phase::BACKWARD,
-                          numBatchGroups,
-                          cache.get());
-
-      if (candidateCost < bwdCandidateCost) {
-        bwdCandidateCost = candidateCost;
-        bwdCandidate = candidate;
-      }
-    }
-    plan.bwdPartition = bwdCandidate;
-  }
-
-
-  unsigned bestCost = std::numeric_limits<unsigned>::max();
-
-  for (auto batchesPerGroup = 1U; batchesPerGroup <= batchSize;
-            ++batchesPerGroup) {
-
-    /* only allow integer division of batches.
-     *  i.e. batchSize = batchesPerGroup * numBatchGroups
-     */
-
     if ((batchSize % batchesPerGroup) ||
-        (!plan.flattenXY && batchesPerGroup > 1)) {
+        (!flattenXY && batchesPerGroup > 1)) {
       continue;
     }
 
@@ -916,82 +861,27 @@ Planner::createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                                               strideY, strideX,
                                               paddingY, paddingX);
 
-    ConvolutionParams fwdParams(kernelSizeY, kernelSizeX, strideY, strideX,
-                                inNumChans, inDimX, inDimY * batchesPerGroup,
-                                paddingY, paddingX, numChannels, batchSize);
+    ConvolutionParams params(kernelSizeY, kernelSizeX, strideY, strideX,
+                             inNumChans, inDimX, inDimY * batchesPerGroup,
+                             paddingY, paddingX, numChannels, batchSize,
+                             isFractional, isWeightUpdate);
+    Plan candidate;
+    unsigned candidateCost;
+    std::tie(candidate, candidateCost) =
+        choosePlan(deviceInfo, floatActivations,
+                   floatPartials,
+                   preferConvInstructions,
+                   params,
+                   numBatchGroups,
+                   cache.get());
 
-    ConvolutionParams wuParams(kernelSizeY, kernelSizeX, strideY, strideX,
-                               inNumChans, inDimX, inDimY,
-                               paddingY, paddingX, numChannels, batchSize);
-
-
-    auto inChansPerGroupCandidates =
-          getInChansPerGroupCandidates(fwdParams, floatActivations);
-
-
-    unsigned fwdWuCandidateCost = std::numeric_limits<unsigned>::max();
-    Partition fwdCandidateSelected, wuCandidateSelected;
-
-
-    for (auto inChansPerGroup : inChansPerGroupCandidates) {
-      const auto convVertexTypeCandidates =
-          getConvVertexTypeCandidates(deviceInfo, floatActivations,
-                                      floatPartials,
-                                      inChansPerGroup, fwdParams);
-      for (const auto &convVertexType : convVertexTypeCandidates) {
-        Partition fwdCandidate;
-        unsigned fwdCandidateCost;
-        std::tie(fwdCandidate, fwdCandidateCost) =
-            choosePartition(deviceInfo, floatActivations,
-                            preferConvInstructions,
-                            inChansPerGroup, convVertexType,
-                            fwdParams, Phase::FORWARD, numBatchGroups,
-                            cache.get());
-
-        Partition bestwuCandidate;
-        unsigned bestwuCandidateCost = 0;
-        if (!forwardOnly) {
-          bestwuCandidateCost = std::numeric_limits<unsigned>::max();
-          const auto wuVertexTypeCandidates =
-              getWeightUpdateVertexTypeCandidates(
-                deviceInfo, floatActivations, floatPartials,
-                convVertexType.partialChansPerGroup,
-                wuParams);
-          Partition wuCandidate;
-          unsigned wuCandidateCost = std::numeric_limits<unsigned>::max();
-          for (const auto &wuVertexType : wuVertexTypeCandidates) {
-            std::tie(wuCandidate, wuCandidateCost) =
-                choosePartition(deviceInfo, floatActivations,
-                                preferConvInstructions, inChansPerGroup,
-                                wuVertexType, wuParams,
-                                Phase::WEIGHTUPDATE, batchSize, cache.get());
-            if (wuCandidateCost < bestwuCandidateCost) {
-              bestwuCandidate = wuCandidate;
-              bestwuCandidateCost = wuCandidateCost;
-            }
-          }
-        }
-
-        unsigned cost = fwdCandidateCost + bestwuCandidateCost;
-        if (cost < fwdWuCandidateCost) {
-          fwdWuCandidateCost = cost;
-          fwdCandidateSelected = fwdCandidate;
-          if (!forwardOnly)
-              wuCandidateSelected = bestwuCandidate;
-        }
-      }
-    }
-
-    if (fwdWuCandidateCost < bestCost) {
-      bestCost = fwdWuCandidateCost;
-      plan.fwdPartition = fwdCandidateSelected;
-
-      if (!forwardOnly) {
-        plan.wuPartition = wuCandidateSelected;
-      }
+    if (candidateCost < bestCandidateCost) {
+      bestCandidateCost = candidateCost;
+      bestCandidate = candidate;
     }
   }
-  return plan;
+  bestCandidate.flattenXY = flattenXY;
+  return bestCandidate;
 }
 
 }
