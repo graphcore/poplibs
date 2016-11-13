@@ -1436,75 +1436,22 @@ std::vector<size_t> getElementCoord(size_t element,
  *  the ordering within each element.
  */
 Program transformWeights(Graph &graph,
-                         const std::string &layerName,
-                         const ConvPlan &plan,
-                         const std::string &dType,
                          Tensor weights,
                          Tensor bwdWeights) {
-  const Partition &bwdPartition = plan.bwdPartition;
-  const Partition &fwdPartition = plan.fwdPartition;
-  const auto inChansPerGroup = bwdPartition.inChansPerGroup;
-  const auto partialChansPerGroup = bwdPartition.partialChansPerGroup;
-  auto cs = graph.createComputeSet(layerName + ".transformWeights");
+  // weights = { O/G1, I/G2, KY, KX, G1, G2 }
+  // bwdweights = { I/G3, O/G4, KY, KX, G3, G4 }
 
-  // TODO: is the weight mapping still the best given this transformation?
+  const auto KY = bwdWeights.dim(2);
+  const auto KX = bwdWeights.dim(3);
+  const auto I = bwdWeights.dim(0) * bwdWeights.dim(4);
+  const auto O = bwdWeights.dim(1) * bwdWeights.dim(5);
+  const auto G3 = bwdWeights.dim(4);
+  const auto G4 = bwdWeights.dim(5);
 
-  if (!bwdPartition.useConvolutionInstructions)
-    throw popnn::popnn_error(
-         "Backward pass for non dot product style conv not implemented");
-
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  iterateWeightMapping(bwdWeights, graph, bwdPartition, 1,
-    [&](const Tensor &tileWeights, unsigned tile) {
-    const auto flatTileWeights = tileWeights.flatten();
-    const auto tileNumElements = flatTileWeights.numElements();
-    const auto workersPerTile = deviceInfo.numWorkerContexts;
-    const auto maxElemsPerWorker =
-        (tileNumElements + workersPerTile - 1) / workersPerTile;
-    const auto verticesToCreate =
-        (tileNumElements + maxElemsPerWorker - 1) / maxElemsPerWorker;
-    for (unsigned vertex = 0; vertex != verticesToCreate; ++vertex) {
-      const auto elemBegin =
-          (vertex * tileNumElements) / verticesToCreate;
-      const auto elemEnd =
-          ((vertex + 1) * tileNumElements) / verticesToCreate;
-      if (elemBegin == elemEnd)
-        continue;
-      const auto vertexWeights = flatTileWeights.slice(elemBegin, elemEnd);
-      const auto elements = vertexWeights.getElementIndices();
-      auto numElements = elements.size();
-      auto regions = getContiguousRegions(elements.begin(),
-                                          elements.end());
-      auto v = graph.addVertex(cs, templateVertex("popnn::ConvTransformWeights",
-                                                  dType));
-      graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
-      graph.setFieldSize(v["out"], regions.size());
-      for (unsigned i = 0; i < regions.size(); i++) {
-        auto &region = regions[i];
-        graph.connect(v["out"][i],
-                      bwdWeights.flatten().slice(region.first,
-                                                 region.second));
-      };
-      graph.setFieldSize(v["in"], numElements);
-      for (unsigned i = 0; i < numElements; ++i) {
-        const auto &elem = elements[i];
-        auto coord = getElementCoord(elem, bwdWeights.dims());
-        auto wx = coord[2]; auto wy = coord[3];
-        auto outChan = coord[0] * partialChansPerGroup + coord[4];
-        auto inChan = coord[1] * inChansPerGroup + coord[5];
-        auto fwdPartialChansPerGroup = fwdPartition.partialChansPerGroup;
-        auto fwdInChansPerGroup = fwdPartition.inChansPerGroup;
-        auto w = weights[inChan / fwdPartialChansPerGroup]
-            [outChan / fwdInChansPerGroup]
-            [wx][wy]
-            [inChan % fwdPartialChansPerGroup]
-            [outChan % fwdInChansPerGroup];
-        graph.connect(v["in"][i], w);
-      }
-      graph.setTileMapping(v, tile);
-    }
-  });
-  return Execute(cs);
+  return Copy(bwdWeights,
+              weights.dimShuffle({2, 3, 0, 4, 1, 5})
+                     .reshape({KY, KX, O/G4, G4, I/G3, G3})
+                     .dimShuffle({4, 2, 0, 1, 5, 3}));
 }
 
 Program convolutionBackward(Graph &graph,
@@ -1566,8 +1513,7 @@ Program convolutionBackward(Graph &graph,
   assert(bwdWeights.numElements() == weights.numElements());
   mapWeights(bwdWeights, graph, plan.bwdPartition, batchSize);
 
-  bwdProg.add(transformWeights(graph, layerName, plan, dType, weights,
-                               bwdWeights));
+  bwdProg.add(transformWeights(graph, weights, bwdWeights));
 
   // Calculate a set of partial sums of the convolutions.
   Tensor partials = graph.addTensor(partialType,
