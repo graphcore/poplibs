@@ -762,6 +762,8 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
          = options.fp16InFp32OutConvUnitsPerTile;
     info.fp32InFp32OutConvUnitsPerTile
          = options.fp32InFp32OutConvUnitsPerTile;
+    info.convUnitCoeffLoadBytesPerCycle
+         = options.convUnitCoeffLoadBytesPerCycle;
 
     switch (info.numIPUs) {
     case 1:
