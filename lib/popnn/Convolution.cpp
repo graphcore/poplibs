@@ -1097,7 +1097,6 @@ complete(Graph &graph,
          std::string dType,
          Tensor in, Tensor biases, Tensor activations,
          const std::vector<unsigned> &activationsMapping,
-         const std::string &layerName,
          ComputeSet cs) {
   // Apply the non linearity and write back results in the layout desired by
   // the next layer. Each vertex handles outChansPerGroup output elements.
@@ -1210,8 +1209,7 @@ convolution(Graph &graph,
             unsigned winogradPatchSize) {
   const auto dType = graph.getTensorElementType(in);
   const auto layerName =
-      "Conv" + std::to_string(kernelSizeX) + "x" + std::to_string(kernelSizeY)
-          + ".fwd";
+      "Conv" + std::to_string(kernelSizeX) + "x" + std::to_string(kernelSizeY);
   const auto outDimY = activations.dim(2);
   const auto outDimX = activations.dim(3);
   unsigned partialOutDimY, partialOutDimX;
@@ -1319,7 +1317,7 @@ convolution(Graph &graph,
       // Add the bias and rearrange tensor to required output channel grouping.
       complete(graph, plan, outNumChans, dType, reduced, biases,
                activations[b],
-               activationsMapping, layerName, completeCS);
+               activationsMapping, completeCS);
     }
     if (!graph.getComputeSet(reduceCS).empty())
       forwardProg.add(Execute(reduceCS));
@@ -1456,130 +1454,31 @@ Program convolutionBackward(Graph &graph,
                             unsigned kernelSizeY, unsigned kernelSizeX,
                             unsigned strideY, unsigned strideX,
                             unsigned paddingY, unsigned paddingX) {
-  const auto dType = graph.getTensorElementType(zDeltas);
-  const auto layerName =
-      "Conv" + std::to_string(kernelSizeX) + "x" + std::to_string(kernelSizeY)
-             + ".bwd";
   const auto batchSize = deltasOut.dim(0);
-  const auto outDimY = deltasOut.dim(2);
-  const auto outDimX = deltasOut.dim(3);
-  unsigned partialOutDimY, partialOutDimX;
-  if (plan.flattenXY) {
-    partialOutDimY = plan.batchesPerGroup;
-    partialOutDimX = outDimX * outDimY;
-    const auto inDimY = zDeltas.dim(2);
-    const auto inDimX = zDeltas.dim(3);
-
-    zDeltas = zDeltas.dimShuffle({1, 0, 2, 3, 4}).reshape(
-           {zDeltas.dim(1),
-            plan.numBatchGroups,
-            plan.batchesPerGroup * inDimY,
-            inDimX,
-            zDeltas.dim(4)
-           }).dimShuffle({1, 0, 2, 3, 4});
-
-    zDeltas = zDeltas.reshape({plan.numBatchGroups,
-                               zDeltas.dim(1),
-                               plan.batchesPerGroup,
-                               inDimY * inDimX,
-                               zDeltas.dim(4)});
-
-  } else {
-    partialOutDimY = outDimY;
-    partialOutDimX = outDimX;
-  }
+  const auto dType = graph.getTensorElementType(zDeltas);
   const auto outNumChans = deltasOut.dim(1) * deltasOut.dim(4);
-  const auto partialChansPerGroup = plan.partialChansPerGroup;
-  const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
-  const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
   const auto partialType = plan.getPartialType();
-  const auto inNumChanGroups = zDeltas.dim(1), inChansPerGroup = zDeltas.dim(4);
-  assert(inChansPerGroup == plan.inChansPerGroup);
+  const auto inNumChans = zDeltas.dim(1) * zDeltas.dim(4);
 
-  auto bwdProg = Sequence();
-  auto bwdWeights = graph.addTensor(dType, {partialNumChanGroups,
-                                            inNumChanGroups,
-                                            kernelSizeY,
-                                            kernelSizeX,
-                                            partialChansPerGroup,
-                                            inChansPerGroup},
-                                            "bwdWeights");
+  auto prog = Sequence();
 
-  assert(bwdWeights.numElements() == weights.numElements());
+  // Create transpose/flipped weights
+  auto bwdWeights = createWeights(graph, dType, inNumChans, kernelSizeY,
+                                  kernelSizeX, outNumChans, plan);
   mapWeights(bwdWeights, graph, plan, batchSize);
+  prog.add(transformWeights(graph, weights, bwdWeights));
 
-  bwdProg.add(transformWeights(graph, weights, bwdWeights));
+  // Create zero biases
+  auto zeros = graph.addConstantTensor(dType, {outNumChans}, 0);
+  auto biases = graph.addTensor(dType, {outNumChans}, "zeroBiases");
+  mapBiases(biases, graph, deltasOut);
+  prog.add(Copy(biases, zeros));
 
-  // Calculate a set of partial sums of the convolutions.
-  Tensor partials = graph.addTensor(partialType,
-                                    {plan.numBatchGroups,
-                                     tilesPerInZGroup,
-                                     partialNumChanGroups,
-                                     partialOutDimY,
-                                     partialOutDimX,
-                                     partialChansPerGroup},
-                                    "partials");
-  bool isFractional = strideX != 1 || strideY != 1;
-
-  if (paddingX >= kernelSizeX || paddingY >= kernelSizeY) {
-    throw popnn::popnn_error("Backwards convolution pass does not support "
-                             "padding that is greater than or equal to the "
-                             "kernel size");
-  }
-
-  if (!isFractional) {
-    paddingX = kernelSizeX - 1 - paddingX;
-    paddingY = kernelSizeY - 1 - paddingY;
-  }
-
-  bwdProg.add(calcPartialSums(graph, plan,
-                              kernelSizeY, kernelSizeX, strideY, strideX,
-                              paddingY, paddingX, outNumChans, dType,
-                              zDeltas, bwdWeights, partials, layerName,
-                              partialOutDimX, partialOutDimY,
-                              isFractional, true));
-
-  if (plan.flattenXY) {
-    partials = partials.dimShuffle({1, 2, 0, 3, 4, 5 }).reshape(
-      {tilesPerInZGroup,
-       partialNumChanGroups,
-       plan.numBatchGroups * plan.batchesPerGroup,
-       partialOutDimY / plan.batchesPerGroup,
-       partialOutDimX,
-       partialChansPerGroup
-      }).dimShuffle({2, 0, 1, 3, 4, 5});
-  }
-
-  // Perform the reduction of partial sums
-
-  // For each element of the batch, we add the reduction and regroup
-  // vertices to same compute sets so the batch will be executed in parallel.
-  ComputeSet reduceCS = graph.createComputeSet(layerName + ".reduce");
-  auto regroups = Sequence();
-  const auto outChansPerGroup = deltasOut.dim(4);
-  for (unsigned b = 0; b < batchSize; ++b) {
-    auto activationsMapping =
-        computeActivationsMapping(graph, deltasOut[b], b, batchSize);
-    auto reducedMapping =
-        computeReducedMapping(graph, partialType, partialChansPerGroup,
-                              deltasOut[b], activationsMapping);
-    auto reduced = reduce(graph,  partials[b], reducedMapping, reduceCS);
-    // Rearrange tensor to required output channel grouping.
-    // TODO: the next layer's non-linearity derivative could be merged
-    // into this.
-    reduced = reduced.reshape({partialNumChanGroups, outDimY, outDimX,
-                             partialChansPerGroup});
-    regroups.add(cast(graph, activationsMapping,
-                      regroup(reduced, outChansPerGroup),
-                      deltasOut[b]));
-  }
-
-  if (!graph.getComputeSet(reduceCS).empty())
-    bwdProg.add(Execute(reduceCS));
-  bwdProg.add(regroups);
-
-
-  return bwdProg;
+  // Perform a fractional convolution
+  prog.add(convolution(graph, plan, kernelSizeY, kernelSizeX, strideY,
+                          strideX, paddingY, paddingX, zDeltas, bwdWeights,
+                          biases, deltasOut, partialType, true, true));
+  return prog;
 }
 
 static void
