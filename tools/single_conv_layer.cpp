@@ -195,13 +195,24 @@ int main(int argc, char **argv) {
                                     dataTypeStr, partialsTypeStr,
                                     false, false,
                                     graph);
+  bool bwdIsFractional = strideH != 1 || strideW != 1;
+  if (paddingHeight >= kernelHeight || paddingWidth >= kernelWidth) {
+    throw popnn::popnn_error("Backwards convolution pass does not support "
+                             "padding that is greater than or equal to the "
+                             "kernel size");
+  }
+  auto bwdPaddingHeight = paddingHeight, bwdPaddingWidth = paddingWidth;
+  if (!bwdIsFractional) {
+    bwdPaddingWidth = kernelWidth - 1 - paddingWidth;
+    bwdPaddingHeight = kernelHeight - 1 - paddingHeight;
+  }
   auto bwdPlan = planner.createPlan(outHeight, outWidth, fwdOutChans,
                                     kernelHeight, kernelWidth,
                                     strideH, strideW,
-                                    paddingHeight, paddingWidth,
+                                    bwdPaddingHeight, bwdPaddingWidth,
                                     fwdInChans, batchSize,
                                     dataTypeStr, partialsTypeStr,
-                                    true, false,
+                                    bwdIsFractional, false,
                                     graph);
   auto wuPlan = planner.createPlan(height, width, fwdInChans,
                                    kernelHeight, kernelWidth,
@@ -302,7 +313,8 @@ int main(int argc, char **argv) {
       conv::convolutionBackward(graph, bwdPlan, zDeltas, weights, prevDeltas,
                                 kernelHeight, kernelWidth, strideH,
                                 strideW,
-                                paddingHeight, paddingWidth)
+                                bwdPaddingHeight, bwdPaddingWidth,
+                                bwdIsFractional)
     );
     bwdProg.add(
       conv::convolutionWeightUpdate(graph, wuPlan, fwdPlan,

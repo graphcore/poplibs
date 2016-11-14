@@ -62,13 +62,18 @@ void mapBiases(poplar::Tensor b, poplar::Graph &graph,
                poplar::Tensor activations);
 
 poplar::program::Program
+weightsTransposeChansFlipXY(poplar::Graph &graph,
+                            poplar::Tensor weightsIn,
+                            poplar::Tensor WeightsOut);
+
+poplar::program::Program
 convolutionBackward(poplar::Graph &graph,
                     const Plan &plan,
                     poplar::Tensor zDeltas, poplar::Tensor weights,
                     poplar::Tensor deltasOut,
                     unsigned kernelSizeY, unsigned kernelSizeX,
                     unsigned strideY, unsigned strideX,
-                    unsigned paddingY, unsigned paddingX);
+                    unsigned paddingY, unsigned paddingX, bool isFractional);
 
 poplar::program::Program
 convolutionWeightUpdate(poplar::Graph &graph,

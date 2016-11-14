@@ -1460,7 +1460,8 @@ Program convolutionBackward(Graph &graph,
                             Tensor deltasOut,
                             unsigned kernelSizeY, unsigned kernelSizeX,
                             unsigned strideY, unsigned strideX,
-                            unsigned paddingY, unsigned paddingX) {
+                            unsigned paddingY, unsigned paddingX,
+                            bool isFractional) {
   const auto batchSize = deltasOut.dim(0);
   const auto dType = graph.getTensorElementType(zDeltas);
   const auto outNumChans = deltasOut.dim(1) * deltasOut.dim(4);
@@ -1483,8 +1484,9 @@ Program convolutionBackward(Graph &graph,
 
   // Perform a fractional convolution
   prog.add(convolution(graph, plan, kernelSizeY, kernelSizeX, strideY,
-                          strideX, paddingY, paddingX, zDeltas, bwdWeights,
-                          biases, deltasOut, partialType, true, false));
+                       strideX, paddingY, paddingX, zDeltas, bwdWeights,
+                       biases, deltasOut, partialType, isFractional,
+                       false));
   return prog;
 }
 

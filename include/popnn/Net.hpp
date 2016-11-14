@@ -152,16 +152,6 @@ public:
 bool parseCommandLine(int argc, char **argv, NetOptions &options,
                       bool &doTraining);
 
-
-poplar::program::Program
-convolutionBackwardMapTensors(poplar::Graph &graph,
-                              const conv::Plan &plan, const conv::Plan &fwdPlan,
-                              poplar::Tensor zDeltas, poplar::Tensor weights,
-                              poplar::Tensor deltasOut,
-                              unsigned kernelSizeY, unsigned kernelSizeX,
-                              unsigned strideY, unsigned strideX,
-                              unsigned paddingY, unsigned paddingX);
-
 /* This class represent the entire network. */
 class Net {
   NetType netType;
@@ -214,13 +204,15 @@ class Net {
                      poplar::program::Sequence &initParamsProg,
                      ConvOp &op);
 
-  struct ConvBwdOp; struct ConvWuOp;
+  struct ConvBwdWeightsOp; struct ConvWuOp;
   poplar::program::Program
   createConvLayerBwd(unsigned i, unsigned kernelSizeY, unsigned kernelSizeX,
                      unsigned strideY, unsigned strideX,
                      unsigned paddingY, unsigned paddingX,
                      NonLinearityType nonLinearityType,
-                     bool backwardPassRequired, ConvBwdOp &bwdOp,
+                     bool backwardPassRequired,
+                     ConvBwdWeightsOp &convBwdWeightsOp,
+                     ConvOp &convOp,
                      ConvWuOp &wuOp);
 
   poplar::program::Program

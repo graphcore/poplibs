@@ -141,20 +141,22 @@ convolution(Graph &graph,
 }
 
 static Program
-convolutionBackward(poplar::Graph &graph,
-                    const conv::Plan &plan, const conv::Plan &fwdPlan,
-                    poplar::Tensor zDeltas, poplar::Tensor weights,
-                    poplar::Tensor deltasOut,
-                    unsigned kernelSizeY, unsigned kernelSizeX,
-                    unsigned strideY, unsigned strideX,
-                    unsigned paddingY, unsigned paddingX) {
-  const auto batchSize = zDeltas.dim(0);
-  mapActivations(graph, zDeltas);
+createBwdWeightsAndBiases(Graph &graph, const conv::Plan &bwdPlan,
+                          const conv::Plan &fwdPlan,
+                          Tensor weights, Tensor deltasOut,
+                          Tensor bwdWeights,
+                          Tensor bwdBiases) {
+  const auto batchSize = deltasOut.dim(0);
+  const auto outNumChans = deltasOut.dim(1) * deltasOut.dim(4);
+  const auto dType = graph.getTensorElementType(weights);
+  auto prog = Sequence();
   conv::mapWeights(weights, graph, fwdPlan, batchSize);
-  mapActivations(graph, deltasOut);
-  return conv::convolutionBackward(graph, plan, zDeltas, weights, deltasOut,
-                                   kernelSizeY, kernelSizeX, strideY, strideX,
-                                   paddingY, paddingX);
+  conv::mapWeights(bwdWeights, graph, bwdPlan, batchSize);
+  prog.add(conv::weightsTransposeChansFlipXY(graph, weights, bwdWeights));
+  auto zeros = graph.addConstantTensor(dType, {outNumChans}, 0);
+  conv::mapBiases(bwdBiases, graph, deltasOut);
+  prog.add(Copy(bwdBiases, zeros));
+  return prog;
 }
 
 static Program
@@ -188,10 +190,11 @@ struct Net::ConvOp {
     return op(std::forward<Args>(args)...);
   };
 };
-struct Net::ConvBwdOp {
-  POPNN_TENSOR_OP_TYPE(convolutionBackward, conv::Plan) op;
-  ConvBwdOp(POPNN_TENSOR_OP_TYPE(convolutionBackward, conv::Plan) op) :
-    op(std::move(op)) {}
+struct Net::ConvBwdWeightsOp {
+  POPNN_TENSOR_OP_TYPE(createBwdWeightsAndBiases, conv::Plan) op;
+  ConvBwdWeightsOp(
+    POPNN_TENSOR_OP_TYPE(createBwdWeightsAndBiases, conv::Plan) op
+  ) :  op(std::move(op)) {}
   template<typename ...Args>
   Program operator()(Args&&... args) {
     return op(std::forward<Args>(args)...);
@@ -314,12 +317,20 @@ Net::getBwdConvPlan(unsigned i, unsigned prevDimY, unsigned prevDimX,
   std::tie(inDimY, inDimX) =
       conv::getOutputDim(prevDimY, prevDimX, c->kernelSizeY, c->kernelSizeX,
                            c->strideY, c->strideX, c->paddingY, c->paddingX);
+  auto paddingX = c->paddingX, paddingY = c->paddingY;
+  bool isFractional = c->strideX != 1 || c->strideY != 1;
+  assert(paddingX >= c->kernelSizeX);
+  assert(paddingY >= c->kernelSizeY);
+  if (!isFractional) {
+    paddingX = c->kernelSizeX - 1 - paddingX;
+    paddingY = c->kernelSizeY - 1 - paddingY;
+  }
   plan = planner.createPlan(inDimY, inDimX, c->numChannels,
                             c->kernelSizeY, c->kernelSizeX,
-                            c->strideY, c->strideX, c->paddingY,
-                            c->paddingX,
+                            c->strideY, c->strideX,
+                            paddingY, paddingX,
                             prevNumChans, batchSize, dType,
-                            partialsType, true, false, *graph);
+                            partialsType, isFractional, false, *graph);
   bwdConvPlans.emplace(i, plan);
   return plan;
 }
@@ -709,11 +720,13 @@ Program Net::createConvLayerBwd(unsigned i,
                                 unsigned paddingY, unsigned paddingX,
                                 NonLinearityType nonLinearityType,
                                 bool backwardPassRequired,
-                                ConvBwdOp &convBwd, ConvWuOp &convWU) {
+                                ConvBwdWeightsOp &convBwdWeights,
+                                ConvOp &doConv, ConvWuOp &convWU) {
   auto prog = Sequence();
   auto prevDimY = acts[i].dim(2);
   auto prevDimX = acts[i].dim(3);
   auto prevNumChans = acts[i].dim(1) * acts[i].dim(4);
+  auto nextNumChans = acts[i + 1].dim(1) * acts[i + 1].dim(4);
   auto fwdPlan = getFwdConvPlan(i, prevDimY, prevDimX, prevNumChans);
   auto bwdPlan = getBwdConvPlan(i, prevDimY, prevDimX, prevNumChans);
   auto wuPlan = getWuConvPlan(i, prevDimY, prevDimX, prevNumChans);
@@ -729,9 +742,29 @@ Program Net::createConvLayerBwd(unsigned i,
   }
 
   if (backwardPassRequired) {
-    prog.add(convBwd(*graph, bwdPlan, fwdPlan, zDeltas, weights, deltas[i],
-                     kernelSizeY, kernelSizeX, strideY, strideX, paddingY,
-                     paddingX));
+    bool isFractional = strideX != 1 || strideY != 1;
+    assert(paddingX >= kernelSizeX);
+    assert(paddingY >= kernelSizeY);
+
+    if (!isFractional) {
+      paddingX = kernelSizeX - 1 - paddingX;
+      paddingY = kernelSizeY - 1 - paddingY;
+    }
+    // Create transpose/flipped weights
+    auto bwdWeights =
+        conv::createWeights(*graph, dType, nextNumChans, kernelSizeY,
+                            kernelSizeX, prevNumChans, bwdPlan);
+    conv::mapWeights(bwdWeights, *graph, bwdPlan, batchSize);
+    auto biases = graph->addTensor(dType, {prevNumChans}, "zeroBiases");
+    conv::mapBiases(biases, *graph, deltas[i]);
+
+    prog.add(convBwdWeights(*graph, bwdPlan, fwdPlan, weights, deltas[i],
+                            bwdWeights, biases));
+    // Perform convolution
+    prog.add(doConv(*graph, bwdPlan, kernelSizeY, kernelSizeX, strideY,
+                    strideX, paddingY, paddingX, zDeltas, bwdWeights,
+                    biases, deltas[i], bwdPlan.getPartialType(),
+                    isFractional, false, 4));
   }
 
   prog.add(convWU(*graph, wuPlan, fwdPlan, zDeltas, weights, biases, acts[i],
@@ -805,12 +838,13 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
          {TensorOpParamType::InputTensor},
          {TensorOpParamType::InputTensor},
          {TensorOpParamType::OutputTensor}});
-  ConvBwdOp convBwdOp =
+  ConvBwdWeightsOp convBwdWeightsOp =
       createTensorOp<conv::Plan>(
-        *graph, convolutionBackward, "convBwd",
-        {{TensorOpParamType::InputTensor},
-         {TensorOpParamType::InputTensor},
-         {TensorOpParamType::OutputTensor}});
+         *graph, createBwdWeightsAndBiases, "createBwdWeights",
+         {{TensorOpParamType::InputTensor,
+           TensorOpParamType::NotParamTensor,
+           TensorOpParamType::OutputTensor,
+           TensorOpParamType::OutputTensor}});
   ConvWuOp convWuOp =
       createTensorOp<conv::Plan>(
         *graph, convolutionWeightUpdate, "convWeightUpdate",
@@ -1009,7 +1043,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                                        c->paddingX,
                                        c->nonLinearityType,
                                        backwardPassRequired,
-                                       convBwdOp, convWuOp));
+                                       convBwdWeightsOp, convOp, convWuOp));
       } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
         if (backwardPassRequired)
           bwdProg.add(maxpool::maxPoolBackward(*graph, m->kernelSize, m->stride,
