@@ -48,13 +48,11 @@ createBiases(poplar::Graph &graph, std::string dType,
 poplar::program::Program
 convolution(poplar::Graph &graph, const Plan &plan,
             unsigned kernelSizeY, unsigned kernelSizeX,
-            unsigned strideY, unsigned strideX, unsigned paddingY,
-            unsigned paddingX,
+            unsigned strideY, unsigned strideX,
+            unsigned paddingY, unsigned paddingX,
             poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
-            poplar::Tensor out,
-            const std::string &partialsType,
-            bool isFractional, bool flipWeights,
-            bool useWinogradConv = false,
+            poplar::Tensor out, const std::string &partialsType,
+            bool isFractional, bool useWinogradConv = false,
             unsigned winogradPatchSize = 4);
 
 void mapWeights(poplar::Tensor w, poplar::Graph &graph, const Plan &plan,

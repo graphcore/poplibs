@@ -292,7 +292,7 @@ int main(int argc, char **argv) {
                       strideW, paddingHeight,
                       paddingWidth,
                       prevAct, weights, biases, nextAct,
-                      partialsTypeStr, false, false,
+                      partialsTypeStr, false,
                       useWinogradConv, winogradPatchSize));
 
   auto bwdProg = Sequence();

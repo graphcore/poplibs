@@ -430,8 +430,7 @@ createConvPartialnx1InOutVertex(Graph &graph,
                                 const Tensor &weights,
                                 const Tensor &out,
                                 const Tensor &zeros,
-                                bool isFractional,
-                                bool flipWeights) {
+                                bool isFractional) {
   const auto inDimY = in.dim(1);
   const auto inDimX = in.dim(2);
   const auto inChansPerGroup = static_cast<unsigned>(in.dim(3));
@@ -502,9 +501,7 @@ createConvPartialnx1InOutVertex(Graph &graph,
              ++wy) {
           Tensor w;
           if (wy < wyEnd) {
-            auto wxx = flipWeights ? kernelSizeX - 1 - wx : wx;
-            auto wyy = flipWeights ? kernelSizeY - 1 - wy : wy;
-            w = weights[outZGroup][izg][wyy][wxx].flatten();
+            w = weights[outZGroup][izg][wy][wx].flatten();
           } else {
             w = zeros.slice(0, inChansPerGroup * outChansPerGroup);
           }
@@ -706,7 +703,7 @@ calcPartialConvOutput(Graph &graph,
                       ComputeSet zeroCS,
                       ComputeSet fwdCS,
                       Tensor in, Tensor weights, Tensor out,
-                      bool isFractional, bool flipWeights) {
+                      bool isFractional) {
   const auto inChansPerGroup = plan.inChansPerGroup;
   const auto outChansPerGroup = plan.partialChansPerGroup;
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
@@ -776,12 +773,12 @@ calcPartialConvOutput(Graph &graph,
                                         kernelSizeY, kernelSizeX, strideY,
                                         strideX, paddingY, paddingX,
                                         fwdCS, in, weights, out,
-                                        zeros, isFractional,
-                                        flipWeights);
+                                        zeros, isFractional);
       } else {
-        if (isFractional || flipWeights)
-          assert(0 && "Non convolution instruction backward "
-                      "pass with striding or flipped weights not implemented");
+        if (isFractional)
+          throw popnn::popnn_error("Non convolution instruction based "
+                                   "fractional convolutions are not "
+                                   "implemented");
         createConvPartialDotProductVertex(graph, plan, tile,
                                           outXBegin, outXEnd,
                                           vertexOutYBegin, vertexOutYEnd,
@@ -832,7 +829,7 @@ calcPartialSums(Graph &graph,
                 Tensor in, Tensor weights, Tensor partials,
                 const std::string &layerName,
                 unsigned outDimX, unsigned outDimY,
-                bool isFractional, bool flipWeights) {
+                bool isFractional) {
   const auto batchSize = in.dim(0);
   const auto isMultiIPU = graph.getDevice().getDeviceInfo().numIPUs > 1;
   const auto inNumChans = in.dim(1) * in.dim(4);
@@ -878,7 +875,7 @@ calcPartialSums(Graph &graph,
                                   convolveCS,
                                   in[b], weights,
                                   partials[b][izg],
-                                  isFractional, flipWeights);
+                                  isFractional);
           }
         }
       }
@@ -1203,10 +1200,8 @@ convolution(Graph &graph,
             unsigned kernelSizeY, unsigned kernelSizeX, unsigned strideY,
             unsigned strideX, unsigned paddingY, unsigned paddingX,
             Tensor in, Tensor weights, Tensor biases, Tensor activations,
-            const std::string &partialsType,
-            bool isFractional, bool flipWeights,
-            bool useWinogradConv,
-            unsigned winogradPatchSize) {
+            const std::string &partialsType, bool isFractional,
+            bool useWinogradConv, unsigned winogradPatchSize) {
   const auto dType = graph.getTensorElementType(in);
   const auto layerName =
       "Conv" + std::to_string(kernelSizeX) + "x" + std::to_string(kernelSizeY);
@@ -1285,7 +1280,7 @@ convolution(Graph &graph,
                                     paddingY, paddingX, outNumChans,
                                     dType, in, weights, partials, layerName,
                                     partialOutDimX, partialOutDimY,
-                                    isFractional, flipWeights));
+                                    isFractional));
 
     if (plan.flattenXY) {
       partials = partials.dimShuffle({1, 2, 0, 3, 4, 5 }).reshape(
@@ -1423,28 +1418,40 @@ std::vector<size_t> getElementCoord(size_t element,
   return coord;
 }
 
-/** Copy the weights in 'weights' into 'bwdWeights' such that
+/** Copy the weights in 'weightsIn' into 'weightsOut' such that
  *  each element of the kernel is transposed w.r.t. the input and output
- *  channels. Note that the ordering of the kernel elements is not changed, just
- *  the ordering within each element.
+ *  channels and flip both the X and Y axis of the kernel field.
  */
-Program transformWeights(Graph &graph,
-                         Tensor weights,
-                         Tensor bwdWeights) {
+Program weightsTransposeChansFlipXY(Graph &graph,
+                                    Tensor weightsIn,
+                                    Tensor weightsOut) {
   // weights = { O/G1, I/G2, KY, KX, G1, G2 }
   // bwdweights = { I/G3, O/G4, KY, KX, G3, G4 }
 
-  const auto KY = bwdWeights.dim(2);
-  const auto KX = bwdWeights.dim(3);
-  const auto I = bwdWeights.dim(0) * bwdWeights.dim(4);
-  const auto O = bwdWeights.dim(1) * bwdWeights.dim(5);
-  const auto G3 = bwdWeights.dim(4);
-  const auto G4 = bwdWeights.dim(5);
+  const auto dType = graph.getTensorElementType(weightsIn);
+  const auto KY = weightsOut.dim(2);
+  const auto KX = weightsOut.dim(3);
+  const auto I = weightsOut.dim(0) * weightsOut.dim(4);
+  const auto O = weightsOut.dim(1) * weightsOut.dim(5);
+  const auto G1 = weightsIn.dim(4);
+  const auto G2 = weightsIn.dim(5);
+  const auto G3 = weightsOut.dim(4);
+  const auto G4 = weightsOut.dim(5);
 
-  return Copy(bwdWeights,
-              weights.dimShuffle({2, 3, 0, 4, 1, 5})
-                     .reshape({KY, KX, O/G4, G4, I/G3, G3})
-                     .dimShuffle({4, 2, 0, 1, 5, 3}));
+  auto wFlippedY = graph.addTensor(dType, {O/G1, I/G2, 0, KX, G1, G2});
+  for (int wy = KY - 1; wy >= 0; --wy) {
+     wFlippedY = concat(wFlippedY, weightsIn.slice(wy, wy + 1, 2), 2);
+  }
+
+  auto wFlippedYX= graph.addTensor(dType, {O/G1, I/G2, KY, 0, G1, G2});
+  for (int wx = KX - 1; wx >= 0; --wx) {
+     wFlippedYX = concat(wFlippedYX, wFlippedY.slice(wx, wx + 1, 3), 3);
+  }
+
+  return Copy(weightsOut,
+              wFlippedYX.dimShuffle({2, 3, 0, 4, 1, 5})
+                        .reshape({KY, KX, O/G4, G4, I/G3, G3})
+                        .dimShuffle({4, 2, 0, 1, 5, 3}));
 }
 
 Program convolutionBackward(Graph &graph,
@@ -1466,7 +1473,7 @@ Program convolutionBackward(Graph &graph,
   auto bwdWeights = createWeights(graph, dType, inNumChans, kernelSizeY,
                                   kernelSizeX, outNumChans, plan);
   mapWeights(bwdWeights, graph, plan, batchSize);
-  prog.add(transformWeights(graph, weights, bwdWeights));
+  prog.add(weightsTransposeChansFlipXY(graph, weights, bwdWeights));
 
   // Create zero biases
   auto zeros = graph.addConstantTensor(dType, {outNumChans}, 0);
@@ -1477,7 +1484,7 @@ Program convolutionBackward(Graph &graph,
   // Perform a fractional convolution
   prog.add(convolution(graph, plan, kernelSizeY, kernelSizeX, strideY,
                           strideX, paddingY, paddingX, zDeltas, bwdWeights,
-                          biases, deltasOut, partialType, true, true));
+                          biases, deltasOut, partialType, true, false));
   return prog;
 }
 
@@ -1655,7 +1662,7 @@ matrixMultiplyByConvInstruction(Graph &graph, const Plan &plan,
                            kernelSize, kernelSize, stride, stride,
                            padding, padding, outNumChans,
                            dType, in, weights, partials, "matrixMul",
-                           outDimX, outDimY, false, false));
+                           outDimX, outDimY, false));
   // Perform the reduction of partial sums.
   if (plan.tilesPerInZGroupAxis > 1) {
     auto reduceCS = graph.createComputeSet("reduce");
