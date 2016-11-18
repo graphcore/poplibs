@@ -14,6 +14,20 @@
 using namespace poplar;
 using namespace poplar::program;
 
+static void
+applyTensorMapping(
+    Graph &graph,
+    const Tensor &t,
+    const std::vector<std::vector<std::pair<unsigned, unsigned>>> &mapping) {
+  auto flattened = t.flatten();
+  const auto numTiles = mapping.size();
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    for (const auto &region : mapping[tile]) {
+      graph.setTileMapping(flattened.slice(region.first, region.second), tile);
+    }
+  }
+}
+
 namespace conv {
 
 std::pair<unsigned, unsigned>
@@ -786,44 +800,6 @@ calcPartialConvOutput(Graph &graph,
   }
 }
 
-
-// Take an index range from a grouped tensor of dimensions
-// {N/grouping, M, grouping} and return the corresponding indices
-// of the ungrouped tensor of size {M, N}.
-static std::vector<unsigned> getUngroupedIndices(unsigned start,
-                                                 unsigned end,
-                                                 unsigned N,
-                                                 unsigned M,
-                                                 unsigned grouping) {
-  assert(N % grouping == 0);
-  std::vector<unsigned> elems;
-  for (unsigned i = start; i < end; ++i) {
-    auto g = i / grouping;
-    auto ii = (g % M) * N + (g / M) * grouping + i % grouping;
-    elems.push_back(ii);
-  }
-  return elems;
-}
-
-// Take the indices from a ungrouped tensor of dimensions
-// {M, N} and return the corresponding indices
-// of the grouped tensor of size {N/grouping, M, grouping}.
-static std::vector<unsigned>
-getGroupedIndices(const std::vector<unsigned> &in,
-                  unsigned N,
-                  unsigned M,
-                  unsigned grouping) {
-  assert(N % grouping == 0);
-  std::vector<unsigned> elems;
-  for (auto i : in) {
-    auto m = i / N;
-    auto n = i % N;
-    auto ii = (n / grouping) * M * grouping + m * grouping + n % grouping;
-    elems.push_back(ii);
-  }
-  return elems;
-}
-
 // Take an ordered list and return a list of ranges
 // representing the contiguous regions in that list.
 template <typename It>
@@ -921,97 +897,202 @@ calcPartialSums(Graph &graph,
   return prog;
 }
 
+static void splitRegionsBetweenWorkers(
+    const poplar::DeviceInfo &deviceInfo,
+    const std::vector<std::pair<unsigned, unsigned>> &regions,
+    std::vector<std::vector<std::pair<unsigned, unsigned>>> &vertexRegions,
+    unsigned grainSize) {
+  vertexRegions.clear();
+  const auto numElements =
+      std::accumulate(regions.begin(), regions.end(), 0U,
+                      [](unsigned numElements,
+                         const std::pair<unsigned, unsigned> &region) {
+    return numElements + region.second - region.first;
+  });
+  if (numElements == 0)
+    return;
+  const auto workersPerTile = deviceInfo.numWorkerContexts;
+  const auto numGroups = (numElements + grainSize - 1) / grainSize;
+  const auto maxGroupsPerWorker =
+    (numGroups + workersPerTile - 1) / workersPerTile;
+  const auto verticesToCreate =
+    (numGroups + maxGroupsPerWorker - 1) / maxGroupsPerWorker;
+  auto it = regions.begin();
+  unsigned count = 0;
+  vertexRegions.resize(verticesToCreate);
+  for (unsigned vertex = 0; vertex != verticesToCreate; ++vertex) {
+    const auto groupBegin = (vertex * numGroups) / verticesToCreate;
+    const auto groupEnd = ((vertex + 1) * numGroups) / verticesToCreate;
+    const auto elemBegin = groupBegin * grainSize;
+    const auto elemEnd = std::min(numElements, groupEnd * grainSize);
+    auto vertexElements = elemEnd - elemBegin;
+    while (vertexElements) {
+      if (count == it->second - it->first) {
+        count = 0;
+        ++it;
+      }
+      const auto vertexRegionSize = std::min(vertexElements,
+                                             it->second - it->first - count);
+      const auto vertexRegionBegin = it->first + count;
+      const auto vertexRegionEnd = vertexRegionBegin + vertexRegionSize;
+      vertexRegions[vertex].emplace_back(vertexRegionBegin, vertexRegionEnd);
+      count += vertexRegionSize;
+      vertexElements -= vertexRegionSize;
+    }
+  }
+}
+
 static void
 reduce(Graph &graph,
-       const Partition &partition,
-       unsigned outNumChans, unsigned outNumChanGroups,
        Tensor partials,
        Tensor reduced,
-       const std::vector<unsigned> &reducedMapping,
+       const std::vector<
+         std::vector<std::pair<unsigned, unsigned>>
+       > &reducedMapping,
        ComputeSet reduceCS) {
-  const auto partialType = partition.getPartialType();
-  const auto outDimY = partials.dim(2);
-  const auto outDimX = partials.dim(3);
-  const auto partialChansPerGroup = partition.partialChansPerGroup;
-  assert(outNumChans % partialChansPerGroup == 0);
-  const auto tilesPerInZGroup = partition.tilesPerInZGroupAxis;
+  const auto partialType = graph.getTensorElementType(partials);
+  const auto tilesPerInZGroup = partials.dim(0);
+  assert(partials[0].dims() == reduced.dims());
+  auto flatPartials =
+      partials.reshape({tilesPerInZGroup,
+                        partials.numElements() / tilesPerInZGroup});
+  auto flatReduced = reduced.flatten();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   // Accumulate the partial sums.
   const auto numTiles = deviceInfo.getNumTiles();
-  size_t outChansPerGroup = outNumChans / outNumChanGroups;
+  std::vector<std::vector<std::pair<unsigned, unsigned>>> vertexRegions;
   for (unsigned tile = 0; tile != numTiles; ++tile) {
-    const auto activationsBegin = reducedMapping[tile];
-    const auto activationsEnd = reducedMapping[tile + 1];
-    if (activationsBegin == activationsEnd)
-      continue;
-    auto elems = getUngroupedIndices(activationsBegin,
-                                     activationsEnd,
-                                     outNumChans,
-                                     outDimY * outDimX,
-                                     outChansPerGroup);
-    elems = getGroupedIndices(elems, outNumChans, outDimY * outDimX,
-                              partialChansPerGroup);
-    std::sort(elems.begin(), elems.end());
-    auto flatPartials = partials.reshape({tilesPerInZGroup,
-                                          outDimX * outDimY * outNumChans});
-    auto flatReduced = reduced.flatten();
-    const auto workersPerTile = deviceInfo.numWorkerContexts;
-    const auto maxElemsPerWorker =
-      (elems.size() + workersPerTile - 1) / workersPerTile;
-    const auto verticesToCreate =
-      (elems.size() + maxElemsPerWorker - 1) / maxElemsPerWorker;
-    for (unsigned vertex = 0; vertex < verticesToCreate; ++vertex) {
-      unsigned elemBegin = (vertex * elems.size()) / verticesToCreate;
-      unsigned elemEnd = ((vertex + 1) * elems.size()) / verticesToCreate;
-      if (elemBegin == elemEnd)
-        continue;
-      auto regions = getContiguousRegions(elems.begin() + elemBegin,
-                                          elems.begin() + elemEnd);
+    const auto &tileRegions = reducedMapping[tile];
+    unsigned vectorWidth;
+    if (partialType == "float")
+      vectorWidth = deviceInfo.getFloatVectorWidth();
+    else
+      vectorWidth = deviceInfo.getHalfVectorWidth();
+    splitRegionsBetweenWorkers(deviceInfo, tileRegions, vertexRegions,
+                               vectorWidth);
+    for (const auto &regions : vertexRegions) {
       const auto v = graph.addVertex(reduceCS,
                                      templateVertex("popnn::ConvReduce",
                                                     partialType));
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-      graph.setFieldSize(v["partials"], tilesPerInZGroup * regions.size());
       graph.setFieldSize(v["out"], regions.size());
-      for (unsigned i = 0; i < regions.size(); ++i) {
-        auto out = flatReduced.slice(regions[i].first, regions[i].second);
+      graph.setFieldSize(v["partials"], regions.size() * tilesPerInZGroup);
+      graph.setTileMapping(v, tile);
+      const auto numRegions = regions.size();
+      for (unsigned i = 0; i != numRegions; ++i) {
+        const auto &region = regions[i];
+        const auto regionBegin = region.first;
+        const auto regionEnd = region.second;
+        auto out = flatReduced.slice(regionBegin, regionEnd);
         graph.connect(v["out"][i], out);
-        for (unsigned j = 0; j < tilesPerInZGroup; ++j) {
-          graph.connect(v["partials"][i * tilesPerInZGroup + j],
-                        flatPartials[j].slice(regions[i].first,
-                                              regions[i].second));
+        for (unsigned j = 0; j != tilesPerInZGroup; ++j) {
+          graph.connect(
+            v["partials"][i * tilesPerInZGroup + j],
+            flatPartials[j].slice(regionBegin, regionEnd)
+          );
         }
       }
-      graph.setTileMapping(v, tile);
     }
   }
 }
 
 static Tensor
 reduce(Graph &graph,
-       const Partition &partition,
-       unsigned outNumChans, unsigned outNumChanGroups,
        Tensor partials,
-       const std::vector<unsigned> &activationsMapping,
+       const std::vector<
+         std::vector<std::pair<unsigned, unsigned>>
+       > &reducedMapping,
        ComputeSet reduceCS) {
   if (partials.dim(0) == 1) {
     return partials[0];
   }
-
-  const auto partialType = partition.getPartialType();
-  const auto partialNumChanGroups = partials.dim(1);
-  const auto outDimY = partials.dim(2);
-  const auto outDimX = partials.dim(3);
-  const auto partialChansPerGroup = partition.partialChansPerGroup;
-  assert(outNumChans % partialChansPerGroup == 0);
+  const auto partialType = graph.getTensorElementType(partials);
   Tensor reduced = graph.addTensor(partialType,
-                                   {partialNumChanGroups, outDimY, outDimX,
-                                    partialChansPerGroup}, "reduced");
-  applyTensorMapping(graph, reduced, activationsMapping);
-  reduce(graph, partition, outNumChans, outNumChanGroups,
-         partials, reduced, activationsMapping, reduceCS);
+                                   partials[0].dims(), "reduced");
+  applyTensorMapping(graph, reduced, reducedMapping);
+  reduce(graph, partials, reduced, reducedMapping, reduceCS);
   return reduced;
+}
+
+/// Compute a tile mapping for the reduced tensor. The size of each contiguous
+/// region mapped to a tile is a multiple of the vector width. Where possible
+/// elements of the reduced tensor are mapped to the same tile as the output
+/// activations that they are used to compute. If the output channel group size
+/// is not a multiple of the vector width then some exchange may be required
+/// between the reduce and complete compute sets. No exchange is required if the
+/// vector width exactly divides the output channel group size.
+static std::vector<std::vector<std::pair<unsigned, unsigned>>>
+computeReducedMapping(const poplar::Graph &graph,
+                      const std::string &partialType,
+                      unsigned partialChansPerGroup,
+                      const Tensor &activations,
+                      const std::vector<unsigned> &activationsMapping) {
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto grainSize =
+      partialType == "float" ? deviceInfo.getFloatVectorWidth() :
+                               deviceInfo.getHalfVectorWidth();
+  const auto numTiles = activationsMapping.size() - 1;
+  std::vector<std::vector<std::pair<unsigned, unsigned>>>
+      reducedMapping(numTiles);
+  assert(activations.getDimensionality() == 4);
+  const auto dimY = activations.dim(1);
+  const auto dimX = activations.dim(2);
+  const auto fieldSize = dimY * dimX;
+  const auto outChansPerGroup = activations.dim(3);
+  const auto numActivations = static_cast<unsigned>(activations.numElements());
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    const auto begin = activationsMapping[tile];
+    const auto end = activationsMapping[tile + 1];
+    if (begin / outChansPerGroup == end / outChansPerGroup) {
+      continue;
+    }
+    std::vector<unsigned> elements;
+    const auto outChanGroupBegin = (begin / outChansPerGroup) / fieldSize;
+    const auto outChanGroupEnd = ((end / outChansPerGroup) - 1) / fieldSize + 1;
+    for (unsigned outChanGroup = outChanGroupBegin;
+         outChanGroup != outChanGroupEnd; ++outChanGroup) {
+      unsigned fieldBegin, fieldEnd;
+      if (outChanGroup == outChanGroupBegin) {
+        fieldBegin = (begin / outChansPerGroup) % fieldSize;
+      } else {
+        fieldBegin = 0;
+      }
+      if (outChanGroup + 1 == outChanGroupEnd) {
+        fieldEnd = ((end / outChansPerGroup) - 1) % fieldSize + 1;
+      } else {
+        fieldEnd = fieldSize;
+      }
+      const auto chanBegin = outChanGroup * outChansPerGroup;
+      const auto chanEnd = (outChanGroup + 1) * outChansPerGroup;
+      for (unsigned chan = chanBegin; chan != chanEnd; ++chan) {
+        const auto partialChanInGroup = chan % partialChansPerGroup;
+        const auto partialChanGroup = chan / partialChansPerGroup;
+        for (unsigned pos = fieldBegin; pos != fieldEnd; ++pos) {
+          elements.push_back(partialChanInGroup +
+                               partialChansPerGroup * (pos +
+                                 fieldSize * partialChanGroup));
+        }
+      }
+    }
+    std::sort(elements.begin(), elements.end());
+    const auto contiguousRegions = getContiguousRegions(elements.begin(),
+                                                        elements.end());
+    for (const auto &region : contiguousRegions) {
+      const auto roundedBegin = region.first / grainSize * grainSize;
+      const auto roundedEnd = std::min(region.second / grainSize * grainSize,
+                                       numActivations);
+      if (roundedBegin == roundedEnd)
+        continue;
+      if (!reducedMapping[tile].empty() &&
+          reducedMapping[tile].back().second == roundedBegin) {
+        reducedMapping[tile].back().second = roundedEnd;
+      } else {
+        reducedMapping[tile].emplace_back(roundedBegin, roundedEnd);
+      }
+    }
+  }
+  return reducedMapping;
 }
 
 static void
@@ -1162,7 +1243,6 @@ convolution(Graph &graph,
     partialOutDimX = outDimX;
   }
   const auto batchSize = activations.dim(0);
-  const auto outNumChanGroups = activations.dim(1);
   const auto outNumChans = activations.dim(1) * activations.dim(4);
   const auto partialChansPerGroup = plan.fwdPartition.partialChansPerGroup;
   const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
@@ -1227,22 +1307,21 @@ convolution(Graph &graph,
     // vertices to same compute sets so the batch will be executed in parallel.
     ComputeSet completeCS = graph.createComputeSet(layerName + ".complete");
     for (unsigned b = 0; b < batchSize; ++b) {
-      // Perform the reduction of partial sums
-      auto reducedMapping =
-          computeActivationsMapping(graph, partials[b][0], b, batchSize);
-      Tensor reduced = reduce(graph, plan.fwdPartition, outNumChans,
-                              outNumChanGroups, partials[b],
-                              reducedMapping, reduceCS);
-
-      reduced = reduced.reshape({partialNumChanGroups, outDimY, outDimX,
-                                 partialChansPerGroup});
-
+      // Perform the reduction of partial sums.
       auto activationsMapping = computeActivationsMapping(graph,
                                                           activations[b],
                                                           b,
                                                           batchSize);
-      // Add the residual (if any), apply the non-linearity and rearrange tensor
-      // to required output channel grouping.
+      auto reducedMapping =
+          computeReducedMapping(graph, partialType, partialChansPerGroup,
+                                activations[b],
+                                activationsMapping);
+      Tensor reduced = reduce(graph, partials[b], reducedMapping, reduceCS);
+
+      reduced = reduced.reshape({partialNumChanGroups, outDimY, outDimX,
+                                 partialChansPerGroup});
+
+      // Add the bias and rearrange tensor to required output channel grouping.
       complete(graph, plan, outNumChans, dType, reduced, biases,
                activations[b],
                activationsMapping, layerName, completeCS);
@@ -1468,7 +1547,6 @@ Program convolutionBackward(Graph &graph,
     partialOutDimX = outDimX;
   }
   const auto outNumChans = deltasOut.dim(1) * deltasOut.dim(4);
-  const auto outNumChanGroups = deltasOut.dim(1);
   const auto partialChansPerGroup = plan.bwdPartition.partialChansPerGroup;
   const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
   const auto tilesPerInZGroup = plan.bwdPartition.tilesPerInZGroupAxis;
@@ -1541,19 +1619,17 @@ Program convolutionBackward(Graph &graph,
   auto regroups = Sequence();
   const auto outChansPerGroup = deltasOut.dim(4);
   for (unsigned b = 0; b < batchSize; ++b) {
+    auto activationsMapping =
+        computeActivationsMapping(graph, deltasOut[b], b, batchSize);
     auto reducedMapping =
-        computeActivationsMapping(graph, partials[b][0], b, batchSize);
-    auto reduced = reduce(graph, plan.bwdPartition, outNumChans,
-                          outNumChanGroups,
-                          partials[b],
-                          reducedMapping, reduceCS);
+        computeReducedMapping(graph, partialType, partialChansPerGroup,
+                              deltasOut[b], activationsMapping);
+    auto reduced = reduce(graph,  partials[b], reducedMapping, reduceCS);
     // Rearrange tensor to required output channel grouping.
     // TODO: the next layer's non-linearity derivative could be merged
     // into this.
     reduced = reduced.reshape({partialNumChanGroups, outDimY, outDimX,
                              partialChansPerGroup});
-    auto activationsMapping =
-        computeActivationsMapping(graph, deltasOut[b], b, batchSize);
     regroups.add(cast(graph, activationsMapping,
                       regroup(reduced, outChansPerGroup),
                       deltasOut[b]));
@@ -1717,8 +1793,9 @@ matrixMultiplyByConvInstruction(Graph &graph, Partition partition,
 
   auto prog = Sequence();
   Tensor partials;
+  const auto partialType = partition.getPartialType();
   if (partition.tilesPerInZGroupAxis > 1) {
-    partials = graph.addTensor(partition.getPartialType(),
+    partials = graph.addTensor(partialType,
                               {batchSize,
                                partition.tilesPerInZGroupAxis,
                                outNumChans / outChansPerGroup,
@@ -1744,8 +1821,10 @@ matrixMultiplyByConvInstruction(Graph &graph, Partition partition,
   // Perform the reduction of partial sums.
   if (partition.tilesPerInZGroupAxis > 1) {
     auto reduceCS = graph.createComputeSet("reduce");
-    reduce(graph, partition, outNumChans, outNumChans / outChansPerGroup,
-           partials[0], out[0], cTileMapping, reduceCS);
+    auto reducedMapping = computeReducedMapping(graph, partialType,
+                                                outChansPerGroup,
+                                                out[0], cTileMapping);
+    reduce(graph, partials[0], out[0], reducedMapping, reduceCS);
     prog.add(Execute(reduceCS));
   }
   return prog;
