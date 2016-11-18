@@ -319,8 +319,8 @@ Net::getBwdConvPlan(unsigned i, unsigned prevDimY, unsigned prevDimX,
                            c->strideY, c->strideX, c->paddingY, c->paddingX);
   auto paddingX = c->paddingX, paddingY = c->paddingY;
   bool isFractional = c->strideX != 1 || c->strideY != 1;
-  assert(paddingX >= c->kernelSizeX);
-  assert(paddingY >= c->kernelSizeY);
+  assert(paddingX < c->kernelSizeX);
+  assert(paddingY < c->kernelSizeY);
   if (!isFractional) {
     paddingX = c->kernelSizeX - 1 - paddingX;
     paddingY = c->kernelSizeY - 1 - paddingY;
