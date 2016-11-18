@@ -743,8 +743,8 @@ Program Net::createConvLayerBwd(unsigned i,
 
   if (backwardPassRequired) {
     bool isFractional = strideX != 1 || strideY != 1;
-    assert(paddingX >= kernelSizeX);
-    assert(paddingY >= kernelSizeY);
+    assert(paddingX < kernelSizeX);
+    assert(paddingY < kernelSizeY);
 
     if (!isFractional) {
       paddingX = kernelSizeX - 1 - paddingX;

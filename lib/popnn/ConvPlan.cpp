@@ -798,9 +798,8 @@ choosePlan(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
     unsigned candidateCost;
     std::tie(candidate, candidateCost) =
         choosePlan(deviceInfo, floatActivations, floatPartials,
-                        preferConvInstructions, inChansPerGroup, params,
-                        numBatchGroups, cache);
-    assert(candidate.inChansPerGroup == inChansPerGroup);
+                   preferConvInstructions, inChansPerGroup, params,
+                   numBatchGroups, cache);
     if (candidateCost < bestCost) {
       best = candidate;
       bestCost = candidateCost;
