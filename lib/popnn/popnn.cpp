@@ -699,29 +699,70 @@ template class ConvWeightUpdate<half, float>;
 
 
 template <typename FPType>
-class ConvBiasReduce: public Vertex {
+class ConvBiasReduce1: public Vertex {
 public:
-  Vector<Output<FPType>> biases;
-  Vector<Input<FPType>> deltas;
+  Output<Vector<FPType>> out;
+  Vector<Input<Vector<FPType>>> in;
+  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(deltas.size() % biases.size() == 0);
-    auto numBiases = biases.size();
-    auto deltasPerBias = deltas.size() / biases.size();
-
+    auto numBiases = out.size();
     for (unsigned bias = 0; bias < numBiases; ++bias) {
       float sum = 0;
-      for (unsigned i = 0; i < deltasPerBias; ++i) {
-        sum += deltas[bias * deltasPerBias + i];
+      for (unsigned d = 0; d < in.size(); d++) {
+        assert(in[d].size() % out.size() == 0);
+        auto deltasPerBias = in[d].size() / out.size();
+        for (unsigned i = 0; i < deltasPerBias; ++i) {
+          sum += in[d][i * numBiases + bias];
+        }
       }
-      biases[bias] = sum;
+      out[bias] = sum;
     }
     return true;
   }
 
   uint64_t getCycleEstimate() const {
-    auto numBiases= biases.size();
-    auto deltasPerBias = deltas.size() / biases.size();
+    bool isFloat = std::is_same<FPType, float>::value;
+    unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    unsigned numVectors = (out.size() + vectorWidth - 1) / vectorWidth;
+
+    uint64_t cycles = 5;
+    for (unsigned d = 0; d < in.size(); d++) {
+      cycles += 5;
+      auto deltasPerBias = in[d].size() / out.size();
+      cycles += numVectors * (2 + deltasPerBias);
+    }
+    return cycles;
+  }
+};
+
+template class ConvBiasReduce1<float>;
+template class ConvBiasReduce1<half>;
+
+template <typename FPType>
+class ConvBiasReduce2: public Vertex {
+public:
+  Vector<Output<FPType>> out;
+  Vector<Input<FPType>> in;
+
+  bool compute() {
+    assert(in.size() % out.size() == 0);
+    auto numBiases = out.size();
+    auto deltasPerBias = in.size() / out.size();
+
+    for (unsigned bias = 0; bias < numBiases; ++bias) {
+      float sum = 0;
+      for (unsigned i = 0; i < deltasPerBias; ++i) {
+        sum += in[bias * deltasPerBias + i];
+      }
+      out[bias] = sum;
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    auto numBiases= out.size();
+    auto deltasPerBias = in.size() / out.size();
     uint64_t cycles = 10;
 
     for (unsigned bias = 0; bias < numBiases; ++bias) {
@@ -731,28 +772,27 @@ public:
   }
 };
 
-
-template class ConvBiasReduce<float>;
-template class ConvBiasReduce<half>;
+template class ConvBiasReduce2<float>;
+template class ConvBiasReduce2<half>;
 
 template <typename FPType>
 class ConvBiasUpdate: public Vertex {
 public:
   InOut<FPType> bias;
-  Vector<Input<FPType>> deltas;
+  Vector<Input<FPType>> partials; // partial sums of the bias gradient
   float eta;
 
   bool compute() {
     float sum = 0;
-    for (unsigned i = 0; i < deltas.size(); ++i) {
-      sum += deltas[i];
+    for (unsigned i = 0; i < partials.size(); ++i) {
+      sum += partials[i];
     }
     *bias -= eta * sum;
     return true;
   }
 
   uint64_t getCycleEstimate() const {
-    return 15 + deltas.size();
+    return 15 + partials.size();
   }
 };
 
