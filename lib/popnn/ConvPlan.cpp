@@ -575,9 +575,9 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
             * partialChansPerGroup;
     auto newParams = ConvolutionParams(
                        1 /* kernelSizeY */,
-	          				   1 /* kernelSizeX */,
-                       params.strideY,
-                       params.strideX,
+                       1 /* kernelSizeX */,
+                       1,
+                       1,
                        paddedFieldSize,
                        params.outputDepth,
                        1,
