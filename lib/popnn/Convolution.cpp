@@ -1666,6 +1666,7 @@ matrixMultiplyByConvInstruction(Graph &graph, const Plan &plan,
                            padding, padding, outNumChans,
                            dType, in, weights, partials, "matrixMul",
                            outDimX, outDimY, false));
+
   // Perform the reduction of partial sums.
   if (plan.tilesPerInZGroupAxis > 1) {
     auto reduceCS = graph.createComputeSet("reduce");
@@ -1673,6 +1674,7 @@ matrixMultiplyByConvInstruction(Graph &graph, const Plan &plan,
                                                 outChansPerGroup,
                                                 out[0], cTileMapping);
     reduce(graph, partials[0], out[0], reducedMapping, reduceCS);
+
     prog.add(Execute(reduceCS));
   }
   return prog;
@@ -1861,9 +1863,303 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
   return Sequence(Execute(secondReduceCS), Execute(updateBiasCS));
 }
 
+static unsigned weightUpdateNumActivationReducedViews(unsigned kernelSizeY,
+                                                      unsigned kernelSizeX,
+                                                      unsigned strideY) {
+  return std::min(strideY, kernelSizeY) * kernelSizeX;
+}
+
+
+static Tensor weightUpdateActivationReducedViews(Graph &graph,
+                                                 const Plan &plan,
+                                                 Tensor zDeltas,
+                                                 Tensor activations,
+                                                 unsigned kernelSizeY,
+                                                 unsigned kernelSizeX,
+                                                 unsigned strideY,
+                                                 unsigned strideX,
+                                                 unsigned paddingY,
+                                                 unsigned paddingX,
+                                                 Sequence &prog) {
+  const auto dType = graph.getTensorElementType(activations);
+  const auto batchSize = zDeltas.dim(0);
+  auto height = zDeltas.dim(2);
+  auto width = zDeltas.dim(3);
+  auto activationsNumChanGroups = activations.dim(1);
+  auto activationsChansPerGroup = activations.dim(4);
+  auto activationsChans = activationsNumChanGroups * activationsChansPerGroup;
+  const auto fieldGroupSize = plan.inChansPerGroup;
+
+  // Pad the field so the size is a multiple of the number of weights in the
+  // convolutional unit.
+  const auto batchFieldSize = height * width * batchSize;
+  const auto batchPaddedFieldSize =
+      ((batchFieldSize + fieldGroupSize - 1) / fieldGroupSize) * fieldGroupSize;
+
+  const auto outputGroupSize = plan.partialChansPerGroup;
+
+  const auto unstridedHeight = ((kernelSizeY -1 + strideY - 1)/strideY + height)
+                                * strideY;
+
+  const auto unstridedWidth = activations[0].dim(2) + 2 * paddingX;
+
+  const auto stridedHeight = unstridedHeight / strideY;
+
+  const auto numViews = weightUpdateNumActivationReducedViews(kernelSizeY,
+                                                              kernelSizeX,
+                                                              strideY);
+  const auto subViews = numViews / kernelSizeX;
+
+  auto activationViews =
+      graph.addTensor(dType, {subViews,
+                              kernelSizeX,
+                              activationsNumChanGroups,
+                              stridedHeight,
+                              0,
+                              activationsChansPerGroup});
+
+  for (unsigned b = 0; b != batchSize; ++b) {
+
+    /* seed tensor to build tensor of subviews */
+    auto subElemActivationViews =
+        graph.addTensor(dType, {0,
+                                kernelSizeX,
+                                activationsNumChanGroups,
+                                stridedHeight,
+                                width,
+                                activationsChansPerGroup});
+
+    for (auto phase = 0U; phase < subViews; ++phase) {
+      auto elemActivations = activations[b];
+      auto elemActivationViews =
+          graph.addTensor(dType, {0,
+                                  activationsNumChanGroups,
+                                  stridedHeight,
+                                  width,
+                                  activationsChansPerGroup});
+      for (auto wx = 0U; wx != kernelSizeX; ++wx) {
+        auto paddedActivations = pad(graph, elemActivations,
+                                     {elemActivations.dim(0),
+                                      unstridedHeight,
+                                      unstridedWidth,
+                                      elemActivations.dim(3)},
+                                     {0, paddingY, paddingX, 0});
+
+        auto usedActivations =
+            paddedActivations.slice({0, phase, wx, 0},
+                                    {activationsNumChanGroups,
+                                     phase + (stridedHeight - 1) * strideY + 1,
+                                     wx + (width - 1) * strideX + 1,
+                                     activationsChansPerGroup});
+
+
+        auto stridedActivations =
+            usedActivations.subSample(strideY, 1).subSample(strideX, 2);
+
+        assert(stridedActivations.dim(2) == width);
+
+        elemActivationViews = append(elemActivationViews,
+                                     stridedActivations);
+      }
+      subElemActivationViews = append(subElemActivationViews,
+                                      elemActivationViews);
+    }
+    activationViews = concat(activationViews, subElemActivationViews, 4);
+  }
+
+  const auto actSubviewSize = kernelSizeX * activationsChans;
+  const auto actViewSize = kernelSizeY * actSubviewSize;
+  const auto paddedActViewSize =
+     ((actViewSize + outputGroupSize - 1) / outputGroupSize) * outputGroupSize;
+
+  auto copiedActivations =
+      graph.addTensor(dType,
+                      {subViews,
+                       actSubviewSize,
+                       stridedHeight * width * batchSize},
+                       "activationsToCopy");
+
+  auto copiedActivationsMapping =
+      computeTensorMapping(graph, copiedActivations);
+  applyTensorMapping(graph, copiedActivations,
+                     copiedActivationsMapping);
+  activationViews =
+      activationViews.dimShuffle({0, 1, 2, 5, 3, 4})
+                     .reshape({
+                               subViews,
+                               actSubviewSize,
+                               stridedHeight * width * batchSize});
+
+  prog.add(Copy(copiedActivations, activationViews));
+
+  auto activationsTransposed = graph.addTensor(dType,
+                                               {0,
+                                                actSubviewSize,
+                                                batchFieldSize});
+
+  for (auto wy = 0U; wy < kernelSizeY; ++wy) {
+    const auto yBegin = wy / subViews;
+    const auto fieldPosBegin = yBegin * width * batchSize;
+    const auto fieldPosEnd = fieldPosBegin + batchFieldSize;
+
+    auto slice = copiedActivations[wy % subViews].slice(
+                      {0, fieldPosBegin},
+                      {actSubviewSize, fieldPosEnd});
+    activationsTransposed = append(activationsTransposed, slice);
+  }
+
+  activationsTransposed = activationsTransposed.reshape({actViewSize,
+                                                         batchFieldSize});
+
+  auto matMulActivationsIn =
+      pad(graph,
+          activationsTransposed,
+          {paddedActViewSize, batchPaddedFieldSize},
+          {0, 0}).reshape({paddedActViewSize / outputGroupSize,
+                           outputGroupSize,
+                           batchPaddedFieldSize / fieldGroupSize,
+                           fieldGroupSize}).dimShuffle({0, 2, 1, 3});
+
+  return matMulActivationsIn;
+}
+
+static unsigned weightUpdateNumActivationFullViews(unsigned kernelSizeY,
+                                                   unsigned kernelSizeX) {
+  return kernelSizeX * kernelSizeY;
+}
+
+
+static Tensor weightUpdateActivationFullViews(Graph &graph,
+                                              const Plan &plan,
+                                              Tensor zDeltas,
+                                              Tensor activations,
+                                              unsigned kernelSizeY,
+                                              unsigned kernelSizeX,
+                                              unsigned strideY,
+                                              unsigned strideX,
+                                              unsigned paddingY,
+                                              unsigned paddingX,
+                                              Sequence &prog) {
+  const auto dType = graph.getTensorElementType(activations);
+  const auto batchSize = zDeltas.dim(0);
+  const auto height = zDeltas.dim(2);
+  const auto width = zDeltas.dim(3);
+  const auto fieldSize = height * width;
+  const auto activationsNumChanGroups = activations.dim(1);
+  const auto activationsChansPerGroup = activations.dim(4);
+  auto activationsChans = activationsNumChanGroups * activationsChansPerGroup;
+  const auto fieldGroupSize = plan.inChansPerGroup;
+  // Pad the field so the size is a multiple of the number of weights in the
+  // convolutional unit.
+  const auto batchFieldSize = fieldSize * batchSize;
+  const auto batchPaddedFieldSize =
+      ((batchFieldSize + fieldGroupSize - 1) / fieldGroupSize) * fieldGroupSize;
+  const auto outputGroupSize = plan.partialChansPerGroup;
+
+  const auto numViews = weightUpdateNumActivationFullViews(kernelSizeY,
+                                                           kernelSizeX);
+
+  // The activationViews tensor contains the view on the activations for
+  // each element of the kernel.
+  auto activationViews =
+      graph.addTensor(dType, {numViews,
+                              activationsNumChanGroups,
+                              height,
+                              0,
+                              activationsChansPerGroup});
+  for (unsigned b = 0; b != batchSize; ++b) {
+    auto elemActivations = activations[b];
+    auto elemActivationViews =
+        graph.addTensor(dType, {0,
+                                activationsNumChanGroups,
+                                height,
+                                width,
+                                activationsChansPerGroup});
+    for (unsigned wy = 0; wy != kernelSizeY; ++wy) {
+      for (unsigned wx = 0; wx != kernelSizeX; ++wx) {
+        auto paddedActivations = pad(graph, elemActivations,
+                                     {elemActivations.dim(0),
+                                      elemActivations.dim(1) + 2 * paddingY,
+                                      elemActivations.dim(2) + 2 * paddingX,
+                                      elemActivations.dim(3)},
+                                     {0, paddingY, paddingX, 0});
+        auto usedActivations =
+            paddedActivations.slice({0, wy, wx, 0},
+                                    {activationsNumChanGroups,
+                                     wy + (height - 1) * strideY + 1,
+                                     wx + (width - 1) * strideX + 1,
+                                     activationsChansPerGroup});
+        auto activationsStrided = usedActivations.subSample(strideY, 1)
+                                                 .subSample(strideX, 2);
+        assert(activationsStrided.dim(1) == height);
+        assert(activationsStrided.dim(2) == width);
+
+        // Pad the activations so the field size is a multiple of the number of
+        // weights in the convolutional unit.
+        elemActivationViews = append(elemActivationViews,
+                                     activationsStrided);
+      }
+    }
+    activationViews = concat(activationViews, elemActivationViews, 3);
+  }
+
+  /* flatten after concatentation */
+  auto flattenedActivationViews =
+      activationViews.reshape({numViews,
+                               activationsNumChanGroups,
+                               batchFieldSize,
+                               activationsChansPerGroup});
+
+  flattenedActivationViews = pad(graph,
+                                 flattenedActivationViews,
+                                 {numViews,
+                                  activationsNumChanGroups,
+                                  batchPaddedFieldSize,
+                                  activationsChansPerGroup},
+                                 {0, 0, 0,0});
+
+  const auto actViewSize = kernelSizeY * kernelSizeX * activationsChans;
+  const auto paddedActViewSize =
+     ((actViewSize + outputGroupSize - 1) / outputGroupSize) * outputGroupSize;
+
+  auto activationsTransposed =
+      graph.addTensor(dType, {paddedActViewSize / outputGroupSize,
+                              batchPaddedFieldSize / fieldGroupSize,
+                              outputGroupSize,
+                              fieldGroupSize},
+                      "activationsTransposed");
+
+  auto activationsTransposedMapping =
+      computeTensorMapping(graph, activationsTransposed);
+  applyTensorMapping(graph, activationsTransposed,
+                     activationsTransposedMapping);
+  flattenedActivationViews =
+      flattenedActivationViews.dimShuffle({0, 1, 3, 2})
+                              .reshape({actViewSize,
+                                        batchPaddedFieldSize / fieldGroupSize,
+                                        fieldGroupSize});
+  flattenedActivationViews = pad(graph, flattenedActivationViews,
+                                 {paddedActViewSize,
+                                  batchPaddedFieldSize / fieldGroupSize,
+                                  fieldGroupSize},
+                                 {0, 0, 0});
+
+  auto activationsTransposedIn =
+     flattenedActivationViews.reshape({paddedActViewSize / outputGroupSize,
+                                       outputGroupSize,
+                                       batchPaddedFieldSize / fieldGroupSize,
+                                       fieldGroupSize})
+                             .dimShuffle({0, 2, 1, 3});
+
+  prog.add(Copy(activationsTransposed, activationsTransposedIn));
+  return activationsTransposed;
+}
+
+
 Program
 convolutionWeightUpdateConvInst(Graph &graph,
-                                const Plan &plan, const Plan &fwdPlan,
+                                const Plan &plan,
+                                const Plan &fwdPlan,
                                 Tensor zDeltas, Tensor weights, Tensor biases,
                                 Tensor activations,
                                 unsigned kernelSizeY, unsigned kernelSizeX,
@@ -1872,6 +2168,8 @@ convolutionWeightUpdateConvInst(Graph &graph,
                                 float learningRate) {
   const auto layerName =
       "Conv" + std::to_string(kernelSizeX) + "x" + std::to_string(kernelSizeY)
+             + "_stride_"
+             + std::to_string(strideX) + "x" + std::to_string(strideY)
              + ".weight_update";
   // We can calculate weight deltas using the convolution instruction where we
   // accumulate over the field in contrast to forward pass where we accumulate
@@ -1896,118 +2194,87 @@ convolutionWeightUpdateConvInst(Graph &graph,
   auto deltasNumChanGroups = zDeltas.dim(1);
   auto height = zDeltas.dim(2);
   auto width = zDeltas.dim(3);
-  auto fieldSize = height * width;
   auto deltasChansPerGroup = zDeltas.dim(4);
   auto deltasChans = deltasNumChanGroups * deltasChansPerGroup;
   auto activationsNumChanGroups = activations.dim(1);
   auto activationsChansPerGroup = activations.dim(4);
   auto activationsChans = activationsNumChanGroups * activationsChansPerGroup;
   const auto fieldGroupSize = plan.inChansPerGroup;
+
   // Pad the field so the size is a multiple of the number of weights in the
   // convolutional unit.
   const auto batchFieldSize = height * width * batchSize;
   const auto batchPaddedFieldSize =
       ((batchFieldSize + fieldGroupSize - 1) / fieldGroupSize) * fieldGroupSize;
   const auto outputGroupSize = plan.partialChansPerGroup;
-  // The activationViews tensor contains the view on the activations for
-  // each element of the kernel.
-  auto activationViews =
-      graph.addTensor(dType, {kernelSizeY * kernelSizeX,
-                              activationsNumChanGroups,
-                              0,
-                              activationsChansPerGroup});
+
   auto prog = Sequence();
-  for (unsigned b = 0; b != batchSize; ++b) {
-    auto elemActivations = activations[b];
-    auto elemActivationViews =
-        graph.addTensor(dType, {0,
-                                activationsNumChanGroups,
-                                fieldSize,
-                                activationsChansPerGroup});
-    for (unsigned wy = 0; wy != kernelSizeY; ++wy) {
-      for (unsigned wx = 0; wx != kernelSizeX; ++wx) {
-        auto paddedActivations = pad(graph, elemActivations,
-                                     {elemActivations.dim(0),
-                                      elemActivations.dim(1) + 2 * paddingY,
-                                      elemActivations.dim(2) + 2 * paddingX,
-                                      elemActivations.dim(3)},
-                                     {0, paddingY, paddingX, 0});
-        auto usedActivations =
-            paddedActivations.slice({0, wy, wx, 0},
-                                    {activationsNumChanGroups,
-                                     wy + (height - 1) * strideY + 1,
-                                     wx + (width - 1) * strideX + 1,
-                                     activationsChansPerGroup});
-        auto activationsStrided = usedActivations.subSample(strideY, 1)
-                                                 .subSample(strideX, 2);
-        assert(activationsStrided.dim(1) == height);
-        assert(activationsStrided.dim(2) == width);
-        auto activationsFlattened =
-            activationsStrided.reshape({activationsNumChanGroups,
-                                        fieldSize,
-                                        activationsChansPerGroup});
-        // Pad the activations so the field size is a multiple of the number of
-        // weights in the convolutional unit.
-        elemActivationViews = append(elemActivationViews,
-                                     activationsFlattened);
-      }
-    }
-    activationViews = concat(activationViews, elemActivationViews, 2);
-  }
-  activationViews = pad(graph, activationViews,
-                        {kernelSizeY * kernelSizeX,
-                         activationsNumChanGroups,
-                         batchPaddedFieldSize,
-                         activationsChansPerGroup},
-                        {0, 0, 0,0});
+
+  /* Heuristic to keep reduced or full views.
+   *
+   * Reduced views require less copying of activation tensor than full views.
+   * Views are expanded to a full set after copying and then padded to
+   * make an integer multiple of the output and input group size to fit the
+   * convolution unit constraints. Padding results in an increase in the
+   * message memory and in copy pointers. This is expected to reduce with
+   * enhancements to poplar.
+   */
+  const auto numFullViews = weightUpdateNumActivationFullViews(kernelSizeY,
+                                                               kernelSizeX);
+
+  const auto numReducedViews = weightUpdateNumActivationReducedViews(
+                                    kernelSizeY,
+                                    kernelSizeX,
+                                    strideY);
+
+  Tensor matMulActivationsIn = numFullViews > 2 * numReducedViews ?
+      weightUpdateActivationReducedViews(graph, plan,
+                                         zDeltas,
+                                         activations,
+                                         kernelSizeY, kernelSizeX,
+                                         strideY, strideX,
+                                         paddingY, paddingX,
+                                         prog) :
+      weightUpdateActivationFullViews(graph, plan,
+                                      zDeltas,
+                                      activations,
+                                      kernelSizeY, kernelSizeX,
+                                      strideY, strideX,
+                                      paddingY, paddingX,
+                                      prog);
+
+
   const auto actViewSize = kernelSizeY * kernelSizeX * activationsChans;
   const auto paddedActViewSize =
      ((actViewSize + outputGroupSize - 1) / outputGroupSize) * outputGroupSize;
-  auto activationsTransposed =
-      graph.addTensor(dType,
-          {paddedActViewSize / outputGroupSize,
-           batchPaddedFieldSize / fieldGroupSize,
-           outputGroupSize,
-           fieldGroupSize},
-          "activationsTransposed");
-  auto activationsTransposedMapping =
-      computeTensorMapping(graph, activationsTransposed);
-  applyTensorMapping(graph, activationsTransposed,
-                     activationsTransposedMapping);
-  activationViews =
-      activationViews.dimShuffle({0, 1, 3, 2})
-                     .reshape({actViewSize,
-                               batchPaddedFieldSize / fieldGroupSize,
-                               fieldGroupSize});
-  activationViews = pad(graph, activationViews,
-                             {paddedActViewSize,
-                              batchPaddedFieldSize / fieldGroupSize,
-                              fieldGroupSize}, {0, 0, 0});
-  auto activationsTransposedIn =
-     activationViews.reshape({paddedActViewSize / outputGroupSize,
-                              outputGroupSize,
-                              batchPaddedFieldSize / fieldGroupSize,
-                              fieldGroupSize})
-                         .dimShuffle({0, 2, 1, 3});
-  prog.add(Copy(activationsTransposed, activationsTransposedIn));
+
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+
   // Pad the field so the size is a multiple of the number of weights in the
   // convolutional unit.
   auto batchZDeltas = graph.addTensor(dType,
                                      {deltasNumChanGroups,
+                                      height,
                                       0,
                                       deltasChansPerGroup});
   for (unsigned b = 0; b != batchSize; ++b) {
-    // Flatten x and y into a single dimension.
-    auto zDeltasFlattened = zDeltas[b].reshape({deltasNumChanGroups, fieldSize,
+    auto zDeltasFlattened = zDeltas[b].reshape({deltasNumChanGroups, height,
+                                                width,
                                                 deltasChansPerGroup});
-    batchZDeltas = concat(batchZDeltas, zDeltasFlattened, 1);
+
+    batchZDeltas = concat(batchZDeltas, zDeltasFlattened, 2);
   }
+
+  batchZDeltas = batchZDeltas.reshape({deltasNumChanGroups,
+                                       batchFieldSize,
+                                       deltasChansPerGroup});
+
   batchZDeltas = pad(graph, batchZDeltas,
                      {deltasNumChanGroups,
                       batchPaddedFieldSize,
                       deltasChansPerGroup},
                      {0, 0, 0});
+
   // Transpose the deltas.
   auto zDeltasTransposed =
       graph.addTensor(dType,
@@ -2024,7 +2291,9 @@ convolutionWeightUpdateConvInst(Graph &graph,
                                        fieldGroupSize,
                                        deltasChansPerGroup})
                              .dimShuffle({1, 0, 3, 2})));
+
   const auto weightDeltasType = plan.floatPartials ? "float" : "half";
+
   auto weightDeltasTransposed =
       graph.addTensor(
           weightDeltasType,
@@ -2038,7 +2307,7 @@ convolutionWeightUpdateConvInst(Graph &graph,
                      weightDeltasTransposedMapping);
   // Perform the matrix multiplication.
   prog.add(matrixMultiplyByConvInstruction(
-             graph, plan, activationsTransposed, zDeltasTransposed,
+             graph, plan, matMulActivationsIn, zDeltasTransposed,
              weightDeltasTransposed, weightDeltasTransposedMapping
            )
   );
