@@ -494,25 +494,13 @@ uint64_t WgdTilePartition::tilePartition(
                               deviceInfo.convUnitCoeffLoadBytesPerCycle;
 
         Cost ccAcc;
-        if (deviceInfo.sharedConvWeights) {
-          unsigned numBlocks = patchSizeX * patchSizeY * zogPerTile
-                               * zigPerTile;
-          ccAcc = getWgdAccumCycles(true, numBlocks, patchesPerTile, zic,
-                                    zoc, numWorkers, numConvUnits,
-                                    weightsPerConvUnit,
-                                    convUnitCoeffLoadBytesPerCycle,
-                                    isFloat);
-
-        } else {
-          unsigned numBlocks = (patchSizeX * patchSizeY * zogPerTile *
-                                zigPerTile + numWorkers - 1)/numWorkers;
-
-          ccAcc = getWgdAccumCycles(false, numBlocks, patchesPerTile, zic,
-                                    zoc, numWorkers, numConvUnits,
-                                    weightsPerConvUnit,
-                                    convUnitCoeffLoadBytesPerCycle,
-                                    isFloat) * numWorkers;
-        }
+        unsigned numBlocks = patchSizeX * patchSizeY * zogPerTile
+                             * zigPerTile;
+        ccAcc = getWgdAccumCycles(numBlocks, patchesPerTile, zic,
+                                  zoc, numWorkers, numConvUnits,
+                                  weightsPerConvUnit,
+                                  convUnitCoeffLoadBytesPerCycle,
+                                  isFloat);
 
         std::get<ACCUM>(cc) = ccAcc;
         std::get<ACCUM>(ec) = ecAcc;
@@ -1293,10 +1281,6 @@ static Program accum(
 
   ComputeSet cs = graph.createComputeSet(layerName + ".accum");
   ComputeSet zeroCS = graph.createComputeSet(layerName + ".zeroAccum");
-
-  const char *baseClass = deviceInfo.sharedConvWeights ?
-                                     "poplar::SupervisorVertex" :
-                                     "poplar::Vertex";
   const auto weightsPerConvUnit =
       deviceInfo.getWeightsPerConvUnit(tp.dType == "float");
 
@@ -1346,7 +1330,6 @@ static Program accum(
             auto v = graph.addVertex(
                                      cs,
                                      templateVertex("popnn::WgdPartials",
-                                                     baseClass,
                                                      tp.dType));
 
             graph.setInitialValue(v["numWorkers"], numWorkers);

@@ -317,8 +317,7 @@ createConvPartial1x1OutVertex(Graph &graph,
   const auto dType = graph.getTensorElementType(in);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
-  const auto contextsPerVertex =
-      deviceInfo.sharedConvWeights ? deviceInfo.numWorkerContexts : 1;
+  const auto contextsPerVertex = deviceInfo.numWorkerContexts;
   const auto weightsPerConvUnit =
       deviceInfo.getWeightsPerConvUnit(dType == "float");
   assert(weightsPerConvUnit % inChansPerGroup == 0);
@@ -343,9 +342,6 @@ createConvPartial1x1OutVertex(Graph &graph,
                      kernelSizeX, paddingX, inDimX, false);
 
   // Add the vertex.
-  const char *baseClass =
-      deviceInfo.sharedConvWeights ? "poplar::SupervisorVertex" :
-                                     "poplar::Vertex";
   Tensor w =
       weights[ozg].slice(
   {inZGroupBegin, 0, 0, 0, 0},
@@ -353,8 +349,7 @@ createConvPartial1x1OutVertex(Graph &graph,
         ).flatten();
   auto v = graph.addVertex(
         fwdCS,
-        templateVertex("popnn::ConvPartial1x1Out", baseClass, dType,
-                       partialType),
+        templateVertex("popnn::ConvPartial1x1Out", dType, partialType),
   {{"weights", w}}
         );
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
@@ -439,11 +434,7 @@ createConvPartialnx1InOutVertex(Graph &graph,
   const auto dType = graph.getTensorElementType(in);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
-  const auto contextsPerVertex =
-      deviceInfo.sharedConvWeights ? deviceInfo.numWorkerContexts : 1;
-  const char *baseClass =
-      deviceInfo.sharedConvWeights ? "poplar::SupervisorVertex" :
-                                     "poplar::Vertex";
+  const auto contextsPerVertex = deviceInfo.numWorkerContexts;
   const auto weightsPerConvUnit =
       deviceInfo.getWeightsPerConvUnit(dType == "float");
   assert(weightsPerConvUnit % inChansPerGroup == 0);
@@ -455,7 +446,7 @@ createConvPartialnx1InOutVertex(Graph &graph,
   // Add the vertex.
   auto v =
       graph.addVertex(fwdCS,
-                      templateVertex("popnn::ConvPartialnx1InOut", baseClass,
+                      templateVertex("popnn::ConvPartialnx1InOut",
                                      dType, partialType,
                                      isFractional ? "true" : "false"));
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);

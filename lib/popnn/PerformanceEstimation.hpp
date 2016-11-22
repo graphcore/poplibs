@@ -74,37 +74,6 @@ getConvPartialnx1SupervisorCycleEstimate(
 }
 
 inline std::uint64_t
-getConvPartialnx1CycleWorkerEstimate(
-    const std::vector<std::vector<unsigned>> &convSizesByWeight,
-    unsigned convUnitPipelineDepth,
-    unsigned numConvUnitsPerTile,
-    unsigned convUnitCoeffLoadBytesPerCycle,
-    unsigned numInputPointers) {
-  const unsigned numOutputPointers = 1;
-  const unsigned vertexOverhead = 5;
-  const unsigned coeffBytesPerPipelineStage = 8;
-  unsigned cycleCount = vertexOverhead;
-  for (const auto &convSizes : convSizesByWeight) {
-    const auto numElements = std::accumulate(convSizes.begin(), convSizes.end(),
-                                             0);
-    const auto pointerLoadCycles =
-        convSizes.size() * (numInputPointers + numOutputPointers);
-    unsigned warmUpCycles = numConvUnitsPerTile
-                            * convUnitPipelineDepth
-                            * coeffBytesPerPipelineStage
-                            / convUnitCoeffLoadBytesPerCycle + 3;
-
-
-    unsigned innerLoopCycles =
-        numElements * convUnitPipelineDepth;
-    unsigned coolDownCycles = 5;
-    cycleCount += warmUpCycles + innerLoopCycles + coolDownCycles +
-                  pointerLoadCycles;
-  }
-  return cycleCount;
-}
-
-inline std::uint64_t
 getConvPartialByDotProductCycleEstimate(bool isFloat, unsigned inChansPerGroup,
                                         unsigned kernelWidth,
                                         unsigned inputGroupsPerOutput,
@@ -212,7 +181,6 @@ inline uint64_t getWgdInvTransformCycles(
  * vector. "numPencils" gives a set of pencils which share common coefficients
  */
 inline uint64_t getWgdAccumCycles(
-                             bool     isSupervisorVertex,
                              unsigned numPencils,
                              unsigned comPencils,
                              unsigned pencilDepth,
@@ -230,13 +198,9 @@ inline uint64_t getWgdAccumCycles(
                           * (isFloat ? 2 : 4) / convUnitCoeffLoadBytesPerCycle;
   const auto overhead = 4;
 
-  if (isSupervisorVertex) {
-    const auto numPencilsPerWorker = (comPencils + numWorkers - 1) / numWorkers;
-    return (overhead + coeffLoadCycles + numPencilsPerWorker
-            * numWorkers * 4) * numCoeffSets;
-  } else {
-    return (overhead + coeffLoadCycles + comPencils * 4) * numCoeffSets;
-  }
+  const auto numPencilsPerWorker = (comPencils + numWorkers - 1) / numWorkers;
+  return (overhead + coeffLoadCycles + numPencilsPerWorker
+          * numWorkers * 4) * numCoeffSets;
 }
 
 inline uint64_t getWgdReduceCycles(unsigned numPencils, unsigned depth,

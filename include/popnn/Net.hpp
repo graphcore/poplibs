@@ -143,7 +143,6 @@ public:
   unsigned fp16InFp32OutConvUnitsPerTile = 8;
   unsigned fp32InFp32OutConvUnitsPerTile = 4;
   unsigned convUnitCoeffLoadBytesPerCycle = 16;
-  bool sharedConvWeights = true;
   bool useWinogradConv = false;
   unsigned winogradPatchSize = 4;
   unsigned batchSize = 1;

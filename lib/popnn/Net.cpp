@@ -41,11 +41,6 @@ bool parseCommandLine(int argc, char **argv, NetOptions &options,
     ("graph-reuse",
      po::value<bool>(&options.reuseLayerImplGraphs)->default_value(true),
      "Re-use graph structure for similar layers")
-    ("shared-conv-weights",
-     po::value<bool>(
-       &options.sharedConvWeights
-     )->default_value(true),
-     "Use of shared weights for convolution instructions")
     ("data-path-width",
      po::value<unsigned>(
        &options.dataPathWidth

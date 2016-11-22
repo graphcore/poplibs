@@ -86,7 +86,6 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
                                unsigned convUnitPipelineDepth,
                                unsigned numConvUnitsPerTile,
                                unsigned convUnitCoeffLoadBytesPerCycle,
-                               bool useSupervisorVertices,
                                unsigned outputStride,
                                unsigned numInputPointers,
                                PlannerCache *cache);
@@ -239,48 +238,33 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
                                unsigned convUnitPipelineDepth,
                                unsigned numConvUnitsPerTile,
                                unsigned convUnitCoeffLoadBytesPerCycle,
-                               bool useSupervisorVertices,
                                unsigned outputStride,
                                unsigned numInputPointers,
                                PlannerCache * cache)
 {
-  if (useSupervisorVertices) {
-    std::vector<std::vector<std::vector<unsigned>>> convSizesByWeightAndWorker;
-    for (unsigned i = 0; i != passesPerOutput; ++i) {
-      const auto numWorkerContexts = 6;
-      std::vector<std::vector<PartialRow>> partition =
-          cache->mPartitionConvPartialByWorker(outputHeight, outputWidth,
-                                               numWorkerContexts, outputStride);
-      convSizesByWeightAndWorker.emplace_back();
-      convSizesByWeightAndWorker.back().reserve(partition.size());
-      for (const auto &entry : partition) {
-        convSizesByWeightAndWorker.back().emplace_back();
-        convSizesByWeightAndWorker.back().back().reserve(entry.size());
-        for (const auto &partialRow : entry) {
-          auto convSize = (partialRow.end - partialRow.begin) / outputStride;
-          convSizesByWeightAndWorker.back().back().push_back(convSize);
-        }
+  std::vector<std::vector<std::vector<unsigned>>> convSizesByWeightAndWorker;
+  for (unsigned i = 0; i != passesPerOutput; ++i) {
+    const auto numWorkerContexts = 6;
+    std::vector<std::vector<PartialRow>> partition =
+        cache->mPartitionConvPartialByWorker(outputHeight, outputWidth,
+                                             numWorkerContexts, outputStride);
+    convSizesByWeightAndWorker.emplace_back();
+    convSizesByWeightAndWorker.back().reserve(partition.size());
+    for (const auto &entry : partition) {
+      convSizesByWeightAndWorker.back().emplace_back();
+      convSizesByWeightAndWorker.back().back().reserve(entry.size());
+      for (const auto &partialRow : entry) {
+        auto convSize = (partialRow.end - partialRow.begin) / outputStride;
+        convSizesByWeightAndWorker.back().back().push_back(convSize);
       }
     }
-    return getConvPartialnx1SupervisorCycleEstimate(
-                  convSizesByWeightAndWorker,
-                  convUnitPipelineDepth,
-                  numConvUnitsPerTile,
-                  convUnitCoeffLoadBytesPerCycle,
-                  numInputPointers);
   }
-  std::vector<std::vector<unsigned>> convSizesByWeight;
-  for (unsigned i = 0; i != passesPerOutput; ++i) {
-    convSizesByWeight.emplace_back();
-    for (unsigned j = 0; j != outputHeight; ++j) {
-      convSizesByWeight.back().push_back(outputWidth);
-    }
-  }
-  return getConvPartialnx1CycleWorkerEstimate(convSizesByWeight,
-                                              convUnitPipelineDepth,
-                                              numConvUnitsPerTile,
-                                              convUnitCoeffLoadBytesPerCycle,
-                                              numInputPointers);
+  return getConvPartialnx1SupervisorCycleEstimate(
+                convSizesByWeightAndWorker,
+                convUnitPipelineDepth,
+                numConvUnitsPerTile,
+                convUnitCoeffLoadBytesPerCycle,
+                numInputPointers);
 }
 
 static unsigned
@@ -408,7 +392,6 @@ estimateVertexCycles(bool floatActivations,
           getNumConvUnits(floatActivations,
                           plan.floatPartials, deviceInfo),
           deviceInfo.convUnitCoeffLoadBytesPerCycle,
-          useSupervisorVertices,
           outputStrideY,
           convUnitWeightHeight,
           cache);
@@ -455,8 +438,7 @@ estimatePartialCalcComputeCost(const poplar::DeviceInfo &deviceInfo,
   // convolution instructions.
   bool useSupervisorVertices = false;
   unsigned numContexts = deviceInfo.numWorkerContexts;
-  if (deviceInfo.sharedConvWeights &&
-      plan.useConvolutionInstructions) {
+  if (plan.useConvolutionInstructions) {
     useSupervisorVertices = true;
     numContexts = 1;
   }
@@ -626,12 +608,10 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
             (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
         auto minVerticesPerTilePerY = 1;
         if (convVertexType.useConvInstruction) {
-          if (deviceInfo.sharedConvWeights) {
-            // All workers are utilized in each single supervisor vertex so
-            // there is no reason to use more than the minimum number of
-            // vertices.
-            maxVerticesPerTilePerY = 1;
-          }
+          // All workers are utilized in each single supervisor vertex so
+          // there is no reason to use more than the minimum number of
+          // vertices.
+          maxVerticesPerTilePerY = 1;
         } else {
           // The ConvPartial vertex that doesn't use the convolution
           // instruction always computes a single output row.
