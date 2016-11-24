@@ -57,6 +57,9 @@ int main(int argc, char **argv) {
     ("tiles-per-ipu",
      po::value<unsigned>(&info.tilesPerIPU)->default_value(info.tilesPerIPU),
      "Number of tiles per IPU")
+    ("ipus",
+     po::value<unsigned>(&info.numIPUs)->default_value(info.numIPUs),
+     "Number of tiles per IPU")
     ("batch-size",
      po::value<unsigned>(&batchSize)->default_value(1),
      "Batch size")

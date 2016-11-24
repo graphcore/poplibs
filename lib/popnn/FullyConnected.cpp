@@ -154,6 +154,7 @@ Program fullyConnectedBackward(Graph &graph,
   ComputeSet intraIPUReduce = graph.createComputeSet(layerName + ".bwd.reduce");
   prog.add(Execute(intraIPUReduce));
   ComputeSet interIPUReduce;
+
   if (numIPUs > 1) {
     interIPUReduce =
         graph.createComputeSet(layerName + ".bwd.reduce2");
@@ -164,6 +165,7 @@ Program fullyConnectedBackward(Graph &graph,
         graph.addTensor("float", {numCols, numIPUs,
                                   ipuPartition.tilesPerColumn},
                         "partials");
+
     auto activationsOutMapping = computeActivationsMapping(graph,
                                                            zDeltas[b],
                                                            b, batchSize);
@@ -171,13 +173,13 @@ Program fullyConnectedBackward(Graph &graph,
       const auto ipuBeginRow = activationsOutMapping[ipu * tilesPerIPU];
       const auto ipuEndRow = activationsOutMapping[(ipu + 1) * tilesPerIPU];
       const auto ipuRows = ipuEndRow - ipuBeginRow;
+
       for (unsigned tileY = 0; tileY != ipuPartition.tilesPerColumn; ++tileY) {
         const auto tileRowBegin = ipuBeginRow + (tileY * ipuRows) /
                                   ipuPartition.tilesPerColumn;
         const auto tileRowEnd = ipuBeginRow + ((tileY + 1) * ipuRows) /
                                 ipuPartition.tilesPerColumn;
-        if (tileRowBegin == tileRowEnd)
-          continue;
+
         for (unsigned tileX = 0; tileX != ipuPartition.tilesPerRow; ++tileX) {
           const auto tile = ipu * tilesPerIPU +
                             tileY * ipuPartition.tilesPerRow +
@@ -195,21 +197,36 @@ Program fullyConnectedBackward(Graph &graph,
           for (unsigned i = beginElement; i < endElement; i += vectorWidth) {
             const auto vectorNumElements = std::min(endElement - i,
                                                     vectorWidth);
-            auto w = weights.slice({tileRowBegin, i},
-                                   {tileRowEnd, i + vectorNumElements});
-            Tensor inWindow = zDeltas[b].slice(tileRowBegin, tileRowEnd);
+
             Tensor outWindow =
                 partials.slice({i, ipu, j},
                                {i + vectorNumElements, ipu + 1, j + 1})
                         .flatten();
-          auto v = graph.addVertex(bwdCS,
-                                     templateVertex("popnn::FullyConnectedBwd",
-                                                    dType),
-                                     {{"in", inWindow},
-                                      {"weights", w},
-                                      {"out", outWindow},
-                                     });
-            graph.setTileMapping(v, tile);
+
+            if (tileRowBegin == tileRowEnd) {
+              auto vZ = graph.addVertex(bwdCS,
+                                        templateVertex("popnn::Zero", "float"));
+              graph.setInitialValue(vZ["dataPathWidth"],
+                                    deviceInfo.dataPathWidth);
+
+              graph.connect(vZ["out"], outWindow);
+              graph.setTileMapping(vZ, tile);
+            } else {
+              auto w = weights.slice({ tileRowBegin, i },
+                                     {tileRowEnd, i + vectorNumElements});
+              Tensor inWindow = zDeltas[b].slice(tileRowBegin, tileRowEnd);
+
+
+              auto v = graph.addVertex(
+                            bwdCS,
+                            templateVertex("popnn::FullyConnectedBwd",
+                                           dType),
+                            {{"in", inWindow},
+                             {"weights", w},
+                             {"out", outWindow},
+                             });
+              graph.setTileMapping(v, tile);
+            }
             graph.setTileMapping(outWindow, tile);
           }
         }
@@ -221,11 +238,14 @@ Program fullyConnectedBackward(Graph &graph,
     Tensor intraIPUPartialSums;
     if (numIPUs > 1) {
       intraIPUPartialSums =
-          graph.addTensor("float", {size, numIPUs}, "ipu_partials");
+          graph.addTensor("float",
+                          {deltasOutFlat.numElements(), numIPUs},
+                          "ipu_partials");
     } else {
       intraIPUPartialSums = deltasOutFlat.reshape({deltasOutFlat.numElements(),
                                                    1});
     }
+
     // Sum the partial sums on each IPU.
     const auto numTiles = deviceInfo.getNumTiles();
     for (unsigned ipu = 0; ipu != numIPUs; ++ipu) {
@@ -237,6 +257,7 @@ Program fullyConnectedBackward(Graph &graph,
         const auto tile = resultTile % tilesPerIPU;
         for (unsigned i = deltasBegin; i != deltasEnd; ++i) {
           const char *outType = numIPUs > 1 ? "float" : dType.c_str();
+
           auto v =
               graph.addVertex(intraIPUReduce,
                               templateVertex("popnn::FullyConnectedBwdReduce",
@@ -262,7 +283,7 @@ Program fullyConnectedBackward(Graph &graph,
           continue;
         for (unsigned i = deltasBegin; i != deltasEnd; ++i) {
           auto v =
-              graph.addVertex(intraIPUReduce,
+              graph.addVertex(interIPUReduce,
                               templateVertex("popnn::FullyConnectedBwdReduce",
                                              "float",
                                              dType),
@@ -274,6 +295,7 @@ Program fullyConnectedBackward(Graph &graph,
       }
     }
   }
+
   return prog;
 }
 
