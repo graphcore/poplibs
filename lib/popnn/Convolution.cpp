@@ -2011,6 +2011,14 @@ static Tensor weightUpdateActivationReducedViews(Graph &graph,
                            batchPaddedFieldSize / fieldGroupSize,
                            fieldGroupSize}).dimShuffle({0, 2, 1, 3});
 
+  mapWeights(
+    matMulActivationsIn.reshape({matMulActivationsIn.dim(0),
+                                 matMulActivationsIn.dim(1),
+                                 1, 1,
+                                 matMulActivationsIn.dim(2),
+                                 matMulActivationsIn.dim(3)}),
+    graph, plan, 1);
+
   return matMulActivationsIn;
 }
 
@@ -2120,10 +2128,14 @@ static Tensor weightUpdateActivationFullViews(Graph &graph,
                               fieldGroupSize},
                       "activationsTransposed");
 
-  auto activationsTransposedMapping =
-      computeTensorMapping(graph, activationsTransposed);
-  applyTensorMapping(graph, activationsTransposed,
-                     activationsTransposedMapping);
+  mapWeights(
+    activationsTransposed.reshape({activationsTransposed.dim(0),
+                                   activationsTransposed.dim(1),
+                                   1, 1,
+                                   activationsTransposed.dim(2),
+                                   activationsTransposed.dim(3)}),
+    graph, plan, 1);
+
   flattenedActivationViews =
       flattenedActivationViews.dimShuffle({0, 1, 3, 2})
                               .reshape({actViewSize,
@@ -2141,6 +2153,7 @@ static Tensor weightUpdateActivationFullViews(Graph &graph,
                                        batchPaddedFieldSize / fieldGroupSize,
                                        fieldGroupSize})
                              .dimShuffle({0, 2, 1, 3});
+
 
   prog.add(Copy(activationsTransposed, activationsTransposedIn));
   return activationsTransposed;
@@ -2273,9 +2286,9 @@ convolutionWeightUpdateConvInst(Graph &graph,
                        deltasChans,
                        fieldGroupSize},
                       "zDeltasTransposed");
-  auto zDeltasTransposedMapping =
-      computeTensorMapping(graph, zDeltasTransposed);
-  applyTensorMapping(graph, zDeltasTransposed, zDeltasTransposedMapping);
+  mapActivations(graph, zDeltasTransposed.reshape({1, zDeltasTransposed.dim(0),
+                                                   1, zDeltasTransposed.dim(1),
+                                                   zDeltasTransposed.dim(2)}));
   prog.add(Copy(zDeltasTransposed,
                 batchZDeltas.reshape({deltasNumChanGroups,
                                        batchPaddedFieldSize / fieldGroupSize,
@@ -2293,7 +2306,11 @@ convolutionWeightUpdateConvInst(Graph &graph,
            outputGroupSize},
           "weightDeltas");
   auto weightDeltasTransposedMapping =
-      computeTensorMapping(graph, weightDeltasTransposed);
+    computeActivationsMapping(
+      graph,
+      weightDeltasTransposed.reshape({paddedActViewSize / outputGroupSize,
+                                       1, deltasChans, outputGroupSize}),
+      0, 1);
   applyTensorMapping(graph, weightDeltasTransposed,
                      weightDeltasTransposedMapping);
   // Perform the matrix multiplication.
