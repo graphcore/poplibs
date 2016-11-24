@@ -154,7 +154,6 @@ joinStridedDeltas(Graph &graph,
   const auto in1DType = graph.getTensorElementType(in1);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto numBatches = outIn0.dim(0);
-  const auto deltasPerBatch = outIn0.numElements() / numBatches;
   const unsigned yStride = outIn0.dim(2) / in1.dim(2);
   const unsigned xStride = outIn0.dim(3) / in1.dim(3);
   const auto zOutIn0 = outIn0.dim(1) * outIn0.dim(4);
@@ -164,7 +163,6 @@ joinStridedDeltas(Graph &graph,
   assert(zOutIn0 <= zIn1); // we can discard some input Z values
 
   ComputeSet joinCS = graph.createComputeSet("JoinDeltas.Bwd");
-  unsigned tile = 0;
   // iterate across the output deltas. We must handle subsampling in Y and
   // X and excess values in Z
  for (unsigned b = 0; b != numBatches; b++) {
@@ -174,16 +172,17 @@ joinStridedDeltas(Graph &graph,
     // exchange of in1 is required
     const auto outMapping = computeActivationsMapping(graph, outIn0[b], b,
                                                       numBatches);
+    unsigned tile = 0;
     for (unsigned g = 0; g != outIn0.dim(1); g++) {
       for (unsigned y = 0; y < outIn0.dim(2); y += yStride) {
         for (unsigned x = 0; x < outIn0.dim(3); x += xStride) {
-          unsigned chunkOffset = b * deltasPerBatch
-                                 + ((g * outIn0.dim(2)
-                                     + y) * outIn0.dim(3)
-                                    + x) * outIn0.dim(4);
+          unsigned chunkOffset = ((g * outIn0.dim(2)
+                                   + y) * outIn0.dim(3)
+                                  + x) * outIn0.dim(4);
           for (unsigned chunk = 0; chunk != chunksPerX; chunk++) {
             while (outMapping[tile] < chunkOffset)
               tile++;
+
             auto v = graph.addVertex(joinCS,
                        templateVertex("popnn::Accumulate",
                                       in1DType, outIn0DType));
@@ -243,6 +242,7 @@ joinDeltas(Graph &graph,
     }
     return prog;
   } else {
+
     return joinStridedDeltas(graph, outIn0, in1);
   }
 }
