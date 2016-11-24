@@ -807,20 +807,36 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
     info.convUnitCoeffLoadBytesPerCycle
          = options.convUnitCoeffLoadBytesPerCycle;
 
+    const double syncLatencyPerHop = 15e-9;
+    unsigned numHops = 0;
+
     switch (info.numIPUs) {
     case 1:
       break;
     case 2:
-      info.globalExchangeConstraints = {
-          GlobalExchangeConstraint(140*1024*1024*1024LL,
-            {GlobalExchangeFlow(0,1)}),
-          GlobalExchangeConstraint(140*1024*1024*1024LL,
-            {GlobalExchangeFlow(1,0)}),
-           };
+      {
+        /* Assume all 6 links of 128Gbps are used when only 2 IPUs
+         * are configured (i.e all links are intra-card)
+         */
+        info.globalExchangeConstraints = {
+            GlobalExchangeConstraint(6 * 128 * 1024 * 1024 * 1024LL,
+              {GlobalExchangeFlow(0,1)}),
+            GlobalExchangeConstraint(6 * 128 * 1024 * 1024 * 1024LL,
+              {GlobalExchangeFlow(1,0)}),
+             };
+
+        /* Assume for a 2 IPU system the intra card hop delay is 1 */
+        numHops = 1;
+      }
       break;
     default:
       throw popnn::popnn_error("IPU modeling does not support > 2 IPUs");
     }
+
+    info.globalSyncCycles =
+        std::ceil(syncLatencyPerHop
+                  * static_cast<double>(info.frequencyInHz * numHops * 2));
+
     graph = std::unique_ptr<Graph>(new Graph(*env, createIPUModelDevice(info)));
   } else {
     graph = std::unique_ptr<Graph>(new Graph(*env, createCPUDevice()));
