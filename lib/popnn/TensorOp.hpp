@@ -154,32 +154,32 @@ struct TensorOp {
     }
   };
 
-  template <typename F>
-  poplar::program::Program run(unsigned, TensorParams &, F f) {
-    return f();
+  // This type is used as a dummy argument in the run method to
+  // provide a base for the recursion through function arguments via
+  // type specialization.
+  class Sentinel{};
+
+  template <typename F, typename ...FArgs>
+  poplar::program::Program run(unsigned, TensorParams &, F f,
+                               Sentinel, FArgs&&... args) {
+    return f(std::forward<FArgs>(args)...);
   }
 
   template <typename F, typename FArg, typename ...FArgs>
   poplar::program::Program run(unsigned tIndex, TensorParams &params,
-                               F f, FArg &arg, FArgs... args) {
-    return run(tIndex, params,
-               [&](FArgs... xs) -> poplar::program::Program {
-                   return f(arg, xs...);
-               },
-               args...);
+                               F f, FArg &&arg, FArgs&&... args) {
+    return run(tIndex, params, f,
+               std::forward<FArgs>(args)...,
+               std::forward<FArg>(arg));
   }
 
   template <typename F, typename ...FArgs>
   poplar::program::Program run(unsigned tIndex, TensorParams &params, F f,
-                               poplar::Tensor &t, FArgs... args) {
+                               poplar::Tensor &t, FArgs&&... args) {
     auto paramType = sig[tIndex].type;
     if (paramType == TensorOpParamType::NotParamTensor) {
       params.push_back(t);
-      return run(tIndex + 1, params,
-                 [&](FArgs... xs) -> poplar::program::Program {
-                   return f(t, xs...);
-                 },
-                 args...);
+      return run(tIndex + 1, params, f, std::forward<FArgs>(args)..., t);
     }
     auto paramTypeStr = paramTypeName.find(paramType)->second;
     auto paramName = name + "." + paramTypeStr + "." + std::to_string(tIndex);
@@ -189,11 +189,7 @@ struct TensorOp {
     if (mappingFn)
       (*mappingFn)(graph, param);
     params.push_back(param);
-    return run(tIndex + 1, params,
-               [&](FArgs... xs) -> poplar::program::Program {
-                   return f(param, xs...);
-               },
-               args...);
+    return run(tIndex + 1, params, f, std::forward<FArgs>(args)..., param);
   }
 
   poplar::program::Program
@@ -204,7 +200,7 @@ struct TensorOp {
     const ProgAndParams *p;
     if(match == cache.end()) {
       TensorParams tensorParams;
-      auto prog = run(0, tensorParams, fn, args...);
+      auto prog = run(0, tensorParams, fn, args..., Sentinel());
       ProgAndParams pp = std::make_pair(std::move(prog),
                                         std::move(tensorParams));
       auto it = cache.emplace(std::move(key), std::move(pp));
