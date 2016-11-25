@@ -741,9 +741,11 @@ Program Net::createConvLayerBwd(unsigned i,
     assert(paddingX < kernelSizeX);
     assert(paddingY < kernelSizeY);
 
+    auto bwdPaddingX = paddingX;
+    auto bwdPaddingY = paddingY;
     if (!isFractional) {
-      paddingX = kernelSizeX - 1 - paddingX;
-      paddingY = kernelSizeY - 1 - paddingY;
+      bwdPaddingX = kernelSizeX - 1 - paddingX;
+      bwdPaddingY = kernelSizeY - 1 - paddingY;
     }
     // Create transpose/flipped weights
     auto bwdWeights =
@@ -757,7 +759,7 @@ Program Net::createConvLayerBwd(unsigned i,
                             bwdWeights, biases));
     // Perform convolution
     prog.add(doConv(*graph, bwdPlan, kernelSizeY, kernelSizeX, strideY,
-                    strideX, paddingY, paddingX, zDeltas, bwdWeights,
+                    strideX, bwdPaddingY, bwdPaddingX, zDeltas, bwdWeights,
                     biases, deltas[i], bwdPlan.getPartialType(),
                     isFractional, false, 4));
   }
