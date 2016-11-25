@@ -52,9 +52,9 @@ target_include_directories(popnn
 )
 
 set(POPC_FLAGS -I ${CMAKE_CURRENT_SOURCE_DIR} -I ${CMAKE_SOURCE_DIR}/include)
-if(${CMAKE_BUILD_TYPE} STREQUAL Debug)
+if(CMAKE_BUILD_TYPE STREQUAL Debug)
   list(APPEND POPC_FLAGS -g)
-elseif(${CMAKE_BUILD_TYPE} STREQUAL RelWithDebInfo)
+elseif(CMAKE_BUILD_TYPE STREQUAL RelWithDebInfo)
   list(APPEND POPC_FLAGS -O3 -g)
 else()
   list(APPEND POPC_FLAGS -O3)
