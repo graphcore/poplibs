@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 2.8.11)
 project(popnn)
-find_package(Boost REQUIRED)
+
 find_package(poplar REQUIRED)
 
 include(CheckCXXCompilerFlag)

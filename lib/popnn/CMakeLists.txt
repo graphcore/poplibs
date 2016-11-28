@@ -41,7 +41,7 @@ add_library(popnn SHARED
   ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearity.hpp
 )
 
-target_link_libraries(popnn poplar ${Boost_LIBRARIES})
+target_link_libraries(popnn poplar Boost::program_options)
 
 target_include_directories(popnn
   PUBLIC

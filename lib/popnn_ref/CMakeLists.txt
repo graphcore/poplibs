@@ -1,5 +1,8 @@
 include(GNUInstallDirs)
 
+# Util.cpp depends on poplar. TODO remove this dependency
+find_package(poplar REQUIRED)
+
 add_library(popnn_ref SHARED
   Convolution.cpp
   FullyConnected.cpp
@@ -13,12 +16,10 @@ add_library(popnn_ref SHARED
   ${PROJECT_SOURCE_DIR}/include/popnn_ref/Util.hpp
 )
 
-target_link_libraries(popnn_ref poplar ${Boost_LIBRARIES})
+target_link_libraries(popnn_ref poplar)
 
 target_include_directories(popnn_ref
   PUBLIC
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
-  PRIVATE
-    ${Boost_INCLUDE_DIRS}
 )

@@ -1,12 +1,17 @@
-find_package(Boost REQUIRED unit_test_framework program_options)
+find_package(Boost REQUIRED unit_test_framework timer system program_options)
 
 function(add_popnn_unit_test name)
   add_executable(${name} ${ARGN})
   target_include_directories(${name}
     PRIVATE
-      $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
-      ${Boost_INCLUDE_DIRS})
-  target_link_libraries(${name} popnn poplar popnn_ref ${Boost_LIBRARIES})
+      $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>)
+  target_link_libraries(${name} popnn
+                        poplar
+                        popnn_ref
+                        Boost::unit_test_framework
+                        Boost::timer
+                        Boost::system
+                        Boost::program_options)
   target_compile_definitions(${name} PRIVATE -DBOOST_TEST_DYN_LINK)
   add_test(NAME ${name}
     COMMAND ${name})

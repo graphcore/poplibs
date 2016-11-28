@@ -8,19 +8,16 @@ function(add_tool name)
 endfunction()
 
 add_tool(single_conv_layer single_conv_layer.cpp)
-target_include_directories(single_conv_layer PRIVATE ${Boost_INCLUDE_DIRS})
 target_link_libraries(single_conv_layer
                       popnn_ref
-                      ${Boost_PROGRAM_OPTIONS_LIBRARY})
+                      Boost::program_options)
 
 add_tool(fully_connected_layer fully_connected_layer.cpp)
-target_include_directories(fully_connected_layer PRIVATE ${Boost_INCLUDE_DIRS})
 target_link_libraries(fully_connected_layer
                       popnn_ref
-                      ${Boost_PROGRAM_OPTIONS_LIBRARY})
+                      Boost::program_options)
 
 add_tool(max_pool_layer max_pool_layer.cpp)
-target_include_directories(max_pool_layer PRIVATE ${Boost_INCLUDE_DIRS})
 target_link_libraries(max_pool_layer
                       popnn_ref
-                      ${Boost_PROGRAM_OPTIONS_LIBRARY})
+                      Boost::program_options)
