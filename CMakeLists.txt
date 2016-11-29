@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8.11)
+cmake_minimum_required(VERSION 3.5.0)
 project(popnn)
 
 find_package(poplar REQUIRED)
