@@ -62,6 +62,29 @@ createWeights(poplar::Graph &graph, std::string dType,
   return weights;
 }
 
+
+void
+castPartials(Graph &graph, const std::vector<unsigned> &dstActivationMapping,
+     Tensor src, Tensor dst, ComputeSet cs) {
+
+  auto srcType = graph.getTensorElementType(src);
+  auto dstType = graph.getTensorElementType(dst);
+
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto dataPathWidth = deviceInfo.dataPathWidth;
+  buildTransform(dstActivationMapping, graph, [&](unsigned begin,
+                                                  unsigned end,
+                                                  unsigned tile) {
+    auto v = graph.addVertex(cs,
+                             templateVertex("popnn::Cast", srcType, dstType),
+                             {{"src", src.flatten().slice(begin, end)},
+                              {"dst", dst.flatten().slice(begin, end)}});
+    graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
+    graph.setTileMapping(v, tile);
+  });
+}
+
+
 poplar::Tensor
 createBiases(poplar::Graph &graph, std::string dType,
              unsigned outNumChans) {
@@ -935,6 +958,7 @@ reduce(Graph &graph,
        > &reducedMapping,
        ComputeSet reduceCS) {
   const auto partialType = graph.getTensorElementType(partials);
+  const auto reducedType = graph.getTensorElementType(reduced);
   const auto tilesPerInZGroup = partials.dim(0);
   assert(partials[0].dims() == reduced.dims());
   auto flatPartials =
@@ -958,6 +982,7 @@ reduce(Graph &graph,
     for (const auto &regions : vertexRegions) {
       const auto v = graph.addVertex(reduceCS,
                                      templateVertex("popnn::ConvReduce",
+                                                    reducedType,
                                                     partialType));
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setFieldSize(v["out"], regions.size());
@@ -984,19 +1009,26 @@ reduce(Graph &graph,
 static Tensor
 reduce(Graph &graph,
        Tensor partials,
+       const std::string reducedType,
        const std::vector<
          std::vector<std::pair<unsigned, unsigned>>
        > &reducedMapping,
        ComputeSet reduceCS) {
-  if (partials.dim(0) == 1) {
-    return partials[0];
-  }
+
   const auto partialType = graph.getTensorElementType(partials);
-  Tensor reduced = graph.addTensor(partialType,
-                                   partials[0].dims(), "reduced");
-  applyTensorMapping(graph, reduced, reducedMapping);
-  reduce(graph, partials, reduced, reducedMapping, reduceCS);
-  return reduced;
+
+  if (partials.dim(0) == 1 && reducedType == partialType) {
+    return partials[0];
+  } else {
+    Tensor reduced = graph.addTensor(reducedType,
+                                     partials[0].dims(), "reduced");
+    applyTensorMapping(graph, reduced, reducedMapping);
+
+    if (partials.dim(0) != 1) {
+      reduce(graph, partials, reduced, reducedMapping, reduceCS);
+    }
+    return reduced;
+  }
 }
 
 /// Compute a tile mapping for the reduced tensor. The size of each contiguous
@@ -1096,7 +1128,7 @@ complete(Graph &graph,
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto partialChansPerGroup = plan.partialChansPerGroup;
-  const auto partialType = plan.getPartialType();
+  const auto partialType =  graph.getTensorElementType(in);
   size_t outChansPerGroup = outNumChans / outNumChanGroups;
   Tensor biasesByChanGroup =
       biases.reshape({outNumChanGroups, outChansPerGroup});
@@ -1284,6 +1316,8 @@ convolution(Graph &graph,
     }
     ComputeSet reduceCS = graph.createComputeSet(layerName + ".reduce");
 
+    ComputeSet castCS = graph.createComputeSet(layerName + ".cast");
+
     // For each element of the batch, we add the reduction and complete
     // vertices to same compute sets so the batch will be executed in parallel.
     ComputeSet completeCS = graph.createComputeSet(layerName + ".complete");
@@ -1294,10 +1328,20 @@ convolution(Graph &graph,
                                                           b,
                                                           batchSize);
       auto reducedMapping =
-          computeReducedMapping(graph, partialType, partialChansPerGroup,
+          computeReducedMapping(graph, partialsType, partialChansPerGroup,
                                 activations[b],
                                 activationsMapping);
-      Tensor reduced = reduce(graph, partials[b], reducedMapping, reduceCS);
+      Tensor reduced = reduce(graph,
+                              partials[b],
+                              dType,
+                              reducedMapping,
+                              reduceCS);
+
+      if (partials[b].dim(0) == 1
+          && partialsType != graph.getTensorElementType(reduced)) {
+        castPartials(graph, activationsMapping, partials[b], reduced, castCS);
+      }
+
       reduced = reduced.reshape({partialNumChanGroups, outDimY, outDimX,
                                  partialChansPerGroup});
 
@@ -1308,6 +1352,9 @@ convolution(Graph &graph,
     }
     if (!graph.getComputeSet(reduceCS).empty())
       forwardProg.add(Execute(reduceCS));
+    if (!graph.getComputeSet(castCS).empty())
+      forwardProg.add(Execute(castCS));
+
     forwardProg.add(Execute(completeCS));
   }
   return forwardProg;
@@ -1633,16 +1680,10 @@ matrixMultiplyByConvInstruction(Graph &graph, const Plan &plan,
   auto prog = Sequence();
   Tensor partials;
   const auto partialType = plan.getPartialType();
-  if (plan.tilesPerInZGroupAxis > 1) {
-    partials = graph.addTensor(partialType,
-                              {batchSize,
-                               plan.tilesPerInZGroupAxis,
-                               outNumChans / outChansPerGroup,
-                               outDimY,
-                               outDimX,
-                               outChansPerGroup},
-                               "partials");
-  } else {
+  const auto outputType = graph.getTensorElementType(out);
+  const bool reductionOrCastRequired = partialType != outputType
+                                       || plan.tilesPerInZGroupAxis != 1;
+  if (!reductionOrCastRequired) {
     // No reduction required.
     partials = out.reshape({batchSize,
                             plan.tilesPerInZGroupAxis,
@@ -1650,7 +1691,17 @@ matrixMultiplyByConvInstruction(Graph &graph, const Plan &plan,
                             outDimY,
                             outDimX,
                             outChansPerGroup});
+  } else {
+    partials = graph.addTensor(partialType,
+                                {batchSize,
+                                 plan.tilesPerInZGroupAxis,
+                                 outNumChans / outChansPerGroup,
+                                 outDimY,
+                                 outDimX,
+                                 outChansPerGroup},
+                                 "partials");
   }
+
   // Calculate a set of partial sums of the convolutions.
   prog.add(calcPartialSums(graph, plan,
                            kernelSize, kernelSize, stride, stride,
@@ -1658,8 +1709,8 @@ matrixMultiplyByConvInstruction(Graph &graph, const Plan &plan,
                            dType, in, weights, partials, "matrixMul",
                            outDimX, outDimY, false));
 
-  // Perform the reduction of partial sums.
-  if (plan.tilesPerInZGroupAxis > 1) {
+  if ( plan.tilesPerInZGroupAxis > 1) {
+    // Perform the reduction of partial sums.
     auto reduceCS = graph.createComputeSet("reduce");
     auto reducedMapping = computeReducedMapping(graph, partialType,
                                                 outChansPerGroup,
@@ -1667,6 +1718,11 @@ matrixMultiplyByConvInstruction(Graph &graph, const Plan &plan,
     reduce(graph, partials[0], out[0], reducedMapping, reduceCS);
 
     prog.add(Execute(reduceCS));
+  } else if (partialType != outputType) {
+    /* If no reduction is required where all input channel groups are allocated
+     * to a tile, partials must be cast to the output type
+     */
+    prog.add(cast(graph, cTileMapping, partials[0], out[0]));
   }
   return prog;
 }
@@ -2296,7 +2352,7 @@ convolutionWeightUpdateConvInst(Graph &graph,
                                        deltasChansPerGroup})
                              .dimShuffle({1, 0, 3, 2})));
 
-  const auto weightDeltasType = plan.floatPartials ? "float" : "half";
+  const auto weightDeltasType = dType;
 
   auto weightDeltasTransposed =
       graph.addTensor(

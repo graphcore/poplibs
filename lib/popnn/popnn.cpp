@@ -972,11 +972,11 @@ template class ConvPartial<float, float>;
 template class ConvPartial<half, float>;
 template class ConvPartial<half, half>;
 
-template <typename FPType>
+template <typename OutType, typename PartialsType>
 class ConvReduce : public Vertex {
 public:
-  Vector<Output<Vector<FPType>>> out;
-  Vector<Input<Vector<FPType>>> partials;
+  Vector<Output<Vector<OutType>>> out;
+  Vector<Input<Vector<PartialsType>>> partials;
 
   SimOnlyField<unsigned> dataPathWidth;
 
@@ -997,23 +997,26 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    bool isFloat = std::is_same<FPType, float>::value;
-    unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    bool isPartialsFloat = std::is_same<PartialsType, float>::value;
+    bool isOutTypeFloat = std::is_same<OutType, float>::value;
+    unsigned vectorWidth = dataPathWidth / (isPartialsFloat ? 32 : 16);
+    bool conversionCyles = isPartialsFloat != isOutTypeFloat;
     unsigned cycles = 4;
     unsigned numReductions = out.size();
     unsigned numPartials = partials.size() / numReductions;
     for (unsigned r = 0; r < numReductions; ++r) {
       unsigned numElem = out[r].size();
-      cycles += 1 + numPartials * (1 + (numElem + vectorWidth - 1)
-                                   / vectorWidth);
+      auto numVectors = (numElem + vectorWidth - 1) / vectorWidth;
+      cycles += 1 + numPartials * (1 + numVectors)
+                + conversionCyles * numVectors;
     }
-
     return cycles;
   }
 };
 
-template class ConvReduce<float>;
-template class ConvReduce<half>;
+template class ConvReduce<float, float>;
+template class ConvReduce<half, float>;
+template class ConvReduce<half, half>;
 
 template <class InType, class OutType>
 class ConvComplete : public Vertex {
