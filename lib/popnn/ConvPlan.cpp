@@ -833,13 +833,6 @@ Planner::createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
 
     const unsigned numBatchGroups = batchSize / batchesPerGroup;
 
-    unsigned outDimY, outDimX;
-    std::tie(outDimY, outDimX) = getOutputDim(inDimY * batchesPerGroup,
-                                              inDimX,
-                                              kernelSizeY, kernelSizeX,
-                                              strideY, strideX,
-                                              paddingY, paddingX);
-
     ConvolutionParams params(kernelSizeY, kernelSizeX, strideY, strideX,
                              inNumChans, inDimX, inDimY * batchesPerGroup,
                              paddingY, paddingX, numChannels, batchSize,
