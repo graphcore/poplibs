@@ -75,7 +75,7 @@ add_custom_command(
     ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearityDef.hpp
 )
 
-add_custom_target(graph_program DEPENDS popnn.gp)
+add_custom_target(graph_program DEPENDS popnn.gp SOURCES popnn.cpp)
 add_dependencies(popnn graph_program)
 
 install(TARGETS popnn
