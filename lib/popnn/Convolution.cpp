@@ -859,8 +859,8 @@ calcPartialSums(Graph &graph,
   const auto numInZGroups = inNumChans / inChansPerGroup;
   const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
 
-  ComputeSet zeroCS = graph.createComputeSet(layerName +".zero");
-  ComputeSet convolveCS = graph.createComputeSet(layerName + ".convolve");
+  ComputeSet zeroCS = graph.createComputeSet(layerName +"/Zero");
+  ComputeSet convolveCS = graph.createComputeSet(layerName + "/Convolve");
   for (unsigned b = 0; b < batchSize; ++b) {
     for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
       const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
@@ -1225,10 +1225,15 @@ convolution(Graph &graph,
             unsigned strideX, unsigned paddingY, unsigned paddingX,
             Tensor in, Tensor weights, Tensor biases, Tensor activations,
             const std::string &partialsType, bool isFractional,
-            bool useWinogradConv, unsigned winogradPatchSize) {
+            bool useWinogradConv, unsigned winogradPatchSize,
+            const std::string &debugPrefix) {
   const auto dType = graph.getTensorElementType(in);
   const auto layerName =
-      "Conv" + std::to_string(kernelSizeX) + "x" + std::to_string(kernelSizeY);
+      debugPrefix + "/Conv"
+                  + std::to_string(kernelSizeX)
+                  + "x" + std::to_string(kernelSizeY)
+                  + "_stride" + std::to_string(strideX) + "x"
+                  + std::to_string(strideY);
   const auto outDimY = activations.dim(2);
   const auto outDimX = activations.dim(3);
   unsigned partialOutDimY, partialOutDimX;
@@ -1284,7 +1289,8 @@ convolution(Graph &graph,
           winogradPatchSize, winogradPatchSize,
           dType, partialsType, in[b],
           weights, biases,
-          activations[b]));
+          activations[b],
+          debugPrefix));
     }
   } else {
 
@@ -1314,13 +1320,13 @@ convolution(Graph &graph,
          partialOutDimX, partialChansPerGroup}).dimShuffle(
             {2, 0, 1, 3, 4, 5});
     }
-    ComputeSet reduceCS = graph.createComputeSet(layerName + ".reduce");
+    ComputeSet reduceCS = graph.createComputeSet(layerName + "/Reduce");
 
-    ComputeSet castCS = graph.createComputeSet(layerName + ".cast");
+    ComputeSet castCS = graph.createComputeSet(layerName + "/Cast");
 
     // For each element of the batch, we add the reduction and complete
     // vertices to same compute sets so the batch will be executed in parallel.
-    ComputeSet completeCS = graph.createComputeSet(layerName + ".complete");
+    ComputeSet completeCS = graph.createComputeSet(layerName + "/Complete");
     for (unsigned b = 0; b < batchSize; ++b) {
       // Perform the reduction of partial sums.
       auto activationsMapping = computeActivationsMapping(graph,
@@ -1500,7 +1506,7 @@ Program convolutionBackward(Graph &graph,
                             unsigned kernelSizeY, unsigned kernelSizeX,
                             unsigned strideY, unsigned strideX,
                             unsigned paddingY, unsigned paddingX,
-                            bool isFractional) {
+                            bool isFractional, const std::string &debugPrefix) {
   const auto batchSize = deltasOut.dim(0);
   const auto dType = graph.getTensorElementType(zDeltas);
   const auto outNumChans = deltasOut.dim(1) * deltasOut.dim(4);
@@ -1525,7 +1531,7 @@ Program convolutionBackward(Graph &graph,
   prog.add(convolution(graph, plan, kernelSizeY, kernelSizeX, strideY,
                        strideX, paddingY, paddingX, zDeltas, bwdWeights,
                        biases, deltasOut, partialType, isFractional,
-                       false));
+                       false, 4, debugPrefix));
   return prog;
 }
 
@@ -1633,7 +1639,8 @@ calcPartialWeightGrads(Graph &graph,
 Program
 matrixMultiplyByConvInstruction(Graph &graph, const Plan &plan,
                                 Tensor a, Tensor b, Tensor c,
-                                const std::vector<unsigned> &cTileMapping) {
+                                const std::vector<unsigned> &cTileMapping,
+                                const std::string &debugPrefix) {
   const auto dType = graph.getTensorElementType(a);
   assert(a.getDimensionality() == 4);
   assert(b.getDimensionality() == 3);
@@ -1706,12 +1713,13 @@ matrixMultiplyByConvInstruction(Graph &graph, const Plan &plan,
   prog.add(calcPartialSums(graph, plan,
                            kernelSize, kernelSize, stride, stride,
                            padding, padding, outNumChans,
-                           dType, in, weights, partials, "matrixMul",
+                           dType, in, weights, partials,
+                           debugPrefix + "/MatrixMul",
                            outDimX, outDimY, false));
 
   if ( plan.tilesPerInZGroupAxis > 1) {
     // Perform the reduction of partial sums.
-    auto reduceCS = graph.createComputeSet("reduce");
+    auto reduceCS = graph.createComputeSet(debugPrefix + "/Reduce");
     auto reducedMapping = computeReducedMapping(graph, partialType,
                                                 outChansPerGroup,
                                                 out[0], cTileMapping);
@@ -1722,7 +1730,7 @@ matrixMultiplyByConvInstruction(Graph &graph, const Plan &plan,
     /* If no reduction is required where all input channel groups are allocated
      * to a tile, partials must be cast to the output type
      */
-    prog.add(cast(graph, cTileMapping, partials[0], out[0]));
+    prog.add(cast(graph, cTileMapping, partials[0], out[0], debugPrefix));
   }
   return prog;
 }
@@ -1732,7 +1740,8 @@ matrixMultiplyByConvInstruction(Graph &graph, const Plan &plan,
 // executed first.
 static Program
 convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
-                      float learningRate, ComputeSet firstReduceCS) {
+                      float learningRate, ComputeSet firstReduceCS,
+                      const std::string &debugPrefix) {
   // The bias gradient is the sum of all the deltas.
   // The reduction of these deltas is done in three stages:
   //     The first stage reduces on each tile. It places the partial sum
@@ -1847,7 +1856,8 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
   }
   auto biasPartials = graph.addTensor(dType, {usedWorkers, maxBiasPerWorker},
                                       "biasPartials");
-  auto secondReduceCS = graph.createComputeSet("conv.reduce_bias2");
+  auto secondReduceCS = graph.createComputeSet(
+                            debugPrefix + "/ReduceBias2");
   for (unsigned worker = 0; worker  < usedWorkers; ++worker ) {
     auto tile = worker / deviceInfo.numWorkerContexts;
     graph.setTileMapping(biasPartials[worker].slice(0, maxBiasPerWorker), tile);
@@ -1884,7 +1894,7 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
     graph.connect(v["out"], biasPartials[worker].slice(0, numWorkerBiases));
     graph.setTileMapping(v, tile);
   }
-  auto updateBiasCS = graph.createComputeSet("conv.update_bias");
+  auto updateBiasCS = graph.createComputeSet(debugPrefix + "/UpdateBias");
   iterateBiasMapping(biases, graph, zDeltas[0], 0, 1,
     [&](Tensor biasSlice, unsigned tile){
       for (auto bias : biasSlice.getElementIndices()) {
@@ -2225,12 +2235,15 @@ convolutionWeightUpdateConvInst(Graph &graph,
                                 unsigned kernelSizeY, unsigned kernelSizeX,
                                 unsigned strideY, unsigned strideX,
                                 unsigned paddingY, unsigned paddingX,
-                                float learningRate) {
+                                float learningRate,
+                                const std::string &debugPrefix = "") {
   const auto layerName =
-      "Conv" + std::to_string(kernelSizeX) + "x" + std::to_string(kernelSizeY)
-             + "_stride_"
-             + std::to_string(strideX) + "x" + std::to_string(strideY)
-             + ".weight_update";
+      debugPrefix
+              + "/Conv"
+              + std::to_string(kernelSizeX) + "x" + std::to_string(kernelSizeY)
+              + "_stride"
+              + std::to_string(strideX) + "x" + std::to_string(strideY)
+              + "/WeightUpdate";
   // We can calculate weight deltas using the convolution instruction where we
   // accumulate over the field in contrast to forward pass where we accumulate
   // over input channels. Let w be the number of weights per convolutional unit.
@@ -2372,7 +2385,8 @@ convolutionWeightUpdateConvInst(Graph &graph,
   // Perform the matrix multiplication.
   prog.add(matrixMultiplyByConvInstruction(
              graph, plan, matMulActivationsIn, zDeltasTransposed,
-             weightDeltasTransposed, weightDeltasTransposedMapping
+             weightDeltasTransposed, weightDeltasTransposedMapping,
+             layerName
            )
   );
   // Transpose the weight deltas.
@@ -2401,7 +2415,7 @@ convolutionWeightUpdateConvInst(Graph &graph,
                             fwdInChansPerGroup})
                   .dimShuffle({0, 4, 2, 3, 1, 5})));
   // Add the weight deltas to the weights.
-  auto addCS = graph.createComputeSet(layerName + ".update_weights");
+  auto addCS = graph.createComputeSet(layerName + "/UpdateWeights");
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   auto weightsFlattened = weights.flatten();
   auto weightDeltasFlattened = weightDeltas.flatten();
@@ -2439,7 +2453,8 @@ convolutionWeightUpdateConvInst(Graph &graph,
     }
   });
   auto updateBiasProg =
-      convolutionBiasUpdate(graph, zDeltas, biases, learningRate, addCS);
+      convolutionBiasUpdate(graph, zDeltas, biases, learningRate, addCS,
+                            layerName);
   prog.add(Execute(addCS));
   prog.add(updateBiasProg);
   return prog;
@@ -2453,20 +2468,21 @@ convolutionWeightUpdate(Graph &graph,
                         unsigned kernelSizeY, unsigned kernelSizeX,
                         unsigned strideY, unsigned strideX,
                         unsigned paddingY, unsigned paddingX,
-                        float learningRate) {
+                        float learningRate, const std::string &debugPrefix) {
   const auto dType = graph.getTensorElementType(zDeltas);
   if (plan.useConvolutionInstructions) {
     return convolutionWeightUpdateConvInst(graph, plan, fwdPlan, zDeltas,
                                            weights, biases, activations,
                                            kernelSizeY, kernelSizeX, strideY,
                                            strideX, paddingY,
-                                           paddingX, learningRate);
+                                           paddingX, learningRate,
+                                           debugPrefix);
   }
   const auto batchSize = activations.dim(0);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto layerName =
-      "Conv" + std::to_string(kernelSizeX) + "x" + std::to_string(kernelSizeY)
-             + ".weight_update";
+  const auto layerName = debugPrefix +
+      "/Conv" + std::to_string(kernelSizeX) + "x" + std::to_string(kernelSizeY)
+             + "/WeightUpdate";
   const auto inChansPerGroup = plan.inChansPerGroup;
   const auto inNumChans = activations.dim(1) * activations.dim(4);
   const auto inNumChanGroups = inNumChans / inChansPerGroup;
@@ -2509,7 +2525,7 @@ convolutionWeightUpdate(Graph &graph,
                                             inChansPerGroup},
                                     "partialWeightGrads");
 
-  ComputeSet weightGradCS = graph.createComputeSet(layerName + ".weightGrad");
+  ComputeSet weightGradCS = graph.createComputeSet(layerName + "/WeightGrad");
   for (unsigned b = 0; b < batchSize; ++b) {
     Tensor regroupedDeltas = graph.addTensor(dType, {outNumChanGroups,
                                                      outDimY, outDimX,
@@ -2552,7 +2568,7 @@ convolutionWeightUpdate(Graph &graph,
   prog.add(Execute(weightGradCS));
 
 
-  auto reduceCS = graph.createComputeSet(layerName + ".reduce");
+  auto reduceCS = graph.createComputeSet(layerName + "/Reduce");
   auto numPartials = batchSize * tilesPerY * tilesPerX;
   auto flatPartials = partials.reshape({numPartials,
                                         weights.numElements()});
@@ -2582,7 +2598,8 @@ convolutionWeightUpdate(Graph &graph,
     graph.setTileMapping(v, worker / deviceInfo.numWorkerContexts);
   }
   auto updateBiasProg =
-      convolutionBiasUpdate(graph, zDeltas, biases, learningRate, reduceCS);
+      convolutionBiasUpdate(graph, zDeltas, biases, learningRate, reduceCS,
+                            layerName);
   prog.add(Execute(reduceCS));
   prog.add(updateBiasProg);
   return prog;

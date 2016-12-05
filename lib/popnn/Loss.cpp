@@ -14,8 +14,9 @@ calcLoss(poplar::Graph &graph,
          const poplar::Tensor& numCorrect,
          const std::string& activationType,
          const std::string& expectedType,
-         LossType lossType) {
-  auto lossCS = graph.createComputeSet("LossLayer");
+         LossType lossType,
+         const std::string &debugPrefix) {
+  auto lossCS = graph.createComputeSet(debugPrefix + "/LossLayer");
   auto v = graph.addVertex(lossCS, templateVertex("popnn::CalcLoss",
                                                   activationType,
                                                   expectedType),

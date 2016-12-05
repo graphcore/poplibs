@@ -11,10 +11,11 @@ using namespace poplar::program;
 poplar::program::Program
 zero(poplar::Graph &graph,
      poplar::Tensor t,
-     const std::vector<unsigned> &tileMapping) {
+     const std::vector<unsigned> &tileMapping,
+     const std::string &debugPrefix) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
-  ComputeSet cs = graph.createComputeSet("zero");
+  ComputeSet cs = graph.createComputeSet(debugPrefix + "/Zero");
   const auto dType = graph.getTensorElementType(t);
   buildTransform(tileMapping, graph,
                  [&](unsigned elementBegin, unsigned elementEnd,

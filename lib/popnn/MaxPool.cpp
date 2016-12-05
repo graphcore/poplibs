@@ -61,12 +61,13 @@ double getPerfectCycleCount(const Graph &graph,
 Program
 maxPool(Graph &graph,
         unsigned kernelSize, unsigned stride, unsigned padding,
-        Tensor in, Tensor out) {
+        Tensor in, Tensor out, const std::string &debugPrefix) {
   const auto dType = graph.getTensorElementType(in);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
-  const auto layerName = "MaxPool" + std::to_string(kernelSize) + "x" +
-                          std::to_string(kernelSize);
+  const auto layerName = debugPrefix + "/MaxPool"
+                         + std::to_string(kernelSize) + "x"
+                         + std::to_string(kernelSize);
   const auto batchSize = in.dim(0);
   const auto prevNumChanGroups = in.dim(1);
   const auto prevChansPerGroup = in.dim(4);
@@ -84,7 +85,7 @@ maxPool(Graph &graph,
   assert(outDimX == out.dim(3));
   const auto chunkSize = gcd<unsigned>(prevChansPerGroup, chansPerGroup);
   const auto chunksPerChanGroup = chansPerGroup / chunkSize;
-  ComputeSet fwd = graph.createComputeSet(layerName + ".fwd");
+  ComputeSet fwd = graph.createComputeSet(layerName + "/Fwd");
   // Iterate through the batch adding vertices to the same compute set (so
   // batch is executed in parallel).
   for (unsigned b = 0; b < batchSize; ++b) {
@@ -149,7 +150,8 @@ Program
 maxPoolBackward(Graph &graph,
                 unsigned kernelSize, unsigned stride, unsigned padding,
                 Tensor actIn, Tensor actOut,
-                Tensor deltasIn, Tensor deltasOut) {
+                Tensor deltasIn, Tensor deltasOut,
+                const std::string &debugPrefix) {
   const auto dType = graph.getTensorElementType(actIn);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto batchSize = actIn.dim(0);
@@ -166,8 +168,8 @@ maxPoolBackward(Graph &graph,
 
   // "prev" refers to the layer nearer the input
   // "next" refers to the layer nearer the output
-  const auto layerName = "MaxPool" + std::to_string(kernelSize) + "x" +
-                          std::to_string(kernelSize);
+  const auto layerName = debugPrefix + "/MaxPool" + std::to_string(kernelSize)
+                         + "x" + std::to_string(kernelSize);
   const auto nextNumChanGroups = actOut.dim(1);
   const auto nextChansPerGroup = actOut.dim(4);
   const auto nextNumChannels = nextNumChanGroups * nextChansPerGroup;
@@ -202,7 +204,7 @@ maxPoolBackward(Graph &graph,
                  "supports\nnon-overlapping, even-sized kernels\n";
   }
 
-  auto bwdCS = graph.createComputeSet(layerName + ".bwd");
+  auto bwdCS = graph.createComputeSet(layerName + "/Bwd");
 
   for (unsigned b = 0; b != batchSize; ++b) {
     // map over deltaOut so that no reduce will be required.

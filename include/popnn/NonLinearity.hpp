@@ -7,11 +7,13 @@ poplar::program::Program
 bwdNonLinearity(poplar::Graph &graph,
                 poplar::Tensor activations, poplar::Tensor deltasIn,
                 poplar::Tensor zDeltas,
-                NonLinearityType nonLinearityType);
+                NonLinearityType nonLinearityType,
+                const std::string &debugPrefix="");
 
 poplar::program::Program
 fwdNonLinearity(poplar::Graph &graph,
                 poplar::Tensor activations,
-                NonLinearityType nonLinearityType);
+                NonLinearityType nonLinearityType,
+                const std::string &debugPrefix="");
 
 #endif // __NonLinearity_hpp__

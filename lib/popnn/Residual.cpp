@@ -100,7 +100,8 @@ Program
 joinResidual(Graph &graph,
              Tensor in0,
              Tensor in1,
-             Tensor out) {
+             Tensor out,
+             const std::string &debugPrefix) {
   assert(in0.getDimensionality() == 5); //[batch][nCG][y][g][chan]
   assert(in0.dims() == out.dims());
   assert(in1.dims() == in0.dims());
@@ -109,7 +110,7 @@ joinResidual(Graph &graph,
   const auto inType = graph.getTensorElementType(in0);
   assert(inType == graph.getTensorElementType(in1));
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  ComputeSet cs = graph.createComputeSet("JoinResidual");
+  ComputeSet cs = graph.createComputeSet(debugPrefix + "/JoinResidual");
   Program prog = Execute(cs);
   const auto batchSize = out.dim(0);
   for (unsigned b = 0; b < batchSize; b++) {
@@ -146,8 +147,9 @@ joinResidual(Graph &graph,
 // values in \a in1 are ignored
 static Program
 joinStridedDeltas(Graph &graph,
-                    Tensor outIn0,
-                    Tensor in1)
+                  Tensor outIn0,
+                  Tensor in1,
+                  const std::string &debugPrefix)
 {
   assert(outIn0.dim(0) == in1.dim(0));
   const auto outIn0DType = graph.getTensorElementType(outIn0);
@@ -162,7 +164,7 @@ joinStridedDeltas(Graph &graph,
   const auto chunksPerX = outIn0.dim(4) / chunkSize;
   assert(zOutIn0 <= zIn1); // we can discard some input Z values
 
-  ComputeSet joinCS = graph.createComputeSet("JoinDeltas.Bwd");
+  ComputeSet joinCS = graph.createComputeSet(debugPrefix + "/JoinDeltas/Bwd");
   // iterate across the output deltas. We must handle subsampling in Y and
   // X and excess values in Z
  for (unsigned b = 0; b != numBatches; b++) {
@@ -212,11 +214,12 @@ joinStridedDeltas(Graph &graph,
 Program
 joinDeltas(Graph &graph,
            Tensor outIn0,
-           Tensor in1) {
+           Tensor in1,
+           const std::string &debugPrefix) {
   const auto outType = graph.getTensorElementType(outIn0);
   const auto inType = graph.getTensorElementType(in1);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  ComputeSet cs = graph.createComputeSet("JoinResidual");
+  ComputeSet cs = graph.createComputeSet(debugPrefix + "/JoinResidual");
   Program prog = Execute(cs);
   const auto batchSize = outIn0.dim(0);
   if (outIn0.dims() == in1.dims()) {
@@ -243,7 +246,7 @@ joinDeltas(Graph &graph,
     return prog;
   } else {
 
-    return joinStridedDeltas(graph, outIn0, in1);
+    return joinStridedDeltas(graph, outIn0, in1, debugPrefix);
   }
 }
 

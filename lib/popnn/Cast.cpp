@@ -8,7 +8,7 @@ using namespace poplar::program;
 
 Program
 cast(Graph &graph, const std::vector<unsigned> &dstActivationMapping,
-     Tensor src, Tensor dst) {
+     Tensor src, Tensor dst, const std::string &debugPrefix) {
   auto srcType = graph.getTensorElementType(src);
   auto dstType = graph.getTensorElementType(dst);
   if (srcType == dstType)
@@ -16,7 +16,7 @@ cast(Graph &graph, const std::vector<unsigned> &dstActivationMapping,
 
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
-  auto cs = graph.createComputeSet("cast");
+  auto cs = graph.createComputeSet(debugPrefix + "/Cast");
   buildTransform(dstActivationMapping, graph, [&](unsigned begin,
                                                   unsigned end,
                                                   unsigned tile) {

@@ -7,6 +7,7 @@
 poplar::program::Program
 zero(poplar::Graph &graph,
      poplar::Tensor t,
-     const std::vector<unsigned> &tileMapping);
+     const std::vector<unsigned> &tileMapping,
+     const std::string &debugPrefix = "");
 
 #endif // __Zero_hpp__

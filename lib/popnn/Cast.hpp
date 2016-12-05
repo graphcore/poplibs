@@ -7,6 +7,7 @@
  */
 poplar::program::Program
 cast(poplar::Graph &graph, const std::vector<unsigned> &dstActivationMapping,
-     poplar::Tensor src, poplar::Tensor dst);
+     poplar::Tensor src, poplar::Tensor dst,
+     const std::string &debugPrefix = "");
 
 #endif // __Cast_hpp__

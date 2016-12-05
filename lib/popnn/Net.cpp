@@ -123,7 +123,8 @@ convolution(Graph &graph,
      unsigned strideX, unsigned paddingY, unsigned paddingX,
      Tensor in, Tensor weights, Tensor biases, Tensor activations,
      const std::string &partialsType, bool isFractional,
-     bool useWinogradConv, unsigned winogradPatchSize) {
+     bool useWinogradConv, unsigned winogradPatchSize,
+     const std::string &debugPrefix) {
   const auto batchSize = activations.dim(0);
   mapActivations(graph, in);
   conv::mapWeights(weights, graph, plan, batchSize);
@@ -132,7 +133,8 @@ convolution(Graph &graph,
   return conv::convolution(graph, plan, kernelSizeY, kernelSizeX, strideY,
                            strideX, paddingY, paddingX, in, weights, biases,
                            activations, partialsType, isFractional,
-                           useWinogradConv, winogradPatchSize);
+                           useWinogradConv, winogradPatchSize,
+                           debugPrefix);
 }
 
 static Program
@@ -162,7 +164,8 @@ convolutionWeightUpdate(poplar::Graph &graph,
                         poplar::Tensor activations,
                         unsigned kernelSizeY, unsigned kernelSizeX,
                         unsigned strideY, unsigned strideX, unsigned paddingY,
-                        unsigned paddingX, float learningRate) {
+                        unsigned paddingX, float learningRate,
+                        const std::string &debugPrefix) {
   const auto batchSize = zDeltas.dim(0);
   mapActivations(graph, zDeltas);
   conv::mapWeights(weights, graph, fwdPlan, batchSize);
@@ -172,7 +175,7 @@ convolutionWeightUpdate(poplar::Graph &graph,
                                        weights, biases,
                                        activations, kernelSizeY, kernelSizeX,
                                        strideY, strideX, paddingY, paddingX,
-                                       learningRate);
+                                       learningRate, debugPrefix);
 }
 
 // Define structures containing tensor ops to pass between functions/methods.
@@ -534,7 +537,8 @@ void Net::outputDescription(const Layer *layer, unsigned i, Tensor in,
 
 Program
 Net::createResidualLayerFwd(unsigned i,
-                            const ResidualLayer &residualLayer) {
+                            const ResidualLayer &residualLayer,
+                            const std::string &debugPrefix) {
   if (residualLayer.resIndex.size() != 2) {
     throw popnn::popnn_error("A residual layer must have exactly two inputs");
   }
@@ -580,7 +584,8 @@ Net::createResidualLayerFwd(unsigned i,
         residual::joinResidual(*graph,
                                in0,
                                in1,
-                               acts[i + 1]);
+                               acts[i + 1],
+                               debugPrefix);
       auto outDims = acts[i].dims();
       numFlops += outDims[0] *
         residual::getNumberOfAdds(outDims[2], outDims[3],
@@ -602,7 +607,7 @@ Net::createResidualLayerFwd(unsigned i,
 // Combined deltas at the branch towards a residual layer
 // \a i index of the layer that will take the combined deltas
 Program
-Net::createResidualLayerBwd(unsigned i) {
+Net::createResidualLayerBwd(unsigned i, const std::string &debugPrefix) {
   // Add the residual deltas to the existing deltas[i]
 
   assert(residualDeltaIdxs[i].first == i + 1);
@@ -618,7 +623,8 @@ Net::createResidualLayerBwd(unsigned i) {
       Program fwdProg =
         residual::joinDeltas(*graph,
                              outIn0,
-                             in1);
+                             in1,
+                             debugPrefix);
       return fwdProg;
     }
   case RESIDUAL_CONCATENATE:
@@ -635,7 +641,8 @@ Net::createConvLayerFwd(unsigned i,
                         unsigned paddingY, unsigned paddingX,
                         unsigned numChannels,
                         Sequence &initParamsProg,
-                        ConvOp &doConv) {
+                        ConvOp &doConv,
+                        const std::string &debugPrefix) {
   auto &in = acts[i];
   unsigned outDimY, outDimX;
   std::tie(outDimY, outDimX) =
@@ -693,6 +700,7 @@ Net::createConvLayerFwd(unsigned i,
     hParams.push_back(std::move(hWeights));
     hParams.push_back(std::move(hBiases));
   }
+
   numFlops += conv::getFlops(batchSize,
                              inDimY, inDimX, inNumChans, kernelSizeY,
                              kernelSizeX, strideY,
@@ -704,9 +712,10 @@ Net::createConvLayerFwd(unsigned i,
                                  inNumChans, kernelSizeY, kernelSizeX,
                                  strideY, strideX, paddingY, paddingX,
                                  numChannels, netType == TestOnlyNet || i == 0);
+  /* use empty string to ensure that layer graph can be reused */
   return doConv(*graph, plan, kernelSizeY, kernelSizeX, strideY, strideX,
                 paddingY, paddingX, in, weights, biases, acts[i + 1],
-                partialsType, false, false, 4);
+                partialsType, false, false, 4, "");
 }
 
 Program Net::createConvLayerBwd(unsigned i,
@@ -716,7 +725,8 @@ Program Net::createConvLayerBwd(unsigned i,
                                 NonLinearityType nonLinearityType,
                                 bool backwardPassRequired,
                                 ConvBwdWeightsOp &convBwdWeights,
-                                ConvOp &doConv, ConvWuOp &convWU) {
+                                ConvOp &doConv, ConvWuOp &convWU,
+                                const std::string &debugPrefix) {
   auto prog = Sequence();
   auto prevDimY = acts[i].dim(2);
   auto prevDimX = acts[i].dim(3);
@@ -733,7 +743,7 @@ Program Net::createConvLayerBwd(unsigned i,
                                       "zDeltas");
     mapActivations(*graph, zDeltas);
     prog.add(bwdNonLinearity(*graph, acts[i + 1], deltas[i + 1], zDeltas,
-                             nonLinearityType));
+                             nonLinearityType, debugPrefix));
   }
 
   if (backwardPassRequired) {
@@ -758,15 +768,17 @@ Program Net::createConvLayerBwd(unsigned i,
     prog.add(convBwdWeights(*graph, bwdPlan, fwdPlan, weights, deltas[i],
                             bwdWeights, biases));
     // Perform convolution
+    /* use empty string to ensure that layer graph can be reused */
     prog.add(doConv(*graph, bwdPlan, kernelSizeY, kernelSizeX, strideY,
                     strideX, bwdPaddingY, bwdPaddingX, zDeltas, bwdWeights,
                     biases, deltas[i], bwdPlan.getPartialType(),
-                    isFractional, false, 4));
+                    isFractional, false, 4, ""));
   }
 
+  /* use empty string to ensure that layer graph can be reused */
   prog.add(convWU(*graph, wuPlan, fwdPlan, zDeltas, weights, biases, acts[i],
                   kernelSizeY, kernelSizeX, strideY, strideX, paddingY,
-                  paddingX, eta));
+                  paddingX, eta, ""));
   return prog;
 }
 
@@ -891,6 +903,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   for (unsigned i = 0; i < layers.size(); ++i) {
     const auto *layer = layers[i].get();
     std::cout << "-- Layer " << i << "\n";
+    const std::string layerPrefix = "Layer:" + std::to_string(i);
     outputDescription(layer, i, acts[i], netType == TestOnlyNet || i == 0);
     if (const auto *fc = dynamic_cast<const FullyConnectedLayer *>(layer)) {
       const auto prevSize = acts[i][0].numElements();
@@ -926,10 +939,13 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
       }
       fwdProg.add(fc::fullyConnected(*graph, size, fc->nonLinearityType,
                                      acts[i], weights, biases,
-                                     acts[i + 1], plan));
+                                     acts[i + 1], plan,
+                                     layerPrefix));
       numFlops += fc::getNumFlops(batchSize, prevSize, size,
                                   netType == TestOnlyNet || i == 0);
-      fwdProg.add(fwdNonLinearity(*graph, acts[i + 1], fc->nonLinearityType));
+      fwdProg.add(fwdNonLinearity(*graph, acts[i + 1],
+                                  fc->nonLinearityType,
+                                  layerPrefix));
       numParams += weights.numElements() + biases.numElements();
       perfectCycleTime +=
           fc::getPerfectCycleCount(*graph, batchSize, prevSize,
@@ -940,12 +956,17 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                                      c->strideY, c->strideX, c->paddingY,
                                      c->paddingX,
                                      c->numChannels,
-                                     initParamsProg, convOp));
-      fwdProg.add(fwdNonLinearity(*graph, acts[i + 1], c->nonLinearityType));
+                                     initParamsProg, convOp,
+                                     layerPrefix));
+      fwdProg.add(fwdNonLinearity(*graph, acts[i + 1],
+                                  c->nonLinearityType,
+                                  layerPrefix));
     } else if (const auto *r = dynamic_cast<const ResidualLayer *>(layer)) {
-      fwdProg.add(createResidualLayerFwd(i, *r));
+      fwdProg.add(createResidualLayerFwd(i, *r, layerPrefix));
       if (r->nonLinearityType != NON_LINEARITY_NONE) {
-        fwdProg.add(fwdNonLinearity(*graph, acts[i + 1], r->nonLinearityType));
+        fwdProg.add(fwdNonLinearity(*graph, acts[i + 1],
+                                    r->nonLinearityType,
+                                    layerPrefix));
       }
 
     } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
@@ -965,7 +986,8 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
       mapActivations(*graph, acts[i + 1]);
       fwdProg.add(maxpool::maxPool(*graph,
                                    m->kernelSize, m->stride, m->padding,
-                                   acts[i], acts[i + 1]));
+                                   acts[i], acts[i + 1],
+                                   layerPrefix));
       numFlops += maxpool::getNumFlops(batchSize,
                                        in.dim(2), in.dim(3),
                                        in.dim(1) * in.dim(4),
@@ -1008,9 +1030,11 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
     for (int i = layers.size() - 1; i >= 0; --i) {
       bool backwardPassRequired = (i != 0);
 
+      const std::string layerPrefix = "LayerBwd:" + std::to_string(i);
+
       if (residualDeltaIdxs[i].first != 0) {
         // A residual path was taken from this layer
-        bwdProg.add(createResidualLayerBwd(i));
+        bwdProg.add(createResidualLayerBwd(i, layerPrefix));
       }
 
       if (backwardPassRequired) {
@@ -1043,26 +1067,30 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
         const auto &plan = fullyConnectedPlan.find(i)->second;
         bwdProg.add(bwdNonLinearity(*graph, acts[i + 1], deltas[i + 1],
                                     zDeltas,
-                                    fc->nonLinearityType));
+                                    fc->nonLinearityType,
+                                    layerPrefix));
 
         if (backwardPassRequired)
           bwdProg.add(fc::fullyConnectedBackward(*graph, zDeltas, weights,
-                                                 deltas[i], plan));
+                                                 deltas[i], plan, layerPrefix));
         bwdProg.add(fc::fullyConnectedWeightUpdate(*graph, zDeltas, acts[i],
-                                                   weights, biases, eta, plan));
+                                                   weights, biases, eta, plan,
+                                                   layerPrefix));
       } else if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
         bwdProg.add(createConvLayerBwd(i, c->kernelSizeY, c->kernelSizeX,
                                        c->strideY, c->strideX, c->paddingY,
                                        c->paddingX,
                                        c->nonLinearityType,
                                        backwardPassRequired,
-                                       convBwdWeightsOp, convOp, convWuOp));
+                                       convBwdWeightsOp, convOp, convWuOp,
+                                       layerPrefix));
       } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
         if (backwardPassRequired)
           bwdProg.add(maxpool::maxPoolBackward(*graph, m->kernelSize, m->stride,
                                                m->padding, acts[i],
                                                acts[i + 1],
-                                               deltas[i + 1], deltas[i]));
+                                               deltas[i + 1], deltas[i],
+                                               layerPrefix));
       } else if (const auto *r = dynamic_cast<const ResidualLayer *>(layer)) {
         if (r->nonLinearityType == NON_LINEARITY_NONE) {
           // Pass deltas directly to previous layer
@@ -1071,7 +1099,8 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
 
           bwdProg.add(bwdNonLinearity(*graph, acts[i + 1], deltas[i + 1],
                                       deltas[i],
-                                      r->nonLinearityType));
+                                      r->nonLinearityType,
+                                      layerPrefix));
         }
 
         // record index for earlier layer

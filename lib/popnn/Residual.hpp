@@ -10,7 +10,8 @@ poplar::program::Program
 joinResidual(poplar::Graph &graph,
              poplar::Tensor in1,
              poplar::Tensor in2,
-             poplar::Tensor out);
+             poplar::Tensor out,
+             const std::string &debugPrefix = "");
 
 /// Add the input deltas together.
 /// Only the channel elements present in in1 are updated in
@@ -19,7 +20,8 @@ joinResidual(poplar::Graph &graph,
 poplar::program::Program
 joinDeltas(poplar::Graph &graph,
            poplar::Tensor outIn0,
-           poplar::Tensor in1);
+           poplar::Tensor in1,
+           const std::string &debugPrefix);
 std::uint64_t getNumberOfAdds(unsigned outDimY, unsigned outDimX,
                               unsigned outNumChans, bool forwardOnly);
 

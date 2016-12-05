@@ -11,8 +11,10 @@ Program
 bwdNonLinearity(Graph &graph,
                 Tensor batchActivations, Tensor batchDeltasIn,
                 Tensor batchZDeltas,
-                NonLinearityType nonLinearityType) {
-  auto bwdNonLinearityCS = graph.createComputeSet("NonLinearity.bwd");
+                NonLinearityType nonLinearityType,
+                const std::string &debugPrefix) {
+  auto bwdNonLinearityCS = graph.createComputeSet(debugPrefix
+                                                  + "/NonLinearity/Bwd");
   auto prog = Sequence();
   const auto batchSize = batchActivations.dim(0);
   for (unsigned b = 0; b != batchSize; ++b) {
@@ -64,11 +66,13 @@ bwdNonLinearity(Graph &graph,
 Program
 fwdNonLinearity(Graph &graph,
                 Tensor activations,
-                NonLinearityType nonLinearityType) {
+                NonLinearityType nonLinearityType,
+                const std::string &debugPrefix) {
   auto prog = Sequence();
   const auto dType = graph.getTensorElementType(activations);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  ComputeSet nonLinCs = graph.createComputeSet("FwdNonlinearity");
+  ComputeSet nonLinCs = graph.createComputeSet(debugPrefix
+                                               + "/Nonlinearity/Fwd");
   prog.add(Execute(nonLinCs));
   const auto batchSize = activations.dim(0);
   for (unsigned b = 0; b < batchSize; b++) {

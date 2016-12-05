@@ -27,13 +27,15 @@ fullyConnected(poplar::Graph &graph,
                poplar::Tensor in, poplar::Tensor weights,
                poplar::Tensor biases,
                poplar::Tensor out,
-               const Plan &plan);
+               const Plan &plan,
+               const std::string &debugPrefix="");
 
 poplar::program::Program
 fullyConnectedBackward(poplar::Graph &graph,
                        poplar::Tensor zDeltas,
                        poplar::Tensor weights, poplar::Tensor deltasOut,
-                       const Plan &plan);
+                       const Plan &plan,
+                       const std::string &debugPrefix = "");
 
 poplar::program::Program
 fullyConnectedWeightUpdate(poplar::Graph &graph,
@@ -41,7 +43,8 @@ fullyConnectedWeightUpdate(poplar::Graph &graph,
                            poplar::Tensor activations,
                            poplar::Tensor weights, poplar::Tensor biases,
                            float learningRate,
-                           const Plan &plan);
+                           const Plan &plan,
+                           const std::string &debugPrefix = "");
 
 
 } // namespace fc

@@ -13,6 +13,7 @@ calcLoss(poplar::Graph &graph,
          const poplar::Tensor& numCorrect,
          const std::string& activationType,
          const std::string& expectedType,
-         LossType lossType);
+         LossType lossType,
+         const std::string &debugPrefix = "");
 
 #endif // __Loss_hpp__

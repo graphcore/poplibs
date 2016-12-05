@@ -699,7 +699,7 @@ static Program kernelTransform(
               Tensor weights,
               std::vector<Tensor> &kTfMapping) {
 
-  ComputeSet cs = graph.createComputeSet(layerName + ".kernelTrf");
+  ComputeSet cs = graph.createComputeSet(layerName + "/KernelTrf");
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
 
@@ -839,7 +839,7 @@ static Program kernelTransform(
   const unsigned numTiles = deviceInfo.getNumTiles();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
 
-  ComputeSet cs = graph.createComputeSet(layerName + ".kernelTrf");
+  ComputeSet cs = graph.createComputeSet(layerName + "/KernelTrf");
 
   assert(tp.zic % WgdTilePartition::kUnitSize == 0);
 
@@ -960,8 +960,8 @@ static Program dataTransform(
               Tensor in,
               std::vector<Tensor> &dTfMapping) {
 
-  ComputeSet cs = graph.createComputeSet(layerName + ".dataTrf");
-  ComputeSet zCs = graph.createComputeSet(layerName + ".zeros");
+  ComputeSet cs = graph.createComputeSet(layerName + "/DataTrf");
+  ComputeSet zCs = graph.createComputeSet(layerName + "/Zeros");
 
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
@@ -1128,8 +1128,8 @@ static Program dataTransform(
   const unsigned numTiles = deviceInfo.getNumTiles();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
 
-  ComputeSet dCs = graph.createComputeSet(layerName + ".dataTrf");
-  ComputeSet zCs = graph.createComputeSet(layerName + ".zeros");
+  ComputeSet dCs = graph.createComputeSet(layerName + "/DataTrf");
+  ComputeSet zCs = graph.createComputeSet(layerName + "/Zeros");
 
   unsigned unitsPerTile = (numUnits + numTiles - 1)/numTiles;
 
@@ -1279,8 +1279,8 @@ static Program accum(
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
 
-  ComputeSet cs = graph.createComputeSet(layerName + ".accum");
-  ComputeSet zeroCS = graph.createComputeSet(layerName + ".zeroAccum");
+  ComputeSet cs = graph.createComputeSet(layerName + "/Accum");
+  ComputeSet zeroCS = graph.createComputeSet(layerName + "/ZeroAccum");
   const auto weightsPerConvUnit =
       deviceInfo.getWeightsPerConvUnit(tp.dType == "float");
 
@@ -1417,7 +1417,7 @@ static Program reduce(
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
 
-  ComputeSet cs = graph.createComputeSet(layerName + ".reduce");
+  ComputeSet cs = graph.createComputeSet(layerName + "/Reduce");
 
   for (unsigned tile = 0; tile < deviceInfo.getNumTiles(); ++tile) {
 
@@ -1491,7 +1491,7 @@ static Program inverseTransform(
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
 
-  ComputeSet cs = graph.createComputeSet(layerName + ".invTransform");
+  ComputeSet cs = graph.createComputeSet(layerName + "/InvTransform");
 
   for (unsigned tile = 0; tile < deviceInfo.getNumTiles(); ++tile) {
 
@@ -1587,7 +1587,7 @@ static Program complete(
               Tensor in,
               Tensor act,
               Tensor bias) {
-  ComputeSet cs = graph.createComputeSet(layerName + ".complete");
+  ComputeSet cs = graph.createComputeSet(layerName + "/Complete");
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
 
@@ -1692,7 +1692,8 @@ extern Program winogradConvolution(Graph &graph,
             unsigned xDim, unsigned yDim,
             unsigned outNumChans, unsigned patchSizeX, unsigned patchSizeY,
             const std::string &dType, const std::string &partialsType,
-            Tensor in, Tensor weights, Tensor biases, Tensor activations) {
+            Tensor in, Tensor weights, Tensor biases, Tensor activations,
+            const std::string &debugPrefix) {
 
 #if DEBUG_PRINT >= 1
   std::cout << "xDim: " << xDim << std::endl;
@@ -1735,8 +1736,8 @@ extern Program winogradConvolution(Graph &graph,
 
   auto prog = Sequence();
 
-  const auto layerName = "Wgd Conv" + std::to_string(kernelSizeX)
-                         + "x" + std::to_string(kernelSizeY) + ".fwd";
+  const auto layerName = debugPrefix + "/WgdConv" + std::to_string(kernelSizeX)
+                         + "x" + std::to_string(kernelSizeY) + "/Fwd";
 
   wgdMapWeights(graph, tp, weights);
 

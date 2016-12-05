@@ -53,7 +53,8 @@ convolution(poplar::Graph &graph, const Plan &plan,
             poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
             poplar::Tensor out, const std::string &partialsType,
             bool isFractional, bool useWinogradConv = false,
-            unsigned winogradPatchSize = 4);
+            unsigned winogradPatchSize = 4,
+            const std::string &debugPrefix = "");
 
 void mapWeights(poplar::Tensor w, poplar::Graph &graph, const Plan &plan,
                 unsigned batchSize);
@@ -73,7 +74,8 @@ convolutionBackward(poplar::Graph &graph,
                     poplar::Tensor deltasOut,
                     unsigned kernelSizeY, unsigned kernelSizeX,
                     unsigned strideY, unsigned strideX,
-                    unsigned paddingY, unsigned paddingX, bool isFractional);
+                    unsigned paddingY, unsigned paddingX, bool isFractional,
+                    const std::string &debugPrefix = "");
 
 poplar::program::Program
 convolutionWeightUpdate(poplar::Graph &graph,
@@ -83,7 +85,8 @@ convolutionWeightUpdate(poplar::Graph &graph,
                         poplar::Tensor activations,
                         unsigned kernelSizeY, unsigned kernelSizeX,
                         unsigned strideY, unsigned strideX, unsigned paddingY,
-                        unsigned paddingX, float learningRate);
+                        unsigned paddingX, float learningRate,
+                        const std::string &debugPrefix = "");
 
 extern poplar::program::Program winogradConvolution(poplar::Graph &graph,
             unsigned kernelSizeY, unsigned kernelSizeX, unsigned strideY,
@@ -93,7 +96,8 @@ extern poplar::program::Program winogradConvolution(poplar::Graph &graph,
             const std::string &dType,
             const std::string &partialsType,
             poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
-            poplar::Tensor activations);
+            poplar::Tensor activations,
+            const std::string &debugPrefix = "");
 
 }
 #endif  // __Convolution_hpp__

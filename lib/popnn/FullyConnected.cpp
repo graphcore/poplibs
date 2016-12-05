@@ -24,10 +24,12 @@ fullyConnected(Graph &graph,
                unsigned size, NonLinearityType nonLinearityType,
                Tensor in0, Tensor weights,
                Tensor biases, Tensor activations,
-               const Plan &plan) {
+               const Plan &plan,
+               const std::string &debugPrefix) {
   const auto dType = graph.getTensorElementType(in0);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto layerName = "FullyConnected" + std::to_string(size);
+  const auto layerName = debugPrefix
+                         + "/FullyConnected" + std::to_string(size);
   const auto batchSize = in0.dim(0);
   Tensor in = in0.reshape({batchSize, in0.numElements() / batchSize});
   const auto dataPathWidth = deviceInfo.dataPathWidth;
@@ -40,9 +42,9 @@ fullyConnected(Graph &graph,
   assert(dType == "float" || dType == "half");
   const auto &ipuPartition = plan.ipuPartition;
   auto prog = Sequence();
-  ComputeSet dotProductCS = graph.createComputeSet(layerName + ".fwd");
+  ComputeSet dotProductCS = graph.createComputeSet(layerName + "/Fwd/DotProd");
   prog.add(Execute(dotProductCS));
-  ComputeSet reduceCS = graph.createComputeSet(layerName + ".fwd.reduce");
+  ComputeSet reduceCS = graph.createComputeSet(layerName + "/Fwd/Reduce");
   prog.add(Execute(reduceCS));
   // Iterate through the batch add to the same compute set
   // (i.e. execute the batch in parallel).
@@ -137,27 +139,28 @@ double getPerfectCycleCount(const Graph &graph,
 Program fullyConnectedBackward(Graph &graph,
                                Tensor zDeltas,
                                Tensor weights, Tensor deltasOut,
-                               const Plan &plan) {
+                               const Plan &plan,
+                               const std::string &debugPrefix) {
   const auto dType = graph.getTensorElementType(zDeltas);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto batchSize = zDeltas.dim(0);
   const auto size = static_cast<unsigned>(zDeltas[0].numElements());
   const auto prevSize = static_cast<unsigned>(weights.dim(1));
-  const auto layerName = "FullyConnected" + std::to_string(size);
+  const auto layerName = debugPrefix + "/FullyConnected" + std::to_string(size);
   const auto &ipuPartition = plan.ipuPartition;
   const auto numIPUs = deviceInfo.numIPUs;
   const auto tilesPerIPU = deviceInfo.tilesPerIPU;
   const auto numCols = prevSize;
   auto prog = Sequence();
-  auto bwdCS = graph.createComputeSet(layerName + ".bwd");
+  auto bwdCS = graph.createComputeSet(layerName + "/Bwd/DotProd");
   prog.add(Execute(bwdCS));
-  ComputeSet intraIPUReduce = graph.createComputeSet(layerName + ".bwd.reduce");
+  ComputeSet intraIPUReduce = graph.createComputeSet(layerName + "/Bwd/Reduce");
   prog.add(Execute(intraIPUReduce));
   ComputeSet interIPUReduce;
 
   if (numIPUs > 1) {
     interIPUReduce =
-        graph.createComputeSet(layerName + ".bwd.reduce2");
+        graph.createComputeSet(layerName + "/Bwd/Reduce2");
     prog.add(Execute(interIPUReduce));
   }
   for (unsigned b = 0; b < batchSize; ++b) {
@@ -305,15 +308,16 @@ fullyConnectedWeightUpdate(Graph &graph,
                            Tensor activations,
                            Tensor weights, Tensor biases,
                            float learningRate,
-                           const Plan &plan) {
+                           const Plan &plan,
+                           const std::string &debugPrefix) {
   const auto dType = graph.getTensorElementType(activations);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto &activationsOutMapping = plan.outputMapping;
   const auto batchSize = zDeltas.dim(0);
   const auto size = zDeltas[0].numElements();
-  const auto layerName = "FullyConnected" + std::to_string(size);
-  auto cs = graph.createComputeSet(layerName + ".weight_update");
+  const auto layerName = debugPrefix + "/FullyConnected" + std::to_string(size);
+  auto cs = graph.createComputeSet(layerName + "/WeightUpdate");
 
   const auto numCols = activations[0].numElements();
   const auto numIPUs = deviceInfo.numIPUs;

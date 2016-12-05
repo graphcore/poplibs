@@ -201,7 +201,7 @@ class Net {
                      unsigned strideY, unsigned strideX,
                      unsigned paddingY, unsigned paddingX, unsigned numChannels,
                      poplar::program::Sequence &initParamsProg,
-                     ConvOp &op);
+                     ConvOp &op, const std::string &debugPrefix = "");
 
   struct ConvBwdWeightsOp; struct ConvWuOp;
   poplar::program::Program
@@ -212,14 +212,16 @@ class Net {
                      bool backwardPassRequired,
                      ConvBwdWeightsOp &convBwdWeightsOp,
                      ConvOp &convOp,
-                     ConvWuOp &wuOp);
+                     ConvWuOp &wuOp,
+                     const std::string &debugPrefix = "");
 
   poplar::program::Program
   createResidualLayerFwd(unsigned i,
-                         const ResidualLayer &resLayer);
+                         const ResidualLayer &resLayer,
+                         const std::string &debugPrefix = "");
 
   poplar::program::Program
-  createResidualLayerBwd(unsigned i);
+  createResidualLayerBwd(unsigned i, const std::string &debugPrefix = "");
 
   void outputConvDescription(unsigned inDimY, unsigned inDimX,
                              unsigned inNumChans,
