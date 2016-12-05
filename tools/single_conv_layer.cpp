@@ -299,9 +299,8 @@ int main(int argc, char **argv) {
 
   auto fwdProg = Sequence();
   fwdProg.add(conv::convolution(graph, fwdPlan,
-                      kernelHeight, kernelWidth, strideH,
-                      strideW, paddingHeight,
-                      paddingWidth,
+                      strideH, strideW,
+                      paddingHeight, paddingWidth,
                       prevAct, weights, biases, nextAct,
                       partialsTypeStr, false,
                       useWinogradConv, winogradPatchSize));
@@ -311,15 +310,13 @@ int main(int argc, char **argv) {
   if (!inferenceOnly) {
     bwdProg.add(
       conv::convolutionBackward(graph, bwdPlan, zDeltas, weights, prevDeltas,
-                                kernelHeight, kernelWidth, strideH,
-                                strideW,
+                                strideH, strideW,
                                 bwdPaddingHeight, bwdPaddingWidth,
                                 bwdIsFractional)
     );
     bwdProg.add(
       conv::convolutionWeightUpdate(graph, wuPlan, fwdPlan,
-                                    zDeltas, weights, biases,
-                                    prevAct, kernelHeight, kernelWidth,
+                                    zDeltas, weights, biases, prevAct,
                                     strideH, strideW, paddingHeight,
                                     paddingWidth, learningRate)
     );

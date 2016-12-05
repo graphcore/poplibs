@@ -119,8 +119,7 @@ static std::string getDTypeString(DType dType) {
 static Program
 convolution(Graph &graph,
      const conv::Plan &plan,
-     unsigned kernelSizeY, unsigned kernelSizeX, unsigned strideY,
-     unsigned strideX, unsigned paddingY, unsigned paddingX,
+     unsigned strideY, unsigned strideX, unsigned paddingY, unsigned paddingX,
      Tensor in, Tensor weights, Tensor biases, Tensor activations,
      const std::string &partialsType, bool isFractional,
      bool useWinogradConv, unsigned winogradPatchSize,
@@ -130,10 +129,9 @@ convolution(Graph &graph,
   conv::mapWeights(weights, graph, plan, batchSize);
   conv::mapBiases(biases, graph, activations);
   mapActivations(graph, activations);
-  return conv::convolution(graph, plan, kernelSizeY, kernelSizeX, strideY,
-                           strideX, paddingY, paddingX, in, weights, biases,
-                           activations, partialsType, isFractional,
-                           useWinogradConv, winogradPatchSize,
+  return conv::convolution(graph, plan, strideY, strideX, paddingY, paddingX,
+                           in, weights, biases, activations, partialsType,
+                           isFractional, useWinogradConv, winogradPatchSize,
                            debugPrefix);
 }
 
@@ -162,7 +160,6 @@ convolutionWeightUpdate(poplar::Graph &graph,
                         poplar::Tensor zDeltas, poplar::Tensor weights,
                         poplar::Tensor biases,
                         poplar::Tensor activations,
-                        unsigned kernelSizeY, unsigned kernelSizeX,
                         unsigned strideY, unsigned strideX, unsigned paddingY,
                         unsigned paddingX, float learningRate,
                         const std::string &debugPrefix) {
@@ -172,8 +169,7 @@ convolutionWeightUpdate(poplar::Graph &graph,
   conv::mapBiases(biases, graph, zDeltas);
   mapActivations(graph, activations);
   return conv::convolutionWeightUpdate(graph, wuPlan, fwdPlan, zDeltas,
-                                       weights, biases,
-                                       activations, kernelSizeY, kernelSizeX,
+                                       weights, biases, activations,
                                        strideY, strideX, paddingY, paddingX,
                                        learningRate, debugPrefix);
 }
@@ -713,9 +709,8 @@ Net::createConvLayerFwd(unsigned i,
                                  strideY, strideX, paddingY, paddingX,
                                  numChannels, netType == TestOnlyNet || i == 0);
   /* use empty string to ensure that layer graph can be reused */
-  return doConv(*graph, plan, kernelSizeY, kernelSizeX, strideY, strideX,
-                paddingY, paddingX, in, weights, biases, acts[i + 1],
-                partialsType, false, false, 4, "");
+  return doConv(*graph, plan, strideY, strideX, paddingY, paddingX, in, weights,
+                biases, acts[i + 1], partialsType, false, false, 4, "");
 }
 
 Program Net::createConvLayerBwd(unsigned i,
@@ -769,16 +764,15 @@ Program Net::createConvLayerBwd(unsigned i,
                             bwdWeights, biases));
     // Perform convolution
     /* use empty string to ensure that layer graph can be reused */
-    prog.add(doConv(*graph, bwdPlan, kernelSizeY, kernelSizeX, strideY,
-                    strideX, bwdPaddingY, bwdPaddingX, zDeltas, bwdWeights,
+    prog.add(doConv(*graph, bwdPlan, strideY, strideX,
+                    bwdPaddingY, bwdPaddingX, zDeltas, bwdWeights,
                     biases, deltas[i], bwdPlan.getPartialType(),
                     isFractional, false, 4, ""));
   }
 
   /* use empty string to ensure that layer graph can be reused */
   prog.add(convWU(*graph, wuPlan, fwdPlan, zDeltas, weights, biases, acts[i],
-                  kernelSizeY, kernelSizeX, strideY, strideX, paddingY,
-                  paddingX, eta, ""));
+                  strideY, strideX, paddingY, paddingX, eta, ""));
   return prog;
 }
 

@@ -1687,7 +1687,7 @@ static Program complete(
 
 
 extern Program winogradConvolution(Graph &graph,
-            unsigned kernelSizeY, unsigned kernelSizeX, unsigned strideY,
+            unsigned strideY,
             unsigned strideX, unsigned paddingY, unsigned paddingX,
             unsigned xDim, unsigned yDim,
             unsigned outNumChans, unsigned patchSizeX, unsigned patchSizeY,
@@ -1720,7 +1720,8 @@ extern Program winogradConvolution(Graph &graph,
   assert(in.dim(0) == weights.dim(1));
   assert(in.dim(3) == weights.dim(5));
 
-
+  const auto kernelSizeY = weights.dim(2);
+  const auto kernelSizeX = weights.dim(3);
   WgdTilePartition tp(paddingX, paddingY,
                       xDim, yDim,
                       patchSizeX, patchSizeY,
