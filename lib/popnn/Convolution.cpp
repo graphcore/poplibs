@@ -651,7 +651,9 @@ createConvPartialDotProductVertex(Graph &graph,
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
   graph.setInitialValue(v["stride"], strideX);
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
-  unsigned vPadding = inXBegin < paddingX ? paddingX - inXBegin : 0;
+  const auto inXBeginPaddedField = outXBegin * strideX;
+  unsigned vPadding =
+      inXBeginPaddedField < paddingX ? paddingX - inXBeginPaddedField : 0;
   graph.setInitialValue(v["padding"], vPadding);
   // Map the vertex and output.
   graph.setTileMapping(v, tile);
@@ -1268,7 +1270,7 @@ convolution(Graph &graph,
   const auto partialChansPerGroup = plan.partialChansPerGroup;
   const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
   const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
-  const auto partialType = plan.getPartialType();
+  const auto partialTypeInPlan = plan.getPartialType();
 
   mapBiases(biases, graph, activations);
 
@@ -1300,7 +1302,7 @@ convolution(Graph &graph,
     mapWeights(weights, graph, plan, batchSize);
 
     // Calculate a set of partial sums of the convolutions.
-    Tensor partials = graph.addTensor(partialType,
+    Tensor partials = graph.addTensor(partialTypeInPlan,
                                        {plan.numBatchGroups,
                                        tilesPerInZGroup,
                                        partialNumChanGroups,
@@ -1337,7 +1339,7 @@ convolution(Graph &graph,
                                                           b,
                                                           batchSize);
       auto reducedMapping =
-          computeReducedMapping(graph, partialsType, partialChansPerGroup,
+          computeReducedMapping(graph, partialTypeInPlan, partialChansPerGroup,
                                 activations[b],
                                 activationsMapping);
       Tensor reduced = reduce(graph,
@@ -1347,7 +1349,7 @@ convolution(Graph &graph,
                               reduceCS);
 
       if (partials[b].dim(0) == 1
-          && partialsType != graph.getTensorElementType(reduced)) {
+          && partialTypeInPlan != graph.getTensorElementType(reduced)) {
         castPartials(graph, activationsMapping, partials[b], reduced, castCS);
       }
 

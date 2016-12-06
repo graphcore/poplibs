@@ -155,6 +155,33 @@ add_test(NAME small_conv_many_tiles
                  --partials-type=float
                  --tiles-per-ipu=1216)
 
+add_test(NAME conv3x3_feature8x8_shallow
+         COMMAND single_conv_layer
+                 --batch-size 1
+                 --input-channels 1
+                 --output-channels 1
+                 --width 8
+                 --height 8
+                 --kernel-size 3
+                 --padding 1
+                 --stride 1
+                 --inference
+                 --data-type half) 
+
+add_test(NAME conv3x3_feature8x8_shallow_stride2
+         COMMAND single_conv_layer
+                 --batch-size 1
+                 --input-channels 1
+                 --output-channels 1
+                 --width 8
+                 --height 8
+                 --kernel-size 3
+                 --padding 1
+                 --inference
+                 --stride 2
+                 --data-type half) 
+
+
 add_test(NAME conv_batch_bwd
          COMMAND single_conv_layer
                  --width 14
