@@ -1099,10 +1099,17 @@ computeReducedMapping(const poplar::Graph &graph,
                                                         elements.end());
     for (const auto &region : contiguousRegions) {
       const auto roundedBegin = region.first / grainSize * grainSize;
-      const auto roundedEnd = std::min(region.second / grainSize * grainSize,
+      auto roundedEnd = std::min(region.second / grainSize * grainSize,
                                        numActivations);
-      if (roundedBegin == roundedEnd)
-        continue;
+
+      if (roundedBegin == roundedEnd) {
+        /* ensure that any fractional grain size at the end is mapped */
+        if (numActivations - roundedEnd < grainSize)
+          roundedEnd = numActivations;
+        else
+          continue;
+      }
+
       if (!reducedMapping[tile].empty() &&
           reducedMapping[tile].back().second == roundedBegin) {
         reducedMapping[tile].back().second = roundedEnd;
@@ -1890,8 +1897,14 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
           (((worker  % workersPerBias) + 1) * numDeltas) / workersPerBias;
       toReduce = concat(toReduce, biasDeltas.slice(deltaBegin, deltaEnd));
     }
-    if (toReduce.numElements() == 0)
+    if (toReduce.numElements() == 0) {
+      auto v = graph.addVertex(secondReduceCS,
+                             templateVertex("popnn::Zero", dType));
+      graph.connect(v["out"], biasPartials[worker].slice(0, maxBiasPerWorker));
+      graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+      graph.setTileMapping(v, tile);
       continue;
+    }
     auto v = graph.addVertex(secondReduceCS,
                              templateVertex("popnn::ConvBiasReduce2", dType));
     graph.connect(v["in"], toReduce);
