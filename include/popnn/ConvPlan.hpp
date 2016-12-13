@@ -61,5 +61,7 @@ public:
   ~Planner();
 };
 
+std::ostream& operator<<(std::ostream &os, const Plan &p);
+
 }
 #endif // __ConvPlan_hpp__

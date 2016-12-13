@@ -7,6 +7,7 @@
 #include "PerformanceEstimation.hpp"
 #include <map>
 #include <tuple>
+#include <iostream>
 
 // A simple function to memoize other functions. Any recursive calls
 // with the function are non memoized
@@ -78,6 +79,22 @@ struct ConvVertexType {
 }
 
 namespace conv {
+
+std::ostream& operator<<(std::ostream &os, const Plan &p)
+{
+  os << "  Plan: TilesPerAxisXYZ         " << p.tilesPerXAxis << "*"
+                                           << p.tilesPerYAxis << "*"
+                                           << p.tilesPerZAxis << "="
+    << p.tilesPerXAxis * p.tilesPerYAxis * p.tilesPerZAxis << "\n"
+    << "        tilesPerInZGroupAxis    " << p.tilesPerInZGroupAxis << "\n"
+    << "        verticesPerTilePerYAxis " << p.verticesPerTilePerYAxis << "\n"
+    << "        inChansPerGroup         " << p.inChansPerGroup << "\n"
+    << "        partialChansPerGroup    " << p.partialChansPerGroup << "\n"
+    << "        batchesPerGroup         " << p.batchesPerGroup << "\n"
+    << "        numBatchGroups          " << p.numBatchGroups << "\n"
+    << "        flattenXY               " << p.flattenXY << "\n";
+  return os;
+}
 
 static std::uint64_t
 getConvPartialnx1CycleEstimate(unsigned passesPerOutput,

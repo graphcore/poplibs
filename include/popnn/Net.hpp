@@ -146,6 +146,7 @@ public:
   bool useWinogradConv = false;
   unsigned winogradPatchSize = 4;
   unsigned batchSize = 1;
+  bool showPlanInfo = false;
 };
 
 bool parseCommandLine(int argc, char **argv, NetOptions &options,
@@ -223,7 +224,8 @@ class Net {
   poplar::program::Program
   createResidualLayerBwd(unsigned i, const std::string &debugPrefix = "");
 
-  void outputConvDescription(unsigned inDimY, unsigned inDimX,
+  void outputConvDescription(unsigned layerIdx,
+                             unsigned inDimY, unsigned inDimX,
                              unsigned inNumChans,
                              unsigned kernelSizeY, unsigned kernelSizeX,
                              unsigned strideY, unsigned strideX,

@@ -87,6 +87,11 @@ bool parseCommandLine(int argc, char **argv, NetOptions &options,
        &options.batchSize
      )->default_value(1),
      "Batch size")
+      ("show-plan-info",
+     po::value<bool>(
+       &options.showPlanInfo
+     )->default_value(false),
+     "Display result of planning decision for conv layers")
   ;
   po::variables_map vm;
   try {
@@ -451,7 +456,8 @@ outputResidualDescription(const ResidualLayer &rLayer,
 }
 
 void
-Net::outputConvDescription(unsigned inDimY, unsigned inDimX,
+Net::outputConvDescription(unsigned layerIdx,
+                           unsigned inDimY, unsigned inDimX,
                            unsigned inNumChans,
                            unsigned kernelSizeY, unsigned kernelSizeX,
                            unsigned strideY, unsigned strideX,
@@ -482,6 +488,10 @@ Net::outputConvDescription(unsigned inDimY, unsigned inDimX,
             <<   "x" << outNumChans << "\n"
             << "        Params: " << numParams << "\n"
             << "        FLOPs:  " << flops << "\n";
+
+  if (options.showPlanInfo) {
+    std::cout << fwdConvPlans[layerIdx];
+  }
 }
 
 void Net::outputDescription(const Layer *layer, unsigned i, Tensor in,
@@ -496,7 +506,7 @@ void Net::outputDescription(const Layer *layer, unsigned i, Tensor in,
               << "        Params: " << size * (prevSize + 1) << "\n"
               << "        FLOPs:  " << flops << "\n";
   } else if (const auto *c = dynamic_cast<const ConvLayer *>(layer)) {
-    outputConvDescription(in.dim(2), in.dim(3), in.dim(1) * in.dim(4),
+    outputConvDescription(i, in.dim(2), in.dim(3), in.dim(1) * in.dim(4),
                           c->kernelSizeY, c->kernelSizeX, c->strideY,
                           c->strideX, c->paddingY, c->paddingX,
                           c->numChannels, forwardOnly);
