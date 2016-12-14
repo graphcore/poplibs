@@ -255,7 +255,7 @@ struct Net::ConvWuOp {
 /* When a Net object is constructed the corrensponding poplar graph is
    made */
 Net::Net(DataSet &data, unsigned batchSize,
-         std::vector<std::unique_ptr<Layer>> &layers,
+         std::vector<std::unique_ptr<Layer>> layers,
          LossType lossType,
          float learningRate,
          NetType netType,
@@ -273,44 +273,7 @@ Net::Net(DataSet &data, unsigned batchSize,
 }
 
 Net::Net(DataSet &data, unsigned batchSize,
-         std::vector<std::unique_ptr<Layer>> &&layers,
-         LossType lossType,
-         float learningRate,
-         NetType netType,
-         DType dType,
-         NetOptions options) :
-  netType(netType), options(options),
-  batchSize(batchSize),
-  eta(learningRate),
-  layers(std::move(layers)),
-  dType(getDTypeString(dType)),
-  partialsType(getDTypeString(FP32)),
-  planner(options.percentageCyclesExcessForMemOptim)
-{
-  initialize(data, lossType);
-}
-
-Net::Net(DataSet &data, unsigned batchSize,
-         std::vector<std::unique_ptr<Layer>> &layers,
-         LossType lossType,
-         float learningRate,
-         NetType netType,
-         DType dType,
-         DType partialsType,
-         NetOptions options) :
-  netType(netType), options(options),
-  batchSize(batchSize),
-  eta(learningRate),
-  layers(std::move(layers)),
-  dType(getDTypeString(dType)),
-  partialsType(getDTypeString(partialsType)),
-  planner(options.percentageCyclesExcessForMemOptim)
-{
-  initialize(data, lossType);
-}
-
-Net::Net(DataSet &data, unsigned batchSize,
-         std::vector<std::unique_ptr<Layer>> &&layers,
+         std::vector<std::unique_ptr<Layer>> layers,
          LossType lossType,
          float learningRate,
          NetType netType,

@@ -273,7 +273,7 @@ public:
   /* When a Net object is constructed the corrensponding poplar graph is
      made */
   Net(DataSet &data, unsigned batchSize,
-      std::vector<std::unique_ptr<Layer>> &layers,
+      std::vector<std::unique_ptr<Layer>> layers,
       LossType lossType,
       float learningRate,
       NetType netType,
@@ -281,24 +281,7 @@ public:
       NetOptions options = NetOptions());
 
   Net(DataSet &data, unsigned batchSize,
-      std::vector<std::unique_ptr<Layer>> &&layers,
-      LossType lossType,
-      float learningRate,
-      NetType netType,
-      DType dType,
-      NetOptions options = NetOptions());
-
-  Net(DataSet &data, unsigned batchSize,
-      std::vector<std::unique_ptr<Layer>> &layers,
-      LossType lossType,
-      float learningRate,
-      NetType netType,
-      DType dType,
-      DType partialsType,
-      NetOptions options = NetOptions());
-
-  Net(DataSet &data, unsigned batchSize,
-      std::vector<std::unique_ptr<Layer>> &&layers,
+      std::vector<std::unique_ptr<Layer>> layers,
       LossType lossType,
       float learningRate,
       NetType netType,
