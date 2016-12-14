@@ -163,18 +163,18 @@ maxPoolBackward(Graph &graph,
   assert(actIn.dim(3) == deltasOut.dim(3));
   assert(actOut.dim(2) == deltasIn.dim(2));
   assert(actOut.dim(3) == deltasIn.dim(3));
-  assert(deltasIn.dim(1) * deltasIn.dim(4)
-         == deltasOut.dim(1) * deltasOut.dim(4));
+  assert(actIn.dim(1) * actIn.dim(4)
+         == actOut.dim(1) * actOut.dim(4));
 
   // "prev" refers to the layer nearer the input
   // "next" refers to the layer nearer the output
   const auto layerName = debugPrefix + "/MaxPool" + std::to_string(kernelSize)
                          + "x" + std::to_string(kernelSize);
-  const auto nextNumChanGroups = actOut.dim(1);
-  const auto nextChansPerGroup = actOut.dim(4);
+  const auto nextNumChanGroups = deltasIn.dim(1);
+  const auto nextChansPerGroup = deltasIn.dim(4);
   const auto nextNumChannels = nextNumChanGroups * nextChansPerGroup;
-  const auto prevNumChanGroups = actIn.dim(1);
-  const auto prevChansPerGroup = actIn.dim(4);
+  const auto prevNumChanGroups = deltasOut.dim(1);
+  const auto prevChansPerGroup = deltasOut.dim(4);
   const auto prevNumChannels = prevNumChanGroups * prevChansPerGroup;
   //MaxPool so no change in channel dimension
   if(nextNumChannels != prevNumChannels)
@@ -215,69 +215,76 @@ maxPoolBackward(Graph &graph,
     for (unsigned tile = 0; tile != numTiles; ++tile) {
       const auto tileBegin = prevDeltaMapping[tile];
       const auto tileEnd = prevDeltaMapping[tile + 1];
-      assert(tileBegin % nextChansPerGroup == 0);
-      assert(tileEnd % nextChansPerGroup == 0);
-      const auto tileGroupBegin = tileBegin / nextChansPerGroup;
-      const auto tileGroupEnd = tileEnd / nextChansPerGroup;
-      const auto tileNumGroups = tileGroupEnd - tileGroupBegin;
-      if (tileNumGroups == 0)
+      assert(tileBegin % chunkSize == 0);
+      assert(tileEnd % chunkSize == 0);
+      const auto tileChunkBegin = tileBegin / chunkSize;
+      const auto tileChunkEnd = tileEnd / chunkSize;
+      const auto tileNumChunks = tileChunkEnd - tileChunkBegin;
+      if (tileNumChunks == 0)
         continue;
-      for (unsigned i = tileGroupBegin; i != tileGroupEnd; ++i) {
-        unsigned xPrev = i % xDimPrev;
-        unsigned yPrev = (i / xDimPrev) % yDimPrev;
-        unsigned chanGroupPrev = i / (yDimPrev * xDimPrev);
+      // iterate over all (prev) deltaOut chunks on this tile. Note that
+      // channel groups may straddle tile boundaries
+      for (unsigned chunk = tileChunkBegin; chunk != tileChunkEnd; chunk++) {
+        unsigned groupPrev = chunk / prevChunksPerChanGroup;
+        unsigned xPrev = groupPrev % xDimPrev;
+        unsigned yPrev = (groupPrev  / xDimPrev) % yDimPrev;
+        unsigned groupBase = groupPrev / (xDimPrev * yDimPrev);
+        unsigned chanBase = chunkSize *
+          (chunk % prevChunksPerChanGroup
+           + groupBase * prevChunksPerChanGroup);
         auto nextYRange = getInputRange(yPrev, stride, kernelSize,
                                         padding, yDimNext, true);
         auto nextXRange = getInputRange(xPrev, stride, kernelSize,
                                         padding, xDimNext, true);
         const auto nextYSize = nextYRange.second - nextYRange.first;
         const auto nextXSize = nextXRange.second - nextXRange.first;
+        if (nextXSize * nextYSize == 0)
+          // This is the last prev field row/column but there is not
+          // enough padding to fill the kernel. So no update for this
+          // prev pixel.
+          continue;
 
-        for (unsigned chunk = 0; chunk != prevChunksPerChanGroup; chunk++) {
-          unsigned chanBase = chanGroupPrev * prevChansPerGroup
-                                + chunk * chunkSize;
-          auto v =
-              graph.addVertex(bwdCS, templateVertex("popnn::MaxPoolingBwd",
-                                                    dType));
-          graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
-          graph.setTileMapping(v, tile);
+        auto v =
+            graph.addVertex(bwdCS, templateVertex("popnn::MaxPoolingBwd",
+                                                  dType));
+        graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+        graph.setTileMapping(v, tile);
 
-          unsigned chunkBase = chanBase % deltasOut.dim(4);
-          Tensor chunkErrOut =
-              deltasOut[b][chanBase / deltasOut.dim(4)][yPrev][xPrev]
-                   .slice(chunkBase, chunkBase + chunkSize);
-          graph.connect(chunkErrOut, v["errOut"]);
+        unsigned chunkBase = chanBase % deltasOut.dim(4);
+        Tensor chunkErrOut =
+            deltasOut[b][chanBase / deltasOut.dim(4)][yPrev][xPrev]
+                 .slice(chunkBase, chunkBase + chunkSize);
+        graph.connect(chunkErrOut, v["errOut"]);
 
-          chunkBase = chanBase % actIn.dim(4);
-          Tensor chunkActIn = actIn[b][chanBase / actIn.dim(4)][yPrev][xPrev]
-              .slice(chunkBase, chunkBase + chunkSize);
-          graph.connect(chunkActIn, v["actIn"]);
+        chunkBase = chanBase % actIn.dim(4);
+        Tensor chunkActIn = actIn[b][chanBase / actIn.dim(4)][yPrev][xPrev]
+            .slice(chunkBase, chunkBase + chunkSize);
+        graph.connect(chunkActIn, v["actIn"]);
 
-          graph.setFieldSize(v["actOut"], nextXSize * nextYSize);
-          graph.setFieldSize(v["errIn"],  nextXSize * nextYSize);
+        graph.setFieldSize(v["actOut"], nextXSize * nextYSize);
+        graph.setFieldSize(v["errIn"],  nextXSize * nextYSize);
 
-          unsigned chunkIndex = 0;
+        unsigned chunkIndex = 0;
 //TODO: can we combine multiple X into a contiguous vector? If so pointer
 // storage would be considerably reduced. Revisit once we're using a decision
 // vector rather than actIn/actOut comparisons
-          for (auto yNext = nextYRange.first; yNext != nextYRange.second;
-               ++yNext) {
-            for (auto xNext = nextXRange.first; xNext != nextXRange.second;
-                 ++xNext) {
+        for (auto yNext = nextYRange.first; yNext != nextYRange.second;
+             ++yNext) {
+          for (auto xNext = nextXRange.first; xNext != nextXRange.second;
+               ++xNext) {
 
-              auto chunkBase = chanBase % actOut.dim(4);
-              Tensor chunkActOut =
-                  actOut[b][chanBase / actOut.dim(4)][yNext][xNext]
-                       .slice(chunkBase, chunkBase + chunkSize);
-              graph.connect(chunkActOut, v["actOut"][chunkIndex]);
+            auto chunkBase = chanBase % actOut.dim(4);
+            Tensor chunkActOut =
+                actOut[b][chanBase / actOut.dim(4)][yNext][xNext]
+                     .slice(chunkBase, chunkBase + chunkSize);
+            graph.connect(chunkActOut, v["actOut"][chunkIndex]);
 
-              chunkBase = chanBase % deltasIn.dim(4);
-              Tensor chunkDeltasIn =
-                  deltasIn[b][chanBase / deltasIn.dim(4)][yNext][xNext]
-                       .slice(chunkBase, chunkBase + chunkSize);
-              graph.connect(chunkDeltasIn, v["errIn"][chunkIndex]);
-              chunkIndex++;
-            }
+            chunkBase = chanBase % deltasIn.dim(4);
+            Tensor chunkDeltasIn =
+                deltasIn[b][chanBase / deltasIn.dim(4)][yNext][xNext]
+                     .slice(chunkBase, chunkBase + chunkSize);
+            graph.connect(chunkDeltasIn, v["errIn"][chunkIndex]);
+            chunkIndex++;
           }
         }
       }

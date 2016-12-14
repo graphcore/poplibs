@@ -323,3 +323,13 @@ add_test(NAME max_pool_layer_float_batch
                  --kernel-size 2
                  --stride 2
                  --data-type float)
+
+add_test(NAME max_pool_layer_2ipu
+         COMMAND max_pool_layer
+                 --channels 64
+                 --bwd-chans-per-group 8
+                 --width 112
+                 --height 112
+                 --kernel-size 3
+                 --stride 2
+                 --ipus 2)
