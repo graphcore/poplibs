@@ -167,7 +167,7 @@ joinStridedDeltas(Graph &graph,
   ComputeSet joinCS = graph.createComputeSet(debugPrefix + "/JoinDeltas/Bwd");
   // iterate across the output deltas. We must handle subsampling in Y and
   // X and excess values in Z
- for (unsigned b = 0; b != numBatches; b++) {
+  for (unsigned b = 0; b != numBatches; b++) {
     // deltas are mapped in the same way as activations
     // indexing is over outIn0. Indexing for in1 must be scaled appropriately
     // In general the two layers map to different numbers of tiles so some
