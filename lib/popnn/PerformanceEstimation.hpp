@@ -151,6 +151,30 @@ getWeightGradCalcCycles(unsigned numOutRows, unsigned numInRows,
   return 15 + cycles;
 }
 
+inline std::uint64_t
+getWeightGradAopCycles(bool floatInput, bool floatPartials,
+                       unsigned dataPathWidth, unsigned inChansPerGroup,
+                       unsigned outChansPerGroup,
+                       std::vector<std::vector<unsigned>> &shape) {
+  std::uint64_t cycles = 5;
+  unsigned vectorWidth = dataPathWidth / (floatInput ? 32 : 16);
+  unsigned partialsVectorWidth = dataPathWidth / (floatPartials ? 32 : 16);
+  unsigned passesPerWeightDeltaIndex =
+    ((outChansPerGroup + vectorWidth - 1) / vectorWidth) *
+    ((inChansPerGroup + vectorWidth - 1) / vectorWidth);
+  for (const auto &w : shape) {
+    for (auto deltasWidth : w) {
+      // Inner loop.
+      cycles += passesPerWeightDeltaIndex * (deltasWidth + 1);
+    }
+    // Get accumulators.
+    const auto numAccumulators = vectorWidth * vectorWidth;
+    assert(numAccumulators % partialsVectorWidth == 0);
+    cycles += passesPerWeightDeltaIndex *
+              (numAccumulators / partialsVectorWidth + 1);
+  }
+  return cycles;
+}
 
 inline uint64_t getWgdDataTransformCycles(
                               unsigned numChannels,

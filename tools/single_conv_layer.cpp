@@ -193,8 +193,7 @@ int main(int argc, char **argv) {
                                     paddingHeight, paddingWidth,
                                     fwdOutChans, batchSize,
                                     dataTypeStr, partialsTypeStr,
-                                    false, false,
-                                    graph);
+                                    false, graph);
   bool bwdIsFractional = strideH != 1 || strideW != 1;
   if (paddingHeight >= kernelHeight || paddingWidth >= kernelWidth) {
     throw popnn::popnn_error("Backwards convolution pass does not support "
@@ -212,16 +211,7 @@ int main(int argc, char **argv) {
                                     bwdPaddingHeight, bwdPaddingWidth,
                                     fwdInChans, batchSize,
                                     dataTypeStr, partialsTypeStr,
-                                    bwdIsFractional, false,
-                                    graph);
-  auto wuPlan = planner.createPlan(height, width, fwdInChans,
-                                   kernelHeight, kernelWidth,
-                                   strideH, strideW,
-                                   paddingHeight, paddingWidth,
-                                   fwdOutChans, batchSize,
-                                   dataTypeStr, partialsTypeStr,
-                                   false, true,
-                                   graph);
+                                    bwdIsFractional, graph);
   auto fwdInChansPerGroup = fwdPlan.inChansPerGroup;
   // If the output grouping is unspecified, assume the output uses the same
   // grouping as the input unless that is impossible.
@@ -239,6 +229,16 @@ int main(int argc, char **argv) {
                           bwdInChansPerGroup :
                           bwdPlan.partialChansPerGroup;
   }
+  auto wuPlan = planner.createWeightUpdatePlan(height, width, fwdInChans,
+                                               fwdInChansPerGroup,
+                                               bwdInChansPerGroup,
+                                               fwdPlan.partialChansPerGroup,
+                                               kernelHeight, kernelWidth,
+                                               strideH, strideW,
+                                               paddingHeight, paddingWidth,
+                                               fwdOutChans, batchSize,
+                                               dataTypeStr, partialsTypeStr,
+                                               false, graph);
 
   // Create tensors.
   Tensor prevAct = graph.addTensor(dataTypeStr,

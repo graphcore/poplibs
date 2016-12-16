@@ -296,7 +296,7 @@ Net::getFwdConvPlan(unsigned i, unsigned inDimY, unsigned inDimX,
                          c->strideY, c->strideX, c->paddingY,
                          c->paddingX,
                          c->numChannels, batchSize, dType,
-                         partialsType, false, false, *graph);
+                         partialsType, false, *graph);
 
   fwdConvPlans.emplace(i, plan);
   return plan;
@@ -329,14 +329,16 @@ Net::getBwdConvPlan(unsigned i, unsigned prevDimY, unsigned prevDimX,
                             c->strideY, c->strideX,
                             paddingY, paddingX,
                             prevNumChans, batchSize, dType,
-                            partialsType, isFractional, false, *graph);
+                            partialsType, isFractional, *graph);
   bwdConvPlans.emplace(i, plan);
   return plan;
 }
 
 conv::Plan
 Net::getWuConvPlan(unsigned i, unsigned prevDimY, unsigned prevDimX,
-                    unsigned prevNumChans) {
+                   unsigned prevNumChans, unsigned actsChansPerGroup,
+                   unsigned deltasChanPerGroup,
+                   unsigned weightOutChansPerGroup) {
   auto it = wuConvPlans.find(i);
   if (it != wuConvPlans.end())
     return it->second;
@@ -344,12 +346,13 @@ Net::getWuConvPlan(unsigned i, unsigned prevDimY, unsigned prevDimX,
   const auto *c = dynamic_cast<const ConvLayer *>(layer);
   assert(c);
   conv::Plan plan =
-      planner.createPlan(prevDimY, prevDimX, prevNumChans,
-                         c->kernelSizeY, c->kernelSizeX,
-                         c->strideY, c->strideX, c->paddingY,
-                         c->paddingX,
-                         c->numChannels, batchSize, dType,
-                         partialsType, false, true, *graph);
+      planner.createWeightUpdatePlan(prevDimY, prevDimX, prevNumChans,
+                                     actsChansPerGroup, deltasChanPerGroup,
+                                     weightOutChansPerGroup, c->kernelSizeY,
+                                     c->kernelSizeX, c->strideY, c->strideX,
+                                     c->paddingY, c->paddingX, c->numChannels,
+                                     batchSize, dType, partialsType, false,
+                                     *graph);
   wuConvPlans.emplace(i, plan);
   return plan;
 }
@@ -363,6 +366,10 @@ Net::getRequiredChansPerGroupBwd(int i) {
   if (dynamic_cast<const FullyConnectedLayer *>(layer)) {
     return 0;
   } else if (dynamic_cast<const ConvLayer *>(layer)) {
+    // There is no need to calculate the gradient of the activations for the
+    // first layer. TODO pick a sensible channel grouping in this case.
+    if (i == 0)
+      return acts[i + 1].dim(4);
     auto prevDimY = acts[i].dim(2);
     auto prevDimX = acts[i].dim(3);
     auto prevNumChans = acts[i].dim(1) * acts[i].dim(4);
@@ -739,7 +746,6 @@ Program Net::createConvLayerBwd(unsigned i,
   auto nextNumChans = acts[i + 1].dim(1) * acts[i + 1].dim(4);
   auto fwdPlan = getFwdConvPlan(i, prevDimY, prevDimX, prevNumChans);
   auto bwdPlan = getBwdConvPlan(i, prevDimY, prevDimX, prevNumChans);
-  auto wuPlan = getWuConvPlan(i, prevDimY, prevDimX, prevNumChans);
   auto weights = params[i][0];
   auto biases = params[i][1];
   Tensor zDeltas = deltas[i + 1];
@@ -779,7 +785,9 @@ Program Net::createConvLayerBwd(unsigned i,
                     biases, deltas[i], bwdPlan.getPartialType(),
                     isFractional, false, 4, ""));
   }
-
+  // TODO move before backward pass to reduce live range of the deltas.
+  auto wuPlan = getWuConvPlan(i, prevDimY, prevDimX, prevNumChans,
+                              acts[i].dim(4), zDeltas.dim(4), weights.dim(4));
   /* use empty string to ensure that layer graph can be reused */
   prog.add(convWU(*graph, wuPlan, fwdPlan, zDeltas, weights, biases, acts[i],
                   strideY, strideX, paddingY, paddingX, eta, ""));

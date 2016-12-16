@@ -521,6 +521,77 @@ public:
 template class ConvWeightGradCalc<float>;
 template class ConvWeightGradCalc<half>;
 
+template <class InputType, class PartialTypes>
+class ConvWeightGradAop : public Vertex {
+public:
+  Vector<Input<Vector<InputType>>> acts;
+  Vector<Input<Vector<InputType>>> deltas;
+  Vector<InOut<Vector<PartialTypes>>> weightDeltas;
+  Vector<unsigned> weightReuseCount;
+
+  unsigned inChansPerGroup;
+  unsigned outChansPerGroup;
+
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    unsigned numWeightDeltas = weightDeltas.size();
+    assert(weightReuseCount.size() == numWeightDeltas);
+    assert(acts.size() == deltas.size());
+
+    unsigned i = 0;
+    for (unsigned w = 0; w != numWeightDeltas; ++w) {
+      for (unsigned pass = 0; pass != weightReuseCount[w]; ++pass, ++i) {
+        assert(i < acts.size());
+        assert(acts[i].size() % inChansPerGroup == 0);
+        assert(deltas[i].size() % outChansPerGroup == 0);
+        const auto actsWidth = acts[i].size() / inChansPerGroup;
+        const auto deltasWidth = deltas[i].size() / outChansPerGroup;
+        unsigned actsStride;
+        if (deltasWidth == 1) {
+          assert(actsWidth == 1);
+          actsStride = 0;
+        } else {
+          assert((actsWidth - 1) % (deltasWidth - 1) == 0);
+          actsStride = (actsWidth - 1) / (deltasWidth - 1);
+        }
+        for (unsigned x = 0; x != deltasWidth; ++x) {
+          for (unsigned oz = 0; oz != outChansPerGroup; ++oz) {
+            for (unsigned iz = 0; iz != inChansPerGroup; ++iz) {
+              weightDeltas[w][iz + oz * inChansPerGroup] +=
+                  acts[i][x * actsStride * inChansPerGroup + iz] *
+                  deltas[i][x * outChansPerGroup + oz];
+            }
+          }
+        }
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    bool floatInput = std::is_same<InputType, float>::value;
+    bool floatPartials = std::is_same<InputType, float>::value;
+    unsigned numWeightDeltas = weightDeltas.size();
+    unsigned i = 0;
+    std::vector<std::vector<unsigned>> shape;
+    for (unsigned w = 0; w != numWeightDeltas; ++w) {
+      shape.emplace_back();
+      for (unsigned pass = 0; pass != weightReuseCount[w]; ++pass, ++i) {
+        const auto deltasWidth = deltas[i].size() / outChansPerGroup;
+        shape.back().push_back(deltasWidth);
+      }
+    }
+    return
+      getWeightGradAopCycles(floatInput, floatPartials, dataPathWidth,
+                             inChansPerGroup, outChansPerGroup, shape);
+  }
+};
+
+template class ConvWeightGradAop<float, float>;
+template class ConvWeightGradAop<half, float>;
+template class ConvWeightGradAop<half, half>;
+
 template <typename WeightType, typename PartialsType>
 class ConvWeightUpdate : public Vertex {
 public:

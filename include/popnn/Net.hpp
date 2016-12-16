@@ -189,7 +189,9 @@ class Net {
   conv::Plan getBwdConvPlan(unsigned i, unsigned prevDimY, unsigned prevDimX,
                             unsigned prevNumChans);
   conv::Plan getWuConvPlan(unsigned i, unsigned prevDimY, unsigned prevDimX,
-                            unsigned prevNumChans);
+                           unsigned prevNumChans, unsigned actsChansPerGroup,
+                           unsigned deltasChanPerGroup,
+                           unsigned weightOutChansPerGroup);
   unsigned
   getRequiredChansPerGroupFwd(unsigned i, unsigned prevDimY, unsigned prevDimX,
                               unsigned prevNumChans);

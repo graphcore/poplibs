@@ -55,8 +55,19 @@ public:
                   unsigned numChannels, unsigned batchSize,
                   std::string dType,
                   std::string partialsType, bool isFractional,
-                  bool isWeightUpdate,
                   const poplar::Graph &graph);
+  Plan createWeightUpdatePlan(unsigned inDimY, unsigned inDimX,
+                              unsigned inNumChans,
+                              unsigned actChansPerGroup,
+                              unsigned deltasChansPerGroup,
+                              unsigned weightOutChansPerGroup,
+                              unsigned kernelSizeY, unsigned kernelSizeX,
+                              unsigned strideY, unsigned strideX,
+                              unsigned paddingY, unsigned paddingX,
+                              unsigned numChannels, unsigned batchSize,
+                              std::string dType,
+                              std::string partialsType, bool isFractional,
+                              const poplar::Graph &graph);
   Planner();
   ~Planner();
 };
