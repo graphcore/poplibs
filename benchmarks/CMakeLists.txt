@@ -9,6 +9,8 @@ endfunction()
 
 add_benchmark(alexnet alexnet.cpp)
 
+add_benchmark(resnet18 resnet18.cpp)
+
 add_benchmark(resnet34 resnet34.cpp)
 
 add_benchmark(resnet50 resnet50.cpp)
