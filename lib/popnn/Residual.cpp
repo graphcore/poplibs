@@ -182,7 +182,7 @@ joinStridedDeltas(Graph &graph,
                                    + y) * outIn0.dim(3)
                                   + x) * outIn0.dim(4);
           for (unsigned chunk = 0; chunk != chunksPerX; chunk++) {
-            while (outMapping[tile] < chunkOffset)
+            while (outMapping[tile + 1] <= chunkOffset)
               tile++;
 
             auto v = graph.addVertex(joinCS,
@@ -191,7 +191,7 @@ joinStridedDeltas(Graph &graph,
             Tensor chunkOutIn0
               = outIn0[b][g][y][x].slice(chunk * chunkSize,
                                          (chunk + 1) * chunkSize);
-            auto chan = g * outIn0.dim(4) + chunk;
+            auto chan = g * outIn0.dim(4) + chunk * chunkSize;
             auto in1Group = chan / in1.dim(4);
             auto in1Offset = chan - in1Group * in1.dim(4);
 
