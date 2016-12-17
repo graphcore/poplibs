@@ -106,52 +106,6 @@ getFullyConnectedBwdCycleEstimate(unsigned size) {
 }
 
 inline std::uint64_t
-getWeightGradCalcCycles(unsigned numOutRows, unsigned numInRows,
-                        unsigned outputWidth, unsigned inputWidth,
-                        unsigned outChansPerGroup, unsigned inChansPerGroup,
-                        unsigned strideY, unsigned strideX,
-                        unsigned kernelSizeY,
-                        unsigned kernelSizeX,
-                        unsigned xpadding, unsigned ypadding,
-                        unsigned vectorWidth) {
-  std::uint64_t cycles = 0;
-  for (unsigned wy = 0; wy < kernelSizeY; ++wy) {
-    cycles += 2;
-    for (unsigned wx = 0; wx < kernelSizeX; ++wx) {
-      cycles += 5;
-      for (unsigned outChan = 0; outChan < outChansPerGroup; ++outChan) {
-        cycles += 1;
-        int inRowInt = wy - static_cast<int>(ypadding);
-        unsigned outRow = 0;
-        while (inRowInt < 0) {
-          inRowInt += strideY;
-          outRow += 1;
-        }
-        unsigned inRow = inRowInt;
-        while (outRow < numOutRows && inRow < numInRows) {
-          cycles += 1;
-          int inColInt = wx - static_cast<int>(xpadding);
-          unsigned outCol = 0;
-          while (inColInt < 0) {
-            inColInt += strideX;
-            outCol += 1;
-          }
-          unsigned inCol = inColInt;
-          while (outCol < outputWidth && inCol < inputWidth) {
-            cycles += 2 * (inChansPerGroup + vectorWidth - 1) / vectorWidth;
-            outCol += 1;
-            inCol += strideX;
-          }
-          outRow += 1;
-          inRow += strideY;
-        }
-      }
-    }
-  }
-  return 15 + cycles;
-}
-
-inline std::uint64_t
 getWeightGradAopCycles(bool floatInput, bool floatPartials,
                        unsigned dataPathWidth, unsigned inChansPerGroup,
                        unsigned outChansPerGroup,
