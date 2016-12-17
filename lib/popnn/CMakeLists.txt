@@ -25,6 +25,8 @@ add_library(popnn SHARED
   Regroup.cpp
   Residual.cpp
   TensorOp.hpp
+  Util.cpp
+  Util.hpp
   VertexTemplates.hpp
   Winograd.cpp
   Zero.cpp

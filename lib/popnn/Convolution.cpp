@@ -10,6 +10,8 @@
 #include "PerformanceEstimation.hpp"
 #include "popnn/exceptions.hpp"
 #include "Cast.hpp"
+#include "Util.hpp"
+#include "Zero.hpp"
 #include <unordered_set>
 
 using namespace poplar;
@@ -585,7 +587,7 @@ createConvPartialnx1InOutVertex(Graph &graph,
                   {workerOutXBegin, 0},
                   {workerOutXEnd, outChansPerGroup}
                 ).reshape({workerOutWidth * outChansPerGroup});
-            // Note the output tensor is mapped in zeroPartialSums.
+            // Note the output tensor is mapped in zeroAndMapPartialSums.
             graph.connect(v["out"][numConvolutions], outWindow);
             ++numConvolutions;
           }
@@ -675,50 +677,28 @@ createConvPartialDotProductVertex(Graph &graph,
 }
 
 static void
-zeroPartialSums(Graph &graph,
-                const Plan &plan,
-                unsigned outXBegin, unsigned outXEnd,
-                unsigned outYBegin, unsigned outYEnd,
-                unsigned tileOutZGroupBegin, unsigned tileOutZGroupEnd,
-                unsigned tile,
-                ComputeSet zeroCS,
-                Tensor &out) {
-  const auto outChansPerGroup = plan.partialChansPerGroup;
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
-  const auto outZGroups = tileOutZGroupEnd - tileOutZGroupBegin;
-  const auto outHeight = outYEnd - outYBegin;
-  const auto outWidth = outXEnd - outXBegin;
-  const auto partialType = plan.getPartialType();
-
-  Tensor toZero =
-      out.slice({tileOutZGroupBegin, outYBegin, outXBegin, 0},
-                {tileOutZGroupEnd, outYEnd, outXEnd, outChansPerGroup})
-         .reshape({outZGroups * outHeight,
-                   outWidth * outChansPerGroup});
-  graph.setTileMapping(toZero, tile);
-  const auto workersPerTile = deviceInfo.numWorkerContexts;
-  const auto tileOutRows = toZero.dim(0);
-  if (tileOutRows == 0)
-    return;
-  const auto maxRowsPerWorker =
-      (tileOutRows + workersPerTile - 1) / workersPerTile;
-  // Choose the number of vertices such that each vertices is reponsible for
-  // at most maxRowsPerWorker groups.
-  const auto verticesToCreate =
-      (tileOutRows + maxRowsPerWorker - 1) / maxRowsPerWorker;
-  for (unsigned vertex = 0; vertex != verticesToCreate; ++vertex) {
-    const auto beginRow = (vertex * tileOutRows) / verticesToCreate;
-    const auto endRow = ((vertex + 1) * tileOutRows) / verticesToCreate;
-    if (beginRow == endRow)
-      continue;
-    auto zv = graph.addVertex(
-      zeroCS, templateVertex("popnn::Zero2D", partialType),
-      {{"out", toZero.slice(beginRow, endRow)}}
-    );
-    graph.setInitialValue(zv["dataPathWidth"], dataPathWidth);
-    graph.setTileMapping(zv, tile);
+zeroAndMapPartialSums(Graph &graph,
+                      unsigned outXBegin, unsigned outXEnd,
+                      unsigned outYBegin, unsigned outYEnd,
+                      unsigned tileOutZGroupBegin, unsigned tileOutZGroupEnd,
+                      unsigned tile,
+                      ComputeSet zeroCS,
+                      const Tensor &out) {
+  Tensor flatOut = out.flatten();
+  std::vector<std::pair<unsigned, unsigned>> regions;
+  for (unsigned ozg = tileOutZGroupBegin; ozg != tileOutZGroupEnd; ++ozg) {
+    for (unsigned y = outYBegin; y != outYEnd; ++y) {
+      const auto regionBegin = out.dim(3) *
+                                (outXBegin + out.dim(2) *
+                                 (y + out.dim(1) *
+                                  ozg));
+      const auto regionEnd = regionBegin + out.dim(3) * (outXEnd - outXBegin);
+      graph.setTileMapping(flatOut.slice(regionBegin, regionEnd), tile);
+      regions.emplace_back(regionBegin, regionEnd);
+    }
   }
+  mergeAdjacentRegions(regions);
+  return zero(graph, out, regions, tile, zeroCS);
 }
 
 static void
@@ -773,10 +753,8 @@ calcPartialConvOutput(Graph &graph,
                                  (!isFractional ||
                                     (strideX == 1 && strideY == 1));
     if (!useConvPartial1x1OutVertex) {
-      zeroPartialSums(graph, plan,
-                      outXBegin, outXEnd, outYBegin, outYEnd,
-                      outZGroupBegin, outZGroupEnd,
-                      tile, zeroCS, out);
+      zeroAndMapPartialSums(graph, outXBegin, outXEnd, outYBegin, outYEnd,
+                            outZGroupBegin, outZGroupEnd, tile, zeroCS, out);
     }
   }
   const auto outHeight = outYEnd - outYBegin;
@@ -919,51 +897,6 @@ calcPartialSums(Graph &graph,
   }
   prog.add(Execute(convolveCS));
   return prog;
-}
-
-static void splitRegionsBetweenWorkers(
-    const poplar::DeviceInfo &deviceInfo,
-    const std::vector<std::pair<unsigned, unsigned>> &regions,
-    std::vector<std::vector<std::pair<unsigned, unsigned>>> &vertexRegions,
-    unsigned grainSize) {
-  vertexRegions.clear();
-  const auto numElements =
-      std::accumulate(regions.begin(), regions.end(), 0U,
-                      [](unsigned numElements,
-                         const std::pair<unsigned, unsigned> &region) {
-    return numElements + region.second - region.first;
-  });
-  if (numElements == 0)
-    return;
-  const auto workersPerTile = deviceInfo.numWorkerContexts;
-  const auto numGroups = (numElements + grainSize - 1) / grainSize;
-  const auto maxGroupsPerWorker =
-    (numGroups + workersPerTile - 1) / workersPerTile;
-  const auto verticesToCreate =
-    (numGroups + maxGroupsPerWorker - 1) / maxGroupsPerWorker;
-  auto it = regions.begin();
-  unsigned count = 0;
-  vertexRegions.resize(verticesToCreate);
-  for (unsigned vertex = 0; vertex != verticesToCreate; ++vertex) {
-    const auto groupBegin = (vertex * numGroups) / verticesToCreate;
-    const auto groupEnd = ((vertex + 1) * numGroups) / verticesToCreate;
-    const auto elemBegin = groupBegin * grainSize;
-    const auto elemEnd = std::min(numElements, groupEnd * grainSize);
-    auto vertexElements = elemEnd - elemBegin;
-    while (vertexElements) {
-      if (count == it->second - it->first) {
-        count = 0;
-        ++it;
-      }
-      const auto vertexRegionSize = std::min(vertexElements,
-                                             it->second - it->first - count);
-      const auto vertexRegionBegin = it->first + count;
-      const auto vertexRegionEnd = vertexRegionBegin + vertexRegionSize;
-      vertexRegions[vertex].emplace_back(vertexRegionBegin, vertexRegionEnd);
-      count += vertexRegionSize;
-      vertexElements -= vertexRegionSize;
-    }
-  }
 }
 
 static void
@@ -2286,56 +2219,6 @@ calcPartialWeightGradsAop(Graph &graph,
 }
 
 static void
-zero(Graph &graph,
-     Tensor t,
-     const std::vector<
-       std::vector<std::pair<unsigned, unsigned>>
-     > &mapping,
-     ComputeSet zeroCS) {
-  t = t.flatten();
-  const auto dType = graph.getTensorElementType(t);
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto numTiles = deviceInfo.getNumTiles();
-  std::vector<std::vector<std::pair<unsigned, unsigned>>> vertexRegions;
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
-    const auto &tileRegions = mapping[tile];
-    unsigned vectorWidth;
-    if (dType == "float")
-      vectorWidth = deviceInfo.getFloatVectorWidth();
-    else
-      vectorWidth = deviceInfo.getHalfVectorWidth();
-    splitRegionsBetweenWorkers(deviceInfo, tileRegions, vertexRegions,
-                               vectorWidth);
-    for (const auto &regions : vertexRegions) {
-      VertexRef v;
-      const auto numRegions = regions.size();
-      if (numRegions == 0)
-        continue;
-      if (numRegions == 1) {
-        v = graph.addVertex(zeroCS, templateVertex("popnn::Zero", dType));
-        const auto &region = regions.front();
-        const auto regionBegin = region.first;
-        const auto regionEnd = region.second;
-        auto out = t.slice(regionBegin, regionEnd);
-        graph.connect(v["out"], out);
-      } else {
-        v = graph.addVertex(zeroCS, templateVertex("popnn::Zero2D", dType));
-        graph.setFieldSize(v["out"], regions.size());
-        for (unsigned i = 0; i != numRegions; ++i) {
-          const auto &region = regions[i];
-          const auto regionBegin = region.first;
-          const auto regionEnd = region.second;
-          auto out = t.slice(regionBegin, regionEnd);
-          graph.connect(v["out"][i], out);
-        }
-      }
-      graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
-      graph.setTileMapping(v, tile);
-    }
-  }
-}
-
-static void
 addWeightDeltaPartialRegions(std::vector<std::pair<unsigned,unsigned>> &regions,
                              const std::vector<std::size_t> &partialDims,
                              unsigned b, unsigned tileY, unsigned tileX,
@@ -2353,27 +2236,6 @@ addWeightDeltaPartialRegions(std::vector<std::pair<unsigned,unsigned>> &regions,
         partialDims[8] * partialDims[7] * partialDims[6] *partialDims[5] *
         (inZGroupEnd - inZGroupBegin);
     regions.emplace_back(regionBegin, regionEnd);
-  }
-}
-
-static void mergeAdjacentRegions(
-    std::vector<std::vector<std::pair<unsigned, unsigned>>> &mapping) {
-  const auto numTiles = mapping.size();
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
-    std::vector<std::pair<unsigned, unsigned>> newRegions;
-    auto &regions = mapping[tile];
-    std::sort(regions.begin(), regions.end());
-    for (const auto &region : regions) {
-      if (region.first == region.second)
-        continue;
-      assert(newRegions.empty() || newRegions.back().second <= region.first);
-      if (!newRegions.empty() && newRegions.back().second == region.first) {
-        newRegions.back().second = region.second;
-      } else {
-        newRegions.push_back(region);
-      }
-    }
-    std::swap(regions, newRegions);
   }
 }
 

@@ -1,13 +1,22 @@
 #ifndef __Zero_hpp__
 #define __Zero_hpp__
-#include "poplar/Program.hpp"
+
+#include "poplar/Graph.hpp"
 #include <vector>
 
-/// Construct a program to zero the specified tensor.
-poplar::program::Program
+void
 zero(poplar::Graph &graph,
      poplar::Tensor t,
-     const std::vector<unsigned> &tileMapping,
-     const std::string &debugPrefix = "");
+     const std::vector<std::pair<unsigned, unsigned>> &tileRegions,
+     unsigned tile,
+     poplar::ComputeSet zeroCS);
+
+void
+zero(poplar::Graph &graph,
+     const poplar::Tensor &t,
+     const std::vector<
+       std::vector<std::pair<unsigned, unsigned>>
+     > &mapping,
+     poplar::ComputeSet zeroCS);
 
 #endif // __Zero_hpp__
