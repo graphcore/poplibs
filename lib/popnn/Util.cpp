@@ -1,6 +1,7 @@
 #include "Util.hpp"
 
 #include <algorithm>
+#include <numeric>
 
 void mergeAdjacentRegions(
     std::vector<std::pair<unsigned, unsigned>> &regions) {
