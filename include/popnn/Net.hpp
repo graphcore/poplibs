@@ -168,7 +168,6 @@ class Net {
   std::unique_ptr<char[]> hAct;
   std::vector<std::unique_ptr<float[]>> hParams;
   std::mt19937 randomEngine;
-  unsigned hIsTraining;
   unsigned numTestBatches;
   unsigned hNumCorrect;
   std::string dType;

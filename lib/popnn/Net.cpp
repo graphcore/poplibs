@@ -628,7 +628,6 @@ Net::createResidualLayerBwd(unsigned i, const std::string &debugPrefix) {
   assert(residualDeltaIdxs[i].second > i + 1);
   Tensor &outIn0 = deltas[residualDeltaIdxs[i].first];
   Tensor &in1 = deltas[residualDeltaIdxs[i].second];
-  const auto &in0Dims = outIn0.dims();
 
   switch (RESIDUAL_PAD) {
   case RESIDUAL_PAD:

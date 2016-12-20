@@ -158,11 +158,11 @@ joinStridedDeltas(Graph &graph,
   const auto numBatches = outIn0.dim(0);
   const unsigned yStride = outIn0.dim(2) / in1.dim(2);
   const unsigned xStride = outIn0.dim(3) / in1.dim(3);
-  const auto zOutIn0 = outIn0.dim(1) * outIn0.dim(4);
-  const auto zIn1 = in1.dim(1) * in1.dim(4);
   const auto chunkSize = gcd(outIn0.dim(4), in1.dim(4));
   const auto chunksPerX = outIn0.dim(4) / chunkSize;
-  assert(zOutIn0 <= zIn1); // we can discard some input Z values
+
+  // we can discard some input Z values
+  assert(outIn0.dim(1) * outIn0.dim(4) <= in1.dim(1) * in1.dim(4));
 
   ComputeSet joinCS = graph.createComputeSet(debugPrefix + "/JoinDeltas/Bwd");
   // iterate across the output deltas. We must handle subsampling in Y and
