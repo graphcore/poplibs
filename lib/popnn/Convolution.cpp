@@ -127,18 +127,22 @@ linearizeTileIndices(unsigned batchNum, unsigned batchSize,
   const auto beginTile = batchNum / batchElemsPerTile * tilesPerBatchGroup;
   // If this is a multi IPU system then choose an order that avoids splitting
   // partial sums over IPUs
+  unsigned tile;
   if (isMultiIPU)
-    return beginTile +
+    tile = beginTile +
       (izg + tilesPerInZGroup *
         (ox + tilesPerX *
           (oy + tilesPerY * ozg)));
   // Use ozg as the innermost dimension to increase the chance that
   // tiles in a supertile both read the same activations. This reduces
   // exchange time when supertile send / receive is used.
-  return beginTile +
+  else
+    tile = beginTile +
            (ozg + tilesPerZ *
              (ox + tilesPerX *
                (oy + tilesPerY * izg)));
+  assert(tile < numTiles);
+  return tile;
 }
 
 static std::pair<unsigned,unsigned>
