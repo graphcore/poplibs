@@ -946,11 +946,13 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
        ++batchesPerGroup) {
 
     /* only allow integer division of batches.
-       *  i.e. batchSize = batchesPerGroup * numBatchGroups
-       */
+     *  i.e. batchSize = batchesPerGroup * numBatchGroups
+     *
+     * Weight Update doesn't use batch grouping
+     */
 
     if ((batchSize % batchesPerGroup) ||
-        (!flattenXY && batchesPerGroup > 1)) {
+        ((!flattenXY || isWeightUpdate) && batchesPerGroup > 1)) {
       continue;
     }
 
