@@ -147,6 +147,14 @@ public:
   unsigned winogradPatchSize = 4;
   unsigned batchSize = 1;
   bool showPlanInfo = false;
+  /* Perform memory optimisation if cycles performance is
+   * within percentage excess of optimum cycles performance
+   *
+   * i.e. if C_opt is the optimium cycles performance bound,
+   *  allow memory optimisations in if cycles cost is
+   *    < C_opt * (100 + percentageCyclesExcessForMemOptim)/100
+   */
+  unsigned percentageCyclesExcessForMemOptim = 0;
 };
 
 bool parseCommandLine(int argc, char **argv, NetOptions &options,

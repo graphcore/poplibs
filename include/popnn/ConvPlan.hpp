@@ -47,6 +47,7 @@ struct Plan {
 class PlannerCache;
 class Planner {
   std::unique_ptr<PlannerCache> cache;
+  unsigned percentageCyclesExcessForMemOptim;
 public:
   Plan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                   unsigned kernelSizeY, unsigned kernelSizeX,
@@ -68,7 +69,7 @@ public:
                               std::string dType,
                               std::string partialsType, bool isFractional,
                               const poplar::Graph &graph);
-  Planner();
+  Planner(unsigned percentageCyclesExcessForMemOptim = 0);
   ~Planner();
 };
 

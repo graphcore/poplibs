@@ -53,6 +53,7 @@ int main(int argc, char **argv) {
   unsigned kernelSize;
   unsigned padding;
   unsigned stride;
+  unsigned percentageCyclesExcessForMemOptim;
 
   po::options_description desc("Options");
   desc.add_options()
@@ -119,6 +120,12 @@ int main(int argc, char **argv) {
     ("winograd-patch-size",
       po::value<unsigned>(&winogradPatchSize)->default_value(4),
      "Square patch size to use in winograd convolution")
+    ("percent-cyc-excess-for-mem-optim",
+     po::value<unsigned>(
+       &percentageCyclesExcessForMemOptim
+     )->default_value(0),
+     "Percentage cycles excess to use for memory optimisation. "
+     "if 0, no memory optimisation is performed")
   ;
   po::variables_map vm;
   try {
@@ -186,7 +193,7 @@ int main(int argc, char **argv) {
   const auto outHeight = outDims.first;
   const auto outWidth = outDims.second;
   // TODO support residual connections.
-  conv::Planner planner;
+  conv::Planner planner(percentageCyclesExcessForMemOptim);
   auto fwdPlan = planner.createPlan(height, width, fwdInChans,
                                     kernelHeight, kernelWidth,
                                     strideH, strideW,

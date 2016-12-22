@@ -104,11 +104,67 @@ public:
     ) {}
 };
 
-Planner::Planner() {
+Planner::Planner(unsigned percentageCyclesExcessForMemOptim) :
+    percentageCyclesExcessForMemOptim(percentageCyclesExcessForMemOptim){
   cache = std::unique_ptr<PlannerCache>(new PlannerCache());
 }
 
 Planner::~Planner() = default;
+
+struct Cost {
+  unsigned cycles;
+
+  /* memory in bytes */
+  unsigned memory;
+
+  Cost(unsigned cycles, unsigned memory) : cycles(cycles), memory(memory) {}
+  Cost() {}
+
+  Cost operator*=(unsigned a) {
+    cycles *= a;
+    memory *= a;
+    return *this;
+  }
+
+  Cost operator+(Cost b) {
+    return {cycles + b.cycles, memory + b.cycles};
+  }
+
+  Cost operator+=(Cost b) {
+    cycles += b.cycles;
+    memory += b.memory;
+    return *this;
+  }
+
+  bool operator==(Cost b) {
+    return cycles == b.cycles && memory == b.memory;
+  }
+};
+
+struct CostBounds {
+  friend bool compareCost(Cost a, Cost b, CostBounds bounds);
+  CostBounds(unsigned cycles, unsigned memory, bool primaryCheckIsCycles = true)
+    :cycles(cycles), memory(memory), primaryCheckIsCycles(primaryCheckIsCycles)
+      {}
+private:
+  unsigned cycles;
+  unsigned memory;
+  bool primaryCheckIsCycles;
+};
+
+
+bool compareCost(Cost a, Cost b, CostBounds bounds) {
+  if (bounds.primaryCheckIsCycles) {
+    return a.cycles < bounds.cycles && b.cycles < bounds.cycles ?
+                              a.memory < b.memory : a.cycles < b.cycles;
+  } else {
+    return a.memory < bounds.memory && b.memory < bounds.memory ?
+                              a.cycles < b.cycles : a.memory < b.memory;
+  }
+}
+
+static Cost highestCost(std::numeric_limits<unsigned>::max(),
+                        std::numeric_limits<unsigned>::max());
 
 struct ConvolutionParams {
   unsigned kernelSizeY;
@@ -279,7 +335,7 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
                 numInputPointers);
 }
 
-static unsigned
+static Cost
 estimateExchangeCost(const poplar::DeviceInfo &deviceInfo,
                      bool floatActivations, const ConvolutionParams &params,
                      const Plan &plan) {
@@ -347,7 +403,7 @@ estimateExchangeCost(const poplar::DeviceInfo &deviceInfo,
       inputElementBytesPerCycle +
       (weightBytes + exchangeBytesPerCycle - 1) / exchangeBytesPerCycle +
       (partialSumBytes + exchangeBytesPerCycle - 1) / exchangeBytesPerCycle;
-  return numCycles;
+  return {numCycles, 0};
 }
 
 static unsigned
@@ -404,7 +460,7 @@ estimateConvVertexCycles(bool floatActivations,
          );
 }
 
-static unsigned
+static Cost
 estimateWeightUpdatePartialCalcComputeCost(const poplar::DeviceInfo &deviceInfo,
                                            bool floatActivations,
                                            const ConvolutionParams &params,
@@ -448,10 +504,105 @@ estimateWeightUpdatePartialCalcComputeCost(const poplar::DeviceInfo &deviceInfo,
   const auto vertexCycles =
       getWeightGradAopCycles(floatActivations, floatPartials, dataPathWidth,
                              inChansPerGroup, outChansPerGroup, shape);
-  return vertexCycles * numWorkerContexts;
+  unsigned totalCycles = vertexCycles * numWorkerContexts;
+  return {totalCycles, 0};
 }
 
-static unsigned
+
+static unsigned estimatePartialCalcMemory(
+                     bool floatActivations,
+                     const ConvolutionParams &params,
+                     const Plan &plan,
+                     const poplar::DeviceInfo &deviceInfo) {
+
+  unsigned vertexFields = 0;
+  unsigned edgePtrsPerVertex = 0;
+  unsigned tensorMemory = 0;
+
+  const auto tilesPerX = plan.tilesPerXAxis;
+  const auto tilesPerY = plan.tilesPerYAxis;
+  const auto tilesPerZ = plan.tilesPerZAxis;
+  const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
+  const auto outChansPerGroup = plan.partialChansPerGroup;
+  const auto inChansPerGroup = plan.inChansPerGroup;
+
+
+  const auto tilesUsedPerBatchGroup = tilesPerX
+                                      * tilesPerY
+                                      * tilesPerInZGroup
+                                      * tilesPerZ;
+  const auto tileOutHeight =
+      (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
+  const auto numOutGroups =
+      (params.outputDepth + (outChansPerGroup - 1)) / outChansPerGroup;
+  const auto numInGroups =
+      (params.inputDepth + (inChansPerGroup - 1)) / inChansPerGroup;
+
+  const auto tileNumOutGroups =
+      (numOutGroups + tilesPerZ - 1) / tilesPerZ;
+  const auto tileNumInGroups =
+      (numInGroups + tilesPerInZGroup - 1) / tilesPerInZGroup;
+  const auto verticesPerTilePerY =
+      std::min(tileOutHeight, plan.verticesPerTilePerYAxis);
+  const auto tileVertices = verticesPerTilePerY * tileNumOutGroups;
+
+  bool useConvPartial1x1OutVertex = false;
+  auto convUnitWeightHeight = 1U;
+  if (plan.useConvolutionInstructions) {
+    const auto weightsPerConvUnit =
+        deviceInfo.getWeightsPerConvUnit(floatActivations);
+    assert(weightsPerConvUnit % inChansPerGroup == 0);
+    convUnitWeightHeight = weightsPerConvUnit / inChansPerGroup;
+    if (convUnitWeightHeight != 1) {
+      vertexFields += 1;
+    }
+  }
+
+  useConvPartial1x1OutVertex =
+      params.kernelSizeX == 1 && params.kernelSizeY == 1
+      && (params.strideX == 1 && params.strideY == 1);
+
+  if (useConvPartial1x1OutVertex) {
+    vertexFields += 4;
+    const auto numConvolutions = tileNumInGroups * tileOutHeight;
+    edgePtrsPerVertex += 1 + 2 * numConvolutions;
+  } else if (plan.useConvolutionInstructions) {
+    vertexFields += 4;
+    const unsigned numWeights =
+          tileNumInGroups * params.kernelSizeX
+          * ((params.kernelSizeY + convUnitWeightHeight - 1)
+             /convUnitWeightHeight);
+    const unsigned numConvolutions = numWeights * tileOutHeight;
+
+    edgePtrsPerVertex += 2 * numWeights * convUnitWeightHeight
+                         + numConvolutions
+                         + numConvolutions * convUnitWeightHeight;
+  } else {
+    vertexFields += 6;
+    edgePtrsPerVertex += 1 + 2 * tileNumInGroups * tileOutHeight;
+  }
+
+  tensorMemory += plan.tilesPerInZGroupAxis
+                  * params.getOutputHeight()
+                  * params.getOutputWidth()
+                  * params.outputDepth
+                  * (plan.floatPartials ? 4 : 2);
+
+  const auto bytesPerVertexElem = 4;
+  const auto vertexMemory = tilesUsedPerBatchGroup * plan.numBatchGroups
+                            * tileVertices * vertexFields
+                            * bytesPerVertexElem;
+
+  const auto bytesPerEdgePtr = deviceInfo.inEdgePointerBytes;
+  const auto edgePtrsMemory = tilesUsedPerBatchGroup * plan.numBatchGroups
+                              * edgePtrsPerVertex * tileVertices
+                              * bytesPerEdgePtr;
+
+  auto totalMemory = vertexMemory + edgePtrsMemory;
+  return totalMemory;
+}
+
+static Cost
 estimatePartialCalcComputeCost(const poplar::DeviceInfo &deviceInfo,
                                bool floatActivations,
                                const ConvolutionParams &params,
@@ -490,7 +641,12 @@ estimatePartialCalcComputeCost(const poplar::DeviceInfo &deviceInfo,
   auto verticesPerWorker = (tileVertices + numContexts - 1) /
                            numContexts;
   auto computeCycles = vertexRuntime * verticesPerWorker * numContexts;
-  return computeCycles;
+
+  auto memoryEstimate = estimatePartialCalcMemory(
+                              floatActivations,
+                              params, plan,
+                              deviceInfo);
+  return {computeCycles, memoryEstimate};
 }
 
 static unsigned calcNumUsableTiles(
@@ -503,13 +659,65 @@ static unsigned calcNumUsableTiles(
   return numTiles / batchSubGroups;
 }
 
-static unsigned
+
+static unsigned estimateReduceMemory(const poplar::DeviceInfo &deviceInfo,
+                                     const ConvolutionParams &params,
+                                     const Plan &plan,
+                                     unsigned numTiles) {
+  unsigned vertexFields = 0;
+  unsigned edgePtrsPerVertex = 0;
+
+
+  const auto tilesPerY = plan.tilesPerYAxis;
+  const auto tilesPerZ = plan.tilesPerZAxis;
+  const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
+  const auto outChansPerGroup = plan.partialChansPerGroup;
+
+  const auto numOutGroups =
+    (params.outputDepth + (outChansPerGroup - 1)) / outChansPerGroup;
+
+  const auto tileOutHeight =
+    (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
+
+  const auto tileNumOutGroups =
+     (numOutGroups + tilesPerZ - 1) / tilesPerZ;
+
+  vertexFields += 2;
+
+  /* this is an estimate */
+  edgePtrsPerVertex += tilesPerInZGroup * tileNumOutGroups * tileOutHeight
+                       + tileNumOutGroups * tileOutHeight;
+
+
+  const auto bytesPerVertexElem = 4;
+  const auto vertexMemory = numTiles
+                            * plan.numBatchGroups
+                            * vertexFields
+                            * bytesPerVertexElem;
+
+
+  /* A better estimate of reduction edge pointers would require the output
+   * channel group mapping. We assume here that all X elements are
+   * contiguous and require only one edge pointer
+   */
+  const auto bytesPerEdgePtr = deviceInfo.inEdgePointerBytes;
+  const auto edgePtrsMemory = numTiles
+                              * plan.numBatchGroups
+                              * edgePtrsPerVertex
+                              * bytesPerEdgePtr;
+
+  const auto totalMemory = vertexMemory + edgePtrsMemory;
+  return totalMemory;
+}
+
+
+static Cost
 estimateReduceComputeCost(const poplar::DeviceInfo &deviceInfo,
                           const ConvolutionParams &params,
                           const Plan &plan,
                           unsigned numBatchGroups) {
   if (plan.tilesPerInZGroupAxis == 1)
-    return 0;
+    return {0, 0};
 
   /* The reduction is actually done on tiles in which the output
    * activations reside. Thus the output height here may be different
@@ -536,10 +744,14 @@ estimateReduceComputeCost(const poplar::DeviceInfo &deviceInfo,
                                 deviceInfo.getHalfVectorWidth();
   const auto numCycles = (numPartialSumsPerTile + vectorWidth - 1) /
                           vectorWidth;
-  return numCycles;
+  const auto memory = estimateReduceMemory(deviceInfo,
+                                           params,
+                                           plan,
+                                           numTiles);
+  return {numCycles, memory};
 }
 
-static unsigned
+static Cost
 estimateComputeCost(const poplar::DeviceInfo &deviceInfo,
                     bool floatActivations, const ConvolutionParams &params,
                     const Plan &plan,
@@ -552,24 +764,25 @@ estimateComputeCost(const poplar::DeviceInfo &deviceInfo,
 
 }
 
-static unsigned
+static Cost
 estimatePlanCostBounded(const poplar::DeviceInfo &deviceInfo,
                              bool floatActivations,
                              const ConvolutionParams &params,
                              const Plan &plan,
-                             unsigned maxBound,
+                             Cost maxCost,
                              unsigned numBatchGroups,
+                             CostBounds costBounds,
                              PlannerCache *cache) {
   auto cost = estimateExchangeCost(deviceInfo,
                                    floatActivations, params, plan);
-  if (cost > maxBound)
-    return maxBound;
+  if (!compareCost(cost, maxCost, costBounds))
+    return maxCost;
   cost += estimateComputeCost(deviceInfo, floatActivations, params,
                               plan, numBatchGroups, cache);
-  return std::min(cost, maxBound);
+  return compareCost(cost, maxCost, costBounds) ? cost : maxCost;
 }
 
-static unsigned
+static Cost
 estimateWeightUpdateByAmpReorderCost(const poplar::DeviceInfo &deviceInfo,
                                      bool floatActivations,
                                      const ConvolutionParams &reorderedParams) {
@@ -604,16 +817,17 @@ estimateWeightUpdateByAmpReorderCost(const poplar::DeviceInfo &deviceInfo,
             exchangeBytesPerCycle;
   cycles += (reorderBytesTilePost + reorderBytesPerCycle - 1) /
             reorderBytesPerCycle;
-  return cycles;
+  return {cycles, 0};
 }
 
-static std::pair<Plan, unsigned>
+static std::pair<Plan, Cost>
 choosePlan(const poplar::DeviceInfo &deviceInfo,
            unsigned inChansPerGroup,
            unsigned partialChansPerGroup,
            const ConvVertexType &convVertexType,
            const ConvolutionParams &params,
            const unsigned numBatchGroups,
+           const CostBounds costBounds,
            PlannerCache *cache) {
   const auto floatActivations = convVertexType.floatActivations;
   if (convVertexType.useConvInstruction &&
@@ -654,17 +868,17 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                        paddedOutputSize,
                        1, false, false);
     Plan plan;
-    unsigned cost;
+    Cost cost;
     std::tie(plan, cost) = choosePlan(deviceInfo,
                                       inChansPerGroup,
                                       partialChansPerGroup,
                                       convVertexType, newParams,
-                                      1, cache);
+                                      1, costBounds, cache);
     cost += estimateWeightUpdateByAmpReorderCost(deviceInfo, floatActivations,
                                                  newParams);
     return {plan, cost};
   }
-  unsigned bestCost = std::numeric_limits<unsigned>::max();
+  Cost bestCost = highestCost;
   Plan bestPlan;
   // If tilesPerY is greater than one we end up splitting across the y axis of
   // the output volume. The input elements required to compute output elements
@@ -720,8 +934,8 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
           auto candidateCost =
               estimatePlanCostBounded(deviceInfo, floatActivations, params,
                                       candidate, bestCost, numBatchGroups,
-                                      cache);
-          if (candidateCost < bestCost) {
+                                      costBounds, cache);
+          if (compareCost(candidateCost, bestCost, costBounds)) {
             bestPlan = candidate;
             bestCost = candidateCost;
           }
@@ -813,7 +1027,7 @@ getInChansPerGroupCandidates(const ConvolutionParams &params,
   return candidates;
 }
 
-static std::pair<Plan, unsigned>
+static std::pair<Plan, Cost>
 choosePlan(const poplar::DeviceInfo &deviceInfo,
            const ConvVertexType &convVertexType,
            unsigned tensorInChansPerGroup,
@@ -821,9 +1035,10 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
            unsigned tensorWeightOutChansPerGroup,
            const ConvolutionParams &params,
            unsigned numBatchGroups,
+           const CostBounds costBounds,
            PlannerCache *cache) {
   Plan best;
-  unsigned bestCost = std::numeric_limits<unsigned>::max();
+  Cost bestCost = highestCost;
   std::vector<unsigned> inChansPerGroupCandidates;
   if (params.isWeightUpdate) {
     if (convVertexType.useConvInstruction) {
@@ -858,11 +1073,11 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
   }
   for (auto inChansPerGroup : inChansPerGroupCandidates) {
     Plan candidate;
-    unsigned candidateCost;
+    Cost candidateCost;
     std::tie(candidate, candidateCost) =
         choosePlan(deviceInfo, inChansPerGroup, partialChansPerGroup,
-                   convVertexType, params, numBatchGroups, cache);
-    if (candidateCost < bestCost) {
+                   convVertexType, params, numBatchGroups, costBounds, cache);
+    if (compareCost(candidateCost, bestCost, costBounds)) {
       best = candidate;
       bestCost = candidateCost;
     }
@@ -870,7 +1085,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
   return {best, bestCost};
 }
 
-static std::pair<Plan, unsigned>
+static std::pair<Plan, Cost>
 choosePlan(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
            bool floatPartials,
            bool preferConvInstructions,
@@ -879,8 +1094,9 @@ choosePlan(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
            unsigned tensorWeightOutChansPerGroup,
            const ConvolutionParams &params,
            unsigned numBatchGroups,
+           CostBounds costBounds,
            PlannerCache *cache) {
-  unsigned bestCost = std::numeric_limits<unsigned>::max();
+  Cost bestCost = highestCost;
   Plan bestPlan;
   const auto convVertexTypeCandidates =
       params.isWeightUpdate
@@ -890,17 +1106,17 @@ choosePlan(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
                                       floatPartials, params);
   for (const auto &convVertexType : convVertexTypeCandidates) {
     Plan candidate;
-    unsigned candidateCost;
+    Cost candidateCost;
     std::tie(candidate, candidateCost) =
         choosePlan(deviceInfo, convVertexType, tensorInChansPerGroup,
                    tensorOutChansPerGroup, tensorWeightOutChansPerGroup,
-                   params, numBatchGroups, cache);
-    if (candidateCost == std::numeric_limits<unsigned>::max())
+                   params, numBatchGroups, costBounds, cache);
+    if (candidateCost == highestCost)
       continue;
     if (preferConvInstructions &&
         !convVertexType.useConvInstruction)
       candidateCost *= 100000;
-    if (candidateCost < bestCost) {
+    if (compareCost(candidateCost, bestCost, costBounds)) {
       bestPlan = candidate;
       bestCost = candidateCost;
     }
@@ -908,7 +1124,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
   return {bestPlan, bestCost};
 }
 
-static Plan
+static std::pair<Plan, Cost>
 createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
            unsigned tensorInChansPerGroup, unsigned tensorOutChansPerGroup,
            unsigned tensorWeightOutChansPerGroup,
@@ -919,6 +1135,7 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
            std::string dType,
            std::string partialsType, bool isFractional,
            bool isWeightUpdate,
+           const CostBounds costBounds,
            const poplar::Graph &graph,
            PlannerCache *cache) {
   validateLayerParams(inDimY, inDimX, inNumChans, kernelSizeY, kernelSizeX,
@@ -940,7 +1157,7 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
 
   const bool floatActivations = dType == "float";
   const bool floatPartials = partialsType == "float";
-  unsigned bestCandidateCost = std::numeric_limits<unsigned>::max();
+  Cost bestCandidateCost = highestCost;
   Plan bestCandidate;
   for (auto batchesPerGroup = 1U; batchesPerGroup <= batchSize;
        ++batchesPerGroup) {
@@ -963,7 +1180,7 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                              paddingY, paddingX, numChannels, batchSize,
                              isFractional, isWeightUpdate);
     Plan candidate;
-    unsigned candidateCost;
+    Cost candidateCost;
     std::tie(candidate, candidateCost) =
         choosePlan(deviceInfo, floatActivations,
                    floatPartials,
@@ -973,16 +1190,15 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                    tensorWeightOutChansPerGroup,
                    params,
                    numBatchGroups,
+                   costBounds,
                    cache);
-
-    if (candidateCost < bestCandidateCost) {
+    if (compareCost(candidateCost, bestCandidateCost, costBounds)) {
       bestCandidateCost = candidateCost;
       bestCandidate = candidate;
     }
   }
-  assert(bestCandidateCost < std::numeric_limits<unsigned>::max());
   bestCandidate.flattenXY = flattenXY;
-  return bestCandidate;
+  return {bestCandidate, bestCandidateCost};
 }
 
 Plan Planner::
@@ -994,11 +1210,38 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
            std::string dType, std::string partialsType,
            bool isFractional,
            const poplar::Graph &graph) {
-  return conv::createPlan(inDimY, inDimX, inNumChans, 0, 0, 0,
-                          kernelSizeY, kernelSizeX,
-                          strideY, strideX, paddingY, paddingX,
-                          numChannels, batchSize, dType, partialsType,
-                          isFractional, false, graph, cache.get());
+  Plan plan;
+  Cost cost;
+  CostBounds costBounds(0, 0);
+
+  std::tie(plan, cost) = conv::createPlan(inDimY, inDimX, inNumChans, 0, 0, 0,
+                                          kernelSizeY, kernelSizeX,
+                                          strideY, strideX, paddingY, paddingX,
+                                          numChannels, batchSize, dType,
+                                          partialsType,
+                                          isFractional, false,
+                                          costBounds, graph,
+                                          cache.get());
+  if (percentageCyclesExcessForMemOptim) {
+    /* Set new bounds based on previous search */
+    const double newCyclesBound =
+        static_cast<double>(cost.cycles)
+        * (100.0 + percentageCyclesExcessForMemOptim) / 100.0;
+
+    CostBounds newCostBounds(static_cast<unsigned>(newCyclesBound), 0);
+
+    std::tie(plan, cost) = conv::createPlan(inDimY, inDimX, inNumChans, 0, 0, 0,
+                                            kernelSizeY, kernelSizeX,
+                                            strideY, strideX,
+                                            paddingY, paddingX,
+                                            numChannels, batchSize, dType,
+                                            partialsType,
+                                            isFractional, false,
+                                            newCostBounds, graph,
+                                            cache.get());
+
+  }
+  return plan;
 }
 
 Plan Planner::
@@ -1012,13 +1255,19 @@ createWeightUpdatePlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                        std::string dType, std::string partialsType,
                        bool isFractional,
                        const poplar::Graph &graph) {
-  return conv::createPlan(inDimY, inDimX, inNumChans,
-                          actChansPerGroup, deltasChansPerGroup,
-                          weightOutChansPerGroup,
-                          kernelSizeY, kernelSizeX,
-                          strideY, strideX, paddingY, paddingX,
-                          numChannels, batchSize, dType, partialsType,
-                          isFractional, true, graph, cache.get());
+  Plan plan;
+  Cost cost;
+  CostBounds costBounds(0, 0);
+
+  std::tie(plan, cost) = conv::createPlan(inDimY, inDimX, inNumChans,
+                                          actChansPerGroup, deltasChansPerGroup,
+                                          weightOutChansPerGroup,
+                                          kernelSizeY, kernelSizeX,
+                                          strideY, strideX, paddingY, paddingX,
+                                          numChannels, batchSize, dType,
+                                          partialsType, isFractional, true,
+                                          costBounds, graph, cache.get());
+  return plan;
 }
 
 }

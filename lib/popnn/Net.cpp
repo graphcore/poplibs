@@ -87,11 +87,17 @@ bool parseCommandLine(int argc, char **argv, NetOptions &options,
        &options.batchSize
      )->default_value(1),
      "Batch size")
-      ("show-plan-info",
+    ("show-plan-info",
      po::value<bool>(
        &options.showPlanInfo
      )->default_value(false),
      "Display result of planning decision for conv layers")
+    ("percent-cyc-excess-for-mem-optim",
+     po::value<unsigned>(
+       &options.percentageCyclesExcessForMemOptim
+     )->default_value(0),
+     "Percentage cycles excess to use for memory optimisation. "
+     "if 0, no memory optimisation is performed")
   ;
   po::variables_map vm;
   try {
@@ -223,7 +229,8 @@ Net::Net(DataSet &data, unsigned batchSize,
   eta(learningRate),
   layers(std::move(layers)),
   dType(getDTypeString(dType)),
-  partialsType(getDTypeString(FP32))
+  partialsType(getDTypeString(FP32)),
+  planner(options.percentageCyclesExcessForMemOptim)
 {
   initialize(data, lossType);
 }
@@ -240,7 +247,8 @@ Net::Net(DataSet &data, unsigned batchSize,
   eta(learningRate),
   layers(std::move(layers)),
   dType(getDTypeString(dType)),
-  partialsType(getDTypeString(FP32))
+  partialsType(getDTypeString(FP32)),
+  planner(options.percentageCyclesExcessForMemOptim)
 {
   initialize(data, lossType);
 }
@@ -258,7 +266,8 @@ Net::Net(DataSet &data, unsigned batchSize,
   eta(learningRate),
   layers(std::move(layers)),
   dType(getDTypeString(dType)),
-  partialsType(getDTypeString(partialsType))
+  partialsType(getDTypeString(partialsType)),
+  planner(options.percentageCyclesExcessForMemOptim)
 {
   initialize(data, lossType);
 }
@@ -276,7 +285,8 @@ Net::Net(DataSet &data, unsigned batchSize,
   eta(learningRate),
   layers(std::move(layers)),
   dType(getDTypeString(dType)),
-  partialsType(getDTypeString(partialsType))
+  partialsType(getDTypeString(partialsType)),
+  planner(options.percentageCyclesExcessForMemOptim)
 {
   initialize(data, lossType);
 }
