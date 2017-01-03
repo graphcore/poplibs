@@ -147,6 +147,7 @@ public:
   unsigned winogradPatchSize = 4;
   unsigned batchSize = 1;
   bool showPlanInfo = false;
+  bool supportsSuperTileSendReceive = false;
   /* Perform memory optimisation if cycles performance is
    * within percentage excess of optimum cycles performance
    *

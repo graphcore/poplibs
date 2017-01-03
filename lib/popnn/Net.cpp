@@ -92,6 +92,11 @@ bool parseCommandLine(int argc, char **argv, NetOptions &options,
        &options.showPlanInfo
      )->default_value(false),
      "Display result of planning decision for conv layers")
+    ("supertile-exchange",
+     po::value<bool>(
+       &options.supportsSuperTileSendReceive
+     )->default_value(false),
+      "Supertiles can combine to give 64bit exchange")
     ("percent-cyc-excess-for-mem-optim",
      po::value<unsigned>(
        &options.percentageCyclesExcessForMemOptim
@@ -844,6 +849,8 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
          = options.fp32InFp32OutConvUnitsPerTile;
     info.convUnitCoeffLoadBytesPerCycle
          = options.convUnitCoeffLoadBytesPerCycle;
+    info.supportsSuperTileSendReceive
+         = options.supportsSuperTileSendReceive;
 
     const double syncLatencyPerHop = 15e-9;
     unsigned numHops = 0;
