@@ -21,6 +21,8 @@ add_library(popnn SHARED
   Pad.cpp
   Pad.hpp
   PerformanceEstimation.hpp
+  Reduce.hpp
+  Reduce.cpp
   Regroup.hpp
   Regroup.cpp
   Residual.cpp
