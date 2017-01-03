@@ -807,6 +807,9 @@ namespace popnn {
 std::string findGraphProg() {
   // TODO: This needs to be replaced with a proper object search mechanism
   // in poplar.
+  const auto env = std::getenv("IPU_POPNN_GP");
+  if (env && std::ifstream(env).good())
+    return env;
   std::string path = "lib/popnn/popnn.gp";
   if (std::ifstream(path).good())
     return path;
