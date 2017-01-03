@@ -535,8 +535,8 @@ public:
     unsigned numElem = weights.size();
     bool isFloat = std::is_same<PartialsType, float>::value;
     unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    return 4 + 2 * numElem * (1 + (numPartials + vectorWidth - 1)
-                            / vectorWidth);
+    return 4 +
+           2 * numPartials * (1 + (numElem + vectorWidth - 1) / vectorWidth);
   }
 };
 
