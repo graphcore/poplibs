@@ -2243,9 +2243,24 @@ addWeightDeltaPartialRegions(std::vector<std::pair<unsigned,unsigned>> &regions,
   }
 }
 
+std::vector<std::vector<std::pair<unsigned, unsigned>>>
+convertLinearMappingToRegionMapping(const std::vector<unsigned> &mapping) {
+  assert(!mapping.empty());
+  const auto numTiles = mapping.size() - 1;
+  std::vector<std::vector<std::pair<unsigned, unsigned>>>
+      regionMapping(numTiles);
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    if (mapping[tile] == mapping[tile + 1])
+      continue;
+    regionMapping[tile].emplace_back(mapping[tile], mapping[tile + 1]);
+  }
+  return regionMapping;
+}
+
 Program
 convolutionWeightUpdateAop(Graph &graph,
                            const Plan &plan,
+                           const Plan &fwdPlan,
                            Tensor zDeltas, Tensor weights, Tensor biases,
                            Tensor activations,
                            unsigned strideY, unsigned strideX,
@@ -2360,39 +2375,72 @@ convolutionWeightUpdateAop(Graph &graph,
   prog.add(Execute(zeroCS));
   prog.add(Execute(weightGradCS));
 
-  auto reduceCS = graph.createComputeSet(layerName + "/Reduce");
+  Tensor weightDeltas;
   auto numPartials = batchSize * tilesPerY * tilesPerX;
   auto flatPartials = partials.reshape({numPartials,
                                         weights.numElements()});
-  /** The reduction of weights is not performed where the weights are
-   *  stored in the weight tensor. This causes some output exchange
-   *  after the reduction but allows balancing of compute.
-   */
-  auto numWorkers = deviceInfo.numWorkerContexts * deviceInfo.getNumTiles();
-  for (unsigned worker = 0; worker < numWorkers; ++worker) {
-    auto beginElem = (worker * weights.numElements()) / numWorkers;
-    auto endElem = ((worker + 1) * weights.numElements()) / numWorkers;
-    if (beginElem == endElem)
-      continue;
-    auto numElems = endElem - beginElem;
-
-    auto p = flatPartials.slice({0, beginElem},
-                                {numPartials, endElem})
-                         .reshape({numPartials,
-                                   numElems});
-    auto w = weights.flatten().slice(beginElem, endElem);
-    auto v = graph.addVertex(reduceCS,
-                             templateVertex("popnn::ConvWeightUpdate", dType,
-                                            partialsType),
-                             {{"weights", w}, {"partials", p}});
-    graph.setInitialValue(v["eta"], learningRate);
-    graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
-    graph.setTileMapping(v, worker / deviceInfo.numWorkerContexts);
+  if (numPartials == 1) {
+    weightDeltas = flatPartials[0];
+  } else {
+    /** The reduction of weights is not performed where the weights are
+     *  stored in the weight tensor. This causes some output exchange
+     *  after the reduction but allows balancing of compute.
+     */
+    auto reduceCS = graph.createComputeSet(layerName + "/Reduce");
+    weightDeltas = graph.addTensor(partialsType, weights.dims(),
+                                   layerName + "/WeightDeltas");
+    const auto weightDeltaMapping =
+        convertLinearMappingToRegionMapping(
+          computeTensorMapping(graph, weightDeltas)
+        );
+    applyTensorMapping(graph, weightDeltas, weightDeltaMapping);
+    reduce(graph, flatPartials, weightDeltas, weightDeltaMapping, reduceCS);
+    prog.add(Execute(reduceCS));
   }
+
+  // Add the weight deltas to the weights.
+  auto addCS = graph.createComputeSet(layerName + "/UpdateWeights");
+  const auto dataPathWidth = deviceInfo.dataPathWidth;
+  auto weightsFlattened = weights.flatten();
+  auto weightDeltasFlattened = weightDeltas.flatten();
+  iterateWeightMapping(weights, graph, fwdPlan, 1,
+                       [&](const Tensor &tileWeights, unsigned tile) {
+    const auto elementIndices = tileWeights.getElementIndices();
+    const auto tileNumElements = elementIndices.size();
+    const auto workersPerTile = deviceInfo.numWorkerContexts;
+    const auto maxElemsPerWorker =
+        (tileNumElements + workersPerTile - 1) / workersPerTile;
+    const auto verticesToCreate =
+        (tileNumElements + maxElemsPerWorker - 1) / maxElemsPerWorker;
+    for (unsigned vertex = 0; vertex != verticesToCreate; ++vertex) {
+      const auto elemBegin =
+          (vertex * tileNumElements) / verticesToCreate;
+      const auto elemEnd =
+          ((vertex + 1) * tileNumElements) / verticesToCreate;
+      if (elemBegin == elemEnd)
+        continue;
+      auto regions = getContiguousRegions(elementIndices.begin() + elemBegin,
+                                          elementIndices.begin() + elemEnd);
+      for (unsigned i = 0, numRegions = regions.size(); i != numRegions; ++i) {
+        const auto v = graph.addVertex(addCS,
+                                       templateVertex("popnn::ConvWeightUpdate",
+                                                      dType, partialsType));
+        graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
+        graph.setInitialValue(v["eta"], learningRate);
+        graph.connect(v["weights"], weightsFlattened.slice(regions[i].first,
+                                                           regions[i].second));
+        graph.setFieldSize(v["partials"], 1);
+        graph.connect(v["partials"][0],
+            weightDeltasFlattened.slice(regions[i].first, regions[i].second));
+        graph.setTileMapping(v, tile);
+      }
+    }
+  });
+
   auto updateBiasProg =
-      convolutionBiasUpdate(graph, zDeltas, biases, learningRate, reduceCS,
+      convolutionBiasUpdate(graph, zDeltas, biases, learningRate, addCS,
                             layerName);
-  prog.add(Execute(reduceCS));
+  prog.add(Execute(addCS));
   prog.add(updateBiasProg);
   return prog;
 }
@@ -2647,7 +2695,7 @@ convolutionWeightUpdate(Graph &graph,
                                       paddingY, paddingX, learningRate,
                                       debugPrefix);
   }
-  return convolutionWeightUpdateAop(graph, plan, zDeltas, weights,
+  return convolutionWeightUpdateAop(graph, plan, fwdPlan, zDeltas, weights,
                                     biases, activations, strideY, strideX,
                                     paddingY, paddingX, learningRate,
                                     debugPrefix);
