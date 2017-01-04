@@ -3,6 +3,7 @@
 #include "popnn/exceptions.hpp"
 #include "VertexTemplates.hpp"
 #include "Regroup.hpp"
+#include "Util.hpp"
 
 using namespace poplar;
 using namespace poplar::program;

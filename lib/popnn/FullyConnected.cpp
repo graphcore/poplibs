@@ -4,6 +4,7 @@
 #include "VertexTemplates.hpp"
 #include "popnn/ActivationMapping.hpp"
 #include "popnn/exceptions.hpp"
+#include "Util.hpp"
 #include <cassert>
 
 using namespace poplar;

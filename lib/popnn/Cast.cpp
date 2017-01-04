@@ -1,5 +1,7 @@
 #include "Cast.hpp"
+
 #include <poplar/Graph.hpp>
+#include "Util.hpp"
 #include "VertexTemplates.hpp"
 #include "popnn/ActivationMapping.hpp"
 

@@ -6,6 +6,7 @@
 #include "Regroup.hpp"
 #include "Pad.hpp"
 #include <gcd.hpp>
+#include "Util.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
