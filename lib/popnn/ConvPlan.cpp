@@ -724,15 +724,18 @@ estimateReduceComputeCost(const poplar::DeviceInfo &deviceInfo,
    * from the one the tensor uses in the reduction. The numOutputsPerTile
    * below however is approximately the same except for any rounding
    */
-  const auto numTiles = calcNumUsableTiles(deviceInfo.getNumTiles(),
-                                           numBatchGroups);
   unsigned numPartialSumsPerTile;
   if (params.isWeightUpdate) {
+    assert(plan.batchesPerGroup == 1);
+    const auto numTiles = deviceInfo.getNumTiles();
     const auto numOutputs = params.outputDepth * params.inputDepth *
                             params.kernelSizeY * params.kernelSizeX;
     const auto numOutputsPerTile = (numOutputs + numTiles - 1) / numTiles;
-    numPartialSumsPerTile = numOutputsPerTile * plan.tilesPerYAxis;
+    numPartialSumsPerTile = numOutputsPerTile * plan.tilesPerYAxis *
+                            plan.tilesPerXAxis * params.batchSize;
   } else {
+    const auto numTiles = calcNumUsableTiles(deviceInfo.getNumTiles(),
+                                             numBatchGroups);
     const auto numOutputs = params.getOutputHeight() *
                             params.getOutputWidth() *
                             params.outputDepth;
