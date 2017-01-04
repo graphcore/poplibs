@@ -2321,10 +2321,8 @@ convolutionWeightUpdateAop(Graph &graph,
 
   Tensor weightDeltas;
   auto numPartials = batchSize * tilesPerY * tilesPerX;
-  auto flatPartials = partials.reshape({numPartials,
-                                        weights.numElements()});
   if (numPartials == 1) {
-    weightDeltas = flatPartials[0];
+    weightDeltas = partials[0][0][0];
   } else {
     /** The reduction of weights is not performed where the weights are
      *  stored in the weight tensor. This causes some output exchange
@@ -2338,6 +2336,9 @@ convolutionWeightUpdateAop(Graph &graph,
           computeTensorMapping(graph, weightDeltas)
         );
     applyTensorMapping(graph, weightDeltas, weightDeltaMapping);
+    auto flatPartialsDims = weightDeltas.dims();
+    flatPartialsDims.insert(flatPartialsDims.begin(), numPartials);
+    auto flatPartials = partials.reshape(flatPartialsDims);
     ::reduce(graph, flatPartials, weightDeltas, weightDeltaMapping, reduceCS);
     prog.add(Execute(reduceCS));
   }
