@@ -20,14 +20,13 @@ zero(Graph &graph,
     vectorWidth = deviceInfo.getFloatVectorWidth();
   else
     vectorWidth = deviceInfo.getHalfVectorWidth();
-  std::vector<std::vector<std::pair<unsigned, unsigned>>> vertexRegions;
-  splitRegionsBetweenWorkers(deviceInfo, tileRegions, vertexRegions,
-                             vectorWidth);
-  for (const auto &regions : vertexRegions) {
-    VertexRef v;
+
+  buildTransform2D(
+      graph, tileRegions, vectorWidth,
+      [&](const std::vector<std::pair<unsigned, unsigned>> &regions) {
     const auto numRegions = regions.size();
-    if (numRegions == 0)
-      continue;
+    assert(numRegions != 0);
+    VertexRef v;
     if (numRegions == 1) {
       v = graph.addVertex(zeroCS, templateVertex("popnn::Zero", dType));
       const auto &region = regions.front();
@@ -48,7 +47,7 @@ zero(Graph &graph,
     }
     graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
     graph.setTileMapping(v, tile);
-  }
+  });
 }
 
 void
