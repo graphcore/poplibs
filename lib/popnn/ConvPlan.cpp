@@ -224,10 +224,23 @@ struct ConvolutionParams {
     isWeightUpdate(isWeightUpdate) {}
 };
 
+static unsigned
+getConvUnitsPerTile(const poplar::DeviceInfo &deviceInfo,
+                    bool floatActivations, bool floatPartials) {
+  if (floatActivations) {
+    return floatPartials ? deviceInfo.fp32InFp32OutConvUnitsPerTile : 0;
+  }
+  return floatPartials ? deviceInfo.fp16InFp32OutConvUnitsPerTile :
+                         deviceInfo.fp16InFp16OutConvUnitsPerTile;
+}
+
 static bool
 canUseConvolutionInstruction(bool floatActivations, bool floatPartials,
                              unsigned strideY, unsigned strideX,
                              const poplar::DeviceInfo &deviceInfo) {
+  if (getConvUnitsPerTile(deviceInfo, floatActivations, floatPartials) == 0) {
+    return false;
+  }
   if (floatActivations) {
     if (!deviceInfo.convInstructionsFloat) {
       return false;
@@ -958,31 +971,18 @@ getConvVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
                             bool floatPartials,
                             const ConvolutionParams &params) {
   std::vector<ConvVertexType> convVertexTypeCandidates;
-
-  if (deviceInfo.fp16InFp16OutConvUnitsPerTile > 0 &&
-      !floatPartials &&
-      canUseConvolutionInstruction(floatActivations, false,
+  if (canUseConvolutionInstruction(floatActivations, floatPartials,
                                    params.strideY, params.strideX,
                                    deviceInfo)) {
-
-    convVertexTypeCandidates.emplace_back(true, false, false);
-  } else {
-
-    if (deviceInfo.fp16InFp32OutConvUnitsPerTile > 0 &&
-        canUseConvolutionInstruction(floatActivations, true,
-                                     params.strideY, params.strideX,
-                                     deviceInfo)) {
-      convVertexTypeCandidates.emplace_back(true, false, true);
-    }
+    convVertexTypeCandidates.emplace_back(true, floatActivations,
+                                          floatPartials);
+  } else if (!floatActivations && !floatPartials &&
+             canUseConvolutionInstruction(false, true,
+                                          params.strideY, params.strideX,
+                                          deviceInfo)) {
+    convVertexTypeCandidates.emplace_back(true, false, true);
   }
-
-  if (deviceInfo.fp32InFp32OutConvUnitsPerTile > 0 &&
-      canUseConvolutionInstruction(floatActivations, true,
-                                   params.strideY, params.strideX,
-                                   deviceInfo)) {
-    convVertexTypeCandidates.emplace_back(true, true, true);
-  }
-  convVertexTypeCandidates.emplace_back(false, floatActivations, true);
+  convVertexTypeCandidates.emplace_back(false, floatActivations, floatPartials);
   return convVertexTypeCandidates;
 }
 
@@ -992,17 +992,12 @@ getWeightUpdateVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
                                     bool floatPartials,
                                     const ConvolutionParams &params) {
   std::vector<ConvVertexType> convVertexTypeCandidates;
-  if (!floatActivations) {
-    if (!floatPartials && deviceInfo.fp16InFp16OutConvUnitsPerTile > 0) {
-      convVertexTypeCandidates.emplace_back(true, false, false);
-    } else {
-      if (deviceInfo.fp16InFp32OutConvUnitsPerTile > 0) {
-        convVertexTypeCandidates.emplace_back(true, false, true);
-      }
-    }
-  }
-  if (deviceInfo.fp32InFp32OutConvUnitsPerTile > 0) {
-    convVertexTypeCandidates.emplace_back(true, true, true);
+  if (getConvUnitsPerTile(deviceInfo, floatActivations, floatPartials) > 0) {
+    convVertexTypeCandidates.emplace_back(true, floatActivations,
+                                          floatPartials);
+  } else if (!floatActivations && !floatPartials &&
+             deviceInfo.fp16InFp32OutConvUnitsPerTile > 0) {
+    convVertexTypeCandidates.emplace_back(true, false, true);
   }
   convVertexTypeCandidates.emplace_back(false, floatActivations, floatPartials);
   return convVertexTypeCandidates;
