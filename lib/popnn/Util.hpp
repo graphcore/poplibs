@@ -72,4 +72,27 @@ void buildTransform2D(
   }
 }
 
+/// Given a tile mapping, split the regions on each tile between workers on that
+/// tile and call for each worker call the builder with the list of regions for
+/// that worker and the tile number.
+template <class Builder>
+void buildTransform2D(
+    poplar::Graph &graph,
+    const std::vector<
+      std::vector<std::pair<unsigned, unsigned>>
+    > &mapping,
+    unsigned grainSize,
+    Builder &&builder) {
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto numTiles = deviceInfo.getNumTiles();
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    buildTransform2D(
+      graph, mapping[tile], grainSize,
+      [&builder,tile](const std::vector<std::pair<unsigned, unsigned>> &
+                      vertexRegions) {
+      builder(vertexRegions, tile);
+    });
+  }
+}
+
 #endif // _Util_hpp_

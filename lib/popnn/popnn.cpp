@@ -1840,4 +1840,45 @@ template class Cast<half, float>;
 template class Cast<float, float>;
 template class Cast<half, half>;
 
+template <typename SrcType, typename DstType>
+class Cast2D : public Vertex {
+public:
+  Vector<Input<Vector<SrcType>>> src;
+  Vector<Output<Vector<DstType>>> dst;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    assert(src.size() == dst.size());
+    for (unsigned i = 0; i != dst.size(); ++i) {
+      assert(src[i].size() == dst[i].size());
+      for (unsigned j = 0; j != dst[i].size(); ++j) {
+        dst[i][j] = static_cast<DstType>(src[i][j]);
+      }
+    }
+    return true;
+  }
+
+  std::uint64_t getCycleEstimate() const {
+    const auto floatVectorWidth = dataPathWidth / 32;
+    std::uint64_t cycles = 5;
+    for (unsigned i = 0; i != dst.size(); ++i) {
+      // Estimate based on 6 cycles of loop overhead per src / dst pointer pair:
+      //
+      // 1: load src
+      // 2: load dst
+      // 3: load length
+      // 4: load src[0]
+      // 5: { load src[1] ; convert src[0] }
+      // 6: repeat
+      cycles += 6 + (dst[i].size() + floatVectorWidth - 1) / floatVectorWidth;
+    }
+    return cycles;
+  }
+};
+
+template class Cast2D<float, half>;
+template class Cast2D<half, float>;
+template class Cast2D<float, float>;
+template class Cast2D<half, half>;
+
 } // end namespace popnn

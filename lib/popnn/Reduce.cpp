@@ -1,7 +1,9 @@
 #include "Reduce.hpp"
 
+#include "Cast.hpp"
 #include "Util.hpp"
 #include "VertexTemplates.hpp"
+#include "Zero.hpp"
 
 using namespace poplar;
 
@@ -13,10 +15,21 @@ reduce(Graph &graph,
          std::vector<std::pair<unsigned, unsigned>>
        > &reducedMapping,
        ComputeSet reduceCS) {
+  assert(partials[0].dims() == reduced.dims());
+  if (partials.dim(0) == 0) {
+    zero(graph, reduced, reducedMapping, reduceCS);
+    return;
+  }
+  if (partials.dim(0) == 1) {
+    // TODO if the destination type is smaller than the source type it would
+    // be better to perform the cast on the source tile to reduce the volume
+    // of data that must be exchanged.
+    cast(graph, reducedMapping, partials[0], reduced, reduceCS);
+    return;
+  }
   const auto partialType = graph.getTensorElementType(partials);
   const auto reducedType = graph.getTensorElementType(reduced);
   const auto tilesPerInZGroup = partials.dim(0);
-  assert(partials[0].dims() == reduced.dims());
   auto flatPartials =
       partials.reshape({tilesPerInZGroup,
                         partials.numElements() / tilesPerInZGroup});

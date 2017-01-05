@@ -31,3 +31,49 @@ cast(Graph &graph, const std::vector<unsigned> &dstActivationMapping,
   });
   return Execute(cs);
 }
+
+void
+cast(poplar::Graph &graph,
+     const std::vector<
+       std::vector<std::pair<unsigned, unsigned>>
+     > &mapping,
+     poplar::Tensor src, poplar::Tensor dst,
+     poplar::ComputeSet cs) {
+  assert(src.dims() == dst.dims());
+  src = src.flatten();
+  dst = dst.flatten();
+  const auto srcType = graph.getTensorElementType(src);
+  const auto dstType = graph.getTensorElementType(dst);
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto vectorWidth = deviceInfo.getFloatVectorWidth();
+  buildTransform2D(
+    graph, mapping, vectorWidth,
+    [&](const std::vector<std::pair<unsigned, unsigned>> &regions,
+        unsigned tile) {
+    const auto numRegions = regions.size();
+    assert(numRegions != 0);
+    VertexRef v;
+    if (numRegions == 1) {
+      v = graph.addVertex(cs, templateVertex("popnn::Cast", srcType, dstType));
+      const auto &region = regions.front();
+      const auto regionBegin = region.first;
+      const auto regionEnd = region.second;
+      graph.connect(v["src"], src.slice(regionBegin, regionEnd));
+      graph.connect(v["dst"], dst.slice(regionBegin, regionEnd));
+    } else {
+      v = graph.addVertex(cs, templateVertex("popnn::Cast2D", srcType,
+                                             dstType));
+      graph.setFieldSize(v["src"], numRegions);
+      graph.setFieldSize(v["dst"], numRegions);
+      for (unsigned i = 0; i != numRegions; ++i) {
+        const auto &region = regions[i];
+        const auto regionBegin = region.first;
+        const auto regionEnd = region.second;
+        graph.connect(v["src"][i], src.slice(regionBegin, regionEnd));
+        graph.connect(v["dst"][i], dst.slice(regionBegin, regionEnd));
+      }
+    }
+    graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+    graph.setTileMapping(v, tile);
+  });
+}

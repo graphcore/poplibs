@@ -79,29 +79,6 @@ createWeights(poplar::Graph &graph, std::string dType,
   return weights;
 }
 
-
-void
-castPartials(Graph &graph, const std::vector<unsigned> &dstActivationMapping,
-     Tensor src, Tensor dst, ComputeSet cs) {
-
-  auto srcType = graph.getTensorElementType(src);
-  auto dstType = graph.getTensorElementType(dst);
-
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
-  buildTransform(dstActivationMapping, graph, [&](unsigned begin,
-                                                  unsigned end,
-                                                  unsigned tile) {
-    auto v = graph.addVertex(cs,
-                             templateVertex("popnn::Cast", srcType, dstType),
-                             {{"src", src.flatten().slice(begin, end)},
-                              {"dst", dst.flatten().slice(begin, end)}});
-    graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-    graph.setTileMapping(v, tile);
-  });
-}
-
-
 poplar::Tensor
 createBiases(poplar::Graph &graph, std::string dType,
              unsigned outNumChans) {
@@ -912,21 +889,15 @@ reduce(Graph &graph,
          std::vector<std::pair<unsigned, unsigned>>
        > &reducedMapping,
        ComputeSet reduceCS) {
-
   const auto partialType = graph.getTensorElementType(partials);
-
   if (partials.dim(0) == 1 && reducedType == partialType) {
     return partials[0];
-  } else {
-    Tensor reduced = graph.addTensor(reducedType,
-                                     partials[0].dims(), "reduced");
-    applyTensorMapping(graph, reduced, reducedMapping);
-
-    if (partials.dim(0) != 1) {
-      ::reduce(graph, partials, reduced, reducedMapping, reduceCS);
-    }
-    return reduced;
   }
+  Tensor reduced = graph.addTensor(reducedType,
+                                   partials[0].dims(), "reduced");
+  applyTensorMapping(graph, reduced, reducedMapping);
+  ::reduce(graph, partials, reduced, reducedMapping, reduceCS);
+  return reduced;
 }
 
 /// Compute a tile mapping for the reduced tensor. The size of each contiguous
@@ -1249,11 +1220,6 @@ convolution(Graph &graph,
                               dType,
                               reducedMapping,
                               reduceCS);
-
-      if (partials[b].dim(0) == 1
-          && partialTypeInPlan != graph.getTensorElementType(reduced)) {
-        castPartials(graph, activationsMapping, partials[b], reduced, castCS);
-      }
 
       reduced = reduced.reshape({partialNumChanGroups, outDimY, outDimX,
                                  partialChansPerGroup});
