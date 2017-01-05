@@ -136,16 +136,38 @@ getOutZGroupRange(unsigned ozgIndex, unsigned partialNumChanGroups,
   return {outZBegin, outZEnd};
 }
 
-template <typename Builder>
 static void
-iterateWeightMapping(Tensor w,
-                     const poplar::Graph &graph,
-                     const Plan &plan,
-                     unsigned batchSize,
-                     Builder &&builder) {
+addWeightRegions(std::vector<std::pair<unsigned,unsigned>> &regions,
+                 const std::vector<std::size_t> &weightDims,
+                 unsigned outZGroupBegin, unsigned outZGroupEnd,
+                 unsigned inZGroupBegin, unsigned inZGroupEnd) {
+  for (unsigned ozg = outZGroupBegin; ozg != outZGroupEnd; ++ozg) {
+    const auto regionBegin =
+        weightDims[5] * weightDims[4] * weightDims[3] * weightDims[2] *
+        (inZGroupBegin + weightDims[1] * ozg);
+    const auto regionEnd =
+        regionBegin +
+        weightDims[5] * weightDims[4] * weightDims[3] * weightDims[2] *
+        (inZGroupEnd - inZGroupBegin);
+    regions.emplace_back(regionBegin, regionEnd);
+  }
+}
+
+static std::vector<std::vector<std::pair<unsigned, unsigned>>>
+calculateWeightMapping(Tensor w,
+                       const poplar::Graph &graph,
+                       const Plan &plan,
+                       unsigned batchSize) {
+  const auto partialNumChanGroups = w.dim(0);
+  const auto numInZGroups = w.dim(1);
+  const auto kernelSizeY = w.dim(2);
+  const auto kernelSizeX = w.dim(3);
+  const auto partialChansPerGroup = w.dim(4);
+  const auto inChansPerGroup = w.dim(5);
+
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto inChansPerGroup = plan.inChansPerGroup;
-  const auto partialChansPerGroup = plan.partialChansPerGroup;
+  std::vector<std::vector<std::pair<unsigned, unsigned>>>
+      mapping(deviceInfo.getNumTiles());
   if (batchSize > 1) {
     // For multi-item batches the weights are going to be sent across
     // exchange independently of mapping. So just map weights across the
@@ -158,11 +180,9 @@ iterateWeightMapping(Tensor w,
       const auto groupEnd = numGroups * (tile + 1) / numTiles;
       if (groupBegin == groupEnd)
         continue;
-      const auto tileWeights = w.reshape({numGroups, groupSize})
-                                .slice(groupBegin, groupEnd);
-      builder(tileWeights, tile);
+      mapping[tile].emplace_back(groupBegin * groupSize, groupEnd * groupSize);
     }
-    return;
+    return mapping;
   }
 
   const auto isMultiIPU = deviceInfo.numIPUs > 1;
@@ -171,80 +191,75 @@ iterateWeightMapping(Tensor w,
   const auto tilesPerZ = plan.tilesPerZAxis;
   const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
   const auto numTiles = deviceInfo.getNumTiles();
-  const auto inNumChans = w.dim(1) * w.dim(5);
-  const auto outNumChans = w.dim(0) * w.dim(4);
-  const auto kernelSizeY = w.dim(2);
-  const auto kernelSizeX = w.dim(3);
-  const auto numInZGroups = inNumChans / inChansPerGroup;
-  assert(outNumChans % partialChansPerGroup == 0);
-  const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
-
 
   for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
     const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
     const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
-    const auto numInZGroups = inZGroupEnd - inZGroupBegin;
     for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
       unsigned outZGroupBegin, outZGroupEnd;
       std::tie(outZGroupBegin, outZGroupEnd) =
           getOutZGroupRange(ozg, partialNumChanGroups, plan);
-      const auto numOutZGroups = outZGroupEnd - outZGroupBegin;
       // Group weights that are accessed contiguously by tiles within this
       // loop body.
-      Tensor sharedWeights;
+      std::vector<std::pair<unsigned, unsigned>> sharedWeights;
+      addWeightRegions(sharedWeights, w.dims(), outZGroupBegin, outZGroupEnd,
+                       inZGroupBegin, inZGroupEnd);
+      mergeAdjacentRegions(sharedWeights);
+      // Spread groups of weights equally across the tiles that read them.
+      std::vector<std::vector<std::pair<unsigned, unsigned>>> perTileWeights;
+      unsigned grainSize = partialChansPerGroup *
+                           inChansPerGroup;
       if (plan.useConvolutionInstructions) {
         if (kernelSizeY == 1 && kernelSizeX == 1) {
-          sharedWeights =
-              w.slice(
-          {outZGroupBegin, inZGroupBegin, 0, 0, 0, 0},
-          {outZGroupEnd, inZGroupEnd, kernelSizeY, kernelSizeX,
-           partialChansPerGroup, inChansPerGroup}
-                ).reshape({numOutZGroups,
-                           numInZGroups * partialChansPerGroup *
-                           inChansPerGroup});
-        } else {
-          sharedWeights =
-              w.slice(
-          {outZGroupBegin, inZGroupBegin, 0, 0, 0, 0},
-          {outZGroupEnd, inZGroupEnd, kernelSizeY, kernelSizeX,
-           partialChansPerGroup, inChansPerGroup}
-                ).reshape({numOutZGroups * numInZGroups * kernelSizeY *
-                           kernelSizeX,
-                           partialChansPerGroup * inChansPerGroup});
+          grainSize *= numInZGroups;
         }
       } else {
-        sharedWeights =
-            w.slice(
-        {outZGroupBegin, inZGroupBegin, 0, 0, 0, 0},
-        {outZGroupEnd, inZGroupEnd, kernelSizeY, kernelSizeX,
-         1, inChansPerGroup}
-              ).reshape({numInZGroups * numOutZGroups * kernelSizeY,
-                         kernelSizeX * inChansPerGroup});
+        grainSize *= kernelSizeX;
       }
-      const auto numSharedWeightGroups = sharedWeights.dim(0);
-      // Spread groups of weights equally across the tiles that read them.
+      splitRegions(sharedWeights, perTileWeights,
+                   partialChansPerGroup * inChansPerGroup,
+                   tilesPerY * tilesPerX);
       for (unsigned oy = 0; oy != tilesPerY; ++oy) {
         for (unsigned ox = 0; ox != tilesPerX; ++ox) {
-          const auto iw = ox + tilesPerX * oy;
-          const auto sharedWeightGroupBegin =
-              (iw * numSharedWeightGroups) / (tilesPerY * tilesPerX);
-          const auto sharedWeightGroupEnd =
-              ((iw + 1) * numSharedWeightGroups) / (tilesPerY * tilesPerX);
-          if (sharedWeightGroupBegin == sharedWeightGroupEnd)
-            continue;
-          const auto tileWeights =
-              sharedWeights.slice(sharedWeightGroupBegin,
-                                  sharedWeightGroupEnd);
           const auto tile = linearizeTileIndices(0, batchSize, numTiles,
                                                  izg, ox, oy, ozg,
                                                  plan, isMultiIPU);
-          builder(tileWeights, tile);
+          const auto iw = ox + tilesPerX * oy;
+          if (iw < perTileWeights.size()) {
+            mapping[tile] = perTileWeights[iw];
+          }
         }
       }
     }
   }
+  return mapping;
 }
 
+template <typename Builder>
+static void
+iterateWeightMapping(Tensor w,
+                     const poplar::Graph &graph,
+                     const Plan &plan,
+                     unsigned batchSize,
+                     Builder &&builder) {
+  const auto weightMapping = calculateWeightMapping(w, graph, plan, batchSize);
+  const auto flatWeights = w.flatten();
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto numTiles = deviceInfo.getNumTiles();
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    auto tileWeights = flatWeights.slice(0, 0);
+    for (const auto &region : weightMapping[tile]) {
+      const auto weightBegin = region.first;
+      const auto weightEnd = region.second;
+      assert(weightBegin != weightEnd);
+      tileWeights = concat(tileWeights,
+                           flatWeights.slice(weightBegin, weightEnd));
+    }
+    if (tileWeights.numElements() > 0) {
+      builder(tileWeights, tile);
+    }
+  }
+}
 
 void
 mapWeights(Tensor w, Graph &graph, const Plan &plan,

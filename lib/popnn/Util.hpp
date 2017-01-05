@@ -12,6 +12,15 @@ void mergeAdjacentRegions(
 void mergeAdjacentRegions(
     std::vector<std::vector<std::pair<unsigned, unsigned>>> &mapping);
 
+// Given a set of contiguous regions, partition these regions trying to
+// balance the number of elements in each partition, respecting the specified
+// grain. At most maxPartitions partitions are created. Regions may be split to
+// achieve a better balance.
+void splitRegions(
+    const std::vector<std::pair<unsigned, unsigned>> &regions,
+    std::vector<std::vector<std::pair<unsigned, unsigned>>> &vertexRegions,
+    unsigned grainSize, unsigned maxPartitions);
+
 // Given a set of contiguous regions per tile, partition these regions
 // between vertices on that tile, respecting the specified grain size.
 // Regions may be split to balance the work across vertices.
