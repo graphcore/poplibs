@@ -48,7 +48,7 @@ int main(int argc, char **argv) {
      po::value<FPDataType>(&dataType)->default_value(FPDataType::HALF),
      "Type of the data and the parameters")
     ("partials-type",
-     po::value<FPDataType>(&partialsType)->default_value(FPDataType::HALF),
+     po::value<FPDataType>(&partialsType)->default_value(FPDataType::FLOAT),
      "Type of the partials")
     ("inference-only", "Benchmark inference only")
     ("tolerance", po::value<double>(&relativeTolerance)->default_value(0.01),

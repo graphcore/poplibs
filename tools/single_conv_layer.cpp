@@ -79,7 +79,7 @@ int main(int argc, char **argv) {
      po::value<FPDataType>(&dataType)->default_value(FPDataType::HALF),
      "Type of the data and the parameters")
     ("partials-type",
-     po::value<FPDataType>(&partialsType)->default_value(FPDataType::HALF),
+     po::value<FPDataType>(&partialsType)->default_value(FPDataType::FLOAT),
      "Type of partials")
     ("padding", po::value<unsigned>(&padding)->default_value(0),
      "Amount of zero padding for height and width. If set, it is an "
