@@ -725,16 +725,17 @@ estimateReduceComputeCost(const poplar::DeviceInfo &deviceInfo,
    * below however is approximately the same except for any rounding
    */
   unsigned numPartialSumsPerTile;
+  unsigned numTiles;
   if (params.isWeightUpdate) {
     assert(plan.batchesPerGroup == 1);
-    const auto numTiles = deviceInfo.getNumTiles();
+    numTiles = deviceInfo.getNumTiles();
     const auto numOutputs = params.outputDepth * params.inputDepth *
                             params.kernelSizeY * params.kernelSizeX;
     const auto numOutputsPerTile = (numOutputs + numTiles - 1) / numTiles;
     numPartialSumsPerTile = numOutputsPerTile * plan.tilesPerYAxis *
                             plan.tilesPerXAxis * params.batchSize;
   } else {
-    const auto numTiles = calcNumUsableTiles(deviceInfo.getNumTiles(),
+    numTiles = calcNumUsableTiles(deviceInfo.getNumTiles(),
                                              numBatchGroups);
     const auto numOutputs = params.getOutputHeight() *
                             params.getOutputWidth() *
