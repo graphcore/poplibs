@@ -55,14 +55,14 @@ BOOST_AUTO_TEST_CASE(JoinDeltasTest) {
       }
     }
   }
-  groupActivations(hostDeltas1, "float", deltas1.dims(),
+  groupActivations(hostDeltas1, "float", deltas1.shape(),
                    rawHostDeltas1.get());
-  groupActivations(hostDeltas2, "float", deltas2.dims(),
+  groupActivations(hostDeltas2, "float", deltas2.shape(),
                    rawHostDeltas2.get());
   engine.run(0); // Upload.
   engine.run(2); // Run.
   engine.run(1); // Download.
-  ungroupActivations("float", deltas1.dims(), rawHostDeltas1.get(),
+  ungroupActivations("float", deltas1.shape(), rawHostDeltas1.get(),
                      hostDeltas1);
 
   const double relativeTolerance = 0.1;

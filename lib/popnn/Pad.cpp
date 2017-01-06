@@ -8,39 +8,39 @@ using namespace poplar;
 using namespace poplar::program;
 
 static void validatePadArgs(poplar::Tensor in,
-                            const std::vector<std::size_t> &dims,
+                            const std::vector<std::size_t> &shape,
                             const std::vector<std::size_t> &beforePadding) {
-  // Check the number of dimensions match.
-  const auto numDims = in.getDimensionality();
-  if (dims.size() != numDims) {
+  // Check the ranks match.
+  const auto rank = in.rank();
+  if (shape.size() != rank) {
     std::abort();
   }
-  if (beforePadding.size() != numDims) {
+  if (beforePadding.size() != rank) {
     std::abort();
   }
   // Check the size of the output is greater than the size of the input.
-  for (unsigned i = 0; i != numDims; ++i) {
-    if (in.dim(i) + beforePadding[i] > dims[i])
+  for (unsigned i = 0; i != rank; ++i) {
+    if (in.dim(i) + beforePadding[i] > shape[i])
       std::abort();
   }
 }
 
 poplar::Tensor
 pad(poplar::Graph &graph, poplar::Tensor t,
-    const std::vector<std::size_t> &dims,
+    const std::vector<std::size_t> &shape,
     const std::vector<std::size_t> &beforePadding) {
   const auto type = graph.getTensorElementType(t);
-  validatePadArgs(t, dims, beforePadding);
-  for (unsigned i = 0; i < dims.size(); ++i) {
-    if (dims[i] == t.dim(i))
+  validatePadArgs(t, shape, beforePadding);
+  for (unsigned i = 0; i < shape.size(); ++i) {
+    if (shape[i] == t.dim(i))
       continue;
-    auto beforePadDims = t.dims();
-    beforePadDims[i] = beforePadding[i];
-    auto beforePadding = graph.addConstantTensor(type, beforePadDims, 0);
+    auto beforePadShape = t.shape();
+    beforePadShape[i] = beforePadding[i];
+    auto beforePadding = graph.addConstantTensor(type, beforePadShape, 0);
     t = concat(beforePadding, t, i);
-    auto afterPadDims = t.dims();
-    afterPadDims[i] = dims[i] - t.dim(i);
-    auto afterPadding = graph.addConstantTensor(type, afterPadDims, 0);
+    auto afterPadShape = t.shape();
+    afterPadShape[i] = shape[i] - t.dim(i);
+    auto afterPadding = graph.addConstantTensor(type, afterPadShape, 0);
     t = concat(t, afterPadding, i);
   }
 

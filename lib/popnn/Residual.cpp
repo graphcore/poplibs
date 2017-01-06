@@ -103,9 +103,9 @@ joinResidual(Graph &graph,
              Tensor in1,
              Tensor out,
              const std::string &debugPrefix) {
-  assert(in0.getDimensionality() == 5); //[batch][nCG][y][g][chan]
-  assert(in0.dims() == out.dims());
-  assert(in1.dims() == in0.dims());
+  assert(in0.rank() == 5); //[batch][nCG][y][g][chan]
+  assert(in0.shape() == out.shape());
+  assert(in1.shape() == in0.shape());
 
   const auto outType = graph.getTensorElementType(out);
   const auto inType = graph.getTensorElementType(in0);
@@ -223,7 +223,7 @@ joinDeltas(Graph &graph,
   ComputeSet cs = graph.createComputeSet(debugPrefix + "/JoinResidual");
   Program prog = Execute(cs);
   const auto batchSize = outIn0.dim(0);
-  if (outIn0.dims() == in1.dims()) {
+  if (outIn0.shape() == in1.shape()) {
     for (unsigned b = 0; b < batchSize; b++) {
       const auto &activationMapping =
         computeActivationsMapping(graph, outIn0[b], b, batchSize);

@@ -263,7 +263,7 @@ int main(int argc, char **argv) {
       hostNextAct(boost::extents[batchSize][chans][outHeight][outWidth]);
   std::mt19937 randomEngine;
   writeRandomValues(hostPrevAct, 0.0, 1.0, randomEngine);
-  groupActivations(hostPrevAct, dataTypeStr, prevAct.dims(),
+  groupActivations(hostPrevAct, dataTypeStr, prevAct.shape(),
                    rawHostPrevAct.get());
   // Run the forward pass.
   engine.run(0); // Upload.
@@ -271,7 +271,7 @@ int main(int argc, char **argv) {
   engine.run(1); // Download.
 
   // Validate against a reference model.
-  ungroupActivations(dataTypeStr, nextAct.dims(), rawHostNextAct.get(),
+  ungroupActivations(dataTypeStr, nextAct.shape(), rawHostNextAct.get(),
                      hostNextAct);
   boost::multi_array<double, 4>
       modelNextAct(boost::extents[batchSize][chans][outHeight][outWidth]);
@@ -291,14 +291,14 @@ int main(int argc, char **argv) {
     );
     // Run the backwards pass.
     writeRandomValues(hostZDeltas, 0.0, 1.0, randomEngine);
-    groupActivations(hostZDeltas, dataTypeStr, zDeltas.dims(),
+    groupActivations(hostZDeltas, dataTypeStr, zDeltas.shape(),
                      rawHostZDeltas.get());
     engine.run(0); // Upload.
     engine.run(3); // Run.
     engine.run(1); // Download.
-    ungroupActivations(dataTypeStr, zDeltas.dims(), rawHostZDeltas.get(),
+    ungroupActivations(dataTypeStr, zDeltas.shape(), rawHostZDeltas.get(),
                        hostZDeltas);
-    ungroupActivations(dataTypeStr, prevDeltas.dims(), rawHostPrevDeltas.get(),
+    ungroupActivations(dataTypeStr, prevDeltas.shape(), rawHostPrevDeltas.get(),
                        hostPrevDeltas);
 
     // Validate against a reference model.

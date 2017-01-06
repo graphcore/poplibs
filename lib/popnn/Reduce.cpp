@@ -146,7 +146,7 @@ reduce(Graph &graph,
          std::vector<std::pair<unsigned, unsigned>>
        > &reducedMapping,
        ComputeSet reduceCS) {
-  assert(partials[0].dims() == reduced.dims());
+  assert(partials[0].shape() == reduced.shape());
   if (partials.dim(0) == 0) {
     zero(graph, reduced, reducedMapping, reduceCS);
     return;

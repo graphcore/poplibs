@@ -465,18 +465,19 @@ outputResidualDescription(const ResidualLayer &rLayer,
   std::cout << "   -- Residual layer:\n";
   for (auto inputOffset : rLayer.resIndex) {
     auto idx = thisLayer - inputOffset + 1;
-    assert(acts[idx].getDimensionality() == 5);
-    const auto &dims = acts[idx].dims();
+    assert(acts[idx].rank() == 5);
+    const auto &shape = acts[idx].shape();
     std::cout << "        Input(-"<<inputOffset<<"):  "
-              << dims[2] << "x" << dims[3] <<"x" << dims[1] * dims[4] << "\n";
+              << shape[2] << "x" << shape[3] <<"x" << shape[1] * shape[4]
+              << "\n";
   }
 
-  const auto &dims = acts[thisLayer - rLayer.resIndex[0] + 1].dims();
-  auto flops = residual::getNumberOfAdds(dims[2], dims[3],
-                                         dims[1] * dims[4],
+  const auto &shape = acts[thisLayer - rLayer.resIndex[0] + 1].shape();
+  auto flops = residual::getNumberOfAdds(shape[2], shape[3],
+                                         shape[1] * shape[4],
                                          forwardOnly);
   std::cout << "        Output:     "
-            << dims[2] << "x" << dims[3] <<"x" << dims[1] * dims[4] << "\n"
+            << shape[2] << "x" << shape[3] <<"x" << shape[1] * shape[4] << "\n"
             << "        FLOPs:      " << flops << "\n";
 }
 
@@ -591,30 +592,30 @@ Net::createResidualLayerFwd(unsigned i,
   unsigned numChannels, outDimY, outDimX;
   //The output will be the same batch/y/x dimensions as the first input with
   //channel grouping chosen to match the following layer
-  const auto &in0Dims = acts[i - residualLayer.resIndex[0] + 1].dims();
-  numChannels = in0Dims[1] * in0Dims[4];
-  outDimY = in0Dims[2];
-  outDimX = in0Dims[3];
+  const auto &in0Shape = acts[i - residualLayer.resIndex[0] + 1].shape();
+  numChannels = in0Shape[1] * in0Shape[4];
+  outDimY = in0Shape[2];
+  outDimX = in0Shape[3];
   auto outChansPerGroup = getRequiredChansPerGroupFwd(i + 1, outDimY, outDimX,
                                                       numChannels);
   if (outChansPerGroup == 0) {
-    outChansPerGroup = in0Dims[4];
+    outChansPerGroup = in0Shape[4];
   }
 
   acts[i + 1] = graph->addTensor(dType,
-                                 {in0Dims[0], numChannels / outChansPerGroup,
+                                 {in0Shape[0], numChannels / outChansPerGroup,
                                    outDimY, outDimX, outChansPerGroup},
                                  "activations." + std::to_string(i));
   mapActivations(*graph, acts[i + 1]);
   Tensor in0 =
     residual::arrangeResidualInput(*graph,
                                    acts[i - residualLayer.resIndex[0] + 1],
-                                   acts[i + 1].dims(), dType,
+                                   acts[i + 1].shape(), dType,
                                    residualLayer.resMethod);
   Tensor in1 =
     residual::arrangeResidualInput(*graph,
                                    acts[i - residualLayer.resIndex[1] + 1],
-                                   acts[i + 1].dims(), dType,
+                                   acts[i + 1].shape(), dType,
                                    residualLayer.resMethod);
   switch (residualLayer.resMethod) {
   case RESIDUAL_PAD:
@@ -625,15 +626,15 @@ Net::createResidualLayerFwd(unsigned i,
                                in1,
                                acts[i + 1],
                                debugPrefix);
-      auto outDims = acts[i].dims();
-      numFlops += outDims[0] *
-        residual::getNumberOfAdds(outDims[2], outDims[3],
-                                  outDims[1] * outDims[4],
+      auto outShape = acts[i].shape();
+      numFlops += outShape[0] *
+        residual::getNumberOfAdds(outShape[2], outShape[3],
+                                  outShape[1] * outShape[4],
                                   netType == TestOnlyNet);
       perfectCycleTime +=
         residual::getPerfectCycleCount(*graph, dType,
-                                       outDims[0], outDims[2], outDims[3],
-                                       outDims[1] * outDims[4],
+                                       outShape[0], outShape[2], outShape[3],
+                                       outShape[1] * outShape[4],
                                        netType == TestOnlyNet);
       return fwdProg;
     }
@@ -775,7 +776,7 @@ Program Net::createConvLayerBwd(unsigned i,
   auto biases = params[i][1];
   Tensor zDeltas = deltas[i + 1];
   if (nonLinearityType != NON_LINEARITY_NONE) {
-    zDeltas = graph->addTensor(dType, deltas[i + 1].dims(),
+    zDeltas = graph->addTensor(dType, deltas[i + 1].shape(),
                                       "zDeltas");
     mapActivations(*graph, zDeltas);
     prog.add(bwdNonLinearity(*graph, acts[i + 1], deltas[i + 1], zDeltas,
@@ -1059,11 +1060,11 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   graph->setTileMapping(numCorrect, 0);
   Tensor loss = graph->addTensor(dType, {batchSize}, "loss");
   graph->setTileMapping(loss, 0);
-  deltas[layers.size()] = graph->addTensor(dType, lastAct.dims(), "deltas");
+  deltas[layers.size()] = graph->addTensor(dType, lastAct.shape(), "deltas");
   mapActivations(*graph, deltas[layers.size()]);
   lastAct = lastAct.reshape({batchSize, lastAct.numElements() / batchSize});
   auto firstDeltas = deltas[layers.size()];
-  firstDeltas = firstDeltas.reshape(lastAct.dims());
+  firstDeltas = firstDeltas.reshape(lastAct.shape());
   auto calcLossProg = calcLoss(*graph,
                                lastAct,
                                expected,
@@ -1087,7 +1088,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
       }
 
       if (backwardPassRequired) {
-        if (acts[i].dims().size() == 5) {
+        if (acts[i].rank() == 5) {
           auto numChannels = acts[i].dim(1) * acts[i].dim(4);
           auto chansPerGroup = getRequiredChansPerGroupBwd(i - 1);
           if (chansPerGroup == 0)
@@ -1100,15 +1101,15 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                                                acts[i].dim(3),
                                                chansPerGroup} , "deltas");
          } else {
-           assert(acts[i].dims().size() == 2);
-           deltas[i] = graph->addTensor(dType, acts[i].dims(), "deltas");
+           assert(acts[i].rank() == 2);
+           deltas[i] = graph->addTensor(dType, acts[i].shape(), "deltas");
         }
         mapActivations(*graph, deltas[i]);
       }
 
       const auto *layer = layers[i].get();
       if (const auto *fc = dynamic_cast<const FullyConnectedLayer *>(layer)) {
-        Tensor zDeltas = graph->addTensor(dType, deltas[i + 1].dims(),
+        Tensor zDeltas = graph->addTensor(dType, deltas[i + 1].shape(),
                                           "zDeltas");
         mapActivations(*graph, zDeltas);
         auto weights = params[i][0];

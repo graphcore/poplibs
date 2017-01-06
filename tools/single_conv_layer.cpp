@@ -345,9 +345,9 @@ int main(int argc, char **argv) {
   writeRandomValues(hostPrevAct, 0.0, 1.0, randomEngine);
   writeRandomValues(hostWeights, 0.0, 1.0, randomEngine);
   writeRandomValues(hostBiases, 0.0, 1.0, randomEngine);
-  groupActivations(hostPrevAct, dataTypeStr, prevAct.dims(),
+  groupActivations(hostPrevAct, dataTypeStr, prevAct.shape(),
                    rawHostPrevAct.get());
-  groupWeights(hostWeights, dataTypeStr, weights.dims(), rawHostWeights.get());
+  groupWeights(hostWeights, dataTypeStr, weights.shape(), rawHostWeights.get());
   copy(hostBiases, dataTypeStr, rawHostBiases.get());
 
   // Run the forward pass.
@@ -356,7 +356,7 @@ int main(int argc, char **argv) {
   engine.run(1); // Download.
 
   // Validate against a reference model.
-  ungroupActivations(dataTypeStr, nextAct.dims(), rawHostNextAct.get(),
+  ungroupActivations(dataTypeStr, nextAct.shape(), rawHostNextAct.get(),
                      hostNextAct);
   boost::multi_array<double, 4>
       modelNextAct(boost::extents[batchSize][fwdOutChans][outHeight][outWidth]);
@@ -377,16 +377,16 @@ int main(int argc, char **argv) {
     auto modelBiases = hostBiases;
     // Run the backwards pass.
     writeRandomValues(hostZDeltas, 0.0, 1.0, randomEngine);
-    groupActivations(hostZDeltas, dataTypeStr, zDeltas.dims(),
+    groupActivations(hostZDeltas, dataTypeStr, zDeltas.shape(),
                      rawHostZDeltas.get());
     engine.run(0); // Upload.
     engine.run(3); // Run.
     engine.run(1); // Download.
-    ungroupActivations(dataTypeStr, zDeltas.dims(), rawHostZDeltas.get(),
+    ungroupActivations(dataTypeStr, zDeltas.shape(), rawHostZDeltas.get(),
                        hostZDeltas);
-    ungroupActivations(dataTypeStr, prevDeltas.dims(), rawHostPrevDeltas.get(),
+    ungroupActivations(dataTypeStr, prevDeltas.shape(), rawHostPrevDeltas.get(),
                        hostPrevDeltas);
-    ungroupWeights(dataTypeStr, weights.dims(), rawHostWeights.get(),
+    ungroupWeights(dataTypeStr, weights.shape(), rawHostWeights.get(),
                    hostWeights);
     copy(dataTypeStr, rawHostBiases.get(), hostBiases);
 

@@ -39,7 +39,7 @@ cast(poplar::Graph &graph,
      > &mapping,
      poplar::Tensor src, poplar::Tensor dst,
      poplar::ComputeSet cs) {
-  assert(src.dims() == dst.dims());
+  assert(src.shape() == dst.shape());
   src = src.flatten();
   dst = dst.flatten();
   const auto srcType = graph.getTensorElementType(src);

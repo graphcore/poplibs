@@ -17,12 +17,12 @@ computeActivationsMapping(const poplar::Graph &graph, poplar::Tensor act,
   const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
   const auto numActivations = act.numElements();
   unsigned chansPerGroup, beginTile, endTile;
-  if (act.getDimensionality() == 1) {
+  if (act.rank() == 1) {
     chansPerGroup = 1;
     beginTile = 0;
     endTile = numTiles;
   } else {
-    assert(act.getDimensionality() == 4);
+    assert(act.rank() == 4);
     chansPerGroup = act.dim(3);
     const auto batchElemsPerTile = (batchSize + numTiles - 1) / numTiles;
     const auto numBatchGroups =

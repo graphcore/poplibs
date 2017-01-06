@@ -202,7 +202,7 @@ calculateWeightMapping(Tensor w,
       // Group weights that are accessed contiguously by tiles within this
       // loop body.
       std::vector<std::pair<unsigned, unsigned>> sharedWeights;
-      addWeightRegions(sharedWeights, w.dims(), outZGroupBegin, outZGroupEnd,
+      addWeightRegions(sharedWeights, w.shape(), outZGroupBegin, outZGroupEnd,
                        inZGroupBegin, inZGroupEnd);
       mergeAdjacentRegions(sharedWeights);
       // Spread groups of weights equally across the tiles that read them.
@@ -909,7 +909,7 @@ reduce(Graph &graph,
     return partials[0];
   }
   Tensor reduced = graph.addTensor(reducedType,
-                                   partials[0].dims(), "reduced");
+                                   partials[0].shape(), "reduced");
   applyTensorMapping(graph, reduced, reducedMapping);
   ::reduce(graph, partials, reduced, reducedMapping, reduceCS);
   return reduced;
@@ -935,7 +935,7 @@ computeReducedMapping(const poplar::Graph &graph,
   const auto numTiles = activationsMapping.size() - 1;
   std::vector<std::vector<std::pair<unsigned, unsigned>>>
       reducedMapping(numTiles);
-  assert(activations.getDimensionality() == 4);
+  assert(activations.rank() == 4);
   const auto dimY = activations.dim(1);
   const auto dimX = activations.dim(2);
   const auto fieldSize = dimY * dimX;
@@ -1441,9 +1441,9 @@ matrixMultiplyByConvInstruction(Graph &graph, const Plan &plan,
                                 const std::vector<unsigned> &cTileMapping,
                                 const std::string &debugPrefix) {
   const auto dType = graph.getTensorElementType(a);
-  assert(a.getDimensionality() == 4);
-  assert(b.getDimensionality() == 3);
-  assert(c.getDimensionality() == 3);
+  assert(a.rank() == 4);
+  assert(b.rank() == 3);
+  assert(c.rank() == 3);
   assert(a.dim(0) == c.dim(0));
   assert(a.dim(1) == b.dim(0));
   assert(a.dim(2) == c.dim(2));
@@ -2277,8 +2277,8 @@ convolutionWeightUpdateAop(Graph &graph,
                                                    izg, ox, oy, ozg,
                                                    plan,
                                                    isMultiIPU);
-            addWeightDeltaPartialRegions(partialsMapping[tile], partials.dims(),
-                                         b, oy, ox,
+            addWeightDeltaPartialRegions(partialsMapping[tile],
+                                         partials.shape(), b, oy, ox,
                                          outZGroupBegin, outZGroupEnd,
                                          inZGroupBegin, inZGroupEnd);
             calcPartialWeightGradsAop(graph, tile,
@@ -2308,13 +2308,13 @@ convolutionWeightUpdateAop(Graph &graph,
     weightDeltas = partials[0][0][0];
   } else {
     auto reduceCS = graph.createComputeSet(layerName + "/Reduce");
-    weightDeltas = graph.addTensor(dType, weights.dims(),
+    weightDeltas = graph.addTensor(partialsType, weights.shape(),
                                    layerName + "/WeightDeltas");
     const auto
       weightDeltaMapping = calculateWeightMapping(weights, graph, plan,
                                                   batchSize);
     applyTensorMapping(graph, weightDeltas, weightDeltaMapping);
-    auto flatPartialsDims = weightDeltas.dims();
+    auto flatPartialsDims = weightDeltas.shape();
     flatPartialsDims.insert(flatPartialsDims.begin(), numPartials);
     auto flatPartials = partials.reshape(flatPartialsDims);
     ::reduce(graph, flatPartials, weightDeltas, weightDeltaMapping, reduceCS);

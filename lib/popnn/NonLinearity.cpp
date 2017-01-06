@@ -31,12 +31,12 @@ bwdNonLinearity(Graph &graph,
     Tensor regroupedActs;
     // TODO: This could possible be made more efficient by merging the
     // regrouping with the calculation of the non linearity derivative.
-    if (activations.getDimensionality() == 1 ||
+    if (activations.rank() == 1 ||
         activations.dim(3) == zDeltas.dim(3)) {
       regroupedActs = activations;
     } else {
       auto dType = graph.getTensorElementType(activations);
-      regroupedActs = graph.addTensor(dType, zDeltas.dims(), "regroupedActs");
+      regroupedActs = graph.addTensor(dType, zDeltas.shape(), "regroupedActs");
       auto mapping = computeActivationsMapping(graph, regroupedActs,
                                                b, batchSize);
       applyTensorMapping(graph, regroupedActs, mapping);

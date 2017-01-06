@@ -94,7 +94,7 @@ struct TensorOp {
     }
     int operator()(const poplar::Graph &x) const { return 0; }
     TensorShape operator()(const poplar::Tensor &t) const {
-      return {t.dims(), graph.getTensorElementType(t)};
+      return {t.shape(), graph.getTensorElementType(t)};
     }
 
     MakeKey(poplar::Graph &graph) : graph(graph) {}
@@ -183,7 +183,7 @@ struct TensorOp {
     }
     auto paramTypeStr = paramTypeName.find(paramType)->second;
     auto paramName = name + "." + paramTypeStr + "." + std::to_string(tIndex);
-    auto param = graph.addTensor(graph.getTensorElementType(t), t.dims(),
+    auto param = graph.addTensor(graph.getTensorElementType(t), t.shape(),
                                  paramName);
     const auto &mappingFn = sig[tIndex].mappingFn;
     if (mappingFn)
