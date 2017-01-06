@@ -1130,6 +1130,9 @@ convolution(Graph &graph,
   const auto outDimY = activations.dim(2);
   const auto outDimX = activations.dim(3);
   unsigned partialOutDimY, partialOutDimX;
+  const auto batchSize = activations.dim(0);
+  assert(batchSize % plan.batchesPerGroup == 0);
+  const auto numBatchGroups = batchSize / plan.batchesPerGroup;
   if (plan.flattenXY) {
     partialOutDimY = plan.batchesPerGroup;
     partialOutDimX = outDimX * outDimY;
@@ -1137,13 +1140,13 @@ convolution(Graph &graph,
     const auto inDimX = in.dim(3);
     in = in.dimShuffle({1, 0, 2, 3, 4}).reshape(
                           {in.dim(1),
-                           plan.numBatchGroups,
+                           numBatchGroups,
                            plan.batchesPerGroup * inDimY,
                            inDimX,
                            in.dim(4)
                           }).dimShuffle({1, 0, 2, 3, 4});
 
-    in = in.reshape({plan.numBatchGroups,
+    in = in.reshape({numBatchGroups,
                      in.dim(1),
                      plan.batchesPerGroup,
                      inDimY * inDimX,
@@ -1153,7 +1156,6 @@ convolution(Graph &graph,
     partialOutDimY = outDimY;
     partialOutDimX = outDimX;
   }
-  const auto batchSize = activations.dim(0);
   const auto outNumChans = activations.dim(1) * activations.dim(4);
   const auto partialChansPerGroup = plan.partialChansPerGroup;
   const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
@@ -1191,7 +1193,7 @@ convolution(Graph &graph,
 
     // Calculate a set of partial sums of the convolutions.
     Tensor partials = graph.addTensor(partialTypeInPlan,
-                                       {plan.numBatchGroups,
+                                       {numBatchGroups,
                                        tilesPerInZGroup,
                                        partialNumChanGroups,
                                        partialOutDimY,
@@ -1208,7 +1210,7 @@ convolution(Graph &graph,
     if (plan.flattenXY) {
       partials = partials.dimShuffle({1, 2, 0, 3, 4, 5 }).reshape(
         {tilesPerInZGroup, partialNumChanGroups,
-         plan.numBatchGroups * plan.batchesPerGroup,
+         numBatchGroups * plan.batchesPerGroup,
          partialOutDimY / plan.batchesPerGroup,
          partialOutDimX, partialChansPerGroup}).dimShuffle(
             {2, 0, 1, 3, 4, 5});

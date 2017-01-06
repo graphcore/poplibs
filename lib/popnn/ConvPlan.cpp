@@ -75,7 +75,6 @@ std::ostream& operator<<(std::ostream &os, const Plan &p)
     << "        inChansPerGroup         " << p.inChansPerGroup << "\n"
     << "        partialChansPerGroup    " << p.partialChansPerGroup << "\n"
     << "        batchesPerGroup         " << p.batchesPerGroup << "\n"
-    << "        numBatchGroups          " << p.numBatchGroups << "\n"
     << "        flattenXY               " << p.flattenXY << "\n";
   return os;
 }
@@ -602,12 +601,14 @@ static unsigned estimatePartialCalcMemory(
                   * (plan.floatPartials ? 4 : 2);
 
   const auto bytesPerVertexElem = 4;
-  const auto vertexMemory = tilesUsedPerBatchGroup * plan.numBatchGroups
+  assert(params.batchSize % plan.batchesPerGroup == 0);
+  const auto numBatchGroups = params.batchSize / plan.batchesPerGroup;
+  const auto vertexMemory = tilesUsedPerBatchGroup * numBatchGroups
                             * tileVertices * vertexFields
                             * bytesPerVertexElem;
 
   const auto bytesPerEdgePtr = deviceInfo.inEdgePointerBytes;
-  const auto edgePtrsMemory = tilesUsedPerBatchGroup * plan.numBatchGroups
+  const auto edgePtrsMemory = tilesUsedPerBatchGroup * numBatchGroups
                               * edgePtrsPerVertex * tileVertices
                               * bytesPerEdgePtr;
 
@@ -685,6 +686,7 @@ static unsigned estimateReduceMemory(const poplar::DeviceInfo &deviceInfo,
   const auto tilesPerZ = plan.tilesPerZAxis;
   const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
   const auto outChansPerGroup = plan.partialChansPerGroup;
+  const auto batchesPerGroup = plan.batchesPerGroup;
 
   const auto numOutGroups =
     (params.outputDepth + (outChansPerGroup - 1)) / outChansPerGroup;
@@ -695,6 +697,9 @@ static unsigned estimateReduceMemory(const poplar::DeviceInfo &deviceInfo,
   const auto tileNumOutGroups =
      (numOutGroups + tilesPerZ - 1) / tilesPerZ;
 
+  assert(params.batchSize % batchesPerGroup == 0);
+  const auto numBatchGroups = params.batchSize / batchesPerGroup;
+
   vertexFields += 2;
 
   /* this is an estimate */
@@ -704,7 +709,7 @@ static unsigned estimateReduceMemory(const poplar::DeviceInfo &deviceInfo,
 
   const auto bytesPerVertexElem = 4;
   const auto vertexMemory = numTiles
-                            * plan.numBatchGroups
+                            * numBatchGroups
                             * vertexFields
                             * bytesPerVertexElem;
 
@@ -715,7 +720,7 @@ static unsigned estimateReduceMemory(const poplar::DeviceInfo &deviceInfo,
    */
   const auto bytesPerEdgePtr = deviceInfo.inEdgePointerBytes;
   const auto edgePtrsMemory = numTiles
-                              * plan.numBatchGroups
+                              * numBatchGroups
                               * edgePtrsPerVertex
                               * bytesPerEdgePtr;
 
@@ -727,8 +732,7 @@ static unsigned estimateReduceMemory(const poplar::DeviceInfo &deviceInfo,
 static Cost
 estimateReduceComputeCost(const poplar::DeviceInfo &deviceInfo,
                           const ConvolutionParams &params,
-                          const Plan &plan,
-                          unsigned numBatchGroups) {
+                          const Plan &plan) {
   if (plan.tilesPerInZGroupAxis == 1)
     return {0, 0};
 
@@ -748,8 +752,8 @@ estimateReduceComputeCost(const poplar::DeviceInfo &deviceInfo,
     numPartialSumsPerTile = numOutputsPerTile * plan.tilesPerYAxis *
                             plan.tilesPerXAxis * params.batchSize;
   } else {
-    numTiles = calcNumUsableTiles(deviceInfo.getNumTiles(),
-                                             numBatchGroups);
+    const auto numBatchGroups = params.batchSize / plan.batchesPerGroup;
+    numTiles = calcNumUsableTiles(deviceInfo.getNumTiles(), numBatchGroups);
     const auto numOutputs = params.getOutputHeight() *
                             params.getOutputWidth() *
                             params.outputDepth;
@@ -772,12 +776,11 @@ static Cost
 estimateComputeCost(const poplar::DeviceInfo &deviceInfo,
                     bool floatActivations, const ConvolutionParams &params,
                     const Plan &plan,
-                    unsigned numBatchGroups,
                     PlannerCache *cache) {
   return estimatePartialCalcComputeCost(deviceInfo, floatActivations, params,
                                         plan, cache) +
          estimateReduceComputeCost(deviceInfo, params,
-                                   plan, numBatchGroups);
+                                   plan);
 
 }
 
@@ -787,7 +790,6 @@ estimatePlanCostBounded(const poplar::DeviceInfo &deviceInfo,
                              const ConvolutionParams &params,
                              const Plan &plan,
                              Cost maxCost,
-                             unsigned numBatchGroups,
                              CostBounds costBounds,
                              PlannerCache *cache) {
   auto cost = estimateExchangeCost(deviceInfo,
@@ -795,7 +797,7 @@ estimatePlanCostBounded(const poplar::DeviceInfo &deviceInfo,
   if (!compareCost(cost, maxCost, costBounds))
     return maxCost;
   cost += estimateComputeCost(deviceInfo, floatActivations, params,
-                              plan, numBatchGroups, cache);
+                              plan, cache);
   return compareCost(cost, maxCost, costBounds) ? cost : maxCost;
 }
 
@@ -843,7 +845,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
            unsigned partialChansPerGroup,
            const ConvVertexType &convVertexType,
            const ConvolutionParams &params,
-           const unsigned numBatchGroups,
+           const unsigned batchesPerGroup,
            const CostBounds costBounds,
            PlannerCache *cache) {
   const auto floatActivations = convVertexType.floatActivations;
@@ -911,6 +913,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
   // but it needs to sends (outputChannelsPerTile * (filterSize - 1) / 2) extra
   // rows of partial sum per tile pair.
   // TODO investigate the alternative strategy outlined above.
+  const auto numBatchGroups = params.batchSize / batchesPerGroup;
   const auto numTiles = calcNumUsableTiles(deviceInfo.getNumTiles(),
                                            numBatchGroups);
 
@@ -945,13 +948,13 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
           Plan candidate(tilesPerX, tilesPerY, tilesPerZ,
                          verticesPerTilePerY, tilesPerInZ,
                          inChansPerGroup, partialChansPerGroup,
+                         batchesPerGroup,
                          convVertexType.floatPartials,
                          convVertexType.useConvInstruction);
 
           auto candidateCost =
               estimatePlanCostBounded(deviceInfo, floatActivations, params,
-                                      candidate, bestCost, numBatchGroups,
-                                      costBounds, cache);
+                                      candidate, bestCost, costBounds, cache);
           if (compareCost(candidateCost, bestCost, costBounds)) {
             bestPlan = candidate;
             bestCost = candidateCost;
@@ -960,8 +963,6 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
       }
     }
   }
-  bestPlan.batchesPerGroup = params.batchSize / numBatchGroups;
-  bestPlan.numBatchGroups = numBatchGroups;
   return {bestPlan, bestCost};
 }
 
@@ -1033,7 +1034,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
            unsigned tensorOutChansPerGroup,
            unsigned tensorWeightOutChansPerGroup,
            const ConvolutionParams &params,
-           unsigned numBatchGroups,
+           unsigned batchesPerGroup,
            const CostBounds costBounds,
            PlannerCache *cache) {
   Plan best;
@@ -1075,7 +1076,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
     Cost candidateCost;
     std::tie(candidate, candidateCost) =
         choosePlan(deviceInfo, inChansPerGroup, partialChansPerGroup,
-                   convVertexType, params, numBatchGroups, costBounds, cache);
+                   convVertexType, params, batchesPerGroup, costBounds, cache);
     if (compareCost(candidateCost, bestCost, costBounds)) {
       best = candidate;
       bestCost = candidateCost;
@@ -1092,7 +1093,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
            unsigned tensorOutChansPerGroup,
            unsigned tensorWeightOutChansPerGroup,
            const ConvolutionParams &params,
-           unsigned numBatchGroups,
+           unsigned batchesPerGroup,
            CostBounds costBounds,
            PlannerCache *cache) {
   Cost bestCost = highestCost;
@@ -1109,7 +1110,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
     std::tie(candidate, candidateCost) =
         choosePlan(deviceInfo, convVertexType, tensorInChansPerGroup,
                    tensorOutChansPerGroup, tensorWeightOutChansPerGroup,
-                   params, numBatchGroups, costBounds, cache);
+                   params, batchesPerGroup, costBounds, cache);
     if (candidateCost == highestCost)
       continue;
     if (preferConvInstructions &&
@@ -1172,8 +1173,6 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
       continue;
     }
 
-    const unsigned numBatchGroups = batchSize / batchesPerGroup;
-
     ConvolutionParams params(kernelSizeY, kernelSizeX, strideY, strideX,
                              inNumChans, inDimX, inDimY * batchesPerGroup,
                              paddingY, paddingX, numChannels, batchSize,
@@ -1188,7 +1187,7 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                    tensorOutChansPerGroup,
                    tensorWeightOutChansPerGroup,
                    params,
-                   numBatchGroups,
+                   batchesPerGroup,
                    costBounds,
                    cache);
     if (compareCost(candidateCost, bestCandidateCost, costBounds)) {

@@ -13,11 +13,9 @@ struct Plan {
   unsigned tilesPerInZGroupAxis;
   unsigned inChansPerGroup;
   unsigned partialChansPerGroup;
+  unsigned batchesPerGroup;
   bool floatPartials;
   bool useConvolutionInstructions;
-
-  unsigned batchesPerGroup;
-  unsigned numBatchGroups;
   bool flattenXY;
 
   Plan() = default;
@@ -28,6 +26,7 @@ struct Plan {
        unsigned tilesPerInZGroupAxis,
        unsigned inChansPerGroup,
        unsigned partialChansPerGroup,
+       unsigned batchesPerGroup,
        bool floatPartials,
        bool useConvolutionInstructions) :
     tilesPerXAxis(tilesPerXAxis),
@@ -37,6 +36,7 @@ struct Plan {
     tilesPerInZGroupAxis(tilesPerInZGroupAxis),
     inChansPerGroup(inChansPerGroup),
     partialChansPerGroup(partialChansPerGroup),
+    batchesPerGroup(batchesPerGroup),
     floatPartials(floatPartials),
     useConvolutionInstructions(useConvolutionInstructions) {}
   const char *getPartialType() const {
