@@ -334,3 +334,13 @@ add_test(NAME max_pool_layer_2ipu
                  --kernel-size 3
                  --stride 2
                  --ipus 2)
+
+add_test(NAME max_pool_layer_1x4
+         COMMAND max_pool_layer
+                 --channels 32
+                 --width 32 
+                 --height 1 
+                 --kernel-height 1
+                 --kernel-width 4
+                 --stride-height 1
+                 --stride-width 4)

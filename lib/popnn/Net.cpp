@@ -423,9 +423,12 @@ Net::getRequiredChansPerGroupFwd(unsigned i, unsigned inDimY,
   } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
     unsigned outDimY, outDimX;
     std::tie(outDimY, outDimX) = maxpool::getOutputDim(inDimY, inDimX,
-                                                       m->kernelSize,
-                                                       m->stride,
-                                                       m->padding);
+                                                       m->kernelSizeY,
+                                                       m->kernelSizeX,
+                                                       m->strideY,
+                                                       m->strideX,
+                                                       m->paddingY,
+                                                       m->paddingX);
     return getRequiredChansPerGroupFwd(i + 1, outDimY, outDimX, inNumChans);
   } else {
     throw popnn::popnn_error("Unrecognized layer type");
@@ -538,21 +541,29 @@ void Net::outputDescription(const Layer *layer, unsigned i, Tensor in,
     unsigned outDimY, outDimX;
     std::tie(outDimY, outDimX) = maxpool::getOutputDim(in.dim(2),
                                                        in.dim(3),
-                                                       m->kernelSize,
-                                                       m->stride,
-                                                       m->padding);
+                                                       m->kernelSizeY,
+                                                       m->kernelSizeX,
+                                                       m->strideY,
+                                                       m->strideX,
+                                                       m->paddingY,
+                                                       m->paddingX);
     const auto numChannels = in.dim(1) * in.dim(4);
     const auto flops = maxpool::getNumFlops(batchSize,
                                             in.dim(2),
                                             in.dim(3),
                                             numChannels,
-                                            m->kernelSize,
-                                            m->stride,
-                                            m->padding);
+                                            m->kernelSizeY,
+                                            m->kernelSizeX,
+                                            m->strideY,
+                                            m->strideX,
+                                            m->paddingY,
+                                            m->paddingX);
     std::cout << "   -- Max pooling layer:\n"
-              << "        Size: " << m->kernelSize << "x"
-              << m->kernelSize << "\n"
-              << "        Stride: " << m->stride << "\n"
+              << "        Size: " << m->kernelSizeX << "x"
+              << m->kernelSizeY << "\n"
+              << "        Stride: " << m->strideX << "x" << m->strideY << "\n"
+              << "        Padding: " << m->paddingX << "x" << m->paddingY
+              <<   "\n"
               << "        Input:  " << in.dim(2) << "x" << in.dim(3)
               <<   "x" << numChannels << "\n"
               << "        Output: " << outDimY << "x" << outDimX
@@ -1005,9 +1016,12 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
       unsigned outDimY, outDimX;
       std::tie(outDimY, outDimX) = maxpool::getOutputDim(in.dim(2),
                                                          in.dim(3),
-                                                         m->kernelSize,
-                                                         m->stride,
-                                                         m->padding);
+                                                         m->kernelSizeY,
+                                                         m->kernelSizeX,
+                                                         m->strideY,
+                                                         m->strideX,
+                                                         m->paddingY,
+                                                         m->paddingX);
       acts[i + 1] = graph->addTensor(dType,
                                      {batchSize,
                                       in.dim(1),
@@ -1016,20 +1030,24 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                                      "activations." + std::to_string(i));
       mapActivations(*graph, acts[i + 1]);
       fwdProg.add(maxpool::maxPool(*graph,
-                                   m->kernelSize, m->stride, m->padding,
+                                   m->kernelSizeY, m->kernelSizeX,
+                                   m->strideY, m->strideX,
+                                   m->paddingY, m->paddingX,
                                    acts[i], acts[i + 1],
                                    layerPrefix));
       numFlops += maxpool::getNumFlops(batchSize,
                                        in.dim(2), in.dim(3),
                                        in.dim(1) * in.dim(4),
-                                       m->kernelSize,
-                                       m->stride, m->padding);
+                                       m->kernelSizeY, m->kernelSizeX,
+                                       m->strideY, m->strideX,
+                                       m->paddingY, m->paddingX);
       perfectCycleTime +=
           maxpool::getPerfectCycleCount(*graph, dType, batchSize,
                                         in.dim(2), in.dim(3),
                                         in.dim(1) * in.dim(4),
-                                        m->kernelSize,
-                                        m->stride, m->padding);
+                                        m->kernelSizeY, m->kernelSizeX,
+                                        m->strideY, m->strideX,
+                                        m->paddingY, m->paddingX);
     } else {
       assert(0 && "Unrecognized layer type");
     }
@@ -1117,9 +1135,11 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                                        layerPrefix));
       } else if (const auto *m = dynamic_cast<const MaxPoolLayer *>(layer)) {
         if (backwardPassRequired)
-          bwdProg.add(maxpool::maxPoolBackward(*graph, m->kernelSize, m->stride,
-                                               m->padding, acts[i],
-                                               acts[i + 1],
+          bwdProg.add(maxpool::maxPoolBackward(*graph,
+                                               m->kernelSizeY, m->kernelSizeX,
+                                               m->strideY, m->strideX,
+                                               m->paddingY, m->paddingX,
+                                               acts[i], acts[i + 1],
                                                deltas[i + 1], deltas[i],
                                                layerPrefix));
       } else if (const auto *r = dynamic_cast<const ResidualLayer *>(layer)) {

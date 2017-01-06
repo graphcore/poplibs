@@ -9,6 +9,8 @@
 #include <tuple>
 #include <iostream>
 
+using namespace convutil;
+
 // A simple function to memoize other functions. Any recursive calls
 // with the function are non memoized
 template <typename Ret, typename... Args>

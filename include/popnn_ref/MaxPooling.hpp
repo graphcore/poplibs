@@ -6,11 +6,15 @@
 namespace ref {
 namespace maxpool {
 
-void maxPooling(unsigned stride, unsigned kernelSize, unsigned padding,
+void maxPooling(unsigned strideHeight, unsigned strideWidth,
+                unsigned kernelHeight, unsigned kernelWidth,
+                unsigned paddingHeight, unsigned paddingWidth,
                 const boost::multi_array<double, 4> &in,
                 boost::multi_array<double, 4> &out);
 
-void maxPoolingBackward(unsigned stride, unsigned kernelSize, unsigned padding,
+void maxPoolingBackward(unsigned strideHeight, unsigned strideWidth,
+                        unsigned kernelHeight, unsigned kernelWidth,
+                        unsigned paddingHeight, unsigned paddingWidth,
                         const boost::multi_array<double, 4> &prevAct,
                         const boost::multi_array<double, 4> &nextAct,
                         const boost::multi_array<double, 4> &in,

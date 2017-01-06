@@ -2,16 +2,17 @@
 #include <popnn_ref/exceptions.hpp>
 #include <iostream>
 
-void ref::maxpool::maxPooling(unsigned stride, unsigned kernelSize,
-                              unsigned padding,
+void ref::maxpool::maxPooling(unsigned strideHeight, unsigned strideWidth,
+                              unsigned kernelHeight, unsigned kernelWidth,
+                              unsigned paddingHeight, unsigned paddingWidth,
                               const boost::multi_array<double, 4> &in,
                               boost::multi_array<double, 4> &out) {
   const auto batchSize = in.shape()[0];
   const auto channels = in.shape()[1];
   const auto inputHeight = in.shape()[2];
   const auto inputWidth = in.shape()[3];
-  const auto paddedHeight = inputHeight + 2 * padding;
-  const auto paddedWidth = inputWidth + 2 * padding;
+  const auto paddedHeight = inputHeight + 2 * paddingHeight;
+  const auto paddedWidth = inputWidth + 2 * paddingWidth;
 
   for (unsigned b = 0; b != batchSize; ++b) {
     boost::multi_array<double, 3>
@@ -21,19 +22,19 @@ void ref::maxpool::maxPooling(unsigned stride, unsigned kernelSize,
     for (unsigned c = 0; c != channels; ++c) {
       for (unsigned y = 0; y != inputHeight; ++y) {
         for (unsigned x = 0; x != inputWidth; ++x) {
-          paddedIn[c][y + padding][x + padding] = in[b][c][y][x];
+          paddedIn[c][y + paddingHeight][x + paddingWidth] = in[b][c][y][x];
         }
       }
     }
 
     // Perform pooling.
-    if (paddedHeight < kernelSize ||
-        paddedWidth < kernelSize) {
+    if (paddedHeight < kernelHeight ||
+        paddedWidth < kernelWidth) {
       throw popnn_ref::popnn_ref_error("Kernels larger than (padded) input "
                                        "not supported");
     }
-    const auto poolOutHeight = paddedHeight - (kernelSize - 1);
-    const auto poolOutWidth = paddedWidth - (kernelSize - 1);
+    const auto poolOutHeight = paddedHeight - (kernelHeight - 1);
+    const auto poolOutWidth = paddedWidth - (kernelWidth - 1);
     boost::multi_array<double, 3>
         poolOut(boost::extents[channels]
                               [poolOutHeight]
@@ -43,8 +44,8 @@ void ref::maxpool::maxPooling(unsigned stride, unsigned kernelSize,
       for (unsigned y = 0; y != poolOutHeight; ++y) {
         for (unsigned x = 0; x != poolOutWidth; ++x) {
           double v = std::numeric_limits<double>::lowest();
-          for (unsigned ky = 0; ky != kernelSize; ++ky) {
-            for (unsigned kx = 0; kx != kernelSize; ++kx) {
+          for (unsigned ky = 0; ky != kernelHeight; ++ky) {
+            for (unsigned kx = 0; kx != kernelWidth; ++kx) {
               v = std::max(v, paddedIn[c][y + ky][x + kx]);
             }
           }
@@ -54,8 +55,8 @@ void ref::maxpool::maxPooling(unsigned stride, unsigned kernelSize,
     }
 
     // Downsample.
-    const auto outHeight = (poolOutHeight + stride - 1) / stride;
-    const auto outWidth = (poolOutWidth + stride - 1) / stride;
+    const auto outHeight = (poolOutHeight + strideHeight - 1) / strideHeight;
+    const auto outWidth = (poolOutWidth + strideWidth - 1) / strideWidth;
     if (outHeight != out.shape()[2] ||
         outWidth != out.shape()[3]) {
       throw popnn_ref::popnn_ref_error("Output tensor dimensions do not match "
@@ -64,7 +65,7 @@ void ref::maxpool::maxPooling(unsigned stride, unsigned kernelSize,
     for (unsigned oc = 0; oc != channels; ++oc) {
       for (unsigned y = 0; y != outHeight; ++y) {
         for (unsigned x = 0; x != outWidth; ++x) {
-          out[b][oc][y][x] = poolOut[oc][y * stride][x * stride];
+          out[b][oc][y][x] = poolOut[oc][y * strideHeight][x * strideWidth];
         }
       }
     }
@@ -74,9 +75,9 @@ void ref::maxpool::maxPooling(unsigned stride, unsigned kernelSize,
 
 
 void ref::maxpool::maxPoolingBackward(
-    unsigned stride,
-    unsigned kernelSize,
-    unsigned padding,
+    unsigned strideHeight, unsigned strideWidth,
+    unsigned kernelHeight, unsigned kernelWidth,
+    unsigned paddingHeight, unsigned paddingWidth,
     const boost::multi_array<double, 4> &prevAct,
     const boost::multi_array<double, 4> &nextAct,
     const boost::multi_array<double, 4> &in,
@@ -92,8 +93,8 @@ void ref::maxpool::maxPoolingBackward(
     // Pad activations.
     const auto actHeight = prevAct.shape()[2];
     const auto actWidth = prevAct.shape()[3];
-    const auto paddedHeight = actHeight + 2 * padding;
-    const auto paddedWidth = actWidth + 2 * padding;
+    const auto paddedHeight = actHeight + 2 * paddingHeight;
+    const auto paddedWidth = actWidth + 2 * paddingWidth;
     boost::multi_array<double, 3>
         paddedActivations(boost::extents[channels][paddedHeight]
                                         [paddedWidth]);
@@ -103,7 +104,7 @@ void ref::maxpool::maxPoolingBackward(
     for (unsigned c = 0; c != channels; ++c) {
       for (unsigned y = 0; y != actHeight; ++y) {
         for (unsigned x = 0; x != actWidth; ++x) {
-          paddedActivations[c][y + padding][x + padding] =
+          paddedActivations[c][y + paddingHeight][x + paddingWidth] =
               prevAct[b][c][y][x];
         }
       }
@@ -111,10 +112,11 @@ void ref::maxpool::maxPoolingBackward(
 
     // Upsample.
     const auto upsampledHeight =
-        outputHeight + 2 * padding - (kernelSize - 1) ;
-    const auto upsampledWidth = outputWidth + 2 * padding - (kernelSize - 1);
-    if ((upsampledHeight + stride - 1)/ stride != inputHeight ||
-        (upsampledWidth + stride - 1)/ stride != inputWidth) {
+        outputHeight + 2 * paddingHeight - (kernelHeight - 1) ;
+    const auto upsampledWidth =
+        outputWidth + 2 * paddingWidth - (kernelWidth - 1);
+    if ((upsampledHeight + strideHeight - 1)/ strideHeight != inputHeight ||
+        (upsampledWidth + strideWidth - 1)/ strideWidth != inputWidth) {
       throw popnn_ref::popnn_ref_error("Output and input tensor dimensions "
                                        "do not match");
     }
@@ -127,10 +129,11 @@ void ref::maxpool::maxPoolingBackward(
     for (unsigned c = 0; c != channels; ++c) {
       for (unsigned y = 0; y != upsampledHeight; ++y) {
         for (unsigned x = 0; x != upsampledWidth; ++x) {
-          if (y % stride == 0 &&
-              x % stride == 0) {
-            upsampledIn[c][y][x] = in[b][c][y / stride][x / stride];
-            upsampledNextAct[c][y][x] = nextAct[b][c][y / stride][x / stride];
+          if (y % strideHeight == 0 &&
+              x % strideWidth == 0) {
+            upsampledIn[c][y][x] = in[b][c][y / strideHeight][x / strideWidth];
+            upsampledNextAct[c][y][x] =
+                nextAct[b][c][y / strideHeight][x / strideWidth];
           } else {
             upsampledIn[c][y][x] = 0;
             upsampledNextAct[c][y][x] =
@@ -142,8 +145,8 @@ void ref::maxpool::maxPoolingBackward(
 
     // Perform a full convolution with flipped weights.
     const auto outputChannels = out.shape()[1];
-    const auto poolOutHeight = upsampledHeight + kernelSize - 1;
-    const auto poolOutWidth = upsampledWidth + kernelSize - 1;
+    const auto poolOutHeight = upsampledHeight + kernelHeight - 1;
+    const auto poolOutWidth = upsampledWidth + kernelWidth - 1;
     if (poolOutHeight != paddedHeight ||
         poolOutWidth  != paddedWidth) {
       throw popnn_ref::popnn_ref_error("Deltas and activation tensor "
@@ -158,10 +161,10 @@ void ref::maxpool::maxPoolingBackward(
       for (unsigned y = 0; y != poolOutHeight; ++y) {
         for (unsigned x = 0; x != poolOutWidth; ++x) {
           double v = 0;
-          for (unsigned ky = 0; ky != kernelSize; ++ky) {
+          for (unsigned ky = 0; ky != kernelHeight; ++ky) {
             if (ky > y || (y - ky) >= upsampledHeight)
               continue;
-            for (unsigned kx = 0; kx != kernelSize; ++kx) {
+            for (unsigned kx = 0; kx != kernelWidth; ++kx) {
               if (kx > x || (x - kx) >= upsampledWidth)
                 continue;
               if (paddedActivations[c][y][x] ==
@@ -179,7 +182,7 @@ void ref::maxpool::maxPoolingBackward(
     for (unsigned c = 0; c != outputChannels; ++c) {
       for (unsigned y = 0; y != outputHeight; ++y) {
         for (unsigned x = 0; x != outputWidth; ++x) {
-          out[b][c][y][x] = poolOut[c][y + padding][x + padding];
+          out[b][c][y][x] = poolOut[c][y + paddingHeight][x + paddingWidth];
         }
       }
     }

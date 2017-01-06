@@ -15,6 +15,8 @@ add_benchmark(resnet34 resnet34.cpp)
 
 add_benchmark(resnet50 resnet50.cpp)
 
+add_benchmark(arxiv1701.00008 arxiv1701.00008.cpp)
+
 add_custom_command(
   OUTPUT
     run_benchmarks.py

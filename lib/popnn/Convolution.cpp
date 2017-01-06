@@ -17,6 +17,7 @@
 
 using namespace poplar;
 using namespace poplar::program;
+using namespace convutil;
 
 static void
 applyTensorMapping(
@@ -53,9 +54,8 @@ getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSizeY,
              unsigned kernelSizeX, unsigned strideY,
              unsigned strideX, unsigned paddingY,
              unsigned paddingX) {
-  unsigned outDimX = (inDimX + (paddingX * 2) - kernelSizeX) / strideX + 1;
-  unsigned outDimY = (inDimY + (paddingY * 2) - kernelSizeY) / strideY + 1;
-  return {outDimY, outDimX};
+  return convutil::getOutputDim(inDimY, inDimX, kernelSizeY, kernelSizeX,
+                                 strideY, strideX, paddingY, paddingX);
 }
 
 poplar::Tensor

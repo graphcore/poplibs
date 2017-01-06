@@ -8,34 +8,40 @@
 
 using namespace poplar;
 using namespace poplar::program;
+using namespace convutil;
 
 namespace maxpool {
 
 std::pair<unsigned, unsigned>
-getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSize,
-             unsigned stride, unsigned padding) {
-  unsigned outDimX = (inDimX + (padding * 2) - kernelSize) / stride + 1;
-  unsigned outDimY = (inDimY + (padding * 2) - kernelSize) / stride + 1;
-  return {outDimY, outDimX};
+getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSizeY,
+             unsigned kernelSizeX, unsigned strideY,
+             unsigned strideX, unsigned paddingY,
+             unsigned paddingX) {
+  return convutil::getOutputDim(inDimY, inDimX, kernelSizeY, kernelSizeX,
+                                strideY, strideX, paddingY, paddingX);
 }
 
 uint64_t getNumFlops(unsigned batchSize,
                      unsigned inDimY, unsigned inDimX,
-                     unsigned numChannels, unsigned kernelSize,
-                     unsigned stride, unsigned padding) {
+                     unsigned numChannels,
+                     unsigned kernelSizeY, unsigned kernelSizeX,
+                     unsigned strideY, unsigned strideX,
+                     unsigned paddingY, unsigned paddingX) {
   unsigned outDimY, outDimX;
   std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX,
-                                            kernelSize, stride, padding);
+                                            kernelSizeY, kernelSizeX,
+                                            strideY, strideX,
+                                            paddingY, paddingX);
   std::uint64_t numFlops = 0;
   for (unsigned y = 0; y < outDimY; ++y) {
     unsigned inYBegin, inYEnd;
-    std::tie(inYBegin, inYEnd) = getInputRange(y, stride, kernelSize,
-                                               padding, inDimY, false);
+    std::tie(inYBegin, inYEnd) = getInputRange(y, strideY, kernelSizeY,
+                                               paddingY, inDimY, false);
     const auto height = inYEnd - inYBegin;
     for (unsigned x = 0; x < outDimX; ++x) {
       unsigned inXBegin, inXEnd;
-      std::tie(inXBegin, inXEnd) = getInputRange(x, stride, kernelSize,
-                                                 padding, inDimX, false);
+      std::tie(inXBegin, inXEnd) = getInputRange(x, strideX, kernelSizeX,
+                                                 paddingX, inDimX, false);
       const auto width = inXEnd - inXBegin;
       numFlops += numChannels * width * height;
     }
@@ -46,28 +52,35 @@ uint64_t getNumFlops(unsigned batchSize,
 double getPerfectCycleCount(const Graph &graph,
                             std::string dType, unsigned batchSize,
                             unsigned inDimY, unsigned inDimX,
-                            unsigned numChannels, unsigned kernelSize,
-                            unsigned stride, unsigned padding) {
+                            unsigned numChannels,
+                            unsigned kernelSizeY, unsigned kernelSizeX,
+                            unsigned strideY, unsigned strideX,
+                            unsigned paddingY, unsigned paddingX) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   unsigned dTypeSize = dType == "float" ? 4 : 2;
   const auto numTiles = deviceInfo.getNumTiles();
   const auto numFLOPs = getNumFlops(batchSize,
-                                    inDimY, inDimX, numChannels, kernelSize,
-                                    stride, padding);
+                                    inDimY, inDimX,
+                                    numChannels,
+                                    kernelSizeY, kernelSizeX,
+                                    strideY, strideX,
+                                    paddingY, paddingX);
   const auto vectorWidth = deviceInfo.dataPathWidth / (8 * dTypeSize);
   return static_cast<double>(numFLOPs) / (vectorWidth * numTiles);
 }
 
 Program
 maxPool(Graph &graph,
-        unsigned kernelSize, unsigned stride, unsigned padding,
+        unsigned kernelSizeY, unsigned kernelSizeX,
+        unsigned strideY, unsigned strideX,
+        unsigned paddingY, unsigned paddingX,
         Tensor in, Tensor out, const std::string &debugPrefix) {
   const auto dType = graph.getTensorElementType(in);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto layerName = debugPrefix + "/MaxPool"
-                         + std::to_string(kernelSize) + "x"
-                         + std::to_string(kernelSize);
+                         + std::to_string(kernelSizeX) + "x"
+                         + std::to_string(kernelSizeY);
   const auto batchSize = in.dim(0);
   const auto prevNumChanGroups = in.dim(1);
   const auto prevChansPerGroup = in.dim(4);
@@ -80,7 +93,9 @@ maxPool(Graph &graph,
   unsigned inDimY = in.dim(2), inDimX = in.dim(3);
   unsigned outDimY, outDimX;
   std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX,
-                                            kernelSize, stride, padding);
+                                            kernelSizeY, kernelSizeX,
+                                            strideY, strideX,
+                                            paddingY, paddingX);
   assert(outDimY == out.dim(2));
   assert(outDimX == out.dim(3));
   const auto chunkSize = gcd<unsigned>(prevChansPerGroup, chansPerGroup);
@@ -109,12 +124,12 @@ maxPool(Graph &graph,
         unsigned y = (i / outDimX) % outDimY;
         unsigned chanGroup = i / (outDimY * outDimX);
         unsigned inYBegin, inYEnd;
-        std::tie(inYBegin, inYEnd) = getInputRange(y, stride, kernelSize,
-                                                   padding, inDimY, false);
+        std::tie(inYBegin, inYEnd) = getInputRange(y, strideY, kernelSizeY,
+                                                   paddingY, inDimY, false);
         const auto inYSize = inYEnd - inYBegin;
         unsigned inXBegin, inXEnd;
-        std::tie(inXBegin, inXEnd) = getInputRange(x, stride, kernelSize,
-                                                   padding, inDimX, false);
+        std::tie(inXBegin, inXEnd) = getInputRange(x, strideX, kernelSizeX,
+                                                   paddingX, inDimX, false);
         const auto inXSize = inXEnd - inXBegin;
         auto v =
           graph.addVertex(fwd, templateVertex("popnn::MaxPooling", dType),
@@ -148,7 +163,9 @@ maxPool(Graph &graph,
 
 Program
 maxPoolBackward(Graph &graph,
-                unsigned kernelSize, unsigned stride, unsigned padding,
+                unsigned kernelSizeY, unsigned kernelSizeX,
+                unsigned strideY, unsigned strideX,
+                unsigned paddingY, unsigned paddingX,
                 Tensor actIn, Tensor actOut,
                 Tensor deltasIn, Tensor deltasOut,
                 const std::string &debugPrefix) {
@@ -168,8 +185,8 @@ maxPoolBackward(Graph &graph,
 
   // "prev" refers to the layer nearer the input
   // "next" refers to the layer nearer the output
-  const auto layerName = debugPrefix + "/MaxPool" + std::to_string(kernelSize)
-                         + "x" + std::to_string(kernelSize);
+  const auto layerName = debugPrefix + "/MaxPool" + std::to_string(kernelSizeX)
+                         + "x" + std::to_string(kernelSizeY);
   const auto nextNumChanGroups = deltasIn.dim(1);
   const auto nextChansPerGroup = deltasIn.dim(4);
   const auto nextNumChannels = nextNumChanGroups * nextChansPerGroup;
@@ -186,7 +203,9 @@ maxPoolBackward(Graph &graph,
   const auto xDimNext = deltasIn.dim(3);
   unsigned calcNextX, calcNextY;
   std::tie(calcNextY, calcNextX) = getOutputDim(yDimPrev, xDimPrev,
-                                                kernelSize, stride, padding);
+                                                kernelSizeY, kernelSizeX,
+                                                strideY, strideX,
+                                                paddingY, paddingX);
   assert(calcNextY == yDimNext);
   assert(calcNextX == xDimNext);
   // The input and output tensors may have different group sizes
@@ -232,10 +251,10 @@ maxPoolBackward(Graph &graph,
         unsigned chanBase = chunkSize *
           (chunk % prevChunksPerChanGroup
            + groupBase * prevChunksPerChanGroup);
-        auto nextYRange = getInputRange(yPrev, stride, kernelSize,
-                                        padding, yDimNext, true);
-        auto nextXRange = getInputRange(xPrev, stride, kernelSize,
-                                        padding, xDimNext, true);
+        auto nextYRange = getInputRange(yPrev, strideY, kernelSizeY,
+                                        paddingY, yDimNext, true);
+        auto nextXRange = getInputRange(xPrev, strideX, kernelSizeX,
+                                        paddingX, xDimNext, true);
         const auto nextYSize = nextYRange.second - nextYRange.first;
         const auto nextXSize = nextXRange.second - nextXRange.first;
         if (nextXSize * nextYSize == 0)

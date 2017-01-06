@@ -7,6 +7,8 @@
 /// ranges when moving a 2-dimensional kernel over a larger 2-dimensional
 /// space (e.g. in convolution or pooling layers
 
+namespace convutil {
+
 /// Return the index of the input that is associated with the specified
 /// kernel index to be incorporated into the specified output.
 /// Return ~0U if there is no
@@ -74,4 +76,11 @@ std::vector<std::vector<PartialRow>>
 partitionConvPartialByWorker(unsigned numConvolutions, unsigned convSize,
                              unsigned numContexts, unsigned stride);
 
+std::pair<unsigned, unsigned>
+getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSizeY,
+             unsigned kernelSizeX,
+             unsigned strideY, unsigned strideX, unsigned paddingY,
+             unsigned paddingX);
+
+}
 #endif // _ConvUtil_hpp_

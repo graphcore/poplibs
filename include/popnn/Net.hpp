@@ -73,15 +73,31 @@ public:
 
 class MaxPoolLayer : public Layer {
 public:
-  unsigned kernelSize;
-  unsigned stride;
-  unsigned padding;
+  unsigned kernelSizeY;
+  unsigned kernelSizeX;
+  unsigned strideY;
+  unsigned strideX;
+  unsigned paddingY;
+  unsigned paddingX;
   MaxPoolLayer(unsigned kernelSize,
                unsigned stride,
                unsigned padding=0) :
-  kernelSize(kernelSize),
-  stride(stride),
-  padding(padding) {}
+  kernelSizeY(kernelSize),
+  kernelSizeX(kernelSize),
+  strideY(stride),
+  strideX(stride),
+  paddingY(padding),
+  paddingX(padding) {}
+
+  MaxPoolLayer(std::array<unsigned, 2> kernelSize,
+               std::array<unsigned, 2> stride,
+               std::array<unsigned, 2> padding={0,0}) :
+  kernelSizeY(kernelSize[0]),
+  kernelSizeX(kernelSize[1]),
+  strideY(stride[0]),
+  strideX(stride[1]),
+  paddingY(padding[0]),
+  paddingX(padding[1]) {}
 };
 
 class FullyConnectedLayer : public Layer {

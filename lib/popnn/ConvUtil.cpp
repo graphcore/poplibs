@@ -1,6 +1,8 @@
 #include "ConvUtil.hpp"
 #include <cassert>
 
+namespace convutil {
+
 unsigned
 getInputIndex(unsigned outputIndex, unsigned stride, unsigned kernelSize,
               unsigned padding, unsigned inputSize, unsigned kernelIndex,
@@ -214,3 +216,15 @@ partitionConvPartialByWorker(unsigned numConvolutions, unsigned convSize,
   }
   return partitionByWorker;
 }
+
+std::pair<unsigned, unsigned>
+getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSizeY,
+             unsigned kernelSizeX, unsigned strideY,
+             unsigned strideX, unsigned paddingY,
+             unsigned paddingX) {
+  unsigned outDimX = (inDimX + (paddingX * 2) - kernelSizeX) / strideX + 1;
+  unsigned outDimY = (inDimY + (paddingY * 2) - kernelSizeY) / strideY + 1;
+  return {outDimY, outDimX};
+}
+
+} // namespace convutil

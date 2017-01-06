@@ -32,8 +32,8 @@ int main(int argc, char **argv) {
   unsigned kernelWidth;
   unsigned paddingHeight;
   unsigned paddingWidth;
-  unsigned strideH;
-  unsigned strideW;
+  unsigned strideHeight;
+  unsigned strideWidth;
   unsigned fwdChansPerGroup;
   unsigned bwdChansPerGroup;
   unsigned batchSize;
@@ -81,9 +81,9 @@ int main(int argc, char **argv) {
     ("stride", po::value<unsigned>(&stride)->default_value(1),
      "Kernel stride for both height and width. If set, it is an error "
      "to also set either stride-height and/or stride-width")
-    ("stride-height", po::value<unsigned>(&strideH)->default_value(1),
+    ("stride-height", po::value<unsigned>(&strideHeight)->default_value(1),
      "Kernel stride in the height dimension")
-    ("stride-width", po::value<unsigned>(&strideW)->default_value(1),
+    ("stride-width", po::value<unsigned>(&strideWidth)->default_value(1),
      "Kernel stride in the width dimension")
 
     ("fwd-chans-per-group",
@@ -156,31 +156,8 @@ int main(int argc, char **argv) {
       std::cerr << "--stride as well as --stride-width set\n";
       return 1;
     }
-    strideH = stride;
-    strideW = stride;
-  }
-
-  if (kernelHeight != kernelWidth) {
-    std::cerr << "Max pooling cannot handle non-square kernels\n";
-    return 1;
-  } else {
-    kernelSize = kernelHeight;
-  }
-
-  if (paddingHeight != paddingWidth) {
-    std::cerr << "Max pooling cannot handle different width padding to "
-                 "height padding\n";
-    return 1;
-  } else {
-    padding = paddingHeight;
-  }
-
-  if (strideH != strideW) {
-    std::cerr << "Max pooling cannot handle different width stride "
-                 "to height stride\n";
-    return 1;
-  } else {
-    stride = strideH;
+    strideHeight = stride;
+    strideWidth = stride;
   }
 
   bool inferenceOnly = vm.count("inference-only");
@@ -204,7 +181,10 @@ int main(int argc, char **argv) {
       bwdChansPerGroup = 1;
   }
   const auto outDims =
-      maxpool::getOutputDim(height, width, kernelSize, stride, padding);
+      maxpool::getOutputDim(height, width,
+                            kernelHeight, kernelWidth,
+                            strideHeight, strideWidth,
+                            paddingHeight, paddingWidth);
   const auto outHeight = outDims.first;
   const auto outWidth = outDims.second;
   // Create tensors.
@@ -257,13 +237,19 @@ int main(int argc, char **argv) {
   }
 
   auto fwdProg = Sequence();
-  fwdProg.add(maxpool::maxPool(graph, kernelSize, stride, padding,
+  fwdProg.add(maxpool::maxPool(graph,
+                               kernelHeight, kernelWidth,
+                               strideHeight, strideWidth,
+                               paddingHeight, paddingWidth,
                                prevAct, nextAct));
 
   auto bwdProg = Sequence();
   if (!inferenceOnly) {
     bwdProg.add(
-          maxpool::maxPoolBackward(graph, kernelSize, stride, padding,
+          maxpool::maxPoolBackward(graph,
+                                   kernelHeight, kernelWidth,
+                                   strideHeight, strideWidth,
+                                   paddingHeight, paddingWidth,
                                    prevAct, nextAct, zDeltas, prevDeltas)
     );
   }
@@ -289,8 +275,10 @@ int main(int argc, char **argv) {
                      hostNextAct);
   boost::multi_array<double, 4>
       modelNextAct(boost::extents[batchSize][chans][outHeight][outWidth]);
-  ref::maxpool::maxPooling(stride, kernelSize, padding, hostPrevAct,
-                           modelNextAct);
+  ref::maxpool::maxPooling(strideHeight, strideWidth,
+                           kernelHeight, kernelWidth,
+                           paddingHeight, paddingWidth,
+                           hostPrevAct, modelNextAct);
   bool matchesModel = checkIsClose("fwd", hostNextAct, modelNextAct,
                                    relativeTolerance);
 
@@ -316,7 +304,9 @@ int main(int argc, char **argv) {
     // Validate against a reference model.
     boost::multi_array<double, 4>
         modelPrevDeltas(boost::extents[batchSize][chans][height][width]);
-    ref::maxpool::maxPoolingBackward(stride, kernelSize, padding,
+    ref::maxpool::maxPoolingBackward(strideHeight, strideWidth,
+                                     kernelHeight, kernelWidth,
+                                     paddingHeight, paddingWidth,
                                      hostPrevAct, modelNextAct,
                                      hostZDeltas, modelPrevDeltas);
     matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
