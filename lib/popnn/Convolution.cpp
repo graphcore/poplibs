@@ -2304,20 +2304,26 @@ convolutionWeightUpdateAop(Graph &graph,
 
   Tensor weightDeltas;
   auto numPartials = batchSize * tilesPerY * tilesPerX;
-  if (numPartials == 1) {
+  if (numPartials == 1 && partialsType == dType) {
     weightDeltas = partials[0][0][0];
   } else {
-    /** The reduction of weights is not performed where the weights are
-     *  stored in the weight tensor. This causes some output exchange
-     *  after the reduction but allows balancing of compute.
-     */
+    std::vector<std::vector<std::pair<unsigned,unsigned>>> weightDeltaMapping;
     auto reduceCS = graph.createComputeSet(layerName + "/Reduce");
-    weightDeltas = graph.addTensor(partialsType, weights.dims(),
+    weightDeltas = graph.addTensor(dType, weights.dims(),
                                    layerName + "/WeightDeltas");
-    const auto weightDeltaMapping =
-        convertLinearMappingToRegionMapping(
-          computeTensorMapping(graph, weightDeltas)
-        );
+    if (numPartials == 1) {
+      weightDeltaMapping = calculateWeightMapping(weights, graph, plan,
+                                                  batchSize);
+    } else {
+      /** The reduction of weights is not performed where the weights are
+       *  stored in the weight tensor. This causes some output exchange
+       *  after the reduction but allows balancing of compute.
+       */
+      weightDeltaMapping =
+          convertLinearMappingToRegionMapping(
+            computeTensorMapping(graph, weightDeltas)
+          );
+    }
     applyTensorMapping(graph, weightDeltas, weightDeltaMapping);
     auto flatPartialsDims = weightDeltas.dims();
     flatPartialsDims.insert(flatPartialsDims.begin(), numPartials);
@@ -2352,7 +2358,7 @@ convolutionWeightUpdateAop(Graph &graph,
       for (unsigned i = 0, numRegions = regions.size(); i != numRegions; ++i) {
         const auto v = graph.addVertex(addCS,
                                        templateVertex("popnn::ConvWeightUpdate",
-                                                      dType, partialsType));
+                                                      dType, dType));
         graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
         graph.setInitialValue(v["eta"], learningRate);
         graph.connect(v["weights"], weightsFlattened.slice(regions[i].first,
