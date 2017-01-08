@@ -2358,13 +2358,12 @@ convolutionWeightUpdateAop(Graph &graph,
       for (unsigned i = 0, numRegions = regions.size(); i != numRegions; ++i) {
         const auto v = graph.addVertex(addCS,
                                        templateVertex("popnn::ConvWeightUpdate",
-                                                      dType, dType));
+                                                      dType));
         graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
         graph.setInitialValue(v["eta"], learningRate);
         graph.connect(v["weights"], weightsFlattened.slice(regions[i].first,
                                                            regions[i].second));
-        graph.setFieldSize(v["partials"], 1);
-        graph.connect(v["partials"][0],
+        graph.connect(v["weightDeltas"],
             weightDeltasFlattened.slice(regions[i].first, regions[i].second));
         graph.setTileMapping(v, tile);
       }
@@ -2594,13 +2593,12 @@ convolutionWeightUpdateAmp(Graph &graph,
       for (unsigned i = 0, numRegions = regions.size(); i != numRegions; ++i) {
         const auto v = graph.addVertex(addCS,
                                        templateVertex("popnn::ConvWeightUpdate",
-                                                      dType, weightDeltasType));
+                                                      dType));
         graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
         graph.setInitialValue(v["eta"], learningRate);
         graph.connect(v["weights"], weightsFlattened.slice(regions[i].first,
                                                            regions[i].second));
-        graph.setFieldSize(v["partials"], 1);
-        graph.connect(v["partials"][0],
+        graph.connect(v["weightDeltas"],
             weightDeltasFlattened.slice(regions[i].first, regions[i].second));
         graph.setTileMapping(v, tile);
       }

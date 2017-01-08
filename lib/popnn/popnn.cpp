@@ -508,10 +508,10 @@ template class ConvWeightGradAop<float, float>;
 template class ConvWeightGradAop<half, float>;
 template class ConvWeightGradAop<half, half>;
 
-template <typename WeightType, typename PartialsType>
+template <typename WeightType>
 class ConvWeightUpdate : public Vertex {
 public:
-  Vector<Input<Vector<PartialsType>>> partials;
+  Input<Vector<WeightType>> weightDeltas;
   InOut<Vector<WeightType>> weights;
 
   float eta;
@@ -520,29 +520,22 @@ public:
 
   bool compute() {
     for (unsigned w = 0; w < weights.size(); ++w) {
-      float sum = 0;
-      for (unsigned i = 0; i < partials.size(); ++i) {
-        assert(w < partials[i].size());
-        sum += partials[i][w];
-      }
-      weights[w] -= eta * sum;
+      weights[w] -= eta * weightDeltas[w];
     }
     return true;
   }
 
   uint64_t getCycleEstimate() const {
-    unsigned numPartials = partials.size();
     unsigned numElem = weights.size();
-    bool isFloat = std::is_same<PartialsType, float>::value;
+    bool isFloat = std::is_same<WeightType, float>::value;
     unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    return 4 +
-           2 * numPartials * (1 + (numElem + vectorWidth - 1) / vectorWidth);
+    // Inner loop uses the axpy instruction.
+    return 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth);
   }
 };
 
-template class ConvWeightUpdate<float, float>;
-template class ConvWeightUpdate<half, half>;
-template class ConvWeightUpdate<half, float>;
+template class ConvWeightUpdate<float>;
+template class ConvWeightUpdate<half>;
 
 
 template <typename FPType>
