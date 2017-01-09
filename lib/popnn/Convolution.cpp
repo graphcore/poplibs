@@ -2307,23 +2307,12 @@ convolutionWeightUpdateAop(Graph &graph,
   if (numPartials == 1 && partialsType == dType) {
     weightDeltas = partials[0][0][0];
   } else {
-    std::vector<std::vector<std::pair<unsigned,unsigned>>> weightDeltaMapping;
     auto reduceCS = graph.createComputeSet(layerName + "/Reduce");
     weightDeltas = graph.addTensor(dType, weights.dims(),
                                    layerName + "/WeightDeltas");
-    if (numPartials == 1) {
+    const auto
       weightDeltaMapping = calculateWeightMapping(weights, graph, plan,
                                                   batchSize);
-    } else {
-      /** The reduction of weights is not performed where the weights are
-       *  stored in the weight tensor. This causes some output exchange
-       *  after the reduction but allows balancing of compute.
-       */
-      weightDeltaMapping =
-          convertLinearMappingToRegionMapping(
-            computeTensorMapping(graph, weightDeltas)
-          );
-    }
     applyTensorMapping(graph, weightDeltas, weightDeltaMapping);
     auto flatPartialsDims = weightDeltas.dims();
     flatPartialsDims.insert(flatPartialsDims.begin(), numPartials);
