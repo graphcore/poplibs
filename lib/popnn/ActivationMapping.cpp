@@ -69,15 +69,18 @@ void mapActivations(poplar::Graph &graph, poplar::Tensor act) {
 }
 
 std::vector<unsigned> computeTensorMapping(const poplar::Graph &graph,
-                                           poplar::Tensor t)
+                                           poplar::Tensor t,
+                                           unsigned grainSize)
 {
   const auto numElements = t.numElements();
+  const auto numGroups = (numElements + grainSize - 1) / grainSize;
   const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
   std::vector<unsigned> mapping;
   mapping.reserve(numTiles + 1);
   mapping.emplace_back(0);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
-    const auto end = (numElements * (tile + 1)) / numTiles;
+    const auto end = std::min((numGroups * (tile + 1)) / numTiles * grainSize,
+                              numElements);
     mapping.emplace_back(end);
   }
   mapping.resize(numTiles + 1, mapping.back());
