@@ -1,6 +1,8 @@
 #include "Reduce.hpp"
 
 #include <algorithm>
+#include <numeric>
+
 #include "Cast.hpp"
 #include "popnn/ActivationMapping.hpp"
 #include "Util.hpp"
