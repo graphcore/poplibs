@@ -2308,7 +2308,7 @@ convolutionWeightUpdateAop(Graph &graph,
     weightDeltas = partials[0][0][0];
   } else {
     auto reduceCS = graph.createComputeSet(layerName + "/Reduce");
-    weightDeltas = graph.addTensor(partialsType, weights.shape(),
+    weightDeltas = graph.addTensor(dType, weights.shape(),
                                    layerName + "/WeightDeltas");
     const auto
       weightDeltaMapping = calculateWeightMapping(weights, graph, plan,
