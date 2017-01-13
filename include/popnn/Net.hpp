@@ -91,7 +91,7 @@ public:
 
   MaxPoolLayer(std::array<unsigned, 2> kernelSize,
                std::array<unsigned, 2> stride,
-               std::array<unsigned, 2> padding={0,0}) :
+               std::array<unsigned, 2> padding={{0,0}}) :
   kernelSizeY(kernelSize[0]),
   kernelSizeX(kernelSize[1]),
   strideY(stride[0]),
