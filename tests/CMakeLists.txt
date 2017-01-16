@@ -147,10 +147,22 @@ add_test(NAME conv1x1_stride_3_fwd
                   --kernel-size=3
                   --batch-size=2)
 
-add_test(NAME small_conv_many_tiles
+# This test is disabled since the planner chooses a strategy that
+# is not yet implemented (see T841)
+#add_test(NAME small_conv_many_tiles_1x1
+#         COMMAND single_conv_layer
+#                 --input-channels=32
+#                 --output-channels=32
+#                 --width=14
+#                 --height=14
+#                 --partials-type=float
+#                 --tiles-per-ipu=1216)
+
+add_test(NAME small_conv_many_tiles_3x3
          COMMAND single_conv_layer
                  --input-channels=32
                  --output-channels=32
+                 --kernel-size 3
                  --width=14
                  --height=14
                  --partials-type=float
