@@ -5,6 +5,12 @@
 
 namespace conv {
 
+// Switches to control the planning of Convolutional layers
+class PlanControl {
+public:
+  bool forceAOPForWU = false;
+};
+
 struct Plan {
   unsigned tilesPerXAxis;
   unsigned tilesPerYAxis;
@@ -56,7 +62,8 @@ public:
                   unsigned numChannels, unsigned batchSize,
                   std::string dType,
                   std::string partialsType, bool isFractional,
-                  const poplar::Graph &graph);
+                  const poplar::Graph &graph,
+                  const conv::PlanControl &planControl);
   Plan createWeightUpdatePlan(unsigned inDimY, unsigned inDimX,
                               unsigned inNumChans,
                               unsigned actChansPerGroup,
@@ -68,7 +75,8 @@ public:
                               unsigned numChannels, unsigned batchSize,
                               std::string dType,
                               std::string partialsType, bool isFractional,
-                              const poplar::Graph &graph);
+                              const poplar::Graph &graph,
+                              const PlanControl &planControl);
   Planner(unsigned percentageCyclesExcessForMemOptim = 0);
   ~Planner();
 };

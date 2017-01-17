@@ -54,6 +54,7 @@ int main(int argc, char **argv) {
   unsigned padding;
   unsigned stride;
   unsigned percentageCyclesExcessForMemOptim;
+  conv::PlanControl convPlanControl;
 
   po::options_description desc("Options");
   desc.add_options()
@@ -126,6 +127,12 @@ int main(int argc, char **argv) {
      )->default_value(0),
      "Percentage cycles excess to use for memory optimisation. "
      "if 0, no memory optimisation is performed")
+    ("force-aop",
+     po::value<bool>(
+         &convPlanControl.forceAOPForWU
+         )->default_value(false),
+     "Force AOP usage for the weight update calculation. "
+     "If false a heuristic is used")
   ;
   po::variables_map vm;
   try {
@@ -200,7 +207,7 @@ int main(int argc, char **argv) {
                                     paddingHeight, paddingWidth,
                                     fwdOutChans, batchSize,
                                     dataTypeStr, partialsTypeStr,
-                                    false, graph);
+                                    false, graph, convPlanControl);
   bool bwdIsFractional = strideH != 1 || strideW != 1;
   if (paddingHeight >= kernelHeight || paddingWidth >= kernelWidth) {
     throw popnn::popnn_error("Backwards convolution pass does not support "
@@ -218,7 +225,7 @@ int main(int argc, char **argv) {
                                     bwdPaddingHeight, bwdPaddingWidth,
                                     fwdInChans, batchSize,
                                     dataTypeStr, partialsTypeStr,
-                                    bwdIsFractional, graph);
+                                    bwdIsFractional, graph, convPlanControl);
   auto fwdInChansPerGroup = fwdPlan.inChansPerGroup;
   // If the output grouping is unspecified, assume the output uses the same
   // grouping as the input unless that is impossible.
@@ -245,7 +252,7 @@ int main(int argc, char **argv) {
                                                paddingHeight, paddingWidth,
                                                fwdOutChans, batchSize,
                                                dataTypeStr, partialsTypeStr,
-                                               false, graph);
+                                               false, graph, convPlanControl);
 
   // Create tensors.
   Tensor prevAct = graph.addTensor(dataTypeStr,

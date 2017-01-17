@@ -993,14 +993,17 @@ static std::vector<ConvVertexType>
 getWeightUpdateVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
                                     bool floatActivations,
                                     bool floatPartials,
-                                    const ConvolutionParams &params) {
+                                    const ConvolutionParams &params,
+                                    const PlanControl &planControl) {
   std::vector<ConvVertexType> convVertexTypeCandidates;
-  if (getConvUnitsPerTile(deviceInfo, floatActivations, floatPartials) > 0) {
-    convVertexTypeCandidates.emplace_back(true, floatActivations,
-                                          floatPartials);
-  } else if (!floatActivations && !floatPartials &&
-             deviceInfo.fp16InFp32OutConvUnitsPerTile > 0) {
-    convVertexTypeCandidates.emplace_back(true, false, true);
+  if (!planControl.forceAOPForWU) {
+    if (getConvUnitsPerTile(deviceInfo, floatActivations, floatPartials) > 0) {
+      convVertexTypeCandidates.emplace_back(true, floatActivations,
+                                            floatPartials);
+    } else if (!floatActivations && !floatPartials &&
+               deviceInfo.fp16InFp32OutConvUnitsPerTile > 0) {
+      convVertexTypeCandidates.emplace_back(true, false, true);
+    }
   }
   convVertexTypeCandidates.emplace_back(false, floatActivations, floatPartials);
   return convVertexTypeCandidates;
@@ -1164,13 +1167,15 @@ choosePlan(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
            const ConvolutionParams &params,
            unsigned batchesPerGroup,
            CostBounds costBounds,
-           PlannerCache *cache) {
+           PlannerCache *cache,
+           const PlanControl &planControl) {
   Cost bestCost = highestCost;
   Plan bestPlan;
   const auto convVertexTypeCandidates =
       params.isWeightUpdate
         ? getWeightUpdateVertexTypeCandidates(deviceInfo, floatActivations,
-                                              floatPartials, params)
+                                              floatPartials, params,
+                                              planControl)
         : getConvVertexTypeCandidates(deviceInfo, floatActivations,
                                       floatPartials, params);
   for (const auto &convVertexType : convVertexTypeCandidates) {
@@ -1204,6 +1209,7 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
            std::string dType,
            std::string partialsType, bool isFractional,
            bool isWeightUpdate,
+           const PlanControl &planControl,
            const CostBounds costBounds,
            const poplar::Graph &graph,
            PlannerCache *cache) {
@@ -1258,7 +1264,8 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                    params,
                    batchesPerGroup,
                    costBounds,
-                   cache);
+                   cache,
+                   planControl);
     if (compareCost(candidateCost, bestCandidateCost, costBounds)) {
       bestCandidateCost = candidateCost;
       bestCandidate = candidate;
@@ -1276,7 +1283,8 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
            unsigned numChannels, unsigned batchSize,
            std::string dType, std::string partialsType,
            bool isFractional,
-           const poplar::Graph &graph) {
+           const poplar::Graph &graph,
+           const conv::PlanControl &planControl) {
   Plan plan;
   Cost cost;
   CostBounds costBounds(0, 0);
@@ -1286,7 +1294,7 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                                           strideY, strideX, paddingY, paddingX,
                                           numChannels, batchSize, dType,
                                           partialsType,
-                                          isFractional, false,
+                                          isFractional, false, planControl,
                                           costBounds, graph,
                                           cache.get());
   if (percentageCyclesExcessForMemOptim) {
@@ -1303,7 +1311,7 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                                             paddingY, paddingX,
                                             numChannels, batchSize, dType,
                                             partialsType,
-                                            isFractional, false,
+                                            isFractional, false, planControl,
                                             newCostBounds, graph,
                                             cache.get());
 
@@ -1321,7 +1329,8 @@ createWeightUpdatePlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                        unsigned numChannels, unsigned batchSize,
                        std::string dType, std::string partialsType,
                        bool isFractional,
-                       const poplar::Graph &graph) {
+                       const poplar::Graph &graph,
+                       const PlanControl &planControl) {
   Plan plan;
   Cost cost;
   CostBounds costBounds(0, 0);
@@ -1332,7 +1341,8 @@ createWeightUpdatePlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                                           kernelSizeY, kernelSizeX,
                                           strideY, strideX, paddingY, paddingX,
                                           numChannels, batchSize, dType,
-                                          partialsType, isFractional, true,
+                                          partialsType, isFractional,
+                                          true, planControl,
                                           costBounds, graph, cache.get());
   return plan;
 }

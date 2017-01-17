@@ -103,6 +103,12 @@ bool parseCommandLine(int argc, char **argv, NetOptions &options,
      )->default_value(0),
      "Percentage cycles excess to use for memory optimisation. "
      "if 0, no memory optimisation is performed")
+    ("force-aop",
+     po::value<bool>(
+         &options.convPlanControl.forceAOPForWU
+     )->default_value(false),
+     "Force AOP usage for the weight update calculation. "
+     "If false a heuristic is used")
   ;
   po::variables_map vm;
   try {
@@ -311,7 +317,8 @@ Net::getFwdConvPlan(unsigned i, unsigned inDimY, unsigned inDimX,
                          c->strideY, c->strideX, c->paddingY,
                          c->paddingX,
                          c->numChannels, batchSize, dType,
-                         partialsType, false, *graph);
+                         partialsType, false, *graph,
+                         options.convPlanControl);
 
   fwdConvPlans.emplace(i, plan);
   return plan;
@@ -344,7 +351,8 @@ Net::getBwdConvPlan(unsigned i, unsigned prevDimY, unsigned prevDimX,
                             c->strideY, c->strideX,
                             paddingY, paddingX,
                             prevNumChans, batchSize, dType,
-                            partialsType, isFractional, *graph);
+                            partialsType, isFractional, *graph,
+                            options.convPlanControl);
   bwdConvPlans.emplace(i, plan);
   return plan;
 }
@@ -367,7 +375,7 @@ Net::getWuConvPlan(unsigned i, unsigned prevDimY, unsigned prevDimX,
                                      c->kernelSizeX, c->strideY, c->strideX,
                                      c->paddingY, c->paddingX, c->numChannels,
                                      batchSize, dType, partialsType, false,
-                                     *graph);
+                                     *graph, options.convPlanControl);
   wuConvPlans.emplace(i, plan);
   return plan;
 }

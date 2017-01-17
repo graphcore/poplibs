@@ -172,6 +172,7 @@ public:
    *    < C_opt * (100 + percentageCyclesExcessForMemOptim)/100
    */
   unsigned percentageCyclesExcessForMemOptim = 0;
+  conv::PlanControl convPlanControl;
 };
 
 bool parseCommandLine(int argc, char **argv, NetOptions &options,
