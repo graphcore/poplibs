@@ -1029,6 +1029,51 @@ getInChansPerGroupCandidates(const ConvolutionParams &params,
   return candidates;
 }
 
+static Cost
+estimateWeightUpdateByAopReorderCost(const poplar::DeviceInfo &deviceInfo,
+                                     unsigned tensorOutChansPerGroup,
+                                     unsigned tensorWeightOutChansPerGroup,
+                                     bool floatActivations,
+                                     const ConvolutionParams &params,
+                                     unsigned partialChansPerGroup) {
+  const auto numTiles = deviceInfo.getNumTiles();
+  const auto bytesPerElement = floatActivations ? 4U : 2U;
+  const auto reorderBytesPerCycle =
+      std::min(deviceInfo.memcpyBytesPerCycle, bytesPerElement);
+  const auto exchangeBytesPerCycle = deviceInfo.exchangeBytesPerCycle;
+  auto reorderBytesPre = 0;
+  if (partialChansPerGroup != tensorOutChansPerGroup) {
+    // Reorder deltas.
+    const auto numDeltas = params.batchSize *
+                                 params.outputDepth *
+                                 params.getOutputHeight() *
+                                 params.getOutputWidth();
+    reorderBytesPre += numDeltas * bytesPerElement;
+  }
+  auto reorderBytesPost = 0;
+  if (partialChansPerGroup != tensorWeightOutChansPerGroup) {
+    // Reorder weight deltas.
+    const auto numWeightDeltas = params.kernelSizeY *
+                                 params.kernelSizeX *
+                                 params.inputDepth *
+                                 params.outputDepth;
+    reorderBytesPost += numWeightDeltas * bytesPerElement;
+  }
+  const auto reorderBytesTilePre = (reorderBytesPre + numTiles - 1) / numTiles;
+  const auto reorderBytesTilePost = (reorderBytesPost + numTiles - 1) /
+                                    numTiles;
+  unsigned cycles = 0;
+  cycles += (reorderBytesTilePre + exchangeBytesPerCycle - 1) /
+            exchangeBytesPerCycle;
+  cycles += (reorderBytesTilePre + reorderBytesPerCycle - 1) /
+            reorderBytesPerCycle;
+  cycles += (reorderBytesTilePost + exchangeBytesPerCycle - 1) /
+            exchangeBytesPerCycle;
+  cycles += (reorderBytesTilePost + reorderBytesPerCycle - 1) /
+            reorderBytesPerCycle;
+  return {cycles, 0};
+}
+
 static std::pair<Plan, Cost>
 choosePlan(const poplar::DeviceInfo &deviceInfo,
            const ConvVertexType &convVertexType,
@@ -1041,18 +1086,44 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
            PlannerCache *cache) {
   Plan best;
   Cost bestCost = highestCost;
+  if (params.isWeightUpdate && !convVertexType.useConvInstruction) {
+    // Use the existing channel grouping to avoid the need to regroup the
+    // activations.
+    assert(tensorInChansPerGroup != 0);
+    assert(tensorOutChansPerGroup != 0);
+    assert(tensorWeightOutChansPerGroup != 0);
+    const auto inChansPerGroup = tensorInChansPerGroup;
+    std::vector<unsigned> partialChansPerGroupCandidates = {
+      tensorOutChansPerGroup,
+      tensorWeightOutChansPerGroup
+    };
+    for (auto partialChansPerGroup : partialChansPerGroupCandidates) {
+      Plan candidate;
+      Cost candidateCost;
+      std::tie(candidate, candidateCost) =
+          choosePlan(deviceInfo, inChansPerGroup, partialChansPerGroup,
+                     convVertexType, params, batchesPerGroup, costBounds,
+                     cache);
+      candidateCost +=
+          estimateWeightUpdateByAopReorderCost(deviceInfo,
+                                               tensorOutChansPerGroup,
+                                               tensorWeightOutChansPerGroup,
+                                               convVertexType.floatActivations,
+                                               params,
+                                               partialChansPerGroup);
+     if (compareCost(candidateCost, bestCost, costBounds)) {
+        best = candidate;
+        bestCost = candidateCost;
+      }
+    }
+    return {best, bestCost};
+  }
   std::vector<unsigned> inChansPerGroupCandidates;
   if (params.isWeightUpdate) {
-    if (convVertexType.useConvInstruction) {
-      inChansPerGroupCandidates.push_back(
-        deviceInfo.getWeightsPerConvUnit(convVertexType.floatActivations)
-      );
-    } else {
-      // Use the existing channel grouping to avoid the need to regroup the
-      // activations and the weight deltas.
-      assert(tensorInChansPerGroup != 0);
-      inChansPerGroupCandidates.push_back(tensorInChansPerGroup);
-    }
+    assert(convVertexType.useConvInstruction);
+    inChansPerGroupCandidates.push_back(
+      deviceInfo.getWeightsPerConvUnit(convVertexType.floatActivations)
+    );
   } else {
     assert(tensorInChansPerGroup == 0);
     assert(tensorOutChansPerGroup == 0);
@@ -1066,12 +1137,8 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                                            convVertexType.floatPartials,
                                            deviceInfo);
   } else {
-    if (params.isWeightUpdate) {
-      assert(tensorWeightOutChansPerGroup != 0);
-      partialChansPerGroup = tensorWeightOutChansPerGroup;
-    } else {
-      partialChansPerGroup = 1;
-    }
+    assert(!params.isWeightUpdate);
+    partialChansPerGroup = 1;
   }
   for (auto inChansPerGroup : inChansPerGroupCandidates) {
     Plan candidate;

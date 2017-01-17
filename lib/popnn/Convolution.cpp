@@ -2220,7 +2220,10 @@ convolutionWeightUpdateAop(Graph &graph,
   assert(activations.dim(1) == inNumChanGroups);
   assert(activations.dim(4) == inChansPerGroup);
   assert(plan.inChansPerGroup == inChansPerGroup);
-  assert(plan.partialChansPerGroup == outChansPerGroup);
+  const auto numOutChans = outNumChanGroups * outChansPerGroup;
+  const auto partialChansPerGroup = plan.partialChansPerGroup;
+  assert(numOutChans % partialChansPerGroup == 0);
+  const auto partialNumChanGroups = numOutChans / partialChansPerGroup;
 
   auto prog = Sequence();
   auto outDimY = zDeltas.dim(2), outDimX = zDeltas.dim(3);
@@ -2233,25 +2236,24 @@ convolutionWeightUpdateAop(Graph &graph,
 
   Tensor partials = graph.addTensor(partialsType, {batchSize,
                                                    tilesPerY, tilesPerX,
-                                                   outNumChanGroups,
+                                                   partialNumChanGroups,
                                                    inNumChanGroups,
                                                    kernelSizeY, kernelSizeX,
-                                                   outChansPerGroup,
+                                                   partialChansPerGroup,
                                                    inChansPerGroup},
                                     "partialWeightGrads");
-  // TODO consider regrouping the weight deltas instead.
   Tensor regroupedDeltas;
-  if (zDeltas.dim(1) != outNumChanGroups) {
-    regroupedDeltas = graph.addTensor(dType, {batchSize, outNumChanGroups,
+  if (zDeltas.dim(1) != partialNumChanGroups) {
+    regroupedDeltas = graph.addTensor(dType, {batchSize, partialNumChanGroups,
                                               outDimY, outDimX,
-                                              outChansPerGroup},
+                                              partialChansPerGroup},
                                               "zDeltas'");
     for (unsigned b = 0; b < batchSize; ++b) {
       auto regroupedDeltaMapping =
           computeActivationsMapping(graph, regroupedDeltas[b], b, batchSize);
       applyTensorMapping(graph, regroupedDeltas[b], regroupedDeltaMapping);
     }
-    prog.add(Copy(regroupedDeltas, regroup(zDeltas, outChansPerGroup)));
+    prog.add(Copy(regroupedDeltas, regroup(zDeltas, partialChansPerGroup)));
   } else {
     regroupedDeltas = zDeltas;
   }
@@ -2263,9 +2265,9 @@ convolutionWeightUpdateAop(Graph &graph,
       const auto inZGroupBegin = (izg * inNumChanGroups) / tilesPerInZGroup;
       const auto inZGroupEnd = ((izg + 1) * inNumChanGroups) / tilesPerInZGroup;
       for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
-        const auto outZGroupBegin = (ozg * outNumChanGroups) / tilesPerZ;
+        const auto outZGroupBegin = (ozg * partialNumChanGroups) / tilesPerZ;
         const auto outZGroupEnd =
-            ((ozg + 1) * outNumChanGroups) / tilesPerZ;
+            ((ozg + 1) * partialNumChanGroups) / tilesPerZ;
         for (unsigned oy = 0; oy != tilesPerY; ++oy) {
           const auto outYBegin = (oy * outDimY) / tilesPerY;
           const auto outYEnd = ((oy + 1) * outDimY) / tilesPerY;
@@ -2302,23 +2304,33 @@ convolutionWeightUpdateAop(Graph &graph,
   prog.add(Execute(zeroCS));
   prog.add(Execute(weightGradCS));
 
+  const auto
+    weightMapping = calculateWeightMapping(weights, graph, plan,
+                                           batchSize);
   Tensor weightDeltas;
   auto numPartials = batchSize * tilesPerY * tilesPerX;
   if (numPartials == 1 && partialsType == dType) {
-    weightDeltas = partials[0][0][0];
+    weightDeltas = regroup(partials[0][0][0], 0, 4, outChansPerGroup);
   } else {
     auto reduceCS = graph.createComputeSet(layerName + "/Reduce");
-    weightDeltas = graph.addTensor(dType, weights.shape(),
+    weightDeltas = graph.addTensor(dType, partials[0][0][0].shape(),
                                    layerName + "/WeightDeltas");
-    const auto
-      weightDeltaMapping = calculateWeightMapping(weights, graph, plan,
-                                                  batchSize);
+    std::vector<std::vector<std::pair<unsigned,unsigned>>> weightDeltaMapping;
+    if (partialChansPerGroup == outChansPerGroup) {
+      weightDeltaMapping = weightMapping;
+    } else {
+      weightDeltaMapping =
+          convertLinearMappingToRegionMapping(
+            computeTensorMapping(graph, weightDeltas)
+          );
+    }
     applyTensorMapping(graph, weightDeltas, weightDeltaMapping);
-    auto flatPartialsDims = weightDeltas.shape();
+    auto flatPartialsDims = partials[0][0][0].shape();
     flatPartialsDims.insert(flatPartialsDims.begin(), numPartials);
     auto flatPartials = partials.reshape(flatPartialsDims);
-    ::reduce(graph, flatPartials, weightDeltas, weightDeltaMapping, reduceCS);
+    ::reduce(graph, flatPartials, weightDeltas, weightMapping, reduceCS);
     prog.add(Execute(reduceCS));
+    weightDeltas = regroup(weightDeltas, 0, 4, outChansPerGroup);
   }
 
   // Add the weight deltas to the weights.

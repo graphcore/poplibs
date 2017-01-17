@@ -7,26 +7,39 @@ using namespace poplar;
 using namespace poplar::program;
 
 Tensor
+regroup(Tensor t, unsigned outerDim, unsigned innerDim, unsigned newGroupSize) {
+  assert(innerDim != outerDim);
+  assert(innerDim < t.rank());
+  assert(outerDim < t.rank());
+  std::vector<std::size_t> shape = t.shape();
+  unsigned numElements = shape[outerDim] * shape[innerDim];
+  assert(numElements % newGroupSize == 0);
+  std::vector<unsigned> shuffle1;
+  std::vector<std::size_t> reshapeDims;
+  shuffle1.reserve(shape.size());
+  reshapeDims.reserve(shape.size());
+  for (unsigned dim = 0; dim != shape.size(); ++dim) {
+    if (dim == innerDim)
+      continue;
+    if (dim == outerDim)
+      continue;
+    shuffle1.push_back(dim);
+    reshapeDims.push_back(shape[dim]);
+  }
+  shuffle1.push_back(outerDim);
+  reshapeDims.push_back(numElements / newGroupSize);
+  shuffle1.push_back(innerDim);
+  reshapeDims.push_back(newGroupSize);
+  std::vector<unsigned> shuffle2(shape.size());
+  for (unsigned dim = 0; dim != shape.size(); ++dim) {
+    shuffle2[shuffle1[dim]] = dim;
+  }
+  return t.dimShuffle(shuffle1).reshape(reshapeDims).dimShuffle(shuffle2);
+}
+
+Tensor
 regroup(Tensor in, unsigned outChansPerGroup) {
   auto rank = in.rank();
   assert(rank == 4 || rank == 5);
-  if (rank == 4)
-    in = in.reshape({1, in.dim(0), in.dim(1), in.dim(2), in.dim(3)});
-
-  const auto batchSize = in.dim(0);
-  const auto inNumChanGroups = in.dim(1);
-  const auto dimY = in.dim(2);
-  const auto dimX = in.dim(3);
-  const auto inChansPerGroup = in.dim(4);
-  const auto numChans = inNumChanGroups * inChansPerGroup;
-  assert(numChans % outChansPerGroup == 0);
-  const auto outNumChanGroups = numChans / outChansPerGroup;
-  Tensor regrouped = in.dimShuffle({0, 2, 3, 1, 4})
-           .reshape({batchSize, dimY, dimX, outNumChanGroups, outChansPerGroup})
-           .dimShuffle({0, 3, 1, 2, 4});
-  if (rank == 5)
-    return regrouped;
-  else //rank == 4 so unbatched
-    return regrouped.reshape({regrouped.dim(1), regrouped.dim(2),
-                              regrouped.dim(3), regrouped.dim(4)});
+  return regroup(in, rank - 4, rank - 1, outChansPerGroup);
 }

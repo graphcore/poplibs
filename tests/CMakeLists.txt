@@ -215,6 +215,18 @@ add_test(NAME conv_batch_bwd_float
                  --data-type=float
                  --batch-size=4)
 
+# Test where the size of the output tensor is much bigger than the size weight
+# tensor. As such it likely to be better to rearranging the weight deltas
+# instead of the deltas in the weight update phase.
+add_test(NAME conv_large_output_tensor
+         COMMAND single_conv_layer
+                --width 16
+                --height 16
+                --input-channels 16
+                --output-channels 128
+                --tiles-per-ipu=16
+                --data-type=half)
+
 add_test(NAME fully_connected_half
          COMMAND fully_connected_layer
                  --input-size 300
