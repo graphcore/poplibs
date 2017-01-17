@@ -130,7 +130,7 @@ int main(int argc, char **argv) {
     ("force-aop",
      po::value<bool>(
          &convPlanControl.forceAOPForWU
-         )->default_value(false),
+         )->default_value(conv::PlanControl().forceAOPForWU),
      "Force AOP usage for the weight update calculation. "
      "If false a heuristic is used")
   ;

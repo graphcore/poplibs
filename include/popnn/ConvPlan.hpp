@@ -8,7 +8,7 @@ namespace conv {
 // Switches to control the planning of Convolutional layers
 class PlanControl {
 public:
-  bool forceAOPForWU = false;
+  bool forceAOPForWU = true;
 };
 
 struct Plan {

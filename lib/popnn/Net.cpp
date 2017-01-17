@@ -106,7 +106,7 @@ bool parseCommandLine(int argc, char **argv, NetOptions &options,
     ("force-aop",
      po::value<bool>(
          &options.convPlanControl.forceAOPForWU
-     )->default_value(false),
+     )->default_value(conv::PlanControl().forceAOPForWU),
      "Force AOP usage for the weight update calculation. "
      "If false a heuristic is used")
   ;
