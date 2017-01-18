@@ -32,9 +32,9 @@ allocateHostMemoryForTensor(Graph &graph, const Tensor &t,
 }
 
 void
-writeRandomValues(double *begin, double *end, double mean,
-                  double stdDev, std::mt19937 &randomEngine) {
-  std::normal_distribution<> dist(mean, stdDev);
+writeRandomValues(double *begin, double *end, double min, double max,
+                  std::mt19937 &randomEngine) {
+  std::uniform_real_distribution<> dist(min, max);
   for (auto it = begin; it != end; ++it) {
     *it = dist(randomEngine);
   }

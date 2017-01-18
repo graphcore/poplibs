@@ -349,9 +349,9 @@ int main(int argc, char **argv) {
   boost::multi_array<double, 4>
       hostNextAct(boost::extents[batchSize][fwdOutChans][outHeight][outWidth]);
   std::mt19937 randomEngine;
-  writeRandomValues(hostPrevAct, 0.0, 1.0, randomEngine);
-  writeRandomValues(hostWeights, 0.0, 1.0, randomEngine);
-  writeRandomValues(hostBiases, 0.0, 1.0, randomEngine);
+  writeRandomValues(hostPrevAct, -4.0, +4.0, randomEngine);
+  writeRandomValues(hostWeights, -3.0, +3.0, randomEngine);
+  writeRandomValues(hostBiases, -4.0, +4.0, randomEngine);
   groupActivations(hostPrevAct, dataTypeStr, prevAct.shape(),
                    rawHostPrevAct.get());
   groupWeights(hostWeights, dataTypeStr, weights.shape(), rawHostWeights.get());
@@ -383,7 +383,7 @@ int main(int argc, char **argv) {
     auto modelWeights = hostWeights;
     auto modelBiases = hostBiases;
     // Run the backwards pass.
-    writeRandomValues(hostZDeltas, 0.0, 1.0, randomEngine);
+    writeRandomValues(hostZDeltas, -5.0, 5.0, randomEngine);
     groupActivations(hostZDeltas, dataTypeStr, zDeltas.shape(),
                      rawHostZDeltas.get());
     engine.run(0); // Upload.

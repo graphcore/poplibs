@@ -262,7 +262,7 @@ int main(int argc, char **argv) {
   boost::multi_array<double, 4>
       hostNextAct(boost::extents[batchSize][chans][outHeight][outWidth]);
   std::mt19937 randomEngine;
-  writeRandomValues(hostPrevAct, 0.0, 1.0, randomEngine);
+  writeRandomValues(hostPrevAct, -4.0, 4.0, randomEngine);
   groupActivations(hostPrevAct, dataTypeStr, prevAct.shape(),
                    rawHostPrevAct.get());
   // Run the forward pass.
@@ -290,7 +290,7 @@ int main(int argc, char **argv) {
       boost::extents[batchSize][chans][height][width]
     );
     // Run the backwards pass.
-    writeRandomValues(hostZDeltas, 0.0, 1.0, randomEngine);
+    writeRandomValues(hostZDeltas, -5.0, 5.0, randomEngine);
     groupActivations(hostZDeltas, dataTypeStr, zDeltas.shape(),
                      rawHostZDeltas.get());
     engine.run(0); // Upload.

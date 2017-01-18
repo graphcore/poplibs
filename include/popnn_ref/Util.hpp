@@ -19,16 +19,19 @@ allocateHostMemoryForTensor(poplar::Graph &graph, const poplar::Tensor &t,
                             poplar::program::Sequence &upload,
                             poplar::program::Sequence &download);
 
+/// Fill a vector with values in the interval [min:max)
+/// The specific values returned seem the same on ubuntu/gcc and
+/// osx/clang
 void
-writeRandomValues(double *begin, double *end, double mean,
-                  double stdDev, std::mt19937 &randomEngine);
+writeRandomValues(double *begin, double *end, double min, double max,
+                  std::mt19937 &randomEngine);
 
 template <class T, std::size_t N>
 void inline
-writeRandomValues(boost::multi_array<T, N> &a, double mean,
-                  double stdDev, std::mt19937 &randomEngine) {
+writeRandomValues(boost::multi_array<T, N> &a, double min,
+                  double max, std::mt19937 &randomEngine) {
   return writeRandomValues(a.data(), a.data() + a.num_elements(),
-                           mean, stdDev, randomEngine);
+                           min, max, randomEngine);
 }
 
 void groupActivations(boost::const_multi_array_ref<double, 4> src,

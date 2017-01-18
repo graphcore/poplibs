@@ -43,8 +43,8 @@ BOOST_AUTO_TEST_CASE(JoinDeltasTest) {
   boost::multi_array<double, 4>
       expected(boost::extents[batchSize][depth][height][width]);
   std::mt19937 randomEngine;
-  writeRandomValues(hostDeltas1, 0.0, 1.0, randomEngine);
-  writeRandomValues(hostDeltas2, 0.0, 1.0, randomEngine);
+  writeRandomValues(hostDeltas1, -5.0, 5.0, randomEngine);
+  writeRandomValues(hostDeltas2, -5.0, 5.0, randomEngine);
   for (unsigned b = 0; b != batchSize; ++b) {
     for (unsigned z = 0; z != depth; ++z) {
       for (unsigned y = 0; y != height; ++y) {
