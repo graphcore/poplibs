@@ -33,8 +33,7 @@ add_test(NAME conv3x3_stride_2_fwd
                  --data-type=half
                  --padding=2
                  --stride=2
-                 --fwd-out-chans-per-group=16
-                 --tolerance=0.04)
+                 --fwd-out-chans-per-group=16)
 
 add_test(NAME conv1x1_stride_1
          COMMAND single_conv_layer
@@ -46,8 +45,7 @@ add_test(NAME conv1x1_stride_1
              --bwd-out-chans-per-group=8
              --tiles-per-ipu=16
              --stride=1
-             --kernel-size=1
-             --tolerance=0.015)
+             --kernel-size=1)
 
 add_test(NAME conv1x1_stride_3
          COMMAND single_conv_layer
@@ -227,8 +225,7 @@ add_test(NAME conv_large_output_tensor
                 --input-channels 16
                 --output-channels 128
                 --tiles-per-ipu=16
-                --data-type=half
-                --tolerance=0.016)
+                --data-type=half)
 
 add_test(NAME fully_connected_half
          COMMAND fully_connected_layer

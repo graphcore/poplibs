@@ -291,11 +291,18 @@ bool checkIsClose(const std::string &name, const double *actual,
   bool isClose = true;
   for (; it != end; ++it, ++expected) {
     if (!checkIsClose(*it, *expected, relativeTolerance)) {
+      if (fabs(*expected) < 0.01 && checkIsClose(*it, *expected,
+                                                 5 * relativeTolerance)) {
+        std::cerr << "close to mismatch on element ";
+        // values close to zero have 5x the tolerance
+      } else {
+        std::cerr << "mismatch on element ";
+        isClose = false;
+      }
       const auto n = it - actual;
-      std::cerr << "mismatch on element " << prettyCoord(name, n, dims) << ':';
+      std::cerr << prettyCoord(name, n, dims) << ':';
       std::cerr << " expected=" << *expected;
       std::cerr << " actual=" << *it << '\n';
-      isClose = false;
     }
   }
   return isClose;
