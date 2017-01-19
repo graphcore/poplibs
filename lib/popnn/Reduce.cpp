@@ -144,24 +144,20 @@ reduce(Graph &graph,
        Tensor reduced,
        const std::vector<
          std::vector<std::pair<unsigned, unsigned>>
-       > &reducedMapping,
+       > &reduceVertexMapping,
        ComputeSet reduceCS) {
   assert(partials[0].shape() == reduced.shape());
   if (partials.dim(0) == 0) {
-    zero(graph, reduced, reducedMapping, reduceCS);
+    zero(graph, reduced, reduceVertexMapping, reduceCS);
     return;
   }
   if (partials.dim(0) == 1) {
     // TODO if the destination type is smaller than the source type it would
     // be better to perform the cast on the source tile to reduce the volume
     // of data that must be exchanged.
-    cast(graph, reducedMapping, partials[0], reduced, reduceCS);
+    cast(graph, reduceVertexMapping, partials[0], reduced, reduceCS);
     return;
   }
-  const auto reduceVertexMapping = determineReduceVertexMapping(graph,
-                                                                partials,
-                                                                reduced,
-                                                                reducedMapping);
   const auto partialType = graph.getTensorElementType(partials);
   const auto reducedType = graph.getTensorElementType(reduced);
   const auto tilesPerInZGroup = partials.dim(0);
@@ -208,4 +204,22 @@ reduce(Graph &graph,
       }
     }
   }
+}
+
+void
+reduceByDstMapping(Graph &graph,
+                   Tensor partials,
+                   Tensor reduced,
+                   const std::vector<
+                     std::vector<std::pair<unsigned, unsigned>>
+                   > &reducedMapping,
+                   ComputeSet reduceCS) {
+  if (partials.dim(0) < 2) {
+    reduce(graph, partials, reduced, reducedMapping, reduceCS);
+  }
+  const auto reduceVertexMapping = determineReduceVertexMapping(graph,
+                                                                partials,
+                                                                reduced,
+                                                                reducedMapping);
+  return reduce(graph, partials, reduced, reducedMapping, reduceCS);
 }
