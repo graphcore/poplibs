@@ -19,6 +19,21 @@
 using namespace poplar;
 using namespace poplar::program;
 
+NetOptions::NetOptions() {
+  DeviceInfo defaultDevice;
+  numIPUs = defaultDevice.numIPUs;
+  tilesPerIPU = defaultDevice.tilesPerIPU;
+  ipuExchangeBandwidth = defaultDevice.exchangeBytesPerCycle;
+  memoryBytesPerTile = defaultDevice.memoryBytesPerTile;
+  dataPathWidth = defaultDevice.dataPathWidth;
+  convUnitPipelineDepth = defaultDevice.convUnitPipelineDepth;
+  fp16InFp16OutConvUnitsPerTile = defaultDevice.fp16InFp16OutConvUnitsPerTile;
+  fp16InFp32OutConvUnitsPerTile = defaultDevice.fp16InFp32OutConvUnitsPerTile;
+  fp32InFp32OutConvUnitsPerTile = defaultDevice.fp32InFp32OutConvUnitsPerTile;
+  convUnitCoeffLoadBytesPerCycle = defaultDevice.convUnitCoeffLoadBytesPerCycle;
+  supportsSuperTileSendReceive = defaultDevice.supportsSuperTileSendReceive;
+}
+
 bool parseCommandLine(int argc, char **argv, NetOptions &options,
                       bool &doTraining) {
   namespace po = boost::program_options;
@@ -26,47 +41,58 @@ bool parseCommandLine(int argc, char **argv, NetOptions &options,
   po::options_description desc("Options");
   desc.add_options()
     ("help", "Produce help message")
-    ("ipus", po::value<unsigned>(&options.numIPUs)->default_value(1),
-             "Number of IPUs")
+    ("ipus",
+     po::value<unsigned>(&options.numIPUs)->default_value(options.numIPUs),
+     "Number of IPUs")
     ("tiles-per-ipu",
-     po::value<unsigned>(&options.tilesPerIPU)->default_value(1216),
+     po::value<unsigned>(
+       &options.tilesPerIPU
+     )->default_value(options.tilesPerIPU),
      "Number of tiles per IPU")
     ("bytes-per-tile",
      po::value<unsigned>(&options.memoryBytesPerTile)
-         ->default_value(1024 * 256),
+         ->default_value(options.memoryBytesPerTile),
      "Amount of memory per tile in bytes")
     ("ipu-exchange-bandwidth",
-     po::value<unsigned>(&options.ipuExchangeBandwidth)->default_value(4),
+     po::value<unsigned>(&options.ipuExchangeBandwidth)
+         ->default_value(options.ipuExchangeBandwidth),
      "IPU exchange bandwidth per tile in bytes")
-    ("graph-reuse",
-     po::value<bool>(&options.reuseLayerImplGraphs)->default_value(true),
-     "Re-use graph structure for similar layers")
     ("data-path-width",
      po::value<unsigned>(
        &options.dataPathWidth
-     )->default_value(64),
+     )->default_value(options.dataPathWidth),
      "Width of the data path in bits")
     ("num-fp16-in-fp16-out-conv-units",
      po::value<unsigned>(
        &options.fp16InFp16OutConvUnitsPerTile
-     )->default_value(8),
+     )->default_value(options.fp16InFp16OutConvUnitsPerTile),
      "Number of convolutional units per tile with fp16 input and fp16 output")
     ("num-fp16-in-fp32-out-conv-units",
      po::value<unsigned>(
          &options.fp16InFp32OutConvUnitsPerTile
-     )->default_value(8),
+     )->default_value(options.fp16InFp32OutConvUnitsPerTile),
      "Number of convolutional units per tile with fp16 input and fp32 output")
     ("num-fp32-in-fp32-out-conv-units",
      po::value<unsigned>(
          &options.fp32InFp32OutConvUnitsPerTile
-     )->default_value(4),
+     )->default_value(options.fp32InFp32OutConvUnitsPerTile),
      "Number of convolutional units per tile with fp32 input and fp32 output")
     ("conv-coeff-load-bytes-per-cycle",
      po::value<unsigned>(
          &options.convUnitCoeffLoadBytesPerCycle
-     )->default_value(16),
+     )->default_value(options.convUnitCoeffLoadBytesPerCycle),
      "Number of bytes of coefficients loaded in the convolutional"
      " unit per cycle")
+    ("supertile-exchange",
+     po::value<bool>(
+       &options.supportsSuperTileSendReceive
+     )->default_value(options.supportsSuperTileSendReceive),
+      "Supertiles can combine to give 64bit exchange")
+    ("graph-reuse",
+     po::value<bool>(
+       &options.reuseLayerImplGraphs
+     )->default_value(options.reuseLayerImplGraphs),
+     "Re-use graph structure for similar layers")
     ("train",
      po::value<bool>(
        &doTraining
@@ -75,38 +101,33 @@ bool parseCommandLine(int argc, char **argv, NetOptions &options,
     ("use-winograd-conv",
      po::value<bool>(
        &options.useWinogradConv
-     )->default_value(false),
+     )->default_value(options.useWinogradConv),
      "Use winograd for convolution layers")
     ("winograd-patch-size",
      po::value<unsigned>(
        &options.winogradPatchSize
-     )->default_value(4),
+     )->default_value(options.winogradPatchSize),
      "Patch size for winograd convolution")
     ("batch-size",
      po::value<unsigned>(
        &options.batchSize
-     )->default_value(1),
+     )->default_value(options.batchSize),
      "Batch size")
     ("show-plan-info",
      po::value<bool>(
        &options.showPlanInfo
-     )->default_value(false),
+     )->default_value(options.showPlanInfo),
      "Display result of planning decision for conv layers")
-    ("supertile-exchange",
-     po::value<bool>(
-       &options.supportsSuperTileSendReceive
-     )->default_value(false),
-      "Supertiles can combine to give 64bit exchange")
     ("percent-cyc-excess-for-mem-optim",
      po::value<unsigned>(
        &options.percentageCyclesExcessForMemOptim
-     )->default_value(0),
+     )->default_value(options.percentageCyclesExcessForMemOptim),
      "Percentage cycles excess to use for memory optimisation. "
      "if 0, no memory optimisation is performed")
     ("force-aop",
      po::value<bool>(
          &options.convPlanControl.forceAOPForWU
-     )->default_value(conv::PlanControl().forceAOPForWU),
+     )->default_value(options.convPlanControl.forceAOPForWU),
      "Force AOP usage for the weight update calculation. "
      "If false a heuristic is used")
   ;

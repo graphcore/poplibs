@@ -143,27 +143,32 @@ enum DType {
 
 class NetOptions {
 public:
+  NetOptions();
+
+  // Options to override defaults in DeviceInfo (initialized in default ctor).
+  unsigned numIPUs;
+  unsigned tilesPerIPU;
+  unsigned ipuExchangeBandwidth;
+  unsigned memoryBytesPerTile;
+  unsigned dataPathWidth;
+  unsigned convUnitPipelineDepth;
+  unsigned fp16InFp16OutConvUnitsPerTile;
+  unsigned fp16InFp32OutConvUnitsPerTile;
+  unsigned fp32InFp32OutConvUnitsPerTile;
+  unsigned convUnitCoeffLoadBytesPerCycle;
+  bool supportsSuperTileSendReceive;
+
+  // Other options.
   bool useIPUModel = false;
   bool doComputation = true;
   bool doTestsDuringTraining = true;
-  unsigned numIPUs = 1;
-  unsigned tilesPerIPU = 1216;
-  unsigned ipuExchangeBandwidth = 4;
-  unsigned memoryBytesPerTile = 1024 * 256;
   unsigned numBatchesBetweenTest = 2500;
   bool reuseLayerImplGraphs = true;
   bool ignoreData = false;
-  unsigned dataPathWidth = 64;
-  unsigned convUnitPipelineDepth = 4;
-  unsigned fp16InFp16OutConvUnitsPerTile = 8;
-  unsigned fp16InFp32OutConvUnitsPerTile = 8;
-  unsigned fp32InFp32OutConvUnitsPerTile = 4;
-  unsigned convUnitCoeffLoadBytesPerCycle = 16;
   bool useWinogradConv = false;
   unsigned winogradPatchSize = 4;
   unsigned batchSize = 1;
   bool showPlanInfo = false;
-  bool supportsSuperTileSendReceive = false;
   /* Perform memory optimisation if cycles performance is
    * within percentage excess of optimum cycles performance
    *
