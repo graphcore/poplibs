@@ -1,4 +1,7 @@
 #include "popnn/ActivationMapping.hpp"
+
+#include "gcd.hpp"
+#include "Util.hpp"
 #include <cassert>
 
 void applyTensorMapping(poplar::Graph &graph, poplar::Tensor t,
@@ -14,16 +17,35 @@ void applyTensorMapping(poplar::Graph &graph, poplar::Tensor t,
 std::vector<unsigned>
 computeActivationsMapping(const poplar::Graph &graph, poplar::Tensor act,
                           unsigned batchNum, unsigned batchSize) {
-  const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto numTiles = deviceInfo.getNumTiles();
   const auto numActivations = act.numElements();
-  unsigned chansPerGroup, beginTile, endTile;
+  const auto actType = graph.getTensorElementType(act);
+  const auto actTypeSize = "float" ? 4 : 2;
+  unsigned grainSize = actType == "float" ? deviceInfo.getFloatVectorWidth() :
+                                            deviceInfo.getHalfVectorWidth();
+  // Limit the minimum number of activation bytes per tile to reduce the
+  // amount of exchange code. Increasing this constant reduces exchange code
+  // size and increases execution time due to imbalance. The current limit was
+  // chosen experimentally.
+  const auto minBytesPerTile = 128;
+  const auto minElementsPerTile =
+    (minBytesPerTile + actTypeSize - 1) / minBytesPerTile;
+  unsigned beginTile, endTile;
   if (act.rank() == 1) {
-    chansPerGroup = 1;
     beginTile = 0;
     endTile = numTiles;
   } else {
     assert(act.rank() == 4);
-    chansPerGroup = act.dim(3);
+    const unsigned chansPerGroup = act.dim(3);
+    // The grain size is chosen to avoid splitting the tensor at a point
+    // that will require the incoming pointer to be changed if the messages from
+    // the source tiles are received in the wrong order. The convolution layers
+    // access elements in groups of chansPerGroup. Other layers (e.g.
+    // FwdNonLinearity) flatten the tensor and access elements in groups of the
+    // vector width. We don't know which layer comes next so hedge our bets by
+    // using least common multiple of the vector width and chansPerGroup.
+    grainSize = lcm(grainSize, chansPerGroup);
     const auto batchElemsPerTile = (batchSize + numTiles - 1) / numTiles;
     const auto numBatchGroups =
         (batchSize + batchElemsPerTile - 1) / batchElemsPerTile;
@@ -35,28 +57,23 @@ computeActivationsMapping(const poplar::Graph &graph, poplar::Tensor act,
   const auto numBatchTiles = endTile - beginTile;
   std::vector<unsigned> mapping;
   mapping.resize(numTiles + 1);
-  const auto numGroups = numActivations / chansPerGroup;
-  // Instead of spreading activations across all tiles, compute the maximum
-  // number of activations that would need to be stored on a tile if activations
-  // were spread evenly and use the minimum number of tiles necessary to ensure
-  // that this maximum is not exceeded.
-  // This strategy reduces the number of tiles that activations are spread over.
-  // This reduces the amount of exchange code needed in the next layer
-  // as input data is spread over fewer tiles and therefore fewer set receive
-  // mux / set receive pointer instructions are required.
-  // The amount of work a tile has to perform during the reduce and complete
-  // phases is proportional to the number of activations. Because this strategy
-  // does not increase the maximum number of activations on a tile, the
-  // execution time of the reduce and complete phases should remain roughly the
-  // same.
-  const auto maxGroupsPerTile = (numGroups + numBatchTiles - 1) / numBatchTiles;
-  const auto tilesToUse = (numGroups + maxGroupsPerTile - 1) / maxGroupsPerTile;
-  for (unsigned tile = 0; tile != tilesToUse; ++tile) {
-    const auto groupEnd = (tile * numGroups) / tilesToUse;
-    mapping[tile + beginTile] = groupEnd * chansPerGroup;
+  std::vector<std::pair<unsigned, unsigned>> regions = {{0, numActivations}};
+  std::vector<std::vector<std::pair<unsigned, unsigned>>> perTileRegions;
+  splitRegions(regions, perTileRegions, grainSize, numBatchTiles,
+               minElementsPerTile);
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    if (tile < perTileRegions.size()) {
+      if (perTileRegions[tile].empty()) {
+        mapping[beginTile + tile + 1] = mapping[beginTile + tile];
+      } else {
+        assert(perTileRegions[tile].size() == 1);
+        mapping[beginTile + tile + 1] = perTileRegions[tile].front().second;
+        assert(mapping[beginTile + tile + 1] >= mapping[beginTile + tile]);
+      }
+    } else {
+      mapping[tile + 1] = numActivations;
+    }
   }
-  for (unsigned tile = beginTile + tilesToUse; tile != numTiles + 1; ++tile)
-    mapping[tile] = numGroups * chansPerGroup;
   return mapping;
 }
 

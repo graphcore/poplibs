@@ -12,4 +12,10 @@ static T gcd(T a, T b) {
   return a;
 }
 
+// Least common multiple
+template <typename T>
+static T lcm(T a, T b) {
+  return (a * b) / gcd(a, b);
+}
+
 #endif
