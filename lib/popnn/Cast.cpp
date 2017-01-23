@@ -8,17 +8,14 @@
 using namespace poplar;
 using namespace poplar::program;
 
-Program
+void
 cast(Graph &graph, const std::vector<unsigned> &dstActivationMapping,
-     Tensor src, Tensor dst, const std::string &debugPrefix) {
+     Tensor src, Tensor dst, ComputeSet cs) {
   auto srcType = graph.getTensorElementType(src);
   auto dstType = graph.getTensorElementType(dst);
-  if (srcType == dstType)
-    return Copy(dst, src);
 
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
-  auto cs = graph.createComputeSet(debugPrefix + "/Cast");
   buildTransform(dstActivationMapping, graph, [&](unsigned begin,
                                                   unsigned end,
                                                   unsigned tile) {
@@ -29,6 +26,18 @@ cast(Graph &graph, const std::vector<unsigned> &dstActivationMapping,
     graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
     graph.setTileMapping(v, tile);
   });
+}
+
+
+Program
+cast(Graph &graph, const std::vector<unsigned> &dstActivationMapping,
+     Tensor src, Tensor dst, const std::string &debugPrefix) {
+  auto srcType = graph.getTensorElementType(src);
+  auto dstType = graph.getTensorElementType(dst);
+  if (srcType == dstType)
+    return Copy(dst, src);
+  auto cs = graph.createComputeSet(debugPrefix + "/Cast");
+  cast(graph, dstActivationMapping, src, dst, cs);
   return Execute(cs);
 }
 

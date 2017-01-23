@@ -10,6 +10,10 @@ cast(poplar::Graph &graph, const std::vector<unsigned> &dstActivationMapping,
      poplar::Tensor src, poplar::Tensor dst,
      const std::string &debugPrefix = "");
 
+void
+cast(poplar::Graph &graph, const std::vector<unsigned> &dstActivationMapping,
+     poplar::Tensor src, poplar::Tensor dst, poplar::ComputeSet cs);
+
 /// Create vertices to copy element wise from the src tensor to the dst tensor
 /// casting between types (e.g. half->float). The vertices are added to the
 /// specified compute set.
