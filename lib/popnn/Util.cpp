@@ -31,7 +31,8 @@ void mergeAdjacentRegions(
 void splitRegions(
     const std::vector<std::pair<unsigned, unsigned>> &regions,
     std::vector<std::vector<std::pair<unsigned, unsigned>>> &vertexRegions,
-    unsigned grainSize, unsigned maxPartitions) {
+    unsigned grainSize, unsigned maxPartitions,
+    unsigned minElementsPerPartition) {
   vertexRegions.clear();
   const auto numElements =
       std::accumulate(regions.begin(), regions.end(), 0U,
@@ -42,8 +43,17 @@ void splitRegions(
   if (numElements == 0)
     return;
   const auto numGroups = (numElements + grainSize - 1) / grainSize;
-  const auto maxGroupsPerPartition =
+  auto maxGroupsPerPartition =
     (numGroups + maxPartitions - 1) / maxPartitions;
+  if (minElementsPerPartition) {
+    const auto minGroupsPerPartition =
+      (minElementsPerPartition + grainSize - 1) / grainSize;
+    const auto maxVerticesToCreate =
+      std::max(1U, numGroups / minGroupsPerPartition);
+    maxGroupsPerPartition =
+        std::max(maxGroupsPerPartition,
+                 (numGroups + maxVerticesToCreate - 1) / maxVerticesToCreate);
+  }
   const auto verticesToCreate =
     (numGroups + maxGroupsPerPartition - 1) / maxGroupsPerPartition;
   auto it = regions.begin();
@@ -75,7 +85,9 @@ void splitRegionsBetweenWorkers(
     const poplar::DeviceInfo &deviceInfo,
     const std::vector<std::pair<unsigned, unsigned>> &regions,
     std::vector<std::vector<std::pair<unsigned, unsigned>>> &vertexRegions,
-    unsigned grainSize) {
+    unsigned grainSize,
+    unsigned minElementsPerVertex) {
   const auto workersPerTile = deviceInfo.numWorkerContexts;
-  return splitRegions(regions, vertexRegions, grainSize, workersPerTile);
+  return splitRegions(regions, vertexRegions, grainSize, workersPerTile,
+                      minElementsPerVertex);
 }

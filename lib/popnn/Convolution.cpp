@@ -192,6 +192,15 @@ calculateWeightMapping(Tensor w,
   const auto tilesPerZ = plan.tilesPerZAxis;
   const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
   const auto numTiles = deviceInfo.getNumTiles();
+  const auto weightType = graph.getTensorElementType(w);
+  const auto weightTypeSize = weightType == "float" ? 4 : 2;
+  // Limit the minimum number of weight bytes per tile to reduce the
+  // amount of exchange code. Increasing this constant reduces exchange code
+  // size and increases execution time due to imbalance. The current limit was
+  // chosen experimentally.
+  const auto minBytesPerTile = 256;
+  const auto minElementsPerTile =
+      (minBytesPerTile + weightTypeSize - 1) / weightTypeSize;
 
   for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
     const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
@@ -219,7 +228,7 @@ calculateWeightMapping(Tensor w,
       }
       splitRegions(sharedWeights, perTileWeights,
                    partialChansPerGroup * inChansPerGroup,
-                   tilesPerY * tilesPerX);
+                   tilesPerY * tilesPerX, minElementsPerTile);
       for (unsigned oy = 0; oy != tilesPerY; ++oy) {
         for (unsigned ox = 0; ox != tilesPerX; ++ox) {
           const auto tile = linearizeTileIndices(0, batchSize, numTiles,

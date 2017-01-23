@@ -19,7 +19,8 @@ void mergeAdjacentRegions(
 void splitRegions(
     const std::vector<std::pair<unsigned, unsigned>> &regions,
     std::vector<std::vector<std::pair<unsigned, unsigned>>> &vertexRegions,
-    unsigned grainSize, unsigned maxPartitions);
+    unsigned grainSize, unsigned maxPartitions,
+    unsigned minElementsPerPartition = 0);
 
 // Given a set of contiguous regions per tile, partition these regions
 // between vertices on that tile, respecting the specified grain size.
@@ -28,7 +29,7 @@ void splitRegionsBetweenWorkers(
     const poplar::DeviceInfo &deviceInfo,
     const std::vector<std::pair<unsigned, unsigned>> &regions,
     std::vector<std::vector<std::pair<unsigned, unsigned>>> &vertexRegions,
-    unsigned grainSize);
+    unsigned grainSize, unsigned minElementsPerPartition = 0);
 
 /// Given a mapping of data to tiles, use the specified builder function to
 /// create vertices that operate on that data. Each vertex operates on data
