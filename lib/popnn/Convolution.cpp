@@ -1491,8 +1491,7 @@ convolution(Graph &graph,
           debugPrefix));
     }
   } else {
-
-    mapWeights(weights, graph, plan, batchSize);
+    mapWeights(weights, graph, plan, numBatchGroups);
 
     // Calculate a set of partial sums of the convolutions.
     Tensor partials = graph.addTensor(partialTypeInPlan,
@@ -1524,8 +1523,8 @@ convolution(Graph &graph,
           reduceComputeSets.push_back(graph.createComputeSet(layerName +
                                                              "/Cast"));
         }
-        for (unsigned b = 0; b < batchSize; ++b) {
-          auto mapping = getPartialsMapping(graph, b, batchSize,
+        for (unsigned b = 0; b < numBatchGroups; ++b) {
+          auto mapping = getPartialsMapping(graph, b, numBatchGroups,
                                             partials[b].shape(), plan);
           applyTensorMapping(graph, reduced[b], mapping);
           cast(graph, mapping, partials[b], reduced[b],
