@@ -171,22 +171,6 @@ calculateWeightMapping(Tensor w,
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   std::vector<std::vector<std::pair<unsigned, unsigned>>>
       mapping(deviceInfo.getNumTiles());
-  if (numBatchGroups > 1) {
-    // For multi-item batches the weights are going to be sent across
-    // exchange independently of mapping. So just map weights across the
-    // tile array.
-    const auto numTiles = deviceInfo.getNumTiles();
-    unsigned groupSize = partialChansPerGroup * inChansPerGroup;
-    unsigned numGroups = w.numElements() / groupSize;
-    for (unsigned tile = 0; tile < numTiles; ++tile) {
-      const auto groupBegin = numGroups * tile / numTiles;
-      const auto groupEnd = numGroups * (tile + 1) / numTiles;
-      if (groupBegin == groupEnd)
-        continue;
-      mapping[tile].emplace_back(groupBegin * groupSize, groupEnd * groupSize);
-    }
-    return mapping;
-  }
 
   const auto isMultiIPU = deviceInfo.numIPUs > 1;
   const auto tilesPerX = plan.tilesPerXAxis;
@@ -203,7 +187,6 @@ calculateWeightMapping(Tensor w,
   const auto minBytesPerTile = 256;
   const auto minElementsPerTile =
       (minBytesPerTile + weightTypeSize - 1) / weightTypeSize;
-
   for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
     const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
     const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
@@ -228,19 +211,24 @@ calculateWeightMapping(Tensor w,
       } else {
         grainSize *= kernelSizeX;
       }
-      splitRegions(sharedWeights, perTileWeights,
-                   partialChansPerGroup * inChansPerGroup,
-                   tilesPerY * tilesPerX, minElementsPerTile);
-      for (unsigned oy = 0; oy != tilesPerY; ++oy) {
-        for (unsigned ox = 0; ox != tilesPerX; ++ox) {
-          const auto tile = linearizeTileIndices(0, numBatchGroups, numTiles,
-                                                 izg, ox, oy, ozg,
-                                                 plan, isMultiIPU);
-          const auto iw = ox + tilesPerX * oy;
-          if (iw < perTileWeights.size()) {
-            mapping[tile] = perTileWeights[iw];
+      std::unordered_set<unsigned> tileSet;
+      for (unsigned b = 0; b != numBatchGroups; ++b) {
+        for (unsigned oy = 0; oy != tilesPerY; ++oy) {
+          for (unsigned ox = 0; ox != tilesPerX; ++ox) {
+            const auto tile = linearizeTileIndices(b, numBatchGroups, numTiles,
+                                                   izg, ox, oy, ozg,
+                                                   plan, isMultiIPU);
+            tileSet.insert(tile);
           }
         }
+      }
+      std::vector<unsigned> tiles(tileSet.begin(), tileSet.end());
+      std::sort(tiles.begin(), tiles.end());
+      splitRegions(sharedWeights, perTileWeights,
+                   partialChansPerGroup * inChansPerGroup,
+                   tiles.size(), minElementsPerTile);
+      for (unsigned i = 0; i != perTileWeights.size(); ++i) {
+        mapping[tiles[i]] = perTileWeights[i];
       }
     }
   }
