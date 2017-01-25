@@ -88,7 +88,7 @@ createBiases(poplar::Graph &graph, std::string dType,
 }
 
 static unsigned
-linearizeTileIndices(unsigned batchNum, unsigned batchSize,
+linearizeTileIndices(unsigned batchGroup, unsigned numBatchGroups,
                      unsigned numTiles,
                      unsigned izg, unsigned ox, unsigned oy,
                      unsigned ozg,
@@ -100,11 +100,11 @@ linearizeTileIndices(unsigned batchNum, unsigned batchSize,
   const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
 
   unsigned beginTile;
-  if (batchSize <= numTiles) {
-    beginTile = (numTiles / batchSize) * batchNum;
+  if (numBatchGroups <= numTiles) {
+    beginTile = (numTiles / numBatchGroups) * batchGroup;
   } else {
-    const auto batchElemsPerTile = (batchSize + numTiles - 1) / numTiles;
-    beginTile = batchNum / batchElemsPerTile;
+    const auto batchGroupsPerTile = (numBatchGroups + numTiles - 1) / numTiles;
+    beginTile = batchGroup / batchGroupsPerTile;
   }
   // If this is a multi IPU system then choose an order that avoids splitting
   // partial sums over IPUs
@@ -160,7 +160,7 @@ static std::vector<std::vector<std::pair<unsigned, unsigned>>>
 calculateWeightMapping(Tensor w,
                        const poplar::Graph &graph,
                        const Plan &plan,
-                       unsigned batchSize) {
+                       unsigned numBatchGroups) {
   const auto partialNumChanGroups = w.dim(0);
   const auto numInZGroups = w.dim(1);
   const auto kernelSizeY = w.dim(2);
@@ -171,7 +171,7 @@ calculateWeightMapping(Tensor w,
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   std::vector<std::vector<std::pair<unsigned, unsigned>>>
       mapping(deviceInfo.getNumTiles());
-  if (batchSize > 1) {
+  if (numBatchGroups > 1) {
     // For multi-item batches the weights are going to be sent across
     // exchange independently of mapping. So just map weights across the
     // tile array.
@@ -233,7 +233,7 @@ calculateWeightMapping(Tensor w,
                    tilesPerY * tilesPerX, minElementsPerTile);
       for (unsigned oy = 0; oy != tilesPerY; ++oy) {
         for (unsigned ox = 0; ox != tilesPerX; ++ox) {
-          const auto tile = linearizeTileIndices(0, batchSize, numTiles,
+          const auto tile = linearizeTileIndices(0, numBatchGroups, numTiles,
                                                  izg, ox, oy, ozg,
                                                  plan, isMultiIPU);
           const auto iw = ox + tilesPerX * oy;
@@ -252,9 +252,10 @@ static void
 iterateWeightMapping(Tensor w,
                      const poplar::Graph &graph,
                      const Plan &plan,
-                     unsigned batchSize,
+                     unsigned numBatchGroups,
                      Builder &&builder) {
-  const auto weightMapping = calculateWeightMapping(w, graph, plan, batchSize);
+  const auto weightMapping = calculateWeightMapping(w, graph, plan,
+                                                    numBatchGroups);
   const auto flatWeights = w.flatten();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto numTiles = deviceInfo.getNumTiles();
@@ -275,8 +276,8 @@ iterateWeightMapping(Tensor w,
 
 void
 mapWeights(Tensor w, Graph &graph, const Plan &plan,
-           unsigned batchSize) {
-  iterateWeightMapping(w, graph, plan, batchSize,
+           unsigned numBatchGroups) {
+  iterateWeightMapping(w, graph, plan, numBatchGroups,
     [&](Tensor tileWeights, unsigned tile) {
     graph.setTileMapping(tileWeights, tile);
   });
@@ -845,7 +846,7 @@ calcPartialSums(Graph &graph,
                 const std::string &layerName,
                 unsigned outDimX, unsigned outDimY,
                 bool isFractional) {
-  const auto batchSize = in.dim(0);
+  const auto numBatchGroups = in.dim(0);
   const auto isMultiIPU = graph.getDevice().getDeviceInfo().numIPUs > 1;
   const auto inNumChans = in.dim(1) * in.dim(4);
   const auto inChansPerGroup = plan.inChansPerGroup;
@@ -861,7 +862,7 @@ calcPartialSums(Graph &graph,
 
   ComputeSet zeroCS = graph.createComputeSet(layerName +"/Zero");
   ComputeSet convolveCS = graph.createComputeSet(layerName + "/Convolve");
-  for (unsigned b = 0; b < batchSize; ++b) {
+  for (unsigned b = 0; b < numBatchGroups; ++b) {
     for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
       const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
       const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
@@ -877,7 +878,7 @@ calcPartialSums(Graph &graph,
           for (unsigned ox = 0; ox != tilesPerX; ++ox) {
             const auto outXBegin = (ox * outDimX) / tilesPerX;
             const auto outXEnd = ((ox + 1) * outDimX) / tilesPerX;
-            const auto tile = linearizeTileIndices(b, batchSize, numTiles,
+            const auto tile = linearizeTileIndices(b, numBatchGroups, numTiles,
                                                    izg, ox, oy, ozg,
                                                    plan,
                                                    isMultiIPU);
@@ -1042,8 +1043,8 @@ addFlattenedRegions(const std::vector<std::size_t> &shape,
 static void
 groupConvTilesByOutput(
     const poplar::Graph &graph,
-    unsigned b,
-    unsigned batchSize,
+    unsigned batchGroup,
+    unsigned numBatchGroups,
     const std::vector<std::size_t> &reducedDims,
     const Plan &plan,
     std::vector<std::vector<unsigned>> &tileGroups,
@@ -1080,10 +1081,9 @@ groupConvTilesByOutput(
                             {outZGroupEnd, outYEnd, outXEnd, reducedDims[3]},
                             tileGroupRegions.back());
         for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
-          const auto tile = linearizeTileIndices(b, batchSize, numTiles,
-                                                 izg, ox, oy, ozg,
-                                                 plan,
-                                                 isMultiIPU);
+          const auto tile = linearizeTileIndices(batchGroup, numBatchGroups,
+                                                 numTiles, izg, ox, oy, ozg,
+                                                 plan, isMultiIPU);
           tileGroups.back().push_back(tile);
         }
         mergeAdjacentRegions(tileGroupRegions.back());
@@ -1096,8 +1096,8 @@ groupConvTilesByOutput(
 static
 std::vector<std::vector<std::pair<unsigned, unsigned>>>
 getPartialsMapping(const poplar::Graph &graph,
-                   unsigned b,
-                   unsigned batchSize,
+                   unsigned batchGroup,
+                   unsigned numBatchGroups,
                    const std::vector<std::size_t> &partialsShape,
                    const Plan &plan) {
   const auto isMultiIPU = graph.getDevice().getDeviceInfo().numIPUs > 1;
@@ -1127,10 +1127,9 @@ getPartialsMapping(const poplar::Graph &graph,
           const auto outXEnd = ((ox + 1) * outDimX) / tilesPerX;
           if (outXBegin == outXEnd)
             continue;
-          const auto tile = linearizeTileIndices(b, batchSize, numTiles,
-                                                 izg, ox, oy, ozg,
-                                                 plan,
-                                                 isMultiIPU);
+          const auto tile = linearizeTileIndices(batchGroup, numBatchGroups,
+                                                 numTiles, izg, ox, oy, ozg,
+                                                 plan, isMultiIPU);
           addFlattenedRegions(partialsShape,
                               {izg, outZGroupBegin, outYBegin, outXBegin, 0},
                               {izg + 1, outZGroupEnd, outYEnd, outXEnd,
@@ -1399,15 +1398,16 @@ multiStageGroupedReduce(
 }
 
 static Tensor
-convReduceByPartialMapping(Graph &graph, unsigned b, unsigned batchSize,
+convReduceByPartialMapping(Graph &graph, unsigned batchGroup,
+                           unsigned numBatchGroups,
                            const Tensor &partials,
                            const std::string &resultType, const Plan &plan,
                            std::vector<ComputeSet> &computeSets,
                            const std::string &debugPrefix) {
   std::vector<std::vector<std::pair<unsigned, unsigned>>> tileGroupRegions;
   std::vector<std::vector<unsigned>> tileGroups;
-  groupConvTilesByOutput(graph, b, batchSize, partials[0].shape(), plan,
-                         tileGroups, tileGroupRegions);
+  groupConvTilesByOutput(graph, batchGroup, numBatchGroups, partials[0].shape(),
+                         plan, tileGroups, tileGroupRegions);
   return multiStageGroupedReduce(graph, tileGroups, tileGroupRegions, partials,
                                  resultType, computeSets, debugPrefix);
 }
