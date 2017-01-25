@@ -98,12 +98,14 @@ linearizeTileIndices(unsigned batchNum, unsigned batchSize,
   const auto tilesPerY = plan.tilesPerYAxis;
   const auto tilesPerZ = plan.tilesPerZAxis;
   const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
-  const auto batchElemsPerTile = (batchSize + numTiles - 1) / numTiles;
-  const auto numBatchGroups =
-      (batchSize + batchElemsPerTile - 1) / batchElemsPerTile;
-  const auto tilesPerBatchGroup =
-      numTiles / numBatchGroups;
-  const auto beginTile = batchNum / batchElemsPerTile * tilesPerBatchGroup;
+
+  unsigned beginTile;
+  if (batchSize <= numTiles) {
+    beginTile = (numTiles / batchSize) * batchNum;
+  } else {
+    const auto batchElemsPerTile = (batchSize + numTiles - 1) / numTiles;
+    beginTile = batchNum / batchElemsPerTile;
+  }
   // If this is a multi IPU system then choose an order that avoids splitting
   // partial sums over IPUs
   unsigned tile;
