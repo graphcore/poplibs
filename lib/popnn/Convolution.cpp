@@ -285,18 +285,17 @@ mapWeights(Tensor w, Graph &graph, const Plan &plan,
 template <typename Builder>
 static void iterateBiasMapping(Tensor b, const Graph &graph,
                                Tensor activations,
-                               unsigned batchNum,
-                               unsigned batchSize,
                                Builder &&builder) {
+  const auto batchSize = activations.dim(0);
   const auto activationsMapping = computeActivationsMapping(graph,
-                                                            activations,
-                                                            batchNum,
+                                                            activations[0],
+                                                            0,
                                                             batchSize);
   const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
-  const auto outNumChans = activations.dim(0) * activations.dim(3);
-  const auto outNumChanGroups = activations.dim(0);
-  const auto outDimY = activations.dim(1);
-  const auto outDimX = activations.dim(2);
+  const auto outNumChans = activations.dim(1) * activations.dim(4);
+  const auto outNumChanGroups = activations.dim(1);
+  const auto outDimY = activations.dim(2);
+  const auto outDimX = activations.dim(3);
   std::vector<unsigned> mapping(outNumChanGroups);
   size_t outChansPerGroup = outNumChans / outNumChanGroups;
   Tensor biasesByChanGroup =
@@ -332,13 +331,10 @@ static void iterateBiasMapping(Tensor b, const Graph &graph,
 }
 
 void mapBiases(Tensor biases, Graph &graph, Tensor activations) {
-  auto batchSize = activations.dim(0);
-  for (unsigned b = 0; b < batchSize; ++b) {
-    iterateBiasMapping(biases, graph, activations[b], b, batchSize,
-                       [&](Tensor biasSlice, unsigned tile) {
-                           graph.setTileMapping(biasSlice, tile);
-                       });
-  }
+  iterateBiasMapping(biases, graph, activations,
+                     [&](Tensor biasSlice, unsigned tile) {
+                         graph.setTileMapping(biasSlice, tile);
+                     });
 }
 
 static void
@@ -2026,7 +2022,7 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
     graph.setTileMapping(v, tile);
   }
   auto updateBiasCS = graph.createComputeSet(debugPrefix + "/UpdateBias");
-  iterateBiasMapping(biases, graph, zDeltas[0], 0, 1,
+  iterateBiasMapping(biases, graph, zDeltas,
     [&](Tensor biasSlice, unsigned tile){
       for (auto bias : biasSlice.getElementIndices()) {
         auto v = graph.addVertex(updateBiasCS,
