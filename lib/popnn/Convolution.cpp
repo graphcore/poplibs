@@ -160,7 +160,9 @@ static std::vector<std::vector<std::pair<unsigned, unsigned>>>
 calculateWeightMapping(Tensor w,
                        const poplar::Graph &graph,
                        const Plan &plan,
-                       unsigned numBatchGroups) {
+                       unsigned batchSize) {
+  assert(batchSize % plan.batchesPerGroup == 0);
+  const auto numBatchGroups = batchSize / plan.batchesPerGroup;
   const auto partialNumChanGroups = w.dim(0);
   const auto numInZGroups = w.dim(1);
   const auto kernelSizeY = w.dim(2);
@@ -240,10 +242,10 @@ static void
 iterateWeightMapping(Tensor w,
                      const poplar::Graph &graph,
                      const Plan &plan,
-                     unsigned numBatchGroups,
+                     unsigned batchSize,
                      Builder &&builder) {
   const auto weightMapping = calculateWeightMapping(w, graph, plan,
-                                                    numBatchGroups);
+                                                    batchSize);
   const auto flatWeights = w.flatten();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto numTiles = deviceInfo.getNumTiles();
@@ -264,8 +266,8 @@ iterateWeightMapping(Tensor w,
 
 void
 mapWeights(Tensor w, Graph &graph, const Plan &plan,
-           unsigned numBatchGroups) {
-  iterateWeightMapping(w, graph, plan, numBatchGroups,
+           unsigned batchSize) {
+  iterateWeightMapping(w, graph, plan, batchSize,
     [&](Tensor tileWeights, unsigned tile) {
     graph.setTileMapping(tileWeights, tile);
   });
@@ -1479,7 +1481,7 @@ convolution(Graph &graph,
           debugPrefix));
     }
   } else {
-    mapWeights(weights, graph, plan, numBatchGroups);
+    mapWeights(weights, graph, plan, batchSize);
 
     // Calculate a set of partial sums of the convolutions.
     Tensor partials = graph.addTensor(partialTypeInPlan,
@@ -2735,7 +2737,7 @@ convolutionWeightUpdateAop(Graph &graph,
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   auto weightsFlattened = weights.flatten();
   auto weightDeltasFlattened = weightDeltas.flatten();
-  iterateWeightMapping(weights, graph, fwdPlan, 1,
+  iterateWeightMapping(weights, graph, fwdPlan, batchSize,
                        [&](const Tensor &tileWeights, unsigned tile) {
     const auto elementIndices = tileWeights.getElementIndices();
     const auto tileNumElements = elementIndices.size();
@@ -2970,7 +2972,7 @@ convolutionWeightUpdateAmp(Graph &graph,
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   auto weightsFlattened = weights.flatten();
   auto weightDeltasFlattened = weightDeltas.flatten();
-  iterateWeightMapping(weights, graph, fwdPlan, 1,
+  iterateWeightMapping(weights, graph, fwdPlan, batchSize,
                        [&](const Tensor &tileWeights, unsigned tile) {
     const auto elementIndices = tileWeights.getElementIndices();
     const auto tileNumElements = elementIndices.size();
