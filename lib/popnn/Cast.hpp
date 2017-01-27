@@ -1,6 +1,8 @@
 #ifndef __Cast_hpp__
 #define __Cast_hpp__
-#include "poplar/Program.hpp"
+
+#include <poplar/Interval.hpp>
+#include <poplar/Program.hpp>
 #include <vector>
 
 /** Create a program to copy tensor casting between types (e.g. half->float).
@@ -19,7 +21,7 @@ cast(poplar::Graph &graph, const std::vector<unsigned> &dstActivationMapping,
 /// specified compute set.
 void cast(poplar::Graph &graph,
           const std::vector<
-            std::vector<std::pair<unsigned, unsigned>>
+            std::vector<poplar::Interval<std::size_t>>
           > &mapping,
           poplar::Tensor src, poplar::Tensor dst,
           poplar::ComputeSet cs);

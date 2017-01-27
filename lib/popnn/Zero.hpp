@@ -7,7 +7,7 @@
 void
 zero(poplar::Graph &graph,
      poplar::Tensor t,
-     const std::vector<std::pair<unsigned, unsigned>> &tileRegions,
+     const std::vector<poplar::Interval<std::size_t>> &tileRegions,
      unsigned tile,
      poplar::ComputeSet zeroCS);
 
@@ -15,7 +15,7 @@ void
 zero(poplar::Graph &graph,
      const poplar::Tensor &t,
      const std::vector<
-       std::vector<std::pair<unsigned, unsigned>>
+       std::vector<poplar::Interval<std::size_t>>
      > &mapping,
      poplar::ComputeSet zeroCS);
 

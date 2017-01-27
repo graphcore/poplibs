@@ -57,8 +57,10 @@ computeActivationsMapping(const poplar::Graph &graph, poplar::Tensor act,
   const auto numBatchTiles = endTile - beginTile;
   std::vector<unsigned> mapping;
   mapping.resize(numTiles + 1);
-  std::vector<std::pair<unsigned, unsigned>> regions = {{0, numActivations}};
-  std::vector<std::vector<std::pair<unsigned, unsigned>>> perTileRegions;
+  std::vector<poplar::Interval<std::size_t>> regions = {
+    {0, numActivations}
+  };
+  std::vector<std::vector<poplar::Interval<std::size_t>>> perTileRegions;
   splitRegions(regions, perTileRegions, grainSize, numBatchTiles,
                minElementsPerTile);
   for (unsigned tile = beginTile; tile != numTiles; ++tile) {
@@ -66,8 +68,8 @@ computeActivationsMapping(const poplar::Graph &graph, poplar::Tensor act,
         !perTileRegions[tile - beginTile].empty()) {
       assert(perTileRegions[tile - beginTile].size() == 1);
       const auto &region = perTileRegions[tile - beginTile].front();
-      assert(mapping[tile] == region.first);
-      mapping[tile + 1] = region.second;
+      assert(mapping[tile] == region.begin);
+      mapping[tile + 1] = region.end;
     } else {
       mapping[tile + 1] = mapping[tile];
     }

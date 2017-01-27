@@ -13,15 +13,15 @@ using namespace poplar;
 
 static unsigned getMaxElementsPerTile(
     const std::vector<
-      std::vector<std::pair<unsigned, unsigned>>
+      std::vector<Interval<std::size_t>>
     > &reducedMapping) {
   unsigned maxElementsPerTile = 0;
   for (const auto &entry : reducedMapping) {
     unsigned tileElements =
         std::accumulate(entry.begin(), entry.end(), 0U,
                         [](unsigned sum,
-                           const std::pair<unsigned, unsigned> &region) {
-          return sum + region.second - region.first;
+                           const Interval<std::size_t> &region) {
+          return sum + region.end - region.begin;
         });
     maxElementsPerTile = std::max(maxElementsPerTile, tileElements);
   }
@@ -32,7 +32,7 @@ static unsigned estimateReduceAtDstCost(
     Graph &graph,
     Tensor partials,
     const std::vector<
-      std::vector<std::pair<unsigned, unsigned>>
+      std::vector<Interval<std::size_t>>
     > &reducedMapping) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto partialType = graph.getTensorElementType(partials);
@@ -61,7 +61,7 @@ static unsigned estimateBalancedReduceCost(
     Tensor partials,
     Tensor reduced,
     const std::vector<
-      std::vector<std::pair<unsigned, unsigned>>
+      std::vector<Interval<std::size_t>>
     > &reducedMapping,
     unsigned grainSize) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
@@ -98,11 +98,11 @@ static unsigned estimateBalancedReduceCost(
   return cycles;
 }
 
-static std::vector<std::vector<std::pair<unsigned, unsigned>>>
+static std::vector<std::vector<Interval<std::size_t>>>
 convertLinearMappingToRegionMapping(const std::vector<unsigned> &mapping) {
   assert(!mapping.empty());
   const auto numTiles = mapping.size() - 1;
-  std::vector<std::vector<std::pair<unsigned, unsigned>>>
+  std::vector<std::vector<Interval<std::size_t>>>
       regionMapping(numTiles);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     if (mapping[tile] == mapping[tile + 1])
@@ -112,12 +112,12 @@ convertLinearMappingToRegionMapping(const std::vector<unsigned> &mapping) {
   return regionMapping;
 }
 
-static std::vector<std::vector<std::pair<unsigned, unsigned>>>
+static std::vector<std::vector<Interval<std::size_t>>>
 determineReduceVertexMapping(Graph &graph,
                              Tensor partials,
                              Tensor reduced,
                              const std::vector<
-                               std::vector<std::pair<unsigned, unsigned>>
+                               std::vector<Interval<std::size_t>>
                              > &reducedMapping) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto partialType = graph.getTensorElementType(partials);
@@ -143,7 +143,7 @@ reduce(Graph &graph,
        Tensor partials,
        Tensor reduced,
        const std::vector<
-         std::vector<std::pair<unsigned, unsigned>>
+         std::vector<Interval<std::size_t>>
        > &reduceVertexMapping,
        ComputeSet reduceCS) {
   assert(partials[0].shape() == reduced.shape());
@@ -169,7 +169,7 @@ reduce(Graph &graph,
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   // Accumulate the partial sums.
   const auto numTiles = deviceInfo.getNumTiles();
-  std::vector<std::vector<std::pair<unsigned, unsigned>>> vertexRegions;
+  std::vector<std::vector<Interval<std::size_t>>> vertexRegions;
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto &tileRegions = reduceVertexMapping[tile];
     unsigned vectorWidth;
@@ -191,8 +191,8 @@ reduce(Graph &graph,
       const auto numRegions = regions.size();
       for (unsigned i = 0; i != numRegions; ++i) {
         const auto &region = regions[i];
-        const auto regionBegin = region.first;
-        const auto regionEnd = region.second;
+        const auto regionBegin = region.begin;
+        const auto regionEnd = region.end;
         auto out = flatReduced.slice(regionBegin, regionEnd);
         graph.connect(v["out"][i], out);
         for (unsigned j = 0; j != tilesPerInZGroup; ++j) {
@@ -211,7 +211,7 @@ reduceByDstMapping(Graph &graph,
                    Tensor partials,
                    Tensor reduced,
                    const std::vector<
-                     std::vector<std::pair<unsigned, unsigned>>
+                     std::vector<Interval<std::size_t>>
                    > &reducedMapping,
                    ComputeSet reduceCS) {
   if (partials.dim(0) < 2) {

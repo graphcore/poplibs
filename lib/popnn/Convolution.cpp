@@ -24,12 +24,14 @@ static void
 applyTensorMapping(
     Graph &graph,
     const Tensor &t,
-    const std::vector<std::vector<std::pair<unsigned, unsigned>>> &mapping) {
+    const std::vector<
+      std::vector<Interval<std::size_t>>
+    > &mapping) {
   auto flattened = t.flatten();
   const auto numTiles = mapping.size();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     for (const auto &region : mapping[tile]) {
-      graph.setTileMapping(flattened.slice(region.first, region.second), tile);
+      graph.setTileMapping(flattened.slice(region.begin, region.end), tile);
     }
   }
 }
@@ -140,7 +142,7 @@ getOutZGroupRange(unsigned ozgIndex, unsigned partialNumChanGroups,
 }
 
 static void
-addWeightRegions(std::vector<std::pair<unsigned,unsigned>> &regions,
+addWeightRegions(std::vector<Interval<std::size_t>> &regions,
                  const std::vector<std::size_t> &weightDims,
                  unsigned outZGroupBegin, unsigned outZGroupEnd,
                  unsigned inZGroupBegin, unsigned inZGroupEnd) {
@@ -156,7 +158,7 @@ addWeightRegions(std::vector<std::pair<unsigned,unsigned>> &regions,
   }
 }
 
-static std::vector<std::vector<std::pair<unsigned, unsigned>>>
+static std::vector<std::vector<Interval<std::size_t>>>
 calculateWeightMapping(Tensor w,
                        const poplar::Graph &graph,
                        const Plan &plan,
@@ -171,7 +173,7 @@ calculateWeightMapping(Tensor w,
   const auto inChansPerGroup = w.dim(5);
 
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  std::vector<std::vector<std::pair<unsigned, unsigned>>>
+  std::vector<std::vector<Interval<std::size_t>>>
       mapping(deviceInfo.getNumTiles());
 
   const auto isMultiIPU = deviceInfo.numIPUs > 1;
@@ -198,12 +200,13 @@ calculateWeightMapping(Tensor w,
           getOutZGroupRange(ozg, partialNumChanGroups, plan);
       // Group weights that are accessed contiguously by tiles within this
       // loop body.
-      std::vector<std::pair<unsigned, unsigned>> sharedWeights;
+      std::vector<Interval<std::size_t>> sharedWeights;
       addWeightRegions(sharedWeights, w.shape(), outZGroupBegin, outZGroupEnd,
                        inZGroupBegin, inZGroupEnd);
       mergeAdjacentRegions(sharedWeights);
       // Spread groups of weights equally across the tiles that read them.
-      std::vector<std::vector<std::pair<unsigned, unsigned>>> perTileWeights;
+      std::vector<std::vector<Interval<std::size_t>>>
+          perTileWeights;
       unsigned grainSize = partialChansPerGroup *
                            inChansPerGroup;
       if (plan.useConvolutionInstructions) {
@@ -252,8 +255,8 @@ iterateWeightMapping(Tensor w,
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     auto tileWeights = flatWeights.slice(0, 0);
     for (const auto &region : weightMapping[tile]) {
-      const auto weightBegin = region.first;
-      const auto weightEnd = region.second;
+      const auto weightBegin = region.begin;
+      const auto weightEnd = region.end;
       assert(weightBegin != weightEnd);
       tileWeights = concat(tileWeights,
                            flatWeights.slice(weightBegin, weightEnd));
@@ -681,7 +684,7 @@ zeroAndMapPartialSums(Graph &graph,
                       ComputeSet zeroCS,
                       const Tensor &out) {
   Tensor flatOut = out.flatten();
-  std::vector<std::pair<unsigned, unsigned>> regions;
+  std::vector<Interval<std::size_t>> regions;
   for (unsigned ozg = tileOutZGroupBegin; ozg != tileOutZGroupEnd; ++ozg) {
     for (unsigned y = outYBegin; y != outYEnd; ++y) {
       const auto regionBegin = out.dim(3) *
@@ -902,7 +905,7 @@ calcPartialSums(Graph &graph,
 /// is not a multiple of the vector width then some exchange may be required
 /// between the reduce and complete compute sets. No exchange is required if the
 /// vector width exactly divides the output channel group size.
-static std::vector<std::vector<std::pair<unsigned, unsigned>>>
+static std::vector<std::vector<Interval<std::size_t>>>
 computeReducedMapping(const poplar::Graph &graph,
                       const std::string &partialType,
                       unsigned partialChansPerGroup,
@@ -913,7 +916,7 @@ computeReducedMapping(const poplar::Graph &graph,
       partialType == "float" ? deviceInfo.getFloatVectorWidth() :
                                deviceInfo.getHalfVectorWidth();
   const auto numTiles = activationsMapping.size() - 1;
-  std::vector<std::vector<std::pair<unsigned, unsigned>>>
+  std::vector<std::vector<Interval<std::size_t>>>
       reducedMapping(numTiles);
   assert(activations.rank() == 4);
   const auto dimY = activations.dim(1);
@@ -972,8 +975,8 @@ computeReducedMapping(const poplar::Graph &graph,
       }
 
       if (!reducedMapping[tile].empty() &&
-          reducedMapping[tile].back().second == roundedBegin) {
-        reducedMapping[tile].back().second = roundedEnd;
+          reducedMapping[tile].back().end == roundedBegin) {
+        reducedMapping[tile].back().end = roundedEnd;
       } else {
         reducedMapping[tile].emplace_back(roundedBegin, roundedEnd);
       }
@@ -1004,7 +1007,7 @@ static void
 addFlattenedRegions(const std::vector<std::size_t> &shape,
                     const std::vector<std::size_t> &begin,
                     const std::vector<std::size_t> &end,
-                    std::vector<std::pair<unsigned,unsigned>> &regions) {
+                    std::vector<Interval<std::size_t>> &regions) {
   const auto numDims = shape.size();
   assert(begin.size() == numDims);
   assert(end.size() == numDims);
@@ -1038,7 +1041,9 @@ groupConvTilesByOutput(
     const std::vector<std::size_t> &reducedDims,
     const Plan &plan,
     std::vector<std::vector<unsigned>> &tileGroups,
-    std::vector<std::vector<std::pair<unsigned, unsigned>>> &tileGroupRegions) {
+    std::vector<
+      std::vector<Interval<std::size_t>>
+    > &tileGroupRegions) {
   const auto isMultiIPU = graph.getDevice().getDeviceInfo().numIPUs > 1;
   const auto partialNumChanGroups = reducedDims[0];
   const auto outDimY = reducedDims[1];
@@ -1084,7 +1089,7 @@ groupConvTilesByOutput(
 }
 
 static
-std::vector<std::vector<std::pair<unsigned, unsigned>>>
+std::vector<std::vector<Interval<std::size_t>>>
 getPartialsMapping(const poplar::Graph &graph,
                    unsigned batchGroup,
                    unsigned numBatchGroups,
@@ -1099,7 +1104,9 @@ getPartialsMapping(const poplar::Graph &graph,
   const auto tilesPerZ = plan.tilesPerZAxis;
   const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
   const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
-  std::vector<std::vector<std::pair<unsigned, unsigned>>> mapping(numTiles);
+  std::vector<
+    std::vector<Interval<std::size_t>>
+  > mapping(numTiles);
   for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
     for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
       unsigned outZGroupBegin, outZGroupEnd;
@@ -1244,7 +1251,7 @@ static Tensor
 partialGroupedReduce(
     Graph &graph,
     const std::vector<std::vector<unsigned>> &tileGroups,
-    const std::vector<std::vector<std::pair<unsigned, unsigned>>> &
+    const std::vector<std::vector<Interval<std::size_t>>> &
         tileGroupRegions,
     const Tensor &partials,
     unsigned outDepth,
@@ -1266,13 +1273,13 @@ partialGroupedReduce(
   for (unsigned i = 0; i != outDepth; ++i) {
     unsigned begin = (i * partialsDepth) / outDepth;
     unsigned end = ((i + 1) * partialsDepth) / outDepth;
-    std::vector<std::vector<std::pair<unsigned, unsigned>>>
+    std::vector<std::vector<Interval<std::size_t>>>
         outSubMapping(numTiles);
     for (unsigned tileGroup = 0; tileGroup != numTileGroups; ++tileGroup) {
       const auto tilesInGroup = tileGroups[tileGroup].size();
       const auto tileBegin = (i * tilesInGroup) / outDepth;
       const auto tileEnd = ((i + 1) * tilesInGroup) / outDepth;
-      std::vector<std::vector<std::pair<unsigned, unsigned>>>
+      std::vector<std::vector<Interval<std::size_t>>>
           outSplitRegions(numTiles);
       splitRegions(tileGroupRegions[tileGroup], outSplitRegions,
                    grainSize, tileEnd - tileBegin);
@@ -1291,8 +1298,9 @@ partialGroupedReduce(
 static Tensor
 groupedReduce(Graph &graph,
               const std::vector<std::vector<unsigned>> &tileGroups,
-              const std::vector<std::vector<std::pair<unsigned, unsigned>>> &
-                  tileGroupRegions,
+              const std::vector<
+                std::vector<Interval<std::size_t>>
+              > &tileGroupRegions,
               const Tensor &partials,
               const std::string &resultType,
               ComputeSet cs) {
@@ -1362,7 +1370,7 @@ static Tensor
 multiStageGroupedReduce(
     Graph &graph,
     const std::vector<std::vector<unsigned>> &tileGroups,
-    const std::vector<std::vector<std::pair<unsigned, unsigned>>> &
+    const std::vector<std::vector<Interval<std::size_t>>> &
         tileGroupRegions,
     Tensor partials,
     const std::string &resultType,
@@ -1394,7 +1402,9 @@ convReduceByPartialMapping(Graph &graph, unsigned batchGroup,
                            const std::string &resultType, const Plan &plan,
                            std::vector<ComputeSet> &computeSets,
                            const std::string &debugPrefix) {
-  std::vector<std::vector<std::pair<unsigned, unsigned>>> tileGroupRegions;
+  std::vector<
+    std::vector<Interval<std::size_t>>
+  > tileGroupRegions;
   std::vector<std::vector<unsigned>> tileGroups;
   groupConvTilesByOutput(graph, batchGroup, numBatchGroups, partials[0].shape(),
                          plan, tileGroups, tileGroupRegions);
@@ -2462,11 +2472,12 @@ calcPartialWeightGradsAop(Graph &graph,
 }
 
 static void
-addWeightDeltaPartialRegions(std::vector<std::pair<unsigned,unsigned>> &regions,
-                             const std::vector<std::size_t> &partialDims,
-                             unsigned b, unsigned tileY, unsigned tileX,
-                             unsigned outZGroupBegin, unsigned outZGroupEnd,
-                             unsigned inZGroupBegin, unsigned inZGroupEnd) {
+addWeightDeltaPartialRegions(
+    std::vector<Interval<std::size_t>> &regions,
+    const std::vector<std::size_t> &partialDims,
+    unsigned b, unsigned tileY, unsigned tileX,
+    unsigned outZGroupBegin, unsigned outZGroupEnd,
+unsigned inZGroupBegin, unsigned inZGroupEnd) {
   for (unsigned ozg = outZGroupBegin; ozg != outZGroupEnd; ++ozg) {
     const auto regionBegin =
         partialDims[8] * partialDims[7] * partialDims[6] * partialDims[5] *
@@ -2482,11 +2493,11 @@ addWeightDeltaPartialRegions(std::vector<std::pair<unsigned,unsigned>> &regions,
   }
 }
 
-std::vector<std::vector<std::pair<unsigned, unsigned>>>
+std::vector<std::vector<Interval<std::size_t>>>
 convertLinearMappingToRegionMapping(const std::vector<unsigned> &mapping) {
   assert(!mapping.empty());
   const auto numTiles = mapping.size() - 1;
-  std::vector<std::vector<std::pair<unsigned, unsigned>>>
+  std::vector<std::vector<Interval<std::size_t>>>
       regionMapping(numTiles);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     if (mapping[tile] == mapping[tile + 1])
@@ -2505,7 +2516,9 @@ groupWeightUpdateAopTilesByOutput(
     const std::vector<std::size_t> &reducedDims,
     const Plan &plan,
     std::vector<std::vector<unsigned>> &tileGroups,
-    std::vector<std::vector<std::pair<unsigned, unsigned>>> &tileGroupRegions) {
+    std::vector<
+      std::vector<Interval<std::size_t>>
+    > &tileGroupRegions) {
   const auto isMultiIPU = graph.getDevice().getDeviceInfo().numIPUs > 1;
   const auto partialNumChanGroups = reducedDims[0];
   const auto inNumChanGroups = reducedDims[1];
@@ -2559,7 +2572,9 @@ weightUpdateAopReduceByPartialMapping(Graph &graph,
                                       const Plan &plan,
                                       std::vector<ComputeSet> &computeSets,
                                       const std::string &debugPrefix) {
-  std::vector<std::vector<std::pair<unsigned, unsigned>>> tileGroupRegions;
+  std::vector<
+    std::vector<Interval<std::size_t>>
+  > tileGroupRegions;
   std::vector<std::vector<unsigned>> tileGroups;
   const auto batchSize = partials.dim(0);
   groupWeightUpdateAopTilesByOutput(graph, batchSize, partials[0][0][0].shape(),
@@ -2646,8 +2661,7 @@ convolutionWeightUpdateAop(Graph &graph,
   } else {
     regroupedDeltas = zDeltas;
   }
-  std::vector<std::vector<std::pair<unsigned,unsigned>>>
-      partialsMapping(numTiles);
+  std::vector<std::vector<Interval<std::size_t>>> partialsMapping(numTiles);
   ComputeSet weightGradCS = graph.createComputeSet(layerName + "/WeightGrad");
   for (unsigned b = 0; b < batchSize; ++b) {
     for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
@@ -2706,7 +2720,8 @@ convolutionWeightUpdateAop(Graph &graph,
     auto reduceCS = graph.createComputeSet(layerName + "/Reduce");
     weightDeltas = graph.addTensor(dType, partials[0][0][0].shape(),
                                    layerName + "/WeightDeltas");
-    std::vector<std::vector<std::pair<unsigned,unsigned>>> weightDeltaMapping;
+    std::vector<std::vector<Interval<std::size_t>>>
+        weightDeltaMapping;
     if (partialChansPerGroup == outChansPerGroup) {
       weightDeltaMapping = weightMapping;
     } else {

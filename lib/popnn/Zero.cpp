@@ -9,7 +9,7 @@ using namespace poplar;
 void
 zero(Graph &graph,
      Tensor t,
-     const std::vector<std::pair<unsigned, unsigned>> &tileRegions,
+     const std::vector<Interval<std::size_t>> &tileRegions,
      unsigned tile,
      ComputeSet zeroCS) {
   t = t.flatten();
@@ -23,15 +23,15 @@ zero(Graph &graph,
 
   buildTransform2D(
       graph, tileRegions, vectorWidth,
-      [&](const std::vector<std::pair<unsigned, unsigned>> &regions) {
+      [&](const std::vector<Interval<std::size_t>> &regions) {
     const auto numRegions = regions.size();
     assert(numRegions != 0);
     VertexRef v;
     if (numRegions == 1) {
       v = graph.addVertex(zeroCS, templateVertex("popnn::Zero", dType));
       const auto &region = regions.front();
-      const auto regionBegin = region.first;
-      const auto regionEnd = region.second;
+      const auto regionBegin = region.begin;
+      const auto regionEnd = region.end;
       auto out = t.slice(regionBegin, regionEnd);
       graph.connect(v["out"], out);
     } else {
@@ -39,8 +39,8 @@ zero(Graph &graph,
       graph.setFieldSize(v["out"], regions.size());
       for (unsigned i = 0; i != numRegions; ++i) {
         const auto &region = regions[i];
-        const auto regionBegin = region.first;
-        const auto regionEnd = region.second;
+        const auto regionBegin = region.begin;
+        const auto regionEnd = region.end;
         auto out = t.slice(regionBegin, regionEnd);
         graph.connect(v["out"][i], out);
       }
@@ -54,7 +54,7 @@ void
 zero(Graph &graph,
      const Tensor &t,
      const std::vector<
-       std::vector<std::pair<unsigned, unsigned>>
+       std::vector<Interval<std::size_t>>
      > &mapping,
      ComputeSet zeroCS) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();

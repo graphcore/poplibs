@@ -4,15 +4,15 @@
 #include <numeric>
 
 void mergeAdjacentRegions(
-    std::vector<std::pair<unsigned, unsigned>> &regions) {
-  std::vector<std::pair<unsigned, unsigned>> newRegions;
+    std::vector<poplar::Interval<std::size_t>> &regions) {
+  std::vector<poplar::Interval<std::size_t>> newRegions;
   std::sort(regions.begin(), regions.end());
   for (const auto &region : regions) {
-    if (region.first == region.second)
+    if (region.begin == region.end)
       continue;
-    assert(newRegions.empty() || newRegions.back().second <= region.first);
-    if (!newRegions.empty() && newRegions.back().second == region.first) {
-      newRegions.back().second = region.second;
+    assert(newRegions.empty() || newRegions.back().end <= region.begin);
+    if (!newRegions.empty() && newRegions.back().end == region.begin) {
+      newRegions.back().end = region.end;
     } else {
       newRegions.push_back(region);
     }
@@ -21,7 +21,7 @@ void mergeAdjacentRegions(
 }
 
 void mergeAdjacentRegions(
-    std::vector<std::vector<std::pair<unsigned, unsigned>>> &mapping) {
+    std::vector<std::vector<poplar::Interval<std::size_t>>> &mapping) {
   const auto numTiles = mapping.size();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     mergeAdjacentRegions(mapping[tile]);
@@ -29,16 +29,18 @@ void mergeAdjacentRegions(
 }
 
 void splitRegions(
-    const std::vector<std::pair<unsigned, unsigned>> &regions,
-    std::vector<std::vector<std::pair<unsigned, unsigned>>> &vertexRegions,
+    const std::vector<poplar::Interval<std::size_t>> &regions,
+    std::vector<
+      std::vector<poplar::Interval<std::size_t>>
+    > &vertexRegions,
     unsigned grainSize, unsigned maxPartitions,
     unsigned minElementsPerPartition) {
   vertexRegions.clear();
   const auto numElements =
       std::accumulate(regions.begin(), regions.end(), 0U,
                       [](unsigned numElements,
-                         const std::pair<unsigned, unsigned> &region) {
-    return numElements + region.second - region.first;
+                         const poplar::Interval<std::size_t> &region) {
+    return numElements + region.end - region.begin;
   });
   if (numElements == 0)
     return;
@@ -66,13 +68,14 @@ void splitRegions(
     const auto elemEnd = std::min(numElements, groupEnd * grainSize);
     auto vertexElements = elemEnd - elemBegin;
     while (vertexElements) {
-      if (count == it->second - it->first) {
+      if (count == it->end - it->begin) {
         count = 0;
         ++it;
       }
-      const auto vertexRegionSize = std::min(vertexElements,
-                                             it->second - it->first - count);
-      const auto vertexRegionBegin = it->first + count;
+      const auto vertexRegionSize =
+          std::min(static_cast<std::size_t>(vertexElements),
+                   it->end - it->begin - count);
+      const auto vertexRegionBegin = it->begin + count;
       const auto vertexRegionEnd = vertexRegionBegin + vertexRegionSize;
       vertexRegions[vertex].emplace_back(vertexRegionBegin, vertexRegionEnd);
       count += vertexRegionSize;
@@ -83,8 +86,10 @@ void splitRegions(
 
 void splitRegionsBetweenWorkers(
     const poplar::DeviceInfo &deviceInfo,
-    const std::vector<std::pair<unsigned, unsigned>> &regions,
-    std::vector<std::vector<std::pair<unsigned, unsigned>>> &vertexRegions,
+    const std::vector<poplar::Interval<std::size_t>> &regions,
+    std::vector<
+      std::vector<poplar::Interval<std::size_t>>
+    > &vertexRegions,
     unsigned grainSize,
     unsigned minElementsPerVertex) {
   const auto workersPerTile = deviceInfo.numWorkerContexts;

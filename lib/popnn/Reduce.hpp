@@ -13,7 +13,7 @@ void reduce(poplar::Graph &graph,
             poplar::Tensor partials,
             poplar::Tensor reduced,
             const std::vector<
-              std::vector<std::pair<unsigned, unsigned>>
+              std::vector<poplar::Interval<std::size_t>>
             > &reduceMapping,
             poplar::ComputeSet reduceCS);
 
@@ -28,7 +28,7 @@ void reduceByDstMapping(poplar::Graph &graph,
                         poplar::Tensor partials,
                         poplar::Tensor reduced,
                         const std::vector<
-                          std::vector<std::pair<unsigned, unsigned>>
+                          std::vector<poplar::Interval<std::size_t>>
                         > &reducedMapping,
                         poplar::ComputeSet reduceCS);
 

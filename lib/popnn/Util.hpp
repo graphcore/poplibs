@@ -2,23 +2,25 @@
 #define _Util_hpp_
 
 #include <poplar/Device.hpp>
+#include <poplar/Interval.hpp>
 #include <poplar/Graph.hpp>
 #include <vector>
-#include <utility>
 
 void mergeAdjacentRegions(
-    std::vector<std::pair<unsigned, unsigned>> &regions);
+    std::vector<poplar::Interval<std::size_t>> &regions);
 
 void mergeAdjacentRegions(
-    std::vector<std::vector<std::pair<unsigned, unsigned>>> &mapping);
+    std::vector<std::vector<poplar::Interval<std::size_t>>> &mapping);
 
 // Given a set of contiguous regions, partition these regions trying to
 // balance the number of elements in each partition, respecting the specified
 // grain. At most maxPartitions partitions are created. Regions may be split to
 // achieve a better balance.
 void splitRegions(
-    const std::vector<std::pair<unsigned, unsigned>> &regions,
-    std::vector<std::vector<std::pair<unsigned, unsigned>>> &vertexRegions,
+    const std::vector<poplar::Interval<std::size_t>> &regions,
+    std::vector<
+      std::vector<poplar::Interval<std::size_t>>
+    > &vertexRegions,
     unsigned grainSize, unsigned maxPartitions,
     unsigned minElementsPerPartition = 0);
 
@@ -27,8 +29,10 @@ void splitRegions(
 // Regions may be split to balance the work across vertices.
 void splitRegionsBetweenWorkers(
     const poplar::DeviceInfo &deviceInfo,
-    const std::vector<std::pair<unsigned, unsigned>> &regions,
-    std::vector<std::vector<std::pair<unsigned, unsigned>>> &vertexRegions,
+    const std::vector<poplar::Interval<std::size_t>> &regions,
+    std::vector<
+      std::vector<poplar::Interval<std::size_t>>
+    > &vertexRegions,
     unsigned grainSize, unsigned minElementsPerPartition = 0);
 
 /// Given a mapping of data to tiles, use the specified builder function to
@@ -68,11 +72,11 @@ void buildTransform(const std::vector<unsigned> &tileMapping,
 template <class Builder>
 void buildTransform2D(
     poplar::Graph &graph,
-    const std::vector<std::pair<unsigned, unsigned>> &regions,
+    const std::vector<poplar::Interval<std::size_t>> &regions,
     unsigned grainSize,
     Builder &&builder) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  std::vector<std::vector<std::pair<unsigned, unsigned>>> vertexRegions;
+  std::vector<std::vector<poplar::Interval<std::size_t>>> vertexRegions;
   splitRegionsBetweenWorkers(deviceInfo, regions, vertexRegions,
                              grainSize);
   for (const auto &regions : vertexRegions) {
@@ -89,7 +93,7 @@ template <class Builder>
 void buildTransform2D(
     poplar::Graph &graph,
     const std::vector<
-      std::vector<std::pair<unsigned, unsigned>>
+      std::vector<poplar::Interval<std::size_t>>
     > &mapping,
     unsigned grainSize,
     Builder &&builder) {
@@ -98,7 +102,7 @@ void buildTransform2D(
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     buildTransform2D(
       graph, mapping[tile], grainSize,
-      [&builder,tile](const std::vector<std::pair<unsigned, unsigned>> &
+      [&builder,tile](const std::vector<poplar::Interval<std::size_t>> &
                       vertexRegions) {
       builder(vertexRegions, tile);
     });
