@@ -384,10 +384,11 @@ public:
     const auto numContexts = weightReuseCount.size() /
                              (weights.size() / filterHeight);
     const auto numConvUnitsPerTile = outChansPerGroup;
-    assert(dataPathWidth % 16 == 0);
-    const auto halfVectorWidth = dataPathWidth / 16;
-    assert(inChansPerGroup % halfVectorWidth == 0);
-    const auto convUnitPipelineDepth = inChansPerGroup / halfVectorWidth;
+    const auto bitWidth = std::is_same<FPType, float>::value ? 32 : 16;
+    assert(dataPathWidth % bitWidth == 0);
+    const auto vectorWidth = dataPathWidth / bitWidth;
+    assert(inChansPerGroup % vectorWidth == 0);
+    const auto convUnitPipelineDepth = inChansPerGroup / vectorWidth;
     std::vector<std::vector<std::vector<unsigned>>>
         convolutionsByWeightAndWorker;
     unsigned convNum = 0;
@@ -744,10 +745,11 @@ public:
   uint64_t getCycleEstimate() const {
     const auto numContexts = weightReuseCount.size();
     const auto numConvUnitsPerTile = outChansPerGroup;
-    assert(dataPathWidth % 16 == 0);
-    const auto halfVectorWidth = dataPathWidth / 16;
-    assert(inChansPerGroup % halfVectorWidth == 0);
-    const auto convUnitPipelineDepth = inChansPerGroup / halfVectorWidth;
+    const auto bitWidth = std::is_same<FPType, float>::value ? 32 : 16;
+    assert(dataPathWidth % bitWidth == 0);
+    const auto vectorWidth = dataPathWidth / bitWidth;
+    assert(inChansPerGroup % vectorWidth == 0);
+    const auto convUnitPipelineDepth = inChansPerGroup / vectorWidth;
     std::vector<std::vector<std::vector<unsigned>>>
         convolutionsByWeightAndWorker;
     const auto numInChanGroups =
