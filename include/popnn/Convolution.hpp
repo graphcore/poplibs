@@ -64,8 +64,7 @@ void mapBiases(poplar::Tensor b, poplar::Graph &graph,
 poplar::program::Program
 weightsTransposeChansFlipXY(poplar::Graph &graph,
                             poplar::Tensor weightsIn,
-                            poplar::Tensor WeightsOut,
-                            const std::string &debugPrefix = "");
+                            poplar::Tensor WeightsOut);
 
 poplar::program::Program
 convolutionBackward(poplar::Graph &graph,

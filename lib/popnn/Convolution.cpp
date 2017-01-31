@@ -1618,62 +1618,15 @@ std::vector<size_t> getElementCoord(size_t element,
   return coord;
 }
 
-/**
- * Transpose the innermost pair of dimensions of the specified tensor, writing
- * the results to a new tensor.
- */
-static Tensor weightsPartialTranspose(Graph &graph, Tensor in, ComputeSet cs) {
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto rank = in.rank();
-  const auto numSrcRows = in.dim(rank - 2);
-  const auto numSrcColumns = in.dim(rank - 1);
-  const auto dType = graph.getTensorElementType(in);
-  auto outShape = in.shape();
-  std::swap(outShape[rank - 2], outShape[rank - 1]);
-  auto out = graph.addTensor(dType, outShape, "partialTranspose");
-  auto inFlat = in.reshape({in.numElements() / (numSrcRows * numSrcColumns),
-                            numSrcRows * numSrcColumns});
-  auto outFlat = out.reshape(inFlat.shape());
-  const auto transpositionMapping =
-      graph.getTileMapping(inFlat.slice(0, 1, 1));
-  const auto numTiles = transpositionMapping.size();
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
-    std::vector<std::vector<Interval<std::size_t>>> perWorkerTranspositions;
-    splitRegionsBetweenWorkers(deviceInfo, transpositionMapping[tile],
-                               perWorkerTranspositions, 1);
-    for (const auto &entry : perWorkerTranspositions) {
-      const auto v =
-          graph.addVertex(cs, templateVertex("popnn::Transpose2D", dType));
-      graph.setInitialValue(v["numSrcColumns"],
-                            static_cast<unsigned>(numSrcColumns));
-      graph.setTileMapping(v, tile);
-      unsigned i = 0;
-      for (const auto &interval : entry) {
-        for (auto transposition = interval.begin;
-             transposition != interval.end; ++transposition) {
-          graph.connect(v["src"][i], inFlat[transposition]);
-          graph.connect(v["dst"][i], outFlat[transposition]);
-          graph.setTileMapping(outFlat[transposition], tile);
-          ++i;
-        }
-      }
-      graph.setFieldSize(v["src"], i);
-      graph.setFieldSize(v["dst"], i);
-    }
-  }
-  return out;
-}
-
 /** Copy the weights in 'weightsIn' into 'weightsOut' such that
  *  each element of the kernel is transposed w.r.t. the input and output
  *  channels and flip both the X and Y axis of the kernel field.
  */
 Program weightsTransposeChansFlipXY(Graph &graph,
                                     Tensor weightsIn,
-                                    Tensor weightsOut,
-                                    const std::string &debugPrefix) {
-  // weightsIn = { O/G1, I/G2, KY, KX, G1, G2 }
-  // weightsOut = { I/G3, O/G4, KY, KX, G3, G4 }
+                                    Tensor weightsOut) {
+  // weights = { O/G1, I/G2, KY, KX, G1, G2 }
+  // bwdweights = { I/G3, O/G4, KY, KX, G3, G4 }
 
   const auto dType = graph.getTensorElementType(weightsIn);
   const auto KY = weightsOut.dim(2);
@@ -1685,47 +1638,20 @@ Program weightsTransposeChansFlipXY(Graph &graph,
   const auto G3 = weightsOut.dim(4);
   const auto G4 = weightsOut.dim(5);
 
-  Sequence prog;
-  // Express the rearrangement as a composition of two rearrangements such
-  // that the first rearrangement avoids exchange and maximises the size of the
-  // block that is rearranged in the second step. This reduces exchange code
-  // since the second step involves fewer, larger messages.
-  // G5 is the size of the innermost dimension after the partial transposition.
-  // To avoid exchange it must divide G1. If G4 divides G1 then set G5 to G4 -
-  // this results in the block size of G1 * gcd(G2, G3) elements in the
-  // second step. Otherwise set G5 to G1 for a block size of gcd(G1, G4)
-  // elements.
-  const auto G5 = (G1 % G4 == 0) ? G4 : G1;
-  Tensor partiallyTransposed;
-  if (G5 == 1) {
-    partiallyTransposed = weightsIn.reshape({O/G1, I/G2, KY, KX, G1, G2, 1});
-  } else {
-    auto cs = graph.createComputeSet(debugPrefix + "/WeightTranspose");
-    partiallyTransposed =
-        weightsPartialTranspose(
-          graph,
-          weightsIn.reshape({O/G1, I/G2, KY, KX, G1/G5, G5, G2}),
-          cs
-        );
-    prog.add(Execute(cs));
-  }
-
-  auto wFlippedY = graph.addTensor(dType, {O/G1, I/G2, 0, KX, G1/G5, G2, G5});
+  auto wFlippedY = graph.addTensor(dType, {O/G1, I/G2, 0, KX, G1, G2});
   for (int wy = KY - 1; wy >= 0; --wy) {
-     wFlippedY = concat(wFlippedY,
-                        partiallyTransposed.slice(wy, wy + 1, 2), 2);
+     wFlippedY = concat(wFlippedY, weightsIn.slice(wy, wy + 1, 2), 2);
   }
 
-  auto wFlippedYX= graph.addTensor(dType, {O/G1, I/G2, KY, 0, G1/G5, G2, G5});
+  auto wFlippedYX= graph.addTensor(dType, {O/G1, I/G2, KY, 0, G1, G2});
   for (int wx = KX - 1; wx >= 0; --wx) {
-     wFlippedYX = concat(wFlippedYX,
-                         partiallyTransposed.slice(wx, wx + 1, 3), 3);
+     wFlippedYX = concat(wFlippedYX, wFlippedY.slice(wx, wx + 1, 3), 3);
   }
-  prog.add(Copy(weightsOut,
-                wFlippedYX.dimShuffle({2, 3, 0, 4, 6, 1, 5})
-                          .reshape({KY, KX, O/G4, G4, I/G3, G3})
-                          .dimShuffle({4, 2, 0, 1, 5, 3})));
-  return prog;
+
+  return Copy(weightsOut,
+              wFlippedYX.dimShuffle({2, 3, 0, 4, 1, 5})
+                        .reshape({KY, KX, O/G4, G4, I/G3, G3})
+                        .dimShuffle({4, 2, 0, 1, 5, 3}));
 }
 
 Program convolutionBackward(Graph &graph,

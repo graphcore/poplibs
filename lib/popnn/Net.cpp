@@ -183,16 +183,14 @@ createBwdWeightsAndBiases(Graph &graph, const conv::Plan &bwdPlan,
                           const conv::Plan &fwdPlan,
                           Tensor weights, Tensor deltasOut,
                           Tensor bwdWeights,
-                          Tensor bwdBiases,
-                          const std::string &debugPrefix) {
+                          Tensor bwdBiases) {
   const auto batchSize = deltasOut.dim(0);
   const auto outNumChans = deltasOut.dim(1) * deltasOut.dim(4);
   const auto dType = graph.getTensorElementType(weights);
   auto prog = Sequence();
   conv::mapWeights(weights, graph, fwdPlan, batchSize);
   conv::mapWeights(bwdWeights, graph, bwdPlan, batchSize);
-  prog.add(conv::weightsTransposeChansFlipXY(graph, weights, bwdWeights,
-                                             debugPrefix));
+  prog.add(conv::weightsTransposeChansFlipXY(graph, weights, bwdWeights));
   auto zeros = graph.addConstantTensor(dType, {outNumChans}, 0);
   conv::mapBiases(bwdBiases, graph, deltasOut);
   prog.add(Copy(bwdBiases, zeros));
@@ -834,7 +832,7 @@ Program Net::createConvLayerBwd(unsigned i,
     conv::mapBiases(biases, *graph, deltas[i]);
 
     prog.add(convBwdWeights(*graph, bwdPlan, fwdPlan, weights, deltas[i],
-                            bwdWeights, biases, ""));
+                            bwdWeights, biases));
     // Perform convolution
     /* use empty string to ensure that layer graph can be reused */
     prog.add(doConv(*graph, bwdPlan, strideY, strideX,
