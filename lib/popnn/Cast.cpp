@@ -8,46 +8,33 @@
 using namespace poplar;
 using namespace poplar::program;
 
-void
-cast(Graph &graph, const std::vector<unsigned> &dstActivationMapping,
-     Tensor src, Tensor dst, ComputeSet cs) {
-  auto srcType = graph.getTensorElementType(src);
-  auto dstType = graph.getTensorElementType(dst);
-
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
-  buildTransform(dstActivationMapping, graph, [&](unsigned begin,
-                                                  unsigned end,
-                                                  unsigned tile) {
-    auto v = graph.addVertex(cs,
-                             templateVertex("popnn::Cast", srcType, dstType),
-                             {{"src", src.flatten().slice(begin, end)},
-                              {"dst", dst.flatten().slice(begin, end)}});
-    graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-    graph.setTileMapping(v, tile);
-  });
-}
-
-
 Program
-cast(Graph &graph, const std::vector<unsigned> &dstActivationMapping,
-     Tensor src, Tensor dst, const std::string &debugPrefix) {
+cast(Graph &graph, Tensor src, Tensor dst, const std::string &debugPrefix) {
   auto srcType = graph.getTensorElementType(src);
   auto dstType = graph.getTensorElementType(dst);
   if (srcType == dstType)
     return Copy(dst, src);
   auto cs = graph.createComputeSet(debugPrefix + "/Cast");
-  cast(graph, dstActivationMapping, src, dst, cs);
+  cast(graph, src, dst, cs);
   return Execute(cs);
 }
 
+static bool
+mappingIsComplete(const Tensor &t,
+                  const std::vector<
+                    std::vector<Interval<std::size_t>>
+                  > &mapping) {
+  unsigned mappedElements = 0;
+  for (const auto &regions : mapping) {
+    for (const auto &region : regions) {
+      mappedElements += region.end - region.begin;
+    }
+  }
+  return mappedElements == t.numElements();
+}
+
 void
-cast(poplar::Graph &graph,
-     const std::vector<
-       std::vector<Interval<std::size_t>>
-     > &mapping,
-     poplar::Tensor src, poplar::Tensor dst,
-     poplar::ComputeSet cs) {
+cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
   assert(src.shape() == dst.shape());
   src = src.flatten();
   dst = dst.flatten();
@@ -55,6 +42,14 @@ cast(poplar::Graph &graph,
   const auto dstType = graph.getTensorElementType(dst);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto vectorWidth = deviceInfo.getFloatVectorWidth();
+  std::vector<std::vector<Interval<std::size_t>>> mapping;
+  if (srcType == "float") {
+    mapping = graph.getTileMapping(src);
+    assert(mappingIsComplete(src, mapping));
+  } else {
+    mapping = graph.getTileMapping(dst);
+    assert(mappingIsComplete(dst, mapping));
+  }
   buildTransform2D(
     graph, mapping, vectorWidth,
     [&](const std::vector<Interval<std::size_t>> &regions,

@@ -152,10 +152,7 @@ reduce(Graph &graph,
     return;
   }
   if (partials.dim(0) == 1) {
-    // TODO if the destination type is smaller than the source type it would
-    // be better to perform the cast on the source tile to reduce the volume
-    // of data that must be exchanged.
-    cast(graph, reduceVertexMapping, partials[0], reduced, reduceCS);
+    cast(graph, partials[0], reduced, reduceCS);
     return;
   }
   const auto partialType = graph.getTensorElementType(partials);

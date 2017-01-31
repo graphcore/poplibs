@@ -1088,58 +1088,6 @@ groupConvTilesByOutput(
   }
 }
 
-static
-std::vector<std::vector<Interval<std::size_t>>>
-getPartialsMapping(const poplar::Graph &graph,
-                   unsigned batchGroup,
-                   unsigned numBatchGroups,
-                   const std::vector<std::size_t> &partialsShape,
-                   const Plan &plan) {
-  const auto isMultiIPU = graph.getDevice().getDeviceInfo().numIPUs > 1;
-  const auto partialNumChanGroups = partialsShape[1];
-  const auto outDimY = partialsShape[2];
-  const auto outDimX = partialsShape[3];
-  const auto tilesPerX = plan.tilesPerXAxis;
-  const auto tilesPerY = plan.tilesPerYAxis;
-  const auto tilesPerZ = plan.tilesPerZAxis;
-  const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
-  const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
-  std::vector<
-    std::vector<Interval<std::size_t>>
-  > mapping(numTiles);
-  for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
-    for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
-      unsigned outZGroupBegin, outZGroupEnd;
-      std::tie(outZGroupBegin, outZGroupEnd) =
-          getOutZGroupRange(ozg, partialNumChanGroups, plan);
-      if (outZGroupBegin == outZGroupEnd)
-        continue;
-      for (unsigned oy = 0; oy != tilesPerY; ++oy) {
-        const auto outYBegin = (oy * outDimY) / tilesPerY;
-        const auto outYEnd = ((oy + 1) * outDimY) / tilesPerY;
-        if (outYBegin == outYEnd)
-          continue;
-        for (unsigned ox = 0; ox != tilesPerX; ++ox) {
-          const auto outXBegin = (ox * outDimX) / tilesPerX;
-          const auto outXEnd = ((ox + 1) * outDimX) / tilesPerX;
-          if (outXBegin == outXEnd)
-            continue;
-          const auto tile = linearizeTileIndices(batchGroup, numBatchGroups,
-                                                 numTiles, izg, ox, oy, ozg,
-                                                 plan, isMultiIPU);
-          addFlattenedRegions(partialsShape,
-                              {izg, outZGroupBegin, outYBegin, outXBegin, 0},
-                              {izg + 1, outZGroupEnd, outYEnd, outXEnd,
-                               partialsShape[4]},
-                              mapping[tile]);
-          mergeAdjacentRegions(mapping[tile]);
-        }
-      }
-    }
-  }
-  return mapping;
-}
-
 static void
 complete(Graph &graph,
          const Plan &plan,
@@ -1523,13 +1471,8 @@ convolution(Graph &graph,
           reduceComputeSets.push_back(graph.createComputeSet(layerName +
                                                              "/Cast"));
         }
-        for (unsigned b = 0; b < numBatchGroups; ++b) {
-          auto mapping = getPartialsMapping(graph, b, numBatchGroups,
-                                            partials[b].shape(), plan);
-          applyTensorMapping(graph, reduced[b], mapping);
-          cast(graph, mapping, partials[b], reduced[b],
-               reduceComputeSets[0]);
-        }
+        applyTensorMapping(graph, reduced, graph.getTileMapping(partials));
+        cast(graph, partials, reduced, reduceComputeSets[0]);
       } else {
         reduced = partials;
       }
@@ -1850,7 +1793,7 @@ matrixMultiplyByConvInstruction(Graph &graph, const Plan &plan,
     /* If no reduction is required where all input channel groups are allocated
      * to a tile, partials must be cast to the output type
      */
-    prog.add(cast(graph, cTileMapping, partials[0], out[0], debugPrefix));
+    prog.add(cast(graph, partials[0], out[0], debugPrefix));
   }
   return prog;
 }
