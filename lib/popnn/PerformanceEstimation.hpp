@@ -41,10 +41,13 @@ getConvPartialnx1SupervisorCycleEstimate(
   const auto numWorkerContexts = 6;
   const auto coeffBytesPerPipelineStage = 8;
 
+  const unsigned supervisorNonLoopOverhead = 21U;
 
-  unsigned cycles = 0;
+  unsigned cycles = supervisorNonLoopOverhead;
+
   for (const auto &convSizesByWorker : convSizesByWeightAndWorker) {
     assert(convSizesByWorker.size() <= numWorkerContexts);
+
     // Load weights in the supervisor.
     const auto numLoads = convUnitPipelineDepth
                           * numConvUnitsPerTile
@@ -52,21 +55,38 @@ getConvPartialnx1SupervisorCycleEstimate(
                           / convUnitCoeffLoadBytesPerCycle;
 
     cycles += numLoads;
+
+    const unsigned supervisorLoopOverhead = 2;
+
+    cycles += supervisorLoopOverhead; // overhead to modify supervisor struct
+
+    unsigned tworker = 0;
+
     unsigned maxWorkerCycles = 0;
     // Start workers.
     for (const auto &convSizes : convSizesByWorker) {
       unsigned workerCycles = 0;
-      const auto vertexOverhead = 5U;
-      const auto coolDownCycles = 5U;
+      const auto vertexOverhead = 21U;
       workerCycles += vertexOverhead;
+
       for (const auto convSize : convSizes) {
-        workerCycles += numInputPointers + numOutputPointers +
+        /* inner loop overhead includes cycles to warn-up and cool down AMP loop
+         */
+        const unsigned innerLoopOverhead = 6;
+
+        /* Cycles to form packed addresses */
+        const unsigned packedAddrCompCyles = std::max(numInputPointers,
+                                                      numOutputPointers) *
+                                             9;
+        workerCycles += innerLoopOverhead +
+                        packedAddrCompCyles +
                         convSize * convUnitPipelineDepth;
       }
-      workerCycles += coolDownCycles;
+      ++tworker;
       maxWorkerCycles = std::max(maxWorkerCycles, workerCycles);
     }
     cycles += maxWorkerCycles * numWorkerContexts;
+    cycles += 2 * numWorkerContexts; // run instruction
     cycles += 1; // Sync.
     cycles += numWorkerContexts - 1; // Pipeline bubble.
   }
