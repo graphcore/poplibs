@@ -16,6 +16,10 @@
 #include <iomanip>
 #include <array>
 
+#if defined(__linux__) || defined(__APPLE__)
+#include <dlfcn.h>
+#endif
+
 using namespace poplar;
 using namespace poplar::program;
 
@@ -858,9 +862,22 @@ std::string findGraphProg() {
   const auto env = std::getenv("IPU_POPNN_GP");
   if (env && std::ifstream(env).good())
     return env;
+
+#if defined(__linux__) || defined(__APPLE__)
+  Dl_info dlInfo;
+  static const void* dummy;
+  if (dladdr(&dummy, &dlInfo)) {
+    std::string path(dlInfo.dli_fname);
+    path = path.substr(0, path.find_last_of( '/' ) + 1);
+    path = path + "popnn.gp";
+    return path;
+  }
+#endif
+
   std::string path = "lib/popnn/popnn.gp";
   if (std::ifstream(path).good())
     return path;
+
   path = "../" + path;
   return path;
 }

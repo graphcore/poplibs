@@ -20,6 +20,7 @@ endfunction()
 add_popnn_unit_test(ResidualTest ResidualTest.cpp)
 add_popnn_unit_test(WinogradConvolution WinogradConv.cpp)
 add_popnn_unit_test(NonLinearityTest NonLinearityTest.cpp)
+add_popnn_unit_test(GraphProgLocationTest GraphProgLocationTest.cpp)
 
 # Layer tests
 add_test(NAME conv3x3_stride_2_fwd
