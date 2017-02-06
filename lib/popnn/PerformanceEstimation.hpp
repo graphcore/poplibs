@@ -60,19 +60,17 @@ getConvPartialnx1SupervisorCycleEstimate(
 
     cycles += supervisorLoopOverhead; // overhead to modify supervisor struct
 
-    unsigned tworker = 0;
-
     unsigned maxWorkerCycles = 0;
     // Start workers.
     for (const auto &convSizes : convSizesByWorker) {
       unsigned workerCycles = 0;
-      const auto vertexOverhead = 21U;
+      const auto vertexOverhead = 20U;
       workerCycles += vertexOverhead;
 
       for (const auto convSize : convSizes) {
-        /* inner loop overhead includes cycles to warn-up and cool down AMP loop
+        /* inner loop overhead includes cycles to warm-up and cool down AMP loop
          */
-        const unsigned innerLoopOverhead = 6;
+        const unsigned innerLoopOverhead = 8;
 
         /* Cycles to form packed addresses */
         const unsigned packedAddrCompCyles = std::max(numInputPointers,
@@ -82,7 +80,6 @@ getConvPartialnx1SupervisorCycleEstimate(
                         packedAddrCompCyles +
                         convSize * convUnitPipelineDepth;
       }
-      ++tworker;
       maxWorkerCycles = std::max(maxWorkerCycles, workerCycles);
     }
     cycles += maxWorkerCycles * numWorkerContexts;
