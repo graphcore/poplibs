@@ -853,8 +853,8 @@ calcPartialSums(Graph &graph,
   const auto numInZGroups = inNumChans / inChansPerGroup;
   const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
 
-  ComputeSet zeroCS = graph.createComputeSet(layerName +"/Zero");
-  ComputeSet convolveCS = graph.createComputeSet(layerName + "/Convolve");
+  ComputeSet zeroCS = graph.addComputeSet(layerName +"/Zero");
+  ComputeSet convolveCS = graph.addComputeSet(layerName + "/Convolve");
   for (unsigned b = 0; b < numBatchGroups; ++b) {
     for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
       const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
@@ -1328,7 +1328,7 @@ multiStageGroupedReduce(
   auto plan = getMultiStageReducePlan(partialsDepth);
   for (unsigned i = computeSets.size(); i <= plan.size(); ++i) {
     computeSets.push_back(
-      graph.createComputeSet(debugPrefix + "/Reduce" +
+      graph.addComputeSet(debugPrefix + "/Reduce" +
                              std::to_string(i))
     );
   }
@@ -1460,7 +1460,7 @@ convolution(Graph &graph,
     std::vector<ComputeSet> reduceComputeSets;
     // For each element of the batch, we add the reduction and complete
     // vertices to same compute sets so the batch will be executed in parallel.
-    ComputeSet completeCS = graph.createComputeSet(layerName + "/Complete");
+    ComputeSet completeCS = graph.addComputeSet(layerName + "/Complete");
     const auto partialType = graph.getTensorElementType(partials);
     Tensor reduced;
     // Perform the reduction of partial sums.
@@ -1468,7 +1468,7 @@ convolution(Graph &graph,
       if (dType != partialType) {
         reduced = graph.addTensor(dType, partials.shape());
         if (reduceComputeSets.empty()) {
-          reduceComputeSets.push_back(graph.createComputeSet(layerName +
+          reduceComputeSets.push_back(graph.addComputeSet(layerName +
                                                              "/Cast"));
         }
         applyTensorMapping(graph, reduced, graph.getTileMapping(partials));
@@ -1700,7 +1700,7 @@ Program weightsTransposeChansFlipXY(Graph &graph,
   if (G5 == 1) {
     partiallyTransposed = weightsIn.reshape({O/G1, I/G2, KY, KX, G1, G2, 1});
   } else {
-    auto cs = graph.createComputeSet(debugPrefix + "/WeightTranspose");
+    auto cs = graph.addComputeSet(debugPrefix + "/WeightTranspose");
     partiallyTransposed =
         weightsPartialTranspose(
           graph,
@@ -1856,7 +1856,7 @@ matrixMultiplyByConvInstruction(Graph &graph, const Plan &plan,
 
   if ( plan.tilesPerInZGroupAxis > 1) {
     // Perform the reduction of partial sums.
-    auto reduceCS = graph.createComputeSet(debugPrefix + "/Reduce");
+    auto reduceCS = graph.addComputeSet(debugPrefix + "/Reduce");
     auto reducedMapping = computeReducedMapping(graph, partialType,
                                                 outChansPerGroup,
                                                 out[0], cTileMapping);
@@ -1993,7 +1993,7 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
   }
   auto biasPartials = graph.addTensor(dType, {usedWorkers, maxBiasPerWorker},
                                       "biasPartials");
-  auto secondReduceCS = graph.createComputeSet(
+  auto secondReduceCS = graph.addComputeSet(
                             debugPrefix + "/ReduceBias2");
   for (unsigned worker = 0; worker  < usedWorkers; ++worker ) {
     auto tile = worker / deviceInfo.numWorkerContexts;
@@ -2037,7 +2037,7 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
     graph.connect(v["out"], biasPartials[worker].slice(0, numWorkerBiases));
     graph.setTileMapping(v, tile);
   }
-  auto updateBiasCS = graph.createComputeSet(debugPrefix + "/UpdateBias");
+  auto updateBiasCS = graph.addComputeSet(debugPrefix + "/UpdateBias");
   iterateBiasMapping(biases, graph, zDeltas,
     [&](Tensor biasSlice, unsigned tile){
       for (auto bias : biasSlice.getElementIndices()) {
@@ -2679,7 +2679,7 @@ convolutionWeightUpdateAop(Graph &graph,
     regroupedDeltas = zDeltas;
   }
   std::vector<std::vector<Interval<std::size_t>>> partialsMapping(numTiles);
-  ComputeSet weightGradCS = graph.createComputeSet(layerName + "/WeightGrad");
+  ComputeSet weightGradCS = graph.addComputeSet(layerName + "/WeightGrad");
   for (unsigned b = 0; b < batchSize; ++b) {
     for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
       const auto inZGroupBegin = (izg * inNumChanGroups) / tilesPerInZGroup;
@@ -2721,7 +2721,7 @@ convolutionWeightUpdateAop(Graph &graph,
   }
   mergeAdjacentRegions(partialsMapping);
   applyTensorMapping(graph, partials, partialsMapping);
-  ComputeSet zeroCS = graph.createComputeSet(layerName + "/Zero");
+  ComputeSet zeroCS = graph.addComputeSet(layerName + "/Zero");
   zero(graph, partials, partialsMapping, zeroCS);
   prog.add(Execute(zeroCS));
   prog.add(Execute(weightGradCS));
@@ -2734,7 +2734,7 @@ convolutionWeightUpdateAop(Graph &graph,
   if (numPartials == 1 && partialsType == dType) {
     weightDeltas = partials[0][0][0];
   } else if (numPartials == 1) {
-    auto reduceCS = graph.createComputeSet(layerName + "/Reduce");
+    auto reduceCS = graph.addComputeSet(layerName + "/Reduce");
     weightDeltas = graph.addTensor(dType, partials[0][0][0].shape(),
                                    layerName + "/WeightDeltas");
     std::vector<std::vector<Interval<std::size_t>>>
@@ -2765,7 +2765,7 @@ convolutionWeightUpdateAop(Graph &graph,
   weightDeltas = regroup(weightDeltas, 0, 4, outChansPerGroup);
 
   // Add the weight deltas to the weights.
-  auto addCS = graph.createComputeSet(layerName + "/UpdateWeights");
+  auto addCS = graph.addComputeSet(layerName + "/UpdateWeights");
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   auto weightsFlattened = weights.flatten();
   auto weightDeltasFlattened = weightDeltas.flatten();
@@ -3000,7 +3000,7 @@ convolutionWeightUpdateAmp(Graph &graph,
                             fwdInChansPerGroup})
                   .dimShuffle({0, 4, 2, 3, 1, 5})));
   // Add the weight deltas to the weights.
-  auto addCS = graph.createComputeSet(layerName + "/UpdateWeights");
+  auto addCS = graph.addComputeSet(layerName + "/UpdateWeights");
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   auto weightsFlattened = weights.flatten();
   auto weightDeltasFlattened = weightDeltas.flatten();

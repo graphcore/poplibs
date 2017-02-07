@@ -14,7 +14,7 @@ bwdNonLinearity(Graph &graph,
                 Tensor batchZDeltas,
                 NonLinearityType nonLinearityType,
                 const std::string &debugPrefix) {
-  auto bwdNonLinearityCS = graph.createComputeSet(debugPrefix
+  auto bwdNonLinearityCS = graph.addComputeSet(debugPrefix
                                                   + "/NonLinearity/Bwd");
   auto prog = Sequence();
   const auto batchSize = batchActivations.dim(0);
@@ -72,7 +72,7 @@ fwdNonLinearity(Graph &graph,
   auto prog = Sequence();
   const auto dType = graph.getTensorElementType(activations);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  ComputeSet nonLinCs = graph.createComputeSet(debugPrefix
+  ComputeSet nonLinCs = graph.addComputeSet(debugPrefix
                                                + "/Nonlinearity/Fwd");
   prog.add(Execute(nonLinCs));
   const auto batchSize = activations.dim(0);

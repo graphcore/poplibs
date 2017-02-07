@@ -699,7 +699,7 @@ static Program kernelTransform(
               Tensor weights,
               std::vector<Tensor> &kTfMapping) {
 
-  ComputeSet cs = graph.createComputeSet(layerName + "/KernelTrf");
+  ComputeSet cs = graph.addComputeSet(layerName + "/KernelTrf");
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
 
@@ -839,7 +839,7 @@ static Program kernelTransform(
   const unsigned numTiles = deviceInfo.getNumTiles();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
 
-  ComputeSet cs = graph.createComputeSet(layerName + "/KernelTrf");
+  ComputeSet cs = graph.addComputeSet(layerName + "/KernelTrf");
 
   assert(tp.zic % WgdTilePartition::kUnitSize == 0);
 
@@ -960,8 +960,8 @@ static Program dataTransform(
               Tensor in,
               std::vector<Tensor> &dTfMapping) {
 
-  ComputeSet cs = graph.createComputeSet(layerName + "/DataTrf");
-  ComputeSet zCs = graph.createComputeSet(layerName + "/Zeros");
+  ComputeSet cs = graph.addComputeSet(layerName + "/DataTrf");
+  ComputeSet zCs = graph.addComputeSet(layerName + "/Zeros");
 
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
@@ -1128,8 +1128,8 @@ static Program dataTransform(
   const unsigned numTiles = deviceInfo.getNumTiles();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
 
-  ComputeSet dCs = graph.createComputeSet(layerName + "/DataTrf");
-  ComputeSet zCs = graph.createComputeSet(layerName + "/Zeros");
+  ComputeSet dCs = graph.addComputeSet(layerName + "/DataTrf");
+  ComputeSet zCs = graph.addComputeSet(layerName + "/Zeros");
 
   unsigned unitsPerTile = (numUnits + numTiles - 1)/numTiles;
 
@@ -1279,8 +1279,8 @@ static Program accum(
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
 
-  ComputeSet cs = graph.createComputeSet(layerName + "/Accum");
-  ComputeSet zeroCS = graph.createComputeSet(layerName + "/ZeroAccum");
+  ComputeSet cs = graph.addComputeSet(layerName + "/Accum");
+  ComputeSet zeroCS = graph.addComputeSet(layerName + "/ZeroAccum");
   const auto weightsPerConvUnit =
       deviceInfo.getWeightsPerConvUnit(tp.dType == "float");
 
@@ -1417,7 +1417,7 @@ static Program reduce(
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
 
-  ComputeSet cs = graph.createComputeSet(layerName + "/Reduce");
+  ComputeSet cs = graph.addComputeSet(layerName + "/Reduce");
 
   for (unsigned tile = 0; tile < deviceInfo.getNumTiles(); ++tile) {
 
@@ -1491,7 +1491,7 @@ static Program inverseTransform(
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
 
-  ComputeSet cs = graph.createComputeSet(layerName + "/InvTransform");
+  ComputeSet cs = graph.addComputeSet(layerName + "/InvTransform");
 
   for (unsigned tile = 0; tile < deviceInfo.getNumTiles(); ++tile) {
 
@@ -1587,7 +1587,7 @@ static Program complete(
               Tensor in,
               Tensor act,
               Tensor bias) {
-  ComputeSet cs = graph.createComputeSet(layerName + "/Complete");
+  ComputeSet cs = graph.addComputeSet(layerName + "/Complete");
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
 

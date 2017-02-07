@@ -100,7 +100,7 @@ maxPool(Graph &graph,
   assert(outDimX == out.dim(3));
   const auto chunkSize = gcd<unsigned>(prevChansPerGroup, chansPerGroup);
   const auto chunksPerChanGroup = chansPerGroup / chunkSize;
-  ComputeSet fwd = graph.createComputeSet(layerName + "/Fwd");
+  ComputeSet fwd = graph.addComputeSet(layerName + "/Fwd");
   // Iterate through the batch adding vertices to the same compute set (so
   // batch is executed in parallel).
   for (unsigned b = 0; b < batchSize; ++b) {
@@ -223,7 +223,7 @@ maxPoolBackward(Graph &graph,
                  "supports\nnon-overlapping, even-sized kernels\n";
   }
 
-  auto bwdCS = graph.createComputeSet(layerName + "/Bwd");
+  auto bwdCS = graph.addComputeSet(layerName + "/Bwd");
 
   for (unsigned b = 0; b != batchSize; ++b) {
     // map over deltaOut so that no reduce will be required.

@@ -111,7 +111,7 @@ joinResidual(Graph &graph,
   const auto inType = graph.getTensorElementType(in0);
   assert(inType == graph.getTensorElementType(in1));
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  ComputeSet cs = graph.createComputeSet(debugPrefix + "/JoinResidual");
+  ComputeSet cs = graph.addComputeSet(debugPrefix + "/JoinResidual");
   Program prog = Execute(cs);
   const auto batchSize = out.dim(0);
   for (unsigned b = 0; b < batchSize; b++) {
@@ -165,7 +165,7 @@ joinStridedDeltas(Graph &graph,
   // we can discard some input Z values
   assert(outIn0.dim(1) * outIn0.dim(4) <= in1.dim(1) * in1.dim(4));
 
-  ComputeSet joinCS = graph.createComputeSet(debugPrefix + "/JoinDeltas/Bwd");
+  ComputeSet joinCS = graph.addComputeSet(debugPrefix + "/JoinDeltas/Bwd");
   // iterate across the output deltas. We must handle subsampling in Y and
   // X and excess values in Z
   for (unsigned b = 0; b != numBatches; b++) {
@@ -220,7 +220,7 @@ joinDeltas(Graph &graph,
   const auto outType = graph.getTensorElementType(outIn0);
   const auto inType = graph.getTensorElementType(in1);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  ComputeSet cs = graph.createComputeSet(debugPrefix + "/JoinResidual");
+  ComputeSet cs = graph.addComputeSet(debugPrefix + "/JoinResidual");
   Program prog = Execute(cs);
   const auto batchSize = outIn0.dim(0);
   if (outIn0.shape() == in1.shape()) {

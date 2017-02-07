@@ -43,9 +43,9 @@ fullyConnected(Graph &graph,
   assert(dType == "float" || dType == "half");
   const auto &ipuPartition = plan.ipuPartition;
   auto prog = Sequence();
-  ComputeSet dotProductCS = graph.createComputeSet(layerName + "/Fwd/DotProd");
+  ComputeSet dotProductCS = graph.addComputeSet(layerName + "/Fwd/DotProd");
   prog.add(Execute(dotProductCS));
-  ComputeSet reduceCS = graph.createComputeSet(layerName + "/Fwd/Reduce");
+  ComputeSet reduceCS = graph.addComputeSet(layerName + "/Fwd/Reduce");
   prog.add(Execute(reduceCS));
   // Iterate through the batch add to the same compute set
   // (i.e. execute the batch in parallel).
@@ -153,15 +153,15 @@ Program fullyConnectedBackward(Graph &graph,
   const auto tilesPerIPU = deviceInfo.tilesPerIPU;
   const auto numCols = prevSize;
   auto prog = Sequence();
-  auto bwdCS = graph.createComputeSet(layerName + "/Bwd/DotProd");
+  auto bwdCS = graph.addComputeSet(layerName + "/Bwd/DotProd");
   prog.add(Execute(bwdCS));
-  ComputeSet intraIPUReduce = graph.createComputeSet(layerName + "/Bwd/Reduce");
+  ComputeSet intraIPUReduce = graph.addComputeSet(layerName + "/Bwd/Reduce");
   prog.add(Execute(intraIPUReduce));
   ComputeSet interIPUReduce;
 
   if (numIPUs > 1) {
     interIPUReduce =
-        graph.createComputeSet(layerName + "/Bwd/Reduce2");
+        graph.addComputeSet(layerName + "/Bwd/Reduce2");
     prog.add(Execute(interIPUReduce));
   }
   for (unsigned b = 0; b < batchSize; ++b) {
@@ -318,7 +318,7 @@ fullyConnectedWeightUpdate(Graph &graph,
   const auto batchSize = zDeltas.dim(0);
   const auto size = zDeltas[0].numElements();
   const auto layerName = debugPrefix + "/FullyConnected" + std::to_string(size);
-  auto cs = graph.createComputeSet(layerName + "/WeightUpdate");
+  auto cs = graph.addComputeSet(layerName + "/WeightUpdate");
 
   const auto numCols = activations[0].numElements();
   const auto numIPUs = deviceInfo.numIPUs;
