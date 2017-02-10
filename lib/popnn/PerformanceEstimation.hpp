@@ -127,22 +127,35 @@ getWeightGradAopCycles(bool floatInput, bool floatPartials,
                        unsigned dataPathWidth, unsigned inChansPerGroup,
                        unsigned outChansPerGroup,
                        std::vector<std::vector<unsigned>> &shape) {
-  std::uint64_t cycles = 5;
+  // Outer loop overhead for stack variable initialisations
+  const auto vertexOverhead = 22;
+  std::uint64_t cycles = vertexOverhead;
   unsigned vectorWidth = dataPathWidth / (floatInput ? 32 : 16);
   unsigned partialsVectorWidth = dataPathWidth / (floatPartials ? 32 : 16);
-  unsigned passesPerWeightDeltaIndex =
-    ((outChansPerGroup + vectorWidth - 1) / vectorWidth) *
-    ((inChansPerGroup + vectorWidth - 1) / vectorWidth);
+  const auto ocgSubgroups = (outChansPerGroup + vectorWidth - 1) / vectorWidth;
+  const auto icgSubgroups = (inChansPerGroup + vectorWidth - 1) / vectorWidth;
+
   for (const auto &w : shape) {
+    const auto shapeOverhead = 19;
+
+    auto innerLoopCycles = 0;
     for (auto deltasWidth : w) {
       // Inner loop.
-      cycles += passesPerWeightDeltaIndex * (deltasWidth + 1);
+      // Inner loop overhead required to set-up pointers, rpt loop and branching
+      const auto innerLoopOverhead = 15;
+      innerLoopCycles += deltasWidth + innerLoopOverhead;
     }
-    // Get accumulators.
-    const auto numAccumulators = vectorWidth * vectorWidth;
-    assert(numAccumulators % partialsVectorWidth == 0);
-    cycles += passesPerWeightDeltaIndex *
-              (numAccumulators / partialsVectorWidth + 1);
+
+    // Accumulator restore and save
+    const auto accSave = 1 + vectorWidth * vectorWidth / partialsVectorWidth;
+    const auto ocgSubgroupOverhead = 13;
+    const auto icgSubgroupOverhead = 6;
+
+    cycles += shapeOverhead
+              + ocgSubgroups
+               * (ocgSubgroupOverhead + icgSubgroups * (icgSubgroupOverhead
+                                                        + accSave
+                                                        + innerLoopCycles));
   }
   return cycles;
 }
