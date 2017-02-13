@@ -445,6 +445,8 @@ def main():
     parser.add_argument('--name', dest='run_name', default="", type=str,
                         help='Name for this benchmark run'
                                + ' (will be appended to logfile names).')
+    parser.add_argument('--interpret', dest = 'interpret', default="", type=str,
+                        help="Interpret an existing log files")
 
     args = parser.parse_args()
     if args.test_reuse:
@@ -464,8 +466,15 @@ def main():
         benchmarks += training_benchmarks
 
     runs = {}
-    for benchmark in benchmarks:
-        run_benchmark(args.run_name, benchmark, args, runs)
+    if args.interpret:
+        log = open(args.interpret).readlines()
+        logname = args.interpret.replace('.','_')
+        prog = logname
+        data = parse(log)
+        runs[prog] = [([], logname, data)]
+    else:
+        for benchmark in benchmarks:
+            run_benchmark(args.run_name, benchmark, args, runs)
     write_spreadsheets(runs, args.run_name)
     if args.create_report:
         report_file = "benchmark_report"
