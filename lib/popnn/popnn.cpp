@@ -1904,20 +1904,22 @@ public:
 
   std::uint64_t getCycleEstimate() const {
     bool isFloat = std::is_same<T, float>::value;
-    std::uint64_t cycles = 5; // Vertex overhead.
+    std::uint64_t cycles = 2 + // Run instruction.
+                           6;  // Vertex overhead.
     const auto numTranspositions = src.size();
     for (unsigned i = 0; i != numTranspositions; ++i) {
       const auto numElements = src[i].size();
-      cycles += 1; // 64 bit load to pick up src and dst pointers.
+      cycles += 2; // Load src and dst pointers.
       if (isFloat) {
         cycles += 1; // 1 cycle latency before first value is written to memory.
         cycles += numElements;
       } else {
-        // This code assumes the sort instruction is the bottleneck.
-        // The sort instruction can be used to rearrange elements at the rate of
-        // 2 elements per cycle and there is a latency of 3 cycles before the
-        // first write to memory.
-        cycles += 3 + (numElements + 1) / 2;
+        // Cycle count taken from transpose16x8 microbenchmark.
+        assert(numElements % numSrcColumns == 0);
+        const auto numSrcRows = numElements / numSrcColumns;
+        const auto middleIterations = (numSrcColumns + 3) / 4;
+        const auto innerIterations = (numSrcRows + 1) / 2;
+        cycles += 3 + middleIterations * (3 + innerIterations * 6);
       }
     }
     return cycles;
