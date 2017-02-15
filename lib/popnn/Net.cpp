@@ -225,8 +225,8 @@ convolutionWeightUpdate(poplar::Graph &graph,
 
 // Define structures containing tensor ops to pass between functions/methods.
 struct Net::ConvOp {
-  POPNN_TENSOR_OP_TYPE(convolution, 1) op;
-  ConvOp(POPNN_TENSOR_OP_TYPE(convolution, 1) op) :
+  POPNN_TENSOR_OP_TYPE(convolution, 1, 14) op;
+  ConvOp(POPNN_TENSOR_OP_TYPE(convolution, 1, 14) op) :
     op(std::move(op)) {}
   template<typename ...Args>
   Program operator()(Args&&... args) {
@@ -234,9 +234,9 @@ struct Net::ConvOp {
   };
 };
 struct Net::ConvBwdWeightsOp {
-  POPNN_TENSOR_OP_TYPE(createBwdWeightsAndBiases, 1, 2) op;
+  POPNN_TENSOR_OP_TYPE(createBwdWeightsAndBiases, 1, 2, 7) op;
   ConvBwdWeightsOp(
-    POPNN_TENSOR_OP_TYPE(createBwdWeightsAndBiases, 1, 2) op
+    POPNN_TENSOR_OP_TYPE(createBwdWeightsAndBiases, 1, 2, 7) op
   ) :  op(std::move(op)) {}
   template<typename ...Args>
   Program operator()(Args&&... args) {
@@ -244,8 +244,8 @@ struct Net::ConvBwdWeightsOp {
   };
 };
 struct Net::ConvWuOp {
-  POPNN_TENSOR_OP_TYPE(convolutionWeightUpdate, 1, 2) op;
-  ConvWuOp(POPNN_TENSOR_OP_TYPE(convolutionWeightUpdate, 1, 2) op) :
+  POPNN_TENSOR_OP_TYPE(convolutionWeightUpdate, 1, 2, 12) op;
+  ConvWuOp(POPNN_TENSOR_OP_TYPE(convolutionWeightUpdate, 1, 2, 12) op) :
     op(std::move(op)) {}
   template<typename ...Args>
   Program operator()(Args&&... args) {
@@ -788,7 +788,8 @@ Net::createConvLayerFwd(unsigned i,
                                  numChannels, netType == TestOnlyNet || i == 0);
   /* use empty string to ensure that layer graph can be reused */
   return doConv(*graph, plan, strideY, strideX, paddingY, paddingX, in, weights,
-                biases, acts[i + 1], partialsType, false, false, 4, "");
+                biases, acts[i + 1], partialsType, false, false, 4,
+                debugPrefix);
 }
 
 Program Net::createConvLayerBwd(unsigned i,
@@ -844,14 +845,14 @@ Program Net::createConvLayerBwd(unsigned i,
     prog.add(doConv(*graph, bwdPlan, strideY, strideX,
                     bwdPaddingY, bwdPaddingX, zDeltas, bwdWeights,
                     biases, deltas[i], bwdPlan.getPartialType(),
-                    isFractional, false, 4, ""));
+                    isFractional, false, 4, debugPrefix));
   }
   // TODO move before backward pass to reduce live range of the deltas.
   auto wuPlan = getWuConvPlan(i, prevDimY, prevDimX, prevNumChans,
                               acts[i].dim(4), zDeltas.dim(4), weights.dim(4));
   /* use empty string to ensure that layer graph can be reused */
   prog.add(convWU(*graph, wuPlan, fwdPlan, zDeltas, weights, biases, acts[i],
-                  strideY, strideX, paddingY, paddingX, eta, ""));
+                  strideY, strideX, paddingY, paddingX, eta, debugPrefix));
   return prog;
 }
 
@@ -948,21 +949,21 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   }
   std::cerr << "Constructing program\n";
   ConvOp convOp =
-      createTensorOp<1>(
+      createTensorOp<1, 14>(
         *graph, convolution, "conv",
         {{TensorOpParamType::InputTensor},
          {TensorOpParamType::InputTensor},
          {TensorOpParamType::InputTensor},
          {TensorOpParamType::OutputTensor}});
   ConvBwdWeightsOp convBwdWeightsOp =
-      createTensorOp<1, 2>(
+      createTensorOp<1, 2, 7>(
          *graph, createBwdWeightsAndBiases, "createBwdWeights",
          {{TensorOpParamType::InputTensor,
            TensorOpParamType::NotParamTensor,
            TensorOpParamType::OutputTensor,
            TensorOpParamType::OutputTensor}});
   ConvWuOp convWuOp =
-      createTensorOp<1, 2>(
+      createTensorOp<1, 2, 12>(
         *graph, convolutionWeightUpdate, "convWeightUpdate",
         {{TensorOpParamType::InputTensor},
          {TensorOpParamType::InOutTensor},
@@ -994,7 +995,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   for (unsigned i = 0; i < layers.size(); ++i) {
     const auto *layer = layers[i].get();
     std::cout << "-- Layer " << i << "\n";
-    const std::string layerPrefix = "Layer:" + std::to_string(i);
+    const std::string layerPrefix = "Layer" + std::to_string(i);
     outputDescription(layer, i, acts[i], netType == TestOnlyNet || i == 0);
     if (const auto *fc = dynamic_cast<const FullyConnectedLayer *>(layer)) {
       const auto prevSize = acts[i][0].numElements();
@@ -1128,7 +1129,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
     for (int i = layers.size() - 1; i >= 0; --i) {
       bool backwardPassRequired = (i != 0);
 
-      const std::string layerPrefix = "LayerBwd:" + std::to_string(i);
+      const std::string layerPrefix = "Layer" + std::to_string(i) + "/Bwd";
 
       if (residualDeltaIdxs[i].first != 0) {
         // A residual path was taken from this layer

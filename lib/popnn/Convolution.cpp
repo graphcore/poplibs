@@ -1749,7 +1749,8 @@ Program convolutionBackward(Graph &graph,
   auto bwdWeights = createWeights(graph, dType, inNumChans, kernelSizeY,
                                   kernelSizeX, outNumChans, plan);
   mapWeights(bwdWeights, graph, plan, batchSize);
-  prog.add(weightsTransposeChansFlipXY(graph, weights, bwdWeights));
+  prog.add(weightsTransposeChansFlipXY(graph, weights, bwdWeights,
+                                       debugPrefix));
 
   // Create zero biases
   auto zeros = graph.addConstantTensor(dType, {outNumChans}, 0);
