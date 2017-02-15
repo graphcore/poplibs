@@ -1867,7 +1867,7 @@ matrixMultiplyByConvInstruction(Graph &graph, const Plan &plan,
     /* If no reduction is required where all input channel groups are allocated
      * to a tile, partials must be cast to the output type
      */
-    prog.add(cast(graph, partials[0], out[0], debugPrefix));
+    prog.add(cast(graph, partials[0][0], out[0], debugPrefix));
   }
   return prog;
 }
