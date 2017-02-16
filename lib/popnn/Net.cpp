@@ -225,8 +225,8 @@ convolutionWeightUpdate(poplar::Graph &graph,
 
 // Define structures containing tensor ops to pass between functions/methods.
 struct Net::ConvOp {
-  POPNN_TENSOR_OP_TYPE(convolution, conv::Plan) op;
-  ConvOp(POPNN_TENSOR_OP_TYPE(convolution, conv::Plan) op) :
+  POPNN_TENSOR_OP_TYPE(convolution, 1) op;
+  ConvOp(POPNN_TENSOR_OP_TYPE(convolution, 1) op) :
     op(std::move(op)) {}
   template<typename ...Args>
   Program operator()(Args&&... args) {
@@ -234,9 +234,9 @@ struct Net::ConvOp {
   };
 };
 struct Net::ConvBwdWeightsOp {
-  POPNN_TENSOR_OP_TYPE(createBwdWeightsAndBiases, conv::Plan) op;
+  POPNN_TENSOR_OP_TYPE(createBwdWeightsAndBiases, 1, 2) op;
   ConvBwdWeightsOp(
-    POPNN_TENSOR_OP_TYPE(createBwdWeightsAndBiases, conv::Plan) op
+    POPNN_TENSOR_OP_TYPE(createBwdWeightsAndBiases, 1, 2) op
   ) :  op(std::move(op)) {}
   template<typename ...Args>
   Program operator()(Args&&... args) {
@@ -244,8 +244,8 @@ struct Net::ConvBwdWeightsOp {
   };
 };
 struct Net::ConvWuOp {
-  POPNN_TENSOR_OP_TYPE(convolutionWeightUpdate, conv::Plan) op;
-  ConvWuOp(POPNN_TENSOR_OP_TYPE(convolutionWeightUpdate, conv::Plan) op) :
+  POPNN_TENSOR_OP_TYPE(convolutionWeightUpdate, 1, 2) op;
+  ConvWuOp(POPNN_TENSOR_OP_TYPE(convolutionWeightUpdate, 1, 2) op) :
     op(std::move(op)) {}
   template<typename ...Args>
   Program operator()(Args&&... args) {
@@ -948,21 +948,21 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   }
   std::cerr << "Constructing program\n";
   ConvOp convOp =
-      createTensorOp<conv::Plan>(
+      createTensorOp<1>(
         *graph, convolution, "conv",
         {{TensorOpParamType::InputTensor},
          {TensorOpParamType::InputTensor},
          {TensorOpParamType::InputTensor},
          {TensorOpParamType::OutputTensor}});
   ConvBwdWeightsOp convBwdWeightsOp =
-      createTensorOp<conv::Plan>(
+      createTensorOp<1, 2>(
          *graph, createBwdWeightsAndBiases, "createBwdWeights",
          {{TensorOpParamType::InputTensor,
            TensorOpParamType::NotParamTensor,
            TensorOpParamType::OutputTensor,
            TensorOpParamType::OutputTensor}});
   ConvWuOp convWuOp =
-      createTensorOp<conv::Plan>(
+      createTensorOp<1, 2>(
         *graph, convolutionWeightUpdate, "convWeightUpdate",
         {{TensorOpParamType::InputTensor},
          {TensorOpParamType::InOutTensor},

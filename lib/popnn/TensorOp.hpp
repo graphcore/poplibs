@@ -23,8 +23,8 @@
  *  and then the any outputs tensors are copied out.
  *
  *  An operation is created for a function that returns a program type.
- *  The operation will create a map to resuable programs based on the araguments
- *  supplied to this function. Optionally, some argument types can be marked
+ *  The operation will create a map to resuable programs based on the arguments
+ *  supplied to this function. Optionally, some arguments can be marked
  *  as non-indexable. The tensor arguments will match a prior call if the
  *  dimensions and element type are the same.
  *
@@ -45,6 +45,9 @@ enum class TensorOpParamType {
   NotParamTensor
 };
 
+template <unsigned Index>
+class TensorOpArg {};
+
 static const std::map<TensorOpParamType, std::string>
 paramTypeName{{TensorOpParamType::InputTensor, "input"},
               {TensorOpParamType::OutputTensor, "output"},
@@ -63,7 +66,7 @@ struct OpParamDesc {
 
 using OpSignature = std::vector<OpParamDesc>;
 
-template <typename NonIndexTypes, typename ...Args>
+template <typename NonIndexArgs, typename ...Args>
 struct TensorOp {
 
   using TensorShape = std::pair<std::vector<std::size_t>, std::string>;
@@ -71,30 +74,51 @@ struct TensorOp {
   // This operation converted function arguments into keys for a
   // map between arguments and control programs. Tensors are
   // converted to their dimensions and element types. The
-  // poplar::Graph type and any type in the NonIndexTypes list are
-  // ignored by transforming them into integer constant zero.
+  // poplar::Graph type and any argument index encoded in the NonIndexArgs list
+  // are ignored by transforming them into integer constant zero.
   struct MakeKey {
     poplar::Graph &graph;
 
-    template <typename T>
-    using IsNotKey = boost::mpl::contains<NonIndexTypes, T>;
-    template<typename T>
-    using EnableIfNotKey = typename boost::enable_if<IsNotKey<T>>::type;
-    template<typename T>
+    template <unsigned I>
+    using IsNotKey = boost::mpl::contains<NonIndexArgs, TensorOpArg<I>>;
+    template<unsigned I>
+    using EnableIfNotKey = typename boost::enable_if<IsNotKey<I>>::type;
+    template<unsigned I>
     using EnableIfKey = typename
-        boost::enable_if<boost::mpl::not_<IsNotKey<T>>>::type;
+        boost::enable_if<boost::mpl::not_<IsNotKey<I>>>::type;
+    template <typename V, typename T>
+    using pb = typename boost::fusion::result_of::push_back<const V, T>::type;
 
-    template <typename T>
-    T operator()(const T &x, EnableIfKey<T>* = 0) const {
-      return x;
+    template <typename V, typename T, unsigned I>
+    std::pair<TensorOpArg<I + 1>, pb<V, T>>
+    operator()(const std::pair<TensorOpArg<I>, V> &p,
+               const T &x, EnableIfKey<I>* = 0) const {
+      return {TensorOpArg<I + 1>(), boost::fusion::push_back(p.second, x)};
     }
-    template <typename T>
-    int operator()(const T &, EnableIfNotKey<T>* = 0) const {
-      return 0;
+
+    template <typename V, typename T, unsigned I>
+    std::pair<TensorOpArg<I + 1>, pb<V, int>>
+    operator()(const std::pair<TensorOpArg<I>, V> &p,
+               const T &, EnableIfNotKey<I>* = 0) const {
+      return {TensorOpArg<I + 1>(), boost::fusion::push_back(p.second, 0)};
     }
-    int operator()(const poplar::Graph &x) const { return 0; }
-    TensorShape operator()(const poplar::Tensor &t) const {
-      return {t.shape(), graph.getTensorElementType(t)};
+
+    template <typename V, unsigned I>
+    std::pair<TensorOpArg<I + 1>, pb<V, int>>
+    operator()(const std::pair<TensorOpArg<I>, V> &p,
+               const poplar::Graph &) const {
+      return {TensorOpArg<I + 1>(), boost::fusion::push_back(p.second, 0)};
+    }
+
+    template <typename V, unsigned I>
+    std::pair<TensorOpArg<I + 1>, pb<V, TensorShape>>
+    operator()(const std::pair<TensorOpArg<I>, V> &p,
+               const poplar::Tensor &t) const {
+      return {TensorOpArg<I + 1>(),
+              boost::fusion::push_back(
+               p.second,
+               TensorShape(t.shape(), graph.getTensorElementType(t))
+             )};
     }
 
     MakeKey(poplar::Graph &graph) : graph(graph) {}
@@ -105,10 +129,11 @@ struct TensorOp {
   // is converted to a list to force evaluation of the type.
   using KeyType =
     typename boost::fusion::result_of::as_list<
-      typename boost::fusion::result_of::transform<
+      typename boost::fusion::result_of::fold<
          boost::fusion::vector<Args...>,
+         std::pair<TensorOpArg<0>, boost::fusion::vector<>>,
          MakeKey
-      >::type
+      >::type::second_type
     >::type;
 
   using TensorParams = std::vector<poplar::Tensor>;
@@ -195,7 +220,10 @@ struct TensorOp {
   poplar::program::Program
   operator()(Args... args) {
     auto vArgs = boost::fusion::vector_tie(args...);
-    auto key = boost::fusion::transform(vArgs, MakeKey(graph));
+    auto key = boost::fusion::fold(vArgs,
+                                   std::make_pair(TensorOpArg<0>(),
+                                                  boost::fusion::make_vector()),
+                                   MakeKey(graph)).second;
     const auto match = cache.find(key);
     const ProgAndParams *p;
     if(match == cache.end()) {
@@ -225,15 +253,15 @@ struct TensorOp {
 };
 
 
-template <typename... NonIndexTypes, typename... Args>
+template <unsigned... NonIndexArgs, typename... Args>
 static
-TensorOp<boost::fusion::vector<NonIndexTypes...>, Args...>
+TensorOp<boost::fusion::vector<TensorOpArg<NonIndexArgs>...>, Args...>
 createTensorOp(poplar::Graph &graph,
                poplar::program::Program (*fn)(Args...),
                std::string name,
                OpSignature sig) {
   return
-    TensorOp<boost::fusion::vector<NonIndexTypes...>,
+    TensorOp<boost::fusion::vector<TensorOpArg<NonIndexArgs>...>,
              Args...>(
         graph, fn, std::move(name),  std::move(sig)
     );
@@ -241,9 +269,9 @@ createTensorOp(poplar::Graph &graph,
 
 } // end namespace popnn
 
-#define POPNN_TENSOR_OP_TYPE(x, NonIndexTypes...) \
+#define POPNN_TENSOR_OP_TYPE(x, NonIndexArgs...) \
   decltype( \
-    popnn::createTensorOp<NonIndexTypes>( \
+    popnn::createTensorOp<NonIndexArgs>( \
       std::declval<poplar::Graph&>(), \
       x, \
       std::declval<std::string>(), \
