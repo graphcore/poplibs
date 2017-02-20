@@ -662,9 +662,10 @@ public:
 
   uint64_t getCycleEstimate() const {
     bool isFloat = std::is_same<FPType, float>::value;
-    unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    unsigned numVectors = (deltasIn.size() + vectorWidth - 1) / vectorWidth;
-    return 5 + numVectors * 3;
+    return getBwdNonlinearityDerivativeCycles(deltasIn.size(),
+                                              nonLinearityType,
+                                              isFloat,
+                                              dataPathWidth);
   }
 };
 

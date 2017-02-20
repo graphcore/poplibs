@@ -237,14 +237,17 @@ inline uint64_t getNonLinearityCycles(unsigned numActivations,
   switch (nonLinearityType) {
   case NON_LINEARITY_NONE:
   case NON_LINEARITY_RELU:
-    //2 cycles per dataPathWidth bits allowing same memory Element for src
-    // and dest, 2 cycles to do a simple nonlinearity
-    if (isFloat)
-      return overhead + (numActivations + floatVectorWidth - 1) * 2
-                        / floatVectorWidth;
-    else
-      return overhead + (numActivations + halfVectorWidth - 1) * 2
-                        / halfVectorWidth;
+    {
+      const unsigned vertexOverhead = 2      // run instruction
+                                      + 12;   // overhead (assuming pointers)
+      unsigned cycles = vertexOverhead;
+
+      const unsigned numBlocks = isFloat ?
+                (numActivations + floatVectorWidth - 1) / floatVectorWidth :
+                (numActivations + halfVectorWidth - 1) / halfVectorWidth;
+      cycles += (numBlocks / 2) * 3 + (numBlocks & 1);
+      return cycles;
+    }
   case NON_LINEARITY_SIGMOID:
     // scalar operation for floats, vector operation for halves
     // transcendtal operations are ~10cyles for float, ~1cycles for half
@@ -258,5 +261,29 @@ inline uint64_t getNonLinearityCycles(unsigned numActivations,
   throw std::runtime_error("Invalid nonlinearity type");
 }
 
+
+inline uint64_t getBwdNonlinearityDerivativeCycles(
+                  unsigned numDeltas,
+                  NonLinearityType nonLinearityType,
+                  bool isFloat,
+                  unsigned dataPathWidth) {
+
+  unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+  unsigned numVectors = (numDeltas + vectorWidth - 1) / vectorWidth;
+
+  switch (nonLinearityType) {
+  case NON_LINEARITY_SIGMOID:
+    return 5 + numVectors * 3;
+  case NON_LINEARITY_RELU:
+    {
+      const unsigned vertexOverhead = 2    // run instruction
+                                      + 7; // remaining vertex overhead
+      return vertexOverhead + numVectors * 3;
+    }
+    case NON_LINEARITY_NONE:
+      return 5 + numVectors;
+  }
+  throw std::runtime_error("Invalid nonlinearity type");
+}
 
 #endif // _performance_estimation_h_
