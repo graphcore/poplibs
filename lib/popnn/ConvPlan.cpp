@@ -408,18 +408,11 @@ estimateExchangeCost(const poplar::DeviceInfo &deviceInfo,
   const auto tilesPerSuperTile = deviceInfo.tilesPerSuperTile;
   const auto exchangeBytesPerCycle = deviceInfo.exchangeBytesPerCycle;
 
-  // TODO inputElementBytesPerCycle should change when supertile send
-  // and receive is supported, but increasing it makes makes the planner pick
-  // a worse plan, see T703.
-#if 0
   const auto inputElementBytesPerCycle =
       (deviceInfo.supportsSuperTileSendReceive &&
-       (tilesPerZ % tilesPerSuperTile) == 0) ? exchangeBytesPerCycle :
-                                               exchangeBytesPerCycle *
-                                               tilesPerSuperTile;
-#else
-  const auto inputElementBytesPerCycle = exchangeBytesPerCycle;
-#endif
+       (tilesPerZ % tilesPerSuperTile) == 0) ? exchangeBytesPerCycle *
+                                               tilesPerSuperTile :
+                                               exchangeBytesPerCycle;
   const auto numCycles =
       (inputElementsBytes + inputElementBytesPerCycle - 1) /
       inputElementBytesPerCycle +
