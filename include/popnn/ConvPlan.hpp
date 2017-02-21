@@ -2,13 +2,24 @@
 #define __ConvPlan_hpp__
 #include <string>
 #include <poplar/Graph.hpp>
+#include <iosfwd>
 
 namespace conv {
+
+enum class WeightUpdateMethod {
+  AOP,
+  AMP,
+  AUTO
+};
+
+const char *asString(const WeightUpdateMethod &method);
+std::ostream &operator<<(std::ostream &os, const WeightUpdateMethod &method);
+std::istream &operator>>(std::istream &is, WeightUpdateMethod &method);
 
 // Switches to control the planning of Convolutional layers
 class PlanControl {
 public:
-  bool forceAOPForWU = true;
+  WeightUpdateMethod weightUpdateMethod = WeightUpdateMethod::AOP;
 };
 
 struct Plan {

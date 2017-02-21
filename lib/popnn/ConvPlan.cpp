@@ -11,6 +11,35 @@
 
 using namespace convutil;
 
+const char *conv::asString(const WeightUpdateMethod &method) {
+  switch (method) {
+  case WeightUpdateMethod::AOP: return "aop";
+  case WeightUpdateMethod::AMP: return "amp";
+  case WeightUpdateMethod::AUTO: return "auto";
+  }
+}
+
+std::ostream &conv::
+operator<<(std::ostream &os, const WeightUpdateMethod &method) {
+  return os << asString(method);
+}
+
+std::istream &conv::operator>>(std::istream &is, WeightUpdateMethod &method) {
+  std::string token;
+  is >> token;
+  if (token == "aop")
+    method = WeightUpdateMethod::AOP;
+  else if (token == "amp")
+    method = WeightUpdateMethod::AMP;
+  else if (token == "auto")
+    method = WeightUpdateMethod::AUTO;
+  else
+    throw popnn::popnn_error(
+      "Unknown weight update method <" + token + ">");
+  return is;
+
+}
+
 // A simple function to memoize other functions. Any recursive calls
 // with the function are non memoized
 template <typename Ret, typename... Args>
@@ -997,7 +1026,8 @@ getWeightUpdateVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
                                     const ConvolutionParams &params,
                                     const PlanControl &planControl) {
   std::vector<ConvVertexType> convVertexTypeCandidates;
-  if (!planControl.forceAOPForWU) {
+  if (planControl.weightUpdateMethod == WeightUpdateMethod::AMP ||
+      planControl.weightUpdateMethod == WeightUpdateMethod::AUTO) {
     if (getConvUnitsPerTile(deviceInfo, floatActivations, floatPartials) > 0) {
       convVertexTypeCandidates.emplace_back(true, floatActivations,
                                             floatPartials);
@@ -1006,7 +1036,11 @@ getWeightUpdateVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
       convVertexTypeCandidates.emplace_back(true, false, true);
     }
   }
-  convVertexTypeCandidates.emplace_back(false, floatActivations, floatPartials);
+  if (planControl.weightUpdateMethod == WeightUpdateMethod::AOP ||
+      planControl.weightUpdateMethod == WeightUpdateMethod::AUTO) {
+    convVertexTypeCandidates.emplace_back(false, floatActivations,
+                                          floatPartials);
+  }
   return convVertexTypeCandidates;
 }
 

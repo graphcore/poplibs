@@ -127,12 +127,11 @@ int main(int argc, char **argv) {
      )->default_value(0),
      "Percentage cycles excess to use for memory optimisation. "
      "if 0, no memory optimisation is performed")
-    ("force-aop",
-     po::value<bool>(
-         &convPlanControl.forceAOPForWU
-         )->default_value(conv::PlanControl().forceAOPForWU),
-     "Force AOP usage for the weight update calculation. "
-     "If false a heuristic is used")
+    ("weight-update-method",
+     po::value<conv::WeightUpdateMethod>(
+         &convPlanControl.weightUpdateMethod
+     )->default_value(convPlanControl.weightUpdateMethod),
+     "Weight update method: amp | aop | auto")
   ;
   po::variables_map vm;
   try {

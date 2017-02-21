@@ -128,12 +128,11 @@ bool parseCommandLine(int argc, char **argv, NetOptions &options,
      )->default_value(options.percentageCyclesExcessForMemOptim),
      "Percentage cycles excess to use for memory optimisation. "
      "if 0, no memory optimisation is performed")
-    ("force-aop",
-     po::value<bool>(
-         &options.convPlanControl.forceAOPForWU
-     )->default_value(options.convPlanControl.forceAOPForWU),
-     "Force AOP usage for the weight update calculation. "
-     "If false a heuristic is used")
+    ("weight-update-method",
+     po::value<conv::WeightUpdateMethod>(
+         &options.convPlanControl.weightUpdateMethod
+     )->default_value(options.convPlanControl.weightUpdateMethod),
+     "Weight update method: amp | aop | auto")
   ;
   po::variables_map vm;
   try {
