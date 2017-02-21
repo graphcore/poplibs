@@ -898,93 +898,6 @@ calcPartialSums(Graph &graph,
   return prog;
 }
 
-/// Compute a tile mapping for the reduced tensor. The size of each contiguous
-/// region mapped to a tile is a multiple of the vector width. Where possible
-/// elements of the reduced tensor are mapped to the same tile as the output
-/// activations that they are used to compute. If the output channel group size
-/// is not a multiple of the vector width then some exchange may be required
-/// between the reduce and complete compute sets. No exchange is required if the
-/// vector width exactly divides the output channel group size.
-static std::vector<std::vector<Interval<std::size_t>>>
-computeReducedMapping(const poplar::Graph &graph,
-                      const std::string &partialType,
-                      unsigned partialChansPerGroup,
-                      const Tensor &activations,
-                      const std::vector<unsigned> &activationsMapping) {
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto grainSize =
-      partialType == "float" ? deviceInfo.getFloatVectorWidth() :
-                               deviceInfo.getHalfVectorWidth();
-  const auto numTiles = activationsMapping.size() - 1;
-  std::vector<std::vector<Interval<std::size_t>>>
-      reducedMapping(numTiles);
-  assert(activations.rank() == 4);
-  const auto dimY = activations.dim(1);
-  const auto dimX = activations.dim(2);
-  const auto fieldSize = dimY * dimX;
-  const auto outChansPerGroup = activations.dim(3);
-  const auto numActivations = static_cast<unsigned>(activations.numElements());
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
-    const auto begin = activationsMapping[tile];
-    const auto end = activationsMapping[tile + 1];
-    if (begin / outChansPerGroup == end / outChansPerGroup) {
-      continue;
-    }
-    std::vector<unsigned> elements;
-    const auto outChanGroupBegin = (begin / outChansPerGroup) / fieldSize;
-    const auto outChanGroupEnd = ((end / outChansPerGroup) - 1) / fieldSize + 1;
-    for (unsigned outChanGroup = outChanGroupBegin;
-         outChanGroup != outChanGroupEnd; ++outChanGroup) {
-      unsigned fieldBegin, fieldEnd;
-      if (outChanGroup == outChanGroupBegin) {
-        fieldBegin = (begin / outChansPerGroup) % fieldSize;
-      } else {
-        fieldBegin = 0;
-      }
-      if (outChanGroup + 1 == outChanGroupEnd) {
-        fieldEnd = ((end / outChansPerGroup) - 1) % fieldSize + 1;
-      } else {
-        fieldEnd = fieldSize;
-      }
-      const auto chanBegin = outChanGroup * outChansPerGroup;
-      const auto chanEnd = (outChanGroup + 1) * outChansPerGroup;
-      for (unsigned chan = chanBegin; chan != chanEnd; ++chan) {
-        const auto partialChanInGroup = chan % partialChansPerGroup;
-        const auto partialChanGroup = chan / partialChansPerGroup;
-        for (unsigned pos = fieldBegin; pos != fieldEnd; ++pos) {
-          elements.push_back(partialChanInGroup +
-                               partialChansPerGroup * (pos +
-                                 fieldSize * partialChanGroup));
-        }
-      }
-    }
-    std::sort(elements.begin(), elements.end());
-    const auto contiguousRegions = getContiguousRegions(elements.begin(),
-                                                        elements.end());
-    for (const auto &region : contiguousRegions) {
-      const auto roundedBegin = region.first / grainSize * grainSize;
-      auto roundedEnd = std::min(region.second / grainSize * grainSize,
-                                       numActivations);
-
-      if (roundedBegin == roundedEnd) {
-        /* ensure that any fractional grain size at the end is mapped */
-        if (numActivations - roundedEnd < grainSize)
-          roundedEnd = numActivations;
-        else
-          continue;
-      }
-
-      if (!reducedMapping[tile].empty() &&
-          reducedMapping[tile].back().end == roundedBegin) {
-        reducedMapping[tile].back().end = roundedEnd;
-      } else {
-        reducedMapping[tile].emplace_back(roundedBegin, roundedEnd);
-      }
-    }
-  }
-  return reducedMapping;
-}
-
 unsigned getFlattenedIndex(const std::vector<std::size_t> &shape,
                            const std::vector<std::size_t> &indices) {
   const auto rank = shape.size();
@@ -1792,25 +1705,18 @@ Program convolutionBackward(Graph &graph,
 // [n/u][m/w][u][w].
 // The dimensions of B should be split and arranged as follows:
 // [m/w][p][w].
-// The dimensions of the C should be split and arranged as follows:
+// The dimensions of return value C are split and arranged as follows:
 // [n/u][p][u].
-Program
+std::pair <Program, Tensor>
 matrixMultiplyByConvInstruction(Graph &graph, const Plan &plan,
-                                Tensor a, Tensor b, Tensor c,
-                                const std::vector<unsigned> &cTileMapping,
+                                Tensor a, Tensor b,
                                 const std::string &debugPrefix) {
-  const auto dType = graph.getTensorElementType(a);
   assert(a.rank() == 4);
   assert(b.rank() == 3);
-  assert(c.rank() == 3);
-  assert(a.dim(0) == c.dim(0));
   assert(a.dim(1) == b.dim(0));
-  assert(a.dim(2) == c.dim(2));
   assert(a.dim(3) == b.dim(2));
-  assert(b.dim(1) == c.dim(1));
   const auto w = a.dim(3);
   const auto u = a.dim(2);
-  const auto n = a.dim(0) * u;
   const auto p = b.dim(1);
 
   // The matrix multiplication is equivalent to a 1d convolutional layer with no
@@ -1824,12 +1730,14 @@ matrixMultiplyByConvInstruction(Graph &graph, const Plan &plan,
   }
   const auto batchSize = 1;
   const auto kernelSize = 1;
-  const auto stride = 1;
-  const auto padding = 0;
-  const auto outDimY = 1;
-  const auto outDimX = p;
-  const auto outNumChans = n;
-  const auto outChansPerGroup = u;
+  const auto strideY = 1;
+  const auto strideX = 1;
+  const auto paddingY = 0;
+  const auto paddingX = 0;
+  const auto inDimY = 1;
+  const auto inDimX = p;
+  const auto outDimY = inDimY;
+  const auto outDimX = inDimX;
   // Insert size one dimensions for the filter height and width.
   const auto weights = a.reshape({a.dim(0),
                                   a.dim(1),
@@ -1838,58 +1746,14 @@ matrixMultiplyByConvInstruction(Graph &graph, const Plan &plan,
                                   a.dim(2),
                                   a.dim(3)});
   // Insert size one dimension for the batch size and field height.
-  const auto in = b.reshape({batchSize, b.dim(0), outDimY, b.dim(1), b.dim(2)});
-  const auto out = c.reshape({batchSize, c.dim(0), outDimY, c.dim(1),
-                              c.dim(2)});
-
-  auto prog = Sequence();
-  Tensor partials;
-  const auto partialType = plan.getPartialType();
-  const auto outputType = graph.getTensorElementType(out);
-  const bool reductionOrCastRequired = partialType != outputType
-                                       || plan.tilesPerInZGroupAxis != 1;
-  if (!reductionOrCastRequired) {
-    // No reduction required.
-    partials = out.reshape({batchSize,
-                            plan.tilesPerInZGroupAxis,
-                            outNumChans / outChansPerGroup,
-                            outDimY,
-                            outDimX,
-                            outChansPerGroup});
-  } else {
-    partials = graph.addTensor(partialType,
-                                {batchSize,
-                                 plan.tilesPerInZGroupAxis,
-                                 outNumChans / outChansPerGroup,
-                                 outDimY,
-                                 outDimX,
-                                 outChansPerGroup},
-                                 "partials");
-  }
-
-  // Calculate a set of partial sums of the convolutions.
-  prog.add(calcPartialSums(graph, plan, stride, stride,
-                           padding, padding, outNumChans,
-                           dType, in, weights, partials,
-                           debugPrefix + "/MatrixMul",
-                           outDimX, outDimY, false));
-
-  if ( plan.tilesPerInZGroupAxis > 1) {
-    // Perform the reduction of partial sums.
-    auto reduceCS = graph.addComputeSet(debugPrefix + "/Reduce");
-    auto reducedMapping = computeReducedMapping(graph, partialType,
-                                                outChansPerGroup,
-                                                out[0], cTileMapping);
-    ::reduceByDstMapping(graph, partials[0], out[0], reducedMapping, reduceCS);
-
-    prog.add(Execute(reduceCS));
-  } else if (partialType != outputType) {
-    /* If no reduction is required where all input channel groups are allocated
-     * to a tile, partials must be cast to the output type
-     */
-    prog.add(cast(graph, partials[0][0], out[0], debugPrefix));
-  }
-  return prog;
+  const auto in = b.reshape({batchSize, b.dim(0), inDimY, b.dim(1), b.dim(2)});
+  Program prog;
+  Tensor out;
+  std::tie(prog, out) =
+      convolutionByAmp(graph, plan, strideY, strideX, paddingY, paddingX, in,
+                       weights, outDimY, outDimX, false, debugPrefix);
+  auto c = out.reshape({out.dim(1), out.dim(3), out.dim(4)});
+  return {prog, c};
 }
 
 // Return a program to update the biases tensor with the gradients derived
@@ -2971,29 +2835,13 @@ convolutionWeightUpdateAmp(Graph &graph,
                              .dimShuffle({1, 0, 3, 2})));
 
   const auto weightDeltasType = dType;
-
-  auto weightDeltasTransposed =
-      graph.addTensor(
-          weightDeltasType,
-          {paddedActViewSize / outputGroupSize,
-           deltasChans,
-           outputGroupSize},
-          "weightDeltas");
-  auto weightDeltasTransposedMapping =
-    computeActivationsMapping(
-      graph,
-      weightDeltasTransposed.reshape({paddedActViewSize / outputGroupSize,
-                                       1, deltasChans, outputGroupSize}),
-      0, 1);
-  applyTensorMapping(graph, weightDeltasTransposed,
-                     weightDeltasTransposedMapping);
   // Perform the matrix multiplication.
-  prog.add(matrixMultiplyByConvInstruction(
-             graph, plan, matMulActivationsIn, zDeltasTransposed,
-             weightDeltasTransposed, weightDeltasTransposedMapping,
-             layerName
-           )
-  );
+  Program matrixMulProg;
+  Tensor weightDeltasTransposed;
+  std::tie(matrixMulProg, weightDeltasTransposed) =
+      matrixMultiplyByConvInstruction(graph, plan, matMulActivationsIn,
+                                      zDeltasTransposed, layerName);
+  prog.add(matrixMulProg);
   // Transpose the weight deltas.
   auto fwdInChansPerGroup = fwdPlan.inChansPerGroup;
   auto fwdPartialChansPerGroup = fwdPlan.partialChansPerGroup;
