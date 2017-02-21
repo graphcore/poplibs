@@ -1076,7 +1076,9 @@ public:
     bool isFloat = std::is_same<FPType, float>::value;
     const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
     auto zeroCycles = (out.size() + vectorWidth - 1) / vectorWidth;
-    return 4 + zeroCycles;
+    return 2 // run
+           + 5 // vertex cycles
+           + zeroCycles;
   }
 };
 
@@ -1103,10 +1105,12 @@ public:
     // TODO: make this more accurate
     bool isFloat = std::is_same<FPType, float>::value;
     const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    std::uint64_t cycles = 4;
+    std::uint64_t cycles = 2 // run
+                           + 5; // vertex overhead
     for (auto &row : out) {
       auto zeroCycles = (row.size() + vectorWidth - 1) / vectorWidth;
-      cycles += 1 + zeroCycles;
+      auto const loopOverhead = 3;
+      cycles += loopOverhead + zeroCycles;
     }
     return cycles;
   }
