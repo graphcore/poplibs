@@ -1360,6 +1360,79 @@ convReduceByPartialMapping(Graph &graph, unsigned batchGroup,
                                  resultType, computeSets, debugPrefix);
 }
 
+static std::pair<Program, Tensor>
+convolutionByAmp(Graph &graph, const Plan &plan, unsigned strideY,
+                 unsigned strideX, unsigned paddingY, unsigned paddingX,
+                 Tensor in, Tensor weights, unsigned outDimY, unsigned outDimX,
+                 bool isFractional, const std::string &debugPrefix) {
+  const auto numBatchGroups = in.dim(0);
+  Sequence prog;
+  const auto dType = graph.getTensorElementType(in);
+  const auto outNumChans = weights.dim(0) * weights.dim(4);
+  const auto partialChansPerGroup = plan.partialChansPerGroup;
+  const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
+  const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
+
+  const auto partialType = plan.getPartialType();
+  const auto batchSize = numBatchGroups * plan.batchesPerGroup;
+  mapWeights(weights, graph, plan, batchSize);
+
+  // Calculate a set of partial sums of the convolutions.
+  Tensor partials = graph.addTensor(partialType,
+                                     {numBatchGroups,
+                                     tilesPerInZGroup,
+                                     partialNumChanGroups,
+                                     outDimY,
+                                     outDimX,
+                                     partialChansPerGroup},
+                                    "partials");
+  prog.add(calcPartialSums(graph, plan,
+                           strideY, strideX,
+                           paddingY, paddingX, outNumChans,
+                           dType, in, weights, partials, debugPrefix,
+                           outDimX, outDimY, isFractional));
+
+  std::vector<ComputeSet> reduceComputeSets;
+  // For each element of the batch, we add the reduction vertices to same
+  // compute sets so the batch will be executed in parallel.
+  Tensor reduced;
+  // Perform the reduction of partial sums.
+  if (partials.dim(1) == 1) {
+    if (dType != partialType) {
+      reduced = graph.addTensor(dType, partials.shape());
+      if (reduceComputeSets.empty()) {
+        reduceComputeSets.push_back(graph.addComputeSet(debugPrefix +
+                                                           "/Cast"));
+      }
+      applyTensorMapping(graph, reduced, graph.getTileMapping(partials));
+      cast(graph, partials, reduced, reduceComputeSets[0]);
+    } else {
+      reduced = partials;
+    }
+    reduced = reduced.reshape({reduced.dim(0),
+                               reduced.dim(2),
+                               reduced.dim(3),
+                               reduced.dim(4),
+                               reduced.dim(5)});
+  } else {
+    auto reducedShape = partials[0][0].shape();
+    reducedShape.insert(reducedShape.begin(), 0);
+    reduced = graph.addTensor(dType, reducedShape);
+    for (unsigned b = 0; b < numBatchGroups; ++b) {
+      reduced =
+          append(reduced,
+                 convReduceByPartialMapping(graph, b, numBatchGroups,
+                                            partials[b],
+                                            dType, plan, reduceComputeSets,
+                                            debugPrefix));
+    }
+  }
+  for (const auto &cs : reduceComputeSets) {
+    prog.add(Execute(cs));
+  }
+  return {prog, reduced};
+}
+
 Program
 convolution(Graph &graph,
             const Plan &plan,
@@ -1369,6 +1442,7 @@ convolution(Graph &graph,
             const std::string &partialsType, bool isFractional,
             bool useWinogradConv, unsigned winogradPatchSize,
             const std::string &debugPrefix) {
+  assert(plan.getPartialType() == partialsType);
   const auto kernelSizeY = weights.dim(2);
   const auto kernelSizeX = weights.dim(3);
   const auto dType = graph.getTensorElementType(in);
@@ -1408,11 +1482,6 @@ convolution(Graph &graph,
     partialOutDimX = outDimX;
   }
   const auto outNumChans = activations.dim(1) * activations.dim(4);
-  const auto partialChansPerGroup = plan.partialChansPerGroup;
-  const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
-  const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
-  const auto partialTypeInPlan = plan.getPartialType();
-
   mapBiases(biases, graph, activations);
 
   auto forwardProg = Sequence();
@@ -1438,85 +1507,35 @@ convolution(Graph &graph,
           activations[b],
           debugPrefix));
     }
+    return forwardProg;
   } else {
-    mapWeights(weights, graph, plan, batchSize);
-
-    // Calculate a set of partial sums of the convolutions.
-    Tensor partials = graph.addTensor(partialTypeInPlan,
-                                       {numBatchGroups,
-                                       tilesPerInZGroup,
-                                       partialNumChanGroups,
-                                       partialOutDimY,
-                                       partialOutDimX,
-                                       partialChansPerGroup},
-                                      "partials");
-    forwardProg.add(calcPartialSums(graph, plan,
-                                    strideY, strideX,
-                                    paddingY, paddingX, outNumChans,
-                                    dType, in, weights, partials, layerName,
-                                    partialOutDimX, partialOutDimY,
-                                    isFractional));
-
-    std::vector<ComputeSet> reduceComputeSets;
-    // For each element of the batch, we add the reduction and complete
-    // vertices to same compute sets so the batch will be executed in parallel.
-    ComputeSet completeCS = graph.addComputeSet(layerName + "/Complete");
-    const auto partialType = graph.getTensorElementType(partials);
-    Tensor reduced;
-    // Perform the reduction of partial sums.
-    if (partials.dim(1) == 1) {
-      if (dType != partialType) {
-        reduced = graph.addTensor(dType, partials.shape());
-        if (reduceComputeSets.empty()) {
-          reduceComputeSets.push_back(graph.addComputeSet(layerName +
-                                                             "/Cast"));
-        }
-        applyTensorMapping(graph, reduced, graph.getTileMapping(partials));
-        cast(graph, partials, reduced, reduceComputeSets[0]);
-      } else {
-        reduced = partials;
-      }
-      reduced = reduced.dimShuffle({1, 2, 0, 3, 4, 5})
-                       .reshape({partialNumChanGroups,
+    Program convolveProg;
+    Tensor postConvolve;
+    std::tie(convolveProg, postConvolve) =
+        convolutionByAmp(graph, plan, strideY, strideX, paddingY, paddingX,
+                         in, weights, partialOutDimY, partialOutDimX,
+                         isFractional, layerName);
+    if (plan.flattenXY) {
+      postConvolve = postConvolve.dimShuffle({1, 0, 2, 3, 4})
+                       .reshape({postConvolve.dim(1),
                                  batchSize,
                                  outDimY,
                                  outDimX,
-                                 partialChansPerGroup})
-                       .dimShuffle({1, 0, 2, 3, 4});
-    } else {
-      auto reducedShape = partials[0][0].shape();
-      reducedShape.insert(reducedShape.begin(), 0);
-      reduced = graph.addTensor(dType, reducedShape);
-      for (unsigned b = 0; b < numBatchGroups; ++b) {
-        reduced =
-            append(reduced,
-                   convReduceByPartialMapping(graph, b, numBatchGroups,
-                                              partials[b],
-                                              dType, plan, reduceComputeSets,
-                                              layerName));
-      }
-      reduced = reduced.dimShuffle({1, 0, 2, 3, 4})
-                       .reshape({partialNumChanGroups,
-                                 batchSize,
-                                 outDimY,
-                                 outDimX,
-                                 partialChansPerGroup})
+                                 postConvolve.dim(4)})
                        .dimShuffle({1, 0, 2, 3, 4});
     }
+    ComputeSet completeCS = graph.addComputeSet(layerName + "/Complete");
     for (unsigned b = 0; b < batchSize; ++b) {
       auto activationsMapping = computeActivationsMapping(graph,
                                                           activations[b],
                                                           b,
                                                           batchSize);
       // Add the bias and rearrange tensor to required output channel grouping.
-      complete(graph, plan, outNumChans, dType, reduced[b], biases,
+      complete(graph, plan, outNumChans, dType, postConvolve[b], biases,
                activations[b],
                activationsMapping, completeCS);
     }
-    for (const auto &cs : reduceComputeSets) {
-      forwardProg.add(Execute(cs));
-    }
-    forwardProg.add(Execute(completeCS));
+    return Sequence(convolveProg, Execute(completeCS));
   }
   return forwardProg;
 }
