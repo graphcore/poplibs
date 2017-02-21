@@ -66,6 +66,11 @@ def create_report(runs, filename, param_info, arch_explore, training):
     resnet34_no_reuse = find_run('resnet34', {'--graph-reuse': '0'})
     resnet50 = find_run('resnet50', {'--graph-reuse': '1'})
     resnet50_no_reuse = find_run('resnet50', {'--graph-reuse': '0'})
+    vgg16 = find_run('vgg16', {'--graph-reuse': '1'})
+    vgg16_no_reuse = find_run('vgg16', {'--graph-reuse': '0'})    
+    vgg19 = find_run('vgg19', {'--graph-reuse': '1'})
+    vgg19_no_reuse = find_run('vgg19', {'--graph-reuse': '0'})
+
     alexnet_large_tiles = find_run('alexnet', {'--tiles-per-ipu': '608'})
     alexnet_xlarge_tiles = find_run('alexnet', {'--tiles-per-ipu': '304'})
     alexnet_exchange8 = find_run('alexnet',
@@ -105,9 +110,38 @@ def create_report(runs, filename, param_info, arch_explore, training):
                                            {'--ipu-exchange-bandwidth':'16',
                                             '--tiles-per-ipu':'1024'})
 
+    vgg16_large_tiles = find_run('vgg16', {'--tiles-per-ipu': '608'})
+    vgg16_xlarge_tiles = find_run('vgg16', {'--tiles-per-ipu': '304'})
+    vgg16_exchange8 = find_run('vgg16',
+                                     {'--ipu-exchange-bandwidth':'8'}, True)
+    vgg16_exchange8_reduce = find_run('vgg16',
+                                           {'--ipu-exchange-bandwidth':'8',
+                                            '--tiles-per-ipu':'1024'})
+    vgg16_exchange16 = find_run('vgg16',
+                                     {'--ipu-exchange-bandwidth':'16'}, True)
+    vgg16_exchange16_reduce = find_run('vgg16',
+                                           {'--ipu-exchange-bandwidth':'16',
+                                            '--tiles-per-ipu':'1024'})
+
+
+    vgg19_large_tiles = find_run('vgg19', {'--tiles-per-ipu': '608'})
+    vgg19_xlarge_tiles = find_run('vgg19', {'--tiles-per-ipu': '304'})
+    vgg19_exchange8 = find_run('vgg19',
+                                     {'--ipu-exchange-bandwidth':'8'}, True)
+    vgg19_exchange8_reduce = find_run('vgg19',
+                                           {'--ipu-exchange-bandwidth':'8',
+                                            '--tiles-per-ipu':'1024'})
+    vgg19_exchange16 = find_run('vgg19',
+                                     {'--ipu-exchange-bandwidth':'16'}, True)
+    vgg19_exchange16_reduce = find_run('vgg19',
+                                           {'--ipu-exchange-bandwidth':'16',
+                                            '--tiles-per-ipu':'1024'})
+
     alexnet_train = find_run('alexnet', {'--train':'1'})
     resnet34_train = find_run('resnet34', {'--train':'1'})
     resnet50_train = find_run('resnet50', {'--train':'1'})
+    vgg16_train = find_run('vgg16', {'--train':'1'})
+    vgg19_train = find_run('vgg19', {'--train':'1'})    
 
     ipu_tiles = 1216
     ipu_total_mem = ipu_tiles * 256 * 1024
@@ -198,9 +232,24 @@ def create_report(runs, filename, param_info, arch_explore, training):
         f.write('Resnet 50 (graph reuse), {:.0f}, {:.0f}\n'.format(resnet50[0]['Number of vertices'],
                                            resnet50[0]['Number of edges']))
 
+        if vgg16_no_reuse:
+            f.write('VGG 16, {:.0f}, {:.0f}\n'.format(vgg16_no_reuse[0]['Number of vertices'],
+                                                      vgg16_no_reuse[0]['Number of edges']))
+        f.write('VGG 16 (graph reuse), {:.0f}, {:.0f}\n'.format(vgg16[0]['Number of vertices'],
+                                           vgg16[0]['Number of edges']))
+
+
+        if vgg19_no_reuse:
+            f.write('VGG 19, {:.0f}, {:.0f}\n'.format(vgg19_no_reuse[0]['Number of vertices'],
+                                                      vgg19_no_reuse[0]['Number of edges']))
+        f.write('VGG 19 (graph reuse), {:.0f}, {:.0f}\n'.format(vgg19[0]['Number of vertices'],
+                                                                vgg19[0]['Number of edges']))
+
+
+
         f.write(',\nMEMORY USAGE,\n,\n')
 
-        f.write('Category, Alexnet, ResNet34, ResNet50\n')
+        f.write('Category, Alexnet, ResNet34, ResNet50, VGG16, VGG19\n')
         for field in ['Vertex data',
                       'Tensor data',
                       'In edge pointers',
@@ -211,51 +260,77 @@ def create_report(runs, filename, param_info, arch_explore, training):
                     field,
                     MB(alexnet_1_ipu[0][field]),
                     MB(resnet34[0][field]),
-                    MB(resnet50[0][field])))
+                    MB(resnet50[0][field]),
+                    MB(vgg16[0][field]),
+                    MB(vgg19[0][field])))
         f.write('TOTAL (MB), {:.0f},{:.0f},{:.0f}\n'.format(
                 MB(get_total_mem(alexnet_1_ipu[0])),
                 MB(get_total_mem(resnet34[0])),
-                MB(get_total_mem(resnet50[0]))))
+                MB(get_total_mem(resnet50[0])),
+                MB(get_total_mem(vgg16[0])),
+                MB(get_total_mem(vgg19[0]))))
         f.write(',,,\n')
         bytes_per_param = 2
         alexnet_params_mb = MB(alexnet_1_ipu[0]['Parameters'] * bytes_per_param)
         resnet34_params_mb = MB(resnet34[0]['Parameters'] * bytes_per_param)
         resnet50_params_mb = MB(resnet50[0]['Parameters'] * bytes_per_param)
+        vgg16_params_mb = MB(vgg16[0]['Parameters'] * bytes_per_param)
+        vgg19_params_mb = MB(vgg19[0]['Parameters'] * bytes_per_param)
+
         f.write('Parameters (MB), {:.0f},{:.0f},{:.0f}\n'.format(
                 alexnet_params_mb,
                 resnet34_params_mb,
-                resnet50_params_mb))
+                resnet50_params_mb,
+                vgg16_params_mb,
+                vgg19_params_mb))
         f.write('Tensor data/param, {:.2f},{:.2f},{:.2f}\n'.format(
                 MB(alexnet_1_ipu[0]['Tensor data']) / alexnet_params_mb,
                 MB(resnet34[0]['Tensor data']) / resnet34_params_mb,
-                MB(resnet50[0]['Tensor data']) / resnet50_params_mb))
+                MB(resnet50[0]['Tensor data']) / resnet50_params_mb, 
+                MB(vgg16[0]['Tensor data']) / vgg16_params_mb,
+                MB(vgg19[0]['Tensor data']) / vgg19_params_mb))
         f.write('Num vertices,{:.0f},{:.0f},{:.0f}\n'.format(
                 alexnet_1_ipu[0]['Number of vertices'],
                 resnet34[0]['Number of vertices'],
                 resnet50[0]['Number of vertices'],
+                vgg16[0]['Number of vertices'],
+                vgg19[0]['Number of vertices'],
                ))
         f.write('Num edges,{:.0f},{:.0f},{:.0f}\n'.format(
                 alexnet_1_ipu[0]['Number of edges'],
                 resnet34[0]['Number of edges'],
                 resnet50[0]['Number of edges'],
+                vgg16[0]['Number of edges'],
+                vgg19[0]['Number of edges'],
                ))
         vertex_bytes_fields = ['Vertex data', 'Run instructions']
         alexnet_vertex_bytes = sum_fields(alexnet_1_ipu[0], vertex_bytes_fields)
         resnet34_vertex_bytes = sum_fields(resnet34[0], vertex_bytes_fields)
         resnet50_vertex_bytes = sum_fields(resnet50[0], vertex_bytes_fields)
+        vgg16_vertex_bytes = sum_fields(vgg16[0], vertex_bytes_fields)
+        vgg19_vertex_bytes = sum_fields(vgg19[0], vertex_bytes_fields)
+
+
         f.write('Bytes/vertex,{:.1f},{:.1f},{:.1f}\n'.format(
                 alexnet_vertex_bytes/alexnet_1_ipu[0]['Number of vertices'],
                 resnet34_vertex_bytes/resnet34[0]['Number of vertices'],
                 resnet50_vertex_bytes/resnet50[0]['Number of vertices'],
+                vgg16_vertex_bytes/vgg16[0]['Number of vertices'],
+                vgg19_vertex_bytes/vgg19[0]['Number of vertices'],
                ))
         edge_bytes_fields = ['In edge pointers', 'Exchange supervisor code']
         alexnet_edge_bytes = sum_fields(alexnet_1_ipu[0], edge_bytes_fields)
         resnet34_edge_bytes = sum_fields(resnet34[0], edge_bytes_fields)
         resnet50_edge_bytes = sum_fields(resnet50[0], edge_bytes_fields)
+        vgg16_edge_bytes = sum_fields(vgg16[0], edge_bytes_fields)
+        vgg19_edge_bytes = sum_fields(vgg19[0], edge_bytes_fields)
+
         f.write('Bytes/edge,{:.1f},{:.1f},{:.1f}\n'.format(
                 alexnet_edge_bytes/alexnet_1_ipu[0]['Number of edges'],
                 resnet34_edge_bytes/resnet34[0]['Number of edges'],
                 resnet50_edge_bytes/resnet50[0]['Number of edges'],
+                vgg16_edge_bytes/vgg16[0]['Number of edges'],
+                vgg19_edge_bytes/vgg19[0]['Number of edges'],
                ))
 
 
@@ -270,16 +345,29 @@ def create_report(runs, filename, param_info, arch_explore, training):
         resnet50_cycles = get_total_cycles(resnet50[0])
         resnet50_compute_ratio = \
           resnet50[0]['Compute cycles'] / resnet50_cycles
+        vgg16_cycles = get_total_cycles(vgg16[0])
+        vgg16_compute_ratio = \
+          vgg16[0]['Compute cycles'] / vgg16_cycles
+        vgg19_cycles = get_total_cycles(vgg19[0])
+        vgg19_compute_ratio = \
+          vgg19[0]['Compute cycles'] / vgg19_cycles
 
         alexnet_flops = alexnet_1_ipu[0]['FLOPS']
         resnet34_flops = resnet34[0]['FLOPS']
         resnet50_flops = resnet50[0]['FLOPS']
+        vgg16_flops = vgg16[0]['FLOPS']
+        vgg19_flops = vgg19[0]['FLOPS']
+
         alexnet_us_per_image = alexnet_cycles / CYCLES_PER_SEC * 1000000
         alexnet_gflops_per_sec = alexnet_flops / alexnet_us_per_image / 1000
         resnet34_us_per_image = resnet34_cycles / CYCLES_PER_SEC * 1000000
         resnet34_gflops_per_sec = resnet34_flops / resnet34_us_per_image / 1000
         resnet50_us_per_image = resnet50_cycles / CYCLES_PER_SEC * 1000000
         resnet50_gflops_per_sec = resnet50_flops / resnet50_us_per_image / 1000
+        vgg16_us_per_image = vgg16_cycles / CYCLES_PER_SEC * 1000000
+        vgg16_gflops_per_sec = vgg16_flops / vgg16_us_per_image / 1000
+        vgg19_us_per_image = vgg19_cycles / CYCLES_PER_SEC * 1000000
+        vgg19_gflops_per_sec = vgg19_flops / vgg19_us_per_image / 1000
 
         alexnet_vertex_ratio =  alexnet_1_ipu[0]['Perfect cycles'] / \
                                 alexnet_1_ipu[0]['Compute cycles']
@@ -287,35 +375,52 @@ def create_report(runs, filename, param_info, arch_explore, training):
                                 resnet34[0]['Compute cycles']
         resnet50_vertex_ratio = resnet50[0]['Perfect cycles'] / \
                                 resnet50[0]['Compute cycles']
+        vgg16_vertex_ratio = vgg16[0]['Perfect cycles'] / \
+                             vgg16[0]['Compute cycles']
+        vgg19_vertex_ratio = vgg19[0]['Perfect cycles'] / \
+                             vgg19[0]['Compute cycles']
 
         alexnet_ratio = alexnet_1_ipu[0]['Perfect cycles'] / alexnet_cycles
         resnet34_ratio = resnet34[0]['Perfect cycles'] / resnet34_cycles
         resnet50_ratio = resnet50[0]['Perfect cycles'] / resnet50_cycles
+        vgg16_ratio = vgg16[0]['Perfect cycles'] / vgg16_cycles
+        vgg19_ratio = vgg19[0]['Perfect cycles'] / vgg19_cycles
 
-        f.write(', Alexnet, ResNet34, ResNet50\n')
+
+        f.write(', Alexnet, ResNet34, ResNet50, VGG16, VGG19\n')
         f.write('Effective GFLOP/s,{:.0f},{:.0f},{:.0f}\n'.format(
                 alexnet_gflops_per_sec,
                 resnet34_gflops_per_sec,
-                resnet50_gflops_per_sec))
+                resnet50_gflops_per_sec, 
+                vgg16_gflops_per_sec,
+                vgg19_gflops_per_sec))
 
         f.write(',,,\n')
         f.write('Compute ratio,{:.2f},{:.2f},{:.2f}\n'.format(
                 alexnet_compute_ratio,
                 resnet34_compute_ratio,
-                resnet50_compute_ratio))
+                resnet50_compute_ratio, 
+                vgg16_compute_ratio,
+                vgg19_compute_ratio))
         f.write('Vertex overhead ratio,{:.2f},{:.2f},{:.2f}\n'.format(
                 alexnet_vertex_ratio,
                 resnet34_vertex_ratio,
-                resnet50_vertex_ratio))
+                resnet50_vertex_ratio, 
+                vgg16_vertex_ratio,
+                vgg19_vertex_ratio))
         f.write('Overall ratio,{:.2f},{:.2f},{:.2f}\n'.format(
                 alexnet_ratio,
                 resnet34_ratio,
-                resnet50_ratio))
+                resnet50_ratio,
+                vgg16_ratio,
+                vgg19_ratio))
 
         f.write(',\nSUMMARY,\n,\n')
         f.write('Alexnet: {} cycles, {:.1f} MB\n'.format(alexnet_cycles, MB(get_total_mem(alexnet_1_ipu[0]))))
         f.write('Resnet34: {} cycles, {:.1f} MB\n'.format(resnet34_cycles, MB(get_total_mem(resnet34[0]))))
         f.write('Resnet50: {} cycles, {:.1f} MB\n'.format(resnet50_cycles, MB(get_total_mem(resnet50[0]))))
+        f.write('VGG16: {} cycles, {:.1f} MB\n'.format(vgg16_cycles, MB(get_total_mem(vgg16[0]))))
+        f.write('VGG19: {} cycles, {:.1f} MB\n'.format(vgg19_cycles, MB(get_total_mem(vgg19[0]))))
 
         def info(*runs):
             return [ get_tflops(runs[0]),
@@ -323,35 +428,52 @@ def create_report(runs, filename, param_info, arch_explore, training):
                      get_tflops(runs[1]),
                      ((get_tflops(runs[1]) / get_tflops(resnet34)) - 1) * 100,
                      get_tflops(runs[2]),
-                     ((get_tflops(runs[2]) / get_tflops(resnet50)) - 1) * 100]
+                     ((get_tflops(runs[2]) / get_tflops(resnet50)) - 1) * 100,
+                     get_tflops(runs[2]),
+                     ((get_tflops(runs[2]) / get_tflops(vgg16)) - 1) * 100,
+                     get_tflops(runs[2]),
+                     ((get_tflops(runs[2]) / get_tflops(vgg19)) - 1) * 100]
+
 
         if arch_explore:
             f.write(',\nARCHITECTURE EXPLORATION,\n,\n')
-            f.write(',Alexnet,ResNet34,ResNet50\n')
+            f.write(',Alexnet,ResNet34,ResNet50, VGG16, VGG19\n')
             f.write('64Bit exchange, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
                     format(*info(alexnet_exchange8,
                                  resnet34_exchange8,
-                                 resnet50_exchange8)))
+                                 resnet50_exchange8,
+                                 vgg16_exchange8,
+                                 vgg19_exchange8)))
             f.write('64Bit exchange - reduced, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
                     format(*info(alexnet_exchange8_reduce,
                                  resnet34_exchange8_reduce,
-                                 resnet50_exchange8_reduce)))
+                                 resnet50_exchange8_reduce,
+                                 vgg16_exchange8_reduce,
+                                 vgg19_exchange8_reduce)))
             f.write('128Bit exchange, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
                     format(*info(alexnet_exchange16,
                                  resnet34_exchange16,
-                                 resnet50_exchange16)))
+                                 resnet50_exchange16,
+                                 vgg16_exchange16,
+                                 vgg19_exchange16)))
             f.write('128Bit exchange - reduced, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
                     format(*info(alexnet_exchange16_reduce,
                                  resnet34_exchange16_reduce,
-                                 resnet50_exchange16_reduce)))
+                                 resnet50_exchange16_reduce,
+                                 vgg16_exchange16_reduce,
+                                 vgg19_exchange16_reduce)))
             f.write('608 tiles, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
                     format(*info(alexnet_large_tiles,
                                  resnet34_large_tiles,
-                                 resnet50_large_tiles)))
+                                 resnet50_large_tiles,
+                                 vgg16_large_tiles,
+                                 vgg19_large_tiles)))
             f.write('304 tiles, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
                     format(*info(alexnet_xlarge_tiles,
                                  resnet34_xlarge_tiles,
-                                 resnet50_xlarge_tiles)))
+                                 resnet50_xlarge_tiles,
+                                 vgg16_xlarge_tiles,
+                                 vgg19_xlarge_tiles)))
 
         def meminfo(*runs):
             return [ MB(get_total_mem(runs[0][0])),
@@ -359,34 +481,50 @@ def create_report(runs, filename, param_info, arch_explore, training):
                      MB(get_total_mem(runs[1][0])),
                      ((get_total_mem(runs[1][0]) / get_total_mem(resnet34[0])) - 1) * 100,
                      MB(get_total_mem(runs[2][0])),
-                     ((get_total_mem(runs[2][0]) / get_total_mem(resnet50[0])) - 1) * 100 ]
+                     ((get_total_mem(runs[2][0]) / get_total_mem(resnet50[0])) - 1) * 100,
+                     MB(get_total_mem(runs[2][0])),
+                     ((get_total_mem(runs[2][0]) / get_total_mem(vgg16[0])) - 1) * 100,
+                     MB(get_total_mem(runs[2][0])),
+                     ((get_total_mem(runs[2][0]) / get_total_mem(vgg19[0])) - 1) * 100]
 
         if arch_explore:
-            f.write(',Alexnet,ResNet34,ResNet50\n')
+            f.write(',Alexnet,ResNet34,ResNet50, VGG16, VGG19\n')
             f.write('64Bit exchange, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
                     format(*meminfo(alexnet_exchange8,
                                     resnet34_exchange8,
-                                    resnet50_exchange8)))
+                                    resnet50_exchange8,
+                                    vgg16_exchange8,
+                                    vgg19_exchange8)))
             f.write('64Bit exchange - reduced, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
                     format(*meminfo(alexnet_exchange8_reduce,
                                     resnet34_exchange8_reduce,
-                                    resnet50_exchange8_reduce)))
+                                    resnet50_exchange8_reduce,
+                                    vgg16_exchange8_reduce,
+                                    vgg19_exchange8_reduce)))
             f.write('128Bit exchange, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
                     format(*meminfo(alexnet_exchange16,
                                     resnet34_exchange16,
-                                    resnet50_exchange16)))
+                                    resnet50_exchange16,
+                                    vgg16_exchange16,
+                                    vgg19_exchange16)))
             f.write('128Bit exchange - reduced, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
                     format(*meminfo(alexnet_exchange16_reduce,
                                     resnet34_exchange16_reduce,
-                                    resnet50_exchange16_reduce)))
+                                    resnet50_exchange16_reduce,
+                                    vgg16_exchange16_reduce,
+                                    vgg19_exchange16_reduce)))
             f.write('608 tiles, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
                     format(*meminfo(alexnet_large_tiles,
                                     resnet34_large_tiles,
-                                    resnet50_large_tiles)))
+                                    resnet50_large_tiles,
+                                    vgg16_large_tiles,
+                                    vgg19_large_tiles)))
             f.write('304 tiles, {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%), {:.1f} ({:+.2f}%)\n'.
                     format(*meminfo(alexnet_xlarge_tiles,
                                     resnet34_xlarge_tiles,
-                                    resnet50_xlarge_tiles)))
+                                    resnet50_xlarge_tiles,
+                                    vgg16_xlarge_tiles,
+                                    vgg19_xlarge_tiles)))
 
         f.write(',\nALEXNET TILE USAGE,\n,\n')
 
@@ -407,22 +545,47 @@ def create_report(runs, filename, param_info, arch_explore, training):
                                           int(d['Num tiles computing']),
                                           int(d['Num tiles exchanging'])))
 
-        if alexnet_train and resnet34_train and resnet50_train:
+        f.write(',\VGG 16 TILE USAGE,\n,\n')
+
+        f.write('Layer, #computing, #exchanging\n')
+        computing_layers = [d for d in vgg16[1:-1] if d['Num tiles computing'] != 0]
+
+        for i, d in enumerate(computing_layers) :
+            f.write('{}, {}, {}\n'.format(d['Layer ID'],
+                                          int(d['Num tiles computing']),
+                                          int(d['Num tiles exchanging'])))
+
+
+        if alexnet_train and resnet34_train and resnet50_train and vgg16_train and vgg19_train:
             alexnet_train_cycles = get_total_cycles(alexnet_train[0])
             resnet34_train_cycles = get_total_cycles(resnet34_train[0])
             resnet50_train_cycles = get_total_cycles(resnet50_train[0])
+            vgg16_train_cycles = get_total_cycles(vgg16_train[0])
+            vgg19_train_cycles = get_total_cycles(vgg19_train[0])
+
 
             alexnet_bwd_cycles = alexnet_train_cycles - alexnet_cycles
             resnet34_bwd_cycles = resnet34_train_cycles - resnet34_cycles
             resnet50_bwd_cycles = resnet50_train_cycles - resnet50_cycles
+            vgg16_bwd_cycles = vgg16_train_cycles - vgg16_cycles
+            vgg19_bwd_cycles = vgg19_train_cycles - vgg19_cycles
+
 
             alexnet_train_flops = alexnet_train[0]['FLOPS']
             resnet34_train_flops = resnet34_train[0]['FLOPS']
             resnet50_train_flops = resnet50_train[0]['FLOPS']
+            vgg16_train_flops = vgg16_train[0]['FLOPS']
+            vgg19_train_flops = vgg19_train[0]['FLOPS']
+
+
 
             alexnet_bwd_flops = alexnet_train[0]['FLOPS'] - alexnet_flops
             resnet34_bwd_flops = resnet34_train[0]['FLOPS'] - resnet34_flops
             resnet50_bwd_flops = resnet50_train[0]['FLOPS'] - resnet50_flops
+            vgg16_bwd_flops = vgg16_train[0]['FLOPS'] - vgg16_flops
+            vgg19_bwd_flops = vgg19_train[0]['FLOPS'] - vgg19_flops
+
+
 
             alexnet_bwd_us_per_image = alexnet_bwd_cycles / CYCLES_PER_SEC * 1000000
             alexnet_bwd_gflops_per_sec = alexnet_bwd_flops / alexnet_bwd_us_per_image / 1000
@@ -430,8 +593,10 @@ def create_report(runs, filename, param_info, arch_explore, training):
             resnet34_bwd_gflops_per_sec = resnet34_bwd_flops / resnet34_bwd_us_per_image / 1000
             resnet50_bwd_us_per_image = resnet50_bwd_cycles / CYCLES_PER_SEC * 1000000
             resnet50_bwd_gflops_per_sec = resnet50_bwd_flops / resnet50_bwd_us_per_image / 1000
-
-
+            vgg16_bwd_us_per_image = vgg16_bwd_cycles / CYCLES_PER_SEC * 1000000
+            vgg16_bwd_gflops_per_sec = vgg16_bwd_flops / vgg16_bwd_us_per_image / 1000
+            vgg19_bwd_us_per_image = vgg19_bwd_cycles / CYCLES_PER_SEC * 1000000
+            vgg19_bwd_gflops_per_sec = vgg19_bwd_flops / vgg19_bwd_us_per_image / 1000
 
             f.write(',\nTRAIN PERFORMANCE,\n,\n')
 
@@ -442,21 +607,26 @@ def create_report(runs, filename, param_info, arch_explore, training):
                                                    resnet34_bwd_gflops_per_sec/1000));
             f.write('resnet50,{:.1f},{:.1f}\n'.format(resnet50_gflops_per_sec/1000,
                                                    resnet50_bwd_gflops_per_sec/1000));
-
+            f.write('vgg16,{:.1f},{:.1f}\n'.format(vgg16_gflops_per_sec/1000,
+                                                   vgg16_bwd_gflops_per_sec/1000));
+            f.write('vgg19,{:.1f},{:.1f}\n'.format(vgg19_gflops_per_sec/1000,
+                                                   vgg19_bwd_gflops_per_sec/1000));
 
             f.write(',\nTRAIN MEMORY,\n,\n')
 
             ipu_mem = 1216 * .25
 
             f.write('Benchmark, Memory (MB)\n')
-            f.write('alexnet, {:.0f}, {:.0f}% \nresnet34,{:.0f}, {:.0f}%\nresnet50,{:.0f}, {:.0f}%\n'.format(
+            f.write('alexnet, {:.0f}, {:.0f}% \nresnet34,{:.0f}, {:.0f}%\nresnet50,{:.0f}, {:.0f}%\nvgg16,{:.0f}, {:.0f}% \nvgg19,{:.0f}, {:.0f}%\n'.format(
                     MB(get_total_mem(alexnet_train[0])), MB(get_total_mem(alexnet_train[0])) / ipu_mem * 100,
                     MB(get_total_mem(resnet34_train[0])), MB(get_total_mem(resnet34_train[0])) / ipu_mem * 100,
-                    MB(get_total_mem(resnet50_train[0])), MB(get_total_mem(resnet50_train[0])) / ipu_mem * 100))
+                    MB(get_total_mem(resnet50_train[0])), MB(get_total_mem(resnet50_train[0])) / ipu_mem * 100, 
+                    MB(get_total_mem(vgg16_train[0])), MB(get_total_mem(vgg16_train[0])) / ipu_mem * 100, 
+                    MB(get_total_mem(vgg19_train[0])), MB(get_total_mem(vgg19_train[0])) / ipu_mem * 100))
 
             f.write(',\n\nTRAINING OVERALL MEMORY USAGE,\n,\n')
 
-            f.write('Category, Alexnet, ResNet34, ResNet50\n')
+            f.write('Category, Alexnet, ResNet34, ResNet50, VGG16, VGG19\n')
             for field in ['Vertex data',
                           'Tensor data',
                           'In edge pointers',
@@ -467,51 +637,77 @@ def create_report(runs, filename, param_info, arch_explore, training):
                         field,
                         MB(alexnet_train[0][field]),
                         MB(resnet34_train[0][field]),
-                        MB(resnet50_train[0][field])))
+                        MB(resnet50_train[0][field]), 
+                        MB(vgg16_train[0][field]), 
+                        MB(vgg19_train[0][field])))
             f.write('TOTAL (MB), {:.0f},{:.0f},{:.0f}\n'.format(
                     MB(get_total_mem(alexnet_train[0])),
                     MB(get_total_mem(resnet34_train[0])),
-                    MB(get_total_mem(resnet50_train[0]))))
+                    MB(get_total_mem(resnet50_train[0])), 
+                    MB(get_total_mem(vgg16_train[0])), 
+                    MB(get_total_mem(vgg19_train[0]))))
             f.write(',,,\n')
             bytes_per_param = 2
             alexnet_params_mb = MB(alexnet_train[0]['Parameters'] * bytes_per_param)
             resnet34_params_mb = MB(resnet34_train[0]['Parameters'] * bytes_per_param)
             resnet50_params_mb = MB(resnet50_train[0]['Parameters'] * bytes_per_param)
+            vgg16_params_mb = MB(vgg16_train[0]['Parameters'] * bytes_per_param)
+            vgg19_params_mb = MB(vgg19_train[0]['Parameters'] * bytes_per_param)
+
             f.write('Parameters (MB), {:.0f},{:.0f},{:.0f}\n'.format(
                     alexnet_params_mb,
                     resnet34_params_mb,
-                    resnet50_params_mb))
+                    resnet50_params_mb, 
+                    vgg16_params_mb,
+                    vgg19_params_mb))
             f.write('Tensor data/param, {:.2f},{:.2f},{:.2f}\n'.format(
                     MB(alexnet_train[0]['Tensor data']) / alexnet_params_mb,
                     MB(resnet34_train[0]['Tensor data']) / resnet34_params_mb,
-                    MB(resnet50_train[0]['Tensor data']) / resnet50_params_mb))
+                    MB(resnet50_train[0]['Tensor data']) / resnet50_params_mb, 
+                    MB(vgg16_train[0]['Tensor data']) / vgg16_params_mb, 
+                    MB(vgg19_train[0]['Tensor data']) / vgg19_params_mb))
             f.write('Num vertices,{:.0f},{:.0f},{:.0f}\n'.format(
                     alexnet_train[0]['Number of vertices'],
                     resnet34_train[0]['Number of vertices'],
                     resnet50_train[0]['Number of vertices'],
+                    vgg16_train[0]['Number of vertices'],
+                    vgg19_train[0]['Number of vertices'],                    
                    ))
             f.write('Num edges,{:.0f},{:.0f},{:.0f}\n'.format(
                     alexnet_train[0]['Number of edges'],
                     resnet34_train[0]['Number of edges'],
                     resnet50_train[0]['Number of edges'],
-                   ))
+                    vgg16_train[0]['Number of edges'],
+                    vgg19_train[0]['Number of edges']))
             vertex_bytes_fields = ['Vertex data', 'Run instructions']
             alexnet_vertex_bytes = sum_fields(alexnet_train[0], vertex_bytes_fields)
             resnet34_vertex_bytes = sum_fields(resnet34_train[0], vertex_bytes_fields)
             resnet50_vertex_bytes = sum_fields(resnet50_train[0], vertex_bytes_fields)
+            vgg16_vertex_bytes = sum_fields(vgg16_train[0], vertex_bytes_fields)
+            vgg19_vertex_bytes = sum_fields(vgg19_train[0], vertex_bytes_fields)
+
+
             f.write('Bytes/vertex,{:.1f},{:.1f},{:.1f}\n'.format(
                     alexnet_vertex_bytes/alexnet_train[0]['Number of vertices'],
                     resnet34_vertex_bytes/resnet34_train[0]['Number of vertices'],
                     resnet50_vertex_bytes/resnet50_train[0]['Number of vertices'],
+                    vgg16_vertex_bytes/vgg16_train[0]['Number of vertices'],
+                    vgg19_vertex_bytes/vgg19_train[0]['Number of vertices'],
                    ))
             edge_bytes_fields = ['In edge pointers', 'Exchange supervisor code']
             alexnet_edge_bytes = sum_fields(alexnet_train[0], edge_bytes_fields)
             resnet34_edge_bytes = sum_fields(resnet34_train[0], edge_bytes_fields)
             resnet50_edge_bytes = sum_fields(resnet50_train[0], edge_bytes_fields)
+            vgg16_edge_bytes = sum_fields(vgg16_train[0], edge_bytes_fields)
+            vgg19_edge_bytes = sum_fields(vgg19_train[0], edge_bytes_fields)
+
+
             f.write('Bytes/edge,{:.1f},{:.1f},{:.1f}\n'.format(
                     alexnet_edge_bytes/alexnet_train[0]['Number of edges'],
                     resnet34_edge_bytes/resnet34_train[0]['Number of edges'],
                     resnet50_edge_bytes/resnet50_train[0]['Number of edges'],
+                    vgg16_edge_bytes/vgg16_train[0]['Number of edges'],
+                    vgg19_edge_bytes/vgg19_train[0]['Number of edges'],
                    ))
 
 
@@ -526,16 +722,31 @@ def create_report(runs, filename, param_info, arch_explore, training):
             resnet50_cycles = get_total_cycles(resnet50_train[0])
             resnet50_compute_ratio = \
               resnet50_train[0]['Compute cycles'] / resnet50_cycles
+            vgg16_cycles = get_total_cycles(vgg16_train[0])
+            vgg16_compute_ratio = \
+              vgg16_train[0]['Compute cycles'] / vgg16_cycles
+            vgg19_cycles = get_total_cycles(vgg19_train[0])
+            vgg19_compute_ratio = \
+              vgg19_train[0]['Compute cycles'] / vgg19_cycles              
+
 
             alexnet_flops = alexnet_train[0]['FLOPS']
             resnet34_flops = resnet34_train[0]['FLOPS']
             resnet50_flops = resnet50_train[0]['FLOPS']
+            vgg16_flops = vgg16_train[0]['FLOPS']
+            vgg19_flops = vgg19_train[0]['FLOPS']
+
+
             alexnet_us_per_image = alexnet_cycles / CYCLES_PER_SEC * 1000000
             alexnet_gflops_per_sec = alexnet_flops / alexnet_us_per_image / 1000
             resnet34_us_per_image = resnet34_cycles / CYCLES_PER_SEC * 1000000
             resnet34_gflops_per_sec = resnet34_flops / resnet34_us_per_image / 1000
             resnet50_us_per_image = resnet50_cycles / CYCLES_PER_SEC * 1000000
             resnet50_gflops_per_sec = resnet50_flops / resnet50_us_per_image / 1000
+            vgg16_us_per_image = vgg16_cycles / CYCLES_PER_SEC * 1000000
+            vgg16_gflops_per_sec = vgg16_flops / vgg16_us_per_image / 1000
+            vgg19_us_per_image = vgg19_cycles / CYCLES_PER_SEC * 1000000
+            vgg19_gflops_per_sec = vgg19_flops / vgg19_us_per_image / 1000
 
             alexnet_vertex_ratio =  alexnet_train[0]['Perfect cycles'] / \
                                     alexnet_train[0]['Compute cycles']
@@ -543,30 +754,46 @@ def create_report(runs, filename, param_info, arch_explore, training):
                                     resnet34_train[0]['Compute cycles']
             resnet50_vertex_ratio = resnet50_train[0]['Perfect cycles'] / \
                                     resnet50_train[0]['Compute cycles']
+            vgg16_vertex_ratio = vgg16_train[0]['Perfect cycles'] / \
+                                 vgg16_train[0]['Compute cycles']
+            vgg19_vertex_ratio = vgg19_train[0]['Perfect cycles'] / \
+                                 vgg19_train[0]['Compute cycles']
+
 
             alexnet_ratio = alexnet_train[0]['Perfect cycles'] / alexnet_cycles
             resnet34_ratio = resnet34_train[0]['Perfect cycles'] / resnet34_cycles
             resnet50_ratio = resnet50_train[0]['Perfect cycles'] / resnet50_cycles
+            vgg16_ratio = vgg16_train[0]['Perfect cycles'] / vgg16_cycles
+            vgg19_ratio = vgg19_train[0]['Perfect cycles'] / vgg19_cycles
 
-            f.write(', Alexnet, ResNet34, ResNet50\n')
+
+            f.write(', Alexnet, ResNet34, ResNet50, VGG16, VGG19\n')
             f.write('Effective GFLOP/s,{:.0f},{:.0f},{:.0f}\n'.format(
                     alexnet_gflops_per_sec,
                     resnet34_gflops_per_sec,
-                    resnet50_gflops_per_sec))
+                    resnet50_gflops_per_sec,
+                    vgg16_gflops_per_sec,
+                    vgg19_gflops_per_sec))
 
             f.write(',,,\n')
             f.write('Compute ratio,{:.2f},{:.2f},{:.2f}\n'.format(
                     alexnet_compute_ratio,
                     resnet34_compute_ratio,
-                    resnet50_compute_ratio))
+                    resnet50_compute_ratio,
+                    vgg16_compute_ratio,
+                    vgg19_compute_ratio))
             f.write('Vertex overhead ratio,{:.2f},{:.2f},{:.2f}\n'.format(
                     alexnet_vertex_ratio,
                     resnet34_vertex_ratio,
-                    resnet50_vertex_ratio))
+                    resnet50_vertex_ratio,
+                    vgg16_vertex_ratio,
+                    vgg19_vertex_ratio))
             f.write('Overall ratio,{:.2f},{:.2f},{:.2f}\n'.format(
                     alexnet_ratio,
                     resnet34_ratio,
-                    resnet50_ratio))
+                    resnet50_ratio,
+                    vgg16_ratio,
+                    vgg19_ratio))
 
             f.write('\n\nRESNET50 AGGREGATED LAYER BREAKDOWN\n\n')
 

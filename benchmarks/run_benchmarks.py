@@ -353,11 +353,15 @@ def main():
     xlarge_tile_opts = '--tiles-per-ipu=304 --ipu-exchange-bandwidth=16 --bytes-per-tile=1048576 --data-path-width=256'
     benchmarks = ['alexnet --ipus={1,2}',
                   'resnet34',
-                  'resnet50']
+                  'resnet50',
+                  'vgg16',
+                  'vgg19']
 
     training_benchmarks = ['alexnet --train=1',
                            'resnet34 --train=1',
-                           'resnet50 --train=1']
+                           'resnet50 --train=1',
+                           'vgg16 --train=1',
+                           'vgg19 --train=1']
 
     arch_explore_benchmarks = ['alexnet ' + large_tile_opts,
                                'alexnet ' + xlarge_tile_opts,
@@ -365,41 +369,64 @@ def main():
                                'resnet34 ' + xlarge_tile_opts,
                                'resnet50 ' + large_tile_opts,
                                'resnet50 ' + xlarge_tile_opts,
+                               'vgg16 ' + large_tile_opts,
+                               'vgg19 ' + xlarge_tile_opts,
                                'alexnet --ipu-exchange-bandwidth=8',
                                'resnet34 --ipu-exchange-bandwidth=8',
                                'resnet50 --ipu-exchange-bandwidth=8',
+                               'vgg16 --ipu-exchange-bandwidth=8',   
+                               'vgg19 --ipu-exchange-bandwidth=8',                           
                                'alexnet --ipu-exchange-bandwidth=16',
                                'resnet34 --ipu-exchange-bandwidth=16',
                                'resnet50 --ipu-exchange-bandwidth=16',
+                               'vgg16 --ipu-exchange-bandwidth=16',   
+                               'vgg19 --ipu-exchange-bandwidth=16',  
                                'alexnet --ipu-exchange-bandwidth=8 --tiles-per-ipu=1024',
                                'resnet34 --ipu-exchange-bandwidth=8 --tiles-per-ipu=1024',
                                'resnet50 --ipu-exchange-bandwidth=8 --tiles-per-ipu=1024',
+                               'vgg16 --ipu-exchange-bandwidth=8 --tiles-per-ipu=1024',
+                               'vgg19 --ipu-exchange-bandwidth=8 --tiles-per-ipu=1024',                               
                                'alexnet --ipu-exchange-bandwidth=16 --tiles-per-ipu=1024',
                                'resnet34 --ipu-exchange-bandwidth=16 --tiles-per-ipu=1024',
                                'resnet50 --ipu-exchange-bandwidth=16 --tiles-per-ipu=1024'
-
+                               'vgg16 --ipu-exchange-bandwidth=16 --tiles-per-ipu=1024',
+                               'vgg19 --ipu-exchange-bandwidth=16 --tiles-per-ipu=1024'
     ]
 
     batch_benchmarks = ['alexnet --batch-size=1',
                         'resnet34 --batch-size=1',
                         'resnet50 --batch-size=1',
+                        'vgg16 --batch-size=1',
+                        'vgg19 --batch-size=1',                        
                         'alexnet --batch-size=2',
                         'resnet34 --batch-size=2',
                         'resnet50 --batch-size=2',
+                        'vgg16 --batch-size=2',
+                        'vgg19 --batch-size=2',
                         'alexnet --batch-size=4',
                         'resnet34 --batch-size=4',
                         'resnet50 --batch-size=4',
+                        'vgg16 --batch-size=4',
+                        'vgg19 --batch-size=4',
                         'alexnet --batch-size=8',
                         'resnet34 --batch-size=8',
                         'resnet50 --batch-size=8',
+                        'vgg16 --batch-size=8',
+                        #'vgg19 --batch-size=8',    # too big, process gets killed                   
                         'alexnet --batch-size=16',
                         'resnet34 --batch-size=16',
                         'resnet50 --batch-size=16',
+                        #'vgg16 --batch-size=16',  # too big, process gets killed   
+                        #'vgg19 --batch-size=16',  # too big, process gets killed   
                         #'alexnet --batch-size=32', # this is too big, it takes >1hour to generate
                         'resnet34 --batch-size=32',
                         'resnet50 --batch-size=32',
+                        #'vgg16 --batch-size=32', # too big, process gets killed   
+                        #'vgg19 --batch-size=32', # too big, process gets killed                          
                         'resnet34 --batch-size=64',
                         #'resnet50 --batch-size=64' # this is too big, it causes a std::bad_alloc
+                        #'vgg16 --batch-size=64', # too big, process gets killed   
+                        #'vgg19 --batch-size=64', # too big, process gets killed   
     ]
 
     parser = argparse.ArgumentParser(description='Run neural net benchmarks')
@@ -423,6 +450,8 @@ def main():
     if args.test_reuse:
         benchmarks.append['resnet34 --graph-reuse=0']
         benchmarks.append['resnet50 --graph-reuse=0']
+        benchmarks.append['vgg16 --graph-reuse=0']
+        benchmarks.append['vgg19 --graph-reuse=0']        
 
     if args.arch_explore:
         benchmarks += arch_explore_benchmarks
