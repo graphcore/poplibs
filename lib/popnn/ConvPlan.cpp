@@ -323,7 +323,7 @@ getMaxInputRangeSize(unsigned outputRangeSize, unsigned stride,
     {
       auto inputRange = getInputRange({0, outputRangeSize}, stride,
                                       kernelSize, padding,
-                                      inputSize, !isFractional);
+                                      inputSize, isFractional);
       inputRangeSize = inputRange.second - inputRange.first;
     }
     break;
