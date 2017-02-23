@@ -957,7 +957,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   for (unsigned i = 0; i < layers.size(); ++i) {
     const auto *layer = layers[i].get();
     std::cout << "-- Layer " << i << "\n";
-    const std::string layerPrefix = "Layer" + std::to_string(i);
+    const std::string layerPrefix = "Layer" + std::to_string(i) + "/Fwd";
     outputDescription(layer, i, acts[i], netType == TestOnlyNet || i == 0);
     if (const auto *fc = dynamic_cast<const FullyConnectedLayer *>(layer)) {
       const auto prevSize = acts[i][0].numElements();

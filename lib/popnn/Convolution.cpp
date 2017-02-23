@@ -1346,6 +1346,15 @@ convolutionByAmp(Graph &graph, const Plan &plan, unsigned strideY,
   return {prog, reduced};
 }
 
+std::string convSuffix(unsigned kernelSizeY, unsigned kernelSizeX,
+                       unsigned strideY, unsigned strideX,
+                       bool isFractional) {
+  return "_" +
+         std::to_string(kernelSizeX) + "x" + std::to_string(kernelSizeY) +
+         (isFractional ? "_fractional_stride" : "_stride") +
+         std::to_string(strideX) + "x" + std::to_string(strideY);
+}
+
 Program
 convolution(Graph &graph,
             const Plan &plan,
@@ -1360,11 +1369,8 @@ convolution(Graph &graph,
   const auto kernelSizeX = weights.dim(3);
   const auto dType = graph.getTensorElementType(in);
   const auto layerName =
-      debugPrefix + "/Conv"
-                  + std::to_string(kernelSizeX)
-                  + "x" + std::to_string(kernelSizeY)
-                  + "_stride" + std::to_string(strideX) + "x"
-                  + std::to_string(strideY);
+      debugPrefix + "/Conv" + convSuffix(kernelSizeY, kernelSizeX, strideY,
+                                         strideX, isFractional);
   const auto outDimY = activations.dim(2);
   const auto outDimX = activations.dim(3);
   unsigned partialOutDimY, partialOutDimX;
@@ -2498,7 +2504,7 @@ convolutionWeightUpdateAop(Graph &graph,
                            unsigned strideY, unsigned strideX,
                            unsigned paddingY, unsigned paddingX,
                            float learningRate,
-                           const std::string &debugPrefix = "") {
+                           const std::string &layerName) {
   if (plan.flattenXY) {
     zDeltas = zDeltas.reshape(
         {zDeltas.dim(0), zDeltas.dim(1), 1,
@@ -2515,9 +2521,6 @@ convolutionWeightUpdateAop(Graph &graph,
   const auto kernelSizeX = weights.dim(3);
   const auto batchSize = activations.dim(0);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto layerName = debugPrefix +
-      "/Conv" + std::to_string(kernelSizeX) + "x" + std::to_string(kernelSizeY)
-             + "WeightUpdateAop";
   const auto outNumChanGroups = weights.dim(0);
   const auto inNumChanGroups = weights.dim(1);
   const auto outChansPerGroup = weights.dim(4);
@@ -2703,16 +2706,9 @@ convolutionWeightUpdateAmp(Graph &graph,
                            unsigned strideY, unsigned strideX,
                            unsigned paddingY, unsigned paddingX,
                            float learningRate,
-                           const std::string &debugPrefix = "") {
+                           const std::string &layerName) {
   const auto kernelSizeY = weights.dim(2);
   const auto kernelSizeX = weights.dim(3);
-  const auto layerName =
-      debugPrefix
-              + "/Conv"
-              + std::to_string(kernelSizeX) + "x" + std::to_string(kernelSizeY)
-              + "_stride"
-              + std::to_string(strideX) + "x" + std::to_string(strideY)
-              + "/WeightUpdate";
   // We can calculate weight deltas using the AMP instruction where we
   // accumulate over the field in contrast to forward pass where we accumulate
   // over input channels. Let w be the number of weights per convolutional unit.
@@ -2920,17 +2916,24 @@ convolutionWeightUpdate(Graph &graph,
                         unsigned strideY, unsigned strideX,
                         unsigned paddingY, unsigned paddingX,
                         float learningRate, const std::string &debugPrefix) {
+  const auto kernelSizeY = weights.dim(2);
+  const auto kernelSizeX = weights.dim(3);
+  const auto layerName = debugPrefix
+                         + "/ConvWeightUpdate"
+                         + convSuffix(kernelSizeY, kernelSizeX, strideY,
+                                      strideX, false)
+                         + (plan.useConvolutionInstructions ? "_amp" : "_aop");
   if (plan.useConvolutionInstructions) {
     return convolutionWeightUpdateAmp(graph, plan, fwdPlan, zDeltas,
                                       weights, biases, activations,
                                       strideY, strideX,
                                       paddingY, paddingX, learningRate,
-                                      debugPrefix);
+                                      layerName);
   }
   return convolutionWeightUpdateAop(graph, plan, fwdPlan, zDeltas, weights,
                                     biases, activations, strideY, strideX,
                                     paddingY, paddingX, learningRate,
-                                    debugPrefix);
+                                    layerName);
 }
 
 } // namespace conv
