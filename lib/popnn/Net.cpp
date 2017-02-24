@@ -748,7 +748,6 @@ Net::createConvLayerFwd(unsigned i,
                                  inNumChans, kernelSizeY, kernelSizeX,
                                  strideY, strideX, paddingY, paddingX,
                                  numChannels, netType == TestOnlyNet || i == 0);
-  /* use empty string to ensure that layer graph can be reused */
   return doConv(*graph, plan, strideY, strideX, paddingY, paddingX, in, weights,
                 biases, acts[i + 1], partialsType, false, false, 4,
                 debugPrefix);
@@ -801,7 +800,7 @@ Program Net::createConvLayerBwd(unsigned i,
     conv::mapBiases(biases, *graph, deltas[i]);
 
     prog.add(convBwdWeights(*graph, bwdPlan, fwdPlan, weights, deltas[i],
-                            bwdWeights, biases, ""));
+                            bwdWeights, biases, debugPrefix));
     // Perform convolution
     /* use empty string to ensure that layer graph can be reused */
     prog.add(doConv(*graph, bwdPlan, strideY, strideX,
@@ -812,7 +811,6 @@ Program Net::createConvLayerBwd(unsigned i,
   // TODO move before backward pass to reduce live range of the deltas.
   auto wuPlan = getWuConvPlan(i, prevDimY, prevDimX, prevNumChans,
                               acts[i].dim(4), zDeltas.dim(4), weights.dim(4));
-  /* use empty string to ensure that layer graph can be reused */
   prog.add(convWU(*graph, wuPlan, fwdPlan, zDeltas, weights, biases, acts[i],
                   strideY, strideX, paddingY, paddingX, eta, debugPrefix));
   return prog;
