@@ -1794,4 +1794,28 @@ extern Program winogradConvolution(Graph &graph,
   return prog;
 }
 
+
+poplar::program::Program winogradConvolution(poplar::Graph &graph,
+            unsigned strideY, unsigned strideX,
+            unsigned paddingY, unsigned paddingX,
+            poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
+            poplar::Tensor out,
+            const std::string &partialsType,
+            unsigned patchSizeX, unsigned patchSizeY,
+            const std::string &debugPrefix = "") {
+  Sequence prog;
+  const auto batchSize = in.dim(0);
+  const auto dType = graph.getTensorElementType(in);
+  // Perform each element of the batch serially
+  for (unsigned b = 0; b < batchSize; ++b) {
+    prog.add(winogradConvolution(graph, strideY, strideX, paddingY, paddingX,
+                                 in.dim(3), in.dim(2),
+                                 out.dim(1) * out.dim(4), patchSizeX,
+                                 patchSizeY, dType, partialsType,
+                                 in[b], weights, biases, out[b],
+                                 debugPrefix));
+  }
+  return prog;
+}
+
 } // namespace conv

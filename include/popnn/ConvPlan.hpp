@@ -20,6 +20,8 @@ std::istream &operator>>(std::istream &is, WeightUpdateMethod &method);
 class PlanControl {
 public:
   WeightUpdateMethod weightUpdateMethod = WeightUpdateMethod::AUTO;
+  bool useWinograd = false;
+  unsigned winogradPatchSize = 4;
 };
 
 struct Plan {
@@ -35,6 +37,8 @@ struct Plan {
   bool floatPartials;
   bool useConvolutionInstructions;
   bool flattenXY;
+  bool useWinograd = false;
+  unsigned winogradPatchSize;
 
   Plan() = default;
   Plan(unsigned tilesPerXAxis,

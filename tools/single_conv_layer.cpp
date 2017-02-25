@@ -46,8 +46,6 @@ int main(int argc, char **argv) {
   DeviceInfo info;
   info.IPUExchangeType =
       DeviceInfo::ExchangeType::BARE_NAKED_WITH_AGGRESSIVE_MULTICAST;
-  bool useWinogradConv;
-  unsigned winogradPatchSize;
 
   /* these are used when the same value is shared across both height and width*/
   unsigned kernelSize;
@@ -116,10 +114,11 @@ int main(int argc, char **argv) {
     ("batch-size",
      po::value<unsigned>(&batchSize)->default_value(1),
      "Batch size")
-    ("use-winograd-conv", po::value<bool>(&useWinogradConv)->default_value(0),
+    ("use-winograd-conv",
+     po::value<bool>(&convPlanControl.useWinograd)->default_value(0),
      "Use winograd convolution")
     ("winograd-patch-size",
-      po::value<unsigned>(&winogradPatchSize)->default_value(4),
+      po::value<unsigned>(&convPlanControl.winogradPatchSize)->default_value(4),
      "Square patch size to use in winograd convolution")
     ("percent-cyc-excess-for-mem-optim",
      po::value<unsigned>(
@@ -321,8 +320,7 @@ int main(int argc, char **argv) {
                       strideH, strideW,
                       paddingHeight, paddingWidth,
                       prevAct, weights, biases, nextAct,
-                      partialsTypeStr, false,
-                      useWinogradConv, winogradPatchSize));
+                      partialsTypeStr, false));
 
   auto bwdProg = Sequence();
   const auto learningRate = 0.5;

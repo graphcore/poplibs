@@ -82,9 +82,7 @@ convolution(poplar::Graph &graph, const Plan &plan,
             unsigned paddingY, unsigned paddingX,
             poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
             poplar::Tensor out, const std::string &partialsType,
-            bool isFractional, bool useWinogradConv = false,
-            unsigned winogradPatchSize = 4,
-            const std::string &debugPrefix = "");
+            bool isFractional, const std::string &debugPrefix = "");
 
 void mapWeights(poplar::Tensor w, poplar::Graph &graph, const Plan &plan,
                 unsigned batchSize);
@@ -116,17 +114,6 @@ convolutionWeightUpdate(poplar::Graph &graph,
                         unsigned strideY, unsigned strideX, unsigned paddingY,
                         unsigned paddingX, float learningRate,
                         const std::string &debugPrefix = "");
-
-extern poplar::program::Program winogradConvolution(poplar::Graph &graph,
-            unsigned strideY, unsigned strideX,
-            unsigned paddingY, unsigned paddingX,
-            unsigned xDim, unsigned yDim,
-            unsigned outNumChans, unsigned patchSizeX, unsigned patchSizeY,
-            const std::string &dType,
-            const std::string &partialsType,
-            poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
-            poplar::Tensor activations,
-            const std::string &debugPrefix = "");
 
 }
 #endif  // __Convolution_hpp__

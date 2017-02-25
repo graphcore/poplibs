@@ -13,6 +13,7 @@
 #include "popnn/exceptions.hpp"
 #include "Cast.hpp"
 #include "Util.hpp"
+#include "Winograd.hpp"
 #include "Zero.hpp"
 #include <unordered_set>
 
@@ -1407,8 +1408,17 @@ convolution(Graph &graph,
             unsigned paddingY, unsigned paddingX,
             Tensor in, Tensor weights, Tensor biases, Tensor activations,
             const std::string &partialsType, bool isFractional,
-            bool useWinogradConv, unsigned winogradPatchSize,
             const std::string &debugPrefix) {
+  if (plan.useWinograd) {
+    return winogradConvolution(graph, strideY, strideX,
+                               paddingY, paddingX,
+                               in, weights, biases, activations,
+                               partialsType,
+                               plan.winogradPatchSize, plan.winogradPatchSize,
+                               debugPrefix);
+  }
+
+
   assert(plan.getPartialType() == partialsType);
   const auto kernelSizeY = weights.dim(2);
   const auto kernelSizeX = weights.dim(3);
@@ -1448,61 +1458,33 @@ convolution(Graph &graph,
   const auto outNumChans = activations.dim(1) * activations.dim(4);
   mapBiases(biases, graph, activations);
 
-  auto forwardProg = Sequence();
-
-  if (useWinogradConv
-      && winogradPatchSize == 4
-      && strideY == 1 && strideX == 1
-      && kernelSizeY == 3 && kernelSizeX == 3
-      && !plan.flattenXY
-      && !plan.tilesPerKernelYAxis
-      && (weights.dim(4) % 4 == 0)
-      && (activations.dim(4) % 4 == 0)) {
-
-
-    // Perform each element of the batch serially
-    for (unsigned b = 0; b < batchSize; ++b) {
-      forwardProg.add(winogradConvolution(
-          graph, strideY, strideX,
-          paddingY, paddingX,
-          in.dim(3), in.dim(2), outNumChans,
-          winogradPatchSize, winogradPatchSize,
-          dType, partialsType, in[b],
-          weights, biases,
-          activations[b],
-          debugPrefix));
-    }
-    return forwardProg;
-  } else {
-    Program convolveProg;
-    Tensor postConvolve;
-    std::tie(convolveProg, postConvolve) =
-        convolutionByAmp(graph, plan, strideY, strideX, paddingY, paddingX,
-                         in, weights, partialOutDimY, partialOutDimX,
-                         isFractional, layerName);
-    if (plan.flattenXY) {
-      postConvolve = postConvolve.dimShuffle({1, 0, 2, 3, 4})
-                       .reshape({postConvolve.dim(1),
-                                 batchSize,
-                                 outDimY,
-                                 outDimX,
-                                 postConvolve.dim(4)})
-                       .dimShuffle({1, 0, 2, 3, 4});
-    }
-    ComputeSet completeCS = graph.addComputeSet(layerName + "/Complete");
-    for (unsigned b = 0; b < batchSize; ++b) {
-      auto activationsMapping = computeActivationsMapping(graph,
-                                                          activations[b],
-                                                          b,
-                                                          batchSize);
-      // Add the bias and rearrange tensor to required output channel grouping.
-      complete(graph, plan, outNumChans, dType, postConvolve[b], biases,
-               activations[b],
-               activationsMapping, completeCS);
-    }
-    return Sequence(convolveProg, Execute(completeCS));
+  Program convolveProg;
+  Tensor postConvolve;
+  std::tie(convolveProg, postConvolve) =
+    convolutionByAmp(graph, plan, strideY, strideX, paddingY, paddingX,
+                     in, weights, partialOutDimY, partialOutDimX,
+                     isFractional, layerName);
+  if (plan.flattenXY) {
+    postConvolve = postConvolve.dimShuffle({1, 0, 2, 3, 4})
+      .reshape({postConvolve.dim(1),
+            batchSize,
+            outDimY,
+            outDimX,
+            postConvolve.dim(4)})
+      .dimShuffle({1, 0, 2, 3, 4});
   }
-  return forwardProg;
+  ComputeSet completeCS = graph.addComputeSet(layerName + "/Complete");
+  for (unsigned b = 0; b < batchSize; ++b) {
+    auto activationsMapping = computeActivationsMapping(graph,
+                                                        activations[b],
+                                                        b,
+                                                        batchSize);
+    // Add the bias and rearrange tensor to required output channel grouping.
+    complete(graph, plan, outNumChans, dType, postConvolve[b], biases,
+             activations[b],
+             activationsMapping, completeCS);
+  }
+  return Sequence(convolveProg, Execute(completeCS));
 }
 
 static std::uint64_t getNumberOfMACs(unsigned outDimY, unsigned outDimX,
@@ -1823,7 +1805,7 @@ Program convolutionBackward(Graph &graph,
   // Perform a fractional convolution
   prog.add(convolution(graph, plan, strideY, strideX, paddingY, paddingX,
                        zDeltas, bwdWeights, biases, deltasOut, partialType,
-                       isFractional, false, 4, debugPrefix));
+                       isFractional, debugPrefix));
   return prog;
 }
 

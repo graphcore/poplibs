@@ -183,7 +183,6 @@ convolution(Graph &graph,
      unsigned strideY, unsigned strideX, unsigned paddingY, unsigned paddingX,
      Tensor in, Tensor weights, Tensor biases, Tensor activations,
      const std::string &partialsType, bool isFractional,
-     bool useWinogradConv, unsigned winogradPatchSize,
      const std::string &debugPrefix) {
   const auto batchSize = activations.dim(0);
   mapActivations(graph, in);
@@ -192,8 +191,7 @@ convolution(Graph &graph,
   mapActivations(graph, activations);
   return conv::convolution(graph, plan, strideY, strideX, paddingY, paddingX,
                            in, weights, biases, activations, partialsType,
-                           isFractional, useWinogradConv, winogradPatchSize,
-                           debugPrefix);
+                           isFractional, debugPrefix);
 }
 
 static Program
@@ -239,8 +237,8 @@ convolutionWeightUpdate(poplar::Graph &graph,
 
 // Define structures containing tensor ops to pass between functions/methods.
 struct Net::ConvOp {
-  POPNN_TENSOR_OP_TYPE(convolution, 1, 14) op;
-  ConvOp(POPNN_TENSOR_OP_TYPE(convolution, 1, 14) op) :
+  POPNN_TENSOR_OP_TYPE(convolution, 1, 12) op;
+  ConvOp(POPNN_TENSOR_OP_TYPE(convolution, 1, 12) op) :
     op(std::move(op)) {}
   template<typename ...Args>
   Program operator()(Args&&... args) {
@@ -794,8 +792,7 @@ Net::createConvLayerFwd(unsigned i,
                                     numChannels);
 
   return doConv(*graph, plan, strideY, strideX, paddingY, paddingX, in, weights,
-                biases, acts[i + 1], partialsType, false, false, 4,
-                debugPrefix);
+                biases, acts[i + 1], partialsType, false, debugPrefix);
 }
 
 Program Net::createConvLayerBwd(unsigned i,
@@ -860,7 +857,7 @@ Program Net::createConvLayerBwd(unsigned i,
       prog.add(doConv(*graph, bwdPlan, strideY, strideX,
                       bwdPaddingY, bwdPaddingX, zDeltas, bwdWeights,
                       biases, deltas[i], bwdPlan.getPartialType(),
-                      isFractional, false, 4, debugPrefix));
+                      isFractional, debugPrefix));
     }
   }
   if (!options.skipWU) {
@@ -975,7 +972,7 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   }
   std::cerr << "Constructing program\n";
   ConvOp convOp =
-      createTensorOp<1, 14>(
+      createTensorOp<1, 12>(
         *graph, convolution, "conv",
         {{TensorOpParamType::InputTensor},
          {TensorOpParamType::InputTensor},

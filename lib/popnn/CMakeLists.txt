@@ -30,6 +30,7 @@ add_library(popnn SHARED
   Util.hpp
   VertexTemplates.hpp
   Winograd.cpp
+  Winograd.hpp
   Zero.cpp
   Zero.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/ActivationMapping.hpp

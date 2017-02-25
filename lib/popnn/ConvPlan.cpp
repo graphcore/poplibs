@@ -1359,6 +1359,19 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
   Cost cost;
   CostBounds costBounds(0, 0);
 
+  if (planControl.useWinograd) {
+    if (planControl.winogradPatchSize != 4 ||
+        strideY != 1 || strideX != 1 ||
+        kernelSizeY != 3 || kernelSizeX != 3) {
+      throw popnn::popnn_error("Attempt to force winograd convolution for "
+                               "invalid parameters");
+
+    }
+    plan.useWinograd = true;
+    plan.winogradPatchSize = planControl.winogradPatchSize;
+    return plan;
+  }
+
   std::tie(plan, cost) = conv::createPlan(inDimY, inDimX, inNumChans, 0, 0, 0,
                                           kernelSizeY, kernelSizeX,
                                           strideY, strideX, paddingY, paddingX,

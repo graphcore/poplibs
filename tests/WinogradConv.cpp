@@ -5,7 +5,7 @@
 #include <popnn/Net.hpp>
 #include <string>
 #include <random>
-
+#include <Winograd.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -223,11 +223,8 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
 
   auto wgdConv = conv::winogradConvolution(
            graph, 1, 1, paddingY,
-           paddingX, featureY,
-           featureX, numOutChanGroups*numOutChansInGroup,
-           patchSizeX, patchSizeY,
-           "float", "float", in[0], weights, biases,
-           activations[0]);
+           paddingX, in, weights, biases, activations, "float",
+           patchSizeX, patchSizeY);
 
   auto prog = Sequence(Copy(&inBuffer[0], in),
                        Copy(&weightsBuffer[0], weights),
