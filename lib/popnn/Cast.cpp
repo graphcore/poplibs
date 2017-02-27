@@ -19,6 +19,7 @@ cast(Graph &graph, Tensor src, Tensor dst, const std::string &debugPrefix) {
   return Execute(cs);
 }
 
+#ifndef NDEBUG
 static bool
 mappingIsComplete(const Tensor &t,
                   const std::vector<
@@ -32,6 +33,7 @@ mappingIsComplete(const Tensor &t,
   }
   return mappedElements == t.numElements();
 }
+#endif
 
 void
 cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {

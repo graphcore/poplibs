@@ -5,6 +5,7 @@
 #include "ConvUtil.hpp"
 #include "ConvValidation.hpp"
 #include "PerformanceEstimation.hpp"
+#include "popnn/Compiler.hpp"
 #include <map>
 #include <tuple>
 #include <iostream>
@@ -17,6 +18,7 @@ const char *conv::asString(const WeightUpdateMethod &method) {
   case WeightUpdateMethod::AMP: return "amp";
   case WeightUpdateMethod::AUTO: return "auto";
   }
+  POPNN_UNREACHABLE();
 }
 
 std::ostream &conv::
