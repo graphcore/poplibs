@@ -218,15 +218,13 @@ int main(int argc, char **argv) {
     bwdPaddingWidth = kernelWidth - 1 - paddingWidth;
     bwdPaddingHeight = kernelHeight - 1 - paddingHeight;
   }
-  conv::Plan bwdPlan;
-  if (!inferenceOnly)
-    bwdPlan = planner.createPlan(outHeight, outWidth, fwdOutChans,
-                                 kernelHeight, kernelWidth,
-                                 strideH, strideW,
-                                 bwdPaddingHeight, bwdPaddingWidth,
-                                 fwdInChans, batchSize,
-                                 dataTypeStr, partialsTypeStr,
-                                 bwdIsFractional, graph, convPlanControl);
+  auto bwdPlan = planner.createPlan(outHeight, outWidth, fwdOutChans,
+                                    kernelHeight, kernelWidth,
+                                    strideH, strideW,
+                                    bwdPaddingHeight, bwdPaddingWidth,
+                                    fwdInChans, batchSize,
+                                    dataTypeStr, partialsTypeStr,
+                                    bwdIsFractional, graph, convPlanControl);
   auto fwdInChansPerGroup = fwdPlan.inChansPerGroup;
   // If the output grouping is unspecified, assume the output uses the same
   // grouping as the input unless that is impossible.
@@ -237,26 +235,23 @@ int main(int argc, char **argv) {
   }
   const auto bwdInChans = fwdOutChans;
   const auto bwdOutChans = fwdInChans;
-  unsigned bwdInChansPerGroup;
+  auto bwdInChansPerGroup = bwdPlan.inChansPerGroup;
   if (!inferenceOnly &&
       !vm.count("bwd-out-chans-per-group")) {
-    bwdInChansPerGroup = bwdPlan.inChansPerGroup;
     bwdOutChansPerGroup = (bwdOutChans % bwdInChansPerGroup == 0) ?
                           bwdInChansPerGroup :
                           bwdPlan.partialChansPerGroup;
   }
-  conv::Plan wuPlan;
-  if (!inferenceOnly)
-    wuPlan = planner.createWeightUpdatePlan(height, width, fwdInChans,
-                                            fwdInChansPerGroup,
-                                            bwdInChansPerGroup,
-                                            fwdPlan.partialChansPerGroup,
-                                            kernelHeight, kernelWidth,
-                                            strideH, strideW,
-                                            paddingHeight, paddingWidth,
-                                            fwdOutChans, batchSize,
-                                            dataTypeStr, partialsTypeStr,
-                                             false, graph, convPlanControl);
+  auto wuPlan = planner.createWeightUpdatePlan(height, width, fwdInChans,
+                                               fwdInChansPerGroup,
+                                               bwdInChansPerGroup,
+                                               fwdPlan.partialChansPerGroup,
+                                               kernelHeight, kernelWidth,
+                                               strideH, strideW,
+                                               paddingHeight, paddingWidth,
+                                               fwdOutChans, batchSize,
+                                               dataTypeStr, partialsTypeStr,
+                                               false, graph, convPlanControl);
 
   // Create tensors.
   Tensor prevAct = graph.addTensor(dataTypeStr,
