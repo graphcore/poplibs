@@ -34,13 +34,32 @@ getOutputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
                std::pair<unsigned, unsigned> kernelIndexRange,
                bool isFractional);
 
-/// Return the input range that is associate with
+/// Return the input range that is associated with
 /// the specified kernel index when calculating the specified output range.
 std::pair<unsigned, unsigned>
 getInputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
               unsigned kernelSize, unsigned padding,
               unsigned inputSize, unsigned kernelIndex,
               bool isFractional);
+
+/// Return the input range that is associated with the specified kernel index
+/// range when calculating the specified output range.
+std::pair<unsigned, unsigned>
+getInputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
+              unsigned kernelSize, unsigned padding,
+              unsigned inputSize,
+              std::pair<unsigned, unsigned> kernelIndexRange,
+              bool isFractional);
+
+inline std::pair<unsigned, unsigned>
+getInputRange(unsigned outputIndex, unsigned stride,
+              unsigned kernelSize, unsigned padding,
+              unsigned inputSize,
+              std::pair<unsigned, unsigned> kernelIndexRange,
+              bool isFractional) {
+  return getInputRange({outputIndex, outputIndex + 1}, stride, kernelSize,
+                       padding, inputSize, kernelIndexRange, isFractional);
+}
 
 std::pair<unsigned, unsigned>
 getInputRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,

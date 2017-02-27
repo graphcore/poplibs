@@ -27,6 +27,7 @@ struct Plan {
   unsigned tilesPerYAxis;
   unsigned tilesPerZAxis;
   unsigned verticesPerTilePerYAxis;
+  unsigned tilesPerKernelYAxis;
   unsigned tilesPerInZGroupAxis;
   unsigned inChansPerGroup;
   unsigned partialChansPerGroup;
@@ -40,6 +41,7 @@ struct Plan {
        unsigned tilesPerYAxis,
        unsigned tilesPerZAxis,
        unsigned verticesPerTilePerYAxis,
+       unsigned tilesPerKernelYAxis,
        unsigned tilesPerInZGroupAxis,
        unsigned inChansPerGroup,
        unsigned partialChansPerGroup,
@@ -50,6 +52,7 @@ struct Plan {
     tilesPerYAxis(tilesPerYAxis),
     tilesPerZAxis(tilesPerZAxis),
     verticesPerTilePerYAxis(verticesPerTilePerYAxis),
+    tilesPerKernelYAxis(tilesPerKernelYAxis),
     tilesPerInZGroupAxis(tilesPerInZGroupAxis),
     inChansPerGroup(inChansPerGroup),
     partialChansPerGroup(partialChansPerGroup),

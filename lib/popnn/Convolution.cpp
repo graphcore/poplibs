@@ -92,14 +92,15 @@ createBiases(poplar::Graph &graph, std::string dType,
 static unsigned
 linearizeTileIndices(unsigned batchGroup, unsigned numBatchGroups,
                      unsigned numTiles,
-                     unsigned izg, unsigned ox, unsigned oy,
-                     unsigned ozg,
+                     unsigned ky, unsigned izg,
+                     unsigned ox, unsigned oy, unsigned ozg,
                      const Plan &plan,
                      bool isMultiIPU) {
   const auto tilesPerX = plan.tilesPerXAxis;
   const auto tilesPerY = plan.tilesPerYAxis;
   const auto tilesPerZ = plan.tilesPerZAxis;
   const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
+  const auto tilesPerKernelYAxis = plan.tilesPerKernelYAxis;
 
   unsigned beginTile;
   if (numBatchGroups <= numTiles) {
@@ -113,9 +114,10 @@ linearizeTileIndices(unsigned batchGroup, unsigned numBatchGroups,
   unsigned tile;
   if (isMultiIPU)
     tile = beginTile +
-      (izg + tilesPerInZGroup *
-        (ox + tilesPerX *
-          (oy + tilesPerY * ozg)));
+      (ky + tilesPerKernelYAxis *
+        (izg + tilesPerInZGroup *
+          (ox + tilesPerX *
+            (oy + tilesPerY * ozg))));
   // Use ozg as the innermost dimension to increase the chance that
   // tiles in a supertile both read the same activations. This reduces
   // exchange time when supertile send / receive is used.
@@ -123,7 +125,9 @@ linearizeTileIndices(unsigned batchGroup, unsigned numBatchGroups,
     tile = beginTile +
            (ozg + tilesPerZ *
              (ox + tilesPerX *
-               (oy + tilesPerY * izg)));
+               (oy + tilesPerY *
+                 (ky + tilesPerKernelYAxis *
+                   izg))));
   assert(tile < numTiles);
   return tile;
 }
@@ -141,20 +145,49 @@ getOutZGroupRange(unsigned ozgIndex, unsigned partialNumChanGroups,
   return {outZBegin, outZEnd};
 }
 
+unsigned getFlattenedIndex(const std::vector<std::size_t> &shape,
+                           const std::vector<std::size_t> &indices) {
+  const auto rank = shape.size();
+  assert(indices.size() == rank);
+  unsigned index = 0;
+  for (unsigned dim = 0; dim != rank; ++dim) {
+    assert(indices[dim] < shape[dim]);
+    index *= shape[dim];
+    index += indices[dim];
+  }
+  return index;
+}
+
+unsigned getFlattenedIndex(const Tensor &t,
+                           const std::vector<std::size_t> &indices) {
+  return getFlattenedIndex(t.shape(), indices);
+}
+
 static void
-addWeightRegions(std::vector<Interval<std::size_t>> &regions,
-                 const std::vector<std::size_t> &weightDims,
-                 unsigned outZGroupBegin, unsigned outZGroupEnd,
-                 unsigned inZGroupBegin, unsigned inZGroupEnd) {
-  for (unsigned ozg = outZGroupBegin; ozg != outZGroupEnd; ++ozg) {
-    const auto regionBegin =
-        weightDims[5] * weightDims[4] * weightDims[3] * weightDims[2] *
-        (inZGroupBegin + weightDims[1] * ozg);
-    const auto regionEnd =
-        regionBegin +
-        weightDims[5] * weightDims[4] * weightDims[3] * weightDims[2] *
-        (inZGroupEnd - inZGroupBegin);
+addFlattenedRegions(const std::vector<std::size_t> &shape,
+                    const std::vector<std::size_t> &begin,
+                    const std::vector<std::size_t> &end,
+                    std::vector<Interval<std::size_t>> &regions) {
+  const auto numDims = shape.size();
+  assert(begin.size() == numDims);
+  assert(end.size() == numDims);
+
+  std::vector<std::size_t> indices = begin;
+  bool done = false;
+  while (!done) {
+    unsigned regionBegin = getFlattenedIndex(shape, indices);
+    unsigned regionEnd = regionBegin + (end.back() - begin.back());
     regions.emplace_back(regionBegin, regionEnd);
+    done = true;
+    for (unsigned dim = 0; dim != numDims - 1; ++dim) {
+      if (indices[dim] + 1 == end[dim]) {
+        indices[dim] = begin[dim];
+      } else {
+        ++indices[dim];
+        done = false;
+        break;
+      }
+    }
   }
 }
 
@@ -167,8 +200,8 @@ calculateWeightMapping(Tensor w,
   const auto numBatchGroups = batchSize / plan.batchesPerGroup;
   const auto partialNumChanGroups = w.dim(0);
   const auto numInZGroups = w.dim(1);
-  const auto kernelSizeY = w.dim(2);
-  const auto kernelSizeX = w.dim(3);
+  const auto kernelDimY = w.dim(2);
+  const auto kernelDimX = w.dim(3);
   const auto partialChansPerGroup = w.dim(4);
   const auto inChansPerGroup = w.dim(5);
 
@@ -180,6 +213,7 @@ calculateWeightMapping(Tensor w,
   const auto tilesPerX = plan.tilesPerXAxis;
   const auto tilesPerY = plan.tilesPerYAxis;
   const auto tilesPerZ = plan.tilesPerZAxis;
+  const auto tilesPerKernelY = plan.tilesPerKernelYAxis;
   const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
   const auto numTiles = deviceInfo.getNumTiles();
   const auto weightType = graph.getTensorElementType(w);
@@ -194,46 +228,58 @@ calculateWeightMapping(Tensor w,
   for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
     const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
     const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
-    for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
-      unsigned outZGroupBegin, outZGroupEnd;
-      std::tie(outZGroupBegin, outZGroupEnd) =
-          getOutZGroupRange(ozg, partialNumChanGroups, plan);
-      // Group weights that are accessed contiguously by tiles within this
-      // loop body.
-      std::vector<Interval<std::size_t>> sharedWeights;
-      addWeightRegions(sharedWeights, w.shape(), outZGroupBegin, outZGroupEnd,
-                       inZGroupBegin, inZGroupEnd);
-      mergeAdjacentRegions(sharedWeights);
-      // Spread groups of weights equally across the tiles that read them.
-      std::vector<std::vector<Interval<std::size_t>>>
-          perTileWeights;
-      unsigned grainSize = partialChansPerGroup *
-                           inChansPerGroup;
-      if (plan.useConvolutionInstructions) {
-        if (kernelSizeY == 1 && kernelSizeX == 1) {
-          grainSize *= numInZGroups;
+    for (unsigned ky = 0; ky != tilesPerKernelY; ++ky) {
+      const auto kernelYBegin = (ky * kernelDimY) / tilesPerKernelY;
+      const auto kernelYEnd = ((ky + 1) * kernelDimY) / tilesPerKernelY;
+      for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
+        unsigned outZGroupBegin, outZGroupEnd;
+        std::tie(outZGroupBegin, outZGroupEnd) =
+            getOutZGroupRange(ozg, partialNumChanGroups, plan);
+        if (outZGroupBegin == outZGroupEnd)
+          continue;
+        // Group weights that are accessed contiguously by tiles within this
+        // loop body.
+        std::vector<Interval<std::size_t>> sharedWeights;
+        addFlattenedRegions(w.shape(),
+                            {outZGroupBegin, inZGroupBegin, kernelYBegin,
+                             0, 0, 0},
+                            {outZGroupEnd, inZGroupEnd, kernelYEnd,
+                             w.dim(3), w.dim(4), w.dim(5)},
+                            sharedWeights);
+        mergeAdjacentRegions(sharedWeights);
+        // Spread groups of weights equally across the tiles that read them.
+        std::vector<std::vector<Interval<std::size_t>>>
+            perTileWeights;
+        unsigned grainSize = partialChansPerGroup *
+                             inChansPerGroup;
+        if (plan.useConvolutionInstructions) {
+          if (kernelDimY == 1 && kernelDimX == 1) {
+            grainSize *= numInZGroups;
+          }
+        } else {
+          grainSize *= kernelDimX;
         }
-      } else {
-        grainSize *= kernelSizeX;
-      }
-      std::unordered_set<unsigned> tileSet;
-      for (unsigned b = 0; b != numBatchGroups; ++b) {
-        for (unsigned oy = 0; oy != tilesPerY; ++oy) {
-          for (unsigned ox = 0; ox != tilesPerX; ++ox) {
-            const auto tile = linearizeTileIndices(b, numBatchGroups, numTiles,
-                                                   izg, ox, oy, ozg,
-                                                   plan, isMultiIPU);
-            tileSet.insert(tile);
+        std::unordered_set<unsigned> tileSet;
+        for (unsigned b = 0; b != numBatchGroups; ++b) {
+          for (unsigned oy = 0; oy != tilesPerY; ++oy) {
+            for (unsigned ox = 0; ox != tilesPerX; ++ox) {
+              const auto tile = linearizeTileIndices(b, numBatchGroups,
+                                                     numTiles,
+                                                     ky, izg,
+                                                     ox, oy, ozg,
+                                                     plan, isMultiIPU);
+              tileSet.insert(tile);
+            }
           }
         }
-      }
-      std::vector<unsigned> tiles(tileSet.begin(), tileSet.end());
-      std::sort(tiles.begin(), tiles.end());
-      splitRegions(sharedWeights, perTileWeights,
-                   partialChansPerGroup * inChansPerGroup,
-                   tiles.size(), minElementsPerTile);
-      for (unsigned i = 0; i != perTileWeights.size(); ++i) {
-        mapping[tiles[i]] = perTileWeights[i];
+        std::vector<unsigned> tiles(tileSet.begin(), tileSet.end());
+        std::sort(tiles.begin(), tiles.end());
+        splitRegions(sharedWeights, perTileWeights,
+                     partialChansPerGroup * inChansPerGroup,
+                     tiles.size(), minElementsPerTile);
+        for (unsigned i = 0; i != perTileWeights.size(); ++i) {
+          mapping[tiles[i]] = perTileWeights[i];
+        }
       }
     }
   }
@@ -337,6 +383,7 @@ createConvPartial1x1OutVertex(Graph &graph,
                               unsigned outXBegin, unsigned outXEnd,
                               unsigned outYBegin, unsigned outYEnd,
                               unsigned ozg,
+                              unsigned kernelY,
                               unsigned inZGroupBegin, unsigned inZGroupEnd,
                               unsigned strideY,
                               unsigned strideX,
@@ -347,7 +394,6 @@ createConvPartial1x1OutVertex(Graph &graph,
                               const Tensor &out) {
   const auto kernelSizeY = weights.dim(2);
   const auto kernelSizeX = weights.dim(3);
-  assert(kernelSizeY == 1 && kernelSizeX == 1);
   const auto inDimY = in.dim(1);
   const auto inDimX = in.dim(2);
   const auto inChansPerGroup = static_cast<unsigned>(in.dim(3));
@@ -374,7 +420,7 @@ createConvPartial1x1OutVertex(Graph &graph,
   unsigned inYBegin, inYEnd, inXBegin, inXEnd;
   std::tie(inYBegin, inYEnd) =
       getInputRange({outYBegin, outYEnd}, strideY, kernelSizeY,
-                     paddingY, inDimY, false);
+                     paddingY, inDimY, kernelY, false);
   std::tie(inXBegin, inXEnd) =
       getInputRange({outXBegin, outXEnd}, strideX,
                      kernelSizeX, paddingX, inDimX, false);
@@ -454,6 +500,7 @@ createConvPartialnx1InOutVertex(Graph &graph,
                                 unsigned outXBegin, unsigned outXEnd,
                                 unsigned outYBegin, unsigned outYEnd,
                                 unsigned outZGroup,
+                                unsigned kernelYBegin, unsigned kernelYEnd,
                                 unsigned inZGroupBegin, unsigned inZGroupEnd,
                                 unsigned strideY, unsigned strideX,
                                 unsigned paddingY, unsigned paddingX,
@@ -481,23 +528,15 @@ createConvPartialnx1InOutVertex(Graph &graph,
                       = deviceInfo.convUnitCoeffLoadBytesPerCycle;
 
   const auto partialType = graph.getTensorElementType(out);
-  // Add the vertex.
-  auto v =
-      graph.addVertex(fwdCS,
-                      templateVertex("popnn::ConvPartialnx1InOut",
-                                     dType, partialType,
-                                     isFractional ? "true" : "false"));
-  graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-  graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
-  graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
-  graph.setInitialValue(v["convUnitCoeffLoadBytesPerCycle"],
-                        convUnitCoeffLoadBytesPerCycle);
-  graph.setTileMapping(v, tile);
+  // It is possible that there is no calculation to perform that involves
+  // the specified output slice and kernel weight slice. Instead of adding a
+  // vertex to the graph upfront add it lazily when we first need it.
+  VertexRef v;
   unsigned numWeights = 0;
   unsigned numConvolutions = 0;
-  for (unsigned wyBegin = 0; wyBegin < kernelSizeY;
+  for (unsigned wyBegin = kernelYBegin; wyBegin < kernelYEnd;
        wyBegin += convUnitWeightHeight) {
-    const auto wyEnd = std::min(static_cast<unsigned>(kernelSizeY),
+    const auto wyEnd = std::min(static_cast<unsigned>(kernelYEnd),
                                 wyBegin + convUnitWeightHeight);
     unsigned convOutYBegin, convOutYEnd;
     std::tie(convOutYBegin, convOutYEnd) =
@@ -516,7 +555,18 @@ createConvPartialnx1InOutVertex(Graph &graph,
       const auto convOutWidth = convOutXEnd - convOutXBegin;
       if (convOutWidth == 0)
         continue;
-
+      if (numConvolutions == 0) {
+        v = graph.addVertex(fwdCS,
+                            templateVertex("popnn::ConvPartialnx1InOut",
+                                           dType, partialType,
+                                           isFractional ? "true" : "false"));
+        graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
+        graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
+        graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
+        graph.setInitialValue(v["convUnitCoeffLoadBytesPerCycle"],
+                              convUnitCoeffLoadBytesPerCycle);
+        graph.setTileMapping(v, tile);
+      }
       // In a fractionally strided pass, if we are handling one row of the
       // kernel at a time, the partitioning of work across the workers can be
       // aware of the stride and only allocate work on the rows that get
@@ -595,6 +645,8 @@ createConvPartialnx1InOutVertex(Graph &graph,
       }
     }
   }
+  if (numConvolutions == 0)
+    return;
   graph.setFieldSize(v["in"], numConvolutions * convUnitWeightHeight);
   graph.setFieldSize(v["out"], numConvolutions);
   graph.setFieldSize(v["weights"], numWeights * convUnitWeightHeight);
@@ -608,6 +660,7 @@ createConvPartialDotProductVertex(Graph &graph,
                                   unsigned outXBegin, unsigned outXEnd,
                                   unsigned outYBegin, unsigned outYEnd,
                                   unsigned z,
+                                  unsigned kernelYBegin, unsigned kernelYEnd,
                                   unsigned inZGroupBegin, unsigned inZGroupEnd,
                                   unsigned strideY, unsigned strideX,
                                   unsigned paddingY, unsigned paddingX,
@@ -629,47 +682,58 @@ createConvPartialDotProductVertex(Graph &graph,
     assert(!"outChansPerGroup must be 1");
   assert(outYEnd - outYBegin == 1);
   const auto y = outYBegin;
-  unsigned inYBegin, inYEnd, inXBegin, inXEnd;
-  std::tie(inYBegin, inYEnd) =
-      getInputRange(y, strideY, kernelSizeY, paddingY, inDimY, false);
-  std::tie(inXBegin, inXEnd) =
-      getInputRange({outXBegin, outXEnd}, strideX, kernelSizeX,
-                    paddingX, inDimX, false);
-  // Window into previous layer.
-  const auto inWidth = inXEnd - inXBegin;
-  const auto inHeight = inYEnd - inYBegin;
-  // Weights that match the window.
-  unsigned weightYBegin, weightYEnd;
-  std::tie(weightYBegin, weightYEnd) =
-      getKernelRange(y, strideY, kernelSizeY, paddingY, inDimY, false);
-  Tensor inWindow =
-      in.slice(
-  {inZGroupBegin, inYBegin, inXBegin, 0},
-  {inZGroupEnd, inYEnd, inXEnd, inChansPerGroup}
-        ).reshape({inHeight * inZGroups,
-                   inWidth * inChansPerGroup});
-  Tensor w =
-      weights[z].slice(
-  {inZGroupBegin, weightYBegin, 0, 0, 0},
-  {inZGroupEnd, weightYEnd, kernelSizeX, 1, inChansPerGroup}
-        ).reshape({inHeight * inZGroups,
-                   inChansPerGroup * kernelSizeX});
   Tensor outWindow = out[z][y].slice(outXBegin, outXEnd).flatten();
-  // Add the vertex.
-  auto v = graph.addVertex(fwdCS,
-                           templateVertex("popnn::ConvPartial", dType,
-                                          partialType),
-  { {"in", inWindow },
-    {"weights", w },
-    {"out", outWindow },
-                           });
-  graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-  graph.setInitialValue(v["stride"], strideX);
-  graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
-  const auto inXBeginPaddedField = outXBegin * strideX;
-  unsigned vPadding =
-      inXBeginPaddedField < paddingX ? paddingX - inXBeginPaddedField : 0;
-  graph.setInitialValue(v["padding"], vPadding);
+  graph.setTileMapping(outWindow, tile);
+  // Weights used in the calculation.
+  auto kernelRange =
+      getKernelRange(y, strideY, kernelSizeY, paddingY, inDimY, false);
+  VertexRef v;
+  if (kernelRange.second <= kernelYBegin ||
+      kernelRange.first >= kernelYEnd) {
+    v = graph.addVertex(fwdCS, templateVertex("popnn::Zero", partialType));
+    graph.connect(v["out"], outWindow);
+    graph.setInitialValue(v["dataPathWidth"],
+                          graph.getDevice().getDeviceInfo().dataPathWidth);
+  } else {
+    kernelYBegin = std::max(kernelYBegin, kernelRange.first);
+    kernelYEnd = std::min(kernelYEnd, kernelRange.second);
+    // Window into previous layer.
+    unsigned inYBegin, inYEnd, inXBegin, inXEnd;
+    std::tie(inYBegin, inYEnd) =
+        getInputRange(y, strideY, kernelSizeY, paddingY, inDimY,
+                      {kernelYBegin, kernelYEnd}, false);
+    std::tie(inXBegin, inXEnd) =
+        getInputRange({outXBegin, outXEnd}, strideX, kernelSizeX,
+                      paddingX, inDimX, false);
+    const auto inWidth = inXEnd - inXBegin;
+    const auto inHeight = inYEnd - inYBegin;
+    Tensor inWindow =
+        in.slice(
+    {inZGroupBegin, inYBegin, inXBegin, 0},
+    {inZGroupEnd, inYEnd, inXEnd, inChansPerGroup}
+          ).reshape({inHeight * inZGroups,
+                     inWidth * inChansPerGroup});
+    Tensor w =
+        weights[z].slice(
+    {inZGroupBegin, kernelYBegin, 0, 0, 0},
+    {inZGroupEnd, kernelYEnd, kernelSizeX, 1, inChansPerGroup}
+          ).reshape({inHeight * inZGroups,
+                     inChansPerGroup * kernelSizeX});
+    // Add the vertex.
+    v = graph.addVertex(fwdCS, templateVertex("popnn::ConvPartial", dType,
+                                              partialType),
+                        {{"in", inWindow},
+                         {"weights", w},
+                         {"out", outWindow},
+                        });
+    graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
+    graph.setInitialValue(v["stride"], strideX);
+    graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
+    const auto inXBeginPaddedField = outXBegin * strideX;
+    unsigned vPadding =
+        inXBeginPaddedField < paddingX ? paddingX - inXBeginPaddedField : 0;
+    graph.setInitialValue(v["padding"], vPadding);
+  }
   // Map the vertex and output.
   graph.setTileMapping(v, tile);
   graph.setTileMapping(outWindow, tile);
@@ -708,6 +772,7 @@ calcPartialConvOutput(Graph &graph,
                       unsigned outXBegin, unsigned outXEnd,
                       unsigned outYBegin, unsigned outYEnd,
                       unsigned outZGroupBegin, unsigned outZGroupEnd,
+                      unsigned kernelYBegin, unsigned kernelYEnd,
                       unsigned inZGroupBegin, unsigned inZGroupEnd,
                       unsigned strideY, unsigned strideX, unsigned paddingY,
                       unsigned paddingX,
@@ -715,8 +780,9 @@ calcPartialConvOutput(Graph &graph,
                       ComputeSet fwdCS,
                       Tensor in, Tensor weights, Tensor out,
                       bool isFractional) {
-  const auto kernelSizeY = weights.dim(2);
+  const auto tileKernelHeight = kernelYEnd - kernelYBegin;
   const auto kernelSizeX = weights.dim(3);
+
   const auto inChansPerGroup = plan.inChansPerGroup;
   const auto outChansPerGroup = plan.partialChansPerGroup;
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
@@ -748,7 +814,7 @@ calcPartialConvOutput(Graph &graph,
       graph.setTileMapping(v, tile);
       graph.setTileMapping(zeros, tile);
     }
-    useConvPartial1x1OutVertex = kernelSizeX == 1 && kernelSizeY == 1 &&
+    useConvPartial1x1OutVertex = kernelSizeX == 1 && tileKernelHeight == 1 &&
                                  (!isFractional ||
                                     (strideX == 1 && strideY == 1));
     if (!useConvPartial1x1OutVertex) {
@@ -772,6 +838,7 @@ calcPartialConvOutput(Graph &graph,
                                       outXBegin, outXEnd,
                                       vertexOutYBegin, vertexOutYEnd,
                                       ozg,
+                                      kernelYBegin,
                                       inZGroupBegin, inZGroupEnd,
                                       strideY, strideX, paddingY, paddingX,
                                       fwdCS, in, weights, out);
@@ -779,19 +846,21 @@ calcPartialConvOutput(Graph &graph,
         createConvPartialnx1InOutVertex(graph, tile, outXBegin, outXEnd,
                                         vertexOutYBegin, vertexOutYEnd,
                                         ozg,
+                                        kernelYBegin, kernelYEnd,
                                         inZGroupBegin, inZGroupEnd,
                                         strideY, strideX, paddingY, paddingX,
                                         fwdCS, in, weights, out,
                                         zeros, isFractional);
       } else {
         if (isFractional)
-          throw popnn::popnn_error("Non convolution instruction based "
+          throw popnn::popnn_error("Non AMP instruction based "
                                    "fractional convolutions are not "
                                    "implemented");
         createConvPartialDotProductVertex(graph, plan, tile,
                                           outXBegin, outXEnd,
                                           vertexOutYBegin, vertexOutYEnd,
                                           ozg,
+                                          kernelYBegin, kernelYEnd,
                                           inZGroupBegin, inZGroupEnd,
                                           strideY, strideX,
                                           paddingY, paddingX,
@@ -849,8 +918,10 @@ calcPartialSums(Graph &graph,
   const auto tilesPerX = plan.tilesPerXAxis;
   const auto tilesPerY = plan.tilesPerYAxis;
   const auto tilesPerZ = plan.tilesPerZAxis;
+  const auto tilesPerKernelY = plan.tilesPerKernelYAxis;
   const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
   const auto numInZGroups = inNumChans / inChansPerGroup;
+  const auto kernelHeight = weights.dim(2);
   const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
 
   ComputeSet zeroCS = graph.addComputeSet(layerName +"/Zero");
@@ -859,32 +930,40 @@ calcPartialSums(Graph &graph,
     for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
       const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
       const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
-      for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
-        unsigned outZGroupBegin, outZGroupEnd;
-        std::tie(outZGroupBegin, outZGroupEnd) =
-            getOutZGroupRange(ozg, partialNumChanGroups, plan);
-        if (outZGroupBegin == outZGroupEnd)
-          continue;
-        for (unsigned oy = 0; oy != tilesPerY; ++oy) {
-          const auto outYBegin = (oy * outDimY) / tilesPerY;
-          const auto outYEnd = ((oy + 1) * outDimY) / tilesPerY;
-          for (unsigned ox = 0; ox != tilesPerX; ++ox) {
-            const auto outXBegin = (ox * outDimX) / tilesPerX;
-            const auto outXEnd = ((ox + 1) * outDimX) / tilesPerX;
-            const auto tile = linearizeTileIndices(b, numBatchGroups, numTiles,
-                                                   izg, ox, oy, ozg,
-                                                   plan,
-                                                   isMultiIPU);
-            calcPartialConvOutput(graph, plan, dType,
-                                  tile, outXBegin, outXEnd, outYBegin, outYEnd,
-                                  outZGroupBegin, outZGroupEnd, inZGroupBegin,
-                                  inZGroupEnd,
-                                  strideY, strideX,
-                                  paddingY, paddingX, zeroCS,
-                                  convolveCS,
-                                  in[b], weights,
-                                  partials[b][izg],
-                                  isFractional);
+      for (unsigned ky = 0; ky != tilesPerKernelY; ++ky) {
+        const auto kernelYBegin = (ky * kernelHeight) / tilesPerKernelY;
+        const auto kernelYEnd = ((ky + 1) * kernelHeight) / tilesPerKernelY;
+        for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
+          unsigned outZGroupBegin, outZGroupEnd;
+          std::tie(outZGroupBegin, outZGroupEnd) =
+              getOutZGroupRange(ozg, partialNumChanGroups, plan);
+          if (outZGroupBegin == outZGroupEnd)
+            continue;
+          for (unsigned oy = 0; oy != tilesPerY; ++oy) {
+            const auto outYBegin = (oy * outDimY) / tilesPerY;
+            const auto outYEnd = ((oy + 1) * outDimY) / tilesPerY;
+            for (unsigned ox = 0; ox != tilesPerX; ++ox) {
+              const auto outXBegin = (ox * outDimX) / tilesPerX;
+              const auto outXEnd = ((ox + 1) * outDimX) / tilesPerX;
+              const auto tile = linearizeTileIndices(b, numBatchGroups,
+                                                     numTiles,
+                                                     ky, izg,
+                                                     ox, oy, ozg,
+                                                     plan,
+                                                     isMultiIPU);
+              calcPartialConvOutput(graph, plan, dType, tile,
+                                    outXBegin, outXEnd, outYBegin, outYEnd,
+                                    outZGroupBegin, outZGroupEnd,
+                                    kernelYBegin, kernelYEnd,
+                                    inZGroupBegin,
+                                    inZGroupEnd,
+                                    strideY, strideX,
+                                    paddingY, paddingX, zeroCS,
+                                    convolveCS,
+                                    in[b], weights,
+                                    partials[b][izg][ky],
+                                    isFractional);
+            }
           }
         }
       }
@@ -896,52 +975,6 @@ calcPartialSums(Graph &graph,
   }
   prog.add(Execute(convolveCS));
   return prog;
-}
-
-unsigned getFlattenedIndex(const std::vector<std::size_t> &shape,
-                           const std::vector<std::size_t> &indices) {
-  const auto rank = shape.size();
-  assert(indices.size() == rank);
-  unsigned index = 0;
-  for (unsigned dim = 0; dim != rank; ++dim) {
-    assert(indices[dim] < shape[dim]);
-    index *= shape[dim];
-    index += indices[dim];
-  }
-  return index;
-}
-
-unsigned getFlattenedIndex(const Tensor &t,
-                           const std::vector<std::size_t> &indices) {
-  return getFlattenedIndex(t.shape(), indices);
-}
-
-static void
-addFlattenedRegions(const std::vector<std::size_t> &shape,
-                    const std::vector<std::size_t> &begin,
-                    const std::vector<std::size_t> &end,
-                    std::vector<Interval<std::size_t>> &regions) {
-  const auto numDims = shape.size();
-  assert(begin.size() == numDims);
-  assert(end.size() == numDims);
-
-  std::vector<std::size_t> indices = begin;
-  bool done = false;
-  while (!done) {
-    unsigned regionBegin = getFlattenedIndex(shape, indices);
-    unsigned regionEnd = regionBegin + (end.back() - begin.back());
-    regions.emplace_back(regionBegin, regionEnd);
-    done = true;
-    for (unsigned dim = 0; dim != numDims - 1; ++dim) {
-      if (indices[dim] + 1 == end[dim]) {
-        indices[dim] = begin[dim];
-      } else {
-        ++indices[dim];
-        done = false;
-        break;
-      }
-    }
-  }
 }
 
 /// Group tiles based on the regions of the reduced output their partial sums
@@ -965,6 +998,7 @@ groupConvTilesByOutput(
   const auto tilesPerY = plan.tilesPerYAxis;
   const auto tilesPerZ = plan.tilesPerZAxis;
   const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
+  const auto tilesPerKernelY = plan.tilesPerKernelYAxis;
   const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
   tileGroups.clear();
   tileGroups.reserve(tilesPerZ * tilesPerY * tilesPerX);
@@ -989,10 +1023,13 @@ groupConvTilesByOutput(
                             {outZGroupEnd, outYEnd, outXEnd, reducedDims[3]},
                             tileGroupRegions.back());
         for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
-          const auto tile = linearizeTileIndices(batchGroup, numBatchGroups,
-                                                 numTiles, izg, ox, oy, ozg,
-                                                 plan, isMultiIPU);
-          tileGroups.back().push_back(tile);
+          for (unsigned ky = 0; ky != tilesPerKernelY; ++ky) {
+            const auto tile = linearizeTileIndices(batchGroup, numBatchGroups,
+                                                   numTiles, ky, izg,
+                                                   ox, oy, ozg,
+                                                   plan, isMultiIPU);
+            tileGroups.back().push_back(tile);
+          }
         }
         mergeAdjacentRegions(tileGroupRegions.back());
         std::sort(tileGroups.back().begin(), tileGroups.back().end());
@@ -1285,6 +1322,7 @@ convolutionByAmp(Graph &graph, const Plan &plan, unsigned strideY,
   const auto partialChansPerGroup = plan.partialChansPerGroup;
   const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
   const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
+  const auto tilesPerKernelY = plan.tilesPerKernelYAxis;
 
   const auto partialType = plan.getPartialType();
   const auto batchSize = numBatchGroups * plan.batchesPerGroup;
@@ -1293,11 +1331,12 @@ convolutionByAmp(Graph &graph, const Plan &plan, unsigned strideY,
   // Calculate a set of partial sums of the convolutions.
   Tensor partials = graph.addTensor(partialType,
                                      {numBatchGroups,
-                                     tilesPerInZGroup,
-                                     partialNumChanGroups,
-                                     outDimY,
-                                     outDimX,
-                                     partialChansPerGroup},
+                                      tilesPerInZGroup,
+                                      tilesPerKernelY,
+                                      partialNumChanGroups,
+                                      outDimY,
+                                      outDimX,
+                                      partialChansPerGroup},
                                     "partials");
   prog.add(calcPartialSums(graph, plan,
                            strideY, strideX,
@@ -1310,6 +1349,12 @@ convolutionByAmp(Graph &graph, const Plan &plan, unsigned strideY,
   // compute sets so the batch will be executed in parallel.
   Tensor reduced;
   // Perform the reduction of partial sums.
+  partials = partials.reshape({numBatchGroups,
+                               tilesPerInZGroup * tilesPerKernelY,
+                               partialNumChanGroups,
+                               outDimY,
+                               outDimX,
+                               partialChansPerGroup});
   if (partials.dim(1) == 1) {
     if (dType != partialType) {
       reduced = graph.addTensor(dType, partials.shape());
@@ -1410,6 +1455,7 @@ convolution(Graph &graph,
       && strideY == 1 && strideX == 1
       && kernelSizeY == 3 && kernelSizeX == 3
       && !plan.flattenXY
+      && !plan.tilesPerKernelYAxis
       && (weights.dim(4) % 4 == 0)
       && (activations.dim(4) % 4 == 0)) {
 
@@ -2457,9 +2503,15 @@ groupWeightUpdateAopTilesByOutput(
       for (unsigned b = 0; b < batchSize; ++b) {
         for (unsigned oy = 0; oy != tilesPerY; ++oy) {
           for (unsigned ox = 0; ox != tilesPerX; ++ox) {
+            if (plan.tilesPerKernelYAxis > 1) {
+              // TODO
+              std::abort();
+            }
+            const auto ky = 0;
             const auto tile = linearizeTileIndices(b, batchSize,
                                                    numTiles,
-                                                   izg, ox, oy, ozg,
+                                                   ky, izg,
+                                                   ox, oy, ozg,
                                                    plan,
                                                    isMultiIPU);
             tileGroups.back().push_back(tile);
@@ -2583,9 +2635,15 @@ convolutionWeightUpdateAop(Graph &graph,
           for (unsigned ox = 0; ox != tilesPerX; ++ox) {
             const auto outXBegin = (ox * outDimX) / tilesPerX;
             const auto outXEnd = ((ox + 1) * outDimX) / tilesPerX;
+            if (plan.tilesPerKernelYAxis > 1) {
+              // TODO
+              std::abort();
+            }
+            const auto ky = 0;
             const auto tile = linearizeTileIndices(b, batchSize,
                                                    numTiles,
-                                                   izg, ox, oy, ozg,
+                                                   ky, izg,
+                                                   ox, oy, ozg,
                                                    plan,
                                                    isMultiIPU);
             addWeightDeltaPartialRegions(partialsMapping[tile],
@@ -2916,6 +2974,9 @@ convolutionWeightUpdate(Graph &graph,
                         unsigned strideY, unsigned strideX,
                         unsigned paddingY, unsigned paddingX,
                         float learningRate, const std::string &debugPrefix) {
+  if (plan.tilesPerKernelYAxis > 1) {
+    std::abort();
+  }
   const auto kernelSizeY = weights.dim(2);
   const auto kernelSizeX = weights.dim(3);
   const auto layerName = debugPrefix

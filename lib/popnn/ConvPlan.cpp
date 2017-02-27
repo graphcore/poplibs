@@ -101,11 +101,14 @@ std::ostream& operator<<(std::ostream &os, const Plan &p)
                                            << p.tilesPerYAxis << "*"
                                            << p.tilesPerZAxis << "="
     << p.tilesPerXAxis * p.tilesPerYAxis * p.tilesPerZAxis << "\n"
+    << "        tilesPerKernelYAxis     " << p.tilesPerKernelYAxis << "\n"
     << "        tilesPerInZGroupAxis    " << p.tilesPerInZGroupAxis << "\n"
     << "        verticesPerTilePerYAxis " << p.verticesPerTilePerYAxis << "\n"
     << "        inChansPerGroup         " << p.inChansPerGroup << "\n"
     << "        partialChansPerGroup    " << p.partialChansPerGroup << "\n"
     << "        batchesPerGroup         " << p.batchesPerGroup << "\n"
+    << "        useConvInstructions     " << p.useConvolutionInstructions
+    << "\n"
     << "        flattenXY               " << p.flattenXY << "\n";
   return os;
 }
@@ -308,6 +311,7 @@ canUseConvolutionInstruction(bool floatActivations, bool floatPartials,
 static unsigned
 getMaxInputRangeSize(unsigned outputRangeSize, unsigned stride,
                      unsigned kernelSize, unsigned padding,
+                     unsigned tileKernelSize,
                      unsigned numPartitions,
                      unsigned inputSize, bool contiguousAccess,
                      bool isFractional, bool isWeightUpdate) {
@@ -323,20 +327,23 @@ getMaxInputRangeSize(unsigned outputRangeSize, unsigned stride,
     {
       auto inputRange = getInputRange({0, outputRangeSize}, stride,
                                       kernelSize, padding,
-                                      inputSize, isFractional);
+                                      inputSize,
+                                      {kernelSize - tileKernelSize, kernelSize},
+                                      isFractional);
       inputRangeSize = inputRange.second - inputRange.first;
     }
     break;
   default:
     if (!isFractional) {
-      inputRangeSize = (outputRangeSize - 1) * stride + 1 + (kernelSize - 1);
+      inputRangeSize = (outputRangeSize - 1) * stride + 1 +
+                       (tileKernelSize - 1);
     } else {
-      inputRangeSize = (outputRangeSize - kernelSize ) / stride + 1;
+      inputRangeSize = (outputRangeSize - tileKernelSize) / stride + 1;
     }
     break;
   }
   if (!isFractional && !isWeightUpdate &&
-      !contiguousAccess && kernelSize == 1 && stride > 1) {
+      !contiguousAccess && tileKernelSize == 1 && stride > 1) {
     inputRangeSize = (inputRangeSize - 1) / stride + 1;
   }
   return inputRangeSize;
@@ -385,10 +392,14 @@ estimateExchangeCost(const poplar::DeviceInfo &deviceInfo,
   const auto tilesPerX = plan.tilesPerXAxis;
   const auto tilesPerY = plan.tilesPerYAxis;
   const auto tilesPerZ = plan.tilesPerZAxis;
+  const auto tilesPerKernelYAxis = plan.tilesPerKernelYAxis;
   const auto tilesPerInZGroupAxis = plan.tilesPerInZGroupAxis;
   const auto inChansPerGroup = plan.inChansPerGroup;
   const auto partialChansPerGroup = plan.partialChansPerGroup;
 
+  const auto tileKernelHeight = (params.kernelSizeY + tilesPerKernelYAxis - 1) /
+                                tilesPerKernelYAxis;
+  const auto tileKernelWidth = params.kernelSizeX;
   const auto tileOutWidth =
       (params.getOutputWidth() + tilesPerX - 1) / tilesPerX;
   const auto tileOutHeight =
@@ -405,17 +416,17 @@ estimateExchangeCost(const poplar::DeviceInfo &deviceInfo,
   const auto tileInDepth = tileNumInGroups * inChansPerGroup;
   const auto tileInWidth =
       getMaxInputRangeSize(tileOutWidth, params.strideX, params.kernelSizeX,
-                           params.paddingX,
-                           tilesPerX, params.inputWidth, true,
-                           params.isFractional, params.isWeightUpdate);
+                           params.paddingX, tileKernelWidth, tilesPerX,
+                           params.inputWidth, true, params.isFractional,
+                           params.isWeightUpdate);
   const auto tileInHeight =
       getMaxInputRangeSize(tileOutHeight, params.strideY, params.kernelSizeY,
-                           params.paddingY,
-                           tilesPerY, params.inputWidth,
-                           false, params.isFractional, params.isWeightUpdate);
+                           params.paddingY, tileKernelHeight, tilesPerY,
+                           params.inputWidth, false, params.isFractional,
+                           params.isWeightUpdate);
   const auto numberOfInputElements = tileInWidth * tileInHeight * tileInDepth;
   const auto numberOfWeights =
-      params.kernelSizeY * params.kernelSizeX * tileOutDepth * tileInDepth;
+      tileKernelHeight * tileKernelWidth * tileOutDepth * tileInDepth;
   const auto numberOfOutputElements =
       tileOutWidth * tileOutHeight * tileOutDepth;
 
@@ -459,6 +470,7 @@ estimateConvVertexCycles(bool floatActivations,
   assert(!params.isWeightUpdate);
   const auto tilesPerY = plan.tilesPerYAxis;
   const auto tilesPerX = plan.tilesPerXAxis;
+  const auto tilesPerKernelYAxis = plan.tilesPerKernelYAxis;
   const auto tilesPerInZGroupAxis = plan.tilesPerInZGroupAxis;
   const auto verticesPerTilePerY = plan.verticesPerTilePerYAxis;
   const auto inChansPerGroup = plan.inChansPerGroup;
@@ -477,14 +489,17 @@ estimateConvVertexCycles(bool floatActivations,
       (tileOutHeight + verticesPerTilePerY - 1) / verticesPerTilePerY;
   const auto outputStrideY = params.isFractional ? params.strideY : 1;
 
+  const auto tileKernelHeight =
+      (params.kernelSizeY + tilesPerKernelYAxis - 1) / tilesPerKernelYAxis;
+  const auto tileKernelWidth = params.kernelSizeX;
   if (plan.useConvolutionInstructions) {
     assert(deviceInfo.getWeightsPerConvUnit(floatActivations) %
            inChansPerGroup == 0);
     const auto convUnitWeightHeight =
         deviceInfo.getWeightsPerConvUnit(floatActivations) / inChansPerGroup;
     const auto passesPerFilter =
-        params.kernelSizeX *
-        (params.kernelSizeY + convUnitWeightHeight - 1) / convUnitWeightHeight;
+        tileKernelWidth *
+        (tileKernelHeight + convUnitWeightHeight - 1) / convUnitWeightHeight;
     const auto passesPerOutput = passesPerFilter * tileNumInGroups;
     return cache->mGetConvPartialnx1CycleEstimate(
           passesPerOutput, outRowsPerVertex,
@@ -498,8 +513,8 @@ estimateConvVertexCycles(bool floatActivations,
   }
   return outRowsPerVertex * outChansPerGroup *
          getConvPartialByDotProductCycleEstimate(
-           floatActivations, inChansPerGroup, params.kernelSizeY,
-           params.kernelSizeX * tileNumInGroups, tileOutWidth,
+           floatActivations, inChansPerGroup, tileKernelHeight,
+           tileKernelWidth * tileNumInGroups, tileOutWidth,
            deviceInfo.dataPathWidth, outputStrideY
          );
 }
@@ -765,7 +780,8 @@ static Cost
 estimateReduceComputeCost(const poplar::DeviceInfo &deviceInfo,
                           const ConvolutionParams &params,
                           const Plan &plan) {
-  if (plan.tilesPerInZGroupAxis == 1)
+  if (plan.tilesPerInZGroupAxis == 1 &&
+      plan.tilesPerKernelYAxis == 1)
     return {0, 0};
 
   /* The reduction is actually done on tiles in which the output
@@ -776,6 +792,9 @@ estimateReduceComputeCost(const poplar::DeviceInfo &deviceInfo,
   unsigned numPartialSumsPerTile;
   unsigned numTiles;
   if (params.isWeightUpdate) {
+    // TODO
+    if (plan.tilesPerKernelYAxis > 1)
+      std::abort();
     assert(plan.batchesPerGroup == 1);
     numTiles = deviceInfo.getNumTiles();
     const auto numOutputs = params.outputDepth * params.inputDepth *
@@ -790,7 +809,8 @@ estimateReduceComputeCost(const poplar::DeviceInfo &deviceInfo,
                             params.getOutputWidth() *
                             params.outputDepth;
     const auto numOutputsPerTile = (numOutputs + numTiles - 1) / numTiles;
-    numPartialSumsPerTile = numOutputsPerTile * plan.tilesPerInZGroupAxis;
+    numPartialSumsPerTile = numOutputsPerTile * plan.tilesPerInZGroupAxis *
+                            plan.tilesPerKernelYAxis;
   }
   const auto vectorWidth =
       plan.floatPartials ? deviceInfo.getFloatVectorWidth() :
@@ -958,38 +978,51 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
           std::min(params.outputDepth / partialChansPerGroup,
                    numTiles / (tilesPerX * tilesPerY));
       for (unsigned tilesPerZ = 1; tilesPerZ <= maxTilesPerZ; ++tilesPerZ) {
-        const auto tilesPerInZ =
-            std::min(params.inputDepth / inChansPerGroup,
+        auto maxTilesPerKernelY =
+            std::min(params.kernelSizeY,
                      numTiles / (tilesPerX * tilesPerY * tilesPerZ));
-        auto maxVerticesPerTilePerY =
-            (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
-        auto minVerticesPerTilePerY = 1;
-        if (convVertexType.useConvInstruction) {
-          // All workers are utilized in each single supervisor vertex so
-          // there is no reason to use more than the minimum number of
-          // vertices.
-          maxVerticesPerTilePerY = 1;
-        } else {
-          // The ConvPartial vertex that doesn't use the convolution
-          // instruction always computes a single output row.
-          minVerticesPerTilePerY = maxVerticesPerTilePerY;
+        if (params.isWeightUpdate) {
+          // Weight update doesn't support splitting the kernel for now.
+          // TODO add support for this.
+          maxTilesPerKernelY = 1;
         }
-        for (unsigned verticesPerTilePerY = minVerticesPerTilePerY;
-             verticesPerTilePerY <= maxVerticesPerTilePerY;
-             ++verticesPerTilePerY) {
-          Plan candidate(tilesPerX, tilesPerY, tilesPerZ,
-                         verticesPerTilePerY, tilesPerInZ,
-                         inChansPerGroup, partialChansPerGroup,
-                         batchesPerGroup,
-                         convVertexType.floatPartials,
-                         convVertexType.useConvInstruction);
+        for (unsigned tilesPerKernelY = 1;
+             tilesPerKernelY <= maxTilesPerKernelY;
+             ++tilesPerKernelY) {
+          const auto tilesPerInZ =
+              std::min(params.inputDepth / inChansPerGroup,
+                       numTiles / (tilesPerX * tilesPerY * tilesPerZ *
+                                   tilesPerKernelY));
+          auto maxVerticesPerTilePerY =
+              (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
+          auto minVerticesPerTilePerY = 1;
+          if (convVertexType.useConvInstruction) {
+            // All workers are utilized in each single supervisor vertex so
+            // there is no reason to use more than the minimum number of
+            // vertices.
+            maxVerticesPerTilePerY = 1;
+          } else {
+            // The ConvPartial vertex that doesn't use the convolution
+            // instruction always computes a single output row.
+            minVerticesPerTilePerY = maxVerticesPerTilePerY;
+          }
+          for (unsigned verticesPerTilePerY = minVerticesPerTilePerY;
+               verticesPerTilePerY <= maxVerticesPerTilePerY;
+               ++verticesPerTilePerY) {
+            Plan candidate(tilesPerX, tilesPerY, tilesPerZ,
+                           verticesPerTilePerY, tilesPerKernelY, tilesPerInZ,
+                           inChansPerGroup, partialChansPerGroup,
+                           batchesPerGroup,
+                           convVertexType.floatPartials,
+                           convVertexType.useConvInstruction);
 
-          auto candidateCost =
-              estimatePlanCostBounded(deviceInfo, floatActivations, params,
-                                      candidate, bestCost, costBounds, cache);
-          if (compareCost(candidateCost, bestCost, costBounds)) {
-            bestPlan = candidate;
-            bestCost = candidateCost;
+            auto candidateCost =
+                estimatePlanCostBounded(deviceInfo, floatActivations, params,
+                                        candidate, bestCost, costBounds, cache);
+            if (compareCost(candidateCost, bestCost, costBounds)) {
+              bestPlan = candidate;
+              bestCost = candidateCost;
+            }
           }
         }
       }
