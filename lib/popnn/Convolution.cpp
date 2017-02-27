@@ -1511,8 +1511,7 @@ static std::uint64_t getNumberOfMACs(unsigned outDimY, unsigned outDimX,
                                      unsigned strideY, unsigned strideX,
                                      unsigned paddingY, unsigned paddingX,
                                      unsigned inDimY, unsigned inDimX,
-                                     unsigned inNumChans,
-                                     bool forwardOnly) {
+                                     unsigned inNumChans) {
   std::uint64_t numMACs = 0;
   for (unsigned y = 0; y < outDimY; ++y) {
     unsigned inYBegin, inYEnd;
@@ -1527,18 +1526,16 @@ static std::uint64_t getNumberOfMACs(unsigned outDimY, unsigned outDimX,
       numMACs += width * height * outNumChans * inNumChans;
     }
   }
-  if (forwardOnly)
-    return numMACs;
-  else
-    return numMACs * 3;
+  return numMACs;
 }
 
 
-uint64_t getFlops(unsigned batchSize,
-                  unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                  unsigned kernelSizeY, unsigned kernelSizeX, unsigned strideY,
-                  unsigned strideX, unsigned paddingY, unsigned paddingX,
-                  unsigned outNumChans, bool forwardOnly) {
+static uint64_t getFlops(unsigned batchSize,
+                         unsigned inDimY, unsigned inDimX, unsigned inNumChans,
+                         unsigned kernelSizeY, unsigned kernelSizeX,
+                         unsigned strideY, unsigned strideX,
+                         unsigned paddingY, unsigned paddingX,
+                         unsigned outNumChans) {
   unsigned outDimY, outDimX;
   std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX, kernelSizeY,
                                             kernelSizeX, strideY, strideX,
@@ -1547,20 +1544,56 @@ uint64_t getFlops(unsigned batchSize,
       2 * getNumberOfMACs(outDimY, outDimX, outNumChans,
                           kernelSizeY, kernelSizeX, strideY, strideX,
                           paddingY, paddingX,
-                          inDimY, inDimX, inNumChans, forwardOnly);
+                          inDimY, inDimX, inNumChans);
   return batchSize * flopsPerItem;
 }
 
-double getPerfectCycleCount(const Graph &graph,
-                            std::string dType,
-                            unsigned batchSize,
-                            unsigned inDimY, unsigned inDimX,
-                            unsigned inNumChans,
-                            unsigned kernelSizeY, unsigned kernelSizeX,
-                            unsigned strideY, unsigned strideX,
-                            unsigned paddingY, unsigned paddingX,
-                            unsigned outNumChans,
-                            bool forwardOnly) {
+
+uint64_t getFwdFlops(unsigned batchSize,
+                     unsigned inDimY, unsigned inDimX,
+                     unsigned inNumChans,
+                     unsigned kernelSizeY, unsigned kernelSizeX,
+                     unsigned strideY, unsigned strideX,
+                     unsigned paddingY, unsigned paddingX,
+                     unsigned outNumChans) {
+  return getFlops(batchSize, inDimY, inDimX, inNumChans, kernelSizeY,
+                  kernelSizeX, strideY, strideX, paddingY, paddingX,
+                  outNumChans);
+}
+
+uint64_t getBwdFlops(unsigned batchSize,
+                     unsigned inDimY, unsigned inDimX,
+                     unsigned inNumChans,
+                     unsigned kernelSizeY, unsigned kernelSizeX,
+                     unsigned strideY, unsigned strideX,
+                     unsigned paddingY, unsigned paddingX,
+                     unsigned outNumChans) {
+  return getFlops(batchSize, inDimY, inDimX, inNumChans, kernelSizeY,
+                  kernelSizeX, strideY, strideX, paddingY, paddingX,
+                  outNumChans);
+}
+
+uint64_t getWuFlops(unsigned batchSize,
+                     unsigned inDimY, unsigned inDimX,
+                     unsigned inNumChans,
+                     unsigned kernelSizeY, unsigned kernelSizeX,
+                     unsigned strideY, unsigned strideX,
+                     unsigned paddingY, unsigned paddingX,
+                     unsigned outNumChans) {
+  return getFlops(batchSize, inDimY, inDimX, inNumChans, kernelSizeY,
+                  kernelSizeX, strideY, strideX, paddingY, paddingX,
+                  outNumChans);
+}
+
+static double getPerfectCycleCount(const Graph &graph,
+                                   std::string dType,
+                                   unsigned batchSize,
+                                   unsigned inDimY, unsigned inDimX,
+                                   unsigned inNumChans,
+                                   unsigned kernelSizeY, unsigned kernelSizeX,
+                                   unsigned strideY, unsigned strideX,
+                                   unsigned paddingY, unsigned paddingX,
+                                   unsigned outNumChans) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   unsigned outDimY, outDimX;
   std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX, kernelSizeY,
@@ -1571,7 +1604,7 @@ double getPerfectCycleCount(const Graph &graph,
       batchSize * getNumberOfMACs(outDimY, outDimX, outNumChans, kernelSizeY,
                                   kernelSizeX, strideY, strideX,
                                   paddingY, paddingX, inDimY, inDimX,
-                                  inNumChans, forwardOnly);
+                                  inNumChans);
 
   if (dType == "float") {
     const auto floatVectorWidth = deviceInfo.getFloatVectorWidth();
@@ -1590,6 +1623,51 @@ double getPerfectCycleCount(const Graph &graph,
   auto macsPerCycle = convUnitsPerTile * halfVectorWidth;
   auto macCycles = static_cast<double>(numMacs) / (macsPerCycle * numTiles);
   return macCycles;
+}
+
+double getFwdPerfectCycleCount(const Graph &graph,
+                               std::string dType,
+                               unsigned batchSize,
+                               unsigned inDimY, unsigned inDimX,
+                               unsigned inNumChans,
+                               unsigned kernelSizeY, unsigned kernelSizeX,
+                               unsigned strideY, unsigned strideX,
+                               unsigned paddingY, unsigned paddingX,
+                               unsigned outNumChans) {
+  return getPerfectCycleCount(graph, dType, batchSize, inDimY, inDimX,
+                              inNumChans, kernelSizeY, kernelSizeX,
+                              strideY, strideX, paddingY, paddingX,
+                              outNumChans);
+}
+
+double getBwdPerfectCycleCount(const Graph &graph,
+                               std::string dType,
+                               unsigned batchSize,
+                               unsigned inDimY, unsigned inDimX,
+                               unsigned inNumChans,
+                               unsigned kernelSizeY, unsigned kernelSizeX,
+                               unsigned strideY, unsigned strideX,
+                               unsigned paddingY, unsigned paddingX,
+                               unsigned outNumChans) {
+  return getPerfectCycleCount(graph, dType, batchSize, inDimY, inDimX,
+                              inNumChans, kernelSizeY, kernelSizeX,
+                              strideY, strideX, paddingY, paddingX,
+                              outNumChans);
+}
+
+double getWuPerfectCycleCount(const Graph &graph,
+                              std::string dType,
+                              unsigned batchSize,
+                              unsigned inDimY, unsigned inDimX,
+                              unsigned inNumChans,
+                              unsigned kernelSizeY, unsigned kernelSizeX,
+                              unsigned strideY, unsigned strideX,
+                              unsigned paddingY, unsigned paddingX,
+                              unsigned outNumChans) {
+  return getPerfectCycleCount(graph, dType, batchSize, inDimY, inDimX,
+                              inNumChans, kernelSizeY, kernelSizeX,
+                              strideY, strideX, paddingY, paddingX,
+                              outNumChans);
 }
 
 std::vector<size_t> getElementCoord(size_t element,

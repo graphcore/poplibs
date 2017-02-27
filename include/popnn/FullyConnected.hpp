@@ -9,13 +9,26 @@ namespace fc {
 
 struct Plan;
 
-uint64_t getNumFlops(unsigned batchSize,
-                     unsigned inSize, unsigned outSize, bool forwardOnly);
+uint64_t getFwdFlops(unsigned batchSize, unsigned inSize, unsigned outSize);
 
-double getPerfectCycleCount(const poplar::Graph &graph,
-                            unsigned batchSize,
-                            unsigned inSize, unsigned outSize,
-                            std::string dType, bool forwardOnly);
+uint64_t getBwdFlops(unsigned batchSize, unsigned inSize, unsigned outSize);
+
+uint64_t getWuFlops(unsigned batchSize, unsigned inSize, unsigned outSize);
+
+double getFwdPerfectCycleCount(const poplar::Graph &graph,
+                               unsigned batchSize,
+                               unsigned inSize, unsigned outSize,
+                               std::string dType);
+
+double getBwdPerfectCycleCount(const poplar::Graph &graph,
+                               unsigned batchSize,
+                               unsigned inSize, unsigned outSize,
+                               std::string dType);
+
+double getWuPerfectCycleCount(const poplar::Graph &graph,
+                              unsigned batchSize,
+                              unsigned inSize, unsigned outSize,
+                              std::string dType);
 
 std::pair<poplar::Tensor, poplar::Tensor>
 createParams(poplar::Graph &graph, std::string dType, unsigned inSize,

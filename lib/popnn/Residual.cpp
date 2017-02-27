@@ -14,29 +14,25 @@ using namespace poplar::program;
 namespace residual {
 
 std::uint64_t getNumberOfAdds(unsigned inDimY, unsigned inDimX,
-                              unsigned inNumChans,
-                              bool forwardOnly) {
+                              unsigned inNumChans) {
   // An addition is required to add the residual information
   return inNumChans * inDimX * inDimY;
 }
 
 uint64_t getFlops(unsigned batchSize,
-                  unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                  bool forwardOnly) {
-  auto flopsPerItem = getNumberOfAdds(inDimY, inDimX, inNumChans, forwardOnly);
+                  unsigned inDimY, unsigned inDimX, unsigned inNumChans) {
+  auto flopsPerItem = getNumberOfAdds(inDimY, inDimX, inNumChans);
   return batchSize * flopsPerItem;
 }
 
 double getPerfectCycleCount(const Graph &graph,
                             std::string dType, unsigned batchSize,
                             unsigned inDimY, unsigned inDimX,
-                            unsigned numChannels,
-                            bool forwardOnly) {
+                            unsigned numChannels) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   unsigned dTypeSize = dType == "float" ? 4 : 2;
   const auto numTiles = deviceInfo.getNumTiles();
-  const auto numFLOPs = getFlops(batchSize, inDimY, inDimX, numChannels,
-                                 forwardOnly);
+  const auto numFLOPs = getFlops(batchSize, inDimY, inDimX, numChannels);
   const auto vectorWidth = deviceInfo.dataPathWidth / (8 * dTypeSize);
   return static_cast<double>(numFLOPs) / (vectorWidth * numTiles);
 }

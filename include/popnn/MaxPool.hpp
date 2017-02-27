@@ -13,20 +13,35 @@ getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSizeY,
              unsigned strideY, unsigned strideX, unsigned paddingY,
              unsigned paddingX);
 
-uint64_t getNumFlops(unsigned batchSize,
+uint64_t getFwdFlops(unsigned batchSize,
                      unsigned inDimY, unsigned inDimX,
                      unsigned numChannels,
                      unsigned kernelSizeY, unsigned kernelSizeX,
                      unsigned strideY, unsigned strideX,
                      unsigned paddingY, unsigned paddingX);
 
-double getPerfectCycleCount(const poplar::Graph &graph,
-                            std::string dType, unsigned batchSize,
-                            unsigned inDimY, unsigned inDimX,
-                            unsigned numChannels,
-                            unsigned kernelSizeY, unsigned kernelSizeX,
-                            unsigned strideY, unsigned strideX,
-                            unsigned paddingY, unsigned paddingX);
+uint64_t getBwdFlops(unsigned batchSize,
+                     unsigned inDimY, unsigned inDimX,
+                     unsigned numChannels,
+                     unsigned kernelSizeY, unsigned kernelSizeX,
+                     unsigned strideY, unsigned strideX,
+                     unsigned paddingY, unsigned paddingX);
+
+double getFwdPerfectCycleCount(const poplar::Graph &graph,
+                               std::string dType, unsigned batchSize,
+                               unsigned inDimY, unsigned inDimX,
+                               unsigned numChannels,
+                               unsigned kernelSizeY, unsigned kernelSizeX,
+                               unsigned strideY, unsigned strideX,
+                               unsigned paddingY, unsigned paddingX);
+
+double getBwdPerfectCycleCount(const poplar::Graph &graph,
+                               std::string dType, unsigned batchSize,
+                               unsigned inDimY, unsigned inDimX,
+                               unsigned numChannels,
+                               unsigned kernelSizeY, unsigned kernelSizeX,
+                               unsigned strideY, unsigned strideX,
+                               unsigned paddingY, unsigned paddingX);
 
 poplar::program::Program
 maxPool(poplar::Graph &graph,

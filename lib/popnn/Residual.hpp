@@ -23,11 +23,10 @@ joinDeltas(poplar::Graph &graph,
            poplar::Tensor in1,
            const std::string &debugPrefix);
 std::uint64_t getNumberOfAdds(unsigned outDimY, unsigned outDimX,
-                              unsigned outNumChans, bool forwardOnly);
+                              unsigned outNumChans);
 
 uint64_t getFlops(unsigned batchSize,
-                  unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                  bool forwardOnly);
+                  unsigned inDimY, unsigned inDimX, unsigned inNumChans);
 
 /// Convert a Tensor to the required dimensions
 poplar::Tensor
@@ -40,8 +39,7 @@ arrangeResidualInput(poplar::Graph &graph,
 double getPerfectCycleCount(const poplar::Graph &graph,
                             std::string dType, unsigned batchSize,
                             unsigned inDimY, unsigned inDimX,
-                            unsigned numChannels,
-                            bool forwardOnly);
+                            unsigned numChannels);
 
 }
 

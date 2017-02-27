@@ -21,7 +21,8 @@ getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSizeY,
                                 strideY, strideX, paddingY, paddingX);
 }
 
-uint64_t getNumFlops(unsigned batchSize,
+
+uint64_t getFwdFlops(unsigned batchSize,
                      unsigned inDimY, unsigned inDimX,
                      unsigned numChannels,
                      unsigned kernelSizeY, unsigned kernelSizeX,
@@ -49,17 +50,27 @@ uint64_t getNumFlops(unsigned batchSize,
   return batchSize * numFlops;
 }
 
-double getPerfectCycleCount(const Graph &graph,
-                            std::string dType, unsigned batchSize,
-                            unsigned inDimY, unsigned inDimX,
-                            unsigned numChannels,
-                            unsigned kernelSizeY, unsigned kernelSizeX,
-                            unsigned strideY, unsigned strideX,
-                            unsigned paddingY, unsigned paddingX) {
+uint64_t getBwdFlops(unsigned batchSize,
+                     unsigned inDimY, unsigned inDimX,
+                     unsigned numChannels,
+                     unsigned kernelSizeY, unsigned kernelSizeX,
+                     unsigned strideY, unsigned strideX,
+                     unsigned paddingY, unsigned paddingX) {
+  return 0;
+}
+
+
+double getFwdPerfectCycleCount(const Graph &graph,
+                               std::string dType, unsigned batchSize,
+                               unsigned inDimY, unsigned inDimX,
+                               unsigned numChannels,
+                               unsigned kernelSizeY, unsigned kernelSizeX,
+                               unsigned strideY, unsigned strideX,
+                               unsigned paddingY, unsigned paddingX) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   unsigned dTypeSize = dType == "float" ? 4 : 2;
   const auto numTiles = deviceInfo.getNumTiles();
-  const auto numFLOPs = getNumFlops(batchSize,
+  const auto numFLOPs = getFwdFlops(batchSize,
                                     inDimY, inDimX,
                                     numChannels,
                                     kernelSizeY, kernelSizeX,
@@ -67,6 +78,18 @@ double getPerfectCycleCount(const Graph &graph,
                                     paddingY, paddingX);
   const auto vectorWidth = deviceInfo.dataPathWidth / (8 * dTypeSize);
   return static_cast<double>(numFLOPs) / (vectorWidth * numTiles);
+}
+
+double getBwdPerfectCycleCount(const Graph &graph,
+                               std::string dType, unsigned batchSize,
+                               unsigned inDimY, unsigned inDimX,
+                               unsigned numChannels,
+                               unsigned kernelSizeY, unsigned kernelSizeX,
+                               unsigned strideY, unsigned strideX,
+                               unsigned paddingY, unsigned paddingX) {
+  return getFwdPerfectCycleCount(graph, dType, batchSize, inDimY, inDimX,
+                                 numChannels, kernelSizeY, kernelSizeX,
+                                 strideY, strideX, paddingY, paddingX) * 2;
 }
 
 Program

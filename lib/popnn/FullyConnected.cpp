@@ -117,24 +117,53 @@ fullyConnected(Graph &graph,
   return prog;
 }
 
-uint64_t getNumFlops(unsigned batchSize,
-                     unsigned inSize, unsigned outSize, bool forwardOnly) {
-  if (forwardOnly)
-    return batchSize * (2 * inSize * outSize);
-  else
-    return batchSize * 3 * (2 * inSize * outSize);
+uint64_t getNumFlops(unsigned batchSize, unsigned inSize, unsigned outSize) {
+  return batchSize * (2 * inSize * outSize);
 }
 
-double getPerfectCycleCount(const Graph &graph,
-                            unsigned batchSize,
-                            unsigned inSize, unsigned outSize,
-                            std::string dType, bool forwardOnly) {
+uint64_t getFwdFlops(unsigned batchSize, unsigned inSize, unsigned outSize) {
+  return getNumFlops(batchSize, inSize, outSize);
+}
+
+uint64_t getBwdFlops(unsigned batchSize, unsigned inSize, unsigned outSize) {
+  return getNumFlops(batchSize, inSize, outSize);
+}
+
+uint64_t getWuFlops(unsigned batchSize, unsigned inSize, unsigned outSize) {
+  return getNumFlops(batchSize, inSize, outSize);
+}
+
+static double getPerfectCycleCount(const Graph &graph,
+                                   unsigned batchSize,
+                                   unsigned inSize, unsigned outSize,
+                                   std::string dType) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   unsigned dTypeSize = dType == "float" ? 4 : 2;
   const auto numTiles = deviceInfo.getNumTiles();
-  const auto numFLOPs = getNumFlops(batchSize, inSize, outSize, forwardOnly);
+  const auto numFLOPs = getNumFlops(batchSize, inSize, outSize);
   const auto vectorWidth = deviceInfo.dataPathWidth / (8 * dTypeSize);
   return static_cast<double>(numFLOPs) / (2 * vectorWidth * numTiles);
+}
+
+double getFwdPerfectCycleCount(const Graph &graph,
+                               unsigned batchSize,
+                               unsigned inSize, unsigned outSize,
+                               std::string dType) {
+  return getPerfectCycleCount(graph, batchSize, inSize, outSize, dType);
+}
+
+double getBwdPerfectCycleCount(const Graph &graph,
+                               unsigned batchSize,
+                               unsigned inSize, unsigned outSize,
+                               std::string dType) {
+  return getPerfectCycleCount(graph, batchSize, inSize, outSize, dType);
+}
+
+double getWuPerfectCycleCount(const Graph &graph,
+                              unsigned batchSize,
+                              unsigned inSize, unsigned outSize,
+                              std::string dType) {
+  return getPerfectCycleCount(graph, batchSize, inSize, outSize, dType);
 }
 
 Program fullyConnectedBackward(Graph &graph,

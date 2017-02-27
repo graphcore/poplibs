@@ -16,22 +16,53 @@ getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSizeY,
              unsigned strideY, unsigned strideX, unsigned paddingY,
              unsigned paddingX);
 
-uint64_t getFlops(unsigned batchSize,
-                  unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                  unsigned kernelSizeY, unsigned kernelSizeX,
-                  unsigned strideY, unsigned strideX, unsigned paddingY,
-                  unsigned paddingX,
-                  unsigned outNumChans, bool forwardOnly);
+uint64_t getFwdFlops(unsigned batchSize,
+                     unsigned inDimY, unsigned inDimX, unsigned inNumChans,
+                     unsigned kernelSizeY, unsigned kernelSizeX,
+                     unsigned strideY, unsigned strideX, unsigned paddingY,
+                     unsigned paddingX, unsigned outNumChans);
 
-double getPerfectCycleCount(const poplar::Graph &graph,
-                            std::string dType,
-                            unsigned batchSize,
-                            unsigned inDimY, unsigned inDimX,
-                            unsigned inNumChans,
-                            unsigned kernelSizeY, unsigned kernelSizeX,
-                            unsigned strideY, unsigned strideX,
-                            unsigned paddingY, unsigned paddingX,
-                            unsigned outNumChans, bool forwardOnly);
+uint64_t getBwdFlops(unsigned batchSize,
+                     unsigned inDimY, unsigned inDimX, unsigned inNumChans,
+                     unsigned kernelSizeY, unsigned kernelSizeX,
+                     unsigned strideY, unsigned strideX, unsigned paddingY,
+                     unsigned paddingX, unsigned outNumChans);
+
+uint64_t getWuFlops(unsigned batchSize,
+                    unsigned inDimY, unsigned inDimX, unsigned inNumChans,
+                    unsigned kernelSizeY, unsigned kernelSizeX,
+                    unsigned strideY, unsigned strideX, unsigned paddingY,
+                    unsigned paddingX, unsigned outNumChans);
+
+double getFwdPerfectCycleCount(const poplar::Graph &graph,
+                               std::string dType,
+                               unsigned batchSize,
+                               unsigned inDimY, unsigned inDimX,
+                               unsigned inNumChans,
+                               unsigned kernelSizeY, unsigned kernelSizeX,
+                               unsigned strideY, unsigned strideX,
+                               unsigned paddingY, unsigned paddingX,
+                               unsigned outNumChans);
+
+double getBwdPerfectCycleCount(const poplar::Graph &graph,
+                               std::string dType,
+                               unsigned batchSize,
+                               unsigned inDimY, unsigned inDimX,
+                               unsigned inNumChans,
+                               unsigned kernelSizeY, unsigned kernelSizeX,
+                               unsigned strideY, unsigned strideX,
+                               unsigned paddingY, unsigned paddingX,
+                               unsigned outNumChans);
+
+double getWuPerfectCycleCount(const poplar::Graph &graph,
+                              std::string dType,
+                              unsigned batchSize,
+                              unsigned inDimY, unsigned inDimX,
+                              unsigned inNumChans,
+                              unsigned kernelSizeY, unsigned kernelSizeX,
+                              unsigned strideY, unsigned strideX,
+                              unsigned paddingY, unsigned paddingX,
+                              unsigned outNumChans);
 
 poplar::Tensor
 createWeights(poplar::Graph &graph, std::string dType,

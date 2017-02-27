@@ -209,9 +209,9 @@ class Net {
   std::vector<std::pair<unsigned, unsigned>> residualDeltaIdxs;
   std::vector<std::vector<poplar::Tensor>> params;
   std::map<unsigned, conv::Plan> fwdConvPlans, bwdConvPlans, wuConvPlans;
-  std::uint64_t numFlops;
+  std::uint64_t fwdFlops, bwdFlops, wuFlops;
   std::uint64_t numParams;
-  double perfectCycleTime;
+  double fwdPerfectCycleTime, bwdPerfectCycleTime, wuPerfectCycleTime;
 
   conv::Planner planner;
   conv::Plan getFwdConvPlan(unsigned i, unsigned prevDimY, unsigned prevDimX,
@@ -262,10 +262,9 @@ class Net {
                              unsigned kernelSizeY, unsigned kernelSizeX,
                              unsigned strideY, unsigned strideX,
                              unsigned paddingY, unsigned paddingX,
-                             unsigned outNumChans, bool forwardOnly);
+                             unsigned outNumChans);
 
-  void outputDescription(const Layer *layer, unsigned i, poplar::Tensor in,
-                         bool forwardOnly);
+  void outputDescription(const Layer *layer, unsigned i, poplar::Tensor in);
 
   void initialize(DataSet &dataSet, LossType lossType);
 
