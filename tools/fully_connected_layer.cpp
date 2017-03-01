@@ -110,7 +110,8 @@ int main(int argc, char **argv) {
   auto outMapping = computeActivationsMapping(graph, nextAct[0], 0, 1);
   auto plan = fc::createPlan(graph, dataTypeStr, partialsTypeStr, inputSize,
                              outMapping, inferenceOnly);
-
+  fc::mapWeights(graph, weights, outMapping, plan);
+  fc::mapBiases(graph, biases, outMapping);
   auto upload = Sequence();
   auto download = Sequence();
   auto rawHostPrevAct = allocateHostMemoryForTensor(graph, prevAct, upload,
