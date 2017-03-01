@@ -21,7 +21,6 @@ add_library(popnn SHARED
   Pad.cpp
   Pad.hpp
   PerformanceEstimation.hpp
-  Reduce.hpp
   Reduce.cpp
   Regroup.hpp
   Regroup.cpp
@@ -43,6 +42,7 @@ add_library(popnn SHARED
   ${CMAKE_SOURCE_DIR}/include/popnn/MaxPool.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Net.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearity.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/Reduce.hpp
 )
 
 target_link_libraries(popnn poplar Boost::program_options)

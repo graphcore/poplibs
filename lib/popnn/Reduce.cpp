@@ -1,4 +1,4 @@
-#include "Reduce.hpp"
+#include "popnn/Reduce.hpp"
 
 #include <algorithm>
 #include <numeric>

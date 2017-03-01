@@ -5,7 +5,7 @@
 #include "ConvUtil.hpp"
 #include "Pad.hpp"
 #include "popnn/ActivationMapping.hpp"
-#include "Reduce.hpp"
+#include "popnn/Reduce.hpp"
 #include "Regroup.hpp"
 #include "VertexTemplates.hpp"
 #include "gcd.hpp"
