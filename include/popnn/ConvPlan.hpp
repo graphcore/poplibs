@@ -19,7 +19,7 @@ std::istream &operator>>(std::istream &is, WeightUpdateMethod &method);
 // Switches to control the planning of Convolutional layers
 class PlanControl {
 public:
-  WeightUpdateMethod weightUpdateMethod = WeightUpdateMethod::AOP;
+  WeightUpdateMethod weightUpdateMethod = WeightUpdateMethod::AUTO;
 };
 
 struct Plan {
