@@ -229,11 +229,11 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
            "float", "float", in[0], weights, biases,
            activations[0]);
 
-  auto prog = Sequence(Copy(in, &inBuffer[0]),
-                       Copy(weights, &weightsBuffer[0]),
-                       Copy(biases, &biasBuffer[0]),
+  auto prog = Sequence(Copy(&inBuffer[0], in),
+                       Copy(&weightsBuffer[0], weights),
+                       Copy(&biasBuffer[0], biases),
                        wgdConv,
-                       Copy(&outBuffer[0], activations));
+                       Copy(activations, &outBuffer[0]));
 
 
   Engine eng(graph, prog);

@@ -40,7 +40,7 @@ bwdNonLinearity(Graph &graph,
       auto mapping = computeActivationsMapping(graph, regroupedActs,
                                                b, batchSize);
       applyTensorMapping(graph, regroupedActs, mapping);
-      prog.add(Copy(regroupedActs, regroup(activations, zDeltas.dim(3))));
+      prog.add(Copy(regroup(activations, zDeltas.dim(3)), regroupedActs));
     }
     buildTransform(deltasInMapping, graph, [&](unsigned deltaBegin,
                    unsigned deltaEnd,

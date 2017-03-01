@@ -26,8 +26,8 @@ std::unique_ptr<char []>
 allocateHostMemoryForTensor(Graph &graph, const Tensor &t,
                             Sequence &upload, Sequence &download) {
   std::unique_ptr<char []> p = allocateHostMemoryForTensor(graph, t);
-  upload.add(Copy(t, p.get()));
-  download.add(Copy(p.get(), t));
+  upload.add(Copy(p.get(), t));
+  download.add(Copy(t, p.get()));
   return p;
 }
 

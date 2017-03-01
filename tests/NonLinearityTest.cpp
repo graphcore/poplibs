@@ -100,12 +100,12 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     ref::nonLinearity(n, hRefActOut);
     // build and run the target code
     auto fwdProg = Sequence();
-    fwdProg.add(Copy(actF, hActInF));
-    fwdProg.add(Copy(actH, hActInH));
+    fwdProg.add(Copy(hActInF, actF));
+    fwdProg.add(Copy(hActInH, actH));
     fwdProg.add(fwdNonLinearity(graph, actF, n));
     fwdProg.add(fwdNonLinearity(graph, actH, n));
-    fwdProg.add(Copy(hActOutF, actF));
-    fwdProg.add(Copy(hActOutH, actH));
+    fwdProg.add(Copy(actF, hActOutF));
+    fwdProg.add(Copy(actH, hActOutH));
     Engine fwdEng(graph, fwdProg);
     fwdEng.run();
 
@@ -128,14 +128,14 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     ref::bwdNonLinearity(n, hActIn, hRefDeltaOut);
     // build and run the target code
     auto bwdProg = Sequence();
-    bwdProg.add(Copy(deltaF, hDeltaInF));
-    bwdProg.add(Copy(deltaH, hDeltaInH));
-    bwdProg.add(Copy(actF, hActInF));
-    bwdProg.add(Copy(actH, hActInH));
+    bwdProg.add(Copy(hDeltaInF, deltaF));
+    bwdProg.add(Copy(hDeltaInH, deltaH));
+    bwdProg.add(Copy(hActInF, actF));
+    bwdProg.add(Copy(hActInH, actH));
     bwdProg.add(bwdNonLinearity(graph, actF, deltaF, deltaF, n));
     bwdProg.add(bwdNonLinearity(graph, actH, deltaH, deltaH, n));
-    bwdProg.add(Copy(hDeltaOutF, deltaF));
-    bwdProg.add(Copy(hDeltaOutH, deltaH));
+    bwdProg.add(Copy(deltaF, hDeltaOutF));
+    bwdProg.add(Copy(deltaH, hDeltaOutH));
     Engine bwdEng(graph, bwdProg);
     bwdEng.run();
 

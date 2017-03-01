@@ -1783,10 +1783,10 @@ Program weightsTransposeChansFlipXY(Graph &graph,
      wFlippedYX = concat(wFlippedYX,
                          wFlippedY.slice(wx, wx + 1, 3), 3);
   }
-  prog.add(Copy(weightsOut,
-                wFlippedYX.dimShuffle({2, 3, 0, 4, 6, 1, 5})
-                          .reshape({KY, KX, O/G4, G4, I/G3, G3})
-                          .dimShuffle({4, 2, 0, 1, 5, 3})));
+  prog.add(Copy(wFlippedYX.dimShuffle({2, 3, 0, 4, 6, 1, 5})
+                           .reshape({KY, KX, O/G4, G4, I/G3, G3})
+                           .dimShuffle({4, 2, 0, 1, 5, 3}),
+                weightsOut));
   return prog;
 }
 
@@ -1818,7 +1818,7 @@ Program convolutionBackward(Graph &graph,
   auto zeros = graph.addConstantTensor(dType, {outNumChans}, 0);
   auto biases = graph.addTensor(dType, {outNumChans}, "zeroBiases");
   mapBiases(biases, graph, deltasOut);
-  prog.add(Copy(biases, zeros));
+  prog.add(Copy(zeros, biases));
 
   // Perform a fractional convolution
   prog.add(convolution(graph, plan, strideY, strideX, paddingY, paddingX,
@@ -2204,7 +2204,7 @@ static Tensor weightUpdateActivationReducedViews(Graph &graph,
                                actSubviewSize,
                                stridedHeight * width * batchSize});
 
-  prog.add(Copy(copiedActivations, activationViews));
+  prog.add(Copy(activationViews, copiedActivations));
 
   auto activationsTransposed = graph.addTensor(dType,
                                                {0,
@@ -2378,7 +2378,7 @@ static Tensor weightUpdateActivationFullViews(Graph &graph,
                              .dimShuffle({0, 2, 1, 3});
 
 
-  prog.add(Copy(activationsTransposed, activationsTransposedIn));
+  prog.add(Copy(activationsTransposedIn, activationsTransposed));
   return activationsTransposed;
 }
 
@@ -2691,7 +2691,7 @@ convolutionWeightUpdateAop(Graph &graph,
           computeActivationsMapping(graph, regroupedDeltas[b], b, batchSize);
       applyTensorMapping(graph, regroupedDeltas[b], regroupedDeltaMapping);
     }
-    prog.add(Copy(regroupedDeltas, regroup(zDeltas, partialChansPerGroup)));
+    prog.add(Copy(regroup(zDeltas, partialChansPerGroup), regroupedDeltas));
   } else {
     regroupedDeltas = zDeltas;
   }
@@ -2959,12 +2959,12 @@ convolutionWeightUpdateAmp(Graph &graph,
   mapActivations(graph, zDeltasTransposed.reshape({1, zDeltasTransposed.dim(0),
                                                    1, zDeltasTransposed.dim(1),
                                                    zDeltasTransposed.dim(2)}));
-  prog.add(Copy(zDeltasTransposed,
-                batchZDeltas.reshape({deltasNumChanGroups,
+  prog.add(Copy(batchZDeltas.reshape({deltasNumChanGroups,
                                        batchPaddedFieldSize / fieldGroupSize,
                                        fieldGroupSize,
                                        deltasChansPerGroup})
-                             .dimShuffle({1, 0, 3, 2})));
+                            .dimShuffle({1, 0, 3, 2}),
+                zDeltasTransposed));
 
   const auto weightDeltasType = dType;
   // Perform the matrix multiplication.
@@ -2988,8 +2988,7 @@ convolutionWeightUpdateAmp(Graph &graph,
                       "weightDeltas");
   auto weightDeltasMapping = computeTensorMapping(graph, weightDeltas);
   applyTensorMapping(graph, weightDeltas, weightDeltasMapping);
-  prog.add(Copy(weightDeltas,
-                weightDeltasTransposed
+  prog.add(Copy(weightDeltasTransposed
                   .dimShuffle({1, 0, 2})
                   .reshape({deltasChans, paddedActViewSize})
                   .slice(0, actViewSize, 1)
@@ -2998,7 +2997,8 @@ convolutionWeightUpdateAmp(Graph &graph,
                             kernelSizeY, kernelSizeX,
                             activationsChans / fwdInChansPerGroup,
                             fwdInChansPerGroup})
-                  .dimShuffle({0, 4, 2, 3, 1, 5})));
+                  .dimShuffle({0, 4, 2, 3, 1, 5}),
+                weightDeltas));
   // Add the weight deltas to the weights.
   auto addCS = graph.addComputeSet(layerName + "/UpdateWeights");
   const auto dataPathWidth = deviceInfo.dataPathWidth;

@@ -213,7 +213,7 @@ createBwdWeightsAndBiases(Graph &graph, const conv::Plan &bwdPlan,
                                              debugPrefix));
   auto zeros = graph.addConstantTensor(dType, {outNumChans}, 0);
   conv::mapBiases(bwdBiases, graph, deltasOut);
-  prog.add(Copy(bwdBiases, zeros));
+  prog.add(Copy(zeros, bwdBiases));
   return prog;
 }
 
@@ -772,8 +772,8 @@ Net::createConvLayerFwd(unsigned i,
     auto hBiases =
         createRandomWeightInitializers(weights, 0, 1.0 / kernelSizeY,
                                        randomEngine);
-    initParamsProg.add(Copy(weights, hWeights.get()));
-    initParamsProg.add(Copy(biases, hBiases.get()));
+    initParamsProg.add(Copy(hWeights.get(), weights));
+    initParamsProg.add(Copy(hBiases.get(), biases));
     hParams.push_back(std::move(hWeights));
     hParams.push_back(std::move(hBiases));
   }
@@ -1050,8 +1050,8 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
          auto hBiases =
              createRandomWeightInitializers(weights, 0, 1.0 / prevSize,
                                             randomEngine);
-         initParamsProg.add(Copy(weights, hWeights.get()));
-         initParamsProg.add(Copy(biases, hBiases.get()));
+         initParamsProg.add(Copy(hWeights.get(), weights));
+         initParamsProg.add(Copy(hBiases.get(), biases));
          hParams.push_back(std::move(hWeights));
          hParams.push_back(std::move(hBiases));
       }
@@ -1154,9 +1154,9 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
                                numCorrect,
                                dType, "unsigned int",
                                lossType);
-  fwdProg.add(Sequence(Copy(numCorrect, &hNumCorrect),
+  fwdProg.add(Sequence(Copy(&hNumCorrect, numCorrect),
                        calcLossProg,
-                       Copy(&hNumCorrect, numCorrect)));
+                       Copy(numCorrect, &hNumCorrect)));
   if (netType == TrainingNet) {
     for (int i = layers.size() - 1; i >= 0; --i) {
       bool backwardPassRequired = (i != 0);
@@ -1312,10 +1312,12 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   if (netType == TrainingNet) {
     if (!options.ignoreData) {
       size_t trainingDataSize = dataSet.numTraining * dataSet.dataSize;
-      trainProg.add(Copy(acts[0], &dataSet.trainingData[0],
-                         &dataSet.trainingData[trainingDataSize]));
-      trainProg.add(Copy(expected, &dataSet.trainingLabels[0],
-                         &dataSet.trainingLabels[dataSet.numTraining]));
+      trainProg.add(Copy(&dataSet.trainingData[0],
+                         &dataSet.trainingData[trainingDataSize],
+                         acts[0]));
+      trainProg.add(Copy(&dataSet.trainingLabels[0],
+                         &dataSet.trainingLabels[dataSet.numTraining],
+                         expected));
     }
     trainProg.add(fwdProg);
     trainProg.add(bwdProg);
@@ -1323,10 +1325,11 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   auto testProg = Sequence();
   if (!options.ignoreData) {
     size_t testDataSize = dataSet.numTest * dataSet.dataSize;
-    testProg.add(Copy(acts[0], &dataSet.testData[0],
-                       &dataSet.testData[testDataSize]));
-    testProg.add(Copy(expected, &dataSet.testLabels[0],
-                      &dataSet.testLabels[dataSet.numTest]));
+    testProg.add(Copy(&dataSet.testData[0], &dataSet.testData[testDataSize],
+                      acts[0]));
+    testProg.add(Copy(&dataSet.testLabels[0],
+                      &dataSet.testLabels[dataSet.numTest],
+                      expected));
   }
   testProg.add(fwdProg);
   std::vector<Program> progs(NUM_PROGS);

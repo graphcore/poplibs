@@ -158,11 +158,11 @@ struct TensorOp {
       const auto opType = sig[tIndex].type;
       if (opType == TensorOpParamType::InputTensor ||
           opType == TensorOpParamType::InOutTensor) {
-        inputCopies.add(poplar::program::Copy(param, t));
+        inputCopies.add(poplar::program::Copy(t, param));
       }
       if (opType == TensorOpParamType::OutputTensor ||
           opType == TensorOpParamType::InOutTensor) {
-        outputCopies.add(poplar::program::Copy(t, param));
+        outputCopies.add(poplar::program::Copy(param, t));
       }
       ++tIndex;
     }

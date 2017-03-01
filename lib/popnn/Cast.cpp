@@ -13,7 +13,7 @@ cast(Graph &graph, Tensor src, Tensor dst, const std::string &debugPrefix) {
   auto srcType = graph.getTensorElementType(src);
   auto dstType = graph.getTensorElementType(dst);
   if (srcType == dstType)
-    return Copy(dst, src);
+    return Copy(src, dst);
   auto cs = graph.addComputeSet(debugPrefix + "/Cast");
   cast(graph, src, dst, cs);
   return Execute(cs);
