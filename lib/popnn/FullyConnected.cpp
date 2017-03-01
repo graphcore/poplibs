@@ -20,6 +20,57 @@ createParams(Graph &graph, std::string dType, unsigned inSize,
   return {weights, biases};
 }
 
+void mapBiases(Graph &graph, Tensor biases,
+               const std::vector<unsigned> &outMapping) {
+  const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    const auto activationsBegin = outMapping[tile];
+    const auto activationsEnd = outMapping[tile + 1];
+    for (unsigned i = activationsBegin; i != activationsEnd; ++i) {
+      graph.setTileMapping(biases[i], tile);
+    }
+  }
+}
+
+void mapWeights(Graph &graph, Tensor weights,
+                const std::vector<unsigned> &outMapping,
+                const Plan &plan) {
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto prevSize = weights.dim(1);
+  const auto numCols = prevSize;
+  const auto numIPUs = deviceInfo.numIPUs;
+  const auto tilesPerIPU = deviceInfo.tilesPerIPU;
+  const auto &ipuPartition = plan.ipuPartition;
+  for (unsigned ipu = 0; ipu != numIPUs; ++ipu) {
+    const auto ipuBeginRow = outMapping[ipu * tilesPerIPU];
+    const auto ipuEndRow = outMapping[(ipu + 1) * tilesPerIPU];
+    const auto ipuRows = ipuEndRow - ipuBeginRow;
+    for (unsigned tileY = 0; tileY != ipuPartition.tilesPerColumn; ++tileY) {
+      const auto tileRowBegin = ipuBeginRow + (tileY * ipuRows) /
+          ipuPartition.tilesPerColumn;
+      const auto tileRowEnd = ipuBeginRow + ((tileY + 1) * ipuRows) /
+          ipuPartition.tilesPerColumn;
+      if (tileRowBegin == tileRowEnd)
+        continue;
+      for (unsigned tileX = 0; tileX != ipuPartition.tilesPerRow; ++tileX) {
+        const auto tile = ipu * tilesPerIPU +
+            tileY * ipuPartition.tilesPerRow +
+            tileX;
+        const auto j = tileX;
+        const auto beginElement =
+            (numCols * j) / ipuPartition.tilesPerRow;
+        const auto endElement =
+            (numCols * (j + 1)) / ipuPartition.tilesPerRow;
+        if (beginElement == endElement)
+          continue;
+        graph.setTileMapping(weights.slice({tileRowBegin, beginElement},
+                                           {tileRowEnd, endElement}),
+                                           tile);
+      }
+    }
+  }
+}
+
 Program
 fullyConnected(Graph &graph,
                unsigned size, NonLinearityType nonLinearityType,
@@ -88,7 +139,6 @@ fullyConnected(Graph &graph,
                                  {"weights", partialWeights},
                                  {"out", partials[i][j]}});
             graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-            graph.setTileMapping(partialWeights, tile);
             graph.setTileMapping(partials[i][j], tile);
             graph.setTileMapping(v, tile);
           }
@@ -110,7 +160,6 @@ fullyConnected(Graph &graph,
          {"activationOut", activations[b][i]}});
         graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
         graph.setTileMapping(v, tile);
-        graph.setTileMapping(biases[i], tile);
       }
     }
   }

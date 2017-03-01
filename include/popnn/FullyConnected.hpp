@@ -34,6 +34,13 @@ std::pair<poplar::Tensor, poplar::Tensor>
 createParams(poplar::Graph &graph, std::string dType, unsigned inSize,
              unsigned outSize);
 
+void mapBiases(poplar::Graph &graph, poplar::Tensor biases,
+               const std::vector<unsigned> &outMapping);
+
+void mapWeights(poplar::Graph &graph, poplar::Tensor weights,
+                const std::vector<unsigned> &outMapping,
+                const Plan &plan);
+
 poplar::program::Program
 fullyConnected(poplar::Graph &graph,
                unsigned size, NonLinearityType nonLinearityType,
