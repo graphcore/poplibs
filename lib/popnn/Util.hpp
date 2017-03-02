@@ -103,4 +103,12 @@ void buildTransform2D(
   }
 }
 
+
+/// Given an index into a flattened tensor returns the indices into the
+/// dimensions of the original tensor.
+std::vector<std::size_t> unflattenIndex(const std::vector<std::size_t> &shape,
+                                        std::size_t index);
+
+
+
 #endif // _Util_hpp_

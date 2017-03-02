@@ -1175,28 +1175,24 @@ template class Zero2D<half>;
 template <typename FPType>
 class MaxPooling : public Vertex {
 public:
-  Vector<Input<Vector<FPType>>> activationIn;
-  Output<Vector<FPType>> activationOut;
+  Vector<Input<Vector<FPType>>> in;
+  Vector<Output<Vector<FPType>>> out;
+  Vector<unsigned> windowSizes;
 
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    auto outChansPerGroup = activationOut.size();
-    auto chunkSize = activationIn[0].size();
-    assert(outChansPerGroup % chunkSize == 0);
-    auto chunksPerGroup = outChansPerGroup / chunkSize;
-    assert(activationIn.size() % chunksPerGroup == 0);
-    unsigned receptiveFieldSize = activationIn.size() / chunksPerGroup;
-    for (unsigned chunk = 0; chunk != chunksPerGroup; ++chunk) {
-      for (unsigned i = 0; i != receptiveFieldSize; ++i) {
-        for (unsigned chanInChunk = 0; chanInChunk != chunkSize;
-             ++chanInChunk) {
-          auto chan = chunk * chunkSize + chanInChunk;
-          auto in = activationIn[chunk * receptiveFieldSize + i][chanInChunk];
-          if (i == 0 || activationOut[chan] < in)
-            activationOut[chan] = in;
+    unsigned inIndex = 0;
+    for (unsigned i = 0; i < out.size(); ++i) {
+      for (unsigned chan = 0; chan < out[i].size(); ++chan) {
+        FPType val;
+        for (unsigned w = 0; w < windowSizes[i]; ++w) {
+          if (w == 0 || val < in[inIndex + w][chan])
+            val = in[inIndex + w][chan];
         }
+        out[i][chan] = val;
       }
+      inIndex += windowSizes[i];
     }
     return true;
   }
@@ -1205,10 +1201,12 @@ public:
     unsigned numCycles = 10;
     bool isFloat = std::is_same<FPType, float>::value;
     const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    //numChunks = inputFieldSize * chunksPerGroup
-    auto numChunks = activationIn.size();
-    auto chunkSize = activationIn[0].size();
-    numCycles += numChunks * (1 + (chunkSize + vectorWidth - 1) / vectorWidth);
+    for (unsigned i = 0; i < out.size(); ++i) {
+      auto numVectors = (out[i].size() + vectorWidth - 1) / vectorWidth;
+      auto windowSize = windowSizes[i];
+      // TODO: This is too optimistic
+      numCycles += 1 + numVectors * (1 + windowSize);
+    }
     return numCycles;
   }
 };
@@ -1216,33 +1214,31 @@ public:
 template class MaxPooling<float>;
 template class MaxPooling<half>;
 
+
 template <typename FPType>
 class MaxPoolingBwd : public Vertex {
 public:
-  Vector<Input<Vector<FPType>>> actOut;
-  Input<Vector<FPType>> actIn;
-  Vector<Input<Vector<FPType>>> errIn;
-  Output<Vector<FPType>> errOut;
+  Vector<Input<Vector<FPType>>> in;
+  Vector<Input<Vector<FPType>>> fwdIn;
+  Vector<Input<Vector<FPType>>> fwdOut;
+  Vector<Output<Vector<FPType>>> out;
+  Vector<unsigned> windowSizes;
 
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    // Update errOut with the sum of errors from all kernels that it updated
-    auto nOutChannels = errOut.size();
-    auto chunkSize = errIn[0].size();
-    auto nextFieldSize = errIn.size();
-    assert(chunkSize == nOutChannels);
-    assert(nOutChannels % chunkSize == 0);
-    auto nChunks = nOutChannels / chunkSize;
-    for (unsigned i = 0; i != nextFieldSize; ++i) {
-      for (unsigned chan = 0; chan != nOutChannels; ++chan) {
-        if (i == 0)
-          errOut[chan] = 0;
-        if (actIn[chan] == actOut[i][chan])
-          errOut[chan] += errIn[i][chan];
+    unsigned inIndex = 0;
+    for (unsigned i = 0; i < out.size(); ++i) {
+      for (unsigned chan = 0; chan < out[i].size(); ++chan) {
+        FPType val = 0;
+        for (auto w = 0; w < windowSizes[i]; ++w) {
+          if (fwdIn[i][chan] == fwdOut[inIndex + w][chan])
+            val += in[inIndex + w][chan];
+        }
+        out[i][chan] = val;
       }
+      inIndex += windowSizes[i];
     }
-
     return true;
   }
 
@@ -1250,11 +1246,9 @@ public:
     unsigned numCycles = 10;
     bool isFloat = std::is_same<FPType, float>::value;
     const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    auto nChanGroups = (errOut.size() + vectorWidth - 1) / vectorWidth;
-    auto nextFieldSize = errIn.size();
     // Expected implementation per group:
     // load group of actIn
-    // for fieldsize:
+    // for windowsize:
     // load actOut
     //  compare
     //  res<<=14 (covert to 0.5/0)
@@ -1262,7 +1256,12 @@ public:
     // getacc
     // double
     // store
-    numCycles += ((3 * nextFieldSize) + 5) * nChanGroups;
+    for (unsigned i = 0; i < out.size(); ++i) {
+      auto numVectors = (out[i].size() + vectorWidth - 1) / vectorWidth;
+      auto windowSize = windowSizes[i];
+      // TODO: This is too optimistic
+      numCycles += 5 + numVectors * (5 + windowSize * 3);
+    }
     return numCycles;
   }
 };
