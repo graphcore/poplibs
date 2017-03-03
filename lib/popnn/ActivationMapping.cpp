@@ -60,9 +60,8 @@ computeActivationsMapping(const poplar::Graph &graph, poplar::Tensor act,
   std::vector<poplar::Interval<std::size_t>> regions = {
     {0, numActivations}
   };
-  std::vector<std::vector<poplar::Interval<std::size_t>>> perTileRegions;
-  splitRegions(regions, perTileRegions, grainSize, numBatchTiles,
-               minElementsPerTile);
+  const auto perTileRegions =
+      splitRegions(regions, grainSize, numBatchTiles, minElementsPerTile);
   for (unsigned tile = beginTile; tile != numTiles; ++tile) {
     if (tile - beginTile < perTileRegions.size() &&
         !perTileRegions[tile - beginTile].empty()) {

@@ -16,23 +16,18 @@ void mergeAdjacentRegions(
 // balance the number of elements in each partition, respecting the specified
 // grain. At most maxPartitions partitions are created. Regions may be split to
 // achieve a better balance.
-void splitRegions(
-    const std::vector<poplar::Interval<std::size_t>> &regions,
-    std::vector<
-      std::vector<poplar::Interval<std::size_t>>
-    > &vertexRegions,
-    unsigned grainSize, unsigned maxPartitions,
-    unsigned minElementsPerPartition = 0);
+std::vector<std::vector<poplar::Interval<std::size_t>>>
+splitRegions(const std::vector<poplar::Interval<std::size_t>> &regions,
+             unsigned grainSize, unsigned maxPartitions,
+             unsigned minElementsPerPartition = 0);
 
 // Given a set of contiguous regions per tile, partition these regions
 // between vertices on that tile, respecting the specified grain size.
 // Regions may be split to balance the work across vertices.
-void splitRegionsBetweenWorkers(
+std::vector<std::vector<poplar::Interval<std::size_t>>>
+splitRegionsBetweenWorkers(
     const poplar::DeviceInfo &deviceInfo,
     const std::vector<poplar::Interval<std::size_t>> &regions,
-    std::vector<
-      std::vector<poplar::Interval<std::size_t>>
-    > &vertexRegions,
     unsigned grainSize, unsigned minElementsPerPartition = 0);
 
 /// Given a mapping of data to tiles, use the specified builder function to
@@ -76,9 +71,8 @@ void buildTransform2D(
     unsigned grainSize,
     Builder &&builder) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  std::vector<std::vector<poplar::Interval<std::size_t>>> vertexRegions;
-  splitRegionsBetweenWorkers(deviceInfo, regions, vertexRegions,
-                             grainSize);
+  const auto vertexRegions =
+      splitRegionsBetweenWorkers(deviceInfo, regions,grainSize);
   for (const auto &regions : vertexRegions) {
     if (regions.empty())
       continue;

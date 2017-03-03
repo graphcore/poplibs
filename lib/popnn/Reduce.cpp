@@ -166,7 +166,6 @@ reduce(Graph &graph,
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   // Accumulate the partial sums.
   const auto numTiles = deviceInfo.getNumTiles();
-  std::vector<std::vector<Interval<std::size_t>>> vertexRegions;
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto &tileRegions = reduceVertexMapping[tile];
     unsigned vectorWidth;
@@ -174,8 +173,8 @@ reduce(Graph &graph,
       vectorWidth = deviceInfo.getFloatVectorWidth();
     else
       vectorWidth = deviceInfo.getHalfVectorWidth();
-    splitRegionsBetweenWorkers(deviceInfo, tileRegions, vertexRegions,
-                               vectorWidth);
+    const auto vertexRegions =
+        splitRegionsBetweenWorkers(deviceInfo, tileRegions, vectorWidth);
     for (const auto &regions : vertexRegions) {
       const auto v = graph.addVertex(reduceCS,
                                      templateVertex("popnn::ConvReduce",

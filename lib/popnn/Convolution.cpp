@@ -249,8 +249,6 @@ calculateWeightMapping(Tensor w,
                             sharedWeights);
         mergeAdjacentRegions(sharedWeights);
         // Spread groups of weights equally across the tiles that read them.
-        std::vector<std::vector<Interval<std::size_t>>>
-            perTileWeights;
         unsigned grainSize = partialChansPerGroup *
                              inChansPerGroup;
         if (plan.useConvolutionInstructions) {
@@ -275,9 +273,9 @@ calculateWeightMapping(Tensor w,
         }
         std::vector<unsigned> tiles(tileSet.begin(), tileSet.end());
         std::sort(tiles.begin(), tiles.end());
-        splitRegions(sharedWeights, perTileWeights,
-                     partialChansPerGroup * inChansPerGroup,
-                     tiles.size(), minElementsPerTile);
+        const auto perTileWeights =
+            splitRegions(sharedWeights, partialChansPerGroup * inChansPerGroup,
+                         tiles.size(), minElementsPerTile);
         for (unsigned i = 0; i != perTileWeights.size(); ++i) {
           mapping[tiles[i]] = perTileWeights[i];
         }
@@ -1178,10 +1176,9 @@ partialGroupedReduce(
       const auto tilesInGroup = tileGroups[tileGroup].size();
       const auto tileBegin = (i * tilesInGroup) / outDepth;
       const auto tileEnd = ((i + 1) * tilesInGroup) / outDepth;
-      std::vector<std::vector<Interval<std::size_t>>>
-          outSplitRegions(numTiles);
-      splitRegions(tileGroupRegions[tileGroup], outSplitRegions,
-                   grainSize, tileEnd - tileBegin);
+      const auto outSplitRegions =
+          splitRegions(tileGroupRegions[tileGroup], grainSize,
+                       tileEnd - tileBegin);
       for (unsigned j = 0; j != outSplitRegions.size(); ++j) {
         outSubMapping[tileGroups[tileGroup][j + tileBegin]] =
             outSplitRegions[j];
@@ -1682,9 +1679,8 @@ static Tensor weightsPartialTranspose(Graph &graph, Tensor in, ComputeSet cs) {
       graph.getTileMapping(inFlat.slice(0, 1, 1));
   const auto numTiles = transpositionMapping.size();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
-    std::vector<std::vector<Interval<std::size_t>>> perWorkerTranspositions;
-    splitRegionsBetweenWorkers(deviceInfo, transpositionMapping[tile],
-                               perWorkerTranspositions, 1);
+    const auto perWorkerTranspositions =
+        splitRegionsBetweenWorkers(deviceInfo, transpositionMapping[tile], 1);
     for (const auto &entry : perWorkerTranspositions) {
       const auto v =
           graph.addVertex(cs, templateVertex("popnn::Transpose2D", dType));
