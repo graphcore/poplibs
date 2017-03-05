@@ -1,7 +1,7 @@
 #include <popnn_ref/Util.hpp>
 #include <boost/test/tools/floating_point_comparison.hpp>
 #include <popnn/Compiler.hpp>
-#include <popnn/Net.hpp>
+#include <popnn/exceptions.hpp>
 
 using namespace poplar;
 using namespace poplar::program;

@@ -1,8 +1,8 @@
 #include <initializer_list>
-#include "popnn/Net.hpp"
+#include "popnn/Optimizer.hpp"
 #include "mnist.h"
 
-#define LARGE_DNN_MODEL 0
+using namespace popnn::optimizer;
 
 int main() {
   DataSet MNIST;
@@ -22,18 +22,20 @@ int main() {
   MNIST.trainingLabels = readMNISTLabels(MNIST.numTraining,
                                          "train-labels-idx1-ubyte");
 
-  NetType netType = TrainingNet;
-  Net net(MNIST,
-          1, // batch size
-          makeLayers({
-            new FullyConnectedLayer(30, NON_LINEARITY_SIGMOID),
-            new FullyConnectedLayer(10, NON_LINEARITY_SIGMOID),
-          }),
-          SUM_SQUARED_LOSS,
-          0.3, // learning rate
-          netType,
-          FP32
-          );
-  net.run(10*50000);
+  Context context;
+  auto in   = feed(MNIST, context);
+  auto act1 = sigmoid(fullyconnected(30, in));
+  auto out  = sigmoid(fullyconnected(10, act1));
+  auto loss = sumSquaredLoss(in, out);
+
+  OptimizerOptions options;
+  options.learningRate = 0.3;
+  options.dataType = FP32;
+  options.training = true;
+  options.batchSize = 1;
+
+  Optimizer optimizer(loss, options);
+  optimizer.run(10*50000);
+
   return 0;
 }

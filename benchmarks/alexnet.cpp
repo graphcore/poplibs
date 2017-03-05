@@ -1,5 +1,7 @@
 #include <initializer_list>
-#include "popnn/Net.hpp"
+#include "popnn/Optimizer.hpp"
+
+using namespace popnn::optimizer;
 
 int main(int argc, char **argv) {
   DataSet IMAGENET;
@@ -16,37 +18,32 @@ int main(int argc, char **argv) {
   IMAGENET.trainingData =
     std::unique_ptr<float[]>(new float[IMAGENET.dataSize *
                                        IMAGENET.numTraining]);
-  NetOptions options;
+  OptimizerOptions options;
   options.doComputation = true;
   options.useIPUModel = true;
   options.doTestsDuringTraining = false;
   options.ignoreData = true;
-  bool doTraining = false;
-  if (!parseCommandLine(argc, argv, options, doTraining))
+  options.learningRate = 0.9;
+  options.dataType = FP16;
+  if (!parseCommandLine(argc, argv, options))
     return 1;
-  NetType netType = doTraining ? TrainingNet : TestOnlyNet;
 
-  Net net(IMAGENET,
-          options.batchSize,
-          makeLayers({
-            new ConvLayer(11, 4, 3, 64, NON_LINEARITY_RELU),
-            new MaxPoolLayer(3, 2),
-            new ConvLayer(5, 1, 2, 192, NON_LINEARITY_RELU),
-            new MaxPoolLayer(3, 2),
-            new ConvLayer(3, 1, 1, 384, NON_LINEARITY_RELU),
-            new ConvLayer(3, 1, 1, 256, NON_LINEARITY_RELU),
-            new ConvLayer(3, 1, 1, 256, NON_LINEARITY_RELU),
-            new MaxPoolLayer(3, 2),
-            new FullyConnectedLayer(2048*2, NON_LINEARITY_RELU),
-            new FullyConnectedLayer(2048*2, NON_LINEARITY_RELU),
-            new FullyConnectedLayer(1000, NON_LINEARITY_RELU),
-          }),
-          SOFTMAX_CROSS_ENTROPY_LOSS,
-          0.9, // learning rate
-          netType,
-          FP16,
-          options
-          );
-  net.run(1);
+  Context context;
+  auto in    = feed(IMAGENET, context);
+  auto act1  = relu(conv2d(11, 4, 3, 64, in));
+  auto pool1 = maxPool(3, 2, act1);
+  auto act2  = relu(conv2d(5, 1, 2, 192, pool1));
+  auto pool2 = maxPool(3, 2, act2);
+  auto act3  = relu(conv2d(3, 1, 1, 384, pool2));
+  auto act4  = relu(conv2d(3, 1, 1, 256, act3));
+  auto act5  = relu(conv2d(3, 1, 1, 256, act4));
+  auto pool4 = maxPool(3, 2, act5);
+  auto act6  = relu(fullyconnected(4096, pool4));
+  auto act7  = relu(fullyconnected(4096, act6));
+  auto out   = relu(fullyconnected(1000, act7));
+  auto loss  = softMaxCrossEntropyLoss(in, out);
+  Optimizer optimizer(loss, options);
+  optimizer.run(1);
+
   return 0;
 }

@@ -1,6 +1,8 @@
 #include <initializer_list>
-#include "popnn/Net.hpp"
+#include "popnn/Optimizer.hpp"
 #include "mnist.h"
+
+using namespace popnn::optimizer;
 
 int main() {
   DataSet MNIST;
@@ -20,22 +22,24 @@ int main() {
   MNIST.trainingLabels = readMNISTLabels(MNIST.numTraining,
                                          "train-labels-idx1-ubyte");
 
-  NetType netType = TrainingNet;
-  Net net(MNIST,
-          1, // batch size
-          makeLayers({
-            new MaxPoolLayer(2,2),
-            new ConvLayer(5, 1, 2, 2, NON_LINEARITY_RELU),
-            new ConvLayer(5, 1, 2, 2, NON_LINEARITY_RELU),
-            new ConvLayer(5, 1, 2, 2, NON_LINEARITY_RELU),
-            new MaxPoolLayer(2,2),
-            new ConvLayer(7, 1, 0, 10, NON_LINEARITY_SIGMOID),
-          }),
-          SOFTMAX_CROSS_ENTROPY_LOSS,
-          0.005,
-          netType,
-          FP32
-          );
-  net.run(10*50000);
+  Context context;
+  auto in    = feed(MNIST, context);
+  auto pool1 = maxPool(2, 2, in);
+  auto conv1 = relu(conv2d(5, 1, 2, 2, pool1));
+  auto conv2 = relu(conv2d(5, 1, 2, 2, conv1));
+  auto conv3 = relu(conv2d(5, 1, 2, 2, conv2));
+  auto pool2 = maxPool(2, 2, conv3);
+  auto out   = sigmoid(conv2d(7, 1, 0, 10, pool2));
+  auto loss  = softMaxCrossEntropyLoss(in, out);
+
+  OptimizerOptions options;
+  options.learningRate = 0.005;
+  options.dataType = FP32;
+  options.training = true;
+  options.batchSize = 1;
+
+  Optimizer optimizer(loss, options);
+  optimizer.run(10*50000);
+
   return 0;
 }

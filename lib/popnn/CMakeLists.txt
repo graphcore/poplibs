@@ -17,8 +17,8 @@ add_library(popnn SHARED
   gcd.hpp
   Loss.cpp
   MaxPool.cpp
-  Net.cpp
   NonLinearity.cpp
+  Optimizer.cpp
   Pad.cpp
   Pad.hpp
   PerformanceEstimation.hpp
@@ -43,8 +43,8 @@ add_library(popnn SHARED
   ${CMAKE_SOURCE_DIR}/include/popnn/FullyConnectedPlan.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Loss.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/MaxPool.hpp
-  ${CMAKE_SOURCE_DIR}/include/popnn/Net.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearity.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/Optimizer.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Reduce.hpp
 )
 

@@ -1,5 +1,5 @@
 #include <initializer_list>
-#include "popnn/Net.hpp"
+#include "popnn/Optimizer.hpp"
 
 /** This model is derived from the paper:
 
@@ -10,6 +10,21 @@
     The details are summarized in a internal spreadsheet comparing different
     imagenet models (congidox document XM-010286-UN).
 */
+
+using namespace popnn::optimizer;
+
+Exp bottleneckModule(unsigned channels, unsigned initialStride,
+           unsigned count, Exp in) {
+  auto out = in;
+  for (unsigned i = 0; i < count; ++i) {
+    auto a = relu(conv2d(1, i == 0 ? initialStride : 1,  0, channels, out));
+    auto b = relu(conv2d(3, 1, 1, channels, a));
+    auto c = conv2d(1, 1, 0, channels * 4, b);
+    out = relu(residualAdd(c, out));
+  }
+  return out;
+}
+
 
 int main(int argc, char **argv) {
   DataSet IMAGENET;
@@ -26,110 +41,29 @@ int main(int argc, char **argv) {
   IMAGENET.trainingData =
     std::unique_ptr<float[]>(new float[IMAGENET.dataSize *
                                        IMAGENET.numTraining]);
-  NetOptions options;
+  OptimizerOptions options;
   options.doComputation = true;
   options.useIPUModel = true;
   options.doTestsDuringTraining = false;
   options.ignoreData = true;
-  bool doTraining = false;
-  if (!parseCommandLine(argc, argv, options, doTraining))
+  options.learningRate = 0.9;
+  options.dataType = FP16;
+  if (!parseCommandLine(argc, argv, options))
     return 1;
-  NetType netType = doTraining ? TrainingNet : TestOnlyNet;
 
-  auto resMethod = RESIDUAL_PAD;
+  Context context;
+  auto in    = feed(IMAGENET, context);
+  auto res1  = relu(conv2d(7, 2, 3, 64, in));
+  auto pool1 = maxPool(3, 2, 1, res1);
+  auto res2  = bottleneckModule(64, 1, 3, pool1);
+  auto res3  = bottleneckModule(128, 2, 4, res2);
+  auto res4  = bottleneckModule(256, 2, 6, res3);
+  auto res5  = bottleneckModule(512, 2, 3, res4);
+  auto pool2 = maxPool(7, 7, res5);
+  auto out   = fullyconnected(1000, pool2);
+  auto loss  = softMaxCrossEntropyLoss(in, out);
+  Optimizer optimizer(loss, options);
+  optimizer.run(1);
 
-  Net net(IMAGENET,
-          options.batchSize,
-          makeLayers({
-
-            // 7x7,64, stride 2
-            new ConvLayer(7, 2, 3, 64, NON_LINEARITY_RELU),
-            // 3x3 max pool, stride 2
-            new MaxPoolLayer(3, 2, 1),
-
-            // 1x1,64 -> 3x3, 64-> 1x1, 256 (residual) X 3
-            new ConvLayer(1, 1, 0, 64, NON_LINEARITY_RELU),
-            new ConvLayer(3, 1, 1, 64, NON_LINEARITY_RELU),
-            new ConvLayer(1, 1, 0, 256, NON_LINEARITY_NONE),
-            new ResidualLayer({1, 4}, NON_LINEARITY_RELU, resMethod),
-
-            new ConvLayer(1, 1, 0, 64, NON_LINEARITY_RELU),
-            new ConvLayer(3, 1, 1, 64, NON_LINEARITY_RELU),
-            new ConvLayer(1, 1, 0, 256, NON_LINEARITY_NONE),
-            new ResidualLayer({1, 4}, NON_LINEARITY_RELU, resMethod),
-            new ConvLayer(1, 1, 0, 64, NON_LINEARITY_RELU),
-            new ConvLayer(3, 1, 1, 64, NON_LINEARITY_RELU),
-            new ConvLayer(1, 1, 0, 256, NON_LINEARITY_NONE),
-            new ResidualLayer({1, 4}, NON_LINEARITY_RELU, resMethod),
-
-            // 1x1,128 -> 3x3, 128-> 1x1, 512 (residual) X 4
-            new ConvLayer(1, 2, 0, 128, NON_LINEARITY_RELU),  // DOWN SAMPLE
-            new ConvLayer(3, 1, 1, 128, NON_LINEARITY_RELU),
-            new ConvLayer(1, 1, 0, 512, NON_LINEARITY_NONE),
-            new ResidualLayer({1, 4}, NON_LINEARITY_RELU, resMethod),
-            new ConvLayer(1, 1, 0, 128, NON_LINEARITY_RELU),
-            new ConvLayer(3, 1, 1, 128, NON_LINEARITY_RELU),
-            new ConvLayer(1, 1, 0, 512, NON_LINEARITY_NONE),
-            new ResidualLayer({1, 4}, NON_LINEARITY_RELU, resMethod),
-            new ConvLayer(1, 1, 0, 128, NON_LINEARITY_RELU),
-            new ConvLayer(3, 1, 1, 128, NON_LINEARITY_RELU),
-            new ConvLayer(1, 1, 0, 512, NON_LINEARITY_NONE),
-            new ResidualLayer({1, 4}, NON_LINEARITY_RELU, resMethod),
-            new ConvLayer(1, 1, 0, 128, NON_LINEARITY_RELU),
-            new ConvLayer(3, 1, 1, 128, NON_LINEARITY_RELU),
-            new ConvLayer(1, 1, 0, 512, NON_LINEARITY_NONE),
-            new ResidualLayer({1, 4}, NON_LINEARITY_RELU, resMethod),
-
-            // 1x1,256 -> 3x3, 256-> 1x1, 1024 (residual) X 6
-            new ConvLayer(1, 2, 0, 256, NON_LINEARITY_RELU),  // DOWN SAMPLE
-            new ConvLayer(3, 1, 1, 256, NON_LINEARITY_RELU),
-            new ConvLayer(1, 1, 0, 1024, NON_LINEARITY_NONE),
-            new ResidualLayer({1, 4}, NON_LINEARITY_RELU, resMethod),
-            new ConvLayer(1, 1, 0, 256, NON_LINEARITY_RELU),
-            new ConvLayer(3, 1, 1, 256, NON_LINEARITY_RELU),
-            new ConvLayer(1, 1, 0, 1024, NON_LINEARITY_NONE),
-            new ResidualLayer({1, 4}, NON_LINEARITY_RELU, resMethod),
-            new ConvLayer(1, 1, 0, 256, NON_LINEARITY_RELU),
-            new ConvLayer(3, 1, 1, 256, NON_LINEARITY_RELU),
-            new ConvLayer(1, 1, 0, 1024, NON_LINEARITY_NONE),
-            new ResidualLayer({1, 4}, NON_LINEARITY_RELU, resMethod),
-            new ConvLayer(1, 1, 0, 256, NON_LINEARITY_RELU),
-            new ConvLayer(3, 1, 1, 256, NON_LINEARITY_RELU),
-            new ConvLayer(1, 1, 0, 1024, NON_LINEARITY_NONE),
-            new ResidualLayer({1, 4}, NON_LINEARITY_RELU, resMethod),
-            new ConvLayer(1, 1, 0, 256, NON_LINEARITY_RELU),
-            new ConvLayer(3, 1, 1, 256, NON_LINEARITY_RELU),
-            new ConvLayer(1, 1, 0, 1024, NON_LINEARITY_NONE),
-            new ResidualLayer({1, 4}, NON_LINEARITY_RELU, resMethod),
-            new ConvLayer(1, 1, 0, 256, NON_LINEARITY_RELU),
-            new ConvLayer(3, 1, 1, 256, NON_LINEARITY_RELU),
-            new ConvLayer(1, 1, 0, 1024, NON_LINEARITY_NONE),
-            new ResidualLayer({1, 4}, NON_LINEARITY_RELU, resMethod),
-
-            // 1x1,512 -> 3x3, 512 -> 1x1, 2048 (residual) X 3
-            new ConvLayer(1, 2, 0, 512, NON_LINEARITY_RELU),  // DOWN SAMPLE
-            new ConvLayer(3, 1, 1, 512, NON_LINEARITY_RELU),
-            new ConvLayer(1, 1, 0, 2048, NON_LINEARITY_NONE),
-            new ResidualLayer({1, 4}, NON_LINEARITY_RELU, resMethod),
-            new ConvLayer(1, 1, 0, 512, NON_LINEARITY_RELU),
-            new ConvLayer(3, 1, 1, 512, NON_LINEARITY_RELU),
-            new ConvLayer(1, 1, 0, 2048, NON_LINEARITY_NONE),
-            new ResidualLayer({1, 4}, NON_LINEARITY_RELU, resMethod),
-            new ConvLayer(1, 1, 0, 512, NON_LINEARITY_RELU),
-            new ConvLayer(3, 1, 1, 512, NON_LINEARITY_RELU),
-            new ConvLayer(1, 1, 0, 2048, NON_LINEARITY_NONE),
-            new ResidualLayer({1, 4}, NON_LINEARITY_RELU, resMethod),
-
-            new MaxPoolLayer(7, 7),
-            new FullyConnectedLayer(1000, NON_LINEARITY_RELU),
-          }),
-          SOFTMAX_CROSS_ENTROPY_LOSS,
-          0.9, // learning rate
-          netType,
-          FP16,
-          options
-          );
-
-  net.run(1);
   return 0;
 }

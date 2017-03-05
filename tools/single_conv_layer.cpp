@@ -11,9 +11,9 @@
 #include <popnn/ActivationMapping.hpp>
 #include <popnn/Convolution.hpp>
 #include <popnn/ConvPlan.hpp>
+#include <popnn/exceptions.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <popnn/codelets.hpp>
-#include <popnn/exceptions.hpp>
 #include <popnn/NonLinearity.hpp>
 #include <popnn_ref/Convolution.hpp>
 #include <popnn_ref/NonLinearity.hpp>
