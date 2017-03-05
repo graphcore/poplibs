@@ -195,14 +195,7 @@ int main(int argc, char **argv) {
                                     width,
                                     fwdChansPerGroup}, "prevAct");
   mapActivations(graph, prevAct);
-  Tensor nextAct =
-      graph.addTensor(dataTypeStr, {batchSize,
-                                    chans / fwdChansPerGroup,
-                                    outHeight,
-                                    outWidth, fwdChansPerGroup},
-                      "nextAct");
-  mapActivations(graph, nextAct);
-  Tensor prevDeltas, zDeltas;
+  Tensor zDeltas;
   if (!inferenceOnly) {
     zDeltas =
         graph.addTensor(dataTypeStr, {batchSize,
@@ -211,16 +204,25 @@ int main(int argc, char **argv) {
                                       outWidth, bwdChansPerGroup},
                         "zDeltas");
     mapActivations(graph, zDeltas);
-    prevDeltas =
-        graph.addTensor(dataTypeStr, {batchSize,
-                                      chans / bwdChansPerGroup,
-                                      height,
-                                      width, bwdChansPerGroup},
-                        "prevDeltas");
-    mapActivations(graph, prevDeltas);
   }
 
+  auto fwdProg = Sequence();
+  auto nextAct = maxpool::maxPool(graph,
+                                  kernelHeight, kernelWidth,
+                                  strideHeight, strideWidth,
+                                  paddingHeight, paddingWidth,
+                                  prevAct, fwdProg);
 
+  auto bwdProg = Sequence();
+  Tensor prevDeltas;
+  if (!inferenceOnly) {
+    prevDeltas =
+        maxpool::maxPoolInputGradient(graph,
+                                      kernelHeight, kernelWidth,
+                                      strideHeight, strideWidth,
+                                      paddingHeight, paddingWidth,
+                                      prevAct, nextAct, zDeltas, bwdProg);
+  }
   auto upload = Sequence();
   auto download = Sequence();
   auto rawHostPrevAct = allocateHostMemoryForTensor(graph, prevAct, upload,
@@ -234,24 +236,6 @@ int main(int argc, char **argv) {
                                                  download);
     rawHostPrevDeltas = allocateHostMemoryForTensor(graph, prevDeltas, upload,
                                                     download);
-  }
-
-  auto fwdProg = Sequence();
-  fwdProg.add(maxpool::maxPool(graph,
-                               kernelHeight, kernelWidth,
-                               strideHeight, strideWidth,
-                               paddingHeight, paddingWidth,
-                               prevAct, nextAct));
-
-  auto bwdProg = Sequence();
-  if (!inferenceOnly) {
-    bwdProg.add(
-          maxpool::maxPoolBackward(graph,
-                                   kernelHeight, kernelWidth,
-                                   strideHeight, strideWidth,
-                                   paddingHeight, paddingWidth,
-                                   prevAct, nextAct, zDeltas, prevDeltas)
-    );
   }
   Engine engine(graph, {std::move(upload), std::move(download),
                         std::move(fwdProg), std::move(bwdProg)});

@@ -988,30 +988,13 @@ void Optimizer::genFwd(Sequence &fwdProg,
       fwdProg.add(fwdNonLinearity(*graph, out[exp], nl->type, layerPrefix));
     } else if (const auto *m = dynamic_cast<const MaxPool *>(exp)) {
       const auto &in = out[exp->deps().front()];
-      unsigned outDimY, outDimX;
-      std::tie(outDimY, outDimX) = maxpool::getOutputDim(in.dim(2),
-                                                         in.dim(3),
-                                                         m->kernelSizeY,
-                                                         m->kernelSizeX,
-                                                         m->strideY,
-                                                         m->strideX,
-                                                         m->paddingY,
-                                                         m->paddingX);
       const auto batchSize = options.batchSize;
-      out[exp] = graph->addTensor(dType,
-                                  {batchSize,
-                                   in.dim(1),
-                                   outDimY, outDimX,
-                                   in.dim(4)},
-                                  "activations." + std::to_string(layerIndex));
-      mapActivations(*graph, out[exp]);
       if (!options.skipFwd) {
-        fwdProg.add(maxpool::maxPool(*graph,
-                                     m->kernelSizeY, m->kernelSizeX,
-                                     m->strideY, m->strideX,
-                                     m->paddingY, m->paddingX,
-                                     in, out[exp],
-                                     layerPrefix));
+        out[exp] = maxpool::maxPool(*graph,
+                                    m->kernelSizeY, m->kernelSizeX,
+                                    m->strideY, m->strideX,
+                                    m->paddingY, m->paddingX,
+                                    in, fwdProg, layerPrefix);
         fwdFlops += maxpool::getFwdFlops(batchSize,
                                        in.dim(2), in.dim(3),
                                        in.dim(1) * in.dim(4),
@@ -1025,6 +1008,23 @@ void Optimizer::genFwd(Sequence &fwdProg,
                                              m->kernelSizeY, m->kernelSizeX,
                                              m->strideY, m->strideX,
                                              m->paddingY, m->paddingX);
+      } else {
+        // If the forward pass is skipped, an output tensor still needs
+        // to be created.
+        unsigned outDimY, outDimX;
+        std::tie(outDimY, outDimX) = maxpool::getOutputDim(in.dim(2),
+                                                           in.dim(3),
+                                                           m->kernelSizeY,
+                                                           m->kernelSizeX,
+                                                           m->strideY,
+                                                           m->strideX,
+                                                           m->paddingY,
+                                                           m->paddingX);
+        out[exp] = graph->addTensor(dType,
+                                    {batchSize, in.dim(1), outDimY, outDimX,
+                                     in.dim(4)},
+                                    "maxPoolOut");
+        mapActivations(*graph, out[exp]);
       }
     } else if (const auto *fc = dynamic_cast<const FullyConnected *>(exp)) {
       const auto prev = exp->deps().front();
@@ -1338,15 +1338,14 @@ void Optimizer::genBwd(Sequence &bwdProg,
                                      layerPrefix));
     } else if (const auto *m = dynamic_cast<const MaxPool *>(exp)) {
       if (backwardPassRequired && !options.skipBwd) {
-        createInGradients(exp, layerIndex);
-        auto &inGrad = inGradient[exp][0];
-        bwdProg.add(maxpool::maxPoolBackward(*graph,
-                                             m->kernelSizeY, m->kernelSizeX,
-                                             m->strideY, m->strideX,
-                                             m->paddingY, m->paddingX,
-                                             in, out[exp],
-                                             outGradient, inGrad,
-                                             layerPrefix));
+        inGradient[exp].push_back(
+          maxpool::maxPoolInputGradient(*graph,
+                                        m->kernelSizeY, m->kernelSizeX,
+                                        m->strideY, m->strideX,
+                                        m->paddingY, m->paddingX,
+                                        in, out[exp], outGradient, bwdProg,
+                                        layerPrefix)
+        );
         bwdFlops += maxpool::getBwdFlops(batchSize,
                                          in.dim(2), in.dim(3),
                                          in.dim(1) * in.dim(4),
@@ -1360,6 +1359,10 @@ void Optimizer::genBwd(Sequence &bwdProg,
                                              m->kernelSizeY, m->kernelSizeX,
                                              m->strideY, m->strideX,
                                              m->paddingY, m->paddingX);
+      } else {
+        // Create the correct shaped tensor even if we skip the backwards
+        // pass.
+        createInGradients(exp, layerIndex);
       }
     } else if (dynamic_cast<const ResidualAdd *>(exp)) {
       // Set the input gradient to both inputs to be the same, even

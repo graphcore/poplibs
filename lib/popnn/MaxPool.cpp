@@ -105,10 +105,10 @@ struct Pixel {
 };
 }
 
-Program maxPool(Graph &graph,  unsigned kernelSizeY, unsigned kernelSizeX,
-                unsigned strideY, unsigned strideX,
-                unsigned paddingY, unsigned paddingX,
-                Tensor in, Tensor out, const std::string &debugPrefix) {
+Tensor maxPool(Graph &graph,  unsigned kernelSizeY, unsigned kernelSizeX,
+               unsigned strideY, unsigned strideX,
+               unsigned paddingY, unsigned paddingX,
+               Tensor in, Sequence &prog, const std::string &debugPrefix) {
   const auto dType = graph.getTensorElementType(in);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
@@ -116,11 +116,9 @@ Program maxPool(Graph &graph,  unsigned kernelSizeY, unsigned kernelSizeX,
                          + std::to_string(kernelSizeX) + "x"
                          + std::to_string(kernelSizeY);
   ComputeSet cs = graph.addComputeSet(layerName);
+  auto inChansPerGroup = in.dim(4);
   // Turn the tensors back into their natural dimensions of
   // {batch x height x width x channels}.
-  out = out.dimShuffle({0, 2, 3, 1, 4})
-           .reshape({out.dim(0), out.dim(2), out.dim(3),
-                     out.dim(1) * out.dim(4)});
   in = in.dimShuffle({0, 2, 3, 1, 4})
          .reshape({in.dim(0), in.dim(2), in.dim(3),
                    in.dim(1) * in.dim(4)});
@@ -129,22 +127,19 @@ Program maxPool(Graph &graph,  unsigned kernelSizeY, unsigned kernelSizeX,
   const auto inHeight = in.dim(1);
   const auto inWidth = in.dim(2);
   const auto numChannels = in.dim(3);
-  const auto outHeight = out.dim(1);
-  const auto outWidth = out.dim(2);
-  unsigned expectedOutHeight, expectedOutWidth;
-  tie(expectedOutHeight, expectedOutWidth) =
+  unsigned outHeight, outWidth;
+  tie(outHeight, outWidth) =
       getOutputDim(inHeight, inWidth, kernelSizeY, kernelSizeX, strideY,
                    strideX, paddingY, paddingX);
 
-  if (out.dim(0) != batchSize)
-    throw popnn::popnn_error("Input and output batchsize does not match");
-  if (out.dim(3) != numChannels)
-    throw popnn::popnn_error("Input and output number of channels does not "
-                             "match");
-  if (outHeight != expectedOutHeight)
-    throw popnn::popnn_error("Input and output height dimensions do not match");
-  if (outWidth != expectedOutWidth)
-     throw popnn::popnn_error("Input and output width dimensions do not match");
+  // Create output
+  auto out0 = graph.addTensor(dType, {batchSize, numChannels / inChansPerGroup,
+                                      outHeight, outWidth, inChansPerGroup},
+                              debugPrefix + "/maxPooled");
+  mapActivations(graph, out0);
+  auto out = out0.dimShuffle({0, 2, 3, 1, 4})
+                 .reshape({out0.dim(0), out0.dim(2), out0.dim(3),
+                           out0.dim(1) * out0.dim(4)});
 
   const auto numTiles = deviceInfo.getNumTiles();
   auto outTileMapping = graph.getTileMapping(out);
@@ -226,67 +221,73 @@ Program maxPool(Graph &graph,  unsigned kernelSizeY, unsigned kernelSizeX,
     }
   }
 
-  return Execute(cs);
+  prog.add(Execute(cs));
+  return out0;
 }
 
-Program
-maxPoolBackward(Graph &graph,
-                unsigned kernelSizeY, unsigned kernelSizeX,
-                unsigned strideY, unsigned strideX,
-                unsigned paddingY, unsigned paddingX,
-                Tensor fwdIn, Tensor fwdPooled,
-                Tensor bwdIn, Tensor bwdOut,
-                const std::string &debugPrefix) {
-  const auto dType = graph.getTensorElementType(fwdIn);
+Tensor
+maxPoolInputGradient(Graph &graph, unsigned kernelSizeY, unsigned kernelSizeX,
+                     unsigned strideY, unsigned strideX, unsigned paddingY,
+                     unsigned paddingX, Tensor in, Tensor pooled,
+                     Tensor pooledGradient, Sequence &prog,
+                     const std::string &debugPrefix) {
+  const auto dType = graph.getTensorElementType(in);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto layerName = debugPrefix + "/MaxPoolBwd"
                          + std::to_string(kernelSizeX) + "x"
                          + std::to_string(kernelSizeY);
   ComputeSet cs = graph.addComputeSet(layerName);
+  const auto outGradientChansPerGroup = pooledGradient.dim(4);
   // Turn the tensors back into their natural dimensions of
   // {batch x height x width x channels}.
-  bwdIn = bwdIn.dimShuffle({0, 2, 3, 1, 4})
-         .reshape({bwdIn.dim(0), bwdIn.dim(2), bwdIn.dim(3),
-                   bwdIn.dim(1) * bwdIn.dim(4)});
-  bwdOut = bwdOut.dimShuffle({0, 2, 3, 1, 4})
-           .reshape({bwdOut.dim(0), bwdOut.dim(2), bwdOut.dim(3),
-                     bwdOut.dim(1) * bwdOut.dim(4)});
-  fwdIn = fwdIn.dimShuffle({0, 2, 3, 1, 4})
-               .reshape({fwdIn.dim(0), fwdIn.dim(2),
-                         fwdIn.dim(3), fwdIn.dim(1) * fwdIn.dim(4)});
-  fwdPooled = fwdPooled.dimShuffle({0, 2, 3, 1, 4})
-                 .reshape({fwdPooled.dim(0), fwdPooled.dim(2),
-                           fwdPooled.dim(3),
-                           fwdPooled.dim(1) * fwdPooled.dim(4)});
+  pooledGradient =
+      pooledGradient.dimShuffle({0, 2, 3, 1, 4})
+                    .reshape({pooledGradient.dim(0), pooledGradient.dim(2),
+                              pooledGradient.dim(3),
+                              pooledGradient.dim(1) * pooledGradient.dim(4)});
+  in = in.dimShuffle({0, 2, 3, 1, 4})
+         .reshape({in.dim(0), in.dim(2),
+                         in.dim(3), in.dim(1) * in.dim(4)});
+  pooled = pooled.dimShuffle({0, 2, 3, 1, 4})
+                 .reshape({pooled.dim(0), pooled.dim(2),
+                           pooled.dim(3),
+                           pooled.dim(1) * pooled.dim(4)});
 
-  const auto batchSize = bwdIn.dim(0);
-  const auto inHeight = bwdIn.dim(1);
-  const auto inWidth = bwdIn.dim(2);
-  const auto numChannels = bwdIn.dim(3);
+  const auto batchSize = pooledGradient.dim(0);
+  const auto outHeight = pooledGradient.dim(1);
+  const auto outWidth = pooledGradient.dim(2);
+  const auto numChannels = pooledGradient.dim(3);
+  const auto inHeight = in.dim(1);
+  const auto inWidth = in.dim(2);
 
-  if (bwdOut.dim(0) != batchSize)
-    throw popnn::popnn_error("Input and output batchsize does not match");
-  if (bwdOut.dim(3) != numChannels)
-    throw popnn::popnn_error("Input and output number of channels does not "
-                             "match");
-  if (fwdIn.dim(0) != batchSize || fwdPooled.dim(0) != batchSize)
+  if (in.dim(0) != batchSize || pooled.dim(0) != batchSize)
     throw popnn::popnn_error("Forward pass batch size does not match gradient"
                              "calculation pass");
-  if (fwdIn.dim(3) != numChannels || fwdPooled.dim(3) != numChannels)
+  if (in.dim(3) != numChannels || pooled.dim(3) != numChannels)
     throw popnn::popnn_error("Forward pass number of channels does not match "
                              "gradient calculation pass");
-  if (fwdIn.dim(1) != bwdOut.dim(1) || fwdIn.dim(2) != bwdOut.dim(2))
-    throw popnn::popnn_error("Forward pass input height and width does not "
-                             "match gradient calculation output height and "
-                             "width");
-  if (fwdPooled.dim(1) != bwdIn.dim(1) || fwdPooled.dim(2) != bwdIn.dim(2))
+  if (pooled.dim(1) != pooledGradient.dim(1) ||
+      pooled.dim(2) != pooledGradient.dim(2))
     throw popnn::popnn_error("Forward pass output height and width does not "
                              "match gradient calculation input height and "
                              "width");
 
+  auto inGradient0 = graph.addTensor(dType,
+                                     {batchSize,
+                                      numChannels / outGradientChansPerGroup,
+                                      inHeight, inWidth,
+                                      outGradientChansPerGroup},
+                                     debugPrefix + "/maxPoolInGradient");
+  mapActivations(graph, inGradient0);
+  auto inGradient =
+      inGradient0.dimShuffle({0, 2, 3, 1, 4})
+                 .reshape({inGradient0.dim(0), inGradient0.dim(2),
+                           inGradient0.dim(3),
+                           inGradient0.dim(1) * inGradient0.dim(4)});
+
   const auto numTiles = deviceInfo.getNumTiles();
-  auto outTileMapping = graph.getTileMapping(bwdOut);
+  auto outTileMapping = graph.getTileMapping(inGradient);
 
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     // On each tile split the elements of the output up between the workers.
@@ -300,25 +301,25 @@ maxPoolBackward(Graph &graph,
         splitRegionsBetweenWorkers(deviceInfo, outTileMapping[tile],
                                    grainSize, 2 * grainSize);
     for (const auto &regions : vertexRegions) {
-      // A list of output vectors for the vertex to update
-      std::vector<Tensor> vertexOut;
+      // A list of input gradient vectors for the vertex to update
+      std::vector<Tensor> vertexInGrad;
       // A list of input vectors from the forward pass (the activations
       // of the previous layer).
-      std::vector<Tensor> vertexFwdIn;
-      // A list of input vectors which is kernelSize times bigger than
-      // vertexOut. Each output element in vertexOut corresponds to
-      // kernlSize number of input elements in vertexIn.
       std::vector<Tensor> vertexIn;
+      // A list of output gradient vectors which is kernelSize times
+      // bigger than vertexOut. Each output element in vertexOut corresponds to
+      // kernelSize number of input elements in vertexIn.
+      std::vector<Tensor> vertexPooledGrad;
       // A list of output vectors from the forward pass (the activations
       // going into the next layer).
-      std::vector<Tensor> vertexFwdOut;
+      std::vector<Tensor> vertexPooled;
       std::vector<unsigned> windowSizes;
       for (const auto &region : regions) {
         // For each contiguous regions of output points group them by
         // pixel location.
         std::map<Pixel, std::vector<std::size_t>> groupedByPixel;
         for (unsigned i = region.begin(); i < region.end(); ++i) {
-          auto coord = unflattenIndex(bwdOut.shape(), i);
+          auto coord = unflattenIndex(inGradient.shape(), i);
           auto pixel = Pixel(coord[0], coord[1], coord[2]);
           auto channel = coord[3];
           groupedByPixel[pixel].push_back(channel);
@@ -333,47 +334,50 @@ maxPoolBackward(Graph &graph,
           const auto y = pixel.y;
           const auto x = pixel.x;
           const auto &channels = entry.second;
-          Tensor outVector = graph.addTensor(dType, {0}, "");
-          Tensor fwdInVector = graph.addTensor(dType, {0}, "");
+          Tensor inGradVector = graph.addTensor(dType, {0}, "");
+          Tensor inVector = graph.addTensor(dType, {0}, "");
           for (const auto chan : channels) {
-            outVector = append(outVector, bwdOut[batch][y][x][chan]);
-            fwdInVector = append(fwdInVector, fwdIn[batch][y][x][chan]);
+            inGradVector = append(inGradVector, inGradient[batch][y][x][chan]);
+            inVector = append(inVector, in[batch][y][x][chan]);
           }
-          vertexOut.push_back(outVector);
-          vertexFwdIn.push_back(fwdInVector);
+          vertexInGrad.push_back(inGradVector);
+          vertexIn.push_back(inVector);
           unsigned windowSize = 0;
           for (unsigned ky = 0; ky < kernelSizeY; ++ky) {
-            auto inY = getInputIndex(y, strideY, kernelSizeY, paddingY,
-                                     inHeight, ky, true);
-            if (inY == ~0U)
+            auto outY = getInputIndex(y, strideY, kernelSizeY, paddingY,
+                                     outHeight, ky, true);
+            if (outY == ~0U)
               continue;
             for (unsigned kx = 0; kx < kernelSizeX; ++kx) {
-              auto inX = getInputIndex(x, strideX, kernelSizeX, paddingX,
-                                       inWidth, kx, true);
-              if (inX == ~0U)
+              auto outX = getInputIndex(x, strideX, kernelSizeX, paddingX,
+                                       outWidth, kx, true);
+              if (outX == ~0U)
                 continue;
-              Tensor inVector = graph.addTensor(dType, {0}, "");
-              Tensor fwdOutVector = graph.addTensor(dType, {0}, "");
+              Tensor pooledGradVector = graph.addTensor(dType, {0}, "");
+              Tensor pooledVector = graph.addTensor(dType, {0}, "");
               for (const auto chan : channels) {
-                inVector = append(inVector, bwdIn[batch][inY][inX][chan]);
-                fwdOutVector = append(fwdOutVector,
-                                      fwdPooled[batch][inY][inX][chan]);
+                pooledGradVector =
+                    append(pooledGradVector,
+                           pooledGradient[batch][outY][outX][chan]);
+                pooledVector = append(pooledVector,
+                                      pooled[batch][outY][outX][chan]);
               }
-              vertexIn.push_back(inVector);
-              vertexFwdOut.push_back(fwdOutVector);
+              vertexPooledGrad.push_back(pooledGradVector);
+              vertexPooled.push_back(pooledVector);
               ++windowSize;
             }
           }
           windowSizes.push_back(windowSize);
         }
       }
-      assert(vertexFwdIn.size() == vertexOut.size());
-      assert(vertexFwdOut.size() == vertexIn.size());
-      auto v = graph.addVertex(cs, templateVertex("popnn::MaxPoolingBwd",
+      assert(vertexIn.size() == vertexInGrad.size());
+      assert(vertexPooled.size() == vertexIn.size());
+      auto v = graph.addVertex(cs, templateVertex("popnn::MaxPoolingGrad",
                                                   dType),
-                               {{"in", vertexIn}, {"out", vertexOut},
-                                {"fwdIn", vertexFwdIn},
-                                {"fwdOut", vertexFwdOut}});
+                               {{"outGrad", vertexPooledGrad},
+                                {"inGrad", vertexInGrad},
+                                {"in", vertexIn},
+                                {"out", vertexPooled}});
       graph.setTileMapping(v, tile);
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setFieldSize(v["windowSizes"], windowSizes.size());
@@ -382,7 +386,8 @@ maxPoolBackward(Graph &graph,
     }
   }
 
-  return Execute(cs);
+  prog.add(Execute(cs));
+  return inGradient0;
 }
 
 

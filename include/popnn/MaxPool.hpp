@@ -43,23 +43,23 @@ double getBwdPerfectCycleCount(const poplar::Graph &graph,
                                unsigned strideY, unsigned strideX,
                                unsigned paddingY, unsigned paddingX);
 
-poplar::program::Program
-maxPool(poplar::Graph &graph,
-        unsigned kernelSizeY, unsigned kernelSizeX,
-        unsigned strideY, unsigned strideX,
-        unsigned paddingY, unsigned paddingX,
-        poplar::Tensor in, poplar::Tensor out,
+poplar::Tensor
+maxPool(poplar::Graph &graph, unsigned kernelSizeY, unsigned kernelSizeX,
+        unsigned strideY, unsigned strideX, unsigned paddingY,
+        unsigned paddingX, poplar::Tensor in, poplar::program::Sequence &prog,
         const std::string &debugPrefix = "");
 
-poplar::program::Program
-maxPoolBackward(poplar::Graph &graph,
-                unsigned kernelSizeY, unsigned kernelSizeX,
-                unsigned strideY, unsigned strideX,
-                unsigned paddingY, unsigned paddingX,
-                poplar::Tensor actIn,
-                poplar::Tensor actOut, poplar::Tensor deltasIn,
-                poplar::Tensor deltasOut,
-                const std::string &debugPrefix = "");
+// Calculate the gradient w.r.t. to the input of a max pooling operation given
+// the gradient of the output.
+poplar::Tensor
+maxPoolInputGradient(poplar::Graph &graph, unsigned kernelSizeY,
+                     unsigned kernelSizeX, unsigned strideY, unsigned strideX,
+                     unsigned paddingY, unsigned paddingX,
+                     poplar::Tensor in,
+                     poplar::Tensor pooled,
+                     poplar::Tensor pooledGradient,
+                     poplar::program::Sequence &prog,
+                     const std::string &debugPrefix = "");
 }
 
 #endif  // __MaxPool_hpp__

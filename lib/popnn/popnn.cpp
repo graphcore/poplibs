@@ -1217,26 +1217,26 @@ template class MaxPooling<half>;
 
 
 template <typename FPType>
-class MaxPoolingBwd : public Vertex {
+class MaxPoolingGrad : public Vertex {
 public:
+  Vector<Input<Vector<FPType>>> outGrad;
   Vector<Input<Vector<FPType>>> in;
-  Vector<Input<Vector<FPType>>> fwdIn;
-  Vector<Input<Vector<FPType>>> fwdOut;
-  Vector<Output<Vector<FPType>>> out;
+  Vector<Input<Vector<FPType>>> out;
+  Vector<Output<Vector<FPType>>> inGrad;
   Vector<unsigned> windowSizes;
 
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     unsigned inIndex = 0;
-    for (unsigned i = 0; i < out.size(); ++i) {
-      for (unsigned chan = 0; chan < out[i].size(); ++chan) {
+    for (unsigned i = 0; i < inGrad.size(); ++i) {
+      for (unsigned chan = 0; chan < inGrad[i].size(); ++chan) {
         FPType val = 0;
         for (auto w = 0; w < windowSizes[i]; ++w) {
-          if (fwdIn[i][chan] == fwdOut[inIndex + w][chan])
-            val += in[inIndex + w][chan];
+          if (in[i][chan] == out[inIndex + w][chan])
+            val += outGrad[inIndex + w][chan];
         }
-        out[i][chan] = val;
+        inGrad[i][chan] = val;
       }
       inIndex += windowSizes[i];
     }
@@ -1257,8 +1257,8 @@ public:
     // getacc
     // double
     // store
-    for (unsigned i = 0; i < out.size(); ++i) {
-      auto numVectors = (out[i].size() + vectorWidth - 1) / vectorWidth;
+    for (unsigned i = 0; i < inGrad.size(); ++i) {
+      auto numVectors = (inGrad[i].size() + vectorWidth - 1) / vectorWidth;
       auto windowSize = windowSizes[i];
       // TODO: This is too optimistic
       numCycles += 5 + numVectors * (5 + windowSize * 3);
@@ -1267,8 +1267,8 @@ public:
   }
 };
 
-template class MaxPoolingBwd<float>;
-template class MaxPoolingBwd<half>;
+template class MaxPoolingGrad<float>;
+template class MaxPoolingGrad<half>;
 
 template <typename FPType, typename LabelType>
 class CalcLoss : public Vertex {
