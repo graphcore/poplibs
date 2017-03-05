@@ -228,40 +228,42 @@ inline uint64_t getWgdCompleteCycles(
   return 5 + numChannels/divFactor;
 }
 
-inline uint64_t getNonLinearityCycles(unsigned numActivations,
+inline uint64_t getNonLinearityCycles(std::vector<unsigned> regionSizes,
                                       NonLinearityType nonLinearityType,
                                       bool isFloat,
                                       unsigned dataPathWidth)
 {
-  const auto floatVectorWidth = dataPathWidth / 32;
-  const auto halfVectorWidth =  dataPathWidth / 16;
-  const auto overhead = 15;
-  switch (nonLinearityType) {
-  case NON_LINEARITY_NONE:
-  case NON_LINEARITY_RELU:
-    {
-      const unsigned vertexOverhead = 2      // run instruction
-                                      + 12;   // overhead (assuming pointers)
-      unsigned cycles = vertexOverhead;
-
-      const unsigned numBlocks = isFloat ?
-                (numActivations + floatVectorWidth - 1) / floatVectorWidth :
-                (numActivations + halfVectorWidth - 1) / halfVectorWidth;
-      cycles += (numBlocks / 2) * 3 + (numBlocks & 1);
-      return cycles;
-    }
-  case NON_LINEARITY_SIGMOID:
-    // scalar operation for floats, vector operation for halves
-    // transcendtal operations are ~10cyles for float, ~1cycles for half
-    if (isFloat) {
-      return overhead + numActivations * 10;
-    } else {
-      return overhead + (numActivations + halfVectorWidth - 1)
-                        / halfVectorWidth;
+  uint64_t cycles = 5; // vertex overhead
+  for (const auto numItems : regionSizes) {
+    const auto floatVectorWidth = dataPathWidth / 32;
+    const auto halfVectorWidth =  dataPathWidth / 16;
+    cycles += 10; // Loop overhead
+    switch (nonLinearityType) {
+    case NON_LINEARITY_NONE:
+    case NON_LINEARITY_RELU:
+      {
+        const unsigned numBlocks = isFloat ?
+                  (numItems + floatVectorWidth - 1) / floatVectorWidth :
+                  (numItems+ halfVectorWidth - 1) / halfVectorWidth;
+        cycles += (numBlocks / 2) * 3 + (numBlocks & 1);
+      }
+      break;
+    case NON_LINEARITY_SIGMOID:
+      // scalar operation for floats, vector operation for halves
+      // transcendtal operations are ~10cyles for float, ~1cycles for half
+      if (isFloat) {
+        cycles += numItems * 10;
+      } else {
+        cycles += (numItems + halfVectorWidth - 1) / halfVectorWidth;
+      }
+      break;
+    default:
+      throw std::runtime_error("Invalid nonlinearity type");
     }
   }
-  throw std::runtime_error("Invalid nonlinearity type");
+  return cycles;
 }
+
 
 
 inline uint64_t getBwdNonlinearityDerivativeCycles(

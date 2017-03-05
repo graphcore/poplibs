@@ -985,7 +985,7 @@ void Optimizer::genFwd(Sequence &fwdProg,
       out[exp] = graph->addTensor(dType, in.shape(), "out");
       mapActivations(*graph, out[exp]);
       fwdProg.add(Copy(in, out[exp]));
-      fwdProg.add(fwdNonLinearity(*graph, out[exp], nl->type, layerPrefix));
+      nonLinearity(*graph, nl->type, out[exp], fwdProg, layerPrefix);
     } else if (const auto *m = dynamic_cast<const MaxPool *>(exp)) {
       const auto &in = out[exp->deps().front()];
       const auto batchSize = options.batchSize;
@@ -1371,10 +1371,10 @@ void Optimizer::genBwd(Sequence &bwdProg,
       inGradient[exp].push_back(outGradient);
       inGradient[exp].push_back(outGradient);
     } else if (const auto *nl = dynamic_cast<const NonLinearity *>(exp)) {
-      createInGradients(exp, layerIndex);
-      auto &inGrad = inGradient[exp][0];
-      bwdProg.add(bwdNonLinearity(*graph, out[exp], outGradient, inGrad,
-                                  nl->type, layerPrefix));
+      inGradient[exp].push_back(
+        nonLinearityInputGradient(*graph, nl->type, out[exp], outGradient,
+                                  bwdProg, layerPrefix)
+      );
     } else {
       throw popnn::popnn_error("Unrecognized layer type");
     }

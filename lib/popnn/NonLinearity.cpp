@@ -8,94 +8,91 @@
 using namespace poplar;
 using namespace poplar::program;
 
-Program
-bwdNonLinearity(Graph &graph,
-                Tensor batchActivations, Tensor batchDeltasIn,
-                Tensor batchZDeltas,
-                NonLinearityType nonLinearityType,
-                const std::string &debugPrefix) {
-  auto bwdNonLinearityCS = graph.addComputeSet(debugPrefix
-                                                  + "/NonLinearity/Bwd");
-  auto prog = Sequence();
-  const auto batchSize = batchActivations.dim(0);
-  for (unsigned b = 0; b != batchSize; ++b) {
-    auto activations = batchActivations[b];
-    auto deltasIn = batchDeltasIn[b];
-    auto zDeltas = batchZDeltas[b];
-    const auto dType = graph.getTensorElementType(activations);
-    const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-    const auto dataPathWidth = deviceInfo.dataPathWidth;
-    auto deltasInMapping = computeActivationsMapping(graph, activations,
-                                                     b, batchSize);
-    deltasIn = deltasIn.flatten();
-    Tensor regroupedActs;
-    // TODO: This could possible be made more efficient by merging the
-    // regrouping with the calculation of the non linearity derivative.
-    if (activations.rank() == 1 ||
-        activations.dim(3) == zDeltas.dim(3)) {
-      regroupedActs = activations;
-    } else {
-      auto dType = graph.getTensorElementType(activations);
-      regroupedActs = graph.addTensor(dType, zDeltas.shape(), "regroupedActs");
-      auto mapping = computeActivationsMapping(graph, regroupedActs,
-                                               b, batchSize);
-      applyTensorMapping(graph, regroupedActs, mapping);
-      prog.add(Copy(regroup(activations, zDeltas.dim(3)), regroupedActs));
-    }
-    buildTransform(deltasInMapping, graph, [&](unsigned deltaBegin,
-                   unsigned deltaEnd,
-                   unsigned tile) {
-      auto v =
-          graph.addVertex(bwdNonLinearityCS,
-                          templateVertex("popnn::NonLinearityBwd", dType),
-      {{"deltasIn",
-        deltasIn.flatten().slice(deltaBegin, deltaEnd)},
-       {"activations",
-        regroupedActs.flatten().slice(deltaBegin, deltaEnd)},
-       {"deltasOut",
-        zDeltas.flatten().slice(deltaBegin, deltaEnd)},
-                          });
+Tensor
+nonLinearityInputGradient(Graph &graph,
+                          NonLinearityType nonLinearityType,
+                          Tensor out, Tensor outGradient,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix) {
+  auto cs = graph.addComputeSet(debugPrefix + "/NonLinearityGrad");
+  const auto dType = graph.getTensorElementType(out);
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto dataPathWidth = deviceInfo.dataPathWidth;
+  auto inGradient = graph.addTensor(dType, outGradient.shape(),
+                                    debugPrefix + "/NonLinearityGrad");
+  graph.setTileMapping(inGradient, graph.getTileMapping(outGradient));
+
+  Tensor outRegrouped;
+  // TODO: This could possible be made more efficient by merging the
+  // regrouping with the calculation of the non linearity derivative.
+  if (out.rank() == 2 ||
+      out.dim(4) == out.dim(4)) {
+    outRegrouped = out;
+  } else {
+    outRegrouped = graph.addTensor(dType, outGradient.shape(), "regroupedActs");
+    mapActivations(graph, outRegrouped);
+    prog.add(Copy(regroup(out, outGradient.dim(4)), outRegrouped));
+  }
+  auto outFlat = outRegrouped.flatten();
+  auto outGradFlat = outGradient.flatten();
+  auto inGradFlat = inGradient.flatten();
+  auto inGradMapping = graph.getTileMapping(inGradFlat);
+  const auto numTiles = deviceInfo.getNumTiles();
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    // On each tile split the elements of the output up between the workers.
+    // The grainSize is set to the vector width so vectors will not be split
+    // up when allocating work to vertices.
+    // The minimum amount of work per vertex is set to 2 * vectorwidth to
+    // balance memory and loop overhead against parallel performance.
+    const auto grainSize = dType == "float" ? deviceInfo.getFloatVectorWidth()
+                                            : deviceInfo.getHalfVectorWidth();
+    auto vertexRegions =
+        splitRegionsBetweenWorkers(deviceInfo, inGradMapping[tile],
+                                   grainSize, 2 * grainSize);
+    for (const auto &regions : vertexRegions) {
+      auto v = graph.addVertex(cs, templateVertex("popnn::NonLinearityGrad",
+                                                  dType),
+                               {{"out", outFlat.slices(regions)},
+                                {"outGrad", outGradFlat.slices(regions)},
+                                {"inGrad", inGradFlat.slices(regions)}});
       graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setTileMapping(v, tile);
-    });
+    }
   }
-  prog.add(Execute(bwdNonLinearityCS));
-  return prog;
+
+  prog.add(Execute(cs));
+  return inGradient;
 }
 
-Program
-fwdNonLinearity(Graph &graph,
-                Tensor activations,
-                NonLinearityType nonLinearityType,
-                const std::string &debugPrefix) {
-  auto prog = Sequence();
-  const auto dType = graph.getTensorElementType(activations);
+void nonLinearity(Graph &graph, NonLinearityType nonLinearityType,
+                  Tensor t, Sequence &prog, const std::string &debugPrefix) {
+  const auto dType = graph.getTensorElementType(t);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  ComputeSet nonLinCs = graph.addComputeSet(debugPrefix
-                                               + "/Nonlinearity/Fwd");
-  prog.add(Execute(nonLinCs));
-  const auto batchSize = activations.dim(0);
-  for (unsigned b = 0; b < batchSize; b++) {
-
-    const auto &activationMapping =
-      computeActivationsMapping(graph, activations[b], b, batchSize);
-    buildTransform(activationMapping, graph, [&](unsigned deltaBegin,
-                                                 unsigned deltaEnd,
-                                                 unsigned tile)
-      {
-        auto v =
-          graph.addVertex(
-              nonLinCs,
-              templateVertex("popnn::NonLinearityFwd", dType),
-              {{"activationIn", activations[b].flatten().slice(deltaBegin,
-                                                            deltaEnd)},
-               {"activationOut", activations[b].flatten().slice(deltaBegin,
-                                                             deltaEnd)}});
-        graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
-        graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
-        graph.setTileMapping(v, tile);
-      });
+  const auto dataPathWidth = deviceInfo.dataPathWidth;
+  ComputeSet cs = graph.addComputeSet(debugPrefix + "/Nonlinearity");
+  auto mapping = graph.getTileMapping(t);
+  const auto numTiles = deviceInfo.getNumTiles();
+  const auto tFlat = t.flatten();
+  const auto vectorWidth = dType == "float" ? deviceInfo.getFloatVectorWidth()
+                                            : deviceInfo.getHalfVectorWidth();
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    // On each tile split the elements of the output up between the workers.
+    // The grainSize is set to the vector width so vectors will not be split
+    // up when allocating work to vertices.
+    // The minimum amount of work per vertex is set to 2 * vectorwidth to
+    // balance memory and loop overhead against parallel performance.
+    auto vertexRegions =
+        splitRegionsBetweenWorkers(deviceInfo, mapping[tile],
+                                   vectorWidth, 2 * vectorWidth);
+    for (const auto &regions : vertexRegions) {
+      auto v = graph.addVertex(cs, templateVertex("popnn::NonLinearity",
+                                                  dType),
+                               {{"data", tFlat.slices(regions)}});
+      graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
+      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
+      graph.setTileMapping(v, tile);
+    }
   }
-  return prog;
+  prog.add(Execute(cs));
 }

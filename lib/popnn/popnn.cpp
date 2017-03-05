@@ -100,31 +100,34 @@ template class FullyConnectedPartial<float>;
 template class FullyConnectedPartial<half>;
 
 template <typename FPType>
-class NonLinearityFwd : public Vertex {
+class NonLinearity : public Vertex {
 public:
-  Input<Vector<FPType>> activationIn;
+  Vector<InOut<Vector<FPType>>> data;
   NonLinearityType nonLinearityType;
-  Output<Vector<FPType>> activationOut;
 
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    for (unsigned i = 0; i < activationIn.size(); ++i) {
-      activationOut[i] = nonlinearity(nonLinearityType, activationIn[i]);
+    for (unsigned i = 0; i < data.size(); ++i) {
+      for (unsigned j = 0; j < data[i].size(); ++j) {
+        data[i][j] = nonlinearity(nonLinearityType, data[i][j]);
+      }
     }
     return true;
   }
 
   uint64_t getCycleEstimate() const {
     bool isFloat = std::is_same<FPType, float>::value;
-    return getNonLinearityCycles(activationIn.size(), nonLinearityType,
-                                 isFloat, dataPathWidth);
-
+    std::vector<unsigned> regionSizes;
+    for (const auto region : data)
+      regionSizes.push_back(region.size());
+    return getNonLinearityCycles(regionSizes, nonLinearityType, isFloat,
+                                 dataPathWidth);
   }
 };
 
-template class NonLinearityFwd<float>;
-template class NonLinearityFwd<half>;
+template class NonLinearity<float>;
+template class NonLinearity<half>;
 
 template <typename FPType>
 class FullyConnectedReduce : public Vertex {
@@ -655,36 +658,57 @@ template class ConvBiasUpdate<float>;
 template class ConvBiasUpdate<half>;
 
 template <typename FPType>
-class NonLinearityBwd : public Vertex {
+class NonLinearityGrad : public Vertex {
 public:
-  Input<Vector<FPType>> deltasIn;
-  Input<Vector<FPType>> activations;
-  Output<Vector<FPType>> deltasOut;
+  Vector<Input<Vector<FPType>>> outGrad;
+  Vector<Input<Vector<FPType>>> out;
+  Vector<Output<Vector<FPType>>> inGrad;
   NonLinearityType nonLinearityType;
 
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(deltasIn.size() == deltasOut.size());
-    assert(deltasIn.size() == activations.size());
-    for (unsigned i = 0; i < deltasIn.size(); ++i) {
-      deltasOut[i] = deltasIn[i] * nonlinearity_derivative(nonLinearityType,
-                                                           activations[i]);
+    for (unsigned i = 0; i < inGrad.size(); ++i) {
+      assert(outGrad[i].size() == inGrad[i].size());
+      assert(outGrad[i].size() == out[i].size());
+      for (unsigned j = 0; j < outGrad[i].size(); ++j) {
+        inGrad[i][j] =
+            outGrad[i][j] * nonlinearity_derivative(nonLinearityType,
+                                                    out[i][j]);
+      }
     }
     return true;
   }
 
   uint64_t getCycleEstimate() const {
     bool isFloat = std::is_same<FPType, float>::value;
-    return getBwdNonlinearityDerivativeCycles(deltasIn.size(),
-                                              nonLinearityType,
-                                              isFloat,
-                                              dataPathWidth);
+    uint64_t cycles = 5;
+    for (unsigned i = 0; i < inGrad.size(); ++i) {
+      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+      unsigned numVectors = (inGrad[i].size() + vectorWidth - 1) / vectorWidth;
+      switch (nonLinearityType) {
+      case NON_LINEARITY_SIGMOID:
+        cycles += 5 + numVectors * 3;
+        break;
+      case NON_LINEARITY_RELU: {
+        const unsigned vertexOverhead = 2    // run instruction
+                                        + 7; // remaining vertex overhead
+        cycles += vertexOverhead + numVectors * 3;
+        }
+        break;
+      case NON_LINEARITY_NONE:
+        cycles +=  5 + numVectors;
+        break;
+      default:
+        throw std::runtime_error("Invalid nonlinearity type");
+      }
+    }
+    return cycles;
   }
 };
 
-template class NonLinearityBwd<float>;
-template class NonLinearityBwd<half>;
+template class NonLinearityGrad<float>;
+template class NonLinearityGrad<half>;
 
 /**
  * Compute a sum of 1x1 convolutions over a subset of the input channels for
