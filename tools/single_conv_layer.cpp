@@ -24,6 +24,44 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace ref::util;
 
+// class to allow the training pass to be specified
+enum class Pass {
+  FWD,
+  BWD,
+  WU,
+  ALL
+};
+
+const char *asString(const Pass &pass) {
+  switch (pass) {
+  case Pass::ALL: return "all";
+  case Pass::FWD: return "fwd";
+  case Pass::BWD: return "bwd";
+  case Pass::WU:  return "wu";
+  }
+  POPNN_UNREACHABLE();
+}
+
+std::istream &operator>>(std::istream &is, Pass &pass) {
+  std::string token;
+  is >> token;
+  if (token == "all")
+    pass = Pass::ALL;
+  else if (token == "fwd")
+    pass = Pass::FWD;
+  else if (token == "bwd")
+    pass = Pass::BWD;
+  else if (token == "wu")
+    pass = Pass::WU;
+  else
+    throw popnn::popnn_error("Invalid pass <" + token + ">");
+  return is;
+}
+
+std::ostream &operator<<(std::ostream &os, const Pass &pass) {
+  return os << asString(pass);
+}
+
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
@@ -52,6 +90,7 @@ int main(int argc, char **argv) {
   unsigned padding;
   unsigned stride;
   unsigned percentageCyclesExcessForMemOptim;
+  Pass pass = Pass::ALL;
   conv::PlanControl convPlanControl;
 
   po::options_description desc("Options");
@@ -104,7 +143,9 @@ int main(int argc, char **argv) {
      po::value<unsigned>(&bwdOutChansPerGroup),
      "The number of channels per group of the deltas written in the backwards "
      "pass")
-    ("inference-only", "Benchmark inference only")
+    ("single-phase",
+     po::value<Pass>(&pass)->default_value(pass),
+     "Run phase all | fwd | bwd | wu")
     ("tolerance", po::value<double>(&relativeTolerance)->default_value(0.01),
      "Relative tolerance to use when validating results against the reference "
      "model")
@@ -184,7 +225,10 @@ int main(int argc, char **argv) {
     strideW = stride;
   }
 
-  bool inferenceOnly = vm.count("inference-only");
+  bool doFwdPass = pass == Pass::ALL || pass == Pass::FWD;
+  bool doBwdPass = pass == Pass::ALL || pass == Pass::BWD;
+  bool doWuPass = pass == Pass::ALL || pass == Pass::WU;
+
   GraphProgEnv env(popnn::findGraphProg(), GraphProgFileType::Object);
   Graph graph(env, createIPUModelDevice(info));
 
@@ -199,6 +243,7 @@ int main(int argc, char **argv) {
   const auto outWidth = outDims.second;
   // TODO support residual connections.
   conv::Planner planner(percentageCyclesExcessForMemOptim);
+  //Forward plan is always required as bwd/wu passes may use fwd groupings
   auto fwdPlan = planner.createPlan(height, width, fwdInChans,
                                     kernelHeight, kernelWidth,
                                     strideH, strideW,
@@ -218,7 +263,8 @@ int main(int argc, char **argv) {
     bwdPaddingHeight = kernelHeight - 1 - paddingHeight;
   }
   conv::Plan bwdPlan;
-  if (!inferenceOnly)
+  // Backward plan is also needed for WU
+  if (doBwdPass || doWuPass)
     bwdPlan = planner.createPlan(outHeight, outWidth, fwdOutChans,
                                  kernelHeight, kernelWidth,
                                  strideH, strideW,
@@ -237,7 +283,7 @@ int main(int argc, char **argv) {
   const auto bwdInChans = fwdOutChans;
   const auto bwdOutChans = fwdInChans;
   unsigned bwdInChansPerGroup;
-  if (!inferenceOnly) {
+  if (doBwdPass || doWuPass) {
     bwdInChansPerGroup = bwdPlan.inChansPerGroup;
     if (!vm.count("bwd-out-chans-per-group")) {
       bwdOutChansPerGroup = (bwdOutChans % bwdInChansPerGroup == 0) ?
@@ -246,7 +292,7 @@ int main(int argc, char **argv) {
     }
   }
   conv::Plan wuPlan;
-  if (!inferenceOnly)
+  if (doWuPass)
     wuPlan = planner.createWeightUpdatePlan(height, width, fwdInChans,
                                             fwdInChansPerGroup,
                                             bwdInChansPerGroup,
@@ -278,7 +324,7 @@ int main(int argc, char **argv) {
                       "nextAct");
   mapActivations(graph, nextAct);
   Tensor prevDeltas, zDeltas;
-  if (!inferenceOnly) {
+  if (doBwdPass || doWuPass) {
     zDeltas =
         graph.addTensor(dataTypeStr, {batchSize,
                                       bwdInChans / bwdInChansPerGroup,
@@ -286,13 +332,15 @@ int main(int argc, char **argv) {
                                       outWidth, bwdInChansPerGroup},
                         "zDeltas");
     mapActivations(graph, zDeltas);
+  }
+  if (doBwdPass) {
     prevDeltas =
-        graph.addTensor(dataTypeStr, {batchSize,
-                                      bwdOutChans / bwdOutChansPerGroup,
-                                      height,
-                                      width, bwdOutChansPerGroup},
-                        "prevDeltas");
-    mapActivations(graph, prevDeltas);
+          graph.addTensor(dataTypeStr, {batchSize,
+                                        bwdOutChans / bwdOutChansPerGroup,
+                                        height,
+                                        width, bwdOutChansPerGroup},
+                          "prevDeltas");
+      mapActivations(graph, prevDeltas);
   }
 
 
@@ -308,30 +356,41 @@ int main(int argc, char **argv) {
                                                     download);
   std::unique_ptr<char[]> rawHostZDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
-  if (!inferenceOnly) {
+  if (doBwdPass || doWuPass) {
     rawHostZDeltas = allocateHostMemoryForTensor(graph, zDeltas, upload,
                                                  download);
+  }
+  if (doBwdPass) {
     rawHostPrevDeltas = allocateHostMemoryForTensor(graph, prevDeltas, upload,
-                                                    download);
+                                                      download);
   }
 
   auto fwdProg = Sequence();
-  fwdProg.add(conv::convolution(graph, fwdPlan,
-                      strideH, strideW,
-                      paddingHeight, paddingWidth,
-                      prevAct, weights, biases, nextAct,
-                      partialsTypeStr, false));
+  // Always generate the fwd program as it maps the weights and biases. Only
+  // actually create the engined if the fwd pass is to be run
+  {
+    Program program = conv::convolution(graph, fwdPlan,
+                                        strideH, strideW,
+                                        paddingHeight, paddingWidth,
+                                        prevAct, weights, biases, nextAct,
+                                        partialsTypeStr, false);
+    if (doFwdPass)
+      fwdProg.add(program);
+  }
 
-  auto bwdProg = Sequence();
+  auto revProg = Sequence();
   const auto learningRate = 0.5;
-  if (!inferenceOnly) {
-    bwdProg.add(
+
+  if (doBwdPass) {
+    revProg.add(
       conv::convolutionBackward(graph, bwdPlan, zDeltas, weights, prevDeltas,
                                 strideH, strideW,
                                 bwdPaddingHeight, bwdPaddingWidth,
                                 bwdIsFractional)
     );
-    bwdProg.add(
+  }
+  if (doWuPass) {
+    revProg.add(
       conv::convolutionWeightUpdate(graph, wuPlan, fwdPlan,
                                     zDeltas, weights, biases, prevAct,
                                     strideH, strideW, paddingHeight,
@@ -339,8 +398,7 @@ int main(int argc, char **argv) {
     );
   }
   Engine engine(graph, {std::move(upload), std::move(download),
-                        std::move(fwdProg), std::move(bwdProg)});
-
+                        std::move(fwdProg), std::move(revProg)});
 
   boost::multi_array<double, 4>
       hostPrevAct(boost::extents[batchSize][fwdInChans][height][width]);
@@ -366,6 +424,7 @@ int main(int argc, char **argv) {
   engine.run(1); // Download.
 
   // Validate against a reference model.
+  bool matchesModel = true;
   ungroupActivations(dataTypeStr, nextAct.shape(), rawHostNextAct.get(),
                      hostNextAct);
   boost::multi_array<double, 4>
@@ -373,10 +432,12 @@ int main(int argc, char **argv) {
   ref::conv::convolution(strideH, strideW, paddingHeight, paddingWidth,
                          hostPrevAct,
                          hostWeights, hostBiases, modelNextAct);
-  bool matchesModel = checkIsClose("fwd", hostNextAct, modelNextAct,
-                                   relativeTolerance);
+  if (doFwdPass) {
+    matchesModel &= checkIsClose("fwd", hostNextAct, modelNextAct,
+                                 relativeTolerance);
+  }
 
-  if (!inferenceOnly) {
+  if (doBwdPass || doWuPass) {
     boost::multi_array<double, 4> hostZDeltas(
       boost::extents[batchSize][bwdInChans][outHeight][outWidth]
     );
@@ -385,36 +446,43 @@ int main(int argc, char **argv) {
     );
     auto modelWeights = hostWeights;
     auto modelBiases = hostBiases;
-    // Run the backwards pass.
+    // Run the backwards and/or weight update passes.
     writeRandomValues(hostZDeltas, -5.0, 5.0, randomEngine);
     groupActivations(hostZDeltas, dataTypeStr, zDeltas.shape(),
                      rawHostZDeltas.get());
     engine.run(0); // Upload.
     engine.run(3); // Run.
     engine.run(1); // Download.
+
     ungroupActivations(dataTypeStr, zDeltas.shape(), rawHostZDeltas.get(),
                        hostZDeltas);
-    ungroupActivations(dataTypeStr, prevDeltas.shape(), rawHostPrevDeltas.get(),
-                       hostPrevDeltas);
+    if (doBwdPass) {
+      ungroupActivations(dataTypeStr, prevDeltas.shape(),
+                         rawHostPrevDeltas.get(), hostPrevDeltas);
+    }
     ungroupWeights(dataTypeStr, weights.shape(), rawHostWeights.get(),
                    hostWeights);
     copy(dataTypeStr, rawHostBiases.get(), hostBiases);
 
     // Validate against a reference model.
-    boost::multi_array<double, 4>
-        modelPrevDeltas(boost::extents[batchSize][fwdInChans][height][width]);
-    ref::conv::convolutionBackward(strideH, strideW, paddingHeight,
-                                   paddingWidth, hostZDeltas, modelWeights,
-                                   modelPrevDeltas);
-    matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
-                                 relativeTolerance);
-    ref::conv::weightUpdate(strideH, strideW, paddingHeight, paddingWidth,
-                            learningRate, hostPrevAct,
-                            hostZDeltas, modelWeights, modelBiases);
-    matchesModel &= checkIsClose("weights",
-                                 hostWeights, modelWeights, relativeTolerance);
-    matchesModel &= checkIsClose("biases",
-                                 hostBiases, modelBiases, relativeTolerance);
+    if (doBwdPass) {
+      boost::multi_array<double, 4>
+          modelPrevDeltas(boost::extents[batchSize][fwdInChans][height][width]);
+      ref::conv::convolutionBackward(strideH, strideW, paddingHeight,
+                                     paddingWidth, hostZDeltas, modelWeights,
+                                     modelPrevDeltas);
+      matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
+                                   relativeTolerance);
+    }
+    if (doWuPass) {
+      ref::conv::weightUpdate(strideH, strideW, paddingHeight, paddingWidth,
+                              learningRate, hostPrevAct,
+                              hostZDeltas, modelWeights, modelBiases);
+      matchesModel &= checkIsClose("weights",
+                                  hostWeights, modelWeights, relativeTolerance);
+      matchesModel &= checkIsClose("biases",
+                                   hostBiases, modelBiases, relativeTolerance);
+    }
   }
 
   Engine::ReportOptions opt;

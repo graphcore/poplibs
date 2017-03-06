@@ -25,7 +25,7 @@ add_popnn_unit_test(GraphProgLocationTest GraphProgLocationTest.cpp)
 # Layer tests
 add_test(NAME conv3x3_stride_2_fwd
          COMMAND single_conv_layer
-                 --inference-only
+                 --single-phase=fwd
                  --input-channels=128
                  --output-channels=256
                  --width=20
@@ -125,7 +125,7 @@ add_test(NAME conv3x3_stride_2_multi_tile
 
 add_test(NAME conv1x1_stride_3_fwd
          COMMAND single_conv_layer
-                 --inference-only
+                 --single-phase=fwd
                  --input-channels=16
                  --output-channels=16
                  --width=7
@@ -136,7 +136,7 @@ add_test(NAME conv1x1_stride_3_fwd
 
  add_test(NAME conv3x3_batch_2
           COMMAND single_conv_layer
-                  --inference-only
+                  --single-phase=fwd
                   --input-channels=16
                   --output-channels=16
                   --width=7
@@ -179,7 +179,7 @@ add_test(NAME conv3x3_feature8x8_shallow
                  --kernel-size 3
                  --padding 1
                  --stride 1
-                 --inference
+                 --single-phase=fwd
                  --data-type half) 
 
 add_test(NAME conv3x3_feature8x8_shallow_stride2
@@ -191,7 +191,7 @@ add_test(NAME conv3x3_feature8x8_shallow_stride2
                  --height 8
                  --kernel-size 3
                  --padding 1
-                 --inference
+                 --single-phase=fwd
                  --stride 2
                  --data-type half) 
 
@@ -233,8 +233,42 @@ add_test(NAME conv_batch_group
                  --input-channels 512
                  --output-channels 128
                  --fwd-out-chans-per-group 16
-                 --inference-only
+                 --single-phase=fwd
                  --batch-size 2)
+
+# conv_batch_bwd_float test split into the three component phases
+add_test(NAME conv_batch_bwd_float_fwd
+         COMMAND single_conv_layer
+                 --width 14
+                 --height 14
+                 --input-channels 32
+                 --output-channels 32
+                 --tiles-per-ipu=16
+                 --data-type=float
+                 --batch-size=4
+                 --single-phase=fwd)
+
+add_test(NAME conv_batch_bwd_float_bwd
+         COMMAND single_conv_layer
+                 --width 14
+                 --height 14
+                 --input-channels 32
+                 --output-channels 32
+                 --tiles-per-ipu=16
+                 --data-type=float
+                 --batch-size=4
+                 --single-phase=bwd)
+
+add_test(NAME conv_batch_bwd_float_wu
+         COMMAND single_conv_layer
+                 --width 14
+                 --height 14
+                 --input-channels 32
+                 --output-channels 32
+                 --tiles-per-ipu=16
+                 --data-type=float
+                 --batch-size=4
+                 --single-phase=wu)
 
 # Test where the size of the output tensor is much bigger than the size weight
 # tensor. As such it likely to be better to rearranging the weight deltas
