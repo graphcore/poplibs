@@ -1293,13 +1293,13 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
   const auto perfectCycleTime =
       fwdPerfectCycleTime + bwdPerfectCycleTime + wuPerfectCycleTime;
   std::cout << "Fwd Perfect cycle time:                 ";
-  std::cout << std::setw(12) << static_cast<std::uint64_t>(perfectCycleTime)
+  std::cout << std::setw(12) << static_cast<std::uint64_t>(fwdPerfectCycleTime)
             << "\n";
   std::cout << "Bwd Perfect cycle time:                 ";
-  std::cout << std::setw(12) << static_cast<std::uint64_t>(perfectCycleTime)
+  std::cout << std::setw(12) << static_cast<std::uint64_t>(bwdPerfectCycleTime)
             << "\n";
   std::cout << "WU Perfect cycle time:                  ";
-  std::cout << std::setw(12) << static_cast<std::uint64_t>(perfectCycleTime)
+  std::cout << std::setw(12) << static_cast<std::uint64_t>(wuPerfectCycleTime)
             << "\n";
   std::cout << "Perfect cycle time:                     ";
   std::cout << std::setw(12) << static_cast<std::uint64_t>(perfectCycleTime)
