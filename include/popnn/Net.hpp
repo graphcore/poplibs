@@ -165,8 +165,6 @@ public:
   unsigned numBatchesBetweenTest = 2500;
   bool reuseLayerImplGraphs = true;
   bool ignoreData = false;
-  bool useWinogradConv = false;
-  unsigned winogradPatchSize = 4;
   unsigned batchSize = 1;
   bool showPlanInfo = false;
   bool skipFwd = false;

@@ -104,13 +104,13 @@ bool parseCommandLine(int argc, char **argv, NetOptions &options,
      "Do training (forward, backward and weight update pass)")
     ("use-winograd-conv",
      po::value<bool>(
-       &options.useWinogradConv
-     )->default_value(options.useWinogradConv),
+       &options.convPlanControl.useWinograd
+     )->default_value(options.convPlanControl.useWinograd),
      "Use winograd for convolution layers")
     ("winograd-patch-size",
      po::value<unsigned>(
-       &options.winogradPatchSize
-     )->default_value(options.winogradPatchSize),
+       &options.convPlanControl.winogradPatchSize
+     )->default_value(options.convPlanControl.winogradPatchSize),
      "Patch size for winograd convolution")
     ("batch-size",
      po::value<unsigned>(
