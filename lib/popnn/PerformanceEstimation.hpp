@@ -126,7 +126,8 @@ inline std::uint64_t
 getWeightGradAopCycles(bool floatInput, bool floatPartials,
                        unsigned dataPathWidth, unsigned inChansPerGroup,
                        unsigned outChansPerGroup,
-                       std::vector<std::vector<unsigned>> &shape) {
+                       std::vector<std::vector<unsigned>> &shape,
+                       bool useDeltasForEdges) {
   // Outer loop overhead for stack variable initialisations
   const auto vertexOverhead = 22;
   std::uint64_t cycles = vertexOverhead;
@@ -142,7 +143,7 @@ getWeightGradAopCycles(bool floatInput, bool floatPartials,
     for (auto deltasWidth : w) {
       // Inner loop.
       // Inner loop overhead required to set-up pointers, rpt loop and branching
-      const auto innerLoopOverhead = 15;
+      const auto innerLoopOverhead = useDeltasForEdges ? 15 : 5;
       innerLoopCycles += deltasWidth + innerLoopOverhead;
     }
 

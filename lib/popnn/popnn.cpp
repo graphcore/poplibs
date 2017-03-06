@@ -438,7 +438,7 @@ template class ConvPartialnx1InOut<half, float, false>;
 template class ConvPartialnx1InOut<half, half, true>;
 template class ConvPartialnx1InOut<half, float, true>;
 
-template <class InputType, class PartialTypes>
+template <class InputType, class PartialTypes, bool UseDeltasForEdges>
 class ConvWeightGradAop : public Vertex {
 public:
   Vector<Input<Vector<InputType>>> acts;
@@ -501,13 +501,17 @@ public:
     }
     return
       getWeightGradAopCycles(floatInput, floatPartials, dataPathWidth,
-                             inChansPerGroup, outChansPerGroup, shape);
+                             inChansPerGroup, outChansPerGroup, shape,
+                             UseDeltasForEdges);
   }
 };
 
-template class ConvWeightGradAop<float, float>;
-template class ConvWeightGradAop<half, float>;
-template class ConvWeightGradAop<half, half>;
+template class ConvWeightGradAop<float, float, false>;
+template class ConvWeightGradAop<half, float, false>;
+template class ConvWeightGradAop<half, half, false>;
+template class ConvWeightGradAop<float, float, true>;
+template class ConvWeightGradAop<half, float, true>;
+template class ConvWeightGradAop<half, half, true>;
 
 template <typename WeightType>
 class ConvWeightUpdate : public Vertex {

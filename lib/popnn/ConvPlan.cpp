@@ -5,6 +5,7 @@
 #include "ConvUtil.hpp"
 #include "ConvValidation.hpp"
 #include "PerformanceEstimation.hpp"
+#include "VertexOptim.hpp"
 #include "popnn/Compiler.hpp"
 #include <map>
 #include <tuple>
@@ -562,9 +563,13 @@ estimateWeightUpdatePartialCalcComputeCost(const poplar::DeviceInfo &deviceInfo,
   std::vector<std::vector<unsigned>>
       shape(maxTasksPerVertex,
             std::vector<unsigned>(tileOutHeight, tileOutWidth));
+  /* AOP edge type selection */
+  const auto numEdges = maxTasksPerVertex * (2 * tileOutHeight + 1);
+  const auto useDeltasForEdges = useDeltaEdgesForWeightGradAop(numEdges);
   const auto vertexCycles =
       getWeightGradAopCycles(floatActivations, floatPartials, dataPathWidth,
-                             inChansPerGroup, outChansPerGroup, shape);
+                             inChansPerGroup, outChansPerGroup, shape,
+                             useDeltasForEdges);
   unsigned totalCycles = vertexCycles * numWorkerContexts;
   return {totalCycles, 0};
 }

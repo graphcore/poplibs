@@ -10,6 +10,7 @@
 #include "VertexTemplates.hpp"
 #include "gcd.hpp"
 #include "PerformanceEstimation.hpp"
+#include "VertexOptim.hpp"
 #include "popnn/exceptions.hpp"
 #include "Cast.hpp"
 #include "Util.hpp"
@@ -2411,24 +2412,28 @@ createWeightGradAopVertex(Graph &graph, unsigned tile,
   const auto inDimX = acts.dim(2);
   assert(weightDeltas.dim(4) == outChansPerGroup);
   assert(weightDeltas.dim(5) == inChansPerGroup);
-  auto v = graph.addVertex(cs, templateVertex("popnn::ConvWeightGradAop",
-                                              dType, partialsType));
-  graph.setTileMapping(v, tile);
-  graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
-  graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
-  graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
-  graph.setFieldSize(v["weightDeltas"], taskEnd - taskBegin);
-  graph.setFieldSize(v["weightReuseCount"], taskEnd - taskBegin);
-  unsigned deltasIndex = 0;
+
+  const auto numTasks = taskEnd - taskBegin;
+
+  if (!numTasks)
+    return;
+
+  std::vector<Tensor> weightDeltasEdges(numTasks);
+  std::vector<unsigned> weightReuseCount(numTasks);
+  std::vector<Tensor> actsEdges;
+  std::vector<Tensor> deltasEdges;
+  unsigned numDeltasEdges = 0;
   for (auto it = taskBegin; it != taskEnd; ++it) {
     const auto &task = *it;
-    const auto weightIndex = it - taskBegin;
     const auto kernelX = task.kernelX;
     const auto kernelY = task.kernelY;
     const auto izg = task.inZGroup;
     const auto ozg = task.outZGroup;
-    graph.connect(v["weightDeltas"][weightIndex],
-                  weightDeltas[ozg][izg][kernelY][kernelX].flatten());
+    const auto weightIndex = it - taskBegin;
+
+    weightDeltasEdges[weightIndex] = weightDeltas[ozg][izg]
+                                                 [kernelY][kernelX].flatten();
+
     unsigned deltaXBegin, deltaXEnd;
     std::tie(deltaXBegin, deltaXEnd) =
         getOutputRange({outXBegin, outXEnd}, strideX, kernelSizeX, paddingX,
@@ -2439,21 +2444,34 @@ createWeightGradAopVertex(Graph &graph, unsigned tile,
     std::tie(deltaYBegin, deltaYEnd) =
         getOutputRange({outYBegin, outYEnd}, strideY, kernelSizeY, paddingY,
                        inDimY, kernelY, false);
-    graph.setInitialValue(
-          v["weightReuseCount"][weightIndex],
-        deltaYEnd - deltaYBegin);
+
+    weightReuseCount[weightIndex] = deltaYEnd - deltaYBegin;
+
     for (unsigned deltaY = deltaYBegin; deltaY != deltaYEnd;
-         ++deltaY, ++deltasIndex) {
+         ++deltaY, ++numDeltasEdges) {
       const auto actY = deltaY * strideY + kernelY - paddingY;
-      graph.connect(v["acts"][deltasIndex],
-                    acts[izg][actY].slice(actXBegin, actXEnd).flatten());
-      graph.connect(v["deltas"][deltasIndex],
-                    deltas[ozg][deltaY]
-                        .slice(deltaXBegin, deltaXEnd).flatten());
+      actsEdges.push_back(acts[izg][actY].slice(actXBegin, actXEnd).flatten());
+      deltasEdges.push_back(deltas[ozg][deltaY]
+                            .slice(deltaXBegin, deltaXEnd).flatten());
     }
   }
-  graph.setFieldSize(v["acts"], deltasIndex);
-  graph.setFieldSize(v["deltas"], deltasIndex);
+
+  const auto numEdges = 2 * numDeltasEdges + numTasks;
+
+  auto v = graph.addVertex(
+                cs,
+                templateVertex("popnn::ConvWeightGradAop",
+                               dType, partialsType,
+                               useDeltaEdgesForWeightGradAop(numEdges) ?
+                                                             "true" : "false"));
+  graph.setTileMapping(v, tile);
+  graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
+  graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
+  graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+  graph.setInitialValue(v["weightReuseCount"], weightReuseCount);
+  graph.connect(v["acts"], actsEdges);
+  graph.connect(v["deltas"], deltasEdges);
+  graph.connect(v["weightDeltas"], weightDeltasEdges);
 }
 
 static void
