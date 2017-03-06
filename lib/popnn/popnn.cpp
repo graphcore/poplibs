@@ -302,7 +302,8 @@ template class FullyConnectedBiasUpdate<half>;
 /**
  * Compute nx1 convolutions and accumulate them with partial sums in memory.
  **/
-template <class FPType, class AccumType, bool isFractional>
+template <class FPType, class AccumType, bool isFractional,
+          bool useDeltasForEdges>
 class ConvPartialnx1InOut: public SupervisorVertex {
 public:
   Vector<Input<Vector<FPType>>> in;
@@ -424,21 +425,30 @@ public:
       convUnitPipelineDepth,
       numConvUnitsPerTile,
       convUnitCoeffLoadBytesPerCycle,
-      filterHeight
+      filterHeight,
+      useDeltasForEdges
     );
   }
 };
 
-template class ConvPartialnx1InOut<float, half, false>;
-template class ConvPartialnx1InOut<float, float, false>;
-template class ConvPartialnx1InOut<float, half, true>;
-template class ConvPartialnx1InOut<float, float, true>;
-template class ConvPartialnx1InOut<half, half, false>;
-template class ConvPartialnx1InOut<half, float, false>;
-template class ConvPartialnx1InOut<half, half, true>;
-template class ConvPartialnx1InOut<half, float, true>;
+template class ConvPartialnx1InOut<float, half, false, true>;
+template class ConvPartialnx1InOut<float, float, false, true>;
+template class ConvPartialnx1InOut<float, half, true, true>;
+template class ConvPartialnx1InOut<float, float, true, true>;
+template class ConvPartialnx1InOut<half, half, false, true>;
+template class ConvPartialnx1InOut<half, float, false, true>;
+template class ConvPartialnx1InOut<half, half, true, true>;
+template class ConvPartialnx1InOut<half, float, true, true>;
+template class ConvPartialnx1InOut<float, half, false, false>;
+template class ConvPartialnx1InOut<float, float, false, false>;
+template class ConvPartialnx1InOut<float, half, true, false>;
+template class ConvPartialnx1InOut<float, float, true, false>;
+template class ConvPartialnx1InOut<half, half, false, false>;
+template class ConvPartialnx1InOut<half, float, false, false>;
+template class ConvPartialnx1InOut<half, half, true, false>;
+template class ConvPartialnx1InOut<half, float, true, false>;
 
-template <class InputType, class PartialTypes, bool UseDeltasForEdges>
+template <class InputType, class PartialTypes, bool useDeltasForEdges>
 class ConvWeightGradAop : public Vertex {
 public:
   Vector<Input<Vector<InputType>>> acts;
@@ -502,7 +512,7 @@ public:
     return
       getWeightGradAopCycles(floatInput, floatPartials, dataPathWidth,
                              inChansPerGroup, outChansPerGroup, shape,
-                             UseDeltasForEdges);
+                             useDeltasForEdges);
   }
 };
 
@@ -680,7 +690,7 @@ template class NonLinearityBwd<half>;
  * Compute a sum of 1x1 convolutions over a subset of the input channels for
  * multiple output channels.
  **/
-template <class FPType, class AccumType>
+template <class FPType, class AccumType, bool useDeltasForEdges>
 class ConvPartial1x1Out: public SupervisorVertex {
 public:
   Vector<Input<Vector<FPType>>> in;
@@ -780,15 +790,20 @@ public:
       convUnitPipelineDepth,
       numConvUnitsPerTile,
       convUnitCoeffLoadBytesPerCycle,
-      1
+      1,
+      useDeltasForEdges
     );
   }
 };
 
-template class ConvPartial1x1Out<float, float>;
-template class ConvPartial1x1Out<float, half>;
-template class ConvPartial1x1Out<half, float>;
-template class ConvPartial1x1Out<half, half>;
+template class ConvPartial1x1Out<float, float, true>;
+template class ConvPartial1x1Out<float, half, true>;
+template class ConvPartial1x1Out<half, float, true>;
+template class ConvPartial1x1Out<half, half, true>;
+template class ConvPartial1x1Out<float, float, false>;
+template class ConvPartial1x1Out<float, half, false>;
+template class ConvPartial1x1Out<half, float, false>;
+template class ConvPartial1x1Out<half, half, false>;
 
 /* Compute a partial convolution for a sub-set of input channels and
  * output channels over a number of rows of the input field. */

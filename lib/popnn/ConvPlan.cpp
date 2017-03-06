@@ -364,6 +364,8 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
                                PlannerCache * cache)
 {
   std::vector<std::vector<std::vector<unsigned>>> convSizesByWeightAndWorker;
+  unsigned numInputEdges = 0;
+  unsigned numOutputEdges = 0;
   for (unsigned i = 0; i != passesPerOutput; ++i) {
     const auto numWorkerContexts = 6;
     std::vector<std::vector<PartialRow>> partition =
@@ -374,18 +376,25 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
     for (const auto &entry : partition) {
       convSizesByWeightAndWorker.back().emplace_back();
       convSizesByWeightAndWorker.back().back().reserve(entry.size());
+      numInputEdges += numInputPointers * entry.size();
+      numOutputEdges += entry.size();
       for (const auto &partialRow : entry) {
         auto convSize = (partialRow.end - partialRow.begin) / outputStride;
         convSizesByWeightAndWorker.back().back().push_back(convSize);
       }
     }
   }
+
+  auto numEdges = convSizesByWeightAndWorker.size()
+                  + numInputEdges
+                  + numOutputEdges;
   return getConvPartialnx1SupervisorCycleEstimate(
                 convSizesByWeightAndWorker,
                 convUnitPipelineDepth,
                 numConvUnitsPerTile,
                 convUnitCoeffLoadBytesPerCycle,
-                numInputPointers);
+                numInputPointers,
+                useDeltaEdgesForConvPartials(numEdges));
 }
 
 static Cost

@@ -432,34 +432,15 @@ createConvPartial1x1OutVertex(Graph &graph,
       getInputRange({outXBegin, outXEnd}, strideX,
                      kernelSizeX, paddingX, inDimX, false);
 
-  // Add the vertex.
-  Tensor w =
-      weights[ozg].slice(
-  {inZGroupBegin, kernelY, 0, 0, 0},
-  {inZGroupEnd, kernelY + 1, 1, outChansPerGroup, inChansPerGroup}
-        ).flatten();
-  auto v = graph.addVertex(
-        fwdCS,
-        templateVertex("popnn::ConvPartial1x1Out", dType, partialType),
-  {{"weights", w}}
-        );
-  graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-  graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
-  graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
-  graph.setInitialValue(v["convUnitCoeffLoadBytesPerCycle"],
-                        convUnitCoeffLoadBytesPerCycle);
   std::vector<std::vector<PartialRow>> workerPartition;
   unsigned outputStride = 1;
   workerPartition =
       partitionConvPartialByWorker(outHeight, outWidth,
                                    contextsPerVertex, outputStride);
-  graph.setFieldSize(v["weightReuseCount"], contextsPerVertex);
-  for (unsigned i = 0; i != contextsPerVertex; ++i) {
-    graph.setInitialValue(
-          v["weightReuseCount"][i],
-        static_cast<std::uint32_t>(workerPartition[i].size())
-        );
-  }
+
+  std::vector<Tensor> inputEdges;
+  std::vector<Tensor> outputEdges;
+
   unsigned numConvolutions = 0;
   for (unsigned izg = inZGroupBegin; izg != inZGroupEnd; ++izg) {
     for (unsigned i = 0; i != contextsPerVertex; ++i) {
@@ -488,15 +469,43 @@ createConvPartial1x1OutVertex(Graph &graph,
               {workerOutXBegin, 0},
               {workerOutXEnd, outChansPerGroup}
             ).reshape({workerOutWidth * outChansPerGroup});
+        inputEdges.push_back(inWindow);
+        outputEdges.push_back(outWindow);
+
         graph.setTileMapping(outWindow, tile);
-        graph.connect(v["in"][numConvolutions], inWindow);
-        graph.connect(v["out"][numConvolutions], outWindow);
         ++numConvolutions;
       }
     }
   }
-  graph.setFieldSize(v["in"], numConvolutions);
-  graph.setFieldSize(v["out"], numConvolutions);
+  const auto numEdges = 1 + 2 * numConvolutions;
+
+  // Add the vertex.
+  Tensor w =
+      weights[ozg].slice(
+  {inZGroupBegin, kernelY, 0, 0, 0},
+  {inZGroupEnd, kernelY + 1, 1, outChansPerGroup, inChansPerGroup}
+        ).flatten();
+  auto v = graph.addVertex(
+        fwdCS,
+        templateVertex("popnn::ConvPartial1x1Out", dType, partialType,
+                       useDeltaEdgesForConvPartials(numEdges) ?
+                                                    "true" : "false"),
+        {{"weights", w}}
+        );
+  graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
+  graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
+  graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
+  graph.setInitialValue(v["convUnitCoeffLoadBytesPerCycle"],
+                        convUnitCoeffLoadBytesPerCycle);
+  graph.setFieldSize(v["weightReuseCount"], contextsPerVertex);
+  for (unsigned i = 0; i != contextsPerVertex; ++i) {
+    graph.setInitialValue(
+          v["weightReuseCount"][i],
+        static_cast<std::uint32_t>(workerPartition[i].size())
+        );
+  }
+  graph.connect(v["in"], inputEdges);
+  graph.connect(v["out"], outputEdges);
   // Map the vertex and output.
   graph.setTileMapping(v, tile);
 }
@@ -543,9 +552,13 @@ createConvPartialnx1InOutVertex(Graph &graph,
   // It is possible that there is no calculation to perform that involves
   // the specified output slice and kernel weight slice. Instead of adding a
   // vertex to the graph upfront add it lazily when we first need it.
-  VertexRef v;
   unsigned numWeights = 0;
   unsigned numConvolutions = 0;
+  std::vector<Tensor> inputEdges;
+  std::vector<Tensor> outputEdges;
+  std::vector<Tensor> weightEdges;
+  std::vector<unsigned> weightReuseCount;
+
   for (unsigned wyBegin = kernelYBegin; wyBegin < kernelYEnd;
        wyBegin += convUnitWeightHeight) {
     const auto wyEnd = std::min(static_cast<unsigned>(kernelYEnd),
@@ -568,16 +581,7 @@ createConvPartialnx1InOutVertex(Graph &graph,
       if (convOutWidth == 0)
         continue;
       if (numConvolutions == 0) {
-        v = graph.addVertex(fwdCS,
-                            templateVertex("popnn::ConvPartialnx1InOut",
-                                           dType, partialType,
-                                           isFractional ? "true" : "false"));
-        graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-        graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
-        graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
-        graph.setInitialValue(v["convUnitCoeffLoadBytesPerCycle"],
-                              convUnitCoeffLoadBytesPerCycle);
-        graph.setTileMapping(v, tile);
+
       }
       // In a fractionally strided pass, if we are handling one row of the
       // kernel at a time, the partitioning of work across the workers can be
@@ -598,15 +602,12 @@ createConvPartialnx1InOutVertex(Graph &graph,
           } else {
             w = zeros.slice(0, inChansPerGroup * outChansPerGroup);
           }
-          const auto weightsIndex =
-              numWeights * convUnitWeightHeight + wy - wyBegin;
-          graph.connect(v["weights"][weightsIndex], w);
+          weightEdges.push_back(w);
         }
         for (unsigned i = 0; i != contextsPerVertex; ++i) {
-          graph.setInitialValue(
-            v["weightReuseCount"][numWeights * contextsPerVertex + i],
-            static_cast<std::uint32_t>(workerPartition[i].size())
-          );
+          weightReuseCount.push_back(
+                        static_cast<std::uint32_t>(workerPartition[i].size()));
+
           for (const auto &partialRow : workerPartition[i]) {
             const auto workerOutY = convOutYBegin + partialRow.rowNumber;
             unsigned workerOutXBegin, workerOutXEnd;
@@ -639,9 +640,7 @@ createConvPartialnx1InOutVertex(Graph &graph,
                       {workerInXEnd, inChansPerGroup}
                     ).reshape({workerInWidth * inChansPerGroup});
               }
-              const auto inIndex =
-                  numConvolutions * convUnitWeightHeight + wy - wyBegin;
-              graph.connect(v["in"][inIndex], inWindow);
+              inputEdges.push_back(inWindow);
             }
             Tensor outWindow =
                 out[outZGroup][workerOutY].slice(
@@ -649,7 +648,7 @@ createConvPartialnx1InOutVertex(Graph &graph,
                   {workerOutXEnd, outChansPerGroup}
                 ).reshape({workerOutWidth * outChansPerGroup});
             // Note the output tensor is mapped in zeroAndMapPartialSums.
-            graph.connect(v["out"][numConvolutions], outWindow);
+            outputEdges.push_back(outWindow);
             ++numConvolutions;
           }
         }
@@ -659,10 +658,27 @@ createConvPartialnx1InOutVertex(Graph &graph,
   }
   if (numConvolutions == 0)
     return;
-  graph.setFieldSize(v["in"], numConvolutions * convUnitWeightHeight);
-  graph.setFieldSize(v["out"], numConvolutions);
-  graph.setFieldSize(v["weights"], numWeights * convUnitWeightHeight);
-  graph.setFieldSize(v["weightReuseCount"], numWeights * contextsPerVertex);
+
+  const auto numEdges = numConvolutions * convUnitWeightHeight
+                        + numConvolutions
+                        + numWeights * convUnitWeightHeight;
+
+  auto v = graph.addVertex(fwdCS,
+                      templateVertex("popnn::ConvPartialnx1InOut",
+                                     dType, partialType,
+                                     isFractional ? "true" : "false",
+                                     useDeltaEdgesForConvPartials(numEdges) ?
+                                                          "true" : "false"));
+  graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
+  graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
+  graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
+  graph.setInitialValue(v["convUnitCoeffLoadBytesPerCycle"],
+                          convUnitCoeffLoadBytesPerCycle);
+  graph.setTileMapping(v, tile);
+  graph.connect(v["in"], inputEdges);
+  graph.connect(v["out"], outputEdges);
+  graph.connect(v["weights"], weightEdges);
+  graph.setInitialValue(v["weightReuseCount"], weightReuseCount);
 }
 
 static void

@@ -36,7 +36,8 @@ getConvPartialnx1SupervisorCycleEstimate(
     unsigned convUnitPipelineDepth,
     unsigned numConvUnitsPerTile,
     unsigned convUnitCoeffLoadBytesPerCycle,
-    unsigned numInputPointers) {
+    unsigned numInputPointers,
+    bool useDeltasForEdges) {
   const unsigned numOutputPointers = 1;
   const auto numWorkerContexts = 6;
   const auto coeffBytesPerPipelineStage = 8;
@@ -75,7 +76,7 @@ getConvPartialnx1SupervisorCycleEstimate(
         /* Cycles to form packed addresses */
         const unsigned packedAddrCompCyles = std::max(numInputPointers,
                                                       numOutputPointers) *
-                                             9;
+                                             (useDeltasForEdges ? 9 : 7);
         workerCycles += innerLoopOverhead +
                         packedAddrCompCyles +
                         convSize * convUnitPipelineDepth;
@@ -143,7 +144,7 @@ getWeightGradAopCycles(bool floatInput, bool floatPartials,
     for (auto deltasWidth : w) {
       // Inner loop.
       // Inner loop overhead required to set-up pointers, rpt loop and branching
-      const auto innerLoopOverhead = useDeltasForEdges ? 15 : 5;
+      const auto innerLoopOverhead = useDeltasForEdges ? 15 : 9;
       innerLoopCycles += deltasWidth + innerLoopOverhead;
     }
 

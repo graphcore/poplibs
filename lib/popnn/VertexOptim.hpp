@@ -5,4 +5,7 @@ static inline bool useDeltaEdgesForWeightGradAop(unsigned numEdges) {
   return numEdges >= 0;
 }
 
+static inline bool useDeltaEdgesForConvPartials(unsigned numEdges) {
+  return numEdges >= 0;
+}
 #endif
