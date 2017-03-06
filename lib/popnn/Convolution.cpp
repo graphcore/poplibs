@@ -173,6 +173,11 @@ addFlattenedRegions(const std::vector<std::size_t> &shape,
   assert(begin.size() == numDims);
   assert(end.size() == numDims);
 
+  for (unsigned dim = 0; dim != numDims; ++dim) {
+    if (begin[dim] == end[dim])
+      return;
+  }
+
   std::vector<std::size_t> indices = begin;
   bool done = false;
   while (!done) {
