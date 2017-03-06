@@ -75,11 +75,6 @@ getKernelRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
                unsigned padding, unsigned inputSize,
                bool isFractional);
 
-std::pair<unsigned, unsigned>
-getKernelRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
-               unsigned kernelSize, unsigned padding, unsigned inputSize,
-               bool isFractional);
-
 
 struct PartialRow {
   unsigned rowNumber;

@@ -188,25 +188,6 @@ getKernelRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
   return { kernelBegin, kernelEnd };
 }
 
-std::pair<unsigned, unsigned>
-getKernelRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
-               unsigned kernelSize, unsigned padding,
-               unsigned inputSize, bool isFractionallyStrided) {
-  if (isFractionallyStrided)
-    assert(0 && "non implemented");
-  assert(outputRange.first <= outputRange.second);
-  if (outputRange.first == outputRange.second) {
-    return {0, 0};
-  }
-  const auto begin =
-      getKernelRange(outputRange.first, stride, kernelSize,
-                     padding, inputSize, isFractionallyStrided).first;
-  const auto end =
-      getKernelRange(outputRange.second - 1, stride, kernelSize, padding,
-                     inputSize, isFractionallyStrided).second;
-  return {begin, end};
-}
-
 std::vector<std::vector<PartialRow>>
 partitionConvPartialByWorker(unsigned numConvolutions, unsigned convSize,
                              unsigned numContexts, unsigned stride) {
