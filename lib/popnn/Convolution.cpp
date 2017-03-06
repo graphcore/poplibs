@@ -234,6 +234,8 @@ calculateWeightMapping(Tensor w,
   for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
     const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
     const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
+    if (inZGroupBegin == inZGroupEnd)
+      continue;
     for (unsigned ky = 0; ky != tilesPerKernelY; ++ky) {
       const auto kernelYBegin = (ky * kernelDimY) / tilesPerKernelY;
       const auto kernelYEnd = ((ky + 1) * kernelDimY) / tilesPerKernelY;
@@ -514,6 +516,11 @@ createConvPartialnx1InOutVertex(Graph &graph,
                                 const Tensor &out,
                                 const Tensor &zeros,
                                 bool isFractional) {
+  if (outXBegin == outXEnd ||
+      outYBegin == outYEnd ||
+      kernelYBegin == kernelYEnd ||
+      inZGroupBegin == inZGroupEnd)
+    return;
   const auto kernelSizeY = weights.dim(2);
   const auto kernelSizeX = weights.dim(3);
   const auto inDimY = in.dim(1);
