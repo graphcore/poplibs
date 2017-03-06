@@ -434,8 +434,8 @@ createConvPartial1x1OutVertex(Graph &graph,
   // Add the vertex.
   Tensor w =
       weights[ozg].slice(
-  {inZGroupBegin, 0, 0, 0, 0},
-  {inZGroupEnd, 1, 1, outChansPerGroup, inChansPerGroup}
+  {inZGroupBegin, kernelY, 0, 0, 0},
+  {inZGroupEnd, kernelY + 1, 1, outChansPerGroup, inChansPerGroup}
         ).flatten();
   auto v = graph.addVertex(
         fwdCS,
@@ -469,7 +469,7 @@ createConvPartial1x1OutVertex(Graph &graph,
         const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
         const auto workerInY =
             getInputIndex(workerOutY, strideY, kernelSizeY,
-                          paddingY, inDimY, 0, false);
+                          paddingY, inDimY, kernelY, false);
         assert(workerInY != ~0U);
         unsigned workerInXBegin, workerInXEnd;
         std::tie(workerInXBegin, workerInXEnd) =
@@ -775,6 +775,19 @@ zeroAndMapPartialSums(Graph &graph,
   return zero(graph, out, regions, tile, zeroCS);
 }
 
+static bool writtenRangeEqualsOutputRange(
+    std::pair<unsigned, unsigned> outRange,
+    unsigned stride,
+    unsigned padding,
+    unsigned kernelSize,
+    std::pair<unsigned, unsigned> kernelIndexRange,
+    unsigned inDim, bool isFractional) {
+  auto writtenYRange =
+      getOutputRange(outRange, stride, kernelSize, padding,
+                     inDim, kernelIndexRange, isFractional);
+  return writtenYRange == outRange;
+}
+
 static void
 calcPartialConvOutput(Graph &graph,
                       const Plan &plan,
@@ -792,6 +805,7 @@ calcPartialConvOutput(Graph &graph,
                       Tensor in, Tensor weights, Tensor out,
                       bool isFractional) {
   const auto tileKernelHeight = kernelYEnd - kernelYBegin;
+  const auto kernelSizeY = weights.dim(2);
   const auto kernelSizeX = weights.dim(3);
 
   const auto inChansPerGroup = plan.inChansPerGroup;
@@ -825,9 +839,13 @@ calcPartialConvOutput(Graph &graph,
       graph.setTileMapping(v, tile);
       graph.setTileMapping(zeros, tile);
     }
-    useConvPartial1x1OutVertex = kernelSizeX == 1 && tileKernelHeight == 1 &&
-                                 (!isFractional ||
-                                    (strideX == 1 && strideY == 1));
+    const auto inDimY = in.dim(1);
+    useConvPartial1x1OutVertex =
+        kernelSizeX == 1 && tileKernelHeight == 1 &&
+        (!isFractional || (strideX == 1 && strideY == 1)) &&
+        writtenRangeEqualsOutputRange({outYBegin, outYEnd}, strideY, paddingY,
+                                      kernelSizeY, {kernelYBegin, kernelYEnd},
+                                      inDimY, isFractional);
     if (!useConvPartial1x1OutVertex) {
       zeroAndMapPartialSums(graph, outXBegin, outXEnd, outYBegin, outYEnd,
                             outZGroupBegin, outZGroupEnd, tile, zeroCS, out);

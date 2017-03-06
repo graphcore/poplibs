@@ -206,6 +206,16 @@ add_test(NAME conv_large_kernel
                  --padding 1
                  --stride 2)
 
+add_test(NAME conv_large_kernel_with_small_field
+         COMMAND single_conv_layer
+                 --width=16
+                 --height=1
+                 --padding-height=6
+                 --kernel-height=7
+                 --input-channels=16
+                 --output-channels=16
+                 --tiles-per-ipu=16)
+
 add_test(NAME conv_batch_bwd
          COMMAND single_conv_layer
                  --width 14
