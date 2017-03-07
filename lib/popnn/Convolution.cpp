@@ -1402,7 +1402,7 @@ convolutionByAmp(Graph &graph, const Plan &plan, unsigned strideY,
                                partialChansPerGroup});
   if (partials.dim(1) == 1) {
     if (dType != partialType) {
-      reduced = graph.addTensor(dType, partials.shape());
+      reduced = graph.addTensor(dType, partials.shape(), "reduced");
       if (reduceComputeSets.empty()) {
         reduceComputeSets.push_back(graph.addComputeSet(debugPrefix +
                                                            "/Cast"));
@@ -1420,7 +1420,7 @@ convolutionByAmp(Graph &graph, const Plan &plan, unsigned strideY,
   } else {
     auto reducedShape = partials[0][0].shape();
     reducedShape.insert(reducedShape.begin(), 0);
-    reduced = graph.addTensor(dType, reducedShape);
+    reduced = graph.addTensor(dType, reducedShape, "reduced");
     for (unsigned b = 0; b < numBatchGroups; ++b) {
       reduced =
           append(reduced,
