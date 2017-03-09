@@ -62,8 +62,8 @@ cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
     if (numRegions == 1) {
       v = graph.addVertex(cs, templateVertex("popnn::Cast", srcType, dstType));
       const auto &region = regions.front();
-      const auto regionBegin = region.begin;
-      const auto regionEnd = region.end;
+      const auto regionBegin = region.begin();
+      const auto regionEnd = region.end();
       graph.connect(v["src"], src.slice(regionBegin, regionEnd));
       graph.connect(v["dst"], dst.slice(regionBegin, regionEnd));
     } else {
@@ -73,8 +73,8 @@ cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
       graph.setFieldSize(v["dst"], numRegions);
       for (unsigned i = 0; i != numRegions; ++i) {
         const auto &region = regions[i];
-        const auto regionBegin = region.begin;
-        const auto regionEnd = region.end;
+        const auto regionBegin = region.begin();
+        const auto regionEnd = region.end();
         graph.connect(v["src"][i], src.slice(regionBegin, regionEnd));
         graph.connect(v["dst"][i], dst.slice(regionBegin, regionEnd));
       }

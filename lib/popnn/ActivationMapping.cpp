@@ -67,8 +67,8 @@ computeActivationsMapping(const poplar::Graph &graph, poplar::Tensor act,
         !perTileRegions[tile - beginTile].empty()) {
       assert(perTileRegions[tile - beginTile].size() == 1);
       const auto &region = perTileRegions[tile - beginTile].front();
-      assert(mapping[tile] == region.begin);
-      mapping[tile + 1] = region.end;
+      assert(mapping[tile] == region.begin());
+      mapping[tile + 1] = region.end();
     } else {
       mapping[tile + 1] = mapping[tile];
     }

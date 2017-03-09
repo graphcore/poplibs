@@ -21,7 +21,7 @@ static unsigned getMaxElementsPerTile(
         std::accumulate(entry.begin(), entry.end(), 0U,
                         [](unsigned sum,
                            const Interval<std::size_t> &region) {
-          return sum + region.end - region.begin;
+          return sum + region.end() - region.begin();
         });
     maxElementsPerTile = std::max(maxElementsPerTile, tileElements);
   }
@@ -187,8 +187,8 @@ reduce(Graph &graph,
       const auto numRegions = regions.size();
       for (unsigned i = 0; i != numRegions; ++i) {
         const auto &region = regions[i];
-        const auto regionBegin = region.begin;
-        const auto regionEnd = region.end;
+        const auto regionBegin = region.begin();
+        const auto regionEnd = region.end();
         auto out = flatReduced.slice(regionBegin, regionEnd);
         graph.connect(v["out"][i], out);
         for (unsigned j = 0; j != tilesPerInZGroup; ++j) {

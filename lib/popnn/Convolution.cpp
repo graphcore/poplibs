@@ -33,7 +33,8 @@ applyTensorMapping(
   const auto numTiles = mapping.size();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     for (const auto &region : mapping[tile]) {
-      graph.setTileMapping(flattened.slice(region.begin, region.end), tile);
+      graph.setTileMapping(flattened.slice(region.begin(), region.end()),
+                           tile);
     }
   }
 }
@@ -308,8 +309,8 @@ iterateWeightMapping(Tensor w,
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     auto tileWeights = flatWeights.slice(0, 0);
     for (const auto &region : weightMapping[tile]) {
-      const auto weightBegin = region.begin;
-      const auto weightEnd = region.end;
+      const auto weightBegin = region.begin();
+      const auto weightEnd = region.end();
       assert(weightBegin != weightEnd);
       tileWeights = concat(tileWeights,
                            flatWeights.slice(weightBegin, weightEnd));
@@ -1748,8 +1749,8 @@ static Tensor weightsPartialTranspose(Graph &graph, Tensor in, ComputeSet cs) {
       graph.setTileMapping(v, tile);
       unsigned i = 0;
       for (const auto &interval : entry) {
-        for (auto transposition = interval.begin;
-             transposition != interval.end; ++transposition) {
+        for (auto transposition = interval.begin();
+             transposition != interval.end(); ++transposition) {
           graph.connect(v["src"][i], inFlat[transposition]);
           graph.connect(v["dst"][i], outFlat[transposition]);
           graph.setTileMapping(outFlat[transposition], tile);

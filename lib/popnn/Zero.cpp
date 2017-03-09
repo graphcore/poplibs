@@ -30,8 +30,8 @@ zero(Graph &graph,
     if (numRegions == 1) {
       v = graph.addVertex(zeroCS, templateVertex("popnn::Zero", dType));
       const auto &region = regions.front();
-      const auto regionBegin = region.begin;
-      const auto regionEnd = region.end;
+      const auto regionBegin = region.begin();
+      const auto regionEnd = region.end();
       auto out = t.slice(regionBegin, regionEnd);
       graph.connect(v["out"], out);
     } else {
@@ -39,8 +39,8 @@ zero(Graph &graph,
       graph.setFieldSize(v["out"], regions.size());
       for (unsigned i = 0; i != numRegions; ++i) {
         const auto &region = regions[i];
-        const auto regionBegin = region.begin;
-        const auto regionEnd = region.end;
+        const auto regionBegin = region.begin();
+        const auto regionEnd = region.end();
         auto out = t.slice(regionBegin, regionEnd);
         graph.connect(v["out"][i], out);
       }

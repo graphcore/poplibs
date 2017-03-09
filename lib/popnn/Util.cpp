@@ -8,11 +8,11 @@ void mergeAdjacentRegions(
   std::vector<poplar::Interval<std::size_t>> newRegions;
   std::sort(regions.begin(), regions.end());
   for (const auto &region : regions) {
-    if (region.begin == region.end)
+    if (region.begin() == region.end())
       continue;
-    assert(newRegions.empty() || newRegions.back().end <= region.begin);
-    if (!newRegions.empty() && newRegions.back().end == region.begin) {
-      newRegions.back().end = region.end;
+    assert(newRegions.empty() || newRegions.back().end() <= region.begin());
+    if (!newRegions.empty() && newRegions.back().end() == region.begin()) {
+      newRegions.back() = {newRegions.back().begin(), region.end()};
     } else {
       newRegions.push_back(region);
     }
@@ -37,7 +37,7 @@ splitRegions(const std::vector<poplar::Interval<std::size_t>> &regions,
       std::accumulate(regions.begin(), regions.end(), 0U,
                       [](unsigned numElements,
                          const poplar::Interval<std::size_t> &region) {
-    return numElements + region.end - region.begin;
+    return numElements + region.end() - region.begin();
   });
   if (numElements == 0)
     return vertexRegions;
@@ -65,14 +65,14 @@ splitRegions(const std::vector<poplar::Interval<std::size_t>> &regions,
     const auto elemEnd = std::min(numElements, groupEnd * grainSize);
     auto vertexElements = elemEnd - elemBegin;
     while (vertexElements) {
-      if (count == it->end - it->begin) {
+      if (count == it->end() - it->begin()) {
         count = 0;
         ++it;
       }
       const auto vertexRegionSize =
           std::min(static_cast<std::size_t>(vertexElements),
-                   it->end - it->begin - count);
-      const auto vertexRegionBegin = it->begin + count;
+                   it->end() - it->begin() - count);
+      const auto vertexRegionBegin = it->begin() + count;
       const auto vertexRegionEnd = vertexRegionBegin + vertexRegionSize;
       vertexRegions[vertex].emplace_back(vertexRegionBegin, vertexRegionEnd);
       count += vertexRegionSize;
