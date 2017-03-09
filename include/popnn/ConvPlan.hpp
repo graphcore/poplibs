@@ -22,6 +22,7 @@ public:
   WeightUpdateMethod weightUpdateMethod = WeightUpdateMethod::AUTO;
   bool useWinograd = false;
   unsigned winogradPatchSize = 4;
+  bool useNewAMPWU = false;
 };
 
 struct Plan {
@@ -36,9 +37,10 @@ struct Plan {
   unsigned batchesPerGroup;
   bool floatPartials;
   bool useConvolutionInstructions;
-  bool flattenXY;
+  bool flattenXY = false;
   bool useWinograd = false;
   unsigned winogradPatchSize;
+  bool useNewAMPWU = false;
 
   Plan() = default;
   Plan(unsigned tilesPerXAxis,

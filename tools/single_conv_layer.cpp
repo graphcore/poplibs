@@ -161,6 +161,11 @@ int main(int argc, char **argv) {
     ("winograd-patch-size",
       po::value<unsigned>(&convPlanControl.winogradPatchSize)->default_value(4),
      "Square patch size to use in winograd convolution")
+    ("use-new-amp-wu",
+     po::value<bool>(
+       &convPlanControl.useNewAMPWU
+     )->default_value(convPlanControl.useNewAMPWU),
+     "Use new AMP weight update method")
     ("percent-cyc-excess-for-mem-optim",
      po::value<unsigned>(
        &percentageCyclesExcessForMemOptim

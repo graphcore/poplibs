@@ -13,4 +13,11 @@ pad(poplar::Graph &graph, poplar::Tensor t,
     const std::vector<std::size_t> &dims,
     const std::vector<std::size_t> &beforePadding);
 
+/// Zero pad the specified dimension. \a newSize specifies the size along
+/// dimension after padding is applied and \a beforePadding specifies the
+/// amount of zero padding to add at the start of the dimension.
+poplar::Tensor
+pad(poplar::Graph &graph, const poplar::Tensor &t, std::size_t newSize,
+    std::size_t beforePadding, unsigned dim);
+
 #endif // __Pad_hpp__

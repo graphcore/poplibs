@@ -46,3 +46,16 @@ pad(poplar::Graph &graph, poplar::Tensor t,
 
   return t;
 }
+
+poplar::Tensor
+pad(poplar::Graph &graph, const poplar::Tensor &t, std::size_t newSize,
+    std::size_t beforePadding, unsigned dim) {
+  if (dim >= t.rank()) {
+    std::abort();
+  }
+  auto shape = t.shape();
+  std::vector<std::size_t> beforePaddingVector(t.rank());
+  shape[dim] = newSize;
+  beforePaddingVector[dim] = beforePadding;
+  return pad(graph, t, shape, beforePaddingVector);
+}
