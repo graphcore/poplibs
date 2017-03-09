@@ -1,7 +1,8 @@
 #define BOOST_TEST_MODULE ResidualTest
 #include <boost/test/unit_test.hpp>
+#include <poplar/Engine.hpp>
 #include <popnn/ActivationMapping.hpp>
-#include <popnn/Net.hpp>
+#include <popnn/codelets.hpp>
 #include <popnn_ref/Util.hpp>
 #include "Residual.hpp"
 
@@ -13,8 +14,8 @@ namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
 
 BOOST_AUTO_TEST_CASE(JoinDeltasTest) {
-  GraphProgEnv env(popnn::findGraphProg(), GraphProgFileType::Object);
-  Graph graph(env, createIPUModelDevice());
+  Graph graph(createIPUModelDevice());
+  popnn::addCodelets(graph);
   const unsigned batchSize = 7;
   const unsigned height = 7;
   const unsigned width = 7;

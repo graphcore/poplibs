@@ -8,7 +8,7 @@
 #include <poplar/HalfFloat.hpp>
 #include <popnn/MaxPool.hpp>
 #include <popnn/ActivationMapping.hpp>
-#include <popnn/Net.hpp>
+#include <popnn/codelets.hpp>
 #include <popnn_ref/NonLinearity.hpp>
 #include <iostream>
 
@@ -23,9 +23,8 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
                     *utf::tolerance<float>(fpc::percent_tolerance<float>(0.1))
                     *utf::tolerance<double>(fpc::percent_tolerance<double>(0.1))
                      ) {
-  GraphProgEnv env(popnn::findGraphProg(), GraphProgFileType::Object);
-  Graph graph(env, createIPUModelDevice());
-
+  Graph graph(createIPUModelDevice());
+  popnn::addCodelets(graph);
   //layer parameters
 
   const unsigned zNGroups = 1;

@@ -12,7 +12,8 @@
 #include <popnn/Convolution.hpp>
 #include <popnn/ConvPlan.hpp>
 #include <poplar/HalfFloat.hpp>
-#include <popnn/Net.hpp>
+#include <popnn/codelets.hpp>
+#include <popnn/exceptions.hpp>
 #include <popnn/NonLinearity.hpp>
 #include <popnn_ref/Convolution.hpp>
 #include <popnn_ref/NonLinearity.hpp>
@@ -234,8 +235,8 @@ int main(int argc, char **argv) {
   bool doBwdPass = pass == Pass::ALL || pass == Pass::BWD;
   bool doWuPass = pass == Pass::ALL || pass == Pass::WU;
 
-  GraphProgEnv env(popnn::findGraphProg(), GraphProgFileType::Object);
-  Graph graph(env, createIPUModelDevice(info));
+  Graph graph(createIPUModelDevice(info));
+  popnn::addCodelets(graph);
 
   std::string dataTypeStr(asString(dataType));
   std::string partialsTypeStr(asString(partialsType));

@@ -2,7 +2,7 @@
 #include <boost/test/unit_test.hpp>
 #include <popnn/Convolution.hpp>
 #include <popnn/ActivationMapping.hpp>
-#include <popnn/Net.hpp>
+#include <popnn/codelets.hpp>
 #include <string>
 #include <random>
 #include <Winograd.hpp>
@@ -139,8 +139,8 @@ static void computeReference(Tensor in, Tensor weights, Tensor biases,
 BOOST_AUTO_TEST_CASE(WinogradConvolution,
                        *utf::tolerance<float>(
                           fpc::percent_tolerance<float>(1))) {
-  GraphProgEnv env(popnn::findGraphProg(), GraphProgFileType::Object);
-  Graph graph(env, createIPUModelDevice());
+  Graph graph(createIPUModelDevice());
+  popnn::addCodelets(graph);
 
   /* Test configuration */
 

@@ -5,6 +5,7 @@ get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 add_library(popnn SHARED
   ActivationMapping.cpp
   Cast.cpp
+  codelets.cpp
   Convolution.cpp
   ConvPlan.cpp
   ConvUtil.cpp
@@ -34,6 +35,7 @@ add_library(popnn SHARED
   Zero.cpp
   Zero.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/ActivationMapping.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Convolution.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/ConvPlan.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/exceptions.hpp

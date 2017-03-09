@@ -194,7 +194,6 @@ class Net {
   std::vector<std::unique_ptr<Layer>> layers;
 
   /* Poplar program creation state. */
-  std::unique_ptr<poplar::GraphProgEnv> env;
   std::unique_ptr<poplar::Graph> graph;
   std::unique_ptr<poplar::Engine> engine;
   std::unique_ptr<char[]> hAct;
@@ -291,10 +290,5 @@ public:
 
   void run(unsigned numBatches);
 };
-
-
-namespace popnn {
-  std::string findGraphProg();
-}
 
 #endif //_net_hpp_

@@ -11,7 +11,7 @@
 #include <popnn/ActivationMapping.hpp>
 #include <popnn/MaxPool.hpp>
 #include <poplar/HalfFloat.hpp>
-#include <popnn/Net.hpp>
+#include <popnn/codelets.hpp>
 #include <popnn/NonLinearity.hpp>
 #include <popnn_ref/MaxPooling.hpp>
 #include <popnn_ref/Util.hpp>
@@ -161,8 +161,8 @@ int main(int argc, char **argv) {
   }
 
   bool inferenceOnly = vm.count("inference-only");
-  GraphProgEnv env(popnn::findGraphProg(), GraphProgFileType::Object);
-  Graph graph(env, createIPUModelDevice(info));
+  Graph graph(createIPUModelDevice(info));
+  popnn::addCodelets(graph);
 
   std::string dataTypeStr(asString(dataType));
   // If the output grouping is unspecified, assume the output uses the same

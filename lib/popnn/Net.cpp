@@ -1,6 +1,7 @@
 #include "popnn/Net.hpp"
 #include <boost/program_options.hpp>
 #include <poplar/HalfFloat.hpp>
+#include "popnn/codelets.hpp"
 #include "popnn/Convolution.hpp"
 #include "popnn/Loss.hpp"
 #include "popnn/MaxPool.hpp"
@@ -12,13 +13,9 @@
 #include "popnn/NonLinearity.hpp"
 #include "popnn/Compiler.hpp"
 #include "TensorOp.hpp"
-#include <fstream>
 #include <iomanip>
 #include <array>
 
-#if defined(__linux__) || defined(__APPLE__)
-#include <dlfcn.h>
-#endif
 
 using namespace poplar;
 using namespace poplar::program;
@@ -884,40 +881,10 @@ Program Net::createConvLayerBwd(unsigned i,
   return prog;
 }
 
-namespace popnn {
-std::string findGraphProg() {
-  // TODO: This needs to be replaced with a proper object search mechanism
-  // in poplar.
-  const auto env = std::getenv("IPU_POPNN_GP");
-  if (env && std::ifstream(env).good())
-    return env;
-
-#if defined(__linux__) || defined(__APPLE__)
-  Dl_info dlInfo;
-  static const void* dummy;
-  if (dladdr(&dummy, &dlInfo)) {
-    std::string path(dlInfo.dli_fname);
-    path = path.substr(0, path.find_last_of( '/' ) + 1);
-    path = path + "popnn.gp";
-    return path;
-  }
-#endif
-
-  std::string path = "lib/popnn/popnn.gp";
-  if (std::ifstream(path).good())
-    return path;
-
-  path = "../" + path;
-  return path;
-}
-}
-
 using namespace popnn;
 
 void Net::initialize(DataSet &dataSet, LossType lossType) {
   numTestBatches = dataSet.numTest / batchSize;
-  env = std::unique_ptr<GraphProgEnv>(
-      new GraphProgEnv(popnn::findGraphProg(), GraphProgFileType::Object));
   if (options.useIPUModel) {
     DeviceInfo info;
     info.memcpyBytesPerCycle = options.dataPathWidth / 8;
@@ -971,10 +938,11 @@ void Net::initialize(DataSet &dataSet, LossType lossType) {
         std::ceil(syncLatencyPerHop
                   * static_cast<double>(info.frequencyInHz * numHops * 2));
 
-    graph = std::unique_ptr<Graph>(new Graph(*env, createIPUModelDevice(info)));
+    graph = std::unique_ptr<Graph>(new Graph(createIPUModelDevice(info)));
   } else {
-    graph = std::unique_ptr<Graph>(new Graph(*env, createCPUDevice()));
+    graph = std::unique_ptr<Graph>(new Graph(createCPUDevice()));
   }
+  popnn::addCodelets(*graph);
   std::cerr << "Constructing program\n";
   ConvOp convOp =
       createTensorOp<1, 12>(

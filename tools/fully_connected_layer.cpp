@@ -12,7 +12,7 @@
 #include <popnn/FullyConnected.hpp>
 #include <popnn/FullyConnectedPlan.hpp>
 #include <poplar/HalfFloat.hpp>
-#include <popnn/Net.hpp>
+#include <popnn/codelets.hpp>
 #include <popnn/NonLinearity.hpp>
 #include <popnn_ref/FullyConnected.hpp>
 #include <popnn_ref/NonLinearity.hpp>
@@ -78,8 +78,8 @@ int main(int argc, char **argv) {
   }
 
   bool inferenceOnly = vm.count("inference-only");
-  GraphProgEnv env(popnn::findGraphProg(), GraphProgFileType::Object);
-  Graph graph(env, createIPUModelDevice(info));
+  Graph graph(createIPUModelDevice(info));
+  popnn::addCodelets(graph);
 
   std::string dataTypeStr(asString(dataType));
   std::string partialsTypeStr(asString(partialsType));
