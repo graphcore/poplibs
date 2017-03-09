@@ -28,7 +28,7 @@ mappingIsComplete(const Tensor &t,
   unsigned mappedElements = 0;
   for (const auto &regions : mapping) {
     for (const auto &region : regions) {
-      mappedElements += region.end - region.begin;
+      mappedElements += region.end() - region.begin();
     }
   }
   return mappedElements == t.numElements();
