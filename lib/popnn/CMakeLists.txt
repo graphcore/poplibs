@@ -4,6 +4,7 @@ get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(popnn SHARED
   ActivationMapping.cpp
+  Add.cpp
   Cast.cpp
   codelets.cpp
   Convolution.cpp
@@ -12,10 +13,11 @@ add_library(popnn SHARED
   ConvUtil.hpp
   ConvValidation.hpp
   ConvValidation.cpp
-  FullyConnected.cpp
-  FullyConnectedPlan.cpp
   gcd.hpp
   Loss.cpp
+  MatMul.cpp
+  MatMulPlan.cpp
+  MatMulPlan.hpp
   MaxPool.cpp
   NonLinearity.cpp
   Optimizer.cpp
@@ -35,12 +37,12 @@ add_library(popnn SHARED
   Zero.cpp
   Zero.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/ActivationMapping.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/Add.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Convolution.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/ConvPlan.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/exceptions.hpp
-  ${CMAKE_SOURCE_DIR}/include/popnn/FullyConnected.hpp
-  ${CMAKE_SOURCE_DIR}/include/popnn/FullyConnectedPlan.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/MatMul.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Loss.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/MaxPool.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearity.hpp

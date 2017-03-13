@@ -1316,8 +1316,8 @@ partialGroupedReduce(
       }
     }
     applyTensorMapping(graph, out[i], outSubMapping);
-    ::reduce(graph, partials.slice(begin, end), out[i],
-             outSubMapping, cs);
+    popstd::reduce(graph, partials.slice(begin, end), out[i],
+                   outSubMapping, cs);
   }
   return out;
 }
@@ -2926,7 +2926,7 @@ convolutionWeightUpdateAop(Graph &graph,
     auto flatPartialsDims = partials[0][0][0].shape();
     flatPartialsDims.insert(flatPartialsDims.begin(), numPartials);
     auto flatPartials = partials.reshape(flatPartialsDims);
-    ::reduce(graph, flatPartials, weightDeltas, weightMapping, reduceCS);
+    popstd::reduce(graph, flatPartials, weightDeltas, weightMapping, reduceCS);
     prog.add(Execute(reduceCS));
   } else {
     std::vector<ComputeSet> reduceComputeSets;

@@ -68,7 +68,7 @@ static float nonlinearity_derivative(NonLinearityType t, float activation) {
 namespace popnn {
 
 template <typename FPType>
-class FullyConnectedPartial : public Vertex {
+class MatMul1Partial : public Vertex {
 public:
   Input<Vector<FPType>> in;
   Input<Vector<FPType>> weights;
@@ -87,13 +87,13 @@ public:
 
   uint64_t getCycleEstimate() const {
     bool isFloat = std::is_same<FPType, float>::value;
-    return getFullyConnectedPartialCycleEstimate(isFloat, in.size(),
+    return getMatMul1PartialCycleEstimate(isFloat, in.size(),
                                                  dataPathWidth);
   }
 };
 
-template class FullyConnectedPartial<float>;
-template class FullyConnectedPartial<half>;
+template class MatMul1Partial<float>;
+template class MatMul1Partial<half>;
 
 template <typename FPType>
 class NonLinearity : public Vertex {
@@ -126,39 +126,11 @@ template class NonLinearity<float>;
 template class NonLinearity<half>;
 
 template <typename FPType>
-class FullyConnectedReduce : public Vertex {
-public:
-  Input<Vector<float>> partials;
-  Input<FPType> bias;
-  Output<FPType> activationOut;
-
-  SimOnlyField<unsigned> dataPathWidth;
-
-  bool compute() {
-    float sum = 0;
-    for (unsigned i = 0; i < partials.size(); ++i) {
-      sum += partials[i];
-    }
-    sum += *bias;
-    *activationOut = sum;
-    return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    const auto floatVectorWidth = dataPathWidth / 32;
-    return (partials.size() + floatVectorWidth - 1) / floatVectorWidth + 15;
-  }
-};
-
-template class FullyConnectedReduce<float>;
-template class FullyConnectedReduce<half>;
-
-template <typename FPType>
-class FullyConnectedBwd : public Vertex {
+class MatMul2 : public Vertex {
 public:
   Input<Vector<FPType>> in;
   Vector<Input<Vector<FPType>>> weights;
-  Vector<Output<float>> out;
+  Output<Vector<float>> out;
 
   bool compute() {
     assert(in.size() == weights.size());
@@ -175,57 +147,30 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    return getFullyConnectedBwdCycleEstimate(weights.size());
+    return getMatMul2CycleEstimate(weights.size());
   }
 };
 
-template class FullyConnectedBwd<float>;
-template class FullyConnectedBwd<half>;
-
-template <typename InType, typename OutType>
-class FullyConnectedBwdReduce : public Vertex {
-public:
-  Output<OutType> out;
-  Vector<Input<InType>> partials;
-
-  SimOnlyField<unsigned> dataPathWidth;
-
-  bool compute() {
-    *out = 0.0;
-    for (const auto x : partials) {
-      *out += x;
-    }
-    return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    return 5 + partials.size() * 2;
-  }
-};
-
-template class FullyConnectedBwdReduce<float, float>;
-template class FullyConnectedBwdReduce<float, half>;
-template class FullyConnectedBwdReduce<half, float>;
-template class FullyConnectedBwdReduce<half, half>;
+template class MatMul2<float>;
+template class MatMul2<half>;
 
 template <typename FPType>
-class FullyConnectedWeightUpdate : public Vertex {
+class MatMul3 : public Vertex {
 public:
   Vector<Input<FPType>> d;
-  InOut<Vector<FPType>> weights;
+  Output<Vector<FPType>> dst;
   Vector<Input<Vector<FPType>>> in;
-  float eta;
 
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     const auto batchSize = d.size();
-    for (unsigned i = 0; i < weights.size(); ++i) {
-      float grad = 0;
+    for (unsigned i = 0; i < dst.size(); ++i) {
+      float g = 0;
       for (unsigned b = 0; b < batchSize; ++b) {
-        grad += d[b] * in[b][i];
+        g += d[b] * in[b][i];
       }
-      weights[i] = weights[i] - grad * eta;
+      dst[i] = g;
     }
     return true;
   }
@@ -234,7 +179,7 @@ public:
     const auto batchSize = d.size();
     bool isFloat = std::is_same<FPType, float>::value;
     unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    unsigned numVectors = (weights.size() + vectorWidth - 1) / vectorWidth;
+    unsigned numVectors = (dst.size() + vectorWidth - 1) / vectorWidth;
 
     if (batchSize == 1) {
       // Assume a specialized version that accumulates directly into the
@@ -258,45 +203,61 @@ public:
   }
 };
 
-template class FullyConnectedWeightUpdate<float>;
-template class FullyConnectedWeightUpdate<half>;
+template class MatMul3<float>;
+template class MatMul3<half>;
 
 template <typename FPType>
-class FullyConnectedBiasUpdate : public Vertex {
+class MatMul3Update : public Vertex {
 public:
-  Vector<Input<Vector<FPType>>> d;
-  Vector<InOut<FPType>> bias;
-  float eta;
+  Vector<Input<FPType>> d;
+  InOut<Vector<FPType>> dst;
+  Vector<Input<Vector<FPType>>> in;
+  float K;
 
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     const auto batchSize = d.size();
-    const auto numBiases = bias.size();
-    assert(d[0].size() == numBiases);
-    for (unsigned i = 0; i != numBiases; ++i) {
-      float grad = 0;
+    for (unsigned i = 0; i < dst.size(); ++i) {
+      float g = 0;
       for (unsigned b = 0; b < batchSize; ++b) {
-        grad += d[b][i];
+        g += d[b] * in[b][i];
       }
-      bias[i] = bias[i] - grad * eta;
+      dst[i] += K * g;
     }
     return true;
   }
 
   uint64_t getCycleEstimate() const {
     const auto batchSize = d.size();
-    return 5 + bias.size() * (2 + batchSize * 1);
-
     bool isFloat = std::is_same<FPType, float>::value;
     unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    unsigned numVectors = (bias.size() + vectorWidth - 1) / vectorWidth;
-    return 5 + 2 * numVectors;
+    unsigned numVectors = (dst.size() + vectorWidth - 1) / vectorWidth;
+
+    if (batchSize == 1) {
+      // Assume a specialized version that accumulates directly into the
+      // weight vector.
+      // Inner loop involves multiplication by (*d * eta) and addition.
+      return 5 + 2 * numVectors;
+    } else if (batchSize <= 4) {
+      // Assume a specialized version where each delta is loaded to a register
+      auto deltaLoadCycles = batchSize * 3; // Load, conversion and multiply
+                                            // by eta for each delta
+      // Unrolled inner loop  involves multiplication by (*d * eta) and
+      // addition for each element in batch
+      return 5 + deltaLoadCycles + 2 * numVectors * batchSize;
+    } else {
+      // Use broadcast mac
+      // 5 cycles to load/store accumulators in outer loop
+      // Inner loop requires 2 cycles per mac to load vector and scalar
+      // and  convert scalar to 32 bits in the case of halves.
+      return 5 + numVectors * (5 + 2 * batchSize);
+    }
   }
 };
 
-template class FullyConnectedBiasUpdate<float>;
-template class FullyConnectedBiasUpdate<half>;
+template class MatMul3Update<float>;
+template class MatMul3Update<half>;
 
 /**
  * Compute nx1 convolutions and accumulate them with partial sums in memory.
@@ -551,6 +512,42 @@ public:
 template class ConvWeightUpdate<float>;
 template class ConvWeightUpdate<half>;
 
+template <typename FPType>
+class ScaledAdd : public Vertex {
+public:
+  Vector<InOut<Vector<FPType>>> data;
+  Vector<Input<Vector<FPType>>> deltas;
+
+  float K;
+
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    assert(data.size() == deltas.size());
+    for (unsigned i = 0; i < data.size(); ++i) {
+      assert (deltas[i].size() == data[i].size());
+      for (unsigned j = 0; j < data[i].size(); ++j) {
+        data[i][j] += K * deltas[i][j];
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    uint64_t cycles = 5;
+    for (unsigned i = 0; i < data.size(); ++i) {
+      unsigned numElem = data[i].size();
+      bool isFloat = std::is_same<FPType, float>::value;
+      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+      // Inner loop uses the axpy instruction.
+      cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth);
+    }
+    return cycles;
+  }
+};
+
+template class ScaledAdd<float>;
+template class ScaledAdd<half>;
 
 template <typename FPType>
 class ConvBiasReduce1: public Vertex {
@@ -915,60 +912,58 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    bool isPartialsFloat = std::is_same<PartialsType, float>::value;
-    bool isOutTypeFloat = std::is_same<OutType, float>::value;
-    unsigned vectorWidth = dataPathWidth / (isPartialsFloat ? 32 : 16);
-    bool conversionCyles = isPartialsFloat != isOutTypeFloat;
-    unsigned cycles = 1;
-    const unsigned numReductions = out.size();
-    const unsigned numPartials = partials.size() / numReductions;
-    const unsigned version=2;//TODO: update this following IS changes
-    switch (version) {
-    case 0: // Original optimistic estimate
-    default:
-      cycles = 4;
-      for (unsigned r = 0; r < numReductions; ++r) {
-        unsigned numElem = out[r].size();
-        auto numVectors = (numElem + vectorWidth - 1) / vectorWidth;
-        cycles += 1 + numPartials * (1 + numVectors)
-                  + conversionCyles * numVectors;
-      }
-      break;
-    case 1:
-      // Innermost loop accumulates vector across all input tiles
-      // This estimate based on float->float code
-      // Inner loop cycles likely to halve given minor IS change,
-      // may then be best practical choice
-      cycles = 2+4;
-      for (unsigned r = 0; r < numReductions; ++r) {
-        cycles += 16;
-        const unsigned numElem = out[r].size();
-        auto numVectors = (numElem + vectorWidth - 1) / vectorWidth;
-        cycles += (2 * numPartials + 3) * numVectors;
-      }
-      break;
-    case 2:
-      // Innermost loop adds one tile's input accross a region
-      // This estimate based on float->float code Reductions
-      // in loop overhead are expected given IS changes.
-      cycles = 2+3;
-      for (unsigned r = 0; r < numReductions; ++r) {
-        unsigned numElem = out[r].size();
-        auto numVectors = (numElem + vectorWidth - 1) / vectorWidth;
-        cycles += 24 + numVectors;
-        // inner loop processes 3 vectors
-        unsigned numInners = (numVectors + 2) / 3;
-        cycles += (7 + 3 * numInners + 4 + 3 + 1) * (numPartials - 1);
-      }
-      break;
-    }
-    return cycles;
+    std::vector<unsigned> outSizes;
+    for (const auto &o : out)
+      outSizes.push_back(o.size());
+    return reduceCycleEstimate<OutType, PartialsType>(outSizes,
+                                                      partials.size(),
+                                                      dataPathWidth);
   }
 };
 
 template class ConvReduce<float, float>;
 template class ConvReduce<half, float>;
 template class ConvReduce<half, half>;
+
+template <typename OutType, typename PartialsType>
+class ConvReduceUpdate : public Vertex {
+public:
+  Vector<InOut<Vector<OutType>>> out;
+  Vector<Input<Vector<PartialsType>>> partials;
+  float k;
+
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    unsigned numReductions = out.size();
+    unsigned numPartials = partials.size() / numReductions;
+    for (unsigned r = 0; r < numReductions; ++r) {
+      unsigned numElem = out[r].size();
+      for (unsigned i = 0; i < numElem; ++i) {
+        float sum = 0;
+        for (unsigned j = 0; j < numPartials; ++j) {
+          sum += partials[r * numPartials + j][i];
+        }
+        out[r][i] += k * sum;
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    std::vector<unsigned> outSizes;
+    for (const auto &o : out)
+      outSizes.push_back(o.size());
+    return reduceCycleEstimate<OutType, PartialsType>(outSizes,
+                                                      partials.size(),
+                                                      dataPathWidth);
+  }
+};
+
+template class ConvReduceUpdate<float, float>;
+template class ConvReduceUpdate<half, float>;
+template class ConvReduceUpdate<half, half>;
+
 
 template <class InType, class OutType>
 class ConvComplete : public Vertex {

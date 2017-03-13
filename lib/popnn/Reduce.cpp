@@ -10,6 +10,9 @@
 #include "Zero.hpp"
 
 using namespace poplar;
+using namespace poplar::program;
+
+namespace popstd {
 
 static unsigned getMaxElementsPerTile(
     const std::vector<
@@ -138,10 +141,10 @@ determineReduceVertexMapping(Graph &graph,
   return reducedMapping;
 }
 
-void
+static void
 reduce(Graph &graph,
        Tensor partials,
-       Tensor reduced,
+       Tensor reduced, float k, bool isUpdate,
        const std::vector<
          std::vector<Interval<std::size_t>>
        > &reduceVertexMapping,
@@ -164,6 +167,8 @@ reduce(Graph &graph,
   auto flatReduced = reduced.flatten();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
+  const auto vertexName = isUpdate ? "popnn::ConvReduceUpdate"
+                                   : "popnn::ConvReduce";
   // Accumulate the partial sums.
   const auto numTiles = deviceInfo.getNumTiles();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
@@ -177,12 +182,14 @@ reduce(Graph &graph,
         splitRegionsBetweenWorkers(deviceInfo, tileRegions, vectorWidth);
     for (const auto &regions : vertexRegions) {
       const auto v = graph.addVertex(reduceCS,
-                                     templateVertex("popnn::ConvReduce",
+                                     templateVertex(vertexName,
                                                     reducedType,
                                                     partialType));
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setFieldSize(v["out"], regions.size());
       graph.setFieldSize(v["partials"], regions.size() * tilesPerInZGroup);
+      if (isUpdate)
+        graph.setInitialValue(v["k"], k);
       graph.setTileMapping(v, tile);
       const auto numRegions = regions.size();
       for (unsigned i = 0; i != numRegions; ++i) {
@@ -203,6 +210,17 @@ reduce(Graph &graph,
 }
 
 void
+reduce(Graph &graph,
+       Tensor partials,
+       Tensor reduced,
+       const std::vector<
+         std::vector<Interval<std::size_t>>
+       > &reduceVertexMapping,
+       ComputeSet reduceCS) {
+  reduce(graph, partials, reduced, 1, false, reduceVertexMapping, reduceCS);
+}
+
+void
 reduceByDstMapping(Graph &graph,
                    Tensor partials,
                    Tensor reduced,
@@ -219,3 +237,39 @@ reduceByDstMapping(Graph &graph,
                                                                 reducedMapping);
   return reduce(graph, partials, reduced, reduceVertexMapping, reduceCS);
 }
+
+
+Tensor reduce(poplar::Graph &graph,  poplar::Tensor in,
+              poplar::program::Sequence &prog,
+              const std::string &debugPrefix) {
+  const auto numAddends = in.dim(0);
+  const auto resultSize = in.dim(1);
+  const auto dType = graph.getTensorElementType(in);
+  const auto out = graph.addTensor(dType, {resultSize},
+                                   debugPrefix + "/Reduced");
+  mapTensor(graph, out);
+
+  // If batch size is 1 then no reduction is required.
+  if (numAddends == 1) {
+    prog.add(Copy(in[0], out));
+    return out;
+  }
+
+  const auto cs = graph.addComputeSet(debugPrefix + "/Reduce");
+  reduce(graph, in, out, graph.getTileMapping(out), cs);
+  prog.add(Execute(cs));
+  return out;
+}
+
+void reduceAcc(Graph &graph, Tensor out, float k, Tensor in,
+               Sequence &prog, const std::string &debugPrefix) {
+  auto reduceMapping = graph.getTileMapping(out);
+  if (in.dim(0) >= 2) {
+    reduceMapping = determineReduceVertexMapping(graph, in, out, reduceMapping);
+  }
+  const auto cs = graph.addComputeSet(debugPrefix + "/Reduce");
+  reduce(graph, in, out, k, true, reduceMapping, cs);
+  prog.add(Execute(cs));
+}
+
+} // end namespace popstd

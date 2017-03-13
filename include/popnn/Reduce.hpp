@@ -2,7 +2,21 @@
 #define __Reduce_hpp__
 
 #include "poplar/Graph.hpp"
+#include "poplar/Program.hpp"
 #include <vector>
+
+namespace popstd {
+
+poplar::Tensor
+reduce(poplar::Graph &graph, poplar::Tensor A,
+       poplar::program::Sequence &prog,
+       const std::string &debugPrefix = "");
+
+void
+reduceAcc(poplar::Graph &graph, poplar::Tensor A, float k,
+          poplar::Tensor B,
+          poplar::program::Sequence &prog,
+          const std::string &debugPrefix = "");
 
 /// Perform a reduction over the first dimension of the partials tensor, writing
 /// the result to the reduced tensor. The dimensions of the reduced tensor must
@@ -31,5 +45,7 @@ void reduceByDstMapping(poplar::Graph &graph,
                           std::vector<poplar::Interval<std::size_t>>
                         > &reducedMapping,
                         poplar::ComputeSet reduceCS);
+
+} // end namespace popstd
 
 #endif // __Reduce_hpp__

@@ -3,6 +3,7 @@
 #include "gcd.hpp"
 #include "Util.hpp"
 #include <cassert>
+#include <numeric>
 
 void applyTensorMapping(poplar::Graph &graph, poplar::Tensor t,
                         const std::vector<unsigned> &mapping) {
@@ -15,12 +16,15 @@ void applyTensorMapping(poplar::Graph &graph, poplar::Tensor t,
 }
 
 std::vector<unsigned>
-computeActivationsMapping(const poplar::Graph &graph, poplar::Tensor act,
+computeActivationsMapping(const poplar::Graph &graph,
+                          const std::string &actType,
+                          const std::vector<std::size_t> &shape,
                           unsigned batchNum, unsigned batchSize) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto numTiles = deviceInfo.getNumTiles();
-  const auto numActivations = act.numElements();
-  const auto actType = graph.getTensorElementType(act);
+  const auto numActivations = std::accumulate(shape.begin(), shape.end(),
+                                              1UL,
+                                              std::multiplies<std::size_t>());
   const auto actTypeSize = "float" ? 4 : 2;
   unsigned grainSize = actType == "float" ? deviceInfo.getFloatVectorWidth() :
                                             deviceInfo.getHalfVectorWidth();
@@ -32,12 +36,13 @@ computeActivationsMapping(const poplar::Graph &graph, poplar::Tensor act,
   const auto minElementsPerTile =
     (minBytesPerTile + actTypeSize - 1) / minBytesPerTile;
   unsigned beginTile, endTile;
-  if (act.rank() == 1) {
+  const auto rank = shape.size();
+  if (rank == 1) {
     beginTile = 0;
     endTile = numTiles;
   } else {
-    assert(act.rank() == 4);
-    const unsigned chansPerGroup = act.dim(3);
+    assert(rank == 4);
+    const unsigned chansPerGroup = shape[3];
     // The grain size is chosen to avoid splitting the tensor at a point
     // that will require the incoming pointer to be changed if the messages from
     // the source tiles are received in the wrong order. The convolution layers
@@ -75,6 +80,14 @@ computeActivationsMapping(const poplar::Graph &graph, poplar::Tensor act,
   }
   assert(mapping[endTile] == numActivations);
   return mapping;
+}
+
+std::vector<unsigned>
+computeActivationsMapping(const poplar::Graph &graph, poplar::Tensor act,
+                          unsigned batchNum, unsigned batchSize) {
+  return computeActivationsMapping(graph,
+                                   graph.getTensorElementType(act),
+                                   act.shape(), batchNum, batchSize);
 }
 
 void mapActivations(poplar::Graph &graph, poplar::Tensor act) {

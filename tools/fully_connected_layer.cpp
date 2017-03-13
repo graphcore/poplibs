@@ -9,8 +9,9 @@
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
 #include <popnn/ActivationMapping.hpp>
-#include <popnn/FullyConnected.hpp>
-#include <popnn/FullyConnectedPlan.hpp>
+#include <popnn/MatMul.hpp>
+#include <popnn/Add.hpp>
+#include <popnn/Reduce.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <popnn/codelets.hpp>
 #include <popnn/NonLinearity.hpp>
@@ -23,6 +24,8 @@
 using namespace poplar;
 using namespace poplar::program;
 using namespace ref::util;
+using namespace poplin;
+using namespace popstd;
 
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
@@ -30,6 +33,7 @@ int main(int argc, char **argv) {
   unsigned inputSize;
   unsigned outputSize;
   unsigned batchSize;
+  bool inPlaceUpdate = true;
   FPDataType dataType;
   FPDataType partialsType;
   double relativeTolerance;
@@ -63,6 +67,9 @@ int main(int argc, char **argv) {
     ("batch-size",
      po::value<unsigned>(&batchSize)->default_value(1),
      "Batch size")
+    ("in-place-update",
+     po::value<bool>(&inPlaceUpdate)->default_value(true),
+     "Perform param update in place")
   ;
   po::variables_map vm;
   try {
@@ -89,29 +96,40 @@ int main(int argc, char **argv) {
   Tensor prevAct = graph.addTensor(dataTypeStr, {batchSize, inputSize},
                                    "prevAct");
   mapActivations(graph, prevAct);
-  Tensor weights, biases;
-  std::tie(weights, biases) = fc::createParams(graph, dataTypeStr,
-                                               inputSize, outputSize);
-  Tensor nextAct = graph.addTensor(dataTypeStr, {batchSize, outputSize},
-                                   "nextAct");
-  mapActivations(graph, nextAct);
+  PlanningCache cache;
+  MatMulOptions mmOpt;
+  mmOpt.partialsType = partialsTypeStr;
+  mmOpt.leftHandArgUsedInTranspose = !inferenceOnly;
+  mmOpt.cache = &cache;
+  auto weights = createMatMulInputA(graph, dataTypeStr,
+                                    {outputSize, inputSize},
+                                    prevAct.transpose(),
+                                    "weights", mmOpt);
+  auto biases = graph.addTensor(dataTypeStr, {outputSize}, "biases");
+  mapTensor(graph, biases);
   Tensor prevDeltas, zDeltas;
   if (!inferenceOnly) {
-    zDeltas =
-        graph.addTensor(dataTypeStr, {batchSize, outputSize},
-                        "zDeltas");
+    zDeltas = graph.addTensor(dataTypeStr, {batchSize, outputSize}, "zDeltas");
     mapActivations(graph, zDeltas);
-    prevDeltas =
-        graph.addTensor(dataTypeStr, {batchSize, inputSize},
-                        "prevDeltas");
-    mapActivations(graph, prevDeltas);
   }
 
-  auto outMapping = computeActivationsMapping(graph, nextAct[0], 0, 1);
-  auto plan = fc::createPlan(graph, dataTypeStr, partialsTypeStr, inputSize,
-                             outMapping, inferenceOnly);
-  fc::mapWeights(graph, weights, outMapping, plan);
-  fc::mapBiases(graph, biases, outMapping);
+  auto fwdProg = Sequence();
+  auto nextAct = matMul(graph, prevAct, weights.transpose(), fwdProg,
+                        "fc", mmOpt);
+  auto bBiases = biases.broadcast(batchSize, 0)
+                       .reshape({batchSize, outputSize});
+  addTo(graph, nextAct, bBiases, 1, fwdProg);
+  auto bwdProg = Sequence();
+  const auto learningRate = 0.5;
+  if (!inferenceOnly) {
+    prevDeltas = matMul(graph, zDeltas, weights, bwdProg, "fc", mmOpt);
+    auto weightDeltas = matMul(graph, zDeltas.transpose(), prevAct, bwdProg,
+                               "fc", mmOpt);
+    addTo(graph, weights, weightDeltas, -learningRate, bwdProg);
+    auto biasDeltas = reduce(graph, zDeltas, bwdProg);
+    addTo(graph, biases, biasDeltas, -learningRate, bwdProg);
+  }
+
   auto upload = Sequence();
   auto download = Sequence();
   auto rawHostPrevAct = allocateHostMemoryForTensor(graph, prevAct, upload,
@@ -131,21 +149,6 @@ int main(int argc, char **argv) {
                                                     download);
   }
 
-  auto fwdProg = Sequence();
-  fwdProg.add(fc::fullyConnected(graph, outputSize,
-                                 prevAct, weights, biases, nextAct, plan));
-
-  auto bwdProg = Sequence();
-  const auto learningRate = 0.5;
-  if (!inferenceOnly) {
-    bwdProg.add(
-      fc::fullyConnectedBackward(graph, zDeltas, weights, prevDeltas, plan)
-    );
-    bwdProg.add(
-      fc::fullyConnectedWeightUpdate(graph, zDeltas, prevAct, weights,
-                                     biases, learningRate, plan)
-    );
-  }
   Engine engine(graph, {std::move(upload), std::move(download),
                         std::move(fwdProg), std::move(bwdProg)});
 

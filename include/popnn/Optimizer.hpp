@@ -10,7 +10,7 @@
 #include <array>
 #include <set>
 #include "popnn/exceptions.hpp"
-#include "popnn/FullyConnectedPlan.hpp"
+#include "popnn/MatMul.hpp"
 #include "popnn/ConvPlan.hpp"
 #include "popnn/NonLinearityDef.hpp"
 #include "popnn/ResidualDef.hpp"
@@ -112,6 +112,7 @@ public:
   bool skipBwd = false;
   bool skipWU = false;
   float learningRate = 0.9;
+  bool inPlaceParamUpdate = true;
 
   DType dataType = FP16, partialsType = FP32;
 
@@ -149,7 +150,7 @@ private:
 
   std::vector<const ExpImpl *> schedule;
   std::map<const ExpImpl *, std::set<const ExpImpl *>> uses;
-  std::map<const ExpImpl *, fc::Plan> fullyConnectedPlan;
+  poplin::PlanningCache poplinCache;
   std::map<const ExpImpl *, poplar::Tensor> out;
   std::map<const ExpImpl *, std::vector<poplar::Tensor>> inGradient;
   std::map<const ExpImpl *, std::vector<poplar::Tensor>> params;
@@ -161,6 +162,8 @@ private:
   const DataSet *dataSet;
   poplar::Tensor expected, feedIn;
 
+  double getPerfectCycleTime(unsigned flops, const std::string &dType,
+                             bool useVectors, bool useAmp);
   conv::Plan getBwdConvPlan(const ExpImpl *exp, unsigned prevDimY,
                             unsigned prevDimX, unsigned prevNumChans);
   conv::Plan getFwdConvPlan(const ExpImpl *exp, unsigned inDimY,

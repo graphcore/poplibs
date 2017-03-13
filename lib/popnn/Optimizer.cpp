@@ -1,13 +1,14 @@
 #include "popnn/Optimizer.hpp"
 #include <boost/program_options.hpp>
 #include <poplar/HalfFloat.hpp>
+#include "popnn/Add.hpp"
 #include "popnn/codelets.hpp"
 #include "popnn/Convolution.hpp"
 #include "popnn/Loss.hpp"
 #include "popnn/MaxPool.hpp"
-#include "popnn/FullyConnected.hpp"
-#include "popnn/FullyConnectedPlan.hpp"
+#include "popnn/MatMul.hpp"
 #include "popnn/ActivationMapping.hpp"
+#include "popnn/Reduce.hpp"
 #include "Residual.hpp"
 #include "VertexTemplates.hpp"
 #include "popnn/NonLinearity.hpp"
@@ -21,6 +22,9 @@
 
 using namespace poplar;
 using namespace poplar::program;
+using namespace poplin;
+using namespace popstd;
+
 namespace popnn {
 namespace optimizer {
 
@@ -153,6 +157,11 @@ bool parseCommandLine(int argc, char **argv, OptimizerOptions &options) {
        &options.skipWU
     )->default_value(options.skipWU),
     "Skip weight update pass calculation")
+    ("in-place-update",
+    po::value<bool>(
+       &options.inPlaceParamUpdate
+    )->default_value(options.inPlaceParamUpdate),
+    "Perform parameter update in place")
   ;
   po::variables_map vm;
   try {
@@ -421,6 +430,30 @@ convolutionWeightUpdate(poplar::Graph &graph,
 
 Optimizer::~Optimizer() = default;
 
+double
+Optimizer::getPerfectCycleTime(unsigned flops, const std::string &dType,
+                               bool useVectors, bool useAmp) {
+  const auto &deviceInfo = graph->getDevice().getDeviceInfo();
+  const auto numTiles = deviceInfo.getNumTiles();
+  if (useAmp) {
+    const auto convUnitsPerTile =
+        std::max(std::max(deviceInfo.fp16InFp16OutConvUnitsPerTile,
+                          deviceInfo.fp32InFp32OutConvUnitsPerTile),
+                 deviceInfo.fp16InFp32OutConvUnitsPerTile);
+    const auto halfVectorWidth = deviceInfo.getHalfVectorWidth();
+    auto macsPerCycle = convUnitsPerTile * halfVectorWidth;
+    double numMacs = static_cast<double>(flops) / 2;
+    auto macCycles = static_cast<double>(numMacs) / (macsPerCycle * numTiles);
+    return macCycles;
+  } else if (useVectors) {
+    unsigned dTypeSize = dType == "float" ? 4 : 2;
+    const auto vectorWidth = deviceInfo.dataPathWidth / (8 * dTypeSize);
+    return static_cast<double>(flops) / (2 * vectorWidth * numTiles);
+  } else {
+    return flops;
+  }
+}
+
 void Optimizer::createSchedule(const Exp &exp) {
   // First find all expression values that need to be calculated
   std::unordered_set<const ExpImpl *> exps;
@@ -655,9 +688,10 @@ void Optimizer::outputDescription(const ExpImpl *exp) {
     const auto in = out[prev];
     const auto prevSize = in.numElements();
     const auto size = fc->channels;
-    const auto fwdFlops = fc::getFwdFlops(options.batchSize, prevSize, size);
-    const auto bwdFlops = fc::getBwdFlops(options.batchSize, prevSize, size);
-    const auto wuFlops = fc::getWuFlops(options.batchSize, prevSize, size);
+    // FLOPS = number of macs in matrix multiply * 2
+    const auto fwdFlops = prevSize * options.batchSize * size * 2;
+    const auto bwdFlops = prevSize * options.batchSize * size * 2;
+    const auto wuFlops = prevSize * options.batchSize * size * 2;
     std::cout << "   -- Fully connected layer:\n"
               << "        Input:  "  << prevSize << "\n"
               << "        Output: " << size << "\n"
@@ -1025,27 +1059,25 @@ void Optimizer::genFwd(Sequence &fwdProg,
       }
     } else if (const auto *fc = dynamic_cast<const FullyConnected *>(exp)) {
       const auto prev = exp->deps().front();
-      const auto in = out[prev];
+      auto in = out[prev];
+      const auto batchSize = options.batchSize;
+      assert(in.numElements() % batchSize == 0);
+      in = in.reshape({batchSize, in.numElements() / batchSize});
       const auto prevSize = in[0].numElements();
       const auto size = fc->channels;
-      const auto batchSize = options.batchSize;
-      out[exp] = graph->addTensor(dType, {batchSize, size},
-                                 "activations." + std::to_string(layerIndex));
-      mapActivations(*graph, out[exp]);
-      auto activationsMapping =
-          computeActivationsMapping(*graph, out[exp][0], 0, batchSize);
       bool first = dynamic_cast<const Feed *>(prev);
-      bool forwardOnly = first || !options.training;
-      const auto &plan =
-          fullyConnectedPlan.emplace(
-            exp,
-            fc::createPlan(*graph, dType, partialsType, prevSize,
-                           activationsMapping,
-                           forwardOnly)
-         ).first->second;
-      Tensor weights, biases;
-      std::tie(weights, biases) = fc::createParams(*graph, dType,
-                                                   prevSize, size);
+      MatMulOptions mmOpt;
+      mmOpt.leftHandArgUsedInTranspose = options.training && !first;
+      mmOpt.partialsType = options.partialsType;
+      mmOpt.cache = &poplinCache;
+      auto weights = createMatMulInputA(*graph, dType,
+                                        {size, prevSize},
+                                        in.transpose(),
+                                        "weights." + std::to_string(layerIndex),
+                                        mmOpt);
+      auto biases = graph->addTensor(dType, {size},
+                                     "biases." + std::to_string(layerIndex));
+      mapTensor(*graph, biases);
       params[exp] = {weights, biases};
       if (dType == "float") {
          auto hWeights =
@@ -1059,17 +1091,20 @@ void Optimizer::genFwd(Sequence &fwdProg,
          hParams[exp].push_back(std::move(hWeights));
          hParams[exp].push_back(std::move(hBiases));
       }
-      fc::mapWeights(*graph, weights, activationsMapping, plan);
-      fc::mapBiases(*graph, biases, activationsMapping);
+
       if (!options.skipFwd) {
-        fwdProg.add(fc::fullyConnected(*graph, size,
-                                       in, weights, biases,
-                                       out[exp], plan,
-                                       layerPrefix));
-        fwdFlops += fc::getFwdFlops(batchSize, prevSize, size);
-        fwdPerfectCycleTime +=
-            fc::getFwdPerfectCycleCount(*graph, batchSize, prevSize,
-                                        size, dType);
+        out[exp] = matMul(*graph, in, weights.transpose(), fwdProg,
+                          layerPrefix, mmOpt);
+        auto bBiases = biases.broadcast(batchSize, 0)
+                             .reshape({batchSize, size});
+        addTo(*graph, out[exp], bBiases, 1.0, fwdProg, layerPrefix);
+        const auto flops = prevSize * size * batchSize * 2;
+        fwdFlops += flops;
+        fwdPerfectCycleTime += getPerfectCycleTime(flops, dType, true, false);
+      } else {
+        out[exp] = graph->addTensor(dType, {batchSize, size},
+                                    layerPrefix + "/matMulOut");
+        mapActivations(*graph, out[exp]);
       }
       numParams += weights.numElements() + biases.numElements();
     } else if (dynamic_cast<const ResidualAdd *>(exp)) {
@@ -1265,7 +1300,7 @@ void Optimizer::genBwd(Sequence &bwdProg,
     if (dynamic_cast<const Feed *>(prev)) {
       backwardPassRequired = false;
     }
-    const auto in = out[prev];
+    auto in = out[prev];
     const auto batchSize = options.batchSize;
     Tensor outGradient;
     // Calculated the gradient of the output of the operation.
@@ -1303,27 +1338,38 @@ void Optimizer::genBwd(Sequence &bwdProg,
     if (const auto *fc = dynamic_cast<const FullyConnected *>(exp)) {
       auto weights = params[exp][0];
       auto biases = params[exp][1];
-      const auto &plan = fullyConnectedPlan.find(exp)->second;
       const auto prevSize = in[0].numElements();
       const auto size = fc->channels;
+      const auto prevShape = in.shape();
+      in = in.reshape({in.dim(0), in.numElements() / in.dim(0)});
+      MatMulOptions mmOpt;
+      mmOpt.leftHandArgUsedInTranspose = backwardPassRequired;
+      mmOpt.partialsType = options.partialsType;
+      mmOpt.cache = &poplinCache;
       if (backwardPassRequired  && !options.skipBwd) {
-        bwdFlops += fc::getBwdFlops(batchSize, prevSize, size);
-        bwdPerfectCycleTime +=
-            fc::getBwdPerfectCycleCount(*graph, batchSize, prevSize,
-                                        size, dType);
-        createInGradients(exp, layerIndex);
-        auto &inGrad = inGradient[exp][0];
-        bwdProg.add(fc::fullyConnectedBackward(*graph, outGradient, weights,
-                                               inGrad, plan, layerPrefix));
+        const auto flops = batchSize * prevSize * size * 2;
+        bwdFlops += flops;
+        bwdPerfectCycleTime += getPerfectCycleTime(flops, dType, true, false);
+        auto inGrad = matMul(*graph, outGradient, weights, bwdProg,
+                             layerPrefix, mmOpt);
+        inGrad = inGrad.reshape(prevShape);
+        inGradient[exp].push_back(inGrad);
       }
       if (!options.skipWU) {
-        bwdProg.add(fc::fullyConnectedWeightUpdate(*graph, outGradient,
-                                                   in, weights, biases, eta,
-                                                   plan, layerPrefix));
-        wuFlops += fc::getWuFlops(batchSize, prevSize, size);
-        wuPerfectCycleTime +=
-            fc::getWuPerfectCycleCount(*graph, batchSize, prevSize,
-                                       size, dType);
+        if (options.inPlaceParamUpdate) {
+          matMulAcc(*graph, weights, -eta, outGradient.transpose(), in,
+                    bwdProg, layerPrefix, mmOpt);
+          reduceAcc(*graph, biases, -eta, outGradient, bwdProg, layerPrefix);
+        } else {
+          auto weightDeltas = matMul(*graph, outGradient.transpose(), in,
+                                     bwdProg, layerPrefix, mmOpt);
+          addTo(*graph, weights, weightDeltas, -eta, bwdProg, layerPrefix);
+          auto biasDeltas = reduce(*graph, outGradient, bwdProg, layerPrefix);
+          addTo(*graph, biases, biasDeltas, -eta, bwdProg, layerPrefix);
+        }
+        const auto flops = batchSize * prevSize * size * 2;
+        wuFlops += flops;
+        wuPerfectCycleTime += getPerfectCycleTime(flops, dType, true, false);
       }
     } else if (const auto *c = dynamic_cast<const Conv2d *>(exp)) {
       bwdProg.add(createConvLayerBwd(exp, outGradient, layerIndex,
