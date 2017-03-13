@@ -217,5 +217,5 @@ reduceByDstMapping(Graph &graph,
                                                                 partials,
                                                                 reduced,
                                                                 reducedMapping);
-  return reduce(graph, partials, reduced, reducedMapping, reduceCS);
+  return reduce(graph, partials, reduced, reduceVertexMapping, reduceCS);
 }
