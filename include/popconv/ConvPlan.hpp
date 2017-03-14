@@ -1,28 +1,11 @@
 #ifndef __popconv_ConvPlan_hpp__
 #define __popconv_ConvPlan_hpp__
+#include <popconv/Convolution.hpp>
 #include <string>
 #include <poplar/Graph.hpp>
 #include <iosfwd>
 
 namespace popconv {
-
-enum class WeightUpdateMethod {
-  AOP,
-  AMP,
-  AUTO
-};
-
-const char *asString(const WeightUpdateMethod &method);
-std::ostream &operator<<(std::ostream &os, const WeightUpdateMethod &method);
-std::istream &operator>>(std::istream &is, WeightUpdateMethod &method);
-
-// Switches to control the planning of Convolutional layers
-class PlanControl {
-public:
-  WeightUpdateMethod weightUpdateMethod = WeightUpdateMethod::AUTO;
-  bool useWinograd = false;
-  unsigned winogradPatchSize = 4;
-};
 
 struct Plan {
   unsigned tilesPerXAxis;
@@ -69,36 +52,23 @@ struct Plan {
   }
 };
 
-class PlannerCache;
-class Planner {
-  std::unique_ptr<PlannerCache> cache;
-  unsigned percentageCyclesExcessForMemOptim;
-public:
-  Plan createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                  unsigned kernelSizeY, unsigned kernelSizeX,
-                  unsigned strideY, unsigned strideX,
-                  unsigned paddingY, unsigned paddingX,
-                  unsigned numChannels, unsigned batchSize,
-                  std::string dType,
-                  std::string partialsType, bool isFractional,
-                  const poplar::Graph &graph,
-                  const popconv::PlanControl &planControl);
-  Plan createWeightUpdatePlan(unsigned inDimY, unsigned inDimX,
-                              unsigned inNumChans,
-                              unsigned actChansPerGroup,
-                              unsigned deltasChansPerGroup,
-                              unsigned weightOutChansPerGroup,
-                              unsigned kernelSizeY, unsigned kernelSizeX,
-                              unsigned strideY, unsigned strideX,
-                              unsigned paddingY, unsigned paddingX,
-                              unsigned numChannels, unsigned batchSize,
-                              std::string dType,
-                              std::string partialsType, bool isFractional,
-                              const poplar::Graph &graph,
-                              const PlanControl &planControl);
-  Planner(unsigned percentageCyclesExcessForMemOptim = 0);
-  ~Planner();
-};
+Plan getPlan(const poplar::Graph &graph,
+             std::string dType,
+             unsigned batchSize,
+             unsigned inDimY, unsigned inDimX, unsigned inNumChans,
+             std::vector<std::size_t> weightsShape,
+             std::vector<unsigned> stride,
+             std::vector<unsigned> padding,
+             bool isFractional, ConvOptions options);
+
+Plan getWeightUpdatePlan(const poplar::Graph &graph,
+                         const poplar::Tensor &activations,
+                         const poplar::Tensor &deltas,
+                         std::vector<std::size_t> weightsShape,
+                         std::vector<unsigned> stride,
+                         std::vector<unsigned> padding,
+                         bool isFractional,
+                         ConvOptions options);
 
 std::ostream& operator<<(std::ostream &os, const Plan &p);
 

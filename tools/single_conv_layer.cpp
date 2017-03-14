@@ -57,9 +57,10 @@ int main(int argc, char **argv) {
   unsigned kernelSize;
   unsigned padding;
   unsigned stride;
-  unsigned percentageCyclesExcessForMemOptim;
   Pass pass = Pass::ALL;
-  popconv::PlanControl convPlanControl;
+  popconv::ConvOptions convOptions;
+  popconv::PlanningCache cache;
+  convOptions.cache = &cache;
 
   po::options_description desc("Options");
   desc.add_options()
@@ -124,21 +125,21 @@ int main(int argc, char **argv) {
      po::value<unsigned>(&batchSize)->default_value(1),
      "Batch size")
     ("use-winograd-conv",
-     po::value<bool>(&convPlanControl.useWinograd)->default_value(0),
+     po::value<bool>(&convOptions.useWinograd)->default_value(0),
      "Use winograd convolution")
     ("winograd-patch-size",
-      po::value<unsigned>(&convPlanControl.winogradPatchSize)->default_value(4),
+      po::value<unsigned>(&convOptions.winogradPatchSize)->default_value(4),
      "Square patch size to use in winograd convolution")
     ("percent-cyc-excess-for-mem-optim",
      po::value<unsigned>(
-       &percentageCyclesExcessForMemOptim
+       &convOptions.percentageCyclesExcessForMemOptim
      )->default_value(0),
      "Percentage cycles excess to use for memory optimisation. "
      "if 0, no memory optimisation is performed")
     ("weight-update-method",
      po::value<popconv::WeightUpdateMethod>(
-         &convPlanControl.weightUpdateMethod
-     )->default_value(convPlanControl.weightUpdateMethod),
+         &convOptions.weightUpdateMethod
+     )->default_value(convOptions.weightUpdateMethod),
      "Weight update method: amp | aop | auto")
   ;
   po::variables_map vm;
@@ -212,15 +213,13 @@ int main(int argc, char **argv) {
   const auto outHeight = outDims.first;
   const auto outWidth = outDims.second;
   // TODO support residual connections.
-  popconv::Planner planner(percentageCyclesExcessForMemOptim);
   //Forward plan is always required as bwd/wu passes may use fwd groupings
-  auto fwdPlan = planner.createPlan(height, width, fwdInChans,
-                                    kernelHeight, kernelWidth,
-                                    strideH, strideW,
-                                    paddingHeight, paddingWidth,
-                                    fwdOutChans, batchSize,
-                                    dataTypeStr, partialsTypeStr,
-                                    false, graph, convPlanControl);
+  auto fwdPlan = popconv::getPlan(graph, dataTypeStr, batchSize,
+                                  height, width, fwdInChans,
+                                  {kernelHeight, kernelWidth, fwdOutChans},
+                                  {strideH, strideW},
+                                  {paddingHeight, paddingWidth},
+                                  false, convOptions);
   bool bwdIsFractional = strideH != 1 || strideW != 1;
   if (paddingHeight >= kernelHeight || paddingWidth >= kernelWidth) {
     throw popstd::poplib_error("Backwards convolution pass does not support "
@@ -235,13 +234,12 @@ int main(int argc, char **argv) {
   popconv::Plan bwdPlan;
   // Backward plan is also needed for WU
   if (doBwdPass || doWuPass)
-    bwdPlan = planner.createPlan(outHeight, outWidth, fwdOutChans,
-                                 kernelHeight, kernelWidth,
-                                 strideH, strideW,
-                                 bwdPaddingHeight, bwdPaddingWidth,
-                                 fwdInChans, batchSize,
-                                 dataTypeStr, partialsTypeStr,
-                                 bwdIsFractional, graph, convPlanControl);
+    bwdPlan =popconv::getPlan(graph, dataTypeStr, batchSize,
+                              outHeight, outWidth, fwdOutChans,
+                              {kernelHeight, kernelWidth, fwdInChans},
+                              {strideH, strideW},
+                              {bwdPaddingHeight, bwdPaddingWidth},
+                              bwdIsFractional, convOptions);
   auto fwdInChansPerGroup = fwdPlan.inChansPerGroup;
   // If the output grouping is unspecified, assume the output uses the same
   // grouping as the input unless that is impossible.
@@ -261,18 +259,6 @@ int main(int argc, char **argv) {
                             bwdPlan.partialChansPerGroup;
     }
   }
-  popconv::Plan wuPlan;
-  if (doWuPass)
-    wuPlan = planner.createWeightUpdatePlan(height, width, fwdInChans,
-                                            fwdInChansPerGroup,
-                                            bwdInChansPerGroup,
-                                            fwdPlan.partialChansPerGroup,
-                                            kernelHeight, kernelWidth,
-                                            strideH, strideW,
-                                            paddingHeight, paddingWidth,
-                                            fwdOutChans, batchSize,
-                                            dataTypeStr, partialsTypeStr,
-                                             false, graph, convPlanControl);
 
   // Create tensors.
   Tensor prevAct = graph.addTensor(dataTypeStr,
@@ -282,9 +268,11 @@ int main(int argc, char **argv) {
                                     width,
                                     fwdInChansPerGroup}, "prevAct");
   mapActivations(graph, prevAct);
-  Tensor weights = popconv::createWeights(graph, dataTypeStr, fwdInChans,
+  Tensor weights = popconv::createWeights(graph, prevAct,
                                           kernelHeight, kernelWidth,
-                                          fwdOutChans, fwdPlan);
+                                          fwdOutChans, strideH, strideW,
+                                          paddingHeight, paddingWidth, false,
+                                          convOptions);
   Tensor biases = popconv::createBiases(graph, dataTypeStr, fwdOutChans);
   Tensor nextAct =
       graph.addTensor(dataTypeStr, {batchSize,
@@ -339,11 +327,11 @@ int main(int argc, char **argv) {
   // Always generate the fwd program as it maps the weights and biases. Only
   // actually create the engined if the fwd pass is to be run
   {
-    Program program = popconv::convolution(graph, fwdPlan,
-                                           strideH, strideW,
-                                           paddingHeight, paddingWidth,
+    Program program = popconv::convolution(graph, {strideH, strideW},
+                                           {paddingHeight, paddingWidth},
                                            prevAct, weights, biases, nextAct,
-                                           partialsTypeStr, false, false);
+                                           partialsTypeStr, false, false, "",
+                                           convOptions);
     if (doFwdPass)
       fwdProg.add(program);
   }
@@ -357,19 +345,20 @@ int main(int argc, char **argv) {
     popconv::mapBiases(zeroBiases, graph, prevDeltas);
     revProg.add(Copy(zeros, zeroBiases));
     revProg.add(
-      popconv::convolution(graph, bwdPlan,
+      popconv::convolution(graph,
                            strideH, strideW,
                            bwdPaddingHeight, bwdPaddingWidth,
                            zDeltas, weights, zeroBiases, prevDeltas,
-                           partialsTypeStr, bwdIsFractional, true)
+                           partialsTypeStr, bwdIsFractional, true, "",
+                           convOptions)
     );
   }
   if (doWuPass) {
     revProg.add(
-      popconv::convolutionWeightUpdate(graph, wuPlan, fwdPlan,
-                                       zDeltas, weights, biases, prevAct,
+      popconv::convolutionWeightUpdate(graph, zDeltas, weights, biases, prevAct,
                                        strideH, strideW, paddingHeight,
-                                       paddingWidth, learningRate)
+                                       paddingWidth, false, learningRate, "",
+                                       convOptions)
     );
   }
   Engine engine(graph, {std::move(upload), std::move(download),

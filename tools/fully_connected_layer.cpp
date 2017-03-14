@@ -10,6 +10,7 @@
 #include <poplar/Engine.hpp>
 #include <popstd/ActivationMapping.hpp>
 #include <popconv/Convolution.hpp>
+#include <popconv/ConvPlan.hpp>
 #include <popconv/codelets.hpp>
 #include <poplin/MatMul.hpp>
 #include <popstd/Add.hpp>
@@ -387,21 +388,24 @@ int main(int argc, char **argv) {
   std::string dataTypeStr(asString(dataType));
   std::string partialsTypeStr(asString(partialsType));
 
-  popconv::Planner planner;
+  popconv::PlanningCache pCache;
+  popconv::ConvOptions options;
+  options.noLHSRearrangement = true;
+  options.cache = &pCache;
   // A fully connected fwd pass is equivalent to a convolution with
   // input channels = inputSize
   // width = outputSize
   // height = 1
   // output channels = batchSize.
-  popconv::PlanControl convPlanControl;
-  auto fwdPlan = planner.createPlan(1 /*height*/, outputSize, inputSize,
-                                    1 /*kernelHeight*/, 1 /*kernelWidth*/,
-                                    1 /*strideH*/, 1 /*strideW*/,
-                                    0 /*paddingHeight*/, 0 /*paddingWidth*/,
-                                    batchSize, 1,
-                                    dataTypeStr, partialsTypeStr,
-                                    false, graph, convPlanControl);
-
+  auto fwdPlan =
+      popconv::getPlan(graph, dataTypeStr,
+                       1 /* batchSize */,
+                       1 /* height */, outputSize /* width */,
+                       inputSize /* inputChans */,
+                       {1, 1, batchSize} /* kernelY, kernelX, outputChans */,
+                       {1, 1} /* stride */,
+                       {0, 0} /* padding */,
+                       false, options);
   // Create tensors.
   Tensor weights = graph.addTensor(dataTypeStr,
                                    {1,
@@ -409,10 +413,12 @@ int main(int argc, char **argv) {
                                     1 /*height*/,
                                     outputSize,
                                     fwdPlan.inChansPerGroup}, "weights");
-  popconv::mapActivations(graph, fwdPlan, weights);
-  Tensor prevAct = popconv::createWeights(graph, dataTypeStr, inputSize,
+  Tensor prevAct = popconv::createWeights(graph, weights,
                                           1 /*kernelHeight*/, 1 /*kernelWidth*/,
-                                          batchSize, fwdPlan);
+                                          batchSize, 1, 1, 0, 0,
+                                          false, options);
+  popconv::mapActivations(graph, weights, prevAct, 1, 1, 0, 0, false, options);
+
   Tensor nextAct =
       graph.addTensor(dataTypeStr, {1 /*batchSize*/,
                                     batchSize / fwdPlan.partialChansPerGroup,
@@ -430,15 +436,18 @@ int main(int argc, char **argv) {
   // width = outputSize
   // height = 1
   // output channels = batchSize.
-  // Use the forward plan to avoid rearrangement of weight deltas.
+  // Note that the noLHSRearrengement convolution option is set
+  // to avoid a rearrangement of weight deltas.
   // TODO produce a joint plan for the forward and backward passes.
-  auto bwdPlan = fwdPlan;
-  bwdPlan.useConvolutionInstructions = false;
   auto upload = Sequence();
   auto download = Sequence();
   Tensor zDeltas;
   std::unique_ptr<char[]> rawHostZDeltas;
   if (doBwdPass || doWuPass) {
+    auto bwdPlan =
+      popconv::getWeightUpdatePlan(graph, weights, zDeltas,
+                                   {1, 1, batchSize},
+                                   {1, 1}, {0, 0}, false, options);
     zDeltas = graph.addTensor(dataTypeStr,
                               {1 /*batchSize*/,
                                batchSize / bwdPlan.partialChansPerGroup,
@@ -463,26 +472,28 @@ int main(int argc, char **argv) {
 
   if (doFwdPass) {
     auto zeroBiases = graph.addConstantTensor(dataTypeStr, {batchSize}, 0);
-    fwdProg.add(popconv::convolution(graph, fwdPlan, {1, 1}, {0, 0}, weights,
+    fwdProg.add(popconv::convolution(graph, {1, 1}, {0, 0}, weights,
                                      prevAct, zeroBiases, nextAct,
-                                     partialsTypeStr, false, false));
+                                     partialsTypeStr, false, false, "",
+                                     options));
     auto bBiases = biases.broadcast(batchSize, 0)
                          .reshape({batchSize / fwdPlan.partialChansPerGroup,
                                    fwdPlan.partialChansPerGroup, outputSize})
                          .dimShuffle({0, 2, 1});
     addTo(graph, nextAct, bBiases, 1, fwdProg);
   } else {
-    popconv::mapActivations(graph, fwdPlan, weights);
-    popconv::mapWeights(prevAct, graph, fwdPlan, 1);
+    popconv::mapWeights(prevAct, graph, weights, 1, 1, 0, 0, false,
+                        options);
   }
 
   Tensor prevDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
   if (doBwdPass) {
-    prevDeltas = popconv::calculateWeightDeltas(graph, bwdPlan, fwdPlan,
+    prevDeltas = popconv::calculateWeightDeltas(graph,
                                                 zDeltas, 1 /*kernelSizeY*/,
                                                 1 /*kernelSizeX*/, weights,
-                                                {1, 1}, {0, 0}, bwdProg);
+                                                {1, 1}, {0, 0}, false, bwdProg,
+                                                "", options);
   } else {
     prevDeltas = graph.addTensor(dataTypeStr,
                                  {batchSize / fwdPlan.partialChansPerGroup,
@@ -491,7 +502,8 @@ int main(int argc, char **argv) {
                                   1,
                                   fwdPlan.partialChansPerGroup,
                                   fwdPlan.inChansPerGroup}, "prevDeltas");
-    popconv::mapWeights(prevDeltas, graph, fwdPlan, 1);
+    popconv::mapWeights(prevDeltas, graph, weights, 1, 1, 0, 0, false,
+                        options);
   }
   rawHostPrevDeltas = allocateHostMemoryForTensor(graph, prevDeltas, upload,
                                                   download);

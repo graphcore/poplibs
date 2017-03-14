@@ -1,4 +1,5 @@
 #include "popconv/Convolution.hpp"
+#include "popconv/ConvPlan.hpp"
 #include <limits>
 #include <cassert>
 #include <cmath>
@@ -53,13 +54,23 @@ struct WeightGradAopTask {
 
 };
 
-poplar::Tensor
-createWeights(poplar::Graph &graph, std::string dType,
-             unsigned inNumChans,
-             unsigned kernelSizeY,
-             unsigned kernelSizeX,
-             unsigned outNumChans,
-             const Plan &plan) {
+Tensor
+createWeights(Graph &graph, const Tensor &in,
+              unsigned kernelSizeY, unsigned kernelSizeX,
+              unsigned outNumChans,
+              unsigned strideY, unsigned strideX,
+              unsigned paddingY, unsigned paddingX,
+              bool isFractional,
+              const ConvOptions &options) {
+  const auto dType = graph.getTensorElementType(in);
+  const auto inNumChans = in.dim(1) * in.dim(4);
+  const auto plan = getPlan(graph, dType,
+                            in.dim(0), in.dim(2), in.dim(3),
+                            inNumChans,
+                            {kernelSizeY, kernelSizeX, outNumChans},
+                            {strideY, strideX},
+                            {paddingY, paddingX},
+                            isFractional, options);
   const auto partialChansPerGroup = plan.partialChansPerGroup;
   const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
   const auto inChansPerGroup = plan.inChansPerGroup;
@@ -259,9 +270,29 @@ calculateActivationMapping(const Graph &graph,
   return mapping;
 }
 
-void mapActivations(Graph &graph, const Plan &plan, Tensor acts) {
+static void mapActivations(Graph &graph, const Plan &plan,
+                           const Tensor &acts) {
   auto mapping = calculateActivationMapping(graph, plan, acts);
   graph.setTileMapping(acts, mapping);
+}
+
+void mapActivations(poplar::Graph &graph,
+                    const poplar::Tensor &in,
+                    const poplar::Tensor &w,
+                    unsigned strideY, unsigned strideX,
+                    unsigned paddingY, unsigned paddingX,
+                    bool isFractional,
+                    const ConvOptions &options) {
+  const auto dType = graph.getTensorElementType(in);
+  const auto inNumChans = in.dim(1) * in.dim(4);
+  const auto plan = getPlan(graph, dType,
+                            in.dim(0), in.dim(2), in.dim(3),
+                            inNumChans,
+                            {w.dim(2), w.dim(3), w.dim(0) * w.dim(4)},
+                            {strideY, strideX},
+                            {paddingY, paddingX},
+                            isFractional, options);
+  mapActivations(graph, plan, in);
 }
 
 static std::vector<std::vector<Interval<std::size_t>>>
@@ -396,13 +427,30 @@ iterateWeightMapping(Tensor w,
   }
 }
 
-void
-mapWeights(Tensor w, Graph &graph, const Plan &plan,
-           unsigned batchSize) {
+static void mapWeights(const Tensor &w, Graph &graph, const Plan &plan,
+                       unsigned batchSize) {
   iterateWeightMapping(w, graph, plan, batchSize,
     [&](Tensor tileWeights, unsigned tile) {
     graph.setTileMapping(tileWeights, tile);
   });
+}
+
+void
+mapWeights(Tensor w, Graph &graph, const Tensor &in,
+           unsigned strideY, unsigned strideX,
+           unsigned paddingY, unsigned paddingX,
+           bool isFractional,
+           const ConvOptions &options) {
+  const auto dType = graph.getTensorElementType(in);
+  const auto inNumChans = in.dim(1) * in.dim(4);
+  const auto plan = getPlan(graph, dType,
+                            in.dim(0), in.dim(2), in.dim(3),
+                            inNumChans,
+                            {w.dim(2), w.dim(3), w.dim(0) * w.dim(4)},
+                            {strideY, strideX},
+                            {paddingY, paddingX},
+                            isFractional, options);
+  mapWeights(w, graph, plan, in.dim(0));
 }
 
 template <typename Builder>
@@ -1573,30 +1621,39 @@ convSuffix(const std::vector<unsigned> &kernelSize,
 
 Program
 convolution(Graph &graph,
-            const Plan &plan,
             const std::vector<unsigned> &stride,
             const std::vector<unsigned> &padding,
             Tensor in, Tensor weights, Tensor biases, Tensor activations,
             const std::string &partialsType, bool isFractional,
             bool transposeAndFlipWeights,
-            const std::string &debugPrefix) {
+            const std::string &debugPrefix,
+            const ConvOptions &options) {
   const auto dType = graph.getTensorElementType(in);
   const auto batchSize = activations.dim(0);
   Sequence prog;
   if (transposeAndFlipWeights) {
     // Create transposed/flipped weights
-    const auto inNumChans = weights.dim(0) * weights.dim(4);
     const auto outNumChans = weights.dim(1) * weights.dim(5);
     const auto kernelSizeY = weights.dim(2);
     const auto kernelSizeX = weights.dim(3);
-    auto bwdWeights = createWeights(graph, dType, inNumChans,
+    auto bwdWeights = createWeights(graph, in,
                                     kernelSizeY, kernelSizeX,
-                                    outNumChans, plan);
-    mapWeights(bwdWeights, graph, plan, batchSize);
+                                    outNumChans, stride[0], stride[1],
+                                    padding[0], padding[1], isFractional,
+                                    options);
+    mapWeights(bwdWeights, graph, in, stride[0], stride[1], padding[0],
+               padding[1], isFractional, options);
     prog.add(weightsTransposeChansFlipXY(graph, weights, bwdWeights,
                                          debugPrefix));
     weights = bwdWeights;
   }
+  const auto plan = getPlan(graph, dType,
+                            in.dim(0), in.dim(2), in.dim(3),
+                            in.dim(1) * in.dim(4),
+                            {weights.dim(2), weights.dim(3),
+                             weights.dim(0) * weights.dim(4)},
+                            stride, padding,
+                            isFractional, options);
   if (plan.useWinograd) {
     return winogradConvolution(graph, stride[0], stride[1],
                                padding[0], padding[1],
@@ -2993,7 +3050,7 @@ static Tensor calculateWeightDeltasAmp(Graph &graph, const Plan &plan,
   return weightDeltas;
 }
 
-Tensor
+static Tensor
 calculateWeightDeltas(Graph &graph, const Plan &plan,
                       const Plan &fwdPlan, Tensor zDeltas,
                       unsigned kernelSizeY, unsigned kernelSizeX,
@@ -3012,14 +3069,57 @@ calculateWeightDeltas(Graph &graph, const Plan &plan,
                                   debugPrefix);
 }
 
+Tensor
+calculateWeightDeltas(Graph &graph, Tensor zDeltas,
+                      unsigned kernelSizeY, unsigned kernelSizeX,
+                      Tensor activations,
+                      const std::vector<unsigned> &stride,
+                      const std::vector<unsigned> &padding,
+                      bool isFractional,
+                      Sequence &prog,
+                      const std::string &debugPrefix,
+                      const ConvOptions &options) {
+  const auto outNumChans = zDeltas.dim(1) * zDeltas.dim(4);
+  const auto dType = graph.getTensorElementType(zDeltas);
+  const auto plan =
+      getWeightUpdatePlan(graph, activations, zDeltas,
+                          {kernelSizeY, kernelSizeX, outNumChans},
+                          stride, padding, isFractional, options);
+  const auto fwdPlan =
+      getPlan(graph, dType,
+              activations.dim(0), activations.dim(2), activations.dim(3),
+              activations.dim(1) * activations.dim(4),
+              {kernelSizeY, kernelSizeX, outNumChans},
+              stride, padding,
+              isFractional, options);
+  return calculateWeightDeltas(graph, plan, fwdPlan, zDeltas, kernelSizeY,
+                               kernelSizeX, activations, stride, padding, prog,
+                               debugPrefix);
+}
+
 Program
 convolutionWeightUpdate(Graph &graph,
-                        const Plan &plan, const Plan &fwdPlan,
                         Tensor zDeltas, Tensor weights, Tensor biases,
                         Tensor activations,
                         const std::vector<unsigned> &stride,
                         const std::vector<unsigned> &padding,
-                        float learningRate, const std::string &debugPrefix) {
+                        bool isFractional, float learningRate,
+                        const std::string &debugPrefix,
+                        const ConvOptions &options) {
+  const auto dType = graph.getTensorElementType(zDeltas);
+  const auto plan =
+      getWeightUpdatePlan(graph, activations, zDeltas,
+                          {weights.dim(2), weights.dim(3),
+                           weights.dim(0) * weights.dim(4)},
+                          stride, padding, isFractional, options);
+  const auto fwdPlan =
+      getPlan(graph, dType,
+              activations.dim(0), activations.dim(2), activations.dim(3),
+              activations.dim(1) * activations.dim(4),
+              {weights.dim(2), weights.dim(3),
+               weights.dim(0) * weights.dim(4)},
+              stride, padding,
+              isFractional, options);
   const unsigned kernelSizeY = weights.dim(2);
   const unsigned kernelSizeX = weights.dim(3);
   const auto layerName = debugPrefix
@@ -3037,7 +3137,6 @@ convolutionWeightUpdate(Graph &graph,
   // Add the weight deltas to the weights.
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto batchSize = activations.dim(0);
-  const auto dType = graph.getTensorElementType(zDeltas);
   auto addCS = graph.addComputeSet(debugPrefix + "/UpdateWeights");
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   assert(weightDeltas.shape() == weights.shape());

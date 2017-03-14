@@ -136,27 +136,66 @@ estimateConvPartialHorizontalMacCycles(unsigned tileNumInGroups,
                                        unsigned inChansPerGroup,
                                        unsigned dataPathWidth);
 
-class PlannerCache {
+class PlanningCacheImpl {
 public:
   decltype(memoize(getConvPartialnx1CycleEstimate))
     mGetConvPartialnx1CycleEstimate;
   decltype(memoize(estimateConvPartialHorizontalMacCycles))
     mEstimateConvPartialHorizontalMacCycles;
-  PlannerCache() :
+  PlanningCacheImpl() :
     mGetConvPartialnx1CycleEstimate(
       memoize(getConvPartialnx1CycleEstimate)
     ),
     mEstimateConvPartialHorizontalMacCycles(
       memoize(estimateConvPartialHorizontalMacCycles)
     ) {}
+  struct Params {
+    std::string dType;
+    std::vector<std::size_t> inShape;
+    std::vector<std::size_t> weightsShape;
+    std::vector<unsigned> stride;
+    std::vector<unsigned> padding;
+    bool isFractional;
+    bool isWeightUpdate;
+    unsigned actChansPerGroup;
+    unsigned deltaChansPerGroup;
+    ConvOptions options;
+    Params(std::string dType,
+           std::vector<std::size_t> inShape,
+           std::vector<std::size_t> weightsShape,
+           std::vector<unsigned> stride,
+           std::vector<unsigned> padding,
+           bool isFractional,
+           bool isWeightUpdate, unsigned actChansPerGroup,
+           unsigned deltaChansPerGroup,
+           ConvOptions options) :
+      dType(std::move(dType)),
+      inShape(std::move(inShape)),
+      weightsShape(std::move(weightsShape)),
+      stride(std::move(stride)),
+      padding(std::move(padding)),
+      isFractional(isFractional),
+      isWeightUpdate(isWeightUpdate),
+      actChansPerGroup(isWeightUpdate ? actChansPerGroup : 0),
+      deltaChansPerGroup(isWeightUpdate ? deltaChansPerGroup : 0),
+      options(std::move(options)) {}
+    bool operator<(const Params &other) const {
+      return std::tie(dType, inShape, weightsShape, stride, padding,
+                      isFractional, isWeightUpdate, options) <
+               std::tie(other.dType, other.inShape, other.weightsShape,
+                        other.stride, other.padding,
+                        other.isFractional, other.isWeightUpdate,
+                        other.options);
+    }
+  };
+  std::map<Params, std::unique_ptr<Plan>> plans;
 };
 
-Planner::Planner(unsigned percentageCyclesExcessForMemOptim) :
-    percentageCyclesExcessForMemOptim(percentageCyclesExcessForMemOptim){
-  cache = std::unique_ptr<PlannerCache>(new PlannerCache());
+PlanningCache::PlanningCache() {
+  impl = std::unique_ptr<PlanningCacheImpl>(new PlanningCacheImpl());
 }
 
-Planner::~Planner() = default;
+PlanningCache::~PlanningCache() = default;
 
 struct Cost {
   unsigned cycles;
@@ -484,7 +523,7 @@ estimateWeightUpdatePartialCalcComputeCost(const poplar::DeviceInfo &deviceInfo,
                                            bool floatActivations,
                                            const ConvolutionParams &params,
                                            const Plan &plan,
-                                           PlannerCache *cache) {
+                                           PlanningCacheImpl *cache) {
   assert(params.isWeightUpdate);
   assert(!plan.useConvolutionInstructions);
   const auto tilesPerZ = plan.tilesPerZAxis;
@@ -671,7 +710,7 @@ estimatePartialCalcComputeCost(const poplar::DeviceInfo &deviceInfo,
                                bool floatActivations,
                                const ConvolutionParams &params,
                                const Plan &plan,
-                               PlannerCache *cache) {
+                               PlanningCacheImpl *cache) {
   if (params.isWeightUpdate) {
     return
       estimateWeightUpdatePartialCalcComputeCost(deviceInfo, floatActivations,
@@ -871,7 +910,7 @@ static Cost
 estimateComputeCost(const poplar::DeviceInfo &deviceInfo,
                     bool floatActivations, const ConvolutionParams &params,
                     const Plan &plan,
-                    PlannerCache *cache) {
+                    PlanningCacheImpl *cache) {
   return estimatePartialCalcComputeCost(deviceInfo, floatActivations, params,
                                         plan, cache) +
          estimateReduceComputeCost(deviceInfo, params,
@@ -886,7 +925,7 @@ estimatePlanCostBounded(const poplar::DeviceInfo &deviceInfo,
                              const Plan &plan,
                              Cost maxCost,
                              CostBounds costBounds,
-                             PlannerCache *cache) {
+                             PlanningCacheImpl *cache) {
   auto cost = estimateExchangeCost(deviceInfo,
                                    floatActivations, params, plan);
   if (!compareCost(cost, maxCost, costBounds))
@@ -955,8 +994,8 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
            const ConvolutionParams &params,
            const unsigned batchesPerGroup,
            const CostBounds costBounds,
-           PlannerCache *cache,
-           const PlanControl &planControl) {
+           PlanningCacheImpl *cache,
+           const ConvOptions &options) {
   const auto floatActivations = convVertexType.floatActivations;
   if (convVertexType.useConvInstruction &&
       params.isWeightUpdate) {
@@ -1077,7 +1116,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                                           partialChansPerGroup,
                                           convVertexType, newParams,
                                           1, costBounds, cache,
-                                          planControl);
+                                          options);
         plan.flattenXY = flattenXY;
         plan.ampWUMethod = method;
         cost += estimateWeightUpdateByAmpReorderCost(deviceInfo,
@@ -1188,10 +1227,10 @@ getWeightUpdateVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
                                     bool floatActivations,
                                     bool floatPartials,
                                     const ConvolutionParams &params,
-                                    const PlanControl &planControl) {
+                                    const ConvOptions &options) {
   std::vector<ConvVertexType> convVertexTypeCandidates;
-  if (planControl.weightUpdateMethod == WeightUpdateMethod::AMP ||
-      planControl.weightUpdateMethod == WeightUpdateMethod::AUTO) {
+  if (options.weightUpdateMethod == WeightUpdateMethod::AMP ||
+      options.weightUpdateMethod == WeightUpdateMethod::AUTO) {
     if (getConvUnitsPerTile(deviceInfo, floatActivations, floatPartials) > 0) {
       convVertexTypeCandidates.emplace_back(true, floatActivations,
                                             floatPartials);
@@ -1200,8 +1239,8 @@ getWeightUpdateVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
       convVertexTypeCandidates.emplace_back(true, false, true);
     }
   }
-  if (planControl.weightUpdateMethod == WeightUpdateMethod::AOP ||
-      planControl.weightUpdateMethod == WeightUpdateMethod::AUTO) {
+  if (options.weightUpdateMethod == WeightUpdateMethod::AOP ||
+      options.weightUpdateMethod == WeightUpdateMethod::AUTO) {
     convVertexTypeCandidates.emplace_back(false, floatActivations,
                                           floatPartials);
   }
@@ -1285,8 +1324,8 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
            const ConvolutionParams &params,
            unsigned batchesPerGroup,
            const CostBounds costBounds,
-           PlannerCache *cache,
-           const PlanControl &planControl) {
+           PlanningCacheImpl *cache,
+           const ConvOptions &options) {
   Plan best;
   Cost bestCost = highestCost;
   if (params.isWeightUpdate && !convVertexType.useConvInstruction) {
@@ -1306,7 +1345,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
       std::tie(candidate, candidateCost) =
           choosePlan(deviceInfo, inChansPerGroup, partialChansPerGroup,
                      convVertexType, params, batchesPerGroup, costBounds,
-                     cache, planControl);
+                     cache, options);
       candidateCost +=
           estimateWeightUpdateByAopReorderCost(deviceInfo,
                                                tensorOutChansPerGroup,
@@ -1349,7 +1388,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
     std::tie(candidate, candidateCost) =
         choosePlan(deviceInfo, inChansPerGroup, partialChansPerGroup,
                    convVertexType, params, batchesPerGroup, costBounds, cache,
-                   planControl);
+                   options);
     if (compareCost(candidateCost, bestCost, costBounds)) {
       best = candidate;
       bestCost = candidateCost;
@@ -1367,15 +1406,15 @@ choosePlan(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
            const ConvolutionParams &params,
            unsigned batchesPerGroup,
            CostBounds costBounds,
-           PlannerCache *cache,
-           const PlanControl &planControl) {
+           PlanningCacheImpl *cache,
+           const ConvOptions &options) {
   Cost bestCost = highestCost;
   Plan bestPlan;
   const auto convVertexTypeCandidates =
       params.isWeightUpdate
         ? getWeightUpdateVertexTypeCandidates(deviceInfo, floatActivations,
                                               floatPartials, params,
-                                              planControl)
+                                              options)
         : getConvVertexTypeCandidates(deviceInfo, floatActivations,
                                       floatPartials, params);
   for (const auto &convVertexType : convVertexTypeCandidates) {
@@ -1384,7 +1423,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
     std::tie(candidate, candidateCost) =
         choosePlan(deviceInfo, convVertexType, tensorInChansPerGroup,
                    tensorOutChansPerGroup, tensorWeightOutChansPerGroup,
-                   params, batchesPerGroup, costBounds, cache, planControl);
+                   params, batchesPerGroup, costBounds, cache, options);
     if (candidateCost == highestCost)
       continue;
     if (compareCost(candidateCost, bestCost, costBounds)) {
@@ -1406,10 +1445,10 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
            std::string dType,
            std::string partialsType, bool isFractional,
            bool isWeightUpdate,
-           const PlanControl &planControl,
+           const ConvOptions &options,
            const CostBounds costBounds,
            const poplar::Graph &graph,
-           PlannerCache *cache) {
+           PlanningCacheImpl *cache) {
   validateLayerParams(inDimY, inDimX, inNumChans, kernelSizeY, kernelSizeX,
                       strideY, strideX, paddingY, paddingX,
                       numChannels, dType);
@@ -1459,7 +1498,7 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                    batchesPerGroup,
                    costBounds,
                    cache,
-                   planControl);
+                   options);
     if (compareCost(candidateCost, bestCandidateCost, costBounds)) {
       bestCandidateCost = candidateCost;
       bestCandidate = candidate;
@@ -1470,22 +1509,40 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
   return {bestCandidate, bestCandidateCost};
 }
 
-Plan Planner::
-createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-           unsigned kernelSizeY, unsigned kernelSizeX,
-           unsigned strideY, unsigned strideX,
-           unsigned paddingY, unsigned paddingX,
-           unsigned numChannels, unsigned batchSize,
-           std::string dType, std::string partialsType,
-           bool isFractional,
-           const poplar::Graph &graph,
-           const popconv::PlanControl &planControl) {
+
+Plan getPlan(const poplar::Graph &graph,
+             std::string dType,
+             unsigned batchSize,
+             unsigned inDimY, unsigned inDimX, unsigned inNumChans,
+             std::vector<std::size_t> weightsShape,
+             std::vector<unsigned> stride,
+             std::vector<unsigned> padding,
+             bool isFractional,
+             ConvOptions options) {
   Plan plan;
   Cost cost;
   CostBounds costBounds(0, 0);
-
-  if (planControl.useWinograd) {
-    if (planControl.winogradPatchSize != 4 ||
+  const auto strideY = stride[0];
+  const auto strideX = stride[1];
+  const auto paddingY = padding[0];
+  const auto paddingX = padding[1];
+  const auto kernelSizeY = weightsShape[0];
+  const auto kernelSizeX = weightsShape[1];
+  const auto numChannels = weightsShape[2];
+  const auto partialsType = options.partialsType;
+  auto cache = options.cache->impl.get();
+  PlanningCacheImpl::Params params(dType,
+                                   {inDimY, inDimX, inNumChans},
+                                   weightsShape, stride, padding,
+                                   isFractional, false, 0, 0, options);
+  if (params.options.cache) {
+    auto &plans = params.options.cache->impl->plans;
+    auto match = plans.find(params);
+    if (match != plans.end())
+      return *match->second;
+  }
+  if (options.useWinograd) {
+    if (options.winogradPatchSize != 4 ||
         strideY != 1 || strideX != 1 ||
         kernelSizeY != 3 || kernelSizeX != 3) {
       throw popstd::poplib_error("Attempt to force winograd convolution for "
@@ -1493,68 +1550,104 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
 
     }
     plan.useWinograd = true;
-    plan.winogradPatchSize = planControl.winogradPatchSize;
+    plan.winogradPatchSize = options.winogradPatchSize;
     return plan;
   }
 
-  std::tie(plan, cost) = popconv::createPlan(inDimY, inDimX, inNumChans, 0, 0,
-                                             0, kernelSizeY, kernelSizeX,
-                                             strideY, strideX, paddingY,
-                                             paddingX, numChannels, batchSize,
-                                             dType, partialsType,
-                                             isFractional, false, planControl,
+  std::tie(plan, cost) = popconv::createPlan(inDimY, inDimX, inNumChans,
+                                             0, 0, 0,
+                                             kernelSizeY, kernelSizeX,
+                                             strideY, strideX,
+                                             paddingY, paddingX,
+                                             numChannels, batchSize, dType,
+                                             partialsType,
+                                             isFractional, false, options,
                                              costBounds, graph,
-                                             cache.get());
-  if (percentageCyclesExcessForMemOptim) {
+                                             cache);
+  if (options.percentageCyclesExcessForMemOptim) {
     /* Set new bounds based on previous search */
     const double newCyclesBound =
         static_cast<double>(cost.cycles)
-        * (100.0 + percentageCyclesExcessForMemOptim) / 100.0;
+        * (100.0 + options.percentageCyclesExcessForMemOptim) / 100.0;
 
     CostBounds newCostBounds(static_cast<unsigned>(newCyclesBound), 0);
 
-    std::tie(plan, cost) =
-        popconv::createPlan(inDimY, inDimX, inNumChans, 0, 0, 0,
-                            kernelSizeY, kernelSizeX,
-                            strideY, strideX,
-                            paddingY, paddingX,
-                            numChannels, batchSize, dType,
-                            partialsType,
-                            isFractional, false, planControl,
-                            newCostBounds, graph,
-                            cache.get());
-
+    std::tie(plan, cost) = popconv::createPlan(inDimY, inDimX, inNumChans,
+                                               0, 0, 0,
+                                               kernelSizeY, kernelSizeX,
+                                               strideY, strideX,
+                                               paddingY, paddingX,
+                                               numChannels, batchSize, dType,
+                                               partialsType,
+                                               isFractional, false,
+                                               options,
+                                               newCostBounds, graph,
+                                               cache);
+  }
+  if (params.options.cache) {
+    auto &plans = params.options.cache->impl->plans;
+    auto pPlan = std::unique_ptr<Plan>(new Plan(std::move(plan)));
+    auto res = plans.emplace(std::make_pair(params, std::move(pPlan)));
+    return *res.first->second;
   }
   return plan;
 }
 
-Plan Planner::
-createWeightUpdatePlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                       unsigned actChansPerGroup, unsigned deltasChansPerGroup,
-                       unsigned weightOutChansPerGroup,
-                       unsigned kernelSizeY, unsigned kernelSizeX,
-                       unsigned strideY, unsigned strideX,
-                       unsigned paddingY, unsigned paddingX,
-                       unsigned numChannels, unsigned batchSize,
-                       std::string dType, std::string partialsType,
-                       bool isFractional,
-                       const poplar::Graph &graph,
-                       const PlanControl &planControl) {
+Plan getWeightUpdatePlan(const poplar::Graph &graph,
+                         const poplar::Tensor &activations,
+                         const poplar::Tensor &deltas,
+                         std::vector<std::size_t> weightsShape,
+                         std::vector<unsigned> stride,
+                         std::vector<unsigned> padding,
+                         bool isFractional,
+                         ConvOptions options) {
+  const auto dType = graph.getTensorElementType(activations);
+  const auto batchSize = activations.dim(0);
+  const auto inDimY = activations.dim(2);
+  const auto inDimX = activations.dim(3);
+  const auto inNumChans = activations.dim(1) * activations.dim(4);
+  if (options.noLHSRearrangement) {
+    auto plan = getPlan(graph, dType,  batchSize, inDimY, inDimX,
+                        inNumChans, weightsShape, stride, padding,
+                        isFractional, options);
+    plan.useConvolutionInstructions = false;
+    return plan;
+  }
   Plan plan;
   Cost cost;
   CostBounds costBounds(0, 0);
+  const auto strideY = stride[0];
+  const auto strideX = stride[1];
+  const auto paddingY = padding[0];
+  const auto paddingX = padding[1];
+  const auto kernelSizeY = weightsShape[0];
+  const auto kernelSizeX = weightsShape[1];
+  const auto numChannels = weightsShape[2];
+  const auto partialsType = options.partialsType;
+  const auto actChansPerGroup = activations.dim(4);
+  const auto deltasChansPerGroup = deltas.dim(4);
+  auto cache = options.cache->impl.get();
+  PlanningCacheImpl::Params params(dType,
+                                   {inDimY, inDimX, inNumChans},
+                                   weightsShape, stride, padding,
+                                   isFractional, true, actChansPerGroup,
+                                   deltasChansPerGroup, options);
+  const auto fwdPlan = getPlan(graph, dType, batchSize, inDimY, inDimX,
+                               inNumChans, weightsShape, stride, padding,
+                               isFractional, options);
 
-  std::tie(plan, cost) =
-      popconv::createPlan(inDimY, inDimX, inNumChans,
-                          actChansPerGroup, deltasChansPerGroup,
-                          weightOutChansPerGroup,
-                          kernelSizeY, kernelSizeX,
-                          strideY, strideX, paddingY, paddingX,
-                          numChannels, batchSize, dType,
-                          partialsType, isFractional,
-                          true, planControl,
-                          costBounds, graph, cache.get());
+  std::tie(plan, cost) = popconv::createPlan(inDimY, inDimX, inNumChans,
+                                             actChansPerGroup,
+                                             deltasChansPerGroup,
+                                             fwdPlan.partialChansPerGroup,
+                                             kernelSizeY, kernelSizeX,
+                                             strideY, strideX,
+                                             paddingY, paddingX,
+                                             numChannels, batchSize, dType,
+                                             partialsType, isFractional,
+                                             true, options,
+                                             costBounds, graph, cache);
   return plan;
 }
 
-}
+} // end namespace conv

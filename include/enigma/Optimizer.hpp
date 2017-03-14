@@ -118,15 +118,7 @@ public:
 
   DType dataType = FP16, partialsType = FP32;
 
-  /* Perform memory optimisation if cycles performance is
-   * within percentage excess of optimum cycles performance
-   *
-   * i.e. if C_opt is the optimium cycles performance bound,
-   *  allow memory optimisations in if cycles cost is
-   *    < C_opt * (100 + percentageCyclesExcessForMemOptim)/100
-   */
-  unsigned percentageCyclesExcessForMemOptim = 0;
-  popconv::PlanControl convPlanControl;
+  popconv::ConvOptions convOptions;
 };
 
 bool parseCommandLine(int argc, char **argv, OptimizerOptions &options);
@@ -163,7 +155,7 @@ private:
   std::uint64_t fwdFlops, bwdFlops, wuFlops;
   std::uint64_t numParams;
   double fwdPerfectCycleTime, bwdPerfectCycleTime, wuPerfectCycleTime;
-  popconv::Planner planner;
+  popconv::PlanningCache convCache;
   const DataSet *dataSet;
   poplar::Tensor expected, feedIn;
 
@@ -174,9 +166,8 @@ private:
   popconv::Plan getFwdConvPlan(const ExpImpl *exp, unsigned inDimY,
                                unsigned inDimX, unsigned inNumChans);
   popconv::Plan
-  getWuConvPlan(const ExpImpl *exp, unsigned prevDimY, unsigned prevDimX,
-                unsigned prevNumChans, unsigned actsChansPerGroup,
-                unsigned deltasChanPerGroup, unsigned weightOutChansPerGroup);
+  getWuConvPlan(const ExpImpl *exp, const poplar::Tensor &activations,
+                const poplar::Tensor &deltas);
   unsigned getRequiredChansPerGroupBwd(const ExpImpl *exp);
   unsigned getRequiredChansPerGroupFwd(const ExpImpl *exp, unsigned inDimY,
                                        unsigned inDimX, unsigned inNumChans);
@@ -202,17 +193,19 @@ private:
   std::map<WUKey, popstd::graphfn::ProgramFunction> wuGraphCache;
 
   poplar::program::Program
-  createBwdWeightsAndBiases(poplar::Graph &graph, const popconv::Plan &bwdPlan,
-                            const popconv::Plan &fwdPlan,
-                            poplar::Tensor weights, poplar::Tensor deltasOut,
+  createBwdWeightsAndBiases(poplar::Graph &graph,
+                            poplar::Tensor weights,
+                            poplar::Tensor deltasIn,
+                            poplar::Tensor deltasOut,
                             poplar::Tensor bwdWeights,
                             poplar::Tensor bwdBiases,
+                            unsigned strideY, unsigned strideX,
+                            unsigned paddingY, unsigned paddingX,
+                            bool isFractional,
                             const std::string &debugPrefix);
 
   poplar::program::Program
   doConvolutionWeightUpdate(poplar::Graph &graph,
-                            const popconv::Plan &wuPlan,
-                            const popconv::Plan &fwdPlan,
                             poplar::Tensor zDeltas, poplar::Tensor weights,
                             poplar::Tensor biases,
                             poplar::Tensor activations,
@@ -222,7 +215,7 @@ private:
                             const std::string &debugPrefix);
 
   poplar::program::Program
-  doConvolution(poplar::Graph &graph, const popconv::Plan &plan,
+  doConvolution(poplar::Graph &graph,
               const std::vector<unsigned> &stride,
               const std::vector<unsigned> &padding,
               poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
