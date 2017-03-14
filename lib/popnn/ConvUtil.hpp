@@ -9,6 +9,10 @@
 
 namespace convutil {
 
+inline unsigned absdiff(unsigned a, unsigned b) {
+  return a < b ? b - a : a - b;
+}
+
 /// Return the index of the input that is associated with the specified
 /// kernel index to be incorporated into the specified output.
 /// Return ~0U if there is no
@@ -17,7 +21,6 @@ unsigned
 getInputIndex(unsigned outputIndex, unsigned stride, unsigned kernelSize,
               unsigned padding, unsigned inputSize, unsigned kernelIndex,
               bool isFractional);
-
 
 /// Given an output range, return the subset whose calculation
 /// involves the specified kernel.

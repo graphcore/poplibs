@@ -7,14 +7,9 @@ unsigned
 getInputIndex(unsigned outputIndex, unsigned stride, unsigned kernelSize,
               unsigned padding, unsigned inputSize, unsigned kernelIndex,
               bool isFractionallyStrided) {
-  if (!isFractionallyStrided) {
-    const auto start = static_cast<int>(outputIndex * stride) -
-                       static_cast<int>(padding);
-    auto inputIndex = start + static_cast<int>(kernelIndex);
-    if (inputIndex < 0 || static_cast<unsigned>(inputIndex) >= inputSize)
-      return ~0U;
-    return inputIndex;
-  } else {
+  if (isFractionallyStrided) {
+    // Stride represents a upsampling of the input.
+    // Padding represents a truncation of the output.
     int adjusted = static_cast<int>(outputIndex + padding) -
                    static_cast<int>(kernelSize - 1 - kernelIndex);
     if (adjusted < 0 || adjusted % stride != 0)
@@ -24,6 +19,23 @@ getInputIndex(unsigned outputIndex, unsigned stride, unsigned kernelSize,
       return ~0U;
     return inputIndex;
   }
+  const auto upsampledOutputIndex = outputIndex * stride;
+  const auto paddedInputSize = inputSize + 2 * padding;
+  unsigned paddedInputIndex;
+  if (kernelSize > paddedInputSize) {
+    if (kernelIndex < upsampledOutputIndex) {
+      return ~0U;
+    }
+    paddedInputIndex = kernelIndex - upsampledOutputIndex;
+  } else {
+    paddedInputIndex = kernelIndex + upsampledOutputIndex;
+  }
+  if (paddedInputIndex < padding)
+    return ~0U;
+  const auto inputIndex = paddedInputIndex - padding;
+  if (inputIndex >= inputSize)
+    return ~0U;
+  return inputIndex;
 }
 
 std::pair<unsigned, unsigned>
@@ -141,16 +153,24 @@ getKernelRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
                bool isFractionallyStrided) {
   if (isFractionallyStrided)
     assert(0 && "non implemented");
-  int begin = static_cast<int>(outputIndex * stride) -
-              static_cast<int>(padding);
-  unsigned inputBegin, inputEnd;
-  std::tie(inputBegin, inputEnd) = getInputRange(outputIndex, stride,
-                                                 kernelSize, padding,
-                                                 inputSize,
-                                                 isFractionallyStrided);
-  const auto kernelBegin = inputBegin - begin;
-  const auto kernelEnd = inputEnd - begin;
-  return { kernelBegin, kernelEnd };
+  unsigned kernelBegin = 0, kernelEnd = 0;
+  for (unsigned i = 0; i != kernelSize; ++i) {
+    if (getInputIndex(outputIndex, stride, kernelSize, padding,
+                      inputSize, i, isFractionallyStrided) == ~0U) {
+      continue;
+    }
+    kernelBegin = i;
+    break;
+  }
+  for (unsigned i = kernelSize; i != 0; --i) {
+    if (getInputIndex(outputIndex, stride, kernelSize, padding, inputSize,
+                      i - 1, isFractionallyStrided) == ~0U) {
+      continue;
+    }
+    kernelEnd = i;
+    break;
+  }
+  return {kernelBegin, kernelEnd};
 }
 
 std::vector<std::vector<PartialRow>>
@@ -194,8 +214,10 @@ getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSizeY,
              unsigned kernelSizeX, unsigned strideY,
              unsigned strideX, unsigned paddingY,
              unsigned paddingX) {
-  unsigned outDimX = (inDimX + (paddingX * 2) - kernelSizeX) / strideX + 1;
-  unsigned outDimY = (inDimY + (paddingY * 2) - kernelSizeY) / strideY + 1;
+  unsigned outDimX =
+      absdiff(inDimX + (paddingX * 2), kernelSizeX) / strideX + 1;
+  unsigned outDimY =
+      absdiff(inDimY + (paddingY * 2), kernelSizeY) / strideY + 1;
   return {outDimY, outDimX};
 }
 

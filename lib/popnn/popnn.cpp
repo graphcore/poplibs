@@ -833,6 +833,7 @@ public:
     }
 
     for (unsigned i = 0; i != numInRows; ++i) {
+      assert(!in[i].empty());
       auto *row = &in[i][0];
       auto *rowWeights = &weights[i][0];
       for (unsigned outX = 0; outX < outputWidth; ++outX) {

@@ -717,51 +717,56 @@ createConvPartialDotProductVertex(Graph &graph,
   auto kernelRange =
       getKernelRange(y, strideY, kernelSizeY, paddingY, inDimY, false);
   VertexRef v;
-  if (kernelRange.second <= kernelYBegin ||
-      kernelRange.first >= kernelYEnd) {
-    v = graph.addVertex(fwdCS, templateVertex("popnn::Zero", partialType));
-    graph.connect(v["out"], outWindow);
-    graph.setInitialValue(v["dataPathWidth"],
-                          graph.getDevice().getDeviceInfo().dataPathWidth);
-  } else {
+  bool createdVertex = false;
+  unsigned inYBegin, inYEnd, inXBegin, inXEnd;
+  if (kernelRange.second > kernelYBegin && kernelRange.first < kernelYEnd) {
     kernelYBegin = std::max(kernelYBegin, kernelRange.first);
     kernelYEnd = std::min(kernelYEnd, kernelRange.second);
     // Window into previous layer.
-    unsigned inYBegin, inYEnd, inXBegin, inXEnd;
     std::tie(inYBegin, inYEnd) =
         getInputRange(y, strideY, kernelSizeY, paddingY, inDimY,
                       {kernelYBegin, kernelYEnd}, false);
     std::tie(inXBegin, inXEnd) =
         getInputRange({outXBegin, outXEnd}, strideX, kernelSizeX,
                       paddingX, inDimX, false);
-    const auto inWidth = inXEnd - inXBegin;
-    const auto inHeight = inYEnd - inYBegin;
-    Tensor inWindow =
-        in.slice(
-    {inZGroupBegin, inYBegin, inXBegin, 0},
-    {inZGroupEnd, inYEnd, inXEnd, inChansPerGroup}
-          ).reshape({inHeight * inZGroups,
-                     inWidth * inChansPerGroup});
-    Tensor w =
-        weights[z].slice(
-    {inZGroupBegin, kernelYBegin, 0, 0, 0},
-    {inZGroupEnd, kernelYEnd, kernelSizeX, 1, inChansPerGroup}
-          ).reshape({inHeight * inZGroups,
-                     inChansPerGroup * kernelSizeX});
-    // Add the vertex.
-    v = graph.addVertex(fwdCS, templateVertex("popnn::ConvPartial", dType,
-                                              partialType),
-                        {{"in", inWindow},
-                         {"weights", w},
-                         {"out", outWindow},
-                        });
-    graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-    graph.setInitialValue(v["stride"], strideX);
-    graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
-    const auto inXBeginPaddedField = outXBegin * strideX;
-    unsigned vPadding =
-        inXBeginPaddedField < paddingX ? paddingX - inXBeginPaddedField : 0;
-    graph.setInitialValue(v["padding"], vPadding);
+    if (inYBegin != inYEnd ||
+        inXBegin != inXEnd) {
+      const auto inWidth = inXEnd - inXBegin;
+      const auto inHeight = inYEnd - inYBegin;
+      Tensor inWindow =
+          in.slice(
+      {inZGroupBegin, inYBegin, inXBegin, 0},
+      {inZGroupEnd, inYEnd, inXEnd, inChansPerGroup}
+            ).reshape({inHeight * inZGroups,
+                       inWidth * inChansPerGroup});
+      Tensor w =
+          weights[z].slice(
+      {inZGroupBegin, kernelYBegin, 0, 0, 0},
+      {inZGroupEnd, kernelYEnd, kernelSizeX, 1, inChansPerGroup}
+            ).reshape({inHeight * inZGroups,
+                       inChansPerGroup * kernelSizeX});
+      // Add the vertex.
+      v = graph.addVertex(fwdCS, templateVertex("popnn::ConvPartial", dType,
+                                                partialType),
+                          {{"in", inWindow},
+                           {"weights", w},
+                           {"out", outWindow},
+                          });
+      createdVertex = true;
+      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
+      graph.setInitialValue(v["stride"], strideX);
+      graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
+      const auto inXBeginPaddedField = outXBegin * strideX;
+      unsigned vPadding =
+          inXBeginPaddedField < paddingX ? paddingX - inXBeginPaddedField : 0;
+      graph.setInitialValue(v["padding"], vPadding);
+    }
+  }
+  if (!createdVertex) {
+    v = graph.addVertex(fwdCS, templateVertex("popnn::Zero", partialType));
+    graph.connect(v["out"], outWindow);
+    graph.setInitialValue(v["dataPathWidth"],
+                          graph.getDevice().getDeviceInfo().dataPathWidth);
   }
   // Map the vertex and output.
   graph.setTileMapping(v, tile);
@@ -1363,14 +1368,14 @@ convolutionByAmp(Graph &graph, const Plan &plan, unsigned strideY,
                  unsigned outDimX, bool isFractional,
                  const std::string &debugPrefix) {
   if (isFractional) {
-    assert((outDimY + 2 * paddingY - weights.dim(2)) / strideY + 1 ==
+    assert(absdiff(outDimY + 2 * paddingY, weights.dim(2)) / strideY + 1 ==
            in.dim(2));
-    assert((outDimX + 2 * paddingX - weights.dim(3)) / strideX + 1 ==
+    assert(absdiff(outDimX + 2 * paddingX, weights.dim(3)) / strideX + 1 ==
            in.dim(3));
   } else {
-    assert((in.dim(2) + 2 * paddingY - weights.dim(2)) / strideY + 1 ==
+    assert(absdiff(in.dim(2) + 2 * paddingY, weights.dim(2)) / strideY + 1 ==
            outDimY);
-    assert((in.dim(3) + 2 * paddingX - weights.dim(3)) / strideX + 1 ==
+    assert(absdiff(in.dim(3) + 2 * paddingX, weights.dim(3)) / strideX + 1 ==
            outDimX);
   }
   const auto numBatchGroups = in.dim(0);
@@ -2941,7 +2946,8 @@ convolutionWeightUpdateAmpPreProcess(Graph &graph,
   for (unsigned wx = 0; wx != kernelSizeX; ++wx) {
     auto usedActivations =
         paddedActivations.slice(wx,
-                                paddedActivations.dim(2) - kernelSizeX + 1 + wx,
+                                absdiff(paddedActivations.dim(2), kernelSizeX) +
+                                1 + wx,
                                 2);
     auto stridedActivations =
         usedActivations.subSample(strideX, 2);

@@ -292,6 +292,18 @@ add_test(NAME conv_large_output_tensor
                 --tiles-per-ipu=16
                 --data-type=half)
 
+add_test(NAME conv_large_weights
+         COMMAND single_conv_layer
+                --width=16
+                --height=14
+                --input-channels=64
+                --output-channels=64
+                --kernel-height=16
+                --kernel-width=1
+                --tiles-per-ipu=16
+                --data-type=half
+                --single-phase=fwd)
+
 add_test(NAME fully_connected_half
          COMMAND fully_connected_layer
                  --input-size 300

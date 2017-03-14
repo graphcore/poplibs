@@ -1,6 +1,10 @@
 #include <popnn_ref/Convolution.hpp>
 #include <popnn_ref/exceptions.hpp>
 
+static unsigned absdiff(unsigned a, unsigned b) {
+  return a < b ? b - a : a - b;
+}
+
 void ref::conv::
 convolution(unsigned strideH, unsigned strideW,
             unsigned paddingHeight, unsigned paddingWidth,
@@ -32,13 +36,8 @@ convolution(unsigned strideH, unsigned strideW,
     const auto outputChannels = out.shape()[1];
     const auto kernelHeight = weights.shape()[2];
     const auto kernelWidth = weights.shape()[3];
-    if (paddedHeight < kernelHeight ||
-        paddedWidth < kernelWidth) {
-      throw popnn_ref::popnn_ref_error("Kernels larger than (padded) input "
-                                       "not supported");
-    }
-    const auto convOutHeight = paddedHeight - (kernelHeight - 1);
-    const auto convOutWidth = paddedWidth - (kernelWidth - 1);
+    const auto convOutHeight = absdiff(paddedHeight, kernelHeight) + 1;
+    const auto convOutWidth = absdiff(paddedWidth, kernelWidth) + 1;
     boost::multi_array<double, 3>
         convOut(boost::extents[outputChannels]
                               [convOutHeight]
@@ -47,11 +46,18 @@ convolution(unsigned strideH, unsigned strideW,
     for (unsigned oc = 0; oc != outputChannels; ++oc) {
       for (unsigned y = 0; y != convOutHeight; ++y) {
         for (unsigned x = 0; x != convOutWidth; ++x) {
-          for (unsigned ky = 0; ky != kernelHeight; ++ky) {
-            for (unsigned kx = 0; kx != kernelWidth; ++kx) {
+          for (unsigned ky = 0;
+               ky != std::min(kernelHeight, paddedHeight); ++ky) {
+            for (unsigned kx = 0;
+                 kx != std::min(kernelWidth, paddedWidth); ++kx) {
               for (unsigned ic = 0; ic != inputChannels; ++ic) {
-                convOut[oc][y][x] += weights[oc][ic][ky][kx] *
-                                   paddedIn[ic][y + ky][x + kx];
+                convOut[oc][y][x] +=
+                    weights[oc][ic]
+                           [ky + (kernelHeight < paddedHeight ? 0 : y)]
+                           [kx + (kernelWidth  < paddedWidth  ? 0 : x)] *
+                    paddedIn[ic]
+                            [ky + (kernelHeight < paddedHeight ? y : 0)]
+                            [kx + (kernelWidth  < paddedWidth  ? x : 0)];
               }
             }
           }

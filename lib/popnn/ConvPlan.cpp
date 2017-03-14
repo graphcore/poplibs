@@ -217,20 +217,15 @@ struct ConvolutionParams {
   bool isFractional;
   bool isWeightUpdate;
   unsigned getOutputWidth() const {
-    if (isFractional)
+    if (isFractional) {
       return (inputWidth * strideX + kernelSizeX - 1) - (paddingX * 2);
-    else
-      return inputWidth + paddingX * 2 < kernelSizeX
-        ? 0
-        : (inputWidth + (paddingX * 2) - kernelSizeX) / strideX + 1;
+    }
+    return absdiff(inputWidth + paddingX * 2, kernelSizeX) / strideX + 1;
   }
   unsigned getOutputHeight() const {
     if (isFractional)
       return (inputHeight * strideY + kernelSizeY - 1) - (paddingY * 2);
-    else
-      return inputHeight + paddingY * 2 < kernelSizeY
-        ? 0
-        : (inputHeight + (paddingY * 2) - kernelSizeY) / strideY + 1;
+    return absdiff(inputHeight + paddingY * 2, kernelSizeY) / strideY + 1;
   }
   ConvolutionParams(unsigned kernelSizeY,
                     unsigned kernelSizeX,
