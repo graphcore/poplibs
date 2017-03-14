@@ -61,14 +61,20 @@ getInputRange(unsigned outputIndex, unsigned stride,
                        padding, inputSize, kernelIndexRange, isFractional);
 }
 
-std::pair<unsigned, unsigned>
+inline std::pair<unsigned, unsigned>
 getInputRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
-              unsigned padding, unsigned inputSize, bool isFractional);
+              unsigned padding, unsigned inputSize, bool isFractional) {
+  return getInputRange(outputIndex, stride, kernelSize, padding,
+                       inputSize, {0, kernelSize}, isFractional);
+}
 
-std::pair<unsigned, unsigned>
+inline std::pair<unsigned, unsigned>
 getInputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
               unsigned kernelSize, unsigned padding, unsigned inputSize,
-              bool isFractional);
+              bool isFractional) {
+  return getInputRange(outputRange, stride, kernelSize, padding,
+                       inputSize, {0, kernelSize}, isFractional);
+}
 
 std::pair<unsigned, unsigned>
 getKernelRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
