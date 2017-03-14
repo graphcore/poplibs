@@ -383,7 +383,7 @@ convolution(Graph &graph,
      unsigned strideY, unsigned strideX, unsigned paddingY, unsigned paddingX,
      Tensor in, Tensor weights, Tensor biases, Tensor activations,
      const std::string &partialsType, bool isFractional,
-     const std::string &debugPrefix) {
+     bool tranposeAndFlipWeights, const std::string &debugPrefix) {
   const auto batchSize = activations.dim(0);
   mapActivations(graph, in);
   popconv::mapWeights(weights, graph, plan, batchSize);
@@ -391,7 +391,8 @@ convolution(Graph &graph,
   mapActivations(graph, activations);
   return popconv::convolution(graph, plan, strideY, strideX, paddingY, paddingX,
                               in, weights, biases, activations, partialsType,
-                              isFractional, debugPrefix);
+                              isFractional, tranposeAndFlipWeights,
+                              debugPrefix);
 }
 
 static Program
@@ -798,8 +799,8 @@ void Optimizer::outputDescription(const ExpImpl *exp) {
 
 // Define structures containing tensor ops to pass between functions/methods.
 struct Optimizer::ConvOp {
-  POPNN_TENSOR_OP_TYPE(convolution, 1, 12) op;
-  ConvOp(POPNN_TENSOR_OP_TYPE(convolution, 1, 12) op) :
+  POPNN_TENSOR_OP_TYPE(convolution, 1, 13) op;
+  ConvOp(POPNN_TENSOR_OP_TYPE(convolution, 1, 13) op) :
     op(std::move(op)) {}
   template<typename ...Args>
   Program operator()(Args&&... args) {
@@ -924,7 +925,7 @@ Optimizer::createConvLayerFwd(const ExpImpl *exp,
                                        numChannels);
 
   return doConv(*graph, plan, strideY, strideX, paddingY, paddingX, in, weights,
-                biases, out[exp], partialsType, false, debugPrefix);
+                biases, out[exp], partialsType, false, false, debugPrefix);
 }
 
 Program
@@ -1240,7 +1241,7 @@ createConvLayerBwd(const ExpImpl *exp, Tensor outGradient, unsigned layerIndex,
       prog.add(doConv(*graph, bwdPlan, strideY, strideX,
                       bwdPaddingY, bwdPaddingX, outGradient, bwdWeights,
                       biases, inGrad, bwdPlan.getPartialType(),
-                      isFractional, debugPrefix));
+                      isFractional, false, debugPrefix));
     }
   }
   if (!options.skipWU) {
@@ -1587,7 +1588,7 @@ Optimizer::Optimizer(const Exp &exp, OptimizerOptions options) :
   popnn::addCodelets(*graph);
   std::cerr << "Constructing program\n";
   ConvOp convOp =
-      createTensorOp<1, 12>(
+      createTensorOp<1, 13>(
         *graph, convolution, "conv",
         {{TensorOpParamType::InputTensor},
          {TensorOpParamType::InputTensor},

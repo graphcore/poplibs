@@ -465,7 +465,7 @@ int main(int argc, char **argv) {
     auto zeroBiases = graph.addConstantTensor(dataTypeStr, {batchSize}, 0);
     fwdProg.add(popconv::convolution(graph, fwdPlan, {1, 1}, {0, 0}, weights,
                                      prevAct, zeroBiases, nextAct,
-                                     partialsTypeStr, false));
+                                     partialsTypeStr, false, false));
     auto bBiases = biases.broadcast(batchSize, 0)
                          .reshape({batchSize / fwdPlan.partialChansPerGroup,
                                    fwdPlan.partialChansPerGroup, outputSize})

@@ -343,7 +343,7 @@ int main(int argc, char **argv) {
                                            strideH, strideW,
                                            paddingHeight, paddingWidth,
                                            prevAct, weights, biases, nextAct,
-                                           partialsTypeStr, false);
+                                           partialsTypeStr, false, false);
     if (doFwdPass)
       fwdProg.add(program);
   }
@@ -352,11 +352,16 @@ int main(int argc, char **argv) {
   const auto learningRate = 0.5;
 
   if (doBwdPass) {
+    auto zeros = graph.addConstantTensor(dataTypeStr, {fwdInChans}, 0);
+    auto zeroBiases = graph.addTensor(dataTypeStr, {fwdInChans}, "zeroBiases");
+    popconv::mapBiases(zeroBiases, graph, prevDeltas);
+    revProg.add(Copy(zeros, zeroBiases));
     revProg.add(
-      popconv::convolutionBackward(graph, bwdPlan, zDeltas, weights, prevDeltas,
-                                   strideH, strideW,
-                                   bwdPaddingHeight, bwdPaddingWidth,
-                                   bwdIsFractional)
+      popconv::convolution(graph, bwdPlan,
+                           strideH, strideW,
+                           bwdPaddingHeight, bwdPaddingWidth,
+                           zDeltas, weights, zeroBiases, prevDeltas,
+                           partialsTypeStr, bwdIsFractional, true)
     );
   }
   if (doWuPass) {

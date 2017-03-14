@@ -80,7 +80,8 @@ convolution(poplar::Graph &graph, const Plan &plan,
             const std::vector<unsigned> &padding,
             poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
             poplar::Tensor out, const std::string &partialsType,
-            bool isFractional, const std::string &debugPrefix = "");
+            bool isFractional, bool transposeAndFlipWeights,
+            const std::string &debugPrefix = "");
 
 inline poplar::program::Program
 convolution(poplar::Graph &graph, const Plan &plan,
@@ -88,10 +89,11 @@ convolution(poplar::Graph &graph, const Plan &plan,
             unsigned paddingY, unsigned paddingX,
             poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
             poplar::Tensor out, const std::string &partialsType,
-            bool isFractional, const std::string &debugPrefix = "") {
+            bool isFractional, bool transposeAndFlipWeights,
+            const std::string &debugPrefix = "") {
   return convolution(graph, plan, {strideY, strideX}, {paddingY, paddingX},
                      in, weights, biases, out, partialsType, isFractional,
-                     debugPrefix);
+                     transposeAndFlipWeights, debugPrefix);
 }
 
 void mapActivations(poplar::Graph &graph, const Plan &plan,
@@ -108,28 +110,6 @@ weightsTransposeChansFlipXY(poplar::Graph &graph,
                             poplar::Tensor weightsIn,
                             poplar::Tensor WeightsOut,
                             const std::string &debugPrefix = "");
-
-poplar::program::Program
-convolutionBackward(poplar::Graph &graph,
-                    const Plan &plan,
-                    poplar::Tensor zDeltas, poplar::Tensor weights,
-                    poplar::Tensor deltasOut,
-                    const std::vector<unsigned> &stride,
-                    const std::vector<unsigned> &padding, bool isFractional,
-                    const std::string &debugPrefix = "");
-
-inline poplar::program::Program
-convolutionBackward(poplar::Graph &graph,
-                    const Plan &plan,
-                    poplar::Tensor zDeltas, poplar::Tensor weights,
-                    poplar::Tensor deltasOut,
-                    unsigned strideY, unsigned strideX,
-                    unsigned paddingY, unsigned paddingX, bool isFractional,
-                    const std::string &debugPrefix = "") {
-  return convolutionBackward(graph, plan, zDeltas, weights, deltasOut,
-                             {strideY, strideX}, {paddingY, paddingX},
-                             isFractional, debugPrefix);
-}
 
 poplar::Tensor
 calculateWeightDeltas(poplar::Graph &graph, const Plan &plan,

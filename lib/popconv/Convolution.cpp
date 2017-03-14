@@ -1578,7 +1578,25 @@ convolution(Graph &graph,
             const std::vector<unsigned> &padding,
             Tensor in, Tensor weights, Tensor biases, Tensor activations,
             const std::string &partialsType, bool isFractional,
+            bool transposeAndFlipWeights,
             const std::string &debugPrefix) {
+  const auto dType = graph.getTensorElementType(in);
+  const auto batchSize = activations.dim(0);
+  Sequence prog;
+  if (transposeAndFlipWeights) {
+    // Create transposed/flipped weights
+    const auto inNumChans = weights.dim(0) * weights.dim(4);
+    const auto outNumChans = weights.dim(1) * weights.dim(5);
+    const auto kernelSizeY = weights.dim(2);
+    const auto kernelSizeX = weights.dim(3);
+    auto bwdWeights = createWeights(graph, dType, inNumChans,
+                                    kernelSizeY, kernelSizeX,
+                                    outNumChans, plan);
+    mapWeights(bwdWeights, graph, plan, batchSize);
+    prog.add(weightsTransposeChansFlipXY(graph, weights, bwdWeights,
+                                         debugPrefix));
+    weights = bwdWeights;
+  }
   if (plan.useWinograd) {
     return winogradConvolution(graph, stride[0], stride[1],
                                padding[0], padding[1],
@@ -1592,14 +1610,12 @@ convolution(Graph &graph,
   assert(plan.getPartialType() == partialsType);
   const unsigned kernelSizeY = weights.dim(2);
   const unsigned kernelSizeX = weights.dim(3);
-  const auto dType = graph.getTensorElementType(in);
   const auto layerName =
       debugPrefix + "/Conv" + convSuffix({kernelSizeY, kernelSizeX}, stride,
                                          isFractional);
   const auto outDimY = activations.dim(2);
   const auto outDimX = activations.dim(3);
   unsigned partialOutDimY, partialOutDimX;
-  const auto batchSize = activations.dim(0);
   assert(batchSize % plan.batchesPerGroup == 0);
   const auto numBatchGroups = batchSize / plan.batchesPerGroup;
   if (plan.flattenXY) {
@@ -1653,7 +1669,9 @@ convolution(Graph &graph,
              activations[b],
              activationsMapping, completeCS);
   }
-  return Sequence(convolveProg, Execute(completeCS));
+  prog.add(convolveProg);
+  prog.add(Execute(completeCS));
+  return prog;
 }
 
 static std::uint64_t getNumberOfMACs(unsigned outDimY, unsigned outDimX,
@@ -1937,43 +1955,6 @@ Program weightsTransposeChansFlipXY(Graph &graph,
                            .reshape({KY, KX, O/G4, G4, I/G3, G3})
                            .dimShuffle({4, 2, 0, 1, 5, 3}),
                 weightsOut));
-  return prog;
-}
-
-Program convolutionBackward(Graph &graph,
-                            const Plan &plan,
-                            Tensor zDeltas, Tensor weights,
-                            Tensor deltasOut,
-                            const std::vector<unsigned> &stride,
-                            const std::vector<unsigned> &padding,
-                            bool isFractional, const std::string &debugPrefix) {
-  const auto batchSize = deltasOut.dim(0);
-  const auto dType = graph.getTensorElementType(zDeltas);
-  const auto outNumChans = deltasOut.dim(1) * deltasOut.dim(4);
-  const auto partialType = plan.getPartialType();
-  const auto inNumChans = zDeltas.dim(1) * zDeltas.dim(4);
-
-  auto prog = Sequence();
-
-  // Create transpose/flipped weights
-  const auto kernelSizeY = weights.dim(2);
-  const auto kernelSizeX = weights.dim(3);
-  auto bwdWeights = createWeights(graph, dType, inNumChans, kernelSizeY,
-                                  kernelSizeX, outNumChans, plan);
-  mapWeights(bwdWeights, graph, plan, batchSize);
-  prog.add(weightsTransposeChansFlipXY(graph, weights, bwdWeights,
-                                       debugPrefix));
-
-  // Create zero biases
-  auto zeros = graph.addConstantTensor(dType, {outNumChans}, 0);
-  auto biases = graph.addTensor(dType, {outNumChans}, "zeroBiases");
-  mapBiases(biases, graph, deltasOut);
-  prog.add(Copy(zeros, biases));
-
-  // Perform a fractional convolution
-  prog.add(convolution(graph, plan, stride, padding,
-                       zDeltas, bwdWeights, biases, deltasOut, partialType,
-                       isFractional, debugPrefix));
   return prog;
 }
 
