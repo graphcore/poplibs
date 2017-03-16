@@ -538,6 +538,7 @@ estimateWeightUpdatePartialCalcComputeCost(const poplar::DeviceInfo &deviceInfo,
   const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
   const auto outChansPerGroup = plan.partialChansPerGroup;
   const auto inChansPerGroup = plan.inChansPerGroup;
+  const auto tilesPerKernelYAxis = plan.tilesPerKernelYAxis;
   const auto floatPartials = plan.floatPartials;
 
   const auto numOutGroups =
@@ -560,7 +561,10 @@ estimateWeightUpdatePartialCalcComputeCost(const poplar::DeviceInfo &deviceInfo,
 
   const auto numWorkerContexts = deviceInfo.numWorkerContexts;
   const auto dataPathWidth = deviceInfo.dataPathWidth;
-  unsigned tasks = params.kernelSizeY * params.kernelSizeX *
+  const auto tileKernelHeight = (params.kernelSizeY + tilesPerKernelYAxis - 1) /
+                                tilesPerKernelYAxis;
+  const auto tileKernelWidth = params.kernelSizeX;
+  unsigned tasks = tileKernelHeight * tileKernelWidth *
                    tileNumOutGroups * tileNumInGroups;
   unsigned maxTasksPerVertex =
       (tasks + numWorkerContexts - 1) / numWorkerContexts;
@@ -803,9 +807,6 @@ estimateReduceComputeCost(const poplar::DeviceInfo &deviceInfo,
   unsigned numPartialSumsPerTile;
   unsigned numTiles;
   if (params.isWeightUpdate) {
-    // TODO
-    if (plan.tilesPerKernelYAxis > 1)
-      std::abort();
     assert(plan.batchesPerGroup == 1);
     numTiles = deviceInfo.getNumTiles();
     const auto numOutputs = params.outputDepth * params.inputDepth *
@@ -1075,11 +1076,6 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
         auto maxTilesPerKernelY =
             std::min(params.kernelSizeY,
                      numTiles / (tilesPerX * tilesPerY * tilesPerZ));
-        if (params.isWeightUpdate) {
-          // Weight update doesn't support splitting the kernel for now.
-          // TODO add support for this.
-          maxTilesPerKernelY = 1;
-        }
         for (unsigned tilesPerKernelY = 1;
              tilesPerKernelY <= maxTilesPerKernelY;
              ++tilesPerKernelY) {

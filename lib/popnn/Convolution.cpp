@@ -2514,6 +2514,7 @@ calcPartialWeightGradsAop(Graph &graph,
                           unsigned outXBegin, unsigned outXEnd,
                           unsigned outYBegin, unsigned outYEnd,
                           unsigned outZGroupBegin, unsigned outZGroupEnd,
+                          unsigned kernelYBegin, unsigned kernelYEnd,
                           unsigned inZGroupBegin, unsigned inZGroupEnd,
                           unsigned kernelSizeY, unsigned kernelSizeX,
                           unsigned strideY, unsigned strideX,
@@ -2523,7 +2524,7 @@ calcPartialWeightGradsAop(Graph &graph,
   std::vector<WeightGradAopTask> tasks;
   const auto inDimY = acts.dim(1);
   const auto inDimX = acts.dim(2);
-  for (unsigned kernelY = 0; kernelY != kernelSizeY; ++kernelY) {
+  for (unsigned kernelY = kernelYBegin; kernelY != kernelYEnd; ++kernelY) {
     for (unsigned kernelX = 0; kernelX != kernelSizeX; ++kernelX) {
       auto xRange =
           getOutputRange({outXBegin, outXEnd}, strideX, kernelSizeX, paddingX,
@@ -2567,21 +2568,29 @@ addWeightDeltaPartialRegions(
     std::vector<Interval<std::size_t>> &regions,
     const std::vector<std::size_t> &partialDims,
     unsigned b, unsigned tileY, unsigned tileX,
+    unsigned kernelYBegin, unsigned kernelYEnd,
     unsigned outZGroupBegin, unsigned outZGroupEnd,
-unsigned inZGroupBegin, unsigned inZGroupEnd) {
-  for (unsigned ozg = outZGroupBegin; ozg != outZGroupEnd; ++ozg) {
-    const auto regionBegin =
-        partialDims[8] * partialDims[7] * partialDims[6] * partialDims[5] *
-        (inZGroupBegin + partialDims[4] *
-         (ozg + partialDims[3] *
-          (tileX + partialDims[2] *
-           (tileY + partialDims[1] * b))));
-    const auto regionEnd =
-        regionBegin +
-        partialDims[8] * partialDims[7] * partialDims[6] *partialDims[5] *
-        (inZGroupEnd - inZGroupBegin);
-    regions.emplace_back(regionBegin, regionEnd);
-  }
+    unsigned inZGroupBegin, unsigned inZGroupEnd) {
+  addFlattenedRegions(partialDims,
+                      {b,
+                       tileY,
+                       tileX,
+                       outZGroupBegin,
+                       inZGroupBegin,
+                       kernelYBegin,
+                       0,
+                       0,
+                       0},
+                      {b + 1,
+                       tileY + 1,
+                       tileX + 1,
+                       outZGroupEnd,
+                       inZGroupEnd,
+                       kernelYEnd,
+                       partialDims[6],
+                       partialDims[7],
+                       partialDims[8]},
+                      regions);
 }
 
 std::vector<std::vector<Interval<std::size_t>>>
@@ -2613,10 +2622,12 @@ groupWeightUpdateAopTilesByOutput(
   const auto isMultiIPU = graph.getDevice().getDeviceInfo().numIPUs > 1;
   const auto partialNumChanGroups = reducedDims[0];
   const auto inNumChanGroups = reducedDims[1];
+  const auto kernelHeight = reducedDims[2];
   const auto tilesPerX = plan.tilesPerXAxis;
   const auto tilesPerY = plan.tilesPerYAxis;
   const auto tilesPerZ = plan.tilesPerZAxis;
   const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
+  const auto tilesPerKernelY = plan.tilesPerKernelYAxis;
   const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
   tileGroups.clear();
   tileGroups.reserve(tilesPerZ * tilesPerY * tilesPerX);
@@ -2631,33 +2642,33 @@ groupWeightUpdateAopTilesByOutput(
           ((ozg + 1) * partialNumChanGroups) / tilesPerZ;
       if (outZGroupBegin == outZGroupEnd)
         continue;
-      tileGroups.emplace_back();
-      tileGroupRegions.emplace_back();
-      addFlattenedRegions(reducedDims,
-                          {outZGroupBegin, inZGroupBegin, 0, 0, 0, 0},
-                          {outZGroupEnd, inZGroupEnd, reducedDims[2],
-                           reducedDims[3], reducedDims[4], reducedDims[5]},
-                          tileGroupRegions.back());
-      for (unsigned b = 0; b < batchSize; ++b) {
-        for (unsigned oy = 0; oy != tilesPerY; ++oy) {
-          for (unsigned ox = 0; ox != tilesPerX; ++ox) {
-            if (plan.tilesPerKernelYAxis > 1) {
-              // TODO
-              std::abort();
+      for (unsigned ky = 0; ky != tilesPerKernelY; ++ky) {
+        const auto kernelYBegin = (ky * kernelHeight) / tilesPerKernelY;
+        const auto kernelYEnd = ((ky + 1) * kernelHeight) / tilesPerKernelY;
+        tileGroups.emplace_back();
+        tileGroupRegions.emplace_back();
+        addFlattenedRegions(reducedDims,
+                            {outZGroupBegin, inZGroupBegin, kernelYBegin,
+                             0, 0, 0},
+                            {outZGroupEnd, inZGroupEnd, kernelYEnd,
+                             reducedDims[3], reducedDims[4], reducedDims[5]},
+                            tileGroupRegions.back());
+        for (unsigned b = 0; b < batchSize; ++b) {
+          for (unsigned oy = 0; oy != tilesPerY; ++oy) {
+            for (unsigned ox = 0; ox != tilesPerX; ++ox) {
+              const auto tile = linearizeTileIndices(b, batchSize,
+                                                     numTiles,
+                                                     ky, izg,
+                                                     ox, oy, ozg,
+                                                     plan,
+                                                     isMultiIPU);
+              tileGroups.back().push_back(tile);
             }
-            const auto ky = 0;
-            const auto tile = linearizeTileIndices(b, batchSize,
-                                                   numTiles,
-                                                   ky, izg,
-                                                   ox, oy, ozg,
-                                                   plan,
-                                                   isMultiIPU);
-            tileGroups.back().push_back(tile);
           }
         }
+        mergeAdjacentRegions(tileGroupRegions.back());
+        std::sort(tileGroups.back().begin(), tileGroups.back().end());
       }
-      mergeAdjacentRegions(tileGroupRegions.back());
-      std::sort(tileGroups.back().begin(), tileGroups.back().end());
     }
   }
 }
@@ -2695,9 +2706,6 @@ convolutionWeightUpdateAop(Graph &graph,
                            unsigned paddingY, unsigned paddingX,
                            float learningRate,
                            const std::string &layerName) {
-  if (plan.tilesPerKernelYAxis > 1) {
-    std::abort();
-  }
   if (plan.flattenXY) {
     zDeltas = zDeltas.reshape(
         {zDeltas.dim(0), zDeltas.dim(1), 1,
@@ -2733,6 +2741,7 @@ convolutionWeightUpdateAop(Graph &graph,
   const auto tilesPerY = plan.tilesPerYAxis;
   const auto tilesPerZ = plan.tilesPerZAxis;
   const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
+  const auto tilesPerKernelY = plan.tilesPerKernelYAxis;
   const auto numTiles = deviceInfo.getNumTiles();
 
   Tensor partials = graph.addTensor(partialsType, {batchSize,
@@ -2776,30 +2785,32 @@ convolutionWeightUpdateAop(Graph &graph,
           for (unsigned ox = 0; ox != tilesPerX; ++ox) {
             const auto outXBegin = (ox * outDimX) / tilesPerX;
             const auto outXEnd = ((ox + 1) * outDimX) / tilesPerX;
-            if (plan.tilesPerKernelYAxis > 1) {
-              // TODO
-              std::abort();
+            for (unsigned ky = 0; ky != tilesPerKernelY; ++ky) {
+              const auto kernelYBegin = (ky * kernelSizeY) / tilesPerKernelY;
+              const auto kernelYEnd =
+                  ((ky + 1) * kernelSizeY) / tilesPerKernelY;
+              const auto tile = linearizeTileIndices(b, batchSize,
+                                                     numTiles,
+                                                     ky, izg,
+                                                     ox, oy, ozg,
+                                                     plan,
+                                                     isMultiIPU);
+              addWeightDeltaPartialRegions(partialsMapping[tile],
+                                           partials.shape(), b, oy, ox,
+                                           kernelYBegin, kernelYEnd,
+                                           outZGroupBegin, outZGroupEnd,
+                                           inZGroupBegin, inZGroupEnd);
+              calcPartialWeightGradsAop(graph, tile,
+                                        outXBegin, outXEnd, outYBegin, outYEnd,
+                                        outZGroupBegin, outZGroupEnd,
+                                        kernelYBegin, kernelYEnd,
+                                        inZGroupBegin, inZGroupEnd,
+                                        kernelSizeY, kernelSizeX,
+                                        strideY, strideX, paddingY, paddingX,
+                                        weightGradCS, activations[b],
+                                        regroupedDeltas[b],
+                                        partials[b][oy][ox]);
             }
-            const auto ky = 0;
-            const auto tile = linearizeTileIndices(b, batchSize,
-                                                   numTiles,
-                                                   ky, izg,
-                                                   ox, oy, ozg,
-                                                   plan,
-                                                   isMultiIPU);
-            addWeightDeltaPartialRegions(partialsMapping[tile],
-                                         partials.shape(), b, oy, ox,
-                                         outZGroupBegin, outZGroupEnd,
-                                         inZGroupBegin, inZGroupEnd);
-            calcPartialWeightGradsAop(graph, tile,
-                                      outXBegin, outXEnd, outYBegin, outYEnd,
-                                      outZGroupBegin, outZGroupEnd,
-                                      inZGroupBegin, inZGroupEnd,
-                                      kernelSizeY, kernelSizeX,
-                                      strideY, strideX, paddingY, paddingX,
-                                      weightGradCS, activations[b],
-                                      regroupedDeltas[b],
-                                      partials[b][oy][ox]);
           }
         }
       }
