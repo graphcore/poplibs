@@ -3221,7 +3221,7 @@ convolutionWeightUpdateAmpNew(Graph &graph,
   prog.add(convolveProg);
 
   // Shuffle dimensions so the output channel dimension is not split.
-  auto weightDeltasView =
+  auto weightDeltas =
       weightDeltasTransposed.dimShuffle({0, 2, 3, 1, 4})
                             .reshape({weightDeltasTransposed.dim(0),
                                       weightDeltasTransposed.dim(2),
@@ -3230,42 +3230,36 @@ convolutionWeightUpdateAmpNew(Graph &graph,
                                       weightDeltasTransposed.dim(4)
                                      });
   // Ignore output channels added for padding.
-  weightDeltasView = weightDeltasView.slice(0, numOutChans, 3);
+  weightDeltas = weightDeltas.slice(0, numOutChans, 3);
   // Reshape so there is no batch dimension.
-  assert(weightDeltasView.dim(0) == 1);
-  weightDeltasView = weightDeltasView[0];
+  assert(weightDeltas.dim(0) == 1);
+  weightDeltas = weightDeltas[0];
 
   // Make the input channel dimension the innermost dimension and add an
   // x-axis.
-  weightDeltasView =
-      weightDeltasView.dimShuffle({0, 2, 1})
-                      .reshape({weightDeltasView.dim(0),
-                                1,
-                                weightDeltasView.dim(2),
-                                weightDeltasView.dim(1)});
+  weightDeltas =
+      weightDeltas.dimShuffle({0, 2, 1})
+                  .reshape({weightDeltas.dim(0),
+                            1,
+                            weightDeltas.dim(2),
+                            weightDeltas.dim(1)});
 
   // Transform the weight deltas back into weight deltas for the original
   // weight update convolution.
-  convolutionWeightUpdateAmpPostProcess(plan, weightDeltasView, kernelSizeY,
+  convolutionWeightUpdateAmpPostProcess(plan, weightDeltas, kernelSizeY,
                                         kernelSizeX);
   // Split the input / output channel axes.
   const auto fwdPartialChansPerGroup = fwdPlan.partialChansPerGroup;
   const auto fwdInChansPerGroup = fwdPlan.inChansPerGroup;
-  weightDeltasView =
-      weightDeltasView.reshape({weightDeltasView.dim(0),
-                                weightDeltasView.dim(1),
-                                weightDeltasView.dim(2) /
-                                fwdPartialChansPerGroup,
-                                fwdPartialChansPerGroup,
-                                weightDeltasView.dim(3) / fwdInChansPerGroup,
-                                fwdInChansPerGroup})
+  weightDeltas =
+      weightDeltas.reshape({weightDeltas.dim(0),
+                            weightDeltas.dim(1),
+                            weightDeltas.dim(2) /
+                            fwdPartialChansPerGroup,
+                            fwdPartialChansPerGroup,
+                            weightDeltas.dim(3) / fwdInChansPerGroup,
+                            fwdInChansPerGroup})
                        .dimShuffle({2, 4, 0, 1, 3, 5});
-  auto weightDeltas =
-      graph.addTensor(graph.getTensorElementType(weightDeltasView),
-                      weightDeltasView.shape(),
-                      "weightDeltas");
-  applyTensorMapping(graph, weightDeltas, graph.getTileMapping(weights));
-  prog.add(Copy(weightDeltasView, weightDeltas));
   // Add the weight deltas to the weights.
   auto addCS = graph.addComputeSet(debugPrefix + "/UpdateWeights");
   const auto dataPathWidth = deviceInfo.dataPathWidth;
