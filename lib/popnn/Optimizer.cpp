@@ -690,9 +690,6 @@ void Optimizer::outputDescription(const ExpImpl *exp) {
               << "\n";
   } else if (const auto *nl = dynamic_cast<const NonLinearity *>(exp)) {
     switch (nl->type) {
-    case NON_LINEARITY_NONE:
-      std::cout << "   -- Nop layer\n";
-      break;
     case NON_LINEARITY_RELU:
       std::cout << "   -- ReLU layer\n";
       break;
@@ -1065,7 +1062,7 @@ void Optimizer::genFwd(Sequence &fwdProg,
       fc::mapWeights(*graph, weights, activationsMapping, plan);
       fc::mapBiases(*graph, biases, activationsMapping);
       if (!options.skipFwd) {
-        fwdProg.add(fc::fullyConnected(*graph, size, NON_LINEARITY_NONE,
+        fwdProg.add(fc::fullyConnected(*graph, size,
                                        in, weights, biases,
                                        out[exp], plan,
                                        layerPrefix));

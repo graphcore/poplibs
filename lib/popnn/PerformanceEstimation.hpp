@@ -239,7 +239,6 @@ inline uint64_t getNonLinearityCycles(std::vector<unsigned> regionSizes,
     const auto halfVectorWidth =  dataPathWidth / 16;
     cycles += 10; // Loop overhead
     switch (nonLinearityType) {
-    case NON_LINEARITY_NONE:
     case NON_LINEARITY_RELU:
       {
         const unsigned numBlocks = isFloat ?
@@ -284,8 +283,6 @@ inline uint64_t getBwdNonlinearityDerivativeCycles(
                                       + 7; // remaining vertex overhead
       return vertexOverhead + numVectors * 3;
     }
-    case NON_LINEARITY_NONE:
-      return 5 + numVectors;
   }
   throw std::runtime_error("Invalid nonlinearity type");
 }

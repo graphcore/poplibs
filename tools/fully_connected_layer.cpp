@@ -133,7 +133,6 @@ int main(int argc, char **argv) {
 
   auto fwdProg = Sequence();
   fwdProg.add(fc::fullyConnected(graph, outputSize,
-                                 NON_LINEARITY_NONE,
                                  prevAct, weights, biases, nextAct, plan));
 
   auto bwdProg = Sequence();

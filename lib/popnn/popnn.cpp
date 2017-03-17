@@ -47,8 +47,6 @@ static float nonlinearity(NonLinearityType t, float x) {
     return sigmoid(x);
   case NON_LINEARITY_RELU:
     return relu(x);
-  case NON_LINEARITY_NONE:
-    return x;
   }
 }
 
@@ -58,8 +56,6 @@ static float nonlinearity_derivative(NonLinearityType t, float activation) {
     return sigmoid_derivative(activation);
   case NON_LINEARITY_RELU:
     return relu_derivative(activation);
-  case NON_LINEARITY_NONE:
-    return 1;
   }
 }
 
@@ -695,9 +691,6 @@ public:
                                         + 7; // remaining vertex overhead
         cycles += vertexOverhead + numVectors * 3;
         }
-        break;
-      case NON_LINEARITY_NONE:
-        cycles +=  5 + numVectors;
         break;
       default:
         throw std::runtime_error("Invalid nonlinearity type");
@@ -1864,16 +1857,13 @@ public:
    */
   Vector<Output<Vector<FPType>>> act;
 
-  /* Non linearity applied to compute activation */
-  NonLinearityType nonLinearityType;
-
   bool compute() {
     const unsigned nGroups = dIn.size();
     const unsigned vecLen = dIn[0].size();
 
     for (unsigned gr = 0; gr < nGroups; ++gr) {
       for (unsigned el = 0; el < vecLen; ++el) {
-        act[gr][el] = nonlinearity(nonLinearityType, bias[gr][el]+dIn[gr][el]);
+        act[gr][el] = bias[gr][el]+dIn[gr][el];
       }
     }
     return true;

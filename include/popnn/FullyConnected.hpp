@@ -43,7 +43,7 @@ void mapWeights(poplar::Graph &graph, poplar::Tensor weights,
 
 poplar::program::Program
 fullyConnected(poplar::Graph &graph,
-               unsigned size, NonLinearityType nonLinearityType,
+               unsigned size,
                poplar::Tensor in, poplar::Tensor weights,
                poplar::Tensor biases,
                poplar::Tensor out,

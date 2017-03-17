@@ -73,7 +73,7 @@ void mapWeights(Graph &graph, Tensor weights,
 
 Program
 fullyConnected(Graph &graph,
-               unsigned size, NonLinearityType nonLinearityType,
+               unsigned size,
                Tensor in0, Tensor weights,
                Tensor biases, Tensor activations,
                const Plan &plan,

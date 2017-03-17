@@ -2,7 +2,6 @@
 #define __nonlinearitydef_hpp__
 
 enum NonLinearityType {
-  NON_LINEARITY_NONE,
   NON_LINEARITY_SIGMOID,
   NON_LINEARITY_RELU
 };

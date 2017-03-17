@@ -10,7 +10,6 @@ namespace ref {
 
 const char *asString(const NonLinearityType &type) {
   switch (type) {
-  case NON_LINEARITY_NONE: return "none";
   case NON_LINEARITY_RELU: return "relu";
   case NON_LINEARITY_SIGMOID: return "sigmoid";
   }
@@ -25,9 +24,7 @@ inline std::ostream &operator<<(std::ostream &os,
 inline std::istream &operator>>(std::istream &in, NonLinearityType &type) {
   std::string token;
   in >> token;
-  if (token == "none")
-    type = NON_LINEARITY_NONE;
-  else if (token == "relu")
+  if (token == "relu")
     type = NON_LINEARITY_RELU;
   else if (token == "sigmoid")
     type = NON_LINEARITY_SIGMOID;

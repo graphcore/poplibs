@@ -11,8 +11,6 @@ static double sigmoid(double x) {
 static double nonLinearity(NonLinearityType nonLinearityType,
                            double x) {
   switch (nonLinearityType) {
-  case NON_LINEARITY_NONE:
-    return x;
   case NON_LINEARITY_SIGMOID:
     return sigmoid(x);
   case NON_LINEARITY_RELU:
@@ -23,8 +21,6 @@ static double nonLinearity(NonLinearityType nonLinearityType,
 
 void ref::nonLinearity(NonLinearityType nonLinearityType,
                        boost::multi_array<double, 4> &array) {
-  if (nonLinearityType == NON_LINEARITY_NONE)
-    return;
   for (auto it = array.data(), end = array.data() + array.num_elements();
        it != end; ++it) {
     *it = nonLinearity(nonLinearityType, *it);
@@ -34,8 +30,6 @@ void ref::nonLinearity(NonLinearityType nonLinearityType,
 static double nonLinearityDerivative(NonLinearityType nonLinearityType,
                                      double act) {
   switch (nonLinearityType) {
-  case NON_LINEARITY_NONE:
-    return 1;
   case NON_LINEARITY_SIGMOID:
     return act * (1.0 - act);
   case NON_LINEARITY_RELU:
