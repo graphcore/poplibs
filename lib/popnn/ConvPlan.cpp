@@ -934,7 +934,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
       params.isWeightUpdate) {
     assert(inChansPerGroup ==
            deviceInfo.getWeightsPerConvUnit(floatActivations));
-    if (planControl.useNewAMPWU && params.strideY == 1) {
+    if (planControl.useNewAMPWU) {
       // Implementing weight update directly as a convolution is typically
       // inefficient since the height and width of the output is small (the size
       // of the kernel). Instead we rearrange the activations and deltas so the
@@ -957,24 +957,27 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
           unsigned expandedFieldWidth;
           unsigned expandedActivationsHeight;
           unsigned expandedDeltasHeight;
-          unsigned paddingY;
+          unsigned expandedActivationsPaddingY;
           unsigned expandedInputDepth;
+          unsigned expandedDeltasUpsampleFactorY;
           if (flattenXY) {
             expandedFieldWidth =
                 params.batchSize * params.getOutputHeight() *
                                    params.getOutputWidth();
             expandedActivationsHeight = 1;
             expandedDeltasHeight = 1;
-            paddingY = 0;
+            expandedActivationsPaddingY = 0;
             expandedInputDepth =
                 params.inputDepth * params.kernelSizeX * params.kernelSizeY;
+            expandedDeltasUpsampleFactorY = 1;
           } else {
             expandedFieldWidth = params.batchSize * params.getOutputWidth();
             expandedActivationsHeight = params.inputHeight;
             expandedDeltasHeight = params.getOutputHeight();
-            paddingY = params.paddingY;
+            expandedActivationsPaddingY = params.paddingY;
             expandedInputDepth =
                 params.inputDepth * params.kernelSizeX;
+            expandedDeltasUpsampleFactorY = params.strideY;
           }
           const auto fieldGroupSize =
               deviceInfo.getWeightsPerConvUnit(floatActivations);
@@ -985,6 +988,11 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
           switch (method) {
           case Plan::DELTAS_AS_COEFFICENTS:
             {
+              // There is currently no support for dilated convolutions.
+              // TODO add support for this.
+              if (expandedDeltasUpsampleFactorY != 1) {
+                continue;
+              }
               // weight update x-axis: fwd in chans
               // weight update y-axis: fwd y-axis
               // weight update in chans: fwd x-axis
@@ -1000,7 +1008,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                             paddedFieldWidth,
                             expandedInputDepth,
                             expandedActivationsHeight,
-                            paddingY /*paddingY*/,
+                            expandedActivationsPaddingY /*paddingY*/,
                             0 /*paddingX*/,
                             paddedOutputDepth,
                             1, false, false
@@ -1013,14 +1021,16 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
               // weight update y-axis: fwd y-axis
               // weight update in chans: fwd x-axis
               // weight update out chans: fwd in chans
+              const auto isFractional = expandedDeltasUpsampleFactorY > 1;
               const auto paddedExpandedInputDepth =
                   ((expandedInputDepth + partialChansPerGroup - 1) /
                    partialChansPerGroup) * partialChansPerGroup;
               newParams = ConvolutionParams(
                             /* kernelSizeY */
-                            expandedActivationsHeight + 2 * paddingY,
+                            expandedActivationsHeight +
+                            2 * expandedActivationsPaddingY,
                             1 /* kernelSizeX */,
-                            1,
+                            expandedDeltasUpsampleFactorY,
                             1,
                             paddedFieldWidth,
                             params.outputDepth,
@@ -1028,7 +1038,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                             0 /*paddingY*/,
                             0 /*paddingX*/,
                             paddedExpandedInputDepth,
-                            1, false, false
+                            1, isFractional, false
                           );
             }
             break;

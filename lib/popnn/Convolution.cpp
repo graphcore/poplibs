@@ -2926,29 +2926,37 @@ roundUpDimension(Graph &graph, const Tensor &t, unsigned dim,
 // the original convolution (zero padded and reshaped to have a single channel
 // dimension) transform them into tensors for the transformed convolution.
 static void
-convolutionWeightUpdateAmpPreProcess(Graph &graph,
-                                     const Plan &plan,
-                                     Tensor &activations,
-                                     Tensor &deltas,
-                                     unsigned &strideY,
-                                     unsigned &strideX,
-                                     unsigned &paddingY,
-                                     unsigned &paddingX) {
+convolutionWeightUpdateAmpPreProcess(
+    Graph &graph,
+    const Plan &plan,
+    Tensor &activations,
+    std::vector<unsigned> &activationsUpsampleFactor,
+    std::vector<unsigned> &activationsPadding,
+    Tensor &deltas,
+    std::vector<unsigned> &deltasUpsampleFactor,
+    std::vector<unsigned> &deltasPadding,
+    unsigned kernelSizeY,
+    unsigned kernelSizeX) {
   const auto dType = graph.getTensorElementType(activations);
+  assert(activationsUpsampleFactor.size() == 2);
+  assert(activationsPadding.size() == 2);
+  assert(deltasUpsampleFactor.size() == 2);
+  assert(deltasPadding.size() == 2);
+  assert(activationsUpsampleFactor == std::vector<unsigned>({1, 1}));
+  assert(deltasPadding == std::vector<unsigned>({0, 0}));
   // Eliminate the x axis of the kernel by taking the activations that are
   // multiplied by each column of the weights turning them into different input
   // channels.
   auto paddedActivations = pad(graph, activations,
                                {activations.dim(0),
                                 activations.dim(1),
-                                activations.dim(2) + 2 * paddingX,
+                                activations.dim(2) + 2 * activationsPadding[1],
                                 activations.dim(3)},
                                {0,
                                 0,
-                                paddingX,
+                                activationsPadding[1],
                                 0});
-  paddingX = 0;
-  const auto kernelSizeX = paddedActivations.dim(2) - deltas.dim(2) + 1;
+  activationsPadding[1] = 0;
   auto expandedActivations =
       graph.addTensor(dType, {paddedActivations.dim(0),
                               paddedActivations.dim(1),
@@ -2961,25 +2969,25 @@ convolutionWeightUpdateAmpPreProcess(Graph &graph,
                                 1 + wx,
                                 2);
     auto stridedActivations =
-        usedActivations.subSample(strideX, 2);
+        usedActivations.subSample(deltasUpsampleFactor[1], 2);
     expandedActivations = concat(expandedActivations, stridedActivations, 3);
   }
-  strideX = 1;
+  deltasUpsampleFactor[1] = 1;
   if (plan.flattenXY) {
     // Eliminate the y axis of the kernel by taking the activations that are
     // multiplied by each row of the weights turning them into different input
     // channels.
     auto yPaddedActivations = pad(graph, expandedActivations,
                                   {expandedActivations.dim(0),
-                                   expandedActivations.dim(1) + 2 * paddingY,
+                                   expandedActivations.dim(1) +
+                                   2 * activationsPadding[0],
                                    expandedActivations.dim(2),
                                    expandedActivations.dim(3)},
                                   {0,
-                                   paddingY,
+                                   activationsPadding[0],
                                    0,
                                    0});
-    paddingY = 0;
-    const auto kernelSizeY = yPaddedActivations.dim(1) - deltas.dim(1) + 1;
+    activationsPadding[0] = 0;
     auto yExpandedActivations =
         graph.addTensor(dType, {yPaddedActivations.dim(0),
                                 deltas.dim(1),
@@ -2991,12 +2999,12 @@ convolutionWeightUpdateAmpPreProcess(Graph &graph,
                                    yPaddedActivations.dim(1) -
                                    kernelSizeY + 1 + wy, 1);
       auto stridedActivations =
-          usedActivations.subSample(strideY, 1);
+          usedActivations.subSample(deltasUpsampleFactor[0], 1);
       yExpandedActivations = concat(yExpandedActivations, stridedActivations,
                                     3);
     }
     expandedActivations = yExpandedActivations;
-    strideY = 1;
+    deltasUpsampleFactor[0] = 1;
     // Flatten the x and y axes.
     expandedActivations =
         expandedActivations.reshape({expandedActivations.dim(0),
@@ -3026,22 +3034,26 @@ convolutionWeightUpdateAmpPreProcess(Graph &graph,
                        deltas.dim(2) * deltas.dim(0),
                        deltas.dim(3)});
   if (plan.ampWUMethod == Plan::ACTIVATIONS_AS_COEFFICENTS) {
-    if (paddingY > 0) {
+    assert(activationsPadding[1] == 0);
+    if (activationsPadding[0] > 0) {
       // Currently we don't support convolutions with a zero padded filter so
       // we must explicitly add padding.
       // TODO extend convolutionByAmp() to support zero padding the filter.
       flattenedActivations = pad(graph, flattenedActivations,
                                  {flattenedActivations.dim(0),
-                                  flattenedActivations.dim(1) + 2 * paddingY,
+                                  flattenedActivations.dim(1) +
+                                  2 * activationsPadding[0],
                                   flattenedActivations.dim(2),
                                   flattenedActivations.dim(3)},
                                  {0,
-                                  paddingY,
+                                  activationsPadding[0],
                                   0,
                                   0});
-      paddingY = 0;
+      activationsPadding[0] = 0;
     }
     std::swap(flattenedActivations, flattenedDeltas);
+    std::swap(activationsUpsampleFactor, deltasUpsampleFactor);
+    std::swap(activationsPadding, deltasPadding);
   }
   activations = flattenedActivations;
   deltas = flattenedDeltas;
@@ -3093,10 +3105,6 @@ convolutionWeightUpdateAmpNew(Graph &graph,
                               unsigned paddingY, unsigned paddingX,
                               float learningRate,
                               const std::string &debugPrefix) {
-  if (strideY != 1) {
-    // TODO.
-    std::abort();
-  }
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto batchSize = activations.dim(0);
   const auto kernelSizeY = weights.dim(2);
@@ -3121,8 +3129,15 @@ convolutionWeightUpdateAmpNew(Graph &graph,
 
   // Transform the weight update convolution into an equivalent convolution that
   // can be implemented using the AMP instruction.
-  convolutionWeightUpdateAmpPreProcess(graph, plan, activationsView, deltasView,
-                                       strideY, strideX, paddingY, paddingX);
+  std::vector<unsigned> activationsUpsampleFactor = {1, 1};
+  std::vector<unsigned> activationsPadding = {paddingY, paddingX};
+  std::vector<unsigned> deltasUpsampleFactor = {strideY, strideX};
+  std::vector<unsigned> deltasPadding = {0, 0};
+  convolutionWeightUpdateAmpPreProcess(graph, plan, activationsView,
+                                       activationsUpsampleFactor,
+                                       activationsPadding, deltasView,
+                                       deltasUpsampleFactor, deltasPadding,
+                                       kernelSizeY, kernelSizeX);
 
   const auto dType = graph.getTensorElementType(activations);
   // Reshape so there is no batch dimension.
@@ -3134,6 +3149,10 @@ convolutionWeightUpdateAmpNew(Graph &graph,
   assert(activationsView.dim(1) == deltasView.dim(1));
 
   // Pad the x-axis to a multiple of the input channels per group.
+  assert(activationsPadding[1] == 0);
+  assert(activationsUpsampleFactor[1] == 1);
+  assert(deltasPadding[1] == 0);
+  assert(deltasUpsampleFactor[1] == 1);
   const auto inChansPerGroup = plan.inChansPerGroup;
   activationsView = roundUpDimension(graph, activationsView, 1,
                                      inChansPerGroup);
@@ -3182,14 +3201,22 @@ convolutionWeightUpdateAmpNew(Graph &graph,
                 deltasTransposed));
 
   // Perform the convolution.
-  const auto outDimY = absdiff(activationsTransposed.dim(2) + 2 * paddingY,
-                               deltasTransposed.dim(2)) + 1;
+  const auto outDimY =
+      absdiff(activationsTransposed.dim(2) * activationsUpsampleFactor[0] +
+              2 * activationsPadding[0],
+              deltasTransposed.dim(2)) +
+      1;
   Tensor weightDeltasTransposed;
   Program convolveProg;
+  auto isNotOne = [](unsigned x) { return x != 1; };
   std::tie(convolveProg, weightDeltasTransposed) =
-      convolutionByAmp(graph, plan, strideY, strideX, paddingY, paddingX,
-                       activationsTransposed, deltasTransposed, outDimY,
-                       activationsTransposed.dim(3), false /* isFractional */,
+      convolutionByAmp(graph, plan, activationsUpsampleFactor[0],
+                       activationsUpsampleFactor[1], activationsPadding[0],
+                       activationsPadding[1], activationsTransposed,
+                       deltasTransposed, outDimY, activationsTransposed.dim(3),
+                       std::any_of(activationsUpsampleFactor.begin(),
+                                   activationsUpsampleFactor.end(),
+                                   isNotOne) /* isFractional */,
                        debugPrefix);
   prog.add(convolveProg);
 
