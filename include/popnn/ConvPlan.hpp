@@ -22,7 +22,7 @@ public:
   WeightUpdateMethod weightUpdateMethod = WeightUpdateMethod::AUTO;
   bool useWinograd = false;
   unsigned winogradPatchSize = 4;
-  bool useNewAMPWU = false;
+  bool useNewAMPWU = true;
 };
 
 struct Plan {
