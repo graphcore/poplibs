@@ -200,6 +200,84 @@ addFlattenedRegions(const std::vector<std::size_t> &shape,
 }
 
 static std::vector<std::vector<Interval<std::size_t>>>
+calculateActivationMapping(const Graph &graph,
+                           const Plan &plan,
+                           Tensor acts) {
+  const auto numBatchGroups = acts.dim(0);
+  const auto isMultiIPU = graph.getDevice().getDeviceInfo().numIPUs > 1;
+  const auto inNumChans = acts.dim(1) * acts.dim(4);
+  const auto inChansPerGroup = plan.inChansPerGroup;
+  const auto tilesPerX = plan.tilesPerXAxis;
+  const auto tilesPerY = plan.tilesPerYAxis;
+  const auto tilesPerZ = plan.tilesPerZAxis;
+  const auto tilesPerKernelY = plan.tilesPerKernelYAxis;
+  const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
+  const auto numInZGroups = inNumChans / inChansPerGroup;
+  const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
+
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  std::vector<std::vector<Interval<std::size_t>>>
+      mapping(deviceInfo.getNumTiles());
+  const auto actType = graph.getTensorElementType(acts);
+  const auto actTypeSize = actType == "float" ? 4 : 2;
+  const auto minBytesPerTile = 128;
+  const auto minElementsPerTile =
+    (minBytesPerTile + actTypeSize - 1) / minBytesPerTile;
+
+  // Map activations such that, for a 1x1 kernel, the activations are spread
+  // evenly across the set of tiles that read them. This should also give
+  // reasonable results for non 1x1 kernels.
+  for (unsigned b = 0; b < numBatchGroups; ++b) {
+    for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
+      const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
+      const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
+      for (unsigned y = 0; y != tilesPerY; ++y) {
+        const auto yBegin = (y * acts.dim(2)) / tilesPerY;
+        const auto yEnd = ((y + 1) * acts.dim(2)) / tilesPerY;
+        for (unsigned x = 0; x != tilesPerX; ++x) {
+          const auto xBegin = (x * acts.dim(3)) / tilesPerX;
+          const auto xEnd = ((x + 1) * acts.dim(3)) / tilesPerX;
+          std::vector<Interval<std::size_t>> sharedActivations;
+          addFlattenedRegions(acts.shape(),
+                              {b, inZGroupBegin, yBegin, xBegin, 0},
+                              {b + 1, inZGroupEnd, yEnd, xEnd, acts.dim(4)},
+                              sharedActivations);
+          mergeAdjacentRegions(sharedActivations);
+          std::unordered_set<unsigned> tileSet;
+          for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
+            for (unsigned ky = 0; ky != tilesPerKernelY; ++ky) {
+              const auto tile = linearizeTileIndices(b, numBatchGroups,
+                                                     numTiles,
+                                                     ky, izg,
+                                                     x, y, ozg,
+                                                     plan,
+                                                     isMultiIPU);
+              tileSet.insert(tile);
+            }
+          }
+          std::vector<unsigned> tiles(tileSet.begin(), tileSet.end());
+          std::sort(tiles.begin(), tiles.end());
+          const auto perTileWeights =
+              splitRegions(sharedActivations, inChansPerGroup,
+                           tiles.size(), minElementsPerTile);
+          for (unsigned i = 0; i != perTileWeights.size(); ++i) {
+            mapping[tiles[i]] = perTileWeights[i];
+          }
+        }
+      }
+    }
+  }
+  return mapping;
+}
+
+static void mapActivations(Graph &graph,
+                           const Plan &plan,
+                           Tensor acts) {
+  auto mapping = calculateActivationMapping(graph, plan, acts);
+  graph.setTileMapping(acts, mapping);
+}
+
+static std::vector<std::vector<Interval<std::size_t>>>
 calculateWeightMapping(Tensor w,
                        const poplar::Graph &graph,
                        const Plan &plan,
@@ -3171,7 +3249,7 @@ convolutionWeightUpdateAmpNew(Graph &graph,
                        activationsView.dim(2),
                        inChansPerGroup},
                       "activationsTransposed");
-  mapActivations(graph, activationsTransposed);
+  mapActivations(graph, plan, activationsTransposed);
   prog.add(Copy(activationsView.reshape({activationsView.dim(0),
                                          activationsView.dim(1) /
                                          inChansPerGroup,
@@ -3437,9 +3515,10 @@ convolutionWeightUpdateAmp(Graph &graph,
                        deltasChans,
                        fieldGroupSize},
                       "zDeltasTransposed");
-  mapActivations(graph, zDeltasTransposed.reshape({1, zDeltasTransposed.dim(0),
-                                                   1, zDeltasTransposed.dim(1),
-                                                   zDeltasTransposed.dim(2)}));
+  ::mapActivations(graph,
+                   zDeltasTransposed.reshape({1, zDeltasTransposed.dim(0),
+                                              1, zDeltasTransposed.dim(1),
+                                              zDeltasTransposed.dim(2)}));
   prog.add(Copy(batchZDeltas.reshape({deltasNumChanGroups,
                                        batchPaddedFieldSize / fieldGroupSize,
                                        fieldGroupSize,
