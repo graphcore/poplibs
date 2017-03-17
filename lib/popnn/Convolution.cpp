@@ -3025,6 +3025,24 @@ convolutionWeightUpdateAmpPreProcess(Graph &graph,
                        deltas.dim(1),
                        deltas.dim(2) * deltas.dim(0),
                        deltas.dim(3)});
+  if (plan.ampWUMethod == Plan::ACTIVATIONS_AS_COEFFICENTS) {
+    if (paddingY > 0) {
+      // Currently we don't support convolutions with a zero padded filter so
+      // we must explicitly add padding.
+      // TODO extend convolutionByAmp() to support zero padding the filter.
+      flattenedActivations = pad(graph, flattenedActivations,
+                                 {flattenedActivations.dim(0),
+                                  flattenedActivations.dim(1) + 2 * paddingY,
+                                  flattenedActivations.dim(2),
+                                  flattenedActivations.dim(3)},
+                                 {0,
+                                  paddingY,
+                                  0,
+                                  0});
+      paddingY = 0;
+    }
+    std::swap(flattenedActivations, flattenedDeltas);
+  }
   activations = flattenedActivations;
   deltas = flattenedDeltas;
 }
@@ -3040,6 +3058,9 @@ convolutionWeightUpdateAmpPostProcess(const Plan &plan,
                                       unsigned kernelSizeY,
                                       unsigned kernelSizeX) {
   assert(weightDeltas.dim(1) == 1);
+  if (plan.ampWUMethod == Plan::ACTIVATIONS_AS_COEFFICENTS) {
+    weightDeltas = weightDeltas.dimShuffle({0, 1, 3, 2});
+  }
   if (plan.flattenXY) {
     assert(weightDeltas.dim(0) == 1);
     weightDeltas =
@@ -3161,8 +3182,8 @@ convolutionWeightUpdateAmpNew(Graph &graph,
                 deltasTransposed));
 
   // Perform the convolution.
-  const auto outDimY = activationsTransposed.dim(2) + 2 * paddingY -
-                       (deltasTransposed.dim(2) - 1);
+  const auto outDimY = absdiff(activationsTransposed.dim(2) + 2 * paddingY,
+                               deltasTransposed.dim(2)) + 1;
   Tensor weightDeltasTransposed;
   Program convolveProg;
   std::tie(convolveProg, weightDeltasTransposed) =

@@ -41,6 +41,10 @@ struct Plan {
   bool useWinograd = false;
   unsigned winogradPatchSize;
   bool useNewAMPWU = false;
+  enum AmpWUMethod {
+    DELTAS_AS_COEFFICENTS,
+    ACTIVATIONS_AS_COEFFICENTS,
+  } ampWUMethod = DELTAS_AS_COEFFICENTS;
 
   Plan() = default;
   Plan(unsigned tilesPerXAxis,

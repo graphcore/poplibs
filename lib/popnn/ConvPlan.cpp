@@ -112,7 +112,9 @@ std::ostream& operator<<(std::ostream &os, const Plan &p)
     << "        batchesPerGroup         " << p.batchesPerGroup << "\n"
     << "        useConvInstructions     " << p.useConvolutionInstructions
     << "\n"
-    << "        flattenXY               " << p.flattenXY << "\n";
+    << "        flattenXY               " << p.flattenXY << "\n"
+    << "        deltasAsCoefficents     "
+    << (p.ampWUMethod == Plan::DELTAS_AS_COEFFICENTS) << "\n";
   return os;
 }
 
@@ -227,6 +229,7 @@ struct ConvolutionParams {
       return (inputHeight * strideY + kernelSizeY - 1) - (paddingY * 2);
     return absdiff(inputHeight + paddingY * 2, kernelSizeY) / strideY + 1;
   }
+  ConvolutionParams() = default;
   ConvolutionParams(unsigned kernelSizeY,
                     unsigned kernelSizeX,
                     unsigned strideY,
@@ -868,26 +871,39 @@ estimatePlanCostBounded(const poplar::DeviceInfo &deviceInfo,
 static Cost
 estimateWeightUpdateByAmpReorderCost(const poplar::DeviceInfo &deviceInfo,
                                      bool floatActivations,
-                                     const ConvolutionParams &reorderedParams) {
+                                     const ConvolutionParams &reorderedParams,
+                                     const Plan &plan) {
   const auto numTiles = deviceInfo.getNumTiles();
-  const auto numActs = reorderedParams.batchSize *
-                       reorderedParams.inputDepth *
-                       reorderedParams.inputHeight *
-                       reorderedParams.inputWidth;
-  const auto numDeltas = reorderedParams.kernelSizeY *
-                         reorderedParams.kernelSizeX *
-                         reorderedParams.inputDepth *
-                         reorderedParams.outputDepth;
-  const auto numWeightDeltas = reorderedParams.batchSize *
-                               reorderedParams.outputDepth *
-                               reorderedParams.getOutputHeight() *
-                               reorderedParams.getOutputWidth();
+  const auto numInElements = reorderedParams.batchSize *
+                             reorderedParams.inputDepth *
+                             reorderedParams.inputHeight *
+                             reorderedParams.inputWidth;
+  const auto numOutElements = reorderedParams.batchSize *
+                              reorderedParams.outputDepth *
+                              reorderedParams.getOutputHeight() *
+                              reorderedParams.getOutputWidth();
+  const auto numCoefficients = reorderedParams.kernelSizeY *
+                               reorderedParams.kernelSizeX *
+                               reorderedParams.inputDepth *
+                               reorderedParams.outputDepth;
   const auto bytesPerElement = floatActivations ? 4U : 2U;
   const auto reorderBytesPerCycle =
       std::min(deviceInfo.memcpyBytesPerCycle, bytesPerElement);
+  unsigned weightDeltaReorderBytesPerCycle;
+  switch (plan.ampWUMethod) {
+  case Plan::ACTIVATIONS_AS_COEFFICENTS:
+    weightDeltaReorderBytesPerCycle =
+        std::min(deviceInfo.memcpyBytesPerCycle,
+                 plan.partialChansPerGroup * bytesPerElement);
+    break;
+  case Plan::DELTAS_AS_COEFFICENTS:
+    weightDeltaReorderBytesPerCycle = reorderBytesPerCycle;
+    break;
+  }
   const auto exchangeBytesPerCycle = deviceInfo.exchangeBytesPerCycle;
-  const auto reorderBytesPre = (numActs + numDeltas) * bytesPerElement;
-  const auto reorderBytesPost = numWeightDeltas * bytesPerElement;
+  const auto reorderBytesPre =
+      (numInElements + numCoefficients) * bytesPerElement;
+  const auto reorderBytesPost = numOutElements * bytesPerElement;
   const auto reorderBytesTilePre = (reorderBytesPre + numTiles - 1) / numTiles;
   const auto reorderBytesTilePost = (reorderBytesPost + numTiles - 1) /
                                     numTiles;
@@ -898,8 +914,8 @@ estimateWeightUpdateByAmpReorderCost(const poplar::DeviceInfo &deviceInfo,
             reorderBytesPerCycle;
   cycles += (reorderBytesTilePost + exchangeBytesPerCycle - 1) /
             exchangeBytesPerCycle;
-  cycles += (reorderBytesTilePost + reorderBytesPerCycle - 1) /
-            reorderBytesPerCycle;
+  cycles += (reorderBytesTilePost + weightDeltaReorderBytesPerCycle - 1) /
+            weightDeltaReorderBytesPerCycle;
   return {cycles, 0};
 }
 
@@ -919,15 +935,13 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
     assert(inChansPerGroup ==
            deviceInfo.getWeightsPerConvUnit(floatActivations));
     if (planControl.useNewAMPWU && params.strideY == 1) {
-      // The weight update can be implemented as a convolution with a different
-      // axis of accumulation.
-      // weight update x-axis: fwd in chans
-      // weight update y-axis: fwd y-axis
-      // weight update in chans: fwd x-axis
-      // weight update out chans: fwd out chans
-      // Partition the weight update phase by populating ConvolutionParams
-      // struct with the dimensions of this convolution and performing
-      // a recursive call using these parameters.
+      // Implementing weight update directly as a convolution is typically
+      // inefficient since the height and width of the output is small (the size
+      // of the kernel). Instead we rearrange the activations and deltas so the
+      // the amp unit can accumulate across the x-axis instead of over channels.
+      // We choose a partition for the weight update phase by populating
+      // ConvolutionParams struct with the dimensions of the transformed
+      // convolution and call ourselves recursively with these parameters.
       Cost bestCost = highestCost;
       Plan bestPlan;
       // To ensure the activations we load in the inner loop are contiguous and
@@ -938,63 +952,106 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
       // means less padding is required when the field size is rounded up to
       // a multiple of the weights per convolutional unit.
       for (bool flattenXY : {false, true}) {
-        unsigned fieldWidth;
-        unsigned fieldHeight;
-        unsigned kernelHeight;
-        unsigned paddingY;
-        unsigned expandedInputDepth;
-        if (flattenXY) {
-          fieldWidth =
-              params.batchSize * params.getOutputHeight() *
-                                 params.getOutputWidth();
-          fieldHeight = 1;
-          kernelHeight = 1;
-          paddingY = 1;
-          expandedInputDepth =
-              params.inputDepth * params.kernelSizeX * params.kernelSizeY;
-        } else {
-          fieldWidth = params.batchSize * params.getOutputWidth();
-          fieldHeight = params.inputHeight + 2 * params.paddingY;
-          kernelHeight = params.getOutputHeight();
-          paddingY = params.paddingY;
-          expandedInputDepth =
-              params.inputDepth * params.kernelSizeX;
-        }
-        const auto fieldGroupSize =
-            deviceInfo.getWeightsPerConvUnit(floatActivations);
-        const auto paddedFieldWidth =
-            ((fieldWidth + fieldGroupSize - 1) / fieldGroupSize) *
-            fieldGroupSize;
-        const auto paddedOutputDepth =
-            ((params.outputDepth + partialChansPerGroup - 1) /
-             partialChansPerGroup) * partialChansPerGroup;
-        auto newParams = ConvolutionParams(
-                           kernelHeight /* kernelSizeY */,
-                           1 /* kernelSizeX */,
-                           1,
-                           1,
-                           paddedFieldWidth,
-                           expandedInputDepth,
-                           fieldHeight,
-                           paddingY /*paddingY*/,
-                           0 /*paddingX*/,
-                           paddedOutputDepth,
-                           1, false, false);
-        Plan plan;
-        Cost cost;
-        std::tie(plan, cost) = choosePlan(deviceInfo,
-                                          inChansPerGroup,
-                                          partialChansPerGroup,
-                                          convVertexType, newParams,
-                                          1, costBounds, cache,
-                                          planControl);
-        plan.useNewAMPWU = true;
-        cost += estimateWeightUpdateByAmpReorderCost(deviceInfo,
-                                                     floatActivations,
-                                                     newParams);
-        if (compareCost(cost, bestCost, costBounds)) {
-          bestPlan = plan;
-          bestCost = cost;
+        for (Plan::AmpWUMethod method : {Plan::DELTAS_AS_COEFFICENTS,
+                                         Plan::ACTIVATIONS_AS_COEFFICENTS}) {
+          unsigned expandedFieldWidth;
+          unsigned expandedActivationsHeight;
+          unsigned expandedDeltasHeight;
+          unsigned paddingY;
+          unsigned expandedInputDepth;
+          if (flattenXY) {
+            expandedFieldWidth =
+                params.batchSize * params.getOutputHeight() *
+                                   params.getOutputWidth();
+            expandedActivationsHeight = 1;
+            expandedDeltasHeight = 1;
+            paddingY = 0;
+            expandedInputDepth =
+                params.inputDepth * params.kernelSizeX * params.kernelSizeY;
+          } else {
+            expandedFieldWidth = params.batchSize * params.getOutputWidth();
+            expandedActivationsHeight = params.inputHeight;
+            expandedDeltasHeight = params.getOutputHeight();
+            paddingY = params.paddingY;
+            expandedInputDepth =
+                params.inputDepth * params.kernelSizeX;
+          }
+          const auto fieldGroupSize =
+              deviceInfo.getWeightsPerConvUnit(floatActivations);
+          const auto paddedFieldWidth =
+              ((expandedFieldWidth + fieldGroupSize - 1) / fieldGroupSize) *
+              fieldGroupSize;
+          ConvolutionParams newParams;
+          switch (method) {
+          case Plan::DELTAS_AS_COEFFICENTS:
+            {
+              // weight update x-axis: fwd in chans
+              // weight update y-axis: fwd y-axis
+              // weight update in chans: fwd x-axis
+              // weight update out chans: fwd out chans
+              const auto paddedOutputDepth =
+                  ((params.outputDepth + partialChansPerGroup - 1) /
+                   partialChansPerGroup) * partialChansPerGroup;
+              newParams = ConvolutionParams(
+                            expandedDeltasHeight /* kernelSizeY */,
+                            1 /* kernelSizeX */,
+                            1,
+                            1,
+                            paddedFieldWidth,
+                            expandedInputDepth,
+                            expandedActivationsHeight,
+                            paddingY /*paddingY*/,
+                            0 /*paddingX*/,
+                            paddedOutputDepth,
+                            1, false, false
+                          );
+            }
+            break;
+          case Plan::ACTIVATIONS_AS_COEFFICENTS:
+            {
+              // weight update x-axis: fwd out chans
+              // weight update y-axis: fwd y-axis
+              // weight update in chans: fwd x-axis
+              // weight update out chans: fwd in chans
+              const auto paddedExpandedInputDepth =
+                  ((expandedInputDepth + partialChansPerGroup - 1) /
+                   partialChansPerGroup) * partialChansPerGroup;
+              newParams = ConvolutionParams(
+                            /* kernelSizeY */
+                            expandedActivationsHeight + 2 * paddingY,
+                            1 /* kernelSizeX */,
+                            1,
+                            1,
+                            paddedFieldWidth,
+                            params.outputDepth,
+                            expandedDeltasHeight,
+                            0 /*paddingY*/,
+                            0 /*paddingX*/,
+                            paddedExpandedInputDepth,
+                            1, false, false
+                          );
+            }
+            break;
+          }
+          Plan plan;
+          Cost cost;
+          std::tie(plan, cost) = choosePlan(deviceInfo,
+                                            inChansPerGroup,
+                                            partialChansPerGroup,
+                                            convVertexType, newParams,
+                                            1, costBounds, cache,
+                                            planControl);
+          plan.useNewAMPWU = true;
+          plan.flattenXY = flattenXY;
+          plan.ampWUMethod = method;
+          cost += estimateWeightUpdateByAmpReorderCost(deviceInfo,
+                                                       floatActivations,
+                                                       newParams,
+                                                       plan);
+          if (compareCost(cost, bestCost, costBounds)) {
+            bestPlan = plan;
+            bestCost = cost;
+          }
         }
       }
       return {bestPlan, bestCost};
@@ -1039,8 +1096,9 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                                         partialChansPerGroup,
                                         convVertexType, newParams,
                                         1, costBounds, cache, planControl);
+      plan.ampWUMethod = Plan::ACTIVATIONS_AS_COEFFICENTS;
       cost += estimateWeightUpdateByAmpReorderCost(deviceInfo, floatActivations,
-                                                   newParams);
+                                                   newParams, plan);
       return {plan, cost};
     }
   }
