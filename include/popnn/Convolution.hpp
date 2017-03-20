@@ -78,11 +78,23 @@ createBiases(poplar::Graph &graph, std::string dType,
 
 poplar::program::Program
 convolution(poplar::Graph &graph, const Plan &plan,
+            const std::vector<unsigned> &stride,
+            const std::vector<unsigned> &padding,
+            poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
+            poplar::Tensor out, const std::string &partialsType,
+            bool isFractional, const std::string &debugPrefix = "");
+
+inline poplar::program::Program
+convolution(poplar::Graph &graph, const Plan &plan,
             unsigned strideY, unsigned strideX,
             unsigned paddingY, unsigned paddingX,
             poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
             poplar::Tensor out, const std::string &partialsType,
-            bool isFractional, const std::string &debugPrefix = "");
+            bool isFractional, const std::string &debugPrefix = "") {
+  return convolution(graph, plan, {strideY, strideX}, {paddingY, paddingX},
+                     in, weights, biases, out, partialsType, isFractional,
+                     debugPrefix);
+}
 
 void mapWeights(poplar::Tensor w, poplar::Graph &graph, const Plan &plan,
                 unsigned batchSize);
@@ -101,9 +113,22 @@ convolutionBackward(poplar::Graph &graph,
                     const Plan &plan,
                     poplar::Tensor zDeltas, poplar::Tensor weights,
                     poplar::Tensor deltasOut,
+                    const std::vector<unsigned> &stride,
+                    const std::vector<unsigned> &padding, bool isFractional,
+                    const std::string &debugPrefix = "");
+
+inline poplar::program::Program
+convolutionBackward(poplar::Graph &graph,
+                    const Plan &plan,
+                    poplar::Tensor zDeltas, poplar::Tensor weights,
+                    poplar::Tensor deltasOut,
                     unsigned strideY, unsigned strideX,
                     unsigned paddingY, unsigned paddingX, bool isFractional,
-                    const std::string &debugPrefix = "");
+                    const std::string &debugPrefix = "") {
+  return convolutionBackward(graph, plan, zDeltas, weights, deltasOut,
+                             {strideY, strideX}, {paddingY, paddingX},
+                             isFractional, debugPrefix);
+}
 
 poplar::program::Program
 convolutionWeightUpdate(poplar::Graph &graph,
@@ -111,9 +136,25 @@ convolutionWeightUpdate(poplar::Graph &graph,
                         poplar::Tensor zDeltas, poplar::Tensor weights,
                         poplar::Tensor biases,
                         poplar::Tensor activations,
+                        const std::vector<unsigned> &stride,
+                        const std::vector<unsigned> &padding,
+                        float learningRate,
+                        const std::string &debugPrefix = "");
+
+inline poplar::program::Program
+convolutionWeightUpdate(poplar::Graph &graph,
+                        const Plan &plan, const Plan &fwdPlan,
+                        poplar::Tensor zDeltas, poplar::Tensor weights,
+                        poplar::Tensor biases,
+                        poplar::Tensor activations,
                         unsigned strideY, unsigned strideX, unsigned paddingY,
                         unsigned paddingX, float learningRate,
-                        const std::string &debugPrefix = "");
+                        const std::string &debugPrefix = "") {
+  return convolutionWeightUpdate(graph, plan, fwdPlan, zDeltas, weights,
+                                 biases, activations, {strideY, strideX},
+                                 {paddingY, paddingX}, learningRate,
+                                 debugPrefix);
+}
 
 }
 #endif  // __Convolution_hpp__
