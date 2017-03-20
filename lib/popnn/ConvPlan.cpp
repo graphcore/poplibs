@@ -934,183 +934,135 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
       params.isWeightUpdate) {
     assert(inChansPerGroup ==
            deviceInfo.getWeightsPerConvUnit(floatActivations));
-    if (planControl.useNewAMPWU) {
-      // Implementing weight update directly as a convolution is typically
-      // inefficient since the height and width of the output is small (the size
-      // of the kernel). Instead we rearrange the activations and deltas so the
-      // the amp unit can accumulate across the x-axis instead of over channels.
-      // We choose a partition for the weight update phase by populating
-      // ConvolutionParams struct with the dimensions of the transformed
-      // convolution and call ourselves recursively with these parameters.
-      Cost bestCost = highestCost;
-      Plan bestPlan;
-      // To ensure the activations we load in the inner loop are contiguous and
-      // aligned we expand the x-axis by taking the activations that are
-      // multiplied by each column of the weights and turning them into
-      // different input channels. If flattenXY is true we also expand the
-      // y-axis in the same way. Expanding the y axis may be desirable if it
-      // means less padding is required when the field size is rounded up to
-      // a multiple of the weights per convolutional unit.
-      for (bool flattenXY : {false, true}) {
-        for (Plan::AmpWUMethod method : {Plan::DELTAS_AS_COEFFICENTS,
-                                         Plan::ACTIVATIONS_AS_COEFFICENTS}) {
-          unsigned expandedFieldWidth;
-          unsigned expandedActivationsHeight;
-          unsigned expandedDeltasHeight;
-          unsigned expandedActivationsPaddingY;
-          unsigned expandedInputDepth;
-          unsigned expandedDeltasUpsampleFactorY;
-          if (flattenXY) {
-            expandedFieldWidth =
-                params.batchSize * params.getOutputHeight() *
-                                   params.getOutputWidth();
-            expandedActivationsHeight = 1;
-            expandedDeltasHeight = 1;
-            expandedActivationsPaddingY = 0;
-            expandedInputDepth =
-                params.inputDepth * params.kernelSizeX * params.kernelSizeY;
-            expandedDeltasUpsampleFactorY = 1;
-          } else {
-            expandedFieldWidth = params.batchSize * params.getOutputWidth();
-            expandedActivationsHeight = params.inputHeight;
-            expandedDeltasHeight = params.getOutputHeight();
-            expandedActivationsPaddingY = params.paddingY;
-            expandedInputDepth =
-                params.inputDepth * params.kernelSizeX;
-            expandedDeltasUpsampleFactorY = params.strideY;
-          }
-          const auto fieldGroupSize =
-              deviceInfo.getWeightsPerConvUnit(floatActivations);
-          const auto paddedFieldWidth =
-              ((expandedFieldWidth + fieldGroupSize - 1) / fieldGroupSize) *
-              fieldGroupSize;
-          ConvolutionParams newParams;
-          switch (method) {
-          case Plan::DELTAS_AS_COEFFICENTS:
-            {
-              // There is currently no support for dilated convolutions.
-              // TODO add support for this.
-              if (expandedDeltasUpsampleFactorY != 1) {
-                continue;
-              }
-              // weight update x-axis: fwd in chans
-              // weight update y-axis: fwd y-axis
-              // weight update in chans: fwd x-axis
-              // weight update out chans: fwd out chans
-              const auto paddedOutputDepth =
-                  ((params.outputDepth + partialChansPerGroup - 1) /
-                   partialChansPerGroup) * partialChansPerGroup;
-              newParams = ConvolutionParams(
-                            expandedDeltasHeight /* kernelSizeY */,
-                            1 /* kernelSizeX */,
-                            1,
-                            1,
-                            paddedFieldWidth,
-                            expandedInputDepth,
-                            expandedActivationsHeight,
-                            expandedActivationsPaddingY /*paddingY*/,
-                            0 /*paddingX*/,
-                            paddedOutputDepth,
-                            1, false, false
-                          );
+    // Implementing weight update directly as a convolution is typically
+    // inefficient since the height and width of the output is small (the size
+    // of the kernel). Instead we rearrange the activations and deltas so the
+    // the amp unit can accumulate across the x-axis instead of over channels.
+    // We choose a partition for the weight update phase by populating
+    // ConvolutionParams struct with the dimensions of the transformed
+    // convolution and call ourselves recursively with these parameters.
+    Cost bestCost = highestCost;
+    Plan bestPlan;
+    // To ensure the activations we load in the inner loop are contiguous and
+    // aligned we expand the x-axis by taking the activations that are
+    // multiplied by each column of the weights and turning them into
+    // different input channels. If flattenXY is true we also expand the
+    // y-axis in the same way. Expanding the y axis may be desirable if it
+    // means less padding is required when the field size is rounded up to
+    // a multiple of the weights per convolutional unit.
+    for (bool flattenXY : {false, true}) {
+      for (Plan::AmpWUMethod method : {Plan::DELTAS_AS_COEFFICENTS,
+                                       Plan::ACTIVATIONS_AS_COEFFICENTS}) {
+        unsigned expandedFieldWidth;
+        unsigned expandedActivationsHeight;
+        unsigned expandedDeltasHeight;
+        unsigned expandedActivationsPaddingY;
+        unsigned expandedInputDepth;
+        unsigned expandedDeltasUpsampleFactorY;
+        if (flattenXY) {
+          expandedFieldWidth =
+              params.batchSize * params.getOutputHeight() *
+                                 params.getOutputWidth();
+          expandedActivationsHeight = 1;
+          expandedDeltasHeight = 1;
+          expandedActivationsPaddingY = 0;
+          expandedInputDepth =
+              params.inputDepth * params.kernelSizeX * params.kernelSizeY;
+          expandedDeltasUpsampleFactorY = 1;
+        } else {
+          expandedFieldWidth = params.batchSize * params.getOutputWidth();
+          expandedActivationsHeight = params.inputHeight;
+          expandedDeltasHeight = params.getOutputHeight();
+          expandedActivationsPaddingY = params.paddingY;
+          expandedInputDepth =
+              params.inputDepth * params.kernelSizeX;
+          expandedDeltasUpsampleFactorY = params.strideY;
+        }
+        const auto fieldGroupSize =
+            deviceInfo.getWeightsPerConvUnit(floatActivations);
+        const auto paddedFieldWidth =
+            ((expandedFieldWidth + fieldGroupSize - 1) / fieldGroupSize) *
+            fieldGroupSize;
+        ConvolutionParams newParams;
+        switch (method) {
+        case Plan::DELTAS_AS_COEFFICENTS:
+          {
+            // There is currently no support for dilated convolutions.
+            // TODO add support for this.
+            if (expandedDeltasUpsampleFactorY != 1) {
+              continue;
             }
-            break;
-          case Plan::ACTIVATIONS_AS_COEFFICENTS:
-            {
-              // weight update x-axis: fwd out chans
-              // weight update y-axis: fwd y-axis
-              // weight update in chans: fwd x-axis
-              // weight update out chans: fwd in chans
-              const auto isFractional = expandedDeltasUpsampleFactorY > 1;
-              const auto paddedExpandedInputDepth =
-                  ((expandedInputDepth + partialChansPerGroup - 1) /
-                   partialChansPerGroup) * partialChansPerGroup;
-              newParams = ConvolutionParams(
-                            /* kernelSizeY */
-                            expandedActivationsHeight +
-                            2 * expandedActivationsPaddingY,
-                            1 /* kernelSizeX */,
-                            expandedDeltasUpsampleFactorY,
-                            1,
-                            paddedFieldWidth,
-                            params.outputDepth,
-                            expandedDeltasHeight,
-                            0 /*paddingY*/,
-                            0 /*paddingX*/,
-                            paddedExpandedInputDepth,
-                            1, isFractional, false
-                          );
-            }
-            break;
+            // weight update x-axis: fwd in chans
+            // weight update y-axis: fwd y-axis
+            // weight update in chans: fwd x-axis
+            // weight update out chans: fwd out chans
+            const auto paddedOutputDepth =
+                ((params.outputDepth + partialChansPerGroup - 1) /
+                 partialChansPerGroup) * partialChansPerGroup;
+            newParams = ConvolutionParams(
+                          expandedDeltasHeight /* kernelSizeY */,
+                          1 /* kernelSizeX */,
+                          1,
+                          1,
+                          paddedFieldWidth,
+                          expandedInputDepth,
+                          expandedActivationsHeight,
+                          expandedActivationsPaddingY /*paddingY*/,
+                          0 /*paddingX*/,
+                          paddedOutputDepth,
+                          1, false, false
+                        );
           }
-          Plan plan;
-          Cost cost;
-          std::tie(plan, cost) = choosePlan(deviceInfo,
-                                            inChansPerGroup,
-                                            partialChansPerGroup,
-                                            convVertexType, newParams,
-                                            1, costBounds, cache,
-                                            planControl);
-          plan.useNewAMPWU = true;
-          plan.flattenXY = flattenXY;
-          plan.ampWUMethod = method;
-          cost += estimateWeightUpdateByAmpReorderCost(deviceInfo,
-                                                       floatActivations,
-                                                       newParams,
-                                                       plan);
-          if (compareCost(cost, bestCost, costBounds)) {
-            bestPlan = plan;
-            bestCost = cost;
+          break;
+        case Plan::ACTIVATIONS_AS_COEFFICENTS:
+          {
+            // weight update x-axis: fwd out chans
+            // weight update y-axis: fwd y-axis
+            // weight update in chans: fwd x-axis
+            // weight update out chans: fwd in chans
+            const auto isFractional = expandedDeltasUpsampleFactorY > 1;
+            const auto paddedExpandedInputDepth =
+                ((expandedInputDepth + partialChansPerGroup - 1) /
+                 partialChansPerGroup) * partialChansPerGroup;
+            newParams = ConvolutionParams(
+                          /* kernelSizeY */
+                          expandedActivationsHeight +
+                          2 * expandedActivationsPaddingY,
+                          1 /* kernelSizeX */,
+                          expandedDeltasUpsampleFactorY,
+                          1,
+                          paddedFieldWidth,
+                          params.outputDepth,
+                          expandedDeltasHeight,
+                          0 /*paddingY*/,
+                          0 /*paddingX*/,
+                          paddedExpandedInputDepth,
+                          1, isFractional, false
+                        );
           }
+          break;
+        }
+        Plan plan;
+        Cost cost;
+        std::tie(plan, cost) = choosePlan(deviceInfo,
+                                          inChansPerGroup,
+                                          partialChansPerGroup,
+                                          convVertexType, newParams,
+                                          1, costBounds, cache,
+                                          planControl);
+        plan.flattenXY = flattenXY;
+        plan.ampWUMethod = method;
+        cost += estimateWeightUpdateByAmpReorderCost(deviceInfo,
+                                                     floatActivations,
+                                                     newParams,
+                                                     plan);
+        if (compareCost(cost, bestCost, costBounds)) {
+          bestPlan = plan;
+          bestCost = cost;
         }
       }
-      return {bestPlan, bestCost};
-    } else {
-      // The weight update can be implemented as a convolution with a different
-      // axis of accumulation.
-      // weight update field: fwd out channels.
-      // weight update in chans: flattened fwd field.
-      // weight update out chans: fwd in channels * kernel elements
-      // See the implementation of the Convolution layer for more details.
-      // Partition the weight update phase by populating ConvolutionParams
-      // struct with the dimensions of this convolution and performing
-      // a recursive call using these parameters.
-      const auto fieldGroupSize =
-          deviceInfo.getWeightsPerConvUnit(floatActivations);
-      const auto fieldSize = params.getOutputHeight() *
-                             params.getOutputWidth() *
-                             params.batchSize;
-      const auto paddedFieldSize =
-          ((fieldSize + fieldGroupSize - 1) / fieldGroupSize) * fieldGroupSize;
-      const auto numKernelElements = params.kernelSizeY * params.kernelSizeX;
-      const auto outputSize =  params.inputDepth * numKernelElements;
-      const auto paddedOutputSize =
-          ((outputSize + partialChansPerGroup - 1) / partialChansPerGroup)
-              * partialChansPerGroup;
-      auto newParams = ConvolutionParams(
-                         1 /* kernelSizeY */,
-                         1 /* kernelSizeX */,
-                         1,
-                         1,
-                         paddedFieldSize,
-                         params.outputDepth,
-                         1,
-                         0 /*paddingY*/,
-                         0 /*paddingX*/,
-                         paddedOutputSize,
-                         1, false, false);
-      Plan plan;
-      Cost cost;
-      std::tie(plan, cost) = choosePlan(deviceInfo,
-                                        inChansPerGroup,
-                                        partialChansPerGroup,
-                                        convVertexType, newParams,
-                                        1, costBounds, cache, planControl);
-      plan.ampWUMethod = Plan::ACTIVATIONS_AS_COEFFICENTS;
-      cost += estimateWeightUpdateByAmpReorderCost(deviceInfo, floatActivations,
-                                                   newParams, plan);
-      return {plan, cost};
     }
+    return {bestPlan, bestCost};
   }
   Cost bestCost = highestCost;
   Plan bestPlan;

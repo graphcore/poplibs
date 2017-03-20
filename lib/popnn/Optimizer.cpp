@@ -116,11 +116,6 @@ bool parseCommandLine(int argc, char **argv, OptimizerOptions &options) {
        &options.convPlanControl.winogradPatchSize
      )->default_value(options.convPlanControl.winogradPatchSize),
      "Patch size for winograd convolution")
-    ("use-new-amp-wu",
-     po::value<bool>(
-       &options.convPlanControl.useNewAMPWU
-     )->default_value(options.convPlanControl.useNewAMPWU),
-     "Use new AMP weight update method")
     ("batch-size",
      po::value<unsigned>(
        &options.batchSize

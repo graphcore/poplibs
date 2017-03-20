@@ -22,7 +22,6 @@ public:
   WeightUpdateMethod weightUpdateMethod = WeightUpdateMethod::AUTO;
   bool useWinograd = false;
   unsigned winogradPatchSize = 4;
-  bool useNewAMPWU = true;
 };
 
 struct Plan {
@@ -40,7 +39,6 @@ struct Plan {
   bool flattenXY = false;
   bool useWinograd = false;
   unsigned winogradPatchSize;
-  bool useNewAMPWU = false;
   enum AmpWUMethod {
     DELTAS_AS_COEFFICENTS,
     ACTIVATIONS_AS_COEFFICENTS,
