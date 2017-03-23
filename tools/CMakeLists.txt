@@ -21,3 +21,8 @@ add_tool(max_pool_layer max_pool_layer.cpp)
 target_link_libraries(max_pool_layer
                       popnn_ref
                       Boost::program_options)
+
+add_tool(general_matrix_multiply general_matrix_multiply.cpp)
+target_link_libraries(general_matrix_multiply
+                      popnn_ref
+                      Boost::program_options)

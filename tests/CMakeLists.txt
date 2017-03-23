@@ -445,3 +445,46 @@ add_test(NAME max_pool_layer_1x4
                  --kernel-width 4
                  --stride-height 1
                  --stride-width 4)
+
+
+add_test(NAME gemm_40x40x40
+         COMMAND general_matrix_multiply
+                 --m 40
+                 --k 40
+                 --n 40 
+                 --alpha 2
+                 --beta 1 
+                 --left-matrix-op=normal
+                 --right-matrix-op=normal)
+
+
+add_test(NAME gemm_40x39x38
+         COMMAND general_matrix_multiply
+                 --m 40
+                 --k 39
+                 --n 38 
+                 --alpha 2
+                 --beta 1 
+                 --left-matrix-op=normal
+                 --right-matrix-op=normal)
+
+add_test(NAME gemm_40x39x38_left_transpose
+         COMMAND general_matrix_multiply
+                 --m 40
+                 --k 39
+                 --n 38 
+                 --alpha 2
+                 --beta 1 
+                 --left-matrix-op=transpose
+                 --right-matrix-op=normal)
+
+
+add_test(NAME gemm_40x39x38_right_transpose
+         COMMAND general_matrix_multiply
+                 --m 40
+                 --k 39
+                 --n 38 
+                 --alpha 2
+                 --beta 1 
+                 --left-matrix-op=normal
+                 --right-matrix-op=transpose)
