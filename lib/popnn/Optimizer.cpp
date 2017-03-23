@@ -1341,14 +1341,20 @@ void Optimizer::genBwd(Sequence &bwdProg,
       mmOpt.leftHandArgUsedInTranspose = backwardPassRequired;
       mmOpt.partialsType = options.partialsType;
       mmOpt.cache = &poplinCache;
-      if (backwardPassRequired  && !options.skipBwd) {
-        const auto flops = batchSize * prevSize * size * 2;
-        bwdFlops += flops;
-        bwdPerfectCycleTime += getPerfectCycleTime(flops, dType, true, false);
-        auto inGrad = matMul(*graph, outGradient, weights, bwdProg,
-                             layerPrefix, mmOpt);
-        inGrad = inGrad.reshape(prevShape);
-        inGradient[exp].push_back(inGrad);
+      if (backwardPassRequired) {
+        if (!options.skipBwd) {
+          const auto flops = batchSize * prevSize * size * 2;
+          bwdFlops += flops;
+          bwdPerfectCycleTime += getPerfectCycleTime(flops, dType, true, false);
+          auto inGrad = matMul(*graph, outGradient, weights, bwdProg,
+                               layerPrefix, mmOpt);
+          inGrad = inGrad.reshape(prevShape);
+          inGradient[exp].push_back(inGrad);
+        } else {
+          // Create the correct shaped tensor even if we skip the backwards
+          // pass.
+          createInGradients(exp, layerIndex);
+        }
       }
       if (!options.skipWU) {
         if (options.inPlaceParamUpdate) {
