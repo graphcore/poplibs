@@ -13,8 +13,10 @@ void ref::gemm::generalMatrixMultiply(
 
   const auto matACols = matA.shape()[1];
   const auto matARows = matA.shape()[0];
+#ifndef NDEBUG
   const auto matBCols = matB.shape()[1];
   const auto matBRows = matB.shape()[0];
+#endif
   const auto matCCols = matC.shape()[1];
   const auto matCRows = matC.shape()[0];
 
