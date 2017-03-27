@@ -296,10 +296,10 @@ reduceCycleEstimate(const std::vector<unsigned> &outSizes,
   bool isOutTypeFloat = std::is_same<OutType, float>::value;
   unsigned vectorWidth = dataPathWidth / (isPartialsFloat ? 32 : 16);
   bool conversionCyles = isPartialsFloat != isOutTypeFloat;
-  unsigned cycles = 1;
+  unsigned cycles;
   const unsigned numReductions = outSizes.size();
   const unsigned numPartials = partialsSize / numReductions;
-  const unsigned version=2;//TODO: update this following IS changes
+  const unsigned version=1;
   switch (version) {
   case 0: // Original optimistic estimate
   default:
@@ -314,14 +314,15 @@ reduceCycleEstimate(const std::vector<unsigned> &outSizes,
   case 1:
     // Innermost loop accumulates vector across all input tiles
     // This estimate based on float->float code
+    // Inner loop processes 128bits/2cycles
     // Inner loop cycles likely to halve given minor IS change,
     // may then be best practical choice
-    cycles = 2+4;
+    cycles = 2+5+1;
     for (unsigned r = 0; r < numReductions; ++r) {
-      cycles += 16;
+      cycles += 6;
       const unsigned numElem = outSizes[r];
-      auto numVectors = (numElem + vectorWidth - 1) / vectorWidth;
-      cycles += (2 * numPartials + 3) * numVectors;
+      auto numVectors = (numElem + 2 * vectorWidth - 1) / (2 * vectorWidth);
+      cycles += (2 * numPartials + 4) * numVectors;
     }
     break;
   case 2:

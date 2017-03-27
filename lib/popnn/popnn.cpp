@@ -1067,13 +1067,22 @@ public:
     const auto inVectorWidth = dataPathWidth / (inIsFloat ? 32 : 16);
     const auto outVectorWidth = dataPathWidth / (outIsFloat ? 32 : 16);
     unsigned numOut = out.size();
-    unsigned numIn2 = in1.size();
-    // 2*loads + 1*store per operation, memory accesses will dominate,
-    // assume common memory element
-    unsigned numCycles = 15
-      + (numOut + inVectorWidth - 1) / inVectorWidth   //1*load
-      + (numOut + outVectorWidth - 1) / outVectorWidth //1*store
-      + (numIn2 + inVectorWidth - 1) / inVectorWidth;  //1*load
+    unsigned numIn1 = in1.size();
+    const bool separateME = true;
+    unsigned numCycles;
+    if (separateME) {
+      // assume all accesses can occur in a single cycle. Loads are wider
+      // so dominate
+      // I expect pending IS changes to reduce the overhead from 20->14
+      numCycles = 20 + (numOut + inVectorWidth - 1) / inVectorWidth;
+    } else {
+      // 2*loads + 1*store per operation, memory accesses will dominate,
+      // assume common memory element
+      unsigned numCycles = 15
+        + (numOut + inVectorWidth - 1) / inVectorWidth   //1*load
+        + (numOut + outVectorWidth - 1) / outVectorWidth //1*store
+        + (numIn1 + inVectorWidth - 1) / inVectorWidth;  //1*load
+      }
 
     return numCycles;
   }
