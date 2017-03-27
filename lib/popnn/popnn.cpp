@@ -1074,7 +1074,7 @@ public:
       // assume all accesses can occur in a single cycle. Loads are wider
       // so dominate
       // I expect pending IS changes to reduce the overhead from 20->14
-      numCycles = 20 + (numOut + inVectorWidth - 1) / inVectorWidth;
+      numCycles = 2 + 20 + (numOut + inVectorWidth - 1) / inVectorWidth;
     } else {
       // 2*loads + 1*store per operation, memory accesses will dominate,
       // assume common memory element
