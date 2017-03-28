@@ -90,7 +90,9 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     }
   }
 
-  for (enum NonLinearityType n : {NON_LINEARITY_RELU, NON_LINEARITY_SIGMOID}) {
+  for (enum NonLinearityType n : {NON_LINEARITY_RELU,
+                                  NON_LINEARITY_SIGMOID,
+                                  NON_LINEARITY_TANH}) {
     std::cerr<<"Check nl type "<< n << "\n";
     //Check forward activation calculation
     hRefActOut = hActIn;

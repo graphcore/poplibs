@@ -41,12 +41,19 @@ static float relu_derivative(float activation)
   return 0;
 }
 
+static float tanh_derivative(float activation)
+{
+  return 1 - activation * activation;
+}
+
 static float nonlinearity(NonLinearityType t, float x) {
   switch (t) {
   case NON_LINEARITY_SIGMOID:
     return sigmoid(x);
   case NON_LINEARITY_RELU:
     return relu(x);
+  case NON_LINEARITY_TANH:
+    return tanh(x);
   }
 }
 
@@ -56,6 +63,8 @@ static float nonlinearity_derivative(NonLinearityType t, float activation) {
     return sigmoid_derivative(activation);
   case NON_LINEARITY_RELU:
     return relu_derivative(activation);
+  case NON_LINEARITY_TANH:
+    return tanh_derivative(activation);
   }
 }
 
@@ -688,6 +697,9 @@ public:
                                         + 7; // remaining vertex overhead
         cycles += vertexOverhead + numVectors * 3;
         }
+        break;
+      case NON_LINEARITY_TANH:
+        cycles += 5 + numVectors * 3;
         break;
       default:
         throw std::runtime_error("Invalid nonlinearity type");

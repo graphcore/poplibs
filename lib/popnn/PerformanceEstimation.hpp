@@ -256,6 +256,13 @@ inline uint64_t getNonLinearityCycles(std::vector<unsigned> regionSizes,
         cycles += (numItems + halfVectorWidth - 1) / halfVectorWidth;
       }
       break;
+    case NON_LINEARITY_TANH:
+      if (isFloat) {
+        cycles += numItems * 10;
+      } else {
+        cycles += (numItems + halfVectorWidth - 1) / halfVectorWidth;
+      }
+      break;
     default:
       throw std::runtime_error("Invalid nonlinearity type");
     }
@@ -283,6 +290,8 @@ inline uint64_t getBwdNonlinearityDerivativeCycles(
                                       + 7; // remaining vertex overhead
       return vertexOverhead + numVectors * 3;
     }
+  case NON_LINEARITY_TANH:
+    return 5 + numVectors * 3;
   }
   throw std::runtime_error("Invalid nonlinearity type");
 }

@@ -265,6 +265,12 @@ Exp sigmoid(Exp in) {
                                             in.impl));
 }
 
+Exp tanh(Exp in) {
+  auto &context = in.impl->context;
+  return context.impl->add(new NonLinearity(context, NON_LINEARITY_TANH,
+                                            in.impl));
+}
+
 class MaxPool : public ExpImpl {
 public:
   unsigned kernelSizeY, kernelSizeX;
@@ -724,6 +730,9 @@ void Optimizer::outputDescription(const ExpImpl *exp) {
       break;
     case NON_LINEARITY_SIGMOID:
       std::cout << "   -- Sigmoid layer\n";
+      break;
+    case NON_LINEARITY_TANH:
+      std::cout << "   -- Tanh layer\n";
       break;
     }
   } else if (const auto *m = dynamic_cast<const MaxPool *>(exp)) {

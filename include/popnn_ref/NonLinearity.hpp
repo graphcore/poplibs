@@ -12,6 +12,7 @@ const char *asString(const NonLinearityType &type) {
   switch (type) {
   case NON_LINEARITY_RELU: return "relu";
   case NON_LINEARITY_SIGMOID: return "sigmoid";
+  case NON_LINEARITY_TANH: return "tanh";
   }
   POPNN_UNREACHABLE();
 }
@@ -28,6 +29,8 @@ inline std::istream &operator>>(std::istream &in, NonLinearityType &type) {
     type = NON_LINEARITY_RELU;
   else if (token == "sigmoid")
     type = NON_LINEARITY_SIGMOID;
+  else if (token == "tanh")
+    type = NON_LINEARITY_TANH;
   else
     throw popnn_ref::popnn_ref_error(
         "Unsupported nonlinearity <" + token + ">");

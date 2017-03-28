@@ -15,6 +15,8 @@ static double nonLinearity(NonLinearityType nonLinearityType,
     return sigmoid(x);
   case NON_LINEARITY_RELU:
     return std::max(0.0, x);
+  case NON_LINEARITY_TANH:
+    return tanh(x);
   }
   POPNN_UNREACHABLE();
 }
@@ -34,6 +36,8 @@ static double nonLinearityDerivative(NonLinearityType nonLinearityType,
     return act * (1.0 - act);
   case NON_LINEARITY_RELU:
     return (act > 0) ? 1 : 0;
+  case NON_LINEARITY_TANH:
+    return 1 - act * act;
   }
   POPNN_UNREACHABLE();
 }
