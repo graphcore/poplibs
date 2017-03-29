@@ -7,13 +7,15 @@
 #include <poplar/Engine.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <popnn/MaxPool.hpp>
-#include <popnn/ActivationMapping.hpp>
+#include <popstd/ActivationMapping.hpp>
 #include <popnn/codelets.hpp>
-#include <popnn_ref/NonLinearity.hpp>
+#include <poplib_test/NonLinearity.hpp>
 #include <iostream>
 
 using namespace poplar;
 using namespace poplar::program;
+using namespace popstd;
+using namespace popnn;
 
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
@@ -96,7 +98,7 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     std::cerr<<"Check nl type "<< n << "\n";
     //Check forward activation calculation
     hRefActOut = hActIn;
-    ref::nonLinearity(n, hRefActOut);
+    poplib_test::nonLinearity(n, hRefActOut);
     // build and run the target code
     auto fwdProg = Sequence();
     fwdProg.add(Copy(hActInF, actF));
@@ -124,7 +126,7 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     //Check backward gradient calculations
 
     hRefDeltaOut = hDeltaIn;
-    ref::bwdNonLinearity(n, hActIn, hRefDeltaOut);
+    poplib_test::bwdNonLinearity(n, hActIn, hRefDeltaOut);
     // build and run the target code
     auto bwdProg = Sequence();
     bwdProg.add(Copy(hDeltaInF, deltaF));

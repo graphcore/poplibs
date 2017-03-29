@@ -1,5 +1,5 @@
 #include <initializer_list>
-#include "popnn/Optimizer.hpp"
+#include "enigma/Optimizer.hpp"
 
 /** This model is derived from the paper:
 
@@ -10,7 +10,7 @@
 
 */
 
-using namespace popnn::optimizer;
+using namespace enigma;
 
 Exp module(unsigned channels, unsigned count, Exp in) {
   auto out = in;

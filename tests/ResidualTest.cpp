@@ -1,14 +1,15 @@
 #define BOOST_TEST_MODULE ResidualTest
 #include <boost/test/unit_test.hpp>
 #include <poplar/Engine.hpp>
-#include <popnn/ActivationMapping.hpp>
+#include <popstd/ActivationMapping.hpp>
 #include <popnn/codelets.hpp>
-#include <popnn_ref/Util.hpp>
-#include "Residual.hpp"
+#include <poplib_test/Util.hpp>
+#include "popnn/Residual.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace ref::util;
+using namespace poplib_test::util;
+using namespace popstd;
 
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
@@ -28,7 +29,7 @@ BOOST_AUTO_TEST_CASE(JoinDeltasTest) {
   auto deltas2 = graph.addTensor("float", {batchSize, depth / chansPerGroup2,
                                            height, width, chansPerGroup2});
   mapActivations(graph, deltas2);
-  auto prog = residual::joinDeltas(graph, deltas1, deltas2, "");
+  auto prog = popnn::joinDeltas(graph, deltas1, deltas2, "");
   Sequence upload, download;
   auto rawHostDeltas1 = allocateHostMemoryForTensor(graph, deltas1, upload,
                                                     download);

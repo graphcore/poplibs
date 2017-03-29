@@ -8,24 +8,26 @@
 #include <ostream>
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
-#include <popnn/ActivationMapping.hpp>
-#include <popnn/MatMul.hpp>
-#include <popnn/Add.hpp>
-#include <popnn/Reduce.hpp>
+#include <popstd/ActivationMapping.hpp>
+#include <poplin/MatMul.hpp>
+#include <popstd/Add.hpp>
+#include <popreduce/Reduce.hpp>
 #include <poplar/HalfFloat.hpp>
-#include <popnn/codelets.hpp>
-#include <popnn/NonLinearity.hpp>
-#include <popnn_ref/FullyConnected.hpp>
-#include <popnn_ref/NonLinearity.hpp>
-#include <popnn_ref/Util.hpp>
-#include <popnn/Compiler.hpp>
+#include <popstd/codelets.hpp>
+#include <popreduce/codelets.hpp>
+#include <poplin/codelets.hpp>
+#include <poplib_test/FullyConnected.hpp>
+#include <poplib_test/NonLinearity.hpp>
+#include <poplib_test/Util.hpp>
+#include <util/Compiler.hpp>
 #include <random>
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace ref::util;
+using namespace poplib_test::util;
 using namespace poplin;
 using namespace popstd;
+using namespace popreduce;
 
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
@@ -86,7 +88,9 @@ int main(int argc, char **argv) {
 
   bool inferenceOnly = vm.count("inference-only");
   Graph graph(createIPUModelDevice(info));
-  popnn::addCodelets(graph);
+  popstd::addCodelets(graph);
+  popreduce::addCodelets(graph);
+  poplin::addCodelets(graph);
 
   std::string dataTypeStr(asString(dataType));
   std::string partialsTypeStr(asString(partialsType));
@@ -176,7 +180,8 @@ int main(int argc, char **argv) {
   // Validate against a reference model.
   boost::multi_array<double, 2>
       modelNextAct(boost::extents[batchSize][outputSize]);
-  ref::fc::fullyConnected(hostPrevAct, hostWeights, hostBiases, modelNextAct);
+  poplib_test::fc::fullyConnected(hostPrevAct, hostWeights, hostBiases,
+                                  modelNextAct);
   bool matchesModel = checkIsClose("fwd", hostNextAct, modelNextAct,
                                    relativeTolerance);
 
@@ -203,11 +208,13 @@ int main(int argc, char **argv) {
     // Validate against a reference model.
     boost::multi_array<double, 2>
         modelPrevDeltas(boost::extents[batchSize][inputSize]);
-    ref::fc::fullyConnectedBackward(hostZDeltas, modelWeights, modelPrevDeltas);
+    poplib_test::fc::fullyConnectedBackward(hostZDeltas, modelWeights,
+                                            modelPrevDeltas);
     matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
                                  relativeTolerance);
-    ref::fc::fullyConnectedWeightUpdate(learningRate, hostPrevAct, hostZDeltas,
-                                        modelWeights, modelBiases);
+    poplib_test::fc::fullyConnectedWeightUpdate(learningRate, hostPrevAct,
+                                                hostZDeltas,
+                                                modelWeights, modelBiases);
     matchesModel &= checkIsClose("weights",
                                  hostWeights, modelWeights, relativeTolerance);
     matchesModel &= checkIsClose("biases",

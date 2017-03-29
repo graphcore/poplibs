@@ -8,19 +8,20 @@
 #include <ostream>
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
-#include <popnn/ActivationMapping.hpp>
+#include <popstd/ActivationMapping.hpp>
 #include <popnn/MaxPool.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <popnn/codelets.hpp>
 #include <popnn/NonLinearity.hpp>
-#include <popnn_ref/MaxPooling.hpp>
-#include <popnn_ref/Util.hpp>
-#include <popnn/Compiler.hpp>
+#include <poplib_test/MaxPooling.hpp>
+#include <poplib_test/Util.hpp>
+#include <util/Compiler.hpp>
 #include <random>
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace ref::util;
+using namespace poplib_test::util;
+using namespace popstd;
 
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
@@ -181,10 +182,10 @@ int main(int argc, char **argv) {
       bwdChansPerGroup = 1;
   }
   const auto outDims =
-      maxpool::getOutputDim(height, width,
-                            kernelHeight, kernelWidth,
-                            strideHeight, strideWidth,
-                            paddingHeight, paddingWidth);
+      popnn::maxpool::getOutputDim(height, width,
+                                   kernelHeight, kernelWidth,
+                                   strideHeight, strideWidth,
+                                   paddingHeight, paddingWidth);
   const auto outHeight = outDims.first;
   const auto outWidth = outDims.second;
   // Create tensors.
@@ -207,21 +208,22 @@ int main(int argc, char **argv) {
   }
 
   auto fwdProg = Sequence();
-  auto nextAct = maxpool::maxPool(graph,
-                                  kernelHeight, kernelWidth,
-                                  strideHeight, strideWidth,
-                                  paddingHeight, paddingWidth,
-                                  prevAct, fwdProg);
+  auto nextAct = popnn::maxpool::maxPool(graph,
+                                         kernelHeight, kernelWidth,
+                                         strideHeight, strideWidth,
+                                         paddingHeight, paddingWidth,
+                                         prevAct, fwdProg);
 
   auto bwdProg = Sequence();
   Tensor prevDeltas;
   if (!inferenceOnly) {
     prevDeltas =
-        maxpool::maxPoolInputGradient(graph,
-                                      kernelHeight, kernelWidth,
-                                      strideHeight, strideWidth,
-                                      paddingHeight, paddingWidth,
-                                      prevAct, nextAct, zDeltas, bwdProg);
+        popnn::maxpool::maxPoolInputGradient(graph,
+                                             kernelHeight, kernelWidth,
+                                             strideHeight, strideWidth,
+                                             paddingHeight, paddingWidth,
+                                             prevAct, nextAct, zDeltas,
+                                             bwdProg);
   }
   auto upload = Sequence();
   auto download = Sequence();
@@ -259,10 +261,10 @@ int main(int argc, char **argv) {
                      hostNextAct);
   boost::multi_array<double, 4>
       modelNextAct(boost::extents[batchSize][chans][outHeight][outWidth]);
-  ref::maxpool::maxPooling(strideHeight, strideWidth,
-                           kernelHeight, kernelWidth,
-                           paddingHeight, paddingWidth,
-                           hostPrevAct, modelNextAct);
+  poplib_test::maxpool::maxPooling(strideHeight, strideWidth,
+                                   kernelHeight, kernelWidth,
+                                   paddingHeight, paddingWidth,
+                                   hostPrevAct, modelNextAct);
   bool matchesModel = checkIsClose("fwd", hostNextAct, modelNextAct,
                                    relativeTolerance);
 
@@ -288,11 +290,11 @@ int main(int argc, char **argv) {
     // Validate against a reference model.
     boost::multi_array<double, 4>
         modelPrevDeltas(boost::extents[batchSize][chans][height][width]);
-    ref::maxpool::maxPoolingBackward(strideHeight, strideWidth,
-                                     kernelHeight, kernelWidth,
-                                     paddingHeight, paddingWidth,
-                                     hostPrevAct, modelNextAct,
-                                     hostZDeltas, modelPrevDeltas);
+    poplib_test::maxpool::maxPoolingBackward(strideHeight, strideWidth,
+                                             kernelHeight, kernelWidth,
+                                             paddingHeight, paddingWidth,
+                                             hostPrevAct, modelNextAct,
+                                             hostZDeltas, modelPrevDeltas);
     matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
                                  relativeTolerance);
   }

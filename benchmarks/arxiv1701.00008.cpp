@@ -1,12 +1,12 @@
 #include <initializer_list>
-#include "popnn/Optimizer.hpp"
+#include "enigma/Optimizer.hpp"
 
 /*
 --  Deep Neural Networks to Enable Real-time Multimessenger Astrophysics
 --  https://arxiv.org/abs/1701.00008
 */
 
-using namespace popnn::optimizer;
+using namespace enigma;
 
 int main(int argc, char **argv) {
   DataSet LIGO;

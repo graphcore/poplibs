@@ -1,14 +1,18 @@
 #define BOOST_TEST_MODULE FullyConnectedTest
 #include <boost/test/unit_test.hpp>
-#include <popnn/Convolution.hpp>
-#include <popnn/ActivationMapping.hpp>
-#include <popnn/codelets.hpp>
+#include <popconv/Convolution.hpp>
+#include <popstd/ActivationMapping.hpp>
+#include <popstd/codelets.hpp>
+#include <popreduce/codelets.hpp>
+#include <popconv/codelets.hpp>
+#include <poplin/codelets.hpp>
 #include <string>
 #include <random>
 #include <Winograd.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
+using namespace popstd;
 
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
@@ -140,7 +144,9 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
                        *utf::tolerance<float>(
                           fpc::percent_tolerance<float>(1))) {
   Graph graph(createIPUModelDevice());
-  popnn::addCodelets(graph);
+  popstd::addCodelets(graph);
+  popreduce::addCodelets(graph);
+  popconv::addCodelets(graph);
 
   /* Test configuration */
 
@@ -185,7 +191,7 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
 
   mapActivations(graph, in);
   mapActivations(graph, activations);
-  conv::mapBiases(biases, graph, activations);
+  popconv::mapBiases(biases, graph, activations);
 
   const std::size_t inSize = numInpChanGroups * featureY
                              * featureX * numInpChansInGroup;
@@ -221,7 +227,7 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
     biasBuffer[i] = dist(randomEngine);
   }
 
-  auto wgdConv = conv::winogradConvolution(
+  auto wgdConv = popconv::winogradConvolution(
            graph, 1, 1, paddingY,
            paddingX, in, weights, biases, activations, "float",
            patchSizeX, patchSizeY);

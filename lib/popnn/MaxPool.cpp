@@ -1,18 +1,20 @@
 #include "popnn/MaxPool.hpp"
-#include "VertexTemplates.hpp"
-#include "popnn/ActivationMapping.hpp"
-#include "ConvUtil.hpp"
-#include "gcd.hpp"
-#include "popnn/exceptions.hpp"
-#include "Util.hpp"
+
+#include "popstd/VertexTemplates.hpp"
+#include "popstd/ActivationMapping.hpp"
+#include "popconv/ConvUtil.hpp"
+#include "popstd/exceptions.hpp"
+#include "popstd/Util.hpp"
 #include <cassert>
 #include <map>
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace convutil;
+using namespace popconv;
 using std::tie;
+using namespace popstd;
 
+namespace popnn {
 namespace maxpool {
 
 std::pair<unsigned, unsigned>
@@ -20,8 +22,8 @@ getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSizeY,
              unsigned kernelSizeX, unsigned strideY,
              unsigned strideX, unsigned paddingY,
              unsigned paddingX) {
-  return convutil::getOutputDim(inDimY, inDimX, kernelSizeY, kernelSizeX,
-                                strideY, strideX, paddingY, paddingX);
+  return popconv::getOutputDim(inDimY, inDimX, kernelSizeY, kernelSizeX,
+                               strideY, strideX, paddingY, paddingX);
 }
 
 
@@ -262,16 +264,16 @@ maxPoolInputGradient(Graph &graph, unsigned kernelSizeY, unsigned kernelSizeX,
   const auto inWidth = in.dim(2);
 
   if (in.dim(0) != batchSize || pooled.dim(0) != batchSize)
-    throw popnn::popnn_error("Forward pass batch size does not match gradient"
-                             "calculation pass");
+    throw popstd::poplib_error("Forward pass batch size does not match gradient"
+                               "calculation pass");
   if (in.dim(3) != numChannels || pooled.dim(3) != numChannels)
-    throw popnn::popnn_error("Forward pass number of channels does not match "
-                             "gradient calculation pass");
+    throw popstd::poplib_error("Forward pass number of channels does not match "
+                               "gradient calculation pass");
   if (pooled.dim(1) != pooledGradient.dim(1) ||
       pooled.dim(2) != pooledGradient.dim(2))
-    throw popnn::popnn_error("Forward pass output height and width does not "
-                             "match gradient calculation input height and "
-                             "width");
+    throw popstd::poplib_error("Forward pass output height and width does not "
+                               "match gradient calculation input height and "
+                               "width");
 
   auto inGradient0 = graph.addTensor(dType,
                                      {batchSize,
@@ -391,4 +393,5 @@ maxPoolInputGradient(Graph &graph, unsigned kernelSizeY, unsigned kernelSizeX,
 }
 
 
+}
 }

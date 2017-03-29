@@ -1,7 +1,7 @@
 #include <initializer_list>
-#include "popnn/Optimizer.hpp"
+#include "enigma/Optimizer.hpp"
 
-using namespace popnn::optimizer;
+using namespace enigma;
 
 int main(int argc, char **argv) {
   DataSet IMAGENET;

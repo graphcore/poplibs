@@ -1,5 +1,5 @@
 #include <initializer_list>
-#include "popnn/Optimizer.hpp"
+#include "enigma/Optimizer.hpp"
 
 /** This model is derived from the paper:
 
@@ -11,7 +11,7 @@
     imagenet models (congidox document XM-010286-UN).
 */
 
-using namespace popnn::optimizer;
+using namespace enigma;
 
 Exp module(unsigned channels, unsigned initialStride,
            unsigned count, Exp in) {

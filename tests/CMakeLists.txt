@@ -4,10 +4,11 @@ function(add_popnn_unit_test name)
   add_executable(${name} ${ARGN})
   target_include_directories(${name}
     PRIVATE
-      $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>)
+      $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
+      $<TARGET_PROPERTY:popconv,INCLUDE_DIRECTORIES>)
   target_link_libraries(${name} popnn
                         poplar
-                        popnn_ref
+                        poplib_test
                         Boost::unit_test_framework
                         Boost::timer
                         Boost::system

@@ -4,7 +4,7 @@ find_package(Boost REQUIRED program_options)
 
 function(add_benchmark name)
   add_executable(${name} ${ARGN})
-  target_link_libraries(${name} popnn)
+  target_link_libraries(${name} enigma)
 endfunction()
 
 add_benchmark(alexnet alexnet.cpp)

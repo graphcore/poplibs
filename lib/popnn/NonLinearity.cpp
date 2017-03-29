@@ -1,12 +1,15 @@
 #include "popnn/NonLinearity.hpp"
-#include "popnn/ActivationMapping.hpp"
-#include "popnn/exceptions.hpp"
-#include "VertexTemplates.hpp"
-#include "Regroup.hpp"
-#include "Util.hpp"
+#include "popstd/ActivationMapping.hpp"
+#include "popstd/exceptions.hpp"
+#include "popstd/VertexTemplates.hpp"
+#include "popstd/Regroup.hpp"
+#include "popstd/Util.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
+using namespace popstd;
+
+namespace popnn {
 
 Tensor
 nonLinearityInputGradient(Graph &graph,
@@ -96,3 +99,5 @@ void nonLinearity(Graph &graph, NonLinearityType nonLinearityType,
   }
   prog.add(Execute(cs));
 }
+
+} // end namespace popnn

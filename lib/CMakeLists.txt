@@ -1,2 +1,7 @@
+add_subdirectory(popstd)
+add_subdirectory(popreduce)
+add_subdirectory(popconv)
+add_subdirectory(poplin)
 add_subdirectory(popnn)
-add_subdirectory(popnn_ref)
+add_subdirectory(enigma)
+add_subdirectory(poplib_test)

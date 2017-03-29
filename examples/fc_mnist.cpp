@@ -1,8 +1,8 @@
 #include <initializer_list>
-#include "popnn/Optimizer.hpp"
+#include "enigma/Optimizer.hpp"
 #include "mnist.h"
 
-using namespace popnn::optimizer;
+using namespace enigma;
 
 int main() {
   DataSet MNIST;

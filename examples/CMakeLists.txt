@@ -2,7 +2,7 @@ include(GNUInstallDirs)
 
 function(add_example name)
   add_executable(${name} ${ARGN})
-  target_link_libraries(${name} popnn)
+  target_link_libraries(${name} enigma)
 endfunction()
 
 add_example(conv_mnist
@@ -24,7 +24,8 @@ add_custom_command(
   OUTPUT
     get_mnist.sh
   COMMAND
-    ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/get_mnist.sh get_mnist.sh
+    ${CMAKE_COMMAND} -E copy
+      ${CMAKE_CURRENT_SOURCE_DIR}/get_mnist.sh get_mnist.sh
   DEPENDS
     get_mnist.sh
 )

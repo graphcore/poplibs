@@ -1,56 +1,23 @@
 include(GNUInstallDirs)
-find_package(Boost REQUIRED program_options)
 get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(popnn SHARED
-  ActivationMapping.cpp
-  Add.cpp
-  Cast.cpp
   codelets.cpp
-  Convolution.cpp
-  ConvPlan.cpp
-  ConvUtil.cpp
-  ConvUtil.hpp
-  ConvValidation.hpp
-  ConvValidation.cpp
-  gcd.hpp
   Loss.cpp
-  MatMul.cpp
-  MatMulPlan.cpp
-  MatMulPlan.hpp
   MaxPool.cpp
   NonLinearity.cpp
-  Optimizer.cpp
-  Pad.cpp
-  Pad.hpp
   PerformanceEstimation.hpp
-  Reduce.cpp
-  Regroup.hpp
-  Regroup.cpp
   Residual.cpp
-  TensorOp.hpp
-  Util.cpp
-  Util.hpp
-  VertexTemplates.hpp
-  Winograd.cpp
-  Winograd.hpp
-  Zero.cpp
-  Zero.hpp
-  ${CMAKE_SOURCE_DIR}/include/popnn/ActivationMapping.hpp
-  ${CMAKE_SOURCE_DIR}/include/popnn/Add.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/codelets.hpp
-  ${CMAKE_SOURCE_DIR}/include/popnn/Convolution.hpp
-  ${CMAKE_SOURCE_DIR}/include/popnn/ConvPlan.hpp
-  ${CMAKE_SOURCE_DIR}/include/popnn/exceptions.hpp
-  ${CMAKE_SOURCE_DIR}/include/popnn/MatMul.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Loss.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/Residual.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/MaxPool.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearity.hpp
-  ${CMAKE_SOURCE_DIR}/include/popnn/Optimizer.hpp
-  ${CMAKE_SOURCE_DIR}/include/popnn/Reduce.hpp
+  ${CMAKE_SOURCE_DIR}/include/util/Compiler.hpp
+  ${CMAKE_SOURCE_DIR}/include/util/gcd.hpp
 )
 
-target_link_libraries(popnn poplar Boost::program_options)
+target_link_libraries(popnn poplar popconv popstd)
 
 target_include_directories(popnn
   PUBLIC
@@ -75,17 +42,14 @@ add_custom_command(
   COMMAND
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
     -o popnn.gp
-    ${CMAKE_CURRENT_SOURCE_DIR}/popnn.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/popnnCodelets.cpp
   DEPENDS
-    popnn.cpp
+    popnnCodelets.cpp
     PerformanceEstimation.hpp
-    ${CMAKE_SOURCE_DIR}/include/popnn/NetDef.hpp
-    ${CMAKE_SOURCE_DIR}/include/popnn/ResidualDef.hpp
-    ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearityDef.hpp
 )
 
-add_custom_target(graph_program DEPENDS popnn.gp SOURCES popnn.cpp)
-add_dependencies(popnn graph_program)
+add_custom_target(popnn_codelets DEPENDS popnn.gp SOURCES popnnCodelets.cpp)
+add_dependencies(popnn popnn_codelets)
 
 install(TARGETS popnn
         EXPORT popnn

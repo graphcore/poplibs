@@ -1,17 +1,19 @@
-#include "Residual.hpp"
-#include "popnn/ActivationMapping.hpp"
-#include "popnn/Convolution.hpp"
-#include "popnn/exceptions.hpp"
-#include "VertexTemplates.hpp"
-#include "Regroup.hpp"
-#include "Pad.hpp"
-#include <gcd.hpp>
-#include "Util.hpp"
+#include "popnn/Residual.hpp"
+
+#include "popstd/ActivationMapping.hpp"
+#include "popconv/Convolution.hpp"
+#include "popstd/exceptions.hpp"
+#include "popstd/VertexTemplates.hpp"
+#include "popstd/Regroup.hpp"
+#include "popstd/Pad.hpp"
+#include "util/gcd.hpp"
+#include "popstd/Util.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
+using namespace popstd;
 
-namespace residual {
+namespace popnn {
 
 std::uint64_t getNumberOfAdds(unsigned inDimY, unsigned inDimX,
                               unsigned inNumChans) {
@@ -47,14 +49,14 @@ arrangeResidualInput(Graph &graph,
   auto resDimY = resIn.dim(2), outDimY = outDims[2];
   auto resDimX = resIn.dim(3), outDimX = outDims[3];
   if (resDimX < outDimX || resDimY < outDimY) {
-    throw popnn::popnn_error("Residual layers must use previous layers "
-                             "with X and Y dimensions that are larger"
-                             "than the current layer's output.");
+    throw popstd::poplib_error("Residual layers must use previous layers "
+                               "with X and Y dimensions that are larger"
+                               "than the current layer's output.");
   }
   unsigned resStride = resDimX / outDimX;
   if (resDimY / outDimY != resStride) {
-    throw popnn::popnn_error("Only residual layers with the same X/Y stride"
-                             "are supported");
+    throw popstd::poplib_error("Only residual layers with the same X/Y stride"
+                               "are supported");
   }
   auto resNumChanGroups = resIn.dim(1), outNumChanGroups = outDims[1];
   auto resChansPerGroup = resIn.dim(4), outChansPerGroup = outDims[4];

@@ -1,10 +1,11 @@
-#ifndef __MaxPool_hpp__
-#define __MaxPool_hpp__
+#ifndef __popnn_MaxPool_hpp__
+#define __popnn_MaxPool_hpp__
 #include <tuple>
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <cstdint>
 
+namespace popnn {
 namespace maxpool {
 
 std::pair<unsigned, unsigned>
@@ -60,6 +61,7 @@ maxPoolInputGradient(poplar::Graph &graph, unsigned kernelSizeY,
                      poplar::Tensor pooledGradient,
                      poplar::program::Sequence &prog,
                      const std::string &debugPrefix = "");
+}
 }
 
 #endif  // __MaxPool_hpp__

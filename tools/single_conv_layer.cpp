@@ -8,22 +8,25 @@
 #include <ostream>
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
-#include <popnn/ActivationMapping.hpp>
-#include <popnn/Convolution.hpp>
-#include <popnn/ConvPlan.hpp>
-#include <popnn/exceptions.hpp>
+#include <popstd/ActivationMapping.hpp>
+#include <popconv/Convolution.hpp>
+#include <popconv/ConvPlan.hpp>
+#include <popstd/exceptions.hpp>
 #include <poplar/HalfFloat.hpp>
-#include <popnn/codelets.hpp>
+#include <popstd/codelets.hpp>
+#include <popreduce/codelets.hpp>
+#include <popconv/codelets.hpp>
 #include <popnn/NonLinearity.hpp>
-#include <popnn_ref/Convolution.hpp>
-#include <popnn_ref/NonLinearity.hpp>
-#include <popnn_ref/Util.hpp>
-#include <popnn/Compiler.hpp>
+#include <poplib_test/Convolution.hpp>
+#include <poplib_test/NonLinearity.hpp>
+#include <poplib_test/Util.hpp>
+#include <util/Compiler.hpp>
 #include <random>
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace ref::util;
+using namespace poplib_test::util;
+using namespace popstd;
 
 // class to allow the training pass to be specified
 enum class Pass {
@@ -40,7 +43,7 @@ const char *asString(const Pass &pass) {
   case Pass::BWD: return "bwd";
   case Pass::WU:  return "wu";
   }
-  POPNN_UNREACHABLE();
+  POPLIB_UNREACHABLE();
 }
 
 std::istream &operator>>(std::istream &is, Pass &pass) {
@@ -55,7 +58,7 @@ std::istream &operator>>(std::istream &is, Pass &pass) {
   else if (token == "wu")
     pass = Pass::WU;
   else
-    throw popnn::popnn_error("Invalid pass <" + token + ">");
+    throw popstd::poplib_error("Invalid pass <" + token + ">");
   return is;
 }
 
@@ -92,7 +95,7 @@ int main(int argc, char **argv) {
   unsigned stride;
   unsigned percentageCyclesExcessForMemOptim;
   Pass pass = Pass::ALL;
-  conv::PlanControl convPlanControl;
+  popconv::PlanControl convPlanControl;
 
   po::options_description desc("Options");
   desc.add_options()
@@ -169,7 +172,7 @@ int main(int argc, char **argv) {
      "Percentage cycles excess to use for memory optimisation. "
      "if 0, no memory optimisation is performed")
     ("weight-update-method",
-     po::value<conv::WeightUpdateMethod>(
+     po::value<popconv::WeightUpdateMethod>(
          &convPlanControl.weightUpdateMethod
      )->default_value(convPlanControl.weightUpdateMethod),
      "Weight update method: amp | aop | auto")
@@ -231,19 +234,21 @@ int main(int argc, char **argv) {
   bool doWuPass = pass == Pass::ALL || pass == Pass::WU;
 
   Graph graph(createIPUModelDevice(info));
-  popnn::addCodelets(graph);
+  popstd::addCodelets(graph);
+  popreduce::addCodelets(graph);
+  popconv::addCodelets(graph);
 
   std::string dataTypeStr(asString(dataType));
   std::string partialsTypeStr(asString(partialsType));
 
   const auto outDims =
-      conv::getOutputDim(height, width, kernelHeight, kernelWidth,
-                         strideH, strideW,
-                         paddingHeight, paddingWidth);
+      popconv::getOutputDim(height, width, kernelHeight, kernelWidth,
+                            strideH, strideW,
+                            paddingHeight, paddingWidth);
   const auto outHeight = outDims.first;
   const auto outWidth = outDims.second;
   // TODO support residual connections.
-  conv::Planner planner(percentageCyclesExcessForMemOptim);
+  popconv::Planner planner(percentageCyclesExcessForMemOptim);
   //Forward plan is always required as bwd/wu passes may use fwd groupings
   auto fwdPlan = planner.createPlan(height, width, fwdInChans,
                                     kernelHeight, kernelWidth,
@@ -254,7 +259,7 @@ int main(int argc, char **argv) {
                                     false, graph, convPlanControl);
   bool bwdIsFractional = strideH != 1 || strideW != 1;
   if (paddingHeight >= kernelHeight || paddingWidth >= kernelWidth) {
-    throw popnn::popnn_error("Backwards convolution pass does not support "
+    throw popstd::poplib_error("Backwards convolution pass does not support "
                              "padding that is greater than or equal to the "
                              "kernel size");
   }
@@ -263,7 +268,7 @@ int main(int argc, char **argv) {
     bwdPaddingWidth = kernelWidth - 1 - paddingWidth;
     bwdPaddingHeight = kernelHeight - 1 - paddingHeight;
   }
-  conv::Plan bwdPlan;
+  popconv::Plan bwdPlan;
   // Backward plan is also needed for WU
   if (doBwdPass || doWuPass)
     bwdPlan = planner.createPlan(outHeight, outWidth, fwdOutChans,
@@ -292,7 +297,7 @@ int main(int argc, char **argv) {
                             bwdPlan.partialChansPerGroup;
     }
   }
-  conv::Plan wuPlan;
+  popconv::Plan wuPlan;
   if (doWuPass)
     wuPlan = planner.createWeightUpdatePlan(height, width, fwdInChans,
                                             fwdInChansPerGroup,
@@ -313,10 +318,10 @@ int main(int argc, char **argv) {
                                     width,
                                     fwdInChansPerGroup}, "prevAct");
   mapActivations(graph, prevAct);
-  Tensor weights = conv::createWeights(graph, dataTypeStr, fwdInChans,
-                                       kernelHeight, kernelWidth,
-                                       fwdOutChans, fwdPlan);
-  Tensor biases = conv::createBiases(graph, dataTypeStr, fwdOutChans);
+  Tensor weights = popconv::createWeights(graph, dataTypeStr, fwdInChans,
+                                          kernelHeight, kernelWidth,
+                                          fwdOutChans, fwdPlan);
+  Tensor biases = popconv::createBiases(graph, dataTypeStr, fwdOutChans);
   Tensor nextAct =
       graph.addTensor(dataTypeStr, {batchSize,
                                     fwdOutChans / fwdOutChansPerGroup,
@@ -370,11 +375,11 @@ int main(int argc, char **argv) {
   // Always generate the fwd program as it maps the weights and biases. Only
   // actually create the engined if the fwd pass is to be run
   {
-    Program program = conv::convolution(graph, fwdPlan,
-                                        strideH, strideW,
-                                        paddingHeight, paddingWidth,
-                                        prevAct, weights, biases, nextAct,
-                                        partialsTypeStr, false);
+    Program program = popconv::convolution(graph, fwdPlan,
+                                           strideH, strideW,
+                                           paddingHeight, paddingWidth,
+                                           prevAct, weights, biases, nextAct,
+                                           partialsTypeStr, false);
     if (doFwdPass)
       fwdProg.add(program);
   }
@@ -384,18 +389,18 @@ int main(int argc, char **argv) {
 
   if (doBwdPass) {
     revProg.add(
-      conv::convolutionBackward(graph, bwdPlan, zDeltas, weights, prevDeltas,
-                                strideH, strideW,
-                                bwdPaddingHeight, bwdPaddingWidth,
-                                bwdIsFractional)
+      popconv::convolutionBackward(graph, bwdPlan, zDeltas, weights, prevDeltas,
+                                   strideH, strideW,
+                                   bwdPaddingHeight, bwdPaddingWidth,
+                                   bwdIsFractional)
     );
   }
   if (doWuPass) {
     revProg.add(
-      conv::convolutionWeightUpdate(graph, wuPlan, fwdPlan,
-                                    zDeltas, weights, biases, prevAct,
-                                    strideH, strideW, paddingHeight,
-                                    paddingWidth, learningRate)
+      popconv::convolutionWeightUpdate(graph, wuPlan, fwdPlan,
+                                       zDeltas, weights, biases, prevAct,
+                                       strideH, strideW, paddingHeight,
+                                       paddingWidth, learningRate)
     );
   }
   Engine engine(graph, {std::move(upload), std::move(download),
@@ -430,9 +435,9 @@ int main(int argc, char **argv) {
                      hostNextAct);
   boost::multi_array<double, 4>
       modelNextAct(boost::extents[batchSize][fwdOutChans][outHeight][outWidth]);
-  ref::conv::convolution(strideH, strideW, paddingHeight, paddingWidth,
-                         hostPrevAct,
-                         hostWeights, hostBiases, modelNextAct);
+  poplib_test::conv::convolution(strideH, strideW, paddingHeight, paddingWidth,
+                                 hostPrevAct,
+                                 hostWeights, hostBiases, modelNextAct);
   if (doFwdPass) {
     matchesModel &= checkIsClose("fwd", hostNextAct, modelNextAct,
                                  relativeTolerance);
@@ -469,16 +474,18 @@ int main(int argc, char **argv) {
     if (doBwdPass) {
       boost::multi_array<double, 4>
           modelPrevDeltas(boost::extents[batchSize][fwdInChans][height][width]);
-      ref::conv::convolutionBackward(strideH, strideW, paddingHeight,
-                                     paddingWidth, hostZDeltas, modelWeights,
-                                     modelPrevDeltas);
+      poplib_test::conv::convolutionBackward(strideH, strideW, paddingHeight,
+                                             paddingWidth, hostZDeltas,
+                                             modelWeights,
+                                             modelPrevDeltas);
       matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
                                    relativeTolerance);
     }
     if (doWuPass) {
-      ref::conv::weightUpdate(strideH, strideW, paddingHeight, paddingWidth,
-                              learningRate, hostPrevAct,
-                              hostZDeltas, modelWeights, modelBiases);
+      poplib_test::conv::weightUpdate(strideH, strideW, paddingHeight,
+                                      paddingWidth,
+                                      learningRate, hostPrevAct,
+                                      hostZDeltas, modelWeights, modelBiases);
       matchesModel &= checkIsClose("weights",
                                   hostWeights, modelWeights, relativeTolerance);
       matchesModel &= checkIsClose("biases",

@@ -1,9 +1,13 @@
-#include "poplar/Graph.hpp"
 #include "popnn/Loss.hpp"
-#include "VertexTemplates.hpp"
+
+#include "poplar/Graph.hpp"
+#include "popstd/VertexTemplates.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
+using namespace popstd;
+
+namespace popnn {
 
 Program
 calcLoss(poplar::Graph &graph,
@@ -30,3 +34,5 @@ calcLoss(poplar::Graph &graph,
   graph.setInitialValue(v["lossType"], lossType);
   return Execute(lossCS);
 }
+
+} // end namespace popnn

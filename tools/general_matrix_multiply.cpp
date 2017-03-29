@@ -8,21 +8,23 @@
 #include <ostream>
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
-#include <popnn/ActivationMapping.hpp>
-#include <popnn/MatMul.hpp>
-#include <popnn/Add.hpp>
-#include <popnn/Reduce.hpp>
+#include <popstd/ActivationMapping.hpp>
+#include <poplin/MatMul.hpp>
+#include <popstd/Add.hpp>
+#include <popreduce/Reduce.hpp>
 #include <poplar/HalfFloat.hpp>
-#include <popnn/codelets.hpp>
-#include <popnn_ref/Util.hpp>
-#include <popnn/Compiler.hpp>
-#include <popnn/exceptions.hpp>
-#include <popnn_ref/GeneralMatrixMultiply.hpp>
+#include <popstd/codelets.hpp>
+#include <popreduce/codelets.hpp>
+#include <poplin/codelets.hpp>
+#include <poplib_test/Util.hpp>
+#include <util/Compiler.hpp>
+#include <popstd/exceptions.hpp>
+#include <poplib_test/GeneralMatrixMultiply.hpp>
 #include <random>
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace ref::util;
+using namespace poplib_test::util;
 using namespace poplin;
 using namespace popstd;
 
@@ -39,7 +41,7 @@ const char *asString(const MatrixOp &op) {
   case MatrixOp::NORMAL: return "normal";
   case MatrixOp::TRANSPOSE: return "transpose";
   }
-  POPNN_UNREACHABLE();
+  POPLIB_UNREACHABLE();
 }
 
 std::istream &operator>>(std::istream &is, MatrixOp &op) {
@@ -50,7 +52,7 @@ std::istream &operator>>(std::istream &is, MatrixOp &op) {
   else if (token == "transpose")
     op = MatrixOp::TRANSPOSE;
   else
-    throw popnn::popnn_error("Invalid pass <" + token + ">");
+    throw popstd::poplib_error("Invalid pass <" + token + ">");
   return is;
 }
 
@@ -131,11 +133,13 @@ int main(int argc, char **argv) {
   }
 
   if (beta != 1.0) {
-    throw popnn::popnn_error("Only beta = 1.0 is supported");
+    throw popstd::poplib_error("Only beta = 1.0 is supported");
   }
 
   Graph graph(createIPUModelDevice(info));
-  popnn::addCodelets(graph);
+  popstd::addCodelets(graph);
+  popreduce::addCodelets(graph);
+  poplin::addCodelets(graph);
 
   std::string dataTypeStr(asString(dataType));
   std::string partialsTypeStr(asString(partialsType));
@@ -198,8 +202,9 @@ int main(int argc, char **argv) {
 
   // validate against a reference model
   boost::multi_array<double, 2> refMatC(boost::extents[m][n]);
-  ref::gemm::generalMatrixMultiply(hostMatA, hostMatB, hostMatC, refMatC,
-                                   alpha, beta, transposeA, transposeB);
+  poplib_test::gemm::generalMatrixMultiply(hostMatA, hostMatB, hostMatC,
+                                           refMatC, alpha, beta, transposeA,
+                                           transposeB);
 
   copy(hostMatA, dataTypeStr, rawHostMatA.get());
   copy(hostMatB, dataTypeStr, rawHostMatB.get());
