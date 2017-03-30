@@ -1131,11 +1131,20 @@ public:
     const auto outVectorWidth = dataPathWidth / (outIsFloat ? 32 : 16);
     unsigned numOut = std::min(outIn0.size(), in1.size());
     // 2*loads + 1*store per operation, memory accesses will dominate,
-    // assume common memory element
-    unsigned numCycles = 15
-      + (numOut + inVectorWidth - 1) / inVectorWidth   //1*load
-      + (numOut + outVectorWidth - 1) / outVectorWidth //1*store
-      + (numOut + inVectorWidth - 1) / inVectorWidth;  //1*load
+    unsigned numCycles;
+    const bool separateME = true;
+    if (separateME) {
+      // ideal memory element placing
+      const auto maxWidth = std::max(inVectorWidth, outVectorWidth);
+      numCycles = 15
+        + (numOut + maxWidth - 1) / maxWidth;
+    } else {
+      // common memory element
+      numCycles = 15
+        + (numOut + inVectorWidth - 1) / inVectorWidth   //1*load
+        + (numOut + outVectorWidth - 1) / outVectorWidth //1*store
+        + (numOut + inVectorWidth - 1) / inVectorWidth;  //1*load
+    }
 
     return numCycles;
   }
