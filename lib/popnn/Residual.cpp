@@ -195,8 +195,8 @@ joinStridedDeltas(Graph &graph,
             Tensor chunkIn1
               = in1[b][in1Group][y / yStride][x / xStride]
                 .slice(in1Offset, in1Offset + chunkSize);
-            graph.connect(chunkOutIn0, v["outIn0"]);
-            graph.connect(chunkIn1, v["in1"]);
+            graph.connect(v["outIn0"], chunkOutIn0);
+            graph.connect(v["in1"], chunkIn1);
             graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
             graph.setTileMapping(v, tile);
             chunkOffset += chunkSize;

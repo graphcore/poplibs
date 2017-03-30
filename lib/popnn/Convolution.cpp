@@ -1266,7 +1266,7 @@ complete(Graph &graph,
                                   partialChanChunkSize});
         Tensor window = reducedByChanGroup[outChanGroup];
         for (unsigned i = 0; i < window.dim(0); ++i) {
-          graph.connect(window[i], v["in"][numIn++]);
+          graph.connect(v["in"][numIn++], window[i]);
         }
       }
     }

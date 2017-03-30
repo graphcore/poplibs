@@ -804,7 +804,7 @@ static Program kernelTransform(
                                      tp.patchSizeX, tp.patchSizeY,
                                      tp.kernelX, tp.kernelY));
 
-          graph.connect(inp, v["wIn"]);
+          graph.connect(v["wIn"], inp);
           graph.connect(v["wTf"], out);
           graph.setFieldSize(v["wIn"],
                          tp.kernelX * tp.kernelY
@@ -880,9 +880,9 @@ static Program kernelTransform(
         const auto slE = slS + WgdTilePartition::kUnitSize;
         for (unsigned y = 0; y < tp.kernelY; ++y) {
           for (unsigned x = 0; x < tp.kernelX; ++x) {
-            graph.connect(weights[og][ig][y][x].flatten().slice(slS, slE),
-                          v["wIn"][unit * tp.kernelX * tp.kernelY
-                                   + y * tp.kernelX + x]);
+            graph.connect(v["wIn"][unit * tp.kernelX * tp.kernelY
+                                   + y * tp.kernelX + x],
+                          weights[og][ig][y][x].flatten().slice(slS, slE));
           }
         }
 
@@ -1092,7 +1092,7 @@ static Program dataTransform(
                 const auto idx = unit * tp.patchSizeX * tp.patchSizeY
                                  + y * tp.patchSizeX + x;
 
-                graph.connect(iPart, v["dIn"][idx]);
+                graph.connect(v["dIn"][idx], iPart);
 
                 Tensor oPart = dTf[ig][p][y][x].flatten().slice(slS, slE);
 
@@ -1211,7 +1211,7 @@ static Program dataTransform(
             inPosX += !zeroX;
             auto idx = unit * tp.patchSizeX * tp.patchSizeY
                        + y * tp.patchSizeX + x;
-            graph.connect(iPart, v["dIn"][idx]);
+            graph.connect(v["dIn"][idx], iPart);
 
             Tensor oPart = dataTf[ig][patch][y][x].flatten().slice(slS, slE);
 
@@ -1344,18 +1344,18 @@ static Program accum(
             graph.setTileMapping(v, tile);
 
             if (tp.replicateKTf) {
-              graph.connect(
+              graph.connect(v["wTf"],
                 kernelTf[tile].slice(
                 {og - zogS, 0, ptY, ptX, 0, 0},
                 {og - zogS + 1, zigThisTile, ptY + 1, ptX+1, tp.zoc, tp.zic}).
-                reshape({zigThisTile, tp.zoc * tp.zic}), v["wTf"]);
+                reshape({zigThisTile, tp.zoc * tp.zic}));
 
             } else {
-              graph.connect(
+              graph.connect(v["wTf"],
                 kernelTf[0].slice(
                 {og, zigS, ptY, ptX, 0, 0},
                 {og + 1, zigS + zigThisTile, ptY + 1, ptX+1, tp.zoc, tp.zic}).
-                reshape({zigThisTile, tp.zoc * tp.zic}), v["wTf"]);
+                reshape({zigThisTile, tp.zoc * tp.zic}));
             }
 
             #if DEBUG_PRINT >= 2
@@ -1365,19 +1365,19 @@ static Program accum(
             #endif
 
             if (tp.replicateDTf) {
-              graph.connect(
+              graph.connect(v["dTf"],
                 dataTf[tile].slice(
                   {0, 0, ptY, ptX, 0},
                   {zigThisTile, patchesThisTile, ptY + 1, ptX + 1, tp.zic}).
-                  reshape({zigThisTile * patchesThisTile, tp.zic}), v["dTf"]);
+                  reshape({zigThisTile * patchesThisTile, tp.zic}));
 
             } else {
-              graph.connect(
+              graph.connect(v["dTf"],
                 dataTf[0].slice(
                   {zigS, patchS, ptY, ptX, 0},
                   {zigS + zigThisTile, patchS + patchesThisTile, ptY + 1,
                    ptX + 1, tp.zic}).
-                  reshape({zigThisTile * patchesThisTile, tp.zic}), v["dTf"]);
+                  reshape({zigThisTile * patchesThisTile, tp.zic}));
             }
 
             Tensor out = acc.slice(
@@ -1463,8 +1463,8 @@ static Program reduce(
 
         for (unsigned ig = 0; ig < tp.tilesForZig; ++ig) {
 
-          graph.connect(acc[zogS + thisZog][ig][thisPatch][y][x].flatten(),
-                        v["inPartial"][elem * tp.tilesForZig + ig]);
+          graph.connect(v["inPartial"][elem * tp.tilesForZig + ig],
+                        acc[zogS + thisZog][ig][thisPatch][y][x].flatten());
 
         }
 
@@ -1537,9 +1537,9 @@ static Program inverseTransform(
                          y * tp.patchSizeX + x ;
             auto slS = thisTuple % tp.zoc;
             auto slE = slS + WgdTilePartition::iUnitSize;
-            graph.connect(in[og + zogS][patchS + patch][y][x].flatten().slice(
-                            slS, slE),
-                          v["dTf"][idxIn]);
+            graph.connect(v["dTf"][idxIn],
+                          in[og + zogS][patchS + patch][y][x].flatten().slice(
+                            slS, slE));
             #if DEBUG_PRINT >= 2
             std::cout << "Inv: tile : "<<tile<< " vertex : "<<vertex<<std::endl;
             std::cout << "input: [" << ogOut <<"]["<<thisPatch<<"]["<<y<<"][";
@@ -1663,13 +1663,13 @@ static Program complete(
             std::cout << elem << std::endl;
             #endif
 
-            graph.connect(in[ogIn][thisPatch][y-yPosS][x-xPosS].flatten().slice(
-                              ocIn, ocIn + depth),
-                          v["dIn"][elem]);
+            graph.connect(v["dIn"][elem],
+                          in[ogIn][thisPatch][y-yPosS][x-xPosS].flatten().slice(
+                              ocIn, ocIn + depth));
             graph.connect(v["act"][elem],
                           act[ogOut][y][x].flatten().slice(ocOut,
                                                            ocOut + depth));
-            graph.connect(bias.slice(oc, oc + depth), v["bias"][elem]);
+            graph.connect(v["bias"][elem], bias.slice(oc, oc + depth));
             ++elem;
           }
         }
