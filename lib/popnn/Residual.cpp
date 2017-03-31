@@ -111,28 +111,30 @@ joinResidual(Graph &graph,
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   ComputeSet cs = graph.addComputeSet(debugPrefix + "/JoinResidual");
   Program prog = Execute(cs);
-  const auto batchSize = out.dim(0);
-  for (unsigned b = 0; b < batchSize; b++) {
-    const auto &activationMapping =
-      computeActivationsMapping(graph, out[b], b, batchSize);
-    Tensor flattenedIn0 = in0[b].flatten();
-    Tensor flattenedIn1 = in1[b].flatten();
-    Tensor flattenedOut = out[b].flatten();
-    buildTransform(activationMapping, graph, [&](unsigned deltaBegin,
-                                                 unsigned deltaEnd,
-                                                 unsigned tile)
-      {
-        auto v =
-          graph.addVertex(
-              cs,
-              templateVertex("popnn::AddTensors", inType, outType),
-              {{"in0", flattenedIn0.slice(deltaBegin, deltaEnd)},
-               {"in1", flattenedIn1.slice(deltaBegin, deltaEnd)},
-               {"out", flattenedOut.slice(deltaBegin, deltaEnd)}});
-        graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
-        graph.setTileMapping(v, tile);
-      });
-  }
+
+  unsigned vectorWidth = (outType == "float")
+                          ? deviceInfo.getFloatVectorWidth()
+                          : deviceInfo.getHalfVectorWidth();
+  Tensor flattenedIn0 = in0.flatten();
+  Tensor flattenedIn1 = in1.flatten();
+  Tensor flattenedOut = out.flatten();
+  buildTransform2D(graph, graph.getTileMapping(out), vectorWidth,
+                   [&](const std::vector<Interval<std::size_t>> &regions,
+                       unsigned tile)
+  {
+    for (auto &region : regions) {
+      const auto regionBegin = region.begin();
+      const auto regionEnd = region.end();
+      auto v = graph.addVertex(
+          cs,
+          templateVertex("popnn::AddTensors", inType, outType),
+          {{"in0", flattenedIn0.slice(regionBegin, regionEnd)},
+           {"in1", flattenedIn1.slice(regionBegin, regionEnd)},
+           {"out", flattenedOut.slice(regionBegin, regionEnd)}});
+      graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+      graph.setTileMapping(v, tile);
+    }
+  });
   return prog;
 }
 
@@ -220,28 +222,30 @@ joinDeltas(Graph &graph,
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   ComputeSet cs = graph.addComputeSet(debugPrefix + "/JoinResidual");
   Program prog = Execute(cs);
-  const auto batchSize = outIn0.dim(0);
   if (outIn0.shape() == in1.shape()) {
-    for (unsigned b = 0; b < batchSize; b++) {
-      const auto &activationMapping =
-        computeActivationsMapping(graph, outIn0[b], b, batchSize);
-      Tensor flattenedIn1 = in1[b].flatten();
-      Tensor flattenedOutIn0 = outIn0[b].flatten();
-      buildTransform(activationMapping, graph, [&](unsigned deltaBegin,
-                                                   unsigned deltaEnd,
-                                                   unsigned tile)
-        {
-          auto v =
-            graph.addVertex(
-                cs,
-                templateVertex("popnn::AddTensors", inType, outType),
+    unsigned vectorWidth = outType == "float"
+                           ? deviceInfo.getFloatVectorWidth()
+                           : deviceInfo.getHalfVectorWidth();
+    Tensor flattenedIn1 = in1.flatten();
+    Tensor flattenedOutIn0 = outIn0.flatten();
+    buildTransform2D(graph, graph.getTileMapping(outIn0), vectorWidth,
+                     [&](const std::vector<Interval<std::size_t>> &regions,
+                         unsigned tile)
+    {
+      for (auto region : regions) {
+        auto deltaBegin = region.begin();
+        auto deltaEnd = region.end();
+        auto v =
+          graph.addVertex(
+            cs,
+            templateVertex("popnn::AddTensors", inType, outType),
                 {{"in0", flattenedOutIn0.slice(deltaBegin, deltaEnd)},
                  {"in1", flattenedIn1.slice(deltaBegin, deltaEnd)},
                  {"out", flattenedOutIn0.slice(deltaBegin, deltaEnd)}});
           graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
           graph.setTileMapping(v, tile);
-        });
-    }
+      }
+    });
     return prog;
   } else {
 
