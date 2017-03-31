@@ -13,7 +13,9 @@ function(add_popnn_unit_test name)
                         Boost::timer
                         Boost::system
                         Boost::program_options)
-  target_compile_definitions(${name} PRIVATE -DBOOST_TEST_DYN_LINK)
+  if(NOT ${Boost_USE_STATIC_LIBS})
+    target_compile_definitions(${name} PRIVATE -DBOOST_TEST_DYN_LINK)
+  endif()
   add_test(NAME ${name}
     COMMAND ${name})
 endfunction()

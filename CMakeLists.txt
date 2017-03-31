@@ -1,13 +1,25 @@
 cmake_minimum_required(VERSION 3.5.0)
 project(popnn)
 
-find_package(poplar REQUIRED)
-
 include(CheckCXXCompilerFlag)
+
+# Add path for custom modules
+set(CMAKE_MODULE_PATH
+        ${CMAKE_MODULE_PATH}
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules"
+        )
 
 enable_testing()
 
-set(Boost_USE_STATIC_LIBS OFF)
+if(${BUILD_SHARED_LIBS})
+  set(Boost_USE_STATIC_LIBS OFF)
+else()
+  set(Boost_USE_STATIC_LIBS ON)
+endif()
+
+find_package(poplar REQUIRED)
+find_package(Boost REQUIRED regex)
+find_package(Sparsehash REQUIRED)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall")
 
