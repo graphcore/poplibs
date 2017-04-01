@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstdint>
 #include <numeric>
+#include <vector>
 
 template <typename OutType, typename PartialsType>
 static uint64_t

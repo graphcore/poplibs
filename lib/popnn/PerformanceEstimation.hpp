@@ -6,6 +6,7 @@
 #include <cassert>
 #include <cstdint>
 #include <numeric>
+#include <vector>
 
 inline uint64_t getNonLinearityCycles(std::vector<unsigned> regionSizes,
                                       popnn::NonLinearityType nonLinearityType,
