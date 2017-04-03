@@ -1332,7 +1332,6 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
 static std::pair<Plan, Cost>
 choosePlan(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
            bool floatPartials,
-           bool preferConvInstructions,
            unsigned tensorInChansPerGroup,
            unsigned tensorOutChansPerGroup,
            unsigned tensorWeightOutChansPerGroup,
@@ -1359,9 +1358,6 @@ choosePlan(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
                    params, batchesPerGroup, costBounds, cache, planControl);
     if (candidateCost == highestCost)
       continue;
-    if (preferConvInstructions &&
-        !convVertexType.useConvInstruction)
-      candidateCost *= 100000;
     if (compareCost(candidateCost, bestCost, costBounds)) {
       bestPlan = candidate;
       bestCost = candidateCost;
@@ -1389,8 +1385,6 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                       strideY, strideX, paddingY, paddingX,
                       numChannels, dType);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  bool preferConvInstructions =
-      graph.getDevice().getDeviceType() == poplar::DeviceType::CPU;
   bool flattenXY;
   if (kernelSizeY == 1 && kernelSizeX == 1
       && strideY == 1 && strideX == 1
@@ -1429,7 +1423,6 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
     std::tie(candidate, candidateCost) =
         choosePlan(deviceInfo, floatActivations,
                    floatPartials,
-                   preferConvInstructions,
                    tensorInChansPerGroup,
                    tensorOutChansPerGroup,
                    tensorWeightOutChansPerGroup,
