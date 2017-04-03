@@ -4,6 +4,7 @@
 #include "poplar/Graph.hpp"
 #include "popconv/ConvUtil.hpp"
 #include "ConvValidation.hpp"
+#include "util/gcd.hpp"
 #include "PerformanceEstimation.hpp"
 #include "VertexOptim.hpp"
 #include "util/Compiler.hpp"
@@ -467,64 +468,6 @@ estimateExchangeCost(const poplar::DeviceInfo &deviceInfo,
   return {numCycles, 0};
 }
 
-static unsigned
-estimateConvVertexCycles(bool floatActivations,
-                         const ConvolutionParams &params,
-                         const Plan &plan,
-                         const poplar::DeviceInfo &deviceInfo,
-                         PlannerCache *cache) {
-  assert(!params.isWeightUpdate);
-  const auto tilesPerY = plan.tilesPerYAxis;
-  const auto tilesPerX = plan.tilesPerXAxis;
-  const auto tilesPerKernelYAxis = plan.tilesPerKernelYAxis;
-  const auto tilesPerInZGroupAxis = plan.tilesPerInZGroupAxis;
-  const auto verticesPerTilePerY = plan.verticesPerTilePerYAxis;
-  const auto inChansPerGroup = plan.inChansPerGroup;
-  const auto outChansPerGroup = plan.partialChansPerGroup;
-
-  const auto tileOutHeight =
-      (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
-  const auto tileOutWidth =
-      (params.getOutputWidth() + tilesPerX - 1) / tilesPerX;
-  const auto numInGroups =
-      (params.inputDepth + (inChansPerGroup - 1)) / inChansPerGroup;
-  const auto tileNumInGroups =
-      (numInGroups + tilesPerInZGroupAxis - 1) / tilesPerInZGroupAxis;
-
-  const auto outRowsPerVertex =
-      (tileOutHeight + verticesPerTilePerY - 1) / verticesPerTilePerY;
-  const auto outputStrideY = params.isFractional ? params.strideY : 1;
-
-  const auto tileKernelHeight =
-      (params.kernelSizeY + tilesPerKernelYAxis - 1) / tilesPerKernelYAxis;
-  const auto tileKernelWidth = params.kernelSizeX;
-  if (plan.useConvolutionInstructions) {
-    assert(deviceInfo.getWeightsPerConvUnit(floatActivations) %
-           inChansPerGroup == 0);
-    const auto convUnitWeightHeight =
-        deviceInfo.getWeightsPerConvUnit(floatActivations) / inChansPerGroup;
-    const auto passesPerFilter =
-        tileKernelWidth *
-        (tileKernelHeight + convUnitWeightHeight - 1) / convUnitWeightHeight;
-    const auto passesPerOutput = passesPerFilter * tileNumInGroups;
-    return cache->mGetConvPartialnx1CycleEstimate(
-          passesPerOutput, outRowsPerVertex,
-          tileOutWidth, deviceInfo.convUnitPipelineDepth,
-          getNumConvUnits(floatActivations,
-                          plan.floatPartials, deviceInfo),
-          deviceInfo.convUnitCoeffLoadBytesPerCycle,
-          outputStrideY,
-          convUnitWeightHeight,
-          cache);
-  }
-  return outRowsPerVertex * outChansPerGroup *
-         getConvPartialByDotProductCycleEstimate(
-           floatActivations, inChansPerGroup, tileKernelHeight,
-           tileKernelWidth * tileNumInGroups, tileOutWidth,
-           deviceInfo.dataPathWidth, outputStrideY
-         );
-}
-
 static Cost
 estimateWeightUpdatePartialCalcComputeCost(const poplar::DeviceInfo &deviceInfo,
                                            bool floatActivations,
@@ -688,10 +631,16 @@ estimatePartialCalcComputeCost(const poplar::DeviceInfo &deviceInfo,
       estimateWeightUpdatePartialCalcComputeCost(deviceInfo, floatActivations,
                                                  params, plan, cache);
   }
+  const auto tilesPerX = plan.tilesPerXAxis;
   const auto tilesPerY = plan.tilesPerYAxis;
   const auto tilesPerZ = plan.tilesPerZAxis;
+  const auto inChansPerGroup = plan.inChansPerGroup;
   const auto outChansPerGroup = plan.partialChansPerGroup;
+  const auto tilesPerKernelYAxis = plan.tilesPerKernelYAxis;
+  const auto tilesPerInZGroupAxis = plan.tilesPerInZGroupAxis;
 
+  const auto tileOutWidth =
+      (params.getOutputWidth() + tilesPerX - 1) / tilesPerX;
   const auto tileOutHeight =
       (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
   const auto numOutGroups =
@@ -700,22 +649,69 @@ estimatePartialCalcComputeCost(const poplar::DeviceInfo &deviceInfo,
   const auto tileNumOutGroups =
       (numOutGroups + tilesPerZ - 1) / tilesPerZ;
 
-  const auto verticesPerTilePerY =
-      std::min(tileOutHeight, plan.verticesPerTilePerYAxis);
-  const auto tileVertices = verticesPerTilePerY * tileNumOutGroups;
   // The use of supervisor vertices only affects vertices that use the
   // convolution instructions.
   unsigned numContexts = deviceInfo.numWorkerContexts;
   if (plan.useConvolutionInstructions) {
     numContexts = 1;
   }
-  const auto vertexRuntime = estimateConvVertexCycles(floatActivations, params,
-                                                      plan,
-                                                      deviceInfo,
-                                                      cache);
-  auto verticesPerWorker = (tileVertices + numContexts - 1) /
-                           numContexts;
-  auto computeCycles = vertexRuntime * verticesPerWorker * numContexts;
+  const auto numInGroups =
+      (params.inputDepth + (inChansPerGroup - 1)) / inChansPerGroup;
+  const auto tileNumInGroups =
+      (numInGroups + tilesPerInZGroupAxis - 1) / tilesPerInZGroupAxis;
+
+  const auto outputStrideY = params.isFractional ? params.strideY : 1;
+
+  const auto tileKernelHeight =
+      (params.kernelSizeY + tilesPerKernelYAxis - 1) / tilesPerKernelYAxis;
+  const auto tileKernelWidth = params.kernelSizeX;
+  unsigned computeCycles;
+  if (plan.useConvolutionInstructions) {
+    assert(deviceInfo.getWeightsPerConvUnit(floatActivations) %
+           inChansPerGroup == 0);
+    const auto convUnitWeightHeight =
+        deviceInfo.getWeightsPerConvUnit(floatActivations) / inChansPerGroup;
+    const auto passesPerFilter =
+        tileKernelWidth *
+        (tileKernelHeight + convUnitWeightHeight - 1) / convUnitWeightHeight;
+    const auto passesPerOutput = passesPerFilter * tileNumInGroups;
+    computeCycles =
+        tileNumOutGroups *
+        cache->mGetConvPartialnx1CycleEstimate(
+          passesPerOutput, tileOutHeight, tileOutWidth,
+          deviceInfo.convUnitPipelineDepth,
+          getNumConvUnits(floatActivations, plan.floatPartials, deviceInfo),
+          deviceInfo.convUnitCoeffLoadBytesPerCycle, outputStrideY,
+          convUnitWeightHeight, cache);
+  } else {
+    const auto outputStrideX = params.isFractional ? params.strideX : 1;
+    const auto outputStrideY = params.isFractional ? params.strideY : 1;
+    const auto numRows = tileNumOutGroups *
+                         (tileOutHeight + outputStrideY - 1) / outputStrideY;
+    const auto numWorkers = deviceInfo.numWorkerContexts;
+    unsigned rowSplitFactor = numWorkers / gcd(numWorkers, numRows);
+    unsigned numPartRows = numRows * rowSplitFactor;
+    const auto maxPartRows = (numPartRows + numWorkers - 1) / numWorkers;
+    const auto workerWholeRows = maxPartRows / rowSplitFactor;
+    const auto workerPartRows = maxPartRows % rowSplitFactor;
+    std::vector<unsigned> convSizes;
+    const auto wholeRowConvSize =
+        (tileOutWidth + outputStrideX - 1) / outputStrideX;
+    convSizes.resize(workerWholeRows * tileKernelWidth * tileKernelHeight *
+                     tileNumInGroups, wholeRowConvSize);
+    if (workerPartRows > 0) {
+      convSizes.resize(convSizes.size() + tileKernelWidth * tileKernelHeight *
+                       tileNumInGroups,
+                       (wholeRowConvSize * workerPartRows) / rowSplitFactor);
+    }
+    auto vertexRuntime =
+        getConvPartialHorizontalMacCycleEstimate(
+            floatActivations,
+            inChansPerGroup,
+            convSizes,
+            deviceInfo.dataPathWidth);
+    computeCycles = vertexRuntime * numContexts;
+  }
 
   auto memoryEstimate = estimatePartialCalcMemory(
                               floatActivations,

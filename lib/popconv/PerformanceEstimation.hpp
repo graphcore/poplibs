@@ -31,6 +31,20 @@ bool allEqual(InputIterator begin, InputIterator end) {
 }
 
 inline std::uint64_t
+getConvPartialHorizontalMacCycleEstimate(
+    bool isFloat,
+    unsigned numChans,
+    const std::vector<unsigned> &convSizes,
+    unsigned dataPathWidth) {
+  std::uint64_t cycles = 5;
+  for (auto size : convSizes) {
+    cycles += 4;
+    cycles += size * getDenseDotProductCycles(isFloat, numChans, dataPathWidth);
+  }
+  return cycles;
+}
+
+inline std::uint64_t
 getConvPartialnx1SupervisorCycleEstimate(
     const std::vector<std::vector<std::vector<unsigned>>> &
     convSizesByWeightAndWorker,
@@ -90,24 +104,6 @@ getConvPartialnx1SupervisorCycleEstimate(
     cycles += numWorkerContexts - 1; // Pipeline bubble.
   }
   return cycles;
-}
-
-inline std::uint64_t
-getConvPartialByDotProductCycleEstimate(bool isFloat, unsigned inChansPerGroup,
-                                        unsigned kernelWidth,
-                                        unsigned inputGroupsPerOutput,
-                                        unsigned outputWidth,
-                                        unsigned dataPathWidth,
-                                        unsigned outputStride)
-{
-  unsigned vertexOverhead = 15;
-  unsigned innerLoopCycles =
-      getDenseDotProductCycles(isFloat, kernelWidth * inChansPerGroup,
-                               dataPathWidth) / outputStride;
-  unsigned middleLoopCycles = inputGroupsPerOutput * (5 + innerLoopCycles);
-  unsigned outerLoopCycles = outputWidth * (10 + middleLoopCycles);
-
-  return vertexOverhead + outerLoopCycles;
 }
 
 inline std::uint64_t

@@ -750,96 +750,91 @@ createConvPartialnx1InOutVertex(Graph &graph,
   graph.setInitialValue(v["weightReuseCount"], weightReuseCount);
 }
 
+struct ConvOutputSlice {
+  unsigned outXBegin;
+  unsigned outXEnd;
+  unsigned outY;
+  unsigned outZGroup;
+  ConvOutputSlice(unsigned outXBegin, unsigned outXEnd, unsigned outY,
+                  unsigned outZGroup) :
+    outXBegin(outXBegin), outXEnd(outXEnd),
+    outY(outY), outZGroup(outZGroup) {}
+
+};
+
 static void
-createConvPartialDotProductVertex(Graph &graph,
-                                  const Plan &plan,
-                                  unsigned tile,
-                                  unsigned outXBegin, unsigned outXEnd,
-                                  unsigned outYBegin, unsigned outYEnd,
-                                  unsigned z,
-                                  unsigned kernelYBegin, unsigned kernelYEnd,
-                                  unsigned inZGroupBegin, unsigned inZGroupEnd,
-                                  const std::vector<unsigned> &stride,
-                                  const std::vector<unsigned> &padding,
-                                  std::string dType,
-                                  ComputeSet fwdCS,
-                                  const Tensor &in,
-                                  const Tensor &weights,
-                                  const Tensor &out) {
-  const auto kernelSizeY = weights.dim(2);
-  const auto kernelSizeX = weights.dim(3);
-  const auto inChansPerGroup = plan.inChansPerGroup;
-  const auto outChansPerGroup = plan.partialChansPerGroup;
+createConvPartialHorizontalMacVertex(
+    Graph &graph,
+    unsigned tile,
+    const std::vector<ConvOutputSlice> &outRegions,
+    unsigned kernelYBegin, unsigned kernelYEnd,
+    unsigned inZGroupBegin, unsigned inZGroupEnd,
+    const std::vector<unsigned> &stride,
+    const std::vector<unsigned> &padding,
+    ComputeSet fwdCS,
+    const Tensor &in,
+    const Tensor &weights,
+    const Tensor &out,
+    bool isFractional) {
+  const auto kernelHeight = weights.dim(2);
+  const auto kernelWidth = weights.dim(3);
   const auto dataPathWidth = graph.getDevice().getDeviceInfo().dataPathWidth;
-  const auto inZGroups = inZGroupEnd - inZGroupBegin;
-  const auto inDimY = in.dim(1);
-  const auto inDimX = in.dim(2);
-  const auto partialType = plan.getPartialType();
-  if (outChansPerGroup != 1)
-    assert(!"outChansPerGroup must be 1");
-  assert(outYEnd - outYBegin == 1);
-  const auto y = outYBegin;
-  Tensor outWindow = out[z][y].slice(outXBegin, outXEnd).flatten();
-  graph.setTileMapping(outWindow, tile);
-  // Weights used in the calculation.
-  auto kernelRange =
-      getKernelRange(y, stride[0], kernelSizeY, padding[0], inDimY, false);
-  VertexRef v;
-  bool createdVertex = false;
-  unsigned inYBegin, inYEnd, inXBegin, inXEnd;
-  if (kernelRange.second > kernelYBegin && kernelRange.first < kernelYEnd) {
-    kernelYBegin = std::max(kernelYBegin, kernelRange.first);
-    kernelYEnd = std::min(kernelYEnd, kernelRange.second);
-    // Window into previous layer.
-    std::tie(inYBegin, inYEnd) =
-        getInputRange(y, stride[0], kernelSizeY, padding[0], inDimY,
-                      {kernelYBegin, kernelYEnd}, false);
-    std::tie(inXBegin, inXEnd) =
-        getInputRange({outXBegin, outXEnd}, stride[1], kernelSizeX,
-                      padding[1], inDimX, false);
-    if (inYBegin != inYEnd ||
-        inXBegin != inXEnd) {
-      const auto inWidth = inXEnd - inXBegin;
-      const auto inHeight = inYEnd - inYBegin;
-      Tensor inWindow =
-          in.slice(
-      {inZGroupBegin, inYBegin, inXBegin, 0},
-      {inZGroupEnd, inYEnd, inXEnd, inChansPerGroup}
-            ).reshape({inHeight * inZGroups,
-                       inWidth * inChansPerGroup});
-      Tensor w =
-          weights[z].slice(
-      {inZGroupBegin, kernelYBegin, 0, 0, 0},
-      {inZGroupEnd, kernelYEnd, kernelSizeX, 1, inChansPerGroup}
-            ).reshape({inHeight * inZGroups,
-                       inChansPerGroup * kernelSizeX});
-      // Add the vertex.
-      v = graph.addVertex(fwdCS, templateVertex("popconv::ConvPartial", dType,
-                                                partialType),
-                          {{"in", inWindow},
-                           {"weights", w},
-                           {"out", outWindow},
-                          });
-      createdVertex = true;
-      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-      graph.setInitialValue(v["stride"], stride[1]);
-      graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
-      const auto inXBeginPaddedField = outXBegin * stride[1];
-      unsigned vPadding =
-          inXBeginPaddedField < padding[1] ? padding[1] - inXBeginPaddedField :
-                                             0;
-      graph.setInitialValue(v["padding"], vPadding);
+  const auto inHeight = in.dim(1);
+  const auto inWidth = in.dim(2);
+  const auto dType = graph.getTensorElementType(in);
+  const auto partialType = graph.getTensorElementType(out);
+  const auto outChansPerGroup = out.dim(3);
+  assert(outChansPerGroup == 1);
+  (void)outChansPerGroup;
+  std::vector<Tensor> inEdges;
+  std::vector<Tensor> weightsEdges;
+  std::vector<Tensor> outEdges;
+  for (const auto &region : outRegions) {
+    const auto ozg = region.outZGroup;
+    const auto y = region.outY;
+    const auto outXBegin = region.outXBegin;
+    const auto outXEnd = region.outXEnd;
+    for (unsigned izg = inZGroupBegin; izg != inZGroupEnd; ++izg) {
+      for (unsigned ky = kernelYBegin; ky != kernelYEnd; ++ky) {
+        for (unsigned kx = 0; kx != kernelWidth; ++kx) {
+          unsigned inY = getInputIndex(y, stride[0], kernelHeight,
+                                       padding[0], inHeight, ky,
+              isFractional);
+          if (inY == ~0U)
+            continue;
+          auto inRange =
+              getInputRange({outXBegin, outXEnd}, stride[1], kernelWidth,
+                            padding[1], inWidth, kx, isFractional);
+          if (inRange.first == inRange.second)
+            continue;
+          auto outRange =
+              getOutputRange({outXBegin, outXEnd}, stride[1], kernelWidth,
+                             padding[1], inWidth, kx, isFractional);
+          Tensor inWindow =
+              in[izg][inY].slice(inRange.first, inRange.second).flatten();
+          Tensor weightsWindow = weights[ozg][izg][ky][kx].flatten();
+          Tensor outWindow =
+              out[ozg][y].slice(outRange.first, outRange.second).flatten();
+          inEdges.emplace_back(std::move(inWindow));
+          weightsEdges.emplace_back(std::move(weightsWindow));
+          outEdges.emplace_back(std::move(outWindow));
+        }
+      }
     }
   }
-  if (!createdVertex) {
-    v = graph.addVertex(fwdCS, templateVertex("popstd::Zero", partialType));
-    graph.connect(v["out"], outWindow);
-    graph.setInitialValue(v["dataPathWidth"],
-                          graph.getDevice().getDeviceInfo().dataPathWidth);
-  }
-  // Map the vertex and output.
+  if (outEdges.empty())
+    return;
+  auto v = graph.addVertex(fwdCS,
+                           templateVertex(
+                             "popconv::ConvPartialHorizontalMac", dType,
+                             partialType
+                           ),
+                           {{"in", inEdges},
+                            {"weights", weightsEdges},
+                            {"out", outEdges},
+                           });
+  graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
   graph.setTileMapping(v, tile);
-  graph.setTileMapping(outWindow, tile);
 }
 
 static void
@@ -878,6 +873,46 @@ static bool writtenRangeEqualsOutputRange(
       getOutputRange(outRange, stride, kernelSize, padding,
                      inDim, kernelIndexRange, isFractional);
   return writtenYRange == outRange;
+}
+
+static std::vector<std::vector<ConvOutputSlice>>
+partitionConvOutputBetweenWorkers(const Graph &graph,
+                                  unsigned outXBegin, unsigned outXEnd,
+                                  unsigned outYBegin, unsigned outYEnd,
+                                  unsigned outZGroupBegin,
+                                  unsigned outZGroupEnd) {
+  std::vector<std::vector<ConvOutputSlice>> perWorkerConvOutputSlices;
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto outWidth = outXEnd - outXBegin;
+  const auto outHeight = outYEnd - outYBegin;
+  const auto numRows = outHeight * (outZGroupEnd - outZGroupBegin);
+  const auto numWorkers = deviceInfo.numWorkerContexts;
+  unsigned rowSplitFactor = numWorkers / gcd(numWorkers, numRows);
+  unsigned numPartRows = numRows * rowSplitFactor;
+  for (unsigned worker = 0; worker != numWorkers; ++worker) {
+    const auto begin = (worker * numPartRows) / numWorkers;
+    const auto end = ((worker + 1) * numPartRows) / numWorkers;
+    perWorkerConvOutputSlices.emplace_back();
+    for (unsigned partRow = begin; partRow != end; ++partRow) {
+      auto row = partRow / rowSplitFactor;
+      auto partInRow = partRow % rowSplitFactor;
+      const auto ozg = outZGroupBegin + row / outHeight;
+      const auto y = outYBegin + row % outHeight;
+      const auto workerOutXBegin =
+          outXBegin + (partInRow * outWidth) / rowSplitFactor;
+      const auto workerOutXEnd =
+          outXBegin + ((partInRow + 1) * outWidth) / rowSplitFactor;
+      if (!perWorkerConvOutputSlices.back().empty() &&
+          ozg == perWorkerConvOutputSlices.back().back().outZGroup &&
+          y == perWorkerConvOutputSlices.back().back().outY) {
+        perWorkerConvOutputSlices.back().back().outXEnd = workerOutXEnd;
+      } else {
+        perWorkerConvOutputSlices.back().emplace_back(workerOutXBegin,
+                                                      workerOutXEnd, y, ozg);
+      }
+    }
+  }
+  return perWorkerConvOutputSlices;
 }
 
 static void
@@ -939,56 +974,40 @@ calcPartialConvOutput(Graph &graph,
                                       padding[0], kernelSizeY,
                                       {kernelYBegin, kernelYEnd}, inDimY,
                                       isFractional);
-    if (!useConvPartial1x1OutVertex) {
-      zeroAndMapPartialSums(graph, outXBegin, outXEnd, outYBegin, outYEnd,
-                            outZGroupBegin, outZGroupEnd, tile, zeroCS, out);
-    }
   }
-  if (plan.useConvolutionInstructions && !useConvPartial1x1OutVertex) {
-    createConvPartialnx1InOutVertex(graph, tile, outXBegin, outXEnd,
-                                    outYBegin, outYEnd,
-                                    outZGroupBegin, outZGroupEnd,
-                                    kernelYBegin, kernelYEnd,
-                                    inZGroupBegin, inZGroupEnd,
-                                    stride, padding,
-                                    fwdCS, in, weights, out,
-                                    zeros, isFractional);
-  } else {
-    const auto outHeight = outYEnd - outYBegin;
-    const auto verticesPerY = plan.verticesPerTilePerYAxis;
+  if (useConvPartial1x1OutVertex) {
     for (unsigned ozg = outZGroupBegin; ozg != outZGroupEnd; ++ozg) {
-      for (unsigned vy = 0; vy != verticesPerY; ++vy) {
-        const auto vertexOutYBegin =
-            outYBegin + (vy * outHeight) / verticesPerY;
-        const auto vertexOutYEnd =
-            outYBegin + ((vy + 1) * outHeight) / verticesPerY;
-        const auto outHeight = vertexOutYEnd - vertexOutYBegin;
-        if (outHeight == 0)
-          continue;
-        if (useConvPartial1x1OutVertex) {
-          createConvPartial1x1OutVertex(graph, tile,
-                                        outXBegin, outXEnd,
-                                        vertexOutYBegin, vertexOutYEnd,
-                                        ozg,
-                                        kernelYBegin,
-                                        inZGroupBegin, inZGroupEnd,
-                                        stride, padding,
-                                        fwdCS, in, weights, out);
-        } else {
-          assert(!plan.useConvolutionInstructions);
-          if (isFractional)
-            throw popstd::poplib_error("Non AMP instruction based "
-                                       "fractional convolutions are not "
-                                       "implemented");
-          createConvPartialDotProductVertex(graph, plan, tile,
-                                            outXBegin, outXEnd,
-                                            vertexOutYBegin, vertexOutYEnd,
-                                            ozg,
-                                            kernelYBegin, kernelYEnd,
-                                            inZGroupBegin, inZGroupEnd,
-                                            stride, padding,
-                                            dType, fwdCS, in, weights, out);
-        }
+      createConvPartial1x1OutVertex(graph, tile,
+                                    outXBegin, outXEnd,
+                                    outYBegin, outYEnd, ozg,
+                                    kernelYBegin, inZGroupBegin, inZGroupEnd,
+                                    stride, padding, fwdCS, in, weights, out);
+    }
+  } else {
+    zeroAndMapPartialSums(graph, outXBegin, outXEnd, outYBegin, outYEnd,
+                          outZGroupBegin, outZGroupEnd, tile, zeroCS, out);
+    if (plan.useConvolutionInstructions) {
+      createConvPartialnx1InOutVertex(graph, tile, outXBegin, outXEnd,
+                                      outYBegin, outYEnd,
+                                      outZGroupBegin, outZGroupEnd,
+                                      kernelYBegin, kernelYEnd,
+                                      inZGroupBegin, inZGroupEnd,
+                                      stride, padding,
+                                      fwdCS, in, weights, out,
+                                      zeros, isFractional);
+    } else {
+      auto perWorkerConvOutputSlices =
+          partitionConvOutputBetweenWorkers(graph, outXBegin, outXEnd,
+                                            outYBegin, outYEnd,
+                                            outZGroupBegin, outZGroupEnd);
+      for (const auto &workerConvOutputSlices : perWorkerConvOutputSlices) {
+        createConvPartialHorizontalMacVertex(graph, tile,
+                                             workerConvOutputSlices,
+                                             kernelYBegin, kernelYEnd,
+                                             inZGroupBegin, inZGroupEnd,
+                                             stride, padding,
+                                             fwdCS, in, weights, out,
+                                             isFractional);
       }
     }
   }

@@ -485,52 +485,43 @@ template class ConvPartial1x1Out<float, half, false>;
 template class ConvPartial1x1Out<half, float, false>;
 template class ConvPartial1x1Out<half, half, false>;
 
-/* Compute a partial convolution for a sub-set of input channels and
- * output channels over a number of rows of the input field. */
+/* Perform a series of 1x1 convolutions using the MAC instruction were the
+ * axis of accumulation is across the vector. */
 template <typename InType, typename AccumType>
-class ConvPartial: public Vertex {
+class ConvPartialHorizontalMac: public Vertex {
 public:
   Vector<Input<Vector<InType>>> in;
   Vector<Input<Vector<InType>>> weights;
-  Output<Vector<AccumType>> out;
-  unsigned inChansPerGroup;
-  // The amount of implicit of zero padding before the first element of the
-  // input.
-  unsigned padding;
-  unsigned stride;
+  Vector<InOut<Vector<AccumType>>> out;
 
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     unsigned numInRows = in.size();
-    unsigned inputWidth = in[0].size() / inChansPerGroup;
-    unsigned outputWidth = out.size();
-    unsigned kernelSize = weights[0].size() / inChansPerGroup;
-    unsigned distanceFromCentre = (kernelSize - 1) / 2;
-
-    for (auto &o : out) {
-      o = 0.0;
-    }
+    assert(weights.size() == numInRows);
+    assert(out.size() == numInRows);
 
     for (unsigned i = 0; i != numInRows; ++i) {
-      assert(!in[i].empty());
-      auto *row = &in[i][0];
-      auto *rowWeights = &weights[i][0];
-      for (unsigned outX = 0; outX < outputWidth; ++outX) {
-        int inXBegin = static_cast<int>(outX * stride) - padding;
-        unsigned inXEnd = std::min(inXBegin + kernelSize,
-                                   inputWidth);
-        unsigned weightShift = 0;
-        if (inXBegin < 0) {
-          weightShift = -inXBegin;
-          inXBegin = 0;
-        }
-        for (unsigned inX = inXBegin; inX != inXEnd; ++inX) {
-          unsigned weightX = inX - inXBegin + weightShift;
-          for (unsigned inZ = 0; inZ != inChansPerGroup; ++inZ) {
-            out[outX] += row[inX * inChansPerGroup + inZ] *
-                         rowWeights[weightX * inChansPerGroup + inZ];
-          }
+      const auto outWidth = out[i].size();
+      const auto numChans = weights[i].size();
+      assert(in[i].size() % numChans == 0);
+      const auto inWidth = in[i].size() / numChans;
+      unsigned inStride, outStride;
+      if (outWidth == inWidth) {
+        inStride = outStride = 1;
+      } else if (inWidth > outWidth) {
+        assert((inWidth - 1) % (outWidth - 1) == 0);
+        inStride = (inWidth - 1) / (outWidth - 1);
+        outStride = 1;
+      } else {
+        assert((outWidth - 1) % (inWidth - 1) == 0);
+        outStride = (outWidth - 1) / (inWidth - 1);
+        inStride = 1;
+      }
+      for (unsigned outX = 0, inX = 0; outX < outWidth; outX += outStride,
+                                                        inX += inStride) {
+        for (unsigned chan = 0; chan != numChans; ++chan) {
+          out[i][outX] += in[i][inX * numChans + chan] * weights[i][chan];
         }
       }
     }
@@ -539,19 +530,26 @@ public:
 
   uint64_t getCycleEstimate() const {
     unsigned numInRows = in.size();
-    unsigned outputWidth = out.size();
-    unsigned kernelSize = weights[0].size() / inChansPerGroup;
+    assert(numInRows != 0);
+    const auto numChans = weights[0].size();
+    std::vector<unsigned> convSizes;
+    convSizes.reserve(numInRows);
+    for (unsigned i = 0; i != numInRows; ++i) {
+      const auto outWidth = out[i].size();
+      assert(weights[i].size() == numChans);
+      assert(in[i].size() % numChans == 0);
+      const auto inWidth = in[i].size() / numChans;
+      convSizes.push_back(std::min(inWidth, outWidth));
+    }
     bool isFloat = std::is_same<InType, float>::value;
-    return getConvPartialByDotProductCycleEstimate(isFloat, inChansPerGroup,
-                                                   kernelSize, numInRows,
-                                                   outputWidth,
-                                                   dataPathWidth, 1);
+    return getConvPartialHorizontalMacCycleEstimate(isFloat, numChans,
+                                                    convSizes, dataPathWidth);
   }
 };
 
-template class ConvPartial<float, float>;
-template class ConvPartial<half, float>;
-template class ConvPartial<half, half>;
+template class ConvPartialHorizontalMac<float, float>;
+template class ConvPartialHorizontalMac<half, float>;
+template class ConvPartialHorizontalMac<half, half>;
 
 template <class InType, class OutType>
 class ConvComplete : public Vertex {
