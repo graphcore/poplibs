@@ -26,3 +26,8 @@ add_tool(general_matrix_multiply general_matrix_multiply.cpp)
 target_link_libraries(general_matrix_multiply
                       poplib_test
                       Boost::program_options)
+
+add_tool(rnn_layer rnn_layer.cpp)
+target_link_libraries(rnn_layer
+                      poplib_test
+                      Boost::program_options)

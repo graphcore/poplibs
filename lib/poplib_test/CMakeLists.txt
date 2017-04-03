@@ -9,12 +9,14 @@ add_library(poplib_test SHARED
   GeneralMatrixMultiply.cpp
   MaxPooling.cpp
   NonLinearity.cpp
+  Rnn.cpp
   Util.cpp
   ${PROJECT_SOURCE_DIR}/include/poplib_test/Convolution.hpp
   ${PROJECT_SOURCE_DIR}/include/poplib_test/FullyConnected.hpp
   ${PROJECT_SOURCE_DIR}/include/poplib_test/GeneralMatrixMultiply.hpp
   ${PROJECT_SOURCE_DIR}/include/poplib_test/MaxPooling.hpp
   ${PROJECT_SOURCE_DIR}/include/poplib_test/NonLinearity.hpp
+  ${PROJECT_SOURCE_DIR}/include/poplib_test/Rnn.hpp  
   ${PROJECT_SOURCE_DIR}/include/poplib_test/Util.hpp
 )
 

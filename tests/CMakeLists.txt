@@ -491,3 +491,22 @@ add_test(NAME gemm_40x39x38_right_transpose
                  --beta 1 
                  --left-matrix-op=normal
                  --right-matrix-op=transpose)
+
+
+
+add_test(NAME rnn_3x2x38_no_feedfwd
+         COMMAND rnn_layer
+                 --sequence-size 3
+                 --output-size 38
+                 --batch-size 2
+                 --nonlinearity-type sigmoid)
+
+
+add_test(NAME rnn_3x32x2x38_with_feedfwd
+         COMMAND rnn_layer
+                 --sequence-size 3
+                 --input-size 32
+                 --output-size 38
+                 --batch-size 2
+                 --nonlinearity-type sigmoid
+                 --apply-feedforward-weights) 

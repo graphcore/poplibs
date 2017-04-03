@@ -24,6 +24,14 @@ static double nonLinearity(NonLinearityType nonLinearityType,
 }
 
 void poplib_test::nonLinearity(NonLinearityType nonLinearityType,
+                               boost::multi_array<double, 2> &array) {
+  for (auto it = array.data(), end = array.data() + array.num_elements();
+       it != end; ++it) {
+    *it = ::nonLinearity(nonLinearityType, *it);
+  }
+}
+
+void poplib_test::nonLinearity(NonLinearityType nonLinearityType,
                                boost::multi_array<double, 4> &array) {
   for (auto it = array.data(), end = array.data() + array.num_elements();
        it != end; ++it) {

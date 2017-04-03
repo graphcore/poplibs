@@ -7,17 +7,19 @@ add_library(popnn SHARED
   MaxPool.cpp
   NonLinearity.cpp
   PerformanceEstimation.hpp
+  Recurrent.cpp
   Residual.cpp
   ${CMAKE_SOURCE_DIR}/include/popnn/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Loss.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Residual.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/Recurrent.hpp  
   ${CMAKE_SOURCE_DIR}/include/popnn/MaxPool.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearity.hpp
   ${CMAKE_SOURCE_DIR}/include/util/Compiler.hpp
   ${CMAKE_SOURCE_DIR}/include/util/gcd.hpp
 )
 
-target_link_libraries(popnn poplar popconv popstd)
+target_link_libraries(popnn poplar popconv popstd poplin)
 
 target_include_directories(popnn
   PUBLIC
