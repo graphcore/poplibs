@@ -259,9 +259,7 @@ calculateActivationMapping(const Graph &graph,
   return mapping;
 }
 
-static void mapActivations(Graph &graph,
-                           const Plan &plan,
-                           Tensor acts) {
+void mapActivations(Graph &graph, const Plan &plan, Tensor acts) {
   auto mapping = calculateActivationMapping(graph, plan, acts);
   graph.setTileMapping(acts, mapping);
 }

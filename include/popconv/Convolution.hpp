@@ -94,6 +94,9 @@ convolution(poplar::Graph &graph, const Plan &plan,
                      debugPrefix);
 }
 
+void mapActivations(poplar::Graph &graph, const Plan &plan,
+                    poplar::Tensor acts);
+
 void mapWeights(poplar::Tensor w, poplar::Graph &graph, const Plan &plan,
                 unsigned batchSize);
 
