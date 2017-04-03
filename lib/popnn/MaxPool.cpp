@@ -1,5 +1,4 @@
 #include "popnn/MaxPool.hpp"
-
 #include "popstd/VertexTemplates.hpp"
 #include "popstd/ActivationMapping.hpp"
 #include "popconv/ConvUtil.hpp"
@@ -372,8 +371,8 @@ maxPoolInputGradient(Graph &graph, unsigned kernelSizeY, unsigned kernelSizeX,
           windowSizes.push_back(windowSize);
         }
       }
+      assert(vertexPooled.size() == vertexPooledGrad.size());
       assert(vertexIn.size() == vertexInGrad.size());
-      assert(vertexPooled.size() == vertexIn.size());
       auto v = graph.addVertex(cs, templateVertex("popnn::MaxPoolingGrad",
                                                   dType),
                                {{"outGrad", vertexPooledGrad},
