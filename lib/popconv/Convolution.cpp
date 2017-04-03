@@ -654,9 +654,6 @@ createConvPartialnx1InOutVertex(Graph &graph,
       const auto convOutWidth = convOutXEnd - convOutXBegin;
       if (convOutWidth == 0)
         continue;
-      if (numConvolutions == 0) {
-
-      }
       // In a fractionally strided pass, if we are handling one row of the
       // kernel at a time, the partitioning of work across the workers can be
       // aware of the stride and only allocate work on the rows that get
