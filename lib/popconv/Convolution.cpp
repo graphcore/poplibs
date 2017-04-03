@@ -265,18 +265,19 @@ void mapActivations(Graph &graph, const Plan &plan, Tensor acts) {
 }
 
 static std::vector<std::vector<Interval<std::size_t>>>
-calculateWeightMapping(Tensor w,
+calculateWeightMapping(const std::vector<std::size_t> &wShape,
+                       const std::string &dType,
                        const poplar::Graph &graph,
                        const Plan &plan,
                        unsigned batchSize) {
   assert(batchSize % plan.batchesPerGroup == 0);
   const auto numBatchGroups = batchSize / plan.batchesPerGroup;
-  const auto partialNumChanGroups = w.dim(0);
-  const auto numInZGroups = w.dim(1);
-  const auto kernelDimY = w.dim(2);
-  const auto kernelDimX = w.dim(3);
-  const auto partialChansPerGroup = w.dim(4);
-  const auto inChansPerGroup = w.dim(5);
+  const auto partialNumChanGroups = wShape[0];
+  const auto numInZGroups = wShape[1];
+  const auto kernelDimY = wShape[2];
+  const auto kernelDimX = wShape[3];
+  const auto partialChansPerGroup = wShape[4];
+  const auto inChansPerGroup = wShape[5];
 
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   std::vector<std::vector<Interval<std::size_t>>>
@@ -289,8 +290,7 @@ calculateWeightMapping(Tensor w,
   const auto tilesPerKernelY = plan.tilesPerKernelYAxis;
   const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
   const auto numTiles = deviceInfo.getNumTiles();
-  const auto weightType = graph.getTensorElementType(w);
-  const auto weightTypeSize = weightType == "float" ? 4 : 2;
+  const auto weightTypeSize = dType == "float" ? 4 : 2;
   // Limit the minimum number of weight bytes per tile to reduce the
   // amount of exchange code. Increasing this constant reduces exchange code
   // size and increases execution time due to imbalance. The current limit was
@@ -315,11 +315,11 @@ calculateWeightMapping(Tensor w,
         // Group weights that are accessed contiguously by tiles within this
         // loop body.
         std::vector<Interval<std::size_t>> sharedWeights;
-        addFlattenedRegions(w.shape(),
+        addFlattenedRegions(wShape,
                             {outZGroupBegin, inZGroupBegin, kernelYBegin,
                              0, 0, 0},
                             {outZGroupEnd, inZGroupEnd, kernelYEnd,
-                             w.dim(3), w.dim(4), w.dim(5)},
+                             wShape[3], wShape[4], wShape[5]},
                             sharedWeights);
         mergeAdjacentRegions(sharedWeights);
         // Spread groups of weights equally across the tiles that read them.
@@ -359,6 +359,16 @@ calculateWeightMapping(Tensor w,
   return mapping;
 }
 
+static std::vector<std::vector<Interval<std::size_t>>>
+calculateWeightMapping(const Tensor &weights,
+                       const poplar::Graph &graph,
+                       const Plan &plan,
+                       unsigned batchSize) {
+  return calculateWeightMapping(weights.shape(),
+                                graph.getTensorElementType(weights), graph,
+                                plan, batchSize);
+}
+
 template <typename Builder>
 static void
 iterateWeightMapping(Tensor w,
@@ -366,8 +376,8 @@ iterateWeightMapping(Tensor w,
                      const Plan &plan,
                      unsigned batchSize,
                      Builder &&builder) {
-  const auto weightMapping = calculateWeightMapping(w, graph, plan,
-                                                    batchSize);
+  const auto weightMapping =
+      calculateWeightMapping(w, graph, plan, batchSize);
   const auto flatWeights = w.flatten();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto numTiles = deviceInfo.getNumTiles();
@@ -2489,16 +2499,16 @@ weightUpdateAopReduceByPartialMapping(Graph &graph,
                                  resultType, computeSets, debugPrefix);
 }
 
-Program
-convolutionWeightUpdateAop(Graph &graph,
-                           const Plan &plan,
-                           const Plan &fwdPlan,
-                           Tensor zDeltas, Tensor weights, Tensor biases,
-                           Tensor activations,
-                           const std::vector<unsigned> &stride,
-                           const std::vector<unsigned> &padding,
-                           float learningRate,
-                           const std::string &layerName) {
+static Tensor
+calculateWeightDeltasAop(Graph &graph, const Plan &plan,
+                         const Plan &fwdPlan, Tensor zDeltas,
+                         unsigned kernelSizeY,
+                         unsigned kernelSizeX,
+                         Tensor activations,
+                         const std::vector<unsigned> &stride,
+                         const std::vector<unsigned> &padding,
+                         Sequence &prog,
+                         const std::string &debugPrefix) {
   if (plan.flattenXY) {
     zDeltas = zDeltas.reshape(
         {zDeltas.dim(0), zDeltas.dim(1), 1,
@@ -2511,23 +2521,17 @@ convolutionWeightUpdateAop(Graph &graph,
   }
   const auto &partialsType = plan.getPartialType();
   const auto dType = graph.getTensorElementType(zDeltas);
-  const auto kernelSizeY = weights.dim(2);
-  const auto kernelSizeX = weights.dim(3);
   const auto batchSize = activations.dim(0);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto outNumChanGroups = weights.dim(0);
-  const auto inNumChanGroups = weights.dim(1);
-  const auto outChansPerGroup = weights.dim(4);
-  const auto inChansPerGroup = weights.dim(5);
-  assert(activations.dim(1) == inNumChanGroups);
-  assert(activations.dim(4) == inChansPerGroup);
+  const auto numOutChans = zDeltas.dim(1) * zDeltas.dim(4);
+  const auto inNumChanGroups = activations.dim(1);
+  const auto inChansPerGroup = activations.dim(4);
   assert(plan.inChansPerGroup == inChansPerGroup);
-  const auto numOutChans = outNumChanGroups * outChansPerGroup;
+  const auto numInChans = inNumChanGroups * inChansPerGroup;
   const auto partialChansPerGroup = plan.partialChansPerGroup;
   assert(numOutChans % partialChansPerGroup == 0);
   const auto partialNumChanGroups = numOutChans / partialChansPerGroup;
 
-  auto prog = Sequence();
   auto outDimY = zDeltas.dim(2), outDimX = zDeltas.dim(3);
   const auto isMultiIPU = deviceInfo.numIPUs > 1;
   const auto tilesPerX = plan.tilesPerXAxis;
@@ -2562,7 +2566,7 @@ convolutionWeightUpdateAop(Graph &graph,
     regroupedDeltas = zDeltas;
   }
   std::vector<std::vector<Interval<std::size_t>>> partialsMapping(numTiles);
-  ComputeSet weightGradCS = graph.addComputeSet(layerName + "/WeightGrad");
+  ComputeSet weightGradCS = graph.addComputeSet(debugPrefix + "/WeightGrad");
   for (unsigned b = 0; b < batchSize; ++b) {
     for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
       const auto inZGroupBegin = (izg * inNumChanGroups) / tilesPerInZGroup;
@@ -2612,25 +2616,32 @@ convolutionWeightUpdateAop(Graph &graph,
   }
   mergeAdjacentRegions(partialsMapping);
   applyTensorMapping(graph, partials, partialsMapping);
-  ComputeSet zeroCS = graph.addComputeSet(layerName + "/Zero");
+  ComputeSet zeroCS = graph.addComputeSet(debugPrefix + "/Zero");
   zero(graph, partials, partialsMapping, zeroCS);
   prog.add(Execute(zeroCS));
   prog.add(Execute(weightGradCS));
 
-  const auto
-    weightMapping = calculateWeightMapping(weights, graph, plan,
-                                           batchSize);
+  const auto fwdPartialChansPerGroup = fwdPlan.partialChansPerGroup;
+  const auto fwdInChansPerGroup = fwdPlan.inChansPerGroup;
+  const auto weightMapping =
+      calculateWeightMapping({numOutChans / fwdPartialChansPerGroup,
+                              numInChans / fwdInChansPerGroup,
+                              kernelSizeY,
+                              kernelSizeX,
+                              fwdPartialChansPerGroup,
+                              fwdInChansPerGroup}, dType, graph, fwdPlan,
+                              batchSize);
   Tensor weightDeltas;
   auto numPartials = batchSize * tilesPerY * tilesPerX;
   if (numPartials == 1 && partialsType == dType) {
     weightDeltas = partials[0][0][0];
   } else if (numPartials == 1) {
-    auto reduceCS = graph.addComputeSet(layerName + "/Reduce");
+    auto reduceCS = graph.addComputeSet(debugPrefix + "/Reduce");
     weightDeltas = graph.addTensor(dType, partials[0][0][0].shape(),
-                                   layerName + "/WeightDeltas");
+                                   debugPrefix + "/WeightDeltas");
     std::vector<std::vector<Interval<std::size_t>>>
         weightDeltaMapping;
-    if (partialChansPerGroup == outChansPerGroup) {
+    if (partialChansPerGroup == fwdPartialChansPerGroup) {
       weightDeltaMapping = weightMapping;
     } else {
       weightDeltaMapping =
@@ -2649,60 +2660,16 @@ convolutionWeightUpdateAop(Graph &graph,
     std::vector<ComputeSet> reduceComputeSets;
     weightDeltas =
       weightUpdateAopReduceByPartialMapping(graph, partials, dType, plan,
-                                            reduceComputeSets, layerName);
+                                            reduceComputeSets, debugPrefix);
     for (const auto &cs : reduceComputeSets) {
       prog.add(Execute(cs));
     }
   }
-  weightDeltas = regroup(weightDeltas, 0, 4, outChansPerGroup);
-
-  // Add the weight deltas to the weights.
-  auto addCS = graph.addComputeSet(layerName + "/UpdateWeights");
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
-  auto weightsFlattened = weights.flatten();
-  auto weightDeltasFlattened = weightDeltas.flatten();
-  iterateWeightMapping(weights, graph, fwdPlan, batchSize,
-                       [&](const Tensor &tileWeights, unsigned tile) {
-    const auto elementIndices = tileWeights.getElementIndices();
-    const auto tileNumElements = elementIndices.size();
-    const auto workersPerTile = deviceInfo.numWorkerContexts;
-    const auto maxElemsPerWorker =
-        (tileNumElements + workersPerTile - 1) / workersPerTile;
-    const auto verticesToCreate =
-        (tileNumElements + maxElemsPerWorker - 1) / maxElemsPerWorker;
-    for (unsigned vertex = 0; vertex != verticesToCreate; ++vertex) {
-      const auto elemBegin =
-          (vertex * tileNumElements) / verticesToCreate;
-      const auto elemEnd =
-          ((vertex + 1) * tileNumElements) / verticesToCreate;
-      if (elemBegin == elemEnd)
-        continue;
-      auto regions = getContiguousRegions(elementIndices.begin() + elemBegin,
-                                          elementIndices.begin() + elemEnd);
-      for (unsigned i = 0, numRegions = regions.size(); i != numRegions; ++i) {
-        const auto v =
-            graph.addVertex(addCS,
-                            templateVertex("popconv::ConvWeightUpdate", dType));
-        graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-        graph.setInitialValue(v["eta"], learningRate);
-        graph.connect(v["weights"], weightsFlattened.slice(regions[i].first,
-                                                           regions[i].second));
-        graph.connect(v["weightDeltas"],
-            weightDeltasFlattened.slice(regions[i].first, regions[i].second));
-        graph.setTileMapping(v, tile);
-      }
-    }
-  });
-
-  auto updateBiasProg =
-      convolutionBiasUpdate(graph, zDeltas, biases, learningRate, addCS,
-                            layerName);
-  prog.add(Execute(addCS));
-  prog.add(updateBiasProg);
-  return prog;
+  weightDeltas = regroup(weightDeltas, 0, 4, fwdPartialChansPerGroup);
+  return weightDeltas;
 }
 
-Tensor
+static Tensor
 roundUpDimension(Graph &graph, const Tensor &t, unsigned dim,
                  unsigned divisor) {
   const auto size = t.dim(dim);
@@ -2888,25 +2855,15 @@ convolutionWeightUpdateAmpPostProcess(const Plan &plan,
   }
 }
 
-static Program
-convolutionWeightUpdateAmp(Graph &graph,
-                           const Plan &plan,
-                           const Plan &fwdPlan,
-                           const Tensor &zDeltas,
-                           const Tensor &weights,
-                           const Tensor &biases,
-                           const Tensor &activations,
-                           const std::vector<unsigned> &stride,
-                           const std::vector<unsigned> &padding,
-                           float learningRate,
-                           const std::string &debugPrefix) {
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto batchSize = activations.dim(0);
-  const auto kernelSizeY = weights.dim(2);
-  const auto kernelSizeX = weights.dim(3);
-
-  auto prog = Sequence();
-
+static Tensor calculateWeightDeltasAmp(Graph &graph, const Plan &plan,
+                                       const Plan &fwdPlan, Tensor zDeltas,
+                                       unsigned kernelSizeY,
+                                       unsigned kernelSizeX,
+                                       Tensor activations,
+                                       const std::vector<unsigned> &stride,
+                                       const std::vector<unsigned> &padding,
+                                       Sequence &prog,
+                                       const std::string &debugPrefix) {
   // Shuffle dimensions of the activations and the deltas so there is a single
   // channel dimension.
   auto activationsView =
@@ -3054,7 +3011,54 @@ convolutionWeightUpdateAmp(Graph &graph,
                             weightDeltas.dim(3) / fwdInChansPerGroup,
                             fwdInChansPerGroup})
                        .dimShuffle({2, 4, 0, 1, 3, 5});
+  return weightDeltas;
+}
+
+static Tensor
+calculateWeightDeltas(Graph &graph, const Plan &plan,
+                      const Plan &fwdPlan, Tensor zDeltas,
+                      unsigned kernelSizeY, unsigned kernelSizeX,
+                      Tensor activations, const std::vector<unsigned> &stride,
+                      const std::vector<unsigned> &padding,
+                      Sequence &prog,
+                      const std::string &debugPrefix) {
+  if (plan.useConvolutionInstructions) {
+    return calculateWeightDeltasAmp(graph, plan, fwdPlan, zDeltas,
+                                    kernelSizeY, kernelSizeX, activations,
+                                    stride, padding, prog, debugPrefix);
+  }
+  return calculateWeightDeltasAop(graph, plan, fwdPlan, zDeltas,
+                                  kernelSizeY, kernelSizeX,
+                                  activations, stride, padding, prog,
+                                  debugPrefix);
+}
+
+Program
+convolutionWeightUpdate(Graph &graph,
+                        const Plan &plan, const Plan &fwdPlan,
+                        Tensor zDeltas, Tensor weights, Tensor biases,
+                        Tensor activations,
+                        const std::vector<unsigned> &stride,
+                        const std::vector<unsigned> &padding,
+                        float learningRate, const std::string &debugPrefix) {
+  const unsigned kernelSizeY = weights.dim(2);
+  const unsigned kernelSizeX = weights.dim(3);
+  const auto layerName = debugPrefix
+                         + "/ConvWeightUpdate"
+                         + convSuffix({kernelSizeY, kernelSizeX}, stride,
+                                      false)
+                         + (plan.useConvolutionInstructions ? "_amp" : "_aop");
+  Sequence prog;
+  auto weightDeltas = calculateWeightDeltas(graph, plan, fwdPlan, zDeltas,
+                                            kernelSizeY, kernelSizeX,
+                                            activations, stride, padding,
+                                            prog, layerName);
+
+
   // Add the weight deltas to the weights.
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto batchSize = activations.dim(0);
+  const auto dType = graph.getTensorElementType(zDeltas);
   auto addCS = graph.addComputeSet(debugPrefix + "/UpdateWeights");
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   assert(weightDeltas.shape() == weights.shape());
@@ -3098,32 +3102,6 @@ convolutionWeightUpdateAmp(Graph &graph,
   prog.add(Execute(addCS));
   prog.add(updateBiasProg);
   return prog;
-}
-
-Program
-convolutionWeightUpdate(Graph &graph,
-                        const Plan &plan, const Plan &fwdPlan,
-                        Tensor zDeltas, Tensor weights, Tensor biases,
-                        Tensor activations,
-                        const std::vector<unsigned> &stride,
-                        const std::vector<unsigned> &padding,
-                        float learningRate, const std::string &debugPrefix) {
-  const unsigned kernelSizeY = weights.dim(2);
-  const unsigned kernelSizeX = weights.dim(3);
-  const auto layerName = debugPrefix
-                         + "/ConvWeightUpdate"
-                         + convSuffix({kernelSizeY, kernelSizeX}, stride,
-                                      false)
-                         + (plan.useConvolutionInstructions ? "_amp" : "_aop");
-  if (plan.useConvolutionInstructions) {
-    return convolutionWeightUpdateAmp(graph, plan, fwdPlan, zDeltas,
-                                      weights, biases, activations,
-                                      stride, padding, learningRate,
-                                      layerName);
-  }
-  return convolutionWeightUpdateAop(graph, plan, fwdPlan, zDeltas, weights,
-                                    biases, activations, stride, padding,
-                                    learningRate, layerName);
 }
 
 } // namespace conv
