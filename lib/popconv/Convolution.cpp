@@ -3012,7 +3012,7 @@ static Tensor calculateWeightDeltasAmp(Graph &graph, const Plan &plan,
   return weightDeltas;
 }
 
-static Tensor
+Tensor
 calculateWeightDeltas(Graph &graph, const Plan &plan,
                       const Plan &fwdPlan, Tensor zDeltas,
                       unsigned kernelSizeY, unsigned kernelSizeX,

@@ -131,6 +131,16 @@ convolutionBackward(poplar::Graph &graph,
                              isFractional, debugPrefix);
 }
 
+poplar::Tensor
+calculateWeightDeltas(poplar::Graph &graph, const Plan &plan,
+                      const Plan &fwdPlan, poplar::Tensor zDeltas,
+                      unsigned kernelSizeY, unsigned kernelSizeX,
+                      poplar::Tensor activations,
+                      const std::vector<unsigned> &stride,
+                      const std::vector<unsigned> &padding,
+                      poplar::program::Sequence &prog,
+                      const std::string &debugPrefix = "");
+
 poplar::program::Program
 convolutionWeightUpdate(poplar::Graph &graph,
                         const Plan &plan, const Plan &fwdPlan,

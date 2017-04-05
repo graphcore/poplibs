@@ -9,6 +9,8 @@
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
 #include <popstd/ActivationMapping.hpp>
+#include <popconv/Convolution.hpp>
+#include <popconv/codelets.hpp>
 #include <poplin/MatMul.hpp>
 #include <popstd/Add.hpp>
 #include <popreduce/Reduce.hpp>
@@ -28,6 +30,279 @@ using namespace poplib_test::util;
 using namespace poplin;
 using namespace popstd;
 using namespace popreduce;
+
+template <class T>
+static void
+groupFullyConnectedPrevAct(boost::const_multi_array_ref<double, 2> src,
+                           boost::multi_array_ref<T, 6> dst) {
+  unsigned batchSize = src.shape()[0];
+  unsigned inputSize = src.shape()[1];
+  assert(dst.shape()[2] == 1);
+  assert(dst.shape()[3] == 1);
+  unsigned outChansPerGroup = dst.shape()[4];
+  unsigned inChansPerGroup = dst.shape()[5];
+  assert(dst.shape()[0] * outChansPerGroup == batchSize);
+  assert(dst.shape()[1] * inChansPerGroup == inputSize);
+  for (unsigned b = 0; b != batchSize; ++b) {
+    for (unsigned x = 0; x != inputSize; ++x) {
+      dst[b / outChansPerGroup][x / inChansPerGroup][0][0]
+         [b % outChansPerGroup][x % inChansPerGroup] = src[b][x];
+    }
+  }
+}
+
+static void
+groupFullyConnectedPrevAct(boost::const_multi_array_ref<double, 2> src,
+                           const std::string &dstType,
+                           const std::vector<std::size_t> &dstDims,
+                           void *dst) {
+  assert(dstDims.size() == 6);
+  const auto &multiArrayDims =
+    boost::extents[dstDims[0]][dstDims[1]][dstDims[2]][dstDims[3]][dstDims[4]]
+                  [dstDims[5]];
+  if (dstType == "float") {
+    groupFullyConnectedPrevAct(
+      src,
+      boost::multi_array_ref<float, 6>(reinterpret_cast<float*>(dst),
+                                       multiArrayDims)
+    );
+  } else {
+    assert(dstType == "half");
+    groupFullyConnectedPrevAct(
+      src,
+      boost::multi_array_ref<poplar::half, 6>(
+        reinterpret_cast<poplar::half*>(dst),
+        multiArrayDims
+      )
+    );
+  }
+}
+
+template <class T>
+static void
+groupFullyConnectedZDeltas(boost::const_multi_array_ref<double, 2> src,
+                           boost::multi_array_ref<T, 5> dst) {
+  unsigned batchSize = src.shape()[0];
+  unsigned inputSize = src.shape()[1];
+  assert(dst.shape()[0] == 1);
+  assert(dst.shape()[2] == 1);
+  unsigned chansPerGroup = dst.shape()[4];
+  assert(dst.shape()[1] * chansPerGroup == batchSize);
+  assert(dst.shape()[3] == inputSize);
+  for (unsigned b = 0; b != batchSize; ++b) {
+    for (unsigned x = 0; x != inputSize; ++x) {
+      dst[0][b / chansPerGroup][0][x][b % chansPerGroup] = src[b][x];
+    }
+  }
+}
+
+static void
+groupFullyConnectedZDeltas(boost::const_multi_array_ref<double, 2> src,
+                           const std::string &dstType,
+                           const std::vector<std::size_t> &dstDims,
+                           void *dst) {
+  assert(dstDims.size() == 5);
+  const auto &multiArrayDims =
+    boost::extents[dstDims[0]][dstDims[1]][dstDims[2]][dstDims[3]][dstDims[4]];
+  if (dstType == "float") {
+    groupFullyConnectedZDeltas(
+      src,
+      boost::multi_array_ref<float, 5>(reinterpret_cast<float*>(dst),
+                                       multiArrayDims)
+    );
+  } else {
+    assert(dstType == "half");
+    groupFullyConnectedZDeltas(
+      src,
+      boost::multi_array_ref<poplar::half, 5>(
+        reinterpret_cast<poplar::half*>(dst),
+        multiArrayDims
+      )
+    );
+  }
+}
+
+template <class T>
+static void
+ungroupFullyConnectedPrevDeltas(boost::const_multi_array_ref<T, 6> src,
+                                boost::multi_array_ref<double, 2> dst) {
+  unsigned batchSize = dst.shape()[0];
+  unsigned inputSize = dst.shape()[1];
+  assert(src.shape()[2] == 1);
+  assert(src.shape()[3] == 1);
+  unsigned outChansPerGroup = src.shape()[4];
+  unsigned inChansPerGroup = src.shape()[5];
+  assert(src.shape()[0] * outChansPerGroup == batchSize);
+  assert(src.shape()[1] * inChansPerGroup == inputSize);
+  for (unsigned b = 0; b != batchSize; ++b) {
+    for (unsigned x = 0; x != inputSize; ++x) {
+       dst[b][x] = src[b / outChansPerGroup][x / inChansPerGroup][0][0]
+                      [b % outChansPerGroup][x % inChansPerGroup];
+    }
+  }
+}
+
+static void
+ungroupFullyConnectedPrevDeltas(const std::string &srcType,
+                                const std::vector<std::size_t> &srcDims,
+                                const void *src,
+                                boost::multi_array_ref<double, 2> dst) {
+  assert(srcDims.size() == 6);
+  const auto &multiArrayDims =
+    boost::extents[srcDims[0]][srcDims[1]][srcDims[2]][srcDims[3]][srcDims[4]]
+                  [srcDims[5]];
+  if (srcType == "float") {
+   ungroupFullyConnectedPrevDeltas(
+      boost::const_multi_array_ref<float, 6>(
+        reinterpret_cast<const float*>(src), multiArrayDims
+      ),
+      dst
+    );
+  } else {
+    assert(srcType == "half");
+    ungroupFullyConnectedPrevDeltas(
+       boost::const_multi_array_ref<poplar::half, 6>(
+         reinterpret_cast<const poplar::half*>(src),
+         multiArrayDims
+       ),
+       dst
+     );
+  }
+}
+
+template <class T>
+static void
+groupFullyConnectedWeights(boost::const_multi_array_ref<double, 2> src,
+                           boost::multi_array_ref<T, 5> dst) {
+  unsigned outputSize = src.shape()[0];
+  unsigned inputSize = src.shape()[1];
+  assert(dst.shape()[0] == 1);
+  assert(dst.shape()[2] == 1);
+  assert(dst.shape()[3] == outputSize);
+  unsigned chansPerGroup = dst.shape()[4];
+  assert(chansPerGroup * dst.shape()[1] == inputSize);
+  for (unsigned o = 0; o != outputSize; ++o) {
+    for (unsigned i = 0; i != inputSize; ++i) {
+      dst[0][i / chansPerGroup][0][o][i % chansPerGroup] = src[o][i];
+    }
+  }
+}
+
+static void
+groupFullyConnectedWeights(boost::const_multi_array_ref<double, 2> src,
+                           const std::string &dstType,
+                           const std::vector<std::size_t> &dstDims,
+                           void *dst) {
+  assert(dstDims.size() == 5);
+  const auto &multiArrayDims =
+    boost::extents[dstDims[0]][dstDims[1]][dstDims[2]][dstDims[3]][dstDims[4]];
+  if (dstType == "float") {
+    groupFullyConnectedWeights(
+      src,
+      boost::multi_array_ref<float, 5>(reinterpret_cast<float*>(dst),
+                                       multiArrayDims)
+    );
+  } else {
+    assert(dstType == "half");
+    groupFullyConnectedWeights(
+      src,
+      boost::multi_array_ref<poplar::half, 5>(
+        reinterpret_cast<poplar::half*>(dst),
+        multiArrayDims
+      )
+    );
+  }
+}
+
+template <class T>
+static void
+ungroupFullyConnectedWeights(boost::const_multi_array_ref<T, 5> src,
+                             boost::multi_array_ref<double, 2> dst) {
+  unsigned outputSize = dst.shape()[0];
+  unsigned inputSize = dst.shape()[1];
+  assert(src.shape()[0] == 1);
+  assert(src.shape()[2] == 1);
+  assert(src.shape()[3] == outputSize);
+  unsigned chansPerGroup = src.shape()[4];
+  assert(chansPerGroup * src.shape()[1] == inputSize);
+  for (unsigned o = 0; o != outputSize; ++o) {
+    for (unsigned i = 0; i != inputSize; ++i) {
+      dst[o][i] = src[0][i / chansPerGroup][0][o][i % chansPerGroup];
+    }
+  }
+}
+
+static void
+ungroupFullyConnectedWeights(const std::string &srcType,
+                             const std::vector<std::size_t> &srcDims,
+                             void *src,
+                             boost::multi_array_ref<double, 2> dst) {
+  assert(srcDims.size() == 5);
+  const auto &multiArrayDims =
+    boost::extents[srcDims[0]][srcDims[1]][srcDims[2]][srcDims[3]][srcDims[4]];
+  if (srcType == "float") {
+    ungroupFullyConnectedWeights(
+      boost::const_multi_array_ref<float, 5>(
+        reinterpret_cast<const float*>(src), multiArrayDims
+      ),
+      dst
+    );
+  } else {
+    assert(srcType == "half");
+    ungroupFullyConnectedWeights(
+      boost::const_multi_array_ref<poplar::half, 5>(
+        reinterpret_cast<const poplar::half*>(src), multiArrayDims
+      ),
+      dst
+    );
+  }
+}
+
+template <class T>
+static void
+ungroupFullyConnectedOutput(boost::const_multi_array_ref<T, 5> src,
+                            boost::multi_array_ref<double, 2> dst) {
+  assert(src.shape()[0] == 1);
+  assert(src.shape()[2] == 1);
+  unsigned batchSize = dst.shape()[0];
+  unsigned outputSize = dst.shape()[1];
+  unsigned batchGroupSize = src.shape()[4];
+  assert(src.shape()[1] * batchGroupSize == batchSize);
+  assert(src.shape()[3] == outputSize);
+  for (unsigned b = 0; b != batchSize; ++b) {
+    for (unsigned x = 0; x != outputSize; ++x) {
+      dst[b][x] = src[0][b / batchGroupSize][0][x][b % batchGroupSize];
+    }
+  }
+}
+
+static void
+ungroupFullyConnectedOutput(const std::string &srcType,
+                            const std::vector<std::size_t> &srcDims,
+                            const void *src,
+                            boost::multi_array_ref<double, 2> dst) {
+  assert(srcDims.size() == 5);
+  const auto &multiArrayDims =
+    boost::extents[srcDims[0]][srcDims[1]][srcDims[2]][srcDims[3]][srcDims[4]];
+  if (srcType == "float") {
+    ungroupFullyConnectedOutput(
+      boost::const_multi_array_ref<float, 5>(
+        reinterpret_cast<const float*>(src),
+        multiArrayDims
+      ),
+      dst
+    );
+  } else {
+    assert(srcType == "half");
+    ungroupFullyConnectedOutput(
+      boost::const_multi_array_ref<half, 5>(
+        reinterpret_cast<const half*>(src),
+        multiArrayDims
+      ),
+      dst
+    );
+  }
+}
 
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
@@ -87,7 +362,9 @@ int main(int argc, char **argv) {
   }
 
   bool inferenceOnly = vm.count("inference-only");
+  const auto learningRate = 0.5;
   Graph graph(createIPUModelDevice(info));
+  popconv::addCodelets(graph);
   popstd::addCodelets(graph);
   popreduce::addCodelets(graph);
   poplin::addCodelets(graph);
@@ -95,43 +372,62 @@ int main(int argc, char **argv) {
   std::string dataTypeStr(asString(dataType));
   std::string partialsTypeStr(asString(partialsType));
 
+  popconv::Planner planner;
+  // A fully connected fwd pass is equivalent to a convolution with
+  // input channels = inputSize
+  // width = outputSize
+  // height = 1
+  // output channels = batchSize.
+  popconv::PlanControl convPlanControl;
+  auto fwdPlan = planner.createPlan(1 /*height*/, outputSize, inputSize,
+                                    1 /*kernelHeight*/, 1 /*kernelWidth*/,
+                                    1 /*strideH*/, 1 /*strideW*/,
+                                    0 /*paddingHeight*/, 0 /*paddingWidth*/,
+                                    batchSize, 1,
+                                    dataTypeStr, partialsTypeStr,
+                                    false, graph, convPlanControl);
 
   // Create tensors.
-  Tensor prevAct = graph.addTensor(dataTypeStr, {batchSize, inputSize},
-                                   "prevAct");
-  mapActivations(graph, prevAct);
-  PlanningCache cache;
-  MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsTypeStr;
-  mmOpt.leftHandArgUsedInTranspose = !inferenceOnly;
-  mmOpt.cache = &cache;
-  auto weights = createMatMulInputA(graph, dataTypeStr,
-                                    {outputSize, inputSize},
-                                    prevAct.transpose(),
-                                    "weights", mmOpt);
+  Tensor weights = graph.addTensor(dataTypeStr,
+                                   {1,
+                                    inputSize / fwdPlan.inChansPerGroup,
+                                    1 /*height*/,
+                                    outputSize,
+                                    fwdPlan.inChansPerGroup}, "weights");
+  popconv::mapActivations(graph, fwdPlan, weights);
+  Tensor prevAct = popconv::createWeights(graph, dataTypeStr, inputSize,
+                                          1 /*kernelHeight*/, 1 /*kernelWidth*/,
+                                          batchSize, fwdPlan);
+  Tensor nextAct =
+      graph.addTensor(dataTypeStr, {1 /*batchSize*/,
+                                    batchSize / fwdPlan.partialChansPerGroup,
+                                    1 /* outHeight */,
+                                    outputSize, fwdPlan.partialChansPerGroup},
+                      "nextAct");
+  mapActivations(graph, nextAct);
+
   auto biases = graph.addTensor(dataTypeStr, {outputSize}, "biases");
   mapTensor(graph, biases);
+
+  // A fully connected bwd pass is equivalent to a weight update pass for a
+  // convolutional layer with
+  // input channels = input size
+  // width = outputSize
+  // height = 1
+  // output channels = batchSize.
+  // Use the forward plan to avoid rearrangement of weight deltas.
+  // TODO produce a joint plan for the forward and backward passes.
+  auto bwdPlan = fwdPlan;
+  bwdPlan.useConvolutionInstructions = false;
   Tensor prevDeltas, zDeltas;
   if (!inferenceOnly) {
-    zDeltas = graph.addTensor(dataTypeStr, {batchSize, outputSize}, "zDeltas");
+    zDeltas = graph.addTensor(dataTypeStr,
+                              {1 /*batchSize*/,
+                               batchSize / bwdPlan.partialChansPerGroup,
+                               1 /* outHeight */,
+                               outputSize, bwdPlan.partialChansPerGroup},
+                              "zDeltas");
     mapActivations(graph, zDeltas);
-  }
-
-  auto fwdProg = Sequence();
-  auto nextAct = matMul(graph, prevAct, weights.transpose(), fwdProg,
-                        "fc", mmOpt);
-  auto bBiases = biases.broadcast(batchSize, 0)
-                       .reshape({batchSize, outputSize});
-  addTo(graph, nextAct, bBiases, 1, fwdProg);
-  auto bwdProg = Sequence();
-  const auto learningRate = 0.5;
-  if (!inferenceOnly) {
-    prevDeltas = matMul(graph, zDeltas, weights, bwdProg, "fc", mmOpt);
-    auto weightDeltas = matMul(graph, zDeltas.transpose(), prevAct, bwdProg,
-                               "fc", mmOpt);
-    addTo(graph, weights, weightDeltas, -learningRate, bwdProg);
-    auto biasDeltas = reduce(graph, zDeltas, bwdProg);
-    addTo(graph, biases, biasDeltas, -learningRate, bwdProg);
   }
 
   auto upload = Sequence();
@@ -144,13 +440,60 @@ int main(int argc, char **argv) {
                                                    download);
   auto rawHostNextAct = allocateHostMemoryForTensor(graph, nextAct, upload,
                                                     download);
+  auto fwdProg = Sequence();
+  auto bwdProg = Sequence();
+  auto zeroBiases = graph.addConstantTensor(dataTypeStr, {batchSize}, 0);
+  fwdProg.add(popconv::convolution(graph, fwdPlan, {1, 1}, {0, 0}, weights,
+                                   prevAct, zeroBiases, nextAct,
+                                   partialsTypeStr, false));
+  auto bBiases = biases.broadcast(batchSize, 0)
+                       .reshape({batchSize / fwdPlan.partialChansPerGroup,
+                                 fwdPlan.partialChansPerGroup, outputSize})
+                       .dimShuffle({0, 2, 1});
+  addTo(graph, nextAct, bBiases, 1, fwdProg);
+
   std::unique_ptr<char[]> rawHostZDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
+
   if (!inferenceOnly) {
+    prevDeltas = popconv::calculateWeightDeltas(graph, bwdPlan, fwdPlan,
+                                                zDeltas, 1 /*kernelSizeY*/,
+                                                1 /*kernelSizeX*/, weights,
+                                                {1, 1}, {0, 0}, bwdProg);
     rawHostZDeltas = allocateHostMemoryForTensor(graph, zDeltas, upload,
                                                  download);
     rawHostPrevDeltas = allocateHostMemoryForTensor(graph, prevDeltas, upload,
                                                     download);
+    // Implement the weight update using matMul. This is inefficient as it
+    // take advantage of batching and a costly rearrangement of the weight
+    // deltas is required to match the layout of the weights.
+    // TODO optimize this.
+    auto zDeltasRearrangedView = zDeltas.dimShuffle({0, 1, 4, 2, 3})
+                                        .reshape({batchSize, outputSize});
+    auto zDeltasRearranged = graph.addTensor(dataTypeStr,
+                                             zDeltasRearrangedView.shape());
+    bwdProg.add(Copy(zDeltasRearrangedView, zDeltasRearranged));
+    graph.setTileMapping(zDeltasRearranged,
+                         graph.getTileMapping(zDeltasRearrangedView));
+    auto prevActRearrangedView = prevAct.dimShuffle({0, 4, 1, 5, 2, 3})
+                                        .reshape({batchSize, inputSize});
+    auto prevActRearranged = graph.addTensor(dataTypeStr,
+                                             prevActRearrangedView.shape());
+    bwdProg.add(Copy(prevActRearrangedView, prevActRearranged));
+    graph.setTileMapping(prevActRearranged,
+                         graph.getTileMapping(prevActRearrangedView));
+    MatMulOptions mmOpt;
+    mmOpt.partialsType = partialsTypeStr;
+    auto weightDeltas = matMul(graph, zDeltasRearranged.transpose(),
+                               prevActRearranged, bwdProg, "fc", mmOpt);
+    auto weightDeltasRearrangedView =
+        weightDeltas.reshape({outputSize, inputSize / fwdPlan.inChansPerGroup,
+                              fwdPlan.inChansPerGroup})
+                    .dimShuffle({1, 0, 2})
+                    .reshape(weights.shape());
+    addTo(graph, weights, weightDeltasRearrangedView, -learningRate, bwdProg);
+    auto biasDeltas = reduce(graph, zDeltasRearranged, bwdProg);
+    addTo(graph, biases, biasDeltas, -learningRate, bwdProg);
   }
 
   Engine engine(graph, {std::move(upload), std::move(download),
@@ -168,14 +511,17 @@ int main(int argc, char **argv) {
   writeRandomValues(hostPrevAct, -4.0, 4.0, randomEngine);
   writeRandomValues(hostWeights, -3.0, 3.0, randomEngine);
   writeRandomValues(hostBiases, -4.0, 4.0, randomEngine);
-  copy(hostPrevAct, dataTypeStr, rawHostPrevAct.get());
-  copy(hostWeights, dataTypeStr, rawHostWeights.get());
+  groupFullyConnectedPrevAct(hostPrevAct, dataTypeStr, prevAct.shape(),
+                             rawHostPrevAct.get());
+  groupFullyConnectedWeights(hostWeights, dataTypeStr, weights.shape(),
+                             rawHostWeights.get());
   copy(hostBiases, dataTypeStr, rawHostBiases.get());
   // Run the forward pass.
   engine.run(0); // Upload.
   engine.run(2); // Run.
   engine.run(1); // Download.
-  copy(dataTypeStr, rawHostNextAct.get(), hostNextAct);
+  ungroupFullyConnectedOutput(dataTypeStr, nextAct.shape(),
+                              rawHostNextAct.get(), hostNextAct);
 
   // Validate against a reference model.
   boost::multi_array<double, 2>
@@ -196,14 +542,13 @@ int main(int argc, char **argv) {
     auto modelBiases = hostBiases;
     // Run the backwards pass.
     writeRandomValues(hostZDeltas, -5.0, 5.0, randomEngine);
-    copy(hostZDeltas, dataTypeStr, rawHostZDeltas.get());
+    groupFullyConnectedZDeltas(hostZDeltas, dataTypeStr, zDeltas.shape(),
+                               rawHostZDeltas.get());
     engine.run(0); // Upload.
     engine.run(3); // Run.
     engine.run(1); // Download.
-    copy(dataTypeStr, rawHostPrevDeltas.get(), hostPrevDeltas);
-    copy(dataTypeStr, rawHostWeights.get(), hostWeights);
-    copy(dataTypeStr, rawHostBiases.get(), hostBiases);
-
+    ungroupFullyConnectedPrevDeltas(dataTypeStr, prevDeltas.shape(),
+                                    rawHostPrevDeltas.get(), hostPrevDeltas);
 
     // Validate against a reference model.
     boost::multi_array<double, 2>
@@ -212,9 +557,12 @@ int main(int argc, char **argv) {
                                             modelPrevDeltas);
     matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
                                  relativeTolerance);
+    ungroupFullyConnectedWeights(dataTypeStr, weights.shape(),
+                                 rawHostWeights.get(), hostWeights);
+    copy(dataTypeStr, rawHostBiases.get(), hostBiases);
     poplib_test::fc::fullyConnectedWeightUpdate(learningRate, hostPrevAct,
-                                                hostZDeltas,
-                                                modelWeights, modelBiases);
+                                                hostZDeltas, modelWeights,
+                                                modelBiases);
     matchesModel &= checkIsClose("weights",
                                  hostWeights, modelWeights, relativeTolerance);
     matchesModel &= checkIsClose("biases",
