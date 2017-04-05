@@ -576,11 +576,10 @@ int main(int argc, char **argv) {
     auto modelWeights = hostWeights;
     auto modelBiases = hostBiases;
     // Run the backwards pass.
-    if (doBwdPass) {
-      writeRandomValues(hostZDeltas, -5.0, 5.0, randomEngine);
-      groupFullyConnectedZDeltas(hostZDeltas, dataTypeStr, zDeltas.shape(),
-                                 rawHostZDeltas.get());
-    } else {
+    writeRandomValues(hostZDeltas, -5.0, 5.0, randomEngine);
+    groupFullyConnectedZDeltas(hostZDeltas, dataTypeStr, zDeltas.shape(),
+                               rawHostZDeltas.get());
+    if (!doBwdPass) {
       writeRandomValues(hostPrevDeltas, -5.0, 5.0, randomEngine);
       groupFullyConnectedPrevAct(hostPrevDeltas, dataTypeStr,
                                  prevDeltas.shape(),
