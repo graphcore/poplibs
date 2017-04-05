@@ -11,6 +11,7 @@ add_library(poplib_test SHARED
   Lstm.cpp
   MaxPooling.cpp
   NonLinearity.cpp
+  Pass.cpp
   Rnn.cpp
   Util.cpp
   ${PROJECT_SOURCE_DIR}/include/poplib_test/Convolution.hpp
@@ -20,6 +21,7 @@ add_library(poplib_test SHARED
   ${PROJECT_SOURCE_DIR}/include/poplib_test/Lstm.hpp  
   ${PROJECT_SOURCE_DIR}/include/poplib_test/MaxPooling.hpp
   ${PROJECT_SOURCE_DIR}/include/poplib_test/NonLinearity.hpp
+  ${PROJECT_SOURCE_DIR}/include/poplib_test/Pass.hpp
   ${PROJECT_SOURCE_DIR}/include/poplib_test/Rnn.hpp  
   ${PROJECT_SOURCE_DIR}/include/poplib_test/Util.hpp
 )

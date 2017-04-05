@@ -19,6 +19,7 @@
 #include <popnn/NonLinearity.hpp>
 #include <poplib_test/Convolution.hpp>
 #include <poplib_test/NonLinearity.hpp>
+#include <poplib_test/Pass.hpp>
 #include <poplib_test/Util.hpp>
 #include <util/Compiler.hpp>
 #include <random>
@@ -27,44 +28,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poplib_test::util;
 using namespace popstd;
-
-// class to allow the training pass to be specified
-enum class Pass {
-  FWD,
-  BWD,
-  WU,
-  ALL
-};
-
-const char *asString(const Pass &pass) {
-  switch (pass) {
-  case Pass::ALL: return "all";
-  case Pass::FWD: return "fwd";
-  case Pass::BWD: return "bwd";
-  case Pass::WU:  return "wu";
-  }
-  POPLIB_UNREACHABLE();
-}
-
-std::istream &operator>>(std::istream &is, Pass &pass) {
-  std::string token;
-  is >> token;
-  if (token == "all")
-    pass = Pass::ALL;
-  else if (token == "fwd")
-    pass = Pass::FWD;
-  else if (token == "bwd")
-    pass = Pass::BWD;
-  else if (token == "wu")
-    pass = Pass::WU;
-  else
-    throw popstd::poplib_error("Invalid pass <" + token + ">");
-  return is;
-}
-
-std::ostream &operator<<(std::ostream &os, const Pass &pass) {
-  return os << asString(pass);
-}
+using poplib_test::Pass;
 
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
