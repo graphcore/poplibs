@@ -1139,15 +1139,25 @@ getConvVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
                             bool floatPartials,
                             const ConvolutionParams &params) {
   std::vector<ConvVertexType> convVertexTypeCandidates;
+  // We limit the use of the convolution instruction to cases where the number
+  // of output channels is a multiple of the output channel grouping that would
+  // be used.
+  // TODO teach the convolution code to use smaller stores and / or zero pad
+  // in this case.
+  const auto convUnitsPerTile =
+      getConvUnitsPerTile(deviceInfo, floatActivations, floatPartials);
   if (canUseConvolutionInstruction(floatActivations, floatPartials,
                                    params.strideY, params.strideX,
-                                   deviceInfo)) {
+                                   deviceInfo) &&
+      params.outputDepth % convUnitsPerTile == 0) {
     convVertexTypeCandidates.emplace_back(true, floatActivations,
                                           floatPartials);
   } else if (!floatActivations && !floatPartials &&
              canUseConvolutionInstruction(false, true,
                                           params.strideY, params.strideX,
-                                          deviceInfo)) {
+                                          deviceInfo) &&
+             params.outputDepth %
+             deviceInfo.fp16InFp32OutConvUnitsPerTile == 0) {
     convVertexTypeCandidates.emplace_back(true, false, true);
   }
   convVertexTypeCandidates.emplace_back(false, floatActivations, floatPartials);

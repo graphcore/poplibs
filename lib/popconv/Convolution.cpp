@@ -1479,6 +1479,7 @@ convolutionByAmp(Graph &graph, const Plan &plan,
   const auto dType = graph.getTensorElementType(in);
   const auto outNumChans = weights.dim(0) * weights.dim(4);
   const auto partialChansPerGroup = plan.partialChansPerGroup;
+  assert(outNumChans % partialChansPerGroup == 0);
   const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
   const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
   const auto tilesPerKernelY = plan.tilesPerKernelYAxis;
