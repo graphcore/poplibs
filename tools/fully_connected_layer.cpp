@@ -20,6 +20,7 @@
 #include <poplin/codelets.hpp>
 #include <poplib_test/FullyConnected.hpp>
 #include <poplib_test/NonLinearity.hpp>
+#include <poplib_test/Pass.hpp>
 #include <poplib_test/Util.hpp>
 #include <util/Compiler.hpp>
 #include <random>
@@ -30,6 +31,7 @@ using namespace poplib_test::util;
 using namespace poplin;
 using namespace popstd;
 using namespace popreduce;
+using poplib_test::Pass;
 
 template <class T>
 static void
@@ -317,6 +319,7 @@ int main(int argc, char **argv) {
   DeviceInfo info;
   info.IPUExchangeType =
       DeviceInfo::ExchangeType::BARE_NAKED_WITH_AGGRESSIVE_MULTICAST;
+  Pass pass = Pass::ALL;
 
   po::options_description desc("Options");
   desc.add_options()
@@ -347,6 +350,9 @@ int main(int argc, char **argv) {
     ("in-place-update",
      po::value<bool>(&inPlaceUpdate)->default_value(true),
      "Perform param update in place")
+    ("single-phase",
+     po::value<Pass>(&pass)->default_value(pass),
+     "Run phase all | fwd | bwd | wu")
   ;
   po::variables_map vm;
   try {
@@ -362,6 +368,15 @@ int main(int argc, char **argv) {
   }
 
   bool inferenceOnly = vm.count("inference-only");
+  if (inferenceOnly && pass != Pass::ALL && pass != Pass::FWD) {
+    std::cerr << "pass=" << pass << " specified with --inference-only\n";
+    return 1;
+  }
+
+  bool doFwdPass = pass == Pass::ALL || pass == Pass::FWD;
+  bool doBwdPass = !inferenceOnly && (pass == Pass::ALL || pass == Pass::BWD);
+  bool doWuPass = !inferenceOnly && (pass == Pass::ALL || pass == Pass::WU);
+
   const auto learningRate = 0.5;
   Graph graph(createIPUModelDevice(info));
   popconv::addCodelets(graph);
@@ -419,8 +434,11 @@ int main(int argc, char **argv) {
   // TODO produce a joint plan for the forward and backward passes.
   auto bwdPlan = fwdPlan;
   bwdPlan.useConvolutionInstructions = false;
-  Tensor prevDeltas, zDeltas;
-  if (!inferenceOnly) {
+  auto upload = Sequence();
+  auto download = Sequence();
+  Tensor zDeltas;
+  std::unique_ptr<char[]> rawHostZDeltas;
+  if (doBwdPass || doWuPass) {
     zDeltas = graph.addTensor(dataTypeStr,
                               {1 /*batchSize*/,
                                batchSize / bwdPlan.partialChansPerGroup,
@@ -428,10 +446,10 @@ int main(int argc, char **argv) {
                                outputSize, bwdPlan.partialChansPerGroup},
                               "zDeltas");
     mapActivations(graph, zDeltas);
+    rawHostZDeltas = allocateHostMemoryForTensor(graph, zDeltas, upload,
+                                                 download);
   }
 
-  auto upload = Sequence();
-  auto download = Sequence();
   auto rawHostPrevAct = allocateHostMemoryForTensor(graph, prevAct, upload,
                                                     download);
   auto rawHostWeights = allocateHostMemoryForTensor(graph, weights, upload,
@@ -442,28 +460,42 @@ int main(int argc, char **argv) {
                                                     download);
   auto fwdProg = Sequence();
   auto bwdProg = Sequence();
-  auto zeroBiases = graph.addConstantTensor(dataTypeStr, {batchSize}, 0);
-  fwdProg.add(popconv::convolution(graph, fwdPlan, {1, 1}, {0, 0}, weights,
-                                   prevAct, zeroBiases, nextAct,
-                                   partialsTypeStr, false));
-  auto bBiases = biases.broadcast(batchSize, 0)
-                       .reshape({batchSize / fwdPlan.partialChansPerGroup,
-                                 fwdPlan.partialChansPerGroup, outputSize})
-                       .dimShuffle({0, 2, 1});
-  addTo(graph, nextAct, bBiases, 1, fwdProg);
 
-  std::unique_ptr<char[]> rawHostZDeltas;
+  if (doFwdPass) {
+    auto zeroBiases = graph.addConstantTensor(dataTypeStr, {batchSize}, 0);
+    fwdProg.add(popconv::convolution(graph, fwdPlan, {1, 1}, {0, 0}, weights,
+                                     prevAct, zeroBiases, nextAct,
+                                     partialsTypeStr, false));
+    auto bBiases = biases.broadcast(batchSize, 0)
+                         .reshape({batchSize / fwdPlan.partialChansPerGroup,
+                                   fwdPlan.partialChansPerGroup, outputSize})
+                         .dimShuffle({0, 2, 1});
+    addTo(graph, nextAct, bBiases, 1, fwdProg);
+  } else {
+    popconv::mapActivations(graph, fwdPlan, weights);
+    popconv::mapWeights(prevAct, graph, fwdPlan, 1);
+  }
+
+  Tensor prevDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
-
-  if (!inferenceOnly) {
+  if (doBwdPass) {
     prevDeltas = popconv::calculateWeightDeltas(graph, bwdPlan, fwdPlan,
                                                 zDeltas, 1 /*kernelSizeY*/,
                                                 1 /*kernelSizeX*/, weights,
                                                 {1, 1}, {0, 0}, bwdProg);
-    rawHostZDeltas = allocateHostMemoryForTensor(graph, zDeltas, upload,
-                                                 download);
-    rawHostPrevDeltas = allocateHostMemoryForTensor(graph, prevDeltas, upload,
-                                                    download);
+  } else {
+    prevDeltas = graph.addTensor(dataTypeStr,
+                                 {batchSize / fwdPlan.partialChansPerGroup,
+                                  inputSize / fwdPlan.inChansPerGroup,
+                                  1,
+                                  1,
+                                  fwdPlan.partialChansPerGroup,
+                                  fwdPlan.inChansPerGroup}, "prevDeltas");
+    popconv::mapWeights(prevDeltas, graph, fwdPlan, 1);
+  }
+  rawHostPrevDeltas = allocateHostMemoryForTensor(graph, prevDeltas, upload,
+                                                  download);
+  if (doWuPass) {
     // Implement the weight update using matMul. This is inefficient as it
     // take advantage of batching and a costly rearrangement of the weight
     // deltas is required to match the layout of the weights.
@@ -524,14 +556,17 @@ int main(int argc, char **argv) {
                               rawHostNextAct.get(), hostNextAct);
 
   // Validate against a reference model.
-  boost::multi_array<double, 2>
-      modelNextAct(boost::extents[batchSize][outputSize]);
-  poplib_test::fc::fullyConnected(hostPrevAct, hostWeights, hostBiases,
-                                  modelNextAct);
-  bool matchesModel = checkIsClose("fwd", hostNextAct, modelNextAct,
-                                   relativeTolerance);
+  bool matchesModel = true;
+  if (doFwdPass) {
+    boost::multi_array<double, 2>
+        modelNextAct(boost::extents[batchSize][outputSize]);
+    poplib_test::fc::fullyConnected(hostPrevAct, hostWeights, hostBiases,
+                                    modelNextAct);
+    matchesModel &= checkIsClose("fwd", hostNextAct, modelNextAct,
+                                 relativeTolerance);
 
-  if (!inferenceOnly) {
+  }
+  if (doBwdPass || doWuPass) {
     boost::multi_array<double, 2> hostZDeltas(
       boost::extents[batchSize][outputSize]
     );
@@ -541,32 +576,44 @@ int main(int argc, char **argv) {
     auto modelWeights = hostWeights;
     auto modelBiases = hostBiases;
     // Run the backwards pass.
-    writeRandomValues(hostZDeltas, -5.0, 5.0, randomEngine);
-    groupFullyConnectedZDeltas(hostZDeltas, dataTypeStr, zDeltas.shape(),
-                               rawHostZDeltas.get());
+    if (doBwdPass) {
+      writeRandomValues(hostZDeltas, -5.0, 5.0, randomEngine);
+      groupFullyConnectedZDeltas(hostZDeltas, dataTypeStr, zDeltas.shape(),
+                                 rawHostZDeltas.get());
+    } else {
+      writeRandomValues(hostPrevDeltas, -5.0, 5.0, randomEngine);
+      groupFullyConnectedPrevAct(hostPrevDeltas, dataTypeStr,
+                                 prevDeltas.shape(),
+                                 rawHostPrevDeltas.get());
+    }
     engine.run(0); // Upload.
     engine.run(3); // Run.
     engine.run(1); // Download.
-    ungroupFullyConnectedPrevDeltas(dataTypeStr, prevDeltas.shape(),
-                                    rawHostPrevDeltas.get(), hostPrevDeltas);
 
     // Validate against a reference model.
-    boost::multi_array<double, 2>
-        modelPrevDeltas(boost::extents[batchSize][inputSize]);
-    poplib_test::fc::fullyConnectedBackward(hostZDeltas, modelWeights,
-                                            modelPrevDeltas);
-    matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
-                                 relativeTolerance);
-    ungroupFullyConnectedWeights(dataTypeStr, weights.shape(),
-                                 rawHostWeights.get(), hostWeights);
-    copy(dataTypeStr, rawHostBiases.get(), hostBiases);
-    poplib_test::fc::fullyConnectedWeightUpdate(learningRate, hostPrevAct,
-                                                hostZDeltas, modelWeights,
-                                                modelBiases);
-    matchesModel &= checkIsClose("weights",
-                                 hostWeights, modelWeights, relativeTolerance);
-    matchesModel &= checkIsClose("biases",
-                                 hostBiases, modelBiases, relativeTolerance);
+    if (doBwdPass) {
+      ungroupFullyConnectedPrevDeltas(dataTypeStr, prevDeltas.shape(),
+                                      rawHostPrevDeltas.get(), hostPrevDeltas);
+      boost::multi_array<double, 2>
+          modelPrevDeltas(boost::extents[batchSize][inputSize]);
+      poplib_test::fc::fullyConnectedBackward(hostZDeltas, modelWeights,
+                                              modelPrevDeltas);
+      matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
+                                   relativeTolerance);
+    }
+    if (doWuPass) {
+      ungroupFullyConnectedWeights(dataTypeStr, weights.shape(),
+                                   rawHostWeights.get(), hostWeights);
+      copy(dataTypeStr, rawHostBiases.get(), hostBiases);
+      poplib_test::fc::fullyConnectedWeightUpdate(learningRate, hostPrevAct,
+                                                  hostZDeltas, modelWeights,
+                                                  modelBiases);
+      matchesModel &= checkIsClose("weights",
+                                   hostWeights, modelWeights,
+                                   relativeTolerance);
+      matchesModel &= checkIsClose("biases",
+                                   hostBiases, modelBiases, relativeTolerance);
+    }
   }
 
   Engine::ReportOptions opt;

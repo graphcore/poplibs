@@ -326,6 +326,30 @@ add_test(NAME fully_connected_half
                  --tiles-per-ipu 16
                  --data-type half)
 
+add_test(NAME fully_connected_half_fwd
+         COMMAND fully_connected_layer
+                 --single-phase=fwd
+                 --input-size 300
+                 --output-size 100
+                 --tiles-per-ipu 16
+                 --data-type half)
+
+add_test(NAME fully_connected_half_bwd
+        COMMAND fully_connected_layer
+                --single-phase=bwd
+                --input-size 300
+                --output-size 100
+                --tiles-per-ipu 16
+                --data-type half)
+
+add_test(NAME fully_connected_half_wu
+        COMMAND fully_connected_layer
+                --single-phase=wu
+                --input-size 300
+                --output-size 100
+                --tiles-per-ipu 16
+                --data-type half)
+
 add_test(NAME fully_connected_half_two_ipu
          COMMAND fully_connected_layer
                  --input-size 300
