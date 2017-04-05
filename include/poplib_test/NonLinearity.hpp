@@ -7,8 +7,7 @@
 #include <boost/multi_array.hpp>
 
 namespace poplib_test {
-
-const inline char *asString(const popnn::NonLinearityType &type) {
+inline const char *asString(const popnn::NonLinearityType &type) {
   switch (type) {
   case popnn::NonLinearityType::NON_LINEARITY_RELU: return "relu";
   case popnn::NonLinearityType::NON_LINEARITY_SIGMOID: return "sigmoid";
@@ -40,7 +39,7 @@ inline std::istream &operator>>(std::istream &in,
 }
 
 void nonLinearity(popnn::NonLinearityType nonLinearityType,
-                               boost::multi_array<double, 2> &array);
+                  boost::multi_array_ref<double, 2> array);
 
 void nonLinearity(popnn::NonLinearityType nonLinearityType,
                   boost::multi_array<double, 4> &array);

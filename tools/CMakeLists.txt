@@ -17,6 +17,12 @@ target_link_libraries(fully_connected_layer
                       poplib_test
                       Boost::program_options)
 
+
+add_tool(lstm_layer lstm_layer.cpp)
+target_link_libraries(lstm_layer
+                      poplib_test
+                      Boost::program_options)
+
 add_tool(max_pool_layer max_pool_layer.cpp)
 target_link_libraries(max_pool_layer
                       poplib_test

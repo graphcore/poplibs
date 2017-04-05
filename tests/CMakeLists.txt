@@ -492,8 +492,6 @@ add_test(NAME gemm_40x39x38_right_transpose
                  --left-matrix-op=normal
                  --right-matrix-op=transpose)
 
-
-
 add_test(NAME rnn_3x2x38_no_feedfwd
          COMMAND rnn_layer
                  --sequence-size 3
@@ -510,3 +508,18 @@ add_test(NAME rnn_3x32x2x38_with_feedfwd
                  --batch-size 2
                  --nonlinearity-type sigmoid
                  --apply-feedforward-weights) 
+                 
+add_test(NAME basic_lstm_40x4x38_seq_2_half_data
+         COMMAND lstm_layer
+                 --input-size 40
+                 --batch-size 4
+                 --output-size 38
+                 --sequence-size 2)
+
+add_test(NAME basic_lstm_40x4x38_seq_2_float_data
+         COMMAND lstm_layer
+                 --input-size 40
+                 --batch-size 4
+                 --output-size 38
+                 --sequence-size 2
+                 --data-type float)

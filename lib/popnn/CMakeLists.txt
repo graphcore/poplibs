@@ -4,6 +4,7 @@ get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 add_library(popnn SHARED
   codelets.cpp
   Loss.cpp
+  Lstm.cpp
   MaxPool.cpp
   NonLinearity.cpp
   PerformanceEstimation.hpp
@@ -13,6 +14,7 @@ add_library(popnn SHARED
   ${CMAKE_SOURCE_DIR}/include/popnn/Loss.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Residual.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Recurrent.hpp  
+  ${CMAKE_SOURCE_DIR}/include/popnn/Lstm.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/MaxPool.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearity.hpp
   ${CMAKE_SOURCE_DIR}/include/util/Compiler.hpp

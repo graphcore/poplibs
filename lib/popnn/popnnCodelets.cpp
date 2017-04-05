@@ -160,6 +160,32 @@ public:
 template class NonLinearityGrad<float>;
 template class NonLinearityGrad<half>;
 
+template <typename FPType>
+class HadamardProduct : public Vertex {
+public:
+  Input<Vector<FPType>> in;
+  InOut<Vector<FPType>> inOut;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    assert(in.size() == inOut.size());
+    for (unsigned i = 0; i != in.size(); ++i) {
+      inOut[i] *= in[i];
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    bool isFloat = std::is_same<FPType, float>::value;
+    unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    unsigned numVectors = (in.size() + vectorWidth - 1) / vectorWidth;
+    return 5 + numVectors * 2;
+  }
+};
+
+template class HadamardProduct<float>;
+template class HadamardProduct<half>;
+
 // AddTensors
 // Sum the input tensors into the output
 // \a out and \a in1 must have the same sizes. \a in2 may be smaller than the

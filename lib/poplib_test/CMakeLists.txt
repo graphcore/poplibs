@@ -6,14 +6,18 @@ find_package(poplar REQUIRED)
 add_library(poplib_test SHARED
   Convolution.cpp
   FullyConnected.cpp
+  GeneralMatrixAdd.cpp  
   GeneralMatrixMultiply.cpp
+  Lstm.cpp
   MaxPooling.cpp
   NonLinearity.cpp
   Rnn.cpp
   Util.cpp
   ${PROJECT_SOURCE_DIR}/include/poplib_test/Convolution.hpp
   ${PROJECT_SOURCE_DIR}/include/poplib_test/FullyConnected.hpp
+  ${PROJECT_SOURCE_DIR}/include/poplib_test/GeneralMatrixAdd.hpp  
   ${PROJECT_SOURCE_DIR}/include/poplib_test/GeneralMatrixMultiply.hpp
+  ${PROJECT_SOURCE_DIR}/include/poplib_test/Lstm.hpp  
   ${PROJECT_SOURCE_DIR}/include/poplib_test/MaxPooling.hpp
   ${PROJECT_SOURCE_DIR}/include/poplib_test/NonLinearity.hpp
   ${PROJECT_SOURCE_DIR}/include/poplib_test/Rnn.hpp  
