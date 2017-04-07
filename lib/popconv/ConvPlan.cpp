@@ -103,7 +103,6 @@ std::ostream& operator<<(std::ostream &os, const Plan &p)
     << p.tilesPerXAxis * p.tilesPerYAxis * p.tilesPerZAxis << "\n"
     << "        tilesPerKernelYAxis     " << p.tilesPerKernelYAxis << "\n"
     << "        tilesPerInZGroupAxis    " << p.tilesPerInZGroupAxis << "\n"
-    << "        verticesPerTilePerYAxis " << p.verticesPerTilePerYAxis << "\n"
     << "        inChansPerGroup         " << p.inChansPerGroup << "\n"
     << "        partialChansPerGroup    " << p.partialChansPerGroup << "\n"
     << "        batchesPerGroup         " << p.batchesPerGroup << "\n"
@@ -558,8 +557,9 @@ static unsigned estimatePartialCalcMemory(
       (numOutGroups + tilesPerZ - 1) / tilesPerZ;
   const auto tileNumInGroups =
       (numInGroups + tilesPerInZGroup - 1) / tilesPerInZGroup;
-  const auto verticesPerTilePerY =
-      std::min(tileOutHeight, plan.verticesPerTilePerYAxis);
+  // TODO the plan no longer uses verticesPerTilePerY -
+  // estimatePartialCalcMemory() needs updating to reflect this.
+  const auto verticesPerTilePerY = 1;
   const auto tileVertices = verticesPerTilePerY * tileNumOutGroups;
 
   bool useConvPartial1x1OutVertex = false;
@@ -1095,36 +1095,19 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
               std::min(params.inputDepth / inChansPerGroup,
                        numTiles / (tilesPerX * tilesPerY * tilesPerZ *
                                    tilesPerKernelY));
-          auto maxVerticesPerTilePerY =
-              (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
-          auto minVerticesPerTilePerY = 1;
-          if (convVertexType.useConvInstruction) {
-            // All workers are utilized in each single supervisor vertex so
-            // there is no reason to use more than the minimum number of
-            // vertices.
-            maxVerticesPerTilePerY = 1;
-          } else {
-            // The ConvPartial vertex that doesn't use the convolution
-            // instruction always computes a single output row.
-            minVerticesPerTilePerY = maxVerticesPerTilePerY;
-          }
-          for (unsigned verticesPerTilePerY = minVerticesPerTilePerY;
-               verticesPerTilePerY <= maxVerticesPerTilePerY;
-               ++verticesPerTilePerY) {
-            Plan candidate(tilesPerX, tilesPerY, tilesPerZ,
-                           verticesPerTilePerY, tilesPerKernelY, tilesPerInZ,
-                           inChansPerGroup, partialChansPerGroup,
-                           batchesPerGroup,
-                           convVertexType.floatPartials,
-                           convVertexType.useConvInstruction);
+          Plan candidate(tilesPerX, tilesPerY, tilesPerZ,
+                         tilesPerKernelY, tilesPerInZ,
+                         inChansPerGroup, partialChansPerGroup,
+                         batchesPerGroup,
+                         convVertexType.floatPartials,
+                         convVertexType.useConvInstruction);
 
-            auto candidateCost =
-                estimatePlanCostBounded(deviceInfo, floatActivations, params,
-                                        candidate, bestCost, costBounds, cache);
-            if (compareCost(candidateCost, bestCost, costBounds)) {
-              bestPlan = candidate;
-              bestCost = candidateCost;
-            }
+          auto candidateCost =
+              estimatePlanCostBounded(deviceInfo, floatActivations, params,
+                                      candidate, bestCost, costBounds, cache);
+          if (compareCost(candidateCost, bestCost, costBounds)) {
+            bestPlan = candidate;
+            bestCost = candidateCost;
           }
         }
       }
