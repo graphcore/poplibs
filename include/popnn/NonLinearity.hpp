@@ -17,6 +17,25 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
                   poplar::Tensor t, poplar::program::Sequence &prog,
                   const std::string &debugPrefix = "");
 
+inline void sigmoid(poplar::Graph &graph,
+                    poplar::Tensor t, poplar::program::Sequence &prog,
+                    const std::string &debugPrefix = "") {
+  nonLinearity(graph, NON_LINEARITY_SIGMOID, t, prog, debugPrefix);
+}
+
+inline void relu(poplar::Graph &graph,
+                 poplar::Tensor t, poplar::program::Sequence &prog,
+                 const std::string &debugPrefix = "") {
+  nonLinearity(graph, NON_LINEARITY_RELU, t, prog, debugPrefix);
+}
+
+inline void tanh(poplar::Graph &graph,
+                 poplar::Tensor t, poplar::program::Sequence &prog,
+                 const std::string &debugPrefix = "") {
+  nonLinearity(graph, NON_LINEARITY_TANH, t, prog, debugPrefix);
+}
+
+
 poplar::Tensor
 nonLinearityInputGradient(poplar::Graph &graph,
                           NonLinearityType nonLinearityType,
