@@ -14,8 +14,10 @@
 #include "popnn/NonLinearity.hpp"
 #include "popnn/Residual.hpp"
 #include "popnn/Loss.hpp"
+#include "popstd/GraphFunction.hpp"
 
 namespace enigma {
+
 
 /* A data set full of test and training data along with its dimensions */
 class DataSet {
@@ -129,6 +131,8 @@ public:
 
 bool parseCommandLine(int argc, char **argv, OptimizerOptions &options);
 
+using TensorSig = std::pair<std::string, std::vector<std::size_t>>;
+
 // The optimizer class which will try and optimize the loss of an expression
 // over the data provided by any feeds in the expression.
 class Optimizer {
@@ -185,8 +189,47 @@ private:
                              unsigned outNumChans);
   void outputDescription(const ExpImpl *exp);
   void createSchedule(const Exp &exp);
-  struct ConvOp;
-  struct ConvBwdWeightsOp; struct ConvWuOp;
+  using ConvKey =
+    std::tuple<std::vector<unsigned>, std::vector<unsigned>,
+               TensorSig, TensorSig, TensorSig, TensorSig,
+               std::string, bool, bool>;
+  std::map<ConvKey, popstd::graphfn::ProgramFunction> convGraphCache;
+  using BwdWeightKey = std::vector<TensorSig>;
+  std::map<BwdWeightKey, popstd::graphfn::ProgramFunction> bwdWeightGraphCache;
+  using WUKey =
+    std::tuple<TensorSig, TensorSig, TensorSig, TensorSig, unsigned, unsigned,
+               unsigned, unsigned, float>;
+  std::map<WUKey, popstd::graphfn::ProgramFunction> wuGraphCache;
+
+  poplar::program::Program
+  createBwdWeightsAndBiases(poplar::Graph &graph, const popconv::Plan &bwdPlan,
+                            const popconv::Plan &fwdPlan,
+                            poplar::Tensor weights, poplar::Tensor deltasOut,
+                            poplar::Tensor bwdWeights,
+                            poplar::Tensor bwdBiases,
+                            const std::string &debugPrefix);
+
+  poplar::program::Program
+  doConvolutionWeightUpdate(poplar::Graph &graph,
+                            const popconv::Plan &wuPlan,
+                            const popconv::Plan &fwdPlan,
+                            poplar::Tensor zDeltas, poplar::Tensor weights,
+                            poplar::Tensor biases,
+                            poplar::Tensor activations,
+                            unsigned strideY, unsigned strideX,
+                            unsigned paddingY, unsigned paddingX,
+                            float learningRate,
+                            const std::string &debugPrefix);
+
+  poplar::program::Program
+  doConvolution(poplar::Graph &graph, const popconv::Plan &plan,
+              const std::vector<unsigned> &stride,
+              const std::vector<unsigned> &padding,
+              poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
+              poplar::Tensor out, const std::string &partialsType,
+              bool isFractional, bool transposeAndFlipWeights,
+              const std::string &debugPrefix = "");
+
   poplar::program::Program
   createConvLayerFwd(const ExpImpl *exp,
                      unsigned kernelSizeY, unsigned kernelSizeX,
@@ -194,14 +237,13 @@ private:
                      unsigned paddingY, unsigned paddingX,
                      unsigned numChannels,
                      poplar::program::Sequence &initParamsProg,
-                     ConvOp &doConv,
                      const std::string &debugPrefix);
+
   poplar::program::Program
   createResidualLayerFwd(const ExpImpl *exp, unsigned layerIndex,
                          const std::string &debugPrefix);
   void genFwd(poplar::program::Sequence &fwdProg,
-              poplar::program::Sequence &initParamsProg,
-              struct ConvOp &convOp);
+              poplar::program::Sequence &initParamsProg);
   void createInGradients(const ExpImpl *exp, unsigned index);
   poplar::program::Program
   createConvLayerBwd(const ExpImpl *exp, poplar::Tensor outGradient,
@@ -210,13 +252,8 @@ private:
                      unsigned strideY, unsigned strideX,
                      unsigned paddingY, unsigned paddingX,
                      bool backwardPassRequired,
-                     ConvBwdWeightsOp &convBwdWeights,
-                     ConvOp &doConv, ConvWuOp &convWU,
                      const std::string &debugPrefix);
-  void genBwd(poplar::program::Sequence &bwdProg,
-              ConvOp &convOp,
-              ConvWuOp &convWuOp,
-              ConvBwdWeightsOp &convBwdWeightsOp);
+  void genBwd(poplar::program::Sequence &bwdProg);
   void reportTotals();
   void createEngine(poplar::program::Program initParamsProg,
                     poplar::program::Program fwdProg,

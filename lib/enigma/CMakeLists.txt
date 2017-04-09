@@ -3,7 +3,6 @@ find_package(Boost REQUIRED program_options)
 
 add_library(enigma SHARED
   Optimizer.cpp
-  TensorOp.hpp
   ${CMAKE_SOURCE_DIR}/include/enigma/exceptions.hpp
   ${CMAKE_SOURCE_DIR}/include/enigma/Optimizer.hpp
 )
