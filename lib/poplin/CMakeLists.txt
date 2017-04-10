@@ -51,7 +51,9 @@ install(TARGETS poplin
         COMPONENT poplin
         INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
-install(EXPORT poplin DESTINATION ${CMAKE_INSTALL_LIBDIR}
+install(EXPORT poplin
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/poplin
+        FILE poplin-targets.cmake
         COMPONENT poplin)
 
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/poplin

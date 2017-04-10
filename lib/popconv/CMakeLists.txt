@@ -59,7 +59,9 @@ install(TARGETS popconv
         COMPONENT popconv
         INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
-install(EXPORT popconv DESTINATION ${CMAKE_INSTALL_LIBDIR}
+install(EXPORT popconv
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/popconv
+        FILE popconv-targets.cmake
         COMPONENT popconv)
 
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/popconv

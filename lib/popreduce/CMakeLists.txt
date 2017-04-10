@@ -50,7 +50,9 @@ install(TARGETS popreduce
         COMPONENT popreduce
         INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
-install(EXPORT popreduce DESTINATION ${CMAKE_INSTALL_LIBDIR}
+install(EXPORT popreduce
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/popreduce
+        FILE popreduce-targets.cmake
         COMPONENT popreduce)
 
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/popreduce

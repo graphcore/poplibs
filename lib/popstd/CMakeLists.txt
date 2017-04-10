@@ -66,7 +66,9 @@ install(TARGETS popstd
         COMPONENT popstd
         INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
-install(EXPORT popstd DESTINATION ${CMAKE_INSTALL_LIBDIR}
+install(EXPORT popstd
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/popstd
+        FILE popstd-targets.cmake
         COMPONENT popstd)
 
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/popstd

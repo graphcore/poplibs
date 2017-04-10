@@ -61,7 +61,9 @@ install(TARGETS popnn
         COMPONENT popnn
         INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
-install(EXPORT popnn DESTINATION ${CMAKE_INSTALL_LIBDIR}
+install(EXPORT popnn
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/popnn
+        FILE popnn-targets.cmake
         COMPONENT popnn)
 
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/popnn
