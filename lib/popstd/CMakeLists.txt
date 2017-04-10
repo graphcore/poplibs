@@ -6,6 +6,7 @@ add_library(popstd SHARED
   Add.cpp
   Cast.cpp
   codelets.cpp
+  HadamardProduct.cpp
   Pad.cpp
   Regroup.cpp
   Util.cpp
@@ -15,6 +16,7 @@ add_library(popstd SHARED
   ${CMAKE_SOURCE_DIR}/include/popstd/Cast.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/exceptions.hpp
+  ${CMAKE_SOURCE_DIR}/include/popstd/HadamardProduct.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/Pad.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/Regroup.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/Util.hpp

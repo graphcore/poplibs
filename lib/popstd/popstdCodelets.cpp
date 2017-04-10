@@ -44,6 +44,43 @@ template class ScaledAdd<half>;
 
 
 template <typename FPType>
+class HadamardProd : public Vertex {
+public:
+  Vector<InOut<Vector<FPType>>> A;
+  Vector<Input<Vector<FPType>>> B;
+
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    assert(A.size() == B.size());
+    for (unsigned i = 0; i < A.size(); ++i) {
+      assert (A[i].size() == B[i].size());
+      for (unsigned j = 0; j < A[i].size(); ++j) {
+        A[i][j] *= B[i][j];
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    uint64_t cycles = 5;
+    for (unsigned i = 0; i < A.size(); ++i) {
+      unsigned numElem = A[i].size();
+      bool isFloat = std::is_same<FPType, float>::value;
+      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+      unsigned numVectors = (numElem + vectorWidth - 1) / vectorWidth;
+      cycles += 5 + (1 + numVectors * 2);
+    }
+    return cycles;
+  }
+};
+
+template class HadamardProd<float>;
+template class HadamardProd<half>;
+
+
+
+template <typename FPType>
 class Zero : public Vertex {
 public:
   Output<Vector<FPType>> out;

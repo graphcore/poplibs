@@ -2,6 +2,7 @@
 #include <popstd/Add.hpp>
 #include <popstd/ActivationMapping.hpp>
 #include <popnn/NonLinearity.hpp>
+#include <popstd/HadamardProduct.hpp>
 #include <popstd/VertexTemplates.hpp>
 #include <popnn/Lstm.hpp>
 #include <cstdint>
@@ -39,61 +40,6 @@ static void processBasicLstmUnit(Graph &graph,
   addTo(graph, output, prodInp, 1.0, prog);
   addTo(graph, output, bBiases, 1.0, prog);
   nonLinearity(graph, nonLinearityType, output, prog, debugStr);
-}
-
-
-static void hadamardProduct(Graph &graph,
-                            Tensor input,
-                            Tensor inputOutput,
-                            Sequence &prog,
-                            const std::string &debugPrefix) {
-  const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
-  const auto numWorkers = graph.getDevice().getDeviceInfo().numWorkerContexts;
-  const auto dType = graph.getTensorElementType(input);
-  const auto dataPathWidth =  graph.getDevice().getDeviceInfo().dataPathWidth;
-
-  const auto batchSize = input.dim(0);
-
-  ComputeSet hadamardCs = graph.addComputeSet(debugPrefix + "/HadamardProd");
-
-  for (auto b = 0U; b != batchSize; ++b) {
-    auto mapping = computeActivationsMapping(graph, input[b], b, batchSize);
-    for (auto tile = 0U; tile != numTiles; ++tile) {
-      const auto tileActivationsBegin = mapping[tile];
-      const auto tileActivationsEnd = mapping[tile + 1];
-      auto numActivations = tileActivationsEnd - tileActivationsBegin;
-
-      if (!numActivations)
-        continue;
-
-      /* divide amongst workers */
-      unsigned activationsPerWorker = (numActivations + numWorkers - 1)
-                                      / numWorkers;
-      for (unsigned worker = 0; worker != numWorkers && numActivations;
-            ++worker) {
-        auto actsThisWorker = numActivations >= activationsPerWorker ?
-                                activationsPerWorker : numActivations;
-        auto sliceBegin = tileActivationsBegin + worker * activationsPerWorker;
-        auto sliceEnd = sliceBegin + actsThisWorker;
-        auto in = input[b].slice({sliceBegin, sliceEnd});
-        auto inOut = inputOutput[b].slice({sliceBegin, sliceEnd});
-
-        auto v = graph.addVertex(hadamardCs,
-                                 templateVertex("popnn::HadamardProduct",
-                                                dType),
-                                 {
-                                  {"in", in},
-                                  {"inOut", inOut}
-                                 });
-        graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-        graph.setTileMapping(v, tile);
-        numActivations -= actsThisWorker;
-      }
-    }
-  }
-  if (!graph.getComputeSet(hadamardCs).empty()) {
-    prog.add(Execute(hadamardCs));
-  }
 }
 
 namespace popnn {
@@ -217,9 +163,9 @@ Tensor basicLstmCellForwardPass(Graph  &graph,
                          popnn::NonLinearityType::NON_LINEARITY_TANH,
                          baseStr + "/Candidate");
 
-    hadamardProduct(graph, forgetGate, cellState, prog,
+    hadamardProduct(graph, cellState, forgetGate, prog,
                     baseStr + "/HadamardProd/ForgetGate");
-    hadamardProduct(graph, inputGate, candidate, prog,
+    hadamardProduct(graph, candidate, inputGate, prog,
                     baseStr + "/HadamardProd/InputGate");
     addTo(graph, cellState, candidate, 1.0, prog);
 
@@ -230,7 +176,7 @@ Tensor basicLstmCellForwardPass(Graph  &graph,
     prog.add(Copy(cellState, output));
     nonLinearity(graph, popnn::NonLinearityType::NON_LINEARITY_TANH,
                  output, prog);
-    hadamardProduct(graph, outputGate, output, prog,
+    hadamardProduct(graph, output, outputGate, prog,
                     baseStr + "/HadamardProd/OutputGate");
     actOut = append(actOut, output);
   }
