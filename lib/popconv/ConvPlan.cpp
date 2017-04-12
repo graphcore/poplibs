@@ -125,16 +125,33 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
                                unsigned numInputPointers,
                                PlannerCache *cache);
 
+static unsigned
+estimateConvPartialHorizontalMacCycles(unsigned tileNumInGroups,
+                                       unsigned numOutRows,
+                                       unsigned tileOutWidth,
+                                       unsigned outputStrideX,
+                                       unsigned tileKernelHeight,
+                                       unsigned tileKernelWidth,
+                                       unsigned numWorkers,
+                                       bool floatActivations,
+                                       unsigned inChansPerGroup,
+                                       unsigned dataPathWidth);
+
 class PlannerCache {
 public:
   decltype(memoize(partitionConvPartialByWorker))
     mPartitionConvPartialByWorker;
   decltype(memoize(getConvPartialnx1CycleEstimate))
     mGetConvPartialnx1CycleEstimate;
+  decltype(memoize(estimateConvPartialHorizontalMacCycles))
+    mEstimateConvPartialHorizontalMacCycles;
   PlannerCache() :
     mPartitionConvPartialByWorker(memoize(partitionConvPartialByWorker)),
     mGetConvPartialnx1CycleEstimate(
       memoize(getConvPartialnx1CycleEstimate)
+    ),
+    mEstimateConvPartialHorizontalMacCycles(
+      memoize(estimateConvPartialHorizontalMacCycles)
     ) {}
 };
 
@@ -620,6 +637,40 @@ static unsigned estimatePartialCalcMemory(
   return totalMemory;
 }
 
+static unsigned
+estimateConvPartialHorizontalMacCycles(unsigned tileNumInGroups,
+                                       unsigned numOutRows,
+                                       unsigned tileOutWidth,
+                                       unsigned outputStrideX,
+                                       unsigned tileKernelHeight,
+                                       unsigned tileKernelWidth,
+                                       unsigned numWorkers,
+                                       bool floatActivations,
+                                       unsigned inChansPerGroup,
+                                       unsigned dataPathWidth) {
+  unsigned rowSplitFactor = numWorkers / gcd(numWorkers, numOutRows);
+  unsigned numPartRows = numOutRows * rowSplitFactor;
+  const auto maxPartRows = (numPartRows + numWorkers - 1) / numWorkers;
+  const auto workerWholeRows = maxPartRows / rowSplitFactor;
+  const auto workerPartRows = maxPartRows % rowSplitFactor;
+  std::vector<unsigned> convSizes;
+  const auto wholeRowConvSize =
+      (tileOutWidth + outputStrideX - 1) / outputStrideX;
+  convSizes.resize(workerWholeRows * tileKernelWidth * tileKernelHeight *
+                   tileNumInGroups, wholeRowConvSize);
+  if (workerPartRows > 0) {
+    convSizes.resize(convSizes.size() + tileKernelWidth * tileKernelHeight *
+                     tileNumInGroups,
+                     (wholeRowConvSize * workerPartRows) / rowSplitFactor);
+  }
+  return getConvPartialHorizontalMacCycleEstimate(
+    floatActivations,
+    inChansPerGroup,
+    convSizes,
+    dataPathWidth
+  );
+}
+
 static Cost
 estimatePartialCalcComputeCost(const poplar::DeviceInfo &deviceInfo,
                                bool floatActivations,
@@ -686,30 +737,20 @@ estimatePartialCalcComputeCost(const poplar::DeviceInfo &deviceInfo,
   } else {
     const auto outputStrideX = params.isFractional ? params.strideX : 1;
     const auto outputStrideY = params.isFractional ? params.strideY : 1;
-    const auto numRows = tileNumOutGroups *
-                         (tileOutHeight + outputStrideY - 1) / outputStrideY;
-    const auto numWorkers = deviceInfo.numWorkerContexts;
-    unsigned rowSplitFactor = numWorkers / gcd(numWorkers, numRows);
-    unsigned numPartRows = numRows * rowSplitFactor;
-    const auto maxPartRows = (numPartRows + numWorkers - 1) / numWorkers;
-    const auto workerWholeRows = maxPartRows / rowSplitFactor;
-    const auto workerPartRows = maxPartRows % rowSplitFactor;
-    std::vector<unsigned> convSizes;
-    const auto wholeRowConvSize =
-        (tileOutWidth + outputStrideX - 1) / outputStrideX;
-    convSizes.resize(workerWholeRows * tileKernelWidth * tileKernelHeight *
-                     tileNumInGroups, wholeRowConvSize);
-    if (workerPartRows > 0) {
-      convSizes.resize(convSizes.size() + tileKernelWidth * tileKernelHeight *
-                       tileNumInGroups,
-                       (wholeRowConvSize * workerPartRows) / rowSplitFactor);
-    }
+    const auto numOutRows = tileNumOutGroups *
+                            (tileOutHeight + outputStrideY - 1) / outputStrideY;
     auto vertexRuntime =
-        getConvPartialHorizontalMacCycleEstimate(
-            floatActivations,
-            inChansPerGroup,
-            convSizes,
-            deviceInfo.dataPathWidth);
+        cache->mEstimateConvPartialHorizontalMacCycles(
+          tileNumInGroups,
+          numOutRows,
+          tileOutWidth,
+          outputStrideX,
+          tileKernelHeight,
+          tileKernelWidth,
+          deviceInfo.numWorkerContexts,
+          floatActivations,
+          inChansPerGroup,
+          deviceInfo.dataPathWidth);
     computeCycles = vertexRuntime * numContexts;
   }
 
