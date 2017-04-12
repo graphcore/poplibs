@@ -122,8 +122,7 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
                                unsigned numConvUnitsPerTile,
                                unsigned convUnitCoeffLoadBytesPerCycle,
                                unsigned outputStride,
-                               unsigned numInputPointers,
-                               PlannerCache *cache);
+                               unsigned numInputPointers);
 
 static unsigned
 estimateConvPartialHorizontalMacCycles(unsigned tileNumInGroups,
@@ -139,14 +138,11 @@ estimateConvPartialHorizontalMacCycles(unsigned tileNumInGroups,
 
 class PlannerCache {
 public:
-  decltype(memoize(partitionConvPartialByWorker))
-    mPartitionConvPartialByWorker;
   decltype(memoize(getConvPartialnx1CycleEstimate))
     mGetConvPartialnx1CycleEstimate;
   decltype(memoize(estimateConvPartialHorizontalMacCycles))
     mEstimateConvPartialHorizontalMacCycles;
   PlannerCache() :
-    mPartitionConvPartialByWorker(memoize(partitionConvPartialByWorker)),
     mGetConvPartialnx1CycleEstimate(
       memoize(getConvPartialnx1CycleEstimate)
     ),
@@ -371,17 +367,16 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
                                unsigned numConvUnitsPerTile,
                                unsigned convUnitCoeffLoadBytesPerCycle,
                                unsigned outputStride,
-                               unsigned numInputPointers,
-                               PlannerCache * cache)
+                               unsigned numInputPointers)
 {
-  std::vector<std::vector<std::vector<unsigned>>> convSizesByWeightAndWorker;
   unsigned numInputEdges = 0;
   unsigned numOutputEdges = 0;
+  const auto numWorkerContexts = 6;
+  std::vector<std::vector<PartialRow>> partition =
+      partitionConvPartialByWorker(outputHeight, outputWidth,
+                                   numWorkerContexts, outputStride);
+  std::vector<std::vector<std::vector<unsigned>>> convSizesByWeightAndWorker;
   for (unsigned i = 0; i != passesPerOutput; ++i) {
-    const auto numWorkerContexts = 6;
-    std::vector<std::vector<PartialRow>> partition =
-        cache->mPartitionConvPartialByWorker(outputHeight, outputWidth,
-                                             numWorkerContexts, outputStride);
     convSizesByWeightAndWorker.emplace_back();
     convSizesByWeightAndWorker.back().reserve(partition.size());
     for (const auto &entry : partition) {
@@ -733,7 +728,7 @@ estimatePartialCalcComputeCost(const poplar::DeviceInfo &deviceInfo,
           deviceInfo.convUnitPipelineDepth,
           getNumConvUnits(floatActivations, plan.floatPartials, deviceInfo),
           deviceInfo.convUnitCoeffLoadBytesPerCycle, outputStrideY,
-          convUnitWeightHeight, cache);
+          convUnitWeightHeight);
   } else {
     const auto outputStrideX = params.isFractional ? params.strideX : 1;
     const auto outputStrideY = params.isFractional ? params.strideY : 1;
