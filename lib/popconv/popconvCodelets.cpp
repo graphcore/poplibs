@@ -121,7 +121,7 @@ public:
                                    inChansPerGroup;
               const auto stride = (outWidth + inWidth - 1) / inWidth;
               assert((outWidth + stride - 1) / stride == inWidth);
-              convSize = convSize / stride;
+              convSize = (convSize + stride - 1) / stride;
             } else {
               //nothing for this worker thread
               convSize = 0;
