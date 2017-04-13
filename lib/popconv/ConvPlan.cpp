@@ -240,13 +240,18 @@ private:
 
 
 bool compareCost(Cost a, Cost b, CostBounds bounds) {
+  bool aCyclesOutOfBounds = a.cycles >= bounds.cycles;
+  bool bCyclesOutOfBounds = b.cycles >= bounds.cycles;
+  bool aMemoryOutOfBounds = a.memory >= bounds.memory;
+  bool bMemoryOutOfBounds = b.memory >= bounds.memory;
   if (bounds.primaryCheckIsCycles) {
-    return a.cycles < bounds.cycles && b.cycles < bounds.cycles ?
-                              a.memory < b.memory : a.cycles < b.cycles;
-  } else {
-    return a.memory < bounds.memory && b.memory < bounds.memory ?
-                              a.cycles < b.cycles : a.memory < b.memory;
+    return std::tie(aCyclesOutOfBounds, aMemoryOutOfBounds, a.cycles,
+                    a.memory) <
+           std::tie(bCyclesOutOfBounds, bMemoryOutOfBounds, b.cycles,
+                    b.memory);
   }
+  return std::tie(aMemoryOutOfBounds, aCyclesOutOfBounds, a.memory, a.cycles) <
+         std::tie(bMemoryOutOfBounds, bCyclesOutOfBounds, b.memory, b.cycles);
 }
 
 static Cost highestCost(std::numeric_limits<unsigned>::max(),
@@ -1570,7 +1575,7 @@ Plan getPlan(const poplar::Graph &graph,
         static_cast<double>(cost.cycles)
         * (100.0 + options.percentageCyclesExcessForMemOptim) / 100.0;
 
-    CostBounds newCostBounds(static_cast<unsigned>(newCyclesBound), 0);
+    CostBounds newCostBounds(static_cast<unsigned>(newCyclesBound), 0, false);
 
     std::tie(plan, cost) = popconv::createPlan(inDimY, inDimX, inNumChans,
                                                0, 0, 0,
