@@ -109,7 +109,15 @@ poplar::Tensor
 createBiases(poplar::Graph &graph, std::string dType,
              unsigned outNumChans);
 
-
+poplar::Tensor
+createInput(poplar::Graph &graph, std::string dType,
+            unsigned batchSize, unsigned height, unsigned width,
+            unsigned inNumChans,
+            unsigned kernelY, unsigned kernelX, unsigned outNumChans,
+            unsigned strideY, unsigned strideX,
+            unsigned paddingY, unsigned paddingX,
+            bool isFractional, const std::string &name,
+            const ConvOptions &options = ConvOptions());
 
 poplar::Tensor
 convolution(poplar::Graph &graph,
@@ -214,6 +222,16 @@ convolutionBiasUpdate(poplar::Graph &graph, const poplar::Tensor &zDeltas,
                       float learningRate,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix = "");
+
+void reportPlanInfo(std::ostream &out,
+                    const poplar::Graph &graph,
+                    std::string dType,
+                    unsigned batchSize,
+                    unsigned inDimY, unsigned inDimX, unsigned inNumChans,
+                    std::vector<std::size_t> weightsShape,
+                    std::vector<unsigned> stride,
+                    std::vector<unsigned> padding,
+                    bool isFractional, ConvOptions options);
 
 struct Plan;
 class PlanningCacheImpl;

@@ -524,133 +524,6 @@ void Optimizer::createSchedule(const Exp &exp) {
   }
 }
 
-popconv::Plan
-Optimizer::getBwdConvPlan(const ExpImpl *exp, unsigned prevDimY,
-                          unsigned prevDimX, unsigned prevNumChans) {
-  auto it = bwdConvPlans.find(exp);
-  if (it != bwdConvPlans.end())
-    return it->second;
-  const auto *c = dynamic_cast<const Conv2d *>(exp);
-  assert(c);
-  bool isFractional = c->strideX != 1 || c->strideY != 1;
-  popconv::Plan plan;
-  unsigned inDimY, inDimX;
-  std::tie(inDimY, inDimX) =
-      popconv::getOutputDim(prevDimY, prevDimX, c->kernelSizeY, c->kernelSizeX,
-                            c->strideY, c->strideX, c->paddingY, c->paddingX,
-                            isFractional);
-  auto paddingX = c->paddingX, paddingY = c->paddingY;
-  assert(paddingX < c->kernelSizeX);
-  assert(paddingY < c->kernelSizeY);
-  if (!isFractional) {
-    paddingX = c->kernelSizeX - 1 - paddingX;
-    paddingY = c->kernelSizeY - 1 - paddingY;
-  }
-  plan = popconv::getPlan(*graph, dType,
-                          options.batchSize, inDimY, inDimX, c->numChannels,
-                          {c->kernelSizeY, c->kernelSizeX, prevNumChans},
-                          {c->strideY, c->strideX},
-                          {paddingY, paddingX},
-                          isFractional, options.convOptions);
-  bwdConvPlans.emplace(exp, plan);
-  return plan;
-}
-
-popconv::Plan
-Optimizer::getFwdConvPlan(const ExpImpl *exp, unsigned inDimY, unsigned inDimX,
-                          unsigned inNumChans) {
-  auto it = fwdConvPlans.find(exp);
-  if (it != fwdConvPlans.end())
-    return it->second;
-  const auto *c = dynamic_cast<const Conv2d *>(exp);
-  assert(c);
-  popconv::Plan plan =
-      popconv::getPlan(*graph, dType,
-                       options.batchSize, inDimY, inDimX, inNumChans,
-                       {c->kernelSizeY, c->kernelSizeX, c->numChannels},
-                       {c->strideY, c->strideX},
-                       {c->paddingY, c->paddingX},
-                       false, options.convOptions);
-  fwdConvPlans.emplace(exp, plan);
-  return plan;
-}
-
-unsigned
-Optimizer::getRequiredChansPerGroupBwd(const ExpImpl *exp) {
-  if (exp->deps().empty())
-    return 0;
-  const auto prev = exp->deps().front();
-  if (dynamic_cast<const Feed *>(prev)) {
-    return 0;
-  } else if (dynamic_cast<const FullyConnected *>(prev)) {
-    return 0;
-  } else if (dynamic_cast<const Conv2d *>(prev)) {
-    const auto prevprev = prev->deps().front();
-    if (dynamic_cast<const Feed *>(prevprev)) {
-      // There is no need to calculate the gradient of the activations for the
-      // first layer. TODO pick a sensible channel grouping in this case.
-      return out[prev].dim(4);
-    }
-    const auto prevOut = out[prevprev];
-    auto prevDimY = prevOut.dim(2);
-    auto prevDimX = prevOut.dim(3);
-    auto prevNumChans = prevOut.dim(1) * prevOut.dim(4);
-    auto plan = getBwdConvPlan(prev, prevDimY, prevDimX, prevNumChans);
-    return plan.inChansPerGroup;
-  } else if (dynamic_cast<const MaxPool *>(prev) ||
-             dynamic_cast<const ResidualAdd *>(prev) ||
-             dynamic_cast<const NonLinearity *>(prev)) {
-    return getRequiredChansPerGroupBwd(prev);
-  } else {
-    throw enigma::enigma_error("Unrecognized layer type");
-  }
-}
-
-unsigned
-Optimizer:: getRequiredChansPerGroupFwd(const ExpImpl *exp, unsigned inDimY,
-                                       unsigned inDimX, unsigned inNumChans) {
-  if (uses[exp].empty())
-    return 0;
-  // If the current expression is used in multiple places, just choose one
-  // of them.
-  const ExpImpl *next = nullptr;
-  for (const auto use : uses[exp]) {
-    if (dynamic_cast<const Conv2d *>(use)) {
-      next = use;
-    } else if (!next || dynamic_cast<const Loss *>(next)) {
-      next = use;
-    }
-  }
-  if (dynamic_cast<const FullyConnected *>(next) ||
-      dynamic_cast<const Loss *>(next)) {
-    // A fully connected layer wants the channel grouping to be
-    // the same forwards and backwards.
-    if (options.training)
-      return getRequiredChansPerGroupBwd(next);
-    else
-      return 0;
-  } else if (dynamic_cast<const Conv2d *>(next)) {
-    auto plan = getFwdConvPlan(next, inDimY, inDimX, inNumChans);
-    return plan.inChansPerGroup;
-  } else if (dynamic_cast<const ResidualAdd *>(next) ||
-             dynamic_cast<const NonLinearity *>(next)) {
-    // Use grouping of the use following the add
-    return getRequiredChansPerGroupFwd(next, inDimY, inDimX, inNumChans);
-  } else if (const auto *m = dynamic_cast<const MaxPool *>(next)) {
-    unsigned outDimY, outDimX;
-    std::tie(outDimY, outDimX) = maxpool::getOutputDim(inDimY, inDimX,
-                                                       m->kernelSizeY,
-                                                       m->kernelSizeX,
-                                                       m->strideY,
-                                                       m->strideX,
-                                                       m->paddingY,
-                                                       m->paddingX);
-    return getRequiredChansPerGroupFwd(next, outDimY, outDimX, inNumChans);
-  } else {
-    throw enigma::enigma_error("Unrecognized expression type");
-  }
-}
-
 void
 Optimizer::outputConvDescription(const ExpImpl *exp,
                                  unsigned inDimY, unsigned inDimX,
@@ -698,8 +571,13 @@ Optimizer::outputConvDescription(const ExpImpl *exp,
               << "        Weight Update FLOPs:  " << wuFlops << "\n";
   }
   if (options.showPlanInfo) {
-    std::cout << fwdConvPlans[exp];
+    popconv::reportPlanInfo(std::cout, *graph, dType, batchSize,
+                            inDimY, inDimX, inNumChans,
+                            {kernelSizeY, kernelSizeX, outNumChans},
+                            {strideY, strideX}, {paddingY, paddingX},
+                            false, options.convOptions);
   }
+
 }
 
 void Optimizer::outputDescription(const ExpImpl *exp) {
@@ -873,27 +751,7 @@ Optimizer::createConvLayerFwd(const ExpImpl *exp,
   std::tie(outDimY, outDimX) =
       popconv::getOutputDim(in.dim(2), in.dim(3), kernelSizeY, kernelSizeX,
                             strideY, strideX, paddingY, paddingX, false);
-  auto outChansPerGroup = getRequiredChansPerGroupFwd(exp,
-                                                      outDimY, outDimX,
-                                                      numChannels);
-  if (outChansPerGroup == 0) {
-    // The next layer has no preference on channel grouping. Set the
-    // output channel group size to match the channel grouping of the partial
-    // sums. This is likely to be more efficient as it avoids regrouping of data
-    // after the reduction of partial sums.
-    const auto &deviceInfo = graph->getDevice().getDeviceInfo();
-    if (dType == "float") {
-      outChansPerGroup = deviceInfo.fp32InFp32OutConvUnitsPerTile;
-    } else if (partialsType == "float") {
-      outChansPerGroup = deviceInfo.fp16InFp32OutConvUnitsPerTile;
-    } else {
-      outChansPerGroup = deviceInfo.fp16InFp16OutConvUnitsPerTile;
-    }
-  }
-  assert(numChannels % outChansPerGroup == 0);
   const auto batchSize = options.batchSize;
-
-
   unsigned inNumChanGroups = in.dim(1);
   unsigned inNumChans = inNumChanGroups * in.dim(4);
   unsigned inDimY = in.dim(2), inDimX = in.dim(3);
@@ -1004,20 +862,30 @@ void Optimizer::genFwd(Sequence &actualFwdProg,
     outputDescription(exp);
     if (const auto *feed = dynamic_cast<const Feed *>(exp)) {
       dataSet = &feed->dataset;
-      auto chansPerGroup =
-          getRequiredChansPerGroupFwd(exp, dataSet->dim[0], dataSet->dim[1],
-                                      dataSet->dim[2]);
-      if (chansPerGroup == 0)
-        chansPerGroup = dataSet->dim[2];
-      assert(dataSet->dim[2] % chansPerGroup == 0);
-      const auto numChanGroups = dataSet->dim[2] / chansPerGroup;
-      const auto dim = std::vector<size_t>({options.batchSize,
-                                            numChanGroups,
-                                            dataSet->dim[0], dataSet->dim[1],
-                                            chansPerGroup});
-      out[exp] = graph->addTensor(dType, dim, "input");
+      const Conv2d *conv = nullptr;
+      for (const auto &use : uses[exp]) {
+        if (const auto *c = dynamic_cast<const Conv2d *>(use)) {
+          conv = c;
+          break;
+        }
+      }
+      if (conv) {
+        out[exp] = popconv::createInput(*graph, dType, options.batchSize,
+                                        dataSet->dim[0], dataSet->dim[1],
+                                        dataSet->dim[2], conv->kernelSizeY,
+                                        conv->kernelSizeX, conv->numChannels,
+                                        conv->strideY, conv->strideX,
+                                        conv->paddingY, conv->paddingX,
+                                        false, "input", options.convOptions);
+      } else {
+        const auto dim = std::vector<size_t>({options.batchSize,
+                                              dataSet->dim[2],
+                                              dataSet->dim[0], dataSet->dim[1],
+                                              1});
+        out[exp] = graph->addTensor(dType, dim, "input");
+        mapActivations(*graph, out[exp]);
+      }
       feedIn = out[exp];
-      mapActivations(*graph, out[exp]);
     } else if (const auto *c = dynamic_cast<const Conv2d *>(exp)) {
       out[exp] = createConvLayerFwd(exp, c->kernelSizeY, c->kernelSizeX,
                                     c->strideY, c->strideX, c->paddingY,
@@ -1164,26 +1032,6 @@ void Optimizer::genFwd(Sequence &actualFwdProg,
   }
 }
 
-popconv::Plan Optimizer::
-getWuConvPlan(const ExpImpl *exp, const Tensor &activations,
-              const Tensor &deltas) {
-  auto it = wuConvPlans.find(exp);
-  if (it != wuConvPlans.end())
-    return it->second;
-  const auto *c = dynamic_cast<const Conv2d *>(exp);
-  assert(c);
-
-  popconv::Plan plan =
-      popconv::getWeightUpdatePlan(*graph, activations, deltas,
-                                   {c->kernelSizeY, c->kernelSizeX,
-                                   c->numChannels},
-                                   {c->strideY, c->strideX},
-                                   {c->paddingY, c->paddingX},
-                                   false, options.convOptions);
-  wuConvPlans.emplace(exp, plan);
-  return plan;
-}
-
 void Optimizer::
 createConvLayerBwd(const ExpImpl *exp, Tensor outGradient, unsigned layerIndex,
                    unsigned kernelSizeY, unsigned kernelSizeX,
@@ -1200,7 +1048,6 @@ createConvLayerBwd(const ExpImpl *exp, Tensor outGradient, unsigned layerIndex,
   auto prevDimX = in.dim(3);
   auto prevNumChans = in.dim(1) * in.dim(4);
   auto nextNumChans = out[exp].dim(1) * out[exp].dim(4);
-  auto bwdPlan = getBwdConvPlan(exp, prevDimY, prevDimX, prevNumChans);
   auto weights = params[exp][0];
   auto biases = params[exp][1];
   const auto batchSize = options.batchSize;
@@ -1245,8 +1092,8 @@ createConvLayerBwd(const ExpImpl *exp, Tensor outGradient, unsigned layerIndex,
     auto inGrad = doConvolution(*graph, {strideY, strideX},
                                 {bwdPaddingY, bwdPaddingX}, prevNumChans,
                                 outGradient, bwdWeights,
-                                bwdPlan.getPartialType(),
-                                  isFractional, false, bwdProg, debugPrefix);
+                                partialsType,
+                                isFractional, false, bwdProg, debugPrefix);
     inGradient[exp].push_back(inGrad);
   }
   // TODO move before backward pass to reduce live range of the deltas.
@@ -1271,33 +1118,6 @@ createConvLayerBwd(const ExpImpl *exp, Tensor outGradient, unsigned layerIndex,
   }
 }
 
-void Optimizer::createInGradients(const ExpImpl *exp, unsigned index) {
-  for (const auto &prev : exp->deps()) {
-    const auto in = out[prev];
-    inGradient[exp].emplace_back();
-    auto &inGrad = inGradient[exp].back();
-    if (in.rank() == 5) {
-      auto numChannels = in.dim(1) * in.dim(4);
-      auto chansPerGroup = getRequiredChansPerGroupBwd(exp);
-      if (chansPerGroup == 0)
-        chansPerGroup = numChannels;
-      assert(numChannels % chansPerGroup == 0);
-      const auto numChanGroups = numChannels / chansPerGroup;
-
-      inGrad = graph->addTensor(dType, {options.batchSize,
-                                        numChanGroups,
-                                        in.dim(2),
-                                        in.dim(3),
-                                        chansPerGroup},
-                                "inGradient." + std::to_string(index));
-    } else {
-      assert(in.rank() == 2);
-      inGrad = graph->addTensor(dType, in.shape(),
-                                "inGradient." + std::to_string(index));
-    }
-    mapActivations(*graph, inGrad);
-  }
-}
 
 void Optimizer::genBwd(Sequence &actualBwdProg) {
   Sequence dummyProg;

@@ -1,5 +1,5 @@
 #include "popconv/Convolution.hpp"
-#include "popconv/ConvPlan.hpp"
+#include "ConvPlan.hpp"
 #include <limits>
 #include <cassert>
 #include <cmath>
@@ -83,6 +83,31 @@ createWeights(Graph &graph, const Tensor &in,
                                          inChansPerGroup},
                                  "weights");
   return weights;
+}
+
+Tensor
+createInput(Graph &graph, std::string dType,
+            unsigned batchSize, unsigned height, unsigned width,
+            unsigned inNumChans,
+            unsigned kernelY, unsigned kernelX, unsigned outNumChans,
+            unsigned strideY, unsigned strideX,
+            unsigned paddingY, unsigned paddingX,
+            bool isFractional, const std::string &name,
+            const ConvOptions &options) {
+  const auto plan = getPlan(graph, dType,
+                            batchSize, height, width, inNumChans,
+                            {kernelY, kernelX, outNumChans},
+                            {strideY, strideX},
+                            {paddingY, paddingX},
+                            isFractional, options);
+  auto t = graph.addTensor(dType,
+                           {batchSize,
+                            inNumChans / plan.inChansPerGroup,
+                            height, width,
+                            plan.inChansPerGroup},
+                           name);
+  popstd::mapActivations(graph, t);
+  return t;
 }
 
 poplar::Tensor
@@ -3105,5 +3130,18 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
   prog.add(Execute(updateBiasCS));
 }
 
+void reportPlanInfo(std::ostream &out,
+                    const poplar::Graph &graph,
+                    std::string dType,
+                    unsigned batchSize,
+                    unsigned inDimY, unsigned inDimX, unsigned inNumChans,
+                    std::vector<std::size_t> weightsShape,
+                    std::vector<unsigned> stride,
+                    std::vector<unsigned> padding,
+                    bool isFractional, ConvOptions options) {
+  auto plan = getPlan(graph, dType, batchSize, inDimY, inDimX, inNumChans,
+                      weightsShape, stride, padding, isFractional, options);
+  out << plan;
+}
 
 } // namespace conv

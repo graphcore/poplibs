@@ -10,7 +10,6 @@
 #include <poplar/Engine.hpp>
 #include <popstd/ActivationMapping.hpp>
 #include <popconv/Convolution.hpp>
-#include <popconv/ConvPlan.hpp>
 #include <popstd/exceptions.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <popstd/codelets.hpp>
@@ -44,8 +43,6 @@ int main(int argc, char **argv) {
   unsigned paddingWidth;
   unsigned strideH;
   unsigned strideW;
-  unsigned fwdOutChansPerGroup;
-  unsigned bwdOutChansPerGroup;
   unsigned batchSize;
   FPDataType dataType;
   FPDataType partialsType;
@@ -104,15 +101,6 @@ int main(int argc, char **argv) {
      "Kernel stride in the height dimension")
     ("stride-width", po::value<unsigned>(&strideW)->default_value(1),
      "Kernel stride in the width dimension")
-
-    ("fwd-out-chans-per-group",
-     po::value<unsigned>(&fwdOutChansPerGroup),
-     "The number of channels per group of the activations written in the "
-     "forward pass")
-    ("bwd-out-chans-per-group",
-     po::value<unsigned>(&bwdOutChansPerGroup),
-     "The number of channels per group of the deltas written in the backwards "
-     "pass")
     ("single-phase",
      po::value<Pass>(&pass)->default_value(pass),
      "Run phase all | fwd | bwd | wu")
@@ -213,14 +201,6 @@ int main(int argc, char **argv) {
                             paddingHeight, paddingWidth, false);
   const auto outHeight = outDims.first;
   const auto outWidth = outDims.second;
-  // TODO support residual connections.
-  //Forward plan is always required as bwd/wu passes may use fwd groupings
-  auto fwdPlan = popconv::getPlan(graph, dataTypeStr, batchSize,
-                                  height, width, fwdInChans,
-                                  {kernelHeight, kernelWidth, fwdOutChans},
-                                  {strideH, strideW},
-                                  {paddingHeight, paddingWidth},
-                                  false, convOptions);
   bool bwdIsFractional = strideH != 1 || strideW != 1;
   if (paddingHeight >= kernelHeight || paddingWidth >= kernelWidth) {
     throw popstd::poplib_error("Backwards convolution pass does not support "
@@ -232,43 +212,16 @@ int main(int argc, char **argv) {
     bwdPaddingWidth = kernelWidth - 1 - paddingWidth;
     bwdPaddingHeight = kernelHeight - 1 - paddingHeight;
   }
-  popconv::Plan bwdPlan;
-  // Backward plan is also needed for WU
-  if (doBwdPass || doWuPass)
-    bwdPlan =popconv::getPlan(graph, dataTypeStr, batchSize,
-                              outHeight, outWidth, fwdOutChans,
-                              {kernelHeight, kernelWidth, fwdInChans},
-                              {strideH, strideW},
-                              {bwdPaddingHeight, bwdPaddingWidth},
-                              bwdIsFractional, convOptions);
-  auto fwdInChansPerGroup = fwdPlan.inChansPerGroup;
-  // If the output grouping is unspecified, assume the output uses the same
-  // grouping as the input unless that is impossible.
-  if (!vm.count("fwd-out-chans-per-group")) {
-    fwdOutChansPerGroup = (fwdOutChans % fwdInChansPerGroup == 0) ?
-                          fwdInChansPerGroup :
-                          fwdPlan.partialChansPerGroup;
-  }
   const auto bwdInChans = fwdOutChans;
   const auto bwdOutChans = fwdInChans;
-  unsigned bwdInChansPerGroup;
-  if (doBwdPass || doWuPass) {
-    bwdInChansPerGroup = bwdPlan.inChansPerGroup;
-    if (!vm.count("bwd-out-chans-per-group")) {
-      bwdOutChansPerGroup = (bwdOutChans % bwdInChansPerGroup == 0) ?
-                            bwdInChansPerGroup :
-                            bwdPlan.partialChansPerGroup;
-    }
-  }
 
   // Create tensors.
-  Tensor prevAct = graph.addTensor(dataTypeStr,
-                                   {batchSize,
-                                    fwdInChans / fwdInChansPerGroup,
-                                    height,
-                                    width,
-                                    fwdInChansPerGroup}, "prevAct");
-  mapActivations(graph, prevAct);
+  Tensor prevAct =
+      popconv::createInput(graph, dataTypeStr, batchSize, height, width,
+                           fwdInChans, kernelHeight,
+                           kernelWidth, fwdOutChans, strideH, strideW,
+                           paddingHeight, paddingWidth, false,
+                           "prevAct", convOptions);
   Tensor weights = popconv::createWeights(graph, prevAct,
                                           kernelHeight, kernelWidth,
                                           fwdOutChans, strideH, strideW,
@@ -280,13 +233,12 @@ int main(int argc, char **argv) {
 
   Tensor prevDeltas, zDeltas;
   if (doBwdPass || doWuPass) {
-    zDeltas =
-        graph.addTensor(dataTypeStr, {batchSize,
-                                      bwdInChans / bwdInChansPerGroup,
-                                      outHeight,
-                                      outWidth, bwdInChansPerGroup},
-                        "zDeltas");
-    mapActivations(graph, zDeltas);
+    zDeltas = popconv::createInput(graph, dataTypeStr, batchSize,
+                                   outHeight, outWidth, fwdOutChans,
+                                   kernelHeight,
+                                   kernelWidth, fwdInChans, strideH,
+                                   strideW, bwdPaddingHeight, bwdPaddingWidth,
+                                   bwdIsFractional, "zDeltas", convOptions);
   }
 
 

@@ -5,6 +5,7 @@ add_library(popconv SHARED
   codelets.cpp
   Convolution.cpp
   ConvPlan.cpp
+  ConvPlan.hpp
   ConvUtil.cpp
   ConvValidation.hpp
   ConvValidation.cpp
@@ -13,7 +14,6 @@ add_library(popconv SHARED
   Winograd.hpp
   ${CMAKE_SOURCE_DIR}/include/popconv/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/popconv/Convolution.hpp
-  ${CMAKE_SOURCE_DIR}/include/popconv/ConvPlan.hpp
   ${CMAKE_SOURCE_DIR}/include/popconv/ConvUtil.hpp
   ${CMAKE_SOURCE_DIR}/include/util/Compiler.hpp
   ${CMAKE_SOURCE_DIR}/include/util/gcd.hpp

@@ -10,11 +10,11 @@
 #include <array>
 #include <set>
 #include "poplin/MatMul.hpp"
-#include "popconv/ConvPlan.hpp"
 #include "popnn/NonLinearity.hpp"
 #include "popnn/Residual.hpp"
 #include "popnn/Loss.hpp"
 #include "popstd/GraphFunction.hpp"
+#include "popconv/Convolution.hpp"
 
 namespace enigma {
 
@@ -150,8 +150,6 @@ private:
   std::map<const ExpImpl *, poplar::Tensor> out;
   std::map<const ExpImpl *, std::vector<poplar::Tensor>> inGradient;
   std::map<const ExpImpl *, std::vector<poplar::Tensor>> params;
-  std::map<const ExpImpl *, popconv::Plan> fwdConvPlans, bwdConvPlans,
-                                           wuConvPlans;
   std::uint64_t fwdFlops, bwdFlops, wuFlops;
   std::uint64_t numParams;
   double fwdPerfectCycleTime, bwdPerfectCycleTime, wuPerfectCycleTime;
@@ -161,16 +159,6 @@ private:
 
   double getPerfectCycleTime(unsigned flops, const std::string &dType,
                              bool useVectors, bool useAmp);
-  popconv::Plan getBwdConvPlan(const ExpImpl *exp, unsigned prevDimY,
-                               unsigned prevDimX, unsigned prevNumChans);
-  popconv::Plan getFwdConvPlan(const ExpImpl *exp, unsigned inDimY,
-                               unsigned inDimX, unsigned inNumChans);
-  popconv::Plan
-  getWuConvPlan(const ExpImpl *exp, const poplar::Tensor &activations,
-                const poplar::Tensor &deltas);
-  unsigned getRequiredChansPerGroupBwd(const ExpImpl *exp);
-  unsigned getRequiredChansPerGroupFwd(const ExpImpl *exp, unsigned inDimY,
-                                       unsigned inDimX, unsigned inNumChans);
   void outputConvDescription(const ExpImpl *exp,
                              unsigned inDimY, unsigned inDimX,
                              unsigned inNumChans,
@@ -239,7 +227,6 @@ private:
                          const std::string &debugPrefix);
   void genFwd(poplar::program::Sequence &fwdProg,
               poplar::program::Sequence &initParamsProg);
-  void createInGradients(const ExpImpl *exp, unsigned index);
 
   void
   createConvLayerBwd(const ExpImpl *exp, poplar::Tensor outGradient,

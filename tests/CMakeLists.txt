@@ -40,8 +40,7 @@ add_test(NAME conv3x3_stride_2_fwd
                  --kernel-size=3
                  --data-type=half
                  --padding=2
-                 --stride=2
-                 --fwd-out-chans-per-group=16)
+                 --stride=2)
 
 add_test(NAME conv1x1_stride_1
          COMMAND single_conv_layer
@@ -49,8 +48,6 @@ add_test(NAME conv1x1_stride_1
              --output-channels=256
              --width=7
              --height=7
-             --fwd-out-chans-per-group=8
-             --bwd-out-chans-per-group=8
              --tiles-per-ipu=16
              --stride=1
              --kernel-size=1)
@@ -61,8 +58,6 @@ add_test(NAME conv1x1_stride_1_odd_outchans
             --output-channels=257
             --width=7
             --height=7
-            --fwd-out-chans-per-group=1
-            --bwd-out-chans-per-group=16
             --tiles-per-ipu=16
             --stride=1
             --kernel-size=1)
@@ -73,8 +68,6 @@ add_test(NAME conv1x1_stride_3
              --output-channels=128
              --width=14
              --height=14
-             --fwd-out-chans-per-group=8
-             --bwd-out-chans-per-group=8
              --tiles-per-ipu=8
              --stride=3
              --kernel-size=1)
@@ -85,8 +78,6 @@ add_test(NAME conv3x3_stride_1
              --output-channels=16
              --width=7
              --height=7
-             --fwd-out-chans-per-group=8
-             --bwd-out-chans-per-group=8
              --tiles-per-ipu=16
              --stride=1
              --kernel-size=3)
@@ -98,8 +89,6 @@ add_test(NAME conv3x3_stride_2
              --output-channels=16
              --width=7
              --height=7
-             --fwd-out-chans-per-group=8
-             --bwd-out-chans-per-group=8
              --tiles-per-ipu=16
              --stride=2
              --kernel-size=3)
@@ -110,8 +99,6 @@ add_test(NAME conv3x3_stride_1_padding_1
               --output-channels=16
               --width=7
               --height=7
-              --fwd-out-chans-per-group=8
-              --bwd-out-chans-per-group=8
               --tiles-per-ipu=16
               --stride=1
               --kernel-size=3
@@ -123,8 +110,6 @@ add_test(NAME conv4x4_stride_1_padding_2
               --output-channels=16
               --width=7
               --height=7
-              --fwd-out-chans-per-group=8
-              --bwd-out-chans-per-group=8
               --tiles-per-ipu=16
               --stride=1
               --kernel-size=4
@@ -136,8 +121,6 @@ add_test(NAME conv3x3_stride_2_multi_tile
                  --output-channels=16
                  --width=7
                  --height=7
-                 --fwd-out-chans-per-group=16
-                 --bwd-out-chans-per-group=16
                  --tiles-per-ipu=2
                  --stride=2
                  --kernel-size=3)
@@ -149,7 +132,6 @@ add_test(NAME conv1x1_stride_3_fwd
                  --output-channels=16
                  --width=7
                  --height=7
-                 --fwd-out-chans-per-group=16
                  --tiles-per-ipu=1
                  --stride=3)
 
@@ -160,8 +142,6 @@ add_test(NAME conv1x1_stride_3_fwd
                   --output-channels=16
                   --width=7
                   --height=7
-                  --fwd-out-chans-per-group=16
-                  --bwd-out-chans-per-group=16
                   --tiles-per-ipu=2
                   --stride=2
                   --kernel-size=3
@@ -267,7 +247,6 @@ add_test(NAME conv_batch_group
                  --width 28
                  --input-channels 512
                  --output-channels 128
-                 --fwd-out-chans-per-group 16
                  --single-phase=fwd
                  --batch-size 2)
 

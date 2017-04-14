@@ -1,4 +1,4 @@
-#include "popconv/ConvPlan.hpp"
+#include "ConvPlan.hpp"
 #include "popconv/Convolution.hpp"
 #include "popstd/exceptions.hpp"
 #include "poplar/Graph.hpp"
