@@ -182,23 +182,22 @@ private:
   void createSchedule(const Exp &exp);
   using ConvKey =
     std::tuple<std::vector<unsigned>, std::vector<unsigned>,
-               TensorSig, TensorSig, TensorSig, TensorSig,
+               TensorSig, TensorSig, TensorSig,
                std::string, bool, bool>;
   std::map<ConvKey, popstd::graphfn::ProgramFunction> convGraphCache;
   using BwdWeightKey = std::vector<TensorSig>;
   std::map<BwdWeightKey, popstd::graphfn::ProgramFunction> bwdWeightGraphCache;
   using WUKey =
-    std::tuple<TensorSig, TensorSig, TensorSig, TensorSig, unsigned, unsigned,
+    std::tuple<TensorSig, TensorSig, TensorSig, unsigned, unsigned,
                unsigned, unsigned, float>;
   std::map<WUKey, popstd::graphfn::ProgramFunction> wuGraphCache;
 
   poplar::program::Program
-  createBwdWeightsAndBiases(poplar::Graph &graph,
+  createBwdWeights(poplar::Graph &graph,
                             poplar::Tensor weights,
                             poplar::Tensor deltasIn,
                             poplar::Tensor deltasOut,
                             poplar::Tensor bwdWeights,
-                            poplar::Tensor bwdBiases,
                             unsigned strideY, unsigned strideX,
                             unsigned paddingY, unsigned paddingX,
                             bool isFractional,
@@ -207,7 +206,6 @@ private:
   poplar::program::Program
   doConvolutionWeightUpdate(poplar::Graph &graph,
                             poplar::Tensor zDeltas, poplar::Tensor weights,
-                            poplar::Tensor biases,
                             poplar::Tensor activations,
                             unsigned strideY, unsigned strideX,
                             unsigned paddingY, unsigned paddingX,
@@ -218,7 +216,7 @@ private:
   doConvolution(poplar::Graph &graph,
               const std::vector<unsigned> &stride,
               const std::vector<unsigned> &padding,
-              poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
+              poplar::Tensor in, poplar::Tensor weights,
               poplar::Tensor out, const std::string &partialsType,
               bool isFractional, bool transposeAndFlipWeights,
               const std::string &debugPrefix = "");

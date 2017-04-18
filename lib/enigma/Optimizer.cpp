@@ -381,25 +381,22 @@ static TensorSig sig(const Graph &graph, const Tensor &t) {
 }
 
 Program Optimizer::
-createBwdWeightsAndBiases(Graph &graph,
-                          Tensor weights,
-                          Tensor deltasIn,
-                          Tensor deltasOut,
-                          Tensor bwdWeights,
-                          Tensor bwdBiases,
-                          unsigned strideY, unsigned strideX,
-                          unsigned paddingY, unsigned paddingX,
-                          bool isFractional,
-                          const std::string &debugPrefix) {
-  const auto outNumChans = deltasOut.dim(1) * deltasOut.dim(4);
+createBwdWeights(Graph &graph,
+                 Tensor weights,
+                 Tensor deltasIn,
+                 Tensor deltasOut,
+                 Tensor bwdWeights,
+                 unsigned strideY, unsigned strideX,
+                 unsigned paddingY, unsigned paddingX,
+                 bool isFractional,
+                 const std::string &debugPrefix) {
   popconv::mapWeights(bwdWeights, graph, deltasIn, strideY, strideX,
                       paddingY, paddingX, isFractional, options.convOptions);
-  popconv::mapBiases(bwdBiases, graph, deltasOut);
+
   const auto dType = graph.getTensorElementType(weights);
   auto key = std::vector<TensorSig>{sig(graph, weights),
-                                    sig(graph, bwdWeights),
-                                    sig(graph, bwdBiases)};
-  std::vector<Tensor> args = {weights, bwdWeights, bwdBiases};
+                                    sig(graph, bwdWeights)};
+  std::vector<Tensor> args = {weights, bwdWeights};
   auto it = bwdWeightGraphCache.find(key);
   if (it != bwdWeightGraphCache.end()) {
     auto &f = it->second;
@@ -408,14 +405,11 @@ createBwdWeightsAndBiases(Graph &graph,
   using namespace popstd::graphfn;
   auto f = ProgramFunction(
     graph,
-    {input(weights, "weights"), output(bwdWeights, "bwdWeights"),
-     output(bwdBiases, "bwdBiases")},
+    {input(weights, "weights"), output(bwdWeights, "bwdWeights")},
     [&](std::vector<poplar::Tensor> &args) {
       auto prog = Sequence();
       prog.add(popconv::weightsTransposeChansFlipXY(graph, args[0], args[1],
                                                    debugPrefix));
-      auto zeros = graph.addConstantTensor(dType, {outNumChans}, 0);
-      prog.add(Copy(zeros, args[2]));
       return prog;
     });
   bwdWeightGraphCache.emplace(key, f);
@@ -425,16 +419,15 @@ createBwdWeightsAndBiases(Graph &graph,
 Program Optimizer::
 doConvolutionWeightUpdate(poplar::Graph &graph,
                           poplar::Tensor zDeltas, poplar::Tensor weights,
-                          poplar::Tensor biases,
                           poplar::Tensor activations,
                           unsigned strideY, unsigned strideX, unsigned paddingY,
                           unsigned paddingX, float learningRate,
                           const std::string &debugPrefix) {
   auto key = std::make_tuple(sig(graph, zDeltas), sig(graph, weights),
-                             sig(graph, biases), sig(graph, activations),
+                             sig(graph, activations),
                              strideY, strideX, paddingY, paddingX,
                              learningRate);
-  std::vector<Tensor> args = {zDeltas, weights, biases, activations};
+  std::vector<Tensor> args = {zDeltas, weights, activations};
   auto it = wuGraphCache.find(key);
   if (it != wuGraphCache.end()) {
     auto &f = it->second;
@@ -444,10 +437,11 @@ doConvolutionWeightUpdate(poplar::Graph &graph,
   auto f = ProgramFunction(
     graph,
     {input(zDeltas, "zDeltas"), inout(weights, "weights"),
-     inout(biases, "biases"), input(activations, "activations")},
+     input(activations, "activations")},
     [&](std::vector<poplar::Tensor> &args) {
+
       return popconv::convolutionWeightUpdate(graph, args[0],
-                                              args[1], args[2], args[3],
+                                              args[1], args[2],
                                               strideY, strideX, paddingY,
                                               paddingX, false,
                                               learningRate, debugPrefix,
@@ -831,15 +825,15 @@ Program Optimizer::
 doConvolution(Graph &graph,
               const std::vector<unsigned> &stride,
               const std::vector<unsigned> &padding,
-              Tensor in, Tensor weights, Tensor biases,
+              Tensor in, Tensor weights,
               Tensor out, const std::string &partialsType,
               bool isFractional, bool transposeAndFlipWeights,
               const std::string &debugPrefix) {
   auto key = std::make_tuple(stride, padding, sig(graph, in),
-                             sig(graph, weights), sig(graph, biases),
+                             sig(graph, weights),
                              sig(graph, out), partialsType, isFractional,
                              transposeAndFlipWeights);
-  std::vector<Tensor> args = {in, weights, biases, out};
+  std::vector<Tensor> args = {in, weights, out};
   auto it = convGraphCache.find(key);
   if (it != convGraphCache.end()) {
     auto &f = it->second;
@@ -848,11 +842,10 @@ doConvolution(Graph &graph,
   using namespace popstd::graphfn;
   auto f = ProgramFunction(
     graph,
-    {input(in, "in"), input(weights, "weights"), input(biases, "biases"),
-     output(out, "out")},
+    {input(in, "in"), input(weights, "weights"), output(out, "out")},
     [&](std::vector<poplar::Tensor> &args) {
       return convolution(graph, stride, padding, args[0], args[1],
-                         args[2], args[3], partialsType, isFractional,
+                         args[2], partialsType, isFractional,
                          transposeAndFlipWeights, debugPrefix,
                          options.convOptions);
     });
@@ -912,7 +905,6 @@ Optimizer::createConvLayerFwd(const ExpImpl *exp,
                                           false, options.convOptions);
   Tensor biases = popconv::createBiases(*graph, dType, numChannels);
   params[exp].push_back(weights);
-  params[exp].push_back(biases);
 
   popconv::mapWeights(weights, *graph, in, strideY, strideX,
                       paddingY, paddingX, false, options.convOptions);
@@ -921,16 +913,11 @@ Optimizer::createConvLayerFwd(const ExpImpl *exp,
     auto hWeights =
         createRandomWeightInitializers(weights, 0, 1.0 / kernelSizeY,
                                        randomEngine);
-    auto hBiases =
-        createRandomWeightInitializers(weights, 0, 1.0 / kernelSizeY,
-                                       randomEngine);
     initParamsProg.add(Copy(hWeights.get(), weights));
-    initParamsProg.add(Copy(hBiases.get(), biases));
     hParams[exp].push_back(std::move(hWeights));
-    hParams[exp].push_back(std::move(hBiases));
   }
 
-  numParams += weights.numElements() + biases.numElements();
+  numParams += weights.numElements();
 
   if (options.skipFwd)
     return Sequence();
@@ -946,7 +933,7 @@ Optimizer::createConvLayerFwd(const ExpImpl *exp,
                                        numChannels);
 
   return doConvolution(*graph, {strideY, strideX}, {paddingY, paddingX},
-                       in, weights, biases, out[exp], partialsType, false,
+                       in, weights, out[exp], partialsType, false,
                        false, debugPrefix);
 }
 
@@ -1044,6 +1031,33 @@ void Optimizer::genFwd(Sequence &fwdProg,
                                      c->paddingX,
                                      c->numChannels,
                                      initParamsProg, layerPrefix));
+
+
+      Tensor biases = popconv::createBiases(*graph, dType, c->numChannels);
+      params[exp].push_back(biases);
+      popconv::mapBiases(biases, *graph, out[exp]);
+
+      if (dType == "float") {
+        auto hBiases =
+            createRandomWeightInitializers(biases, 0, 1.0 / c->numChannels,
+                                           randomEngine);
+        initParamsProg.add(Copy(hBiases.get(), biases));
+        hParams[exp].push_back(std::move(hBiases));
+      }
+
+      numParams += biases.numElements();
+
+      if (!options.skipFwd) {
+        const auto dimY = out[exp].dim(2);
+        const auto dimX = out[exp].dim(3);
+        const auto numGroups = out[exp].dim(1);
+        const auto numChansPerGroup = out[exp].dim(4);
+        auto bBiases =
+            biases.broadcast(options.batchSize * dimY * dimX, 0)
+                  .reshape({options.batchSize, dimY, dimX, numGroups,
+                            numChansPerGroup}).dimShuffle({0, 3, 1, 2, 4});
+        addTo(*graph, out[exp], bBiases, 1.0, fwdProg, layerPrefix);
+      }
     } else if (const auto *nl = dynamic_cast<const NonLinearity *>(exp)) {
       auto prev = exp->deps().front();
       auto in = out[prev];
@@ -1231,15 +1245,13 @@ createConvLayerBwd(const ExpImpl *exp, Tensor outGradient, unsigned layerIndex,
     auto &inGrad = inGradient[exp][0];
     // Create transpose/flipped weights
     auto bwdWeights =
-        popconv::createWeights(*graph, outGradient,
-                               kernelSizeY, kernelSizeX, prevNumChans,
-                               strideY, strideX, bwdPaddingY, bwdPaddingX,
-                               isFractional, options.convOptions);
+    popconv::createWeights(*graph, outGradient,
+                           kernelSizeY, kernelSizeX, prevNumChans,
+                           strideY, strideX, bwdPaddingY, bwdPaddingX,
+                           isFractional, options.convOptions);
     popconv::mapWeights(bwdWeights, *graph, outGradient,
                         strideY, strideX, bwdPaddingY, bwdPaddingX,
                         isFractional, options.convOptions);
-    auto biases = graph->addTensor(dType, {prevNumChans}, "zeroBiases");
-    popconv::mapBiases(biases, *graph, inGrad);
 
     if (!options.skipBwd) {
       bwdFlops += popconv::getBwdFlops(batchSize,
@@ -1254,17 +1266,16 @@ createConvLayerBwd(const ExpImpl *exp, Tensor outGradient, unsigned layerIndex,
                                            paddingY,
                                            paddingX, nextNumChans);
       prog.add(
-         createBwdWeightsAndBiases(*graph, weights,
-                                   outGradient, inGrad, bwdWeights, biases,
-                                   strideY, strideX, bwdPaddingY, bwdPaddingX,
-                                   isFractional,
-                                   debugPrefix)
+         createBwdWeights(*graph, weights,
+                          outGradient, inGrad, bwdWeights,
+                          strideY, strideX, bwdPaddingY, bwdPaddingX,
+                          isFractional,
+                          debugPrefix)
       );
       // Perform convolution
       prog.add(doConvolution(*graph, {strideY, strideX},
                              {bwdPaddingY, bwdPaddingX}, outGradient,
-                             bwdWeights,
-                             biases, inGrad, bwdPlan.getPartialType(),
+                             bwdWeights, inGrad, bwdPlan.getPartialType(),
                              isFractional, false, debugPrefix));
     }
   }
@@ -1272,9 +1283,14 @@ createConvLayerBwd(const ExpImpl *exp, Tensor outGradient, unsigned layerIndex,
     // TODO move before backward pass to reduce live range of the deltas.
     prog.add(
       doConvolutionWeightUpdate(*graph, outGradient, weights,
-                                biases, in, strideY, strideX, paddingY,
+                                in, strideY, strideX, paddingY,
                                 paddingX, options.learningRate, debugPrefix)
     );
+
+    prog.add(popconv::convolutionBiasUpdate(*graph, outGradient, biases,
+                                            options.learningRate,
+                                            debugPrefix));
+
     wuFlops += popconv::getWuFlops(batchSize,
                                    prevDimY, prevDimX, prevNumChans,
                                    kernelSizeY, kernelSizeX, strideY,

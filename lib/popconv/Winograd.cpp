@@ -1586,8 +1586,7 @@ static Program complete(
               const WgdTilePartition &tp,
               const std::string layerName,
               Tensor in,
-              Tensor act,
-              Tensor bias) {
+              Tensor act) {
   ComputeSet cs = graph.addComputeSet(layerName + "/Complete");
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const unsigned numWorkers = deviceInfo.numWorkerContexts;
@@ -1670,7 +1669,6 @@ static Program complete(
             graph.connect(v["act"][elem],
                           act[ogOut][y][x].flatten().slice(ocOut,
                                                            ocOut + depth));
-            graph.connect(v["bias"][elem], bias.slice(oc, oc + depth));
             ++elem;
           }
         }
@@ -1678,8 +1676,6 @@ static Program complete(
 
       graph.setFieldSize(v["dIn"], elem);
       graph.setFieldSize(v["act"], elem);
-      graph.setFieldSize(v["bias"], elem);
-
       totalUnits -= unitsThisVertex;
     }
   }
@@ -1693,7 +1689,7 @@ extern Program winogradConvolution(Graph &graph,
             unsigned xDim, unsigned yDim,
             unsigned outNumChans, unsigned patchSizeX, unsigned patchSizeY,
             const std::string &dType, const std::string &partialsType,
-            Tensor in, Tensor weights, Tensor biases, Tensor activations,
+            Tensor in, Tensor weights, Tensor activations,
             const std::string &debugPrefix) {
 
 #if DEBUG_PRINT >= 1
@@ -1790,7 +1786,7 @@ extern Program winogradConvolution(Graph &graph,
 
   prog.add(inverseTransform(graph, tp, layerName, invTfIn, invTfOut));
 
-  prog.add(complete(graph, tp, layerName, invTfOut, activations, biases));
+  prog.add(complete(graph, tp, layerName, invTfOut, activations));
 
   return prog;
 }
@@ -1799,7 +1795,7 @@ extern Program winogradConvolution(Graph &graph,
 poplar::program::Program winogradConvolution(poplar::Graph &graph,
             unsigned strideY, unsigned strideX,
             unsigned paddingY, unsigned paddingX,
-            poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
+            poplar::Tensor in, poplar::Tensor weights,
             poplar::Tensor out,
             const std::string &partialsType,
             unsigned patchSizeX, unsigned patchSizeY,
@@ -1813,7 +1809,7 @@ poplar::program::Program winogradConvolution(poplar::Graph &graph,
                                  in.dim(3), in.dim(2),
                                  out.dim(1) * out.dim(4), patchSizeX,
                                  patchSizeY, dType, partialsType,
-                                 in[b], weights, biases, out[b],
+                                 in[b], weights, out[b],
                                  debugPrefix));
   }
   return prog;

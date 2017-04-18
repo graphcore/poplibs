@@ -14,6 +14,7 @@
 #include <popstd/exceptions.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <popstd/codelets.hpp>
+#include <popstd/Add.hpp>
 #include <popreduce/codelets.hpp>
 #include <popconv/codelets.hpp>
 #include <popnn/NonLinearity.hpp>
@@ -281,6 +282,9 @@ int main(int argc, char **argv) {
                                     outWidth, fwdOutChansPerGroup},
                       "nextAct");
   mapActivations(graph, nextAct);
+
+  popconv::mapBiases(biases, graph, nextAct);
+
   Tensor prevDeltas, zDeltas;
   if (doBwdPass || doWuPass) {
     zDeltas =
@@ -329,37 +333,48 @@ int main(int argc, char **argv) {
   {
     Program program = popconv::convolution(graph, {strideH, strideW},
                                            {paddingHeight, paddingWidth},
-                                           prevAct, weights, biases, nextAct,
+                                           prevAct, weights, nextAct,
                                            partialsTypeStr, false, false, "",
                                            convOptions);
-    if (doFwdPass)
+    if (doFwdPass) {
       fwdProg.add(program);
+
+      const auto dimY = nextAct.dim(2);
+      const auto dimX = nextAct.dim(3);
+      const auto numGroups = nextAct.dim(1);
+      const auto numChansPerGroup = nextAct.dim(4);
+      auto bBiases =
+            biases.broadcast(batchSize * dimY * dimX, 0)
+                  .reshape({batchSize, dimY, dimX, numGroups,
+                            numChansPerGroup}).dimShuffle({0, 3, 1, 2, 4});
+      popstd::addTo(graph, nextAct, bBiases, 1.0, fwdProg, "");
+    }
   }
 
   auto revProg = Sequence();
   const auto learningRate = 0.5;
 
   if (doBwdPass) {
-    auto zeros = graph.addConstantTensor(dataTypeStr, {fwdInChans}, 0);
-    auto zeroBiases = graph.addTensor(dataTypeStr, {fwdInChans}, "zeroBiases");
-    popconv::mapBiases(zeroBiases, graph, prevDeltas);
-    revProg.add(Copy(zeros, zeroBiases));
     revProg.add(
       popconv::convolution(graph,
                            strideH, strideW,
                            bwdPaddingHeight, bwdPaddingWidth,
-                           zDeltas, weights, zeroBiases, prevDeltas,
+                           zDeltas, weights, prevDeltas,
                            partialsTypeStr, bwdIsFractional, true, "",
                            convOptions)
     );
   }
   if (doWuPass) {
     revProg.add(
-      popconv::convolutionWeightUpdate(graph, zDeltas, weights, biases, prevAct,
+      popconv::convolutionWeightUpdate(graph, zDeltas, weights, prevAct,
                                        strideH, strideW, paddingHeight,
                                        paddingWidth, false, learningRate, "",
                                        convOptions)
     );
+    revProg.add(
+      popconv::convolutionBiasUpdate(graph, zDeltas, biases, learningRate)
+    );
+
   }
   Engine engine(graph, {std::move(upload), std::move(download),
                         std::move(fwdProg), std::move(revProg)});

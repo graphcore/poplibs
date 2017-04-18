@@ -39,10 +39,9 @@ static unsigned filterLengthPost(unsigned a, unsigned kernel, unsigned aLim) {
 
 
 /* Reference convolution layer implementation using naive convolution method */
-static void computeReference(Tensor in, Tensor weights, Tensor biases,
-                             Tensor activations,
+static void computeReference(Tensor in, Tensor weights, Tensor activations,
                              const float *inpBuffer, const float *weightBuffer,
-                             const float *biasBuffer, float *outBuffer,
+                             float *outBuffer,
                              unsigned paddingY, unsigned paddingX) {
 
   unsigned numInpChanGroups = in.dim(1);
@@ -68,8 +67,6 @@ static void computeReference(Tensor in, Tensor weights, Tensor biases,
                             numOutChansInGroupWeight;
       const auto outIdx = ozg * (numOutChansInGroup * featureX * featureY)
                           + ozc;
-      const auto biasIdx = ozg * numOutChansInGroup + ozc;
-
 
       for (unsigned y = 0; y < featureY; ++y) {
         for (unsigned x = 0; x < featureX; ++x) {
@@ -131,7 +128,7 @@ static void computeReference(Tensor in, Tensor weights, Tensor biases,
 
           const auto foIdx = outIdx + x * numOutChansInGroup + y
                                         * numOutChansInGroup * featureX;
-          outBuffer[foIdx] = outRes + biasBuffer[biasIdx];
+          outBuffer[foIdx] = outRes;
         }
       }
     }
@@ -165,7 +162,7 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   const unsigned patchSizeY = 4;
   const unsigned paddingY = 1;
   const unsigned paddingX = 1;
-  const float    mean = 0;
+  const float    mean = 0.2;
   const float    stdDev = 1.0;
 
 
@@ -178,10 +175,6 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
           {numOutPartialChanGroups, numInpChanGroups, kernelSizeY,
            kernelSizeX, numOutPartialChansInGroup, numInpChansInGroup},
           "weights");
-  auto biases = graph.addTensor(
-          dType,
-          {numOutPartialChanGroups*numOutPartialChansInGroup},
-          "biases");
   auto activations = graph.addTensor(
           dType,
           {1, numOutChanGroups, featureY, featureX, numOutChansInGroup},
@@ -191,7 +184,6 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
 
   mapActivations(graph, in);
   mapActivations(graph, activations);
-  popconv::mapBiases(biases, graph, activations);
 
   const std::size_t inSize = numInpChanGroups * featureY
                              * featureX * numInpChansInGroup;
@@ -200,14 +192,11 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
                             * numOutPartialChansInGroup * numInpChansInGroup;
   const std::size_t outSize = numOutChanGroups
                              * featureX * featureY * numOutChansInGroup;
-  const std::size_t biasSize = numOutPartialChanGroups
-                               * numOutPartialChansInGroup;
 
   std::vector<float> inBuffer(inSize);
   std::vector<float> outBuffer(outSize);
   std::vector<float> outBufferRef(outSize);
   std::vector<float> weightsBuffer(wSize);
-  std::vector<float> biasBuffer(biasSize);
   std::vector<float> debugBuffer(inSize*16);
   std::fill(debugBuffer.begin(), debugBuffer.end(), 0);
 
@@ -223,18 +212,13 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
     weightsBuffer[i] = dist(randomEngine);
   }
 
-  for (unsigned i = 0; i < biasSize; ++i) {
-    biasBuffer[i] = dist(randomEngine);
-  }
-
   auto wgdConv = popconv::winogradConvolution(
            graph, 1, 1, paddingY,
-           paddingX, in, weights, biases, activations, "float",
+           paddingX, in, weights, activations, "float",
            patchSizeX, patchSizeY);
 
   auto prog = Sequence(Copy(&inBuffer[0], in),
                        Copy(&weightsBuffer[0], weights),
-                       Copy(&biasBuffer[0], biases),
                        wgdConv,
                        Copy(activations, &outBuffer[0]));
 
@@ -243,17 +227,17 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
 
   eng.run();
 
-  computeReference(in, weights, biases, activations, &inBuffer[0],
-                   &weightsBuffer[0], &biasBuffer[0], &outBufferRef[0],
+  computeReference(in, weights, activations, &inBuffer[0],
+                   &weightsBuffer[0], &outBufferRef[0],
                    paddingX, paddingY);
 
 
   for (unsigned i = 0; i < outSize; ++i) {
-    // float relDiff = fabs((outBuffer[i]-outBufferRef[i])/outBufferRef[i]*100);
-    // std::cout << outBuffer[i] << "  " << outBufferRef[i] << "  "
-    // std::cout << relDiff << std::endl;
-    // if (relDiff > 0.01)
-    //  std::cout << " error ... " << i << std::endl;
+    //float relDiff = fabs((outBuffer[i]-outBufferRef[i])/outBufferRef[i]*100);
+    // std::cout << outBuffer[i] << "  " << outBufferRef[i] << "  ";
+    //std::cout << relDiff << std::endl;
+    //if (relDiff > 0.01)
+    //std::cout << " error ... " << i << std::endl;
     BOOST_TEST(outBuffer[i] == outBufferRef[i]);
   }
 }

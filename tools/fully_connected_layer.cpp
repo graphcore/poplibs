@@ -471,9 +471,9 @@ int main(int argc, char **argv) {
   auto bwdProg = Sequence();
 
   if (doFwdPass) {
-    auto zeroBiases = graph.addConstantTensor(dataTypeStr, {batchSize}, 0);
+
     fwdProg.add(popconv::convolution(graph, {1, 1}, {0, 0}, weights,
-                                     prevAct, zeroBiases, nextAct,
+                                     prevAct, nextAct,
                                      partialsTypeStr, false, false, "",
                                      options));
     auto bBiases = biases.broadcast(batchSize, 0)

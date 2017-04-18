@@ -113,7 +113,7 @@ poplar::program::Program
 convolution(poplar::Graph &graph,
             const std::vector<unsigned> &stride,
             const std::vector<unsigned> &padding,
-            poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
+            poplar::Tensor in, poplar::Tensor weights,
             poplar::Tensor out, const std::string &partialsType,
             bool isFractional, bool transposeAndFlipWeights,
             const std::string &debugPrefix = "",
@@ -123,13 +123,13 @@ inline poplar::program::Program
 convolution(poplar::Graph &graph,
             unsigned strideY, unsigned strideX,
             unsigned paddingY, unsigned paddingX,
-            poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
+            poplar::Tensor in, poplar::Tensor weights,
             poplar::Tensor out, const std::string &partialsType,
             bool isFractional, bool transposeAndFlipWeights,
             const std::string &debugPrefix = "",
             const ConvOptions &options = ConvOptions()) {
   return convolution(graph, {strideY, strideX}, {paddingY, paddingX},
-                     in, weights, biases, out, partialsType, isFractional,
+                     in, weights, out, partialsType, isFractional,
                      transposeAndFlipWeights, debugPrefix, options);
 }
 
@@ -170,7 +170,6 @@ calculateWeightDeltas(poplar::Graph &graph, poplar::Tensor zDeltas,
 poplar::program::Program
 convolutionWeightUpdate(poplar::Graph &graph,
                         poplar::Tensor zDeltas, poplar::Tensor weights,
-                        poplar::Tensor biases,
                         poplar::Tensor activations,
                         const std::vector<unsigned> &stride,
                         const std::vector<unsigned> &padding,
@@ -181,7 +180,6 @@ convolutionWeightUpdate(poplar::Graph &graph,
 inline poplar::program::Program
 convolutionWeightUpdate(poplar::Graph &graph,
                         poplar::Tensor zDeltas, poplar::Tensor weights,
-                        poplar::Tensor biases,
                         poplar::Tensor activations,
                         unsigned strideY, unsigned strideX, unsigned paddingY,
                         unsigned paddingX, bool isFractional,
@@ -189,7 +187,7 @@ convolutionWeightUpdate(poplar::Graph &graph,
                         const std::string &debugPrefix = "",
                         const ConvOptions &options = ConvOptions()) {
   return convolutionWeightUpdate(graph, zDeltas, weights,
-                                 biases, activations, {strideY, strideX},
+                                 activations, {strideY, strideX},
                                  {paddingY, paddingX}, isFractional,
                                  learningRate,
                                  debugPrefix, options);
@@ -214,5 +212,9 @@ public:
   std::unique_ptr<PlanningCacheImpl> impl;
 };
 
+poplar::program::Program
+convolutionBiasUpdate(poplar::Graph &graph, const poplar::Tensor &zDeltas,
+                      const poplar::Tensor &biases,
+                      float learningRate, const std::string &debugPrefix = "");
 }
 #endif  // __popconv_Convolution_hpp__

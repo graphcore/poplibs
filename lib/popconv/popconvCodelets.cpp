@@ -551,73 +551,6 @@ template class ConvPartialHorizontalMac<float, float>;
 template class ConvPartialHorizontalMac<half, float>;
 template class ConvPartialHorizontalMac<half, half>;
 
-template <class InType, class OutType>
-class ConvComplete : public Vertex {
-public:
-  Vector<Input<Vector<InType>>> in;
-  Vector<Input<Vector<OutType>>> bias;
-  Vector<Output<Vector<OutType>>> out;
-  Vector<unsigned> outputChanGroupsPerBias;
-
-  SimOnlyField<unsigned> dataPathWidth;
-
-  bool compute() {
-    unsigned numOut = out.size();
-    unsigned outChans = bias[0].size();
-    unsigned chunkSize = in[0].size();
-    unsigned biasIndex = 0;
-    unsigned biasCount = outputChanGroupsPerBias[0];
-    unsigned inIndex = 0;
-    for (unsigned o = 0; o < numOut; ++o) {
-      unsigned outCols = out[o].size() / outChans;
-      for (unsigned ocol = 0; ocol < outCols; ++ocol) {
-        for (unsigned ochan = 0; ochan < outChans; ++ochan) {
-          auto outIndex = ocol * outChans + ochan;
-          float sum = in[inIndex / chunkSize][inIndex % chunkSize];
-          ++inIndex;
-          sum += bias[biasIndex][ochan];
-
-          out[o][outIndex] = sum;
-        }
-      }
-      --biasCount;
-      if (biasCount == 0) {
-        ++biasIndex;
-        if (biasIndex < outputChanGroupsPerBias.size())
-          biasCount = outputChanGroupsPerBias[biasIndex];
-      }
-    }
-    assert(biasIndex == outputChanGroupsPerBias.size());
-    assert(inIndex == in.size() * chunkSize);
-    return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    bool inIsFloat = std::is_same<InType, float>::value;
-    bool outIsFloat = std::is_same<InType, float>::value;
-    assert(!outIsFloat || inIsFloat && "Output is wider than input");
-    const auto inVectorWidth = dataPathWidth / (inIsFloat ? 32 : 16);
-    unsigned numOut = out.size();
-    unsigned outChans = bias[0].size();
-    unsigned chunkSize = in[0].size();
-    unsigned numCycles = 5;
-    for (unsigned o = 0; o < numOut; ++o) {
-      unsigned outCols = out[o].size() / outChans;
-      assert(outChans % chunkSize == 0);
-      // load input, load bias and add
-      // - dual loads, dual issue = 2 vectors in 2 cycles
-      numCycles += (chunkSize + inVectorWidth - 1) / inVectorWidth
-                   * (outChans / chunkSize)
-                   * outCols;
-    }
-    return numCycles;
-  }
-};
-
-template class ConvComplete<float, float>;
-template class ConvComplete<float, half>;
-template class ConvComplete<half, half>;
-
 template <class FPType, unsigned patchSizeX, unsigned patchSizeY,
           unsigned kernelX, unsigned kernelY>
 class WgdDataTransform : public Vertex {
@@ -1083,10 +1016,6 @@ public:
    */
   Vector<Input<Vector<FPType>>> dIn;
 
-  /* Each bias vector is of length "vecLen"
-   */
-  Vector<Input<Vector<FPType>>> bias;
-
   /* The output activation once non-linearity is applied
    */
   Vector<Output<Vector<FPType>>> act;
@@ -1097,7 +1026,7 @@ public:
 
     for (unsigned gr = 0; gr < nGroups; ++gr) {
       for (unsigned el = 0; el < vecLen; ++el) {
-        act[gr][el] = bias[gr][el]+dIn[gr][el];
+        act[gr][el] = dIn[gr][el];
       }
     }
     return true;

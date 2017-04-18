@@ -8,7 +8,7 @@ namespace popconv {
 poplar::program::Program winogradConvolution(poplar::Graph &graph,
             unsigned strideY, unsigned strideX,
             unsigned paddingY, unsigned paddingX,
-            poplar::Tensor in, poplar::Tensor weights, poplar::Tensor biases,
+            poplar::Tensor in, poplar::Tensor weights,
             poplar::Tensor out,
             const std::string &partialsType,
             unsigned patchSizeX, unsigned patchSizeY,
