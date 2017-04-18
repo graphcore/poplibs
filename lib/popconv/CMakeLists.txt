@@ -19,7 +19,7 @@ add_library(popconv SHARED
   ${CMAKE_SOURCE_DIR}/include/util/gcd.hpp
 )
 
-target_link_libraries(popconv poplar popreduce popstd)
+target_link_libraries(popconv poplar popreduce popstd popsolver)
 
 target_include_directories(popconv
   PUBLIC
