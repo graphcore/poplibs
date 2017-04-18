@@ -1,5 +1,7 @@
 find_package(Boost REQUIRED unit_test_framework timer system program_options)
 
+add_subdirectory(popsolver)
+
 function(add_popnn_unit_test name)
   add_executable(${name} ${ARGN})
   target_include_directories(${name}
@@ -19,6 +21,7 @@ function(add_popnn_unit_test name)
   add_test(NAME ${name}
     COMMAND ${name})
 endfunction()
+
 # Unit tests
 add_popnn_unit_test(GraphFunctionTest GraphFunctionTest.cpp)
 add_popnn_unit_test(ResidualTest ResidualTest.cpp)
