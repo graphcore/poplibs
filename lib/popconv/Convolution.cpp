@@ -788,9 +788,10 @@ createConvPartialnx1InOutVertex(Graph &graph,
   auto v = graph.addVertex(fwdCS,
                       templateVertex("popconv::ConvPartialnx1InOut",
                                      dType, partialType,
-                                     isFractional ? "true" : "false",
                                      useDeltaEdgesForConvPartials(numEdges) ?
                                                           "true" : "false"));
+  graph.setInitialValue(v["inStride"], isFractional ? 1 : stride.back());
+  graph.setInitialValue(v["outStride"], isFractional ? stride.back() : 1);
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
   graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
@@ -886,6 +887,8 @@ createConvPartialHorizontalMacVertex(
                             {"weights", weightsEdges},
                             {"out", outEdges},
                            });
+  graph.setInitialValue(v["inStride"], isFractional ? 1 : stride.back());
+  graph.setInitialValue(v["outStride"], isFractional ? stride.back() : 1);
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
   graph.setTileMapping(v, tile);
 }

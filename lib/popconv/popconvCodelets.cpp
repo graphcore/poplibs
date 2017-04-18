@@ -15,14 +15,15 @@ namespace popconv {
 /**
  * Compute nx1 convolutions and accumulate them with partial sums in memory.
  **/
-template <class FPType, class AccumType, bool isFractional,
-          bool useDeltasForEdges>
+template <class FPType, class AccumType, bool useDeltasForEdges>
 class ConvPartialnx1InOut: public SupervisorVertex {
 public:
   Vector<Input<Vector<FPType>>> in;
   Vector<Input<Vector<FPType>>> weights;
   Vector<unsigned> weightReuseCount;
   Vector<InOut<Vector<AccumType>>> out;
+  unsigned inStride;
+  unsigned outStride;
 
   SimOnlyField<unsigned> dataPathWidth;
   SimOnlyField<unsigned> inChansPerGroup;
@@ -44,26 +45,7 @@ public:
           const auto outWidth = out[convNum].size() / outChansPerGroup;
           const auto inWidth = in[convNum * filterHeight].size() /
                                inChansPerGroup;
-          unsigned inStride, outStride;
-          if (!isFractional) {
-            if (outWidth == 1) {
-              assert(inWidth == 1);
-              inStride = outStride = 1;
-            } else {
-              assert((inWidth - 1) % (outWidth - 1) == 0);
-              inStride = (inWidth - 1) / (outWidth - 1);
-              outStride = 1;
-            }
-          } else {
-            if (inWidth == 1) {
-              assert(outWidth == 1);
-              inStride = outStride = 1;
-            } else {
-              assert((outWidth - 1) % (inWidth - 1) == 0);
-              outStride = (outWidth - 1) / (inWidth - 1);
-              inStride = 1;
-            }
-          }
+          assert((outWidth - 1) * inStride == (inWidth - 1) * outStride);
           const auto numOutputs = (outWidth + outStride - 1) / outStride;
           for (unsigned x = 0; x != numOutputs; ++x) {
             for (unsigned fy = 0; fy != filterHeight; ++fy) {
@@ -113,21 +95,9 @@ public:
         convolutionsByWeight.emplace_back();
         for (unsigned i = 0; i != weightReuseCount[w * numContexts + c];
              ++i) {
-          auto convSize = out[convNum].size() / outChansPerGroup;
-          if (isFractional) {
-            if (!in[convNum * filterHeight].empty() ) {
-              const auto outWidth = out[convNum].size() / outChansPerGroup;
-              const auto inWidth = in[convNum * filterHeight].size() /
-                                   inChansPerGroup;
-              const auto stride = (outWidth + inWidth - 1) / inWidth;
-              assert((outWidth + stride - 1) / stride == inWidth);
-              convSize = (convSize + stride - 1) / stride;
-            } else {
-              //nothing for this worker thread
-              convSize = 0;
-            }
-          }
-          convolutionsByWeight.back().push_back(convSize);
+          auto outWidth = out[convNum].size() / outChansPerGroup;
+          const auto numOutputs = (outWidth + outStride - 1) / outStride;
+          convolutionsByWeight.back().push_back(numOutputs);
           ++convNum;
         }
       }
@@ -144,22 +114,14 @@ public:
   }
 };
 
-template class ConvPartialnx1InOut<float, half, false, true>;
-template class ConvPartialnx1InOut<float, float, false, true>;
-template class ConvPartialnx1InOut<float, half, true, true>;
-template class ConvPartialnx1InOut<float, float, true, true>;
-template class ConvPartialnx1InOut<half, half, false, true>;
-template class ConvPartialnx1InOut<half, float, false, true>;
-template class ConvPartialnx1InOut<half, half, true, true>;
-template class ConvPartialnx1InOut<half, float, true, true>;
-template class ConvPartialnx1InOut<float, half, false, false>;
-template class ConvPartialnx1InOut<float, float, false, false>;
-template class ConvPartialnx1InOut<float, half, true, false>;
-template class ConvPartialnx1InOut<float, float, true, false>;
-template class ConvPartialnx1InOut<half, half, false, false>;
-template class ConvPartialnx1InOut<half, float, false, false>;
-template class ConvPartialnx1InOut<half, half, true, false>;
-template class ConvPartialnx1InOut<half, float, true, false>;
+template class ConvPartialnx1InOut<float, half, true>;
+template class ConvPartialnx1InOut<float, float, true>;
+template class ConvPartialnx1InOut<half, half, true>;
+template class ConvPartialnx1InOut<half, float, true>;
+template class ConvPartialnx1InOut<float, half, false>;
+template class ConvPartialnx1InOut<float, float, false>;
+template class ConvPartialnx1InOut<half, half, false>;
+template class ConvPartialnx1InOut<half, float, false>;
 
 template <class InputType, class PartialTypes, bool useDeltasForEdges>
 class ConvWeightGradAop : public Vertex {
@@ -494,6 +456,8 @@ public:
   Vector<Input<Vector<InType>>> weights;
   Vector<InOut<Vector<AccumType>>> out;
 
+  unsigned inStride;
+  unsigned outStride;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
@@ -506,18 +470,7 @@ public:
       const auto numChans = weights[i].size();
       assert(in[i].size() % numChans == 0);
       const auto inWidth = in[i].size() / numChans;
-      unsigned inStride, outStride;
-      if (outWidth == inWidth) {
-        inStride = outStride = 1;
-      } else if (inWidth > outWidth) {
-        assert((inWidth - 1) % (outWidth - 1) == 0);
-        inStride = (inWidth - 1) / (outWidth - 1);
-        outStride = 1;
-      } else {
-        assert((outWidth - 1) % (inWidth - 1) == 0);
-        outStride = (outWidth - 1) / (inWidth - 1);
-        inStride = 1;
-      }
+      assert((outWidth - 1) * inStride == (inWidth - 1) * outStride);
       for (unsigned outX = 0, inX = 0; outX < outWidth; outX += outStride,
                                                         inX += inStride) {
         for (unsigned chan = 0; chan != numChans; ++chan) {
@@ -536,10 +489,8 @@ public:
     convSizes.reserve(numInRows);
     for (unsigned i = 0; i != numInRows; ++i) {
       const auto outWidth = out[i].size();
-      assert(weights[i].size() == numChans);
-      assert(in[i].size() % numChans == 0);
-      const auto inWidth = in[i].size() / numChans;
-      convSizes.push_back(std::min(inWidth, outWidth));
+      const auto numOutputs = (outWidth + outStride - 1) / outStride;
+      convSizes.push_back(numOutputs);
     }
     bool isFloat = std::is_same<InType, float>::value;
     return getConvPartialHorizontalMacCycleEstimate(isFloat, numChans,
