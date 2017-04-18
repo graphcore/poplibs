@@ -210,7 +210,7 @@ int main(int argc, char **argv) {
   const auto outDims =
       popconv::getOutputDim(height, width, kernelHeight, kernelWidth,
                             strideH, strideW,
-                            paddingHeight, paddingWidth);
+                            paddingHeight, paddingWidth, false);
   const auto outHeight = outDims.first;
   const auto outWidth = outDims.second;
   // TODO support residual connections.
@@ -275,15 +275,8 @@ int main(int argc, char **argv) {
                                           paddingHeight, paddingWidth, false,
                                           convOptions);
   Tensor biases = popconv::createBiases(graph, dataTypeStr, fwdOutChans);
-  Tensor nextAct =
-      graph.addTensor(dataTypeStr, {batchSize,
-                                    fwdOutChans / fwdOutChansPerGroup,
-                                    outHeight,
-                                    outWidth, fwdOutChansPerGroup},
-                      "nextAct");
-  mapActivations(graph, nextAct);
-
-  popconv::mapBiases(biases, graph, nextAct);
+  popconv::mapBiases(biases, graph, prevAct, weights, strideH, strideW,
+                     paddingHeight, paddingWidth, false, convOptions);
 
   Tensor prevDeltas, zDeltas;
   if (doBwdPass || doWuPass) {
@@ -295,17 +288,51 @@ int main(int argc, char **argv) {
                         "zDeltas");
     mapActivations(graph, zDeltas);
   }
+
+
+
+  auto fwdProg = Sequence();
+  // Always generate the fwd program as it maps the weights and biases. Only
+  // actually create the engined if the fwd pass is to be run
+  Tensor nextAct = popconv::convolution(graph, strideH, strideW,
+                                        paddingHeight, paddingWidth,
+                                        fwdOutChans,
+                                        prevAct, weights,
+                                        partialsTypeStr, false, false, fwdProg,
+                                        "", convOptions);
+  auto bBiases =
+      biases.broadcast(batchSize * outHeight * outWidth, 0)
+            .reshape({batchSize, outHeight, outWidth,
+                      fwdOutChans / nextAct.dim(4),
+                      nextAct.dim(4)}).dimShuffle({0, 3, 1, 2, 4});
+  popstd::addTo(graph, nextAct, bBiases, 1.0, fwdProg, "");
+  if (!doFwdPass)
+    fwdProg = Sequence();
+
+  auto revProg = Sequence();
+  const auto learningRate = 0.5;
+
   if (doBwdPass) {
-    prevDeltas =
-          graph.addTensor(dataTypeStr, {batchSize,
-                                        bwdOutChans / bwdOutChansPerGroup,
-                                        height,
-                                        width, bwdOutChansPerGroup},
-                          "prevDeltas");
-      mapActivations(graph, prevDeltas);
+    auto zeros = graph.addConstantTensor(dataTypeStr, {fwdInChans}, 0);
+    auto zeroBiases = graph.addTensor(dataTypeStr, {fwdInChans}, "zeroBiases");
+    popstd::mapTensor(graph, zeroBiases);
+    revProg.add(Copy(zeros, zeroBiases));
+    prevDeltas = popconv::convolution(graph,
+                                      strideH, strideW,
+                                      bwdPaddingHeight, bwdPaddingWidth,
+                                      fwdInChans,
+                                      zDeltas, weights,
+                                      partialsTypeStr, bwdIsFractional,
+                                      true, revProg, "", convOptions);
   }
-
-
+  if (doWuPass) {
+    popconv::convolutionWeightUpdate(graph, zDeltas, weights, prevAct,
+                                     strideH, strideW, paddingHeight,
+                                     paddingWidth, false, learningRate,
+                                     revProg, "", convOptions);
+    popconv::convolutionBiasUpdate(graph, zDeltas, biases, learningRate,
+                                   revProg);
+  }
   auto upload = Sequence();
   auto download = Sequence();
   auto rawHostPrevAct = allocateHostMemoryForTensor(graph, prevAct, upload,
@@ -324,58 +351,9 @@ int main(int argc, char **argv) {
   }
   if (doBwdPass) {
     rawHostPrevDeltas = allocateHostMemoryForTensor(graph, prevDeltas, upload,
-                                                      download);
+                                                    download);
   }
 
-  auto fwdProg = Sequence();
-  // Always generate the fwd program as it maps the weights and biases. Only
-  // actually create the engined if the fwd pass is to be run
-  {
-    Program program = popconv::convolution(graph, {strideH, strideW},
-                                           {paddingHeight, paddingWidth},
-                                           prevAct, weights, nextAct,
-                                           partialsTypeStr, false, false, "",
-                                           convOptions);
-    if (doFwdPass) {
-      fwdProg.add(program);
-
-      const auto dimY = nextAct.dim(2);
-      const auto dimX = nextAct.dim(3);
-      const auto numGroups = nextAct.dim(1);
-      const auto numChansPerGroup = nextAct.dim(4);
-      auto bBiases =
-            biases.broadcast(batchSize * dimY * dimX, 0)
-                  .reshape({batchSize, dimY, dimX, numGroups,
-                            numChansPerGroup}).dimShuffle({0, 3, 1, 2, 4});
-      popstd::addTo(graph, nextAct, bBiases, 1.0, fwdProg, "");
-    }
-  }
-
-  auto revProg = Sequence();
-  const auto learningRate = 0.5;
-
-  if (doBwdPass) {
-    revProg.add(
-      popconv::convolution(graph,
-                           strideH, strideW,
-                           bwdPaddingHeight, bwdPaddingWidth,
-                           zDeltas, weights, prevDeltas,
-                           partialsTypeStr, bwdIsFractional, true, "",
-                           convOptions)
-    );
-  }
-  if (doWuPass) {
-    revProg.add(
-      popconv::convolutionWeightUpdate(graph, zDeltas, weights, prevAct,
-                                       strideH, strideW, paddingHeight,
-                                       paddingWidth, false, learningRate, "",
-                                       convOptions)
-    );
-    revProg.add(
-      popconv::convolutionBiasUpdate(graph, zDeltas, biases, learningRate)
-    );
-
-  }
   Engine engine(graph, {std::move(upload), std::move(download),
                         std::move(fwdProg), std::move(revProg)});
 

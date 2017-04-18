@@ -22,7 +22,7 @@ getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSizeY,
              unsigned strideX, unsigned paddingY,
              unsigned paddingX) {
   return popconv::getOutputDim(inDimY, inDimX, kernelSizeY, kernelSizeX,
-                               strideY, strideX, paddingY, paddingX);
+                               strideY, strideX, paddingY, paddingX, false);
 }
 
 

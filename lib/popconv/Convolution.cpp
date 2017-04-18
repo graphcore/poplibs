@@ -455,18 +455,20 @@ mapWeights(Tensor w, Graph &graph, const Tensor &in,
 
 template <typename Builder>
 static void iterateBiasMapping(Tensor b, const Graph &graph,
-                               Tensor activations,
+                               const std::vector<std::size_t> actShape,
                                Builder &&builder) {
-  const auto batchSize = activations.dim(0);
-  const auto activationsMapping = computeActivationsMapping(graph,
-                                                            activations[0],
+  const auto batchSize = actShape[0];
+  std::vector<std::size_t> actShape1(actShape.begin() + 1, actShape.end());
+  const auto dType = graph.getTensorElementType(b);
+  const auto activationsMapping = computeActivationsMapping(graph, dType,
+                                                            actShape1,
                                                             0,
                                                             batchSize);
   const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
-  const auto outNumChans = activations.dim(1) * activations.dim(4);
-  const auto outNumChanGroups = activations.dim(1);
-  const auto outDimY = activations.dim(2);
-  const auto outDimX = activations.dim(3);
+  const auto outNumChans = actShape[1] * actShape[4];
+  const auto outNumChanGroups = actShape[1];
+  const auto outDimY = actShape[2];
+  const auto outDimX = actShape[3];
   std::vector<unsigned> mapping(outNumChanGroups);
   size_t outChansPerGroup = outNumChans / outNumChanGroups;
   Tensor biasesByChanGroup =
@@ -501,8 +503,36 @@ static void iterateBiasMapping(Tensor b, const Graph &graph,
   builder(finalSlice, curTile);
 }
 
-void mapBiases(Tensor biases, Graph &graph, Tensor activations) {
-  iterateBiasMapping(biases, graph, activations,
+void mapBiases(Tensor biases, Graph &graph,
+               const Tensor &in, const Tensor &w,
+               unsigned strideY, unsigned strideX,
+               unsigned paddingY, unsigned paddingX,
+               bool isFractional,
+               const ConvOptions &options) {
+  const unsigned kernelSizeY = w.dim(2);
+  const unsigned kernelSizeX = w.dim(3);
+  std::size_t outDimY;
+  std::size_t outDimX;
+  std::tie(outDimY, outDimX) = getOutputDim(in.dim(2), in.dim(3),
+                                            kernelSizeY, kernelSizeX,
+                                            strideY, strideX,
+                                            paddingY, paddingX,
+                                            isFractional);
+  const auto dType = graph.getTensorElementType(in);
+  const auto inNumChans = in.dim(1) * in.dim(4);
+  const auto outNumChans = w.dim(0) * w.dim(4);
+  const auto plan = getPlan(graph, dType,
+                            in.dim(0), in.dim(2), in.dim(3),
+                            inNumChans,
+                            {w.dim(2), w.dim(3), w.dim(0) * w.dim(4)},
+                            {strideY, strideX},
+                            {paddingY, paddingX},
+                            isFractional, options);
+  std::vector<std::size_t> actShape{in.dim(0),
+                                    outNumChans / plan.partialChansPerGroup,
+                                    outDimY, outDimX,
+                                    plan.partialChansPerGroup};
+  iterateBiasMapping(biases, graph, actShape,
                      [&](Tensor biasSlice, unsigned tile) {
                          graph.setTileMapping(biasSlice, tile);
                      });
@@ -1515,18 +1545,18 @@ convSuffix(const std::vector<unsigned> &kernelSize,
   return s;
 }
 
-Program
+Tensor
 convolution(Graph &graph,
             const std::vector<unsigned> &stride,
             const std::vector<unsigned> &padding,
-            Tensor in, Tensor weights, Tensor activations,
+            unsigned outNumChans,
+            Tensor in, Tensor weights,
             const std::string &partialsType, bool isFractional,
-            bool transposeAndFlipWeights,
+            bool transposeAndFlipWeights, Sequence &prog,
             const std::string &debugPrefix,
             const ConvOptions &options) {
   const auto dType = graph.getTensorElementType(in);
-  const auto batchSize = activations.dim(0);
-  Sequence prog;
+  const auto batchSize = in.dim(0);
   if (transposeAndFlipWeights) {
     // Create transposed/flipped weights
     const auto outNumChans = weights.dim(1) * weights.dim(5);
@@ -1539,8 +1569,7 @@ convolution(Graph &graph,
                                     options);
     mapWeights(bwdWeights, graph, in, stride[0], stride[1], padding[0],
                padding[1], isFractional, options);
-    prog.add(weightsTransposeChansFlipXY(graph, weights, bwdWeights,
-                                         debugPrefix));
+    weightsTransposeChansFlipXY(graph, weights, bwdWeights, prog, debugPrefix);
     weights = bwdWeights;
   }
   const auto plan = getPlan(graph, dType,
@@ -1550,24 +1579,40 @@ convolution(Graph &graph,
                              weights.dim(0) * weights.dim(4)},
                             stride, padding,
                             isFractional, options);
+  if (in.dim(4) != plan.inChansPerGroup) {
+    in = regroup(in, plan.inChansPerGroup);
+  }
+  const unsigned kernelSizeY = weights.dim(2);
+  const unsigned kernelSizeX = weights.dim(3);
+  std::size_t outDimY;
+  std::size_t outDimX;
+  std::tie(outDimY, outDimX) = getOutputDim(in.dim(2), in.dim(3),
+                                            kernelSizeY, kernelSizeX,
+                                            stride[0], stride[1],
+                                            padding[0], padding[1],
+                                            isFractional);
+  auto activations =
+      graph.addTensor(dType, {batchSize,
+                              outNumChans / plan.partialChansPerGroup,
+                              outDimY, outDimX,
+                              plan.partialChansPerGroup});
+  ::mapActivations(graph, activations);
   if (plan.useWinograd) {
-    return winogradConvolution(graph, stride[0], stride[1],
-                               padding[0], padding[1],
-                               in, weights, activations,
-                               partialsType,
-                               plan.winogradPatchSize, plan.winogradPatchSize,
-                               debugPrefix);
+    prog.add(winogradConvolution(graph, stride[0], stride[1],
+                                 padding[0], padding[1],
+                                 in, weights, activations,
+                                 partialsType,
+                                 plan.winogradPatchSize, plan.winogradPatchSize,
+                                 debugPrefix));
+    return activations;
   }
 
 
   assert(plan.getPartialType() == partialsType);
-  const unsigned kernelSizeY = weights.dim(2);
-  const unsigned kernelSizeX = weights.dim(3);
+
   const auto layerName =
       debugPrefix + "/Conv" + convSuffix({kernelSizeY, kernelSizeX}, stride,
                                          isFractional);
-  const auto outDimY = activations.dim(2);
-  const auto outDimX = activations.dim(3);
   unsigned partialOutDimY, partialOutDimX;
   assert(batchSize % plan.batchesPerGroup == 0);
   const auto numBatchGroups = batchSize / plan.batchesPerGroup;
@@ -1594,6 +1639,7 @@ convolution(Graph &graph,
     partialOutDimY = outDimY;
     partialOutDimX = outDimX;
   }
+
   Program convolveProg;
   Tensor postConvolve;
   std::tie(convolveProg, postConvolve) =
@@ -1621,7 +1667,7 @@ convolution(Graph &graph,
   cast(graph, postConvolve, activations, castConvOutput);
   prog.add(convolveProg);
   prog.add(Execute(castConvOutput));
-  return prog;
+  return activations;
 }
 
 static std::uint64_t getNumberOfMACs(unsigned outDimY, unsigned outDimX,
@@ -1658,7 +1704,7 @@ static uint64_t getFlops(unsigned batchSize,
   unsigned outDimY, outDimX;
   std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX, kernelSizeY,
                                             kernelSizeX, strideY, strideX,
-                                            paddingY, paddingX);
+                                            paddingY, paddingX, false);
   auto flopsPerItem =
       2 * getNumberOfMACs(outDimY, outDimX, outNumChans,
                           kernelSizeY, kernelSizeX, strideY, strideX,
@@ -1717,7 +1763,8 @@ static double getPerfectCycleCount(const Graph &graph,
   unsigned outDimY, outDimX;
   std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX, kernelSizeY,
                                             kernelSizeX, strideY,
-                                            strideX, paddingY, paddingX);
+                                            strideX, paddingY, paddingX,
+                                            false);
   const auto numTiles = deviceInfo.getNumTiles();
   auto numMacs =
       batchSize * getNumberOfMACs(outDimY, outDimX, outNumChans, kernelSizeY,
@@ -1848,10 +1895,11 @@ static Tensor weightsPartialTranspose(Graph &graph, Tensor in, ComputeSet cs) {
  *  each element of the kernel is transposed w.r.t. the input and output
  *  channels and flip both the X and Y axis of the kernel field.
  */
-Program weightsTransposeChansFlipXY(Graph &graph,
-                                    Tensor weightsIn,
-                                    Tensor weightsOut,
-                                    const std::string &debugPrefix) {
+void weightsTransposeChansFlipXY(Graph &graph,
+                                 Tensor weightsIn,
+                                 Tensor weightsOut,
+                                 Sequence &prog,
+                                 const std::string &debugPrefix) {
   // weightsIn = { O/G1, I/G2, KY, KX, G1, G2 }
   // weightsOut = { I/G3, O/G4, KY, KX, G3, G4 }
 
@@ -1865,7 +1913,6 @@ Program weightsTransposeChansFlipXY(Graph &graph,
   const auto G3 = weightsOut.dim(4);
   const auto G4 = weightsOut.dim(5);
 
-  Sequence prog;
   // Express the rearrangement as a composition of two rearrangements such
   // that the first rearrangement avoids exchange and maximises the size of the
   // block that is rearranged in the second step. This reduces exchange code
@@ -1905,7 +1952,6 @@ Program weightsTransposeChansFlipXY(Graph &graph,
                            .reshape({KY, KX, O/G4, G4, I/G3, G3})
                            .dimShuffle({4, 2, 0, 1, 5, 3}),
                 weightsOut));
-  return prog;
 }
 
 // Let A be a n x m matrix and B be a m x p matrix. Compute C = A x B.
@@ -2247,6 +2293,9 @@ calculateWeightDeltasAop(Graph &graph, const Plan &plan,
                          const std::vector<unsigned> &padding,
                          Sequence &prog,
                          const std::string &debugPrefix) {
+  if (activations.dim(4) != fwdPlan.inChansPerGroup) {
+    activations = regroup(activations, fwdPlan.inChansPerGroup);
+  }
   if (plan.flattenXY) {
     zDeltas = zDeltas.reshape(
         {zDeltas.dim(0), zDeltas.dim(1), 1,
@@ -2799,13 +2848,14 @@ calculateWeightDeltas(Graph &graph, Tensor zDeltas,
                                debugPrefix);
 }
 
-Program
+void
 convolutionWeightUpdate(Graph &graph,
                         Tensor zDeltas, Tensor weights,
                         Tensor activations,
                         const std::vector<unsigned> &stride,
                         const std::vector<unsigned> &padding,
                         bool isFractional, float learningRate,
+                        Sequence &prog,
                         const std::string &debugPrefix,
                         const ConvOptions &options) {
   const auto dType = graph.getTensorElementType(zDeltas);
@@ -2829,7 +2879,6 @@ convolutionWeightUpdate(Graph &graph,
                          + convSuffix({kernelSizeY, kernelSizeX}, stride,
                                       false)
                          + (plan.useConvolutionInstructions ? "_amp" : "_aop");
-  Sequence prog;
   auto weightDeltas = calculateWeightDeltas(graph, plan, fwdPlan, zDeltas,
                                             kernelSizeY, kernelSizeX,
                                             activations, stride, padding,
@@ -2877,14 +2926,15 @@ convolutionWeightUpdate(Graph &graph,
     }
   });
   prog.add(Execute(addCS));
-  return prog;
 }
 
 // Return a program to update the biases tensor with the gradients derived
 // from the zDeltas tensor
-Program
+void
 convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
-                      float learningRate, const std::string &debugPrefix) {
+                      float learningRate,
+                      Sequence &prog,
+                      const std::string &debugPrefix) {
   const auto layerName = debugPrefix + "/BiasUpdate";
 
   auto firstReduceCS = graph.addComputeSet(layerName + "/Reduce1");
@@ -3047,7 +3097,7 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
     graph.setTileMapping(v, tile);
   }
   auto updateBiasCS = graph.addComputeSet(layerName + "/FinalUpdate");
-  iterateBiasMapping(biases, graph, zDeltas,
+  iterateBiasMapping(biases, graph, zDeltas.shape(),
     [&](Tensor biasSlice, unsigned tile){
       for (auto bias : biasSlice.getElementIndices()) {
         auto v = graph.addVertex(updateBiasCS,
@@ -3069,8 +3119,9 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
         graph.setTileMapping(v, tile);
       }
      });
-  return Sequence(Execute(firstReduceCS), Execute(secondReduceCS),
-                  Execute(updateBiasCS));
+  prog.add(Execute(firstReduceCS));
+  prog.add(Execute(secondReduceCS));
+  prog.add(Execute(updateBiasCS));
 }
 
 

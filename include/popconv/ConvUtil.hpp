@@ -103,7 +103,7 @@ std::pair<unsigned, unsigned>
 getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSizeY,
              unsigned kernelSizeX,
              unsigned strideY, unsigned strideX, unsigned paddingY,
-             unsigned paddingX);
+             unsigned paddingX, bool isFractional);
 
 }
 #endif // _popconv_ConvUtil_hpp_

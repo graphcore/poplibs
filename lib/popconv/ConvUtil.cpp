@@ -213,12 +213,20 @@ std::pair<unsigned, unsigned>
 getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSizeY,
              unsigned kernelSizeX, unsigned strideY,
              unsigned strideX, unsigned paddingY,
-             unsigned paddingX) {
-  unsigned outDimX =
-      absdiff(inDimX + (paddingX * 2), kernelSizeX) / strideX + 1;
-  unsigned outDimY =
-      absdiff(inDimY + (paddingY * 2), kernelSizeY) / strideY + 1;
-  return {outDimY, outDimX};
+             unsigned paddingX, bool isFractional) {
+  if (isFractional) {
+    unsigned outDimX =
+        (inDimX * strideX + kernelSizeX - 1) - (paddingX * 2);
+    unsigned outDimY =
+        (inDimY * strideY + kernelSizeY - 1) - (paddingY * 2);
+    return {outDimY, outDimX};
+  } else {
+    unsigned outDimX =
+        absdiff(inDimX + (paddingX * 2), kernelSizeX) / strideX + 1;
+    unsigned outDimY =
+        absdiff(inDimY + (paddingY * 2), kernelSizeY) / strideY + 1;
+    return {outDimY, outDimX};
+  }
 }
 
 } // namespace convutil

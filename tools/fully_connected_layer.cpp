@@ -419,14 +419,6 @@ int main(int argc, char **argv) {
                                           false, options);
   popconv::mapActivations(graph, weights, prevAct, 1, 1, 0, 0, false, options);
 
-  Tensor nextAct =
-      graph.addTensor(dataTypeStr, {1 /*batchSize*/,
-                                    batchSize / fwdPlan.partialChansPerGroup,
-                                    1 /* outHeight */,
-                                    outputSize, fwdPlan.partialChansPerGroup},
-                      "nextAct");
-  mapActivations(graph, nextAct);
-
   auto biases = graph.addTensor(dataTypeStr, {outputSize}, "biases");
   mapTensor(graph, biases);
 
@@ -459,23 +451,15 @@ int main(int argc, char **argv) {
                                                  download);
   }
 
-  auto rawHostPrevAct = allocateHostMemoryForTensor(graph, prevAct, upload,
-                                                    download);
-  auto rawHostWeights = allocateHostMemoryForTensor(graph, weights, upload,
-                                                    download);
-  auto rawHostBiases = allocateHostMemoryForTensor(graph, biases, upload,
-                                                   download);
-  auto rawHostNextAct = allocateHostMemoryForTensor(graph, nextAct, upload,
-                                                    download);
   auto fwdProg = Sequence();
   auto bwdProg = Sequence();
 
+  Tensor nextAct;
   if (doFwdPass) {
-
-    fwdProg.add(popconv::convolution(graph, {1, 1}, {0, 0}, weights,
-                                     prevAct, nextAct,
-                                     partialsTypeStr, false, false, "",
-                                     options));
+    nextAct = popconv::convolution(graph, {1, 1}, {0, 0},
+                                   batchSize, weights,
+                                   prevAct, partialsTypeStr,
+                                   false, false, fwdProg, "", options);
     auto bBiases = biases.broadcast(batchSize, 0)
                          .reshape({batchSize / fwdPlan.partialChansPerGroup,
                                    fwdPlan.partialChansPerGroup, outputSize})
@@ -484,7 +468,23 @@ int main(int argc, char **argv) {
   } else {
     popconv::mapWeights(prevAct, graph, weights, 1, 1, 0, 0, false,
                         options);
+    nextAct =
+        graph.addTensor(dataTypeStr, {1 /*batchSize*/,
+                                      batchSize / fwdPlan.partialChansPerGroup,
+                                      1 /* outHeight */,
+                                      outputSize, fwdPlan.partialChansPerGroup},
+                        "nextAct");
+    mapActivations(graph, nextAct);
   }
+
+  auto rawHostPrevAct = allocateHostMemoryForTensor(graph, prevAct, upload,
+                                                    download);
+  auto rawHostWeights = allocateHostMemoryForTensor(graph, weights, upload,
+                                                    download);
+  auto rawHostBiases = allocateHostMemoryForTensor(graph, biases, upload,
+                                                   download);
+  auto rawHostNextAct = allocateHostMemoryForTensor(graph, nextAct, upload,
+                                                    download);
 
   Tensor prevDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;

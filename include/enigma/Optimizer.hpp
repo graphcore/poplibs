@@ -182,52 +182,56 @@ private:
   void createSchedule(const Exp &exp);
   using ConvKey =
     std::tuple<std::vector<unsigned>, std::vector<unsigned>,
-               TensorSig, TensorSig, TensorSig,
+               TensorSig, TensorSig, unsigned,
                std::string, bool, bool>;
-  std::map<ConvKey, popstd::graphfn::ProgramFunction> convGraphCache;
+  std::map<ConvKey, popstd::graphfn::TensorFunction> convGraphCache;
   using BwdWeightKey = std::vector<TensorSig>;
-  std::map<BwdWeightKey, popstd::graphfn::ProgramFunction> bwdWeightGraphCache;
+  std::map<BwdWeightKey, popstd::graphfn::VoidFunction> bwdWeightGraphCache;
   using WUKey =
     std::tuple<TensorSig, TensorSig, TensorSig, unsigned, unsigned,
                unsigned, unsigned, float>;
-  std::map<WUKey, popstd::graphfn::ProgramFunction> wuGraphCache;
+  std::map<WUKey, popstd::graphfn::VoidFunction> wuGraphCache;
 
-  poplar::program::Program
+  void
   createBwdWeights(poplar::Graph &graph,
-                            poplar::Tensor weights,
-                            poplar::Tensor deltasIn,
-                            poplar::Tensor deltasOut,
-                            poplar::Tensor bwdWeights,
-                            unsigned strideY, unsigned strideX,
-                            unsigned paddingY, unsigned paddingX,
-                            bool isFractional,
-                            const std::string &debugPrefix);
+                   unsigned prevNumChans,
+                   poplar::Tensor weights,
+                   poplar::Tensor deltasIn,
+                   poplar::Tensor bwdWeights,
+                   unsigned strideY, unsigned strideX,
+                   unsigned paddingY, unsigned paddingX,
+                   bool isFractional,
+                   poplar::program::Sequence &prog,
+                   const std::string &debugPrefix);
 
-  poplar::program::Program
+  void
   doConvolutionWeightUpdate(poplar::Graph &graph,
                             poplar::Tensor zDeltas, poplar::Tensor weights,
                             poplar::Tensor activations,
                             unsigned strideY, unsigned strideX,
                             unsigned paddingY, unsigned paddingX,
                             float learningRate,
+                            poplar::program::Sequence &prog,
                             const std::string &debugPrefix);
 
-  poplar::program::Program
+  poplar::Tensor
   doConvolution(poplar::Graph &graph,
-              const std::vector<unsigned> &stride,
-              const std::vector<unsigned> &padding,
-              poplar::Tensor in, poplar::Tensor weights,
-              poplar::Tensor out, const std::string &partialsType,
-              bool isFractional, bool transposeAndFlipWeights,
-              const std::string &debugPrefix = "");
+                const std::vector<unsigned> &stride,
+                const std::vector<unsigned> &padding, unsigned outNumChans,
+                poplar::Tensor in, poplar::Tensor weights,
+                const std::string &partialsType,
+                bool isFractional, bool transposeAndFlipWeights,
+                poplar::program::Sequence &prog,
+                const std::string &debugPrefix = "");
 
-  poplar::program::Program
+  poplar::Tensor
   createConvLayerFwd(const ExpImpl *exp,
                      unsigned kernelSizeY, unsigned kernelSizeX,
                      unsigned strideY, unsigned strideX,
                      unsigned paddingY, unsigned paddingX,
                      unsigned numChannels,
                      poplar::program::Sequence &initParamsProg,
+                     poplar::program::Sequence &prog,
                      const std::string &debugPrefix);
 
   poplar::program::Program
@@ -236,13 +240,15 @@ private:
   void genFwd(poplar::program::Sequence &fwdProg,
               poplar::program::Sequence &initParamsProg);
   void createInGradients(const ExpImpl *exp, unsigned index);
-  poplar::program::Program
+
+  void
   createConvLayerBwd(const ExpImpl *exp, poplar::Tensor outGradient,
                      unsigned layerIndex,
                      unsigned kernelSizeY, unsigned kernelSizeX,
                      unsigned strideY, unsigned strideX,
                      unsigned paddingY, unsigned paddingX,
                      bool backwardPassRequired,
+                     poplar::program::Sequence &prog,
                      const std::string &debugPrefix);
   void genBwd(poplar::program::Sequence &bwdProg);
   void reportTotals();

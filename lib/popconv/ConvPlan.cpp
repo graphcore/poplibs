@@ -1703,7 +1703,10 @@ Plan getWeightUpdatePlan(const poplar::Graph &graph,
   const auto kernelSizeX = weightsShape[1];
   const auto numChannels = weightsShape[2];
   const auto partialsType = options.partialsType;
-  const auto actChansPerGroup = activations.dim(4);
+  const auto fwdPlan = getPlan(graph, dType, batchSize, inDimY, inDimX,
+                               inNumChans, weightsShape, stride, padding,
+                               isFractional, options);
+  const auto actChansPerGroup = fwdPlan.inChansPerGroup;
   const auto deltasChansPerGroup = deltas.dim(4);
   auto cache = options.cache->impl.get();
   PlanningCacheImpl::Params params(dType,
@@ -1711,9 +1714,6 @@ Plan getWeightUpdatePlan(const poplar::Graph &graph,
                                    weightsShape, stride, padding,
                                    isFractional, true, actChansPerGroup,
                                    deltasChansPerGroup, options);
-  const auto fwdPlan = getPlan(graph, dType, batchSize, inDimY, inDimX,
-                               inNumChans, weightsShape, stride, padding,
-                               isFractional, options);
 
   std::tie(plan, cost) = popconv::createPlan(inDimY, inDimX, inNumChans,
                                              actChansPerGroup,
