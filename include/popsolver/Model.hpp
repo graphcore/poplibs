@@ -2,6 +2,7 @@
 #define _popsolver_Model_hpp_
 
 #include <cassert>
+#include <functional>
 #include <memory>
 #include <vector>
 #include <popsolver/Variable.hpp>
