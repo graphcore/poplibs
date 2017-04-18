@@ -57,7 +57,7 @@ getConvPartialnx1SupervisorCycleEstimate(
   const auto numWorkerContexts = 6;
   const auto coeffBytesPerPipelineStage = 8;
 
-  const unsigned supervisorNonLoopOverhead = 21U;
+  const unsigned supervisorNonLoopOverhead = 14U;
 
   unsigned cycles = supervisorNonLoopOverhead;
 
@@ -80,18 +80,18 @@ getConvPartialnx1SupervisorCycleEstimate(
     // Start workers.
     for (const auto &convSizes : convSizesByWorker) {
       unsigned workerCycles = 0;
-      const auto vertexOverhead = 20U;
+      const auto vertexOverhead = 21U;
       workerCycles += vertexOverhead;
 
       for (const auto convSize : convSizes) {
         /* inner loop overhead includes cycles to warm-up and cool down AMP loop
          */
-        const unsigned innerLoopOverhead = 8;
+        const unsigned innerLoopOverhead = 10;
 
         /* Cycles to form packed addresses */
         const unsigned packedAddrCompCyles = std::max(numInputPointers,
                                                       numOutputPointers) *
-                                             (useDeltasForEdges ? 9 : 7);
+                                             (useDeltasForEdges ? 5 : 3);
         workerCycles += innerLoopOverhead +
                         packedAddrCompCyles +
                         convSize * convUnitPipelineDepth;
@@ -127,7 +127,7 @@ getWeightGradAopCycles(bool floatInput, bool floatPartials,
                        std::vector<std::vector<unsigned>> &shape,
                        bool useDeltasForEdges) {
   // Outer loop overhead for stack variable initialisations
-  const auto vertexOverhead = 22;
+  const auto vertexOverhead = 18;
   std::uint64_t cycles = vertexOverhead;
   unsigned vectorWidth = dataPathWidth / (floatInput ? 32 : 16);
   unsigned partialsVectorWidth = dataPathWidth / (floatPartials ? 32 : 16);
@@ -135,19 +135,19 @@ getWeightGradAopCycles(bool floatInput, bool floatPartials,
   const auto icgSubgroups = (inChansPerGroup + vectorWidth - 1) / vectorWidth;
 
   for (const auto &w : shape) {
-    const auto shapeOverhead = 19;
+    const auto shapeOverhead = 11;
 
     auto innerLoopCycles = 0;
     for (auto deltasWidth : w) {
       // Inner loop.
       // Inner loop overhead required to set-up pointers, rpt loop and branching
-      const auto innerLoopOverhead = useDeltasForEdges ? 15 : 9;
+      const auto innerLoopOverhead = useDeltasForEdges ? 5 : 5;
       innerLoopCycles += deltasWidth + innerLoopOverhead;
     }
 
     // Accumulator restore and save
-    const auto accSave = 1 + vectorWidth * vectorWidth / partialsVectorWidth;
-    const auto ocgSubgroupOverhead = 13;
+    const auto accSave = vectorWidth * vectorWidth / partialsVectorWidth;
+    const auto ocgSubgroupOverhead = 7;
     const auto icgSubgroupOverhead = 6;
 
     cycles += shapeOverhead
