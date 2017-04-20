@@ -39,6 +39,14 @@ add_custom_command(
     deepbench_matmul.py
 )
 
+add_custom_command(
+  OUTPUT
+    deepbench_conv.py
+  COMMAND
+    ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/deepbench_conv.py deepbench_conv.py
+  DEPENDS
+    deepbench_conv.py
+)
 
 add_custom_command(
   OUTPUT
@@ -59,5 +67,5 @@ add_custom_command(
 )
 
 
-add_custom_target(python_scripts DEPENDS benchmark_report.py run_benchmarks.py deepbench_matmul.py)
+add_custom_target(python_scripts DEPENDS benchmark_report.py run_benchmarks.py deepbench_rnn.py deepbench_matmul.py deepbench_conv.py)
 add_dependencies(alexnet python_scripts)
