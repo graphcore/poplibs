@@ -39,5 +39,14 @@ add_custom_command(
     benchmark_report.py
 )
 
-add_custom_target(python_scripts DEPENDS benchmark_report.py run_benchmarks.py)
+add_custom_command(
+  OUTPUT
+    deepbench_rnn.py
+  COMMAND
+    ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/deepbench_rnn.py deepbench_rnn.py
+  DEPENDS
+    deepbench_rnn.py
+)
+
+add_custom_target(python_scripts DEPENDS benchmark_report.py run_benchmarks.py deepbench_rnn.py)
 add_dependencies(alexnet python_scripts)
