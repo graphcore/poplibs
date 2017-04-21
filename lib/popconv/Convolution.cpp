@@ -1591,13 +1591,13 @@ convolution(Graph &graph,
                                             stride[0], stride[1],
                                             padding[0], padding[1],
                                             isFractional);
-  auto activations =
-      graph.addTensor(dType, {batchSize,
-                              outNumChans / plan.partialChansPerGroup,
-                              outDimY, outDimX,
-                              plan.partialChansPerGroup});
-  ::mapActivations(graph, activations);
   if (plan.useWinograd) {
+    auto activations =
+        graph.addTensor(dType, {batchSize,
+                                outNumChans / plan.partialChansPerGroup,
+                                outDimY, outDimX,
+                                plan.partialChansPerGroup});
+    ::mapActivations(graph, activations);
     prog.add(winogradConvolution(graph, stride[0], stride[1],
                                  padding[0], padding[1],
                                  in, weights, activations,
@@ -1641,32 +1641,20 @@ convolution(Graph &graph,
   }
 
   Program convolveProg;
-  Tensor postConvolve;
-  std::tie(convolveProg, postConvolve) =
+  Tensor activations;
+  std::tie(convolveProg, activations) =
     convolutionByAmp(graph, plan, stride, padding, in, weights,
                      partialOutDimY, partialOutDimX, isFractional, layerName);
   if (plan.flattenXY) {
-    postConvolve = postConvolve.dimShuffle({0, 2, 3, 1, 4})
+    activations = activations.dimShuffle({0, 2, 3, 1, 4})
           .reshape({batchSize,
                     outDimY,
                     outDimX,
                     activations.dim(1),
                     activations.dim(4)})
           .dimShuffle({0, 3, 1, 2, 4});
-  } else {
-    postConvolve = postConvolve.dimShuffle({0, 2, 3, 1, 4})
-          .reshape({activations.dim(0),
-                    activations.dim(2),
-                    activations.dim(3),
-                    activations.dim(1),
-                    activations.dim(4)})
-          .dimShuffle({0, 3, 1, 2, 4});
   }
-  ComputeSet castConvOutput = graph.addComputeSet(layerName
-                                                  + "/castConvOutput");
-  cast(graph, postConvolve, activations, castConvOutput);
   prog.add(convolveProg);
-  prog.add(Execute(castConvOutput));
   return activations;
 }
 
