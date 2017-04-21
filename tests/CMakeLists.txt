@@ -188,6 +188,14 @@ add_test(NAME small_conv_many_tiles_3x3
                  --partials-type=float
                  --tiles-per-ipu=1216)
 
+add_test(NAME conv1x1_shallow_input
+        COMMAND single_conv_layer
+                --input-channels=8
+                --output-channels=1024
+                --width=16
+                --height=16
+                --data-type=half)
+
 add_test(NAME conv3x3_feature8x8_shallow
          COMMAND single_conv_layer
                  --batch-size 1

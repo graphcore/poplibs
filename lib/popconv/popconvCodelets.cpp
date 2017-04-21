@@ -340,9 +340,10 @@ public:
   Vector<Output<Vector<AccumType>>> out;
   Vector<unsigned> weightReuseCount;
 
-  SimOnlyField<unsigned> dataPathWidth;
   SimOnlyField<unsigned> inChansPerGroup;
   SimOnlyField<unsigned> outChansPerGroup;
+  SimOnlyField<unsigned> dataPathWidth;
+  SimOnlyField<unsigned> weightsPerConvUnit;
   SimOnlyField<unsigned> convUnitCoeffLoadBytesPerCycle;
 
   bool compute() {
@@ -406,7 +407,8 @@ public:
     assert(dataPathWidth % bitWidth == 0);
     const auto vectorWidth = dataPathWidth / bitWidth;
     assert(inChansPerGroup % vectorWidth == 0);
-    const auto convUnitPipelineDepth = inChansPerGroup / vectorWidth;
+    assert(weightsPerConvUnit % vectorWidth == 0);
+    const auto convUnitPipelineDepth = weightsPerConvUnit / vectorWidth;
     std::vector<std::vector<std::vector<unsigned>>>
         convolutionsByWeightAndWorker;
     const auto numInChanGroups =

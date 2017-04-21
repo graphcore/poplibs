@@ -563,16 +563,8 @@ createConvPartial1x1OutVertex(Graph &graph,
   const auto contextsPerVertex = deviceInfo.numWorkerContexts;
   const auto weightsPerConvUnit =
       deviceInfo.getWeightsPerConvUnit(dType == "float");
-  assert(weightsPerConvUnit % inChansPerGroup == 0);
-  const auto convUnitWeightHeight = weightsPerConvUnit / inChansPerGroup;
   const auto convUnitCoeffLoadBytesPerCycle =
                 deviceInfo.convUnitCoeffLoadBytesPerCycle;
-  if (convUnitWeightHeight != 1) {
-    throw popstd::poplib_error("Using convolution units for 1x1 convolutions "
-                               "where channel grouping is not equal to weights "
-                               "stored per convolution unit has not "
-                               "been implemented");
-  }
   const auto outHeight = outYEnd - outYBegin;
   const auto outWidth = outXEnd - outXBegin;
   const auto partialType = graph.getTensorElementType(out);
@@ -644,9 +636,10 @@ createConvPartial1x1OutVertex(Graph &graph,
                                                     "true" : "false"),
         {{"weights", w}}
         );
-  graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
   graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
+  graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
+  graph.setInitialValue(v["weightsPerConvUnit"], weightsPerConvUnit);
   graph.setInitialValue(v["convUnitCoeffLoadBytesPerCycle"],
                         convUnitCoeffLoadBytesPerCycle);
   graph.setFieldSize(v["weightReuseCount"], contextsPerVertex);
@@ -1028,11 +1021,19 @@ calcPartialConvOutput(Graph &graph,
   Tensor zeros;
   bool useConvPartial1x1OutVertex = false;
   if (plan.useConvolutionInstructions) {
+    const auto inDimY = in.dim(1);
+    useConvPartial1x1OutVertex =
+        kernelSizeX == 1 && tileKernelHeight == 1 &&
+        (!isFractional || (stride[1] == 1 && stride[0] == 1)) &&
+        writtenRangeEqualsOutputRange({outYBegin, outYEnd}, stride[0],
+                                      padding[0], kernelSizeY,
+                                      {kernelYBegin, kernelYEnd}, inDimY,
+                                      isFractional);
     const auto weightsPerConvUnit =
         deviceInfo.getWeightsPerConvUnit(dType == "float");
     assert(weightsPerConvUnit % inChansPerGroup == 0);
     const auto convUnitWeightHeight = weightsPerConvUnit / inChansPerGroup;
-    if (convUnitWeightHeight != 1) {
+    if (!useConvPartial1x1OutVertex && convUnitWeightHeight != 1) {
       assert(plan.useConvolutionInstructions);
       const auto inDimX = in.dim(2);
       const auto inputRange = getInputRange({outXBegin, outXEnd}, stride[1],
@@ -1052,14 +1053,6 @@ calcPartialConvOutput(Graph &graph,
       graph.setTileMapping(v, tile);
       graph.setTileMapping(zeros, tile);
     }
-    const auto inDimY = in.dim(1);
-    useConvPartial1x1OutVertex =
-        kernelSizeX == 1 && tileKernelHeight == 1 &&
-        (!isFractional || (stride[1] == 1 && stride[0] == 1)) &&
-        writtenRangeEqualsOutputRange({outYBegin, outYEnd}, stride[0],
-                                      padding[0], kernelSizeY,
-                                      {kernelYBegin, kernelYEnd}, inDimY,
-                                      isFractional);
   }
   if (useConvPartial1x1OutVertex) {
     for (unsigned ozg = outZGroupBegin; ozg != outZGroupEnd; ++ozg) {
