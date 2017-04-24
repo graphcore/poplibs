@@ -13,14 +13,26 @@
 
 using namespace enigma;
 
+enum shortcutVariant { A, // zero pad channels on residual shortcut
+                       B, // add weighted projection when channel
+                          // depth changes.
+                       C  // weighted projection on shortcut always
+                     };
+
+enum shortcutVariant variant = B;
+
 Exp bottleneckModule(unsigned channels, unsigned initialStride,
-           unsigned count, Exp in) {
+                     unsigned count, Exp in) {
   auto out = in;
   for (unsigned i = 0; i < count; ++i) {
     auto a = relu(conv2d(1, i == 0 ? initialStride : 1,  0, channels, out));
     auto b = relu(conv2d(3, 1, 1, channels, a));
     auto c = conv2d(1, 1, 0, channels * 4, b);
-    out = relu(residualAdd(c, out));
+    auto res = out;
+    bool doProjection = variant == C || (variant == B && i == 0);
+    if (doProjection)
+      res = conv2d(1, initialStride, 0, channels * 4, res);
+    out = relu(residualAdd(c, res));
   }
   return out;
 }
