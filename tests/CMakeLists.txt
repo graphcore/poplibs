@@ -24,7 +24,6 @@ endfunction()
 
 # Unit tests
 add_popnn_unit_test(GraphFunctionTest GraphFunctionTest.cpp)
-add_popnn_unit_test(ResidualTest ResidualTest.cpp)
 add_popnn_unit_test(WinogradConvolution WinogradConv.cpp)
 add_popnn_unit_test(NonLinearityTest NonLinearityTest.cpp)
 add_popnn_unit_test(GraphProgLocationTest GraphProgLocationTest.cpp)

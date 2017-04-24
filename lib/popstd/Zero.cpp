@@ -5,6 +5,7 @@
 #include "popstd/VertexTemplates.hpp"
 
 using namespace poplar;
+using namespace poplar::program;
 
 namespace popstd {
 
@@ -64,6 +65,14 @@ zero(Graph &graph,
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     zero(graph, t, mapping[tile], tile, zeroCS);
   }
+}
+
+void zero(poplar::Graph &graph, const poplar::Tensor &t,
+          poplar::program::Sequence &prog,
+          const std::string &debugPrefix) {
+  auto cs = graph.addComputeSet(debugPrefix + "/Zero");
+  zero(graph, t, graph.getTileMapping(t), cs);
+  prog.add(Execute(cs));
 }
 
 } // end namespace popstd

@@ -17,6 +17,7 @@
 #include "popreduce/Reduce.hpp"
 #include "popnn/Residual.hpp"
 #include "popnn/NonLinearity.hpp"
+#include "popstd/Zero.hpp"
 #include "util/Compiler.hpp"
 #include <iomanip>
 #include <array>
@@ -1118,6 +1119,48 @@ createConvLayerBwd(const ExpImpl *exp, Tensor outGradient, unsigned layerIndex,
   }
 }
 
+void copyWithSpatialUpSampling(Graph &graph, Tensor src, Tensor dst,
+                               Sequence &prog) {
+  // Truncate channels
+  if (src.dim(4) != dst.dim(4))
+    throw enigma_error("Residual addition with varying channels per group"
+                       "not implemented");
+
+  if (src.dim(1) > dst.dim(1))
+    src = src.slice(0, dst.dim(1), 1);
+
+  if (src.dim(2) == dst.dim(2)) {
+    assert(src.dim(3) == dst.dim(3));
+    prog.add(Copy(src, dst));
+    return;
+  }
+
+  // Spatially downsample destination tensor
+  assert(dst.dim(2) > src.dim(2));
+  assert(dst.dim(2) % src.dim(2) == 0);
+  unsigned stride = dst.dim(2) / src.dim(2);
+  assert(dst.dim(3) > src.dim(3));
+  assert(dst.dim(3) % src.dim(3) == 0);
+  assert(dst.dim(3) / src.dim(3) == stride);
+  popstd::zero(graph, dst, prog);
+  dst = dst.subSample(stride, 2).subSample(stride, 3);
+  prog.add(Copy(src, dst));
+  return;
+}
+
+
+static Tensor getInGradient(
+  std::map<const ExpImpl *, std::vector<Tensor>> &inGradient,
+  const ExpImpl *exp,
+  const ExpImpl *use) {
+  const auto &deps = use->deps();
+  for (unsigned i = 0; i < deps.size(); ++i) {
+    if (deps[i] == exp) {
+      return inGradient[use][i];
+    }
+  }
+  POPLIB_UNREACHABLE();
+}
 
 void Optimizer::genBwd(Sequence &actualBwdProg) {
   Sequence dummyProg;
@@ -1145,37 +1188,18 @@ void Optimizer::genBwd(Sequence &actualBwdProg) {
     }
     auto in = out[prev];
     const auto batchSize = options.batchSize;
-    Tensor outGradient;
-    // Calculated the gradient of the output of the operation.
-    if (uses[exp].size() == 1) {
-      outGradient = inGradient[*uses[exp].begin()][0];
-    } else if (uses[exp].size() == 2) {
-      const ExpImpl *res = nullptr;
-      const ExpImpl *other = nullptr;
-      for (const auto &use : uses[exp]) {
-        if (dynamic_cast<const ResidualAdd *>(use)) {
-          res = use;
-        } else {
-          other = use;
-        }
-      }
-      if (!other || !res) {
-        throw enigma::enigma_error("Backpropagation of values consumed twice "
-                                   "only implemented between a residual add"
-                                   "and a non residual add");
-      }
-      if (exp != res->deps()[1]) {
-        throw enigma::enigma_error("Backpropagation of values consumed twice "
-                                   "only implemented between a residual add"
-                                   "where residual is second parameter");
-      }
-      auto resGradient = inGradient[res][1];
-      outGradient = inGradient[other][0];
-      bwdProg.add(popnn::joinDeltas(*graph, outGradient, resGradient,
-                                    layerPrefix));
-    } else {
-      throw enigma::enigma_error("Backpropagation of values consumed by more "
-                                 "than 2 expressions not implemented");
+    // Calculate the output gradient of this operation based on the
+    // input gradient of operations that use its output.
+    Tensor outGradient = graph->addTensor(dType, out[exp].shape(),
+                                          "outGradient");
+    auto it = uses[exp].begin();
+    auto firstInGrad = getInGradient(inGradient, exp, *it);
+    bwdProg.add(Copy(firstInGrad, outGradient));
+    graph->setTileMapping(outGradient, graph->getTileMapping(firstInGrad));
+    ++it;
+    for (;it != uses[exp].end(); ++it) {
+      popstd::addTo(*graph, outGradient, getInGradient(inGradient, exp, *it),
+                    1, bwdProg, layerPrefix);
     }
 
     if (const auto *fc = dynamic_cast<const FullyConnected *>(exp)) {
@@ -1250,11 +1274,13 @@ void Optimizer::genBwd(Sequence &actualBwdProg) {
         }
       }
     } else if (dynamic_cast<const ResidualAdd *>(exp)) {
-      // Set the input gradient to both inputs to be the same, even
-      // though the they may have a different shape. The difference is handled
-      // by the consumer of the gradient.
-      inGradient[exp].push_back(outGradient);
-      inGradient[exp].push_back(outGradient);
+      for (const auto &dep : exp->deps()) {
+        auto in = out[dep];
+        auto inGrad = graph->addTensor(dType, in.shape());
+        graph->setTileMapping(inGrad, graph->getTileMapping(in));
+        copyWithSpatialUpSampling(*graph, outGradient, inGrad, bwdProg);
+        inGradient[exp].push_back(inGrad);
+      }
     } else if (const auto *nl = dynamic_cast<const NonLinearity *>(exp)) {
       inGradient[exp].push_back(
         nonLinearityInputGradient(*graph, nl->type, out[exp], outGradient,

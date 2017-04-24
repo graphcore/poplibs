@@ -18,15 +18,6 @@ joinResidual(poplar::Graph &graph,
              poplar::Tensor out,
              const std::string &debugPrefix = "");
 
-/// Add the input deltas together.
-/// Only the channel elements present in in1 are updated in
-/// \outIn0. if \a in1 is smaller in x and y only the
-/// appropriate elements in \a outIn0 are updated.
-poplar::program::Program
-joinDeltas(poplar::Graph &graph,
-           poplar::Tensor outIn0,
-           poplar::Tensor in1,
-           const std::string &debugPrefix);
 std::uint64_t getNumberOfAdds(unsigned outDimY, unsigned outDimX,
                               unsigned outNumChans);
 

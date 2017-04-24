@@ -2,6 +2,7 @@
 #define __popstd_Zero_hpp__
 
 #include "poplar/Graph.hpp"
+#include "poplar/Program.hpp"
 #include <vector>
 
 namespace popstd {
@@ -20,6 +21,10 @@ zero(poplar::Graph &graph,
        std::vector<poplar::Interval<std::size_t>>
      > &mapping,
      poplar::ComputeSet zeroCS);
+
+void zero(poplar::Graph &graph, const poplar::Tensor &t,
+          poplar::program::Sequence &prog,
+          const std::string &debugPrefix = "");
 
 } // end namespace popstd
 

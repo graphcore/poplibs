@@ -219,57 +219,6 @@ template class AddTensors<float, float>;
 template class AddTensors<float, half>;
 template class AddTensors<half, half>;
 
-// Acumulate
-// Accumulate the input tensors with the output, striding through the output
-// vector. Only min(inOut channels, in1 channels) are combined
-template <class InType, class OutType>
-class Accumulate : public Vertex {
-public:
-  InOut<Vector<OutType>> outIn0;
-  Input<Vector<InType>> in1;
-
-  SimOnlyField<unsigned> dataPathWidth;
-
-  bool compute() {
-    unsigned outSize = std::min(outIn0.size(), in1.size());
-    for (unsigned o = 0; o < outSize; ++o) {
-      outIn0[o] += in1[o];
-    }
-    return true;
-  }
-
-
-  uint64_t getCycleEstimate() const {
-    bool inIsFloat = std::is_same<InType, float>::value;
-    bool outIsFloat = std::is_same<InType, float>::value;
-    assert(outIn0.size() >= in1.size());
-    assert(!outIsFloat || inIsFloat && "Output is wider than input");
-    const auto inVectorWidth = dataPathWidth / (inIsFloat ? 32 : 16);
-    const auto outVectorWidth = dataPathWidth / (outIsFloat ? 32 : 16);
-    unsigned numOut = std::min(outIn0.size(), in1.size());
-    // 2*loads + 1*store per operation, memory accesses will dominate,
-    unsigned numCycles;
-    const bool separateME = true;
-    if (separateME) {
-      // ideal memory element placing
-      const auto maxWidth = std::max(inVectorWidth, outVectorWidth);
-      numCycles = 15
-        + (numOut + maxWidth - 1) / maxWidth;
-    } else {
-      // common memory element
-      numCycles = 15
-        + (numOut + inVectorWidth - 1) / inVectorWidth   //1*load
-        + (numOut + outVectorWidth - 1) / outVectorWidth //1*store
-        + (numOut + inVectorWidth - 1) / inVectorWidth;  //1*load
-    }
-
-    return numCycles;
-  }
-};
-template class Accumulate<float, float>;
-template class Accumulate<float, half>;
-template class Accumulate<half, half>;
-
 template <typename FPType>
 class MaxPooling : public Vertex {
 public:
