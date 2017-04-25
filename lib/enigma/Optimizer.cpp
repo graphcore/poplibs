@@ -15,9 +15,10 @@
 #include "poplin/MatMul.hpp"
 #include "popstd/ActivationMapping.hpp"
 #include "popreduce/Reduce.hpp"
-#include "popnn/Residual.hpp"
 #include "popnn/NonLinearity.hpp"
 #include "popstd/Zero.hpp"
+#include "popstd/Regroup.hpp"
+#include "popstd/Pad.hpp"
 #include "util/Compiler.hpp"
 #include <iomanip>
 #include <array>
@@ -332,16 +333,14 @@ Exp fullyconnected(unsigned channels, Exp in) {
 class ResidualAdd : public ExpImpl {
 public:
   ExpImpl *a, *b;
-  ResidualMethod method;
-  ResidualAdd(Context &context, ExpImpl *a, ExpImpl *b,
-              ResidualMethod method) :
-    ExpImpl(context), a(a), b(b), method(method) {}
+  ResidualAdd(Context &context, ExpImpl *a, ExpImpl *b) :
+    ExpImpl(context), a(a), b(b){}
   std::vector<const ExpImpl *> deps() const override { return {a, b}; }
 };
 
-Exp residualAdd(Exp a, Exp b, ResidualMethod method) {
+Exp residualAdd(Exp a, Exp b) {
   auto &context = a.impl->context;
-  return context.impl->add(new ResidualAdd(context, a.impl, b.impl, method));
+  return context.impl->add(new ResidualAdd(context, a.impl, b.impl));
 }
 
 class Loss : public ExpImpl {
@@ -792,63 +791,90 @@ Optimizer::createConvLayerFwd(const ExpImpl *exp,
                        false, prog, debugPrefix);
 }
 
-Program
-Optimizer::createResidualLayerFwd(const ExpImpl *exp, unsigned layerIndex,
+
+static Tensor
+arrangeResidualInput(Graph &graph,
+                     Tensor resIn,
+                     std::vector<size_t> outDims,
+                     std::string dType) {
+  auto resDimY = resIn.dim(2), outDimY = outDims[2];
+  auto resDimX = resIn.dim(3), outDimX = outDims[3];
+  if (resDimX < outDimX || resDimY < outDimY) {
+    throw enigma_error("Residual layers must use previous layers "
+                       "with X and Y dimensions that are larger"
+                       "than the current layer's output.");
+  }
+  unsigned resStride = resDimX / outDimX;
+  if (resDimY / outDimY != resStride) {
+    throw enigma_error("Only residual layers with the same X/Y stride"
+                       "are supported");
+  }
+  auto resNumChanGroups = resIn.dim(1), outNumChanGroups = outDims[1];
+  auto resChansPerGroup = resIn.dim(4), outChansPerGroup = outDims[4];
+  auto resNumChans = resNumChanGroups * resChansPerGroup;
+  auto outNumChans = outNumChanGroups * outChansPerGroup;
+  if (resStride == 1 &&
+      resNumChans == outNumChans &&
+      resNumChanGroups == outNumChanGroups) {
+    // We can directly add the output of the previous layer to this
+    // layer's output.
+    return resIn;
+  }
+  Tensor resampled = resIn.subSample(resDimY / outDimY, 2)
+                          .subSample(resDimX / outDimX, 3);
+  // pad channel depth to match out then regroup to match it
+  Tensor zPadded = pad(graph,
+                       regroup(resampled, resNumChans),
+                       {resampled.dim(0), 1, resampled.dim(2),
+                        resampled.dim(3), outNumChans},
+                        {0, 0, 0, 0, 0});
+  Tensor residual = regroup(zPadded, outNumChans / outNumChanGroups);
+  return residual;
+}
+
+Tensor
+Optimizer::createResidualLayerFwd(const ExpImpl *exp,
+                                  Sequence &fwdProg,
                                   const std::string &debugPrefix) {
   const auto residual = dynamic_cast<const ResidualAdd *>(exp);
   assert(residual);
   unsigned numChannels, outDimY, outDimX;
-  //The output will be the same batch/y/x dimensions and channel grouping
-  //as the first input
+  // The output will have y/x dimensions equal to the minimum of the inputs
+  // (downsampling where necessary) and channels equal to the maximum of the
+  // inputs (padding where necessary).
   const auto prev0 = exp->deps()[0];
   const auto prev1 = exp->deps()[1];
   const auto &in0Shape = out[prev0].shape();
-  numChannels = in0Shape[1] * in0Shape[4];
-  outDimY = in0Shape[2];
-  outDimX = in0Shape[3];
+  const auto &in1Shape = out[prev1].shape();
+  const auto in0channels = in0Shape[1] * in0Shape[4];
+  const auto in1channels = in1Shape[1] * in1Shape[4];
+  numChannels = std::max(in0channels, in1channels);
+  outDimY = std::min(in0Shape[2], in1Shape[2]);
+  outDimX = std::min(in0Shape[3], in1Shape[3]);
   auto outChansPerGroup = in0Shape[4];
+  std::vector<std::size_t> outShape = {options.batchSize,
+                                       numChannels / outChansPerGroup,
+                                       outDimY, outDimX, outChansPerGroup};
+  Tensor in0 = arrangeResidualInput(*graph, out[prev0], outShape, dType);
+  Tensor in1 = arrangeResidualInput(*graph, out[prev1], outShape, dType);
 
-  out[exp] = graph->addTensor(dType,
-                              {in0Shape[0], numChannels / outChansPerGroup,
-                               outDimY, outDimX, outChansPerGroup},
-                              "activations." + std::to_string(layerIndex));
-  mapActivations(*graph, out[exp]);
+  auto out = graph->addTensor(dType, outShape, debugPrefix + "/sum");
+  popstd::mapActivations(*graph, out);
+  fwdProg.add(Copy(in0, out));
+  popstd::addTo(*graph, out, in1, 1.0, fwdProg, debugPrefix);
 
-  Tensor in0 =
-    popnn::arrangeResidualInput(*graph,
-                                out[prev0],
-                                out[exp].shape(), dType,
-                                residual->method);
-  Tensor in1 =
-    popnn::arrangeResidualInput(*graph,
-                                out[prev1],
-                                out[exp].shape(), dType,
-                                residual->method);
-  switch (residual->method) {
-  case RESIDUAL_PAD:
-    {
-      Program fwdProg =
-        popnn::joinResidual(*graph,
-                            in0,
-                            in1,
-                            out[exp],
-                            debugPrefix);
-      auto outShape = out[exp].shape();
-      if (!options.skipFwd) {
-        fwdFlops += outShape[0] *
-            popnn::getNumberOfAdds(outShape[2], outShape[3],
-                                   outShape[1] * outShape[4]);
-        fwdPerfectCycleTime +=
-            popnn::getPerfectCycleCount(*graph, dType,
-                                        outShape[0], outShape[2], outShape[3],
-                                        outShape[1] * outShape[4]);
-      }
-      return fwdProg;
-    }
-  default:
-    throw enigma::enigma_error("This residual type not supported yet");
+  if (!options.skipFwd) {
+    // One flop per add to create the output
+    const auto numAdds = out.numElements();
+    fwdFlops += numAdds;
+    const auto &deviceInfo = graph->getDevice().getDeviceInfo();
+    unsigned dTypeSize = dType == "float" ? 4 : 2;
+    const auto numTiles = deviceInfo.getNumTiles();
+    const auto vectorWidth = deviceInfo.dataPathWidth / (8 * dTypeSize);
+    fwdPerfectCycleTime +=
+        static_cast<double>(numAdds) / (vectorWidth * numTiles);
   }
-  POPLIB_UNREACHABLE();
+  return out;
 }
 
 void Optimizer::genFwd(Sequence &actualFwdProg,
@@ -997,7 +1023,7 @@ void Optimizer::genFwd(Sequence &actualFwdProg,
       }
       numParams += weights.numElements() + biases.numElements();
     } else if (dynamic_cast<const ResidualAdd *>(exp)) {
-      fwdProg.add(createResidualLayerFwd(exp, layerIndex, layerPrefix));
+      out[exp] = createResidualLayerFwd(exp, fwdProg, layerPrefix);
     } else if (const auto *loss = dynamic_cast<const Loss *>(exp)) {
       const auto prev = exp->deps()[0];
       auto in = out[prev];

@@ -11,7 +11,6 @@
 #include <set>
 #include "poplin/MatMul.hpp"
 #include "popnn/NonLinearity.hpp"
-#include "popnn/Residual.hpp"
 #include "popnn/Loss.hpp"
 #include "popstd/GraphFunction.hpp"
 #include "popconv/Convolution.hpp"
@@ -70,9 +69,7 @@ Exp maxPool(unsigned windowSize, unsigned stride, unsigned padding,
 Exp maxPool(const Rect &windowSize, const Rect &stride, const Rect &padding,
             Exp in);
 Exp fullyconnected(unsigned channels, Exp in);
-Exp residualAdd(Exp a, Exp b,
-                popnn::ResidualMethod method =
-                   popnn::ResidualMethod::RESIDUAL_PAD);
+Exp residualAdd(Exp a, Exp b);
 Exp softMaxCrossEntropyLoss(Exp in, Exp out);
 Exp sumSquaredLoss(Exp in, Exp out);
 
@@ -222,9 +219,11 @@ private:
                      poplar::program::Sequence &prog,
                      const std::string &debugPrefix);
 
-  poplar::program::Program
-  createResidualLayerFwd(const ExpImpl *exp, unsigned layerIndex,
+  poplar::Tensor
+  createResidualLayerFwd(const ExpImpl *exp,
+                         poplar::program::Sequence &prog,
                          const std::string &debugPrefix);
+
   void genFwd(poplar::program::Sequence &fwdProg,
               poplar::program::Sequence &initParamsProg);
 

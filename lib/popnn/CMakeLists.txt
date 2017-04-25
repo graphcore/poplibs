@@ -9,10 +9,8 @@ add_library(popnn SHARED
   NonLinearity.cpp
   PerformanceEstimation.hpp
   Recurrent.cpp
-  Residual.cpp
   ${CMAKE_SOURCE_DIR}/include/popnn/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Loss.hpp
-  ${CMAKE_SOURCE_DIR}/include/popnn/Residual.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Recurrent.hpp  
   ${CMAKE_SOURCE_DIR}/include/popnn/Lstm.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/MaxPool.hpp

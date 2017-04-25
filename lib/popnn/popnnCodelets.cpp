@@ -160,65 +160,6 @@ public:
 template class NonLinearityGrad<float>;
 template class NonLinearityGrad<half>;
 
-// AddTensors
-// Sum the input tensors into the output
-// \a out and \a in1 must have the same sizes. \a in2 may be smaller than the
-// output, missing elements are treated as zero
-template <class InType, class OutType>
-class AddTensors : public Vertex {
-public:
-  Input<Vector<InType>> in0;
-  Input<Vector<InType>> in1;
-  Output<Vector<OutType>> out;
-
-  SimOnlyField<unsigned> dataPathWidth;
-
-  bool compute() {
-    unsigned outSize = out.size();
-    unsigned in1Size = in1.size();
-    for (unsigned o = 0; o < in1Size; ++o) {
-      out[o] = in0[o] + in1[o];
-    }
-    // elements not present in \a in2
-    for (unsigned o = in1Size; o < outSize; ++o) {
-        out[o] = in0[o];
-    }
-    return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    assert(out.size() >= in1.size());
-    assert(out.size() == in0.size());
-    bool inIsFloat = std::is_same<InType, float>::value;
-    bool outIsFloat = std::is_same<InType, float>::value;
-    assert(!outIsFloat || inIsFloat && "Output is wider than input");
-    const auto inVectorWidth = dataPathWidth / (inIsFloat ? 32 : 16);
-    const auto outVectorWidth = dataPathWidth / (outIsFloat ? 32 : 16);
-    unsigned numOut = out.size();
-    unsigned numIn1 = in1.size();
-    const bool separateME = true;
-    unsigned numCycles;
-    if (separateME) {
-      // assume all accesses can occur in a single cycle. Loads are wider
-      // so dominate
-      numCycles = 2 + 14 + (numOut + inVectorWidth - 1) / inVectorWidth;
-    } else {
-      // 2*loads + 1*store per operation, memory accesses will dominate,
-      // assume common memory element
-      unsigned numCycles = 15
-        + (numOut + inVectorWidth - 1) / inVectorWidth   //1*load
-        + (numOut + outVectorWidth - 1) / outVectorWidth //1*store
-        + (numIn1 + inVectorWidth - 1) / inVectorWidth;  //1*load
-      }
-
-    return numCycles;
-  }
-};
-
-template class AddTensors<float, float>;
-template class AddTensors<float, half>;
-template class AddTensors<half, half>;
-
 template <typename FPType>
 class MaxPooling : public Vertex {
 public:
