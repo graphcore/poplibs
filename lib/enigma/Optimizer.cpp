@@ -916,28 +916,18 @@ Optimizer::createConvLayerFwd(const ExpImpl *exp,
 
   numParams += weights.numElements();
 
-  if (options.skipFwd) {
-    const auto outNumChanGroups = numChannels / outChansPerGroup;
-    auto t = graph->addTensor(dType,
-                                {batchSize,
-                                 outNumChanGroups,
-                                 outDimY, outDimX,
-                                 outChansPerGroup},
-                                "convOut");
-    mapActivations(*graph, t);
-    return t;
+  if (!options.skipFwd) {
+    fwdFlops += popconv::getFwdFlops(batchSize,
+                                     inDimY, inDimX, inNumChans, kernelSizeY,
+                                     kernelSizeX, strideY,
+                                     strideX, paddingY, paddingX, numChannels);
+    fwdPerfectCycleTime +=
+        popconv::getFwdPerfectCycleCount(*graph, dType, batchSize, inDimY,
+                                         inDimX, inNumChans, kernelSizeY,
+                                         kernelSizeX, strideY, strideX,
+                                         paddingY, paddingX,
+                                         numChannels);
   }
-
-  fwdFlops += popconv::getFwdFlops(batchSize,
-                                   inDimY, inDimX, inNumChans, kernelSizeY,
-                                   kernelSizeX, strideY,
-                                   strideX, paddingY, paddingX, numChannels);
-  fwdPerfectCycleTime +=
-      popconv::getFwdPerfectCycleCount(*graph, dType, batchSize, inDimY, inDimX,
-                                       inNumChans, kernelSizeY, kernelSizeX,
-                                       strideY, strideX, paddingY, paddingX,
-                                       numChannels);
-
   return doConvolution(*graph, {strideY, strideX}, {paddingY, paddingX},
                        numChannels, in, weights, partialsType, false,
                        false, prog, debugPrefix);
@@ -965,9 +955,6 @@ Optimizer::createResidualLayerFwd(const ExpImpl *exp, unsigned layerIndex,
                               "activations." + std::to_string(layerIndex));
   mapActivations(*graph, out[exp]);
 
-  if (options.skipFwd)
-    return Sequence();
-
   Tensor in0 =
     popnn::arrangeResidualInput(*graph,
                                 out[prev0],
@@ -988,13 +975,15 @@ Optimizer::createResidualLayerFwd(const ExpImpl *exp, unsigned layerIndex,
                             out[exp],
                             debugPrefix);
       auto outShape = out[exp].shape();
-      fwdFlops += outShape[0] *
-        popnn::getNumberOfAdds(outShape[2], outShape[3],
-                               outShape[1] * outShape[4]);
-      fwdPerfectCycleTime +=
-        popnn::getPerfectCycleCount(*graph, dType,
-                                    outShape[0], outShape[2], outShape[3],
-                                    outShape[1] * outShape[4]);
+      if (!options.skipFwd) {
+        fwdFlops += outShape[0] *
+            popnn::getNumberOfAdds(outShape[2], outShape[3],
+                                   outShape[1] * outShape[4]);
+        fwdPerfectCycleTime +=
+            popnn::getPerfectCycleCount(*graph, dType,
+                                        outShape[0], outShape[2], outShape[3],
+                                        outShape[1] * outShape[4]);
+      }
       return fwdProg;
     }
   default:
@@ -1003,8 +992,10 @@ Optimizer::createResidualLayerFwd(const ExpImpl *exp, unsigned layerIndex,
   POPLIB_UNREACHABLE();
 }
 
-void Optimizer::genFwd(Sequence &fwdProg,
+void Optimizer::genFwd(Sequence &actualFwdProg,
                        Sequence &initParamsProg) {
+  Sequence dummyProg;
+  Sequence &fwdProg = options.skipFwd ? dummyProg : actualFwdProg;
   for (unsigned layerIndex = 0; layerIndex < schedule.size(); ++layerIndex) {
     const auto &exp = schedule[layerIndex];
     std::cout << "-- Layer " << layerIndex << "\n";
@@ -1072,43 +1063,24 @@ void Optimizer::genFwd(Sequence &fwdProg,
     } else if (const auto *m = dynamic_cast<const MaxPool *>(exp)) {
       const auto &in = out[exp->deps().front()];
       const auto batchSize = options.batchSize;
-      if (!options.skipFwd) {
-        out[exp] = maxpool::maxPool(*graph,
-                                    m->kernelSizeY, m->kernelSizeX,
-                                    m->strideY, m->strideX,
-                                    m->paddingY, m->paddingX,
-                                    in, fwdProg, layerPrefix);
-        fwdFlops += maxpool::getFwdFlops(batchSize,
+      out[exp] = maxpool::maxPool(*graph,
+                                  m->kernelSizeY, m->kernelSizeX,
+                                  m->strideY, m->strideX,
+                                  m->paddingY, m->paddingX,
+                                  in, fwdProg, layerPrefix);
+      fwdFlops += maxpool::getFwdFlops(batchSize,
                                        in.dim(2), in.dim(3),
                                        in.dim(1) * in.dim(4),
                                        m->kernelSizeY, m->kernelSizeX,
                                        m->strideY, m->strideX,
                                        m->paddingY, m->paddingX);
-        fwdPerfectCycleTime +=
-            maxpool::getFwdPerfectCycleCount(*graph, dType, batchSize,
-                                             in.dim(2), in.dim(3),
-                                             in.dim(1) * in.dim(4),
-                                             m->kernelSizeY, m->kernelSizeX,
-                                             m->strideY, m->strideX,
-                                             m->paddingY, m->paddingX);
-      } else {
-        // If the forward pass is skipped, an output tensor still needs
-        // to be created.
-        unsigned outDimY, outDimX;
-        std::tie(outDimY, outDimX) = maxpool::getOutputDim(in.dim(2),
-                                                           in.dim(3),
-                                                           m->kernelSizeY,
-                                                           m->kernelSizeX,
-                                                           m->strideY,
-                                                           m->strideX,
-                                                           m->paddingY,
-                                                           m->paddingX);
-        out[exp] = graph->addTensor(dType,
-                                    {batchSize, in.dim(1), outDimY, outDimX,
-                                     in.dim(4)},
-                                    "maxPoolOut");
-        mapActivations(*graph, out[exp]);
-      }
+      fwdPerfectCycleTime +=
+          maxpool::getFwdPerfectCycleCount(*graph, dType, batchSize,
+                                           in.dim(2), in.dim(3),
+                                           in.dim(1) * in.dim(4),
+                                           m->kernelSizeY, m->kernelSizeX,
+                                           m->strideY, m->strideX,
+                                           m->paddingY, m->paddingX);
     } else if (const auto *fc = dynamic_cast<const FullyConnected *>(exp)) {
       const auto prev = exp->deps().front();
       auto in = out[prev];
@@ -1144,19 +1116,15 @@ void Optimizer::genFwd(Sequence &fwdProg,
          hParams[exp].push_back(std::move(hBiases));
       }
 
+      out[exp] = matMul(*graph, in, weights.transpose(), fwdProg,
+                        layerPrefix, mmOpt);
+      auto bBiases = biases.broadcast(batchSize, 0)
+                           .reshape({batchSize, size});
+      addTo(*graph, out[exp], bBiases, 1.0, fwdProg, layerPrefix);
+      const auto flops = prevSize * size * batchSize * 2;
       if (!options.skipFwd) {
-        out[exp] = matMul(*graph, in, weights.transpose(), fwdProg,
-                          layerPrefix, mmOpt);
-        auto bBiases = biases.broadcast(batchSize, 0)
-                             .reshape({batchSize, size});
-        addTo(*graph, out[exp], bBiases, 1.0, fwdProg, layerPrefix);
-        const auto flops = prevSize * size * batchSize * 2;
         fwdFlops += flops;
         fwdPerfectCycleTime += getPerfectCycleTime(flops, dType, true, false);
-      } else {
-        out[exp] = graph->addTensor(dType, {batchSize, size},
-                                    layerPrefix + "/matMulOut");
-        mapActivations(*graph, out[exp]);
       }
       numParams += weights.numElements() + biases.numElements();
     } else if (dynamic_cast<const ResidualAdd *>(exp)) {
@@ -1221,8 +1189,11 @@ createConvLayerBwd(const ExpImpl *exp, Tensor outGradient, unsigned layerIndex,
                    unsigned kernelSizeY, unsigned kernelSizeX,
                    unsigned strideY, unsigned strideX,
                    unsigned paddingY, unsigned paddingX,
-                   bool backwardPassRequired, Sequence &prog,
+                   bool backwardPassRequired, Sequence &actualBwdProg,
                    const std::string &debugPrefix) {
+  Sequence dummyProg;
+  Sequence &bwdProg = options.skipBwd ? dummyProg : actualBwdProg;
+  Sequence &wuProg = options.skipWU ? dummyProg : actualBwdProg;
   const auto prev = exp->deps()[0];
   const auto in = out[prev];
   auto prevDimY = in.dim(2);
@@ -1265,31 +1236,29 @@ createConvLayerBwd(const ExpImpl *exp, Tensor outGradient, unsigned layerIndex,
                                            kernelSizeX, strideY, strideX,
                                            paddingY,
                                            paddingX, nextNumChans);
-
-      createBwdWeights(*graph, prevNumChans, weights, outGradient,
-                       bwdWeights, strideY, strideX,
-                       paddingY, paddingX, isFractional, prog,
-                       debugPrefix);
-      // Perform convolution
-      auto inGrad = doConvolution(*graph, {strideY, strideX},
-                                  {bwdPaddingY, bwdPaddingX}, prevNumChans,
-                                  outGradient, bwdWeights,
-                                  bwdPlan.getPartialType(),
-                                  isFractional, false, prog, debugPrefix);
-      inGradient[exp].push_back(inGrad);
-    } else {
-      createInGradients(exp, layerIndex);
     }
+    createBwdWeights(*graph, prevNumChans, weights, outGradient,
+                     bwdWeights, strideY, strideX,
+                     paddingY, paddingX, isFractional, bwdProg,
+                     debugPrefix);
+    // Perform convolution
+    auto inGrad = doConvolution(*graph, {strideY, strideX},
+                                {bwdPaddingY, bwdPaddingX}, prevNumChans,
+                                outGradient, bwdWeights,
+                                bwdPlan.getPartialType(),
+                                  isFractional, false, bwdProg, debugPrefix);
+    inGradient[exp].push_back(inGrad);
   }
+  // TODO move before backward pass to reduce live range of the deltas.
+  doConvolutionWeightUpdate(*graph, outGradient, weights,
+                            in, strideY, strideX, paddingY,
+                            paddingX, options.learningRate, wuProg,
+                            debugPrefix);
+  popconv::convolutionBiasUpdate(*graph, outGradient, biases,
+                                 options.learningRate, wuProg,
+                                 debugPrefix);
+
   if (!options.skipWU) {
-    // TODO move before backward pass to reduce live range of the deltas.
-    doConvolutionWeightUpdate(*graph, outGradient, weights,
-                              in, strideY, strideX, paddingY,
-                              paddingX, options.learningRate, prog,
-                              debugPrefix);
-    popconv::convolutionBiasUpdate(*graph, outGradient, biases,
-                                   options.learningRate, prog,
-                                   debugPrefix);
     wuFlops += popconv::getWuFlops(batchSize,
                                    prevDimY, prevDimX, prevNumChans,
                                    kernelSizeY, kernelSizeX, strideY,
@@ -1330,7 +1299,10 @@ void Optimizer::createInGradients(const ExpImpl *exp, unsigned index) {
   }
 }
 
-void Optimizer::genBwd(Sequence &bwdProg) {
+void Optimizer::genBwd(Sequence &actualBwdProg) {
+  Sequence dummyProg;
+  Sequence &bwdProg = options.skipBwd ? dummyProg : actualBwdProg;
+  Sequence &wuProg = options.skipWU ? dummyProg : actualBwdProg;
   const auto eta = options.learningRate;
   for (int layerIndex = schedule.size() - 1; layerIndex > 0; --layerIndex) {
     const std::string layerPrefix =
@@ -1402,41 +1374,37 @@ void Optimizer::genBwd(Sequence &bwdProg) {
           const auto flops = batchSize * prevSize * size * 2;
           bwdFlops += flops;
           bwdPerfectCycleTime += getPerfectCycleTime(flops, dType, true, false);
-          auto inGrad = matMul(*graph, outGradient, weights, bwdProg,
-                               layerPrefix, mmOpt);
-          inGrad = inGrad.reshape(prevShape);
-          inGradient[exp].push_back(inGrad);
-        } else {
-          // Create the correct shaped tensor even if we skip the backwards
-          // pass.
-          createInGradients(exp, layerIndex);
         }
+        auto inGrad = matMul(*graph, outGradient, weights, bwdProg,
+                             layerPrefix, mmOpt);
+        inGrad = inGrad.reshape(prevShape);
+        inGradient[exp].push_back(inGrad);
       }
       if (!options.skipWU) {
-        if (options.inPlaceParamUpdate) {
-          matMulAcc(*graph, weights, -eta, outGradient.transpose(), in,
-                    bwdProg, layerPrefix, mmOpt);
-          reduceAcc(*graph, biases, -eta, outGradient, bwdProg, layerPrefix);
-        } else {
-          auto weightDeltas = matMul(*graph, outGradient.transpose(), in,
-                                     bwdProg, layerPrefix, mmOpt);
-          addTo(*graph, weights, weightDeltas, -eta, bwdProg, layerPrefix);
-          auto biasDeltas = reduce(*graph, outGradient, bwdProg, layerPrefix);
-          addTo(*graph, biases, biasDeltas, -eta, bwdProg, layerPrefix);
-        }
         const auto flops = batchSize * prevSize * size * 2;
         wuFlops += flops;
         wuPerfectCycleTime += getPerfectCycleTime(flops, dType, true, false);
+      }
+      if (options.inPlaceParamUpdate) {
+        matMulAcc(*graph, weights, -eta, outGradient.transpose(), in,
+                  wuProg, layerPrefix, mmOpt);
+        reduceAcc(*graph, biases, -eta, outGradient, wuProg, layerPrefix);
+      } else {
+        auto weightDeltas = matMul(*graph, outGradient.transpose(), in,
+                                   wuProg, layerPrefix, mmOpt);
+        addTo(*graph, weights, weightDeltas, -eta, wuProg, layerPrefix);
+        auto biasDeltas = reduce(*graph, outGradient, wuProg, layerPrefix);
+        addTo(*graph, biases, biasDeltas, -eta, wuProg, layerPrefix);
       }
     } else if (const auto *c = dynamic_cast<const Conv2d *>(exp)) {
       createConvLayerBwd(exp, outGradient, layerIndex,
                          c->kernelSizeY, c->kernelSizeX,
                          c->strideY, c->strideX, c->paddingY,
                          c->paddingX,
-                         backwardPassRequired, bwdProg,
+                         backwardPassRequired, actualBwdProg,
                          layerPrefix);
     } else if (const auto *m = dynamic_cast<const MaxPool *>(exp)) {
-      if (backwardPassRequired && !options.skipBwd) {
+      if (backwardPassRequired) {
         inGradient[exp].push_back(
           maxpool::maxPoolInputGradient(*graph,
                                         m->kernelSizeY, m->kernelSizeX,
@@ -1445,23 +1413,21 @@ void Optimizer::genBwd(Sequence &bwdProg) {
                                         in, out[exp], outGradient, bwdProg,
                                         layerPrefix)
         );
-        bwdFlops += maxpool::getBwdFlops(batchSize,
-                                         in.dim(2), in.dim(3),
-                                         in.dim(1) * in.dim(4),
-                                         m->kernelSizeY, m->kernelSizeX,
-                                         m->strideY, m->strideX,
-                                         m->paddingY, m->paddingX);
-        bwdPerfectCycleTime +=
+        if (!options.skipBwd) {
+          bwdFlops += maxpool::getBwdFlops(batchSize,
+                                           in.dim(2), in.dim(3),
+                                           in.dim(1) * in.dim(4),
+                                           m->kernelSizeY, m->kernelSizeX,
+                                           m->strideY, m->strideX,
+                                           m->paddingY, m->paddingX);
+          bwdPerfectCycleTime +=
             maxpool::getBwdPerfectCycleCount(*graph, dType, batchSize,
                                              in.dim(2), in.dim(3),
                                              in.dim(1) * in.dim(4),
                                              m->kernelSizeY, m->kernelSizeX,
                                              m->strideY, m->strideX,
                                              m->paddingY, m->paddingX);
-      } else {
-        // Create the correct shaped tensor even if we skip the backwards
-        // pass.
-        createInGradients(exp, layerIndex);
+        }
       }
     } else if (dynamic_cast<const ResidualAdd *>(exp)) {
       // Set the input gradient to both inputs to be the same, even

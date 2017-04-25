@@ -248,7 +248,7 @@ private:
                      unsigned strideY, unsigned strideX,
                      unsigned paddingY, unsigned paddingX,
                      bool backwardPassRequired,
-                     poplar::program::Sequence &prog,
+                     poplar::program::Sequence &actualBwdprog,
                      const std::string &debugPrefix);
   void genBwd(poplar::program::Sequence &bwdProg);
   void reportTotals();
