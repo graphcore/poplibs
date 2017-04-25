@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5.0)
-project(popnn)
+project(poplibs)
 
 include(CheckCXXCompilerFlag)
 
@@ -34,8 +34,6 @@ if(COMPILER_SUPPORTS_W_VLA)
 endif()
 
 add_subdirectory(lib)
-add_subdirectory(examples)
-add_subdirectory(benchmarks)
 add_subdirectory(tests)
 add_subdirectory(tools)
 

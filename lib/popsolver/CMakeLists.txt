@@ -24,7 +24,9 @@ install(TARGETS popsolver
         COMPONENT popsolver
         INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
-install(EXPORT popsolver DESTINATION ${CMAKE_INSTALL_LIBDIR}
+install(EXPORT popsolver
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/popsolver
+        FILE popsolver-targets.cmake
         COMPONENT popsolver)
 
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/popsolver

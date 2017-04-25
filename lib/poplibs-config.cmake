@@ -9,6 +9,10 @@ if(NOT TARGET popstd AND NOT popstd_BINARY_DIR)
   include("${POPLIBS_CMAKE_DIR}/../popstd/popstd-targets.cmake")
 endif()
 
+if(NOT TARGET popsolver AND NOT popsolver_BINARY_DIR)
+  include("${POPLIBS_CMAKE_DIR}/../popsolver/popsolver-targets.cmake")
+endif()
+
 if(NOT TARGET popreduce AND NOT popreduce_BINARY_DIR)
   include("${POPLIBS_CMAKE_DIR}/../popreduce/popreduce-targets.cmake")
 endif()
