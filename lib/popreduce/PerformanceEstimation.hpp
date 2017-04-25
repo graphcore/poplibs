@@ -34,28 +34,28 @@ reduceCycleEstimate(const std::vector<unsigned> &outSizes,
     // Innermost loop accumulates vector across all input tiles
     // This estimate based on float->float code
     // Inner loop processes 128bits/2cycles
-    // Inner loop cycles likely to halve given minor IS change,
-    // may then be best practical choice
+    // Inner loop cycles would halve for strided data given f32v4add IS addtion
     cycles = 2+5+1;
     for (unsigned r = 0; r < numReductions; ++r) {
       cycles += 6;
       const unsigned numElem = outSizes[r];
-      auto numVectors = (numElem + 2 * vectorWidth - 1) / (2 * vectorWidth);
-      cycles += (2 * numPartials + 4) * numVectors;
+      auto numVectorWidths = (numElem + 2 * vectorWidth - 1)
+                             / (2 * vectorWidth);
+      cycles += (2 * numPartials + 1 + 3) * numVectorWidths;
     }
     break;
   case 2:
     // Innermost loop adds one tile's input accross a region
     // This estimate based on float->float code Reductions
     // in loop overhead are expected given IS changes.
-    cycles = 2+3;
+    // Note this isn't suitable for half->float reduction
+    assert(isOutTypeFloat);
+    cycles = 2+7+1;
     for (unsigned r = 0; r < numReductions; ++r) {
       unsigned numElem = outSizes[r];
-      auto numVectors = (numElem + vectorWidth - 1) / vectorWidth;
-      cycles += 24 + numVectors;
-      // inner loop processes 3 vectors
-      unsigned numInners = (numVectors + 2) / 3;
-      cycles += (7 + 3 * numInners + 4 + 3 + 1) * (numPartials - 1);
+      auto numVectorWidths = (numElem + vectorWidth - 1) / vectorWidth;
+      cycles += 9 + numVectorWidths + 1;
+      cycles += (7 + numVectorWidths + 1) * (numPartials - 1);
     }
     break;
   }
