@@ -787,7 +787,13 @@ estimatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
     const auto passesPerFilter =
         tileKernelWidth *
         (tileKernelHeight + convUnitWeightHeight - 1) / convUnitWeightHeight;
-    const auto passesPerOutput = passesPerFilter * tileNumInGroups;
+    const auto numConvUnits = getNumConvUnits(floatActivations,
+                                              plan.floatPartials,
+                                              deviceInfo);
+    assert(outChansPerGroup % numConvUnits == 0);
+    const auto passesPerOutputGroup = outChansPerGroup / numConvUnits;
+    const auto passesPerOutput = passesPerFilter * passesPerOutputGroup *
+                                 tileNumInGroups;
     computeCycles =
         tileNumOutGroups *
         cache->mGetConvPartialnx1CycleEstimate(

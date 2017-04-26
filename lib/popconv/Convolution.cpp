@@ -680,6 +680,17 @@ createConvPartial1x1OutVertex(Graph &graph,
   graph.setTileMapping(v, tile);
 }
 
+static unsigned getNumConvUnits(bool floatActivations,
+                                bool floatPartial,
+                                const poplar::DeviceInfo &deviceInfo) {
+  if (floatActivations) {
+    return deviceInfo.fp32InFp32OutConvUnitsPerTile;
+  } else {
+    return floatPartial ? deviceInfo.fp16InFp32OutConvUnitsPerTile :
+                          deviceInfo.fp16InFp16OutConvUnitsPerTile;
+  }
+}
+
 static void
 createConvPartialnx1InOutVertex(Graph &graph,
                                 unsigned tile,
@@ -708,17 +719,25 @@ createConvPartialnx1InOutVertex(Graph &graph,
   const auto inChansPerGroup = static_cast<unsigned>(in.dim(3));
   const auto outChansPerGroup = static_cast<unsigned>(out.dim(3));
   const auto dType = graph.getTensorElementType(in);
+  const bool floatActivations = dType == "float";
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto contextsPerVertex = deviceInfo.numWorkerContexts;
   const auto weightsPerConvUnit =
-      deviceInfo.getWeightsPerConvUnit(dType == "float");
+      deviceInfo.getWeightsPerConvUnit(floatActivations);
   assert(weightsPerConvUnit % inChansPerGroup == 0);
   const auto convUnitWeightHeight = weightsPerConvUnit / inChansPerGroup;
   const auto convUnitCoeffLoadBytesPerCycle
                       = deviceInfo.convUnitCoeffLoadBytesPerCycle;
-
   const auto partialType = graph.getTensorElementType(out);
+  const bool floatPartials = partialType == "float";
+  const auto outChansPerPass = getNumConvUnits(floatActivations, floatPartials,
+                                               deviceInfo);
+  assert(outChansPerGroup % outChansPerPass == 0);
+  const auto passesPerOutputGroup = outChansPerGroup / outChansPerPass;
+  const auto outStrideX = passesPerOutputGroup *
+                          (isFractional ? stride.back() : 1);
+
   // It is possible that there is no calculation to perform that involves
   // the specified output slice and kernel weight slice. Instead of adding a
   // vertex to the graph upfront add it lazily when we first need it.
@@ -754,74 +773,84 @@ createConvPartialnx1InOutVertex(Graph &graph,
       // kernel at a time, the partitioning of work across the workers can be
       // aware of the stride and only allocate work on the rows that get
       // affected.
-      unsigned outputStride =
+      unsigned outputStrideY =
           (isFractional && convUnitWeightHeight == 1) ? stride[0] : 1;
       std::vector<std::vector<PartialRow>> workerPartition =
           partitionConvPartialByWorker(convOutHeight, convOutWidth,
-                                       contextsPerVertex, outputStride);
+                                       contextsPerVertex, outputStrideY);
       assert(workerPartition.size() == contextsPerVertex);
       for (unsigned ozg = outZGroupBegin; ozg != outZGroupEnd; ++ozg) {
-        for (unsigned izg = inZGroupBegin; izg != inZGroupEnd; ++izg) {
-          for (unsigned wy = wyBegin; wy != wyBegin + convUnitWeightHeight;
-               ++wy) {
-            Tensor w;
-            if (wy < wyEnd) {
-              w = weights[ozg][izg][wy][wx].flatten();
-            } else {
-              w = zeros.slice(0, inChansPerGroup * outChansPerGroup);
-            }
-            weightEdges.push_back(w);
-          }
-          for (unsigned i = 0; i != contextsPerVertex; ++i) {
-            weightReuseCount.push_back(
-              static_cast<std::uint32_t>(workerPartition[i].size())
-            );
-
-            for (const auto &partialRow : workerPartition[i]) {
-              const auto workerOutY = convOutYBegin + partialRow.rowNumber;
-              unsigned workerOutXBegin, workerOutXEnd;
-              std::tie(workerOutXBegin, workerOutXEnd) =
-                  getOutputRange({convOutXBegin + partialRow.begin,
-                                  convOutXBegin + partialRow.end},
-                                  stride[1], kernelSizeX, padding[1], inDimX,
-                                  wx,
-                                  isFractional);
-              const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
-              unsigned workerInXBegin, workerInXEnd;
-              std::tie(workerInXBegin, workerInXEnd) =
-                  getInputRange({workerOutXBegin, workerOutXEnd}, stride[1],
-                                kernelSizeX, padding[1], inDimX, wx,
-                                isFractional);
-              const auto workerInWidth = workerInXEnd - workerInXBegin;
-              for (unsigned wy = wyBegin; wy != wyBegin + convUnitWeightHeight;
-                   ++wy) {
-                const auto workerInY =
-                    getInputIndex(workerOutY, stride[0], kernelSizeY,
-                                  padding[0], inDimY, wy,
-                                  isFractional);
-                Tensor inWindow;
-                if (workerInY == ~0U) {
-                  inWindow = zeros.slice(0, workerInWidth * inChansPerGroup);
-                } else {
-                  inWindow =
-                      in[izg][workerInY].slice(
-                        {workerInXBegin, 0},
-                        {workerInXEnd, inChansPerGroup}
-                      ).reshape({workerInWidth * inChansPerGroup});
-                }
-                inputEdges.push_back(inWindow);
+        for (unsigned p = 0; p != passesPerOutputGroup; ++p) {
+          const auto offsetInOutputGroup = p * outChansPerPass;
+          for (unsigned izg = inZGroupBegin; izg != inZGroupEnd; ++izg) {
+            for (unsigned wy = wyBegin; wy != wyBegin + convUnitWeightHeight;
+                 ++wy) {
+              Tensor w;
+              if (wy < wyEnd) {
+                w = weights[ozg][izg][wy][wx]
+                        .slice(offsetInOutputGroup,
+                               offsetInOutputGroup + outChansPerPass)
+                        .flatten();
+              } else {
+                w = zeros.slice(0, inChansPerGroup * outChansPerPass);
               }
-              Tensor outWindow =
-                  out[ozg][workerOutY].slice(
-                    {workerOutXBegin, 0},
-                    {workerOutXEnd, outChansPerGroup}
-                  ).reshape({workerOutWidth * outChansPerGroup});
-              // Note the output tensor is mapped in zeroAndMapPartialSums.
-              outputEdges.push_back(outWindow);
-              ++numConvolutions;
+              weightEdges.push_back(w);
             }
+            for (unsigned i = 0; i != contextsPerVertex; ++i) {
+              weightReuseCount.push_back(
+                static_cast<std::uint32_t>(workerPartition[i].size())
+              );
+
+              for (const auto &partialRow : workerPartition[i]) {
+                const auto workerOutY = convOutYBegin + partialRow.rowNumber;
+                unsigned workerOutXBegin, workerOutXEnd;
+                std::tie(workerOutXBegin, workerOutXEnd) =
+                    getOutputRange({convOutXBegin + partialRow.begin,
+                                    convOutXBegin + partialRow.end},
+                                    stride[1], kernelSizeX, padding[1], inDimX,
+                                    wx,
+                                    isFractional);
+                const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
+                unsigned workerInXBegin, workerInXEnd;
+                std::tie(workerInXBegin, workerInXEnd) =
+                    getInputRange({workerOutXBegin, workerOutXEnd}, stride[1],
+                                  kernelSizeX, padding[1], inDimX, wx,
+                                  isFractional);
+                const auto workerInWidth = workerInXEnd - workerInXBegin;
+                for (unsigned wy = wyBegin;
+                     wy != wyBegin + convUnitWeightHeight;
+                     ++wy) {
+                  const auto workerInY =
+                      getInputIndex(workerOutY, stride[0], kernelSizeY,
+                                    padding[0], inDimY, wy,
+                                    isFractional);
+                  Tensor inWindow;
+                  if (workerInY == ~0U) {
+                    inWindow = zeros.slice(0, workerInWidth * inChansPerGroup);
+                  } else {
+                    inWindow =
+                        in[izg][workerInY].slice(
+                          {workerInXBegin, 0},
+                          {workerInXEnd, inChansPerGroup}
+                        ).reshape({workerInWidth * inChansPerGroup});
+                  }
+                  inputEdges.push_back(inWindow);
+                }
+                Tensor outWindow =
+                    out[ozg][workerOutY].slice(
+                      {workerOutXBegin, 0},
+                      {workerOutXEnd, outChansPerGroup}
+                    ).reshape({workerOutWidth * outChansPerGroup})
+                     .slice(offsetInOutputGroup,
+                            (workerOutWidth - 1) * outChansPerGroup +
+                            offsetInOutputGroup + outChansPerPass);
+                // Note the output tensor is mapped in zeroAndMapPartialSums.
+                outputEdges.push_back(outWindow);
+                ++numConvolutions;
+              }
+            }
+            ++numWeights;
           }
-          ++numWeights;
         }
       }
     }
@@ -839,10 +868,10 @@ createConvPartialnx1InOutVertex(Graph &graph,
                                      useDeltaEdgesForConvPartials(numEdges) ?
                                                           "true" : "false"));
   graph.setInitialValue(v["inStride"], isFractional ? 1 : stride.back());
-  graph.setInitialValue(v["outStride"], isFractional ? stride.back() : 1);
+  graph.setInitialValue(v["outStride"], outStrideX);
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
-  graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
+  graph.setInitialValue(v["outChansPerGroup"], outChansPerPass);
   graph.setInitialValue(v["convUnitCoeffLoadBytesPerCycle"],
                           convUnitCoeffLoadBytesPerCycle);
   graph.setTileMapping(v, tile);
@@ -1047,7 +1076,13 @@ calcPartialConvOutput(Graph &graph,
   bool useConvPartial1x1OutVertex = false;
   if (plan.useConvolutionInstructions) {
     const auto inDimY = in.dim(1);
-    useConvPartial1x1OutVertex =
+    const auto partialsType = graph.getTensorElementType(out);
+    const auto outChansPerPass = getNumConvUnits(dType == "float",
+                                                 partialsType == "float",
+                                                 deviceInfo);
+    assert(outChansPerGroup % outChansPerPass == 0);
+    const auto passesPerOutputGroup = outChansPerGroup / outChansPerPass;
+    useConvPartial1x1OutVertex = passesPerOutputGroup == 1 &&
         kernelSizeX == 1 && tileKernelHeight == 1 &&
         (!isFractional || (stride[1] == 1 && stride[0] == 1)) &&
         writtenRangeEqualsOutputRange({outYBegin, outYEnd}, stride[0],
