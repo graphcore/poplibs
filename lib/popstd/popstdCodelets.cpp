@@ -158,15 +158,31 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
+    // These are not valid for integer and boolean casts
     const auto floatVectorWidth = dataPathWidth / 32;
     return (dst.size() + floatVectorWidth - 1) / floatVectorWidth + 5;
   }
 };
 
-template class Cast<float, half>;
-template class Cast<half, float>;
 template class Cast<float, float>;
+template class Cast<float, half>;
+template class Cast<float, int>;
+template class Cast<float, bool>;
+
+template class Cast<half, float>;
 template class Cast<half, half>;
+template class Cast<half, int>;
+template class Cast<half, bool>;
+
+template class Cast<int,float>;
+template class Cast<int,half>;
+template class Cast<int,int>;
+template class Cast<int,bool>;
+
+template class Cast<bool,float>;
+template class Cast<bool,half>;
+template class Cast<bool,int>;
+template class Cast<bool,bool>;
 
 template <typename SrcType, typename DstType>
 class Cast2D : public Vertex {
@@ -198,16 +214,32 @@ public:
       // 4: load src[0]
       // 5: { load src[1] ; convert src[0] }
       // 6: repeat
+      // These are not valid for integer and boolean casts
       cycles += 6 + (dst[i].size() + floatVectorWidth - 1) / floatVectorWidth;
     }
     return cycles;
   }
 };
 
-template class Cast2D<float, half>;
-template class Cast2D<half, float>;
 template class Cast2D<float, float>;
+template class Cast2D<float, half>;
+template class Cast2D<float, int>;
+template class Cast2D<float, bool>;
+
+template class Cast2D<half, float>;
 template class Cast2D<half, half>;
+template class Cast2D<half, int>;
+template class Cast2D<half, bool>;
+
+template class Cast2D<int,float>;
+template class Cast2D<int,half>;
+template class Cast2D<int,int>;
+template class Cast2D<int,bool>;
+
+template class Cast2D<bool,float>;
+template class Cast2D<bool,half>;
+template class Cast2D<bool,int>;
+template class Cast2D<bool,bool>;
 
 
 } // end namespace popstd
