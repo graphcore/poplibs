@@ -539,8 +539,7 @@ static unsigned
 estimateWeightUpdatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
                                       bool floatActivations,
                                       const ConvolutionParams &params,
-                                      const Plan &plan,
-                                      PlanningCacheImpl *cache) {
+                                      const Plan &plan) {
   assert(params.isWeightUpdate);
   assert(!plan.useConvolutionInstructions);
   const auto tilesPerZ = plan.tilesPerZAxis;
@@ -742,7 +741,7 @@ estimatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
   if (params.isWeightUpdate) {
     return
       estimateWeightUpdatePartialCalcCycles(deviceInfo, floatActivations,
-                                            params, plan, cache);
+                                            params, plan);
   }
   const auto tilesPerX = plan.tilesPerXAxis;
   const auto tilesPerY = plan.tilesPerYAxis;
@@ -833,7 +832,6 @@ static unsigned calcNumUsableTiles(
 
   return numTiles / batchSubGroups;
 }
-
 
 static unsigned estimateReduceMemory(const poplar::DeviceInfo &deviceInfo,
                                      const ConvolutionParams &params,
@@ -1593,7 +1591,6 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
     bestCandidate.flattenXY = true;
   return {bestCandidate, bestCandidateCost};
 }
-
 
 Plan getPlan(const poplar::Graph &graph,
              std::string dType,
