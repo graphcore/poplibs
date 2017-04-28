@@ -8,6 +8,7 @@
 #include "PerformanceEstimation.hpp"
 #include "VertexOptim.hpp"
 #include "util/Compiler.hpp"
+#include <cassert>
 #include <map>
 #include <tuple>
 #include <iostream>
@@ -1601,6 +1602,9 @@ Plan getPlan(const poplar::Graph &graph,
              std::vector<unsigned> padding,
              bool isFractional,
              ConvOptions options) {
+  assert (weightsShape.size () == 3);
+  assert (stride.size () == 2);
+  assert (padding.size () == 2);
   Plan plan;
   Cost cost;
   CostBounds costBounds(0, 0);
@@ -1683,6 +1687,9 @@ Plan getWeightUpdatePlan(const poplar::Graph &graph,
                          std::vector<unsigned> padding,
                          bool isFractional,
                          ConvOptions options) {
+  assert (weightsShape.size () == 3);
+  assert (stride.size () == 2);
+  assert (padding.size () == 2);
   const auto dType = graph.getTensorElementType(activations);
   const auto batchSize = activations.dim(0);
   const auto inDimY = activations.dim(2);
