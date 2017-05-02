@@ -23,6 +23,7 @@ function(add_popnn_unit_test name)
 endfunction()
 
 # Unit tests
+add_popnn_unit_test(ConvPlanTest ConvPlanTest.cpp)
 add_popnn_unit_test(GraphFunctionTest GraphFunctionTest.cpp)
 add_popnn_unit_test(WinogradConvolution WinogradConv.cpp)
 add_popnn_unit_test(NonLinearityTest NonLinearityTest.cpp)

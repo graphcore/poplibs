@@ -1602,9 +1602,9 @@ Plan getPlan(const poplar::Graph &graph,
              std::vector<unsigned> padding,
              bool isFractional,
              ConvOptions options) {
-  assert (weightsShape.size () == 3);
-  assert (stride.size () == 2);
-  assert (padding.size () == 2);
+  assert (weightsShape.size() == 3);
+  assert (stride.size() == 2);
+  assert (padding.size() == 2);
   Plan plan;
   Cost cost;
   CostBounds costBounds(0, 0);
@@ -1616,13 +1616,18 @@ Plan getPlan(const poplar::Graph &graph,
   const auto kernelSizeX = weightsShape[1];
   const auto numChannels = weightsShape[2];
   const auto partialsType = options.partialsType;
-  auto cache = options.cache->impl.get();
+  auto cache = options.cache ? options.cache->impl.get() : nullptr;
+  std::unique_ptr<PlanningCacheImpl> tempCache;
+  if (!cache) {
+    tempCache = std::unique_ptr<PlanningCacheImpl>(new PlanningCacheImpl);
+    cache = tempCache.get();
+  }
   PlanningCacheImpl::Params params(dType,
                                    {inDimY, inDimX, inNumChans},
                                    weightsShape, stride, padding,
                                    isFractional, false, 0, 0, options);
-  if (params.options.cache) {
-    auto &plans = params.options.cache->impl->plans;
+  if (!tempCache.get()) {
+    auto &plans = cache->plans;
     auto match = plans.find(params);
     if (match != plans.end())
       return *match->second;
@@ -1670,8 +1675,8 @@ Plan getPlan(const poplar::Graph &graph,
                                                newCostBounds, graph,
                                                cache);
   }
-  if (params.options.cache) {
-    auto &plans = params.options.cache->impl->plans;
+  if (!tempCache.get()) {
+    auto &plans = cache->plans;
     auto pPlan = std::unique_ptr<Plan>(new Plan(std::move(plan)));
     auto res = plans.emplace(std::make_pair(params, std::move(pPlan)));
     return *res.first->second;
@@ -1687,9 +1692,9 @@ Plan getWeightUpdatePlan(const poplar::Graph &graph,
                          std::vector<unsigned> padding,
                          bool isFractional,
                          ConvOptions options) {
-  assert (weightsShape.size () == 3);
-  assert (stride.size () == 2);
-  assert (padding.size () == 2);
+  assert (weightsShape.size() == 3);
+  assert (stride.size() == 2);
+  assert (padding.size() == 2);
   const auto dType = graph.getTensorElementType(activations);
   const auto batchSize = activations.dim(0);
   const auto inDimY = activations.dim(2);
@@ -1718,7 +1723,12 @@ Plan getWeightUpdatePlan(const poplar::Graph &graph,
                                isFractional, options);
   const auto actChansPerGroup = fwdPlan.inChansPerGroup;
   const auto deltasChansPerGroup = deltas.dim(4);
-  auto cache = options.cache->impl.get();
+  auto cache = options.cache ? options.cache->impl.get() : nullptr;
+  std::unique_ptr<PlanningCacheImpl> tempCache;
+  if (!cache) {
+    tempCache = std::unique_ptr<PlanningCacheImpl>(new PlanningCacheImpl);
+    cache = tempCache.get();
+  }
   PlanningCacheImpl::Params params(dType,
                                    {inDimY, inDimX, inNumChans},
                                    weightsShape, stride, padding,
