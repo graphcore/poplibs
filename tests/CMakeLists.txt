@@ -474,6 +474,26 @@ add_test(NAME max_pool_layer_1x4
                  --stride-height 1
                  --stride-width 4)
 
+add_test(NAME gemm_1x3x1
+          COMMAND general_matrix_multiply
+                  --m 1
+                  --k 3
+                  --n 1
+                  --alpha 1
+                  --beta 1
+                  --left-matrix-op=normal
+                  --right-matrix-op=normal)
+
+add_test(NAME gemm_1x1000x1
+        COMMAND general_matrix_multiply
+                --m 1
+                --k 1000
+                --n 1
+                --alpha 2
+                --beta 1
+                --left-matrix-op=normal
+                --right-matrix-op=normal)
+
 
 add_test(NAME gemm_40x40x40
          COMMAND general_matrix_multiply

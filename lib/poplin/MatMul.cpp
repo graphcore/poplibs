@@ -437,7 +437,8 @@ matMul(poplar::Graph &graph, poplar::Tensor &C, bool isUpdate, float k,
     }
   }
   if (aIsVector && bIsVector) {
-    throw popstd::poplib_error("Dot product matmul not implemented yet");
+    return matMul1(graph, A, B, prog,
+                   debugPrefix, options);
   }
   if (aColCont && bRowCont) {
     if (isUpdate) {
