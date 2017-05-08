@@ -953,3 +953,40 @@ BOOST_AUTO_TEST_CASE(StdOperationTanh,
     }
   }
 }
+
+
+BOOST_AUTO_TEST_CASE(StdOperationSubtract,
+                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  ) {
+  Graph graph(createIPUModelDevice());
+  popstd::addCodelets(graph);
+
+  float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
+  setBinaryOpInputs(hIn1, hIn2);
+
+  Tensor in1, in2;
+  std::tie(in1, in2) = mapBinaryOpTensors(graph, "float");
+
+  auto prog = Sequence();
+
+  prog.add(Copy(hIn1, in1));
+  prog.add(Copy(hIn2, in2));
+
+  auto out = sub(graph, in1, in2, prog);
+
+  float hOut[DIM_SIZE][DIM_SIZE];
+  prog.add(Copy(out, hOut));
+
+  Engine eng(graph, prog);
+  eng.run();
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      double res = hIn1[i][j] - hIn2[i][j];
+      BOOST_TEST(hOut[i][j] == res);
+    }
+  }
+}

@@ -1020,12 +1020,21 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    uint64_t cycles = 5;
+    uint64_t cycles = 7;
     for (unsigned i = 0; i < in1.size(); ++i) {
       unsigned numElem = in1[i].size();
       bool isFloat = std::is_same<InType, float>::value;
-      // The cycle count here is not correct
-      cycles += 5 + (1 + numElem * 5);
+      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+
+      // Accuracy concerns using ln
+      // pow(a,b) = exp(b * log(a))
+      // Doesn't handle negative values yet
+      if(isFloat) {
+        cycles += 5 + (1 + 3 * numElem);
+      } else {
+        // used f16v4 variant: Accuracy converns using half precision log
+        cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth * 3);
+      }
     }
     return cycles;
   }
@@ -1116,6 +1125,43 @@ public:
 template class Signum<float>;
 template class Signum<half>;
 
+template <typename InType>
+class Subtract : public Vertex {
+public:
+  Vector<Input<Vector<InType>>> in1;
+  Vector<Input<Vector<InType>>> in2;
+  Vector<Output<Vector<InType>>> out;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    assert(in1.size() == out.size());
+    assert(in2.size() == in1.size());
+    for (unsigned i = 0; i != in1.size(); ++i) {
+      assert(in1[i].size() == out[i].size());
+      assert(in2[i].size() == in1[i].size());
+      for (unsigned j = 0; j != in1[i].size(); ++j) {
+        out[i][j] = in1[i][j] - in2[i][j];
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    uint64_t cycles = 5;
+    for (unsigned i = 0; i < in1.size(); ++i) {
+      unsigned numElem = in1[i].size();
+      bool isFloat = std::is_same<InType, float>::value;
+      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+      // Use f16v4 and f32v2 variants
+      // Assume ld2xst64 cannot be used
+      cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth * 2);
+    }
+    return cycles;
+  }
+};
+
+template class Subtract<float>;
+template class Subtract<half>;
 
 template <typename InType>
 class Tanh : public Vertex {
