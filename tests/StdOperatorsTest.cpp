@@ -470,7 +470,7 @@ BOOST_AUTO_TEST_CASE(StdOperationLogarithm,
 
   for (auto r = 0U; r != DIM_SIZE; ++r) {
     for (auto c = 0U; c != DIM_SIZE; ++c) {
-      hIn[r][c] = abs(hIn[r][c]);
+      hIn[r][c] = std::abs(hIn[r][c]);
     }
   }
 
