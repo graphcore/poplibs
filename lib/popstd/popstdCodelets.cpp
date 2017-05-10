@@ -5,6 +5,71 @@
 
 using namespace poplar;
 
+/* Cycle cost computation for basic operations */
+static uint64_t basicOpLoopCycles(unsigned overhead,
+                                  unsigned numElems,
+                                  unsigned vectorSize,
+                                  unsigned cyclesPerVector) {
+  return overhead + (numElems + vectorSize - 1) / vectorSize  * cyclesPerVector;
+}
+
+/* Cycles for comparison operations which result in bool as output */
+template<typename InType>
+static uint64_t comparisonOpsCycles(unsigned dataPathWidth,
+                                    unsigned numElems) {
+  if (std::is_same<InType, float>::value) {
+    unsigned vectorWidth = dataPathWidth / 32;
+    if (sizeof(bool) == 4) {
+      // for dataPathWidth = 64:
+      // ld64/cmp, ldst64/and on aux
+      return basicOpLoopCycles(5, numElems, vectorWidth, 2);
+    } else if (sizeof(bool) == 2) {
+      // for dataPathWidth = 64:
+      // ld64/cmp, ld64/and, st32/sort16
+      return basicOpLoopCycles(5, numElems, vectorWidth, 3);
+    } else if (sizeof(bool) == 1) {
+      // for dataPathWidth = 64:
+      // (ld64/cmp, ld64/and, sort16, atom) * 2 on aux
+      //   shuf8, shl16, or, st32 on main
+      return basicOpLoopCycles(5, numElems, 4 / vectorWidth,
+                               (4 / vectorWidth) * 4 + 5);
+    }
+  } else if (std::is_same<InType, half>::value) {
+    unsigned vectorWidth = dataPathWidth / 32;
+    if (sizeof(bool) == 4) {
+      // for dataPathWidth = 64:
+      // ld64/cmp, ld64/and
+      // sort16, sort16/st64
+      return basicOpLoopCycles(5, numElems, vectorWidth, 2 + 2 * vectorWidth);
+    } else if (sizeof(bool) == 2) {
+      // ldst64/cmp, ld64/amp
+      return basicOpLoopCycles(5, numElems, vectorWidth, 2);
+    } else if (sizeof(bool) == 1) {
+      // for dataPathWidth = 64:
+      // (ld64/cmp, ld64/and, sort16, atom) * 2 on aux
+      //   shuf8, shl16, or, st32 on main
+      return basicOpLoopCycles(5, numElems, 4 / vectorWidth,
+                               (4 / vectorWidth) * 4 + 2);
+    }
+  } else if (std::is_same<InType, int>::value) {
+    if (sizeof(bool) == 4) {
+      return basicOpLoopCycles(5, numElems, 1, 4);
+    } else if (sizeof(bool) == 2) {
+      // (ld32, ld32, cmp) * 2, sort16, sort16, st32
+      return basicOpLoopCycles(5, numElems, 2, 9);
+    } else if (sizeof(bool) == 1) {
+      // (ld32, ld32, cmp) * 4, sort16, sort16, sort8, st32
+      return basicOpLoopCycles(5, numElems, 4, 16);
+    }
+  } else if (std::is_same<InType, bool>::value) {
+    unsigned vectorWidth = dataPathWidth / sizeof(bool);
+    // ld64/ xor(and), ld64st64
+    return basicOpLoopCycles(5, numElems, vectorWidth, 2);
+  }
+  assert(0 && "Bool size not supported");
+  return 0;
+}
+
 namespace popstd {
 
 template <typename FPType>
@@ -268,11 +333,23 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 5;
     for (unsigned i = 0; i < in.size(); ++i) {
+      unsigned cyclesPerVector = 1;
+      unsigned overhead = 6;
       unsigned numElem = in[i].size();
-      bool isFloat = std::is_same<InType, float>::value;
-      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-      // use f16v4/f32v4 absmax
-      cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth * 2);
+      unsigned vectorWidth = 1;
+
+      if (std::is_same<InType, float>::value) {
+        vectorWidth = dataPathWidth / 32;
+        cyclesPerVector = 2;
+      } else if (std::is_same<InType, half>::value) {
+        vectorWidth = dataPathWidth / 16;
+        cyclesPerVector = 2;
+      } else if (std::is_same<InType, int>::value) {
+        // ld, abs, st
+        cyclesPerVector = 3;
+      }
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
     }
     return cycles;
   }
@@ -280,6 +357,7 @@ public:
 
 template class Absolute<float>;
 template class Absolute<half>;
+template class Absolute<int>;
 
 
 template <typename InType>
@@ -306,12 +384,22 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 5;
     for (unsigned i = 0; i < in1.size(); ++i) {
+      unsigned cyclesPerVector = 1;
+      unsigned overhead = 6;
       unsigned numElem = in1[i].size();
-      bool isFloat = std::is_same<InType, float>::value;
-      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-      // Use f16v4 and f32v2 variants
-      // Assume ld2xst64 cannot be used
-      cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth * 2);
+      unsigned vectorWidth = 1;
+      if (std::is_same<InType, float>::value) {
+        vectorWidth = dataPathWidth / 32;
+        cyclesPerVector = 2;
+      } else if (std::is_same<InType, half>::value) {
+        vectorWidth = dataPathWidth / 16;
+        cyclesPerVector = 2;
+      } else if (std::is_same<InType, int>::value) {
+        // ld, ld, add, st
+        cyclesPerVector = 4;
+      }
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
     }
     return cycles;
   }
@@ -319,6 +407,7 @@ public:
 
 template class Add<float>;
 template class Add<half>;
+template class Add<int>;
 
 
 template <typename InType>
@@ -342,11 +431,14 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 6;
     for (unsigned i = 0; i < in.size(); ++i) {
+      unsigned overhead = 6;
       unsigned numElem = in[i].size();
       bool isFloat = std::is_same<InType, float>::value;
       // use mul with 1.0 and use correct rounding mode
+      unsigned cyclesPerVector = 1;
       unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-      cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth);
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
     }
     return cycles;
   }
@@ -380,14 +472,22 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 5;
     for (unsigned i = 0; i < in1.size(); ++i) {
+      unsigned cyclesPerVector = 1;
+      unsigned overhead = 6;
       unsigned numElem = in1[i].size();
-      bool isFloat = std::is_same<InType, float>::value;
-      if (isFloat) {
-        cycles += 5 + (1 + numElem);
-      } else {
+      unsigned vectorWidth = 1;
+      if (std::is_same<InType, float>::value) {
+        cyclesPerVector = 1;
+      } else if (std::is_same<InType, half>::value) {
         // Convert to f32 using v2 and divide and convert back to f16
-        cycles += 5 + (1 + (numElem + 1)/2 * 4);
+        vectorWidth = 2;
+        cyclesPerVector = 4;
+      } else if (std::is_same<InType, int>::value) {
+        // ld into aux, ld into aux, div, st
+        cyclesPerVector = 4;
       }
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
     }
     return cycles;
   }
@@ -395,6 +495,7 @@ public:
 
 template class Divide<float>;
 template class Divide<half>;
+template class Divide<int>;
 
 template <typename InType>
 class Equal : public Vertex {
@@ -420,11 +521,7 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 7;
     for (unsigned i = 0; i < in1.size(); ++i) {
-      unsigned numElem = in1[i].size();
-      bool isFloat = std::is_same<InType, float>::value;
-      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-      // Compare and AND with 0x1
-      cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth * 2);
+      cycles += comparisonOpsCycles<InType>(dataPathWidth, in1.size());
     }
     return cycles;
   }
@@ -432,6 +529,8 @@ public:
 
 template class Equal<float>;
 template class Equal<half>;
+template class Equal<bool>;
+template class Equal<int>;
 
 
 template <typename InType>
@@ -457,15 +556,16 @@ public:
     for (unsigned i = 0; i < in.size(); ++i) {
       unsigned numElem = in[i].size();
       bool isFloat = std::is_same<InType, float>::value;
-      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+      unsigned vectorWidth = 1;
+      unsigned cyclesPerVector = 1;
+      unsigned overhead = 6;
 
-      if(isFloat) {
-        cycles += 5 + (1 + numElem);
-
-      } else {
+      if(!isFloat) {
+        vectorWidth = dataPathWidth / 16;
         // Use f16v4 variant
-        cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth);
       }
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
     }
     return cycles;
   }
@@ -495,11 +595,15 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 6;
     for (unsigned i = 0; i < in.size(); ++i) {
+      const unsigned overhead = 6;
       unsigned numElem = in[i].size();
       bool isFloat = std::is_same<InType, float>::value;
+
       // Use mul with 1.0 and use correct rounding mode
       unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-      cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth);
+      unsigned cyclesPerVector = 1;
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
     }
     return cycles;
   }
@@ -532,12 +636,7 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 7;
     for (unsigned i = 0; i < in1.size(); ++i) {
-      unsigned numElem = in1[i].size();
-      bool isFloat = std::is_same<InType, float>::value;
-      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-      // Compare and AND with 0x1
-      // Assume that ld2xst64 cannot be used
-      cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth * 2);
+      cycles += comparisonOpsCycles<InType>(dataPathWidth, in1.size());
     }
     return cycles;
   }
@@ -545,6 +644,7 @@ public:
 
 template class GreaterThan<float>;
 template class GreaterThan<half>;
+template class GreaterThan<int>;
 
 template <typename InType>
 class GreaterThanEqual : public Vertex {
@@ -570,12 +670,7 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 7;
     for (unsigned i = 0; i < in1.size(); ++i) {
-      unsigned numElem = in1[i].size();
-      bool isFloat = std::is_same<InType, float>::value;
-      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-      // Compare and AND with 0x1
-      // Assume ld2xst64 cannot be used
-      cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth * 2);
+      cycles += comparisonOpsCycles<InType>(dataPathWidth, in1.size());
     }
     return cycles;
   }
@@ -583,6 +678,7 @@ public:
 
 template class GreaterThanEqual<float>;
 template class GreaterThanEqual<half>;
+template class GreaterThanEqual<int>;
 
 
 template <typename InType>
@@ -609,12 +705,7 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 7;
     for (unsigned i = 0; i < in1.size(); ++i) {
-      unsigned numElem = in1[i].size();
-      bool isFloat = std::is_same<InType, float>::value;
-      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-      // Compare and AND with 0x1
-      // Assume ld2xst64 cannot be used
-      cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth * 2);
+      cycles += comparisonOpsCycles<InType>(dataPathWidth, in1.size());
     }
     return cycles;
   }
@@ -622,6 +713,7 @@ public:
 
 template class LessThan<float>;
 template class LessThan<half>;
+template class LessThan<int>;
 
 
 template <typename InType>
@@ -648,12 +740,7 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 7;
     for (unsigned i = 0; i < in1.size(); ++i) {
-      unsigned numElem = in1[i].size();
-      bool isFloat = std::is_same<InType, float>::value;
-      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-      // Compare and AND with 0x1
-      // Assume ld2xst64 cannot be used
-      cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth * 2);
+      cycles += comparisonOpsCycles<InType>(dataPathWidth, in1.size());
     }
     return cycles;
   }
@@ -661,6 +748,8 @@ public:
 
 template class LessThanEqual<float>;
 template class LessThanEqual<half>;
+template class LessThanEqual<int>;
+
 
 template <typename InType>
 class Logarithm : public Vertex {
@@ -683,16 +772,18 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 5;
     for (unsigned i = 0; i < in.size(); ++i) {
-      unsigned numElem = in[i].size();
       bool isFloat = std::is_same<InType, float>::value;
-      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+      unsigned cyclesPerVector = 1;
+      unsigned overhead = 6;
+      unsigned numElem = in[i].size();
+      unsigned vectorWidth = 1;
 
-      if(isFloat) {
-        cycles += 5 + (1 + numElem);
-      } else {
+      if(!isFloat) {
         // used f16v4 variant
-        cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth);
+        vectorWidth = dataPathWidth / 16;
       }
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
     }
     return cycles;
   }
@@ -726,10 +817,14 @@ public:
     uint64_t cycles = 5;
     for (unsigned i = 0; i < in1.size(); ++i) {
       unsigned numElem = in1[i].size();
-      bool isFloat = std::is_same<InType, float>::value;
+      unsigned overhead = 6;
+      unsigned vectorWidth = dataPathWidth / sizeof(bool);
+      unsigned cyclesPerVector = 2;
+
       // Use AND on AUX side
       // Assume ld2xst64 cannot be used
-      cycles += 5 + (1 + (numElem + 1) / 2  * 2);
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
     }
     return cycles;
   }
@@ -760,10 +855,13 @@ public:
     uint64_t cycles = 7;
     for (unsigned i = 0; i < in.size(); ++i) {
       unsigned numElem = in[i].size();
-      bool isFloat = std::is_same<InType, float>::value;
-      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+      unsigned overhead = 6;
+      unsigned vectorWidth = dataPathWidth / sizeof(bool);
+      unsigned cyclesPerVector = 1;
+
       // XOR on aux side
-      cycles += 5 + (1 + (numElem + 1) / 2 );
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
     }
     return cycles;
   }
@@ -797,10 +895,14 @@ public:
     uint64_t cycles = 5;
     for (unsigned i = 0; i < in1.size(); ++i) {
       unsigned numElem = in1[i].size();
-      bool isFloat = std::is_same<InType, float>::value;
+      unsigned overhead = 6;
+      unsigned vectorWidth = dataPathWidth / sizeof(bool);
+      unsigned cyclesPerVector = 2;
+
       // OR on the aux side
       // Assume ld2xst64 cannot be used
-      cycles += 5 + (1 + (numElem + 1) / 2  * 2);
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
     }
     return cycles;
   }
@@ -833,12 +935,23 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 5;
     for (unsigned i = 0; i < in1.size(); ++i) {
+      unsigned cyclesPerVector = 1;
+      unsigned overhead = 6;
       unsigned numElem = in1[i].size();
-      bool isFloat = std::is_same<InType, float>::value;
-      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-      // Use f16v4/f32v2 variants
-      // Assume that ld2xst64 cannot be used
-      cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth * 2);
+      unsigned vectorWidth = 1;
+
+      if (std::is_same<InType, float>::value) {
+        vectorWidth = dataPathWidth / 32;
+        cyclesPerVector = 2;
+      } else if (std::is_same<InType, half>::value) {
+        vectorWidth = dataPathWidth / 16;
+        cyclesPerVector = 2;
+      } else if (std::is_same<InType, int>::value) {
+        // ld, ld, max, st
+        cyclesPerVector = 4;
+      }
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
     }
     return cycles;
   }
@@ -846,6 +959,8 @@ public:
 
 template class Maximum<float>;
 template class Maximum<half>;
+template class Maximum<int>;
+
 
 template <typename InType>
 class Minimum : public Vertex {
@@ -871,12 +986,24 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 5;
     for (unsigned i = 0; i < in1.size(); ++i) {
+
+      unsigned cyclesPerVector = 1;
+      unsigned overhead = 6;
       unsigned numElem = in1[i].size();
-      bool isFloat = std::is_same<InType, float>::value;
-      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-      // Use f16v4/f32v2 instructions
-      // Assume that ld2xst64 cannot be used
-      cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth * 2);
+      unsigned vectorWidth = 1;
+
+      if (std::is_same<InType, float>::value) {
+        vectorWidth = dataPathWidth / 32;
+        cyclesPerVector = 2;
+      } else if (std::is_same<InType, half>::value) {
+        vectorWidth = dataPathWidth / 16;
+        cyclesPerVector = 2;
+      } else if (std::is_same<InType, int>::value) {
+        // ld, ld, min, st
+        cyclesPerVector = 4;
+      }
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
     }
     return cycles;
   }
@@ -884,6 +1011,8 @@ public:
 
 template class Minimum<float>;
 template class Minimum<half>;
+template class Minimum<int>;
+
 
 template <typename InType>
 class Multiply : public Vertex {
@@ -909,12 +1038,22 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 5;
     for (unsigned i = 0; i < in1.size(); ++i) {
+      unsigned cyclesPerVector = 1;
+      unsigned overhead = 6;
       unsigned numElem = in1[i].size();
-      bool isFloat = std::is_same<InType, float>::value;
-      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-      // Use f16v4/f32v2 instructions
-      // Assume that ld2xst cannot be used
-      cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth * 2);
+      unsigned vectorWidth = 1;
+      if (std::is_same<InType, float>::value) {
+        vectorWidth = dataPathWidth / 32;
+        cyclesPerVector = 2;
+      } else if (std::is_same<InType, half>::value) {
+        vectorWidth = dataPathWidth / 16;
+        cyclesPerVector = 2;
+      } else if (std::is_same<InType, int>::value) {
+        // ld, ld, mul, st
+        cyclesPerVector = 4;
+      }
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
     }
     return cycles;
   }
@@ -922,6 +1061,7 @@ public:
 
 template class Multiply<float>;
 template class Multiply<half>;
+template class Multiply<int>;
 
 
 template <typename InType>
@@ -948,20 +1088,16 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 7;
     for (unsigned i = 0; i < in1.size(); ++i) {
-      unsigned numElem = in1[i].size();
-      bool isFloat = std::is_same<InType, float>::value;
-      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-      // Compare and AND with 0x1
-      // Assume that ld2xst cannot be used
-      cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth * 2);
+      cycles += comparisonOpsCycles<InType>(dataPathWidth, in1.size());
     }
     return cycles;
   }
 };
 
-
 template class NotEqual<float>;
 template class NotEqual<half>;
+template class NotEqual<int>;
+template class NotEqual<bool>;
 
 
 template <typename InType>
@@ -985,10 +1121,21 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 6;
     for (unsigned i = 0; i < in.size(); ++i) {
+
+      unsigned cyclesPerVector = 1;
+      unsigned overhead = 6;
       unsigned numElem = in[i].size();
-      bool isFloat = std::is_same<InType, float>::value;
-      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-      cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth);
+      unsigned vectorWidth = 1;
+      if (std::is_same<InType, float>::value) {
+        vectorWidth = dataPathWidth / 32;
+      } else if (std::is_same<InType, half>::value) {
+        vectorWidth = dataPathWidth / 16;
+      } else if (std::is_same<InType, int>::value) {
+        // ld, sub, st
+        cyclesPerVector = 3;
+      }
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
     }
     return cycles;
   }
@@ -996,6 +1143,7 @@ public:
 
 template class Negate<float>;
 template class Negate<half>;
+template class Negate<int>;
 
 
 template <typename InType>
@@ -1022,19 +1170,22 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 7;
     for (unsigned i = 0; i < in1.size(); ++i) {
-      unsigned numElem = in1[i].size();
       bool isFloat = std::is_same<InType, float>::value;
-      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+      unsigned vectorWidth = 1;
+      unsigned cyclesPerVector = 3;
+      unsigned overhead = 6;
+      unsigned numElem = in1[i].size();
 
+      // This cycles are wrong
       // Accuracy concerns using ln
       // pow(a,b) = exp(b * log(a))
       // Doesn't handle negative values yet
-      if(isFloat) {
-        cycles += 5 + (1 + 3 * numElem);
-      } else {
+      if(!isFloat) {
         // used f16v4 variant: Accuracy converns using half precision log
-        cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth * 3);
+        vectorWidth = dataPathWidth / 16;
       }
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
     }
     return cycles;
   }
@@ -1059,7 +1210,12 @@ public:
       assert(in1[i].size() == out[i].size());
       assert(in2[i].size() == in1[i].size());
       for (unsigned j = 0; j != in1[i].size(); ++j) {
-        out[i][j] = std::fmod(in1[i][j], in2[i][j]);
+        if (std::is_same<InType, int>::value) {
+          int r = in1[i][j] / in2[i][j];
+          out[i][j] = in1[i][j] - r * in2[i][j];
+        } else {
+          out[i][j] = std::fmod(in1[i][j], in2[i][j]);
+        }
       }
     }
     return true;
@@ -1068,15 +1224,23 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 5;
     for (unsigned i = 0; i < in1.size(); ++i) {
+      unsigned cyclesPerVector = 1;
+      unsigned overhead = 6;
       unsigned numElem = in1[i].size();
-      bool isFloat = std::is_same<InType, float>::value;
-      if (isFloat) {
-        // 64 bit loads and stores
-        cycles += 5 + (1 + numElem);
-      } else {
+      unsigned vectorWidth = 1;
+
+      if (std::is_same<InType, float>::value) {
+        vectorWidth = dataPathWidth / 32;
+      } else if (std::is_same<InType, half>::value) {
         // Convert to f32 using v2 and divide and convert back to f16
-        cycles += 5 + (1 + (numElem + 1)/2 * 4);
+        vectorWidth = 2;
+        cyclesPerVector = 4;
+      } else if (std::is_same<InType, int>::value) {
+        // load on aux side, mod and store result from aux
+        cyclesPerVector = 4;
       }
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
     }
     return cycles;
   }
@@ -1085,6 +1249,7 @@ public:
 
 template class Remainder<float>;
 template class Remainder<half>;
+template class Remainder<int>;
 
 
 template <typename InType>
@@ -1109,6 +1274,8 @@ public:
     // extra cycles to form constants
     uint64_t cycles = 7;
     for (unsigned i = 0; i < in.size(); ++i) {
+      unsigned cyclesPerVector = 4;
+      unsigned overhead = 6;
       unsigned numElem = in[i].size();
       bool isFloat = std::is_same<InType, float>::value;
       unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
@@ -1116,7 +1283,8 @@ public:
       // OR to pad exponent
       // A compare to form mask to check against 0
       // AND with mask
-      cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth * 4);
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
     }
     return cycles;
   }
@@ -1149,12 +1317,22 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 5;
     for (unsigned i = 0; i < in1.size(); ++i) {
+      unsigned cyclesPerVector = 1;
+      unsigned overhead = 6;
       unsigned numElem = in1[i].size();
-      bool isFloat = std::is_same<InType, float>::value;
-      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-      // Use f16v4 and f32v2 variants
-      // Assume ld2xst64 cannot be used
-      cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth * 2);
+      unsigned vectorWidth = 1;
+      if (std::is_same<InType, float>::value) {
+        vectorWidth = dataPathWidth / 32;
+        cyclesPerVector = 2;
+      } else if (std::is_same<InType, half>::value) {
+        vectorWidth = dataPathWidth / 16;
+        cyclesPerVector = 2;
+      } else if (std::is_same<InType, int>::value) {
+        // ld, ld, sub, st
+        cyclesPerVector = 4;
+      }
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
     }
     return cycles;
   }
@@ -1162,6 +1340,8 @@ public:
 
 template class Subtract<float>;
 template class Subtract<half>;
+template class Subtract<int>;
+
 
 template <typename InType>
 class Tanh : public Vertex {
@@ -1184,18 +1364,16 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 6;
     for (unsigned i = 0; i < in.size(); ++i) {
+      unsigned overhead = 6;
       unsigned numElem = in[i].size();
       bool isFloat = std::is_same<InType, float>::value;
-      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-
-      if(isFloat) {
-        cycles += 5 + (1 + numElem);
-
-      } else {
-        /* Use f16v4 tanh instruction
-         */
-        cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth);
+      unsigned vectorWidth = 1;
+      unsigned cyclesPerVector = 1;
+      if (!isFloat) {
+        vectorWidth = dataPathWidth / 16;
       }
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
     }
     return cycles;
   }
