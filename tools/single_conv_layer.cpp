@@ -10,6 +10,7 @@
 #include <poplar/Engine.hpp>
 #include <popstd/ActivationMapping.hpp>
 #include <popconv/Convolution.hpp>
+#include <popconv/ConvUtil.hpp>
 #include <popstd/exceptions.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <popstd/codelets.hpp>
@@ -39,8 +40,10 @@ int main(int argc, char **argv) {
   unsigned height;
   unsigned kernelHeight;
   unsigned kernelWidth;
-  unsigned paddingHeight;
-  unsigned paddingWidth;
+  unsigned paddingHeightLower;
+  unsigned paddingWidthLower;
+  unsigned paddingHeightUpper;
+  unsigned paddingWidthUpper;
   unsigned strideH;
   unsigned strideW;
   unsigned batchSize;
@@ -54,6 +57,8 @@ int main(int argc, char **argv) {
   /* these are used when the same value is shared across both height and width*/
   unsigned kernelSize;
   unsigned padding;
+  unsigned paddingHeight;
+  unsigned paddingWidth;
   unsigned stride;
   Pass pass = Pass::ALL;
   popconv::ConvOptions convOptions;
@@ -88,11 +93,23 @@ int main(int argc, char **argv) {
      "Type of partials")
     ("padding", po::value<unsigned>(&padding)->default_value(0),
      "Amount of zero padding for height and width. If set, it is an "
-     "error to also set either padding-height and/or padding-width")
+     "error to also set any other padding value")
     ("padding-height", po::value<unsigned>(&paddingHeight)->default_value(0),
-     "Amount of zero padding in the height dimension")
+     "Amount of zero padding in the height dimension, upper and lower")
     ("padding-width", po::value<unsigned>(&paddingWidth)->default_value(0),
-     "Amount of zero padding in the width dimension")
+     "Amount of zero padding in the width dimension, upper and lower")
+    ("padding-height-lower",
+     po::value<unsigned>(&paddingHeightLower)->default_value(0),
+     "Amount of zero padding in the height dimension, lower edge")
+    ("padding-width-lower",
+     po::value<unsigned>(&paddingWidthLower)->default_value(0),
+     "Amount of zero padding in the width dimension, lower edge")
+    ("padding-height-upper",
+     po::value<unsigned>(&paddingHeightUpper)->default_value(0),
+     "Amount of zero padding in the height dimension, upper edge")
+    ("padding-width-upper",
+     po::value<unsigned>(&paddingWidthUpper)->default_value(0),
+     "Amount of zero padding in the width dimension, upper edge")
 
     ("stride", po::value<unsigned>(&stride)->default_value(1),
      "Kernel stride for both height and width. If set, it is an error "
@@ -166,8 +183,52 @@ int main(int argc, char **argv) {
       std::cerr << "--padding as well as --padding-width set\n";
       return 1;
     }
-    paddingHeight = padding;
-    paddingWidth = padding;
+    if (!vm["padding-height-lower"].defaulted()) {
+      std::cerr << "--padding as well as --padding-height-lower set\n";
+      return 1;
+    }
+    if (!vm["padding-width-lower"].defaulted()) {
+      std::cerr << "--padding as well as --padding-width-lower set\n";
+      return 1;
+    }
+    if (!vm["padding-height-upper"].defaulted()) {
+      std::cerr << "--padding as well as --padding-height-upper set\n";
+      return 1;
+    }
+    if (!vm["padding-width-upper"].defaulted()) {
+      std::cerr << "--padding as well as --padding-width-upper set\n";
+      return 1;
+    }
+    paddingHeightLower = padding;
+    paddingHeightUpper = padding;
+    paddingWidthLower = padding;
+    paddingWidthUpper = padding;
+  }
+
+  if (!vm["padding-height"].defaulted()) {
+    if (!vm["padding-height-lower"].defaulted()) {
+      std::cerr << "--padding-height as well as --padding-height-lower set\n";
+      return 1;
+    }
+    if (!vm["padding-height-upper"].defaulted()) {
+      std::cerr << "--padding-height as well as --padding-height-upper set\n";
+      return 1;
+    }
+    paddingHeightLower = paddingHeight;
+    paddingHeightUpper = paddingHeight;
+  }
+
+  if (!vm["padding-width"].defaulted()) {
+    if (!vm["padding-width-lower"].defaulted()) {
+      std::cerr << "--padding-width as well as --padding-width-lower set\n";
+      return 1;
+    }
+    if (!vm["padding-width-upper"].defaulted()) {
+      std::cerr << "--padding-width as well as --padding-width-upper set\n";
+      return 1;
+    }
+    paddingWidthLower = paddingWidth;
+    paddingWidthUpper = paddingWidth;
   }
 
   if (!vm["stride"].defaulted()) {
@@ -197,20 +258,30 @@ int main(int argc, char **argv) {
 
   const auto outDims =
       popconv::getOutputDim(height, width, kernelHeight, kernelWidth,
-                            strideH, strideW,
-                            paddingHeight, paddingWidth, false);
+                            {strideH, strideW},
+                            {paddingHeightLower, paddingWidthLower},
+                            {paddingHeightUpper, paddingWidthUpper},
+                            false);
   const auto outHeight = outDims.first;
   const auto outWidth = outDims.second;
   bool bwdIsFractional = strideH != 1 || strideW != 1;
-  if (paddingHeight >= kernelHeight || paddingWidth >= kernelWidth) {
+  if (paddingHeightLower >= kernelHeight ||
+      paddingHeightUpper >= kernelHeight ||
+      paddingWidthLower >= kernelWidth ||
+      paddingWidthUpper >= kernelWidth) {
     throw popstd::poplib_error("Backwards convolution pass does not support "
                              "padding that is greater than or equal to the "
                              "kernel size");
   }
-  auto bwdPaddingHeight = paddingHeight, bwdPaddingWidth = paddingWidth;
+  auto bwdPaddingHeightLower = paddingHeightLower;
+  auto bwdPaddingWidthLower = paddingWidthLower;
+  auto bwdPaddingHeightUpper = paddingHeightUpper;
+  auto bwdPaddingWidthUpper = paddingWidthUpper;
   if (!bwdIsFractional) {
-    bwdPaddingWidth = kernelWidth - 1 - paddingWidth;
-    bwdPaddingHeight = kernelHeight - 1 - paddingHeight;
+    bwdPaddingWidthLower = kernelWidth - 1 - paddingWidthLower;
+    bwdPaddingHeightLower = kernelHeight - 1 - paddingHeightLower;
+    bwdPaddingWidthUpper = kernelWidth - 1 - paddingWidthUpper;
+    bwdPaddingHeightUpper = kernelHeight - 1 - paddingHeightUpper;
   }
   const auto bwdInChans = fwdOutChans;
   const auto bwdOutChans = fwdInChans;
@@ -219,26 +290,34 @@ int main(int argc, char **argv) {
   Tensor prevAct =
       popconv::createInput(graph, dataTypeStr, batchSize, height, width,
                            fwdInChans, kernelHeight,
-                           kernelWidth, fwdOutChans, strideH, strideW,
-                           paddingHeight, paddingWidth, false,
-                           "prevAct", convOptions);
-  Tensor weights = popconv::createWeights(graph, prevAct,
-                                          kernelHeight, kernelWidth,
-                                          fwdOutChans, strideH, strideW,
-                                          paddingHeight, paddingWidth, false,
-                                          convOptions);
+                           kernelWidth, fwdOutChans, {strideH, strideW},
+                           {paddingHeightLower, paddingWidthLower},
+                           {paddingHeightUpper, paddingWidthUpper},
+                           false, "prevAct", convOptions);
+  Tensor weights =
+      popconv::createWeights(graph, prevAct,
+                             kernelHeight, kernelWidth,
+                             fwdOutChans, {strideH, strideW},
+                             {paddingHeightLower, paddingWidthLower},
+                             {paddingHeightUpper, paddingWidthUpper},
+                             false, convOptions);
   Tensor biases = popconv::createBiases(graph, dataTypeStr, fwdOutChans);
-  popconv::mapBiases(biases, graph, prevAct, weights, strideH, strideW,
-                     paddingHeight, paddingWidth, false, convOptions);
+      popconv::mapBiases(biases, graph, prevAct, weights,
+                         {strideH, strideW},
+                         {paddingHeightLower, paddingWidthLower},
+                         {paddingHeightUpper, paddingWidthUpper},
+                         false, convOptions);
 
   Tensor prevDeltas, zDeltas;
   if (doBwdPass || doWuPass) {
-    zDeltas = popconv::createInput(graph, dataTypeStr, batchSize,
-                                   outHeight, outWidth, fwdOutChans,
-                                   kernelHeight,
-                                   kernelWidth, fwdInChans, strideH,
-                                   strideW, bwdPaddingHeight, bwdPaddingWidth,
-                                   bwdIsFractional, "zDeltas", convOptions);
+    zDeltas =
+      popconv::createInput(graph, dataTypeStr, batchSize,
+                           outHeight, outWidth, fwdOutChans,
+                           kernelHeight, kernelWidth, fwdInChans,
+                           {strideH, strideW},
+                           {bwdPaddingHeightLower, bwdPaddingWidthLower},
+                           {bwdPaddingHeightUpper, bwdPaddingWidthUpper},
+                           bwdIsFractional, "zDeltas", convOptions);
   }
 
 
@@ -246,8 +325,10 @@ int main(int argc, char **argv) {
   auto fwdProg = Sequence();
   // Always generate the fwd program as it maps the weights and biases. Only
   // actually create the engined if the fwd pass is to be run
-  Tensor nextAct = popconv::convolution(graph, strideH, strideW,
-                                        paddingHeight, paddingWidth,
+  Tensor nextAct = popconv::convolution(graph,
+                                        {strideH, strideW},
+                                        {paddingHeightLower, paddingWidthLower},
+                                        {paddingHeightUpper, paddingWidthUpper},
                                         fwdOutChans,
                                         prevAct, weights,
                                         partialsTypeStr, false, false, fwdProg,
@@ -265,18 +346,26 @@ int main(int argc, char **argv) {
   const auto learningRate = 0.5;
 
   if (doBwdPass) {
-     prevDeltas = popconv::convolution(graph,
-                                      strideH, strideW,
-                                      bwdPaddingHeight, bwdPaddingWidth,
-                                      fwdInChans,
-                                      zDeltas, weights,
-                                      partialsTypeStr, bwdIsFractional,
-                                      true, revProg, "", convOptions);
+    auto zeros = graph.addConstantTensor(dataTypeStr, {fwdInChans}, 0);
+    auto zeroBiases = graph.addTensor(dataTypeStr, {fwdInChans}, "zeroBiases");
+    popstd::mapTensor(graph, zeroBiases);
+    revProg.add(Copy(zeros, zeroBiases));
+    prevDeltas =
+        popconv::convolution(graph,
+                             {strideH, strideW},
+                             {bwdPaddingHeightLower, bwdPaddingWidthLower},
+                             {bwdPaddingHeightUpper, bwdPaddingWidthUpper},
+                             fwdInChans,
+                             zDeltas, weights,
+                             partialsTypeStr, bwdIsFractional,
+                             true, revProg, "", convOptions);
   }
   if (doWuPass) {
     popconv::convolutionWeightUpdate(graph, zDeltas, weights, prevAct,
-                                     strideH, strideW, paddingHeight,
-                                     paddingWidth, false, learningRate,
+                                     {strideH, strideW},
+                                     {paddingHeightLower, paddingWidthLower},
+                                     {paddingHeightUpper, paddingWidthUpper},
+                                     false, learningRate,
                                      revProg, "", convOptions);
     popconv::convolutionBiasUpdate(graph, zDeltas, biases, learningRate,
                                    revProg);
@@ -334,7 +423,9 @@ int main(int argc, char **argv) {
                      hostNextAct);
   boost::multi_array<double, 4>
       modelNextAct(boost::extents[batchSize][fwdOutChans][outHeight][outWidth]);
-  poplib_test::conv::convolution(strideH, strideW, paddingHeight, paddingWidth,
+  poplib_test::conv::convolution({strideH, strideW},
+                                 {paddingHeightLower, paddingWidthLower},
+                                 {paddingHeightUpper, paddingWidthUpper},
                                  hostPrevAct,
                                  hostWeights, hostBiases, modelNextAct);
   if (doFwdPass) {
@@ -373,16 +464,20 @@ int main(int argc, char **argv) {
     if (doBwdPass) {
       boost::multi_array<double, 4>
           modelPrevDeltas(boost::extents[batchSize][fwdInChans][height][width]);
-      poplib_test::conv::convolutionBackward(strideH, strideW, paddingHeight,
-                                             paddingWidth, hostZDeltas,
-                                             modelWeights,
-                                             modelPrevDeltas);
+      poplib_test::conv::convolutionBackward(
+              {strideH, strideW},
+              {paddingHeightLower, paddingWidthLower},
+              {paddingHeightUpper, paddingWidthUpper},
+              hostZDeltas,
+              modelWeights,
+              modelPrevDeltas);
       matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
                                    relativeTolerance);
     }
     if (doWuPass) {
-      poplib_test::conv::weightUpdate(strideH, strideW, paddingHeight,
-                                      paddingWidth,
+      poplib_test::conv::weightUpdate({strideH, strideW},
+                                      {paddingHeightLower, paddingWidthLower},
+                                      {paddingHeightUpper, paddingWidthUpper},
                                       learningRate, hostPrevAct,
                                       hostZDeltas, modelWeights, modelBiases);
       matchesModel &= checkIsClose("weights",

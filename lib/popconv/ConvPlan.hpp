@@ -58,7 +58,8 @@ Plan getPlan(const poplar::Graph &graph,
              unsigned inDimY, unsigned inDimX, unsigned inNumChans,
              std::vector<std::size_t> weightsShape,
              std::vector<unsigned> stride,
-             std::vector<unsigned> padding,
+             std::vector<unsigned> paddingLower,
+             std::vector<unsigned> paddingUpper,
              bool isFractional, ConvOptions options);
 
 Plan getWeightUpdatePlan(const poplar::Graph &graph,
@@ -66,7 +67,8 @@ Plan getWeightUpdatePlan(const poplar::Graph &graph,
                          const poplar::Tensor &deltas,
                          std::vector<std::size_t> weightsShape,
                          std::vector<unsigned> stride,
-                         std::vector<unsigned> padding,
+                         std::vector<unsigned> paddingLower,
+                         std::vector<unsigned> paddingUpper,
                          bool isFractional,
                          ConvOptions options);
 

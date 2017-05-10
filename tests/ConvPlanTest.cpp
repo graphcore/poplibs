@@ -15,7 +15,8 @@ BOOST_AUTO_TEST_CASE(getPlan){
                    0,
                    {3, 3, 1}, // weightsShape
                    {1, 1}, // stride
-                   {0, 0}, // padding
+                   {0, 0}, // paddingLower
+                   {0, 0}, // paddingUpper
                    false, // isFractional
                    popconv::ConvOptions ());
 }
@@ -39,10 +40,9 @@ BOOST_AUTO_TEST_CASE(getWeightUpdatePlan){
                                           weightsShape [1],
                                           weightsShape [0],
                                           weightsShape [2],
-                                          stride [0],
-                                          stride [1],
-                                          padding [0],
-                                          padding [1],
+                                          stride,
+                                          padding,
+                                          padding,
                                           isFractional,
                                           "activations");
 
@@ -55,10 +55,9 @@ BOOST_AUTO_TEST_CASE(getWeightUpdatePlan){
                                      weightsShape [0],
                                      weightsShape [1],
                                      weightsShape [2],
-                                     stride [0],
-                                     stride [1],
-                                     padding [0],
-                                     padding [1],
+                                     stride,
+                                     padding,
+                                     padding,
                                      isFractional,
                                      "deltas");
 
@@ -67,6 +66,7 @@ BOOST_AUTO_TEST_CASE(getWeightUpdatePlan){
                                deltas,
                                weightsShape,
                                stride,
+                               padding,
                                padding,
                                isFractional,
                                popconv::ConvOptions());

@@ -6,19 +6,37 @@ static unsigned absdiff(unsigned a, unsigned b) {
 }
 
 void poplib_test::conv::
-convolution(unsigned strideH, unsigned strideW,
-            unsigned paddingHeight, unsigned paddingWidth,
+convolution(const std::vector<unsigned> &stride,
+            const std::vector<unsigned> &paddingLower,
+            const std::vector<unsigned> &paddingUpper,
             const boost::multi_array<double, 4> &in,
             const boost::multi_array<double, 4> &weights,
             const boost::multi_array<double, 1> &biases,
             boost::multi_array<double, 4> &out) {
+  if (paddingLower.size() != paddingUpper.size() &&
+      paddingLower.size() != stride.size()) {
+    throw poplib_test::poplib_test_error("Padding and stride vectors must be "
+                                         "equal sizes.");
+  }
+  if (stride.size() != 2) {
+    throw poplib_test::poplib_test_error("Convolution of >2 spatial dimensions "
+                                         "not supported.");
+  }
+
+  unsigned strideH = stride[0];
+  unsigned strideW = stride[1];
+  unsigned paddingHeightL = paddingLower[0];
+  unsigned paddingWidthL = paddingLower[1];
+  unsigned paddingHeightU = paddingUpper[0];
+  unsigned paddingWidthU = paddingUpper[1];
+
   // Pad input.
   const auto batchSize = in.shape()[0];
   const auto inputChannels = in.shape()[1];
   const auto inputHeight = in.shape()[2];
   const auto inputWidth = in.shape()[3];
-  const auto paddedHeight = inputHeight + 2 * paddingHeight;
-  const auto paddedWidth = inputWidth + 2 * paddingWidth;
+  const auto paddedHeight = inputHeight + paddingHeightL + paddingHeightU;
+  const auto paddedWidth = inputWidth + paddingWidthL + paddingWidthU;
 
   for (unsigned b = 0; b != batchSize; ++b) {
     boost::multi_array<double, 3>
@@ -27,7 +45,7 @@ convolution(unsigned strideH, unsigned strideW,
     for (unsigned c = 0; c != inputChannels; ++c) {
       for (unsigned y = 0; y != inputHeight; ++y) {
         for (unsigned x = 0; x != inputWidth; ++x) {
-          paddedIn[c][y + paddingHeight][x + paddingWidth] = in[b][c][y][x];
+          paddedIn[c][y + paddingHeightL][x + paddingWidthL] = in[b][c][y][x];
         }
       }
     }
@@ -85,11 +103,30 @@ convolution(unsigned strideH, unsigned strideW,
 }
 
 void poplib_test::conv::
-convolutionBackward(unsigned strideH, unsigned strideW,
-                    unsigned paddingHeight, unsigned paddingWidth,
+convolutionBackward(const std::vector<unsigned> &stride,
+                    const std::vector<unsigned> &paddingLower,
+                    const std::vector<unsigned> &paddingUpper,
                     const boost::multi_array<double, 4> &in,
                     const boost::multi_array<double, 4> &weights,
                     boost::multi_array<double, 4> &out) {
+
+  if (paddingLower.size() != paddingUpper.size() &&
+      paddingLower.size() != stride.size()) {
+    throw poplib_test::poplib_test_error("Padding and stride vectors must be "
+                                                 "equal sizes.");
+  }
+  if (stride.size() != 2) {
+    throw poplib_test::poplib_test_error("Convolution of >2 spatial dimensions "
+                                                 "not supported.");
+  }
+
+  unsigned strideH = stride[0];
+  unsigned strideW = stride[1];
+  unsigned paddingHeightL = paddingLower[0];
+  unsigned paddingWidthL = paddingLower[1];
+  unsigned paddingHeightU = paddingUpper[0];
+  unsigned paddingWidthU = paddingUpper[1];
+
   const auto batchSize = in.shape()[0];
   const auto inputChannels = in.shape()[1];
   const auto inputHeight = in.shape()[2];
@@ -102,8 +139,9 @@ convolutionBackward(unsigned strideH, unsigned strideW,
   for (unsigned b = 0; b != batchSize; ++b) {
     // Upsample.
     const auto upsampledHeight =
-        outputHeight + 2 * paddingHeight - (kernelHeight - 1) ;
-    const auto upsampledWidth = outputWidth + 2 * paddingWidth - (kernelWidth - 1);
+        outputHeight + paddingHeightL + paddingHeightU - (kernelHeight - 1) ;
+    const auto upsampledWidth =
+            outputWidth + paddingWidthL + paddingWidthU - (kernelWidth - 1);
     if ((upsampledHeight + strideH - 1)/ strideH != inputHeight ||
         (upsampledWidth + strideW - 1)/ strideW != inputWidth) {
       throw poplib_test::poplib_test_error("Output and input tensor dimensions "
@@ -164,7 +202,7 @@ convolutionBackward(unsigned strideH, unsigned strideW,
     for (unsigned c = 0; c != outputChannels; ++c) {
       for (unsigned y = 0; y != outputHeight; ++y) {
         for (unsigned x = 0; x != outputWidth; ++x) {
-          out[b][c][y][x] = convOut[c][y + paddingHeight][x + paddingWidth];
+          out[b][c][y][x] = convOut[c][y + paddingHeightL][x + paddingWidthL];
         }
       }
     }
@@ -172,20 +210,38 @@ convolutionBackward(unsigned strideH, unsigned strideW,
 }
 
 void poplib_test::conv::
-weightUpdate(unsigned strideH, unsigned strideW,
-             unsigned paddingHeight, unsigned paddingWidth,
+weightUpdate(const std::vector<unsigned> &stride,
+             const std::vector<unsigned> &paddingLower,
+             const std::vector<unsigned> &paddingUpper,
              double learningRate,
              const boost::multi_array<double, 4> &activations,
              const boost::multi_array<double, 4> &deltas,
              boost::multi_array<double, 4> &weights,
              boost::multi_array<double, 1> &biases) {
+  if (paddingLower.size() != paddingUpper.size() &&
+      paddingLower.size() != stride.size()) {
+    throw poplib_test::poplib_test_error("Padding and stride vectors must be "
+                                                 "equal sizes.");
+  }
+  if (stride.size() != 2) {
+    throw poplib_test::poplib_test_error("Convolution of >2 spatial dimensions "
+                                                 "not supported.");
+  }
+
+  unsigned strideH = stride[0];
+  unsigned strideW = stride[1];
+  unsigned paddingHeightL = paddingLower[0];
+  unsigned paddingWidthL = paddingLower[1];
+  unsigned paddingHeightU = paddingUpper[0];
+  unsigned paddingWidthU = paddingUpper[1];
+
   // Pad activations.
   const auto batchSize = activations.shape()[0];
   const auto inputChannels = activations.shape()[1];
   const auto inputHeight = activations.shape()[2];
   const auto inputWidth = activations.shape()[3];
-  const auto paddedHeight = inputHeight + 2 * paddingHeight;
-  const auto paddedWidth = inputWidth + 2 * paddingWidth;
+  const auto paddedHeight = inputHeight + paddingHeightL + paddingHeightU;
+  const auto paddedWidth = inputWidth + paddingWidthL + paddingWidthU;
 
   for (unsigned b = 0; b != batchSize; ++b) {
     boost::multi_array<double, 3>
@@ -197,7 +253,7 @@ weightUpdate(unsigned strideH, unsigned strideW,
     for (unsigned c = 0; c != inputChannels; ++c) {
       for (unsigned y = 0; y != inputHeight; ++y) {
         for (unsigned x = 0; x != inputWidth; ++x) {
-          paddedActivations[c][y + paddingHeight][x + paddingWidth] =
+          paddedActivations[c][y + paddingHeightL][x + paddingWidthL] =
               activations[b][c][y][x];
         }
       }
@@ -210,9 +266,9 @@ weightUpdate(unsigned strideH, unsigned strideW,
     const auto kernelHeight = weights.shape()[2];
     const auto kernelWidth = weights.shape()[3];
     const auto upsampledDeltasHeight =
-        inputHeight + 2 * paddingHeight - (kernelHeight - 1);
+        inputHeight + paddingHeightL + paddingHeightU - (kernelHeight - 1);
     const auto upsampledDeltasWidth =
-        inputWidth + 2 * paddingWidth - (kernelWidth - 1);
+        inputWidth + paddingWidthL + paddingWidthU - (kernelWidth - 1);
     if ((upsampledDeltasHeight + strideH - 1) / strideH != outputHeight ||
         (upsampledDeltasWidth + strideW - 1) / strideW != outputWidth) {
       throw poplib_test::poplib_test_error("Output and input tensor dimensions "

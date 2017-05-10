@@ -6,21 +6,24 @@
 namespace poplib_test {
 namespace conv {
 
-void convolution(unsigned strideHeight, unsigned strideWidth,
-                 unsigned paddingHeight, unsigned paddingWidth,
+void convolution(const std::vector<unsigned> &stride,
+                 const std::vector<unsigned> &paddingLower,
+                 const std::vector<unsigned> &paddingUpper,
                  const boost::multi_array<double, 4> &in,
                  const boost::multi_array<double, 4> &weights,
                  const boost::multi_array<double, 1> &biases,
                  boost::multi_array<double, 4> &out);
 
-void convolutionBackward(unsigned strideHeight, unsigned strideWidth,
-                         unsigned paddingHeight, unsigned paddingWidth,
+void convolutionBackward(const std::vector<unsigned> &stride,
+                         const std::vector<unsigned> &paddingLower,
+                         const std::vector<unsigned> &paddingUpper,
                          const boost::multi_array<double, 4> &in,
                          const boost::multi_array<double, 4> &weights,
                          boost::multi_array<double, 4> &out);
 
-void weightUpdate(unsigned strideHeight, unsigned strideWidth,
-                  unsigned paddingHeight, unsigned paddingWidth,
+void weightUpdate(const std::vector<unsigned> &stride,
+                  const std::vector<unsigned> &paddingLower,
+                  const std::vector<unsigned> &paddingUpper,
                   double learningRate,
                   const boost::multi_array<double, 4> &activations,
                   const boost::multi_array<double, 4> &deltas,

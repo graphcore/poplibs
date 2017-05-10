@@ -23,6 +23,7 @@ function(add_popnn_unit_test name)
 endfunction()
 
 # Unit tests
+add_popnn_unit_test(RangeTest RangeTest.cpp)
 add_popnn_unit_test(ConvPlanTest ConvPlanTest.cpp)
 add_popnn_unit_test(GraphFunctionTest GraphFunctionTest.cpp)
 add_popnn_unit_test(WinogradConvolution WinogradConv.cpp)
@@ -136,8 +137,8 @@ add_test(NAME conv1x1_stride_3_fwd
                  --tiles-per-ipu=1
                  --stride=3)
 
- add_test(NAME conv3x3_batch_2
-          COMMAND single_conv_layer
+add_test(NAME conv3x3_batch_2
+         COMMAND single_conv_layer
                   --single-phase=fwd
                   --input-channels=16
                   --output-channels=16
@@ -147,6 +148,62 @@ add_test(NAME conv1x1_stride_3_fwd
                   --stride=2
                   --kernel-size=3
                   --batch-size=2)
+
+add_test(NAME conv3x3_16_to_16_stride_1_differing_padding
+        COMMAND single_conv_layer
+        --single-phase=fwd
+        --input-channels=16
+        --output-channels=16
+        --width=20
+        --height=28
+        --kernel-size=3
+        --data-type=half
+        --padding-height=1
+        --padding-width=2
+        --stride=1)
+
+add_test(NAME conv3x3_batch_2_differing_padding
+        COMMAND single_conv_layer
+        --input-channels=16
+        --output-channels=16
+        --width=7
+        --height=7
+        --tiles-per-ipu=2
+        --stride=2
+        --kernel-size=3
+        --padding-height=1
+        --padding-width=2
+        --batch-size=2)
+
+add_test(NAME conv3x3_stride_1_fwd_asym_padding
+        COMMAND single_conv_layer
+                --input-channels=32
+                --output-channels=48
+                --width=20
+                --height=28
+                --kernel-size=3
+                --data-type=half
+                --padding-height-lower=1
+                --padding-width-lower=1
+                --padding-height-upper=2
+                --padding-width-upper=2
+                --stride=1)
+
+
+add_test(NAME conv5x5_stride_2_fwd_asym_padding
+         COMMAND single_conv_layer
+                  --single-phase=fwd
+                  --input-channels=128
+                  --output-channels=256
+                  --width=20
+                  --height=28
+                  --kernel-size=5
+                  --data-type=half
+                  --padding-height-lower=1
+                  --padding-width-lower=2
+                  --padding-height-upper=3
+                  --padding-width-upper=3
+                  --stride=2)
 
 add_test(NAME small_conv_many_tiles_1x1
          COMMAND single_conv_layer

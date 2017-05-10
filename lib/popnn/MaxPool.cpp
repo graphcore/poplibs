@@ -21,8 +21,12 @@ getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSizeY,
              unsigned kernelSizeX, unsigned strideY,
              unsigned strideX, unsigned paddingY,
              unsigned paddingX) {
-  return popconv::getOutputDim(inDimY, inDimX, kernelSizeY, kernelSizeX,
-                               strideY, strideX, paddingY, paddingX, false);
+  return popconv::getOutputDim(inDimY, inDimX,
+                               kernelSizeY, kernelSizeX,
+                               {strideY, strideX},
+                               {paddingY, paddingX},
+                               {paddingY, paddingX},
+                               false);
 }
 
 
@@ -41,12 +45,14 @@ uint64_t getFwdFlops(unsigned batchSize,
   for (unsigned y = 0; y < outDimY; ++y) {
     unsigned inYBegin, inYEnd;
     std::tie(inYBegin, inYEnd) = getInputRange(y, strideY, kernelSizeY,
-                                               paddingY, inDimY, false);
+                                               paddingY, paddingY, inDimY,
+                                               false);
     const auto height = inYEnd - inYBegin;
     for (unsigned x = 0; x < outDimX; ++x) {
       unsigned inXBegin, inXEnd;
       std::tie(inXBegin, inXEnd) = getInputRange(x, strideX, kernelSizeX,
-                                                 paddingX, inDimX, false);
+                                                 paddingX, paddingX, inDimX,
+                                                 false);
       const auto width = inXEnd - inXBegin;
       numFlops += numChannels * width * height;
     }
@@ -192,12 +198,12 @@ Tensor maxPool(Graph &graph,  unsigned kernelSizeY, unsigned kernelSizeX,
           unsigned windowSize = 0;
           for (unsigned ky = 0; ky < kernelSizeY; ++ky) {
             auto inY = getInputIndex(y, strideY, kernelSizeY, paddingY,
-                                     inHeight, ky, false);
+                                     paddingY, inHeight, ky, false);
             if (inY == ~0U)
               continue;
             for (unsigned kx = 0; kx < kernelSizeX; ++kx) {
               auto inX = getInputIndex(x, strideX, kernelSizeX, paddingX,
-                                       inWidth, kx, false);
+                                       paddingX, inWidth, kx, false);
               if (inX == ~0U)
                 continue;
               Tensor inVector = graph.addTensor(dType, {0}, "");
@@ -346,12 +352,12 @@ maxPoolInputGradient(Graph &graph, unsigned kernelSizeY, unsigned kernelSizeX,
           unsigned windowSize = 0;
           for (unsigned ky = 0; ky < kernelSizeY; ++ky) {
             auto outY = getInputIndex(y, strideY, kernelSizeY, paddingY,
-                                     outHeight, ky, true);
+                                     paddingY, outHeight, ky, true);
             if (outY == ~0U)
               continue;
             for (unsigned kx = 0; kx < kernelSizeX; ++kx) {
               auto outX = getInputIndex(x, strideX, kernelSizeX, paddingX,
-                                       outWidth, kx, true);
+                                       paddingX, outWidth, kx, true);
               if (outX == ~0U)
                 continue;
               Tensor pooledGradVector = graph.addTensor(dType, {0}, "");

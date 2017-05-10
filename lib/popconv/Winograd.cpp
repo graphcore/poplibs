@@ -1684,8 +1684,9 @@ static Program complete(
 
 
 extern Program winogradConvolution(Graph &graph,
-            unsigned strideY,
-            unsigned strideX, unsigned paddingY, unsigned paddingX,
+            const std::vector<unsigned> &stride,
+            const std::vector<unsigned> &paddingLower,
+            const std::vector<unsigned> &paddingUpper,
             unsigned xDim, unsigned yDim,
             unsigned outNumChans, unsigned patchSizeX, unsigned patchSizeY,
             const std::string &dType, const std::string &partialsType,
@@ -1719,7 +1720,7 @@ extern Program winogradConvolution(Graph &graph,
 
   const auto kernelSizeY = weights.dim(2);
   const auto kernelSizeX = weights.dim(3);
-  WgdTilePartition tp(paddingX, paddingY,
+  WgdTilePartition tp(paddingLower[1], paddingLower[0],
                       xDim, yDim,
                       patchSizeX, patchSizeY,
                       kernelSizeX, kernelSizeY,
@@ -1793,8 +1794,9 @@ extern Program winogradConvolution(Graph &graph,
 
 
 poplar::program::Program winogradConvolution(poplar::Graph &graph,
-            unsigned strideY, unsigned strideX,
-            unsigned paddingY, unsigned paddingX,
+            const std::vector<unsigned> &stride,
+            const std::vector<unsigned> &paddingLower,
+            const std::vector<unsigned> &paddingUpper,
             poplar::Tensor in, poplar::Tensor weights,
             poplar::Tensor out,
             const std::string &partialsType,
@@ -1805,7 +1807,7 @@ poplar::program::Program winogradConvolution(poplar::Graph &graph,
   const auto dType = graph.getTensorElementType(in);
   // Perform each element of the batch serially
   for (unsigned b = 0; b < batchSize; ++b) {
-    prog.add(winogradConvolution(graph, strideY, strideX, paddingY, paddingX,
+    prog.add(winogradConvolution(graph, stride, paddingLower, paddingUpper,
                                  in.dim(3), in.dim(2),
                                  out.dim(1) * out.dim(4), patchSizeX,
                                  patchSizeY, dType, partialsType,

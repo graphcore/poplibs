@@ -213,8 +213,8 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   }
 
   auto wgdConv = popconv::winogradConvolution(
-           graph, 1, 1, paddingY,
-           paddingX, in, weights, activations, "float",
+           graph, {1, 1}, {paddingY, paddingX}, {paddingY, paddingX},
+           in, weights, activations, "float",
            patchSizeX, patchSizeY);
 
   auto prog = Sequence(Copy(&inBuffer[0], in),
