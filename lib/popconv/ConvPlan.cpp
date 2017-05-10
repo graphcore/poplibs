@@ -342,9 +342,6 @@ canUseConvolutionInstruction(bool floatActivations, bool floatPartials,
     return false;
   }
   if (floatActivations) {
-    if (!deviceInfo.convInstructionsFloat) {
-      return false;
-    }
     if (!floatPartials) {
       return false;
     }
