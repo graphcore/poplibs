@@ -1732,6 +1732,7 @@ convolution(Graph &graph,
     convolutionByAmp(graph, plan,
                      stride, paddingLower, paddingUpper, in, weights,
                      partialOutDimY, partialOutDimX, isFractional, layerName);
+  prog.add(convolveProg);
   if (plan.flattenXY) {
     activations = activations.dimShuffle({0, 2, 3, 1, 4})
           .reshape({batchSize,
@@ -1741,8 +1742,15 @@ convolution(Graph &graph,
                     activations.dim(4)})
           .dimShuffle({0, 3, 1, 2, 4});
   }
-  prog.add(convolveProg);
-  return activations;
+  // Rearrange the activations so the tile mapping matches the tile mapping
+  // returned by computeActivationsMapping().
+  // TODO remove once the rest of the code has been updated to make no
+  // assumptions about the tile mapping of activations.
+  Tensor activationsRemapped = graph.addTensor(dType, activations.shape(),
+                                               "activationsRemapped");
+  ::mapActivations(graph, activationsRemapped);
+  prog.add(Copy(activations, activationsRemapped));
+  return activationsRemapped;
 }
 
 static std::uint64_t getNumberOfMACs(unsigned outDimY, unsigned outDimX,
