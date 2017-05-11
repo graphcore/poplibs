@@ -3218,9 +3218,10 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
     graph.setTileMapping(v, tile);
   }
   auto updateBiasCS = graph.addComputeSet(layerName + "/FinalUpdate");
-  iterateBiasMapping(biases, graph, zDeltas.shape(),
-    [&](Tensor biasSlice, unsigned tile){
-      for (auto bias : biasSlice.getElementIndices()) {
+  const auto biasMapping = graph.getTileMapping(biases);
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    for (const auto &interval : biasMapping[tile]) {
+      for (unsigned bias = interval.begin(); bias != interval.end(); ++bias) {
         auto v = graph.addVertex(updateBiasCS,
                                  templateVertex("popconv::ConvBiasUpdate",
                                                 dType));
@@ -3239,7 +3240,8 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
         graph.setInitialValue(v["eta"], learningRate);
         graph.setTileMapping(v, tile);
       }
-     });
+    }
+  }
   prog.add(Execute(firstReduceCS));
   prog.add(Execute(secondReduceCS));
   prog.add(Execute(updateBiasCS));
