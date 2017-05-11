@@ -1628,7 +1628,8 @@ Plan getPlan(const poplar::Graph &graph,
              ConvOptions options) {
   assert (weightsShape.size() == 3);
   assert (stride.size() == 2);
-  assert (padding.size() == 2);
+  assert (paddingLower.size() == 2);
+  assert (paddingUpper.size() == 2);
   Plan plan;
   Cost cost;
   CostBounds costBounds(0, 0);
@@ -1717,7 +1718,8 @@ Plan getWeightUpdatePlan(const poplar::Graph &graph,
                          ConvOptions options) {
   assert (weightsShape.size() == 3);
   assert (stride.size() == 2);
-  assert (padding.size() == 2);
+  assert (paddingLower.size() == 2);
+  assert (paddingUpper.size() == 2);
   const auto dType = graph.getTensorElementType(activations);
   const auto batchSize = activations.dim(0);
   const auto inDimY = activations.dim(2);

@@ -2581,11 +2581,14 @@ convolutionWeightUpdateAmpPreProcess(
     unsigned kernelSizeY, unsigned kernelSizeX) {
   const auto dType = graph.getTensorElementType(activations);
   assert(activationsUpsampleFactor.size() == 2);
-  assert(activationsPadding.size() == 2);
+  assert(activationsPaddingLower.size() == 2);
+  assert(activationsPaddingUpper.size() == 2);
   assert(deltasUpsampleFactor.size() == 2);
-  assert(deltasPadding.size() == 2);
+  assert(deltasPaddingLower.size() == 2);
+  assert(deltasPaddingUpper.size() == 2);
   assert(activationsUpsampleFactor == std::vector<unsigned>({1, 1}));
-  assert(deltasPadding == std::vector<unsigned>({0, 0}));
+  assert(deltasPaddingLower == std::vector<unsigned>({0, 0}));
+  assert(deltasPaddingUpper == std::vector<unsigned>({0, 0}));
   // Eliminate the x axis of the kernel by taking the activations that are
   // multiplied by each column of the weights turning them into different input
   // channels.
