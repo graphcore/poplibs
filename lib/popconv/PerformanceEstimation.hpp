@@ -125,14 +125,20 @@ getWeightGradAopCycles(bool floatInput, bool floatPartials,
                        unsigned dataPathWidth, unsigned inChansPerGroup,
                        unsigned outChansPerGroup,
                        std::vector<std::vector<unsigned>> &shape,
-                       bool useDeltasForEdges) {
+                       bool useDeltasForEdges,
+                       unsigned numAopAccumulators) {
   // Outer loop overhead for stack variable initialisations
   const auto vertexOverhead = 18;
   std::uint64_t cycles = vertexOverhead;
   unsigned vectorWidth = dataPathWidth / (floatInput ? 32 : 16);
   unsigned partialsVectorWidth = dataPathWidth / (floatPartials ? 32 : 16);
-  const auto ocgSubgroups = (outChansPerGroup + vectorWidth - 1) / vectorWidth;
-  const auto icgSubgroups = (inChansPerGroup + vectorWidth - 1) / vectorWidth;
+  const auto ocgVectorWidth = vectorWidth;
+  const auto icgVectorWidth = numAopAccumulators / ocgVectorWidth;
+
+  const auto ocgSubgroups = (outChansPerGroup + ocgVectorWidth - 1)
+                            / ocgVectorWidth;
+  const auto icgSubgroups = (inChansPerGroup + icgVectorWidth - 1)
+                            / icgVectorWidth;
 
   for (const auto &w : shape) {
     const auto shapeOverhead = 11;
@@ -146,7 +152,7 @@ getWeightGradAopCycles(bool floatInput, bool floatPartials,
     }
 
     // Accumulator restore and save
-    const auto accSave = vectorWidth * vectorWidth / partialsVectorWidth;
+    const auto accSave = icgVectorWidth * ocgVectorWidth / partialsVectorWidth;
     const auto ocgSubgroupOverhead = 7;
     const auto icgSubgroupOverhead = 6;
 

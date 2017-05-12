@@ -2127,6 +2127,10 @@ createWeightGradAopVertex(Graph &graph, unsigned tile,
   assert(weightDeltas.dim(4) == outChansPerGroup);
   assert(weightDeltas.dim(5) == inChansPerGroup);
 
+  const auto numAopAccumulators = dType == "float" ?
+                                  deviceInfo.fp32NumAopAccumulators :
+                                  deviceInfo.fp16NumAopAccumulators;
+
   const auto numTasks = taskEnd - taskBegin;
 
   if (!numTasks)
@@ -2185,6 +2189,7 @@ createWeightGradAopVertex(Graph &graph, unsigned tile,
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
   graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
   graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+  graph.setInitialValue(v["numAopAccumulators"], numAopAccumulators);
   graph.setInitialValue(v["weightReuseCount"], weightReuseCount);
   graph.connect(v["acts"], actsEdges);
   graph.connect(v["deltas"], deltasEdges);

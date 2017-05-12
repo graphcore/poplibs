@@ -595,10 +595,13 @@ estimateWeightUpdatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
   /* AOP edge type selection */
   const auto numEdges = maxTasksPerVertex * (2 * tileOutHeight + 1);
   const auto useDeltasForEdges = useDeltaEdgesForWeightGradAop(numEdges);
+  const auto numAopAccumulators =
+              floatActivations ? deviceInfo.fp32NumAopAccumulators :
+                                 deviceInfo.fp16NumAopAccumulators;
   const auto vertexCycles =
       getWeightGradAopCycles(floatActivations, floatPartials, dataPathWidth,
                              inChansPerGroup, outChansPerGroup, shape,
-                             useDeltasForEdges);
+                             useDeltasForEdges, numAopAccumulators);
   unsigned totalCycles = vertexCycles * numWorkerContexts;
   return totalCycles;
 }

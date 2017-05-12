@@ -135,6 +135,7 @@ public:
   unsigned outChansPerGroup;
 
   SimOnlyField<unsigned> dataPathWidth;
+  SimOnlyField<unsigned> numAopAccumulators;
 
   bool compute() {
     unsigned numWeightDeltas = weightDeltas.size();
@@ -174,6 +175,9 @@ public:
   uint64_t getCycleEstimate() const {
     bool floatInput = std::is_same<InputType, float>::value;
     bool floatPartials = std::is_same<InputType, float>::value;
+    const unsigned vectorWidth = dataPathWidth / (floatInput ? 32 : 16);
+    assert(numAopAccumulators % vectorWidth == 0);
+    assert(numAopAccumulators / vectorWidth <= vectorWidth);
     unsigned numWeightDeltas = weightDeltas.size();
     unsigned i = 0;
     std::vector<std::vector<unsigned>> shape;
@@ -187,7 +191,7 @@ public:
     return
       getWeightGradAopCycles(floatInput, floatPartials, dataPathWidth,
                              inChansPerGroup, outChansPerGroup, shape,
-                             useDeltasForEdges);
+                             useDeltasForEdges, numAopAccumulators);
   }
 };
 
