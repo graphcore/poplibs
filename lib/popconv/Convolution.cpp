@@ -2566,7 +2566,7 @@ roundUpDimension(Graph &graph, const Tensor &t, unsigned dim,
                  unsigned divisor) {
   const auto size = t.dim(dim);
   const auto roundedSize = ((size + divisor - 1) / divisor) * divisor;
-  return pad(graph, t, roundedSize, 0, dim);
+  return pad(graph, t, 0, roundedSize - size, dim);
 }
 
 // Weight deltas can be computed by convolving the activations and the deltas.
@@ -2605,17 +2605,8 @@ convolutionWeightUpdateAmpPreProcess(
   // Eliminate the x axis of the kernel by taking the activations that are
   // multiplied by each column of the weights turning them into different input
   // channels.
-  auto paddedActivations = pad(graph, activations,
-                               {activations.dim(0),
-                                activations.dim(1),
-                                activations.dim(2) +
-                                activationsPaddingLower[1] +
-                                activationsPaddingUpper[1],
-                                activations.dim(3)},
-                               {0,
-                                0,
-                                activationsPaddingLower[1],
-                                0});
+  auto paddedActivations = pad(graph, activations, activationsPaddingLower[1],
+                               activationsPaddingUpper[1], 2);
   activationsPaddingLower[1] = 0;
   activationsPaddingUpper[1] = 0;
   auto expandedActivations =
@@ -2639,16 +2630,8 @@ convolutionWeightUpdateAmpPreProcess(
     // multiplied by each row of the weights turning them into different input
     // channels.
     auto yPaddedActivations = pad(graph, expandedActivations,
-                                  {expandedActivations.dim(0),
-                                   expandedActivations.dim(1) +
-                                   activationsPaddingLower[0] +
-                                   activationsPaddingUpper[0],
-                                   expandedActivations.dim(2),
-                                   expandedActivations.dim(3)},
-                                  {0,
-                                   activationsPaddingLower[0],
-                                   0,
-                                   0});
+                                  activationsPaddingLower[0],
+                                  activationsPaddingUpper[0], 1);
     activationsPaddingLower[0] = 0;
     activationsPaddingUpper[0] = 0;
     auto yExpandedActivations =
@@ -2705,16 +2688,9 @@ convolutionWeightUpdateAmpPreProcess(
       // we must explicitly add padding.
       // TODO extend convolutionByAmp() to support zero padding the filter.
       flattenedActivations = pad(graph, flattenedActivations,
-                                 {flattenedActivations.dim(0),
-                                  flattenedActivations.dim(1) +
-                                  activationsPaddingLower[0] +
-                                  activationsPaddingUpper[0],
-                                  flattenedActivations.dim(2),
-                                  flattenedActivations.dim(3)},
-                                 {0,
-                                  activationsPaddingLower[0],
-                                  0,
-                                  0});
+                                 activationsPaddingLower[0],
+                                 activationsPaddingUpper[0],
+                                 1);
       activationsPaddingLower[0] = 0;
       activationsPaddingUpper[0] = 0;
     }

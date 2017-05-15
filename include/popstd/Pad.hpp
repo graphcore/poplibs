@@ -5,22 +5,30 @@
 
 namespace popstd {
 
-/// Create a new tensor adding zero padding if necessary. The
-/// \a beforePadding vector specifies, for each dimension, the amount of zero
-/// padding to add at the start of that dimension. Additional zero padding
-/// is added at the end of each dimension such that the size after padding
-/// equals the size of the provided dimensions.
+/// Return a tensor with zero padding added.
+/// \param graph        The graph containing the tensor.
+/// \param t            The tensor to pad.
+/// \param paddingLower A vector specifying the amount of padding to add at the
+///                     start of each dimension.
+/// \param paddingUpper A vector specifying the amount of padding to add at the
+///                     end of each dimension.
+/// \return The tensor with zero padding added.
 poplar::Tensor
 pad(poplar::Graph &graph, poplar::Tensor t,
-    const std::vector<std::size_t> &dims,
-    const std::vector<std::size_t> &beforePadding);
+    const std::vector<std::size_t> &paddingLower,
+    const std::vector<std::size_t> &paddingUpper);
 
-/// Zero pad the specified dimension. \a newSize specifies the size along
-/// dimension after padding is applied and \a beforePadding specifies the
-/// amount of zero padding to add at the start of the dimension.
+/// Return a tensor with zero padding added to one dimension.
+/// \param t            The tensor to pad.
+/// \param paddingLower The amount of padding to add at the start of the
+///                     dimension.
+/// \param paddingUpper The amount of padding to add at the end of the
+///                     dimension.
+/// \param dim          The dimension to pad.
+/// \return The tensor with zero padding added.
 poplar::Tensor
-pad(poplar::Graph &graph, const poplar::Tensor &t, std::size_t newSize,
-    std::size_t beforePadding, unsigned dim);
+pad(poplar::Graph &graph, const poplar::Tensor &t, std::size_t paddingLower,
+    std::size_t paddingUpper, unsigned dim);
 
 } // end namespace popstd
 
