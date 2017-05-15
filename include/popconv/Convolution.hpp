@@ -200,6 +200,12 @@ convolutionBiasUpdate(poplar::Graph &graph, const poplar::Tensor &zDeltas,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix = "");
 
+void
+addBias(poplar::Graph &graph, const poplar::Tensor &acts,
+        const poplar::Tensor &biases,
+        poplar::program::Sequence &prog,
+        const std::string &debugPrefix = "");
+
 void reportPlanInfo(std::ostream &out,
                     const poplar::Graph &graph,
                     std::string dType,

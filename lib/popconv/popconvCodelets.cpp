@@ -1055,4 +1055,49 @@ public:
 template class Transpose2D<float>;
 template class Transpose2D<half>;
 
+template <class FPType>
+class AddBias : public Vertex {
+public:
+  Vector<InOut<Vector<FPType>>> acts;
+  Vector<Input<Vector<FPType>>> biases;
+
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    unsigned n = acts.size();
+    assert(biases.size() == n);
+    for (unsigned i = 0; i != n; ++i) {
+      unsigned chansPerGroup = biases[i].size();
+      assert(acts[i].size() % chansPerGroup == 0);
+      unsigned len = acts[i].size() / chansPerGroup;
+      for (unsigned j = 0; j != len; ++j) {
+        for (unsigned k = 0; k != chansPerGroup; ++k) {
+          acts[i][j * chansPerGroup + k] += biases[i][k];
+        }
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    bool isFloat = std::is_same<FPType, float>::value;
+    const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    unsigned n = acts.size();
+    unsigned numCycles = 5;
+    for (unsigned i = 0; i != n; ++i) {
+      unsigned chansPerGroup = biases[i].size();
+      assert(acts[i].size() % chansPerGroup == 0);
+      unsigned len = acts[i].size() / chansPerGroup;
+      numCycles += 2; // Load bias and act pointers.
+      numCycles += 1; // Warmup.
+      // Add biases to acts using add + dual load + store.
+      numCycles += (len * chansPerGroup + vectorWidth - 1) / vectorWidth;
+    }
+    return numCycles;
+  }
+};
+
+template class AddBias<float>;
+template class AddBias<half>;
+
 } // end namespace popconv

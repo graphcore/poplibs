@@ -3260,6 +3260,75 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
   prog.add(Execute(updateBiasCS));
 }
 
+static void
+addBias(Graph &graph, const Tensor &acts, const Tensor &biases,
+        ComputeSet cs) {
+  const auto dType = graph.getTensorElementType(acts);
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto outChansPerGroup = acts.dim(4);
+  const auto biasesByGroup =
+      biases.reshape({biases.numElements() / outChansPerGroup,
+                      outChansPerGroup});
+  const auto firstInGroup = acts.dimShuffle({1, 0, 2, 3, 4})
+                                .slice(0, 1, 4)
+                                .reshape({acts.dim(1), acts.dim(0),
+                                          acts.dim(2) * acts.dim(3)});
+  const auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
+  const unsigned numTiles = firstInGroupMapping.size();
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    const auto perWorkerGroups =
+        splitRegionsBetweenWorkers(deviceInfo, firstInGroupMapping[tile], 1);
+    for (const auto &entry : perWorkerGroups) {
+      auto v = graph.addVertex(cs,
+                               templateVertex("popconv::AddBias",
+                                              dType));
+      graph.setTileMapping(v, tile);
+      unsigned num = 0;
+      for (const auto &interval : entry) {
+        const auto begin = interval.begin();
+        const auto end = interval.end();
+        const auto last = end - 1;
+        auto beginIndices = popstd::unflattenIndex(firstInGroup.shape(), begin);
+        auto lastIndices = popstd::unflattenIndex(firstInGroup.shape(), last);
+        for (unsigned g = beginIndices[0]; g != lastIndices[0] + 1; ++g) {
+          unsigned batchBegin = g == beginIndices[0] ?
+                                beginIndices[1] :
+                                0;
+          unsigned batchLast = g == lastIndices[0] ?
+                               lastIndices[1] :
+                               firstInGroup.dim(1) - 1;
+          auto biasesWindow = biasesByGroup[g];
+          for (unsigned b = batchBegin; b != batchLast + 1; ++b) {
+            unsigned begin = g == beginIndices[0] && b == lastIndices[1] ?
+                             beginIndices[2] :
+                             0;
+            unsigned last = g == lastIndices[0] && b == lastIndices[1] ?
+                            lastIndices[2] :
+                            firstInGroup.dim(2) - 1;
+            auto actsWindow =
+                acts[b][g].flatten().slice(begin * outChansPerGroup,
+                                           (last + 1) * outChansPerGroup);
+            graph.connect(v["acts"][num], actsWindow);
+            graph.connect(v["biases"][num], biasesWindow);
+            ++num;
+          }
+        }
+      }
+      graph.setFieldSize(v["acts"], num);
+      graph.setFieldSize(v["biases"], num);
+      graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+    }
+  }
+}
+
+void
+addBias(Graph &graph, const Tensor &acts, const Tensor &biases,
+        Sequence &prog, const std::string &debugPrefix) {
+  ComputeSet cs = graph.addComputeSet(debugPrefix + "/addBias");
+  addBias(graph, acts, biases, cs);
+  prog.add(Execute(cs));
+}
+
 void reportPlanInfo(std::ostream &out,
                     const poplar::Graph &graph,
                     std::string dType,

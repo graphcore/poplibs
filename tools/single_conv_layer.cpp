@@ -333,12 +333,7 @@ int main(int argc, char **argv) {
                                         prevAct, weights,
                                         partialsTypeStr, false, false, fwdProg,
                                         "", convOptions);
-  auto bBiases =
-      biases.broadcast(batchSize * outHeight * outWidth, 0)
-            .reshape({batchSize, outHeight, outWidth,
-                      fwdOutChans / nextAct.dim(4),
-                      nextAct.dim(4)}).dimShuffle({0, 3, 1, 2, 4});
-  popstd::addTo(graph, nextAct, bBiases, 1.0, fwdProg, "");
+  popconv::addBias(graph, nextAct, biases, fwdProg, "");
   if (!doFwdPass)
     fwdProg = Sequence();
 
