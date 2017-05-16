@@ -31,6 +31,11 @@ static std::string outputType(const std::string &inType, enum BinaryOp op) {
   }
 }
 
+static std::string outputType(const std::string &inType,
+                              enum TernaryOp /*op*/) {
+  return inType;
+}
+
 static std::string vertexName(enum UnaryOp op) {
   switch(op) {
   case ABSOLUTE:
@@ -93,6 +98,15 @@ static std::string vertexName(enum BinaryOp op) {
   throw popstd::poplib_error("Op not supported");
 }
 
+static std::string vertexName(enum TernaryOp op) {
+  switch(op) {
+  case CLAMP:
+    return "popstd::Clamp";
+  case SELECT:
+    return "popstd::Select";
+  }
+  throw popstd::poplib_error("Op not supported");
+}
 
 static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
                       enum UnaryOp op, const std::string &debugPrefix) {
@@ -173,6 +187,61 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
                                templateVertex(vertexName(op), in1Type),
                                {{"in1", in1Flat.slices(regions)},
                                 {"in2", in2Flat.slices(regions)},
+                                {"out", outFlat.slices(regions)}});
+      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
+      graph.setTileMapping(v, tile);
+    }
+  }
+  prog.add(Execute(cs));
+  return out;
+}
+
+
+static Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
+                        Sequence &prog, enum TernaryOp op,
+                        const std::string &debugPrefix) {
+  const auto in1Type = graph.getTensorElementType(in1);
+  const auto in2Type = graph.getTensorElementType(in2);
+  const auto in3Type = graph.getTensorElementType(in3);
+
+  if (in1Type != in2Type) {
+    throw popstd::poplib_error("Ternary Op must have same type for "
+                               "all input operands: " + debugPrefix);
+  }
+
+  if (in1.shape() != in2.shape() || in1.shape() != in3.shape()) {
+    throw popstd::poplib_error("Ternary Op must have same shape for "
+                               "all input operands: " + debugPrefix);
+  }
+
+  const auto outType = outputType(in1Type, op);
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto dataPathWidth = deviceInfo.dataPathWidth;
+  const auto numTiles = deviceInfo.getNumTiles();
+  const auto mapping = graph.getTileMapping(in1);
+  const auto cs = graph.addComputeSet(debugPrefix);
+
+  auto out = graph.addTensor(outType, in1.shape(), debugPrefix + "/Out");
+  graph.setTileMapping(out, mapping);
+
+  auto in1Flat = in1.flatten();
+  auto in2Flat = in2.flatten();
+  auto in3Flat = in3.flatten();
+  auto outFlat = out.flatten();
+
+  const auto grainSize = deviceInfo.getVectorWidth(in1Type);
+
+  for (auto tile = 0U; tile != numTiles; ++tile) {
+    auto vertexRegions =
+      splitRegionsBetweenWorkers(deviceInfo, mapping[tile],
+                                 grainSize, 2 * grainSize);
+
+    for (const auto &regions : vertexRegions) {
+      auto v = graph.addVertex(cs,
+                               templateVertex(vertexName(op), in1Type),
+                               {{"in1", in1Flat.slices(regions)},
+                                {"in2", in2Flat.slices(regions)},
+                                {"in3", in3Flat.slices(regions)},
                                 {"out", outFlat.slices(regions)}});
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setTileMapping(v, tile);
@@ -320,6 +389,18 @@ Tensor sub(Graph &graph, Tensor A, Tensor B, Sequence &prog,
 Tensor tanh(Graph &graph, Tensor A, Sequence &prog,
             const std::string &debugPrefix) {
   return unaryOp(graph, A, prog, UnaryOp::TANH, debugPrefix + "/Op/Tanh");
+}
+
+Tensor select(Graph &graph, Tensor A, Tensor B, Tensor pred, Sequence &prog,
+              const std::string &debugPrefix) {
+  return ternaryOp(graph, A, B, pred, prog, TernaryOp::SELECT,
+                   debugPrefix + "/Op/Select");
+}
+
+Tensor clamp(Graph &graph, Tensor A, Tensor lowerBound, Tensor upperBound,
+             Sequence &prog, const std::string &debugPrefix) {
+  return ternaryOp(graph, A, lowerBound, upperBound, prog, TernaryOp::CLAMP,
+                   debugPrefix + "/Op/Clamp");
 }
 
 } // namespace popstd

@@ -134,6 +134,20 @@ poplar::Tensor tanh(poplar::Graph &graph,
                     poplar::Tensor A,
                     poplar::program::Sequence &prog,
                     const std::string &debugPrefix = "");
+
+poplar::Tensor select(poplar::Graph &graph,
+                      poplar::Tensor A,
+                      poplar::Tensor B,
+                      poplar::Tensor pred,
+                      poplar::program::Sequence &prog,
+                      const std::string &debugPrefix = "");
+
+poplar::Tensor clamp(poplar::Graph &graph,
+                      poplar::Tensor A,
+                      poplar::Tensor lowerBound,
+                      poplar::Tensor upperBound,
+                      poplar::program::Sequence &prog,
+                      const std::string &debugPrefix = "");
 } // namespace popstd
 
 #endif // __operations_hpp__

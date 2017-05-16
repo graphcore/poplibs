@@ -3,6 +3,11 @@
 
 namespace popstd {
 
+enum TernaryOp {
+  CLAMP,
+  SELECT
+};
+
 enum BinaryOp {
   ADD,
   DIVIDE,

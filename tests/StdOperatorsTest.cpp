@@ -21,13 +21,13 @@ namespace fpc = boost::test_tools::fpc;
 
 static Tensor mapUnaryOpTensor(Graph &graph,
                                const std::string type) {
-  auto in = graph.addTensor(type, {DIM_SIZE, DIM_SIZE}, "in1");
+  auto in = graph.addTensor(type, {DIM_SIZE, DIM_SIZE}, "in0");
   mapActivations(graph, in);
 
   return in.dimShuffle({1, 0});
 }
 
-static std::tuple<Tensor, Tensor> mapBinaryOpTensors(Graph &graph,
+static std::pair<Tensor, Tensor> mapBinaryOpTensors(Graph &graph,
                                                      const std::string &type) {
   auto in1 = graph.addTensor(type, {DIM_SIZE, DIM_SIZE}, "in1");
   mapActivations(graph, in1);
@@ -69,7 +69,7 @@ static void setUnaryOpInput(int hIn[DIM_SIZE][DIM_SIZE]) {
  */
 static void setBinaryOpInputs(float hIn1[DIM_SIZE][DIM_SIZE],
                               float hIn2[DIM_SIZE][DIM_SIZE]) {
-  float val1 = -100;
+  float val1 = 1000;
   float val2 = 50;
   for (auto r = 0U; r != DIM_SIZE; ++r) {
     for (auto c = 0U; c != DIM_SIZE; ++c) {
@@ -90,8 +90,8 @@ static void setBinaryOpInputs(half hIn1[DIM_SIZE][DIM_SIZE],
     for (auto c = 0U; c != DIM_SIZE; ++c) {
       float sign1 = (1.0 - 2.0 * ((c + 1) & 1));
       float sign2 = (1.0 - 2.0 * ((r + c) & 1));
-      hIn1[r][c] = (val1 + (r * DIM_SIZE + c) * .1) * sign1;
-      hIn2[r][c] = (val2 + (r * DIM_SIZE + c) * .1) * sign2;
+      hIn1[r][c] = (val1 + (r * DIM_SIZE + c) *.1) * sign1;
+      hIn2[r][c] = (val2 + (r * DIM_SIZE + c) *.1) * sign2;
     }
   }
 }
@@ -121,7 +121,6 @@ static void setBinaryOpInputs(int hIn1[DIM_SIZE][DIM_SIZE],
     }
   }
 }
-
 
 BOOST_AUTO_TEST_CASE(StdOperationAbsFloat,
                   *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
@@ -1469,6 +1468,198 @@ BOOST_AUTO_TEST_CASE(StdOperationSubtractInt,
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     for (auto j = 0U; j < DIM_SIZE; ++j) {
       int res = hIn1[i][j] - hIn2[i][j];
+      BOOST_TEST(hOut[i][j] == res);
+    }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(StdOperationSelectFloat,
+                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  ) {
+  Graph graph(createIPUModelDevice());
+  popstd::addCodelets(graph);
+
+  float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
+  setBinaryOpInputs(hIn1, hIn2);
+  bool hIn3[DIM_SIZE][DIM_SIZE];
+
+  for (auto r = 0U; r != DIM_SIZE; ++r) {
+    for (auto c = 0U; c != DIM_SIZE; ++c) {
+      hIn3[r][c] = (c) & 0x1;
+    }
+  }
+
+  Tensor in1, in2;
+  std::tie(in1, in2) = mapBinaryOpTensors(graph, "float");
+  Tensor in3 = mapUnaryOpTensor(graph, "bool");
+
+  auto prog = Sequence();
+
+  prog.add(Copy(hIn1, in1));
+  prog.add(Copy(hIn2, in2));
+  prog.add(Copy(hIn3, in3));
+
+  auto out = select(graph, in1, in2, in3, prog);
+
+  float hOut[DIM_SIZE][DIM_SIZE];
+  prog.add(Copy(out, hOut));
+
+  Engine eng(graph, prog);
+  eng.run();
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      float res = hIn3[i][j] ? hIn1[i][j] : hIn2[i][j];
+      BOOST_TEST(hOut[i][j] == res);
+    }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(StdOperationSelectInt,
+                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  ) {
+  Graph graph(createIPUModelDevice());
+  popstd::addCodelets(graph);
+
+  int hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
+  setBinaryOpInputs(hIn1, hIn2);
+  bool hIn3[DIM_SIZE][DIM_SIZE];
+
+  for (auto r = 0U; r != DIM_SIZE; ++r) {
+    for (auto c = 0U; c != DIM_SIZE; ++c) {
+      hIn3[r][c] = (c) & 0x1;
+    }
+  }
+
+  Tensor in1, in2;
+  std::tie(in1, in2) = mapBinaryOpTensors(graph, "int");
+  Tensor in3 = mapUnaryOpTensor(graph, "bool");
+
+  auto prog = Sequence();
+
+  prog.add(Copy(hIn1, in1));
+  prog.add(Copy(hIn2, in2));
+  prog.add(Copy(hIn3, in3));
+
+  auto out = select(graph, in1, in2, in3, prog);
+
+  int hOut[DIM_SIZE][DIM_SIZE];
+  prog.add(Copy(out, hOut));
+
+  Engine eng(graph, prog);
+  eng.run();
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      int res = hIn3[i][j] ? hIn1[i][j] : hIn2[i][j];
+      BOOST_TEST(hOut[i][j] == res);
+    }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(StdOperationClampFloat,
+                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  ) {
+  Graph graph(createIPUModelDevice());
+  popstd::addCodelets(graph);
+
+  float hIn1[DIM_SIZE][DIM_SIZE];
+  setUnaryOpInput(hIn1);
+  float hIn2[DIM_SIZE][DIM_SIZE], hIn3[DIM_SIZE][DIM_SIZE];
+
+  for (auto r = 0U; r != DIM_SIZE; ++r) {
+    for (auto c = 0U; c != DIM_SIZE; ++c) {
+      hIn2[r][c] = -0.5;
+      hIn3[r][c] = 0.5;
+    }
+  }
+
+  Tensor in1, in2;
+  std::tie(in1, in2) = mapBinaryOpTensors(graph, "float");
+  Tensor in3 = mapUnaryOpTensor(graph, "float");
+
+  auto prog = Sequence();
+
+  prog.add(Copy(hIn1, in1));
+  prog.add(Copy(hIn2, in2));
+  prog.add(Copy(hIn3, in3));
+
+  auto out = clamp(graph, in1, in2, in3, prog);
+
+  float hOut[DIM_SIZE][DIM_SIZE];
+  prog.add(Copy(out, hOut));
+
+  Engine eng(graph, prog);
+  eng.run();
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      float res = hIn1[i][j];
+      if (res < hIn2[i][j])
+        res = hIn2[i][j];
+      if (res > hIn3[i][j])
+        res = hIn3[i][j];
+
+      BOOST_TEST(hOut[i][j] == res);
+    }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(StdOperationClampInt,
+                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  ) {
+  Graph graph(createIPUModelDevice());
+  popstd::addCodelets(graph);
+
+  int hIn1[DIM_SIZE][DIM_SIZE];
+  setUnaryOpInput(hIn1);
+  int hIn2[DIM_SIZE][DIM_SIZE], hIn3[DIM_SIZE][DIM_SIZE];
+
+  for (auto r = 0U; r != DIM_SIZE; ++r) {
+    for (auto c = 0U; c != DIM_SIZE; ++c) {
+      hIn2[r][c] = -10;
+      hIn3[r][c] = 10;
+    }
+  }
+
+  Tensor in1, in2;
+  std::tie(in1, in2) = mapBinaryOpTensors(graph, "int");
+  Tensor in3 = mapUnaryOpTensor(graph, "int");
+
+  auto prog = Sequence();
+
+  prog.add(Copy(hIn1, in1));
+  prog.add(Copy(hIn2, in2));
+  prog.add(Copy(hIn3, in3));
+
+  auto out = clamp(graph, in1, in2, in3, prog);
+
+  int hOut[DIM_SIZE][DIM_SIZE];
+  prog.add(Copy(out, hOut));
+
+  Engine eng(graph, prog);
+  eng.run();
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      int res = hIn1[i][j];
+      if (res < hIn2[i][j])
+        res = hIn2[i][j];
+      if (res > hIn3[i][j])
+        res = hIn3[i][j];
+
       BOOST_TEST(hOut[i][j] == res);
     }
   }

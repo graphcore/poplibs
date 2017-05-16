@@ -1383,4 +1383,110 @@ template class Tanh<float>;
 template class Tanh<half>;
 
 
+template <typename InType>
+class Select : public Vertex {
+public:
+  Vector<Input<Vector<InType>>> in1;
+  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<bool>>> in3;
+  Vector<Output<Vector<InType>>> out;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    assert(in1.size() == out.size());
+    assert(in2.size() == in1.size());
+    assert(in3.size() == in1.size());
+    for (unsigned i = 0; i != in1.size(); ++i) {
+      assert(in1[i].size() == out[i].size());
+      assert(in2[i].size() == in1[i].size());
+      assert(in3[i].size() == in1[i].size());
+      for (unsigned j = 0; j != in1[i].size(); ++j) {
+        out[i][j] = in3[i][j] ? in1[i][j] : in2[i][j];
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    uint64_t cycles = 5;
+    for (unsigned i = 0; i < in1.size(); ++i) {
+      unsigned cyclesPerVector = 5;
+      unsigned overhead = 6;
+      unsigned numElem = in1[i].size();
+      unsigned vectorWidth = 1;
+      // ld in1, ld in2, ld in3, movz, st
+      // it may be possible to load on the Aux side but then would
+      // depend on bool size. If Aux side is used masks must be created after
+      // expanding bools to match the input datum size
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
+    }
+    return cycles;
+  }
+};
+
+template class Select<float>;
+template class Select<half>;
+template class Select<int>;
+
+
+template <typename InType>
+class Clamp : public Vertex {
+public:
+  Vector<Input<Vector<InType>>> in1;
+  Vector<Input<Vector<InType>>> in2;  // lower bound
+  Vector<Input<Vector<InType>>> in3;  // upper bound
+  Vector<Output<Vector<InType>>> out;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    assert(in1.size() == out.size());
+    assert(in2.size() == in1.size());
+    assert(in3.size() == in1.size());
+    for (unsigned i = 0; i != in1.size(); ++i) {
+      assert(in1[i].size() == out[i].size());
+      assert(in2[i].size() == in1[i].size());
+      assert(in3[i].size() == in1[i].size());
+
+      for (unsigned j = 0; j != in1[i].size(); ++j) {
+        out[i][j] = in1[i][j];
+        if (out[i][j] < in2[i][j]) {
+          out[i][j] = in2[i][j];
+        }
+        if (out[i][j] > in3[i][j]) {
+          out[i][j] = in3[i][j];
+        }
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    uint64_t cycles = 5;
+    for (unsigned i = 0; i < in1.size(); ++i) {
+      unsigned cyclesPerVector = 1;
+      unsigned overhead = 6;
+      unsigned numElem = in1[i].size();
+      unsigned vectorWidth = 1;
+      if (std::is_same<InType, float>::value) {
+        vectorWidth = dataPathWidth / 32;
+        cyclesPerVector = 2;
+      } else if (std::is_same<InType, half>::value) {
+        vectorWidth = dataPathWidth / 16;
+        cyclesPerVector = 2;
+      } else if (std::is_same<InType, int>::value) {
+        // ld, ld, ld, cmp, movz, cmp, st
+        cyclesPerVector = 7;
+      }
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
+    }
+    return cycles;
+  }
+};
+
+template class Clamp<float>;
+template class Clamp<half>;
+template class Clamp<int>;
+
 } // end namespace popstd
