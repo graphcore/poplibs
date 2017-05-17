@@ -713,22 +713,23 @@ static unsigned getNumConvUnits(bool floatActivations,
 }
 
 static void
-createConvPartialnx1InOutVertex(Graph &graph,
-                                unsigned tile,
-                                unsigned outXBegin, unsigned outXEnd,
-                                unsigned outYBegin, unsigned outYEnd,
-                                unsigned outZGroupBegin, unsigned outZGroupEnd,
-                                unsigned kernelYBegin, unsigned kernelYEnd,
-                                unsigned inZGroupBegin, unsigned inZGroupEnd,
-                                const std::vector<unsigned> &stride,
-                                const std::vector<unsigned> &paddingLower,
-                                const std::vector<unsigned> &paddingUpper,
-                                ComputeSet fwdCS,
-                                const Tensor &in,
-                                const Tensor &weights,
-                                const Tensor &out,
-                                const Tensor &zeros,
-                                bool isFractional) {
+createConvPartialnx1Vertex(Graph &graph,
+                           unsigned tile,
+                           unsigned outXBegin, unsigned outXEnd,
+                           unsigned outYBegin, unsigned outYEnd,
+                           unsigned outZGroupBegin, unsigned outZGroupEnd,
+                           unsigned kernelYBegin, unsigned kernelYEnd,
+                           unsigned inZGroupBegin, unsigned inZGroupEnd,
+                           bool isInOut,
+                           const std::vector<unsigned> &stride,
+                           const std::vector<unsigned> &paddingLower,
+                           const std::vector<unsigned> &paddingUpper,
+                           ComputeSet fwdCS,
+                           const Tensor &in,
+                           const Tensor &weights,
+                           const Tensor &out,
+                           const Tensor &zeros,
+                           bool isFractional) {
   if (outXBegin == outXEnd ||
       outYBegin == outYEnd ||
       kernelYBegin == kernelYEnd ||
@@ -767,6 +768,7 @@ createConvPartialnx1InOutVertex(Graph &graph,
   unsigned numConvolutions = 0;
   std::vector<Tensor> inputEdges;
   std::vector<Tensor> outputEdges;
+  std::vector<bool> zeroOut;
   std::vector<Tensor> weightEdges;
   std::vector<unsigned> weightReuseCount;
 
@@ -865,8 +867,14 @@ createConvPartialnx1InOutVertex(Graph &graph,
                      .slice(offsetInOutputGroup,
                             (workerOutWidth - 1) * outChansPerGroup +
                             offsetInOutputGroup + outChansPerPass);
-                // Note the output tensor is mapped in zeroAndMapPartialSums.
+                // Note the output tensor is mapped in mapPartialSums.
                 outputEdges.push_back(outWindow);
+                // If this is an in/out vertex the partials are zeroed in
+                // mapPartialSums. If this is an output vertex we zero the
+                // partial sums on the first pass.
+                if (!isInOut) {
+                  zeroOut.push_back(izg == inZGroupBegin);
+                }
                 ++numConvolutions;
               }
             }
@@ -884,8 +892,9 @@ createConvPartialnx1InOutVertex(Graph &graph,
                         + numWeights * convUnitWeightHeight;
 
   auto v = graph.addVertex(fwdCS,
-                      templateVertex("popconv::ConvPartialnx1InOut",
+                      templateVertex("popconv::ConvPartialnx1",
                                      dType, partialType,
+                                     isInOut ? "true" : "false",
                                      useDeltaEdgesForConvPartials(numEdges) ?
                                                           "true" : "false"));
   graph.setInitialValue(v["inStride"], isFractional ? 1 : stride.back());
@@ -899,6 +908,7 @@ createConvPartialnx1InOutVertex(Graph &graph,
   graph.connect(v["in"], inputEdges);
   graph.connect(v["out"], outputEdges);
   graph.connect(v["weights"], weightEdges);
+  graph.setInitialValue(v["zeroOut"], zeroOut);
   graph.setInitialValue(v["weightReuseCount"], weightReuseCount);
 }
 
@@ -995,15 +1005,13 @@ createConvPartialHorizontalMacVertex(
 }
 
 static void
-zeroAndMapPartialSums(Graph &graph,
-                      unsigned outXBegin, unsigned outXEnd,
-                      unsigned outYBegin, unsigned outYEnd,
-                      unsigned tileOutZGroupBegin, unsigned tileOutZGroupEnd,
-                      unsigned tile,
-                      ComputeSet zeroCS,
-                      const Tensor &out) {
+mapPartialSums(Graph &graph, unsigned outXBegin, unsigned outXEnd,
+               unsigned outYBegin, unsigned outYEnd,
+               unsigned tileOutZGroupBegin, unsigned tileOutZGroupEnd,
+               unsigned tile, bool zeroPartials, ComputeSet zeroCS,
+               const Tensor &out) {
   Tensor flatOut = out.flatten();
-  std::vector<Interval<std::size_t>> regions;
+  std::vector<Interval<std::size_t>> regionsToZero;
   for (unsigned ozg = tileOutZGroupBegin; ozg != tileOutZGroupEnd; ++ozg) {
     for (unsigned y = outYBegin; y != outYEnd; ++y) {
       const auto regionBegin = out.dim(3) *
@@ -1012,11 +1020,15 @@ zeroAndMapPartialSums(Graph &graph,
                                   ozg));
       const auto regionEnd = regionBegin + out.dim(3) * (outXEnd - outXBegin);
       graph.setTileMapping(flatOut.slice(regionBegin, regionEnd), tile);
-      regions.emplace_back(regionBegin, regionEnd);
+      if (zeroPartials) {
+        regionsToZero.emplace_back(regionBegin, regionEnd);
+      }
     }
   }
-  mergeAdjacentRegions(regions);
-  return zero(graph, out, regions, tile, zeroCS);
+  if (zeroPartials) {
+    mergeAdjacentRegions(regionsToZero);
+    zero(graph, out, regionsToZero, tile, zeroCS);
+  }
 }
 
 static bool writtenRangeEqualsOutputRange(
@@ -1099,6 +1111,7 @@ calcPartialConvOutput(Graph &graph,
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   Tensor zeros;
+  bool zeroPartialsBefore = true;
   bool useConvPartial1x1OutVertex = false;
   if (plan.useConvolutionInstructions) {
     const auto inDimY = in.dim(1);
@@ -1108,16 +1121,15 @@ calcPartialConvOutput(Graph &graph,
                                                  deviceInfo);
     assert(outChansPerGroup % outChansPerPass == 0);
     const auto passesPerOutputGroup = outChansPerGroup / outChansPerPass;
-    useConvPartial1x1OutVertex = passesPerOutputGroup == 1 &&
-        kernelSizeX == 1 && tileKernelHeight == 1 &&
-        (!isFractional || (stride[1] == 1 && stride[0] == 1)) &&
-        writtenRangeEqualsOutputRange({outYBegin, outYEnd},
-                                      stride[0],
-                                      paddingLower[0],
-                                      paddingUpper[0],
-                                      kernelSizeY,
-                                      {kernelYBegin, kernelYEnd}, inDimY,
-                                      isFractional);
+    zeroPartialsBefore =
+        kernelSizeX != 1 || tileKernelHeight != 1 ||
+        (isFractional && (stride[1] != 1 || stride[0] != 1)) ||
+        !writtenRangeEqualsOutputRange({outYBegin, outYEnd}, stride[0],
+                                       paddingLower[0], paddingUpper[0],
+                                       kernelSizeY, {kernelYBegin, kernelYEnd},
+                                       inDimY, isFractional);
+    useConvPartial1x1OutVertex = !zeroPartialsBefore &&
+                                 passesPerOutputGroup == 1;
     const auto weightsPerConvUnit =
         deviceInfo.getWeightsPerConvUnit(dType == "float");
     assert(weightsPerConvUnit % inChansPerGroup == 0);
@@ -1145,6 +1157,7 @@ calcPartialConvOutput(Graph &graph,
     }
   }
   if (useConvPartial1x1OutVertex) {
+    assert(!zeroPartialsBefore);
     for (unsigned ozg = outZGroupBegin; ozg != outZGroupEnd; ++ozg) {
       createConvPartial1x1OutVertex(graph, tile,
                                     outXBegin, outXEnd,
@@ -1154,18 +1167,21 @@ calcPartialConvOutput(Graph &graph,
                                     fwdCS, in, weights, out);
     }
   } else {
-    zeroAndMapPartialSums(graph, outXBegin, outXEnd, outYBegin, outYEnd,
-                          outZGroupBegin, outZGroupEnd, tile, zeroCS, out);
+    mapPartialSums(graph, outXBegin, outXEnd, outYBegin, outYEnd,
+                   outZGroupBegin, outZGroupEnd, tile, zeroPartialsBefore,
+                   zeroCS, out);
     if (plan.useConvolutionInstructions) {
-      createConvPartialnx1InOutVertex(graph, tile, outXBegin, outXEnd,
-                                      outYBegin, outYEnd,
-                                      outZGroupBegin, outZGroupEnd,
-                                      kernelYBegin, kernelYEnd,
-                                      inZGroupBegin, inZGroupEnd,
-                                      stride, paddingLower, paddingUpper,
-                                      fwdCS, in, weights, out,
-                                      zeros, isFractional);
+      createConvPartialnx1Vertex(graph, tile, outXBegin, outXEnd,
+                                 outYBegin, outYEnd,
+                                 outZGroupBegin, outZGroupEnd,
+                                 kernelYBegin, kernelYEnd,
+                                 inZGroupBegin, inZGroupEnd,
+                                 zeroPartialsBefore,
+                                 stride, paddingLower, paddingUpper,
+                                 fwdCS, in, weights, out,
+                                 zeros, isFractional);
     } else {
+      assert(zeroPartialsBefore);
       auto perWorkerConvOutputSlices =
           partitionConvOutputBetweenWorkers(graph, outXBegin, outXEnd,
                                             outYBegin, outYEnd,

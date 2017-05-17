@@ -15,13 +15,16 @@ namespace popconv {
 /**
  * Compute nx1 convolutions and accumulate them with partial sums in memory.
  **/
-template <class FPType, class AccumType, bool useDeltasForEdges>
-class ConvPartialnx1InOut: public SupervisorVertex {
+template <class FPType, class AccumType, bool inOut, bool useDeltasForEdges>
+class ConvPartialnx1: public SupervisorVertex {
 public:
   Vector<Input<Vector<FPType>>> in;
   Vector<Input<Vector<FPType>>> weights;
   Vector<unsigned> weightReuseCount;
-  Vector<InOut<Vector<AccumType>>> out;
+  Vector<typename std::conditional<inOut,
+                                   InOut<Vector<AccumType>>,
+                                   Output<Vector<AccumType>>>::type> out;
+  Vector<bool> zeroOut;
   unsigned inStride;
   unsigned outStride;
 
@@ -32,6 +35,7 @@ public:
 
   bool compute() {
     assert(out.size() > 0);
+    assert(inOut || zeroOut.size() == out.size());
     assert(in.size() % out.size() == 0);
     const auto filterHeight = in.size() / out.size();
     assert(weights.size() % filterHeight == 0);
@@ -60,6 +64,10 @@ public:
                       inChanIndex + inChansPerGroup * outChanIndex;
                   const auto inIndex =
                       inChanIndex + inChansPerGroup * x * inStride;
+                  if (!inOut && fy == 0 && inChanIndex == 0 &&
+                      zeroOut[convNum]) {
+                    out[convNum][outIndex] = 0.0;
+                  }
                   out[convNum][outIndex] +=
                       weights[w * filterHeight + fy][weightIndex] *
                       in[convNum * filterHeight + fy][inIndex];
@@ -114,14 +122,18 @@ public:
   }
 };
 
-template class ConvPartialnx1InOut<float, half, true>;
-template class ConvPartialnx1InOut<float, float, true>;
-template class ConvPartialnx1InOut<half, half, true>;
-template class ConvPartialnx1InOut<half, float, true>;
-template class ConvPartialnx1InOut<float, half, false>;
-template class ConvPartialnx1InOut<float, float, false>;
-template class ConvPartialnx1InOut<half, half, false>;
-template class ConvPartialnx1InOut<half, float, false>;
+template class ConvPartialnx1<float, float, true, true>;
+template class ConvPartialnx1<half, half, true, true>;
+template class ConvPartialnx1<half, float, true, true>;
+template class ConvPartialnx1<float, float, true, false>;
+template class ConvPartialnx1<half, half, true, false>;
+template class ConvPartialnx1<half, float, true, false>;
+template class ConvPartialnx1<float, float, false, true>;
+template class ConvPartialnx1<half, half, false, true>;
+template class ConvPartialnx1<half, float, false, true>;
+template class ConvPartialnx1<float, float, false, false>;
+template class ConvPartialnx1<half, half, false, false>;
+template class ConvPartialnx1<half, float, false, false>;
 
 template <class InputType, class PartialTypes, bool useDeltasForEdges>
 class ConvWeightGradAop : public Vertex {
