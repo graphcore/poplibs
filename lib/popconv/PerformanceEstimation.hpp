@@ -33,15 +33,26 @@ bool allEqual(InputIterator begin, InputIterator end) {
 inline std::uint64_t
 getConvPartialHorizontalMacCycleEstimate(
     bool isFloat,
+    unsigned numChans, unsigned convCount, unsigned totalConvSize,
+    unsigned dataPathWidth) {
+  std::uint64_t cycles = 5;
+  cycles +=
+    4 * convCount +
+    totalConvSize * getDenseDotProductCycles(isFloat, numChans, dataPathWidth);
+  return cycles;
+}
+
+inline std::uint64_t
+getConvPartialHorizontalMacCycleEstimate(
+    bool isFloat,
     unsigned numChans,
     const std::vector<unsigned> &convSizes,
     unsigned dataPathWidth) {
-  std::uint64_t cycles = 5;
-  for (auto size : convSizes) {
-    cycles += 4;
-    cycles += size * getDenseDotProductCycles(isFloat, numChans, dataPathWidth);
-  }
-  return cycles;
+  const auto convCount = convSizes.size();
+  const auto totalConvSize = std::accumulate(convSizes.begin(), convSizes.end(),
+                                             0U);
+  return getConvPartialHorizontalMacCycleEstimate(isFloat, numChans, convCount,
+                                                  totalConvSize, dataPathWidth);
 }
 
 inline std::uint64_t

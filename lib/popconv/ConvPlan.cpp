@@ -656,20 +656,21 @@ estimateConvPartialHorizontalMacCycles(unsigned tileNumInGroups,
   const auto maxPartRows = (numPartRows + numWorkers - 1) / numWorkers;
   const auto workerWholeRows = maxPartRows / rowSplitFactor;
   const auto workerPartRows = maxPartRows % rowSplitFactor;
-  std::vector<unsigned> convSizes;
   const auto wholeRowConvSize =
       (tileOutWidth + outputStrideX - 1) / outputStrideX;
-  convSizes.resize(workerWholeRows * tileKernelWidth * tileKernelHeight *
-                   tileNumInGroups, wholeRowConvSize);
+  unsigned convCount =
+      workerWholeRows * tileKernelWidth * tileKernelHeight * tileNumInGroups;
+  unsigned totalConvSize = convCount * wholeRowConvSize;
   if (workerPartRows > 0) {
-    convSizes.resize(convSizes.size() + tileKernelWidth * tileKernelHeight *
-                     tileNumInGroups,
-                     (wholeRowConvSize * workerPartRows) / rowSplitFactor);
+    auto pConv = tileKernelWidth * tileKernelHeight * tileNumInGroups;
+    convCount += pConv;
+    totalConvSize +=
+        pConv * ((wholeRowConvSize * workerPartRows) / rowSplitFactor);
   }
   return getConvPartialHorizontalMacCycleEstimate(
     floatActivations,
     inChansPerGroup,
-    convSizes,
+    convCount, totalConvSize,
     dataPathWidth
   );
 }
