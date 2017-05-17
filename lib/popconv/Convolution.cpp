@@ -1142,17 +1142,21 @@ calcPartialConvOutput(Graph &graph,
                                             paddingUpper[1], inDimX,
                                             isFractional);
       const auto inputRangeSize = inputRange.second - inputRange.first;
-      // This isn't split across multiple workers since it can happen in
-      // parallel with zeroing the partial sums.
       const auto zeroSize = std::max(inputRangeSize * inChansPerGroup,
                                      inChansPerGroup * outChansPerGroup);
       zeros = graph.addTensor(dType,
                               {zeroSize},
                               "zeros");
-      auto v = graph.addVertex(zeroCS, templateVertex("popstd::Zero", dType),
-                               {{"out", zeros}});
-      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-      graph.setTileMapping(v, tile);
+      if (zeroPartialsBefore) {
+        // This isn't split across multiple workers since it can happen in
+        // parallel with zeroing the partial sums.
+        auto v = graph.addVertex(zeroCS, templateVertex("popstd::Zero", dType),
+                                 {{"out", zeros}});
+        graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
+        graph.setTileMapping(v, tile);
+      } else {
+        zero(graph, zeros, {{0, zeroSize}}, tile, zeroCS);
+      }
       graph.setTileMapping(zeros, tile);
     }
   }
