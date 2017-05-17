@@ -101,9 +101,6 @@ createWeights(Graph &graph, const Tensor &in,
   return weights;
 }
 
-static void mapActivations(Graph &graph, const Plan &plan,
-                           const Tensor &acts);
-
 Tensor
 createInput(Graph &graph, std::string dType,
             unsigned batchSize, unsigned height, unsigned width,
@@ -126,7 +123,7 @@ createInput(Graph &graph, std::string dType,
                             height, width,
                             plan.inChansPerGroup},
                            name);
-  mapActivations(graph, plan, t);
+  popstd::mapActivations(graph, t);
   return t;
 }
 
