@@ -12,6 +12,7 @@ add_library(popstd SHARED
   Operations.cpp
   Pad.cpp
   Regroup.cpp
+  SubtractFrom.cpp
   Util.cpp
   Zero.cpp
   ${CMAKE_SOURCE_DIR}/include/popstd/ActivationMapping.hpp
@@ -24,6 +25,7 @@ add_library(popstd SHARED
   ${CMAKE_SOURCE_DIR}/include/popstd/Operations.hpp  
   ${CMAKE_SOURCE_DIR}/include/popstd/Pad.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/Regroup.hpp
+  ${CMAKE_SOURCE_DIR}/include/popstd/SubtractFrom.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/Util.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/VertexTemplates.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/Zero.hpp
