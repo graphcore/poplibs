@@ -1307,14 +1307,9 @@ getConvVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
   // We limit the use of the convolution instruction to cases where the number
   // of output channels is a multiple of the output channel grouping that would
   // be used.
-  // TODO teach the convolution code to use smaller stores and / or zero pad
-  // in this case.
-  const auto convUnitsPerTile =
-      getConvUnitsPerTile(deviceInfo, floatActivations, floatPartials);
   if (canUseConvolutionInstruction(floatActivations, floatPartials,
                                    params.strideY, params.strideX,
-                                   deviceInfo) &&
-      params.outputDepth % convUnitsPerTile == 0) {
+                                   deviceInfo)) {
     convVertexTypeCandidates.emplace_back(true, floatActivations,
                                           floatPartials);
   } else if (!floatActivations && !floatPartials &&

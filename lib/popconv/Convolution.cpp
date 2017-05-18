@@ -69,6 +69,16 @@ verifyStrideAndPaddingDimensions(const std::vector<unsigned> &stride,
   }
 }
 
+static unsigned
+getWeightOutChansPerGroup(const Plan &plan, unsigned numOutChans) {
+  return gcd(plan.partialChansPerGroup, numOutChans);
+}
+
+static unsigned
+getOutChansPerGroup(const Plan &plan, unsigned numOutChans) {
+  return gcd(plan.partialChansPerGroup, numOutChans);
+}
+
 Tensor
 createWeights(Graph &graph, const Tensor &in,
               unsigned kernelSizeY, unsigned kernelSizeX,
@@ -87,15 +97,17 @@ createWeights(Graph &graph, const Tensor &in,
                             {kernelSizeY, kernelSizeX, outNumChans},
                             stride, paddingLower, paddingUpper,
                             isFractional, options);
-  const auto partialChansPerGroup = plan.partialChansPerGroup;
-  const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
+  const auto weightOutChansPerGroup =
+      getWeightOutChansPerGroup(plan, outNumChans);
+  const auto weightNumOutChanGroups = outNumChans / weightOutChansPerGroup;
   const auto inChansPerGroup = plan.inChansPerGroup;
+  assert(inNumChans % inChansPerGroup == 0);
   const auto inNumChanGroups = inNumChans / inChansPerGroup;
-  auto weights = graph.addTensor(dType, {partialNumChanGroups,
+  auto weights = graph.addTensor(dType, {weightNumOutChanGroups,
                                          inNumChanGroups,
                                          kernelSizeY,
                                          kernelSizeX,
-                                         partialChansPerGroup,
+                                         weightOutChansPerGroup,
                                          inChansPerGroup},
                                  "weights");
   return weights;
@@ -564,18 +576,19 @@ void mapBiases(Tensor biases, Graph &graph,
                                             stride, paddingLower, paddingUpper,
                                             isFractional);
   const auto dType = graph.getTensorElementType(in);
-  const auto inNumChans = in.dim(1) * in.dim(4);
-  const auto outNumChans = w.dim(0) * w.dim(4);
+  const unsigned inNumChans = in.dim(1) * in.dim(4);
+  const unsigned outNumChans = w.dim(0) * w.dim(4);
   const auto plan = getPlan(graph, dType,
                             in.dim(0), in.dim(2), in.dim(3),
                             inNumChans,
                             {w.dim(2), w.dim(3), w.dim(0) * w.dim(4)},
                             stride, paddingLower, paddingUpper,
                             isFractional, options);
+  const auto outChansPerGroup = getOutChansPerGroup(plan, outNumChans);
   std::vector<std::size_t> actShape{in.dim(0),
-                                    outNumChans / plan.partialChansPerGroup,
+                                    outNumChans / outChansPerGroup,
                                     outDimY, outDimX,
-                                    plan.partialChansPerGroup};
+                                    outChansPerGroup};
   iterateBiasMapping(biases, graph, actShape,
                      [&](Tensor biasSlice, unsigned tile) {
                          graph.setTileMapping(biasSlice, tile);
@@ -1665,11 +1678,18 @@ convolution(Graph &graph,
   verifyStrideAndPaddingDimensions(stride, paddingLower, paddingUpper);
   const auto dType = graph.getTensorElementType(in);
   const auto batchSize = in.dim(0);
+  unsigned inNumChans = in.dim(1) * in.dim(4);
+  const unsigned kernelSizeY = weights.dim(2);
+  const unsigned kernelSizeX = weights.dim(3);
+  const auto plan = getPlan(graph, dType,
+                            in.dim(0), in.dim(2), in.dim(3),
+                            inNumChans,
+                            {kernelSizeY, kernelSizeX,
+                             outNumChans},
+                            stride, paddingLower, paddingUpper,
+                            isFractional, options);
   if (transposeAndFlipWeights) {
     // Create transposed/flipped weights
-    const auto outNumChans = weights.dim(1) * weights.dim(5);
-    const auto kernelSizeY = weights.dim(2);
-    const auto kernelSizeX = weights.dim(3);
     auto bwdWeights = createWeights(graph, in,
                                     kernelSizeY, kernelSizeX,
                                     outNumChans,
@@ -1680,18 +1700,9 @@ convolution(Graph &graph,
     weightsTransposeChansFlipXY(graph, weights, bwdWeights, prog, debugPrefix);
     weights = bwdWeights;
   }
-  const auto plan = getPlan(graph, dType,
-                            in.dim(0), in.dim(2), in.dim(3),
-                            in.dim(1) * in.dim(4),
-                            {weights.dim(2), weights.dim(3),
-                             weights.dim(0) * weights.dim(4)},
-                            stride, paddingLower, paddingUpper,
-                            isFractional, options);
   if (in.dim(4) != plan.inChansPerGroup) {
     in = regroup(in, plan.inChansPerGroup);
   }
-  const unsigned kernelSizeY = weights.dim(2);
-  const unsigned kernelSizeX = weights.dim(3);
   std::size_t outDimY;
   std::size_t outDimX;
   std::tie(outDimY, outDimX) = getOutputDim(in.dim(2), in.dim(3),
@@ -1745,7 +1756,17 @@ convolution(Graph &graph,
     partialOutDimY = outDimY;
     partialOutDimX = outDimX;
   }
-
+  const auto partialChansPerGroup = plan.partialChansPerGroup;
+  const auto partialNumChanGroups =
+      (outNumChans + partialChansPerGroup - 1) / partialChansPerGroup;
+  const auto partialNumChans = partialNumChanGroups * partialChansPerGroup;
+  if (partialNumChans != outNumChans) {
+    auto weightsRegrouped = regroup(weights, 0, 4, outNumChans);
+    // Zero pad the weights in the out channel axis.
+    auto weightsRegroupedPadded =
+        pad(graph, weightsRegrouped, 0, partialNumChans - outNumChans, 4);
+    weights = regroup(weightsRegroupedPadded, 0, 4, partialChansPerGroup);
+  }
   Program convolveProg;
   Tensor activations;
   std::tie(convolveProg, activations) =
@@ -1761,6 +1782,14 @@ convolution(Graph &graph,
                     activations.dim(1),
                     activations.dim(4)})
           .dimShuffle({0, 3, 1, 2, 4});
+  }
+  if (partialNumChans != outNumChans) {
+    // Truncate the activations in the channel axis.
+    auto activationsRegrouped = regroup(activations, partialNumChans);
+    auto activationsRegroupedTruncated =
+        activationsRegrouped.slice(0, outNumChans, 4);
+    const auto outChansPerGroup = getOutChansPerGroup(plan, outNumChans);
+    activations = regroup(activationsRegroupedTruncated, outChansPerGroup);
   }
   // Rearrange the activations so the tile mapping matches the tile mapping
   // returned by computeActivationsMapping().
@@ -2434,7 +2463,7 @@ calculateWeightDeltasAop(Graph &graph, const Plan &plan,
   const auto dType = graph.getTensorElementType(zDeltas);
   const auto batchSize = activations.dim(0);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto numOutChans = zDeltas.dim(1) * zDeltas.dim(4);
+  const unsigned numOutChans = zDeltas.dim(1) * zDeltas.dim(4);
   const auto inNumChanGroups = activations.dim(1);
   const auto inChansPerGroup = activations.dim(4);
   assert(plan.inChansPerGroup == inChansPerGroup);
@@ -2533,14 +2562,15 @@ calculateWeightDeltasAop(Graph &graph, const Plan &plan,
   prog.add(Execute(zeroCS));
   prog.add(Execute(weightGradCS));
 
-  const auto fwdPartialChansPerGroup = fwdPlan.partialChansPerGroup;
+  const auto fwdWeightOutChansPerGroup =
+      getWeightOutChansPerGroup(fwdPlan, numOutChans);
   const auto fwdInChansPerGroup = fwdPlan.inChansPerGroup;
   const auto weightMapping =
-      calculateWeightMapping({numOutChans / fwdPartialChansPerGroup,
+      calculateWeightMapping({numOutChans / fwdWeightOutChansPerGroup,
                               numInChans / fwdInChansPerGroup,
                               kernelSizeY,
                               kernelSizeX,
-                              fwdPartialChansPerGroup,
+                              fwdWeightOutChansPerGroup,
                               fwdInChansPerGroup}, dType, graph, fwdPlan,
                               batchSize);
   Tensor weightDeltas;
@@ -2553,7 +2583,7 @@ calculateWeightDeltasAop(Graph &graph, const Plan &plan,
                                    debugPrefix + "/WeightDeltas");
     std::vector<std::vector<Interval<std::size_t>>>
         weightDeltaMapping;
-    if (partialChansPerGroup == fwdPartialChansPerGroup) {
+    if (partialChansPerGroup == fwdWeightOutChansPerGroup) {
       weightDeltaMapping = weightMapping;
     } else {
       weightDeltaMapping =
@@ -2577,7 +2607,7 @@ calculateWeightDeltasAop(Graph &graph, const Plan &plan,
       prog.add(Execute(cs));
     }
   }
-  weightDeltas = regroup(weightDeltas, 0, 4, fwdPartialChansPerGroup);
+  weightDeltas = regroup(weightDeltas, 0, 4, fwdWeightOutChansPerGroup);
   return weightDeltas;
 }
 
@@ -2780,6 +2810,7 @@ calculateWeightDeltasAmp(Graph &graph, const Plan &plan,
                        zDeltas.dim(2),
                        zDeltas.dim(3),
                        zDeltas.dim(1) * zDeltas.dim(4)});
+  unsigned numOutChans = deltasView.dim(3);
 
   // Transform the weight update convolution into an equivalent convolution that
   // can be implemented using the AMP instruction.
@@ -2818,7 +2849,7 @@ calculateWeightDeltasAmp(Graph &graph, const Plan &plan,
                                      inChansPerGroup);
   deltasView = roundUpDimension(graph, deltasView, 1, inChansPerGroup);
   // Pad the output channels to a multiple of the partial channels per group.
-  const auto numOutChans = deltasView.dim(2);
+  const unsigned convOutChans = deltasView.dim(2);
   const auto partialChansPerGroup = plan.partialChansPerGroup;
   deltasView = roundUpDimension(graph, deltasView, 2, partialChansPerGroup);
 
@@ -2840,7 +2871,6 @@ calculateWeightDeltasAmp(Graph &graph, const Plan &plan,
                            .dimShuffle({1, 0, 3, 2})
                            .reshape(activationsTransposed.shape()),
                 activationsTransposed));
-
   // Transpose the deltas.
   auto deltasTransposed =
       graph.addTensor(dType,
@@ -2889,7 +2919,7 @@ calculateWeightDeltasAmp(Graph &graph, const Plan &plan,
                                       weightDeltasTransposed.dim(4)
                                      });
   // Ignore output channels added for padding.
-  weightDeltas = weightDeltas.slice(0, numOutChans, 3);
+  weightDeltas = weightDeltas.slice(0, convOutChans, 3);
   // Reshape so there is no batch dimension.
   assert(weightDeltas.dim(0) == 1);
   weightDeltas = weightDeltas[0];
@@ -2908,14 +2938,15 @@ calculateWeightDeltasAmp(Graph &graph, const Plan &plan,
   convolutionWeightUpdateAmpPostProcess(plan, weightDeltas, kernelSizeY,
                                         kernelSizeX);
   // Split the input / output channel axes.
-  const auto fwdPartialChansPerGroup = fwdPlan.partialChansPerGroup;
+  const auto weightOutChansPerGroup =
+      getWeightOutChansPerGroup(fwdPlan, numOutChans);
   const auto fwdInChansPerGroup = fwdPlan.inChansPerGroup;
   weightDeltas =
       weightDeltas.reshape({weightDeltas.dim(0),
                             weightDeltas.dim(1),
                             weightDeltas.dim(2) /
-                            fwdPartialChansPerGroup,
-                            fwdPartialChansPerGroup,
+                            weightOutChansPerGroup,
+                            weightOutChansPerGroup,
                             weightDeltas.dim(3) / fwdInChansPerGroup,
                             fwdInChansPerGroup})
                        .dimShuffle({2, 4, 0, 1, 3, 5});
