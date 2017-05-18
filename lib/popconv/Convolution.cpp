@@ -109,8 +109,10 @@ createWeights(Graph &graph, const Tensor &in,
                             isFractional, options);
   const auto weightOutChansPerGroup =
       getWeightOutChansPerGroup(plan, outNumChans);
+  assert(outNumChans % weightOutChansPerGroup == 0);
   const auto weightNumOutChanGroups = outNumChans / weightOutChansPerGroup;
   const auto weightInChansPerGroup = getWeightInChansPerGroup(plan, inNumChans);
+  assert(inNumChans % weightInChansPerGroup == 0);
   const auto weightNumInChanGroups = inNumChans / weightInChansPerGroup;
   auto weights = graph.addTensor(dType, {weightNumOutChanGroups,
                                          weightNumInChanGroups,
@@ -139,6 +141,7 @@ createInput(Graph &graph, std::string dType,
                             stride, paddingLower, paddingUpper,
                             isFractional, options);
   const auto inChansPerGroup = getInChansPerGroup(plan, inNumChans);
+  assert(inNumChans % inChansPerGroup == 0);
   auto t = graph.addTensor(dType,
                            {batchSize,
                             inNumChans / inChansPerGroup,
@@ -595,6 +598,7 @@ void mapBiases(Tensor biases, Graph &graph,
                             stride, paddingLower, paddingUpper,
                             isFractional, options);
   const auto outChansPerGroup = getOutChansPerGroup(plan, outNumChans);
+  assert(outNumChans % outChansPerGroup == 0);
   std::vector<std::size_t> actShape{in.dim(0),
                                     outNumChans / outChansPerGroup,
                                     outDimY, outDimX,
@@ -1814,6 +1818,7 @@ convolution(Graph &graph,
     auto activationsRegroupedTruncated =
         activationsRegrouped.slice(0, outNumChans, 4);
     const auto outChansPerGroup = getOutChansPerGroup(plan, outNumChans);
+    assert(outNumChans % outChansPerGroup == 0);
     activations = regroup(activationsRegroupedTruncated, outChansPerGroup);
   }
   // Rearrange the activations so the tile mapping matches the tile mapping
@@ -2473,6 +2478,7 @@ calculateWeightDeltasAop(Graph &graph, const Plan &plan,
                          const std::string &debugPrefix) {
   const auto numInChans = activations.dim(1) * activations.dim(4);
   auto inChansPerGroup = getInChansPerGroup(fwdPlan, numInChans);
+  assert(numInChans % inChansPerGroup == 0);
   if (activations.dim(4) != inChansPerGroup) {
     activations = regroup(activations, inChansPerGroup);
   }
@@ -2588,8 +2594,10 @@ calculateWeightDeltasAop(Graph &graph, const Plan &plan,
 
   const auto fwdWeightOutChansPerGroup =
       getWeightOutChansPerGroup(fwdPlan, numOutChans);
+  assert(numOutChans % fwdWeightOutChansPerGroup == 0);
   const auto fwdWeightInChansPerGroup =
       getWeightInChansPerGroup(fwdPlan, numInChans);
+  assert(numInChans % fwdWeightInChansPerGroup == 0);
   const auto weightMapping =
       calculateWeightMapping({numOutChans / fwdWeightOutChansPerGroup,
                               numInChans / fwdWeightInChansPerGroup,
@@ -2966,8 +2974,10 @@ calculateWeightDeltasAmp(Graph &graph, const Plan &plan,
   // Split the input / output channel axes.
   const auto weightOutChansPerGroup =
       getWeightOutChansPerGroup(fwdPlan, numOutChans);
+  assert(numOutChans % weightOutChansPerGroup == 0);
   const auto weightInChansPerGroup =
       getWeightInChansPerGroup(fwdPlan, numInChans);
+  assert(numInChans % weightInChansPerGroup == 0);
   weightDeltas =
       weightDeltas.reshape({weightDeltas.dim(0),
                             weightDeltas.dim(1),
