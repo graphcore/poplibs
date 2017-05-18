@@ -289,16 +289,15 @@ class ConvBiasReduce2: public Vertex {
 public:
   Vector<Output<FPType>> out;
   Vector<Input<FPType>> in;
+  Vector<unsigned> numInputsPerBias;
 
   bool compute() {
-    assert(in.size() % out.size() == 0);
     auto numBiases = out.size();
-    auto deltasPerBias = in.size() / out.size();
-
+    unsigned inIndex = 0;
     for (unsigned bias = 0; bias < numBiases; ++bias) {
       float sum = 0;
-      for (unsigned i = 0; i < deltasPerBias; ++i) {
-        sum += in[bias * deltasPerBias + i];
+      for (unsigned i = 0; i < numInputsPerBias[bias]; ++i) {
+        sum += in[inIndex++];
       }
       out[bias] = sum;
     }
@@ -307,11 +306,10 @@ public:
 
   uint64_t getCycleEstimate() const {
     auto numBiases= out.size();
-    auto deltasPerBias = in.size() / out.size();
     uint64_t cycles = 10;
 
     for (unsigned bias = 0; bias < numBiases; ++bias) {
-      cycles += deltasPerBias;
+      cycles += numInputsPerBias[bias];
     }
     return cycles;
   }

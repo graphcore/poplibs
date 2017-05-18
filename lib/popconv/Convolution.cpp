@@ -3193,6 +3193,7 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
       continue;
     unsigned numWorkerBiases = biasEnd - biasBegin;
     auto toReduce = graph.addTensor(dType, {0});
+    std::vector<unsigned> numInputsPerBias;
     for (auto bias = biasBegin; bias != biasEnd; ++bias) {
       auto biasGroup = bias / outChansPerGroup;
       auto biasInGroup = bias % outChansPerGroup;
@@ -3211,6 +3212,7 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
       unsigned deltaEnd =
           (((worker  % workersPerBias) + 1) * numDeltas) / workersPerBias;
       toReduce = concat(toReduce, biasDeltas.slice(deltaBegin, deltaEnd));
+      numInputsPerBias.push_back(deltaEnd - deltaBegin);
     }
     if (toReduce.numElements() == 0) {
       auto v = graph.addVertex(secondReduceCS,
@@ -3224,6 +3226,7 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
                              templateVertex("popconv::ConvBiasReduce2", dType));
     graph.connect(v["in"], toReduce);
     graph.connect(v["out"], biasPartials[worker].slice(0, numWorkerBiases));
+    graph.setInitialValue(v["numInputsPerBias"], numInputsPerBias);
     graph.setTileMapping(v, tile);
   }
   auto updateBiasCS = graph.addComputeSet(layerName + "/FinalUpdate");
