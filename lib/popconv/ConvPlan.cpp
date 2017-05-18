@@ -1367,8 +1367,32 @@ getInChansPerGroupCandidates(const ConvolutionParams &params,
       continue;
     candidates.push_back(i);
   }
-  if (!convVertexType.useConvInstruction && candidates.empty())
-    candidates.push_back(params.inputDepth);
+  if (candidates.empty()) {
+    if (convVertexType.useConvInstruction) {
+      // Drop the requirement that the input channel grouping must divide
+      // the number of input channels. This causes the input to be zero padded
+      // before the convolution.
+      // TODO Currently we only consider input channel groupings that need
+      // padding if we didn't find an input channel grouping that divides the
+      // number of channels exactly. Ideally we would always consider all
+      // input channel groupings and pick the one with the lowest cost.
+      // We would need to check whether the cost model is sufficiently accurate
+      // before making this change.
+      for (unsigned i = 1; i <= params.inputDepth; ++i) {
+        if (!convVertexType.floatActivations && i % 2 != 0)
+          continue;
+        if (convVertexType.useConvInstruction &&
+            !canUseConvolutionInstruction(convVertexType.floatActivations,
+                                          convVertexType.floatPartials,
+                                          params.strideY, params.strideX,
+                                          i, deviceInfo))
+          continue;
+        candidates.push_back(i);
+      }
+    } else {
+      candidates.push_back(params.inputDepth);
+    }
+  }
   return candidates;
 }
 

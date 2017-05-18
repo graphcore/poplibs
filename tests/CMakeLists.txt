@@ -64,6 +64,26 @@ add_test(NAME conv1x1_stride_1_odd_outchans
             --stride=1
             --kernel-size=1)
 
+add_test(NAME conv1x1_stride_1_odd_inchans
+        COMMAND single_conv_layer
+            --input-channels=129
+            --output-channels=256
+            --width=7
+            --height=7
+            --tiles-per-ipu=16
+            --stride=1
+            --kernel-size=1)
+
+add_test(NAME conv1x1_stride_1_odd_in_and_out_chans
+        COMMAND single_conv_layer
+            --input-channels=129
+            --output-channels=257
+            --width=7
+            --height=7
+            --tiles-per-ipu=16
+            --stride=1
+            --kernel-size=1)
+
 add_test(NAME conv1x1_stride_3
          COMMAND single_conv_layer
              --input-channels=64

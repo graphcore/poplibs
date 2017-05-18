@@ -70,6 +70,16 @@ verifyStrideAndPaddingDimensions(const std::vector<unsigned> &stride,
 }
 
 static unsigned
+getInChansPerGroup(const Plan &plan, unsigned numInChans) {
+  return gcd(plan.inChansPerGroup, numInChans);
+}
+
+static unsigned
+getWeightInChansPerGroup(const Plan &plan, unsigned numInChans) {
+  return gcd(plan.inChansPerGroup, numInChans);
+}
+
+static unsigned
 getWeightOutChansPerGroup(const Plan &plan, unsigned numOutChans) {
   return gcd(plan.partialChansPerGroup, numOutChans);
 }
@@ -100,15 +110,14 @@ createWeights(Graph &graph, const Tensor &in,
   const auto weightOutChansPerGroup =
       getWeightOutChansPerGroup(plan, outNumChans);
   const auto weightNumOutChanGroups = outNumChans / weightOutChansPerGroup;
-  const auto inChansPerGroup = plan.inChansPerGroup;
-  assert(inNumChans % inChansPerGroup == 0);
-  const auto inNumChanGroups = inNumChans / inChansPerGroup;
+  const auto weightInChansPerGroup = getWeightInChansPerGroup(plan, inNumChans);
+  const auto weightNumInChanGroups = inNumChans / weightInChansPerGroup;
   auto weights = graph.addTensor(dType, {weightNumOutChanGroups,
-                                         inNumChanGroups,
+                                         weightNumInChanGroups,
                                          kernelSizeY,
                                          kernelSizeX,
                                          weightOutChansPerGroup,
-                                         inChansPerGroup},
+                                         weightInChansPerGroup},
                                  "weights");
   return weights;
 }
@@ -129,11 +138,12 @@ createInput(Graph &graph, std::string dType,
                             {kernelY, kernelX, outNumChans},
                             stride, paddingLower, paddingUpper,
                             isFractional, options);
+  const auto inChansPerGroup = getInChansPerGroup(plan, inNumChans);
   auto t = graph.addTensor(dType,
                            {batchSize,
-                            inNumChans / plan.inChansPerGroup,
+                            inNumChans / inChansPerGroup,
                             height, width,
-                            plan.inChansPerGroup},
+                            inChansPerGroup},
                            name);
   popstd::mapActivations(graph, t);
   return t;
@@ -1700,7 +1710,22 @@ convolution(Graph &graph,
     weightsTransposeChansFlipXY(graph, weights, bwdWeights, prog, debugPrefix);
     weights = bwdWeights;
   }
-  if (in.dim(4) != plan.inChansPerGroup) {
+  const auto convInChansPerGroup = plan.inChansPerGroup;
+  const auto convNumChanGroups =
+      (inNumChans + convInChansPerGroup - 1) / convInChansPerGroup;
+  const auto convNumChans = convInChansPerGroup * convNumChanGroups;
+  if (convNumChans != inNumChans) {
+    // Zero pad the input
+    auto inRegrouped = regroup(in, inNumChans);
+    auto inRegroupedPadded =
+        pad(graph, inRegrouped, 0, convNumChans - inNumChans, 4);
+    in = regroup(inRegroupedPadded, plan.inChansPerGroup);
+    // Zero pad the weights in the in channel axis.
+    auto weightsRegrouped = regroup(weights, 1, 5, inNumChans);
+    auto weightsRegroupedPadded =
+        pad(graph, weightsRegrouped, 0, convNumChans - inNumChans, 5);
+    weights = regroup(weightsRegroupedPadded, 1, 5, plan.inChansPerGroup);
+  } else if (in.dim(4) != plan.inChansPerGroup) {
     in = regroup(in, plan.inChansPerGroup);
   }
   std::size_t outDimY;
@@ -2446,8 +2471,10 @@ calculateWeightDeltasAop(Graph &graph, const Plan &plan,
                          const std::vector<unsigned> &paddingUpper,
                          Sequence &prog,
                          const std::string &debugPrefix) {
-  if (activations.dim(4) != fwdPlan.inChansPerGroup) {
-    activations = regroup(activations, fwdPlan.inChansPerGroup);
+  const auto numInChans = activations.dim(1) * activations.dim(4);
+  auto inChansPerGroup = getInChansPerGroup(fwdPlan, numInChans);
+  if (activations.dim(4) != inChansPerGroup) {
+    activations = regroup(activations, inChansPerGroup);
   }
   if (plan.flattenXY) {
     zDeltas = zDeltas.reshape(
@@ -2465,9 +2492,6 @@ calculateWeightDeltasAop(Graph &graph, const Plan &plan,
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const unsigned numOutChans = zDeltas.dim(1) * zDeltas.dim(4);
   const auto inNumChanGroups = activations.dim(1);
-  const auto inChansPerGroup = activations.dim(4);
-  assert(plan.inChansPerGroup == inChansPerGroup);
-  const auto numInChans = inNumChanGroups * inChansPerGroup;
   const auto partialChansPerGroup = plan.partialChansPerGroup;
   assert(numOutChans % partialChansPerGroup == 0);
   const auto partialNumChanGroups = numOutChans / partialChansPerGroup;
@@ -2564,14 +2588,15 @@ calculateWeightDeltasAop(Graph &graph, const Plan &plan,
 
   const auto fwdWeightOutChansPerGroup =
       getWeightOutChansPerGroup(fwdPlan, numOutChans);
-  const auto fwdInChansPerGroup = fwdPlan.inChansPerGroup;
+  const auto fwdWeightInChansPerGroup =
+      getWeightInChansPerGroup(fwdPlan, numInChans);
   const auto weightMapping =
       calculateWeightMapping({numOutChans / fwdWeightOutChansPerGroup,
-                              numInChans / fwdInChansPerGroup,
+                              numInChans / fwdWeightInChansPerGroup,
                               kernelSizeY,
                               kernelSizeX,
                               fwdWeightOutChansPerGroup,
-                              fwdInChansPerGroup}, dType, graph, fwdPlan,
+                              fwdWeightInChansPerGroup}, dType, graph, fwdPlan,
                               batchSize);
   Tensor weightDeltas;
   auto numPartials = batchSize * tilesPerY * tilesPerX;
@@ -2804,6 +2829,7 @@ calculateWeightDeltasAmp(Graph &graph, const Plan &plan,
                            activations.dim(2),
                            activations.dim(3),
                            activations.dim(1) * activations.dim(4)});
+  unsigned numInChans = activationsView.dim(3);
   auto deltasView =
       zDeltas.dimShuffle({0, 2, 3, 1, 4})
              .reshape({zDeltas.dim(0),
@@ -2940,15 +2966,16 @@ calculateWeightDeltasAmp(Graph &graph, const Plan &plan,
   // Split the input / output channel axes.
   const auto weightOutChansPerGroup =
       getWeightOutChansPerGroup(fwdPlan, numOutChans);
-  const auto fwdInChansPerGroup = fwdPlan.inChansPerGroup;
+  const auto weightInChansPerGroup =
+      getWeightInChansPerGroup(fwdPlan, numInChans);
   weightDeltas =
       weightDeltas.reshape({weightDeltas.dim(0),
                             weightDeltas.dim(1),
                             weightDeltas.dim(2) /
                             weightOutChansPerGroup,
                             weightOutChansPerGroup,
-                            weightDeltas.dim(3) / fwdInChansPerGroup,
-                            fwdInChansPerGroup})
+                            weightDeltas.dim(3) / weightInChansPerGroup,
+                            weightInChansPerGroup})
                        .dimShuffle({2, 4, 0, 1, 3, 5});
   return weightDeltas;
 }
