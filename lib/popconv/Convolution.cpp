@@ -270,6 +270,7 @@ static std::vector<std::vector<Interval<std::size_t>>>
 calculateActivationMapping(const Graph &graph,
                            const Plan &plan,
                            Tensor acts) {
+  assert(plan.batchesPerGroup == 1);
   const auto numBatchGroups = acts.dim(0);
   const auto isMultiIPU = graph.getDevice().getDeviceInfo().numIPUs > 1;
   const auto inNumChans = acts.dim(1) * acts.dim(4);
@@ -337,8 +338,24 @@ calculateActivationMapping(const Graph &graph,
   return mapping;
 }
 
-static void mapActivations(Graph &graph, const Plan &plan,
-                           const Tensor &acts) {
+static void mapActivations(Graph &graph, Plan plan,
+                           Tensor acts) {
+  assert(plan.flattenXY || plan.batchesPerGroup == 1);
+  if (plan.flattenXY) {
+    const auto batchSize = acts.dim(0);
+    const auto batchesPerGroup = plan.batchesPerGroup;
+    assert(batchSize % batchesPerGroup == 0);
+    const auto numBatchGroups = batchSize / plan.batchesPerGroup;
+    acts = acts.dimShuffle({1, 0, 2, 3, 4})
+               .reshape({acts.dim(1),
+                         numBatchGroups,
+                         1,
+                         batchesPerGroup * acts.dim(2) * acts.dim(3),
+                         acts.dim(4)})
+               .dimShuffle({1, 0, 2, 3, 4});
+    plan.flattenXY = false;
+    plan.batchesPerGroup = 1;
+  }
   auto mapping = calculateActivationMapping(graph, plan, acts);
   graph.setTileMapping(acts, mapping);
 }
