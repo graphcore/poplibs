@@ -3,15 +3,11 @@
 
 #include <string>
 #include <vector>
+#include <popconv/Convolution.hpp>
 
 namespace popconv {
 
-void validateLayerParams(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                         unsigned kernelSizeY, unsigned kernelSizeX,
-                         const std::vector<unsigned> &stride,
-                         const std::vector<unsigned> &paddingLower,
-                         const std::vector<unsigned> &paddingUpper,
-                         unsigned numChannels, const std::string &dType);
+void validateLayerParams(const ConvParams &params);
 
 } // End namespace conv
 

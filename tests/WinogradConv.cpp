@@ -212,10 +212,21 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
     weightsBuffer[i] = dist(randomEngine);
   }
 
-  auto wgdConv = popconv::winogradConvolution(
-           graph, {1, 1}, {paddingY, paddingX}, {paddingY, paddingX},
-           in, weights, activations, "float",
-           patchSizeX, patchSizeY);
+  auto params =
+      popconv::ConvParams(dType,
+                          {1, featureY, featureX,
+                           numInpChansInGroup * numInpChanGroups},
+                          {kernelSizeY, kernelSizeX,
+                           numOutChanGroups * numOutChansInGroup,
+                           numInpChansInGroup * numInpChanGroups},
+                          {1, 1},
+                          {paddingY, paddingX}, {paddingY, paddingX},
+                          false);
+
+  auto wgdConv = popconv::winogradConvolution(graph, params, in, weights,
+                                              activations,
+                                              patchSizeX, patchSizeY,
+                                              "float");
 
   auto prog = Sequence(Copy(&inBuffer[0], in),
                        Copy(&weightsBuffer[0], weights),

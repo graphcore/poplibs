@@ -16,17 +16,29 @@ using namespace popstd;
 namespace popnn {
 namespace maxpool {
 
+// Create dummy convolution parameters with same special characteristics
+// as a pooling operation.
+static ConvParams
+makeConvParams(unsigned inDimY, unsigned inDimX, unsigned kernelSizeY,
+               unsigned kernelSizeX, unsigned strideY, unsigned strideX,
+               unsigned paddingY, unsigned paddingX,
+               bool isFractional = false) {
+  return {"", {1, inDimY, inDimX, 1},
+          {kernelSizeY, kernelSizeX, 1, 1},
+          {strideY, strideX},
+          {paddingY, paddingX},
+          {paddingY, paddingX},
+          isFractional};
+}
+
 std::pair<unsigned, unsigned>
 getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSizeY,
              unsigned kernelSizeX, unsigned strideY,
              unsigned strideX, unsigned paddingY,
              unsigned paddingX) {
-  return popconv::getOutputDim(inDimY, inDimX,
-                               kernelSizeY, kernelSizeX,
-                               {strideY, strideX},
-                               {paddingY, paddingX},
-                               {paddingY, paddingX},
-                               false);
+  auto params = makeConvParams(inDimY, inDimX, kernelSizeY, kernelSizeX,
+                               strideY, strideX, paddingY, paddingX);
+  return {params.getOutputHeight(), params.getOutputWidth()};
 }
 
 
@@ -36,23 +48,18 @@ uint64_t getFwdFlops(unsigned batchSize,
                      unsigned kernelSizeY, unsigned kernelSizeX,
                      unsigned strideY, unsigned strideX,
                      unsigned paddingY, unsigned paddingX) {
-  unsigned outDimY, outDimX;
-  std::tie(outDimY, outDimX) = getOutputDim(inDimY, inDimX,
-                                            kernelSizeY, kernelSizeX,
-                                            strideY, strideX,
-                                            paddingY, paddingX);
+  auto params = makeConvParams(inDimY, inDimX, kernelSizeY, kernelSizeX,
+                               strideY, strideX, paddingY, paddingX);
+  auto outDimY = params.getOutputHeight();
+  auto outDimX = params.getOutputWidth();
   std::uint64_t numFlops = 0;
   for (unsigned y = 0; y < outDimY; ++y) {
     unsigned inYBegin, inYEnd;
-    std::tie(inYBegin, inYEnd) = getInputRange(y, strideY, kernelSizeY,
-                                               paddingY, paddingY, inDimY,
-                                               false);
+    std::tie(inYBegin, inYEnd) = getInputRange(0, y, params);
     const auto height = inYEnd - inYBegin;
     for (unsigned x = 0; x < outDimX; ++x) {
       unsigned inXBegin, inXEnd;
-      std::tie(inXBegin, inXEnd) = getInputRange(x, strideX, kernelSizeX,
-                                                 paddingX, paddingX, inDimX,
-                                                 false);
+      std::tie(inXBegin, inXEnd) = getInputRange(1, x, params);
       const auto width = inXEnd - inXBegin;
       numFlops += numChannels * width * height;
     }
@@ -150,6 +157,9 @@ Tensor maxPool(Graph &graph,  unsigned kernelSizeY, unsigned kernelSizeX,
 
   const auto numTiles = deviceInfo.getNumTiles();
   auto outTileMapping = graph.getTileMapping(out);
+  const auto params = makeConvParams(in.dim(1), in.dim(2),
+                                     kernelSizeY, kernelSizeX,
+                                     strideY, strideX, paddingY, paddingX);
 
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     // On each tile split the elements of the output up between the workers.
@@ -197,13 +207,11 @@ Tensor maxPool(Graph &graph,  unsigned kernelSizeY, unsigned kernelSizeX,
           vertexOut.push_back(outVector);
           unsigned windowSize = 0;
           for (unsigned ky = 0; ky < kernelSizeY; ++ky) {
-            auto inY = getInputIndex(y, strideY, kernelSizeY, paddingY,
-                                     paddingY, inHeight, ky, false);
+            auto inY = getInputIndex(0, y, ky, params);
             if (inY == ~0U)
               continue;
             for (unsigned kx = 0; kx < kernelSizeX; ++kx) {
-              auto inX = getInputIndex(x, strideX, kernelSizeX, paddingX,
-                                       paddingX, inWidth, kx, false);
+              auto inX = getInputIndex(1, x, kx, params);
               if (inX == ~0U)
                 continue;
               Tensor inVector = graph.addTensor(dType, {0}, "");
@@ -262,8 +270,6 @@ maxPoolInputGradient(Graph &graph, unsigned kernelSizeY, unsigned kernelSizeX,
                            pooled.dim(1) * pooled.dim(4)});
 
   const auto batchSize = pooledGradient.dim(0);
-  const auto outHeight = pooledGradient.dim(1);
-  const auto outWidth = pooledGradient.dim(2);
   const auto numChannels = pooledGradient.dim(3);
   const auto inHeight = in.dim(1);
   const auto inWidth = in.dim(2);
@@ -295,6 +301,10 @@ maxPoolInputGradient(Graph &graph, unsigned kernelSizeY, unsigned kernelSizeX,
 
   const auto numTiles = deviceInfo.getNumTiles();
   auto outTileMapping = graph.getTileMapping(inGradient);
+  auto bwdParams = makeConvParams(pooled.dim(1), pooled.dim(2),
+                                  kernelSizeY, kernelSizeX,
+                                  strideY, strideX, paddingY, paddingX,
+                                  true);
 
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     // On each tile split the elements of the output up between the workers.
@@ -351,13 +361,11 @@ maxPoolInputGradient(Graph &graph, unsigned kernelSizeY, unsigned kernelSizeX,
           vertexIn.push_back(inVector);
           unsigned windowSize = 0;
           for (unsigned ky = 0; ky < kernelSizeY; ++ky) {
-            auto outY = getInputIndex(y, strideY, kernelSizeY, paddingY,
-                                     paddingY, outHeight, ky, true);
+            auto outY = getInputIndex(0, y, ky, bwdParams);
             if (outY == ~0U)
               continue;
             for (unsigned kx = 0; kx < kernelSizeX; ++kx) {
-              auto outX = getInputIndex(x, strideX, kernelSizeX, paddingX,
-                                       paddingX, outWidth, kx, true);
+              auto outX = getInputIndex(1, x, kx, bwdParams);
               if (outX == ~0U)
                 continue;
               Tensor pooledGradVector = graph.addTensor(dType, {0}, "");

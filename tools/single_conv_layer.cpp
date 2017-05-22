@@ -256,14 +256,17 @@ int main(int argc, char **argv) {
   std::string dataTypeStr(asString(dataType));
   std::string partialsTypeStr(asString(partialsType));
 
-  const auto outDims =
-      popconv::getOutputDim(height, width, kernelHeight, kernelWidth,
-                            {strideH, strideW},
-                            {paddingHeightLower, paddingWidthLower},
-                            {paddingHeightUpper, paddingWidthUpper},
-                            false);
-  const auto outHeight = outDims.first;
-  const auto outWidth = outDims.second;
+  const auto params =
+      popconv::ConvParams(dataTypeStr,
+                          {batchSize, height, width, fwdInChans},
+                          {kernelHeight, kernelWidth, fwdOutChans,
+                           fwdInChans},
+                          {strideH, strideW},
+                          {paddingHeightLower, paddingWidthLower},
+                          {paddingHeightUpper, paddingWidthUpper},
+                          false);
+  const auto outHeight = params.getOutputHeight();
+  const auto outWidth = params.getOutputWidth();
   bool bwdIsFractional = strideH != 1 || strideW != 1;
   if (paddingHeightLower >= kernelHeight ||
       paddingHeightUpper >= kernelHeight ||
@@ -286,53 +289,32 @@ int main(int argc, char **argv) {
   const auto bwdInChans = fwdOutChans;
   const auto bwdOutChans = fwdInChans;
 
+  const auto bwdParams =
+      popconv::ConvParams(dataTypeStr,
+                          {batchSize, outHeight, outWidth, fwdOutChans},
+                          {kernelHeight, kernelWidth, fwdInChans, fwdOutChans},
+                          {strideH, strideW},
+                          {bwdPaddingHeightLower, bwdPaddingWidthLower},
+                          {bwdPaddingHeightUpper, bwdPaddingWidthUpper},
+                          bwdIsFractional);
   // Create tensors.
   Tensor prevAct =
-      popconv::createInput(graph, dataTypeStr, batchSize, height, width,
-                           fwdInChans, kernelHeight,
-                           kernelWidth, fwdOutChans, {strideH, strideW},
-                           {paddingHeightLower, paddingWidthLower},
-                           {paddingHeightUpper, paddingWidthUpper},
-                           false, "prevAct", convOptions);
+      popconv::createInput(graph, params, "prevAct", convOptions);
   Tensor weights =
-      popconv::createWeights(graph, prevAct,
-                             kernelHeight, kernelWidth,
-                             fwdOutChans, {strideH, strideW},
-                             {paddingHeightLower, paddingWidthLower},
-                             {paddingHeightUpper, paddingWidthUpper},
-                             false, convOptions);
+      popconv::createWeights(graph, params, "weights", convOptions);
   Tensor biases = popconv::createBiases(graph, dataTypeStr, fwdOutChans);
-      popconv::mapBiases(biases, graph, prevAct, weights,
-                         {strideH, strideW},
-                         {paddingHeightLower, paddingWidthLower},
-                         {paddingHeightUpper, paddingWidthUpper},
-                         false, convOptions);
+      popconv::mapBiases(graph, biases, prevAct, weights, params, convOptions);
 
   Tensor prevDeltas, zDeltas;
   if (doBwdPass || doWuPass) {
-    zDeltas =
-      popconv::createInput(graph, dataTypeStr, batchSize,
-                           outHeight, outWidth, fwdOutChans,
-                           kernelHeight, kernelWidth, fwdInChans,
-                           {strideH, strideW},
-                           {bwdPaddingHeightLower, bwdPaddingWidthLower},
-                           {bwdPaddingHeightUpper, bwdPaddingWidthUpper},
-                           bwdIsFractional, "zDeltas", convOptions);
+    zDeltas = popconv::createInput(graph, bwdParams, "zDeltas", convOptions);
   }
-
-
 
   auto fwdProg = Sequence();
   // Always generate the fwd program as it maps the weights and biases. Only
   // actually create the engined if the fwd pass is to be run
-  Tensor nextAct = popconv::convolution(graph,
-                                        {strideH, strideW},
-                                        {paddingHeightLower, paddingWidthLower},
-                                        {paddingHeightUpper, paddingWidthUpper},
-                                        fwdOutChans,
-                                        prevAct, weights,
-                                        partialsTypeStr, false, false, fwdProg,
-                                        "", convOptions);
+  Tensor nextAct = popconv::convolution(graph, prevAct, weights, params, false,
+                                        fwdProg, "", convOptions);
   popconv::addBias(graph, nextAct, biases, fwdProg, "");
   if (!doFwdPass)
     fwdProg = Sequence();
@@ -345,22 +327,13 @@ int main(int argc, char **argv) {
     auto zeroBiases = graph.addTensor(dataTypeStr, {fwdInChans}, "zeroBiases");
     popstd::mapTensor(graph, zeroBiases);
     revProg.add(Copy(zeros, zeroBiases));
-    prevDeltas =
-        popconv::convolution(graph,
-                             {strideH, strideW},
-                             {bwdPaddingHeightLower, bwdPaddingWidthLower},
-                             {bwdPaddingHeightUpper, bwdPaddingWidthUpper},
-                             fwdInChans,
-                             zDeltas, weights,
-                             partialsTypeStr, bwdIsFractional,
-                             true, revProg, "", convOptions);
+    prevDeltas = popconv::convolution(graph, zDeltas, weights, bwdParams,
+                                      true, revProg, "",
+                                      convOptions);
   }
   if (doWuPass) {
     popconv::convolutionWeightUpdate(graph, zDeltas, weights, prevAct,
-                                     {strideH, strideW},
-                                     {paddingHeightLower, paddingWidthLower},
-                                     {paddingHeightUpper, paddingWidthUpper},
-                                     false, learningRate,
+                                     params, learningRate,
                                      revProg, "", convOptions);
     popconv::convolutionBiasUpdate(graph, zDeltas, biases, learningRate,
                                    revProg);

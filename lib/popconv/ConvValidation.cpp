@@ -2,40 +2,35 @@
 #include <popstd/exceptions.hpp>
 
 void popconv::
-validateLayerParams(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                    unsigned kernelSizeY, unsigned kernelSizeX,
-                    const std::vector<unsigned> &stride,
-                    const std::vector<unsigned> &paddingLower,
-                    const std::vector<unsigned> &paddingUpper,
-                    unsigned numChannels, const std::string &dType) {
+validateLayerParams(const ConvParams &params) {
 
-  if (paddingLower[0] >= kernelSizeY) {
+  if (params.paddingLower[0] >= params.kernelShape[0]) {
     throw popstd::poplib_error(
       "Lower edge height padding is greater than or equal to the kernel size"
     );
   }
 
-  if (paddingUpper[0] >= kernelSizeY) {
+  if (params.paddingUpper[0] >= params.kernelShape[0]) {
     throw popstd::poplib_error(
       "Upper edge height padding is greater than or equal to the kernel size"
     );
   }
 
-  if (paddingLower[1] >= kernelSizeX) {
+  if (params.paddingLower[1] >= params.kernelShape[1]) {
     throw popstd::poplib_error(
       "Lower edge width padding of width is greater than or equal "
         "to the kernel size"
     );
   }
 
-  if (paddingUpper[1] >= kernelSizeX) {
+  if (params.paddingUpper[1] >= params.kernelShape[1]) {
     throw popstd::poplib_error(
       "Upper edge width padding of width is greater than or equal "
         "to the kernel size"
     );
   }
 
-  if (dType != "half" && dType != "float") {
+  if (params.dType != "half" && params.dType != "float") {
     throw popstd::poplib_error("Unknown element type");
   }
 }

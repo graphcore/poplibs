@@ -52,25 +52,19 @@ struct Plan {
   }
 };
 
-Plan getPlan(const poplar::Graph &graph,
-             std::string dType,
-             unsigned batchSize,
-             unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-             std::vector<std::size_t> weightsShape,
-             std::vector<unsigned> stride,
-             std::vector<unsigned> paddingLower,
-             std::vector<unsigned> paddingUpper,
-             bool isFractional, ConvOptions options);
+Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
+             ConvOptions options);
 
 Plan getWeightUpdatePlan(const poplar::Graph &graph,
                          const poplar::Tensor &activations,
                          const poplar::Tensor &deltas,
-                         std::vector<std::size_t> weightsShape,
-                         std::vector<unsigned> stride,
-                         std::vector<unsigned> paddingLower,
-                         std::vector<unsigned> paddingUpper,
-                         bool isFractional,
+                         const ConvParams &params,
                          ConvOptions options);
+
+ConvParams
+weightUpdateByAmpTransformParams(const ConvParams &params,
+                                 const poplar::DeviceInfo &deviceInfo,
+                                 const Plan &plan);
 
 std::ostream& operator<<(std::ostream &os, const Plan &p);
 

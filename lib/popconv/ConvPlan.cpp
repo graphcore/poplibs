@@ -163,51 +163,28 @@ public:
     mEstimateConvPartialHorizontalMacCycles(
       memoize(estimateConvPartialHorizontalMacCycles)
     ) {}
-  struct Params {
-    std::string dType;
-    std::vector<std::size_t> inShape;
-    std::vector<std::size_t> weightsShape;
-    std::vector<unsigned> stride;
-    std::vector<unsigned> paddingLower;
-    std::vector<unsigned> paddingUpper;
-    bool isFractional;
+  struct Key {
+    ConvParams convParams;
+    ConvOptions options;
     bool isWeightUpdate;
     unsigned actChansPerGroup;
     unsigned deltaChansPerGroup;
-    ConvOptions options;
-    Params(std::string dType,
-           std::vector<std::size_t> inShape,
-           std::vector<std::size_t> weightsShape,
-           std::vector<unsigned> stride,
-           std::vector<unsigned> paddingLower,
-           std::vector<unsigned> paddingUpper,
-           bool isFractional,
-           bool isWeightUpdate, unsigned actChansPerGroup,
-           unsigned deltaChansPerGroup,
-           ConvOptions options) :
-      dType(std::move(dType)),
-      inShape(std::move(inShape)),
-      weightsShape(std::move(weightsShape)),
-      stride(std::move(stride)),
-      paddingLower(std::move(paddingLower)),
-      paddingUpper(std::move(paddingUpper)),
-      isFractional(isFractional),
+    Key(ConvParams params,
+        ConvOptions options,
+        bool isWeightUpdate,
+        unsigned actChansPerGroup,
+        unsigned deltaChansPerGroup) :
+      convParams(std::move(params)),
+      options(std::move(options)),
       isWeightUpdate(isWeightUpdate),
       actChansPerGroup(isWeightUpdate ? actChansPerGroup : 0),
-      deltaChansPerGroup(isWeightUpdate ? deltaChansPerGroup : 0),
-      options(std::move(options)) {}
-    bool operator<(const Params &other) const {
-      return std::tie(dType, inShape, weightsShape, stride,
-                      paddingLower, paddingUpper,
-                      isFractional, isWeightUpdate, options) <
-               std::tie(other.dType, other.inShape, other.weightsShape,
-                        other.stride,
-                        other.paddingLower, other.paddingUpper,
-                        other.isFractional, other.isWeightUpdate,
-                        other.options);
+      deltaChansPerGroup(isWeightUpdate ? deltaChansPerGroup : 0) {}
+    bool operator<(const Key &other) const {
+      return std::tie(convParams, isWeightUpdate, options) <
+               std::tie(other.convParams, other.isWeightUpdate, other.options);
     }
   };
-  std::map<Params, std::unique_ptr<Plan>> plans;
+  std::map<Key, std::unique_ptr<Plan>> plans;
 };
 
 PlanningCache::PlanningCache() {
@@ -275,70 +252,6 @@ bool compareCost(Cost a, Cost b, CostBounds bounds) {
 static Cost highestCost(std::numeric_limits<unsigned>::max(),
                         std::numeric_limits<unsigned>::max());
 
-struct ConvolutionParams {
-  unsigned kernelSizeY;
-  unsigned kernelSizeX;
-  unsigned strideY;
-  unsigned strideX;
-  unsigned inputDepth;
-  unsigned inputWidth;
-  unsigned inputHeight;
-  unsigned paddingYLower;
-  unsigned paddingYUpper;
-  unsigned paddingXLower;
-  unsigned paddingXUpper;
-  unsigned outputDepth;
-  unsigned batchSize;
-  bool isFractional;
-  bool isWeightUpdate;
-  unsigned getOutputWidth() const {
-    if (isFractional) {
-      return (inputWidth * strideX + kernelSizeX - 1) -
-              (paddingXLower + paddingXUpper);
-    }
-    return absdiff(inputWidth + paddingXLower + paddingXUpper, kernelSizeX) /
-                   strideX + 1;
-  }
-  unsigned getOutputHeight() const {
-    if (isFractional)
-      return (inputHeight * strideY + kernelSizeY - 1) -
-              (paddingYLower + paddingYUpper);
-    return absdiff(inputHeight + paddingYLower + paddingYUpper, kernelSizeY) /
-                   strideY + 1;
-  }
-  ConvolutionParams() = default;
-  ConvolutionParams(unsigned kernelSizeY,
-                    unsigned kernelSizeX,
-                    unsigned strideY,
-                    unsigned strideX,
-                    unsigned inputDepth,
-                    unsigned inputWidth,
-                    unsigned inputHeight,
-                    unsigned paddingYLower,
-                    unsigned paddingYUpper,
-                    unsigned paddingXLower,
-                    unsigned paddingXUpper,
-                    unsigned outputDepth,
-                    unsigned batchSize,
-                    bool isFractional,
-                    bool isWeightUpdate) :
-    kernelSizeY(kernelSizeY),
-    kernelSizeX(kernelSizeX),
-    strideY(strideY),
-    strideX(strideX),
-    inputDepth(inputDepth),
-    inputWidth(inputWidth),
-    inputHeight(inputHeight),
-    paddingYLower(paddingYLower),
-    paddingYUpper(paddingYUpper),
-    paddingXLower(paddingXLower),
-    paddingXUpper(paddingXUpper),
-    outputDepth(outputDepth),
-    batchSize(batchSize),
-    isFractional(isFractional),
-    isWeightUpdate(isWeightUpdate) {}
-};
-
 static unsigned
 getConvUnitsPerTile(const poplar::DeviceInfo &deviceInfo,
                     bool floatActivations, bool floatPartials) {
@@ -388,32 +301,32 @@ canUseConvolutionInstruction(bool floatActivations, bool floatPartials,
 }
 
 static unsigned
-getMaxInputRangeSize(unsigned outputRangeSize, unsigned stride,
-                     unsigned kernelSize, unsigned paddingLower,
-                     unsigned paddingUpper, unsigned tileKernelSize,
+getMaxInputRangeSize(unsigned outputRangeSize, unsigned dim,
+                     const ConvParams &params,
+                     unsigned tileKernelSize,
                      unsigned numPartitions,
-                     unsigned inputSize, bool contiguousAccess,
-                     bool isFractional, bool isWeightUpdate) {
+                     bool contiguousAccess,
+                     bool isWeightUpdate)  {
   if (outputRangeSize == 0)
     return 0;
   unsigned inputRangeSize;
-
+  const auto kernelSize = params.kernelShape[dim];
+  const auto stride = params.stride[dim];
   // If the number of partitions is small the input range is guaranteed
   // to contain padding.
   switch (numPartitions) {
   case 1:
   case 2:
     {
-      auto inputRange = getInputRange({0, outputRangeSize}, stride,
-                                      kernelSize, paddingLower, paddingUpper,
-                                      inputSize,
-                                      {kernelSize - tileKernelSize, kernelSize},
-                                      isFractional);
+      auto inputRange = getInputRange(dim, {0, outputRangeSize},
+                                      {kernelSize - tileKernelSize,
+                                       kernelSize},
+                                      params);
       inputRangeSize = inputRange.second - inputRange.first;
     }
     break;
   default:
-    if (!isFractional) {
+    if (!params.isFractional) {
       inputRangeSize = (outputRangeSize - 1) * stride + 1 +
                        (tileKernelSize - 1);
     } else {
@@ -421,7 +334,7 @@ getMaxInputRangeSize(unsigned outputRangeSize, unsigned stride,
     }
     break;
   }
-  if (!isFractional && !isWeightUpdate &&
+  if (!params.isFractional && !isWeightUpdate &&
       !contiguousAccess && tileKernelSize == 1 && stride > 1) {
     inputRangeSize = (inputRangeSize - 1) / stride + 1;
   }
@@ -474,7 +387,8 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
 
 static unsigned
 estimateExchangeCycles(const poplar::DeviceInfo &deviceInfo,
-                       bool floatActivations, const ConvolutionParams &params,
+                       bool floatActivations,
+                       const ConvParams &params, bool isWeightUpdate,
                        const Plan &plan) {
   const auto tilesPerX = plan.tilesPerXAxis;
   const auto tilesPerY = plan.tilesPerYAxis;
@@ -483,34 +397,34 @@ estimateExchangeCycles(const poplar::DeviceInfo &deviceInfo,
   const auto tilesPerInZGroupAxis = plan.tilesPerInZGroupAxis;
   const auto inChansPerGroup = plan.inChansPerGroup;
   const auto partialChansPerGroup = plan.partialChansPerGroup;
-
-  const auto tileKernelHeight = (params.kernelSizeY + tilesPerKernelYAxis - 1) /
+  const auto kernelSizeX = params.kernelShape[1];
+  const auto tileKernelHeight = (kernelSizeX + tilesPerKernelYAxis - 1) /
                                 tilesPerKernelYAxis;
-  const auto tileKernelWidth = params.kernelSizeX;
+  const auto tileKernelWidth =kernelSizeX;
   const auto tileOutWidth =
       (params.getOutputWidth() + tilesPerX - 1) / tilesPerX;
   const auto tileOutHeight =
       (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
+  const auto outputDepth = params.kernelShape[2];
   const auto numOutGroups =
-      (params.outputDepth + (partialChansPerGroup - 1)) / partialChansPerGroup;
+      (outputDepth + (partialChansPerGroup - 1)) / partialChansPerGroup;
   const auto tileNumOutGroups =
       (numOutGroups + tilesPerZ - 1) / tilesPerZ;
   const auto tileOutDepth = tileNumOutGroups * partialChansPerGroup;
+  const auto inputDepth = params.inputShape[3];
   const auto numInGroups =
-      (params.inputDepth + (inChansPerGroup - 1)) / inChansPerGroup;
+      (inputDepth + (inChansPerGroup - 1)) / inChansPerGroup;
   const auto tileNumInGroups =
       (numInGroups + tilesPerInZGroupAxis - 1) / tilesPerInZGroupAxis;
   const auto tileInDepth = tileNumInGroups * inChansPerGroup;
   const auto tileInWidth =
-      getMaxInputRangeSize(tileOutWidth, params.strideX, params.kernelSizeX,
-                           params.paddingXLower, params.paddingXUpper,
-                           tileKernelWidth, tilesPerX, params.inputWidth, true,
-                           params.isFractional, params.isWeightUpdate);
+      getMaxInputRangeSize(tileOutWidth, 1, params,
+                           tileKernelWidth, tilesPerX,
+                           true, isWeightUpdate);
   const auto tileInHeight =
-      getMaxInputRangeSize(tileOutHeight, params.strideY, params.kernelSizeY,
-                           params.paddingYLower, params.paddingYUpper,
-                           tileKernelHeight, tilesPerY, params.inputWidth,
-                           false, params.isFractional, params.isWeightUpdate);
+      getMaxInputRangeSize(tileOutHeight, 0, params,
+                           tileKernelHeight, tilesPerY,
+                           false, isWeightUpdate);
   const auto numberOfInputElements = tileInWidth * tileInHeight * tileInDepth;
   const auto numberOfWeights =
       tileKernelHeight * tileKernelWidth * tileOutDepth * tileInDepth;
@@ -522,7 +436,7 @@ estimateExchangeCycles(const poplar::DeviceInfo &deviceInfo,
   auto weightBytes = numberOfWeights * activationSize;
   unsigned partialSumBytes;
   const auto partialSize = plan.floatPartials ? 4 : 2;
-  if (params.isWeightUpdate) {
+  if (isWeightUpdate) {
     const auto deltaElementBytes = numberOfOutputElements * activationSize;
     inputElementsBytes += deltaElementBytes;
     partialSumBytes = numberOfWeights * partialSize;
@@ -551,7 +465,7 @@ estimateExchangeCycles(const poplar::DeviceInfo &deviceInfo,
 static unsigned
 estimateWeightUpdatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
                                       bool floatActivations,
-                                      const ConvolutionParams &params,
+                                      const ConvParams &params,
                                       const Plan &plan) {
   assert(params.isWeightUpdate);
   assert(!plan.useConvolutionInstructions);
@@ -561,11 +475,12 @@ estimateWeightUpdatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
   const auto inChansPerGroup = plan.inChansPerGroup;
   const auto tilesPerKernelYAxis = plan.tilesPerKernelYAxis;
   const auto floatPartials = plan.floatPartials;
-
+  const auto outputDepth = params.kernelShape[2];
+  const auto inputDepth = params.inputShape[3];
   const auto numOutGroups =
-      (params.outputDepth + (outChansPerGroup - 1)) / outChansPerGroup;
+      (outputDepth + (outChansPerGroup - 1)) / outChansPerGroup;
   const auto numInGroups =
-      (params.inputDepth + (inChansPerGroup - 1)) / inChansPerGroup;
+      (inputDepth + (inChansPerGroup - 1)) / inChansPerGroup;
 
   const auto tileNumOutGroups =
       (numOutGroups + tilesPerZ - 1) / tilesPerZ;
@@ -582,9 +497,9 @@ estimateWeightUpdatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
 
   const auto numWorkerContexts = deviceInfo.numWorkerContexts;
   const auto dataPathWidth = deviceInfo.dataPathWidth;
-  const auto tileKernelHeight = (params.kernelSizeY + tilesPerKernelYAxis - 1) /
-                                tilesPerKernelYAxis;
-  const auto tileKernelWidth = params.kernelSizeX;
+  const auto tileKernelHeight =
+      (params.kernelShape[0] + tilesPerKernelYAxis - 1) / tilesPerKernelYAxis;
+  const auto tileKernelWidth = params.kernelShape[1];
   unsigned tasks = tileKernelHeight * tileKernelWidth *
                    tileNumOutGroups * tileNumInGroups;
   unsigned maxTasksPerVertex =
@@ -609,7 +524,7 @@ estimateWeightUpdatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
 static unsigned
 estimateWeightUpdatePartialCalcMemory(const poplar::DeviceInfo &deviceInfo,
                                       bool floatActivations,
-                                      const ConvolutionParams &params,
+                                      const ConvParams &params,
                                       const Plan &plan) {
   return 0;
 }
@@ -617,9 +532,9 @@ estimateWeightUpdatePartialCalcMemory(const poplar::DeviceInfo &deviceInfo,
 static unsigned
 estimatePartialCalcMemory(const poplar::DeviceInfo &deviceInfo,
                           bool floatActivations,
-                          const ConvolutionParams &params,
+                          const ConvParams &params, bool isWeightUpdate,
                           const Plan &plan) {
-  if (params.isWeightUpdate) {
+  if (isWeightUpdate) {
     return estimateWeightUpdatePartialCalcMemory(deviceInfo, floatActivations,
                                                  params, plan);
   }
@@ -643,9 +558,9 @@ estimatePartialCalcMemory(const poplar::DeviceInfo &deviceInfo,
   const auto tileOutHeight =
       (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
   const auto numOutGroups =
-      (params.outputDepth + (outChansPerGroup - 1)) / outChansPerGroup;
+      (params.getOutputDepth() + (outChansPerGroup - 1)) / outChansPerGroup;
   const auto numInGroups =
-      (params.inputDepth + (inChansPerGroup - 1)) / inChansPerGroup;
+      (params.getInputDepth() + (inChansPerGroup - 1)) / inChansPerGroup;
 
   const auto tileNumOutGroups =
       (numOutGroups + tilesPerZ - 1) / tilesPerZ;
@@ -669,8 +584,8 @@ estimatePartialCalcMemory(const poplar::DeviceInfo &deviceInfo,
   }
 
   useConvPartial1x1OutVertex =
-      params.kernelSizeX == 1 && params.kernelSizeY == 1
-      && (params.strideX == 1 && params.strideY == 1);
+      params.kernelShape[0] == 1 && params.kernelShape[1] == 1
+      && (params.stride[0] == 1 && params.stride[1] == 1);
 
   if (useConvPartial1x1OutVertex) {
     vertexFields += 4;
@@ -679,8 +594,8 @@ estimatePartialCalcMemory(const poplar::DeviceInfo &deviceInfo,
   } else if (plan.useConvolutionInstructions) {
     vertexFields += 4;
     const unsigned numWeights =
-          tileNumInGroups * params.kernelSizeX
-          * ((params.kernelSizeY + convUnitWeightHeight - 1)
+          tileNumInGroups * params.kernelShape[1]
+          * ((params.kernelShape[0] + convUnitWeightHeight - 1)
              /convUnitWeightHeight);
     const unsigned numConvolutions = numWeights * tileOutHeight;
 
@@ -695,12 +610,12 @@ estimatePartialCalcMemory(const poplar::DeviceInfo &deviceInfo,
   tensorMemory += plan.tilesPerInZGroupAxis
                   * params.getOutputHeight()
                   * params.getOutputWidth()
-                  * params.outputDepth
+                  * params.getOutputDepth()
                   * (plan.floatPartials ? 4 : 2);
 
   const auto bytesPerVertexElem = 4;
-  assert(params.batchSize % plan.batchesPerGroup == 0);
-  const auto numBatchGroups = params.batchSize / plan.batchesPerGroup;
+  assert(params.getBatchSize() % plan.batchesPerGroup == 0);
+  const auto numBatchGroups = params.getBatchSize() / plan.batchesPerGroup;
   const auto vertexMemory = tilesUsedPerBatchGroup * numBatchGroups
                             * tileVertices * vertexFields
                             * bytesPerVertexElem;
@@ -751,10 +666,10 @@ estimateConvPartialHorizontalMacCycles(unsigned tileNumInGroups,
 static unsigned
 estimatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
                           bool floatActivations,
-                          const ConvolutionParams &params,
+                          const ConvParams &params, bool isWeightUpdate,
                           const Plan &plan,
                           PlanningCacheImpl *cache) {
-  if (params.isWeightUpdate) {
+  if (isWeightUpdate) {
     return
       estimateWeightUpdatePartialCalcCycles(deviceInfo, floatActivations,
                                             params, plan);
@@ -772,7 +687,7 @@ estimatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
   const auto tileOutHeight =
       (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
   const auto numOutGroups =
-      (params.outputDepth + (outChansPerGroup - 1)) / outChansPerGroup;
+      (params.getOutputDepth() + (outChansPerGroup - 1)) / outChansPerGroup;
 
   const auto tileNumOutGroups =
       (numOutGroups + tilesPerZ - 1) / tilesPerZ;
@@ -784,15 +699,16 @@ estimatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
     numContexts = 1;
   }
   const auto numInGroups =
-      (params.inputDepth + (inChansPerGroup - 1)) / inChansPerGroup;
+      (params.getInputDepth() + (inChansPerGroup - 1)) / inChansPerGroup;
   const auto tileNumInGroups =
       (numInGroups + tilesPerInZGroupAxis - 1) / tilesPerInZGroupAxis;
 
-  const auto outputStrideY = params.isFractional ? params.strideY : 1;
+  const auto outputStrideY = params.isFractional ? params.stride[0] : 1;
 
   const auto tileKernelHeight =
-      (params.kernelSizeY + tilesPerKernelYAxis - 1) / tilesPerKernelYAxis;
-  const auto tileKernelWidth = params.kernelSizeX;
+      (params.kernelShape[0] + tilesPerKernelYAxis - 1) /
+          tilesPerKernelYAxis;
+  const auto tileKernelWidth = params.kernelShape[1];
   unsigned computeCycles;
   if (plan.useConvolutionInstructions) {
     assert(deviceInfo.getWeightsPerConvUnit(floatActivations) %
@@ -818,8 +734,10 @@ estimatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
           deviceInfo.convUnitCoeffLoadBytesPerCycle, outputStrideY,
           convUnitWeightHeight);
   } else {
-    const auto outputStrideX = params.isFractional ? params.strideX : 1;
-    const auto outputStrideY = params.isFractional ? params.strideY : 1;
+    const auto outputStrideX = params.isFractional ? params.stride[1]
+                                                       : 1;
+    const auto outputStrideY = params.isFractional ? params.stride[0]
+                                                       : 1;
     const auto numOutRows = tileNumOutGroups *
                             (tileOutHeight + outputStrideY - 1) / outputStrideY;
     auto vertexRuntime =
@@ -850,17 +768,19 @@ static unsigned calcNumUsableTiles(
 }
 
 static unsigned estimateReduceMemory(const poplar::DeviceInfo &deviceInfo,
-                                     const ConvolutionParams &params,
+                                     const ConvParams &params,
+                                     bool isWeightUpdate,
                                      const Plan &plan) {
   unsigned vertexFields = 0;
   unsigned edgePtrsPerVertex = 0;
 
   unsigned numTiles;
-  if (params.isWeightUpdate) {
+  if (isWeightUpdate) {
     assert(plan.batchesPerGroup == 1);
     numTiles = deviceInfo.getNumTiles();
   } else {
-    const auto numBatchGroups = params.batchSize / plan.batchesPerGroup;
+    const auto numBatchGroups =
+        params.getBatchSize() / plan.batchesPerGroup;
     numTiles = calcNumUsableTiles(deviceInfo.getNumTiles(), numBatchGroups);
   }
 
@@ -871,7 +791,7 @@ static unsigned estimateReduceMemory(const poplar::DeviceInfo &deviceInfo,
   const auto batchesPerGroup = plan.batchesPerGroup;
 
   const auto numOutGroups =
-    (params.outputDepth + (outChansPerGroup - 1)) / outChansPerGroup;
+    (params.getOutputDepth() + (outChansPerGroup - 1)) / outChansPerGroup;
 
   const auto tileOutHeight =
     (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
@@ -879,8 +799,8 @@ static unsigned estimateReduceMemory(const poplar::DeviceInfo &deviceInfo,
   const auto tileNumOutGroups =
      (numOutGroups + tilesPerZ - 1) / tilesPerZ;
 
-  assert(params.batchSize % batchesPerGroup == 0);
-  const auto numBatchGroups = params.batchSize / batchesPerGroup;
+  assert(params.getBatchSize() % batchesPerGroup == 0);
+  const auto numBatchGroups = params.getBatchSize() / batchesPerGroup;
 
   vertexFields += 2;
 
@@ -913,7 +833,7 @@ static unsigned estimateReduceMemory(const poplar::DeviceInfo &deviceInfo,
 
 static unsigned
 estimateReduceCycles(const poplar::DeviceInfo &deviceInfo,
-                          const ConvolutionParams &params,
+                          const ConvParams &params, bool isWeightUpdate,
                           const Plan &plan) {
   if (plan.tilesPerInZGroupAxis == 1 &&
       plan.tilesPerKernelYAxis == 1)
@@ -926,20 +846,23 @@ estimateReduceCycles(const poplar::DeviceInfo &deviceInfo,
    */
   unsigned numPartialSumsPerTile;
   unsigned numTiles;
-  if (params.isWeightUpdate) {
+  if (isWeightUpdate) {
     assert(plan.batchesPerGroup == 1);
     numTiles = deviceInfo.getNumTiles();
-    const auto numOutputs = params.outputDepth * params.inputDepth *
-                            params.kernelSizeY * params.kernelSizeX;
+    const auto numOutputs = params.getOutputDepth() *
+                            params.getInputDepth() *
+                            params.kernelShape[0] *
+                            params.kernelShape[1];
     const auto numOutputsPerTile = (numOutputs + numTiles - 1) / numTiles;
     numPartialSumsPerTile = numOutputsPerTile * plan.tilesPerYAxis *
-                            plan.tilesPerXAxis * params.batchSize;
+                            plan.tilesPerXAxis * params.getBatchSize();
   } else {
-    const auto numBatchGroups = params.batchSize / plan.batchesPerGroup;
+    const auto numBatchGroups =
+        params.getBatchSize() / plan.batchesPerGroup;
     numTiles = calcNumUsableTiles(deviceInfo.getNumTiles(), numBatchGroups);
     const auto numOutputs = params.getOutputHeight() *
                             params.getOutputWidth() *
-                            params.outputDepth;
+                            params.getOutputDepth();
     const auto numOutputsPerTile = (numOutputs + numTiles - 1) / numTiles;
     numPartialSumsPerTile = numOutputsPerTile * plan.tilesPerInZGroupAxis *
                             plan.tilesPerKernelYAxis;
@@ -955,21 +878,21 @@ estimateReduceCycles(const poplar::DeviceInfo &deviceInfo,
 static Cost
 estimateWeightUpdateByAmpReorderCost(const poplar::DeviceInfo &deviceInfo,
                                      bool floatActivations,
-                                     const ConvolutionParams &reorderedParams,
+                                     const ConvParams &reorderedParams,
                                      const Plan &plan) {
   const auto numTiles = deviceInfo.getNumTiles();
-  const auto numInElements = reorderedParams.batchSize *
-                             reorderedParams.inputDepth *
-                             reorderedParams.inputHeight *
-                             reorderedParams.inputWidth;
-  const auto numOutElements = reorderedParams.batchSize *
-                              reorderedParams.outputDepth *
+  const auto numInElements = reorderedParams.getBatchSize() *
+                             reorderedParams.getInputDepth() *
+                             reorderedParams.getInputHeight() *
+                             reorderedParams.getInputWidth();
+  const auto numOutElements = reorderedParams.getBatchSize() *
+                              reorderedParams.getOutputDepth() *
                               reorderedParams.getOutputHeight() *
                               reorderedParams.getOutputWidth();
-  const auto numCoefficients = reorderedParams.kernelSizeY *
-                               reorderedParams.kernelSizeX *
-                               reorderedParams.inputDepth *
-                               reorderedParams.outputDepth;
+  const auto numCoefficients = reorderedParams.kernelShape[0] *
+                               reorderedParams.kernelShape[1] *
+                               reorderedParams.getInputDepth() *
+                               reorderedParams.getOutputDepth();
   const auto bytesPerElement = floatActivations ? 4U : 2U;
   const auto reorderBytesPerCycle =
       std::min(deviceInfo.memcpyBytesPerCycle, bytesPerElement);
@@ -1003,19 +926,113 @@ estimateWeightUpdateByAmpReorderCost(const poplar::DeviceInfo &deviceInfo,
   return {cycles, 0};
 }
 
+ConvParams
+weightUpdateByAmpTransformParams(const ConvParams &params,
+                                 const poplar::DeviceInfo &deviceInfo,
+                                 const Plan &plan) {
+  bool floatActivations = params.dType == "float";
+  ConvParams newParams;
+  unsigned expandedFieldWidth;
+  unsigned expandedActivationsHeight;
+  unsigned expandedDeltasHeight;
+  unsigned expandedActivationsPaddingYLower;
+  unsigned expandedActivationsPaddingYUpper;
+  unsigned expandedInputDepth;
+  unsigned expandedDeltasUpsampleFactorY;
+  if (plan.flattenXY) {
+    expandedFieldWidth =
+       params.getBatchSize() * params.getOutputHeight() *
+                                   params.getOutputWidth();
+    expandedActivationsHeight = 1;
+    expandedDeltasHeight = 1;
+    expandedActivationsPaddingYLower = 0;
+    expandedActivationsPaddingYUpper = 0;
+    expandedInputDepth =
+        params.getInputDepth() * params.kernelShape[0] *
+                                 params.kernelShape[1];
+    expandedDeltasUpsampleFactorY = 1;
+  } else {
+    expandedFieldWidth = params.getBatchSize() *
+                         params.getOutputWidth();
+    expandedActivationsHeight = params.getInputHeight();
+    expandedDeltasHeight = params.getOutputHeight();
+    expandedActivationsPaddingYLower = params.paddingLower[0];
+    expandedActivationsPaddingYUpper = params.paddingUpper[0];
+    expandedInputDepth =
+        params.getInputDepth() * params.kernelShape[1];
+    expandedDeltasUpsampleFactorY = params.stride[0];
+  }
+  const auto fieldGroupSize =
+      deviceInfo.getWeightsPerConvUnit(floatActivations);
+  const auto paddedFieldWidth =
+      ((expandedFieldWidth + fieldGroupSize - 1) / fieldGroupSize) *
+      fieldGroupSize;
+  const auto partialChansPerGroup = plan.partialChansPerGroup;
+  switch (plan.ampWUMethod) {
+  case Plan::DELTAS_AS_COEFFICENTS:
+    {
+
+      // weight update x-axis: fwd in chans
+      // weight update y-axis: fwd y-axis
+      // weight update in chans: fwd x-axis
+      // weight update out chans: fwd out chans
+      const auto paddedOutputDepth =
+          ((params.getOutputDepth() + partialChansPerGroup - 1) /
+           partialChansPerGroup) * partialChansPerGroup;
+      newParams = ConvParams(params.dType,
+                    {1, expandedActivationsHeight,  expandedInputDepth,
+                     paddedFieldWidth}, /* inputShape */
+                    {expandedDeltasHeight, 1,
+                     paddedOutputDepth,
+                     paddedFieldWidth }, /* kernelShape */
+                    {1, 1}, /* stride */
+                    {expandedActivationsPaddingYLower, 0},
+                    {expandedActivationsPaddingYUpper, 0},
+                    false);
+    }
+    break;
+  case Plan::ACTIVATIONS_AS_COEFFICENTS:
+    {
+      // weight update x-axis: fwd out chans
+      // weight update y-axis: fwd y-axis
+      // weight update in chans: fwd x-axis
+      // weight update out chans: fwd in chans
+      const auto isFractional = expandedDeltasUpsampleFactorY > 1;
+      const auto paddedExpandedInputDepth =
+          ((expandedInputDepth + partialChansPerGroup - 1) /
+           partialChansPerGroup) * partialChansPerGroup;
+      newParams = ConvParams(params.dType,
+                    {1, expandedDeltasHeight,
+                     params.getOutputDepth(),
+                     paddedFieldWidth}, // inputShape
+                    {expandedActivationsHeight +
+                     expandedActivationsPaddingYLower +
+                     expandedActivationsPaddingYUpper,
+                     1,
+                     paddedExpandedInputDepth,
+                     paddedFieldWidth}, // kernelShape
+                     {expandedDeltasUpsampleFactorY, 1}, // stride,
+                     {0, 0}, // paddingLower
+                     {0, 0}, // paddingUpper,
+                     isFractional);
+    }
+    break;
+  }
+  return newParams;
+}
+
 static std::pair<Plan, Cost>
 choosePlan(const poplar::DeviceInfo &deviceInfo,
            unsigned inChansPerGroup,
            unsigned partialChansPerGroup,
            const ConvVertexType &convVertexType,
-           const ConvolutionParams &params,
+           const ConvParams &params, bool isWeightUpdate,
            const unsigned batchesPerGroup,
            const CostBounds costBounds,
            PlanningCacheImpl *cache,
            const ConvOptions &options) {
   const auto floatActivations = convVertexType.floatActivations;
-  if (convVertexType.useConvInstruction &&
-      params.isWeightUpdate) {
+  if (convVertexType.useConvInstruction && isWeightUpdate) {
     assert(inChansPerGroup ==
            deviceInfo.getWeightsPerConvUnit(floatActivations));
     // Implementing weight update directly as a convolution is typically
@@ -1037,113 +1054,27 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
     for (bool flattenXY : {false, true}) {
       for (Plan::AmpWUMethod method : {Plan::DELTAS_AS_COEFFICENTS,
                                        Plan::ACTIVATIONS_AS_COEFFICENTS}) {
-        unsigned expandedFieldWidth;
-        unsigned expandedActivationsHeight;
-        unsigned expandedDeltasHeight;
-        unsigned expandedActivationsPaddingYLower;
-        unsigned expandedActivationsPaddingYUpper;
-        unsigned expandedInputDepth;
-        unsigned expandedDeltasUpsampleFactorY;
-        if (flattenXY) {
-          expandedFieldWidth =
-              params.batchSize * params.getOutputHeight() *
-                                 params.getOutputWidth();
-          expandedActivationsHeight = 1;
-          expandedDeltasHeight = 1;
-          expandedActivationsPaddingYLower = 0;
-          expandedActivationsPaddingYUpper = 0;
-          expandedInputDepth =
-              params.inputDepth * params.kernelSizeX * params.kernelSizeY;
-          expandedDeltasUpsampleFactorY = 1;
-        } else {
-          expandedFieldWidth = params.batchSize * params.getOutputWidth();
-          expandedActivationsHeight = params.inputHeight;
-          expandedDeltasHeight = params.getOutputHeight();
-          expandedActivationsPaddingYLower = params.paddingYLower;
-          expandedActivationsPaddingYUpper = params.paddingYUpper;
-          expandedInputDepth =
-              params.inputDepth * params.kernelSizeX;
-          expandedDeltasUpsampleFactorY = params.strideY;
-        }
-        const auto fieldGroupSize =
-            deviceInfo.getWeightsPerConvUnit(floatActivations);
-        const auto paddedFieldWidth =
-            ((expandedFieldWidth + fieldGroupSize - 1) / fieldGroupSize) *
-            fieldGroupSize;
-        ConvolutionParams newParams;
-        switch (method) {
-        case Plan::DELTAS_AS_COEFFICENTS:
-          {
-            // There is currently no support for dilated convolutions.
-            // TODO add support for this.
-            if (expandedDeltasUpsampleFactorY != 1) {
-              continue;
-            }
-            // weight update x-axis: fwd in chans
-            // weight update y-axis: fwd y-axis
-            // weight update in chans: fwd x-axis
-            // weight update out chans: fwd out chans
-            const auto paddedOutputDepth =
-                ((params.outputDepth + partialChansPerGroup - 1) /
-                 partialChansPerGroup) * partialChansPerGroup;
-            newParams = ConvolutionParams(
-                          expandedDeltasHeight /* kernelSizeY */,
-                          1 /* kernelSizeX */,
-                          1,
-                          1,
-                          paddedFieldWidth,
-                          expandedInputDepth,
-                          expandedActivationsHeight,
-                          expandedActivationsPaddingYLower /*paddingYLower*/,
-                          expandedActivationsPaddingYUpper /*paddingYUpper*/,
-                          0 /*paddingXLower*/,
-                          0 /*paddingXUpper*/,
-                          paddedOutputDepth,
-                          1, false, false
-                        );
-          }
-          break;
-        case Plan::ACTIVATIONS_AS_COEFFICENTS:
-          {
-            // weight update x-axis: fwd out chans
-            // weight update y-axis: fwd y-axis
-            // weight update in chans: fwd x-axis
-            // weight update out chans: fwd in chans
-            const auto isFractional = expandedDeltasUpsampleFactorY > 1;
-            const auto paddedExpandedInputDepth =
-                ((expandedInputDepth + partialChansPerGroup - 1) /
-                 partialChansPerGroup) * partialChansPerGroup;
-            newParams = ConvolutionParams(
-                          /* kernelSizeY */
-                          expandedActivationsHeight +
-                          expandedActivationsPaddingYLower +
-                          expandedActivationsPaddingYUpper,
-                          1 /* kernelSizeX */,
-                          expandedDeltasUpsampleFactorY,
-                          1,
-                          paddedFieldWidth,
-                          params.outputDepth,
-                          expandedDeltasHeight,
-                          0 /*paddingYLower*/,
-                          0 /*paddingYUpper*/,
-                          0 /*paddingXLower*/,
-                          0 /*paddingXUpper*/,
-                          paddedExpandedInputDepth,
-                          1, isFractional, false
-                        );
-          }
-          break;
-        }
         Plan plan;
+        plan.flattenXY = flattenXY;
+        plan.ampWUMethod = method;
+        plan.partialChansPerGroup = partialChansPerGroup;
+        // There is currently no support for dilated convolutions.
+        // TODO add support for this.
+        if (!plan.flattenXY && params.stride[0] != 1) {
+          continue;
+        }
+        auto newParams =
+            weightUpdateByAmpTransformParams(params, deviceInfo, plan);
         Cost cost;
         std::tie(plan, cost) = choosePlan(deviceInfo,
                                           inChansPerGroup,
                                           partialChansPerGroup,
-                                          convVertexType, newParams,
+                                          convVertexType, newParams, false,
                                           1, costBounds, cache,
                                           options);
         plan.flattenXY = flattenXY;
         plan.ampWUMethod = method;
+        plan.partialChansPerGroup = partialChansPerGroup;
         cost += estimateWeightUpdateByAmpReorderCost(deviceInfo,
                                                      floatActivations,
                                                      newParams,
@@ -1172,16 +1103,17 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
   // TODO investigate the alternative strategy outlined above.
   using namespace popsolver;
   Model m;
-  const auto numBatchGroups = params.batchSize / batchesPerGroup;
+  const auto numBatchGroups = params.getBatchSize() / batchesPerGroup;
   const auto numTiles = calcNumUsableTiles(deviceInfo.getNumTiles(),
                                            numBatchGroups);
   const auto tilesPerX = m.addVariable(1, params.getOutputWidth());
   const auto tilesPerY = m.addVariable(1, params.getOutputHeight());
-  const auto outChanGroups = (params.outputDepth + partialChansPerGroup - 1) /
-                             partialChansPerGroup;
+  const auto outChanGroups =
+      (params.getOutputDepth() + partialChansPerGroup - 1) /
+           partialChansPerGroup;
   const auto tilesPerZ = m.addVariable(1, outChanGroups);
-  const auto tilesPerKernelY = m.addVariable(1, params.kernelSizeY);
-  const auto inChanGroups = (params.inputDepth + inChansPerGroup - 1) /
+  const auto tilesPerKernelY = m.addVariable(1, params.kernelShape[0]);
+  const auto inChanGroups = (params.getInputDepth() + inChansPerGroup - 1) /
                              inChansPerGroup;
   const auto tilesPerInZ = m.addVariable(1, inChanGroups);
   const auto usedTiles = m.product({tilesPerX, tilesPerY, tilesPerZ,
@@ -1202,6 +1134,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                    convVertexType.floatPartials,
                    convVertexType.useConvInstruction);
     return estimateExchangeCycles(deviceInfo, floatActivations, params,
+                                  isWeightUpdate,
                                   candidate);
   });
   const auto partialCalcCycles =
@@ -1219,7 +1152,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                    convVertexType.floatPartials,
                    convVertexType.useConvInstruction);
     return estimatePartialCalcCycles(deviceInfo, floatActivations, params,
-                                     candidate, cache);
+                                     isWeightUpdate, candidate, cache);
   });
   const auto reduceCycles =
       m.call({tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY, tilesPerInZ},
@@ -1235,7 +1168,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                    batchesPerGroup,
                    convVertexType.floatPartials,
                    convVertexType.useConvInstruction);
-    return estimateReduceCycles(deviceInfo, params, candidate);
+    return estimateReduceCycles(deviceInfo, params, isWeightUpdate, candidate);
   });
   const auto cycles = m.sum({exchangeCycles, partialCalcCycles, reduceCycles});
   const auto partialCalcMemory =
@@ -1253,7 +1186,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                    convVertexType.floatPartials,
                    convVertexType.useConvInstruction);
     return estimatePartialCalcMemory(deviceInfo, floatActivations, params,
-                                     candidate);
+                                     isWeightUpdate, candidate);
   });
   const auto reduceMemory =
       m.call({tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY, tilesPerInZ},
@@ -1269,7 +1202,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                    batchesPerGroup,
                    convVertexType.floatPartials,
                    convVertexType.useConvInstruction);
-    return estimateReduceMemory(deviceInfo, params, candidate);
+    return estimateReduceMemory(deviceInfo, params, isWeightUpdate, candidate);
   });
   const auto memory = m.sum({partialCalcMemory, reduceMemory});
   if (costBounds.cycles > 0) {
@@ -1302,21 +1235,21 @@ static std::vector<ConvVertexType>
 getConvVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
                             bool floatActivations,
                             bool floatPartials,
-                            const ConvolutionParams &params) {
+                            const ConvParams &params) {
   std::vector<ConvVertexType> convVertexTypeCandidates;
   // We limit the use of the convolution instruction to cases where the number
   // of output channels is a multiple of the output channel grouping that would
   // be used.
   if (canUseConvolutionInstruction(floatActivations, floatPartials,
-                                   params.strideY, params.strideX,
+                                   params.stride[0], params.stride[1],
                                    deviceInfo)) {
     convVertexTypeCandidates.emplace_back(true, floatActivations,
                                           floatPartials);
   } else if (!floatActivations && !floatPartials &&
              canUseConvolutionInstruction(false, true,
-                                          params.strideY, params.strideX,
+                                          params.stride[0], params.stride[1],
                                           deviceInfo) &&
-             params.outputDepth %
+             params.getOutputDepth() %
              deviceInfo.fp16InFp32OutConvUnitsPerTile == 0) {
     convVertexTypeCandidates.emplace_back(true, false, true);
   }
@@ -1328,7 +1261,6 @@ static std::vector<ConvVertexType>
 getWeightUpdateVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
                                     bool floatActivations,
                                     bool floatPartials,
-                                    const ConvolutionParams &params,
                                     const ConvOptions &options) {
   std::vector<ConvVertexType> convVertexTypeCandidates;
   if (options.weightUpdateMethod == WeightUpdateMethod::AMP ||
@@ -1350,19 +1282,19 @@ getWeightUpdateVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
 }
 
 static std::vector<unsigned>
-getInChansPerGroupCandidates(const ConvolutionParams &params,
+getInChansPerGroupCandidates(const ConvParams &params,
                              const ConvVertexType &convVertexType,
                              const poplar::DeviceInfo &deviceInfo) {
   std::vector<unsigned> candidates;
-  for (unsigned i = 1; i <= params.inputDepth; ++i) {
-    if (params.inputDepth % i != 0)
+  for (unsigned i = 1; i <= params.getInputDepth(); ++i) {
+    if (params.getInputDepth() % i != 0)
       continue;
     if (!convVertexType.floatActivations && i % 2 != 0)
       continue;
     if (convVertexType.useConvInstruction &&
         !canUseConvolutionInstruction(convVertexType.floatActivations,
                                       convVertexType.floatPartials,
-                                      params.strideY, params.strideX,
+                                      params.stride[0], params.stride[1],
                                       i, deviceInfo))
       continue;
     candidates.push_back(i);
@@ -1378,19 +1310,19 @@ getInChansPerGroupCandidates(const ConvolutionParams &params,
       // input channel groupings and pick the one with the lowest cost.
       // We would need to check whether the cost model is sufficiently accurate
       // before making this change.
-      for (unsigned i = 1; i <= params.inputDepth; ++i) {
+      for (unsigned i = 1; i <= params.getInputDepth(); ++i) {
         if (!convVertexType.floatActivations && i % 2 != 0)
           continue;
         if (convVertexType.useConvInstruction &&
             !canUseConvolutionInstruction(convVertexType.floatActivations,
                                           convVertexType.floatPartials,
-                                          params.strideY, params.strideX,
+                                          params.stride[0], params.stride[1],
                                           i, deviceInfo))
           continue;
         candidates.push_back(i);
       }
     } else {
-      candidates.push_back(params.inputDepth);
+      candidates.push_back(params.getInputDepth());
     }
   }
   return candidates;
@@ -1401,7 +1333,7 @@ estimateWeightUpdateByAopReorderCost(const poplar::DeviceInfo &deviceInfo,
                                      unsigned tensorOutChansPerGroup,
                                      unsigned tensorWeightOutChansPerGroup,
                                      bool floatActivations,
-                                     const ConvolutionParams &params,
+                                     const ConvParams &params,
                                      unsigned partialChansPerGroup) {
   const auto numTiles = deviceInfo.getNumTiles();
   const auto bytesPerElement = floatActivations ? 4U : 2U;
@@ -1411,19 +1343,19 @@ estimateWeightUpdateByAopReorderCost(const poplar::DeviceInfo &deviceInfo,
   auto reorderBytesPre = 0;
   if (partialChansPerGroup != tensorOutChansPerGroup) {
     // Reorder deltas.
-    const auto numDeltas = params.batchSize *
-                                 params.outputDepth *
-                                 params.getOutputHeight() *
-                                 params.getOutputWidth();
+    const auto numDeltas = params.getBatchSize() *
+                           params.getOutputDepth() *
+                           params.getOutputHeight() *
+                           params.getOutputWidth();
     reorderBytesPre += numDeltas * bytesPerElement;
   }
   auto reorderBytesPost = 0;
   if (partialChansPerGroup != tensorWeightOutChansPerGroup) {
     // Reorder weight deltas.
-    const auto numWeightDeltas = params.kernelSizeY *
-                                 params.kernelSizeX *
-                                 params.inputDepth *
-                                 params.outputDepth;
+    const auto numWeightDeltas = params.kernelShape[0] *
+                                 params.kernelShape[1] *
+                                 params.getInputDepth() *
+                                 params.getOutputDepth();
     reorderBytesPost += numWeightDeltas * bytesPerElement;
   }
   const auto reorderBytesTilePre = (reorderBytesPre + numTiles - 1) / numTiles;
@@ -1447,14 +1379,14 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
            unsigned tensorInChansPerGroup,
            unsigned tensorOutChansPerGroup,
            unsigned tensorWeightOutChansPerGroup,
-           const ConvolutionParams &params,
+           const ConvParams &params, bool isWeightUpdate,
            unsigned batchesPerGroup,
            const CostBounds costBounds,
            PlanningCacheImpl *cache,
            const ConvOptions &options) {
   Plan best;
   Cost bestCost = highestCost;
-  if (params.isWeightUpdate && !convVertexType.useConvInstruction) {
+  if (isWeightUpdate && !convVertexType.useConvInstruction) {
     // Use the existing channel grouping to avoid the need to regroup the
     // activations.
     assert(tensorInChansPerGroup != 0);
@@ -1470,7 +1402,8 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
       Cost candidateCost;
       std::tie(candidate, candidateCost) =
           choosePlan(deviceInfo, inChansPerGroup, partialChansPerGroup,
-                     convVertexType, params, batchesPerGroup, costBounds,
+                     convVertexType, params, isWeightUpdate,
+                     batchesPerGroup, costBounds,
                      cache, options);
       candidateCost +=
           estimateWeightUpdateByAopReorderCost(deviceInfo,
@@ -1487,7 +1420,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
     return {best, bestCost};
   }
   std::vector<unsigned> inChansPerGroupCandidates;
-  if (params.isWeightUpdate) {
+  if (isWeightUpdate) {
     assert(convVertexType.useConvInstruction);
     inChansPerGroupCandidates.push_back(
       deviceInfo.getWeightsPerConvUnit(convVertexType.floatActivations)
@@ -1513,8 +1446,8 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
     Cost candidateCost;
     std::tie(candidate, candidateCost) =
         choosePlan(deviceInfo, inChansPerGroup, partialChansPerGroup,
-                   convVertexType, params, batchesPerGroup, costBounds, cache,
-                   options);
+                   convVertexType, params, isWeightUpdate, batchesPerGroup,
+                   costBounds, cache, options);
     if (compareCost(candidateCost, bestCost, costBounds)) {
       best = candidate;
       bestCost = candidateCost;
@@ -1529,7 +1462,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
            unsigned tensorInChansPerGroup,
            unsigned tensorOutChansPerGroup,
            unsigned tensorWeightOutChansPerGroup,
-           const ConvolutionParams &params,
+           const ConvParams &params, bool isWeightUpdate,
            unsigned batchesPerGroup,
            CostBounds costBounds,
            PlanningCacheImpl *cache,
@@ -1537,10 +1470,9 @@ choosePlan(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
   Cost bestCost = highestCost;
   Plan bestPlan;
   const auto convVertexTypeCandidates =
-      params.isWeightUpdate
+      isWeightUpdate
         ? getWeightUpdateVertexTypeCandidates(deviceInfo, floatActivations,
-                                              floatPartials, params,
-                                              options)
+                                              floatPartials, options)
         : getConvVertexTypeCandidates(deviceInfo, floatActivations,
                                       floatPartials, params);
   for (const auto &convVertexType : convVertexTypeCandidates) {
@@ -1549,7 +1481,8 @@ choosePlan(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
     std::tie(candidate, candidateCost) =
         choosePlan(deviceInfo, convVertexType, tensorInChansPerGroup,
                    tensorOutChansPerGroup, tensorWeightOutChansPerGroup,
-                   params, batchesPerGroup, costBounds, cache, options);
+                   params, isWeightUpdate, batchesPerGroup, costBounds, cache,
+                   options);
     if (candidateCost == highestCost)
       continue;
     if (compareCost(candidateCost, bestCost, costBounds)) {
@@ -1561,42 +1494,34 @@ choosePlan(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
 }
 
 static std::pair<Plan, Cost>
-createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
+createPlan(ConvParams params,
            unsigned tensorInChansPerGroup, unsigned tensorOutChansPerGroup,
            unsigned tensorWeightOutChansPerGroup,
-           unsigned kernelSizeY, unsigned kernelSizeX,
-           const std::vector<unsigned> &stride,
-           const std::vector<unsigned> &paddingLower,
-           const std::vector<unsigned> &paddingUpper,
-           unsigned numChannels, unsigned batchSize,
-           std::string dType,
-           std::string partialsType, bool isFractional,
+           std::string partialsType,
            bool isWeightUpdate,
            const ConvOptions &options,
            const CostBounds costBounds,
            const poplar::Graph &graph,
            PlanningCacheImpl *cache) {
-  validateLayerParams(inDimY, inDimX, inNumChans, kernelSizeY, kernelSizeX,
-                      stride, paddingLower, paddingUpper,
-                      numChannels, dType);
+  validateLayerParams(params);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   bool flattenXY;
-  if (kernelSizeY == 1 && kernelSizeX == 1
-      && stride[0] == 1 && stride[1] == 1
-      && paddingLower[0] == 0 && paddingLower[1] == 0
-      && paddingUpper[0] == 0 && paddingUpper[1] == 0) {
+  if (params.kernelShape[0] == 1 && params.kernelShape[1] == 1
+      && params.stride[0] == 1 && params.stride[1] == 1
+      && params.paddingLower[0] == 0 && params.paddingLower[1] == 0
+      && params.paddingUpper[0] == 0 && params.paddingUpper[1] == 0) {
     flattenXY = true;
-    inDimX = inDimX * inDimY;
-    inDimY = 1;
+    params.inputShape[2] = params.inputShape[1] * params.inputShape[2];
+    params.inputShape[1] = 1;
   } else {
     flattenXY = false;
   }
 
-  const bool floatActivations = dType == "float";
+  const bool floatActivations = params.dType == "float";
   const bool floatPartials = partialsType == "float";
   Cost bestCandidateCost = highestCost;
   Plan bestCandidate;
-  for (auto batchesPerGroup = 1U; batchesPerGroup <= batchSize;
+  for (auto batchesPerGroup = 1U; batchesPerGroup <= params.getBatchSize();
        ++batchesPerGroup) {
 
     /* only allow integer division of batches.
@@ -1605,16 +1530,11 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
      * Weight Update doesn't use batch grouping
      */
 
-    if ((batchSize % batchesPerGroup) ||
+    if ((params.getBatchSize() % batchesPerGroup) ||
         ((!flattenXY || isWeightUpdate) && batchesPerGroup > 1)) {
       continue;
     }
 
-    ConvolutionParams params(kernelSizeY, kernelSizeX, stride[0], stride[1],
-                             inNumChans, inDimX, inDimY * batchesPerGroup,
-                             paddingLower[0], paddingUpper[0], paddingLower[1],
-                             paddingUpper[1], numChannels, batchSize,
-                             isFractional, isWeightUpdate);
     Plan candidate;
     Cost candidateCost;
     std::tie(candidate, candidateCost) =
@@ -1623,7 +1543,7 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
                    tensorInChansPerGroup,
                    tensorOutChansPerGroup,
                    tensorWeightOutChansPerGroup,
-                   params,
+                   params, isWeightUpdate,
                    batchesPerGroup,
                    costBounds,
                    cache,
@@ -1638,15 +1558,7 @@ createPlan(unsigned inDimY, unsigned inDimX, unsigned inNumChans,
   return {bestCandidate, bestCandidateCost};
 }
 
-Plan getPlan(const poplar::Graph &graph,
-             std::string dType,
-             unsigned batchSize,
-             unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-             std::vector<std::size_t> weightsShape,
-             std::vector<unsigned> stride,
-             std::vector<unsigned> paddingLower,
-             std::vector<unsigned> paddingUpper,
-             bool isFractional,
+Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
              ConvOptions options) {
   assert (weightsShape.size() == 3);
   assert (stride.size() == 2);
@@ -1655,11 +1567,6 @@ Plan getPlan(const poplar::Graph &graph,
   Plan plan;
   Cost cost;
   CostBounds costBounds(0, 0);
-  const auto strideY = stride[0];
-  const auto strideX = stride[1];
-  const auto kernelSizeY = weightsShape[0];
-  const auto kernelSizeX = weightsShape[1];
-  const auto numChannels = weightsShape[2];
   const auto partialsType = options.partialsType;
   auto cache = options.cache ? options.cache->impl.get() : nullptr;
   std::unique_ptr<PlanningCacheImpl> tempCache;
@@ -1667,21 +1574,17 @@ Plan getPlan(const poplar::Graph &graph,
     tempCache = std::unique_ptr<PlanningCacheImpl>(new PlanningCacheImpl);
     cache = tempCache.get();
   }
-  PlanningCacheImpl::Params params(dType,
-                                   {inDimY, inDimX, inNumChans},
-                                   weightsShape, stride,
-                                   paddingLower, paddingUpper,
-                                   isFractional, false, 0, 0, options);
+  PlanningCacheImpl::Key key(params, options, false, 0, 0);
   if (!tempCache.get()) {
     auto &plans = cache->plans;
-    auto match = plans.find(params);
+    auto match = plans.find(key);
     if (match != plans.end())
       return *match->second;
   }
   if (options.useWinograd) {
     if (options.winogradPatchSize != 4 ||
-        strideY != 1 || strideX != 1 ||
-        kernelSizeY != 3 || kernelSizeX != 3) {
+        params.stride[0] != 1 || params.stride[1] != 1 ||
+        params.kernelShape[0] != 3 || params.kernelShape[1] != 3) {
       throw popstd::poplib_error("Attempt to force winograd convolution for "
                                "invalid parameters");
 
@@ -1691,13 +1594,10 @@ Plan getPlan(const poplar::Graph &graph,
     return plan;
   }
 
-  std::tie(plan, cost) = popconv::createPlan(inDimY, inDimX, inNumChans,
+  std::tie(plan, cost) = popconv::createPlan(params,
                                              0, 0, 0,
-                                             kernelSizeY, kernelSizeX,
-                                             stride, paddingLower, paddingUpper,
-                                             numChannels, batchSize, dType,
                                              partialsType,
-                                             isFractional, false, options,
+                                             false, options,
                                              costBounds, graph,
                                              cache);
   if (options.percentageCyclesExcessForMemOptim) {
@@ -1708,14 +1608,10 @@ Plan getPlan(const poplar::Graph &graph,
 
     CostBounds newCostBounds(static_cast<unsigned>(newCyclesBound), 0, false);
 
-    std::tie(plan, cost) = popconv::createPlan(inDimY, inDimX, inNumChans,
+    std::tie(plan, cost) = popconv::createPlan(params,
                                                0, 0, 0,
-                                               kernelSizeY, kernelSizeX,
-                                               stride,
-                                               paddingLower, paddingUpper,
-                                               numChannels, batchSize, dType,
                                                partialsType,
-                                               isFractional, false,
+                                               false,
                                                options,
                                                newCostBounds, graph,
                                                cache);
@@ -1723,7 +1619,7 @@ Plan getPlan(const poplar::Graph &graph,
   if (!tempCache.get()) {
     auto &plans = cache->plans;
     auto pPlan = std::unique_ptr<Plan>(new Plan(std::move(plan)));
-    auto res = plans.emplace(std::make_pair(params, std::move(pPlan)));
+    auto res = plans.emplace(std::make_pair(key, std::move(pPlan)));
     return *res.first->second;
   }
   return plan;
@@ -1732,40 +1628,22 @@ Plan getPlan(const poplar::Graph &graph,
 Plan getWeightUpdatePlan(const poplar::Graph &graph,
                          const poplar::Tensor &activations,
                          const poplar::Tensor &deltas,
-                         std::vector<std::size_t> weightsShape,
-                         std::vector<unsigned> stride,
-                         std::vector<unsigned> paddingLower,
-                         std::vector<unsigned> paddingUpper,
-                         bool isFractional,
+                         const ConvParams &params,
                          ConvOptions options) {
-  assert (weightsShape.size() == 3);
-  assert (stride.size() == 2);
-  assert (paddingLower.size() == 2);
-  assert (paddingUpper.size() == 2);
-  const auto dType = graph.getTensorElementType(activations);
-  const auto batchSize = activations.dim(0);
-  const auto inDimY = activations.dim(2);
-  const auto inDimX = activations.dim(3);
-  const auto inNumChans = activations.dim(1) * activations.dim(4);
+  assert (params.kernelShape.size() == 3);
+  assert (params.stride.size() == 2);
+  assert (params.paddingLower.size() == 2);
+  assert (params.paddingUpper.size() == 2);
   if (options.noLHSRearrangement) {
-    auto plan = getPlan(graph, dType,  batchSize, inDimY, inDimX,
-                        inNumChans, weightsShape, stride,
-                        paddingLower, paddingUpper,
-                        isFractional, options);
+    auto plan = getPlan(graph, params, options);
     plan.useConvolutionInstructions = false;
     return plan;
   }
   Plan plan;
   Cost cost;
   CostBounds costBounds(0, 0);
-  const auto kernelSizeY = weightsShape[0];
-  const auto kernelSizeX = weightsShape[1];
-  const auto numChannels = weightsShape[2];
   const auto partialsType = options.partialsType;
-  const auto fwdPlan = getPlan(graph, dType, batchSize, inDimY, inDimX,
-                               inNumChans, weightsShape,
-                               stride, paddingLower, paddingUpper,
-                               isFractional, options);
+  const auto fwdPlan = getPlan(graph, params, options);
   const auto actChansPerGroup = fwdPlan.inChansPerGroup;
   const auto deltasChansPerGroup = deltas.dim(4);
   auto cache = options.cache ? options.cache->impl.get() : nullptr;
@@ -1774,22 +1652,11 @@ Plan getWeightUpdatePlan(const poplar::Graph &graph,
     tempCache = std::unique_ptr<PlanningCacheImpl>(new PlanningCacheImpl);
     cache = tempCache.get();
   }
-  PlanningCacheImpl::Params params(dType,
-                                   {inDimY, inDimX, inNumChans},
-                                   weightsShape, stride, paddingLower,
-                                   paddingUpper, isFractional, true,
-                                   actChansPerGroup, deltasChansPerGroup,
-                                   options);
-
-  std::tie(plan, cost) = popconv::createPlan(inDimY, inDimX, inNumChans,
+  std::tie(plan, cost) = popconv::createPlan(params,
                                              actChansPerGroup,
                                              deltasChansPerGroup,
                                              fwdPlan.partialChansPerGroup,
-                                             kernelSizeY, kernelSizeX,
-                                             stride, paddingLower, paddingUpper,
-                                             numChannels, batchSize, dType,
-                                             partialsType, isFractional,
-                                             true, options,
+                                             partialsType, true, options,
                                              costBounds, graph, cache);
   return plan;
 }

@@ -7,18 +7,11 @@
 BOOST_AUTO_TEST_CASE(getPlan){
   poplar::Graph graph(poplar::createCPUDevice());
 
-  popconv::getPlan(graph,
-                   "float",
-                   0,
-                   0,
-                   0,
-                   0,
-                   {3, 3, 1}, // weightsShape
-                   {1, 1}, // stride
-                   {0, 0}, // paddingLower
-                   {0, 0}, // paddingUpper
-                   false, // isFractional
-                   popconv::ConvOptions ());
+  auto params = popconv::ConvParams("float",
+                                    {0, 0, 0, 0},
+                                    {3, 3, 1, 0},
+                                    {1, 1}, {0, 0}, {0, 0}, false);
+  popconv::getPlan(graph, params, popconv::ConvOptions());
 }
 
 BOOST_AUTO_TEST_CASE(getWeightUpdatePlan){
@@ -26,48 +19,19 @@ BOOST_AUTO_TEST_CASE(getWeightUpdatePlan){
   poplar::Graph graph(poplar::createCPUDevice());
   popnn::addCodelets(graph);
 
-  const std::vector<size_t> weightsShape = {3, 3, 1}; // y, x, channels
+  const std::vector<size_t> inShape = {1, 3, 3, 1};
+  const std::vector<size_t> weightsShape = {3, 3, 1, 1}; // y, x, out, in
   const std::vector<unsigned> stride = {1, 1};         // y, x
   const std::vector<unsigned> padding = {0, 0};        // y, x
-  const bool isFractional = false;
+  auto params =
+      popconv::ConvParams("float", inShape, weightsShape, stride, padding,
+                          padding, false);
 
-  auto activations = popconv::createInput(graph,
-                                          "float",
-                                          1, // batchSize
-                                          3, // height
-                                          3, // width
-                                          1, // num chans
-                                          weightsShape [1],
-                                          weightsShape [0],
-                                          weightsShape [2],
-                                          stride,
-                                          padding,
-                                          padding,
-                                          isFractional,
-                                          "activations");
+  auto activations = popconv::createInput(graph, params, "activations");
 
-  auto deltas = popconv::createInput(graph,
-                                     "float",
-                                     1, // batchSize
-                                     3, // height
-                                     3, // width
-                                     1, // num chans
-                                     weightsShape [0],
-                                     weightsShape [1],
-                                     weightsShape [2],
-                                     stride,
-                                     padding,
-                                     padding,
-                                     isFractional,
-                                     "deltas");
+  auto deltas = popconv::createInput(graph, params, "deltas");
 
-  popconv::getWeightUpdatePlan(graph,
-                               activations,
-                               deltas,
-                               weightsShape,
-                               stride,
-                               padding,
-                               padding,
-                               isFractional,
+  popconv::getWeightUpdatePlan(graph, activations,
+                               deltas, params,
                                popconv::ConvOptions());
 }

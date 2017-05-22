@@ -43,152 +43,119 @@ struct ConvOptions {
   }
 };
 
-uint64_t getFwdFlops(unsigned batchSize,
-                     unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                     unsigned kernelSizeY, unsigned kernelSizeX,
-                     const std::vector<unsigned> &stride,
-                     const std::vector<unsigned> &paddingLower,
-                     const std::vector<unsigned> &paddingUpper,
-                     unsigned outNumChans);
+struct ConvParams {
+  std::string dType;
+  // Input shape {B x H x W x inChans}
+  std::vector<std::size_t> inputShape;
+  // Filter shape {H x W x outChans x inChans }
+  std::vector<std::size_t> kernelShape;
+  std::vector<unsigned> stride;
+  std::vector<unsigned> paddingLower;
+  std::vector<unsigned> paddingUpper;
+  bool isFractional;
+  ConvParams() = default;
+  ConvParams(std::string dType,
+             std::vector<std::size_t> inputShape,
+             std::vector<std::size_t> kernelShape,
+             std::vector<unsigned> stride,
+             std::vector<unsigned> paddingLower,
+             std::vector<unsigned> paddingUpper,
+             bool isFractional) :
+    dType(std::move(dType)),
+    inputShape(std::move(inputShape)),
+    kernelShape(std::move(kernelShape)),
+    stride(std::move(stride)),
+    paddingLower(std::move(paddingLower)),
+    paddingUpper(std::move(paddingUpper)),
+    isFractional(isFractional) {}
+  bool operator<(const ConvParams &other) const {
+    return std::tie(dType, inputShape, kernelShape, stride, paddingLower,
+                    paddingUpper, isFractional) <
+             std::tie(other.dType, other.inputShape, other.kernelShape,
+                      other.stride, other.paddingLower, other.paddingUpper,
+                      other.isFractional);
+  }
+  std::size_t getOutputSize(unsigned dim) const;
+  std::size_t getOutputWidth() const;
+  std::size_t getOutputHeight() const;
+  std::size_t getOutputDepth() const { return kernelShape[2]; }
+  std::size_t getInputWidth() const { return inputShape[2]; }
+  std::size_t getInputHeight() const { return inputShape[1]; }
+  std::size_t getInputDepth() const { return inputShape[3]; }
 
-uint64_t getBwdFlops(unsigned batchSize,
-                     unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                     unsigned kernelSizeY, unsigned kernelSizeX,
-                     const std::vector<unsigned> &stride,
-                     const std::vector<unsigned> &paddingLower,
-                     const std::vector<unsigned> &paddingUpper,
-                     unsigned outNumChans);
+  std::size_t getBatchSize() const { return inputShape[0]; }
+  std::vector<size_t> getOutputShape() const;
 
-uint64_t getWuFlops(unsigned batchSize,
-                    unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                    unsigned kernelSizeY, unsigned kernelSizeX,
-                    const std::vector<unsigned> &stride,
-                    const std::vector<unsigned> &paddingLower,
-                    const std::vector<unsigned> &paddingUpper,
-                    unsigned outNumChans);
+};
 
-double getFwdPerfectCycleCount(const poplar::Graph &graph,
-                               std::string dType,
-                               unsigned batchSize,
-                               unsigned inDimY, unsigned inDimX,
-                               unsigned inNumChans,
-                               unsigned kernelSizeY, unsigned kernelSizeX,
-                               const std::vector<unsigned> &stride,
-                               const std::vector<unsigned> &paddingLower,
-                               const std::vector<unsigned> &paddingUpper,
-                               unsigned outNumChans);
+uint64_t getFwdFlops(const ConvParams &params);
+uint64_t getBwdFlops(const ConvParams &params);
+uint64_t getWuFlops(const ConvParams &params);
 
-double getBwdPerfectCycleCount(const poplar::Graph &graph,
-                               std::string dType,
-                               unsigned batchSize,
-                               unsigned inDimY, unsigned inDimX,
-                               unsigned inNumChans,
-                               unsigned kernelSizeY, unsigned kernelSizeX,
-                               const std::vector<unsigned> &stride,
-                               const std::vector<unsigned> &paddingLower,
-                               const std::vector<unsigned> &paddingUpper,
-                               unsigned outNumChans);
+double
+getFwdPerfectCycleCount(const poplar::Graph &graph, const ConvParams &params);
 
-double getWuPerfectCycleCount(const poplar::Graph &graph,
-                              std::string dType,
-                              unsigned batchSize,
-                              unsigned inDimY, unsigned inDimX,
-                              unsigned inNumChans,
-                              unsigned kernelSizeY, unsigned kernelSizeX,
-                              const std::vector<unsigned> &stride,
-                              const std::vector<unsigned> &paddingLower,
-                              const std::vector<unsigned> &paddingUpper,
-                              unsigned outNumChans);
+double
+getBwdPerfectCycleCount(const poplar::Graph &graph, const ConvParams &params);
+
+double
+getWuPerfectCycleCount(const poplar::Graph &graph, const ConvParams &params);
 
 poplar::Tensor
-createWeights(poplar::Graph &graph, const poplar::Tensor &in,
-              unsigned kernelSizeY, unsigned kernelSizeX, unsigned outNumChans,
-              const std::vector<unsigned> &stride,
-              const std::vector<unsigned> &paddingLower,
-              const std::vector<unsigned> &paddingUpper,
-              bool isFractional,
-              const ConvOptions &options);
+createWeights(poplar::Graph &graph, const ConvParams &params,
+              const std::string &name,
+              const ConvOptions &options = ConvOptions());
 
 poplar::Tensor
 createBiases(poplar::Graph &graph, std::string dType,
              unsigned outNumChans);
 
 poplar::Tensor
-createInput(poplar::Graph &graph, std::string dType,
-            unsigned batchSize, unsigned height, unsigned width,
-            unsigned inNumChans,
-            unsigned kernelY, unsigned kernelX, unsigned outNumChans,
-            const std::vector<unsigned> &stride,
-            const std::vector<unsigned> &paddingLower,
-            const std::vector<unsigned> &paddingUpper,
-            bool isFractional, const std::string &name,
+createInput(poplar::Graph &graph, const ConvParams &params,
+            const std::string &name,
             const ConvOptions &options = ConvOptions());
 
 poplar::Tensor
 convolution(poplar::Graph &graph,
-            const std::vector<unsigned> &stride,
-            const std::vector<unsigned> &paddingLower,
-            const std::vector<unsigned> &paddingUpper,
-            unsigned outNumChans,
-            poplar::Tensor in, poplar::Tensor weights,
-            const std::string &partialsType,
-            bool isFractional, bool transposeAndFlipWeights,
+            const poplar::Tensor &in,
+            const poplar::Tensor &weights,
+            const ConvParams &params,
+            bool transposeAndFlipWeights,
             poplar::program::Sequence &prog,
             const std::string &debugPrefix = "",
             const ConvOptions &options = ConvOptions());
 
-void mapActivations(poplar::Graph &graph,
-                    const poplar::Tensor &in,
-                    const poplar::Tensor &weights,
-                    const std::vector<unsigned> &stride,
-                    const std::vector<unsigned> &paddingLower,
-                    const std::vector<unsigned> &paddingUpper,
-                    bool isFractional,
-                    const ConvOptions &options);
-
 void
-mapWeights(poplar::Tensor w, poplar::Graph &graph, const poplar::Tensor &in,
-           const std::vector<unsigned> &stride,
-           const std::vector<unsigned> &paddingLower,
-           const std::vector<unsigned> &paddingUpper,
-           bool isFractional,
-           const ConvOptions &options);
+mapWeights(poplar::Graph &graph, const poplar::Tensor &weights,
+           const ConvParams &params,
+           const ConvOptions &options = ConvOptions());
 
-void mapBiases(poplar::Tensor biases, poplar::Graph &graph,
+void mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
                const poplar::Tensor &in, const poplar::Tensor &w,
-               const std::vector<unsigned> &stride,
-               const std::vector<unsigned> &paddingLower,
-               const std::vector<unsigned> &paddingUpper,
-               bool isFractional,
-               const ConvOptions &options);
+               const ConvParams &params,
+               const ConvOptions &options = ConvOptions());
 
 void
 weightsTransposeChansFlipXY(poplar::Graph &graph,
-                            poplar::Tensor weightsIn,
-                            poplar::Tensor WeightsOut,
+                            const poplar::Tensor &weightsIn,
+                            const poplar::Tensor &WeightsOut,
                             poplar::program::Sequence &prog,
                             const std::string &debugPrefix = "");
 
 poplar::Tensor
-calculateWeightDeltas(poplar::Graph &graph, poplar::Tensor zDeltas,
-                      unsigned kernelSizeY, unsigned kernelSizeX,
-                      poplar::Tensor activations,
-                      const std::vector<unsigned> &stride,
-                      const std::vector<unsigned> &paddingLower,
-                      const std::vector<unsigned> &paddingUpper,
-                      bool isFractional,
+calculateWeightDeltas(poplar::Graph &graph, const poplar::Tensor &zDeltas,
+                      const poplar::Tensor &activations,
+                      const ConvParams &params,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix = "",
                       const ConvOptions &options = ConvOptions());
 
 void
 convolutionWeightUpdate(poplar::Graph &graph,
-                        poplar::Tensor zDeltas, poplar::Tensor weights,
-                        poplar::Tensor activations,
-                        const std::vector<unsigned> &stride,
-                        const std::vector<unsigned> &paddingLower,
-                        const std::vector<unsigned> &paddingUpper,
-                        bool isFractional, float learningRate,
+                        const poplar::Tensor &zDeltas,
+                        const poplar::Tensor &weights,
+                        const poplar::Tensor &activations,
+                        const ConvParams &params, float learningRate,
                         poplar::program::Sequence &prog,
                         const std::string &debugPrefix = "",
                         const ConvOptions &options = ConvOptions());
@@ -206,16 +173,9 @@ addBias(poplar::Graph &graph, const poplar::Tensor &acts,
         poplar::program::Sequence &prog,
         const std::string &debugPrefix = "");
 
-void reportPlanInfo(std::ostream &out,
-                    const poplar::Graph &graph,
-                    std::string dType,
-                    unsigned batchSize,
-                    unsigned inDimY, unsigned inDimX, unsigned inNumChans,
-                    const std::vector<std::size_t> &weightsShape,
-                    const std::vector<unsigned> &stride,
-                    const std::vector<unsigned> &paddingLower,
-                    const std::vector<unsigned> &paddingUpper,
-                    bool isFractional, ConvOptions options);
+void reportPlanInfo(std::ostream &out, const poplar::Graph &graph,
+                    const ConvParams &params,
+                    const ConvOptions &options = ConvOptions());
 
 struct Plan;
 class PlanningCacheImpl;
@@ -223,15 +183,7 @@ class PlanningCache {
 public:
   PlanningCache();
   ~PlanningCache();
-  friend Plan getPlan(const poplar::Graph &graph,
-                      std::string dType,
-                      std::vector<std::size_t> inShape,
-                      std::vector<std::size_t> weightsShape,
-                      std::vector<std::size_t> stride,
-                      std::vector<std::size_t> paddingLower,
-                      std::vector<std::size_t> paddingUpper,
-                      unsigned numChannels, bool isFractional,
-                      bool isWeightUpdate,
+  friend Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
                       ConvOptions options);
   std::unique_ptr<PlanningCacheImpl> impl;
 };

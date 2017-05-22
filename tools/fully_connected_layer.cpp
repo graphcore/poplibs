@@ -397,16 +397,14 @@ int main(int argc, char **argv) {
   // height = 1
   // output channels = batchSize.
   // Create tensors.
-  Tensor weights = popconv::createInput(graph, dataTypeStr,
-                                        1, 1, outputSize, inputSize,
-                                        1, 1, batchSize,
-                                        {1, 1}, {0, 0}, {0, 0}, false,
-                                        "weights", options);
-  Tensor prevAct = popconv::createWeights(graph, weights,
-                                          1 /*kernelHeight*/, 1 /*kernelWidth*/,
-                                          batchSize, {1, 1}, {0, 0}, {0, 0},
-                                          false, options);
-
+  auto convParams =
+      popconv::ConvParams(dataTypeStr,
+                          {1, 1, outputSize, inputSize},
+                          {1, 1, batchSize, inputSize},
+                          {1, 1}, {0, 0}, {0, 0}, false);
+  Tensor weights = popconv::createInput(graph, convParams, "weights", options);
+  Tensor prevAct = popconv::createWeights(graph, convParams, "prevAct",
+                                          options);
   auto biases = graph.addTensor(dataTypeStr, {outputSize}, "biases");
   mapTensor(graph, biases);
 
@@ -424,9 +422,14 @@ int main(int argc, char **argv) {
   Tensor zDeltas;
   std::unique_ptr<char[]> rawHostZDeltas;
   if (doBwdPass || doWuPass) {
-    zDeltas = popconv::createInput(graph, dataTypeStr, 1, 1, outputSize,
-                                   batchSize, 1, 1, inputSize, {1, 1}, {0, 0},
-                                   {0, 0}, false, "zDeltas", options);
+    zDeltas = popconv::createInput(graph,
+                                   popconv::ConvParams(
+                                     dataTypeStr,
+                                     {1, 1, outputSize, batchSize},
+                                     {1, 1, inputSize, batchSize},
+                                     {1, 1}, {0, 0},
+                                     {0, 0}, false),
+                                   "zDeltas", options);
     rawHostZDeltas = allocateHostMemoryForTensor(graph, zDeltas, upload,
                                                  download);
   }
@@ -436,17 +439,15 @@ int main(int argc, char **argv) {
 
   Tensor nextAct;
   if (doFwdPass) {
-    nextAct = popconv::convolution(graph, {1, 1}, {0, 0}, {0, 0},
-                                   batchSize, weights, prevAct, partialsTypeStr,
-                                   false, false, fwdProg, "", options);
+    nextAct = popconv::convolution(graph, weights, prevAct, convParams, false,
+                                   fwdProg, "", options);
     auto bBiases = biases.broadcast(batchSize, 0)
                          .reshape({batchSize / nextAct.dim(4),
                                    nextAct.dim(4), outputSize})
                          .dimShuffle({0, 2, 1});
     addTo(graph, nextAct, bBiases, 1, fwdProg);
   } else {
-    popconv::mapWeights(prevAct, graph, weights, {1, 1}, {0, 0}, {0, 0},
-                        false, options);
+    popconv::mapWeights(graph, prevAct, convParams, options);
     nextAct =
         graph.addTensor(dataTypeStr, {1 /*batchSize*/,
                                       batchSize / 1,
@@ -468,17 +469,12 @@ int main(int argc, char **argv) {
   Tensor prevDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
   if (doBwdPass) {
-    prevDeltas = popconv::calculateWeightDeltas(graph,
-                                                zDeltas, 1 /*kernelSizeY*/,
-                                                1 /*kernelSizeX*/, weights,
-                                                {1, 1}, {0, 0}, {0, 0},
-                                                false, bwdProg,
+    prevDeltas = popconv::calculateWeightDeltas(graph, zDeltas, weights,
+                                                convParams, bwdProg,
                                                 "", options);
   } else {
     prevDeltas = graph.addTensor(dataTypeStr, prevAct.shape(), "prevDeltas");
-    popconv::mapWeights(prevDeltas, graph, weights,
-                        {1, 1}, {0, 0}, {0, 0},
-                        false, options);
+    popconv::mapWeights(graph, prevDeltas, convParams, options);
   }
   rawHostPrevDeltas = allocateHostMemoryForTensor(graph, prevDeltas, upload,
                                                   download);

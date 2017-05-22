@@ -1793,21 +1793,21 @@ extern Program winogradConvolution(Graph &graph,
 }
 
 
-poplar::program::Program winogradConvolution(poplar::Graph &graph,
-            const std::vector<unsigned> &stride,
-            const std::vector<unsigned> &paddingLower,
-            const std::vector<unsigned> &paddingUpper,
-            poplar::Tensor in, poplar::Tensor weights,
-            poplar::Tensor out,
-            const std::string &partialsType,
+Program winogradConvolution(Graph &graph,
+            const ConvParams &params,
+            const Tensor &in, const Tensor &weights,
+            const Tensor &out,
             unsigned patchSizeX, unsigned patchSizeY,
-            const std::string &debugPrefix = "") {
+            const std::string &partialsType,
+            const std::string &debugPrefix,
+            const ConvOptions &options) {
   Sequence prog;
   const auto batchSize = in.dim(0);
   const auto dType = graph.getTensorElementType(in);
   // Perform each element of the batch serially
   for (unsigned b = 0; b < batchSize; ++b) {
-    prog.add(winogradConvolution(graph, stride, paddingLower, paddingUpper,
+    prog.add(winogradConvolution(graph, params.stride, params.paddingLower,
+                                 params.paddingUpper,
                                  in.dim(3), in.dim(2),
                                  out.dim(1) * out.dim(4), patchSizeX,
                                  patchSizeY, dType, partialsType,

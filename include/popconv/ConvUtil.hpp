@@ -1,5 +1,6 @@
 #ifndef _popconv_ConvUtil_hpp_
 #define _popconv_ConvUtil_hpp_
+#include <popconv/Convolution.hpp>
 #include <tuple>
 #include <vector>
 
@@ -18,75 +19,58 @@ inline unsigned absdiff(unsigned a, unsigned b) {
 /// Return ~0U if there is no
 /// such output.
 unsigned
-getInputIndex(unsigned outputIndex, unsigned stride, unsigned kernelSize,
-              unsigned paddingLower, unsigned paddingUpper, unsigned inputSize,
-              unsigned kernelIndex, bool isFractional);
+getInputIndex(unsigned dim, unsigned outputIndex, unsigned kernelIndex,
+              const ConvParams &params);
 
 /// Given an output range, return the subset whose calculation
 /// involves the specified kernel.
 std::pair<unsigned, unsigned>
-getOutputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
-               unsigned paddingLower, unsigned paddingUpper,
-               unsigned kernelSize, unsigned inputSize, unsigned kernelIndex,
-               bool isFractional);
+getOutputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
+               unsigned kernelIndex, const ConvParams &params);
 
 /// Given an output range, return the subset whose calculation
 /// involves the specified range of kernel indicies.
 std::pair<unsigned, unsigned>
-getOutputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
-               unsigned kernelSize, unsigned paddingLower,
-               unsigned paddingUpper, unsigned inputSize,
+getOutputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
                std::pair<unsigned, unsigned> kernelIndexRange,
-               bool isFractional);
+               const ConvParams &params);
 
 /// Return the input range that is associated with
 /// the specified kernel index when calculating the specified output range.
 std::pair<unsigned, unsigned>
-getInputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
-              unsigned kernelSize, unsigned paddingLower, unsigned paddingUpper,
-              unsigned inputSize, unsigned kernelIndex,
-              bool isFractional);
+getInputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
+              unsigned kernelIndex, const ConvParams &params);
 
 /// Return the input range that is associated with the specified kernel index
 /// range when calculating the specified output range.
 std::pair<unsigned, unsigned>
-getInputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
-              unsigned kernelSize, unsigned paddingLower, unsigned paddingUpper,
-              unsigned inputSize,
+getInputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
               std::pair<unsigned, unsigned> kernelIndexRange,
-              bool isFractional);
+              const ConvParams &params);
 
 inline std::pair<unsigned, unsigned>
-getInputRange(unsigned outputIndex, unsigned stride,
-              unsigned kernelSize, unsigned paddingLower, unsigned paddingUpper,
-              unsigned inputSize,
+getInputRange(unsigned dim, unsigned outputIndex,
               std::pair<unsigned, unsigned> kernelIndexRange,
-              bool isFractional) {
-  return getInputRange({outputIndex, outputIndex + 1}, stride, kernelSize,
-                       paddingLower, paddingUpper, inputSize, kernelIndexRange,
-                       isFractional);
+              const ConvParams &params) {
+  return getInputRange(dim, {outputIndex, outputIndex + 1},
+                       kernelIndexRange, params);
 }
 
 inline std::pair<unsigned, unsigned>
-getInputRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
-              unsigned paddingLower, unsigned paddingUpper, unsigned inputSize,
-              bool isFractional) {
-  return getInputRange(outputIndex, stride, kernelSize, paddingLower,
-                       paddingUpper, inputSize, {0, kernelSize}, isFractional);
+getInputRange(unsigned dim, unsigned outputIndex, const ConvParams &params) {
+  return getInputRange(dim, outputIndex, {0, params.kernelShape[dim]},
+                       params);
 }
 
 inline std::pair<unsigned, unsigned>
-getInputRange(std::pair<unsigned, unsigned> outputRange, unsigned stride,
-              unsigned kernelSize, unsigned paddingLower, unsigned paddingUpper,
-              unsigned inputSize, bool isFractional) {
-  return getInputRange(outputRange, stride, kernelSize, paddingLower,
-                       paddingUpper, inputSize, {0, kernelSize}, isFractional);
+getInputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
+              const ConvParams &params) {
+  return getInputRange(dim, outputRange, {0, params.kernelShape[dim]},
+                       params);
 }
 
 std::pair<unsigned, unsigned>
-getKernelRange(unsigned outputIndex, unsigned stride, unsigned kernelSize,
-               unsigned paddingLower, unsigned paddingUpper, unsigned inputSize,
-               bool isFractional);
+getKernelRange(unsigned outputIndex, const ConvParams &params);
 
 
 struct PartialRow {
@@ -103,13 +87,7 @@ std::vector<std::vector<PartialRow>>
 partitionConvPartialByWorker(unsigned numConvolutions, unsigned convSize,
                              unsigned numContexts, unsigned stride);
 
-std::pair<unsigned, unsigned>
-getOutputDim(unsigned inDimY, unsigned inDimX,
-             unsigned kernelSizeY, unsigned kernelSizeX,
-             const std::vector<unsigned> &stride,
-             const std::vector<unsigned> &paddingLower,
-             const std::vector<unsigned> &paddingUpper,
-             bool isFractional);
+std::vector<std::size_t> getOutputShape(const ConvParams &params);
 
 }
 #endif // _popconv_ConvUtil_hpp_
