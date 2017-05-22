@@ -2516,8 +2516,16 @@ calculateWeightDeltasAop(Graph &graph, const Plan &plan,
   const unsigned numOutChans = zDeltas.dim(1) * zDeltas.dim(4);
   const auto inNumChanGroups = activations.dim(1);
   const auto partialChansPerGroup = plan.partialChansPerGroup;
-  assert(numOutChans % partialChansPerGroup == 0);
-  const auto partialNumChanGroups = numOutChans / partialChansPerGroup;
+  const auto partialNumChanGroups = (numOutChans + partialChansPerGroup - 1) /
+                                    partialChansPerGroup;
+  const auto partialNumChans = partialChansPerGroup * partialNumChanGroups;
+  if (partialNumChans != numOutChans) {
+    auto zDeltasRegrouped = regroup(zDeltas, numOutChans);
+    // Zero pad the zDeltas.
+    auto zDeltasRegroupedPadded = pad(graph, zDeltasRegrouped, 0,
+                                      partialNumChans - numOutChans, 4);
+    zDeltas = regroup(zDeltasRegroupedPadded, partialChansPerGroup);
+  }
 
   auto outDimY = zDeltas.dim(2), outDimX = zDeltas.dim(3);
   const auto isMultiIPU = deviceInfo.numIPUs > 1;
@@ -2657,7 +2665,15 @@ calculateWeightDeltasAop(Graph &graph, const Plan &plan,
       prog.add(Execute(cs));
     }
   }
-  weightDeltas = regroup(weightDeltas, 0, 4, fwdWeightOutChansPerGroup);
+  if (partialNumChans != numOutChans) {
+    // Truncate the weight deltas in the out channel axis.
+    auto weightDeltasRegrouped = regroup(weightDeltas, 0, 4, partialNumChans);
+    auto weightDeltasTruncated = weightDeltasRegrouped.slice(0, numOutChans, 4);
+    weightDeltas = regroup(weightDeltasTruncated, 0, 4,
+                           fwdWeightOutChansPerGroup);
+  } else {
+    weightDeltas = regroup(weightDeltas, 0, 4, fwdWeightOutChansPerGroup);
+  }
   return weightDeltas;
 }
 
