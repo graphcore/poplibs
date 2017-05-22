@@ -356,6 +356,18 @@ static void mapActivations(Graph &graph, Plan plan,
     plan.flattenXY = false;
     plan.batchesPerGroup = 1;
   }
+  const auto inNumChans = acts.dim(1) * acts.dim(4);
+  const auto convInChansPerGroup = plan.inChansPerGroup;
+  const auto convNumChanGroups =
+      (inNumChans + convInChansPerGroup - 1) / convInChansPerGroup;
+  const auto convNumChans = convInChansPerGroup * convNumChanGroups;
+  if (convNumChans != inNumChans) {
+    // Zero pad the input
+    auto inRegrouped = regroup(acts, inNumChans);
+    auto inRegroupedPadded =
+        pad(graph, inRegrouped, 0, convNumChans - inNumChans, 4);
+    acts = regroup(inRegroupedPadded, plan.inChansPerGroup);
+  }
   auto mapping = calculateActivationMapping(graph, plan, acts);
   graph.setTileMapping(acts, mapping);
 }
