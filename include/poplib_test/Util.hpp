@@ -95,7 +95,7 @@ void ungroupActivations(const std::string &srcType,
                         boost::multi_array_ref<double, 4> dst);
 
 bool checkIsClose(const std::string &name, const double *actual,
-                  const std::vector<std::size_t> &dims,
+                  const std::vector<std::size_t> &shape,
                   const double *expected, std::size_t N,
                   double relativeTolerance);
 
@@ -112,10 +112,10 @@ inline bool checkIsClose(const std::string &name,
     std::cerr << " actual=" << actual.num_elements() << '\n';
     return false;
   }
-  std::vector<std::size_t> dims;
+  std::vector<std::size_t> shape;
   for (unsigned i = 0; i != N; ++i)
-    dims.push_back(actual.shape()[i]);
-  return checkIsClose(name, actual.data(), dims,
+    shape.push_back(actual.shape()[i]);
+  return checkIsClose(name, actual.data(), shape,
                       expected.data(), actual.num_elements(),
                       relativeTolerance);
 }

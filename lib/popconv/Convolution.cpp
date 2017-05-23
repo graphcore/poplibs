@@ -1644,22 +1644,22 @@ convolutionByAmp(Graph &graph, const Plan &plan,
 }
 
 template <typename T>
-static std::string appendDims(std::string s, const std::vector<T> &dims) {
-  bool first = true;
-  for (auto dim : dims) {
-    if (!first)
-      s += 'x';
-    s += std::to_string(dim);
-    first = false;
-  }
-  return s;
+static std::string
+getShapeAsString(const std::vector<T> &shape) {
+  return shape.empty() ? std::string ()
+    : std::accumulate (std::next(shape.begin()), shape.end (),
+                       std::to_string(shape[0]),
+                       [] (std::string a, unsigned b) {
+                         return a + "x" + std::to_string(b);
+                       });
 }
 
 static std::string
 convSuffix(const ConvParams &params) {
-  std::string s = appendDims("_", params.kernelShape);
+  std::string s = "_";
+  s += getShapeAsString(params.kernelShape);
   s += (params.isFractional ? "_fractional_stride" : "_stride");
-  s = appendDims(std::move(s), params.stride);
+  s += getShapeAsString(params.stride);
   return s;
 }
 

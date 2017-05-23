@@ -267,12 +267,12 @@ bool checkIsClose(double a, double b, double relativeTolerance) {
 }
 
 std::string prettyCoord(const std::string &name, std::size_t index,
-                        const std::vector<std::size_t> &dims) {
+                        const std::vector<std::size_t> &shape) {
   std::string str = name + "[";
-  auto N = std::accumulate(dims.begin(), dims.end(), std::size_t(1),
+  auto N = std::accumulate(shape.begin(), shape.end(), std::size_t(1),
                            std::multiplies<size_t>());
-  for (unsigned i = 0; i != dims.size(); ++i) {
-    N = N / dims[i];
+  for (unsigned i = 0; i != shape.size(); ++i) {
+    N = N / shape[i];
     if (i != 0)
         str = str += ",";
     str = str += std::to_string(index / N);
@@ -283,7 +283,7 @@ std::string prettyCoord(const std::string &name, std::size_t index,
 }
 
 bool checkIsClose(const std::string &name, const double *actual,
-                  const std::vector<std::size_t> &dims,
+                  const std::vector<std::size_t> &shape,
                   const double *expected, std::size_t N,
                   double relativeTolerance) {
   auto it = actual;
@@ -300,7 +300,7 @@ bool checkIsClose(const std::string &name, const double *actual,
         isClose = false;
       }
       const auto n = it - actual;
-      std::cerr << prettyCoord(name, n, dims) << ':';
+      std::cerr << prettyCoord(name, n, shape) << ':';
       std::cerr << " expected=" << *expected;
       std::cerr << " actual=" << *it << '\n';
     }
