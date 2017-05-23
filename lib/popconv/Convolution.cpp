@@ -380,8 +380,13 @@ calculateActivationMapping(const Graph &graph,
   return mapping;
 }
 
+/// Map the activations tensor such that the exchange required during the
+/// convolution operation is minimized.
 static void mapActivations(Graph &graph, Plan plan,
                            Tensor acts) {
+  // Depending on the plan the input may be transformed prior to the
+  // convolution. Apply the same transformation here. This must be kept
+  // in sync with logic in the convolution() function.
   assert(plan.flattenXY || plan.batchesPerGroup == 1);
   if (plan.flattenXY) {
     const auto batchSize = acts.dim(0);
@@ -410,7 +415,11 @@ static void mapActivations(Graph &graph, Plan plan,
         pad(graph, inRegrouped, 0, convNumChans - inNumChans, 4);
     acts = regroup(inRegroupedPadded, plan.inChansPerGroup);
   }
+  // Compute a mapping for the transformed activations tensor that minimizes
+  // exchange.
   auto mapping = calculateActivationMapping(graph, plan, acts);
+  // Apply the mapping to the transformed activations tensor. This indirectly
+  // maps the original (non-transformed) tensor.
   graph.setTileMapping(acts, mapping);
 }
 
