@@ -537,39 +537,9 @@ calculateWeightMapping(const Tensor &weights,
                                 plan, batchSize);
 }
 
-template <typename Builder>
-static void
-iterateWeightMapping(Tensor w,
-                     const poplar::Graph &graph,
-                     const Plan &plan,
-                     unsigned batchSize,
-                     Builder &&builder) {
-  const auto weightMapping =
-      calculateWeightMapping(w, graph, plan, batchSize);
-  const auto flatWeights = w.flatten();
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto numTiles = deviceInfo.getNumTiles();
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
-    auto tileWeights = flatWeights.slice(0, 0);
-    for (const auto &region : weightMapping[tile]) {
-      const auto weightBegin = region.begin();
-      const auto weightEnd = region.end();
-      assert(weightBegin != weightEnd);
-      tileWeights = concat(tileWeights,
-                           flatWeights.slice(weightBegin, weightEnd));
-    }
-    if (tileWeights.numElements() > 0) {
-      builder(tileWeights, tile);
-    }
-  }
-}
-
 static void mapWeights(const Tensor &w, Graph &graph, const Plan &plan,
                        unsigned batchSize) {
-  iterateWeightMapping(w, graph, plan, batchSize,
-    [&](Tensor tileWeights, unsigned tile) {
-    graph.setTileMapping(tileWeights, tile);
-  });
+  graph.setTileMapping(w, calculateWeightMapping(w, graph, plan, batchSize));
 }
 
 void
