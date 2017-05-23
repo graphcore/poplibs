@@ -1528,15 +1528,23 @@ convolutionByAmp(Graph &graph, const Plan &plan,
                  const std::string &debugPrefix) {
   verifyInputShapes(params, in, weights);
   if (params.isFractional) {
-    assert(absdiff(outDimY + paddingLower[0] + paddingUpper[0],
-                   weights.dim(2)) / stride[0] + 1 == in.dim(2));
-    assert(absdiff(outDimX + paddingLower[1] + paddingUpper[1],
-                   weights.dim(3)) / stride[1] + 1 == in.dim(3));
+    assert(absdiff(params.getOutputHeight() +
+                     params.paddingLower[0] +
+                     params.paddingUpper[0],
+                   weights.dim(2)) / params.stride[0] + 1 == in.dim(2));
+    assert(absdiff(params.getOutputWidth() +
+                   params.paddingLower[1] +
+                   params.paddingUpper[1],
+                   weights.dim(3)) / params.stride[1] + 1 == in.dim(3));
   } else {
-    assert(absdiff(in.dim(2) + paddingLower[0] + paddingUpper[0],
-                   weights.dim(2)) / stride[0] + 1 == outDimY);
-    assert(absdiff(in.dim(3) + paddingLower[1] + paddingUpper[1],
-                   weights.dim(3)) / stride[1] + 1 == outDimX);
+    assert(absdiff(in.dim(2) + params.paddingLower[0] +
+                   params.paddingUpper[0],
+                   weights.dim(2)) / params.stride[0] + 1
+                     == params.getOutputHeight());
+    assert(absdiff(in.dim(3) + params.paddingLower[1] +
+                   params.paddingUpper[1],
+                   weights.dim(3)) / params.stride[1] + 1
+                     == params.getOutputWidth());
   }
   const auto numBatchGroups = in.dim(0);
   Sequence prog;
@@ -1689,9 +1697,6 @@ convolution(Graph &graph, const poplar::Tensor &in_,
     return activations;
   }
 
-
-  assert(plan.getPartialType() == partialsType);
-
   const auto layerName = debugPrefix + "/Conv" + convSuffix(params);
   assert(batchSize % plan.batchesPerGroup == 0);
   const auto numBatchGroups = batchSize / plan.batchesPerGroup;
@@ -1809,7 +1814,7 @@ static double getPerfectCycleCount(const Graph &graph,
         static_cast<double>(numMacs) / (floatVectorWidth * numTiles);
     return macCycles;
   }
-  assert(dType == "half");
+  assert(params.dType == "half");
   const auto convUnitsPerTile =
       std::max(std::max(deviceInfo.fp16InFp16OutConvUnitsPerTile,
                         deviceInfo.fp32InFp32OutConvUnitsPerTile),

@@ -467,7 +467,6 @@ estimateWeightUpdatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
                                       bool floatActivations,
                                       const ConvParams &params,
                                       const Plan &plan) {
-  assert(params.isWeightUpdate);
   assert(!plan.useConvolutionInstructions);
   const auto tilesPerZ = plan.tilesPerZAxis;
   const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
@@ -1438,7 +1437,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                                            convVertexType.floatPartials,
                                            deviceInfo);
   } else {
-    assert(!params.isWeightUpdate);
+    assert(!isWeightUpdate);
     partialChansPerGroup = 1;
   }
   for (auto inChansPerGroup : inChansPerGroupCandidates) {
@@ -1560,10 +1559,10 @@ createPlan(ConvParams params,
 
 Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
              ConvOptions options) {
-  assert (weightsShape.size() == 3);
-  assert (stride.size() == 2);
-  assert (paddingLower.size() == 2);
-  assert (paddingUpper.size() == 2);
+  assert (params.kernelShape.size() == 4);
+  assert (params.stride.size() == 2);
+  assert (params.paddingLower.size() == 2);
+  assert (params.paddingUpper.size() == 2);
   Plan plan;
   Cost cost;
   CostBounds costBounds(0, 0);
@@ -1630,7 +1629,7 @@ Plan getWeightUpdatePlan(const poplar::Graph &graph,
                          const poplar::Tensor &deltas,
                          const ConvParams &params,
                          ConvOptions options) {
-  assert (params.kernelShape.size() == 3);
+  assert (params.kernelShape.size() == 4);
   assert (params.stride.size() == 2);
   assert (params.paddingLower.size() == 2);
   assert (params.paddingUpper.size() == 2);
