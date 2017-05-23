@@ -217,26 +217,33 @@ template class ConvWeightGradAop<half, half, true>;
 template <typename WeightType>
 class ConvWeightUpdate : public Vertex {
 public:
-  Input<Vector<WeightType>> weightDeltas;
-  InOut<Vector<WeightType>> weights;
+  Vector<Input<Vector<WeightType>>> weightDeltas;
+  Vector<InOut<Vector<WeightType>>> weights;
 
   float eta;
 
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    for (unsigned w = 0; w < weights.size(); ++w) {
-      weights[w] -= eta * weightDeltas[w];
+    assert(weights.size() == weightDeltas.size());
+    for (unsigned i = 0; i != weights.size(); ++i) {
+      assert(weights[i].size() == weightDeltas[i].size());
+      for (unsigned w = 0; w < weights[i].size(); ++w) {
+        weights[i][w] -= eta * weightDeltas[i][w];
+      }
     }
     return true;
   }
 
   uint64_t getCycleEstimate() const {
-    unsigned numElem = weights.size();
     bool isFloat = std::is_same<WeightType, float>::value;
     unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    // Inner loop uses the axpy instruction.
-    return 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth);
+    std::uint64_t cycles = 5;
+    for (unsigned i = 0; i != weights.size(); ++i) {
+      // Inner loop uses the axpy instruction.
+      cycles += (1 + (weights[i].size() + vectorWidth - 1) / vectorWidth);
+    }
+    return cycles;
   }
 };
 
