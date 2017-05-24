@@ -479,35 +479,32 @@ int main(int argc, char **argv) {
   rawHostPrevDeltas = allocateHostMemoryForTensor(graph, prevDeltas, upload,
                                                   download);
   if (doWuPass) {
-    // Implement the weight update using matMul. This is inefficient as it
-    // take advantage of batching and a costly rearrangement of the weight
-    // deltas is required to match the layout of the weights.
-    // TODO optimize this.
+    // Implement the weight update as a convolutional layer with
+    // input channels = batch size
+    // width = outputSize
+    // height = 1
+    // output channels = inputSize
+    // Note that the fullyConnectedWU option is set
+    // to avoid a rearrangement of weight deltas.
+    // TODO produce a joint plan for the forward, backward and weight update
+    // passes.
+    options.noLHSRearrangement = false;
+    options.fullyConnectedWU = true;
+    auto wuParams =
+        popconv::ConvParams(convParams.dType,
+                            {1, 1, outputSize, batchSize}, /* inputShape */
+                            {1, 1, inputSize, batchSize}, /* kernelShape */
+                            {1, 1}, /* stride */
+                            {0, 0},
+                            {0, 0},
+                            false);
+    auto weightDeltas =
+        popconv::convolution(graph, zDeltas, prevAct, wuParams, true, bwdProg,
+                             "", options);
+    addTo(graph, weights, weightDeltas, -learningRate, bwdProg);
     auto zDeltasRearrangedView = zDeltas.dimShuffle({0, 1, 4, 2, 3})
                                         .reshape({batchSize, outputSize});
-    auto zDeltasRearranged = graph.addTensor(dataTypeStr,
-                                             zDeltasRearrangedView.shape());
-    bwdProg.add(Copy(zDeltasRearrangedView, zDeltasRearranged));
-    graph.setTileMapping(zDeltasRearranged,
-                         graph.getTileMapping(zDeltasRearrangedView));
-    auto prevActRearrangedView = prevAct.dimShuffle({0, 4, 1, 5, 2, 3})
-                                        .reshape({batchSize, inputSize});
-    auto prevActRearranged = graph.addTensor(dataTypeStr,
-                                             prevActRearrangedView.shape());
-    bwdProg.add(Copy(prevActRearrangedView, prevActRearranged));
-    graph.setTileMapping(prevActRearranged,
-                         graph.getTileMapping(prevActRearrangedView));
-    MatMulOptions mmOpt;
-    mmOpt.partialsType = partialsTypeStr;
-    auto weightDeltas = matMul(graph, zDeltasRearranged.transpose(),
-                               prevActRearranged, bwdProg, "fc", mmOpt);
-    auto weightDeltasRearrangedView =
-        weightDeltas.reshape({outputSize, inputSize / weights.dim(4),
-                              weights.dim(4)})
-                    .dimShuffle({1, 0, 2})
-                    .reshape(weights.shape());
-    addTo(graph, weights, weightDeltasRearrangedView, -learningRate, bwdProg);
-    auto biasDeltas = reduce(graph, zDeltasRearranged, bwdProg);
+    auto biasDeltas = reduce(graph, zDeltasRearrangedView, bwdProg);
     addTo(graph, biases, biasDeltas, -learningRate, bwdProg);
   }
 

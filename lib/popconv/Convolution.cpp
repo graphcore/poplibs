@@ -214,7 +214,6 @@ linearizeTileIndices(unsigned batchGroup, unsigned numBatchGroups,
   const auto tilesPerZ = plan.tilesPerZAxis;
   const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
   const auto tilesPerKernelYAxis = plan.tilesPerKernelYAxis;
-
   unsigned beginTile;
   if (numBatchGroups <= numTiles) {
     beginTile = (numTiles / numBatchGroups) * batchGroup;
@@ -225,22 +224,40 @@ linearizeTileIndices(unsigned batchGroup, unsigned numBatchGroups,
   // If this is a multi IPU system then choose an order that avoids splitting
   // partial sums over IPUs
   unsigned tile;
-  if (isMultiIPU)
-    tile = beginTile +
-      (ky + tilesPerKernelYAxis *
-        (izg + tilesPerInZGroup *
-          (ox + tilesPerX *
-            (oy + tilesPerY * ozg))));
-  // Use ozg as the innermost dimension to increase the chance that
-  // tiles in a supertile both read the same activations. This reduces
-  // exchange time when supertile send / receive is used.
-  else
-    tile = beginTile +
-           (ozg + tilesPerZ *
-             (ox + tilesPerX *
-               (oy + tilesPerY *
-                 (ky + tilesPerKernelYAxis *
-                   izg))));
+  if (plan.fullyConnectedWU) {
+    // For the fully connected weight update the in group and out group are
+    // swapped compared to the forward pass.
+    if (isMultiIPU)
+      tile = beginTile +
+        (ky + tilesPerKernelYAxis *
+          (ozg + tilesPerZ *
+            (ox + tilesPerX *
+              (oy + tilesPerY * izg))));
+    else
+      tile = beginTile +
+             (izg + tilesPerInZGroup *
+               (ox + tilesPerX *
+                 (oy + tilesPerY *
+                   (ky + tilesPerKernelYAxis *
+                     ozg))));
+  } else {
+    if (isMultiIPU)
+      tile = beginTile +
+        (ky + tilesPerKernelYAxis *
+          (izg + tilesPerInZGroup *
+            (ox + tilesPerX *
+              (oy + tilesPerY * ozg))));
+    // Use ozg as the innermost dimension to increase the chance that
+    // tiles in a supertile both read the same activations. This reduces
+    // exchange time when supertile send / receive is used.
+    else
+      tile = beginTile +
+             (ozg + tilesPerZ *
+               (ox + tilesPerX *
+                 (oy + tilesPerY *
+                   (ky + tilesPerKernelYAxis *
+                     izg))));
+  }
   assert(tile < numTiles);
   return tile;
 }

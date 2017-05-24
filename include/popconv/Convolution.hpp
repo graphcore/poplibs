@@ -30,6 +30,10 @@ struct ConvOptions {
   // Aviod rearrangement of left hand side argument between convolution and
   // weight delta calculation.
   bool noLHSRearrangement = false;
+  // True if we are computing fully connected weight deltas. Arrange for the
+  // output of the convolution (the weight deltas) to use the same layout as
+  // weights.
+  bool fullyConnectedWU = false;
   std::string partialsType = "float";
   PlanningCache *cache = nullptr;
   bool operator<(const ConvOptions &other) const {

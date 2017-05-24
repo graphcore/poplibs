@@ -20,6 +20,7 @@ struct Plan {
   bool useConvolutionInstructions;
   bool flattenXY = false;
   bool useWinograd = false;
+  bool fullyConnectedWU = false;
   unsigned winogradPatchSize;
   enum AmpWUMethod {
     DELTAS_AS_COEFFICENTS,

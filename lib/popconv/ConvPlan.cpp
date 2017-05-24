@@ -1563,6 +1563,47 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
   assert (params.stride.size() == 2);
   assert (params.paddingLower.size() == 2);
   assert (params.paddingUpper.size() == 2);
+  if (options.fullyConnectedWU) {
+    // Translate back into parameters of the fully connected layer.
+    assert(params.getInputHeight() == 1);
+    const auto outputSize = params.getInputWidth();
+    const auto batchSize = params.getInputDepth();
+    assert(params.kernelShape[0] == 1 && params.kernelShape[1] == 1);
+    const auto inputSize = params.kernelShape[2];
+    assert(params.stride == std::vector<unsigned>({1U, 1U}));
+    assert(params.paddingLower == std::vector<unsigned>({0U, 0U}));
+    assert(params.paddingUpper == std::vector<unsigned>({0U, 0U}));
+    assert(params.isFractional == false);
+    // Translate back to the fwd plan.
+    options.fullyConnectedWU = false;
+    auto newParams = ConvParams(params.dType,
+                                {1, 1, outputSize, inputSize}, /* inputShape */
+                                {1, 1, batchSize, inputSize}, /* kernelShape */
+                                {1, 1}, /* stride */
+                                {0, 0},
+                                {0, 0},
+                                false);
+    const auto fwdPlan =
+        popconv::getPlan(graph, newParams, options);
+    auto plan = fwdPlan;
+    plan.fullyConnectedWU = true;
+    plan.tilesPerInZGroupAxis = fwdPlan.tilesPerZAxis;
+    plan.tilesPerZAxis = fwdPlan.tilesPerInZGroupAxis;
+    plan.partialChansPerGroup = fwdPlan.inChansPerGroup;
+    // TODO make the fwd pass aware that it would be good to use a grouping of
+    // 16 if possible.
+    plan.inChansPerGroup = fwdPlan.partialChansPerGroup;
+    // If the result type is half and all the reduction is done within a single
+    // pass of the AMP unit then there is no reason to use a higher precision
+    // partial type.
+    const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+    if (params.dType != "float" && batchSize == plan.inChansPerGroup &&
+        deviceInfo.fp16InFp16OutConvUnitsPerTile ==
+        deviceInfo.fp16InFp32OutConvUnitsPerTile) {
+      plan.floatPartials = false;
+    }
+    return plan;
+  }
   Plan plan;
   Cost cost;
   CostBounds costBounds(0, 0);
