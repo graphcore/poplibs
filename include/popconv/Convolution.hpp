@@ -131,9 +131,7 @@ mapWeights(poplar::Graph &graph, const poplar::Tensor &weights,
            const ConvOptions &options = ConvOptions());
 
 void mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
-               const poplar::Tensor &in, const poplar::Tensor &w,
-               const ConvParams &params,
-               const ConvOptions &options = ConvOptions());
+               const poplar::Tensor &out);
 
 void
 weightsTransposeChansFlipXY(poplar::Graph &graph,

@@ -18,6 +18,7 @@
 #include "Winograd.hpp"
 #include "popstd/Zero.hpp"
 #include <unordered_set>
+#include <boost/icl/interval_map.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -550,76 +551,72 @@ mapWeights(Graph &graph, const Tensor &w, const ConvParams &params,
   mapWeights(w, graph, plan, params.inputShape[0]);
 }
 
-template <typename Builder>
-static void iterateBiasMapping(Tensor b, const Graph &graph,
-                               const std::vector<std::size_t> actShape,
-                               Builder &&builder) {
-  const auto batchSize = actShape[0];
-  std::vector<std::size_t> actShape1(actShape.begin() + 1, actShape.end());
-  const auto dType = graph.getTensorElementType(b);
-  const auto activationsMapping = computeActivationsMapping(graph, dType,
-                                                            actShape1,
-                                                            0,
-                                                            batchSize);
+static std::vector<std::vector<poplar::Interval<std::size_t>>>
+computeBiasMapping(Graph &graph, const Tensor &out) {
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto dType = graph.getTensorElementType(out);
+  const auto dTypeSize = dType == "float" ? 4 : 2;
   const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
-  const auto outNumChans = actShape[1] * actShape[4];
-  const auto outNumChanGroups = actShape[1];
-  const auto outDimY = actShape[2];
-  const auto outDimX = actShape[3];
-  std::vector<unsigned> mapping(outNumChanGroups);
-  size_t outChansPerGroup = outNumChans / outNumChanGroups;
-  Tensor biasesByChanGroup =
-      b.reshape({outNumChanGroups, outChansPerGroup});
+  const unsigned numChans = out.dim(1) * out.dim(4);
+  const auto grainSize =
+      dType == "float" ? deviceInfo.getFloatVectorWidth() :
+                         deviceInfo.getHalfVectorWidth();
+  auto outByChanGrain = out.dimShuffle({1, 4, 0, 2, 3})
+                           .reshape({numChans, out.numElements() / numChans})
+                           .subSample(grainSize, 0);
+  const auto outByChanGrainMapping = graph.getTileMapping(outByChanGrain);
+  // Build a map from the bias to the set of tiles that access it.
+  boost::icl::interval_map<unsigned, std::set<unsigned>> biasToTiles;
   for (unsigned tile = 0; tile != numTiles; ++tile) {
-    const auto tileActivationsBegin = activationsMapping[tile];
-    const auto tileActivationsEnd = activationsMapping[tile + 1];
-    assert(tileActivationsBegin % outChansPerGroup == 0);
-    assert(tileActivationsEnd % outChansPerGroup == 0);
-    const auto tileGroupBegin = tileActivationsBegin / outChansPerGroup;
-    const auto tileGroupEnd = tileActivationsEnd / outChansPerGroup;
-    const auto tileNumGroups = tileGroupEnd - tileGroupBegin;
-    if (tileNumGroups == 0)
-      continue;
-    const auto minOutChanGroup = tileGroupBegin / (outDimX * outDimY);
-    const auto maxOutChanGroup = (tileGroupEnd - 1) / (outDimX * outDimY);
-    for (unsigned grp = minOutChanGroup; grp <= maxOutChanGroup; ++grp)
-      mapping[grp] = tile;
-  }
-
-  unsigned beginGroup = 0;
-  unsigned curTile = mapping[0];
-  for (unsigned grp = 1; grp < outNumChanGroups; ++grp) {
-    if (mapping[grp] != curTile) {
-      Tensor biasSlice = biasesByChanGroup.slice(beginGroup, grp);
-      builder(biasSlice, curTile);
-      curTile = mapping[grp];
-      beginGroup = grp;
+    for (const auto &interval : outByChanGrainMapping[tile]) {
+      unsigned chanGrainBegin = interval.begin() / outByChanGrain.dim(1);
+      unsigned chanGrainEnd = (interval.end() + outByChanGrain.dim(1) - 1) /
+                              outByChanGrain.dim(1);
+      unsigned chanBegin = chanGrainBegin * grainSize;
+      unsigned chanEnd = std::min(chanGrainEnd * grainSize, numChans);
+      auto biasInterval =
+          boost::icl::interval<unsigned>::right_open(chanBegin, chanEnd);
+      biasToTiles += std::make_pair(biasInterval, std::set<unsigned>({tile}));
     }
   }
-  Tensor finalSlice = biasesByChanGroup.slice(beginGroup, outNumChanGroups);
-  builder(finalSlice, curTile);
+  // Build a map from sets of tiles to biases they use.
+  std::map<std::set<unsigned>, std::vector<Interval<std::size_t>>>
+      tilesToBiases;
+  for (const auto &entry : biasToTiles) {
+    tilesToBiases[entry.second].emplace_back(entry.first.lower(),
+                                             entry.first.upper());
+  }
+  // Limit the minimum number of bias bytes per tile to reduce the amount of
+  // exchange code. Increasing this constant reduces exchange code size and
+  // increases execution time due to imbalance. The current limit was
+  // chosen experimentally.
+  const auto minBytesPerTile = 256;
+  const auto minElementsPerTile =
+      (minBytesPerTile + dTypeSize - 1) / dTypeSize;
+  std::vector<std::vector<Interval<std::size_t>>> mapping(numTiles);
+  for (const auto &entry : tilesToBiases) {
+    const auto &tiles = entry.first;
+    const auto &sharedBiases = entry.second;
+    const auto perTileWeights =
+        splitRegions(sharedBiases, grainSize,
+                     tiles.size(), minElementsPerTile);
+    unsigned i = 0;
+    for (auto tile : tiles) {
+      if (i == perTileWeights.size())
+        break;
+      mapping[tile].insert(mapping[tile].begin(),
+                           perTileWeights[i].begin(),
+                           perTileWeights[i].end());
+      ++i;
+    }
+  }
+  return mapping;
 }
 
-void mapBiases(Graph &graph, const Tensor &biases,
-               const Tensor &in, const Tensor &w,
-               const ConvParams &params,
-               const ConvOptions &options) {
-  verifyStrideAndPaddingDimensions(params);
-  const auto outShape = getOutputShape(params);
-  std::size_t outDimY = outShape[1];
-  std::size_t outDimX = outShape[2];
-  const unsigned outNumChans = w.dim(0) * w.dim(4);
-  const auto plan = getPlan(graph, params, options);
-  const auto outChansPerGroup = getOutChansPerGroup(plan, outNumChans);
-  assert(outNumChans % outChansPerGroup == 0);
-  std::vector<std::size_t> actShape{in.dim(0),
-                                    outNumChans / outChansPerGroup,
-                                    outDimY, outDimX,
-                                    outChansPerGroup};
-  iterateBiasMapping(biases, graph, actShape,
-                     [&](Tensor biasSlice, unsigned tile) {
-                         graph.setTileMapping(biasSlice, tile);
-                     });
+void mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
+               const poplar::Tensor &out) {
+  auto mapping = computeBiasMapping(graph, out);
+  applyTensorMapping(graph, biases, mapping);
 }
 
 static void
