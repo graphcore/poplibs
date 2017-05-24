@@ -388,9 +388,11 @@ int main(int argc, char **argv) {
   std::string partialsTypeStr(asString(partialsType));
 
   popconv::PlanningCache pCache;
-  popconv::ConvOptions options;
-  options.noLHSRearrangement = true;
-  options.cache = &pCache;
+  popconv::ConvOptions fwdOptions;
+  if (!inferenceOnly) {
+    fwdOptions.fullyConnectedFwd = true;
+  }
+  fwdOptions.cache = &pCache;
   // A fully connected fwd pass is equivalent to a convolution with
   // input channels = inputSize
   // width = outputSize
@@ -402,9 +404,9 @@ int main(int argc, char **argv) {
                           {1, 1, outputSize, inputSize},
                           {1, 1, batchSize, inputSize},
                           {1, 1}, {0, 0}, {0, 0}, false);
-  Tensor weights = popconv::createInput(graph, convParams, "weights", options);
+  Tensor weights = popconv::createInput(graph, convParams, "weights", fwdOptions);
   Tensor prevAct = popconv::createWeights(graph, convParams, "prevAct",
-                                          options);
+                                          fwdOptions);
   auto biases = graph.addTensor(dataTypeStr, {outputSize}, "biases");
   mapTensor(graph, biases);
 
@@ -421,6 +423,9 @@ int main(int argc, char **argv) {
   auto download = Sequence();
   Tensor zDeltas;
   std::unique_ptr<char[]> rawHostZDeltas;
+  auto bwdOptions = fwdOptions;
+  bwdOptions.fullyConnectedFwd = false;
+  bwdOptions.fullyConnectedBwd = true;
   if (doBwdPass || doWuPass) {
     zDeltas = popconv::createInput(graph,
                                    popconv::ConvParams(
@@ -429,7 +434,7 @@ int main(int argc, char **argv) {
                                      {1, 1, inputSize, batchSize},
                                      {1, 1}, {0, 0},
                                      {0, 0}, false),
-                                   "zDeltas", options);
+                                   "zDeltas", bwdOptions);
     rawHostZDeltas = allocateHostMemoryForTensor(graph, zDeltas, upload,
                                                  download);
   }
@@ -440,14 +445,14 @@ int main(int argc, char **argv) {
   Tensor nextAct;
   if (doFwdPass) {
     nextAct = popconv::convolution(graph, weights, prevAct, convParams, false,
-                                   fwdProg, "", options);
+                                   fwdProg, "", fwdOptions);
     auto bBiases = biases.broadcast(batchSize, 0)
                          .reshape({batchSize / nextAct.dim(4),
                                    nextAct.dim(4), outputSize})
                          .dimShuffle({0, 2, 1});
     addTo(graph, nextAct, bBiases, 1, fwdProg);
   } else {
-    popconv::mapWeights(graph, prevAct, convParams, options);
+    popconv::mapWeights(graph, prevAct, convParams, fwdOptions);
     nextAct =
         graph.addTensor(dataTypeStr, {1 /*batchSize*/,
                                       batchSize / 1,
@@ -471,10 +476,10 @@ int main(int argc, char **argv) {
   if (doBwdPass) {
     prevDeltas = popconv::calculateWeightDeltas(graph, zDeltas, weights,
                                                 convParams, bwdProg,
-                                                "", options);
+                                                "", bwdOptions);
   } else {
     prevDeltas = graph.addTensor(dataTypeStr, prevAct.shape(), "prevDeltas");
-    popconv::mapWeights(graph, prevDeltas, convParams, options);
+    popconv::mapWeights(graph, prevDeltas, convParams, bwdOptions);
   }
   rawHostPrevDeltas = allocateHostMemoryForTensor(graph, prevDeltas, upload,
                                                   download);
@@ -488,8 +493,9 @@ int main(int argc, char **argv) {
     // to avoid a rearrangement of weight deltas.
     // TODO produce a joint plan for the forward, backward and weight update
     // passes.
-    options.noLHSRearrangement = false;
-    options.fullyConnectedWU = true;
+    auto wuOptions = fwdOptions;
+    wuOptions.fullyConnectedFwd = false;
+    wuOptions.fullyConnectedWU = true;
     auto wuParams =
         popconv::ConvParams(convParams.dType,
                             {1, 1, outputSize, batchSize}, /* inputShape */
@@ -500,7 +506,7 @@ int main(int argc, char **argv) {
                             false);
     auto weightDeltas =
         popconv::convolution(graph, zDeltas, prevAct, wuParams, true, bwdProg,
-                             "", options);
+                             "", wuOptions);
     addTo(graph, weights, weightDeltas, -learningRate, bwdProg);
     auto zDeltasRearrangedView = zDeltas.dimShuffle({0, 1, 4, 2, 3})
                                         .reshape({batchSize, outputSize});

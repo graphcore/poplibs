@@ -1020,6 +1020,126 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
   return newParams;
 }
 
+static popsolver::Variable
+addCycleEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
+                 popsolver::Variable tilesPerY,
+                 popsolver::Variable tilesPerZ,
+                 popsolver::Variable tilesPerKernelY,
+                 popsolver::Variable tilesPerInZ,
+                 const poplar::DeviceInfo &deviceInfo,
+                 const ConvParams &params,
+                 bool isWeightUpdate,
+                 unsigned inChansPerGroup,
+                 unsigned partialChansPerGroup,
+                 unsigned batchesPerGroup,
+                 bool floatPartials,
+                 bool floatActivations,
+                 bool useConvInstruction,
+                 PlanningCacheImpl *cache) {
+  const auto exchangeCycles =
+      m.call({tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY, tilesPerInZ},
+             [=,&deviceInfo](const std::vector<unsigned> &values) {
+    const auto tilesPerX = values[0];
+    const auto tilesPerY = values[1];
+    const auto tilesPerZ = values[2];
+    const auto tilesPerKernelY = values[3];
+    const auto tilesPerInZ = values[4];
+    Plan candidate(tilesPerX, tilesPerY, tilesPerZ,
+                   tilesPerKernelY, tilesPerInZ,
+                   inChansPerGroup, partialChansPerGroup,
+                   batchesPerGroup,
+                   floatPartials,
+                   useConvInstruction);
+    return estimateExchangeCycles(deviceInfo, floatActivations, params,
+                                  isWeightUpdate, candidate);
+  });
+  const auto partialCalcCycles =
+      m.call({tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY, tilesPerInZ},
+             [=,&deviceInfo](const std::vector<unsigned> &values) {
+    const auto tilesPerX = values[0];
+    const auto tilesPerY = values[1];
+    const auto tilesPerZ = values[2];
+    const auto tilesPerKernelY = values[3];
+    const auto tilesPerInZ = values[4];
+    Plan candidate(tilesPerX, tilesPerY, tilesPerZ,
+                   tilesPerKernelY, tilesPerInZ,
+                   inChansPerGroup, partialChansPerGroup,
+                   batchesPerGroup,
+                   floatPartials,
+                   useConvInstruction);
+    return estimatePartialCalcCycles(deviceInfo, floatActivations, params,
+                                     isWeightUpdate, candidate, cache);
+  });
+  const auto reduceCycles =
+      m.call({tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY, tilesPerInZ},
+             [=,&deviceInfo](const std::vector<unsigned> &values) {
+    const auto tilesPerX = values[0];
+    const auto tilesPerY = values[1];
+    const auto tilesPerZ = values[2];
+    const auto tilesPerKernelY = values[3];
+    const auto tilesPerInZ = values[4];
+    Plan candidate(tilesPerX, tilesPerY, tilesPerZ,
+                   tilesPerKernelY, tilesPerInZ,
+                   inChansPerGroup, partialChansPerGroup,
+                   batchesPerGroup,
+                   floatPartials,
+                   useConvInstruction);
+    return estimateReduceCycles(deviceInfo, params, isWeightUpdate, candidate);
+  });
+  return m.sum({exchangeCycles, partialCalcCycles, reduceCycles});
+}
+
+static popsolver::Variable
+addMemoryEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
+                  popsolver::Variable tilesPerY,
+                  popsolver::Variable tilesPerZ,
+                  popsolver::Variable tilesPerKernelY,
+                  popsolver::Variable tilesPerInZ,
+                  const poplar::DeviceInfo &deviceInfo,
+                  const ConvParams &params,
+                  bool isWeightUpdate,
+                  unsigned inChansPerGroup,
+                  unsigned partialChansPerGroup,
+                  unsigned batchesPerGroup,
+                  bool floatPartials,
+                  bool floatActivations,
+                  bool useConvInstruction) {
+  const auto partialCalcMemory =
+      m.call({tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY, tilesPerInZ},
+             [=,&deviceInfo](const std::vector<unsigned> &values) {
+    const auto tilesPerX = values[0];
+    const auto tilesPerY = values[1];
+    const auto tilesPerZ = values[2];
+    const auto tilesPerKernelY = values[3];
+    const auto tilesPerInZ = values[4];
+    Plan candidate(tilesPerX, tilesPerY, tilesPerZ,
+                   tilesPerKernelY, tilesPerInZ,
+                   inChansPerGroup, partialChansPerGroup,
+                   batchesPerGroup,
+                   floatPartials,
+                   useConvInstruction);
+    return estimatePartialCalcMemory(deviceInfo, floatActivations, params,
+                                     isWeightUpdate, candidate);
+  });
+  const auto reduceMemory =
+      m.call({tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY, tilesPerInZ},
+             [=,&deviceInfo](const std::vector<unsigned> &values) {
+    const auto tilesPerX = values[0];
+    const auto tilesPerY = values[1];
+    const auto tilesPerZ = values[2];
+    const auto tilesPerKernelY = values[3];
+    const auto tilesPerInZ = values[4];
+    Plan candidate(tilesPerX, tilesPerY, tilesPerZ,
+                   tilesPerKernelY, tilesPerInZ,
+                   inChansPerGroup, partialChansPerGroup,
+                   batchesPerGroup,
+                   floatPartials,
+                   useConvInstruction);
+    return estimateReduceMemory(deviceInfo, params, isWeightUpdate, candidate);
+  });
+  return m.sum({partialCalcMemory, reduceMemory});
+}
+
 static std::pair<Plan, Cost>
 choosePlan(const poplar::DeviceInfo &deviceInfo,
            unsigned inChansPerGroup,
@@ -1118,92 +1238,55 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
   const auto usedTiles = m.product({tilesPerX, tilesPerY, tilesPerZ,
                                     tilesPerKernelY, tilesPerInZ});
   m.lessOrEqual(usedTiles, numTiles);
-  const auto exchangeCycles =
-      m.call({tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY, tilesPerInZ},
-             [&](const std::vector<unsigned> &values) {
-    const auto tilesPerX = values[0];
-    const auto tilesPerY = values[1];
-    const auto tilesPerZ = values[2];
-    const auto tilesPerKernelY = values[3];
-    const auto tilesPerInZ = values[4];
-    Plan candidate(tilesPerX, tilesPerY, tilesPerZ,
-                   tilesPerKernelY, tilesPerInZ,
-                   inChansPerGroup, partialChansPerGroup,
-                   batchesPerGroup,
-                   convVertexType.floatPartials,
-                   convVertexType.useConvInstruction);
-    return estimateExchangeCycles(deviceInfo, floatActivations, params,
-                                  isWeightUpdate,
-                                  candidate);
-  });
-  const auto partialCalcCycles =
-      m.call({tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY, tilesPerInZ},
-             [&](const std::vector<unsigned> &values) {
-    const auto tilesPerX = values[0];
-    const auto tilesPerY = values[1];
-    const auto tilesPerZ = values[2];
-    const auto tilesPerKernelY = values[3];
-    const auto tilesPerInZ = values[4];
-    Plan candidate(tilesPerX, tilesPerY, tilesPerZ,
-                   tilesPerKernelY, tilesPerInZ,
-                   inChansPerGroup, partialChansPerGroup,
-                   batchesPerGroup,
-                   convVertexType.floatPartials,
-                   convVertexType.useConvInstruction);
-    return estimatePartialCalcCycles(deviceInfo, floatActivations, params,
-                                     isWeightUpdate, candidate, cache);
-  });
-  const auto reduceCycles =
-      m.call({tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY, tilesPerInZ},
-             [&](const std::vector<unsigned> &values) {
-    const auto tilesPerX = values[0];
-    const auto tilesPerY = values[1];
-    const auto tilesPerZ = values[2];
-    const auto tilesPerKernelY = values[3];
-    const auto tilesPerInZ = values[4];
-    Plan candidate(tilesPerX, tilesPerY, tilesPerZ,
-                   tilesPerKernelY, tilesPerInZ,
-                   inChansPerGroup, partialChansPerGroup,
-                   batchesPerGroup,
-                   convVertexType.floatPartials,
-                   convVertexType.useConvInstruction);
-    return estimateReduceCycles(deviceInfo, params, isWeightUpdate, candidate);
-  });
-  const auto cycles = m.sum({exchangeCycles, partialCalcCycles, reduceCycles});
-  const auto partialCalcMemory =
-      m.call({tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY, tilesPerInZ},
-             [&](const std::vector<unsigned> &values) {
-    const auto tilesPerX = values[0];
-    const auto tilesPerY = values[1];
-    const auto tilesPerZ = values[2];
-    const auto tilesPerKernelY = values[3];
-    const auto tilesPerInZ = values[4];
-    Plan candidate(tilesPerX, tilesPerY, tilesPerZ,
-                   tilesPerKernelY, tilesPerInZ,
-                   inChansPerGroup, partialChansPerGroup,
-                   batchesPerGroup,
-                   convVertexType.floatPartials,
-                   convVertexType.useConvInstruction);
-    return estimatePartialCalcMemory(deviceInfo, floatActivations, params,
-                                     isWeightUpdate, candidate);
-  });
-  const auto reduceMemory =
-      m.call({tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY, tilesPerInZ},
-             [&](const std::vector<unsigned> &values) {
-    const auto tilesPerX = values[0];
-    const auto tilesPerY = values[1];
-    const auto tilesPerZ = values[2];
-    const auto tilesPerKernelY = values[3];
-    const auto tilesPerInZ = values[4];
-    Plan candidate(tilesPerX, tilesPerY, tilesPerZ,
-                   tilesPerKernelY, tilesPerInZ,
-                   inChansPerGroup, partialChansPerGroup,
-                   batchesPerGroup,
-                   convVertexType.floatPartials,
-                   convVertexType.useConvInstruction);
-    return estimateReduceMemory(deviceInfo, params, isWeightUpdate, candidate);
-  });
-  const auto memory = m.sum({partialCalcMemory, reduceMemory});
+
+  auto cycles =
+      addCycleEstimate(m, tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY,
+                       tilesPerInZ, deviceInfo, params, isWeightUpdate,
+                       inChansPerGroup, partialChansPerGroup, batchesPerGroup,
+                       convVertexType.floatPartials, floatActivations,
+                       convVertexType.useConvInstruction, cache);
+  auto memory =
+      addMemoryEstimate(m, tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY,
+                        tilesPerInZ, deviceInfo, params, isWeightUpdate,
+                        inChansPerGroup, partialChansPerGroup, batchesPerGroup,
+                        convVertexType.floatPartials, floatActivations,
+                        convVertexType.useConvInstruction);
+  if (options.fullyConnectedFwd) {
+    const auto bwdCycles =
+        addCycleEstimate(m, tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY,
+                         tilesPerInZ, deviceInfo, params, true, inChansPerGroup,
+                         partialChansPerGroup, batchesPerGroup,
+                         convVertexType.floatPartials, floatActivations,
+                         false, cache);
+    const auto bwdMemory =
+        addMemoryEstimate(m, tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY,
+                          tilesPerInZ, deviceInfo, params, true,
+                          inChansPerGroup, partialChansPerGroup,
+                          batchesPerGroup, convVertexType.floatPartials,
+                          floatActivations, false);
+    auto wuParams = params;
+    std::swap(wuParams.kernelShape[3], wuParams.kernelShape[2]);
+    wuParams.inputShape[3] = wuParams.kernelShape[3];
+    const auto wuTilesPerZ = tilesPerInZ;
+    const auto wuTilesPerInZ = tilesPerZ;
+    const auto wuInChansPerGroup = partialChansPerGroup;
+    const auto wuPartialChansPerGroup = inChansPerGroup;
+    const auto wuCycles =
+        addCycleEstimate(m, tilesPerX, tilesPerY, wuTilesPerZ, tilesPerKernelY,
+                         wuTilesPerInZ, deviceInfo, wuParams, false,
+                         wuInChansPerGroup, wuPartialChansPerGroup,
+                         batchesPerGroup, convVertexType.floatPartials,
+                         floatActivations, convVertexType.useConvInstruction,
+                         cache);
+    const auto wuMemory =
+        addMemoryEstimate(m, tilesPerX, tilesPerY, wuTilesPerZ, tilesPerKernelY,
+                          wuTilesPerInZ, deviceInfo, wuParams, false,
+                          wuInChansPerGroup, wuPartialChansPerGroup,
+                          batchesPerGroup, convVertexType.floatPartials,
+                          floatActivations, convVertexType.useConvInstruction);
+    cycles = m.sum({cycles, bwdCycles, wuCycles});
+    memory = m.sum({memory, bwdMemory, wuMemory});
+  }
   if (costBounds.cycles > 0) {
     m.lessOrEqual(cycles, costBounds.cycles);
   }
@@ -1283,8 +1366,12 @@ getWeightUpdateVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
 static std::vector<unsigned>
 getInChansPerGroupCandidates(const ConvParams &params,
                              const ConvVertexType &convVertexType,
-                             const poplar::DeviceInfo &deviceInfo) {
+                             const poplar::DeviceInfo &deviceInfo,
+                             const ConvOptions &options) {
   std::vector<unsigned> candidates;
+  const auto numConvUnits = getNumConvUnits(convVertexType.floatActivations,
+                                            convVertexType.floatPartials,
+                                            deviceInfo);
   for (unsigned i = 1; i <= params.getInputDepth(); ++i) {
     if (params.getInputDepth() % i != 0)
       continue;
@@ -1296,6 +1383,13 @@ getInChansPerGroupCandidates(const ConvParams &params,
                                       params.stride[0], params.stride[1],
                                       i, deviceInfo))
       continue;
+    if (options.fullyConnectedFwd) {
+      // The input channels in the forward pass become the output channels of
+      // the weight update pass. Make sure it is a multiple of the supported
+      // output channels per group.
+      if (i % numConvUnits != 0)
+        continue;
+    }
     candidates.push_back(i);
   }
   if (candidates.empty()) {
@@ -1318,10 +1412,18 @@ getInChansPerGroupCandidates(const ConvParams &params,
                                           params.stride[0], params.stride[1],
                                           i, deviceInfo))
           continue;
+        if (options.fullyConnectedFwd) {
+          // The input channels in the forward pass become the output channels
+          // of the weight update pass. Make sure it is a multiple of the
+          // supported output channels per group.
+          if (i % numConvUnits != 0)
+            continue;
+        }
         candidates.push_back(i);
       }
     } else {
-      candidates.push_back(params.getInputDepth());
+      candidates.push_back(options.fullyConnectedFwd ? numConvUnits :
+                                                       params.getInputDepth());
     }
   }
   return candidates;
@@ -1429,13 +1531,17 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
     assert(tensorOutChansPerGroup == 0);
     assert(tensorWeightOutChansPerGroup == 0);
     inChansPerGroupCandidates =
-        getInChansPerGroupCandidates(params, convVertexType, deviceInfo);
+        getInChansPerGroupCandidates(params, convVertexType, deviceInfo,
+                                     options);
   }
   unsigned partialChansPerGroup;
   if (convVertexType.useConvInstruction) {
-    partialChansPerGroup = getNumConvUnits(convVertexType.floatActivations,
-                                           convVertexType.floatPartials,
-                                           deviceInfo);
+    const auto numConvUnits = getNumConvUnits(convVertexType.floatActivations,
+                                              convVertexType.floatPartials,
+                                              deviceInfo);
+    // TODO take into account the best grouping for all the phases if
+    // options.fullyConnectedFwd is set.
+    partialChansPerGroup = numConvUnits;
   } else {
     assert(!isWeightUpdate);
     partialChansPerGroup = 1;
@@ -1559,6 +1665,7 @@ createPlan(ConvParams params,
 
 Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
              ConvOptions options) {
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   assert (params.kernelShape.size() == 4);
   assert (params.stride.size() == 2);
   assert (params.paddingLower.size() == 2);
@@ -1576,6 +1683,7 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
     assert(params.isFractional == false);
     // Translate back to the fwd plan.
     options.fullyConnectedWU = false;
+    options.fullyConnectedFwd = true;
     auto newParams = ConvParams(params.dType,
                                 {1, 1, outputSize, inputSize}, /* inputShape */
                                 {1, 1, batchSize, inputSize}, /* kernelShape */
@@ -1590,9 +1698,22 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
     plan.tilesPerInZGroupAxis = fwdPlan.tilesPerZAxis;
     plan.tilesPerZAxis = fwdPlan.tilesPerInZGroupAxis;
     plan.partialChansPerGroup = fwdPlan.inChansPerGroup;
+    if (plan.partialChansPerGroup != 1) {
+      // ConvPartialHorizontalMacVertex only supports an output grouping of 1.
+      // so we must force the use of the convolutional instructions.
+      plan.useConvolutionInstructions = true;
+    }
     // TODO make the fwd pass aware that it would be good to use a grouping of
     // 16 if possible.
     plan.inChansPerGroup = fwdPlan.partialChansPerGroup;
+    if (plan.useConvolutionInstructions &&
+        !canUseConvolutionInstruction(newParams.dType == "float",
+                                      options.partialsType == "float",
+                                      newParams.stride[0], newParams.stride[1],
+                                      plan.inChansPerGroup, deviceInfo)) {
+      plan.inChansPerGroup =
+          deviceInfo.getWeightsPerConvUnit(newParams.dType == "float");
+    }
     // If the result type is half and all the reduction is done within a single
     // pass of the AMP unit then there is no reason to use a higher precision
     // partial type.
@@ -1674,7 +1795,9 @@ Plan getWeightUpdatePlan(const poplar::Graph &graph,
   assert (params.stride.size() == 2);
   assert (params.paddingLower.size() == 2);
   assert (params.paddingUpper.size() == 2);
-  if (options.noLHSRearrangement) {
+  if (options.fullyConnectedBwd) {
+    options.fullyConnectedBwd = false;
+    options.fullyConnectedFwd = true;
     auto plan = getPlan(graph, params, options);
     plan.useConvolutionInstructions = false;
     return plan;

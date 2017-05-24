@@ -27,9 +27,10 @@ struct ConvOptions {
   bool useWinograd = false;
   unsigned winogradPatchSize = 4;
   unsigned percentageCyclesExcessForMemOptim = 0;
-  // Aviod rearrangement of left hand side argument between convolution and
+  bool fullyConnectedFwd = false;
+  // Avoid rearrangement of left hand side argument between convolution and
   // weight delta calculation.
-  bool noLHSRearrangement = false;
+  bool fullyConnectedBwd = false;
   // True if we are computing fully connected weight deltas. Arrange for the
   // output of the convolution (the weight deltas) to use the same layout as
   // weights.
