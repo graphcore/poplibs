@@ -85,8 +85,10 @@ void nonLinearity(Graph &graph, NonLinearityType nonLinearityType,
     // up when allocating work to vertices.
     // The minimum amount of work per vertex is set to 2 * vectorwidth to
     // balance memory and loop overhead against parallel performance.
+    const auto tileContiguousRegions =
+        graph.getSortedContiguousRegions(t, mapping[tile]);
     auto vertexRegions =
-        splitRegionsBetweenWorkers(deviceInfo, mapping[tile],
+        splitRegionsBetweenWorkers(deviceInfo, tileContiguousRegions,
                                    vectorWidth, 2 * vectorWidth);
     for (const auto &regions : vertexRegions) {
       auto v = graph.addVertex(cs, templateVertex("popnn::NonLinearity",

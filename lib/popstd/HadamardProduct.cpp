@@ -28,8 +28,10 @@ void hadamardProduct(Graph &graph, Tensor A, Tensor B,
     // balance memory and loop overhead against parallel performance.
     const auto grainSize = dType == "float" ? deviceInfo.getFloatVectorWidth()
                                             : deviceInfo.getHalfVectorWidth();
+    const auto tileContiguousRegions =
+        graph.getSortedContiguousRegions(A, mapping[tile]);
     auto vertexRegions =
-        splitRegionsBetweenWorkers(deviceInfo, mapping[tile],
+        splitRegionsBetweenWorkers(deviceInfo, tileContiguousRegions,
                                    grainSize, 2 * grainSize);
     for (const auto &regions : vertexRegions) {
       auto v = graph.addVertex(cs,

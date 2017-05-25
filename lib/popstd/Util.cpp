@@ -30,25 +30,26 @@ void mergeAdjacentRegions(
   }
 }
 
-std::vector<std::vector<poplar::Interval<std::size_t>>>
-splitRegions(const std::vector<poplar::Interval<std::size_t>> &regions,
-             unsigned grainSize, unsigned maxPartitions,
-             unsigned minElementsPerPartition) {
-  std::vector<std::vector<poplar::Interval<std::size_t>>> vertexRegions;
-  const auto numElements =
-      std::accumulate(regions.begin(), regions.end(), 0U,
-                      [](unsigned numElements,
-                         const poplar::Interval<std::size_t> &region) {
-    return numElements + region.end() - region.begin();
+template <typename T, std::size_t size(const T &),
+          void extend(std::vector<T> &, const T&, unsigned, unsigned)>
+std::vector<std::vector<T>>
+splitRegionsAux(const std::vector<T> &items,
+                unsigned grainSize, unsigned maxPartitions,
+                unsigned minSizePerPartition) {
+  std::vector<std::vector<T>> vertexItems;
+  const auto totalSize =
+      std::accumulate(items.begin(), items.end(), 0U,
+                      [](unsigned totalSize, const T &item) {
+    return totalSize + size(item);
   });
-  if (numElements == 0)
-    return vertexRegions;
-  const auto numGroups = (numElements + grainSize - 1) / grainSize;
+  if (totalSize == 0)
+    return vertexItems;
+  const auto numGroups = (totalSize + grainSize - 1) / grainSize;
   auto maxGroupsPerPartition =
     (numGroups + maxPartitions - 1) / maxPartitions;
-  if (minElementsPerPartition) {
+  if (minSizePerPartition) {
     const auto minGroupsPerPartition =
-      (minElementsPerPartition + grainSize - 1) / grainSize;
+      (minSizePerPartition + grainSize - 1) / grainSize;
     const auto maxVerticesToCreate =
       std::max(1U, numGroups / minGroupsPerPartition);
     maxGroupsPerPartition =
@@ -57,37 +58,110 @@ splitRegions(const std::vector<poplar::Interval<std::size_t>> &regions,
   }
   const auto verticesToCreate =
     (numGroups + maxGroupsPerPartition - 1) / maxGroupsPerPartition;
-  auto it = regions.begin();
-  unsigned count = 0;
-  vertexRegions.resize(verticesToCreate);
+  auto it = items.begin();
+  unsigned offset = 0;
+  vertexItems.resize(verticesToCreate);
   for (unsigned vertex = 0; vertex != verticesToCreate; ++vertex) {
     const auto groupBegin = (vertex * numGroups) / verticesToCreate;
     const auto groupEnd = ((vertex + 1) * numGroups) / verticesToCreate;
     const auto elemBegin = groupBegin * grainSize;
-    const auto elemEnd = std::min(numElements, groupEnd * grainSize);
-    auto vertexElements = elemEnd - elemBegin;
-    while (vertexElements) {
-      if (count == it->end() - it->begin()) {
-        count = 0;
+    const auto elemEnd = std::min(totalSize, groupEnd * grainSize);
+    auto vertexSize = elemEnd - elemBegin;
+    while (vertexSize) {
+      if (offset == size(*it)) {
+        offset = 0;
         ++it;
       }
-      const auto vertexRegionSize =
-          std::min(static_cast<std::size_t>(vertexElements),
-                   it->end() - it->begin() - count);
-      const auto vertexRegionBegin = it->begin() + count;
-      const auto vertexRegionEnd = vertexRegionBegin + vertexRegionSize;
-      vertexRegions[vertex].emplace_back(vertexRegionBegin, vertexRegionEnd);
-      count += vertexRegionSize;
-      vertexElements -= vertexRegionSize;
+      const auto vertexItemSize =
+          std::min(static_cast<std::size_t>(vertexSize),
+                   size(*it) - offset);
+      extend(vertexItems[vertex], *it, offset, vertexItemSize);
+      offset += vertexItemSize;
+      vertexSize -= vertexItemSize;
     }
   }
-  return vertexRegions;
+  return vertexItems;
+}
+
+static std::size_t intervalSize(const poplar::Interval<std::size_t> &i) {
+  return i.size();
+}
+
+static void
+extendIntervalVector(
+    std::vector<poplar::Interval<std::size_t>> &xs,
+    const poplar::Interval<std::size_t> &region,
+    unsigned offset, unsigned size) {
+  xs.emplace_back(region.begin() + offset, region.begin() + offset + size);
+}
+
+std::vector<std::vector<poplar::Interval<std::size_t>>>
+splitRegions(const std::vector<poplar::Interval<std::size_t>> &regions,
+             unsigned grainSize, unsigned maxPartitions,
+             unsigned minElementsPerPartition) {
+  return splitRegionsAux<poplar::Interval<std::size_t>,
+                         intervalSize,
+                         extendIntervalVector>(
+    regions, grainSize, maxPartitions, minElementsPerPartition);
+}
+
+static std::size_t
+intervalSequenceSize(const std::vector<poplar::Interval<std::size_t>> &is) {
+  return std::accumulate(is.begin(), is.end(), 0UL,
+                         [](std::size_t size,
+                            const poplar::Interval<std::size_t> &i) {
+                           return size + i.size();
+                         });
+}
+
+static void
+extendIntervalSequenceVector(
+    std::vector<std::vector<poplar::Interval<std::size_t>>> &xs,
+    const std::vector<poplar::Interval<std::size_t>> &regions,
+    unsigned offset, unsigned size) {
+  std::vector<poplar::Interval<std::size_t>> slice;
+  auto it = regions.begin();
+  while (offset >= it->size()) {
+    offset -= it->size();
+    ++it;
+  }
+  while (size) {
+    auto begin = it->begin() + offset;
+    auto end = std::min(it->end(), it->begin() + offset + size);
+    size -= (end - begin);
+    slice.emplace_back(begin, end);
+    offset = 0;
+    ++it;
+  }
+  xs.emplace_back(std::move(slice));
+}
+
+std::vector<std::vector<std::vector<poplar::Interval<std::size_t>>>>
+splitRegions(
+  const std::vector<std::vector<poplar::Interval<std::size_t>>> &regions,
+    unsigned grainSize, unsigned maxPartitions,
+    unsigned minElementsPerPartition) {
+  return splitRegionsAux<std::vector<poplar::Interval<std::size_t>>,
+                         intervalSequenceSize,
+                         extendIntervalSequenceVector>(
+    regions, grainSize, maxPartitions, minElementsPerPartition);
 }
 
 std::vector<std::vector<poplar::Interval<std::size_t>>>
 splitRegionsBetweenWorkers(
     const poplar::DeviceInfo &deviceInfo,
     const std::vector<poplar::Interval<std::size_t>> &regions,
+    unsigned grainSize,
+    unsigned minElementsPerVertex) {
+  const auto workersPerTile = deviceInfo.numWorkerContexts;
+  return splitRegions(regions, grainSize, workersPerTile,
+                      minElementsPerVertex);
+}
+
+std::vector<std::vector<std::vector<poplar::Interval<std::size_t>>>>
+splitRegionsBetweenWorkers(
+    const poplar::DeviceInfo &deviceInfo,
+    const std::vector<std::vector<poplar::Interval<std::size_t>>> &regions,
     unsigned grainSize,
     unsigned minElementsPerVertex) {
   const auto workersPerTile = deviceInfo.numWorkerContexts;

@@ -24,12 +24,31 @@ splitRegions(const std::vector<poplar::Interval<std::size_t>> &regions,
              unsigned minElementsPerPartition = 0);
 
 // Given a set of contiguous regions per tile, partition these regions
-// between vertices on that tile, respecting the specified grain size.
-// Regions may be split to balance the work across vertices.
+// between workers on that tile, respecting the specified grain size.
+// Regions may be split to balance the work across workers.
 std::vector<std::vector<poplar::Interval<std::size_t>>>
 splitRegionsBetweenWorkers(
     const poplar::DeviceInfo &deviceInfo,
     const std::vector<poplar::Interval<std::size_t>> &regions,
+    unsigned grainSize, unsigned minElementsPerPartition = 0);
+
+// Given a set of sequences of regions, partition these sequences trying to
+// balance the number of elements in each partition, respecting the specified
+// grain. At most maxPartitions partitions are created. Sequences (and regions
+// within them may be split to achieve a better balance.
+std::vector<std::vector<std::vector<poplar::Interval<std::size_t>>>>
+splitRegions(
+    const std::vector<std::vector<poplar::Interval<std::size_t>>> &regions,
+    unsigned grainSize, unsigned maxPartitions,
+    unsigned minElementsPerPartition = 0);
+
+// Given a set of sequences of regions per tile, partition these sequences
+// between workers on that tile, respecting the specified grain size.
+// Regions may be split to balance the work across workers.
+std::vector<std::vector<std::vector<poplar::Interval<std::size_t>>>>
+splitRegionsBetweenWorkers(
+    const poplar::DeviceInfo &deviceInfo,
+    const std::vector<std::vector<poplar::Interval<std::size_t>>> &regions,
     unsigned grainSize, unsigned minElementsPerPartition = 0);
 
 /// Given a mapping of data to tiles, use the specified builder function to
