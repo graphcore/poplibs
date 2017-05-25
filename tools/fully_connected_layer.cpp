@@ -418,7 +418,6 @@ int main(int argc, char **argv) {
   // output channels = batchSize.
   // Note that the noLHSRearrengement convolution option is set
   // to avoid a rearrangement of weight deltas.
-  // TODO produce a joint plan for the forward and backward passes.
   auto upload = Sequence();
   auto download = Sequence();
   Tensor zDeltas;
