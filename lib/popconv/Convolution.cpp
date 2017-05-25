@@ -607,7 +607,7 @@ computeBiasMapping(Graph &graph, const Tensor &out) {
   // exchange code. Increasing this constant reduces exchange code size and
   // increases execution time due to imbalance. The current limit was
   // chosen experimentally.
-  const auto minBytesPerTile = 256;
+  const auto minBytesPerTile = 8;
   const auto minElementsPerTile =
       (minBytesPerTile + dTypeSize - 1) / dTypeSize;
   std::vector<std::vector<Interval<std::size_t>>> mapping(numTiles);
