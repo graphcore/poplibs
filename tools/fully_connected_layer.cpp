@@ -318,7 +318,7 @@ int main(int argc, char **argv) {
   double relativeTolerance;
   DeviceInfo info;
   info.IPUExchangeType =
-      DeviceInfo::ExchangeType::BARE_NAKED_WITH_AGGRESSIVE_MULTICAST;
+      DeviceInfo::ExchangeType::AGGRESSIVE_MULTICAST;
   Pass pass = Pass::ALL;
 
   po::options_description desc("Options");

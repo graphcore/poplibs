@@ -52,7 +52,7 @@ int main(int argc, char **argv) {
   double relativeTolerance;
   DeviceInfo info;
   info.IPUExchangeType =
-      DeviceInfo::ExchangeType::BARE_NAKED_WITH_AGGRESSIVE_MULTICAST;
+      DeviceInfo::ExchangeType::AGGRESSIVE_MULTICAST;
 
   /* these are used when the same value is shared across both height and width*/
   unsigned kernelSize;

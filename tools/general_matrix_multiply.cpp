@@ -77,7 +77,7 @@ int main(int argc, char **argv) {
 
   DeviceInfo info;
   info.IPUExchangeType =
-      DeviceInfo::ExchangeType::BARE_NAKED_WITH_AGGRESSIVE_MULTICAST;
+      DeviceInfo::ExchangeType::AGGRESSIVE_MULTICAST;
 
   po::options_description desc("Options");
   desc.add_options()
