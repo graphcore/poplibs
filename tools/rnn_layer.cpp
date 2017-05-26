@@ -208,25 +208,25 @@ int main(int argc, char **argv) {
 
   if (applyFeedFwddWeights) {
     rawHostPrevAct = allocateHostMemoryForTensor(
-                        graph, prevAct, upload, download);
+                        prevAct, upload, download);
     rawHostFeedFwdWeights = allocateHostMemoryForTensor(
-                        graph, feedFwdWeights, upload, download);
+                        feedFwdWeights, upload, download);
   }
 
   for (auto s = 0U; s != sequenceSize; ++s) {
     rawHostfeedFwdOutput.push_back(allocateHostMemoryForTensor(
-                                    graph, feedFwdOutput[s], upload, download));
+                                    feedFwdOutput[s], upload, download));
     rawHostNextAct.push_back(allocateHostMemoryForTensor(
-                                    graph, nextAct[s], upload, download));
+                                    nextAct[s], upload, download));
 
   }
 
   auto rawHostFeedbackWeights = allocateHostMemoryForTensor(
-                        graph, feedbackWeights, upload, download);
+                        feedbackWeights, upload, download);
   auto rawHostInitState = allocateHostMemoryForTensor(
-                        graph, initState, upload, download);
+                        initState, upload, download);
   auto rawHostBiases = allocateHostMemoryForTensor(
-                        graph, biases, upload, download);
+                        biases, upload, download);
 
   Engine engine(graph, {std::move(upload),
                         std::move(download),

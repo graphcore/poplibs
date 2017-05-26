@@ -181,9 +181,9 @@ int main(int argc, char **argv) {
 
   auto upload = Sequence();
   auto download = Sequence();
-  auto rawHostMatA = allocateHostMemoryForTensor(graph, matA, upload, download);
-  auto rawHostMatB = allocateHostMemoryForTensor(graph, matB, upload, download);
-  auto rawHostMatC = allocateHostMemoryForTensor(graph, matC, upload, download);
+  auto rawHostMatA = allocateHostMemoryForTensor(matA, upload, download);
+  auto rawHostMatB = allocateHostMemoryForTensor(matB, upload, download);
+  auto rawHostMatC = allocateHostMemoryForTensor(matC, upload, download);
 
   Engine engine(graph, {std::move(upload),
                         std::move(download),

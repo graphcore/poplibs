@@ -18,7 +18,7 @@ nonLinearityInputGradient(Graph &graph,
                           poplar::program::Sequence &prog,
                           const std::string &debugPrefix) {
   auto cs = graph.addComputeSet(debugPrefix + "/NonLinearityGrad");
-  const auto dType = graph.getTensorElementType(out);
+  const auto dType = out.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   auto inGradient = graph.addTensor(dType, outGradient.shape(),
@@ -70,7 +70,7 @@ nonLinearityInputGradient(Graph &graph,
 
 void nonLinearity(Graph &graph, NonLinearityType nonLinearityType,
                   Tensor t, Sequence &prog, const std::string &debugPrefix) {
-  const auto dType = graph.getTensorElementType(t);
+  const auto dType = t.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   ComputeSet cs = graph.addComputeSet(debugPrefix + "/Nonlinearity");

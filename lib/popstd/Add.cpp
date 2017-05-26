@@ -12,7 +12,7 @@ void addTo(Graph &graph, Tensor A, Tensor B, float k,
            Sequence &prog, const std::string &debugPrefix) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
-  const auto dType = graph.getTensorElementType(A);
+  const auto dType = A.elementType();
   const auto numTiles = deviceInfo.getNumTiles();
   const auto mapping = graph.getTileMapping(A);
   const auto cs = graph.addComputeSet(debugPrefix + "/AddTo");

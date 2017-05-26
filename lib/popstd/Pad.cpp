@@ -24,7 +24,7 @@ poplar::Tensor
 pad(poplar::Graph &graph, poplar::Tensor t,
     const std::vector<std::size_t> &paddingLower,
     const std::vector<std::size_t> &paddingUpper) {
-  const auto type = graph.getTensorElementType(t);
+  const auto type = t.elementType();
   validatePadArgs(t, paddingLower, paddingUpper);
   for (unsigned i = 0; i < t.rank(); ++i) {
     if (paddingLower[i] != 0) {

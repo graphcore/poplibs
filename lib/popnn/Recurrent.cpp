@@ -43,7 +43,7 @@ Tensor forwardWeightInput(Graph &graph, Tensor actIn, Tensor weights,
   unsigned outputSize = weights.dim(0);
 
   Tensor feedFwdOutput =
-      graph.addTensor(graph.getTensorElementType(actIn),
+      graph.addTensor(actIn.elementType(),
                       {0, batchSize, outputSize},
                       "feedFwdOutput");
   PlanningCache cache;
@@ -77,7 +77,7 @@ Tensor forwardIterate(Graph  &graph,
   auto bBiases = biases.broadcast(batchSize, 0)
                        .reshape({batchSize, outputSize});
 
-  auto actOut = graph.addTensor(graph.getTensorElementType(feedFwdIn),
+  auto actOut = graph.addTensor(feedFwdIn.elementType(),
                                 {0, batchSize, outputSize},
                                 "actOut");
 

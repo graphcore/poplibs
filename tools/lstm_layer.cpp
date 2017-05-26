@@ -145,7 +145,7 @@ int main(int argc, char **argv) {
 
     weightsOutput = append(weightsOutput, wOut);
 
-    rawHostWeightsOutput.push_back(allocateHostMemoryForTensor(graph, wOut,
+    rawHostWeightsOutput.push_back(allocateHostMemoryForTensor(wOut,
                                                                upload,
                                                                download));
 
@@ -154,7 +154,7 @@ int main(int argc, char **argv) {
                            prevAct[0].transpose(),
                            "weightsInput" + std::to_string(u), mmOpt);
     weightsInput = append(weightsInput, wInp);
-    rawHostWeightsInput.push_back(allocateHostMemoryForTensor(graph, wInp,
+    rawHostWeightsInput.push_back(allocateHostMemoryForTensor(wInp,
                                                               upload,
                                                               download));
   }
@@ -166,17 +166,17 @@ int main(int argc, char **argv) {
                                             partialsTypeStr, "");
 
   auto rawHostPrevAct = allocateHostMemoryForTensor(
-                        graph, prevAct, upload, download);
+                        prevAct, upload, download);
   auto rawHostBiases = allocateHostMemoryForTensor(
-                        graph, biases, upload, download);
+                        biases, upload, download);
   auto rawHostPrevOutput = allocateHostMemoryForTensor(
-                        graph, prevOutput, upload, download);
+                        prevOutput, upload, download);
   auto rawHostCellState = allocateHostMemoryForTensor(
-                        graph, cellState, upload, download);
+                        cellState, upload, download);
 
   std::vector<std::unique_ptr<char[]>> rawHostNextAct;
   for (auto s = 0U; s != sequenceSize; ++s) {
-    rawHostNextAct.push_back(allocateHostMemoryForTensor(graph, nextAct[s],
+    rawHostNextAct.push_back(allocateHostMemoryForTensor(nextAct[s],
                                                          upload, download));
   }
 

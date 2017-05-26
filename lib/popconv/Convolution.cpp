@@ -346,7 +346,7 @@ calculateActivationMapping(const Graph &graph,
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   std::vector<std::vector<Interval<std::size_t>>>
       mapping(deviceInfo.getNumTiles());
-  const auto actType = graph.getTensorElementType(acts);
+  const auto actType = acts.elementType();
   const auto actTypeSize = actType == "float" ? 4 : 2;
   const auto minBytesPerTile = 128;
   const auto minElementsPerTile =
@@ -551,7 +551,7 @@ calculateWeightMapping(const Tensor &weights,
                        const Plan &plan,
                        unsigned batchSize) {
   return calculateWeightMapping(weights.shape(),
-                                graph.getTensorElementType(weights), graph,
+                                weights.elementType(), graph,
                                 plan, batchSize);
 }
 
@@ -571,7 +571,7 @@ mapWeights(Graph &graph, const Tensor &w, const ConvParams &params,
 static std::vector<std::vector<poplar::Interval<std::size_t>>>
 computeBiasMapping(Graph &graph, const Tensor &out) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto dType = graph.getTensorElementType(out);
+  const auto dType = out.elementType();
   const auto dTypeSize = dType == "float" ? 4 : 2;
   const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
   const unsigned numChans = out.dim(1) * out.dim(4);
@@ -650,7 +650,7 @@ createConvPartial1x1OutVertex(Graph &graph,
                               const Tensor &out) {
   const auto inChansPerGroup = static_cast<unsigned>(in.dim(3));
   const auto outChansPerGroup = static_cast<unsigned>(out.dim(3));
-  const auto dType = graph.getTensorElementType(in);
+  const auto dType = in.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto contextsPerVertex = deviceInfo.numWorkerContexts;
@@ -660,7 +660,7 @@ createConvPartial1x1OutVertex(Graph &graph,
                 deviceInfo.convUnitCoeffLoadBytesPerCycle;
   const auto outHeight = outYEnd - outYBegin;
   const auto outWidth = outXEnd - outXBegin;
-  const auto partialType = graph.getTensorElementType(out);
+  const auto partialType = out.elementType();
   unsigned inYBegin, inYEnd, inXBegin, inXEnd;
   std::tie(inYBegin, inYEnd) =
       getInputRange(0, {outYBegin, outYEnd}, kernelY, params);
@@ -776,7 +776,7 @@ createConvPartialnx1Vertex(Graph &graph,
   const auto kernelSizeX = weights.dim(3);
   const auto inChansPerGroup = static_cast<unsigned>(in.dim(3));
   const auto outChansPerGroup = static_cast<unsigned>(out.dim(3));
-  const auto dType = graph.getTensorElementType(in);
+  const auto dType = in.elementType();
   const bool floatActivations = dType == "float";
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
@@ -787,7 +787,7 @@ createConvPartialnx1Vertex(Graph &graph,
   const auto convUnitWeightHeight = weightsPerConvUnit / inChansPerGroup;
   const auto convUnitCoeffLoadBytesPerCycle
                       = deviceInfo.convUnitCoeffLoadBytesPerCycle;
-  const auto partialType = graph.getTensorElementType(out);
+  const auto partialType = out.elementType();
   const bool floatPartials = partialType == "float";
   const auto outChansPerPass = getNumConvUnits(floatActivations, floatPartials,
                                                deviceInfo);
@@ -969,8 +969,8 @@ createConvPartialHorizontalMacVertex(
     bool isFractional) {
   const auto kernelWidth = weights.dim(3);
   const auto dataPathWidth = graph.getDevice().getDeviceInfo().dataPathWidth;
-  const auto dType = graph.getTensorElementType(in);
-  const auto partialType = graph.getTensorElementType(out);
+  const auto dType = in.elementType();
+  const auto partialType = out.elementType();
   const auto outChansPerGroup = out.dim(3);
   assert(outChansPerGroup == 1);
   (void)outChansPerGroup;
@@ -1124,7 +1124,7 @@ calcPartialConvOutput(Graph &graph,
   bool zeroPartialsBefore = true;
   bool useConvPartial1x1OutVertex = false;
   if (plan.useConvolutionInstructions) {
-    const auto partialsType = graph.getTensorElementType(out);
+    const auto partialsType = out.elementType();
     const auto outChansPerPass = getNumConvUnits(dType == "float",
                                                  partialsType == "float",
                                                  deviceInfo);
@@ -1507,7 +1507,7 @@ multiStageGroupedReduce(
                              std::to_string(i))
     );
   }
-  const auto partialsType = graph.getTensorElementType(partials);
+  const auto partialsType = partials.elementType();
   for (unsigned i = 0; i != plan.size(); ++i) {
     partials = partialGroupedReduce(graph, tileGroups, tileGroupRegions,
                                     partials, plan[i], partialsType,
@@ -1562,7 +1562,7 @@ convolutionByAmp(Graph &graph, const Plan &plan,
   }
   const auto numBatchGroups = in.dim(0);
   Sequence prog;
-  const auto dType = graph.getTensorElementType(in);
+  const auto dType = in.elementType();
   const auto outNumChans = weights.dim(0) * weights.dim(4);
   const auto partialChansPerGroup = plan.partialChansPerGroup;
   assert(outNumChans % partialChansPerGroup == 0);
@@ -1665,7 +1665,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   auto weights = weights_;
   auto params = params_;
   verifyStrideAndPaddingDimensions(params);
-  const auto dType = graph.getTensorElementType(in);
+  const auto dType = in.elementType();
   const auto batchSize = in.dim(0);
   unsigned inNumChans = in.dim(1) * in.dim(4);
   const auto plan = getPlan(graph, params, options);
@@ -1872,7 +1872,7 @@ static Tensor weightsPartialTranspose(Graph &graph, Tensor in, ComputeSet cs) {
   const auto rank = in.rank();
   const auto numSrcRows = in.dim(rank - 2);
   const auto numSrcColumns = in.dim(rank - 1);
-  const auto dType = graph.getTensorElementType(in);
+  const auto dType = in.elementType();
   auto outShape = in.shape();
   std::swap(outShape[rank - 2], outShape[rank - 1]);
   auto out = graph.addTensor(dType, outShape, "partialTranspose");
@@ -1920,7 +1920,7 @@ void weightsTransposeChansFlipXY(Graph &graph,
   // weightsIn = { O/G1, I/G2, KY, KX, G1, G2 }
   // weightsOut = { I/G3, O/G4, KY, KX, G3, G4 }
 
-  const auto dType = graph.getTensorElementType(weightsIn);
+  const auto dType = weightsIn.elementType();
   const auto KY = weightsOut.dim(2);
   const auto KX = weightsOut.dim(3);
   const auto I = weightsOut.dim(0) * weightsOut.dim(4);
@@ -2002,7 +2002,7 @@ matrixMultiplyByConvInstruction(Graph &graph, const Plan &plan,
       plan.partialChansPerGroup != u) {
     std::abort();
   }
-  const auto dType = graph.getTensorElementType(a);
+  const auto dType = a.elementType();
   ConvParams params(
     dType,
     {1, 1, p, a.dim(1) * a.dim(3)}, // inputShape
@@ -2043,8 +2043,8 @@ createWeightGradAopVertex(Graph &graph, unsigned tile,
                           ComputeSet cs,
                           const Tensor &acts, const Tensor &deltas,
                           const Tensor &weightDeltas) {
-  const auto dType = graph.getTensorElementType(acts);
-  const auto partialsType = graph.getTensorElementType(weightDeltas);
+  const auto dType = acts.elementType();;
+  const auto partialsType = weightDeltas.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto outChansPerGroup = static_cast<unsigned>(deltas.dim(3));
   const auto inChansPerGroup = static_cast<unsigned>(acts.dim(3));
@@ -2325,7 +2325,7 @@ calculateWeightDeltasAop(Graph &graph, const Plan &plan,
     params.inputShape[1] = 1;
   }
   const auto &partialsType = plan.getPartialType();
-  const auto dType = graph.getTensorElementType(zDeltas);
+  const auto dType = zDeltas.elementType();
   const auto batchSize = activations.dim(0);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const unsigned numOutChans = zDeltas.dim(1) * zDeltas.dim(4);
@@ -2524,7 +2524,7 @@ convolutionWeightUpdateAmpPreProcess(
     std::vector<unsigned> &deltasPaddingLower,
     std::vector<unsigned> &deltasPaddingUpper,
     unsigned kernelSizeY, unsigned kernelSizeX) {
-  const auto dType = graph.getTensorElementType(activations);
+  const auto dType = activations.elementType();
   assert(activationsUpsampleFactor.size() == 2);
   assert(activationsPaddingLower.size() == 2);
   assert(activationsPaddingUpper.size() == 2);
@@ -2710,7 +2710,7 @@ calculateWeightDeltasAmp(Graph &graph, const Plan &plan,
                                        params.kernelShape[0],
                                        params.kernelShape[1]);
 
-  const auto dType = graph.getTensorElementType(activations);
+  const auto dType = activations.elementType();
   // Reshape so there is no batch dimension.
   assert(activationsView.dim(0) == 1);
   assert(deltasView.dim(0) == 1);
@@ -2872,7 +2872,7 @@ convolutionWeightUpdate(Graph &graph,
                         const std::string &debugPrefix,
                         const ConvOptions &options) {
   verifyStrideAndPaddingDimensions(params);
-  const auto dType = graph.getTensorElementType(zDeltas);
+  const auto dType = zDeltas.elementType();
   const auto plan =
       getWeightUpdatePlan(graph, activations, zDeltas, params, options);
   const auto fwdPlan = getPlan(graph, params, options);
@@ -2942,7 +2942,7 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
   //     final gradient for each bias, multiplies it by the learning rate and
   //     subtracts from the bias in the 'biases' tensor.
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  auto dType = graph.getTensorElementType(zDeltas);
+  auto dType = zDeltas.elementType();
   auto numTiles = deviceInfo.getNumTiles();
   auto numBiases = biases.numElements();
   auto batchSize = zDeltas.dim(0);
@@ -3125,7 +3125,7 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
 static void
 addBias(Graph &graph, const Tensor &acts, const Tensor &biases,
         ComputeSet cs) {
-  const auto dType = graph.getTensorElementType(acts);
+  const auto dType = acts.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto outChansPerGroup = acts.dim(4);
   const auto biasesByGroup =

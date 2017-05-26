@@ -12,8 +12,8 @@ namespace popstd {
 
 Program
 cast(Graph &graph, Tensor src, Tensor dst, const std::string &debugPrefix) {
-  auto srcType = graph.getTensorElementType(src);
-  auto dstType = graph.getTensorElementType(dst);
+  auto srcType = src.elementType();
+  auto dstType = dst.elementType();
   if (srcType == dstType)
     return Copy(src, dst);
   auto cs = graph.addComputeSet(debugPrefix + "/Cast");
@@ -42,8 +42,8 @@ cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
   assert(src.shape() == dst.shape());
   src = src.flatten();
   dst = dst.flatten();
-  const auto srcType = graph.getTensorElementType(src);
-  const auto dstType = graph.getTensorElementType(dst);
+  const auto srcType = src.elementType();
+  const auto dstType = dst.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto vectorWidth = deviceInfo.getFloatVectorWidth();
   std::vector<std::vector<Interval<std::size_t>>> mapping;

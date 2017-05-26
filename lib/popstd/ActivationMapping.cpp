@@ -87,8 +87,7 @@ computeActivationsMapping(const poplar::Graph &graph,
 std::vector<unsigned>
 computeActivationsMapping(const poplar::Graph &graph, poplar::Tensor act,
                           unsigned batchNum, unsigned batchSize) {
-  return computeActivationsMapping(graph,
-                                   graph.getTensorElementType(act),
+  return computeActivationsMapping(graph, act.elementType(),
                                    act.shape(), batchNum, batchSize);
 }
 

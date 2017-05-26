@@ -12,10 +12,10 @@
 namespace poplib_test {
 namespace util {
 std::unique_ptr<char []>
-allocateHostMemoryForTensor(poplar::Graph &graph, const poplar::Tensor &t);
+allocateHostMemoryForTensor(const poplar::Tensor &t);
 
 std::unique_ptr<char []>
-allocateHostMemoryForTensor(poplar::Graph &graph, const poplar::Tensor &t,
+allocateHostMemoryForTensor(const poplar::Tensor &t,
                             poplar::program::Sequence &upload,
                             poplar::program::Sequence &download);
 

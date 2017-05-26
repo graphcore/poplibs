@@ -340,22 +340,17 @@ int main(int argc, char **argv) {
   }
   auto upload = Sequence();
   auto download = Sequence();
-  auto rawHostPrevAct = allocateHostMemoryForTensor(graph, prevAct, upload,
-                                                    download);
-  auto rawHostWeights = allocateHostMemoryForTensor(graph, weights, upload,
-                                                    download);
-  auto rawHostBiases = allocateHostMemoryForTensor(graph, biases, upload,
-                                                   download);
-  auto rawHostNextAct = allocateHostMemoryForTensor(graph, nextAct, upload,
-                                                    download);
+  auto rawHostPrevAct = allocateHostMemoryForTensor(prevAct, upload, download);
+  auto rawHostWeights = allocateHostMemoryForTensor(weights, upload, download);
+  auto rawHostBiases = allocateHostMemoryForTensor(biases, upload, download);
+  auto rawHostNextAct = allocateHostMemoryForTensor(nextAct, upload, download);
   std::unique_ptr<char[]> rawHostZDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
   if (doBwdPass || doWuPass) {
-    rawHostZDeltas = allocateHostMemoryForTensor(graph, zDeltas, upload,
-                                                 download);
+    rawHostZDeltas = allocateHostMemoryForTensor(zDeltas, upload, download);
   }
   if (doBwdPass) {
-    rawHostPrevDeltas = allocateHostMemoryForTensor(graph, prevDeltas, upload,
+    rawHostPrevDeltas = allocateHostMemoryForTensor(prevDeltas, upload,
                                                     download);
   }
 

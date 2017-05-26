@@ -10,8 +10,8 @@ namespace poplib_test {
 namespace util {
 
 std::unique_ptr<char []>
-allocateHostMemoryForTensor(Graph &graph, const Tensor &t) {
-  const auto dType = graph.getTensorElementType(t);
+allocateHostMemoryForTensor(const Tensor &t) {
+  const auto dType = t.elementType();
   std::unique_ptr<char []> p;
   if (dType == "float") {
     p.reset(new char[t.numElements() * sizeof(float)]);
@@ -23,9 +23,9 @@ allocateHostMemoryForTensor(Graph &graph, const Tensor &t) {
 }
 
 std::unique_ptr<char []>
-allocateHostMemoryForTensor(Graph &graph, const Tensor &t,
+allocateHostMemoryForTensor(const Tensor &t,
                             Sequence &upload, Sequence &download) {
-  std::unique_ptr<char []> p = allocateHostMemoryForTensor(graph, t);
+  std::unique_ptr<char []> p = allocateHostMemoryForTensor(t);
   upload.add(Copy(p.get(), t));
   download.add(Copy(t, p.get()));
   return p;

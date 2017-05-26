@@ -434,8 +434,7 @@ int main(int argc, char **argv) {
                                      {1, 1}, {0, 0},
                                      {0, 0}, false),
                                    "zDeltas", bwdOptions);
-    rawHostZDeltas = allocateHostMemoryForTensor(graph, zDeltas, upload,
-                                                 download);
+    rawHostZDeltas = allocateHostMemoryForTensor(zDeltas, upload, download);
   }
 
   auto fwdProg = Sequence();
@@ -461,14 +460,10 @@ int main(int argc, char **argv) {
     mapActivations(graph, nextAct);
   }
 
-  auto rawHostPrevAct = allocateHostMemoryForTensor(graph, prevAct, upload,
-                                                    download);
-  auto rawHostWeights = allocateHostMemoryForTensor(graph, weights, upload,
-                                                    download);
-  auto rawHostBiases = allocateHostMemoryForTensor(graph, biases, upload,
-                                                   download);
-  auto rawHostNextAct = allocateHostMemoryForTensor(graph, nextAct, upload,
-                                                    download);
+  auto rawHostPrevAct = allocateHostMemoryForTensor(prevAct, upload, download);
+  auto rawHostWeights = allocateHostMemoryForTensor(weights, upload, download);
+  auto rawHostBiases = allocateHostMemoryForTensor(biases, upload, download);
+  auto rawHostNextAct = allocateHostMemoryForTensor(nextAct, upload, download);
 
   Tensor prevDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
@@ -480,8 +475,7 @@ int main(int argc, char **argv) {
     prevDeltas = graph.addTensor(dataTypeStr, prevAct.shape(), "prevDeltas");
     popconv::mapWeights(graph, prevDeltas, convParams, bwdOptions);
   }
-  rawHostPrevDeltas = allocateHostMemoryForTensor(graph, prevDeltas, upload,
-                                                  download);
+  rawHostPrevDeltas = allocateHostMemoryForTensor(prevDeltas, upload, download);
   if (doWuPass) {
     // Implement the weight update as a convolutional layer with
     // input channels = batch size

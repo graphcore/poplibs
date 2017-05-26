@@ -111,7 +111,7 @@ static std::string vertexName(enum TernaryOp op) {
 static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
                       enum UnaryOp op, const std::string &debugPrefix) {
 
-  const auto inType = graph.getTensorElementType(in);
+  const auto inType = in.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto numTiles = deviceInfo.getNumTiles();
@@ -148,8 +148,8 @@ static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
 
 static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
                        enum BinaryOp op, const std::string &debugPrefix) {
-  const auto in1Type = graph.getTensorElementType(in1);
-  const auto in2Type = graph.getTensorElementType(in2);
+  const auto in1Type = in1.elementType();
+  const auto in2Type = in2.elementType();
 
   if (in1Type != in2Type) {
     throw popstd::poplib_error("Binary Op must have same type for "
@@ -200,9 +200,9 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
 static Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
                         Sequence &prog, enum TernaryOp op,
                         const std::string &debugPrefix) {
-  const auto in1Type = graph.getTensorElementType(in1);
-  const auto in2Type = graph.getTensorElementType(in2);
-  const auto in3Type = graph.getTensorElementType(in3);
+  const auto in1Type = in1.elementType();
+  const auto in2Type = in2.elementType();
+  const auto in3Type = in3.elementType();
 
   if (in1Type != in2Type) {
     throw popstd::poplib_error("Ternary Op must have same type for "

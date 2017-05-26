@@ -123,7 +123,7 @@ Tensor maxPool(Graph &graph,  unsigned kernelSizeY, unsigned kernelSizeX,
                unsigned strideY, unsigned strideX,
                unsigned paddingY, unsigned paddingX,
                Tensor in, Sequence &prog, const std::string &debugPrefix) {
-  const auto dType = graph.getTensorElementType(in);
+  const auto dType = in.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto layerName = debugPrefix + "/MaxPool"
@@ -246,7 +246,7 @@ maxPoolInputGradient(Graph &graph, unsigned kernelSizeY, unsigned kernelSizeX,
                      unsigned paddingX, Tensor in, Tensor pooled,
                      Tensor pooledGradient, Sequence &prog,
                      const std::string &debugPrefix) {
-  const auto dType = graph.getTensorElementType(in);
+  const auto dType = in.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto layerName = debugPrefix + "/MaxPoolBwd"

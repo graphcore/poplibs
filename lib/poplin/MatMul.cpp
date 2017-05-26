@@ -19,7 +19,7 @@ static
 void mapInput(Graph &graph, Tensor A,
               const std::vector<std::size_t> &bShape,
               const MatMulOptions &options) {
-  const auto dType = graph.getTensorElementType(A);
+  const auto dType = A.elementType();
   const auto &plan = getPlan(graph, dType, A.shape(), bShape, options);
   const auto bCols = bShape[1];
   const auto outMapping =
@@ -76,7 +76,7 @@ static Tensor
 matMul1(Graph &graph, Tensor A, Tensor B, Sequence &prog,
         const std::string &debugPrefix, const MatMulOptions &options) {
   const auto bCols = B.dim(1);
-  const auto dType = graph.getTensorElementType(B);
+  const auto dType = B.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto layerName = debugPrefix
                          + "/MatMul" + std::to_string(A.dim(0)) + "x"
@@ -155,7 +155,7 @@ Tensor
 matMul2(Graph &graph, Tensor A,  Tensor B,
         Sequence &prog, const std::string &debugPrefix,
         const MatMulOptions &options) {
-  const auto dType = graph.getTensorElementType(A);
+  const auto dType = A.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto aRows = A.dim(0);
   const auto bCols = static_cast<unsigned>(B.dim(1));
@@ -254,7 +254,7 @@ void matMul3(Graph &graph,
              Sequence &prog,
              const std::string &debugPrefix,
              const MatMulOptions &options) {
-  const auto dType = graph.getTensorElementType(B);
+  const auto dType = B.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto aCols = A.dim(1);
@@ -329,7 +329,7 @@ matMul3(Graph &graph, Tensor A, Tensor B,
         Sequence &prog,
         const std::string &debugPrefix,
         const MatMulOptions &options) {
-  const auto dType = graph.getTensorElementType(B);
+  const auto dType = B.elementType();
   const auto aRows = A.dim(0);
   const auto bCols = B.dim(1);
   const auto out = graph.addTensor(dType, {aRows, bCols},
@@ -344,7 +344,7 @@ bool isContiguous(const Graph &graph, const poplar::Tensor &t, unsigned dim) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto numWorkers =
       deviceInfo.getNumTiles() * deviceInfo.numWorkerContexts;
-  const auto dType = graph.getTensorElementType(t);
+  const auto dType = t.elementType();
   unsigned vectorWidth = 4;
   if (dType == "float") {
     vectorWidth = deviceInfo.getFloatVectorWidth();

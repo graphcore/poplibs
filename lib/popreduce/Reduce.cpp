@@ -39,7 +39,7 @@ static unsigned estimateReduceAtDstCost(
       std::vector<Interval<std::size_t>>
     > &reducedMapping) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto partialType = graph.getTensorElementType(partials);
+  const auto partialType = partials.elementType();
   const auto partialTypeBytes = partialType == "float" ? 4U : 2U;
   const auto partialVectorWidth =
       partialType == "float" ? deviceInfo.getFloatVectorWidth() :
@@ -69,12 +69,12 @@ static unsigned estimateBalancedReduceCost(
     > &reducedMapping,
     unsigned grainSize) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto partialType = graph.getTensorElementType(partials);
+  const auto partialType = partials.elementType();
   const auto partialTypeBytes = partialType == "float" ? 4U : 2U;
   const auto partialVectorWidth =
       partialType == "float" ? deviceInfo.getFloatVectorWidth() :
                                deviceInfo.getHalfVectorWidth();
-  const auto reducedType = graph.getTensorElementType(reduced);
+  const auto reducedType = reduced.elementType();
   const auto reducedTypeBytes = reducedType == "float" ? 4U : 2U;
   unsigned numReducedElements = reduced.numElements();
   unsigned numReducedGroups = (numReducedElements + grainSize - 1) /
@@ -124,7 +124,7 @@ determineReduceVertexMapping(Graph &graph,
                                std::vector<Interval<std::size_t>>
                              > &reducedMapping) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto partialType = graph.getTensorElementType(partials);
+  const auto partialType = partials.elementType();
   const auto partialVectorWidth =
       partialType == "float" ? deviceInfo.getFloatVectorWidth() :
                                deviceInfo.getHalfVectorWidth();
@@ -159,8 +159,8 @@ reduce(Graph &graph,
     cast(graph, partials[0], reduced, reduceCS);
     return;
   }
-  const auto partialType = graph.getTensorElementType(partials);
-  const auto reducedType = graph.getTensorElementType(reduced);
+  const auto partialType = partials.elementType();
+  const auto reducedType = reduced.elementType();
   const auto tilesPerInZGroup = partials.dim(0);
   auto flatPartials =
       partials.reshape({tilesPerInZGroup,
@@ -245,7 +245,7 @@ Tensor reduce(poplar::Graph &graph,  poplar::Tensor in,
               const std::string &debugPrefix) {
   const auto numAddends = in.dim(0);
   const auto resultSize = in.dim(1);
-  const auto dType = graph.getTensorElementType(in);
+  const auto dType = in.elementType();
   const auto out = graph.addTensor(dType, {resultSize},
                                    debugPrefix + "/Reduced");
   mapTensor(graph, out);

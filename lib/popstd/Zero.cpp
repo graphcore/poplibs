@@ -16,7 +16,7 @@ zero(Graph &graph,
      unsigned tile,
      ComputeSet zeroCS) {
   t = t.flatten();
-  const auto dType = graph.getTensorElementType(t);
+  const auto dType = t.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   unsigned vectorWidth;
   if (dType == "float")

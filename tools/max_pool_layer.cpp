@@ -227,16 +227,13 @@ int main(int argc, char **argv) {
   }
   auto upload = Sequence();
   auto download = Sequence();
-  auto rawHostPrevAct = allocateHostMemoryForTensor(graph, prevAct, upload,
-                                                    download);
-  auto rawHostNextAct = allocateHostMemoryForTensor(graph, nextAct, upload,
-                                                    download);
+  auto rawHostPrevAct = allocateHostMemoryForTensor(prevAct, upload, download);
+  auto rawHostNextAct = allocateHostMemoryForTensor(nextAct, upload, download);
   std::unique_ptr<char[]> rawHostZDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
   if (!inferenceOnly) {
-    rawHostZDeltas = allocateHostMemoryForTensor(graph, zDeltas, upload,
-                                                 download);
-    rawHostPrevDeltas = allocateHostMemoryForTensor(graph, prevDeltas, upload,
+    rawHostZDeltas = allocateHostMemoryForTensor(zDeltas, upload, download);
+    rawHostPrevDeltas = allocateHostMemoryForTensor(prevDeltas, upload,
                                                     download);
   }
   Engine engine(graph, {std::move(upload), std::move(download),

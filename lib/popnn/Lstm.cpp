@@ -84,7 +84,7 @@ Tensor basicLstmCellForwardPass(Graph  &graph,
   assert(weightsOutput.dim(1) == outputSize);
   assert(weightsOutput.dim(2) == outputSize);
 
-  const auto dType = graph.getTensorElementType(in);
+  const auto dType = in.elementType();
 
   auto bBiases = graph.addTensor(dType, {0, batchSize, outputSize}, "bbiases");
 

@@ -1803,7 +1803,7 @@ Program winogradConvolution(Graph &graph,
             const ConvOptions &options) {
   Sequence prog;
   const auto batchSize = in.dim(0);
-  const auto dType = graph.getTensorElementType(in);
+  const auto dType = in.elementType();
   // Perform each element of the batch serially
   for (unsigned b = 0; b < batchSize; ++b) {
     prog.add(winogradConvolution(graph, params.stride, params.paddingLower,
