@@ -1,6 +1,6 @@
 #include <popstd/HadamardProduct.hpp>
 
-
+#include "popstd/exceptions.hpp"
 #include "popstd/Util.hpp"
 #include "popstd/VertexTemplates.hpp"
 
@@ -11,6 +11,9 @@ namespace popstd {
 
 void hadamardProduct(Graph &graph, Tensor A, Tensor B,
                      Sequence &prog, const std::string &debugPrefix) {
+  if (!A.isParallelWriteable())
+    throw popstd::poplib_error("Trying to write to tensor that cannot be "
+                               "written in parallel");
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto dType = A.elementType();

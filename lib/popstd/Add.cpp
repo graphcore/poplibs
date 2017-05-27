@@ -1,5 +1,6 @@
 #include "popstd/Add.hpp"
 
+#include "popstd/exceptions.hpp"
 #include "popstd/Util.hpp"
 #include "popstd/VertexTemplates.hpp"
 
@@ -10,6 +11,9 @@ namespace popstd {
 
 void addTo(Graph &graph, Tensor A, Tensor B, float k,
            Sequence &prog, const std::string &debugPrefix) {
+  if (!A.isParallelWriteable())
+    throw popstd::poplib_error("Trying to accumulate to tensor that cannot be "
+                               "written in parallel");
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto dType = A.elementType();

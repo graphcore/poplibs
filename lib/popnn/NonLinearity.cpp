@@ -70,6 +70,9 @@ nonLinearityInputGradient(Graph &graph,
 
 void nonLinearity(Graph &graph, NonLinearityType nonLinearityType,
                   Tensor t, Sequence &prog, const std::string &debugPrefix) {
+  if (!t.isParallelWriteable())
+    throw popstd::poplib_error("Trying to update tensor that cannot be "
+                               "written in parallel");
   const auto dType = t.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
