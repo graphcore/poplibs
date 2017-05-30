@@ -86,4 +86,13 @@ cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
   });
 }
 
+poplar::Tensor
+cast(Graph &graph, const Tensor &src, const std::string &dstType,
+     Sequence &prog, const std::string &debugPrefix) {
+  auto dst = graph.addTensor(dstType, src.shape(), "cast");
+  graph.setTileMapping(dst, graph.getTileMapping(src));
+  prog.add(cast(graph, src, dst, debugPrefix));
+  return dst;
+}
+
 } // end namespace popstd

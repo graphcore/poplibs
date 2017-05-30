@@ -7,6 +7,13 @@
 
 namespace popstd {
 
+/// Cast elements of the specified \a src tensor to \a dstType, returning the
+/// result as a new tensor.
+poplar::Tensor
+cast(poplar::Graph &graph, const poplar::Tensor &src,
+     const std::string &dstType, poplar::program::Sequence &prog,
+     const std::string &debugPrefix = "");
+
 /// Create a program to copy tensor casting between types (e.g. half->float).
 poplar::program::Program
 cast(poplar::Graph &graph, poplar::Tensor src, poplar::Tensor dst,
