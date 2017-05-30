@@ -2436,42 +2436,15 @@ calculateWeightDeltasAop(Graph &graph, const Plan &plan,
   const auto fwdWeightOutChansPerGroup =
       getWeightOutChansPerGroup(fwdPlan, numOutChans);
   assert(numOutChans % fwdWeightOutChansPerGroup == 0);
-  const auto fwdWeightInChansPerGroup =
-      getWeightInChansPerGroup(fwdPlan, numInChans);
-  assert(numInChans % fwdWeightInChansPerGroup == 0);
-  const auto weightMapping =
-      calculateWeightMapping({numOutChans / fwdWeightOutChansPerGroup,
-                              numInChans / fwdWeightInChansPerGroup,
-                              kernelSizeY,
-                              kernelSizeX,
-                              fwdWeightOutChansPerGroup,
-                              fwdWeightInChansPerGroup}, dType, graph, fwdPlan,
-                              batchSize);
   Tensor weightDeltas;
   auto numPartials = batchSize * tilesPerY * tilesPerX;
-  if (numPartials == 1 && partialsType == dType) {
-    weightDeltas = partials[0][0][0];
-  } else if (numPartials == 1) {
-    auto reduceCS = graph.addComputeSet(debugPrefix + "/Reduce");
-    weightDeltas = graph.addTensor(dType, partials[0][0][0].shape(),
-                                   debugPrefix + "/WeightDeltas");
-    std::vector<std::vector<Interval<std::size_t>>>
-        weightDeltaMapping;
-    if (partialChansPerGroup == fwdWeightOutChansPerGroup) {
-      weightDeltaMapping = weightMapping;
+  if (numPartials == 1) {
+    if (partialsType == dType) {
+      weightDeltas = partials[0][0][0];
     } else {
-      weightDeltaMapping =
-          convertLinearMappingToRegionMapping(
-            computeTensorMapping(graph, weightDeltas)
-          );
+      weightDeltas = popstd::cast(graph, partials[0][0][0], dType, prog,
+                                  debugPrefix + "/cast");
     }
-    applyTensorMapping(graph, weightDeltas, weightDeltaMapping);
-    auto flatPartialsDims = partials[0][0][0].shape();
-    flatPartialsDims.insert(flatPartialsDims.begin(), numPartials);
-    auto flatPartials = partials.reshape(flatPartialsDims);
-    popreduce::reduce(graph, flatPartials, weightDeltas, weightMapping,
-                      reduceCS);
-    prog.add(Execute(reduceCS));
   } else {
     std::vector<ComputeSet> reduceComputeSets;
     weightDeltas =
