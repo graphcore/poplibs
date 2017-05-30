@@ -302,7 +302,6 @@ int main(int argc, char **argv) {
       popconv::createInput(graph, params, "prevAct", convOptions);
   Tensor weights =
       popconv::createWeights(graph, params, "weights", convOptions);
-  Tensor biases = popconv::createBiases(graph, dataTypeStr, fwdOutChans);
 
   Tensor prevDeltas, zDeltas;
   if (doBwdPass || doWuPass) {
@@ -314,7 +313,7 @@ int main(int argc, char **argv) {
   // actually create the engined if the fwd pass is to be run
   Tensor nextAct = popconv::convolution(graph, prevAct, weights, params, false,
                                         fwdProg, "", convOptions);
-  popconv::mapBiases(graph, biases, nextAct);
+  Tensor biases = popconv::createBiases(graph, nextAct);
   popconv::addBias(graph, nextAct, biases, fwdProg, "");
   if (!doFwdPass)
     fwdProg = Sequence();

@@ -112,8 +112,7 @@ createWeights(poplar::Graph &graph, const ConvParams &params,
               const ConvOptions &options = ConvOptions());
 
 poplar::Tensor
-createBiases(poplar::Graph &graph, std::string dType,
-             unsigned outNumChans);
+createBiases(poplar::Graph &graph, const poplar::Tensor &acts);
 
 poplar::Tensor
 createInput(poplar::Graph &graph, const ConvParams &params,

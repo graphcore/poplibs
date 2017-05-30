@@ -148,57 +148,12 @@ getOutChansPerGroup(const Plan &plan, unsigned numOutChans) {
   return gcd(plan.partialChansPerGroup, numOutChans);
 }
 
-Tensor
-createWeights(Graph &graph,
-              const ConvParams &params, const std::string &name,
-              const ConvOptions &options) {
-  verifyStrideAndPaddingDimensions(params);
-  const auto dType = params.dType;
-  const auto inNumChans = params.inputShape[3];
-  const auto plan = getPlan(graph, params, options);
-  const auto outNumChans = params.kernelShape[2];
-  const auto weightOutChansPerGroup =
-      getWeightOutChansPerGroup(plan, outNumChans);
-  assert(outNumChans % weightOutChansPerGroup == 0);
-  const auto weightNumOutChanGroups = outNumChans / weightOutChansPerGroup;
-  const auto weightInChansPerGroup = getWeightInChansPerGroup(plan, inNumChans);
-  assert(inNumChans % weightInChansPerGroup == 0);
-  const auto weightNumInChanGroups = inNumChans / weightInChansPerGroup;
-  auto weights = graph.addTensor(dType, {weightNumOutChanGroups,
-                                         weightNumInChanGroups,
-                                         params.kernelShape[0],
-                                         params.kernelShape[1],
-                                         weightOutChansPerGroup,
-                                         weightInChansPerGroup},
-                                 name);
-  return weights;
-}
-
-static void mapActivations(Graph &graph, Plan plan, Tensor acts);
-
-Tensor
-createInput(Graph &graph, const ConvParams &params,
-            const std::string &name,
-            const ConvOptions &options) {
-  verifyStrideAndPaddingDimensions(params);
-  const auto plan = getPlan(graph, params, options);
-  const auto inNumChans = params.getInputDepth();
-  const auto inChansPerGroup = getInChansPerGroup(plan, inNumChans);
-  assert(params.getInputDepth() % inChansPerGroup == 0);
-  auto t = graph.addTensor(params.dType,
-                           {params.inputShape[0],
-                            params.inputShape[3] / inChansPerGroup,
-                            params.inputShape[1], params.inputShape[2],
-                            inChansPerGroup},
-                           name);
-  mapActivations(graph, plan, t);
-  return t;
-}
-
 poplar::Tensor
-createBiases(poplar::Graph &graph, std::string dType,
-             unsigned outNumChans) {
-  auto biases = graph.addTensor(dType, {outNumChans}, "biases");
+createBiases(poplar::Graph &graph, const Tensor &acts) {
+  const auto numOutChans = acts.dim(1) * acts.dim(4);
+  const auto dType = acts.elementType();
+  auto biases = graph.addTensor(dType, {numOutChans}, "biases");
+  mapBiases(graph, biases, acts);
   return biases;
 }
 
@@ -450,6 +405,32 @@ void mapActivations(poplar::Graph &graph,
   mapActivations(graph, plan, in);
 }
 
+static Tensor
+createInput(Graph &graph, const ConvParams &params,
+            const std::string &name,
+            const Plan &plan) {
+  const auto inNumChans = params.getInputDepth();
+  const auto inChansPerGroup = getInChansPerGroup(plan, inNumChans);
+  assert(params.getInputDepth() % inChansPerGroup == 0);
+  auto t = graph.addTensor(params.dType,
+                           {params.inputShape[0],
+                            params.inputShape[3] / inChansPerGroup,
+                            params.inputShape[1], params.inputShape[2],
+                            inChansPerGroup},
+                           name);
+  mapActivations(graph, plan, t);
+  return t;
+}
+
+Tensor
+createInput(Graph &graph, const ConvParams &params,
+            const std::string &name,
+            const ConvOptions &options) {
+  verifyStrideAndPaddingDimensions(params);
+  const auto plan = getPlan(graph, params, options);
+  return createInput(graph, params, name, plan);
+}
+
 static std::vector<std::vector<Interval<std::size_t>>>
 calculateWeightMapping(const std::vector<std::size_t> &wShape,
                        const std::string &dType,
@@ -589,6 +570,40 @@ mapWeights(Graph &graph, const Tensor &w, const ConvParams &params,
   verifyStrideAndPaddingDimensions(params);
   const auto plan = getPlan(graph, params, options);
   mapWeights(graph, w, params, plan);
+}
+
+static Tensor
+createWeights(Graph &graph,
+              const ConvParams &params, const std::string &name,
+              const Plan &plan) {
+  const auto dType = params.dType;
+  const auto inNumChans = params.inputShape[3];
+  const auto outNumChans = params.kernelShape[2];
+  const auto weightOutChansPerGroup =
+      getWeightOutChansPerGroup(plan, outNumChans);
+  assert(outNumChans % weightOutChansPerGroup == 0);
+  const auto weightNumOutChanGroups = outNumChans / weightOutChansPerGroup;
+  const auto weightInChansPerGroup = getWeightInChansPerGroup(plan, inNumChans);
+  assert(inNumChans % weightInChansPerGroup == 0);
+  const auto weightNumInChanGroups = inNumChans / weightInChansPerGroup;
+  auto weights = graph.addTensor(dType, {weightNumOutChanGroups,
+                                         weightNumInChanGroups,
+                                         params.kernelShape[0],
+                                         params.kernelShape[1],
+                                         weightOutChansPerGroup,
+                                         weightInChansPerGroup},
+                                 name);
+  mapWeights(graph, weights, params, plan);
+  return weights;
+}
+
+Tensor
+createWeights(Graph &graph,
+              const ConvParams &params, const std::string &name,
+              const ConvOptions &options) {
+  verifyStrideAndPaddingDimensions(params);
+  const auto plan = getPlan(graph, params, options);
+  return createWeights(graph, params, name, plan);
 }
 
 static std::vector<std::vector<poplar::Interval<std::size_t>>>
@@ -1594,7 +1609,6 @@ convolutionByAmp(Graph &graph, const Plan &plan,
   const auto tilesPerKernelY = plan.tilesPerKernelYAxis;
 
   const auto partialType = plan.getPartialType();
-  mapWeights(graph, weights, params, plan);
 
   // Calculate a set of partial sums of the convolutions.
   Tensor partials = graph.addTensor(partialType,
@@ -1694,7 +1708,6 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   if (transposeAndFlipWeights) {
     // Create transposed/flipped weights
     auto bwdWeights = createWeights(graph, params, "bwdWeights", options);
-    mapWeights(graph, bwdWeights, params, options);
     weightsTransposeChansFlipXY(graph, weights, bwdWeights, prog, debugPrefix);
     weights = bwdWeights;
   }
@@ -2732,15 +2745,12 @@ calculateWeightDeltasAmp(Graph &graph, const Plan &plan,
   deltasView = roundUpDimension(graph, deltasView, 2, partialChansPerGroup);
 
   // Transpose the activations.
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  auto transformedParams = weightUpdateByAmpTransformParams(params,
+                                                            deviceInfo,
+                                                            plan);
   auto activationsTransposed =
-      graph.addTensor(dType,
-                      {1,
-                       activationsView.dim(1) / inChansPerGroup,
-                       activationsView.dim(0),
-                       activationsView.dim(2),
-                       inChansPerGroup},
-                      "activationsTransposed");
-  mapActivations(graph, plan, activationsTransposed);
+      createInput(graph, transformedParams, "activationsTransposed", plan);
   prog.add(Copy(activationsView.reshape({activationsView.dim(0),
                                          activationsView.dim(1) /
                                          inChansPerGroup,
@@ -2751,14 +2761,7 @@ calculateWeightDeltasAmp(Graph &graph, const Plan &plan,
                 activationsTransposed));
   // Transpose the deltas.
   auto deltasTransposed =
-      graph.addTensor(dType,
-                      {deltasView.dim(2) / partialChansPerGroup,
-                       deltasView.dim(1) / inChansPerGroup,
-                       deltasView.dim(0),
-                       1,
-                       partialChansPerGroup,
-                       inChansPerGroup},
-                      "deltasTransposed");
+      createWeights(graph, transformedParams, "deltasTransposed", plan);
   prog.add(Copy(deltasView.reshape({deltasView.dim(0),
                                     deltasView.dim(1) / inChansPerGroup,
                                     inChansPerGroup,
@@ -2771,10 +2774,6 @@ calculateWeightDeltasAmp(Graph &graph, const Plan &plan,
   // Perform the convolution.
   Tensor weightDeltasTransposed;
   Program convolveProg;
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  auto transformedParams = weightUpdateByAmpTransformParams(params,
-                                                            deviceInfo,
-                                                            plan);
   std::tie(convolveProg, weightDeltasTransposed) =
       convolutionByAmp(graph, plan, transformedParams,
                        activationsTransposed,
