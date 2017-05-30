@@ -555,9 +555,32 @@ calculateWeightMapping(const Tensor &weights,
                                 plan, batchSize);
 }
 
-static void mapWeights(const Tensor &w, Graph &graph, const Plan &plan,
-                       unsigned batchSize) {
-  graph.setTileMapping(w, calculateWeightMapping(w, graph, plan, batchSize));
+static void mapWeights(Graph &graph, Tensor weights,
+                       ConvParams params, const Plan &plan) {
+  // Depending on the plan the weights may be transformed prior to the
+  // convolution. Apply the same transformation here. This must be kept
+  // in sync with logic in the convolution() function.
+  const auto batchSize = params.getBatchSize();
+  const auto numInChans = params.getInputDepth();
+  const auto convInChansPerGroup = plan.inChansPerGroup;
+  const auto convNumChanGroups =
+      (numInChans + convInChansPerGroup - 1) / convInChansPerGroup;
+  const auto convNumChans = convInChansPerGroup * convNumChanGroups;
+  if (convNumChans != numInChans) {
+    // Zero pad the weights in the in channel axis.
+    auto weightsRegrouped = regroup(weights, 1, 5, numInChans);
+    auto weightsRegroupedPadded =
+        pad(graph, weightsRegrouped, 0, convNumChans - numInChans, 5);
+    weights = regroup(weightsRegroupedPadded, 1, 5, plan.inChansPerGroup);
+    params.inputShape[3] = convNumChans;
+    params.kernelShape[3] = convNumChans;
+  }
+  // Compute a mapping for the transformed weights tensor that minimizes
+  // exchange.
+  auto weightsMapping = calculateWeightMapping(weights, graph, plan, batchSize);
+  // Apply the mapping to the transformed weights tensor. This indirectly
+  // maps the original (non-transformed) tensor.
+  graph.setTileMapping(weights, weightsMapping);
 }
 
 void
@@ -565,7 +588,7 @@ mapWeights(Graph &graph, const Tensor &w, const ConvParams &params,
            const ConvOptions &options) {
   verifyStrideAndPaddingDimensions(params);
   const auto plan = getPlan(graph, params, options);
-  mapWeights(w, graph, plan, params.inputShape[0]);
+  mapWeights(graph, w, params, plan);
 }
 
 static std::vector<std::vector<poplar::Interval<std::size_t>>>
@@ -1571,8 +1594,7 @@ convolutionByAmp(Graph &graph, const Plan &plan,
   const auto tilesPerKernelY = plan.tilesPerKernelYAxis;
 
   const auto partialType = plan.getPartialType();
-  const auto batchSize = numBatchGroups * plan.batchesPerGroup;
-  mapWeights(weights, graph, plan, batchSize);
+  mapWeights(graph, weights, params, plan);
 
   // Calculate a set of partial sums of the convolutions.
   Tensor partials = graph.addTensor(partialType,
@@ -1668,7 +1690,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   const auto dType = in.elementType();
   const auto batchSize = in.dim(0);
   unsigned inNumChans = in.dim(1) * in.dim(4);
-  const auto plan = getPlan(graph, params, options);
+  auto plan = getPlan(graph, params, options);
   if (transposeAndFlipWeights) {
     // Create transposed/flipped weights
     auto bwdWeights = createWeights(graph, params, "bwdWeights", options);
@@ -1733,6 +1755,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
     params.inputShape[2] = params.inputShape[1] * params.inputShape[2];
     params.inputShape[1] = plan.batchesPerGroup;
     params.inputShape[0] = params.inputShape[0] / plan.batchesPerGroup;
+    plan.batchesPerGroup = 1;
   }
   const auto outNumChans = params.getOutputDepth();
   const auto partialChansPerGroup = plan.partialChansPerGroup;
