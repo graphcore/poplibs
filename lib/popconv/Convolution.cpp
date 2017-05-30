@@ -1333,7 +1333,7 @@ calcPartialSums(Graph &graph,
                                     params,
                                     zeroCS, convolveCS,
                                     in[b], weights,
-                                    partials[b][izg][ky]);
+                                    partials[izg][ky][b]);
             }
           }
         }
@@ -1578,9 +1578,9 @@ convolutionByAmp(Graph &graph, const Plan &plan,
 
   // Calculate a set of partial sums of the convolutions.
   Tensor partials = graph.addTensor(partialType,
-                                     {numBatchGroups,
-                                      tilesPerInZGroup,
+                                     {tilesPerInZGroup,
                                       tilesPerKernelY,
+                                      numBatchGroups,
                                       partialNumChanGroups,
                                       params.getOutputHeight(),
                                       params.getOutputWidth(),
@@ -1595,13 +1595,13 @@ convolutionByAmp(Graph &graph, const Plan &plan,
   // compute sets so the batch will be executed in parallel.
   Tensor reduced;
   // Perform the reduction of partial sums.
-  partials = partials.reshape({numBatchGroups,
-                               tilesPerInZGroup * tilesPerKernelY,
+  partials = partials.reshape({tilesPerInZGroup * tilesPerKernelY,
+                               numBatchGroups,
                                partialNumChanGroups,
                                params.getOutputHeight(),
                                params.getOutputWidth(),
                                partialChansPerGroup});
-  if (partials.dim(1) == 1) {
+  if (partials.dim(0) == 1) {
     if (dType != partialType) {
       reduced = graph.addTensor(dType, partials.shape(), "reduced");
       if (reduceComputeSets.empty()) {
@@ -1613,21 +1613,10 @@ convolutionByAmp(Graph &graph, const Plan &plan,
     } else {
       reduced = partials;
     }
-    reduced = reduced.reshape({reduced.dim(0),
-                               reduced.dim(2),
-                               reduced.dim(3),
-                               reduced.dim(4),
-                               reduced.dim(5)});
+    reduced = reduced[0];
   } else {
-    auto reducedShape = partials[0][0].shape();
-    reducedShape.insert(reducedShape.begin(), 0);
-    reduced = graph.addTensor(dType, reducedShape, "reduced");
-    for (unsigned b = 0; b < numBatchGroups; ++b) {
-      reduced =
-          append(reduced,
-                 multiStageGroupedReduce(graph, partials[b], dType,
-                                         reduceComputeSets, debugPrefix));
-    }
+    reduced = multiStageGroupedReduce(graph, partials, dType, reduceComputeSets,
+                                      debugPrefix);
   }
   for (const auto &cs : reduceComputeSets) {
     prog.add(Execute(cs));
