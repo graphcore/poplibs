@@ -21,6 +21,11 @@ std::vector<unsigned> computeActivationsMapping(const poplar::Graph &graph,
 
 void mapActivations(poplar::Graph &graph, poplar::Tensor t);
 
+std::vector<unsigned>
+computeTensorMapping(const poplar::Graph &graph,
+                     const std::vector<std::size_t> &shape,
+                     unsigned grainSize = 1);
+
 std::vector<unsigned> computeTensorMapping(const poplar::Graph &graph,
                                            poplar::Tensor t,
                                            unsigned grainSize = 1);

@@ -1,7 +1,9 @@
 #include "popstd/ActivationMapping.hpp"
 
 #include "popstd/Util.hpp"
+#include <algorithm>
 #include <cassert>
+#include <functional>
 #include <numeric>
 #include "util/gcd.hpp"
 
@@ -99,11 +101,13 @@ void mapActivations(poplar::Graph &graph, poplar::Tensor act) {
   }
 }
 
-std::vector<unsigned> computeTensorMapping(const poplar::Graph &graph,
-                                           poplar::Tensor t,
-                                           unsigned grainSize)
+std::vector<unsigned>
+computeTensorMapping(const poplar::Graph &graph,
+                     const std::vector<std::size_t> &shape,
+                     unsigned grainSize)
 {
-  const auto numElements = t.numElements();
+  const auto numElements = std::accumulate(shape.begin(), shape.end(),
+                                           1UL, std::multiplies<std::size_t>());
   const auto numGroups = (numElements + grainSize - 1) / grainSize;
   const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
   std::vector<unsigned> mapping;
@@ -116,6 +120,13 @@ std::vector<unsigned> computeTensorMapping(const poplar::Graph &graph,
   }
   mapping.resize(numTiles + 1, mapping.back());
   return mapping;
+}
+
+std::vector<unsigned>
+computeTensorMapping(const poplar::Graph &graph,
+                     poplar::Tensor t,
+                     unsigned grainSize) {
+  return computeTensorMapping(graph, t.shape(), grainSize);
 }
 
 void mapTensor(poplar::Graph &graph, poplar::Tensor t) {
