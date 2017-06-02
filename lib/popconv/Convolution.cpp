@@ -281,6 +281,89 @@ addFlattenedRegions(const std::vector<std::size_t> &shape,
   }
 }
 
+struct ConvTileIndices {
+  unsigned b;
+  unsigned oy;
+  unsigned ox;
+  unsigned ozg;
+  unsigned izg;
+  unsigned ky;
+};
+
+struct ConvSlice {
+  unsigned batchBegin, batchEnd;
+  unsigned outYBegin, outYEnd;
+  unsigned outXBegin, outXEnd;
+  unsigned outZGroupBegin, outZGroupEnd;
+  unsigned inZGroupBegin, inZGroupEnd;
+  unsigned kernelYBegin, kernelYEnd;
+};
+
+static void
+iterateTilePartition(const Graph &graph, const ConvParams &params,
+                     const Plan &plan,
+                     const std::function<
+                       void(unsigned, const ConvTileIndices &,
+                            const ConvSlice &)
+                     > &f) {
+  assert(plan.batchesPerGroup == 1);
+  const unsigned numBatchGroups = params.getBatchSize();
+  const auto isMultiIPU = graph.getDevice().getDeviceInfo().numIPUs > 1;
+  const unsigned inNumChans = params.getInputDepth();
+  const auto inChansPerGroup = plan.inChansPerGroup;
+  const auto partialChansPerGroup = plan.partialChansPerGroup;
+  assert(params.getOutputDepth() % partialChansPerGroup == 0);
+  const auto partialNumChanGroups =
+      params.getOutputDepth() / partialChansPerGroup;
+  const auto tilesPerX = plan.tilesPerXAxis;
+  const auto tilesPerY = plan.tilesPerYAxis;
+  const auto tilesPerZ = plan.tilesPerZAxis;
+  const auto tilesPerKernelY = plan.tilesPerKernelYAxis;
+  const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
+  const unsigned outDimY = params.getOutputHeight();
+  const unsigned outDimX = params.getOutputWidth();
+  const unsigned numInZGroups = inNumChans / inChansPerGroup;
+  const unsigned kernelHeight = params.kernelShape[0];
+  const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
+  for (unsigned b = 0; b < numBatchGroups; ++b) {
+    for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
+      const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
+      const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
+      for (unsigned ky = 0; ky != tilesPerKernelY; ++ky) {
+        const auto kernelYBegin = (ky * kernelHeight) / tilesPerKernelY;
+        const auto kernelYEnd = ((ky + 1) * kernelHeight) / tilesPerKernelY;
+        for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
+          unsigned outZGroupBegin, outZGroupEnd;
+          std::tie(outZGroupBegin, outZGroupEnd) =
+              getOutZGroupRange(ozg, partialNumChanGroups, plan);
+          for (unsigned oy = 0; oy != tilesPerY; ++oy) {
+            const auto outYBegin = (oy * outDimY) / tilesPerY;
+            const auto outYEnd = ((oy + 1) * outDimY) / tilesPerY;
+            for (unsigned ox = 0; ox != tilesPerX; ++ox) {
+              const auto outXBegin = (ox * outDimX) / tilesPerX;
+              const auto outXEnd = ((ox + 1) * outDimX) / tilesPerX;
+              const auto tile = linearizeTileIndices(b, numBatchGroups,
+                                                     numTiles,
+                                                     ky, izg,
+                                                     ox, oy, ozg,
+                                                     plan,
+                                                     isMultiIPU);
+              f(tile,
+                {b, oy, ox, ozg, izg, ky},
+                {b, b + 1,
+                 outYBegin, outYEnd,
+                 outXBegin, outXEnd,
+                 outZGroupBegin, outZGroupEnd,
+                 inZGroupBegin, inZGroupEnd,
+                 kernelYBegin, kernelYEnd});
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 static std::vector<std::vector<Interval<std::size_t>>>
 calculateActivationMapping(const Graph &graph,
                            const Plan &plan,
@@ -1275,71 +1358,32 @@ static Program
 calcPartialSums(Graph &graph,
                 const Plan &plan,
                 const ConvParams &params,
-                unsigned outNumChans,
                 std::string dType,
                 Tensor in, Tensor weights, Tensor partials,
                 const std::string &layerName) {
-  const auto numBatchGroups = in.dim(0);
-  const auto isMultiIPU = graph.getDevice().getDeviceInfo().numIPUs > 1;
-  const auto inNumChans = in.dim(1) * in.dim(4);
-  const auto inChansPerGroup = plan.inChansPerGroup;
-  const auto partialChansPerGroup = plan.partialChansPerGroup;
-  assert(outNumChans % partialChansPerGroup == 0);
-  const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
-  const auto tilesPerX = plan.tilesPerXAxis;
-  const auto tilesPerY = plan.tilesPerYAxis;
-  const auto tilesPerZ = plan.tilesPerZAxis;
-  const auto tilesPerKernelY = plan.tilesPerKernelYAxis;
-  const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
-  const auto outDimY = params.getOutputHeight();
-  const auto outDimX = params.getOutputWidth();
-  const auto numInZGroups = inNumChans / inChansPerGroup;
-  const auto kernelHeight = weights.dim(2);
-  const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
-
   ComputeSet zeroCS = graph.addComputeSet(layerName +"/Zero");
   ComputeSet convolveCS = graph.addComputeSet(layerName + "/Convolve");
-  for (unsigned b = 0; b < numBatchGroups; ++b) {
-    for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
-      const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
-      const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
-      for (unsigned ky = 0; ky != tilesPerKernelY; ++ky) {
-        const auto kernelYBegin = (ky * kernelHeight) / tilesPerKernelY;
-        const auto kernelYEnd = ((ky + 1) * kernelHeight) / tilesPerKernelY;
-        for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
-          unsigned outZGroupBegin, outZGroupEnd;
-          std::tie(outZGroupBegin, outZGroupEnd) =
-              getOutZGroupRange(ozg, partialNumChanGroups, plan);
-          if (outZGroupBegin == outZGroupEnd)
-            continue;
-          for (unsigned oy = 0; oy != tilesPerY; ++oy) {
-            const auto outYBegin = (oy * outDimY) / tilesPerY;
-            const auto outYEnd = ((oy + 1) * outDimY) / tilesPerY;
-            for (unsigned ox = 0; ox != tilesPerX; ++ox) {
-              const auto outXBegin = (ox * outDimX) / tilesPerX;
-              const auto outXEnd = ((ox + 1) * outDimX) / tilesPerX;
-              const auto tile = linearizeTileIndices(b, numBatchGroups,
-                                                     numTiles,
-                                                     ky, izg,
-                                                     ox, oy, ozg,
-                                                     plan,
-                                                     isMultiIPU);
-              calcPartialConvOutput(graph, plan, dType, tile,
-                                    outXBegin, outXEnd, outYBegin, outYEnd,
-                                    outZGroupBegin, outZGroupEnd,
-                                    kernelYBegin, kernelYEnd,
-                                    inZGroupBegin,
-                                    inZGroupEnd,
-                                    params,
-                                    zeroCS, convolveCS,
-                                    in[b], weights,
-                                    partials[izg][ky][b]);
-            }
-          }
-        }
-      }
-    }
-  }
+  iterateTilePartition(graph, params, plan,
+                       [&](unsigned tile, const ConvTileIndices &indices,
+                          const ConvSlice &slice) {
+    if (slice.outZGroupBegin == slice.outZGroupEnd)
+      return;
+    assert(slice.batchEnd - slice.batchBegin == 1);
+    unsigned b = slice.batchBegin;
+    unsigned partialIndex =
+        indices.izg * plan.tilesPerKernelYAxis + indices.ky;
+    calcPartialConvOutput(graph, plan, dType, tile,
+                          slice.outXBegin, slice.outXEnd,
+                          slice.outYBegin, slice.outYEnd,
+                          slice.outZGroupBegin, slice.outZGroupEnd,
+                          slice.kernelYBegin, slice.kernelYEnd,
+                          slice.inZGroupBegin,
+                          slice.inZGroupEnd,
+                          params,
+                          zeroCS, convolveCS,
+                          in[b], weights,
+                          partials[partialIndex][b]);
+  });
   Sequence prog;
   if (!graph.getComputeSet(zeroCS).empty()) {
     prog.add(Execute(zeroCS));
@@ -1578,16 +1622,14 @@ convolutionByAmp(Graph &graph, const Plan &plan,
 
   // Calculate a set of partial sums of the convolutions.
   Tensor partials = graph.addTensor(partialType,
-                                     {tilesPerInZGroup,
-                                      tilesPerKernelY,
+                                     {tilesPerInZGroup * tilesPerKernelY,
                                       numBatchGroups,
                                       partialNumChanGroups,
                                       params.getOutputHeight(),
                                       params.getOutputWidth(),
                                       partialChansPerGroup},
                                     "partials");
-  prog.add(calcPartialSums(graph, plan, params,
-                           outNumChans, dType, in, weights, partials,
+  prog.add(calcPartialSums(graph, plan, params, dType, in, weights, partials,
                            debugPrefix));
 
   std::vector<ComputeSet> reduceComputeSets;
@@ -1595,12 +1637,6 @@ convolutionByAmp(Graph &graph, const Plan &plan,
   // compute sets so the batch will be executed in parallel.
   Tensor reduced;
   // Perform the reduction of partial sums.
-  partials = partials.reshape({tilesPerInZGroup * tilesPerKernelY,
-                               numBatchGroups,
-                               partialNumChanGroups,
-                               params.getOutputHeight(),
-                               params.getOutputWidth(),
-                               partialChansPerGroup});
   if (partials.dim(0) == 1) {
     if (dType != partialType) {
       reduced = graph.addTensor(dType, partials.shape(), "reduced");
