@@ -1,10 +1,8 @@
 #include "popconv/Convolution.hpp"
 #include "ConvPlan.hpp"
 #include <limits>
-#include <algorithm>
 #include <cassert>
 #include <cmath>
-#include <functional>
 #include "popconv/ConvUtil.hpp"
 #include "popstd/Pad.hpp"
 #include "popstd/ActivationMapping.hpp"
@@ -283,7 +281,6 @@ addFlattenedRegions(const std::vector<std::size_t> &shape,
   }
 }
 
-
 struct ConvTileIndices {
   unsigned b;
   unsigned oy;
@@ -368,208 +365,81 @@ iterateTilePartition(const Graph &graph, const ConvParams &params,
 }
 
 static std::vector<std::vector<Interval<std::size_t>>>
-convertLinearMappingToRegionMapping(const std::vector<unsigned> &mapping) {
-  assert(!mapping.empty());
-  const auto numTiles = mapping.size() - 1;
-  std::vector<std::vector<Interval<std::size_t>>>
-      regionMapping(numTiles);
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
-    if (mapping[tile] == mapping[tile + 1])
-      continue;
-    regionMapping[tile].emplace_back(mapping[tile], mapping[tile + 1]);
-  }
-  return regionMapping;
-}
-
-/// Extend a partial map to a total map in the range [lower, upper). The value
-/// of keys not in the partial map are based on the value of the neighbouring
-/// keys that are in the map. The partial map must contain at least one entry.
-template <class K, class V> static void
-extendPartialMap(boost::icl::interval_map<K, V> &map,
-                 K lower, K upper) {
-  assert(iterative_size(map) >= 0);
-  boost::icl::interval_map<K, V> extendedMap;
-  for (auto begin = map.begin(), it = begin, end = map.end(); it != end;
-       ++it) {
-    const auto &interval = it->first;
-    auto next = std::next(it);
-    auto extendedIntervalLower = it == begin ? lower : interval.lower();
-    auto extendedIntervalUpper = next == end ? upper : next->first.lower();
-    auto extendedInterval =
-        boost::icl::interval<unsigned>::right_open(extendedIntervalLower,
-                                                   extendedIntervalUpper);
-    extendedMap.insert({extendedInterval, std::move(it->second)});
-  }
-  std::swap(map, extendedMap);
-}
-
-static bool
-isHaloRegion(
-    const std::set<unsigned> &prevTiles,
-    const std::set<unsigned> &tiles,
-    const std::set<unsigned> &nextTiles) {
-  if (prevTiles.size() + nextTiles.size() != tiles.size())
-    return false;
-  return std::includes(tiles.begin(), tiles.end(),
-                       prevTiles.begin(), prevTiles.end()) &&
-         std::includes(tiles.begin(), tiles.end(),
-                       nextTiles.begin(), nextTiles.end());
-}
-
-static void
-optimizeHaloMapping(boost::icl::interval_map<
-                      unsigned, std::set<unsigned>
-                    > &map) {
-  // Modify the map so that "halo" regions where the uses are the union of the
-  // uses of the neighbouring regions are mapped as if they were only used by
-  // one of the sets of tiles. This heuristic reduces exchange code for
-  // convolutional layers since the halos tend to be small and mapping them
-  // independently splits up the tensor tile mapping, increasing the amount of
-  // exchange code required.
-  boost::icl::interval_map<unsigned, std::set<unsigned>> optimizedMap;
-  for (auto begin = map.begin(), it = begin, end = map.end(); it != end;
-       ++it) {
-    if (it != begin && std::next(it) != end &&
-        isHaloRegion(std::prev(it)->second,
-                     it->second,
-                     std::next(it)->second)) {
-      optimizedMap.insert({it->first, it == begin ? std::next(it)->second :
-                                                    std::prev(it)->second});
-    } else {
-      optimizedMap.insert(*it);
-    }
-  }
-  std::swap(map, optimizedMap);
-}
-
-static std::vector<std::vector<Interval<std::size_t>>>
-calculateMappingBasedOnUsage(const Graph &graph,
-                             const std::vector<std::size_t> &shape,
-                             const boost::icl::interval_map<
-                               unsigned, std::set<unsigned>
-                             > &uses,
-                             unsigned grainSize,
-                             unsigned minElementsPerTile) {
-  if (iterative_size(uses) == 0) {
-    return convertLinearMappingToRegionMapping(
-      computeTensorMapping(graph, shape, grainSize)
-    );
-  }
-  boost::icl::interval_map<unsigned, std::set<unsigned>> grainToTiles;
-  for (const auto &entry : uses) {
-    const auto &interval = entry.first;
-    unsigned grainLower = interval.lower() / grainSize;
-    unsigned grainUpper = (interval.upper() - 1) / grainSize + 1;
-    auto grainInterval =
-        boost::icl::interval<unsigned>::right_open(grainLower, grainUpper);
-    grainToTiles.insert({grainInterval, entry.second});
-  }
-
-  // Extend the grainUses map to total map.
-  const auto numElements = std::accumulate(shape.begin(), shape.end(), 1UL,
-                                           std::multiplies<std::size_t>());
-  const unsigned numGrains = (numElements + grainSize - 1) / grainSize;
-  extendPartialMap(grainToTiles, 0U, numGrains);
-
-  optimizeHaloMapping(grainToTiles);
-
-  // Build a map from sets of tiles to grains they use.
-  std::map<std::set<unsigned>, std::vector<Interval<std::size_t>>>
-      tilesToGrains;
-  for (const auto &entry : grainToTiles) {
-    tilesToGrains[entry.second].emplace_back(entry.first.lower(),
-                                             entry.first.upper());
-  }
+calculateActivationMapping(const Graph &graph,
+                           const Plan &plan,
+                           Tensor acts) {
+  assert(plan.batchesPerGroup == 1);
+  const auto numBatchGroups = acts.dim(0);
+  const auto isMultiIPU = graph.getDevice().getDeviceInfo().numIPUs > 1;
+  const auto inNumChans = acts.dim(1) * acts.dim(4);
+  const auto inChansPerGroup = plan.inChansPerGroup;
+  const auto tilesPerX = plan.tilesPerXAxis;
+  const auto tilesPerY = plan.tilesPerYAxis;
+  const auto tilesPerZ = plan.tilesPerZAxis;
+  const auto tilesPerKernelY = plan.tilesPerKernelYAxis;
+  const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
+  const auto numInZGroups = inNumChans / inChansPerGroup;
   const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
-  std::vector<std::vector<Interval<std::size_t>>> mapping(numTiles);
-  const auto minGrainsPerTile =
-      (minElementsPerTile + grainSize - 1) / grainSize;
-  for (const auto &entry : tilesToGrains) {
-    const auto &tiles = entry.first;
-    const auto &sharedGrains = entry.second;
-    const auto perTileGrains =
-        splitRegions(sharedGrains, 1, tiles.size(), minGrainsPerTile);
-    unsigned i = 0;
-    for (auto tile : tiles) {
-      if (i == perTileGrains.size())
-        break;
-      mapping[tile].reserve(perTileGrains[i].size());
-      for (const auto &interval : perTileGrains[i]) {
-        const auto lower = interval.begin() * grainSize;
-        const auto upper = std::min(interval.end() * grainSize, numElements);
-        mapping[tile].emplace_back(lower, upper);
+
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  std::vector<std::vector<Interval<std::size_t>>>
+      mapping(deviceInfo.getNumTiles());
+  const auto actType = acts.elementType();
+  const auto actTypeSize = actType == "float" ? 4 : 2;
+  const auto minBytesPerTile = 128;
+  const auto minElementsPerTile =
+    (minBytesPerTile + actTypeSize - 1) / minBytesPerTile;
+
+  // Map activations such that, for a 1x1 kernel, the activations are spread
+  // evenly across the set of tiles that read them. This should also give
+  // reasonable results for non 1x1 kernels.
+  for (unsigned b = 0; b < numBatchGroups; ++b) {
+    for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
+      const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
+      const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
+      for (unsigned y = 0; y != tilesPerY; ++y) {
+        const auto yBegin = (y * acts.dim(2)) / tilesPerY;
+        const auto yEnd = ((y + 1) * acts.dim(2)) / tilesPerY;
+        for (unsigned x = 0; x != tilesPerX; ++x) {
+          const auto xBegin = (x * acts.dim(3)) / tilesPerX;
+          const auto xEnd = ((x + 1) * acts.dim(3)) / tilesPerX;
+          std::vector<Interval<std::size_t>> sharedActivations;
+          addFlattenedRegions(acts.shape(),
+                              {b, inZGroupBegin, yBegin, xBegin, 0},
+                              {b + 1, inZGroupEnd, yEnd, xEnd, acts.dim(4)},
+                              sharedActivations);
+          mergeAdjacentRegions(sharedActivations);
+          std::unordered_set<unsigned> tileSet;
+          for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
+            for (unsigned ky = 0; ky != tilesPerKernelY; ++ky) {
+              const auto tile = linearizeTileIndices(b, numBatchGroups,
+                                                     numTiles,
+                                                     ky, izg,
+                                                     x, y, ozg,
+                                                     plan,
+                                                     isMultiIPU);
+              tileSet.insert(tile);
+            }
+          }
+          std::vector<unsigned> tiles(tileSet.begin(), tileSet.end());
+          std::sort(tiles.begin(), tiles.end());
+          const auto perTileWeights =
+              splitRegions(sharedActivations, inChansPerGroup,
+                           tiles.size(), minElementsPerTile);
+          for (unsigned i = 0; i != perTileWeights.size(); ++i) {
+            mapping[tiles[i]] = perTileWeights[i];
+          }
+        }
       }
-      ++i;
     }
   }
   return mapping;
 }
 
-static boost::icl::discrete_interval<unsigned>
-toIclInterval(const Interval<std::size_t> &interval) {
-  return boost::icl::interval<unsigned>::right_open(interval.begin(),
-                                                    interval.end());
-}
-
-static std::vector<std::vector<Interval<std::size_t>>>
-calculateActivationMapping(Graph &graph, const ConvParams &params,
-                           const Plan &plan) {
-  // Build a map from activations to the set of tiles that access them.
-  const auto numInChans = params.getInputDepth();
-  assert(numInChans % plan.inChansPerGroup == 0);
-  const auto numInChanGroups = numInChans / plan.inChansPerGroup;
-  std::vector<std::size_t> actsShape = {
-    params.getBatchSize(),
-    numInChanGroups,
-    params.getInputHeight(),
-    params.getInputWidth(),
-    plan.inChansPerGroup
-  };
-  boost::icl::interval_map<unsigned, std::set<unsigned>> actsToTiles;
-  iterateTilePartition(graph, params, plan,
-                       [&](unsigned tile, const ConvTileIndices &,
-                           const ConvSlice &slice) {
-    auto inYRange =
-        getInputRange(0, {slice.outYBegin, slice.outYEnd},
-                      {slice.kernelYBegin, slice.kernelYEnd}, params);
-    auto inXRange =
-        getInputRange(1, {slice.outXBegin, slice.outXEnd}, params);
-    std::vector<Interval<std::size_t>> intervals;
-    addFlattenedRegions(actsShape,
-                        {slice.batchBegin,
-                         slice.inZGroupBegin,
-                         inYRange.first,
-                         inXRange.first,
-                         0},
-                        {slice.batchEnd,
-                         slice.inZGroupEnd,
-                         inYRange.second,
-                         inXRange.second,
-                         plan.inChansPerGroup},
-                        intervals);
-    for (const auto &interval : intervals) {
-      actsToTiles += std::make_pair(toIclInterval(interval),
-                                    std::set<unsigned>({tile}));
-    }
-  });
-  // Limit the minimum number of activation bytes per tile to reduce the amount
-  // of exchange code. Increasing this constant reduces exchange code size and
-  // increases execution time due to imbalance. The current limit was
-  // chosen experimentally.
-  const auto actType = params.dType;
-  const auto actTypeSize = actType == "float" ? 4 : 2;
-  const auto minBytesPerTile = 128;
-  const auto minElementsPerTile =
-    (minBytesPerTile + actTypeSize - 1) / minBytesPerTile;
-  const auto grainSize = plan.inChansPerGroup;
-  return calculateMappingBasedOnUsage(graph, actsShape, actsToTiles,
-                                      grainSize, minElementsPerTile);
-}
-
 /// Map the activations tensor such that the exchange required during the
 /// convolution operation is minimized.
-static void mapActivations(Graph &graph, ConvParams params,
-                           Plan plan, Tensor acts) {
+static void mapActivations(Graph &graph, Plan plan,
+                           Tensor acts) {
   // Depending on the plan the input may be transformed prior to the
   // convolution. Apply the same transformation here. This must be kept
   // in sync with logic in the convolution() function.
@@ -588,8 +458,6 @@ static void mapActivations(Graph &graph, ConvParams params,
                .dimShuffle({1, 0, 2, 3, 4});
     plan.flattenXY = false;
     plan.batchesPerGroup = 1;
-    params.inputShape[1] = 1;
-    params.inputShape[2] = acts.dim(3);
   }
   const auto inNumChans = acts.dim(1) * acts.dim(4);
   const auto convInChansPerGroup = plan.inChansPerGroup;
@@ -602,12 +470,10 @@ static void mapActivations(Graph &graph, ConvParams params,
     auto inRegroupedPadded =
         pad(graph, inRegrouped, 0, convNumChans - inNumChans, 4);
     acts = regroup(inRegroupedPadded, plan.inChansPerGroup);
-    params.inputShape[3] = convNumChans;
-    params.kernelShape[3] = convNumChans;
   }
   // Compute a mapping for the transformed activations tensor that minimizes
   // exchange.
-  auto mapping = calculateActivationMapping(graph, params, plan);
+  auto mapping = calculateActivationMapping(graph, plan, acts);
   // Apply the mapping to the transformed activations tensor. This indirectly
   // maps the original (non-transformed) tensor.
   graph.setTileMapping(acts, mapping);
@@ -619,7 +485,7 @@ void mapActivations(poplar::Graph &graph,
                     const ConvOptions &options) {
   verifyStrideAndPaddingDimensions(params);
   const auto plan = getPlan(graph, params, options);
-  mapActivations(graph, params, plan, in);
+  mapActivations(graph, plan, in);
 }
 
 static Tensor
@@ -635,7 +501,7 @@ createInput(Graph &graph, const ConvParams &params,
                             params.inputShape[1], params.inputShape[2],
                             inChansPerGroup},
                            name);
-  mapActivations(graph, params, plan, t);
+  mapActivations(graph, plan, t);
   return t;
 }
 
@@ -851,10 +717,6 @@ computeBiasMapping(Graph &graph, const Tensor &out) {
       biasToTiles += std::make_pair(biasInterval, std::set<unsigned>({tile}));
     }
   }
-
-
-
-
   // Build a map from sets of tiles to biases they use.
   std::map<std::set<unsigned>, std::vector<Interval<std::size_t>>>
       tilesToBiases;
@@ -1677,6 +1539,12 @@ multiStageGroupedReduce(
   return reduced;
 }
 
+static boost::icl::discrete_interval<unsigned>
+toIclInterval(const Interval<std::size_t> &interval) {
+  return boost::icl::interval<unsigned>::right_open(interval.begin(),
+                                                    interval.end());
+}
+
 static Tensor
 multiStageGroupedReduce(Graph &graph,
                         Tensor partials,
@@ -2353,6 +2221,20 @@ addWeightDeltaPartialRegions(
                        partialDims[7],
                        partialDims[8]},
                       regions);
+}
+
+std::vector<std::vector<Interval<std::size_t>>>
+convertLinearMappingToRegionMapping(const std::vector<unsigned> &mapping) {
+  assert(!mapping.empty());
+  const auto numTiles = mapping.size() - 1;
+  std::vector<std::vector<Interval<std::size_t>>>
+      regionMapping(numTiles);
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    if (mapping[tile] == mapping[tile + 1])
+      continue;
+    regionMapping[tile].emplace_back(mapping[tile], mapping[tile + 1]);
+  }
+  return regionMapping;
 }
 
 static Tensor
