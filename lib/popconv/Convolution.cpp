@@ -658,123 +658,85 @@ createInput(Graph &graph, const ConvParams &params,
 }
 
 static std::vector<std::vector<Interval<std::size_t>>>
-calculateWeightMapping(const std::vector<std::size_t> &wShape,
-                       const std::string &dType,
-                       const poplar::Graph &graph,
-                       const Plan &plan,
-                       unsigned batchSize) {
-  assert(batchSize % plan.batchesPerGroup == 0);
-  const auto numBatchGroups = batchSize / plan.batchesPerGroup;
-  const auto partialNumChanGroups = wShape[0];
-  const auto numInZGroups = wShape[1];
-  const auto kernelDimY = wShape[2];
-  const auto kernelDimX = wShape[3];
-  const auto partialChansPerGroup = wShape[4];
-  const auto inChansPerGroup = wShape[5];
-
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  std::vector<std::vector<Interval<std::size_t>>>
-      mapping(deviceInfo.getNumTiles());
-
-  const auto isMultiIPU = deviceInfo.numIPUs > 1;
-  const auto tilesPerX = plan.tilesPerXAxis;
-  const auto tilesPerY = plan.tilesPerYAxis;
-  const auto tilesPerZ = plan.tilesPerZAxis;
-  const auto tilesPerKernelY = plan.tilesPerKernelYAxis;
-  const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
-  const auto numTiles = deviceInfo.getNumTiles();
-  const auto weightTypeSize = dType == "float" ? 4 : 2;
+calculateWeightMapping(const Graph &graph,
+                       const ConvParams &params,
+                       const Plan &plan) {
+  // Build a map from weights to the set of tiles that access them.
+  const auto numInChans = params.getInputDepth();
+  assert(numInChans % plan.inChansPerGroup == 0);
+  const auto numInChanGroups = numInChans / plan.inChansPerGroup;
+  const auto numOutChans = params.getOutputDepth();
+  assert(numOutChans % plan.partialChansPerGroup == 0);
+  const auto numOutChanGroups = numOutChans / plan.partialChansPerGroup;
+  const auto kernelHeight = params.kernelShape[0];
+  const auto kernelWidth = params.kernelShape[1];
+  std::vector<std::size_t> weightsShape = {
+    numOutChanGroups,
+    numInChanGroups,
+    kernelHeight,
+    kernelWidth,
+    plan.partialChansPerGroup,
+    plan.inChansPerGroup
+  };
+  boost::icl::interval_map<unsigned, std::set<unsigned>> weightsToTiles;
+  iterateTilePartition(graph, params, plan,
+                       [&](unsigned tile, const ConvTileIndices &,
+                           const ConvSlice &slice) {
+    std::vector<Interval<std::size_t>> intervals;
+    addFlattenedRegions(weightsShape,
+                        {slice.outZGroupBegin,
+                         slice.inZGroupBegin,
+                         slice.kernelYBegin,
+                         0,
+                         0,
+                         0},
+                        {slice.outZGroupEnd,
+                         slice.inZGroupEnd,
+                         slice.kernelYEnd,
+                         params.kernelShape[1],
+                         plan.partialChansPerGroup,
+                         plan.inChansPerGroup},
+                        intervals);
+    for (const auto &interval : intervals) {
+      weightsToTiles += std::make_pair(toIclInterval(interval),
+                                       std::set<unsigned>({tile}));
+    }
+  });
   // Limit the minimum number of weight bytes per tile to reduce the
   // amount of exchange code. Increasing this constant reduces exchange code
   // size and increases execution time due to imbalance. The current limit was
   // chosen experimentally.
+  const auto weightType = params.dType;
+  const auto weightTypeSize = weightType == "float" ? 4 : 2;
   const auto minBytesPerTile = 256;
   const auto minElementsPerTile =
-      (minBytesPerTile + weightTypeSize - 1) / weightTypeSize;
-  for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
-    const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
-    const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
-    if (inZGroupBegin == inZGroupEnd)
-      continue;
-    for (unsigned ky = 0; ky != tilesPerKernelY; ++ky) {
-      const auto kernelYBegin = (ky * kernelDimY) / tilesPerKernelY;
-      const auto kernelYEnd = ((ky + 1) * kernelDimY) / tilesPerKernelY;
-      for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
-        unsigned outZGroupBegin, outZGroupEnd;
-        std::tie(outZGroupBegin, outZGroupEnd) =
-            getOutZGroupRange(ozg, partialNumChanGroups, plan);
-        if (outZGroupBegin == outZGroupEnd)
-          continue;
-        // Group weights that are accessed contiguously by tiles within this
-        // loop body.
-        std::vector<Interval<std::size_t>> sharedWeights;
-        addFlattenedRegions(wShape,
-                            {outZGroupBegin, inZGroupBegin, kernelYBegin,
-                             0, 0, 0},
-                            {outZGroupEnd, inZGroupEnd, kernelYEnd,
-                             wShape[3], wShape[4], wShape[5]},
-                            sharedWeights);
-        mergeAdjacentRegions(sharedWeights);
-        // Spread groups of weights equally across the tiles that read them.
-        unsigned grainSize = partialChansPerGroup *
-                             inChansPerGroup;
-        if (plan.useConvolutionInstructions) {
-          if (kernelDimY == 1 && kernelDimX == 1) {
-            grainSize *= numInZGroups;
-          }
-        } else {
-          grainSize *= kernelDimX;
-        }
-        std::unordered_set<unsigned> tileSet;
-        for (unsigned b = 0; b != numBatchGroups; ++b) {
-          for (unsigned oy = 0; oy != tilesPerY; ++oy) {
-            for (unsigned ox = 0; ox != tilesPerX; ++ox) {
-              const auto tile = linearizeTileIndices(b, numBatchGroups,
-                                                     numTiles,
-                                                     ky, izg,
-                                                     ox, oy, ozg,
-                                                     plan, isMultiIPU);
-              tileSet.insert(tile);
-            }
-          }
-        }
-        std::vector<unsigned> tiles(tileSet.begin(), tileSet.end());
-        std::sort(tiles.begin(), tiles.end());
-        const auto perTileWeights =
-            splitRegions(sharedWeights, partialChansPerGroup * inChansPerGroup,
-                         tiles.size(), minElementsPerTile);
-        for (unsigned i = 0; i != perTileWeights.size(); ++i) {
-          mapping[tiles[i]] = perTileWeights[i];
-        }
-      }
-    }
-  }
-  return mapping;
-}
-
-static std::vector<std::vector<Interval<std::size_t>>>
-calculateWeightMapping(const Tensor &weights,
-                       const poplar::Graph &graph,
-                       const Plan &plan,
-                       unsigned batchSize) {
-  return calculateWeightMapping(weights.shape(),
-                                weights.elementType(), graph,
-                                plan, batchSize);
+    (minBytesPerTile + weightTypeSize - 1) / minBytesPerTile;
+  unsigned grainSize = plan.partialChansPerGroup * plan.inChansPerGroup;
+  return calculateMappingBasedOnUsage(graph, weightsShape, weightsToTiles,
+                                      grainSize, minElementsPerTile);
 }
 
 static void mapWeights(Graph &graph, Tensor weights,
-                       ConvParams params, const Plan &plan) {
+                       ConvParams params, Plan plan) {
   // Depending on the plan the weights may be transformed prior to the
   // convolution. Apply the same transformation here. This must be kept
   // in sync with logic in the convolution() function.
-  const auto batchSize = params.getBatchSize();
+  assert(plan.flattenXY || plan.batchesPerGroup == 1);
+  if (plan.flattenXY) {
+    const auto batchesPerGroup = plan.batchesPerGroup;
+    plan.flattenXY = false;
+    plan.batchesPerGroup = 1;
+    params.inputShape[2] *= params.inputShape[1] * batchesPerGroup;
+    params.inputShape[1] = 1;
+    params.inputShape[0] /= batchesPerGroup;
+  }
   const auto numInChans = params.getInputDepth();
   const auto convInChansPerGroup = plan.inChansPerGroup;
   const auto convNumChanGroups =
       (numInChans + convInChansPerGroup - 1) / convInChansPerGroup;
   const auto convNumChans = convInChansPerGroup * convNumChanGroups;
   if (convNumChans != numInChans) {
-    // Zero pad the weights in the in channel axis.
+    // Zero pad the input / weights.
     auto weightsRegrouped = regroup(weights, 1, 5, numInChans);
     auto weightsRegroupedPadded =
         pad(graph, weightsRegrouped, 0, convNumChans - numInChans, 5);
@@ -782,9 +744,22 @@ static void mapWeights(Graph &graph, Tensor weights,
     params.inputShape[3] = convNumChans;
     params.kernelShape[3] = convNumChans;
   }
+  const auto outNumChans = params.getOutputDepth();
+  const auto partialChansPerGroup = plan.partialChansPerGroup;
+  const auto partialNumChanGroups =
+      (outNumChans + partialChansPerGroup - 1) / partialChansPerGroup;
+  const auto partialNumChans = partialNumChanGroups * partialChansPerGroup;
+  if (partialNumChans != outNumChans) {
+    auto weightsRegrouped = regroup(weights, 0, 4, outNumChans);
+    // Zero pad the weights in the out channel axis.
+    auto weightsRegroupedPadded =
+        pad(graph, weightsRegrouped, 0, partialNumChans - outNumChans, 4);
+    weights = regroup(weightsRegroupedPadded, 0, 4, partialChansPerGroup);
+    params.kernelShape[2] = partialNumChans;
+  }
   // Compute a mapping for the transformed weights tensor that minimizes
   // exchange.
-  auto weightsMapping = calculateWeightMapping(weights, graph, plan, batchSize);
+  auto weightsMapping = calculateWeightMapping(graph, params, plan);
   // Apply the mapping to the transformed weights tensor. This indirectly
   // maps the original (non-transformed) tensor.
   graph.setTileMapping(weights, weightsMapping);
@@ -839,38 +814,24 @@ computeBiasMapping(Graph &graph, const Tensor &out) {
   const auto dTypeSize = dType == "float" ? 4 : 2;
   const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
   const unsigned numChans = out.dim(1) * out.dim(4);
-  const auto grainSize =
-      dType == "float" ? deviceInfo.getFloatVectorWidth() :
-                         deviceInfo.getHalfVectorWidth();
-  auto outByChanGrain = out.dimShuffle({1, 4, 0, 2, 3})
-                           .reshape({numChans, out.numElements() / numChans})
-                           .subSample(grainSize, 0);
-  const auto outByChanGrainMapping = graph.getTileMapping(outByChanGrain);
+  auto outRegrouped = out.dimShuffle({1, 4, 0, 2, 3})
+                         .reshape({numChans, out.numElements() / numChans});
+  const auto outRegroupedMapping = graph.getTileMapping(outRegrouped);
   // Build a map from the bias to the set of tiles that access it.
   boost::icl::interval_map<unsigned, std::set<unsigned>> biasToTiles;
   for (unsigned tile = 0; tile != numTiles; ++tile) {
-    for (const auto &interval : outByChanGrainMapping[tile]) {
-      unsigned chanGrainBegin = interval.begin() / outByChanGrain.dim(1);
-      unsigned chanGrainEnd = (interval.end() + outByChanGrain.dim(1) - 1) /
-                              outByChanGrain.dim(1);
-      unsigned chanBegin = chanGrainBegin * grainSize;
-      unsigned chanEnd = std::min(chanGrainEnd * grainSize, numChans);
+    for (const auto &interval : outRegroupedMapping[tile]) {
+      unsigned chanBegin = interval.begin() / outRegrouped.dim(1);
+      unsigned chanEnd = (interval.end() + outRegrouped.dim(1) - 1) /
+                         outRegrouped.dim(1);
       auto biasInterval =
           boost::icl::interval<unsigned>::right_open(chanBegin, chanEnd);
       biasToTiles += std::make_pair(biasInterval, std::set<unsigned>({tile}));
     }
   }
-
-
-
-
-  // Build a map from sets of tiles to biases they use.
-  std::map<std::set<unsigned>, std::vector<Interval<std::size_t>>>
-      tilesToBiases;
-  for (const auto &entry : biasToTiles) {
-    tilesToBiases[entry.second].emplace_back(entry.first.lower(),
-                                             entry.first.upper());
-  }
+  const auto grainSize =
+      dType == "float" ? deviceInfo.getFloatVectorWidth() :
+                         deviceInfo.getHalfVectorWidth();
   // Limit the minimum number of bias bytes per tile to reduce the amount of
   // exchange code. Increasing this constant reduces exchange code size and
   // increases execution time due to imbalance. The current limit was
@@ -878,24 +839,8 @@ computeBiasMapping(Graph &graph, const Tensor &out) {
   const auto minBytesPerTile = 8;
   const auto minElementsPerTile =
       (minBytesPerTile + dTypeSize - 1) / dTypeSize;
-  std::vector<std::vector<Interval<std::size_t>>> mapping(numTiles);
-  for (const auto &entry : tilesToBiases) {
-    const auto &tiles = entry.first;
-    const auto &sharedBiases = entry.second;
-    const auto perTileWeights =
-        splitRegions(sharedBiases, grainSize,
-                     tiles.size(), minElementsPerTile);
-    unsigned i = 0;
-    for (auto tile : tiles) {
-      if (i == perTileWeights.size())
-        break;
-      mapping[tile].insert(mapping[tile].begin(),
-                           perTileWeights[i].begin(),
-                           perTileWeights[i].end());
-      ++i;
-    }
-  }
-  return mapping;
+  return calculateMappingBasedOnUsage(graph, {numChans}, biasToTiles,
+                                      grainSize, minElementsPerTile);
 }
 
 void mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
