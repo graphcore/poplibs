@@ -925,10 +925,12 @@ estimateWeightUpdateByAmpReorderCost(const poplar::DeviceInfo &deviceInfo,
   return {cycles, 0};
 }
 
-ConvParams
+static ConvParams
 weightUpdateByAmpTransformParams(const ConvParams &params,
                                  const poplar::DeviceInfo &deviceInfo,
-                                 const Plan &plan) {
+                                 bool flattenXY,
+                                 unsigned partialChansPerGroup,
+                                 Plan::AmpWUMethod ampWUMethod) {
   bool floatActivations = params.dType == "float";
   ConvParams newParams;
   unsigned expandedFieldWidth;
@@ -938,7 +940,7 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
   unsigned expandedActivationsPaddingYUpper;
   unsigned expandedInputDepth;
   unsigned expandedDeltasUpsampleFactorY;
-  if (plan.flattenXY) {
+  if (flattenXY) {
     expandedFieldWidth =
        params.getBatchSize() * params.getOutputHeight() *
                                    params.getOutputWidth();
@@ -966,8 +968,7 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
   const auto paddedFieldWidth =
       ((expandedFieldWidth + fieldGroupSize - 1) / fieldGroupSize) *
       fieldGroupSize;
-  const auto partialChansPerGroup = plan.partialChansPerGroup;
-  switch (plan.ampWUMethod) {
+  switch (ampWUMethod) {
   case Plan::DELTAS_AS_COEFFICENTS:
     {
 
@@ -1018,6 +1019,15 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
     break;
   }
   return newParams;
+}
+
+ConvParams
+weightUpdateByAmpTransformParams(const ConvParams &params,
+                                 const poplar::DeviceInfo &deviceInfo,
+                                 const Plan &plan) {
+  return weightUpdateByAmpTransformParams(params, deviceInfo, plan.flattenXY,
+                                          plan.partialChansPerGroup,
+                                          plan.ampWUMethod);
 }
 
 static popsolver::Variable
@@ -1173,17 +1183,15 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
     for (bool flattenXY : {false, true}) {
       for (Plan::AmpWUMethod method : {Plan::DELTAS_AS_COEFFICENTS,
                                        Plan::ACTIVATIONS_AS_COEFFICENTS}) {
-        Plan plan;
-        plan.flattenXY = flattenXY;
-        plan.ampWUMethod = method;
-        plan.partialChansPerGroup = partialChansPerGroup;
         // There is currently no support for dilated convolutions.
         // TODO add support for this.
-        if (!plan.flattenXY && params.stride[0] != 1) {
+        if (!flattenXY && params.stride[0] != 1) {
           continue;
         }
         auto newParams =
-            weightUpdateByAmpTransformParams(params, deviceInfo, plan);
+            weightUpdateByAmpTransformParams(params, deviceInfo, flattenXY,
+                                             partialChansPerGroup, method);
+        Plan plan;
         Cost cost;
         std::tie(plan, cost) = choosePlan(deviceInfo,
                                           inChansPerGroup,
