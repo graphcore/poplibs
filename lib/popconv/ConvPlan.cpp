@@ -1686,9 +1686,9 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
     assert(params.kernelShape[0] == 1 && params.kernelShape[1] == 1);
     const auto inputSize = params.kernelShape[2];
     assert(params.stride == std::vector<unsigned>({1U, 1U}));
-    assert(params.paddingLower == std::vector<unsigned>({0U, 0U}));
-    assert(params.paddingUpper == std::vector<unsigned>({0U, 0U}));
-    assert(params.isFractional == false);
+    assert(params.paddingLower == std::vector<int>({0U, 0U}));
+    assert(params.paddingUpper == std::vector<int>({0U, 0U}));
+    assert(params.inputDilation == std::vector<unsigned>({1U, 1U}));
     // Translate back to the fwd plan.
     options.fullyConnectedWU = false;
     options.fullyConnectedFwd = true;
