@@ -2202,8 +2202,12 @@ calculateWeightDeltasAop(Graph &graph, const Plan &plan,
   }
 
   auto outDimY = zDeltas.dim(2), outDimX = zDeltas.dim(3);
+  const auto isMultiIPU = deviceInfo.numIPUs > 1;
   const auto tilesPerX = plan.tilesPerXAxis;
   const auto tilesPerY = plan.tilesPerYAxis;
+  const auto tilesPerZ = plan.tilesPerZAxis;
+  const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
+  const auto tilesPerKernelY = plan.tilesPerKernelYAxis;
   const auto numTiles = deviceInfo.getNumTiles();
   const auto kernelSizeY = params.kernelShape[0];
   const auto kernelSizeX = params.kernelShape[1];
@@ -2233,33 +2237,54 @@ calculateWeightDeltasAop(Graph &graph, const Plan &plan,
   }
   std::vector<std::vector<Interval<std::size_t>>> partialsMapping(numTiles);
   ComputeSet weightGradCS = graph.addComputeSet(debugPrefix + "/WeightGrad");
-
-
-  iterateTilePartition(graph, params, plan,
-                       [&](unsigned tile, const ConvTileIndices &indices,
-                          const ConvSlice &slice) {
-    if (slice.outZGroupBegin == slice.outZGroupEnd)
-      return;
-    assert(slice.batchEnd - slice.batchBegin == 1);
-    unsigned b = slice.batchBegin;
-    addWeightDeltaPartialRegions(partialsMapping[tile],
-                                 partials.shape(), b, indices.oy, indices.ox,
-                                 slice.kernelYBegin, slice.kernelYEnd,
-                                 slice.outZGroupBegin, slice.outZGroupEnd,
-                                 slice.inZGroupBegin, slice.inZGroupEnd);
-    calcPartialWeightGradsAop(graph, tile,
-                              slice.outXBegin, slice.outXEnd,
-                              slice.outYBegin, slice.outYEnd,
-                              slice.outZGroupBegin, slice.outZGroupEnd,
-                              slice.kernelYBegin, slice.kernelYEnd,
-                              slice.inZGroupBegin, slice.inZGroupEnd,
-                              kernelSizeY, kernelSizeX,
-                              params,
-                              weightGradCS,
-                              activations[b],
-                              regroupedDeltas[b],
-                              partials[indices.b][indices.oy][indices.ox]);
-  });
+  for (unsigned b = 0; b < batchSize; ++b) {
+    for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
+      const auto inZGroupBegin = (izg * inNumChanGroups) / tilesPerInZGroup;
+      const auto inZGroupEnd = ((izg + 1) * inNumChanGroups) / tilesPerInZGroup;
+      for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
+        const auto outZGroupBegin = (ozg * partialNumChanGroups) / tilesPerZ;
+        const auto outZGroupEnd =
+            ((ozg + 1) * partialNumChanGroups) / tilesPerZ;
+        if (outZGroupBegin == outZGroupEnd)
+          continue;
+        for (unsigned oy = 0; oy != tilesPerY; ++oy) {
+          const auto outYBegin = (oy * outDimY) / tilesPerY;
+          const auto outYEnd = ((oy + 1) * outDimY) / tilesPerY;
+          for (unsigned ox = 0; ox != tilesPerX; ++ox) {
+            const auto outXBegin = (ox * outDimX) / tilesPerX;
+            const auto outXEnd = ((ox + 1) * outDimX) / tilesPerX;
+            for (unsigned ky = 0; ky != tilesPerKernelY; ++ky) {
+              const auto kernelYBegin = (ky * kernelSizeY) / tilesPerKernelY;
+              const auto kernelYEnd =
+                  ((ky + 1) * kernelSizeY) / tilesPerKernelY;
+              const auto tile = linearizeTileIndices(b, batchSize,
+                                                     numTiles,
+                                                     ky, izg,
+                                                     ox, oy, ozg,
+                                                     plan,
+                                                     isMultiIPU);
+              addWeightDeltaPartialRegions(partialsMapping[tile],
+                                           partials.shape(), b, oy, ox,
+                                           kernelYBegin, kernelYEnd,
+                                           outZGroupBegin, outZGroupEnd,
+                                           inZGroupBegin, inZGroupEnd);
+              calcPartialWeightGradsAop(graph, tile,
+                                        outXBegin, outXEnd, outYBegin, outYEnd,
+                                        outZGroupBegin, outZGroupEnd,
+                                        kernelYBegin, kernelYEnd,
+                                        inZGroupBegin, inZGroupEnd,
+                                        kernelSizeY, kernelSizeX,
+                                        params,
+                                        weightGradCS,
+                                        activations[b],
+                                        regroupedDeltas[b],
+                                        partials[b][oy][ox]);
+            }
+          }
+        }
+      }
+    }
+  }
   mergeAdjacentRegions(partialsMapping);
   applyTensorMapping(graph, partials, partialsMapping);
   ComputeSet zeroCS = graph.addComputeSet(debugPrefix + "/Zero");
