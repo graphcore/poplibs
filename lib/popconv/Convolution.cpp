@@ -611,6 +611,8 @@ convolutionPreprocess(Graph &graph, ConvParams &params, Plan &plan,
     }
     params.inputShape[3] = convNumChans;
     params.kernelShape[3] = convNumChans;
+  } else if (acts && acts->dim(4) != plan.inChansPerGroup) {
+    *acts = regroup(*acts, plan.inChansPerGroup);
   }
   const auto outNumChans = params.getOutputDepth();
   const auto partialChansPerGroup = plan.partialChansPerGroup;
