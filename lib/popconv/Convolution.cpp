@@ -232,8 +232,9 @@ getOutZGroupRange(unsigned ozgIndex, unsigned partialNumChanGroups,
   return {outZBegin, outZEnd};
 }
 
-unsigned getFlattenedIndex(const std::vector<std::size_t> &shape,
-                           const std::vector<std::size_t> &indices) {
+static unsigned
+getFlattenedIndex(const std::vector<std::size_t> &shape,
+                  const std::vector<std::size_t> &indices) {
   const auto rank = shape.size();
   assert(indices.size() == rank);
   unsigned index = 0;
@@ -243,11 +244,6 @@ unsigned getFlattenedIndex(const std::vector<std::size_t> &shape,
     index += indices[dim];
   }
   return index;
-}
-
-unsigned getFlattenedIndex(const Tensor &t,
-                           const std::vector<std::size_t> &indices) {
-  return getFlattenedIndex(t.shape(), indices);
 }
 
 static void
@@ -647,15 +643,6 @@ static void mapActivations(Graph &graph, ConvParams params,
   // Apply the mapping to the transformed activations tensor. This indirectly
   // maps the original (non-transformed) tensor.
   graph.setTileMapping(acts, mapping);
-}
-
-void mapActivations(poplar::Graph &graph,
-                    const poplar::Tensor &in,
-                    const ConvParams &params,
-                    const ConvOptions &options) {
-  verifyStrideAndPaddingDimensions(params);
-  const auto plan = getPlan(graph, params, options);
-  mapActivations(graph, params, plan, in);
 }
 
 static Tensor
@@ -1899,16 +1886,6 @@ double getWuPerfectCycleCount(const Graph &graph, const ConvParams &params) {
   return getPerfectCycleCount(graph, params);
 }
 
-std::vector<size_t> getElementCoord(size_t element,
-                                    const std::vector<size_t> shape) {
-  std::vector<size_t> coord(shape.size());
-  for (int i = shape.size() - 1; i >= 0; --i) {
-    coord[i] = element % shape[i];
-    element = element / shape[i];
-  }
-  return coord;
-}
-
 /**
  * Transpose the innermost pair of dimensions of the specified tensor, writing
  * the results to a new tensor.
@@ -2015,67 +1992,6 @@ void weightsTransposeChansFlipXY(Graph &graph,
                            .reshape({KY, KX, O/G4, G4, I/G3, G3})
                            .dimShuffle({4, 2, 0, 1, 5, 3}),
                 weightsOut));
-}
-
-// Let A be a n x m matrix and B be a m x p matrix. Compute C = A x B.
-// Let u be the number of convolution units and w be the number of weights
-// per convolutional unit. n must be a multiple of u and m must be a multiple
-// of w. Elements of A are loaded in to the convolution units.
-// The dimensions of A should be split and arranged as follows:
-// [n/u][m/w][u][w].
-// The dimensions of B should be split and arranged as follows:
-// [m/w][p][w].
-// The dimensions of return value C are split and arranged as follows:
-// [n/u][p][u].
-std::pair <Program, Tensor>
-matrixMultiplyByConvInstruction(Graph &graph, const Plan &plan,
-                                Tensor a, Tensor b,
-                                const std::string &debugPrefix) {
-  assert(a.rank() == 4);
-  assert(b.rank() == 3);
-  assert(a.dim(1) == b.dim(0));
-  assert(a.dim(3) == b.dim(2));
-  const auto w = a.dim(3);
-  const auto u = a.dim(2);
-  const auto p = b.dim(1);
-
-  // The matrix multiplication is equivalent to a 1d convolutional layer with no
-  // padding or striding, with filter size 1 where the number of output
-  // channels is equal to the number of rows of A (n) and the number of
-  // input channels is equal to the number of row of B (m).
-  if (!plan.useConvolutionInstructions ||
-      plan.inChansPerGroup != w ||
-      plan.partialChansPerGroup != u) {
-    std::abort();
-  }
-  const auto dType = a.elementType();
-  ConvParams params(
-    dType,
-    {1, 1, p, a.dim(1) * a.dim(3)}, // inputShape
-    {1, 1, a.dim(0) * a.dim(2), a.dim(1) * a.dim(3)}, // kernelShape
-    {1, 1}, // stride
-    {0, 0}, // paddingLower
-    {0, 0}, // paddingUpper
-    false   // isFractional
-  );
-  const auto batchSize = params.inputShape[0];
-  const auto kernelSize = params.kernelShape[0];
-  const auto inDimY = params.inputShape[1];
-  // Insert size one dimensions for the filter height and width.
-  const auto weights = a.reshape({a.dim(0),
-                                  a.dim(1),
-                                  kernelSize,
-                                  kernelSize,
-                                  a.dim(2),
-                                  a.dim(3)});
-  // Insert size one dimension for the batch size and field height.
-  const auto in = b.reshape({batchSize, b.dim(0), inDimY, b.dim(1), b.dim(2)});
-  Program prog;
-  Tensor out;
-  std::tie(prog, out) =
-      convolutionByAmp(graph, plan, params, in, weights, debugPrefix);
-  auto c = out.reshape({out.dim(1), out.dim(3), out.dim(4)});
-  return {prog, c};
 }
 
 static void
