@@ -29,12 +29,11 @@ using namespace popstd;
 namespace popconv {
 
 std::size_t ConvParams::getOutputSize(unsigned dim) const {
-  if (isFractional) {
-    return (inputShape[1 + dim] * stride[dim] + kernelShape[dim] - 1) -
-            (paddingLower[dim] + paddingUpper[dim]);
-  }
-  return absdiff(inputShape[1 + dim] + paddingLower[dim] +
-                 paddingUpper[dim], kernelShape[dim]) /
+  auto dilatedInputSize =
+      (inputShape[1 + dim] - 1) * inputDilation[dim] + 1;
+  auto paddedDilatedInputSize =
+      paddingLower[dim] + dilatedInputSize + paddingUpper[dim];
+  return absdiff(paddedDilatedInputSize, kernelShape[dim]) /
                  stride[dim] + 1;
 }
 
@@ -984,9 +983,7 @@ createConvPartialnx1Vertex(Graph &graph,
                                                deviceInfo);
   assert(outChansPerGroup % outChansPerPass == 0);
   const auto passesPerOutputGroup = outChansPerGroup / outChansPerPass;
-  const bool isFractional = params.isFractional;
-  const auto outStrideX = passesPerOutputGroup *
-                          (isFractional ? params.stride.back() : 1);
+  const auto outStrideX = passesPerOutputGroup * params.inputDilation.back();
 
   // It is possible that there is no calculation to perform that involves
   // the specified output slice and kernel weight slice. Instead of adding a
@@ -1021,7 +1018,7 @@ createConvPartialnx1Vertex(Graph &graph,
       // aware of the stride and only allocate work on the rows that get
       // affected.
       unsigned outputStrideY =
-          (isFractional && convUnitWeightHeight == 1) ? params.stride[0] : 1;
+          convUnitWeightHeight == 1 ? params.inputDilation[0] : 1;
       std::vector<std::vector<PartialRow>> workerPartition =
           partitionConvPartialByWorker(convOutHeight, convOutWidth,
                                        contextsPerVertex, outputStrideY);
@@ -1118,7 +1115,7 @@ createConvPartialnx1Vertex(Graph &graph,
                                      isInOut ? "true" : "false",
                                      useDeltaEdgesForConvPartials(numEdges) ?
                                                           "true" : "false"));
-  graph.setInitialValue(v["inStride"], isFractional ? 1 : params.stride.back());
+  graph.setInitialValue(v["inStride"], params.stride.back());
   graph.setInitialValue(v["outStride"], outStrideX);
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
@@ -1156,8 +1153,7 @@ createConvPartialHorizontalMacVertex(
     ComputeSet fwdCS,
     const Tensor &in,
     const Tensor &weights,
-    const Tensor &out,
-    bool isFractional) {
+    const Tensor &out) {
   const auto kernelWidth = weights.dim(3);
   const auto dataPathWidth = graph.getDevice().getDeviceInfo().dataPathWidth;
   const auto dType = in.elementType();
@@ -1206,9 +1202,8 @@ createConvPartialHorizontalMacVertex(
                             {"weights", weightsEdges},
                             {"out", outEdges},
                            });
-  graph.setInitialValue(v["inStride"], isFractional ? 1 : params.stride.back());
-  graph.setInitialValue(v["outStride"],
-                        isFractional ? params.stride.back() : 1);
+  graph.setInitialValue(v["inStride"], params.stride.back());
+  graph.setInitialValue(v["outStride"], params.inputDilation.back());
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
   graph.setTileMapping(v, tile);
 }
@@ -1306,7 +1301,6 @@ calcPartialConvOutput(Graph &graph,
                       Tensor in, Tensor weights, Tensor out) {
   const auto tileKernelHeight = kernelYEnd - kernelYBegin;
   const auto kernelSizeX = weights.dim(3);
-  const bool isFractional = params.isFractional;
   const auto inChansPerGroup = plan.inChansPerGroup;
   const auto outChansPerGroup = plan.partialChansPerGroup;
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
@@ -1323,7 +1317,7 @@ calcPartialConvOutput(Graph &graph,
     const auto passesPerOutputGroup = outChansPerGroup / outChansPerPass;
     zeroPartialsBefore =
         kernelSizeX != 1 || tileKernelHeight != 1 ||
-        (isFractional && (params.stride[1] != 1 || params.stride[0] != 1)) ||
+        (params.inputDilation[1] != 1 || params.inputDilation[0] != 1) ||
         !writtenRangeEqualsOutputRange(0, {outYBegin, outYEnd},
                                        {kernelYBegin, kernelYEnd}, params);
     useConvPartial1x1OutVertex = !zeroPartialsBefore &&
@@ -1390,8 +1384,7 @@ calcPartialConvOutput(Graph &graph,
                                              kernelYBegin, kernelYEnd,
                                              inZGroupBegin, inZGroupEnd,
                                              params,
-                                             fwdCS, in, weights, out,
-                                             isFractional);
+                                             fwdCS, in, weights, out);
       }
     }
   }
@@ -1653,25 +1646,6 @@ convolutionByAmp(Graph &graph, const Plan &plan,
                  const Tensor &in, const Tensor &weights,
                  const std::string &debugPrefix) {
   verifyInputShapes(params, in, weights);
-  if (params.isFractional) {
-    assert(absdiff(params.getOutputHeight() +
-                     params.paddingLower[0] +
-                     params.paddingUpper[0],
-                   weights.dim(2)) / params.stride[0] + 1 == in.dim(2));
-    assert(absdiff(params.getOutputWidth() +
-                   params.paddingLower[1] +
-                   params.paddingUpper[1],
-                   weights.dim(3)) / params.stride[1] + 1 == in.dim(3));
-  } else {
-    assert(absdiff(in.dim(2) + params.paddingLower[0] +
-                   params.paddingUpper[0],
-                   weights.dim(2)) / params.stride[0] + 1
-                     == params.getOutputHeight());
-    assert(absdiff(in.dim(3) + params.paddingLower[1] +
-                   params.paddingUpper[1],
-                   weights.dim(3)) / params.stride[1] + 1
-                     == params.getOutputWidth());
-  }
   const auto numBatchGroups = in.dim(0);
   Sequence prog;
   const auto dType = in.elementType();
@@ -1739,8 +1713,14 @@ static std::string
 convSuffix(const ConvParams &params) {
   std::string s = "_";
   s += getShapeAsString(params.kernelShape);
-  s += (params.isFractional ? "_fractional_stride" : "_stride");
-  s += getShapeAsString(params.stride);
+  if (std::any_of(params.stride.begin(), params.stride.end(),
+                  [](unsigned x) { return x != 1; })) {
+    s += "_stride" + getShapeAsString(params.stride);
+  }
+  if (std::any_of(params.inputDilation.begin(), params.inputDilation.end(),
+                  [](unsigned x) { return x != 1; })) {
+    s += "_inDilation" + getShapeAsString(params.inputDilation);
+  }
   return s;
 }
 
@@ -2352,12 +2332,12 @@ convolutionWeightUpdateAmpPreProcess(
     const Plan &plan,
     Tensor &activations,
     std::vector<unsigned> &activationsUpsampleFactor,
-    std::vector<unsigned> &activationsPaddingLower,
-    std::vector<unsigned> &activationsPaddingUpper,
+    std::vector<int> &activationsPaddingLower,
+    std::vector<int> &activationsPaddingUpper,
     Tensor &deltas,
     std::vector<unsigned> &deltasUpsampleFactor,
-    std::vector<unsigned> &deltasPaddingLower,
-    std::vector<unsigned> &deltasPaddingUpper,
+    std::vector<int> &deltasPaddingLower,
+    std::vector<int> &deltasPaddingUpper,
     unsigned kernelSizeY, unsigned kernelSizeX) {
   const auto dType = activations.elementType();
   assert(activationsUpsampleFactor.size() == 2);
@@ -2367,8 +2347,8 @@ convolutionWeightUpdateAmpPreProcess(
   assert(deltasPaddingLower.size() == 2);
   assert(deltasPaddingUpper.size() == 2);
   assert(activationsUpsampleFactor == std::vector<unsigned>({1, 1}));
-  assert(deltasPaddingLower == std::vector<unsigned>({0, 0}));
-  assert(deltasPaddingUpper == std::vector<unsigned>({0, 0}));
+  assert(deltasPaddingLower == std::vector<int>({0, 0}));
+  assert(deltasPaddingUpper == std::vector<int>({0, 0}));
   // Eliminate the x axis of the kernel by taking the activations that are
   // multiplied by each column of the weights turning them into different input
   // channels.
@@ -2531,11 +2511,11 @@ calculateWeightDeltasAmp(Graph &graph, const Plan &plan,
   // Transform the weight update convolution into an equivalent convolution that
   // can be implemented using the AMP instruction.
   std::vector<unsigned> activationsUpsampleFactor = {1, 1};
-  std::vector<unsigned> activationsPaddingLower = params.paddingLower;
-  std::vector<unsigned> activationsPaddingUpper = params.paddingUpper;
+  std::vector<int> activationsPaddingLower = params.paddingLower;
+  std::vector<int> activationsPaddingUpper = params.paddingUpper;
   std::vector<unsigned> deltasUpsampleFactor = params.stride;
-  std::vector<unsigned> deltasPaddingLower = {0, 0};
-  std::vector<unsigned> deltasPaddingUpper = {0, 0};
+  std::vector<int> deltasPaddingLower = {0, 0};
+  std::vector<int> deltasPaddingUpper = {0, 0};
   convolutionWeightUpdateAmpPreProcess(graph, plan, activationsView,
                                        activationsUpsampleFactor,
                                        activationsPaddingLower,

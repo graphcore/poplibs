@@ -40,12 +40,14 @@ int main(int argc, char **argv) {
   unsigned height;
   unsigned kernelHeight;
   unsigned kernelWidth;
-  unsigned paddingHeightLower;
-  unsigned paddingWidthLower;
-  unsigned paddingHeightUpper;
-  unsigned paddingWidthUpper;
+  int paddingHeightLower;
+  int paddingWidthLower;
+  int paddingHeightUpper;
+  int paddingWidthUpper;
   unsigned strideH;
   unsigned strideW;
+  unsigned inDilationH;
+  unsigned inDilationW;
   unsigned batchSize;
   FPDataType dataType;
   FPDataType partialsType;
@@ -57,9 +59,10 @@ int main(int argc, char **argv) {
   /* these are used when the same value is shared across both height and width*/
   unsigned kernelSize;
   unsigned padding;
-  unsigned paddingHeight;
-  unsigned paddingWidth;
+  int paddingHeight;
+  int paddingWidth;
   unsigned stride;
+  unsigned inDilation;
   Pass pass = Pass::ALL;
   popconv::ConvOptions convOptions;
   popconv::PlanningCache cache;
@@ -94,21 +97,21 @@ int main(int argc, char **argv) {
     ("padding", po::value<unsigned>(&padding)->default_value(0),
      "Amount of zero padding for height and width. If set, it is an "
      "error to also set any other padding value")
-    ("padding-height", po::value<unsigned>(&paddingHeight)->default_value(0),
+    ("padding-height", po::value<int>(&paddingHeight)->default_value(0),
      "Amount of zero padding in the height dimension, upper and lower")
-    ("padding-width", po::value<unsigned>(&paddingWidth)->default_value(0),
+    ("padding-width", po::value<int>(&paddingWidth)->default_value(0),
      "Amount of zero padding in the width dimension, upper and lower")
     ("padding-height-lower",
-     po::value<unsigned>(&paddingHeightLower)->default_value(0),
+     po::value<int>(&paddingHeightLower)->default_value(0),
      "Amount of zero padding in the height dimension, lower edge")
     ("padding-width-lower",
-     po::value<unsigned>(&paddingWidthLower)->default_value(0),
+     po::value<int>(&paddingWidthLower)->default_value(0),
      "Amount of zero padding in the width dimension, lower edge")
     ("padding-height-upper",
-     po::value<unsigned>(&paddingHeightUpper)->default_value(0),
+     po::value<int>(&paddingHeightUpper)->default_value(0),
      "Amount of zero padding in the height dimension, upper edge")
     ("padding-width-upper",
-     po::value<unsigned>(&paddingWidthUpper)->default_value(0),
+     po::value<int>(&paddingWidthUpper)->default_value(0),
      "Amount of zero padding in the width dimension, upper edge")
 
     ("stride", po::value<unsigned>(&stride)->default_value(1),
@@ -118,6 +121,13 @@ int main(int argc, char **argv) {
      "Kernel stride in the height dimension")
     ("stride-width", po::value<unsigned>(&strideW)->default_value(1),
      "Kernel stride in the width dimension")
+    ("in-dilation", po::value<unsigned>(&inDilation)->default_value(1),
+     "Input dilation for both height and width. If set, it is an error "
+     "to also set either inDilation-height and/or inDilation-width")
+    ("in-dilation-height", po::value<unsigned>(&inDilationH)->default_value(1),
+     "Input dilation in the height dimension")
+    ("in-dilation-width", po::value<unsigned>(&inDilationW)->default_value(1),
+     "Input dilation in the width dimension")
     ("single-phase",
      po::value<Pass>(&pass)->default_value(pass),
      "Run phase all | fwd | bwd | wu")
@@ -244,6 +254,19 @@ int main(int argc, char **argv) {
     strideW = stride;
   }
 
+  if (!vm["in-dilation"].defaulted()) {
+    if (!vm["in-dilation-height"].defaulted()) {
+      std::cerr << "--in-dilation as well as --in-dilation-height set\n";
+      return 1;
+    }
+    if (!vm["in-dilation-width"].defaulted()) {
+      std::cerr << "--in-dilation as well as --in-dilation-width set\n";
+      return 1;
+    }
+    inDilationH = inDilation;
+    inDilationW = inDilation;
+  }
+
   bool doFwdPass = pass == Pass::ALL || pass == Pass::FWD;
   bool doBwdPass = pass == Pass::ALL || pass == Pass::BWD;
   bool doWuPass = pass == Pass::ALL || pass == Pass::WU;
@@ -264,39 +287,21 @@ int main(int argc, char **argv) {
                           {strideH, strideW},
                           {paddingHeightLower, paddingWidthLower},
                           {paddingHeightUpper, paddingWidthUpper},
-                          false);
+                          {inDilationH, inDilationW});
+  if (params.getPaddedDilatedInputSize(0) < 0 ||
+      params.getPaddedDilatedInputSize(1) < 0) {
+    throw popstd::poplib_error("Convolution pass does not support "
+                               "padding that truncates more than the input "
+                               "size");
+  }
+
+
   const auto outHeight = params.getOutputHeight();
   const auto outWidth = params.getOutputWidth();
-  bool bwdIsFractional = strideH != 1 || strideW != 1;
-  if (paddingHeightLower >= kernelHeight ||
-      paddingHeightUpper >= kernelHeight ||
-      paddingWidthLower >= kernelWidth ||
-      paddingWidthUpper >= kernelWidth) {
-    throw popstd::poplib_error("Backwards convolution pass does not support "
-                             "padding that is greater than or equal to the "
-                             "kernel size");
-  }
-  auto bwdPaddingHeightLower = paddingHeightLower;
-  auto bwdPaddingWidthLower = paddingWidthLower;
-  auto bwdPaddingHeightUpper = paddingHeightUpper;
-  auto bwdPaddingWidthUpper = paddingWidthUpper;
-  if (!bwdIsFractional) {
-    bwdPaddingWidthLower = kernelWidth - 1 - paddingWidthLower;
-    bwdPaddingHeightLower = kernelHeight - 1 - paddingHeightLower;
-    bwdPaddingWidthUpper = kernelWidth - 1 - paddingWidthUpper;
-    bwdPaddingHeightUpper = kernelHeight - 1 - paddingHeightUpper;
-  }
-  const auto bwdInChans = fwdOutChans;
-  const auto bwdOutChans = fwdInChans;
 
-  const auto bwdParams =
-      popconv::ConvParams(dataTypeStr,
-                          {batchSize, outHeight, outWidth, fwdOutChans},
-                          {kernelHeight, kernelWidth, fwdInChans, fwdOutChans},
-                          {strideH, strideW},
-                          {bwdPaddingHeightLower, bwdPaddingWidthLower},
-                          {bwdPaddingHeightUpper, bwdPaddingWidthUpper},
-                          bwdIsFractional);
+  const auto bwdParams = getGradientParams(params);
+
+  popconv::reportPlanInfo(std::cout, graph, bwdParams, convOptions);
   // Create tensors.
   Tensor prevAct =
       popconv::createInput(graph, params, "prevAct", convOptions);
@@ -386,6 +391,7 @@ int main(int argc, char **argv) {
   boost::multi_array<double, 4>
       modelNextAct(boost::extents[batchSize][fwdOutChans][outHeight][outWidth]);
   poplib_test::conv::convolution({strideH, strideW},
+                                 {inDilationH, inDilationW},
                                  {paddingHeightLower, paddingWidthLower},
                                  {paddingHeightUpper, paddingWidthUpper},
                                  hostPrevAct,
@@ -397,10 +403,10 @@ int main(int argc, char **argv) {
 
   if (doBwdPass || doWuPass) {
     boost::multi_array<double, 4> hostZDeltas(
-      boost::extents[batchSize][bwdInChans][outHeight][outWidth]
+      boost::extents[batchSize][bwdParams.getInputDepth()][outHeight][outWidth]
     );
     boost::multi_array<double, 4> hostPrevDeltas(
-      boost::extents[batchSize][bwdOutChans][height][width]
+      boost::extents[batchSize][params.getInputDepth()][height][width]
     );
     auto modelWeights = hostWeights;
     auto modelBiases = hostBiases;
@@ -428,6 +434,7 @@ int main(int argc, char **argv) {
           modelPrevDeltas(boost::extents[batchSize][fwdInChans][height][width]);
       poplib_test::conv::convolutionBackward(
               {strideH, strideW},
+              {inDilationH, inDilationW},
               {paddingHeightLower, paddingWidthLower},
               {paddingHeightUpper, paddingWidthUpper},
               hostZDeltas,
@@ -438,6 +445,7 @@ int main(int argc, char **argv) {
     }
     if (doWuPass) {
       poplib_test::conv::weightUpdate({strideH, strideW},
+                                      {inDilationH, inDilationW},
                                       {paddingHeightLower, paddingWidthLower},
                                       {paddingHeightUpper, paddingWidthUpper},
                                       learningRate, hostPrevAct,

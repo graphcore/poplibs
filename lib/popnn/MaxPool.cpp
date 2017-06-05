@@ -21,14 +21,15 @@ namespace maxpool {
 static ConvParams
 makeConvParams(unsigned inDimY, unsigned inDimX, unsigned kernelSizeY,
                unsigned kernelSizeX, unsigned strideY, unsigned strideX,
-               unsigned paddingY, unsigned paddingX,
-               bool isFractional = false) {
-  return {"", {1, inDimY, inDimX, 1},
-          {kernelSizeY, kernelSizeX, 1, 1},
-          {strideY, strideX},
-          {paddingY, paddingX},
-          {paddingY, paddingX},
-          isFractional};
+               int paddingY, int paddingX) {
+  std::vector<unsigned> stride, inputDilation;
+  std::vector<int> padding;
+  stride = {strideY, strideX};
+  inputDilation = {1, 1};
+  padding = {paddingY, paddingX};
+  return  {"", {1, inDimY, inDimX, 1},
+           {kernelSizeY, kernelSizeX, 1, 1},
+            stride, padding, padding, inputDilation};
 }
 
 std::pair<unsigned, unsigned>
@@ -301,10 +302,10 @@ maxPoolInputGradient(Graph &graph, unsigned kernelSizeY, unsigned kernelSizeX,
 
   const auto numTiles = deviceInfo.getNumTiles();
   auto outTileMapping = graph.getTileMapping(inGradient);
-  auto bwdParams = makeConvParams(pooled.dim(1), pooled.dim(2),
-                                  kernelSizeY, kernelSizeX,
-                                  strideY, strideX, paddingY, paddingX,
-                                  true);
+  auto params = makeConvParams(inHeight, inWidth,
+                               kernelSizeY, kernelSizeX,
+                               strideY, strideX, paddingY, paddingX);
+  auto bwdParams = getGradientParams(params);
 
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     // On each tile split the elements of the output up between the workers.

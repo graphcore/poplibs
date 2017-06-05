@@ -403,8 +403,9 @@ int main(int argc, char **argv) {
       popconv::ConvParams(dataTypeStr,
                           {1, 1, outputSize, inputSize},
                           {1, 1, batchSize, inputSize},
-                          {1, 1}, {0, 0}, {0, 0}, false);
-  Tensor weights = popconv::createInput(graph, convParams, "weights", fwdOptions);
+                          {1, 1}, {0, 0}, {0, 0}, {1, 1});
+  Tensor weights = popconv::createInput(graph, convParams, "weights",
+                                        fwdOptions);
   Tensor prevAct = popconv::createWeights(graph, convParams, "prevAct",
                                           fwdOptions);
   auto biases = graph.addTensor(dataTypeStr, {outputSize}, "biases");
@@ -432,7 +433,7 @@ int main(int argc, char **argv) {
                                      {1, 1, outputSize, batchSize},
                                      {1, 1, inputSize, batchSize},
                                      {1, 1}, {0, 0},
-                                     {0, 0}, false),
+                                     {0, 0}, {1, 1}),
                                    "zDeltas", bwdOptions);
     rawHostZDeltas = allocateHostMemoryForTensor(zDeltas, upload, download);
   }
@@ -496,7 +497,7 @@ int main(int argc, char **argv) {
                             {1, 1}, /* stride */
                             {0, 0},
                             {0, 0},
-                            false);
+                            {1, 1});
     auto weightDeltas =
         popconv::convolution(graph, zDeltas, prevAct, wuParams, true, bwdProg,
                              "", wuOptions);

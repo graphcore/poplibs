@@ -55,30 +55,34 @@ struct ConvParams {
   // Filter shape {H x W x outChans x inChans }
   std::vector<std::size_t> kernelShape;
   std::vector<unsigned> stride;
-  std::vector<unsigned> paddingLower;
-  std::vector<unsigned> paddingUpper;
-  bool isFractional;
+  // Padding applied to input after dilation and before input
+  std::vector<int> paddingLower;
+  std::vector<int> paddingUpper;
+  // Dilation applied to the input in spatial dimensions before
+  // padding and convolution. Dilation is peformed by placing
+  // zeroed elements between the elements of the field.
+  std::vector<unsigned> inputDilation;
   ConvParams() = default;
   ConvParams(std::string dType,
              std::vector<std::size_t> inputShape,
              std::vector<std::size_t> kernelShape,
              std::vector<unsigned> stride,
-             std::vector<unsigned> paddingLower,
-             std::vector<unsigned> paddingUpper,
-             bool isFractional) :
+             std::vector<int> paddingLower,
+             std::vector<int> paddingUpper,
+             std::vector<unsigned> inputDilation) :
     dType(std::move(dType)),
     inputShape(std::move(inputShape)),
     kernelShape(std::move(kernelShape)),
     stride(std::move(stride)),
     paddingLower(std::move(paddingLower)),
     paddingUpper(std::move(paddingUpper)),
-    isFractional(isFractional) {}
+    inputDilation(std::move(inputDilation)) {}
   bool operator<(const ConvParams &other) const {
     return std::tie(dType, inputShape, kernelShape, stride, paddingLower,
-                    paddingUpper, isFractional) <
+                    paddingUpper, inputDilation) <
              std::tie(other.dType, other.inputShape, other.kernelShape,
                       other.stride, other.paddingLower, other.paddingUpper,
-                      other.isFractional);
+                      other.inputDilation);
   }
   std::size_t getOutputSize(unsigned dim) const;
   std::size_t getOutputWidth() const;
@@ -89,6 +93,11 @@ struct ConvParams {
   std::size_t getInputDepth() const { return inputShape[3]; }
 
   std::size_t getBatchSize() const { return inputShape[0]; }
+  int getPaddedDilatedInputSize(unsigned dim) const {
+    int inputSize = inputShape[1 + dim];
+    int dilatedInputSize = (inputSize - 1) * inputDilation[dim] + 1;
+    return paddingLower[dim] + dilatedInputSize + paddingUpper[dim];
+  }
   std::vector<size_t> getOutputShape() const;
 
 };

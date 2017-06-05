@@ -654,3 +654,47 @@ add_test(NAME basic_lstm_40x4x38_seq_2_float_data
                  --output-size 38
                  --sequence-size 2
                  --data-type float)
+
+add_test(NAME conv1x1_in_dilation_2_fwd
+         COMMAND single_conv_layer
+                 --single-phase=fwd
+                 --input-channels=16
+                 --output-channels=16
+                 --width=14
+                 --height=14
+                 --tiles-per-ipu=1
+                 --in-dilation=2)
+
+add_test(NAME conv1x1_stride_3_in_dilation_2_fwd
+         COMMAND single_conv_layer
+                 --single-phase=fwd
+                 --input-channels=16
+                 --output-channels=16
+                 --width=14
+                 --height=14
+                 --tiles-per-ipu=1
+                 --stride 3
+                 --in-dilation=2)
+
+add_test(NAME conv3x3_in_dilation_2_fwd
+         COMMAND single_conv_layer
+                 --single-phase=fwd
+                 --input-channels=16
+                 --output-channels=16
+                 --width=14
+                 --height=14
+                 --kernel-size 3
+                 --tiles-per-ipu=1
+                 --in-dilation=2)
+
+add_test(NAME conv3x3_stride_3_in_dilation_2_fwd
+         COMMAND single_conv_layer
+                 --single-phase=fwd
+                 --input-channels=16
+                 --output-channels=16
+                 --width=14
+                 --height=14
+                 --kernel-size 3
+                 --tiles-per-ipu=1
+                 --stride 3
+                 --in-dilation=2)

@@ -6,27 +6,16 @@ namespace popconv {
 unsigned
 getInputIndex(unsigned dim, unsigned outputIndex,
               unsigned kernelIndex, const ConvParams &params) {
-  const auto isFractionallyStrided = params.isFractional;
   const auto paddingLower = params.paddingLower[dim];
   const auto paddingUpper = params.paddingUpper[dim];
   const auto kernelSize = params.kernelShape[dim];
   const auto stride = params.stride[dim];
   const auto inputSize = params.inputShape[dim + 1];
-  if (isFractionallyStrided) {
-    // Stride represents a upsampling of the input.
-    // Padding represents a truncation of the output.
-    int adjusted = static_cast<int>(outputIndex + paddingLower) -
-                   static_cast<int>(kernelSize - 1 - kernelIndex);
-    if (adjusted < 0 || adjusted % stride != 0)
-      return ~0U;
-    auto inputIndex = (static_cast<unsigned>(adjusted) / stride);
-    if (inputIndex >= inputSize)
-      return ~0U;
-    return inputIndex;
-  }
+  const auto inputDilation = params.inputDilation[dim];
+  const auto upsampledInputSize = (inputSize - 1) * inputDilation + 1;
   const auto upsampledOutputIndex = outputIndex * stride;
-  const auto paddedInputSize = inputSize + paddingLower + paddingUpper;
-  unsigned paddedInputIndex;
+  const auto paddedInputSize = upsampledInputSize + paddingLower + paddingUpper;
+  int paddedInputIndex;
   if (kernelSize > paddedInputSize) {
     if (kernelIndex < upsampledOutputIndex) {
       return ~0U;
@@ -38,9 +27,11 @@ getInputIndex(unsigned dim, unsigned outputIndex,
   if (paddedInputIndex < paddingLower)
     return ~0U;
   const auto inputIndex = paddedInputIndex - paddingLower;
-  if (inputIndex >= inputSize)
+  if (inputIndex >= upsampledInputSize)
     return ~0U;
-  return inputIndex;
+  if (inputIndex % inputDilation != 0)
+    return ~0U;
+  return inputIndex / inputDilation;
 }
 
 std::pair<unsigned, unsigned>
@@ -137,30 +128,6 @@ getOutputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
   return {outputBegin, outputEnd};
 }
 
-std::pair<unsigned, unsigned>
-getKernelRange(unsigned dim, unsigned outputIndex, unsigned inputSize,
-               const ConvParams &params) {
-  if (params.isFractional)
-    assert(0 && "non implemented");
-  const auto kernelSize = params.kernelShape[dim];
-  unsigned kernelBegin = 0, kernelEnd = 0;
-  for (unsigned i = 0; i != kernelSize; ++i) {
-    if (getInputIndex(dim, outputIndex, i, params) == ~0U) {
-      continue;
-    }
-    kernelBegin = i;
-    break;
-  }
-  for (unsigned i = kernelSize; i != 0; --i) {
-    if (getInputIndex(dim, outputIndex, i - 1, params) == ~0U) {
-      continue;
-    }
-    kernelEnd = i;
-    break;
-  }
-  return {kernelBegin, kernelEnd};
-}
-
 std::vector<std::vector<PartialRow>>
 partitionConvPartialByWorker(unsigned numConvolutions, unsigned convSize,
                              unsigned numContexts, unsigned stride) {
@@ -201,6 +168,33 @@ std::vector<std::size_t>
 getOutputShape(const ConvParams &params) {
   return {params.getBatchSize(), params.getOutputHeight(),
           params.getOutputWidth(), params.getOutputDepth()};
+}
+
+ConvParams getGradientParams(const ConvParams &params) {
+  std::vector<int> bwdPaddingLower, bwdPaddingUpper;
+  std::vector<unsigned> bwdStride, bwdInputDilation;
+  bwdStride = params.inputDilation;
+  bwdInputDilation = params.stride;
+  for (const auto dim : {0, 1}) {
+    const auto kernelSize = params.kernelShape[dim];
+    const auto paddingLower = params.paddingLower[dim];
+    const auto paddingUpper = params.paddingLower[dim];
+    bwdPaddingLower.push_back(
+      static_cast<int>(kernelSize) - 1 - paddingLower
+    );
+    auto paddedInputSize =
+        params.inputShape[1 + dim] + paddingLower + paddingUpper;
+    int inputSizeIgnored =
+        (paddedInputSize - kernelSize) % params.stride[dim];
+    bwdPaddingUpper.push_back(
+      static_cast<int>(kernelSize) - 1 - paddingUpper + inputSizeIgnored
+    );
+  }
+  auto bwdKernelShape = params.kernelShape;
+  std::swap(bwdKernelShape[2], bwdKernelShape[3]);
+  return popconv::ConvParams(params.dType, params.getOutputShape(),
+                             bwdKernelShape, bwdStride, bwdPaddingLower,
+                             bwdPaddingUpper, bwdInputDilation);
 }
 
 } // namespace convutil

@@ -1685,8 +1685,8 @@ static Program complete(
 
 extern Program winogradConvolution(Graph &graph,
             const std::vector<unsigned> &stride,
-            const std::vector<unsigned> &paddingLower,
-            const std::vector<unsigned> &paddingUpper,
+            const std::vector<int> &paddingLower,
+            const std::vector<int> &paddingUpper,
             unsigned xDim, unsigned yDim,
             unsigned outNumChans, unsigned patchSizeX, unsigned patchSizeY,
             const std::string &dType, const std::string &partialsType,

@@ -312,6 +312,7 @@ getMaxInputRangeSize(unsigned outputRangeSize, unsigned dim,
   unsigned inputRangeSize;
   const auto kernelSize = params.kernelShape[dim];
   const auto stride = params.stride[dim];
+  const auto inputDilation = params.inputDilation[dim];
   // If the number of partitions is small the input range is guaranteed
   // to contain padding.
   switch (numPartitions) {
@@ -326,15 +327,14 @@ getMaxInputRangeSize(unsigned outputRangeSize, unsigned dim,
     }
     break;
   default:
-    if (!params.isFractional) {
-      inputRangeSize = (outputRangeSize - 1) * stride + 1 +
-                       (tileKernelSize - 1);
-    } else {
-      inputRangeSize = (outputRangeSize - tileKernelSize) / stride + 1;
+    {
+    const auto preDownSampleOutputSize = (outputRangeSize - 1) * stride + 1;
+    const auto dilatedInputSize = preDownSampleOutputSize + tileKernelSize - 1;
+    inputRangeSize = (dilatedInputSize - 1 / inputDilation) + 1;
     }
     break;
   }
-  if (!params.isFractional && !isWeightUpdate &&
+  if (inputDilation == 1 && !isWeightUpdate &&
       !contiguousAccess && tileKernelSize == 1 && stride > 1) {
     inputRangeSize = (inputRangeSize - 1) / stride + 1;
   }
@@ -583,8 +583,9 @@ estimatePartialCalcMemory(const poplar::DeviceInfo &deviceInfo,
   }
 
   useConvPartial1x1OutVertex =
-      params.kernelShape[0] == 1 && params.kernelShape[1] == 1
-      && (params.stride[0] == 1 && params.stride[1] == 1);
+      params.kernelShape[0] == 1 && params.kernelShape[1] == 1 &&
+      params.stride[0] == 1 && params.stride[1] == 1 &&
+      params.inputDilation[0] == 1 && params.inputDilation[1] == 1;
 
   if (useConvPartial1x1OutVertex) {
     vertexFields += 4;
@@ -702,7 +703,7 @@ estimatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
   const auto tileNumInGroups =
       (numInGroups + tilesPerInZGroupAxis - 1) / tilesPerInZGroupAxis;
 
-  const auto outputStrideY = params.isFractional ? params.stride[0] : 1;
+  const auto outputStrideY = params.inputDilation[0];
 
   const auto tileKernelHeight =
       (params.kernelShape[0] + tilesPerKernelYAxis - 1) /
@@ -733,10 +734,8 @@ estimatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
           deviceInfo.convUnitCoeffLoadBytesPerCycle, outputStrideY,
           convUnitWeightHeight);
   } else {
-    const auto outputStrideX = params.isFractional ? params.stride[1]
-                                                       : 1;
-    const auto outputStrideY = params.isFractional ? params.stride[0]
-                                                       : 1;
+    const auto outputStrideX = params.inputDilation[1];
+    const auto outputStrideY = params.inputDilation[0];
     const auto numOutRows = tileNumOutGroups *
                             (tileOutHeight + outputStrideY - 1) / outputStrideY;
     auto vertexRuntime =
@@ -936,8 +935,8 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
   unsigned expandedFieldWidth;
   unsigned expandedActivationsHeight;
   unsigned expandedDeltasHeight;
-  unsigned expandedActivationsPaddingYLower;
-  unsigned expandedActivationsPaddingYUpper;
+  int expandedActivationsPaddingYLower;
+  int expandedActivationsPaddingYUpper;
   unsigned expandedInputDepth;
   unsigned expandedDeltasUpsampleFactorY;
   if (flattenXY) {
@@ -988,7 +987,7 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
                     {1, 1}, /* stride */
                     {expandedActivationsPaddingYLower, 0},
                     {expandedActivationsPaddingYUpper, 0},
-                    false);
+                    {1, 1});
     }
     break;
   case Plan::ACTIVATIONS_AS_COEFFICENTS:
@@ -997,7 +996,6 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
       // weight update y-axis: fwd y-axis
       // weight update in chans: fwd x-axis
       // weight update out chans: fwd in chans
-      const auto isFractional = expandedDeltasUpsampleFactorY > 1;
       const auto paddedExpandedInputDepth =
           ((expandedInputDepth + partialChansPerGroup - 1) /
            partialChansPerGroup) * partialChansPerGroup;
@@ -1011,10 +1009,11 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
                      1,
                      paddedExpandedInputDepth,
                      paddedFieldWidth}, // kernelShape
-                     {expandedDeltasUpsampleFactorY, 1}, // stride,
+                     {1, 1}, // stride,
                      {0, 0}, // paddingLower
                      {0, 0}, // paddingUpper,
-                     isFractional);
+                     {expandedDeltasUpsampleFactorY, 1} // inputDilation
+                   );
     }
     break;
   }
@@ -1621,6 +1620,7 @@ createPlan(ConvParams params,
   bool flattenXY;
   if (params.kernelShape[0] == 1 && params.kernelShape[1] == 1
       && params.stride[0] == 1 && params.stride[1] == 1
+      && params.inputDilation[0] == 1 && params.inputDilation[1] == 1
       && params.paddingLower[0] == 0 && params.paddingLower[1] == 0
       && params.paddingUpper[0] == 0 && params.paddingUpper[1] == 0) {
     flattenXY = true;
@@ -1698,7 +1698,7 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
                                 {1, 1}, /* stride */
                                 {0, 0},
                                 {0, 0},
-                                false);
+                                {1, 1});
     const auto fwdPlan =
         popconv::getPlan(graph, newParams, options);
     auto plan = fwdPlan;
@@ -1753,6 +1753,7 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
   if (options.useWinograd) {
     if (options.winogradPatchSize != 4 ||
         params.stride[0] != 1 || params.stride[1] != 1 ||
+        params.inputDilation[0] != 1 || params.inputDilation[1] != 1 ||
         params.kernelShape[0] != 3 || params.kernelShape[1] != 3) {
       throw popstd::poplib_error("Attempt to force winograd convolution for "
                                "invalid parameters");

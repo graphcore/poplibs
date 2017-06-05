@@ -69,10 +69,6 @@ getInputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
                        params);
 }
 
-std::pair<unsigned, unsigned>
-getKernelRange(unsigned outputIndex, const ConvParams &params);
-
-
 struct PartialRow {
   unsigned rowNumber;
   unsigned begin;
@@ -88,6 +84,12 @@ partitionConvPartialByWorker(unsigned numConvolutions, unsigned convSize,
                              unsigned numContexts, unsigned stride);
 
 std::vector<std::size_t> getOutputShape(const ConvParams &params);
+
+// Given a set of parameters, return the set of params that
+// represent the convolution to be applied to the output gradients
+// to get the input gradients (provided the weights have been
+// transposed in the channel axes and flipped in the spatial axes).
+ConvParams getGradientParams(const ConvParams &params);
 
 }
 #endif // _popconv_ConvUtil_hpp_
