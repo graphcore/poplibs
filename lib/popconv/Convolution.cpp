@@ -566,43 +566,54 @@ calculateActivationMapping(Graph &graph, const ConvParams &params,
                                       grainSize, minElementsPerTile);
 }
 
-/// Map the activations tensor such that the exchange required during the
-/// convolution operation is minimized.
-static void mapActivations(Graph &graph, ConvParams params,
-                           Plan plan, Tensor acts) {
-  // Depending on the plan the input may be transformed prior to the
-  // convolution. Apply the same transformation here. This must be kept
-  // in sync with logic in the convolution() function.
+/// Apply any pre-convolution transformations implied by the plan. The
+/// plan and the parameters are updated to describe the convolution operation
+/// performed on the transformed input. If the \a acts or \ weights pointers are
+/// not null they are updated to be views of the original tensors with
+/// dimensions that match the shape expected by the convolution operation.
+static void
+convolutionPreprocess(Graph &graph, ConvParams &params, Plan &plan,
+                      Tensor *acts, Tensor *weights) {
   assert(plan.flattenXY || plan.batchesPerGroup == 1);
   if (plan.flattenXY) {
-    const auto batchSize = acts.dim(0);
+    const auto batchSize = params.getBatchSize();
     const auto batchesPerGroup = plan.batchesPerGroup;
     assert(batchSize % batchesPerGroup == 0);
     const auto numBatchGroups = batchSize / plan.batchesPerGroup;
-    acts = acts.dimShuffle({1, 0, 2, 3, 4})
-               .reshape({acts.dim(1),
-                         numBatchGroups,
-                         1,
-                         batchesPerGroup * acts.dim(2) * acts.dim(3),
-                         acts.dim(4)})
-               .dimShuffle({1, 0, 2, 3, 4});
+    if (acts) {
+      *acts = acts->dimShuffle({1, 0, 2, 3, 4})
+                   .reshape({acts->dim(1),
+                            numBatchGroups,
+                            1,
+                            batchesPerGroup * acts->dim(2) * acts->dim(3),
+                            acts->dim(4)})
+                   .dimShuffle({1, 0, 2, 3, 4});
+    }
     plan.flattenXY = false;
     plan.batchesPerGroup = 1;
     params.inputShape[2] *= params.inputShape[1] * batchesPerGroup;
     params.inputShape[1] = 1;
     params.inputShape[0] /= batchesPerGroup;
   }
-  const auto inNumChans = acts.dim(1) * acts.dim(4);
+  const auto numInChans = params.getInputDepth();
   const auto convInChansPerGroup = plan.inChansPerGroup;
   const auto convNumChanGroups =
-      (inNumChans + convInChansPerGroup - 1) / convInChansPerGroup;
+      (numInChans + convInChansPerGroup - 1) / convInChansPerGroup;
   const auto convNumChans = convInChansPerGroup * convNumChanGroups;
-  if (convNumChans != inNumChans) {
-    // Zero pad the input
-    auto inRegrouped = regroup(acts, inNumChans);
-    auto inRegroupedPadded =
-        pad(graph, inRegrouped, 0, convNumChans - inNumChans, 4);
-    acts = regroup(inRegroupedPadded, plan.inChansPerGroup);
+  if (convNumChans != numInChans) {
+    // Zero pad the input / weights.
+    if (acts) {
+      auto inRegrouped = regroup(*acts, numInChans);
+      auto inRegroupedPadded =
+          pad(graph, inRegrouped, 0, convNumChans - numInChans, 4);
+      *acts = regroup(inRegroupedPadded, plan.inChansPerGroup);
+    }
+    if (weights) {
+      auto weightsRegrouped = regroup(*weights, 1, 5, numInChans);
+      auto weightsRegroupedPadded =
+          pad(graph, weightsRegrouped, 0, convNumChans - numInChans, 5);
+      *weights = regroup(weightsRegroupedPadded, 1, 5, plan.inChansPerGroup);
+    }
     params.inputShape[3] = convNumChans;
     params.kernelShape[3] = convNumChans;
   }
@@ -612,8 +623,24 @@ static void mapActivations(Graph &graph, ConvParams params,
       (outNumChans + partialChansPerGroup - 1) / partialChansPerGroup;
   const auto partialNumChans = partialNumChanGroups * partialChansPerGroup;
   if (partialNumChans != outNumChans) {
+    if (weights) {
+      auto weightsRegrouped = regroup(*weights, 0, 4, outNumChans);
+      // Zero pad the weights in the out channel axis.
+      auto weightsRegroupedPadded =
+          pad(graph, weightsRegrouped, 0, partialNumChans - outNumChans, 4);
+      *weights = regroup(weightsRegroupedPadded, 0, 4, partialChansPerGroup);
+    }
     params.kernelShape[2] = partialNumChans;
   }
+}
+
+/// Map the activations tensor such that the exchange required during the
+/// convolution operation is minimized.
+static void mapActivations(Graph &graph, ConvParams params,
+                           Plan plan, Tensor acts) {
+  // Depending on the plan the input may be transformed prior to the
+  // convolution. Apply the same transformation here.
+  convolutionPreprocess(graph, params, plan, &acts, nullptr);
   // Compute a mapping for the transformed activations tensor that minimizes
   // exchange.
   auto mapping = calculateActivationMapping(graph, params, plan);
@@ -719,44 +746,8 @@ calculateWeightMapping(const Graph &graph,
 static void mapWeights(Graph &graph, Tensor weights,
                        ConvParams params, Plan plan) {
   // Depending on the plan the weights may be transformed prior to the
-  // convolution. Apply the same transformation here. This must be kept
-  // in sync with logic in the convolution() function.
-  assert(plan.flattenXY || plan.batchesPerGroup == 1);
-  if (plan.flattenXY) {
-    const auto batchesPerGroup = plan.batchesPerGroup;
-    plan.flattenXY = false;
-    plan.batchesPerGroup = 1;
-    params.inputShape[2] *= params.inputShape[1] * batchesPerGroup;
-    params.inputShape[1] = 1;
-    params.inputShape[0] /= batchesPerGroup;
-  }
-  const auto numInChans = params.getInputDepth();
-  const auto convInChansPerGroup = plan.inChansPerGroup;
-  const auto convNumChanGroups =
-      (numInChans + convInChansPerGroup - 1) / convInChansPerGroup;
-  const auto convNumChans = convInChansPerGroup * convNumChanGroups;
-  if (convNumChans != numInChans) {
-    // Zero pad the input / weights.
-    auto weightsRegrouped = regroup(weights, 1, 5, numInChans);
-    auto weightsRegroupedPadded =
-        pad(graph, weightsRegrouped, 0, convNumChans - numInChans, 5);
-    weights = regroup(weightsRegroupedPadded, 1, 5, plan.inChansPerGroup);
-    params.inputShape[3] = convNumChans;
-    params.kernelShape[3] = convNumChans;
-  }
-  const auto outNumChans = params.getOutputDepth();
-  const auto partialChansPerGroup = plan.partialChansPerGroup;
-  const auto partialNumChanGroups =
-      (outNumChans + partialChansPerGroup - 1) / partialChansPerGroup;
-  const auto partialNumChans = partialNumChanGroups * partialChansPerGroup;
-  if (partialNumChans != outNumChans) {
-    auto weightsRegrouped = regroup(weights, 0, 4, outNumChans);
-    // Zero pad the weights in the out channel axis.
-    auto weightsRegroupedPadded =
-        pad(graph, weightsRegrouped, 0, partialNumChans - outNumChans, 4);
-    weights = regroup(weightsRegroupedPadded, 0, 4, partialChansPerGroup);
-    params.kernelShape[2] = partialNumChans;
-  }
+  // convolution. Apply the same transformation here.
+  convolutionPreprocess(graph, params, plan, nullptr, &weights);
   // Compute a mapping for the transformed weights tensor that minimizes
   // exchange.
   auto weightsMapping = calculateWeightMapping(graph, params, plan);
@@ -1778,7 +1769,6 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   verifyStrideAndPaddingDimensions(params);
   const auto dType = in.elementType();
   const auto batchSize = in.dim(0);
-  unsigned inNumChans = in.dim(1) * in.dim(4);
   auto plan = getPlan(graph, params, options);
   if (transposeAndFlipWeights) {
     // Create transposed/flipped weights
@@ -1786,92 +1776,37 @@ convolution(Graph &graph, const poplar::Tensor &in_,
     weightsTransposeChansFlipXY(graph, weights, bwdWeights, prog, debugPrefix);
     weights = bwdWeights;
   }
-  const auto convInChansPerGroup = plan.inChansPerGroup;
-  const auto convNumChanGroups =
-      (inNumChans + convInChansPerGroup - 1) / convInChansPerGroup;
-  const auto convNumChans = convInChansPerGroup * convNumChanGroups;
-  if (convNumChans != inNumChans) {
-    // Zero pad the input
-    auto inRegrouped = regroup(in, inNumChans);
-    auto inRegroupedPadded =
-        pad(graph, inRegrouped, 0, convNumChans - inNumChans, 4);
-    in = regroup(inRegroupedPadded, plan.inChansPerGroup);
-    // Zero pad the weights in the in channel axis.
-    auto weightsRegrouped = regroup(weights, 1, 5, inNumChans);
-    auto weightsRegroupedPadded =
-        pad(graph, weightsRegrouped, 0, convNumChans - inNumChans, 5);
-    weights = regroup(weightsRegroupedPadded, 1, 5, plan.inChansPerGroup);
-    params.inputShape[3] = convNumChans;
-    params.kernelShape[3] = convNumChans;
-  } else if (in.dim(4) != plan.inChansPerGroup) {
-    in = regroup(in, plan.inChansPerGroup);
-  }
   const auto outputShape = getOutputShape(params);
+  convolutionPreprocess(graph, params, plan, &in, &weights);
+  Tensor activations;
   if (plan.useWinograd) {
-    auto activations =
-        graph.addTensor(dType, {outputShape[0],
-                                outputShape[3] / plan.partialChansPerGroup,
-                                outputShape[1], outputShape[2],
+    const auto wgOutputShape = getOutputShape(params);
+    activations =
+        graph.addTensor(dType, {wgOutputShape[0],
+                                wgOutputShape[3] / plan.partialChansPerGroup,
+                                wgOutputShape[1], wgOutputShape[2],
                                 plan.partialChansPerGroup});
     ::mapActivations(graph, activations);
     prog.add(winogradConvolution(graph, params, in, weights, activations,
                                  plan.winogradPatchSize, plan.winogradPatchSize,
                                  plan.floatPartials ? "float" : "half",
                                  debugPrefix, options));
-    return activations;
+  } else {
+    const auto layerName = debugPrefix + "/Conv" + convSuffix(params);
+    Program convolveProg;
+    std::tie(convolveProg, activations) =
+      convolutionByAmp(graph, plan, params, in, weights, layerName);
+    prog.add(convolveProg);
   }
-
-  const auto layerName = debugPrefix + "/Conv" + convSuffix(params);
-  assert(batchSize % plan.batchesPerGroup == 0);
-  const auto numBatchGroups = batchSize / plan.batchesPerGroup;
-  if (plan.flattenXY) {
-    const auto inDimY = in.dim(2);
-    const auto inDimX = in.dim(3);
-    in = in.dimShuffle({1, 0, 2, 3, 4}).reshape(
-                          {in.dim(1),
-                           numBatchGroups,
-                           plan.batchesPerGroup * inDimY,
-                           inDimX,
-                           in.dim(4)
-                          }).dimShuffle({1, 0, 2, 3, 4});
-
-    in = in.reshape({numBatchGroups,
-                     in.dim(1),
-                     plan.batchesPerGroup,
-                     inDimY * inDimX,
-                     in.dim(4)});
-    params.inputShape[2] = params.inputShape[1] * params.inputShape[2];
-    params.inputShape[1] = plan.batchesPerGroup;
-    params.inputShape[0] = params.inputShape[0] / plan.batchesPerGroup;
-    plan.batchesPerGroup = 1;
-  }
-  const auto outNumChans = params.getOutputDepth();
-  const auto partialChansPerGroup = plan.partialChansPerGroup;
-  const auto partialNumChanGroups =
-      (outNumChans + partialChansPerGroup - 1) / partialChansPerGroup;
-  const auto partialNumChans = partialNumChanGroups * partialChansPerGroup;
-  if (partialNumChans != outNumChans) {
-    auto weightsRegrouped = regroup(weights, 0, 4, outNumChans);
-    // Zero pad the weights in the out channel axis.
-    auto weightsRegroupedPadded =
-        pad(graph, weightsRegrouped, 0, partialNumChans - outNumChans, 4);
-    weights = regroup(weightsRegroupedPadded, 0, 4, partialChansPerGroup);
-  }
-  params.kernelShape[2] = partialNumChans;
-  Program convolveProg;
-  Tensor activations;
-  std::tie(convolveProg, activations) =
-    convolutionByAmp(graph, plan, params, in, weights, layerName);
-  prog.add(convolveProg);
-  if (plan.flattenXY) {
-    activations = activations.dimShuffle({0, 2, 3, 1, 4})
-          .reshape({batchSize,
-                    outputShape[1],
-                    outputShape[2],
-                    activations.dim(1),
-                    activations.dim(4)})
-          .dimShuffle({0, 3, 1, 2, 4});
-  }
+  activations = activations.dimShuffle({0, 2, 3, 1, 4})
+        .reshape({batchSize,
+                  outputShape[1],
+                  outputShape[2],
+                  activations.dim(1),
+                  activations.dim(4)})
+        .dimShuffle({0, 3, 1, 2, 4});
+  const auto outNumChans = outputShape[3];
+  const auto partialNumChans = activations.dim(1) * activations.dim(4);
   if (partialNumChans != outNumChans) {
     // Truncate the activations in the channel axis.
     auto activationsRegrouped = regroup(activations, partialNumChans);
