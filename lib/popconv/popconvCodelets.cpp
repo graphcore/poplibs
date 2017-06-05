@@ -214,42 +214,6 @@ template class ConvWeightGradAop<float, float, true>;
 template class ConvWeightGradAop<half, float, true>;
 template class ConvWeightGradAop<half, half, true>;
 
-template <typename WeightType>
-class ConvWeightUpdate : public Vertex {
-public:
-  Vector<Input<Vector<WeightType>>> weightDeltas;
-  Vector<InOut<Vector<WeightType>>> weights;
-
-  float eta;
-
-  SimOnlyField<unsigned> dataPathWidth;
-
-  bool compute() {
-    assert(weights.size() == weightDeltas.size());
-    for (unsigned i = 0; i != weights.size(); ++i) {
-      assert(weights[i].size() == weightDeltas[i].size());
-      for (unsigned w = 0; w < weights[i].size(); ++w) {
-        weights[i][w] -= eta * weightDeltas[i][w];
-      }
-    }
-    return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    bool isFloat = std::is_same<WeightType, float>::value;
-    unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    std::uint64_t cycles = 5;
-    for (unsigned i = 0; i != weights.size(); ++i) {
-      // Inner loop uses the axpy instruction.
-      cycles += (1 + (weights[i].size() + vectorWidth - 1) / vectorWidth);
-    }
-    return cycles;
-  }
-};
-
-template class ConvWeightUpdate<float>;
-template class ConvWeightUpdate<half>;
-
 template <typename FPType>
 class ConvBiasReduce1: public Vertex {
 public:

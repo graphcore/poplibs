@@ -7,6 +7,7 @@
 #include <functional>
 #include "popconv/ConvUtil.hpp"
 #include "popstd/Pad.hpp"
+#include "popstd/Add.hpp"
 #include "popstd/ActivationMapping.hpp"
 #include "popreduce/Reduce.hpp"
 #include "popstd/Regroup.hpp"
@@ -2688,40 +2689,9 @@ convolutionWeightUpdate(Graph &graph,
                                             prog, layerName);
 
   // Add the weight deltas to the weights.
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  auto addCS = graph.addComputeSet(debugPrefix + "/UpdateWeights");
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
   assert(weightDeltas.shape() == weights.shape());
-  auto weightsFlattened = weights.flatten();
-  auto weightDeltasFlattened = weightDeltas.flatten();
-  auto weightMapping = graph.getTileMapping(weights);
-  const unsigned numTiles = weightMapping.size();
-  const auto grainSize =
-      dType == "float" ? deviceInfo.getFloatVectorWidth() :
-                         deviceInfo.getHalfVectorWidth();
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
-    const auto perWorkerIntervals =
-        splitRegionsBetweenWorkers(deviceInfo, weightMapping[tile], grainSize);
-    for (const auto &intervals : perWorkerIntervals) {
-      const auto v =
-          graph.addVertex(addCS,
-                          templateVertex("popconv::ConvWeightUpdate", dType));
-      graph.setFieldSize(v["weights"], intervals.size());
-      graph.setFieldSize(v["weightDeltas"], intervals.size());
-      unsigned i = 0;
-      for (const auto &interval : intervals) {
-        graph.connect(v["weights"][i], weightsFlattened.slice(interval.begin(),
-                                                              interval.end()));
-        graph.connect(v["weightDeltas"][i],
-            weightDeltasFlattened.slice(interval.begin(), interval.end()));
-        ++i;
-      }
-      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-      graph.setInitialValue(v["eta"], learningRate);
-      graph.setTileMapping(v, tile);
-    }
-  }
-  prog.add(Execute(addCS));
+  popstd::addTo(graph, weights, weightDeltas, -learningRate, prog,
+                debugPrefix + "/UpdateWeights");
 }
 
 // Return a program to update the biases tensor with the gradients derived
