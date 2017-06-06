@@ -362,21 +362,20 @@ int main(int argc, char **argv) {
                         std::move(fwdProg), std::move(revProg)});
 
   boost::multi_array<double, 4>
-      hostPrevAct(boost::extents[batchSize][fwdInChans][height][width]);
+      hostPrevAct(boost::extents[batchSize][height][width][fwdInChans]);
   boost::multi_array<double, 4>
-      hostWeights(boost::extents[fwdOutChans][fwdInChans][kernelHeight]
-                                 [kernelWidth]);
+      hostWeights(boost::extents[kernelHeight][kernelWidth][fwdOutChans]
+                                [fwdInChans]);
   boost::multi_array<double, 1>
       hostBiases(boost::extents[fwdOutChans]);
   boost::multi_array<double, 4>
-      hostNextAct(boost::extents[batchSize][fwdOutChans][outHeight][outWidth]);
+      hostNextAct(boost::extents[batchSize][outHeight][outWidth][fwdOutChans]);
   std::mt19937 randomEngine;
   writeRandomValues(hostPrevAct, -1.0, +5.0, randomEngine);
   writeRandomValues(hostWeights, -1.0, +7.0, randomEngine);
   writeRandomValues(hostBiases, -2.0, +6.0, randomEngine);
-  groupActivations(hostPrevAct, dataTypeStr, prevAct.shape(),
-                   rawHostPrevAct.get());
-  groupWeights(hostWeights, dataTypeStr, weights.shape(), rawHostWeights.get());
+  copy(hostPrevAct, dataTypeStr, rawHostPrevAct.get());
+  copy(hostWeights, dataTypeStr, rawHostWeights.get());
   copy(hostBiases, dataTypeStr, rawHostBiases.get());
 
   // Run the forward pass.
@@ -386,10 +385,9 @@ int main(int argc, char **argv) {
 
   // Validate against a reference model.
   bool matchesModel = true;
-  ungroupActivations(dataTypeStr, nextAct.shape(), rawHostNextAct.get(),
-                     hostNextAct);
+  copy(dataTypeStr, rawHostNextAct.get(), hostNextAct);
   boost::multi_array<double, 4>
-      modelNextAct(boost::extents[batchSize][fwdOutChans][outHeight][outWidth]);
+      modelNextAct(boost::extents[batchSize][outHeight][outWidth][fwdOutChans]);
   poplib_test::conv::convolution({strideH, strideW},
                                  {inDilationH, inDilationW},
                                  {paddingHeightLower, paddingWidthLower},
@@ -403,35 +401,31 @@ int main(int argc, char **argv) {
 
   if (doBwdPass || doWuPass) {
     boost::multi_array<double, 4> hostZDeltas(
-      boost::extents[batchSize][bwdParams.getInputDepth()][outHeight][outWidth]
+      boost::extents[batchSize][outHeight][outWidth][bwdParams.getInputDepth()]
     );
     boost::multi_array<double, 4> hostPrevDeltas(
-      boost::extents[batchSize][params.getInputDepth()][height][width]
+      boost::extents[batchSize][height][width][params.getInputDepth()]
     );
     auto modelWeights = hostWeights;
     auto modelBiases = hostBiases;
     // Run the backwards and/or weight update passes.
     writeRandomValues(hostZDeltas, -3.0, 7.0, randomEngine);
-    groupActivations(hostZDeltas, dataTypeStr, zDeltas.shape(),
-                     rawHostZDeltas.get());
+    copy(hostZDeltas, dataTypeStr, rawHostZDeltas.get());
     engine.run(0); // Upload.
     engine.run(3); // Run.
     engine.run(1); // Download.
 
-    ungroupActivations(dataTypeStr, zDeltas.shape(), rawHostZDeltas.get(),
-                       hostZDeltas);
+    copy(dataTypeStr, rawHostZDeltas.get(), hostZDeltas);
     if (doBwdPass) {
-      ungroupActivations(dataTypeStr, prevDeltas.shape(),
-                         rawHostPrevDeltas.get(), hostPrevDeltas);
+      copy(dataTypeStr, rawHostPrevDeltas.get(), hostPrevDeltas);
     }
-    ungroupWeights(dataTypeStr, weights.shape(), rawHostWeights.get(),
-                   hostWeights);
+    copy(dataTypeStr, rawHostWeights.get(), hostWeights);
     copy(dataTypeStr, rawHostBiases.get(), hostBiases);
 
     // Validate against a reference model.
     if (doBwdPass) {
       boost::multi_array<double, 4>
-          modelPrevDeltas(boost::extents[batchSize][fwdInChans][height][width]);
+          modelPrevDeltas(boost::extents[batchSize][height][width][fwdInChans]);
       poplib_test::conv::convolutionBackward(
               {strideH, strideW},
               {inDilationH, inDilationW},

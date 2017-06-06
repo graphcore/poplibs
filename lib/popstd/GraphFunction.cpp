@@ -15,10 +15,7 @@ VoidFunction(Graph &graph,
       params.push_back(Tensor());
       continue;
     }
-    auto t = graph.addTensor(s.similarTensor.elementType(),
-                             s.similarTensor.shape(),
-                             s.debugName);
-    graph.setTileMapping(t, graph.getTileMapping(s.similarTensor));
+    auto t = graph.clone(s.similarTensor, s.debugName);
     params.push_back(std::move(t));
   }
   f(params, prog);
@@ -35,10 +32,7 @@ operator()(std::vector<poplar::Tensor> &args,
   seq.add(prog);
   for (unsigned i = 0; i < sig.size(); ++i) {
     if (sig[i].type == CreatedArg) {
-      args[i] = graph.addTensor(params[i].elementType(),
-                                params[i].shape(),
-                                sig[i].debugName);
-      graph.setTileMapping(args[i], graph.getTileMapping(params[i]));
+      args[i] = graph.clone(params[i], sig[i].debugName);
     }
     if (sig[i].type == OutputArg || sig[i].type == InOutArg ||
         sig[i].type == CreatedArg)  {

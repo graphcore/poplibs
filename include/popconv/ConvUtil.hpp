@@ -91,5 +91,7 @@ std::vector<std::size_t> getOutputShape(const ConvParams &params);
 // transposed in the channel axes and flipped in the spatial axes).
 ConvParams getGradientParams(const ConvParams &params);
 
+unsigned detectChannelGrouping(const poplar::Tensor &t);
+
 }
 #endif // _popconv_ConvUtil_hpp_

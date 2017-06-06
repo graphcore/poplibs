@@ -94,10 +94,17 @@ computeActivationsMapping(const poplar::Graph &graph, poplar::Tensor act,
 }
 
 void mapActivations(poplar::Graph &graph, poplar::Tensor act) {
-  auto batchSize = act.dim(0);
+  poplar::Tensor actExt = act;
+  if (actExt.rank() == 4) {
+    // In cases when there is no channel grouping, extend tensor such that
+    // number of groups is 1
+    actExt = actExt.reshape({act.dim(0), act.dim(1), act.dim(2), 1, act.dim(3)})
+                   .dimShuffle({0, 3, 1, 2, 4});
+  }
+  auto batchSize = actExt.dim(0);
   for (unsigned i = 0; i != batchSize; ++i) {
-    auto actMapping = computeActivationsMapping(graph, act[i], i, batchSize);
-    applyTensorMapping(graph, act[i], actMapping);
+    auto actMapping = computeActivationsMapping(graph, actExt[i], i, batchSize);
+    applyTensorMapping(graph, actExt[i], actMapping);
   }
 }
 

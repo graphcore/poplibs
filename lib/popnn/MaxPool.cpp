@@ -131,12 +131,6 @@ Tensor maxPool(Graph &graph,  unsigned kernelSizeY, unsigned kernelSizeX,
                          + std::to_string(kernelSizeX) + "x"
                          + std::to_string(kernelSizeY);
   ComputeSet cs = graph.addComputeSet(layerName);
-  auto inChansPerGroup = in.dim(4);
-  // Turn the tensors back into their natural dimensions of
-  // {batch x height x width x channels}.
-  in = in.dimShuffle({0, 2, 3, 1, 4})
-         .reshape({in.dim(0), in.dim(2), in.dim(3),
-                   in.dim(1) * in.dim(4)});
 
   const auto batchSize = in.dim(0);
   const auto inHeight = in.dim(1);
@@ -148,13 +142,14 @@ Tensor maxPool(Graph &graph,  unsigned kernelSizeY, unsigned kernelSizeX,
                    strideX, paddingY, paddingX);
 
   // Create output
-  auto out0 = graph.addTensor(dType, {batchSize, numChannels / inChansPerGroup,
-                                      outHeight, outWidth, inChansPerGroup},
-                              debugPrefix + "/maxPooled");
-  mapActivations(graph, out0);
-  auto out = out0.dimShuffle({0, 2, 3, 1, 4})
-                 .reshape({out0.dim(0), out0.dim(2), out0.dim(3),
-                           out0.dim(1) * out0.dim(4)});
+  auto chansPerGroup = detectChannelGrouping(in);
+  auto outGrouped =
+      graph.addTensor(dType, {batchSize, numChannels / chansPerGroup,
+                              outHeight, outWidth, chansPerGroup},
+                      debugPrefix + "/maxPooled");
+  mapActivations(graph, outGrouped);
+  auto out = outGrouped.dimShuffle({0, 2, 3, 1, 4})
+                       .reshape({batchSize, outHeight, outWidth, numChannels});
 
   const auto numTiles = deviceInfo.getNumTiles();
   auto outTileMapping = graph.getTileMapping(out);
@@ -238,7 +233,7 @@ Tensor maxPool(Graph &graph,  unsigned kernelSizeY, unsigned kernelSizeX,
   }
 
   prog.add(Execute(cs));
-  return out0;
+  return out;
 }
 
 Tensor
@@ -254,21 +249,7 @@ maxPoolInputGradient(Graph &graph, unsigned kernelSizeY, unsigned kernelSizeX,
                          + std::to_string(kernelSizeX) + "x"
                          + std::to_string(kernelSizeY);
   ComputeSet cs = graph.addComputeSet(layerName);
-  const auto outGradientChansPerGroup = pooledGradient.dim(4);
-  // Turn the tensors back into their natural dimensions of
-  // {batch x height x width x channels}.
-  pooledGradient =
-      pooledGradient.dimShuffle({0, 2, 3, 1, 4})
-                    .reshape({pooledGradient.dim(0), pooledGradient.dim(2),
-                              pooledGradient.dim(3),
-                              pooledGradient.dim(1) * pooledGradient.dim(4)});
-  in = in.dimShuffle({0, 2, 3, 1, 4})
-         .reshape({in.dim(0), in.dim(2),
-                         in.dim(3), in.dim(1) * in.dim(4)});
-  pooled = pooled.dimShuffle({0, 2, 3, 1, 4})
-                 .reshape({pooled.dim(0), pooled.dim(2),
-                           pooled.dim(3),
-                           pooled.dim(1) * pooled.dim(4)});
+
 
   const auto batchSize = pooledGradient.dim(0);
   const auto numChannels = pooledGradient.dim(3);
@@ -287,18 +268,7 @@ maxPoolInputGradient(Graph &graph, unsigned kernelSizeY, unsigned kernelSizeX,
                                "match gradient calculation input height and "
                                "width");
 
-  auto inGradient0 = graph.addTensor(dType,
-                                     {batchSize,
-                                      numChannels / outGradientChansPerGroup,
-                                      inHeight, inWidth,
-                                      outGradientChansPerGroup},
-                                     debugPrefix + "/maxPoolInGradient");
-  mapActivations(graph, inGradient0);
-  auto inGradient =
-      inGradient0.dimShuffle({0, 2, 3, 1, 4})
-                 .reshape({inGradient0.dim(0), inGradient0.dim(2),
-                           inGradient0.dim(3),
-                           inGradient0.dim(1) * inGradient0.dim(4)});
+  auto inGradient = graph.clone(in);
 
   const auto numTiles = deviceInfo.getNumTiles();
   auto outTileMapping = graph.getTileMapping(inGradient);
@@ -403,7 +373,7 @@ maxPoolInputGradient(Graph &graph, unsigned kernelSizeY, unsigned kernelSizeX,
   }
 
   prog.add(Execute(cs));
-  return inGradient0;
+  return inGradient;
 }
 
 

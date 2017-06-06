@@ -1,5 +1,6 @@
 #include "popconv/ConvUtil.hpp"
 #include <cassert>
+#include <popstd/exceptions.hpp>
 
 namespace popconv {
 
@@ -195,6 +196,35 @@ ConvParams getGradientParams(const ConvParams &params) {
   return popconv::ConvParams(params.dType, params.getOutputShape(),
                              bwdKernelShape, bwdStride, bwdPaddingLower,
                              bwdPaddingUpper, bwdInputDilation);
+}
+
+unsigned detectChannelGrouping(const poplar::Tensor &t0) {
+  if (t0.rank() == 0)
+    throw popstd::poplib_error("Cannot detect channel grouping of "
+                               "0-rank tensor");
+  // Sample the first point in the inner dimension
+  auto t = t0;
+  while (t.rank() != 1)
+    t = t[0];
+
+  // Perform a binary search to find the largest contiguous slice in
+  // the inner dimension.
+  auto lower = 1U;
+  auto upper = t.numElements();
+  while (lower != upper) {
+    // Find a mid-point such that lower < mid <= upper
+    auto mid = upper - (upper - lower) / 2;
+    if (t.slice(0, mid).isContiguous()) {
+      lower = mid;
+    } else {
+      upper = mid - 1;
+    }
+  }
+
+  // The channel grouping must divide the number of channels
+  if (t.numElements() % upper != 0)
+    upper = 1;
+  return upper;
 }
 
 } // namespace convutil

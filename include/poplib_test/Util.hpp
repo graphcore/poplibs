@@ -34,27 +34,6 @@ writeRandomValues(boost::multi_array<T, N> &a, double min,
                            min, max, randomEngine);
 }
 
-void groupActivations(boost::const_multi_array_ref<double, 4> src,
-                      const std::string &dstType,
-                      const std::vector<std::size_t> &dstDims,
-                      void *dst);
-
-void groupWeights(boost::const_multi_array_ref<double, 4> src,
-                  const std::string &dstType,
-                  const std::vector<std::size_t> &dstDims,
-                  void *dst);
-
-void groupWeights(boost::const_multi_array_ref<double, 4> src,
-                  const std::string &dstType,
-                  const std::vector<std::size_t> &dstDims,
-                  void *dst);
-
-void
-ungroupWeights(const std::string &srcType,
-               const std::vector<std::size_t> &srcDims,
-               const void *src,
-               boost::multi_array_ref<double, 4> dst);
-
 template <unsigned long N>
 inline void
 copy(boost::multi_array_ref<double, N> src,
@@ -88,11 +67,6 @@ copy(const std::string &srcType,
               dst.data());
   }
 }
-
-void ungroupActivations(const std::string &srcType,
-                        const std::vector<std::size_t> &srcDims,
-                        const void *src,
-                        boost::multi_array_ref<double, 4> dst);
 
 bool checkIsClose(const std::string &name, const double *actual,
                   const std::vector<std::size_t> &shape,

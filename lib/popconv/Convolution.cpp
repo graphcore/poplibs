@@ -29,6 +29,82 @@ using namespace popstd;
 
 namespace popconv {
 
+// Groups tensor from th standard [N][H][W][C] shape to internal shape
+// [N][C1][H][W][C2]
+//
+// where C1 * C2 = C
+static Tensor groupActivations(const Tensor &act) {
+  auto chansPerGroup = detectChannelGrouping(act);
+  assert(act.rank() == 4);
+  assert(act.dim(3) % chansPerGroup == 0);
+  const unsigned chanGroups = act.dim(3) / chansPerGroup;
+  return act.reshape({act.dim(0), act.dim(1), act.dim(2),
+                      chanGroups, chansPerGroup}).dimShuffle({0, 3, 1, 2, 4});
+}
+
+// Ungroups tensor from internal shape [N][C1][H][W][C2] to standard shape
+// [N][H][W][C]
+//
+// where C1 * C2 = C
+static Tensor ungroupActivations(const Tensor &act) {
+  assert(act.rank() == 5);
+  return act.dimShuffle({0, 2, 3, 1, 4}).reshape(
+               {act.dim(0), act.dim(2), act.dim(3), act.dim(1) * act.dim(4)});
+}
+
+static std::pair<unsigned, unsigned>
+detectWeightsChannelGrouping(const Tensor &w) {
+  auto inChansPerGroup = detectChannelGrouping(w);
+  const auto w1 =
+      regroup(w, inChansPerGroup).reshape({w.dim(3) / inChansPerGroup,
+                                           w.dim(0), w.dim(1),
+                                           w.dim(2) * inChansPerGroup});
+  auto outChansPerGroup = detectChannelGrouping(w1);
+  assert(outChansPerGroup % inChansPerGroup == 0);
+  outChansPerGroup /= inChansPerGroup;
+  return {outChansPerGroup, inChansPerGroup};
+}
+
+// Groups tensor from standard convolution weight tensor shape [H][W][OC][IC] to
+// internal shape [OC1][IC1][H][W][OC2][IC2]
+//
+// where OC1 * OC2 = OC
+// and   IC1 * IC2 = IC
+static Tensor groupWeights(const Tensor &weights, unsigned inChansPerGroup,
+                           unsigned outChansPerGroup) {
+  assert(weights.rank() == 4);
+  assert(weights.dim(3) % inChansPerGroup == 0);
+  assert(weights.dim(2) % outChansPerGroup == 0);
+  const unsigned inChanGroups = weights.dim(3) / inChansPerGroup;
+  const unsigned outChanGroups = weights.dim(2) / outChansPerGroup;
+
+  return weights.reshape({weights.dim(0), weights.dim(1),
+                          outChanGroups, outChansPerGroup,
+                          inChanGroups, inChansPerGroup})
+                .dimShuffle({2, 4, 0, 1, 3, 5});
+}
+
+
+static Tensor groupWeights(const Tensor &weights) {
+  unsigned inChansPerGroup, outChansPerGroup;
+  std::tie(outChansPerGroup, inChansPerGroup) =
+      detectWeightsChannelGrouping(weights);
+  return groupWeights(weights, inChansPerGroup, outChansPerGroup);
+}
+
+// Ungroups tensors from internal shape [OC1][IC1][H][W][OC2][IC2] to standard
+// convolution weight tensor shape [H][W][OC][IC]
+//
+// where OC1 * OC2 = OC
+// and   IC1 * IC2 = IC
+static Tensor ungroupWeights(const Tensor &weights) {
+  assert(weights.rank() == 6);
+  return weights.dimShuffle({2, 3, 0, 4, 1, 5})
+                .reshape({weights.dim(2), weights.dim(3),
+                          weights.dim(0) * weights.dim(4),
+                          weights.dim(1) * weights.dim(5)});
+}
+
 std::size_t ConvParams::getOutputSize(unsigned dim) const {
   auto dilatedInputSize =
       (inputShape[1 + dim] - 1) * inputDilation[dim] + 1;
@@ -152,7 +228,7 @@ getOutChansPerGroup(const Plan &plan, unsigned numOutChans) {
 
 poplar::Tensor
 createBiases(poplar::Graph &graph, const Tensor &acts) {
-  const auto numOutChans = acts.dim(1) * acts.dim(4);
+  const auto numOutChans = acts.dim(3);
   const auto dType = acts.elementType();
   auto biases = graph.addTensor(dType, {numOutChans}, "biases");
   mapBiases(graph, biases, acts);
@@ -670,7 +746,7 @@ createInput(Graph &graph, const ConvParams &params,
             const ConvOptions &options) {
   verifyStrideAndPaddingDimensions(params);
   const auto plan = getPlan(graph, params, options);
-  return createInput(graph, params, name, plan);
+  return ungroupActivations(createInput(graph, params, name, plan));
 }
 
 static std::vector<std::vector<Interval<std::size_t>>>
@@ -750,7 +826,7 @@ mapWeights(Graph &graph, const Tensor &w, const ConvParams &params,
            const ConvOptions &options) {
   verifyStrideAndPaddingDimensions(params);
   const auto plan = getPlan(graph, params, options);
-  mapWeights(graph, w, params, plan);
+  mapWeights(graph, groupWeights(w), params, plan);
 }
 
 static Tensor
@@ -775,7 +851,7 @@ createWeights(Graph &graph,
                                          weightInChansPerGroup},
                                  name);
   mapWeights(graph, weights, params, plan);
-  return weights;
+  return ungroupWeights(weights);
 }
 
 Tensor
@@ -825,7 +901,8 @@ computeBiasMapping(Graph &graph, const Tensor &out) {
 
 void mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
                const poplar::Tensor &out) {
-  auto mapping = computeBiasMapping(graph, out);
+  auto groupedOut = groupActivations(out);
+  auto mapping = computeBiasMapping(graph, groupedOut);
   applyTensorMapping(graph, biases, mapping);
 }
 
@@ -1733,7 +1810,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
             const ConvParams &params_,
             bool transposeAndFlipWeights, Sequence &prog,
             const std::string &debugPrefix, const ConvOptions &options) {
-  auto in = in_;
+  auto in = groupActivations(in_);
   auto weights = weights_;
   auto params = params_;
   verifyStrideAndPaddingDimensions(params);
@@ -1746,6 +1823,12 @@ convolution(Graph &graph, const poplar::Tensor &in_,
     weightsTransposeChansFlipXY(graph, weights, bwdWeights, prog, debugPrefix);
     weights = bwdWeights;
   }
+  auto wInChansPerGroup =
+      weights.dim(3) % plan.inChansPerGroup == 0 ? plan.inChansPerGroup : 1;
+  auto wOutChansPerGroup = weights.dim(2) % plan.partialChansPerGroup == 0
+                               ? plan.partialChansPerGroup
+                               : 1;
+  weights = groupWeights(weights, wInChansPerGroup, wOutChansPerGroup);
   const auto outputShape = getOutputShape(params);
   convolutionPreprocess(graph, params, plan, &in, &weights);
   Tensor activations;
@@ -1794,7 +1877,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
                                                "activationsRemapped");
   ::mapActivations(graph, activationsRemapped);
   prog.add(Copy(activations, activationsRemapped));
-  return activationsRemapped;
+  return ungroupActivations(activationsRemapped);
 }
 
 static std::uint64_t getNumberOfMACs(const ConvParams &params) {
@@ -1919,10 +2002,12 @@ static Tensor weightsPartialTranspose(Graph &graph, Tensor in, ComputeSet cs) {
  *  channels and flip both the X and Y axis of the kernel field.
  */
 void weightsTransposeChansFlipXY(Graph &graph,
-                                 const Tensor &weightsIn,
-                                 const Tensor &weightsOut,
+                                 const Tensor &weightsInUnGrouped,
+                                 const Tensor &weightsOutUnGrouped,
                                  Sequence &prog,
                                  const std::string &debugPrefix) {
+  const auto weightsIn = groupWeights(weightsInUnGrouped);
+  const auto weightsOut = groupWeights(weightsOutUnGrouped);
   // weightsIn = { O/G1, I/G2, KY, KX, G1, G2 }
   // weightsOut = { I/G3, O/G4, KY, KX, G3, G4 }
 
@@ -2545,7 +2630,10 @@ calculateWeightDeltasAmp(Graph &graph, const Plan &plan,
                 activationsTransposed));
   // Transpose the deltas.
   auto deltasTransposed =
-      createWeights(graph, transformedParams, "deltasTransposed", plan);
+      groupWeights(createWeights(graph, transformedParams, "deltasTransposed",
+                                 plan),
+                   plan.inChansPerGroup,
+                   plan.partialChansPerGroup);
   prog.add(Copy(deltasView.reshape({deltasView.dim(0),
                                     deltasView.dim(1) / inChansPerGroup,
                                     inChansPerGroup,
@@ -2628,17 +2716,20 @@ calculateWeightDeltas(Graph &graph, const Plan &plan,
 }
 
 Tensor
-calculateWeightDeltas(Graph &graph, const Tensor &zDeltas,
-                      const Tensor &activations,
+calculateWeightDeltas(Graph &graph, const Tensor &zDeltasUnGrouped,
+                      const Tensor &activationsUnGrouped,
                       const ConvParams &params,
                       Sequence &prog,
                       const std::string &debugPrefix,
                       const ConvOptions &options) {
+  auto activations = groupActivations(activationsUnGrouped);
+  auto zDeltas = groupActivations(zDeltasUnGrouped);
   const auto plan =
       getWeightUpdatePlan(graph, activations, zDeltas, params, options);
   const auto fwdPlan = getPlan(graph, params, options);
-  return calculateWeightDeltas(graph, plan, fwdPlan, zDeltas, activations,
-                               params, prog, debugPrefix);
+  auto w =  calculateWeightDeltas(graph, plan, fwdPlan, zDeltas, activations,
+                                  params, prog, debugPrefix);
+  return ungroupWeights(w);
 }
 
 void
@@ -2651,18 +2742,8 @@ convolutionWeightUpdate(Graph &graph,
                         const std::string &debugPrefix,
                         const ConvOptions &options) {
   verifyStrideAndPaddingDimensions(params);
-  const auto dType = zDeltas.elementType();
-  const auto plan =
-      getWeightUpdatePlan(graph, activations, zDeltas, params, options);
-  const auto fwdPlan = getPlan(graph, params, options);
-  const auto layerName = debugPrefix
-                         + "/ConvWeightUpdate"
-                         + convSuffix(params)
-                         + (plan.useConvolutionInstructions ? "_amp" : "_aop");
-  auto weightDeltas = calculateWeightDeltas(graph, plan, fwdPlan, zDeltas,
-                                            activations, params,
-                                            prog, layerName);
-
+  auto weightDeltas = calculateWeightDeltas(graph, zDeltas, activations, params,
+                                            prog, debugPrefix, options);
   // Add the weight deltas to the weights.
   assert(weightDeltas.shape() == weights.shape());
   popstd::addTo(graph, weights, weightDeltas, -learningRate, prog,
@@ -2672,10 +2753,12 @@ convolutionWeightUpdate(Graph &graph,
 // Return a program to update the biases tensor with the gradients derived
 // from the zDeltas tensor
 void
-convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
+convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
+                      const Tensor &biases,
                       float learningRate,
                       Sequence &prog,
                       const std::string &debugPrefix) {
+  auto zDeltas = groupActivations(zDeltasUngrouped);
   const auto layerName = debugPrefix + "/BiasUpdate";
 
   auto firstReduceCS = graph.addComputeSet(layerName + "/Reduce1");
@@ -2871,8 +2954,9 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltas, const Tensor &biases,
 }
 
 static void
-addBias(Graph &graph, const Tensor &acts, const Tensor &biases,
+addBias(Graph &graph, const Tensor &acts_, const Tensor &biases,
         ComputeSet cs) {
+  const auto acts = groupActivations(acts_);
   const auto dType = acts.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto outChansPerGroup = acts.dim(4);

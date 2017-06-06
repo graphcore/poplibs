@@ -196,6 +196,9 @@ int main(int argc, char **argv) {
                                     width,
                                     fwdChansPerGroup}, "prevAct");
   mapActivations(graph, prevAct);
+  prevAct = prevAct.dimShuffle({0, 2, 3, 1, 4})
+                   .reshape({batchSize, height, width, chans});
+
   Tensor zDeltas;
   if (!inferenceOnly) {
     zDeltas =
@@ -205,6 +208,8 @@ int main(int argc, char **argv) {
                                       outWidth, bwdChansPerGroup},
                         "zDeltas");
     mapActivations(graph, zDeltas);
+    zDeltas = zDeltas.dimShuffle({0, 2, 3, 1, 4})
+                     .reshape({batchSize, outHeight, outWidth, chans});
   }
 
   auto fwdProg = Sequence();
@@ -241,23 +246,21 @@ int main(int argc, char **argv) {
 
 
   boost::multi_array<double, 4>
-      hostPrevAct(boost::extents[batchSize][chans][height][width]);
+      hostPrevAct(boost::extents[batchSize][height][width][chans]);
   boost::multi_array<double, 4>
-      hostNextAct(boost::extents[batchSize][chans][outHeight][outWidth]);
+      hostNextAct(boost::extents[batchSize][outHeight][outWidth][chans]);
   std::mt19937 randomEngine;
   writeRandomValues(hostPrevAct, -4.0, 4.0, randomEngine);
-  groupActivations(hostPrevAct, dataTypeStr, prevAct.shape(),
-                   rawHostPrevAct.get());
+  copy<4>(hostPrevAct, dataTypeStr, rawHostPrevAct.get());
   // Run the forward pass.
   engine.run(0); // Upload.
   engine.run(2); // Run.
   engine.run(1); // Download.
 
   // Validate against a reference model.
-  ungroupActivations(dataTypeStr, nextAct.shape(), rawHostNextAct.get(),
-                     hostNextAct);
+  copy<4>(dataTypeStr, rawHostNextAct.get(), hostNextAct);
   boost::multi_array<double, 4>
-      modelNextAct(boost::extents[batchSize][chans][outHeight][outWidth]);
+      modelNextAct(boost::extents[batchSize][outHeight][outWidth][chans]);
   poplib_test::maxpool::maxPooling(strideHeight, strideWidth,
                                    kernelHeight, kernelWidth,
                                    paddingHeight, paddingWidth,
@@ -267,26 +270,23 @@ int main(int argc, char **argv) {
 
   if (!inferenceOnly) {
     boost::multi_array<double, 4> hostZDeltas(
-      boost::extents[batchSize][chans][outHeight][outWidth]
+      boost::extents[batchSize][outHeight][outWidth][chans]
     );
     boost::multi_array<double, 4> hostPrevDeltas(
-      boost::extents[batchSize][chans][height][width]
+      boost::extents[batchSize][height][width][chans]
     );
     // Run the backwards pass.
     writeRandomValues(hostZDeltas, -5.0, 5.0, randomEngine);
-    groupActivations(hostZDeltas, dataTypeStr, zDeltas.shape(),
-                     rawHostZDeltas.get());
+    copy<4>(hostZDeltas, dataTypeStr, rawHostZDeltas.get());
     engine.run(0); // Upload.
     engine.run(3); // Run.
     engine.run(1); // Download.
-    ungroupActivations(dataTypeStr, zDeltas.shape(), rawHostZDeltas.get(),
-                       hostZDeltas);
-    ungroupActivations(dataTypeStr, prevDeltas.shape(), rawHostPrevDeltas.get(),
-                       hostPrevDeltas);
+    copy<4>(dataTypeStr, rawHostZDeltas.get(), hostZDeltas);
+    copy<4>(dataTypeStr, rawHostPrevDeltas.get(), hostPrevDeltas);
 
     // Validate against a reference model.
     boost::multi_array<double, 4>
-        modelPrevDeltas(boost::extents[batchSize][chans][height][width]);
+        modelPrevDeltas(boost::extents[batchSize][height][width][chans]);
     poplib_test::maxpool::maxPoolingBackward(strideHeight, strideWidth,
                                              kernelHeight, kernelWidth,
                                              paddingHeight, paddingWidth,

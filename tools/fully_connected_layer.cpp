@@ -36,19 +36,16 @@ using poplib_test::Pass;
 template <class T>
 static void
 groupFullyConnectedPrevAct(boost::const_multi_array_ref<double, 2> src,
-                           boost::multi_array_ref<T, 6> dst) {
+                           boost::multi_array_ref<T, 4> dst) {
   unsigned batchSize = src.shape()[0];
   unsigned inputSize = src.shape()[1];
-  assert(dst.shape()[2] == 1);
-  assert(dst.shape()[3] == 1);
-  unsigned outChansPerGroup = dst.shape()[4];
-  unsigned inChansPerGroup = dst.shape()[5];
-  assert(dst.shape()[0] * outChansPerGroup == batchSize);
-  assert(dst.shape()[1] * inChansPerGroup == inputSize);
+  assert(dst.shape()[0] == 1);
+  assert(dst.shape()[1] == 1);
+  assert(dst.shape()[2] == batchSize);
+  assert(dst.shape()[3] == inputSize);
   for (unsigned b = 0; b != batchSize; ++b) {
     for (unsigned x = 0; x != inputSize; ++x) {
-      dst[b / outChansPerGroup][x / inChansPerGroup][0][0]
-         [b % outChansPerGroup][x % inChansPerGroup] = src[b][x];
+      dst[0][0][b][x] = src[b][x];
     }
   }
 }
@@ -58,21 +55,20 @@ groupFullyConnectedPrevAct(boost::const_multi_array_ref<double, 2> src,
                            const std::string &dstType,
                            const std::vector<std::size_t> &dstDims,
                            void *dst) {
-  assert(dstDims.size() == 6);
+  assert(dstDims.size() == 4);
   const auto &multiArrayDims =
-    boost::extents[dstDims[0]][dstDims[1]][dstDims[2]][dstDims[3]][dstDims[4]]
-                  [dstDims[5]];
+    boost::extents[dstDims[0]][dstDims[1]][dstDims[2]][dstDims[3]];
   if (dstType == "float") {
     groupFullyConnectedPrevAct(
       src,
-      boost::multi_array_ref<float, 6>(reinterpret_cast<float*>(dst),
+      boost::multi_array_ref<float, 4>(reinterpret_cast<float*>(dst),
                                        multiArrayDims)
     );
   } else {
     assert(dstType == "half");
     groupFullyConnectedPrevAct(
       src,
-      boost::multi_array_ref<poplar::half, 6>(
+      boost::multi_array_ref<poplar::half, 4>(
         reinterpret_cast<poplar::half*>(dst),
         multiArrayDims
       )
@@ -83,17 +79,16 @@ groupFullyConnectedPrevAct(boost::const_multi_array_ref<double, 2> src,
 template <class T>
 static void
 groupFullyConnectedZDeltas(boost::const_multi_array_ref<double, 2> src,
-                           boost::multi_array_ref<T, 5> dst) {
+                           boost::multi_array_ref<T, 4> dst) {
   unsigned batchSize = src.shape()[0];
   unsigned inputSize = src.shape()[1];
   assert(dst.shape()[0] == 1);
-  assert(dst.shape()[2] == 1);
-  unsigned chansPerGroup = dst.shape()[4];
-  assert(dst.shape()[1] * chansPerGroup == batchSize);
-  assert(dst.shape()[3] == inputSize);
+  assert(dst.shape()[1] == 1);
+  assert(dst.shape()[3] == batchSize);
+  assert(dst.shape()[2] == inputSize);
   for (unsigned b = 0; b != batchSize; ++b) {
     for (unsigned x = 0; x != inputSize; ++x) {
-      dst[0][b / chansPerGroup][0][x][b % chansPerGroup] = src[b][x];
+      dst[0][0][x][b] = src[b][x];
     }
   }
 }
@@ -103,20 +98,20 @@ groupFullyConnectedZDeltas(boost::const_multi_array_ref<double, 2> src,
                            const std::string &dstType,
                            const std::vector<std::size_t> &dstDims,
                            void *dst) {
-  assert(dstDims.size() == 5);
+  assert(dstDims.size() == 4);
   const auto &multiArrayDims =
-    boost::extents[dstDims[0]][dstDims[1]][dstDims[2]][dstDims[3]][dstDims[4]];
+    boost::extents[dstDims[0]][dstDims[1]][dstDims[2]][dstDims[3]];
   if (dstType == "float") {
     groupFullyConnectedZDeltas(
       src,
-      boost::multi_array_ref<float, 5>(reinterpret_cast<float*>(dst),
+      boost::multi_array_ref<float, 4>(reinterpret_cast<float*>(dst),
                                        multiArrayDims)
     );
   } else {
     assert(dstType == "half");
     groupFullyConnectedZDeltas(
       src,
-      boost::multi_array_ref<poplar::half, 5>(
+      boost::multi_array_ref<poplar::half, 4>(
         reinterpret_cast<poplar::half*>(dst),
         multiArrayDims
       )
@@ -126,20 +121,17 @@ groupFullyConnectedZDeltas(boost::const_multi_array_ref<double, 2> src,
 
 template <class T>
 static void
-ungroupFullyConnectedPrevDeltas(boost::const_multi_array_ref<T, 6> src,
+ungroupFullyConnectedPrevDeltas(boost::const_multi_array_ref<T, 4> src,
                                 boost::multi_array_ref<double, 2> dst) {
   unsigned batchSize = dst.shape()[0];
   unsigned inputSize = dst.shape()[1];
-  assert(src.shape()[2] == 1);
-  assert(src.shape()[3] == 1);
-  unsigned outChansPerGroup = src.shape()[4];
-  unsigned inChansPerGroup = src.shape()[5];
-  assert(src.shape()[0] * outChansPerGroup == batchSize);
-  assert(src.shape()[1] * inChansPerGroup == inputSize);
+  assert(src.shape()[0] == 1);
+  assert(src.shape()[1] == 1);
+  assert(src.shape()[2] == batchSize);
+  assert(src.shape()[3] == inputSize);
   for (unsigned b = 0; b != batchSize; ++b) {
     for (unsigned x = 0; x != inputSize; ++x) {
-       dst[b][x] = src[b / outChansPerGroup][x / inChansPerGroup][0][0]
-                      [b % outChansPerGroup][x % inChansPerGroup];
+       dst[b][x] = src[0][0][b][x];
     }
   }
 }
@@ -149,13 +141,12 @@ ungroupFullyConnectedPrevDeltas(const std::string &srcType,
                                 const std::vector<std::size_t> &srcDims,
                                 const void *src,
                                 boost::multi_array_ref<double, 2> dst) {
-  assert(srcDims.size() == 6);
+  assert(srcDims.size() == 4);
   const auto &multiArrayDims =
-    boost::extents[srcDims[0]][srcDims[1]][srcDims[2]][srcDims[3]][srcDims[4]]
-                  [srcDims[5]];
+    boost::extents[srcDims[0]][srcDims[1]][srcDims[2]][srcDims[3]];
   if (srcType == "float") {
    ungroupFullyConnectedPrevDeltas(
-      boost::const_multi_array_ref<float, 6>(
+      boost::const_multi_array_ref<float, 4>(
         reinterpret_cast<const float*>(src), multiArrayDims
       ),
       dst
@@ -163,7 +154,7 @@ ungroupFullyConnectedPrevDeltas(const std::string &srcType,
   } else {
     assert(srcType == "half");
     ungroupFullyConnectedPrevDeltas(
-       boost::const_multi_array_ref<poplar::half, 6>(
+       boost::const_multi_array_ref<poplar::half, 4>(
          reinterpret_cast<const poplar::half*>(src),
          multiArrayDims
        ),
@@ -175,17 +166,15 @@ ungroupFullyConnectedPrevDeltas(const std::string &srcType,
 template <class T>
 static void
 groupFullyConnectedWeights(boost::const_multi_array_ref<double, 2> src,
-                           boost::multi_array_ref<T, 5> dst) {
+                           boost::multi_array_ref<T, 4> dst) {
   unsigned outputSize = src.shape()[0];
   unsigned inputSize = src.shape()[1];
   assert(dst.shape()[0] == 1);
-  assert(dst.shape()[2] == 1);
-  assert(dst.shape()[3] == outputSize);
-  unsigned chansPerGroup = dst.shape()[4];
-  assert(chansPerGroup * dst.shape()[1] == inputSize);
+  assert(dst.shape()[1] == 1);
+  assert(dst.shape()[2] == outputSize);
   for (unsigned o = 0; o != outputSize; ++o) {
     for (unsigned i = 0; i != inputSize; ++i) {
-      dst[0][i / chansPerGroup][0][o][i % chansPerGroup] = src[o][i];
+      dst[0][0][o][i] = src[o][i];
     }
   }
 }
@@ -195,20 +184,20 @@ groupFullyConnectedWeights(boost::const_multi_array_ref<double, 2> src,
                            const std::string &dstType,
                            const std::vector<std::size_t> &dstDims,
                            void *dst) {
-  assert(dstDims.size() == 5);
+  assert(dstDims.size() == 4);
   const auto &multiArrayDims =
-    boost::extents[dstDims[0]][dstDims[1]][dstDims[2]][dstDims[3]][dstDims[4]];
+    boost::extents[dstDims[0]][dstDims[1]][dstDims[2]][dstDims[3]];
   if (dstType == "float") {
     groupFullyConnectedWeights(
       src,
-      boost::multi_array_ref<float, 5>(reinterpret_cast<float*>(dst),
+      boost::multi_array_ref<float, 4>(reinterpret_cast<float*>(dst),
                                        multiArrayDims)
     );
   } else {
     assert(dstType == "half");
     groupFullyConnectedWeights(
       src,
-      boost::multi_array_ref<poplar::half, 5>(
+      boost::multi_array_ref<poplar::half, 4>(
         reinterpret_cast<poplar::half*>(dst),
         multiArrayDims
       )
@@ -218,18 +207,17 @@ groupFullyConnectedWeights(boost::const_multi_array_ref<double, 2> src,
 
 template <class T>
 static void
-ungroupFullyConnectedWeights(boost::const_multi_array_ref<T, 5> src,
+ungroupFullyConnectedWeights(boost::const_multi_array_ref<T, 4> src,
                              boost::multi_array_ref<double, 2> dst) {
   unsigned outputSize = dst.shape()[0];
   unsigned inputSize = dst.shape()[1];
   assert(src.shape()[0] == 1);
-  assert(src.shape()[2] == 1);
-  assert(src.shape()[3] == outputSize);
-  unsigned chansPerGroup = src.shape()[4];
-  assert(chansPerGroup * src.shape()[1] == inputSize);
+  assert(src.shape()[1] == 1);
+  assert(src.shape()[2] == outputSize);
+  assert(src.shape()[3] == inputSize);
   for (unsigned o = 0; o != outputSize; ++o) {
     for (unsigned i = 0; i != inputSize; ++i) {
-      dst[o][i] = src[0][i / chansPerGroup][0][o][i % chansPerGroup];
+      dst[o][i] = src[0][0][o][i];
     }
   }
 }
@@ -239,12 +227,12 @@ ungroupFullyConnectedWeights(const std::string &srcType,
                              const std::vector<std::size_t> &srcDims,
                              void *src,
                              boost::multi_array_ref<double, 2> dst) {
-  assert(srcDims.size() == 5);
+  assert(srcDims.size() == 4);
   const auto &multiArrayDims =
-    boost::extents[srcDims[0]][srcDims[1]][srcDims[2]][srcDims[3]][srcDims[4]];
+    boost::extents[srcDims[0]][srcDims[1]][srcDims[2]][srcDims[3]];
   if (srcType == "float") {
     ungroupFullyConnectedWeights(
-      boost::const_multi_array_ref<float, 5>(
+      boost::const_multi_array_ref<float, 4>(
         reinterpret_cast<const float*>(src), multiArrayDims
       ),
       dst
@@ -252,7 +240,7 @@ ungroupFullyConnectedWeights(const std::string &srcType,
   } else {
     assert(srcType == "half");
     ungroupFullyConnectedWeights(
-      boost::const_multi_array_ref<poplar::half, 5>(
+      boost::const_multi_array_ref<poplar::half, 4>(
         reinterpret_cast<const poplar::half*>(src), multiArrayDims
       ),
       dst
@@ -262,18 +250,17 @@ ungroupFullyConnectedWeights(const std::string &srcType,
 
 template <class T>
 static void
-ungroupFullyConnectedOutput(boost::const_multi_array_ref<T, 5> src,
+ungroupFullyConnectedOutput(boost::const_multi_array_ref<T, 4> src,
                             boost::multi_array_ref<double, 2> dst) {
   assert(src.shape()[0] == 1);
-  assert(src.shape()[2] == 1);
+  assert(src.shape()[1] == 1);
   unsigned batchSize = dst.shape()[0];
   unsigned outputSize = dst.shape()[1];
-  unsigned batchGroupSize = src.shape()[4];
-  assert(src.shape()[1] * batchGroupSize == batchSize);
-  assert(src.shape()[3] == outputSize);
+  assert(src.shape()[3] == batchSize);
+  assert(src.shape()[2] == outputSize);
   for (unsigned b = 0; b != batchSize; ++b) {
     for (unsigned x = 0; x != outputSize; ++x) {
-      dst[b][x] = src[0][b / batchGroupSize][0][x][b % batchGroupSize];
+      dst[b][x] = src[0][0][x][b];
     }
   }
 }
@@ -283,12 +270,12 @@ ungroupFullyConnectedOutput(const std::string &srcType,
                             const std::vector<std::size_t> &srcDims,
                             const void *src,
                             boost::multi_array_ref<double, 2> dst) {
-  assert(srcDims.size() == 5);
+  assert(srcDims.size() == 4);
   const auto &multiArrayDims =
-    boost::extents[srcDims[0]][srcDims[1]][srcDims[2]][srcDims[3]][srcDims[4]];
+    boost::extents[srcDims[0]][srcDims[1]][srcDims[2]][srcDims[3]];
   if (srcType == "float") {
     ungroupFullyConnectedOutput(
-      boost::const_multi_array_ref<float, 5>(
+      boost::const_multi_array_ref<float, 4>(
         reinterpret_cast<const float*>(src),
         multiArrayDims
       ),
@@ -297,7 +284,7 @@ ungroupFullyConnectedOutput(const std::string &srcType,
   } else {
     assert(srcType == "half");
     ungroupFullyConnectedOutput(
-      boost::const_multi_array_ref<half, 5>(
+      boost::const_multi_array_ref<half, 4>(
         reinterpret_cast<const half*>(src),
         multiArrayDims
       ),
@@ -446,9 +433,8 @@ int main(int argc, char **argv) {
     nextAct = popconv::convolution(graph, weights, prevAct, convParams, false,
                                    fwdProg, "", fwdOptions);
     auto bBiases = biases.broadcast(batchSize, 0)
-                         .reshape({batchSize / nextAct.dim(4),
-                                   nextAct.dim(4), outputSize})
-                         .dimShuffle({0, 2, 1});
+                         .reshape({1, 1, batchSize, outputSize})
+                         .dimShuffle({0, 1, 3, 2});
     addTo(graph, nextAct, bBiases, 1, fwdProg);
   } else {
     popconv::mapWeights(graph, prevAct, convParams, fwdOptions);
@@ -459,6 +445,9 @@ int main(int argc, char **argv) {
                                       outputSize, 1},
                         "nextAct");
     mapActivations(graph, nextAct);
+    nextAct = nextAct.dimShuffle({0, 2, 3, 1, 4})
+                     .reshape({nextAct.dim(0), nextAct.dim(2), nextAct.dim(3),
+                               nextAct.dim(1) * nextAct.dim(4)});
   }
 
   auto rawHostPrevAct = allocateHostMemoryForTensor(prevAct, upload, download);
@@ -502,7 +491,7 @@ int main(int argc, char **argv) {
         popconv::convolution(graph, zDeltas, prevAct, wuParams, true, bwdProg,
                              "", wuOptions);
     addTo(graph, weights, weightDeltas, -learningRate, bwdProg);
-    auto zDeltasRearrangedView = zDeltas.dimShuffle({0, 1, 4, 2, 3})
+    auto zDeltasRearrangedView = zDeltas.dimShuffle({0, 3, 1, 2})
                                         .reshape({batchSize, outputSize});
     auto biasDeltas = reduce(graph, zDeltasRearrangedView, bwdProg);
     addTo(graph, biases, biasDeltas, -learningRate, bwdProg);
