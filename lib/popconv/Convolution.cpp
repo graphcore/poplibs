@@ -2144,69 +2144,59 @@ addWeightDeltaPartialRegions(
 }
 
 static Tensor
-calculateWeightDeltasAop(Graph &graph, const Plan &plan,
+calculateWeightDeltasAop(Graph &graph, Plan plan,
                          const Plan &fwdPlan, Tensor zDeltas,
                          Tensor activations, ConvParams params,
                          Sequence &prog, const std::string &debugPrefix) {
-  const auto numInChans = activations.dim(1) * activations.dim(4);
-  auto inChansPerGroup = getInChansPerGroup(fwdPlan, numInChans);
-  assert(numInChans % inChansPerGroup == 0);
-  if (activations.dim(4) != inChansPerGroup) {
-    activations = regroup(activations, inChansPerGroup);
-  }
+  const auto numInChans = params.getInputDepth();
+  const auto numOutChans = params.getOutputDepth();
   if (plan.flattenXY) {
-    zDeltas = zDeltas.reshape(
-        {zDeltas.dim(0), zDeltas.dim(1), 1,
-         zDeltas.dim(2) * zDeltas.dim(3), zDeltas.dim(4)}
-    );
-    activations = activations.reshape(
-        {activations.dim(0), activations.dim(1), 1,
-         activations.dim(2) * activations.dim(3), activations.dim(4)}
-    );
-    params.inputShape[2] = params.inputShape[1] * params.inputShape[2];
-    params.inputShape[1] = 1;
+    zDeltas = zDeltas.reshape({zDeltas.dim(0),
+                               zDeltas.dim(1),
+                               1,
+                               zDeltas.dim(2) * zDeltas.dim(3),
+                               zDeltas.dim(4)});
   }
+  convolutionPreprocess(graph, params, plan, &activations, nullptr);
+  const auto weightDeltaOutChans = params.getOutputDepth();
+  if (weightDeltaOutChans != numOutChans) {
+    auto zDeltasRegrouped = regroup(zDeltas, numOutChans);
+    // Zero pad the zDeltas.
+    auto zDeltasRegroupedPadded = pad(graph, zDeltasRegrouped, 0,
+                                      weightDeltaOutChans - numOutChans, 4);
+    zDeltas = regroup(zDeltasRegroupedPadded, plan.partialChansPerGroup);
+  }
+  const auto weightDeltaInChans = params.getInputDepth();
   const auto &partialsType = plan.getPartialType();
   const auto dType = zDeltas.elementType();
   const auto batchSize = activations.dim(0);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const unsigned numOutChans = zDeltas.dim(1) * zDeltas.dim(4);
-  const auto inNumChanGroups = activations.dim(1);
-  const auto partialChansPerGroup = plan.partialChansPerGroup;
-  const auto partialNumChanGroups = (numOutChans + partialChansPerGroup - 1) /
-                                    partialChansPerGroup;
-  const auto partialNumChans = partialChansPerGroup * partialNumChanGroups;
-  if (partialNumChans != numOutChans) {
-    auto zDeltasRegrouped = regroup(zDeltas, numOutChans);
-    // Zero pad the zDeltas.
-    auto zDeltasRegroupedPadded = pad(graph, zDeltasRegrouped, 0,
-                                      partialNumChans - numOutChans, 4);
-    zDeltas = regroup(zDeltasRegroupedPadded, partialChansPerGroup);
-  }
-
-  auto outDimY = zDeltas.dim(2), outDimX = zDeltas.dim(3);
-  const auto isMultiIPU = deviceInfo.numIPUs > 1;
   const auto tilesPerX = plan.tilesPerXAxis;
   const auto tilesPerY = plan.tilesPerYAxis;
-  const auto tilesPerZ = plan.tilesPerZAxis;
-  const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
-  const auto tilesPerKernelY = plan.tilesPerKernelYAxis;
   const auto numTiles = deviceInfo.getNumTiles();
   const auto kernelSizeY = params.kernelShape[0];
   const auto kernelSizeX = params.kernelShape[1];
+  assert(weightDeltaOutChans % plan.partialChansPerGroup == 0);
+  const auto numPartialOutChanGroups =
+      weightDeltaOutChans / plan.partialChansPerGroup;
+  const auto numPartialInChanGroups =
+      weightDeltaInChans / plan.inChansPerGroup;
+  assert(weightDeltaInChans % plan.inChansPerGroup == 0);
   Tensor partials = graph.addTensor(partialsType, {batchSize,
                                                    tilesPerY, tilesPerX,
-                                                   partialNumChanGroups,
-                                                   inNumChanGroups,
+                                                   numPartialOutChanGroups,
+                                                   numPartialInChanGroups,
                                                    kernelSizeY, kernelSizeX,
-                                                   partialChansPerGroup,
-                                                   inChansPerGroup},
+                                                   plan.partialChansPerGroup,
+                                                   plan.inChansPerGroup},
                                     "partialWeightGrads");
   Tensor regroupedDeltas;
-  if (zDeltas.dim(1) != partialNumChanGroups) {
-    regroupedDeltas = graph.addTensor(dType, {batchSize, partialNumChanGroups,
-                                              outDimY, outDimX,
-                                              partialChansPerGroup},
+  if (zDeltas.dim(4) != plan.partialChansPerGroup) {
+    regroupedDeltas = graph.addTensor(dType, {zDeltas.dim(0),
+                                              numPartialOutChanGroups,
+                                              zDeltas.dim(2),
+                                              zDeltas.dim(3),
+                                              plan.partialChansPerGroup},
                                               "zDeltas'");
     for (unsigned b = 0; b < batchSize; ++b) {
       auto regroupedDeltaMapping =
@@ -2214,70 +2204,46 @@ calculateWeightDeltasAop(Graph &graph, const Plan &plan,
       popstd::applyTensorMapping(graph, regroupedDeltas[b],
                                  regroupedDeltaMapping);
     }
-    prog.add(Copy(regroup(zDeltas, partialChansPerGroup), regroupedDeltas));
+    prog.add(Copy(regroup(zDeltas, plan.partialChansPerGroup),
+                  regroupedDeltas));
   } else {
     regroupedDeltas = zDeltas;
   }
   std::vector<std::vector<Interval<std::size_t>>> partialsMapping(numTiles);
   ComputeSet weightGradCS = graph.addComputeSet(debugPrefix + "/WeightGrad");
-  for (unsigned b = 0; b < batchSize; ++b) {
-    for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
-      const auto inZGroupBegin = (izg * inNumChanGroups) / tilesPerInZGroup;
-      const auto inZGroupEnd = ((izg + 1) * inNumChanGroups) / tilesPerInZGroup;
-      for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
-        const auto outZGroupBegin = (ozg * partialNumChanGroups) / tilesPerZ;
-        const auto outZGroupEnd =
-            ((ozg + 1) * partialNumChanGroups) / tilesPerZ;
-        if (outZGroupBegin == outZGroupEnd)
-          continue;
-        for (unsigned oy = 0; oy != tilesPerY; ++oy) {
-          const auto outYBegin = (oy * outDimY) / tilesPerY;
-          const auto outYEnd = ((oy + 1) * outDimY) / tilesPerY;
-          for (unsigned ox = 0; ox != tilesPerX; ++ox) {
-            const auto outXBegin = (ox * outDimX) / tilesPerX;
-            const auto outXEnd = ((ox + 1) * outDimX) / tilesPerX;
-            for (unsigned ky = 0; ky != tilesPerKernelY; ++ky) {
-              const auto kernelYBegin = (ky * kernelSizeY) / tilesPerKernelY;
-              const auto kernelYEnd =
-                  ((ky + 1) * kernelSizeY) / tilesPerKernelY;
-              const auto tile = linearizeTileIndices(b, batchSize,
-                                                     numTiles,
-                                                     ky, izg,
-                                                     ox, oy, ozg,
-                                                     plan,
-                                                     isMultiIPU);
-              addWeightDeltaPartialRegions(partialsMapping[tile],
-                                           partials.shape(), b, oy, ox,
-                                           kernelYBegin, kernelYEnd,
-                                           outZGroupBegin, outZGroupEnd,
-                                           inZGroupBegin, inZGroupEnd);
-              calcPartialWeightGradsAop(graph, tile,
-                                        outXBegin, outXEnd, outYBegin, outYEnd,
-                                        outZGroupBegin, outZGroupEnd,
-                                        kernelYBegin, kernelYEnd,
-                                        inZGroupBegin, inZGroupEnd,
-                                        kernelSizeY, kernelSizeX,
-                                        params,
-                                        weightGradCS,
-                                        activations[b],
-                                        regroupedDeltas[b],
-                                        partials[b][oy][ox]);
-            }
-          }
-        }
-      }
-    }
-  }
+
+
+  iterateTilePartition(graph, params, plan,
+                       [&](unsigned tile, const ConvTileIndices &indices,
+                           const ConvSlice &slice) {
+    if (slice.outZGroupBegin == slice.outZGroupEnd)
+      return;
+    assert(slice.batchEnd - slice.batchBegin == 1);
+    unsigned b = slice.batchBegin;
+    addWeightDeltaPartialRegions(partialsMapping[tile],
+                                 partials.shape(), b, indices.oy, indices.ox,
+                                 slice.kernelYBegin, slice.kernelYEnd,
+                                 slice.outZGroupBegin, slice.outZGroupEnd,
+                                 slice.inZGroupBegin, slice.inZGroupEnd);
+    calcPartialWeightGradsAop(graph, tile,
+                              slice.outXBegin, slice.outXEnd,
+                              slice.outYBegin, slice.outYEnd,
+                              slice.outZGroupBegin, slice.outZGroupEnd,
+                              slice.kernelYBegin, slice.kernelYEnd,
+                              slice.inZGroupBegin, slice.inZGroupEnd,
+                              kernelSizeY, kernelSizeX,
+                              params,
+                              weightGradCS,
+                              activations[b],
+                              regroupedDeltas[b],
+                              partials[indices.b][indices.oy][indices.ox]);
+  });
   mergeAdjacentRegions(partialsMapping);
   applyTensorMapping(graph, partials, partialsMapping);
   ComputeSet zeroCS = graph.addComputeSet(debugPrefix + "/Zero");
   zero(graph, partials, partialsMapping, zeroCS);
   prog.add(Execute(zeroCS));
   prog.add(Execute(weightGradCS));
-
-  const auto fwdWeightOutChansPerGroup =
-      getWeightOutChansPerGroup(fwdPlan, numOutChans);
-  assert(numOutChans % fwdWeightOutChansPerGroup == 0);
   Tensor weightDeltas;
   auto numPartials = batchSize * tilesPerY * tilesPerX;
   if (numPartials == 1) {
@@ -2299,15 +2265,24 @@ calculateWeightDeltasAop(Graph &graph, const Plan &plan,
       prog.add(Execute(cs));
     }
   }
-  if (partialNumChans != numOutChans) {
+  if (weightDeltaOutChans != numOutChans) {
     // Truncate the weight deltas in the out channel axis.
-    auto weightDeltasRegrouped = regroup(weightDeltas, 0, 4, partialNumChans);
-    auto weightDeltasTruncated = weightDeltasRegrouped.slice(0, numOutChans, 4);
-    weightDeltas = regroup(weightDeltasTruncated, 0, 4,
-                           fwdWeightOutChansPerGroup);
-  } else {
-    weightDeltas = regroup(weightDeltas, 0, 4, fwdWeightOutChansPerGroup);
+    auto weightDeltasRegrouped = regroup(weightDeltas, 0, 4,
+                                         weightDeltaOutChans);
+    weightDeltas = weightDeltasRegrouped.slice(0, numOutChans, 4);
   }
+  const auto fwdWeightOutChansPerGroup =
+      getWeightOutChansPerGroup(fwdPlan, numOutChans);
+  weightDeltas = regroup(weightDeltas, 0, 4, fwdWeightOutChansPerGroup);
+  if (weightDeltaInChans != numInChans) {
+    // Truncate the weight deltas in the in channel axis.
+    auto weightDeltasRegrouped = regroup(weightDeltas, 1, 5,
+                                         weightDeltaInChans);
+    weightDeltas = weightDeltasRegrouped.slice(0, numInChans, 5);
+  }
+  const auto fwdWeightInChansPerGroup =
+      getWeightInChansPerGroup(fwdPlan, numInChans);
+  weightDeltas = regroup(weightDeltas, 1, 5, fwdWeightInChansPerGroup);
   return weightDeltas;
 }
 
