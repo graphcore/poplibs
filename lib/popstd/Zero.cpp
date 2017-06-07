@@ -20,16 +20,18 @@ zero(poplar::Graph &graph,
   const auto tFlat = t.flatten();
   const auto vectorWidth = dType == "float" ? deviceInfo.getFloatVectorWidth()
                                             : deviceInfo.getHalfVectorWidth();
+  const auto tileContiguousRegions =
+      graph.getSortedContiguousRegions(t, tileRegions);
   auto vertexRegions =
-      splitRegionsBetweenWorkers(deviceInfo, tileRegions,
-                                 vectorWidth, vectorWidth * 2);
+      splitRegionsBetweenWorkers(deviceInfo, tileContiguousRegions,
+                                 vectorWidth, 2 * vectorWidth);
   for (const auto &regions : vertexRegions) {
     const auto numRegions = regions.size();
     VertexRef v;
     if (numRegions == 1) {
       v = graph.addVertex(zeroCS, templateVertex("popstd::Zero", dType));
       const auto &region = regions.front();
-      auto out = tFlat.slice(region);
+      auto out = concat(tFlat.slices(region));
       graph.connect(v["out"], out);
     } else {
       v = graph.addVertex(zeroCS, templateVertex("popstd::Zero2D", dType));

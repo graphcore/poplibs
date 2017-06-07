@@ -52,9 +52,11 @@ cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
   assert(mappingIsComplete(t, mapping));
   const auto numTiles = deviceInfo.getNumTiles();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
+    const auto tileContiguousRegions =
+        graph.getSortedContiguousRegions(t, mapping[tile]);
     auto vertexRegions =
-        splitRegionsBetweenWorkers(deviceInfo, mapping[tile],
-                                   vectorWidth, vectorWidth * 2);
+        splitRegionsBetweenWorkers(deviceInfo, tileContiguousRegions,
+                                   vectorWidth, 2 * vectorWidth);
     for (const auto &regions : vertexRegions) {
       const auto numRegions = regions.size();
       assert(numRegions != 0);
@@ -63,8 +65,8 @@ cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
         v = graph.addVertex(cs, templateVertex("popstd::Cast", srcType,
                                                dstType));
         const auto &region = regions.front();
-        graph.connect(v["src"], src.slice(region));
-        graph.connect(v["dst"], dst.slice(region));
+        graph.connect(v["src"], concat(src.slices(region)));
+        graph.connect(v["dst"], concat(dst.slices(region)));
       } else {
         v = graph.addVertex(cs, templateVertex("popstd::Cast2D", srcType,
                                                dstType));

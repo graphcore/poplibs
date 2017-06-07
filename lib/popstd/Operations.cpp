@@ -119,9 +119,7 @@ static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
   const auto cs = graph.addComputeSet(debugPrefix);
 
   const auto outType = outputType(inType, op);
-
-  auto out = graph.addTensor(outType, in.shape(), debugPrefix + "/Out");
-  graph.setTileMapping(out, mapping);
+  auto out = graph.clone(outType, in, debugPrefix + "/Out");
 
   auto inFlat = in.flatten();
   auto outFlat = out.flatten();
@@ -129,8 +127,10 @@ static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
   const auto grainSize = deviceInfo.getVectorWidth(inType);
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
+    const auto tileContiguousRegions =
+        graph.getSortedContiguousRegions(outFlat, mapping[tile]);
     auto vertexRegions =
-      splitRegionsBetweenWorkers(deviceInfo, mapping[tile],
+      splitRegionsBetweenWorkers(deviceInfo, tileContiguousRegions,
                                  grainSize, 2 * grainSize);
 
     for (const auto &regions : vertexRegions) {
@@ -168,8 +168,7 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
   const auto mapping = graph.getTileMapping(in1);
   const auto cs = graph.addComputeSet(debugPrefix);
 
-  auto out = graph.addTensor(outType, in1.shape(), debugPrefix + "/Out");
-  graph.setTileMapping(out, mapping);
+  auto out = graph.clone(outType, in1, debugPrefix + "/Out");
 
   auto in1Flat = in1.flatten();
   auto in2Flat = in2.flatten();
@@ -178,8 +177,10 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
   const auto grainSize = deviceInfo.getVectorWidth(in1Type);
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
+    const auto tileContiguousRegions =
+        graph.getSortedContiguousRegions(outFlat, mapping[tile]);
     auto vertexRegions =
-      splitRegionsBetweenWorkers(deviceInfo, mapping[tile],
+      splitRegionsBetweenWorkers(deviceInfo, tileContiguousRegions,
                                  grainSize, 2 * grainSize);
 
     for (const auto &regions : vertexRegions) {

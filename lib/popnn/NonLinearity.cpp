@@ -21,9 +21,7 @@ nonLinearityInputGradient(Graph &graph,
   const auto dType = out.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
-  auto inGradient = graph.addTensor(dType, outGradient.shape(),
-                                    debugPrefix + "/NonLinearityGrad");
-  graph.setTileMapping(inGradient, graph.getTileMapping(outGradient));
+  auto inGradient = graph.clone(outGradient, debugPrefix + "/NonLinearityGrad");
 
   Tensor outRegrouped;
   // TODO: This could possible be made more efficient by merging the
@@ -39,7 +37,7 @@ nonLinearityInputGradient(Graph &graph,
   auto outFlat = outRegrouped.flatten();
   auto outGradFlat = outGradient.flatten();
   auto inGradFlat = inGradient.flatten();
-  auto inGradMapping = graph.getTileMapping(inGradFlat);
+  auto outGradMapping = graph.getTileMapping(outGradFlat);
   const auto numTiles = deviceInfo.getNumTiles();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     // On each tile split the elements of the output up between the workers.
@@ -49,8 +47,10 @@ nonLinearityInputGradient(Graph &graph,
     // balance memory and loop overhead against parallel performance.
     const auto grainSize = dType == "float" ? deviceInfo.getFloatVectorWidth()
                                             : deviceInfo.getHalfVectorWidth();
+    const auto tileContiguousRegions =
+        graph.getSortedContiguousRegions(outFlat, outGradMapping[tile]);
     auto vertexRegions =
-        splitRegionsBetweenWorkers(deviceInfo, inGradMapping[tile],
+        splitRegionsBetweenWorkers(deviceInfo, tileContiguousRegions,
                                    grainSize, 2 * grainSize);
     for (const auto &regions : vertexRegions) {
       auto v = graph.addVertex(cs, templateVertex("popnn::NonLinearityGrad",
