@@ -54,7 +54,7 @@ cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     auto vertexRegions =
         splitRegionsBetweenWorkers(deviceInfo, mapping[tile],
-                                   vectorWidth, vectorWidth);
+                                   vectorWidth, vectorWidth * 2);
     for (const auto &regions : vertexRegions) {
       const auto numRegions = regions.size();
       assert(numRegions != 0);

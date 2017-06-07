@@ -22,7 +22,7 @@ zero(poplar::Graph &graph,
                                             : deviceInfo.getHalfVectorWidth();
   auto vertexRegions =
       splitRegionsBetweenWorkers(deviceInfo, tileRegions,
-                                 vectorWidth, vectorWidth);
+                                 vectorWidth, vectorWidth * 2);
   for (const auto &regions : vertexRegions) {
     const auto numRegions = regions.size();
     VertexRef v;
