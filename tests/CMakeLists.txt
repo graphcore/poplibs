@@ -209,7 +209,19 @@ add_test(NAME conv3x3_stride_1_fwd_asym_padding
                 --padding-height-upper=2
                 --padding-width-upper=2
                 --stride=1)
-
+add_test(NAME conv3x3_stride_1_fwd_asym_padding_2
+         COMMAND single_conv_layer
+                --input-channels=32
+                --output-channels=48
+                --width=20
+                --height=28
+                --kernel-size=3
+                --data-type=half
+                --padding-height-lower=3
+                --padding-width-lower=3
+                --padding-height-upper=0
+                --padding-width-upper=0
+                --stride=1)
 
 add_test(NAME conv5x5_stride_2_fwd_asym_padding
          COMMAND single_conv_layer

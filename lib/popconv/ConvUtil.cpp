@@ -178,7 +178,7 @@ ConvParams getGradientParams(const ConvParams &params) {
   for (const auto dim : {0, 1}) {
     const auto kernelSize = params.kernelShape[dim];
     const auto paddingLower = params.paddingLower[dim];
-    const auto paddingUpper = params.paddingLower[dim];
+    const auto paddingUpper = params.paddingUpper[dim];
     bwdPaddingLower.push_back(
       static_cast<int>(kernelSize) - 1 - paddingLower
     );
