@@ -33,266 +33,6 @@ using namespace popstd;
 using namespace popreduce;
 using poplib_test::Pass;
 
-template <class T>
-static void
-groupFullyConnectedPrevAct(boost::const_multi_array_ref<double, 2> src,
-                           boost::multi_array_ref<T, 4> dst) {
-  unsigned batchSize = src.shape()[0];
-  unsigned inputSize = src.shape()[1];
-  assert(dst.shape()[0] == 1);
-  assert(dst.shape()[1] == 1);
-  assert(dst.shape()[2] == batchSize);
-  assert(dst.shape()[3] == inputSize);
-  for (unsigned b = 0; b != batchSize; ++b) {
-    for (unsigned x = 0; x != inputSize; ++x) {
-      dst[0][0][b][x] = src[b][x];
-    }
-  }
-}
-
-static void
-groupFullyConnectedPrevAct(boost::const_multi_array_ref<double, 2> src,
-                           const std::string &dstType,
-                           const std::vector<std::size_t> &dstDims,
-                           void *dst) {
-  assert(dstDims.size() == 4);
-  const auto &multiArrayDims =
-    boost::extents[dstDims[0]][dstDims[1]][dstDims[2]][dstDims[3]];
-  if (dstType == "float") {
-    groupFullyConnectedPrevAct(
-      src,
-      boost::multi_array_ref<float, 4>(reinterpret_cast<float*>(dst),
-                                       multiArrayDims)
-    );
-  } else {
-    assert(dstType == "half");
-    groupFullyConnectedPrevAct(
-      src,
-      boost::multi_array_ref<poplar::half, 4>(
-        reinterpret_cast<poplar::half*>(dst),
-        multiArrayDims
-      )
-    );
-  }
-}
-
-template <class T>
-static void
-groupFullyConnectedZDeltas(boost::const_multi_array_ref<double, 2> src,
-                           boost::multi_array_ref<T, 4> dst) {
-  unsigned batchSize = src.shape()[0];
-  unsigned inputSize = src.shape()[1];
-  assert(dst.shape()[0] == 1);
-  assert(dst.shape()[1] == 1);
-  assert(dst.shape()[3] == batchSize);
-  assert(dst.shape()[2] == inputSize);
-  for (unsigned b = 0; b != batchSize; ++b) {
-    for (unsigned x = 0; x != inputSize; ++x) {
-      dst[0][0][x][b] = src[b][x];
-    }
-  }
-}
-
-static void
-groupFullyConnectedZDeltas(boost::const_multi_array_ref<double, 2> src,
-                           const std::string &dstType,
-                           const std::vector<std::size_t> &dstDims,
-                           void *dst) {
-  assert(dstDims.size() == 4);
-  const auto &multiArrayDims =
-    boost::extents[dstDims[0]][dstDims[1]][dstDims[2]][dstDims[3]];
-  if (dstType == "float") {
-    groupFullyConnectedZDeltas(
-      src,
-      boost::multi_array_ref<float, 4>(reinterpret_cast<float*>(dst),
-                                       multiArrayDims)
-    );
-  } else {
-    assert(dstType == "half");
-    groupFullyConnectedZDeltas(
-      src,
-      boost::multi_array_ref<poplar::half, 4>(
-        reinterpret_cast<poplar::half*>(dst),
-        multiArrayDims
-      )
-    );
-  }
-}
-
-template <class T>
-static void
-ungroupFullyConnectedPrevDeltas(boost::const_multi_array_ref<T, 4> src,
-                                boost::multi_array_ref<double, 2> dst) {
-  unsigned batchSize = dst.shape()[0];
-  unsigned inputSize = dst.shape()[1];
-  assert(src.shape()[0] == 1);
-  assert(src.shape()[1] == 1);
-  assert(src.shape()[2] == batchSize);
-  assert(src.shape()[3] == inputSize);
-  for (unsigned b = 0; b != batchSize; ++b) {
-    for (unsigned x = 0; x != inputSize; ++x) {
-       dst[b][x] = src[0][0][b][x];
-    }
-  }
-}
-
-static void
-ungroupFullyConnectedPrevDeltas(const std::string &srcType,
-                                const std::vector<std::size_t> &srcDims,
-                                const void *src,
-                                boost::multi_array_ref<double, 2> dst) {
-  assert(srcDims.size() == 4);
-  const auto &multiArrayDims =
-    boost::extents[srcDims[0]][srcDims[1]][srcDims[2]][srcDims[3]];
-  if (srcType == "float") {
-   ungroupFullyConnectedPrevDeltas(
-      boost::const_multi_array_ref<float, 4>(
-        reinterpret_cast<const float*>(src), multiArrayDims
-      ),
-      dst
-    );
-  } else {
-    assert(srcType == "half");
-    ungroupFullyConnectedPrevDeltas(
-       boost::const_multi_array_ref<poplar::half, 4>(
-         reinterpret_cast<const poplar::half*>(src),
-         multiArrayDims
-       ),
-       dst
-     );
-  }
-}
-
-template <class T>
-static void
-groupFullyConnectedWeights(boost::const_multi_array_ref<double, 2> src,
-                           boost::multi_array_ref<T, 4> dst) {
-  unsigned outputSize = src.shape()[0];
-  unsigned inputSize = src.shape()[1];
-  assert(dst.shape()[0] == 1);
-  assert(dst.shape()[1] == 1);
-  assert(dst.shape()[2] == outputSize);
-  for (unsigned o = 0; o != outputSize; ++o) {
-    for (unsigned i = 0; i != inputSize; ++i) {
-      dst[0][0][o][i] = src[o][i];
-    }
-  }
-}
-
-static void
-groupFullyConnectedWeights(boost::const_multi_array_ref<double, 2> src,
-                           const std::string &dstType,
-                           const std::vector<std::size_t> &dstDims,
-                           void *dst) {
-  assert(dstDims.size() == 4);
-  const auto &multiArrayDims =
-    boost::extents[dstDims[0]][dstDims[1]][dstDims[2]][dstDims[3]];
-  if (dstType == "float") {
-    groupFullyConnectedWeights(
-      src,
-      boost::multi_array_ref<float, 4>(reinterpret_cast<float*>(dst),
-                                       multiArrayDims)
-    );
-  } else {
-    assert(dstType == "half");
-    groupFullyConnectedWeights(
-      src,
-      boost::multi_array_ref<poplar::half, 4>(
-        reinterpret_cast<poplar::half*>(dst),
-        multiArrayDims
-      )
-    );
-  }
-}
-
-template <class T>
-static void
-ungroupFullyConnectedWeights(boost::const_multi_array_ref<T, 4> src,
-                             boost::multi_array_ref<double, 2> dst) {
-  unsigned outputSize = dst.shape()[0];
-  unsigned inputSize = dst.shape()[1];
-  assert(src.shape()[0] == 1);
-  assert(src.shape()[1] == 1);
-  assert(src.shape()[2] == outputSize);
-  assert(src.shape()[3] == inputSize);
-  for (unsigned o = 0; o != outputSize; ++o) {
-    for (unsigned i = 0; i != inputSize; ++i) {
-      dst[o][i] = src[0][0][o][i];
-    }
-  }
-}
-
-static void
-ungroupFullyConnectedWeights(const std::string &srcType,
-                             const std::vector<std::size_t> &srcDims,
-                             void *src,
-                             boost::multi_array_ref<double, 2> dst) {
-  assert(srcDims.size() == 4);
-  const auto &multiArrayDims =
-    boost::extents[srcDims[0]][srcDims[1]][srcDims[2]][srcDims[3]];
-  if (srcType == "float") {
-    ungroupFullyConnectedWeights(
-      boost::const_multi_array_ref<float, 4>(
-        reinterpret_cast<const float*>(src), multiArrayDims
-      ),
-      dst
-    );
-  } else {
-    assert(srcType == "half");
-    ungroupFullyConnectedWeights(
-      boost::const_multi_array_ref<poplar::half, 4>(
-        reinterpret_cast<const poplar::half*>(src), multiArrayDims
-      ),
-      dst
-    );
-  }
-}
-
-template <class T>
-static void
-ungroupFullyConnectedOutput(boost::const_multi_array_ref<T, 4> src,
-                            boost::multi_array_ref<double, 2> dst) {
-  assert(src.shape()[0] == 1);
-  assert(src.shape()[1] == 1);
-  unsigned batchSize = dst.shape()[0];
-  unsigned outputSize = dst.shape()[1];
-  assert(src.shape()[3] == batchSize);
-  assert(src.shape()[2] == outputSize);
-  for (unsigned b = 0; b != batchSize; ++b) {
-    for (unsigned x = 0; x != outputSize; ++x) {
-      dst[b][x] = src[0][0][x][b];
-    }
-  }
-}
-
-static void
-ungroupFullyConnectedOutput(const std::string &srcType,
-                            const std::vector<std::size_t> &srcDims,
-                            const void *src,
-                            boost::multi_array_ref<double, 2> dst) {
-  assert(srcDims.size() == 4);
-  const auto &multiArrayDims =
-    boost::extents[srcDims[0]][srcDims[1]][srcDims[2]][srcDims[3]];
-  if (srcType == "float") {
-    ungroupFullyConnectedOutput(
-      boost::const_multi_array_ref<float, 4>(
-        reinterpret_cast<const float*>(src),
-        multiArrayDims
-      ),
-      dst
-    );
-  } else {
-    assert(srcType == "half");
-    ungroupFullyConnectedOutput(
-      boost::const_multi_array_ref<half, 4>(
-        reinterpret_cast<const half*>(src),
-        multiArrayDims
-      ),
-      dst
-    );
-  }
-}
-
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
@@ -422,7 +162,9 @@ int main(int argc, char **argv) {
                                      {1, 1}, {0, 0},
                                      {0, 0}, {1, 1}),
                                    "zDeltas", bwdOptions);
-    rawHostZDeltas = allocateHostMemoryForTensor(zDeltas, upload, download);
+    rawHostZDeltas =
+        allocateHostMemoryForTensor(zDeltas[0][0].dimShuffle({1, 0}), upload,
+                                    download);
   }
 
   auto fwdProg = Sequence();
@@ -450,10 +192,14 @@ int main(int argc, char **argv) {
                                nextAct.dim(1) * nextAct.dim(4)});
   }
 
-  auto rawHostPrevAct = allocateHostMemoryForTensor(prevAct, upload, download);
-  auto rawHostWeights = allocateHostMemoryForTensor(weights, upload, download);
+  auto rawHostPrevAct =
+      allocateHostMemoryForTensor(prevAct[0][0], upload, download);
+  auto rawHostWeights =
+      allocateHostMemoryForTensor(weights[0][0], upload, download);
   auto rawHostBiases = allocateHostMemoryForTensor(biases, upload, download);
-  auto rawHostNextAct = allocateHostMemoryForTensor(nextAct, upload, download);
+  auto rawHostNextAct =
+      allocateHostMemoryForTensor(nextAct[0][0].dimShuffle({1, 0}), upload,
+                                  download);
 
   Tensor prevDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
@@ -465,7 +211,8 @@ int main(int argc, char **argv) {
     prevDeltas = graph.addTensor(dataTypeStr, prevAct.shape(), "prevDeltas");
     popconv::mapWeights(graph, prevDeltas, convParams, bwdOptions);
   }
-  rawHostPrevDeltas = allocateHostMemoryForTensor(prevDeltas, upload, download);
+  rawHostPrevDeltas =
+      allocateHostMemoryForTensor(prevDeltas[0][0], upload, download);
   if (doWuPass) {
     // Implement the weight update as a convolutional layer with
     // input channels = batch size
@@ -512,17 +259,14 @@ int main(int argc, char **argv) {
   writeRandomValues(hostPrevAct, -4.0, 4.0, randomEngine);
   writeRandomValues(hostWeights, -3.0, 3.0, randomEngine);
   writeRandomValues(hostBiases, -4.0, 4.0, randomEngine);
-  groupFullyConnectedPrevAct(hostPrevAct, dataTypeStr, prevAct.shape(),
-                             rawHostPrevAct.get());
-  groupFullyConnectedWeights(hostWeights, dataTypeStr, weights.shape(),
-                             rawHostWeights.get());
+  copy(hostPrevAct, dataTypeStr, rawHostPrevAct.get());
+  copy(hostWeights, dataTypeStr, rawHostWeights.get());
   copy(hostBiases, dataTypeStr, rawHostBiases.get());
   // Run the forward pass.
   engine.run(0); // Upload.
   engine.run(2); // Run.
   engine.run(1); // Download.
-  ungroupFullyConnectedOutput(dataTypeStr, nextAct.shape(),
-                              rawHostNextAct.get(), hostNextAct);
+  copy(dataTypeStr, rawHostNextAct.get(), hostNextAct);
 
   // Validate against a reference model.
   bool matchesModel = true;
@@ -546,13 +290,10 @@ int main(int argc, char **argv) {
     auto modelBiases = hostBiases;
     // Run the backwards pass.
     writeRandomValues(hostZDeltas, -5.0, 5.0, randomEngine);
-    groupFullyConnectedZDeltas(hostZDeltas, dataTypeStr, zDeltas.shape(),
-                               rawHostZDeltas.get());
+    copy(hostZDeltas, dataTypeStr, rawHostZDeltas.get());
     if (!doBwdPass) {
       writeRandomValues(hostPrevDeltas, -5.0, 5.0, randomEngine);
-      groupFullyConnectedPrevAct(hostPrevDeltas, dataTypeStr,
-                                 prevDeltas.shape(),
-                                 rawHostPrevDeltas.get());
+      copy(hostPrevDeltas, dataTypeStr, rawHostPrevDeltas.get());
     }
     engine.run(0); // Upload.
     engine.run(3); // Run.
@@ -560,8 +301,7 @@ int main(int argc, char **argv) {
 
     // Validate against a reference model.
     if (doBwdPass) {
-      ungroupFullyConnectedPrevDeltas(dataTypeStr, prevDeltas.shape(),
-                                      rawHostPrevDeltas.get(), hostPrevDeltas);
+      copy(dataTypeStr, rawHostPrevDeltas.get(), hostPrevDeltas);
       boost::multi_array<double, 2>
           modelPrevDeltas(boost::extents[batchSize][inputSize]);
       poplib_test::fc::fullyConnectedBackward(hostZDeltas, modelWeights,
@@ -570,8 +310,7 @@ int main(int argc, char **argv) {
                                    relativeTolerance);
     }
     if (doWuPass) {
-      ungroupFullyConnectedWeights(dataTypeStr, weights.shape(),
-                                   rawHostWeights.get(), hostWeights);
+      copy(dataTypeStr, rawHostWeights.get(), hostWeights);
       copy(dataTypeStr, rawHostBiases.get(), hostBiases);
       poplib_test::fc::fullyConnectedWeightUpdate(learningRate, hostPrevAct,
                                                   hostZDeltas, modelWeights,
