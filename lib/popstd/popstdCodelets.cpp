@@ -72,13 +72,13 @@ static uint64_t comparisonOpsCycles(unsigned dataPathWidth,
 
 namespace popstd {
 
-template <typename FPType>
+template <typename InType>
 class ScaledAdd : public Vertex {
 public:
-  Vector<InOut<Vector<FPType>>> data;
-  Vector<Input<Vector<FPType>>> deltas;
+  Vector<InOut<Vector<InType>>> data;
+  Vector<Input<Vector<InType>>> deltas;
 
-  float K;
+  InType K;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
@@ -96,8 +96,16 @@ public:
     uint64_t cycles = 5;
     for (unsigned i = 0; i < data.size(); ++i) {
       unsigned numElem = data[i].size();
-      bool isFloat = std::is_same<FPType, float>::value;
-      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+      unsigned vectorWidth = 1;
+      if (std::is_same<InType, float>::value) {
+        vectorWidth = dataPathWidth / 32;
+      }
+      else if (std::is_same<InType, half>::value) {
+        vectorWidth = dataPathWidth / 16;
+      }
+      else if (std::is_same<InType, int>::value) {
+        vectorWidth = 1;
+      }
       // Inner loop uses the axpy instruction.
       cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth);
     }
@@ -107,6 +115,7 @@ public:
 
 template class ScaledAdd<float>;
 template class ScaledAdd<half>;
+template class ScaledAdd<int>;
 
 
 template <typename FPType>

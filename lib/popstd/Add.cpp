@@ -29,8 +29,7 @@ void addTo(Graph &graph, Tensor A, Tensor B, float k,
     // up when allocating work to vertices.
     // The minimum amount of work per vertex is set to 2 * vectorwidth to
     // balance memory and loop overhead against parallel performance.
-    const auto grainSize = dType == "float" ? deviceInfo.getFloatVectorWidth()
-                                            : deviceInfo.getHalfVectorWidth();
+    const auto grainSize = deviceInfo.getVectorWidth(dType);
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(A, mapping[tile]);
     auto vertexRegions =
@@ -51,5 +50,9 @@ void addTo(Graph &graph, Tensor A, Tensor B, float k,
 }
 
 
+void addTo(Graph &graph, Tensor A, Tensor B,
+           Sequence &prog, const std::string &debugPrefix) {
+  addTo(graph, A, B, 1.0, prog, debugPrefix);
+}
 
 }
