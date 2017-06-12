@@ -415,8 +415,14 @@ iterateTilePartition(const Graph &graph, const ConvParams &params,
             const auto outYBegin = (oy * outDimY) / tilesPerY;
             const auto outYEnd = ((oy + 1) * outDimY) / tilesPerY;
             for (unsigned ox = 0; ox != tilesPerX; ++ox) {
-              const auto outXBegin = (ox * outDimX) / tilesPerX;
-              const auto outXEnd = ((ox + 1) * outDimX) / tilesPerX;
+              const auto xAxisGrainSize = plan.xAxisGrainSize;
+              const auto numXGrains = (outDimX + xAxisGrainSize - 1) /
+                                      plan.xAxisGrainSize;
+              const auto outXGrainBegin = (ox * numXGrains) / tilesPerX;
+              const auto outXGrainEnd = ((ox + 1) * numXGrains) / tilesPerX;
+              const auto outXBegin = outXGrainBegin * xAxisGrainSize;
+              const auto outXEnd = std::min(outXGrainEnd * xAxisGrainSize,
+                                            outDimX);
               const auto tile = linearizeTileIndices(b, numBatchGroups,
                                                      numTiles,
                                                      ky, izg,

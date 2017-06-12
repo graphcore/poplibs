@@ -16,6 +16,8 @@ struct Plan {
   unsigned inChansPerGroup;
   unsigned partialChansPerGroup;
   unsigned batchesPerGroup;
+  /// Grain size to use when splitting the x-axis across tiles.
+  unsigned xAxisGrainSize;
   bool floatPartials;
   bool useConvolutionInstructions;
   bool flattenXY = false;
@@ -36,6 +38,7 @@ struct Plan {
        unsigned inChansPerGroup,
        unsigned partialChansPerGroup,
        unsigned batchesPerGroup,
+       unsigned xAxisGrainSize,
        bool floatPartials,
        bool useConvolutionInstructions) :
     tilesPerXAxis(tilesPerXAxis),
@@ -46,6 +49,7 @@ struct Plan {
     inChansPerGroup(inChansPerGroup),
     partialChansPerGroup(partialChansPerGroup),
     batchesPerGroup(batchesPerGroup),
+    xAxisGrainSize(xAxisGrainSize),
     floatPartials(floatPartials),
     useConvolutionInstructions(useConvolutionInstructions) {}
   const char *getPartialType() const {
