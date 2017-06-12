@@ -40,14 +40,10 @@ int main(int argc, char **argv) {
   unsigned height;
   unsigned kernelHeight;
   unsigned kernelWidth;
-  int paddingHeightLower;
-  int paddingWidthLower;
-  int paddingHeightUpper;
-  int paddingWidthUpper;
-  unsigned strideH;
-  unsigned strideW;
-  unsigned inDilationH;
-  unsigned inDilationW;
+  std::vector<int> paddingLower = {0, 0};
+  std::vector<int> paddingUpper = {0, 0};
+  std::vector<unsigned> inDilation = {1, 1};
+  std::vector<unsigned> stride = {1, 1};
   unsigned batchSize;
   FPDataType dataType;
   FPDataType partialsType;
@@ -58,11 +54,11 @@ int main(int argc, char **argv) {
 
   /* these are used when the same value is shared across both height and width*/
   unsigned kernelSize;
-  unsigned padding;
-  int paddingHeight;
-  int paddingWidth;
-  unsigned stride;
-  unsigned inDilation;
+  unsigned sharedPadding;
+  int sharedPaddingHeight;
+  int sharedPaddingWidth;
+  unsigned sharedStride;
+  unsigned sharedInDilation;
   Pass pass = Pass::ALL;
   popconv::ConvOptions convOptions;
   popconv::PlanningCache cache;
@@ -94,39 +90,40 @@ int main(int argc, char **argv) {
     ("partials-type",
      po::value<FPDataType>(&partialsType)->default_value(FPDataType::FLOAT),
      "Type of partials")
-    ("padding", po::value<unsigned>(&padding)->default_value(0),
+    ("padding", po::value<unsigned>(&sharedPadding)->default_value(0),
      "Amount of zero padding for height and width. If set, it is an "
      "error to also set any other padding value")
-    ("padding-height", po::value<int>(&paddingHeight)->default_value(0),
+    ("padding-height", po::value<int>(&sharedPaddingHeight)->default_value(0),
      "Amount of zero padding in the height dimension, upper and lower")
-    ("padding-width", po::value<int>(&paddingWidth)->default_value(0),
+    ("padding-width", po::value<int>(&sharedPaddingWidth)->default_value(0),
      "Amount of zero padding in the width dimension, upper and lower")
     ("padding-height-lower",
-     po::value<int>(&paddingHeightLower)->default_value(0),
+     po::value<int>(&paddingLower[0])->default_value(0),
      "Amount of zero padding in the height dimension, lower edge")
     ("padding-width-lower",
-     po::value<int>(&paddingWidthLower)->default_value(0),
+     po::value<int>(&paddingLower[1])->default_value(0),
      "Amount of zero padding in the width dimension, lower edge")
     ("padding-height-upper",
-     po::value<int>(&paddingHeightUpper)->default_value(0),
+     po::value<int>(&paddingUpper[0])->default_value(0),
      "Amount of zero padding in the height dimension, upper edge")
     ("padding-width-upper",
-     po::value<int>(&paddingWidthUpper)->default_value(0),
+     po::value<int>(&paddingUpper[1])->default_value(0),
      "Amount of zero padding in the width dimension, upper edge")
 
-    ("stride", po::value<unsigned>(&stride)->default_value(1),
+    ("stride", po::value<unsigned>(&sharedStride)->default_value(1),
      "Kernel stride for both height and width. If set, it is an error "
      "to also set either stride-height and/or stride-width")
-    ("stride-height", po::value<unsigned>(&strideH)->default_value(1),
+    ("stride-height", po::value<unsigned>(&stride[0])->default_value(1),
      "Kernel stride in the height dimension")
-    ("stride-width", po::value<unsigned>(&strideW)->default_value(1),
+    ("stride-width", po::value<unsigned>(&stride[1])->default_value(1),
      "Kernel stride in the width dimension")
-    ("in-dilation", po::value<unsigned>(&inDilation)->default_value(1),
+    ("in-dilation", po::value<unsigned>(&sharedInDilation)->default_value(1),
      "Input dilation for both height and width. If set, it is an error "
      "to also set either inDilation-height and/or inDilation-width")
-    ("in-dilation-height", po::value<unsigned>(&inDilationH)->default_value(1),
+    ("in-dilation-height",
+     po::value<unsigned>(&inDilation[0])->default_value(1),
      "Input dilation in the height dimension")
-    ("in-dilation-width", po::value<unsigned>(&inDilationW)->default_value(1),
+    ("in-dilation-width", po::value<unsigned>(&inDilation[1])->default_value(1),
      "Input dilation in the width dimension")
     ("single-phase",
      po::value<Pass>(&pass)->default_value(pass),
@@ -209,10 +206,8 @@ int main(int argc, char **argv) {
       std::cerr << "--padding as well as --padding-width-upper set\n";
       return 1;
     }
-    paddingHeightLower = padding;
-    paddingHeightUpper = padding;
-    paddingWidthLower = padding;
-    paddingWidthUpper = padding;
+    std::fill(paddingLower.begin(), paddingLower.end(), sharedPadding);
+    std::fill(paddingUpper.begin(), paddingUpper.end(), sharedPadding);
   }
 
   if (!vm["padding-height"].defaulted()) {
@@ -224,8 +219,8 @@ int main(int argc, char **argv) {
       std::cerr << "--padding-height as well as --padding-height-upper set\n";
       return 1;
     }
-    paddingHeightLower = paddingHeight;
-    paddingHeightUpper = paddingHeight;
+    paddingLower[0] = sharedPaddingHeight;
+    paddingUpper[0] = sharedPaddingHeight;
   }
 
   if (!vm["padding-width"].defaulted()) {
@@ -237,8 +232,8 @@ int main(int argc, char **argv) {
       std::cerr << "--padding-width as well as --padding-width-upper set\n";
       return 1;
     }
-    paddingWidthLower = paddingWidth;
-    paddingWidthUpper = paddingWidth;
+    paddingLower[1] = sharedPaddingWidth;
+    paddingUpper[1] = sharedPaddingWidth;
   }
 
   if (!vm["stride"].defaulted()) {
@@ -250,8 +245,7 @@ int main(int argc, char **argv) {
       std::cerr << "--stride as well as --stride-width set\n";
       return 1;
     }
-    strideH = stride;
-    strideW = stride;
+    std::fill(stride.begin(), stride.end(), sharedStride);
   }
 
   if (!vm["in-dilation"].defaulted()) {
@@ -263,8 +257,7 @@ int main(int argc, char **argv) {
       std::cerr << "--in-dilation as well as --in-dilation-width set\n";
       return 1;
     }
-    inDilationH = inDilation;
-    inDilationW = inDilation;
+    std::fill(inDilation.begin(), inDilation.end(), sharedInDilation);
   }
 
   bool doFwdPass = pass == Pass::ALL || pass == Pass::FWD;
@@ -284,10 +277,10 @@ int main(int argc, char **argv) {
                           {batchSize, height, width, fwdInChans},
                           {kernelHeight, kernelWidth, fwdOutChans,
                            fwdInChans},
-                          {strideH, strideW},
-                          {paddingHeightLower, paddingWidthLower},
-                          {paddingHeightUpper, paddingWidthUpper},
-                          {inDilationH, inDilationW});
+                          stride,
+                          paddingLower,
+                          paddingUpper,
+                          inDilation);
   if (params.getPaddedDilatedInputSize(0) < 0 ||
       params.getPaddedDilatedInputSize(1) < 0) {
     throw popstd::poplib_error("Convolution pass does not support "
@@ -388,10 +381,10 @@ int main(int argc, char **argv) {
   copy(dataTypeStr, rawHostNextAct.get(), hostNextAct);
   boost::multi_array<double, 4>
       modelNextAct(boost::extents[batchSize][outHeight][outWidth][fwdOutChans]);
-  poplib_test::conv::convolution({strideH, strideW},
-                                 {inDilationH, inDilationW},
-                                 {paddingHeightLower, paddingWidthLower},
-                                 {paddingHeightUpper, paddingWidthUpper},
+  poplib_test::conv::convolution(stride,
+                                 inDilation,
+                                 paddingLower,
+                                 paddingUpper,
                                  hostPrevAct,
                                  hostWeights, hostBiases, modelNextAct);
   if (doFwdPass) {
@@ -427,10 +420,10 @@ int main(int argc, char **argv) {
       boost::multi_array<double, 4>
           modelPrevDeltas(boost::extents[batchSize][height][width][fwdInChans]);
       poplib_test::conv::convolutionBackward(
-              {strideH, strideW},
-              {inDilationH, inDilationW},
-              {paddingHeightLower, paddingWidthLower},
-              {paddingHeightUpper, paddingWidthUpper},
+              stride,
+              inDilation,
+              paddingLower,
+              paddingUpper,
               hostZDeltas,
               modelWeights,
               modelPrevDeltas);
@@ -438,10 +431,10 @@ int main(int argc, char **argv) {
                                    relativeTolerance);
     }
     if (doWuPass) {
-      poplib_test::conv::weightUpdate({strideH, strideW},
-                                      {inDilationH, inDilationW},
-                                      {paddingHeightLower, paddingWidthLower},
-                                      {paddingHeightUpper, paddingWidthUpper},
+      poplib_test::conv::weightUpdate(stride,
+                                      inDilation,
+                                      paddingLower,
+                                      paddingUpper,
                                       learningRate, hostPrevAct,
                                       hostZDeltas, modelWeights, modelBiases);
       matchesModel &= checkIsClose("weights",
