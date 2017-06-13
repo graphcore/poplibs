@@ -2120,8 +2120,6 @@ createWeightGradAopVertex(Graph &graph, unsigned tile,
   std::vector<unsigned> weightReuseCount(numTasks);
   std::vector<Tensor> actsEdges;
   std::vector<Tensor> deltasEdges;
-  const auto &stride = params.stride;
-  const auto &inputPaddingLower = params.inputPaddingLower;
   unsigned numDeltasEdges = 0;
   for (auto it = taskBegin; it != taskEnd; ++it) {
     const auto &task = *it;
@@ -2137,10 +2135,8 @@ createWeightGradAopVertex(Graph &graph, unsigned tile,
     unsigned deltaXBegin, deltaXEnd;
     std::tie(deltaXBegin, deltaXEnd) =
         getOutputRange(1, {outXBegin, outXEnd}, kernelX, params);
-    const auto actXBegin = deltaXBegin * stride[1] + kernelX -
-                           inputPaddingLower[1];
-    const auto actXEnd = (deltaXEnd - 1) * stride[1] + kernelX -
-            inputPaddingLower[1] + 1;
+    const auto actXBegin = getInputIndex(1, deltaXBegin, kernelX, params);
+    const auto actXEnd = getInputIndex(1, deltaXEnd - 1, kernelX, params) + 1;
     unsigned deltaYBegin, deltaYEnd;
     std::tie(deltaYBegin, deltaYEnd) =
         getOutputRange(0, {outYBegin, outYEnd}, kernelY, params);
@@ -2149,7 +2145,7 @@ createWeightGradAopVertex(Graph &graph, unsigned tile,
 
     for (unsigned deltaY = deltaYBegin; deltaY != deltaYEnd;
          ++deltaY, ++numDeltasEdges) {
-      const auto actY = deltaY * stride[0] + kernelY - inputPaddingLower[0];
+      const auto actY = getInputIndex(0, deltaY, kernelY, params);
       actsEdges.push_back(acts[izg][actY].slice(actXBegin, actXEnd).flatten());
       deltasEdges.push_back(deltas[ozg][deltaY]
                             .slice(deltaXBegin, deltaXEnd).flatten());
