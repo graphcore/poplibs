@@ -3037,4 +3037,17 @@ void reportPlanInfo(std::ostream &out,
   out << plan;
 }
 
+void reportWeightUpdatePlanInfo(std::ostream &out,
+                                const Graph &graph,
+                                const Tensor &activationsUnGrouped,
+                                const Tensor &zDeltasUnGrouped,
+                                const ConvParams &params,
+                                const ConvOptions &options) {
+  auto activations = groupActivations(activationsUnGrouped);
+  auto zDeltas = groupActivations(zDeltasUnGrouped);
+  const auto plan =
+      getWeightUpdatePlan(graph, activations, zDeltas, params, options);
+  out << plan;
+}
+
 } // namespace conv

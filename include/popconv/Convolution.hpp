@@ -188,6 +188,13 @@ void reportPlanInfo(std::ostream &out, const poplar::Graph &graph,
                     const ConvParams &params,
                     const ConvOptions &options = ConvOptions());
 
+void reportWeightUpdatePlanInfo(std::ostream &out,
+                                const poplar::Graph &graph,
+                                const poplar::Tensor &activations,
+                                const poplar::Tensor &zDeltas,
+                                const ConvParams &params,
+                                const ConvOptions &options = ConvOptions());
+
 struct Plan;
 class PlanningCacheImpl;
 class PlanningCache {

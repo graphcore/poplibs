@@ -51,6 +51,7 @@ int main(int argc, char **argv) {
   DeviceInfo info;
   info.IPUExchangeType =
       DeviceInfo::ExchangeType::AGGRESSIVE_MULTICAST;
+  bool reportPlan;
 
   /* these are used when the same value is shared across both height and width*/
   unsigned kernelSize;
@@ -154,6 +155,8 @@ int main(int argc, char **argv) {
          &convOptions.weightUpdateMethod
      )->default_value(convOptions.weightUpdateMethod),
      "Weight update method: amp | aop | auto")
+    ("report-plan", po::value<bool>(&reportPlan)->default_value(false),
+     "Display plan")
   ;
   po::variables_map vm;
   try {
@@ -294,7 +297,6 @@ int main(int argc, char **argv) {
 
   const auto bwdParams = getGradientParams(params);
 
-  popconv::reportPlanInfo(std::cout, graph, bwdParams, convOptions);
   // Create tensors.
   Tensor prevAct =
       popconv::createInput(graph, params, "prevAct", convOptions);
@@ -311,6 +313,10 @@ int main(int argc, char **argv) {
   // actually create the engined if the fwd pass is to be run
   Tensor nextAct = popconv::convolution(graph, prevAct, weights, params, false,
                                         fwdProg, "", convOptions);
+  if (reportPlan) {
+    std::cout << "Forward plan:\n";
+    popconv::reportPlanInfo(std::cout, graph, params, convOptions);
+  }
   Tensor biases = popconv::createBiases(graph, nextAct);
   popconv::addBias(graph, nextAct, biases, fwdProg, "");
   if (!doFwdPass)
@@ -327,6 +333,10 @@ int main(int argc, char **argv) {
     prevDeltas = popconv::convolution(graph, zDeltas, weights, bwdParams,
                                       true, revProg, "",
                                       convOptions);
+    if (reportPlan) {
+      std::cout << "Backward plan:\n";
+      popconv::reportPlanInfo(std::cout, graph, bwdParams, convOptions);
+    }
   }
   if (doWuPass) {
     popconv::convolutionWeightUpdate(graph, zDeltas, weights, prevAct,
@@ -334,6 +344,11 @@ int main(int argc, char **argv) {
                                      revProg, "", convOptions);
     popconv::convolutionBiasUpdate(graph, zDeltas, biases, learningRate,
                                    revProg);
+    if (reportPlan) {
+      std::cout << "WU plan:\n";
+      popconv::reportWeightUpdatePlanInfo(std::cout, graph, zDeltas, prevAct,
+                                          params, convOptions);
+    }
   }
   auto upload = Sequence();
   auto download = Sequence();
