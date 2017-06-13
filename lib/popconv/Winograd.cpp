@@ -1806,8 +1806,8 @@ Program winogradConvolution(Graph &graph,
   const auto dType = in.elementType();
   // Perform each element of the batch serially
   for (unsigned b = 0; b < batchSize; ++b) {
-    prog.add(winogradConvolution(graph, params.stride, params.paddingLower,
-                                 params.paddingUpper,
+    prog.add(winogradConvolution(graph, params.stride, params.inputPaddingLower,
+                                 params.inputPaddingUpper,
                                  in.dim(3), in.dim(2),
                                  out.dim(1) * out.dim(4), patchSizeX,
                                  patchSizeY, dType, partialsType,

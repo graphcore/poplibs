@@ -63,8 +63,8 @@ struct ConvParams {
   std::vector<std::size_t> kernelShape;
   std::vector<unsigned> stride;
   // Padding applied to input after dilation and before input
-  std::vector<int> paddingLower;
-  std::vector<int> paddingUpper;
+  std::vector<int> inputPaddingLower;
+  std::vector<int> inputPaddingUpper;
   // Dilation applied to the input in spatial dimensions before
   // padding and convolution. Dilation is peformed by placing
   // zeroed elements between the elements of the field.
@@ -74,21 +74,22 @@ struct ConvParams {
              std::vector<std::size_t> inputShape,
              std::vector<std::size_t> kernelShape,
              std::vector<unsigned> stride,
-             std::vector<int> paddingLower,
-             std::vector<int> paddingUpper,
+             std::vector<int> inputPaddingLower,
+             std::vector<int> inputPaddingUpper,
              std::vector<unsigned> inputDilation) :
     dType(std::move(dType)),
     inputShape(std::move(inputShape)),
     kernelShape(std::move(kernelShape)),
     stride(std::move(stride)),
-    paddingLower(std::move(paddingLower)),
-    paddingUpper(std::move(paddingUpper)),
+    inputPaddingLower(std::move(inputPaddingLower)),
+    inputPaddingUpper(std::move(inputPaddingUpper)),
     inputDilation(std::move(inputDilation)) {}
   bool operator<(const ConvParams &other) const {
-    return std::tie(dType, inputShape, kernelShape, stride, paddingLower,
-                    paddingUpper, inputDilation) <
+    return std::tie(dType, inputShape, kernelShape, stride, inputPaddingLower,
+                    inputPaddingUpper, inputDilation) <
              std::tie(other.dType, other.inputShape, other.kernelShape,
-                      other.stride, other.paddingLower, other.paddingUpper,
+                      other.stride,
+                      other.inputPaddingLower, other.inputPaddingUpper,
                       other.inputDilation);
   }
   std::size_t getOutputSize(unsigned dim) const;
@@ -103,7 +104,7 @@ struct ConvParams {
   int getPaddedDilatedInputSize(unsigned dim) const {
     int inputSize = inputShape[1 + dim];
     int dilatedInputSize = (inputSize - 1) * inputDilation[dim] + 1;
-    return paddingLower[dim] + dilatedInputSize + paddingUpper[dim];
+    return inputPaddingLower[dim] + dilatedInputSize + inputPaddingUpper[dim];
   }
   std::vector<size_t> getOutputShape() const;
 

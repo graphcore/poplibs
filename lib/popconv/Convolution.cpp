@@ -109,7 +109,7 @@ std::size_t ConvParams::getOutputSize(unsigned dim) const {
   auto dilatedInputSize =
       (inputShape[1 + dim] - 1) * inputDilation[dim] + 1;
   auto paddedDilatedInputSize =
-      paddingLower[dim] + dilatedInputSize + paddingUpper[dim];
+      inputPaddingLower[dim] + dilatedInputSize + inputPaddingUpper[dim];
   return absdiff(paddedDilatedInputSize, kernelShape[dim]) /
                  stride[dim] + 1;
 }
@@ -161,11 +161,11 @@ verifyStrideAndPaddingDimensions(const ConvParams &params) {
   if (params.stride.size() != 2) {
     throw popstd::poplib_error("Only 2D stride is valid");
   }
-  if (params.paddingLower.size() != 2) {
-    throw popstd::poplib_error("Only 2D paddingLower is valid");
+  if (params.inputPaddingLower.size() != 2) {
+    throw popstd::poplib_error("Only 2D inputPaddingLower is valid");
   }
-  if (params.paddingUpper.size() != 2) {
-    throw popstd::poplib_error("Only 2D paddingUpper is valid");
+  if (params.inputPaddingUpper.size() != 2) {
+    throw popstd::poplib_error("Only 2D inputPaddingUpper is valid");
   }
 }
 
@@ -2121,7 +2121,7 @@ createWeightGradAopVertex(Graph &graph, unsigned tile,
   std::vector<Tensor> actsEdges;
   std::vector<Tensor> deltasEdges;
   const auto &stride = params.stride;
-  const auto &paddingLower = params.paddingLower;
+  const auto &inputPaddingLower = params.inputPaddingLower;
   unsigned numDeltasEdges = 0;
   for (auto it = taskBegin; it != taskEnd; ++it) {
     const auto &task = *it;
@@ -2137,9 +2137,10 @@ createWeightGradAopVertex(Graph &graph, unsigned tile,
     unsigned deltaXBegin, deltaXEnd;
     std::tie(deltaXBegin, deltaXEnd) =
         getOutputRange(1, {outXBegin, outXEnd}, kernelX, params);
-    const auto actXBegin = deltaXBegin * stride[1] + kernelX - paddingLower[1];
+    const auto actXBegin = deltaXBegin * stride[1] + kernelX -
+                           inputPaddingLower[1];
     const auto actXEnd = (deltaXEnd - 1) * stride[1] + kernelX -
-            paddingLower[1] + 1;
+            inputPaddingLower[1] + 1;
     unsigned deltaYBegin, deltaYEnd;
     std::tie(deltaYBegin, deltaYEnd) =
         getOutputRange(0, {outYBegin, outYEnd}, kernelY, params);
@@ -2148,7 +2149,7 @@ createWeightGradAopVertex(Graph &graph, unsigned tile,
 
     for (unsigned deltaY = deltaYBegin; deltaY != deltaYEnd;
          ++deltaY, ++numDeltasEdges) {
-      const auto actY = deltaY * stride[0] + kernelY - paddingLower[0];
+      const auto actY = deltaY * stride[0] + kernelY - inputPaddingLower[0];
       actsEdges.push_back(acts[izg][actY].slice(actXBegin, actXEnd).flatten());
       deltasEdges.push_back(deltas[ozg][deltaY]
                             .slice(deltaXBegin, deltaXEnd).flatten());
@@ -2600,8 +2601,8 @@ calculateWeightDeltasAmp(Graph &graph, const Plan &plan,
   // Transform the weight update convolution into an equivalent convolution that
   // can be implemented using the AMP instruction.
   std::vector<unsigned> activationsUpsampleFactor = {1, 1};
-  std::vector<int> activationsPaddingLower = params.paddingLower;
-  std::vector<int> activationsPaddingUpper = params.paddingUpper;
+  std::vector<int> activationsPaddingLower = params.inputPaddingLower;
+  std::vector<int> activationsPaddingUpper = params.inputPaddingUpper;
   std::vector<unsigned> deltasUpsampleFactor = params.stride;
   std::vector<int> deltasPaddingLower = {0, 0};
   std::vector<int> deltasPaddingUpper = {0, 0};

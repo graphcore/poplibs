@@ -7,15 +7,16 @@ namespace popconv {
 unsigned
 getInputIndex(unsigned dim, unsigned outputIndex,
               unsigned kernelIndex, const ConvParams &params) {
-  const auto paddingLower = params.paddingLower[dim];
-  const auto paddingUpper = params.paddingUpper[dim];
+  const auto inputPaddingLower = params.inputPaddingLower[dim];
+  const auto inputPaddingUpper = params.inputPaddingUpper[dim];
   const auto kernelSize = params.kernelShape[dim];
   const auto stride = params.stride[dim];
   const auto inputSize = params.inputShape[dim + 1];
   const auto inputDilation = params.inputDilation[dim];
   const auto upsampledInputSize = (inputSize - 1) * inputDilation + 1;
   const auto upsampledOutputIndex = outputIndex * stride;
-  const auto paddedInputSize = upsampledInputSize + paddingLower + paddingUpper;
+  const auto paddedInputSize = upsampledInputSize +
+                               inputPaddingLower + inputPaddingUpper;
   int paddedInputIndex;
   if (kernelSize > paddedInputSize) {
     if (kernelIndex < upsampledOutputIndex) {
@@ -25,9 +26,9 @@ getInputIndex(unsigned dim, unsigned outputIndex,
   } else {
     paddedInputIndex = kernelIndex + upsampledOutputIndex;
   }
-  if (paddedInputIndex < paddingLower)
+  if (paddedInputIndex < inputPaddingLower)
     return ~0U;
-  const auto inputIndex = paddedInputIndex - paddingLower;
+  const auto inputIndex = paddedInputIndex - inputPaddingLower;
   if (inputIndex >= upsampledInputSize)
     return ~0U;
   if (inputIndex % inputDilation != 0)
@@ -172,30 +173,30 @@ getOutputShape(const ConvParams &params) {
 }
 
 ConvParams getGradientParams(const ConvParams &params) {
-  std::vector<int> bwdPaddingLower, bwdPaddingUpper;
+  std::vector<int> bwdInputPaddingLower, bwdInputPaddingUpper;
   std::vector<unsigned> bwdStride, bwdInputDilation;
   bwdStride = params.inputDilation;
   bwdInputDilation = params.stride;
   for (const auto dim : {0, 1}) {
     const auto kernelSize = params.kernelShape[dim];
-    const auto paddingLower = params.paddingLower[dim];
-    const auto paddingUpper = params.paddingUpper[dim];
-    bwdPaddingLower.push_back(
-      static_cast<int>(kernelSize) - 1 - paddingLower
+    const auto inputPaddingLower = params.inputPaddingLower[dim];
+    const auto inputPaddingUpper = params.inputPaddingUpper[dim];
+    bwdInputPaddingLower.push_back(
+      static_cast<int>(kernelSize) - 1 - inputPaddingLower
     );
     auto paddedInputSize =
-        params.inputShape[1 + dim] + paddingLower + paddingUpper;
+        params.inputShape[1 + dim] + inputPaddingLower + inputPaddingUpper;
     int inputSizeIgnored =
         (paddedInputSize - kernelSize) % params.stride[dim];
-    bwdPaddingUpper.push_back(
-      static_cast<int>(kernelSize) - 1 - paddingUpper + inputSizeIgnored
+    bwdInputPaddingUpper.push_back(
+      static_cast<int>(kernelSize) - 1 - inputPaddingUpper + inputSizeIgnored
     );
   }
   auto bwdKernelShape = params.kernelShape;
   std::swap(bwdKernelShape[2], bwdKernelShape[3]);
   return popconv::ConvParams(params.dType, params.getOutputShape(),
-                             bwdKernelShape, bwdStride, bwdPaddingLower,
-                             bwdPaddingUpper, bwdInputDilation);
+                             bwdKernelShape, bwdStride, bwdInputPaddingLower,
+                             bwdInputPaddingUpper, bwdInputDilation);
 }
 
 unsigned detectChannelGrouping(const poplar::Tensor &t0) {

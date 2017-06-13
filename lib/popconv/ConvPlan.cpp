@@ -963,8 +963,8 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
                          params.getOutputWidth();
     expandedActivationsHeight = params.getInputHeight();
     expandedDeltasHeight = params.getOutputHeight();
-    expandedActivationsPaddingYLower = params.paddingLower[0];
-    expandedActivationsPaddingYUpper = params.paddingUpper[0];
+    expandedActivationsPaddingYLower = params.inputPaddingLower[0];
+    expandedActivationsPaddingYUpper = params.inputPaddingUpper[0];
     expandedInputDepth =
         params.getInputDepth() * params.kernelShape[1];
     expandedDeltasUpsampleFactorY = params.stride[0];
@@ -1017,8 +1017,8 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
                      paddedExpandedInputDepth,
                      paddedFieldWidth}, // kernelShape
                      {1, 1}, // stride,
-                     {0, 0}, // paddingLower
-                     {0, 0}, // paddingUpper,
+                     {0, 0}, // inputPaddingLower
+                     {0, 0}, // inputPaddingUpper,
                      {expandedDeltasUpsampleFactorY, 1} // inputDilation
                    );
     }
@@ -1693,8 +1693,8 @@ createPlan(ConvParams params,
   if (params.kernelShape[0] == 1 && params.kernelShape[1] == 1
       && params.stride[0] == 1 && params.stride[1] == 1
       && params.inputDilation[0] == 1 && params.inputDilation[1] == 1
-      && params.paddingLower[0] == 0 && params.paddingLower[1] == 0
-      && params.paddingUpper[0] == 0 && params.paddingUpper[1] == 0) {
+      && params.inputPaddingLower[0] == 0 && params.inputPaddingLower[1] == 0
+      && params.inputPaddingUpper[0] == 0 && params.inputPaddingUpper[1] == 0) {
     flattenXY = true;
     params.inputShape[2] = params.inputShape[1] * params.inputShape[2];
     params.inputShape[1] = 1;
@@ -1749,8 +1749,8 @@ static ConvParams getFullyConnectedFwdParams(const ConvParams &params,
   unsigned outputSize, inputSize, batchSize;
   assert(params.getInputHeight() == 1);
   assert(params.stride == std::vector<unsigned>({1U, 1U}));
-  assert(params.paddingLower == std::vector<int>({0, 0}));
-  assert(params.paddingUpper == std::vector<int>({0, 0}));
+  assert(params.inputPaddingLower == std::vector<int>({0, 0}));
+  assert(params.inputPaddingUpper == std::vector<int>({0, 0}));
   assert(params.kernelShape[0] == 1 && params.kernelShape[1] == 1);
   assert(params.inputDilation[0] == 1 && params.inputDilation[1] == 1);
   switch (options.fullyConnectedPass) {
@@ -1845,8 +1845,8 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   assert (params.kernelShape.size() == 4);
   assert (params.stride.size() == 2);
-  assert (params.paddingLower.size() == 2);
-  assert (params.paddingUpper.size() == 2);
+  assert (params.inputPaddingLower.size() == 2);
+  assert (params.inputPaddingUpper.size() == 2);
   if (options.fullyConnectedPass == FullyConnectedPass::WU ||
       options.fullyConnectedPass == FullyConnectedPass::BWD) {
     auto fwdParams = getFullyConnectedFwdParams(params, options);
@@ -1929,8 +1929,8 @@ Plan getWeightUpdatePlan(const poplar::Graph &graph,
                          ConvOptions options) {
   assert (params.kernelShape.size() == 4);
   assert (params.stride.size() == 2);
-  assert (params.paddingLower.size() == 2);
-  assert (params.paddingUpper.size() == 2);
+  assert (params.inputPaddingLower.size() == 2);
+  assert (params.inputPaddingUpper.size() == 2);
   if (options.fullyConnectedPass == FullyConnectedPass::BWD) {
     options.fullyConnectedPass = FullyConnectedPass::FWD;
     auto plan = getPlan(graph, params, options);
