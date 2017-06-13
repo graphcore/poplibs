@@ -17,9 +17,17 @@ enum class WeightUpdateMethod {
   AMP,
   AUTO
 };
+
 const char *asString(const WeightUpdateMethod &method);
 std::ostream &operator<<(std::ostream &os, const WeightUpdateMethod &method);
 std::istream &operator>>(std::istream &is, WeightUpdateMethod &method);
+
+enum class FullyConnectedPass {
+  NONE,
+  FWD,
+  BWD,
+  WU,
+};
 
 /** Options to control the implementation of a convolution */
 struct ConvOptions {
@@ -27,14 +35,13 @@ struct ConvOptions {
   bool useWinograd = false;
   unsigned winogradPatchSize = 4;
   unsigned percentageCyclesExcessForMemOptim = 0;
-  bool fullyConnectedFwd = false;
-  // Avoid rearrangement of left hand side argument between convolution and
-  // weight delta calculation.
-  bool fullyConnectedBwd = false;
-  // True if we are computing fully connected weight deltas. Arrange for the
-  // output of the convolution (the weight deltas) to use the same layout as
-  // weights.
-  bool fullyConnectedWU = false;
+  /// The fully connected pass this layer corresponds to. If this variable
+  /// is not set to NONE look for a joint plan that avoids the need to
+  /// exchange weights.
+  FullyConnectedPass fullyConnectedPass = FullyConnectedPass::NONE;
+  /// Is the fully connected backward pass implemented by calling
+  /// convolutionWeightUpdate()?
+  bool fullyConnectedBwdAsWU = true;
   std::string partialsType = "float";
   PlanningCache *cache = nullptr;
   bool operator<(const ConvOptions &other) const {
@@ -183,6 +190,14 @@ addBias(poplar::Graph &graph, const poplar::Tensor &acts,
         const poplar::Tensor &biases,
         poplar::program::Sequence &prog,
         const std::string &debugPrefix = "");
+
+poplar::Tensor
+fullyConnectedWeightTranspose(poplar::Graph &graph,
+                              poplar::Tensor activations,
+                              ConvParams params,
+                              poplar::program::Sequence &prog,
+                              const std::string &debugPrefix,
+                              const ConvOptions &options);
 
 void reportPlanInfo(std::ostream &out, const poplar::Graph &graph,
                     const ConvParams &params,

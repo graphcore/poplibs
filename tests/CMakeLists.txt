@@ -478,6 +478,15 @@ add_test(NAME fully_connected_half_batch_7
               --data-type half
               --batch-size 7)
 
+add_test(NAME fully_connected_half_batch_7_bwd_as_wu
+      COMMAND fully_connected_layer
+              --input-size 256
+              --output-size 256
+              --tiles-per-ipu 16
+              --data-type half
+              --batch-size 7
+              --bwd-as-wu 1)
+
 add_test(NAME fully_connected_float_batch_4
          COMMAND fully_connected_layer
                  --input-size 300

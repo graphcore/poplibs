@@ -22,7 +22,11 @@ struct Plan {
   bool useConvolutionInstructions;
   bool flattenXY = false;
   bool useWinograd = false;
-  bool fullyConnectedWU = false;
+  enum class LinearizeTileOrder {
+    STANDARD,
+    FC_WU,
+    FC_BWD_AS_CONV
+  } linearizeTileOrder = LinearizeTileOrder::STANDARD;
   unsigned winogradPatchSize;
   enum AmpWUMethod {
     DELTAS_AS_COEFFICENTS,
@@ -40,7 +44,8 @@ struct Plan {
        unsigned batchesPerGroup,
        unsigned xAxisGrainSize,
        bool floatPartials,
-       bool useConvolutionInstructions) :
+       bool useConvolutionInstructions,
+       Plan::LinearizeTileOrder linearizeTileOrder) :
     tilesPerXAxis(tilesPerXAxis),
     tilesPerYAxis(tilesPerYAxis),
     tilesPerZAxis(tilesPerZAxis),
@@ -51,7 +56,8 @@ struct Plan {
     batchesPerGroup(batchesPerGroup),
     xAxisGrainSize(xAxisGrainSize),
     floatPartials(floatPartials),
-    useConvolutionInstructions(useConvolutionInstructions) {}
+    useConvolutionInstructions(useConvolutionInstructions),
+    linearizeTileOrder(linearizeTileOrder) {}
   const char *getPartialType() const {
     return floatPartials ? "float" : "half";
   }

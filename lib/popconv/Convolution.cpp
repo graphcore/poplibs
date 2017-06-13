@@ -257,7 +257,8 @@ linearizeTileIndices(unsigned batchGroup, unsigned numBatchGroups,
   // If this is a multi IPU system then choose an order that avoids splitting
   // partial sums over IPUs
   unsigned tile;
-  if (plan.fullyConnectedWU) {
+  switch (plan.linearizeTileOrder) {
+  case Plan::LinearizeTileOrder::FC_WU:
     // For the fully connected weight update the in group and out group are
     // swapped compared to the forward pass.
     if (isMultiIPU)
@@ -273,7 +274,25 @@ linearizeTileIndices(unsigned batchGroup, unsigned numBatchGroups,
                  (oy + tilesPerY *
                    (ky + tilesPerKernelYAxis *
                      ozg))));
-  } else {
+    break;
+  case Plan::LinearizeTileOrder::FC_BWD_AS_CONV:
+    // For the fully connected backward pass the width and the input channels
+    // are swapped compared to the forward pass.
+    if (isMultiIPU)
+      tile = beginTile +
+        (ky + tilesPerKernelYAxis *
+          (ox + tilesPerX *
+            (izg + tilesPerInZGroup *
+              (oy + tilesPerY * ozg))));
+    else
+      tile = beginTile +
+             (ozg + tilesPerZ *
+               (izg + tilesPerInZGroup *
+                 (oy + tilesPerY *
+                   (ky + tilesPerKernelYAxis *
+                     ox))));
+    break;
+  case Plan::LinearizeTileOrder::STANDARD:
     if (isMultiIPU)
       tile = beginTile +
         (ky + tilesPerKernelYAxis *
@@ -290,6 +309,7 @@ linearizeTileIndices(unsigned batchGroup, unsigned numBatchGroups,
                  (oy + tilesPerY *
                    (ky + tilesPerKernelYAxis *
                      izg))));
+    break;
   }
   assert(tile < numTiles);
   return tile;
@@ -3027,6 +3047,85 @@ addBias(Graph &graph, const Tensor &acts, const Tensor &biases,
   ComputeSet cs = graph.addComputeSet(debugPrefix + "/addBias");
   addBias(graph, acts, biases, cs);
   prog.add(Execute(cs));
+}
+
+Tensor
+fullyConnectedWeightTranspose(Graph &graph,
+                              Tensor activations,
+                              ConvParams params,
+                              Sequence &prog, const std::string &debugPrefix,
+                              const ConvOptions &options) {
+  auto plan = getPlan(graph, params, options);
+  auto fwdPlan = plan;
+  std::swap(fwdPlan.xAxisGrainSize, fwdPlan.inChansPerGroup);
+  std::swap(fwdPlan.tilesPerXAxis, fwdPlan.tilesPerInZGroupAxis);
+  Tensor transposed = createInput(graph, params, "transposed", options);
+  auto transposedUngroupedShape = transposed.shape();
+  const auto fwdGroupSize =
+      getInChansPerGroup(fwdPlan, static_cast<unsigned>(activations.dim(3)));
+  const auto bwdGroupSize =
+      getInChansPerGroup(plan, static_cast<unsigned>(activations.dim(2)));
+  const auto dType = activations.elementType();
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  activations = activations.reshape({activations.dim(0) * activations.dim(1),
+                                     activations.dim(2) / bwdGroupSize,
+                                     bwdGroupSize,
+                                     activations.dim(3) / fwdGroupSize,
+                                     fwdGroupSize})
+                                    .dimShuffle({0, 1, 3, 2, 4});
+  transposed = transposed.reshape({transposed.dim(0) * transposed.dim(1),
+                                   transposed.dim(2) / fwdGroupSize,
+                                   fwdGroupSize,
+                                   transposed.dim(3) / bwdGroupSize,
+                                   bwdGroupSize})
+                         .dimShuffle({0, 1, 3, 2, 4});
+  auto firstInBlock =
+      activations.slice({0, 0, 0, 0, 0},
+                        {activations.dim(0),
+                         activations.dim(1),
+                         activations.dim(2),
+                         1,
+                         1})
+                 .reshape({activations.dim(0),
+                           activations.dim(1),
+                           activations.dim(2)});
+  auto blockTileMapping =
+      graph.getTileMapping(firstInBlock);
+  auto transposeCS = graph.addComputeSet(debugPrefix + "/Transpose");
+  for (unsigned tile = 0; tile != blockTileMapping.size(); ++tile) {
+
+    const auto perWorkerGroups =
+        splitRegionsBetweenWorkers(deviceInfo, blockTileMapping[tile], 1);
+    for (const auto &entry : perWorkerGroups) {
+      // Create a vertex.
+      const auto v =
+          graph.addVertex(transposeCS,
+                          templateVertex("popconv::Transpose2D", dType));
+      graph.setTileMapping(v, tile);
+      graph.setInitialValue(v["numSrcColumns"],
+                            static_cast<unsigned>(fwdGroupSize));
+      unsigned index = 0;
+      for (const auto interval : entry) {
+        for (auto block = interval.begin(); block != interval.end(); ++block) {
+          auto blockIndices = popstd::unflattenIndex(firstInBlock.shape(),
+                                                     block);
+          graph.connect(v["src"][index],
+                        activations[blockIndices[0]]
+                                   [blockIndices[1]]
+                                   [blockIndices[2]].flatten());
+          graph.connect(v["dst"][index++],
+                        transposed[blockIndices[0]]
+                                  [blockIndices[2]]
+                                  [blockIndices[1]].flatten());
+        }
+      }
+      graph.setFieldSize(v["dst"], index);
+      graph.setFieldSize(v["src"], index);
+    }
+  }
+  prog.add(Execute(transposeCS));
+  return transposed.dimShuffle({0, 1, 3, 2, 4})
+                   .reshape(transposedUngroupedShape);
 }
 
 void reportPlanInfo(std::ostream &out,
