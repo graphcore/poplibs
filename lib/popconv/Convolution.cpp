@@ -2422,6 +2422,7 @@ convolutionWeightUpdateAmpPreProcess(
     std::vector<unsigned> &deltasUpsampleFactor,
     std::vector<int> &deltasPaddingLower,
     std::vector<int> &deltasPaddingUpper,
+    std::vector<unsigned> &weightDeltasStride,
     unsigned kernelSizeY, unsigned kernelSizeX) {
   const auto dType = activations.elementType();
   assert(activationsUpsampleFactor.size() == 2);
@@ -2447,15 +2448,17 @@ convolutionWeightUpdateAmpPreProcess(
                               0});
   for (unsigned wx = 0; wx != kernelSizeX; ++wx) {
     auto usedActivations =
-        paddedActivations.slice(wx,
-                                absdiff(paddedActivations.dim(2), kernelSizeX)
-                                + 1 + wx,
+        paddedActivations.slice(wx * weightDeltasStride[1],
+                                wx * weightDeltasStride[1] +
+                                (deltas.dim(2) - 1) *
+                                deltasUpsampleFactor[1] + 1,
                                 2);
     auto stridedActivations =
         usedActivations.subSample(deltasUpsampleFactor[1], 2);
     expandedActivations = concat(expandedActivations, stridedActivations, 3);
   }
   deltasUpsampleFactor[1] = 1;
+  weightDeltasStride[1] = 1;
   if (plan.flattenXY) {
     // Eliminate the y axis of the kernel by taking the activations that are
     // multiplied by each row of the weights turning them into different input
@@ -2472,9 +2475,11 @@ convolutionWeightUpdateAmpPreProcess(
                                 0});
     for (unsigned wy = 0; wy != kernelSizeY; ++wy) {
       auto usedActivations =
-          yPaddedActivations.slice(wy,
-                                   yPaddedActivations.dim(1) - kernelSizeY +
-                                   1 + wy, 1);
+          yPaddedActivations.slice(wy * weightDeltasStride[0],
+                                   wy * weightDeltasStride[0] +
+                                   (deltas.dim(1) - 1) *
+                                   deltasUpsampleFactor[0] + 1,
+                                   1);
       auto stridedActivations =
           usedActivations.subSample(deltasUpsampleFactor[0], 1);
       yExpandedActivations = concat(yExpandedActivations, stridedActivations,
@@ -2482,6 +2487,7 @@ convolutionWeightUpdateAmpPreProcess(
     }
     expandedActivations = yExpandedActivations;
     deltasUpsampleFactor[0] = 1;
+    weightDeltasStride[0] = 1;
     // Flatten the x and y axes.
     expandedActivations =
         expandedActivations.reshape({expandedActivations.dim(0),
@@ -2588,12 +2594,14 @@ calculateWeightDeltasAmp(Graph &graph, const Plan &plan,
   std::vector<unsigned> deltasUpsampleFactor = params.stride;
   std::vector<int> deltasPaddingLower = {0, 0};
   std::vector<int> deltasPaddingUpper = {0, 0};
+  std::vector<unsigned> weightDeltasStride = params.kernelDilation;
   convolutionWeightUpdateAmpPreProcess(graph, plan, activationsView,
                                        activationsUpsampleFactor,
                                        activationsPaddingLower,
                                        activationsPaddingUpper, deltasView,
                                        deltasUpsampleFactor,
                                        deltasPaddingLower, deltasPaddingUpper,
+                                       weightDeltasStride,
                                        params.kernelShape[0],
                                        params.kernelShape[1]);
 

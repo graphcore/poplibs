@@ -937,8 +937,7 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
                                  bool flattenXY,
                                  unsigned partialChansPerGroup,
                                  Plan::AmpWUMethod ampWUMethod) {
-  if (params.kernelDilation != std::vector<unsigned>({1, 1}) ||
-      params.kernelPaddingLower != std::vector<int>({0, 0}) ||
+  if (params.kernelPaddingLower != std::vector<int>({0, 0}) ||
       params.kernelPaddingUpper != std::vector<int>({0, 0})) {
     std::abort(); // TODO
   }
@@ -951,6 +950,7 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
   int expandedActivationsPaddingYUpper;
   unsigned expandedInputDepth;
   unsigned expandedDeltasDilationY;
+  unsigned weightDeltasStrideY;
   if (flattenXY) {
     expandedFieldWidth =
        params.getBatchSize() * params.getOutputHeight() *
@@ -963,6 +963,7 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
         params.getInputDepth() * params.kernelShape[0] *
                                  params.kernelShape[1];
     expandedDeltasDilationY = 1;
+    weightDeltasStrideY = 1;
   } else {
     expandedFieldWidth = params.getBatchSize() *
                          params.getOutputWidth();
@@ -973,6 +974,7 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
     expandedInputDepth =
         params.getInputDepth() * params.kernelShape[1];
     expandedDeltasDilationY = params.stride[0];
+    weightDeltasStrideY = params.kernelDilation[0];
   }
   const auto fieldGroupSize =
       deviceInfo.getWeightsPerConvUnit(floatActivations);
@@ -996,7 +998,7 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
                     {expandedDeltasHeight, 1,
                      paddedOutputDepth,
                      paddedFieldWidth }, /* kernelShape */
-                    {1, 1}, /* stride */
+                    {weightDeltasStrideY, 1}, /* stride */
                     {expandedActivationsPaddingYLower, 0},
                     {expandedActivationsPaddingYUpper, 0},
                     {1, 1},
@@ -1020,7 +1022,7 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
                      1,
                      paddedExpandedInputDepth,
                      paddedFieldWidth}, // kernelShape
-                     {1, 1}, // stride,
+                     {weightDeltasStrideY, 1}, // stride,
                      {0, 0}, // inputPaddingLower
                      {0, 0}, // inputPaddingUpper,
                      {expandedDeltasDilationY, 1}, // inputDilation,

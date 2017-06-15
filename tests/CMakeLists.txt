@@ -721,11 +721,24 @@ add_test(NAME conv3x3_stride_3_in_dilation_2_fwd
                  --stride 3
                  --in-dilation=2)
 
-add_test(NAME conv3x3_kernel_dilation
+add_test(NAME conv3x3_kernel_dilation_aop
         COMMAND single_conv_layer
                 --input-channels=32
                 --output-channels=32
                 --weight-update-method=aop
+                --width=28
+                --height=14
+                --kernel-height=3
+                --kernel-width=5
+                --kernel-dilation-height=3
+                --kernel-dilation-width=2
+                --tiles-per-ipu=16)
+
+add_test(NAME conv3x3_kernel_dilation_amp
+        COMMAND single_conv_layer
+                --input-channels=32
+                --output-channels=32
+                --weight-update-method=amp
                 --width=28
                 --height=14
                 --kernel-height=3
