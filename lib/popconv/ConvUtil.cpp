@@ -55,22 +55,24 @@ getInputIndex(unsigned dim, unsigned outputIndex, unsigned kernelIndex,
 std::pair<unsigned, unsigned>
 getInputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
               unsigned kernelIndex, const ConvParams &params) {
-
   unsigned inputBegin = 0, inputEnd = 0;
-  for (unsigned x = outputRange.first; x != outputRange.second; ++x) {
-    auto inputIndex = getInputIndex(dim, x, kernelIndex, params);
-    if (inputIndex != ~0U) {
-      inputBegin = inputIndex;
-      break;
+  auto trimmedOutputRange = getOutputRange(dim, outputRange, kernelIndex,
+                                           params);
+  if (trimmedOutputRange.first != trimmedOutputRange.second) {
+    if (params.getPaddedDilatedKernelSize(dim) <
+        params.getPaddedDilatedInputSize(dim)) {
+      inputBegin = getInputIndex(dim, trimmedOutputRange.first, kernelIndex,
+                                 params);
+      inputEnd = getInputIndex(dim, trimmedOutputRange.second - 1, kernelIndex,
+                               params) + 1;
+    } else {
+      inputBegin = getInputIndex(dim, trimmedOutputRange.second - 1,
+                                 kernelIndex, params);
+      inputEnd = getInputIndex(dim, trimmedOutputRange.first, kernelIndex,
+                               params) + 1;
     }
   }
-  for (unsigned x = outputRange.second; x != outputRange.first; --x) {
-    auto inputIndex = getInputIndex(dim, x - 1, kernelIndex, params);
-    if (inputIndex != ~0U) {
-      inputEnd = inputIndex + 1;
-      break;
-    }
-  }
+  assert(inputBegin <= inputEnd);
   return {inputBegin, inputEnd};
 }
 

@@ -23,6 +23,7 @@ function(add_popnn_unit_test name)
 endfunction()
 
 # Unit tests
+add_popnn_unit_test(ConvUtilTest ConvUtilTest.cpp)
 add_popnn_unit_test(RangeTest RangeTest.cpp)
 add_popnn_unit_test(ConvPlanTest ConvPlanTest.cpp)
 add_popnn_unit_test(StdArithmeticTests StdArithmeticTests.cpp)
