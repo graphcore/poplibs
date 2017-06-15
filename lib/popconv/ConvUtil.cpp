@@ -4,36 +4,52 @@
 
 namespace popconv {
 
+/// Given an index in a volume return the corresponding index the volume after
+/// applying the specified dilation and padding.
+static unsigned
+applyDilationAndPadding(unsigned index, unsigned dilation, int paddingLower) {
+  return index * dilation + paddingLower;
+}
+
+/// Given a index in a dilated and padded volume return the index in the
+/// original volume. Return ~0U if the index doesn't correspond to any
+/// index in the original volume.
+static unsigned
+reverseDilationAndPadding(unsigned dilatedPaddedIndex, unsigned inputSize,
+                          unsigned dilation, int paddingLower) {
+  if (inputSize == 0)
+    return ~0U;
+  int dilatedSize = (inputSize - 1) * dilation + 1;
+  int dilatedIndex = static_cast<int>(dilatedPaddedIndex) - paddingLower;
+  if (dilatedIndex < 0 ||
+      dilatedIndex >= dilatedSize)
+    return ~0U;
+  if (dilatedIndex % dilation != 0)
+    return ~0U;
+  return dilatedIndex / dilation;
+}
+
 unsigned
-getInputIndex(unsigned dim, unsigned outputIndex,
-              unsigned kernelIndex, const ConvParams &params) {
-  const auto inputPaddingLower = params.inputPaddingLower[dim];
-  const auto inputPaddingUpper = params.inputPaddingUpper[dim];
-  const auto kernelSize = params.kernelShape[dim];
-  const auto stride = params.stride[dim];
-  const auto inputSize = params.inputShape[dim + 1];
-  const auto inputDilation = params.inputDilation[dim];
-  const auto upsampledInputSize = (inputSize - 1) * inputDilation + 1;
-  const auto upsampledOutputIndex = outputIndex * stride;
-  const auto paddedInputSize = upsampledInputSize +
-                               inputPaddingLower + inputPaddingUpper;
+getInputIndex(unsigned dim, unsigned outputIndex, unsigned kernelIndex,
+              const ConvParams &params) {
+  assert(outputIndex < params.getOutputShape()[dim + 1]);
+  const auto paddedKernelIndex =
+      applyDilationAndPadding(kernelIndex, params.kernelDilation[dim],
+                              params.kernelPaddingLower[dim]);
+  const auto upsampledOutputIndex = outputIndex * params.stride[dim];
+  const auto paddedKernelSize = params.getPaddedDilatedKernelSize(dim);
+  const auto paddedInputSize = params.getPaddedDilatedInputSize(dim);
   int paddedInputIndex;
-  if (kernelSize > paddedInputSize) {
-    if (kernelIndex < upsampledOutputIndex) {
+  if (paddedKernelSize > paddedInputSize) {
+    paddedInputIndex = paddedKernelIndex - upsampledOutputIndex;
+    if (paddedInputIndex < 0 || paddedInputIndex >= paddedInputSize)
       return ~0U;
-    }
-    paddedInputIndex = kernelIndex - upsampledOutputIndex;
   } else {
-    paddedInputIndex = kernelIndex + upsampledOutputIndex;
+    paddedInputIndex = paddedKernelIndex + upsampledOutputIndex;
   }
-  if (paddedInputIndex < inputPaddingLower)
-    return ~0U;
-  const auto inputIndex = paddedInputIndex - inputPaddingLower;
-  if (inputIndex >= upsampledInputSize)
-    return ~0U;
-  if (inputIndex % inputDilation != 0)
-    return ~0U;
-  return inputIndex / inputDilation;
+  return reverseDilationAndPadding(paddedInputIndex, params.inputShape[dim + 1],
+                                   params.inputDilation[dim],
+                                   params.inputPaddingLower[dim]);
 }
 
 std::pair<unsigned, unsigned>
@@ -178,7 +194,7 @@ ConvParams getGradientParams(const ConvParams &params) {
   bwdStride = params.inputDilation;
   bwdInputDilation = params.stride;
   for (const auto dim : {0, 1}) {
-    const auto kernelSize = params.kernelShape[dim];
+    const auto kernelSize = params.getPaddedDilatedKernelSize(dim);
     const auto inputPaddingLower = params.inputPaddingLower[dim];
     const auto inputPaddingUpper = params.inputPaddingUpper[dim];
     bwdInputPaddingLower.push_back(
@@ -194,9 +210,15 @@ ConvParams getGradientParams(const ConvParams &params) {
   }
   auto bwdKernelShape = params.kernelShape;
   std::swap(bwdKernelShape[2], bwdKernelShape[3]);
+  // Going backwards the weights are flipped in each axis and so we must flip
+  // the upper and lower padding.
+  auto bwdKernelPaddingLower = params.kernelPaddingUpper;
+  auto bwdKernelPaddingUpper = params.kernelPaddingLower;
   return popconv::ConvParams(params.dType, params.getOutputShape(),
                              bwdKernelShape, bwdStride, bwdInputPaddingLower,
-                             bwdInputPaddingUpper, bwdInputDilation);
+                             bwdInputPaddingUpper, bwdInputDilation,
+                             bwdKernelPaddingLower, bwdKernelPaddingUpper,
+                             params.kernelDilation);
 }
 
 unsigned detectChannelGrouping(const poplar::Tensor &t0) {

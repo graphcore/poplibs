@@ -937,6 +937,11 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
                                  bool flattenXY,
                                  unsigned partialChansPerGroup,
                                  Plan::AmpWUMethod ampWUMethod) {
+  if (params.kernelDilation != std::vector<unsigned>({1, 1}) ||
+      params.kernelPaddingLower != std::vector<int>({0, 0}) ||
+      params.kernelPaddingUpper != std::vector<int>({0, 0})) {
+    std::abort(); // TODO
+  }
   bool floatActivations = params.dType == "float";
   ConvParams newParams;
   unsigned expandedFieldWidth;
@@ -945,7 +950,7 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
   int expandedActivationsPaddingYLower;
   int expandedActivationsPaddingYUpper;
   unsigned expandedInputDepth;
-  unsigned expandedDeltasUpsampleFactorY;
+  unsigned expandedDeltasDilationY;
   if (flattenXY) {
     expandedFieldWidth =
        params.getBatchSize() * params.getOutputHeight() *
@@ -957,7 +962,7 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
     expandedInputDepth =
         params.getInputDepth() * params.kernelShape[0] *
                                  params.kernelShape[1];
-    expandedDeltasUpsampleFactorY = 1;
+    expandedDeltasDilationY = 1;
   } else {
     expandedFieldWidth = params.getBatchSize() *
                          params.getOutputWidth();
@@ -967,7 +972,7 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
     expandedActivationsPaddingYUpper = params.inputPaddingUpper[0];
     expandedInputDepth =
         params.getInputDepth() * params.kernelShape[1];
-    expandedDeltasUpsampleFactorY = params.stride[0];
+    expandedDeltasDilationY = params.stride[0];
   }
   const auto fieldGroupSize =
       deviceInfo.getWeightsPerConvUnit(floatActivations);
@@ -994,7 +999,8 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
                     {1, 1}, /* stride */
                     {expandedActivationsPaddingYLower, 0},
                     {expandedActivationsPaddingYUpper, 0},
-                    {1, 1});
+                    {1, 1},
+                    {0, 0}, {0, 0}, {1, 1});
     }
     break;
   case Plan::ACTIVATIONS_AS_COEFFICENTS:
@@ -1019,7 +1025,8 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
                      {1, 1}, // stride,
                      {0, 0}, // inputPaddingLower
                      {0, 0}, // inputPaddingUpper,
-                     {expandedDeltasUpsampleFactorY, 1} // inputDilation
+                     {expandedDeltasDilationY, 1}, // inputDilation,
+                     {0, 0}, {0, 0}, {1, 1}
                    );
     }
     break;
@@ -1776,6 +1783,9 @@ static ConvParams getFullyConnectedFwdParams(const ConvParams &params,
                     {1, 1, outputSize, inputSize}, /* inputShape */
                     {1, 1, batchSize, inputSize}, /* kernelShape */
                     {1, 1}, /* stride */
+                    {0, 0},
+                    {0, 0},
+                    {1, 1},
                     {0, 0},
                     {0, 0},
                     {1, 1});

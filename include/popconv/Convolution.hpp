@@ -69,6 +69,13 @@ struct ConvParams {
   // padding and convolution. Dilation is peformed by placing
   // zeroed elements between the elements of the field.
   std::vector<unsigned> inputDilation;
+  // Padding applied to kernel after dilation and before input
+  std::vector<int> kernelPaddingLower;
+  std::vector<int> kernelPaddingUpper;
+  // Dilation applied to the kernel in spatial dimensions before
+  // padding and convolution. Dilation is peformed by placing
+  // zeroed elements between the elements of the filter.
+  std::vector<unsigned> kernelDilation;
   ConvParams() = default;
   ConvParams(std::string dType,
              std::vector<std::size_t> inputShape,
@@ -76,14 +83,20 @@ struct ConvParams {
              std::vector<unsigned> stride,
              std::vector<int> inputPaddingLower,
              std::vector<int> inputPaddingUpper,
-             std::vector<unsigned> inputDilation) :
+             std::vector<unsigned> inputDilation,
+             std::vector<int> kernelPaddingLower,
+             std::vector<int> kernelPaddingUpper,
+             std::vector<unsigned> kernelDilation) :
     dType(std::move(dType)),
     inputShape(std::move(inputShape)),
     kernelShape(std::move(kernelShape)),
     stride(std::move(stride)),
     inputPaddingLower(std::move(inputPaddingLower)),
     inputPaddingUpper(std::move(inputPaddingUpper)),
-    inputDilation(std::move(inputDilation)) {}
+    inputDilation(std::move(inputDilation)),
+    kernelPaddingLower(std::move(kernelPaddingLower)),
+    kernelPaddingUpper(std::move(kernelPaddingUpper)),
+    kernelDilation(std::move(kernelDilation)) {}
   bool operator<(const ConvParams &other) const {
     return std::tie(dType, inputShape, kernelShape, stride, inputPaddingLower,
                     inputPaddingUpper, inputDilation) <
@@ -105,6 +118,12 @@ struct ConvParams {
     int inputSize = inputShape[1 + dim];
     int dilatedInputSize = (inputSize - 1) * inputDilation[dim] + 1;
     return inputPaddingLower[dim] + dilatedInputSize + inputPaddingUpper[dim];
+  }
+  int getPaddedDilatedKernelSize(unsigned dim) const {
+    int kernelSize = kernelShape[dim];
+    int dilatedKernelSize = (kernelSize - 1) * kernelDilation[dim] + 1;
+    return kernelPaddingLower[dim] + dilatedKernelSize +
+           kernelPaddingUpper[dim];
   }
   std::vector<size_t> getOutputShape() const;
 

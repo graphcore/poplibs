@@ -43,6 +43,9 @@ int main(int argc, char **argv) {
   std::vector<int> paddingLower = {0, 0};
   std::vector<int> paddingUpper = {0, 0};
   std::vector<unsigned> inDilation = {1, 1};
+  std::vector<int> kernelPaddingLower = {0, 0};
+  std::vector<int> kernelPaddingUpper = {0, 0};
+  std::vector<unsigned> kernelDilation = {1, 1};
   std::vector<unsigned> stride = {1, 1};
   unsigned batchSize;
   FPDataType dataType;
@@ -55,11 +58,15 @@ int main(int argc, char **argv) {
 
   /* these are used when the same value is shared across both height and width*/
   unsigned kernelSize;
-  unsigned sharedPadding;
+  int sharedPadding;
   int sharedPaddingHeight;
   int sharedPaddingWidth;
-  unsigned sharedStride;
   unsigned sharedInDilation;
+  int sharedKernelPadding;
+  int sharedKernelPaddingHeight;
+  int sharedKernelPaddingWidth;
+  unsigned sharedKernelDilation;
+  unsigned sharedStride;
   Pass pass = Pass::ALL;
   popconv::ConvOptions convOptions;
   popconv::PlanningCache cache;
@@ -91,7 +98,8 @@ int main(int argc, char **argv) {
     ("partials-type",
      po::value<FPDataType>(&partialsType)->default_value(FPDataType::FLOAT),
      "Type of partials")
-    ("padding", po::value<unsigned>(&sharedPadding)->default_value(0),
+
+    ("padding", po::value<int>(&sharedPadding)->default_value(0),
      "Amount of zero padding for height and width. If set, it is an "
      "error to also set any other padding value")
     ("padding-height", po::value<int>(&sharedPaddingHeight)->default_value(0),
@@ -110,14 +118,6 @@ int main(int argc, char **argv) {
     ("padding-width-upper",
      po::value<int>(&paddingUpper[1])->default_value(0),
      "Amount of zero padding in the width dimension, upper edge")
-
-    ("stride", po::value<unsigned>(&sharedStride)->default_value(1),
-     "Kernel stride for both height and width. If set, it is an error "
-     "to also set either stride-height and/or stride-width")
-    ("stride-height", po::value<unsigned>(&stride[0])->default_value(1),
-     "Kernel stride in the height dimension")
-    ("stride-width", po::value<unsigned>(&stride[1])->default_value(1),
-     "Kernel stride in the width dimension")
     ("in-dilation", po::value<unsigned>(&sharedInDilation)->default_value(1),
      "Input dilation for both height and width. If set, it is an error "
      "to also set either inDilation-height and/or inDilation-width")
@@ -126,6 +126,45 @@ int main(int argc, char **argv) {
      "Input dilation in the height dimension")
     ("in-dilation-width", po::value<unsigned>(&inDilation[1])->default_value(1),
      "Input dilation in the width dimension")
+    ("kernel-padding",
+     po::value<int>(&sharedKernelPadding)->default_value(0),
+     "Amount of zero kernel padding for height and width. If set, it is an "
+     "error to also set any other kernel padding value")
+    ("kernel-padding-height",
+     po::value<int>(&sharedKernelPaddingHeight)->default_value(0),
+     "Amount of zero kernel padding in the height dimension, upper and lower")
+    ("kernel-padding-width",
+     po::value<int>(&sharedKernelPaddingWidth)->default_value(0),
+     "Amount of zero kernel padding in the width dimension, upper and lower")
+    ("kernel-padding-height-lower",
+     po::value<int>(&kernelPaddingLower[0])->default_value(0),
+     "Amount of zero kernel padding in the height dimension, lower edge")
+    ("kernel-padding-width-lower",
+     po::value<int>(&kernelPaddingLower[1])->default_value(0),
+     "Amount of zero kernel padding in the width dimension, lower edge")
+    ("kernel-padding-height-upper",
+     po::value<int>(&kernelPaddingUpper[0])->default_value(0),
+     "Amount of zero kernel padding in the height dimension, upper edge")
+    ("kernel-padding-width-upper",
+     po::value<int>(&kernelPaddingUpper[1])->default_value(0),
+     "Amount of zero kernel padding in the width dimension, upper edge")
+    ("kernel-dilation",
+     po::value<unsigned>(&sharedKernelDilation)->default_value(1),
+     "Kernel dilation for both height and width. If set, it is an error "
+     "to also set either kernelDilation-height and/or kernelDilation-width")
+    ("kernel-dilation-height",
+     po::value<unsigned>(&kernelDilation[0])->default_value(1),
+     "Kernel dilation in the height dimension")
+    ("kernel-dilation-width",
+     po::value<unsigned>(&kernelDilation[1])->default_value(1),
+     "Kernel dilation in the width dimension")
+    ("stride", po::value<unsigned>(&sharedStride)->default_value(1),
+     "Stride for both height and width. If set, it is an error "
+     "to also set either stride-height and/or stride-width")
+    ("stride-height", po::value<unsigned>(&stride[0])->default_value(1),
+     "Stride in the height dimension")
+    ("stride-width", po::value<unsigned>(&stride[1])->default_value(1),
+     "Stride in the width dimension")
     ("single-phase",
      po::value<Pass>(&pass)->default_value(pass),
      "Run phase all | fwd | bwd | wu")
@@ -185,29 +224,19 @@ int main(int argc, char **argv) {
   }
 
   if (!vm["padding"].defaulted()) {
-    if (!vm["padding-height"].defaulted()) {
-      std::cerr << "--padding as well as --padding-height set\n";
-      return 1;
-    }
-    if (!vm["padding-width"].defaulted()) {
-      std::cerr << "--padding as well as --padding-width set\n";
-      return 1;
-    }
-    if (!vm["padding-height-lower"].defaulted()) {
-      std::cerr << "--padding as well as --padding-height-lower set\n";
-      return 1;
-    }
-    if (!vm["padding-width-lower"].defaulted()) {
-      std::cerr << "--padding as well as --padding-width-lower set\n";
-      return 1;
-    }
-    if (!vm["padding-height-upper"].defaulted()) {
-      std::cerr << "--padding as well as --padding-height-upper set\n";
-      return 1;
-    }
-    if (!vm["padding-width-upper"].defaulted()) {
-      std::cerr << "--padding as well as --padding-width-upper set\n";
-      return 1;
+    const char *conflictingOptions[] = {
+      "padding-height",
+      "padding-width",
+      "padding-height-lower",
+      "padding-width-lower",
+      "padding-height-upper",
+      "padding-width-upper",
+    };
+    for (auto option : conflictingOptions) {
+      if (!vm[option].defaulted()) {
+        std::cerr << "--padding as well as --" << option << " set\n";
+        return 1;
+      }
     }
     std::fill(paddingLower.begin(), paddingLower.end(), sharedPadding);
     std::fill(paddingUpper.begin(), paddingUpper.end(), sharedPadding);
@@ -239,18 +268,6 @@ int main(int argc, char **argv) {
     paddingUpper[1] = sharedPaddingWidth;
   }
 
-  if (!vm["stride"].defaulted()) {
-    if (!vm["stride-height"].defaulted()) {
-      std::cerr << "--stride as well as --stride-height set\n";
-      return 1;
-    }
-    if (!vm["stride-width"].defaulted()) {
-      std::cerr << "--stride as well as --stride-width set\n";
-      return 1;
-    }
-    std::fill(stride.begin(), stride.end(), sharedStride);
-  }
-
   if (!vm["in-dilation"].defaulted()) {
     if (!vm["in-dilation-height"].defaulted()) {
       std::cerr << "--in-dilation as well as --in-dilation-height set\n";
@@ -261,6 +278,83 @@ int main(int argc, char **argv) {
       return 1;
     }
     std::fill(inDilation.begin(), inDilation.end(), sharedInDilation);
+  }
+
+  if (!vm["kernel-padding"].defaulted()) {
+    const char *conflictingOptions[] = {
+      "kernel-padding-height",
+      "kernel-padding-width",
+      "kernel-padding-height-lower",
+      "kernel-padding-width-lower",
+      "kernel-padding-height-upper",
+      "kernel-padding-width-upper",
+    };
+    for (auto option : conflictingOptions) {
+      if (!vm[option].defaulted()) {
+        std::cerr << "--kernel-padding as well as --" << option << " set\n";
+        return 1;
+      }
+    }
+    std::fill(kernelPaddingLower.begin(), kernelPaddingLower.end(),
+              sharedKernelPadding);
+    std::fill(kernelPaddingUpper.begin(), kernelPaddingUpper.end(),
+              sharedKernelPadding);
+  }
+
+  if (!vm["kernel-padding-height"].defaulted()) {
+    if (!vm["kernel-padding-height-lower"].defaulted()) {
+      std::cerr << "--kernel-padding-height as well as "
+                   "--kernel-padding-height-lower set\n";
+      return 1;
+    }
+    if (!vm["kernel-padding-height-upper"].defaulted()) {
+      std::cerr << "--kernel-padding-height as well as "
+                   "--kernel-padding-height-upper set\n";
+      return 1;
+    }
+    kernelPaddingLower[0] = sharedKernelPaddingHeight;
+    kernelPaddingUpper[0] = sharedKernelPaddingHeight;
+  }
+
+  if (!vm["kernel-padding-width"].defaulted()) {
+    if (!vm["kernel-padding-width-lower"].defaulted()) {
+      std::cerr << "--kernel-padding-width as well as "
+                   "--kernel-padding-width-lower set\n";
+      return 1;
+    }
+    if (!vm["kernel-padding-width-upper"].defaulted()) {
+      std::cerr << "--kernel-padding-width as well as "
+                   "--kernel-padding-width-upper set\n";
+      return 1;
+    }
+    kernelPaddingLower[1] = sharedKernelPaddingWidth;
+    kernelPaddingUpper[1] = sharedKernelPaddingWidth;
+  }
+
+  if (!vm["kernel-dilation"].defaulted()) {
+    if (!vm["kernel-dilation-height"].defaulted()) {
+      std::cerr << "--kernel-dilation as well as "
+                   "--kernel-dilation-height set\n";
+      return 1;
+    }
+    if (!vm["kernel-dilation-width"].defaulted()) {
+      std::cerr << "--kernel-dilation as well as --kernel-dilation-width set\n";
+      return 1;
+    }
+    std::fill(kernelDilation.begin(), kernelDilation.end(),
+              sharedKernelDilation);
+  }
+
+  if (!vm["stride"].defaulted()) {
+    if (!vm["stride-height"].defaulted()) {
+      std::cerr << "--stride as well as --stride-height set\n";
+      return 1;
+    }
+    if (!vm["stride-width"].defaulted()) {
+      std::cerr << "--stride as well as --stride-width set\n";
+      return 1;
+    }
+    std::fill(stride.begin(), stride.end(), sharedStride);
   }
 
   bool doFwdPass = pass == Pass::ALL || pass == Pass::FWD;
@@ -283,11 +377,20 @@ int main(int argc, char **argv) {
                           stride,
                           paddingLower,
                           paddingUpper,
-                          inDilation);
+                          inDilation,
+                          kernelPaddingLower,
+                          kernelPaddingUpper,
+                          kernelDilation);
   if (params.getPaddedDilatedInputSize(0) < 0 ||
       params.getPaddedDilatedInputSize(1) < 0) {
     throw popstd::poplib_error("Convolution pass does not support "
                                "padding that truncates more than the input "
+                               "size");
+  }
+  if (params.getPaddedDilatedKernelSize(0) < 0 ||
+      params.getPaddedDilatedKernelSize(1) < 0) {
+    throw popstd::poplib_error("Convolution pass does not support "
+                               "padding that truncates more than the kernel "
                                "size");
   }
 
@@ -400,6 +503,9 @@ int main(int argc, char **argv) {
                                  inDilation,
                                  paddingLower,
                                  paddingUpper,
+                                 kernelDilation,
+                                 kernelPaddingLower,
+                                 kernelPaddingUpper,
                                  hostPrevAct,
                                  hostWeights, hostBiases, modelNextAct);
   if (doFwdPass) {
@@ -439,6 +545,9 @@ int main(int argc, char **argv) {
               inDilation,
               paddingLower,
               paddingUpper,
+              kernelDilation,
+              kernelPaddingLower,
+              kernelPaddingUpper,
               hostZDeltas,
               modelWeights,
               modelPrevDeltas);
@@ -450,6 +559,9 @@ int main(int argc, char **argv) {
                                       inDilation,
                                       paddingLower,
                                       paddingUpper,
+                                      kernelDilation,
+                                      kernelPaddingLower,
+                                      kernelPaddingUpper,
                                       learningRate, hostPrevAct,
                                       hostZDeltas, modelWeights, modelBiases);
       matchesModel &= checkIsClose("weights",

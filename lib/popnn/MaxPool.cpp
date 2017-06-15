@@ -22,14 +22,15 @@ static ConvParams
 makeConvParams(unsigned inDimY, unsigned inDimX, unsigned kernelSizeY,
                unsigned kernelSizeX, unsigned strideY, unsigned strideX,
                int paddingY, int paddingX) {
-  std::vector<unsigned> stride, inputDilation;
-  std::vector<int> padding;
-  stride = {strideY, strideX};
-  inputDilation = {1, 1};
-  padding = {paddingY, paddingX};
+  std::vector<unsigned> stride = {strideY, strideX};
+  std::vector<unsigned> inputDilation = {1, 1};
+  std::vector<int> inputPadding = {paddingY, paddingX};
+  std::vector<unsigned> kernelDilation = {1, 1};
+  std::vector<int> kernelPadding = {0, 0};
   return  {"", {1, inDimY, inDimX, 1},
            {kernelSizeY, kernelSizeX, 1, 1},
-            stride, padding, padding, inputDilation};
+            stride, inputPadding, inputPadding, inputDilation,
+            kernelPadding, kernelPadding, kernelDilation};
 }
 
 std::pair<unsigned, unsigned>

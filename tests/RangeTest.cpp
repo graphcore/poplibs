@@ -20,7 +20,8 @@ makeParams(unsigned stride, unsigned kernelSize, int paddingLower,
           {stride, stride},
           {paddingLower, paddingLower},
           {paddingUpper, paddingUpper},
-          {1, 1}};
+          {1, 1},
+          {0, 0}, {0, 0}, {1, 1}};
 }
 
 BOOST_AUTO_TEST_CASE(inputRangeTest){
@@ -117,7 +118,8 @@ getOutputDim(unsigned inDimY, unsigned inDimX,
       popconv::ConvParams("",
                           {1, inDimY, inDimX, 1},
                           {kernelSizeY, kernelSizeX, 1, 1},
-                          stride, paddingLower, paddingUpper, {1, 1});
+                          stride, paddingLower, paddingUpper, {1, 1},
+                          {0, 0}, {0, 0}, {1, 1});
   return {params.getOutputHeight(), params.getOutputWidth()};
 }
 

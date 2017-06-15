@@ -5,13 +5,107 @@ static unsigned absdiff(unsigned a, unsigned b) {
   return a < b ? b - a : a - b;
 }
 
+static boost::multi_array<double, 4>
+dilateAndPadKernel(const boost::multi_array<double, 4> &kernel,
+                   const std::vector<unsigned> kernelDilation,
+                   const std::vector<int> &kernelPaddingLower,
+                   const std::vector<int> &kernelPaddingUpper) {
+  const auto kernelHeight = kernel.shape()[0];
+  const auto kernelWidth = kernel.shape()[1];
+  const auto outputChannels = kernel.shape()[2];
+  const auto inputChannels = kernel.shape()[3];
+  const auto dilatedHeight = (kernelHeight - 1) * kernelDilation[0] + 1;
+  const auto dilatedWidth = (kernelWidth - 1) * kernelDilation[1] + 1;
+  boost::multi_array<double, 4>
+      dilated(boost::extents[dilatedHeight][dilatedWidth]
+                            [outputChannels][inputChannels]);
+  std::fill(dilated.data(), dilated.data() + dilated.num_elements(), 0.0);
+  for (unsigned y = 0; y != kernelHeight; ++y) {
+    for (unsigned x = 0; x != kernelWidth; ++x) {
+      for (unsigned oc = 0; oc != outputChannels; ++oc) {
+        for (unsigned ic = 0; ic != inputChannels; ++ic) {
+          dilated[y * kernelDilation[0]][x * kernelDilation[1]][oc][ic] =
+              kernel[y][x][oc][ic];
+        }
+      }
+    }
+  }
+  const auto paddedHeight = dilatedHeight + kernelPaddingLower[0] +
+                            kernelPaddingUpper[0];
+  const auto paddedWidth = dilatedWidth + kernelPaddingLower[1] +
+                           kernelPaddingUpper[1];
+  boost::multi_array<double, 4>
+      padded(boost::extents[paddedHeight][paddedWidth]
+                           [outputChannels][inputChannels]);
+  std::fill(padded.data(), padded.data() + padded.num_elements(), 0.0);
+  for (unsigned y = 0; y != dilatedHeight; ++y) {
+    for (unsigned x = 0; x != dilatedWidth; ++x) {
+      for (unsigned oc = 0; oc != outputChannels; ++oc) {
+        for (unsigned ic = 0; ic != inputChannels; ++ic) {
+          padded[y + kernelPaddingLower[0]][x + kernelPaddingLower[1]][oc][ic] =
+              dilated[y][x][oc][ic];
+        }
+      }
+    }
+  }
+  return padded;
+}
+
+static boost::multi_array<double, 4>
+dilateAndPadKernelInverse(const boost::multi_array<double, 4> &padded,
+                          const std::vector<unsigned> kernelDilation,
+                          const std::vector<int> &kernelPaddingLower,
+                          const std::vector<int> &kernelPaddingUpper) {
+  const auto paddedHeight = padded.shape()[0];
+  const auto paddedWidth = padded.shape()[1];
+  const auto outputChannels = padded.shape()[2];
+  const auto inputChannels = padded.shape()[3];
+  const auto dilatedHeight = paddedHeight - kernelPaddingLower[0] -
+                             kernelPaddingUpper[0];
+  const auto dilatedWidth = paddedWidth - kernelPaddingLower[1] -
+                            kernelPaddingUpper[1];
+  boost::multi_array<double, 4>
+      dilated(boost::extents[dilatedHeight][dilatedWidth]
+                            [outputChannels][inputChannels]);
+  for (unsigned y = 0; y != dilatedHeight; ++y) {
+    for (unsigned x = 0; x != dilatedWidth; ++x) {
+      for (unsigned oc = 0; oc != outputChannels; ++oc) {
+        for (unsigned ic = 0; ic != inputChannels; ++ic) {
+          dilated[y][x][oc][ic] =
+              padded[y + kernelPaddingLower[0]][x + kernelPaddingLower[1]]
+                    [oc][ic];
+        }
+      }
+    }
+  }
+  const auto kernelHeight = (dilatedHeight - 1) / kernelDilation[0] + 1;
+  const auto kernelWidth = (dilatedWidth - 1) / kernelDilation[1] + 1;
+  boost::multi_array<double, 4>
+      kernel(boost::extents[kernelHeight][kernelWidth]
+                           [outputChannels][inputChannels]);
+  for (unsigned y = 0; y != kernelHeight; ++y) {
+    for (unsigned x = 0; x != kernelWidth; ++x) {
+      for (unsigned oc = 0; oc != outputChannels; ++oc) {
+        for (unsigned ic = 0; ic != inputChannels; ++ic) {
+          kernel[y][x][oc][ic] =
+              dilated[y * kernelDilation[0]][x * kernelDilation[1]][oc][ic];
+        }
+      }
+    }
+  }
+  return kernel;
+}
+
 void poplib_test::conv::
 convolution(const std::vector<unsigned> &stride,
             const std::vector<unsigned> &inputDilation,
             const std::vector<int> &paddingLower,
             const std::vector<int> &paddingUpper,
+            const std::vector<unsigned> kernelDilation,
+            const std::vector<int> &kernelPaddingLower,
+            const std::vector<int> &kernelPaddingUpper,
             const boost::multi_array<double, 4> &in,
-            const boost::multi_array<double, 4> &weights,
+            const boost::multi_array<double, 4> &kernel,
             const boost::multi_array<double, 1> &biases,
             boost::multi_array<double, 4> &out) {
   if (paddingLower.size() != paddingUpper.size() ||
@@ -31,6 +125,10 @@ convolution(const std::vector<unsigned> &stride,
   unsigned paddingWidthL = paddingLower[1];
   unsigned paddingHeightU = paddingUpper[0];
   unsigned paddingWidthU = paddingUpper[1];
+
+  auto paddedKernel = dilateAndPadKernel(kernel, kernelDilation,
+                                         kernelPaddingLower,
+                                         kernelPaddingUpper);
 
   // Pad input.
   const auto batchSize = in.shape()[0];
@@ -70,8 +168,8 @@ convolution(const std::vector<unsigned> &stride,
 
     // Perform convolution.
     const auto outputChannels = out.shape()[3];
-    const auto kernelHeight = weights.shape()[0];
-    const auto kernelWidth = weights.shape()[1];
+    const auto kernelHeight = paddedKernel.shape()[0];
+    const auto kernelWidth = paddedKernel.shape()[1];
     const auto convOutHeight = absdiff(paddedHeight, kernelHeight) + 1;
     const auto convOutWidth = absdiff(paddedWidth, kernelWidth) + 1;
     boost::multi_array<double, 3>
@@ -88,9 +186,9 @@ convolution(const std::vector<unsigned> &stride,
                  kx != std::min(kernelWidth, paddedWidth); ++kx) {
               for (unsigned ic = 0; ic != inputChannels; ++ic) {
                 convOut[y][x][oc] +=
-                    weights[ky + (kernelHeight < paddedHeight ? 0 : y)]
-                           [kx + (kernelWidth  < paddedWidth  ? 0 : x)]
-                           [oc][ic] *
+                    paddedKernel[ky + (kernelHeight < paddedHeight ? 0 : y)]
+                                [kx + (kernelWidth  < paddedWidth  ? 0 : x)]
+                                [oc][ic] *
                     paddedIn[ky + (kernelHeight < paddedHeight ? y : 0)]
                             [kx + (kernelWidth  < paddedWidth  ? x : 0)][ic];
               }
@@ -124,8 +222,11 @@ convolutionBackward(const std::vector<unsigned> &stride,
                     const std::vector<unsigned> &inputDilation,
                     const std::vector<int> &paddingLower,
                     const std::vector<int> &paddingUpper,
+                    const std::vector<unsigned> kernelDilation,
+                    const std::vector<int> &kernelPaddingLower,
+                    const std::vector<int> &kernelPaddingUpper,
                     const boost::multi_array<double, 4> &in,
-                    const boost::multi_array<double, 4> &weights,
+                    const boost::multi_array<double, 4> &kernel,
                     boost::multi_array<double, 4> &out) {
   if (paddingLower.size() != paddingUpper.size() ||
       paddingLower.size() != stride.size() ||
@@ -145,14 +246,18 @@ convolutionBackward(const std::vector<unsigned> &stride,
   unsigned paddingHeightU = paddingUpper[0];
   unsigned paddingWidthU = paddingUpper[1];
 
+  auto paddedKernel = dilateAndPadKernel(kernel, kernelDilation,
+                                         kernelPaddingLower,
+                                         kernelPaddingUpper);
+
   const auto batchSize = in.shape()[0];
   const auto inputChannels = in.shape()[3];
   const auto inputHeight = in.shape()[1];
   const auto inputWidth = in.shape()[2];
   const auto outputHeight = out.shape()[1];
   const auto outputWidth = out.shape()[2];
-  const auto kernelHeight = weights.shape()[0];
-  const auto kernelWidth = weights.shape()[1];
+  const auto kernelHeight = paddedKernel.shape()[0];
+  const auto kernelWidth = paddedKernel.shape()[1];
 
   for (unsigned b = 0; b != batchSize; ++b) {
     // Upsample.
@@ -202,8 +307,8 @@ convolutionBackward(const std::vector<unsigned> &stride,
                     y + ky < (kernelHeight - 1) + upsampledHeight &&
                     x + kx >= (kernelWidth - 1) &&
                     x + kx < (kernelWidth - 1) + upsampledWidth) {
-                  convOut[y][x][oc] += weights[kyFlipped]
-                                             [kxFlipped][ic][oc] *
+                  convOut[y][x][oc] += paddedKernel[kyFlipped]
+                                                   [kxFlipped][ic][oc] *
                                       upsampledIn[y - (kernelHeight - 1) + ky]
                                                  [x - (kernelWidth - 1) + kx]
                                                  [ic];
@@ -256,10 +361,13 @@ weightUpdate(const std::vector<unsigned> &stride,
              const std::vector<unsigned> &inputDilation,
              const std::vector<int> &paddingLower,
              const std::vector<int> &paddingUpper,
+             const std::vector<unsigned> kernelDilation,
+             const std::vector<int> &kernelPaddingLower,
+             const std::vector<int> &kernelPaddingUpper,
              double learningRate,
              const boost::multi_array<double, 4> &activations,
              const boost::multi_array<double, 4> &deltas,
-             boost::multi_array<double, 4> &weights,
+             boost::multi_array<double, 4> &kernel,
              boost::multi_array<double, 1> &biases) {
   if (paddingLower.size() != paddingUpper.size() ||
       paddingLower.size() != stride.size() ||
@@ -275,6 +383,10 @@ weightUpdate(const std::vector<unsigned> &stride,
     throw poplib_test::poplib_test_error("Convolution of >2 spatial dimensions "
                                          "not supported.");
   }
+
+  auto paddedKernel = dilateAndPadKernel(kernel, kernelDilation,
+                                         kernelPaddingLower,
+                                         kernelPaddingUpper);
 
   unsigned strideH = stride[0];
   unsigned strideW = stride[1];
@@ -311,12 +423,13 @@ weightUpdate(const std::vector<unsigned> &stride,
     const auto outputChannels = deltas.shape()[3];
     const auto outputHeight = deltas.shape()[1];
     const auto outputWidth = deltas.shape()[2];
-    const auto kernelHeight = weights.shape()[0];
-    const auto kernelWidth = weights.shape()[1];
+    const auto paddedKernelHeight = paddedKernel.shape()[0];
+    const auto paddedKernelWidth = paddedKernel.shape()[1];
     const auto upsampledDeltasHeight =
-        inputHeight + paddingHeightL + paddingHeightU - (kernelHeight - 1);
+        inputHeight + paddingHeightL + paddingHeightU -
+        (paddedKernelHeight - 1);
     const auto upsampledDeltasWidth =
-        inputWidth + paddingWidthL + paddingWidthU - (kernelWidth - 1);
+        inputWidth + paddingWidthL + paddingWidthU - (paddedKernelWidth - 1);
     if ((upsampledDeltasHeight + strideH - 1) / strideH != outputHeight ||
         (upsampledDeltasWidth + strideW - 1) / strideW != outputWidth) {
       throw poplib_test::poplib_test_error("Output and input tensor dimensions "
@@ -341,14 +454,14 @@ weightUpdate(const std::vector<unsigned> &stride,
 
     // Compute the weight deltas.
     boost::multi_array<double, 4>
-        weightDeltas(boost::extents[kernelHeight][kernelWidth]
+        weightDeltas(boost::extents[paddedKernelHeight][paddedKernelWidth]
                                    [outputChannels][inputChannels]);
     std::fill(weightDeltas.data(),
               weightDeltas.data() + weightDeltas.num_elements(), 0.0);
     for (unsigned oc = 0; oc != outputChannels; ++oc) {
       for (unsigned ic = 0; ic != inputChannels; ++ic) {
-        for (unsigned ky = 0; ky != kernelHeight; ++ky) {
-          for (unsigned kx = 0; kx != kernelWidth; ++kx) {
+        for (unsigned ky = 0; ky != paddedKernelHeight; ++ky) {
+          for (unsigned kx = 0; kx != paddedKernelWidth; ++kx) {
             for (unsigned y = 0; y != upsampledDeltasHeight; ++y) {
               for (unsigned x = 0; x != upsampledDeltasWidth; ++x) {
                 weightDeltas[ky][kx][oc][ic] +=
@@ -364,9 +477,9 @@ weightUpdate(const std::vector<unsigned> &stride,
     // Add the weight deltas.
     for (unsigned oc = 0; oc != outputChannels; ++oc) {
       for (unsigned ic = 0; ic != inputChannels; ++ic) {
-        for (unsigned ky = 0; ky != kernelHeight; ++ky) {
-          for (unsigned kx = 0; kx != kernelWidth; ++kx) {
-            weights[ky][kx][oc][ic] +=
+        for (unsigned ky = 0; ky != paddedKernelHeight; ++ky) {
+          for (unsigned kx = 0; kx != paddedKernelWidth; ++kx) {
+            paddedKernel[ky][kx][oc][ic] +=
                 learningRate * -weightDeltas[ky][kx][oc][ic];
           }
         }
@@ -390,4 +503,9 @@ weightUpdate(const std::vector<unsigned> &stride,
       biases[oc] += learningRate * -biasDeltas[oc];
     }
   }
+  auto newKernel = dilateAndPadKernelInverse(paddedKernel, kernelDilation,
+                                             kernelPaddingLower,
+                                             kernelPaddingUpper);
+  assert(newKernel.num_elements() == kernel.num_elements());
+  kernel = newKernel;
 }

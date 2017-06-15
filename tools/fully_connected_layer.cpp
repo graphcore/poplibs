@@ -135,7 +135,9 @@ int main(int argc, char **argv) {
       popconv::ConvParams(dataTypeStr,
                           {1, 1, outputSize, inputSize},
                           {1, 1, batchSize, inputSize},
-                          {1, 1}, {0, 0}, {0, 0}, {1, 1});
+                          {1, 1},
+                          {0, 0}, {0, 0}, {1, 1},
+                          {0, 0}, {0, 0}, {1, 1});
   Tensor weights = popconv::createInput(graph, convParams, "weights",
                                         fwdOptions);
   Tensor prevAct = popconv::createWeights(graph, convParams, "prevAct",
@@ -197,8 +199,9 @@ int main(int argc, char **argv) {
                                        dataTypeStr,
                                        {1, 1, outputSize, batchSize},
                                        {1, 1, inputSize, batchSize},
-                                       {1, 1}, {0, 0},
-                                       {0, 0}, {1, 1}),
+                                       {1, 1},
+                                       {0, 0}, {0, 0}, {1, 1},
+                                       {0, 0}, {0, 0}, {1, 1}),
                                      "zDeltas", bwdOptions);
       zDeltas = zDeltas[0][0].dimShuffle({1, 0});
     } else {
@@ -212,8 +215,9 @@ int main(int argc, char **argv) {
                                          dataTypeStr,
                                          {1, 1, inputSize, outputSize},
                                          {1, 1, batchSize, outputSize},
-                                         {1, 1}, {0, 0},
-                                         {0, 0}, {1, 1}),
+                                         {1, 1},
+                                         {0, 0}, {0, 0}, {1, 1},
+                                         {0, 0}, {0, 0}, {1, 1}),
                                        "zDeltas", bwdOptions);
       zDeltas = zDeltas[0][0];
     }
@@ -236,9 +240,8 @@ int main(int argc, char **argv) {
                               {1, 1, inputSize, outputSize}, /* inputShape */
                               {1, 1, batchSize, outputSize}, /* kernelShape */
                               {1, 1}, /* stride */
-                              {0, 0},
-                              {0, 0},
-                              {1, 1});
+                              {0, 0}, {0, 0}, {1, 1},
+                              {0, 0}, {0, 0}, {1, 1});
       auto weightsTransposed =
           popconv::fullyConnectedWeightTranspose(graph, weights, bwdParams,
                                                  bwdProg, "", bwdOptions);
@@ -270,9 +273,8 @@ int main(int argc, char **argv) {
                             {1, 1, outputSize, batchSize}, /* inputShape */
                             {1, 1, inputSize, batchSize}, /* kernelShape */
                             {1, 1}, /* stride */
-                            {0, 0},
-                            {0, 0},
-                            {1, 1});
+                            {0, 0}, {0, 0}, {1, 1},
+                            {0, 0}, {0, 0}, {1, 1});
     Tensor zDeltasTransposed;
     Tensor zDeltasTransposedView =
         zDeltas.dimShuffle({1, 0})

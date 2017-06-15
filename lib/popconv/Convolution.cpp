@@ -106,11 +106,9 @@ static Tensor ungroupWeights(const Tensor &weights) {
 }
 
 std::size_t ConvParams::getOutputSize(unsigned dim) const {
-  auto dilatedInputSize =
-      (inputShape[1 + dim] - 1) * inputDilation[dim] + 1;
-  auto paddedDilatedInputSize =
-      inputPaddingLower[dim] + dilatedInputSize + inputPaddingUpper[dim];
-  return absdiff(paddedDilatedInputSize, kernelShape[dim]) /
+  auto paddedDilatedInputSize = getPaddedDilatedInputSize(dim);
+  auto paddedDilatedKernelSize = getPaddedDilatedKernelSize(dim);
+  return absdiff(paddedDilatedInputSize, paddedDilatedKernelSize) /
                  stride[dim] + 1;
 }
 
