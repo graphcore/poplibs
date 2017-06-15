@@ -2513,18 +2513,6 @@ convolutionWeightUpdateAmpPreProcess(
   if (plan.ampWUMethod == Plan::ACTIVATIONS_AS_COEFFICENTS) {
     assert(activationsPaddingLower[1] == 0);
     assert(activationsPaddingUpper[1] == 0);
-    if (activationsPaddingLower[0] > 0 ||
-        activationsPaddingUpper[0] > 0) {
-      // Currently we don't support convolutions with a zero padded filter so
-      // we must explicitly add padding.
-      // TODO extend convolutionByAmp() to support zero padding the filter.
-      flattenedActivations = pad(graph, flattenedActivations,
-                                 activationsPaddingLower[0],
-                                 activationsPaddingUpper[0],
-                                 1);
-      activationsPaddingLower[0] = 0;
-      activationsPaddingUpper[0] = 0;
-    }
     std::swap(flattenedActivations, flattenedDeltas);
     std::swap(activationsUpsampleFactor, deltasUpsampleFactor);
     std::swap(activationsPaddingLower, deltasPaddingLower);

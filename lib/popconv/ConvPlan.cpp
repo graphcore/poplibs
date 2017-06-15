@@ -1016,9 +1016,7 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
                     {1, expandedDeltasHeight,
                      params.getOutputDepth(),
                      paddedFieldWidth}, // inputShape
-                    {expandedActivationsHeight +
-                     expandedActivationsPaddingYLower +
-                     expandedActivationsPaddingYUpper,
+                    {expandedActivationsHeight,
                      1,
                      paddedExpandedInputDepth,
                      paddedFieldWidth}, // kernelShape
@@ -1026,7 +1024,9 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
                      {0, 0}, // inputPaddingLower
                      {0, 0}, // inputPaddingUpper,
                      {expandedDeltasDilationY, 1}, // inputDilation,
-                     {0, 0}, {0, 0}, {1, 1}
+                     {expandedActivationsPaddingYLower, 0},
+                     {expandedActivationsPaddingYUpper, 0},
+                     {1, 1}
                    );
     }
     break;
