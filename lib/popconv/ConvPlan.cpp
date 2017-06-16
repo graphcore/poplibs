@@ -1002,7 +1002,7 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
                     {expandedActivationsPaddingYLower, 0},
                     {expandedActivationsPaddingYUpper, 0},
                     {1, 1},
-                    {0, 0}, {0, 0}, {expandedDeltasDilationY, 1});
+                    {0, 0}, {0, 0}, {1, 1});
     }
     break;
   case Plan::ACTIVATIONS_AS_COEFFICENTS:
@@ -1213,6 +1213,11 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
     for (bool flattenXY : {false, true}) {
       for (Plan::AmpWUMethod method : {Plan::DELTAS_AS_COEFFICENTS,
                                        Plan::ACTIVATIONS_AS_COEFFICENTS}) {
+        // There is currently no support for dilated convolutions.
+        // TODO add support for this.
+        if (!flattenXY && params.stride[0] != 1) {
+          continue;
+        }
         auto newParams =
             weightUpdateByAmpTransformParams(params, deviceInfo, flattenXY,
                                              partialChansPerGroup, method);
