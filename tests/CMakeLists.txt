@@ -376,6 +376,50 @@ add_test(NAME conv_batch_bwd_float_wu
                  --batch-size=4
                  --single-phase=wu)
 
+add_test(NAME conv_negative_input_padding_upper_simple
+        COMMAND single_conv_layer
+                --input-channels=1
+                --output-channels=1
+                --width=2
+                --height=1
+                --kernel-width=1
+                --kernel-height=1
+                --padding-width-upper=-1
+                --tiles-per-ipu=1)
+
+add_test(NAME conv_negative_kernel_padding_upper_simple
+        COMMAND single_conv_layer
+                --input-channels=1
+                --output-channels=1
+                --width=1
+                --height=1
+                --kernel-width=2
+                --kernel-height=1
+                --kernel-padding-width-lower=-1
+                --tiles-per-ipu=1)
+
+add_test(NAME conv_negative_input_padding_lower_simple
+        COMMAND single_conv_layer
+                --input-channels=1
+                --output-channels=1
+                --width=2
+                --height=1
+                --kernel-width=1
+                --kernel-height=1
+                --padding-width-upper=-1
+                --tiles-per-ipu=1)
+
+add_test(NAME conv_negative_kernel_padding_lower_simple
+        COMMAND single_conv_layer
+                --input-channels=1
+                --output-channels=1
+                --width=1
+                --height=1
+                --kernel-width=2
+                --kernel-height=1
+                --kernel-padding-width-lower=-1
+                --tiles-per-ipu=1)
+
 # Test where the size of the output tensor is much bigger than the size weight
 # tensor. As such it likely to be better to rearranging the weight deltas
 # instead of the deltas in the weight update phase.

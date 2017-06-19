@@ -45,9 +45,14 @@ dilateAndPadActivations(const boost::multi_array<double, 4> &in,
   for (unsigned b = 0; b != batchSize; ++b) {
     for (unsigned c = 0; c != inputChannels; ++c) {
       for (unsigned y = 0; y != dilatedShape[0]; ++y) {
+        auto paddedY = static_cast<int>(y) + paddingLower[0];
+        if (paddedY < 0 || static_cast<unsigned>(paddedY) >= paddedShape[0])
+          continue;
         for (unsigned x = 0; x != dilatedShape[1]; ++x) {
-          paddedIn[b][y + paddingLower[0]][x + paddingLower[1]][c] =
-              dilatedIn[b][y][x][c];
+          auto paddedX = static_cast<int>(x) + paddingLower[1];
+          if (paddedX < 0 || static_cast<unsigned>(paddedX) >= paddedShape[1])
+            continue;
+          paddedIn[b][paddedY][paddedX][c] = dilatedIn[b][y][x][c];
         }
       }
     }
@@ -64,10 +69,12 @@ dilateAndPadActivationsInverse(const boost::multi_array<double, 4> &paddedActs,
   const auto batchSize = paddedActs.shape()[0];
   const auto channels = paddedActs.shape()[3];
 
+  std::vector<unsigned> paddedShape(2);
   std::vector<unsigned> dilatedShape(2);
   std::vector<unsigned> inShape(2);
   for (unsigned dim = 0; dim != 2; ++dim) {
-    dilatedShape[dim] = paddedActs.shape()[dim + 1] - paddingLower[dim] -
+    paddedShape[dim] = paddedActs.shape()[dim + 1];
+    dilatedShape[dim] = paddedShape[dim] - paddingLower[dim] -
                         paddingUpper[dim];
     inShape[dim] = (dilatedShape[dim] + dilation[dim] - 1) /
                    dilation[dim];
@@ -80,9 +87,14 @@ dilateAndPadActivationsInverse(const boost::multi_array<double, 4> &paddedActs,
   for (unsigned b = 0; b != batchSize; ++b) {
     for (unsigned c = 0; c != channels; ++c) {
       for (unsigned y = 0; y != dilatedShape[0]; ++y) {
+        auto paddedY = static_cast<int>(y) + paddingLower[0];
+        if (paddedY < 0 || static_cast<unsigned>(paddedY) >= paddedShape[0])
+          continue;
         for (unsigned x = 0; x != dilatedShape[1]; ++x) {
-          dilatedActs[b][y][x][c] =
-              paddedActs[b][y + paddingLower[0]][x + paddingLower[1]][c];
+          auto paddedX = static_cast<int>(x) + paddingLower[1];
+          if (paddedX < 0 || static_cast<unsigned>(paddedX) >= paddedShape[1])
+            continue;
+          dilatedActs[b][y][x][c] = paddedActs[b][paddedY][paddedX][c];
         }
       }
     }
@@ -141,11 +153,16 @@ dilateAndPadKernel(const boost::multi_array<double, 4> &kernel,
                            [outputChannels][inputChannels]);
   std::fill(padded.data(), padded.data() + padded.num_elements(), 0.0);
   for (unsigned y = 0; y != dilatedShape[0]; ++y) {
+    auto paddedY = static_cast<int>(y) + kernelPaddingLower[0];
+    if (paddedY < 0 || static_cast<unsigned>(paddedY) >= paddedShape[0])
+      continue;
     for (unsigned x = 0; x != dilatedShape[1]; ++x) {
+      auto paddedX = static_cast<int>(x) + kernelPaddingLower[1];
+      if (paddedX < 0 || static_cast<unsigned>(paddedX) >= paddedShape[1])
+        continue;
       for (unsigned oc = 0; oc != outputChannels; ++oc) {
         for (unsigned ic = 0; ic != inputChannels; ++ic) {
-          padded[y + kernelPaddingLower[0]][x + kernelPaddingLower[1]][oc][ic] =
-              dilated[y][x][oc][ic];
+          padded[paddedY][paddedX][oc][ic] = dilated[y][x][oc][ic];
         }
       }
     }
@@ -160,21 +177,28 @@ dilateAndPadKernelInverse(const boost::multi_array<double, 4> &padded,
                           const std::vector<int> &kernelPaddingUpper) {
   const auto outputChannels = padded.shape()[2];
   const auto inputChannels = padded.shape()[3];
+  std::vector<unsigned> paddedShape(2);
   std::vector<unsigned> dilatedShape(2);
   for (unsigned dim = 0; dim != 2; ++dim) {
-    dilatedShape[dim] = padded.shape()[dim] - kernelPaddingLower[dim] -
+    paddedShape[dim] = padded.shape()[dim];
+    dilatedShape[dim] = paddedShape[dim] - kernelPaddingLower[dim] -
                         kernelPaddingUpper[dim];
   }
   boost::multi_array<double, 4>
       dilated(boost::extents[dilatedShape[0]][dilatedShape[1]]
                             [outputChannels][inputChannels]);
   for (unsigned y = 0; y != dilatedShape[0]; ++y) {
+    auto paddedY = static_cast<int>(y) + kernelPaddingLower[0];
+    if (paddedY < 0 || static_cast<unsigned>(paddedY) >= paddedShape[0])
+      continue;
     for (unsigned x = 0; x != dilatedShape[1]; ++x) {
+      auto paddedX = static_cast<int>(x) + kernelPaddingLower[1];
+      if (paddedX < 0 || static_cast<unsigned>(paddedX) >= paddedShape[1])
+        continue;
       for (unsigned oc = 0; oc != outputChannels; ++oc) {
         for (unsigned ic = 0; ic != inputChannels; ++ic) {
           dilated[y][x][oc][ic] =
-              padded[y + kernelPaddingLower[0]][x + kernelPaddingLower[1]]
-                    [oc][ic];
+              padded[paddedY][paddedX][oc][ic];
         }
       }
     }
@@ -441,20 +465,22 @@ weightUpdate(const std::vector<unsigned> &stride,
   const auto inputChannels = paddedActivations.shape()[3];
   const auto outputChannels = paddedDeltas.shape()[3];
 
+  boost::multi_array<double, 4>
+      paddedWeightDeltas(boost::extents[paddedKernelShape[0]]
+                                       [paddedKernelShape[1]]
+                                       [outputChannels]
+                                       [inputChannels]);
+  std::fill(paddedWeightDeltas.data(),
+            paddedWeightDeltas.data() + paddedWeightDeltas.num_elements(), 0.0);
   for (unsigned b = 0; b != batchSize; ++b) {
     // Compute the weight deltas.
-    boost::multi_array<double, 4>
-        weightDeltas(boost::extents[paddedKernelShape[0]][paddedKernelShape[1]]
-                                   [outputChannels][inputChannels]);
-    std::fill(weightDeltas.data(),
-              weightDeltas.data() + weightDeltas.num_elements(), 0.0);
     for (unsigned oc = 0; oc != outputChannels; ++oc) {
       for (unsigned ic = 0; ic != inputChannels; ++ic) {
         for (unsigned ky = 0; ky != paddedKernelShape[0]; ++ky) {
           for (unsigned kx = 0; kx != paddedKernelShape[1]; ++kx) {
             for (unsigned y = 0; y != paddedDeltasShape[0]; ++y) {
               for (unsigned x = 0; x != paddedDeltasShape[1]; ++x) {
-                weightDeltas[ky][kx][oc][ic] +=
+                paddedWeightDeltas[ky][kx][oc][ic] +=
                     paddedActivations[b][y + ky][x + kx][ic] *
                     paddedDeltas[b][y][x][oc];
               }
@@ -463,23 +489,29 @@ weightUpdate(const std::vector<unsigned> &stride,
         }
       }
     }
+  }
+  auto weightDeltas =
+      dilateAndPadKernelInverse(paddedWeightDeltas, kernelDilation,
+                                kernelPaddingLower,
+                                kernelPaddingUpper);
 
-    // Add the weight deltas.
-    for (unsigned oc = 0; oc != outputChannels; ++oc) {
-      for (unsigned ic = 0; ic != inputChannels; ++ic) {
-        for (unsigned ky = 0; ky != paddedKernelShape[0]; ++ky) {
-          for (unsigned kx = 0; kx != paddedKernelShape[1]; ++kx) {
-            paddedKernel[ky][kx][oc][ic] +=
-                learningRate * -weightDeltas[ky][kx][oc][ic];
-          }
+  // Add the weight deltas.
+  for (unsigned oc = 0; oc != outputChannels; ++oc) {
+    for (unsigned ic = 0; ic != inputChannels; ++ic) {
+      for (unsigned ky = 0; ky != kernel.shape()[0]; ++ky) {
+        for (unsigned kx = 0; kx != kernel.shape()[1]; ++kx) {
+          kernel[ky][kx][oc][ic] +=
+              learningRate * -weightDeltas[ky][kx][oc][ic];
         }
       }
     }
+  }
 
+  boost::multi_array<double, 1> biasDeltas(boost::extents[outputChannels]);
+  std::fill(biasDeltas.data(),
+            biasDeltas.data() + biasDeltas.num_elements(), 0.0);
+  for (unsigned b = 0; b != batchSize; ++b) {
     // Compute the bias deltas.
-    boost::multi_array<double, 1> biasDeltas(boost::extents[outputChannels]);
-    std::fill(biasDeltas.data(),
-              biasDeltas.data() + biasDeltas.num_elements(), 0.0);
     for (unsigned y = 0; y != paddedDeltasShape[0]; ++y) {
       for (unsigned x = 0; x != paddedDeltasShape[1]; ++x) {
         for (unsigned oc = 0; oc != outputChannels; ++oc) {
@@ -487,15 +519,10 @@ weightUpdate(const std::vector<unsigned> &stride,
         }
       }
     }
-
-    // Add the bias deltas.
-    for (unsigned oc = 0; oc != outputChannels; ++oc) {
-      biases[oc] += learningRate * -biasDeltas[oc];
-    }
   }
-  auto newKernel = dilateAndPadKernelInverse(paddedKernel, kernelDilation,
-                                             kernelPaddingLower,
-                                             kernelPaddingUpper);
-  assert(newKernel.num_elements() == kernel.num_elements());
-  kernel = newKernel;
+
+  // Add the bias deltas.
+  for (unsigned oc = 0; oc != outputChannels; ++oc) {
+    biases[oc] += learningRate * -biasDeltas[oc];
+  }
 }
