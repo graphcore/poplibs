@@ -338,16 +338,17 @@ convolutionBackward(const std::vector<unsigned> &stride,
   const auto inputChannels = in.shape()[3];
 
   // Pad input.
+  std::vector<unsigned> convOutShape(2);
   std::vector<unsigned> paddedKernelShape(2);
   std::vector<unsigned> paddedInShape(2);
   std::vector<int> inPaddingUpper(2);
   for (unsigned dim = 0; dim != 2; ++dim) {
+    convOutShape[dim] =
+        (out.shape()[dim + 1] - 1) * inputDilation[dim] + 1 +
+        paddingLower[dim] + paddingUpper[dim];
     paddedKernelShape[dim] = paddedKernel.shape()[dim];
     paddedInShape[dim] =
-        out.shape()[dim + 1] +
-        paddingLower[dim] +
-        paddingUpper[dim] -
-        (paddedKernelShape[dim] - 1);
+        absdiff(convOutShape[dim], paddedKernelShape[dim]) + 1;
     if ((paddedInShape[dim] + stride[dim] - 1)/ stride[dim] !=
         in.shape()[dim + 1]) {
       throw poplib_test::poplib_test_error("Output and input tensor "
@@ -361,10 +362,6 @@ convolutionBackward(const std::vector<unsigned> &stride,
   auto paddedIn = dilateAndPadActivations(in, stride, {0, 0}, inPaddingUpper);
 
   const auto outputChannels = out.shape()[3];
-  std::vector<unsigned> convOutShape(2);
-  for (unsigned dim = 0; dim != 2; ++dim) {
-    convOutShape[dim] = paddedInShape[dim] + paddedKernelShape[dim] - 1;
-  }
   boost::multi_array<double, 4>
       convOut(boost::extents[batchSize]
                             [convOutShape[0]]

@@ -294,6 +294,19 @@ add_test(NAME conv3x3_feature8x8_shallow_stride2
 
 add_test(NAME conv_large_kernel
          COMMAND single_conv_layer
+                 --single-phase=fwd
+                 --width 14
+                 --height 64
+                 --kernel-height 62
+                 --kernel-width 3
+                 --input-channels 16
+                 --output-channels 16
+                 --padding 1
+                 --stride 2)
+
+add_test(NAME conv_large_kernel_bwd
+         COMMAND single_conv_layer
+                 --single-phase=bwd
                  --width 14
                  --height 64
                  --kernel-height 62
