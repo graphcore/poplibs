@@ -11,6 +11,7 @@
 #include <cassert>
 #include <map>
 #include <tuple>
+#include <type_traits>
 #include <iostream>
 #include <popsolver/Model.hpp>
 
@@ -50,7 +51,8 @@ std::istream &operator>>(std::istream &is, WeightUpdateMethod &method) {
 // with the function are non memoized
 template <typename Ret, typename... Args>
 class Memo {
-  std::map<std::tuple<Args...>, Ret> table;
+  std::map<std::tuple<typename std::remove_reference<Args>::type...>,
+           Ret> table;
   Ret (*fn)(Args...);
  public:
   Memo(Ret (*fn)(Args...)) : fn(fn) {}
