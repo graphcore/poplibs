@@ -747,11 +747,26 @@ add_test(NAME conv3x3_kernel_dilation_amp
                 --kernel-dilation-width=2
                 --tiles-per-ipu=16)
 
-add_test(NAME conv3x3_kernel_padding
+add_test(NAME conv3x3_kernel_padding_aop
          COMMAND single_conv_layer
                  --input-channels=32
                  --output-channels=32
                  --weight-update-method=aop
+                 --width=14
+                 --height=14
+                 --kernel-height=3
+                 --kernel-width=3
+                 --kernel-padding-height-lower=4
+                 --kernel-padding-height-upper=4
+                 --kernel-padding-width-lower=2
+                 --kernel-padding-width-upper=3
+                 --tiles-per-ipu=16)
+
+add_test(NAME conv3x3_kernel_padding_amp
+         COMMAND single_conv_layer
+                 --input-channels=32
+                 --output-channels=32
+                 --weight-update-method=amp
                  --width=14
                  --height=14
                  --kernel-height=3

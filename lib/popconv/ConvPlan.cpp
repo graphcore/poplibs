@@ -939,10 +939,16 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
                                  bool flattenXY,
                                  unsigned partialChansPerGroup,
                                  Plan::AmpWUMethod ampWUMethod) {
-  if (params.kernelPaddingLower != std::vector<int>({0, 0}) ||
-      params.kernelPaddingUpper != std::vector<int>({0, 0})) {
-    std::abort(); // TODO
-  }
+  // Padding the kernel in the forward pass requires truncation of the weight
+  // deltas in the weight update pass. If flattenXY is true we can fold this
+  // truncation into the flattening of the field. If flattenXY is false we
+  // may not be able to represent the weight update as a convolution that can be
+  // calculated with the convolution function.
+  // TODO add support for output padding / truncation and remove this
+  // restriction.
+  assert(flattenXY ||
+         (params.kernelPaddingLower[0] == 0 &&
+          params.kernelPaddingUpper[0] == 0));
   bool floatActivations = params.dType == "float";
   ConvParams newParams;
   unsigned expandedFieldWidth;
@@ -1213,6 +1219,10 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
     // means less padding is required when the field size is rounded up to
     // a multiple of the weights per convolutional unit.
     for (bool flattenXY : {false, true}) {
+      if (!flattenXY &&
+          (params.kernelPaddingLower[0] != 0 ||
+           params.kernelPaddingUpper[0] != 0))
+        continue;
       for (Plan::AmpWUMethod method : {Plan::DELTAS_AS_COEFFICENTS,
                                        Plan::ACTIVATIONS_AS_COEFFICENTS}) {
         // There is currently no support for dilated convolutions.
