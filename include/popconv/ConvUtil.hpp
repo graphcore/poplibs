@@ -80,8 +80,9 @@ struct PartialRow {
 };
 
 std::vector<std::vector<PartialRow>>
-partitionConvPartialByWorker(unsigned numConvolutions, unsigned convSize,
-                             unsigned numContexts, unsigned stride);
+partitionConvPartialByWorker(unsigned convHeight, unsigned convWidth,
+                             unsigned numContexts,
+                             const std::vector<unsigned> &inputDilation);
 
 std::vector<std::size_t> getOutputShape(const ConvParams &params);
 

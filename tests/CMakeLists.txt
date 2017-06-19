@@ -778,6 +778,18 @@ add_test(NAME conv3x3_stride_3_in_dilation_2_fwd
                  --stride 3
                  --in-dilation=2)
 
+add_test(NAME conv3x3_in_dilation_asymmetric
+         COMMAND single_conv_layer
+                 --single-phase=fwd
+                 --input-channels=16
+                 --output-channels=16
+                 --width=14
+                 --height=14
+                 --kernel-size 3
+                 --tiles-per-ipu=1
+                 --in-dilation-height=2
+                 --in-dilation-width=3)
+
 add_test(NAME conv3x3_kernel_dilation_aop
         COMMAND single_conv_layer
                 --input-channels=32

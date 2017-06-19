@@ -125,7 +125,7 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
                                unsigned convUnitPipelineDepth,
                                unsigned numConvUnitsPerTile,
                                unsigned convUnitCoeffLoadBytesPerCycle,
-                               unsigned outputStride,
+                               const std::vector<unsigned> &inputDilation,
                                unsigned numInputPointers);
 
 static unsigned
@@ -350,7 +350,7 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
                                unsigned convUnitPipelineDepth,
                                unsigned numConvUnitsPerTile,
                                unsigned convUnitCoeffLoadBytesPerCycle,
-                               unsigned outputStride,
+                               const std::vector<unsigned> &inputDilation,
                                unsigned numInputPointers)
 {
   unsigned numInputEdges = 0;
@@ -358,7 +358,7 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
   const auto numWorkerContexts = 6;
   std::vector<std::vector<PartialRow>> partition =
       partitionConvPartialByWorker(outputHeight, outputWidth,
-                                   numWorkerContexts, outputStride);
+                                   numWorkerContexts, inputDilation);
   std::vector<std::vector<std::vector<unsigned>>> convSizesByWeightAndWorker;
   for (unsigned i = 0; i != passesPerOutput; ++i) {
     convSizesByWeightAndWorker.emplace_back();
@@ -369,7 +369,7 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
       numInputEdges += numInputPointers * entry.size();
       numOutputEdges += entry.size();
       for (const auto &partialRow : entry) {
-        auto convSize = (partialRow.end - partialRow.begin) / outputStride;
+        auto convSize = (partialRow.end - partialRow.begin) / inputDilation[1];
         convSizesByWeightAndWorker.back().back().push_back(convSize);
       }
     }
@@ -712,7 +712,6 @@ estimatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
   const auto tileNumInGroups =
       (numInGroups + tilesPerInZGroupAxis - 1) / tilesPerInZGroupAxis;
 
-  const auto outputStrideY = params.inputDilation[0];
 
   const auto tileKernelHeight =
       (params.kernelShape[0] + tilesPerKernelYAxis - 1) /
@@ -740,7 +739,7 @@ estimatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
           passesPerOutput, tileOutHeight, tileOutWidth,
           deviceInfo.convUnitPipelineDepth,
           getNumConvUnits(floatActivations, plan.floatPartials, deviceInfo),
-          deviceInfo.convUnitCoeffLoadBytesPerCycle, outputStrideY,
+          deviceInfo.convUnitCoeffLoadBytesPerCycle, params.inputDilation,
           convUnitWeightHeight);
   } else {
     const auto outputStrideX = params.inputDilation[1];

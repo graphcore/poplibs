@@ -149,12 +149,15 @@ getOutputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
 }
 
 std::vector<std::vector<PartialRow>>
-partitionConvPartialByWorker(unsigned numConvolutions, unsigned convSize,
-                             unsigned numContexts, unsigned stride) {
+partitionConvPartialByWorker(unsigned convHeight, unsigned convWidth,
+                             unsigned numContexts,
+                             const std::vector<unsigned> &inputDilation) {
   std::vector<std::vector<PartialRow>> partitionByWorker;
   partitionByWorker.reserve(numContexts);
-  const auto elementsPerRow = (convSize + stride - 1) / stride;
-  const auto activeRows = (numConvolutions + stride - 1) / stride;
+  const auto elementsPerRow =
+      (convWidth + inputDilation[1] - 1) / inputDilation[1];
+  const auto activeRows =
+      (convHeight + inputDilation[0] - 1) / inputDilation[0];
   const auto numElements = activeRows * elementsPerRow;
   for (unsigned i = 0; i != numContexts; ++i) {
     partitionByWorker.emplace_back();
@@ -167,17 +170,17 @@ partitionConvPartialByWorker(unsigned numConvolutions, unsigned convSize,
     for (unsigned j = beginRow; j != endRow; ++j) {
       unsigned beginIndex;
       if (j == beginRow) {
-        beginIndex = (beginElement % elementsPerRow * stride);
+        beginIndex = (beginElement % elementsPerRow * inputDilation[1]);
       } else {
         beginIndex = 0;
       }
       unsigned endIndex;
       if (j + 1 == endRow) {
-        endIndex = 1 + ((endElement - 1) % elementsPerRow) * stride;
+        endIndex = 1 + ((endElement - 1) % elementsPerRow) * inputDilation[1];
       } else {
-        endIndex = ((elementsPerRow - 1) * stride) + 1;
+        endIndex = ((elementsPerRow - 1) * inputDilation[1]) + 1;
       }
-      unsigned rowIndex = j * stride;
+      unsigned rowIndex = j * inputDilation[0];
       partitionByWorker.back().emplace_back(rowIndex, beginIndex, endIndex);
     }
   }

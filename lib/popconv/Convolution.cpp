@@ -962,10 +962,9 @@ createConvPartial1x1OutVertex(Graph &graph,
       getInputRange(1, {outXBegin, outXEnd}, params);
 
   std::vector<std::vector<PartialRow>> workerPartition;
-  unsigned outputStride = 1;
   workerPartition =
       partitionConvPartialByWorker(outHeight, outWidth,
-                                   contextsPerVertex, outputStride);
+                                   contextsPerVertex, params.inputDilation);
 
   std::vector<Tensor> inputEdges;
   std::vector<Tensor> outputEdges;
@@ -1125,7 +1124,9 @@ createConvPartialnx1Vertex(Graph &graph,
           convUnitWeightHeight == 1 ? params.inputDilation[0] : 1;
       std::vector<std::vector<PartialRow>> workerPartition =
           partitionConvPartialByWorker(convOutHeight, convOutWidth,
-                                       contextsPerVertex, outputStrideY);
+                                       contextsPerVertex,
+                                       {outputStrideY,
+                                        params.inputDilation.back()});
       assert(workerPartition.size() == contextsPerVertex);
       for (unsigned ozg = outZGroupBegin; ozg != outZGroupEnd; ++ozg) {
         for (unsigned p = 0; p != passesPerOutputGroup; ++p) {
