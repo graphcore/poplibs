@@ -161,7 +161,6 @@ add_test(NAME conv1x1_stride_3_fwd
 
 add_test(NAME conv3x3_batch_2
          COMMAND single_conv_layer
-                  --single-phase=fwd
                   --input-channels=16
                   --output-channels=16
                   --width=7
@@ -173,7 +172,6 @@ add_test(NAME conv3x3_batch_2
 
 add_test(NAME conv3x3_16_to_16_stride_1_differing_padding
         COMMAND single_conv_layer
-        --single-phase=fwd
         --input-channels=16
         --output-channels=16
         --width=20
@@ -226,7 +224,6 @@ add_test(NAME conv3x3_stride_1_fwd_asym_padding_2
 
 add_test(NAME conv5x5_stride_2_fwd_asym_padding
          COMMAND single_conv_layer
-                  --single-phase=fwd
                   --input-channels=128
                   --output-channels=256
                   --width=20
@@ -276,7 +273,6 @@ add_test(NAME conv3x3_feature8x8_shallow
                  --kernel-size 3
                  --padding 1
                  --stride 1
-                 --single-phase=fwd
                  --data-type half) 
 
 add_test(NAME conv3x3_feature8x8_shallow_stride2
@@ -288,9 +284,8 @@ add_test(NAME conv3x3_feature8x8_shallow_stride2
                  --height 8
                  --kernel-size 3
                  --padding 1
-                 --single-phase=fwd
                  --stride 2
-                 --data-type half) 
+                 --data-type half)
 
 add_test(NAME conv_large_kernel
          COMMAND single_conv_layer
@@ -352,7 +347,6 @@ add_test(NAME conv_batch_group
                  --width 28
                  --input-channels 512
                  --output-channels 128
-                 --single-phase=fwd
                  --batch-size 2)
 
 # conv_batch_bwd_float test split into the three component phases
