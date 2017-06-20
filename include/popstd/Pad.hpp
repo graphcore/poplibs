@@ -5,7 +5,8 @@
 
 namespace popstd {
 
-/// Return a tensor with zero padding added.
+/// Return a tensor with zero padding added. Negative padding indicates
+/// truncation.
 /// \param graph        The graph containing the tensor.
 /// \param t            The tensor to pad.
 /// \param paddingLower A vector specifying the amount of padding to add at the
@@ -15,10 +16,11 @@ namespace popstd {
 /// \return The tensor with zero padding added.
 poplar::Tensor
 pad(poplar::Graph &graph, poplar::Tensor t,
-    const std::vector<std::size_t> &paddingLower,
-    const std::vector<std::size_t> &paddingUpper);
+    const std::vector<std::ptrdiff_t> &paddingLower,
+    const std::vector<std::ptrdiff_t> &paddingUpper);
 
-/// Return a tensor with zero padding added to one dimension.
+/// Return a tensor with zero padding added to one dimension. Negative padding
+/// indicates truncation.
 /// \param t            The tensor to pad.
 /// \param paddingLower The amount of padding to add at the start of the
 ///                     dimension.
@@ -27,8 +29,8 @@ pad(poplar::Graph &graph, poplar::Tensor t,
 /// \param dim          The dimension to pad.
 /// \return The tensor with zero padding added.
 poplar::Tensor
-pad(poplar::Graph &graph, const poplar::Tensor &t, std::size_t paddingLower,
-    std::size_t paddingUpper, unsigned dim);
+pad(poplar::Graph &graph, const poplar::Tensor &t, std::ptrdiff_t paddingLower,
+    std::ptrdiff_t paddingUpper, unsigned dim);
 
 } // end namespace popstd
 
