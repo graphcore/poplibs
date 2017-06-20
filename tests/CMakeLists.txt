@@ -224,8 +224,8 @@ add_test(NAME conv3x3_stride_1_fwd_asym_padding_2
 
 add_test(NAME conv5x5_stride_2_fwd_asym_padding
          COMMAND single_conv_layer
-                  --input-channels=128
-                  --output-channels=256
+                  --input-channels=64
+                  --output-channels=64
                   --width=20
                   --height=28
                   --kernel-size=5
@@ -234,7 +234,8 @@ add_test(NAME conv5x5_stride_2_fwd_asym_padding
                   --padding-width-lower=2
                   --padding-height-upper=3
                   --padding-width-upper=3
-                  --stride=2)
+                  --stride=2
+                  --tiles-per-ipu=16)
 
 add_test(NAME small_conv_many_tiles_1x1
          COMMAND single_conv_layer
