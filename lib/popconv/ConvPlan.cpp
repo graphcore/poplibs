@@ -938,6 +938,7 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
                                  bool flattenXY,
                                  unsigned partialChansPerGroup,
                                  Plan::AmpWUMethod ampWUMethod) {
+  const auto canonicalParams = canonicalizeParams(params);
   // Padding the kernel in the forward pass requires truncation of the weight
   // deltas in the weight update pass. If flattenXY is true we can fold this
   // truncation into the flattening of the field. If flattenXY is false we
@@ -946,10 +947,9 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
   // TODO add support for output padding / truncation and remove this
   // restriction.
   assert(flattenXY ||
-         (params.kernelPaddingLower[0] == 0 &&
-          params.kernelPaddingUpper[0] == 0));
-  bool floatActivations = params.dType == "float";
-  ConvParams newParams;
+         (canonicalParams.kernelPaddingLower[0] == 0 &&
+          canonicalParams.kernelPaddingUpper[0] == 0));
+  bool floatActivations = canonicalParams.dType == "float";
   unsigned expandedFieldWidth;
   unsigned expandedActivationsHeight;
   unsigned expandedDeltasHeight;
@@ -960,34 +960,35 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
   unsigned weightDeltasStrideY;
   if (flattenXY) {
     expandedFieldWidth =
-       params.getBatchSize() * params.getOutputHeight() *
-                                   params.getOutputWidth();
+       canonicalParams.getBatchSize() * canonicalParams.getOutputHeight() *
+                                        canonicalParams.getOutputWidth();
     expandedActivationsHeight = 1;
     expandedDeltasHeight = 1;
     expandedActivationsPaddingYLower = 0;
     expandedActivationsPaddingYUpper = 0;
     expandedInputDepth =
-        params.getInputDepth() * params.kernelShape[0] *
-                                 params.kernelShape[1];
+        canonicalParams.getInputDepth() * canonicalParams.kernelShape[0] *
+                                          canonicalParams.kernelShape[1];
     expandedDeltasDilationY = 1;
     weightDeltasStrideY = 1;
   } else {
-    expandedFieldWidth = params.getBatchSize() *
-                         params.getOutputWidth();
-    expandedActivationsHeight = params.getInputHeight();
-    expandedDeltasHeight = params.getOutputHeight();
-    expandedActivationsPaddingYLower = params.inputPaddingLower[0];
-    expandedActivationsPaddingYUpper = params.inputPaddingUpper[0];
+    expandedFieldWidth = canonicalParams.getBatchSize() *
+                         canonicalParams.getOutputWidth();
+    expandedActivationsHeight = canonicalParams.getInputHeight();
+    expandedDeltasHeight = canonicalParams.getOutputHeight();
+    expandedActivationsPaddingYLower = canonicalParams.inputPaddingLower[0];
+    expandedActivationsPaddingYUpper = canonicalParams.inputPaddingUpper[0];
     expandedInputDepth =
-        params.getInputDepth() * params.kernelShape[1];
-    expandedDeltasDilationY = params.stride[0];
-    weightDeltasStrideY = params.kernelDilation[0];
+        canonicalParams.getInputDepth() * canonicalParams.kernelShape[1];
+    expandedDeltasDilationY = canonicalParams.stride[0];
+    weightDeltasStrideY = canonicalParams.kernelDilation[0];
   }
   const auto fieldGroupSize =
       deviceInfo.getWeightsPerConvUnit(floatActivations);
   const auto paddedFieldWidth =
       ((expandedFieldWidth + fieldGroupSize - 1) / fieldGroupSize) *
       fieldGroupSize;
+  ConvParams newParams;
   switch (ampWUMethod) {
   case Plan::DELTAS_AS_COEFFICENTS:
     {
@@ -997,9 +998,9 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
       // weight update in chans: fwd x-axis
       // weight update out chans: fwd out chans
       const auto paddedOutputDepth =
-          ((params.getOutputDepth() + partialChansPerGroup - 1) /
+          ((canonicalParams.getOutputDepth() + partialChansPerGroup - 1) /
            partialChansPerGroup) * partialChansPerGroup;
-      newParams = ConvParams(params.dType,
+      newParams = ConvParams(canonicalParams.dType,
                     {1, expandedActivationsHeight,  expandedInputDepth,
                      paddedFieldWidth}, /* inputShape */
                     {expandedDeltasHeight, 1,
@@ -1021,9 +1022,9 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
       const auto paddedExpandedInputDepth =
           ((expandedInputDepth + partialChansPerGroup - 1) /
            partialChansPerGroup) * partialChansPerGroup;
-      newParams = ConvParams(params.dType,
+      newParams = ConvParams(canonicalParams.dType,
                     {1, expandedDeltasHeight,
-                     params.getOutputDepth(),
+                     canonicalParams.getOutputDepth(),
                      paddedFieldWidth}, // inputShape
                     {expandedActivationsHeight,
                      1,

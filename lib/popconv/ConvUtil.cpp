@@ -193,37 +193,55 @@ getOutputShape(const ConvParams &params) {
           params.getOutputWidth(), params.getOutputDepth()};
 }
 
+ConvParams canonicalizeParams(const ConvParams &params) {
+  ConvParams newParams = params;
+  for (unsigned dim = 0; dim != 2; ++dim) {
+    const auto paddedInputSize = newParams.getPaddedDilatedInputSize(dim);
+    const auto paddedKernelSize = newParams.getPaddedDilatedKernelSize(dim);
+    const auto postConvolveSize =
+        absdiff(paddedInputSize, paddedKernelSize) + 1;
+    // Truncate the input or the kernel (whichever is larger) so there are no
+    // excess elements at the end that are ignored. If there are no ignored
+    // elements backprop of the striding operation is input dilation with no
+    // padding.
+    const auto ignored = (postConvolveSize - 1) % newParams.stride[dim];
+    if (paddedInputSize > paddedKernelSize)
+      newParams.inputPaddingUpper[dim] -= ignored;
+    else
+      newParams.kernelPaddingUpper[dim] -= ignored;
+  }
+  return newParams;
+}
+
 ConvParams getGradientParams(const ConvParams &params) {
+  auto canonicalParams = canonicalizeParams(params);
   std::vector<int> bwdInputPaddingLower, bwdInputPaddingUpper;
   std::vector<unsigned> bwdStride, bwdInputDilation;
-  bwdStride = params.inputDilation;
-  bwdInputDilation = params.stride;
+  bwdStride = canonicalParams.inputDilation;
+  bwdInputDilation = canonicalParams.stride;
   for (const auto dim : {0, 1}) {
-    const auto kernelSize = params.getPaddedDilatedKernelSize(dim);
-    const auto inputPaddingLower = params.inputPaddingLower[dim];
-    const auto inputPaddingUpper = params.inputPaddingUpper[dim];
+    const auto kernelSize = canonicalParams.getPaddedDilatedKernelSize(dim);
+    const auto inputPaddingLower = canonicalParams.inputPaddingLower[dim];
+    const auto inputPaddingUpper = canonicalParams.inputPaddingUpper[dim];
     bwdInputPaddingLower.push_back(
       static_cast<int>(kernelSize) - 1 - inputPaddingLower
     );
-    auto paddedInputSize =
-        params.inputShape[1 + dim] + inputPaddingLower + inputPaddingUpper;
-    int inputSizeIgnored =
-        (paddedInputSize - kernelSize) % params.stride[dim];
     bwdInputPaddingUpper.push_back(
-      static_cast<int>(kernelSize) - 1 - inputPaddingUpper + inputSizeIgnored
+      static_cast<int>(kernelSize) - 1 - inputPaddingUpper
     );
   }
-  auto bwdKernelShape = params.kernelShape;
+  auto bwdKernelShape = canonicalParams.kernelShape;
   std::swap(bwdKernelShape[2], bwdKernelShape[3]);
   // Going backwards the weights are flipped in each axis and so we must flip
   // the upper and lower padding.
-  auto bwdKernelPaddingLower = params.kernelPaddingUpper;
-  auto bwdKernelPaddingUpper = params.kernelPaddingLower;
-  return popconv::ConvParams(params.dType, params.getOutputShape(),
+  auto bwdKernelPaddingLower = canonicalParams.kernelPaddingUpper;
+  auto bwdKernelPaddingUpper = canonicalParams.kernelPaddingLower;
+  return popconv::ConvParams(canonicalParams.dType,
+                             canonicalParams.getOutputShape(),
                              bwdKernelShape, bwdStride, bwdInputPaddingLower,
                              bwdInputPaddingUpper, bwdInputDilation,
                              bwdKernelPaddingLower, bwdKernelPaddingUpper,
-                             params.kernelDilation);
+                             canonicalParams.kernelDilation);
 }
 
 unsigned detectChannelGrouping(const poplar::Tensor &t0) {

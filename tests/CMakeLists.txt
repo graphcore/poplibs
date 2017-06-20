@@ -34,9 +34,8 @@ add_popnn_unit_test(GraphProgLocationTest GraphProgLocationTest.cpp)
 add_popnn_unit_test(StdOperatorTest StdOperatorsTest.cpp)
 
 # Layer tests
-add_test(NAME conv3x3_stride_2_fwd
+add_test(NAME conv3x3_stride_2_256_out
          COMMAND single_conv_layer
-                 --single-phase=fwd
                  --input-channels=128
                  --output-channels=256
                  --width=20

@@ -86,6 +86,8 @@ partitionConvPartialByWorker(unsigned convHeight, unsigned convWidth,
 
 std::vector<std::size_t> getOutputShape(const ConvParams &params);
 
+ConvParams canonicalizeParams(const ConvParams &params);
+
 // Given a set of parameters, return the set of params that
 // represent the convolution to be applied to the output gradients
 // to get the input gradients (provided the weights have been
