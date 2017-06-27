@@ -116,6 +116,17 @@ add_test(NAME conv3x3_stride_2
              --stride=2
              --kernel-size=3)
 
+add_test(NAME conv3x3_asymmetric_stride
+         COMMAND single_conv_layer
+             --input-channels=32
+             --output-channels=16
+             --width=10
+             --height=7
+             --tiles-per-ipu=16
+             --stride-height=2
+             --stride-width=3
+             --kernel-size=3)
+
 add_test(NAME conv3x3_stride_1_padding_1
          COMMAND single_conv_layer
               --input-channels=32
