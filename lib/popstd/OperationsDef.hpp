@@ -30,6 +30,7 @@ enum BinaryOp {
 enum UnaryOp {
   ABSOLUTE,
   CEIL,
+  COS,
   EXPONENT,
   FLOOR,
   LOGARITHM,

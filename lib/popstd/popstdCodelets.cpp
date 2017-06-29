@@ -456,6 +456,45 @@ public:
 template class Ceil<float>;
 template class Ceil<half>;
 
+template <typename InType>
+class Cos : public Vertex {
+public:
+  Vector<Input<Vector<InType>>> in;
+  Vector<Output<Vector<InType>>> out;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    assert(in.size() == out.size());
+    for (unsigned i = 0; i != in.size(); ++i) {
+      assert (in[i].size() == out[i].size());
+      for (unsigned j = 0; j != in[i].size(); ++j) {
+        out[i][j] = std::cos(in[i][j]);
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    uint64_t cycles = 6;
+    for (unsigned i = 0; i < in.size(); ++i) {
+      unsigned overhead = 6;
+      unsigned numElem = in[i].size();
+      bool isFloat = std::is_same<InType, float>::value;
+      unsigned vectorWidth = 1;
+      unsigned cyclesPerVector = 1;
+      //TODO - this is the same as tanh, but needs to be corrected
+      if (!isFloat) {
+        vectorWidth = dataPathWidth / 16;
+      }
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
+    }
+    return cycles;
+  }
+};
+
+template class Cos<float>;
+template class Cos<half>;
 
 template <typename InType>
 class Divide : public Vertex {

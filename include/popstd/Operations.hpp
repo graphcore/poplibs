@@ -22,6 +22,11 @@ poplar::Tensor ceil(poplar::Graph &graph,
                     poplar::program::Sequence &prog,
                     const std::string &debugPrefix = "");
 
+poplar::Tensor cos(poplar::Graph &graph,
+                    poplar::Tensor A,
+                    poplar::program::Sequence &prog,
+                    const std::string &debugPrefix = "");
+
 poplar::Tensor div(poplar::Graph &graph,
                    poplar::Tensor A, poplar::Tensor B,
                    poplar::program::Sequence &prog,

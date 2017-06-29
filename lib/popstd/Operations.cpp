@@ -42,6 +42,8 @@ static std::string vertexName(enum UnaryOp op) {
     return "popstd::Absolute";
   case CEIL:
     return "popstd::Ceil";
+  case COS:
+    return "popstd::Cos";
   case EXPONENT:
     return "popstd::Exponent";
   case FLOOR:
@@ -267,6 +269,11 @@ Tensor abs(Graph &graph, Tensor A, Sequence &prog,
 Tensor ceil(Graph &graph, Tensor A, Sequence &prog,
             const std::string &debugPrefix) {
   return unaryOp(graph, A, prog, UnaryOp::CEIL, debugPrefix + "/Op/Ceil");
+}
+
+Tensor cos(Graph &graph, Tensor A, Sequence &prog,
+            const std::string &debugPrefix) {
+  return unaryOp(graph, A, prog, UnaryOp::COS, debugPrefix + "/Op/Cos");
 }
 
 Tensor div(Graph &graph, Tensor A, Tensor B, Sequence &prog,

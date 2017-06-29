@@ -291,6 +291,40 @@ BOOST_AUTO_TEST_CASE(StdOperationCeil,
   }
 }
 
+BOOST_AUTO_TEST_CASE(StdOperationCos,
+                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+) {
+  Graph graph(createIPUModelDevice());
+  popstd::addCodelets(graph);
+
+  float hIn[DIM_SIZE][DIM_SIZE];
+  setUnaryOpInput(hIn);
+
+  auto in = mapUnaryOpTensor(graph, "float");
+  auto prog = Sequence();
+
+  prog.add(Copy(hIn, in));
+  auto out = cos(graph, in, prog);
+
+  float hOut[DIM_SIZE][DIM_SIZE];
+  prog.add(Copy(out, hOut));
+
+  Engine eng(graph, prog);
+  eng.run();
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      double res = std::cos(static_cast<double>(hIn[i][j]));
+      BOOST_TEST(hOut[i][j] == res);
+    }
+  }
+}
+
+
+
 BOOST_AUTO_TEST_CASE(StdOperationDivideFloat,
                   *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
