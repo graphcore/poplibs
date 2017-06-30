@@ -49,7 +49,7 @@ static unsigned estimateReduceAtDstCost(
   const auto preComputeExchangeBytes =
       maxElementsPerTile * partialsPerElement * partialTypeBytes;
   const auto exchangeBytesPerCycle = deviceInfo.exchangeBytesPerCycle;
-  const auto syncCycles = deviceInfo.IPUSyncCycles;
+  const auto syncCycles = deviceInfo.getMaxIPUSyncDelay();
   unsigned cycles = 0;
   cycles += (preComputeExchangeBytes + exchangeBytesPerCycle - 1) /
             exchangeBytesPerCycle;
@@ -88,7 +88,7 @@ static unsigned estimateBalancedReduceCost(
   const auto postComputeExchangeBytes =
       getMaxElementsPerTile(reducedMapping) * reducedTypeBytes;
   const auto exchangeBytesPerCycle = deviceInfo.exchangeBytesPerCycle;
-  const auto syncCycles = deviceInfo.IPUSyncCycles;
+  const auto syncCycles = deviceInfo.getMaxIPUSyncDelay();
   unsigned cycles = 0;
   cycles += (preComputeExchangeBytes + exchangeBytesPerCycle - 1) /
             exchangeBytesPerCycle;
