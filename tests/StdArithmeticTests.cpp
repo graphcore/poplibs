@@ -8,6 +8,7 @@
 #include <iostream>
 #include <popstd/Add.hpp>
 #include <popstd/SubtractFrom.hpp>
+#include <popstd/Cast.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -194,5 +195,35 @@ BOOST_AUTO_TEST_CASE(StdSubtractFrom_int) {
       double res = hIn1[i][j] - hIn2[i][j];
       BOOST_TEST(hOut[i][j] == res);
     }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(StdCast) {
+  Graph graph(createIPUModelDevice());
+  popstd::addCodelets(graph);
+
+  float hIn[DIM_SIZE];
+  for (auto i = 0U; i<DIM_SIZE; ++i) {
+    hIn[i] = (float)i;
+  }
+
+  auto in = graph.addTensor("float", {DIM_SIZE}, "in");
+  mapTensor(graph, in);
+
+  auto prog = Sequence();
+
+  prog.add(Copy(hIn, in));
+
+  poplar::Tensor out = cast(graph, in, "int", prog, "cast");
+
+  int hOut[DIM_SIZE];
+  prog.add(Copy(out, hOut));
+
+  Engine eng(graph, prog);
+  eng.run();
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    BOOST_TEST(hOut[i] == i);
   }
 }
