@@ -180,12 +180,19 @@ Tensor maxPool(Graph &graph,  unsigned kernelSizeY, unsigned kernelSizeX,
       for (const auto &region : regions) {
         // For each contiguous regions of output points group them by
         // pixel location.
-        std::map<Pixel, std::vector<std::size_t>> groupedByPixel;
+        std::map<Pixel, std::vector<Interval<std::size_t>>> groupedByPixel;
         for (unsigned i = region.begin(); i < region.end(); ++i) {
           auto coord = unflattenIndex(out.shape(), i);
           auto pixel = Pixel(coord[0], coord[1], coord[2]);
           auto channel = coord[3];
-          groupedByPixel[pixel].push_back(channel);
+          if (!groupedByPixel[pixel].empty() &&
+              groupedByPixel[pixel].back().end() == channel) {
+            groupedByPixel[pixel].back() =
+                Interval<std::size_t>(groupedByPixel[pixel].back().begin(),
+                                      channel + 1);
+          } else {
+            groupedByPixel[pixel].emplace_back(channel, channel + 1);
+          }
         }
         // For each pixel add the vector of output channels to write to
         // and the vectors of input channels to pool over to the input/output
@@ -197,11 +204,12 @@ Tensor maxPool(Graph &graph,  unsigned kernelSizeY, unsigned kernelSizeX,
           const auto y = pixel.y;
           const auto x = pixel.x;
           const auto &channels = entry.second;
-          Tensor outVector = graph.addTensor(dType, {0}, "");
-          for (const auto chan : channels) {
-            outVector = append(outVector, out[batch][y][x][chan]);
+          const auto outPixel = out[batch][y][x];
+          std::vector<Tensor> outChans;
+          for (const auto chanSlice : channels) {
+            outChans.push_back(outPixel.slice(chanSlice));
           }
-          vertexOut.push_back(outVector);
+          vertexOut.push_back(concat(outChans));
           unsigned windowSize = 0;
           for (unsigned ky = 0; ky < kernelSizeY; ++ky) {
             auto inY = getInputIndex(0, y, ky, params);
@@ -211,11 +219,12 @@ Tensor maxPool(Graph &graph,  unsigned kernelSizeY, unsigned kernelSizeX,
               auto inX = getInputIndex(1, x, kx, params);
               if (inX == ~0U)
                 continue;
-              Tensor inVector = graph.addTensor(dType, {0}, "");
-              for (const auto chan : channels) {
-                inVector = append(inVector, in[batch][inY][inX][chan]);
+              const auto inPixel = in[batch][inY][inX];
+              std::vector<Tensor> inChans;
+              for (const auto chanSlice : channels) {
+                inChans.push_back(inPixel.slice(chanSlice));
               }
-              vertexIn.push_back(inVector);
+              vertexIn.push_back(concat(inChans));
               ++windowSize;
             }
           }
@@ -306,12 +315,19 @@ maxPoolInputGradient(Graph &graph, unsigned kernelSizeY, unsigned kernelSizeX,
       for (const auto &region : regions) {
         // For each contiguous regions of output points group them by
         // pixel location.
-        std::map<Pixel, std::vector<std::size_t>> groupedByPixel;
+        std::map<Pixel, std::vector<Interval<std::size_t>>> groupedByPixel;
         for (unsigned i = region.begin(); i < region.end(); ++i) {
           auto coord = unflattenIndex(inGradient.shape(), i);
           auto pixel = Pixel(coord[0], coord[1], coord[2]);
           auto channel = coord[3];
-          groupedByPixel[pixel].push_back(channel);
+          if (!groupedByPixel[pixel].empty() &&
+              groupedByPixel[pixel].back().end() == channel) {
+            groupedByPixel[pixel].back() =
+                Interval<std::size_t>(groupedByPixel[pixel].back().begin(),
+                                      channel + 1);
+          } else {
+            groupedByPixel[pixel].emplace_back(channel, channel + 1);
+          }
         }
 
         // For each pixel add the vector of output channels to write to
@@ -323,14 +339,16 @@ maxPoolInputGradient(Graph &graph, unsigned kernelSizeY, unsigned kernelSizeX,
           const auto y = pixel.y;
           const auto x = pixel.x;
           const auto &channels = entry.second;
-          Tensor inGradVector = graph.addTensor(dType, {0}, "");
-          Tensor inVector = graph.addTensor(dType, {0}, "");
-          for (const auto chan : channels) {
-            inGradVector = append(inGradVector, inGradient[batch][y][x][chan]);
-            inVector = append(inVector, in[batch][y][x][chan]);
+          const auto inGradPixel = inGradient[batch][y][x];
+          const auto inPixel = in[batch][y][x];
+          std::vector<Tensor> inGradChans;
+          std::vector<Tensor> inChans;
+          for (const auto chanSlice : channels) {
+            inGradChans.push_back(inGradPixel.slice(chanSlice));
+            inChans.push_back(inPixel.slice(chanSlice));
           }
-          vertexInGrad.push_back(inGradVector);
-          vertexIn.push_back(inVector);
+          vertexInGrad.push_back(concat(inGradChans));
+          vertexIn.push_back(concat(inChans));
           unsigned windowSize = 0;
           for (unsigned ky = 0; ky < kernelSizeY; ++ky) {
             auto outY = getInputIndex(0, y, ky, bwdParams);
@@ -340,17 +358,16 @@ maxPoolInputGradient(Graph &graph, unsigned kernelSizeY, unsigned kernelSizeX,
               auto outX = getInputIndex(1, x, kx, bwdParams);
               if (outX == ~0U)
                 continue;
-              Tensor pooledGradVector = graph.addTensor(dType, {0}, "");
-              Tensor pooledVector = graph.addTensor(dType, {0}, "");
-              for (const auto chan : channels) {
-                pooledGradVector =
-                    append(pooledGradVector,
-                           pooledGradient[batch][outY][outX][chan]);
-                pooledVector = append(pooledVector,
-                                      pooled[batch][outY][outX][chan]);
+              const auto pooledGradPixel = pooledGradient[batch][outY][outX];
+              const auto pooledPixel = pooled[batch][outY][outX];
+              std::vector<Tensor> pooledGradChans;
+              std::vector<Tensor> pooledChans;
+              for (const auto chanSlice : channels) {
+                pooledGradChans.push_back(pooledGradPixel.slice(chanSlice));
+                pooledChans.push_back(pooledPixel.slice(chanSlice));
               }
-              vertexPooledGrad.push_back(pooledGradVector);
-              vertexPooled.push_back(pooledVector);
+              vertexPooledGrad.push_back(concat(pooledGradChans));
+              vertexPooled.push_back(concat(pooledChans));
               ++windowSize;
             }
           }
