@@ -646,6 +646,34 @@ add_test(NAME max_pool_layer_1x4
                  --stride-height 1
                  --stride-width 4)
 
+add_test(NAME max_pool_layer_mixed_padding
+        COMMAND max_pool_layer
+                --channels 32
+                --width 32
+                --height 16
+                --kernel-height 5
+                --kernel-width 3
+                --stride-height 1
+                --stride-width 4
+                --padding-width-lower 1
+                --padding-width-upper 2
+                --padding-height-lower 3
+                --padding-height-upper 4)
+
+add_test(NAME max_pool_layer_negative_mixed_padding
+        COMMAND max_pool_layer
+                --channels 32
+                --width 32
+                --height 16
+                --kernel-height 5
+                --kernel-width 3
+                --stride-height 1
+                --stride-width 4
+                --padding-width-lower -1
+                --padding-width-upper 2
+                --padding-height-lower -3
+                --padding-height-upper 4)
+
 add_test(NAME gemm_1x3x1
           COMMAND general_matrix_multiply
                   --m 1

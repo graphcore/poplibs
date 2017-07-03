@@ -8,13 +8,15 @@ namespace maxpool {
 
 void maxPooling(unsigned strideHeight, unsigned strideWidth,
                 unsigned kernelHeight, unsigned kernelWidth,
-                unsigned paddingHeight, unsigned paddingWidth,
+                int paddingHeightL, int paddingWidthL,
+                int paddingHeightU, int paddingWidthU,
                 const boost::multi_array<double, 4> &in,
                 boost::multi_array<double, 4> &out);
 
 void maxPoolingBackward(unsigned strideHeight, unsigned strideWidth,
                         unsigned kernelHeight, unsigned kernelWidth,
-                        unsigned paddingHeight, unsigned paddingWidth,
+                        int paddingHeightL, int paddingWidthL,
+                        int paddingHeightU, int paddingWidthH,
                         const boost::multi_array<double, 4> &prevAct,
                         const boost::multi_array<double, 4> &nextAct,
                         const boost::multi_array<double, 4> &in,

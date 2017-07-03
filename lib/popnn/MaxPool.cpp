@@ -16,30 +16,46 @@ using namespace popstd;
 namespace popnn {
 namespace maxpool {
 
+static void
+checkWindowParameters(std::vector<std::size_t> kernelShape,
+                      std::vector<unsigned> stride,
+                      std::vector<int> inputPaddingLower,
+                      std::vector<int> inputPaddingUpper) {
+  if (kernelShape.size() != stride.size() ||
+      stride.size() != inputPaddingLower.size() ||
+      inputPaddingLower.size() != inputPaddingUpper.size()) {
+    throw popstd::poplib_error("Mismatched window dimensions on poplibs "
+                               "maxpool operation");
+  }
+  if (kernelShape.size() != 2) {
+    throw popstd::poplib_error("poplibs maxpool only supports 2D operation");
+  }
+}
+
 // Create dummy convolution parameters with same special characteristics
 // as a pooling operation.
 static ConvParams
-makeConvParams(unsigned inDimY, unsigned inDimX, unsigned kernelSizeY,
-               unsigned kernelSizeX, unsigned strideY, unsigned strideX,
-               int paddingY, int paddingX) {
-  std::vector<unsigned> stride = {strideY, strideX};
-  std::vector<unsigned> inputDilation = {1, 1};
-  std::vector<int> inputPadding = {paddingY, paddingX};
-  std::vector<unsigned> kernelDilation = {1, 1};
-  std::vector<int> kernelPadding = {0, 0};
+makeConvParams(unsigned inDimY, unsigned inDimX,
+               const std::vector<std::size_t> &kernelShape,
+               const std::vector<unsigned> &stride,
+               const std::vector<int> &inputPaddingLower,
+               const std::vector<int> &inputPaddingUpper) {
   return  {"", {1, inDimY, inDimX, 1},
-           {kernelSizeY, kernelSizeX, 1, 1},
-            stride, inputPadding, inputPadding, inputDilation,
-            kernelPadding, kernelPadding, kernelDilation};
+           {kernelShape[0], kernelShape[1], 1, 1},
+           stride, inputPaddingLower, inputPaddingUpper,
+           {1, 1}, {0, 0}, {0, 0}, {1, 1}};
 }
 
 std::pair<unsigned, unsigned>
-getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSizeY,
-             unsigned kernelSizeX, unsigned strideY,
-             unsigned strideX, unsigned paddingY,
-             unsigned paddingX) {
-  auto params = makeConvParams(inDimY, inDimX, kernelSizeY, kernelSizeX,
-                               strideY, strideX, paddingY, paddingX);
+getOutputDim(unsigned inDimY, unsigned inDimX,
+             const std::vector<std::size_t> &kernelShape,
+             const std::vector<unsigned> &stride,
+             const std::vector<int> &inputPaddingLower,
+             const std::vector<int> &inputPaddingUpper) {
+  checkWindowParameters(kernelShape, stride, inputPaddingLower,
+                        inputPaddingUpper);
+  auto params = makeConvParams(inDimY, inDimX, kernelShape, stride,
+                               inputPaddingLower, inputPaddingUpper);
   return {params.getOutputHeight(), params.getOutputWidth()};
 }
 
@@ -47,11 +63,14 @@ getOutputDim(unsigned inDimY, unsigned inDimX, unsigned kernelSizeY,
 uint64_t getFwdFlops(unsigned batchSize,
                      unsigned inDimY, unsigned inDimX,
                      unsigned numChannels,
-                     unsigned kernelSizeY, unsigned kernelSizeX,
-                     unsigned strideY, unsigned strideX,
-                     unsigned paddingY, unsigned paddingX) {
-  auto params = makeConvParams(inDimY, inDimX, kernelSizeY, kernelSizeX,
-                               strideY, strideX, paddingY, paddingX);
+                     const std::vector<std::size_t> &kernelShape,
+                     const std::vector<unsigned> &stride,
+                     const std::vector<int> &inputPaddingLower,
+                     const std::vector<int> &inputPaddingUpper) {
+  checkWindowParameters(kernelShape, stride, inputPaddingLower,
+                        inputPaddingUpper);
+  auto params = makeConvParams(inDimY, inDimX, kernelShape, stride,
+                               inputPaddingLower, inputPaddingUpper);
   auto outDimY = params.getOutputHeight();
   auto outDimX = params.getOutputWidth();
   std::uint64_t numFlops = 0;
@@ -72,9 +91,10 @@ uint64_t getFwdFlops(unsigned batchSize,
 uint64_t getBwdFlops(unsigned batchSize,
                      unsigned inDimY, unsigned inDimX,
                      unsigned numChannels,
-                     unsigned kernelSizeY, unsigned kernelSizeX,
-                     unsigned strideY, unsigned strideX,
-                     unsigned paddingY, unsigned paddingX) {
+                     const std::vector<std::size_t> &kernelShape,
+                     const std::vector<unsigned> &stride,
+                     const std::vector<int> &inputPaddingLower,
+                     const std::vector<int> &inputPaddingUpper) {
   return 0;
 }
 
@@ -83,18 +103,22 @@ double getFwdPerfectCycleCount(const Graph &graph,
                                std::string dType, unsigned batchSize,
                                unsigned inDimY, unsigned inDimX,
                                unsigned numChannels,
-                               unsigned kernelSizeY, unsigned kernelSizeX,
-                               unsigned strideY, unsigned strideX,
-                               unsigned paddingY, unsigned paddingX) {
+                               const std::vector<std::size_t> &kernelShape,
+                               const std::vector<unsigned> &stride,
+                               const std::vector<int> &inputPaddingLower,
+                               const std::vector<int> &inputPaddingUpper) {
+  checkWindowParameters(kernelShape, stride, inputPaddingLower,
+                        inputPaddingUpper);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   unsigned dTypeSize = dType == "float" ? 4 : 2;
   const auto numTiles = deviceInfo.getNumTiles();
   const auto numFLOPs = getFwdFlops(batchSize,
                                     inDimY, inDimX,
                                     numChannels,
-                                    kernelSizeY, kernelSizeX,
-                                    strideY, strideX,
-                                    paddingY, paddingX);
+                                    kernelShape,
+                                    stride,
+                                    inputPaddingLower,
+                                    inputPaddingUpper);
   const auto vectorWidth = deviceInfo.dataPathWidth / (8 * dTypeSize);
   return static_cast<double>(numFLOPs) / (vectorWidth * numTiles);
 }
@@ -103,12 +127,16 @@ double getBwdPerfectCycleCount(const Graph &graph,
                                std::string dType, unsigned batchSize,
                                unsigned inDimY, unsigned inDimX,
                                unsigned numChannels,
-                               unsigned kernelSizeY, unsigned kernelSizeX,
-                               unsigned strideY, unsigned strideX,
-                               unsigned paddingY, unsigned paddingX) {
+                               const std::vector<std::size_t> &kernelShape,
+                               const std::vector<unsigned> &stride,
+                               const std::vector<int> &inputPaddingLower,
+                               const std::vector<int> &inputPaddingUpper) {
+  checkWindowParameters(kernelShape, stride, inputPaddingLower,
+                        inputPaddingUpper);
   return getFwdPerfectCycleCount(graph, dType, batchSize, inDimY, inDimX,
-                                 numChannels, kernelSizeY, kernelSizeX,
-                                 strideY, strideX, paddingY, paddingX) * 2;
+                                 numChannels, kernelShape,
+                                 stride, inputPaddingLower,
+                                 inputPaddingUpper) * 2;
 }
 
 // A utility type representing a pixel in the field being pooled over.
@@ -121,16 +149,20 @@ struct Pixel {
 };
 }
 
-Tensor maxPool(Graph &graph,  unsigned kernelSizeY, unsigned kernelSizeX,
-               unsigned strideY, unsigned strideX,
-               unsigned paddingY, unsigned paddingX,
+Tensor maxPool(Graph &graph,
+               const std::vector<std::size_t> &kernelShape,
+               const std::vector<unsigned> &stride,
+               const std::vector<int> &inputPaddingLower,
+               const std::vector<int> &inputPaddingUpper,
                Tensor in, Sequence &prog, const std::string &debugPrefix) {
+  checkWindowParameters(kernelShape, stride, inputPaddingLower,
+                        inputPaddingUpper);
   const auto dType = in.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto layerName = debugPrefix + "/MaxPool"
-                         + std::to_string(kernelSizeX) + "x"
-                         + std::to_string(kernelSizeY);
+                         + std::to_string(kernelShape[0]) + "x"
+                         + std::to_string(kernelShape[1]);
   ComputeSet cs = graph.addComputeSet(layerName);
 
   const auto batchSize = in.dim(0);
@@ -139,8 +171,8 @@ Tensor maxPool(Graph &graph,  unsigned kernelSizeY, unsigned kernelSizeX,
   const auto numChannels = in.dim(3);
   unsigned outHeight, outWidth;
   tie(outHeight, outWidth) =
-      getOutputDim(inHeight, inWidth, kernelSizeY, kernelSizeX, strideY,
-                   strideX, paddingY, paddingX);
+      getOutputDim(inHeight, inWidth, kernelShape, stride, inputPaddingLower,
+                   inputPaddingUpper);
 
   // Create output
   auto chansPerGroup = detectChannelGrouping(in);
@@ -155,8 +187,8 @@ Tensor maxPool(Graph &graph,  unsigned kernelSizeY, unsigned kernelSizeX,
   const auto numTiles = deviceInfo.getNumTiles();
   auto outTileMapping = graph.getTileMapping(out);
   const auto params = makeConvParams(in.dim(1), in.dim(2),
-                                     kernelSizeY, kernelSizeX,
-                                     strideY, strideX, paddingY, paddingX);
+                                     kernelShape, stride,
+                                     inputPaddingLower, inputPaddingUpper);
 
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     // On each tile split the elements of the output up between the workers.
@@ -211,11 +243,11 @@ Tensor maxPool(Graph &graph,  unsigned kernelSizeY, unsigned kernelSizeX,
           }
           vertexOut.push_back(concat(outChans));
           unsigned windowSize = 0;
-          for (unsigned ky = 0; ky < kernelSizeY; ++ky) {
+          for (unsigned ky = 0; ky < kernelShape[0]; ++ky) {
             auto inY = getInputIndex(0, y, ky, params);
             if (inY == ~0U)
               continue;
-            for (unsigned kx = 0; kx < kernelSizeX; ++kx) {
+            for (unsigned kx = 0; kx < kernelShape[1]; ++kx) {
               auto inX = getInputIndex(1, x, kx, params);
               if (inX == ~0U)
                 continue;
@@ -247,17 +279,22 @@ Tensor maxPool(Graph &graph,  unsigned kernelSizeY, unsigned kernelSizeX,
 }
 
 Tensor
-maxPoolInputGradient(Graph &graph, unsigned kernelSizeY, unsigned kernelSizeX,
-                     unsigned strideY, unsigned strideX, unsigned paddingY,
-                     unsigned paddingX, Tensor in, Tensor pooled,
+maxPoolInputGradient(Graph &graph,
+                     const std::vector<std::size_t> &kernelShape,
+                     const std::vector<unsigned> &stride,
+                     const std::vector<int> &inputPaddingLower,
+                     const std::vector<int> &inputPaddingUpper,
+                     Tensor in, Tensor pooled,
                      Tensor pooledGradient, Sequence &prog,
                      const std::string &debugPrefix) {
+  checkWindowParameters(kernelShape, stride, inputPaddingLower,
+                        inputPaddingUpper);
   const auto dType = in.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto layerName = debugPrefix + "/MaxPoolBwd"
-                         + std::to_string(kernelSizeX) + "x"
-                         + std::to_string(kernelSizeY);
+                         + std::to_string(kernelShape[0]) + "x"
+                         + std::to_string(kernelShape[1]);
   ComputeSet cs = graph.addComputeSet(layerName);
 
 
@@ -283,8 +320,8 @@ maxPoolInputGradient(Graph &graph, unsigned kernelSizeY, unsigned kernelSizeX,
   const auto numTiles = deviceInfo.getNumTiles();
   auto outTileMapping = graph.getTileMapping(inGradient);
   auto params = makeConvParams(inHeight, inWidth,
-                               kernelSizeY, kernelSizeX,
-                               strideY, strideX, paddingY, paddingX);
+                               kernelShape, stride,
+                               inputPaddingLower, inputPaddingUpper);
   auto bwdParams = getGradientParams(params);
 
   for (unsigned tile = 0; tile != numTiles; ++tile) {
@@ -350,11 +387,11 @@ maxPoolInputGradient(Graph &graph, unsigned kernelSizeY, unsigned kernelSizeX,
           vertexInGrad.push_back(concat(inGradChans));
           vertexIn.push_back(concat(inChans));
           unsigned windowSize = 0;
-          for (unsigned ky = 0; ky < kernelSizeY; ++ky) {
+          for (unsigned ky = 0; ky < kernelShape[0]; ++ky) {
             auto outY = getInputIndex(0, y, ky, bwdParams);
             if (outY == ~0U)
               continue;
-            for (unsigned kx = 0; kx < kernelSizeX; ++kx) {
+            for (unsigned kx = 0; kx < kernelShape[1]; ++kx) {
               auto outX = getInputIndex(1, x, kx, bwdParams);
               if (outX == ~0U)
                 continue;

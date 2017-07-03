@@ -31,8 +31,10 @@ int main(int argc, char **argv) {
   unsigned height;
   unsigned kernelHeight;
   unsigned kernelWidth;
-  unsigned paddingHeight;
-  unsigned paddingWidth;
+  int paddingHeightL;
+  int paddingHeightU;
+  int paddingWidthL;
+  int paddingWidthU;
   unsigned strideHeight;
   unsigned strideWidth;
   unsigned fwdChansPerGroup;
@@ -46,8 +48,10 @@ int main(int argc, char **argv) {
 
   /* these are used when the same value is shared across both height and width*/
   unsigned kernelSize;
-  unsigned padding;
   unsigned stride;
+  int padding;
+  int paddingHeight;
+  int paddingWidth;
 
   po::options_description desc("Options");
   desc.add_options()
@@ -71,12 +75,24 @@ int main(int argc, char **argv) {
      po::value<FPDataType>(&dataType)->default_value(FPDataType::HALF),
      "Type of the data and the parameters")
 
-    ("padding", po::value<unsigned>(&padding)->default_value(0),
+    ("padding", po::value<int>(&padding)->default_value(0),
      "Amount of zero padding for height and width. If set, it is an "
      "error to also set either padding-height and/or padding-width")
-    ("padding-height", po::value<unsigned>(&paddingHeight)->default_value(0),
+    ("padding-height", po::value<int>(&paddingHeight)->default_value(0),
      "Amount of zero padding in the height dimension")
-    ("padding-width", po::value<unsigned>(&paddingWidth)->default_value(0),
+    ("padding-width", po::value<int>(&paddingWidth)->default_value(0),
+     "Amount of zero padding in the width dimension")
+    ("padding-height-upper",
+     po::value<int>(&paddingHeightU)->default_value(0),
+     "Amount of zero padding in the height dimension")
+    ("padding-height-lower",
+     po::value<int>(&paddingHeightL)->default_value(0),
+     "Amount of zero padding in the height dimension")
+    ("padding-width-upper",
+     po::value<int>(&paddingWidthU)->default_value(0),
+     "Amount of zero padding in the width dimension")
+    ("padding-width-lower",
+     po::value<int>(&paddingWidthL)->default_value(0),
      "Amount of zero padding in the width dimension")
 
     ("stride", po::value<unsigned>(&stride)->default_value(1),
@@ -140,12 +156,56 @@ int main(int argc, char **argv) {
       std::cerr << "--padding as well as --padding-height set\n";
       return 1;
     }
+    if (!vm["padding-height-lower"].defaulted()) {
+      std::cerr << "--padding as well as --padding-height-lower set\n";
+      return 1;
+    }
+    if (!vm["padding-height-upper"].defaulted()) {
+      std::cerr << "--padding as well as --padding-height-upper set\n";
+      return 1;
+    }
     if (!vm["padding-width"].defaulted()) {
       std::cerr << "--padding as well as --padding-width set\n";
       return 1;
     }
-    paddingHeight = padding;
-    paddingWidth = padding;
+    if (!vm["padding-width-lower"].defaulted()) {
+      std::cerr << "--padding as well as --padding-width-lower set\n";
+      return 1;
+    }
+    if (!vm["padding-width-upper"].defaulted()) {
+      std::cerr << "--padding as well as --padding-width-upper set\n";
+      return 1;
+    }
+    paddingHeightL = padding;
+    paddingWidthL = padding;
+    paddingHeightU = padding;
+    paddingWidthU = padding;
+  }
+
+  if (!vm["padding-height"].defaulted()) {
+    if (!vm["padding-height-lower"].defaulted()) {
+      std::cerr << "--padding-height as well as --padding-height-lower set\n";
+      return 1;
+    }
+    if (!vm["padding-height-upper"].defaulted()) {
+      std::cerr << "--padding-height as well as --padding-height-upper set\n";
+      return 1;
+    }
+    paddingHeightL = paddingHeight;
+    paddingHeightU = paddingHeight;
+  }
+
+  if (!vm["padding-width"].defaulted()) {
+    if (!vm["padding-width-lower"].defaulted()) {
+      std::cerr << "--padding-width as well as --padding-width-lower set\n";
+      return 1;
+    }
+    if (!vm["padding-width-upper"].defaulted()) {
+      std::cerr << "--padding-width as well as --padding-width-upper set\n";
+      return 1;
+    }
+    paddingWidthL = paddingWidth;
+    paddingWidthU = paddingWidth;
   }
 
   if (!vm["stride"].defaulted()) {
@@ -183,9 +243,10 @@ int main(int argc, char **argv) {
   }
   const auto outDims =
       popnn::maxpool::getOutputDim(height, width,
-                                   kernelHeight, kernelWidth,
-                                   strideHeight, strideWidth,
-                                   paddingHeight, paddingWidth);
+                                   {kernelHeight, kernelWidth},
+                                   {strideHeight, strideWidth},
+                                   {paddingHeightL, paddingWidthL},
+                                   {paddingHeightU, paddingWidthU});
   const auto outHeight = outDims.first;
   const auto outWidth = outDims.second;
   // Create tensors.
@@ -214,9 +275,10 @@ int main(int argc, char **argv) {
 
   auto fwdProg = Sequence();
   auto nextAct = popnn::maxpool::maxPool(graph,
-                                         kernelHeight, kernelWidth,
-                                         strideHeight, strideWidth,
-                                         paddingHeight, paddingWidth,
+                                         {kernelHeight, kernelWidth},
+                                         {strideHeight, strideWidth},
+                                         {paddingHeightL, paddingWidthL},
+                                         {paddingHeightU, paddingWidthU},
                                          prevAct, fwdProg);
 
   auto bwdProg = Sequence();
@@ -224,9 +286,10 @@ int main(int argc, char **argv) {
   if (!inferenceOnly) {
     prevDeltas =
         popnn::maxpool::maxPoolInputGradient(graph,
-                                             kernelHeight, kernelWidth,
-                                             strideHeight, strideWidth,
-                                             paddingHeight, paddingWidth,
+                                             {kernelHeight, kernelWidth},
+                                             {strideHeight, strideWidth},
+                                             {paddingHeightL, paddingWidthL},
+                                             {paddingHeightU, paddingWidthU},
                                              prevAct, nextAct, zDeltas,
                                              bwdProg);
   }
@@ -263,7 +326,8 @@ int main(int argc, char **argv) {
       modelNextAct(boost::extents[batchSize][outHeight][outWidth][chans]);
   poplib_test::maxpool::maxPooling(strideHeight, strideWidth,
                                    kernelHeight, kernelWidth,
-                                   paddingHeight, paddingWidth,
+                                   paddingHeightL, paddingWidthL,
+                                   paddingHeightU, paddingWidthU,
                                    hostPrevAct, modelNextAct);
   bool matchesModel = checkIsClose("fwd", hostNextAct, modelNextAct,
                                    relativeTolerance);
@@ -289,7 +353,8 @@ int main(int argc, char **argv) {
         modelPrevDeltas(boost::extents[batchSize][height][width][chans]);
     poplib_test::maxpool::maxPoolingBackward(strideHeight, strideWidth,
                                              kernelHeight, kernelWidth,
-                                             paddingHeight, paddingWidth,
+                                             paddingHeightL, paddingWidthL,
+                                             paddingHeightU, paddingWidthU,
                                              hostPrevAct, modelNextAct,
                                              hostZDeltas, modelPrevDeltas);
     matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
