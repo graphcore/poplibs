@@ -140,6 +140,16 @@ poplar::Tensor tanh(poplar::Graph &graph,
                     poplar::program::Sequence &prog,
                     const std::string &debugPrefix = "");
 
+poplar::Tensor sqrt(poplar::Graph &graph,
+                    poplar::Tensor A,
+                    poplar::program::Sequence &prog,
+                    const std::string &debugPrefix = "");
+
+poplar::Tensor square(poplar::Graph &graph,
+                    poplar::Tensor A,
+                    poplar::program::Sequence &prog,
+                    const std::string &debugPrefix = "");
+
 poplar::Tensor select(poplar::Graph &graph,
                       poplar::Tensor A,
                       poplar::Tensor B,

@@ -1081,4 +1081,267 @@ public:
 template class AddBias<float>;
 template class AddBias<half>;
 
+template <class FPType>
+class AddToScaledChannel : public Vertex {
+public:
+  Vector<InOut<Vector<FPType>>> acts;
+  Vector<Input<Vector<FPType>>> addend;
+  float scale;
+
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    unsigned n = acts.size();
+    assert(addend.size() == n);
+    for (unsigned i = 0; i != n; ++i) {
+      unsigned chansPerGroup = addend[i].size();
+      assert(acts[i].size() % chansPerGroup == 0);
+      unsigned len = acts[i].size() / chansPerGroup;
+      for (unsigned j = 0; j != len; ++j) {
+        for (unsigned k = 0; k != chansPerGroup; ++k) {
+          acts[i][j * chansPerGroup + k] += scale * addend[i][k];
+        }
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    bool isFloat = std::is_same<FPType, float>::value;
+    const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    unsigned n = acts.size();
+    unsigned numCycles = 6;
+    for (unsigned i = 0; i != n; ++i) {
+      unsigned chansPerGroup = addend[i].size();
+      assert(acts[i].size() % chansPerGroup == 0);
+      unsigned len = acts[i].size() / chansPerGroup;
+      numCycles += 2; // Load addend and act pointers.
+      numCycles += 1; // Warmup.
+      // Add addend to acts using axpby + dual load + store.
+      numCycles += (len * chansPerGroup + vectorWidth - 1) / vectorWidth;
+    }
+    return numCycles;
+  }
+};
+
+template class AddToScaledChannel<float>;
+template class AddToScaledChannel<half>;
+
+template <class FPType>
+class ChannelMul : public Vertex {
+public:
+  Vector<InOut<Vector<FPType>>> actsIn;
+  Vector<InOut<Vector<FPType>>> actsOut;
+  Vector<Input<Vector<FPType>>> scale;
+
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    assert(actsIn.size() == actsOut.size());
+    unsigned n = actsIn.size();
+    assert(scale.size() == n);
+    for (unsigned i = 0; i != n; ++i) {
+      unsigned chansPerGroup = scale[i].size();
+      assert(actsIn[i].size() % chansPerGroup == 0);
+      assert(actsOut[i].size() % chansPerGroup == 0);
+      unsigned len = actsIn[i].size() / chansPerGroup;
+      for (unsigned j = 0; j != len; ++j) {
+        for (unsigned k = 0; k != chansPerGroup; ++k) {
+          actsOut[i][j * chansPerGroup + k] =
+            actsIn[i][j * chansPerGroup + k] * scale[i][k];
+        }
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    bool isFloat = std::is_same<FPType, float>::value;
+    const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    unsigned n = actsIn.size();
+    unsigned numCycles = 5;
+    for (unsigned i = 0; i != n; ++i) {
+      unsigned chansPerGroup = scale[i].size();
+      assert(actsIn[i].size() % chansPerGroup == 0);
+      assert(actsOut[i].size() % chansPerGroup == 0);
+      unsigned len = actsIn[i].size() / chansPerGroup;
+      numCycles += 3; // Load scale and act pointers.
+      numCycles += 1; // Warmup.
+      // multiply scale by acts using mul + dual load + store.
+      numCycles += (len * chansPerGroup + vectorWidth - 1) / vectorWidth;
+    }
+    return numCycles;
+  }
+};
+
+template class ChannelMul<float>;
+template class ChannelMul<half>;
+
+
+template <typename InType, typename OutType>
+class ConvBNReduce: public Vertex {
+public:
+  Output<Vector<OutType>> sum;
+  Vector<Input<Vector<InType>>> in;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    auto numEstimates = sum.size();
+    for (unsigned est = 0; est < numEstimates; ++est) {
+      float s = 0;
+      for (unsigned d = 0; d < in.size(); d++) {
+        assert(in[d].size() % sum.size() == 0);
+        auto samplesPerEst = in[d].size() / sum.size();
+        for (unsigned i = 0; i < samplesPerEst; ++i) {
+          auto x = in[d][i * numEstimates + est];
+          s += x;
+        }
+      }
+      sum[est] = s;
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    bool isFloat = std::is_same<InType, float>::value;
+    unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    unsigned numVectors = (sum.size() + vectorWidth - 1) / vectorWidth;
+
+    uint64_t cycles = 5;
+    for (unsigned d = 0; d < in.size(); d++) {
+      cycles += 5;
+      auto samplesPerEst = in[d].size() / sum.size();
+      cycles += numVectors * (2 + samplesPerEst);
+    }
+    return cycles;
+  }
+};
+
+template class ConvBNReduce<float, float>;
+template class ConvBNReduce<half, float>;
+
+
+template <typename InType, typename OutType>
+class ConvBNReduceSquare: public Vertex {
+public:
+  Output<Vector<OutType>> sum;
+  Vector<Input<Vector<InType>>> in;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    auto numEstimates = sum.size();
+    for (unsigned est = 0; est < numEstimates; ++est) {
+      float s = 0;
+      for (unsigned d = 0; d < in.size(); d++) {
+        assert(in[d].size() % sum.size() == 0);
+        auto samplesPerEst = in[d].size() / sum.size();
+        for (unsigned i = 0; i < samplesPerEst; ++i) {
+          auto x = in[d][i * numEstimates + est];
+          s += x * x;
+        }
+      }
+      sum[est] = s;
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    bool isFloat = std::is_same<InType, float>::value;
+    unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    unsigned numVectors = (sum.size() + vectorWidth - 1) / vectorWidth;
+
+    uint64_t cycles = 5;
+    for (unsigned d = 0; d < in.size(); d++) {
+      cycles += 5;
+      auto samplesPerEst = in[d].size() / sum.size();
+      cycles += numVectors * (2 + samplesPerEst);
+    }
+    return cycles;
+  }
+};
+
+template class ConvBNReduceSquare<float, float>;
+template class ConvBNReduceSquare<half, float>;
+
+template <typename InType, typename OutType>
+class ConvBNReduceAndScale: public Vertex {
+public:
+  Output<OutType> out;
+  Vector<Input<InType>> sum; // partial running sum
+  float scale;
+
+  bool compute() {
+    float sumTotal = 0;
+    for (unsigned i = 0; i < sum.size(); ++i) {
+      sumTotal += sum[i];
+    }
+    float m = scale * sumTotal;
+    *out = m;
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    return 15 + sum.size();
+  }
+};
+
+template class ConvBNReduceAndScale<float, float>;
+template class ConvBNReduceAndScale<float, half>;
+template class ConvBNReduceAndScale<half, half>;
+
+
+template <class FPType>
+class BatchNorm : public Vertex {
+public:
+  Vector<Input<Vector<FPType>>> actsIn;
+  Vector<Input<Vector<FPType>>> stdDev;
+  Vector<Input<Vector<FPType>>> gamma;
+  Vector<Input<Vector<FPType>>> beta;
+  Vector<Output<Vector<FPType>>> actsOut;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    unsigned n = actsIn.size();
+    assert(actsOut.size() == n);
+    assert(stdDev.size() == n);
+    assert(gamma.size() == n);
+    assert(beta.size() == n);
+
+    for (unsigned i = 0; i != n; ++i) {
+      unsigned chansPerGroup = stdDev[i].size();
+      assert(actsIn[i].size() % chansPerGroup == 0);
+      unsigned len = actsIn[i].size() / chansPerGroup;
+      for (unsigned j = 0; j != len; ++j) {
+        for (unsigned k = 0; k != chansPerGroup; ++k) {
+          const auto idx = j * chansPerGroup + k;
+          FPType whitenedAct = actsIn[i][idx] / stdDev[i][k];
+          actsOut[i][idx] = gamma[i][k] * whitenedAct + beta[i][k];
+        }
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    bool isFloat = std::is_same<FPType, float>::value;
+    const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    unsigned n = actsIn.size();
+    unsigned numCycles = 5;
+    for (unsigned i = 0; i != n; ++i) {
+      unsigned chansPerGroup = stdDev[i].size();
+      assert(actsIn[i].size() % chansPerGroup == 0);
+      unsigned len = actsIn[i].size() / chansPerGroup;
+      numCycles += 2; //
+      numCycles += 1; // Warmup.
+      // Add biases to acts using add + dual load + store.
+      numCycles += (len * chansPerGroup + vectorWidth - 1) / vectorWidth;
+    }
+    return numCycles;
+  }
+};
+
+
+template class BatchNorm<float>;
+template class BatchNorm<half>;
+
 } // end namespace popconv

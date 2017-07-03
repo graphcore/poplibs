@@ -22,6 +22,46 @@ void fullyConnectedWeightUpdate(
                   boost::multi_array<double, 2> &weights,
                   boost::multi_array<double, 1> &biases);
 
+// Compute estimates of mean and standard deviation for a batch of activations
+// and return
+// 1) mean
+// 2) sqrt(stdDev * stdDev + eps)
+void batchNormEstimates(
+                  const boost::multi_array_ref<double, 2> actsIn,
+                  double eps,
+                  boost::multi_array_ref<double, 1> mean,
+                  boost::multi_array_ref<double, 1> stdDev);
+
+// Batch normalise activations given input activations and parameters
+// gamma and beta and estimates mean and stdDev
+void batchNormalise(
+                  const boost::multi_array_ref<double, 2> acts,
+                  const boost::multi_array_ref<double, 1> gamma,
+                  const boost::multi_array_ref<double, 1> beta,
+                  const boost::multi_array_ref<double, 1> mean,
+                  const boost::multi_array_ref<double, 1> stdDev,
+                  boost::multi_array_ref<double, 2> actsOut,
+                  boost::multi_array_ref<double, 2> actsWhitened
+                  );
+
+// Compute gradients for batch normalisation given whitened activations,
+// input gradients, standard deviation and gamma
+void batchNormGradients(
+                  const boost::multi_array_ref<double, 2> actsWhitened,
+                  const boost::multi_array_ref<double, 2> gradsIn,
+                  const boost::multi_array_ref<double, 1> stdDev,
+                  const boost::multi_array_ref<double, 1> gamma,
+                  boost::multi_array_ref<double, 2> gradsOut);
+
+
+// Update parameters gamma and beta given whitened activations
+void batchNormParamUpdate(
+                  const boost::multi_array_ref<double, 2> actsWhitened,
+                  const boost::multi_array_ref<double, 2> gradsIn,
+                  double learningRate,
+                  boost::multi_array_ref<double, 1> gamma,
+                  boost::multi_array_ref<double, 1> beta);
+
 } // End namespace poplib_test.
 } // End namespace conv.
 

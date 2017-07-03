@@ -58,6 +58,10 @@ static std::string vertexName(enum UnaryOp op) {
     return "popstd::Signum";
   case TANH:
     return "popstd::Tanh";
+  case SQRT:
+    return "popstd::Sqrt";
+  case SQUARE:
+    return "popstd::Square";
   }
   throw popstd::poplib_error("Op not supported");
 }
@@ -397,6 +401,16 @@ Tensor sub(Graph &graph, Tensor A, Tensor B, Sequence &prog,
 Tensor tanh(Graph &graph, Tensor A, Sequence &prog,
             const std::string &debugPrefix) {
   return unaryOp(graph, A, prog, UnaryOp::TANH, debugPrefix + "/Op/Tanh");
+}
+
+Tensor sqrt(Graph &graph, Tensor A, Sequence &prog,
+            const std::string &debugPrefix) {
+  return unaryOp(graph, A, prog, UnaryOp::SQRT, debugPrefix + "/Op/Sqrt");
+}
+
+Tensor square(Graph &graph, Tensor A, Sequence &prog,
+            const std::string &debugPrefix) {
+  return unaryOp(graph, A, prog, UnaryOp::SQUARE, debugPrefix + "/Op/Square");
 }
 
 Tensor select(Graph &graph, Tensor A, Tensor B, Tensor pred, Sequence &prog,

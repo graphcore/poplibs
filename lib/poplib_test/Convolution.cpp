@@ -523,3 +523,174 @@ weightUpdate(const std::vector<unsigned> &stride,
     biases[oc] += learningRate * -biasDeltas[oc];
   }
 }
+
+void poplib_test::conv::
+batchNormEstimates(const boost::multi_array_ref<double, 4> actsIn,
+                   double eps,
+                   boost::multi_array_ref<double, 1> mean,
+                   boost::multi_array_ref<double, 1> stdDev) {
+  const unsigned batchSize= actsIn.shape()[0];
+  const unsigned dimY = actsIn.shape()[1];
+  const unsigned dimX = actsIn.shape()[2];
+  const unsigned numChannels = actsIn.shape()[3];
+  const auto numElems = batchSize * dimX * dimY;
+
+  assert(stdDev.shape()[0] == numChannels);
+  assert(mean.shape()[0] == numChannels);
+
+  for (unsigned c = 0; c != numChannels; ++c) {
+    double sum =  0;
+    double sumSquares = 0;
+    for (unsigned b = 0; b != batchSize; ++b) {
+      for (unsigned h = 0; h != dimY; ++h) {
+        for (unsigned w = 0; w != dimX; ++w) {
+          sum += actsIn[b][h][w][c];
+          sumSquares += actsIn[b][h][w][c] * actsIn[b][h][w][c];
+        }
+      }
+    }
+
+    // unbiased sample mean
+    mean[c] = sum / numElems;
+    stdDev[c] = std::sqrt(sumSquares / numElems - mean[c] * mean[c] + eps);
+  }
+}
+
+void poplib_test::conv::
+batchNormalise(const boost::multi_array_ref<double, 4> acts,
+               const boost::multi_array_ref<double, 1> gamma,
+               const boost::multi_array_ref<double, 1> beta,
+               const boost::multi_array_ref<double, 1> mean,
+               const boost::multi_array_ref<double, 1> stdDev,
+               boost::multi_array_ref<double, 4> actsOut,
+               boost::multi_array_ref<double, 4> actsWhitened) {
+
+  const unsigned batchSize = acts.shape()[0];
+  const unsigned dimY = acts.shape()[1];
+  const unsigned dimX = acts.shape()[2];
+  const unsigned numChannels = acts.shape()[3];
+
+  assert(gamma.shape()[0] == numChannels);
+  assert(beta.shape()[0] == numChannels);
+  assert(mean.shape()[0] == numChannels);
+  assert(stdDev.shape()[0] == numChannels);
+  assert(actsOut.shape()[0] == batchSize);
+  assert(actsOut.shape()[1] == dimY);
+  assert(actsOut.shape()[2] == dimX);
+  assert(actsOut.shape()[3] == numChannels);
+  assert(actsWhitened.shape()[0] == batchSize);
+  assert(actsWhitened.shape()[1] == dimY);
+  assert(actsWhitened.shape()[2] == dimX);
+  assert(actsWhitened.shape()[3] == numChannels);
+
+  for (unsigned b = 0; b != batchSize; ++b) {
+    for (unsigned h = 0; h != dimY; ++h) {
+      for (unsigned w = 0; w != dimX; ++w) {
+        for (unsigned c = 0; c != numChannels; ++c) {
+          actsWhitened[b][h][w][c] = (acts[b][h][w][c] - mean[c]) / stdDev[c];
+          actsOut[b][h][w][c] = gamma[c] * actsWhitened[b][h][w][c] + beta[c];
+        }
+      }
+    }
+  }
+}
+
+void poplib_test::conv::
+batchNormGradients(const boost::multi_array_ref<double, 4> actsWhitened,
+                   const boost::multi_array_ref<double, 4> gradsIn,
+                   const boost::multi_array_ref<double, 1> stdDev,
+                   const boost::multi_array_ref<double, 1> gamma,
+                   boost::multi_array_ref<double, 4> gradsOut) {
+  const unsigned batchSize = actsWhitened.shape()[0];
+  const unsigned height = actsWhitened.shape()[1];
+  const unsigned width = actsWhitened.shape()[2];
+  const unsigned numChannels = actsWhitened.shape()[3];
+
+  assert(gradsIn.shape()[0] == batchSize);
+  assert(gradsIn.shape()[1] == height);
+  assert(gradsIn.shape()[2] == width);
+  assert(gradsIn.shape()[3] == numChannels);
+  assert(gradsOut.shape()[0] == batchSize);
+  assert(gradsOut.shape()[1] == height);
+  assert(gradsOut.shape()[2] == width);
+  assert(gradsOut.shape()[3] == numChannels);
+
+  assert(stdDev.shape()[0] == numChannels);
+  assert(gamma.shape()[0] == numChannels);
+
+  const auto numElements = batchSize * height * width;
+
+  for (unsigned c = 0; c != numChannels; ++c) {
+    double sumGradsIn = 0;
+    for (unsigned b = 0; b != batchSize; ++b) {
+      for (unsigned h = 0; h != height; ++h) {
+        for (unsigned w = 0; w != width; ++w) {
+          sumGradsIn += gradsIn[b][h][w][c];
+        }
+      }
+    }
+    double sumGradsInAndxMu = 0;
+    for (unsigned b = 0; b != batchSize; ++b) {
+      for (unsigned h = 0; h != height; ++h) {
+        for (unsigned w = 0; w != width; ++w) {
+          sumGradsInAndxMu += actsWhitened[b][h][w][c] * gradsIn[b][h][w][c];
+        }
+      }
+    }
+
+    for (unsigned b = 0; b != batchSize; ++b) {
+      for (unsigned h = 0; h != height; ++h) {
+        for (unsigned w = 0; w != width; ++w) {
+          double out =
+            gradsIn[b][h][w][c]
+            - actsWhitened[b][h][w][c] * sumGradsInAndxMu / numElements
+            - sumGradsIn / numElements;
+
+          gradsOut[b][h][w][c] = out * gamma[c] / stdDev[c];
+        }
+      }
+    }
+  }
+}
+
+void poplib_test::conv::
+batchNormParamUpdate(const boost::multi_array_ref<double, 4> actsWhitened,
+                     const boost::multi_array_ref<double, 4> gradsIn,
+                     double learningRate,
+                     boost::multi_array_ref<double, 1> gamma,
+                     boost::multi_array_ref<double, 1> beta) {
+  const unsigned batchSize = actsWhitened.shape()[0];
+  const unsigned height = actsWhitened.shape()[1];
+  const unsigned width = actsWhitened.shape()[2];
+  const unsigned numChannels = actsWhitened.shape()[3];
+
+  assert(gradsIn.shape()[0] == batchSize);
+  assert(gradsIn.shape()[1] == height);
+  assert(gradsIn.shape()[2] == width);
+  assert(gradsIn.shape()[3] == numChannels);
+
+  assert(gamma.shape()[0] == numChannels);
+  assert(beta.shape()[0] == numChannels);
+
+  for (unsigned c = 0; c != numChannels; ++c) {
+    double dBeta = 0;
+    for (unsigned b = 0; b != batchSize; ++b) {
+      for (unsigned h = 0; h != height; ++h) {
+        for (unsigned w = 0; w != width; ++w) {
+          dBeta += gradsIn[b][h][w][c];
+        }
+      }
+    }
+    beta[c] -= learningRate * dBeta;
+
+    double dGamma = 0;
+    for (unsigned b = 0; b != batchSize; ++b) {
+      for (unsigned h = 0; h != height; ++h) {
+        for (unsigned w = 0; w != width; ++w) {
+          dGamma += actsWhitened[b][h][w][c] * gradsIn[b][h][w][c];
+        }
+      }
+    }
+    gamma[c] -= learningRate * dGamma;
+  }
+}

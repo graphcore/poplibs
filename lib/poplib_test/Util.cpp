@@ -63,7 +63,8 @@ std::string prettyCoord(const std::string &name, std::size_t index,
 bool checkIsClose(const std::string &name, const double *actual,
                   const std::vector<std::size_t> &shape,
                   const double *expected, std::size_t N,
-                  double relativeTolerance) {
+                  double relativeTolerance,
+                  double absoluteTolerance) {
   auto it = actual;
   auto end = it + N;
   bool isClose = true;
@@ -73,6 +74,8 @@ bool checkIsClose(const std::string &name, const double *actual,
                                                  5 * relativeTolerance)) {
         std::cerr << "close to mismatch on element ";
         // values close to zero have 5x the tolerance
+      } else if   (fabs(*expected - *it) < absoluteTolerance) {
+        std::cerr << "within absolute tolerance bounds on element ";
       } else {
         std::cerr << "mismatch on element ";
         isClose = false;

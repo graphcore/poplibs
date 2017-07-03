@@ -37,7 +37,9 @@ enum UnaryOp {
   LOGICAL_NOT,
   NEGATE,
   SIGNUM,
-  TANH
+  TANH,
+  SQRT,
+  SQUARE
 };
 
 } // namespace popstd

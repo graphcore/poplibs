@@ -20,6 +20,7 @@
 #include "popstd/Util.hpp"
 #include "Winograd.hpp"
 #include "popstd/Zero.hpp"
+#include "popstd/Operations.hpp"
 #include <unordered_set>
 #include <boost/icl/interval_map.hpp>
 
@@ -225,10 +226,11 @@ getOutChansPerGroup(const Plan &plan, unsigned numOutChans) {
 }
 
 poplar::Tensor
-createBiases(poplar::Graph &graph, const Tensor &acts) {
+createBiases(poplar::Graph &graph, const Tensor &acts,
+             const std::string &name) {
   const auto numOutChans = acts.dim(3);
   const auto dType = acts.elementType();
-  auto biases = graph.addTensor(dType, {numOutChans}, "biases");
+  auto biases = graph.addTensor(dType, {numOutChans}, name);
   mapBiases(graph, biases, acts);
   return biases;
 }
@@ -3185,6 +3187,490 @@ void reportWeightUpdatePlanInfo(std::ostream &out,
   const auto plan =
       getWeightUpdatePlan(graph, activations, zDeltas, params, options);
   out << plan;
+}
+
+
+static Tensor
+channelMul(Graph &graph, const Tensor &actsUngrouped, const Tensor &scale,
+             Sequence &prog, const std::string &debugPrefix) {
+  const auto fnPrefix = debugPrefix + "/channelMul";
+  auto cs = graph.addComputeSet(fnPrefix);
+
+  auto actsScaledUngrouped = graph.clone(actsUngrouped);
+  const auto acts = groupActivations(actsUngrouped);
+  const auto actsScaled = groupActivations(actsScaledUngrouped);
+  const auto dType = acts.elementType();
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto outChansPerGroup = acts.dim(4);
+  const auto scaleByGroup =
+      scale.reshape({scale.numElements() / outChansPerGroup,
+                      outChansPerGroup});
+  const auto firstInGroup = acts.dimShuffle({1, 0, 2, 3, 4})
+                                .slice(0, 1, 4)
+                                .reshape({acts.dim(1), acts.dim(0),
+                                          acts.dim(2) * acts.dim(3)});
+  const auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
+  const unsigned numTiles = firstInGroupMapping.size();
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    const auto perWorkerGroups =
+        splitRegionsBetweenWorkers(deviceInfo, firstInGroupMapping[tile], 1);
+    for (const auto &entry : perWorkerGroups) {
+      auto v = graph.addVertex(cs,
+                               templateVertex("popconv::ChannelMul",
+                                              dType));
+      graph.setTileMapping(v, tile);
+      unsigned num = 0;
+      for (const auto &interval : entry) {
+        const auto begin = interval.begin();
+        const auto end = interval.end();
+        const auto last = end - 1;
+        auto beginIndices = popstd::unflattenIndex(firstInGroup.shape(), begin);
+        auto lastIndices = popstd::unflattenIndex(firstInGroup.shape(), last);
+        for (unsigned g = beginIndices[0]; g != lastIndices[0] + 1; ++g) {
+          unsigned batchBegin = g == beginIndices[0] ?
+                                beginIndices[1] :
+                                0;
+          unsigned batchLast = g == lastIndices[0] ?
+                               lastIndices[1] :
+                               firstInGroup.dim(1) - 1;
+          auto scaleWindow = scaleByGroup[g];
+          for (unsigned b = batchBegin; b != batchLast + 1; ++b) {
+            unsigned begin = g == beginIndices[0] && b == lastIndices[1] ?
+                             beginIndices[2] :
+                             0;
+            unsigned last = g == lastIndices[0] && b == lastIndices[1] ?
+                            lastIndices[2] :
+                            firstInGroup.dim(2) - 1;
+            auto actsWindow =
+                acts[b][g].flatten().slice(begin * outChansPerGroup,
+                                           (last + 1) * outChansPerGroup);
+            auto actsScaledWindow =
+                actsScaled[b][g].flatten().slice(begin * outChansPerGroup,
+                                                (last + 1) * outChansPerGroup);
+            graph.connect(v["actsIn"][num], actsWindow);
+            graph.connect(v["actsOut"][num], actsScaledWindow);
+            graph.connect(v["scale"][num], scaleWindow);
+            ++num;
+          }
+        }
+      }
+      graph.setFieldSize(v["actsIn"], num);
+      graph.setFieldSize(v["actsOut"], num);
+      graph.setFieldSize(v["scale"], num);
+      graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+    }
+  }
+  prog.add(Execute(cs));
+  return actsScaledUngrouped;
+}
+
+
+static void
+addToScaledChannel(Graph &graph, const Tensor &actsUngrouped,
+                   const Tensor &addend, float scale, Sequence &prog,
+                   const std::string debugPrefix) {
+  const auto fnPrefix = debugPrefix + "/addToScaledChannel";
+  auto cs = graph.addComputeSet(fnPrefix);
+  const auto acts = groupActivations(actsUngrouped);
+  const auto dType = acts.elementType();
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto outChansPerGroup = acts.dim(4);
+  const auto addendByGroup =
+      addend.reshape({addend.numElements() / outChansPerGroup,
+                      outChansPerGroup});
+  const auto firstInGroup = acts.dimShuffle({1, 0, 2, 3, 4})
+                                .slice(0, 1, 4)
+                                .reshape({acts.dim(1), acts.dim(0),
+                                          acts.dim(2) * acts.dim(3)});
+  const auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
+  const unsigned numTiles = firstInGroupMapping.size();
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    const auto perWorkerGroups =
+        splitRegionsBetweenWorkers(deviceInfo, firstInGroupMapping[tile], 1);
+    for (const auto &entry : perWorkerGroups) {
+      auto v = graph.addVertex(cs,
+                               templateVertex("popconv::AddToScaledChannel",
+                                              dType));
+      graph.setTileMapping(v, tile);
+      unsigned num = 0;
+      for (const auto &interval : entry) {
+        const auto begin = interval.begin();
+        const auto end = interval.end();
+        const auto last = end - 1;
+        auto beginIndices = popstd::unflattenIndex(firstInGroup.shape(), begin);
+        auto lastIndices = popstd::unflattenIndex(firstInGroup.shape(), last);
+        for (unsigned g = beginIndices[0]; g != lastIndices[0] + 1; ++g) {
+          unsigned batchBegin = g == beginIndices[0] ?
+                                beginIndices[1] :
+                                0;
+          unsigned batchLast = g == lastIndices[0] ?
+                               lastIndices[1] :
+                               firstInGroup.dim(1) - 1;
+          auto addendWindow = addendByGroup[g];
+          for (unsigned b = batchBegin; b != batchLast + 1; ++b) {
+            unsigned begin = g == beginIndices[0] && b == lastIndices[1] ?
+                             beginIndices[2] :
+                             0;
+            unsigned last = g == lastIndices[0] && b == lastIndices[1] ?
+                            lastIndices[2] :
+                            firstInGroup.dim(2) - 1;
+            auto actsWindow =
+                acts[b][g].flatten().slice(begin * outChansPerGroup,
+                                           (last + 1) * outChansPerGroup);
+            graph.connect(v["acts"][num], actsWindow);
+            graph.connect(v["addend"][num], addendWindow);
+            ++num;
+          }
+        }
+      }
+      graph.setInitialValue(v["scale"], scale);
+      graph.setFieldSize(v["acts"], num);
+      graph.setFieldSize(v["addend"], num);
+      graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+    }
+  }
+  prog.add(Execute(cs));
+}
+
+static Tensor
+batchNormReduce(Graph &graph,
+                const Tensor &actsUngrouped,
+                float scale,
+                bool doSquare,
+                Sequence &prog,
+                std::string partialsType,
+                const std::string &debugPrefix) {
+  auto redScaled = createBiases(graph, actsUngrouped, "ReducedScaled");
+
+  auto acts = groupActivations(actsUngrouped);
+  const auto layerName = debugPrefix;
+
+  auto firstReduceCS = graph.addComputeSet(layerName + "/Reduce1");
+
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  auto dType = acts.elementType();
+  auto numTiles = deviceInfo.getNumTiles();
+  auto batchSize = acts.dim(0);
+  auto outNumChanGroups = acts.dim(1);
+  auto outDimY = acts.dim(2), outDimX = acts.dim(3);
+  auto outChansPerGroup = acts.dim(4);
+  auto numEstimates = outNumChanGroups * outChansPerGroup;
+
+  // Before the cross tile reduction, compute running sum on each tile.
+  auto actsFlat = acts.reshape({batchSize, outNumChanGroups,
+                                outDimY * outDimX, outChansPerGroup});
+
+  // Calculate which activation groups have values to reduce on each tile
+  std::vector<std::vector<unsigned>> actsMappings;
+  for (unsigned b = 0; b < batchSize; ++b)
+    actsMappings.push_back(computeActivationsMapping(graph, acts[b], b,
+                                                      batchSize));
+  std::vector<std::vector<unsigned>> tileRunningEstimatesGroups(numTiles);
+  for (unsigned tile = 0; tile < numTiles; ++tile) {
+    std::unordered_set<unsigned> runningEstimatesGroups;
+    for (unsigned b = 0; b < batchSize; ++b) {
+      auto begin = actsMappings[b][tile];
+      auto end = actsMappings[b][tile + 1];
+      auto M = outDimY * outDimX * outChansPerGroup;
+      auto beginGroup = (begin / M);
+      auto endGroup = ((end + M - 1) / M);
+      for (unsigned reGroup = beginGroup; reGroup < endGroup; ++reGroup) {
+        runningEstimatesGroups.insert(reGroup);
+      }
+    }
+    // Set tileRunningEstimatesGroups[tile] to contain the indices of the
+    // estimate groups to be reduced on that tile.
+    auto &vec = tileRunningEstimatesGroups[tile];
+    vec.insert(vec.end(), runningEstimatesGroups.begin(),
+               runningEstimatesGroups.end());
+  }
+
+  // On each tile create vertices that use the on-tile activations to a single
+  // sum value on each tile stored in the tensor tileRunningSum[tile]
+  std::vector<Tensor> tileRunningSum;
+  tileRunningSum.reserve(numTiles);
+  for (unsigned tile = 0; tile < numTiles; ++tile) {
+    auto tileNumEstimatesGroups = tileRunningEstimatesGroups[tile].size();
+    Tensor rSum = graph.addTensor(partialsType,
+                                  {tileNumEstimatesGroups, outChansPerGroup},
+                                  "tileRunningSum");
+
+    tileRunningSum.push_back(rSum);
+    graph.setTileMapping(rSum, tile);
+
+    for (unsigned i = 0; i < tileRunningEstimatesGroups[tile].size(); ++i) {
+      const auto estimatesGroup = tileRunningEstimatesGroups[tile][i];
+      auto v = graph.addVertex(firstReduceCS,
+                               templateVertex(doSquare ?
+                                                "popconv::ConvBNReduceSquare" :
+                                                "popconv::ConvBNReduce",
+                                              dType, partialsType));
+      unsigned numRanges = 0;
+      for (unsigned b = 0; b < batchSize; ++b) {
+        auto begin = actsMappings[b][tile];
+        auto end = actsMappings[b][tile + 1];
+        auto M = outDimY * outDimX * outChansPerGroup;
+        auto beginGroup = (begin / M);
+        auto endGroup = ((end + M - 1) / M);
+        if (beginGroup > estimatesGroup || endGroup <= estimatesGroup)
+          continue;
+        unsigned fieldBegin;
+        if (estimatesGroup == beginGroup) {
+          fieldBegin = (begin % M) / outChansPerGroup;
+        } else {
+          fieldBegin = 0;
+        }
+        unsigned fieldEnd;
+        if (estimatesGroup == endGroup - 1) {
+          fieldEnd = (end % M) / outChansPerGroup;
+          if (fieldEnd == 0)
+            fieldEnd = outDimX * outDimY;
+        } else {
+          fieldEnd = outDimX * outDimY;
+        }
+        auto in =
+          actsFlat[b][estimatesGroup].slice({fieldBegin, 0},
+                                            {fieldEnd, outChansPerGroup})
+                                      .flatten();
+        graph.connect(v["in"][numRanges++], in);
+      }
+      graph.setFieldSize(v["in"], numRanges);
+      graph.connect(v["sum"], rSum[i]);
+      graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+      graph.setTileMapping(v, tile);
+    }
+  }
+
+  /** The number of channels is often small. So the reduction of
+   *  updates is done in two stages to balance compute.
+   */
+  auto numWorkers = deviceInfo.numWorkerContexts * deviceInfo.getNumTiles();
+  unsigned workersPerEstimates, usedWorkers, maxEstimatesPerWorker;
+  if (numWorkers > numEstimates) {
+    workersPerEstimates = numWorkers / numEstimates;
+    usedWorkers = workersPerEstimates * numEstimates;
+    maxEstimatesPerWorker = 1;
+  } else {
+    workersPerEstimates = 1;
+    usedWorkers = numWorkers;
+    maxEstimatesPerWorker = (numEstimates + numWorkers - 1) / numWorkers;
+  }
+  auto runningSum =
+      graph.addTensor(partialsType, {usedWorkers, maxEstimatesPerWorker},
+                      "runningSum");
+
+  auto secondReduceCS = graph.addComputeSet(
+                            layerName + "/Reduce2");
+  for (unsigned worker = 0; worker  < usedWorkers; ++worker ) {
+    auto tile = worker / deviceInfo.numWorkerContexts;
+    graph.setTileMapping(runningSum[worker].slice(0, maxEstimatesPerWorker),
+                         tile);
+
+    unsigned estimatesBegin = (worker  * numEstimates) / usedWorkers;
+    unsigned estimatesEnd = ((worker  + workersPerEstimates) * numEstimates) /
+                            usedWorkers;
+    if (estimatesBegin == estimatesEnd)
+      continue;
+    unsigned numWorkerEstimates = estimatesEnd - estimatesBegin;
+    auto toReduceSum = graph.addTensor(partialsType, {0});
+    std::vector<unsigned> numInputsPerEstimates;
+    for (auto est = estimatesBegin; est != estimatesEnd; ++est) {
+      auto estGroup = est / outChansPerGroup;
+      auto estInGroup = est % outChansPerGroup;
+      auto inpSum = graph.addTensor(partialsType, {0});
+      for (unsigned srcTile = 0; srcTile < numTiles; ++srcTile) {
+        for (unsigned i = 0; i < tileRunningEstimatesGroups[srcTile].size();
+             ++i) {
+          if (estGroup != tileRunningEstimatesGroups[srcTile][i])
+            continue;
+          auto srcSum = tileRunningSum[srcTile][i][estInGroup];
+          inpSum = append(inpSum, srcSum);
+        }
+      }
+      const auto numEsts = inpSum.numElements();
+      auto estBegin =
+          ((worker  % workersPerEstimates) * numEsts) / workersPerEstimates;
+      unsigned estEnd =
+          (((worker  % workersPerEstimates) + 1) * numEsts) /
+          workersPerEstimates;
+      toReduceSum = concat(toReduceSum, inpSum.slice(estBegin, estEnd));
+      numInputsPerEstimates.push_back(estEnd - estBegin);
+    }
+    if (toReduceSum.numElements() == 0) {
+      auto v1 = graph.addVertex(secondReduceCS,
+                               templateVertex("popstd::Zero", partialsType));
+      graph.connect(v1["out"],
+                    runningSum[worker].slice(0, maxEstimatesPerWorker));
+      graph.setInitialValue(v1["dataPathWidth"], deviceInfo.dataPathWidth);
+      graph.setTileMapping(v1, tile);
+      continue;
+    }
+    auto v = graph.addVertex(secondReduceCS,
+                             templateVertex("popconv::ConvBiasReduce2",
+                                            partialsType));
+    graph.connect(v["in"], toReduceSum);
+    graph.connect(v["out"], runningSum[worker].slice(0, numWorkerEstimates));
+    graph.setInitialValue(v["numInputsPerBias"], numInputsPerEstimates);
+    graph.setTileMapping(v, tile);
+  }
+
+  auto updateEstimatesCS = graph.addComputeSet(layerName + "/FinalUpdate");
+  const auto estimatesMapping = graph.getTileMapping(redScaled);
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    for (const auto &interval : estimatesMapping[tile]) {
+      for (unsigned est = interval.begin(); est != interval.end(); ++est) {
+        auto v = graph.addVertex(updateEstimatesCS,
+                                 templateVertex("popconv::ConvBNReduceAndScale",
+                                                partialsType, dType));
+        unsigned numPartials = 0;
+        for (unsigned srcWorker = 0; srcWorker < usedWorkers; ++srcWorker) {
+          unsigned estBegin = (srcWorker * numEstimates) / usedWorkers;
+          unsigned estEnd =
+              ((srcWorker + workersPerEstimates) * numEstimates) / usedWorkers;
+          if (estBegin > est || estEnd <= est)
+            continue;
+
+          graph.connect(v["sum"][numPartials++],
+                        runningSum[srcWorker][est - estBegin]);
+        }
+        graph.connect(v["out"], redScaled[est]);
+        graph.setFieldSize(v["sum"], numPartials);
+        graph.setInitialValue(v["scale"], scale);
+        graph.setTileMapping(v, tile);
+      }
+    }
+  }
+  prog.add(Execute(firstReduceCS));
+  prog.add(Execute(secondReduceCS));
+  prog.add(Execute(updateEstimatesCS));
+  return redScaled;
+
+}
+
+
+std::pair<Tensor, Tensor>
+batchNormEstimates(Graph &graph,
+                   const Tensor &acts,
+                   float eps,
+                   Sequence &prog,
+                   const std::string &partialsType,
+                   const std::string &debugPrefix) {
+  const auto fnPrefix = debugPrefix + "/BN/estimates";
+  assert(acts.rank() == 4);
+
+  // mean and standard deviation have the same mapping as biases
+  const auto actsShape = acts.shape();
+  const auto numElements = acts.numElements() / acts.dim(3);
+  const float scale = 1.0 / numElements;
+
+  auto mean = batchNormReduce(graph, acts, scale, false, prog, partialsType,
+                              fnPrefix);
+
+  auto power = batchNormReduce(graph, acts, scale, true, prog, partialsType,
+                               fnPrefix);
+
+  auto meanSquare = square(graph, mean, prog, fnPrefix);
+  addTo(graph, power, meanSquare, -1.0, prog, fnPrefix);
+
+  const auto varType = meanSquare.elementType();
+
+  Tensor epsTensor;
+  if (varType == "half") {
+    epsTensor = graph.addConstantTensor<half>(varType, meanSquare.shape(), eps);
+  } else {
+    epsTensor = graph.addConstantTensor<float>(varType, meanSquare.shape(),
+                                               eps);
+  }
+
+  addTo(graph, power, epsTensor, prog, fnPrefix);
+  auto stdDev = sqrt(graph, power, prog, fnPrefix);
+  return std::make_pair(mean, stdDev);
+}
+
+std::pair<Tensor, Tensor>
+createBatchNormParams(Graph &graph, const Tensor &acts) {
+  // map beta and gamma the same way as biases
+  auto gamma = createBiases(graph, acts, "gamma");
+  auto beta = createBiases(graph, acts, "beta");
+  return std::make_pair(gamma, beta);
+}
+
+std::pair<Tensor, Tensor>
+batchNormalise(Graph &graph,
+               const Tensor &acts,
+               const Tensor &gamma,
+               const Tensor &beta,
+               const Tensor &mean,
+               const Tensor &stdDev,
+               Sequence &prog,
+               const std::string &debugPrefix) {
+  assert(acts.rank() == 4);
+  const auto fnPrefix = debugPrefix + "/BN/batchNormalise";
+  const auto actsShape = acts.shape();
+  const auto numElements = acts.numElements() / acts.dim(3);
+  auto actsZeroMean = sub(graph, acts,
+                          mean.broadcast(numElements, 0).reshape(actsShape),
+                          prog, fnPrefix);
+
+  auto actsWhitened = div(graph, actsZeroMean,
+                          stdDev.broadcast(numElements, 0).reshape(actsShape),
+                          prog, fnPrefix);
+
+  auto actsOut = channelMul(graph, actsWhitened, gamma, prog, fnPrefix);
+
+  addToScaledChannel(graph, actsOut, beta, 1.0, prog, fnPrefix);
+  return std::make_pair(actsOut, actsWhitened);
+}
+
+std::pair<Tensor, Tensor>
+batchNormDeltas(Graph &graph,
+                const Tensor &actsWhitened,
+                const Tensor &gradsIn,
+                Sequence &prog,
+                const std::string &partialsType,
+                const std::string &debugPrefix) {
+
+  const auto fnPrefix = debugPrefix + "/BN/deltas";
+
+  const auto betaDelta =
+      batchNormReduce(graph, gradsIn, 1.0, false, prog, partialsType, fnPrefix);
+
+  const auto gradsInMultActs =
+      mul(graph, gradsIn, actsWhitened, prog, fnPrefix);
+
+  const auto gammaDelta =
+      batchNormReduce(graph, gradsInMultActs, 1.0, false, prog, partialsType,
+                      fnPrefix);
+  return std::make_pair(gammaDelta, betaDelta);
+}
+
+
+Tensor batchNormGradients(Graph &graph,
+                          const Tensor &actsWhitened,
+                          const Tensor &gradsIn,
+                          const Tensor &gammaDelta,
+                          const Tensor &betaDelta,
+                          const Tensor &stdDev,
+                          const Tensor &gamma,
+                          Sequence &prog,
+                          const std::string &partialsType,
+                          const std::string &debugPrefix) {
+  assert(actsWhitened.rank() == 4);
+  const auto fnPrefix = debugPrefix + "/BN/gradients";
+  const auto actsShape = actsWhitened.shape();
+  const auto numElements = actsWhitened.numElements() / actsWhitened.dim(3);
+  const float rScale = 1.0 / numElements;
+
+  auto gradient = graph.clone(gradsIn);
+  prog.add(Copy(gradsIn, gradient));
+  addTo(graph, gradient,
+        channelMul(graph, actsWhitened, gammaDelta, prog, fnPrefix),
+        -rScale, prog, fnPrefix);
+
+  addToScaledChannel(graph, gradient, betaDelta, -rScale, prog, fnPrefix);
+
+  return channelMul(graph, gradient,
+                    div(graph, gamma, stdDev, prog, fnPrefix), prog, fnPrefix);
 }
 
 } // namespace conv

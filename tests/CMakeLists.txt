@@ -32,6 +32,8 @@ add_popnn_unit_test(WinogradConvolution WinogradConv.cpp)
 add_popnn_unit_test(NonLinearityTest NonLinearityTest.cpp)
 add_popnn_unit_test(GraphProgLocationTest GraphProgLocationTest.cpp)
 add_popnn_unit_test(StdOperatorTest StdOperatorsTest.cpp)
+add_popnn_unit_test(BatchNormTest BatchNormTest.cpp)
+
 
 # Layer tests
 add_test(NAME conv3x3_stride_2_256_out

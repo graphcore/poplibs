@@ -148,7 +148,8 @@ createWeights(poplar::Graph &graph, const ConvParams &params,
               const ConvOptions &options = ConvOptions());
 
 poplar::Tensor
-createBiases(poplar::Graph &graph, const poplar::Tensor &acts);
+createBiases(poplar::Graph &graph, const poplar::Tensor &acts,
+             const std::string &name = "biases");
 
 poplar::Tensor
 createInput(poplar::Graph &graph, const ConvParams &params,
@@ -229,6 +230,55 @@ void reportWeightUpdatePlanInfo(std::ostream &out,
                                 const poplar::Tensor &zDeltas,
                                 const ConvParams &params,
                                 const ConvOptions &options = ConvOptions());
+
+// creates a tensor pair of batch normalisation parameters (gamma, beta)
+std::pair<poplar::Tensor, poplar::Tensor>
+createBatchNormParams(poplar::Graph &graph, const poplar::Tensor &acts);
+
+// Estimates estimates from a batch. The two tensors returned are:
+// 1) whitened activations
+// 2) standard deviation
+std::pair<poplar::Tensor, poplar::Tensor>
+batchNormEstimates(poplar::Graph &graph,
+                   const poplar::Tensor &actsUngrouped,
+                   float eps,
+                   poplar::program::Sequence &prog,
+                   const std::string &partialsType = "float",
+                   const std::string &debugPrefix = "");
+
+// Batch normalises whitened activations
+std::pair<poplar::Tensor, poplar::Tensor>
+batchNormalise(poplar::Graph &graph,
+               const poplar::Tensor &actsWhitened,
+               const poplar::Tensor &gamma,
+               const poplar::Tensor &beta,
+               const poplar::Tensor &mean,
+               const poplar::Tensor &stdDev,
+               poplar::program::Sequence &prog,
+               const std::string &debugPrefix = "");
+
+// Compute deltas required for both input gradient and parameter
+// update computations
+std::pair<poplar::Tensor, poplar::Tensor>
+batchNormDeltas(poplar::Graph &graph,
+                const poplar::Tensor &actsWhitened,
+                const poplar::Tensor &gradsIn,
+                poplar::program::Sequence &prog,
+                const std::string &partialsType = "float",
+                const std::string &debugPrefix = "");
+
+
+poplar::Tensor
+batchNormGradients(poplar::Graph &graph,
+                   const poplar::Tensor &actsWhitened,
+                   const poplar::Tensor &gradsIn,
+                   const poplar::Tensor &gammaDelta,
+                   const poplar::Tensor &betaDelta,
+                   const poplar::Tensor &stdDev,
+                   const poplar::Tensor &gamma,
+                   poplar::program::Sequence &prog,
+                   const std::string &partialsType = "float",
+                   const std::string &debugPrefix = "");
 
 struct Plan;
 class PlanningCacheImpl;

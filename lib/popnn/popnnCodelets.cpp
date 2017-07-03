@@ -350,4 +350,52 @@ template class CalcLoss<float,int>;
 template class CalcLoss<half,unsigned int>;
 template class CalcLoss<half,int>;
 
+template <class InType, class PartialsType>
+class BatchNormEstimates : public Vertex {
+public:
+  Vector<Input<Vector<InType>>> acts;
+  Vector<Output<Vector<InType>>> mean;
+  Vector<Output<Vector<InType>>> stdDev;
+  float eps;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    const unsigned n = mean.size();
+    unsigned actsIdx = 0;
+    unsigned batchSize = acts[0].size();
+
+    for (unsigned i = 0; i != n; ++i) {
+      const unsigned numActs = mean[i].size();
+      for (unsigned a = 0; a != numActs; ++a) {
+        PartialsType sum = 0;
+        PartialsType sumOfSquares = 0;
+        assert(acts[actsIdx].size() == batchSize);
+        for (unsigned b = 0; b != batchSize; ++b) {
+          sum += acts[actsIdx][b];
+          sumOfSquares += acts[actsIdx][b] * acts[actsIdx][b];
+        }
+        ++actsIdx;
+        mean[i][a] = sum / batchSize;
+        stdDev[i][a] = std::sqrt(sumOfSquares / batchSize
+                                 - mean[i][a] * mean[i][a] + eps);
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    unsigned numCycles = 5;
+    const unsigned n = mean.size();
+    const unsigned batchSize = acts[0].size();
+    for (unsigned i = 0; i != n; ++i) {
+      const unsigned numActs = mean[i].size();
+      numCycles += (batchSize + 6) * numActs;
+    }
+    return numCycles;
+  }
+};
+
+template class BatchNormEstimates<float, float>;
+template class BatchNormEstimates<half, float>;
+
 } // end namespace popnn

@@ -86,3 +86,125 @@ void poplib_test::fc::fullyConnectedWeightUpdate(
     biases[i] += learningRate * -biasDeltas[i];
   }
 }
+
+void poplib_test::fc::batchNormEstimates(
+                  const boost::multi_array_ref<double, 2> actsIn,
+                  double eps,
+                  boost::multi_array_ref<double, 1> mean,
+                  boost::multi_array_ref<double, 1> stdDev) {
+  const unsigned batchSize = actsIn.shape()[0];
+  const unsigned numActs = actsIn.shape()[1];
+
+  assert(mean.shape()[0] == numActs);
+  assert(stdDev.shape()[0] == numActs);
+
+  for (unsigned a = 0; a != numActs; ++a) {
+    double rSum = 0;
+    double rSumOfSquares = 0;
+    for (unsigned b = 0; b != batchSize; ++b) {
+      rSum += actsIn[b][a];
+      rSumOfSquares += actsIn[b][a] * actsIn[b][a];
+    }
+    mean[a] = batchSize == 1 ? 0 : rSum / batchSize;
+    stdDev[a] = batchSize == 1 ?
+      1.0 : std::sqrt(rSumOfSquares / batchSize - mean[a] * mean[a] + eps);
+  }
+}
+
+
+void poplib_test::fc::
+batchNormalise(const boost::multi_array_ref<double, 2> acts,
+               const boost::multi_array_ref<double, 1> gamma,
+               const boost::multi_array_ref<double, 1> beta,
+               const boost::multi_array_ref<double, 1> mean,
+               const boost::multi_array_ref<double, 1> stdDev,
+               boost::multi_array_ref<double, 2> actsOut,
+               boost::multi_array_ref<double, 2> actsWhitened) {
+
+  const unsigned batchSize = acts.shape()[0];
+  const unsigned numActs = acts.shape()[1];
+
+  assert(gamma.shape()[0] == numActs);
+  assert(beta.shape()[0] == numActs);
+  assert(mean.shape()[0] == numActs);
+  assert(stdDev.shape()[0] == numActs);
+  assert(actsOut.shape()[0] == batchSize);
+  assert(actsOut.shape()[1] == numActs);
+  assert(actsWhitened.shape()[0] == batchSize);
+  assert(actsWhitened.shape()[1] == numActs);
+
+  for (unsigned b = 0; b != batchSize; ++b) {
+    for (unsigned a = 0; a != numActs; ++a) {
+      actsWhitened[b][a] = (acts[b][a] - mean[a]) /  stdDev[a];
+      actsOut[b][a] = actsWhitened[b][a] * gamma[a] + beta[a];
+    }
+  }
+}
+
+
+void poplib_test::fc::
+batchNormGradients(const boost::multi_array_ref<double, 2> actsWhitened,
+                   const boost::multi_array_ref<double, 2> gradsIn,
+                   const boost::multi_array_ref<double, 1> stdDev,
+                   const boost::multi_array_ref<double, 1> gamma,
+                   boost::multi_array_ref<double, 2> gradsOut) {
+  const unsigned batchSize = actsWhitened.shape()[0];
+  const unsigned numActs = actsWhitened.shape()[1];
+
+  assert(gradsIn.shape()[0] == batchSize);
+  assert(gradsIn.shape()[1] == numActs);
+  assert(gradsOut.shape()[0] == batchSize);
+  assert(gradsOut.shape()[1] == numActs);
+  assert(stdDev.shape()[0] == numActs);
+  assert(gamma.shape()[0] == numActs);
+
+  for (unsigned a = 0; a != numActs; ++a) {
+    double sumGradsIn = 0;
+    for (unsigned b = 0; b != batchSize; ++b) {
+      sumGradsIn += gradsIn[b][a];
+    }
+    double sumGradsInAndxMu = 0;
+    for (unsigned b = 0; b != batchSize; ++b) {
+      sumGradsInAndxMu += actsWhitened[b][a] * gradsIn[b][a];
+    }
+
+    for (unsigned b = 0; b != batchSize; ++b) {
+      double out =
+        gradsIn[b][a]
+        - actsWhitened[b][a] * sumGradsInAndxMu / batchSize
+        - sumGradsIn / batchSize;
+
+      gradsOut[b][a] = out * gamma[a] / stdDev[a];
+    }
+  }
+}
+
+void poplib_test::fc::
+batchNormParamUpdate(const boost::multi_array_ref<double, 2> actsWhitened,
+                     const boost::multi_array_ref<double, 2> gradsIn,
+                     double learningRate,
+                     boost::multi_array_ref<double, 1> gamma,
+                     boost::multi_array_ref<double, 1> beta) {
+  const unsigned batchSize = actsWhitened.shape()[0];
+  const unsigned numActs = actsWhitened.shape()[1];
+
+  assert(gradsIn.shape()[0] == batchSize);
+  assert(gradsIn.shape()[1] == numActs);
+  assert(gamma.shape()[0] == numActs);
+  assert(beta.shape()[0] == numActs);
+
+  for (unsigned a = 0; a != numActs; ++a) {
+    double dBeta = 0;
+    for (unsigned b = 0; b != batchSize; ++b) {
+      dBeta += gradsIn[b][a];
+    }
+    beta[a] -= learningRate * dBeta;
+
+    double dGamma = 0;
+    for (unsigned b = 0; b != batchSize; ++b) {
+      dGamma += actsWhitened[b][a] * gradsIn[b][a];
+    }
+
+    gamma[a] -= learningRate * dGamma;
+  }
+}

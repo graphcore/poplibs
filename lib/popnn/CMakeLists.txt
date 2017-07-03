@@ -3,6 +3,7 @@ get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(popnn SHARED
   codelets.cpp
+  BatchNorm.cpp
   Loss.cpp
   Lstm.cpp
   MaxPool.cpp
@@ -10,6 +11,7 @@ add_library(popnn SHARED
   PerformanceEstimation.hpp
   Recurrent.cpp
   ${CMAKE_SOURCE_DIR}/include/popnn/codelets.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/BatchNorm.hpp  
   ${CMAKE_SOURCE_DIR}/include/popnn/Loss.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Recurrent.hpp  
   ${CMAKE_SOURCE_DIR}/include/popnn/Lstm.hpp

@@ -71,13 +71,15 @@ copy(const std::string &srcType,
 bool checkIsClose(const std::string &name, const double *actual,
                   const std::vector<std::size_t> &shape,
                   const double *expected, std::size_t N,
-                  double relativeTolerance);
+                  double relativeTolerance,
+                  double absoluteTolerance = 0);
 
 template <std::size_t N>
 inline bool checkIsClose(const std::string &name,
                          const boost::multi_array<double, N> &actual,
                          const boost::multi_array<double, N> &expected,
-                         double relativeTolerance) {
+                         double relativeTolerance,
+                         double absoluteTolerance = 0) {
   assert(actual.storage_order() == boost::c_storage_order());
   assert(expected.storage_order() == boost::c_storage_order());
   if (actual.num_elements() != expected.num_elements()) {
@@ -91,7 +93,8 @@ inline bool checkIsClose(const std::string &name,
     shape.push_back(actual.shape()[i]);
   return checkIsClose(name, actual.data(), shape,
                       expected.data(), actual.num_elements(),
-                      relativeTolerance);
+                      relativeTolerance,
+                      absoluteTolerance);
 }
 
 enum class FPDataType {
