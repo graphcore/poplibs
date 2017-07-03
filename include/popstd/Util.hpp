@@ -56,6 +56,11 @@ splitRegionsBetweenWorkers(
 std::vector<std::size_t> unflattenIndex(const std::vector<std::size_t> &shape,
                                         std::size_t index);
 
+/// Given an list of indices into a tensor return the corresponding index in a
+/// flattened version of the tensor.
+std::size_t flattenIndex(const std::vector<std::size_t> &shape,
+                         const std::vector<std::size_t> &indices);
+
 
 } // end namespace popstd
 

@@ -181,4 +181,15 @@ std::vector<std::size_t> unflattenIndex(const std::vector<std::size_t> &shape,
   return coord;
 }
 
+std::size_t flattenIndex(const std::vector<std::size_t> &shape,
+                         const std::vector<std::size_t> &indices) {
+  auto rank = shape.size();
+  assert(indices.size() == rank);
+  std::size_t index = 0;
+  for (unsigned i = 0; i != rank; ++i) {
+    index = index * shape[i] + indices[i];
+  }
+  return index;
+}
+
 } // end namespace popstd

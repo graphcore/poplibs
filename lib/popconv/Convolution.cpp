@@ -2847,31 +2847,47 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
   auto outDimY = zDeltas.dim(2), outDimX = zDeltas.dim(3);
   auto outChansPerGroup = zDeltas.dim(4);
   // Before the cross tile reduction. Reduce biases on each tile.
-  auto zDeltasFlat = zDeltas.reshape({batchSize, outNumChanGroups,
-                                      outDimY * outDimX, outChansPerGroup});
+  auto zDeltasFlatField = zDeltas.reshape({batchSize, outNumChanGroups,
+                                          outDimY * outDimX, outChansPerGroup});
 
   // Calculate which bias groups have values to reduce on each tile
-  std::vector<std::vector<unsigned>> deltaMappings;
-  for (unsigned b = 0; b < batchSize; ++b)
-    deltaMappings.push_back(computeActivationsMapping(graph, zDeltas[b], b,
-                                                      batchSize));
-  std::vector<std::vector<unsigned>> tileBiasGroups(numTiles);
+  auto firstInGroup = zDeltasFlatField.slice(0, 1, 3)
+                                      .reshape({zDeltasFlatField.dim(0),
+                                                zDeltasFlatField.dim(1),
+                                                zDeltasFlatField.dim(2)});
+  auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
+  std::vector<std::map<unsigned, std::vector<Interval<std::size_t>>>>
+      tileLocalReductions(numTiles);
   for (unsigned tile = 0; tile < numTiles; ++tile) {
-    std::unordered_set<unsigned> biasGroups;
-    for (unsigned b = 0; b < batchSize; ++b) {
-      auto begin = deltaMappings[b][tile];
-      auto end = deltaMappings[b][tile + 1];
-      auto M = outDimY * outDimX * outChansPerGroup;
-      auto beginGroup = (begin / M);
-      auto endGroup = ((end + M - 1) / M);
-      for (unsigned biasGroup = beginGroup; biasGroup < endGroup; ++biasGroup) {
-        biasGroups.insert(biasGroup);
+    for (const auto &interval : firstInGroupMapping[tile]) {
+      auto begin = interval.begin();
+      auto last = interval.end() - 1;
+      auto beginIndices = popstd::unflattenIndex(firstInGroup.shape(), begin);
+      auto lastIndices = popstd::unflattenIndex(firstInGroup.shape(), last);
+      for (unsigned b = beginIndices[0]; b != lastIndices[0] + 1; ++b) {
+        unsigned groupBegin = b == beginIndices[0] ?
+                              beginIndices[1] :
+                              0;
+        unsigned groupLast = b == lastIndices[0] ?
+                             lastIndices[1] :
+                             firstInGroup.dim(1) - 1;
+        for (unsigned g = groupBegin; g != groupLast + 1; ++g) {
+          unsigned fieldBegin = b == beginIndices[0] &&
+                                g == beginIndices[1] ?
+                                beginIndices[2] :
+                                0;
+          unsigned fieldLast = b == lastIndices[0] &&
+                               g == lastIndices[1] ?
+                               lastIndices[2] :
+                               firstInGroup.dim(2) - 1;
+          unsigned flatBegin = flattenIndex(firstInGroup.shape(),
+                                            {b, g, fieldBegin});
+          unsigned flatLast = flattenIndex(firstInGroup.shape(),
+                                           {b, g, fieldLast});
+          tileLocalReductions[tile][g].emplace_back(flatBegin, flatLast + 1);
+        }
       }
     }
-    // Set tileBiasGroups[tile] to contain the indices of the bias groups to
-    // be reduced on that tile.
-    auto &vec = tileBiasGroups[tile];
-    vec.insert(vec.end(), biasGroups.begin(), biasGroups.end());
   }
 
   // On each tile create vertices that reduce the on-tile deltas to a single
@@ -2879,48 +2895,29 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
   // tensor tileReducedBiasDeltas[tile].
   std::vector<Tensor> tileReducedBiasDeltas;
   tileReducedBiasDeltas.reserve(numTiles);
+  auto zDeltasGroups =
+      zDeltas.reshape({zDeltas.numElements() / outChansPerGroup,
+                       outChansPerGroup});
   for (unsigned tile = 0; tile < numTiles; ++tile) {
-    auto tileNumBiasGroups = tileBiasGroups[tile].size();
+    auto tileNumBiasGroups = tileLocalReductions[tile].size();
     Tensor r = graph.addTensor(dType, {tileNumBiasGroups,
                                        outChansPerGroup},
                                "tileReducedBiasDeltas");
     tileReducedBiasDeltas.push_back(r);
     graph.setTileMapping(r, tile);
-    for (unsigned i = 0; i < tileBiasGroups[tile].size(); ++i) {
-      const auto biasGroup = tileBiasGroups[tile][i];
+    unsigned outIndex = 0;
+    for (const auto &entry : tileLocalReductions[tile]) {
       auto v = graph.addVertex(firstReduceCS,
                                templateVertex("popconv::ConvBiasReduce1",
                                               dType));
       unsigned numRanges = 0;
-      for (unsigned b = 0; b < batchSize; ++b) {
-        auto begin = deltaMappings[b][tile];
-        auto end = deltaMappings[b][tile + 1];
-        auto M = outDimY * outDimX * outChansPerGroup;
-        auto beginGroup = (begin / M);
-        auto endGroup = ((end + M - 1) / M);
-        if (beginGroup > biasGroup || endGroup <= biasGroup)
-          continue;
-        unsigned fieldBegin;
-        if (biasGroup == beginGroup) {
-          fieldBegin = (begin % M) / outChansPerGroup;
-        } else {
-          fieldBegin = 0;
-        }
-        unsigned fieldEnd;
-        if (biasGroup == endGroup - 1) {
-          fieldEnd = (end % M) / outChansPerGroup;
-          if (fieldEnd == 0)
-            fieldEnd = outDimX * outDimY;
-        } else {
-          fieldEnd = outDimX * outDimY;
-        }
-        auto in = zDeltasFlat[b][biasGroup].slice({fieldBegin, 0},
-                                                  {fieldEnd, outChansPerGroup})
-                                           .flatten();
+      for (const auto &interval : entry.second) {
+        auto in = zDeltasGroups.slice(interval.begin(), interval.end())
+                               .flatten();
         graph.connect(v["in"][numRanges++], in);
       }
       graph.setFieldSize(v["in"], numRanges);
-      graph.connect(v["out"], r[i]);
+      graph.connect(v["out"], r[outIndex++]);
       graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
       graph.setTileMapping(v, tile);
     }
@@ -2959,12 +2956,13 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
       auto biasInGroup = bias % outChansPerGroup;
       auto biasDeltas = graph.addTensor(dType, {0});
       for (unsigned srcTile = 0; srcTile < numTiles; ++srcTile) {
-        for (unsigned i = 0; i < tileBiasGroups[srcTile].size(); ++i) {
-          if (biasGroup != tileBiasGroups[srcTile][i])
-            continue;
-          auto srcBias = tileReducedBiasDeltas[srcTile][i][biasInGroup];
-          biasDeltas = append(biasDeltas, srcBias);
-        }
+        auto it = tileLocalReductions[srcTile].find(biasGroup);
+        if (it == tileLocalReductions[srcTile].end())
+          continue;
+        unsigned i = std::distance(tileLocalReductions[srcTile].begin(),
+                                   it);
+        auto srcBias = tileReducedBiasDeltas[srcTile][i][biasInGroup];
+        biasDeltas = append(biasDeltas, srcBias);
       }
       const auto numDeltas = biasDeltas.numElements();
       auto deltaBegin =
