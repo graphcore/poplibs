@@ -1896,15 +1896,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
     assert(outNumChans % outChansPerGroup == 0);
     activations = regroup(activationsRegroupedTruncated, outChansPerGroup);
   }
-  // Rearrange the activations so the tile mapping matches the tile mapping
-  // returned by computeActivationsMapping().
-  // TODO remove once the rest of the code has been updated to make no
-  // assumptions about the tile mapping of activations.
-  Tensor activationsRemapped = graph.addTensor(dType, activations.shape(),
-                                               "activationsRemapped");
-  ::mapActivations(graph, activationsRemapped);
-  prog.add(Copy(activations, activationsRemapped));
-  return ungroupActivations(activationsRemapped);
+  return ungroupActivations(activations);
 }
 
 static std::uint64_t getNumberOfMACs(const ConvParams &params) {
