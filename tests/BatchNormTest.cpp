@@ -357,52 +357,6 @@ BOOST_AUTO_TEST_CASE(BatchNormConv_Batch2_Dim28x28_Ch32_SmallEps){
   BOOST_TEST(matchesModel == true);
 }
 
-BOOST_AUTO_TEST_CASE(BatchNormConv_Batch4_Dim56x56_Ch64_LargeEps){
-  const float eps = 0.01;
-  const float learningRate = 0.1;
-  const std::string dataTypeStr = "half";
-  const std::string partialsTypeStr = "float";
-
-  auto matchesModel = BatchNormConv({4, 56, 56, 64}, eps, learningRate,
-                                     dataTypeStr, partialsTypeStr);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(BatchNormConv_Batch16_Dim7x7_Ch8){
-  const float eps = 0.001;
-  const float learningRate = 0.1;
-  const std::string dataTypeStr = "half";
-  const std::string partialsTypeStr = "float";
-
-  auto matchesModel = BatchNormConv({16, 7, 7, 8}, eps, learningRate,
-                                     dataTypeStr, partialsTypeStr);
-  BOOST_TEST(matchesModel == true);
-}
-
-
-BOOST_AUTO_TEST_CASE(BatchNormConv_Batch1_Dim112x112_Ch8){
-  const float eps = 0.001;
-  const float learningRate = 0.1;
-  const std::string dataTypeStr = "half";
-  const std::string partialsTypeStr = "float";
-
-  auto matchesModel = BatchNormConv({1, 112, 112, 8}, eps, learningRate,
-                                     dataTypeStr, partialsTypeStr);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(BatchNormConv_Batch4_DataFloat_PartialsFloat){
-  const float eps = 0.0001;
-  const float learningRate = 0.1;
-  const std::string dataTypeStr = "half";
-  const std::string partialsTypeStr = "float";
-
-  auto matchesModel = BatchNormConv({1, 56, 56, 8}, eps, learningRate,
-                                     dataTypeStr, partialsTypeStr);
-  BOOST_TEST(matchesModel == true);
-}
-
-
 
 BOOST_AUTO_TEST_CASE(BatchNormFc_Batch4_Acts2048) {
   const float eps = 0.001;
@@ -414,32 +368,3 @@ BOOST_AUTO_TEST_CASE(BatchNormFc_Batch4_Acts2048) {
   BOOST_TEST(matchesModel == true);
 }
 
-BOOST_AUTO_TEST_CASE(BatchNormFc_Batch16_Acts256_SmallEps) {
-  const float eps = 0.00001;
-  const float learningRate = 0.1;
-  const std::string dataTypeStr = "half";
-  const std::string partialsTypeStr = "float";
-  auto matchesModel = BatchNormFc({16, 256}, eps, learningRate,
-                                  dataTypeStr, partialsTypeStr);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(BatchNormFc_Batch8_Acts512_LargeEps) {
-  const float eps = 0.01;
-  const float learningRate = 0.1;
-  const std::string dataTypeStr = "half";
-  const std::string partialsTypeStr = "float";
-  auto matchesModel = BatchNormFc({16, 256}, eps, learningRate,
-                                  dataTypeStr, partialsTypeStr);
-  BOOST_TEST(matchesModel == true);
-}
-
-BOOST_AUTO_TEST_CASE(BatchNormFc_Batch8_Acts512_DataFloat_PartialsFloat) {
-  const float eps = 0.001;
-  const float learningRate = 0.1;
-  const std::string dataTypeStr = "float";
-  const std::string partialsTypeStr = "float";
-  auto matchesModel = BatchNormFc({16, 256}, eps, learningRate,
-                                  dataTypeStr, partialsTypeStr);
-  BOOST_TEST(matchesModel == true);
-}
