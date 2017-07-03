@@ -114,6 +114,40 @@ static std::string vertexName(enum TernaryOp op) {
   throw popstd::poplib_error("Op not supported");
 }
 
+static unsigned
+compareTileMapDistributions(Graph &graph, std::vector<Tensor> in) {
+  std::vector<unsigned> tileScore(in.size());
+  std::vector<unsigned> distributionScore(in.size());
+
+  for (unsigned i = 0; i < in.size(); ++i) {
+    const auto mapping = graph.getTileMapping(in[i]);
+
+    for (const auto &tile : mapping) {
+      if (tile.size() != 0) {
+        tileScore[i]++;
+        distributionScore[i] += tile.size();
+      }
+    }
+  }
+
+  unsigned best = 0;
+  for (unsigned i = 1; i < in.size(); ++i) {
+    // Select the tensor which is spread onto the most tiles
+    if (tileScore[i] > tileScore[best]) {
+      best = i;
+    }
+
+    // If two tensors share the same number of tiles, then select the one
+    // which has the fewest overall regions
+    if (tileScore[i] == tileScore[best] &&
+        distributionScore[i] < distributionScore[best]) {
+      best = i;
+    }
+  }
+
+  return best;
+}
+
 static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
                       enum UnaryOp op, const std::string &debugPrefix) {
 
@@ -167,14 +201,18 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
                                "both operands: " + debugPrefix);
   }
 
+  unsigned tensorSelection = compareTileMapDistributions(graph, {in1, in2});
+
   const auto outType = outputType(in1Type, op);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto numTiles = deviceInfo.getNumTiles();
-  const auto mapping = graph.getTileMapping(in1);
   const auto cs = graph.addComputeSet(debugPrefix);
 
-  auto out = graph.clone(outType, in1, debugPrefix + "/Out");
+  auto out = graph.clone(outType, (tensorSelection == 0) ? in1 : in2,
+                         debugPrefix + "/Out");
+
+  const auto mapping = graph.getTileMapping(out);
 
   auto in1Flat = in1.flatten();
   auto in2Flat = in2.flatten();
@@ -221,15 +259,21 @@ static Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
                                "all input operands: " + debugPrefix);
   }
 
+  std::vector<Tensor> tensors = {in1, in2, in3};
+
+  int tensorSelection = compareTileMapDistributions(graph, tensors);
+
   const auto outType = outputType(in1Type, op);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto numTiles = deviceInfo.getNumTiles();
-  const auto mapping = graph.getTileMapping(in1);
   const auto cs = graph.addComputeSet(debugPrefix);
 
-  auto out = graph.addTensor(outType, in1.shape(), debugPrefix + "/Out");
-  graph.setTileMapping(out, mapping);
+  Tensor toClone = tensors[tensorSelection];
+
+  auto out = graph.clone(outType, toClone, debugPrefix + "/Out");
+
+  const auto mapping = graph.getTileMapping(out);
 
   auto in1Flat = in1.flatten();
   auto in2Flat = in2.flatten();

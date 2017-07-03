@@ -1772,3 +1772,90 @@ BOOST_AUTO_TEST_CASE(StdOperationClampInt,
     }
   }
 }
+
+BOOST_AUTO_TEST_CASE(StdOperationBinaryOutputMapChoice) {
+  Graph graph(createIPUModelDevice());
+  popstd::addCodelets(graph);
+
+  Tensor in1, in2;
+  in1 = graph.addTensor("float", {2, 2}, "t1");
+  in2 = graph.addTensor("float", {2, 2}, "t2");
+
+  // Tensor in1 all on tile 0
+  graph.setTileMapping(in1, 0);
+
+  // Tensor in2 spread out
+  graph.setTileMapping(in2.index({0, 0}), 0);
+  graph.setTileMapping(in2.index({0, 1}), 1);
+  graph.setTileMapping(in2.index({1, 0}), 2);
+  graph.setTileMapping(in2.index({1, 1}), 3);
+
+  auto prog = Sequence();
+  auto out1 = add(graph, in1, in2, prog);
+  auto out2 = add(graph, in2, in1, prog);
+
+  const auto &tile1 = graph.getTileMapping(out1);
+  BOOST_TEST(tile1[0].size() > 0);
+  BOOST_TEST(tile1[1].size() > 0);
+  BOOST_TEST(tile1[2].size() > 0);
+  BOOST_TEST(tile1[3].size() > 0);
+
+  const auto &tile2 = graph.getTileMapping(out2);
+  BOOST_TEST(tile2[0].size() > 0);
+  BOOST_TEST(tile2[1].size() > 0);
+  BOOST_TEST(tile2[2].size() > 0);
+  BOOST_TEST(tile2[3].size() > 0);
+}
+
+BOOST_AUTO_TEST_CASE(StdOperationTrinaryOutputMapChoice) {
+  Graph graph(createIPUModelDevice());
+  popstd::addCodelets(graph);
+
+  Tensor in1, in2, in3, in4;
+  in1 = graph.addTensor("float", {2, 2}, "t1");
+  in2 = graph.addTensor("float", {2, 2}, "t2");
+  in3 = graph.addTensor("bool", {2, 2}, "pred1");
+  in4 = graph.addTensor("bool", {2, 2}, "pred2");
+
+  // Tensor in1 all on tile 0
+  graph.setTileMapping(in1, 0);
+
+  // Tensor in2 spread out
+  graph.setTileMapping(in2.index({0, 0}), 0);
+  graph.setTileMapping(in2.index({0, 1}), 1);
+  graph.setTileMapping(in2.index({1, 0}), 2);
+  graph.setTileMapping(in2.index({1, 1}), 3);
+
+  // Tensor pred1 all on tile 1
+  graph.setTileMapping(in3, 1);
+
+  // Tensor pred2 spread out
+  graph.setTileMapping(in4.index({0, 0}), 0);
+  graph.setTileMapping(in4.index({0, 1}), 1);
+  graph.setTileMapping(in4.index({1, 0}), 2);
+  graph.setTileMapping(in4.index({1, 1}), 3);
+
+
+  auto prog = Sequence();
+  auto out1 = select(graph, in1, in2, in3, prog);
+  auto out2 = select(graph, in2, in1, in3, prog);
+  auto out3 = select(graph, in1, in1, in4, prog);
+
+  const auto &tile1 = graph.getTileMapping(out1);
+  BOOST_TEST(tile1[0].size() > 0);
+  BOOST_TEST(tile1[1].size() > 0);
+  BOOST_TEST(tile1[2].size() > 0);
+  BOOST_TEST(tile1[3].size() > 0);
+
+  const auto &tile2 = graph.getTileMapping(out2);
+  BOOST_TEST(tile2[0].size() > 0);
+  BOOST_TEST(tile2[1].size() > 0);
+  BOOST_TEST(tile2[2].size() > 0);
+  BOOST_TEST(tile2[3].size() > 0);
+
+  const auto &tile3 = graph.getTileMapping(out3);
+  BOOST_TEST(tile3[0].size() > 0);
+  BOOST_TEST(tile3[1].size() > 0);
+  BOOST_TEST(tile3[2].size() > 0);
+  BOOST_TEST(tile3[3].size() > 0);
+}
