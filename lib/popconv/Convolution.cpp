@@ -3049,7 +3049,7 @@ addBias(Graph &graph, const Tensor &acts_, const Tensor &biases,
                                firstInGroup.dim(1) - 1;
           auto biasesWindow = biasesByGroup[g];
           for (unsigned b = batchBegin; b != batchLast + 1; ++b) {
-            unsigned begin = g == beginIndices[0] && b == lastIndices[1] ?
+            unsigned begin = g == beginIndices[0] && b == beginIndices[1] ?
                              beginIndices[2] :
                              0;
             unsigned last = g == lastIndices[0] && b == lastIndices[1] ?
