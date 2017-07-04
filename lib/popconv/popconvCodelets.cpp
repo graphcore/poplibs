@@ -1011,8 +1011,11 @@ public:
 
   std::uint64_t getCycleEstimate() const {
     bool isFloat = std::is_same<T, float>::value;
-    std::uint64_t cycles = 2 + // Run instruction.
-                           6;  // Vertex overhead.
+    std::uint64_t cycles = 2; // Run instruction.
+    if (isFloat)
+      cycles += 6;  // Vertex overhead.
+    else
+      cycles += 7;
     const auto numTranspositions = src.size();
     for (unsigned i = 0; i != numTranspositions; ++i) {
       const auto numElements = src[i].size();
@@ -1021,12 +1024,14 @@ public:
         cycles += 1; // 1 cycle latency before first value is written to memory.
         cycles += numElements;
       } else {
-        // Cycle count taken from transpose16x8 microbenchmark.
+        // Cycle count based on the transpose16x16 microbenchmark which takes
+        // 75 cycles per 16x16 block, reading each 4xn in turn. Any nx4 block
+        // where n is 1 or even will have a similar cost until the offset
+        // between rows exceeds the allowable triple addressing offset
+        assert(numSrcColumns % 4 == 0);
         assert(numElements % numSrcColumns == 0);
-        const auto numSrcRows = numElements / numSrcColumns;
-        const auto middleIterations = (numSrcColumns + 3) / 4;
-        const auto innerIterations = (numSrcRows + 1) / 2;
-        cycles += 3 + middleIterations * (3 + innerIterations * 6);
+        const auto num4x4Blocks = numElements / (4 * 4);
+        cycles += 11 + num4x4Blocks * 4;
       }
     }
     return cycles;
