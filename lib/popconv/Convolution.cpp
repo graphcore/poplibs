@@ -1748,10 +1748,10 @@ multiStageGroupedReduce(Graph &graph,
 }
 
 static std::pair<Program, Tensor>
-convolutionByAmp(Graph &graph, const Plan &plan,
-                 const ConvParams &params,
-                 const Tensor &in, const Tensor &weights,
-                 const std::string &debugPrefix) {
+convolutionImpl(Graph &graph, const Plan &plan,
+                const ConvParams &params,
+                const Tensor &in, const Tensor &weights,
+                const std::string &debugPrefix) {
   verifyInputShapes(params, in, weights);
   const auto numBatchGroups = in.dim(0);
   Sequence prog;
@@ -1875,7 +1875,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
     const auto layerName = debugPrefix + "/Conv" + convSuffix(params);
     Program convolveProg;
     std::tie(convolveProg, activations) =
-      convolutionByAmp(graph, plan, params, in, weights, layerName);
+      convolutionImpl(graph, plan, params, in, weights, layerName);
     prog.add(convolveProg);
   }
   activations = activations.dimShuffle({0, 2, 3, 1, 4})
@@ -2705,9 +2705,9 @@ calculateWeightDeltasAmp(Graph &graph, const Plan &plan,
   Tensor weightDeltasTransposed;
   Program convolveProg;
   std::tie(convolveProg, weightDeltasTransposed) =
-      convolutionByAmp(graph, plan, transformedParams,
-                       activationsTransposed,
-                       deltasTransposed, debugPrefix);
+      convolutionImpl(graph, plan, transformedParams,
+                      activationsTransposed,
+                      deltasTransposed, debugPrefix);
   prog.add(convolveProg);
 
   // Shuffle dimensions so the output channel dimension is not split.
