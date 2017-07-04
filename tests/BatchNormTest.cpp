@@ -19,8 +19,12 @@
 // Tolerances used in tests
 #define FLOAT_REL_TOL  0.01
 #define HALF_REL_TOL   0.1
-#define FLOAT_ABS_TOL  1e-10
+#define FLOAT_ABS_TOL  1e-6
 #define HALF_ABS_TOL   1e-5
+
+// Define this to 1 to enable check on mean, standard deviation and whitened
+// activations
+#define CHECK_ESTIMATES    1
 
 using namespace poplar;
 using namespace poplar::program;
@@ -34,6 +38,7 @@ namespace fpc = boost::test_tools::fpc;
 static bool BatchNormConv(const std::vector<unsigned> dims,
                           float eps,
                           float learningRate,
+                          unsigned tilesPerIPU,
                           const std::string &dataTypeStr,
                           const std::string &partialsTypeStr) {
   assert(dims.size() == 4);
@@ -42,7 +47,11 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   const auto dimX = dims[2];
   const auto numChannels = dims[3];
 
-  Graph graph(createIPUModelDevice());
+  DeviceInfo info;
+  info.IPUExchangeType =
+      DeviceInfo::ExchangeType::AGGRESSIVE_MULTICAST;
+  info.tilesPerIPU = tilesPerIPU;
+  Graph graph(createIPUModelDevice(info));
   popstd::addCodelets(graph);
   popnn::addCodelets(graph);
   popreduce::addCodelets(graph);
@@ -140,9 +149,11 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   engine.run(2); // Run.
   engine.run(1); // Download.
 
+#if CHECK_ESTIMATES == 1
   copy(dataTypeStr, rawHostActsWhitened.get(), hostActsWhitened);
   copy(dataTypeStr, rawHostMean.get(), hostMean);
   copy(dataTypeStr, rawHostStdDev.get(), hostStdDev);
+#endif
   copy(dataTypeStr, rawHostActsBN.get(), hostActsBN);
   copy(dataTypeStr, rawHostGradsOut.get(), hostGradsOut);
   copy(dataTypeStr, rawHostBeta.get(), hostBeta);
@@ -176,7 +187,7 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
                                    ? FLOAT_REL_TOL : HALF_REL_TOL;
   const double absoluteTolerance = dataTypeStr == "float"
                                    ? FLOAT_ABS_TOL : HALF_ABS_TOL;
-
+#if CHECK_ESTIMATES == 1
   matchesModel &=
     checkIsClose("actsWhitened", hostActsWhitened, modelActsWhitened,
                  relativeTolerance, absoluteTolerance);
@@ -186,6 +197,7 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   matchesModel &=
     checkIsClose("stdDev", hostStdDev, modelStdDev, relativeTolerance,
                  absoluteTolerance);
+#endif
   matchesModel &=
     checkIsClose("actsBN", hostActsBN, modelActsBN, relativeTolerance,
                  absoluteTolerance);
@@ -193,20 +205,26 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
     checkIsClose("gradsOut", hostGradsOut, modelGradsOut, relativeTolerance,
                  absoluteTolerance);
   matchesModel &=
-    checkIsClose("gradsOut", hostBeta, modelBeta, relativeTolerance,
+    checkIsClose("beta", hostBeta, modelBeta, relativeTolerance,
                  absoluteTolerance);
   matchesModel &=
-    checkIsClose("gradsOut", hostGamma, modelGamma, relativeTolerance,
+    checkIsClose("gamma", hostGamma, modelGamma, relativeTolerance,
                  absoluteTolerance);
+
   return matchesModel;
 }
 
 static bool BatchNormFc(const std::vector<unsigned> dims,
                         float eps,
                         float learningRate,
+                        unsigned tilesPerIPU,
                         const std::string &dataTypeStr,
                         const std::string &partialsTypeStr) {
-  Graph graph(createIPUModelDevice());
+  DeviceInfo info;
+  info.IPUExchangeType =
+      DeviceInfo::ExchangeType::AGGRESSIVE_MULTICAST;
+  info.tilesPerIPU = tilesPerIPU;
+  Graph graph(createIPUModelDevice(info));
   popstd::addCodelets(graph);
   popnn::addCodelets(graph);
   popreduce::addCodelets(graph);
@@ -292,9 +310,12 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   engine.run(2); // Run.
   engine.run(1); // Download.
 
+
+#if CHECK_ESTIMATES == 1
   copy(dataTypeStr, rawHostActsWhitened.get(), hostActsWhitened);
   copy(dataTypeStr, rawHostGradsOut.get(), hostGradsOut);
   copy(dataTypeStr, rawHostMean.get(), hostMean);
+#endif
   copy(dataTypeStr, rawHostStdDev.get(), hostStdDev);
   copy(dataTypeStr, rawHostActsBN.get(), hostActsBN);
   copy(dataTypeStr, rawHostBeta.get(), hostBeta);
@@ -324,6 +345,8 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
                                    ? FLOAT_REL_TOL : HALF_REL_TOL;
   const double absoluteTolerance = dataTypeStr == "float"
                                    ? FLOAT_ABS_TOL : HALF_ABS_TOL;
+
+#if CHECK_ESTIMATES == 1
   matchesModel &=
     checkIsClose("actsWhitened", hostActsWhitened, modelActsWhitened,
                  relativeTolerance, absoluteTolerance);
@@ -333,14 +356,15 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   matchesModel &=
     checkIsClose("actsBN", hostActsBN, modelActsBN, relativeTolerance,
                  absoluteTolerance);
+#endif
   matchesModel &=
     checkIsClose("gradsOut", hostGradsOut, modelGradsOut, relativeTolerance,
                  absoluteTolerance);
   matchesModel &=
-    checkIsClose("gradsOut", hostBeta, modelBeta, relativeTolerance,
+    checkIsClose("beta", hostBeta, modelBeta, relativeTolerance,
                  absoluteTolerance);
   matchesModel &=
-    checkIsClose("gradsOut", hostGamma, modelGamma, relativeTolerance,
+    checkIsClose("gamma", hostGamma, modelGamma, relativeTolerance,
                  absoluteTolerance);
   return matchesModel;
 }
@@ -351,20 +375,90 @@ BOOST_AUTO_TEST_CASE(BatchNormConv_Batch2_Dim28x28_Ch32_SmallEps){
   const float learningRate = 0.1;
   const std::string dataTypeStr = "half";
   const std::string partialsTypeStr = "float";
+  const unsigned tilesPerIPU = 1216;
 
   auto matchesModel = BatchNormConv({2, 28, 28, 32}, eps, learningRate,
-                                     dataTypeStr, partialsTypeStr);
+                                    tilesPerIPU, dataTypeStr, partialsTypeStr);
   BOOST_TEST(matchesModel == true);
 }
 
+BOOST_AUTO_TEST_CASE(BatchNormConv_Batch4_Dim56x56_Ch64_LargeEps){
+  const float eps = 0.01;
+  const float learningRate = 0.1;
+  const std::string dataTypeStr = "half";
+  const std::string partialsTypeStr = "float";
+
+  const unsigned tilesPerIPU = 64;
+  auto matchesModel = BatchNormConv({4, 56, 56, 64}, eps, learningRate,
+                                    tilesPerIPU, dataTypeStr, partialsTypeStr);
+  BOOST_TEST(matchesModel == true);
+}
+
+BOOST_AUTO_TEST_CASE(BatchNormConv_Batch16_Dim7x7_Ch8){
+  const float eps = 0.001;
+  const float learningRate = 0.1;
+  const std::string dataTypeStr = "half";
+  const std::string partialsTypeStr = "float";
+
+  const unsigned tilesPerIPU = 32;
+  auto matchesModel = BatchNormConv({16, 7, 7, 8}, eps, learningRate,
+                                    tilesPerIPU, dataTypeStr, partialsTypeStr);
+  BOOST_TEST(matchesModel == true);
+}
+
+BOOST_AUTO_TEST_CASE(BatchNormConv_Batch4_DataFloat_PartialsFloat){
+  const float eps = 0.0001;
+  const float learningRate = 0.1;
+  const std::string dataTypeStr = "float";
+  const std::string partialsTypeStr = "float";
+
+  const unsigned tilesPerIPU = 64;
+  auto matchesModel = BatchNormConv({1, 56, 56, 8}, eps, learningRate,
+                                    tilesPerIPU, dataTypeStr, partialsTypeStr);
+  BOOST_TEST(matchesModel == true);
+}
 
 BOOST_AUTO_TEST_CASE(BatchNormFc_Batch4_Acts2048) {
   const float eps = 0.001;
   const float learningRate = 0.1;
   const std::string dataTypeStr = "half";
   const std::string partialsTypeStr = "float";
+  const unsigned tilesPerIPU = 1216;
   auto matchesModel = BatchNormFc({4, 2048}, eps, learningRate,
-                                     dataTypeStr, partialsTypeStr);
+                                  tilesPerIPU, dataTypeStr, partialsTypeStr);
+  BOOST_TEST(matchesModel == true);
+}
+
+BOOST_AUTO_TEST_CASE(BatchNormFc_Batch16_Acts256_SmallEps) {
+  const float eps = 0.00001;
+  const float learningRate = 0.1;
+  const std::string dataTypeStr = "half";
+  const std::string partialsTypeStr = "float";
+  const unsigned tilesPerIPU = 64;
+  auto matchesModel = BatchNormFc({16, 256}, eps, learningRate,
+                                  tilesPerIPU, dataTypeStr, partialsTypeStr);
+  BOOST_TEST(matchesModel == true);
+}
+
+BOOST_AUTO_TEST_CASE(BatchNormFc_Batch8_Acts512_LargeEps) {
+  const float eps = 0.01;
+  const float learningRate = 0.1;
+  const std::string dataTypeStr = "half";
+  const std::string partialsTypeStr = "float";
+  const unsigned tilesPerIPU = 64;
+  auto matchesModel = BatchNormFc({16, 256}, eps, learningRate,
+                                  tilesPerIPU, dataTypeStr, partialsTypeStr);
+  BOOST_TEST(matchesModel == true);
+}
+
+BOOST_AUTO_TEST_CASE(BatchNormFc_Batch8_Acts512_DataFloat_PartialsFloat) {
+  const float eps = 0.001;
+  const float learningRate = 0.1;
+  const std::string dataTypeStr = "float";
+  const std::string partialsTypeStr = "float";
+  const unsigned tilesPerIPU = 64;
+  auto matchesModel = BatchNormFc({16, 256}, eps, learningRate,
+                                  tilesPerIPU, dataTypeStr, partialsTypeStr);
   BOOST_TEST(matchesModel == true);
 }
 

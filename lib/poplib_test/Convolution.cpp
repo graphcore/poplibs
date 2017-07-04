@@ -622,17 +622,12 @@ batchNormGradients(const boost::multi_array_ref<double, 4> actsWhitened,
 
   for (unsigned c = 0; c != numChannels; ++c) {
     double sumGradsIn = 0;
+    double sumGradsInAndxMu = 0;
+
     for (unsigned b = 0; b != batchSize; ++b) {
       for (unsigned h = 0; h != height; ++h) {
         for (unsigned w = 0; w != width; ++w) {
           sumGradsIn += gradsIn[b][h][w][c];
-        }
-      }
-    }
-    double sumGradsInAndxMu = 0;
-    for (unsigned b = 0; b != batchSize; ++b) {
-      for (unsigned h = 0; h != height; ++h) {
-        for (unsigned w = 0; w != width; ++w) {
           sumGradsInAndxMu += actsWhitened[b][h][w][c] * gradsIn[b][h][w][c];
         }
       }
@@ -674,23 +669,17 @@ batchNormParamUpdate(const boost::multi_array_ref<double, 4> actsWhitened,
 
   for (unsigned c = 0; c != numChannels; ++c) {
     double dBeta = 0;
+    double dGamma = 0;
+
     for (unsigned b = 0; b != batchSize; ++b) {
       for (unsigned h = 0; h != height; ++h) {
         for (unsigned w = 0; w != width; ++w) {
           dBeta += gradsIn[b][h][w][c];
-        }
-      }
-    }
-    beta[c] -= learningRate * dBeta;
-
-    double dGamma = 0;
-    for (unsigned b = 0; b != batchSize; ++b) {
-      for (unsigned h = 0; h != height; ++h) {
-        for (unsigned w = 0; w != width; ++w) {
           dGamma += actsWhitened[b][h][w][c] * gradsIn[b][h][w][c];
         }
       }
     }
+    beta[c] -= learningRate * dBeta;
     gamma[c] -= learningRate * dGamma;
   }
 }
