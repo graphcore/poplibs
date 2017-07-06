@@ -202,7 +202,7 @@ convolutionWeightUpdate(poplar::Graph &graph,
 void
 convolutionBiasUpdate(poplar::Graph &graph, const poplar::Tensor &zDeltas,
                       const poplar::Tensor &biases,
-                      float learningRate,
+                      float learningRate, const std::string &partialsType,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix = "");
 

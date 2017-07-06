@@ -215,59 +215,18 @@ template class ConvWeightGradAop<half, float, true>;
 template class ConvWeightGradAop<half, half, true>;
 
 template <typename FPType>
-class ConvBiasReduce1: public Vertex {
-public:
-  Output<Vector<FPType>> out;
-  Vector<Input<Vector<FPType>>> in;
-  SimOnlyField<unsigned> dataPathWidth;
-
-  bool compute() {
-    auto numBiases = out.size();
-    for (unsigned bias = 0; bias < numBiases; ++bias) {
-      float sum = 0;
-      for (unsigned d = 0; d < in.size(); d++) {
-        assert(in[d].size() % out.size() == 0);
-        auto deltasPerBias = in[d].size() / out.size();
-        for (unsigned i = 0; i < deltasPerBias; ++i) {
-          sum += in[d][i * numBiases + bias];
-        }
-      }
-      out[bias] = sum;
-    }
-    return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    bool isFloat = std::is_same<FPType, float>::value;
-    unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    unsigned numVectors = (out.size() + vectorWidth - 1) / vectorWidth;
-
-    uint64_t cycles = 5;
-    for (unsigned d = 0; d < in.size(); d++) {
-      cycles += 5;
-      auto deltasPerBias = in[d].size() / out.size();
-      cycles += numVectors * (2 + deltasPerBias);
-    }
-    return cycles;
-  }
-};
-
-template class ConvBiasReduce1<float>;
-template class ConvBiasReduce1<half>;
-
-template <typename FPType>
-class ConvBiasReduce2: public Vertex {
+class ConvChanReduce2: public Vertex {
 public:
   Vector<Output<FPType>> out;
   Vector<Input<FPType>> in;
-  Vector<unsigned> numInputsPerBias;
+  Vector<unsigned> numInputsPerOutput;
 
   bool compute() {
     auto numBiases = out.size();
     unsigned inIndex = 0;
     for (unsigned bias = 0; bias < numBiases; ++bias) {
       float sum = 0;
-      for (unsigned i = 0; i < numInputsPerBias[bias]; ++i) {
+      for (unsigned i = 0; i < numInputsPerOutput[bias]; ++i) {
         sum += in[inIndex++];
       }
       out[bias] = sum;
@@ -280,38 +239,39 @@ public:
     uint64_t cycles = 10;
 
     for (unsigned bias = 0; bias < numBiases; ++bias) {
-      cycles += numInputsPerBias[bias];
+      cycles += numInputsPerOutput[bias];
     }
     return cycles;
   }
 };
 
-template class ConvBiasReduce2<float>;
-template class ConvBiasReduce2<half>;
+template class ConvChanReduce2<float>;
+template class ConvChanReduce2<half>;
 
-template <typename FPType>
-class ConvBiasUpdate: public Vertex {
+template <typename InType, typename OutType>
+class ConvChanReduceAcc: public Vertex {
 public:
-  InOut<FPType> bias;
-  Vector<Input<FPType>> partials; // partial sums of the bias gradient
-  float eta;
+  InOut<OutType> out;
+  Vector<Input<InType>> in;
+  float K;
 
   bool compute() {
     float sum = 0;
-    for (unsigned i = 0; i < partials.size(); ++i) {
-      sum += partials[i];
+    for (unsigned i = 0; i < in.size(); ++i) {
+      sum += in[i];
     }
-    *bias -= eta * sum;
+    *out += K * sum;
     return true;
   }
 
   uint64_t getCycleEstimate() const {
-    return 15 + partials.size();
+    return 15 + in.size();
   }
 };
 
-template class ConvBiasUpdate<float>;
-template class ConvBiasUpdate<half>;
+template class ConvChanReduceAcc<float, float>;
+template class ConvChanReduceAcc<half, half>;
+template class ConvChanReduceAcc<float, half>;
 
 /**
  * Compute a sum of 1x1 convolutions over a subset of the input channels for
@@ -1191,25 +1151,25 @@ template class ChannelMul<half>;
 
 
 template <typename InType, typename OutType>
-class ConvBNReduce: public Vertex {
+class ConvChanReduce: public Vertex {
 public:
-  Output<Vector<OutType>> sum;
+  Output<Vector<OutType>> out;
   Vector<Input<Vector<InType>>> in;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    auto numEstimates = sum.size();
+    auto numEstimates = out.size();
     for (unsigned est = 0; est < numEstimates; ++est) {
       float s = 0;
       for (unsigned d = 0; d < in.size(); d++) {
-        assert(in[d].size() % sum.size() == 0);
-        auto samplesPerEst = in[d].size() / sum.size();
+        assert(in[d].size() % out.size() == 0);
+        auto samplesPerEst = in[d].size() / out.size();
         for (unsigned i = 0; i < samplesPerEst; ++i) {
           auto x = in[d][i * numEstimates + est];
           s += x;
         }
       }
-      sum[est] = s;
+      out[est] = s;
     }
     return true;
   }
@@ -1217,42 +1177,42 @@ public:
   uint64_t getCycleEstimate() const {
     bool isFloat = std::is_same<InType, float>::value;
     unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    unsigned numVectors = (sum.size() + vectorWidth - 1) / vectorWidth;
+    unsigned numVectors = (out.size() + vectorWidth - 1) / vectorWidth;
 
     uint64_t cycles = 5;
     for (unsigned d = 0; d < in.size(); d++) {
       cycles += 5;
-      auto samplesPerEst = in[d].size() / sum.size();
+      auto samplesPerEst = in[d].size() / out.size();
       cycles += numVectors * (2 + samplesPerEst);
     }
     return cycles;
   }
 };
 
-template class ConvBNReduce<float, float>;
-template class ConvBNReduce<half, float>;
+template class ConvChanReduce<float, float>;
+template class ConvChanReduce<half, float>;
 
 
 template <typename InType, typename OutType>
-class ConvBNReduceSquare: public Vertex {
+class ConvChanReduceSquare: public Vertex {
 public:
-  Output<Vector<OutType>> sum;
+  Output<Vector<OutType>> out;
   Vector<Input<Vector<InType>>> in;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    auto numEstimates = sum.size();
+    auto numEstimates = out.size();
     for (unsigned est = 0; est < numEstimates; ++est) {
       float s = 0;
       for (unsigned d = 0; d < in.size(); d++) {
-        assert(in[d].size() % sum.size() == 0);
-        auto samplesPerEst = in[d].size() / sum.size();
+        assert(in[d].size() % out.size() == 0);
+        auto samplesPerEst = in[d].size() / out.size();
         for (unsigned i = 0; i < samplesPerEst; ++i) {
           auto x = in[d][i * numEstimates + est];
           s += x * x;
         }
       }
-      sum[est] = s;
+      out[est] = s;
     }
     return true;
   }
@@ -1260,46 +1220,46 @@ public:
   uint64_t getCycleEstimate() const {
     bool isFloat = std::is_same<InType, float>::value;
     unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    unsigned numVectors = (sum.size() + vectorWidth - 1) / vectorWidth;
+    unsigned numVectors = (out.size() + vectorWidth - 1) / vectorWidth;
 
     uint64_t cycles = 5;
     for (unsigned d = 0; d < in.size(); d++) {
       cycles += 5;
-      auto samplesPerEst = in[d].size() / sum.size();
+      auto samplesPerEst = in[d].size() / out.size();
       cycles += numVectors * (2 + samplesPerEst);
     }
     return cycles;
   }
 };
 
-template class ConvBNReduceSquare<float, float>;
-template class ConvBNReduceSquare<half, float>;
+template class ConvChanReduceSquare<float, float>;
+template class ConvChanReduceSquare<half, float>;
 
 template <typename InType, typename OutType>
-class ConvBNReduceAndScale: public Vertex {
+class ConvChanReduceAndScale: public Vertex {
 public:
   Output<OutType> out;
-  Vector<Input<InType>> sum; // partial running sum
-  float scale;
+  Vector<Input<InType>> in; // partial running sum
+  float K;
 
   bool compute() {
     float sumTotal = 0;
-    for (unsigned i = 0; i < sum.size(); ++i) {
-      sumTotal += sum[i];
+    for (unsigned i = 0; i < in.size(); ++i) {
+      sumTotal += in[i];
     }
-    float m = scale * sumTotal;
+    float m = K * sumTotal;
     *out = m;
     return true;
   }
 
   uint64_t getCycleEstimate() const {
-    return 15 + sum.size();
+    return 15 + in.size();
   }
 };
 
-template class ConvBNReduceAndScale<float, float>;
-template class ConvBNReduceAndScale<float, half>;
-template class ConvBNReduceAndScale<half, half>;
+template class ConvChanReduceAndScale<float, float>;
+template class ConvChanReduceAndScale<float, half>;
+template class ConvChanReduceAndScale<half, half>;
 
 
 template <class FPType>

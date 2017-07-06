@@ -2808,18 +2808,22 @@ convolutionWeightUpdate(Graph &graph,
                 debugPrefix + "/UpdateWeights");
 }
 
-// Return a program to update the biases tensor with the gradients derived
-// from the zDeltas tensor
-void
-convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
-                      const Tensor &biases,
-                      float learningRate,
-                      Sequence &prog,
-                      const std::string &debugPrefix) {
-  auto zDeltas = groupActivations(zDeltasUngrouped);
-  const auto layerName = debugPrefix + "/BiasUpdate";
+static Tensor
+convChannelReduce(Graph &graph,
+                  const Tensor &in,
+                  Tensor dst,
+                  bool doAcc,
+                  float scale,
+                  bool doSquare,
+                  Sequence &prog,
+                  const std::string &partialsType,
+                  const std::string &debugPrefix) {
+  if (!doAcc) {
+    dst = graph.clone(in[0][0][0], debugPrefix + "/Reduced");
+  }
+  auto inGrouped = groupActivations(in);
 
-  auto firstReduceCS = graph.addComputeSet(layerName + "/Reduce1");
+  auto firstReduceCS = graph.addComputeSet(debugPrefix + "/Reduce1");
   // The bias gradient is the sum of all the deltas.
   // The reduction of these deltas is done in three stages:
   //     The first stage reduces on each tile. It places the partial sum
@@ -2831,22 +2835,22 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
   //     final gradient for each bias, multiplies it by the learning rate and
   //     subtracts from the bias in the 'biases' tensor.
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  auto dType = zDeltas.elementType();
+  auto dType = inGrouped.elementType();
   auto numTiles = deviceInfo.getNumTiles();
-  auto numBiases = biases.numElements();
-  auto batchSize = zDeltas.dim(0);
-  auto outNumChanGroups = zDeltas.dim(1);
-  auto outDimY = zDeltas.dim(2), outDimX = zDeltas.dim(3);
-  auto outChansPerGroup = zDeltas.dim(4);
+  auto numOut = dst.numElements();
+  auto batchSize = inGrouped.dim(0);
+  auto inNumChanGroups = inGrouped.dim(1);
+  auto inDimY = inGrouped.dim(2), inDimX = inGrouped.dim(3);
+  auto inChansPerGroup = inGrouped.dim(4);
   // Before the cross tile reduction. Reduce biases on each tile.
-  auto zDeltasFlatField = zDeltas.reshape({batchSize, outNumChanGroups,
-                                          outDimY * outDimX, outChansPerGroup});
+  auto inFlatField = inGrouped.reshape({batchSize, inNumChanGroups,
+                                        inDimY * inDimX, inChansPerGroup});
 
   // Calculate which bias groups have values to reduce on each tile
-  auto firstInGroup = zDeltasFlatField.slice(0, 1, 3)
-                                      .reshape({zDeltasFlatField.dim(0),
-                                                zDeltasFlatField.dim(1),
-                                                zDeltasFlatField.dim(2)});
+  auto firstInGroup = inFlatField.slice(0, 1, 3)
+                                 .reshape({inFlatField.dim(0),
+                                           inFlatField.dim(1),
+                                           inFlatField.dim(2)});
   auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
   std::vector<std::map<unsigned, std::vector<Interval<std::size_t>>>>
       tileLocalReductions(numTiles);
@@ -2882,29 +2886,29 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
     }
   }
 
-  // On each tile create vertices that reduce the on-tile deltas to a single
-  // bias delta value for each bias on each tile stored in the
-  // tensor tileReducedBiasDeltas[tile].
-  std::vector<Tensor> tileReducedBiasDeltas;
-  tileReducedBiasDeltas.reserve(numTiles);
-  auto zDeltasGroups =
-      zDeltas.reshape({zDeltas.numElements() / outChansPerGroup,
-                       outChansPerGroup});
+  // On each tile create vertices that reduce the on-tile elements to a single
+  // value for each element on each tile stored in the
+  // tensor tileReduced[tile].
+  std::vector<Tensor> tileReduced;
+  tileReduced.reserve(numTiles);
+  auto inGroups = inGrouped.reshape({inGrouped.numElements() / inChansPerGroup,
+                                     inChansPerGroup});
   for (unsigned tile = 0; tile < numTiles; ++tile) {
-    auto tileNumBiasGroups = tileLocalReductions[tile].size();
-    Tensor r = graph.addTensor(dType, {tileNumBiasGroups,
-                                       outChansPerGroup},
-                               "tileReducedBiasDeltas");
-    tileReducedBiasDeltas.push_back(r);
+    auto tileNumGroups = tileLocalReductions[tile].size();
+    Tensor r = graph.addTensor(partialsType, {tileNumGroups, inChansPerGroup},
+                               "tileReduced");
+    tileReduced.push_back(r);
     graph.setTileMapping(r, tile);
     unsigned outIndex = 0;
     for (const auto &entry : tileLocalReductions[tile]) {
       auto v = graph.addVertex(firstReduceCS,
-                               templateVertex("popconv::ConvBiasReduce1",
-                                              dType));
+                               templateVertex(doSquare ?
+                                              "popconv::ConvChanReduceSquare" :
+                                              "popconv::ConvChanReduce",
+                                              dType, partialsType));
       unsigned numRanges = 0;
       for (const auto &interval : entry.second) {
-        auto in = zDeltasGroups.slice(interval.begin(), interval.end())
+        auto in = inGroups.slice(interval.begin(), interval.end())
                                .flatten();
         graph.connect(v["in"][numRanges++], in);
       }
@@ -2915,98 +2919,135 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
     }
   }
 
-  /** The number of biases is often small. So the reduction of bias
-   *  updates is done in two stages to balance compute.
+  /** The number of outputs is often small. So the reduction of ouputs
+   *  is done in two stages to balance compute.
    */
   auto numWorkers = deviceInfo.numWorkerContexts * deviceInfo.getNumTiles();
-  unsigned workersPerBias, usedWorkers, maxBiasPerWorker;
-  if (numWorkers > numBiases) {
-    workersPerBias = numWorkers / numBiases;
-    usedWorkers = workersPerBias * numBiases;
-    maxBiasPerWorker = 1;
+  unsigned workersPerOutput, usedWorkers, maxOutputsPerWorker;
+  if (numWorkers > numOut) {
+    workersPerOutput = numWorkers / numOut;
+    usedWorkers = workersPerOutput * numOut;
+    maxOutputsPerWorker = 1;
   } else {
-    workersPerBias = 1;
+    workersPerOutput = 1;
     usedWorkers = numWorkers;
-    maxBiasPerWorker = (numBiases + numWorkers - 1) / numWorkers;
+    maxOutputsPerWorker = (numOut + numWorkers - 1) / numWorkers;
   }
-  auto biasPartials = graph.addTensor(dType, {usedWorkers, maxBiasPerWorker},
-                                      "biasPartials");
-  auto secondReduceCS = graph.addComputeSet(
-                            layerName + "/Reduce2");
+  auto partials =
+      graph.addTensor(partialsType, {usedWorkers, maxOutputsPerWorker},
+                      "partials");
+  auto secondReduceCS = graph.addComputeSet(debugPrefix + "/Reduce2");
   for (unsigned worker = 0; worker  < usedWorkers; ++worker ) {
     auto tile = worker / deviceInfo.numWorkerContexts;
-    graph.setTileMapping(biasPartials[worker].slice(0, maxBiasPerWorker), tile);
-    unsigned biasBegin = (worker  * numBiases) / usedWorkers;
-    unsigned biasEnd = ((worker  + workersPerBias) * numBiases) / usedWorkers;
-    if (biasBegin == biasEnd)
+    graph.setTileMapping(partials[worker].slice(0, maxOutputsPerWorker), tile);
+    unsigned outBegin = (worker  * numOut) / usedWorkers;
+    unsigned outEnd = ((worker  + workersPerOutput) * numOut) / usedWorkers;
+    if (outBegin == outEnd)
       continue;
-    unsigned numWorkerBiases = biasEnd - biasBegin;
-    auto toReduce = graph.addTensor(dType, {0});
-    std::vector<unsigned> numInputsPerBias;
-    for (auto bias = biasBegin; bias != biasEnd; ++bias) {
-      auto biasGroup = bias / outChansPerGroup;
-      auto biasInGroup = bias % outChansPerGroup;
-      auto biasDeltas = graph.addTensor(dType, {0});
+    unsigned numWorkerOutputs = outEnd - outBegin;
+    auto toReduce = graph.addTensor(partialsType, {0});
+    std::vector<unsigned> numInputsPerOutput;
+    for (auto o = outBegin; o != outEnd; ++o) {
+      auto outGroup = o / inChansPerGroup;
+      auto outInGroup = o % inChansPerGroup;
+      auto inputs = graph.addTensor(partialsType, {0});
       for (unsigned srcTile = 0; srcTile < numTiles; ++srcTile) {
-        auto it = tileLocalReductions[srcTile].find(biasGroup);
+        auto it = tileLocalReductions[srcTile].find(outGroup);
         if (it == tileLocalReductions[srcTile].end())
           continue;
         unsigned i = std::distance(tileLocalReductions[srcTile].begin(),
                                    it);
-        auto srcBias = tileReducedBiasDeltas[srcTile][i][biasInGroup];
-        biasDeltas = append(biasDeltas, srcBias);
+        auto srcBias = tileReduced[srcTile][i][outInGroup];
+        inputs = append(inputs, srcBias);
       }
-      const auto numDeltas = biasDeltas.numElements();
-      auto deltaBegin =
-          ((worker  % workersPerBias) * numDeltas) / workersPerBias;
-      unsigned deltaEnd =
-          (((worker  % workersPerBias) + 1) * numDeltas) / workersPerBias;
-      toReduce = concat(toReduce, biasDeltas.slice(deltaBegin, deltaEnd));
-      numInputsPerBias.push_back(deltaEnd - deltaBegin);
+      const auto numInputs = inputs.numElements();
+      auto inBegin =
+          ((worker  % workersPerOutput) * numInputs) / workersPerOutput;
+      unsigned inEnd =
+          (((worker  % workersPerOutput) + 1) * numInputs) / workersPerOutput;
+      toReduce = concat(toReduce, inputs.slice(inBegin, inEnd));
+      numInputsPerOutput.push_back(inEnd - inBegin);
     }
     if (toReduce.numElements() == 0) {
       auto v = graph.addVertex(secondReduceCS,
-                             templateVertex("popstd::Zero", dType));
-      graph.connect(v["out"], biasPartials[worker].slice(0, maxBiasPerWorker));
+                               templateVertex("popstd::Zero", partialsType));
+      graph.connect(v["out"], partials[worker].slice(0, maxOutputsPerWorker));
       graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
       graph.setTileMapping(v, tile);
       continue;
     }
     auto v = graph.addVertex(secondReduceCS,
-                             templateVertex("popconv::ConvBiasReduce2", dType));
+                             templateVertex("popconv::ConvChanReduce2",
+                                            partialsType));
     graph.connect(v["in"], toReduce);
-    graph.connect(v["out"], biasPartials[worker].slice(0, numWorkerBiases));
-    graph.setInitialValue(v["numInputsPerBias"], numInputsPerBias);
+    graph.connect(v["out"], partials[worker].slice(0, numWorkerOutputs));
+    graph.setInitialValue(v["numInputsPerOutput"], numInputsPerOutput);
     graph.setTileMapping(v, tile);
   }
-  auto updateBiasCS = graph.addComputeSet(layerName + "/FinalUpdate");
-  const auto biasMapping = graph.getTileMapping(biases);
+  auto finalCS =
+      doAcc ? graph.addComputeSet(debugPrefix + "/FinalUpdate")
+            : graph.addComputeSet(debugPrefix + "/FinalReduce");
+  const auto outMapping = graph.getTileMapping(dst);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
-    for (const auto &interval : biasMapping[tile]) {
-      for (unsigned bias = interval.begin(); bias != interval.end(); ++bias) {
-        auto v = graph.addVertex(updateBiasCS,
-                                 templateVertex("popconv::ConvBiasUpdate",
-                                                dType));
+    for (const auto &interval : outMapping[tile]) {
+      for (unsigned o = interval.begin(); o != interval.end(); ++o) {
+        std::string vType;
+        if (doAcc) {
+          vType = templateVertex("popconv::ConvChanReduceAcc",
+                                 partialsType, dType);
+        } else {
+          vType = templateVertex("popconv::ConvChanReduceAndScale",
+                                 partialsType, dType);
+        }
+        auto v = graph.addVertex(finalCS, vType);
         unsigned numPartials = 0;
         for (unsigned srcWorker = 0; srcWorker < usedWorkers; ++srcWorker) {
-          unsigned biasBegin = (srcWorker * numBiases) / usedWorkers;
-          unsigned biasEnd =
-              ((srcWorker + workersPerBias) * numBiases) / usedWorkers;
-          if (biasBegin > bias || biasEnd <= bias)
+          unsigned inBegin = (srcWorker * numOut) / usedWorkers;
+          unsigned inEnd =
+              ((srcWorker + workersPerOutput) * numOut) / usedWorkers;
+          if (inBegin > o || inEnd <= o)
             continue;
-          graph.connect(v["partials"][numPartials++],
-                        biasPartials[srcWorker][bias - biasBegin]);
+          graph.connect(v["in"][numPartials++],
+                        partials[srcWorker][o - inBegin]);
         }
-        graph.setFieldSize(v["partials"], numPartials);
-        graph.connect(v["bias"], biases[bias]);
-        graph.setInitialValue(v["eta"], learningRate);
+        graph.setFieldSize(v["in"], numPartials);
+        graph.connect(v["out"], dst[o]);
+        graph.setInitialValue(v["K"], scale);
         graph.setTileMapping(v, tile);
       }
     }
   }
   prog.add(Execute(firstReduceCS));
   prog.add(Execute(secondReduceCS));
-  prog.add(Execute(updateBiasCS));
+  prog.add(Execute(finalCS));
+  return dst;
+}
+
+static Tensor
+batchNormReduce(Graph &graph,
+                const Tensor &actsUngrouped,
+                float scale,
+                bool doSquare,
+                Sequence &prog,
+                const std::string &partialsType,
+                const std::string &debugPrefix) {
+  return convChannelReduce(graph, actsUngrouped, Tensor(), false,
+                           scale, doSquare, prog, partialsType, debugPrefix);
+}
+
+// Return a program to update the biases tensor with the gradients derived
+// from the zDeltas tensor
+void
+convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
+                      const Tensor &biases,
+                      float learningRate,
+                      const std::string &partialsType,
+                      Sequence &prog,
+                      const std::string &debugPrefix) {
+  (void) convChannelReduce(graph, zDeltasUngrouped, biases, true,
+                           -learningRate, false,
+                           prog, partialsType,
+                           debugPrefix + "/BiasUpdate");
 }
 
 static void
@@ -3321,222 +3362,6 @@ addToScaledChannel(Graph &graph, const Tensor &actsUngrouped,
   }
   prog.add(Execute(cs));
 }
-
-static Tensor
-batchNormReduce(Graph &graph,
-                const Tensor &actsUngrouped,
-                float scale,
-                bool doSquare,
-                Sequence &prog,
-                std::string partialsType,
-                const std::string &debugPrefix) {
-  auto redScaled = createBiases(graph, actsUngrouped, "ReducedScaled");
-
-  auto acts = groupActivations(actsUngrouped);
-  const auto layerName = debugPrefix;
-
-  auto firstReduceCS = graph.addComputeSet(layerName + "/Reduce1");
-
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  auto dType = acts.elementType();
-  auto numTiles = deviceInfo.getNumTiles();
-  auto batchSize = acts.dim(0);
-  auto outNumChanGroups = acts.dim(1);
-  auto outDimY = acts.dim(2), outDimX = acts.dim(3);
-  auto outChansPerGroup = acts.dim(4);
-  auto numEstimates = outNumChanGroups * outChansPerGroup;
-
-  // Before the cross tile reduction, compute running sum on each tile.
-  auto actsFlat = acts.reshape({batchSize, outNumChanGroups,
-                                outDimY * outDimX, outChansPerGroup});
-
-  // Calculate which activation groups have values to reduce on each tile
-  std::vector<std::vector<unsigned>> actsMappings;
-  for (unsigned b = 0; b < batchSize; ++b)
-    actsMappings.push_back(computeActivationsMapping(graph, acts[b], b,
-                                                      batchSize));
-  std::vector<std::vector<unsigned>> tileRunningEstimatesGroups(numTiles);
-  for (unsigned tile = 0; tile < numTiles; ++tile) {
-    std::unordered_set<unsigned> runningEstimatesGroups;
-    for (unsigned b = 0; b < batchSize; ++b) {
-      auto begin = actsMappings[b][tile];
-      auto end = actsMappings[b][tile + 1];
-      auto M = outDimY * outDimX * outChansPerGroup;
-      auto beginGroup = (begin / M);
-      auto endGroup = ((end + M - 1) / M);
-      for (unsigned reGroup = beginGroup; reGroup < endGroup; ++reGroup) {
-        runningEstimatesGroups.insert(reGroup);
-      }
-    }
-    // Set tileRunningEstimatesGroups[tile] to contain the indices of the
-    // estimate groups to be reduced on that tile.
-    auto &vec = tileRunningEstimatesGroups[tile];
-    vec.insert(vec.end(), runningEstimatesGroups.begin(),
-               runningEstimatesGroups.end());
-  }
-
-  // On each tile create vertices that use the on-tile activations to a single
-  // sum value on each tile stored in the tensor tileRunningSum[tile]
-  std::vector<Tensor> tileRunningSum;
-  tileRunningSum.reserve(numTiles);
-  for (unsigned tile = 0; tile < numTiles; ++tile) {
-    auto tileNumEstimatesGroups = tileRunningEstimatesGroups[tile].size();
-    Tensor rSum = graph.addTensor(partialsType,
-                                  {tileNumEstimatesGroups, outChansPerGroup},
-                                  "tileRunningSum");
-
-    tileRunningSum.push_back(rSum);
-    graph.setTileMapping(rSum, tile);
-
-    for (unsigned i = 0; i < tileRunningEstimatesGroups[tile].size(); ++i) {
-      const auto estimatesGroup = tileRunningEstimatesGroups[tile][i];
-      auto v = graph.addVertex(firstReduceCS,
-                               templateVertex(doSquare ?
-                                                "popconv::ConvBNReduceSquare" :
-                                                "popconv::ConvBNReduce",
-                                              dType, partialsType));
-      unsigned numRanges = 0;
-      for (unsigned b = 0; b < batchSize; ++b) {
-        auto begin = actsMappings[b][tile];
-        auto end = actsMappings[b][tile + 1];
-        auto M = outDimY * outDimX * outChansPerGroup;
-        auto beginGroup = (begin / M);
-        auto endGroup = ((end + M - 1) / M);
-        if (beginGroup > estimatesGroup || endGroup <= estimatesGroup)
-          continue;
-        unsigned fieldBegin;
-        if (estimatesGroup == beginGroup) {
-          fieldBegin = (begin % M) / outChansPerGroup;
-        } else {
-          fieldBegin = 0;
-        }
-        unsigned fieldEnd;
-        if (estimatesGroup == endGroup - 1) {
-          fieldEnd = (end % M) / outChansPerGroup;
-          if (fieldEnd == 0)
-            fieldEnd = outDimX * outDimY;
-        } else {
-          fieldEnd = outDimX * outDimY;
-        }
-        auto in =
-          actsFlat[b][estimatesGroup].slice({fieldBegin, 0},
-                                            {fieldEnd, outChansPerGroup})
-                                      .flatten();
-        graph.connect(v["in"][numRanges++], in);
-      }
-      graph.setFieldSize(v["in"], numRanges);
-      graph.connect(v["sum"], rSum[i]);
-      graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
-      graph.setTileMapping(v, tile);
-    }
-  }
-
-  /** The number of channels is often small. So the reduction of
-   *  updates is done in two stages to balance compute.
-   */
-  auto numWorkers = deviceInfo.numWorkerContexts * deviceInfo.getNumTiles();
-  unsigned workersPerEstimates, usedWorkers, maxEstimatesPerWorker;
-  if (numWorkers > numEstimates) {
-    workersPerEstimates = numWorkers / numEstimates;
-    usedWorkers = workersPerEstimates * numEstimates;
-    maxEstimatesPerWorker = 1;
-  } else {
-    workersPerEstimates = 1;
-    usedWorkers = numWorkers;
-    maxEstimatesPerWorker = (numEstimates + numWorkers - 1) / numWorkers;
-  }
-  auto runningSum =
-      graph.addTensor(partialsType, {usedWorkers, maxEstimatesPerWorker},
-                      "runningSum");
-
-  auto secondReduceCS = graph.addComputeSet(
-                            layerName + "/Reduce2");
-  for (unsigned worker = 0; worker  < usedWorkers; ++worker ) {
-    auto tile = worker / deviceInfo.numWorkerContexts;
-    graph.setTileMapping(runningSum[worker].slice(0, maxEstimatesPerWorker),
-                         tile);
-
-    unsigned estimatesBegin = (worker  * numEstimates) / usedWorkers;
-    unsigned estimatesEnd = ((worker  + workersPerEstimates) * numEstimates) /
-                            usedWorkers;
-    if (estimatesBegin == estimatesEnd)
-      continue;
-    unsigned numWorkerEstimates = estimatesEnd - estimatesBegin;
-    auto toReduceSum = graph.addTensor(partialsType, {0});
-    std::vector<unsigned> numInputsPerEstimates;
-    for (auto est = estimatesBegin; est != estimatesEnd; ++est) {
-      auto estGroup = est / outChansPerGroup;
-      auto estInGroup = est % outChansPerGroup;
-      auto inpSum = graph.addTensor(partialsType, {0});
-      for (unsigned srcTile = 0; srcTile < numTiles; ++srcTile) {
-        for (unsigned i = 0; i < tileRunningEstimatesGroups[srcTile].size();
-             ++i) {
-          if (estGroup != tileRunningEstimatesGroups[srcTile][i])
-            continue;
-          auto srcSum = tileRunningSum[srcTile][i][estInGroup];
-          inpSum = append(inpSum, srcSum);
-        }
-      }
-      const auto numEsts = inpSum.numElements();
-      auto estBegin =
-          ((worker  % workersPerEstimates) * numEsts) / workersPerEstimates;
-      unsigned estEnd =
-          (((worker  % workersPerEstimates) + 1) * numEsts) /
-          workersPerEstimates;
-      toReduceSum = concat(toReduceSum, inpSum.slice(estBegin, estEnd));
-      numInputsPerEstimates.push_back(estEnd - estBegin);
-    }
-    if (toReduceSum.numElements() == 0) {
-      auto v1 = graph.addVertex(secondReduceCS,
-                               templateVertex("popstd::Zero", partialsType));
-      graph.connect(v1["out"],
-                    runningSum[worker].slice(0, maxEstimatesPerWorker));
-      graph.setInitialValue(v1["dataPathWidth"], deviceInfo.dataPathWidth);
-      graph.setTileMapping(v1, tile);
-      continue;
-    }
-    auto v = graph.addVertex(secondReduceCS,
-                             templateVertex("popconv::ConvBiasReduce2",
-                                            partialsType));
-    graph.connect(v["in"], toReduceSum);
-    graph.connect(v["out"], runningSum[worker].slice(0, numWorkerEstimates));
-    graph.setInitialValue(v["numInputsPerBias"], numInputsPerEstimates);
-    graph.setTileMapping(v, tile);
-  }
-
-  auto updateEstimatesCS = graph.addComputeSet(layerName + "/FinalUpdate");
-  const auto estimatesMapping = graph.getTileMapping(redScaled);
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
-    for (const auto &interval : estimatesMapping[tile]) {
-      for (unsigned est = interval.begin(); est != interval.end(); ++est) {
-        auto v = graph.addVertex(updateEstimatesCS,
-                                 templateVertex("popconv::ConvBNReduceAndScale",
-                                                partialsType, dType));
-        unsigned numPartials = 0;
-        for (unsigned srcWorker = 0; srcWorker < usedWorkers; ++srcWorker) {
-          unsigned estBegin = (srcWorker * numEstimates) / usedWorkers;
-          unsigned estEnd =
-              ((srcWorker + workersPerEstimates) * numEstimates) / usedWorkers;
-          if (estBegin > est || estEnd <= est)
-            continue;
-
-          graph.connect(v["sum"][numPartials++],
-                        runningSum[srcWorker][est - estBegin]);
-        }
-        graph.connect(v["out"], redScaled[est]);
-        graph.setFieldSize(v["sum"], numPartials);
-        graph.setInitialValue(v["scale"], scale);
-        graph.setTileMapping(v, tile);
-      }
-    }
-  }
-  prog.add(Execute(firstReduceCS));
-  prog.add(Execute(secondReduceCS));
-  prog.add(Execute(updateEstimatesCS));
-  return redScaled;
-
-}
-
 
 std::pair<Tensor, Tensor>
 batchNormEstimates(Graph &graph,

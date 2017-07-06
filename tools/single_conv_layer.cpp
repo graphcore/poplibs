@@ -446,7 +446,7 @@ int main(int argc, char **argv) {
                                      params, learningRate,
                                      revProg, "", convOptions);
     popconv::convolutionBiasUpdate(graph, zDeltas, biases, learningRate,
-                                   revProg);
+                                   partialsTypeStr, revProg);
     if (reportPlan) {
       std::cout << "WU plan:\n";
       popconv::reportWeightUpdatePlanInfo(std::cout, graph, zDeltas, prevAct,
