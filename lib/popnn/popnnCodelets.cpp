@@ -355,7 +355,7 @@ class BatchNormEstimates : public Vertex {
 public:
   Vector<Input<Vector<InType>>> acts;
   Vector<Output<Vector<InType>>> mean;
-  Vector<Output<Vector<InType>>> stdDev;
+  Vector<Output<Vector<InType>>> iStdDev;
   float eps;
   SimOnlyField<unsigned> dataPathWidth;
 
@@ -376,7 +376,7 @@ public:
         }
         ++actsIdx;
         mean[i][a] = sum / batchSize;
-        stdDev[i][a] = std::sqrt(sumOfSquares / batchSize
+        iStdDev[i][a] = 1.0 / std::sqrt(sumOfSquares / batchSize
                                  - mean[i][a] * mean[i][a] + eps);
       }
     }
@@ -389,7 +389,7 @@ public:
     const unsigned batchSize = acts[0].size();
     for (unsigned i = 0; i != n; ++i) {
       const unsigned numActs = mean[i].size();
-      numCycles += (batchSize + 6) * numActs;
+      numCycles += (batchSize + 7) * numActs;
     }
     return numCycles;
   }

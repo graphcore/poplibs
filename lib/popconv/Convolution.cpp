@@ -1734,9 +1734,9 @@ multiStageGroupedReduce(Graph &graph,
 
 static std::pair<Program, Tensor>
 convolutionImpl(Graph &graph, const Plan &plan,
-                const ConvParams &params,
-                const Tensor &in, const Tensor &weights,
-                const std::string &debugPrefix) {
+                 const ConvParams &params,
+                 const Tensor &in, const Tensor &weights,
+                 const std::string &debugPrefix) {
   verifyInputShapes(params, in, weights);
   const auto numBatchGroups = in.dim(0);
   Sequence prog;
@@ -2793,22 +2793,28 @@ convolutionWeightUpdate(Graph &graph,
                 debugPrefix + "/UpdateWeights");
 }
 
-static Tensor
+static void
 convChannelReduce(Graph &graph,
                   const Tensor &in,
                   Tensor dst,
                   bool doAcc,
                   float scale,
                   bool doSquare,
-                  Sequence &prog,
+                  std::vector<ComputeSet> &computeSets,
                   const std::string &partialsType,
                   const std::string &debugPrefix) {
-  if (!doAcc) {
-    dst = graph.clone(in[0][0][0], debugPrefix + "/Reduced");
+
+  if (computeSets.size() == 0) {
+    computeSets.push_back(graph.addComputeSet(debugPrefix + "/Reduce1"));
+    computeSets.push_back(graph.addComputeSet(debugPrefix + "/Reduce2"));
+    computeSets.push_back(doAcc ?
+                          graph.addComputeSet(debugPrefix + "/FinalUpdate")
+                          : graph.addComputeSet(debugPrefix + "/FinalReduce"));
   }
+  assert(computeSets.size() == 3);
+
   auto inGrouped = groupActivations(in);
 
-  auto firstReduceCS = graph.addComputeSet(debugPrefix + "/Reduce1");
   // The bias gradient is the sum of all the deltas.
   // The reduction of these deltas is done in three stages:
   //     The first stage reduces on each tile. It places the partial sum
@@ -2886,7 +2892,7 @@ convChannelReduce(Graph &graph,
     graph.setTileMapping(r, tile);
     unsigned outIndex = 0;
     for (const auto &entry : tileLocalReductions[tile]) {
-      auto v = graph.addVertex(firstReduceCS,
+      auto v = graph.addVertex(computeSets[0],
                                templateVertex(doSquare ?
                                               "popconv::ConvChanReduceSquare" :
                                               "popconv::ConvChanReduce",
@@ -2921,7 +2927,6 @@ convChannelReduce(Graph &graph,
   auto partials =
       graph.addTensor(partialsType, {usedWorkers, maxOutputsPerWorker},
                       "partials");
-  auto secondReduceCS = graph.addComputeSet(debugPrefix + "/Reduce2");
   for (unsigned worker = 0; worker  < usedWorkers; ++worker ) {
     auto tile = worker / deviceInfo.numWorkerContexts;
     graph.setTileMapping(partials[worker].slice(0, maxOutputsPerWorker), tile);
@@ -2954,14 +2959,14 @@ convChannelReduce(Graph &graph,
       numInputsPerOutput.push_back(inEnd - inBegin);
     }
     if (toReduce.numElements() == 0) {
-      auto v = graph.addVertex(secondReduceCS,
+      auto v = graph.addVertex(computeSets[1],
                                templateVertex("popstd::Zero", partialsType));
       graph.connect(v["out"], partials[worker].slice(0, maxOutputsPerWorker));
       graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
       graph.setTileMapping(v, tile);
       continue;
     }
-    auto v = graph.addVertex(secondReduceCS,
+    auto v = graph.addVertex(computeSets[1],
                              templateVertex("popconv::ConvChanReduce2",
                                             partialsType));
     graph.connect(v["in"], toReduce);
@@ -2969,9 +2974,7 @@ convChannelReduce(Graph &graph,
     graph.setInitialValue(v["numInputsPerOutput"], numInputsPerOutput);
     graph.setTileMapping(v, tile);
   }
-  auto finalCS =
-      doAcc ? graph.addComputeSet(debugPrefix + "/FinalUpdate")
-            : graph.addComputeSet(debugPrefix + "/FinalReduce");
+
   const auto outMapping = graph.getTileMapping(dst);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     for (const auto &interval : outMapping[tile]) {
@@ -2984,7 +2987,7 @@ convChannelReduce(Graph &graph,
           vType = templateVertex("popconv::ConvChanReduceAndScale",
                                  partialsType, dType);
         }
-        auto v = graph.addVertex(finalCS, vType);
+        auto v = graph.addVertex(computeSets[2], vType);
         unsigned numPartials = 0;
         for (unsigned srcWorker = 0; srcWorker < usedWorkers; ++srcWorker) {
           unsigned inBegin = (srcWorker * numOut) / usedWorkers;
@@ -3002,10 +3005,6 @@ convChannelReduce(Graph &graph,
       }
     }
   }
-  prog.add(Execute(firstReduceCS));
-  prog.add(Execute(secondReduceCS));
-  prog.add(Execute(finalCS));
-  return dst;
 }
 
 static Tensor
@@ -3013,12 +3012,15 @@ batchNormReduce(Graph &graph,
                 const Tensor &actsUngrouped,
                 float scale,
                 bool doSquare,
-                Sequence &prog,
+                std::vector<ComputeSet> &csVec,
                 const std::string &partialsType,
                 const std::string &debugPrefix) {
-  return convChannelReduce(graph, actsUngrouped, Tensor(), false,
-                           scale, doSquare, prog, partialsType, debugPrefix);
+  auto t = createBiases(graph, actsUngrouped, "bnReduceResult");
+  convChannelReduce(graph, actsUngrouped, t, false,
+                           scale, doSquare, csVec, partialsType, debugPrefix);
+  return t;
 }
+
 
 // Return a program to update the biases tensor with the gradients derived
 // from the zDeltas tensor
@@ -3029,10 +3031,15 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
                       const std::string &partialsType,
                       Sequence &prog,
                       const std::string &debugPrefix) {
-  (void) convChannelReduce(graph, zDeltasUngrouped, biases, true,
-                           -learningRate, false,
-                           prog, partialsType,
-                           debugPrefix + "/BiasUpdate");
+  std::vector< ComputeSet> csVec;
+  convChannelReduce(graph, zDeltasUngrouped, biases, true,
+                    -learningRate, false,
+                    csVec, partialsType,
+                    debugPrefix + "/BiasUpdate");
+  assert(csVec.size() == 3);
+  for (const auto &cs : csVec) {
+    prog.add(Execute(cs));
+  }
 }
 
 static void
@@ -3251,7 +3258,7 @@ channelMul(Graph &graph, const Tensor &actsUngrouped, const Tensor &scale,
                                firstInGroup.dim(1) - 1;
           auto scaleWindow = scaleByGroup[g];
           for (unsigned b = batchBegin; b != batchLast + 1; ++b) {
-            unsigned begin = g == beginIndices[0] && b == lastIndices[1] ?
+            unsigned begin = g == beginIndices[0] && b == beginIndices[1] ?
                              beginIndices[2] :
                              0;
             unsigned last = g == lastIndices[0] && b == lastIndices[1] ?
@@ -3324,7 +3331,7 @@ addToScaledChannel(Graph &graph, const Tensor &actsUngrouped,
                                firstInGroup.dim(1) - 1;
           auto addendWindow = addendByGroup[g];
           for (unsigned b = batchBegin; b != batchLast + 1; ++b) {
-            unsigned begin = g == beginIndices[0] && b == lastIndices[1] ?
+            unsigned begin = g == beginIndices[0] && b == beginIndices[1] ?
                              beginIndices[2] :
                              0;
             unsigned last = g == lastIndices[0] && b == lastIndices[1] ?
@@ -3363,11 +3370,14 @@ batchNormEstimates(Graph &graph,
   const auto numElements = acts.numElements() / acts.dim(3);
   const float scale = 1.0 / numElements;
 
-  auto mean = batchNormReduce(graph, acts, scale, false, prog, partialsType,
-                              fnPrefix);
-
-  auto power = batchNormReduce(graph, acts, scale, true, prog, partialsType,
-                               fnPrefix);
+  std::vector< ComputeSet> csVec;
+  auto mean =
+    batchNormReduce(graph, acts, scale, false, csVec, partialsType, fnPrefix);
+  auto power =
+    batchNormReduce(graph, acts, scale, true, csVec, partialsType, fnPrefix);
+  for (const auto &cs : csVec) {
+    prog.add(Execute(cs));
+  }
 
   auto meanSquare = square(graph, mean, prog, fnPrefix);
   addTo(graph, power, meanSquare, -1.0, prog, fnPrefix);
@@ -3383,8 +3393,9 @@ batchNormEstimates(Graph &graph,
   }
 
   addTo(graph, power, epsTensor, prog, fnPrefix);
-  auto stdDev = sqrt(graph, power, prog, fnPrefix);
-  return std::make_pair(mean, stdDev);
+  auto iStdDev = div(graph, 1.0, sqrt(graph, power, prog, fnPrefix), prog,
+                     fnPrefix);
+  return std::make_pair(mean, iStdDev);
 }
 
 std::pair<Tensor, Tensor>
@@ -3401,21 +3412,18 @@ batchNormalise(Graph &graph,
                const Tensor &gamma,
                const Tensor &beta,
                const Tensor &mean,
-               const Tensor &stdDev,
+               const Tensor &iStdDev,
                Sequence &prog,
                const std::string &debugPrefix) {
   assert(acts.rank() == 4);
   const auto fnPrefix = debugPrefix + "/BN/batchNormalise";
   const auto actsShape = acts.shape();
   const auto numElements = acts.numElements() / acts.dim(3);
+
   auto actsZeroMean = sub(graph, acts,
                           mean.broadcast(numElements, 0).reshape(actsShape),
-                          prog, fnPrefix);
-
-  auto actsWhitened = div(graph, actsZeroMean,
-                          stdDev.broadcast(numElements, 0).reshape(actsShape),
-                          prog, fnPrefix);
-
+                           prog, fnPrefix);
+  auto actsWhitened = channelMul(graph, actsZeroMean, iStdDev, prog, fnPrefix);
   auto actsOut = channelMul(graph, actsWhitened, gamma, prog, fnPrefix);
 
   addToScaledChannel(graph, actsOut, beta, 1.0, prog, fnPrefix);
@@ -3431,26 +3439,26 @@ batchNormDeltas(Graph &graph,
                 const std::string &debugPrefix) {
 
   const auto fnPrefix = debugPrefix + "/BN/deltas";
-
-  const auto betaDelta =
-      batchNormReduce(graph, gradsIn, 1.0, false, prog, partialsType, fnPrefix);
-
   const auto gradsInMultActs =
-      mul(graph, gradsIn, actsWhitened, prog, fnPrefix);
+    mul(graph, gradsIn, actsWhitened, prog, fnPrefix);
 
-  const auto gammaDelta =
-      batchNormReduce(graph, gradsInMultActs, 1.0, false, prog, partialsType,
-                      fnPrefix);
+  std::vector< ComputeSet> csVec = {};
+  const auto betaDelta = batchNormReduce(graph, gradsIn, 1.0, false, csVec,
+                                         partialsType, fnPrefix);
+  const auto gammaDelta = batchNormReduce(graph, gradsInMultActs, 1.0, false,
+                                          csVec, partialsType, fnPrefix);
+  for (const auto &cs : csVec) {
+    prog.add(Execute(cs));
+  }
   return std::make_pair(gammaDelta, betaDelta);
 }
-
 
 Tensor batchNormGradients(Graph &graph,
                           const Tensor &actsWhitened,
                           const Tensor &gradsIn,
                           const Tensor &gammaDelta,
                           const Tensor &betaDelta,
-                          const Tensor &stdDev,
+                          const Tensor &invStdDev,
                           const Tensor &gamma,
                           Sequence &prog,
                           const std::string &partialsType,
@@ -3461,7 +3469,7 @@ Tensor batchNormGradients(Graph &graph,
   const auto numElements = actsWhitened.numElements() / actsWhitened.dim(3);
   const float rScale = 1.0 / numElements;
 
-  auto gradient = graph.clone(gradsIn);
+  auto gradient = graph.clone(actsWhitened);
   prog.add(Copy(gradsIn, gradient));
   addTo(graph, gradient,
         channelMul(graph, actsWhitened, gammaDelta, prog, fnPrefix),
@@ -3470,7 +3478,8 @@ Tensor batchNormGradients(Graph &graph,
   addToScaledChannel(graph, gradient, betaDelta, -rScale, prog, fnPrefix);
 
   return channelMul(graph, gradient,
-                    div(graph, gamma, stdDev, prog, fnPrefix), prog, fnPrefix);
+                    mul(graph, gamma, invStdDev, prog, fnPrefix), prog,
+                    fnPrefix);
 }
 
 } // namespace conv

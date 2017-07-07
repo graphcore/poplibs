@@ -91,12 +91,12 @@ void poplib_test::fc::batchNormEstimates(
                   const boost::multi_array_ref<double, 2> actsIn,
                   double eps,
                   boost::multi_array_ref<double, 1> mean,
-                  boost::multi_array_ref<double, 1> stdDev) {
+                  boost::multi_array_ref<double, 1> iStdDev) {
   const unsigned batchSize = actsIn.shape()[0];
   const unsigned numActs = actsIn.shape()[1];
 
   assert(mean.shape()[0] == numActs);
-  assert(stdDev.shape()[0] == numActs);
+  assert(iStdDev.shape()[0] == numActs);
 
   for (unsigned a = 0; a != numActs; ++a) {
     double rSum = 0;
@@ -106,8 +106,8 @@ void poplib_test::fc::batchNormEstimates(
       rSumOfSquares += actsIn[b][a] * actsIn[b][a];
     }
     mean[a] = batchSize == 1 ? 0 : rSum / batchSize;
-    stdDev[a] = batchSize == 1 ?
-      1.0 : std::sqrt(rSumOfSquares / batchSize - mean[a] * mean[a] + eps);
+    iStdDev[a] = batchSize == 1 ? 1.0 :
+         1.0 / std::sqrt(rSumOfSquares / batchSize - mean[a] * mean[a] + eps);
   }
 }
 
@@ -117,7 +117,7 @@ batchNormalise(const boost::multi_array_ref<double, 2> acts,
                const boost::multi_array_ref<double, 1> gamma,
                const boost::multi_array_ref<double, 1> beta,
                const boost::multi_array_ref<double, 1> mean,
-               const boost::multi_array_ref<double, 1> stdDev,
+               const boost::multi_array_ref<double, 1> iStdDev,
                boost::multi_array_ref<double, 2> actsOut,
                boost::multi_array_ref<double, 2> actsWhitened) {
 
@@ -127,7 +127,7 @@ batchNormalise(const boost::multi_array_ref<double, 2> acts,
   assert(gamma.shape()[0] == numActs);
   assert(beta.shape()[0] == numActs);
   assert(mean.shape()[0] == numActs);
-  assert(stdDev.shape()[0] == numActs);
+  assert(iStdDev.shape()[0] == numActs);
   assert(actsOut.shape()[0] == batchSize);
   assert(actsOut.shape()[1] == numActs);
   assert(actsWhitened.shape()[0] == batchSize);
@@ -135,7 +135,7 @@ batchNormalise(const boost::multi_array_ref<double, 2> acts,
 
   for (unsigned b = 0; b != batchSize; ++b) {
     for (unsigned a = 0; a != numActs; ++a) {
-      actsWhitened[b][a] = (acts[b][a] - mean[a]) /  stdDev[a];
+      actsWhitened[b][a] = (acts[b][a] - mean[a]) *  iStdDev[a];
       actsOut[b][a] = actsWhitened[b][a] * gamma[a] + beta[a];
     }
   }
@@ -145,7 +145,7 @@ batchNormalise(const boost::multi_array_ref<double, 2> acts,
 void poplib_test::fc::
 batchNormGradients(const boost::multi_array_ref<double, 2> actsWhitened,
                    const boost::multi_array_ref<double, 2> gradsIn,
-                   const boost::multi_array_ref<double, 1> stdDev,
+                   const boost::multi_array_ref<double, 1> iStdDev,
                    const boost::multi_array_ref<double, 1> gamma,
                    boost::multi_array_ref<double, 2> gradsOut) {
   const unsigned batchSize = actsWhitened.shape()[0];
@@ -155,7 +155,7 @@ batchNormGradients(const boost::multi_array_ref<double, 2> actsWhitened,
   assert(gradsIn.shape()[1] == numActs);
   assert(gradsOut.shape()[0] == batchSize);
   assert(gradsOut.shape()[1] == numActs);
-  assert(stdDev.shape()[0] == numActs);
+  assert(iStdDev.shape()[0] == numActs);
   assert(gamma.shape()[0] == numActs);
 
   for (unsigned a = 0; a != numActs; ++a) {
@@ -174,7 +174,7 @@ batchNormGradients(const boost::multi_array_ref<double, 2> actsWhitened,
         - actsWhitened[b][a] * sumGradsInAndxMu / batchSize
         - sumGradsIn / batchSize;
 
-      gradsOut[b][a] = out * gamma[a] / stdDev[a];
+      gradsOut[b][a] = out * gamma[a] * iStdDev[a];
     }
   }
 }

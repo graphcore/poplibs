@@ -237,7 +237,7 @@ createBatchNormParams(poplar::Graph &graph, const poplar::Tensor &acts);
 
 // Estimates estimates from a batch. The two tensors returned are:
 // 1) whitened activations
-// 2) standard deviation
+// 2) inverse of standard deviation
 std::pair<poplar::Tensor, poplar::Tensor>
 batchNormEstimates(poplar::Graph &graph,
                    const poplar::Tensor &actsUngrouped,
@@ -253,7 +253,7 @@ batchNormalise(poplar::Graph &graph,
                const poplar::Tensor &gamma,
                const poplar::Tensor &beta,
                const poplar::Tensor &mean,
-               const poplar::Tensor &stdDev,
+               const poplar::Tensor &invStdDev,
                poplar::program::Sequence &prog,
                const std::string &debugPrefix = "");
 
@@ -274,7 +274,7 @@ batchNormGradients(poplar::Graph &graph,
                    const poplar::Tensor &gradsIn,
                    const poplar::Tensor &gammaDelta,
                    const poplar::Tensor &betaDelta,
-                   const poplar::Tensor &stdDev,
+                   const poplar::Tensor &invStdDev,
                    const poplar::Tensor &gamma,
                    poplar::program::Sequence &prog,
                    const std::string &partialsType = "float",

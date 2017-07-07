@@ -32,6 +32,11 @@ poplar::Tensor div(poplar::Graph &graph,
                    poplar::program::Sequence &prog,
                    const std::string &debugPrefix = "");
 
+/// Performs k ./ A
+poplar::Tensor div(poplar::Graph &graph,
+                   float k, poplar::Tensor A,
+                   poplar::program::Sequence &prog,
+                   const std::string &debugPrefix = "");
 
 poplar::Tensor eq(poplar::Graph &graph,
                   poplar::Tensor A, poplar::Tensor B,

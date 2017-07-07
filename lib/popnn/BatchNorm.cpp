@@ -88,8 +88,8 @@ batchNormEstimates(Graph &graph, const Tensor acts,
 
     auto mean = graph.addTensor(dType, {numChans}, "mean");
     mapTensorLinearly(graph, mean);
-    auto stdDev = graph.addTensor(dType, {numChans}, "stdDev");
-    mapTensorLinearly(graph, stdDev);
+    auto iStdDev = graph.addTensor(dType, {numChans}, "stdDev");
+    mapTensorLinearly(graph, iStdDev);
 
     auto actsShuf = acts.dimShuffle({1, 0});
 
@@ -114,19 +114,19 @@ batchNormEstimates(Graph &graph, const Tensor acts,
             graph.connect(v["acts"][inpIdx++], actsShuf[i].flatten());
           }
           graph.connect(v["mean"][num], mean.slice(interval));
-          graph.connect(v["stdDev"][num], stdDev.slice(interval));
+          graph.connect(v["iStdDev"][num], iStdDev.slice(interval));
           ++num;
         }
         graph.setFieldSize(v["acts"], inpIdx);
         graph.setFieldSize(v["mean"], num);
-        graph.setFieldSize(v["stdDev"], num);
+        graph.setFieldSize(v["iStdDev"], num);
         graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
         graph.setInitialValue(v["eps"], eps);
         graph.setTileMapping(v, tile);
       }
     }
     prog.add(Execute(cs));
-    return std::make_pair(mean, stdDev);
+    return std::make_pair(mean, iStdDev);
   }
 }
 
@@ -136,14 +136,14 @@ batchNormalise(Graph &graph,
                const Tensor &gamma,
                const Tensor &beta,
                const Tensor &mean,
-               const Tensor &stdDev,
+               const Tensor &iStdDev,
                Sequence &prog,
                const std::string &debugPrefix) {
   const auto rank = acts.rank();
   check(acts);
   if (rank == 4) {
-    return popconv::batchNormalise(graph, acts, gamma, beta, mean, stdDev, prog,
-                                   debugPrefix);
+    return popconv::batchNormalise(graph, acts, gamma, beta, mean, iStdDev,
+                                   prog, debugPrefix);
   } else {
     const auto fnPrefix = debugPrefix + "/BN/batchNormalise";
     const auto actsShape = acts.shape();
@@ -152,10 +152,10 @@ batchNormalise(Graph &graph,
 
     auto bMean =
         mean.broadcast(actsPerChan, 0).reshape({actsPerChan, numChans});
-    auto bStdDev =
-        stdDev.broadcast(actsPerChan, 0).reshape({actsPerChan, numChans});
+    auto bIStdDev =
+        iStdDev.broadcast(actsPerChan, 0).reshape({actsPerChan, numChans});
     auto actsZeroMean = popstd::sub(graph, acts, bMean, prog, fnPrefix);
-    auto actsWhitened = popstd::div(graph, actsZeroMean, bStdDev, prog,
+    auto actsWhitened = popstd::mul(graph, actsZeroMean, bIStdDev, prog,
                                     fnPrefix);
 
     auto actsOut = mul(graph, actsWhitened,
@@ -194,7 +194,7 @@ Tensor batchNormGradients(Graph &graph,
                           const Tensor &gradsIn,
                           const Tensor &gammaDelta,
                           const Tensor &betaDelta,
-                          const Tensor &stdDev,
+                          const Tensor &iStdDev,
                           const Tensor &gamma,
                           Sequence &prog,
                           const std::string &partialsTypeStr,
@@ -203,7 +203,7 @@ Tensor batchNormGradients(Graph &graph,
   check(actsWhitened);
   if (rank == 4) {
     return popconv::batchNormGradients(graph, actsWhitened, gradsIn, gammaDelta,
-                                       betaDelta, stdDev, gamma, prog,
+                                       betaDelta, iStdDev, gamma, prog,
                                        partialsTypeStr, debugPrefix);
   } else {
     const auto fnPrefix = debugPrefix + "/BN/gradients";
@@ -223,7 +223,7 @@ Tensor batchNormGradients(Graph &graph,
           betaDelta.broadcast(numElements, 0).reshape(actsShape),
           -rScale, prog, fnPrefix);
 
-    const auto scale = div(graph, gamma, stdDev, prog, fnPrefix);
+    const auto scale = mul(graph, gamma, iStdDev, prog, fnPrefix);
 
     return mul(graph, gradient,
                scale.broadcast(numElements, 0).reshape(actsShape),

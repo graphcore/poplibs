@@ -329,6 +329,20 @@ Tensor div(Graph &graph, Tensor A, Tensor B, Sequence &prog,
   return binaryOp(graph, A, B, prog, BinaryOp::DIVIDE, debugPrefix + "/Op/Div");
 }
 
+
+Tensor div(Graph &graph, float k, Tensor A, Sequence &prog,
+          const std::string &debugPrefix) {
+  Tensor B;
+  const auto dType = A.elementType();
+  if (dType == "half") {
+    B = graph.addConstantTensor<half>(dType, A.shape(), k);
+  } else {
+    B = graph.addConstantTensor<float>(dType, A.shape(), k);
+  }
+  return binaryOp(graph, B, A, prog, BinaryOp::DIVIDE, debugPrefix + "/Op/Div");
+}
+
+
 Tensor eq(Graph &graph, Tensor A, Tensor B, Sequence &prog,
           const std::string &debugPrefix) {
   return binaryOp(graph, A, B, prog, BinaryOp::EQUAL,

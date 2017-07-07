@@ -12,7 +12,7 @@ namespace bn {
 std::pair<poplar::Tensor, poplar::Tensor>
 createBatchNormParams(poplar::Graph &graph, const poplar::Tensor acts);
 
-// Estimate mean and standard deviation of batched activaions
+// Estimate mean and inverse of standard deviation of batched activaions
 std::pair<poplar::Tensor, poplar::Tensor>
 batchNormEstimates(poplar::Graph &graph, const poplar::Tensor acts,
                    float eps,
@@ -28,7 +28,7 @@ batchNormalise(poplar::Graph &graph,
                const poplar::Tensor &gamma,
                const poplar::Tensor &beta,
                const poplar::Tensor &mean,
-               const poplar::Tensor &stdDev,
+               const poplar::Tensor &invStdDev,
                poplar::program::Sequence &prog,
                const std::string &debugPrefix = "");
 
@@ -48,7 +48,7 @@ batchNormGradients(poplar::Graph &graph,
                    const poplar::Tensor &gradsIn,
                    const poplar::Tensor &gammaDelta,
                    const poplar::Tensor &betaDelta,
-                   const poplar::Tensor &stdDev,
+                   const poplar::Tensor &invStdDev,
                    const poplar::Tensor &gamma,
                    poplar::program::Sequence &prog,
                    const std::string &partialsTypeStr = "float",

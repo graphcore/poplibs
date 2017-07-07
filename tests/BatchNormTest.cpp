@@ -63,8 +63,8 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
 
   auto prog = Sequence();
 
-  Tensor mean, stdDev;
-  std::tie(mean, stdDev) =
+  Tensor mean, invStdDev;
+  std::tie(mean, invStdDev) =
       bn::batchNormEstimates(graph, acts, eps, prog, partialsTypeStr);
   Tensor gamma, beta;
   std::tie(gamma, beta) =
@@ -72,7 +72,7 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
 
   Tensor actsWhitened, actsBN;
   std::tie(actsBN, actsWhitened) =
-      bn::batchNormalise(graph, acts, gamma, beta, mean, stdDev, prog);
+      bn::batchNormalise(graph, acts, gamma, beta, mean, invStdDev, prog);
 
   auto gradsIn = graph.clone(actsWhitened);
 
@@ -82,7 +82,7 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
 
   auto gradsOut =
     bn::batchNormGradients(graph, actsWhitened, gradsIn, gammaDelta, betaDelta,
-                           stdDev, gamma, prog);
+                           invStdDev, gamma, prog);
 
   bn::batchNormParamUpdate(graph, gammaDelta, betaDelta, learningRate, gamma,
                            beta, prog);
@@ -102,8 +102,8 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
           allocateHostMemoryForTensor(actsWhitened, upload, download);
   auto rawHostMean =
           allocateHostMemoryForTensor(mean, upload, download);
-  auto rawHostStdDev =
-          allocateHostMemoryForTensor(stdDev, upload, download);
+  auto rawHostInvStdDev =
+          allocateHostMemoryForTensor(invStdDev, upload, download);
   auto rawHostGamma =
           allocateHostMemoryForTensor(gamma, upload, download);
   auto rawHostBeta =
@@ -122,7 +122,7 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   boost::multi_array<double, 1>
       hostMean(boost::extents[numChannels]);
   boost::multi_array<double, 1>
-      hostStdDev(boost::extents[numChannels]);
+      hostInvStdDev(boost::extents[numChannels]);
   boost::multi_array<double, 1>
       hostGamma(boost::extents[numChannels]);
   boost::multi_array<double, 1>
@@ -152,7 +152,7 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
 #if CHECK_ESTIMATES == 1
   copy(dataTypeStr, rawHostActsWhitened.get(), hostActsWhitened);
   copy(dataTypeStr, rawHostMean.get(), hostMean);
-  copy(dataTypeStr, rawHostStdDev.get(), hostStdDev);
+  copy(dataTypeStr, rawHostInvStdDev.get(), hostInvStdDev);
 #endif
   copy(dataTypeStr, rawHostActsBN.get(), hostActsBN);
   copy(dataTypeStr, rawHostGradsOut.get(), hostGradsOut);
@@ -165,20 +165,21 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
                                                                 [dimY][dimX]
                                                                 [numChannels]);
   boost::multi_array<double, 1> modelMean(boost::extents[numChannels]);
-  boost::multi_array<double, 1> modelStdDev(boost::extents[numChannels]);
+  boost::multi_array<double, 1> modelInvStdDev(boost::extents[numChannels]);
 
-  poplib_test::conv::batchNormEstimates(hostActs, eps, modelMean, modelStdDev);
+  poplib_test::conv::batchNormEstimates(hostActs, eps, modelMean,
+                                        modelInvStdDev);
 
   boost::multi_array<double, 4>
       modelActsBN(boost::extents[batchSize][dimY][dimX][numChannels]);
   poplib_test::conv::batchNormalise(hostActs, modelGamma, modelBeta, modelMean,
-                                    modelStdDev, modelActsBN,
+                                    modelInvStdDev, modelActsBN,
                                     modelActsWhitened);
   boost::multi_array<double, 4>
       modelGradsOut(boost::extents[batchSize][dimY][dimX][numChannels]);
 
   poplib_test::conv::batchNormGradients(modelActsWhitened, modelGradsIn,
-                                        modelStdDev, modelGamma,
+                                        modelInvStdDev, modelGamma,
                                         modelGradsOut);
   poplib_test::conv::batchNormParamUpdate(modelActsWhitened, modelGradsIn,
                                           learningRate, modelGamma, modelBeta);
@@ -195,7 +196,7 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
     checkIsClose("mean", hostMean, modelMean, relativeTolerance,
                  absoluteTolerance);
   matchesModel &=
-    checkIsClose("stdDev", hostStdDev, modelStdDev, relativeTolerance,
+    checkIsClose("InvStdDev", hostInvStdDev, modelInvStdDev, relativeTolerance,
                  absoluteTolerance);
 #endif
   matchesModel &=
@@ -239,8 +240,8 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   popstd::mapTensorLinearly(graph, gradsIn);
   auto prog = Sequence();
 
-  Tensor mean, stdDev;
-  std::tie(mean, stdDev) =
+  Tensor mean, invStdDev;
+  std::tie(mean, invStdDev) =
       popnn::bn::batchNormEstimates(graph, acts, eps, prog, partialsTypeStr);
 
   Tensor gamma, beta;
@@ -249,7 +250,7 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
 
   Tensor actsWhitened, actsBN;
   std::tie(actsBN, actsWhitened) =
-      bn::batchNormalise(graph, acts, gamma, beta, mean, stdDev, prog);
+      bn::batchNormalise(graph, acts, gamma, beta, mean, invStdDev, prog);
 
   Tensor gammaDelta, betaDelta;
   std::tie(gammaDelta, betaDelta) =
@@ -257,7 +258,7 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
 
   auto gradsOut =
     bn::batchNormGradients(graph, actsWhitened, gradsIn, gammaDelta, betaDelta,
-                           stdDev, gamma, prog);
+                           invStdDev, gamma, prog);
 
   bn::batchNormParamUpdate(graph, gammaDelta, betaDelta, learningRate, gamma,
                            beta, prog);
@@ -273,7 +274,8 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   auto rawHostGradsOut =
           allocateHostMemoryForTensor(gradsOut, upload, download);
   auto rawHostMean = allocateHostMemoryForTensor(mean, upload, download);
-  auto rawHostStdDev = allocateHostMemoryForTensor(stdDev, upload, download);
+  auto rawHostInvStdDev = allocateHostMemoryForTensor(invStdDev, upload,
+                                                      download);
   auto rawHostGamma = allocateHostMemoryForTensor(gamma, upload, download);
   auto rawHostBeta = allocateHostMemoryForTensor(beta, upload, download);
 
@@ -286,7 +288,7 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   boost::multi_array<double, 2> hostGradsOut(boost::extents[batchSize]
                                                           [numActs]);
   boost::multi_array<double, 1> hostMean(boost::extents[numActs]);
-  boost::multi_array<double, 1> hostStdDev(boost::extents[numActs]);
+  boost::multi_array<double, 1> hostInvStdDev(boost::extents[numActs]);
   boost::multi_array<double, 1> hostGamma(boost::extents[numActs]);
   boost::multi_array<double, 1> hostBeta(boost::extents[numActs]);
 
@@ -316,7 +318,7 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   copy(dataTypeStr, rawHostGradsOut.get(), hostGradsOut);
   copy(dataTypeStr, rawHostMean.get(), hostMean);
 #endif
-  copy(dataTypeStr, rawHostStdDev.get(), hostStdDev);
+  copy(dataTypeStr, rawHostInvStdDev.get(), hostInvStdDev);
   copy(dataTypeStr, rawHostActsBN.get(), hostActsBN);
   copy(dataTypeStr, rawHostBeta.get(), hostBeta);
   copy(dataTypeStr, rawHostGamma.get(), hostGamma);
@@ -326,18 +328,20 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   boost::multi_array<double, 2> modelActsWhitened(boost::extents[batchSize]
                                                                 [numActs]);
   boost::multi_array<double, 1> modelMean(boost::extents[numActs]);
-  boost::multi_array<double, 1> modelStdDev(boost::extents[numActs]);
+  boost::multi_array<double, 1> modelInvStdDev(boost::extents[numActs]);
 
-  poplib_test::fc::batchNormEstimates(hostActs, eps, modelMean, modelStdDev);
+  poplib_test::fc::batchNormEstimates(hostActs, eps, modelMean, modelInvStdDev);
 
   boost::multi_array<double, 2> modelActsBN(boost::extents[batchSize][numActs]);
   poplib_test::fc::batchNormalise(hostActs, modelGamma, modelBeta, modelMean,
-                                  modelStdDev, modelActsBN, modelActsWhitened);
+                                  modelInvStdDev, modelActsBN,
+                                  modelActsWhitened);
 
   boost::multi_array<double, 2> modelGradsOut(boost::extents[batchSize]
                                                             [numActs]);
   poplib_test::fc::batchNormGradients(hostActsWhitened, hostGradsIn,
-                                      modelStdDev, modelGamma, modelGradsOut);
+                                      modelInvStdDev, modelGamma,
+                                      modelGradsOut);
   poplib_test::fc::batchNormParamUpdate(modelActsWhitened, hostGradsIn,
                                         learningRate, modelGamma, modelBeta);
 
@@ -351,7 +355,7 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
     checkIsClose("actsWhitened", hostActsWhitened, modelActsWhitened,
                  relativeTolerance, absoluteTolerance);
   matchesModel &=
-    checkIsClose("stdDev", hostStdDev, modelStdDev, relativeTolerance,
+    checkIsClose("invStdDev", hostInvStdDev, modelInvStdDev, relativeTolerance,
                  absoluteTolerance);
   matchesModel &=
     checkIsClose("actsBN", hostActsBN, modelActsBN, relativeTolerance,
