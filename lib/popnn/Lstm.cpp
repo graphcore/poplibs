@@ -1,6 +1,6 @@
 #include <poplin/MatMul.hpp>
 #include <popstd/Add.hpp>
-#include <popstd/ActivationMapping.hpp>
+#include <popstd/TileMapping.hpp>
 #include <popnn/NonLinearity.hpp>
 #include <popstd/HadamardProduct.hpp>
 #include <popstd/VertexTemplates.hpp>
@@ -89,7 +89,7 @@ Tensor basicLstmCellForwardPass(Graph  &graph,
   auto bBiases = graph.addTensor(dType, {0, batchSize, outputSize}, "bbiases");
 
   for (unsigned u = 0; u != BASIC_LSTM_CELL_NUM_UNITS; ++u) {
-    mapTensor(graph, biases[u]);
+    mapTensorLinearly(graph, biases[u]);
 
     auto unitBias = biases[u].broadcast(batchSize, 0)
                                        .reshape({batchSize, outputSize});
@@ -107,17 +107,17 @@ Tensor basicLstmCellForwardPass(Graph  &graph,
   /* create and map temporary tensors */
   auto forgetGate = graph.addTensor(dType, {batchSize, outputSize},
                                     "forgetGate");
-  mapActivations(graph, forgetGate);
+  mapTensorLinearly(graph, forgetGate);
 
   auto inputGate = graph.addTensor(dType, {batchSize, outputSize}, "inputGate");
-  mapActivations(graph, inputGate);
+  mapTensorLinearly(graph, inputGate);
 
   auto candidate = graph.addTensor(dType, {batchSize, outputSize}, "candidate");
-  mapActivations(graph, candidate);
+  mapTensorLinearly(graph, candidate);
 
   auto outputGate = graph.addTensor(dType, {batchSize, outputSize},
                                     "outputGate");
-  mapActivations(graph, outputGate);
+  mapTensorLinearly(graph, outputGate);
 
   for (auto s = 0U; s != sequenceSize; ++s) {
     const std::string baseStr = debugPrefix
@@ -171,7 +171,7 @@ Tensor basicLstmCellForwardPass(Graph  &graph,
 
     auto output = graph.addTensor(dType, {batchSize, outputSize},
                                   "output");
-    mapActivations(graph, output);
+    mapTensorLinearly(graph, output);
 
     prog.add(Copy(cellState, output));
     nonLinearity(graph, popnn::NonLinearityType::NON_LINEARITY_TANH,

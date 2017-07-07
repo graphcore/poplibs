@@ -8,7 +8,7 @@
 #include <ostream>
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
-#include <popstd/ActivationMapping.hpp>
+#include <popstd/TileMapping.hpp>
 #include <poplin/MatMul.hpp>
 #include <popstd/Add.hpp>
 #include <popreduce/Reduce.hpp>
@@ -141,7 +141,7 @@ int main(int argc, char **argv) {
     prevAct = graph.addTensor(dataTypeStr,
                               {sequenceSize, batchSize, inputSize}, "prevAct");
     for (unsigned s = 0U; s != sequenceSize; ++s) {
-      mapActivations(graph, prevAct[s]);
+      mapTensorLinearly(graph, prevAct[s]);
     }
     PlanningCache cache;
     MatMulOptions mmOpt;
@@ -163,7 +163,7 @@ int main(int argc, char **argv) {
                                    "feedFwdOutput");
 
     for (unsigned s = 0U; s != sequenceSize; ++s) {
-      mapActivations(graph, feedFwdOutput[s]);
+      mapTensorLinearly(graph, feedFwdOutput[s]);
     }
   }
 
@@ -173,12 +173,12 @@ int main(int argc, char **argv) {
   /* This should be a single vector for all batches, but done so if in case
    * we want to split sequence steps over multiple calls
    */
-  mapActivations(graph, initState);
+  mapTensorLinearly(graph, initState);
 
 
   /* map biases and brooadcast them */
   auto biases = graph.addTensor(dataTypeStr, {outputSize}, "biases");
-  mapTensor(graph, biases);
+  mapTensorLinearly(graph, biases);
 
   PlanningCache cache;
   MatMulOptions mmOpt;

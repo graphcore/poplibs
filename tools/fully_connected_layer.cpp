@@ -8,7 +8,7 @@
 #include <ostream>
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
-#include <popstd/ActivationMapping.hpp>
+#include <popstd/TileMapping.hpp>
 #include <popconv/Convolution.hpp>
 #include <popconv/codelets.hpp>
 #include <poplin/MatMul.hpp>
@@ -143,7 +143,7 @@ int main(int argc, char **argv) {
   Tensor prevAct = popconv::createWeights(graph, convParams, "prevAct",
                                           fwdOptions);
   auto biases = graph.addTensor(dataTypeStr, {outputSize}, "biases");
-  mapTensor(graph, biases);
+  mapTensorLinearly(graph, biases);
 
   auto upload = Sequence();
   auto download = Sequence();
@@ -169,7 +169,7 @@ int main(int argc, char **argv) {
                                       1 /* outHeight */,
                                       outputSize, 1},
                         "nextAct");
-    mapActivations(graph, nextAct);
+    mapTensorLinearly(graph, nextAct);
     nextAct = nextAct.dimShuffle({0, 2, 3, 1, 4})
                      .reshape({nextAct.dim(0), nextAct.dim(2), nextAct.dim(3),
                                nextAct.dim(1) * nextAct.dim(4)});

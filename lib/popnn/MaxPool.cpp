@@ -1,6 +1,6 @@
 #include "popnn/MaxPool.hpp"
 #include "popstd/VertexTemplates.hpp"
-#include "popstd/ActivationMapping.hpp"
+#include "popstd/TileMapping.hpp"
 #include "popconv/ConvUtil.hpp"
 #include "popstd/exceptions.hpp"
 #include "popstd/Util.hpp"
@@ -180,7 +180,7 @@ Tensor maxPool(Graph &graph,
       graph.addTensor(dType, {batchSize, numChannels / chansPerGroup,
                               outHeight, outWidth, chansPerGroup},
                       debugPrefix + "/maxPooled");
-  mapActivations(graph, outGrouped);
+  mapTensorLinearly(graph, outGrouped);
   auto out = outGrouped.dimShuffle({0, 2, 3, 1, 4})
                        .reshape({batchSize, outHeight, outWidth, numChannels});
 

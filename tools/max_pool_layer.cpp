@@ -8,7 +8,7 @@
 #include <ostream>
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
-#include <popstd/ActivationMapping.hpp>
+#include <popstd/TileMapping.hpp>
 #include <popnn/MaxPool.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <popnn/codelets.hpp>
@@ -256,7 +256,7 @@ int main(int argc, char **argv) {
                                     height,
                                     width,
                                     fwdChansPerGroup}, "prevAct");
-  mapActivations(graph, prevAct);
+  mapTensorLinearly(graph, prevAct);
   prevAct = prevAct.dimShuffle({0, 2, 3, 1, 4})
                    .reshape({batchSize, height, width, chans});
 
@@ -268,7 +268,7 @@ int main(int argc, char **argv) {
                                       outHeight,
                                       outWidth, bwdChansPerGroup},
                         "zDeltas");
-    mapActivations(graph, zDeltas);
+    mapTensorLinearly(graph, zDeltas);
     zDeltas = zDeltas.dimShuffle({0, 2, 3, 1, 4})
                      .reshape({batchSize, outHeight, outWidth, chans});
   }

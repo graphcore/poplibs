@@ -3,7 +3,7 @@
 #include <poplar/Graph.hpp>
 #include "popstd/Util.hpp"
 #include "popstd/VertexTemplates.hpp"
-#include "popstd/ActivationMapping.hpp"
+#include "popstd/TileMapping.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
