@@ -1,5 +1,5 @@
 #include "popstd/VertexTemplates.hpp"
-#include "popstd/TileMapping.hpp"
+#include "popstd/ActivationMapping.hpp"
 #include "popstd/Util.hpp"
 #include "popstd/Operations.hpp"
 #include "popnn/BatchNorm.hpp"
@@ -55,9 +55,9 @@ createBatchNormParams(Graph &graph, const Tensor acts) {
     const unsigned numActs = acts.shape()[1];
     const auto dType = acts.elementType();
     auto gamma = graph.addTensor(dType, {numActs}, "gamma");
-    mapTensorLinearly(graph, gamma);
+    mapTensor(graph, gamma);
     auto beta = graph.addTensor(dType, {numActs}, "beta");
-    mapTensorLinearly(graph, beta);
+    mapTensor(graph, beta);
     return std::make_pair(gamma, beta);
   }
 }
@@ -87,9 +87,9 @@ batchNormEstimates(Graph &graph, const Tensor acts,
     const auto dType = acts.elementType();
 
     auto mean = graph.addTensor(dType, {numChans}, "mean");
-    mapTensorLinearly(graph, mean);
+    mapTensor(graph, mean);
     auto stdDev = graph.addTensor(dType, {numChans}, "stdDev");
-    mapTensorLinearly(graph, stdDev);
+    mapTensor(graph, stdDev);
 
     auto actsShuf = acts.dimShuffle({1, 0});
 

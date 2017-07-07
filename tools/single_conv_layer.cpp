@@ -8,7 +8,7 @@
 #include <ostream>
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
-#include <popstd/TileMapping.hpp>
+#include <popstd/ActivationMapping.hpp>
 #include <popconv/Convolution.hpp>
 #include <popconv/ConvUtil.hpp>
 #include <popstd/exceptions.hpp>
@@ -431,7 +431,7 @@ int main(int argc, char **argv) {
   if (doBwdPass) {
     auto zeros = graph.addConstantTensor(dataTypeStr, {fwdInChans}, 0);
     auto zeroBiases = graph.addTensor(dataTypeStr, {fwdInChans}, "zeroBiases");
-    popstd::mapTensorLinearly(graph, zeroBiases);
+    popstd::mapTensor(graph, zeroBiases);
     revProg.add(Copy(zeros, zeroBiases));
     prevDeltas = popconv::convolution(graph, zDeltas, weights, bwdParams,
                                       true, revProg, "",

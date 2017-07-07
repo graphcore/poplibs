@@ -1,6 +1,6 @@
 #include <poplin/MatMul.hpp>
 #include <popstd/Add.hpp>
-#include <popstd/TileMapping.hpp>
+#include <popstd/ActivationMapping.hpp>
 #include <popnn/Recurrent.hpp>
 #include <popnn/NonLinearity.hpp>
 #include <cstdint>

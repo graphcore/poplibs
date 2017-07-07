@@ -7,7 +7,7 @@
 #include <poplar/Engine.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <popnn/MaxPool.hpp>
-#include <popstd/TileMapping.hpp>
+#include <popstd/ActivationMapping.hpp>
 #include <popnn/codelets.hpp>
 #include <poplib_test/NonLinearity.hpp>
 #include <iostream>
@@ -43,10 +43,10 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
                               "actH");
 
   // arbitraray mappings
-  mapTensorLinearly(graph, actF);
-  mapTensorLinearly(graph, actH);
-  mapTensorLinearly(graph, deltaF);
-  mapTensorLinearly(graph, deltaH);
+  mapActivations(graph, actF);
+  mapActivations(graph, actH);
+  mapActivations(graph, deltaF);
+  mapActivations(graph, deltaH);
 
   const auto batchSize=1;
 

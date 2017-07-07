@@ -3,7 +3,7 @@
 #include <poplar/Engine.hpp>
 #include <popstd/GraphFunction.hpp>
 #include <popstd/codelets.hpp>
-#include <popstd/TileMapping.hpp>
+#include <popstd/ActivationMapping.hpp>
 #include <popstd/Add.hpp>
 
 using namespace poplar;
@@ -17,24 +17,24 @@ BOOST_AUTO_TEST_CASE(VoidFunctionTest) {
   Graph graph(createIPUModelDevice());
   popstd::addCodelets(graph);
   Tensor x1 = graph.addTensor("float", {5});
-  mapTensorLinearly(graph, x1);
+  mapTensor(graph, x1);
   graph.createHostRead("x1", x1);
   graph.createHostWrite("x1", x1);
   Tensor y1 = graph.addTensor("float", {5});
   graph.createHostWrite("y1", y1);
-  mapTensorLinearly(graph, y1);
+  mapTensor(graph, y1);
   graphfn::VoidFunction f(graph, {graphfn::inout(x1), graphfn::input(y1)},
                           [&](std::vector<Tensor> &args,
                               Sequence &prog) {
                              addTo(graph, args[0], args[1], 1.0, prog);
                           });
   Tensor x2 = graph.addTensor("float", {5});
-  mapTensorLinearly(graph, x2);
+  mapTensor(graph, x2);
   graph.createHostRead("x2", x2);
   graph.createHostWrite("x2", x2);
   Tensor y2 = graph.addTensor("float", {5});
   graph.createHostWrite("y2", y2);
-  mapTensorLinearly(graph, y2);
+  mapTensor(graph, y2);
   Sequence prog;
   std::vector<Tensor> args1 = {x1, y1};
   f(args1, prog);
@@ -64,14 +64,14 @@ BOOST_AUTO_TEST_CASE(ProgramFunctionTest) {
   Graph graph(createIPUModelDevice());
   popstd::addCodelets(graph);
   Tensor x1 = graph.addTensor("float", {5});
-  mapTensorLinearly(graph, x1);
+  mapTensor(graph, x1);
   graph.createHostWrite("x1", x1);
   Tensor y1 = graph.addTensor("float", {5});
   graph.createHostWrite("y1", y1);
-  mapTensorLinearly(graph, y1);
+  mapTensor(graph, y1);
   Tensor z1 = graph.addTensor("float", {5});
   graph.createHostRead("z1", z1);
-  mapTensorLinearly(graph, z1);
+  mapTensor(graph, z1);
   graphfn::ProgramFunction f(graph, {graphfn::input(x1), graphfn::input(y1),
                                      graphfn::output(z1)},
                           [&](std::vector<Tensor> &args) {
@@ -81,15 +81,15 @@ BOOST_AUTO_TEST_CASE(ProgramFunctionTest) {
                              return prog;
                           });
   Tensor x2 = graph.addTensor("float", {5});
-  mapTensorLinearly(graph, x2);
+  mapTensor(graph, x2);
   graph.createHostRead("x2", x2);
   graph.createHostWrite("x2", x2);
   Tensor y2 = graph.addTensor("float", {5});
   graph.createHostWrite("y2", y2);
-  mapTensorLinearly(graph, y2);
+  mapTensor(graph, y2);
   Tensor z2 = graph.addTensor("float", {5});
   graph.createHostRead("z2", z2);
-  mapTensorLinearly(graph, z2);
+  mapTensor(graph, z2);
   Sequence prog;
   std::vector<Tensor> args1 = {x1, y1, z1};
   prog.add(f(args1));
@@ -120,28 +120,28 @@ BOOST_AUTO_TEST_CASE(CreatedTensorFunctionTest) {
   Graph graph(createIPUModelDevice());
   popstd::addCodelets(graph);
   Tensor x1 = graph.addTensor("float", {5});
-  mapTensorLinearly(graph, x1);
+  mapTensor(graph, x1);
   graph.createHostWrite("x1", x1);
   Tensor y1 = graph.addTensor("float", {5});
   graph.createHostWrite("y1", y1);
-  mapTensorLinearly(graph, y1);
+  mapTensor(graph, y1);
   graphfn::ProgramFunction f(graph, {graphfn::input(x1), graphfn::input(y1),
                                      graphfn::created()},
                           [&](std::vector<Tensor> &args) {
                              Sequence prog;
                              args[2] = graph.addTensor("float", {5});
-                             mapTensorLinearly(graph, args[2]);
+                             mapTensor(graph, args[2]);
                              prog.add(Copy(args[0], args[2]));
                              addTo(graph, args[2], args[1], 1.0, prog);
                              return prog;
                           });
   Tensor x2 = graph.addTensor("float", {5});
-  mapTensorLinearly(graph, x2);
+  mapTensor(graph, x2);
   graph.createHostRead("x2", x2);
   graph.createHostWrite("x2", x2);
   Tensor y2 = graph.addTensor("float", {5});
   graph.createHostWrite("y2", y2);
-  mapTensorLinearly(graph, y2);
+  mapTensor(graph, y2);
   Sequence prog;
   std::vector<Tensor> args1 = {x1, y1, Tensor()};
   prog.add(f(args1));
@@ -175,28 +175,28 @@ BOOST_AUTO_TEST_CASE(TensorFunctionTest) {
   Graph graph(createIPUModelDevice());
   popstd::addCodelets(graph);
   Tensor x1 = graph.addTensor("float", {5});
-  mapTensorLinearly(graph, x1);
+  mapTensor(graph, x1);
   graph.createHostRead("x1", x1);
   graph.createHostWrite("x1", x1);
   Tensor y1 = graph.addTensor("float", {5});
   graph.createHostWrite("y1", y1);
-  mapTensorLinearly(graph, y1);
+  mapTensor(graph, y1);
   graphfn::TensorFunction f(graph, {graphfn::inout(x1), graphfn::input(y1)},
                             [&](std::vector<Tensor> &args,
                                 Sequence &prog) {
                              Tensor z = graph.addTensor("float", {5});
-                             mapTensorLinearly(graph, z);
+                             mapTensor(graph, z);
                              prog.add(Copy(args[0], z));
                              addTo(graph, z, args[1], 1.0, prog);
                              return z;
                              });
   Tensor x2 = graph.addTensor("float", {5});
-  mapTensorLinearly(graph, x2);
+  mapTensor(graph, x2);
   graph.createHostRead("x2", x2);
   graph.createHostWrite("x2", x2);
   Tensor y2 = graph.addTensor("float", {5});
   graph.createHostWrite("y2", y2);
-  mapTensorLinearly(graph, y2);
+  mapTensor(graph, y2);
   Sequence prog;
   std::vector<Tensor> args1 = {x1, y1};
   auto z1 = f(args1, prog);

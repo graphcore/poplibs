@@ -4,7 +4,7 @@
 #include <numeric>
 
 #include "popstd/Cast.hpp"
-#include "popstd/TileMapping.hpp"
+#include "popstd/ActivationMapping.hpp"
 #include "popstd/Util.hpp"
 #include "popstd/VertexTemplates.hpp"
 #include "popstd/Zero.hpp"
@@ -103,6 +103,20 @@ static unsigned estimateBalancedReduceCost(
 }
 
 static std::vector<std::vector<Interval<std::size_t>>>
+convertLinearMappingToRegionMapping(const std::vector<unsigned> &mapping) {
+  assert(!mapping.empty());
+  const auto numTiles = mapping.size() - 1;
+  std::vector<std::vector<Interval<std::size_t>>>
+      regionMapping(numTiles);
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    if (mapping[tile] == mapping[tile + 1])
+      continue;
+    regionMapping[tile].emplace_back(mapping[tile], mapping[tile + 1]);
+  }
+  return regionMapping;
+}
+
+static std::vector<std::vector<Interval<std::size_t>>>
 determineReduceVertexMapping(Graph &graph,
                              Tensor partials,
                              Tensor reduced,
@@ -121,7 +135,9 @@ determineReduceVertexMapping(Graph &graph,
       estimateBalancedReduceCost(graph, partials, reduced, reducedMapping,
                                  grainSize);
   if (balancedReduceCost < reduceAtDstCost) {
-    return popstd::calcLinearTileMapping(graph, reduced);
+    return convertLinearMappingToRegionMapping(
+             computeTensorMapping(graph, reduced, grainSize)
+           );
   }
   return reducedMapping;
 }
@@ -232,7 +248,7 @@ Tensor reduce(poplar::Graph &graph,  poplar::Tensor in,
   const auto dType = in.elementType();
   const auto out = graph.addTensor(dType, {resultSize},
                                    debugPrefix + "/Reduced");
-  popstd::mapTensorLinearly(graph, out);
+  mapTensor(graph, out);
 
   // If batch size is 1 then no reduction is required.
   if (numAddends == 1) {

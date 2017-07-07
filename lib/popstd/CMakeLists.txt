@@ -2,6 +2,7 @@ include(GNUInstallDirs)
 get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(popstd SHARED
+  ActivationMapping.cpp
   Add.cpp
   Cast.cpp
   codelets.cpp
@@ -12,9 +13,9 @@ add_library(popstd SHARED
   Pad.cpp
   Regroup.cpp
   SubtractFrom.cpp
-  TileMapping.cpp
   Util.cpp
   Zero.cpp
+  ${CMAKE_SOURCE_DIR}/include/popstd/ActivationMapping.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/Add.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/Cast.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/codelets.hpp
@@ -25,7 +26,6 @@ add_library(popstd SHARED
   ${CMAKE_SOURCE_DIR}/include/popstd/Pad.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/Regroup.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/SubtractFrom.hpp
-  ${CMAKE_SOURCE_DIR}/include/popstd/TileMapping.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/Util.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/VertexTemplates.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/Zero.hpp

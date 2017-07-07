@@ -2,7 +2,7 @@
 #include <popstd/Operations.hpp>
 #include <boost/test/unit_test.hpp>
 #include <limits>
-#include <popstd/TileMapping.hpp>
+#include <popstd/ActivationMapping.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <popstd/codelets.hpp>
@@ -22,7 +22,7 @@ namespace fpc = boost::test_tools::fpc;
 static Tensor mapUnaryOpTensor(Graph &graph,
                                const std::string type) {
   auto in = graph.addTensor(type, {DIM_SIZE, DIM_SIZE}, "in0");
-  mapTensorLinearly(graph, in);
+  mapActivations(graph, in);
 
   return in.dimShuffle({1, 0});
 }
@@ -30,10 +30,10 @@ static Tensor mapUnaryOpTensor(Graph &graph,
 static std::pair<Tensor, Tensor> mapBinaryOpTensors(Graph &graph,
                                                      const std::string &type) {
   auto in1 = graph.addTensor(type, {DIM_SIZE, DIM_SIZE}, "in1");
-  mapTensorLinearly(graph, in1);
+  mapActivations(graph, in1);
 
   auto in2 = graph.addTensor(type, {DIM_SIZE, DIM_SIZE}, "in2");
-  mapTensorLinearly(graph, in2);
+  mapActivations(graph, in2);
 
   return std::make_pair(in1.dimShuffle({1, 0}), in2.dimShuffle({1, 0}));
 }

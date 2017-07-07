@@ -1,7 +1,7 @@
 #define BOOST_TEST_MODULE BatchNormTests
 
 #include <boost/test/unit_test.hpp>
-#include <popstd/TileMapping.hpp>
+#include <popstd/ActivationMapping.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <popstd/codelets.hpp>
@@ -59,7 +59,7 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
 
   auto acts = graph.addTensor(dataTypeStr, {batchSize, dimY, dimX, numChannels},
                               "act");
-  popstd::mapTensorLinearly(graph, acts);
+  popstd::mapActivations(graph, acts);
 
   auto prog = Sequence();
 
@@ -234,9 +234,9 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   const unsigned numActs = dims[1];
 
   auto acts = graph.addTensor(dataTypeStr, {batchSize, numActs}, "act");
-  popstd::mapTensorLinearly(graph, acts);
+  popstd::mapActivations(graph, acts);
   auto gradsIn = graph.addTensor(dataTypeStr, {batchSize, numActs}, "gradsIn");
-  popstd::mapTensorLinearly(graph, gradsIn);
+  popstd::mapActivations(graph, gradsIn);
   auto prog = Sequence();
 
   Tensor mean, stdDev;

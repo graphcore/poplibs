@@ -1,5 +1,5 @@
 #include "popnn/NonLinearity.hpp"
-#include "popstd/TileMapping.hpp"
+#include "popstd/ActivationMapping.hpp"
 #include "popstd/exceptions.hpp"
 #include "popstd/VertexTemplates.hpp"
 #include "popstd/Regroup.hpp"
@@ -22,7 +22,19 @@ nonLinearityInputGradient(Graph &graph,
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   auto inGradient = graph.clone(outGradient, debugPrefix + "/NonLinearityGrad");
-  auto outFlat = out.flatten();
+
+  Tensor outRegrouped;
+  // TODO: This could possible be made more efficient by merging the
+  // regrouping with the calculation of the non linearity derivative.
+  if (out.rank() == 2 ||
+      out.dim(4) == out.dim(4)) {
+    outRegrouped = out;
+  } else {
+    outRegrouped = graph.addTensor(dType, outGradient.shape(), "regroupedActs");
+    mapActivations(graph, outRegrouped);
+    prog.add(Copy(regroup(out, outGradient.dim(4)), outRegrouped));
+  }
+  auto outFlat = outRegrouped.flatten();
   auto outGradFlat = outGradient.flatten();
   auto inGradFlat = inGradient.flatten();
   auto outGradMapping = graph.getTileMapping(outGradFlat);

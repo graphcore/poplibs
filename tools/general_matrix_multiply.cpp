@@ -8,7 +8,7 @@
 #include <ostream>
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
-#include <popstd/TileMapping.hpp>
+#include <popstd/ActivationMapping.hpp>
 #include <poplin/MatMul.hpp>
 #include <popstd/Add.hpp>
 #include <popreduce/Reduce.hpp>
@@ -154,7 +154,7 @@ int main(int argc, char **argv) {
   const auto colsMatB = transposeB ? k : n;
 
   auto matB = graph.addTensor(dataTypeStr,  {rowsMatB, colsMatB}, "matB");
-  mapTensorLinearly(graph, matB);
+  mapActivations(graph, matB);
 
   PlanningCache cache;
   MatMulOptions mmOpt;
@@ -175,7 +175,7 @@ int main(int argc, char **argv) {
                        prog, "op(A) x op(B)", mmOpt);
 
   auto matC = graph.addTensor(dataTypeStr, {m, n}, "matC");
-  mapTensorLinearly(graph, matC);
+  mapActivations(graph, matC);
 
   addTo(graph, matC, matAxB, alpha, prog);
 
