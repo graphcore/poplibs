@@ -1,7 +1,7 @@
 #define BOOST_TEST_MODULE StdArithmeticTests
 
 #include <boost/test/unit_test.hpp>
-#include <popstd/ActivationMapping.hpp>
+#include <popstd/TileMapping.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <popstd/codelets.hpp>
@@ -24,10 +24,10 @@ namespace fpc = boost::test_tools::fpc;
 static std::tuple<Tensor, Tensor> mapBinaryOpTensors(Graph &graph,
                                                      const std::string &type) {
   auto in1 = graph.addTensor(type, {DIM_SIZE, DIM_SIZE}, "in1");
-  mapActivations(graph, in1);
+  mapTensorLinearly(graph, in1);
 
   auto in2 = graph.addTensor(type, {DIM_SIZE, DIM_SIZE}, "in2");
-  mapActivations(graph, in2);
+  mapTensorLinearly(graph, in2);
 
   return std::make_pair(in1.dimShuffle({1, 0}), in2.dimShuffle({1, 0}));
 }
@@ -208,7 +208,7 @@ BOOST_AUTO_TEST_CASE(StdCast) {
   }
 
   auto in = graph.addTensor("float", {DIM_SIZE}, "in");
-  mapTensor(graph, in);
+  mapTensorLinearly(graph, in);
 
   auto prog = Sequence();
 

@@ -10,7 +10,7 @@
 #include <poplar/Engine.hpp>
 #include <poplin/MatMul.hpp>
 #include <popnn/Lstm.hpp>
-#include <popstd/ActivationMapping.hpp>
+#include <popstd/TileMapping.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <popstd/codelets.hpp>
 #include <popreduce/codelets.hpp>
@@ -96,7 +96,7 @@ int main(int argc, char **argv) {
                                    {sequenceSize, batchSize, inputSize},
                                    "prevAct");
   for (unsigned s = 0U; s != sequenceSize; ++s) {
-    mapActivations(graph, prevAct[s]);
+    mapTensorLinearly(graph, prevAct[s]);
   }
 
   /* This should be a single vector for all batches, but done so if in case
@@ -105,12 +105,12 @@ int main(int argc, char **argv) {
   Tensor prevOutput = graph.addTensor(dataTypeStr,
                                       {batchSize, outputSize},
                                       "prevOutput");
-  mapActivations(graph, prevOutput);
+  mapTensorLinearly(graph, prevOutput);
 
   Tensor cellState = graph.addTensor(dataTypeStr,
                                      {batchSize, outputSize},
                                      "cellState");
-  mapActivations(graph, cellState);
+  mapTensorLinearly(graph, cellState);
 
   /* map biases and brooadcast them */
   auto biases = graph.addTensor(dataTypeStr,

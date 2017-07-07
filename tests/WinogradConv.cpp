@@ -1,7 +1,7 @@
 #define BOOST_TEST_MODULE FullyConnectedTest
 #include <boost/test/unit_test.hpp>
 #include <popconv/Convolution.hpp>
-#include <popstd/ActivationMapping.hpp>
+#include <popstd/TileMapping.hpp>
 #include <popstd/codelets.hpp>
 #include <popreduce/codelets.hpp>
 #include <popconv/codelets.hpp>
@@ -182,8 +182,8 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   Tensor residual;
 
 
-  mapActivations(graph, in);
-  mapActivations(graph, activations);
+  mapTensorLinearly(graph, in);
+  mapTensorLinearly(graph, activations);
 
   const std::size_t inSize = numInpChanGroups * featureY
                              * featureX * numInpChansInGroup;

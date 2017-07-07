@@ -1,6 +1,6 @@
 #include "popconv/Convolution.hpp"
 #include "popconv/ConvUtil.hpp"
-#include "popstd/ActivationMapping.hpp"
+#include "popstd/TileMapping.hpp"
 #include "popstd/VertexTemplates.hpp"
 #include "util/gcd.hpp"
 #include "PerformanceEstimation.hpp"

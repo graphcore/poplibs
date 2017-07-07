@@ -8,7 +8,7 @@
 #include "popconv/ConvUtil.hpp"
 #include "popstd/Pad.hpp"
 #include "popstd/Add.hpp"
-#include "popstd/ActivationMapping.hpp"
+#include "popstd/TileMapping.hpp"
 #include "popreduce/Reduce.hpp"
 #include "popstd/Regroup.hpp"
 #include "popstd/VertexTemplates.hpp"
@@ -465,20 +465,6 @@ iterateTilePartition(const Graph &graph, const ConvParams &params,
   }
 }
 
-static std::vector<std::vector<Interval<std::size_t>>>
-convertLinearMappingToRegionMapping(const std::vector<unsigned> &mapping) {
-  assert(!mapping.empty());
-  const auto numTiles = mapping.size() - 1;
-  std::vector<std::vector<Interval<std::size_t>>>
-      regionMapping(numTiles);
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
-    if (mapping[tile] == mapping[tile + 1])
-      continue;
-    regionMapping[tile].emplace_back(mapping[tile], mapping[tile + 1]);
-  }
-  return regionMapping;
-}
-
 /// Extend a partial map to a total map in the range [lower, upper). The value
 /// of keys not in the partial map are based on the value of the neighbouring
 /// keys that are in the map. The partial map must contain at least one entry.
@@ -549,9 +535,8 @@ calculateMappingBasedOnUsage(const Graph &graph,
                              unsigned grainSize,
                              unsigned minElementsPerTile) {
   if (iterative_size(uses) == 0) {
-    return convertLinearMappingToRegionMapping(
-      computeTensorMapping(graph, shape, grainSize)
-    );
+    return popstd::calcLinearTileMapping(graph, shape,
+                                         minElementsPerTile, grainSize);
   }
   boost::icl::interval_map<unsigned, std::set<unsigned>> grainToTiles;
   for (const auto &entry : uses) {
@@ -1866,7 +1851,9 @@ convolution(Graph &graph, const poplar::Tensor &in_,
                                 wgOutputShape[3] / plan.partialChansPerGroup,
                                 wgOutputShape[1], wgOutputShape[2],
                                 plan.partialChansPerGroup});
-    ::mapActivations(graph, activations);
+    // TODO - Change to a more efficient tile mapping for a winograd
+    // convolution output.
+    mapTensorLinearly(graph, activations);
     prog.add(winogradConvolution(graph, params, in, weights, activations,
                                  plan.winogradPatchSize, plan.winogradPatchSize,
                                  plan.floatPartials ? "float" : "half",
@@ -2300,10 +2287,8 @@ calculateWeightDeltasAop(Graph &graph, Plan plan,
                                               plan.partialChansPerGroup},
                                               "zDeltas'");
     for (unsigned b = 0; b < batchSize; ++b) {
-      auto regroupedDeltaMapping =
-          computeActivationsMapping(graph, regroupedDeltas[b], b, batchSize);
-      popstd::applyTensorMapping(graph, regroupedDeltas[b],
-                                 regroupedDeltaMapping);
+      // TODO - this is not the most efficient tile mapping for these deltas
+      popstd::mapTensorLinearly(graph, regroupedDeltas[b]);
     }
     prog.add(Copy(regroup(zDeltas, plan.partialChansPerGroup),
                   regroupedDeltas));
