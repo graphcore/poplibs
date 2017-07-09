@@ -3355,6 +3355,51 @@ addToScaledChannel(Graph &graph, const Tensor &actsUngrouped,
   prog.add(Execute(cs));
 }
 
+static Tensor computeInvStdDev(Graph &graph, const Tensor &mean,
+                               const Tensor &power, float eps,
+                               Sequence &prog,
+                               const std::string &invStdDevType,
+                               const std::string debugPrefix) {
+  const auto meanType = mean.elementType();
+  const auto powerType = power.elementType();
+  auto iStdDev = graph.clone(invStdDevType, mean, debugPrefix + "/iStdDev");
+
+  const auto meanFlat = mean.flatten();
+  const auto powerFlat = power.flatten();
+  const auto iStdDevFlat = iStdDev.flatten();
+
+  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto dataPathWidth = deviceInfo.dataPathWidth;
+  const auto numTiles = deviceInfo.getNumTiles();
+  const auto cs = graph.addComputeSet(debugPrefix + "/iStdDev");
+
+  const auto mapping = graph.getTileMapping(iStdDev);
+  const auto grainSize = deviceInfo.getVectorWidth(invStdDevType);
+
+  for (auto tile = 0U; tile != numTiles; ++tile) {
+    const auto tileContiguousRegions =
+        graph.getSortedContiguousRegions(iStdDevFlat, mapping[tile]);
+    auto vertexRegions =
+      splitRegionsBetweenWorkers(deviceInfo, tileContiguousRegions,
+                                 grainSize, 2 * grainSize);
+
+    for (const auto &regions : vertexRegions) {
+      auto v = graph.addVertex(cs,
+                               templateVertex("popconv::InverseStdDeviation",
+                                              meanType, powerType,
+                                              invStdDevType),
+                               {{"mean", meanFlat.slices(regions)},
+                                {"power", powerFlat.slices(regions)},
+                                {"iStdDev", iStdDevFlat.slices(regions)}});
+      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
+      graph.setInitialValue(v["eps"], eps);
+      graph.setTileMapping(v, tile);
+    }
+  }
+  prog.add(Execute(cs));
+  return iStdDev;
+}
+
 std::pair<Tensor, Tensor>
 batchNormEstimates(Graph &graph,
                    const Tensor &acts,
@@ -3379,22 +3424,9 @@ batchNormEstimates(Graph &graph,
     prog.add(Execute(cs));
   }
 
-  auto meanSquare = square(graph, mean, prog, fnPrefix);
-  addTo(graph, power, meanSquare, -1.0, prog, fnPrefix);
+  auto iStdDev = computeInvStdDev(graph, mean, power, eps, prog,
+                                  acts.elementType(), debugPrefix);
 
-  const auto varType = meanSquare.elementType();
-
-  Tensor epsTensor;
-  if (varType == "half") {
-    epsTensor = graph.addConstantTensor<half>(varType, meanSquare.shape(), eps);
-  } else {
-    epsTensor = graph.addConstantTensor<float>(varType, meanSquare.shape(),
-                                               eps);
-  }
-
-  addTo(graph, power, epsTensor, prog, fnPrefix);
-  auto iStdDev = div(graph, 1.0, sqrt(graph, power, prog, fnPrefix), prog,
-                     fnPrefix);
   return std::make_pair(mean, iStdDev);
 }
 

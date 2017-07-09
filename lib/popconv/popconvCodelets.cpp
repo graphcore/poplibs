@@ -1261,59 +1261,48 @@ template class ConvChanReduceAndScale<float, float>;
 template class ConvChanReduceAndScale<float, half>;
 template class ConvChanReduceAndScale<half, half>;
 
-
-template <class FPType>
-class BatchNorm : public Vertex {
+template <class MeanType, class PowerType, class OutType>
+class InverseStdDeviation : public Vertex {
 public:
-  Vector<Input<Vector<FPType>>> actsIn;
-  Vector<Input<Vector<FPType>>> stdDev;
-  Vector<Input<Vector<FPType>>> gamma;
-  Vector<Input<Vector<FPType>>> beta;
-  Vector<Output<Vector<FPType>>> actsOut;
+
+  Vector<Input<Vector<MeanType>>> mean;
+  Vector<Input<Vector<PowerType>>> power;
+  Vector<Output<Vector<OutType>>> iStdDev;
+  float eps;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    unsigned n = actsIn.size();
-    assert(actsOut.size() == n);
-    assert(stdDev.size() == n);
-    assert(gamma.size() == n);
-    assert(beta.size() == n);
-
-    for (unsigned i = 0; i != n; ++i) {
-      unsigned chansPerGroup = stdDev[i].size();
-      assert(actsIn[i].size() % chansPerGroup == 0);
-      unsigned len = actsIn[i].size() / chansPerGroup;
-      for (unsigned j = 0; j != len; ++j) {
-        for (unsigned k = 0; k != chansPerGroup; ++k) {
-          const auto idx = j * chansPerGroup + k;
-          FPType whitenedAct = actsIn[i][idx] / stdDev[i][k];
-          actsOut[i][idx] = gamma[i][k] * whitenedAct + beta[i][k];
-        }
+    assert(mean.size() == power.size());
+    assert(mean.size() == iStdDev.size());
+    for (unsigned i = 0; i != mean.size(); ++i) {
+      assert (mean[i].size() == power[i].size());
+      assert (mean[i].size() == iStdDev[i].size());
+      for (unsigned j = 0; j != mean[i].size(); ++j) {
+        iStdDev[i][j] =
+          1.0 / std::sqrt((power[i][j] - mean[i][j] * mean[i][j] + eps));
       }
     }
     return true;
   }
 
   uint64_t getCycleEstimate() const {
-    bool isFloat = std::is_same<FPType, float>::value;
-    const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    unsigned n = actsIn.size();
-    unsigned numCycles = 5;
-    for (unsigned i = 0; i != n; ++i) {
-      unsigned chansPerGroup = stdDev[i].size();
-      assert(actsIn[i].size() % chansPerGroup == 0);
-      unsigned len = actsIn[i].size() / chansPerGroup;
-      numCycles += 2; //
-      numCycles += 1; // Warmup.
-      // Add biases to acts using add + dual load + store.
-      numCycles += (len * chansPerGroup + vectorWidth - 1) / vectorWidth;
+    uint64_t cycles = 6;
+    for (unsigned i = 0; i < mean.size(); ++i) {
+      unsigned numElem = mean[i].size();
+      // always use float as we want float intermediates
+      unsigned vectorWidth = dataPathWidth / 32;
+      // mul, add, done using vectorWidth. sqrt and div done at one per cycle
+      unsigned cyclesPerVector = 2 + 2 * vectorWidth;
+      unsigned numVectors = (numElem + vectorWidth - 1) / vectorWidth;
+      cycles += 4 + cyclesPerVector * numVectors;
     }
-    return numCycles;
+    return cycles;
   }
 };
 
-
-template class BatchNorm<float>;
-template class BatchNorm<half>;
+template class InverseStdDeviation<float, float, float>;
+template class InverseStdDeviation<float, float, half>;
+template class InverseStdDeviation<half, float, half>;
+template class InverseStdDeviation<half, half, half>;
 
 } // end namespace popconv

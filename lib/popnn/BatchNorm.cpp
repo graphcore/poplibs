@@ -240,8 +240,9 @@ void batchNormParamUpdate(Graph &graph,
                           Sequence &prog,
                           const std::string &debugPrefix) {
   const std::string fnPrefix = debugPrefix + "/BN/paramUpdate";
-  addTo(graph, beta, betaDelta, -learningRate, prog, fnPrefix);
-  addTo(graph, gamma, gammaDelta, -learningRate, prog, fnPrefix);
+  // Do update of beta and gamma together
+  addTo(graph, concat(beta, gamma), concat(betaDelta, gammaDelta),
+        -learningRate, prog, fnPrefix);
 }
 
 uint64_t getFwdFlops(uint64_t numChannels, uint64_t actsPerChannel,
