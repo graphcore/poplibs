@@ -3,6 +3,7 @@ get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(popstd SHARED
   Add.cpp
+  AllTrue.cpp
   Cast.cpp
   codelets.cpp
   GraphFunction.cpp
@@ -16,6 +17,7 @@ add_library(popstd SHARED
   Util.cpp
   Zero.cpp
   ${CMAKE_SOURCE_DIR}/include/popstd/Add.hpp
+  ${CMAKE_SOURCE_DIR}/include/popstd/AllTrue.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/Cast.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/exceptions.hpp

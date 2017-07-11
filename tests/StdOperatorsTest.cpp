@@ -1,5 +1,8 @@
 #define BOOST_TEST_MODULE StdOperatorTest
+#include <popstd/AllTrue.hpp>
+#include <popstd/exceptions.hpp>
 #include <popstd/Operations.hpp>
+#include <popstd/SubtractFrom.hpp>
 #include <boost/test/unit_test.hpp>
 #include <limits>
 #include <popstd/TileMapping.hpp>
@@ -1858,4 +1861,46 @@ BOOST_AUTO_TEST_CASE(StdOperationTrinaryOutputMapChoice) {
   BOOST_TEST(tile3[1].size() > 0);
   BOOST_TEST(tile3[2].size() > 0);
   BOOST_TEST(tile3[3].size() > 0);
+}
+
+BOOST_AUTO_TEST_CASE(StdOperationAllTrueBadType) {
+  Graph graph(createIPUModelDevice());
+  popstd::addCodelets(graph);
+
+  Tensor in = graph.addTensor("float", {2, 2}, "t1");
+  auto prog = Sequence();
+  BOOST_CHECK_THROW(allTrue(graph, in, prog, "all_true"),
+                    poplib_error);
+}
+
+BOOST_AUTO_TEST_CASE(StdOperationAllTrue) {
+  Graph graph(createIPUModelDevice());
+  popstd::addCodelets(graph);
+
+  Tensor in = graph.addTensor("int", {2}, "t1");
+  Tensor ones = graph.addConstantTensor("int", {2}, 1);
+  Tensor zeros = graph.addConstantTensor("int", {2}, 0);
+
+  graph.setTileMapping(in, 0);
+
+  auto bodyProg = Sequence();
+  subtractFrom(graph, in, ones, bodyProg);
+
+  auto condProg = Sequence();
+  Tensor neZero = neq(graph, in, zeros, condProg);
+  allTrue(graph, neZero, condProg, "all_true");
+
+  int init[2] = {10, 8};
+  int output[2] = {0, 0};
+
+  auto mainProg = Sequence();
+  mainProg.add(Copy(init, in));
+  mainProg.add(RepeatWhileTrue(condProg, bodyProg));
+  mainProg.add(Copy(in, output));
+
+  Engine eng(graph, mainProg);
+  eng.run();
+
+  BOOST_CHECK_EQUAL(output[0], 2);
+  BOOST_CHECK_EQUAL(output[1], 0);
 }

@@ -1628,4 +1628,33 @@ template class Clamp<float>;
 template class Clamp<half>;
 template class Clamp<int>;
 
+class AllTrue : public Vertex {
+public:
+  Vector<Input<Vector<bool>>> in;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    bool v = true;
+    for (unsigned i = 0; i != in.size(); ++i) {
+      for (unsigned j = 0; j != in[i].size(); ++j) {
+        v = v && in[i][j];
+      }
+    }
+    return v;
+  }
+
+  uint64_t getCycleEstimate() const {
+    uint64_t cycles = 6;
+    for (unsigned i = 0; i < in.size(); ++i) {
+      unsigned cyclesPerVector = 1;
+      unsigned overhead = 11;
+      unsigned numElem = in[i].size();
+      unsigned vectorWidth = dataPathWidth / (sizeof(bool) * 8);
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
+    }
+    return cycles;
+  }
+};
+
 } // end namespace popstd
