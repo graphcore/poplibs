@@ -13,7 +13,6 @@ namespace popconv {
 class PlanningCache;
 
 enum class WeightUpdateMethod {
-  AOP,
   AMP,
   AUTO
 };
@@ -39,9 +38,6 @@ struct ConvOptions {
   /// is not set to NONE look for a joint plan that avoids the need to
   /// exchange weights.
   FullyConnectedPass fullyConnectedPass = FullyConnectedPass::NONE;
-  /// Is the fully connected backward pass implemented by calling
-  /// convolutionWeightUpdate()?
-  bool fullyConnectedBwdAsWU = true;
   std::string partialsType = "float";
   PlanningCache *cache = nullptr;
   bool operator<(const ConvOptions &other) const {

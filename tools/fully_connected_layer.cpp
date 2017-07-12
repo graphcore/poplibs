@@ -76,10 +76,6 @@ int main(int argc, char **argv) {
     ("batch-size",
      po::value<unsigned>(&batchSize)->default_value(1),
      "Batch size")
-    ("bwd-as-wu",
-     po::value<bool>(&fwdOptions.fullyConnectedBwdAsWU)
-         ->default_value(fwdOptions.fullyConnectedBwdAsWU),
-     "Cast the backward pass as a convolutional weight update")
     ("in-place-update",
      po::value<bool>(&inPlaceUpdate)->default_value(true),
      "Perform param update in place")
@@ -187,71 +183,43 @@ int main(int argc, char **argv) {
   Tensor zDeltas;
   std::unique_ptr<char[]> rawHostZDeltas;
   if (doBwdPass || doWuPass) {
-    if (fwdOptions.fullyConnectedBwdAsWU) {
-      // A fully connected bwd pass is equivalent to a weight update pass for a
-      // convolutional layer with
-      // input channels = input size
-      // width = outputSize
-      // height = 1
-      // output channels = batchSize.
-      zDeltas = popconv::createInput(graph,
+    // A fully connected bwd pass is equivalent to a convolution with
+    // input channels = outputSize
+    // width = inputSize
+    // height = 1
+    // output channels = batchSize.
+    zDeltas = popconv::createWeights(graph,
                                      popconv::ConvParams(
                                        dataTypeStr,
-                                       {1, 1, outputSize, batchSize},
-                                       {1, 1, inputSize, batchSize},
+                                       {1, 1, inputSize, outputSize},
+                                       {1, 1, batchSize, outputSize},
                                        {1, 1},
                                        {0, 0}, {0, 0}, {1, 1},
                                        {0, 0}, {0, 0}, {1, 1}),
                                      "zDeltas", bwdOptions);
-      zDeltas = zDeltas[0][0].dimShuffle({1, 0});
-    } else {
-      // A fully connected bwd pass is equivalent to a convolution with
-      // input channels = outputSize
-      // width = inputSize
-      // height = 1
-      // output channels = batchSize.
-      zDeltas = popconv::createWeights(graph,
-                                       popconv::ConvParams(
-                                         dataTypeStr,
-                                         {1, 1, inputSize, outputSize},
-                                         {1, 1, batchSize, outputSize},
-                                         {1, 1},
-                                         {0, 0}, {0, 0}, {1, 1},
-                                         {0, 0}, {0, 0}, {1, 1}),
-                                       "zDeltas", bwdOptions);
-      zDeltas = zDeltas[0][0];
-    }
+    zDeltas = zDeltas[0][0];
     rawHostZDeltas =
         allocateHostMemoryForTensor(zDeltas, upload, download);
   }
   Tensor prevDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
   if (doBwdPass) {
-    if (bwdOptions.fullyConnectedBwdAsWU) {
-      auto zDeltasView =
-          zDeltas.dimShuffle({1, 0})
-                 .reshape({1, 1, zDeltas.dim(1), zDeltas.dim(0)});
-      prevDeltas = popconv::calculateWeightDeltas(graph, zDeltasView, weights,
-                                                  convParams, bwdProg,
-                                                  "", bwdOptions)[0][0];
-    } else {
-      auto bwdParams =
-          popconv::ConvParams(convParams.dType,
-                              {1, 1, inputSize, outputSize}, /* inputShape */
-                              {1, 1, batchSize, outputSize}, /* kernelShape */
-                              {1, 1}, /* stride */
-                              {0, 0}, {0, 0}, {1, 1},
-                              {0, 0}, {0, 0}, {1, 1});
-      auto weightsTransposed =
-          popconv::fullyConnectedWeightTranspose(graph, weights, bwdParams,
-                                                 bwdProg, "", bwdOptions);
-      auto zDeltasView =
-          zDeltas.reshape({1, 1, zDeltas.dim(0), zDeltas.dim(1)});
-      prevDeltas = popconv::convolution(graph, weightsTransposed, zDeltasView,
-                                        bwdParams, false, bwdProg, "",
-                                        bwdOptions);
-      prevDeltas = prevDeltas[0][0].dimShuffle({1, 0});
-    }
+    auto bwdParams =
+        popconv::ConvParams(convParams.dType,
+                            {1, 1, inputSize, outputSize}, /* inputShape */
+                            {1, 1, batchSize, outputSize}, /* kernelShape */
+                            {1, 1}, /* stride */
+                            {0, 0}, {0, 0}, {1, 1},
+                            {0, 0}, {0, 0}, {1, 1});
+    auto weightsTransposed =
+        popconv::fullyConnectedWeightTranspose(graph, weights, bwdParams,
+                                               bwdProg, "", bwdOptions);
+    auto zDeltasView =
+        zDeltas.reshape({1, 1, zDeltas.dim(0), zDeltas.dim(1)});
+    prevDeltas = popconv::convolution(graph, weightsTransposed, zDeltasView,
+                                      bwdParams, false, bwdProg, "",
+                                      bwdOptions);
+    prevDeltas = prevDeltas[0][0].dimShuffle({1, 0});
     rawHostPrevDeltas =
         allocateHostMemoryForTensor(prevDeltas, upload,
                                     download);
@@ -279,13 +247,7 @@ int main(int argc, char **argv) {
     Tensor zDeltasTransposedView =
         zDeltas.dimShuffle({1, 0})
                .reshape({1, 1, zDeltas.dim(1), zDeltas.dim(0)});
-    if (!wuOptions.fullyConnectedBwdAsWU) {
-      zDeltasTransposed = zDeltasTransposedView;
-    } else {
-      zDeltasTransposed =
-          popconv::createInput(graph, wuParams, "zDeltasTransposed", wuOptions);
-      bwdProg.add(Copy(zDeltasTransposedView, zDeltasTransposed));
-    }
+    zDeltasTransposed = zDeltasTransposedView;
     auto weightDeltas =
         popconv::convolution(graph, zDeltasTransposed, prevAct, wuParams, true,
                              bwdProg, "", wuOptions);

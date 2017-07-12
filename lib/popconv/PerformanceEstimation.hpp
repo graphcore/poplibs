@@ -131,51 +131,6 @@ getMatMul2CycleEstimate(unsigned size) {
   return 5 + size * 3;
 }
 
-inline std::uint64_t
-getWeightGradAopCycles(bool floatInput, bool floatPartials,
-                       unsigned dataPathWidth, unsigned inChansPerGroup,
-                       unsigned outChansPerGroup,
-                       std::vector<std::vector<unsigned>> &shape,
-                       bool useDeltasForEdges,
-                       unsigned numAopAccumulators) {
-  // Outer loop overhead for stack variable initialisations
-  const auto vertexOverhead = 18;
-  std::uint64_t cycles = vertexOverhead;
-  unsigned vectorWidth = dataPathWidth / (floatInput ? 32 : 16);
-  unsigned partialsVectorWidth = dataPathWidth / (floatPartials ? 32 : 16);
-  const auto ocgVectorWidth = vectorWidth;
-  const auto icgVectorWidth = numAopAccumulators / ocgVectorWidth;
-
-  const auto ocgSubgroups = (outChansPerGroup + ocgVectorWidth - 1)
-                            / ocgVectorWidth;
-  const auto icgSubgroups = (inChansPerGroup + icgVectorWidth - 1)
-                            / icgVectorWidth;
-
-  for (const auto &w : shape) {
-    const auto shapeOverhead = 11;
-
-    auto innerLoopCycles = 0;
-    for (auto deltasWidth : w) {
-      // Inner loop.
-      // Inner loop overhead required to set-up pointers, rpt loop and branching
-      const auto innerLoopOverhead = useDeltasForEdges ? 5 : 5;
-      innerLoopCycles += deltasWidth + innerLoopOverhead;
-    }
-
-    // Accumulator restore and save
-    const auto accSave = icgVectorWidth * ocgVectorWidth / partialsVectorWidth;
-    const auto ocgSubgroupOverhead = 7;
-    const auto icgSubgroupOverhead = 6;
-
-    cycles += shapeOverhead
-              + ocgSubgroups
-               * (ocgSubgroupOverhead + icgSubgroups * (icgSubgroupOverhead
-                                                        + accSave
-                                                        + innerLoopCycles));
-  }
-  return cycles;
-}
-
 inline uint64_t getWgdDataTransformCycles(
                               unsigned numChannels,
                               bool isFloat) {

@@ -193,7 +193,7 @@ int main(int argc, char **argv) {
      po::value<popconv::WeightUpdateMethod>(
          &convOptions.weightUpdateMethod
      )->default_value(convOptions.weightUpdateMethod),
-     "Weight update method: amp | aop | auto")
+     "Weight update method: amp | auto")
     ("report-plan", po::value<bool>(&reportPlan)->default_value(false),
      "Display plan")
   ;

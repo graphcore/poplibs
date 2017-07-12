@@ -19,7 +19,6 @@ namespace popconv {
 
 const char *asString(const WeightUpdateMethod &method) {
   switch (method) {
-  case WeightUpdateMethod::AOP: return "aop";
   case WeightUpdateMethod::AMP: return "amp";
   case WeightUpdateMethod::AUTO: return "auto";
   }
@@ -34,9 +33,7 @@ operator<<(std::ostream &os, const WeightUpdateMethod &method) {
 std::istream &operator>>(std::istream &is, WeightUpdateMethod &method) {
   std::string token;
   is >> token;
-  if (token == "aop")
-    method = WeightUpdateMethod::AOP;
-  else if (token == "amp")
+  if (token == "amp")
     method = WeightUpdateMethod::AMP;
   else if (token == "auto")
     method = WeightUpdateMethod::AUTO;
@@ -475,61 +472,6 @@ estimateExchangeCycles(const poplar::DeviceInfo &deviceInfo,
   return numCycles;
 }
 
-static unsigned
-estimateWeightUpdatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
-                                      bool floatActivations,
-                                      const ConvParams &params,
-                                      const Plan &plan) {
-  assert(!plan.useConvolutionInstructions);
-  const auto tilesPerZ = plan.tilesPerZAxis;
-  const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
-  const auto outChansPerGroup = plan.partialChansPerGroup;
-  const auto inChansPerGroup = plan.inChansPerGroup;
-  const auto tilesPerKernelYAxis = plan.tilesPerKernelYAxis;
-  const auto floatPartials = plan.floatPartials;
-  const auto outputDepth = params.kernelShape[2];
-  const auto inputDepth = params.inputShape[3];
-  const auto numOutGroups =
-      (outputDepth + (outChansPerGroup - 1)) / outChansPerGroup;
-  const auto numInGroups =
-      (inputDepth + (inChansPerGroup - 1)) / inChansPerGroup;
-
-  const auto tileNumOutGroups =
-      (numOutGroups + tilesPerZ - 1) / tilesPerZ;
-  const auto tileNumInGroups =
-      (numInGroups + tilesPerInZGroup - 1) / tilesPerInZGroup;
-
-  const auto tilesPerY = plan.tilesPerYAxis;
-
-  const auto tileOutHeight =
-      (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
-  const auto tileOutWidth = getMaxTileOutWidth(params, plan);
-
-  const auto numWorkerContexts = deviceInfo.numWorkerContexts;
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
-  const auto tileKernelHeight =
-      (params.kernelShape[0] + tilesPerKernelYAxis - 1) / tilesPerKernelYAxis;
-  const auto tileKernelWidth = params.kernelShape[1];
-  unsigned tasks = tileKernelHeight * tileKernelWidth *
-                   tileNumOutGroups * tileNumInGroups;
-  unsigned maxTasksPerVertex =
-      (tasks + numWorkerContexts - 1) / numWorkerContexts;
-  std::vector<std::vector<unsigned>>
-      shape(maxTasksPerVertex,
-            std::vector<unsigned>(tileOutHeight, tileOutWidth));
-  /* AOP edge type selection */
-  const auto numEdges = maxTasksPerVertex * (2 * tileOutHeight + 1);
-  const auto useDeltasForEdges = useDeltaEdgesForWeightGradAop(numEdges);
-  const auto numAopAccumulators =
-              floatActivations ? deviceInfo.fp32NumAopAccumulators :
-                                 deviceInfo.fp16NumAopAccumulators;
-  const auto vertexCycles =
-      getWeightGradAopCycles(floatActivations, floatPartials, dataPathWidth,
-                             inChansPerGroup, outChansPerGroup, shape,
-                             useDeltasForEdges, numAopAccumulators);
-  unsigned totalCycles = vertexCycles * numWorkerContexts;
-  return totalCycles;
-}
 
 static unsigned
 estimateWeightUpdatePartialCalcMemory(const poplar::DeviceInfo &deviceInfo,
@@ -681,11 +623,6 @@ estimatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
                           const ConvParams &params, bool isWeightUpdate,
                           const Plan &plan,
                           PlanningCacheImpl *cache) {
-  if (isWeightUpdate) {
-    return
-      estimateWeightUpdatePartialCalcCycles(deviceInfo, floatActivations,
-                                            params, plan);
-  }
   const auto tilesPerY = plan.tilesPerYAxis;
   const auto tilesPerZ = plan.tilesPerZAxis;
   const auto inChansPerGroup = plan.inChansPerGroup;
@@ -1309,46 +1246,29 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
   if (options.fullyConnectedPass == FullyConnectedPass::FWD) {
     popsolver::Variable bwdCycles;
     popsolver::Variable bwdMemory;
-    if (options.fullyConnectedBwdAsWU) {
-      bwdCycles =
-          addCycleEstimate(m, tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY,
-                           tilesPerInZ, deviceInfo, params, true,
-                           inChansPerGroup, partialChansPerGroup,
-                           batchesPerGroup, xAxisGrainSize,
-                           convVertexType.floatPartials, floatActivations,
-                           false, Plan::LinearizeTileOrder::STANDARD, cache);
-      bwdMemory =
-          addMemoryEstimate(m, tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY,
-                            tilesPerInZ, deviceInfo, params, true,
-                            inChansPerGroup, partialChansPerGroup,
-                            batchesPerGroup, xAxisGrainSize,
-                            convVertexType.floatPartials, floatActivations,
-                            false, Plan::LinearizeTileOrder::STANDARD);
-    } else {
-      auto bwdParams = params;
-      std::swap(bwdParams.inputShape[2], bwdParams.inputShape[3]);
-      bwdParams.kernelShape[3] = bwdParams.inputShape[3];
-      const auto bwdTilesPerX = tilesPerInZ;
-      const auto bwdTilesPerInZ = tilesPerX;
-      const auto bwdInChansPerGroup = xAxisGrainSize;
-      const auto bwdXAxisGrainSize = inChansPerGroup;
-      bwdCycles =
-          addCycleEstimate(m, bwdTilesPerX, tilesPerY, tilesPerZ,
-                           tilesPerKernelY, bwdTilesPerInZ, deviceInfo, params,
-                           false, bwdInChansPerGroup, partialChansPerGroup,
-                           batchesPerGroup, bwdXAxisGrainSize,
-                           convVertexType.floatPartials, floatActivations,
-                           convVertexType.useConvInstruction,
-                           Plan::LinearizeTileOrder::FC_BWD_AS_CONV, cache);
-      bwdMemory =
-          addMemoryEstimate(m, bwdTilesPerX, tilesPerY, tilesPerZ,
-                            tilesPerKernelY, bwdTilesPerInZ, deviceInfo, params,
-                            false, bwdInChansPerGroup, partialChansPerGroup,
-                            batchesPerGroup, bwdXAxisGrainSize,
-                            convVertexType.floatPartials, floatActivations,
-                            convVertexType.useConvInstruction,
-                            Plan::LinearizeTileOrder::FC_BWD_AS_CONV);
-    }
+    auto bwdParams = params;
+    std::swap(bwdParams.inputShape[2], bwdParams.inputShape[3]);
+    bwdParams.kernelShape[3] = bwdParams.inputShape[3];
+    const auto bwdTilesPerX = tilesPerInZ;
+    const auto bwdTilesPerInZ = tilesPerX;
+    const auto bwdInChansPerGroup = xAxisGrainSize;
+    const auto bwdXAxisGrainSize = inChansPerGroup;
+    bwdCycles =
+        addCycleEstimate(m, bwdTilesPerX, tilesPerY, tilesPerZ,
+                         tilesPerKernelY, bwdTilesPerInZ, deviceInfo, params,
+                         false, bwdInChansPerGroup, partialChansPerGroup,
+                         batchesPerGroup, bwdXAxisGrainSize,
+                         convVertexType.floatPartials, floatActivations,
+                         convVertexType.useConvInstruction,
+                         Plan::LinearizeTileOrder::FC_BWD_AS_CONV, cache);
+    bwdMemory =
+        addMemoryEstimate(m, bwdTilesPerX, tilesPerY, tilesPerZ,
+                          tilesPerKernelY, bwdTilesPerInZ, deviceInfo, params,
+                          false, bwdInChansPerGroup, partialChansPerGroup,
+                          batchesPerGroup, bwdXAxisGrainSize,
+                          convVertexType.floatPartials, floatActivations,
+                          convVertexType.useConvInstruction,
+                          Plan::LinearizeTileOrder::FC_BWD_AS_CONV);
     auto wuParams = params;
     std::swap(wuParams.kernelShape[3], wuParams.kernelShape[2]);
     wuParams.inputShape[3] = wuParams.kernelShape[3];
@@ -1446,11 +1366,6 @@ getWeightUpdateVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
       convVertexTypeCandidates.emplace_back(true, false, true);
     }
   }
-  if (options.weightUpdateMethod == WeightUpdateMethod::AOP ||
-      options.weightUpdateMethod == WeightUpdateMethod::AUTO) {
-    convVertexTypeCandidates.emplace_back(false, floatActivations,
-                                          floatPartials);
-  }
   return convVertexTypeCandidates;
 }
 
@@ -1522,51 +1437,6 @@ getInChansPerGroupCandidates(const ConvParams &params,
   return candidates;
 }
 
-static Cost
-estimateWeightUpdateByAopReorderCost(const poplar::DeviceInfo &deviceInfo,
-                                     unsigned tensorOutChansPerGroup,
-                                     unsigned tensorWeightOutChansPerGroup,
-                                     bool floatActivations,
-                                     const ConvParams &params,
-                                     unsigned partialChansPerGroup) {
-  const auto numTiles = deviceInfo.getNumTiles();
-  const auto bytesPerElement = floatActivations ? 4U : 2U;
-  const auto reorderBytesPerCycle =
-      std::min(deviceInfo.memcpyBytesPerCycle, bytesPerElement);
-  const auto exchangeBytesPerCycle = deviceInfo.exchangeBytesPerCycle;
-  auto reorderBytesPre = 0;
-  if (partialChansPerGroup != tensorOutChansPerGroup) {
-    // Reorder deltas.
-    const auto numDeltas = params.getBatchSize() *
-                           params.getOutputDepth() *
-                           params.getOutputHeight() *
-                           params.getOutputWidth();
-    reorderBytesPre += numDeltas * bytesPerElement;
-  }
-  auto reorderBytesPost = 0;
-  if (partialChansPerGroup != tensorWeightOutChansPerGroup) {
-    // Reorder weight deltas.
-    const auto numWeightDeltas = params.kernelShape[0] *
-                                 params.kernelShape[1] *
-                                 params.getInputDepth() *
-                                 params.getOutputDepth();
-    reorderBytesPost += numWeightDeltas * bytesPerElement;
-  }
-  const auto reorderBytesTilePre = (reorderBytesPre + numTiles - 1) / numTiles;
-  const auto reorderBytesTilePost = (reorderBytesPost + numTiles - 1) /
-                                    numTiles;
-  unsigned cycles = 0;
-  cycles += (reorderBytesTilePre + exchangeBytesPerCycle - 1) /
-            exchangeBytesPerCycle;
-  cycles += (reorderBytesTilePre + reorderBytesPerCycle - 1) /
-            reorderBytesPerCycle;
-  cycles += (reorderBytesTilePost + exchangeBytesPerCycle - 1) /
-            exchangeBytesPerCycle;
-  cycles += (reorderBytesTilePost + reorderBytesPerCycle - 1) /
-            reorderBytesPerCycle;
-  return {cycles, 0};
-}
-
 static std::pair<Plan, Cost>
 choosePlan(const poplar::DeviceInfo &deviceInfo,
            const ConvVertexType &convVertexType,
@@ -1580,39 +1450,6 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
            const ConvOptions &options) {
   Plan best;
   Cost bestCost = highestCost;
-  if (isWeightUpdate && !convVertexType.useConvInstruction) {
-    // Use the existing channel grouping to avoid the need to regroup the
-    // activations.
-    assert(tensorInChansPerGroup != 0);
-    assert(tensorOutChansPerGroup != 0);
-    assert(tensorWeightOutChansPerGroup != 0);
-    const auto inChansPerGroup = tensorInChansPerGroup;
-    std::vector<unsigned> partialChansPerGroupCandidates = {
-      tensorOutChansPerGroup,
-      tensorWeightOutChansPerGroup
-    };
-    for (auto partialChansPerGroup : partialChansPerGroupCandidates) {
-      Plan candidate;
-      Cost candidateCost;
-      std::tie(candidate, candidateCost) =
-          choosePlan(deviceInfo, inChansPerGroup, partialChansPerGroup,
-                     1, convVertexType, params, isWeightUpdate,
-                     batchesPerGroup, costBounds,
-                     cache, options);
-      candidateCost +=
-          estimateWeightUpdateByAopReorderCost(deviceInfo,
-                                               tensorOutChansPerGroup,
-                                               tensorWeightOutChansPerGroup,
-                                               convVertexType.floatActivations,
-                                               params,
-                                               partialChansPerGroup);
-     if (compareCost(candidateCost, bestCost, costBounds)) {
-        best = candidate;
-        bestCost = candidateCost;
-      }
-    }
-    return {best, bestCost};
-  }
   std::vector<unsigned> inChansPerGroupCandidates;
   if (isWeightUpdate) {
     assert(convVertexType.useConvInstruction);
@@ -1643,8 +1480,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
     Plan candidate;
     Cost candidateCost;
     unsigned xAxisGrainSize = 1;
-    if (options.fullyConnectedPass == FullyConnectedPass::FWD &&
-        !options.fullyConnectedBwdAsWU) {
+    if (options.fullyConnectedPass == FullyConnectedPass::FWD) {
       // The xAxisGrainSize becomes the inChansPerGroup in the backward pass.
       // For now assume the same grouping in both passes.
       // TODO search for the optimal grouping in each pass.
@@ -1778,15 +1614,9 @@ static ConvParams getFullyConnectedFwdParams(const ConvParams &params,
   switch (options.fullyConnectedPass) {
   default: assert(0 && "Unexpected pass");
   case FullyConnectedPass::BWD:
-    if (options.fullyConnectedBwdAsWU) {
-      inputSize = params.getInputDepth();
-      batchSize = params.getOutputDepth();
-      outputSize = params.getInputWidth();
-    } else {
-      inputSize = params.getInputWidth();
-      batchSize = params.getOutputDepth();
-      outputSize = params.getInputDepth();
-    }
+    inputSize = params.getInputWidth();
+    batchSize = params.getOutputDepth();
+    outputSize = params.getInputDepth();
     break;
   case FullyConnectedPass::WU:
     outputSize = params.getInputWidth();
@@ -1855,9 +1685,6 @@ static Plan getFullyConnectedBwdPlan(const poplar::DeviceInfo &deviceInfo,
                                       const ConvOptions &fwdOptions,
                                       const Plan &fwdPlan) {
   auto plan = fwdPlan;
-  if (fwdOptions.fullyConnectedBwdAsWU) {
-    return plan;
-  }
   plan.linearizeTileOrder = Plan::LinearizeTileOrder::FC_BWD_AS_CONV;
   std::swap(plan.tilesPerXAxis, plan.tilesPerInZGroupAxis);
   std::swap(plan.xAxisGrainSize, plan.inChansPerGroup);

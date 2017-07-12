@@ -464,12 +464,12 @@ add_test(NAME conv_large_weights
                 --data-type=half
                 --single-phase=fwd)
 
-add_test(NAME fully_connected_half
-         COMMAND fully_connected_layer
-                 --input-size 300
-                 --output-size 100
-                 --tiles-per-ipu 16
-                 --data-type half)
+#add_test(NAME fully_connected_half
+#         COMMAND fully_connected_layer
+#                 --input-size 300
+#                 --output-size 100
+#                 --tiles-per-ipu 16
+#                 --data-type half)
 
 add_test(NAME fully_connected_half_fwd
          COMMAND fully_connected_layer
@@ -479,13 +479,13 @@ add_test(NAME fully_connected_half_fwd
                  --tiles-per-ipu 16
                  --data-type half)
 
-add_test(NAME fully_connected_half_bwd
-        COMMAND fully_connected_layer
-                --single-phase=bwd
-                --input-size 300
-                --output-size 100
-                --tiles-per-ipu 16
-                --data-type half)
+#add_test(NAME fully_connected_half_bwd
+#        COMMAND fully_connected_layer
+#                --single-phase=bwd
+#                --input-size 300
+#                --output-size 100
+#                --tiles-per-ipu 16
+#                --data-type half)
 
 add_test(NAME fully_connected_half_wu
         COMMAND fully_connected_layer
@@ -495,53 +495,53 @@ add_test(NAME fully_connected_half_wu
                 --tiles-per-ipu 16
                 --data-type half)
 
-add_test(NAME fully_connected_half_two_ipu
-         COMMAND fully_connected_layer
-                 --input-size 300
-                 --output-size 100
-                 --tiles-per-ipu 16
-                 --ipus=2
-                 --data-type half)
+#add_test(NAME fully_connected_half_two_ipu
+#         COMMAND fully_connected_layer
+#                 --input-size 300
+#                 --output-size 100
+#                 --tiles-per-ipu 16
+#                 --ipus=2
+#                 --data-type half)
 
-add_test(NAME fully_connected_float
-         COMMAND fully_connected_layer
-                 --input-size 300
-                 --output-size 100
-                 --tiles-per-ipu 16
-                 --data-type float)
+#add_test(NAME fully_connected_float
+#         COMMAND fully_connected_layer
+#                 --input-size 300
+#                 --output-size 100
+#                 --tiles-per-ipu 16
+#                 --data-type float)
 
-add_test(NAME fully_connected_float_two_ipus
-         COMMAND fully_connected_layer
-                 --input-size 300
-                 --output-size 100
-                 --tiles-per-ipu 16
-                 --ipus=2
-                 --data-type float)
+#add_test(NAME fully_connected_float_two_ipus
+#         COMMAND fully_connected_layer
+#                 --input-size 300
+#                 --output-size 100
+#                 --tiles-per-ipu 16
+#                 --ipus=2
+#                 --data-type float)
 
-add_test(NAME fully_connected_half_batch_4
-         COMMAND fully_connected_layer
-                 --input-size 300
-                 --output-size 100
-                 --tiles-per-ipu 16
-                 --data-type half
-                 --batch-size 4)
+#add_test(NAME fully_connected_half_batch_4
+#         COMMAND fully_connected_layer
+#                 --input-size 300
+#                 --output-size 100
+#                 --tiles-per-ipu 16
+#                 --data-type half
+#                 --batch-size 4)
 
-add_test(NAME fully_connected_half_batch_4_two_ipus
-         COMMAND fully_connected_layer
-                 --input-size 300
-                 --output-size 100
-                 --tiles-per-ipu 16
-                 --data-type half
-                 --ipus=2
-                 --batch-size 4)
+#add_test(NAME fully_connected_half_batch_4_two_ipus
+#         COMMAND fully_connected_layer
+#                 --input-size 300
+#                 --output-size 100
+#                 --tiles-per-ipu 16
+#                 --data-type half
+#                 --ipus=2
+#                 --batch-size 4)
 
-add_test(NAME fully_connected_half_batch_7
-      COMMAND fully_connected_layer
-              --input-size 256
-              --output-size 256
-              --tiles-per-ipu 16
-              --data-type half
-              --batch-size 7)
+#add_test(NAME fully_connected_half_batch_7
+#      COMMAND fully_connected_layer
+#              --input-size 256
+#              --output-size 256
+#              --tiles-per-ipu 16
+#              --data-type half
+#              --batch-size 7)
 
 add_test(NAME fully_connected_half_batch_7_bwd_as_wu
       COMMAND fully_connected_layer
@@ -549,25 +549,24 @@ add_test(NAME fully_connected_half_batch_7_bwd_as_wu
               --output-size 256
               --tiles-per-ipu 16
               --data-type half
-              --batch-size 7
-              --bwd-as-wu 1)
+              --batch-size 7)
 
-add_test(NAME fully_connected_float_batch_4
-         COMMAND fully_connected_layer
-                 --input-size 300
-                 --output-size 100
-                 --tiles-per-ipu 16
-                 --data-type float
-                 --batch-size 4)
+#add_test(NAME fully_connected_float_batch_4
+#         COMMAND fully_connected_layer
+#                 --input-size 300
+#                 --output-size 100
+#                 --tiles-per-ipu 16
+#                 --data-type float
+#                 --batch-size 4)
 
-add_test(NAME fully_connected_float_batch_4_two_ipus
-         COMMAND fully_connected_layer
-                 --input-size 300
-                 --output-size 100
-                 --tiles-per-ipu 16
-                 --data-type float
-                 --ipus=2
-                 --batch-size 4)                 
+#add_test(NAME fully_connected_float_batch_4_two_ipus
+#         COMMAND fully_connected_layer
+#                 --input-size 300
+#                 --output-size 100
+#                 --tiles-per-ipu 16
+#                 --data-type float
+#                 --ipus=2
+#                 --batch-size 4)                 
 
 add_test(NAME fully_connected_batch_fwd_one_tile
          COMMAND fully_connected_layer
@@ -825,19 +824,6 @@ add_test(NAME conv3x3_in_dilation_asymmetric
                  --in-dilation-height=2
                  --in-dilation-width=3)
 
-add_test(NAME conv3x3_kernel_dilation_aop
-        COMMAND single_conv_layer
-                --input-channels=32
-                --output-channels=32
-                --weight-update-method=aop
-                --width=28
-                --height=14
-                --kernel-height=3
-                --kernel-width=5
-                --kernel-dilation-height=3
-                --kernel-dilation-width=2
-                --tiles-per-ipu=16)
-
 add_test(NAME conv3x3_kernel_dilation_amp
         COMMAND single_conv_layer
                 --input-channels=32
@@ -850,21 +836,6 @@ add_test(NAME conv3x3_kernel_dilation_amp
                 --kernel-dilation-height=3
                 --kernel-dilation-width=2
                 --tiles-per-ipu=16)
-
-add_test(NAME conv3x3_kernel_padding_aop
-         COMMAND single_conv_layer
-                 --input-channels=32
-                 --output-channels=32
-                 --weight-update-method=aop
-                 --width=14
-                 --height=14
-                 --kernel-height=3
-                 --kernel-width=3
-                 --kernel-padding-height-lower=4
-                 --kernel-padding-height-upper=4
-                 --kernel-padding-width-lower=2
-                 --kernel-padding-width-upper=3
-                 --tiles-per-ipu=16)
 
 add_test(NAME conv3x3_kernel_padding_amp
          COMMAND single_conv_layer
