@@ -49,6 +49,21 @@ double getBwdPerfectCycleCount(const poplar::Graph &graph,
                                const std::vector<int> &inputPaddingLower,
                                const std::vector<int> &inputPaddingUpper);
 
+/** Add a max pool operation to the graph
+ *
+ * This performs a max pooling over the spatial dimensions [Y, X].  The shape of
+ * the input should be [B x Y x X x inChans].
+ *
+ * \param graph             The operation will be added to this graph
+ * \param kernelShape       Shape of the pooling kernel
+ * \param stride            Stride over the pooling dimensions
+ * \param inputPaddingLower Lower padding over the pooling dimensions
+ * \param inputPaddingUpper Upper padding over the pooling dimensions
+ * \param in                Input tensor
+ * \param prog              Program sequence to append the operation to
+ * \param debugPrefix       Debug name for the operation
+ * \return                  A tensor with the results of the pooling operation
+ */
 poplar::Tensor
 maxPool(poplar::Graph &graph,
         const std::vector<std::size_t> &kernelShape,

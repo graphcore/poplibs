@@ -138,20 +138,73 @@ getBwdPerfectCycleCount(const poplar::Graph &graph, const ConvParams &params);
 double
 getWuPerfectCycleCount(const poplar::Graph &graph, const ConvParams &params);
 
+/** Create a weight tensor suitable for use with convolution()
+ *
+ * The shape of the tensor will be [H x W x outChans x inChans]
+ *
+ * \param graph   The tensor will be added to this graph
+ * \param params  The same parameters as used by the convolution()
+ * \param name    Debugging name for the tensor
+ * \param options Options controlling the implementation
+ * \return        The weights tensor suitable for use with convolution()
+ */
 poplar::Tensor
 createWeights(poplar::Graph &graph, const ConvParams &params,
               const std::string &name,
               const ConvOptions &options = ConvOptions());
 
+/** Create a bias tensor suitable for input to addBias() function
+ *
+ * The tensor will have the shape [outChans]
+ *
+ * \param graph  The tensor will be added to this graph
+ * \param acts   The activation tensor which is output from the convolution
+ * \param name   Debugging name for the tensor
+ * \return       The tensor of biases
+ */
 poplar::Tensor
 createBiases(poplar::Graph &graph, const poplar::Tensor &acts,
              const std::string &name = "biases");
 
+/** Create an input tensor for a convolution
+ *
+ * Use this when required to create an input data tensor for a convoution. The
+ * same set of parameters which will be passed to the convolution() should also
+ * be passed to createInput()
+ *
+ * The returned tensor has the shape [B x H x W x inChans].
+ *
+ * \param graph    The tensor will be added to this graph
+ * \param params   Parameters as passed to the target convolution.
+ * \param name     Debugging name for the tensor
+ * \param options  Options controlling the implementation
+ * \return         The allocated input tensor
+ */
 poplar::Tensor
 createInput(poplar::Graph &graph, const ConvParams &params,
             const std::string &name,
             const ConvOptions &options = ConvOptions());
 
+/** Convolve an input with a set of weights.
+ *
+ * This is for a 2D convolution.
+ *
+ * The input tensor is in the form [B x H x W x inChans], and can be allocated
+ * using createInput().  The weights tensor is in the form
+ * [H x W x outChans x inChans], and can be allocated using createWeights().
+ *
+ * Padding and striding are specified in the ConvParams structure.
+ *
+ * \param graph                   The operation will be added to this graph
+ * \param in                      Input data tensor
+ * \param weights                 Weights tensor
+ * \param params                  Parameters for the form of the convolution
+ * \param transposeAndFlipWeights For the weight update pass
+ * \param prog                    Poplar program sequence to append to op onto
+ * \param debugPrefix             Name of the operation, for debugging
+ * \param options                 Options that control the implementation
+ * \return                        The convolved output tensor
+ */
 poplar::Tensor
 convolution(poplar::Graph &graph,
             const poplar::Tensor &in,
