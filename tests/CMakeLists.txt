@@ -8,7 +8,7 @@ function(add_popnn_unit_test name)
     PRIVATE
       $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
       $<TARGET_PROPERTY:popconv,INCLUDE_DIRECTORIES>)
-  target_link_libraries(${name} popnn
+  target_link_libraries(${name} poprand popnn
                         poplar
                         poplib_test
                         Boost::unit_test_framework
@@ -23,6 +23,7 @@ function(add_popnn_unit_test name)
 endfunction()
 
 # Unit tests
+add_popnn_unit_test(RandomGenTest RandomGenTest.cpp)
 add_popnn_unit_test(ConvUtilTest ConvUtilTest.cpp)
 add_popnn_unit_test(RangeTest RangeTest.cpp)
 add_popnn_unit_test(ConvPlanTest ConvPlanTest.cpp)

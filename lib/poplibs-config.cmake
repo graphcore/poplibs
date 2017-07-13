@@ -17,6 +17,10 @@ if(NOT TARGET popreduce AND NOT popreduce_BINARY_DIR)
   include("${POPLIBS_CMAKE_DIR}/../popreduce/popreduce-targets.cmake")
 endif()
 
+if(NOT TARGET poprand AND NOT poprand_BINARY_DIR)
+  include("${POPLIBS_CMAKE_DIR}/../poprand/poprand-targets.cmake")
+endif()
+
 if(NOT TARGET popconv AND NOT popconv_BINARY_DIR)
   include("${POPLIBS_CMAKE_DIR}/../popconv/popconv-targets.cmake")
 endif()
