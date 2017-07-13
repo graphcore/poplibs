@@ -728,6 +728,51 @@ template class GreaterThanEqual<float>;
 template class GreaterThanEqual<half>;
 template class GreaterThanEqual<int>;
 
+template <typename InType>
+class IsFinite : public Vertex {
+public:
+  Vector<Input<Vector<InType>>> in;
+  Vector<Output<Vector<bool>>> out;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    assert(in.size() == out.size());
+    for (unsigned i = 0; i != in.size(); ++i) {
+      assert (in[i].size() == out[i].size());
+      for (unsigned j = 0; j != in[i].size(); ++j) {
+        InType v = in[i][j];
+        out[i][j] = (v == v) && (std::abs(v) != INFINITY);
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    uint64_t cycles = 6;
+    for (unsigned i = 0; i < in.size(); ++i) {
+      unsigned overhead = 6;
+      unsigned numElem = in[i].size();
+      bool isFloat = std::is_same<InType, float>::value;
+      unsigned vectorWidth = 2;
+
+      // 1 for v==v
+      // 1 for v!=INFINITY
+      // 1 for anding the two together
+      // 1 for converting a match from 0xffff to 0x0001
+      // 1 to convert the 32/16bit individual results to 8bits each
+      unsigned cyclesPerVector = 5;
+      if (!isFloat) {
+        vectorWidth = 4;
+      }
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
+    }
+    return cycles;
+  }
+};
+
+template class IsFinite<float>;
+template class IsFinite<half>;
 
 template <typename InType>
 class LessThan : public Vertex {

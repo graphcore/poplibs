@@ -1904,3 +1904,36 @@ BOOST_AUTO_TEST_CASE(StdOperationAllTrue) {
   BOOST_CHECK_EQUAL(output[0], 2);
   BOOST_CHECK_EQUAL(output[1], 0);
 }
+
+BOOST_AUTO_TEST_CASE(StdOperationIsFinite) {
+  Graph graph(createIPUModelDevice());
+  popstd::addCodelets(graph);
+
+  float hIn[DIM_SIZE][DIM_SIZE];
+  setUnaryOpInput(hIn);
+  hIn[0][0] = INFINITY;
+  hIn[1][0] = -INFINITY;
+  hIn[0][1] = NAN;
+  hIn[1][1] = NAN;
+  hIn[0][2] = 0.0f;
+
+  auto in = mapUnaryOpTensor(graph, "float");
+  auto prog = Sequence();
+
+  prog.add(Copy(hIn, in));
+  auto out = isFinite(graph, in, prog);
+
+  bool hOut[DIM_SIZE][DIM_SIZE];
+  prog.add(Copy(out, hOut));
+
+  Engine eng(graph, prog);
+  eng.run();
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      bool expected = !(i<=1 && j<=1);
+      BOOST_TEST(hOut[i][j] == expected);
+    }
+  }
+}

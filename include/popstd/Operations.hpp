@@ -64,6 +64,11 @@ poplar::Tensor gteq(poplar::Graph &graph,
                     poplar::program::Sequence &prog,
                     const std::string &debugPrefix = "");
 
+poplar::Tensor isFinite(poplar::Graph &graph,
+                        poplar::Tensor A,
+                        poplar::program::Sequence &prog,
+                        const std::string &debugPrefix = "");
+
 poplar::Tensor lt(poplar::Graph &graph,
                   poplar::Tensor A, poplar::Tensor B,
                   poplar::program::Sequence &prog,

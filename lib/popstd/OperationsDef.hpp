@@ -33,6 +33,7 @@ enum UnaryOp {
   COS,
   EXPONENT,
   FLOOR,
+  IS_FINITE,
   LOGARITHM,
   LOGICAL_NOT,
   NEGATE,

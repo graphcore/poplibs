@@ -9,7 +9,8 @@ using namespace poplar;
 using namespace poplar::program;
 
 static std::string outputType(const std::string &inType, enum UnaryOp op) {
-  if (op == LOGICAL_NOT) {
+  if (op == IS_FINITE
+      || op == LOGICAL_NOT) {
     return "bool";
   } else {
     return inType;
@@ -48,6 +49,8 @@ static std::string vertexName(enum UnaryOp op) {
     return "popstd::Exponent";
   case FLOOR:
     return "popstd::Floor";
+  case IS_FINITE:
+    return "popstd::IsFinite";
   case LOGARITHM:
     return "popstd::Logarithm";
   case LOGICAL_NOT:
@@ -369,6 +372,12 @@ Tensor gteq(Graph &graph, Tensor A, Tensor B, Sequence &prog,
             const std::string &debugPrefix) {
   return binaryOp(graph, A, B, prog, BinaryOp::GREATER_THAN_EQUAL,
                   debugPrefix + "/Op/Gteq");
+}
+
+Tensor isFinite(Graph &graph, Tensor A, Sequence &prog,
+                const std::string &debugPrefix) {
+  return unaryOp(graph, A, prog, UnaryOp::IS_FINITE,
+                 debugPrefix + "/Op/IsFinite");
 }
 
 Tensor lt(Graph &graph, Tensor A, Tensor B, Sequence &prog,
