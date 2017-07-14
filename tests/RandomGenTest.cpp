@@ -8,6 +8,7 @@
 #include <boost/test/unit_test.hpp>
 #include <iostream>
 #include <limits>
+#include <cmath>
 
 
 using namespace poplar;
