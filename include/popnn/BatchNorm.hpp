@@ -21,7 +21,9 @@ batchNormEstimates(poplar::Graph &graph, const poplar::Tensor acts,
                    const std::string &debugPrefix = "");
 
 // Batch normalise activations given mean, standard deviation and batch norm
-// parameters
+// parameters. The outputs produced are
+// 1) whitened activations
+// 2) batch normalised activations
 std::pair<poplar::Tensor, poplar::Tensor>
 batchNormalise(poplar::Graph &graph,
                const poplar::Tensor &acts,
@@ -29,6 +31,17 @@ batchNormalise(poplar::Graph &graph,
                const poplar::Tensor &beta,
                const poplar::Tensor &mean,
                const poplar::Tensor &invStdDev,
+               poplar::program::Sequence &prog,
+               const std::string &debugPrefix = "");
+
+// Computes the output of batch normalisation given
+//  combinedMultiplicand = gamma / stdDev
+//  addend = beta - gamma * mean / stdDev
+poplar::Tensor
+batchNormalise(poplar::Graph &graph,
+               const poplar::Tensor &acts,
+               const poplar::Tensor &combinedMultiplicand,
+               const poplar::Tensor &addend,
                poplar::program::Sequence &prog,
                const std::string &debugPrefix = "");
 

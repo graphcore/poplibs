@@ -167,6 +167,36 @@ batchNormalise(Graph &graph,
   }
 }
 
+Tensor
+batchNormalise(Graph &graph,
+               const Tensor &acts,
+               const Tensor &combinedMultiplicand,
+               const Tensor &addend,
+               Sequence &prog,
+               const std::string &debugPrefix) {
+  const auto rank = acts.rank();
+  check(acts);
+  if (rank == 4) {
+    return popconv::batchNormalise(graph, acts, combinedMultiplicand, addend,
+                                   prog, debugPrefix);
+  } else {
+    const auto fnPrefix = debugPrefix + "/BN/batchNormaliseInference";
+    const auto actsShape = acts.shape();
+    const auto numChans = numChannels(acts);
+    const auto actsPerChan = numActsPerChannel(acts);
+
+    auto bAddend =
+        addend.broadcast(actsPerChan, 0).reshape({actsPerChan, numChans});
+    auto bCombinedMultiplicand =
+        combinedMultiplicand.broadcast(actsPerChan, 0)
+                            .reshape({actsPerChan, numChans});
+    auto actsBN = mul(graph, acts, bCombinedMultiplicand, prog, fnPrefix);
+
+    addTo(graph, actsBN, bAddend, prog, fnPrefix);
+    return actsBN;
+  }
+}
+
 std::pair<Tensor, Tensor>
 batchNormDeltas(Graph &graph,
                 const Tensor &actsWhitened,

@@ -3142,6 +3142,20 @@ batchNormalise(Graph &graph,
   return std::make_pair(actsOut, actsWhitened);
 }
 
+Tensor
+batchNormalise(Graph &graph,
+               const Tensor &acts,
+               const Tensor &combinedMultiplicand,
+               const Tensor &addend,
+               Sequence &prog,
+               const std::string &debugPrefix) {
+  assert(acts.rank() == 4);
+  const auto fnPrefix = debugPrefix + "/BN/batchNormaliseInference";
+  auto actsBN = channelMul(graph, acts, combinedMultiplicand, prog, fnPrefix);
+  addToScaledChannel(graph, actsBN, addend, 1.0, prog, fnPrefix);
+  return actsBN;
+}
+
 std::pair<Tensor, Tensor>
 batchNormDeltas(Graph &graph,
                 const Tensor &actsWhitened,

@@ -5,6 +5,7 @@
 #include <poplar/Engine.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <popstd/codelets.hpp>
+#include <popstd/Operations.hpp>
 #include <popconv/codelets.hpp>
 #include <popnn/codelets.hpp>
 #include <popreduce/codelets.hpp>
@@ -66,6 +67,12 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   std::tie(gamma, beta) =
       bn::createBatchNormParams(graph, acts);
 
+  // create combined parameters for inference
+  const auto combinedScale = mul(graph, gamma, invStdDev, prog);
+  const auto addendPart = mul(graph, mean, combinedScale, prog);
+  const auto addend = sub(graph, beta, addendPart, prog);
+  auto actsBNInf = bn::batchNormalise(graph, acts, combinedScale, addend, prog);
+
   Tensor actsWhitened, actsBN;
   std::tie(actsBN, actsWhitened) =
       bn::batchNormalise(graph, acts, gamma, beta, mean, invStdDev, prog);
@@ -90,6 +97,8 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
           allocateHostMemoryForTensor(acts, upload, download);
   auto rawHostActsBN =
           allocateHostMemoryForTensor(actsBN, upload, download);
+  auto rawHostActsBNInf =
+          allocateHostMemoryForTensor(actsBNInf, upload, download);
   auto rawHostGradsIn =
           allocateHostMemoryForTensor(gradsIn, upload, download);
   auto rawHostGradsOut =
@@ -109,6 +118,8 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
       hostActs(boost::extents[batchSize][dimY][dimX][numChannels]);
   boost::multi_array<double, 4>
       hostActsBN(boost::extents[batchSize][dimY][dimX][numChannels]);
+  boost::multi_array<double, 4>
+      hostActsBNInf(boost::extents[batchSize][dimY][dimX][numChannels]);
   boost::multi_array<double, 4>
       hostGradsIn(boost::extents[batchSize][dimY][dimX][numChannels]);
   boost::multi_array<double, 4>
@@ -149,6 +160,7 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   copy(dataTypeStr, rawHostMean.get(), hostMean);
   copy(dataTypeStr, rawHostInvStdDev.get(), hostInvStdDev);
   copy(dataTypeStr, rawHostActsBN.get(), hostActsBN);
+  copy(dataTypeStr, rawHostActsBNInf.get(), hostActsBNInf);
   copy(dataTypeStr, rawHostGradsOut.get(), hostGradsOut);
   copy(dataTypeStr, rawHostBeta.get(), hostBeta);
   copy(dataTypeStr, rawHostGamma.get(), hostGamma);
@@ -193,6 +205,9 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
                  absoluteTolerance);
   matchesModel &=
     checkIsClose("actsBN", hostActsBN, modelActsBN, relativeTolerance,
+                 absoluteTolerance);
+  matchesModel &=
+    checkIsClose("actsBNInf", hostActsBNInf, modelActsBN, relativeTolerance,
                  absoluteTolerance);
   matchesModel &=
     checkIsClose("gradsOut", hostGradsOut, modelGradsOut, relativeTolerance,
@@ -240,6 +255,12 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   std::tie(gamma, beta) =
       bn::createBatchNormParams(graph, acts);
 
+  // create combined parameters for inference
+  const auto combinedScale = mul(graph, gamma, invStdDev, prog);
+  const auto addendPart = mul(graph, mean, combinedScale, prog);
+  const auto addend = sub(graph, beta, addendPart, prog);
+  auto actsBNInf = bn::batchNormalise(graph, acts, combinedScale, addend, prog);
+
   Tensor actsWhitened, actsBN;
   std::tie(actsBN, actsWhitened) =
       bn::batchNormalise(graph, acts, gamma, beta, mean, invStdDev, prog);
@@ -259,6 +280,8 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   auto download = Sequence();
   auto rawHostActs = allocateHostMemoryForTensor(acts, upload, download);
   auto rawHostActsBN = allocateHostMemoryForTensor(actsBN, upload, download);
+  auto rawHostActsBNInf =
+          allocateHostMemoryForTensor(actsBNInf, upload, download);
   auto rawHostActsWhitened =
           allocateHostMemoryForTensor(actsWhitened, upload, download);
   auto rawHostGradsIn =
@@ -273,6 +296,8 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
 
   boost::multi_array<double, 2> hostActs(boost::extents[batchSize][numActs]);
   boost::multi_array<double, 2> hostActsBN(boost::extents[batchSize][numActs]);
+  boost::multi_array<double, 2> hostActsBNInf(boost::extents[batchSize]
+                                                            [numActs]);
   boost::multi_array<double, 2> hostActsWhitened(boost::extents[batchSize]
                                                                [numActs]);
   boost::multi_array<double, 2> hostGradsIn(boost::extents[batchSize]
@@ -304,12 +329,12 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   engine.run(2); // Run.
   engine.run(1); // Download.
 
-
   copy(dataTypeStr, rawHostActsWhitened.get(), hostActsWhitened);
   copy(dataTypeStr, rawHostGradsOut.get(), hostGradsOut);
   copy(dataTypeStr, rawHostMean.get(), hostMean);
   copy(dataTypeStr, rawHostInvStdDev.get(), hostInvStdDev);
   copy(dataTypeStr, rawHostActsBN.get(), hostActsBN);
+  copy(dataTypeStr, rawHostActsBNInf.get(), hostActsBNInf);
   copy(dataTypeStr, rawHostBeta.get(), hostBeta);
   copy(dataTypeStr, rawHostGamma.get(), hostGamma);
 
@@ -348,6 +373,9 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
                  absoluteTolerance);
   matchesModel &=
     checkIsClose("actsBN", hostActsBN, modelActsBN, relativeTolerance,
+                 absoluteTolerance);
+  matchesModel &=
+    checkIsClose("actsBN", hostActsBNInf, modelActsBN, relativeTolerance,
                  absoluteTolerance);
   matchesModel &=
     checkIsClose("gradsOut", hostGradsOut, modelGradsOut, relativeTolerance,
