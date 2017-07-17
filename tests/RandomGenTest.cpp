@@ -9,7 +9,7 @@
 #include <iostream>
 #include <limits>
 #include <cmath>
-
+#include <cstdint>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -19,8 +19,8 @@ using namespace popstd;
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
 
-#define DIM_SIZE  1000
-
+#define ALLONES_SEED static_cast<uint64_t>(~0)
+#define DIM_SIZE  200
 
 template <typename T>
 std::string toTypeStr() {
@@ -37,6 +37,22 @@ std::string toTypeStr() {
 }
 
 
+template <typename T>
+static bool compareMatrices(T a[DIM_SIZE][DIM_SIZE],
+                            T b[DIM_SIZE][DIM_SIZE]){
+  bool pass = true;
+  for (auto r = 0U; r != DIM_SIZE; ++r) {
+    for (auto c = 0U; c != DIM_SIZE; ++c) {
+      if (a[r][c] != b[r][c]) {
+        pass = false;
+        std::cerr << "mismatch in matrix elements at [" << r << "][" << c;
+        std::cerr << "]" << " : " << a[r][c] << " != " << b[r][c] << "\n";
+      }
+    }
+  }
+  return pass;
+}
+
 
 template <typename T>
 static bool validateUniform(T mat[DIM_SIZE][DIM_SIZE], T minVal, T maxVal,
@@ -48,6 +64,8 @@ static bool validateUniform(T mat[DIM_SIZE][DIM_SIZE], T minVal, T maxVal,
     for (auto c = 0U; c != DIM_SIZE; ++c) {
       if (mat[r][c] < minVal || mat[r][c] > maxVal)  {
         boundsMet = false;
+        std::cerr << "bounds not met at [" << r << "][" << c << "] ";
+        std::cerr << mat[r][c] << "\n";
       }
       mean += mat[r][c];
     }
@@ -74,13 +92,25 @@ static bool validateUniform(T mat[DIM_SIZE][DIM_SIZE], T minVal, T maxVal,
   const bool stdDevTest = rStdDev <= ((1 + percentError / 100) / std::sqrt(3.0))
                       && rStdDev >= ((1 - percentError / 100) / std::sqrt(3.0));
 
+  if (!meanTest) {
+    std::cerr << "mean test failed : actual " << actualMean << " estimated ";
+    std::cerr << mean << "\n";
+  }
+  if (!stdDevTest) {
+    std::cerr << "std dev test failed : ratio " << rStdDev << "\n";
+  }
+
   // Add further tests if needed
   return boundsMet && meanTest && stdDevTest;
 }
 
 template <typename T>
-static bool uniformTest(const T minVal, const T maxVal, double percentError) {
-  Graph graph(createIPUModelDevice());
+static bool uniformTest(T hOut[DIM_SIZE][DIM_SIZE], const T minVal,
+                        const T maxVal, double percentError, RandomGenMode mode,
+                        uint64_t seed = ~0, unsigned numIPUs = 1) {
+  DeviceInfo info;
+  info.numIPUs = numIPUs;
+  Graph graph(createIPUModelDevice(info));
   poprand::addCodelets(graph);
 
   std::string dType = toTypeStr<T>();
@@ -92,9 +122,12 @@ static bool uniformTest(const T minVal, const T maxVal, double percentError) {
   mapTensorLinearly(graph, out);
 
   auto prog = Sequence();
-  uniform(graph, out, minVal, maxVal, prog);
+  if (seed == ALLONES_SEED) {
+    uniform(graph, out, minVal, maxVal, mode, prog);
+  } else {
+    uniform(graph, out, minVal, maxVal, seed, mode, prog);
+  }
 
-  T hOut[DIM_SIZE][DIM_SIZE];
   prog.add(Copy(out, hOut));
 
   Engine eng(graph, prog);
@@ -113,6 +146,9 @@ static bool validateBernoulli(T mat[DIM_SIZE][DIM_SIZE], float prob,
     for (auto c = 0U; c != DIM_SIZE; ++c) {
       if (mat[r][c] != 1 && mat[r][c] != 0)  {
         validEvents = false;
+        std::cerr << "invalid event at [" << r << "][" << c << "] ";
+        std::cerr << mat[r][c] << "\n";
+
       }
       probEst += static_cast<double>(mat[r][c]);
     }
@@ -120,14 +156,23 @@ static bool validateBernoulli(T mat[DIM_SIZE][DIM_SIZE], float prob,
   probEst /= DIM_SIZE * DIM_SIZE;
   const bool probTest = probEst >= (prob - percentError / 100)
                      && probEst <= (prob + percentError / 100);
+
+  if (!probTest) {
+    std::cerr << "probability test failed : actual " << prob << " estimated ";
+    std::cerr << probEst << "\n";
+  }
   // Add further tests if needed
   return validEvents && probTest;
 }
 
 
 template <typename T>
-static bool bernoulliTest(float prob, double percentError) {
-  Graph graph(createIPUModelDevice());
+static bool bernoulliTest(T hOut[DIM_SIZE][DIM_SIZE], float prob,
+                          double percentError, RandomGenMode mode,
+                          uint64_t seed = ~0, unsigned numIPUs = 1) {
+  DeviceInfo info;
+  info.numIPUs = numIPUs;
+  Graph graph(createIPUModelDevice(info));
   poprand::addCodelets(graph);
 
   std::string dType = toTypeStr<T>();
@@ -139,9 +184,12 @@ static bool bernoulliTest(float prob, double percentError) {
   mapTensorLinearly(graph, out);
 
   auto prog = Sequence();
-  bernoulli(graph, out, prob, prog);
+  if (seed == ALLONES_SEED) {
+    bernoulli(graph, out, prob, mode, prog);
+  } else {
+    bernoulli(graph, out, prob, seed, mode, prog);
+  }
 
-  T hOut[DIM_SIZE][DIM_SIZE];
   prog.add(Copy(out, hOut));
 
   Engine eng(graph, prog);
@@ -179,13 +227,25 @@ static bool validateNormal(T mat[DIM_SIZE][DIM_SIZE], float actualMean,
   const bool stdDevTest = rStdDev <= (1 + percentError / 100)
                        && rStdDev >= (1 - percentError / 100);
 
+  if (!meanTest) {
+    std::cerr << "mean test failed : actual " << actualMean << " estimated ";
+    std::cerr << mean << "\n";
+  }
+  if (!stdDevTest) {
+    std::cerr << "std dev test failed : ratio " << rStdDev << "\n";
+  }
+
   // Add further tests if needed
   return meanTest && stdDevTest;
 }
 
 template <typename T>
-static bool normalTest(float mean, float stdDev, double percentError) {
-  Graph graph(createIPUModelDevice());
+static bool normalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean, float stdDev,
+                       double percentError, RandomGenMode mode,
+                       uint64_t seed = ~0, unsigned numIPUs = 1) {
+  DeviceInfo info;
+  info.numIPUs = numIPUs;
+  Graph graph(createIPUModelDevice(info));
   poprand::addCodelets(graph);
 
   std::string dType = toTypeStr<T>();
@@ -197,9 +257,12 @@ static bool normalTest(float mean, float stdDev, double percentError) {
   mapTensorLinearly(graph, out);
 
   auto prog = Sequence();
-  normal(graph, out, mean, stdDev, prog);
+  if (seed == ALLONES_SEED) {
+    normal(graph, out, mean, stdDev, mode, prog);
+  } else {
+    normal(graph, out, mean, stdDev, seed, mode, prog);
+  }
 
-  T hOut[DIM_SIZE][DIM_SIZE];
   prog.add(Copy(out, hOut));
 
   Engine eng(graph, prog);
@@ -208,11 +271,10 @@ static bool normalTest(float mean, float stdDev, double percentError) {
   return validateNormal<T>(hOut, mean, stdDev, percentError);
 }
 
-
 template <typename T>
-static bool validateNormal(T mat[DIM_SIZE][DIM_SIZE], float actualMean,
-                           float actualStdDev, float alpha,
-                           double percentError) {
+static bool validateTruncNormal(T mat[DIM_SIZE][DIM_SIZE], float actualMean,
+                                float actualStdDev, float alpha,
+                                double percentError) {
   bool boundsMet = true;
   double mean = 0;
   // compute mean and variance and check bounds
@@ -221,6 +283,8 @@ static bool validateNormal(T mat[DIM_SIZE][DIM_SIZE], float actualMean,
       if ((mat[r][c] < (actualMean - alpha * actualStdDev)) ||
           (mat[r][c] > (actualMean + alpha * actualStdDev))) {
         boundsMet = false;
+        std::cerr << "bounds not met at [" << r << "][" << c << "] ";
+        std::cerr << mat[r][c] << "\n";
       }
       mean += mat[r][c];
     }
@@ -253,15 +317,26 @@ static bool validateNormal(T mat[DIM_SIZE][DIM_SIZE], float actualMean,
   const double rStdDev = stdDev / actualTruncStdDev;
   const bool stdDevTest = rStdDev <= (1 + percentError / 100)
                        && rStdDev >= (1 - percentError / 100);
+  if (!meanTest) {
+    std::cerr << "mean test failed : actual " << actualMean << " estimated ";
+    std::cerr << mean << "\n";
+  }
 
+  if (!stdDevTest) {
+    std::cerr << "std dev test failed : ratio " << rStdDev << "\n";
+  }
   // Add further tests if needed
   return boundsMet && meanTest && stdDevTest;
 }
 
 template <typename T>
-static bool truncatedNormalTest(float mean, float stdDev, float alpha,
-                                double percentError) {
-  Graph graph(createIPUModelDevice());
+static bool truncatedNormalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean,
+                                float stdDev, float alpha,
+                                double percentError, RandomGenMode mode,
+                                uint64_t seed = ~0, unsigned numIPUs = 1) {
+  DeviceInfo info;
+  info.numIPUs = numIPUs;
+  Graph graph(createIPUModelDevice(info));
   poprand::addCodelets(graph);
 
   std::string dType = toTypeStr<T>();
@@ -273,68 +348,100 @@ static bool truncatedNormalTest(float mean, float stdDev, float alpha,
   mapTensorLinearly(graph, out);
 
   auto prog = Sequence();
-  truncatedNormal(graph, out, mean, stdDev, alpha, prog);
 
-  T hOut[DIM_SIZE][DIM_SIZE];
+  if (seed == ALLONES_SEED) {
+    truncatedNormal(graph, out, mean, stdDev, alpha, mode, prog);
+  } else {
+    truncatedNormal(graph, out, mean, stdDev, alpha, seed, mode, prog);
+  }
+
   prog.add(Copy(out, hOut));
 
   Engine eng(graph, prog);
   eng.run();
 
-  return validateNormal<T>(hOut, mean, stdDev, alpha, percentError);
+  return validateTruncNormal<T>(hOut, mean, stdDev, alpha, percentError);
 }
 
 BOOST_AUTO_TEST_CASE(RandomGenUniformHalf) {
-  bool result = uniformTest<half>(-2.0, 0, 5.0);
+  using T = half;
+  T hOut[DIM_SIZE][DIM_SIZE];
+  bool result = uniformTest<T>(hOut, -2.0, 0, 5.0, SYSTEM_REPEATABLE);
   BOOST_TEST(result == true);
 }
 
 BOOST_AUTO_TEST_CASE(RandomGenUniformFloat) {
-  bool result = uniformTest<float>(-1.0, 1.0, 5.0);
+  using T = float;
+  T hOut[DIM_SIZE][DIM_SIZE];
+  bool result = uniformTest<T>(hOut, -1.0, 1.0, 5.0, NOT_REPEATABLE);
   BOOST_TEST(result == true);
 }
 
 BOOST_AUTO_TEST_CASE(RandomGenBernoulliHalf) {
-  bool result = bernoulliTest<half>(0.75, 5.0);
+  using T = half;
+  T hOut[DIM_SIZE][DIM_SIZE];
+  bool result = bernoulliTest<T>(hOut, 0.75, 5.0, SYSTEM_REPEATABLE);
   BOOST_TEST(result == true);
 }
 
 BOOST_AUTO_TEST_CASE(RandomGenBernoulliFloat) {
-  bool result = bernoulliTest<float>(0.25, 5.0);
+  using T = float;
+  T hOut[DIM_SIZE][DIM_SIZE];
+  bool result = bernoulliTest<T>(hOut, 0.25, 5.0, SYSTEM_REPEATABLE);
   BOOST_TEST(result == true);
 }
 
 BOOST_AUTO_TEST_CASE(RandomGenBernoulliInt) {
-  bool result = bernoulliTest<int>(0.5, 5.0);
+  using T = int;
+  T hOut[DIM_SIZE][DIM_SIZE];
+  bool result = bernoulliTest<T>(hOut, 0.5, 5.0, NOT_REPEATABLE);
   BOOST_TEST(result == true);
 }
 
-BOOST_AUTO_TEST_CASE(RandomGenBernoulliIntProb0) {
-  bool result = bernoulliTest<float>(0, 0);
+BOOST_AUTO_TEST_CASE(RandomGenBernoulliFloatProb0) {
+  using T = float;
+  T hOut[DIM_SIZE][DIM_SIZE];
+  bool result = bernoulliTest<T>(hOut, 0, 0, NOT_REPEATABLE);
   BOOST_TEST(result == true);
 }
 
 BOOST_AUTO_TEST_CASE(RandomGenBernoulliIntProb1) {
-  bool result = bernoulliTest<float>(1, 0);
+  using T = int;
+  T hOut[DIM_SIZE][DIM_SIZE];
+  bool result = bernoulliTest<T>(hOut, 1, 0, NOT_REPEATABLE);
   BOOST_TEST(result == true);
 }
 
 BOOST_AUTO_TEST_CASE(RandomGenNormalHalf) {
-  bool result = normalTest<half>(0.5, 2.5, 5.0);
+  using T = half;
+  T hOut[DIM_SIZE][DIM_SIZE];
+  bool result = normalTest<T>(hOut, 0.5, 2.5, 5.0, ALWAYS_REPEATABLE);
   BOOST_TEST(result == true);
 }
 
 BOOST_AUTO_TEST_CASE(RandomGenNormalFloat) {
-  bool result = normalTest<float>(-0.5, 2.5, 5.0);
+  using T = float;
+  T hOut[DIM_SIZE][DIM_SIZE];
+  bool result = normalTest<T>(hOut, -0.5, 2.5, 5.0, NOT_REPEATABLE);
   BOOST_TEST(result == true);
 }
 
 BOOST_AUTO_TEST_CASE(RandomGenTruncatedNormalHalf) {
-  bool result = truncatedNormalTest<half>(1, 1, 2, 5);
+  using T = half;
+  T hOut[DIM_SIZE][DIM_SIZE];
+  bool result = truncatedNormalTest<T>(hOut, 1, 1, 2, 5, NOT_REPEATABLE);
   BOOST_TEST(result == true);
 }
 
-BOOST_AUTO_TEST_CASE(RandomGenTruncatedNormalFloat) {
-  bool result = truncatedNormalTest<float>(-1, 1, 2, 5);
+BOOST_AUTO_TEST_CASE(RandomGenTruncatedNormalFloatRepeat) {
+  using T = float;
+  T hOut1[DIM_SIZE][DIM_SIZE];
+  bool result1 =
+      truncatedNormalTest<T>(hOut1, -1, 1, 2, 5, ALWAYS_REPEATABLE, 0x1234, 1);
+  T hOut2[DIM_SIZE][DIM_SIZE];
+  bool result2 =
+      truncatedNormalTest<T>(hOut2, -1, 1, 2, 5, ALWAYS_REPEATABLE, 0x1234, 2);
+  bool compareResult = compareMatrices<T>(hOut1, hOut2);
+  const auto result = result1 && result2 && compareResult;
   BOOST_TEST(result == true);
 }

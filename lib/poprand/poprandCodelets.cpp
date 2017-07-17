@@ -9,7 +9,7 @@ using namespace poplar;
 
 // number of warmup iterations the PRNG takes to have a random number of 0s
 // and 1s in its state given any seed
-#define WARMUP_ITERATIONS    2
+#define WARMUP_ITERATIONS   4
 
 // Rotate left a 64-bit register by k
 static inline uint64_t rotl(const uint64_t x, int k) {
@@ -116,9 +116,14 @@ public:
   Vector<Output<Vector<OutType>>> out;
   float offset;
   float scale;
+  // A separate vertex needs to be defined if save/restore of seeds is not
+  // required
   uint64_t seedH;
   uint64_t seedL;
   SimOnlyField<unsigned> dataPathWidth;
+  // It is expected that there will be two variants of vertices: one which
+  // saves and restores seeds
+  SimOnlyField<bool> saveRestoreSeed;
 
   bool compute() {
     auto s = initialiseAndPrime({seedL, seedH});
@@ -146,8 +151,10 @@ public:
 
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 7;  // overhead + broadcast offset
-    cycles += 5;          // to set up seeds in CSR
-    cycles += WARMUP_ITERATIONS;
+    if (saveRestoreSeed) {
+      cycles += 5;        // to set up seeds in CSR
+      cycles += WARMUP_ITERATIONS;
+    }
     bool isFloat = std::is_same<OutType, float>::value;
     unsigned vectorWidth =  dataPathWidth / (isFloat ? 32 : 16);
 
@@ -156,8 +163,10 @@ public:
       // rand gen/convert/axpb
       cycles += (out[i].size() + vectorWidth - 1) / vectorWidth * 3;
     }
-    // save seeds
-    cycles += 6;
+    if ((saveRestoreSeed)) {
+      // save seeds
+      cycles += 6;
+    }
     return cycles;
   }
 };
@@ -170,9 +179,14 @@ class Bernoulli : public Vertex {
 public:
   Vector<Output<Vector<OutType>>> out;
   float prob;
+  // A separate vertex needs to be defined if save/restore of seeds is not
+  // required
   uint64_t seedH;
   uint64_t seedL;
   SimOnlyField<unsigned> dataPathWidth;
+  // It is expected that there will be two variants of vertices: one which
+  // saves and restores seeds
+  SimOnlyField<bool> saveRestoreSeed;
 
   bool compute() {
     auto s = initialiseAndPrime({seedL, seedH});
@@ -204,8 +218,10 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 7;  // overhead to form and broadcast 1.0. float/int
                           // should take less
-    cycles += 5;          // to set up seeds in CSR
-    cycles += WARMUP_ITERATIONS;
+    if (saveRestoreSeed) {
+      cycles += 5;          // to set up seeds in CSR
+      cycles += WARMUP_ITERATIONS;
+    }
     bool isFloat = std::is_same<OutType, float>::value;
     unsigned vectorWidth =  dataPathWidth / (isFloat ? 32 : 16);
 
@@ -215,8 +231,10 @@ public:
       // assumption that rmask ignores NaNs (as it seems from archman)
       cycles += (out[i].size() + vectorWidth - 1) / vectorWidth * 1;
     }
-    // save seeds
-    cycles += 6;
+    if (saveRestoreSeed) {
+      // save seeds
+      cycles += 6;
+    }
     return cycles;
   }
 };
@@ -231,9 +249,14 @@ public:
   Vector<Output<Vector<OutType>>> out;
   float mean;               // mean of normal distribution
   float stdDev;             // standard deviation of normal distribution
+  // A separate vertex needs to be defined if save/restore of seeds is not
+  // required
   uint64_t seedH;
   uint64_t seedL;
   SimOnlyField<unsigned> dataPathWidth;
+  // It is expected that there will be two variants of vertices: one which
+  // saves and restores seeds
+  SimOnlyField<bool> saveRestoreSeed;
 
   bool compute() {
     auto s = initialiseAndPrime({seedL, seedH});
@@ -259,8 +282,10 @@ public:
 
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 7;  // overhead to store stdDev into CSR. broadcast mean
-    cycles += 5;          // to set up seeds in CSR
-    cycles += WARMUP_ITERATIONS;
+    if (saveRestoreSeed) {
+      cycles += 5;        // to set up seeds in CSR
+      cycles += WARMUP_ITERATIONS;
+    }
     bool isFloat = std::is_same<OutType, float>::value;
     unsigned vectorWidth =  dataPathWidth / (isFloat ? 32 : 16);
 
@@ -270,8 +295,10 @@ public:
       // and axpby
       cycles += (out[i].size() + vectorWidth - 1) / vectorWidth * 2;
     }
-    // save seeds
-    cycles += 6;
+    if (saveRestoreSeed) {
+      // save seeds
+      cycles += 6;
+    }
     return cycles;
   }
 };
@@ -288,9 +315,14 @@ public:
   float stdDev;            // stdDev of original normal distribution which is
                            // truncated
   float alpha;             // truncation as a multiple of stdDev
+  // A separate vertex needs to be defined if save/restore of seeds is not
+  // required
   uint64_t seedH;
   uint64_t seedL;
   SimOnlyField<unsigned> dataPathWidth;
+  // It is expected that there will be two variants of vertices: one which
+  // saves and restores seeds
+  SimOnlyField<bool> saveRestoreSeed;
 
   bool compute() {
     auto s = initialiseAndPrime({seedL, seedH});
@@ -317,8 +349,10 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 8;  // overhead to store stdDev into CSR. broadcast mean
                           // store constants in stack
-    cycles += 5;          // to set up seeds in CSR
-    cycles += WARMUP_ITERATIONS;
+    if (saveRestoreSeed) {
+      cycles += 5;          // to set up seeds in CSR
+      cycles += WARMUP_ITERATIONS;
+    }
     bool isFloat = std::is_same<OutType, float>::value;
     unsigned vectorWidth =  dataPathWidth / (isFloat ? 32 : 16);
 
@@ -328,14 +362,15 @@ public:
       cycles += (out[i].size() + vectorWidth - 1)
                 / vectorWidth * ( 6 * iterations + 6);
     }
-    // save seeds
-    cycles += 6;
+    if (saveRestoreSeed) {
+      // save seeds
+      cycles += 6;
+    }
     return cycles;
   }
 };
 
 template class TruncatedNormal<float>;
 template class TruncatedNormal<half>;
-
 
 } // end namespace poprand
