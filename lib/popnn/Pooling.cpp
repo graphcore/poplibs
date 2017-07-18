@@ -1,9 +1,12 @@
-#include "popnn/MaxPool.hpp"
+#include "popnn/Pooling.hpp"
 #include "popstd/VertexTemplates.hpp"
 #include "popstd/TileMapping.hpp"
 #include "popconv/ConvUtil.hpp"
 #include "popstd/exceptions.hpp"
 #include "popstd/Util.hpp"
+#include "util/Compiler.hpp"
+#include <functional>
+#include <numeric>
 #include <cassert>
 #include <map>
 
@@ -14,7 +17,31 @@ using std::tie;
 using namespace popstd;
 
 namespace popnn {
-namespace maxpool {
+namespace pooling {
+
+const char *asString(const PoolingType &pType) {
+  switch (pType) {
+  case PoolingType::MAX: return "max";
+  case PoolingType::AVG: return "avg";
+  }
+  POPLIB_UNREACHABLE();
+}
+
+static std::string getFwdVertexName(const PoolingType pType) {
+  switch (pType) {
+  case PoolingType::MAX: return "popnn::MaxPooling";
+  case PoolingType::AVG: return "popnn::AvgPooling";
+  }
+  POPLIB_UNREACHABLE();
+}
+
+static std::string getBwdVertexName(const PoolingType pType) {
+  switch (pType) {
+  case PoolingType::MAX: return "popnn::MaxPoolingGrad";
+  case PoolingType::AVG: return "popnn::AvgPoolingGrad";
+  }
+  POPLIB_UNREACHABLE();
+}
 
 static void
 checkWindowParameters(std::vector<std::size_t> kernelShape,
@@ -66,7 +93,8 @@ uint64_t getFwdFlops(unsigned batchSize,
                      const std::vector<std::size_t> &kernelShape,
                      const std::vector<unsigned> &stride,
                      const std::vector<int> &inputPaddingLower,
-                     const std::vector<int> &inputPaddingUpper) {
+                     const std::vector<int> &inputPaddingUpper,
+                     PoolingType pType) {
   checkWindowParameters(kernelShape, stride, inputPaddingLower,
                         inputPaddingUpper);
   auto params = makeConvParams(inDimY, inDimX, kernelShape, stride,
@@ -82,7 +110,9 @@ uint64_t getFwdFlops(unsigned batchSize,
       unsigned inXBegin, inXEnd;
       std::tie(inXBegin, inXEnd) = getInputRange(1, x, params);
       const auto width = inXEnd - inXBegin;
-      numFlops += numChannels * width * height;
+      // For AVG type, add cost of scaling
+      unsigned addCost = pType == PoolingType::AVG ? 1 : 0;
+      numFlops += numChannels * (width * height + addCost);
     }
   }
   return batchSize * numFlops;
@@ -94,7 +124,8 @@ uint64_t getBwdFlops(unsigned batchSize,
                      const std::vector<std::size_t> &kernelShape,
                      const std::vector<unsigned> &stride,
                      const std::vector<int> &inputPaddingLower,
-                     const std::vector<int> &inputPaddingUpper) {
+                     const std::vector<int> &inputPaddingUpper,
+                     PoolingType pType) {
   return 0;
 }
 
@@ -106,7 +137,8 @@ double getFwdPerfectCycleCount(const Graph &graph,
                                const std::vector<std::size_t> &kernelShape,
                                const std::vector<unsigned> &stride,
                                const std::vector<int> &inputPaddingLower,
-                               const std::vector<int> &inputPaddingUpper) {
+                               const std::vector<int> &inputPaddingUpper,
+                               PoolingType pType) {
   checkWindowParameters(kernelShape, stride, inputPaddingLower,
                         inputPaddingUpper);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
@@ -118,7 +150,8 @@ double getFwdPerfectCycleCount(const Graph &graph,
                                     kernelShape,
                                     stride,
                                     inputPaddingLower,
-                                    inputPaddingUpper);
+                                    inputPaddingUpper,
+                                    pType);
   const auto vectorWidth = deviceInfo.dataPathWidth / (8 * dTypeSize);
   return static_cast<double>(numFLOPs) / (vectorWidth * numTiles);
 }
@@ -130,13 +163,14 @@ double getBwdPerfectCycleCount(const Graph &graph,
                                const std::vector<std::size_t> &kernelShape,
                                const std::vector<unsigned> &stride,
                                const std::vector<int> &inputPaddingLower,
-                               const std::vector<int> &inputPaddingUpper) {
+                               const std::vector<int> &inputPaddingUpper,
+                               PoolingType poolingType) {
   checkWindowParameters(kernelShape, stride, inputPaddingLower,
                         inputPaddingUpper);
   return getFwdPerfectCycleCount(graph, dType, batchSize, inDimY, inDimX,
                                  numChannels, kernelShape,
                                  stride, inputPaddingLower,
-                                 inputPaddingUpper) * 2;
+                                 inputPaddingUpper, poolingType) * 2;
 }
 
 // A utility type representing a pixel in the field being pooled over.
@@ -149,18 +183,19 @@ struct Pixel {
 };
 }
 
-Tensor maxPool(Graph &graph,
-               const std::vector<std::size_t> &kernelShape,
-               const std::vector<unsigned> &stride,
-               const std::vector<int> &inputPaddingLower,
-               const std::vector<int> &inputPaddingUpper,
-               Tensor in, Sequence &prog, const std::string &debugPrefix) {
+Tensor pool(Graph &graph,
+            PoolingType poolingType,
+            const std::vector<std::size_t> &kernelShape,
+            const std::vector<unsigned> &stride,
+            const std::vector<int> &inputPaddingLower,
+            const std::vector<int> &inputPaddingUpper,
+            Tensor in, Sequence &prog, const std::string &debugPrefix) {
   checkWindowParameters(kernelShape, stride, inputPaddingLower,
                         inputPaddingUpper);
   const auto dType = in.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
-  const auto layerName = debugPrefix + "/MaxPool"
+  const auto layerName = debugPrefix + "/" + asString(poolingType) + "Pool"
                          + std::to_string(kernelShape[0]) + "x"
                          + std::to_string(kernelShape[1]);
   ComputeSet cs = graph.addComputeSet(layerName);
@@ -179,7 +214,7 @@ Tensor maxPool(Graph &graph,
   auto outGrouped =
       graph.addTensor(dType, {batchSize, numChannels / chansPerGroup,
                               outHeight, outWidth, chansPerGroup},
-                      debugPrefix + "/maxPooled");
+                      debugPrefix + "/" + asString(poolingType) + "Pool");
   mapTensorLinearly(graph, outGrouped);
   auto out = outGrouped.dimShuffle({0, 2, 3, 1, 4})
                        .reshape({batchSize, outHeight, outWidth, numChannels});
@@ -189,6 +224,9 @@ Tensor maxPool(Graph &graph,
   const auto params = makeConvParams(in.dim(1), in.dim(2),
                                      kernelShape, stride,
                                      inputPaddingLower, inputPaddingUpper);
+  const float scale =
+    1.0 / std::accumulate(std::begin(kernelShape), std::end(kernelShape), 1,
+                          std::multiplies<std::size_t>());
 
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     // On each tile split the elements of the output up between the workers.
@@ -263,11 +301,14 @@ Tensor maxPool(Graph &graph,
           windowSizes.push_back(windowSize);
         }
       }
-      auto v = graph.addVertex(cs, templateVertex("popnn::MaxPooling",
+      auto v = graph.addVertex(cs, templateVertex(getFwdVertexName(poolingType),
                                                   dType),
                                {{"in", vertexIn}, {"out", vertexOut}});
       graph.setTileMapping(v, tile);
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
+      if (poolingType == PoolingType::AVG) {
+        graph.setInitialValue(v["scale"], scale);
+      }
       graph.setFieldSize(v["windowSizes"], windowSizes.size());
       for (unsigned i = 0; i < windowSizes.size(); ++i)
         graph.setInitialValue(v["windowSizes"][i], windowSizes[i]);
@@ -279,20 +320,21 @@ Tensor maxPool(Graph &graph,
 }
 
 Tensor
-maxPoolInputGradient(Graph &graph,
-                     const std::vector<std::size_t> &kernelShape,
-                     const std::vector<unsigned> &stride,
-                     const std::vector<int> &inputPaddingLower,
-                     const std::vector<int> &inputPaddingUpper,
-                     Tensor in, Tensor pooled,
-                     Tensor pooledGradient, Sequence &prog,
-                     const std::string &debugPrefix) {
+poolInputGradient(Graph &graph,
+                  PoolingType poolingType,
+                  const std::vector<std::size_t> &kernelShape,
+                  const std::vector<unsigned> &stride,
+                  const std::vector<int> &inputPaddingLower,
+                  const std::vector<int> &inputPaddingUpper,
+                  Tensor in, Tensor pooled,
+                  Tensor pooledGradient, Sequence &prog,
+                  const std::string &debugPrefix) {
   checkWindowParameters(kernelShape, stride, inputPaddingLower,
                         inputPaddingUpper);
   const auto dType = in.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
-  const auto layerName = debugPrefix + "/MaxPoolBwd"
+  const auto layerName = debugPrefix + "/" + asString(poolingType) + "PoolBwd"
                          + std::to_string(kernelShape[0]) + "x"
                          + std::to_string(kernelShape[1]);
   ComputeSet cs = graph.addComputeSet(layerName);
@@ -324,6 +366,9 @@ maxPoolInputGradient(Graph &graph,
                                inputPaddingLower, inputPaddingUpper);
   auto bwdParams = getGradientParams(params);
 
+  const float scale =
+    1.0 / std::accumulate(std::begin(kernelShape), std::end(kernelShape), 1,
+                          std::multiplies<std::size_t>());
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     // On each tile split the elements of the output up between the workers.
     // The grainSize is set to the vector width so vectors will not be split
@@ -413,15 +458,22 @@ maxPoolInputGradient(Graph &graph,
       }
       assert(vertexPooled.size() == vertexPooledGrad.size());
       assert(vertexIn.size() == vertexInGrad.size());
-      auto v = graph.addVertex(cs, templateVertex("popnn::MaxPoolingGrad",
-                                                  dType),
-                               {{"outGrad", vertexPooledGrad},
-                                {"inGrad", vertexInGrad},
-                                {"in", vertexIn},
-                                {"out", vertexPooled}});
+      const auto vertexName = getBwdVertexName(poolingType);
+      auto v = poolingType == PoolingType::MAX ?
+        graph.addVertex(cs, templateVertex(vertexName, dType),
+                        {{"outGrad", vertexPooledGrad},
+                         {"inGrad", vertexInGrad},
+                         {"in", vertexIn},
+                         {"out", vertexPooled}}) :
+        graph.addVertex(cs, templateVertex(vertexName, dType),
+                        {{"outGrad", vertexPooledGrad},
+                         {"inGrad", vertexInGrad}});
       graph.setTileMapping(v, tile);
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setFieldSize(v["windowSizes"], windowSizes.size());
+      if (poolingType == PoolingType::AVG) {
+        graph.setInitialValue(v["scale"], scale);
+      }
       for (unsigned i = 0; i < windowSizes.size(); ++i)
         graph.setInitialValue(v["windowSizes"][i], windowSizes[i]);
     }

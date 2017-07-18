@@ -579,7 +579,7 @@ add_test(NAME fully_connected_batch_fwd_one_tile
                  --inference-only)
 
 add_test(NAME max_pool_layer_half
-         COMMAND max_pool_layer
+         COMMAND pooling_layer
                  --channels 32
                  --width 28
                  --height 28
@@ -588,16 +588,17 @@ add_test(NAME max_pool_layer_half
                  --data-type half)
 
 add_test(NAME max_pool_layer_float
-         COMMAND max_pool_layer
+         COMMAND pooling_layer
                  --channels 32
                  --width 28
                  --height 28
                  --kernel-size 2
                  --stride 2
                  --data-type float)
+               
 
 add_test(NAME max_pool_layer_1chan_overlapping_kernel
-         COMMAND max_pool_layer
+         COMMAND pooling_layer
                  --channels 1
                  --width 100
                  --height 100
@@ -607,7 +608,7 @@ add_test(NAME max_pool_layer_1chan_overlapping_kernel
                  --data-type float)
 
 add_test(NAME max_pool_layer_half_batch
-         COMMAND max_pool_layer
+         COMMAND pooling_layer
                  --batch-size 4
                  --channels 32
                  --width 28
@@ -617,17 +618,17 @@ add_test(NAME max_pool_layer_half_batch
                  --data-type half)
 
 add_test(NAME max_pool_layer_float_batch
-         COMMAND max_pool_layer
+         COMMAND pooling_layer
                  --batch-size 4
                  --channels 32
                  --width 28
                  --height 28
                  --kernel-size 2
                  --stride 2
-                 --data-type float)
+                 --data-type float)                 
 
 add_test(NAME max_pool_layer_2ipu
-         COMMAND max_pool_layer
+         COMMAND pooling_layer
                  --channels 64
                  --bwd-chans-per-group 8
                  --width 112
@@ -637,7 +638,7 @@ add_test(NAME max_pool_layer_2ipu
                  --ipus 2)
 
 add_test(NAME max_pool_layer_1x4
-         COMMAND max_pool_layer
+         COMMAND pooling_layer
                  --channels 32
                  --width 32 
                  --height 1 
@@ -647,7 +648,7 @@ add_test(NAME max_pool_layer_1x4
                  --stride-width 4)
 
 add_test(NAME max_pool_layer_mixed_padding
-        COMMAND max_pool_layer
+        COMMAND pooling_layer
                 --channels 32
                 --width 32
                 --height 16
@@ -661,7 +662,7 @@ add_test(NAME max_pool_layer_mixed_padding
                 --padding-height-upper 4)
 
 add_test(NAME max_pool_layer_negative_mixed_padding
-        COMMAND max_pool_layer
+        COMMAND pooling_layer
                 --channels 32
                 --width 32
                 --height 16
@@ -673,6 +674,111 @@ add_test(NAME max_pool_layer_negative_mixed_padding
                 --padding-width-upper 2
                 --padding-height-lower -3
                 --padding-height-upper 4)
+
+add_test(NAME avg_pool_layer_half
+         COMMAND pooling_layer
+                 --channels 32
+                 --pooling-type avg
+                 --width 28
+                 --height 28
+                 --kernel-size 2
+                 --stride 2
+                 --data-type half)
+
+add_test(NAME avg_pool_layer_float
+         COMMAND pooling_layer
+                 --channels 32
+                 --pooling-type avg
+                 --width 28
+                 --height 28
+                 --kernel-size 2
+                 --stride 2
+                 --data-type float)  
+
+add_test(NAME avg_pool_layer_1chan_overlapping_kernel
+         COMMAND pooling_layer
+                 --channels 1
+                 --pooling-type avg
+                 --width 100
+                 --height 100
+                 --kernel-size 3
+                 --stride 2
+                 --padding 1
+                 --data-type float)
+
+add_test(NAME avg_pool_layer_half_batch
+         COMMAND pooling_layer
+                 --batch-size 4
+                 --pooling-type avg
+                 --channels 32
+                 --width 28
+                 --height 28
+                 --kernel-size 2
+                 --stride 2
+                 --data-type half)
+
+add_test(NAME avg_pool_layer_float_batch
+         COMMAND pooling_layer
+                 --batch-size 4
+                 --pooling-type avg
+                 --channels 32
+                 --width 28
+                 --height 28
+                 --kernel-size 2
+                 --stride 2
+                 --data-type float)
+
+add_test(NAME avg_pool_layer_2ipu
+         COMMAND pooling_layer
+                 --channels 64
+                 --pooling-type avg
+                 --bwd-chans-per-group 8
+                 --width 112
+                 --height 112
+                 --kernel-size 3
+                 --stride 2
+                 --ipus 2)
+
+add_test(NAME avg_pool_layer_1x4
+         COMMAND pooling_layer
+                 --channels 32
+                 --pooling-type avg
+                 --width 32 
+                 --height 1 
+                 --kernel-height 1
+                 --kernel-width 4
+                 --stride-height 1
+                 --stride-width 4)
+
+add_test(NAME avg_pool_layer_mixed_padding
+        COMMAND pooling_layer
+                --channels 32
+                --pooling-type avg
+                --width 32
+                --height 16
+                --kernel-height 5
+                --kernel-width 3
+                --stride-height 1
+                --stride-width 4
+                --padding-width-lower 1
+                --padding-width-upper 2
+                --padding-height-lower 3
+                --padding-height-upper 4)
+
+add_test(NAME avg_pool_layer_negative_mixed_padding
+        COMMAND pooling_layer
+                --channels 32
+                --pooling-type avg
+                --width 32
+                --height 16
+                --kernel-height 5
+                --kernel-width 3
+                --stride-height 1
+                --stride-width 4
+                --padding-width-lower -1
+                --padding-width-upper 2
+                --padding-height-lower -3
+                --padding-height-upper 4)                
 
 add_test(NAME gemm_1x3x1
           COMMAND general_matrix_multiply

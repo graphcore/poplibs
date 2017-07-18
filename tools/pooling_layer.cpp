@@ -9,19 +9,42 @@
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
 #include <popstd/TileMapping.hpp>
-#include <popnn/MaxPool.hpp>
+#include <popnn/Pooling.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <popnn/codelets.hpp>
 #include <popnn/NonLinearity.hpp>
-#include <poplib_test/MaxPooling.hpp>
+#include <poplib_test/Pooling.hpp>
 #include <poplib_test/Util.hpp>
 #include <util/Compiler.hpp>
+#include <popstd/exceptions.hpp>
 #include <random>
+
+#define FLOAT_ABS_TOL  1e-6
+#define HALF_ABS_TOL   1e-5
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplib_test::util;
 using namespace popstd;
+
+std::ostream &
+operator<<(std::ostream &os, const PoolingType &pType) {
+  return os << popnn::pooling::asString(pType);
+}
+
+std::istream &operator>>(std::istream &is, PoolingType &pType) {
+  std::string token;
+  is >> token;
+  if (token == "max")
+    pType = PoolingType::MAX;
+  else if (token == "avg")
+    pType = PoolingType::AVG;
+  else
+    throw popstd::poplib_error(
+      "Unknown pooling type<" + token + ">");
+  return is;
+
+}
 
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
@@ -45,6 +68,7 @@ int main(int argc, char **argv) {
   DeviceInfo info;
   info.IPUExchangeType =
       DeviceInfo::ExchangeType::AGGRESSIVE_MULTICAST;
+  PoolingType poolingType = PoolingType::MAX;
 
   /* these are used when the same value is shared across both height and width*/
   unsigned kernelSize;
@@ -121,6 +145,11 @@ int main(int argc, char **argv) {
      ("ipus",
      po::value<unsigned>(&info.numIPUs)->default_value(info.numIPUs),
      "Number of IPUs")
+    ("pooling-type",
+     po::value<PoolingType>(
+         &poolingType
+     )->default_value(poolingType),
+     "Pooling Type (max | avg)")
     ("batch-size",
      po::value<unsigned>(&batchSize)->default_value(1),
      "Batch size")
@@ -241,8 +270,9 @@ int main(int argc, char **argv) {
     else
       bwdChansPerGroup = 1;
   }
+
   const auto outDims =
-      popnn::maxpool::getOutputDim(height, width,
+      popnn::pooling::getOutputDim(height, width,
                                    {kernelHeight, kernelWidth},
                                    {strideHeight, strideWidth},
                                    {paddingHeightL, paddingWidthL},
@@ -274,24 +304,26 @@ int main(int argc, char **argv) {
   }
 
   auto fwdProg = Sequence();
-  auto nextAct = popnn::maxpool::maxPool(graph,
-                                         {kernelHeight, kernelWidth},
-                                         {strideHeight, strideWidth},
-                                         {paddingHeightL, paddingWidthL},
-                                         {paddingHeightU, paddingWidthU},
-                                         prevAct, fwdProg);
+  auto nextAct = popnn::pooling::pool(graph,
+                                      poolingType,
+                                      {kernelHeight, kernelWidth},
+                                      {strideHeight, strideWidth},
+                                      {paddingHeightL, paddingWidthL},
+                                      {paddingHeightU, paddingWidthU},
+                                      prevAct, fwdProg);
 
   auto bwdProg = Sequence();
   Tensor prevDeltas;
   if (!inferenceOnly) {
     prevDeltas =
-        popnn::maxpool::maxPoolInputGradient(graph,
-                                             {kernelHeight, kernelWidth},
-                                             {strideHeight, strideWidth},
-                                             {paddingHeightL, paddingWidthL},
-                                             {paddingHeightU, paddingWidthU},
-                                             prevAct, nextAct, zDeltas,
-                                             bwdProg);
+        popnn::pooling::poolInputGradient(graph,
+                                          poolingType,
+                                          {kernelHeight, kernelWidth},
+                                          {strideHeight, strideWidth},
+                                          {paddingHeightL, paddingWidthL},
+                                          {paddingHeightU, paddingWidthU},
+                                          prevAct, nextAct, zDeltas,
+                                          bwdProg);
   }
   auto upload = Sequence();
   auto download = Sequence();
@@ -321,16 +353,18 @@ int main(int argc, char **argv) {
   engine.run(1); // Download.
 
   // Validate against a reference model.
+  const double absoluteTolerance = dataTypeStr == "float" ? FLOAT_ABS_TOL :
+                                                            HALF_ABS_TOL;
   copy<4>(dataTypeStr, rawHostNextAct.get(), hostNextAct);
   boost::multi_array<double, 4>
       modelNextAct(boost::extents[batchSize][outHeight][outWidth][chans]);
-  poplib_test::maxpool::maxPooling(strideHeight, strideWidth,
-                                   kernelHeight, kernelWidth,
-                                   paddingHeightL, paddingWidthL,
-                                   paddingHeightU, paddingWidthU,
-                                   hostPrevAct, modelNextAct);
+  poplib_test::pooling::pooling(poolingType, strideHeight, strideWidth,
+                                kernelHeight, kernelWidth,
+                                paddingHeightL, paddingWidthL,
+                                paddingHeightU, paddingWidthU,
+                                hostPrevAct, modelNextAct);
   bool matchesModel = checkIsClose("fwd", hostNextAct, modelNextAct,
-                                   relativeTolerance);
+                                   relativeTolerance, absoluteTolerance);
 
   if (!inferenceOnly) {
     boost::multi_array<double, 4> hostZDeltas(
@@ -351,16 +385,16 @@ int main(int argc, char **argv) {
     // Validate against a reference model.
     boost::multi_array<double, 4>
         modelPrevDeltas(boost::extents[batchSize][height][width][chans]);
-    poplib_test::maxpool::maxPoolingBackward(strideHeight, strideWidth,
-                                             kernelHeight, kernelWidth,
-                                             paddingHeightL, paddingWidthL,
-                                             paddingHeightU, paddingWidthU,
-                                             hostPrevAct, modelNextAct,
-                                             hostZDeltas, modelPrevDeltas);
+    poplib_test::pooling::poolingBackward(poolingType,
+                                          strideHeight, strideWidth,
+                                          kernelHeight, kernelWidth,
+                                          paddingHeightL, paddingWidthL,
+                                          paddingHeightU, paddingWidthU,
+                                          hostPrevAct, modelNextAct,
+                                          hostZDeltas, modelPrevDeltas);
     matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
-                                 relativeTolerance);
+                                 relativeTolerance, absoluteTolerance);
   }
-
   Engine::ReportOptions opt;
   opt.doLayerWiseProfile = true;
   engine.report(std::cout, opt);

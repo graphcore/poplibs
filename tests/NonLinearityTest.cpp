@@ -6,7 +6,6 @@
 #include <limits>
 #include <poplar/Engine.hpp>
 #include <poplar/HalfFloat.hpp>
-#include <popnn/MaxPool.hpp>
 #include <popstd/TileMapping.hpp>
 #include <popnn/codelets.hpp>
 #include <poplib_test/NonLinearity.hpp>

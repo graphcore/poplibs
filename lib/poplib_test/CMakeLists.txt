@@ -9,7 +9,7 @@ add_library(poplib_test SHARED
   GeneralMatrixAdd.cpp  
   GeneralMatrixMultiply.cpp
   Lstm.cpp
-  MaxPooling.cpp
+  Pooling.cpp
   NonLinearity.cpp
   Pass.cpp
   Rnn.cpp
@@ -19,7 +19,7 @@ add_library(poplib_test SHARED
   ${PROJECT_SOURCE_DIR}/include/poplib_test/GeneralMatrixAdd.hpp  
   ${PROJECT_SOURCE_DIR}/include/poplib_test/GeneralMatrixMultiply.hpp
   ${PROJECT_SOURCE_DIR}/include/poplib_test/Lstm.hpp  
-  ${PROJECT_SOURCE_DIR}/include/poplib_test/MaxPooling.hpp
+  ${PROJECT_SOURCE_DIR}/include/poplib_test/Pooling.hpp
   ${PROJECT_SOURCE_DIR}/include/poplib_test/NonLinearity.hpp
   ${PROJECT_SOURCE_DIR}/include/poplib_test/Pass.hpp
   ${PROJECT_SOURCE_DIR}/include/poplib_test/Rnn.hpp  

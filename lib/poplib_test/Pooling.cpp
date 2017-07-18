@@ -1,14 +1,24 @@
-#include <poplib_test/MaxPooling.hpp>
+#include <poplib_test/Pooling.hpp>
 #include <poplib_test/exceptions.hpp>
 #include <iostream>
 
-void poplib_test::maxpool::
-maxPooling(unsigned strideHeight, unsigned strideWidth,
-           unsigned kernelHeight, unsigned kernelWidth,
-           int paddingHeightL, int paddingWidthL,
-           int paddingHeightU, int paddingWidthU,
-           const boost::multi_array<double, 4> &in,
-           boost::multi_array<double, 4> &out) {
+
+static inline double
+getScale(PoolingType pType, unsigned kernelHeight, unsigned kernelWidth) {
+  double scale = 1.0;
+  if (pType == PoolingType::AVG) {
+    scale = 1.0 / (kernelHeight * kernelWidth);
+  }
+  return scale;
+}
+
+void poplib_test::pooling::
+pooling(PoolingType pType, unsigned strideHeight, unsigned strideWidth,
+        unsigned kernelHeight, unsigned kernelWidth,
+        int paddingHeightL, int paddingWidthL,
+        int paddingHeightU, int paddingWidthU,
+        const boost::multi_array<double, 4> &in,
+        boost::multi_array<double, 4> &out) {
   const auto batchSize = in.shape()[0];
   const auto channels = in.shape()[3];
   const auto inputHeight = in.shape()[1];
@@ -16,11 +26,15 @@ maxPooling(unsigned strideHeight, unsigned strideWidth,
   const auto paddedHeight = inputHeight + paddingHeightL + paddingHeightU;
   const auto paddedWidth = inputWidth + paddingWidthL + paddingWidthU;
 
+  double scale = getScale(pType, kernelHeight, kernelWidth);
+
   for (unsigned b = 0; b != batchSize; ++b) {
     boost::multi_array<double, 3>
         paddedIn(boost::extents[paddedHeight][paddedWidth][channels]);
     std::fill(paddedIn.data(), paddedIn.data() + paddedIn.num_elements(),
-              std::numeric_limits<double>::lowest());
+              pType == PoolingType::MAX ?
+                  std::numeric_limits<double>::lowest() : 0);
+
     for (int y = 0; y != paddedHeight; ++y) {
       for (int x = 0; x != paddedWidth; ++x) {
         if ((y - paddingHeightL) < 0 ||
@@ -51,13 +65,18 @@ maxPooling(unsigned strideHeight, unsigned strideWidth,
     for (unsigned c = 0; c != channels; ++c) {
       for (unsigned y = 0; y != poolOutHeight; ++y) {
         for (unsigned x = 0; x != poolOutWidth; ++x) {
-          double v = std::numeric_limits<double>::lowest();
+          double v = pType == PoolingType::MAX ?
+                              std::numeric_limits<double>::lowest() :
+                              0;
           for (unsigned ky = 0; ky != kernelHeight; ++ky) {
             for (unsigned kx = 0; kx != kernelWidth; ++kx) {
-              v = std::max(v, paddedIn[y + ky][x + kx][c]);
+              if (pType == PoolingType::MAX)
+                v = std::max(v, paddedIn[y + ky][x + kx][c]);
+              else if (pType ==  PoolingType::AVG)
+                v += paddedIn[y + ky][x + kx][c];
             }
           }
-          poolOut[y][x][c] = v;
+          poolOut[y][x][c] = v * scale;
         }
       }
     }
@@ -77,20 +96,19 @@ maxPooling(unsigned strideHeight, unsigned strideWidth,
         }
       }
     }
-
   }
 }
 
 
-void poplib_test::maxpool::maxPoolingBackward(
-    unsigned strideHeight, unsigned strideWidth,
-    unsigned kernelHeight, unsigned kernelWidth,
-    int paddingHeightL, int paddingWidthL,
-    int paddingHeightU, int paddingWidthU,
-    const boost::multi_array<double, 4> &prevAct,
-    const boost::multi_array<double, 4> &nextAct,
-    const boost::multi_array<double, 4> &in,
-    boost::multi_array<double, 4> &out) {
+static void
+maxPoolingBackward(unsigned strideHeight, unsigned strideWidth,
+                   unsigned kernelHeight, unsigned kernelWidth,
+                   int paddingHeightL, int paddingWidthL,
+                   int paddingHeightU, int paddingWidthU,
+                   const boost::multi_array<double, 4> &prevAct,
+                   const boost::multi_array<double, 4> &nextAct,
+                   const boost::multi_array<double, 4> &in,
+                   boost::multi_array<double, 4> &out) {
   const auto batchSize = in.shape()[0];
   const auto channels = in.shape()[3];
   const auto inputHeight = in.shape()[1];
@@ -208,5 +226,110 @@ void poplib_test::maxpool::maxPoolingBackward(
         }
       }
     }
+  }
+}
+
+static void
+avgPoolingBackward(unsigned strideHeight, unsigned strideWidth,
+                   unsigned kernelHeight, unsigned kernelWidth,
+                   int paddingHeightL, int paddingWidthL,
+                   int paddingHeightU, int paddingWidthU,
+                   const boost::multi_array<double, 4> &prevAct,
+                   const boost::multi_array<double, 4> &nextAct,
+                   const boost::multi_array<double, 4> &in,
+                   boost::multi_array<double, 4> &out) {
+  const auto batchSize = in.shape()[0];
+  const auto channels = in.shape()[3];
+  const auto inputHeight = in.shape()[1];
+  const auto inputWidth = in.shape()[2];
+  const auto outputHeight = out.shape()[1];
+  const auto outputWidth = out.shape()[2];
+
+  const auto actHeight = prevAct.shape()[1];
+  const auto actWidth = prevAct.shape()[2];
+  const auto paddedHeight = actHeight + paddingHeightL + paddingHeightU;
+  const auto paddedWidth = actWidth + paddingWidthL + paddingWidthU;
+  const auto upsampledHeight =
+      outputHeight + paddingHeightL + paddingHeightU - (kernelHeight - 1) ;
+  const auto upsampledWidth =
+      outputWidth + paddingWidthL + paddingWidthU - (kernelWidth - 1);
+  if ((upsampledHeight + strideHeight - 1)/ strideHeight != inputHeight ||
+      (upsampledWidth + strideWidth - 1)/ strideWidth != inputWidth) {
+    throw poplib_test::poplib_test_error("Output and input tensor dimensions "
+                                           "do not match");
+  }
+  const auto poolOutHeight = upsampledHeight + kernelHeight - 1;
+  const auto poolOutWidth = upsampledWidth + kernelWidth - 1;
+  if (poolOutHeight != paddedHeight ||
+      poolOutWidth  != paddedWidth) {
+    throw poplib_test::poplib_test_error("Deltas and activation tensor "
+                                         "dimensions do not match");
+  }
+  const auto scale = getScale(PoolingType::AVG, kernelHeight, kernelWidth);
+
+  for (unsigned b = 0; b != batchSize; ++b) {
+    const auto outputChannels = out.shape()[3];
+    boost::multi_array<double, 3>
+        poolOut(boost::extents[poolOutHeight]
+                              [poolOutWidth]
+                              [outputChannels]);
+
+    std::fill(poolOut.data(), poolOut.data() + poolOut.num_elements(), 0.0);
+
+    for (unsigned c = 0; c != channels; ++c) {
+      for (unsigned y = 0; y != inputHeight; ++y) {
+        for (unsigned x = 0; x != inputWidth; ++x) {
+          for (unsigned ky = 0; ky != kernelHeight; ++ky) {
+            if (y * strideHeight + ky >= poolOutHeight) {
+              continue;
+            }
+            for (unsigned kx = 0; kx != kernelWidth; ++kx) {
+              if (x * strideWidth + kx >= poolOutWidth) {
+                continue;
+              }
+              poolOut[y * strideHeight + ky][x * strideWidth + kx][c] +=
+                                                         scale * in[b][y][x][c];
+            }
+          }
+        }
+      }
+    }
+    // Truncate.
+    for (int y = 0; y != outputHeight; ++y) {
+      for (int x = 0; x != outputWidth; ++x) {
+        for (unsigned c = 0; c != outputChannels; ++c) {
+          if ((y + paddingHeightL) < 0 ||
+              (y + paddingHeightL) >= poolOutHeight ||
+              (x + paddingWidthL) < 0 ||
+              (x + paddingWidthL) >= poolOutWidth) {
+            continue;
+          }
+          out[b][y][x][c] = poolOut[y + paddingHeightL][x + paddingWidthL][c];
+        }
+      }
+    }
+  }
+}
+
+void poplib_test::pooling::poolingBackward(
+    PoolingType pType,
+    unsigned strideHeight, unsigned strideWidth,
+    unsigned kernelHeight, unsigned kernelWidth,
+    int paddingHeightL, int paddingWidthL,
+    int paddingHeightU, int paddingWidthU,
+    const boost::multi_array<double, 4> &prevAct,
+    const boost::multi_array<double, 4> &nextAct,
+    const boost::multi_array<double, 4> &in,
+    boost::multi_array<double, 4> &out) {
+  if (pType == PoolingType::MAX) {
+    maxPoolingBackward(strideHeight, strideWidth, kernelHeight,  kernelWidth,
+                       paddingHeightL,  paddingWidthL,
+                       paddingHeightU,  paddingWidthU,
+                       prevAct, nextAct, in, out);
+  } else if (pType == PoolingType::AVG) {
+    avgPoolingBackward(strideHeight, strideWidth, kernelHeight,  kernelWidth,
+                       paddingHeightL,  paddingWidthL,
+                       paddingHeightU,  paddingWidthU,
+                       prevAct, nextAct, in, out);
   }
 }

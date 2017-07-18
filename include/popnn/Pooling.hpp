@@ -1,12 +1,15 @@
 #ifndef __popnn_MaxPool_hpp__
 #define __popnn_MaxPool_hpp__
+#include <popnn/PoolingDef.hpp>
 #include <tuple>
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <cstdint>
 
 namespace popnn {
-namespace maxpool {
+namespace pooling {
+
+const char *asString(const PoolingType &method);
 
 std::pair<unsigned, unsigned>
 getOutputDim(unsigned inDimY, unsigned inDimX,
@@ -21,7 +24,8 @@ uint64_t getFwdFlops(unsigned batchSize,
                      const std::vector<std::size_t> &kernelShape,
                      const std::vector<unsigned> &stride,
                      const std::vector<int> &inputPaddingLower,
-                     const std::vector<int> &inputPaddingUpper);
+                     const std::vector<int> &inputPaddingUpper,
+                     PoolingType poolingType);
 
 uint64_t getBwdFlops(unsigned batchSize,
                      unsigned inDimY, unsigned inDimX,
@@ -29,7 +33,8 @@ uint64_t getBwdFlops(unsigned batchSize,
                      const std::vector<std::size_t> &kernelShape,
                      const std::vector<unsigned> &stride,
                      const std::vector<int> &inputPaddingLower,
-                     const std::vector<int> &inputPaddingUpper);
+                     const std::vector<int> &inputPaddingUpper,
+                     PoolingType poolingType);
 
 double getFwdPerfectCycleCount(const poplar::Graph &graph,
                                std::string dType, unsigned batchSize,
@@ -38,7 +43,8 @@ double getFwdPerfectCycleCount(const poplar::Graph &graph,
                                const std::vector<std::size_t> &kernelShape,
                                const std::vector<unsigned> &stride,
                                const std::vector<int> &inputPaddingLower,
-                               const std::vector<int> &inputPaddingUpper);
+                               const std::vector<int> &inputPaddingUpper,
+                               PoolingType poolingType);
 
 double getBwdPerfectCycleCount(const poplar::Graph &graph,
                                std::string dType, unsigned batchSize,
@@ -47,14 +53,17 @@ double getBwdPerfectCycleCount(const poplar::Graph &graph,
                                const std::vector<std::size_t> &kernelShape,
                                const std::vector<unsigned> &stride,
                                const std::vector<int> &inputPaddingLower,
-                               const std::vector<int> &inputPaddingUpper);
+                               const std::vector<int> &inputPaddingUpper,
+                               PoolingType poolingType);
 
-/** Add a max pool operation to the graph
+/** Add a pooling operation to the graph
  *
- * This performs a max pooling over the spatial dimensions [Y, X].  The shape of
+ * This performs a pooling over the spatial dimensions [Y, X].  The shape of
  * the input should be [B x Y x X x inChans].
  *
  * \param graph             The operation will be added to this graph
+ * \param poolingType       Type of pooling operation to perform
+ *                          (\see PoolingType)
  * \param kernelShape       Shape of the pooling kernel
  * \param stride            Stride over the pooling dimensions
  * \param inputPaddingLower Lower padding over the pooling dimensions
@@ -65,27 +74,29 @@ double getBwdPerfectCycleCount(const poplar::Graph &graph,
  * \return                  A tensor with the results of the pooling operation
  */
 poplar::Tensor
-maxPool(poplar::Graph &graph,
-        const std::vector<std::size_t> &kernelShape,
-        const std::vector<unsigned> &stride,
-        const std::vector<int> &inputPaddingLower,
-        const std::vector<int> &inputPaddingUpper,
-        poplar::Tensor in, poplar::program::Sequence &prog,
-        const std::string &debugPrefix = "");
+pool(poplar::Graph &graph,
+     PoolingType poolingType,
+     const std::vector<std::size_t> &kernelShape,
+     const std::vector<unsigned> &stride,
+     const std::vector<int> &inputPaddingLower,
+     const std::vector<int> &inputPaddingUpper,
+     poplar::Tensor in, poplar::program::Sequence &prog,
+     const std::string &debugPrefix = "");
 
-// Calculate the gradient w.r.t. to the input of a max pooling operation given
+// Calculate the gradient w.r.t. to the input of a pooling operation given
 // the gradient of the output.
 poplar::Tensor
-maxPoolInputGradient(poplar::Graph &graph,
-                     const std::vector<std::size_t> &kernelShape,
-                     const std::vector<unsigned> &stride,
-                     const std::vector<int> &inputPaddingLower,
-                     const std::vector<int> &inputPaddingUpper,
-                     poplar::Tensor in,
-                     poplar::Tensor pooled,
-                     poplar::Tensor pooledGradient,
-                     poplar::program::Sequence &prog,
-                     const std::string &debugPrefix = "");
+poolInputGradient(poplar::Graph &graph,
+                  PoolingType poolingType,
+                  const std::vector<std::size_t> &kernelShape,
+                  const std::vector<unsigned> &stride,
+                  const std::vector<int> &inputPaddingLower,
+                  const std::vector<int> &inputPaddingUpper,
+                  poplar::Tensor in,
+                  poplar::Tensor pooled,
+                  poplar::Tensor pooledGradient,
+                  poplar::program::Sequence &prog,
+                  const std::string &debugPrefix = "");
 }
 }
 

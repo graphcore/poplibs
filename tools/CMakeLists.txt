@@ -23,8 +23,8 @@ target_link_libraries(lstm_layer
                       poplib_test
                       Boost::program_options)
 
-add_tool(max_pool_layer max_pool_layer.cpp)
-target_link_libraries(max_pool_layer
+add_tool(pooling_layer pooling_layer.cpp)
+target_link_libraries(pooling_layer
                       poplib_test
                       Boost::program_options)
 

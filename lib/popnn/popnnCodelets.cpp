@@ -202,6 +202,49 @@ public:
 template class MaxPooling<float>;
 template class MaxPooling<half>;
 
+template <typename FPType>
+class AvgPooling : public Vertex {
+public:
+  Vector<Input<Vector<FPType>>> in;
+  Vector<Output<Vector<FPType>>> out;
+  Vector<unsigned> windowSizes;
+  float scale;
+
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    unsigned inIndex = 0;
+    for (unsigned i = 0; i < out.size(); ++i) {
+      for (unsigned chan = 0; chan < out[i].size(); ++chan) {
+        // May have to add an intermediate type to the vertex
+        FPType val = 0;
+        for (unsigned w = 0; w < windowSizes[i]; ++w) {
+            val += in[inIndex + w][chan];
+        }
+        out[i][chan] = val * scale;
+      }
+      inIndex += windowSizes[i];
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    unsigned numCycles = 10;
+    bool isFloat = std::is_same<FPType, float>::value;
+    const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    for (unsigned i = 0; i < out.size(); ++i) {
+      auto numVectors = (out[i].size() + vectorWidth - 1) / vectorWidth;
+      auto windowSize = windowSizes[i];
+      // load ptr/vec/ load data/add for windowSize
+      // axpby and store
+      numCycles += 2 + numVectors * (3 + 2 * windowSize);
+    }
+    return numCycles;
+  }
+};
+
+template class AvgPooling<float>;
+template class AvgPooling<half>;
 
 template <typename FPType>
 class MaxPoolingGrad : public Vertex {
@@ -256,6 +299,58 @@ public:
 
 template class MaxPoolingGrad<float>;
 template class MaxPoolingGrad<half>;
+
+
+template <typename FPType>
+class AvgPoolingGrad : public Vertex {
+public:
+  Vector<Input<Vector<FPType>>> outGrad;
+  Vector<Output<Vector<FPType>>> inGrad;
+  Vector<unsigned> windowSizes;
+  float scale;
+
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    unsigned inIndex = 0;
+    for (unsigned i = 0; i < inGrad.size(); ++i) {
+      for (unsigned chan = 0; chan < inGrad[i].size(); ++chan) {
+        FPType val = 0;
+        for (auto w = 0; w < windowSizes[i]; ++w) {
+            val += outGrad[inIndex + w][chan];
+        }
+        inGrad[i][chan] = val * scale;
+      }
+      inIndex += windowSizes[i];
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    unsigned numCycles = 10;
+    bool isFloat = std::is_same<FPType, float>::value;
+    const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    // Expected implementation per group:
+    // for windowsize:
+    // load deltaIn
+    //  acc
+    // getacc
+    // axpby
+    // double
+    // store
+    for (unsigned i = 0; i < inGrad.size(); ++i) {
+      auto numVectors = (inGrad[i].size() + vectorWidth - 1) / vectorWidth;
+      auto windowSize = windowSizes[i];
+      // TODO: This is too optimistic
+      numCycles += 3 + numVectors * (4 + windowSize * 1);
+    }
+    return numCycles;
+  }
+};
+
+template class AvgPoolingGrad<float>;
+template class AvgPoolingGrad<half>;
+
 
 template <typename FPType, typename LabelType>
 class CalcLoss : public Vertex {

@@ -6,7 +6,7 @@ add_library(popnn SHARED
   BatchNorm.cpp
   Loss.cpp
   Lstm.cpp
-  MaxPool.cpp
+  Pooling.cpp
   NonLinearity.cpp
   PerformanceEstimation.hpp
   Recurrent.cpp
@@ -15,7 +15,7 @@ add_library(popnn SHARED
   ${CMAKE_SOURCE_DIR}/include/popnn/Loss.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Recurrent.hpp  
   ${CMAKE_SOURCE_DIR}/include/popnn/Lstm.hpp
-  ${CMAKE_SOURCE_DIR}/include/popnn/MaxPool.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/Pooling.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearity.hpp
   ${CMAKE_SOURCE_DIR}/include/util/Compiler.hpp
   ${CMAKE_SOURCE_DIR}/include/util/gcd.hpp
