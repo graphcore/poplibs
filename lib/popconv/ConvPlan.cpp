@@ -304,8 +304,7 @@ getMaxInputRangeSize(unsigned outputRangeSize, unsigned dim,
                      const ConvParams &params,
                      unsigned tileKernelSize,
                      unsigned numPartitions,
-                     bool contiguousAccess,
-                     bool isWeightUpdate)  {
+                     bool contiguousAccess)  {
   if (outputRangeSize == 0)
     return 0;
   unsigned inputRangeSize;
@@ -333,8 +332,8 @@ getMaxInputRangeSize(unsigned outputRangeSize, unsigned dim,
     }
     break;
   }
-  if (inputDilation == 1 && !isWeightUpdate &&
-      !contiguousAccess && tileKernelSize == 1 && stride > 1) {
+  if (inputDilation == 1 && !contiguousAccess && tileKernelSize == 1 &&
+      stride > 1) {
     inputRangeSize = (inputRangeSize - 1) / stride + 1;
   }
   return inputRangeSize;
@@ -398,7 +397,7 @@ getMaxTileOutWidth(const ConvParams &params, const Plan &plan) {
 static unsigned
 estimateExchangeCycles(const poplar::DeviceInfo &deviceInfo,
                        bool floatActivations,
-                       const ConvParams &params, bool isWeightUpdate,
+                       const ConvParams &params,
                        const Plan &plan) {
   const auto tilesPerX = plan.tilesPerXAxis;
   const auto tilesPerY = plan.tilesPerYAxis;
@@ -429,11 +428,11 @@ estimateExchangeCycles(const poplar::DeviceInfo &deviceInfo,
   const auto tileInWidth =
       getMaxInputRangeSize(tileOutWidth, 1, params,
                            tileKernelWidth, tilesPerX,
-                           true, isWeightUpdate);
+                           true);
   const auto tileInHeight =
       getMaxInputRangeSize(tileOutHeight, 0, params,
                            tileKernelHeight, tilesPerY,
-                           false, isWeightUpdate);
+                           false);
   const auto numberOfInputElements = tileInWidth * tileInHeight * tileInDepth;
   const auto numberOfWeights =
       tileKernelHeight * tileKernelWidth * tileOutDepth * tileInDepth;
@@ -443,17 +442,9 @@ estimateExchangeCycles(const poplar::DeviceInfo &deviceInfo,
   const auto activationSize = floatActivations ? 4 : 2;
   auto inputElementsBytes = numberOfInputElements * activationSize;
   auto weightBytes = numberOfWeights * activationSize;
-  unsigned partialSumBytes;
   const auto partialSize = plan.floatPartials ? 4 : 2;
-  if (isWeightUpdate) {
-    const auto deltaElementBytes = numberOfOutputElements * activationSize;
-    inputElementsBytes += deltaElementBytes;
-    partialSumBytes = numberOfWeights * partialSize;
-    weightBytes = 0;
-  } else {
-    const auto numberOfPartialSums = numberOfOutputElements;
-    partialSumBytes = numberOfPartialSums * partialSize;
-  }
+  const auto numberOfPartialSums = numberOfOutputElements;
+  const auto partialSumBytes = numberOfPartialSums * partialSize;
 
   const auto tilesPerSuperTile = deviceInfo.tilesPerSuperTile;
   const auto exchangeBytesPerCycle = deviceInfo.exchangeBytesPerCycle;
@@ -472,25 +463,11 @@ estimateExchangeCycles(const poplar::DeviceInfo &deviceInfo,
   return numCycles;
 }
 
-
-static unsigned
-estimateWeightUpdatePartialCalcMemory(const poplar::DeviceInfo &deviceInfo,
-                                      bool floatActivations,
-                                      const ConvParams &params,
-                                      const Plan &plan) {
-  return 0;
-}
-
 static unsigned
 estimatePartialCalcMemory(const poplar::DeviceInfo &deviceInfo,
                           bool floatActivations,
-                          const ConvParams &params, bool isWeightUpdate,
+                          const ConvParams &params,
                           const Plan &plan) {
-  if (isWeightUpdate) {
-    return estimateWeightUpdatePartialCalcMemory(deviceInfo, floatActivations,
-                                                 params, plan);
-  }
-
   unsigned vertexFields = 0;
   unsigned edgePtrsPerVertex = 0;
   unsigned tensorMemory = 0;
@@ -620,7 +597,7 @@ estimateConvPartialHorizontalMacCycles(unsigned tileNumInGroups,
 static unsigned
 estimatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
                           bool floatActivations,
-                          const ConvParams &params, bool isWeightUpdate,
+                          const ConvParams &params,
                           const Plan &plan,
                           PlanningCacheImpl *cache) {
   const auto tilesPerY = plan.tilesPerYAxis;
@@ -713,26 +690,19 @@ static unsigned calcNumUsableTiles(
 
 static unsigned estimateReduceMemory(const poplar::DeviceInfo &deviceInfo,
                                      const ConvParams &params,
-                                     bool isWeightUpdate,
                                      const Plan &plan) {
   unsigned vertexFields = 0;
   unsigned edgePtrsPerVertex = 0;
 
-  unsigned numTiles;
-  if (isWeightUpdate) {
-    assert(plan.batchesPerGroup == 1);
-    numTiles = deviceInfo.getNumTiles();
-  } else {
-    const auto numBatchGroups =
-        params.getBatchSize() / plan.batchesPerGroup;
-    numTiles = calcNumUsableTiles(deviceInfo.getNumTiles(), numBatchGroups);
-  }
+  const auto batchesPerGroup = plan.batchesPerGroup;
+  assert(params.getBatchSize() % batchesPerGroup == 0);
+  const auto numBatchGroups = params.getBatchSize() / batchesPerGroup;
+  auto numTiles = calcNumUsableTiles(deviceInfo.getNumTiles(), numBatchGroups);
 
   const auto tilesPerY = plan.tilesPerYAxis;
   const auto tilesPerZ = plan.tilesPerZAxis;
   const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
   const auto outChansPerGroup = plan.partialChansPerGroup;
-  const auto batchesPerGroup = plan.batchesPerGroup;
 
   const auto numOutGroups =
     (params.getOutputDepth() + (outChansPerGroup - 1)) / outChansPerGroup;
@@ -742,9 +712,6 @@ static unsigned estimateReduceMemory(const poplar::DeviceInfo &deviceInfo,
 
   const auto tileNumOutGroups =
      (numOutGroups + tilesPerZ - 1) / tilesPerZ;
-
-  assert(params.getBatchSize() % batchesPerGroup == 0);
-  const auto numBatchGroups = params.getBatchSize() / batchesPerGroup;
 
   vertexFields += 2;
 
@@ -777,8 +744,7 @@ static unsigned estimateReduceMemory(const poplar::DeviceInfo &deviceInfo,
 
 static unsigned
 estimateReduceCycles(const poplar::DeviceInfo &deviceInfo,
-                          const ConvParams &params, bool isWeightUpdate,
-                          const Plan &plan) {
+                          const ConvParams &params, const Plan &plan) {
   if (plan.tilesPerInZGroupAxis == 1 &&
       plan.tilesPerKernelYAxis == 1)
     return 0;
@@ -788,29 +754,16 @@ estimateReduceCycles(const poplar::DeviceInfo &deviceInfo,
    * from the one the tensor uses in the reduction. The numOutputsPerTile
    * below however is approximately the same except for any rounding
    */
-  unsigned numPartialSumsPerTile;
-  unsigned numTiles;
-  if (isWeightUpdate) {
-    assert(plan.batchesPerGroup == 1);
-    numTiles = deviceInfo.getNumTiles();
-    const auto numOutputs = params.getOutputDepth() *
-                            params.getInputDepth() *
-                            params.kernelShape[0] *
-                            params.kernelShape[1];
-    const auto numOutputsPerTile = (numOutputs + numTiles - 1) / numTiles;
-    numPartialSumsPerTile = numOutputsPerTile * plan.tilesPerYAxis *
-                            plan.tilesPerXAxis * params.getBatchSize();
-  } else {
-    const auto numBatchGroups =
-        params.getBatchSize() / plan.batchesPerGroup;
-    numTiles = calcNumUsableTiles(deviceInfo.getNumTiles(), numBatchGroups);
-    const auto numOutputs = params.getOutputHeight() *
-                            params.getOutputWidth() *
-                            params.getOutputDepth();
-    const auto numOutputsPerTile = (numOutputs + numTiles - 1) / numTiles;
-    numPartialSumsPerTile = numOutputsPerTile * plan.tilesPerInZGroupAxis *
-                            plan.tilesPerKernelYAxis;
-  }
+  const auto numBatchGroups =
+      params.getBatchSize() / plan.batchesPerGroup;
+  const auto numTiles =
+      calcNumUsableTiles(deviceInfo.getNumTiles(), numBatchGroups);
+  const auto numOutputs = params.getOutputHeight() *
+                          params.getOutputWidth() *
+                          params.getOutputDepth();
+  const auto numOutputsPerTile = (numOutputs + numTiles - 1) / numTiles;
+  const auto numPartialSumsPerTile =
+      numOutputsPerTile * plan.tilesPerInZGroupAxis * plan.tilesPerKernelYAxis;
   const auto vectorWidth =
       plan.floatPartials ? deviceInfo.getFloatVectorWidth() :
                                 deviceInfo.getHalfVectorWidth();
@@ -999,7 +952,6 @@ addCycleEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
                  popsolver::Variable tilesPerInZ,
                  const poplar::DeviceInfo &deviceInfo,
                  const ConvParams &params,
-                 bool isWeightUpdate,
                  unsigned inChansPerGroup,
                  unsigned partialChansPerGroup,
                  unsigned batchesPerGroup,
@@ -1026,7 +978,7 @@ addCycleEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
                    useConvInstruction,
                    linearizeTileOrder);
     return estimateExchangeCycles(deviceInfo, floatActivations, params,
-                                  isWeightUpdate, candidate);
+                                  candidate);
   });
   const auto partialCalcCycles =
       m.call({tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY, tilesPerInZ},
@@ -1045,7 +997,7 @@ addCycleEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
                    useConvInstruction,
                    linearizeTileOrder);
     return estimatePartialCalcCycles(deviceInfo, floatActivations, params,
-                                     isWeightUpdate, candidate, cache);
+                                     candidate, cache);
   });
   const auto reduceCycles =
       m.call({tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY, tilesPerInZ},
@@ -1063,7 +1015,7 @@ addCycleEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
                    floatPartials,
                    useConvInstruction,
                    linearizeTileOrder);
-    return estimateReduceCycles(deviceInfo, params, isWeightUpdate, candidate);
+    return estimateReduceCycles(deviceInfo, params, candidate);
   });
   return m.sum({exchangeCycles, partialCalcCycles, reduceCycles});
 }
@@ -1076,7 +1028,6 @@ addMemoryEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
                   popsolver::Variable tilesPerInZ,
                   const poplar::DeviceInfo &deviceInfo,
                   const ConvParams &params,
-                  bool isWeightUpdate,
                   unsigned inChansPerGroup,
                   unsigned partialChansPerGroup,
                   unsigned batchesPerGroup,
@@ -1102,7 +1053,7 @@ addMemoryEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
                    useConvInstruction,
                    linearizeTileOrder);
     return estimatePartialCalcMemory(deviceInfo, floatActivations, params,
-                                     isWeightUpdate, candidate);
+                                     candidate);
   });
   const auto reduceMemory =
       m.call({tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY, tilesPerInZ},
@@ -1120,7 +1071,7 @@ addMemoryEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
                    floatPartials,
                    useConvInstruction,
                    linearizeTileOrder);
-    return estimateReduceMemory(deviceInfo, params, isWeightUpdate, candidate);
+    return estimateReduceMemory(deviceInfo, params, candidate);
   });
   return m.sum({partialCalcMemory, reduceMemory});
 }
@@ -1137,7 +1088,8 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
            PlanningCacheImpl *cache,
            const ConvOptions &options) {
   const auto floatActivations = convVertexType.floatActivations;
-  if (convVertexType.useConvInstruction && isWeightUpdate) {
+  if (isWeightUpdate) {
+    assert(convVertexType.useConvInstruction);
     assert(inChansPerGroup ==
            deviceInfo.getWeightsPerConvUnit(floatActivations));
     // Implementing weight update directly as a convolution is typically
@@ -1230,18 +1182,17 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
 
   auto cycles =
       addCycleEstimate(m, tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY,
-                       tilesPerInZ, deviceInfo, params, isWeightUpdate,
-                       inChansPerGroup, partialChansPerGroup, batchesPerGroup,
-                       xAxisGrainSize, convVertexType.floatPartials,
-                       floatActivations, convVertexType.useConvInstruction,
-                       Plan::LinearizeTileOrder::STANDARD,
-                       cache);
+                       tilesPerInZ, deviceInfo, params, inChansPerGroup,
+                       partialChansPerGroup, batchesPerGroup, xAxisGrainSize,
+                       convVertexType.floatPartials, floatActivations,
+                       convVertexType.useConvInstruction,
+                       Plan::LinearizeTileOrder::STANDARD, cache);
   auto memory =
       addMemoryEstimate(m, tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY,
-                        tilesPerInZ, deviceInfo, params, isWeightUpdate,
-                        inChansPerGroup, partialChansPerGroup, batchesPerGroup,
-                        xAxisGrainSize, convVertexType.floatPartials,
-                        floatActivations, convVertexType.useConvInstruction,
+                        tilesPerInZ, deviceInfo, params, inChansPerGroup,
+                        partialChansPerGroup, batchesPerGroup, xAxisGrainSize,
+                        convVertexType.floatPartials, floatActivations,
+                        convVertexType.useConvInstruction,
                         Plan::LinearizeTileOrder::STANDARD);
   if (options.fullyConnectedPass == FullyConnectedPass::FWD) {
     popsolver::Variable bwdCycles;
@@ -1256,7 +1207,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
     bwdCycles =
         addCycleEstimate(m, bwdTilesPerX, tilesPerY, tilesPerZ,
                          tilesPerKernelY, bwdTilesPerInZ, deviceInfo, params,
-                         false, bwdInChansPerGroup, partialChansPerGroup,
+                         bwdInChansPerGroup, partialChansPerGroup,
                          batchesPerGroup, bwdXAxisGrainSize,
                          convVertexType.floatPartials, floatActivations,
                          convVertexType.useConvInstruction,
@@ -1264,7 +1215,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
     bwdMemory =
         addMemoryEstimate(m, bwdTilesPerX, tilesPerY, tilesPerZ,
                           tilesPerKernelY, bwdTilesPerInZ, deviceInfo, params,
-                          false, bwdInChansPerGroup, partialChansPerGroup,
+                          bwdInChansPerGroup, partialChansPerGroup,
                           batchesPerGroup, bwdXAxisGrainSize,
                           convVertexType.floatPartials, floatActivations,
                           convVertexType.useConvInstruction,
@@ -1278,7 +1229,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
     const auto wuPartialChansPerGroup = inChansPerGroup;
     const auto wuCycles =
         addCycleEstimate(m, tilesPerX, tilesPerY, wuTilesPerZ, tilesPerKernelY,
-                         wuTilesPerInZ, deviceInfo, wuParams, false,
+                         wuTilesPerInZ, deviceInfo, wuParams,
                          wuInChansPerGroup, wuPartialChansPerGroup,
                          batchesPerGroup, 1,
                          convVertexType.floatPartials, floatActivations,
@@ -1287,7 +1238,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                          cache);
     const auto wuMemory =
         addMemoryEstimate(m, tilesPerX, tilesPerY, wuTilesPerZ, tilesPerKernelY,
-                          wuTilesPerInZ, deviceInfo, wuParams, false,
+                          wuTilesPerInZ, deviceInfo, wuParams,
                           wuInChansPerGroup, wuPartialChansPerGroup,
                           batchesPerGroup, 1,
                           convVertexType.floatPartials,
