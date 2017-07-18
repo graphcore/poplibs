@@ -1688,7 +1688,6 @@ static Plan getFullyConnectedBwdPlan(const poplar::DeviceInfo &deviceInfo,
   plan.linearizeTileOrder = Plan::LinearizeTileOrder::FC_BWD_AS_CONV;
   std::swap(plan.tilesPerXAxis, plan.tilesPerInZGroupAxis);
   std::swap(plan.xAxisGrainSize, plan.inChansPerGroup);
-  plan.useConvolutionInstructions = true;
   return plan;
 }
 
