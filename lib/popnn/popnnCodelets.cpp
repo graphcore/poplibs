@@ -175,6 +175,7 @@ public:
       for (unsigned chan = 0; chan < out[i].size(); ++chan) {
         FPType val;
         for (unsigned w = 0; w < windowSizes[i]; ++w) {
+          assert(out[i].size() == in[inIndex + w].size());
           if (w == 0 || val < in[inIndex + w][chan])
             val = in[inIndex + w][chan];
         }
@@ -219,7 +220,8 @@ public:
         // May have to add an intermediate type to the vertex
         FPType val = 0;
         for (unsigned w = 0; w < windowSizes[i]; ++w) {
-            val += in[inIndex + w][chan];
+          assert(out[i].size() == in[inIndex + w].size());
+          val += in[inIndex + w][chan];
         }
         out[i][chan] = val * scale;
       }
@@ -260,9 +262,12 @@ public:
   bool compute() {
     unsigned inIndex = 0;
     for (unsigned i = 0; i < inGrad.size(); ++i) {
+      assert(inGrad[i].size() == in[i].size());
       for (unsigned chan = 0; chan < inGrad[i].size(); ++chan) {
         FPType val = 0;
         for (auto w = 0; w < windowSizes[i]; ++w) {
+          assert(inGrad[i].size() == outGrad[inIndex + w].size());
+          assert(inGrad[i].size() == out[inIndex + w].size());
           if (in[i][chan] == out[inIndex + w][chan])
             val += outGrad[inIndex + w][chan];
         }
@@ -317,7 +322,8 @@ public:
       for (unsigned chan = 0; chan < inGrad[i].size(); ++chan) {
         FPType val = 0;
         for (auto w = 0; w < windowSizes[i]; ++w) {
-            val += outGrad[inIndex + w][chan];
+          assert(inGrad[i].size() == outGrad[inIndex + w].size());
+          val += outGrad[inIndex + w][chan];
         }
         inGrad[i][chan] = val * scale;
       }
