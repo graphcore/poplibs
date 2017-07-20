@@ -8,6 +8,7 @@
 #include "popstd/Util.hpp"
 #include "popstd/VertexTemplates.hpp"
 #include "popstd/Zero.hpp"
+#include "popstd/Operations.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
@@ -129,11 +130,14 @@ determineReduceVertexMapping(Graph &graph,
 static void
 reduce(Graph &graph,
        Tensor partials,
-       Tensor reduced, float k, bool isUpdate,
+       Tensor reduced, float k, bool isUpdate, bool isScale,
        const std::vector<
          std::vector<Interval<std::size_t>>
        > &reduceVertexMapping,
        ComputeSet reduceCS) {
+  // can't have both scale and update
+  assert(!(isScale && isUpdate));
+
   assert(partials[0].shape() == reduced.shape());
   if (partials.dim(0) == 0) {
     zero(graph, reduced, reduceVertexMapping, reduceCS);
@@ -152,8 +156,13 @@ reduce(Graph &graph,
   auto flatReduced = reduced.flatten();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
-  const auto vertexName = isUpdate ? "popreduce::ReduceUpdate"
-                                   : "popreduce::Reduce";
+  auto vertexName = "popreduce::Reduce";
+  if (isUpdate) {
+    vertexName = "popreduce::ReduceUpdate";
+  }
+  if (isScale) {
+    vertexName = "popreduce::ReduceScale";
+  }
   // Accumulate the partial sums.
   const auto numTiles = deviceInfo.getNumTiles();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
@@ -173,7 +182,7 @@ reduce(Graph &graph,
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setFieldSize(v["out"], regions.size());
       graph.setFieldSize(v["partials"], regions.size() * tilesPerInZGroup);
-      if (isUpdate)
+      if (isUpdate || isScale)
         graph.setInitialValue(v["k"], k);
       graph.setTileMapping(v, tile);
       const auto numRegions = regions.size();
@@ -202,7 +211,8 @@ reduce(Graph &graph,
          std::vector<Interval<std::size_t>>
        > &reduceVertexMapping,
        ComputeSet reduceCS) {
-  reduce(graph, partials, reduced, 1, false, reduceVertexMapping, reduceCS);
+  reduce(graph, partials, reduced, 1, false, false, reduceVertexMapping,
+         reduceCS);
 }
 
 void
@@ -253,8 +263,46 @@ void reduceAcc(Graph &graph, Tensor out, float k, Tensor in,
     reduceMapping = determineReduceVertexMapping(graph, in, out, reduceMapping);
   }
   const auto cs = graph.addComputeSet(debugPrefix + "/Reduce");
-  reduce(graph, in, out, k, true, reduceMapping, cs);
+  reduce(graph, in, out, k, true, false, reduceMapping, cs);
   prog.add(Execute(cs));
 }
+
+
+Tensor reduceScale(Graph &graph, float k, Tensor &in,
+                   const std::string &outType,
+                   Sequence &prog, const std::string &debugPrefix) {
+  const auto numAddends = in.dim(0);
+  const auto resultSize = in.dim(1);
+  const auto dType = in.elementType();
+
+  // If batch size is 1 then no reduction is required.
+  if (numAddends == 1) {
+    Tensor B;
+    if (dType == "half") {
+      B = graph.addConstantTensor<half>(outType, in.shape(), k);
+    } else {
+      B = graph.addConstantTensor<float>(outType, in.shape(), k);
+    }
+    Tensor A = in;
+
+    // TODO: Remove the cast when standard operators have output type as an arg
+    if (dType != outType) {
+      A = cast(graph, A, outType, prog, debugPrefix + "/ReduceScale");
+    }
+    return popstd::mul(graph, A, B, prog, debugPrefix);
+  }
+
+  const auto out = graph.addTensor(outType, {resultSize},
+                                   debugPrefix + "/ReducedScaled");
+  popstd::mapTensorLinearly(graph, out);
+
+  const auto reduceVertexMapping =
+      determineReduceVertexMapping(graph, in, out, graph.getTileMapping(out));
+  const auto cs = graph.addComputeSet(debugPrefix + "/ReduceScale");
+  reduce(graph, in, out, k, false, true, reduceVertexMapping, cs);
+  prog.add(Execute(cs));
+  return out;
+}
+
 
 } // end namespace popstd

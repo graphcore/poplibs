@@ -46,6 +46,12 @@ void reduceByDstMapping(poplar::Graph &graph,
                         > &reducedMapping,
                         poplar::ComputeSet reduceCS);
 
-} // end namespace popstd
+
+/// Perform  reduce(A) * k with output tensor of type outTypeStr
+poplar::Tensor reduceScale(poplar::Graph &graph, float k, poplar::Tensor &in,
+                           const std::string &outTypeStr,
+                           poplar::program::Sequence &prog,
+                           const std::string &debugPrefix = "");
+} // end namespace popreduce
 
 #endif // __popreduce_Reduce_hpp__

@@ -34,6 +34,7 @@ add_popnn_unit_test(NonLinearityTest NonLinearityTest.cpp)
 add_popnn_unit_test(GraphProgLocationTest GraphProgLocationTest.cpp)
 add_popnn_unit_test(StdOperatorTest StdOperatorsTest.cpp)
 add_popnn_unit_test(BatchNormTest BatchNormTest.cpp)
+add_popnn_unit_test(ReductionTests ReductionTests.cpp)
 
 
 # Layer tests
