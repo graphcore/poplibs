@@ -140,6 +140,11 @@ poplar::Tensor signum(poplar::Graph &graph,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix = "");
 
+poplar::Tensor sin(poplar::Graph &graph,
+                   poplar::Tensor A,
+                   poplar::program::Sequence &prog,
+                   const std::string &debugPrefix = "");
+
 poplar::Tensor sub(poplar::Graph &graph,
                    poplar::Tensor A, poplar::Tensor B,
                    poplar::program::Sequence &prog,

@@ -38,6 +38,7 @@ enum UnaryOp {
   LOGICAL_NOT,
   NEGATE,
   SIGNUM,
+  SIN,
   TANH,
   SQRT,
   SQUARE

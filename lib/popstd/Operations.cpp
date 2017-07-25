@@ -59,6 +59,8 @@ static std::string vertexName(enum UnaryOp op) {
     return "popstd::Negate";
   case SIGNUM:
     return "popstd::Signum";
+  case SIN:
+    return "popstd::Sin";
   case TANH:
     return "popstd::Tanh";
   case SQRT:
@@ -455,8 +457,13 @@ Tensor rem(Graph &graph, Tensor A, Tensor B, Sequence &prog,
 }
 
 Tensor signum(Graph &graph, Tensor A, Sequence &prog,
-            const std::string &debugPrefix) {
+              const std::string &debugPrefix) {
   return unaryOp(graph, A, prog, UnaryOp::SIGNUM, debugPrefix + "/Op/Signum");
+}
+
+Tensor sin(Graph &graph, Tensor A, Sequence &prog,
+           const std::string &debugPrefix) {
+  return unaryOp(graph, A, prog, UnaryOp::SIN, debugPrefix + "/Op/Sin");
 }
 
 Tensor sub(Graph &graph, Tensor A, Tensor B, Sequence &prog,

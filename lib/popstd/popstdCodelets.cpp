@@ -476,15 +476,20 @@ public:
 
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 6;
+
     for (unsigned i = 0; i < in.size(); ++i) {
       unsigned overhead = 6;
       unsigned numElem = in[i].size();
       bool isFloat = std::is_same<InType, float>::value;
       unsigned vectorWidth = 1;
       unsigned cyclesPerVector = 1;
-      //TODO - this is the same as tanh, but needs to be corrected
-      if (!isFloat) {
-        vectorWidth = dataPathWidth / 16;
+      if (std::is_same<InType, float>::value) {
+        // 64 bit load with sqrt, sqrt, 64 bit
+        vectorWidth = 2;
+        cyclesPerVector = 3;
+      } else if (std::is_same<InType, half>::value) {
+        vectorWidth = 2;
+        cyclesPerVector = 3;
       }
       cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
                                   cyclesPerVector);
@@ -1385,6 +1390,51 @@ public:
 
 template class Signum<float>;
 template class Signum<half>;
+
+template <typename InType>
+class Sin : public Vertex {
+public:
+  Vector<Input<Vector<InType>>> in;
+  Vector<Output<Vector<InType>>> out;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    assert(in.size() == out.size());
+    for (unsigned i = 0; i != in.size(); ++i) {
+      assert (in[i].size() == out[i].size());
+      for (unsigned j = 0; j != in[i].size(); ++j) {
+        out[i][j] = std::sin(in[i][j]);
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    uint64_t cycles = 6;
+
+    for (unsigned i = 0; i < in.size(); ++i) {
+      unsigned overhead = 6;
+      unsigned numElem = in[i].size();
+      bool isFloat = std::is_same<InType, float>::value;
+      unsigned vectorWidth = 1;
+      unsigned cyclesPerVector = 1;
+      if (std::is_same<InType, float>::value) {
+        // 64 bit load with sqrt, sqrt, 64 bit
+        vectorWidth = 2;
+        cyclesPerVector = 3;
+      } else if (std::is_same<InType, half>::value) {
+        vectorWidth = 2;
+        cyclesPerVector = 3;
+      }
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
+    }
+    return cycles;
+  }
+};
+
+template class Sin<float>;
+template class Sin<half>;
 
 template <typename InType>
 class Subtract : public Vertex {
