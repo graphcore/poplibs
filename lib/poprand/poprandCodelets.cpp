@@ -174,6 +174,72 @@ public:
 template class Uniform<float>;
 template class Uniform<half>;
 
+
+// Template specialisation for int
+template <>
+class Uniform<int> : public Vertex {
+public:
+  Vector<Output<Vector<int>>> out;
+  int offset;
+  unsigned int scale;
+  // A separate vertex needs to be defined if save/restore of seeds is not
+  // required
+  uint64_t seedH;
+  uint64_t seedL;
+  SimOnlyField<unsigned> dataPathWidth;
+  // It is expected that there will be two variants of vertices: one which
+  // saves and restores seeds
+  SimOnlyField<bool> saveRestoreSeed;
+
+  bool compute() {
+    auto s = initialiseAndPrime({seedL, seedH});
+    const unsigned maxPerCall = 2;
+    const unsigned bitsPerVal = 32;
+
+    for (auto i = 0; i != out.size(); ++i) {
+      unsigned n = out[i].size();
+      unsigned idx = 0;
+      while (n) {
+        const unsigned genSamples =  std::min(n, maxPerCall);
+        auto r = next(s);
+        for (auto k = 0; k != genSamples; ++k, ++idx, r >>= bitsPerVal) {
+          uint64_t rmasked = r & ((1ULL << bitsPerVal) - 1);
+          uint64_t scaledR = (rmasked * scale) >> 32;
+          int64_t  res32 = static_cast<int64_t>(scaledR) + offset;
+          out[i][idx] = res32;;
+        }
+        n -= genSamples;
+      }
+    }
+    // save seeds
+    seedL = s[0];
+    seedH = s[1];
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    uint64_t cycles = 7;  // overhead + broadcast offset
+    if (saveRestoreSeed) {
+      cycles += 5;        // to set up seeds in CSR
+      cycles += WARMUP_ITERATIONS;
+    }
+
+    for (auto i = 0; i != out.size(); ++i) {
+      // break up into 2 and 3 parts respectively and do multiprecision
+      // integer mult.
+      // A second option is to split into 2 parts each and use 32x32 = 32 bit
+      // lower part. The multiplication however has to be unsigned.
+      cycles += out[i].size() * 23;
+    }
+    if ((saveRestoreSeed)) {
+      // save seeds
+      cycles += 6;
+    }
+    return cycles;
+  }
+};
+
+
 template <typename OutType>
 class Bernoulli : public Vertex {
 public:
@@ -310,11 +376,11 @@ template <typename OutType>
 class TruncatedNormal : public Vertex {
 public:
   Vector<Output<Vector<OutType>>> out;
-  unsigned iterations;     // number of iterations of generate and replace
-  float mean;              // mean of symmetric truncated normal distribution
-  float stdDev;            // stdDev of original normal distribution which is
-                           // truncated
-  float alpha;             // truncation as a multiple of stdDev
+  unsigned iterations;   // number of iterations of generate and replace
+  float mean;            // mean of symmetric truncated normal distribution
+  float stdDev;          // stdDev of original normal distribution which is
+                         // truncated
+  float alpha;           // truncation as a multiple of stdDev
   // A separate vertex needs to be defined if save/restore of seeds is not
   // required
   uint64_t seedH;

@@ -81,7 +81,7 @@ std::vector<VertexInfo> buildVertices(Graph &graph, const Tensor &t) {
 static void
 buildProgram(Graph &graph, const Tensor &A, uint64_t seed, uint16_t colouredId,
              RandomGenMode mode, const std::string &vertexName,
-             const std::vector<std::pair<const std::string, float>> &params,
+             const std::vector<std::pair<const std::string, double>> &params,
              Sequence &prog, const std::string &debugPrefix) {
   const auto dType = A.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
@@ -105,7 +105,10 @@ buildProgram(Graph &graph, const Tensor &A, uint64_t seed, uint16_t colouredId,
         graph.connect(v["out"][0], aFlat.slice(vertexTab[i].region));
         graph.setFieldSize(v["out"], 1);
         for (const auto &p : params) {
-          graph.setInitialValue(v[p.first], p.second);
+          graph.setInitialValue(v[p.first],
+                                dType == "int" && vertexName == "Uniform" ?
+                                static_cast<int>(p.second) :
+                                static_cast<float>(p.second));
         }
         graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
         graph.setInitialValue(v["seedL"], seed);
@@ -140,9 +143,11 @@ buildProgram(Graph &graph, const Tensor &A, uint64_t seed, uint16_t colouredId,
                                  {{"out", aFlat.slices(regions)}});
         graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
         for (const auto &p : params) {
-          graph.setInitialValue(v[p.first], p.second);
+          graph.setInitialValue(v[p.first],
+                                dType == "int" && vertexName == "Uniform" ?
+                                static_cast<int>(p.second):
+                                static_cast<float>(p.second));
         }
-
         if (simulateNonRepeatable || mode != NOT_REPEATABLE) {
           graph.setInitialValue(v["seedL"], seed);
           graph.setInitialValue(v["seedH"],  createSeedU64(colouredId, tile,
@@ -159,24 +164,30 @@ buildProgram(Graph &graph, const Tensor &A, uint64_t seed, uint16_t colouredId,
 
 // Convert a range [minVal, maxVal] for uniform number generation into a
 // scale and offset used internally by the uniform random number generator
-static std::pair<float, float>
-uniformScaleAndOffset(double minVal, double maxVal) {
+static std::pair<double, double>
+uniformScaleAndOffset(double minVal, double maxVal, const std::string dType) {
   double scale = maxVal - minVal;
-  double offset = scale /  2 + minVal;
-  return std::make_pair(scale, offset);
+  if (dType != "int") {
+    double offset = scale /  2 + minVal;
+    return std::make_pair(scale, offset);
+  } else {
+    return std::make_pair(scale, minVal);
+  }
 }
 
 static void
-uniform(Graph &graph, Tensor &A, float minVal, float maxVal, uint64_t seed,
+uniform(Graph &graph, Tensor &A, double minVal, double maxVal, uint64_t seed,
         RandomGenMode mode, bool seedProvided, Sequence &prog,
         const std::string &debugPrefix) {
   static uint16_t callCount;
-  float scale, offset;
+  double scale, offset;
 
   if (minVal >= maxVal) {
     throw popstd::poplib_error("range for uniform distribution invalid");
   }
-  std::tie(scale, offset) = uniformScaleAndOffset(minVal, maxVal);
+  std::tie(scale, offset) = uniformScaleAndOffset(minVal, maxVal,
+                                                  A.elementType());
+
   seed = colourSeedL64(seed, UNIFORM_MODULEID, seedProvided);
   const auto colouredId =
       colouredIdU64(UNIFORM_MODULEID, callCount++, seedProvided, mode);
@@ -184,20 +195,20 @@ uniform(Graph &graph, Tensor &A, float minVal, float maxVal, uint64_t seed,
                {{"scale", scale}, {"offset", offset}}, prog, debugPrefix);
 }
 
-void uniform(Graph &graph, Tensor &A, float minVal, float maxVal, uint64_t seed,
-             RandomGenMode mode, Sequence &prog,
+void uniform(Graph &graph, Tensor &A, double minVal, double maxVal,
+             uint64_t seed, RandomGenMode mode, Sequence &prog,
              const std::string &debugPrefix) {
   uniform(graph, A, minVal, maxVal, seed, mode, true, prog, debugPrefix);
 }
 
-void uniform(Graph &graph, Tensor &A, float minVal, float maxVal,
+void uniform(Graph &graph, Tensor &A, double minVal, double maxVal,
              RandomGenMode mode, Sequence &prog,
              const std::string &debugPrefix) {
   uniform(graph, A, minVal, maxVal, ~0, mode, false, prog, debugPrefix);
 }
 
 static void
-bernoulli(Graph &graph, Tensor &A, float prob, uint64_t seed,
+bernoulli(Graph &graph, Tensor &A, double prob, uint64_t seed,
           RandomGenMode mode, bool seedProvided, Sequence &prog,
           const std::string &debugPrefix) {
   static uint16_t callCount;
@@ -212,19 +223,19 @@ bernoulli(Graph &graph, Tensor &A, float prob, uint64_t seed,
                prog, debugPrefix);
 }
 
-void bernoulli(Graph &graph, Tensor &A, float prob, uint64_t seed,
+void bernoulli(Graph &graph, Tensor &A, double prob, uint64_t seed,
                RandomGenMode mode,
                Sequence &prog, const std::string &debugPrefix) {
   bernoulli(graph, A, prob, seed, mode, true, prog, debugPrefix);
 }
 
-void bernoulli(Graph &graph, Tensor &A, float prob, RandomGenMode mode,
-                Sequence &prog, const std::string &debugPrefix) {
+void bernoulli(Graph &graph, Tensor &A, double prob, RandomGenMode mode,
+               Sequence &prog, const std::string &debugPrefix) {
   bernoulli(graph, A, prob, ~0, mode, false, prog, debugPrefix);
 }
 
 static void
-normal(Graph &graph, Tensor &A, float mean, float stdDev, uint64_t seed,
+normal(Graph &graph, Tensor &A, double mean, double stdDev, uint64_t seed,
        RandomGenMode mode, bool seedProvided, Sequence &prog,
        const std::string &debugPrefix) {
   static uint16_t callCount;
@@ -235,22 +246,23 @@ normal(Graph &graph, Tensor &A, float mean, float stdDev, uint64_t seed,
                {{"mean", mean}, {"stdDev", stdDev}}, prog, debugPrefix);
 }
 
-void normal(Graph &graph, Tensor &A, float mean, float stdDev,
+void normal(Graph &graph, Tensor &A, double mean, double stdDev,
             RandomGenMode mode, Sequence &prog,
             const std::string &debugPrefix) {
   normal(graph, A, mean, stdDev, ~0, mode, true, prog, debugPrefix);
 }
 
-void normal(Graph &graph, Tensor &A, float mean, float stdDev, uint64_t seed,
+void normal(Graph &graph, Tensor &A, double mean, double stdDev, uint64_t seed,
             RandomGenMode mode, Sequence &prog,
             const std::string &debugPrefix) {
   normal(graph, A, mean, stdDev, seed, mode, false, prog, debugPrefix);
 }
 
 static void
-truncatedNormal(Graph &graph, Tensor &A, float mean, float stdDev, float alpha,
-                uint64_t seed, RandomGenMode mode, bool seedProvided,
-                Sequence &prog, const std::string &debugPrefix) {
+truncatedNormal(Graph &graph, Tensor &A, double mean, double stdDev,
+                double alpha, uint64_t seed, RandomGenMode mode,
+                bool seedProvided,Sequence &prog,
+                const std::string &debugPrefix) {
   static uint16_t callCount;
   seed = colourSeedL64(seed, TRUNCNORMAL_MODULEID, seedProvided);
   const auto colouredId =
@@ -272,15 +284,15 @@ truncatedNormal(Graph &graph, Tensor &A, float mean, float stdDev, float alpha,
                 {"iterations", iterations}}, prog, debugPrefix);
 }
 
-void truncatedNormal(Graph &graph, Tensor &a, float mean, float stdDev,
-                     float alpha, uint64_t seed, RandomGenMode mode,
+void truncatedNormal(Graph &graph, Tensor &a, double mean, double stdDev,
+                     double alpha, uint64_t seed, RandomGenMode mode,
                      Sequence &prog, const std::string &debugPrefix) {
   truncatedNormal(graph, a, mean, stdDev, alpha, seed, mode, true, prog,
                   debugPrefix);
 }
 
-void truncatedNormal(Graph &graph, Tensor &a, float mean, float stdDev,
-                     float alpha, RandomGenMode mode, Sequence &prog,
+void truncatedNormal(Graph &graph, Tensor &a, double mean, double stdDev,
+                     double alpha, RandomGenMode mode, Sequence &prog,
                      const std::string &debugPrefix) {
   truncatedNormal(graph, a, mean, stdDev, alpha, ~0, mode, false, prog,
                   debugPrefix);

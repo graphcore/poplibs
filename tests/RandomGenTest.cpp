@@ -58,11 +58,13 @@ template <typename T>
 static bool validateUniform(T mat[DIM_SIZE][DIM_SIZE], T minVal, T maxVal,
                             double percentError) {
   bool boundsMet = true;
+  const bool isIntType = std::is_same<T, int>::value;
   double mean = 0;
   // compute mean and variance and check bounds
   for(auto r = 0U; r != DIM_SIZE; ++r) {
     for (auto c = 0U; c != DIM_SIZE; ++c) {
-      if (mat[r][c] < minVal || mat[r][c] > maxVal)  {
+      if (((!isIntType) && (mat[r][c] < minVal || mat[r][c] > maxVal)) ||
+          ((isIntType) && (mat[r][c] < minVal || mat[r][c] >= maxVal))) {
         boundsMet = false;
         std::cerr << "bounds not met at [" << r << "][" << c << "] ";
         std::cerr << mat[r][c] << "\n";
@@ -77,20 +79,29 @@ static bool validateUniform(T mat[DIM_SIZE][DIM_SIZE], T minVal, T maxVal,
   for(auto r = 0U; r != DIM_SIZE; ++r){
     for (auto c = 0U; c != DIM_SIZE; ++c) {
       double err = mat[r][c] - mean;
-      variance += err * err ;
+      variance += err * err;
     }
   }
 
-  const double stdDev = std::sqrt(variance / (DIM_SIZE * DIM_SIZE - 1));
+  double stdDev = std::sqrt(variance / (DIM_SIZE * DIM_SIZE - 1));
+
   const double dist = (maxVal - minVal) / 2;
-  const double actualMean = (maxVal + minVal) / 2;
+
+  // The intervals are different for integer type
+  const double actualMean = isIntType ? (minVal + maxVal - 1) / 2.0 :
+                                        (minVal + maxVal) / 2.0;
+
 
   const bool meanTest = mean >= (actualMean - dist * percentError / 100)
                      && mean <= (actualMean + dist * percentError / 100);
 
   const double rStdDev = stdDev /  dist;
-  const bool stdDevTest = rStdDev <= ((1 + percentError / 100) / std::sqrt(3.0))
-                      && rStdDev >= ((1 - percentError / 100) / std::sqrt(3.0));
+  bool stdDevTest = rStdDev <= ((1 + percentError / 100) / std::sqrt(3.0))
+                    && rStdDev >= ((1 - percentError / 100) / std::sqrt(3.0));
+  // ignore stddev test for int. It is easy to derive if needed
+  if (isIntType) {
+    stdDevTest = true;
+  }
 
   if (!meanTest) {
     std::cerr << "mean test failed : actual " << actualMean << " estimated ";
@@ -369,6 +380,14 @@ BOOST_AUTO_TEST_CASE(RandomGenUniformHalf) {
   bool result = uniformTest<T>(hOut, -2.0, 0, 5.0, SYSTEM_REPEATABLE);
   BOOST_TEST(result == true);
 }
+
+BOOST_AUTO_TEST_CASE(RandomGenUniformInt) {
+  using T = int;
+  T hOut[DIM_SIZE][DIM_SIZE];
+  bool result = uniformTest<T>(hOut, -20, 2, 5.0, SYSTEM_REPEATABLE);
+  BOOST_TEST(result == true);
+}
+
 
 BOOST_AUTO_TEST_CASE(RandomGenUniformFloat) {
   using T = float;
