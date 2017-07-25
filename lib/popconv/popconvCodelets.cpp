@@ -1077,6 +1077,7 @@ public:
   Output<Vector<OutType>> out;
   Vector<Input<Vector<InType>>> in;
   SimOnlyField<unsigned> dataPathWidth;
+  SimOnlyField<bool> useDoubleDataPathInstr;
 
   bool compute() {
     auto numEstimates = out.size();
@@ -1097,14 +1098,19 @@ public:
 
   uint64_t getCycleEstimate() const {
     bool isFloat = std::is_same<InType, float>::value;
+    // factor of 2 for instructions that allow double the datapath width
     unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    if (useDoubleDataPathInstr) {
+      vectorWidth *= 2;
+    }
     unsigned numVectors = (out.size() + vectorWidth - 1) / vectorWidth;
 
-    uint64_t cycles = 5;
+    uint64_t cycles = 11; // overhead from benchmark including 2 cycles for run
+    cycles += 7 * numVectors;
     for (unsigned d = 0; d < in.size(); d++) {
       cycles += 5;
       auto samplesPerEst = in[d].size() / out.size();
-      cycles += numVectors * (2 + samplesPerEst);
+      cycles += numVectors * (3 + samplesPerEst);
     }
     return cycles;
   }
@@ -1120,6 +1126,7 @@ public:
   Output<Vector<OutType>> out;
   Vector<Input<Vector<InType>>> in;
   SimOnlyField<unsigned> dataPathWidth;
+  SimOnlyField<bool> useDoubleDataPathInstr;
 
   bool compute() {
     auto numEstimates = out.size();
@@ -1137,17 +1144,21 @@ public:
     }
     return true;
   }
-
   uint64_t getCycleEstimate() const {
     bool isFloat = std::is_same<InType, float>::value;
+    // factor of 2 for instructions that allow double the datapath width
     unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    if (useDoubleDataPathInstr) {
+      vectorWidth *= 2;
+    }
     unsigned numVectors = (out.size() + vectorWidth - 1) / vectorWidth;
 
-    uint64_t cycles = 5;
+    uint64_t cycles = 11; // overhead from benchmark including 2 cycles for run
+    cycles += 7 * numVectors;
     for (unsigned d = 0; d < in.size(); d++) {
       cycles += 5;
       auto samplesPerEst = in[d].size() / out.size();
-      cycles += numVectors * (2 + samplesPerEst);
+      cycles += numVectors * (3 + samplesPerEst);
     }
     return cycles;
   }
@@ -1212,8 +1223,9 @@ public:
       unsigned numElem = mean[i].size();
       // always use float as we want float intermediates
       unsigned vectorWidth = dataPathWidth / 32;
-      // mul, add, done using vectorWidth. sqrt and div done at one per cycle
-      unsigned cyclesPerVector = 2 + 2 * vectorWidth;
+      // mul, add, sub done as vectors of vectorWidth.
+      // invsqrt is scalar
+      unsigned cyclesPerVector = 3 + 1 * vectorWidth;
       unsigned numVectors = (numElem + vectorWidth - 1) / vectorWidth;
       cycles += 4 + cyclesPerVector * numVectors;
     }

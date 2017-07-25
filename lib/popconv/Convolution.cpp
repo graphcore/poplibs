@@ -2494,6 +2494,8 @@ convChannelReduce(Graph &graph,
   assert(computeSets.size() == 3);
 
   auto inGrouped = groupActivations(in);
+  // set this to true to enable f16v8 and f32v4 instructions
+  const bool useDoubleDataPathInstr = true;
 
   // The bias gradient is the sum of all the deltas.
   // The reduction of these deltas is done in three stages:
@@ -2586,6 +2588,8 @@ convChannelReduce(Graph &graph,
       graph.setFieldSize(v["in"], numRanges);
       graph.connect(v["out"], r[outIndex++]);
       graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+      graph.setInitialValue(v["useDoubleDataPathInstr"],
+                            useDoubleDataPathInstr);
       graph.setTileMapping(v, tile);
     }
   }
