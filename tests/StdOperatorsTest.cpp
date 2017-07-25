@@ -687,7 +687,7 @@ BOOST_AUTO_TEST_CASE(StdOperationSin,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  unaryOpTest<float, double>(popstd::cos,
+  unaryOpTest<float, double>(popstd::sin,
                              [](float x) -> double {
                                 double res = std::sin(static_cast<double>(x));
                                 return res;
