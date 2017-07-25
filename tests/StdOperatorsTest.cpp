@@ -148,6 +148,27 @@ std::string typeName() {
   std::abort();
 }
 
+template<typename T>
+void convertToPositive(T array[DIM_SIZE][DIM_SIZE]) {
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      array[i][j] = std::abs(array[i][j]);
+    }
+  }
+}
+
+template<>
+void convertToPositive(bool array[DIM_SIZE][DIM_SIZE]) {}
+
+template<>
+void convertToPositive(float array[DIM_SIZE][DIM_SIZE]) {
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      array[i][j] = std::fabs(array[i][j]);
+    }
+  }
+}
+
 template <typename T, typename TestT>
 void unaryOpTest(const std::function<Tensor(Graph &, Tensor, Sequence &,
                                             const std::string &)> &op,
@@ -169,11 +190,7 @@ void unaryOpTest(const std::function<Tensor(Graph &, Tensor, Sequence &,
   T hOut[DIM_SIZE][DIM_SIZE];
   setUnaryOpInput(hIn);
   if (positiveInputs) {
-    for (auto r = 0U; r != DIM_SIZE; ++r) {
-      for (auto c = 0U; c != DIM_SIZE; ++c) {
-        hIn[r][c] = std::fabs(hIn[r][c]);
-      }
-    }
+    convertToPositive(hIn);
   }
   eng.writeTensor("in", hIn);
   eng.run();
@@ -669,34 +686,13 @@ BOOST_AUTO_TEST_CASE(StdOperationSin,
                   *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
-) {
-  Graph graph(createIPUModelDevice());
-  popstd::addCodelets(graph);
-
-  float hIn[DIM_SIZE][DIM_SIZE];
-  setUnaryOpInput(hIn);
-
-  auto in = mapUnaryOpTensor(graph, "float");
-  auto prog = Sequence();
-
-  prog.add(Copy(hIn, in));
-  auto out = sin(graph, in, prog);
-
-  float hOut[DIM_SIZE][DIM_SIZE];
-  prog.add(Copy(out, hOut));
-
-  Engine eng(graph, prog);
-  eng.run();
-
-  /* Check result */
-  for (auto i = 0U; i < DIM_SIZE; ++i) {
-    for (auto j = 0U; j < DIM_SIZE; ++j) {
-      double res = std::sin(static_cast<double>(hIn[i][j]));
-      BOOST_TEST(hOut[i][j] == res);
-    }
-  }
+                  ) {
+  unaryOpTest<float, double>(popstd::cos,
+                             [](float x) -> double {
+                                double res = std::sin(static_cast<double>(x));
+                                return res;
+                             });
 }
-
 
 BOOST_AUTO_TEST_CASE(StdOperationTanh,
                   *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
