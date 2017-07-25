@@ -3,6 +3,7 @@
 #include <memory>
 #include <random>
 #include <boost/multi_array.hpp>
+#include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Program.hpp>
@@ -15,9 +16,15 @@ std::unique_ptr<char []>
 allocateHostMemoryForTensor(const poplar::Tensor &t);
 
 std::unique_ptr<char []>
-allocateHostMemoryForTensor(const poplar::Tensor &t,
-                            poplar::program::Sequence &upload,
-                            poplar::program::Sequence &download);
+allocateHostMemoryForTensor(const poplar::Tensor &t,  const std::string &name,
+                            poplar::Graph &graph,
+                            std::vector<std::pair<std::string, char *>> &map);
+
+void upload(poplar::Engine &e,
+            std::vector<std::pair<std::string, char *>> &map);
+
+void download(poplar::Engine &e,
+              std::vector<std::pair<std::string, char *>> &map);
 
 /// Fill a vector with values in the interval [min:max)
 /// The specific values returned seem the same on ubuntu/gcc and

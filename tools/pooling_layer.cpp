@@ -325,19 +325,20 @@ int main(int argc, char **argv) {
                                           prevAct, nextAct, zDeltas,
                                           bwdProg);
   }
-  auto upload = Sequence();
-  auto download = Sequence();
-  auto rawHostPrevAct = allocateHostMemoryForTensor(prevAct, upload, download);
-  auto rawHostNextAct = allocateHostMemoryForTensor(nextAct, upload, download);
+  std::vector<std::pair<std::string, char *>> tmap;
+  auto rawHostPrevAct = allocateHostMemoryForTensor(prevAct, "prevAct",
+                                                    graph, tmap);
+  auto rawHostNextAct = allocateHostMemoryForTensor(nextAct, "nextAct",
+                                                    graph, tmap);
   std::unique_ptr<char[]> rawHostZDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
   if (!inferenceOnly) {
-    rawHostZDeltas = allocateHostMemoryForTensor(zDeltas, upload, download);
-    rawHostPrevDeltas = allocateHostMemoryForTensor(prevDeltas, upload,
-                                                    download);
+    rawHostZDeltas = allocateHostMemoryForTensor(zDeltas, "zDeltas",
+                                                 graph, tmap);
+    rawHostPrevDeltas = allocateHostMemoryForTensor(prevDeltas, "prevDeltas",
+                                                    graph, tmap);
   }
-  Engine engine(graph, {std::move(upload), std::move(download),
-                        std::move(fwdProg), std::move(bwdProg)});
+  Engine engine(graph, {std::move(fwdProg), std::move(bwdProg)});
 
 
   boost::multi_array<double, 4>
@@ -348,9 +349,9 @@ int main(int argc, char **argv) {
   writeRandomValues(hostPrevAct, -4.0, 4.0, randomEngine);
   copy<4>(hostPrevAct, dataTypeStr, rawHostPrevAct.get());
   // Run the forward pass.
-  engine.run(0); // Upload.
-  engine.run(2); // Run.
-  engine.run(1); // Download.
+  upload(engine, tmap);
+  engine.run(0); // Run.
+  download(engine, tmap);
 
   // Validate against a reference model.
   const double absoluteTolerance = dataTypeStr == "float" ? FLOAT_ABS_TOL :
@@ -376,9 +377,9 @@ int main(int argc, char **argv) {
     // Run the backwards pass.
     writeRandomValues(hostZDeltas, -5.0, 5.0, randomEngine);
     copy<4>(hostZDeltas, dataTypeStr, rawHostZDeltas.get());
-    engine.run(0); // Upload.
-    engine.run(3); // Run.
-    engine.run(1); // Download.
+    upload(engine, tmap);
+    engine.run(1); // Run.
+    download(engine, tmap);
     copy<4>(dataTypeStr, rawHostZDeltas.get(), hostZDeltas);
     copy<4>(dataTypeStr, rawHostPrevDeltas.get(), hostPrevDeltas);
 

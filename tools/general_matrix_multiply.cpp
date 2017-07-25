@@ -179,15 +179,12 @@ int main(int argc, char **argv) {
 
   addTo(graph, matC, matAxB, alpha, prog);
 
-  auto upload = Sequence();
-  auto download = Sequence();
-  auto rawHostMatA = allocateHostMemoryForTensor(matA, upload, download);
-  auto rawHostMatB = allocateHostMemoryForTensor(matB, upload, download);
-  auto rawHostMatC = allocateHostMemoryForTensor(matC, upload, download);
+  std::vector<std::pair<std::string, char *>> tmap;
+  auto rawHostMatA = allocateHostMemoryForTensor(matA, "matA", graph, tmap);
+  auto rawHostMatB = allocateHostMemoryForTensor(matB, "matB", graph, tmap);
+  auto rawHostMatC = allocateHostMemoryForTensor(matC, "matC", graph, tmap);
 
-  Engine engine(graph, {std::move(upload),
-                        std::move(download),
-                        std::move(prog)});
+  Engine engine(graph, prog);
 
   boost::multi_array<double, 2>
       hostMatA(boost::extents[rowsMatA][colsMatA]);
@@ -210,9 +207,9 @@ int main(int argc, char **argv) {
   copy(hostMatB, dataTypeStr, rawHostMatB.get());
   copy(hostMatC, dataTypeStr, rawHostMatC.get());
 
-  engine.run(0);    // Upload
-  engine.run(2);    // matrix operation
-  engine.run(1);    // download
+  upload(engine, tmap);
+  engine.run(0);    // matrix operation
+  download(engine, tmap);
 
   copy(dataTypeStr, rawHostMatC.get(), hostMatC);
 

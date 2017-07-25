@@ -453,24 +453,27 @@ int main(int argc, char **argv) {
                                           params, convOptions);
     }
   }
-  auto upload = Sequence();
-  auto download = Sequence();
-  auto rawHostPrevAct = allocateHostMemoryForTensor(prevAct, upload, download);
-  auto rawHostWeights = allocateHostMemoryForTensor(weights, upload, download);
-  auto rawHostBiases = allocateHostMemoryForTensor(biases, upload, download);
-  auto rawHostNextAct = allocateHostMemoryForTensor(nextAct, upload, download);
+  std::vector<std::pair<std::string, char *>> tmap;
+  auto rawHostPrevAct = allocateHostMemoryForTensor(prevAct, "prevAct", graph,
+                                                    tmap);
+  auto rawHostWeights = allocateHostMemoryForTensor(weights, "weights", graph,
+                                                    tmap);
+  auto rawHostBiases = allocateHostMemoryForTensor(biases, "biases", graph,
+                                                   tmap);
+  auto rawHostNextAct = allocateHostMemoryForTensor(nextAct, "nextAct", graph,
+                                                    tmap);
   std::unique_ptr<char[]> rawHostZDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
   if (doBwdPass || doWuPass) {
-    rawHostZDeltas = allocateHostMemoryForTensor(zDeltas, upload, download);
+    rawHostZDeltas = allocateHostMemoryForTensor(zDeltas, "zDeltas", graph,
+                                                 tmap);
   }
   if (doBwdPass) {
-    rawHostPrevDeltas = allocateHostMemoryForTensor(prevDeltas, upload,
-                                                    download);
+    rawHostPrevDeltas = allocateHostMemoryForTensor(prevDeltas, "prevDeltas",
+                                                    graph, tmap);
   }
 
-  Engine engine(graph, {std::move(upload), std::move(download),
-                        std::move(fwdProg), std::move(revProg)});
+  Engine engine(graph, {std::move(fwdProg), std::move(revProg)});
 
   boost::multi_array<double, 4>
       hostPrevAct(boost::extents[batchSize][height][width][fwdInChans]);
@@ -490,9 +493,9 @@ int main(int argc, char **argv) {
   copy(hostBiases, dataTypeStr, rawHostBiases.get());
 
   // Run the forward pass.
-  engine.run(0); // Upload.
-  engine.run(2); // Run.
-  engine.run(1); // Download.
+  upload(engine, tmap);
+  engine.run(0); // Run.
+  download(engine, tmap);
 
   // Validate against a reference model.
   bool matchesModel = true;
@@ -525,9 +528,9 @@ int main(int argc, char **argv) {
     // Run the backwards and/or weight update passes.
     writeRandomValues(hostZDeltas, -3.0, 7.0, randomEngine);
     copy(hostZDeltas, dataTypeStr, rawHostZDeltas.get());
-    engine.run(0); // Upload.
-    engine.run(3); // Run.
-    engine.run(1); // Download.
+    upload(engine, tmap);
+    engine.run(1); // Run.
+    download(engine, tmap);
 
     copy(dataTypeStr, rawHostZDeltas.get(), hostZDeltas);
     if (doBwdPass) {

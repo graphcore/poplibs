@@ -120,7 +120,7 @@ static bool uniformTest(T hOut[DIM_SIZE][DIM_SIZE], const T minVal,
 
   auto out = graph.addTensor(dType, {DIM_SIZE, DIM_SIZE}, "out");
   mapTensorLinearly(graph, out);
-
+  graph.createHostRead("out", out);
   auto prog = Sequence();
   if (seed == ALLONES_SEED) {
     uniform(graph, out, minVal, maxVal, mode, prog);
@@ -128,10 +128,10 @@ static bool uniformTest(T hOut[DIM_SIZE][DIM_SIZE], const T minVal,
     uniform(graph, out, minVal, maxVal, seed, mode, prog);
   }
 
-  prog.add(Copy(out, hOut));
-
   Engine eng(graph, prog);
+
   eng.run();
+  eng.readTensor("out", hOut);
 
   return validateUniform<T>(hOut, minVal, maxVal, percentError);
 }
@@ -182,6 +182,7 @@ static bool bernoulliTest(T hOut[DIM_SIZE][DIM_SIZE], float prob,
 
   auto out = graph.addTensor(dType, {DIM_SIZE, DIM_SIZE}, "out");
   mapTensorLinearly(graph, out);
+  graph.createHostRead("out", out);
 
   auto prog = Sequence();
   if (seed == ALLONES_SEED) {
@@ -190,10 +191,9 @@ static bool bernoulliTest(T hOut[DIM_SIZE][DIM_SIZE], float prob,
     bernoulli(graph, out, prob, seed, mode, prog);
   }
 
-  prog.add(Copy(out, hOut));
-
   Engine eng(graph, prog);
   eng.run();
+  eng.readTensor("out", hOut);
 
   return validateBernoulli<T>(hOut, prob, percentError);
 }
@@ -255,6 +255,7 @@ static bool normalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean, float stdDev,
 
   auto out = graph.addTensor(dType, {DIM_SIZE, DIM_SIZE}, "out");
   mapTensorLinearly(graph, out);
+  graph.createHostRead("out", out);
 
   auto prog = Sequence();
   if (seed == ALLONES_SEED) {
@@ -263,10 +264,9 @@ static bool normalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean, float stdDev,
     normal(graph, out, mean, stdDev, seed, mode, prog);
   }
 
-  prog.add(Copy(out, hOut));
-
   Engine eng(graph, prog);
   eng.run();
+  eng.readTensor("out", hOut);
 
   return validateNormal<T>(hOut, mean, stdDev, percentError);
 }
@@ -346,6 +346,7 @@ static bool truncatedNormalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean,
 
   auto out = graph.addTensor(dType, {DIM_SIZE, DIM_SIZE}, "out");
   mapTensorLinearly(graph, out);
+  graph.createHostRead("out", out);
 
   auto prog = Sequence();
 
@@ -355,10 +356,9 @@ static bool truncatedNormalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean,
     truncatedNormal(graph, out, mean, stdDev, alpha, seed, mode, prog);
   }
 
-  prog.add(Copy(out, hOut));
-
   Engine eng(graph, prog);
   eng.run();
+  eng.readTensor("out", hOut);
 
   return validateTruncNormal<T>(hOut, mean, stdDev, alpha, percentError);
 }

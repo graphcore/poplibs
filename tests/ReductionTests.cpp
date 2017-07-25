@@ -74,15 +74,13 @@ static bool reduceTest(const std::vector<unsigned> dims,
     out = popreduce::reduce(graph, in, prog);
   }
 
-  auto upload = Sequence();
-  auto download = Sequence();
-
+  std::vector<std::pair<std::string, char *>> tmap;
   auto rawHostPrev =
-          allocateHostMemoryForTensor(prev, upload, download);
+          allocateHostMemoryForTensor(prev, "prev", graph, tmap);
   auto rawHostIn =
-          allocateHostMemoryForTensor(in, upload, download);
+          allocateHostMemoryForTensor(in, "in", graph, tmap);
   auto rawHostOut =
-          allocateHostMemoryForTensor(out, upload, download);
+          allocateHostMemoryForTensor(out, "out", graph, tmap);
 
   boost::multi_array<double, 1>
       hostPrev(boost::extents[dims[1]]);
@@ -100,12 +98,11 @@ static bool reduceTest(const std::vector<unsigned> dims,
   copy(hostPrev, outTypeStr, rawHostPrev.get());
   copy(hostIn, partialsTypeStr, rawHostIn.get());
 
-  Engine engine(graph, {std::move(upload), std::move(download),
-                        std::move(prog)});
+  Engine engine(graph, prog);
 
-  engine.run(0); // Upload.
-  engine.run(2); // Run.
-  engine.run(1); // Download.
+  upload(engine, tmap);
+  engine.run(0); // Run.
+  download(engine, tmap);
 
   copy(outTypeStr, rawHostOut.get(), hostOut);
 

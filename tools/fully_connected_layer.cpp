@@ -141,8 +141,6 @@ int main(int argc, char **argv) {
   auto biases = graph.addTensor(dataTypeStr, {outputSize}, "biases");
   mapTensorLinearly(graph, biases);
 
-  auto upload = Sequence();
-  auto download = Sequence();
   auto bwdOptions = fwdOptions;
   bwdOptions.fullyConnectedPass = FullyConnectedPass::BWD;
 
@@ -171,14 +169,17 @@ int main(int argc, char **argv) {
                                nextAct.dim(1) * nextAct.dim(4)});
   }
 
+
+  std::vector<std::pair<std::string, char *>> tmap;
   auto rawHostPrevAct =
-      allocateHostMemoryForTensor(prevAct[0][0], upload, download);
+      allocateHostMemoryForTensor(prevAct[0][0], "prevAct", graph, tmap);
   auto rawHostWeights =
-      allocateHostMemoryForTensor(weights[0][0], upload, download);
-  auto rawHostBiases = allocateHostMemoryForTensor(biases, upload, download);
+      allocateHostMemoryForTensor(weights[0][0], "weights", graph, tmap);
+  auto rawHostBiases = allocateHostMemoryForTensor(biases, "biases", graph,
+                                                   tmap);
   auto rawHostNextAct =
-      allocateHostMemoryForTensor(nextAct[0][0].dimShuffle({1, 0}), upload,
-                                  download);
+      allocateHostMemoryForTensor(nextAct[0][0].dimShuffle({1, 0}), "nextAct",
+                                  graph, tmap);
 
   Tensor zDeltas;
   std::unique_ptr<char[]> rawHostZDeltas;
@@ -199,7 +200,7 @@ int main(int argc, char **argv) {
                                      "zDeltas", bwdOptions);
     zDeltas = zDeltas[0][0];
     rawHostZDeltas =
-        allocateHostMemoryForTensor(zDeltas, upload, download);
+        allocateHostMemoryForTensor(zDeltas, "zDeltas", graph, tmap);
   }
   Tensor prevDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
@@ -221,8 +222,7 @@ int main(int argc, char **argv) {
                                       bwdOptions);
     prevDeltas = prevDeltas[0][0].dimShuffle({1, 0});
     rawHostPrevDeltas =
-        allocateHostMemoryForTensor(prevDeltas, upload,
-                                    download);
+        allocateHostMemoryForTensor(prevDeltas, "prevDeltas", graph, tmap);
   }
   if (doWuPass) {
     // Implement the weight update as a convolutional layer with
@@ -256,8 +256,7 @@ int main(int argc, char **argv) {
     addTo(graph, biases, biasDeltas, -learningRate, bwdProg);
   }
 
-  Engine engine(graph, {std::move(upload), std::move(download),
-                        std::move(fwdProg), std::move(bwdProg)});
+  Engine engine(graph, {std::move(fwdProg), std::move(bwdProg)});
 
   boost::multi_array<double, 2>
       hostPrevAct(boost::extents[batchSize][inputSize]);
@@ -275,9 +274,9 @@ int main(int argc, char **argv) {
   copy(hostWeights, dataTypeStr, rawHostWeights.get());
   copy(hostBiases, dataTypeStr, rawHostBiases.get());
   // Run the forward pass.
-  engine.run(0); // Upload.
-  engine.run(2); // Run.
-  engine.run(1); // Download.
+  upload(engine, tmap);
+  engine.run(0); // Run.
+  download(engine, tmap);
   copy(dataTypeStr, rawHostNextAct.get(), hostNextAct);
 
   // Validate against a reference model.
@@ -303,9 +302,9 @@ int main(int argc, char **argv) {
     // Run the backwards pass.
     writeRandomValues(hostZDeltas, -5.0, 5.0, randomEngine);
     copy(hostZDeltas, dataTypeStr, rawHostZDeltas.get());
-    engine.run(0); // Upload.
-    engine.run(3); // Run.
-    engine.run(1); // Download.
+    upload(engine, tmap);
+    engine.run(1); // Run.
+    download(engine, tmap);
 
     // Validate against a reference model.
     if (doBwdPass) {

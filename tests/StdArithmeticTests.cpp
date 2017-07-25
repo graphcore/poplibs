@@ -75,19 +75,19 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float,
   Tensor in1, in2;
   std::tie(in1, in2) = mapBinaryOpTensors(graph, "float");
 
+  graph.createHostWrite("in1", in1);
+  graph.createHostWrite("in2", in2);
+  graph.createHostRead("out", in1);
   auto prog = Sequence();
-
-  prog.add(Copy(hIn1, in1));
-  prog.add(Copy(hIn2, in2));
-
-
   addTo(graph, in1, in2, 1.0, prog);
+  Engine eng(graph, prog);
 
   float hOut[DIM_SIZE][DIM_SIZE];
-  prog.add(Copy(in1, hOut));
 
-  Engine eng(graph, prog);
+  eng.writeTensor("in1", hIn1);
+  eng.writeTensor("in2", hIn2);
   eng.run();
+  eng.readTensor("out", hOut);
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -107,19 +107,20 @@ BOOST_AUTO_TEST_CASE(StdAddTo_int) {
 
   Tensor in1, in2;
   std::tie(in1, in2) = mapBinaryOpTensors(graph, "int");
-
+  graph.createHostWrite("in1", in1);
+  graph.createHostWrite("in2", in2);
+  graph.createHostRead("out", in1);
   auto prog = Sequence();
-
-  prog.add(Copy(hIn1, in1));
-  prog.add(Copy(hIn2, in2));
 
   addTo(graph, in1, in2, prog);
 
   int hOut[DIM_SIZE][DIM_SIZE];
-  prog.add(Copy(in1, hOut));
-
   Engine eng(graph, prog);
+
+  eng.writeTensor("in1", hIn1);
+  eng.writeTensor("in2", hIn2);
   eng.run();
+  eng.readTensor("out", hOut);
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -143,19 +144,21 @@ BOOST_AUTO_TEST_CASE(StdSubtractFrom_float,
 
   Tensor in1, in2;
   std::tie(in1, in2) = mapBinaryOpTensors(graph, "float");
-
+  graph.createHostWrite("in1", in1);
+  graph.createHostWrite("in2", in2);
+  graph.createHostRead("out", in1);
   auto prog = Sequence();
-
-  prog.add(Copy(hIn1, in1));
-  prog.add(Copy(hIn2, in2));
 
   subtractFrom(graph, in1, in2, 1.0, prog);
 
   float hOut[DIM_SIZE][DIM_SIZE];
-  prog.add(Copy(in1, hOut));
 
   Engine eng(graph, prog);
+
+  eng.writeTensor("in1", hIn1);
+  eng.writeTensor("in2", hIn2);
   eng.run();
+  eng.readTensor("out", hOut);
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -175,19 +178,22 @@ BOOST_AUTO_TEST_CASE(StdSubtractFrom_int) {
 
   Tensor in1, in2;
   std::tie(in1, in2) = mapBinaryOpTensors(graph, "int");
+  graph.createHostWrite("in1", in1);
+  graph.createHostWrite("in2", in2);
+  graph.createHostRead("out", in1);
 
   auto prog = Sequence();
-
-  prog.add(Copy(hIn1, in1));
-  prog.add(Copy(hIn2, in2));
 
   subtractFrom(graph, in1, in2, prog);
 
   int hOut[DIM_SIZE][DIM_SIZE];
-  prog.add(Copy(in1, hOut));
 
   Engine eng(graph, prog);
+
+  eng.writeTensor("in1", hIn1);
+  eng.writeTensor("in2", hIn2);
   eng.run();
+  eng.readTensor("out", hOut);
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -209,18 +215,19 @@ BOOST_AUTO_TEST_CASE(StdCast) {
 
   auto in = graph.addTensor("float", {DIM_SIZE}, "in");
   mapTensorLinearly(graph, in);
+  graph.createHostWrite("in", in);
 
   auto prog = Sequence();
 
-  prog.add(Copy(hIn, in));
-
   poplar::Tensor out = cast(graph, in, "int", prog, "cast");
+  graph.createHostRead("out", out);
 
   int hOut[DIM_SIZE];
-  prog.add(Copy(out, hOut));
 
   Engine eng(graph, prog);
+  eng.writeTensor("in", hIn);
   eng.run();
+  eng.readTensor("out", hOut);
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {

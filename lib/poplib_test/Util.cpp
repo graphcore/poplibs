@@ -23,12 +23,24 @@ allocateHostMemoryForTensor(const Tensor &t) {
 }
 
 std::unique_ptr<char []>
-allocateHostMemoryForTensor(const Tensor &t,
-                            Sequence &upload, Sequence &download) {
+allocateHostMemoryForTensor(const Tensor &t,  const std::string &name,
+                            Graph &graph,
+                            std::vector<std::pair<std::string, char *>> &map) {
   std::unique_ptr<char []> p = allocateHostMemoryForTensor(t);
-  upload.add(Copy(p.get(), t));
-  download.add(Copy(t, p.get()));
+  map.emplace_back(name, p.get());
+  graph.createHostRead(name, t);
+  graph.createHostWrite(name, t);
   return p;
+}
+
+void upload(Engine &e, std::vector<std::pair<std::string, char *>> &map) {
+  for (const auto &p : map)
+    e.writeTensor(p.first, p.second);
+}
+
+void download(Engine &e, std::vector<std::pair<std::string, char *>> &map) {
+  for (const auto &p : map)
+    e.readTensor(p.first, p.second);
 }
 
 void

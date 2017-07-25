@@ -197,40 +197,41 @@ int main(int argc, char **argv) {
                                             biases, prog, nonLinearityType,
                                             partialsTypeStr, "");
 
-  auto upload = Sequence();
-  auto download = Sequence();
 
   std::unique_ptr<char[]> rawHostPrevAct;
   std::unique_ptr<char[]> rawHostFeedFwdWeights;
   std::vector< std::unique_ptr<char[]> > rawHostfeedFwdOutput;
   std::vector< std::unique_ptr<char[]> > rawHostNextAct;
-
-
+  std::vector<std::pair<std::string, char *>> tmap;
   if (applyFeedFwddWeights) {
-    rawHostPrevAct = allocateHostMemoryForTensor(
-                        prevAct, upload, download);
-    rawHostFeedFwdWeights = allocateHostMemoryForTensor(
-                        feedFwdWeights, upload, download);
+    rawHostPrevAct = allocateHostMemoryForTensor(prevAct, "prevAct", graph,
+                                                 tmap);
+    rawHostFeedFwdWeights = allocateHostMemoryForTensor(feedFwdWeights,
+                                                        "feedFwdWeights",
+                                                        graph, tmap);
   }
 
   for (auto s = 0U; s != sequenceSize; ++s) {
-    rawHostfeedFwdOutput.push_back(allocateHostMemoryForTensor(
-                                    feedFwdOutput[s], upload, download));
-    rawHostNextAct.push_back(allocateHostMemoryForTensor(
-                                    nextAct[s], upload, download));
+    rawHostfeedFwdOutput.push_back(
+         allocateHostMemoryForTensor(feedFwdOutput[s],
+                                     "feedFwdOutput" + std::to_string(s),
+                                     graph, tmap));
+    rawHostNextAct.push_back(
+          allocateHostMemoryForTensor(nextAct[s],
+                                      "nextAct" + std::to_string(s),
+                                      graph, tmap));
 
   }
 
-  auto rawHostFeedbackWeights = allocateHostMemoryForTensor(
-                        feedbackWeights, upload, download);
-  auto rawHostInitState = allocateHostMemoryForTensor(
-                        initState, upload, download);
-  auto rawHostBiases = allocateHostMemoryForTensor(
-                        biases, upload, download);
+  auto rawHostFeedbackWeights =
+      allocateHostMemoryForTensor(feedbackWeights, "feedbackWeights",
+                                  graph, tmap);
+  auto rawHostInitState =
+      allocateHostMemoryForTensor(initState, "initState", graph, tmap);
+  auto rawHostBiases =
+      allocateHostMemoryForTensor(biases, "biases", graph, tmap);
 
-  Engine engine(graph, {std::move(upload),
-                        std::move(download),
-                        std::move(prog)});
+  Engine engine(graph, prog);
 
   boost::multi_array<double, 3>
       hostPrevAct(boost::extents[sequenceSize][batchSize][inputSize]);
@@ -286,9 +287,9 @@ int main(int argc, char **argv) {
   copy(hostBiases, dataTypeStr, rawHostBiases.get());
   copy(hostInitState, dataTypeStr, rawHostInitState.get());
 
-  engine.run(0);    // Upload
-  engine.run(2);    // matrix operation
-  engine.run(1);    // download
+  upload(engine, tmap);
+  engine.run(0);    // matrix operation
+  download(engine, tmap);
 
   bool matchesModel = false;
 

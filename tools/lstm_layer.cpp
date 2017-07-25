@@ -117,8 +117,6 @@ int main(int argc, char **argv) {
                                 {BASIC_LSTM_CELL_NUM_UNITS, outputSize},
                                 "biases");
   auto prog = Sequence();
-  auto upload = Sequence();
-  auto download = Sequence();
 
   /* map weights */
   PlanningCache cache;
@@ -134,20 +132,21 @@ int main(int argc, char **argv) {
                                          {0, outputSize, inputSize},
                                          "");
 
+  std::vector<std::pair<std::string, char *>> tmap;
   std::vector<std::unique_ptr<char[]>> rawHostWeightsInput;
   std::vector<std::unique_ptr<char[]>> rawHostWeightsOutput;
   for (auto u = 0U; u != BASIC_LSTM_CELL_NUM_UNITS; ++u) {
+    auto wName = "weightsOutput" + std::to_string(u);
     auto wOut = createMatMulInputA(graph, dataTypeStr,
-                                     {outputSize, outputSize},
-                                      cellState.transpose(),
-                                     "weightsOutput" + std::to_string(u),
-                                     mmOpt);
+                                   {outputSize, outputSize},
+                                   cellState.transpose(),
+                                   wName, mmOpt);
 
     weightsOutput = append(weightsOutput, wOut);
 
     rawHostWeightsOutput.push_back(allocateHostMemoryForTensor(wOut,
-                                                               upload,
-                                                               download));
+                                                               wName + "out",
+                                                               graph, tmap));
 
     auto wInp =
         createMatMulInputA(graph, dataTypeStr, {outputSize, inputSize},
@@ -155,8 +154,8 @@ int main(int argc, char **argv) {
                            "weightsInput" + std::to_string(u), mmOpt);
     weightsInput = append(weightsInput, wInp);
     rawHostWeightsInput.push_back(allocateHostMemoryForTensor(wInp,
-                                                              upload,
-                                                              download));
+                                                              wName + "in",
+                                                              graph, tmap));
   }
 
   Tensor nextAct =
@@ -165,24 +164,24 @@ int main(int argc, char **argv) {
                                             cellState, prog,
                                             partialsTypeStr, "");
 
-  auto rawHostPrevAct = allocateHostMemoryForTensor(
-                        prevAct, upload, download);
-  auto rawHostBiases = allocateHostMemoryForTensor(
-                        biases, upload, download);
-  auto rawHostPrevOutput = allocateHostMemoryForTensor(
-                        prevOutput, upload, download);
-  auto rawHostCellState = allocateHostMemoryForTensor(
-                        cellState, upload, download);
+  auto rawHostPrevAct = allocateHostMemoryForTensor(prevAct, "prevAct", graph,
+                                                    tmap);
+  auto rawHostBiases = allocateHostMemoryForTensor(biases, "biases", graph,
+                                                   tmap);
+  auto rawHostPrevOutput = allocateHostMemoryForTensor(prevOutput, "prevOutput",
+                                                       graph, tmap);
+  auto rawHostCellState = allocateHostMemoryForTensor(cellState, "cellState",
+                                                      graph, tmap);
 
   std::vector<std::unique_ptr<char[]>> rawHostNextAct;
   for (auto s = 0U; s != sequenceSize; ++s) {
     rawHostNextAct.push_back(allocateHostMemoryForTensor(nextAct[s],
-                                                         upload, download));
+                                                         "nextAct" +
+                                                           std::to_string(s),
+                                                         graph, tmap));
   }
 
-  Engine engine(graph, {std::move(upload),
-                        std::move(download),
-                        std::move(prog)});
+  Engine engine(graph, prog);
 
   boost::multi_array<double, 3>
       hostPrevAct(boost::extents[sequenceSize][batchSize][inputSize]);
@@ -232,9 +231,9 @@ int main(int argc, char **argv) {
     copy(wOut, dataTypeStr, rawHostWeightsOutput[u].get());
   }
 
-  engine.run(0);    // Upload
-  engine.run(2);    // matrix operation
-  engine.run(1);    // download
+  upload(engine, tmap);
+  engine.run(0);    // matrix operation
+  download(engine, tmap);
 
   copy(dataTypeStr, rawHostCellState.get(), hostCellState);
 

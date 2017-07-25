@@ -90,29 +90,28 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   bn::batchNormParamUpdate(graph, gammaDelta, betaDelta, learningRate, gamma,
                            beta, prog);
 
-  auto upload = Sequence();
-  auto download = Sequence();
-
+  std::vector<std::pair<std::string, char *>> tmap;
   auto rawHostActs =
-          allocateHostMemoryForTensor(acts, upload, download);
+          allocateHostMemoryForTensor(acts, "acts", graph, tmap);
   auto rawHostActsBN =
-          allocateHostMemoryForTensor(actsBN, upload, download);
+          allocateHostMemoryForTensor(actsBN, "actsBN", graph, tmap);
   auto rawHostActsBNInf =
-          allocateHostMemoryForTensor(actsBNInf, upload, download);
+          allocateHostMemoryForTensor(actsBNInf, "actsBNInf", graph, tmap);
   auto rawHostGradsIn =
-          allocateHostMemoryForTensor(gradsIn, upload, download);
+          allocateHostMemoryForTensor(gradsIn, "gradsIn", graph, tmap);
   auto rawHostGradsOut =
-          allocateHostMemoryForTensor(gradsOut, upload, download);
+          allocateHostMemoryForTensor(gradsOut, "gradsOut", graph, tmap);
   auto rawHostActsWhitened =
-          allocateHostMemoryForTensor(actsWhitened, upload, download);
+          allocateHostMemoryForTensor(actsWhitened, "actsWhitened",
+                                      graph, tmap);
   auto rawHostMean =
-          allocateHostMemoryForTensor(mean, upload, download);
+          allocateHostMemoryForTensor(mean, "mean", graph, tmap);
   auto rawHostInvStdDev =
-          allocateHostMemoryForTensor(invStdDev, upload, download);
+          allocateHostMemoryForTensor(invStdDev, "invStdDev", graph, tmap);
   auto rawHostGamma =
-          allocateHostMemoryForTensor(gamma, upload, download);
+          allocateHostMemoryForTensor(gamma, "gamma", graph, tmap);
   auto rawHostBeta =
-          allocateHostMemoryForTensor(beta, upload, download);
+          allocateHostMemoryForTensor(beta, "beta", graph, tmap);
 
   boost::multi_array<double, 4>
       hostActs(boost::extents[batchSize][dimY][dimX][numChannels]);
@@ -149,12 +148,11 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   copy(hostBeta, dataTypeStr, rawHostBeta.get());
   copy(hostGradsIn, dataTypeStr, rawHostGradsIn.get());
 
-  Engine engine(graph, {std::move(upload), std::move(download),
-                        std::move(prog)});
+  Engine engine(graph, prog);
 
-  engine.run(0); // Upload.
-  engine.run(2); // Run.
-  engine.run(1); // Download.
+  upload(engine, tmap);
+  engine.run(0); // Run.
+  download(engine, tmap);
 
   copy(dataTypeStr, rawHostActsWhitened.get(), hostActsWhitened);
   copy(dataTypeStr, rawHostMean.get(), hostMean);
@@ -276,23 +274,24 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   bn::batchNormParamUpdate(graph, gammaDelta, betaDelta, learningRate, gamma,
                            beta, prog);
 
-  auto upload = Sequence();
-  auto download = Sequence();
-  auto rawHostActs = allocateHostMemoryForTensor(acts, upload, download);
-  auto rawHostActsBN = allocateHostMemoryForTensor(actsBN, upload, download);
-  auto rawHostActsBNInf =
-          allocateHostMemoryForTensor(actsBNInf, upload, download);
+  std::vector<std::pair<std::string, char *>> tmap;
+  auto rawHostActs = allocateHostMemoryForTensor(acts, "acts", graph, tmap);
+  auto rawHostActsBN = allocateHostMemoryForTensor(actsBN, "actsBN",
+                                                   graph, tmap);
+  auto rawHostActsBNInf = allocateHostMemoryForTensor(actsBNInf, "actsBNInf",
+                                                   graph, tmap);
   auto rawHostActsWhitened =
-          allocateHostMemoryForTensor(actsWhitened, upload, download);
+          allocateHostMemoryForTensor(actsWhitened, "actsWhitened",
+                                      graph, tmap);
   auto rawHostGradsIn =
-          allocateHostMemoryForTensor(gradsIn, upload, download);
+          allocateHostMemoryForTensor(gradsIn, "gradsIn", graph, tmap);
   auto rawHostGradsOut =
-          allocateHostMemoryForTensor(gradsOut, upload, download);
-  auto rawHostMean = allocateHostMemoryForTensor(mean, upload, download);
-  auto rawHostInvStdDev = allocateHostMemoryForTensor(invStdDev, upload,
-                                                      download);
-  auto rawHostGamma = allocateHostMemoryForTensor(gamma, upload, download);
-  auto rawHostBeta = allocateHostMemoryForTensor(beta, upload, download);
+          allocateHostMemoryForTensor(gradsOut, "gradsOut", graph, tmap);
+  auto rawHostMean = allocateHostMemoryForTensor(mean, "mean", graph, tmap);
+  auto rawHostInvStdDev = allocateHostMemoryForTensor(invStdDev, "invStdDev",
+                                                      graph, tmap);
+  auto rawHostGamma = allocateHostMemoryForTensor(gamma, "gamma", graph, tmap);
+  auto rawHostBeta = allocateHostMemoryForTensor(beta, "beta", graph, tmap);
 
   boost::multi_array<double, 2> hostActs(boost::extents[batchSize][numActs]);
   boost::multi_array<double, 2> hostActsBN(boost::extents[batchSize][numActs]);
@@ -322,12 +321,11 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   copy(hostGamma, dataTypeStr, rawHostGamma.get());
   copy(hostBeta, dataTypeStr, rawHostBeta.get());
 
-  Engine engine(graph, {std::move(upload), std::move(download),
-                        std::move(prog)});
+  Engine engine(graph, prog);
 
-  engine.run(0); // Upload.
-  engine.run(2); // Run.
-  engine.run(1); // Download.
+  upload(engine, tmap);
+  engine.run(0); // Run.
+  download(engine, tmap); // Download.
 
   copy(dataTypeStr, rawHostActsWhitened.get(), hostActsWhitened);
   copy(dataTypeStr, rawHostGradsOut.get(), hostGradsOut);

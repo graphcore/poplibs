@@ -47,6 +47,15 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
   mapTensorLinearly(graph, deltaF);
   mapTensorLinearly(graph, deltaH);
 
+  graph.createHostWrite("inF", actF);
+  graph.createHostWrite("inH", actH);
+  graph.createHostRead("outF", actF);
+  graph.createHostRead("outH",actH);
+  graph.createHostWrite("inDeltaF", deltaF);
+  graph.createHostWrite("inDeltaH", deltaH);
+  graph.createHostRead("outDeltaF", deltaF);
+  graph.createHostRead("outDeltaH", deltaH);
+
   const auto batchSize=1;
 
   // test inputs calculated in harness
@@ -100,14 +109,15 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     poplib_test::nonLinearity(n, hRefActOut);
     // build and run the target code
     auto fwdProg = Sequence();
-    fwdProg.add(Copy(hActInF, actF));
-    fwdProg.add(Copy(hActInH, actH));
     nonLinearity(graph, n, actF, fwdProg);
-    nonLinearity(graph, n, actH, fwdProg);
-    fwdProg.add(Copy(actF, hActOutF));
-    fwdProg.add(Copy(actH, hActOutH));
+    nonLinearity(graph, n, actH, fwdProg);;
     Engine fwdEng(graph, fwdProg);
+
+    fwdEng.writeTensor("inF", hActInF);
+    fwdEng.writeTensor("inH", hActInH);
     fwdEng.run();
+    fwdEng.readTensor("outF", hActOutF);
+    fwdEng.readTensor("outH", hActOutH);
 
     for (unsigned b = 0; b < batchSize; ++b) {
       for (unsigned y = 0; y < xSize; ++y) {
@@ -128,18 +138,18 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     poplib_test::bwdNonLinearity(n, hActIn, hRefDeltaOut);
     // build and run the target code
     auto bwdProg = Sequence();
-    bwdProg.add(Copy(hDeltaInF, deltaF));
-    bwdProg.add(Copy(hDeltaInH, deltaH));
-    bwdProg.add(Copy(hActInF, actF));
-    bwdProg.add(Copy(hActInH, actH));
     auto deltaFF = nonLinearityInputGradient(graph, n, actF, deltaF, bwdProg);
     bwdProg.add(Copy(deltaFF, deltaF));
     auto deltaHH = nonLinearityInputGradient(graph, n, actH, deltaH, bwdProg);
     bwdProg.add(Copy(deltaHH, deltaH));
-    bwdProg.add(Copy(deltaF, hDeltaOutF));
-    bwdProg.add(Copy(deltaH, hDeltaOutH));
     Engine bwdEng(graph, bwdProg);
+    bwdEng.writeTensor("inF", hActInF);
+    bwdEng.writeTensor("inH", hActInH);
+    bwdEng.writeTensor("inDeltaF", hDeltaInF);
+    bwdEng.writeTensor("inDeltaH", hDeltaInH);
     bwdEng.run();
+    bwdEng.readTensor("outDeltaF", hDeltaOutF);
+    bwdEng.readTensor("outDeltaF", hDeltaOutH);
 
     for (unsigned b = 0; b < batchSize; ++b) {
       for (unsigned y = 0; y < xSize; ++y) {

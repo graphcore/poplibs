@@ -229,15 +229,15 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
                                               patchSizeX, patchSizeY,
                                               "float");
 
-  auto prog = Sequence(Copy(&inBuffer[0], in),
-                       Copy(&weightsBuffer[0], weights),
-                       wgdConv,
-                       Copy(activations, &outBuffer[0]));
+  graph.createHostWrite("in", in);
+  graph.createHostWrite("weights", weights);
+  graph.createHostRead("out", activations);
 
-
-  Engine eng(graph, prog);
-
+  Engine eng(graph, wgdConv);
+  eng.writeTensor("in", inBuffer.data());
+  eng.writeTensor("weights", weightsBuffer.data());
   eng.run();
+  eng.readTensor("out", outBuffer.data());
 
   computeReference(in, weights, activations, &inBuffer[0],
                    &weightsBuffer[0], &outBufferRef[0],
