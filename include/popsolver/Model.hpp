@@ -72,6 +72,7 @@ class Model {
 public:
   Model();
   ~Model();
+  std::vector<bool> isCallOperand;
   std::vector<std::unique_ptr<Constraint>> constraints;
   std::vector<std::vector<Constraint*>> variableConstraints;
   Domains initialDomains;

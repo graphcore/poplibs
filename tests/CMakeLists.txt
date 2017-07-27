@@ -99,6 +99,13 @@ add_test(NAME conv1x1_stride_3
              --stride=3
              --kernel-size=1)
 
+add_test(NAME conv1x1_thinly_spread
+         COMMAND single_conv_layer
+             --height=1
+             --width=128
+             --input-channels=16
+             --output-channels=8)
+
 add_test(NAME conv3x3_stride_1
          COMMAND single_conv_layer
              --input-channels=32

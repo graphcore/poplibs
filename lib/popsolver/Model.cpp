@@ -1,6 +1,7 @@
 #include <popsolver/Model.hpp>
 
 #include <algorithm>
+#include <boost/optional.hpp>
 #include <limits>
 #include "Constraint.hpp"
 #include "Scheduler.hpp"
@@ -23,6 +24,7 @@ Variable Model::addVariable(unsigned min, unsigned max) {
   Variable v(initialDomains.size());
   initialDomains.push_back({min, max});
   variableConstraints.emplace_back();
+  isCallOperand.emplace_back();
   return v;
 }
 
@@ -68,6 +70,9 @@ void Model::lessOrEqual(unsigned left, Variable right) {
 Variable Model::call(
     std::vector<Variable> vars,
     std::function<unsigned (const std::vector<unsigned> &values)> f) {
+  for (auto var : vars) {
+    isCallOperand[var.id] = true;
+  }
   auto result = addVariable();
   auto p = std::unique_ptr<Constraint>(
              new GenericAssignment(result, std::move(vars), f)
@@ -92,15 +97,25 @@ foundLowerCostSolution(const Domains domains,
 bool Model::minimize(Scheduler &scheduler,
                      const std::vector<Variable> &objectives,
                      bool &foundSolution, Solution &solution) {
-  // Find the unassigned variable with the smallest domain.
+  // Find an unassigned variable.
   const auto &domains = scheduler.getDomains();
-  auto match = domains.end();
-  for (auto it = domains.begin(); it != domains.end(); ++it) {
-    if (it->size() > 1 &&
-        (match == domains.end() || it->size() < match->size()))
-      match = it;
+  // Call constraints cannot be used to cut down the search space until all of
+  // their operands are set. Prefer to set variables that are operands of calls
+  // first. Use the size of the domain to break ties.
+  auto varLess = [&](Variable i, Variable j) {
+    if (isCallOperand[i.id] != isCallOperand[j.id])
+      return static_cast<bool>(isCallOperand[i.id]);
+    return domains[i].size() < domains[j].size();
+  };
+  boost::optional<Variable> v;
+  const auto numVars = domains.size();
+  for (unsigned i = 0; i != numVars; ++i) {
+    if (domains[Variable(i)].size() > 1 &&
+        (!v || varLess(Variable(i), *v))) {
+      v = Variable(i);
+    }
   }
-  if (match == domains.end()) {
+  if (!v) {
     // All variables are assigned.
     if (!foundSolution) {
       std::vector<unsigned> values;
@@ -121,12 +136,11 @@ bool Model::minimize(Scheduler &scheduler,
     return false;
   }
   // Evaluate the cost for every possible value of this variable.
-  Variable variable(match - domains.begin());
   bool improvedSolution = false;
-  for (unsigned value = scheduler.getDomains()[variable].min();
-       value <= scheduler.getDomains()[variable].max(); ++value) {
+  for (unsigned value = scheduler.getDomains()[*v].min();
+       value <= scheduler.getDomains()[*v].max(); ++value) {
     auto savedDomains = scheduler.getDomains();
-    scheduler.set(variable, value);
+    scheduler.set(*v, value);
     bool valueImprovedSolution = false;
     if (scheduler.propagate() &&
         minimize(scheduler, objectives, foundSolution, solution)) {
