@@ -24,7 +24,7 @@ Variable Model::addVariable(unsigned min, unsigned max) {
   Variable v(initialDomains.size());
   initialDomains.push_back({min, max});
   variableConstraints.emplace_back();
-  isCallOperand.emplace_back();
+  isCallOperand.push_back(false);
   return v;
 }
 
