@@ -86,15 +86,29 @@ static unsigned getNumConvUnits(bool floatActivations,
 }
 
 struct ConvVertexType {
-  bool useConvInstruction;
+  Plan::Method method;
   bool floatActivations;
   bool floatPartials;
-  ConvVertexType(bool useConvInstruction, bool floatActivations,
+  ConvVertexType(Plan::Method method, bool floatActivations,
                  bool floatPartials) :
-    useConvInstruction(useConvInstruction),
+    method(method),
     floatActivations(floatActivations),
     floatPartials(floatPartials) {}
 };
+
+static const char *asString(Plan::Method m) {
+  switch (m) {
+  case Plan::Method::AMP_ACCUMULATE_OVER_FIELD:
+    return "AMP_ACCUMULATE_OVER_FIELD";
+  case Plan::Method::AMP: return "AMP";
+  case Plan::Method::MAC: return "MAC";
+  }
+}
+
+std::ostream& operator<<(std::ostream &os, Plan::Method m) {
+  os << asString(m);
+  return os;
+}
 
 std::ostream& operator<<(std::ostream &os, const Plan &p)
 {
@@ -107,8 +121,7 @@ std::ostream& operator<<(std::ostream &os, const Plan &p)
     << "        inChansPerGroup         " << p.inChansPerGroup << "\n"
     << "        partialChansPerGroup    " << p.partialChansPerGroup << "\n"
     << "        batchesPerGroup         " << p.batchesPerGroup << "\n"
-    << "        useConvInstructions     " << p.useConvolutionInstructions
-    << "\n"
+    << "        method                  " << p.method << "\n"
     << "        flattenXY               " << p.flattenXY << "\n"
     << "        deltasAsCoefficents     "
     << (p.ampWUMethod == Plan::DELTAS_AS_COEFFICENTS) << "\n";
@@ -502,7 +515,9 @@ estimatePartialCalcMemory(const poplar::DeviceInfo &deviceInfo,
 
   bool useConvPartial1x1OutVertex = false;
   auto convUnitWeightHeight = 1U;
-  if (plan.useConvolutionInstructions) {
+  assert(plan.method == Plan::Method::AMP ||
+         plan.method == Plan::Method::MAC);
+  if (plan.method == Plan::Method::AMP) {
     const auto weightsPerConvUnit =
         deviceInfo.getWeightsPerConvUnit(floatActivations);
     assert(weightsPerConvUnit % inChansPerGroup == 0);
@@ -521,7 +536,7 @@ estimatePartialCalcMemory(const poplar::DeviceInfo &deviceInfo,
     vertexFields += 4;
     const auto numConvolutions = tileNumInGroups * tileOutHeight;
     edgePtrsPerVertex += 1 + 2 * numConvolutions;
-  } else if (plan.useConvolutionInstructions) {
+  } else if (plan.method == Plan::Method::AMP) {
     vertexFields += 4;
     const unsigned numWeights =
           tileNumInGroups * params.kernelShape[1]
@@ -619,7 +634,7 @@ estimatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
   // The use of supervisor vertices only affects vertices that use the
   // convolution instructions.
   unsigned numContexts = deviceInfo.numWorkerContexts;
-  if (plan.useConvolutionInstructions) {
+  if (plan.method == Plan::Method::AMP) {
     numContexts = 1;
   }
   const auto numInGroups =
@@ -633,47 +648,57 @@ estimatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
           tilesPerKernelYAxis;
   const auto tileKernelWidth = params.kernelShape[1];
   unsigned computeCycles;
-  if (plan.useConvolutionInstructions) {
-    assert(deviceInfo.getWeightsPerConvUnit(floatActivations) %
-           inChansPerGroup == 0);
-    const auto convUnitWeightHeight =
-        deviceInfo.getWeightsPerConvUnit(floatActivations) / inChansPerGroup;
-    const auto passesPerFilter =
-        tileKernelWidth *
-        (tileKernelHeight + convUnitWeightHeight - 1) / convUnitWeightHeight;
-    const auto numConvUnits = getNumConvUnits(floatActivations,
-                                              plan.floatPartials,
-                                              deviceInfo);
-    assert(outChansPerGroup % numConvUnits == 0);
-    const auto passesPerOutputGroup = outChansPerGroup / numConvUnits;
-    const auto passesPerOutput = passesPerFilter * passesPerOutputGroup *
-                                 tileNumInGroups;
-    computeCycles =
-        tileNumOutGroups *
-        cache->mGetConvPartialnx1CycleEstimate(
-          passesPerOutput, tileOutHeight, tileOutWidth,
-          deviceInfo.convUnitPipelineDepth,
-          getNumConvUnits(floatActivations, plan.floatPartials, deviceInfo),
-          deviceInfo.convUnitCoeffLoadBytesPerCycle, params.inputDilation,
-          convUnitWeightHeight);
-  } else {
-    const auto outputStrideX = params.inputDilation[1];
-    const auto outputStrideY = params.inputDilation[0];
-    const auto numOutRows = tileNumOutGroups *
-                            (tileOutHeight + outputStrideY - 1) / outputStrideY;
-    auto vertexRuntime =
-        cache->mEstimateConvPartialHorizontalMacCycles(
-          tileNumInGroups,
-          numOutRows,
-          tileOutWidth,
-          outputStrideX,
-          tileKernelHeight,
-          tileKernelWidth,
-          deviceInfo.numWorkerContexts,
-          floatActivations,
-          inChansPerGroup,
-          deviceInfo.dataPathWidth);
-    computeCycles = vertexRuntime * numContexts;
+  switch (plan.method) {
+  default: assert(0 && "Unexpected method");
+  case Plan::Method::AMP:
+    {
+      assert(deviceInfo.getWeightsPerConvUnit(floatActivations) %
+             inChansPerGroup == 0);
+      const auto convUnitWeightHeight =
+          deviceInfo.getWeightsPerConvUnit(floatActivations) / inChansPerGroup;
+      const auto passesPerFilter =
+          tileKernelWidth *
+          (tileKernelHeight + convUnitWeightHeight - 1) / convUnitWeightHeight;
+      const auto numConvUnits = getNumConvUnits(floatActivations,
+                                                plan.floatPartials,
+                                                deviceInfo);
+      assert(outChansPerGroup % numConvUnits == 0);
+      const auto passesPerOutputGroup = outChansPerGroup / numConvUnits;
+      const auto passesPerOutput = passesPerFilter * passesPerOutputGroup *
+                                   tileNumInGroups;
+      computeCycles =
+          tileNumOutGroups *
+          cache->mGetConvPartialnx1CycleEstimate(
+            passesPerOutput, tileOutHeight, tileOutWidth,
+            deviceInfo.convUnitPipelineDepth,
+            getNumConvUnits(floatActivations, plan.floatPartials, deviceInfo),
+            deviceInfo.convUnitCoeffLoadBytesPerCycle, params.inputDilation,
+            convUnitWeightHeight);
+
+    }
+    break;
+  case Plan::Method::MAC:
+    {
+      const auto outputStrideX = params.inputDilation[1];
+      const auto outputStrideY = params.inputDilation[0];
+      const auto numOutRows =
+          tileNumOutGroups *
+          (tileOutHeight + outputStrideY - 1) / outputStrideY;
+      auto vertexRuntime =
+          cache->mEstimateConvPartialHorizontalMacCycles(
+            tileNumInGroups,
+            numOutRows,
+            tileOutWidth,
+            outputStrideX,
+            tileKernelHeight,
+            tileKernelWidth,
+            deviceInfo.numWorkerContexts,
+            floatActivations,
+            inChansPerGroup,
+            deviceInfo.dataPathWidth);
+      computeCycles = vertexRuntime * numContexts;
+    }
+    break;
   }
   return computeCycles;
 }
@@ -939,6 +964,7 @@ ConvParams
 weightUpdateByAmpTransformParams(const ConvParams &params,
                                  const poplar::DeviceInfo &deviceInfo,
                                  const Plan &plan) {
+  assert(plan.method == Plan::Method::AMP_ACCUMULATE_OVER_FIELD);
   return weightUpdateByAmpTransformParams(params, deviceInfo, plan.flattenXY,
                                           plan.partialChansPerGroup,
                                           plan.ampWUMethod);
@@ -958,7 +984,7 @@ addCycleEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
                  unsigned xAxisGrainSize,
                  bool floatPartials,
                  bool floatActivations,
-                 bool useConvInstruction,
+                 Plan::Method method,
                  Plan::LinearizeTileOrder linearizeTileOrder,
                  PlanningCacheImpl *cache) {
   const auto exchangeCycles =
@@ -975,7 +1001,7 @@ addCycleEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
                    batchesPerGroup,
                    xAxisGrainSize,
                    floatPartials,
-                   useConvInstruction,
+                   method,
                    linearizeTileOrder);
     return estimateExchangeCycles(deviceInfo, floatActivations, params,
                                   candidate);
@@ -994,7 +1020,7 @@ addCycleEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
                    batchesPerGroup,
                    xAxisGrainSize,
                    floatPartials,
-                   useConvInstruction,
+                   method,
                    linearizeTileOrder);
     return estimatePartialCalcCycles(deviceInfo, floatActivations, params,
                                      candidate, cache);
@@ -1013,7 +1039,7 @@ addCycleEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
                    batchesPerGroup,
                    xAxisGrainSize,
                    floatPartials,
-                   useConvInstruction,
+                   method,
                    linearizeTileOrder);
     return estimateReduceCycles(deviceInfo, params, candidate);
   });
@@ -1034,7 +1060,7 @@ addMemoryEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
                   unsigned xAxisGrainSize,
                   bool floatPartials,
                   bool floatActivations,
-                  bool useConvInstruction,
+                  Plan::Method method,
                   Plan::LinearizeTileOrder linearizeTileOrder) {
   const auto partialCalcMemory =
       m.call({tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY, tilesPerInZ},
@@ -1050,7 +1076,7 @@ addMemoryEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
                    batchesPerGroup,
                    xAxisGrainSize,
                    floatPartials,
-                   useConvInstruction,
+                   method,
                    linearizeTileOrder);
     return estimatePartialCalcMemory(deviceInfo, floatActivations, params,
                                      candidate);
@@ -1069,7 +1095,7 @@ addMemoryEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
                    batchesPerGroup,
                    xAxisGrainSize,
                    floatPartials,
-                   useConvInstruction,
+                   method,
                    linearizeTileOrder);
     return estimateReduceMemory(deviceInfo, params, candidate);
   });
@@ -1088,8 +1114,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
            PlanningCacheImpl *cache,
            const ConvOptions &options) {
   const auto floatActivations = convVertexType.floatActivations;
-  if (isWeightUpdate) {
-    assert(convVertexType.useConvInstruction);
+  if (convVertexType.method == Plan::Method::AMP_ACCUMULATE_OVER_FIELD) {
     assert(inChansPerGroup ==
            deviceInfo.getWeightsPerConvUnit(floatActivations));
     // Implementing weight update directly as a convolution is typically
@@ -1123,15 +1148,18 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
         auto newParams =
             weightUpdateByAmpTransformParams(params, deviceInfo, flattenXY,
                                              partialChansPerGroup, method);
+        auto newConvVertexType = convVertexType;
+        newConvVertexType.method = Plan::Method::AMP;
         Plan plan;
         Cost cost;
         std::tie(plan, cost) = choosePlan(deviceInfo,
                                           inChansPerGroup,
                                           partialChansPerGroup,
                                           1,
-                                          convVertexType, newParams, false,
+                                          newConvVertexType, newParams, false,
                                           1, costBounds, cache,
                                           options);
+        plan.method = Plan::Method::AMP_ACCUMULATE_OVER_FIELD;
         plan.flattenXY = flattenXY;
         plan.ampWUMethod = method;
         plan.partialChansPerGroup = partialChansPerGroup;
@@ -1185,14 +1213,14 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                        tilesPerInZ, deviceInfo, params, inChansPerGroup,
                        partialChansPerGroup, batchesPerGroup, xAxisGrainSize,
                        convVertexType.floatPartials, floatActivations,
-                       convVertexType.useConvInstruction,
+                       convVertexType.method,
                        Plan::LinearizeTileOrder::STANDARD, cache);
   auto memory =
       addMemoryEstimate(m, tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY,
                         tilesPerInZ, deviceInfo, params, inChansPerGroup,
                         partialChansPerGroup, batchesPerGroup, xAxisGrainSize,
                         convVertexType.floatPartials, floatActivations,
-                        convVertexType.useConvInstruction,
+                        convVertexType.method,
                         Plan::LinearizeTileOrder::STANDARD);
   if (options.fullyConnectedPass == FullyConnectedPass::FWD) {
     popsolver::Variable bwdCycles;
@@ -1210,7 +1238,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                          bwdInChansPerGroup, partialChansPerGroup,
                          batchesPerGroup, bwdXAxisGrainSize,
                          convVertexType.floatPartials, floatActivations,
-                         convVertexType.useConvInstruction,
+                         convVertexType.method,
                          Plan::LinearizeTileOrder::FC_BWD_AS_CONV, cache);
     bwdMemory =
         addMemoryEstimate(m, bwdTilesPerX, tilesPerY, tilesPerZ,
@@ -1218,7 +1246,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                           bwdInChansPerGroup, partialChansPerGroup,
                           batchesPerGroup, bwdXAxisGrainSize,
                           convVertexType.floatPartials, floatActivations,
-                          convVertexType.useConvInstruction,
+                          convVertexType.method,
                           Plan::LinearizeTileOrder::FC_BWD_AS_CONV);
     auto wuParams = params;
     std::swap(wuParams.kernelShape[3], wuParams.kernelShape[2]);
@@ -1233,7 +1261,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                          wuInChansPerGroup, wuPartialChansPerGroup,
                          batchesPerGroup, 1,
                          convVertexType.floatPartials, floatActivations,
-                         convVertexType.useConvInstruction,
+                         convVertexType.method,
                          Plan::LinearizeTileOrder::FC_WU,
                          cache);
     const auto wuMemory =
@@ -1242,8 +1270,8 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                           wuInChansPerGroup, wuPartialChansPerGroup,
                           batchesPerGroup, 1,
                           convVertexType.floatPartials,
-                          convVertexType.useConvInstruction,
-                          floatActivations, Plan::LinearizeTileOrder::FC_WU);
+                          floatActivations, convVertexType.method,
+                          Plan::LinearizeTileOrder::FC_WU);
     cycles = m.sum({cycles, bwdCycles, wuCycles});
     memory = m.sum({memory, bwdMemory, wuMemory});
   }
@@ -1269,7 +1297,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                 batchesPerGroup,
                 xAxisGrainSize,
                 convVertexType.floatPartials,
-                convVertexType.useConvInstruction,
+                convVertexType.method,
                 Plan::LinearizeTileOrder::STANDARD);
   Cost bestCost = {s[cycles], s[memory]};
   return {bestPlan, bestCost};
@@ -1287,7 +1315,7 @@ getConvVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
   if (canUseConvolutionInstruction(floatActivations, floatPartials,
                                    params.stride[0], params.stride[1],
                                    deviceInfo)) {
-    convVertexTypeCandidates.emplace_back(true, floatActivations,
+    convVertexTypeCandidates.emplace_back(Plan::Method::AMP, floatActivations,
                                           floatPartials);
   } else if (!floatActivations && !floatPartials &&
              canUseConvolutionInstruction(false, true,
@@ -1295,9 +1323,10 @@ getConvVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
                                           deviceInfo) &&
              params.getOutputDepth() %
              deviceInfo.fp16InFp32OutConvUnitsPerTile == 0) {
-    convVertexTypeCandidates.emplace_back(true, false, true);
+    convVertexTypeCandidates.emplace_back(Plan::Method::AMP, false, true);
   }
-  convVertexTypeCandidates.emplace_back(false, floatActivations, floatPartials);
+  convVertexTypeCandidates.emplace_back(Plan::Method::MAC, floatActivations,
+                                        floatPartials);
   return convVertexTypeCandidates;
 }
 
@@ -1310,11 +1339,13 @@ getWeightUpdateVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
   if (options.weightUpdateMethod == WeightUpdateMethod::AMP ||
       options.weightUpdateMethod == WeightUpdateMethod::AUTO) {
     if (getConvUnitsPerTile(deviceInfo, floatActivations, floatPartials) > 0) {
-      convVertexTypeCandidates.emplace_back(true, floatActivations,
-                                            floatPartials);
+      convVertexTypeCandidates.emplace_back(
+            Plan::Method::AMP_ACCUMULATE_OVER_FIELD, floatActivations,
+            floatPartials);
     } else if (!floatActivations && !floatPartials &&
                deviceInfo.fp16InFp32OutConvUnitsPerTile > 0) {
-      convVertexTypeCandidates.emplace_back(true, false, true);
+      convVertexTypeCandidates.emplace_back(
+            Plan::Method::AMP_ACCUMULATE_OVER_FIELD, false, true);
     }
   }
   return convVertexTypeCandidates;
@@ -1331,12 +1362,15 @@ getInChansPerGroupCandidates(const ConvParams &params,
                                             deviceInfo);
   const bool isFullyConnectedFwd =
       options.fullyConnectedPass == FullyConnectedPass::FWD;
+  assert(convVertexType.method == Plan::Method::AMP ||
+         convVertexType.method == Plan::Method::MAC);
+  bool useConvInstruction = convVertexType.method == Plan::Method::AMP;
   for (unsigned i = 1; i <= params.getInputDepth(); ++i) {
     if (params.getInputDepth() % i != 0)
       continue;
     if (!convVertexType.floatActivations && i % 2 != 0)
       continue;
-    if (convVertexType.useConvInstruction &&
+    if (useConvInstruction &&
         !canUseConvolutionInstruction(convVertexType.floatActivations,
                                       convVertexType.floatPartials,
                                       params.stride[0], params.stride[1],
@@ -1352,7 +1386,7 @@ getInChansPerGroupCandidates(const ConvParams &params,
     candidates.push_back(i);
   }
   if (candidates.empty()) {
-    if (convVertexType.useConvInstruction) {
+    if (useConvInstruction) {
       // Drop the requirement that the input channel grouping must divide
       // the number of input channels. This causes the input to be zero padded
       // before the convolution.
@@ -1365,7 +1399,7 @@ getInChansPerGroupCandidates(const ConvParams &params,
       for (unsigned i = 1; i <= params.getInputDepth(); ++i) {
         if (!convVertexType.floatActivations && i % 2 != 0)
           continue;
-        if (convVertexType.useConvInstruction &&
+        if (useConvInstruction &&
             !canUseConvolutionInstruction(convVertexType.floatActivations,
                                           convVertexType.floatPartials,
                                           params.stride[0], params.stride[1],
@@ -1402,8 +1436,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
   Plan best;
   Cost bestCost = highestCost;
   std::vector<unsigned> inChansPerGroupCandidates;
-  if (isWeightUpdate) {
-    assert(convVertexType.useConvInstruction);
+  if (convVertexType.method == Plan::Method::AMP_ACCUMULATE_OVER_FIELD) {
     inChansPerGroupCandidates.push_back(
       deviceInfo.getWeightsPerConvUnit(convVertexType.floatActivations)
     );
@@ -1416,7 +1449,8 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                                      options);
   }
   unsigned partialChansPerGroup;
-  if (convVertexType.useConvInstruction) {
+  if (convVertexType.method == Plan::Method::AMP ||
+      convVertexType.method == Plan::Method::AMP_ACCUMULATE_OVER_FIELD) {
     const auto numConvUnits = getNumConvUnits(convVertexType.floatActivations,
                                               convVertexType.floatPartials,
                                               deviceInfo);
@@ -1597,6 +1631,8 @@ static Plan getFullyConnectedWUPlan(const poplar::DeviceInfo &deviceInfo,
                                     const ConvParams &fwdParams,
                                     const ConvOptions &fwdOptions,
                                     const Plan &fwdPlan) {
+  assert(fwdPlan.method == Plan::Method::AMP ||
+         fwdPlan.method == Plan::Method::MAC);
   auto plan = fwdPlan;
   plan.linearizeTileOrder = Plan::LinearizeTileOrder::FC_WU;
   plan.tilesPerInZGroupAxis = fwdPlan.tilesPerZAxis;
@@ -1606,12 +1642,12 @@ static Plan getFullyConnectedWUPlan(const poplar::DeviceInfo &deviceInfo,
   if (plan.partialChansPerGroup != 1) {
     // ConvPartialHorizontalMacVertex only supports an output grouping of 1.
     // so we must force the use of the convolutional instructions.
-    plan.useConvolutionInstructions = true;
+    plan.method = Plan::Method::AMP;
   }
   // TODO make the fwd pass aware that it would be good to use a grouping of
   // 16 if possible.
   plan.inChansPerGroup = fwdPlan.partialChansPerGroup;
-  if (plan.useConvolutionInstructions &&
+  if (plan.method == Plan::Method::AMP &&
       !canUseConvolutionInstruction(fwdParams.dType == "float",
                                     fwdOptions.partialsType == "float",
                                     fwdParams.stride[0], fwdParams.stride[1],
@@ -1733,12 +1769,7 @@ Plan getWeightUpdatePlan(const poplar::Graph &graph,
   assert (params.stride.size() == 2);
   assert (params.inputPaddingLower.size() == 2);
   assert (params.inputPaddingUpper.size() == 2);
-  if (options.fullyConnectedPass == FullyConnectedPass::BWD) {
-    options.fullyConnectedPass = FullyConnectedPass::FWD;
-    auto plan = getPlan(graph, params, options);
-    plan.useConvolutionInstructions = false;
-    return plan;
-  }
+  assert(options.fullyConnectedPass == FullyConnectedPass::NONE);
   Plan plan;
   Cost cost;
   CostBounds costBounds(0, 0);

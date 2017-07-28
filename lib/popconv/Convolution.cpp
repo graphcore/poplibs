@@ -1388,7 +1388,9 @@ calcPartialConvOutput(Graph &graph,
   Tensor zeros;
   bool zeroPartialsBefore = true;
   bool useConvPartial1x1OutVertex = false;
-  if (plan.useConvolutionInstructions) {
+  assert(plan.method == Plan::Method::AMP ||
+         plan.method == Plan::Method::MAC);
+  if (plan.method == Plan::Method::AMP) {
     const auto partialsType = out.elementType();
     const auto outChansPerPass = getNumConvUnits(dType == "float",
                                                  partialsType == "float",
@@ -1407,7 +1409,6 @@ calcPartialConvOutput(Graph &graph,
     assert(weightsPerConvUnit % inChansPerGroup == 0);
     const auto convUnitWeightHeight = weightsPerConvUnit / inChansPerGroup;
     if (!useConvPartial1x1OutVertex && convUnitWeightHeight != 1) {
-      assert(plan.useConvolutionInstructions);
       const auto inputRange = getInputRange(1, {outXBegin, outXEnd}, params);
       const auto inputRangeSize = inputRange.second - inputRange.first;
       const auto zeroSize = std::max(inputRangeSize * inChansPerGroup,
@@ -1442,7 +1443,7 @@ calcPartialConvOutput(Graph &graph,
     mapPartialSums(graph, outXBegin, outXEnd, outYBegin, outYEnd,
                    outZGroupBegin, outZGroupEnd, tile, zeroPartialsBefore,
                    zeroCS, out);
-    if (plan.useConvolutionInstructions) {
+    if (plan.method == Plan::Method::AMP) {
       createConvPartialnx1Vertex(graph, tile, outXBegin, outXEnd,
                                  outYBegin, outYEnd,
                                  outZGroupBegin, outZGroupEnd,
@@ -2267,7 +2268,7 @@ convolutionWeightUpdateAmpPostProcess(const Plan &plan,
 }
 
 static Tensor
-calculateWeightDeltasAmp(Graph &graph, const Plan &plan,
+calculateWeightDeltasAmp(Graph &graph, Plan plan,
                          const Plan &fwdPlan,
                          Tensor zDeltas,
                          Tensor activations,
@@ -2345,6 +2346,7 @@ calculateWeightDeltasAmp(Graph &graph, const Plan &plan,
   auto transformedParams = weightUpdateByAmpTransformParams(params,
                                                             deviceInfo,
                                                             plan);
+  plan.method = Plan::Method::AMP;
   auto activationsTransposed =
       createInput(graph, transformedParams, "activationsTransposed", plan);
   prog.add(Copy(activationsView.reshape({activationsView.dim(0),
@@ -2434,6 +2436,7 @@ calculateWeightDeltas(Graph &graph, const Plan &plan,
                       const ConvParams &params,
                       Sequence &prog,
                       const std::string &debugPrefix) {
+  assert(plan.method == Plan::Method::AMP_ACCUMULATE_OVER_FIELD);
   return calculateWeightDeltasAmp(graph, plan, fwdPlan, zDeltas,
                                   activations, params, prog, debugPrefix);
 }

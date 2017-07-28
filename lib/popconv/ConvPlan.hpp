@@ -19,9 +19,17 @@ struct Plan {
   /// Grain size to use when splitting the x-axis across tiles.
   unsigned xAxisGrainSize;
   bool floatPartials;
-  bool useConvolutionInstructions;
   bool flattenXY = false;
   bool useWinograd = false;
+  enum class Method {
+    // Direction convolution using the MAC instruction.
+    MAC,
+    // Direction convolution using the AMP instruction.
+    AMP,
+    // Compute the convolution using the AMP instruction. Data is rearranged
+    // such that the AMP units accumulate over the x-axis of the field.
+    AMP_ACCUMULATE_OVER_FIELD
+  } method;
   enum class LinearizeTileOrder {
     STANDARD,
     FC_WU,
@@ -44,7 +52,7 @@ struct Plan {
        unsigned batchesPerGroup,
        unsigned xAxisGrainSize,
        bool floatPartials,
-       bool useConvolutionInstructions,
+       Plan::Method method,
        Plan::LinearizeTileOrder linearizeTileOrder) :
     tilesPerXAxis(tilesPerXAxis),
     tilesPerYAxis(tilesPerYAxis),
@@ -56,7 +64,7 @@ struct Plan {
     batchesPerGroup(batchesPerGroup),
     xAxisGrainSize(xAxisGrainSize),
     floatPartials(floatPartials),
-    useConvolutionInstructions(useConvolutionInstructions),
+    method(method),
     linearizeTileOrder(linearizeTileOrder) {}
   const char *getPartialType() const {
     return floatPartials ? "float" : "half";
@@ -77,6 +85,7 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
                                  const poplar::DeviceInfo &deviceInfo,
                                  const Plan &plan);
 
+std::ostream& operator<<(std::ostream &os, const Plan::Method m);
 std::ostream& operator<<(std::ostream &os, const Plan &p);
 
 }
