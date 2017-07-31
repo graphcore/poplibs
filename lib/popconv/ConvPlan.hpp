@@ -26,6 +26,8 @@ struct Plan {
     MAC,
     // Direction convolution using the AMP instruction.
     AMP,
+    // Outer product of two vectors.
+    OUTER_PRODUCT,
     // Compute the convolution using the AMP instruction. Data is rearranged
     // such that the AMP units accumulate over the x-axis of the field.
     AMP_ACCUMULATE_OVER_FIELD

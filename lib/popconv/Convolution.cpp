@@ -1289,6 +1289,61 @@ createConvPartialHorizontalMacVertex(
 }
 
 static void
+createOuterProductVertex(
+    Graph &graph,
+    unsigned tile,
+    unsigned chanGroupBegin, unsigned chanGroupEnd,
+    unsigned xBegin, unsigned xEnd,
+    const ConvParams &params,
+    ComputeSet fwdCS,
+    Tensor in,
+    Tensor weights,
+    const Tensor &out) {
+  const auto dataPathWidth = graph.getDevice().getDeviceInfo().dataPathWidth;
+  assert(params.stride[0] == 1);
+  assert(params.stride[1] == 1);
+  assert(params.inputDilation[0] == 1);
+  assert(params.inputDilation[1] == 1);
+  for (unsigned dim = 0; dim != 2; ++dim) {
+    in = pad(graph, in, params.inputPaddingLower[dim],
+             params.inputPaddingUpper[dim], 1 + dim);
+    weights = pad(graph, weights, params.kernelPaddingLower[dim],
+                  params.kernelPaddingUpper[dim], 2 + dim);
+  }
+  assert(in.dim(0) == 1);
+  assert(in.dim(1) == 1);
+  assert(in.dim(3) == 1);
+  assert(weights.dim(1) == 1);
+  assert(weights.dim(2) == 1);
+  assert(weights.dim(3) == 1);
+  assert(weights.dim(5) == 1);
+  assert(out.dim(0) == weights.dim(0));
+  assert(out.dim(1) == 1);
+  assert(out.dim(2) == in.dim(2));
+  assert(out.dim(3) == weights.dim(4));
+  const auto chansPerGroup = weights.dim(4);
+  const auto dType = in.elementType();
+  const auto chanBegin = chanGroupBegin * chansPerGroup;
+  const auto chanEnd = chanGroupEnd * chansPerGroup;
+  auto inWindow = in.flatten().slice(xBegin, xEnd);
+  auto outWindow =
+      out.slice({chanGroupBegin, 0, xBegin, 0},
+                {chanGroupEnd, 1, xEnd, chansPerGroup})
+          .reshape({chanGroupEnd - chanGroupBegin,
+                    (xEnd - xBegin) * chansPerGroup});
+  auto weightsWindow = weights.flatten().slice(chanBegin, chanEnd);
+  auto v = graph.addVertex(fwdCS,
+                           templateVertex(
+                             "popconv::OuterProduct", dType
+                           ),
+                           {{"in", inWindow},
+                            {"weights", weightsWindow},
+                            {"out", outWindow}});
+  graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
+  graph.setTileMapping(v, tile);
+}
+
+static void
 mapPartialSums(Graph &graph, unsigned outXBegin, unsigned outXEnd,
                unsigned outYBegin, unsigned outYEnd,
                unsigned tileOutZGroupBegin, unsigned tileOutZGroupEnd,
@@ -1386,48 +1441,58 @@ calcPartialConvOutput(Graph &graph,
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   Tensor zeros;
-  bool zeroPartialsBefore = true;
   bool useConvPartial1x1OutVertex = false;
-  assert(plan.method == Plan::Method::AMP ||
-         plan.method == Plan::Method::MAC);
-  if (plan.method == Plan::Method::AMP) {
-    const auto partialsType = out.elementType();
-    const auto outChansPerPass = getNumConvUnits(dType == "float",
-                                                 partialsType == "float",
-                                                 deviceInfo);
-    assert(outChansPerGroup % outChansPerPass == 0);
-    const auto passesPerOutputGroup = outChansPerGroup / outChansPerPass;
-    zeroPartialsBefore =
-        kernelSizeX != 1 || tileKernelHeight != 1 ||
-        (params.inputDilation[1] != 1 || params.inputDilation[0] != 1) ||
-        !writtenRangeEqualsOutputRange(0, {outYBegin, outYEnd},
-                                       {kernelYBegin, kernelYEnd}, params);
-    useConvPartial1x1OutVertex = !zeroPartialsBefore &&
-                                 passesPerOutputGroup == 1;
-    const auto weightsPerConvUnit =
-        deviceInfo.getWeightsPerConvUnit(dType == "float");
-    assert(weightsPerConvUnit % inChansPerGroup == 0);
-    const auto convUnitWeightHeight = weightsPerConvUnit / inChansPerGroup;
-    if (!useConvPartial1x1OutVertex && convUnitWeightHeight != 1) {
-      const auto inputRange = getInputRange(1, {outXBegin, outXEnd}, params);
-      const auto inputRangeSize = inputRange.second - inputRange.first;
-      const auto zeroSize = std::max(inputRangeSize * inChansPerGroup,
-                                     inChansPerGroup * outChansPerGroup);
-      zeros = graph.addTensor(dType,
-                              {zeroSize},
-                              "zeros");
-      if (zeroPartialsBefore) {
-        // This isn't split across multiple workers since it can happen in
-        // parallel with zeroing the partial sums.
-        auto v = graph.addVertex(zeroCS, templateVertex("popstd::Zero", dType),
-                                 {{"out", zeros}});
-        graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-        graph.setTileMapping(v, tile);
-      } else {
-        zero(graph, zeros, {{0, zeroSize}}, tile, zeroCS);
+  bool zeroPartialsBefore;
+  switch (plan.method) {
+  default: assert(0 && "Unexpected method");
+  case Plan::Method::AMP:
+    {
+      const auto partialsType = out.elementType();
+      const auto outChansPerPass = getNumConvUnits(dType == "float",
+                                                   partialsType == "float",
+                                                   deviceInfo);
+      assert(outChansPerGroup % outChansPerPass == 0);
+      const auto passesPerOutputGroup = outChansPerGroup / outChansPerPass;
+      zeroPartialsBefore =
+          kernelSizeX != 1 || tileKernelHeight != 1 ||
+          (params.inputDilation[1] != 1 || params.inputDilation[0] != 1) ||
+          !writtenRangeEqualsOutputRange(0, {outYBegin, outYEnd},
+                                         {kernelYBegin, kernelYEnd}, params);
+      useConvPartial1x1OutVertex = !zeroPartialsBefore &&
+                                   passesPerOutputGroup == 1;
+      const auto weightsPerConvUnit =
+          deviceInfo.getWeightsPerConvUnit(dType == "float");
+      assert(weightsPerConvUnit % inChansPerGroup == 0);
+      const auto convUnitWeightHeight = weightsPerConvUnit / inChansPerGroup;
+      if (!useConvPartial1x1OutVertex && convUnitWeightHeight != 1) {
+        const auto inputRange = getInputRange(1, {outXBegin, outXEnd}, params);
+        const auto inputRangeSize = inputRange.second - inputRange.first;
+        const auto zeroSize = std::max(inputRangeSize * inChansPerGroup,
+                                       inChansPerGroup * outChansPerGroup);
+        zeros = graph.addTensor(dType,
+                                {zeroSize},
+                                "zeros");
+        if (zeroPartialsBefore) {
+          // This isn't split across multiple workers since it can happen in
+          // parallel with zeroing the partial sums.
+          auto v = graph.addVertex(zeroCS,
+                                   templateVertex("popstd::Zero", dType),
+                                   {{"out", zeros}});
+          graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
+          graph.setTileMapping(v, tile);
+        } else {
+          zero(graph, zeros, {{0, zeroSize}}, tile, zeroCS);
+        }
+        graph.setTileMapping(zeros, tile);
       }
-      graph.setTileMapping(zeros, tile);
     }
+    break;
+  case Plan::Method::MAC:
+    zeroPartialsBefore = true;
+    break;
+  case Plan::Method::OUTER_PRODUCT:
+    zeroPartialsBefore = false;
+    break;
   }
   if (useConvPartial1x1OutVertex) {
     assert(!zeroPartialsBefore);
@@ -1443,7 +1508,9 @@ calcPartialConvOutput(Graph &graph,
     mapPartialSums(graph, outXBegin, outXEnd, outYBegin, outYEnd,
                    outZGroupBegin, outZGroupEnd, tile, zeroPartialsBefore,
                    zeroCS, out);
-    if (plan.method == Plan::Method::AMP) {
+    switch (plan.method) {
+    default: assert(0 && "Unexpected method");
+    case Plan::Method::AMP:
       createConvPartialnx1Vertex(graph, tile, outXBegin, outXEnd,
                                  outYBegin, outYEnd,
                                  outZGroupBegin, outZGroupEnd,
@@ -1453,20 +1520,36 @@ calcPartialConvOutput(Graph &graph,
                                  params,
                                  fwdCS, in, weights, out,
                                  zeros);
-    } else {
-      assert(zeroPartialsBefore);
-      auto perWorkerConvOutputSlices =
-          partitionConvOutputBetweenWorkers(graph, outXBegin, outXEnd,
-                                            outYBegin, outYEnd,
-                                            outZGroupBegin, outZGroupEnd);
-      for (const auto &workerConvOutputSlices : perWorkerConvOutputSlices) {
-        createConvPartialHorizontalMacVertex(graph, tile,
-                                             workerConvOutputSlices,
-                                             kernelYBegin, kernelYEnd,
-                                             inZGroupBegin, inZGroupEnd,
-                                             params,
-                                             fwdCS, in, weights, out);
+      break;
+    case Plan::Method::MAC:
+      {
+        assert(zeroPartialsBefore);
+        auto perWorkerConvOutputSlices =
+            partitionConvOutputBetweenWorkers(graph, outXBegin, outXEnd,
+                                              outYBegin, outYEnd,
+                                              outZGroupBegin, outZGroupEnd);
+        for (const auto &workerConvOutputSlices : perWorkerConvOutputSlices) {
+          createConvPartialHorizontalMacVertex(graph, tile,
+                                               workerConvOutputSlices,
+                                               kernelYBegin, kernelYEnd,
+                                               inZGroupBegin, inZGroupEnd,
+                                               params,
+                                               fwdCS, in, weights, out);
+        }
       }
+      break;
+    case Plan::Method::OUTER_PRODUCT:
+      {
+        const auto perWorkerRegions =
+            splitRegionsBetweenWorkers(deviceInfo, {{outXBegin, outXEnd}}, 1);
+        for (const auto &entry : perWorkerRegions) {
+          assert(entry.size() == 1);
+          createOuterProductVertex(graph, tile, outZGroupBegin, outZGroupEnd,
+                                   entry[0].begin(), entry[0].end(), params,
+                                   fwdCS, in, weights, out);
+        }
+      }
+      break;
     }
   }
 }

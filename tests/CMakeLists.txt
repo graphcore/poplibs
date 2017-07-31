@@ -473,6 +473,14 @@ add_test(NAME conv_large_weights
                 --data-type=half
                 --single-phase=fwd)
 
+add_test(NAME conv_outer_product
+         COMMAND single_conv_layer
+                 --input-channels=1
+                 --output-channels=1024
+                 --width=512
+                 --height=1
+                 --tiles-per-ipu=64)
+
 add_test(NAME fully_connected_half
          COMMAND fully_connected_layer
                  --input-size 300

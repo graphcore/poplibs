@@ -197,4 +197,20 @@ inline uint64_t getWgdCompleteCycles(
   return 5 + numChannels/divFactor;
 }
 
+inline std::uint64_t
+getOuterProductCycleEstimate(bool isFloat,
+                             unsigned width, unsigned numChannels,
+                             unsigned chansPerGroup,
+                             unsigned dataPathWidth) {
+  assert(numChannels % chansPerGroup == 0);
+  const auto numChanGroups = numChannels / chansPerGroup;
+  const auto elementWidth = isFloat ? 32 : 16;
+  auto vectorsPerGroup =
+      (chansPerGroup * elementWidth + dataPathWidth - 1) / dataPathWidth;
+  // Taken from conv_outer_product_f16 microbenchmark.
+  std::uint64_t cycles =
+      9 + numChanGroups * (8 + width * (1 + vectorsPerGroup));
+  return cycles;
+}
+
 #endif // _performance_estimation_h_

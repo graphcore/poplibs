@@ -1238,4 +1238,45 @@ template class InverseStdDeviation<float, float, half>;
 template class InverseStdDeviation<half, float, half>;
 template class InverseStdDeviation<half, half, half>;
 
+template <class T>
+class OuterProduct : public Vertex {
+public:
+  Input<Vector<T>> in;
+  Input<Vector<T>> weights;
+  Vector<Output<Vector<T>>> out;
+
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    const auto width = in.size();
+    const auto numChans = weights.size();
+    const auto numChanGroups = out.size();
+    assert(numChans % numChanGroups == 0);
+    const auto chansPerGroup = numChans / numChanGroups;
+    for (unsigned g = 0; g != numChanGroups; ++g) {
+      for (unsigned chanInGroup = 0; chanInGroup != chansPerGroup;
+           ++chanInGroup) {
+        const auto c = chanInGroup + g * chansPerGroup;
+        for (unsigned x = 0; x != width; ++x) {
+          out[g][chanInGroup + x * chansPerGroup] = in[x] * weights[c];
+        }
+      }
+    }
+    return true;
+  }
+  std::uint64_t getCycleEstimate() const {
+    bool isFloat = std::is_same<T, float>::value;
+    const auto width = in.size();
+    const auto numChans = weights.size();
+    const auto numChanGroups = out.size();
+    assert(numChans % numChanGroups == 0);
+    const auto chansPerGroup = numChans / numChanGroups;
+    return getOuterProductCycleEstimate(isFloat, width, numChans, chansPerGroup,
+                                        dataPathWidth);
+  }
+};
+
+template class OuterProduct<float>;
+template class OuterProduct<half>;
+
 } // end namespace popconv

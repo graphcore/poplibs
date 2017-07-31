@@ -102,6 +102,7 @@ static const char *asString(Plan::Method m) {
     return "AMP_ACCUMULATE_OVER_FIELD";
   case Plan::Method::AMP: return "AMP";
   case Plan::Method::MAC: return "MAC";
+  case Plan::Method::OUTER_PRODUCT: return "OUTER_PRODUCT";
   }
 }
 
@@ -515,6 +516,9 @@ estimatePartialCalcMemory(const poplar::DeviceInfo &deviceInfo,
 
   bool useConvPartial1x1OutVertex = false;
   auto convUnitWeightHeight = 1U;
+  // TODO provide memory estimate for output product.
+  if (plan.method == Plan::Method::OUTER_PRODUCT)
+    return 0;
   assert(plan.method == Plan::Method::AMP ||
          plan.method == Plan::Method::MAC);
   if (plan.method == Plan::Method::AMP) {
@@ -696,6 +700,25 @@ estimatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
             floatActivations,
             inChansPerGroup,
             deviceInfo.dataPathWidth);
+      computeCycles = vertexRuntime * numContexts;
+    }
+    break;
+  case Plan::Method::OUTER_PRODUCT:
+    {
+      assert(tileOutHeight == 1);
+      assert(tileNumInGroups == 1);
+      assert(params.stride[0] == 1);
+      assert(params.stride[1] == 1);
+      assert(params.inputDilation[0] == 1);
+      assert(params.inputDilation[0] == 1);
+      const auto workerOutWidth =
+          (tileOutWidth + deviceInfo.numWorkerContexts - 1) /
+          deviceInfo.numWorkerContexts;
+      auto vertexRuntime =
+          getOuterProductCycleEstimate(floatActivations, workerOutWidth,
+                                       tileNumOutGroups * outChansPerGroup,
+                                       outChansPerGroup,
+                                       deviceInfo.dataPathWidth);
       computeCycles = vertexRuntime * numContexts;
     }
     break;
@@ -1309,6 +1332,13 @@ getConvVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
                             bool floatPartials,
                             const ConvParams &params) {
   std::vector<ConvVertexType> convVertexTypeCandidates;
+  if (params.getInputDepth() == 1 &&
+      params.getPaddedDilatedKernelSize(0) == 1 &&
+      params.getPaddedDilatedKernelSize(1) == 1) {
+    convVertexTypeCandidates.emplace_back(Plan::Method::OUTER_PRODUCT,
+                                          floatActivations,
+                                          floatActivations);
+  }
   // We limit the use of the convolution instruction to cases where the number
   // of output channels is a multiple of the output channel grouping that would
   // be used.
@@ -1362,6 +1392,10 @@ getInChansPerGroupCandidates(const ConvParams &params,
                                             deviceInfo);
   const bool isFullyConnectedFwd =
       options.fullyConnectedPass == FullyConnectedPass::FWD;
+  if (convVertexType.method == Plan::Method::OUTER_PRODUCT) {
+    assert(params.getInputDepth() == 1);
+    return {1};
+  }
   assert(convVertexType.method == Plan::Method::AMP ||
          convVertexType.method == Plan::Method::MAC);
   bool useConvInstruction = convVertexType.method == Plan::Method::AMP;
@@ -1449,18 +1483,29 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                                      options);
   }
   unsigned partialChansPerGroup;
-  if (convVertexType.method == Plan::Method::AMP ||
-      convVertexType.method == Plan::Method::AMP_ACCUMULATE_OVER_FIELD) {
-    const auto numConvUnits = getNumConvUnits(convVertexType.floatActivations,
-                                              convVertexType.floatPartials,
-                                              deviceInfo);
-    // TODO take into account the best grouping for all the phases if
-    // options.fullyConnectedFwd is set.
-    partialChansPerGroup = numConvUnits;
-  } else {
-    assert(!isWeightUpdate);
+  switch (convVertexType.method) {
+  default: assert(0 && "Unexpected method");
+  case Plan::Method::AMP:
+  case Plan::Method::AMP_ACCUMULATE_OVER_FIELD:
+    {
+      const auto numConvUnits = getNumConvUnits(convVertexType.floatActivations,
+                                                convVertexType.floatPartials,
+                                                deviceInfo);
+      // TODO take into account the best grouping for all the phases if
+      // options.fullyConnectedFwd is set.
+      partialChansPerGroup = numConvUnits;
+    }
+    break;
+  case Plan::Method::MAC:
     partialChansPerGroup = 1;
+    break;
+  case Plan::Method::OUTER_PRODUCT:
+    partialChansPerGroup = convVertexType.floatActivations ?
+                           deviceInfo.getFloatVectorWidth() :
+                           deviceInfo.getHalfVectorWidth();
+    break;
   }
+
   for (auto inChansPerGroup : inChansPerGroupCandidates) {
     Plan candidate;
     Cost candidateCost;
@@ -1639,7 +1684,9 @@ static Plan getFullyConnectedWUPlan(const poplar::DeviceInfo &deviceInfo,
   plan.tilesPerZAxis = fwdPlan.tilesPerInZGroupAxis;
   plan.partialChansPerGroup = fwdPlan.inChansPerGroup;
   plan.xAxisGrainSize = 1;
-  if (plan.partialChansPerGroup != 1) {
+  if (fwdParams.getOutputDepth() == 1) {
+    plan.method = Plan::Method::OUTER_PRODUCT;
+  } else if (plan.partialChansPerGroup != 1) {
     // ConvPartialHorizontalMacVertex only supports an output grouping of 1.
     // so we must force the use of the convolutional instructions.
     plan.method = Plan::Method::AMP;
