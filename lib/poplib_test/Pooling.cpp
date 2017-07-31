@@ -72,7 +72,7 @@ pooling(PoolingType pType, unsigned strideHeight, unsigned strideWidth,
             for (unsigned kx = 0; kx != kernelWidth; ++kx) {
               if (pType == PoolingType::MAX)
                 v = std::max(v, paddedIn[y + ky][x + kx][c]);
-              else if (pType ==  PoolingType::AVG)
+              else if (pType ==  PoolingType::AVG || pType ==  PoolingType::SUM)
                 v += paddedIn[y + ky][x + kx][c];
             }
           }
@@ -230,7 +230,8 @@ maxPoolingBackward(unsigned strideHeight, unsigned strideWidth,
 }
 
 static void
-avgPoolingBackward(unsigned strideHeight, unsigned strideWidth,
+sumPoolingBackward(PoolingType pType,
+                   unsigned strideHeight, unsigned strideWidth,
                    unsigned kernelHeight, unsigned kernelWidth,
                    int paddingHeightL, int paddingWidthL,
                    int paddingHeightU, int paddingWidthU,
@@ -238,6 +239,7 @@ avgPoolingBackward(unsigned strideHeight, unsigned strideWidth,
                    const boost::multi_array<double, 4> &nextAct,
                    const boost::multi_array<double, 4> &in,
                    boost::multi_array<double, 4> &out) {
+  assert(pType == PoolingType::AVG || pType == PoolingType::SUM);
   const auto batchSize = in.shape()[0];
   const auto channels = in.shape()[3];
   const auto inputHeight = in.shape()[1];
@@ -265,7 +267,7 @@ avgPoolingBackward(unsigned strideHeight, unsigned strideWidth,
     throw poplib_test::poplib_test_error("Deltas and activation tensor "
                                          "dimensions do not match");
   }
-  const auto scale = getScale(PoolingType::AVG, kernelHeight, kernelWidth);
+  const auto scale = getScale(pType, kernelHeight, kernelWidth);
 
   for (unsigned b = 0; b != batchSize; ++b) {
     const auto outputChannels = out.shape()[3];
@@ -326,9 +328,9 @@ void poplib_test::pooling::poolingBackward(
                        paddingHeightL,  paddingWidthL,
                        paddingHeightU,  paddingWidthU,
                        prevAct, nextAct, in, out);
-  } else if (pType == PoolingType::AVG) {
-    avgPoolingBackward(strideHeight, strideWidth, kernelHeight,  kernelWidth,
-                       paddingHeightL,  paddingWidthL,
+  } else if (pType == PoolingType::AVG || pType == PoolingType::SUM) {
+    sumPoolingBackward(pType, strideHeight, strideWidth, kernelHeight,
+                       kernelWidth, paddingHeightL,  paddingWidthL,
                        paddingHeightU,  paddingWidthU,
                        prevAct, nextAct, in, out);
   }

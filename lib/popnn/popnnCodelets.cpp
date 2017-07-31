@@ -204,7 +204,7 @@ template class MaxPooling<float>;
 template class MaxPooling<half>;
 
 template <typename FPType>
-class AvgPooling : public Vertex {
+class ScaledSumPooling : public Vertex {
 public:
   Vector<Input<Vector<FPType>>> in;
   Vector<Output<Vector<FPType>>> out;
@@ -245,8 +245,8 @@ public:
   }
 };
 
-template class AvgPooling<float>;
-template class AvgPooling<half>;
+template class ScaledSumPooling<float>;
+template class ScaledSumPooling<half>;
 
 template <typename FPType>
 class MaxPoolingGrad : public Vertex {
@@ -307,7 +307,7 @@ template class MaxPoolingGrad<half>;
 
 
 template <typename FPType>
-class AvgPoolingGrad : public Vertex {
+class ScaledSumPoolingGrad : public Vertex {
 public:
   Vector<Input<Vector<FPType>>> outGrad;
   Vector<Output<Vector<FPType>>> inGrad;
@@ -354,8 +354,8 @@ public:
   }
 };
 
-template class AvgPoolingGrad<float>;
-template class AvgPoolingGrad<half>;
+template class ScaledSumPoolingGrad<float>;
+template class ScaledSumPoolingGrad<half>;
 
 
 template <typename FPType, typename LabelType>

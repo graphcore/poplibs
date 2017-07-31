@@ -23,6 +23,7 @@ const char *asString(const PoolingType &pType) {
   switch (pType) {
   case PoolingType::MAX: return "max";
   case PoolingType::AVG: return "avg";
+  case PoolingType::SUM: return "sum";
   }
   POPLIB_UNREACHABLE();
 }
@@ -30,7 +31,8 @@ const char *asString(const PoolingType &pType) {
 static std::string getFwdVertexName(const PoolingType pType) {
   switch (pType) {
   case PoolingType::MAX: return "popnn::MaxPooling";
-  case PoolingType::AVG: return "popnn::AvgPooling";
+  case PoolingType::AVG: return "popnn::ScaledSumPooling";
+  case PoolingType::SUM: return "popnn::ScaledSumPooling";
   }
   POPLIB_UNREACHABLE();
 }
@@ -38,7 +40,8 @@ static std::string getFwdVertexName(const PoolingType pType) {
 static std::string getBwdVertexName(const PoolingType pType) {
   switch (pType) {
   case PoolingType::MAX: return "popnn::MaxPoolingGrad";
-  case PoolingType::AVG: return "popnn::AvgPoolingGrad";
+  case PoolingType::AVG: return "popnn::ScaledSumPoolingGrad";
+  case PoolingType::SUM: return "popnn::ScaledSumPoolingGrad";
   }
   POPLIB_UNREACHABLE();
 }
@@ -224,9 +227,9 @@ Tensor pool(Graph &graph,
   const auto params = makeConvParams(in.dim(1), in.dim(2),
                                      kernelShape, stride,
                                      inputPaddingLower, inputPaddingUpper);
-  const float scale =
+  const float scale = poolingType == PoolingType::AVG ?
     1.0 / std::accumulate(std::begin(kernelShape), std::end(kernelShape), 1,
-                          std::multiplies<std::size_t>());
+                          std::multiplies<std::size_t>()) : 1.0;
 
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     // On each tile split the elements of the output up between the workers.
@@ -306,7 +309,7 @@ Tensor pool(Graph &graph,
                                {{"in", vertexIn}, {"out", vertexOut}});
       graph.setTileMapping(v, tile);
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-      if (poolingType == PoolingType::AVG) {
+      if (poolingType != PoolingType::MAX) {
         graph.setInitialValue(v["scale"], scale);
       }
       graph.setFieldSize(v["windowSizes"], windowSizes.size());
@@ -366,9 +369,9 @@ poolInputGradient(Graph &graph,
                                inputPaddingLower, inputPaddingUpper);
   auto bwdParams = getGradientParams(params);
 
-  const float scale =
+  const float scale = poolingType == PoolingType::AVG ?
     1.0 / std::accumulate(std::begin(kernelShape), std::end(kernelShape), 1,
-                          std::multiplies<std::size_t>());
+                          std::multiplies<std::size_t>()) : 1.0;
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     // On each tile split the elements of the output up between the workers.
     // The grainSize is set to the vector width so vectors will not be split
@@ -471,7 +474,7 @@ poolInputGradient(Graph &graph,
       graph.setTileMapping(v, tile);
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setFieldSize(v["windowSizes"], windowSizes.size());
-      if (poolingType == PoolingType::AVG) {
+      if (poolingType != PoolingType::MAX) {
         graph.setInitialValue(v["scale"], scale);
       }
       for (unsigned i = 0; i < windowSizes.size(); ++i)

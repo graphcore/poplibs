@@ -39,7 +39,9 @@ std::istream &operator>>(std::istream &is, PoolingType &pType) {
     pType = PoolingType::MAX;
   else if (token == "avg")
     pType = PoolingType::AVG;
-  else
+  else if (token == "sum") {
+    pType = PoolingType::SUM;
+  } else
     throw popstd::poplib_error(
       "Unknown pooling type<" + token + ">");
   return is;
@@ -149,7 +151,7 @@ int main(int argc, char **argv) {
      po::value<PoolingType>(
          &poolingType
      )->default_value(poolingType),
-     "Pooling Type (max | avg)")
+     "Pooling Type (max | avg | sum)")
     ("batch-size",
      po::value<unsigned>(&batchSize)->default_value(1),
      "Batch size")

@@ -3,6 +3,6 @@
 
 
 /// Pooling types
-enum class PoolingType {MAX, AVG};
+enum class PoolingType {MAX, AVG, SUM};
 
 #endif // __popnn_PoolingDef_hpp__
