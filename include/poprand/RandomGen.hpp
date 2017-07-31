@@ -1,11 +1,14 @@
 #ifndef __poprand_RandomGen_hpp__
 #define __poprand_RandomGen_hpp__
 
+#include "popstd/exceptions.hpp"
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <string>
 #include <utility>
 #include <string>
+#include <cstdint>
+#include <array>
 
 namespace poprand {
 
@@ -38,66 +41,63 @@ enum RandomGenMode {
   NOT_REPEATABLE
 };
 
-/// Uniform distribution in a given interval with maxVal >
-/// minVal The mode determines whether the numbers generated are
-/// repeatable across systems
-///
-/// The tensor A may be of type "float", "half" or "int".
-/// For "float" and "half", the uniform number generator
-/// generates data with the uniform distribution in the interval
-/// [minVal, maxVal]
-/// For "int", data is generated in interval [minVal, maxVal)
-/// with uniform probability if maxVal - minVal is a power of 2.
-/// Otherwise there will be a small bias in the probability
-/// generated with the bias directly proportional to the ratio
-/// maxVal-minVal / 2^32.
-void uniform(poplar::Graph &graph, poplar::Tensor &A, double minVal,
-             double maxVal, uint64_t seed, RandomGenMode mode,
-             poplar::program::Sequence &prog,
-             const std::string &debugPrefix = "");
-void uniform(poplar::Graph &graph, poplar::Tensor &A, double minVal,
-             double maxVal, RandomGenMode mode, poplar::program::Sequence &prog,
-             const std::string &debugPrefix = "");
+class Random {
+  RandomGenMode mode = NOT_REPEATABLE;
+  uint64_t seed = 0xAA99330FCC55E1B4ULL;
+  std::vector<uint16_t> callCount;
+public:
+  Random(RandomGenMode mode, uint64_t seed);
+  Random();
+  Random(RandomGenMode mode);
+  RandomGenMode getMode() const { return mode; }
 
-/// Bernoulli with probablility of 1 = "prob"
-/// The mode determines whether the numbers generated are
-/// repeatable across systems
-/// Tensor types supported are "float", "half" and "int"
-void bernoulli(poplar::Graph &graph, poplar::Tensor &A, double prob,
-               uint64_t seed, RandomGenMode mode,
-               poplar::program::Sequence &prog,
-               const std::string &debugPrefix = "");
-void bernoulli(poplar::Graph &graph, poplar::Tensor &A, double prob,
-               RandomGenMode mode, poplar::program::Sequence &prog,
-               const std::string &debugPrefix = "");
+  /// Uniform distribution in a given interval with maxVal >
+  /// minVal The mode determines whether the numbers generated are
+  /// repeatable across systems
+  ///
+  /// The tensor A may be of type "float", "half" or "int".
+  /// For "float" and "half", the uniform number generator
+  /// generates data with the uniform distribution in the interval
+  /// [minVal, maxVal]
+  /// For "int", data is generated in interval [minVal, maxVal)
+  /// with uniform probability if maxVal - minVal is a power of 2.
+  /// Otherwise there will be a small bias in the probability
+  /// generated with the bias directly proportional to the ratio
+  /// maxVal-minVal / 2^32.
+  void
+  uniform(poplar::Graph &graph, poplar::Tensor &A, double minVal, double maxVal,
+          poplar::program::Sequence &prog, const std::string &debugPrefix = "");
 
-/// Normal distribution with given mean and standard deviation
-/// The mode determines whether the numbers generated are
-/// repeatable across systems
-/// The tensor A may be of type "half" and "float"
-void normal(poplar::Graph &graph, poplar::Tensor &A, double mean, double stdDev,
-            uint64_t seed, RandomGenMode mode, poplar::program::Sequence &prog,
-            const std::string &debugPrefix = "");
-void normal(poplar::Graph &graph, poplar::Tensor &A, double mean, double stdDev,
-            RandomGenMode mode, poplar::program::Sequence &prog,
+  /// Bernoulli with probablility of 1 = "prob"
+  /// The mode determines whether the numbers generated are
+  /// repeatable across systems
+  /// Tensor types supported are "float", "half" and "int"
+  void
+  bernoulli(poplar::Graph &graph, poplar::Tensor &A, double prob,
+            poplar::program::Sequence &prog,
             const std::string &debugPrefix = "");
 
-/// Truncated normal distribution derived from a normal
-/// distribution with mean "mean" and standard deviation
-/// "stdDev". This normal distribution is truncated
-/// symmetrically about the mean at:
-///   (mean - alpha * stdDev) and (mean + alpha * stdDev)
-/// The mode determines whether the numbers generated are
-/// repeatable across systems
-/// The tensor A may be of type "half" and "float"
-void truncatedNormal(poplar::Graph &graph, poplar::Tensor &A, double mean,
-                     double stdDev, double alpha, uint64_t seed,
-                     RandomGenMode mode, poplar::program::Sequence &prog,
-                     const std::string &debugPrefix = "");
-void truncatedNormal(poplar::Graph &graph, poplar::Tensor &A, double mean,
-                     double stdDev, double alpha, RandomGenMode mode,
-                     poplar::program::Sequence &prog,
-                     const std::string &debugPrefix = "");
+  /// Normal distribution with given mean and standard deviation
+  /// The mode determines whether the numbers generated are
+  /// repeatable across systems
+  /// The tensor A may be of type "half" and "float"
+  void
+  normal(poplar::Graph &graph, poplar::Tensor &A, double mean, double stdDev,
+         poplar::program::Sequence &prog, const std::string &debugPrefix = "");
+
+  /// Truncated normal distribution derived from a normal
+  /// distribution with mean "mean" and standard deviation
+  /// "stdDev". This normal distribution is truncated
+  /// symmetrically about the mean at:
+  ///   (mean - alpha * stdDev) and (mean + alpha * stdDev)
+  /// The mode determines whether the numbers generated are
+  /// repeatable across systems
+  /// The tensor A may be of type "half" and "float"
+  void
+  truncatedNormal(poplar::Graph &graph, poplar::Tensor &A, double mean,
+                  double stdDev, double alpha, poplar::program::Sequence &prog,
+                  const std::string &debugPrefix = "");
+};
 
 }// namespace poprand
 

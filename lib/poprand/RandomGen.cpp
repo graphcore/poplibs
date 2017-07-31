@@ -14,6 +14,14 @@ using namespace poplar::program;
 
 namespace poprand {
 
+enum Module {
+  UNIFORM,
+  BERNOULLI,
+  NORMAL,
+  TRUNCATED_NORMAL,
+  NUM_MODULES
+};
+
 // Module IDs for generators
 #define UNIFORM_MODULEID     0xAAAA
 #define BERNOULLI_MODULEID   0x5555
@@ -29,17 +37,14 @@ static uint64_t createSeedU64(uint64_t callCount, uint64_t tile,
 
 // If seed is not provided, create one for the lower 64 bits. A more
 // complicated generation could be used but for now use a simple one.
-static uint64_t colourSeedL64(uint64_t seed, uint16_t moduleId,
-                              bool seedProvided) {
-  return seedProvided ? seed : ~0 ^ moduleId;
+static uint64_t colourSeedL64(uint64_t seed, uint16_t moduleId) {
+  return seed ^ moduleId;
 }
 
 // colour part of seedU64
 static uint16_t colouredIdU64(uint16_t id, uint16_t callCount,
-                              bool seedProvided, RandomGenMode mode) {
-  if (mode != ALWAYS_REPEATABLE || !seedProvided) {
-    id += callCount;
-  }
+                              RandomGenMode mode) {
+  id += callCount + mode;
   return id;
 }
 
@@ -175,11 +180,21 @@ uniformScaleAndOffset(double minVal, double maxVal, const std::string dType) {
   }
 }
 
-static void
-uniform(Graph &graph, Tensor &A, double minVal, double maxVal, uint64_t seed,
-        RandomGenMode mode, bool seedProvided, Sequence &prog,
-        const std::string &debugPrefix) {
-  static uint16_t callCount;
+Random::Random() {
+  callCount.resize(NUM_MODULES, 0);
+}
+
+Random::Random(RandomGenMode mode_) : mode(mode_) {
+  callCount.resize(NUM_MODULES, 0);
+}
+
+Random::Random(RandomGenMode mode_, uint64_t seed_) : mode(mode_), seed(seed_) {
+  callCount.resize(NUM_MODULES, 0);
+}
+
+void Random::
+uniform(Graph &graph, Tensor &A, double minVal, double maxVal,
+        Sequence &prog, const std::string &debugPrefix) {
   double scale, offset;
 
   if (minVal >= maxVal) {
@@ -187,86 +202,43 @@ uniform(Graph &graph, Tensor &A, double minVal, double maxVal, uint64_t seed,
   }
   std::tie(scale, offset) = uniformScaleAndOffset(minVal, maxVal,
                                                   A.elementType());
-
-  seed = colourSeedL64(seed, UNIFORM_MODULEID, seedProvided);
+  const auto derivedSeed = colourSeedL64(seed, UNIFORM_MODULEID);
   const auto colouredId =
-      colouredIdU64(UNIFORM_MODULEID, callCount++, seedProvided, mode);
-  buildProgram(graph, A, seed, colouredId, mode, "Uniform",
+      colouredIdU64(UNIFORM_MODULEID, callCount[UNIFORM]++, mode);
+  buildProgram(graph, A, derivedSeed, colouredId, mode, "Uniform",
                {{"scale", scale}, {"offset", offset}}, prog, debugPrefix);
 }
 
-void uniform(Graph &graph, Tensor &A, double minVal, double maxVal,
-             uint64_t seed, RandomGenMode mode, Sequence &prog,
-             const std::string &debugPrefix) {
-  uniform(graph, A, minVal, maxVal, seed, mode, true, prog, debugPrefix);
-}
-
-void uniform(Graph &graph, Tensor &A, double minVal, double maxVal,
-             RandomGenMode mode, Sequence &prog,
-             const std::string &debugPrefix) {
-  uniform(graph, A, minVal, maxVal, ~0, mode, false, prog, debugPrefix);
-}
-
-static void
-bernoulli(Graph &graph, Tensor &A, double prob, uint64_t seed,
-          RandomGenMode mode, bool seedProvided, Sequence &prog,
+void Random::
+bernoulli(Graph &graph, Tensor &A, double prob, Sequence &prog,
           const std::string &debugPrefix) {
-  static uint16_t callCount;
-
   if (prob < 0 || prob > 1.0) {
     throw popstd::poplib_error("invalid bernoulli probability");
   }
-  seed = colourSeedL64(seed, BERNOULLI_MODULEID, seedProvided);
+  const auto derivedSeed = colourSeedL64(seed, BERNOULLI_MODULEID);
   const auto colouredId =
-      colouredIdU64(BERNOULLI_MODULEID, callCount++, seedProvided, mode);
-  buildProgram(graph, A, seed, colouredId, mode, "Bernoulli", {{"prob", prob}},
-               prog, debugPrefix);
+      colouredIdU64(BERNOULLI_MODULEID, callCount[BERNOULLI]++, mode);
+  buildProgram(graph, A, derivedSeed, colouredId, mode, "Bernoulli",
+               {{"prob", prob}}, prog, debugPrefix);
 }
 
-void bernoulli(Graph &graph, Tensor &A, double prob, uint64_t seed,
-               RandomGenMode mode,
-               Sequence &prog, const std::string &debugPrefix) {
-  bernoulli(graph, A, prob, seed, mode, true, prog, debugPrefix);
-}
-
-void bernoulli(Graph &graph, Tensor &A, double prob, RandomGenMode mode,
-               Sequence &prog, const std::string &debugPrefix) {
-  bernoulli(graph, A, prob, ~0, mode, false, prog, debugPrefix);
-}
-
-static void
-normal(Graph &graph, Tensor &A, double mean, double stdDev, uint64_t seed,
-       RandomGenMode mode, bool seedProvided, Sequence &prog,
+void Random::
+normal(Graph &graph, Tensor &A, double mean, double stdDev, Sequence &prog,
        const std::string &debugPrefix) {
-  static uint16_t callCount;
-  seed = colourSeedL64(seed, NORMAL_MODULEID, seedProvided);
+  const auto derivedSeed = colourSeedL64(seed, NORMAL_MODULEID);
   const auto colouredId =
-      colouredIdU64(NORMAL_MODULEID, callCount++, seedProvided, mode);
-  buildProgram(graph, A, seed, colouredId, mode, "Normal",
+      colouredIdU64(NORMAL_MODULEID, callCount[NORMAL]++, mode);
+  buildProgram(graph, A, derivedSeed, colouredId, mode, "Normal",
                {{"mean", mean}, {"stdDev", stdDev}}, prog, debugPrefix);
 }
 
-void normal(Graph &graph, Tensor &A, double mean, double stdDev,
-            RandomGenMode mode, Sequence &prog,
-            const std::string &debugPrefix) {
-  normal(graph, A, mean, stdDev, ~0, mode, true, prog, debugPrefix);
-}
-
-void normal(Graph &graph, Tensor &A, double mean, double stdDev, uint64_t seed,
-            RandomGenMode mode, Sequence &prog,
-            const std::string &debugPrefix) {
-  normal(graph, A, mean, stdDev, seed, mode, false, prog, debugPrefix);
-}
-
-static void
+void Random::
 truncatedNormal(Graph &graph, Tensor &A, double mean, double stdDev,
-                double alpha, uint64_t seed, RandomGenMode mode,
-                bool seedProvided,Sequence &prog,
-                const std::string &debugPrefix) {
-  static uint16_t callCount;
-  seed = colourSeedL64(seed, TRUNCNORMAL_MODULEID, seedProvided);
+                double alpha, Sequence &prog, const std::string &debugPrefix) {
+  const auto derivedSeed = colourSeedL64(seed, TRUNCNORMAL_MODULEID);
   const auto colouredId =
-      colouredIdU64(TRUNCNORMAL_MODULEID, callCount++, seedProvided, mode);
+    colouredIdU64(TRUNCNORMAL_MODULEID, callCount[TRUNCATED_NORMAL]++,
+                  mode);
 
   if (alpha < 1) {
     throw popstd::poplib_error("Alpha less than 1.0 not supported yet");
@@ -279,23 +251,9 @@ truncatedNormal(Graph &graph, Tensor &A, double mean, double stdDev,
   const unsigned iterations =
     std::ceil(logProb / std::log10(std::erfc(alpha / std::sqrt(2.0))));
 
-  buildProgram(graph, A, seed, colouredId, mode, "TruncatedNormal",
+  buildProgram(graph, A, derivedSeed, colouredId, mode, "TruncatedNormal",
                {{"mean", mean}, {"stdDev", stdDev}, {"alpha", alpha},
                 {"iterations", iterations}}, prog, debugPrefix);
-}
-
-void truncatedNormal(Graph &graph, Tensor &a, double mean, double stdDev,
-                     double alpha, uint64_t seed, RandomGenMode mode,
-                     Sequence &prog, const std::string &debugPrefix) {
-  truncatedNormal(graph, a, mean, stdDev, alpha, seed, mode, true, prog,
-                  debugPrefix);
-}
-
-void truncatedNormal(Graph &graph, Tensor &a, double mean, double stdDev,
-                     double alpha, RandomGenMode mode, Sequence &prog,
-                     const std::string &debugPrefix) {
-  truncatedNormal(graph, a, mean, stdDev, alpha, ~0, mode, false, prog,
-                  debugPrefix);
 }
 
 } // namespace poprand
