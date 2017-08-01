@@ -209,7 +209,9 @@ public:
   Vector<Input<Vector<FPType>>> in;
   Vector<Output<Vector<FPType>>> out;
   Vector<unsigned> windowSizes;
-  float scale;
+  // This field may be removed if separate vertices are defined for
+  // Sum Pooling and Avg pooling
+  bool scaleOutput;
 
   SimOnlyField<unsigned> dataPathWidth;
 
@@ -223,7 +225,10 @@ public:
           assert(out[i].size() == in[inIndex + w].size());
           val += in[inIndex + w][chan];
         }
-        out[i][chan] = val * scale;
+        if (scaleOutput && windowSizes[i]) {
+          val /= windowSizes[i];
+        }
+        out[i][chan] = val;
       }
       inIndex += windowSizes[i];
     }
@@ -234,12 +239,13 @@ public:
     unsigned numCycles = 10;
     bool isFloat = std::is_same<FPType, float>::value;
     const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    const unsigned scaleCycles = scaleOutput ? 1 : 0;
     for (unsigned i = 0; i < out.size(); ++i) {
       auto numVectors = (out[i].size() + vectorWidth - 1) / vectorWidth;
       auto windowSize = windowSizes[i];
       // load ptr/vec/ load data/add for windowSize
       // axpby and store
-      numCycles += 2 + numVectors * (3 + 2 * windowSize);
+      numCycles += 2 + scaleCycles + numVectors * (3 + 2 * windowSize);
     }
     return numCycles;
   }
@@ -307,12 +313,11 @@ template class MaxPoolingGrad<half>;
 
 
 template <typename FPType>
-class ScaledSumPoolingGrad : public Vertex {
+class SumPoolingGrad : public Vertex {
 public:
   Vector<Input<Vector<FPType>>> outGrad;
   Vector<Output<Vector<FPType>>> inGrad;
   Vector<unsigned> windowSizes;
-  float scale;
 
   SimOnlyField<unsigned> dataPathWidth;
 
@@ -325,7 +330,7 @@ public:
           assert(inGrad[i].size() == outGrad[inIndex + w].size());
           val += outGrad[inIndex + w][chan];
         }
-        inGrad[i][chan] = val * scale;
+        inGrad[i][chan] = val;
       }
       inIndex += windowSizes[i];
     }
@@ -348,14 +353,14 @@ public:
       auto numVectors = (inGrad[i].size() + vectorWidth - 1) / vectorWidth;
       auto windowSize = windowSizes[i];
       // TODO: This is too optimistic
-      numCycles += 3 + numVectors * (4 + windowSize * 1);
+      numCycles += 2 + numVectors * (4 + windowSize * 1);
     }
     return numCycles;
   }
 };
 
-template class ScaledSumPoolingGrad<float>;
-template class ScaledSumPoolingGrad<half>;
+template class SumPoolingGrad<float>;
+template class SumPoolingGrad<half>;
 
 
 template <typename FPType, typename LabelType>

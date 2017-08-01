@@ -5,6 +5,8 @@
 #include "popstd/exceptions.hpp"
 #include "popstd/Util.hpp"
 #include "util/Compiler.hpp"
+#include "popstd/Operations.hpp"
+#include <boost/multi_array.hpp>
 #include <functional>
 #include <numeric>
 #include <cassert>
@@ -40,8 +42,8 @@ static std::string getFwdVertexName(const PoolingType pType) {
 static std::string getBwdVertexName(const PoolingType pType) {
   switch (pType) {
   case PoolingType::MAX: return "popnn::MaxPoolingGrad";
-  case PoolingType::AVG: return "popnn::ScaledSumPoolingGrad";
-  case PoolingType::SUM: return "popnn::ScaledSumPoolingGrad";
+  case PoolingType::AVG: return "popnn::SumPoolingGrad";
+  case PoolingType::SUM: return "popnn::SumPoolingGrad";
   }
   POPLIB_UNREACHABLE();
 }
@@ -87,6 +89,88 @@ getOutputDim(unsigned inDimY, unsigned inDimX,
   auto params = makeConvParams(inDimY, inDimX, kernelShape, stride,
                                inputPaddingLower, inputPaddingUpper);
   return {params.getOutputHeight(), params.getOutputWidth()};
+}
+
+// Scale gradient with scale factor determined by the number of samples
+// used in the averaging of a pooled sample in the forward pass
+template <class T>
+static Tensor scaleGradient(Graph &graph,
+                            const ConvParams &params,
+                            const Tensor grad,
+                            Sequence &prog,
+                            const std::string &debugPrefix) {
+  const auto inputHeight = params.getInputHeight();
+  const auto inputWidth = params.getInputWidth();
+  const auto paddingHeightL =  params.inputPaddingLower[0] ;
+  const auto paddingWidthL = params.inputPaddingLower[1];
+  const auto paddingHeightU =  params.inputPaddingUpper[0] ;
+  const auto paddingWidthU = params.inputPaddingUpper[1];
+  const auto kernelHeight = params.kernelShape[0];
+  const auto kernelWidth = params.kernelShape[1];
+  const auto strideHeight = params.stride[0];
+  const auto strideWidth = params.stride[1];
+
+  const auto paddedHeight = inputHeight + paddingHeightL + paddingHeightU;
+  const auto paddedWidth = inputWidth + paddingWidthL + paddingWidthU;
+  const double lowestValue = std::numeric_limits<double>::lowest();
+  boost::multi_array<double, 2>
+        paddedIn(boost::extents[paddedHeight][paddedWidth]);
+  std::fill(paddedIn.data(), paddedIn.data() + paddedIn.num_elements(),
+            lowestValue);
+
+  for (int y = 0; y != paddedHeight; ++y) {
+    for (int x = 0; x != paddedWidth; ++x) {
+      if ((y - paddingHeightL) < 0 ||
+          (y - paddingHeightL) >= inputHeight ||
+          (x - paddingWidthL) < 0 ||
+          (x - paddingWidthL) >= inputWidth) {
+        continue;
+      }
+      paddedIn[y][x] = 0;
+    }
+  }
+
+  const auto poolOutHeight = paddedHeight - (kernelHeight - 1);
+  const auto poolOutWidth = paddedWidth - (kernelWidth - 1);
+  boost::multi_array<double, 2> scaleOut(boost::extents[poolOutHeight]
+                                                       [poolOutWidth]);
+
+  std::fill(scaleOut.data(), scaleOut.data() + scaleOut.num_elements(), 0.0);
+  for (unsigned y = 0; y != poolOutHeight; ++y) {
+    for (unsigned x = 0; x != poolOutWidth; ++x) {
+      unsigned usedKernelElems = 0;
+      for (unsigned ky = 0; ky != kernelHeight; ++ky) {
+        for (unsigned kx = 0; kx != kernelWidth; ++kx) {
+          usedKernelElems += paddedIn[y + ky][x + kx] != lowestValue;
+        }
+      }
+      scaleOut[y][x] = usedKernelElems != 0 ? 1.0 / usedKernelElems : 0;
+    }
+  }
+
+  // Downsample.
+  const auto outHeight = (poolOutHeight + strideHeight - 1) / strideHeight;
+  const auto outWidth = (poolOutWidth + strideWidth - 1) / strideWidth;
+  assert(outHeight == grad.dim(1));
+  assert(outWidth == grad.dim(2));
+  std::vector<T> scale(outHeight * outWidth);
+  for (unsigned y = 0; y != outHeight; ++y) {
+    for (unsigned x = 0; x != outWidth; ++x) {
+      scale[outWidth * y + x] = scaleOut[y * strideHeight][x * strideWidth];
+    }
+  }
+
+  // create constant tensor and broadcast
+  const auto batchSize = grad.dim(0);
+  const auto channels = grad.dim(3);
+  auto scaleTensor = graph.addConstantTensor<T>(grad.elementType(),
+                                                {outHeight * outWidth},
+                                                scale.data());
+  auto bScaleTensor =
+    scaleTensor.broadcast(batchSize * channels, 0)
+               .reshape({batchSize, channels, outHeight, outWidth})
+               .dimShuffle({0, 2, 3, 1});
+  return mul(graph, grad, bScaleTensor, prog, debugPrefix + "/preScale");
 }
 
 
@@ -227,10 +311,6 @@ Tensor pool(Graph &graph,
   const auto params = makeConvParams(in.dim(1), in.dim(2),
                                      kernelShape, stride,
                                      inputPaddingLower, inputPaddingUpper);
-  const float scale = poolingType == PoolingType::AVG ?
-    1.0 / std::accumulate(std::begin(kernelShape), std::end(kernelShape), 1,
-                          std::multiplies<std::size_t>()) : 1.0;
-
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     // On each tile split the elements of the output up between the workers.
     // The grainSize is set to the vector width so vectors will not be split
@@ -310,7 +390,8 @@ Tensor pool(Graph &graph,
       graph.setTileMapping(v, tile);
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       if (poolingType != PoolingType::MAX) {
-        graph.setInitialValue(v["scale"], scale);
+        graph.setInitialValue(v["scaleOutput"],
+                              poolingType == PoolingType::AVG);
       }
       graph.setFieldSize(v["windowSizes"], windowSizes.size());
       for (unsigned i = 0; i < windowSizes.size(); ++i)
@@ -342,7 +423,6 @@ poolInputGradient(Graph &graph,
                          + std::to_string(kernelShape[1]);
   ComputeSet cs = graph.addComputeSet(layerName);
 
-
   const auto batchSize = pooledGradient.dim(0);
   const auto numChannels = pooledGradient.dim(3);
   const auto inHeight = in.dim(1);
@@ -360,18 +440,26 @@ poolInputGradient(Graph &graph,
                                "match gradient calculation input height and "
                                "width");
 
+  auto params = makeConvParams(inHeight, inWidth,
+                               kernelShape, stride,
+                               inputPaddingLower, inputPaddingUpper);
+
+  if (poolingType == PoolingType::AVG) {
+    if (dType == "float") {
+      pooledGradient = scaleGradient<float>(graph, params, pooledGradient, prog,
+                                            layerName);
+    } else {
+      pooledGradient = scaleGradient<half>(graph, params, pooledGradient, prog,
+                                           layerName);
+    }
+  }
   auto inGradient = graph.clone(in);
 
   const auto numTiles = deviceInfo.getNumTiles();
   auto outTileMapping = graph.getTileMapping(inGradient);
-  auto params = makeConvParams(inHeight, inWidth,
-                               kernelShape, stride,
-                               inputPaddingLower, inputPaddingUpper);
+
   auto bwdParams = getGradientParams(params);
 
-  const float scale = poolingType == PoolingType::AVG ?
-    1.0 / std::accumulate(std::begin(kernelShape), std::end(kernelShape), 1,
-                          std::multiplies<std::size_t>()) : 1.0;
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     // On each tile split the elements of the output up between the workers.
     // The grainSize is set to the vector width so vectors will not be split
@@ -474,9 +562,6 @@ poolInputGradient(Graph &graph,
       graph.setTileMapping(v, tile);
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setFieldSize(v["windowSizes"], windowSizes.size());
-      if (poolingType != PoolingType::MAX) {
-        graph.setInitialValue(v["scale"], scale);
-      }
       for (unsigned i = 0; i < windowSizes.size(); ++i)
         graph.setInitialValue(v["windowSizes"][i], windowSizes[i]);
     }

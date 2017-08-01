@@ -12,6 +12,7 @@
 #include <popnn/Pooling.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <popnn/codelets.hpp>
+#include <popstd/codelets.hpp>
 #include <popnn/NonLinearity.hpp>
 #include <poplib_test/Pooling.hpp>
 #include <poplib_test/Util.hpp>
@@ -255,6 +256,7 @@ int main(int argc, char **argv) {
   bool inferenceOnly = vm.count("inference-only");
   Graph graph(createIPUModelDevice(info));
   popnn::addCodelets(graph);
+  popstd::addCodelets(graph);
 
   std::string dataTypeStr(asString(dataType));
   // If the output grouping is unspecified, assume the output uses the same
