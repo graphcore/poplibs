@@ -1662,6 +1662,7 @@ public:
 template class Select<float>;
 template class Select<half>;
 template class Select<int>;
+template class Select<bool>;
 
 
 template <typename InType>
