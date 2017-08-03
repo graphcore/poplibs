@@ -99,16 +99,16 @@ static Tensor scaleGradient(Graph &graph,
                             const Tensor grad,
                             Sequence &prog,
                             const std::string &debugPrefix) {
-  const auto inputHeight = params.getInputHeight();
-  const auto inputWidth = params.getInputWidth();
-  const auto paddingHeightL =  params.inputPaddingLower[0] ;
-  const auto paddingWidthL = params.inputPaddingLower[1];
-  const auto paddingHeightU =  params.inputPaddingUpper[0] ;
-  const auto paddingWidthU = params.inputPaddingUpper[1];
-  const auto kernelHeight = params.kernelShape[0];
-  const auto kernelWidth = params.kernelShape[1];
-  const auto strideHeight = params.stride[0];
-  const auto strideWidth = params.stride[1];
+  const int inputHeight = params.getInputHeight();
+  const int inputWidth = params.getInputWidth();
+  const int paddingHeightL =  params.inputPaddingLower[0] ;
+  const int paddingWidthL = params.inputPaddingLower[1];
+  const int paddingHeightU =  params.inputPaddingUpper[0] ;
+  const int paddingWidthU = params.inputPaddingUpper[1];
+  const int kernelHeight = params.kernelShape[0];
+  const int kernelWidth = params.kernelShape[1];
+  const int strideHeight = params.stride[0];
+  const int strideWidth = params.stride[1];
 
   const auto paddedHeight = inputHeight + paddingHeightL + paddingHeightU;
   const auto paddedWidth = inputWidth + paddingWidthL + paddingWidthU;
@@ -136,11 +136,11 @@ static Tensor scaleGradient(Graph &graph,
                                                        [poolOutWidth]);
 
   std::fill(scaleOut.data(), scaleOut.data() + scaleOut.num_elements(), 0.0);
-  for (unsigned y = 0; y != poolOutHeight; ++y) {
-    for (unsigned x = 0; x != poolOutWidth; ++x) {
+  for (int y = 0; y != poolOutHeight; ++y) {
+    for (int x = 0; x != poolOutWidth; ++x) {
       unsigned usedKernelElems = 0;
-      for (unsigned ky = 0; ky != kernelHeight; ++ky) {
-        for (unsigned kx = 0; kx != kernelWidth; ++kx) {
+      for (int ky = 0; ky != kernelHeight; ++ky) {
+        for (int kx = 0; kx != kernelWidth; ++kx) {
           usedKernelElems += paddedIn[y + ky][x + kx] != lowestValue;
         }
       }
@@ -149,8 +149,8 @@ static Tensor scaleGradient(Graph &graph,
   }
 
   // Downsample.
-  const auto outHeight = (poolOutHeight + strideHeight - 1) / strideHeight;
-  const auto outWidth = (poolOutWidth + strideWidth - 1) / strideWidth;
+  const unsigned outHeight = (poolOutHeight + strideHeight - 1) / strideHeight;
+  const unsigned outWidth = (poolOutWidth + strideWidth - 1) / strideWidth;
   assert(outHeight == grad.dim(1));
   assert(outWidth == grad.dim(2));
   std::vector<T> scale(outHeight * outWidth);
@@ -164,7 +164,7 @@ static Tensor scaleGradient(Graph &graph,
   const auto batchSize = grad.dim(0);
   const auto channels = grad.dim(3);
   auto scaleTensor = graph.addConstantTensor<T>(grad.elementType(),
-                                                {outHeight * outWidth},
+                                                { outHeight * outWidth },
                                                 scale.data());
   auto bScaleTensor =
     scaleTensor.broadcast(batchSize * channels, 0)
