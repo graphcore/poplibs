@@ -1,20 +1,57 @@
 #include "popreduce/Reduce.hpp"
-
-#include <algorithm>
-#include <numeric>
-
 #include "popstd/Cast.hpp"
 #include "popstd/TileMapping.hpp"
 #include "popstd/Util.hpp"
 #include "popstd/VertexTemplates.hpp"
 #include "popstd/Zero.hpp"
 #include "popstd/Operations.hpp"
+#include "util/Compiler.hpp"
+#include "popstd/exceptions.hpp"
+#include <algorithm>
+#include <numeric>
+#include <functional>
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace popstd;
 
 namespace popreduce {
+
+// return vertex name for a given operation
+const std::string getVertexStr(Operation operation) {
+  switch (operation) {
+  case Operation::ADD:
+    return "ReduceAdd";
+  case Operation::MUL:
+    return "ReduceMul";
+  case Operation::MIN:
+    return "ReduceMin";
+  case Operation::MAX:
+    return "ReduceMax";
+  case Operation::AND:
+    return "ReduceAnd";
+  case Operation::OR:
+    return "ReduceOr";
+  }
+  POPLIB_UNREACHABLE();
+}
+
+// return vertex name for a given Operation
+const std::string getOutputType(Operation operation, const std::string
+                                &inType) {
+  switch (operation) {
+  case Operation::ADD:
+  case Operation::MUL:
+  case Operation::MIN:
+  case Operation::MAX:
+    return inType;
+  case Operation::AND:
+  case Operation::OR:
+    return "bool";
+  }
+  POPLIB_UNREACHABLE();
+}
+
 
 static unsigned getMaxElementsPerTile(
     const std::vector<
@@ -131,6 +168,7 @@ static void
 reduce(Graph &graph,
        Tensor partials,
        Tensor reduced, float k, bool isUpdate, bool isScale,
+       Operation operation,
        const std::vector<
          std::vector<Interval<std::size_t>>
        > &reduceVertexMapping,
@@ -156,13 +194,14 @@ reduce(Graph &graph,
   auto flatReduced = reduced.flatten();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
-  auto vertexName = "popreduce::Reduce";
-  if (isUpdate) {
-    vertexName = "popreduce::ReduceUpdate";
+  std::string vertexName = "popreduce::" + getVertexStr(operation);
+  if (isUpdate && operation == Operation::ADD) {
+    vertexName = "popreduce::ReduceAddUpdate";
   }
-  if (isScale) {
-    vertexName = "popreduce::ReduceScale";
+  if (isScale && operation == Operation::ADD) {
+    vertexName = "popreduce::ReduceAddScale";
   }
+
   // Accumulate the partial sums.
   const auto numTiles = deviceInfo.getNumTiles();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
@@ -211,8 +250,8 @@ reduce(Graph &graph,
          std::vector<Interval<std::size_t>>
        > &reduceVertexMapping,
        ComputeSet reduceCS) {
-  reduce(graph, partials, reduced, 1, false, false, reduceVertexMapping,
-         reduceCS);
+  reduce(graph, partials, reduced, 1, false, false, Operation::ADD,
+         reduceVertexMapping, reduceCS);
 }
 
 void
@@ -263,7 +302,7 @@ void reduceAcc(Graph &graph, Tensor out, float k, Tensor in,
     reduceMapping = determineReduceVertexMapping(graph, in, out, reduceMapping);
   }
   const auto cs = graph.addComputeSet(debugPrefix + "/Reduce");
-  reduce(graph, in, out, k, true, false, reduceMapping, cs);
+  reduce(graph, in, out, k, true, false, Operation::ADD, reduceMapping, cs);
   prog.add(Execute(cs));
 }
 
@@ -299,10 +338,85 @@ Tensor reduceScale(Graph &graph, float k, Tensor &in,
   const auto reduceVertexMapping =
       determineReduceVertexMapping(graph, in, out, graph.getTileMapping(out));
   const auto cs = graph.addComputeSet(debugPrefix + "/ReduceScale");
-  reduce(graph, in, out, k, false, true, reduceVertexMapping, cs);
+  reduce(graph, in, out, k, false, true, Operation::ADD, reduceVertexMapping,
+         cs);
   prog.add(Execute(cs));
   return out;
 }
 
+Tensor
+reduce(Graph &graph, const Tensor &A_, const std::vector<std::size_t> &dims,
+       Operation operation, Sequence &prog,const std::string &debugPrefix) {
+  auto orderedDims = dims;
+  std::sort(orderedDims.begin(), orderedDims.end());
+  orderedDims.erase(std::unique(orderedDims.begin(), orderedDims.end()),
+                    orderedDims.end());
+  if (orderedDims.size() == 0) {
+    auto out = graph.clone(A_);
+    prog.add(Copy(A_, out));
+    return out;
+  }
+
+  if (orderedDims.size() > A_.rank()) {
+    throw popstd::poplib_error("Dimensions to reduce must be at least 1 "
+                               "smaller than the rank of input tensor");
+  }
+
+  // Add a dimension of 1 if sizes match
+  Tensor A;
+  const bool fullRank = orderedDims.size() == A_.rank();
+  if (fullRank) {
+    std::vector<std::size_t> newShape = A_.shape();
+    newShape.push_back(1);
+    A = A_.reshape({newShape});
+  } else {
+    A = A_;
+  }
+
+  std::vector<unsigned> permutation;
+  std::size_t numElements = 1ULL;
+  for (const auto &i : orderedDims) {
+    numElements *= A.dim(i);
+    permutation.push_back(i);
+  }
+
+  std::vector<std::size_t> reshapeDims = { numElements };
+  std::vector<std::size_t> outputDims;
+
+  // find dimshuffle order and reshape dims
+  for (std::size_t i = 0; i != A.rank(); ++i) {
+    if (std::find(permutation.begin(), permutation.end(), i)
+        == permutation.end()) {
+      permutation.push_back(i);
+      reshapeDims.push_back(A.dim(i));
+      outputDims.push_back(A.dim(i));
+    }
+  }
+
+  const std::string vName = debugPrefix + "/" + getVertexStr(operation);
+
+  const auto aShuffled = A.dimShuffle({permutation}).reshape({reshapeDims});
+  const auto outType = getOutputType(operation, A.elementType());
+
+  auto out = graph.addTensor(outType, { outputDims }, vName);
+  mapTensorLinearly(graph, out);
+
+  /* No reduction to be done if number of elements to reduce is 1 */
+  if (numElements == 1) {
+    prog.add(Copy(aShuffled[0], out));
+    return out;
+  }
+
+  const auto reduceVertexMapping =
+      determineReduceVertexMapping(graph, aShuffled, out,
+                                   graph.getTileMapping(out));
+
+  const auto cs = graph.addComputeSet(vName);
+  reduce(graph, aShuffled, out, 1, false, false, operation,
+         reduceVertexMapping, cs);
+
+  prog.add(Execute(cs));
+  return  orderedDims.size() == A_.rank() ? out[0] : out;
+}
 
 } // end namespace popstd

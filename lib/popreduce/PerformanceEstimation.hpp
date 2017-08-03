@@ -72,4 +72,34 @@ reduceCycleEstimate(const std::vector<unsigned> &outSizes,
   return cycles;
 }
 
+template <typename OutType, typename PartialsType>
+static uint64_t
+reduceOpsCycleEstimate(const std::vector<unsigned> &outSizes,
+                       unsigned partialsSize,
+                       unsigned dataPathWidth) {
+  bool isPartialsFloat = std::is_same<PartialsType, float>::value;
+  bool isOutTypeFloat = std::is_same<OutType, float>::value;
+  // assumed that bool is 16 bits. If it is 8, vector operations are possible
+  // on the AUX side but the cycle count will be different
+  unsigned vectorWidth = dataPathWidth / (isPartialsFloat ? 32 : 16);
+  // if partials is bool, output is always bool
+  bool conversionCyles = isPartialsFloat != isOutTypeFloat;
+  uint64_t cycles = 10;
+  const unsigned numReductions = outSizes.size();
+  const unsigned numPartials = partialsSize / numReductions;
+
+  for (unsigned r = 0; r < numReductions; ++r) {
+    // overhead for each reduction
+    cycles += 5;
+    unsigned numElem = outSizes[r];
+    const unsigned numVectors = (numElem + vectorWidth - 1) / vectorWidth;
+
+    // process vectorWidth at a time with ld2xstpace. This may not be the best
+    // option if numVectors is small
+    // overhead of 5: ld ptrs, rpt, brnzdec
+    cycles += (numVectors + 5) * numPartials + conversionCyles * numVectors;
+  }
+  return cycles;
+}
+
 #endif // _performance_estimation_h_

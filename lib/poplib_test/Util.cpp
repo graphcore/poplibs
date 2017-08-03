@@ -15,9 +15,13 @@ allocateHostMemoryForTensor(const Tensor &t) {
   std::unique_ptr<char []> p;
   if (dType == "float") {
     p.reset(new char[t.numElements() * sizeof(float)]);
-  } else {
-    assert(dType == "half");
+  } else if (dType == "half"){
     p.reset(new char[t.numElements() * sizeof(poplar::half)]);
+  } else if (dType == "int") {
+    p.reset(new char[t.numElements() * sizeof(int)]);
+  } else {
+    assert(dType == "bool");
+    p.reset(new char[t.numElements() * sizeof(bool)]);
   }
   return p;
 }

@@ -50,10 +50,16 @@ copy(boost::multi_array_ref<double, N> src,
   if (dstType == "float") {
     std::copy(src.data(), src.data() + src.num_elements(),
               reinterpret_cast<float*>(dst));
-  } else {
-    assert(dstType == "half");
+  } else if (dstType == "half") {
     std::copy(src.data(), src.data() + src.num_elements(),
               reinterpret_cast<poplar::half*>(dst));
+  } else if (dstType == "int") {
+    std::copy(src.data(), src.data() + src.num_elements(),
+              reinterpret_cast<int*>(dst));
+  } else {
+    assert(dstType == "bool");
+    std::copy(src.data(), src.data() + src.num_elements(),
+              reinterpret_cast<bool*>(dst));
   }
 }
 
@@ -67,10 +73,17 @@ copy(const std::string &srcType,
     std::copy(reinterpret_cast<float*>(src),
               reinterpret_cast<float*>(src) + dst.num_elements(),
               dst.data());
-  } else {
-    assert(srcType == "half");
+  } else if (srcType == "half") {
     std::copy(reinterpret_cast<poplar::half*>(src),
               reinterpret_cast<poplar::half*>(src) + dst.num_elements(),
+              dst.data());
+  } else if (srcType == "int") {
+    std::copy(reinterpret_cast<int*>(src),
+              reinterpret_cast<int*>(src) + dst.num_elements(),
+              dst.data());
+  } else {
+    std::copy(reinterpret_cast<bool*>(src),
+              reinterpret_cast<bool*>(src) + dst.num_elements(),
               dst.data());
   }
 }

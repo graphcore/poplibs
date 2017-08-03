@@ -7,11 +7,26 @@
 
 namespace popreduce {
 
+/// Type of operation in a reduction
+enum class Operation {
+  ADD,
+  MUL,
+  MIN,
+  MAX,
+  AND,
+  OR
+};
+
+/// Reduction with ADD operation on first dimension of tensor A
 poplar::Tensor
 reduce(poplar::Graph &graph, poplar::Tensor A,
        poplar::program::Sequence &prog,
        const std::string &debugPrefix = "");
 
+
+/// Reduction with ADD operation on first dimension of tensor B, scaled and
+/// added to tensor B
+///  A += k * reduction<ADD>(B)
 void
 reduceAcc(poplar::Graph &graph, poplar::Tensor A, float k,
           poplar::Tensor B,
@@ -47,11 +62,36 @@ void reduceByDstMapping(poplar::Graph &graph,
                         poplar::ComputeSet reduceCS);
 
 
-/// Perform  reduce(A) * k with output tensor of type outTypeStr
+/// Perform  reduction<ADD>(A) * k with output tensor of type outTypeStr
 poplar::Tensor reduceScale(poplar::Graph &graph, float k, poplar::Tensor &in,
                            const std::string &outTypeStr,
                            poplar::program::Sequence &prog,
                            const std::string &debugPrefix = "");
+
+/// Perform a reduction operation of given type along the given dimensions of a
+/// tensor. The relative order between the remaining dimensions in the input is
+/// preserved in the output
+/// \param graph
+///        Graph to which reduction operation belongs to
+/// \param A
+///        Tensor to reduce
+/// \param dims
+///        Unordered dimensions to reduce (must be a subset of dimensions of A)
+/// \param operation
+///        The reduction operation (\see Operation)
+/// \param prog
+///        Poplar program to add the reduction to
+/// \debugPrefix
+///        String annotation
+/// \return Tensor of rank rank(A) - size(dims) with the first dimension the
+/// lowest dimension of A not part of dims
+poplar::Tensor
+reduce(poplar::Graph &graph, const poplar::Tensor &A,
+       const std::vector<std::size_t> &dims,
+       Operation operation,
+       poplar::program::Sequence &prog,
+       const std::string &debugPrefix = "");
+
 } // end namespace popreduce
 
 #endif // __popreduce_Reduce_hpp__
