@@ -478,107 +478,6 @@ estimateExchangeCycles(const poplar::DeviceInfo &deviceInfo,
 }
 
 static unsigned
-estimatePartialCalcMemory(const poplar::DeviceInfo &deviceInfo,
-                          bool floatActivations,
-                          const ConvParams &params,
-                          const Plan &plan) {
-  unsigned vertexFields = 0;
-  unsigned edgePtrsPerVertex = 0;
-  unsigned tensorMemory = 0;
-
-  const auto tilesPerX = plan.tilesPerXAxis;
-  const auto tilesPerY = plan.tilesPerYAxis;
-  const auto tilesPerZ = plan.tilesPerZAxis;
-  const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
-  const auto outChansPerGroup = plan.partialChansPerGroup;
-  const auto inChansPerGroup = plan.inChansPerGroup;
-
-
-  const auto tilesUsedPerBatchGroup = tilesPerX
-                                      * tilesPerY
-                                      * tilesPerInZGroup
-                                      * tilesPerZ;
-  const auto tileOutHeight =
-      (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
-  const auto numOutGroups =
-      (params.getOutputDepth() + (outChansPerGroup - 1)) / outChansPerGroup;
-  const auto numInGroups =
-      (params.getInputDepth() + (inChansPerGroup - 1)) / inChansPerGroup;
-
-  const auto tileNumOutGroups =
-      (numOutGroups + tilesPerZ - 1) / tilesPerZ;
-  const auto tileNumInGroups =
-      (numInGroups + tilesPerInZGroup - 1) / tilesPerInZGroup;
-  // TODO the plan no longer uses verticesPerTilePerY -
-  // estimatePartialCalcMemory() needs updating to reflect this.
-  const auto verticesPerTilePerY = 1;
-  const auto tileVertices = verticesPerTilePerY * tileNumOutGroups;
-
-  bool useConvPartial1x1OutVertex = false;
-  auto convUnitWeightHeight = 1U;
-  // TODO provide memory estimate for output product.
-  if (plan.method == Plan::Method::OUTER_PRODUCT)
-    return 0;
-  assert(plan.method == Plan::Method::AMP ||
-         plan.method == Plan::Method::MAC);
-  if (plan.method == Plan::Method::AMP) {
-    const auto weightsPerConvUnit =
-        deviceInfo.getWeightsPerConvUnit(floatActivations);
-    assert(weightsPerConvUnit % inChansPerGroup == 0);
-    convUnitWeightHeight = weightsPerConvUnit / inChansPerGroup;
-    if (convUnitWeightHeight != 1) {
-      vertexFields += 1;
-    }
-  }
-
-  useConvPartial1x1OutVertex =
-      params.kernelShape[0] == 1 && params.kernelShape[1] == 1 &&
-      params.stride[0] == 1 && params.stride[1] == 1 &&
-      params.inputDilation[0] == 1 && params.inputDilation[1] == 1;
-
-  if (useConvPartial1x1OutVertex) {
-    vertexFields += 4;
-    const auto numConvolutions = tileNumInGroups * tileOutHeight;
-    edgePtrsPerVertex += 1 + 2 * numConvolutions;
-  } else if (plan.method == Plan::Method::AMP) {
-    vertexFields += 4;
-    const unsigned numWeights =
-          tileNumInGroups * params.kernelShape[1]
-          * ((params.kernelShape[0] + convUnitWeightHeight - 1)
-             /convUnitWeightHeight);
-    const unsigned numConvolutions = numWeights * tileOutHeight;
-
-    edgePtrsPerVertex += 2 * numWeights * convUnitWeightHeight
-                         + numConvolutions
-                         + numConvolutions * convUnitWeightHeight;
-  } else {
-    vertexFields += 6;
-    edgePtrsPerVertex += 1 + 2 * tileNumInGroups * tileOutHeight;
-  }
-
-  tensorMemory += plan.tilesPerInZGroupAxis
-                  * params.getOutputHeight()
-                  * params.getOutputWidth()
-                  * params.getOutputDepth()
-                  * (plan.floatPartials ? 4 : 2);
-
-  const auto bytesPerVertexElem = 4;
-  assert(params.getBatchSize() % plan.batchesPerGroup == 0);
-  const auto numBatchGroups = params.getBatchSize() / plan.batchesPerGroup;
-  const auto vertexMemory = tilesUsedPerBatchGroup * numBatchGroups
-                            * tileVertices * vertexFields
-                            * bytesPerVertexElem;
-
-  const auto bytesPerEdgePtr = deviceInfo.inEdgePointerBytes;
-  const auto edgePtrsMemory = tilesUsedPerBatchGroup * numBatchGroups
-                              * edgePtrsPerVertex * tileVertices
-                              * bytesPerEdgePtr;
-
-  auto totalMemory = vertexMemory + edgePtrsMemory;
-  return totalMemory;
-}
-
-static unsigned
 estimateConvPartialHorizontalMacCycles(unsigned tileNumInGroups,
                                        unsigned numOutRows,
                                        unsigned tileOutWidth,
@@ -735,60 +634,6 @@ static unsigned calcNumUsableTiles(
 
   return numTiles / batchSubGroups;
 }
-
-static unsigned estimateReduceMemory(const poplar::DeviceInfo &deviceInfo,
-                                     const ConvParams &params,
-                                     const Plan &plan) {
-  unsigned vertexFields = 0;
-  unsigned edgePtrsPerVertex = 0;
-
-  const auto batchesPerGroup = plan.batchesPerGroup;
-  assert(params.getBatchSize() % batchesPerGroup == 0);
-  const auto numBatchGroups = params.getBatchSize() / batchesPerGroup;
-  auto numTiles = calcNumUsableTiles(deviceInfo.getNumTiles(), numBatchGroups);
-
-  const auto tilesPerY = plan.tilesPerYAxis;
-  const auto tilesPerZ = plan.tilesPerZAxis;
-  const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
-  const auto outChansPerGroup = plan.partialChansPerGroup;
-
-  const auto numOutGroups =
-    (params.getOutputDepth() + (outChansPerGroup - 1)) / outChansPerGroup;
-
-  const auto tileOutHeight =
-    (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
-
-  const auto tileNumOutGroups =
-     (numOutGroups + tilesPerZ - 1) / tilesPerZ;
-
-  vertexFields += 2;
-
-  /* this is an estimate */
-  edgePtrsPerVertex += tilesPerInZGroup * tileNumOutGroups * tileOutHeight
-                       + tileNumOutGroups * tileOutHeight;
-
-
-  const auto bytesPerVertexElem = 4;
-  const auto vertexMemory = numTiles
-                            * numBatchGroups
-                            * vertexFields
-                            * bytesPerVertexElem;
-
-
-  /* A better estimate of reduction edge pointers would require the output
-   * channel group mapping. We assume here that all X elements are
-   * contiguous and require only one edge pointer
-   */
-  const auto bytesPerEdgePtr = deviceInfo.inEdgePointerBytes;
-  const auto edgePtrsMemory = numTiles
-                              * numBatchGroups
-                              * edgePtrsPerVertex
-                              * bytesPerEdgePtr;
-
-  const auto totalMemory = vertexMemory + edgePtrsMemory;
-  return totalMemory;
-}
-
 
 static unsigned
 estimateReduceCycles(const poplar::DeviceInfo &deviceInfo,
@@ -1069,62 +914,6 @@ addCycleEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
   return m.sum({exchangeCycles, partialCalcCycles, reduceCycles});
 }
 
-static popsolver::Variable
-addMemoryEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
-                  popsolver::Variable tilesPerY,
-                  popsolver::Variable tilesPerZ,
-                  popsolver::Variable tilesPerKernelY,
-                  popsolver::Variable tilesPerInZ,
-                  const poplar::DeviceInfo &deviceInfo,
-                  const ConvParams &params,
-                  unsigned inChansPerGroup,
-                  unsigned partialChansPerGroup,
-                  unsigned batchesPerGroup,
-                  unsigned xAxisGrainSize,
-                  bool floatPartials,
-                  bool floatActivations,
-                  Plan::Method method,
-                  Plan::LinearizeTileOrder linearizeTileOrder) {
-  const auto partialCalcMemory =
-      m.call({tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY, tilesPerInZ},
-             [=,&deviceInfo](const std::vector<unsigned> &values) {
-    const auto tilesPerX = values[0];
-    const auto tilesPerY = values[1];
-    const auto tilesPerZ = values[2];
-    const auto tilesPerKernelY = values[3];
-    const auto tilesPerInZ = values[4];
-    Plan candidate(tilesPerX, tilesPerY, tilesPerZ,
-                   tilesPerKernelY, tilesPerInZ,
-                   inChansPerGroup, partialChansPerGroup,
-                   batchesPerGroup,
-                   xAxisGrainSize,
-                   floatPartials,
-                   method,
-                   linearizeTileOrder);
-    return estimatePartialCalcMemory(deviceInfo, floatActivations, params,
-                                     candidate);
-  });
-  const auto reduceMemory =
-      m.call({tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY, tilesPerInZ},
-             [=,&deviceInfo](const std::vector<unsigned> &values) {
-    const auto tilesPerX = values[0];
-    const auto tilesPerY = values[1];
-    const auto tilesPerZ = values[2];
-    const auto tilesPerKernelY = values[3];
-    const auto tilesPerInZ = values[4];
-    Plan candidate(tilesPerX, tilesPerY, tilesPerZ,
-                   tilesPerKernelY, tilesPerInZ,
-                   inChansPerGroup, partialChansPerGroup,
-                   batchesPerGroup,
-                   xAxisGrainSize,
-                   floatPartials,
-                   method,
-                   linearizeTileOrder);
-    return estimateReduceMemory(deviceInfo, params, candidate);
-  });
-  return m.sum({partialCalcMemory, reduceMemory});
-}
-
 static std::pair<Plan, Cost>
 choosePlan(const poplar::DeviceInfo &deviceInfo,
            unsigned inChansPerGroup,
@@ -1250,16 +1039,8 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                        convVertexType.floatPartials, floatActivations,
                        convVertexType.method,
                        Plan::LinearizeTileOrder::STANDARD, cache);
-  auto memory =
-      addMemoryEstimate(m, tilesPerX, tilesPerY, tilesPerZ, tilesPerKernelY,
-                        tilesPerInZ, deviceInfo, params, inChansPerGroup,
-                        partialChansPerGroup, batchesPerGroup, xAxisGrainSize,
-                        convVertexType.floatPartials, floatActivations,
-                        convVertexType.method,
-                        Plan::LinearizeTileOrder::STANDARD);
   if (options.fullyConnectedPass == FullyConnectedPass::FWD) {
     popsolver::Variable bwdCycles;
-    popsolver::Variable bwdMemory;
     auto bwdParams = params;
     std::swap(bwdParams.inputShape[2], bwdParams.inputShape[3]);
     bwdParams.kernelShape[3] = bwdParams.inputShape[3];
@@ -1275,14 +1056,6 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                          convVertexType.floatPartials, floatActivations,
                          convVertexType.method,
                          Plan::LinearizeTileOrder::FC_BWD_AS_CONV, cache);
-    bwdMemory =
-        addMemoryEstimate(m, bwdTilesPerX, tilesPerY, tilesPerZ,
-                          tilesPerKernelY, bwdTilesPerInZ, deviceInfo, params,
-                          bwdInChansPerGroup, partialChansPerGroup,
-                          batchesPerGroup, bwdXAxisGrainSize,
-                          convVertexType.floatPartials, floatActivations,
-                          convVertexType.method,
-                          Plan::LinearizeTileOrder::FC_BWD_AS_CONV);
     auto wuParams = params;
     std::swap(wuParams.kernelShape[3], wuParams.kernelShape[2]);
     wuParams.inputShape[3] = wuParams.kernelShape[3];
@@ -1299,30 +1072,15 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                          convVertexType.method,
                          Plan::LinearizeTileOrder::FC_WU,
                          cache);
-    const auto wuMemory =
-        addMemoryEstimate(m, tilesPerX, tilesPerY, wuTilesPerZ, tilesPerKernelY,
-                          wuTilesPerInZ, deviceInfo, wuParams,
-                          wuInChansPerGroup, wuPartialChansPerGroup,
-                          batchesPerGroup, 1,
-                          convVertexType.floatPartials,
-                          floatActivations, convVertexType.method,
-                          Plan::LinearizeTileOrder::FC_WU);
     cycles = m.sum({cycles, bwdCycles, wuCycles});
-    memory = m.sum({memory, bwdMemory, wuMemory});
   }
   if (costBounds.cycles > 0) {
     m.lessOrEqual(cycles, costBounds.cycles);
   }
-  if (costBounds.memory > 0) {
-    m.lessOrEqual(memory, costBounds.memory);
-  }
   Solution s;
   try {
-    if (costBounds.primaryCheckIsCycles) {
-      s = m.minimize({cycles, memory});
-    } else {
-      s = m.minimize({memory, cycles});
-    }
+    assert(costBounds.primaryCheckIsCycles);
+    s = m.minimize(cycles);
   } catch (NoSolution) {
     return {Plan(), highestCost};
   }
@@ -1334,7 +1092,9 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                 convVertexType.floatPartials,
                 convVertexType.method,
                 Plan::LinearizeTileOrder::STANDARD);
-  Cost bestCost = {s[cycles], s[memory]};
+  // TODO estimate memory usage.
+  unsigned memory = 0;
+  Cost bestCost = {s[cycles], memory};
   return {bestPlan, bestCost};
 }
 
@@ -1795,20 +1555,7 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
                                              costBounds, graph,
                                              cache);
   if (options.percentageCyclesExcessForMemOptim) {
-    /* Set new bounds based on previous search */
-    const double newCyclesBound =
-        static_cast<double>(cost.cycles)
-        * (100.0 + options.percentageCyclesExcessForMemOptim) / 100.0;
-
-    CostBounds newCostBounds(static_cast<unsigned>(newCyclesBound), 0, false);
-
-    std::tie(plan, cost) = popconv::createPlan(params,
-                                               0, 0, 0,
-                                               partialsType,
-                                               false,
-                                               options,
-                                               newCostBounds, graph,
-                                               cache);
+    throw popstd::poplib_error("Optimizing for memory is not supported");
   }
   if (!tempCache.get()) {
     auto &plans = cache->plans;
