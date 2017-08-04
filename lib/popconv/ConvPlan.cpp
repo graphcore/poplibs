@@ -1219,10 +1219,22 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                                            numBatchGroups);
   const auto tilesPerX = m.addVariable(1, params.getOutputWidth());
   const auto tilesPerY = m.addVariable(1, params.getOutputHeight());
-  const auto outChanGroups =
-      (params.getOutputDepth() + partialChansPerGroup - 1) /
-           partialChansPerGroup;
-  const auto tilesPerZ = m.addVariable(1, outChanGroups);
+  unsigned maxTilesPerZ;
+  if (options.fullyConnectedPass == FullyConnectedPass::FWD) {
+    // The joint planning cost function assumes that no exchange is required to
+    // rearrange weights between passes. Because of the way we derive the
+    // backward and weight update plans from the forward plan this is guaranteed
+    // to be the case if each weight is used on exactly one tile in the forward
+    // pass. Disallow splitting of fully connected batch (or equivalently the
+    // convolutional output channels) across tiles to ensure this holds.
+    maxTilesPerZ = 1;
+  } else {
+    const auto outChanGroups =
+        (params.getOutputDepth() + partialChansPerGroup - 1) /
+        partialChansPerGroup;
+    maxTilesPerZ = outChanGroups;
+  }
+  const auto tilesPerZ = m.addVariable(1, maxTilesPerZ);
   const auto tilesPerKernelY = m.addVariable(1, params.kernelShape[0]);
   const auto inChanGroups = (params.getInputDepth() + inChansPerGroup - 1) /
                              inChansPerGroup;
