@@ -228,8 +228,7 @@ linearizeTileIndices(unsigned batchGroup, unsigned numBatchGroups,
                      unsigned numTiles,
                      unsigned ky, unsigned izg,
                      unsigned ox, unsigned oy, unsigned ozg,
-                     const Plan &plan,
-                     bool isMultiIPU) {
+                     const Plan &plan) {
   const auto tilesPerX = plan.tilesPerXAxis;
   const auto tilesPerY = plan.tilesPerYAxis;
   const auto tilesPerZ = plan.tilesPerZAxis;
@@ -249,54 +248,33 @@ linearizeTileIndices(unsigned batchGroup, unsigned numBatchGroups,
   case Plan::LinearizeTileOrder::FC_WU:
     // For the fully connected weight update the in group and out group are
     // swapped compared to the forward pass.
-    if (isMultiIPU)
-      tile = beginTile +
-        (ky + tilesPerKernelYAxis *
-          (ozg + tilesPerZ *
-            (ox + tilesPerX *
-              (oy + tilesPerY * izg))));
-    else
-      tile = beginTile +
-             (izg + tilesPerInZGroup *
-               (ox + tilesPerX *
-                 (oy + tilesPerY *
-                   (ky + tilesPerKernelYAxis *
-                     ozg))));
+    tile = beginTile +
+           (izg + tilesPerInZGroup *
+             (ox + tilesPerX *
+               (oy + tilesPerY *
+                 (ky + tilesPerKernelYAxis *
+                   ozg))));
     break;
   case Plan::LinearizeTileOrder::FC_BWD_AS_CONV:
     // For the fully connected backward pass the width and the input channels
     // are swapped compared to the forward pass.
-    if (isMultiIPU)
-      tile = beginTile +
-        (ky + tilesPerKernelYAxis *
-          (ox + tilesPerX *
-            (izg + tilesPerInZGroup *
-              (oy + tilesPerY * ozg))));
-    else
-      tile = beginTile +
-             (ozg + tilesPerZ *
-               (izg + tilesPerInZGroup *
-                 (oy + tilesPerY *
-                   (ky + tilesPerKernelYAxis *
-                     ox))));
+    tile = beginTile +
+           (ozg + tilesPerZ *
+             (izg + tilesPerInZGroup *
+               (oy + tilesPerY *
+                 (ky + tilesPerKernelYAxis *
+                   ox))));
     break;
   case Plan::LinearizeTileOrder::STANDARD:
-    if (isMultiIPU)
-      tile = beginTile +
-        (ky + tilesPerKernelYAxis *
-          (izg + tilesPerInZGroup *
-            (ox + tilesPerX *
-              (oy + tilesPerY * ozg))));
     // Use ozg as the innermost dimension to increase the chance that
     // tiles in a supertile both read the same activations. This reduces
     // exchange time when supertile send / receive is used.
-    else
-      tile = beginTile +
-             (ozg + tilesPerZ *
-               (ox + tilesPerX *
-                 (oy + tilesPerY *
-                   (ky + tilesPerKernelYAxis *
-                     izg))));
+    tile = beginTile +
+           (ozg + tilesPerZ *
+             (ox + tilesPerX *
+               (oy + tilesPerY *
+                 (ky + tilesPerKernelYAxis *
+                   izg))));
     break;
   }
   assert(tile < numTiles);
@@ -391,7 +369,6 @@ iterateTilePartition(const Graph &graph, const ConvParams &params,
                      > &f) {
   assert(plan.batchesPerGroup == 1);
   const unsigned numBatchGroups = params.getBatchSize();
-  const auto isMultiIPU = graph.getDevice().getDeviceInfo().numIPUs > 1;
   const unsigned inNumChans = params.getInputDepth();
   const auto inChansPerGroup = plan.inChansPerGroup;
   const auto partialChansPerGroup = plan.partialChansPerGroup;
@@ -435,8 +412,7 @@ iterateTilePartition(const Graph &graph, const ConvParams &params,
                                                      numTiles,
                                                      ky, izg,
                                                      ox, oy, ozg,
-                                                     plan,
-                                                     isMultiIPU);
+                                                     plan);
               f(tile,
                 {b, oy, ox, ozg, izg, ky},
                 {b, b + 1,
