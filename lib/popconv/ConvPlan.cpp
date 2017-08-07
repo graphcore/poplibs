@@ -919,6 +919,28 @@ addCycleEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
   return m.sum({exchangeCycles, partialCalcCycles, reduceCycles});
 }
 
+static Plan::Method
+getFullyConnectedWUMethod(const ConvParams &fwdParams,
+                          Plan::Method fwdMethod,
+                          unsigned fwdInChansPerGroup) {
+  if (fwdParams.getOutputDepth() == 1) {
+    return Plan::Method::OUTER_PRODUCT;
+  }
+  const auto wuPartialChansPerGroup = fwdInChansPerGroup;
+  if (wuPartialChansPerGroup != 1) {
+    // ConvPartialHorizontalMacVertex only supports an output grouping of 1.
+    // so we must force the use of the convolutional instructions.
+    return Plan::Method::AMP;
+  }
+  return fwdMethod;
+}
+
+static Plan::Method
+getFullyConnectedBwdMethod(const ConvParams &fwdParams,
+                           Plan::Method fwdMethod) {
+  return fwdMethod;
+}
+
 static std::pair<Plan, Cost>
 choosePlan(const poplar::DeviceInfo &deviceInfo,
            unsigned inChansPerGroup,
@@ -1053,13 +1075,16 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
     const auto bwdTilesPerInZ = tilesPerX;
     const auto bwdInChansPerGroup = xAxisGrainSize;
     const auto bwdXAxisGrainSize = inChansPerGroup;
+    const auto bwdMethod =
+        getFullyConnectedBwdMethod(params,
+                                   convVertexType.method);
     bwdCycles =
         addCycleEstimate(m, bwdTilesPerX, tilesPerY, tilesPerZ,
                          tilesPerKernelY, bwdTilesPerInZ, deviceInfo, params,
                          bwdInChansPerGroup, partialChansPerGroup,
                          batchesPerGroup, bwdXAxisGrainSize,
                          convVertexType.floatPartials, floatActivations,
-                         convVertexType.method,
+                         bwdMethod,
                          Plan::LinearizeTileOrder::FC_BWD_AS_CONV, cache);
     auto wuParams = params;
     std::swap(wuParams.kernelShape[3], wuParams.kernelShape[2]);
@@ -1068,13 +1093,17 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
     const auto wuTilesPerInZ = tilesPerZ;
     const auto wuInChansPerGroup = partialChansPerGroup;
     const auto wuPartialChansPerGroup = inChansPerGroup;
+    const auto wuMethod =
+        getFullyConnectedWUMethod(params,
+                                  convVertexType.method,
+                                  inChansPerGroup);
     const auto wuCycles =
         addCycleEstimate(m, tilesPerX, tilesPerY, wuTilesPerZ, tilesPerKernelY,
                          wuTilesPerInZ, deviceInfo, wuParams,
                          wuInChansPerGroup, wuPartialChansPerGroup,
                          batchesPerGroup, 1,
                          convVertexType.floatPartials, floatActivations,
-                         convVertexType.method,
+                         wuMethod,
                          Plan::LinearizeTileOrder::FC_WU,
                          cache);
     cycles = m.sum({cycles, bwdCycles, wuCycles});
@@ -1461,13 +1490,8 @@ static Plan getFullyConnectedWUPlan(const poplar::DeviceInfo &deviceInfo,
   plan.tilesPerZAxis = fwdPlan.tilesPerInZGroupAxis;
   plan.partialChansPerGroup = fwdPlan.inChansPerGroup;
   plan.xAxisGrainSize = 1;
-  if (fwdParams.getOutputDepth() == 1) {
-    plan.method = Plan::Method::OUTER_PRODUCT;
-  } else if (plan.partialChansPerGroup != 1) {
-    // ConvPartialHorizontalMacVertex only supports an output grouping of 1.
-    // so we must force the use of the convolutional instructions.
-    plan.method = Plan::Method::AMP;
-  }
+  plan.method = getFullyConnectedWUMethod(fwdParams, fwdPlan.method,
+                                          fwdPlan.inChansPerGroup);
   // TODO make the fwd pass aware that it would be good to use a grouping of
   // 16 if possible.
   plan.inChansPerGroup = fwdPlan.partialChansPerGroup;
@@ -1496,6 +1520,7 @@ static Plan getFullyConnectedBwdPlan(const poplar::DeviceInfo &deviceInfo,
                                       const ConvOptions &fwdOptions,
                                       const Plan &fwdPlan) {
   auto plan = fwdPlan;
+  plan.method = getFullyConnectedBwdMethod(fwdParams, fwdPlan.method);
   plan.linearizeTileOrder = Plan::LinearizeTileOrder::FC_BWD_AS_CONV;
   std::swap(plan.tilesPerXAxis, plan.tilesPerInZGroupAxis);
   std::swap(plan.xAxisGrainSize, plan.inChansPerGroup);
