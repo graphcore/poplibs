@@ -637,31 +637,36 @@ static unsigned calcNumUsableTiles(
 
 static unsigned
 estimateReduceCycles(const poplar::DeviceInfo &deviceInfo,
-                          const ConvParams &params, const Plan &plan) {
-  if (plan.tilesPerInZGroupAxis == 1 &&
-      plan.tilesPerKernelYAxis == 1)
+                     const ConvParams &params, const Plan &plan) {
+  const auto tilesPerKernelYAxis = plan.tilesPerKernelYAxis;
+  const auto tilesPerInZGroupAxis = plan.tilesPerInZGroupAxis;
+  if (tilesPerKernelYAxis == 1 &&
+      tilesPerInZGroupAxis == 1)
     return 0;
-
-  /* The reduction is actually done on tiles in which the output
-   * activations reside. Thus the output height here may be different
-   * from the one the tensor uses in the reduction. The numOutputsPerTile
-   * below however is approximately the same except for any rounding
-   */
-  const auto numBatchGroups =
-      params.getBatchSize() / plan.batchesPerGroup;
-  const auto numTiles =
-      calcNumUsableTiles(deviceInfo.getNumTiles(), numBatchGroups);
-  const auto numOutputs = params.getOutputHeight() *
-                          params.getOutputWidth() *
-                          params.getOutputDepth();
-  const auto numOutputsPerTile = (numOutputs + numTiles - 1) / numTiles;
-  const auto numPartialSumsPerTile =
-      numOutputsPerTile * plan.tilesPerInZGroupAxis * plan.tilesPerKernelYAxis;
+  const auto tilesPerY = plan.tilesPerYAxis;
+  const auto tilesPerZ = plan.tilesPerZAxis;
+  const auto outChansPerGroup = plan.partialChansPerGroup;
+  const auto tileOutWidth = getMaxTileOutWidth(params, plan);
+  const auto tileOutHeight =
+      (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
+  const auto numOutGroups =
+      (params.getOutputDepth() + (outChansPerGroup - 1)) / outChansPerGroup;
+  const auto tileNumOutGroups =
+      (numOutGroups + tilesPerZ - 1) / tilesPerZ;
+  const auto numOutputs = tileOutWidth *
+                          tileOutHeight *
+                          tileNumOutGroups * outChansPerGroup;
+  // Consider a group of tiles that compute partial sums for the same output
+  // volume. The number of partial sums that to be reduced is
+  // numOutputs * numTiles. Calculation of the output is spread evenly across
+  // the tiles so the number of partial sums each tile must reduce is
+  // (numOutputs * numTiles) / numTiles = numOutputs.
+  const auto reduceElementsPerTile = numOutputs;
   const auto vectorWidth =
       plan.floatPartials ? deviceInfo.getFloatVectorWidth() :
                                 deviceInfo.getHalfVectorWidth();
-  const auto numCycles = (numPartialSumsPerTile + vectorWidth - 1) /
-                          vectorWidth;
+  const auto numCycles = (reduceElementsPerTile + vectorWidth - 1) /
+                         vectorWidth;
   return numCycles;
 }
 
