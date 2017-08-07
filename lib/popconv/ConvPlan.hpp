@@ -10,12 +10,12 @@ namespace popconv {
 struct Plan {
   unsigned tilesPerXAxis;
   unsigned tilesPerYAxis;
+  unsigned tilesPerBatchAxis;
   unsigned tilesPerZAxis;
   unsigned tilesPerKernelYAxis;
   unsigned tilesPerInZGroupAxis;
   unsigned inChansPerGroup;
   unsigned partialChansPerGroup;
-  unsigned batchesPerGroup;
   /// Grain size to use when splitting the x-axis across tiles.
   unsigned xAxisGrainSize;
   bool floatPartials;
@@ -46,24 +46,24 @@ struct Plan {
   Plan() = default;
   Plan(unsigned tilesPerXAxis,
        unsigned tilesPerYAxis,
+       unsigned tilesPerBatchAxis,
        unsigned tilesPerZAxis,
        unsigned tilesPerKernelYAxis,
        unsigned tilesPerInZGroupAxis,
        unsigned inChansPerGroup,
        unsigned partialChansPerGroup,
-       unsigned batchesPerGroup,
        unsigned xAxisGrainSize,
        bool floatPartials,
        Plan::Method method,
        Plan::LinearizeTileOrder linearizeTileOrder) :
     tilesPerXAxis(tilesPerXAxis),
     tilesPerYAxis(tilesPerYAxis),
+    tilesPerBatchAxis(tilesPerBatchAxis),
     tilesPerZAxis(tilesPerZAxis),
     tilesPerKernelYAxis(tilesPerKernelYAxis),
     tilesPerInZGroupAxis(tilesPerInZGroupAxis),
     inChansPerGroup(inChansPerGroup),
     partialChansPerGroup(partialChansPerGroup),
-    batchesPerGroup(batchesPerGroup),
     xAxisGrainSize(xAxisGrainSize),
     floatPartials(floatPartials),
     method(method),

@@ -1,6 +1,7 @@
 #include "popconv/ConvUtil.hpp"
 #include <cassert>
 #include <popstd/exceptions.hpp>
+#include <popstd/Util.hpp>
 
 namespace popconv {
 
@@ -149,7 +150,8 @@ getOutputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
 }
 
 std::vector<std::vector<PartialRow>>
-partitionConvPartialByWorker(unsigned convHeight, unsigned convWidth,
+partitionConvPartialByWorker(unsigned batchElements,
+                             unsigned convHeight, unsigned convWidth,
                              unsigned numContexts,
                              const std::vector<unsigned> &inputDilation) {
   std::vector<std::vector<PartialRow>> partitionByWorker;
@@ -158,30 +160,42 @@ partitionConvPartialByWorker(unsigned convHeight, unsigned convWidth,
       (convWidth + inputDilation[1] - 1) / inputDilation[1];
   const auto activeRows =
       (convHeight + inputDilation[0] - 1) / inputDilation[0];
-  const auto numElements = activeRows * elementsPerRow;
+  const auto numElements = batchElements * activeRows * elementsPerRow;
   for (unsigned i = 0; i != numContexts; ++i) {
     partitionByWorker.emplace_back();
     const auto beginElement = (i * numElements) / numContexts;
     const auto endElement = ((i + 1) * numElements) / numContexts;
     if (beginElement == endElement)
       continue;
-    const auto beginRow = beginElement / elementsPerRow;
-    const auto endRow = 1 + (endElement - 1) / elementsPerRow;
-    for (unsigned j = beginRow; j != endRow; ++j) {
-      unsigned beginIndex;
-      if (j == beginRow) {
-        beginIndex = (beginElement % elementsPerRow * inputDilation[1]);
-      } else {
-        beginIndex = 0;
+    const auto lastElement = endElement - 1;
+    auto beginIndices = popstd::unflattenIndex({batchElements, activeRows,
+                                                elementsPerRow}, beginElement);
+    auto lastIndices = popstd::unflattenIndex({batchElements, activeRows,
+                                               elementsPerRow}, lastElement);
+    for (unsigned b = beginIndices[0]; b != lastIndices[0] + 1; ++b) {
+      unsigned activeYBegin = b == beginIndices[0] ?
+                             beginIndices[1] :
+                             0;
+      unsigned activeYLast = b == lastIndices[0] ?
+                            lastIndices[1] :
+                            activeRows - 1;
+      for (unsigned activeY = activeYBegin; activeY != activeYLast + 1;
+           ++activeY) {
+        unsigned activeXBegin =
+            b == beginIndices[0] && activeY == beginIndices[1] ?
+              beginIndices[2] : 0;
+        unsigned activeXLast =
+            b == lastIndices[0] && activeY == lastIndices[1] ?
+              lastIndices[2] : elementsPerRow - 1;
+        const auto y = activeY * inputDilation[0];
+        const auto xBegin = activeXBegin * inputDilation[1];
+        const auto xEnd = activeXLast * inputDilation[1] + 1;
+        assert(b < batchElements);
+        assert(y < convHeight);
+        assert(xBegin < convWidth);
+        assert(xEnd <= convWidth);
+        partitionByWorker.back().emplace_back(b, y, xBegin, xEnd);
       }
-      unsigned endIndex;
-      if (j + 1 == endRow) {
-        endIndex = 1 + ((endElement - 1) % elementsPerRow) * inputDilation[1];
-      } else {
-        endIndex = ((elementsPerRow - 1) * inputDilation[1]) + 1;
-      }
-      unsigned rowIndex = j * inputDilation[0];
-      partitionByWorker.back().emplace_back(rowIndex, beginIndex, endIndex);
     }
   }
   return partitionByWorker;
