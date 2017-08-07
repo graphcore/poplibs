@@ -8,8 +8,8 @@ BOOST_AUTO_TEST_CASE(getPlan){
   poplar::Graph graph(poplar::createCPUDevice());
 
   auto params = popconv::ConvParams("float",
-                                    {0, 0, 0, 0},
-                                    {3, 3, 1, 0},
+                                    {1, 4, 4, 1},
+                                    {3, 3, 1, 1},
                                     {1, 1},
                                     {0, 0}, {0, 0}, {1, 1},
                                     {0, 0}, {0, 0}, {1, 1});
