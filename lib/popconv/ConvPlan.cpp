@@ -1582,10 +1582,12 @@ Plan getWeightUpdatePlan(const poplar::Graph &graph,
                          const poplar::Tensor &deltas,
                          const ConvParams &params,
                          ConvOptions options) {
-  assert (params.kernelShape.size() == 4);
-  assert (params.stride.size() == 2);
-  assert (params.inputPaddingLower.size() == 2);
-  assert (params.inputPaddingUpper.size() == 2);
+  assert(activations.rank() == 4);
+  assert(deltas.rank() == 4);
+  assert(params.kernelShape.size() == 4);
+  assert(params.stride.size() == 2);
+  assert(params.inputPaddingLower.size() == 2);
+  assert(params.inputPaddingUpper.size() == 2);
   assert(options.fullyConnectedPass == FullyConnectedPass::NONE);
   Plan plan;
   Cost cost;
@@ -1593,7 +1595,7 @@ Plan getWeightUpdatePlan(const poplar::Graph &graph,
   const auto partialsType = options.partialsType;
   const auto fwdPlan = getPlan(graph, params, options);
   const auto actChansPerGroup = fwdPlan.inChansPerGroup;
-  const auto deltasChansPerGroup = deltas.dim(4);
+  const auto deltasChansPerGroup = deltas.dim(3);
   auto cache = options.cache ? options.cache->impl.get() : nullptr;
   std::unique_ptr<PlanningCacheImpl> tempCache;
   if (!cache) {
