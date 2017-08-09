@@ -119,6 +119,7 @@ std::ostream& operator<<(std::ostream &os, const Plan &p)
      << "        tilesPerZAxis           " << p.tilesPerZAxis << "\n"
      << "        tilesPerKernelYAxis     " << p.tilesPerKernelYAxis << "\n"
      << "        tilesPerInZGroupAxis    " << p.tilesPerInZGroupAxis << "\n"
+     << "        xAxisGrainSize          " << p.xAxisGrainSize << "\n"
      << "        inChansPerGroup         " << p.inChansPerGroup << "\n"
      << "        partialChansPerGroup    " << p.partialChansPerGroup << "\n"
      << "        method                  " << p.method << "\n"
