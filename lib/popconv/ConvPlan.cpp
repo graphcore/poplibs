@@ -1040,7 +1040,9 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
   using namespace popsolver;
   Model m;
   const auto numTiles = deviceInfo.getNumTiles();
-  const auto tilesPerX = m.addVariable(1, params.getOutputWidth());
+  const unsigned numXGrains =
+      (params.getOutputWidth() + xAxisGrainSize - 1) / xAxisGrainSize;
+  const auto tilesPerX = m.addVariable(1, numXGrains);
   const auto tilesPerY = m.addVariable(1, params.getOutputHeight());
   const auto tilesPerBatch = m.addVariable(1, params.getBatchSize());
   unsigned maxTilesPerZ;
