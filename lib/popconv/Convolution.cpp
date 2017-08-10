@@ -1641,7 +1641,8 @@ partialGroupedReduce(
     for (unsigned tileGroup = 0; tileGroup != numTileGroups; ++tileGroup) {
       const auto tilesInGroup = tileGroups[tileGroup].size();
       const auto tileBegin = (i * tilesInGroup) / outDepth;
-      const auto tileEnd = ((i + 1) * tilesInGroup) / outDepth;
+      const auto tileEnd = std::max(tileBegin + 1,
+                                    ((i + 1) * tilesInGroup) / outDepth);
       const auto outSplitRegions =
           splitRegions(tileGroupRegions[tileGroup], grainSize,
                        tileEnd - tileBegin);
