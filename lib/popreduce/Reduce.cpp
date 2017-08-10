@@ -203,8 +203,9 @@ reduce(Graph &graph,
   }
 
   // Accumulate the partial sums.
-  const auto numTiles = deviceInfo.getNumTiles();
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
+  const auto numUsedTiles =  reduceVertexMapping.size();
+  assert(numUsedTiles <= deviceInfo.getNumTiles());
+  for (unsigned tile = 0; tile != numUsedTiles; ++tile) {
     const auto &tileRegions = reduceVertexMapping[tile];
     unsigned vectorWidth;
     if (partialType == "float")
@@ -397,9 +398,7 @@ reduce(Graph &graph, const Tensor &A_, const std::vector<std::size_t> &dims,
 
   const auto aShuffled = A.dimShuffle({permutation}).reshape({reshapeDims});
   const auto outType = getOutputType(operation, A.elementType());
-
-  auto out = graph.addTensor(outType, { outputDims }, vName);
-  mapTensorLinearly(graph, out);
+  auto out = graph.clone(aShuffled[0], outType);
 
   /* No reduction to be done if number of elements to reduce is 1 */
   if (numElements == 1) {
