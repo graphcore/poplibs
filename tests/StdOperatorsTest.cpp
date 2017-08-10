@@ -359,6 +359,55 @@ BOOST_AUTO_TEST_CASE(StdOperationEqualBool,
     });
 }
 
+BOOST_AUTO_TEST_CASE(StdOperationGreaterThanBool,
+                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  ) {
+  binaryOpTest<bool, bool, bool>(
+    popstd::gt,
+    [](bool x, bool y) -> bool {
+       return x > y;
+    });
+}
+
+BOOST_AUTO_TEST_CASE(StdOperationGreaterThanEqualBool,
+                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  ) {
+  binaryOpTest<bool, bool, bool>(
+    popstd::gteq,
+    [](bool x, bool y) -> bool {
+       return x >= y;
+    });
+}
+
+BOOST_AUTO_TEST_CASE(StdOperationLessThanBool,
+                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  ) {
+  binaryOpTest<bool, bool, bool>(
+    popstd::lt,
+    [](bool x, bool y) -> bool {
+       return x < y;
+    });
+}
+
+BOOST_AUTO_TEST_CASE(StdOperationLessThanEqualBool,
+                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  ) {
+  binaryOpTest<bool, bool, bool>(
+    popstd::lteq,
+    [](bool x, bool y) -> bool {
+       return x <= y;
+    });
+}
+
+
 BOOST_AUTO_TEST_CASE(StdOperationExponent,
                   *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))

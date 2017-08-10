@@ -13,10 +13,14 @@ static uint64_t basicOpLoopCycles(unsigned overhead,
   return overhead + (numElems + vectorSize - 1) / vectorSize  * cyclesPerVector;
 }
 
-/* Cycles for comparison operations which result in bool as output */
+/* Cycles for comparison operations which result in bool as output.
+ * For boolean inputs the number of cycles depend on the type of operation
+ * as some ops have to be synthesized from the available instruction set
+ */
 template<typename InType>
 static uint64_t comparisonOpsCycles(unsigned dataPathWidth,
-                                    unsigned numElems) {
+                                    unsigned numElems,
+                                    unsigned boolInputComputeCycles) {
   if (std::is_same<InType, float>::value) {
     unsigned vectorWidth = dataPathWidth / 32;
     if (sizeof(bool) == 4) {
@@ -64,7 +68,7 @@ static uint64_t comparisonOpsCycles(unsigned dataPathWidth,
   } else if (std::is_same<InType, bool>::value) {
     unsigned vectorWidth = dataPathWidth / sizeof(bool);
     // ld64/ xor(and), ld64st64
-    return basicOpLoopCycles(5, numElems, vectorWidth, 2);
+    return basicOpLoopCycles(5, numElems, vectorWidth, boolInputComputeCycles);
   }
   assert(0 && "Bool size not supported");
   return 0;
@@ -574,7 +578,10 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 7;
     for (unsigned i = 0; i < in1.size(); ++i) {
-      cycles += comparisonOpsCycles<InType>(dataPathWidth, in1.size());
+      // E = A and B, F = A or B, G = F andc E, result = 1 andc G
+      const auto numBoolOpCycles = std::is_same<InType, bool>::value ? 4 : 0;
+      cycles += comparisonOpsCycles<InType>(dataPathWidth, in1.size(),
+                                            numBoolOpCycles);
     }
     return cycles;
   }
@@ -689,7 +696,11 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 7;
     for (unsigned i = 0; i < in1.size(); ++i) {
-      cycles += comparisonOpsCycles<InType>(dataPathWidth, in1.size());
+      // same as B < A
+      // E = A and B, result = A andc E
+      const auto numBoolOpCycles = std::is_same<InType, bool>::value ? 2 : 0;
+      cycles += comparisonOpsCycles<InType>(dataPathWidth, in1.size(),
+                                            numBoolOpCycles);
     }
     return cycles;
   }
@@ -698,6 +709,7 @@ public:
 template class GreaterThan<float>;
 template class GreaterThan<half>;
 template class GreaterThan<int>;
+template class GreaterThan<bool>;
 
 template <typename InType>
 class GreaterThanEqual : public Vertex {
@@ -723,7 +735,11 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 7;
     for (unsigned i = 0; i < in1.size(); ++i) {
-      cycles += comparisonOpsCycles<InType>(dataPathWidth, in1.size());
+      // same as B <= A
+      // E = 1 andc B, result = E or A
+      const auto numBoolOpCycles = std::is_same<InType, bool>::value ? 2 : 0;
+      cycles += comparisonOpsCycles<InType>(dataPathWidth, in1.size(),
+                                            numBoolOpCycles);
     }
     return cycles;
   }
@@ -732,6 +748,7 @@ public:
 template class GreaterThanEqual<float>;
 template class GreaterThanEqual<half>;
 template class GreaterThanEqual<int>;
+template class GreaterThanEqual<bool>;
 
 template <typename InType>
 class IsFinite : public Vertex {
@@ -803,7 +820,10 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 7;
     for (unsigned i = 0; i < in1.size(); ++i) {
-      cycles += comparisonOpsCycles<InType>(dataPathWidth, in1.size());
+      // E = A and B, result = B andc E
+      const auto numBoolOpCycles = std::is_same<InType, bool>::value ? 2 : 0;
+      cycles += comparisonOpsCycles<InType>(dataPathWidth, in1.size(),
+                                            numBoolOpCycles);
     }
     return cycles;
   }
@@ -812,7 +832,7 @@ public:
 template class LessThan<float>;
 template class LessThan<half>;
 template class LessThan<int>;
-
+template class LessThan<bool>;
 
 template <typename InType>
 class LessThanEqual : public Vertex {
@@ -838,7 +858,10 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 7;
     for (unsigned i = 0; i < in1.size(); ++i) {
-      cycles += comparisonOpsCycles<InType>(dataPathWidth, in1.size());
+      // E = 1 andc A, result = E or B
+      const auto numBoolOpCycles = std::is_same<InType, bool>::value ? 2 : 0;
+      cycles += comparisonOpsCycles<InType>(dataPathWidth, in1.size(),
+                                            numBoolOpCycles);
     }
     return cycles;
   }
@@ -847,7 +870,7 @@ public:
 template class LessThanEqual<float>;
 template class LessThanEqual<half>;
 template class LessThanEqual<int>;
-
+template class LessThanEqual<bool>;
 
 template <typename InType>
 class Logarithm : public Vertex {
@@ -1186,7 +1209,10 @@ public:
   uint64_t getCycleEstimate() const {
     uint64_t cycles = 7;
     for (unsigned i = 0; i < in1.size(); ++i) {
-      cycles += comparisonOpsCycles<InType>(dataPathWidth, in1.size());
+      // E = A and B, F = A or B, result = F andc E
+      const auto numBoolOpCycles = std::is_same<InType, bool>::value ? 3 : 0;
+      cycles += comparisonOpsCycles<InType>(dataPathWidth, in1.size(),
+                                            numBoolOpCycles);
     }
     return cycles;
   }
