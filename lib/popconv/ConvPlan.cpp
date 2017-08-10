@@ -1470,7 +1470,6 @@ static Plan getFullyConnectedWUPlan(const poplar::DeviceInfo &deviceInfo,
   plan.tilesPerInZGroupAxis = fwdPlan.tilesPerZAxis;
   plan.tilesPerZAxis = fwdPlan.tilesPerInZGroupAxis;
   plan.partialChansPerGroup = fwdPlan.inChansPerGroup;
-  plan.xAxisGrainSize = 1;
   plan.method = getFullyConnectedWUMethod(fwdParams, fwdPlan.method,
                                           fwdPlan.inChansPerGroup);
   // TODO make the fwd pass aware that it would be good to use a grouping of
