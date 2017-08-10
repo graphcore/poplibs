@@ -13,6 +13,7 @@
 #include <popstd/Add.hpp>
 #include <popreduce/Reduce.hpp>
 #include <poplar/HalfFloat.hpp>
+#include <popconv/codelets.hpp>
 #include <popstd/codelets.hpp>
 #include <popreduce/codelets.hpp>
 #include <poplin/codelets.hpp>
@@ -73,7 +74,6 @@ int main(int argc, char **argv) {
   double relativeTolerance;
   MatrixOp matAOp = MatrixOp::NORMAL;
   MatrixOp matBOp = MatrixOp::NORMAL;
-
 
   DeviceInfo info;
   info.IPUExchangeType =
@@ -137,6 +137,7 @@ int main(int argc, char **argv) {
   }
 
   Graph graph(createIPUModelDevice(info));
+  popconv::addCodelets(graph);
   popstd::addCodelets(graph);
   popreduce::addCodelets(graph);
   poplin::addCodelets(graph);
@@ -153,19 +154,27 @@ int main(int argc, char **argv) {
   const auto rowsMatB = transposeB ? n : k;
   const auto colsMatB = transposeB ? k : n;
 
-  auto matB = graph.addTensor(dataTypeStr,  {rowsMatB, colsMatB}, "matB");
-  mapTensorLinearly(graph, matB);
-
   PlanningCache cache;
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsTypeStr;
-  mmOpt.leftHandArgUsedInTranspose = !transposeA;
   mmOpt.cache = &cache;
+  if (transposeA) {
+    mmOpt.fullyConnectedPass = FullyConnectedPass::BWD;
+  } else if (transposeB) {
+    mmOpt.fullyConnectedPass = FullyConnectedPass::WU;
+  }
 
-  auto matA = createMatMulInputA(graph, dataTypeStr,
-                                 {rowsMatA, colsMatA},
-                                 transposeB ? matB.transpose() : matB,
-                                 "matA", mmOpt);
+  auto matA = createMatMulInputLHS(graph, dataTypeStr,
+                                   {m, k}, {k, n}, "matA", mmOpt);
+  if (transposeA)
+    matA = matA.transpose();
+
+  auto matB = createMatMulInputRHS(graph, dataTypeStr,
+                                   {m, k},
+                                   {k, n},
+                                   "matA", mmOpt);
+  if (transposeB)
+    matB = matB.transpose();
 
   auto prog = Sequence();
 

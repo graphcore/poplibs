@@ -12,6 +12,7 @@
 #include <popnn/Lstm.hpp>
 #include <popstd/TileMapping.hpp>
 #include <poplar/HalfFloat.hpp>
+#include <popconv/codelets.hpp>
 #include <popstd/codelets.hpp>
 #include <popreduce/codelets.hpp>
 #include <poplin/codelets.hpp>
@@ -87,6 +88,7 @@ int main(int argc, char **argv) {
   std::string partialsTypeStr(asString(partialsType));
 
   Graph graph(createIPUModelDevice(info));
+  popconv::addCodelets(graph);
   popstd::addCodelets(graph);
   popreduce::addCodelets(graph);
   poplin::addCodelets(graph);
@@ -122,7 +124,6 @@ int main(int argc, char **argv) {
   PlanningCache cache;
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsTypeStr;
-  mmOpt.leftHandArgUsedInTranspose = false;
   mmOpt.cache = &cache;
 
   Tensor weightsOutput = graph.addTensor(dataTypeStr,
@@ -137,10 +138,10 @@ int main(int argc, char **argv) {
   std::vector<std::unique_ptr<char[]>> rawHostWeightsOutput;
   for (auto u = 0U; u != BASIC_LSTM_CELL_NUM_UNITS; ++u) {
     auto wName = "weightsOutput" + std::to_string(u);
-    auto wOut = createMatMulInputA(graph, dataTypeStr,
-                                   {outputSize, outputSize},
-                                   cellState.transpose(),
-                                   wName, mmOpt);
+    auto wOut = createMatMulInputLHS(graph, dataTypeStr,
+                                     {outputSize, outputSize},
+                                     {outputSize, batchSize},
+                                     wName, mmOpt);
 
     weightsOutput = append(weightsOutput, wOut);
 
@@ -149,9 +150,9 @@ int main(int argc, char **argv) {
                                                                graph, tmap));
 
     auto wInp =
-        createMatMulInputA(graph, dataTypeStr, {outputSize, inputSize},
-                           prevAct[0].transpose(),
-                           "weightsInput" + std::to_string(u), mmOpt);
+        createMatMulInputLHS(graph, dataTypeStr, {outputSize, inputSize},
+                             {inputSize, batchSize},
+                             "weightsInput" + std::to_string(u), mmOpt);
     weightsInput = append(weightsInput, wInp);
     rawHostWeightsInput.push_back(allocateHostMemoryForTensor(wInp,
                                                               wName + "in",

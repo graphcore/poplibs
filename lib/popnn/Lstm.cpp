@@ -99,7 +99,6 @@ Tensor basicLstmCellForwardPass(Graph  &graph,
   PlanningCache cache;
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsTypeStr;
-  mmOpt.leftHandArgUsedInTranspose = false;
   mmOpt.cache = &cache;
 
   Tensor actOut = graph.addTensor(dType, {0, batchSize, outputSize}, "actOut");

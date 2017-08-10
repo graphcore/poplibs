@@ -32,12 +32,11 @@ using namespace poplin;
 using namespace popstd;
 using namespace popreduce;
 using poplib_test::Pass;
-using popconv::FullyConnectedPass;
 
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
-  popconv::ConvOptions fwdOptions;
+  MatMulOptions fwdOptions;
   unsigned inputSize;
   unsigned outputSize;
   unsigned batchSize;
@@ -115,29 +114,21 @@ int main(int argc, char **argv) {
 
   std::string dataTypeStr(asString(dataType));
   std::string partialsTypeStr(asString(partialsType));
+  fwdOptions.partialsType = partialsTypeStr;
 
-  popconv::PlanningCache pCache;
+  PlanningCache cache;
+  fwdOptions.cache = &cache;
   if (!inferenceOnly) {
     fwdOptions.fullyConnectedPass = FullyConnectedPass::FWD;
   }
-  fwdOptions.cache = &pCache;
-  // A fully connected fwd pass is equivalent to a convolution with
-  // input channels = inputSize
-  // width = outputSize
-  // height = 1
-  // output channels = batchSize.
-  // Create tensors.
-  auto convParams =
-      popconv::ConvParams(dataTypeStr,
-                          {1, 1, outputSize, inputSize},
-                          {1, 1, batchSize, inputSize},
-                          {1, 1},
-                          {0, 0}, {0, 0}, {1, 1},
-                          {0, 0}, {0, 0}, {1, 1});
-  Tensor weights = popconv::createInput(graph, convParams, "weights",
+  Tensor weights = createMatMulInputLHS(graph, dataTypeStr,
+                                        {outputSize, inputSize},
+                                        {inputSize, batchSize}, "weights",
                                         fwdOptions);
-  Tensor prevAct = popconv::createWeights(graph, convParams, "prevAct",
-                                          fwdOptions);
+  Tensor prevAct = createMatMulInputRHS(graph, dataTypeStr,
+                                        {outputSize, inputSize},
+                                        {inputSize, batchSize}, "prevAct",
+                                        fwdOptions).transpose();
   auto biases = graph.addTensor(dataTypeStr, {outputSize}, "biases");
   mapTensorLinearly(graph, biases);
 
@@ -149,37 +140,25 @@ int main(int argc, char **argv) {
 
   Tensor nextAct;
   if (doFwdPass) {
-    nextAct = popconv::convolution(graph, weights, prevAct, convParams, false,
-                                   fwdProg, "", fwdOptions);
-    auto bBiases = biases.broadcast(batchSize, 0)
-                         .reshape({1, 1, batchSize, outputSize})
-                         .dimShuffle({0, 1, 3, 2});
+    nextAct = poplin::matMul(graph, weights, prevAct.transpose(), fwdProg, "",
+                             fwdOptions).transpose();
+    auto bBiases = biases.reshape({1, outputSize}).broadcast(batchSize, 0);
     addTo(graph, nextAct, bBiases, 1, fwdProg);
   } else {
-    popconv::mapWeights(graph, prevAct, convParams, fwdOptions);
     nextAct =
-        graph.addTensor(dataTypeStr, {1 /*batchSize*/,
-                                      batchSize / 1,
-                                      1 /* outHeight */,
-                                      outputSize, 1},
-                        "nextAct");
+        graph.addTensor(dataTypeStr, {batchSize, outputSize}, "nextAct");
     mapTensorLinearly(graph, nextAct);
-    nextAct = nextAct.dimShuffle({0, 2, 3, 1, 4})
-                     .reshape({nextAct.dim(0), nextAct.dim(2), nextAct.dim(3),
-                               nextAct.dim(1) * nextAct.dim(4)});
   }
-
 
   std::vector<std::pair<std::string, char *>> tmap;
   auto rawHostPrevAct =
-      allocateHostMemoryForTensor(prevAct[0][0], "prevAct", graph, tmap);
+      allocateHostMemoryForTensor(prevAct, "prevAct", graph, tmap);
   auto rawHostWeights =
-      allocateHostMemoryForTensor(weights[0][0], "weights", graph, tmap);
+      allocateHostMemoryForTensor(weights, "weights", graph, tmap);
   auto rawHostBiases = allocateHostMemoryForTensor(biases, "biases", graph,
                                                    tmap);
   auto rawHostNextAct =
-      allocateHostMemoryForTensor(nextAct[0][0].dimShuffle({1, 0}), "nextAct",
-                                  graph, tmap);
+      allocateHostMemoryForTensor(nextAct, "nextAct", graph, tmap);
 
   Tensor zDeltas;
   std::unique_ptr<char[]> rawHostZDeltas;
@@ -189,69 +168,27 @@ int main(int argc, char **argv) {
     // width = inputSize
     // height = 1
     // output channels = batchSize.
-    zDeltas = popconv::createWeights(graph,
-                                     popconv::ConvParams(
-                                       dataTypeStr,
-                                       {1, 1, inputSize, outputSize},
-                                       {1, 1, batchSize, outputSize},
-                                       {1, 1},
-                                       {0, 0}, {0, 0}, {1, 1},
-                                       {0, 0}, {0, 0}, {1, 1}),
-                                     "zDeltas", bwdOptions);
-    zDeltas = zDeltas[0][0];
+    zDeltas = poplin::createMatMulInputRHS(graph, dataTypeStr,
+                                           {inputSize, outputSize},
+                                           {outputSize, batchSize},
+                                           "zDeltas", bwdOptions).transpose();
     rawHostZDeltas =
         allocateHostMemoryForTensor(zDeltas, "zDeltas", graph, tmap);
   }
   Tensor prevDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
   if (doBwdPass) {
-    auto bwdParams =
-        popconv::ConvParams(convParams.dType,
-                            {1, 1, inputSize, outputSize}, /* inputShape */
-                            {1, 1, batchSize, outputSize}, /* kernelShape */
-                            {1, 1}, /* stride */
-                            {0, 0}, {0, 0}, {1, 1},
-                            {0, 0}, {0, 0}, {1, 1});
-    auto weightsTransposed =
-        popconv::fullyConnectedWeightTranspose(graph, weights, bwdParams,
-                                               bwdProg, "", bwdOptions);
-    auto zDeltasView =
-        zDeltas.reshape({1, 1, zDeltas.dim(0), zDeltas.dim(1)});
-    prevDeltas = popconv::convolution(graph, weightsTransposed, zDeltasView,
-                                      bwdParams, false, bwdProg, "",
-                                      bwdOptions);
-    prevDeltas = prevDeltas[0][0].dimShuffle({1, 0});
+    prevDeltas =
+        poplin::matMul(graph, weights.transpose(), zDeltas.transpose(), bwdProg,
+                       "", bwdOptions).transpose();
     rawHostPrevDeltas =
         allocateHostMemoryForTensor(prevDeltas, "prevDeltas", graph, tmap);
   }
   if (doWuPass) {
-    // Implement the weight update as a convolutional layer with
-    // input channels = batch size
-    // width = outputSize
-    // height = 1
-    // output channels = inputSize
-    // Note that the fullyConnectedWU option is set
-    // to avoid a rearrangement of weight deltas.
-    // TODO produce a joint plan for the forward, backward and weight update
-    // passes.
     auto wuOptions = fwdOptions;
     wuOptions.fullyConnectedPass = FullyConnectedPass::WU;
-    auto wuParams =
-        popconv::ConvParams(convParams.dType,
-                            {1, 1, outputSize, batchSize}, /* inputShape */
-                            {1, 1, inputSize, batchSize}, /* kernelShape */
-                            {1, 1}, /* stride */
-                            {0, 0}, {0, 0}, {1, 1},
-                            {0, 0}, {0, 0}, {1, 1});
-    Tensor zDeltasTransposed;
-    Tensor zDeltasTransposedView =
-        zDeltas.dimShuffle({1, 0})
-               .reshape({1, 1, zDeltas.dim(1), zDeltas.dim(0)});
-    zDeltasTransposed = zDeltasTransposedView;
-    auto weightDeltas =
-        popconv::convolution(graph, zDeltasTransposed, prevAct, wuParams, true,
-                             bwdProg, "", wuOptions);
-    addTo(graph, weights, weightDeltas, -learningRate, bwdProg);
+    poplin::matMulAcc(graph, weights, -learningRate, zDeltas.transpose(),
+                      prevAct, bwdProg, "", wuOptions);
     auto biasDeltas = reduce(graph, zDeltas, bwdProg);
     addTo(graph, biases, biasDeltas, -learningRate, bwdProg);
   }

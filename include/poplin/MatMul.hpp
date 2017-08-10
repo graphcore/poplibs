@@ -12,29 +12,35 @@ namespace poplin {
  */
 class PlanningCache;
 
+enum class FullyConnectedPass {
+  NONE,
+  FWD,
+  BWD,
+  WU,
+};
+
 /** Options to control the implementation of matrix multiplication */
 struct MatMulOptions {
   /** Type used for partial sum calculation */
   std::string partialsType = "float";
-  /** By default the output of a matrix multiply has a storage order with
-      the columns (inner dimension) contiguous. If this flag is set the
-      output will be row contiguous. */
-  bool outputIsRowContiguous = false;
-  /** Whether the left hand argument is going to be used in another
-   *  matrix multiplication and in that other multiplication used either
-   *  as a right hand side argument or on the left in a transposed form. */
-  bool leftHandArgUsedInTranspose = false;
+  /// The fully connected pass this multiplication corresponds to. If this
+  /// variable is not set to NONE look for a joint plan that avoids the need to
+  /// exchange weights. In the forward and backward passes the weight matrix is
+  /// assumed to be the matrix on the left hand side of the matrix. In the
+  /// weight update pass we arrange for the result to have the same layout as
+  /// the weights so it can be added to the weights without any exchange.
+  FullyConnectedPass fullyConnectedPass = FullyConnectedPass::NONE;
   /** An optional pointer to a planning cache. */
   PlanningCache *cache = nullptr;
   bool operator<(const MatMulOptions &other) const {
-    return std::tie(partialsType, leftHandArgUsedInTranspose) <
-             std::tie(other.partialsType, other.leftHandArgUsedInTranspose);
+    return std::tie(partialsType, fullyConnectedPass) <
+             std::tie(other.partialsType, other.fullyConnectedPass);
   }
 };
 
 /** Multiply two matrices.
  *
- *  Calculates C = op(A * B) where op is identity or transpose.
+ *  Calculates C = A * B where A and B are matrices.
  *
  *  \param graph           The poplar graph.
  *  \param A               The left argument to the multiplication. This
@@ -54,7 +60,7 @@ struct MatMulOptions {
  *                         mapped to tiles.
  */
 poplar::Tensor
-matMul(poplar::Graph &graph, poplar::Tensor A, poplar::Tensor B,
+matMul(poplar::Graph &graph, const poplar::Tensor &A, const poplar::Tensor &B,
        poplar::program::Sequence &prog,
        const std::string &debugPrefix = "",
        const MatMulOptions &options = MatMulOptions());
@@ -82,64 +88,73 @@ matMul(poplar::Graph &graph, poplar::Tensor A, poplar::Tensor B,
  *                         multiplication should be implemented.
  */
 void
-matMulAcc(poplar::Graph &graph, poplar::Tensor C, float k,
-          poplar::Tensor A, poplar::Tensor B,
+matMulAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
+          const poplar::Tensor &A, const poplar::Tensor &B,
           poplar::program::Sequence &prog,
           const std::string &debugPrefix = "",
           const MatMulOptions &options = MatMulOptions());
 
-/** Create an input for matrix multiplication.
+/**
+ * Create an tensor that is used as the left operand of matrix multiplication.
  *
- *  This will create a 2D tensor in the graph. The ordering and tile mapping
- *  of the tensor will be set to make a matrix multiplication with this
- *  tensor as the left argument efficient.
+ * This will create a 2D tensor in the graph. The ordering and tile mapping
+ * of the tensor will be set to make a matrix multiplication with this
+ * tensor as the left argument efficient.
  *
- *  \param graph           The poplar graph.
- *  \param type            The data type of the required matrix.
- *  \param aShape          The shape of the required matrix.
- *  \param B               The matrix the required matrix will be multiplied
- *                         by.
- *  \param name            The debug name of the required matrix.
- *  \param options         The implementation options of the multiplication.
+ * \param graph           The poplar graph.
+ * \param type            The data type of the required matrix.
+ * \param aShape          The shape of the required matrix.
+ * \param bShape          The shape of the matrix that the required matrix will
+ *                        be multiplied by.
+ * \param name            The debug name of the required matrix.
+ * \param options         The implementation options of the multiplication.
  *
- *  \returns               A matrix of type \type and shape \aShape. The
- *                         tensor will have been mapped to tiles.
+ * \returns               A matrix of type \type and shape \aShape. The
+ *                        tensor will have been mapped to tiles.
  */
 poplar::Tensor
-createMatMulInputA(poplar::Graph &graph,
-                   const std::string &type,
-                   const std::vector<std::size_t> &aShape,
-                   const poplar::Tensor &B,
-                   const std::string &name,
-                   const MatMulOptions &options = MatMulOptions());
+createMatMulInputLHS(poplar::Graph &graph,
+                     const std::string &type,
+                     const std::vector<std::size_t> &aShape,
+                     const std::vector<std::size_t> &bShape,
+                     const std::string &name,
+                     const MatMulOptions &options = MatMulOptions());
+
+/**
+ * Create an tensor that is used as the right operand of matrix multiplication.
+ *
+ * This will create a 2D tensor in the graph. The ordering and tile mapping
+ * of the tensor will be set to make a matrix multiplication with this
+ * tensor as the right argument efficient.
+ *
+ * \param graph           The poplar graph.
+ * \param type            The data type of the required matrix.
+ * \param aShape          The shape of the required matrix.
+ * \param bShape          The shape of the matrix that the required matrix will
+ *                        be multiplied by.
+ * \param name            The debug name of the required matrix.
+ * \param options         The implementation options of the multiplication.
+ *
+ * \returns               A matrix of type \type and shape \aShape. The
+ *                        tensor will have been mapped to tiles.
+ */
+poplar::Tensor
+createMatMulInputRHS(poplar::Graph &graph,
+                     const std::string &type,
+                     const std::vector<std::size_t> &aShape,
+                     const std::vector<std::size_t> &bShape,
+                     const std::string &name,
+                     const MatMulOptions &options = MatMulOptions());
 
 struct Plan;
 
+class PlanningCacheImpl;
+
 class PlanningCache {
 public:
+  std::unique_ptr<PlanningCacheImpl> impl;
   PlanningCache();
   ~PlanningCache();
-  friend Plan getPlan(const poplar::Graph &graph,
-                      std::string dType,
-                      std::vector<std::size_t> aShape,
-                      std::vector<std::size_t> bShape,
-                      MatMulOptions options);
-private:
-  struct Params {
-    std::string dType;
-    std::vector<std::size_t> aShape;
-    std::vector<std::size_t> bShape;
-    MatMulOptions options;
-    Params(std::string dType, std::vector<std::size_t> aShape,
-           std::vector<std::size_t> bShape, MatMulOptions options) :
-      dType(std::move(dType)), aShape(std::move(aShape)),
-      bShape(std::move(bShape)), options(std::move(options)) {}
-    bool operator<(const Params &other) const {
-      return std::tie(dType, aShape, bShape, options) <
-             std::tie(other.dType, other.aShape, other.bShape, other.options);
-    }
-  };
-  std::map<Params, std::unique_ptr<Plan>> plans;
 };
 
 } // namespace poplin

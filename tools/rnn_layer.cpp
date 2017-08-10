@@ -8,6 +8,7 @@
 #include <ostream>
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
+#include <popconv/codelets.hpp>
 #include <popstd/TileMapping.hpp>
 #include <poplin/MatMul.hpp>
 #include <popstd/Add.hpp>
@@ -129,6 +130,7 @@ int main(int argc, char **argv) {
   std::string partialsTypeStr(asString(partialsType));
 
   Graph graph(createIPUModelDevice(info));
+  popconv::addCodelets(graph);
   popstd::addCodelets(graph);
   popreduce::addCodelets(graph);
   poplin::addCodelets(graph);
@@ -146,12 +148,11 @@ int main(int argc, char **argv) {
     PlanningCache cache;
     MatMulOptions mmOpt;
     mmOpt.partialsType = partialsTypeStr;
-    mmOpt.leftHandArgUsedInTranspose = false;
     mmOpt.cache = &cache;
-    feedFwdWeights = createMatMulInputA(graph, dataTypeStr,
-                                        {outputSize, inputSize},
-                                        prevAct[0].transpose(),
-                                        "feedFwdWeights", mmOpt);
+    feedFwdWeights = createMatMulInputLHS(graph, dataTypeStr,
+                                          {outputSize, inputSize},
+                                          {inputSize, batchSize},
+                                          "feedFwdWeights", mmOpt);
 
     feedFwdOutput = popnn::rnn::forwardWeightInput(graph, prevAct,
                                                    feedFwdWeights, prog,
@@ -183,14 +184,13 @@ int main(int argc, char **argv) {
   PlanningCache cache;
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsTypeStr;
-  mmOpt.leftHandArgUsedInTranspose = false;
   mmOpt.cache = &cache;
 
 
-  auto feedbackWeights = createMatMulInputA(graph, dataTypeStr,
-                                            {outputSize, outputSize},
-                                            feedFwdOutput[0].transpose(),
-                                            "feedbackWeights", mmOpt);
+  auto feedbackWeights = createMatMulInputLHS(graph, dataTypeStr,
+                                              {outputSize, outputSize},
+                                              {outputSize, batchSize},
+                                              "feedbackWeights", mmOpt);
 
   auto nextAct = popnn::rnn::forwardIterate(graph, feedFwdOutput, initState,
                                             feedbackWeights,

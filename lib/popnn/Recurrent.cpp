@@ -49,7 +49,6 @@ Tensor forwardWeightInput(Graph &graph, Tensor actIn, Tensor weights,
   PlanningCache cache;
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsTypeStr;
-  mmOpt.leftHandArgUsedInTranspose = false;
   mmOpt.cache = &cache;
 
   for (auto s = 0U; s != sequenceSize; ++s) {
@@ -80,11 +79,9 @@ Tensor forwardIterate(Graph  &graph,
   auto actOut = graph.addTensor(feedFwdIn.elementType(),
                                 {0, batchSize, outputSize},
                                 "actOut");
-
   PlanningCache cache;
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsTypeStr;
-  mmOpt.leftHandArgUsedInTranspose = false;
   mmOpt.cache = &cache;
 
   for (unsigned s = 0U; s != sequenceSize; ++s) {
