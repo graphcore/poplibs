@@ -1398,15 +1398,25 @@ public:
     // extra cycles to form constants
     uint64_t cycles = 7;
     for (unsigned i = 0; i < in.size(); ++i) {
-      unsigned cyclesPerVector = 4;
       unsigned overhead = 6;
       unsigned numElem = in[i].size();
-      bool isFloat = std::is_same<InType, float>::value;
-      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-      // 64-bit AND to extract sign
-      // OR to pad exponent
-      // A compare to form mask to check against 0
-      // AND with mask
+
+      // default value for int:
+      // ld32 in
+      // cmpslt a, mzero, in
+      // cmpslt b, in, mzero
+      // sub c, a, b
+      // st32 c
+      unsigned cyclesPerVector = 5;
+      unsigned vectorWidth = 1;
+
+      if (!std::is_same<InType, int>::value) {
+        bool isFloat = std::is_same<InType, float>::value;
+        vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+        // For float and half:
+        // use clamp (f16v4 or f32v2)
+        cyclesPerVector = 1;
+      }
       cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
                                   cyclesPerVector);
     }
@@ -1416,6 +1426,7 @@ public:
 
 template class Signum<float>;
 template class Signum<half>;
+template class Signum<int>;
 
 template <typename InType>
 class Sin : public Vertex {

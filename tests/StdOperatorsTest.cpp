@@ -719,7 +719,7 @@ BOOST_AUTO_TEST_CASE(StdOperationRemainderInt,
                          });
 }
 
-BOOST_AUTO_TEST_CASE(StdOperationSignum,
+BOOST_AUTO_TEST_CASE(StdOperationSignumFloat,
                   *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
@@ -730,6 +730,19 @@ BOOST_AUTO_TEST_CASE(StdOperationSignum,
                                 return res;
                              });
 }
+
+BOOST_AUTO_TEST_CASE(StdOperationSignumInt,
+                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  ) {
+  unaryOpTest<int, int>(popstd::signum,
+                             [](int x) -> int {
+                                int res = (0 < x) - (x < 0);
+                                return res;
+                             });
+}
+
 
 BOOST_AUTO_TEST_CASE(StdOperationSin,
                   *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
