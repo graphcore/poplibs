@@ -55,16 +55,15 @@ static bool compareMatrices(T a[DIM_SIZE][DIM_SIZE],
 
 
 template <typename T>
-static bool validateUniform(T mat[DIM_SIZE][DIM_SIZE], T minVal, T maxVal,
+static bool validateUniform(T mat[DIM_SIZE][DIM_SIZE], double minVal,
+                            double maxVal,
                             double percentError) {
   bool boundsMet = true;
-  const bool isIntType = std::is_same<T, int>::value;
   double mean = 0;
   // compute mean and variance and check bounds
   for(auto r = 0U; r != DIM_SIZE; ++r) {
     for (auto c = 0U; c != DIM_SIZE; ++c) {
-      if (((!isIntType) && (mat[r][c] < minVal || mat[r][c] > maxVal)) ||
-          ((isIntType) && (mat[r][c] < minVal || mat[r][c] >= maxVal))) {
+      if (mat[r][c] < minVal || mat[r][c] > maxVal) {
         boundsMet = false;
         std::cerr << "bounds not met at [" << r << "][" << c << "] ";
         std::cerr << mat[r][c] << "\n";
@@ -86,10 +85,7 @@ static bool validateUniform(T mat[DIM_SIZE][DIM_SIZE], T minVal, T maxVal,
   double stdDev = std::sqrt(variance / (DIM_SIZE * DIM_SIZE - 1));
 
   const double dist = (maxVal - minVal) / 2;
-
-  // The intervals are different for integer type
-  const double actualMean = isIntType ? (minVal + maxVal - 1) / 2.0 :
-                                        (minVal + maxVal) / 2.0;
+  const double actualMean = (minVal + maxVal) / 2.0;
 
 
   const bool meanTest = mean >= (actualMean - dist * percentError / 100)
@@ -99,7 +95,7 @@ static bool validateUniform(T mat[DIM_SIZE][DIM_SIZE], T minVal, T maxVal,
   bool stdDevTest = rStdDev <= ((1 + percentError / 100) / std::sqrt(3.0))
                     && rStdDev >= ((1 - percentError / 100) / std::sqrt(3.0));
   // ignore stddev test for int. It is easy to derive if needed
-  if (isIntType) {
+  if ( std::is_same<T, int>::value) {
     stdDevTest = true;
   }
 
@@ -116,8 +112,9 @@ static bool validateUniform(T mat[DIM_SIZE][DIM_SIZE], T minVal, T maxVal,
 }
 
 template <typename T>
-static bool uniformTest(T hOut[DIM_SIZE][DIM_SIZE], const T minVal,
-                        const T maxVal, double percentError, RandomGenMode mode,
+static bool uniformTest(T hOut[DIM_SIZE][DIM_SIZE],
+                        const double minVal, const double maxVal,
+                        double percentError, RandomGenMode mode,
                         uint64_t seed = ~0, unsigned numIPUs = 1) {
   DeviceInfo info;
   info.numIPUs = numIPUs;
@@ -128,7 +125,6 @@ static bool uniformTest(T hOut[DIM_SIZE][DIM_SIZE], const T minVal,
   if (dType.empty()) {
     return false;
   }
-
   auto out = graph.addTensor(dType, {DIM_SIZE, DIM_SIZE}, "out");
   mapTensorLinearly(graph, out);
   graph.createHostRead("out", out);
@@ -371,6 +367,14 @@ BOOST_AUTO_TEST_CASE(RandomGenUniformInt) {
   using T = int;
   T hOut[DIM_SIZE][DIM_SIZE];
   bool result = uniformTest<T>(hOut, -20, 2, 5.0, SYSTEM_REPEATABLE);
+  BOOST_TEST(result == true);
+}
+
+BOOST_AUTO_TEST_CASE(RandomGenUniformIntMaxRange) {
+  using T = int;
+  T hOut[DIM_SIZE][DIM_SIZE];
+  bool result = uniformTest<T>(hOut, -2147483648, 2147483647, 5.0,
+                               SYSTEM_REPEATABLE);
   BOOST_TEST(result == true);
 }
 

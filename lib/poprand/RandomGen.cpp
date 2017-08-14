@@ -83,11 +83,39 @@ std::vector<VertexInfo> buildVertices(Graph &graph, const Tensor &t) {
   return v;
 }
 
+using ParamsList = std::vector<std::pair<const std::string, double>>;
+
 static void
 buildProgram(Graph &graph, const Tensor &A, uint64_t seed, uint16_t colouredId,
              RandomGenMode mode, const std::string &vertexName,
-             const std::vector<std::pair<const std::string, double>> &params,
+             const ParamsList &params,
              Sequence &prog, const std::string &debugPrefix) {
+  // Set param values depending on vertex type
+  // @TODO: Once polar takes rvalues which are of the desired type in the
+  //        setInitialValue call, this code can be simplified
+  auto setParamsInVertex = [](Graph &graph, VertexRef &v,
+                              const std::string &vertexName,
+                              const ParamsList &params,
+                              const std::string &dType) {
+    for (const auto &p : params) {
+      // special case for uniform int
+      if (dType == "int" && vertexName == "Uniform" &&
+           (p.first == "scale" || p.first == "offset")) {
+        if  (p.first == "scale") {
+          const unsigned val = static_cast<unsigned>(p.second);
+          graph.setInitialValue(v[p.first], val);
+        }
+        if (p.first == "offset") {
+          int val = static_cast<int>(p.second);
+          graph.setInitialValue(v[p.first], val);
+        }
+      } else {
+        const float val = static_cast<float>(p.second);
+        graph.setInitialValue(v[p.first], val);
+      }
+    }
+  };
+
   const auto dType = A.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
@@ -95,7 +123,6 @@ buildProgram(Graph &graph, const Tensor &A, uint64_t seed, uint16_t colouredId,
   const auto cs = graph.addComputeSet(debugPrefix + "/" + vertexName);
   const bool saveRestoreSeed = mode != NOT_REPEATABLE;
   auto aFlat = A.flatten();
-
   if (mode == ALWAYS_REPEATABLE) {
     std::vector<VertexInfo> vertexTab = buildVertices(graph, A);
     unsigned numVertices = vertexTab.size();
@@ -109,12 +136,7 @@ buildProgram(Graph &graph, const Tensor &A, uint64_t seed, uint16_t colouredId,
                                                     dType));
         graph.connect(v["out"][0], aFlat.slice(vertexTab[i].region));
         graph.setFieldSize(v["out"], 1);
-        for (const auto &p : params) {
-          graph.setInitialValue(v[p.first],
-                                dType == "int" && vertexName == "Uniform" ?
-                                static_cast<int>(p.second) :
-                                static_cast<float>(p.second));
-        }
+        setParamsInVertex(graph, v, vertexName, params, dType);
         graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
         graph.setInitialValue(v["seedL"], seed);
         graph.setInitialValue(v["seedH"], createSeedU64(colouredId, 0, i));
@@ -147,12 +169,7 @@ buildProgram(Graph &graph, const Tensor &A, uint64_t seed, uint16_t colouredId,
                                                 dType),
                                  {{"out", aFlat.slices(regions)}});
         graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-        for (const auto &p : params) {
-          graph.setInitialValue(v[p.first],
-                                dType == "int" && vertexName == "Uniform" ?
-                                static_cast<int>(p.second):
-                                static_cast<float>(p.second));
-        }
+        setParamsInVertex(graph, v, vertexName, params, dType);
         if (simulateNonRepeatable || mode != NOT_REPEATABLE) {
           graph.setInitialValue(v["seedL"], seed);
           graph.setInitialValue(v["seedH"],  createSeedU64(colouredId, tile,
@@ -176,6 +193,15 @@ uniformScaleAndOffset(double minVal, double maxVal, const std::string dType) {
     double offset = scale /  2 + minVal;
     return std::make_pair(scale, offset);
   } else {
+    if (minVal < std::numeric_limits<int32_t>::min() ||
+        maxVal > static_cast<double>(std::numeric_limits<int32_t>::max())) {
+      throw popstd::poplib_error("range for uniform distribution invalid");
+    }
+    scale += 1.0;
+    if (scale == static_cast<double>(std::numeric_limits<uint32_t>::max())
+                 + 1) {
+      scale = 0;
+    }
     return std::make_pair(scale, minVal);
   }
 }

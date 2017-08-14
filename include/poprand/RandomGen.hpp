@@ -55,15 +55,12 @@ public:
   /// minVal The mode determines whether the numbers generated are
   /// repeatable across systems
   ///
-  /// The tensor A may be of type "float", "half" or "int".
-  /// For "float" and "half", the uniform number generator
-  /// generates data with the uniform distribution in the interval
-  /// [minVal, maxVal]
-  /// For "int", data is generated in interval [minVal, maxVal)
-  /// with uniform probability if maxVal - minVal is a power of 2.
-  /// Otherwise there will be a small bias in the probability
-  /// generated with the bias directly proportional to the ratio
-  /// maxVal-minVal / 2^32.
+  /// The tensor A may be of type "float", "half" or "int". It generates data
+  /// with uniform distribution in the interval [minVal, maxVal]. For "int",
+  /// data is generated in interval [minVal, maxVal] with uniform probability if
+  /// maxVa - minVal is a power of 2. Otherwise there will be a small bias in
+  /// the probability generated with the bias directly proportional to the ratio
+  /// maxVal-minVal+1 / 2^32.
   void
   uniform(poplar::Graph &graph, poplar::Tensor &A, double minVal, double maxVal,
           poplar::program::Sequence &prog, const std::string &debugPrefix = "");

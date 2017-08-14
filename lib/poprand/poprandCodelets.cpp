@@ -181,6 +181,9 @@ class Uniform<int> : public Vertex {
 public:
   Vector<Output<Vector<int>>> out;
   int offset;
+  // is the range of the uniform generator. Called scale because it can also
+  // be seen as a scale factor for an uniform distribution [0,1) to produce the
+  // integer
   unsigned int scale;
   // A separate vertex needs to be defined if save/restore of seeds is not
   // required
@@ -190,12 +193,10 @@ public:
   // It is expected that there will be two variants of vertices: one which
   // saves and restores seeds
   SimOnlyField<bool> saveRestoreSeed;
-
   bool compute() {
     auto s = initialiseAndPrime({seedL, seedH});
     const unsigned maxPerCall = 2;
     const unsigned bitsPerVal = 32;
-
     for (auto i = 0; i != out.size(); ++i) {
       unsigned n = out[i].size();
       unsigned idx = 0;
@@ -204,8 +205,11 @@ public:
         auto r = next(s);
         for (auto k = 0; k != genSamples; ++k, ++idx, r >>= bitsPerVal) {
           uint64_t rmasked = r & ((1ULL << bitsPerVal) - 1);
-          uint64_t scaledR = (rmasked * scale) >> 32;
-          int64_t  res32 = static_cast<int64_t>(scaledR) + offset;
+          // scale == 0 is the special case where whole range of int is used
+          if (scale != 0) {
+            rmasked = (rmasked * scale) >> 32;
+          }
+          int64_t res32 = static_cast<int64_t>(rmasked) + offset;
           out[i][idx] = res32;;
         }
         n -= genSamples;
@@ -218,17 +222,13 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    uint64_t cycles = 7;  // overhead + broadcast offset
+    uint64_t cycles = 5;  // overhead + broadcast offset
     if (saveRestoreSeed) {
       cycles += 5;        // to set up seeds in CSR
       cycles += WARMUP_ITERATIONS;
     }
-
     for (auto i = 0; i != out.size(); ++i) {
-      // break up into 2 and 3 parts respectively and do multiprecision
-      // integer mult.
-      // A second option is to split into 2 parts each and use 32x32 = 32 bit
-      // lower part. The multiplication however has to be unsigned.
+      // use modulo instruction
       cycles += out[i].size() * 23;
     }
     if ((saveRestoreSeed)) {
