@@ -7,6 +7,7 @@
 #include "popstd/exceptions.hpp"
 #include <cmath>
 #include <cstdint>
+#include <limits>
 
 using namespace popstd;
 using namespace poplar;
