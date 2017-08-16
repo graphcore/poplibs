@@ -371,9 +371,11 @@ int main(int argc, char **argv) {
 
   const auto params =
       popconv::ConvParams(dataTypeStr,
-                          {batchSize, height, width, fwdInChans},
-                          {kernelHeight, kernelWidth, fwdOutChans,
-                           fwdInChans},
+                          batchSize,
+                          {height, width},
+                          {kernelHeight, kernelWidth},
+                          fwdInChans,
+                          fwdOutChans,
                           stride,
                           paddingLower,
                           paddingUpper,

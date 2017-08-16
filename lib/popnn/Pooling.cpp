@@ -72,10 +72,28 @@ makeConvParams(unsigned inDimY, unsigned inDimX,
                const std::vector<unsigned> &stride,
                const std::vector<int> &inputPaddingLower,
                const std::vector<int> &inputPaddingUpper) {
-  return  {"", {1, inDimY, inDimX, 1},
-           {kernelShape[0], kernelShape[1], 1, 1},
-           stride, inputPaddingLower, inputPaddingUpper,
-           {1, 1}, {0, 0}, {0, 0}, {1, 1}};
+  return  {"",
+           // batch size
+           1,
+           // input field shape for each channel and batch
+           {inDimY, inDimX},
+           // kernel shape for each input and output channel
+           kernelShape,
+           // input channels
+           1,
+           // output channels
+           1,
+           stride,
+           inputPaddingLower,
+           inputPaddingUpper,
+           // input dilation
+           {1, 1},
+           // lower kernel padding
+           {0, 0},
+           // upper kernel padding
+           {0, 0},
+           // kernel dilation
+           {1, 1}};
 }
 
 std::pair<unsigned, unsigned>
@@ -311,6 +329,7 @@ Tensor pool(Graph &graph,
   const auto params = makeConvParams(in.dim(1), in.dim(2),
                                      kernelShape, stride,
                                      inputPaddingLower, inputPaddingUpper);
+
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     // On each tile split the elements of the output up between the workers.
     // The grainSize is set to the vector width so vectors will not be split

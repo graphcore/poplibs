@@ -433,13 +433,13 @@ estimateExchangeCycles(const poplar::DeviceInfo &deviceInfo,
       (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
   const auto tileBatchElements =
       (params.getBatchSize() + tilesPerBatch - 1) / tilesPerBatch;
-  const auto outputDepth = params.kernelShape[2];
+  const auto outputDepth = params.getOutputDepth();
   const auto numOutGroups =
       (outputDepth + (partialChansPerGroup - 1)) / partialChansPerGroup;
   const auto tileNumOutGroups =
       (numOutGroups + tilesPerZ - 1) / tilesPerZ;
   const auto tileOutDepth = tileNumOutGroups * partialChansPerGroup;
-  const auto inputDepth = params.inputShape[3];
+  const auto inputDepth = params.getInputDepth();
   const auto numInGroups =
       (inputDepth + (inChansPerGroup - 1)) / inChansPerGroup;
   const auto tileNumInGroups =
@@ -797,16 +797,30 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
           ((canonicalParams.getOutputDepth() + partialChansPerGroup - 1) /
            partialChansPerGroup) * partialChansPerGroup;
       newParams = ConvParams(canonicalParams.dType,
-                    {1, expandedActivationsHeight,  expandedInputDepth,
-                     paddedFieldWidth}, /* inputShape */
-                    {expandedDeltasHeight, 1,
-                     paddedOutputDepth,
-                     paddedFieldWidth }, /* kernelShape */
-                    {weightDeltasStrideY, 1}, /* stride */
+                    // batch size
+                    1,
+                    // input field shape for each channel and batch
+                    {expandedActivationsHeight,  expandedInputDepth},
+                    // kernel shape for each input and output channel
+                    {expandedDeltasHeight, 1},
+                    // input channels
+                    paddedFieldWidth,
+                    // output channels
+                    paddedOutputDepth,
+                    // stride
+                    {weightDeltasStrideY, 1},
+                    // lower input padding
                     {expandedActivationsPaddingYLower, 0},
+                    // upper input padding
                     {expandedActivationsPaddingYUpper, 0},
+                    // input dilation
                     {1, 1},
-                    {0, 0}, {0, 0}, {1, 1});
+                    // lower kernal padding
+                    {0, 0},
+                    // upper kernel padding
+                    {0, 0},
+                    // kernel dilation
+                    {1, 1});
     }
     break;
   case Plan::ACTIVATIONS_AS_COEFFICENTS:
@@ -819,20 +833,31 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
           ((expandedInputDepth + partialChansPerGroup - 1) /
            partialChansPerGroup) * partialChansPerGroup;
       newParams = ConvParams(canonicalParams.dType,
-                    {1, expandedDeltasHeight,
-                     canonicalParams.getOutputDepth(),
-                     paddedFieldWidth}, // inputShape
-                    {expandedActivationsHeight,
-                     1,
-                     paddedExpandedInputDepth,
-                     paddedFieldWidth}, // kernelShape
-                     {weightDeltasStrideY, 1}, // stride,
-                     {0, 0}, // inputPaddingLower
-                     {0, 0}, // inputPaddingUpper,
-                     {expandedDeltasDilationY, 1}, // inputDilation,
-                     {expandedActivationsPaddingYLower, 0},
-                     {expandedActivationsPaddingYUpper, 0},
-                     {1, 1}
+                    // batch size
+                    1,
+                    // input field shape for each channel and batch
+                    {expandedDeltasHeight,
+                     canonicalParams.getOutputDepth()},
+                    // kernel shape for each input and output channel
+                    {expandedActivationsHeight, 1},
+                    // input channels
+                    paddedFieldWidth,
+                    // output channels
+                    paddedExpandedInputDepth,
+                    // stride
+                    {weightDeltasStrideY, 1},
+                    // lower input padding
+                    {0, 0},
+                    // upper input padding
+                    {0, 0},
+                    // input dilation
+                    {expandedDeltasDilationY, 1},
+                    // lower kernal padding
+                    {expandedActivationsPaddingYLower, 0},
+                    // upper kernel padding
+                    {expandedActivationsPaddingYUpper, 0},
+                    // kernel dilation
+                    {1, 1}
                    );
     }
     break;
@@ -1079,8 +1104,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
   if (options.fullyConnectedPass == FullyConnectedPass::FWD) {
     popsolver::Variable bwdCycles;
     auto bwdParams = params;
-    std::swap(bwdParams.inputShape[2], bwdParams.inputShape[3]);
-    bwdParams.kernelShape[3] = bwdParams.inputShape[3];
+    std::swap(bwdParams.inputFieldShape[1], bwdParams.inputChannels);
     const auto bwdTilesPerX = tilesPerInZ;
     const auto bwdTilesPerInZ = tilesPerX;
     const auto bwdInChansPerGroup = xAxisGrainSize;
@@ -1096,8 +1120,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                          floatActivations, bwdMethod,
                          Plan::LinearizeTileOrder::FC_BWD_AS_CONV, cache);
     auto wuParams = params;
-    std::swap(wuParams.kernelShape[3], wuParams.kernelShape[2]);
-    wuParams.inputShape[3] = wuParams.kernelShape[3];
+    std::swap(wuParams.inputChannels, wuParams.outputChannels);
     const auto wuTilesPerZ = tilesPerInZ;
     const auto wuTilesPerInZ = tilesPerZ;
     const auto wuInChansPerGroup = partialChansPerGroup;
@@ -1395,9 +1418,9 @@ createPlan(ConvParams params,
       && params.inputPaddingLower[0] == 0 && params.inputPaddingLower[1] == 0
       && params.inputPaddingUpper[0] == 0 && params.inputPaddingUpper[1] == 0) {
     flattenXY = true;
-    params.inputShape[2] *= params.inputShape[1] * params.inputShape[0];
-    params.inputShape[1] = 1;
-    params.inputShape[0] = 1;
+    params.inputFieldShape[1] *= params.batchSize * params.inputFieldShape[0];
+    params.inputFieldShape[0] = 1;
+    params.batchSize = 1;
   } else {
     flattenXY = false;
   }
@@ -1440,13 +1463,16 @@ static ConvParams getFullyConnectedFwdParams(const ConvParams &params,
   case FullyConnectedPass::WU:
     outputSize = params.getInputWidth();
     batchSize = params.getInputDepth();
-    inputSize = params.kernelShape[2];
+    inputSize = params.getOutputDepth();
     break;
   }
   return ConvParams(params.dType,
-                    {1, 1, outputSize, inputSize}, /* inputShape */
-                    {1, 1, batchSize, inputSize}, /* kernelShape */
-                    {1, 1}, /* stride */
+                    1,                       // batchSize
+                    {1, outputSize},         // inputShape
+                    {1, 1},                  // kernelShape
+                    inputSize,               // input channels
+                    batchSize,               // output channels
+                    {1, 1},                  // stride
                     {0, 0},
                     {0, 0},
                     {1, 1},
@@ -1512,7 +1538,7 @@ static Plan getFullyConnectedBwdPlan(const poplar::DeviceInfo &deviceInfo,
 Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
              ConvOptions options) {
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  assert (params.kernelShape.size() == 4);
+  assert (params.kernelShape.size() == 2);
   assert (params.stride.size() == 2);
   assert (params.inputPaddingLower.size() == 2);
   assert (params.inputPaddingUpper.size() == 2);
@@ -1585,7 +1611,7 @@ Plan getWeightUpdatePlan(const poplar::Graph &graph,
                          ConvOptions options) {
   assert(activations.rank() == 4);
   assert(deltas.rank() == 4);
-  assert(params.kernelShape.size() == 4);
+  assert(params.kernelShape.size() == 2);
   assert(params.stride.size() == 2);
   assert(params.inputPaddingLower.size() == 2);
   assert(params.inputPaddingUpper.size() == 2);

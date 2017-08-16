@@ -71,11 +71,30 @@ static popconv::ConvParams getConvParams(
       auto batchSize = aShape[0];
       return
           popconv::ConvParams(dType,
-                              {1, 1, outputSize, inputSize} /* inputShape */,
-                              {1, 1, batchSize, inputSize} /* kernelShape */,
+                              // batch size
+                              1,
+                              // input field shape for each channel and batch
+                              {1, outputSize},
+                              // kernel shape for each input and output channel
                               {1, 1},
-                              {0, 0}, {0, 0}, {1, 1},
-                              {0, 0}, {0, 0}, {1, 1});
+                              // input channels
+                              inputSize,
+                              // output channels
+                              batchSize,
+                              // stride
+                              {1, 1},
+                              // lower input padding
+                              {0, 0},
+                              // upper input padding
+                              {0, 0},
+                              // input dilation
+                              {1, 1},
+                              // lower kernal padding
+                              {0, 0},
+                              // upper kernel padding
+                              {0, 0},
+                              // kernel dilation
+                              {1, 1});
     }
   case FullyConnectedPass::BWD:
     // A fully connected bwd pass is equivalent to a convolution with
@@ -89,11 +108,30 @@ static popconv::ConvParams getConvParams(
       auto batchSize = aShape[0];
       return
           popconv::ConvParams(dType,
-                              {1, 1, inputSize, outputSize}, /* inputShape */
-                              {1, 1, batchSize, outputSize}, /* kernelShape */
-                              {1, 1}, /* stride */
-                              {0, 0}, {0, 0}, {1, 1},
-                              {0, 0}, {0, 0}, {1, 1});
+                              // batch size
+                              1,
+                              // input field shape for each channel and batch
+                              {1, inputSize},
+                              // kernel shape for each input and output channel
+                              {1, 1,},
+                              // input channels
+                              outputSize,
+                              // output channels
+                              batchSize,
+                              // stride
+                              {1, 1},
+                              // lower input padding
+                              {0, 0},
+                              // upper input padding
+                              {0, 0},
+                              // input dilation
+                              {1, 1},
+                              // lower kernel padding
+                              {0, 0},
+                              // upper kernel padding
+                              {0, 0},
+                              // kernel dilation
+                              {1, 1});
     }
   case FullyConnectedPass::WU:
     // Implement the weight update as a convolutional layer with
@@ -107,11 +145,30 @@ static popconv::ConvParams getConvParams(
       auto batchSize = aShape[1];
       return
           popconv::ConvParams(dType,
-                              {1, 1, outputSize, batchSize}, /* inputShape */
-                              {1, 1, inputSize, batchSize}, /* kernelShape */
-                              {1, 1}, /* stride */
-                              {0, 0}, {0, 0}, {1, 1},
-                              {0, 0}, {0, 0}, {1, 1});
+                              // batch size
+                              1,
+                              // input field shape for each channel and batch
+                              {1, outputSize},
+                              // kernel shape for each input and output channel
+                              {1, 1,},
+                              // input channels
+                              batchSize,
+                              // output channels
+                              inputSize,
+                              // stride
+                              {1, 1},
+                              // lower input padding
+                              {0, 0},
+                              // upper input padding
+                              {0, 0},
+                              // input dilation
+                              {1, 1},
+                              // lower kernel padding
+                              {0, 0},
+                              // upper kernel padding
+                              {0, 0},
+                              // kernel dilation
+                              {1, 1});
     }
   }
 }

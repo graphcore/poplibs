@@ -3,9 +3,9 @@
 #include <popconv/ConvUtil.hpp>
 
 BOOST_AUTO_TEST_CASE(getInputRangeLargeKernel) {
-  auto params = popconv::ConvParams("float",
-                                    {1, 3, 1, 1},
-                                    {5, 1, 1, 1},
+  auto params = popconv::ConvParams("float", 1,
+                                    {3, 1},
+                                    {5, 1}, 1, 1,
                                     {1, 1},
                                     {0, 0}, {0, 0}, {1, 1},
                                     {0, 0}, {0, 0}, {1, 1});

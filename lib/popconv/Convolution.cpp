@@ -129,9 +129,12 @@ std::size_t ConvParams::getOutputWidth() const {
   return getOutputSize(1);
 }
 
-std::vector<std::size_t> ConvParams::getOutputShape() const {
-  return {inputShape[0], getOutputSize(0), getOutputSize(1),
-          kernelShape[2]};
+std::vector<std::size_t> ConvParams::getOutputFieldShape() const {
+  std::vector<std::size_t> outputFieldShape;
+  for (auto dim = 0U; dim != inputFieldShape.size(); ++dim) {
+    outputFieldShape.push_back(getOutputSize(dim));
+  }
+  return outputFieldShape;
 }
 
 static void
@@ -167,19 +170,19 @@ verifyStrideAndPaddingDimensions(const ConvParams &params) {
 static void verifyInputShapes(const ConvParams &params,
                               const Tensor &in,
                               const Tensor &weights) {
-  if (params.inputShape[0] != in.dim(0)) {
+  if (params.getBatchSize() != in.dim(0)) {
     throw popstd::poplib_error("Batchsize of input tensor does not match "
                                "convolution parameters");
   }
-  if (params.inputShape[1] != in.dim(1)) {
+  if (params.inputFieldShape[0] != in.dim(1)) {
     throw popstd::poplib_error("Height of input tensor does not match "
                                "convolution parameters");
   }
-  if (params.inputShape[2] != in.dim(2)) {
+  if (params.inputFieldShape[1] != in.dim(2)) {
     throw popstd::poplib_error("Width of input tensor does not match "
                                "convolution parameters");
   }
-  if (params.inputShape[3] != in.dim(3)) {
+  if (params.getInputDepth() != in.dim(3)) {
     throw popstd::poplib_error("Number of channels of input tensor does "
                                "not match convolution parameters");
   }
@@ -191,11 +194,11 @@ static void verifyInputShapes(const ConvParams &params,
     throw popstd::poplib_error("Kernel width does not match convolution "
                                "parameters");
   }
-  if (params.kernelShape[2] != weights.dim(2)) {
+  if (params.getOutputDepth() != weights.dim(2)) {
     throw popstd::poplib_error("Kernel output channel size does not match "
                                "convolution parameters");
   }
-  if (params.kernelShape[3] != weights.dim(3)) {
+  if (params.getInputDepth() != weights.dim(3)) {
     throw popstd::poplib_error("Kernel input channel size does not match "
                                "convolution parameters");
   }
@@ -630,9 +633,10 @@ convolutionPreprocess(Graph &graph, ConvParams &params, Plan &plan,
                              acts->dim(3)});
     }
     plan.flattenXY = false;
-    params.inputShape[2] *= params.inputShape[1] * params.inputShape[0];
-    params.inputShape[1] = 1;
-    params.inputShape[0] = 1;
+    params.inputFieldShape[1] *=  params.getBatchSize()
+                                  * params.inputFieldShape[0];
+    params.batchSize = 1;
+    params.inputFieldShape[0] = 1;
   }
   const auto numInChans = params.getInputDepth();
   const auto convInChansPerGroup = plan.inChansPerGroup;
@@ -647,8 +651,7 @@ convolutionPreprocess(Graph &graph, ConvParams &params, Plan &plan,
     if (weights) {
       *weights = pad(graph, *weights, 0, convNumChans - numInChans, 3);
     }
-    params.inputShape[3] = convNumChans;
-    params.kernelShape[3] = convNumChans;
+    params.inputChannels = convNumChans;
   }
   const auto outNumChans = params.getOutputDepth();
   const auto partialChansPerGroup = plan.partialChansPerGroup;
@@ -659,7 +662,7 @@ convolutionPreprocess(Graph &graph, ConvParams &params, Plan &plan,
     if (weights) {
       *weights = pad(graph, *weights, 0, partialNumChans - outNumChans, 2);
     }
-    params.kernelShape[2] = partialNumChans;
+    params.outputChannels = partialNumChans;
   }
 }
 
@@ -687,9 +690,10 @@ createInput(Graph &graph, const ConvParams &params,
   const auto inChansPerGroup = getInChansPerGroup(plan, inNumChans);
   assert(params.getInputDepth() % inChansPerGroup == 0);
   auto t = graph.addTensor(params.dType,
-                           {params.inputShape[0],
-                            params.inputShape[3] / inChansPerGroup,
-                            params.inputShape[1], params.inputShape[2],
+                           {params.getBatchSize(),
+                            params.getInputDepth() / inChansPerGroup,
+                            params.inputFieldShape[0],
+                            params.inputFieldShape[1],
                             inChansPerGroup},
                            name);
   t = ungroupActivations(t);
@@ -793,8 +797,8 @@ createWeights(Graph &graph,
               const ConvParams &params, const std::string &name,
               const Plan &plan) {
   const auto dType = params.dType;
-  const auto inNumChans = params.inputShape[3];
-  const auto outNumChans = params.kernelShape[2];
+  const auto inNumChans = params.getInputDepth();
+  const auto outNumChans = params.getOutputDepth();
   const auto weightOutChansPerGroup =
       getWeightOutChansPerGroup(plan, outNumChans);
   assert(outNumChans % weightOutChansPerGroup == 0);
@@ -1941,19 +1945,20 @@ convolution(Graph &graph, const poplar::Tensor &in_,
 
 static std::uint64_t getNumberOfMACs(const ConvParams &params) {
   std::uint64_t numMACs = 0;
-  auto outputShape = getOutputShape(params);
-  for (unsigned y = 0; y < outputShape[1]; ++y) {
+  auto outputShape = params.getOutputFieldShape();
+  for (unsigned y = 0; y < outputShape[0]; ++y) {
     unsigned inYBegin, inYEnd;
     std::tie(inYBegin, inYEnd) = getInputRange(0, y, params);
     const auto height = inYEnd - inYBegin;
-    for (unsigned x = 0; x < outputShape[2]; ++x) {
+    for (unsigned x = 0; x < outputShape[1]; ++x) {
       unsigned inXBegin, inXEnd;
       std::tie(inXBegin, inXEnd) = getInputRange(1, x, params);
       const auto width = inXEnd - inXBegin;
-      numMACs += width * height * outputShape[3] * params.inputShape[3];
+      numMACs += width * height * params.getOutputDepth()
+                 * params.getInputDepth();
     }
   }
-  const auto batchSize = outputShape[0];
+  const auto batchSize = params.getBatchSize();
   return batchSize * numMACs;
 }
 

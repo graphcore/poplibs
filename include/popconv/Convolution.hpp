@@ -53,10 +53,16 @@ struct ConvOptions {
 
 struct ConvParams {
   std::string dType;
-  // Input shape {B x H x W x inChans}
-  std::vector<std::size_t> inputShape;
-  // Filter shape {H x W x outChans x inChans }
+  // batch size (B)
+  std::size_t batchSize;
+  // Input field shape for each channel in a batch
+  std::vector<std::size_t> inputFieldShape;
+  // kernel shape for each channel
   std::vector<std::size_t> kernelShape;
+  // input channels (Ci)
+  std::size_t inputChannels;
+  // output channels (Co)
+  std::size_t outputChannels;
   std::vector<unsigned> stride;
   // Padding applied to input after dilation and before input
   std::vector<int> inputPaddingLower;
@@ -74,8 +80,11 @@ struct ConvParams {
   std::vector<unsigned> kernelDilation;
   ConvParams() = default;
   ConvParams(std::string dType,
-             std::vector<std::size_t> inputShape,
+             std::size_t batchSize,
+             std::vector<std::size_t> inputFieldShape,
              std::vector<std::size_t> kernelShape,
+             std::size_t inputChannels,
+             std::size_t outputChannels,
              std::vector<unsigned> stride,
              std::vector<int> inputPaddingLower,
              std::vector<int> inputPaddingUpper,
@@ -84,8 +93,11 @@ struct ConvParams {
              std::vector<int> kernelPaddingUpper,
              std::vector<unsigned> kernelDilation) :
     dType(std::move(dType)),
-    inputShape(std::move(inputShape)),
+    batchSize(batchSize),
+    inputFieldShape(std::move(inputFieldShape)),
     kernelShape(std::move(kernelShape)),
+    inputChannels(inputChannels),
+    outputChannels(outputChannels),
     stride(std::move(stride)),
     inputPaddingLower(std::move(inputPaddingLower)),
     inputPaddingUpper(std::move(inputPaddingUpper)),
@@ -94,24 +106,26 @@ struct ConvParams {
     kernelPaddingUpper(std::move(kernelPaddingUpper)),
     kernelDilation(std::move(kernelDilation)) {}
   bool operator<(const ConvParams &other) const {
-    return std::tie(dType, inputShape, kernelShape, stride, inputPaddingLower,
-                    inputPaddingUpper, inputDilation) <
-             std::tie(other.dType, other.inputShape, other.kernelShape,
-                      other.stride,
-                      other.inputPaddingLower, other.inputPaddingUpper,
-                      other.inputDilation);
+    return std::tie(dType, batchSize, inputFieldShape, kernelShape,
+                    inputChannels, outputChannels, stride,
+                    inputPaddingLower, inputPaddingUpper,
+                    inputDilation) <
+           std::tie(other.dType, other.batchSize, other.inputFieldShape,
+                    other.kernelShape, other.inputChannels,
+                    other.outputChannels, other.stride, other.inputPaddingLower,
+                    other.inputPaddingUpper, other.inputDilation);
   }
   std::size_t getOutputSize(unsigned dim) const;
   std::size_t getOutputWidth() const;
   std::size_t getOutputHeight() const;
-  std::size_t getOutputDepth() const { return kernelShape[2]; }
-  std::size_t getInputWidth() const { return inputShape[2]; }
-  std::size_t getInputHeight() const { return inputShape[1]; }
-  std::size_t getInputDepth() const { return inputShape[3]; }
+  std::size_t getOutputDepth() const { return outputChannels; }
+  std::size_t getInputWidth() const { return inputFieldShape[1]; }
+  std::size_t getInputHeight() const { return inputFieldShape[0]; }
+  std::size_t getInputDepth() const { return inputChannels; }
 
-  std::size_t getBatchSize() const { return inputShape[0]; }
+  std::size_t getBatchSize() const { return batchSize; }
   int getPaddedDilatedInputSize(unsigned dim) const {
-    int inputSize = inputShape[1 + dim];
+    int inputSize = inputFieldShape[dim];
     int dilatedInputSize = (inputSize - 1) * inputDilation[dim] + 1;
     return inputPaddingLower[dim] + dilatedInputSize + inputPaddingUpper[dim];
   }
@@ -121,7 +135,8 @@ struct ConvParams {
     return kernelPaddingLower[dim] + dilatedKernelSize +
            kernelPaddingUpper[dim];
   }
-  std::vector<size_t> getOutputShape() const;
+  // Returns the shape of the output field
+  std::vector<size_t> getOutputFieldShape() const;
 
 };
 

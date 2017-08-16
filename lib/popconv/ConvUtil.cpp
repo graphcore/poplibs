@@ -33,7 +33,7 @@ reverseDilationAndPadding(unsigned dilatedPaddedIndex, unsigned inputSize,
 unsigned
 getInputIndex(unsigned dim, unsigned outputIndex, unsigned kernelIndex,
               const ConvParams &params) {
-  assert(outputIndex < params.getOutputShape()[dim + 1]);
+  assert(outputIndex < params.getOutputFieldShape()[dim]);
   const auto paddedKernelIndex =
       applyDilationAndPadding(kernelIndex, params.kernelDilation[dim],
                               params.kernelPaddingLower[dim]);
@@ -48,7 +48,8 @@ getInputIndex(unsigned dim, unsigned outputIndex, unsigned kernelIndex,
   } else {
     paddedInputIndex = paddedKernelIndex + upsampledOutputIndex;
   }
-  return reverseDilationAndPadding(paddedInputIndex, params.inputShape[dim + 1],
+  return reverseDilationAndPadding(paddedInputIndex,
+                                   params.inputFieldShape[dim],
                                    params.inputDilation[dim],
                                    params.inputPaddingLower[dim]);
 }
@@ -203,8 +204,10 @@ partitionConvPartialByWorker(unsigned batchElements,
 
 std::vector<std::size_t>
 getOutputShape(const ConvParams &params) {
-  return {params.getBatchSize(), params.getOutputHeight(),
-          params.getOutputWidth(), params.getOutputDepth()};
+  return {params.getBatchSize(),
+          params.getOutputHeight(),
+          params.getOutputWidth(),
+          params.getOutputDepth()};
 }
 
 ConvParams canonicalizeParams(const ConvParams &params) {
@@ -244,15 +247,17 @@ ConvParams getGradientParams(const ConvParams &params) {
       static_cast<int>(kernelSize) - 1 - inputPaddingUpper
     );
   }
-  auto bwdKernelShape = canonicalParams.kernelShape;
-  std::swap(bwdKernelShape[2], bwdKernelShape[3]);
   // Going backwards the weights are flipped in each axis and so we must flip
   // the upper and lower padding.
   auto bwdKernelPaddingLower = canonicalParams.kernelPaddingUpper;
   auto bwdKernelPaddingUpper = canonicalParams.kernelPaddingLower;
   return popconv::ConvParams(canonicalParams.dType,
-                             canonicalParams.getOutputShape(),
-                             bwdKernelShape, bwdStride, bwdInputPaddingLower,
+                             canonicalParams.batchSize,
+                             canonicalParams.getOutputFieldShape(),
+                             canonicalParams.kernelShape,
+                             canonicalParams.getOutputDepth(),
+                             canonicalParams.getInputDepth(),
+                             bwdStride, bwdInputPaddingLower,
                              bwdInputPaddingUpper, bwdInputDilation,
                              bwdKernelPaddingLower, bwdKernelPaddingUpper,
                              canonicalParams.kernelDilation);
