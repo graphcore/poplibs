@@ -158,9 +158,9 @@ int main(int argc, char **argv) {
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsTypeStr;
   mmOpt.cache = &cache;
-  if (transposeA) {
+  if (transposeB) {
     mmOpt.fullyConnectedPass = FullyConnectedPass::BWD;
-  } else if (transposeB) {
+  } else if (transposeA) {
     mmOpt.fullyConnectedPass = FullyConnectedPass::WU;
   }
 

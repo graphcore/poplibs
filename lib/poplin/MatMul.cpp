@@ -66,9 +66,9 @@ static popconv::ConvParams getConvParams(
     // height = 1
     // output channels = batchSize.
     {
-      auto inputSize = aShape[1];
-      auto outputSize = aShape[0];
-      auto batchSize = bShape[1];
+      auto inputSize = bShape[0];
+      auto outputSize = bShape[1];
+      auto batchSize = aShape[0];
       return
           popconv::ConvParams(dType,
                               {1, 1, outputSize, inputSize} /* inputShape */,
@@ -84,9 +84,9 @@ static popconv::ConvParams getConvParams(
     // height = 1
     // output channels = batchSize.
     {
-      auto inputSize = aShape[0];
-      auto outputSize = aShape[1];
-      auto batchSize = bShape[1];
+      auto inputSize = bShape[1];
+      auto outputSize = bShape[0];
+      auto batchSize = aShape[0];
       return
           popconv::ConvParams(dType,
                               {1, 1, inputSize, outputSize}, /* inputShape */
@@ -102,9 +102,9 @@ static popconv::ConvParams getConvParams(
     // height = 1
     // output channels = inputSize
     {
-      auto inputSize = bShape[1];
-      auto outputSize = aShape[0];
-      auto batchSize = bShape[0];
+      auto inputSize = aShape[0];
+      auto outputSize = bShape[1];
+      auto batchSize = aShape[1];
       return
           popconv::ConvParams(dType,
                               {1, 1, outputSize, batchSize}, /* inputShape */
@@ -145,8 +145,8 @@ matMul(poplar::Graph &graph,
     // height = 1
     // output channels = batchSize.
     {
-      auto weights = A;
-      auto acts = B.transpose();
+      auto weights = B.transpose();
+      auto acts = A;
       auto inputSize = weights.dim(1);
       auto outputSize = weights.dim(0);
       auto batchSize = acts.dim(0);
@@ -154,7 +154,7 @@ matMul(poplar::Graph &graph,
       auto actsView = acts.reshape({1, 1, batchSize, inputSize});
       out = popconv::convolution(graph, weightsView, actsView, convParams,
                                  false, prog, debugPrefix, convOptions);
-      out = out[0][0];
+      out = out[0][0].transpose();
       break;
     }
   case FullyConnectedPass::BWD:
@@ -164,8 +164,8 @@ matMul(poplar::Graph &graph,
     // height = 1
     // output channels = batchSize.
     {
-      auto weights = A.transpose();
-      auto deltas = B.transpose();
+      auto weights = B;
+      auto deltas = A;
       auto inputSize = weights.dim(1);
       auto outputSize = weights.dim(0);
       auto batchSize = deltas.dim(0);
@@ -179,7 +179,7 @@ matMul(poplar::Graph &graph,
       out = popconv::convolution(graph, weightsTransposed, deltasView,
                                  convParams, false, prog, debugPrefix,
                                  convOptions);
-      out = out[0][0];
+      out = out[0][0].transpose();
       break;
     }
   case FullyConnectedPass::WU:
@@ -189,8 +189,8 @@ matMul(poplar::Graph &graph,
     // height = 1
     // output channels = inputSize
     {
-      auto deltas = A.transpose();
-      auto acts = B;
+      auto deltas = B;
+      auto acts = A.transpose();
       auto inputSize = acts.dim(1);
       auto outputSize = deltas.dim(1);
       auto batchSize = acts.dim(0);
@@ -199,7 +199,7 @@ matMul(poplar::Graph &graph,
       auto actsView = acts.reshape({1, 1, batchSize, inputSize});
       out = popconv::convolution(graph, deltasView, actsView, convParams, true,
                                  prog, debugPrefix, convOptions);
-      out = out[0][0];
+      out = out[0][0].transpose();
       break;
     }
   }
@@ -226,7 +226,7 @@ createMatMulInputLHS(poplar::Graph &graph,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
                      const MatMulOptions &options) {
-  if (options.fullyConnectedPass == FullyConnectedPass::BWD) {
+  if (options.fullyConnectedPass == FullyConnectedPass::WU) {
     auto fwdOptions = options;
     fwdOptions.fullyConnectedPass = FullyConnectedPass::FWD;
     auto fwdLHS = createMatMulInputLHS(graph, dType, {aShape[1], aShape[0]},
@@ -241,15 +241,15 @@ createMatMulInputLHS(poplar::Graph &graph,
   case FullyConnectedPass::NONE:
   case FullyConnectedPass::FWD:
     {
-      auto convInput = popconv::createInput(graph, convParams, name,
-                                            convOptions);
-      return convInput[0][0];
+      auto convWeights = popconv::createWeights(graph, convParams, name,
+                                                convOptions);
+      return convWeights[0][0];
     }
-  case FullyConnectedPass::WU:
+  case FullyConnectedPass::BWD:
     {
-      auto convInput = popconv::createInput(graph, convParams, name,
-                                            convOptions);
-      return convInput[0][0];
+      auto convWeights = popconv::createWeights(graph, convParams, name,
+                                                convOptions);
+      return convWeights[0][0];
     }
   }
 }
@@ -261,7 +261,7 @@ createMatMulInputRHS(poplar::Graph &graph,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
                      const MatMulOptions &options) {
-  if (options.fullyConnectedPass == FullyConnectedPass::WU) {
+  if (options.fullyConnectedPass == FullyConnectedPass::BWD) {
     auto fwdOptions = options;
     fwdOptions.fullyConnectedPass = FullyConnectedPass::FWD;
     auto fwdRHS = createMatMulInputRHS(graph, dType, {aShape[0], bShape[1]},
@@ -276,15 +276,15 @@ createMatMulInputRHS(poplar::Graph &graph,
   case FullyConnectedPass::NONE:
   case FullyConnectedPass::FWD:
     {
-      auto convWeights = popconv::createWeights(graph, convParams, name,
-                                                convOptions);
-      return convWeights[0][0].transpose();
+      auto convInput = popconv::createInput(graph, convParams, name,
+                                            convOptions);
+      return convInput[0][0].transpose();
     }
-  case FullyConnectedPass::BWD:
+  case FullyConnectedPass::WU:
     {
-      auto convWeights = popconv::createWeights(graph, convParams, name,
-                                                convOptions);
-      return convWeights[0][0].transpose();
+      auto convInput = popconv::createInput(graph, convParams, name,
+                                            convOptions);
+      return convInput[0][0].transpose();
     }
   }
 }

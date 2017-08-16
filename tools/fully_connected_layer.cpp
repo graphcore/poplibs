@@ -121,14 +121,16 @@ int main(int argc, char **argv) {
   if (!inferenceOnly) {
     fwdOptions.fullyConnectedPass = FullyConnectedPass::FWD;
   }
-  Tensor weights = createMatMulInputLHS(graph, dataTypeStr,
-                                        {outputSize, inputSize},
-                                        {inputSize, batchSize}, "weights",
+  Tensor prevAct = createMatMulInputLHS(graph, dataTypeStr,
+                                        {batchSize, inputSize},
+                                        {inputSize, outputSize},
+                                        "prevAct",
                                         fwdOptions);
-  Tensor prevAct = createMatMulInputRHS(graph, dataTypeStr,
-                                        {outputSize, inputSize},
-                                        {inputSize, batchSize}, "prevAct",
-                                        fwdOptions).transpose();
+  Tensor weights = createMatMulInputRHS(graph, dataTypeStr,
+                                        {batchSize, inputSize},
+                                        {inputSize, outputSize},
+                                        "weights",
+                                        fwdOptions);
   auto biases = graph.addTensor(dataTypeStr, {outputSize}, "biases");
   mapTensorLinearly(graph, biases);
 
@@ -140,8 +142,7 @@ int main(int argc, char **argv) {
 
   Tensor nextAct;
   if (doFwdPass) {
-    nextAct = poplin::matMul(graph, weights, prevAct.transpose(), fwdProg, "",
-                             fwdOptions).transpose();
+    nextAct = poplin::matMul(graph, prevAct, weights, fwdProg, "", fwdOptions);
     auto bBiases = biases.reshape({1, outputSize}).broadcast(batchSize, 0);
     addTo(graph, nextAct, bBiases, 1, fwdProg);
   } else {
@@ -163,15 +164,10 @@ int main(int argc, char **argv) {
   Tensor zDeltas;
   std::unique_ptr<char[]> rawHostZDeltas;
   if (doBwdPass || doWuPass) {
-    // A fully connected bwd pass is equivalent to a convolution with
-    // input channels = outputSize
-    // width = inputSize
-    // height = 1
-    // output channels = batchSize.
-    zDeltas = poplin::createMatMulInputRHS(graph, dataTypeStr,
-                                           {inputSize, outputSize},
-                                           {outputSize, batchSize},
-                                           "zDeltas", bwdOptions).transpose();
+    zDeltas = poplin::createMatMulInputLHS(graph, dataTypeStr,
+                                           {batchSize, outputSize},
+                                           {outputSize, inputSize},
+                                           "zDeltas", bwdOptions);
     rawHostZDeltas =
         allocateHostMemoryForTensor(zDeltas, "zDeltas", graph, tmap);
   }
@@ -179,16 +175,16 @@ int main(int argc, char **argv) {
   std::unique_ptr<char[]> rawHostPrevDeltas;
   if (doBwdPass) {
     prevDeltas =
-        poplin::matMul(graph, weights.transpose(), zDeltas.transpose(), bwdProg,
-                       "", bwdOptions).transpose();
+        poplin::matMul(graph, zDeltas, weights.transpose(), bwdProg, "",
+                       bwdOptions);
     rawHostPrevDeltas =
         allocateHostMemoryForTensor(prevDeltas, "prevDeltas", graph, tmap);
   }
   if (doWuPass) {
     auto wuOptions = fwdOptions;
     wuOptions.fullyConnectedPass = FullyConnectedPass::WU;
-    poplin::matMulAcc(graph, weights, -learningRate, zDeltas.transpose(),
-                      prevAct, bwdProg, "", wuOptions);
+    poplin::matMulAcc(graph, weights, -learningRate, prevAct.transpose(),
+                      zDeltas, bwdProg, "", wuOptions);
     auto biasDeltas = reduce(graph, zDeltas, bwdProg);
     addTo(graph, biases, biasDeltas, -learningRate, bwdProg);
   }
@@ -198,7 +194,7 @@ int main(int argc, char **argv) {
   boost::multi_array<double, 2>
       hostPrevAct(boost::extents[batchSize][inputSize]);
   boost::multi_array<double, 2>
-      hostWeights(boost::extents[outputSize][inputSize]);
+      hostWeights(boost::extents[inputSize][outputSize]);
   boost::multi_array<double, 1>
       hostBiases(boost::extents[outputSize]);
   boost::multi_array<double, 2>

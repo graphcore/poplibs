@@ -26,7 +26,7 @@ struct MatMulOptions {
   /// The fully connected pass this multiplication corresponds to. If this
   /// variable is not set to NONE look for a joint plan that avoids the need to
   /// exchange weights. In the forward and backward passes the weight matrix is
-  /// assumed to be the matrix on the left hand side of the matrix. In the
+  /// assumed to be the right hand side operand of the multiplication. In the
   /// weight update pass we arrange for the result to have the same layout as
   /// the weights so it can be added to the weights without any exchange.
   FullyConnectedPass fullyConnectedPass = FullyConnectedPass::NONE;

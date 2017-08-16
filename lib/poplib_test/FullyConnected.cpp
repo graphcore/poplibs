@@ -8,14 +8,16 @@ void poplib_test::fc::fullyConnected(
             boost::multi_array<double, 2> &out) {
   const auto batchSize = in.shape()[0];
   const auto inputSize = in.shape()[1];
-  const auto outputSize = out.shape()[1];
-  assert(batchSize == out.shape()[0]);
+  const auto outputSize = weights.shape()[1];
+  assert(weights.shape()[0] == inputSize);
+  assert(out.shape()[0] == batchSize);
+  assert(out.shape()[1] == outputSize);
 
   for (unsigned b = 0; b != batchSize; ++b) {
     for (unsigned i = 0; i < outputSize; ++i) {
       double sum = 0;
       for (unsigned j = 0; j < inputSize; ++j) {
-        sum += weights[i][j] * in[b][j];
+        sum += in[b][j] * weights[j][i];
       }
       out[b][i] = sum + biases[i];
     }
@@ -28,14 +30,16 @@ void poplib_test::fc::fullyConnectedBackward(
     boost::multi_array<double, 2> &out) {
   const auto batchSize = in.shape()[0];
   const auto inputSize = in.shape()[1];
-  const auto outputSize = out.shape()[1];
-  assert(batchSize == out.shape()[0]);
+  const auto outputSize = weights.shape()[0];
+  assert(weights.shape()[1] == inputSize);
+  assert(out.shape()[0] == batchSize);
+  assert(out.shape()[1] == outputSize);
 
   for (unsigned b = 0; b != batchSize; ++b) {
     for (unsigned i = 0; i < outputSize; ++i) {
       double sum = 0;
       for (unsigned j = 0; j < inputSize; ++j) {
-        sum += weights[j][i] * in[b][j];
+        sum += in[b][j] * weights[i][j];
       }
       out[b][i] = sum;
     }
@@ -52,22 +56,24 @@ void poplib_test::fc::fullyConnectedWeightUpdate(
   const auto inputSize = activations.shape()[1];
   const auto outputSize = deltas.shape()[1];
   assert(batchSize == deltas.shape()[0]);
+  assert(weights.shape()[0] == inputSize);
+  assert(weights.shape()[1] == outputSize);
 
   boost::multi_array<double, 2>
-      weightDeltas(boost::extents[outputSize][inputSize]);
+      weightDeltas(boost::extents[inputSize][outputSize]);
   std::fill(weightDeltas.data(),
             weightDeltas.data() + weightDeltas.num_elements(), 0.0);
 
   for (unsigned b = 0; b != batchSize; ++b) {
-    for (unsigned i = 0; i < outputSize; ++i) {
-      for (unsigned j = 0; j < inputSize; ++j) {
-        weightDeltas[i][j] += activations[b][j] * deltas[b][i];
+    for (unsigned i = 0; i < inputSize; ++i) {
+      for (unsigned j = 0; j < outputSize; ++j) {
+        weightDeltas[i][j] += activations[b][i] * deltas[b][j];
       }
     }
   }
 
-  for (unsigned i = 0; i < outputSize; ++i) {
-    for (unsigned j = 0; j < inputSize; ++j) {
+  for (unsigned i = 0; i < inputSize; ++i) {
+    for (unsigned j = 0; j < outputSize; ++j) {
       weights[i][j] += learningRate * -weightDeltas[i][j];
     }
   }
