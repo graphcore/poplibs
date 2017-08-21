@@ -34,6 +34,7 @@ using poplib_test::Pass;
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
+  bool useCpuModel;
   unsigned fwdInChans;
   unsigned fwdOutChans;
   unsigned width;
@@ -75,6 +76,8 @@ int main(int argc, char **argv) {
   po::options_description desc("Options");
   desc.add_options()
     ("help", "Produce help message")
+    ("use-cpu", po::value<bool>(&useCpuModel)->default_value(false),
+     "When true, use a CPU model of the device. Otherwise use the IPU model")
     ("input-channels", po::value<unsigned>(&fwdInChans)->required(),
      "Number of input channels")
     ("output-channels", po::value<unsigned>(&fwdOutChans)->required(),
@@ -361,7 +364,8 @@ int main(int argc, char **argv) {
   bool doBwdPass = pass == Pass::ALL || pass == Pass::BWD;
   bool doWuPass = pass == Pass::ALL || pass == Pass::WU;
 
-  Graph graph(createIPUModelDevice(info));
+  Device dev = useCpuModel ? createCPUDevice() : createIPUModelDevice(info);
+  Graph graph(dev);
   popstd::addCodelets(graph);
   popreduce::addCodelets(graph);
   popconv::addCodelets(graph);
@@ -576,9 +580,12 @@ int main(int argc, char **argv) {
     }
   }
 
-  Engine::ReportOptions opt;
-  opt.doLayerWiseProfile = true;
-  engine.report(std::cout, opt);
+  if (!useCpuModel) {
+    Engine::ReportOptions opt;
+    opt.doLayerWiseProfile = true;
+    engine.report(std::cout, opt);
+  }
+
   if (!matchesModel) {
     std::cerr << "Validation failed\n";
     return 1;
