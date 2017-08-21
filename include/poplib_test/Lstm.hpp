@@ -16,7 +16,7 @@ namespace lstm {
  *                            [sequenceSize][batchSize][inputSize]
  * \param weightsInput        Weights in the LSTM cell which weigh the input
  *                            sequence. It is of dimension
- *                            [NUM_LSTM_UNITS][outputSize][inputSize]
+ *                            [NUM_LSTM_UNITS][inputSize][outputSize]
  * \param weightsOutput       Weights in the LSTM cell which weigh the output
  *                            sequence. It is of dimension
  *                            [NUM_LSTM_UNITS][outputSize][outputSize]

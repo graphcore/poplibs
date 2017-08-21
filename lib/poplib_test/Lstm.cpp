@@ -34,10 +34,11 @@ static void processBasicLstmUnit(const Array2dRef        prevOutput,
   Array2d weightsInputUnit = weightsInput[lstmUnit];
 
   poplib_test::gemm::generalMatrixMultiply(prevOutput, weightsOutputUnit,
-                                           output, output, 1.0, 0, false, true);
+                                           output, output, 1.0, 0, false,
+                                           false);
   poplib_test::gemm::generalMatrixMultiply(input, weightsInputUnit,
                                            output, output, 1.0, 1.0, false,
-                                           true);
+                                           false);
 
   /* add bias */
   for (auto b = 0U; b != batchSize; ++b) {

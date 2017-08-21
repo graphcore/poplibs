@@ -130,7 +130,7 @@ int main(int argc, char **argv) {
                                          {0, outputSize, outputSize},
                                          "");
   Tensor weightsInput = graph.addTensor(dataTypeStr,
-                                         {0, outputSize, inputSize},
+                                         {0, inputSize, outputSize},
                                          "");
 
   std::vector<std::pair<std::string, char *>> tmap;
@@ -138,9 +138,9 @@ int main(int argc, char **argv) {
   std::vector<std::unique_ptr<char[]>> rawHostWeightsOutput;
   for (auto u = 0U; u != BASIC_LSTM_CELL_NUM_UNITS; ++u) {
     auto wName = "weightsOutput" + std::to_string(u);
-    auto wOut = createMatMulInputLHS(graph, dataTypeStr,
+    auto wOut = createMatMulInputRHS(graph, dataTypeStr,
+                                     {batchSize, outputSize},
                                      {outputSize, outputSize},
-                                     {outputSize, batchSize},
                                      wName, mmOpt);
 
     weightsOutput = append(weightsOutput, wOut);
@@ -150,8 +150,9 @@ int main(int argc, char **argv) {
                                                                graph, tmap));
 
     auto wInp =
-        createMatMulInputLHS(graph, dataTypeStr, {outputSize, inputSize},
-                             {inputSize, batchSize},
+        createMatMulInputRHS(graph, dataTypeStr,
+                             {batchSize, inputSize},
+                             {inputSize, outputSize},
                              "weightsInput" + std::to_string(u), mmOpt);
     weightsInput = append(weightsInput, wInp);
     rawHostWeightsInput.push_back(allocateHostMemoryForTensor(wInp,
@@ -191,7 +192,7 @@ int main(int argc, char **argv) {
                                 [outputSize][outputSize]);
   boost::multi_array<double, 3>
       hostWeightsInput(boost::extents[BASIC_LSTM_CELL_NUM_UNITS]
-                                [outputSize][inputSize]);
+                                [inputSize][outputSize]);
   boost::multi_array<double, 2>
       hostBiases(boost::extents[BASIC_LSTM_CELL_NUM_UNITS][outputSize]);
   boost::multi_array<double, 2>
