@@ -199,9 +199,6 @@ Tensor basicLstmCellForwardPassWeightedInputs(Graph &graph,
   const unsigned sequenceSize = weightedIn.dim(1);
   const unsigned batchSize = weightedIn.dim(2);
   const unsigned outputSize = cellState.dim(1);
-#ifndef NDEBUG
-  const unsigned inputSize = in.dim(2);
-#endif
 
   assert(weightsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   assert(weightsOutput.dim(1) == outputSize);
