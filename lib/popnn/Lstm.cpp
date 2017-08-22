@@ -314,8 +314,8 @@ Tensor basicLstmCellForwardPass(Graph &graph,
 #endif
 
   assert(weightsInput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
-  assert(weightsInput.dim(1) == outputSize);
-  assert(weightsInput.dim(2) == inputSize);
+  assert(weightsInput.dim(1) == inputSize);
+  assert(weightsInput.dim(2) == outputSize);
 
   assert(weightsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   assert(weightsOutput.dim(1) == outputSize);
