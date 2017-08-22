@@ -99,7 +99,7 @@ Tensor createWeightsInput(Graph &graph, const std::string &dType,
         .reshape({inputSize, BASIC_LSTM_CELL_NUM_UNITS, outputSize})
         .dimShuffle({1, 0, 2});
   } else {
-    Tensor weightsInput = graph.addTensor(dType,
+    weightsInput = graph.addTensor(dType,
                                           {0, inputSize, outputSize},
                                           "");
     for (auto u = 0U; u != BASIC_LSTM_CELL_NUM_UNITS; ++u) {
