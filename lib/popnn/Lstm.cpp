@@ -138,14 +138,21 @@ Tensor createWeightsOutput(Graph &graph, const std::string &dType,
 
 uint64_t getBasicLstmCellFwdFlops(unsigned sequenceSize, unsigned batchSize,
                                   unsigned inputSize, unsigned outputSize) {
-  uint64_t multsWeighInp = inputSize * outputSize * batchSize * sequenceSize;
-  uint64_t multsWeighOut = outputSize * outputSize * batchSize * sequenceSize;
-  uint64_t addsWeighInp  = (inputSize - 1) * outputSize * batchSize
-                                          * sequenceSize;
-  uint64_t addsWeighOut  = (outputSize - 1) * outputSize * batchSize
-                                          * sequenceSize;
-  uint64_t hadamardProd = 3 * sequenceSize * batchSize * outputSize;
-  uint64_t cellStateAdd = sequenceSize * batchSize * outputSize;
+  uint64_t multsWeighInp =
+      static_cast<uint64_t>(inputSize) * outputSize * batchSize * sequenceSize;
+  uint64_t multsWeighOut =
+      static_cast<uint64_t>(outputSize) * outputSize * batchSize * sequenceSize;
+
+  uint64_t addsWeighInp  =
+      static_cast<uint64_t>(inputSize - 1) * outputSize * batchSize
+                                           * sequenceSize;
+  uint64_t addsWeighOut  =
+      static_cast<uint64_t>(outputSize - 1) * outputSize * batchSize
+                                            * sequenceSize;
+  uint64_t hadamardProd =
+      3 * static_cast<uint64_t>(sequenceSize) * batchSize * outputSize;
+  uint64_t cellStateAdd =
+      static_cast<uint64_t>(sequenceSize) * batchSize * outputSize;
 
   return 4 * (multsWeighInp + multsWeighOut + addsWeighInp + addsWeighOut)
          + hadamardProd + cellStateAdd;
