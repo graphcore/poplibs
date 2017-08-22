@@ -622,7 +622,7 @@ estimatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
       assert(params.stride[0] == 1);
       assert(params.stride[1] == 1);
       assert(params.inputDilation[0] == 1);
-      assert(params.inputDilation[0] == 1);
+      assert(params.inputDilation[1] == 1);
       const auto workerOutWidth =
           (tileOutWidth + deviceInfo.numWorkerContexts - 1) /
           deviceInfo.numWorkerContexts;
@@ -1171,7 +1171,9 @@ getConvVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
   std::vector<ConvVertexType> convVertexTypeCandidates;
   if (params.getInputDepth() == 1 &&
       params.getPaddedDilatedKernelSize(0) == 1 &&
-      params.getPaddedDilatedKernelSize(1) == 1) {
+      params.getPaddedDilatedKernelSize(1) == 1 &&
+      params.getOutputHeight() == 1 &&
+      params.getBatchSize() == 1) {
     convVertexTypeCandidates.emplace_back(Plan::Method::OUTER_PRODUCT,
                                           floatActivations,
                                           floatActivations);
