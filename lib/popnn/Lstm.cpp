@@ -203,10 +203,6 @@ Tensor basicLstmCellForwardPassWeightedInputs(Graph &graph,
   const unsigned inputSize = in.dim(2);
 #endif
 
-  assert(weightsInput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
-  assert(weightsInput.dim(1) == outputSize);
-  assert(weightsInput.dim(2) == inputSize);
-
   assert(weightsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   assert(weightsOutput.dim(1) == outputSize);
   assert(weightsOutput.dim(2) == outputSize);
