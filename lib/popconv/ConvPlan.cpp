@@ -509,7 +509,8 @@ estimateConvPartialHorizontalMacCycles(unsigned tileNumInGroups,
     auto pConv = tileKernelWidth * tileKernelHeight * tileNumInGroups;
     convCount += pConv;
     totalConvSize +=
-        pConv * ((wholeRowConvSize * workerPartRows) / rowSplitFactor);
+        pConv * ((wholeRowConvSize * workerPartRows + rowSplitFactor - 1) /
+                 rowSplitFactor);
   }
   return getConvPartialHorizontalMacCycleEstimate(
     floatActivations,
