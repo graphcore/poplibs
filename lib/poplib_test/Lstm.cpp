@@ -65,8 +65,8 @@ void poplib_test::lstm::basicLstmCellForwardPass(const Array3dRef input,
   const auto inputSize = input.shape()[2];
 #endif
   assert(weightsInput.shape()[0] == BASIC_LSTM_CELL_NUM_UNITS);
-  assert(weightsInput.shape()[1] == outputSize);
-  assert(weightsInput.shape()[2] == inputSize);
+  assert(weightsInput.shape()[1] == inputSize);
+  assert(weightsInput.shape()[2] == outputSize);
   assert(weightsOutput.shape()[0] == BASIC_LSTM_CELL_NUM_UNITS);
   assert(weightsOutput.shape()[1] == outputSize);
   assert(weightsOutput.shape()[2] == outputSize);
