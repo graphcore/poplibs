@@ -14,6 +14,8 @@ struct Plan {
   unsigned tilesPerZAxis;
   unsigned tilesPerKernelYAxis;
   unsigned tilesPerInZGroupAxis;
+  // tiles over which group of a grouped convolution is spread
+  unsigned tilesPerConvGroups;
   unsigned inChansPerGroup;
   unsigned partialChansPerGroup;
   /// Grain size to use when splitting the x-axis across tiles.
@@ -50,6 +52,7 @@ struct Plan {
        unsigned tilesPerZAxis,
        unsigned tilesPerKernelYAxis,
        unsigned tilesPerInZGroupAxis,
+       unsigned tilesPerConvGroups,
        unsigned inChansPerGroup,
        unsigned partialChansPerGroup,
        unsigned xAxisGrainSize,
@@ -62,6 +65,7 @@ struct Plan {
     tilesPerZAxis(tilesPerZAxis),
     tilesPerKernelYAxis(tilesPerKernelYAxis),
     tilesPerInZGroupAxis(tilesPerInZGroupAxis),
+    tilesPerConvGroups(tilesPerConvGroups),
     inChansPerGroup(inChansPerGroup),
     partialChansPerGroup(partialChansPerGroup),
     xAxisGrainSize(xAxisGrainSize),

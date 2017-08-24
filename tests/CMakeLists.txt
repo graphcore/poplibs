@@ -37,7 +37,7 @@ add_popnn_unit_test(BatchNormTest BatchNormTest.cpp)
 add_popnn_unit_test(ReductionTests ReductionTests.cpp)
 
 
-# Layer tests
+#  ORIG Layer tests
 add_test(NAME conv3x3_stride_2_256_out
          COMMAND single_conv_layer
                  --input-channels=128
@@ -479,6 +479,492 @@ add_test(NAME conv_outer_product
                  --output-channels=1024
                  --width=512
                  --height=1
+                 --tiles-per-ipu=64)
+
+
+#  Grouped convolution layer tests
+add_test(NAME grouped_conv3x3_stride_2_256_out
+         COMMAND single_conv_layer
+                 --input-channels=64
+                 --output-channels=128
+                 --width=20
+                 --height=28
+                 --kernel-size=3
+                 --data-type=half
+                 --padding=2
+                 --conv-groups=2
+                 --stride=2)
+
+add_test(NAME grouped_conv1x1_stride_1
+         COMMAND single_conv_layer
+             --input-channels=32
+             --output-channels=64
+             --width=7
+             --height=7
+             --tiles-per-ipu=16
+             --stride=1
+             --conv-groups=4
+             --kernel-size=1)
+
+add_test(NAME grouped_conv1x1_stride_1_odd_outchans
+        COMMAND single_conv_layer
+            --input-channels=64
+            --output-channels=129
+            --width=7
+            --height=7
+            --tiles-per-ipu=16
+            --stride=1
+            --conv-groups=2
+            --kernel-size=1)
+
+add_test(NAME grouped_conv1x1_stride_1_odd_inchans
+        COMMAND single_conv_layer
+            --input-channels=65
+            --output-channels=128
+            --width=7
+            --height=7
+            --tiles-per-ipu=16
+            --stride=1
+            --conv-groups=2
+            --kernel-size=1)
+
+add_test(NAME grouped_conv1x1_stride_1_odd_in_and_out_chans
+        COMMAND single_conv_layer
+            --input-channels=65
+            --output-channels=129
+            --width=7
+            --height=7
+            --tiles-per-ipu=16
+            --stride=1
+            --conv-groups=2
+            --kernel-size=1)
+
+add_test(NAME grouped_conv1x1_stride_3_odd_conv_groups
+         COMMAND single_conv_layer
+             --input-channels=32
+             --output-channels=64
+             --width=14
+             --height=14
+             --tiles-per-ipu=8
+             --stride=3
+             --conv-groups=3
+             --kernel-size=1)
+
+add_test(NAME grouped_conv1x1_thinly_spread
+         COMMAND single_conv_layer
+             --height=1
+             --width=128
+             --input-channels=16
+             --conv-groups=2
+             --output-channels=8)
+
+add_test(NAME grouped_conv3x3_stride_1_odd_groups
+         COMMAND single_conv_layer
+             --input-channels=32
+             --output-channels=16
+             --width=7
+             --height=7
+             --tiles-per-ipu=16
+             --stride=1
+             --conv-groups=3
+             --kernel-size=3)
+
+
+add_test(NAME grouped_conv3x3_stride_2
+         COMMAND single_conv_layer
+             --input-channels=32
+             --output-channels=16
+             --width=7
+             --height=7
+             --tiles-per-ipu=16
+             --stride=2
+             --conv-groups=2
+             --kernel-size=3)
+
+add_test(NAME grouped_conv3x3_asymmetric_stride
+         COMMAND single_conv_layer
+             --input-channels=16
+             --output-channels=8
+             --width=10
+             --height=7
+             --tiles-per-ipu=16
+             --stride-height=2
+             --stride-width=3
+             --conv-groups=2
+             --kernel-size=3)
+
+add_test(NAME grouped_conv3x3_stride_1_padding_1
+         COMMAND single_conv_layer
+              --input-channels=32
+              --output-channels=16
+              --width=7
+              --height=7
+              --tiles-per-ipu=16
+              --stride=1
+              --kernel-size=3
+              --conv-groups=2
+              --padding 1)
+
+add_test(NAME grouped_conv4x4_stride_1_padding_2
+         COMMAND single_conv_layer
+              --input-channels=16
+              --output-channels=8
+              --width=7
+              --height=7
+              --tiles-per-ipu=16
+              --stride=1
+              --kernel-size=4
+              --conv-groups=2
+              --padding 2)
+
+add_test(NAME grouped_conv3x3_stride_2_multi_tile
+         COMMAND single_conv_layer
+                 --input-channels=16
+                 --output-channels=16
+                 --width=7
+                 --height=7
+                 --tiles-per-ipu=2
+                 --stride=2
+                 --conv-groups=2
+                 --kernel-size=3)
+
+add_test(NAME grouped_conv1x1_stride_3_fwd
+         COMMAND single_conv_layer
+                 --single-phase=fwd
+                 --input-channels=16
+                 --output-channels=16
+                 --width=7
+                 --height=7
+                 --tiles-per-ipu=1
+                 --conv-groups=2
+                 --stride=3)
+
+add_test(NAME grouped_conv3x3_batch_2
+         COMMAND single_conv_layer
+                  --input-channels=16
+                  --output-channels=16
+                  --width=7
+                  --height=7
+                  --tiles-per-ipu=2
+                  --stride=2
+                  --kernel-size=3
+                  --conv-groups=2
+                  --batch-size=2)
+
+add_test(NAME grouped_conv3x3_16_to_16_stride_1_differing_padding
+        COMMAND single_conv_layer
+        --input-channels=16
+        --output-channels=16
+        --width=20
+        --height=28
+        --kernel-size=3
+        --data-type=half
+        --padding-height=1
+        --padding-width=2
+        --conv-groups=2
+        --stride=1)
+
+add_test(NAME grouped_conv3x3_batch_2_differing_padding
+        COMMAND single_conv_layer
+        --input-channels=16
+        --output-channels=16
+        --width=7
+        --height=7
+        --tiles-per-ipu=2
+        --stride=2
+        --kernel-size=3
+        --padding-height=1
+        --padding-width=2
+        --conv-groups=2
+        --batch-size=2)
+
+add_test(NAME grouped_conv3x3_stride_1_fwd_asym_padding
+        COMMAND single_conv_layer
+                --input-channels=32
+                --output-channels=48
+                --width=20
+                --height=28
+                --kernel-size=3
+                --data-type=half
+                --padding-height-lower=1
+                --padding-width-lower=1
+                --padding-height-upper=2
+                --padding-width-upper=2
+                --conv-groups=2
+                --stride=1)
+add_test(NAME grouped_conv3x3_stride_1_fwd_asym_padding_2
+         COMMAND single_conv_layer
+                --input-channels=32
+                --output-channels=48
+                --width=20
+                --height=28
+                --kernel-size=3
+                --data-type=half
+                --padding-height-lower=3
+                --padding-width-lower=3
+                --padding-height-upper=0
+                --padding-width-upper=0
+                --conv-groups=2
+                --stride=1)
+
+add_test(NAME grouped_conv5x5_stride_2_fwd_asym_padding
+         COMMAND single_conv_layer
+                  --input-channels=64
+                  --output-channels=64
+                  --width=20
+                  --height=28
+                  --kernel-size=5
+                  --data-type=half
+                  --padding-height-lower=1
+                  --padding-width-lower=2
+                  --padding-height-upper=3
+                  --padding-width-upper=3
+                  --stride=2
+                  --conv-groups=2
+                  --tiles-per-ipu=16)
+
+add_test(NAME grouped_small_conv_many_tiles_1x1
+         COMMAND single_conv_layer
+                 --input-channels=32
+                 --output-channels=32
+                 --width=14
+                 --height=14
+                 --partials-type=float
+                 --conv-groups=2
+                 --tiles-per-ipu=1216)
+
+add_test(NAME grouped_small_conv_many_tiles_3x3
+         COMMAND single_conv_layer
+                 --input-channels=32
+                 --output-channels=32
+                 --kernel-size 3
+                 --width=14
+                 --height=14
+                 --partials-type=float
+                 --conv-groups=2
+                 --tiles-per-ipu=1216)
+
+add_test(NAME grouped_conv1x1_shallow_input
+        COMMAND single_conv_layer
+                --input-channels=8
+                --output-channels=1024
+                --width=16
+                --height=16
+                --conv-groups=2
+                --data-type=half)
+
+add_test(NAME grouped_conv3x3_feature8x8_shallow
+         COMMAND single_conv_layer
+                 --batch-size 1
+                 --input-channels 1
+                 --output-channels 1
+                 --width 8
+                 --height 8
+                 --kernel-size 3
+                 --padding 1
+                 --stride 1
+                 --conv-groups=2
+                 --data-type half) 
+
+add_test(NAME grouped_conv3x3_feature8x8_shallow_stride2
+         COMMAND single_conv_layer
+                 --batch-size 1
+                 --input-channels 1
+                 --output-channels 1
+                 --width 8
+                 --height 8
+                 --kernel-size 3
+                 --padding 1
+                 --stride 2
+                 --conv-groups=2
+                 --data-type half)
+
+add_test(NAME grouped_conv_large_kernel
+         COMMAND single_conv_layer
+                 --single-phase=fwd
+                 --width 14
+                 --height 64
+                 --kernel-height 62
+                 --kernel-width 3
+                 --input-channels 16
+                 --output-channels 16
+                 --padding 1
+                 --conv-groups=2
+                 --stride 2)
+
+add_test(NAME grouped_conv_large_kernel_bwd
+         COMMAND single_conv_layer
+                 --single-phase=bwd
+                 --width 14
+                 --height 64
+                 --kernel-height 62
+                 --kernel-width 3
+                 --input-channels 16
+                 --output-channels 16
+                 --padding 1
+                 --conv-groups=2
+                 --stride 2)
+
+add_test(NAME grouped_conv_large_kernel_with_small_field
+         COMMAND single_conv_layer
+                 --width=16
+                 --height=1
+                 --padding-height=6
+                 --kernel-height=7
+                 --input-channels=16
+                 --output-channels=16
+                 --conv-groups=2
+                 --tiles-per-ipu=16)
+
+add_test(NAME grouped_conv_batch_bwd
+         COMMAND single_conv_layer
+                 --width 14
+                 --height 14
+                 --input-channels 32
+                 --output-channels 32
+                 --tiles-per-ipu=16
+                 --data-type=half
+                 --conv-groups=2
+                 --batch-size=4)
+
+add_test(NAME grouped_conv_batch_bwd_float
+         COMMAND single_conv_layer
+                 --width 14
+                 --height 14
+                 --input-channels 32
+                 --output-channels 32
+                 --tiles-per-ipu=16
+                 --data-type=float
+                 --conv-groups=2
+                 --batch-size=4)
+
+add_test(NAME grouped_conv_batch_group
+         COMMAND single_conv_layer
+                 --height 28
+                 --width 28
+                 --input-channels 512
+                 --output-channels 128
+                 --conv-groups=2
+                 --batch-size 2)
+
+# conv_batch_bwd_float test split into the three component phases
+add_test(NAME grouped_conv_batch_bwd_float_fwd
+         COMMAND single_conv_layer
+                 --width 14
+                 --height 14
+                 --input-channels 32
+                 --output-channels 32
+                 --tiles-per-ipu=16
+                 --data-type=float
+                 --batch-size=4
+                 --conv-groups=2
+                 --single-phase=fwd)
+
+add_test(NAME grouped_conv_batch_bwd_float_bwd
+         COMMAND single_conv_layer
+                 --width 14
+                 --height 14
+                 --input-channels 32
+                 --output-channels 32
+                 --tiles-per-ipu=16
+                 --data-type=float
+                 --batch-size=4
+                 --conv-groups=2
+                 --single-phase=bwd)
+
+add_test(NAME grouped_conv_batch_bwd_float_wu
+         COMMAND single_conv_layer
+                 --width 14
+                 --height 14
+                 --input-channels 32
+                 --output-channels 32
+                 --tiles-per-ipu=16
+                 --data-type=float
+                 --batch-size=4
+                 --conv-groups=2
+                 --single-phase=wu)
+
+add_test(NAME grouped_conv_negative_input_padding_upper_simple
+        COMMAND single_conv_layer
+                --input-channels=1
+                --output-channels=1
+                --width=2
+                --height=1
+                --kernel-width=1
+                --kernel-height=1
+                --padding-width-upper=-1
+                --conv-groups=2
+                --tiles-per-ipu=1)
+
+add_test(NAME grouped_conv_negative_kernel_padding_upper_simple
+        COMMAND single_conv_layer
+                --input-channels=1
+                --output-channels=1
+                --width=1
+                --height=1
+                --kernel-width=2
+                --kernel-height=1
+                --kernel-padding-width-lower=-1
+                --conv-groups=2
+                --tiles-per-ipu=1)
+
+add_test(NAME grouped_conv_negative_input_padding_lower_simple
+        COMMAND single_conv_layer
+                --input-channels=1
+                --output-channels=1
+                --width=2
+                --height=1
+                --kernel-width=1
+                --kernel-height=1
+                --padding-width-upper=-1
+                --conv-groups=2
+                --tiles-per-ipu=1)
+
+add_test(NAME grouped_conv_negative_kernel_padding_lower_simple
+        COMMAND single_conv_layer
+                --input-channels=1
+                --output-channels=1
+                --width=1
+                --height=1
+                --kernel-width=2
+                --kernel-height=1
+                --conv-groups=2
+                --kernel-padding-width-lower=-1
+                --tiles-per-ipu=1)
+
+# Test where the size of the output tensor is much bigger than the size weight
+# tensor. As such it likely to be better to rearranging the weight deltas
+# instead of the deltas in the weight update phase.
+add_test(NAME grouped_conv_large_output_tensor
+         COMMAND single_conv_layer
+                --width 16
+                --height 16
+                --input-channels 16
+                --output-channels 64
+                --tiles-per-ipu=16
+                --conv-groups=2
+                --data-type=half)
+
+add_test(NAME grouped_conv_large_weights
+         COMMAND single_conv_layer
+                --width=16
+                --height=14
+                --input-channels=32
+                --output-channels=32
+                --kernel-height=16
+                --kernel-width=1
+                --tiles-per-ipu=16
+                --data-type=half
+                --conv-groups=2
+                --single-phase=fwd)
+
+add_test(NAME grouped_conv_outer_product
+         COMMAND single_conv_layer
+                 --input-channels=1
+                 --output-channels=1024
+                 --width=512
+                 --height=1
+                 --conv-groups=2
                  --tiles-per-ipu=64)
 
 add_test(NAME fully_connected_half

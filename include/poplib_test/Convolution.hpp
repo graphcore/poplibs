@@ -14,7 +14,7 @@ void convolution(const std::vector<unsigned> &stride,
                  const std::vector<int> &kernelPaddingLower,
                  const std::vector<int> &kernelPaddingUpper,
                  const boost::multi_array<double, 4> &in,
-                 const boost::multi_array<double, 4> &weights,
+                 const boost::multi_array<double, 5> &weights,
                  const boost::multi_array<double, 1> &biases,
                  boost::multi_array<double, 4> &out);
 
@@ -26,7 +26,7 @@ void convolutionBackward(const std::vector<unsigned> &stride,
                          const std::vector<int> &kernelPaddingLower,
                          const std::vector<int> &kernelPaddingUpper,
                          const boost::multi_array<double, 4> &in,
-                         const boost::multi_array<double, 4> &weights,
+                         const boost::multi_array<double, 5> &weights,
                          boost::multi_array<double, 4> &out);
 
 void weightUpdate(const std::vector<unsigned> &stride,
@@ -39,7 +39,7 @@ void weightUpdate(const std::vector<unsigned> &stride,
                   double learningRate,
                   const boost::multi_array<double, 4> &activations,
                   const boost::multi_array<double, 4> &deltas,
-                  boost::multi_array<double, 4> &weights,
+                  boost::multi_array<double, 5> &weights,
                   boost::multi_array<double, 1> &biases);
 
 // Compute estimates of mean and standard deviation for a batch of activations

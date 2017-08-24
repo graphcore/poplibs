@@ -30,17 +30,17 @@ using namespace poplar::program;
 using namespace poplib_test::util;
 using namespace popstd;
 using poplib_test::Pass;
-
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
   bool useCpuModel;
-  unsigned fwdInChans;
-  unsigned fwdOutChans;
+  unsigned fwdInChansPerConvGroup;
+  unsigned fwdOutChansPerConvGroup;
   unsigned width;
   unsigned height;
   unsigned kernelHeight;
   unsigned kernelWidth;
+  unsigned numConvGroups = 1;
   std::vector<int> paddingLower = {0, 0};
   std::vector<int> paddingUpper = {0, 0};
   std::vector<unsigned> inDilation = {1, 1};
@@ -72,19 +72,18 @@ int main(int argc, char **argv) {
   popconv::ConvOptions convOptions;
   popconv::PlanningCache cache;
   convOptions.cache = &cache;
-
   po::options_description desc("Options");
   desc.add_options()
     ("help", "Produce help message")
     ("use-cpu", po::value<bool>(&useCpuModel)->default_value(false),
      "When true, use a CPU model of the device. Otherwise use the IPU model")
-    ("input-channels", po::value<unsigned>(&fwdInChans)->required(),
-     "Number of input channels")
-    ("output-channels", po::value<unsigned>(&fwdOutChans)->required(),
-     "Number of output channels")
+    ("input-channels", po::value<unsigned>(&fwdInChansPerConvGroup)->required(),
+     "Number of input channels per grouped convolution")
+    ("output-channels",
+     po::value<unsigned>(&fwdOutChansPerConvGroup)->required(),
+     "Number of output channels per grouped convolution")
     ("width", po::value<unsigned>(&width)->required(), "Field width")
     ("height", po::value<unsigned>(&height)->required(), "Field height")
-
     ("kernel-size",
       po::value<unsigned>(&kernelSize)->default_value(1),
      "Size of square kernel. If set, it is an error to also set either "
@@ -101,7 +100,6 @@ int main(int argc, char **argv) {
     ("partials-type",
      po::value<FPDataType>(&partialsType)->default_value(FPDataType::FLOAT),
      "Type of partials")
-
     ("padding", po::value<int>(&sharedPadding)->default_value(0),
      "Amount of zero padding for height and width. If set, it is an "
      "error to also set any other padding value")
@@ -180,6 +178,9 @@ int main(int argc, char **argv) {
     ("batch-size",
      po::value<unsigned>(&batchSize)->default_value(1),
      "Batch size")
+    ("conv-groups",
+     po::value<unsigned>(&numConvGroups)->default_value(1),
+     "Number of convolution groups in grouped convolution")
     ("use-winograd-conv",
      po::value<bool>(&convOptions.useWinograd)->default_value(0),
      "Use winograd convolution")
@@ -359,6 +360,8 @@ int main(int argc, char **argv) {
     }
     std::fill(stride.begin(), stride.end(), sharedStride);
   }
+  const auto fwdInChans = fwdInChansPerConvGroup * numConvGroups;
+  const auto fwdOutChans = fwdOutChansPerConvGroup * numConvGroups;
 
   bool doFwdPass = pass == Pass::ALL || pass == Pass::FWD;
   bool doBwdPass = pass == Pass::ALL || pass == Pass::BWD;
@@ -378,15 +381,16 @@ int main(int argc, char **argv) {
                           batchSize,
                           {height, width},
                           {kernelHeight, kernelWidth},
-                          fwdInChans,
-                          fwdOutChans,
+                          fwdInChansPerConvGroup,
+                          fwdOutChansPerConvGroup,
                           stride,
                           paddingLower,
                           paddingUpper,
                           inDilation,
                           kernelPaddingLower,
                           kernelPaddingUpper,
-                          kernelDilation);
+                          kernelDilation,
+                          numConvGroups);
   if (params.getPaddedDilatedInputSize(0) < 0 ||
       params.getPaddedDilatedInputSize(1) < 0) {
     throw popstd::poplib_error("Convolution pass does not support "
@@ -478,14 +482,14 @@ int main(int argc, char **argv) {
     rawHostPrevDeltas = allocateHostMemoryForTensor(prevDeltas, "prevDeltas",
                                                     graph, tmap);
   }
-
   Engine engine(graph, {std::move(fwdProg), std::move(revProg)});
 
   boost::multi_array<double, 4>
       hostPrevAct(boost::extents[batchSize][height][width][fwdInChans]);
-  boost::multi_array<double, 4>
-      hostWeights(boost::extents[kernelHeight][kernelWidth][fwdOutChans]
-                                [fwdInChans]);
+  boost::multi_array<double, 5>
+      hostWeights(boost::extents[numConvGroups][kernelHeight][kernelWidth]
+                                [fwdOutChansPerConvGroup]
+                                [fwdInChansPerConvGroup]);
   boost::multi_array<double, 1>
       hostBiases(boost::extents[fwdOutChans]);
   boost::multi_array<double, 4>

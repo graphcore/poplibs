@@ -1,5 +1,6 @@
 #ifndef __popconv_Convolution_hpp__
 #define __popconv_Convolution_hpp__
+#include "popstd/exceptions.hpp"
 #include <tuple>
 #include <map>
 #include <poplar/Graph.hpp>
@@ -78,6 +79,11 @@ struct ConvParams {
   // padding and convolution. Dilation is peformed by placing
   // zeroed elements between the elements of the filter.
   std::vector<unsigned> kernelDilation;
+  // number of groups in a grouped convolution (G). The input and output
+  // channels are divided by G such that G kernels are applied to an input
+  // tensors of size {B, {dims}, Ci/G} to produce output tensors of size
+  // {B, O{dims}, Co/G}. O{dims} is the output field dimensions
+  std::size_t numConvGroups;
   ConvParams() = default;
   ConvParams(std::string dType,
              std::size_t batchSize,
@@ -91,7 +97,8 @@ struct ConvParams {
              std::vector<unsigned> inputDilation,
              std::vector<int> kernelPaddingLower,
              std::vector<int> kernelPaddingUpper,
-             std::vector<unsigned> kernelDilation) :
+             std::vector<unsigned> kernelDilation,
+             std::size_t numConvGroups = 1) :
     dType(std::move(dType)),
     batchSize(batchSize),
     inputFieldShape(std::move(inputFieldShape)),
@@ -104,26 +111,33 @@ struct ConvParams {
     inputDilation(std::move(inputDilation)),
     kernelPaddingLower(std::move(kernelPaddingLower)),
     kernelPaddingUpper(std::move(kernelPaddingUpper)),
-    kernelDilation(std::move(kernelDilation)) {}
+    kernelDilation(std::move(kernelDilation)),
+    numConvGroups(numConvGroups) {}
   bool operator<(const ConvParams &other) const {
     return std::tie(dType, batchSize, inputFieldShape, kernelShape,
                     inputChannels, outputChannels, stride,
                     inputPaddingLower, inputPaddingUpper,
-                    inputDilation) <
+                    inputDilation, numConvGroups) <
            std::tie(other.dType, other.batchSize, other.inputFieldShape,
                     other.kernelShape, other.inputChannels,
                     other.outputChannels, other.stride, other.inputPaddingLower,
-                    other.inputPaddingUpper, other.inputDilation);
+                    other.inputPaddingUpper, other.inputDilation,
+                    other.numConvGroups);
   }
   std::size_t getOutputSize(unsigned dim) const;
   std::size_t getOutputWidth() const;
   std::size_t getOutputHeight() const;
-  std::size_t getOutputDepth() const { return outputChannels; }
+  std::size_t getOutputDepthPerConvGroup() const { return outputChannels;}
+  std::size_t getOutputDepth() const { return outputChannels * numConvGroups; }
   std::size_t getInputWidth() const { return inputFieldShape[1]; }
   std::size_t getInputHeight() const { return inputFieldShape[0]; }
-  std::size_t getInputDepth() const { return inputChannels; }
-
+  std::size_t getInputDepthPerConvGroup() const { return inputChannels; }
+  std::size_t getInputDepth() const { return inputChannels * numConvGroups; }
+  std::size_t getNumConvGroups() const { return numConvGroups; }
+  std::size_t getNumFieldDims() const { return inputFieldShape.size(); }
+  std::size_t getNumKernelDims() const { return kernelShape.size(); }
   std::size_t getBatchSize() const { return batchSize; }
+
   int getPaddedDilatedInputSize(unsigned dim) const {
     int inputSize = inputFieldShape[dim];
     int dilatedInputSize = (inputSize - 1) * inputDilation[dim] + 1;
@@ -137,7 +151,6 @@ struct ConvParams {
   }
   // Returns the shape of the output field
   std::vector<size_t> getOutputFieldShape() const;
-
 };
 
 uint64_t getFwdFlops(const ConvParams &params);

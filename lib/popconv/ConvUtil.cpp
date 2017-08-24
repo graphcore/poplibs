@@ -255,12 +255,13 @@ ConvParams getGradientParams(const ConvParams &params) {
                              canonicalParams.batchSize,
                              canonicalParams.getOutputFieldShape(),
                              canonicalParams.kernelShape,
-                             canonicalParams.getOutputDepth(),
-                             canonicalParams.getInputDepth(),
+                             canonicalParams.getOutputDepthPerConvGroup(),
+                             canonicalParams.getInputDepthPerConvGroup(),
                              bwdStride, bwdInputPaddingLower,
                              bwdInputPaddingUpper, bwdInputDilation,
                              bwdKernelPaddingLower, bwdKernelPaddingUpper,
-                             canonicalParams.kernelDilation);
+                             canonicalParams.kernelDilation,
+                             canonicalParams.getNumConvGroups());
 }
 
 unsigned detectChannelGrouping(const poplar::Tensor &t0) {
@@ -290,6 +291,22 @@ unsigned detectChannelGrouping(const poplar::Tensor &t0) {
   if (t.numElements() % upper != 0)
     upper = 1;
   return upper;
+}
+
+std::pair<unsigned, unsigned>
+getTileSplitForGroup(unsigned group, unsigned numGroups, unsigned numTiles) {
+  if (numTiles < numGroups) {
+    return std::make_pair(group % numTiles, 1);
+  } else {
+    const auto tilesPerGroup = numTiles / numGroups;
+    const auto g1 = numGroups * (tilesPerGroup + 1) - numTiles;
+    if (group < g1) {
+      return std::make_pair(group * tilesPerGroup, tilesPerGroup);
+    } else {
+      return std::make_pair(group * (tilesPerGroup + 1) -  g1,
+                            tilesPerGroup + 1);
+    }
+  }
 }
 
 } // namespace convutil

@@ -300,13 +300,13 @@ createMatMulInputLHS(poplar::Graph &graph,
     {
       auto convWeights = popconv::createWeights(graph, convParams, name,
                                                 convOptions);
-      return convWeights[0][0];
+      return convWeights[0][0][0];
     }
   case FullyConnectedPass::BWD:
     {
       auto convWeights = popconv::createWeights(graph, convParams, name,
                                                 convOptions);
-      return convWeights[0][0];
+      return convWeights[0][0][0];
     }
   }
 }
