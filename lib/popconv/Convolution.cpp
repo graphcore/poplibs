@@ -240,16 +240,6 @@ getOutChansPerGroup(const Plan &plan, unsigned numOutChans) {
   return gcd(plan.partialChansPerGroup, numOutChans);
 }
 
-poplar::Tensor
-createBiases(poplar::Graph &graph, const Tensor &acts,
-             const std::string &name) {
-  const auto numOutChans = acts.dim(3);
-  const auto dType = acts.elementType();
-  auto biases = graph.addTensor(dType, {numOutChans}, name);
-  mapBiases(graph, biases, acts);
-  return biases;
-}
-
 static unsigned
 linearizeTileIndices(unsigned numTiles,
                      unsigned ky, unsigned izg, unsigned ox, unsigned oy,
@@ -834,14 +824,6 @@ static void mapWeights(Graph &graph, Tensor weights,
   graph.setTileMapping(weights, weightsMapping);
 }
 
-void
-mapWeights(Graph &graph, const Tensor &w, const ConvParams &params,
-           const ConvOptions &options) {
-  verifyStrideAndPaddingDimensions(params);
-  const auto plan = getPlan(graph, params, options);
-  mapWeights(graph, w, params, plan);
-}
-
 static Tensor
 createWeights(Graph &graph,
               const ConvParams &params, const std::string &name,
@@ -915,10 +897,21 @@ computeBiasMapping(Graph &graph, const Tensor &out) {
                                       grainSize, minElementsPerTile);
 }
 
-void mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
-               const poplar::Tensor &out) {
+static void
+mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
+          const poplar::Tensor &out) {
   auto mapping = computeBiasMapping(graph, out);
   applyTensorMapping(graph, biases, mapping);
+}
+
+poplar::Tensor
+createBiases(poplar::Graph &graph, const Tensor &acts,
+             const std::string &name) {
+  const auto numOutChans = acts.dim(3);
+  const auto dType = acts.elementType();
+  auto biases = graph.addTensor(dType, {numOutChans}, name);
+  mapBiases(graph, biases, acts);
+  return biases;
 }
 
 static void
