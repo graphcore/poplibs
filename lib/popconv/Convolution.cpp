@@ -2035,7 +2035,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   Tensor activations;
   if (plan.useWinograd) {
     const auto wgOutputShape = getOutputShape(params);
-    in = groupActivations(in, plan.inChansPerGroup);
+    in = groupActivations(in, params.numConvGroups, plan.inChansPerGroup);
     weights = groupWeights(weights, plan.inChansPerGroup,
                            plan.partialChansPerGroup);
     activations =
