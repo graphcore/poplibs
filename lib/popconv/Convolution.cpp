@@ -2932,14 +2932,17 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
 }
 
 static void
-addBias(Graph &graph, const Tensor &acts_, const Tensor &biases,
-        ComputeSet cs) {
-  const auto acts = groupActivations(acts_, 1)[0];
+addToChannel(Graph &graph, const Tensor &actsUngrouped,
+             const Tensor &addend, float scale, Sequence &prog,
+             const std::string debugPrefix) {
+  const auto fnPrefix = debugPrefix + "/addToChannel";
+  auto cs = graph.addComputeSet(fnPrefix);
+  const auto acts = groupActivations(actsUngrouped, 1)[0];
   const auto dType = acts.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto outChansPerGroup = acts.dim(4);
-  const auto biasesByGroup =
-      biases.reshape({biases.numElements() / outChansPerGroup,
+  const auto addendByGroup =
+      addend.reshape({addend.numElements() / outChansPerGroup,
                       outChansPerGroup});
   const auto firstInGroup = acts.dimShuffle({1, 0, 2, 3, 4})
                                 .slice(0, 1, 4)
@@ -2951,9 +2954,14 @@ addBias(Graph &graph, const Tensor &acts_, const Tensor &biases,
     const auto perWorkerGroups =
         splitRegionsBetweenWorkers(deviceInfo, firstInGroupMapping[tile], 1);
     for (const auto &entry : perWorkerGroups) {
-      auto v = graph.addVertex(cs,
-                               templateVertex("popconv::AddBias",
-                                              dType));
+      VertexRef v;
+      if (scale == 1.0) {
+        v = graph.addVertex(cs, templateVertex("popconv::AddToChannel",
+                                               dType));
+      } else {
+        v = graph.addVertex(cs, templateVertex("popconv::ScaledAddToChannel",
+                                               dType));
+      }
       graph.setTileMapping(v, tile);
       unsigned num = 0;
       for (const auto &interval : entry) {
@@ -2969,7 +2977,7 @@ addBias(Graph &graph, const Tensor &acts_, const Tensor &biases,
           unsigned batchLast = g == lastIndices[0] ?
                                lastIndices[1] :
                                firstInGroup.dim(1) - 1;
-          auto biasesWindow = biasesByGroup[g];
+          auto addendWindow = addendByGroup[g];
           for (unsigned b = batchBegin; b != batchLast + 1; ++b) {
             unsigned begin = g == beginIndices[0] && b == beginIndices[1] ?
                              beginIndices[2] :
@@ -2981,24 +2989,26 @@ addBias(Graph &graph, const Tensor &acts_, const Tensor &biases,
                 acts[b][g].flatten().slice(begin * outChansPerGroup,
                                            (last + 1) * outChansPerGroup);
             graph.connect(v["acts"][num], actsWindow);
-            graph.connect(v["biases"][num], biasesWindow);
+            graph.connect(v["addend"][num], addendWindow);
             ++num;
           }
         }
       }
+      if (scale != 1.0) {
+        graph.setInitialValue(v["scale"], scale);
+      }
       graph.setFieldSize(v["acts"], num);
-      graph.setFieldSize(v["biases"], num);
+      graph.setFieldSize(v["addend"], num);
       graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
     }
   }
+  prog.add(Execute(cs));
 }
 
 void
 addBias(Graph &graph, const Tensor &acts, const Tensor &biases,
         Sequence &prog, const std::string &debugPrefix) {
-  ComputeSet cs = graph.addComputeSet(debugPrefix + "/addBias");
-  addBias(graph, acts, biases, cs);
-  prog.add(Execute(cs));
+  addToChannel(graph, acts, biases, 1.0, prog, debugPrefix);
 }
 
 Tensor
@@ -3177,74 +3187,6 @@ channelMul(Graph &graph, const Tensor &actsUngrouped, const Tensor &scale,
   return actsScaledUngrouped;
 }
 
-
-static void
-addToScaledChannel(Graph &graph, const Tensor &actsUngrouped,
-                   const Tensor &addend, float scale, Sequence &prog,
-                   const std::string debugPrefix) {
-  const auto fnPrefix = debugPrefix + "/addToScaledChannel";
-  auto cs = graph.addComputeSet(fnPrefix);
-  const auto acts = groupActivations(actsUngrouped, 1)[0];
-  const auto dType = acts.elementType();
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto outChansPerGroup = acts.dim(4);
-  const auto addendByGroup =
-      addend.reshape({addend.numElements() / outChansPerGroup,
-                      outChansPerGroup});
-  const auto firstInGroup = acts.dimShuffle({1, 0, 2, 3, 4})
-                                .slice(0, 1, 4)
-                                .reshape({acts.dim(1), acts.dim(0),
-                                          acts.dim(2) * acts.dim(3)});
-  const auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
-  const unsigned numTiles = firstInGroupMapping.size();
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
-    const auto perWorkerGroups =
-        splitRegionsBetweenWorkers(deviceInfo, firstInGroupMapping[tile], 1);
-    for (const auto &entry : perWorkerGroups) {
-      auto v = graph.addVertex(cs,
-                               templateVertex("popconv::AddToScaledChannel",
-                                              dType));
-      graph.setTileMapping(v, tile);
-      unsigned num = 0;
-      for (const auto &interval : entry) {
-        const auto begin = interval.begin();
-        const auto end = interval.end();
-        const auto last = end - 1;
-        auto beginIndices = popstd::unflattenIndex(firstInGroup.shape(), begin);
-        auto lastIndices = popstd::unflattenIndex(firstInGroup.shape(), last);
-        for (unsigned g = beginIndices[0]; g != lastIndices[0] + 1; ++g) {
-          unsigned batchBegin = g == beginIndices[0] ?
-                                beginIndices[1] :
-                                0;
-          unsigned batchLast = g == lastIndices[0] ?
-                               lastIndices[1] :
-                               firstInGroup.dim(1) - 1;
-          auto addendWindow = addendByGroup[g];
-          for (unsigned b = batchBegin; b != batchLast + 1; ++b) {
-            unsigned begin = g == beginIndices[0] && b == beginIndices[1] ?
-                             beginIndices[2] :
-                             0;
-            unsigned last = g == lastIndices[0] && b == lastIndices[1] ?
-                            lastIndices[2] :
-                            firstInGroup.dim(2) - 1;
-            auto actsWindow =
-                acts[b][g].flatten().slice(begin * outChansPerGroup,
-                                           (last + 1) * outChansPerGroup);
-            graph.connect(v["acts"][num], actsWindow);
-            graph.connect(v["addend"][num], addendWindow);
-            ++num;
-          }
-        }
-      }
-      graph.setInitialValue(v["scale"], scale);
-      graph.setFieldSize(v["acts"], num);
-      graph.setFieldSize(v["addend"], num);
-      graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
-    }
-  }
-  prog.add(Execute(cs));
-}
-
 static Tensor computeInvStdDev(Graph &graph, const Tensor &mean,
                                const Tensor &power, float eps,
                                Sequence &prog,
@@ -3348,7 +3290,7 @@ batchNormalise(Graph &graph,
   auto actsWhitened = channelMul(graph, actsZeroMean, iStdDev, prog, fnPrefix);
   auto actsOut = channelMul(graph, actsWhitened, gamma, prog, fnPrefix);
 
-  addToScaledChannel(graph, actsOut, beta, 1.0, prog, fnPrefix);
+  addToChannel(graph, actsOut, beta, 1.0, prog, fnPrefix);
   return std::make_pair(actsOut, actsWhitened);
 }
 
@@ -3362,7 +3304,7 @@ batchNormalise(Graph &graph,
   assert(acts.rank() == 4);
   const auto fnPrefix = debugPrefix + "/BN/batchNormaliseInference";
   auto actsBN = channelMul(graph, acts, combinedMultiplicand, prog, fnPrefix);
-  addToScaledChannel(graph, actsBN, addend, 1.0, prog, fnPrefix);
+  addToChannel(graph, actsBN, addend, 1.0, prog, fnPrefix);
   return actsBN;
 }
 
@@ -3411,7 +3353,7 @@ Tensor batchNormGradients(Graph &graph,
         channelMul(graph, actsWhitened, gammaDelta, prog, fnPrefix),
         -rScale, prog, fnPrefix);
 
-  addToScaledChannel(graph, gradient, betaDelta, -rScale, prog, fnPrefix);
+  addToChannel(graph, gradient, betaDelta, -rScale, prog, fnPrefix);
 
   return channelMul(graph, gradient,
                     mul(graph, gamma, invStdDev, prog, fnPrefix), prog,

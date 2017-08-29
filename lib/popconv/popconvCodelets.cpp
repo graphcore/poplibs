@@ -930,23 +930,23 @@ template class Transpose2D<float>;
 template class Transpose2D<half>;
 
 template <class FPType>
-class AddBias : public Vertex {
+class AddToChannel : public Vertex {
 public:
   Vector<InOut<Vector<FPType>>> acts;
-  Vector<Input<Vector<FPType>>> biases;
+  Vector<Input<Vector<FPType>>> addend;
 
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     unsigned n = acts.size();
-    assert(biases.size() == n);
+    assert(addend.size() == n);
     for (unsigned i = 0; i != n; ++i) {
-      unsigned chansPerGroup = biases[i].size();
+      unsigned chansPerGroup = addend[i].size();
       assert(acts[i].size() % chansPerGroup == 0);
       unsigned len = acts[i].size() / chansPerGroup;
       for (unsigned j = 0; j != len; ++j) {
         for (unsigned k = 0; k != chansPerGroup; ++k) {
-          acts[i][j * chansPerGroup + k] += biases[i][k];
+          acts[i][j * chansPerGroup + k] += addend[i][k];
         }
       }
     }
@@ -959,7 +959,7 @@ public:
     unsigned n = acts.size();
     unsigned numCycles = 5;
     for (unsigned i = 0; i != n; ++i) {
-      unsigned chansPerGroup = biases[i].size();
+      unsigned chansPerGroup = addend[i].size();
       assert(acts[i].size() % chansPerGroup == 0);
       unsigned len = acts[i].size() / chansPerGroup;
       numCycles += 2; // Load bias and act pointers.
@@ -971,11 +971,11 @@ public:
   }
 };
 
-template class AddBias<float>;
-template class AddBias<half>;
+template class AddToChannel<float>;
+template class AddToChannel<half>;
 
 template <class FPType>
-class AddToScaledChannel : public Vertex {
+class ScaledAddToChannel : public Vertex {
 public:
   Vector<InOut<Vector<FPType>>> acts;
   Vector<Input<Vector<FPType>>> addend;
@@ -1017,8 +1017,8 @@ public:
   }
 };
 
-template class AddToScaledChannel<float>;
-template class AddToScaledChannel<half>;
+template class ScaledAddToChannel<float>;
+template class ScaledAddToChannel<half>;
 
 template <class FPType>
 class ChannelMul : public Vertex {
