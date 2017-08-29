@@ -884,8 +884,9 @@ computeBiasMapping(Graph &graph, const Tensor &out) {
   const auto dType = out.elementType();
   const auto dTypeSize = dType == "float" ? 4 : 2;
   const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
-  const unsigned numChans = out.dim(0) * out.dim(2) * out.dim(5);
-  auto outRegrouped = out.dimShuffle({0, 2, 5, 1, 3, 4})
+  const unsigned numChans = out.dim(3);
+  // Create a view of the output where channels are the outermost dimension.
+  auto outRegrouped = out.dimShuffle({3, 0, 1, 2})
                          .reshape({numChans, out.numElements() / numChans});
   const auto outRegroupedMapping = graph.getTileMapping(outRegrouped);
   // Build a map from the bias to the set of tiles that access it.
@@ -916,8 +917,7 @@ computeBiasMapping(Graph &graph, const Tensor &out) {
 
 void mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
                const poplar::Tensor &out) {
-  auto groupedOut = groupActivations(out, 1);
-  auto mapping = computeBiasMapping(graph, groupedOut);
+  auto mapping = computeBiasMapping(graph, out);
   applyTensorMapping(graph, biases, mapping);
 }
 
