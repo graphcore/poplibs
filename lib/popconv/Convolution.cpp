@@ -42,38 +42,68 @@ static Tensor increaseDims(const Tensor &t, bool left) {
   return t.reshape({newDims});
 }
 
-// Groups tensor from th standard [N][H][W][C] shape to internal shape
-// [G][N][C1][H][W][C2]
-//
-// where C1 * C2 * G = C
-static Tensor groupActivations(const Tensor &act, unsigned numConvGroups,
-                               unsigned chansPerGroup) {
+// Reshape the activations tensor from [N][H][W][G * C] shape to
+// [G][N][H][W][C]
+static Tensor
+splitActivationConvGroups(const Tensor &act, unsigned numConvGroups) {
   assert(act.rank() == 4);
-  assert(act.dim(3) % chansPerGroup == 0);
-  assert(act.dim(3) % numConvGroups == 0);
-  const unsigned chanGroups = act.dim(3) / (chansPerGroup * numConvGroups);
+  if (act.dim(3) % numConvGroups != 0) {
+    throw popstd::poplib_error("Number of input channels is not a multiple "
+                               "of the number of convolutional groups");
+  }
   return act.reshape({act.dim(0), act.dim(1), act.dim(2), numConvGroups,
-                      chanGroups, chansPerGroup})
-            .dimShuffle({3, 0, 4, 1, 2, 5});
+                      act.dim(3) / numConvGroups})
+            .dimShuffle({3, 0, 1, 2, 4});
 }
 
-// Groups tensor from the standard [N][H][W][C] shape to internal shape
+// Reshape the activations tensor from [G][N][H][W][C] shape to
+// [N][H][W][G * C] shape.
+static Tensor
+unsplitActivationConvGroups(const Tensor &act) {
+  assert(act.rank() == 5);
+  return act.dimShuffle({1, 2, 3, 0, 4})
+            .reshape({act.dim(1),
+                      act.dim(2),
+                      act.dim(3),
+                      act.dim(0) * act.dim(4)});
+}
+
+// Reshape the activations tensor from [G][N][H][W][C] shape to
 // [G][N][C1][H][W][C2]
 //
-// where C1 * C2 * G = C
-static Tensor groupActivations(const Tensor &act, unsigned numConvGroups) {
-  auto chansPerGroup = detectChannelGrouping(act);
-  return groupActivations(act, numConvGroups, chansPerGroup);
+// Where C1 * C2 = C
+static Tensor
+splitActivationChanGroups(const Tensor &act, unsigned chansPerGroup) {
+  assert(act.rank() == 5);
+  assert(act.dim(4) % chansPerGroup == 0);
+  return act.reshape({act.dim(0), act.dim(1), act.dim(2), act.dim(3),
+                      act.dim(4) / chansPerGroup, chansPerGroup})
+            .dimShuffle({0, 1, 4, 2, 3, 5});
 }
 
-// Ungroups tensor from internal shape [G][N][C1][H][W][C2] to standard shape
-// [N][H][W][C]
+// Reshape the activations tensor from [G][N][H][W][C] shape to
+// [G][N][C1][H][W][C2]
 //
-// where G * C1 * C2 = C
-static Tensor ungroupActivations(const Tensor &act) {
+// Where C1 * C2 = C
+static Tensor
+splitActivationChanGroups(const Tensor &act) {
+  auto chansPerGroup = detectChannelGrouping(act);
+  return splitActivationChanGroups(act, chansPerGroup);
+}
+
+// Reshape the activations tensor from [G][N][C1][H][W][C2] shape to
+// [G][N][H][W][C]
+//
+// Where C1 * C2 = C
+static Tensor
+unsplitActivationChanGroups(const Tensor &act) {
   assert(act.rank() == 6);
-  return act.dimShuffle({1, 3, 4, 0, 2, 5}).reshape(
-    {act.dim(1), act.dim(3), act.dim(4), act.dim(0) * act.dim(2) * act.dim(5)});
+  return act.dimShuffle({0, 1, 3, 4, 2, 5})
+            .reshape({act.dim(0),
+                      act.dim(1),
+                      act.dim(3),
+                      act.dim(4),
+                      act.dim(2) * act.dim(5)});
 }
 
 static std::pair<unsigned, unsigned>
@@ -186,21 +216,33 @@ verifyStrideAndPaddingDimensions(const ConvParams &params) {
 static void verifyInputShapes(const ConvParams &params,
                               const Tensor &in,
                               const Tensor &weights) {
-  if (params.getBatchSize() != in.dim(0)) {
+  if (in.rank() != 5) {
+    throw popstd::poplib_error("Input tensor does not have the expected rank");
+  }
+  if (params.numConvGroups != in.dim(0)) {
+    throw popstd::poplib_error("Number of convolution groups of input tensor "
+                               "does not match convolution parameters");
+  }
+  if (params.getBatchSize() != in.dim(1)) {
     throw popstd::poplib_error("Batchsize of input tensor does not match "
                                "convolution parameters");
   }
-  if (params.inputFieldShape[0] != in.dim(1)) {
+  if (params.inputFieldShape[0] != in.dim(2)) {
     throw popstd::poplib_error("Height of input tensor does not match "
                                "convolution parameters");
   }
-  if (params.inputFieldShape[1] != in.dim(2)) {
+  if (params.inputFieldShape[1] != in.dim(3)) {
     throw popstd::poplib_error("Width of input tensor does not match "
                                "convolution parameters");
   }
-  if (params.getInputDepth() != in.dim(3)) {
-    throw popstd::poplib_error("Number of channels of input tensor does "
-                               "not match convolution parameters");
+  if (params.getInputDepthPerConvGroup() != in.dim(4)) {
+    throw popstd::poplib_error("Number of channels per convolution group of "
+                               "input tensor does not match convolution "
+                               "parameters");
+  }
+  if (params.numConvGroups != weights.dim(0)) {
+    throw popstd::poplib_error("Number of convolution groups of weights tensor "
+                               "does not match convolution parameters");
   }
   if (params.kernelShape[0] != weights.dim(1)) {
     throw popstd::poplib_error("Kernel height does not match convolution "
@@ -652,10 +694,11 @@ convolutionPreprocess(Graph &graph, ConvParams &params, Plan &plan,
                       Tensor *acts, Tensor *weights) {
   if (plan.flattenXY) {
     if (acts) {
-      *acts = acts->reshape({1,
+      *acts = acts->reshape({acts->dim(0),
                              1,
-                             acts->dim(0) * acts->dim(1) * acts->dim(2),
-                             acts->dim(3)});
+                             1,
+                             acts->dim(1) * acts->dim(2) * acts->dim(3),
+                             acts->dim(4)});
     }
     plan.flattenXY = false;
     params.inputFieldShape[1] *=  params.getBatchSize()
@@ -668,23 +711,15 @@ convolutionPreprocess(Graph &graph, ConvParams &params, Plan &plan,
   const auto convNumChanGroups =
       (numInChans + convInChansPerGroup - 1) / convInChansPerGroup;
   const auto convNumChans = convInChansPerGroup * convNumChanGroups;
-  const auto numConvGroups = params.getNumConvGroups();
 
   if (convNumChans != numInChans) {
-      // Zero pad the input / weights.
-      if (acts) {
-        const unsigned batchSize = acts->dim(0);
-        const unsigned height = acts->dim(1);
-        const unsigned width = acts->dim(2);
-        *acts = acts->reshape({batchSize, height, width, numConvGroups,
-                               numInChans});
-        *acts = pad(graph, *acts, 0, convNumChans - numInChans, 4);
-        *acts = acts->reshape({batchSize, height, width,
-                               convNumChans * numConvGroups});
-      }
-      if (weights) {
-        *weights = pad(graph, *weights, 0, convNumChans - numInChans, 4);
-      }
+    // Zero pad the input / weights.
+    if (acts) {
+      *acts = pad(graph, *acts, 0, convNumChans - numInChans, 4);
+    }
+    if (weights) {
+      *weights = pad(graph, *weights, 0, convNumChans - numInChans, 4);
+    }
     params.inputChannels = convNumChans;
   }
   const auto outNumChans = params.getOutputDepthPerConvGroup();
@@ -709,8 +744,7 @@ static void mapActivations(Graph &graph, ConvParams params,
   convolutionPreprocess(graph, params, plan, &acts, nullptr);
   // Compute a mapping for the transformed activations tensor that minimizes
   // exchange.
-  acts = groupActivations(acts, params.getNumConvGroups(),
-                          plan.inChansPerGroup);
+  acts = splitActivationChanGroups(acts, plan.inChansPerGroup);
   auto mapping = calculateActivationMapping(graph, params, plan);
   // Apply the mapping to the transformed activations tensor. This indirectly
   // maps the original (non-transformed) tensor.
@@ -718,9 +752,9 @@ static void mapActivations(Graph &graph, ConvParams params,
 }
 
 static Tensor
-createInput(Graph &graph, const ConvParams &params,
-            const std::string &name,
-            const Plan &plan) {
+createInputImpl(Graph &graph, const ConvParams &params,
+                const std::string &name,
+                const Plan &plan) {
   const auto inNumChans = params.getInputDepthPerConvGroup();
   const auto inChansPerGroup = getInChansPerGroup(plan, inNumChans);
   assert(params.getInputDepthPerConvGroup() % inChansPerGroup == 0);
@@ -733,7 +767,7 @@ createInput(Graph &graph, const ConvParams &params,
                        params.inputFieldShape[1],
                        inChansPerGroup},
                            name);
-  t = ungroupActivations(t);
+  t = unsplitActivationChanGroups(t);
   mapActivations(graph, params, plan, t);
   return t;
 }
@@ -744,7 +778,8 @@ createInput(Graph &graph, const ConvParams &params,
             const ConvOptions &options) {
   verifyStrideAndPaddingDimensions(params);
   const auto plan = getPlan(graph, params, options);
-  return createInput(graph, params, name, plan);
+  return unsplitActivationConvGroups(createInputImpl(graph, params, name,
+                                                     plan));
 }
 
 static std::vector<std::vector<Interval<std::size_t>>>
@@ -866,9 +901,9 @@ computeBiasMapping(Graph &graph, const Tensor &out) {
   const auto dType = out.elementType();
   const auto dTypeSize = dType == "float" ? 4 : 2;
   const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
-  const unsigned numChans = out.dim(3);
+  const unsigned numChans = out.dim(0) * out.dim(4);
   // Create a view of the output where channels are the outermost dimension.
-  auto outRegrouped = out.dimShuffle({3, 0, 1, 2})
+  auto outRegrouped = out.dimShuffle({0, 4, 1, 2, 3})
                          .reshape({numChans, out.numElements() / numChans});
   const auto outRegroupedMapping = graph.getTileMapping(outRegrouped);
   // Build a map from the bias to the set of tiles that access it.
@@ -905,9 +940,10 @@ mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
 }
 
 poplar::Tensor
-createBiases(poplar::Graph &graph, const Tensor &acts,
+createBiases(poplar::Graph &graph, const Tensor &acts_,
              const std::string &name) {
-  const auto numOutChans = acts.dim(3);
+  const auto acts = splitActivationConvGroups(acts_, 1);
+  const auto numOutChans = acts.dim(4);
   const auto dType = acts.elementType();
   auto biases = graph.addTensor(dType, {numOutChans}, name);
   mapBiases(graph, biases, acts);
@@ -1890,7 +1926,7 @@ convolutionImpl(Graph &graph, const Plan &plan,
                  Tensor in, Tensor weights,
                  const std::string &debugPrefix) {
   verifyInputShapes(params, in, weights);
-  in = groupActivations(in, params.getNumConvGroups(), plan.inChansPerGroup);
+  in = splitActivationChanGroups(in, plan.inChansPerGroup);
   weights = groupWeights(weights, plan.inChansPerGroup,
                          plan.partialChansPerGroup);
   const auto numBatchGroups = in.dim(1);
@@ -1942,7 +1978,7 @@ convolutionImpl(Graph &graph, const Plan &plan,
   for (const auto &cs : reduceComputeSets) {
     prog.add(Execute(cs));
   }
-  return{ prog, ungroupActivations(reduced) };
+  return{ prog, unsplitActivationChanGroups(reduced) };
 }
 
 template <typename T>
@@ -1976,24 +2012,18 @@ convSuffix(const ConvParams &params) {
 // - undo any padding
 static Tensor
 convolutionPostprocess(const Tensor &activations,
-                       const std::vector<std::size_t> &outputShape,
-                       unsigned numConvGroups) {
+                       const std::vector<std::size_t> &outputShape) {
+  assert(activations.dim(0) == outputShape[0]);
   // Undo any flattening of the field.
-  assert(activations.dim(3) % numConvGroups == 0);
-  assert(outputShape[3] % numConvGroups == 0);
-  const auto numPaddedChansPerConvGroup = activations.dim(3) / numConvGroups;
-  auto activationsReshaped = activations.reshape({outputShape[0],
+  auto activationsReshaped = activations.reshape({activations.dim(0),
                                                   outputShape[1],
                                                   outputShape[2],
-                                                  numConvGroups,
-                                                  numPaddedChansPerConvGroup});
+                                                  outputShape[3],
+                                                  activations.dim(4)});
   // undo padding
   auto activationsUnpadded =
-      activationsReshaped.slice(0, outputShape[3] / numConvGroups, 4);
-  return activationsUnpadded.reshape({outputShape[0],
-                                      outputShape[1],
-                                      outputShape[2],
-                                      outputShape[3]});
+      activationsReshaped.slice(0, outputShape[4], 4);
+  return activationsUnpadded;
 }
 
 Tensor
@@ -2002,13 +2032,12 @@ convolution(Graph &graph, const poplar::Tensor &in_,
             const ConvParams &params_,
             bool transposeAndFlipWeights, Sequence &prog,
             const std::string &debugPrefix, const ConvOptions &options) {
-
   auto weights = weights_;
   if (weights.rank() == params_.getNumKernelDims() + 2) {
     weights = increaseDims(weights, true);
   }
-  auto in = in_;
   auto params = params_;
+  auto in = splitActivationConvGroups(in_, params.numConvGroups);
   verifyStrideAndPaddingDimensions(params);
   const auto dType = in.elementType();
   auto plan = getPlan(graph, params, options);
@@ -2020,15 +2049,17 @@ convolution(Graph &graph, const poplar::Tensor &in_,
     weights = bwdWeights;
   }
 
-  // output shape doesn't include grouped conv
-  const auto outputShape = getOutputShape(params);
+  auto outputShape = getOutputShape(params);
+  // Output shape doesn't include grouped conv.
   const auto numConvGroups = params.getNumConvGroups();
+  outputShape.insert(outputShape.begin(), numConvGroups);
+  outputShape.back() /= numConvGroups;
   convolutionPreprocess(graph, params, plan, &in, &weights);
 
   Tensor activations;
   if (plan.useWinograd) {
     const auto wgOutputShape = getOutputShape(params);
-    in = groupActivations(in, params.numConvGroups, plan.inChansPerGroup);
+    in = splitActivationChanGroups(in, plan.inChansPerGroup);
     weights = groupWeights(weights, plan.inChansPerGroup,
                            plan.partialChansPerGroup);
     activations =
@@ -2047,7 +2078,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
                                  plan.winogradPatchSize, plan.winogradPatchSize,
                                  plan.floatPartials ? "float" : "half",
                                  debugPrefix, options));
-    activations = ungroupActivations(activations);
+    activations = unsplitActivationChanGroups(activations);
   } else {
     const auto layerName = debugPrefix + "/Conv" + convSuffix(params);
     Program convolveProg;
@@ -2055,7 +2086,8 @@ convolution(Graph &graph, const poplar::Tensor &in_,
         convolutionImpl(graph, plan, params, in, weights, layerName);
     prog.add(convolveProg);
   }
-  return convolutionPostprocess(activations, outputShape, numConvGroups);
+  activations = convolutionPostprocess(activations, outputShape);
+  return unsplitActivationConvGroups(activations);
 }
 
 static std::uint64_t getNumberOfMACs(const ConvParams &params) {
@@ -2253,17 +2285,6 @@ roundUpDimension(Graph &graph, const Tensor &t, unsigned dim,
   return pad(graph, t, 0, roundedSize - size, dim);
 }
 
-
-// Group activations according to conv grouping:
-// the input format is   [B][H][W][C * GC]
-//     output format is  [GC][B][H][W][C]
-static Tensor convGroupActivations(const Tensor &t, unsigned numConvGroups) {
-  assert(t.dim(3) % numConvGroups == 0);
-  return t.reshape({t.dim(0), t.dim(1), t.dim(2), numConvGroups,
-                    t.dim(3) / numConvGroups})
-          .dimShuffle({3, 0, 1, 2, 4});
-}
-
 // Weight deltas can be computed by convolving the activations and the deltas.
 // If the kernel is larger than 1x1 a direct computation of weight deltas
 // requires a sliding deltas across activations in the main axis of
@@ -2289,9 +2310,10 @@ convolutionWeightUpdateAmpPreProcess(
     std::vector<int> &weightDeltaTruncateLower,
     std::vector<int> &weightDeltaTruncateUpper,
     std::vector<unsigned> &weightDeltasStride,
-    const std::vector<std::size_t> &kernelShape,
-    unsigned numConvGroups) {
+    const std::vector<std::size_t> &kernelShape) {
   const auto dType = activations.elementType();
+  assert(activations.rank() == 5);
+  assert(deltas.rank() == 5);
   assert(activationsUpsampleFactor.size() == 2);
   assert(activationsPaddingLower.size() == 2);
   assert(activationsPaddingUpper.size() == 2);
@@ -2304,13 +2326,10 @@ convolutionWeightUpdateAmpPreProcess(
   assert(plan.flattenXY ||
          (weightDeltaTruncateLower[0] == 0 &&
           weightDeltaTruncateUpper[0] == 0));
-  // group activations and deltas
-  auto activationsGrouped = convGroupActivations(activations, numConvGroups);
-  auto deltasGrouped = convGroupActivations(deltas, numConvGroups);
   // Eliminate the x axis of the kernel by taking the activations that are
   // multiplied by each column of the weights turning them into different input
   // channels.
-  auto paddedActivations = pad(graph, activationsGrouped,
+  auto paddedActivations = pad(graph, activations,
                                activationsPaddingLower[1],
                                activationsPaddingUpper[1], 3);
   activationsPaddingLower[1] = 0;
@@ -2319,7 +2338,7 @@ convolutionWeightUpdateAmpPreProcess(
       graph.addTensor(dType, {paddedActivations.dim(0),
                               paddedActivations.dim(1),
                               paddedActivations.dim(2),
-                              deltas.dim(2),
+                              deltas.dim(3),
                               0});
   std::vector<unsigned> paddedKernelShape(2);
   for (unsigned dim = 0; dim != 2; ++dim) {
@@ -2337,7 +2356,7 @@ convolutionWeightUpdateAmpPreProcess(
       usedActivations =
           paddedActivations.slice(dilatedPaddedWeightX,
                                   dilatedPaddedWeightX +
-                                  (deltas.dim(2) - 1) *
+                                  (deltas.dim(3) - 1) *
                                   deltasUpsampleFactor[1] + 1,
                                   3);
       usedActivations =
@@ -2347,7 +2366,7 @@ convolutionWeightUpdateAmpPreProcess(
           graph.addConstantTensor(dType, {paddedActivations.dim(0),
                                           paddedActivations.dim(1),
                                           paddedActivations.dim(2),
-                                          deltas.dim(2),
+                                          deltas.dim(3),
                                           paddedActivations.dim(4)}, 0);
     }
     expandedActivations = concat(expandedActivations, usedActivations, 4);
@@ -2368,8 +2387,8 @@ convolutionWeightUpdateAmpPreProcess(
     auto yExpandedActivations =
         graph.addTensor(dType, {yPaddedActivations.dim(0),
                                 yPaddedActivations.dim(1),
-                                deltas.dim(1),
                                 deltas.dim(2),
+                                deltas.dim(3),
                                 0});
     for (unsigned wy = 0; wy != kernelShape[0]; ++wy) {
       auto dilatedPaddedWeightY =
@@ -2381,7 +2400,7 @@ convolutionWeightUpdateAmpPreProcess(
         usedActivations =
             yPaddedActivations.slice(dilatedPaddedWeightY,
                                      dilatedPaddedWeightY +
-                                     (deltas.dim(1) - 1) *
+                                     (deltas.dim(2) - 1) *
                                      deltasUpsampleFactor[0] + 1,
                                      2);
         usedActivations =
@@ -2390,8 +2409,8 @@ convolutionWeightUpdateAmpPreProcess(
         usedActivations =
             graph.addConstantTensor(dType, {yPaddedActivations.dim(0),
                                             yPaddedActivations.dim(1),
-                                            yPaddedActivations.dim(2),
                                             deltas.dim(2),
+                                            deltas.dim(3),
                                             yPaddedActivations.dim(4)}, 0);
       }
       yExpandedActivations = concat(yExpandedActivations, usedActivations,
@@ -2410,12 +2429,12 @@ convolutionWeightUpdateAmpPreProcess(
                                      expandedActivations.dim(2) *
                                      expandedActivations.dim(3),
                                      expandedActivations.dim(4)});
-    deltasGrouped =
-        deltasGrouped.reshape({deltasGrouped.dim(0),
-                               deltasGrouped.dim(1),
+    deltas =
+        deltas.reshape({deltas.dim(0),
+                        deltas.dim(1),
                         1,
-                               deltasGrouped.dim(2) * deltasGrouped.dim(3),
-                               deltasGrouped.dim(4)});
+                        deltas.dim(2) * deltas.dim(3),
+                        deltas.dim(4)});
   }
   // Rearrange the tensors so elements of the batch are treated as part of the
   // x-axis of the field.
@@ -2428,12 +2447,12 @@ convolutionWeightUpdateAmpPreProcess(
                     expandedActivations.dim(3) * expandedActivations.dim(1),
                     expandedActivations.dim(4)});
   auto flattenedDeltas =
-      deltasGrouped.dimShuffle({0, 2, 3, 1, 4})
-             .reshape({deltasGrouped.dim(0),
+      deltas.dimShuffle({0, 2, 3, 1, 4})
+             .reshape({deltas.dim(0),
                        1,
-                       deltasGrouped.dim(2),
-                       deltasGrouped.dim(3) * deltasGrouped.dim(1),
-                       deltasGrouped.dim(4)});
+                       deltas.dim(2),
+                       deltas.dim(3) * deltas.dim(1),
+                       deltas.dim(4)});
   if (plan.ampWUMethod == Plan::ACTIVATIONS_AS_COEFFICENTS) {
     assert(activationsPaddingLower[1] == 0);
     assert(activationsPaddingUpper[1] == 0);
@@ -2455,8 +2474,7 @@ static void
 convolutionWeightUpdateAmpPostProcess(const Plan &plan,
                                       Tensor &weightDeltas,
                                       unsigned kernelSizeY,
-                                      unsigned kernelSizeX,
-                                      unsigned numConvGroups) {
+                                      unsigned kernelSizeX) {
   assert(weightDeltas.dim(2) == 1);
   if (plan.ampWUMethod == Plan::ACTIVATIONS_AS_COEFFICENTS) {
     weightDeltas = weightDeltas.dimShuffle({0, 1, 2, 4, 3});
@@ -2505,7 +2523,6 @@ calculateWeightDeltasAmp(Graph &graph, Plan plan,
   std::vector<unsigned> weightDeltasStride = params.kernelDilation;
   auto activationsView = activations;
   auto deltasView = zDeltas;
-  const auto numConvGroups = params.getNumConvGroups();
 
   convolutionWeightUpdateAmpPreProcess(graph, plan, activationsView,
                                        activationsUpsampleFactor,
@@ -2516,8 +2533,7 @@ calculateWeightDeltasAmp(Graph &graph, Plan plan,
                                        weightDeltasTruncateLower,
                                        weightDeltasTruncateUpper,
                                        weightDeltasStride,
-                                       params.kernelShape,
-                                       numConvGroups);
+                                       params.kernelShape);
 
   assert(weightDeltasTruncateLower == std::vector<int>({0, 0}));
   assert(weightDeltasTruncateUpper == std::vector<int>({0, 0}));
@@ -2554,13 +2570,7 @@ calculateWeightDeltasAmp(Graph &graph, Plan plan,
                                                             plan);
   plan.method = Plan::Method::AMP;
   auto activationsTransposed =
-      createInput(graph, transformedParams, "activationsTransposed", plan);
-
-  // Input activations are created with the channel dimension including
-  // conv groups. Transform tensor so that the first dimension is the
-  // conv group.
-  activationsTransposed = convGroupActivations(activationsTransposed,
-                                               numConvGroups);
+      createInputImpl(graph, transformedParams, "activationsTransposed", plan);
   prog.add(Copy(activationsView.dimShuffle({0, 1, 3, 2})
                                .reshape(activationsTransposed.shape()),
                 activationsTransposed));
@@ -2571,16 +2581,6 @@ calculateWeightDeltasAmp(Graph &graph, Plan plan,
                           .reshape(deltasTransposed.shape()),
                 deltasTransposed));
 
-  // reshape tensor to group all channels together as this is expected by
-  // the convolution implementation.
-  activationsTransposed =
-    activationsTransposed.dimShuffle({1, 2, 3, 0, 4})
-                         .reshape({activationsTransposed.dim(1),
-                                   activationsTransposed.dim(2),
-                                   activationsTransposed.dim(3),
-                                   activationsTransposed.dim(0)
-                                   * activationsTransposed.dim(4)});
-
   // Perform the convolution.
   Tensor weightDeltas;
   Program convolveProg;
@@ -2588,9 +2588,6 @@ calculateWeightDeltasAmp(Graph &graph, Plan plan,
       convolutionImpl(graph, plan, transformedParams, activationsTransposed,
                       deltasTransposed, debugPrefix);
   prog.add(convolveProg);
-
-  // Convolution implementation ungroups the channels.
-  weightDeltas = convGroupActivations(weightDeltas, numConvGroups);
 
   // remove padding and move batch dimension to be the first
   weightDeltas = weightDeltas.slice(0, convOutChans, 4)
@@ -2614,19 +2611,21 @@ calculateWeightDeltasAmp(Graph &graph, Plan plan,
   // weight update convolution.
   convolutionWeightUpdateAmpPostProcess(plan, weightDeltas,
                                         params.kernelShape[0],
-                                        params.kernelShape[1],
-                                        params.getNumConvGroups());
+                                        params.kernelShape[1]);
   return weightDeltas;
 }
 
 
 static Tensor
 calculateWeightDeltas(Graph &graph, const Plan &plan,
-                      const Plan &fwdPlan, const Tensor &zDeltas,
-                      const Tensor &activations,
+                      const Plan &fwdPlan, const Tensor &zDeltas_,
+                      const Tensor &activations_,
                       const ConvParams &params,
                       Sequence &prog,
                       const std::string &debugPrefix) {
+  auto zDeltas = splitActivationConvGroups(zDeltas_, params.numConvGroups);
+  auto activations = splitActivationConvGroups(activations_,
+                                               params.numConvGroups);
   assert(plan.method == Plan::Method::AMP_ACCUMULATE_OVER_FIELD);
   return calculateWeightDeltasAmp(graph, plan, fwdPlan, zDeltas, activations,
                                   params, prog, debugPrefix);
@@ -2658,10 +2657,6 @@ convolutionWeightUpdate(Graph &graph,
   verifyStrideAndPaddingDimensions(params);
   auto weightDeltas = calculateWeightDeltas(graph, zDeltas, activations, params,
                                             prog, debugPrefix, options);
-  // reshape weight deltas for grouped convolution
-  assert(weights.rank() == 5);
-  assert(weights.dim(0) == params.getNumConvGroups());
-
   // Add the weight deltas to the weights.
   assert(weightDeltas.shape() == weights.shape());
   popstd::addTo(graph, weights, weightDeltas, -learningRate, prog,
@@ -2688,9 +2683,9 @@ convChannelReduce(Graph &graph,
   }
   assert(computeSets.size() == 3);
 
-  // force channel grouping to be 1
-  auto inGrouped = groupActivations(in, 1);
-  inGrouped = inGrouped[0];
+  // Force convolution grouping to be 1.
+  auto inGrouped =
+      splitActivationChanGroups(splitActivationConvGroups(in, 1))[0];
 
   // set this to true to enable f16v8 and f32v4 instructions
   const bool useDoubleDataPathInstr = true;
@@ -2930,7 +2925,8 @@ addToChannel(Graph &graph, const Tensor &actsUngrouped,
              const std::string debugPrefix) {
   const auto fnPrefix = debugPrefix + "/addToChannel";
   auto cs = graph.addComputeSet(fnPrefix);
-  const auto acts = groupActivations(actsUngrouped, 1)[0];
+  const auto acts =
+      splitActivationChanGroups(splitActivationConvGroups(actsUngrouped, 1))[0];
   const auto dType = acts.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto outChansPerGroup = acts.dim(4);
@@ -3113,8 +3109,12 @@ channelMul(Graph &graph, const Tensor &actsUngrouped, const Tensor &scale,
   auto cs = graph.addComputeSet(fnPrefix);
 
   auto actsScaledUngrouped = graph.clone(actsUngrouped);
-  const auto acts = groupActivations(actsUngrouped, 1)[0];
-  const auto actsScaled = groupActivations(actsScaledUngrouped, 1)[0];
+  const auto acts =
+      splitActivationChanGroups(splitActivationConvGroups(actsUngrouped, 1))[0];
+  const auto actsScaled =
+      splitActivationChanGroups(
+        splitActivationConvGroups(actsScaledUngrouped, 1)
+      )[0];
   const auto dType = acts.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto outChansPerGroup = acts.dim(4);
