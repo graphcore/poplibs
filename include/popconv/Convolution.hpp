@@ -153,6 +153,8 @@ struct ConvParams {
   std::vector<size_t> getOutputFieldShape() const;
 };
 
+std::ostream& operator<<(std::ostream &os, const ConvParams &p);
+
 uint64_t getFwdFlops(const ConvParams &params);
 uint64_t getBwdFlops(const ConvParams &params);
 uint64_t getWuFlops(const ConvParams &params);

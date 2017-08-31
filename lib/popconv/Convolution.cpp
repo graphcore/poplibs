@@ -22,6 +22,7 @@
 #include "popstd/Zero.hpp"
 #include "popstd/Operations.hpp"
 #include <unordered_set>
+#include "util/print.hpp"
 #include <boost/icl/interval_map.hpp>
 
 using namespace poplar;
@@ -40,6 +41,44 @@ static Tensor increaseDims(const Tensor &t, bool left) {
     newDims[d + left] = t.dim(d);
   }
   return t.reshape({newDims});
+}
+
+std::ostream& operator<<(std::ostream &os, const ConvParams &p) {
+  os << "Params: dType                      " << p.dType << "\n";
+  os << "        batchSize                  " << p.batchSize << "\n";
+  os << "        numConvGroups              " << p.numConvGroups << "\n";
+  os << "        inputFieldShape            ";
+  printContainer(p.inputFieldShape, os);
+  os << "\n";
+  os << "        kernelShape                ";
+  printContainer(p.kernelShape, os);
+  os << "\n";
+  os << "        inputChannelsPerConvGroup  ";
+  os << p.getInputDepthPerConvGroup() << "\n";
+  os << "        outputChannelsPerConvGroup ";
+  os << p.getOutputDepthPerConvGroup() << "\n";
+  os << "        stride                     ";
+  printContainer(p.stride, os);
+  os << "\n";
+  os << "        inputPaddingLower          ";
+  printContainer(p.inputPaddingLower, os);
+  os << "\n";
+  os << "        inputPaddingUpper          ";
+  printContainer(p.inputPaddingUpper, os);
+  os << "\n";
+  os << "        inputDilation              ";
+  printContainer(p.inputDilation, os);
+  os << "\n";
+  os << "        kernelPaddingLower         ";
+  printContainer(p.kernelPaddingLower, os);
+  os << "\n";
+  os << "        kernelPaddingUpper         ";
+  printContainer(p.kernelPaddingUpper, os);
+  os << "\n";
+  os << "        kernelDilation             ";
+  printContainer(p.kernelDilation, os);
+  os << "\n";
+  return os;
 }
 
 // Reshape the activations tensor from [N][H][W][G * C] shape to
