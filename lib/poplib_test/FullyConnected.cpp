@@ -2,94 +2,118 @@
 #include <poplib_test/exceptions.hpp>
 
 void poplib_test::fc::fullyConnected(
-            const boost::multi_array<double, 2> &in,
-            const boost::multi_array<double, 2> &weights,
-            const boost::multi_array<double, 1> &biases,
-            boost::multi_array<double, 2> &out) {
-  const auto batchSize = in.shape()[0];
-  const auto inputSize = in.shape()[1];
-  const auto outputSize = weights.shape()[1];
-  assert(weights.shape()[0] == inputSize);
-  assert(out.shape()[0] == batchSize);
-  assert(out.shape()[1] == outputSize);
+            const boost::multi_array<double, 3> &in,
+            const boost::multi_array<double, 3> &weights,
+            const boost::multi_array<double, 2> &biases,
+            boost::multi_array<double, 3> &out) {
+  const auto numGroups = in.shape()[0];
+  const auto batchSize = in.shape()[1];
+  const auto inputSize = in.shape()[2];
+  const auto outputSize = weights.shape()[2];
+  assert(weights.shape()[0] == numGroups);
+  assert(out.shape()[0] == numGroups);
+  assert(biases.shape()[0] == numGroups);
+  assert(weights.shape()[1] == inputSize);
+  assert(out.shape()[1] == batchSize);
+  assert(out.shape()[2] == outputSize);
 
-  for (unsigned b = 0; b != batchSize; ++b) {
-    for (unsigned i = 0; i < outputSize; ++i) {
-      double sum = 0;
-      for (unsigned j = 0; j < inputSize; ++j) {
-        sum += in[b][j] * weights[j][i];
+  for (unsigned g = 0; g != numGroups; ++g) {
+    for (unsigned b = 0; b != batchSize; ++b) {
+      for (unsigned i = 0; i < outputSize; ++i) {
+        double sum = 0;
+        for (unsigned j = 0; j < inputSize; ++j) {
+          sum += in[g][b][j] * weights[g][j][i];
+        }
+        out[g][b][i] = sum + biases[g][i];
       }
-      out[b][i] = sum + biases[i];
     }
   }
 }
 
 void poplib_test::fc::fullyConnectedBackward(
-    const boost::multi_array<double, 2> &in,
-    const boost::multi_array<double, 2> &weights,
-    boost::multi_array<double, 2> &out) {
-  const auto batchSize = in.shape()[0];
-  const auto inputSize = in.shape()[1];
-  const auto outputSize = weights.shape()[0];
-  assert(weights.shape()[1] == inputSize);
-  assert(out.shape()[0] == batchSize);
-  assert(out.shape()[1] == outputSize);
+    const boost::multi_array<double, 3> &in,
+    const boost::multi_array<double, 3> &weights,
+    boost::multi_array<double, 3> &out) {
+  const auto numGroups = in.shape()[0];
+  const auto batchSize = in.shape()[1];
+  const auto inputSize = in.shape()[2];
+  const auto outputSize = weights.shape()[1];
+  assert(weights.shape()[0] == numGroups);
+  assert(out.shape()[0] == numGroups);
+  assert(weights.shape()[2] == inputSize);
+  assert(out.shape()[1] == batchSize);
+  assert(out.shape()[2] == outputSize);
 
-  for (unsigned b = 0; b != batchSize; ++b) {
-    for (unsigned i = 0; i < outputSize; ++i) {
-      double sum = 0;
-      for (unsigned j = 0; j < inputSize; ++j) {
-        sum += in[b][j] * weights[i][j];
+  for (unsigned g = 0; g != numGroups; ++g) {
+    for (unsigned b = 0; b != batchSize; ++b) {
+      for (unsigned i = 0; i < outputSize; ++i) {
+        double sum = 0;
+        for (unsigned j = 0; j < inputSize; ++j) {
+          sum += in[g][b][j] * weights[g][i][j];
+        }
+        out[g][b][i] = sum;
       }
-      out[b][i] = sum;
     }
   }
 }
 
 void poplib_test::fc::fullyConnectedWeightUpdate(
                   double learningRate,
-                  const boost::multi_array<double, 2> &activations,
-                  const boost::multi_array<double, 2> &deltas,
-                  boost::multi_array<double, 2> &weights,
-                  boost::multi_array<double, 1> &biases) {
-  const auto batchSize = activations.shape()[0];
-  const auto inputSize = activations.shape()[1];
-  const auto outputSize = deltas.shape()[1];
-  assert(batchSize == deltas.shape()[0]);
-  assert(weights.shape()[0] == inputSize);
-  assert(weights.shape()[1] == outputSize);
+                  const boost::multi_array<double, 3> &activations,
+                  const boost::multi_array<double, 3> &deltas,
+                  boost::multi_array<double, 3> &weights,
+                  boost::multi_array<double, 2> &biases) {
+  const auto numGroups = activations.shape()[0];
+  const auto batchSize = activations.shape()[1];
+  const auto inputSize = activations.shape()[2];
+  const auto outputSize = deltas.shape()[2];
+  assert(deltas.shape()[0] == numGroups);
+  assert(weights.shape()[0] == numGroups);
+  assert(biases.shape()[0] == numGroups);
+  assert(batchSize == deltas.shape()[1]);
+  assert(weights.shape()[1] == inputSize);
+  assert(weights.shape()[2] == outputSize);
 
-  boost::multi_array<double, 2>
-      weightDeltas(boost::extents[inputSize][outputSize]);
+  boost::multi_array<double, 3>
+      weightDeltas(boost::extents[numGroups][inputSize][outputSize]);
   std::fill(weightDeltas.data(),
             weightDeltas.data() + weightDeltas.num_elements(), 0.0);
 
-  for (unsigned b = 0; b != batchSize; ++b) {
-    for (unsigned i = 0; i < inputSize; ++i) {
-      for (unsigned j = 0; j < outputSize; ++j) {
-        weightDeltas[i][j] += activations[b][i] * deltas[b][j];
+  for (unsigned g = 0; g != numGroups; ++g) {
+    for (unsigned b = 0; b != batchSize; ++b) {
+      for (unsigned i = 0; i < inputSize; ++i) {
+        for (unsigned j = 0; j < outputSize; ++j) {
+          weightDeltas[g][i][j] += activations[g][b][i] * deltas[g][b][j];
+        }
       }
     }
   }
 
-  for (unsigned i = 0; i < inputSize; ++i) {
-    for (unsigned j = 0; j < outputSize; ++j) {
-      weights[i][j] += learningRate * -weightDeltas[i][j];
+  for (unsigned g = 0; g != numGroups; ++g) {
+    for (unsigned i = 0; i < inputSize; ++i) {
+      for (unsigned j = 0; j < outputSize; ++j) {
+        weights[g][i][j] += learningRate * -weightDeltas[g][i][j];
+      }
     }
   }
 
-  boost::multi_array<double, 1> biasDeltas(boost::extents[outputSize]);
+  boost::multi_array<double, 2> biasDeltas(boost::extents[numGroups]
+                                                         [outputSize]);
   std::fill(biasDeltas.data(),
             biasDeltas.data() + biasDeltas.num_elements(), 0.0);
 
-  for (unsigned b = 0; b != batchSize; ++b) {
-    for (unsigned i = 0; i < outputSize; ++i) {
-      biasDeltas[i] += deltas[b][i];
+  for (unsigned g = 0; g != numGroups; ++g) {
+    for (unsigned b = 0; b != batchSize; ++b) {
+      for (unsigned i = 0; i < outputSize; ++i) {
+        biasDeltas[g][i] += deltas[g][b][i];
+      }
     }
   }
 
-  for (unsigned i = 0; i < outputSize; ++i) {
-    biases[i] += learningRate * -biasDeltas[i];
+  for (unsigned g = 0; g != numGroups; ++g) {
+    for (unsigned i = 0; i < outputSize; ++i) {
+      biases[g][i] += learningRate * -biasDeltas[g][i];
+    }
   }
 }
 

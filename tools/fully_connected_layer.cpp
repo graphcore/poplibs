@@ -37,6 +37,7 @@ int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
   MatMulOptions fwdOptions;
+  unsigned numGroups;
   unsigned inputSize;
   unsigned outputSize;
   unsigned batchSize;
@@ -75,6 +76,9 @@ int main(int argc, char **argv) {
     ("batch-size",
      po::value<unsigned>(&batchSize)->default_value(1),
      "Batch size")
+    ("num-groups",
+     po::value<unsigned>(&numGroups)->default_value(1),
+     "Number of groups in grouped matrix multiplication")
     ("in-place-update",
      po::value<bool>(&inPlaceUpdate)->default_value(true),
      "Perform param update in place")
@@ -121,17 +125,19 @@ int main(int argc, char **argv) {
   if (!inferenceOnly) {
     fwdOptions.fullyConnectedPass = FullyConnectedPass::FWD;
   }
-  Tensor prevAct = createMatMulInputLHS(graph, dataTypeStr,
-                                        {batchSize, inputSize},
-                                        {inputSize, outputSize},
-                                        "prevAct",
-                                        fwdOptions);
-  Tensor weights = createMatMulInputRHS(graph, dataTypeStr,
-                                        {batchSize, inputSize},
-                                        {inputSize, outputSize},
-                                        "weights",
-                                        fwdOptions);
-  auto biases = graph.addTensor(dataTypeStr, {outputSize}, "biases");
+  Tensor prevAct =
+      createMatMulGroupedInputLHS(graph, dataTypeStr,
+                                  {numGroups, batchSize, inputSize},
+                                  {numGroups, inputSize, outputSize},
+                                  "prevAct",
+                                  fwdOptions);
+  Tensor weights =
+      createMatMulGroupedInputRHS(graph, dataTypeStr,
+                                  {numGroups, batchSize, inputSize},
+                                  {numGroups, inputSize, outputSize},
+                                  "weights",
+                                  fwdOptions);
+  auto biases = graph.addTensor(dataTypeStr, {numGroups, outputSize}, "biases");
   mapTensorLinearly(graph, biases);
 
   auto bwdOptions = fwdOptions;
@@ -142,12 +148,14 @@ int main(int argc, char **argv) {
 
   Tensor nextAct;
   if (doFwdPass) {
-    nextAct = poplin::matMul(graph, prevAct, weights, fwdProg, "", fwdOptions);
-    auto bBiases = biases.reshape({1, outputSize}).broadcast(batchSize, 0);
+    nextAct = poplin::matMulGrouped(graph, prevAct, weights, fwdProg, "",
+                                    fwdOptions);
+    auto bBiases = biases.reshape({numGroups, 1, outputSize})
+                         .broadcast(batchSize, 1);
     addTo(graph, nextAct, bBiases, 1, fwdProg);
   } else {
-    nextAct =
-        graph.addTensor(dataTypeStr, {batchSize, outputSize}, "nextAct");
+    nextAct = graph.addTensor(dataTypeStr, {numGroups, batchSize, outputSize},
+                              "nextAct");
     mapTensorLinearly(graph, nextAct);
   }
 
@@ -164,10 +172,11 @@ int main(int argc, char **argv) {
   Tensor zDeltas;
   std::unique_ptr<char[]> rawHostZDeltas;
   if (doBwdPass || doWuPass) {
-    zDeltas = poplin::createMatMulInputLHS(graph, dataTypeStr,
-                                           {batchSize, outputSize},
-                                           {outputSize, inputSize},
-                                           "zDeltas", bwdOptions);
+    zDeltas =
+        poplin::createMatMulGroupedInputLHS(graph, dataTypeStr,
+                                            {numGroups, batchSize, outputSize},
+                                            {numGroups, outputSize, inputSize},
+                                            "zDeltas", bwdOptions);
     rawHostZDeltas =
         allocateHostMemoryForTensor(zDeltas, "zDeltas", graph, tmap);
   }
@@ -175,30 +184,33 @@ int main(int argc, char **argv) {
   std::unique_ptr<char[]> rawHostPrevDeltas;
   if (doBwdPass) {
     prevDeltas =
-        poplin::matMul(graph, zDeltas, weights.transpose(), bwdProg, "",
-                       bwdOptions);
+        poplin::matMulGrouped(graph, zDeltas,
+                              poplin::transposeGroupedMatrix(weights),
+                              bwdProg, "", bwdOptions);
     rawHostPrevDeltas =
         allocateHostMemoryForTensor(prevDeltas, "prevDeltas", graph, tmap);
   }
   if (doWuPass) {
     auto wuOptions = fwdOptions;
     wuOptions.fullyConnectedPass = FullyConnectedPass::WU;
-    poplin::matMulAcc(graph, weights, -learningRate, prevAct.transpose(),
-                      zDeltas, bwdProg, "", wuOptions);
-    auto biasDeltas = reduce(graph, zDeltas, bwdProg);
+    poplin::matMulGroupedAcc(graph, weights, -learningRate,
+                             poplin::transposeGroupedMatrix(prevAct),
+                             zDeltas, bwdProg, "", wuOptions);
+    auto biasDeltas = reduce(graph, zDeltas, {1}, popreduce::Operation::ADD,
+                             bwdProg);
     addTo(graph, biases, biasDeltas, -learningRate, bwdProg);
   }
 
   Engine engine(graph, {std::move(fwdProg), std::move(bwdProg)});
 
+  boost::multi_array<double, 3>
+      hostPrevAct(boost::extents[numGroups][batchSize][inputSize]);
+  boost::multi_array<double, 3>
+      hostWeights(boost::extents[numGroups][inputSize][outputSize]);
   boost::multi_array<double, 2>
-      hostPrevAct(boost::extents[batchSize][inputSize]);
-  boost::multi_array<double, 2>
-      hostWeights(boost::extents[inputSize][outputSize]);
-  boost::multi_array<double, 1>
-      hostBiases(boost::extents[outputSize]);
-  boost::multi_array<double, 2>
-      hostNextAct(boost::extents[batchSize][outputSize]);
+      hostBiases(boost::extents[numGroups][outputSize]);
+  boost::multi_array<double, 3>
+      hostNextAct(boost::extents[numGroups][batchSize][outputSize]);
   std::mt19937 randomEngine;
   writeRandomValues(hostPrevAct, -4.0, 4.0, randomEngine);
   writeRandomValues(hostWeights, -3.0, 3.0, randomEngine);
@@ -215,8 +227,8 @@ int main(int argc, char **argv) {
   // Validate against a reference model.
   bool matchesModel = true;
   if (doFwdPass) {
-    boost::multi_array<double, 2>
-        modelNextAct(boost::extents[batchSize][outputSize]);
+    boost::multi_array<double, 3>
+        modelNextAct(boost::extents[numGroups][batchSize][outputSize]);
     poplib_test::fc::fullyConnected(hostPrevAct, hostWeights, hostBiases,
                                     modelNextAct);
     matchesModel &= checkIsClose("fwd", hostNextAct, modelNextAct,
@@ -224,11 +236,11 @@ int main(int argc, char **argv) {
 
   }
   if (doBwdPass || doWuPass) {
-    boost::multi_array<double, 2> hostZDeltas(
-      boost::extents[batchSize][outputSize]
+    boost::multi_array<double, 3> hostZDeltas(
+      boost::extents[numGroups][batchSize][outputSize]
     );
-    boost::multi_array<double, 2> hostPrevDeltas(
-      boost::extents[batchSize][inputSize]
+    boost::multi_array<double, 3> hostPrevDeltas(
+      boost::extents[numGroups][batchSize][inputSize]
     );
     auto modelWeights = hostWeights;
     auto modelBiases = hostBiases;
@@ -242,8 +254,8 @@ int main(int argc, char **argv) {
     // Validate against a reference model.
     if (doBwdPass) {
       copy(dataTypeStr, rawHostPrevDeltas.get(), hostPrevDeltas);
-      boost::multi_array<double, 2>
-          modelPrevDeltas(boost::extents[batchSize][inputSize]);
+      boost::multi_array<double, 3>
+          modelPrevDeltas(boost::extents[numGroups][batchSize][inputSize]);
       poplib_test::fc::fullyConnectedBackward(hostZDeltas, modelWeights,
                                               modelPrevDeltas);
       matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,

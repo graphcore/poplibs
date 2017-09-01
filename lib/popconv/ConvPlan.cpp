@@ -997,7 +997,6 @@ static Plan::Method
 getFullyConnectedWUMethod(const ConvParams &fwdParams,
                           Plan::Method fwdMethod,
                           unsigned fwdInChansPerGroup) {
-  assert(fwdParams.getNumConvGroups() == 1);
   if (fwdParams.getOutputDepthPerConvGroup() == 1) {
     return Plan::Method::OUTER_PRODUCT;
   }
@@ -1593,8 +1592,6 @@ createPlan(ConvParams params,
 
 static ConvParams getFullyConnectedFwdParams(const ConvParams &params,
                                              const ConvOptions &options) {
-  // for fully connected WU, number of grouped convolutions must always be 1
-  assert(params.getNumConvGroups() == 1);
   // Translate back into parameters of the fully connected layer.
   unsigned outputSize, inputSize, batchSize;
   assert(params.getInputHeight() == 1);
@@ -1642,8 +1639,6 @@ static Plan getFullyConnectedWUPlan(const poplar::DeviceInfo &deviceInfo,
                                     const ConvParams &fwdParams,
                                     const ConvOptions &fwdOptions,
                                     const Plan &fwdPlan) {
-  // for fully connected WU, number of grouped convolutions must always be 1
-  assert(fwdParams.getNumConvGroups() == 1);
   assert(fwdPlan.method == Plan::Method::AMP ||
          fwdPlan.method == Plan::Method::MAC);
   auto plan = fwdPlan;
@@ -1681,8 +1676,6 @@ static Plan getFullyConnectedBwdPlan(const poplar::DeviceInfo &deviceInfo,
                                       const ConvParams &fwdParams,
                                       const ConvOptions &fwdOptions,
                                       const Plan &fwdPlan) {
-  // for fully connected WU, number of grouped convolutions must always be 1
-  assert(fwdParams.getNumConvGroups() == 1);
   auto plan = fwdPlan;
   plan.method = getFullyConnectedBwdMethod(fwdParams, fwdPlan.method);
   plan.linearizeTileOrder = Plan::LinearizeTileOrder::FC_BWD_AS_CONV;

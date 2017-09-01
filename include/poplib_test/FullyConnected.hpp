@@ -6,21 +6,21 @@
 namespace poplib_test {
 namespace fc {
 
-void fullyConnected(const boost::multi_array<double, 2> &in,
-                    const boost::multi_array<double, 2> &weights,
-                    const boost::multi_array<double, 1> &biases,
-                    boost::multi_array<double, 2> &out);
+void fullyConnected(const boost::multi_array<double, 3> &in,
+                    const boost::multi_array<double, 3> &weights,
+                    const boost::multi_array<double, 2> &biases,
+                    boost::multi_array<double, 3> &out);
 
-void fullyConnectedBackward(const boost::multi_array<double, 2> &in,
-                            const boost::multi_array<double, 2> &weights,
-                            boost::multi_array<double, 2> &out);
+void fullyConnectedBackward(const boost::multi_array<double, 3> &in,
+                            const boost::multi_array<double, 3> &weights,
+                            boost::multi_array<double, 3> &out);
 
 void fullyConnectedWeightUpdate(
                   double learningRate,
-                  const boost::multi_array<double, 2> &activations,
-                  const boost::multi_array<double, 2> &deltas,
-                  boost::multi_array<double, 2> &weights,
-                  boost::multi_array<double, 1> &biases);
+                  const boost::multi_array<double, 3> &activations,
+                  const boost::multi_array<double, 3> &deltas,
+                  boost::multi_array<double, 3> &weights,
+                  boost::multi_array<double, 2> &biases);
 
 // Compute estimates of mean and standard deviation for a batch of activations
 // and return

@@ -166,13 +166,14 @@ int main(int argc, char **argv) {
 
   auto matA = createMatMulInputLHS(graph, dataTypeStr,
                                    {m, k}, {k, n}, "matA", mmOpt);
+
   if (transposeA)
     matA = matA.transpose();
 
   auto matB = createMatMulInputRHS(graph, dataTypeStr,
                                    {m, k},
                                    {k, n},
-                                   "matA", mmOpt);
+                                   "matB", mmOpt);
   if (transposeB)
     matB = matB.transpose();
 

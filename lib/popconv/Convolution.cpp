@@ -3204,48 +3204,57 @@ fullyConnectedWeightTranspose(Graph &graph,
                               ConvParams params,
                               Sequence &prog, const std::string &debugPrefix,
                               const ConvOptions &options) {
-  // for fully connected weight update, the number of grouped convolutions
-  //  must always be 1
-  assert(params.getNumConvGroups() == 1);
   auto plan = getPlan(graph, params, options);
   auto fwdPlan = plan;
   std::swap(fwdPlan.xAxisGrainSize, fwdPlan.inChansPerGroup);
   std::swap(fwdPlan.tilesPerXAxis, fwdPlan.tilesPerInZGroupAxis);
   Tensor transposed = createInput(graph, params, "transposed", options);
-  auto transposedUngroupedShape = transposed.shape();
+  // split activations into conv groups
+  auto splitActivations =
+      splitActivationConvGroups(activations, params.getNumConvGroups());
+  auto splitTransposed =
+      splitActivationConvGroups(transposed, params.getNumConvGroups());
+  auto splitTransposedUngroupedShape = splitTransposed.shape();
   const auto fwdGroupSize =
-      getInChansPerGroup(fwdPlan, static_cast<unsigned>(activations.dim(3)));
+      getInChansPerGroup(fwdPlan,
+                         static_cast<unsigned>(splitActivations.dim(4)));
   const auto bwdGroupSize =
-      getInChansPerGroup(plan, static_cast<unsigned>(activations.dim(2)));
+      getInChansPerGroup(plan, static_cast<unsigned>(splitActivations.dim(3)));
   const auto dType = activations.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  activations = activations.reshape({activations.dim(0) * activations.dim(1),
-                                     activations.dim(2) / bwdGroupSize,
-                                     bwdGroupSize,
-                                     activations.dim(3) / fwdGroupSize,
-                                     fwdGroupSize})
-                                    .dimShuffle({0, 1, 3, 2, 4});
-  transposed = transposed.reshape({transposed.dim(0) * transposed.dim(1),
-                                   transposed.dim(2) / fwdGroupSize,
-                                   fwdGroupSize,
-                                   transposed.dim(3) / bwdGroupSize,
-                                   bwdGroupSize})
-                         .dimShuffle({0, 1, 3, 2, 4});
+  splitActivations =
+      splitActivations.reshape({splitActivations.dim(0),
+                                splitActivations.dim(1) *
+                                  splitActivations.dim(2),
+                                splitActivations.dim(3) / bwdGroupSize,
+                                bwdGroupSize,
+                                splitActivations.dim(4) / fwdGroupSize,
+                                fwdGroupSize})
+                      .dimShuffle({0, 1, 2, 4, 3, 5});
+  splitTransposed =
+      splitTransposed.reshape({splitTransposed.dim(0),
+                               splitTransposed.dim(1) *
+                                 splitTransposed.dim(2),
+                               splitTransposed.dim(3) / fwdGroupSize,
+                               fwdGroupSize,
+                               splitTransposed.dim(4) / bwdGroupSize,
+                               bwdGroupSize})
+                      .dimShuffle({0, 1, 2, 4, 3, 5});
   auto firstInBlock =
-      activations.slice({0, 0, 0, 0, 0},
-                        {activations.dim(0),
-                         activations.dim(1),
-                         activations.dim(2),
+      splitActivations.slice({0, 0, 0, 0, 0, 0},
+                        {splitActivations.dim(0),
+                         splitActivations.dim(1),
+                         splitActivations.dim(2),
+                         splitActivations.dim(3),
                          1,
                          1})
-                 .reshape({activations.dim(0),
-                           activations.dim(1),
-                           activations.dim(2)});
-  auto blockTileMapping =
-      graph.getTileMapping(firstInBlock);
+                      .reshape({splitActivations.dim(0),
+                                splitActivations.dim(1),
+                                splitActivations.dim(2),
+                                splitActivations.dim(3)});
+  auto blockTileMapping = graph.getTileMapping(firstInBlock);
   auto transposeCS = graph.addComputeSet(debugPrefix + "/Transpose");
   for (unsigned tile = 0; tile != blockTileMapping.size(); ++tile) {
-
     const auto perWorkerGroups =
         splitRegionsBetweenWorkers(deviceInfo, blockTileMapping[tile], 1);
     for (const auto &entry : perWorkerGroups) {
@@ -3262,13 +3271,15 @@ fullyConnectedWeightTranspose(Graph &graph,
           auto blockIndices = popstd::unflattenIndex(firstInBlock.shape(),
                                                      block);
           graph.connect(v["src"][index],
-                        activations[blockIndices[0]]
-                                   [blockIndices[1]]
-                                   [blockIndices[2]].flatten());
+                        splitActivations[blockIndices[0]]
+                                        [blockIndices[1]]
+                                        [blockIndices[2]]
+                                        [blockIndices[3]].flatten());
           graph.connect(v["dst"][index++],
-                        transposed[blockIndices[0]]
-                                  [blockIndices[2]]
-                                  [blockIndices[1]].flatten());
+                        splitTransposed[blockIndices[0]]
+                                       [blockIndices[1]]
+                                       [blockIndices[3]]
+                                       [blockIndices[2]].flatten());
         }
       }
       graph.setFieldSize(v["dst"], index);
@@ -3276,8 +3287,10 @@ fullyConnectedWeightTranspose(Graph &graph,
     }
   }
   prog.add(Execute(transposeCS));
-  return transposed.dimShuffle({0, 1, 3, 2, 4})
-                   .reshape(transposedUngroupedShape);
+  auto transposedWeights =
+      splitTransposed.dimShuffle({0, 1, 2, 4, 3, 5})
+                     .reshape(splitTransposedUngroupedShape);
+  return unsplitActivationConvGroups(transposedWeights);
 }
 
 void reportPlanInfo(std::ostream &out,
