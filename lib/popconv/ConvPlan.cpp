@@ -10,10 +10,12 @@
 #include "util/Compiler.hpp"
 #include <cassert>
 #include <map>
+#include <set>
 #include <tuple>
 #include <type_traits>
 #include <iostream>
 #include <popsolver/Model.hpp>
+#include "util/print.hpp"
 
 namespace popconv {
 
@@ -124,6 +126,9 @@ std::ostream& operator<<(std::ostream &os, const Plan &p)
      << "        inChansPerGroup         " << p.inChansPerGroup << "\n"
      << "        partialChansPerGroup    " << p.partialChansPerGroup << "\n"
      << "        method                  " << p.method << "\n"
+     << "        expandDims              ";
+  printContainer(p.expandDims, os);
+  os << "\n"
      << "        flattenXY               " << p.flattenXY << "\n"
      << "        deltasAsCoefficents     "
      << (p.ampWUMethod == Plan::DELTAS_AS_COEFFICENTS) << "\n";
@@ -1442,6 +1447,74 @@ choosePlan(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
   return {bestPlan, bestCost};
 }
 
+static Cost
+estimateTransformCost(const poplar::DeviceInfo &deviceInfo,
+                      const ConvParams &params,
+                      std::vector<unsigned> expandDims) {
+  if (expandDims.empty()) {
+    return {0, 0};
+  }
+  std::set<unsigned> expandedDimsSet(expandDims.begin(), expandDims.end());
+  unsigned numSpatialDims = params.getNumFieldDims();
+  unsigned expandedInputFieldSize = 1;
+  unsigned expandedFilterSize = 1;
+  unsigned expandedInputChannelsPerGroup = params.getInputDepthPerConvGroup();
+  for (unsigned dim = 0; dim != numSpatialDims; ++dim) {
+    if (expandedDimsSet.count(dim)) {
+      expandedInputFieldSize *= params.getOutputSize(dim);
+      expandedInputChannelsPerGroup *= params.kernelShape[dim];
+    } else {
+      expandedInputFieldSize *= params.inputFieldShape[dim];
+      expandedFilterSize *= params.kernelShape[dim];
+    }
+  }
+  if (expandedInputChannelsPerGroup == params.getInputDepthPerConvGroup()) {
+    return {0, 0};
+  }
+  const auto numTiles = deviceInfo.getNumTiles();
+  const auto expandedInputElements =
+      expandedInputFieldSize * expandedInputChannelsPerGroup *
+      params.getBatchSize() * params.numConvGroups;
+  const auto expandedInputElementsPerTile =
+      (expandedInputElements + numTiles - 1) / numTiles;
+  const auto expandedFilterElements =
+      expandedFilterSize * expandedInputChannelsPerGroup *
+      params.getOutputDepthPerConvGroup() * params.numConvGroups;
+  const auto expandedFilterElementsPerTile =
+      (expandedFilterElements + numTiles - 1) / numTiles;
+  const auto expandedElementsPerTile =
+      expandedInputElementsPerTile + expandedFilterElementsPerTile;
+  const auto bytesPerElement = params.dType == "float" ? 4U : 2U;
+  const auto expandedBytesPerTile = expandedElementsPerTile * bytesPerElement;
+  unsigned cycles = 0;
+  // Estimate cost assuming every byte must be exchanged and copied.
+  const auto exchangeBytesPerCycle = deviceInfo.exchangeBytesPerCycle;
+  cycles += (expandedBytesPerTile + exchangeBytesPerCycle - 1) /
+            exchangeBytesPerCycle;
+  // Assume we copy at most one element per cycle.
+  const auto reorderBytesPerCycle =
+      std::min(deviceInfo.memcpyBytesPerCycle, bytesPerElement);
+  cycles += (expandedBytesPerTile + reorderBytesPerCycle - 1) /
+            reorderBytesPerCycle;
+  // Apply an experimentally determined fudge factor to account for other
+  // overheads that aren't modeled.
+  double fudgeFactor = 1.5;
+  cycles *= fudgeFactor;
+  return {cycles, 0};
+}
+
+static std::vector<std::vector<unsigned>>
+getExpandDimsCandidates(bool isWeightUpdate) {
+  if (isWeightUpdate)
+    return {{}};
+  return {
+    {},
+    {0},
+    {1},
+    {1, 0}
+  };
+}
+
 static std::pair<Plan, Cost>
 createPlan(ConvParams params,
            unsigned tensorInChansPerGroup, unsigned tensorOutChansPerGroup,
@@ -1454,36 +1527,68 @@ createPlan(ConvParams params,
            PlanningCacheImpl *cache) {
   validateLayerParams(params);
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  bool flattenXY;
-  if (params.kernelShape[0] == 1 && params.kernelShape[1] == 1
-      && params.stride[0] == 1 && params.stride[1] == 1
-      && params.inputDilation[0] == 1 && params.inputDilation[1] == 1
-      && params.inputPaddingLower[0] == 0 && params.inputPaddingLower[1] == 0
-      && params.inputPaddingUpper[0] == 0 && params.inputPaddingUpper[1] == 0) {
-    flattenXY = true;
-    params.inputFieldShape[1] *= params.batchSize * params.inputFieldShape[0];
-    params.inputFieldShape[0] = 1;
-    params.batchSize = 1;
-  } else {
-    flattenXY = false;
+  Cost bestCost = highestCost;
+  Plan bestPlan;
+  for (std::vector<unsigned> expandDims :
+       getExpandDimsCandidates(isWeightUpdate)) {
+    Cost transformCost =
+        estimateTransformCost(graph.getDevice().getDeviceInfo(),
+                              params, expandDims);
+    auto newParams = params;
+    for (unsigned dim : expandDims) {
+      newParams.inputFieldShape[dim] = newParams.getOutputSize(dim);
+      newParams.inputChannels *= newParams.kernelShape[dim];
+      newParams.kernelShape[dim] = 1;
+      newParams.stride[dim] = 1;
+      newParams.inputDilation[dim] = 1;
+      newParams.inputPaddingLower[dim] = 0;
+      newParams.inputPaddingUpper[dim] = 0;
+      newParams.kernelDilation[dim] = 1;
+      newParams.kernelPaddingLower[dim] = 0;
+      newParams.kernelPaddingUpper[dim] = 0;
+    }
+    bool flattenXY;
+    if (newParams.getPaddedDilatedKernelSize(0) == 1 &&
+        newParams.getPaddedDilatedKernelSize(1) == 1 &&
+        newParams.stride[0] == 1 &&
+        newParams.stride[1] == 1 &&
+        newParams.inputDilation[0] == 1 &&
+        newParams.inputDilation[1] == 1 &&
+        newParams.inputPaddingLower[0] == 0 &&
+        newParams.inputPaddingLower[1] == 0 &&
+        newParams.inputPaddingUpper[0] == 0 &&
+        newParams.inputPaddingUpper[1] == 0) {
+      flattenXY = true;
+      newParams.inputFieldShape[1] *= newParams.batchSize *
+                                      newParams.inputFieldShape[0];
+      newParams.inputFieldShape[0] = 1;
+      newParams.batchSize = 1;
+    } else {
+      flattenXY = false;
+    }
+    const bool floatActivations = params.dType == "float";
+    const bool floatPartials = partialsType == "float";
+    Plan candidate;
+    Cost candidateCost;
+    std::tie(candidate, candidateCost) =
+        choosePlan(deviceInfo, floatActivations,
+                   floatPartials,
+                   tensorInChansPerGroup,
+                   tensorOutChansPerGroup,
+                   tensorWeightOutChansPerGroup,
+                   newParams, isWeightUpdate, costBounds,
+                   cache,
+                   options);
+    candidateCost += transformCost;
+    if (flattenXY)
+      candidate.flattenXY = true;
+    candidate.expandDims = expandDims;
+    if (compareCost(candidateCost, bestCost, costBounds)) {
+      bestPlan = candidate;
+      bestCost = candidateCost;
+    }
   }
-  const bool floatActivations = params.dType == "float";
-  const bool floatPartials = partialsType == "float";
-  Plan plan;
-  Cost cost;
-  std::tie(plan, cost) =
-      choosePlan(deviceInfo, floatActivations,
-                 floatPartials,
-                 tensorInChansPerGroup,
-                 tensorOutChansPerGroup,
-                 tensorWeightOutChansPerGroup,
-                 params, isWeightUpdate,
-                 costBounds,
-                 cache,
-                 options);
-  if (flattenXY)
-    plan.flattenXY = true;
-  return {plan, cost};
+  return {bestPlan, bestCost};
 }
 
 static ConvParams getFullyConnectedFwdParams(const ConvParams &params,

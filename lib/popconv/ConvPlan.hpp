@@ -22,6 +22,10 @@ struct Plan {
   unsigned xAxisGrainSize;
   bool floatPartials;
   bool flattenXY = false;
+  // Spatial dimensions that should be expanded by taking the activations
+  // multiplied by each weight in each position of the filter in this axis and
+  // turning them into different input channels.
+  std::vector<unsigned> expandDims;
   bool useWinograd = false;
   enum class Method {
     // Direction convolution using the MAC instruction.

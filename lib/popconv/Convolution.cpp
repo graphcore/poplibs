@@ -723,6 +723,128 @@ calculateActivationMapping(Graph &graph, const ConvParams &params,
                                       grainSize, minElementsPerTile);
 }
 
+static std::vector<unsigned>
+inversePermutation(const std::vector<unsigned> &permutation) {
+  const auto rank = permutation.size();
+  std::vector<unsigned> inverse(rank);
+  for (unsigned i = 0; i != rank; ++i) {
+    inverse[permutation[i]] = i;
+  }
+  return inverse;
+}
+
+static Tensor
+flattenDims(Tensor t, unsigned from, unsigned to) {
+  const auto rank = t.rank();
+  // Permute the dimensions so the dimension we want to flatten are at the
+  // front.
+  std::vector<unsigned> bringToFront = {
+    from,
+    to
+  };
+  bringToFront.reserve(rank);
+  for (unsigned dim = 0; dim != rank; ++dim) {
+    if (dim == from || dim == to)
+      continue;
+    bringToFront.push_back(dim);
+  }
+  t = t.dimShuffle(bringToFront);
+  // Flatten from dimension into to dimension.
+  auto flattenedShape = t.shape();
+  flattenedShape[1] *= flattenedShape[0];
+  flattenedShape[0] = 1;
+  t = t.reshape(flattenedShape);
+  // Undo the previous permutation.
+  t = t.dimShuffle(inversePermutation(bringToFront));
+  return t;
+}
+
+static Tensor dilate(Graph &graph, const Tensor &t, unsigned dilationFactor,
+                     unsigned dim) {
+  const auto oldSize = t.dim(dim);
+  const auto newSize = (oldSize - 1) * dilationFactor + 1;
+  if (newSize == oldSize)
+    return t;
+  const auto dType = t.elementType();
+  auto zeroShape = t.shape();
+  zeroShape[dim] = 1;
+  Tensor zero = graph.addConstantTensor(dType, zeroShape, 0);
+  std::vector<Tensor> slices;
+  slices.reserve(newSize);
+  for (unsigned i = 0; i != newSize; ++i) {
+    if (i % dilationFactor == 0) {
+      const auto oldIndex = i / dilationFactor;
+      slices.push_back(t.slice(oldIndex, oldIndex + 1, dim));
+    } else {
+      slices.push_back(zero);
+    }
+  }
+  return concat(slices, dim);
+}
+
+static void expandSpatialDim(Graph &graph, ConvParams &params,
+                             Tensor *acts, Tensor *weights, unsigned dim) {
+  if (acts) {
+    // Explicitly dilate this axis.
+    *acts = dilate(graph, *acts, params.inputDilation[dim], 2 + dim);
+    // Explicitly pad this axis.
+    *acts = pad(graph, *acts, params.inputPaddingLower[dim],
+                params.inputPaddingUpper[dim], 2 + dim);
+  }
+  params.inputFieldShape[dim] =
+      (params.inputFieldShape[dim] - 1) * params.inputDilation[dim] + 1;
+  params.inputFieldShape[dim] += params.inputPaddingLower[dim] +
+                                 params.inputPaddingUpper[dim];
+  params.inputDilation[dim] = 1;
+  params.inputPaddingLower[dim] = 0;
+  params.inputPaddingUpper[dim] = 0;
+  if (acts) {
+    // Expand the activations.
+    auto dType = acts->elementType();
+    auto expandedActivationsShape = acts->shape();
+    expandedActivationsShape[2 + dim] = params.getOutputSize(dim);
+    expandedActivationsShape.back() = 0;
+    auto expandedActivations = graph.addTensor(dType,
+                                               expandedActivationsShape);
+    auto paddedDilatedKernelSize = params.getPaddedDilatedKernelSize(dim);
+    for (unsigned k = 0; k != params.kernelShape[dim]; ++k) {
+      auto dilatedPaddedK =
+          static_cast<int>(k * params.kernelDilation[dim]) +
+          params.kernelPaddingLower[dim];
+      Tensor usedActivations;
+      if (dilatedPaddedK >= 0 && dilatedPaddedK < paddedDilatedKernelSize) {
+        usedActivations =
+            acts->slice(dilatedPaddedK,
+                        dilatedPaddedK +
+                        1 +
+                        (params.getOutputSize(dim) - 1) * params.stride[dim],
+                        2 + dim);
+        usedActivations =
+            usedActivations.subSample(params.stride[dim], 2 + dim);
+      } else {
+        auto zerosShape = expandedActivationsShape;
+        zerosShape.back() = acts->dim(4);
+        usedActivations =
+            graph.addConstantTensor(dType, zerosShape, 0);
+      }
+      expandedActivations = concat(expandedActivations, usedActivations,
+                                   expandedActivations.rank() - 1);
+    }
+    *acts = expandedActivations;
+  }
+  if (weights) {
+    // Flatten the spatial dimension of the kernel into the input channels.
+    *weights = flattenDims(*weights, 1 + dim, weights->rank() - 1);
+  }
+  params.inputFieldShape[dim] = params.getOutputSize(dim);
+  params.inputChannels *= params.kernelShape[dim];
+  params.kernelShape[dim] = 1;
+  params.kernelDilation[dim] = 1;
+  params.kernelPaddingLower[dim] = 0;
+  params.kernelPaddingUpper[dim] = 0;
+  params.stride[dim] = 1;
+}
+
 /// Apply any pre-convolution transformations implied by the plan. The
 /// plan and the parameters are updated to describe the convolution operation
 /// performed on the transformed input. If the \a acts or \ weights pointers are
@@ -731,6 +853,10 @@ calculateActivationMapping(Graph &graph, const ConvParams &params,
 static void
 convolutionPreprocess(Graph &graph, ConvParams &params, Plan &plan,
                       Tensor *acts, Tensor *weights) {
+  for (auto dim : plan.expandDims) {
+    expandSpatialDim(graph, params, acts, weights, dim);
+  }
+  plan.expandDims.empty();
   if (plan.flattenXY) {
     if (acts) {
       *acts = acts->reshape({acts->dim(0),
@@ -779,7 +905,12 @@ convolutionPreprocess(Graph &graph, ConvParams &params, Plan &plan,
 static void mapActivations(Graph &graph, ConvParams params,
                            Plan plan, Tensor acts) {
   // Depending on the plan the input may be transformed prior to the
-  // convolution. Apply the same transformation here.
+  // convolution. Some activations may not be present in the transformed view
+  // (for example if they are not used in the calculation due to negative
+  // padding). Map the activations tensor before it is transformed so
+  // activations that don't appear in the transformed view are mapped to a tile.
+  mapTensorLinearly(graph, acts);
+  // Apply the transform to the activations.
   convolutionPreprocess(graph, params, plan, &acts, nullptr);
   // Compute a mapping for the transformed activations tensor that minimizes
   // exchange.
