@@ -1902,33 +1902,6 @@ calcPartialConvOutput(Graph &graph,
   }
 }
 
-// Take an ordered list and return a list of ranges
-// representing the contiguous regions in that list.
-template <typename It>
-static std::vector<std::pair<typename std::iterator_traits<It>::value_type,
-                             typename std::iterator_traits<It>::value_type>>
-getContiguousRegions(It begin,
-                     It end)
-{
-  using T = typename std::iterator_traits<It>::value_type;
-  std::vector<std::pair<T, T>> regions;
-  unsigned curBegin = *begin;
-  unsigned curEnd = curBegin + 1;
-  auto it = begin + 1;
-  while (it != end) {
-    if (*it == curEnd) {
-      ++curEnd;
-    } else {
-      regions.emplace_back(curBegin, curEnd);
-      curBegin = *it;
-      curEnd = curBegin + 1;
-    }
-    ++it;
-  }
-  regions.emplace_back(curBegin, curEnd);
-  return regions;
-}
-
 static Program
 calcPartialSums(Graph &graph,
                 const Plan &plan,
