@@ -2109,7 +2109,7 @@ convolutionImpl(Graph &graph, const Plan &plan,
   // applied.
   // Note these copies will be elided if the inputs already use the expected
   // memory layout and tile mapping.
-  const auto viewMaxBroadcastDests = 7;
+  const auto viewMaxBroadcastDests = 1;
   const auto inNumDests = plan.tilesPerKernelYAxis * plan.tilesPerZAxis;
   if (inNumDests > viewMaxBroadcastDests) {
     auto inRearranged = createInputImpl(graph, params, "inRearranged", plan);
