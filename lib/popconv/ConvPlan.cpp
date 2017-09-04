@@ -129,6 +129,9 @@ std::ostream& operator<<(std::ostream &os, const Plan &p)
      << "        expandDims              ";
   printContainer(p.expandDims, os);
   os << "\n"
+     << "        outChanFlattenDims      ";
+  printContainer(p.outChanFlattenDims, os);
+  os << "\n"
      << "        flattenDims             ";
   printContainer(p.flattenDims, os);
   os << "\n"
@@ -1454,6 +1457,26 @@ choosePlan(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
   return {bestPlan, bestCost};
 }
 
+static void expandDim(ConvParams &params, unsigned dim) {
+  if (params.getPaddedDilatedInputSize(dim) >=
+      params.getPaddedDilatedKernelSize(dim)) {
+    params.inputFieldShape[dim] = params.getOutputSize(dim);
+    params.inputChannels *= params.kernelShape[dim];
+    params.kernelShape[dim] = 1;
+  } else {
+    params.kernelShape[dim] = params.getOutputSize(dim);
+    params.inputChannels *= params.inputFieldShape[dim];
+    params.inputFieldShape[dim] = 1;
+  }
+  params.stride[dim] = 1;
+  params.inputDilation[dim] = 1;
+  params.inputPaddingLower[dim] = 0;
+  params.inputPaddingUpper[dim] = 0;
+  params.kernelDilation[dim] = 1;
+  params.kernelPaddingLower[dim] = 0;
+  params.kernelPaddingUpper[dim] = 0;
+}
+
 static Cost
 estimateTransformCost(const poplar::DeviceInfo &deviceInfo,
                       const ConvParams &params,
@@ -1461,23 +1484,21 @@ estimateTransformCost(const poplar::DeviceInfo &deviceInfo,
   if (expandDims.empty()) {
     return {0, 0};
   }
-  std::set<unsigned> expandedDimsSet(expandDims.begin(), expandDims.end());
-  unsigned numSpatialDims = params.getNumFieldDims();
-  unsigned expandedInputFieldSize = 1;
-  unsigned expandedFilterSize = 1;
-  unsigned expandedInputChannelsPerGroup = params.getInputDepthPerConvGroup();
-  for (unsigned dim = 0; dim != numSpatialDims; ++dim) {
-    if (expandedDimsSet.count(dim)) {
-      expandedInputFieldSize *= params.getOutputSize(dim);
-      expandedInputChannelsPerGroup *= params.kernelShape[dim];
-    } else {
-      expandedInputFieldSize *= params.inputFieldShape[dim];
-      expandedFilterSize *= params.kernelShape[dim];
-    }
+  auto expandedParams = params;
+  for (const auto dim : expandDims) {
+    expandDim(expandedParams, dim);
   }
-  if (expandedInputChannelsPerGroup == params.getInputDepthPerConvGroup()) {
+  if (expandedParams.getInputDepthPerConvGroup() ==
+      params.getInputDepthPerConvGroup()) {
     return {0, 0};
   }
+  unsigned expandedInputFieldSize = 1;
+  unsigned expandedFilterSize = 1;
+  for (unsigned dim = 0; dim != params.getNumFieldDims(); ++dim) {
+    expandedInputFieldSize *= params.inputFieldShape[dim];
+    expandedFilterSize *= params.kernelShape[dim];
+  }
+  const auto expandedInputChannelsPerGroup = params.getInputDepthPerConvGroup();
   const auto numTiles = deviceInfo.getNumTiles();
   const auto expandedInputElements =
       expandedInputFieldSize * expandedInputChannelsPerGroup *
@@ -1530,6 +1551,15 @@ static bool dimCanBeFlattened(const ConvParams &params, unsigned dim) {
          params.inputPaddingUpper[dim] == 0;
 }
 
+static bool
+dimCanBeFlattenedIntoOutChans(const ConvParams &params, unsigned dim) {
+  return params.getPaddedDilatedInputSize(dim) == 1 &&
+         params.stride[dim] == 1 &&
+         params.kernelDilation[dim] == 1 &&
+         params.kernelPaddingLower[dim] == 0 &&
+         params.kernelPaddingUpper[dim] == 0;
+}
+
 static std::pair<Plan, Cost>
 createPlan(ConvParams params,
            unsigned tensorInChansPerGroup, unsigned tensorOutChansPerGroup,
@@ -1551,16 +1581,21 @@ createPlan(ConvParams params,
                               params, expandDims);
     auto newParams = params;
     for (unsigned dim : expandDims) {
-      newParams.inputFieldShape[dim] = newParams.getOutputSize(dim);
-      newParams.inputChannels *= newParams.kernelShape[dim];
-      newParams.kernelShape[dim] = 1;
-      newParams.stride[dim] = 1;
-      newParams.inputDilation[dim] = 1;
-      newParams.inputPaddingLower[dim] = 0;
-      newParams.inputPaddingUpper[dim] = 0;
-      newParams.kernelDilation[dim] = 1;
-      newParams.kernelPaddingLower[dim] = 0;
-      newParams.kernelPaddingUpper[dim] = 0;
+      expandDim(newParams, dim);
+    }
+    std::vector<unsigned> outChanFlattenDims;
+    if (!isWeightUpdate) {
+      for (unsigned spatialDim = 0; spatialDim != newParams.getNumFieldDims();
+           ++spatialDim) {
+        if (dimCanBeFlattenedIntoOutChans(newParams, spatialDim) &&
+            newParams.kernelShape[spatialDim] > 1) {
+          outChanFlattenDims.push_back(spatialDim);
+          newParams.outputChannels *= newParams.kernelShape[spatialDim];
+          newParams.kernelShape[spatialDim] = 1;
+        }
+      }
+      // Flatten from the innermost out.
+      std::reverse(outChanFlattenDims.begin(), outChanFlattenDims.end());
     }
     std::vector<unsigned> flattenDims;
     if (!isWeightUpdate) {
@@ -1606,6 +1641,7 @@ createPlan(ConvParams params,
       candidate.flattenDims = flattenDims;
     }
     candidate.expandDims = expandDims;
+    candidate.outChanFlattenDims = outChanFlattenDims;
     if (compareCost(candidateCost, bestCost, costBounds)) {
       bestPlan = candidate;
       bestCost = candidateCost;

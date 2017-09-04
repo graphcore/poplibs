@@ -25,6 +25,9 @@ struct Plan {
   // multiplied by each weight in each position of the filter in this axis and
   // turning them into different input channels.
   std::vector<unsigned> expandDims;
+  // Spatial dimensions that should be flattened into the output channels of the
+  // kernel.
+  std::vector<unsigned> outChanFlattenDims;
   // Dimensions that should be flattened. The dimensions are numbered such that
   // the batch is dimension 0 and the spatial dimensions start at 1.
   // The dimensions are flattened into the last dimension in reverse order.

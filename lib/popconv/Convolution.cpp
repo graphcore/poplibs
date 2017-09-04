@@ -812,64 +812,83 @@ static Tensor dilate(Graph &graph, const Tensor &t, unsigned dilationFactor,
 
 static void expandSpatialDim(Graph &graph, ConvParams &params,
                              Tensor *acts, Tensor *weights, unsigned dim) {
-  if (acts) {
+  bool actsAreLarger = params.getPaddedDilatedInputSize(dim) >=
+                       params.getPaddedDilatedKernelSize(dim);
+  Tensor *larger = actsAreLarger ? acts : weights;
+  Tensor *smaller = actsAreLarger ? weights : acts;
+  unsigned largerDimIndex = dim + (actsAreLarger ? 2 : 1);
+  unsigned smallerDimIndex = dim + (actsAreLarger ? 1 : 2);
+  auto &largerSize = actsAreLarger ? params.inputFieldShape[dim] :
+                                     params.kernelShape[dim];
+  auto &smallerSize = actsAreLarger ? params.kernelShape[dim] :
+                                      params.inputFieldShape[dim];
+  auto &largerDilation = actsAreLarger ? params.inputDilation[dim] :
+                                          params.kernelDilation[dim];
+  auto &smallerDilation = actsAreLarger ? params.kernelDilation[dim] :
+                                          params.inputDilation[dim];
+  auto &largerPaddingLower = actsAreLarger ? params.inputPaddingLower[dim] :
+                                             params.kernelPaddingLower[dim];
+  auto &smallerPaddingLower = actsAreLarger ? params.kernelPaddingLower[dim] :
+                                              params.inputPaddingLower[dim];
+  auto &largerPaddingUpper = actsAreLarger ? params.inputPaddingUpper[dim] :
+                                              params.kernelPaddingUpper[dim];
+  auto &smallerPaddingUpper = actsAreLarger ? params.kernelPaddingUpper[dim] :
+                                              params.inputPaddingUpper[dim];
+  if (larger) {
     // Explicitly dilate this axis.
-    *acts = dilate(graph, *acts, params.inputDilation[dim], 2 + dim);
+    *larger = dilate(graph, *larger, largerDilation, largerDimIndex);
     // Explicitly pad this axis.
-    *acts = pad(graph, *acts, params.inputPaddingLower[dim],
-                params.inputPaddingUpper[dim], 2 + dim);
+    *larger = pad(graph, *larger, largerPaddingLower, largerPaddingUpper,
+                  largerDimIndex);
   }
-  params.inputFieldShape[dim] =
-      (params.inputFieldShape[dim] - 1) * params.inputDilation[dim] + 1;
-  params.inputFieldShape[dim] += params.inputPaddingLower[dim] +
-                                 params.inputPaddingUpper[dim];
-  params.inputDilation[dim] = 1;
-  params.inputPaddingLower[dim] = 0;
-  params.inputPaddingUpper[dim] = 0;
-  if (acts) {
-    // Expand the activations.
-    auto dType = acts->elementType();
-    auto expandedActivationsShape = acts->shape();
-    expandedActivationsShape[2 + dim] = params.getOutputSize(dim);
-    expandedActivationsShape.back() = 0;
-    auto expandedActivations = graph.addTensor(dType,
-                                               expandedActivationsShape);
-    auto paddedDilatedKernelSize = params.getPaddedDilatedKernelSize(dim);
-    for (unsigned k = 0; k != params.kernelShape[dim]; ++k) {
+  largerSize = (largerSize - 1) * largerDilation + 1;
+  largerSize += largerPaddingLower + largerPaddingUpper;
+  largerDilation = 1;
+  largerPaddingLower = 0;
+  largerPaddingUpper = 0;
+  if (larger) {
+    // Expand the larger tensor.
+    auto dType = larger->elementType();
+    auto expandedShape = larger->shape();
+    expandedShape[largerDimIndex] = params.getOutputSize(dim);
+    expandedShape.back() = 0;
+    auto expanded = graph.addTensor(dType, expandedShape);
+    auto smallerPaddedDilatedSize =
+        actsAreLarger ? params.getPaddedDilatedKernelSize(dim) :
+                        params.getPaddedDilatedInputSize(dim);
+    for (unsigned k = 0; k != smallerSize; ++k) {
       auto dilatedPaddedK =
-          static_cast<int>(k * params.kernelDilation[dim]) +
-          params.kernelPaddingLower[dim];
-      Tensor usedActivations;
-      if (dilatedPaddedK >= 0 && dilatedPaddedK < paddedDilatedKernelSize) {
-        usedActivations =
-            acts->slice(dilatedPaddedK,
-                        dilatedPaddedK +
-                        1 +
-                        (params.getOutputSize(dim) - 1) * params.stride[dim],
-                        2 + dim);
-        usedActivations =
-            usedActivations.subSample(params.stride[dim], 2 + dim);
+          static_cast<int>(k * smallerDilation) +
+          smallerPaddingLower;
+      Tensor slice;
+      if (dilatedPaddedK >= 0 && dilatedPaddedK < smallerPaddedDilatedSize) {
+        slice =
+            larger->slice(dilatedPaddedK,
+                          dilatedPaddedK +
+                          1 +
+                          (params.getOutputSize(dim) - 1) * params.stride[dim],
+                          largerDimIndex);
+        slice = slice.subSample(params.stride[dim], largerDimIndex);
       } else {
-        auto zerosShape = expandedActivationsShape;
-        zerosShape.back() = acts->dim(4);
-        usedActivations =
-            graph.addConstantTensor(dType, zerosShape, 0);
+        auto zerosShape = expandedShape;
+        zerosShape.back() = larger->dim(larger->rank() - 1);
+        slice = graph.addConstantTensor(dType, zerosShape, 0);
       }
-      expandedActivations = concat(expandedActivations, usedActivations,
-                                   expandedActivations.rank() - 1);
+      expanded = concat(expanded, slice, expanded.rank() - 1);
     }
-    *acts = expandedActivations;
+    *larger = expanded;
   }
-  if (weights) {
-    // Flatten the spatial dimension of the kernel into the input channels.
-    *weights = flattenDims(*weights, 1 + dim, weights->rank() - 1);
+  if (smaller) {
+    // Flatten the spatial dimension of the smaller tensor into the input
+    // channels.
+    *smaller = flattenDims(*smaller, smallerDimIndex, smaller->rank() - 1);
   }
-  params.inputFieldShape[dim] = params.getOutputSize(dim);
-  params.inputChannels *= params.kernelShape[dim];
-  params.kernelShape[dim] = 1;
-  params.kernelDilation[dim] = 1;
-  params.kernelPaddingLower[dim] = 0;
-  params.kernelPaddingUpper[dim] = 0;
+  largerSize = params.getOutputSize(dim);
+  params.inputChannels *= smallerSize;
+  smallerSize = 1;
+  smallerDilation = 1;
+  smallerPaddingLower = 0;
+  smallerPaddingUpper = 0;
   params.stride[dim] = 1;
 }
 
@@ -885,6 +904,14 @@ convolutionPreprocess(Graph &graph, ConvParams &params, Plan &plan,
     expandSpatialDim(graph, params, acts, weights, dim);
   }
   plan.expandDims.clear();
+  for (auto dim : plan.outChanFlattenDims) {
+    if (weights) {
+      *weights = flattenDims(*weights, dim + 1, weights->rank() - 2);
+    }
+    params.outputChannels *= params.kernelShape[dim];
+    params.kernelShape[dim] = 1;
+  }
+  plan.outChanFlattenDims.clear();
   if (!plan.flattenDims.empty()) {
     for (auto it = std::next(plan.flattenDims.rbegin()),
          end = plan.flattenDims.rend(); it != end; ++it) {
@@ -2250,8 +2277,14 @@ convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
   for (auto dim : originalPlan.expandDims) {
     expandSpatialDim(graph, postExpandParams, nullptr, nullptr, dim);
   }
+  auto postOutChanFlattenParams = postExpandParams;
+  for (auto dim : originalPlan.outChanFlattenDims) {
+    postOutChanFlattenParams.outputChannels *=
+        postOutChanFlattenParams.kernelShape[dim];
+    postOutChanFlattenParams.kernelShape[dim] = 1;
+  }
   const auto outNumChans =
-      postExpandParams.getOutputDepthPerConvGroup();
+      postOutChanFlattenParams.getOutputDepthPerConvGroup();
   // Undo padding.
   activations = activations.slice(0, outNumChans, 4);
   // Undo flattening of the batch / spatial fields.
@@ -2262,12 +2295,21 @@ convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
       const auto toDimIndex = originalPlan.flattenDims.back();
       const auto fromSize =
           fromDimIndex ?
-            postExpandParams.inputFieldShape[fromDimIndex - 1] :
-            postExpandParams.batchSize;
+            postOutChanFlattenParams.inputFieldShape[fromDimIndex - 1] :
+            postOutChanFlattenParams.batchSize;
       activations =
           unflattenDims(activations, 1 + fromDimIndex, 1 + toDimIndex,
                         fromSize);
     }
+  }
+  // Undo flattening into output channels.
+  for (auto it = originalPlan.outChanFlattenDims.rbegin(),
+       end = originalPlan.outChanFlattenDims.rend(); it != end; ++it) {
+    const auto spatialDim = *it;
+    const auto spatialDimSize = originalParams.getOutputSize(spatialDim);
+    activations =
+        unflattenDims(activations, 2 + spatialDim, activations.rank() - 1,
+                      spatialDimSize);
   }
   return activations;
 }
