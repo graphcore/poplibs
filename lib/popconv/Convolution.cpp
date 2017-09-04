@@ -759,6 +759,34 @@ flattenDims(Tensor t, unsigned from, unsigned to) {
   return t;
 }
 
+static Tensor
+unflattenDims(Tensor t, unsigned from, unsigned to, unsigned fromSize) {
+  const auto rank = t.rank();
+  // Permute the dimensions so the dimension we want to flatten are at the
+  // front.
+  std::vector<unsigned> bringToFront = {
+    from,
+    to
+  };
+  bringToFront.reserve(rank);
+  for (unsigned dim = 0; dim != rank; ++dim) {
+    if (dim == from || dim == to)
+      continue;
+    bringToFront.push_back(dim);
+  }
+  t = t.dimShuffle(bringToFront);
+  // Reshape the dimensions.
+  auto flattenedShape = t.shape();
+  assert(flattenedShape[1] % fromSize == 0);
+  assert(flattenedShape[0] == 1);
+  flattenedShape[1] /= fromSize;
+  flattenedShape[0] = fromSize;
+  t = t.reshape(flattenedShape);
+  // Undo the previous permutation.
+  t = t.dimShuffle(inversePermutation(bringToFront));
+  return t;
+}
+
 static Tensor dilate(Graph &graph, const Tensor &t, unsigned dilationFactor,
                      unsigned dim) {
   const auto oldSize = t.dim(dim);
@@ -856,21 +884,27 @@ convolutionPreprocess(Graph &graph, ConvParams &params, Plan &plan,
   for (auto dim : plan.expandDims) {
     expandSpatialDim(graph, params, acts, weights, dim);
   }
-  plan.expandDims.empty();
-  if (plan.flattenXY) {
-    if (acts) {
-      *acts = acts->reshape({acts->dim(0),
-                             1,
-                             1,
-                             acts->dim(1) * acts->dim(2) * acts->dim(3),
-                             acts->dim(4)});
+  plan.expandDims.clear();
+  if (!plan.flattenDims.empty()) {
+    for (auto it = std::next(plan.flattenDims.rbegin()),
+         end = plan.flattenDims.rend(); it != end; ++it) {
+      const auto fromDimIndex = *it;
+      const auto toDimIndex = plan.flattenDims.back();
+      assert(fromDimIndex != toDimIndex);
+      if (acts) {
+        *acts = flattenDims(*acts, fromDimIndex + 1, toDimIndex + 1);
+      }
+      auto &fromDimSize =
+          fromDimIndex ? params.inputFieldShape[fromDimIndex - 1] :
+          params.batchSize;
+      auto &toDimSize =
+          toDimIndex ? params.inputFieldShape[toDimIndex - 1] :
+          params.batchSize;
+      toDimSize *= fromDimSize;
+      fromDimSize = 1;
     }
-    plan.flattenXY = false;
-    params.inputFieldShape[1] *=  params.getBatchSize()
-                                  * params.inputFieldShape[0];
-    params.batchSize = 1;
-    params.inputFieldShape[0] = 1;
   }
+  plan.flattenDims.clear();
   const auto numInChans = params.getInputDepthPerConvGroup();
   const auto convInChansPerGroup = plan.inChansPerGroup;
   const auto convNumChanGroups =
@@ -2209,19 +2243,33 @@ convSuffix(const ConvParams &params) {
 // - undo any flattening of the field
 // - undo any padding
 static Tensor
-convolutionPostprocess(const Tensor &activations,
-                       const std::vector<std::size_t> &outputShape) {
-  assert(activations.dim(0) == outputShape[0]);
-  // Undo any flattening of the field.
-  auto activationsReshaped = activations.reshape({activations.dim(0),
-                                                  outputShape[1],
-                                                  outputShape[2],
-                                                  outputShape[3],
-                                                  activations.dim(4)});
-  // undo padding
-  auto activationsUnpadded =
-      activationsReshaped.slice(0, outputShape[4], 4);
-  return activationsUnpadded;
+convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
+                       const Plan &originalPlan,
+                       Tensor activations) {
+  auto postExpandParams = originalParams;
+  for (auto dim : originalPlan.expandDims) {
+    expandSpatialDim(graph, postExpandParams, nullptr, nullptr, dim);
+  }
+  const auto outNumChans =
+      postExpandParams.getOutputDepthPerConvGroup();
+  // Undo padding.
+  activations = activations.slice(0, outNumChans, 4);
+  // Undo flattening of the batch / spatial fields.
+  if (!originalPlan.flattenDims.empty()) {
+    for (auto it = originalPlan.flattenDims.begin(),
+         end = std::prev(originalPlan.flattenDims.end()); it != end; ++it) {
+      const auto fromDimIndex = *it;
+      const auto toDimIndex = originalPlan.flattenDims.back();
+      const auto fromSize =
+          fromDimIndex ?
+            postExpandParams.inputFieldShape[fromDimIndex - 1] :
+            postExpandParams.batchSize;
+      activations =
+          unflattenDims(activations, 1 + fromDimIndex, 1 + toDimIndex,
+                        fromSize);
+    }
+  }
+  return activations;
 }
 
 Tensor
@@ -2252,6 +2300,8 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   const auto numConvGroups = params.getNumConvGroups();
   outputShape.insert(outputShape.begin(), numConvGroups);
   outputShape.back() /= numConvGroups;
+  const auto originalParams = params;
+  const auto originalPlan = plan;
   convolutionPreprocess(graph, params, plan, &in, &weights);
 
   Tensor activations;
@@ -2284,7 +2334,8 @@ convolution(Graph &graph, const poplar::Tensor &in_,
         convolutionImpl(graph, plan, params, in, weights, layerName);
     prog.add(convolveProg);
   }
-  activations = convolutionPostprocess(activations, outputShape);
+  activations = convolutionPostprocess(graph, originalParams, originalPlan,
+                                       activations);
   return unsplitActivationConvGroups(activations);
 }
 
@@ -2509,6 +2560,8 @@ convolutionWeightUpdateAmpPreProcess(
     std::vector<int> &weightDeltaTruncateUpper,
     std::vector<unsigned> &weightDeltasStride,
     const std::vector<std::size_t> &kernelShape) {
+  assert(plan.flattenDims.size() == 2 || plan.flattenDims.size() == 3);
+  bool flattenXY = plan.flattenDims.size() == 3;
   const auto dType = activations.elementType();
   assert(activations.rank() == 5);
   assert(deltas.rank() == 5);
@@ -2521,7 +2574,7 @@ convolutionWeightUpdateAmpPreProcess(
   assert(activationsUpsampleFactor == std::vector<unsigned>({1, 1}));
   assert(deltasPaddingLower == std::vector<int>({0, 0}));
   assert(deltasPaddingUpper == std::vector<int>({0, 0}));
-  assert(plan.flattenXY ||
+  assert(flattenXY ||
          (weightDeltaTruncateLower[0] == 0 &&
           weightDeltaTruncateUpper[0] == 0));
   // Eliminate the x axis of the kernel by taking the activations that are
@@ -2573,7 +2626,7 @@ convolutionWeightUpdateAmpPreProcess(
   weightDeltasStride[1] = 1;
   weightDeltaTruncateLower[1] = 0;
   weightDeltaTruncateUpper[1] = 0;
-  if (plan.flattenXY) {
+  if (flattenXY) {
     // Eliminate the y axis of the kernel by taking the activations that are
     // multiplied by each row of the weights turning them into different input
     // channels.
@@ -2677,7 +2730,9 @@ convolutionWeightUpdateAmpPostProcess(const Plan &plan,
   if (plan.ampWUMethod == Plan::ACTIVATIONS_AS_COEFFICENTS) {
     weightDeltas = weightDeltas.dimShuffle({0, 1, 2, 4, 3});
   }
-  if (plan.flattenXY) {
+  assert(plan.flattenDims.size() == 2 || plan.flattenDims.size() == 3);
+  bool flattenXY = plan.flattenDims.size() == 3;
+  if (flattenXY) {
     assert(weightDeltas.dim(1) == 1);
     weightDeltas =
         weightDeltas.reshape({weightDeltas.dim(0),

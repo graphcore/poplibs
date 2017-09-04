@@ -129,7 +129,9 @@ std::ostream& operator<<(std::ostream &os, const Plan &p)
      << "        expandDims              ";
   printContainer(p.expandDims, os);
   os << "\n"
-     << "        flattenXY               " << p.flattenXY << "\n"
+     << "        flattenDims             ";
+  printContainer(p.flattenDims, os);
+  os << "\n"
      << "        deltasAsCoefficents     "
      << (p.ampWUMethod == Plan::DELTAS_AS_COEFFICENTS) << "\n";
   return os;
@@ -905,7 +907,9 @@ weightUpdateByAmpTransformParams(const ConvParams &params,
                                  const poplar::DeviceInfo &deviceInfo,
                                  const Plan &plan) {
   assert(plan.method == Plan::Method::AMP_ACCUMULATE_OVER_FIELD);
-  return weightUpdateByAmpTransformParams(params, deviceInfo, plan.flattenXY,
+  assert(plan.flattenDims.size() == 2 || plan.flattenDims.size() == 3);
+  bool flattenXY = plan.flattenDims.size() == 3;
+  return weightUpdateByAmpTransformParams(params, deviceInfo, flattenXY,
                                           plan.partialChansPerGroup,
                                           plan.ampWUMethod);
 }
@@ -1072,7 +1076,11 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                                           costBounds, cache,
                                           options);
         plan.method = Plan::Method::AMP_ACCUMULATE_OVER_FIELD;
-        plan.flattenXY = flattenXY;
+        if (flattenXY) {
+          plan.flattenDims = {0, 1, 2};
+        } else {
+          plan.flattenDims = {0, 2};
+        }
         plan.ampWUMethod = method;
         plan.partialChansPerGroup = partialChansPerGroup;
         cost += estimateWeightUpdateByAmpReorderCost(deviceInfo,
@@ -1514,6 +1522,14 @@ getExpandDimsCandidates(bool isWeightUpdate) {
   };
 }
 
+static bool dimCanBeFlattened(const ConvParams &params, unsigned dim) {
+  return params.getPaddedDilatedKernelSize(dim) == 1 &&
+         params.stride[dim] == 1 &&
+         params.inputDilation[dim] == 1 &&
+         params.inputPaddingLower[dim] == 0 &&
+         params.inputPaddingUpper[dim] == 0;
+}
+
 static std::pair<Plan, Cost>
 createPlan(ConvParams params,
            unsigned tensorInChansPerGroup, unsigned tensorOutChansPerGroup,
@@ -1546,24 +1562,31 @@ createPlan(ConvParams params,
       newParams.kernelPaddingLower[dim] = 0;
       newParams.kernelPaddingUpper[dim] = 0;
     }
-    bool flattenXY;
-    if (newParams.getPaddedDilatedKernelSize(0) == 1 &&
-        newParams.getPaddedDilatedKernelSize(1) == 1 &&
-        newParams.stride[0] == 1 &&
-        newParams.stride[1] == 1 &&
-        newParams.inputDilation[0] == 1 &&
-        newParams.inputDilation[1] == 1 &&
-        newParams.inputPaddingLower[0] == 0 &&
-        newParams.inputPaddingLower[1] == 0 &&
-        newParams.inputPaddingUpper[0] == 0 &&
-        newParams.inputPaddingUpper[1] == 0) {
-      flattenXY = true;
-      newParams.inputFieldShape[1] *= newParams.batchSize *
-                                      newParams.inputFieldShape[0];
-      newParams.inputFieldShape[0] = 1;
-      newParams.batchSize = 1;
-    } else {
-      flattenXY = false;
+    std::vector<unsigned> flattenDims;
+    if (!isWeightUpdate) {
+      flattenDims.push_back(0);
+      for (unsigned spatialDim = 0; spatialDim != newParams.getNumFieldDims();
+           ++spatialDim) {
+        if (dimCanBeFlattened(newParams, spatialDim)) {
+          flattenDims.push_back(spatialDim + 1);
+        }
+      }
+      if (flattenDims.size() > 1) {
+        const auto innermostFlattenableDim = flattenDims.back();
+        assert(innermostFlattenableDim > 0);
+        for (auto it = std::next(flattenDims.rbegin()),
+             end = flattenDims.rend(); it != end; ++it) {
+          const auto fromDimIndex = *it;
+          auto &fromDimSize =
+              fromDimIndex ? newParams.inputFieldShape[fromDimIndex - 1] :
+                             newParams.batchSize;
+          newParams.inputFieldShape[innermostFlattenableDim - 1] *=
+              fromDimSize;
+          fromDimSize = 1;
+        }
+      } else {
+        flattenDims.clear();
+      }
     }
     const bool floatActivations = params.dType == "float";
     const bool floatPartials = partialsType == "float";
@@ -1579,8 +1602,9 @@ createPlan(ConvParams params,
                    cache,
                    options);
     candidateCost += transformCost;
-    if (flattenXY)
-      candidate.flattenXY = true;
+    if (!isWeightUpdate) {
+      candidate.flattenDims = flattenDims;
+    }
     candidate.expandDims = expandDims;
     if (compareCost(candidateCost, bestCost, costBounds)) {
       bestPlan = candidate;

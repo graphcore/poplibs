@@ -21,11 +21,14 @@ struct Plan {
   /// Grain size to use when splitting the x-axis across tiles.
   unsigned xAxisGrainSize;
   bool floatPartials;
-  bool flattenXY = false;
   // Spatial dimensions that should be expanded by taking the activations
   // multiplied by each weight in each position of the filter in this axis and
   // turning them into different input channels.
   std::vector<unsigned> expandDims;
+  // Dimensions that should be flattened. The dimensions are numbered such that
+  // the batch is dimension 0 and the spatial dimensions start at 1.
+  // The dimensions are flattened into the last dimension in reverse order.
+  std::vector<unsigned> flattenDims;
   bool useWinograd = false;
   enum class Method {
     // Direction convolution using the MAC instruction.
