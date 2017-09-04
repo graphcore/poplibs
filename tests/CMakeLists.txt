@@ -38,10 +38,10 @@ add_popnn_unit_test(ReductionTests ReductionTests.cpp)
 
 
 #  ORIG Layer tests
-add_test(NAME conv3x3_stride_2_256_out
+add_test(NAME conv3x3_stride_2_128_out
          COMMAND single_conv_layer
-                 --input-channels=128
-                 --output-channels=256
+                 --input-channels=64
+                 --output-channels=128
                  --width=20
                  --height=28
                  --kernel-size=3
