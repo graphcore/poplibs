@@ -436,8 +436,9 @@ estimateExchangeCycles(const poplar::DeviceInfo &deviceInfo,
   const auto tilesPerConvGroups = plan.tilesPerConvGroups;
   const auto inChansPerGroup = plan.inChansPerGroup;
   const auto partialChansPerGroup = plan.partialChansPerGroup;
+  const auto kernelSizeY = params.kernelShape[0];
   const auto kernelSizeX = params.kernelShape[1];
-  const auto tileKernelHeight = (kernelSizeX + tilesPerKernelYAxis - 1) /
+  const auto tileKernelHeight = (kernelSizeY + tilesPerKernelYAxis - 1) /
                                 tilesPerKernelYAxis;
   const auto tileKernelWidth = kernelSizeX;
   const auto tileOutWidth = getMaxTileOutWidth(params, plan);
