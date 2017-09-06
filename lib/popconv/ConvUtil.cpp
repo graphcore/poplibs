@@ -33,7 +33,7 @@ reverseDilationAndPadding(unsigned dilatedPaddedIndex, unsigned inputSize,
 unsigned
 getInputIndex(unsigned dim, unsigned outputIndex, unsigned kernelIndex,
               const ConvParams &params) {
-  assert(outputIndex < params.getOutputFieldShape()[dim]);
+  assert(outputIndex < params.getOutputSize(dim));
   const auto paddedKernelIndex =
       applyDilationAndPadding(kernelIndex, params.kernelDilation[dim],
                               params.kernelPaddingLower[dim]);
