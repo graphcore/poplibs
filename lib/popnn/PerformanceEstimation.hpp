@@ -17,6 +17,7 @@ inline uint64_t getNonLinearityCycles(std::vector<unsigned> regionSizes,
   for (const auto numItems : regionSizes) {
     const auto floatVectorWidth = dataPathWidth / 32;
     const auto halfVectorWidth =  dataPathWidth / 16;
+    const auto transHalfVectorWidth = 2;
     cycles += 10; // Loop overhead
     switch (nonLinearityType) {
     case popnn::NonLinearityType::NON_LINEARITY_RELU:
@@ -29,18 +30,20 @@ inline uint64_t getNonLinearityCycles(std::vector<unsigned> regionSizes,
       break;
     case popnn::NonLinearityType::NON_LINEARITY_SIGMOID:
       // scalar operation for floats, vector operation for halves
-      // transcendtal operations are ~10cyles for float, ~1cycles for half
+      // transcendtal operations are ~7cycles for float, ~2cycles for half
       if (isFloat) {
-        cycles += numItems * 10;
+        cycles += numItems * 7;
       } else {
-        cycles += (numItems + halfVectorWidth - 1) / halfVectorWidth;
+        cycles += 2 * (numItems + transHalfVectorWidth - 1)
+                      / transHalfVectorWidth;
       }
       break;
     case popnn::NonLinearityType::NON_LINEARITY_TANH:
       if (isFloat) {
-        cycles += numItems * 10;
+        cycles += numItems * 7;
       } else {
-        cycles += (numItems + halfVectorWidth - 1) / halfVectorWidth;
+        cycles += 2 * (numItems + transHalfVectorWidth - 1)
+                      / transHalfVectorWidth;
       }
       break;
     default:

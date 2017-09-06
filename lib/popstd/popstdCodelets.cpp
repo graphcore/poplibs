@@ -617,12 +617,13 @@ public:
       unsigned numElem = in[i].size();
       bool isFloat = std::is_same<InType, float>::value;
       unsigned vectorWidth = 1;
-      unsigned cyclesPerVector = 1;
+      unsigned cyclesPerVector = 3;
       unsigned overhead = 6;
 
       if(!isFloat) {
-        vectorWidth = dataPathWidth / 16;
-        // Use f16v4 variant
+        // Use f16v2exp
+        vectorWidth = 2;
+        cyclesPerVector = 2;
       }
       cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
                                   cyclesPerVector);
@@ -894,14 +895,15 @@ public:
     uint64_t cycles = 5;
     for (unsigned i = 0; i < in.size(); ++i) {
       bool isFloat = std::is_same<InType, float>::value;
-      unsigned cyclesPerVector = 1;
+      unsigned cyclesPerVector = 6;
       unsigned overhead = 6;
       unsigned numElem = in[i].size();
       unsigned vectorWidth = 1;
 
       if(!isFloat) {
-        // used f16v4 variant
-        vectorWidth = dataPathWidth / 16;
+        // used f16v2 variant
+        cyclesPerVector = 2;
+        vectorWidth = 2;
       }
       cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
                                   cyclesPerVector);
@@ -1548,15 +1550,16 @@ public:
       unsigned overhead = 6;
       unsigned numElem = in[i].size();
       bool isFloat = std::is_same<InType, float>::value;
-      unsigned vectorWidth = 1;
-      unsigned cyclesPerVector = 1;
+      unsigned vectorWidth;
+      unsigned cyclesPerVector;
       if (std::is_same<InType, float>::value) {
-        // 64 bit load with sqrt, sqrt, 64 bit
-        vectorWidth = 2;
-        cyclesPerVector = 3;
+        // f32tanh
+        vectorWidth = 1;
+        cyclesPerVector = 7;
       } else if (std::is_same<InType, half>::value) {
+        // f16v2tanh
         vectorWidth = 2;
-        cyclesPerVector = 3;
+        cyclesPerVector = 2;
       }
       cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
                                   cyclesPerVector);
@@ -1595,14 +1598,13 @@ public:
       unsigned numElem = in[i].size();
       unsigned vectorWidth = 1;
       if (std::is_same<InType, float>::value) {
-        vectorWidth = dataPathWidth / 32;
-        cyclesPerVector = 1;
+        cyclesPerVector = 5;
       } else if (std::is_same<InType, half>::value) {
-        vectorWidth = dataPathWidth / 16;
-        cyclesPerVector = 1;
+        // f32sqrt + conversions f16<->f32
+        cyclesPerVector = 7;
       } else if (std::is_same<InType, int>::value) {
         // ld, mul, st
-        cyclesPerVector = 3;
+        cyclesPerVector = 10; // placeholder
       }
       cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
                                   cyclesPerVector);
