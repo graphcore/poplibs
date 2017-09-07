@@ -35,6 +35,7 @@ add_popnn_unit_test(GraphProgLocationTest GraphProgLocationTest.cpp)
 add_popnn_unit_test(StdOperatorTest StdOperatorsTest.cpp)
 add_popnn_unit_test(BatchNormTest BatchNormTest.cpp)
 add_popnn_unit_test(ReductionTests ReductionTests.cpp)
+add_popnn_unit_test(LargeSplitRegionsTest LargeSplitRegionsTest.cpp)
 
 
 #  ORIG Layer tests

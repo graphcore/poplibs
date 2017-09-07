@@ -37,9 +37,9 @@ splitRegionsAux(const std::vector<T> &items,
                 unsigned grainSize, unsigned maxPartitions,
                 unsigned minSizePerPartition) {
   std::vector<std::vector<T>> vertexItems;
-  const auto totalSize =
-      std::accumulate(items.begin(), items.end(), 0U,
-                      [](unsigned totalSize, const T &item) {
+  std::size_t totalSize =
+      std::accumulate(items.begin(), items.end(), 0UL,
+                      [](std::size_t totalSize, const T &item) {
     return totalSize + size(item);
   });
   if (totalSize == 0)
@@ -51,7 +51,7 @@ splitRegionsAux(const std::vector<T> &items,
     const auto minGroupsPerPartition =
       (minSizePerPartition + grainSize - 1) / grainSize;
     const auto maxVerticesToCreate =
-      std::max(1U, numGroups / minGroupsPerPartition);
+      std::max(1UL, numGroups / minGroupsPerPartition);
     maxGroupsPerPartition =
         std::max(maxGroupsPerPartition,
                  (numGroups + maxVerticesToCreate - 1) / maxVerticesToCreate);
@@ -61,7 +61,7 @@ splitRegionsAux(const std::vector<T> &items,
   auto it = items.begin();
   unsigned offset = 0;
   vertexItems.resize(verticesToCreate);
-  for (unsigned vertex = 0; vertex != verticesToCreate; ++vertex) {
+  for (std::size_t vertex = 0; vertex != verticesToCreate; ++vertex) {
     const auto groupBegin = (vertex * numGroups) / verticesToCreate;
     const auto groupEnd = ((vertex + 1) * numGroups) / verticesToCreate;
     const auto elemBegin = groupBegin * grainSize;
