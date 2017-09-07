@@ -9,6 +9,7 @@
 #include "VertexOptim.hpp"
 #include "util/Compiler.hpp"
 #include <cassert>
+#include <limits>
 #include <map>
 #include <set>
 #include <tuple>
@@ -1490,10 +1491,6 @@ estimateTransformCost(const poplar::DeviceInfo &deviceInfo,
   for (const auto dim : expandDims) {
     expandDim(expandedParams, dim);
   }
-  if (expandedParams.getInputDepthPerConvGroup() ==
-      params.getInputDepthPerConvGroup()) {
-    return {0, 0};
-  }
   unsigned expandedInputFieldSize = 1;
   unsigned expandedFilterSize = 1;
   for (unsigned dim = 0; dim != params.getNumFieldDims(); ++dim) {
@@ -1533,16 +1530,54 @@ estimateTransformCost(const poplar::DeviceInfo &deviceInfo,
   return {cycles, 0};
 }
 
+static bool expandingDimChangesParams(const ConvParams &params, unsigned dim) {
+  auto newParams = params;
+  expandDim(newParams, dim);
+  return newParams != params;
+}
+
+// Given a set return the set of all subsets. The set is specified as a
+// vector that is assumed to have no duplicates. The relative order of
+// items in each subset returned by this function matches the relative order
+// of the items in the set of all items.
+template <class T>
+static std::vector<std::vector<T>> getPowerSet(const std::vector<T> &items) {
+  unsigned numItems = items.size();
+  if (numItems >= std::numeric_limits<unsigned>::digits) {
+    // Not handled.
+    std::abort();
+  }
+  std::vector<std::vector<T>> subsets;
+  // We associate each subset with a number. The nth bit of the number indicates
+  // whether the nth item is in the subset. We enumerate all subsets by
+  // iterating over all numbers in the range [0, 1 << numItems).
+  for (unsigned i = 0; i < (1 << numItems); ++i) {
+    subsets.emplace_back();
+    for (unsigned item = 0; item != numItems; ++item) {
+      if ((i >> item) & 1)
+        subsets.back().push_back(items[item]);
+    }
+  }
+  return subsets;
+}
+
 static std::vector<std::vector<unsigned>>
-getExpandDimsCandidates(bool isWeightUpdate) {
+getExpandDimsCandidates(const ConvParams &params, bool isWeightUpdate) {
   if (isWeightUpdate)
     return {{}};
-  return {
-    {},
-    {0},
-    {1},
-    {1, 0}
-  };
+  std::vector<unsigned> candidateDims;
+  for (unsigned i = 0; i != params.getNumFieldDims(); ++i) {
+    if (expandingDimChangesParams(params, i)) {
+      candidateDims.push_back(i);
+    }
+  }
+  auto subsets = getPowerSet(candidateDims);
+  for (auto &subset : subsets) {
+    // The subsets returned by getPowerSet have the outermost dimension first
+    // but it is more efficient to expand the innermost dimension first.
+    std::reverse(subset.begin(), subset.end());
+  }
+  return subsets;
 }
 
 static bool dimCanBeFlattened(const ConvParams &params, unsigned dim) {
@@ -1577,7 +1612,7 @@ createPlan(ConvParams params,
   Cost bestCost = highestCost;
   Plan bestPlan;
   for (std::vector<unsigned> expandDims :
-       getExpandDimsCandidates(isWeightUpdate)) {
+       getExpandDimsCandidates(params, isWeightUpdate)) {
     Cost transformCost =
         estimateTransformCost(graph.getDevice().getDeviceInfo(),
                               params, expandDims);

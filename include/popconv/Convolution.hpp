@@ -153,6 +153,22 @@ struct ConvParams {
   std::vector<size_t> getOutputFieldShape() const;
 };
 
+inline bool operator==(const ConvParams &a, const ConvParams &b) {
+  return std::tie(a.dType, a.batchSize, a.inputFieldShape, a.kernelShape,
+                  a.inputChannels, a.outputChannels, a.stride,
+                  a.inputPaddingLower, a.inputPaddingUpper,
+                  a.inputDilation, a.numConvGroups) ==
+         std::tie(b.dType, b.batchSize, b.inputFieldShape,
+                  b.kernelShape, b.inputChannels,
+                  b.outputChannels, b.stride, b.inputPaddingLower,
+                  b.inputPaddingUpper, b.inputDilation,
+                  b.numConvGroups);
+}
+
+inline bool operator!=(const ConvParams &a, const ConvParams &b) {
+  return !(a == b);
+}
+
 std::ostream& operator<<(std::ostream &os, const ConvParams &p);
 
 uint64_t getFwdFlops(const ConvParams &params);
