@@ -354,7 +354,7 @@ getMaxInputRangeSize(unsigned outputRangeSize, unsigned dim,
     {
     const auto preDownSampleOutputSize = (outputRangeSize - 1) * stride + 1;
     const auto dilatedInputSize = preDownSampleOutputSize + tileKernelSize - 1;
-    inputRangeSize = (dilatedInputSize - 1 / inputDilation) + 1;
+    inputRangeSize = (dilatedInputSize - 1) / inputDilation + 1;
     }
     break;
   }
