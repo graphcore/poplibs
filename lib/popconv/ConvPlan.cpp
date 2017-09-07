@@ -101,8 +101,6 @@ struct ConvVertexType {
 
 static const char *asString(Plan::Method m) {
   switch (m) {
-  case Plan::Method::AMP_ACCUMULATE_OVER_FIELD:
-    return "AMP_ACCUMULATE_OVER_FIELD";
   case Plan::Method::AMP: return "AMP";
   case Plan::Method::MAC: return "MAC";
   case Plan::Method::OUTER_PRODUCT: return "OUTER_PRODUCT";
@@ -135,9 +133,7 @@ std::ostream& operator<<(std::ostream &os, const Plan &p)
   os << "\n"
      << "        flattenDims             ";
   printContainer(p.flattenDims, os);
-  os << "\n"
-     << "        deltasAsCoefficents     "
-     << (p.ampWUMethod == Plan::DELTAS_AS_COEFFICENTS) << "\n";
+  os << "\n";
   return os;
 }
 
@@ -708,218 +704,6 @@ estimateReduceCycles(const poplar::DeviceInfo &deviceInfo,
   return numCycles;
 }
 
-static Cost
-estimateWeightUpdateByAmpReorderCost(const poplar::DeviceInfo &deviceInfo,
-                                     bool floatActivations,
-                                     const ConvParams &reorderedParams,
-                                     const Plan &plan) {
-  const auto numTiles = deviceInfo.getNumTiles();
-  const auto numInElements = reorderedParams.getBatchSize() *
-                             reorderedParams.getInputDepthPerConvGroup() *
-                             reorderedParams.getInputHeight() *
-                             reorderedParams.getInputWidth();
-  const auto numOutElements = reorderedParams.getBatchSize() *
-                              reorderedParams.getOutputDepthPerConvGroup() *
-                              reorderedParams.getOutputHeight() *
-                              reorderedParams.getOutputWidth();
-  const auto numCoefficients = reorderedParams.kernelShape[0] *
-                               reorderedParams.kernelShape[1] *
-                               reorderedParams.getInputDepthPerConvGroup() *
-                               reorderedParams.getOutputDepthPerConvGroup();
-  const auto tilesPerConvGroups = plan.tilesPerConvGroups;
-  const auto tileNumConvGroups =
-      (reorderedParams.getNumConvGroups() + tilesPerConvGroups - 1)
-     / tilesPerConvGroups;
-  const auto bytesPerElement = floatActivations ? 4U : 2U;
-  const auto reorderBytesPerCycle =
-      std::min(deviceInfo.memcpyBytesPerCycle, bytesPerElement);
-  unsigned weightDeltaReorderBytesPerCycle;
-  switch (plan.ampWUMethod) {
-  case Plan::ACTIVATIONS_AS_COEFFICENTS:
-    weightDeltaReorderBytesPerCycle =
-        std::min(deviceInfo.memcpyBytesPerCycle,
-                 plan.partialChansPerGroup * bytesPerElement);
-    break;
-  case Plan::DELTAS_AS_COEFFICENTS:
-    weightDeltaReorderBytesPerCycle = reorderBytesPerCycle;
-    break;
-  }
-  const auto exchangeBytesPerCycle = deviceInfo.exchangeBytesPerCycle;
-  const auto reorderBytesPre =
-      (numInElements + numCoefficients) * bytesPerElement;
-  const auto reorderBytesPost = numOutElements * bytesPerElement;
-  const auto reorderBytesTilePre = (reorderBytesPre + numTiles - 1) / numTiles;
-  const auto reorderBytesTilePost = (reorderBytesPost + numTiles - 1) /
-                                    numTiles;
-  unsigned cycles = 0;
-  cycles += (reorderBytesTilePre + exchangeBytesPerCycle - 1) /
-            exchangeBytesPerCycle;
-  cycles += (reorderBytesTilePre + reorderBytesPerCycle - 1) /
-            reorderBytesPerCycle;
-  cycles += (reorderBytesTilePost + exchangeBytesPerCycle - 1) /
-            exchangeBytesPerCycle;
-  cycles += (reorderBytesTilePost + weightDeltaReorderBytesPerCycle - 1) /
-            weightDeltaReorderBytesPerCycle;
-  cycles *= tileNumConvGroups;
-  return {cycles, 0};
-}
-
-static ConvParams
-weightUpdateByAmpTransformParams(const ConvParams &params,
-                                 const poplar::DeviceInfo &deviceInfo,
-                                 bool flattenXY,
-                                 unsigned partialChansPerGroup,
-                                 Plan::AmpWUMethod ampWUMethod) {
-  const unsigned numConvGroups = params.getNumConvGroups();
-  const unsigned numInputChannels = params.getInputDepthPerConvGroup();
-  const unsigned numOutputChannels = params.getOutputDepthPerConvGroup();
-
-  const auto canonicalParams = canonicalizeParams(params);
-  // Padding the kernel in the forward pass requires truncation of the weight
-  // deltas in the weight update pass. If flattenXY is true we can fold this
-  // truncation into the flattening of the field. If flattenXY is false we
-  // may not be able to represent the weight update as a convolution that can be
-  // calculated with the convolution function.
-  // TODO add support for output padding / truncation and remove this
-  // restriction.
-  assert(flattenXY ||
-         (canonicalParams.kernelPaddingLower[0] == 0 &&
-          canonicalParams.kernelPaddingUpper[0] == 0));
-  bool floatActivations = canonicalParams.dType == "float";
-  unsigned expandedFieldWidth;
-  unsigned expandedActivationsHeight;
-  unsigned expandedDeltasHeight;
-  int expandedActivationsPaddingYLower;
-  int expandedActivationsPaddingYUpper;
-  unsigned expandedInputDepth;
-  unsigned expandedDeltasDilationY;
-  unsigned weightDeltasStrideY;
-  if (flattenXY) {
-    expandedFieldWidth =
-       canonicalParams.getBatchSize() * canonicalParams.getOutputHeight() *
-                                        canonicalParams.getOutputWidth();
-    expandedActivationsHeight = 1;
-    expandedDeltasHeight = 1;
-    expandedActivationsPaddingYLower = 0;
-    expandedActivationsPaddingYUpper = 0;
-    expandedInputDepth =
-        numInputChannels
-        * canonicalParams.kernelShape[0] * canonicalParams.kernelShape[1];
-    expandedDeltasDilationY = 1;
-    weightDeltasStrideY = 1;
-  } else {
-    expandedFieldWidth = canonicalParams.getBatchSize() *
-                         canonicalParams.getOutputWidth();
-    expandedActivationsHeight = canonicalParams.getInputHeight();
-    expandedDeltasHeight = canonicalParams.getOutputHeight();
-    expandedActivationsPaddingYLower = canonicalParams.inputPaddingLower[0];
-    expandedActivationsPaddingYUpper = canonicalParams.inputPaddingUpper[0];
-    expandedInputDepth = numInputChannels
-                         * canonicalParams.kernelShape[1];
-    expandedDeltasDilationY = canonicalParams.stride[0];
-    weightDeltasStrideY = canonicalParams.kernelDilation[0];
-  }
-  const auto fieldGroupSize =
-      deviceInfo.getWeightsPerConvUnit(floatActivations);
-  const auto paddedFieldWidth =
-      ((expandedFieldWidth + fieldGroupSize - 1) / fieldGroupSize) *
-      fieldGroupSize;
-  ConvParams newParams;
-  switch (ampWUMethod) {
-  case Plan::DELTAS_AS_COEFFICENTS:
-    {
-
-      // weight update x-axis: fwd in chans
-      // weight update y-axis: fwd y-axis
-      // weight update in chans: fwd x-axis
-      // weight update out chans: fwd out chans
-      const auto paddedOutputDepth =
-          ((numOutputChannels + partialChansPerGroup - 1) /
-           partialChansPerGroup) * partialChansPerGroup;
-      newParams = ConvParams(canonicalParams.dType,
-                    // batch size
-                    1,
-                    // input field shape for each channel and batch
-                    {expandedActivationsHeight,  expandedInputDepth},
-                    // kernel shape for each input and output channel
-                    {expandedDeltasHeight, 1},
-                    // input channels
-                    paddedFieldWidth,
-                    // output channels
-                    paddedOutputDepth,
-                    // stride
-                    {weightDeltasStrideY, 1},
-                    // lower input padding
-                    {expandedActivationsPaddingYLower, 0},
-                    // upper input padding
-                    {expandedActivationsPaddingYUpper, 0},
-                    // input dilation
-                    {1, 1},
-                    // lower kernal padding
-                    {0, 0},
-                    // upper kernel padding
-                    {0, 0},
-                    // kernel dilation
-                    {1, 1},
-                    numConvGroups
-                  );
-    }
-    break;
-  case Plan::ACTIVATIONS_AS_COEFFICENTS:
-    {
-      // weight update x-axis: fwd out chans
-      // weight update y-axis: fwd y-axis
-      // weight update in chans: fwd x-axis
-      // weight update out chans: fwd in chans
-      const auto paddedExpandedInputDepth =
-          ((expandedInputDepth + partialChansPerGroup - 1) /
-           partialChansPerGroup) * partialChansPerGroup;
-      newParams = ConvParams(canonicalParams.dType,
-                    // batch size
-                    1,
-                    // input field shape for each channel and batch
-                    {expandedDeltasHeight,
-                     numOutputChannels},
-                    // kernel shape for each input and output channel
-                    {expandedActivationsHeight, 1},
-                    // input channels
-                    paddedFieldWidth,
-                    // output channels
-                    paddedExpandedInputDepth,
-                    // stride
-                    {weightDeltasStrideY, 1},
-                    // lower input padding
-                    {0, 0},
-                    // upper input padding
-                    {0, 0},
-                    // input dilation
-                    {expandedDeltasDilationY, 1},
-                    // lower kernal padding
-                    {expandedActivationsPaddingYLower, 0},
-                    // upper kernel padding
-                    {expandedActivationsPaddingYUpper, 0},
-                    // kernel dilation
-                    {1, 1},
-                    numConvGroups
-                   );
-    }
-    break;
-  }
-  return newParams;
-}
-
-ConvParams
-weightUpdateByAmpTransformParams(const ConvParams &params,
-                                 const poplar::DeviceInfo &deviceInfo,
-                                 const Plan &plan) {
-  assert(plan.method == Plan::Method::AMP_ACCUMULATE_OVER_FIELD);
-  assert(plan.flattenDims.size() == 2 || plan.flattenDims.size() == 3);
-  bool flattenXY = plan.flattenDims.size() == 3;
-  return weightUpdateByAmpTransformParams(params, deviceInfo, flattenXY,
-                                          plan.partialChansPerGroup,
-                                          plan.ampWUMethod);
-}
-
 static popsolver::Variable
 addCycleEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
                  popsolver::Variable tilesPerY,
@@ -1031,76 +815,11 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
            unsigned partialChansPerGroup,
            unsigned xAxisGrainSize,
            const ConvVertexType &convVertexType,
-           const ConvParams &params, bool isWeightUpdate,
+           const ConvParams &params,
            const CostBounds costBounds,
            PlanningCacheImpl *cache,
            const ConvOptions &options) {
   const auto floatActivations = convVertexType.floatActivations;
-  if (convVertexType.method == Plan::Method::AMP_ACCUMULATE_OVER_FIELD) {
-    assert(inChansPerGroup ==
-           deviceInfo.getWeightsPerConvUnit(floatActivations));
-    // Implementing weight update directly as a convolution is typically
-    // inefficient since the height and width of the output is small (the size
-    // of the kernel). Instead we rearrange the activations and deltas so the
-    // the amp unit can accumulate across the x-axis instead of over channels.
-    // We choose a partition for the weight update phase by populating
-    // ConvolutionParams struct with the dimensions of the transformed
-    // convolution and call ourselves recursively with these parameters.
-    Cost bestCost = highestCost;
-    Plan bestPlan;
-    // To ensure the activations we load in the inner loop are contiguous and
-    // aligned we expand the x-axis by taking the activations that are
-    // multiplied by each column of the weights and turning them into
-    // different input channels. If flattenXY is true we also expand the
-    // y-axis in the same way. Expanding the y axis may be desirable if it
-    // means less padding is required when the field size is rounded up to
-    // a multiple of the weights per convolutional unit.
-    for (bool flattenXY : {false, true}) {
-      if (!flattenXY &&
-          (params.kernelPaddingLower[0] != 0 ||
-           params.kernelPaddingUpper[0] != 0))
-        continue;
-      for (Plan::AmpWUMethod method : {Plan::DELTAS_AS_COEFFICENTS,
-                                       Plan::ACTIVATIONS_AS_COEFFICENTS}) {
-        // There is currently no support for dilated convolutions.
-        // TODO add support for this.
-        if (!flattenXY && params.stride[0] != 1) {
-          continue;
-        }
-        auto newParams =
-            weightUpdateByAmpTransformParams(params, deviceInfo, flattenXY,
-                                             partialChansPerGroup, method);
-        auto newConvVertexType = convVertexType;
-        newConvVertexType.method = Plan::Method::AMP;
-        Plan plan;
-        Cost cost;
-        std::tie(plan, cost) = choosePlan(deviceInfo,
-                                          inChansPerGroup,
-                                          partialChansPerGroup,
-                                          1,
-                                          newConvVertexType, newParams, false,
-                                          costBounds, cache,
-                                          options);
-        plan.method = Plan::Method::AMP_ACCUMULATE_OVER_FIELD;
-        if (flattenXY) {
-          plan.flattenDims = {0, 1, 2};
-        } else {
-          plan.flattenDims = {0, 2};
-        }
-        plan.ampWUMethod = method;
-        plan.partialChansPerGroup = partialChansPerGroup;
-        cost += estimateWeightUpdateByAmpReorderCost(deviceInfo,
-                                                     floatActivations,
-                                                     newParams,
-                                                     plan);
-        if (compareCost(cost, bestCost, costBounds)) {
-          bestPlan = plan;
-          bestCost = cost;
-        }
-      }
-    }
-    return {bestPlan, bestCost};
-  }
   // If tilesPerY is greater than one we end up splitting across the y axis of
   // the output volume. The input elements required to compute output elements
   // on one side of the split will overlap with the input elements required for
@@ -1257,27 +976,6 @@ getConvVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
   return convVertexTypeCandidates;
 }
 
-static std::vector<ConvVertexType>
-getWeightUpdateVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
-                                    bool floatActivations,
-                                    bool floatPartials,
-                                    const ConvOptions &options) {
-  std::vector<ConvVertexType> convVertexTypeCandidates;
-  if (options.weightUpdateMethod == WeightUpdateMethod::AMP ||
-      options.weightUpdateMethod == WeightUpdateMethod::AUTO) {
-    if (getConvUnitsPerTile(deviceInfo, floatActivations, floatPartials) > 0) {
-      convVertexTypeCandidates.emplace_back(
-            Plan::Method::AMP_ACCUMULATE_OVER_FIELD, floatActivations,
-            floatPartials);
-    } else if (!floatActivations && !floatPartials &&
-               deviceInfo.fp16InFp32OutConvUnitsPerTile > 0) {
-      convVertexTypeCandidates.emplace_back(
-            Plan::Method::AMP_ACCUMULATE_OVER_FIELD, false, true);
-    }
-  }
-  return convVertexTypeCandidates;
-}
-
 static std::vector<unsigned>
 getInChansPerGroupCandidates(const ConvParams &params,
                              const ConvVertexType &convVertexType,
@@ -1356,33 +1054,20 @@ getInChansPerGroupCandidates(const ConvParams &params,
 static std::pair<Plan, Cost>
 choosePlan(const poplar::DeviceInfo &deviceInfo,
            const ConvVertexType &convVertexType,
-           unsigned tensorInChansPerGroup,
-           unsigned tensorOutChansPerGroup,
-           unsigned tensorWeightOutChansPerGroup,
-           const ConvParams &params, bool isWeightUpdate,
+           const ConvParams &params,
            const CostBounds costBounds,
            PlanningCacheImpl *cache,
            const ConvOptions &options) {
   Plan best;
   Cost bestCost = highestCost;
   std::vector<unsigned> inChansPerGroupCandidates;
-  if (convVertexType.method == Plan::Method::AMP_ACCUMULATE_OVER_FIELD) {
-    inChansPerGroupCandidates.push_back(
-      deviceInfo.getWeightsPerConvUnit(convVertexType.floatActivations)
-    );
-  } else {
-    assert(tensorInChansPerGroup == 0);
-    assert(tensorOutChansPerGroup == 0);
-    assert(tensorWeightOutChansPerGroup == 0);
-    inChansPerGroupCandidates =
-        getInChansPerGroupCandidates(params, convVertexType, deviceInfo,
-                                     options);
-  }
+  inChansPerGroupCandidates =
+      getInChansPerGroupCandidates(params, convVertexType, deviceInfo,
+                                   options);
   unsigned partialChansPerGroup;
   switch (convVertexType.method) {
   default: assert(0 && "Unexpected method");
   case Plan::Method::AMP:
-  case Plan::Method::AMP_ACCUMULATE_OVER_FIELD:
     {
       const auto numConvUnits = getNumConvUnits(convVertexType.floatActivations,
                                                 convVertexType.floatPartials,
@@ -1414,7 +1099,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
     }
     std::tie(candidate, candidateCost) =
         choosePlan(deviceInfo, inChansPerGroup, partialChansPerGroup,
-                   xAxisGrainSize, convVertexType, params, isWeightUpdate,
+                   xAxisGrainSize, convVertexType, params,
                    costBounds, cache, options);
     if (compareCost(candidateCost, bestCost, costBounds)) {
       best = candidate;
@@ -1427,28 +1112,20 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
 static std::pair<Plan, Cost>
 choosePlan(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
            bool floatPartials,
-           unsigned tensorInChansPerGroup,
-           unsigned tensorOutChansPerGroup,
-           unsigned tensorWeightOutChansPerGroup,
-           const ConvParams &params, bool isWeightUpdate,
+           const ConvParams &params,
            CostBounds costBounds,
            PlanningCacheImpl *cache,
            const ConvOptions &options) {
   Cost bestCost = highestCost;
   Plan bestPlan;
   const auto convVertexTypeCandidates =
-      isWeightUpdate
-        ? getWeightUpdateVertexTypeCandidates(deviceInfo, floatActivations,
-                                              floatPartials, options)
-        : getConvVertexTypeCandidates(deviceInfo, floatActivations,
-                                      floatPartials, params);
+      getConvVertexTypeCandidates(deviceInfo, floatActivations,
+                                  floatPartials, params);
   for (const auto &convVertexType : convVertexTypeCandidates) {
     Plan candidate;
     Cost candidateCost;
     std::tie(candidate, candidateCost) =
-        choosePlan(deviceInfo, convVertexType, tensorInChansPerGroup,
-                   tensorOutChansPerGroup, tensorWeightOutChansPerGroup,
-                   params, isWeightUpdate, costBounds, cache,
+        choosePlan(deviceInfo, convVertexType, params, costBounds, cache,
                    options);
     if (candidateCost == highestCost)
       continue;
@@ -1562,9 +1239,7 @@ static std::vector<std::vector<T>> getPowerSet(const std::vector<T> &items) {
 }
 
 static std::vector<std::vector<unsigned>>
-getExpandDimsCandidates(const ConvParams &params, bool isWeightUpdate) {
-  if (isWeightUpdate)
-    return {{}};
+getExpandDimsCandidates(const ConvParams &params) {
   std::vector<unsigned> candidateDims;
   for (unsigned i = 0; i != params.getNumFieldDims(); ++i) {
     if (expandingDimChangesParams(params, i)) {
@@ -1599,10 +1274,7 @@ dimCanBeFlattenedIntoOutChans(const ConvParams &params, unsigned dim) {
 
 static std::pair<Plan, Cost>
 createPlan(ConvParams params,
-           unsigned tensorInChansPerGroup, unsigned tensorOutChansPerGroup,
-           unsigned tensorWeightOutChansPerGroup,
            std::string partialsType,
-           bool isWeightUpdate,
            const ConvOptions &options,
            const CostBounds costBounds,
            const poplar::Graph &graph,
@@ -1612,7 +1284,7 @@ createPlan(ConvParams params,
   Cost bestCost = highestCost;
   Plan bestPlan;
   for (std::vector<unsigned> expandDims :
-       getExpandDimsCandidates(params, isWeightUpdate)) {
+       getExpandDimsCandidates(params)) {
     Cost transformCost =
         estimateTransformCost(graph.getDevice().getDeviceInfo(),
                               params, expandDims);
@@ -1621,44 +1293,41 @@ createPlan(ConvParams params,
       expandDim(newParams, dim);
     }
     std::vector<unsigned> outChanFlattenDims;
-    if (!isWeightUpdate) {
-      for (unsigned spatialDim = 0; spatialDim != newParams.getNumFieldDims();
-           ++spatialDim) {
-        if (dimCanBeFlattenedIntoOutChans(newParams, spatialDim) &&
-            newParams.kernelShape[spatialDim] > 1) {
-          outChanFlattenDims.push_back(spatialDim);
-          newParams.outputChannels *= newParams.kernelShape[spatialDim];
-          newParams.kernelShape[spatialDim] = 1;
-        }
+
+    for (unsigned spatialDim = 0; spatialDim != newParams.getNumFieldDims();
+         ++spatialDim) {
+      if (dimCanBeFlattenedIntoOutChans(newParams, spatialDim) &&
+          newParams.kernelShape[spatialDim] > 1) {
+        outChanFlattenDims.push_back(spatialDim);
+        newParams.outputChannels *= newParams.kernelShape[spatialDim];
+        newParams.kernelShape[spatialDim] = 1;
       }
-      // Flatten from the innermost out.
-      std::reverse(outChanFlattenDims.begin(), outChanFlattenDims.end());
     }
+    // Flatten from the innermost out.
+    std::reverse(outChanFlattenDims.begin(), outChanFlattenDims.end());
     std::vector<unsigned> flattenDims;
-    if (!isWeightUpdate) {
-      flattenDims.push_back(0);
-      for (unsigned spatialDim = 0; spatialDim != newParams.getNumFieldDims();
-           ++spatialDim) {
-        if (dimCanBeFlattened(newParams, spatialDim)) {
-          flattenDims.push_back(spatialDim + 1);
-        }
+    flattenDims.push_back(0);
+    for (unsigned spatialDim = 0; spatialDim != newParams.getNumFieldDims();
+         ++spatialDim) {
+      if (dimCanBeFlattened(newParams, spatialDim)) {
+        flattenDims.push_back(spatialDim + 1);
       }
-      if (flattenDims.size() > 1) {
-        const auto innermostFlattenableDim = flattenDims.back();
-        assert(innermostFlattenableDim > 0);
-        for (auto it = std::next(flattenDims.rbegin()),
-             end = flattenDims.rend(); it != end; ++it) {
-          const auto fromDimIndex = *it;
-          auto &fromDimSize =
-              fromDimIndex ? newParams.inputFieldShape[fromDimIndex - 1] :
-                             newParams.batchSize;
-          newParams.inputFieldShape[innermostFlattenableDim - 1] *=
-              fromDimSize;
-          fromDimSize = 1;
-        }
-      } else {
-        flattenDims.clear();
+    }
+    if (flattenDims.size() > 1) {
+      const auto innermostFlattenableDim = flattenDims.back();
+      assert(innermostFlattenableDim > 0);
+      for (auto it = std::next(flattenDims.rbegin()),
+           end = flattenDims.rend(); it != end; ++it) {
+        const auto fromDimIndex = *it;
+        auto &fromDimSize =
+            fromDimIndex ? newParams.inputFieldShape[fromDimIndex - 1] :
+                           newParams.batchSize;
+        newParams.inputFieldShape[innermostFlattenableDim - 1] *=
+            fromDimSize;
+        fromDimSize = 1;
       }
+    } else {
+      flattenDims.clear();
     }
     const bool floatActivations = params.dType == "float";
     const bool floatPartials = partialsType == "float";
@@ -1667,18 +1336,13 @@ createPlan(ConvParams params,
     std::tie(candidate, candidateCost) =
         choosePlan(deviceInfo, floatActivations,
                    floatPartials,
-                   tensorInChansPerGroup,
-                   tensorOutChansPerGroup,
-                   tensorWeightOutChansPerGroup,
-                   newParams, isWeightUpdate, costBounds,
+                   newParams, costBounds,
                    cache,
                    options);
     candidateCost += transformCost;
-    if (!isWeightUpdate) {
-      candidate.flattenDims = flattenDims;
-    }
     candidate.expandDims = expandDims;
     candidate.outChanFlattenDims = outChanFlattenDims;
+    candidate.flattenDims = flattenDims;
     if (compareCost(candidateCost, bestCost, costBounds)) {
       bestPlan = candidate;
       bestCost = candidateCost;
@@ -1834,9 +1498,8 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
   }
 
   std::tie(plan, cost) = popconv::createPlan(params,
-                                             0, 0, 0,
                                              partialsType,
-                                             false, options,
+                                             options,
                                              costBounds, graph,
                                              cache);
   if (options.percentageCyclesExcessForMemOptim) {
@@ -1848,40 +1511,6 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
     auto res = plans.emplace(std::make_pair(key, std::move(pPlan)));
     return *res.first->second;
   }
-  return plan;
-}
-
-Plan getWeightUpdatePlan(const poplar::Graph &graph,
-                         const poplar::Tensor &activations,
-                         const poplar::Tensor &deltas,
-                         const ConvParams &params,
-                         ConvOptions options) {
-  assert(activations.rank() == 4);
-  assert(deltas.rank() == 4);
-  assert(params.kernelShape.size() == 2);
-  assert(params.stride.size() == 2);
-  assert(params.inputPaddingLower.size() == 2);
-  assert(params.inputPaddingUpper.size() == 2);
-  assert(options.fullyConnectedPass == FullyConnectedPass::NONE);
-  Plan plan;
-  Cost cost;
-  CostBounds costBounds(0, 0);
-  const auto partialsType = options.partialsType;
-  const auto fwdPlan = getPlan(graph, params, options);
-  const auto actChansPerGroup = fwdPlan.inChansPerGroup;
-  const auto deltasChansPerGroup = deltas.dim(3) / params.getNumConvGroups();
-  auto cache = options.cache ? options.cache->impl.get() : nullptr;
-  std::unique_ptr<PlanningCacheImpl> tempCache;
-  if (!cache) {
-    tempCache = std::unique_ptr<PlanningCacheImpl>(new PlanningCacheImpl);
-    cache = tempCache.get();
-  }
-  std::tie(plan, cost) = popconv::createPlan(params,
-                                             actChansPerGroup,
-                                             deltasChansPerGroup,
-                                             fwdPlan.partialChansPerGroup,
-                                             partialsType, true, options,
-                                             costBounds, graph, cache);
   return plan;
 }
 

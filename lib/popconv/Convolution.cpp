@@ -459,7 +459,6 @@ struct ConvSlice {
 static void
 iterateTilePartition(const Graph &graph, const ConvParams &params,
                      const Plan &plan,
-                     unsigned cgIdx,
                      const std::function<
                        void(unsigned, const ConvTileIndices &,
                             const ConvSlice &)
@@ -482,12 +481,10 @@ iterateTilePartition(const Graph &graph, const ConvParams &params,
   const unsigned numInZGroups = inNumChans / inChansPerGroup;
   const unsigned kernelHeight = params.kernelShape[0];
   const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
-  const auto tilesPerConvGroups = cgIdx == ~0U ? plan.tilesPerConvGroups : 1;
-  const auto cgS =  cgIdx == ~0U ? 0 : cgIdx;
-  const auto cgE = cgIdx == ~0U ? tilesPerConvGroups : cgIdx + 1;
-  const unsigned numConvGroups = cgIdx == ~0U ? params.getNumConvGroups() : 1;
+  const auto tilesPerConvGroups = plan.tilesPerConvGroups;
+  const unsigned numConvGroups = params.getNumConvGroups();
 
-  for (unsigned cg = cgS; cg != cgE; ++cg) {
+  for (unsigned cg = 0; cg != tilesPerConvGroups; ++cg) {
     const auto cgBegin = (cg * numConvGroups) / tilesPerConvGroups;
     const auto cgEnd = ((cg + 1) * numConvGroups) / tilesPerConvGroups;
     for (unsigned b = 0; b != tilesPerBatch; ++b) {
@@ -681,7 +678,7 @@ calculateActivationMapping(Graph &graph, const ConvParams &params,
     plan.inChansPerGroup
   };
   boost::icl::interval_map<unsigned, std::set<unsigned>> actsToTiles;
-  iterateTilePartition(graph, params, plan, ~0U,
+  iterateTilePartition(graph, params, plan,
                        [&](unsigned tile, const ConvTileIndices &,
                            const ConvSlice &slice) {
     auto inYRange =
@@ -1036,7 +1033,7 @@ calculateWeightMapping(const Graph &graph,
     plan.inChansPerGroup
   };
   boost::icl::interval_map<unsigned, std::set<unsigned>> weightsToTiles;
-  iterateTilePartition(graph, params, plan, ~0U,
+  iterateTilePartition(graph, params, plan,
                        [&](unsigned tile, const ConvTileIndices &,
                            const ConvSlice &slice) {
     std::vector<Interval<std::size_t>> intervals;
@@ -1911,25 +1908,17 @@ calcPartialSums(Graph &graph,
                 const std::string &layerName) {
   ComputeSet zeroCS = graph.addComputeSet(layerName +"/Zero");
   ComputeSet convolveCS = graph.addComputeSet(layerName + "/Convolve");
-  const unsigned numPasses =
-      plan.method == Plan::Method::AMP_ACCUMULATE_OVER_FIELD ?
-                     params.getNumConvGroups() : 1;
-
-  for (unsigned cg = 0; cg != numPasses; ++cg) {
-    const unsigned cgIdx
-        = plan.method == Plan::Method::AMP_ACCUMULATE_OVER_FIELD ? cg : ~0U;
-    iterateTilePartition(graph, params, plan, cgIdx,
-                         [&](unsigned tile, const ConvTileIndices &indices,
-                             const ConvSlice &slice) {
-      if (slice.outZGroupBegin == slice.outZGroupEnd ||
-          slice.cgBegin == slice.cgEnd)
-        return;
-      unsigned partialIndex =
-          indices.izg * plan.tilesPerKernelYAxis + indices.ky;
-      calcPartialConvOutput(graph, plan, dType, tile, slice, params, zeroCS,
-                            convolveCS, in, weights, partials[partialIndex]);
-    });
-  }
+  iterateTilePartition(graph, params, plan,
+                       [&](unsigned tile, const ConvTileIndices &indices,
+                           const ConvSlice &slice) {
+    if (slice.outZGroupBegin == slice.outZGroupEnd ||
+        slice.cgBegin == slice.cgEnd)
+      return;
+    unsigned partialIndex =
+        indices.izg * plan.tilesPerKernelYAxis + indices.ky;
+    calcPartialConvOutput(graph, plan, dType, tile, slice, params, zeroCS,
+                          convolveCS, in, weights, partials[partialIndex]);
+  });
   Sequence prog;
   if (!graph.getComputeSet(zeroCS).empty()) {
     prog.add(Execute(zeroCS));
@@ -2541,376 +2530,93 @@ void weightsTransposeChansFlipXY(Graph &graph,
                 weightsOut));
 }
 
-static Tensor
-roundUpDimension(Graph &graph, const Tensor &t, unsigned dim,
-                 unsigned divisor) {
-  const auto size = t.dim(dim);
-  const auto roundedSize = ((size + divisor - 1) / divisor) * divisor;
-  return pad(graph, t, 0, roundedSize - size, dim);
-}
+// The most natural way to represent the calculation is with the activations
+// on the right hand side. With the current implementation of convolution()
+// this tends to be inefficient as the inner most dimension of the result is
+// output channels which means the rearrangement after the convolution
+// uses lot of exchange code / copy pointers. Workaround this by swapping the
+// operands.
+// TODO remove this variable and teach the planner to swap operands instead.
+const bool swapConvolutionalWeightUpdateParams = true;
 
-// Weight deltas can be computed by convolving the activations and the deltas.
-// If the kernel is larger than 1x1 a direct computation of weight deltas
-// requires a sliding deltas across activations in the main axis of
-// accumulation. This sliding stops us using the AMP instruction because,
-// as we slide, the vectors of elements we want to load in the inner loop will
-// no longer be contiguous / aligned. We fix this by transforming the
-// convolution into an equivalent convolution which doesn't require sliding in
-// the main axis of accumulation. Given the activation and delta tensors for
-// the original convolution (zero padded and reshaped to have a single channel
-// dimension) transform them into tensors for the transformed convolution.
-static void
-convolutionWeightUpdateAmpPreProcess(
-    Graph &graph,
-    const Plan &plan,
-    Tensor &activations,
-    std::vector<unsigned> &activationsUpsampleFactor,
-    std::vector<int> &activationsPaddingLower,
-    std::vector<int> &activationsPaddingUpper,
-    Tensor &deltas,
-    std::vector<unsigned> &deltasUpsampleFactor,
-    std::vector<int> &deltasPaddingLower,
-    std::vector<int> &deltasPaddingUpper,
-    std::vector<int> &weightDeltaTruncateLower,
-    std::vector<int> &weightDeltaTruncateUpper,
-    std::vector<unsigned> &weightDeltasStride,
-    const std::vector<std::size_t> &kernelShape) {
-  assert(plan.flattenDims.size() == 2 || plan.flattenDims.size() == 3);
-  bool flattenXY = plan.flattenDims.size() == 3;
-  const auto dType = activations.elementType();
-  assert(activations.rank() == 5);
-  assert(deltas.rank() == 5);
-  assert(activationsUpsampleFactor.size() == 2);
-  assert(activationsPaddingLower.size() == 2);
-  assert(activationsPaddingUpper.size() == 2);
-  assert(deltasUpsampleFactor.size() == 2);
-  assert(deltasPaddingLower.size() == 2);
-  assert(deltasPaddingUpper.size() == 2);
-  assert(activationsUpsampleFactor == std::vector<unsigned>({1, 1}));
-  assert(deltasPaddingLower == std::vector<int>({0, 0}));
-  assert(deltasPaddingUpper == std::vector<int>({0, 0}));
-  assert(flattenXY ||
-         (weightDeltaTruncateLower[0] == 0 &&
-          weightDeltaTruncateUpper[0] == 0));
-  // Eliminate the x axis of the kernel by taking the activations that are
-  // multiplied by each column of the weights turning them into different input
-  // channels.
-  auto paddedActivations = pad(graph, activations,
-                               activationsPaddingLower[1],
-                               activationsPaddingUpper[1], 3);
-  activationsPaddingLower[1] = 0;
-  activationsPaddingUpper[1] = 0;
-  auto expandedActivations =
-      graph.addTensor(dType, {paddedActivations.dim(0),
-                              paddedActivations.dim(1),
-                              paddedActivations.dim(2),
-                              deltas.dim(3),
-                              0});
-  std::vector<unsigned> paddedKernelShape(2);
-  for (unsigned dim = 0; dim != 2; ++dim) {
-    paddedKernelShape[dim] = (kernelShape[dim] - 1) * weightDeltasStride[dim]
-                             + 1 + weightDeltaTruncateLower[dim] +
-                             weightDeltaTruncateUpper[dim];
+static ConvParams
+getWeightUpdateParams(ConvParams fwdParams) {
+  fwdParams = canonicalizeParams(fwdParams);
+  if (fwdParams.kernelPaddingLower[0] != 0 ||
+      fwdParams.kernelPaddingLower[1] != 0 ||
+      fwdParams.kernelPaddingUpper[0] != 0 ||
+      fwdParams.kernelPaddingUpper[1] != 0) {
+    // Kernel padding in the forward pass translates to output truncation in the
+    // weight update pass but this isn't supported yet.
+    std::abort();
   }
-  for (unsigned wx = 0; wx != kernelShape[1]; ++wx) {
-    auto dilatedPaddedWeightX =
-        static_cast<int>(wx * weightDeltasStride[1]) +
-        weightDeltaTruncateLower[1];
-    Tensor usedActivations;
-    if (dilatedPaddedWeightX >= 0 &&
-        static_cast<unsigned>(dilatedPaddedWeightX) < paddedKernelShape[1]) {
-      usedActivations =
-          paddedActivations.slice(dilatedPaddedWeightX,
-                                  dilatedPaddedWeightX +
-                                  (deltas.dim(3) - 1) *
-                                  deltasUpsampleFactor[1] + 1,
-                                  3);
-      usedActivations =
-          usedActivations.subSample(deltasUpsampleFactor[1], 3);
-    } else {
-      usedActivations =
-          graph.addConstantTensor(dType, {paddedActivations.dim(0),
-                                          paddedActivations.dim(1),
-                                          paddedActivations.dim(2),
-                                          deltas.dim(3),
-                                          paddedActivations.dim(4)}, 0);
-    }
-    expandedActivations = concat(expandedActivations, usedActivations, 4);
-  }
-  deltasUpsampleFactor[1] = 1;
-  weightDeltasStride[1] = 1;
-  weightDeltaTruncateLower[1] = 0;
-  weightDeltaTruncateUpper[1] = 0;
-  if (flattenXY) {
-    // Eliminate the y axis of the kernel by taking the activations that are
-    // multiplied by each row of the weights turning them into different input
-    // channels.
-    auto yPaddedActivations = pad(graph, expandedActivations,
-                                  activationsPaddingLower[0],
-                                  activationsPaddingUpper[0], 2);
-    activationsPaddingLower[0] = 0;
-    activationsPaddingUpper[0] = 0;
-    auto yExpandedActivations =
-        graph.addTensor(dType, {yPaddedActivations.dim(0),
-                                yPaddedActivations.dim(1),
-                                deltas.dim(2),
-                                deltas.dim(3),
-                                0});
-    for (unsigned wy = 0; wy != kernelShape[0]; ++wy) {
-      auto dilatedPaddedWeightY =
-          static_cast<int>(wy * weightDeltasStride[0]) +
-          weightDeltaTruncateLower[0];
-      Tensor usedActivations;
-      if (dilatedPaddedWeightY >= 0 &&
-          static_cast<unsigned>(dilatedPaddedWeightY) < paddedKernelShape[0]) {
-        usedActivations =
-            yPaddedActivations.slice(dilatedPaddedWeightY,
-                                     dilatedPaddedWeightY +
-                                     (deltas.dim(2) - 1) *
-                                     deltasUpsampleFactor[0] + 1,
-                                     2);
-        usedActivations =
-            usedActivations.subSample(deltasUpsampleFactor[0], 2);
-      } else {
-        usedActivations =
-            graph.addConstantTensor(dType, {yPaddedActivations.dim(0),
-                                            yPaddedActivations.dim(1),
-                                            deltas.dim(2),
-                                            deltas.dim(3),
-                                            yPaddedActivations.dim(4)}, 0);
-      }
-      yExpandedActivations = concat(yExpandedActivations, usedActivations,
-                                    4);
-    }
-    expandedActivations = yExpandedActivations;
-    deltasUpsampleFactor[0] = 1;
-    weightDeltasStride[0] = 1;
-    weightDeltaTruncateLower[0] = 0;
-    weightDeltaTruncateUpper[0] = 0;
-    // Flatten the x and y axes.
-    expandedActivations =
-        expandedActivations.reshape({expandedActivations.dim(0),
-                                     expandedActivations.dim(1),
-                                     1,
-                                     expandedActivations.dim(2) *
-                                     expandedActivations.dim(3),
-                                     expandedActivations.dim(4)});
-    deltas =
-        deltas.reshape({deltas.dim(0),
-                        deltas.dim(1),
-                        1,
-                        deltas.dim(2) * deltas.dim(3),
-                        deltas.dim(4)});
-  }
-  // Rearrange the tensors so elements of the batch are treated as part of the
-  // x-axis of the field.
-  auto flattenedActivations =
-      expandedActivations
-          .dimShuffle({0, 2, 3, 1, 4})
-          .reshape({expandedActivations.dim(0),
-                    1,
-                    expandedActivations.dim(2),
-                    expandedActivations.dim(3) * expandedActivations.dim(1),
-                    expandedActivations.dim(4)});
-  auto flattenedDeltas =
-      deltas.dimShuffle({0, 2, 3, 1, 4})
-             .reshape({deltas.dim(0),
-                       1,
-                       deltas.dim(2),
-                       deltas.dim(3) * deltas.dim(1),
-                       deltas.dim(4)});
-  if (plan.ampWUMethod == Plan::ACTIVATIONS_AS_COEFFICENTS) {
-    assert(activationsPaddingLower[1] == 0);
-    assert(activationsPaddingUpper[1] == 0);
-    std::swap(flattenedActivations, flattenedDeltas);
-    std::swap(activationsUpsampleFactor, deltasUpsampleFactor);
-    std::swap(activationsPaddingLower, deltasPaddingLower);
-    std::swap(activationsPaddingUpper, deltasPaddingUpper);
-  }
-  activations = flattenedActivations;
-  deltas = flattenedDeltas;
-}
-
-// convolutionWeightUpdateAmpPreProcess() translates a convolution into an
-// equivalent convolution that we can use the AMP instruction to compute.
-// Given the weight deltas for this transformed convolution (reshaped so neither
-// channel dimension is split) transform them into weight deltas for the
-// original convolution.
-static void
-convolutionWeightUpdateAmpPostProcess(const Plan &plan,
-                                      Tensor &weightDeltas,
-                                      unsigned kernelSizeY,
-                                      unsigned kernelSizeX) {
-  assert(weightDeltas.dim(2) == 1);
-  if (plan.ampWUMethod == Plan::ACTIVATIONS_AS_COEFFICENTS) {
-    weightDeltas = weightDeltas.dimShuffle({0, 1, 2, 4, 3});
-  }
-  assert(plan.flattenDims.size() == 2 || plan.flattenDims.size() == 3);
-  bool flattenXY = plan.flattenDims.size() == 3;
-  if (flattenXY) {
-    assert(weightDeltas.dim(1) == 1);
-    weightDeltas =
-        weightDeltas.reshape({weightDeltas.dim(0),
-                              weightDeltas.dim(3),
-                              kernelSizeY,
-                              kernelSizeX,
-                              weightDeltas.dim(4) /
-                              (kernelSizeY * kernelSizeX)})
-                              .dimShuffle({0, 2, 3, 1, 4});
-  } else {
-    weightDeltas =
-        weightDeltas.reshape({weightDeltas.dim(0),
-                              weightDeltas.dim(1),
-                              weightDeltas.dim(3),
-                              kernelSizeX,
-                              weightDeltas.dim(4) / kernelSizeX})
-                    .dimShuffle(
-        {0, 1, 3, 2, 4});
-  }
-}
-
-
-static Tensor
-calculateWeightDeltasAmp(Graph &graph, Plan plan,
-                         const Plan &fwdPlan,
-                         Tensor zDeltas,
-                         Tensor activations,
-                         const ConvParams &params,
-                         Sequence &prog,
-                         const std::string &debugPrefix) {
-  // Transform the weight update convolution into an equivalent convolution that
-  // can be implemented using the AMP instruction.
-  std::vector<unsigned> activationsUpsampleFactor = {1, 1};
-  std::vector<int> activationsPaddingLower = params.inputPaddingLower;
-  std::vector<int> activationsPaddingUpper = params.inputPaddingUpper;
-  std::vector<unsigned> deltasUpsampleFactor = params.stride;
-  std::vector<int> deltasPaddingLower = {0, 0};
-  std::vector<int> deltasPaddingUpper = {0, 0};
-  std::vector<int> weightDeltasTruncateLower = params.kernelPaddingLower;
-  std::vector<int> weightDeltasTruncateUpper = params.kernelPaddingUpper;
-  std::vector<unsigned> weightDeltasStride = params.kernelDilation;
-  auto activationsView = activations;
-  auto deltasView = zDeltas;
-
-  convolutionWeightUpdateAmpPreProcess(graph, plan, activationsView,
-                                       activationsUpsampleFactor,
-                                       activationsPaddingLower,
-                                       activationsPaddingUpper, deltasView,
-                                       deltasUpsampleFactor,
-                                       deltasPaddingLower, deltasPaddingUpper,
-                                       weightDeltasTruncateLower,
-                                       weightDeltasTruncateUpper,
-                                       weightDeltasStride,
-                                       params.kernelShape);
-
-  assert(weightDeltasTruncateLower == std::vector<int>({0, 0}));
-  assert(weightDeltasTruncateUpper == std::vector<int>({0, 0}));
-
-  const auto dType = activations.elementType();
-  // Reshape so there is no batch dimension.
-  assert(activationsView.dim(1) == 1);
-  assert(deltasView.dim(1) == 1);
-  activationsView = activationsView.dimShuffle({1, 0, 2, 3, 4})[0];
-  deltasView = deltasView.dimShuffle({1, 0, 2, 3, 4})[0];
-
-  assert(activationsView.dim(2) == deltasView.dim(2));
-
-  // Pad the x-axis to a multiple of the input channels per group.
-  assert(activationsPaddingLower[1] == 0);
-  assert(activationsPaddingUpper[1] == 0);
-  assert(activationsUpsampleFactor[1] == 1);
-  assert(deltasPaddingLower[1] == 0);
-  assert(deltasPaddingUpper[1] == 0);
-  assert(deltasUpsampleFactor[1] == 1);
-  const auto inChansPerGroup = plan.inChansPerGroup;
-  activationsView = roundUpDimension(graph, activationsView, 2,
-                                     inChansPerGroup);
-  deltasView = roundUpDimension(graph, deltasView, 2, inChansPerGroup);
-  // Pad the output channels to a multiple of the partial channels per group.
-  const unsigned convOutChans = deltasView.dim(3);
-  const auto partialChansPerGroup = plan.partialChansPerGroup;
-  deltasView = roundUpDimension(graph, deltasView, 3, partialChansPerGroup);
-
-  // Transpose the activations.
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  auto transformedParams = weightUpdateByAmpTransformParams(params,
-                                                            deviceInfo,
-                                                            plan);
-  plan.method = Plan::Method::AMP;
-  auto activationsTransposed =
-      createInputImpl(graph, transformedParams, "activationsTransposed", plan);
-  prog.add(Copy(activationsView.dimShuffle({0, 1, 3, 2})
-                               .reshape(activationsTransposed.shape()),
-                activationsTransposed));
-  // Weights have the first dimension as the conv group.
-  auto deltasTransposed =
-      createWeights(graph, transformedParams, "deltasTransposed", plan);
-  prog.add(Copy(deltasView.dimShuffle({0, 1, 3, 2})
-                          .reshape(deltasTransposed.shape()),
-                deltasTransposed));
-
-  // Perform the convolution.
-  Tensor weightDeltas;
-  Program convolveProg;
-  std::tie(convolveProg, weightDeltas) =
-      convolutionImpl(graph, plan, transformedParams, activationsTransposed,
-                      deltasTransposed, debugPrefix);
-  prog.add(convolveProg);
-
-  // remove padding and move batch dimension to be the first
-  weightDeltas = weightDeltas.slice(0, convOutChans, 4)
-                             .dimShuffle({1, 0, 2, 3, 4});
-
-  // Reshape so there is no batch dimension.
-  assert(weightDeltas.dim(0) == 1);
-  weightDeltas = weightDeltas[0];
-
-  // Make the input channel dimension the innermost dimension and add an
-  // x-axis.
-  weightDeltas =
-      weightDeltas.dimShuffle({0, 1, 3, 2})
-                  .reshape({weightDeltas.dim(0),
-                                       weightDeltas.dim(1),
-                            1,
-                            weightDeltas.dim(3),
-                            weightDeltas.dim(2)});
-
-  // Transform the weight deltas back into weight deltas for the original
-  // weight update convolution.
-  convolutionWeightUpdateAmpPostProcess(plan, weightDeltas,
-                                        params.kernelShape[0],
-                                        params.kernelShape[1]);
-  return weightDeltas;
-}
-
-
-static Tensor
-calculateWeightDeltas(Graph &graph, const Plan &plan,
-                      const Plan &fwdPlan, const Tensor &zDeltas_,
-                      const Tensor &activations_,
-                      const ConvParams &params,
-                      Sequence &prog,
-                      const std::string &debugPrefix) {
-  auto zDeltas = splitActivationConvGroups(zDeltas_, params.numConvGroups);
-  auto activations = splitActivationConvGroups(activations_,
-                                               params.numConvGroups);
-  assert(plan.method == Plan::Method::AMP_ACCUMULATE_OVER_FIELD);
-  return calculateWeightDeltasAmp(graph, plan, fwdPlan, zDeltas, activations,
-                                  params, prog, debugPrefix);
+  return ConvParams(fwdParams.dType,
+                    fwdParams.getInputDepthPerConvGroup(), // batchSize
+                    {
+                      fwdParams.getInputHeight(),
+                      fwdParams.getInputWidth()
+                    }, // inputFieldShape
+                    {
+                      fwdParams.getOutputHeight(),
+                      fwdParams.getOutputWidth(),
+                    }, // kernelShape
+                    fwdParams.getBatchSize(), // inputChannels
+                    fwdParams.getOutputDepthPerConvGroup(), // outputChannels
+                    fwdParams.kernelDilation, // stride
+                    fwdParams.inputPaddingLower, // inputPaddingLower
+                    fwdParams.inputPaddingUpper, // inputPaddingUpper
+                    fwdParams.inputDilation,     // inputDilation
+                    {0, 0}, // kernelPaddingLower
+                    {0, 0}, // kernelPaddingUpper
+                    fwdParams.stride, // kernelDilation
+                    fwdParams.numConvGroups // numConvGroups
+                    );
 }
 
 Tensor
-calculateWeightDeltas(Graph &graph, const Tensor &zDeltas,
-                      const Tensor &activations,
-                      const ConvParams &params,
+calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
+                      const Tensor &activations_,
+                      const ConvParams &fwdParams,
                       Sequence &prog,
                       const std::string &debugPrefix,
                       const ConvOptions &options) {
-  const auto plan =
-      getWeightUpdatePlan(graph, activations, zDeltas, params, options);
-  const auto fwdPlan = getPlan(graph, params, options);
-  return calculateWeightDeltas(graph, plan, fwdPlan, zDeltas, activations,
-                               params, prog, debugPrefix);
+  const auto numConvGroups = fwdParams.numConvGroups;
+  auto zDeltas = splitActivationConvGroups(zDeltas_, numConvGroups);
+  auto activations = splitActivationConvGroups(activations_, numConvGroups);
+  auto params = getWeightUpdateParams(fwdParams);
+  // The weight update is equivalent to a convolution where:
+  // - wu conv groups = fwd conv groups
+  // - wu batch size = fwd input channels
+  // - wu input channels = fwd batch size
+  // - wu height = fwd height
+  // - wu width = fwd width
+  // - wu output channels = fwd output channels
+  auto activationsRearranged = activations.dimShuffle({0, 4, 2, 3, 1});
+  auto deltasRearranged = zDeltas.dimShuffle({0, 2, 3, 4, 1});
+  if (swapConvolutionalWeightUpdateParams) {
+    std::swap(params.inputFieldShape, params.kernelShape);
+    std::swap(params.inputPaddingLower, params.kernelPaddingLower);
+    std::swap(params.inputPaddingUpper, params.kernelPaddingUpper);
+    std::swap(params.inputDilation, params.kernelDilation);
+    std::swap(params.batchSize, params.outputChannels);
+    std::swap(activationsRearranged, deltasRearranged);
+    activationsRearranged = activationsRearranged.dimShuffle({0, 3, 1, 2, 4});
+    deltasRearranged = deltasRearranged.dimShuffle({0, 2, 3, 1, 4});
+  }
+  auto weightDeltas =
+      convolution(graph,
+                  unsplitActivationConvGroups(activationsRearranged),
+                  deltasRearranged,
+                  params,
+                  false,
+                  prog,
+                  debugPrefix,
+                  options);
+  weightDeltas = splitActivationConvGroups(weightDeltas, numConvGroups);
+  if (swapConvolutionalWeightUpdateParams) {
+    weightDeltas = weightDeltas.dimShuffle({0, 4, 2, 3, 1});
+  }
+  return weightDeltas.dimShuffle({0, 2, 3, 4, 1});
 }
 
 void
@@ -3375,11 +3081,24 @@ void reportWeightUpdatePlanInfo(std::ostream &out,
                                 const Graph &graph,
                                 const Tensor &activations,
                                 const Tensor &zDeltas,
-                                const ConvParams &params,
+                                const ConvParams &fwdParams,
                                 const ConvOptions &options) {
-  const auto plan =
-      getWeightUpdatePlan(graph, activations, zDeltas, params, options);
-  out << plan;
+  auto params = getWeightUpdateParams(fwdParams);
+  // The weight update is equivalent to a convolution where:
+  // - wu conv groups = fwd conv groups
+  // - wu batch size = fwd input channels
+  // - wu input channels = fwd batch size
+  // - wu height = fwd height
+  // - wu width = fwd width
+  // - wu output channels = fwd output channels
+  if (swapConvolutionalWeightUpdateParams) {
+    std::swap(params.inputFieldShape, params.kernelShape);
+    std::swap(params.inputPaddingLower, params.kernelPaddingLower);
+    std::swap(params.inputPaddingUpper, params.kernelPaddingUpper);
+    std::swap(params.inputDilation, params.kernelDilation);
+    std::swap(params.batchSize, params.outputChannels);
+  }
+  reportPlanInfo(out, graph, params, options);
 }
 
 

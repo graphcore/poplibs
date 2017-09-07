@@ -416,16 +416,20 @@ add_test(NAME conv_negative_input_padding_upper_simple
                 --padding-width-upper=-1
                 --tiles-per-ipu=1)
 
-add_test(NAME conv_negative_kernel_padding_upper_simple
-        COMMAND single_conv_layer
-                --input-channels=1
-                --output-channels=1
-                --width=1
-                --height=1
-                --kernel-width=2
-                --kernel-height=1
-                --kernel-padding-width-lower=-1
-                --tiles-per-ipu=1)
+# Note WU pass disabled due to T1737
+foreach(phase fwd bwd)
+  add_test(NAME conv_negative_kernel_padding_upper_simple_${phase}
+          COMMAND single_conv_layer
+                  --input-channels=1
+                  --output-channels=1
+                  --width=1
+                  --height=1
+                  --kernel-width=2
+                  --kernel-height=1
+                  --kernel-padding-width-lower=-1
+                  --tiles-per-ipu=1
+                  --single-phase=${phase})
+endforeach(phase)
 
 add_test(NAME conv_negative_input_padding_lower_simple
         COMMAND single_conv_layer
@@ -438,16 +442,20 @@ add_test(NAME conv_negative_input_padding_lower_simple
                 --padding-width-upper=-1
                 --tiles-per-ipu=1)
 
-add_test(NAME conv_negative_kernel_padding_lower_simple
-        COMMAND single_conv_layer
-                --input-channels=1
-                --output-channels=1
-                --width=1
-                --height=1
-                --kernel-width=2
-                --kernel-height=1
-                --kernel-padding-width-lower=-1
-                --tiles-per-ipu=1)
+# Note WU pass disabled due to T1737
+foreach(phase fwd bwd)
+  add_test(NAME conv_negative_kernel_padding_lower_simple_${phase}
+          COMMAND single_conv_layer
+                  --input-channels=1
+                  --output-channels=1
+                  --width=1
+                  --height=1
+                  --kernel-width=2
+                  --kernel-height=1
+                  --kernel-padding-width-lower=-1
+                  --tiles-per-ipu=1
+                  --single-phase=${phase})
+endforeach(phase)
 
 # Test where the size of the output tensor is much bigger than the size weight
 # tensor. As such it likely to be better to rearranging the weight deltas
@@ -896,17 +904,21 @@ add_test(NAME grouped_conv_negative_input_padding_upper_simple
                 --conv-groups=2
                 --tiles-per-ipu=1)
 
-add_test(NAME grouped_conv_negative_kernel_padding_upper_simple
-        COMMAND single_conv_layer
-                --input-channels=1
-                --output-channels=1
-                --width=1
-                --height=1
-                --kernel-width=2
-                --kernel-height=1
-                --kernel-padding-width-lower=-1
-                --conv-groups=2
-                --tiles-per-ipu=1)
+# Note WU pass disabled due to T1737
+foreach(phase fwd bwd)
+  add_test(NAME grouped_conv_negative_kernel_padding_upper_simple_${phase}
+          COMMAND single_conv_layer
+                  --input-channels=1
+                  --output-channels=1
+                  --width=1
+                  --height=1
+                  --kernel-width=2
+                  --kernel-height=1
+                  --kernel-padding-width-lower=-1
+                  --conv-groups=2
+                  --tiles-per-ipu=1
+                  --single-phase=${phase})
+endforeach(phase)
 
 add_test(NAME grouped_conv_negative_input_padding_lower_simple
         COMMAND single_conv_layer
@@ -920,17 +932,21 @@ add_test(NAME grouped_conv_negative_input_padding_lower_simple
                 --conv-groups=2
                 --tiles-per-ipu=1)
 
-add_test(NAME grouped_conv_negative_kernel_padding_lower_simple
-        COMMAND single_conv_layer
-                --input-channels=1
-                --output-channels=1
-                --width=1
-                --height=1
-                --kernel-width=2
-                --kernel-height=1
-                --conv-groups=2
-                --kernel-padding-width-lower=-1
-                --tiles-per-ipu=1)
+# Note WU pass disabled due to T1737
+foreach(phase fwd bwd)
+  add_test(NAME grouped_conv_negative_kernel_padding_lower_simple_${phase}
+          COMMAND single_conv_layer
+                  --input-channels=1
+                  --output-channels=1
+                  --width=1
+                  --height=1
+                  --kernel-width=2
+                  --kernel-height=1
+                  --conv-groups=2
+                  --kernel-padding-width-lower=-1
+                  --tiles-per-ipu=1
+                  --single-phase=${phase})
+endforeach(phase)
 
 # Test where the size of the output tensor is much bigger than the size weight
 # tensor. As such it likely to be better to rearranging the weight deltas
@@ -1609,17 +1625,22 @@ add_test(NAME conv3x3_kernel_dilation_amp
                 --kernel-dilation-width=2
                 --tiles-per-ipu=16)
 
-add_test(NAME conv3x3_kernel_padding_amp
-         COMMAND single_conv_layer
-                 --input-channels=32
-                 --output-channels=32
-                 --weight-update-method=amp
-                 --width=14
-                 --height=14
-                 --kernel-height=3
-                 --kernel-width=3
-                 --kernel-padding-height-lower=4
-                 --kernel-padding-height-upper=4
-                 --kernel-padding-width-lower=2
-                 --kernel-padding-width-upper=3
-                 --tiles-per-ipu=16)
+
+# Note WU pass disabled due to T1737
+foreach(phase fwd bwd)
+  add_test(NAME conv3x3_kernel_padding_amp_${phase}
+           COMMAND single_conv_layer
+                   --input-channels=32
+                   --output-channels=32
+                   --weight-update-method=amp
+                   --width=14
+                   --height=14
+                   --kernel-height=3
+                   --kernel-width=3
+                   --kernel-padding-height-lower=4
+                   --kernel-padding-height-upper=4
+                   --kernel-padding-width-lower=2
+                   --kernel-padding-width-upper=3
+                   --tiles-per-ipu=16
+                   --single-phase=${phase})
+endforeach(phase)

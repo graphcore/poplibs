@@ -40,9 +40,6 @@ struct Plan {
     AMP,
     // Outer product of two vectors.
     OUTER_PRODUCT,
-    // Compute the convolution using the AMP instruction. Data is rearranged
-    // such that the AMP units accumulate over the x-axis of the field.
-    AMP_ACCUMULATE_OVER_FIELD
   } method;
   enum class LinearizeTileOrder {
     STANDARD,
@@ -50,10 +47,6 @@ struct Plan {
     FC_BWD_AS_CONV
   } linearizeTileOrder = LinearizeTileOrder::STANDARD;
   unsigned winogradPatchSize;
-  enum AmpWUMethod {
-    DELTAS_AS_COEFFICENTS,
-    ACTIVATIONS_AS_COEFFICENTS,
-  } ampWUMethod = DELTAS_AS_COEFFICENTS;
 
   Plan() = default;
   Plan(unsigned tilesPerXAxis,
@@ -89,17 +82,6 @@ struct Plan {
 
 Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
              ConvOptions options);
-
-Plan getWeightUpdatePlan(const poplar::Graph &graph,
-                         const poplar::Tensor &activations,
-                         const poplar::Tensor &deltas,
-                         const ConvParams &params,
-                         ConvOptions options);
-
-ConvParams
-weightUpdateByAmpTransformParams(const ConvParams &params,
-                                 const poplar::DeviceInfo &deviceInfo,
-                                 const Plan &plan);
 
 std::ostream& operator<<(std::ostream &os, const Plan::Method m);
 std::ostream& operator<<(std::ostream &os, const Plan &p);
