@@ -786,8 +786,7 @@ static Tensor dilate(Graph &graph, const Tensor &t, unsigned dilationFactor,
 
 static void expandSpatialDim(Graph &graph, ConvParams &params,
                              Tensor *acts, Tensor *weights, unsigned dim) {
-  bool actsAreLarger = params.getPaddedDilatedInputSize(dim) >=
-                       params.getPaddedDilatedKernelSize(dim);
+  bool actsAreLarger = expandDimExpandActs(params, dim);
   Tensor *larger = actsAreLarger ? acts : weights;
   Tensor *smaller = actsAreLarger ? weights : acts;
   unsigned largerDimIndex = dim + (actsAreLarger ? 2 : 1);

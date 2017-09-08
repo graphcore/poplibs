@@ -1128,9 +1128,22 @@ choosePlan(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
   return {bestPlan, bestCost};
 }
 
+/// Return whether expanding the specified spatial dimension involves
+/// expanding the activations or the weights.
+bool expandDimExpandActs(ConvParams &params, unsigned dim) {
+  auto paddedInputSize = params.getPaddedDilatedInputSize(dim);
+  auto paddedKernelSize = params.getPaddedDilatedInputSize(dim);
+  if (paddedInputSize == paddedKernelSize) {
+    // We could legitimately expand either operand. zero padding /
+    // input dilation is made explicit for the operand we expand so we are
+    // better off expanding the operand with less padding.
+    return params.inputFieldShape[dim] > params.kernelShape[dim];
+  }
+  return paddedInputSize > paddedKernelSize;
+}
+
 static void expandDim(ConvParams &params, unsigned dim) {
-  if (params.getPaddedDilatedInputSize(dim) >=
-      params.getPaddedDilatedKernelSize(dim)) {
+  if (expandDimExpandActs(params, dim)) {
     params.inputFieldShape[dim] = params.getOutputSize(dim);
     params.inputChannels *= params.kernelShape[dim];
     params.kernelShape[dim] = 1;

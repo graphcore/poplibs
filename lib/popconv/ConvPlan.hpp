@@ -83,6 +83,10 @@ struct Plan {
 Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
              ConvOptions options);
 
+/// Return whether expanding the specified spatial dimension involves
+/// expanding the activations or the weights.
+bool expandDimExpandActs(ConvParams &params, unsigned dim);
+
 std::ostream& operator<<(std::ostream &os, const Plan::Method m);
 std::ostream& operator<<(std::ostream &os, const Plan &p);
 
