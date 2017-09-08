@@ -1132,7 +1132,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
 /// expanding the activations or the weights.
 bool expandDimExpandActs(ConvParams &params, unsigned dim) {
   auto paddedInputSize = params.getPaddedDilatedInputSize(dim);
-  auto paddedKernelSize = params.getPaddedDilatedInputSize(dim);
+  auto paddedKernelSize = params.getPaddedDilatedKernelSize(dim);
   if (paddedInputSize == paddedKernelSize) {
     // We could legitimately expand either operand. zero padding /
     // input dilation is made explicit for the operand we expand so we are
