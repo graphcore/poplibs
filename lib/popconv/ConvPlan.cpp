@@ -978,12 +978,12 @@ getConvVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
                                    ampFloatPartials,
                                    deviceInfo);
   }
+  const bool isFullyConnectedFwd =
+      options.fullyConnectedPass == FullyConnectedPass::FWD;
   if (canUseConvolutionInstruction(floatActivations, ampFloatPartials,
                                    deviceInfo)) {
     const auto weightsPerConvUnit =
         deviceInfo.getWeightsPerConvUnit(floatActivations);
-    const bool isFullyConnectedFwd =
-        options.fullyConnectedPass == FullyConnectedPass::FWD;
     for (unsigned inChansPerGroup = 1; inChansPerGroup <= weightsPerConvUnit;
          ++inChansPerGroup) {
       if (!floatActivations && inChansPerGroup % 2 != 0)
@@ -996,7 +996,7 @@ getConvVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
         // The input channels in the forward pass become the output channels of
         // the weight update pass. Make sure it is a multiple of the supported
         // output channels per group.
-        if (inChansPerGroup % numConvUnits != 0)
+        if (inChansPerGroup != 1 && inChansPerGroup % numConvUnits != 0)
           continue;
       }
       // TODO take into account the best grouping for all the phases if
@@ -1025,6 +1025,13 @@ getConvVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
       // decrease the number of groups - the zero padding increases the
       // amount of work per group and we can't use fewer groups per tile.
       continue;
+    }
+    if (isFullyConnectedFwd) {
+      // The input channels in the forward pass become the output channels of
+      // the weight update pass. Make sure it is a multiple of the supported
+      // output channels per group.
+      if (inChansPerGroup != 1 && inChansPerGroup % numConvUnits != 0)
+        continue;
     }
     convVertexTypeCandidates.emplace_back(Plan::Method::MAC, floatActivations,
                                           floatPartials, inChansPerGroup, 1);
