@@ -92,11 +92,16 @@ struct ConvVertexType {
   Plan::Method method;
   bool floatActivations;
   bool floatPartials;
+  unsigned inChansPerGroup;
+  unsigned partialChansPerGroup;
   ConvVertexType(Plan::Method method, bool floatActivations,
-                 bool floatPartials) :
+                 bool floatPartials, unsigned inChansPerGroup,
+                 unsigned partialChansPerGroup) :
     method(method),
     floatActivations(floatActivations),
-    floatPartials(floatPartials) {}
+    floatPartials(floatPartials),
+    inChansPerGroup(inChansPerGroup),
+    partialChansPerGroup(partialChansPerGroup) {}
 };
 
 static const char *asString(Plan::Method m) {
@@ -804,16 +809,18 @@ getFullyConnectedBwdMethod(const ConvParams &fwdParams,
   return fwdMethod;
 }
 
+template <class TransformCostFn>
 static std::pair<Plan, Cost>
 choosePlan(const poplar::DeviceInfo &deviceInfo,
-           unsigned inChansPerGroup,
-           unsigned partialChansPerGroup,
            unsigned xAxisGrainSize,
            const ConvVertexType &convVertexType,
            const ConvParams &params,
+           TransformCostFn transformCost,
            const CostBounds costBounds,
            PlanningCacheImpl *cache,
            const ConvOptions &options) {
+  const auto inChansPerGroup = convVertexType.inChansPerGroup;
+  const auto partialChansPerGroup = convVertexType.partialChansPerGroup;
   const auto floatActivations = convVertexType.floatActivations;
   // If tilesPerY is greater than one we end up splitting across the y axis of
   // the output volume. The input elements required to compute output elements
@@ -912,6 +919,12 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                          cache);
     cycles = m.sum({cycles, bwdCycles, wuCycles});
   }
+  auto transformCycles =
+      m.call({usedTiles},
+             [&](const std::vector<unsigned> &values) {
+        return transformCost(values[0]);
+      });
+  cycles = m.sum({cycles, transformCycles});
   if (costBounds.cycles > 0) {
     m.lessOrEqual(cycles, costBounds.cycles);
   }
@@ -939,193 +952,85 @@ static std::vector<ConvVertexType>
 getConvVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
                             bool floatActivations,
                             bool floatPartials,
-                            const ConvParams &params) {
+                            const ConvParams &params,
+                            const ConvOptions &options) {
   std::vector<ConvVertexType> convVertexTypeCandidates;
   if (params.getInputDepthPerConvGroup() == 1 &&
       params.getPaddedDilatedKernelSize(0) == 1 &&
       params.getPaddedDilatedKernelSize(1) == 1 &&
       params.getOutputHeight() == 1 &&
       params.getBatchSize() == 1) {
+    const auto partialChansPerGroup = floatActivations ?
+                                      deviceInfo.getFloatVectorWidth() :
+                                      deviceInfo.getHalfVectorWidth();
     convVertexTypeCandidates.emplace_back(Plan::Method::OUTER_PRODUCT,
                                           floatActivations,
-                                          floatActivations);
+                                          floatActivations, 1,
+                                          partialChansPerGroup);
   }
-  // We limit the use of the convolution instruction to cases where the number
-  // of output channels is a multiple of the output channel grouping that would
-  // be used.
-  if (canUseConvolutionInstruction(floatActivations, floatPartials,
+  bool ampFloatPartials = floatPartials;
+  auto numConvUnits = getNumConvUnits(floatActivations,
+                                      ampFloatPartials,
+                                      deviceInfo);
+  if (numConvUnits == 0 && !floatPartials) {
+    ampFloatPartials = true;
+    numConvUnits = getNumConvUnits(floatActivations,
+                                   ampFloatPartials,
+                                   deviceInfo);
+  }
+  if (canUseConvolutionInstruction(floatActivations, ampFloatPartials,
                                    deviceInfo)) {
-    convVertexTypeCandidates.emplace_back(Plan::Method::AMP, floatActivations,
-                                          floatPartials);
-  } else if (!floatActivations && !floatPartials &&
-             canUseConvolutionInstruction(false, true,
-                                          deviceInfo) &&
-             params.getOutputDepthPerConvGroup() %
-             deviceInfo.fp16InFp32OutConvUnitsPerTile == 0) {
-    convVertexTypeCandidates.emplace_back(Plan::Method::AMP, false, true);
-  }
-  convVertexTypeCandidates.emplace_back(Plan::Method::MAC, floatActivations,
-                                        floatPartials);
-  return convVertexTypeCandidates;
-}
-
-static std::vector<unsigned>
-getInChansPerGroupCandidates(const ConvParams &params,
-                             const ConvVertexType &convVertexType,
-                             const poplar::DeviceInfo &deviceInfo,
-                             const ConvOptions &options) {
-  std::vector<unsigned> candidates;
-  const auto numConvUnits = getNumConvUnits(convVertexType.floatActivations,
-                                            convVertexType.floatPartials,
-                                            deviceInfo);
-  const bool isFullyConnectedFwd =
-      options.fullyConnectedPass == FullyConnectedPass::FWD;
-  if (convVertexType.method == Plan::Method::OUTER_PRODUCT) {
-    assert(params.getInputDepthPerConvGroup() == 1);
-    return {1};
-  }
-  assert(convVertexType.method == Plan::Method::AMP ||
-         convVertexType.method == Plan::Method::MAC);
-  bool useConvInstruction = convVertexType.method == Plan::Method::AMP;
-  for (unsigned i = 1; i <= params.getInputDepthPerConvGroup(); ++i) {
-    if (params.getInputDepthPerConvGroup() % i != 0)
-      continue;
-    if (!convVertexType.floatActivations && i % 2 != 0)
-      continue;
-    if (useConvInstruction &&
-        !canUseConvolutionInstruction(convVertexType.floatActivations,
-                                      convVertexType.floatPartials,
-                                      i, deviceInfo))
-      continue;
-    if (isFullyConnectedFwd) {
-      // The input channels in the forward pass become the output channels of
-      // the weight update pass. Make sure it is a multiple of the supported
-      // output channels per group.
-      if (i % numConvUnits != 0)
+    const auto weightsPerConvUnit =
+        deviceInfo.getWeightsPerConvUnit(floatActivations);
+    const bool isFullyConnectedFwd =
+        options.fullyConnectedPass == FullyConnectedPass::FWD;
+    for (unsigned inChansPerGroup = 1; inChansPerGroup <= weightsPerConvUnit;
+         ++inChansPerGroup) {
+      if (!floatActivations && inChansPerGroup % 2 != 0)
         continue;
-    }
-    candidates.push_back(i);
-  }
-  if (candidates.empty()) {
-    if (useConvInstruction) {
-      // Drop the requirement that the input channel grouping must divide
-      // the number of input channels. This causes the input to be zero padded
-      // before the convolution.
-      // TODO Currently we only consider input channel groupings that need
-      // padding if we didn't find an input channel grouping that divides the
-      // number of channels exactly. Ideally we would always consider all
-      // input channel groupings and pick the one with the lowest cost.
-      // We would need to check whether the cost model is sufficiently accurate
-      // before making this change.
-      for (unsigned i = 1; i <= params.getInputDepthPerConvGroup(); ++i) {
-        if (!convVertexType.floatActivations && i % 2 != 0)
+      if (!canUseConvolutionInstruction(floatActivations,
+                                        floatPartials,
+                                        inChansPerGroup, deviceInfo))
+        continue;
+      if (isFullyConnectedFwd) {
+        // The input channels in the forward pass become the output channels of
+        // the weight update pass. Make sure it is a multiple of the supported
+        // output channels per group.
+        if (inChansPerGroup % numConvUnits != 0)
           continue;
-        if (useConvInstruction &&
-            !canUseConvolutionInstruction(convVertexType.floatActivations,
-                                          convVertexType.floatPartials,
-                                          i, deviceInfo))
-          continue;
-        if (isFullyConnectedFwd) {
-          // The input channels in the forward pass become the output channels
-          // of the weight update pass. Make sure it is a multiple of the
-          // supported output channels per group.
-          if (i % numConvUnits != 0)
-            continue;
-        }
-        candidates.push_back(i);
       }
-    } else {
-      candidates.push_back(isFullyConnectedFwd ? numConvUnits :
-                                         params.getInputDepthPerConvGroup());
-    }
-  }
-  return candidates;
-}
-
-static std::pair<Plan, Cost>
-choosePlan(const poplar::DeviceInfo &deviceInfo,
-           const ConvVertexType &convVertexType,
-           const ConvParams &params,
-           const CostBounds costBounds,
-           PlanningCacheImpl *cache,
-           const ConvOptions &options) {
-  Plan best;
-  Cost bestCost = highestCost;
-  std::vector<unsigned> inChansPerGroupCandidates;
-  inChansPerGroupCandidates =
-      getInChansPerGroupCandidates(params, convVertexType, deviceInfo,
-                                   options);
-  unsigned partialChansPerGroup;
-  switch (convVertexType.method) {
-  default: assert(0 && "Unexpected method");
-  case Plan::Method::AMP:
-    {
-      const auto numConvUnits = getNumConvUnits(convVertexType.floatActivations,
-                                                convVertexType.floatPartials,
-                                                deviceInfo);
       // TODO take into account the best grouping for all the phases if
       // options.fullyConnectedFwd is set.
-      partialChansPerGroup = numConvUnits;
-    }
-    break;
-  case Plan::Method::MAC:
-    partialChansPerGroup = 1;
-    break;
-  case Plan::Method::OUTER_PRODUCT:
-    partialChansPerGroup = convVertexType.floatActivations ?
-                           deviceInfo.getFloatVectorWidth() :
-                           deviceInfo.getHalfVectorWidth();
-    break;
-  }
-
-  for (auto inChansPerGroup : inChansPerGroupCandidates) {
-    Plan candidate;
-    Cost candidateCost;
-    unsigned xAxisGrainSize = 1;
-    if (options.fullyConnectedPass == FullyConnectedPass::FWD) {
-      // The xAxisGrainSize becomes the inChansPerGroup in the backward pass.
-      // For now assume the same grouping in both passes.
-      // TODO search for the optimal grouping in each pass.
-      xAxisGrainSize = inChansPerGroup;
-    }
-    std::tie(candidate, candidateCost) =
-        choosePlan(deviceInfo, inChansPerGroup, partialChansPerGroup,
-                   xAxisGrainSize, convVertexType, params,
-                   costBounds, cache, options);
-    if (compareCost(candidateCost, bestCost, costBounds)) {
-      best = candidate;
-      bestCost = candidateCost;
+      const auto partialChansPerGroup = numConvUnits;
+      convVertexTypeCandidates.emplace_back(Plan::Method::AMP, floatActivations,
+                                            ampFloatPartials, inChansPerGroup,
+                                            partialChansPerGroup);
     }
   }
-  return {best, bestCost};
-}
-
-static std::pair<Plan, Cost>
-choosePlan(const poplar::DeviceInfo &deviceInfo, bool floatActivations,
-           bool floatPartials,
-           const ConvParams &params,
-           CostBounds costBounds,
-           PlanningCacheImpl *cache,
-           const ConvOptions &options) {
-  Cost bestCost = highestCost;
-  Plan bestPlan;
-  const auto convVertexTypeCandidates =
-      getConvVertexTypeCandidates(deviceInfo, floatActivations,
-                                  floatPartials, params);
-  for (const auto &convVertexType : convVertexTypeCandidates) {
-    Plan candidate;
-    Cost candidateCost;
-    std::tie(candidate, candidateCost) =
-        choosePlan(deviceInfo, convVertexType, params, costBounds, cache,
-                   options);
-    if (candidateCost == highestCost)
+  // Constrain the input channel grouping to a mulitple of two if the activation
+  // type is half. This ensures that we never need to apply padding when sending
+  // activations over the exchange.
+  auto grainSize = floatActivations ? 1 : 2;
+  const auto roundedInputDepth =
+      ((params.getInputDepthPerConvGroup() + grainSize - 1) / grainSize) *
+      grainSize;
+  unsigned previousInChanGroups = 0;
+  for (unsigned inChansPerGroup = grainSize;
+       inChansPerGroup <= roundedInputDepth;
+       inChansPerGroup += grainSize) {
+    unsigned inChanGroups = (roundedInputDepth + inChansPerGroup - 1) /
+                            inChansPerGroup;
+    if (inChanGroups == previousInChanGroups) {
+      // There is no point considering a larger group size if it doesn't
+      // decrease the number of groups - the zero padding increases the
+      // amount of work per group and we can't use fewer groups per tile.
       continue;
-    if (compareCost(candidateCost, bestCost, costBounds)) {
-      bestPlan = candidate;
-      bestCost = candidateCost;
     }
+    convVertexTypeCandidates.emplace_back(Plan::Method::MAC, floatActivations,
+                                          floatPartials, inChansPerGroup, 1);
+    previousInChanGroups = inChanGroups;
   }
-  return {bestPlan, bestCost};
+  return convVertexTypeCandidates;
 }
 
 /// Return whether expanding the specified spatial dimension involves
@@ -1161,40 +1066,64 @@ static void expandDim(ConvParams &params, unsigned dim) {
   params.kernelPaddingUpper[dim] = 0;
 }
 
-static Cost
-estimateTransformCost(const poplar::DeviceInfo &deviceInfo,
-                      const ConvParams &params,
-                      std::vector<unsigned> expandDims) {
-  if (expandDims.empty()) {
-    return {0, 0};
-  }
+static unsigned
+estimateTransformCycles(const poplar::DeviceInfo &deviceInfo,
+                        const ConvParams &params,
+                        std::vector<unsigned> expandDims,
+                        unsigned inChansPadding,
+                        unsigned partialChansPadding,
+                        unsigned usedTiles) {
+  bool rearrangeInput = !expandDims.empty() || inChansPadding;
+  bool rearrangeWeights = !expandDims.empty() || inChansPadding ||
+                          partialChansPadding;
+  bool rearrangeOutput = partialChansPadding;
   auto expandedParams = params;
   for (const auto dim : expandDims) {
     expandDim(expandedParams, dim);
   }
+  expandedParams.inputChannels += inChansPadding;
+  expandedParams.outputChannels += partialChansPadding;
+
   unsigned expandedInputFieldSize = 1;
   unsigned expandedFilterSize = 1;
+  unsigned expandedOutputFieldSize = 1;
   for (unsigned dim = 0; dim != params.getNumFieldDims(); ++dim) {
     expandedInputFieldSize *= params.inputFieldShape[dim];
     expandedFilterSize *= params.kernelShape[dim];
+    expandedOutputFieldSize *= params.getOutputSize(dim);
   }
-  const auto expandedInputChannelsPerGroup = params.getInputDepthPerConvGroup();
-  const auto numTiles = deviceInfo.getNumTiles();
-  const auto expandedInputElements =
-      expandedInputFieldSize * expandedInputChannelsPerGroup *
-      params.getBatchSize() * params.numConvGroups;
-  const auto expandedInputElementsPerTile =
-      (expandedInputElements + numTiles - 1) / numTiles;
-  const auto expandedFilterElements =
-      expandedFilterSize * expandedInputChannelsPerGroup *
-      params.getOutputDepthPerConvGroup() * params.numConvGroups;
-  const auto expandedFilterElementsPerTile =
-      (expandedFilterElements + numTiles - 1) / numTiles;
-  const auto expandedElementsPerTile =
-      expandedInputElementsPerTile + expandedFilterElementsPerTile;
-  const auto bytesPerElement = params.dType == "float" ? 4U : 2U;
-  const auto expandedBytesPerTile = expandedElementsPerTile * bytesPerElement;
   unsigned cycles = 0;
+  const auto bytesPerElement = expandedParams.dType == "float" ? 4U : 2U;
+  const auto expandedInputChannelsPerGroup =
+      expandedParams.getInputDepthPerConvGroup();
+  unsigned rearrangeElementsPerTile = 0;
+  if (rearrangeInput) {
+    const auto expandedInputElements =
+        expandedInputFieldSize * expandedInputChannelsPerGroup *
+        expandedParams.getBatchSize() * expandedParams.getNumConvGroups();
+    const auto expandedInputElementsPerTile =
+        (expandedInputElements + usedTiles - 1) / usedTiles;
+    rearrangeElementsPerTile += expandedInputElementsPerTile;
+  }
+  if (rearrangeWeights) {
+    const auto expandedFilterElements =
+        expandedFilterSize * expandedInputChannelsPerGroup *
+        expandedParams.getOutputDepthPerConvGroup() *
+        expandedParams.getNumConvGroups();
+    const auto expandedFilterElementsPerTile =
+        (expandedFilterElements + usedTiles - 1) / usedTiles;
+    rearrangeElementsPerTile += expandedFilterElementsPerTile;
+  }
+  if (rearrangeOutput) {
+    const auto expandedOutputElements =
+        expandedOutputFieldSize * expandedParams.getOutputDepthPerConvGroup() *
+        expandedParams.getBatchSize() * expandedParams.getNumConvGroups();
+    const auto expandedOutputElementsPerTile =
+        (expandedOutputElements + usedTiles - 1) / usedTiles;
+    rearrangeElementsPerTile += expandedOutputElementsPerTile;
+  }
+  const auto expandedBytesPerTile =
+      rearrangeElementsPerTile * bytesPerElement;
   // Estimate cost assuming every byte must be exchanged and copied.
   const auto exchangeBytesPerCycle = deviceInfo.exchangeBytesPerCycle;
   cycles += (expandedBytesPerTile + exchangeBytesPerCycle - 1) /
@@ -1208,7 +1137,7 @@ estimateTransformCost(const poplar::DeviceInfo &deviceInfo,
   // overheads that aren't modeled.
   double fudgeFactor = 1.5;
   cycles *= fudgeFactor;
-  return {cycles, 0};
+  return cycles;
 }
 
 static bool expandingDimChangesParams(const ConvParams &params, unsigned dim) {
@@ -1289,31 +1218,30 @@ createPlan(ConvParams params,
   Plan bestPlan;
   for (std::vector<unsigned> expandDims :
        getExpandDimsCandidates(params)) {
-    Cost transformCost =
-        estimateTransformCost(graph.getDevice().getDeviceInfo(),
-                              params, expandDims);
-    auto newParams = params;
+    auto expandedParams = params;
     for (unsigned dim : expandDims) {
-      expandDim(newParams, dim);
+      expandDim(expandedParams, dim);
     }
     std::vector<unsigned> outChanFlattenDims;
 
-    for (unsigned spatialDim = 0; spatialDim != newParams.getNumFieldDims();
+    for (unsigned spatialDim = 0;
+         spatialDim != expandedParams.getNumFieldDims();
          ++spatialDim) {
-      if (dimCanBeFlattenedIntoOutChans(newParams, spatialDim) &&
-          newParams.kernelShape[spatialDim] > 1) {
+      if (dimCanBeFlattenedIntoOutChans(expandedParams, spatialDim) &&
+          expandedParams.kernelShape[spatialDim] > 1) {
         outChanFlattenDims.push_back(spatialDim);
-        newParams.outputChannels *= newParams.kernelShape[spatialDim];
-        newParams.kernelShape[spatialDim] = 1;
+        expandedParams.outputChannels *= expandedParams.kernelShape[spatialDim];
+        expandedParams.kernelShape[spatialDim] = 1;
       }
     }
     // Flatten from the innermost out.
     std::reverse(outChanFlattenDims.begin(), outChanFlattenDims.end());
     std::vector<unsigned> flattenDims;
     flattenDims.push_back(0);
-    for (unsigned spatialDim = 0; spatialDim != newParams.getNumFieldDims();
+    for (unsigned spatialDim = 0;
+         spatialDim != expandedParams.getNumFieldDims();
          ++spatialDim) {
-      if (dimCanBeFlattened(newParams, spatialDim)) {
+      if (dimCanBeFlattened(expandedParams, spatialDim)) {
         flattenDims.push_back(spatialDim + 1);
       }
     }
@@ -1324,9 +1252,9 @@ createPlan(ConvParams params,
            end = flattenDims.rend(); it != end; ++it) {
         const auto fromDimIndex = *it;
         auto &fromDimSize =
-            fromDimIndex ? newParams.inputFieldShape[fromDimIndex - 1] :
-                           newParams.batchSize;
-        newParams.inputFieldShape[innermostFlattenableDim - 1] *=
+            fromDimIndex ? expandedParams.inputFieldShape[fromDimIndex - 1] :
+                           expandedParams.batchSize;
+        expandedParams.inputFieldShape[innermostFlattenableDim - 1] *=
             fromDimSize;
         fromDimSize = 1;
       }
@@ -1335,21 +1263,47 @@ createPlan(ConvParams params,
     }
     const bool floatActivations = params.dType == "float";
     const bool floatPartials = partialsType == "float";
-    Plan candidate;
-    Cost candidateCost;
-    std::tie(candidate, candidateCost) =
-        choosePlan(deviceInfo, floatActivations,
-                   floatPartials,
-                   newParams, costBounds,
-                   cache,
-                   options);
-    candidateCost += transformCost;
-    candidate.expandDims = expandDims;
-    candidate.outChanFlattenDims = outChanFlattenDims;
-    candidate.flattenDims = flattenDims;
-    if (compareCost(candidateCost, bestCost, costBounds)) {
-      bestPlan = candidate;
-      bestCost = candidateCost;
+    const auto convVertexTypeCandidates =
+        getConvVertexTypeCandidates(deviceInfo, floatActivations,
+                                    floatPartials, params, options);
+    for (const auto &convVertexType : convVertexTypeCandidates) {
+      auto paddedParams = expandedParams;
+      const auto inChansPerGroup = convVertexType.inChansPerGroup;
+      const auto inChans = expandedParams.getInputDepthPerConvGroup();
+      paddedParams.inputChannels =
+          ((inChans + inChansPerGroup - 1) / inChansPerGroup) *
+          inChansPerGroup;
+      unsigned inChansPadding = paddedParams.inputChannels - inChans;
+      const auto partialChansPerGroup = convVertexType.partialChansPerGroup;
+      const auto partialChans = expandedParams.getOutputDepthPerConvGroup();
+      paddedParams.outputChannels =
+          ((partialChans + partialChansPerGroup - 1) / partialChansPerGroup) *
+          partialChansPerGroup;
+      unsigned partialChansPadding = paddedParams.outputChannels - partialChans;
+      unsigned xAxisGrainSize = 1;
+      if (options.fullyConnectedPass == FullyConnectedPass::FWD) {
+        // The xAxisGrainSize becomes the inChansPerGroup in the backward pass.
+        // For now assume the same grouping in both passes.
+        // TODO search for the optimal grouping in each pass.
+        xAxisGrainSize = convVertexType.inChansPerGroup;
+      }
+      Plan candidate;
+      Cost candidateCost;
+      auto transformCostFn = [&](unsigned usedTiles) {
+        return estimateTransformCycles(graph.getDevice().getDeviceInfo(),
+                                       paddedParams, expandDims, inChansPadding,
+                                       partialChansPadding, usedTiles);
+      };
+      std::tie(candidate, candidateCost) =
+          choosePlan(deviceInfo, xAxisGrainSize, convVertexType, paddedParams,
+                     transformCostFn, costBounds, cache, options);
+      candidate.expandDims = expandDims;
+      candidate.outChanFlattenDims = outChanFlattenDims;
+      candidate.flattenDims = flattenDims;
+      if (compareCost(candidateCost, bestCost, costBounds)) {
+        bestPlan = candidate;
+        bestCost = candidateCost;
+      }
     }
   }
   return {bestPlan, bestCost};
