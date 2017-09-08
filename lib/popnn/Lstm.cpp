@@ -5,6 +5,7 @@
 #include <popstd/HadamardProduct.hpp>
 #include <popstd/VertexTemplates.hpp>
 #include <popnn/Lstm.hpp>
+#include <popstd/Operations.hpp>
 #include <popconv/Convolution.hpp>
 #include <cstdint>
 
@@ -13,52 +14,97 @@ using namespace poplar::program;
 using namespace poplin;
 using namespace popstd;
 
-
-
-static Tensor processBasicLstmUnit(Graph &graph,
-                                   Tensor prevAct,
-                                   Tensor bBiases,
-                                   Tensor prevOutput,
-                                   Tensor weightsInput,
-                                   Tensor weightsOutput,
-                                   Sequence &prog,
-                                   MatMulOptions &mmOpt,
-                                   popnn::NonLinearityType nonLinearityType,
-                                   const std::string debugStr) {
-
-  auto prodInp =
-          matMul(graph, prevAct, weightsInput,
-                 prog, debugStr + "/WeighInput", mmOpt);
-  auto output =
-          matMul(graph, prevOutput, weightsOutput,
-                 prog, debugStr + "/WeighOutput", mmOpt);
-
-  addTo(graph, output, prodInp, 1.0, prog);
-  addTo(graph, output, bBiases, 1.0, prog);
-  nonLinearity(graph, nonLinearityType, output, prog, debugStr);
-  return output;
+// Flatten a 3D tensor to a 2D tensor such that the innermost dimension is the
+// product of outputs(or inputs) and units
+static Tensor flattenUnits(const Tensor &t) {
+  return t.dimShuffle({1, 0, 2}).reshape({t.dim(1), t.dim(0) * t.dim(2)});
 }
 
+// unflatten a 2D tensor which has units flattened in it's innermost dimension.
+// The resultant 3D tensor view has the unit dimension as the outermost
+// dimension
+static Tensor unflattenUnits(const Tensor &t) {
+  return t.reshape({ t.dim(0), BASIC_LSTM_CELL_NUM_UNITS,
+                     t.dim(1) / BASIC_LSTM_CELL_NUM_UNITS})
+          .dimShuffle({1, 0, 2});
+}
+
+static void
+applyGateNonlinearities(Graph &graph, Tensor &t, Sequence &prog,
+                        const std::string &debugStr) {
+  auto sigmoidIn = concat({t[BASIC_LSTM_CELL_INPUT_GATE],
+                           t[BASIC_LSTM_CELL_FORGET_GATE],
+                           t[BASIC_LSTM_CELL_OUTPUT_GATE]});
+  nonLinearity(graph, popnn::NonLinearityType::NON_LINEARITY_SIGMOID,
+               sigmoidIn, prog, debugStr);
+  nonLinearity(graph, popnn::NonLinearityType::NON_LINEARITY_TANH,
+               t[BASIC_LSTM_CELL_CANDIDATE], prog, debugStr);
+}
+
+// Computes the output before nonlinearities to all the units are applies
 static Tensor
-processBasicLstmUnitPreWeighted(Graph &graph,
-                                Tensor weightedIn,
-                                Tensor bBiases,
-                                Tensor prevOutput,
-                                Tensor weightsOutput,
-                                Sequence &prog,
-                                MatMulOptions &mmOpt,
-                                popnn::NonLinearityType nonLinearityType,
-                                const std::string debugStr) {
+basicLstmUnitsNlInputPreWeighted(Graph &graph,
+                                       Tensor weightedIn,
+                                       Tensor prevOutput,
+                                       Tensor weightsOutput,
+                                       Sequence &prog,
+                                       MatMulOptions &mmOpt,
+                                       const std::string debugStr) {
+  assert(weightedIn.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
+  assert(weightsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   auto output =
-          matMul(graph, prevOutput, weightsOutput,
-                 prog, debugStr + "/WeighOutput", mmOpt);
-
-  addTo(graph, output, weightedIn, 1.0, prog);
-  addTo(graph, output, bBiases, 1.0, prog);
-  nonLinearity(graph, nonLinearityType, output, prog, debugStr);
+      unflattenUnits(matMul(graph, prevOutput, flattenUnits(weightsOutput),
+                     prog, debugStr + "/WeighOutput", mmOpt));
+  addTo(graph, output, weightedIn, 1.0, prog, debugStr + "/AddWeightedOutputs");
   return output;
 }
 
+// Computes the output before nonlinearities to all the units are applies
+static Tensor
+basicLstmUnitsNlInput(Graph &graph,
+                      Tensor prevAct,
+                      Tensor prevOutput,
+                      Tensor weightsInput,
+                      Tensor weightsOutput,
+                      Sequence &prog,
+                      MatMulOptions &mmOpt,
+                      const std::string &debugStr) {
+  assert(weightsInput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
+  assert(weightsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
+  auto prodInp =
+      unflattenUnits(matMul(graph, prevAct, flattenUnits(weightsInput),
+                            prog, debugStr + "/WeighInput", mmOpt));
+  return
+      basicLstmUnitsNlInputPreWeighted(graph, prodInp, prevOutput,
+                                       weightsOutput, prog, mmOpt, debugStr);
+}
+
+// Add bias and compute LSTM output and update cellState given output of all
+// the gates
+static Tensor
+basicLstmComputeOutput(Graph &graph,
+                       Tensor &gatesOutput,
+                       const Tensor &cellState,
+                       Tensor &bBiases,
+                       Sequence &prog,
+                       const std::string &debugStr) {
+  assert(gatesOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
+  auto forgetGate = gatesOutput[BASIC_LSTM_CELL_FORGET_GATE];
+  auto candidate = gatesOutput[BASIC_LSTM_CELL_CANDIDATE];
+  auto outputGate = gatesOutput[BASIC_LSTM_CELL_OUTPUT_GATE];
+  auto inputGate = gatesOutput[BASIC_LSTM_CELL_INPUT_GATE];
+  const auto dType = cellState.elementType();
+  addTo(graph, gatesOutput, bBiases, 1.0, prog, debugStr + "/AddBias");
+  applyGateNonlinearities(graph, gatesOutput, prog, debugStr);
+  hadamardProduct(graph, concat(cellState, candidate),
+                  concat(forgetGate, inputGate), prog,
+                  debugStr + "/HadamardProd/{Forget + Input}Gate");
+  addTo(graph, cellState, candidate, 1.0, prog, debugStr + "/AddCellCand");
+  auto output = tanh(graph, cellState, prog, debugStr);
+  hadamardProduct(graph, output, outputGate, prog,
+                  debugStr + "/HadamardProd/OutputGate");
+  return output;
+}
 
 namespace popnn {
 namespace lstm {
@@ -87,31 +133,17 @@ Tensor createWeightsInput(Graph &graph, const std::string &dType,
   auto seqSize = prevAct.dim(0);
   auto batchSize = prevAct.dim(1);
   auto inputSize = prevAct.dim(2);
-  Tensor weightsInput;
-  if (preweights) {
-    weightsInput =
-        createMatMulInputRHS(graph, dType,
-                             {seqSize * batchSize, inputSize},
-                             {inputSize,
-                              BASIC_LSTM_CELL_NUM_UNITS * outputSize},
-                             "weightsIn",
-                             mmOpt)
-        .reshape({inputSize, BASIC_LSTM_CELL_NUM_UNITS, outputSize})
-        .dimShuffle({1, 0, 2});
-  } else {
-    weightsInput = graph.addTensor(dType,
-                                          {0, inputSize, outputSize},
-                                          "");
-    for (auto u = 0U; u != BASIC_LSTM_CELL_NUM_UNITS; ++u) {
-      auto wInp =
-          createMatMulInputRHS(graph, dType,
-                               {batchSize, inputSize},
-                               {inputSize, outputSize},
-                               "weightsInput" + std::to_string(u), mmOpt);
-      weightsInput = append(weightsInput, wInp);
-    }
-  }
-  return weightsInput;
+  std::vector<std::size_t> aShape(2);
+  aShape[0] = preweights ? seqSize * batchSize : batchSize;
+  aShape[1] = inputSize;
+
+  auto weightsInput =
+      createMatMulInputRHS(graph, dType,
+                           aShape,
+                           {inputSize, BASIC_LSTM_CELL_NUM_UNITS * outputSize},
+                           "weightsIn",
+                           mmOpt);
+  return unflattenUnits(weightsInput);
 }
 
 Tensor createWeightsOutput(Graph &graph, const std::string &dType,
@@ -121,19 +153,14 @@ Tensor createWeightsOutput(Graph &graph, const std::string &dType,
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsType;
   mmOpt.fullyConnectedPass = FullyConnectedPass::FWD;
-  Tensor weightsOutput = graph.addTensor(dType,
-                                         {0, outputSize, outputSize},
-                                         "");
   const auto batchSize = cellState.dim(0);
-  for (auto u = 0U; u != BASIC_LSTM_CELL_NUM_UNITS; ++u) {
-    auto wOut = createMatMulInputRHS(graph, dType,
-                                     {batchSize, outputSize},
-                                     {outputSize, outputSize},
-                                     "weightsOutput" + std::to_string(u),
-                                     mmOpt);
-    weightsOutput = append(weightsOutput, wOut);
-  }
-  return weightsOutput;
+  auto weightsOutput =
+      createMatMulInputRHS(graph, dType,
+                           {batchSize, outputSize},
+                           {outputSize, BASIC_LSTM_CELL_NUM_UNITS * outputSize},
+                           "weightsOut",
+                           mmOpt);
+  return unflattenUnits(weightsOutput);
 }
 
 uint64_t getBasicLstmCellFwdFlops(unsigned sequenceSize, unsigned batchSize,
@@ -173,11 +200,7 @@ calcSequenceWeightedInputs(Graph &graph,
   auto inputSize = in_.dim(2);
   auto in = in_.reshape({sequenceSize * batchSize, inputSize});
   auto outputSize = weightsInput_.dim(2);
-  auto weightsInput =
-      weightsInput_.dimShuffle({1, 0, 2})
-                   .reshape({inputSize,
-                             BASIC_LSTM_CELL_NUM_UNITS * outputSize});
-
+  auto weightsInput = flattenUnits(weightsInput_);
   return matMul(graph, in, weightsInput,
                 prog, debugPrefix + "/Lstm/CalcWeighedInput", mmOpt)
            .reshape({sequenceSize, batchSize, BASIC_LSTM_CELL_NUM_UNITS,
@@ -207,15 +230,11 @@ Tensor basicLstmCellForwardPassWeightedInputs(Graph &graph,
   const auto dType = weightedIn.elementType();
 
   auto bBiases = graph.addTensor(dType, {0, batchSize, outputSize}, "bbiases");
-
   for (unsigned u = 0; u != BASIC_LSTM_CELL_NUM_UNITS; ++u) {
-    mapTensorLinearly(graph, biases[u]);
-
     auto unitBias = biases[u].broadcast(batchSize, 0)
-                                       .reshape({batchSize, outputSize});
+                             .reshape({batchSize, outputSize});
     bBiases = append(bBiases, unitBias);
   }
-
   PlanningCache cache;
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsTypeStr;
@@ -224,6 +243,8 @@ Tensor basicLstmCellForwardPassWeightedInputs(Graph &graph,
 
   Tensor actOut = graph.addTensor(dType, {0, batchSize, outputSize}, "actOut");
 
+  auto weightedInReshaped = weightedIn.dimShuffle({1, 0, 2, 3});
+  Tensor bbbBiases;
   for (auto s = 0U; s != sequenceSize; ++s) {
     const std::string baseStr = debugPrefix
                                 + "/BasicLstmCell/"
@@ -231,66 +252,21 @@ Tensor basicLstmCellForwardPassWeightedInputs(Graph &graph,
 
     auto prevOutputThisStep = s == 0 ? prevOutput : actOut[s-1];
 
-    /* Forget gate */
-    auto forgetGate =
-    processBasicLstmUnitPreWeighted(
-                         graph,
-                         weightedIn[BASIC_LSTM_CELL_FORGET_GATE][s],
-                         bBiases[BASIC_LSTM_CELL_FORGET_GATE],
-                         prevOutputThisStep,
-                         weightsOutput[BASIC_LSTM_CELL_FORGET_GATE],
-                         prog, mmOpt,
-                         popnn::NonLinearityType::NON_LINEARITY_SIGMOID,
-                         baseStr + "/ForgetGate");
-
-    auto inputGate =
-    processBasicLstmUnitPreWeighted(
-                         graph,
-                         weightedIn[BASIC_LSTM_CELL_INPUT_GATE][s],
-                         bBiases[BASIC_LSTM_CELL_INPUT_GATE],
-                         prevOutputThisStep,
-                         weightsOutput[BASIC_LSTM_CELL_INPUT_GATE],
-                         prog, mmOpt,
-                         popnn::NonLinearityType::NON_LINEARITY_SIGMOID,
-                         baseStr + "/InputGate");
-
-    auto outputGate =
-    processBasicLstmUnitPreWeighted(
-                         graph,
-                         weightedIn[BASIC_LSTM_CELL_OUTPUT_GATE][s],
-                         bBiases[BASIC_LSTM_CELL_OUTPUT_GATE],
-                         prevOutputThisStep,
-                         weightsOutput[BASIC_LSTM_CELL_OUTPUT_GATE],
-                         prog, mmOpt,
-                         popnn::NonLinearityType::NON_LINEARITY_SIGMOID,
-                         baseStr + "/OutputGate");
-
-    auto candidate =
-    processBasicLstmUnitPreWeighted(
-                         graph,
-                         weightedIn[BASIC_LSTM_CELL_CANDIDATE][s],
-                         bBiases[BASIC_LSTM_CELL_CANDIDATE],
-                         prevOutputThisStep,
-                         weightsOutput[BASIC_LSTM_CELL_CANDIDATE],
-                         prog, mmOpt,
-                         popnn::NonLinearityType::NON_LINEARITY_TANH,
-                         baseStr + "/Candidate");
-
-    hadamardProduct(graph, cellState, forgetGate, prog,
-                    baseStr + "/HadamardProd/ForgetGate");
-    hadamardProduct(graph, candidate, inputGate, prog,
-                    baseStr + "/HadamardProd/InputGate");
-    addTo(graph, cellState, candidate, 1.0, prog);
-
-    auto output = graph.addTensor(dType, {batchSize, outputSize},
-                                  "output");
-    mapTensorLinearly(graph, output);
-
-    prog.add(Copy(cellState, output));
-    nonLinearity(graph, popnn::NonLinearityType::NON_LINEARITY_TANH,
-                 output, prog);
-    hadamardProduct(graph, output, outputGate, prog,
-                    baseStr + "/HadamardProd/OutputGate");
+    auto unitsOutput =
+        basicLstmUnitsNlInputPreWeighted(graph,
+                                         weightedInReshaped[s],
+                                         prevOutputThisStep,
+                                         weightsOutput,
+                                         prog, mmOpt,
+                                         baseStr + "/ProcessUnits");
+    if (s == 0) {
+      for (auto u = 0; u != BASIC_LSTM_CELL_NUM_UNITS; ++u) {
+        graph.setTileMapping(biases[u],
+                             graph.getTileMapping(unitsOutput[u][0]));
+      }
+    }
+    auto output = basicLstmComputeOutput(graph, unitsOutput, cellState, bBiases,
+                                         prog, baseStr);
     actOut = append(actOut, output);
   }
   return actOut;
@@ -312,7 +288,6 @@ Tensor basicLstmCellForwardPass(Graph &graph,
 #ifndef NDEBUG
   const unsigned inputSize = in.dim(2);
 #endif
-
   assert(weightsInput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   assert(weightsInput.dim(1) == inputSize);
   assert(weightsInput.dim(2) == outputSize);
@@ -322,24 +297,19 @@ Tensor basicLstmCellForwardPass(Graph &graph,
   assert(weightsOutput.dim(2) == outputSize);
 
   const auto dType = in.elementType();
-
   auto bBiases = graph.addTensor(dType, {0, batchSize, outputSize}, "bbiases");
-
   for (unsigned u = 0; u != BASIC_LSTM_CELL_NUM_UNITS; ++u) {
-    mapTensorLinearly(graph, biases[u]);
-
     auto unitBias = biases[u].broadcast(batchSize, 0)
-                                       .reshape({batchSize, outputSize});
+                             .reshape({batchSize, outputSize});
     bBiases = append(bBiases, unitBias);
   }
-
   PlanningCache cache;
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsTypeStr;
+  mmOpt.fullyConnectedPass = FullyConnectedPass::FWD;
   mmOpt.cache = &cache;
 
   Tensor actOut = graph.addTensor(dType, {0, batchSize, outputSize}, "actOut");
-
   /* create and map temporary tensors */
   for (auto s = 0U; s != sequenceSize; ++s) {
     const std::string baseStr = debugPrefix
@@ -348,61 +318,21 @@ Tensor basicLstmCellForwardPass(Graph &graph,
 
     auto prevOutputThisStep = s == 0 ? prevOutput : actOut[s-1];
 
-    /* Forget gate */
-    auto forgetGate =
-        processBasicLstmUnit(graph, in[s],
-                             bBiases[BASIC_LSTM_CELL_FORGET_GATE],
-                             prevOutputThisStep,
-                             weightsInput[BASIC_LSTM_CELL_FORGET_GATE],
-                             weightsOutput[BASIC_LSTM_CELL_FORGET_GATE],
-                             prog, mmOpt,
-                             popnn::NonLinearityType::NON_LINEARITY_SIGMOID,
-                             baseStr + "/ForgetGate");
-
-    auto inputGate =
-        processBasicLstmUnit(graph, in[s],
-                             bBiases[BASIC_LSTM_CELL_INPUT_GATE],
-                             prevOutputThisStep,
-                             weightsInput[BASIC_LSTM_CELL_INPUT_GATE],
-                             weightsOutput[BASIC_LSTM_CELL_INPUT_GATE],
-                             prog, mmOpt,
-                             popnn::NonLinearityType::NON_LINEARITY_SIGMOID,
-                             baseStr + "/InputGate");
-
-    auto outputGate =
-        processBasicLstmUnit(graph, in[s],
-                             bBiases[BASIC_LSTM_CELL_OUTPUT_GATE],
-                             prevOutputThisStep,
-                             weightsInput[BASIC_LSTM_CELL_OUTPUT_GATE],
-                             weightsOutput[BASIC_LSTM_CELL_OUTPUT_GATE],
-                             prog, mmOpt,
-                             popnn::NonLinearityType::NON_LINEARITY_SIGMOID,
-                             baseStr + "/OutputGate");
-    auto candidate =
-        processBasicLstmUnit(graph, in[s],
-                             bBiases[BASIC_LSTM_CELL_CANDIDATE],
-                             prevOutputThisStep,
-                             weightsInput[BASIC_LSTM_CELL_CANDIDATE],
-                             weightsOutput[BASIC_LSTM_CELL_CANDIDATE],
-                             prog, mmOpt,
-                             popnn::NonLinearityType::NON_LINEARITY_TANH,
-                             baseStr + "/Candidate");
-
-    hadamardProduct(graph, cellState, forgetGate, prog,
-                    baseStr + "/HadamardProd/ForgetGate");
-    hadamardProduct(graph, candidate, inputGate, prog,
-                    baseStr + "/HadamardProd/InputGate");
-    addTo(graph, cellState, candidate, 1.0, prog);
-
-    auto output = graph.addTensor(dType, {batchSize, outputSize},
-                                  "output");
-    mapTensorLinearly(graph, output);
-
-    prog.add(Copy(cellState, output));
-    nonLinearity(graph, popnn::NonLinearityType::NON_LINEARITY_TANH,
-                 output, prog);
-    hadamardProduct(graph, output, outputGate, prog,
-                    baseStr + "/HadamardProd/OutputGate");
+    auto unitsOutput =
+        basicLstmUnitsNlInput(graph, in[s],
+                              prevOutputThisStep,
+                              weightsInput,
+                              weightsOutput,
+                              prog, mmOpt,
+                              baseStr + "/ProcessUnits");
+    if (s == 0) {
+      for (auto u = 0; u != BASIC_LSTM_CELL_NUM_UNITS; ++u) {
+        graph.setTileMapping(biases[u],
+                             graph.getTileMapping(unitsOutput[u][0]));
+      }
+    }
+    auto output = basicLstmComputeOutput(graph, unitsOutput, cellState, bBiases,
+                                         prog, baseStr);
     actOut = append(actOut, output);
   }
   return actOut;
