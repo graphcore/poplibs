@@ -1051,7 +1051,11 @@ calculateWeightMapping(const Graph &graph,
 static void mapWeights(Graph &graph, Tensor weights,
                        ConvParams params, Plan plan) {
   // Depending on the plan the weights may be transformed prior to the
-  // convolution. Apply the same transformation here.
+  // convolution. Some weights may not be present in the transformed view
+  // (for example if they are not used in the calculation due to negative
+  // padding). Map the weights tensor before it is transformed so
+  // weights that don't appear in the transformed view are mapped to a tile.
+  mapTensorLinearly(graph, weights);
   convolutionPreprocess(graph, params, plan, nullptr, &weights);
   weights = groupWeights(weights, plan.inChansPerGroup,
                          plan.partialChansPerGroup);
