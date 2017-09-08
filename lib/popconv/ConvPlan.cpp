@@ -286,7 +286,6 @@ getConvUnitsPerTile(const poplar::DeviceInfo &deviceInfo,
 
 static bool
 canUseConvolutionInstruction(bool floatActivations, bool floatPartials,
-                             unsigned strideY, unsigned strideX,
                              const poplar::DeviceInfo &deviceInfo) {
   if (getConvUnitsPerTile(deviceInfo, floatActivations, floatPartials) == 0) {
     return false;
@@ -296,18 +295,14 @@ canUseConvolutionInstruction(bool floatActivations, bool floatPartials,
       return false;
     }
   }
-  if (strideX >= (1 << 4))
-    return false;
   return true;
 }
 
 static bool
 canUseConvolutionInstruction(bool floatActivations, bool floatPartials,
-                             unsigned strideY, unsigned strideX,
                              unsigned inChansPerGroup,
                              const poplar::DeviceInfo &deviceInfo) {
   if (!canUseConvolutionInstruction(floatActivations, floatPartials,
-                                    strideY, strideX,
                                     deviceInfo))
     return false;
   if (deviceInfo.getWeightsPerConvUnit(floatActivations) %
@@ -959,13 +954,11 @@ getConvVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
   // of output channels is a multiple of the output channel grouping that would
   // be used.
   if (canUseConvolutionInstruction(floatActivations, floatPartials,
-                                   params.stride[0], params.stride[1],
                                    deviceInfo)) {
     convVertexTypeCandidates.emplace_back(Plan::Method::AMP, floatActivations,
                                           floatPartials);
   } else if (!floatActivations && !floatPartials &&
              canUseConvolutionInstruction(false, true,
-                                          params.stride[0], params.stride[1],
                                           deviceInfo) &&
              params.getOutputDepthPerConvGroup() %
              deviceInfo.fp16InFp32OutConvUnitsPerTile == 0) {
@@ -1002,7 +995,6 @@ getInChansPerGroupCandidates(const ConvParams &params,
     if (useConvInstruction &&
         !canUseConvolutionInstruction(convVertexType.floatActivations,
                                       convVertexType.floatPartials,
-                                      params.stride[0], params.stride[1],
                                       i, deviceInfo))
       continue;
     if (isFullyConnectedFwd) {
@@ -1031,7 +1023,6 @@ getInChansPerGroupCandidates(const ConvParams &params,
         if (useConvInstruction &&
             !canUseConvolutionInstruction(convVertexType.floatActivations,
                                           convVertexType.floatPartials,
-                                          params.stride[0], params.stride[1],
                                           i, deviceInfo))
           continue;
         if (isFullyConnectedFwd) {
@@ -1416,7 +1407,6 @@ static Plan getFullyConnectedWUPlan(const poplar::DeviceInfo &deviceInfo,
   if (plan.method == Plan::Method::AMP &&
       !canUseConvolutionInstruction(fwdParams.dType == "float",
                                     fwdOptions.partialsType == "float",
-                                    fwdParams.stride[0], fwdParams.stride[1],
                                     plan.inChansPerGroup, deviceInfo)) {
     plan.inChansPerGroup =
         deviceInfo.getWeightsPerConvUnit(fwdParams.dType == "float");
