@@ -66,7 +66,7 @@ static Tensor matrixFromConvWeights(const Tensor &A) {
   assert(A.rank() == 5);
   assert(A.dim(1) == 1);
   assert(A.dim(2) == 1);
-  return A.reshape({A.dim(0), A.dim(3), A.dim(4)});
+  return A.reshapePartial(1, 5, {A.dim(3), A.dim(4)});
 }
 
 // Transform a grouped matrix tensor to an activations tensor view with given
@@ -82,7 +82,7 @@ static Tensor convActivationsFromMatrix(const Tensor &A,
 static Tensor convWeightsFromMatrix(const Tensor &A,
                                     const std::vector<std::size_t> &shape) {
   assert(shape.size() == 3);
-  return A.reshape({shape[0], 1, 1, shape[1], shape[2]});
+  return A.expand({1, 1});
 }
 
 static popconv::ConvParams getConvParams(
@@ -363,8 +363,8 @@ matMulAcc(poplar::Graph &graph, const poplar::Tensor &C_, float k,
           const std::string &debugPrefix,
           const MatMulOptions &options) {
   matMulDimChecks(A_, B_);
-  const auto A = A_.reshape({1, A_.dim(0), A_.dim(1)});
-  const auto B = B_.reshape({1, B_.dim(0), B_.dim(1)});
+  const auto A = A_.expand({0});
+  const auto B = B_.expand({0});
   auto product = matMulImpl(graph, A, B, prog, debugPrefix, options)[0];
   popstd::addTo(graph, C_, product, k, prog, debugPrefix);
 }
@@ -484,8 +484,8 @@ matMul(poplar::Graph &graph,
        const std::string &debugPrefix,
        const MatMulOptions &options) {
   matMulDimChecks(A_, B_);
-  const auto A = A_.reshape({1, A_.dim(0), A_.dim(1)});
-  const auto B = B_.reshape({1, B_.dim(0), B_.dim(1)});
+  const auto A = A_.expand({0});
+  const auto B = B_.expand({0});
   return matMulImpl(graph, A, B, prog, debugPrefix, options)[0];
 }
 

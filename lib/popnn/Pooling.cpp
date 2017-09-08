@@ -187,7 +187,7 @@ static Tensor scaleGradient(Graph &graph,
   auto bScaleTensor =
     scaleTensor.broadcast(batchSize * channels, 0)
                .reshape({batchSize, channels, outHeight, outWidth})
-               .dimShuffle({0, 2, 3, 1});
+               .dimShufflePartial({1}, {3});
   return mul(graph, grad, bScaleTensor, prog, debugPrefix + "/preScale");
 }
 
@@ -321,7 +321,7 @@ Tensor pool(Graph &graph,
                               outHeight, outWidth, chansPerGroup},
                       debugPrefix + "/" + asString(poolingType) + "Pool");
   mapTensorLinearly(graph, outGrouped);
-  auto out = outGrouped.dimShuffle({0, 2, 3, 1, 4})
+  auto out = outGrouped.dimShufflePartial({1}, {3})
                        .reshape({batchSize, outHeight, outWidth, numChannels});
 
   const auto numTiles = deviceInfo.getNumTiles();

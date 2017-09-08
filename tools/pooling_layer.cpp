@@ -291,8 +291,7 @@ int main(int argc, char **argv) {
                                     width,
                                     fwdChansPerGroup}, "prevAct");
   mapTensorLinearly(graph, prevAct);
-  prevAct = prevAct.dimShuffle({0, 2, 3, 1, 4})
-                   .reshape({batchSize, height, width, chans});
+  prevAct = prevAct.dimShufflePartial({1}, {3}).reshapePartial(3, 5, {chans});
 
   Tensor zDeltas;
   if (!inferenceOnly) {
@@ -303,8 +302,7 @@ int main(int argc, char **argv) {
                                       outWidth, bwdChansPerGroup},
                         "zDeltas");
     mapTensorLinearly(graph, zDeltas);
-    zDeltas = zDeltas.dimShuffle({0, 2, 3, 1, 4})
-                     .reshape({batchSize, outHeight, outWidth, chans});
+    zDeltas = zDeltas.dimShufflePartial({1}, {3}).reshapePartial(3, 5, {chans});
   }
 
   auto fwdProg = Sequence();

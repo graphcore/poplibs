@@ -31,18 +31,6 @@ using namespace popstd;
 
 namespace popconv {
 
-// increase dimension of tensor by 1 to the left or right
-static Tensor increaseDims(const Tensor &t, bool left) {
-  const unsigned oldDims = t.rank();
-  assert(oldDims != 0);
-  std::vector<std::size_t> newDims(oldDims + 1);
-  newDims[left ? 0 : oldDims] = 1;
-  for (unsigned d = 0; d != oldDims; ++d) {
-    newDims[d + left] = t.dim(d);
-  }
-  return t.reshape({newDims});
-}
-
 std::ostream& operator<<(std::ostream &os, const ConvParams &p) {
   os << "Params: dType                      " << p.dType << "\n";
   os << "        batchSize                  " << p.batchSize << "\n";
@@ -90,9 +78,8 @@ splitActivationConvGroups(const Tensor &act, unsigned numConvGroups) {
     throw popstd::poplib_error("Number of input channels is not a multiple "
                                "of the number of convolutional groups");
   }
-  return act.reshape({act.dim(0), act.dim(1), act.dim(2), numConvGroups,
-                      act.dim(3) / numConvGroups})
-            .dimShuffle({3, 0, 1, 2, 4});
+  return act.reshapePartial(3, 4, {numConvGroups, act.dim(3) / numConvGroups})
+            .dimShufflePartial({3}, {0});
 }
 
 // Reshape the activations tensor from [G][N][H][W][C] shape to
@@ -100,11 +87,8 @@ splitActivationConvGroups(const Tensor &act, unsigned numConvGroups) {
 static Tensor
 unsplitActivationConvGroups(const Tensor &act) {
   assert(act.rank() == 5);
-  return act.dimShuffle({1, 2, 3, 0, 4})
-            .reshape({act.dim(1),
-                      act.dim(2),
-                      act.dim(3),
-                      act.dim(0) * act.dim(4)});
+  return act.dimShufflePartial({0}, {3})
+            .reshapePartial(3, 5, {act.dim(0) * act.dim(4)});
 }
 
 // Reshape the activations tensor from [G][N][H][W][C] shape to
@@ -115,9 +99,8 @@ static Tensor
 splitActivationChanGroups(const Tensor &act, unsigned chansPerGroup) {
   assert(act.rank() == 5);
   assert(act.dim(4) % chansPerGroup == 0);
-  return act.reshape({act.dim(0), act.dim(1), act.dim(2), act.dim(3),
-                      act.dim(4) / chansPerGroup, chansPerGroup})
-            .dimShuffle({0, 1, 4, 2, 3, 5});
+  return act.reshapePartial(4, 5, {act.dim(4) / chansPerGroup, chansPerGroup})
+            .dimShufflePartial({4}, {2});
 }
 
 // Reshape the activations tensor from [G][N][H][W][C] shape to
@@ -137,12 +120,8 @@ splitActivationChanGroups(const Tensor &act) {
 static Tensor
 unsplitActivationChanGroups(const Tensor &act) {
   assert(act.rank() == 6);
-  return act.dimShuffle({0, 1, 3, 4, 2, 5})
-            .reshape({act.dim(0),
-                      act.dim(1),
-                      act.dim(3),
-                      act.dim(4),
-                      act.dim(2) * act.dim(5)});
+  return act.dimShufflePartial({2}, {4})
+            .reshapePartial(4, 6, {act.dim(2) * act.dim(5)});
 }
 
 static std::pair<unsigned, unsigned>
@@ -172,10 +151,9 @@ static Tensor groupWeights(const Tensor &weights, unsigned inChansPerGroup,
   const unsigned inChanGroups = weights.dim(4) / inChansPerGroup;
   const unsigned outChanGroups = weights.dim(3) / outChansPerGroup;
 
-  return weights.reshape({weights.dim(0), weights.dim(1), weights.dim(2),
-                          outChanGroups, outChansPerGroup,
-                          inChanGroups, inChansPerGroup})
-                .dimShuffle({0, 3, 5, 1, 2, 4, 6});
+  return weights.reshapePartial(3, 5, {outChanGroups, outChansPerGroup,
+                                       inChanGroups, inChansPerGroup})
+                .dimShufflePartial({3, 5}, {1, 2});
 }
 
 
@@ -193,10 +171,9 @@ static Tensor groupWeights(const Tensor &weights) {
 // and   IC1 * IC2 = IC
 static Tensor ungroupWeights(const Tensor &weights) {
   assert(weights.rank() == 7);
-  return weights.dimShuffle({0, 3, 4, 1, 5, 2, 6})
-                .reshape({weights.dim(0), weights.dim(3), weights.dim(4),
-                          weights.dim(1) * weights.dim(5),
-                          weights.dim(2) * weights.dim(6)});
+  return weights.dimShufflePartial({1, 2}, {3, 5})
+                .reshapePartial(3, 7, {weights.dim(1) * weights.dim(5),
+                                       weights.dim(2) * weights.dim(6)});
 }
 
 std::size_t ConvParams::getOutputSize(unsigned dim) const {
@@ -1131,7 +1108,7 @@ computeBiasMapping(Graph &graph, const Tensor &out) {
   const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
   const unsigned numChans = out.dim(0) * out.dim(4);
   // Create a view of the output where channels are the outermost dimension.
-  auto outRegrouped = out.dimShuffle({0, 4, 1, 2, 3})
+  auto outRegrouped = out.dimShufflePartial({4}, {1})
                          .reshape({numChans, out.numElements() / numChans});
   const auto outRegroupedMapping = graph.getTileMapping(outRegrouped);
   // Build a map from the bias to the set of tiles that access it.
@@ -2284,7 +2261,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
             const std::string &debugPrefix, const ConvOptions &options) {
   auto weights = weights_;
   if (weights.rank() == params_.getNumKernelDims() + 2) {
-    weights = increaseDims(weights, true);
+    weights = weights.expand({0});
   }
   auto params = params_;
   auto in = splitActivationConvGroups(in_, params.numConvGroups);
@@ -2591,8 +2568,8 @@ calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
   // - wu height = fwd height
   // - wu width = fwd width
   // - wu output channels = fwd output channels
-  auto activationsRearranged = activations.dimShuffle({0, 4, 2, 3, 1});
-  auto deltasRearranged = zDeltas.dimShuffle({0, 2, 3, 4, 1});
+  auto activationsRearranged = activations.dimShufflePartial({1, 4}, {4, 1});
+  auto deltasRearranged = zDeltas.dimShufflePartial({1}, {4});
   if (swapConvolutionalWeightUpdateParams) {
     std::swap(params.inputFieldShape, params.kernelShape);
     std::swap(params.inputPaddingLower, params.kernelPaddingLower);
@@ -2600,8 +2577,8 @@ calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
     std::swap(params.inputDilation, params.kernelDilation);
     std::swap(params.batchSize, params.outputChannels);
     std::swap(activationsRearranged, deltasRearranged);
-    activationsRearranged = activationsRearranged.dimShuffle({0, 3, 1, 2, 4});
-    deltasRearranged = deltasRearranged.dimShuffle({0, 2, 3, 1, 4});
+    activationsRearranged = activationsRearranged.dimShufflePartial({3}, {1});
+    deltasRearranged = deltasRearranged.dimShufflePartial({1}, {3});
   }
   auto weightDeltas =
       convolution(graph,
@@ -2614,9 +2591,9 @@ calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
                   options);
   weightDeltas = splitActivationConvGroups(weightDeltas, numConvGroups);
   if (swapConvolutionalWeightUpdateParams) {
-    weightDeltas = weightDeltas.dimShuffle({0, 4, 2, 3, 1});
+    weightDeltas = weightDeltas.dimShufflePartial({1, 4}, {4, 1});
   }
-  return weightDeltas.dimShuffle({0, 2, 3, 4, 1});
+  return weightDeltas.dimShufflePartial({1}, {4});
 }
 
 void
@@ -2683,14 +2660,10 @@ convChannelReduce(Graph &graph,
   auto inDimY = inGrouped.dim(2), inDimX = inGrouped.dim(3);
   auto inChansPerGroup = inGrouped.dim(4);
   // Before the cross tile reduction. Reduce biases on each tile.
-  auto inFlatField = inGrouped.reshape({batchSize, inNumChanGroups,
-                                        inDimY * inDimX, inChansPerGroup});
+  auto inFlatField = inGrouped.reshapePartial(2, 4, {inDimY * inDimX});
 
   // Calculate which bias groups have values to reduce on each tile
-  auto firstInGroup = inFlatField.slice(0, 1, 3)
-                                 .reshape({inFlatField.dim(0),
-                                           inFlatField.dim(1),
-                                           inFlatField.dim(2)});
+  auto firstInGroup = inFlatField.slice(0, 1, 3).squeeze({3});
   auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
   std::vector<std::map<unsigned, std::vector<Interval<std::size_t>>>>
       tileLocalReductions(numTiles);
@@ -2907,10 +2880,10 @@ addToChannel(Graph &graph, const Tensor &actsUngrouped,
   const auto addendByGroup =
       addend.reshape({addend.numElements() / outChansPerGroup,
                       outChansPerGroup});
-  const auto firstInGroup = acts.dimShuffle({1, 0, 2, 3, 4})
+  const auto firstInGroup = acts.dimShufflePartial({0}, {1})
                                 .slice(0, 1, 4)
-                                .reshape({acts.dim(1), acts.dim(0),
-                                          acts.dim(2) * acts.dim(3)});
+                                .reshapePartial(2, 5,
+                                                {acts.dim(2) * acts.dim(3)});
   const auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
   const unsigned numTiles = firstInGroupMapping.size();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
@@ -3006,7 +2979,7 @@ fullyConnectedWeightTranspose(Graph &graph,
                                 bwdGroupSize,
                                 splitActivations.dim(4) / fwdGroupSize,
                                 fwdGroupSize})
-                      .dimShuffle({0, 1, 2, 4, 3, 5});
+                      .dimShufflePartial({3}, {4});
   splitTransposed =
       splitTransposed.reshape({splitTransposed.dim(0),
                                splitTransposed.dim(1) *
@@ -3015,7 +2988,7 @@ fullyConnectedWeightTranspose(Graph &graph,
                                fwdGroupSize,
                                splitTransposed.dim(4) / bwdGroupSize,
                                bwdGroupSize})
-                      .dimShuffle({0, 1, 2, 4, 3, 5});
+                      .dimShufflePartial({3}, {4});
   auto firstInBlock =
       splitActivations.slice({0, 0, 0, 0, 0, 0},
                         {splitActivations.dim(0),
@@ -3024,10 +2997,7 @@ fullyConnectedWeightTranspose(Graph &graph,
                          splitActivations.dim(3),
                          1,
                          1})
-                      .reshape({splitActivations.dim(0),
-                                splitActivations.dim(1),
-                                splitActivations.dim(2),
-                                splitActivations.dim(3)});
+                      .squeeze({4, 5});
   auto blockTileMapping = graph.getTileMapping(firstInBlock);
   auto transposeCS = graph.addComputeSet(debugPrefix + "/Transpose");
   for (unsigned tile = 0; tile != blockTileMapping.size(); ++tile) {
@@ -3064,7 +3034,7 @@ fullyConnectedWeightTranspose(Graph &graph,
   }
   prog.add(Execute(transposeCS));
   auto transposedWeights =
-      splitTransposed.dimShuffle({0, 1, 2, 4, 3, 5})
+      splitTransposed.dimShufflePartial({3}, {4})
                      .reshape(splitTransposedUngroupedShape);
   return unsplitActivationConvGroups(transposedWeights);
 }
@@ -3121,10 +3091,10 @@ channelMul(Graph &graph, const Tensor &actsUngrouped, const Tensor &scale,
   const auto scaleByGroup =
       scale.reshape({scale.numElements() / outChansPerGroup,
                       outChansPerGroup});
-  const auto firstInGroup = acts.dimShuffle({1, 0, 2, 3, 4})
+  const auto firstInGroup = acts.dimShufflePartial({0}, {1})
                                 .slice(0, 1, 4)
-                                .reshape({acts.dim(1), acts.dim(0),
-                                          acts.dim(2) * acts.dim(3)});
+                                .reshapePartial(2, 5,
+                                                {acts.dim(2) * acts.dim(3)});
   const auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
   const unsigned numTiles = firstInGroupMapping.size();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
