@@ -2324,23 +2324,22 @@ convolution(Graph &graph, const poplar::Tensor &in_,
 }
 
 static std::uint64_t getNumberOfMACs(const ConvParams &params) {
-  std::uint64_t numMACs = 0;
-  auto outputShape = params.getOutputFieldShape();
-  for (unsigned y = 0; y < outputShape[0]; ++y) {
-    unsigned inYBegin, inYEnd;
-    std::tie(inYBegin, inYEnd) = getInputRange(0, y, params);
-    const auto height = inYEnd - inYBegin;
-    for (unsigned x = 0; x < outputShape[1]; ++x) {
-      unsigned inXBegin, inXEnd;
-      std::tie(inXBegin, inXEnd) = getInputRange(1, x, params);
-      const auto width = inXEnd - inXBegin;
-      numMACs += width * height * params.getOutputDepthPerConvGroup()
-          * params.getInputDepthPerConvGroup();
+  std::uint64_t numMACs = params.getNumConvGroups() *
+                          params.getBatchSize() *
+                          params.getOutputDepthPerConvGroup() *
+                          params.getInputDepthPerConvGroup();
+  for (unsigned dim = 0; dim != params.getNumFieldDims(); ++dim) {
+    unsigned nonZeroInputs = 0;
+    for (unsigned x = 0; x < params.getOutputSize(dim); ++x) {
+      for (unsigned k = 0; k < params.kernelShape[dim]; ++k) {
+        if (getInputIndex(dim, x, k, params) != ~0U) {
+          ++nonZeroInputs;
+        }
+      }
     }
+    numMACs *= nonZeroInputs;
   }
-  const auto batchSize = params.getBatchSize();
-  const auto numGroups = params.getNumConvGroups();
-  return batchSize * numMACs * numGroups;
+  return numMACs;
 }
 
 static uint64_t getFlops(const ConvParams &params) {
