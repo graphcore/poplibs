@@ -164,15 +164,17 @@ Tensor createWeightsOutput(Graph &graph, const std::string &dType,
 }
 
 uint64_t getBasicLstmCellFwdFlops(unsigned sequenceSize, unsigned batchSize,
-                                  unsigned inputSize, unsigned outputSize) {
-  uint64_t multsWeighInp =
-      static_cast<uint64_t>(inputSize) * outputSize * batchSize * sequenceSize;
+                                  unsigned inputSize, unsigned outputSize,
+                                  bool weighInput) {
+  uint64_t multsWeighInp = weighInput ?
+      static_cast<uint64_t>(inputSize) * outputSize * batchSize * sequenceSize :
+      0;
   uint64_t multsWeighOut =
       static_cast<uint64_t>(outputSize) * outputSize * batchSize * sequenceSize;
 
-  uint64_t addsWeighInp  =
+  uint64_t addsWeighInp  = weighInput ?
       static_cast<uint64_t>(inputSize - 1) * outputSize * batchSize
-                                           * sequenceSize;
+                                           * sequenceSize : 0;
   uint64_t addsWeighOut  =
       static_cast<uint64_t>(outputSize - 1) * outputSize * batchSize
                                             * sequenceSize;

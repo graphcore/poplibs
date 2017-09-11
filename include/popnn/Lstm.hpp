@@ -9,7 +9,8 @@ namespace popnn {
 namespace lstm {
 
 uint64_t getBasicLstmCellFwdFlops(unsigned sequenceSize, unsigned batchSize,
-                                  unsigned inputSize, unsigned outputSize);
+                                  unsigned inputSize, unsigned outputSize,
+                                  bool weighInput);
 
 
 poplar::Tensor createInput(poplar::Graph &graph, const std::string &dType,
