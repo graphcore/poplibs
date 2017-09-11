@@ -1716,7 +1716,7 @@ partitionConvOutputBetweenWorkers(const Graph &graph,
       assert(b >= batchBegin && b < batchEnd);
       assert(y >= outYBegin && y < outYEnd);
       assert(cg >= cgBegin && cg < cgEnd);
-      assert(ozg >= outZGroupBegin && b < outZGroupEnd);
+      assert(ozg >= outZGroupBegin && ozg < outZGroupEnd);
       if (workerOutXBegin == workerOutXEnd)
         continue;
       if (!perWorkerConvOutputSlices.back().empty() &&
