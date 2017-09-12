@@ -553,6 +553,66 @@ estimateConvPartialHorizontalMacCycles(unsigned tileNumInGroups,
   );
 }
 
+static bool zeroPartials(const ConvParams &params, const Plan &plan) {
+  const auto tilesPerKernelYAxis = plan.tilesPerKernelYAxis;
+  const auto kernelSizeY = params.kernelShape[0];
+  const auto kernelSizeX = params.kernelShape[1];
+  const auto tileKernelHeight =
+      (kernelSizeY + tilesPerKernelYAxis - 1) /
+          tilesPerKernelYAxis;
+  if (kernelSizeX != 1 || tileKernelHeight != 1) {
+    return true;
+  }
+  for (unsigned dim = 0; dim != params.getNumFieldDims(); ++dim) {
+    if (params.stride[dim] != 1 ||
+        params.inputDilation[dim] != 1 ||
+        params.kernelDilation[dim] != 1 ||
+        params.inputPaddingLower[dim] != 0 ||
+        params.inputPaddingUpper[dim] != 0 ||
+        params.kernelPaddingLower[dim] != 0 ||
+        params.kernelPaddingUpper[dim] != 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static unsigned
+estimateZeroCycles(const poplar::DeviceInfo &deviceInfo,
+                   const ConvParams &params,
+                   const Plan &plan) {
+  if (!zeroPartials(params, plan)) {
+    return 0;
+  }
+  const auto tilesPerY = plan.tilesPerYAxis;
+  const auto tilesPerBatch = plan.tilesPerBatchAxis;
+  const auto tilesPerZ = plan.tilesPerZAxis;
+  const auto tilesPerConvGroups = plan.tilesPerConvGroups;
+  const auto partialChansPerGroup = plan.partialChansPerGroup;
+  const auto tileOutWidth = getMaxTileOutWidth(params, plan);
+  const auto tileOutHeight =
+      (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
+  const auto tileBatchElements =
+      (params.getBatchSize() + tilesPerBatch - 1) / tilesPerBatch;
+  const auto outputDepth = params.getOutputDepthPerConvGroup();
+  const auto numOutGroups =
+      (outputDepth + (partialChansPerGroup - 1)) / partialChansPerGroup;
+  const auto tileNumOutGroups =
+      (numOutGroups + tilesPerZ - 1) / tilesPerZ;
+  const auto tileOutDepth = tileNumOutGroups * partialChansPerGroup;
+  const auto tileNumGroupedConv =
+      (params.getNumConvGroups() + tilesPerConvGroups - 1) / tilesPerConvGroups;
+  const auto numberOfOutputElements =
+      tileOutWidth * tileOutHeight * tileBatchElements * tileOutDepth *
+      tileNumGroupedConv;
+  const auto vectorWidth =
+      plan.floatPartials ? deviceInfo.getFloatVectorWidth() :
+                           deviceInfo.getHalfVectorWidth();
+  const auto numCycles = (numberOfOutputElements + vectorWidth - 1) /
+                         vectorWidth;
+  return numCycles;
+}
+
 static unsigned
 estimatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
                           bool floatActivations,
@@ -789,6 +849,26 @@ addCycleEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
     return estimateExchangeCycles(deviceInfo, floatActivations, params,
                                   candidate);
   });
+  const auto zeroCycles =
+      m.call({tilesPerX, tilesPerY, tilesPerBatch, tilesPerZ, tilesPerKernelY,
+              tilesPerInZ, tilesPerConvGroups},
+             [=,&deviceInfo](const std::vector<unsigned> &values) {
+    const auto tilesPerX = values[0];
+    const auto tilesPerY = values[1];
+    const auto tilesPerBatch = values[2];
+    const auto tilesPerZ = values[3];
+    const auto tilesPerKernelY = values[4];
+    const auto tilesPerInZ = values[5];
+    const auto tilesPerConvGroups = values[6];
+    Plan candidate(tilesPerX, tilesPerY, tilesPerBatch, tilesPerZ,
+                   tilesPerKernelY, tilesPerInZ, tilesPerConvGroups,
+                   inChansPerGroup, partialChansPerGroup,
+                   xAxisGrainSize,
+                   floatPartials,
+                   method,
+                   linearizeTileOrder);
+    return estimateZeroCycles(deviceInfo, params, candidate);
+  });
   const auto partialCalcCycles =
       m.call({tilesPerX, tilesPerY, tilesPerBatch, tilesPerZ, tilesPerKernelY,
               tilesPerInZ, tilesPerConvGroups},
@@ -844,7 +924,7 @@ addCycleEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
                    linearizeTileOrder);
     return estimateReduceCycles(deviceInfo, params, candidate);
   });
-  return m.sum({exchangeCycles, partialCalcCycles, reduceCycles});
+  return m.sum({exchangeCycles, zeroCycles, partialCalcCycles, reduceCycles});
 }
 
 static Plan::Method
