@@ -32,6 +32,10 @@ Variable Model::addVariable() {
   return addVariable(0, std::numeric_limits<unsigned>::max() - 1);
 }
 
+Variable Model::addConstant(unsigned value) {
+  return addVariable(value, value);
+}
+
 Variable Model::product(std::vector<Variable> vars) {
   auto result = addVariable();
   auto p = std::unique_ptr<Constraint>(
@@ -58,12 +62,12 @@ void Model::lessOrEqual(Variable left, Variable right) {
 }
 
 void Model::lessOrEqual(Variable left, unsigned right) {
-  auto rightVar = addVariable(right, right);
+  auto rightVar = addConstant(right);
   lessOrEqual(left, rightVar);
 }
 
 void Model::lessOrEqual(unsigned left, Variable right) {
-  auto leftVar = addVariable(left, left);
+  auto leftVar = addConstant(left);
   lessOrEqual(leftVar, right);
 }
 

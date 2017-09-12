@@ -81,6 +81,8 @@ public:
   Variable addVariable();
   /// Add a new variable with a domain of [min,max].
   Variable addVariable(unsigned min, unsigned max);
+  /// Add a constant with the specified value.
+  Variable addConstant(unsigned value);
   /// Add a new variable that is the product of the specified variables.
   Variable product(std::vector<Variable> vars);
   /// Add a new variable that is the sum of the specified variables.
