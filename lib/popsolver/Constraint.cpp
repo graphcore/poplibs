@@ -53,6 +53,9 @@ propagate(Scheduler &scheduler) {
   for (const auto &v : vars) {
     maxProduct = satMul(maxProduct, domains[v].max());
   }
+  if (maxProduct < domains[result].min()) {
+    return false;
+  }
   if (maxProduct < domains[result].max()) {
     scheduler.setMax(result, maxProduct);
   }
