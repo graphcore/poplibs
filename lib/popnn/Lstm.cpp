@@ -242,7 +242,6 @@ Tensor basicLstmCellForwardPassWeightedInputs(Graph &graph,
   Tensor actOut = graph.addTensor(dType, {0, batchSize, outputSize}, "actOut");
 
   auto weightedInReshaped = weightedIn.dimShuffle({1, 0, 2, 3});
-  Tensor bbbBiases;
   for (auto s = 0U; s != sequenceSize; ++s) {
     const std::string baseStr = debugPrefix
                                 + "/BasicLstmCell/"
