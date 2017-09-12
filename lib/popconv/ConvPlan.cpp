@@ -20,6 +20,25 @@
 
 namespace popconv {
 
+std::uint64_t getNumberOfMACs(const ConvParams &params) {
+  std::uint64_t numMACs = params.getNumConvGroups() *
+                          params.getBatchSize() *
+                          params.getOutputDepthPerConvGroup() *
+                          params.getInputDepthPerConvGroup();
+  for (unsigned dim = 0; dim != params.getNumFieldDims(); ++dim) {
+    unsigned nonZeroInputs = 0;
+    for (unsigned x = 0; x < params.getOutputSize(dim); ++x) {
+      for (unsigned k = 0; k < params.kernelShape[dim]; ++k) {
+        if (getInputIndex(dim, x, k, params) != ~0U) {
+          ++nonZeroInputs;
+        }
+      }
+    }
+    numMACs *= nonZeroInputs;
+  }
+  return numMACs;
+}
+
 const char *asString(const WeightUpdateMethod &method) {
   switch (method) {
   case WeightUpdateMethod::AMP: return "amp";
@@ -704,6 +723,33 @@ estimateReduceCycles(const poplar::DeviceInfo &deviceInfo,
   return numCycles;
 }
 
+unsigned getMaxMACsPerCyclePerTile(const poplar::DeviceInfo &deviceInfo,
+                                   bool floatPartials,
+                                   bool floatActivations,
+                                   Plan::Method method) {
+  const auto vectorWidth =
+      floatActivations ? deviceInfo.getFloatVectorWidth() :
+                         deviceInfo.getHalfVectorWidth();
+  switch (method) {
+  case Plan::Method::MAC:
+  case Plan::Method::OUTER_PRODUCT:
+    return vectorWidth;
+  case Plan::Method::AMP:
+    {
+      unsigned numConvUnits;
+      if (floatActivations) {
+        assert(floatPartials);
+        numConvUnits = deviceInfo.fp32InFp32OutConvUnitsPerTile;
+      } else if (floatPartials) {
+        numConvUnits = deviceInfo.fp16InFp32OutConvUnitsPerTile;
+      } else {
+        numConvUnits = deviceInfo.fp16InFp16OutConvUnitsPerTile;
+      }
+      return numConvUnits * vectorWidth;
+    }
+  }
+}
+
 static popsolver::Variable
 addCycleEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
                  popsolver::Variable tilesPerY,
@@ -712,6 +758,7 @@ addCycleEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
                  popsolver::Variable tilesPerKernelY,
                  popsolver::Variable tilesPerInZ,
                  popsolver::Variable tilesPerConvGroups,
+                 popsolver::Variable usedTiles,
                  const poplar::DeviceInfo &deviceInfo,
                  const ConvParams &params,
                  unsigned inChansPerGroup,
@@ -764,6 +811,20 @@ addCycleEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
     return estimatePartialCalcCycles(deviceInfo, floatActivations, params,
                                      candidate, cache);
   });
+  // Add a redunant inequality that relates the cycles required to calculate the
+  // partial sums with the maximum number of MACs per cycle. Although this
+  // constraint isn't necessary it provides an easy to calculate lower bound
+  // on the number of cycles required that can be used to prune the search
+  // space.
+  const auto maxMACsPerCyclePerTile =
+      getMaxMACsPerCyclePerTile(deviceInfo, floatPartials, floatActivations,
+                                method);
+  auto maxMacsPerCyclePerTileVar = m.addVariable(maxMACsPerCyclePerTile,
+                                                 maxMACsPerCyclePerTile);
+  const auto totalMacs = getNumberOfMACs(params);
+  auto maxMACs =
+      m.product({maxMacsPerCyclePerTileVar, usedTiles, partialCalcCycles});
+  m.lessOrEqual(totalMacs, maxMACs);
   const auto reduceCycles =
       m.call({tilesPerX, tilesPerY, tilesPerBatch, tilesPerZ, tilesPerKernelY,
               tilesPerInZ, tilesPerConvGroups},
@@ -816,6 +877,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
            const ConvVertexType &convVertexType,
            const ConvParams &params,
            TransformCostFn transformCost,
+           Cost bestCost,
            const CostBounds costBounds,
            PlanningCacheImpl *cache,
            const ConvOptions &options) {
@@ -874,7 +936,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
   auto cycles =
       addCycleEstimate(m, tilesPerX, tilesPerY, tilesPerBatch, tilesPerZ,
                        tilesPerKernelY, tilesPerInZ, tilesPerConvGroups,
-                       deviceInfo, params,
+                       usedTiles, deviceInfo, params,
                        inChansPerGroup, partialChansPerGroup,
                        xAxisGrainSize, convVertexType.floatPartials,
                        floatActivations, convVertexType.method,
@@ -893,7 +955,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
     bwdCycles =
         addCycleEstimate(m, bwdTilesPerX, tilesPerY, tilesPerBatch, tilesPerZ,
                          tilesPerKernelY, bwdTilesPerInZ, tilesPerConvGroups,
-                         deviceInfo, params,
+                         usedTiles, deviceInfo, params,
                          bwdInChansPerGroup, partialChansPerGroup,
                          bwdXAxisGrainSize, convVertexType.floatPartials,
                          floatActivations, bwdMethod,
@@ -911,7 +973,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
     const auto wuCycles =
         addCycleEstimate(m, tilesPerX, tilesPerY, tilesPerBatch, wuTilesPerZ,
                          tilesPerKernelY, wuTilesPerInZ, tilesPerConvGroups,
-                         deviceInfo, wuParams,
+                         usedTiles, deviceInfo, wuParams,
                          wuInChansPerGroup, wuPartialChansPerGroup,
                          1, convVertexType.floatPartials,
                          floatActivations, wuMethod,
@@ -925,8 +987,12 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
         return transformCost(values[0]);
       });
   cycles = m.sum({cycles, transformCycles});
+  auto cycleBound = bestCost.cycles;
   if (costBounds.cycles > 0) {
-    m.lessOrEqual(cycles, costBounds.cycles);
+    cycleBound = std::min(cycleBound, costBounds.cycles);
+  }
+  if (cycleBound < std::numeric_limits<unsigned>::max()) {
+    m.lessOrEqual(cycles, cycleBound);
   }
   Solution s;
   try {
@@ -935,17 +1001,17 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
   } catch (NoSolution) {
     return {Plan(), highestCost};
   }
-  Plan bestPlan(s[tilesPerX], s[tilesPerY], s[tilesPerBatch], s[tilesPerZ],
-                s[tilesPerKernelY], s[tilesPerInZ], s[tilesPerConvGroups],
-                inChansPerGroup, partialChansPerGroup,
-                xAxisGrainSize,
-                convVertexType.floatPartials,
-                convVertexType.method,
-                Plan::LinearizeTileOrder::STANDARD);
+  Plan plan(s[tilesPerX], s[tilesPerY], s[tilesPerBatch], s[tilesPerZ],
+            s[tilesPerKernelY], s[tilesPerInZ], s[tilesPerConvGroups],
+            inChansPerGroup, partialChansPerGroup,
+            xAxisGrainSize,
+            convVertexType.floatPartials,
+            convVertexType.method,
+            Plan::LinearizeTileOrder::STANDARD);
   // TODO estimate memory usage.
   unsigned memory = 0;
-  Cost bestCost = {s[cycles], memory};
-  return {bestPlan, bestCost};
+  Cost cost = {s[cycles], memory};
+  return {plan, cost};
 }
 
 static std::vector<ConvVertexType>
@@ -1303,7 +1369,7 @@ createPlan(ConvParams params,
       };
       std::tie(candidate, candidateCost) =
           choosePlan(deviceInfo, xAxisGrainSize, convVertexType, paddedParams,
-                     transformCostFn, costBounds, cache, options);
+                     transformCostFn, bestCost, costBounds, cache, options);
       candidate.expandDims = expandDims;
       candidate.outChanFlattenDims = outChanFlattenDims;
       candidate.flattenDims = flattenDims;

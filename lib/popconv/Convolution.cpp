@@ -2323,25 +2323,6 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   return unsplitActivationConvGroups(activations);
 }
 
-static std::uint64_t getNumberOfMACs(const ConvParams &params) {
-  std::uint64_t numMACs = params.getNumConvGroups() *
-                          params.getBatchSize() *
-                          params.getOutputDepthPerConvGroup() *
-                          params.getInputDepthPerConvGroup();
-  for (unsigned dim = 0; dim != params.getNumFieldDims(); ++dim) {
-    unsigned nonZeroInputs = 0;
-    for (unsigned x = 0; x < params.getOutputSize(dim); ++x) {
-      for (unsigned k = 0; k < params.kernelShape[dim]; ++k) {
-        if (getInputIndex(dim, x, k, params) != ~0U) {
-          ++nonZeroInputs;
-        }
-      }
-    }
-    numMACs *= nonZeroInputs;
-  }
-  return numMACs;
-}
-
 static uint64_t getFlops(const ConvParams &params) {
   verifyStrideAndPaddingDimensions(params);
   return (2 * getNumberOfMACs(params));

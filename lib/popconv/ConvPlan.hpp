@@ -87,6 +87,8 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
 /// expanding the activations or the weights.
 bool expandDimExpandActs(ConvParams &params, unsigned dim);
 
+std::uint64_t getNumberOfMACs(const ConvParams &params);
+
 std::ostream& operator<<(std::ostream &os, const Plan::Method m);
 std::ostream& operator<<(std::ostream &os, const Plan &p);
 
