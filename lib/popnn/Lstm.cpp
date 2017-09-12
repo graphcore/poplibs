@@ -128,7 +128,6 @@ Tensor createWeightsInput(Graph &graph, const std::string &dType,
                           const Tensor &prevAct, unsigned outputSize,
                           bool preweights) {
   MatMulOptions mmOpt;
-  mmOpt.fullyConnectedPass = FullyConnectedPass::FWD;
   mmOpt.partialsType = partialsType;
   auto seqSize = prevAct.dim(0);
   auto batchSize = prevAct.dim(1);
@@ -152,7 +151,6 @@ Tensor createWeightsOutput(Graph &graph, const std::string &dType,
                            unsigned outputSize) {
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsType;
-  mmOpt.fullyConnectedPass = FullyConnectedPass::FWD;
   const auto batchSize = cellState.dim(0);
   auto weightsOutput =
       createMatMulInputRHS(graph, dType,
@@ -196,7 +194,6 @@ calcSequenceWeightedInputs(Graph &graph,
                            const std::string &debugPrefix) {
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsTypeStr;
-  mmOpt.fullyConnectedPass = FullyConnectedPass::FWD;
   auto sequenceSize = in_.dim(0);
   auto batchSize = in_.dim(1);
   auto inputSize = in_.dim(2);
@@ -240,7 +237,6 @@ Tensor basicLstmCellForwardPassWeightedInputs(Graph &graph,
   PlanningCache cache;
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsTypeStr;
-  mmOpt.fullyConnectedPass = FullyConnectedPass::FWD;
   mmOpt.cache = &cache;
 
   Tensor actOut = graph.addTensor(dType, {0, batchSize, outputSize}, "actOut");
@@ -308,7 +304,6 @@ Tensor basicLstmCellForwardPass(Graph &graph,
   PlanningCache cache;
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsTypeStr;
-  mmOpt.fullyConnectedPass = FullyConnectedPass::FWD;
   mmOpt.cache = &cache;
 
   Tensor actOut = graph.addTensor(dType, {0, batchSize, outputSize}, "actOut");
