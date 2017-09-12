@@ -113,6 +113,7 @@ public:
     assert(convNum == out.size());
     return getConvPartialnx1SupervisorCycleEstimate(
       convolutionsByWeightAndWorker,
+      1,
       convUnitPipelineDepth,
       numConvUnitsPerTile,
       convUnitCoeffLoadBytesPerCycle,
@@ -297,6 +298,7 @@ public:
     assert(convNum == out.size());
     return getConvPartialnx1SupervisorCycleEstimate(
       convolutionsByWeightAndWorker,
+      1,
       convUnitPipelineDepth,
       numConvUnitsPerTile,
       convUnitCoeffLoadBytesPerCycle,

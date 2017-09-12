@@ -399,27 +399,26 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
       partitionConvPartialByWorker(batchElements, outputHeight, outputWidth,
                                    numWorkerContexts, inputDilation);
   std::vector<std::vector<std::vector<unsigned>>> convSizesByWeightAndWorker;
-  for (unsigned i = 0; i != passesPerOutput; ++i) {
-    convSizesByWeightAndWorker.emplace_back();
-    convSizesByWeightAndWorker.back().reserve(partition.size());
-    for (const auto &entry : partition) {
-      convSizesByWeightAndWorker.back().emplace_back();
-      convSizesByWeightAndWorker.back().back().reserve(entry.size());
-      numInputEdges += numInputPointers * entry.size();
-      numOutputEdges += entry.size();
-      for (const auto &partialRow : entry) {
-        auto convSize = (partialRow.xEnd - partialRow.xBegin) /
-                        inputDilation[1];
-        convSizesByWeightAndWorker.back().back().push_back(convSize);
-      }
+  convSizesByWeightAndWorker.emplace_back();
+  convSizesByWeightAndWorker.back().reserve(partition.size());
+  for (const auto &entry : partition) {
+    convSizesByWeightAndWorker.back().emplace_back();
+    convSizesByWeightAndWorker.back().back().reserve(entry.size());
+    numInputEdges += numInputPointers * entry.size();
+    numOutputEdges += entry.size();
+    for (const auto &partialRow : entry) {
+      auto convSize = (partialRow.xEnd - partialRow.xBegin) /
+                      inputDilation[1];
+      convSizesByWeightAndWorker.back().back().push_back(convSize);
     }
   }
 
-  auto numEdges = convSizesByWeightAndWorker.size()
-                  + numInputEdges
-                  + numOutputEdges;
+  auto numEdges = (convSizesByWeightAndWorker.size()
+                   + numInputEdges
+                   + numOutputEdges) * passesPerOutput;
   return getConvPartialnx1SupervisorCycleEstimate(
                 convSizesByWeightAndWorker,
+                passesPerOutput,
                 convUnitPipelineDepth,
                 numConvUnitsPerTile,
                 convUnitCoeffLoadBytesPerCycle,

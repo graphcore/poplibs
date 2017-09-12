@@ -59,6 +59,7 @@ inline std::uint64_t
 getConvPartialnx1SupervisorCycleEstimate(
     const std::vector<std::vector<std::vector<unsigned>>> &
     convSizesByWeightAndWorker,
+    unsigned passesPerEntry,
     unsigned convUnitPipelineDepth,
     unsigned numConvUnitsPerTile,
     unsigned convUnitCoeffLoadBytesPerCycle,
@@ -75,17 +76,19 @@ getConvPartialnx1SupervisorCycleEstimate(
   for (const auto &convSizesByWorker : convSizesByWeightAndWorker) {
     assert(convSizesByWorker.size() <= numWorkerContexts);
 
+    unsigned entryCycles = 0;
+
     // Load weights in the supervisor.
     const auto numLoads = convUnitPipelineDepth
                           * numConvUnitsPerTile
                           * coeffBytesPerPipelineStage
                           / convUnitCoeffLoadBytesPerCycle;
 
-    cycles += numLoads;
+    entryCycles += numLoads;
 
     const unsigned supervisorLoopOverhead = 2;
-
-    cycles += supervisorLoopOverhead; // overhead to modify supervisor struct
+    // Overhead to modify supervisor struct.
+    entryCycles += supervisorLoopOverhead;
 
     unsigned maxWorkerCycles = 0;
     // Start workers.
@@ -109,10 +112,11 @@ getConvPartialnx1SupervisorCycleEstimate(
       }
       maxWorkerCycles = std::max(maxWorkerCycles, workerCycles);
     }
-    cycles += maxWorkerCycles * numWorkerContexts;
-    cycles += 2 * numWorkerContexts; // run instruction
-    cycles += 1; // Sync.
-    cycles += numWorkerContexts - 1; // Pipeline bubble.
+    entryCycles += maxWorkerCycles * numWorkerContexts;
+    entryCycles += 2 * numWorkerContexts; // run instruction
+    entryCycles += 1; // Sync.
+    entryCycles += numWorkerContexts - 1; // Pipeline bubble.
+    cycles += entryCycles * passesPerEntry;
   }
   return cycles;
 }
