@@ -654,6 +654,8 @@ calculateActivationMapping(Graph &graph, const ConvParams &params,
     params.getInputWidth(),
     plan.inChansPerGroup
   };
+  const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
+  std::vector<boost::icl::interval_set<unsigned>> used(numTiles);
   boost::icl::interval_map<unsigned, std::set<unsigned>> actsToTiles;
   iterateTilePartition(graph, params, plan,
                        [&](unsigned tile, const ConvTileIndices &,
@@ -678,11 +680,17 @@ calculateActivationMapping(Graph &graph, const ConvParams &params,
                          inXRange.second,
                          plan.inChansPerGroup},
                         intervals);
+    auto &useSet = used[tile];
     for (const auto &interval : intervals) {
-      actsToTiles += std::make_pair(toIclInterval(interval),
-                                    std::set<unsigned>({tile}));
+      useSet.add(toIclInterval(interval));
     }
   });
+  for (unsigned tile = 0; tile < numTiles; ++tile) {
+     std::set<unsigned> tileSet{tile};
+     for (const auto &region : used[tile]) {
+        actsToTiles.add(std::make_pair(region, tileSet));
+     }
+  }
   // Limit the minimum number of activation bytes per tile to reduce the amount
   // of exchange code. Increasing this constant reduces exchange code size and
   // increases execution time due to imbalance. The current limit was
