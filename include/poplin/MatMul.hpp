@@ -222,15 +222,15 @@ createMatMulGroupedInputLHS(poplar::Graph &graph,
  * tensor as the right argument efficient.
  *
  * \param graph           The poplar graph.
- * \param type            The data type of the required matrix.
- * \param aShape          The shape of the required matrix.
- * \param bShape          The shape of the matrix that the required matrix will
+ * \param type            The data type of the required matrix
+ * \param aShape          The shape of the matrix that the required matrix will
  *                        be multiplied by.
+ * \param bShape          The shape of the required matrix.
  * \param name            The debug name of the required matrix.
  * \param options         The implementation options of the multiplication.
  *
- * \returns               A matrix of type \type and shape \aShape. The
- *                        tensor will have been mapped to tiles.
+ * \returns               A matrix of type \type and shape \bShape. The tensor
+ *                        will have been mapped to tiles.
  */
 poplar::Tensor
 createMatMulInputRHS(poplar::Graph &graph,
@@ -254,14 +254,14 @@ createMatMulInputRHS(poplar::Graph &graph,
  *
  * \param graph           The poplar graph.
  * \param type            The data type of the required matrix.
- * \param aShape          The shape of the required matrix.
- * \param bShape          The shape of the matrix that the required matrix will
+ * \param aShape          The shape of the matrix that the required matrix will
  *                        be multiplied by.
+ * \param bShape          The shape of the required matrix.
  * \param name            The debug name of the required matrix.
  * \param options         The implementation options of the multiplication.
  *
- * \returns               A matrix of type \type and shape \aShape. The
- *                        tensor will have been mapped to tiles.
+ * \returns               A matrix of type \type and shape \bShape. The tensor
+ *                        will have been mapped to tiles.
  */
 poplar::Tensor
 createMatMulGroupedInputRHS(poplar::Graph &graph,
