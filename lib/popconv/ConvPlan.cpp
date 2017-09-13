@@ -898,12 +898,9 @@ addCycleEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
   const auto maxMACsPerCyclePerTile =
       getMaxMACsPerCyclePerTile(deviceInfo, floatPartials, floatActivations,
                                 method);
-  auto maxMacsPerCyclePerTileVar = m.addVariable(maxMACsPerCyclePerTile,
-                                                 maxMACsPerCyclePerTile);
   const auto totalMacs = getNumberOfMACs(params);
-  auto maxMACs =
-      m.product({maxMacsPerCyclePerTileVar, usedTiles, partialCalcCycles});
-  m.lessOrEqual(totalMacs, maxMACs);
+  m.lessOrEqual(totalMacs / maxMACsPerCyclePerTile,
+                m.product({usedTiles, partialCalcCycles}));
   const auto reduceCycles =
       m.call({tilesPerX, tilesPerY, tilesPerBatch, tilesPerZ, tilesPerKernelY,
               tilesPerInZ, tilesPerConvGroups},
