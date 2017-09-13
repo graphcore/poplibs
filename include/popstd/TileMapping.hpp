@@ -1,5 +1,5 @@
-#ifndef __popstd_ActivationMapping_hpp__
-#define __popstd_ActivationMapping_hpp__
+#ifndef __popstd_TileMapping_hpp__
+#define __popstd_TileMapping_hpp__
 #include <vector>
 #include "poplar/Graph.hpp"
 
@@ -40,4 +40,4 @@ mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t);
 
 }  // end namespace popstd
 
-#endif // __popstd_ActivationMapping_hpp__
+#endif // __popstd_TileMapping_hpp__
