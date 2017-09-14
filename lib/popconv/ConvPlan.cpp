@@ -1219,15 +1219,22 @@ static void expandDim(ConvParams &params, unsigned dim) {
 static unsigned
 estimateTransformCycles(const poplar::DeviceInfo &deviceInfo,
                         const ConvParams &params,
+                        const ConvOptions &options,
                         bool swapOperands,
                         std::vector<unsigned> expandDims,
                         unsigned inChansPadding,
                         unsigned partialChansPadding,
                         unsigned usedTiles) {
-  bool rearrangeInput = !expandDims.empty() || swapOperands || inChansPadding;
-  bool rearrangeWeights = !expandDims.empty() || swapOperands ||
-                          inChansPadding || partialChansPadding;
-  bool rearrangeOutput = swapOperands || partialChansPadding;
+  assert(options.pass != Pass::FC_TRAINING_WU &&
+         options.pass != Pass::FC_TRAINING_BWD);
+  bool isWeightUpdate = options.pass == Pass::TRAINING_WU;
+  bool rearrangeInput = isWeightUpdate || !expandDims.empty() || swapOperands ||
+                        inChansPadding;
+  bool rearrangeWeights = isWeightUpdate || !expandDims.empty() ||
+                          swapOperands || inChansPadding || partialChansPadding;
+  bool rearrangeOutput = (!isWeightUpdate && swapOperands) ||
+                         (isWeightUpdate && !swapOperands) ||
+                         partialChansPadding;
   auto expandedParams = params;
   for (const auto dim : expandDims) {
     expandDim(expandedParams, dim);
@@ -1457,7 +1464,7 @@ createPlan(ConvParams params,
         Cost candidateCost;
         auto transformCostFn = [&](unsigned usedTiles) {
           return estimateTransformCycles(graph.getDevice().getDeviceInfo(),
-                                         paddedParams, swapOperands,
+                                         paddedParams, options, swapOperands,
                                          expandDims, inChansPadding,
                                          partialChansPadding, usedTiles);
         };

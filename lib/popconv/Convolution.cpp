@@ -2551,15 +2551,6 @@ void weightsTransposeChansFlipXY(Graph &graph,
                 weightsOut));
 }
 
-// The most natural way to represent the calculation is with the activations
-// on the right hand side. With the current implementation of convolution()
-// this tends to be inefficient as the inner most dimension of the result is
-// output channels which means the rearrangement after the convolution
-// uses lot of exchange code / copy pointers. Workaround this by swapping the
-// operands.
-// TODO remove this variable and teach the planner to swap operands instead.
-const bool swapConvolutionalWeightUpdateParams = true;
-
 static ConvParams
 getWeightUpdateParams(ConvParams fwdParams) {
   fwdParams = canonicalizeParams(fwdParams);
@@ -2616,16 +2607,6 @@ calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
   // - wu output channels = fwd output channels
   auto activationsRearranged = activations.dimShufflePartial({1, 4}, {4, 1});
   auto deltasRearranged = zDeltas.dimShufflePartial({1}, {4});
-  if (swapConvolutionalWeightUpdateParams) {
-    std::swap(params.inputFieldShape, params.kernelShape);
-    std::swap(params.inputPaddingLower, params.kernelPaddingLower);
-    std::swap(params.inputPaddingUpper, params.kernelPaddingUpper);
-    std::swap(params.inputDilation, params.kernelDilation);
-    std::swap(params.batchSize, params.outputChannels);
-    std::swap(activationsRearranged, deltasRearranged);
-    activationsRearranged = activationsRearranged.dimShufflePartial({3}, {1});
-    deltasRearranged = deltasRearranged.dimShufflePartial({1}, {3});
-  }
   auto weightDeltas =
       convolution(graph,
                   unsplitActivationConvGroups(activationsRearranged),
@@ -2636,9 +2617,6 @@ calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
                   debugPrefix,
                   options);
   weightDeltas = splitActivationConvGroups(weightDeltas, numConvGroups);
-  if (swapConvolutionalWeightUpdateParams) {
-    weightDeltas = weightDeltas.dimShufflePartial({1, 4}, {4, 1});
-  }
   return weightDeltas.dimShufflePartial({1}, {4});
 }
 
@@ -3107,13 +3085,6 @@ void reportWeightUpdatePlanInfo(std::ostream &out,
   // - wu height = fwd height
   // - wu width = fwd width
   // - wu output channels = fwd output channels
-  if (swapConvolutionalWeightUpdateParams) {
-    std::swap(params.inputFieldShape, params.kernelShape);
-    std::swap(params.inputPaddingLower, params.kernelPaddingLower);
-    std::swap(params.inputPaddingUpper, params.kernelPaddingUpper);
-    std::swap(params.inputDilation, params.kernelDilation);
-    std::swap(params.batchSize, params.outputChannels);
-  }
   reportPlanInfo(out, graph, params, options);
 }
 
