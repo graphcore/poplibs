@@ -2133,41 +2133,11 @@ multiStageGroupedReduce(Graph &graph,
                                  resultType, computeSets, debugPrefix);
 }
 
-static std::pair<Program, Tensor>
+static Tensor
 convolutionImpl(Graph &graph, const Plan &plan,
                 const ConvParams &params,
                 Tensor in, Tensor weights,
-                const std::string &debugPrefix) {
-  Sequence prog;
-  verifyInputShapes(params, in, weights);
-  // If the input tensors have a different memory layout to the one expected by
-  // the vertices poplar will rearrange the data using exchange code or copy
-  // pointers. If the data is broadcast this rearrangement happens on every tile
-  // that receives the data. We can reduce the amount of exchange code / number
-  // of copy pointers required by rearranging the data once and broadcasting the
-  // rearranged data. This trades increased execution time for reduced memory
-  // usage. The biggest reductions in memory usage come when data is broadcast
-  // to many tiles. viewMaxBroadcastDests specifies the maximum number of
-  // boardcast destinations a tensor can have before this optimization is
-  // applied.
-  // Note these copies will be elided if the inputs already use the expected
-  // memory layout and tile mapping.
-  const auto viewMaxBroadcastDests = 1;
-  const auto inNumDests = plan.tilesPerKernelYAxis * plan.tilesPerZAxis;
-  if (inNumDests > viewMaxBroadcastDests) {
-    auto inRearranged = createInputImpl(graph, params, "inRearranged", plan);
-    prog.add(Copy(in, inRearranged));
-    in = inRearranged;
-  }
-  const auto weightsNumDests =
-      plan.tilesPerBatchAxis * plan.tilesPerXAxis * plan.tilesPerYAxis;
-  if (weightsNumDests > viewMaxBroadcastDests) {
-    auto weightsRearranged = createWeights(graph, params, "weightsRearranged",
-                                           plan);
-    prog.add(Copy(weights, weightsRearranged));
-    weights = weightsRearranged;
-  }
-
+                Sequence &prog, const std::string &debugPrefix) {
   in = splitActivationChanGroups(in, plan.inChansPerGroup);
   weights = groupWeights(weights, plan.inChansPerGroup,
                          plan.partialChansPerGroup);
@@ -2219,7 +2189,7 @@ convolutionImpl(Graph &graph, const Plan &plan,
   for (const auto &cs : reduceComputeSets) {
     prog.add(Execute(cs));
   }
-  return{ prog, unsplitActivationChanGroups(reduced) };
+  return unsplitActivationChanGroups(reduced);
 }
 
 template <typename T>
@@ -2325,6 +2295,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
     weightsTransposeChansFlipXY(graph, weights, bwdWeights, prog, debugPrefix);
     weights = bwdWeights;
   }
+  verifyInputShapes(params, in, weights);
 
   auto outputShape = getOutputShape(params);
   // Output shape doesn't include grouped conv.
@@ -2334,6 +2305,34 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   const auto originalParams = params;
   const auto originalPlan = plan;
   convolutionPreprocess(graph, params, plan, &in, &weights);
+
+  // If the input tensors have a different memory layout to the one expected by
+  // the vertices poplar will rearrange the data using exchange code or copy
+  // pointers. If the data is broadcast this rearrangement happens on every tile
+  // that receives the data. We can reduce the amount of exchange code / number
+  // of copy pointers required by rearranging the data once and broadcasting the
+  // rearranged data. This trades increased execution time for reduced memory
+  // usage. The biggest reductions in memory usage come when data is broadcast
+  // to many tiles. viewMaxBroadcastDests specifies the maximum number of
+  // boardcast destinations a tensor can have before this optimization is
+  // applied.
+  // Note these copies will be elided if the inputs already use the expected
+  // memory layout and tile mapping.
+  const auto viewMaxBroadcastDests = 1;
+  const auto inNumDests = plan.tilesPerKernelYAxis * plan.tilesPerZAxis;
+  if (inNumDests > viewMaxBroadcastDests) {
+    auto inRearranged = createInputImpl(graph, params, "inRearranged", plan);
+    prog.add(Copy(in, inRearranged));
+    in = inRearranged;
+  }
+  const auto weightsNumDests =
+      plan.tilesPerBatchAxis * plan.tilesPerXAxis * plan.tilesPerYAxis;
+  if (weightsNumDests > viewMaxBroadcastDests) {
+    auto weightsRearranged = createWeights(graph, params, "weightsRearranged",
+                                           plan);
+    prog.add(Copy(weights, weightsRearranged));
+    weights = weightsRearranged;
+  }
 
   Tensor activations;
   if (plan.useWinograd) {
@@ -2360,10 +2359,8 @@ convolution(Graph &graph, const poplar::Tensor &in_,
     activations = unsplitActivationChanGroups(activations);
   } else {
     const auto layerName = debugPrefix + "/Conv" + convSuffix(params);
-    Program convolveProg;
-    std::tie(convolveProg, activations) =
-        convolutionImpl(graph, plan, params, in, weights, layerName);
-    prog.add(convolveProg);
+    activations =
+        convolutionImpl(graph, plan, params, in, weights, prog, layerName);
   }
   activations = convolutionPostprocess(graph, originalParams, originalPlan,
                                        activations);
