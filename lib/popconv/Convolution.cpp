@@ -881,6 +881,17 @@ static void expandSpatialDim(Graph &graph, ConvParams &params,
 static void
 convolutionPreprocess(Graph &graph, ConvParams &params, Plan &plan,
                       Tensor *acts, Tensor *weights) {
+  if (plan.swapOperands) {
+    swapOperands(params);
+    if (acts && weights) {
+      std::swap(*acts, *weights);
+      *acts = acts->dimRoll(3, 1);
+      *weights = weights->dimRoll(1, 3);
+    } else {
+      assert(!acts && !weights);
+    }
+    plan.swapOperands = false;
+  }
   for (auto dim : plan.expandDims) {
     expandSpatialDim(graph, params, acts, weights, dim);
   }
@@ -964,9 +975,22 @@ static void mapActivations(Graph &graph, ConvParams params,
 }
 
 static Tensor
+createWeights(Graph &graph,
+              const ConvParams &params, const std::string &name,
+              const Plan &plan);
+
+static Tensor
 createInputImpl(Graph &graph, const ConvParams &params,
                 const std::string &name,
                 const Plan &plan) {
+  if (plan.swapOperands) {
+    auto newParams = params;
+    auto newPlan = plan;
+    swapOperands(newParams);
+    newPlan.swapOperands = false;
+    auto t = createWeights(graph, newParams, name, newPlan);
+    return t.dimRoll(3, 1);
+  }
   const auto inNumChans = params.getInputDepthPerConvGroup();
   const auto inChansPerGroup = getInChansPerGroup(plan, inNumChans);
   assert(params.getInputDepthPerConvGroup() % inChansPerGroup == 0);
@@ -1079,6 +1103,14 @@ static Tensor
 createWeights(Graph &graph,
               const ConvParams &params, const std::string &name,
               const Plan &plan) {
+  if (plan.swapOperands) {
+    auto newParams = params;
+    auto newPlan = plan;
+    swapOperands(newParams);
+    newPlan.swapOperands = false;
+    auto t = createInputImpl(graph, newParams, name, newPlan);
+    return t.dimRoll(1, 3);
+  }
   const auto dType = params.dType;
   const auto inNumChans = params.getInputDepthPerConvGroup();
   const auto outNumChans = params.getOutputDepthPerConvGroup();
@@ -2224,6 +2256,9 @@ convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
                        const Plan &originalPlan,
                        Tensor activations) {
   auto postExpandParams = originalParams;
+  if (originalPlan.swapOperands) {
+    swapOperands(postExpandParams);
+  }
   for (auto dim : originalPlan.expandDims) {
     expandSpatialDim(graph, postExpandParams, nullptr, nullptr, dim);
   }
@@ -2260,6 +2295,10 @@ convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
     activations =
         unflattenDims(activations, 2 + spatialDim, activations.rank() - 1,
                       spatialDimSize);
+  }
+  // Undo the swapping of operands.
+  if (originalPlan.swapOperands) {
+    activations = activations.dimShufflePartial({1, 4}, {4, 1});
   }
   return activations;
 }

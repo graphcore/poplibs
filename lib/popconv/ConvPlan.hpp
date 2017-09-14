@@ -21,6 +21,7 @@ struct Plan {
   /// Grain size to use when splitting the x-axis across tiles.
   unsigned xAxisGrainSize;
   bool floatPartials;
+  bool swapOperands = false;
   // Spatial dimensions that should be expanded by taking the activations
   // multiplied by each weight in each position of the filter in this axis and
   // turning them into different input channels.
@@ -86,6 +87,8 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
 /// Return whether expanding the specified spatial dimension involves
 /// expanding the activations or the weights.
 bool expandDimExpandActs(ConvParams &params, unsigned dim);
+
+void swapOperands(ConvParams &params);
 
 std::uint64_t getNumberOfMACs(const ConvParams &params);
 
