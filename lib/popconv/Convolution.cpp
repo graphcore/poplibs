@@ -2586,11 +2586,13 @@ calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
                       const ConvParams &fwdParams,
                       Sequence &prog,
                       const std::string &debugPrefix,
-                      const ConvOptions &options) {
+                      const ConvOptions &fwdOptions) {
   const auto numConvGroups = fwdParams.numConvGroups;
   auto zDeltas = splitActivationConvGroups(zDeltas_, numConvGroups);
   auto activations = splitActivationConvGroups(activations_, numConvGroups);
   auto params = getWeightUpdateParams(fwdParams);
+  auto options = fwdOptions;
+  options.pass = Pass::TRAINING_WU;
   // The weight update is equivalent to a convolution where:
   // - wu conv groups = fwd conv groups
   // - wu batch size = fwd input channels

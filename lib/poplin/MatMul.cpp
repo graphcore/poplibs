@@ -27,16 +27,16 @@ static popconv::ConvOptions getConvOptions(
   convOptions.partialsType = options.partialsType;
   switch (options.fullyConnectedPass) {
   case FullyConnectedPass::NONE:
-    convOptions.fullyConnectedPass = popconv::FullyConnectedPass::NONE;
+    convOptions.pass = popconv::Pass::NONE;
     break;
   case FullyConnectedPass::FWD:
-    convOptions.fullyConnectedPass = popconv::FullyConnectedPass::FWD;
+    convOptions.pass = popconv::Pass::FC_TRAINING_FWD;
     break;
   case FullyConnectedPass::BWD:
-    convOptions.fullyConnectedPass = popconv::FullyConnectedPass::BWD;
+    convOptions.pass = popconv::Pass::FC_TRAINING_BWD;
     break;
   case FullyConnectedPass::WU:
-    convOptions.fullyConnectedPass = popconv::FullyConnectedPass::WU;
+    convOptions.pass = popconv::Pass::FC_TRAINING_WU;
     break;
   }
   return convOptions;

@@ -985,7 +985,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
   const auto tilesPerBatch = m.addVariable(1, params.getBatchSize());
   const auto tilesPerConvGroups = m.addVariable(1, params.getNumConvGroups());
   unsigned maxTilesPerZ;
-  if (options.fullyConnectedPass == FullyConnectedPass::FWD) {
+  if (options.pass == Pass::FC_TRAINING_FWD) {
     // The joint planning cost function assumes that no exchange is required to
     // rearrange weights between passes. Because of the way we derive the
     // backward and weight update plans from the forward plan this is guaranteed
@@ -1018,7 +1018,7 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
                        xAxisGrainSize, convVertexType.floatPartials,
                        floatActivations, convVertexType.method,
                        Plan::LinearizeTileOrder::STANDARD, cache);
-  if (options.fullyConnectedPass == FullyConnectedPass::FWD) {
+  if (options.pass == Pass::FC_TRAINING_FWD) {
     popsolver::Variable bwdCycles;
     auto bwdParams = params;
     std::swap(bwdParams.inputFieldShape[1], bwdParams.inputChannels);
@@ -1122,7 +1122,7 @@ getConvVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
                                    deviceInfo);
   }
   const bool isFullyConnectedFwd =
-      options.fullyConnectedPass == FullyConnectedPass::FWD;
+      options.pass == Pass::FC_TRAINING_FWD;
   if (canUseConvolutionInstruction(floatActivations, ampFloatPartials,
                                    deviceInfo)) {
     const auto weightsPerConvUnit =
@@ -1447,7 +1447,7 @@ createPlan(ConvParams params,
         unsigned partialChansPadding = paddedParams.outputChannels -
                                        partialChans;
         unsigned xAxisGrainSize = 1;
-        if (options.fullyConnectedPass == FullyConnectedPass::FWD) {
+        if (options.pass == Pass::FC_TRAINING_FWD) {
           // The xAxisGrainSize becomes the inChansPerGroup in the backward
           // pass. For now assume the same grouping in both passes.
           // TODO search for the optimal grouping in each pass.
@@ -1490,14 +1490,14 @@ static ConvParams getFullyConnectedFwdParams(const ConvParams &params,
   assert(params.inputPaddingUpper == std::vector<int>({0, 0}));
   assert(params.kernelShape[0] == 1 && params.kernelShape[1] == 1);
   assert(params.inputDilation[0] == 1 && params.inputDilation[1] == 1);
-  switch (options.fullyConnectedPass) {
+  switch (options.pass) {
   default: assert(0 && "Unexpected pass");
-  case FullyConnectedPass::BWD:
+  case Pass::FC_TRAINING_BWD:
     inputSize = params.getInputWidth();
     batchSize = params.getOutputDepthPerConvGroup();
     outputSize = params.getInputDepthPerConvGroup();
     break;
-  case FullyConnectedPass::WU:
+  case Pass::FC_TRAINING_WU:
     outputSize = params.getInputWidth();
     batchSize = params.getInputDepthPerConvGroup();
     inputSize = params.getOutputDepthPerConvGroup();
@@ -1521,7 +1521,7 @@ static ConvParams getFullyConnectedFwdParams(const ConvParams &params,
 
 static ConvOptions getFullyConnectedFwdOptions(const ConvOptions &options) {
   auto newOptions = options;
-  newOptions.fullyConnectedPass = FullyConnectedPass::FWD;
+  newOptions.pass = Pass::FC_TRAINING_FWD;
   return newOptions;
 }
 
@@ -1580,16 +1580,16 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
   assert (params.stride.size() == 2);
   assert (params.inputPaddingLower.size() == 2);
   assert (params.inputPaddingUpper.size() == 2);
-  if (options.fullyConnectedPass == FullyConnectedPass::WU ||
-      options.fullyConnectedPass == FullyConnectedPass::BWD) {
+  if (options.pass == Pass::FC_TRAINING_WU ||
+      options.pass == Pass::FC_TRAINING_BWD) {
     auto fwdParams = getFullyConnectedFwdParams(params, options);
     auto fwdOptions = getFullyConnectedFwdOptions(options);
     const auto fwdPlan =
         getPlan(graph, fwdParams, fwdOptions);
-    if (options.fullyConnectedPass == FullyConnectedPass::WU)
+    if (options.pass == Pass::FC_TRAINING_WU)
       return getFullyConnectedWUPlan(deviceInfo, fwdParams, fwdOptions,
                                      fwdPlan);
-    assert(options.fullyConnectedPass == FullyConnectedPass::BWD);
+    assert(options.pass == Pass::FC_TRAINING_BWD);
     return getFullyConnectedBwdPlan(deviceInfo, fwdParams, fwdOptions,
                                     fwdPlan);
   }

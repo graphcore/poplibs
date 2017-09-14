@@ -22,11 +22,16 @@ const char *asString(const WeightUpdateMethod &method);
 std::ostream &operator<<(std::ostream &os, const WeightUpdateMethod &method);
 std::istream &operator>>(std::istream &is, WeightUpdateMethod &method);
 
-enum class FullyConnectedPass {
+enum class Pass {
   NONE,
-  FWD,
-  BWD,
-  WU,
+  INFERENCE_FWD,
+  TRAINING_FWD,
+  TRAINING_BWD,
+  TRAINING_WU,
+  FC_INFERENCE_FWD,
+  FC_TRAINING_FWD,
+  FC_TRAINING_BWD,
+  FC_TRAINING_WU
 };
 
 /** Options to control the implementation of a convolution */
@@ -35,10 +40,8 @@ struct ConvOptions {
   bool useWinograd = false;
   unsigned winogradPatchSize = 4;
   unsigned percentageCyclesExcessForMemOptim = 0;
-  /// The fully connected pass this layer corresponds to. If this variable
-  /// is not set to NONE look for a joint plan that avoids the need to
-  /// exchange weights.
-  FullyConnectedPass fullyConnectedPass = FullyConnectedPass::NONE;
+  /// The pass this layer corresponds to.
+  Pass pass = Pass::NONE;
   std::string partialsType = "float";
   PlanningCache *cache = nullptr;
   bool operator<(const ConvOptions &other) const {
