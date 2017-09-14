@@ -14,7 +14,7 @@ Model::~Model() = default;
 
 void Model::addConstraint(std::unique_ptr<Constraint> c) {
   for (auto v : c->getVariables()) {
-    variableConstraints[v.id].push_back(c.get());
+    variableConstraints[v.id].push_back(constraints.size());
   }
   constraints.push_back(std::move(c));
 }
@@ -166,8 +166,14 @@ Solution Model::minimize(const std::vector<Variable> &v) {
   bool foundSolution = false;
   Solution solution;
 
+  std::vector<Constraint *> constraintPtrs;
+  constraintPtrs.reserve(constraints.size());
+  for (const auto &c : constraints) {
+    constraintPtrs.push_back(c.get());
+  }
   // Perform initial constraint propogation.
-  Scheduler scheduler(initialDomains, variableConstraints);
+  Scheduler scheduler(initialDomains, std::move(constraintPtrs),
+                      variableConstraints);
   if (scheduler.initialPropagate() &&
       minimize(scheduler, v, foundSolution, solution))
     return solution;

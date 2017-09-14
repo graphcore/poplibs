@@ -3,7 +3,6 @@
 
 #include <popsolver/Model.hpp>
 #include <queue>
-#include <unordered_set>
 #include <vector>
 
 namespace popsolver {
@@ -14,21 +13,24 @@ namespace popsolver {
 /// changes.
 class Scheduler {
   Domains domains;
-  std::queue<Constraint*> worklist;
-  std::unordered_set<Constraint*> queued;
-  /// Map from each variable to the set of constraints to propagte when the
+  std::vector<Constraint*> constraints;
+  /// Map from each variable to the constraint number to propagte when the
   /// domain of the variable changes.
-  std::vector<std::vector<Constraint*>> variableConstraints;
+  std::vector<std::vector<unsigned>> variableConstraints;
+  std::queue<unsigned> worklist;
+  std::vector<bool> queued;
   void queueConstraints(Variable v) {
     for (auto c : variableConstraints[v.id]) {
-      if (queued.insert(c).second)
+      if (!queued[c]) {
         worklist.push(c);
+        queued[c] = true;
+      }
     }
   }
 public:
-  Scheduler(Domains &domains,
-            const std::vector<std::vector<Constraint*>> &variableConstraints) :
-    domains(domains), variableConstraints(variableConstraints) {}
+  Scheduler(Domains domains,
+            std::vector<Constraint *> constraints,
+            std::vector<std::vector<unsigned>> variableConstraints);
   const Domains &getDomains() { return domains; }
   void setDomains(Domains value) { domains = value; }
   void set(Variable v, unsigned value) {
