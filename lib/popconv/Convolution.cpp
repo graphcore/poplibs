@@ -2273,6 +2273,20 @@ convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
   return activations;
 }
 
+static bool inputRearrangementIsExpensive(const ConvOptions &options) {
+  // During the weight update pass we change the innermost dimension when the
+  // activations / deltas are rearranged.
+  return options.pass == Pass::TRAINING_WU ||
+         options.pass == Pass::FC_TRAINING_WU;
+}
+
+static bool weightRearrangementIsExpensive(const ConvOptions &options) {
+  // During the weight update pass we change the innermost dimension when the
+  // activations / deltas are rearranged.
+  return options.pass == Pass::TRAINING_WU ||
+         options.pass == Pass::FC_TRAINING_WU;
+}
+
 Tensor
 convolution(Graph &graph, const poplar::Tensor &in_,
             const poplar::Tensor &weights_,
@@ -2313,21 +2327,24 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   // of copy pointers required by rearranging the data once and broadcasting the
   // rearranged data. This trades increased execution time for reduced memory
   // usage. The biggest reductions in memory usage come when data is broadcast
-  // to many tiles. viewMaxBroadcastDests specifies the maximum number of
-  // boardcast destinations a tensor can have before this optimization is
-  // applied.
+  // to many tiles. inViewMaxBroadcastDests and weightViewMaxBroadcastDests
+  // specify the maximum number of broadcast destinations a tensor can have
+  // before we insert a copy to rearrange it.
   // Note these copies will be elided if the inputs already use the expected
   // memory layout and tile mapping.
-  const auto viewMaxBroadcastDests = 1;
+  const auto inViewMaxBroadcastDests =
+      inputRearrangementIsExpensive(options) ? 1U : 7U;
+  const auto weightViewMaxBroadcastDests =
+      weightRearrangementIsExpensive(options) ? 1U : 7U;
   const auto inNumDests = plan.tilesPerKernelYAxis * plan.tilesPerZAxis;
-  if (inNumDests > viewMaxBroadcastDests) {
+  if (inNumDests > inViewMaxBroadcastDests) {
     auto inRearranged = createInputImpl(graph, params, "inRearranged", plan);
     prog.add(Copy(in, inRearranged));
     in = inRearranged;
   }
   const auto weightsNumDests =
       plan.tilesPerBatchAxis * plan.tilesPerXAxis * plan.tilesPerYAxis;
-  if (weightsNumDests > viewMaxBroadcastDests) {
+  if (weightsNumDests > weightViewMaxBroadcastDests) {
     auto weightsRearranged = createWeights(graph, params, "weightsRearranged",
                                            plan);
     prog.add(Copy(weights, weightsRearranged));
