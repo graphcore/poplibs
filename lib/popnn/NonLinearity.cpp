@@ -3,11 +3,34 @@
 #include "popstd/exceptions.hpp"
 #include "popstd/VertexTemplates.hpp"
 #include "popstd/Regroup.hpp"
+#include "popstd/Operations.hpp"
+#include "popreduce/Reduce.hpp"
 #include "popstd/Util.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace popstd;
+
+
+// computes softmax along the innermost dimension
+// This is not an optimal implementation in terms of precision and order of
+// operations
+static Tensor softmaxImpl(Graph &graph, Tensor t, Sequence &prog,
+                          const std::string &debugStr = "") {
+  // exchange innermost dimension as softmax is done over it
+  const auto rank = t.rank();
+  auto tShuf = t.dimShufflePartial({0}, {rank - 1});
+
+  const auto fnStr = debugStr + "/SoftMax";
+  auto e = exp(graph, tShuf, prog, fnStr);
+  auto r =
+    popreduce::reduce(graph, e, {0}, popreduce::Operation::ADD, prog, fnStr);
+
+  auto rShuf = r.expand({0}).broadcast(t.dim(rank - 1), 0);
+  auto outShuf = div(graph, e, rShuf, prog, fnStr);
+
+  return outShuf.dimShufflePartial({0}, {rank - 1});
+}
 
 namespace popnn {
 
@@ -17,6 +40,9 @@ nonLinearityInputGradient(Graph &graph,
                           Tensor out, Tensor outGradient,
                           poplar::program::Sequence &prog,
                           const std::string &debugPrefix) {
+  if (nonLinearityType == NON_LINEARITY_SOFTMAX) {
+    throw popstd::poplib_error("SOFTMAX gradient not implemented");
+  }
   auto cs = graph.addComputeSet(debugPrefix + "/NonLinearityGrad");
   const auto dType = out.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
@@ -56,15 +82,20 @@ nonLinearityInputGradient(Graph &graph,
   return inGradient;
 }
 
-void nonLinearity(Graph &graph, NonLinearityType nonLinearityType,
-                  Tensor t, Sequence &prog, const std::string &debugPrefix) {
+
+void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
+                  poplar::Tensor t, ComputeSet &cs,
+                  const std::string &debugPrefix) {
+  if (nonLinearityType == NON_LINEARITY_SOFTMAX) {
+    throw popstd::poplib_error("Compute set variant of softmax not "
+                               "implemented");
+  }
   if (!t.isParallelWriteable())
     throw popstd::poplib_error("Trying to update tensor that cannot be "
                                "written in parallel");
   const auto dType = t.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
-  ComputeSet cs = graph.addComputeSet(debugPrefix + "/Nonlinearity");
   auto mapping = graph.getTileMapping(t);
   const auto numTiles = deviceInfo.getNumTiles();
   const auto tFlat = t.flatten();
@@ -78,9 +109,13 @@ void nonLinearity(Graph &graph, NonLinearityType nonLinearityType,
     // balance memory and loop overhead against parallel performance.
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(t, mapping[tile]);
+
+    auto numElements = intervalSequenceNumElements(tileContiguousRegions);
+    auto minVectors =
+        numElements <= vectorWidth * deviceInfo.numWorkerContexts ? 1 : 2;
     auto vertexRegions =
         splitRegionsBetweenWorkers(deviceInfo, tileContiguousRegions,
-                                   vectorWidth, 2 * vectorWidth);
+                                   vectorWidth, minVectors * vectorWidth);
     for (const auto &regions : vertexRegions) {
       auto v = graph.addVertex(cs, templateVertex("popnn::NonLinearity",
                                                   dType),
@@ -90,6 +125,17 @@ void nonLinearity(Graph &graph, NonLinearityType nonLinearityType,
       graph.setTileMapping(v, tile);
     }
   }
+}
+
+void nonLinearity(Graph &graph, NonLinearityType nonLinearityType,
+                  Tensor t, Sequence &prog, const std::string &debugPrefix) {
+  if (nonLinearityType == NON_LINEARITY_SOFTMAX) {
+    auto out = softmaxImpl(graph, t, prog, debugPrefix);
+    prog.add(Copy(out, t));
+    return;
+  }
+  ComputeSet cs = graph.addComputeSet(debugPrefix + "/Nonlinearity");
+  nonLinearity(graph,nonLinearityType,t,cs,debugPrefix);
   prog.add(Execute(cs));
 }
 

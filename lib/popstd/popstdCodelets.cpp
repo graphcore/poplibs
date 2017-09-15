@@ -422,7 +422,6 @@ template class Add<float>;
 template class Add<half>;
 template class Add<int>;
 
-
 template <typename InType>
 class Ceil : public Vertex {
 public:
@@ -1372,11 +1371,9 @@ public:
   }
 };
 
-
 template class Remainder<float>;
 template class Remainder<half>;
 template class Remainder<int>;
-
 
 template <typename InType>
 class Signum : public Vertex {
@@ -1791,5 +1788,94 @@ public:
     return cycles;
   }
 };
+
+template <typename T>
+class HistSelect : public Vertex {
+public:
+  Input<unsigned> index;
+  Vector<Input<Vector<T>>> in;
+  Vector<Output<Vector<T>>> out;
+  unsigned offset;
+  SimOnlyField<unsigned> dataPathWidth;
+  bool compute() {
+    // find offset in circular buffer
+    assert(in.size() == out.size());
+    unsigned hSize = in[0].size() / out[0].size();
+    auto hIdx = *index + hSize - offset;
+    if (hIdx >= hSize) {
+      hIdx -= hSize;
+    }
+    for (auto i = 0; i != out.size(); ++i) {
+      assert(in[i].size() / out[i].size() == hSize);
+      for (auto j = 0; j != out[i].size(); ++j) {
+        out[i][j] = in[i][j * hSize + hIdx];
+      }
+    }
+    return true;
+  }
+  std::uint64_t getCycleEstimate() const {
+    uint64_t cycles = 5;
+    const bool isFloat = std::is_same<T, float>::value;
+    const unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    for (auto i = 0; i != out.size(); ++i) {
+      cycles += 3;
+      cycles += 1 + (out[i].size() + vectorWidth - 1) /  vectorWidth  * 1;
+    }
+    return cycles;
+  }
+};
+
+template class HistSelect<half>;
+template class HistSelect<float>;
+
+template <typename T>
+class HistSet : public Vertex {
+public:
+  Input<unsigned> index;
+  Vector<Input<Vector<T>>> in;
+  Vector<Output<Vector<T>>> out;
+  SimOnlyField<unsigned> dataPathWidth;
+  bool compute() {
+    unsigned hSize = out[0].size() / in[0].size();
+    unsigned newIndex = *index;
+    assert(in.size() == out.size());
+    for (auto i = 0; i != out.size(); ++i) {
+      assert(out[i].size() / in[i].size() == hSize);
+      for (auto j = 0; j != in[i].size(); ++j) {
+        out[i][j * hSize + newIndex] = in[i][j];
+      }
+    }
+    return true;
+  }
+
+  std::uint64_t getCycleEstimate() const {
+    uint64_t cycles = 5;
+    const bool isFloat = std::is_same<T, float>::value;
+    const unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    for (auto i = 0; i != out.size(); ++i) {
+      cycles += 3;
+      cycles += 1 + (in[i].size() + vectorWidth - 1) / vectorWidth * 1;
+    }
+    return cycles;
+  }
+};
+
+template class HistSet<half>;
+template class HistSet<float>;
+
+class HistIncrIndex : public Vertex {
+public:
+  InOut<unsigned> index;
+  unsigned hSize;
+  bool compute() {
+    *index = (*index + 1) % hSize;
+    return true;
+  }
+
+  std::uint64_t getCycleEstimate() const {
+    return 8;
+  }
+};
+
 
 } // end namespace popstd

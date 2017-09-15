@@ -8,6 +8,8 @@
 #include <poplar/HalfFloat.hpp>
 #include <popstd/TileMapping.hpp>
 #include <popnn/codelets.hpp>
+#include <popstd/codelets.hpp>
+#include <popreduce/codelets.hpp>
 #include <poplib_test/NonLinearity.hpp>
 #include <iostream>
 
@@ -102,7 +104,12 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
 
   for (enum NonLinearityType n : {NON_LINEARITY_RELU,
                                   NON_LINEARITY_SIGMOID,
-                                  NON_LINEARITY_TANH}) {
+                                  NON_LINEARITY_TANH,
+                                  }) {
+    //Check backward gradient calculations
+    if (n == NON_LINEARITY_SOFTMAX) {
+      continue;
+    }
     std::cerr<<"Check nl type "<< n << "\n";
     //Check forward activation calculation
     hRefActOut = hActIn;
@@ -132,8 +139,6 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
       }
     }
 
-    //Check backward gradient calculations
-
     hRefDeltaOut = hDeltaIn;
     poplib_test::bwdNonLinearity(n, hActIn, hRefDeltaOut);
     // build and run the target code
@@ -162,6 +167,72 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
           }
         }
       }
+    }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
+                    *utf::tolerance<half>(fpc::percent_tolerance<half>(1))
+                    *utf::tolerance<float>(fpc::percent_tolerance<float>(0.1))
+                    *utf::tolerance<double>(fpc::percent_tolerance<double>(0.1))
+                     ) {
+  Graph graph(createIPUModelDevice());
+  popnn::addCodelets(graph);
+  popstd::addCodelets(graph);
+  popreduce::addCodelets(graph);
+
+  // support only 2D
+  const auto nl = NON_LINEARITY_SOFTMAX;
+  const unsigned batchSize = 2;
+  const unsigned numChannels = 128;
+
+  auto actF = graph.addTensor("float", {batchSize, numChannels}, "actF");
+  auto actH = graph.addTensor("half", {batchSize, numChannels}, "actH");
+
+  graph.createHostWrite("inF", actF);
+  graph.createHostWrite("inH", actH);
+  graph.createHostRead("outF", actF);
+  graph.createHostRead("outH",actH);
+
+  // arbitrary mappings
+  mapTensorLinearly(graph, actF);
+  mapTensorLinearly(graph, actH);
+
+  float hActInF[batchSize][numChannels];
+  half hActInH[batchSize][numChannels];
+  float hActOutF[batchSize][numChannels];
+  half hActOutH[batchSize][numChannels];
+
+  boost::multi_array<double, 2>
+    hActIn(boost::extents[batchSize][numChannels]);
+
+  for (unsigned b = 0; b < batchSize; ++b) {
+    for (unsigned c = 0; c < numChannels; ++c) {
+      double sample = (1.0 - 2 * (c&1)) * (1 + b) * 0.01 * c;
+      hActInH[b][c] = hActInF[b][c] =  hActIn[b][c] = sample;
+    }
+  }
+
+  std::cerr<<"Check nl type "<< nl << "\n";
+
+  auto hActOut = hActIn;
+  poplib_test::nonLinearity(nl, hActOut);
+  // build and run the target code
+  auto fwdProg = Sequence();
+  nonLinearity(graph, nl, actF, fwdProg);
+  nonLinearity(graph, nl, actH, fwdProg);
+  Engine fwdEng(graph, fwdProg);
+
+  fwdEng.writeTensor("inF", hActInF);
+  fwdEng.writeTensor("inH", hActInH);
+  fwdEng.run();
+  fwdEng.readTensor("outF", hActOutF);
+  fwdEng.readTensor("outH", hActOutH);
+
+  for (unsigned b = 0; b < batchSize; ++b) {
+    for (unsigned c = 0; c < numChannels; ++c) {
+      BOOST_TEST(hActOutF[b][c] == hActOut[b][c]);
+      BOOST_TEST((float)hActOutH[b][c] == hActOut[b][c]);
     }
   }
 }

@@ -61,7 +61,9 @@ std::vector<std::size_t> unflattenIndex(const std::vector<std::size_t> &shape,
 std::size_t flattenIndex(const std::vector<std::size_t> &shape,
                          const std::vector<std::size_t> &indices);
 
-
+// Total number of elements in the interval sequence
+std::size_t intervalSequenceNumElements(
+    const std::vector<std::vector<poplar::Interval<std::size_t>>> &seq);
 } // end namespace popstd
 
 #endif // _popstd_Util_hpp_

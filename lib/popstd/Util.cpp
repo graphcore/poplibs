@@ -192,4 +192,13 @@ std::size_t flattenIndex(const std::vector<std::size_t> &shape,
   return index;
 }
 
+std::size_t intervalSequenceNumElements(
+    const std::vector<std::vector<poplar::Interval<std::size_t>>> &seq) {
+  std::size_t numElements = 0;
+  for (const auto &s : seq) {
+    numElements += intervalSequenceSize(s);
+  }
+  return numElements;
+}
+
 } // end namespace popstd

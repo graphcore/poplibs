@@ -12,6 +12,7 @@ inline const char *asString(const popnn::NonLinearityType &type) {
   case popnn::NonLinearityType::NON_LINEARITY_RELU: return "relu";
   case popnn::NonLinearityType::NON_LINEARITY_SIGMOID: return "sigmoid";
   case popnn::NonLinearityType::NON_LINEARITY_TANH: return "tanh";
+  case popnn::NonLinearityType::NON_LINEARITY_SOFTMAX: return "softmax";
   }
   POPLIB_UNREACHABLE();
 }
@@ -31,7 +32,9 @@ inline std::istream &operator>>(std::istream &in,
     type = popnn::NonLinearityType::NON_LINEARITY_SIGMOID;
   else if (token == "tanh")
     type = popnn::NonLinearityType::NON_LINEARITY_TANH;
-  else
+  else if (token == "softmax") {
+    type = popnn::NonLinearityType::NON_LINEARITY_SOFTMAX;
+  } else
     throw poplib_test::poplib_test_error(
         "Unsupported nonlinearity <" + token + ">");
 

@@ -8,6 +8,7 @@ add_library(popstd SHARED
   codelets.cpp
   GraphFunction.cpp
   HadamardProduct.cpp
+  History.cpp
   OperationsDef.hpp
   Operations.cpp
   Pad.cpp
@@ -23,6 +24,7 @@ add_library(popstd SHARED
   ${CMAKE_SOURCE_DIR}/include/popstd/exceptions.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/GraphFunction.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/HadamardProduct.hpp
+  ${CMAKE_SOURCE_DIR}/include/popstd/History.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/Operations.hpp  
   ${CMAKE_SOURCE_DIR}/include/popstd/Pad.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/Regroup.hpp
