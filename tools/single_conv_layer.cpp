@@ -443,10 +443,6 @@ int main(int argc, char **argv) {
   const auto learningRate = 0.5;
 
   if (doBwdPass) {
-    auto zeros = graph.addConstantTensor(dataTypeStr, {fwdInChans}, 0);
-    auto zeroBiases = graph.addTensor(dataTypeStr, {fwdInChans}, "zeroBiases");
-    popstd::mapTensorLinearly(graph, zeroBiases);
-    revProg.add(Copy(zeros, zeroBiases));
     prevDeltas = popconv::convolution(graph, zDeltas, weights, bwdParams,
                                       true, revProg, "",
                                       convOptions);
