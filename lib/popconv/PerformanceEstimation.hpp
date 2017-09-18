@@ -100,7 +100,7 @@ getConvPartialnx1SupervisorCycleEstimate(
       for (const auto convSize : convSizes) {
         /* inner loop overhead includes cycles to warm-up and cool down AMP loop
          */
-        const unsigned innerLoopOverhead = 10;
+        const unsigned innerLoopOverhead = 12;
 
         /* Cycles to form packed addresses */
         const unsigned packedAddrCompCyles = std::max(numInputPointers,
