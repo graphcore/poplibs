@@ -56,6 +56,7 @@ int main(int argc, char **argv) {
   info.IPUExchangeType =
       DeviceInfo::ExchangeType::AGGRESSIVE_MULTICAST;
   bool reportPlan;
+  bool reportTensorStorage;
 
   /* these are used when the same value is shared across both height and width*/
   unsigned kernelSize;
@@ -200,6 +201,9 @@ int main(int argc, char **argv) {
      "Weight update method: amp | auto")
     ("report-plan", po::value<bool>(&reportPlan)->default_value(false),
      "Display plan")
+    ("report-tensor-storage",
+     po::value<bool>(&reportTensorStorage)->default_value(false),
+     "Report tensor storage information")
   ;
   po::variables_map vm;
   try {
@@ -587,6 +591,9 @@ int main(int argc, char **argv) {
   if (!useCpuModel) {
     Engine::ReportOptions opt;
     opt.doLayerWiseProfile = true;
+    if (reportTensorStorage) {
+      opt.showTensorStorage = true;
+    }
     engine.report(std::cout, opt);
   }
 
