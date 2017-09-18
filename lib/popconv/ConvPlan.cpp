@@ -555,6 +555,9 @@ estimateConvPartialHorizontalMacCycles(unsigned tileNumInGroups,
 }
 
 static bool zeroPartials(const ConvParams &params, const Plan &plan) {
+  if (plan.method == Plan::Method::MAC) {
+    return true;
+  }
   const auto tilesPerKernelYAxis = plan.tilesPerKernelYAxis;
   const auto kernelSizeY = params.kernelShape[0];
   const auto kernelSizeX = params.kernelShape[1];
