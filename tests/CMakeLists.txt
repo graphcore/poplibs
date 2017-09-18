@@ -60,6 +60,17 @@ add_test(NAME conv1x1_stride_1
              --stride=1
              --kernel-size=1)
 
+add_test(NAME conv1x1_no_bias
+        COMMAND single_conv_layer
+            --input-channels=64
+            --output-channels=32
+            --width=7
+            --height=7
+            --tiles-per-ipu=16
+            --stride=1
+            --kernel-size=1
+            --bias=0)
+
 add_test(NAME conv1x1_stride_1_odd_outchans
         COMMAND single_conv_layer
             --input-channels=128

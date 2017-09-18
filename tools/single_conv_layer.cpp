@@ -49,6 +49,7 @@ int main(int argc, char **argv) {
   std::vector<unsigned> kernelDilation = {1, 1};
   std::vector<unsigned> stride = {1, 1};
   unsigned batchSize;
+  bool bias;
   FPDataType dataType;
   FPDataType partialsType;
   double relativeTolerance;
@@ -95,6 +96,8 @@ int main(int argc, char **argv) {
     ("kernel-width",
       po::value<unsigned>(&kernelWidth)->default_value(1),
      "Size of kernel width")
+    ("bias", po::value<bool>(&bias)->default_value(true),
+     "Add a bias to each channel")
     ("data-type",
      po::value<FPDataType>(&dataType)->default_value(FPDataType::HALF),
      "Type of the data and the parameters")
@@ -434,8 +437,11 @@ int main(int argc, char **argv) {
     std::cout << "Forward plan:\n";
     popconv::reportPlanInfo(std::cout, graph, params, convOptions);
   }
-  Tensor biases = popconv::createBiases(graph, nextAct);
-  popconv::addBias(graph, nextAct, biases, fwdProg, "");
+  Tensor biases;
+  if (bias) {
+    biases = popconv::createBiases(graph, nextAct);
+    popconv::addBias(graph, nextAct, biases, fwdProg, "");
+  }
   if (!doFwdPass)
     fwdProg = Sequence();
 
@@ -455,8 +461,10 @@ int main(int argc, char **argv) {
     popconv::convolutionWeightUpdate(graph, zDeltas, weights, prevAct,
                                      params, learningRate,
                                      revProg, "", convOptions);
-    popconv::convolutionBiasUpdate(graph, zDeltas, biases, learningRate,
-                                   partialsTypeStr, revProg);
+    if (bias) {
+      popconv::convolutionBiasUpdate(graph, zDeltas, biases, learningRate,
+                                     partialsTypeStr, revProg);
+    }
     if (reportPlan) {
       std::cout << "WU plan:\n";
       popconv::reportWeightUpdatePlanInfo(std::cout, graph, zDeltas, prevAct,
@@ -468,8 +476,11 @@ int main(int argc, char **argv) {
                                                     tmap);
   auto rawHostWeights = allocateHostMemoryForTensor(weights, "weights", graph,
                                                     tmap);
-  auto rawHostBiases = allocateHostMemoryForTensor(biases, "biases", graph,
-                                                   tmap);
+  std::unique_ptr<char []> rawHostBiases;
+  if (bias) {
+    rawHostBiases = allocateHostMemoryForTensor(biases, "biases", graph,
+                                                tmap);
+  }
   auto rawHostNextAct = allocateHostMemoryForTensor(nextAct, "nextAct", graph,
                                                     tmap);
   std::unique_ptr<char[]> rawHostZDeltas;
@@ -497,10 +508,17 @@ int main(int argc, char **argv) {
   std::mt19937 randomEngine;
   writeRandomValues(hostPrevAct, -1.0, +5.0, randomEngine);
   writeRandomValues(hostWeights, -1.0, +7.0, randomEngine);
-  writeRandomValues(hostBiases, -2.0, +6.0, randomEngine);
+  if (bias) {
+    writeRandomValues(hostBiases, -2.0, +6.0, randomEngine);
+  } else {
+    std::fill(hostBiases.data(), hostBiases.data() + hostBiases.num_elements(),
+              0.0);
+  }
   copy(hostPrevAct, dataTypeStr, rawHostPrevAct.get());
   copy(hostWeights, dataTypeStr, rawHostWeights.get());
-  copy(hostBiases, dataTypeStr, rawHostBiases.get());
+  if (bias) {
+    copy(hostBiases, dataTypeStr, rawHostBiases.get());
+  }
 
   // Run the forward pass.
   upload(engine, tmap);
@@ -547,7 +565,9 @@ int main(int argc, char **argv) {
       copy(dataTypeStr, rawHostPrevDeltas.get(), hostPrevDeltas);
     }
     copy(dataTypeStr, rawHostWeights.get(), hostWeights);
-    copy(dataTypeStr, rawHostBiases.get(), hostBiases);
+    if (bias) {
+      copy(dataTypeStr, rawHostBiases.get(), hostBiases);
+    }
 
     // Validate against a reference model.
     if (doBwdPass) {
@@ -579,8 +599,11 @@ int main(int argc, char **argv) {
                                       hostZDeltas, modelWeights, modelBiases);
       matchesModel &= checkIsClose("weights",
                                   hostWeights, modelWeights, relativeTolerance);
-      matchesModel &= checkIsClose("biases",
-                                   hostBiases, modelBiases, relativeTolerance);
+      if (bias) {
+        matchesModel &= checkIsClose("biases",
+                                     hostBiases, modelBiases,
+                                     relativeTolerance);
+      }
     }
   }
 
