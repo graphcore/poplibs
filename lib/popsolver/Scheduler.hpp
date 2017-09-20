@@ -20,10 +20,12 @@ class Scheduler {
   std::queue<unsigned> worklist;
   std::vector<bool> queued;
   void queueConstraints(Variable v) {
-    for (auto c : variableConstraints[v.id]) {
-      if (!queued[c]) {
-        worklist.push(c);
-        queued[c] = true;
+    if (v.id < variableConstraints.size()) {
+      for (auto c : variableConstraints[v.id]) {
+        if (!queued[c]) {
+          worklist.push(c);
+          queued[c] = true;
+        }
       }
     }
   }
