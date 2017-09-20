@@ -107,7 +107,7 @@ propagate(Scheduler &scheduler) {
     scheduler.setMin(right, domains[left].min());
   }
   if (domains[right].max() < domains[left].max()) {
-    scheduler.setMax(left, domains[right].min());
+    scheduler.setMax(left, domains[right].max());
   }
   return true;
 }

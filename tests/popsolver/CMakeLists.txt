@@ -7,6 +7,8 @@ function(add_popsolver_unit_test name)
                         Boost::unit_test_framework
                         Boost::timer
                         Boost::system)
+  target_include_directories(${name}
+    PRIVATE $<TARGET_PROPERTY:popsolver,INCLUDE_DIRECTORIES>)
   if(NOT ${Boost_USE_STATIC_LIBS})
     target_compile_definitions(${name} PRIVATE -DBOOST_TEST_DYN_LINK)
   endif()
@@ -15,3 +17,4 @@ function(add_popsolver_unit_test name)
 endfunction()
 
 add_popsolver_unit_test(Simple Simple.cpp)
+add_popsolver_unit_test(LessOrEqual LessOrEqual.cpp)
