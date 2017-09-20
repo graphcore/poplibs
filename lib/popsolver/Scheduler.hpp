@@ -29,8 +29,7 @@ class Scheduler {
   }
 public:
   Scheduler(Domains domains,
-            std::vector<Constraint *> constraints,
-            std::vector<std::vector<unsigned>> variableConstraints);
+            std::vector<Constraint *> constraints);
   const Domains &getDomains() { return domains; }
   void setDomains(Domains value) { domains = value; }
   void set(Variable v, unsigned value) {

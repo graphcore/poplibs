@@ -74,7 +74,6 @@ public:
   ~Model();
   std::vector<bool> isCallOperand;
   std::vector<std::unique_ptr<Constraint>> constraints;
-  std::vector<std::vector<unsigned>> variableConstraints;
   Domains initialDomains;
 
   /// Add a new variable.

@@ -6,12 +6,19 @@ using namespace popsolver;
 
 Scheduler::
 Scheduler(Domains domains_,
-          std::vector<Constraint *> constraints_,
-          std::vector<std::vector<unsigned>> variableConstraints_) :
+          std::vector<Constraint *> constraints_) :
     domains(std::move(domains_)),
-    constraints(std::move(constraints_)),
-    variableConstraints(std::move(variableConstraints_)) {
-  queued.resize(constraints.size());
+    constraints(std::move(constraints_)) {
+  unsigned numConstraints = constraints.size();
+  queued.resize(numConstraints);
+  for (unsigned c = 0; c != numConstraints; ++c) {
+    for (auto v : constraints[c]->getVariables()) {
+      if (variableConstraints.size() <= v.id) {
+        variableConstraints.resize(v.id + 1);
+      }
+      variableConstraints[v.id].push_back(c);
+    }
+  }
 }
 
 bool Scheduler::propagate() {
