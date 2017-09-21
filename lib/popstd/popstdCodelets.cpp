@@ -1837,7 +1837,7 @@ public:
 };
 
 template <typename T>
-class HistSelect : public Vertex {
+class CircBufSelect : public Vertex {
 public:
   Input<unsigned> index;
   Vector<Input<Vector<T>>> in;
@@ -1845,7 +1845,6 @@ public:
   unsigned offset;
   SimOnlyField<unsigned> dataPathWidth;
   bool compute() {
-    // find offset in circular buffer
     assert(in.size() == out.size());
     unsigned hSize = in[0].size() / out[0].size();
     auto hIdx = *index + hSize - offset;
@@ -1872,11 +1871,11 @@ public:
   }
 };
 
-template class HistSelect<half>;
-template class HistSelect<float>;
+template class CircBufSelect<half>;
+template class CircBufSelect<float>;
 
 template <typename T>
-class HistSet : public Vertex {
+class CircBufSet : public Vertex {
 public:
   Input<unsigned> index;
   Vector<Input<Vector<T>>> in;
@@ -1907,10 +1906,10 @@ public:
   }
 };
 
-template class HistSet<half>;
-template class HistSet<float>;
+template class CircBufSet<half>;
+template class CircBufSet<float>;
 
-class HistIncrIndex : public Vertex {
+class CircBufIncrIndex : public Vertex {
 public:
   InOut<unsigned> index;
   unsigned hSize;

@@ -5,11 +5,11 @@ add_library(popstd SHARED
   Add.cpp
   AllTrue.cpp
   Cast.cpp
+  CircBuf.cpp
   codelets.cpp
   DynamicSlice.cpp
   GraphFunction.cpp
   HadamardProduct.cpp
-  History.cpp
   OperationsDef.hpp
   Operations.cpp
   Pad.cpp
@@ -21,12 +21,12 @@ add_library(popstd SHARED
   ${CMAKE_SOURCE_DIR}/include/popstd/Add.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/AllTrue.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/Cast.hpp
+  ${CMAKE_SOURCE_DIR}/include/popstd/CircBuf.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/DynamicSlice.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/exceptions.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/GraphFunction.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/HadamardProduct.hpp
-  ${CMAKE_SOURCE_DIR}/include/popstd/History.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/Operations.hpp  
   ${CMAKE_SOURCE_DIR}/include/popstd/Pad.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/Regroup.hpp

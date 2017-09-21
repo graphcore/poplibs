@@ -1,4 +1,4 @@
-#include <popstd/History.hpp>
+#include <popstd/CircBuf.hpp>
 #include <popstd/Util.hpp>
 #include <popstd/VertexTemplates.hpp>
 #include <numeric>
@@ -10,7 +10,7 @@ using namespace popstd;
 
 namespace popstd {
 
-History::History(Graph &graph, const std::string &dataType,
+CircBuf::CircBuf(Graph &graph, const std::string &dataType,
                  unsigned size, const std::vector<std::size_t> &shape) :
   graph(graph), size_(size), shape(shape) {
  auto N = std::accumulate(shape.begin(), shape.end(), 1UL,
@@ -29,7 +29,7 @@ History::History(Graph &graph, const std::string &dataType,
  graph.setTileMapping(index, 0);
 }
 
-Tensor History::prev(unsigned i, Sequence &seq,
+Tensor CircBuf::prev(unsigned i, Sequence &seq,
                      const std::string &debugPrefix) {
   if (i > size_)
     std::abort();
@@ -39,7 +39,7 @@ Tensor History::prev(unsigned i, Sequence &seq,
   const auto dType = t.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
-  ComputeSet cs = graph.addComputeSet(debugPrefix + "/HistorySelect");
+  ComputeSet cs = graph.addComputeSet(debugPrefix + "/CircBufSelect");
   auto mapping = graph.getTileMapping(t);
   const auto numTiles = deviceInfo.getNumTiles();
   const auto tFlat = t.flatten();
@@ -54,7 +54,7 @@ Tensor History::prev(unsigned i, Sequence &seq,
       for (const auto &region : regions) {
         histSlices.push_back(hist.slice(region).flatten());
       }
-      auto v = graph.addVertex(cs, templateVertex("popstd::HistSelect",
+      auto v = graph.addVertex(cs, templateVertex("popstd::CircBufSelect",
                                                   dType),
                                 {{"index", index[0]},
                                  {"in", histSlices},
@@ -68,7 +68,7 @@ Tensor History::prev(unsigned i, Sequence &seq,
   return t;
 }
 
-void History::add(Tensor in, Sequence &seq, const std::string &debugPrefix) {
+void CircBuf::add(Tensor in, Sequence &seq, const std::string &debugPrefix) {
   auto t = graph.addTensor(hist.elementType(), shape);
   auto N = t.numElements();
   graph.setTileMapping(t, graph.getTileMapping(hist.slice({0, 0}, {N, 1})));
@@ -76,7 +76,7 @@ void History::add(Tensor in, Sequence &seq, const std::string &debugPrefix) {
   const auto dType = t.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
-  ComputeSet cs = graph.addComputeSet(debugPrefix + "/HistorySet");
+  ComputeSet cs = graph.addComputeSet(debugPrefix + "/CircBufSet");
   auto mapping = graph.getTileMapping(t);
   const auto numTiles = deviceInfo.getNumTiles();
   const auto tFlat = t.flatten();
@@ -91,7 +91,7 @@ void History::add(Tensor in, Sequence &seq, const std::string &debugPrefix) {
       for (const auto &region : regions) {
         histSlices.push_back(hist.slice(region).flatten());
       }
-      auto v = graph.addVertex(cs, templateVertex("popstd::HistSet",
+      auto v = graph.addVertex(cs, templateVertex("popstd::CircBufSet",
                                                   dType),
                                 {{"index", index[0]},
                                  {"out", histSlices},
@@ -100,8 +100,8 @@ void History::add(Tensor in, Sequence &seq, const std::string &debugPrefix) {
       graph.setTileMapping(v, tile);
     }
   }
-  ComputeSet csIndexIncr = graph.addComputeSet(debugPrefix + "/HistorySet");
-  auto v = graph.addVertex(csIndexIncr, "popstd::HistIncrIndex",
+  ComputeSet csIndexIncr = graph.addComputeSet(debugPrefix + "/CircBufSet");
+  auto v = graph.addVertex(csIndexIncr, "popstd::CircBufIncrIndex",
                             {{"index", index[0]}});
   graph.setInitialValue(v["hSize"], size_);
   graph.setTileMapping(v, 0);
