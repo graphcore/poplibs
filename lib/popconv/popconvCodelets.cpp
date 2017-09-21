@@ -27,6 +27,7 @@ public:
   Vector<bool> zeroOut;
   unsigned inStride;
   unsigned outStride;
+  bool flipOut;
 
   SimOnlyField<unsigned> dataPathWidth;
   SimOnlyField<unsigned> inChansPerGroup;
@@ -58,8 +59,11 @@ public:
                 for (unsigned outChanIndex = 0;
                      outChanIndex != outChansPerGroup;
                      ++outChanIndex) {
+                  const auto outX =
+                      flipOut ? (outWidth - 1 - x * outStride) :
+                                x * outStride;
                   const auto outIndex =
-                      outChanIndex + outChansPerGroup * x * outStride;
+                      outChanIndex + outChansPerGroup * outX;
                   const auto weightIndex =
                       inChanIndex + inChansPerGroup * outChanIndex;
                   const auto inIndex =
@@ -328,6 +332,7 @@ public:
 
   unsigned inStride;
   unsigned outStride;
+  bool flipOut;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
@@ -344,7 +349,12 @@ public:
       for (unsigned outX = 0, inX = 0; outX < outWidth; outX += outStride,
                                                         inX += inStride) {
         for (unsigned chan = 0; chan != numChans; ++chan) {
-          out[i][outX] += in[i][inX * numChans + chan] * weights[i][chan];
+          auto product = in[i][inX * numChans + chan] * weights[i][chan];
+          if (flipOut) {
+            out[i][outWidth - 1 - outX] += product;
+          } else {
+            out[i][outX] += product;
+          }
         }
       }
     }

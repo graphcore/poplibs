@@ -356,6 +356,26 @@ add_test(NAME conv_large_kernel_with_small_field
                  --output-channels=16
                  --tiles-per-ipu=16)
 
+add_test(NAME conv_kernel_larger_than_field_1
+         COMMAND single_conv_layer
+                 --height=6
+                 --width=2
+                 --kernel-width=3
+                 --input-channels=2
+                 --output-channels=1
+                 --tiles-per-ipu=1
+                 --single-phase=fwd)
+
+add_test(NAME conv_kernel_larger_than_field_2
+         COMMAND single_conv_layer
+                 --height=1
+                 --width=32
+                 --kernel-width=48
+                 --input-channels=32
+                 --output-channels=8
+                 --tiles-per-ipu=4
+                 --single-phase=fwd)
+
 add_test(NAME conv_batch_bwd
          COMMAND single_conv_layer
                  --width 14

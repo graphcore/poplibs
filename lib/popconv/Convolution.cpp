@@ -1499,13 +1499,17 @@ createConvPartialnx1Vertex(Graph &graph,
   const auto numEdges = numConvolutions * convUnitWeightHeight
                         + numConvolutions
                         + numWeights * convUnitWeightHeight;
-
+  // If the kernel is bigger than the input we must walk the partial sums in the
+  // opposite direction.
+  bool flipOut = params.getPaddedDilatedKernelSize(1) >
+                 params.getPaddedDilatedInputSize(1);
   auto v = graph.addVertex(fwdCS,
                       templateVertex("popconv::ConvPartialnx1",
                                      dType, partialType,
                                      isInOut ? "true" : "false",
                                      useDeltaEdgesForConvPartials(numEdges) ?
                                                           "true" : "false"));
+  graph.setInitialValue(v["flipOut"], flipOut);
   graph.setInitialValue(v["inStride"], params.stride.back());
   graph.setInitialValue(v["outStride"], outStrideX);
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
@@ -1590,6 +1594,10 @@ createConvPartialHorizontalMacVertex(
   }
   if (outEdges.empty())
     return;
+  // If the kernel is bigger than the input we must walk the partial sums in the
+  // opposite direction.
+  bool flipOut = params.getPaddedDilatedKernelSize(1) >
+                 params.getPaddedDilatedInputSize(1);
   auto v = graph.addVertex(fwdCS,
                            templateVertex(
                              "popconv::ConvPartialHorizontalMac", dType,
@@ -1599,6 +1607,7 @@ createConvPartialHorizontalMacVertex(
                             {"weights", weightsEdges},
                             {"out", outEdges},
                            });
+  graph.setInitialValue(v["flipOut"], flipOut);
   graph.setInitialValue(v["inStride"], params.stride.back());
   graph.setInitialValue(v["outStride"], params.inputDilation.back());
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
@@ -2554,13 +2563,19 @@ void weightsTransposeChansFlipXY(Graph &graph,
 static ConvParams
 getWeightUpdateParams(ConvParams fwdParams) {
   fwdParams = canonicalizeParams(fwdParams);
-  if (fwdParams.kernelPaddingLower[0] != 0 ||
-      fwdParams.kernelPaddingLower[1] != 0 ||
-      fwdParams.kernelPaddingUpper[0] != 0 ||
-      fwdParams.kernelPaddingUpper[1] != 0) {
-    // Kernel padding in the forward pass translates to output truncation in the
-    // weight update pass but this isn't supported yet.
-    std::abort();
+  for (unsigned dim = 0; dim != fwdParams.getNumFieldDims(); ++dim) {
+    if (fwdParams.kernelPaddingLower[dim] != 0 ||
+        fwdParams.kernelPaddingUpper[dim] != 0) {
+      // Kernel padding in the forward pass translates to output truncation in
+      // the weight update pass but this isn't supported yet.
+      std::abort();
+    }
+    if (fwdParams.getPaddedDilatedKernelSize(dim) >
+        fwdParams.getPaddedDilatedInputSize(dim)) {
+      // If the kernel is larger than the input we need to zero pad the
+      // activations - not supported for now.
+      std::abort();
+    }
   }
   return ConvParams(fwdParams.dType,
                     fwdParams.getInputDepthPerConvGroup(), // batchSize
