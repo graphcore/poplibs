@@ -4,6 +4,8 @@
 #include <poplar/Device.hpp>
 #include <poplar/Interval.hpp>
 #include <poplar/Graph.hpp>
+#include <poplar/Program.hpp>
+#include <poplar/Tensor.hpp>
 #include <vector>
 
 namespace popstd {
@@ -64,6 +66,13 @@ std::size_t flattenIndex(const std::vector<std::size_t> &shape,
 // Total number of elements in the interval sequence
 std::size_t intervalSequenceNumElements(
     const std::vector<std::vector<poplar::Interval<std::size_t>>> &seq);
+
+// Copy a tensors data to a new tensor. The duplicated tensor has the same tile
+// mapping as the original tensor.
+poplar::Tensor duplicate(poplar::Graph &graph, const poplar::Tensor &in,
+                         poplar::program::Sequence &p);
+
 } // end namespace popstd
+
 
 #endif // _popstd_Util_hpp_

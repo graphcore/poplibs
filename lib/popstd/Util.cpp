@@ -201,4 +201,11 @@ std::size_t intervalSequenceNumElements(
   return numElements;
 }
 
+poplar::Tensor duplicate(poplar::Graph &graph, const poplar::Tensor &in,
+                         poplar::program::Sequence &p) {
+  poplar::Tensor out = graph.clone(in);
+  p.add(poplar::program::Copy(in, out));
+  return out;
+}
+
 } // end namespace popstd
