@@ -1760,6 +1760,53 @@ template class Clamp<float>;
 template class Clamp<half>;
 template class Clamp<int>;
 
+// Copy [\a offset : \a offset + \a numOutElements) from each \a numInElements
+// \a in vectors to \a out
+template <typename InType>
+class DynamicSelect : public Vertex {
+public:
+  Input<unsigned> offset;
+  Vector<Input<Vector<InType>>> in; // [region*numInElements + sliceIdx][os]
+  Vector<Output<Vector<InType>>> out; // [region][os]
+  unsigned numInElements;  // in the slice dimension
+  unsigned numOutElements; // in the slice dimension
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    assert(in.size() % numInElements == 0);
+    auto numRegions = in.size() / numInElements;
+    assert(out.size() == numOutElements * numRegions);
+    for (unsigned r = 0; r != numRegions; ++r) {
+      auto regionSize = in[r * numInElements].size();
+      for (unsigned outSlice = 0; outSlice != numOutElements; ++outSlice) {
+        auto outIdx = r * numOutElements + outSlice;
+        assert(out[outIdx].size() == regionSize);
+        auto inSlice = (offset + outSlice) % numInElements;
+        for (unsigned e = 0; e != regionSize; e++) {
+          auto inIdx = r * numInElements + inSlice;
+          out[outIdx][e] = in[inIdx][e];
+        }
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    unsigned vectorWidth = dataPathWidth / sizeof(InType);
+    auto numRegions = in.size() / numInElements;
+    auto cycles = 5;
+    for (unsigned r = 0; r != numRegions; ++r) {
+      auto regionSize = in[r * numInElements].size();
+      unsigned nVectors = (regionSize + vectorWidth - 1) / vectorWidth;
+      cycles += (4 + nVectors) * numOutElements + 4;
+    }
+    return cycles;
+  }
+};
+template class DynamicSelect<float>;
+template class DynamicSelect<half>;
+template class DynamicSelect<int>;
+
 class AllTrue : public Vertex {
 public:
   Vector<Input<Vector<bool>>> in;

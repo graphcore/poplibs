@@ -37,7 +37,7 @@ add_popnn_unit_test(BatchNormTest BatchNormTest.cpp)
 add_popnn_unit_test(ReductionTests ReductionTests.cpp)
 add_popnn_unit_test(LargeSplitRegionsTest LargeSplitRegionsTest.cpp)
 add_popnn_unit_test(HistoryTests HistoryTests.cpp)
-
+add_popnn_unit_test(DynamicSliceTest DynamicSliceTest.cpp)
 
 #  ORIG Layer tests
 add_test(NAME conv3x3_stride_2_128_out

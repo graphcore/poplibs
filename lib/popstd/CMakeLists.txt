@@ -6,6 +6,7 @@ add_library(popstd SHARED
   AllTrue.cpp
   Cast.cpp
   codelets.cpp
+  DynamicSlice.cpp
   GraphFunction.cpp
   HadamardProduct.cpp
   History.cpp
@@ -21,6 +22,7 @@ add_library(popstd SHARED
   ${CMAKE_SOURCE_DIR}/include/popstd/AllTrue.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/Cast.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/codelets.hpp
+  ${CMAKE_SOURCE_DIR}/include/popstd/DynamicSlice.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/exceptions.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/GraphFunction.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/HadamardProduct.hpp
