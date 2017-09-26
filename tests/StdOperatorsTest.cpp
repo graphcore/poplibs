@@ -833,6 +833,18 @@ BOOST_AUTO_TEST_CASE(StdOperationSubtractInt,
     });
 }
 
+BOOST_AUTO_TEST_CASE(StdOperationRoundFloat,
+                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  ) {
+  unaryOpTest<float, double>(popstd::round,
+    [](float x) -> double {
+      return std::round(x);
+    });
+}
+
+
 BOOST_AUTO_TEST_CASE(StdOperationSelectFloat,
                   *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))

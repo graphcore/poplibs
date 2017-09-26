@@ -1376,6 +1376,41 @@ template class Remainder<half>;
 template class Remainder<int>;
 
 template <typename InType>
+class Round : public Vertex {
+public:
+  Vector<Input<Vector<InType>>> in;
+  Vector<Output<Vector<InType>>> out;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    assert(in.size() == out.size());
+    for (unsigned i = 0; i != in.size(); ++i) {
+      assert (in[i].size() == out[i].size());
+      for (unsigned j = 0; j != in[i].size(); ++j) {
+        out[i][j] =  std::round(in[i][j]);
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    uint64_t cycles = 5;
+    for (unsigned i = 0; i < in.size(); ++i) {
+      unsigned cyclesPerVector = 2;
+      unsigned overhead = 6;
+      unsigned numElem = in[i].size();
+      unsigned vectorWidth = 1;
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
+    }
+    return cycles;
+  }
+};
+
+template class Round<float>;
+template class Round<half>;
+
+template <typename InType>
 class Signum : public Vertex {
 public:
   Vector<Input<Vector<InType>>> in;

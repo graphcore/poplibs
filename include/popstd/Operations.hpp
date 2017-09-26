@@ -135,6 +135,11 @@ poplar::Tensor rem(poplar::Graph &graph,
                    poplar::program::Sequence &prog,
                    const std::string &debugPrefix = "");
 
+poplar::Tensor round(poplar::Graph &graph,
+                     poplar::Tensor A,
+                     poplar::program::Sequence &prog,
+                     const std::string &debugPrefix = "");
+
 poplar::Tensor signum(poplar::Graph &graph,
                       poplar::Tensor A,
                       poplar::program::Sequence &prog,

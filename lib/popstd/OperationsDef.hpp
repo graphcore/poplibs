@@ -40,6 +40,7 @@ enum UnaryOp {
   SIGNUM,
   SIN,
   TANH,
+  ROUND,
   SQRT,
   SQUARE
 };

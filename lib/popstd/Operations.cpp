@@ -57,6 +57,8 @@ static std::string vertexName(enum UnaryOp op) {
     return "popstd::LogicalNot";
   case NEGATE:
     return "popstd::Negate";
+  case ROUND:
+      return "popstd::Round";
   case SIGNUM:
     return "popstd::Signum";
   case SIN:
@@ -454,6 +456,11 @@ Tensor rem(Graph &graph, Tensor A, Tensor B, Sequence &prog,
            const std::string &debugPrefix) {
   return binaryOp(graph, A, B, prog, BinaryOp::REMAINDER,
                   debugPrefix + "/Op/Rem");
+}
+
+Tensor round(Graph &graph, Tensor A, Sequence &prog,
+             const std::string &debugPrefix) {
+  return unaryOp(graph, A, prog, UnaryOp::ROUND, debugPrefix + "/Op/Round");
 }
 
 Tensor signum(Graph &graph, Tensor A, Sequence &prog,
