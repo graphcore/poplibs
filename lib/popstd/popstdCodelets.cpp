@@ -1795,31 +1795,32 @@ template class Clamp<float>;
 template class Clamp<half>;
 template class Clamp<int>;
 
-// Copy [\a offset : \a offset + \a numOutElements) from each \a numInElements
-// \a in vectors to \a out
+// Copy slices [\a offset : \a offset + \a numOutElements) of regions of
+// \a baseT to \a subT.
+// The slice calculation is currently performed modulo \a numBaseElements but
+// this is subject to change
 template <typename InType>
 class DynamicSelect : public Vertex {
 public:
-  Input<unsigned> offset;
-  Vector<Input<Vector<InType>>> in; // [region*numInElements + sliceIdx][os]
-  Vector<Output<Vector<InType>>> out; // [region][os]
-  unsigned numInElements;  // in the slice dimension
-  unsigned numOutElements; // in the slice dimension
+  Input<unsigned> offset; // in \a baseT
+  Vector<Input<Vector<InType>>> baseT; // [region*numBaseElements+sliceIdx][os]
+  Vector<Output<Vector<InType>>> subT; // [region*numSubElements+sliceIdx][os]
+  unsigned numBaseElements;  // in the slice dimension
+  unsigned numSubElements; // int the slice dimension
   SimOnlyField<unsigned> dataPathWidth;
-
   bool compute() {
-    assert(in.size() % numInElements == 0);
-    auto numRegions = in.size() / numInElements;
-    assert(out.size() == numOutElements * numRegions);
+    assert(baseT.size() % numBaseElements == 0);
+    auto numRegions = baseT.size() / numBaseElements;
+    assert(subT.size() == numSubElements * numRegions);
     for (unsigned r = 0; r != numRegions; ++r) {
-      auto regionSize = in[r * numInElements].size();
-      for (unsigned outSlice = 0; outSlice != numOutElements; ++outSlice) {
-        auto outIdx = r * numOutElements + outSlice;
-        assert(out[outIdx].size() == regionSize);
-        auto inSlice = (offset + outSlice) % numInElements;
+      auto regionSize = baseT[r * numBaseElements].size();
+      for (unsigned subSlice = 0; subSlice != numSubElements; ++subSlice) {
+        auto subIdx = r * numSubElements + subSlice;
+        assert(subT[subIdx].size() == regionSize);
+        auto baseSlice = (offset + subSlice) % numBaseElements;
+        auto baseIdx = r * numBaseElements + baseSlice;
         for (unsigned e = 0; e != regionSize; e++) {
-          auto inIdx = r * numInElements + inSlice;
-          out[outIdx][e] = in[inIdx][e];
+          subT[subIdx][e] = baseT[baseIdx][e];
         }
       }
     }
@@ -1827,13 +1828,13 @@ public:
   }
 
   uint64_t getCycleEstimate() const {
-    unsigned vectorWidth = dataPathWidth / sizeof(InType);
-    auto numRegions = in.size() / numInElements;
+    unsigned vectorWidth = dataPathWidth / (sizeof(InType) * 8);
+    auto numRegions = baseT.size() / numBaseElements;
     auto cycles = 5;
     for (unsigned r = 0; r != numRegions; ++r) {
-      auto regionSize = in[r * numInElements].size();
+      auto regionSize = baseT[r * numBaseElements].size();
       unsigned nVectors = (regionSize + vectorWidth - 1) / vectorWidth;
-      cycles += (4 + nVectors) * numOutElements + 4;
+      cycles += (4 + nVectors) * numSubElements + 4;
     }
     return cycles;
   }
@@ -1841,6 +1842,155 @@ public:
 template class DynamicSelect<float>;
 template class DynamicSelect<half>;
 template class DynamicSelect<int>;
+
+// Copy each \numSubElements regions from \a in to
+// \a out regions [\a offset : \a offset + \a numInElements)
+template <typename InType>
+class DynamicUpdateSlice : public Vertex {
+public:
+  Input<unsigned> offset; // in out
+  Vector<InOut<Vector<InType>>> baseT; // [region*numBaseElements+sliceIdx][os]
+  Vector<Input<Vector<InType>>> subT; // [region*numSubElements+sliceIdx][os]
+  unsigned numBaseElements;  // in the slice dimension
+  unsigned numSubElements; // in the slice dimension
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    assert(baseT.size() % numBaseElements == 0);
+    auto numRegions = baseT.size() / numBaseElements;
+    assert(subT.size() == numSubElements * numRegions);
+    for (unsigned r = 0; r != numRegions; ++r) {
+      auto regionSize = baseT[r * numBaseElements].size();
+      for (unsigned subSlice = 0; subSlice != numSubElements; ++subSlice) {
+        auto subIdx = r * numSubElements + subSlice;
+        assert(subT[subIdx].size() == regionSize);
+        auto baseSlice = (offset + subSlice) % numBaseElements;
+        auto baseIdx = r * numBaseElements + baseSlice;
+        for (unsigned e = 0; e != regionSize; e++) {
+          baseT[baseIdx][e] = subT[subIdx][e];
+        }
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    unsigned vectorWidth = dataPathWidth / (sizeof(InType) * 8);
+    auto numRegions = baseT.size() / numBaseElements;
+    auto cycles = 5;
+    for (unsigned r = 0; r != numRegions; ++r) {
+      auto regionSize = baseT[r * numBaseElements].size();
+      unsigned nVectors = (regionSize + vectorWidth - 1) / vectorWidth;
+      cycles += (4 + nVectors) * numSubElements + 4;
+    }
+    return cycles;
+  }
+};
+template class DynamicUpdateSlice<float>;
+template class DynamicUpdateSlice<half>;
+template class DynamicUpdateSlice<int>;
+
+// Copy slices [\a offset : \a offset + \a numOutElements) of regions of
+// \a baseT to \a subT.
+// This variant takes a 2d input and calculates the offsets given the start
+// address of the base and sub Tensors.
+// The slice calculation is currently performed modulo \a numBaseElements but
+// this is subject to change
+template <typename InType>
+class DynamicSelect2d : public SupervisorVertex {
+public:
+  Input<unsigned> offset; // in \a baseT
+  Input<Vector<InType>> baseT;
+  Output<Vector<InType>> subT;
+  unsigned numBaseElements;  // in the slice dimension
+  unsigned numSubElements;   // in the slice dimension
+  unsigned regionSize;       // stride between slices
+  unsigned elementsPerWorker;// number of elements to copy
+  SimOnlyField<unsigned> dataPathWidth;
+  SimOnlyField<unsigned> numWorkers;
+  bool compute() {
+    assert(baseT.size() == numBaseElements * regionSize);
+    assert(subT.size() == numSubElements * regionSize);
+    for (unsigned worker = 0; worker != numWorkers; ++worker) {
+      unsigned vertexOffset = worker * elementsPerWorker;
+      for (unsigned subSlice = 0; subSlice != numSubElements; ++subSlice) {
+        auto baseSlice = (offset + subSlice) % numBaseElements;
+        for (unsigned e = 0; e != elementsPerWorker; e++) {
+          if (vertexOffset + e >= regionSize)
+            // vertices may have empty or truncated regions
+            break;
+          subT[subSlice * regionSize + vertexOffset + e] =
+            baseT[baseSlice * regionSize + vertexOffset + e];
+        }
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    unsigned vectorWidth = dataPathWidth / (sizeof(InType) * 8);
+    auto maxCopies = baseT.size() / numBaseElements;
+    auto cycles = 5;
+    unsigned nVectors = (elementsPerWorker + vectorWidth - 1) / vectorWidth;
+    cycles += (4 + nVectors) * numSubElements + 4;
+    cycles *= numWorkers;
+    return cycles;
+  }
+};
+template class DynamicSelect2d<float>;
+template class DynamicSelect2d<half>;
+template class DynamicSelect2d<int>;
+
+// Copy each \numSubElements regions from \a in to
+// \a out regions [\a offset : \a offset + \a numInElements)
+// This variant takes a 2d input and calculates the offsets given the start
+// address of the base and sub Tensors.
+// The slice calculation is currently performed modulo \a numBaseElements but
+// this is subject to change
+template <typename InType>
+class DynamicUpdateSlice2d : public SupervisorVertex {
+public:
+  Input<unsigned> offset; // in \a baseT
+  Input<Vector<InType>> baseT;
+  Output<Vector<InType>> subT;
+  unsigned numBaseElements;  // in the slice dimension
+  unsigned numSubElements;   // in the slice dimension
+  unsigned regionSize;       // stride between slices
+  unsigned elementsPerWorker;// number of elements to copy
+  SimOnlyField<unsigned> dataPathWidth;
+  SimOnlyField<unsigned> numWorkers;
+  bool compute() {
+    assert(baseT.size() == numBaseElements * regionSize);
+    assert(subT.size() == numSubElements * regionSize);
+    for (unsigned worker = 0; worker != numWorkers; ++worker) {
+      unsigned vertexOffset = worker * elementsPerWorker;
+      for (unsigned subSlice = 0; subSlice != numSubElements; ++subSlice) {
+        auto baseSlice = (offset + subSlice) % numBaseElements;
+        for (unsigned e = 0; e != elementsPerWorker; e++) {
+          if (vertexOffset + e >= regionSize)
+            // vertices may have empty or truncated regions
+            break;
+          baseT[baseSlice * regionSize + vertexOffset + e] =
+            subT[subSlice * regionSize + vertexOffset + e];
+        }
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    unsigned vectorWidth = dataPathWidth / (sizeof(InType) * 8);
+    auto maxCopies = baseT.size() / numBaseElements;
+    auto cycles = 5;
+    unsigned nVectors = (elementsPerWorker + vectorWidth - 1) / vectorWidth;
+    cycles += (4 + nVectors) * numSubElements + 4;
+    cycles *= numWorkers;
+    return cycles;
+  }
+};
+template class DynamicUpdateSlice2d<float>;
+template class DynamicUpdateSlice2d<half>;
+template class DynamicUpdateSlice2d<int>;
 
 class AllTrue : public Vertex {
 public:

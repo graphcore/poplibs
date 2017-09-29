@@ -12,7 +12,7 @@ class Tensor;
 namespace popstd {
 
 
-/** Slice a tensor based on offsets read from a tensor.
+/** Slice a tensor based on offsets specified by a tensor.
  *  \a dims gives the dimensions to slice, \a sizes defines the size of the
  *  slice in those dimensions and \a offset gives the base offsets on each
  *  execution.
@@ -32,6 +32,30 @@ poplar::Tensor dynamicSlice(poplar::Graph &graph,
                             const std::vector<std::size_t> &sizes,
                             poplar::program::Sequence &prog,
                             const std::string &debugPrefix = "");
+
+
+/** Update a subtensor at offsets read from a tensor
+ *  \a dims gives the dimensions that are partialy updated, by \a sizes elements
+ *  at offsets \a offset. Unspecified dimensions are copied in full with zero
+ *  offset.
+ *  \param graph       The poplar graph
+ *  \param t           The tensor to update
+ *  \param s           The updates
+ *  \param offset      The offset within \a t to be updated
+ *  \param dims        The dimensions to be dynamically updates
+ *  \param sizes       The size of the update in each of \a dims
+ *  \param prog        The program to be extended
+ *  \param debugPrefix The prefix prepended to debugging info
+ **/
+void dynamicUpdate(poplar::Graph &graph,
+                   const poplar::Tensor &t,
+                   const poplar::Tensor &s,
+                   const poplar::Tensor &offset,
+                   const std::vector<std::size_t> &dims,
+                   const std::vector<std::size_t> &sizes,
+                   poplar::program::Sequence &prog,
+                   const std::string &debugPrefix = "");
+
 } // end namespace popstd
 
 #endif //__popstd_DynamicSlice_hpp__
