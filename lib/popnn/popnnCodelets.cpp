@@ -54,6 +54,9 @@ static float nonlinearity(popnn::NonLinearityType t, float x) {
     return relu(x);
   case popnn::NonLinearityType::NON_LINEARITY_TANH:
     return tanh(x);
+  case popnn::NonLinearityType::NON_LINEARITY_SOFTMAX:
+    assert(0 && "Non linearity not supported");
+    return x;
   }
 }
 
@@ -66,6 +69,9 @@ static float nonlinearity_derivative(popnn::NonLinearityType t,
     return relu_derivative(activation);
   case popnn::NonLinearityType::NON_LINEARITY_TANH:
     return tanh_derivative(activation);
+  case popnn::NonLinearityType::NON_LINEARITY_SOFTMAX:
+    assert(0 && "Non linearity not supported");
+    return activation;
   }
 }
 

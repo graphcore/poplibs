@@ -51,6 +51,10 @@ void bwdNonLinearity(popnn::NonLinearityType nonLinearityType,
                      const boost::multi_array<double, 4> &activations,
                      boost::multi_array<double, 4> &deltas);
 
+void bwdNonLinearity(popnn::NonLinearityType nonLinearityType,
+                     const boost::multi_array<double, 2> &activations,
+                     boost::multi_array<double, 2> &deltas);
+
 } // End namespace poplib_test.
 
 #endif  // _poplib_test_NonLinearity_hpp_

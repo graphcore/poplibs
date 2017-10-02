@@ -92,3 +92,16 @@ void poplib_test::bwdNonLinearity(
     *it = ::bwdNonLinearity(nonLinearityType, *it, *actIt);
   }
 }
+
+void poplib_test::bwdNonLinearity(
+    NonLinearityType nonLinearityType,
+    const boost::multi_array<double, 2> &activations,
+    boost::multi_array<double, 2> &deltas) {
+  assert(std::equal(activations.shape(), activations.shape() + 2,
+                    deltas.shape()));
+  auto actIt = activations.data();
+  for (auto it = deltas.data(), end = deltas.data() + deltas.num_elements();
+       it != end; ++it, ++actIt) {
+    *it = ::bwdNonLinearity(nonLinearityType, *it, *actIt);
+  }
+}

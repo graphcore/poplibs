@@ -1571,6 +1571,7 @@ add_test(NAME rnn_3x32x2x38_with_feedfwd
                  --input-size 32
                  --output-size 38
                  --batch-size 2
+                 --phase all
                  --nonlinearity-type sigmoid
                  --apply-feedforward-weights) 
                  

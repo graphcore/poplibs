@@ -46,6 +46,9 @@ inline uint64_t getNonLinearityCycles(std::vector<unsigned> regionSizes,
                       / transHalfVectorWidth;
       }
       break;
+    case popnn::NonLinearityType::NON_LINEARITY_SOFTMAX:
+      throw std::runtime_error("Nonlinearity not implemented as a "
+                               "single vertex");
     default:
       throw std::runtime_error("Invalid nonlinearity type");
     }
@@ -73,6 +76,8 @@ inline uint64_t getBwdNonlinearityDerivativeCycles(
     }
   case popnn::NonLinearityType::NON_LINEARITY_TANH:
     return 5 + numVectors * 3;
+  case popnn::NonLinearityType::NON_LINEARITY_SOFTMAX:
+    throw std::runtime_error("Nonlinearity not implemented");
   }
   throw std::runtime_error("Invalid nonlinearity type");
 }
