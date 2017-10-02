@@ -42,7 +42,7 @@ static double initValue(popreduce::Operation operation) {
     val = std::numeric_limits<double>::max();
     break;
   case popreduce::Operation::MAX:
-    val = std::numeric_limits<double>::min();
+    val = std::numeric_limits<double>::lowest();
     break;
   case popreduce::Operation::AND:
     val = 1.0;
@@ -294,6 +294,11 @@ static bool reduceOpsTest(const std::vector<std::size_t> &dims,
           ++it) {
       *it = *it <= 0 ? 0 : 1;
     }
+  } else if (outTypeStr == "int") {
+    for (auto it = hostIn.data(); it != hostIn.data() + hostIn.num_elements();
+         ++it) {
+      *it = std::floor(*it);
+    }
   }
 
   copy(hostOut, outTypeStr, rawHostOut.get());
@@ -383,19 +388,67 @@ BOOST_AUTO_TEST_CASE(Reduce_Add_float) {
   BOOST_TEST(matchesModel == true);
 }
 
+BOOST_AUTO_TEST_CASE(Reduce_Add_half) {
+  auto matchesModel = reduceOpsTest({10, 20, 30}, {0}, "half",
+                                    popreduce::Operation::ADD);
+  BOOST_TEST(matchesModel == true);
+}
+
+BOOST_AUTO_TEST_CASE(Reduce_Add_int) {
+  auto matchesModel = reduceOpsTest({10, 20, 30}, {0}, "int",
+                                    popreduce::Operation::ADD);
+  BOOST_TEST(matchesModel == true);
+}
+
 BOOST_AUTO_TEST_CASE(Reduce_Mul_float) {
   auto matchesModel = reduceOpsTest({33, 22, 11}, {0}, "float",
                                     popreduce::Operation::MUL);
   BOOST_TEST(matchesModel == true);
 }
 
+BOOST_AUTO_TEST_CASE(Reduce_Mul_half) {
+  auto matchesModel = reduceOpsTest({33, 22, 11}, {0}, "float",
+                                    popreduce::Operation::MUL);
+  BOOST_TEST(matchesModel == true);
+}
+
+BOOST_AUTO_TEST_CASE(Reduce_Mul_int) {
+  auto matchesModel = reduceOpsTest({33, 22, 11}, {0}, "float",
+                                    popreduce::Operation::MUL);
+  BOOST_TEST(matchesModel == true);
+}
+
+BOOST_AUTO_TEST_CASE(Reduce_Max_float) {
+  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, "half",
+                                    popreduce::Operation::MAX);
+  BOOST_TEST(matchesModel == true);
+}
+
 BOOST_AUTO_TEST_CASE(Reduce_Max_half) {
+  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, "half",
+  popreduce::Operation::MAX);
+  BOOST_TEST(matchesModel == true);
+}
+
+BOOST_AUTO_TEST_CASE(Reduce_Max_int) {
   auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, "half",
                                     popreduce::Operation::MAX);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Min_float) {
+  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, "float",
+                                    popreduce::Operation::MIN);
+  BOOST_TEST(matchesModel == true);
+}
+
+BOOST_AUTO_TEST_CASE(Reduce_Min_half) {
+  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, "float",
+                                    popreduce::Operation::MIN);
+  BOOST_TEST(matchesModel == true);
+}
+
+BOOST_AUTO_TEST_CASE(Reduce_Min_int) {
   auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, "float",
                                     popreduce::Operation::MIN);
   BOOST_TEST(matchesModel == true);

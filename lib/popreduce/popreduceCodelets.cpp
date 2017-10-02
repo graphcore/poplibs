@@ -45,6 +45,7 @@ public:
 template class ReduceAdd<float, float>;
 template class ReduceAdd<half, float>;
 template class ReduceAdd<half, half>;
+template class ReduceAdd<int, int>;
 
 template <typename OutType, typename PartialsType>
 class ReduceAddUpdate : public Vertex {
@@ -85,6 +86,7 @@ public:
 template class ReduceAddUpdate<float, float>;
 template class ReduceAddUpdate<half, float>;
 template class ReduceAddUpdate<half, half>;
+template class ReduceAddUpdate<int, int>;
 
 template <typename OutType, typename PartialsType>
 class ReduceAddScale : public Vertex {
@@ -124,6 +126,7 @@ public:
 template class ReduceAddScale<float, float>;
 template class ReduceAddScale<half, float>;
 template class ReduceAddScale<half, half>;
+template class ReduceAddScale<int, int>;
 
 
 template <typename OutType, typename PartialsType>
@@ -163,6 +166,8 @@ public:
 template class ReduceMul<float, float>;
 template class ReduceMul<half, half>;
 template class ReduceMul<half, float>;
+template class ReduceMul<int, int>;
+
 template <typename OutType, typename PartialsType>
 class ReduceMax : public Vertex {
 public:
@@ -177,7 +182,7 @@ public:
     for (unsigned r = 0; r < numReductions; ++r) {
       unsigned numElem = out[r].size();
       for (unsigned i = 0; i < numElem; ++i) {
-        OutType maxVal = std::numeric_limits<PartialsType>::min();
+        OutType maxVal = std::numeric_limits<PartialsType>::lowest();
         for (unsigned j = 0; j < numPartials; ++j) {
           maxVal = std::max(maxVal, partials[r * numPartials + j][i]);
         }
@@ -199,6 +204,7 @@ public:
 
 template class ReduceMax<float, float>;
 template class ReduceMax<half, half>;
+template class ReduceMax<int, int>;
 
 
 template <typename OutType, typename PartialsType>
@@ -237,6 +243,7 @@ public:
 
 template class ReduceMin<float, float>;
 template class ReduceMin<half, half>;
+template class ReduceMin<int, int>;
 
 
 template <typename OutType, typename PartialsType>
