@@ -12,19 +12,23 @@
 #include <popreduce/codelets.hpp>
 #include <poplib_test/NonLinearity.hpp>
 #include <iostream>
+#include <poplib_test/Util.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace popstd;
 using namespace popnn;
+using namespace poplib_test::util;
 
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
 
+#define TOL 0.1 //tolerance of 0.1%
+#define ATOL 1e-30
 BOOST_AUTO_TEST_CASE(NonLinearity,
-                    *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
-                    *utf::tolerance<float>(fpc::percent_tolerance<float>(0.1))
-                    *utf::tolerance<double>(fpc::percent_tolerance<double>(0.1))
+                    *utf::tolerance<half>(fpc::percent_tolerance<half>(TOL))
+                    *utf::tolerance<float>(fpc::percent_tolerance<float>(TOL))
+                    *utf::tolerance<double>(fpc::percent_tolerance<double>(TOL))
                      ) {
   Graph graph(createIPUModelDevice());
   popnn::addCodelets(graph);
@@ -71,10 +75,18 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     hDeltaIn(boost::extents[batchSize][ySize][xSize][zChunk]);
 
   // outputs calculated by target code
-  float hActOutF[batchSize][ySize][xSize][zChunk];
-  half  hActOutH[batchSize][ySize][xSize][zChunk];
-  float hDeltaOutF[batchSize][ySize][xSize][zChunk];
-  half  hDeltaOutH[batchSize][ySize][xSize][zChunk];
+  auto rawHActOutF = allocateHostMemoryForTensor(actF);
+  auto rawHActOutH = allocateHostMemoryForTensor(actH);
+  auto rawHDeltaOutF = allocateHostMemoryForTensor(deltaF);
+  auto rawHDeltaOutH = allocateHostMemoryForTensor(deltaH);
+  boost::multi_array<double, 4>
+    hActOutF(boost::extents[batchSize][ySize][xSize][zChunk]);
+  boost::multi_array<double, 4>
+    hActOutH(boost::extents[batchSize][ySize][xSize][zChunk]);
+  boost::multi_array<double, 4>
+    hDeltaOutF(boost::extents[batchSize][ySize][xSize][zChunk]);
+  boost::multi_array<double, 4>
+    hDeltaOutH(boost::extents[batchSize][ySize][xSize][zChunk]);
 
   // reference results calculated in harness
   boost::multi_array<double, 4>
@@ -123,21 +135,15 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     fwdEng.writeTensor("inF", hActInF);
     fwdEng.writeTensor("inH", hActInH);
     fwdEng.run();
-    fwdEng.readTensor("outF", hActOutF);
-    fwdEng.readTensor("outH", hActOutH);
+    fwdEng.readTensor("outF", rawHActOutF.get());
+    fwdEng.readTensor("outH", rawHActOutH.get());
+    copy("half", rawHActOutH.get(), hActOutH);
+    copy("float", rawHActOutF.get(), hActOutF);
 
-    for (unsigned b = 0; b < batchSize; ++b) {
-      for (unsigned y = 0; y < xSize; ++y) {
-        for (unsigned x = 0; x < xSize; ++x) {
-          for (unsigned chan = 0; chan < zChunk; chan++) {
-            BOOST_TEST(hActOutF[b][y][x][chan]
-                       == (float)hRefActOut[b][y][x][chan]);
-            BOOST_TEST(hActOutH[b][y][x][chan]
-                       == (half)hRefActOut[b][y][x][chan]);
-          }
-        }
-      }
-    }
+    BOOST_TEST(
+      checkIsClose("hRefActOutF", hActOutF, hRefActOut, TOL, ATOL));
+    BOOST_TEST(
+      checkIsClose("hRefActOutH", hActOutH, hRefActOut, TOL, ATOL));
 
     hRefDeltaOut = hDeltaIn;
     poplib_test::bwdNonLinearity(n, hActIn, hRefDeltaOut);
@@ -153,8 +159,10 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     bwdEng.writeTensor("inDeltaF", hDeltaInF);
     bwdEng.writeTensor("inDeltaH", hDeltaInH);
     bwdEng.run();
-    bwdEng.readTensor("outDeltaF", hDeltaOutF);
-    bwdEng.readTensor("outDeltaF", hDeltaOutH);
+    bwdEng.readTensor("outDeltaF", rawHDeltaOutF.get());
+    bwdEng.readTensor("outDeltaH", rawHDeltaOutH.get());
+    copy("half", rawHDeltaOutH.get(), hDeltaOutH);
+    copy("float", rawHDeltaOutF.get(), hDeltaOutF);
 
     for (unsigned b = 0; b < batchSize; ++b) {
       for (unsigned y = 0; y < xSize; ++y) {
