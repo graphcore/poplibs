@@ -38,12 +38,11 @@ Tensor
 nonLinearityInputGradient(Graph &graph,
                           NonLinearityType nonLinearityType,
                           Tensor out, Tensor outGradient,
-                          poplar::program::Sequence &prog,
+                          ComputeSet &cs,
                           const std::string &debugPrefix) {
   if (nonLinearityType == NON_LINEARITY_SOFTMAX) {
     throw popstd::poplib_error("SOFTMAX gradient not implemented");
   }
-  auto cs = graph.addComputeSet(debugPrefix + "/NonLinearityGrad");
   const auto dType = out.elementType();
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
@@ -77,9 +76,21 @@ nonLinearityInputGradient(Graph &graph,
       graph.setTileMapping(v, tile);
     }
   }
-
-  prog.add(Execute(cs));
   return inGradient;
+}
+
+Tensor
+nonLinearityInputGradient(Graph &graph,
+                          NonLinearityType nonLinearityType,
+                          Tensor out, Tensor outGradient,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix) {
+
+  auto cs = graph.addComputeSet(debugPrefix + "/NonLinearityGrad");
+  auto t = nonLinearityInputGradient(graph, nonLinearityType, out, outGradient,
+                                     cs, debugPrefix);
+  prog.add(Execute(cs));
+  return t;
 }
 
 

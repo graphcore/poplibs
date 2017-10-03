@@ -1580,6 +1580,16 @@ add_test(NAME basic_lstm_40x4x38_seq_2_half_data
                  --input-size 40
                  --batch-size 4
                  --output-size 38
+                 --phase all
+                 --sequence-size 2)
+
+add_test(NAME basic_lstm_40x4x38_seq_2_half_data_preweight_inp
+         COMMAND lstm_layer
+                 --input-size 40
+                 --batch-size 4
+                 --output-size 38
+                 --pre-weight-input=1
+                 --phase all
                  --sequence-size 2)
 
 add_test(NAME basic_lstm_40x4x38_seq_2_float_data
@@ -1588,6 +1598,7 @@ add_test(NAME basic_lstm_40x4x38_seq_2_float_data
                  --batch-size 4
                  --output-size 38
                  --sequence-size 2
+                 --phase all
                  --data-type float)
 
 add_test(NAME conv1x1_in_dilation_2_fwd

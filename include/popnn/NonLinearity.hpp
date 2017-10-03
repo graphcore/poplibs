@@ -53,6 +53,13 @@ poplar::Tensor
 nonLinearityInputGradient(poplar::Graph &graph,
                           NonLinearityType nonLinearityType,
                           poplar::Tensor out, poplar::Tensor outGradient,
+                          poplar::ComputeSet &cs,
+                          const std::string &debugPrefix = "");
+
+poplar::Tensor
+nonLinearityInputGradient(poplar::Graph &graph,
+                          NonLinearityType nonLinearityType,
+                          poplar::Tensor out, poplar::Tensor outGradient,
                           poplar::program::Sequence &prog,
                           const std::string &debugPrefix = "");
 
