@@ -833,10 +833,10 @@ static void expandSpatialDim(Graph &graph, ConvParams &params,
     auto expandedShape = larger->shape();
     expandedShape[largerDimIndex] = params.getOutputSize(dim);
     expandedShape.back() = 0;
-    auto expanded = graph.addTensor(dType, expandedShape);
     auto smallerPaddedDilatedSize =
         actsAreLarger ? params.getPaddedDilatedKernelSize(dim) :
                         params.getPaddedDilatedInputSize(dim);
+    std::vector<Tensor> slices;
     for (unsigned k = 0; k != smallerSize; ++k) {
       auto dilatedPaddedK =
           static_cast<int>(k * smallerDilation) +
@@ -855,8 +855,9 @@ static void expandSpatialDim(Graph &graph, ConvParams &params,
         zerosShape.back() = larger->dim(larger->rank() - 1);
         slice = graph.addConstantTensor(dType, zerosShape, 0);
       }
-      expanded = concat(expanded, slice, expanded.rank() - 1);
+      slices.push_back(std::move(slice));
     }
+    auto expanded = concat(slices, larger->rank() - 1);
     *larger = expanded;
   }
   if (smaller) {
