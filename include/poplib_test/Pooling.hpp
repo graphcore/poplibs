@@ -6,18 +6,17 @@
 namespace poplib_test {
 namespace pooling {
 
-void pooling(PoolingType pType, unsigned strideHeight, unsigned strideWidth,
-                unsigned kernelHeight, unsigned kernelWidth,
-                int paddingHeightL, int paddingWidthL,
-                int paddingHeightU, int paddingWidthU,
-                const boost::multi_array<double, 4> &in,
-                boost::multi_array<double, 4> &out);
+void pooling(popnn::PoolingType pType, unsigned strideHeight,
+             unsigned strideWidth, unsigned kernelHeight, unsigned kernelWidth,
+             int paddingHeightL, int paddingWidthL,
+             int paddingHeightU, int paddingWidthU,
+             const boost::multi_array<double, 4> &in,
+             boost::multi_array<double, 4> &out);
 
-void poolingBackward(PoolingType pType,
-                     unsigned strideHeight, unsigned strideWidth,
-                     unsigned kernelHeight, unsigned kernelWidth,
-                     int paddingHeightL, int paddingWidthL,
-                     int paddingHeightU, int paddingWidthH,
+void poolingBackward(popnn::PoolingType pType, unsigned strideHeight,
+                     unsigned strideWidth, unsigned kernelHeight,
+                     unsigned kernelWidth, int paddingHeightL,
+                     int paddingWidthL, int paddingHeightU, int paddingWidthH,
                      const boost::multi_array<double, 4> &prevAct,
                      const boost::multi_array<double, 4> &nextAct,
                      const boost::multi_array<double, 4> &in,

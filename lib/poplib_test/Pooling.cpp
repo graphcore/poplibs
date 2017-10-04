@@ -2,6 +2,8 @@
 #include <poplib_test/exceptions.hpp>
 #include <iostream>
 
+using popnn::PoolingType;
+
 static void
 pooling(PoolingType pType, unsigned strideHeight, unsigned strideWidth,
         unsigned kernelHeight, unsigned kernelWidth,
@@ -110,9 +112,9 @@ pooling(PoolingType pType, unsigned strideHeight, unsigned strideWidth,
         boost::multi_array<double, 4> &out) {
   boost::multi_array<double, 2> scale(boost::extents[out.shape()[1]]
                                                     [out.shape()[2]]);
-  pooling(pType, strideHeight, strideWidth, kernelHeight, kernelWidth,
-          paddingHeightL, paddingWidthL, paddingHeightU, paddingWidthU,
-          in, out, scale);
+  ::pooling(pType, strideHeight, strideWidth, kernelHeight, kernelWidth,
+            paddingHeightL, paddingWidthL, paddingHeightU, paddingWidthU,
+            in, out, scale);
 }
 
 

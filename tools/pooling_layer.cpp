@@ -27,26 +27,28 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poplib_test::util;
 using namespace popstd;
+using popnn::PoolingType;
 
-std::ostream &
-operator<<(std::ostream &os, const PoolingType &pType) {
-  return os << popnn::pooling::asString(pType);
-}
+namespace popnn {
+  std::ostream &
+  operator<<(std::ostream &os, const PoolingType &pType) {
+    return os << popnn::pooling::asString(pType);
+  }
 
-std::istream &operator>>(std::istream &is, PoolingType &pType) {
-  std::string token;
-  is >> token;
-  if (token == "max")
-    pType = PoolingType::MAX;
-  else if (token == "avg")
-    pType = PoolingType::AVG;
-  else if (token == "sum") {
-    pType = PoolingType::SUM;
-  } else
-    throw popstd::poplib_error(
-      "Unknown pooling type<" + token + ">");
-  return is;
-
+  std::istream &operator>>(std::istream &is, PoolingType &pType) {
+    std::string token;
+    is >> token;
+    if (token == "max")
+      pType = PoolingType::MAX;
+    else if (token == "avg")
+      pType = PoolingType::AVG;
+    else if (token == "sum") {
+      pType = PoolingType::SUM;
+    } else
+      throw popstd::poplib_error(
+        "Unknown pooling type<" + token + ">");
+    return is;
+  }
 }
 
 int main(int argc, char **argv) {
