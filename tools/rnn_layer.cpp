@@ -183,6 +183,7 @@ int main(int argc, char **argv) {
         popnn::rnn::createWeightsInput(graph, sequenceSize, batchSize,
                                        inputSize, outputSize,
                                        dataTypeStr, partialsTypeStr, fwdOnly);
+
     feedFwdOutput = popnn::rnn::forwardWeightInput(graph, prevAct,
                                                    feedFwdWeights, prog,
                                                    partialsTypeStr, "");
@@ -231,18 +232,18 @@ int main(int argc, char **argv) {
 
   if (doBwdPass || doWuPass) {
     bwdState = popnn::rnn::createBwdState(graph, dataTypeStr, batchSize,
-                                               outputSize, prog);
+                                          outputSize, prog);
   }
 
   if (doWuPass) {
     feedFwdWeightsDeltaAcc = graph.clone(feedFwdWeights);
-      feedbackWeightsDeltaAcc = graph.clone(feedbackWeights);
-      biasesDeltaAcc = graph.clone(biases);
-      // zero all tensors updated in the BPTT
-      zero(graph, feedFwdWeightsDeltaAcc, prog, "ZeroFeedFwdWeightsDeltasAcc");
-      zero(graph, feedbackWeightsDeltaAcc, prog,
-           "ZeroFeedbackWeightsDeltasAcc");
-      zero(graph, biasesDeltaAcc, prog, "ZeroBiasesDeltasAcc");
+    feedbackWeightsDeltaAcc = graph.clone(feedbackWeights);
+    biasesDeltaAcc = graph.clone(biases);
+    // zero all tensors updated in the BPTT
+    zero(graph, feedFwdWeightsDeltaAcc, prog, "ZeroFeedFwdWeightsDeltasAcc");
+    zero(graph, feedbackWeightsDeltaAcc, prog,
+         "ZeroFeedbackWeightsDeltasAcc");
+    zero(graph, biasesDeltaAcc, prog, "ZeroBiasesDeltasAcc");
   }
 
   std::vector<Tensor> prevLayerGradsVec(sequenceSize);

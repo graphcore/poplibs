@@ -10,10 +10,11 @@ namespace lstm {
 
 uint64_t getBasicLstmCellFwdFlops(unsigned sequenceSize, unsigned batchSize,
                                   unsigned inputSize, unsigned outputSize,
-                                  bool weighInput);
+                                  bool weighInput = true);
 
 uint64_t getBasicLstmCellBwdFlops(unsigned sequenceSize, unsigned batchSize,
-                                  unsigned inputSize, unsigned outputSize);
+                                  unsigned inputSize, unsigned outputSize,
+                                  bool calcInputGrad = true);
 
 uint64_t getBasicLstmCellWuFlops(unsigned sequenceSize, unsigned batchSize,
                                   unsigned inputSize, unsigned outputSize);
@@ -293,6 +294,20 @@ basicLstmBackwardStep(poplar::Graph &graph,
                       const poplar::Tensor &prevCellState,
                       const poplar::Tensor &bwdState,
                       const poplar::Tensor &weightsInput,
+                      const poplar::Tensor &weightsOutput,
+                      poplar::program::Sequence &prog,
+                      const std::string &partialsTypeStr = "float",
+                      const std::string &fPrefix = "");
+
+/** Same as \see basicLstmBackwardStep but without the input weight matrix.
+ * The returned tensor is the backward state tensor for this step
+ */
+poplar::Tensor
+basicLstmBackwardStep(poplar::Graph &graph,
+                      const poplar::Tensor &gradNextLayer,
+                      const poplar::Tensor &fwdStateThisStep,
+                      const poplar::Tensor &prevCellState,
+                      const poplar::Tensor &bwdState,
                       const poplar::Tensor &weightsOutput,
                       poplar::program::Sequence &prog,
                       const std::string &partialsTypeStr = "float",

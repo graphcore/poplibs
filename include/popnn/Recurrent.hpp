@@ -35,12 +35,13 @@ namespace rnn {
  */
 uint64_t getFwdFlops(unsigned sequenceSize, unsigned batchSize,
                      unsigned inputSize, unsigned outputSize,
-                     bool weightInput);
+                     bool weightInput = true);
 /**
  * Compute the total flops for the backward pass of RNN
  */
 uint64_t getBwdFlops(unsigned sequenceSize, unsigned batchSize,
-                     unsigned inputSize, unsigned outputSize);
+                     unsigned inputSize, unsigned outputSize,
+                     bool calcInputGrad = true);
 /**
  * Compute the total flops for the weight update pass of RNN
  */
@@ -281,6 +282,21 @@ backwardGradientStep(poplar::Graph &graph,
                      const poplar::Tensor &bwdState,
                      const poplar::Tensor &actOut,
                      const poplar::Tensor &weightsInput,
+                     const poplar::Tensor &weightsFeedback,
+                     poplar::program::Sequence &prog,
+                     popnn::NonLinearityType nonLinearityType,
+                     const std::string &partialsTypeStr = "float",
+                     const std::string &debugPrefix = ""
+                     );
+
+/** Same as function above with the difference that the input gradients are
+ *  not computed
+ */
+poplar::Tensor
+backwardGradientStep(poplar::Graph &graph,
+                     const poplar::Tensor &nextLayerGrad,
+                     const poplar::Tensor &bwdState,
+                     const poplar::Tensor &actOut,
                      const poplar::Tensor &weightsFeedback,
                      poplar::program::Sequence &prog,
                      popnn::NonLinearityType nonLinearityType,

@@ -49,7 +49,8 @@ uint64_t getFwdFlops(unsigned sequenceSize, unsigned batchSize,
 }
 
 uint64_t getBwdFlops(unsigned sequenceSize, unsigned batchSize,
-                     unsigned inputSize, unsigned outputSize) {
+                     unsigned inputSize, unsigned outputSize,
+                     bool calcInputGrad) {
   // non-linearity not included
 
   const uint64_t numMultsInput = static_cast<uint64_t>(inputSize) * outputSize
@@ -60,7 +61,8 @@ uint64_t getBwdFlops(unsigned sequenceSize, unsigned batchSize,
                                outputSize * batchSize * sequenceSize;
   const uint64_t numAddsSum = static_cast<uint64_t>(outputSize) *
                               (outputSize - 1) * batchSize * sequenceSize;
-  return numMultsInput + numAddsInput + numMultsSum + numAddsSum;
+  return (numMultsInput + numAddsInput) * calcInputGrad + numMultsSum
+         + numAddsSum;
 }
 
 uint64_t getWuFlops(unsigned sequenceSize, unsigned batchSize,
@@ -127,17 +129,22 @@ Tensor createInput(Graph &graph,
   if (!inferenceOnly) {
     mmOpt.fullyConnectedPass = FullyConnectedPass::FWD;
   }
-  auto in = createMatMulInputLHS(graph, dType,
-                                 {sequenceSize * batchSize, inputSize},
+  std::vector<Tensor> input;
+  input.emplace_back(createMatMulInputLHS(graph, dType,
+                                 {batchSize, inputSize},
                                  {inputSize, outputSize},
-                                 name, mmOpt);
-  return unflattenSeqDims(in, sequenceSize);
+                                 name, mmOpt).expand({0}));
+  for (unsigned s = 1; s != sequenceSize; ++s) {
+    input.emplace_back(graph.clone(input[0],
+                                   name + "/" + std::to_string(s)));
+  }
+  return concat(input);
 }
 
 
 poplar::Tensor
 createWeightsInput(Graph &graph,
-                   unsigned sequenceSize,
+                   unsigned /* sequenceSize */,
                    unsigned batchSize,
                    unsigned inputSize,
                    unsigned outputSize,
@@ -152,7 +159,7 @@ createWeightsInput(Graph &graph,
   }
   return
       createMatMulInputRHS(graph, dType,
-                           {sequenceSize * batchSize, inputSize},
+                           {batchSize, inputSize},
                            {inputSize,  outputSize},
                            "weightsInput",
                            mmOpt);
@@ -237,12 +244,12 @@ Tensor forwardIterate(Graph  &graph,
 }
 
 std::pair<Tensor, Tensor>
-backwardGradientStep(Graph &graph,
+backwardGradientStepImpl(Graph &graph,
                      const Tensor &gradientOut,
                      const Tensor &bwdState,
                      const Tensor &actOut,
-                     const Tensor &weightsInput,
-                     const Tensor &weightsFeedback,
+                     const Tensor *weightsInput,
+                     const Tensor *weightsFeedback,
                      Sequence &prog,
                      popnn::NonLinearityType nonLinearityType,
                      const std::string &partialsTypeStr,
@@ -254,19 +261,72 @@ backwardGradientStep(Graph &graph,
   mmOpt.cache = &cache;
   mmOpt.fullyConnectedPass = FullyConnectedPass::BWD;
 
-  auto t = matMul(graph, bwdState, weightsFeedback.transpose(), prog,
+  auto t = matMul(graph, bwdState, weightsFeedback->transpose(), prog,
                   debugPrefix + "/RnnBwd/Fb", mmOpt);
   addTo(graph, t, gradientOut, prog, debugPrefix + "/RnnBwd/AddOutGrad");
 
   auto newBwdState =
       nonLinearityInputGradient(graph, nonLinearityType, actOut, t, prog,
                                 debugPrefix + "/RnnBwd");
-
-  auto gradientAtInput =
-      matMul(graph, newBwdState, weightsInput.transpose(), prog,
+  Tensor gradientAtInput;
+  if (weightsInput != nullptr) {
+    gradientAtInput =
+      matMul(graph, newBwdState, weightsInput->transpose(), prog,
              debugPrefix + "/RnnBwd/Ff");
 
+  }
   return std::make_pair(gradientAtInput, newBwdState);
+}
+
+std::pair<Tensor, Tensor>
+backwardGradientStep(Graph &graph,
+                     const Tensor &gradientOut,
+                     const Tensor &bwdState,
+                     const Tensor &actOut,
+                     const Tensor &weightsInput,
+                     const Tensor &weightsFeedback,
+                     Sequence &prog,
+                     popnn::NonLinearityType nonLinearityType,
+                     const std::string &partialsTypeStr,
+                     const std::string &debugPrefix
+                     ) {
+  return backwardGradientStepImpl(graph,
+                                  gradientOut,
+                                  bwdState,
+                                  actOut,
+                                  &weightsInput,
+                                  &weightsFeedback,
+                                  prog,
+                                  nonLinearityType,
+                                  partialsTypeStr,
+                                  debugPrefix);
+}
+
+Tensor
+backwardGradientStep(Graph &graph,
+                     const Tensor &gradientOut,
+                     const Tensor &bwdState,
+                     const Tensor &actOut,
+                     const Tensor &weightsFeedback,
+                     Sequence &prog,
+                     popnn::NonLinearityType nonLinearityType,
+                     const std::string &partialsTypeStr,
+                     const std::string &debugPrefix
+                     ) {
+  Tensor gradAtInput, state;
+
+  std::tie(gradAtInput, state) =
+    backwardGradientStepImpl(graph,
+                             gradientOut,
+                             bwdState,
+                             actOut,
+                             nullptr,
+                             &weightsFeedback,
+                             prog,
+                             nonLinearityType,
+                             partialsTypeStr,
+                             debugPrefix);
+  return state;
 }
 
 void paramDeltaUpdate(Graph &graph,
@@ -285,11 +345,19 @@ void paramDeltaUpdate(Graph &graph,
   mmOpt.partialsType = partialsTypeStr;
   mmOpt.cache = &cache;
   mmOpt.fullyConnectedPass = FullyConnectedPass::WU;
-  //@TODO: combine the outer product computation
-  matMulAcc(graph, weightsInputDeltasAcc, 1.0, actIn.transpose(), bwdState,
-            prog, fnPrefix + "/Wi", mmOpt);
-  matMulAcc(graph, weightsFeedbackDeltasAcc, 1.0, prevOut.transpose(), bwdState,
-            prog, fnPrefix + "/Wfb", mmOpt);
+  const bool combineMatMul =  false;
+
+  if (combineMatMul) {
+    matMulAcc(graph, concat(weightsInputDeltasAcc, weightsFeedbackDeltasAcc),
+              1.0,
+              concat(actIn.transpose(), prevOut.transpose()), bwdState,
+              prog, fnPrefix + "/Wi+Wfb", mmOpt);
+  } else {
+    matMulAcc(graph, weightsInputDeltasAcc, 1.0, actIn.transpose(), bwdState,
+              prog, fnPrefix + "/Wi", mmOpt);
+    matMulAcc(graph, weightsFeedbackDeltasAcc, 1.0, prevOut.transpose(),
+              bwdState, prog, fnPrefix + "/Wfb", mmOpt);
+  }
   auto r = reduce(graph, bwdState, {0}, popreduce::Operation::ADD, prog,
                   fnPrefix);
   addTo(graph, biasDeltasAcc, r, prog, fnPrefix);

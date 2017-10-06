@@ -474,14 +474,14 @@ basicLstmCellForwardPass(Graph &graph,
                                  debugPrefix);
 }
 
-std::pair<Tensor, Tensor>
-basicLstmBackwardStep(Graph &graph,
+static std::pair<Tensor, Tensor>
+BackwardStepImpl(Graph &graph,
                       const Tensor &gradNextLayer,
                       const Tensor &fwdStateThisStep,
                       const Tensor &prevCellState,
                       const Tensor &bwdState,
-                      const Tensor &weightsInput,
-                      const Tensor &weightsOutput,
+                      const Tensor *weightsInput,
+                      const Tensor *weightsOutput,
                       Sequence &prog,
                       const std::string &partialsTypeStr,
                       const std::string &debugPrefix) {
@@ -556,16 +556,21 @@ basicLstmBackwardStep(Graph &graph,
   mmOpt.partialsType = partialsTypeStr;
   mmOpt.fullyConnectedPass = FullyConnectedPass::BWD;
   mmOpt.cache = &cache;
-  auto gradientIn =
+
+  Tensor gradientIn;
+
+  if (weightsInput != nullptr) {
+    gradientIn =
     matMul(graph,
            flattenUnits(gradUnits),
-           flattenUnits(weightsInput).transpose(),
+           flattenUnits(*weightsInput).transpose(),
            prog,
            fPrefix + "/InputGrad", mmOpt);
+  }
   auto gradientPrevStep =
     matMul(graph,
            flattenUnits(gradUnits),
-           flattenUnits(weightsOutput).transpose(),
+           flattenUnits(*weightsOutput).transpose(),
            prog,
            fPrefix + "/PrevStepGrad", mmOpt);
 
@@ -577,6 +582,44 @@ basicLstmBackwardStep(Graph &graph,
                           gradCandidate.expand({0}),
                           gradOutputGate.expand({0})});
   return std::make_pair(gradientIn, newState);
+}
+
+
+
+std::pair<Tensor, Tensor>
+basicLstmBackwardStep(Graph &graph,
+                      const Tensor &gradNextLayer,
+                      const Tensor &fwdStateThisStep,
+                      const Tensor &prevCellState,
+                      const Tensor &bwdState,
+                      const Tensor &weightsInput,
+                      const Tensor &weightsOutput,
+                      Sequence &prog,
+                      const std::string &partialsTypeStr,
+                      const std::string &debugPrefix) {
+  Tensor gradientIn, gradAtPrevOutput;
+  return
+    BackwardStepImpl(graph, gradNextLayer, fwdStateThisStep, prevCellState,
+                     bwdState, &weightsInput, &weightsOutput, prog,
+                     partialsTypeStr, debugPrefix);
+}
+
+Tensor
+basicLstmBackwardStep(Graph &graph,
+                      const Tensor &gradNextLayer,
+                      const Tensor &fwdStateThisStep,
+                      const Tensor &prevCellState,
+                      const Tensor &bwdState,
+                      const Tensor &weightsOutput,
+                      Sequence &prog,
+                      const std::string &partialsTypeStr,
+                      const std::string &debugPrefix) {
+  Tensor gradientIn, gradAtPrevOutput;
+  std::tie(gradientIn, gradAtPrevOutput) =
+    BackwardStepImpl(graph, gradNextLayer, fwdStateThisStep, prevCellState,
+                     bwdState, nullptr, &weightsOutput, prog,
+                     partialsTypeStr, debugPrefix);
+  return gradAtPrevOutput;
 }
 
 void
@@ -640,21 +683,26 @@ uint64_t getBasicLstmCellFwdFlops(unsigned sequenceSize, unsigned batchSize,
 }
 
 uint64_t getBasicLstmCellBwdFlops(unsigned sequenceSize, unsigned batchSize,
-                                  unsigned inputSize, unsigned outputSize) {
+                                  unsigned inputSize, unsigned outputSize,
+                                  bool calcInputGrad) {
   uint64_t addFlopsUnit = sequenceSize * batchSize * outputSize;
   uint64_t multFlopsUnit = sequenceSize * batchSize * outputSize;
-  uint64_t matMulFlops =  4 * static_cast<uint64_t>(sequenceSize) * batchSize
-                           * outputSize * (inputSize + outputSize);
+  uint64_t matMulFlops =  4 * static_cast<uint64_t>(sequenceSize) * batchSize *
+                          outputSize * (inputSize * calcInputGrad + outputSize);
   uint64_t matMulAddFlops = 4 * static_cast<uint64_t>(sequenceSize) * batchSize
-                            * outputSize * (inputSize + outputSize - 2);
+                            * outputSize *
+                            ((inputSize - 1) * calcInputGrad + outputSize - 1);
   // A total of 5 non linearity derivatives each with two flops
   uint64_t nonlinearityGradCycles = addFlopsUnit * 5 * 2;
 
   uint64_t totalFlops = 2 * static_cast<uint64_t>(addFlopsUnit)
                         + nonlinearityGradCycles
                         + 6 * multFlopsUnit + matMulFlops
-                        + matMulAddFlops + 6 * (sequenceSize * batchSize *
-                                                (inputSize + outputSize));
+                        + matMulAddFlops
+                        // adding 4 gradients
+                        + 3 * (sequenceSize * batchSize * outputSize)
+                        + 3 * (sequenceSize * batchSize * inputSize
+                               * calcInputGrad);
   return totalFlops;
 }
 
