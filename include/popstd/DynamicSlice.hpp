@@ -22,7 +22,8 @@ namespace popstd {
  *  \param graph       The poplar graph
  *  \param t           The source tensor
  *  \param offset      A tensor of offsets at which the output is extracted
- *  \param outShape    The shape of the output Tensor
+ *  \param dims        The dimensions of \a t to slice
+ *  \param sizes       The size of the slice in each of \a dims
  *  \param prog        The program to be extended
  *  \param debugPrefix The prefix prepended to debugging info
  *  \returns           The specified subtensor
@@ -47,7 +48,7 @@ poplar::Tensor dynamicSlice(poplar::Graph &graph,
  *  \param t           The tensor to update
  *  \param s           The updates
  *  \param offset      The offset within \a t to be updated
- *  \param dims        The dimensions to be dynamically updates
+ *  \param dims        The dimensions to be dynamically updated
  *  \param sizes       The size of the update in each of \a dims
  *  \param prog        The program to be extended
  *  \param debugPrefix The prefix prepended to debugging info

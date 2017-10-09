@@ -7,10 +7,10 @@
 #include <cassert>
 #include <numeric>
 #include <algorithm>
+
 using namespace poplar;
 using namespace poplar::program;
 
-#include <iostream>//EAEA
 namespace popstd {
 
 /** Create vertices with matching elements in t2d and s2d
@@ -41,7 +41,6 @@ static void generateVertices(std::string vertexName,
   assert(numSubElements <= numBaseElements);
 
   // offset can be specified for each tile
-  std::cerr<<"EAEA rank "<<offset.rank()<<" numE "<<offset.numElements()<<"\n";
   assert((offset.rank() == 0 && offset.numElements() == 1) ||
          (offset.rank() == 1 && offset.numElements() == numTiles));
 
