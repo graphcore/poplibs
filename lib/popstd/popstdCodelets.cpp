@@ -101,17 +101,20 @@ public:
     for (unsigned i = 0; i < data.size(); ++i) {
       unsigned numElem = data[i].size();
       unsigned vectorWidth = 1;
+      unsigned cyclesPerVector = 1;
       if (std::is_same<InType, float>::value) {
         vectorWidth = dataPathWidth / 32;
       }
       else if (std::is_same<InType, half>::value) {
         vectorWidth = dataPathWidth / 16;
       }
-      else if (std::is_same<InType, int>::value) {
+      else {// integer types are not vectorisable
+        cyclesPerVector = 4; //ld/mpy/add/st
         vectorWidth = 1;
       }
       // Inner loop uses the axpy instruction.
-      cycles += 5 + (1 + (numElem + vectorWidth - 1) / vectorWidth);
+      cycles += 5 + cyclesPerVector *
+                      (1 + (numElem + vectorWidth - 1) / vectorWidth);
     }
     return cycles;
   }
@@ -120,6 +123,7 @@ public:
 template class ScaledAdd<float>;
 template class ScaledAdd<half>;
 template class ScaledAdd<int>;
+template class ScaledAdd<unsigned>;
 
 
 template <typename FPType>
@@ -159,10 +163,10 @@ template class HadamardProd<half>;
 
 
 
-template <typename FPType>
+template <typename InType>
 class Zero : public Vertex {
 public:
-  Output<Vector<FPType>> out;
+  Output<Vector<InType>> out;
 
   SimOnlyField<unsigned> dataPathWidth;
 
@@ -175,8 +179,8 @@ public:
 
   uint64_t getCycleEstimate() const {
     // TODO: make this more accurate
-    bool isFloat = std::is_same<FPType, float>::value;
-    const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    bool isHalf = std::is_same<InType, half>::value;
+    const auto vectorWidth = dataPathWidth / (isHalf ? 16 : 32);
     auto zeroCycles = (out.size() + vectorWidth - 1) / vectorWidth;
     return 2 // run
            + 5 // vertex cycles
@@ -186,6 +190,8 @@ public:
 
 template class Zero<float>;
 template class Zero<half>;
+template class Zero<int>;
+template class Zero<unsigned>;
 
 template <typename FPType>
 class Zero2D : public Vertex {

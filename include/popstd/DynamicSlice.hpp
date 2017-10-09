@@ -16,7 +16,9 @@ namespace popstd {
  *  \a dims gives the dimensions to slice, \a sizes defines the size of the
  *  slice in those dimensions and \a offset gives the base offsets on each
  *  execution.
- *  \a offset, \a dims and \a sizes must have the same rank/size
+ *  \a offset[0], \a dims and \a sizes must have the same size. \a offset may
+ *  have a second dimension with an element per tile, which can eliminate
+ *  exchange.
  *  \param graph       The poplar graph
  *  \param t           The source tensor
  *  \param offset      A tensor of offsets at which the output is extracted
@@ -38,6 +40,9 @@ poplar::Tensor dynamicSlice(poplar::Graph &graph,
  *  \a dims gives the dimensions that are partialy updated, by \a sizes elements
  *  at offsets \a offset. Unspecified dimensions are copied in full with zero
  *  offset.
+ *  \a offset[0], \a dims and \a sizes must have the same size. \a offset may
+ *  have a second dimension with an element per tile, which can eliminate
+ *  exchange.
  *  \param graph       The poplar graph
  *  \param t           The tensor to update
  *  \param s           The updates

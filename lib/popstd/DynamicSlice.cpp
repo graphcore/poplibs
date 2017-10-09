@@ -7,18 +7,18 @@
 #include <cassert>
 #include <numeric>
 #include <algorithm>
-
 using namespace poplar;
 using namespace poplar::program;
 
+#include <iostream>//EAEA
 namespace popstd {
 
 /** Create vertices with matching elements in t2d and s2d
  * \param vName     The base name of vertices to create
  * \param graph     The graph to update
  * \param cs        The compute set to update
- * \param offset    0-d tensor giving the offset within t2d corresponding to the
- *                  first element in s2d
+ * \param offset    The offset within t2d corresponding to the first element in
+ *                  s2d. A single element for all tiles, or one element per tile
  * \param t2d       A 2d base tensor
  * \param s2d       A 2d sub tensor
  **/
@@ -40,6 +40,11 @@ static void generateVertices(std::string vertexName,
   const unsigned numSubElements = s2d.dim(0);
   assert(numSubElements <= numBaseElements);
 
+  // offset can be specified for each tile
+  std::cerr<<"EAEA rank "<<offset.rank()<<" numE "<<offset.numElements()<<"\n";
+  assert((offset.rank() == 0 && offset.numElements() == 1) ||
+         (offset.rank() == 1 && offset.numElements() == numTiles));
+
   // map vertices following the mapping of t's first slice
   const auto mapping = graph.getTileMapping(t2d[0]);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
@@ -49,7 +54,7 @@ static void generateVertices(std::string vertexName,
       // do nothing on this tile
       continue;
 
-
+    auto &tileOffset = offset.numElements() == 1 ? offset : offset[tile];
     if (tileContiguousRegions.size() == 1) {
       unsigned regionSize = 0;
       std::vector<Tensor> baseSlices, subSlices; // [slice]
@@ -71,7 +76,7 @@ static void generateVertices(std::string vertexName,
         auto v = graph.addVertex(cs,
                                 templateVertex(vertexName + "2d",
                                                 t2d.elementType()),
-                                 {{"offset", offset},
+                                 {{"offset", tileOffset},
                                   {"baseT", tileBase},
                                   {"subT", tileSub}
                                  });
@@ -105,7 +110,7 @@ static void generateVertices(std::string vertexName,
       }
       auto v = graph.addVertex(cs,
                                templateVertex(vertexName, t2d.elementType()),
-                               {{"offset", offset},
+                               {{"offset", tileOffset},
                                 {"baseT", base},
                                 {"subT", sub}
                                });
@@ -124,7 +129,7 @@ static void generateVertices(std::string vertexName,
  * \param graph           The poplar graph
  * \param t               The source tensor
  * \param offset          The offset in \a's \a dim dimension. This tensor must
- *                        be rank 0
+ *                        have a single element, or an element per tile
  * \param dim             The dimension to slice
  * \param numOutIndices   The size of the output Tensor in the sliced dimension
  * \param prog            The program to be updated
@@ -142,7 +147,6 @@ static Tensor slice(Graph &graph,
   const unsigned numInIndices = t.dim(dim);
   assert(dim < t.rank());
   assert(numOutIndices <= t.dim(dim));
-  assert(offset.rank() == 0); // Index must be a rank-0 tensor
   // Get a 2d view of the source tensor, with the dim we're slicing at dim0
   // and the other dimensions collapsed into dim1
   Tensor t2d = t.dimRoll(dim).reshape({numInIndices,
@@ -168,7 +172,7 @@ static Tensor slice(Graph &graph,
  *  \param s            The subtensor to insert. Its dimensions must match t's,
  *                      except in dimension \a dim
  *  \param offset       The offset in \a t's \a dim dimension. This tensor must
- *                      be rank 0
+ *                      have either a single element, or an element per tile
  *  \param dim          The dimension in which to insert
  *  \param prog         The program to be updated
  *  \param debugPrefix  The prefix prepended to debugging info
@@ -192,7 +196,6 @@ static void update(Graph &graph,
   }
   assert(dim < t.rank());
   assert(numSElements <= numTElements);
-  assert(offset.rank() == 0); // Index must be a rank-0 tensor
   // Get a 2d view of the source tensor, with the dim we're updating at dim0
   // and the other dimensions collapsed into dim1
   Tensor t2d = t.dimRoll(dim).reshape({numTElements,
@@ -216,7 +219,7 @@ Tensor dynamicSlice(Graph &graph,
                     const std::string &debugPrefix = "")
 {
   auto tRank = t.rank();
-  if (offset.rank() != 1 || offset.numElements() != dims.size()
+  if (offset.rank() > 2 || offset.dim(0) != dims.size()
       || dims.size() != sizes.size())
     throw graph_connection_error(
       "dynamicSlice offset (" + std::to_string(offset.numElements()) +
@@ -245,12 +248,11 @@ Tensor dynamicSlice(Graph &graph,
 
   for (auto i : idxOrder) {
     out = slice(graph, out,
-                offset[i].reshape({}),
+                offset[i],
                 dims[i],
                 sizes[i],
                 prog,
-                debugPrefix + "dynamicSlice_d" +
-                std::to_string(dims[i]));
+                debugPrefix + "/dynamicSlice_d" + std::to_string(dims[i]));
   }
 
   return out;
@@ -284,11 +286,11 @@ void dynamicUpdate(Graph &graph,
   for (unsigned i = 0; i != idxOrder.size() - 1; ++i) {
     auto dim = idxOrder[i];
     reducedT.emplace_back(slice(graph, reducedT[i],
-                                offset[dim].reshape({}),
+                                offset[dim],
                                 dims[dim],
                                 sizes[dim],
                                 prog,
-                                debugPrefix + "dynamicUpdateS_d" +
+                                debugPrefix + "/dynamicUpdateS_d" +
                                 std::to_string(dims[i])));
   }
   // copy s into the reduced t, iterating back to full dimensions
@@ -296,7 +298,7 @@ void dynamicUpdate(Graph &graph,
   for (unsigned ii = idxOrder.size(); ii != 0; --ii) {
     auto i = ii - 1;
     auto dsIdx = idxOrder[i]; // index into dims[] and sizes[]
-    update(graph, reducedT[i], reducedT[i + 1], offset[dsIdx].reshape({}),
+    update(graph, reducedT[i], reducedT[i + 1], offset[dsIdx],
            dims[dsIdx], prog,
            debugPrefix + "/dynamicUpdateU_d" + std::to_string(dims[dsIdx]));
   }
