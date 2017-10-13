@@ -41,6 +41,8 @@ static std::string vertexName(enum UnaryOp op) {
   switch(op) {
   case ABSOLUTE:
     return "popstd::Absolute";
+  case BITWISE_NOT:
+    return "popstd::BitwiseNot";
   case CEIL:
     return "popstd::Ceil";
   case COS:
@@ -77,6 +79,10 @@ static std::string vertexName(enum BinaryOp op) {
   switch(op) {
     case ADD:
       return "popstd::Add";
+    case BITWISE_AND:
+      return "popstd::BitwiseAnd";
+    case BITWISE_OR:
+      return "popstd::BitwiseOr";
     case DIVIDE:
       return "popstd::Divide";
     case EQUAL:
@@ -319,6 +325,24 @@ Tensor add(Graph &graph, Tensor A, Tensor B, Sequence &prog,
 Tensor abs(Graph &graph, Tensor A, Sequence &prog,
            const std::string &debugPrefix) {
   return unaryOp(graph, A, prog, UnaryOp::ABSOLUTE, debugPrefix + "/Op/Abs");
+}
+
+Tensor bitwiseAnd(Graph &graph, Tensor A, Tensor B, Sequence &prog,
+           const std::string &debugPrefix) {
+  return binaryOp(graph, A, B, prog, BinaryOp::BITWISE_AND,
+                  debugPrefix + "/Op/BitwiseAnd");
+}
+
+Tensor bitwiseOr(Graph &graph, Tensor A, Tensor B, Sequence &prog,
+           const std::string &debugPrefix) {
+  return binaryOp(graph, A, B, prog, BinaryOp::BITWISE_OR,
+                  debugPrefix + "/Op/BitwiseOr");
+}
+
+Tensor bitwiseNot(Graph &graph, Tensor A, Sequence &prog,
+           const std::string &debugPrefix) {
+  return unaryOp(graph, A, prog, UnaryOp::BITWISE_NOT,
+                 debugPrefix + "/Op/BitwiseNot");
 }
 
 Tensor ceil(Graph &graph, Tensor A, Sequence &prog,

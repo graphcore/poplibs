@@ -10,6 +10,8 @@ enum TernaryOp {
 
 enum BinaryOp {
   ADD,
+  BITWISE_AND,
+  BITWISE_OR,
   DIVIDE,
   EQUAL,
   GREATER_THAN_EQUAL,
@@ -29,6 +31,7 @@ enum BinaryOp {
 
 enum UnaryOp {
   ABSOLUTE,
+  BITWISE_NOT,
   CEIL,
   COS,
   EXPONENT,

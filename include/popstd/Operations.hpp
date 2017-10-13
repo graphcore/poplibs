@@ -12,6 +12,21 @@ poplar::Tensor add(poplar::Graph &graph,
                    poplar::program::Sequence &prog,
                    const std::string &debugPrefix = "");
 
+poplar::Tensor bitwiseAnd(poplar::Graph &graph,
+                          poplar::Tensor A, poplar::Tensor B,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "");
+
+poplar::Tensor bitwiseOr(poplar::Graph &graph,
+                         poplar::Tensor A, poplar::Tensor B,
+                         poplar::program::Sequence &prog,
+                         const std::string &debugPrefix = "");
+
+poplar::Tensor bitwiseNot(poplar::Graph &graph,
+                   poplar::Tensor A,
+                   poplar::program::Sequence &prog,
+                   const std::string &debugPrefix = "");
+
 poplar::Tensor abs(poplar::Graph &graph,
                    poplar::Tensor A,
                    poplar::program::Sequence &prog,

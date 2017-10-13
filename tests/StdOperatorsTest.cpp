@@ -281,6 +281,33 @@ BOOST_AUTO_TEST_CASE(StdOperationAddInt,
   binaryOpTest<int, int>(popstd::add, [](int x, int y) -> int {return x + y;});
 }
 
+BOOST_AUTO_TEST_CASE(StdOperationBitwiseAndInt,
+                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                     ) {
+  binaryOpTest<int, int>(popstd::bitwiseAnd,
+                         [](int x, int y) -> int {return x & y;});
+}
+
+BOOST_AUTO_TEST_CASE(StdOperationBitwiseOrInt,
+                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                     ) {
+  binaryOpTest<int, int>(popstd::bitwiseOr,
+                         [](int x, int y) -> int {return x | y;});
+}
+
+BOOST_AUTO_TEST_CASE(StdOperationBitwiseNotInt,
+                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                     ) {
+  unaryOpTest<int, int>(popstd::bitwiseNot,
+                        [](int x) -> int { return ~x;});
+}
+
 BOOST_AUTO_TEST_CASE(StdOperationCeil,
                   *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))

@@ -429,6 +429,123 @@ template class Add<half>;
 template class Add<int>;
 
 template <typename InType>
+class BitwiseAnd : public Vertex {
+public:
+  Vector<Input<Vector<InType>>> in1;
+  Vector<Input<Vector<InType>>> in2;
+  Vector<Output<Vector<InType>>> out;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    assert(in1.size() == out.size());
+    assert(in2.size() == in1.size());
+    for (unsigned i = 0; i != in1.size(); ++i) {
+      assert(in1[i].size() == out[i].size());
+      assert(in2[i].size() == in1[i].size());
+      for (unsigned j = 0; j != in1[i].size(); ++j) {
+        out[i][j] = in1[i][j] & in2[i][j];
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    uint64_t cycles = 5;
+    for (unsigned i = 0; i < in1.size(); ++i) {
+      unsigned numElem = in1[i].size();
+      unsigned overhead = 6;
+      unsigned vectorWidth = 2;
+      unsigned cyclesPerVector = 1;
+
+      // AND in parallel with ld2xstpace
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
+    }
+    return cycles;
+  }
+};
+
+template class BitwiseAnd<int>;
+
+
+template <typename InType>
+class BitwiseNot : public Vertex {
+public:
+  Vector<Input<Vector<InType>>> in;
+  Vector<Output<Vector<InType>>> out;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    assert(in.size() == out.size());
+    for (unsigned i = 0; i != in.size(); ++i) {
+      assert (in[i].size() == out[i].size());
+      for (unsigned j = 0; j != in[i].size(); ++j) {
+        out[i][j] = ~in[i][j];
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    uint64_t cycles = 7;
+    for (unsigned i = 0; i < in.size(); ++i) {
+      unsigned numElem = in[i].size();
+      unsigned overhead = 6;
+      unsigned vectorWidth = 2;
+      unsigned cyclesPerVector = 1;
+
+      // NOT on AUX side, ldst64pace
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
+    }
+    return cycles;
+  }
+};
+
+template class BitwiseNot<int>;
+
+
+template <typename InType>
+class BitwiseOr : public Vertex {
+public:
+  Vector<Input<Vector<InType>>> in1;
+  Vector<Input<Vector<InType>>> in2;
+  Vector<Output<Vector<InType>>> out;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    assert(in1.size() == out.size());
+    assert(in2.size() == in1.size());
+    for (unsigned i = 0; i != in1.size(); ++i) {
+      assert(in1[i].size() == out[i].size());
+      assert(in2[i].size() == in1[i].size());
+      for (unsigned j = 0; j != in1[i].size(); ++j) {
+        out[i][j] = in1[i][j] | in2[i][j];
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    uint64_t cycles = 5;
+    for (unsigned i = 0; i < in1.size(); ++i) {
+      unsigned numElem = in1[i].size();
+      unsigned overhead = 6;
+      unsigned vectorWidth = 2;
+      unsigned cyclesPerVector = 1;
+
+      // OR on AUX side, ld2xstpace
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
+    }
+    return cycles;
+  }
+};
+
+template class BitwiseOr<int>;
+
+
+template <typename InType>
 class Ceil : public Vertex {
 public:
   Vector<Input<Vector<InType>>> in;
