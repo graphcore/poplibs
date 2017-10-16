@@ -1533,6 +1533,123 @@ template class Round<float>;
 template class Round<half>;
 
 template <typename InType>
+class ShiftLeft : public Vertex {
+public:
+  Vector<Input<Vector<InType>>> in1;
+  Vector<Input<Vector<InType>>> in2;
+  Vector<Output<Vector<InType>>> out;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    assert(in1.size() == out.size());
+    assert(in2.size() == in1.size());
+    for (unsigned i = 0; i != in1.size(); ++i) {
+      assert(in1[i].size() == out[i].size());
+      assert(in2[i].size() == in1[i].size());
+      for (unsigned j = 0; j != in1[i].size(); ++j) {
+        out[i][j] = in1[i][j] << in2[i][j];
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    uint64_t cycles = 5;
+    for (unsigned i = 0; i < in1.size(); ++i) {
+      unsigned numElem = in1[i].size();
+      unsigned overhead = 6;
+      unsigned vectorWidth = 1;
+      unsigned cyclesPerVector = 3;
+
+      // OR on AUX side, ld2xstpace
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
+    }
+    return cycles;
+  }
+};
+
+template class ShiftLeft<int>;
+
+template <typename InType>
+class ShiftRight : public Vertex {
+public:
+  Vector<Input<Vector<InType>>> in1;
+  Vector<Input<Vector<InType>>> in2;
+  Vector<Output<Vector<InType>>> out;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    assert(in1.size() == out.size());
+    assert(in2.size() == in1.size());
+    for (unsigned i = 0; i != in1.size(); ++i) {
+      assert(in1[i].size() == out[i].size());
+      assert(in2[i].size() == in1[i].size());
+      for (unsigned j = 0; j != in1[i].size(); ++j) {
+        out[i][j] = (unsigned)in1[i][j] >> in2[i][j];
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    uint64_t cycles = 5;
+    for (unsigned i = 0; i < in1.size(); ++i) {
+      unsigned numElem = in1[i].size();
+      unsigned overhead = 6;
+      unsigned vectorWidth = 1;
+      unsigned cyclesPerVector = 3;
+
+      // OR on AUX side, ld2xstpace
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
+    }
+    return cycles;
+  }
+};
+
+template class ShiftRight<int>;
+
+template <typename InType>
+class ShiftRightSignExtend : public Vertex {
+public:
+  Vector<Input<Vector<InType>>> in1;
+  Vector<Input<Vector<InType>>> in2;
+  Vector<Output<Vector<InType>>> out;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    assert(in1.size() == out.size());
+    assert(in2.size() == in1.size());
+    for (unsigned i = 0; i != in1.size(); ++i) {
+      assert(in1[i].size() == out[i].size());
+      assert(in2[i].size() == in1[i].size());
+      for (unsigned j = 0; j != in1[i].size(); ++j) {
+        out[i][j] = in1[i][j] >> in2[i][j];
+      }
+    }
+    return true;
+  }
+
+  uint64_t getCycleEstimate() const {
+    uint64_t cycles = 5;
+    for (unsigned i = 0; i < in1.size(); ++i) {
+      unsigned numElem = in1[i].size();
+      unsigned overhead = 6;
+      unsigned vectorWidth = 1;
+      unsigned cyclesPerVector = 3;
+
+      // OR on AUX side, ld2xstpace
+      cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+                                  cyclesPerVector);
+    }
+    return cycles;
+  }
+};
+
+template class ShiftRightSignExtend<int>;
+
+template <typename InType>
 class Signum : public Vertex {
 public:
   Vector<Input<Vector<InType>>> in;

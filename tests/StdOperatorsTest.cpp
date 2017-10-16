@@ -746,6 +746,39 @@ BOOST_AUTO_TEST_CASE(StdOperationRemainderInt,
                          });
 }
 
+BOOST_AUTO_TEST_CASE(StdOperationShiftLeftInt,
+                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  ) {
+  binaryOpTest<int, int, int>(popstd::shiftLeft,
+                              [](int x, int y) -> int {
+                                 return x << y;
+                              });
+}
+
+BOOST_AUTO_TEST_CASE(StdOperationShiftRightInt,
+                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  ) {
+  binaryOpTest<int, int, int>(popstd::shiftRight,
+                              [](int x, int y) -> int {
+                                return (unsigned)x >> y;
+                              });
+}
+
+BOOST_AUTO_TEST_CASE(StdOperationShiftRightSignExtendInt,
+                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  ) {
+  binaryOpTest<int, int, int>(popstd::shiftRightSignExtend,
+                              [](int x, int y) -> int {
+                                return x >> y;
+                              });
+}
+
 BOOST_AUTO_TEST_CASE(StdOperationSignumFloat,
                   *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
@@ -769,7 +802,6 @@ BOOST_AUTO_TEST_CASE(StdOperationSignumInt,
                                 return res;
                              });
 }
-
 
 BOOST_AUTO_TEST_CASE(StdOperationSin,
                   *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))

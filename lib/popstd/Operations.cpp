@@ -111,6 +111,12 @@ static std::string vertexName(enum BinaryOp op) {
       return "popstd::Power";
     case REMAINDER:
       return "popstd::Remainder";
+    case SHIFT_LEFT:
+      return "popstd::ShiftLeft";
+    case SHIFT_RIGHT:
+      return "popstd::ShiftRight";
+    case SHIFT_RIGHT_SIGN_EXTEND:
+      return "popstd::ShiftRightSignExtend";
     case SUBTRACT:
       return "popstd::Subtract";
   }
@@ -485,6 +491,25 @@ Tensor rem(Graph &graph, Tensor A, Tensor B, Sequence &prog,
 Tensor round(Graph &graph, Tensor A, Sequence &prog,
              const std::string &debugPrefix) {
   return unaryOp(graph, A, prog, UnaryOp::ROUND, debugPrefix + "/Op/Round");
+}
+
+
+Tensor shiftLeft(Graph &graph, Tensor A, Tensor B, Sequence &prog,
+                 const std::string &debugPrefix) {
+  return binaryOp(graph, A, B, prog, BinaryOp::SHIFT_LEFT,
+                  debugPrefix + "/Op/Lsl");
+}
+
+Tensor shiftRight(Graph &graph, Tensor A, Tensor B, Sequence &prog,
+                  const std::string &debugPrefix) {
+  return binaryOp(graph, A, B, prog, BinaryOp::SHIFT_RIGHT,
+                  debugPrefix + "/Op/Lsr");
+}
+
+Tensor shiftRightSignExtend(Graph &graph, Tensor A, Tensor B, Sequence &prog,
+                            const std::string &debugPrefix) {
+  return binaryOp(graph, A, B, prog, BinaryOp::SHIFT_RIGHT_SIGN_EXTEND,
+                  debugPrefix + "/Op/Asr");
 }
 
 Tensor signum(Graph &graph, Tensor A, Sequence &prog,

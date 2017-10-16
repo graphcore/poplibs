@@ -7,6 +7,11 @@
 
 namespace popstd {
 
+poplar::Tensor abs(poplar::Graph &graph,
+                   poplar::Tensor A,
+                   poplar::program::Sequence &prog,
+                   const std::string &debugPrefix = "");
+
 poplar::Tensor add(poplar::Graph &graph,
                    poplar::Tensor A, poplar::Tensor B,
                    poplar::program::Sequence &prog,
@@ -23,11 +28,6 @@ poplar::Tensor bitwiseOr(poplar::Graph &graph,
                          const std::string &debugPrefix = "");
 
 poplar::Tensor bitwiseNot(poplar::Graph &graph,
-                   poplar::Tensor A,
-                   poplar::program::Sequence &prog,
-                   const std::string &debugPrefix = "");
-
-poplar::Tensor abs(poplar::Graph &graph,
                    poplar::Tensor A,
                    poplar::program::Sequence &prog,
                    const std::string &debugPrefix = "");
@@ -154,6 +154,21 @@ poplar::Tensor round(poplar::Graph &graph,
                      poplar::Tensor A,
                      poplar::program::Sequence &prog,
                      const std::string &debugPrefix = "");
+
+poplar::Tensor shiftLeft(poplar::Graph &graph,
+                         poplar::Tensor A, poplar::Tensor B,
+                         poplar::program::Sequence &prog,
+                         const std::string &debugPrefix = "");
+
+poplar::Tensor shiftRight(poplar::Graph &graph,
+                          poplar::Tensor A, poplar::Tensor B,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "");
+
+poplar::Tensor shiftRightSignExtend(poplar::Graph &graph,
+                                    poplar::Tensor A, poplar::Tensor B,
+                                    poplar::program::Sequence &prog,
+                                    const std::string &debugPrefix = "");
 
 poplar::Tensor signum(poplar::Graph &graph,
                       poplar::Tensor A,
