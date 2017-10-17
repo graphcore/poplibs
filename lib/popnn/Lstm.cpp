@@ -700,9 +700,10 @@ uint64_t getBasicLstmCellBwdFlops(unsigned sequenceSize, unsigned batchSize,
                         + 6 * multFlopsUnit + matMulFlops
                         + matMulAddFlops
                         // adding 4 gradients
-                        + 3 * (sequenceSize * batchSize * outputSize)
-                        + 3 * (sequenceSize * batchSize * inputSize
-                               * calcInputGrad);
+                        + 3 * static_cast<uint64_t>(sequenceSize) * batchSize
+                            * outputSize
+                        + 3 * static_cast<uint64_t>(sequenceSize) * batchSize
+                            * inputSize * calcInputGrad;
   return totalFlops;
 }
 
@@ -710,13 +711,15 @@ uint64_t getBasicLstmCellWuFlops(unsigned sequenceSize, unsigned batchSize,
                                   unsigned inputSize, unsigned outputSize) {
   uint64_t prevLayerActsFlops = 4 * static_cast<uint64_t>(inputSize)
                                 * outputSize * batchSize * sequenceSize
-                               + 4 * inputSize * outputSize * (batchSize - 1)
-                                   * sequenceSize;
+                               + 4 * static_cast<uint64_t>(inputSize) *
+                                 outputSize * (batchSize - 1) * sequenceSize;
   uint64_t thisLayerActsFlops = 4 * static_cast<uint64_t>(outputSize)
                                   * outputSize * batchSize * sequenceSize
-                               + 4 * outputSize * outputSize * (batchSize - 1)
+                               + 4 * static_cast<uint64_t>(outputSize) *
+                                 outputSize * (batchSize - 1)
                                  * sequenceSize;
-  uint64_t biasFlops = 4 * (batchSize - 1) * outputSize * sequenceSize;
+  uint64_t biasFlops = 4 * (batchSize - 1) * static_cast<uint64_t>(outputSize)
+                         * sequenceSize;
   return prevLayerActsFlops + thisLayerActsFlops + biasFlops;
 }
 
