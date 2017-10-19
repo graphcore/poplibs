@@ -1374,6 +1374,19 @@ swapOperands(ConvParams &params) {
   std::swap(params.batchSize, params.outputChannels);
 }
 
+static std::vector<bool> getSwapOperandCandidates(const ConvOptions &options) {
+  switch (options.pass) {
+  case Pass::FC_TRAINING_FWD:
+  case Pass::FC_TRAINING_BWD:
+  case Pass::FC_TRAINING_WU:
+    // The joint planning logic doesn't yet handle swapped operands.
+    // TODO lift this restriction.
+    return {false};
+  default:
+    return {false, true};
+  }
+}
+
 static std::pair<Plan, Cost>
 createPlan(ConvParams params,
            std::string partialsType,
@@ -1385,7 +1398,7 @@ createPlan(ConvParams params,
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   Cost bestCost = highestCost;
   Plan bestPlan;
-  for (bool swapOperands : {false, true} ) {
+  for (bool swapOperands : getSwapOperandCandidates(options)) {
     auto swappedParams = params;
     if (swapOperands) {
       popconv::swapOperands(swappedParams);
@@ -1541,6 +1554,7 @@ static Plan getFullyConnectedWUPlan(const poplar::DeviceInfo &deviceInfo,
                                     const Plan &fwdPlan) {
   assert(fwdPlan.method == Plan::Method::AMP ||
          fwdPlan.method == Plan::Method::MAC);
+  assert(!fwdPlan.swapOperands);
   auto plan = fwdPlan;
   plan.linearizeTileOrder = Plan::LinearizeTileOrder::FC_WU;
   plan.tilesPerInZGroupAxis = fwdPlan.tilesPerZAxis;
@@ -1575,6 +1589,7 @@ static Plan getFullyConnectedBwdPlan(const poplar::DeviceInfo &deviceInfo,
                                       const ConvParams &fwdParams,
                                       const ConvOptions &fwdOptions,
                                       const Plan &fwdPlan) {
+  assert(!fwdPlan.swapOperands);
   auto plan = fwdPlan;
   plan.method = getFullyConnectedBwdMethod(fwdParams, fwdPlan.method);
   plan.linearizeTileOrder = Plan::LinearizeTileOrder::FC_BWD_AS_CONV;

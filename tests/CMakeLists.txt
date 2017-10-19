@@ -1186,6 +1186,14 @@ add_test(NAME grouped_fully_connected_batch_fwd_one_tile
                  --num-groups 2
                  --inference-only)
 
+# Fully connected layer where the RHS has fewer elements than the LHS
+add_test(NAME fully_connected_small_rhs
+         COMMAND fully_connected_layer
+                 --batch-size=64
+                 --input-size=512
+                 --output-size=4
+                 --data-type half)
+
 add_test(NAME max_pool_layer_half
          COMMAND pooling_layer
                  --channels 32
