@@ -2361,34 +2361,12 @@ convolution(Graph &graph, const poplar::Tensor &in_,
     weights = weightsRearranged;
   }
 
-  Tensor activations;
   if (plan.useWinograd) {
-    const auto wgOutputShape = getOutputShape(params);
-    in = splitActivationChanGroups(in, plan.inChansPerGroup);
-    weights = groupWeights(weights, plan.inChansPerGroup,
-                           plan.partialChansPerGroup);
-    activations =
-        graph.addTensor(dType,
-                       {numConvGroups,
-                        wgOutputShape[0],
-                        wgOutputShape[3]
-                         / (plan.partialChansPerGroup * numConvGroups),
-                        wgOutputShape[1], outputShape[2],
-                        plan.partialChansPerGroup});
-    // TODO - Change to a more efficient tile mapping for a winograd
-    // convolution output.
-    mapTensorLinearly(graph, activations);
-    prog.add(winogradConvolution(graph, params, in[0], weights[1],
-                                 activations[0],
-                                 plan.winogradPatchSize, plan.winogradPatchSize,
-                                 plan.floatPartials ? "float" : "half",
-                                 debugPrefix, options));
-    activations = unsplitActivationChanGroups(activations);
-  } else {
-    const auto layerName = debugPrefix + "/Conv" + convSuffix(params);
-    activations =
-        convolutionImpl(graph, plan, params, in, weights, prog, layerName);
+    throw popstd::poplib_error("Winograd not yet supported");
   }
+  const auto layerName = debugPrefix + "/Conv" + convSuffix(params);
+  auto activations =
+      convolutionImpl(graph, plan, params, in, weights, prog, layerName);
   activations = convolutionPostprocess(graph, originalParams, originalPlan,
                                        activations);
   return unsplitActivationConvGroups(activations);
