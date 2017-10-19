@@ -1035,8 +1035,8 @@ template class ScaledAddToChannel<half>;
 template <class FPType>
 class ChannelMul : public Vertex {
 public:
-  Vector<InOut<Vector<FPType>>> actsIn;
-  Vector<InOut<Vector<FPType>>> actsOut;
+  Vector<Input<Vector<FPType>>> actsIn;
+  Vector<Output<Vector<FPType>>> actsOut;
   Vector<Input<Vector<FPType>>> scale;
 
   SimOnlyField<unsigned> dataPathWidth;
