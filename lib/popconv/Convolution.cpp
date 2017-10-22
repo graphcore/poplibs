@@ -2520,19 +2520,17 @@ void weightsTransposeChansFlipXY(Graph &graph,
     prog.add(Execute(cs));
   }
 
-  auto wFlippedY =
-      graph.addTensor(dType, {GC, O/G1, I/G2, 0, KX, G1/G5, G2, G5});
+  std::vector<Tensor> flipped;
   for (int wy = KY - 1; wy >= 0; --wy) {
-     wFlippedY = concat(wFlippedY,
-                        partiallyTransposed.slice(wy, wy + 1, 3), 3);
+    flipped.push_back(partiallyTransposed.slice(wy, wy + 1, 3));
   }
+  auto wFlippedY = concat(flipped, 3);
 
-  auto wFlippedYX =
-      graph.addTensor(dType, {GC, O/G1, I/G2, KY, 0, G1/G5, G2, G5});
+  flipped.clear();
   for (int wx = KX - 1; wx >= 0; --wx) {
-     wFlippedYX = concat(wFlippedYX,
-                         wFlippedY.slice(wx, wx + 1, 4), 4);
+    flipped.push_back(wFlippedY.slice(wx, wx + 1, 4));
   }
+  auto wFlippedYX = concat(flipped, 4);
   prog.add(Copy(wFlippedYX.dimShuffle({0, 3, 4, 1, 5, 7, 2, 6})
                            .reshape({GC, KY, KX, O/G4, G4, I/G3, G3})
                            .dimShuffle({0, 5, 3, 1, 2, 6, 4}),
