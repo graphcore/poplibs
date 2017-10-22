@@ -398,9 +398,15 @@ addFlattenedRegions(const std::vector<std::size_t> &shape,
   while (!done) {
     unsigned regionBegin = getFlattenedIndex(shape, indices);
     unsigned regionEnd = regionBegin + (end.back() - begin.back());
-    regions.emplace_back(regionBegin, regionEnd);
+    if (!regions.empty() &&
+        regions.back().end() == regionBegin) {
+      regions.back() = Interval<std::size_t>(regions.back().begin(),
+                                             regionEnd);
+    } else {
+      regions.emplace_back(regionBegin, regionEnd);
+    }
     done = true;
-    for (unsigned dim = 0; dim != numDims - 1; ++dim) {
+    for (int dim = numDims - 2; dim >= 0; --dim) {
       if (indices[dim] + 1 == end[dim]) {
         indices[dim] = begin[dim];
       } else {
