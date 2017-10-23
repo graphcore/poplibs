@@ -82,20 +82,20 @@ std::pair<unsigned, unsigned>
 getInputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
               std::pair<unsigned, unsigned> kernelRange,
               const ConvParams &params) {
-  unsigned inputBegin = 0, inputEnd = 0;
-  for (unsigned k = kernelRange.first; k != kernelRange.second; ++k) {
-    auto inputRange = getInputRange(dim, outputRange, k, params);
-    if (inputRange.first != inputRange.second) {
-      inputBegin = inputRange.first;
-      break;
-    }
-  }
+  unsigned inputEnd = 0;
+  unsigned minBegin = 0, maxEnd = params.inputFieldShape[dim];
   for (unsigned k = kernelRange.second; k != kernelRange.first; --k) {
     auto inputRange = getInputRange(dim, outputRange, k - 1, params);
-    if (inputRange.first != inputRange.second) {
-      inputEnd = inputRange.second;
+    inputEnd = std::max(inputEnd, inputRange.second);
+    if (inputEnd == maxEnd)
       break;
-    }
+  }
+  unsigned inputBegin = inputEnd;
+  for (unsigned k = kernelRange.first; k != kernelRange.second; ++k) {
+    auto inputRange = getInputRange(dim, outputRange, k, params);
+    inputBegin = std::min(inputBegin, inputRange.first);
+    if (inputBegin == minBegin)
+      break;
   }
   return {inputBegin, inputEnd};
 }
