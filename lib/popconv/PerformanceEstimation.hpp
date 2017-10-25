@@ -2,6 +2,7 @@
 #define _performance_estimation_h_
 
 #include "popnn/NonLinearity.hpp"
+#include <limits>
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
@@ -53,6 +54,53 @@ getConvPartialHorizontalMacCycleEstimate(
                                              0U);
   return getConvPartialHorizontalMacCycleEstimate(isFloat, numChans, convCount,
                                                   totalConvSize, dataPathWidth);
+}
+
+inline std::uint64_t
+getConvPartial1x1SupervisorCycleEstimate(
+    const std::vector<std::vector<unsigned>> &workerList,
+    unsigned numConvGroups,
+    unsigned numInGroups,
+    unsigned numOutGroups,
+    unsigned convUnitPipelineDepth,
+    unsigned numConvUnitsPerTile,
+    unsigned convUnitCoeffLoadBytesPerCycle,
+    bool useDeltasForEdges) {
+  const auto numWorkerContexts = 6;
+  uint64_t maxWorkerCycles = 0;
+  uint64_t minWorkerCycles = workerList.size() < numWorkerContexts ?
+                             0 : std::numeric_limits<uint64_t>::max();
+  for (const auto &worker : workerList) {
+    uint64_t thisWorkerCycles = 9;
+    for (auto wi : worker) {
+      const auto numElems =  wi;
+      thisWorkerCycles += 20 + numElems * 4;
+    }
+    maxWorkerCycles =
+      std::max(maxWorkerCycles, numWorkerContexts * thisWorkerCycles);
+    minWorkerCycles =
+      std::min(minWorkerCycles, numWorkerContexts * thisWorkerCycles);
+  }
+
+  // tag cost to worker with min cycles
+  maxWorkerCycles = std::max(maxWorkerCycles, minWorkerCycles + 22);
+
+  const auto coeffBytesPerPipelineStage = 8;
+  const auto numLoads = convUnitPipelineDepth
+                          * numConvUnitsPerTile
+                          * coeffBytesPerPipelineStage
+                          / convUnitCoeffLoadBytesPerCycle;
+  if (useDeltasForEdges) {
+    const uint64_t supervisorNonloopOverhead = 48;
+    return supervisorNonloopOverhead + numConvGroups
+           * (numInGroups
+              * (9 + numOutGroups * (10 + numLoads + maxWorkerCycles)));
+  } else {
+    const uint64_t supervisorNonloopOverhead = 39;
+    return supervisorNonloopOverhead + numConvGroups
+           * (numInGroups
+              * (8 + numOutGroups * (8 + numLoads + maxWorkerCycles)));
+  }
 }
 
 inline std::uint64_t

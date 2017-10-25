@@ -207,119 +207,101 @@ template <class FPType, class AccumType, bool useDeltasForEdges>
 class ConvPartial1x1Out: public SupervisorVertex {
 public:
   Vector<Input<Vector<FPType>>> in;
-  Input<Vector<FPType>> weights;
+  Vector<Input<Vector<FPType>>> weights;
   Vector<Output<Vector<AccumType>>> out;
-  Vector<unsigned> weightReuseCount;
-
-  SimOnlyField<unsigned> inChansPerGroup;
+  Vector<Input<Vector<unsigned>>> worklists;
+  unsigned numConvGroups;
+  unsigned numOutGroups;
+  unsigned numInGroups;
+  unsigned inStride;
   SimOnlyField<unsigned> outChansPerGroup;
+  SimOnlyField<unsigned> inChansPerGroup;
   SimOnlyField<unsigned> dataPathWidth;
-  SimOnlyField<unsigned> weightsPerConvUnit;
+  SimOnlyField<unsigned> convUnitPipelineDepth;
   SimOnlyField<unsigned> convUnitCoeffLoadBytesPerCycle;
+  SimOnlyField<bool> useDeltaForEdges;
 
   bool compute() {
-    unsigned numContexts = weightReuseCount.size();
-    assert(weights.size() % (inChansPerGroup * outChansPerGroup) == 0);
-    const auto numInChanGroups =
-        weights.size() / (inChansPerGroup * outChansPerGroup);
-    assert(in.size() == out.size());
-    unsigned conv = 0;
-    for (unsigned inChanGroup = 0; inChanGroup != numInChanGroups;
-         ++inChanGroup) {
-      for (unsigned context = 0; context < numContexts; ++context) {
-        unsigned endConv = conv + weightReuseCount[context];
-        for (;conv != endConv; ++conv) {
-          assert(out[conv].size() % outChansPerGroup == 0);
-          const auto outWidth = out[conv].size() / outChansPerGroup;
-          assert(in[conv].size() % inChansPerGroup == 0);
-          const auto inWidth = in[conv].size() / inChansPerGroup;
-          unsigned inStride;
-          if (outWidth == 1) {
-            assert(inWidth == 1);
-            inStride = 0;
-          } else {
-            assert((inWidth - 1) % (outWidth - 1) == 0);
-            inStride = (inWidth - 1) / (outWidth - 1);
-          }
-          for (unsigned x = 0; x != outWidth; ++x) {
-            for (unsigned outChanIndex = 0; outChanIndex != outChansPerGroup;
-                 ++outChanIndex) {
-              const auto outIndex =
-                  outChanIndex + outChansPerGroup * x;
-              if (inChanGroup == 0)
-                out[conv][outIndex] = 0;
-              float sum = 0;
-              for (unsigned inChanIndex = 0; inChanIndex != inChansPerGroup;
-                   ++inChanIndex) {
-                const auto weightIndex =
-                    inChanIndex + inChansPerGroup * (
-                      outChanIndex + outChansPerGroup * (
-                        inChanGroup
-                      )
-                    );
-                const auto inIndex =
-                    inChanIndex + inChansPerGroup * x * inStride;
-                sum += weights[weightIndex] * in[conv][inIndex];
+    const auto numContexts = worklists.size();
+    assert(numConvGroups * numOutGroups * numInGroups == weights.size());
+    assert(out.size() == numOutGroups * numConvGroups);
+    for (unsigned cg = 0; cg < numConvGroups; ++cg) {
+      for (unsigned og = 0; og < numOutGroups; ++og) {
+        for (unsigned ig = 0; ig < numInGroups; ++ig) {
+          const auto &w = weights[cg * numOutGroups * numInGroups +
+                                  og * numInGroups +
+                                  ig];
+          for (unsigned context = 0; context < numContexts; ++context) {
+            const auto &wl = worklists[context];
+            unsigned wi = 0;
+            while (wi < wl.size()) {
+              auto outOffset  = wl[wi];
+              auto outWidth   = wl[wi + 1];
+              auto inOffset   = wl[wi + 2];
+              wi += 3;
+              auto numConv = outWidth;
+              for (unsigned i = 0; i < numConv; ++i) {
+                for (unsigned outChan = 0;
+                     outChan < outChansPerGroup;
+                     ++outChan) {
+                  const auto outIndex =
+                      (outOffset + i) * outChansPerGroup + outChan;
+                  if (ig == 0)
+                    out[cg * numOutGroups + og][outIndex] = 0;
+                  float sum = 0;
+                  for (unsigned inChan = 0;
+                       inChan < inChansPerGroup;
+                       ++inChan) {
+                    const auto inIndex =
+                        (inOffset + i * inStride) * inChansPerGroup + inChan;
+                    const auto weightIndex =
+                        outChan * inChansPerGroup + inChan;
+                    sum += in[cg * numInGroups + ig][inIndex] *
+                           w[weightIndex];
+                  }
+                  out[cg * numOutGroups + og][outIndex] += sum;
+                }
               }
-              out[conv][outIndex] += sum;
             }
           }
         }
       }
     }
-    assert(conv == out.size());
     return true;
   }
-
-  uint64_t getCycleEstimate() const {
-    const auto numContexts = weightReuseCount.size();
-    const auto numConvUnitsPerTile = outChansPerGroup;
-    const auto bitWidth = std::is_same<FPType, float>::value ? 32 : 16;
-    assert(dataPathWidth % bitWidth == 0);
-    const auto vectorWidth = dataPathWidth / bitWidth;
-    assert(inChansPerGroup % vectorWidth == 0);
-    assert(weightsPerConvUnit % vectorWidth == 0);
-    const auto convUnitPipelineDepth = weightsPerConvUnit / vectorWidth;
-    std::vector<std::vector<std::vector<unsigned>>>
-        convolutionsByWeightAndWorker;
-    const auto numInChanGroups =
-        weights.size() / (inChansPerGroup * outChansPerGroup);
-    unsigned convNum = 0;
-    for (unsigned inChanGroup = 0; inChanGroup != numInChanGroups;
-         ++inChanGroup) {
-      convolutionsByWeightAndWorker.emplace_back();
-      auto &convolutionsByWeight = convolutionsByWeightAndWorker.back();
-      for (unsigned c = 0; c != numContexts; ++c) {
-        convolutionsByWeight.emplace_back();
-        for (unsigned i = 0; i != weightReuseCount[c];
-             ++i) {
-          auto convSize = out[convNum].size() / outChansPerGroup;
-          convolutionsByWeight.back().push_back(convSize);
-          ++convNum;
-        }
+  std::uint64_t getCycleEstimate() const {
+    // find max work to bt done per worker
+    std::vector<std::vector<unsigned>> workerPartitions;
+    const auto numContexts = worklists.size();
+    for (unsigned context = 0; context != numContexts; ++context) {
+      workerPartitions.emplace_back();
+      const auto &wl = worklists[context];
+      assert(wl.size() % 3 == 0);
+      for (unsigned wi = 0; wi != wl.size(); wi += 3) {
+        workerPartitions.back().push_back(wl[wi + 1]);
       }
     }
-    assert(convNum == out.size());
-    return getConvPartialnx1SupervisorCycleEstimate(
-      convolutionsByWeightAndWorker,
-      1,
-      convUnitPipelineDepth,
-      numConvUnitsPerTile,
-      convUnitCoeffLoadBytesPerCycle,
-      1,
-      useDeltasForEdges
-    );
+    return
+      getConvPartial1x1SupervisorCycleEstimate(workerPartitions,
+                                               numConvGroups,
+                                               numInGroups,
+                                               numOutGroups,
+                                               convUnitPipelineDepth,
+                                               outChansPerGroup,
+                                               convUnitCoeffLoadBytesPerCycle,
+                                               useDeltaForEdges
+                                               );
   }
 };
 
-template class ConvPartial1x1Out<float, float, true>;
-template class ConvPartial1x1Out<float, half, true>;
-template class ConvPartial1x1Out<half, float, true>;
 template class ConvPartial1x1Out<half, half, true>;
-template class ConvPartial1x1Out<float, float, false>;
-template class ConvPartial1x1Out<float, half, false>;
-template class ConvPartial1x1Out<half, float, false>;
+template class ConvPartial1x1Out<half, float, true>;
+template class ConvPartial1x1Out<float, half, true>;
+template class ConvPartial1x1Out<float, float, true>;
 template class ConvPartial1x1Out<half, half, false>;
+template class ConvPartial1x1Out<half, float, false>;
+template class ConvPartial1x1Out<float, half, false>;
+template class ConvPartial1x1Out<float, float, false>;
 
 /* Perform a series of 1x1 convolutions using the MAC instruction were the
  * axis of accumulation is across the vector. */

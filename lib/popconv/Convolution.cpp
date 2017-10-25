@@ -1205,111 +1205,159 @@ createBiases(poplar::Graph &graph, const Tensor &acts_,
   return biases;
 }
 
+
 static void
 createConvPartial1x1OutVertex(Graph &graph,
+                              const Plan &plan,
+                              std::string dType,
                               unsigned tile,
-                              unsigned batchBegin, unsigned batchEnd,
-                              unsigned outXBegin, unsigned outXEnd,
-                              unsigned outYBegin, unsigned outYEnd,
-                              unsigned ozg,
-                              unsigned kernelY,
-                              unsigned inZGroupBegin, unsigned inZGroupEnd,
-                              unsigned cg,
+                              const ConvSlice &slice,
                               const ConvParams &params,
                               ComputeSet fwdCS,
-                              const Tensor &in, const Tensor &weights,
-                              const Tensor &out) {
-  const auto inChansPerGroup = static_cast<unsigned>(in.dim(5));
-  const auto outChansPerGroup = static_cast<unsigned>(out.dim(5));
-  const auto dType = in.elementType();
+                              Tensor in, Tensor weights, Tensor out) {
+  const auto kernelY = slice.kernelYBegin;
+  assert(slice.kernelYEnd == kernelY + 1);
+  const auto batchBegin = slice.batchBegin;
+  const auto batchEnd = slice.batchEnd;
+  auto outYBegin = slice.outYBegin;
+  auto outYEnd = slice.outYEnd;
+  auto outXBegin = slice.outXBegin;
+  auto outXEnd = slice.outXEnd;
+  const auto outZGroupBegin = slice.outZGroupBegin;
+  const auto outZGroupEnd = slice.outZGroupEnd;
+  const auto cgBegin = slice.cgBegin;
+  const auto cgEnd = slice.cgEnd;
+  const auto inZGroupBegin = slice.inZGroupBegin;
+  const auto inZGroupEnd = slice.inZGroupEnd;
+  const auto inChansPerGroup = plan.inChansPerGroup;
+  const auto outChansPerGroup = plan.partialChansPerGroup;
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
-  const auto contextsPerVertex = deviceInfo.numWorkerContexts;
-  const auto weightsPerConvUnit =
-      deviceInfo.getWeightsPerConvUnit(dType == "float");
+  const auto convUnitPipelineDepth = deviceInfo.convUnitPipelineDepth;
   const auto convUnitCoeffLoadBytesPerCycle =
-                deviceInfo.convUnitCoeffLoadBytesPerCycle;
-  const auto outHeight = outYEnd - outYBegin;
-  const auto outWidth = outXEnd - outXBegin;
-  const auto partialType = out.elementType();
+      deviceInfo.convUnitCoeffLoadBytesPerCycle;
+  std::vector<Tensor> outWindow;
+  for (unsigned cg = cgBegin; cg < cgEnd; ++cg) {
+    for (unsigned ozg = outZGroupBegin; ozg < outZGroupEnd; ++ozg) {
+      auto o =
+        out.slice({cg, ozg, batchBegin,
+                   outYBegin, outXBegin, 0},
+                   {cg + 1, ozg + 1, batchEnd, outYEnd,
+                    outXEnd, out.dim(5)})
+           .flatten();
+      graph.setTileMapping(o, tile);
+      outWindow.push_back(o);
+    }
+  }
   unsigned inYBegin, inYEnd, inXBegin, inXEnd;
-  std::tie(inYBegin, inYEnd) =
-      getInputRange(0, {outYBegin, outYEnd}, kernelY, params);
-  std::tie(inXBegin, inXEnd) =
-      getInputRange(1, {outXBegin, outXEnd}, params);
+  std::tie(inYBegin, inYEnd) = getInputRange(0, {outYBegin, outYEnd},
+                                             kernelY, params);
+  std::tie(inXBegin, inXEnd) = getInputRange(1, {outXBegin, outXEnd}, params);
 
-  std::vector<std::vector<PartialRow>> workerPartition;
-  workerPartition =
-      partitionConvPartialByWorker(batchEnd - batchBegin, outHeight, outWidth,
-                                   contextsPerVertex, params.inputDilation);
+  std::vector<Tensor> inWindow;
+  for (unsigned cg = cgBegin; cg < cgEnd; ++cg) {
+    for (unsigned izg = inZGroupBegin; izg < inZGroupEnd; ++izg) {
+      inWindow.push_back(in.slice({cg, izg, batchBegin,
+                                   inYBegin, inXBegin, 0},
+                                  {cg + 1, izg + 1, batchEnd, inYEnd,
+                                   inXEnd, in.dim(5)}).flatten());
+    }
+  }
 
-  std::vector<Tensor> inputEdges;
-  std::vector<Tensor> outputEdges;
-
-  unsigned numConvolutions = 0;
-  for (unsigned izg = inZGroupBegin; izg != inZGroupEnd; ++izg) {
-    for (unsigned i = 0; i != contextsPerVertex; ++i) {
-      for (const auto &partialRow : workerPartition[i]) {
-        const auto b = batchBegin + partialRow.b;
-        const auto workerOutY = outYBegin + partialRow.y;
-        const auto workerOutXBegin = outXBegin + partialRow.xBegin;
-        const auto workerOutXEnd = outXBegin + partialRow.xEnd;
-        const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
-        const auto workerInY = getInputIndex(0, workerOutY, kernelY, params);
-        assert(workerInY != ~0U);
-        unsigned workerInXBegin, workerInXEnd;
-        std::tie(workerInXBegin, workerInXEnd) =
-            getInputRange(1, {workerOutXBegin, workerOutXEnd}, params);
-        const auto workerInWidth = workerInXEnd - workerInXBegin;
-        assert(workerInWidth != 0);
-        Tensor inWindow =
-            in[cg][izg][b][workerInY].slice(
-              {workerInXBegin, 0},
-              {workerInXEnd, inChansPerGroup}
-            ).reshape({workerInWidth * inChansPerGroup});
-        Tensor outWindow =
-            out[cg][ozg][b][workerOutY].slice(
-              {workerOutXBegin, 0},
-              {workerOutXEnd, outChansPerGroup}
-            ).reshape({workerOutWidth * outChansPerGroup});
-        inputEdges.push_back(inWindow);
-        outputEdges.push_back(outWindow);
-        graph.setTileMapping(outWindow, tile);
-        ++numConvolutions;
+  assert(weights.dim(4) == 1);
+  std::vector<Tensor> weightsWindow;
+  for (unsigned cg = cgBegin; cg < cgEnd; ++cg) {
+    for (unsigned ozg = outZGroupBegin; ozg < outZGroupEnd; ++ozg) {
+      for (unsigned izg = inZGroupBegin; izg < inZGroupEnd; ++izg) {
+        weightsWindow.push_back(
+              weights.slice({cg, ozg, izg, kernelY, 0, 0, 0},
+                            {cg + 1, ozg + 1, izg + 1, kernelY + 1,
+                             1, weights.dim(5), weights.dim(6)})
+                     .flatten()
+        );
       }
     }
   }
-  const auto numEdges = 1 + 2 * numConvolutions;
 
-  // Add the vertex.
-  Tensor w =
-      weights[cg][ozg].slice(
-  {inZGroupBegin, kernelY, 0, 0, 0},
-  {inZGroupEnd, kernelY + 1, 1, outChansPerGroup, inChansPerGroup}
-        ).flatten();
-  auto v = graph.addVertex(
-        fwdCS,
-        templateVertex("popconv::ConvPartial1x1Out", dType, partialType,
-                       useDeltaEdgesForConvPartials(numEdges) ?
-                                                    "true" : "false"),
-        {{"weights", w}}
-        );
-  graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
+  unsigned numEdges = outWindow.size() + inWindow.size() + weightsWindow.size();
+
+  const auto outHeight = outYEnd - outYBegin;
+  const auto outWidth = outXEnd - outXBegin;
+  const auto inHeight = inYEnd - inYBegin;
+  const auto inWidth = inXEnd - inXBegin;
+  const auto contextsPerVertex = deviceInfo.numWorkerContexts;
+  std::vector<std::vector<unsigned>> worklist(contextsPerVertex);
+  unsigned convOutYBegin, convOutYEnd;
+  std::tie(convOutYBegin, convOutYEnd) =
+      getOutputRange(0, {outYBegin, outYEnd}, kernelY, params);
+  const auto convOutHeight = convOutYEnd - convOutYBegin;
+  if (convOutHeight == 0)
+    return;
+  unsigned convOutXBegin, convOutXEnd;
+  std::tie(convOutXBegin, convOutXEnd) =
+      getOutputRange(1, {outXBegin, outXEnd}, 0, params);
+  const auto convOutWidth = convOutXEnd - convOutXBegin;
+  if (convOutWidth == 0)
+    return;
+  auto workerPartition =
+      partitionConvPartialByWorker(batchEnd - batchBegin, convOutHeight,
+                                   convOutWidth, contextsPerVertex,
+                                   params.inputDilation);
+  for (unsigned i = 0; i != contextsPerVertex; ++i) {
+    for (const auto &partialRow : workerPartition[i]) {
+      const auto workerOutY = convOutYBegin + partialRow.y;
+      auto workerOutXBegin = convOutXBegin + partialRow.xBegin;
+      auto workerOutXEnd = convOutXBegin + partialRow.xEnd;
+      std::tie(workerOutXBegin, workerOutXEnd) =
+          getOutputRange(1, {workerOutXBegin, workerOutXEnd}, 0, params);
+      const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
+      if (workerOutWidth == 0)
+        continue;
+      const auto workerInY = getInputIndex(0, workerOutY, kernelY, params);
+      if (workerInY == ~0U)
+        continue;
+      unsigned workerInXBegin, workerInXEnd;
+      std::tie(workerInXBegin, workerInXEnd) =
+          getInputRange(1, {workerOutXBegin, workerOutXEnd}, 0, params);
+      const auto outBeginOffset =
+          partialRow.b * outHeight * outWidth +
+          (workerOutY - outYBegin) * outWidth +
+          (workerOutXBegin - outXBegin);
+      const auto inBeginOffset =
+          partialRow.b * inHeight * inWidth +
+          (workerInY - inYBegin) * inWidth +
+          (workerInXBegin - inXBegin);
+      worklist[i].push_back(outBeginOffset);
+      worklist[i].push_back(workerOutWidth);
+      worklist[i].push_back(inBeginOffset);
+    }
+  }
+  auto v =
+    graph.addVertex(fwdCS,
+                    templateVertex("popconv::ConvPartial1x1Out",
+                                   dType,
+                                   plan.getPartialType(),
+                                   useDeltaEdgesForConvPartials(numEdges) ?
+                                                          "true" : "false"));
+  graph.connect(v["in"], inWindow);
+  graph.connect(v["out"], outWindow);
+  graph.connect(v["weights"], weightsWindow);
   graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
+  graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
+  graph.setInitialValue(v["numOutGroups"], outZGroupEnd - outZGroupBegin);
+  graph.setInitialValue(v["numInGroups"], inZGroupEnd - inZGroupBegin);
+  graph.setInitialValue(v["inStride"], params.stride.back());
+  graph.setInitialValue(v["numConvGroups"], cgEnd - cgBegin);
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-  graph.setInitialValue(v["weightsPerConvUnit"], weightsPerConvUnit);
+  graph.setInitialValue(v["convUnitPipelineDepth"], convUnitPipelineDepth);
   graph.setInitialValue(v["convUnitCoeffLoadBytesPerCycle"],
                         convUnitCoeffLoadBytesPerCycle);
-  graph.setFieldSize(v["weightReuseCount"], contextsPerVertex);
-  for (unsigned i = 0; i != contextsPerVertex; ++i) {
-    graph.setInitialValue(
-          v["weightReuseCount"][i],
-        static_cast<std::uint32_t>(workerPartition[i].size())
-        );
+  graph.setFieldSize(v["worklists"], worklist.size());
+  for (unsigned i = 0;i < worklist.size(); ++i) {
+    auto t = graph.addConstantTensor("unsigned", {worklist[i].size()},
+                                     worklist[i].data());
+    graph.connect(v["worklists"][i], t);
   }
-  graph.connect(v["in"], inputEdges);
-  graph.connect(v["out"], outputEdges);
-  // Map the vertex and output.
   graph.setTileMapping(v, tile);
 }
 
@@ -1878,18 +1926,8 @@ calcPartialConvOutput(Graph &graph,
   }
   if (useConvPartial1x1OutVertex) {
     assert(!zeroPartialsBefore);
-    for (unsigned cg = cgBegin; cg != cgEnd; ++cg) {
-      for (unsigned ozg = outZGroupBegin; ozg != outZGroupEnd; ++ozg) {
-        createConvPartial1x1OutVertex(graph, tile,
-                                      batchBegin, batchEnd,
-                                      outXBegin, outXEnd,
-                                      outYBegin, outYEnd, ozg,
-                                      kernelYBegin, inZGroupBegin, inZGroupEnd,
-                                      cg,
-                                      params,
-                                      fwdCS, in, weights, out);
-      }
-    }
+    createConvPartial1x1OutVertex(graph, plan, dType, tile, slice, params,
+                                  fwdCS, in, weights, out);
   } else {
     mapPartialSums(graph, slice, tile, zeroPartialsBefore, zeroCS, out);
     switch (plan.method) {
