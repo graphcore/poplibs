@@ -317,11 +317,11 @@ Tensor pool(Graph &graph,
   // Create output
   auto chansPerGroup = detectChannelGrouping(in);
   auto outGrouped =
-      graph.addTensor(dType, {batchSize, numChannels / chansPerGroup,
+      graph.addTensor(dType, {numChannels / chansPerGroup, batchSize,
                               outHeight, outWidth, chansPerGroup},
                       debugPrefix + "/" + asString(poolingType) + "Pool");
   mapTensorLinearly(graph, outGrouped);
-  auto out = outGrouped.dimShufflePartial({1}, {3})
+  auto out = outGrouped.dimShufflePartial({0}, {3})
                        .reshape({batchSize, outHeight, outWidth, numChannels});
 
   const auto numTiles = deviceInfo.getNumTiles();

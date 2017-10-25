@@ -92,7 +92,7 @@ unsplitActivationConvGroups(const Tensor &act) {
 }
 
 // Reshape the activations tensor from [G][N][H][W][C] shape to
-// [G][N][C1][H][W][C2]
+// [G][C1][N][H][W][C2]
 //
 // Where C1 * C2 = C
 static Tensor
@@ -100,11 +100,11 @@ splitActivationChanGroups(const Tensor &act, unsigned chansPerGroup) {
   assert(act.rank() == 5);
   assert(act.dim(4) % chansPerGroup == 0);
   return act.reshapePartial(4, 5, {act.dim(4) / chansPerGroup, chansPerGroup})
-            .dimShufflePartial({4}, {2});
+            .dimShufflePartial({4}, {1});
 }
 
 // Reshape the activations tensor from [G][N][H][W][C] shape to
-// [G][N][C1][H][W][C2]
+// [G][C1][N][H][W][C2]
 //
 // Where C1 * C2 = C
 static Tensor
@@ -113,15 +113,15 @@ splitActivationChanGroups(const Tensor &act) {
   return splitActivationChanGroups(act, chansPerGroup);
 }
 
-// Reshape the activations tensor from [G][N][C1][H][W][C2] shape to
+// Reshape the activations tensor from [G][C1][N][H][W][C2] shape to
 // [G][N][H][W][C]
 //
 // Where C1 * C2 = C
 static Tensor
 unsplitActivationChanGroups(const Tensor &act) {
   assert(act.rank() == 6);
-  return act.dimShufflePartial({2}, {4})
-            .reshapePartial(4, 6, {act.dim(2) * act.dim(5)});
+  return act.dimShufflePartial({1}, {4})
+            .reshapePartial(4, 6, {act.dim(1) * act.dim(5)});
 }
 
 static std::pair<unsigned, unsigned>
@@ -654,8 +654,8 @@ calculateActivationMapping(Graph &graph, const ConvParams &params,
   const auto numInChanGroups = numInChans / plan.inChansPerGroup;
   std::vector<std::size_t> actsShape = {
     params.getNumConvGroups(),
-    params.getBatchSize(),
     numInChanGroups,
+    params.getBatchSize(),
     params.getInputHeight(),
     params.getInputWidth(),
     plan.inChansPerGroup
@@ -674,14 +674,14 @@ calculateActivationMapping(Graph &graph, const ConvParams &params,
     std::vector<Interval<std::size_t>> intervals;
     addFlattenedRegions(actsShape,
                         {slice.cgBegin,
-                         slice.batchBegin,
                          slice.inZGroupBegin,
+                         slice.batchBegin,
                          inYRange.first,
                          inXRange.first,
                          0},
                         {slice.cgEnd,
-                         slice.batchEnd,
                          slice.inZGroupEnd,
+                         slice.batchEnd,
                          inYRange.second,
                          inXRange.second,
                          plan.inChansPerGroup},
@@ -1004,8 +1004,8 @@ createInputImpl(Graph &graph, const ConvParams &params,
   auto t =
       graph.addTensor(params.dType,
                       {params.getNumConvGroups(),
-                       params.getBatchSize(),
                        params.getInputDepthPerConvGroup() / inChansPerGroup,
+                       params.getBatchSize(),
                        params.inputFieldShape[0],
                        params.inputFieldShape[1],
                        inChansPerGroup},
@@ -1263,12 +1263,12 @@ createConvPartial1x1OutVertex(Graph &graph,
         const auto workerInWidth = workerInXEnd - workerInXBegin;
         assert(workerInWidth != 0);
         Tensor inWindow =
-            in[cg][b][izg][workerInY].slice(
+            in[cg][izg][b][workerInY].slice(
               {workerInXBegin, 0},
               {workerInXEnd, inChansPerGroup}
             ).reshape({workerInWidth * inChansPerGroup});
         Tensor outWindow =
-            out[cg][b][ozg][workerOutY].slice(
+            out[cg][ozg][b][workerOutY].slice(
               {workerOutXBegin, 0},
               {workerOutXEnd, outChansPerGroup}
             ).reshape({workerOutWidth * outChansPerGroup});
@@ -1467,7 +1467,7 @@ createConvPartialnx1Vertex(Graph &graph,
                                              workerInWidth * inChansPerGroup);
                     } else {
                       inWindow =
-                          in[cg][workerB][izg][workerInY].slice(
+                          in[cg][izg][workerB][workerInY].slice(
                             {workerInXBegin, 0},
                             {workerInXEnd, inChansPerGroup}
                           ).reshape({workerInWidth * inChansPerGroup});
@@ -1475,7 +1475,7 @@ createConvPartialnx1Vertex(Graph &graph,
                     inputEdges.push_back(inWindow);
                   }
                   Tensor outWindow =
-                      out[cg][workerB][ozg][workerOutY].slice(
+                      out[cg][ozg][workerB][workerOutY].slice(
                         {workerOutXBegin, 0},
                         {workerOutXEnd, outChansPerGroup}
                       ).reshape({workerOutWidth * outChansPerGroup})
@@ -1586,11 +1586,11 @@ createConvPartialHorizontalMacVertex(
             continue;
           auto outRange = getOutputRange(1, {outXBegin, outXEnd}, kx, params);
           Tensor inWindow =
-              in[cg][b][izg][inY].slice(inRange.first, inRange.second)
+              in[cg][izg][b][inY].slice(inRange.first, inRange.second)
                                  .flatten();
           Tensor weightsWindow = weights[cg][ozg][izg][ky][kx].flatten();
           Tensor outWindow =
-              out[cg][b][ozg][y].slice(outRange.first, outRange.second)
+              out[cg][ozg][b][y].slice(outRange.first, outRange.second)
                                 .flatten();
           inEdges.emplace_back(std::move(inWindow));
           weightsEdges.emplace_back(std::move(weightsWindow));
@@ -1652,8 +1652,8 @@ createOuterProductVertex(
   assert(weights.dim(3) == 1);
   assert(weights.dim(4) == 1);
   assert(weights.dim(6) == 1);
-  assert(out.dim(1) == 1);
-  assert(out.dim(2) == weights.dim(1));
+  assert(out.dim(1) == weights.dim(1));
+  assert(out.dim(2) == 1);
   assert(out.dim(3) == 1);
   assert(out.dim(4) == in.dim(4));
   assert(out.dim(5) == weights.dim(5));
@@ -1664,8 +1664,8 @@ createOuterProductVertex(
     const auto chanEnd = chanGroupEnd * chansPerGroup;
     auto inWindow = in[cg].flatten().slice(xBegin, xEnd);
     auto outWindow =
-        out[cg].slice({0, chanGroupBegin, 0, xBegin, 0},
-                      {1, chanGroupEnd, 1, xEnd, chansPerGroup})
+        out[cg].slice({chanGroupBegin, 0, 0, xBegin, 0},
+                      {chanGroupEnd, 1, 1, xEnd, chansPerGroup})
                .reshape({chanGroupEnd - chanGroupBegin,
                          (xEnd - xBegin) * chansPerGroup});
     auto weightsWindow = weights[cg].flatten().slice(chanBegin, chanEnd);
@@ -1704,9 +1704,9 @@ mapPartialSums(Graph &graph, const ConvSlice &slice, unsigned tile,
       for (unsigned ozg = tileOutZGroupBegin; ozg != tileOutZGroupEnd; ++ozg) {
         for (unsigned y = outYBegin; y != outYEnd; ++y) {
           const auto regionBegin = flattenIndex(out.shape(),
-                                                {cg, b, ozg, y, outXBegin, 0});
+                                                {cg, ozg, b, y, outXBegin, 0});
           const auto regionEnd =
-              flattenIndex(out.shape(), {cg, b, ozg, y, outXEnd - 1,
+              flattenIndex(out.shape(), {cg, ozg, b, y, outXEnd - 1,
                                          out.dim(5) - 1}) + 1;
           graph.setTileMapping(flatOut.slice(regionBegin, regionEnd), tile);
           if (zeroPartials) {
@@ -2157,7 +2157,7 @@ convolutionImpl(Graph &graph, const Plan &plan,
   in = splitActivationChanGroups(in, plan.inChansPerGroup);
   weights = groupWeights(weights, plan.inChansPerGroup,
                          plan.partialChansPerGroup);
-  const auto numBatchGroups = in.dim(1);
+  const auto numBatchGroups = in.dim(2);
   const auto dType = in.elementType();
   const auto outNumChans = weights.dim(1) * weights.dim(5);
   const auto partialChansPerGroup = plan.partialChansPerGroup;
@@ -2172,8 +2172,8 @@ convolutionImpl(Graph &graph, const Plan &plan,
   Tensor partials = graph.addTensor(partialType,
                                      {tilesPerInZGroup * tilesPerKernelY,
                                       params.getNumConvGroups(),
-                                      numBatchGroups,
                                       partialNumChanGroups,
+                                      numBatchGroups,
                                       params.getOutputHeight(),
                                       params.getOutputWidth(),
                                       partialChansPerGroup},
@@ -2656,7 +2656,7 @@ convChannelReduce(Graph &graph,
   }
   assert(computeSets.size() == 3);
 
-  // Force convolution grouping to be 1.
+  // Force convolution grouping to be 1
   auto inGrouped =
       splitActivationChanGroups(splitActivationConvGroups(in, 1))[0];
 
@@ -2677,15 +2677,15 @@ convChannelReduce(Graph &graph,
   auto dType = inGrouped.elementType();
   auto numTiles = deviceInfo.getNumTiles();
   auto numOut = dst.numElements();
-  auto batchSize = inGrouped.dim(0);
-  auto inNumChanGroups = inGrouped.dim(1);
   auto inDimY = inGrouped.dim(2), inDimX = inGrouped.dim(3);
   auto inChansPerGroup = inGrouped.dim(4);
+  auto batchSize = inGrouped.dim(1);
   // Before the cross tile reduction. Reduce biases on each tile.
-  auto inFlatField = inGrouped.reshapePartial(2, 4, {inDimY * inDimX});
+  auto inFlatField = inGrouped.reshapePartial(1, 4,
+                                              {batchSize * inDimY * inDimX});
 
   // Calculate which bias groups have values to reduce on each tile
-  auto firstInGroup = inFlatField.slice(0, 1, 3).squeeze({3});
+  auto firstInGroup = inFlatField.slice(0, 1, 2).squeeze({2});
   auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
   std::vector<std::map<unsigned, std::vector<Interval<std::size_t>>>>
       tileLocalReductions(numTiles);
@@ -2695,28 +2695,18 @@ convChannelReduce(Graph &graph,
       auto last = interval.end() - 1;
       auto beginIndices = popstd::unflattenIndex(firstInGroup.shape(), begin);
       auto lastIndices = popstd::unflattenIndex(firstInGroup.shape(), last);
-      for (unsigned b = beginIndices[0]; b != lastIndices[0] + 1; ++b) {
-        unsigned groupBegin = b == beginIndices[0] ?
-                              beginIndices[1] :
-                              0;
-        unsigned groupLast = b == lastIndices[0] ?
-                             lastIndices[1] :
-                             firstInGroup.dim(1) - 1;
-        for (unsigned g = groupBegin; g != groupLast + 1; ++g) {
-          unsigned fieldBegin = b == beginIndices[0] &&
-                                g == beginIndices[1] ?
-                                beginIndices[2] :
-                                0;
-          unsigned fieldLast = b == lastIndices[0] &&
-                               g == lastIndices[1] ?
-                               lastIndices[2] :
-                               firstInGroup.dim(2) - 1;
-          unsigned flatBegin = flattenIndex(firstInGroup.shape(),
-                                            {b, g, fieldBegin});
-          unsigned flatLast = flattenIndex(firstInGroup.shape(),
-                                           {b, g, fieldLast});
-          tileLocalReductions[tile][g].emplace_back(flatBegin, flatLast + 1);
-        }
+      for (unsigned g = beginIndices[0]; g != lastIndices[0] + 1; ++g) {
+        unsigned fieldBegin = g == beginIndices[0] ?
+                                   beginIndices[1] :
+                                   0;
+        unsigned fieldLast = g == lastIndices[0] ?
+                                  lastIndices[1] :
+                                  firstInGroup.dim(1) - 1;
+        unsigned flatBegin = flattenIndex(firstInGroup.shape(),
+                                          {g, fieldBegin});
+        unsigned flatLast = flattenIndex(firstInGroup.shape(),
+                                         {g, fieldLast});
+        tileLocalReductions[tile][g].emplace_back(flatBegin, flatLast + 1);
       }
     }
   }
@@ -2744,7 +2734,7 @@ convChannelReduce(Graph &graph,
       unsigned numRanges = 0;
       for (const auto &interval : entry.second) {
         auto in = inGroups.slice(interval.begin(), interval.end())
-                               .flatten();
+                          .flatten();
         graph.connect(v["in"][numRanges++], in);
       }
       graph.setFieldSize(v["in"], numRanges);
@@ -2902,8 +2892,7 @@ addToChannel(Graph &graph, const Tensor &actsUngrouped,
   const auto addendByGroup =
       addend.reshape({addend.numElements() / outChansPerGroup,
                       outChansPerGroup});
-  const auto firstInGroup = acts.dimShufflePartial({0}, {1})
-                                .slice(0, 1, 4)
+  const auto firstInGroup = acts.slice(0, 1, 4)
                                 .reshapePartial(2, 5,
                                                 {acts.dim(2) * acts.dim(3)});
   const auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
@@ -2944,7 +2933,7 @@ addToChannel(Graph &graph, const Tensor &actsUngrouped,
                             lastIndices[2] :
                             firstInGroup.dim(2) - 1;
             auto actsWindow =
-                acts[b][g].flatten().slice(begin * outChansPerGroup,
+                acts[g][b].flatten().slice(begin * outChansPerGroup,
                                            (last + 1) * outChansPerGroup);
             graph.connect(v["acts"][num], actsWindow);
             graph.connect(v["addend"][num], addendWindow);
@@ -3106,8 +3095,7 @@ channelMul(Graph &graph, const Tensor &actsUngrouped, const Tensor &scale,
   const auto scaleByGroup =
       scale.reshape({scale.numElements() / outChansPerGroup,
                       outChansPerGroup});
-  const auto firstInGroup = acts.dimShufflePartial({0}, {1})
-                                .slice(0, 1, 4)
+  const auto firstInGroup = acts.slice(0, 1, 4)
                                 .reshapePartial(2, 5,
                                                 {acts.dim(2) * acts.dim(3)});
   const auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
@@ -3143,10 +3131,10 @@ channelMul(Graph &graph, const Tensor &actsUngrouped, const Tensor &scale,
                             lastIndices[2] :
                             firstInGroup.dim(2) - 1;
             auto actsWindow =
-                acts[b][g].flatten().slice(begin * outChansPerGroup,
+                acts[g][b].flatten().slice(begin * outChansPerGroup,
                                            (last + 1) * outChansPerGroup);
             auto actsScaledWindow =
-                actsScaled[b][g].flatten().slice(begin * outChansPerGroup,
+                actsScaled[g][b].flatten().slice(begin * outChansPerGroup,
                                                 (last + 1) * outChansPerGroup);
             graph.connect(v["actsIn"][num], actsWindow);
             graph.connect(v["actsOut"][num], actsScaledWindow);
