@@ -2348,7 +2348,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
             bool transposeAndFlipWeights, Sequence &prog,
             const std::string &debugPrefix, const ConvOptions &options) {
   auto weights = weights_;
-  if (weights.rank() == params_.getNumKernelDims() + 2) {
+  if (weights.rank() == params_.getNumFieldDims() + 2) {
     weights = weights.expand({0});
   }
   auto params = params_;

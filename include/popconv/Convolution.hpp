@@ -138,7 +138,6 @@ struct ConvParams {
   std::size_t getInputDepth() const { return inputChannels * numConvGroups; }
   std::size_t getNumConvGroups() const { return numConvGroups; }
   std::size_t getNumFieldDims() const { return inputFieldShape.size(); }
-  std::size_t getNumKernelDims() const { return kernelShape.size(); }
   std::size_t getBatchSize() const { return batchSize; }
 
   int getPaddedDilatedInputSize(unsigned dim) const {
