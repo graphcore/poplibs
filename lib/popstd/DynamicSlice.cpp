@@ -210,6 +210,41 @@ static void update(Graph &graph,
 
 }
 
+// If we are slicing up a tensor with the given `shape` in the dimensions
+// `dims`, and the slice size in each dimension is `sizes`, then what is
+// the best order to do the slices? The returned vector contains
+// indexes into `dims` (and `sizes`).
+static std::vector<size_t> bestSliceOrder(const std::vector<std::size_t> &shape,
+                                          const std::vector<std::size_t> &dims,
+                                          const std::vector<std::size_t> &sizes)
+{
+
+  assert(dims.size() == sizes.size());
+  assert(dims.size() == shape.size());
+
+  // Process the dimensions in an order that slices out the most elements
+  // first. That dimension is the one that reduces the size of the tensor
+  // to the lowest percentage of its former size. Since each slice only
+  // reduces the tensor's size in one dimension, that percentage is equal to
+  //
+  //    sizes[a] / shape[dims[a]]
+  //
+  // so if we sort on  (sizes[a] / shape[dims[a]] < sizes[b] / shape[dims[b]])
+  // then we should end up slicing in an optimal order.
+
+  // Initialise with default order (0, 1, 2...)
+  std::vector<size_t> idxOrder(dims.size());
+  std::iota(idxOrder.begin(), idxOrder.end(), 0);
+
+  // Sort the most slicey dimension first. Assumes no integer overflows.
+  std::sort(idxOrder.begin(), idxOrder.end(),
+            [&](size_t a, size_t b) {
+              return sizes[b] * shape[dims[a]] > sizes[a] * shape[dims[b]];
+            });
+
+  return idxOrder;
+}
+
 Tensor dynamicSlice(Graph &graph,
                     const Tensor &t,
                     const Tensor &offset,
@@ -238,13 +273,9 @@ Tensor dynamicSlice(Graph &graph,
       throw graph_connection_error(
         "dynamicSlice: requested output dimension bigger than input");
   }
-  // process variable offsets in order of decreasing size
   Tensor out = t;
-  std::vector<size_t> idxOrder(dims.size());
-  std::iota(idxOrder.begin(), idxOrder.end(), 0);
-  std::sort(idxOrder.begin(), idxOrder.end(),
-            [&](size_t a, size_t b) {
-              return t.dim(dims[a]) > t.dim(dims[b]);});
+
+  auto idxOrder = bestSliceOrder(t.shape(), dims, sizes);
 
   for (auto i : idxOrder) {
     out = slice(graph, out,
@@ -274,13 +305,10 @@ void dynamicUpdate(Graph &graph,
   // each time.
   if (offset.rank() == 0)
     return;
-  std::vector<Tensor> reducedT;
-  std::vector<size_t> idxOrder(dims.size());
-  std::iota(idxOrder.begin(), idxOrder.end(), 0);
-  std::sort(idxOrder.begin(), idxOrder.end(),
-            [&](size_t a, size_t b) {
-              return t.dim(dims[a]) > t.dim(dims[b]);});
 
+  auto idxOrder = bestSliceOrder(t.shape(), dims, sizes);
+
+  std::vector<Tensor> reducedT;
   reducedT.emplace_back(t); // reducedT[0] = t
   // slice off the larger dimensions one at a time
   for (unsigned i = 0; i != idxOrder.size() - 1; ++i) {

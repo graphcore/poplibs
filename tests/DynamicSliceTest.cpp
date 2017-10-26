@@ -1,6 +1,7 @@
 #define BOOST_TEST_MODULE DynamicSliceTest
 #include <iostream>
 #include <vector>
+#include <sstream>
 #include <boost/test/unit_test.hpp>
 #include <boost/test/framework.hpp>
 #include <popstd/DynamicSlice.hpp>
@@ -413,4 +414,56 @@ BOOST_AUTO_TEST_CASE(Update_5_element){
 // Test insertion of a 2x2 element
 BOOST_AUTO_TEST_CASE(Update_5_2x2){
   testSmallUpdate(5, {0, 1}, {2, 2});
+}
+
+// Check that slices happen in the best order possible. Note that this currently
+// abuses Graph::outputComputeGraph(). If this test breaks because of changes
+// there I suggest you just delete this test.
+BOOST_AUTO_TEST_CASE(SliceOrder) {
+  // Input Tensor size: 100 x 50 x 10
+  // Output Tensor size: 90 x 15 x 8
+
+  // dims: [2, 0, 1]
+  // sizes: [9, 90, 15]
+
+  // It should be smart enough to realise that it should reorder the slicing
+  // so that it slices the dimensions in the order [1, 2, 0] (and
+  // idxOrder should be [2, 0, 1]).
+
+  DeviceInfo devInfo;
+  devInfo.tilesPerIPU = 4;
+  Graph graph(createIPUModelDevice(devInfo));
+  popstd::addCodelets(graph);
+
+  std::vector<size_t> t1Shape = {100, 50, 10};
+
+  auto input = graph.addTensor("float", t1Shape, "input");
+  auto offset = graph.addTensor("unsigned", { t1Shape.size() }, "offset");
+
+  MapAcrossTiles(graph, devInfo.tilesPerIPU, input);
+  graph.setTileMapping(offset, 0);
+
+  auto prog = Sequence();
+
+  std::vector<std::size_t> sliceDims = {2, 0, 1};
+  std::vector<std::size_t> sliceSizes = {9, 90, 15};
+
+  auto out = dynamicSlice(graph, input, offset, sliceDims, sliceSizes, prog);
+
+  // Check that the graph is correct... in the ugliest way possible.
+  std::stringstream computeGraph;
+  graph.outputComputeGraph(computeGraph, {prog});
+
+  // "/dynamicSlice_d1/slice" should be before "/dynamicSlice_d2/slice" and
+  // so on.
+
+  std::string cg = computeGraph.str();
+
+  auto d0_idx = cg.find("/dynamicSlice_d0/slice");
+  auto d1_idx = cg.find("/dynamicSlice_d1/slice");
+  auto d2_idx = cg.find("/dynamicSlice_d2/slice");
+
+  BOOST_CHECK(d0_idx != -1 && d1_idx != -1 && d2_idx != -1);
+  BOOST_CHECK(d1_idx < d2_idx);
+  BOOST_CHECK(d2_idx < d0_idx);
 }
