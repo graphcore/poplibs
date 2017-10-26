@@ -83,7 +83,7 @@ getConvPartial1x1SupervisorCycleEstimate(
   }
 
   // tag cost to worker with min cycles
-  maxWorkerCycles = std::max(maxWorkerCycles, minWorkerCycles + 22);
+  maxWorkerCycles = std::max(maxWorkerCycles, minWorkerCycles + 14);
 
   const auto coeffBytesPerPipelineStage = 8;
   const auto numLoads = convUnitPipelineDepth
@@ -94,12 +94,12 @@ getConvPartial1x1SupervisorCycleEstimate(
     const uint64_t supervisorNonloopOverhead = 48;
     return supervisorNonloopOverhead + numConvGroups
            * (numInGroups
-              * (9 + numOutGroups * (10 + numLoads + maxWorkerCycles)));
+              * (9 + numOutGroups * (18 + numLoads + maxWorkerCycles)));
   } else {
     const uint64_t supervisorNonloopOverhead = 39;
     return supervisorNonloopOverhead + numConvGroups
            * (numInGroups
-              * (8 + numOutGroups * (8 + numLoads + maxWorkerCycles)));
+              * (8 + numOutGroups * (16 + numLoads + maxWorkerCycles)));
   }
 }
 
