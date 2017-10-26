@@ -11,17 +11,16 @@ namespace popstd {
 
 void allTrue(Graph &graph, Tensor in, Sequence &prog,
              const std::string &debugPrefix) {
-
   const auto inType = in.elementType();
+
+  if (inType != "bool") {
+    throw popstd::poplib_error("Operation allTrue only takes boolean tensors");
+  }
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto dataPathWidth = deviceInfo.dataPathWidth;
   const auto numTiles = deviceInfo.getNumTiles();
   const auto mapping = graph.getTileMapping(in);
   const auto cs = graph.addComputeSet(debugPrefix);
-
-  if (inType != "bool") {
-    throw popstd::poplib_error("Operation allTrue only takes boolean tensors");
-  }
 
   auto inFlat = in.flatten();
 
