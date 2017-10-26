@@ -2302,7 +2302,7 @@ class CircBufSet : public Vertex {
 public:
   Input<unsigned> index;
   Vector<Input<Vector<T>>> in;
-  Vector<Output<Vector<T>>> out;
+  Vector<InOut<Vector<T>>> out;
   SimOnlyField<unsigned> dataPathWidth;
   bool compute() {
     unsigned hSize = out[0].size() / in[0].size();
