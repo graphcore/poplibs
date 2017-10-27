@@ -2072,9 +2072,12 @@ partialGroupedReduce(
   const auto &deviceInfo = graph.getDevice().getDeviceInfo();
   const auto numTiles = deviceInfo.getNumTiles();
   const auto numTileGroups = tileGroupRegions.size();
-  const auto grainSize =
-      resultType == "float" ? deviceInfo.getFloatVectorWidth() :
-                              deviceInfo.getHalfVectorWidth();
+  const unsigned minGrainSize =
+    resultType == "float" ? deviceInfo.getFloatVectorWidth() :
+                            deviceInfo.getHalfVectorWidth();
+  const unsigned partialChansPerGroup = partials.dim(partials.rank()-1);
+  const auto grainSize = std::max(partialChansPerGroup, minGrainSize);
+
   for (unsigned i = 0; i != outDepth; ++i) {
     unsigned begin = (i * partialsDepth) / outDepth;
     unsigned end = ((i + 1) * partialsDepth) / outDepth;
