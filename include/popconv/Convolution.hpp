@@ -101,21 +101,7 @@ struct ConvParams {
              std::vector<int> kernelPaddingLower,
              std::vector<int> kernelPaddingUpper,
              std::vector<unsigned> kernelDilation,
-             std::size_t numConvGroups = 1) :
-    dType(std::move(dType)),
-    batchSize(batchSize),
-    inputFieldShape(std::move(inputFieldShape)),
-    kernelShape(std::move(kernelShape)),
-    inputChannels(inputChannels),
-    outputChannels(outputChannels),
-    stride(std::move(stride)),
-    inputPaddingLower(std::move(inputPaddingLower)),
-    inputPaddingUpper(std::move(inputPaddingUpper)),
-    inputDilation(std::move(inputDilation)),
-    kernelPaddingLower(std::move(kernelPaddingLower)),
-    kernelPaddingUpper(std::move(kernelPaddingUpper)),
-    kernelDilation(std::move(kernelDilation)),
-    numConvGroups(numConvGroups) {}
+             std::size_t numConvGroups = 1);
   bool operator<(const ConvParams &other) const {
     return std::tie(dType, batchSize, inputFieldShape, kernelShape,
                     inputChannels, outputChannels, stride,

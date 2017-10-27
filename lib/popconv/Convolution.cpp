@@ -31,6 +31,57 @@ using namespace popstd;
 
 namespace popconv {
 
+ConvParams::ConvParams(std::string dType_,
+                       std::size_t batchSize_,
+                       std::vector<std::size_t> inputFieldShape_,
+                       std::vector<std::size_t> kernelShape_,
+                       std::size_t inputChannels_,
+                       std::size_t outputChannels_,
+                       std::vector<unsigned> stride_,
+                       std::vector<int> inputPaddingLower_,
+                       std::vector<int> inputPaddingUpper_,
+                       std::vector<unsigned> inputDilation_,
+                       std::vector<int> kernelPaddingLower_,
+                       std::vector<int> kernelPaddingUpper_,
+                       std::vector<unsigned> kernelDilation_,
+                       std::size_t numConvGroups_) :
+    dType(std::move(dType_)),
+    batchSize(batchSize_),
+    inputFieldShape(std::move(inputFieldShape_)),
+    kernelShape(std::move(kernelShape_)),
+    inputChannels(inputChannels_),
+    outputChannels(outputChannels_),
+    stride(std::move(stride_)),
+    inputPaddingLower(std::move(inputPaddingLower_)),
+    inputPaddingUpper(std::move(inputPaddingUpper_)),
+    inputDilation(std::move(inputDilation_)),
+    kernelPaddingLower(std::move(kernelPaddingLower_)),
+    kernelPaddingUpper(std::move(kernelPaddingUpper_)),
+    kernelDilation(std::move(kernelDilation_)),
+    numConvGroups(numConvGroups_) {
+  const auto numFieldDims = inputFieldShape.size();
+  if (kernelShape.size() != numFieldDims) {
+    throw popstd::poplib_error("Number of kernel field dimensions does not"
+                               "match the number of input field dimensions");
+  }
+  const std::pair<std::size_t, const char *> sizes[] = {
+    {stride.size(), "stride"},
+    {inputPaddingLower.size(), "input padding (lower)"},
+    {inputPaddingUpper.size(), "input padding (upper)"},
+    {inputDilation.size(), "input dilation"},
+    {kernelPaddingLower.size(), "kernel padding (lower)"},
+    {kernelPaddingUpper.size(), "kernel padding (upper)"},
+    {kernelDilation.size(), "kernel dilation"}
+  };
+  for (const auto &entry : sizes) {
+    if (entry.first != numFieldDims) {
+      throw popstd::poplib_error(std::string("Number of ") + entry.second +
+                                 " dimensions does not match the number of "
+                                 "field dimensions");
+    }
+  }
+}
+
 std::ostream& operator<<(std::ostream &os, const ConvParams &p) {
   os << "Params: dType                      " << p.dType << "\n";
   os << "        batchSize                  " << p.batchSize << "\n";
