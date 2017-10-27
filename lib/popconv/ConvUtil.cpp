@@ -207,7 +207,7 @@ getOutputShape(const ConvParams &params) {
   return {params.getBatchSize(),
           params.getOutputHeight(),
           params.getOutputWidth(),
-          params.getOutputDepth()};
+          params.getNumOutputChans()};
 }
 
 ConvParams canonicalizeParams(const ConvParams &params) {
@@ -255,8 +255,8 @@ ConvParams getGradientParams(const ConvParams &params) {
                              canonicalParams.batchSize,
                              canonicalParams.getOutputFieldShape(),
                              canonicalParams.kernelShape,
-                             canonicalParams.getOutputDepthPerConvGroup(),
-                             canonicalParams.getInputDepthPerConvGroup(),
+                             canonicalParams.getNumOutputChansPerConvGroup(),
+                             canonicalParams.getNumInputChansPerConvGroup(),
                              bwdStride, bwdInputPaddingLower,
                              bwdInputPaddingUpper, bwdInputDilation,
                              bwdKernelPaddingLower, bwdKernelPaddingUpper,

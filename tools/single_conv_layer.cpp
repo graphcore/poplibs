@@ -546,10 +546,11 @@ int main(int argc, char **argv) {
 
   if (doBwdPass || doWuPass) {
     boost::multi_array<double, 4> hostZDeltas(
-      boost::extents[batchSize][outHeight][outWidth][bwdParams.getInputDepth()]
+      boost::extents[batchSize][outHeight][outWidth]
+                    [bwdParams.getNumInputChans()]
     );
     boost::multi_array<double, 4> hostPrevDeltas(
-      boost::extents[batchSize][height][width][params.getInputDepth()]
+      boost::extents[batchSize][height][width][params.getNumInputChans()]
     );
     auto modelWeights = hostWeights;
     auto modelBiases = hostBiases;

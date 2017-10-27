@@ -23,8 +23,8 @@ namespace popconv {
 std::uint64_t getNumberOfMACs(const ConvParams &params) {
   std::uint64_t numMACs = params.getNumConvGroups() *
                           params.getBatchSize() *
-                          params.getOutputDepthPerConvGroup() *
-                          params.getInputDepthPerConvGroup();
+                          params.getNumOutputChansPerConvGroup() *
+                          params.getNumInputChansPerConvGroup();
   for (unsigned dim = 0; dim != params.getNumFieldDims(); ++dim) {
     unsigned nonZeroInputs = 0;
     for (unsigned x = 0; x < params.getOutputSize(dim); ++x) {
@@ -462,18 +462,18 @@ estimateExchangeCycles(const poplar::DeviceInfo &deviceInfo,
       (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
   const auto tileBatchElements =
       (params.getBatchSize() + tilesPerBatch - 1) / tilesPerBatch;
-  const auto outputDepth = params.getOutputDepthPerConvGroup();
+  const auto numOutChans = params.getNumOutputChansPerConvGroup();
   const auto numOutGroups =
-      (outputDepth + (partialChansPerGroup - 1)) / partialChansPerGroup;
+      (numOutChans + (partialChansPerGroup - 1)) / partialChansPerGroup;
   const auto tileNumOutGroups =
       (numOutGroups + tilesPerZ - 1) / tilesPerZ;
-  const auto tileOutDepth = tileNumOutGroups * partialChansPerGroup;
-  const auto inputDepth = params.getInputDepthPerConvGroup();
+  const auto tileNumOutChans = tileNumOutGroups * partialChansPerGroup;
+  const auto numInChans = params.getNumInputChansPerConvGroup();
   const auto numInGroups =
-      (inputDepth + (inChansPerGroup - 1)) / inChansPerGroup;
+      (numInChans + (inChansPerGroup - 1)) / inChansPerGroup;
   const auto tileNumInGroups =
       (numInGroups + tilesPerInZGroupAxis - 1) / tilesPerInZGroupAxis;
-  const auto tileInDepth = tileNumInGroups * inChansPerGroup;
+  const auto tileNumInChans = tileNumInGroups * inChansPerGroup;
   const auto tileInWidth =
       getMaxInputRangeSize(tileOutWidth, 1, params,
                            tileKernelWidth, tilesPerX,
@@ -485,13 +485,13 @@ estimateExchangeCycles(const poplar::DeviceInfo &deviceInfo,
   const auto tileNumGroupedConv =
       (params.getNumConvGroups() + tilesPerConvGroups - 1) / tilesPerConvGroups;
   const auto numberOfInputElements = tileInWidth * tileInHeight *
-                                     tileBatchElements * tileInDepth *
+                                     tileBatchElements * tileNumInChans *
                                      tileNumGroupedConv;
   const auto numberOfWeights =
-      tileKernelHeight * tileKernelWidth * tileOutDepth * tileInDepth *
+      tileKernelHeight * tileKernelWidth * tileNumOutChans * tileNumInChans *
       tileNumGroupedConv;
   const auto numberOfOutputElements =
-      tileOutWidth * tileOutHeight * tileBatchElements * tileOutDepth *
+      tileOutWidth * tileOutHeight * tileBatchElements * tileNumOutChans *
       tileNumGroupedConv;
   const auto activationSize = floatActivations ? 4 : 2;
   auto inputElementsBytes = numberOfInputElements * activationSize;
@@ -598,16 +598,16 @@ estimateZeroCycles(const poplar::DeviceInfo &deviceInfo,
       (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
   const auto tileBatchElements =
       (params.getBatchSize() + tilesPerBatch - 1) / tilesPerBatch;
-  const auto outputDepth = params.getOutputDepthPerConvGroup();
+  const auto numOutChans = params.getNumOutputChansPerConvGroup();
   const auto numOutGroups =
-      (outputDepth + (partialChansPerGroup - 1)) / partialChansPerGroup;
+      (numOutChans + (partialChansPerGroup - 1)) / partialChansPerGroup;
   const auto tileNumOutGroups =
       (numOutGroups + tilesPerZ - 1) / tilesPerZ;
-  const auto tileOutDepth = tileNumOutGroups * partialChansPerGroup;
+  const auto tileNumOutChans = tileNumOutGroups * partialChansPerGroup;
   const auto tileNumGroupedConv =
       (params.getNumConvGroups() + tilesPerConvGroups - 1) / tilesPerConvGroups;
   const auto numberOfOutputElements =
-      tileOutWidth * tileOutHeight * tileBatchElements * tileOutDepth *
+      tileOutWidth * tileOutHeight * tileBatchElements * tileNumOutChans *
       tileNumGroupedConv;
   const auto vectorWidth =
       plan.floatPartials ? deviceInfo.getFloatVectorWidth() :
@@ -638,7 +638,7 @@ estimatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
   const auto tileBatchElements =
       (params.getBatchSize() + tilesPerBatch - 1) / tilesPerBatch;
   const auto numOutGroups =
-      (params.getOutputDepthPerConvGroup() + (outChansPerGroup - 1))
+      (params.getNumOutputChansPerConvGroup() + (outChansPerGroup - 1))
       / outChansPerGroup;
   const auto tileNumOutGroups =
       (numOutGroups + tilesPerZ - 1) / tilesPerZ;
@@ -652,7 +652,7 @@ estimatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
     numContexts = 1;
   }
   const auto numInGroups =
-      (params.getInputDepthPerConvGroup() + (inChansPerGroup - 1))
+      (params.getNumInputChansPerConvGroup() + (inChansPerGroup - 1))
       / inChansPerGroup;
   const auto tileNumInGroups =
       (numInGroups + tilesPerInZGroupAxis - 1) / tilesPerInZGroupAxis;
@@ -760,7 +760,7 @@ estimateReduceCycles(const poplar::DeviceInfo &deviceInfo,
   const auto tileBatchElements =
       (params.getBatchSize() + tilesPerBatch - 1) / tilesPerBatch;
   const auto numOutGroups =
-      (params.getOutputDepthPerConvGroup() + (outChansPerGroup - 1))
+      (params.getNumOutputChansPerConvGroup() + (outChansPerGroup - 1))
       / outChansPerGroup;
   const auto tileNumConvGroups =
       (params.getNumConvGroups() + tilesPerConvGroups - 1) / tilesPerConvGroups;
@@ -932,7 +932,7 @@ static Plan::Method
 getFullyConnectedWUMethod(const ConvParams &fwdParams,
                           Plan::Method fwdMethod,
                           unsigned fwdInChansPerGroup) {
-  if (fwdParams.getOutputDepthPerConvGroup() == 1) {
+  if (fwdParams.getNumOutputChansPerConvGroup() == 1) {
     return Plan::Method::OUTER_PRODUCT;
   }
   const auto wuPartialChansPerGroup = fwdInChansPerGroup;
@@ -998,14 +998,14 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
     maxTilesPerZ = 1;
   } else {
     const auto outChanGroups =
-        (params.getOutputDepthPerConvGroup() + partialChansPerGroup - 1) /
+        (params.getNumOutputChansPerConvGroup() + partialChansPerGroup - 1) /
         partialChansPerGroup;
     maxTilesPerZ = outChanGroups;
   }
   const auto tilesPerZ = m.addVariable(1, maxTilesPerZ);
   const auto tilesPerKernelY = m.addVariable(1, params.kernelShape[0]);
   const auto inChanGroups =
-      (params.getInputDepthPerConvGroup() + inChansPerGroup - 1)
+      (params.getNumInputChansPerConvGroup() + inChansPerGroup - 1)
       / inChansPerGroup;
   const auto tilesPerInZ = m.addVariable(1, inChanGroups);
   const auto usedTiles = m.product({tilesPerX, tilesPerY, tilesPerBatch,
@@ -1101,7 +1101,7 @@ getConvVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
                             const ConvParams &params,
                             const ConvOptions &options) {
   std::vector<ConvVertexType> convVertexTypeCandidates;
-  if (params.getInputDepthPerConvGroup() == 1 &&
+  if (params.getNumInputChansPerConvGroup() == 1 &&
       params.getPaddedDilatedKernelSize(0) == 1 &&
       params.getPaddedDilatedKernelSize(1) == 1 &&
       params.getOutputHeight() == 1 &&
@@ -1157,14 +1157,14 @@ getConvVertexTypeCandidates(const poplar::DeviceInfo &deviceInfo,
   // type is half. This ensures that we never need to apply padding when sending
   // activations over the exchange.
   auto grainSize = floatActivations ? 1 : 2;
-  const auto roundedInputDepth =
-      ((params.getInputDepthPerConvGroup() + grainSize - 1) / grainSize) *
+  const auto roundedNumInChans =
+      ((params.getNumInputChansPerConvGroup() + grainSize - 1) / grainSize) *
       grainSize;
   unsigned previousInChanGroups = 0;
   for (unsigned inChansPerGroup = grainSize;
-       inChansPerGroup <= roundedInputDepth;
+       inChansPerGroup <= roundedNumInChans;
        inChansPerGroup += grainSize) {
-    unsigned inChanGroups = (roundedInputDepth + inChansPerGroup - 1) /
+    unsigned inChanGroups = (roundedNumInChans + inChansPerGroup - 1) /
                             inChansPerGroup;
     if (inChanGroups == previousInChanGroups) {
       // There is no point considering a larger group size if it doesn't
@@ -1255,7 +1255,7 @@ estimateTransformCycles(const poplar::DeviceInfo &deviceInfo,
   unsigned cycles = 0;
   const auto bytesPerElement = expandedParams.dType == "float" ? 4U : 2U;
   const auto expandedInputChannelsPerGroup =
-      expandedParams.getInputDepthPerConvGroup();
+      expandedParams.getNumInputChansPerConvGroup();
   unsigned rearrangeElementsPerTile = 0;
   if (rearrangeInput) {
     const auto expandedInputElements =
@@ -1268,7 +1268,7 @@ estimateTransformCycles(const poplar::DeviceInfo &deviceInfo,
   if (rearrangeWeights) {
     const auto expandedFilterElements =
         expandedFilterSize * expandedInputChannelsPerGroup *
-        expandedParams.getOutputDepthPerConvGroup() *
+        expandedParams.getNumOutputChansPerConvGroup() *
         expandedParams.getNumConvGroups();
     const auto expandedFilterElementsPerTile =
         (expandedFilterElements + usedTiles - 1) / usedTiles;
@@ -1276,7 +1276,8 @@ estimateTransformCycles(const poplar::DeviceInfo &deviceInfo,
   }
   if (rearrangeOutput) {
     const auto expandedOutputElements =
-        expandedOutputFieldSize * expandedParams.getOutputDepthPerConvGroup() *
+        expandedOutputFieldSize *
+        expandedParams.getNumOutputChansPerConvGroup() *
         expandedParams.getBatchSize() * expandedParams.getNumConvGroups();
     const auto expandedOutputElementsPerTile =
         (expandedOutputElements + usedTiles - 1) / usedTiles;
@@ -1457,13 +1458,14 @@ createPlan(ConvParams params,
       for (const auto &convVertexType : convVertexTypeCandidates) {
         auto paddedParams = expandedParams;
         const auto inChansPerGroup = convVertexType.inChansPerGroup;
-        const auto inChans = expandedParams.getInputDepthPerConvGroup();
+        const auto inChans = expandedParams.getNumInputChansPerConvGroup();
         paddedParams.inputChannels =
             ((inChans + inChansPerGroup - 1) / inChansPerGroup) *
             inChansPerGroup;
         unsigned inChansPadding = paddedParams.inputChannels - inChans;
         const auto partialChansPerGroup = convVertexType.partialChansPerGroup;
-        const auto partialChans = expandedParams.getOutputDepthPerConvGroup();
+        const auto partialChans =
+            expandedParams.getNumOutputChansPerConvGroup();
         paddedParams.outputChannels =
             ((partialChans + partialChansPerGroup - 1) / partialChansPerGroup) *
             partialChansPerGroup;
@@ -1517,13 +1519,13 @@ static ConvParams getFullyConnectedFwdParams(const ConvParams &params,
   default: assert(0 && "Unexpected pass");
   case Pass::FC_TRAINING_BWD:
     inputSize = params.getInputWidth();
-    batchSize = params.getOutputDepthPerConvGroup();
-    outputSize = params.getInputDepthPerConvGroup();
+    batchSize = params.getNumOutputChansPerConvGroup();
+    outputSize = params.getNumInputChansPerConvGroup();
     break;
   case Pass::FC_TRAINING_WU:
     outputSize = params.getInputWidth();
-    batchSize = params.getInputDepthPerConvGroup();
-    inputSize = params.getOutputDepthPerConvGroup();
+    batchSize = params.getNumInputChansPerConvGroup();
+    inputSize = params.getNumOutputChansPerConvGroup();
     break;
   }
   return ConvParams(params.dType,
@@ -1577,7 +1579,7 @@ static Plan getFullyConnectedWUPlan(const poplar::DeviceInfo &deviceInfo,
   // pass of the AMP unit then there is no reason to use a higher precision
   // partial type.
   if (fwdParams.dType != "float" &&
-      fwdParams.getOutputDepthPerConvGroup() == plan.inChansPerGroup &&
+      fwdParams.getNumOutputChansPerConvGroup() == plan.inChansPerGroup &&
       deviceInfo.fp16InFp16OutConvUnitsPerTile ==
       deviceInfo.fp16InFp32OutConvUnitsPerTile) {
     plan.floatPartials = false;

@@ -42,9 +42,9 @@ std::ostream& operator<<(std::ostream &os, const ConvParams &p) {
   printContainer(p.kernelShape, os);
   os << "\n";
   os << "        inputChannelsPerConvGroup  ";
-  os << p.getInputDepthPerConvGroup() << "\n";
+  os << p.getNumInputChansPerConvGroup() << "\n";
   os << "        outputChannelsPerConvGroup ";
-  os << p.getOutputDepthPerConvGroup() << "\n";
+  os << p.getNumOutputChansPerConvGroup() << "\n";
   os << "        stride                     ";
   printContainer(p.stride, os);
   os << "\n";
@@ -251,7 +251,7 @@ static void verifyInputShapes(const ConvParams &params,
     throw popstd::poplib_error("Width of input tensor does not match "
                                "convolution parameters");
   }
-  if (params.getInputDepthPerConvGroup() != in.dim(4)) {
+  if (params.getNumInputChansPerConvGroup() != in.dim(4)) {
     throw popstd::poplib_error("Number of channels per convolution group of "
                                "input tensor does not match convolution "
                                "parameters");
@@ -268,11 +268,11 @@ static void verifyInputShapes(const ConvParams &params,
     throw popstd::poplib_error("Kernel width does not match convolution "
                                "parameters");
   }
-  if (params.getOutputDepthPerConvGroup() != weights.dim(3)) {
+  if (params.getNumOutputChansPerConvGroup() != weights.dim(3)) {
     throw popstd::poplib_error("Kernel output channel size does not match "
                                "convolution parameters");
   }
-  if (params.getInputDepthPerConvGroup() != weights.dim(4)) {
+  if (params.getNumInputChansPerConvGroup() != weights.dim(4)) {
     throw popstd::poplib_error("Kernel input channel size does not match "
                                "convolution parameters");
   }
@@ -446,12 +446,12 @@ iterateTilePartition(const Graph &graph, const ConvParams &params,
                        void(unsigned, const ConvTileIndices &,
                             const ConvSlice &)
                      > &f) {
-  const unsigned inNumChans = params.getInputDepthPerConvGroup();
+  const unsigned inNumChans = params.getNumInputChansPerConvGroup();
   const auto inChansPerGroup = plan.inChansPerGroup;
   const auto partialChansPerGroup = plan.partialChansPerGroup;
-  assert(params.getOutputDepthPerConvGroup() % partialChansPerGroup == 0);
+  assert(params.getNumOutputChansPerConvGroup() % partialChansPerGroup == 0);
   const auto partialNumChanGroups =
-      params.getOutputDepthPerConvGroup() / partialChansPerGroup;
+      params.getNumOutputChansPerConvGroup() / partialChansPerGroup;
   const auto tilesPerX = plan.tilesPerXAxis;
   const auto tilesPerY = plan.tilesPerYAxis;
   const auto tilesPerBatch = plan.tilesPerBatchAxis;
@@ -649,7 +649,7 @@ static std::vector<std::vector<Interval<std::size_t>>>
 calculateActivationMapping(Graph &graph, const ConvParams &params,
                            const Plan &plan) {
   // Build a map from activations to the set of tiles that access them.
-  const auto numInChans = params.getInputDepthPerConvGroup();
+  const auto numInChans = params.getNumInputChansPerConvGroup();
   assert(numInChans % plan.inChansPerGroup == 0);
   const auto numInChanGroups = numInChans / plan.inChansPerGroup;
   std::vector<std::size_t> actsShape = {
@@ -931,7 +931,7 @@ convolutionPreprocess(Graph &graph, ConvParams &params, Plan &plan,
     }
   }
   plan.flattenDims.clear();
-  const auto numInChans = params.getInputDepthPerConvGroup();
+  const auto numInChans = params.getNumInputChansPerConvGroup();
   const auto convInChansPerGroup = plan.inChansPerGroup;
   const auto convNumChanGroups =
       (numInChans + convInChansPerGroup - 1) / convInChansPerGroup;
@@ -947,7 +947,7 @@ convolutionPreprocess(Graph &graph, ConvParams &params, Plan &plan,
     }
     params.inputChannels = convNumChans;
   }
-  const auto outNumChans = params.getOutputDepthPerConvGroup();
+  const auto outNumChans = params.getNumOutputChansPerConvGroup();
   const auto partialChansPerGroup = plan.partialChansPerGroup;
   const auto partialNumChanGroups =
       (outNumChans + partialChansPerGroup - 1) / partialChansPerGroup;
@@ -998,13 +998,13 @@ createInputImpl(Graph &graph, const ConvParams &params,
     auto t = createWeights(graph, newParams, name, newPlan);
     return t.dimRoll(3, 1);
   }
-  const auto inNumChans = params.getInputDepthPerConvGroup();
+  const auto inNumChans = params.getNumInputChansPerConvGroup();
   const auto inChansPerGroup = getInChansPerGroup(plan, inNumChans);
-  assert(params.getInputDepthPerConvGroup() % inChansPerGroup == 0);
+  assert(params.getNumInputChansPerConvGroup() % inChansPerGroup == 0);
   auto t =
       graph.addTensor(params.dType,
                       {params.getNumConvGroups(),
-                       params.getInputDepthPerConvGroup() / inChansPerGroup,
+                       params.getNumInputChansPerConvGroup() / inChansPerGroup,
                        params.getBatchSize(),
                        params.inputFieldShape[0],
                        params.inputFieldShape[1],
@@ -1030,10 +1030,10 @@ calculateWeightMapping(const Graph &graph,
                        const ConvParams &params,
                        const Plan &plan) {
   // Build a map from weights to the set of tiles that access them.
-  const auto numInChans = params.getInputDepthPerConvGroup();
+  const auto numInChans = params.getNumInputChansPerConvGroup();
   assert(numInChans % plan.inChansPerGroup == 0);
   const auto numInChanGroups = numInChans / plan.inChansPerGroup;
-  const auto numOutChans = params.getOutputDepthPerConvGroup();
+  const auto numOutChans = params.getNumOutputChansPerConvGroup();
   assert(numOutChans % plan.partialChansPerGroup == 0);
   const auto numOutChanGroups = numOutChans / plan.partialChansPerGroup;
   const auto kernelHeight = params.kernelShape[0];
@@ -1119,8 +1119,8 @@ createWeights(Graph &graph,
     return t.dimRoll(1, 3);
   }
   const auto dType = params.dType;
-  const auto inNumChans = params.getInputDepthPerConvGroup();
-  const auto outNumChans = params.getOutputDepthPerConvGroup();
+  const auto inNumChans = params.getNumInputChansPerConvGroup();
+  const auto outNumChans = params.getNumOutputChansPerConvGroup();
   const auto weightOutChansPerGroup =
       getWeightOutChansPerGroup(plan, outNumChans);
   assert(outNumChans % weightOutChansPerGroup == 0);
@@ -2293,7 +2293,7 @@ convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
     postOutChanFlattenParams.kernelShape[dim] = 1;
   }
   const auto outNumChans =
-      postOutChanFlattenParams.getOutputDepthPerConvGroup();
+      postOutChanFlattenParams.getNumOutputChansPerConvGroup();
   // Undo padding.
   activations = activations.slice(0, outNumChans, 4);
   // Undo flattening of the batch / spatial fields.
@@ -2599,7 +2599,7 @@ getWeightUpdateParams(ConvParams fwdParams) {
     }
   }
   return ConvParams(fwdParams.dType,
-                    fwdParams.getInputDepthPerConvGroup(), // batchSize
+                    fwdParams.getNumInputChansPerConvGroup(), // batchSize
                     {
                       fwdParams.getInputHeight(),
                       fwdParams.getInputWidth()
@@ -2609,7 +2609,7 @@ getWeightUpdateParams(ConvParams fwdParams) {
                       fwdParams.getOutputWidth(),
                     }, // kernelShape
                     fwdParams.getBatchSize(), // inputChannels
-                    fwdParams.getOutputDepthPerConvGroup(), // outputChannels
+                    fwdParams.getNumOutputChansPerConvGroup(), // outputChannels
                     fwdParams.kernelDilation, // stride
                     fwdParams.inputPaddingLower, // inputPaddingLower
                     fwdParams.inputPaddingUpper, // inputPaddingUpper

@@ -130,12 +130,16 @@ struct ConvParams {
   std::size_t getOutputSize(unsigned dim) const;
   std::size_t getOutputWidth() const;
   std::size_t getOutputHeight() const;
-  std::size_t getOutputDepthPerConvGroup() const { return outputChannels;}
-  std::size_t getOutputDepth() const { return outputChannels * numConvGroups; }
+  std::size_t getNumOutputChansPerConvGroup() const { return outputChannels;}
+  std::size_t getNumOutputChans() const {
+    return outputChannels * numConvGroups;
+  }
   std::size_t getInputWidth() const { return inputFieldShape[1]; }
   std::size_t getInputHeight() const { return inputFieldShape[0]; }
-  std::size_t getInputDepthPerConvGroup() const { return inputChannels; }
-  std::size_t getInputDepth() const { return inputChannels * numConvGroups; }
+  std::size_t getNumInputChansPerConvGroup() const { return inputChannels; }
+  std::size_t getNumInputChans() const {
+    return inputChannels * numConvGroups;
+  }
   std::size_t getNumConvGroups() const { return numConvGroups; }
   std::size_t getNumFieldDims() const { return inputFieldShape.size(); }
   std::size_t getBatchSize() const { return batchSize; }
