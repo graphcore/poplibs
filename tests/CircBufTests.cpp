@@ -41,6 +41,35 @@ BOOST_AUTO_TEST_CASE(CircBufIncrIndex) {
   }
 }
 
+BOOST_AUTO_TEST_CASE(CircBufIncrIndex2d) {
+  Graph graph(createIPUModelDevice());
+  popstd::addCodelets(graph);
+  const unsigned circBufSize = 20;
+  const unsigned indexBufSize = 25;
+  auto cb = CircBuf(graph, "float", circBufSize, {5, 3});
+  auto indexStore = graph.addTensor("unsigned", {indexBufSize});
+  mapTensorLinearly(graph, indexStore);
+  auto dummy = graph.addTensor("float", {5, 3});
+  mapTensorLinearly(graph, dummy);
+
+  auto prog = Sequence();
+  for (auto i = 0U; i != indexBufSize; ++i) {
+    prog.add(Copy(cb.getIndex(), indexStore[i]));
+    cb.add(dummy, prog);
+  }
+  graph.createHostRead("out", indexStore);
+
+  unsigned cbOut[indexBufSize];
+
+  Engine eng(graph, prog);
+  eng.run();
+  eng.readTensor("out", cbOut);
+
+  for (unsigned i = 0; i != indexBufSize; ++i) {
+    BOOST_TEST(i % circBufSize == cbOut[i]);
+  }
+}
+
 BOOST_AUTO_TEST_CASE(CircBufCheckAdd) {
   DeviceInfo info;
   info.tilesPerIPU = 16;
@@ -49,12 +78,12 @@ BOOST_AUTO_TEST_CASE(CircBufCheckAdd) {
   popstd::addCodelets(graph);
   const unsigned circBufSize = 20;
   const unsigned srcBufSize = 25;
-  const unsigned numElems = 64;
-  auto cb = CircBuf(graph, "float", circBufSize, {numElems});
+  const unsigned numElemsA = 33, numElemsB = 2;
+  auto cb = CircBuf(graph, "float", circBufSize, {numElemsA, numElemsB});
 
-  auto src = graph.addTensor("float", {srcBufSize, numElems});
+  auto src = graph.addTensor("float", {srcBufSize, numElemsA, numElemsB});
   mapTensorLinearly(graph, src);
-  auto dst = graph.addTensor("float", {circBufSize, numElems});
+  auto dst = graph.addTensor("float", {circBufSize, numElemsA, numElemsB});
   mapTensorLinearly(graph, dst);
 
 
@@ -70,12 +99,14 @@ BOOST_AUTO_TEST_CASE(CircBufCheckAdd) {
   graph.createHostWrite("in", src);
   graph.createHostRead("out", dst);
 
-  float cbSrc[srcBufSize][numElems];
-  float cbDst[circBufSize][numElems];
+  float cbSrc[srcBufSize][numElemsA][numElemsB];
+  float cbDst[circBufSize][numElemsA][numElemsB];
 
-  for (auto r = 0U; r != srcBufSize; ++r) {
-    for (auto c = 0U; c != numElems; ++c) {
-      cbSrc[r][c] = 100 * r + c;
+  for (auto s = 0U; s != srcBufSize; ++s) {
+    for (auto r = 0U; r != numElemsA; ++r) {
+      for (auto c = 0U; c != numElemsB; ++c) {
+        cbSrc[s][r][c] = 1000 * s + 10 * r + c;
+      }
     }
   }
 
@@ -85,8 +116,10 @@ BOOST_AUTO_TEST_CASE(CircBufCheckAdd) {
   eng.readTensor("out", cbDst);
 
   for (unsigned i = 0; i != circBufSize; ++i) {
-    for (unsigned j = 0; j != numElems; ++j) {
-      BOOST_TEST(cbDst[i][j] == (srcBufSize - 1 - i) * 100 + j) ;
+    for (unsigned j = 0; j != numElemsA; ++j) {
+      for (unsigned k = 0; k != numElemsB; ++k) {
+        BOOST_TEST(cbDst[i][j][k] == (srcBufSize - 1 - i) * 1000 + j * 10 + k);
+      }
     }
   }
 }

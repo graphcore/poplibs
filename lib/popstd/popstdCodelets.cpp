@@ -427,6 +427,7 @@ public:
 template class Add<float>;
 template class Add<half>;
 template class Add<int>;
+template class Add<unsigned>;
 
 template <typename InType>
 class BitwiseAnd : public Vertex {
@@ -1793,6 +1794,7 @@ public:
 template class Subtract<float>;
 template class Subtract<half>;
 template class Subtract<int>;
+template class Subtract<unsigned>;
 
 
 template <typename InType>
@@ -2189,8 +2191,8 @@ template <typename InType>
 class DynamicUpdateSlice2d : public SupervisorVertex {
 public:
   Input<unsigned> offset; // in \a baseT
-  Input<Vector<InType>> baseT;
-  Output<Vector<InType>> subT;
+  InOut<Vector<InType>> baseT;
+  Input<Vector<InType>> subT;
   unsigned numBaseElements;  // in the slice dimension
   unsigned numSubElements;   // in the slice dimension
   unsigned regionSize;       // stride between slices
@@ -2259,79 +2261,6 @@ public:
   }
 };
 
-template <typename T>
-class CircBufSelect : public Vertex {
-public:
-  Input<unsigned> index;
-  Vector<Input<Vector<T>>> in;
-  Vector<Output<Vector<T>>> out;
-  unsigned offset;
-  SimOnlyField<unsigned> dataPathWidth;
-  bool compute() {
-    assert(in.size() == out.size());
-    unsigned hSize = in[0].size() / out[0].size();
-    auto hIdx = *index + hSize - offset;
-    if (hIdx >= hSize) {
-      hIdx -= hSize;
-    }
-    for (auto i = 0; i != out.size(); ++i) {
-      assert(in[i].size() / out[i].size() == hSize);
-      for (auto j = 0; j != out[i].size(); ++j) {
-        out[i][j] = in[i][j * hSize + hIdx];
-      }
-    }
-    return true;
-  }
-  std::uint64_t getCycleEstimate() const {
-    uint64_t cycles = 5;
-    const bool isFloat = std::is_same<T, float>::value;
-    const unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    for (auto i = 0; i != out.size(); ++i) {
-      cycles += 3;
-      cycles += 1 + (out[i].size() + vectorWidth - 1) /  vectorWidth  * 1;
-    }
-    return cycles;
-  }
-};
-
-template class CircBufSelect<half>;
-template class CircBufSelect<float>;
-
-template <typename T>
-class CircBufSet : public Vertex {
-public:
-  Input<unsigned> index;
-  Vector<Input<Vector<T>>> in;
-  Vector<InOut<Vector<T>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
-  bool compute() {
-    unsigned hSize = out[0].size() / in[0].size();
-    unsigned newIndex = *index;
-    assert(in.size() == out.size());
-    for (auto i = 0; i != out.size(); ++i) {
-      assert(out[i].size() / in[i].size() == hSize);
-      for (auto j = 0; j != in[i].size(); ++j) {
-        out[i][j * hSize + newIndex] = in[i][j];
-      }
-    }
-    return true;
-  }
-
-  std::uint64_t getCycleEstimate() const {
-    uint64_t cycles = 5;
-    const bool isFloat = std::is_same<T, float>::value;
-    const unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    for (auto i = 0; i != out.size(); ++i) {
-      cycles += 3;
-      cycles += 1 + (in[i].size() + vectorWidth - 1) / vectorWidth * 1;
-    }
-    return cycles;
-  }
-};
-
-template class CircBufSet<half>;
-template class CircBufSet<float>;
-
 class CircBufIncrIndex : public Vertex {
 public:
   InOut<unsigned> index;
@@ -2343,6 +2272,26 @@ public:
 
   std::uint64_t getCycleEstimate() const {
     return 8;
+  }
+};
+
+class CircOffset : public Vertex {
+public:
+  Input<unsigned> indexIn;
+  Output<unsigned> indexOut;
+  unsigned hSize;
+  unsigned offset;
+  bool compute() {
+    auto updated = *indexIn + offset;
+    if (updated >= hSize) {
+      updated -= hSize;
+    }
+    *indexOut = updated;
+    return true;
+  }
+
+  std::uint64_t getCycleEstimate() const {
+    return 10;
   }
 };
 

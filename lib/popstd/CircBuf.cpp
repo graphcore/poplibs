@@ -1,6 +1,9 @@
 #include <popstd/CircBuf.hpp>
 #include <popstd/Util.hpp>
 #include <popstd/VertexTemplates.hpp>
+#include <popstd/Operations.hpp>
+#include <popstd/DynamicSlice.hpp>
+#include <popstd/Pad.hpp>
 #include <numeric>
 #include <algorithm>
 
@@ -11,102 +14,67 @@ using namespace popstd;
 namespace popstd {
 
 CircBuf::CircBuf(Graph &graph, const std::string &dataType,
-                 unsigned size, const std::vector<std::size_t> &shape) :
+                 unsigned size, const std::vector<std::size_t> &shape,
+                 const std::string &debugPrefix) :
   graph(graph), size_(size), shape(shape) {
- auto N = std::accumulate(shape.begin(), shape.end(), 1UL,
+  auto N = std::accumulate(shape.begin(), shape.end(), 1UL,
                           std::multiplies<std::size_t>());
- hist = graph.addTensor(dataType, {N, size});
- auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
- auto regions = splitRegions({{0, N}}, 2, numTiles);
- for (unsigned tile = 0; tile < regions.size(); ++tile) {
-   const auto &tileRegions = regions[tile];
-   for (const auto &r : tileRegions) {
+  unsigned grainSize = 4; // to allow 64bits/cycle for half/short
+  auto nGrains = (N + grainSize - 1) / grainSize;
+  padElements = nGrains * grainSize - N;
+
+  hist = graph.addTensor(dataType, {nGrains, size, grainSize},
+                         debugPrefix + "/CircBuf");
+  auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
+  auto regions = splitRegions({{0, nGrains}}, 1, numTiles);
+  for (unsigned tile = 0; tile < regions.size(); ++tile) {
+    const auto &tileRegions = regions[tile];
+    for (const auto &r : tileRegions) {
       graph.setTileMapping(hist.slice(r), tile);
-   }
- }
- index = graph.addTensor("unsigned", {1}, "index");
- graph.setInitialValue(index[0], 0);
- graph.setTileMapping(index, 0);
+    }
+  }
+
+  index = graph.addTensor("unsigned", {1}, debugPrefix + "/CircBufIndex");
+  graph.setInitialValue(index[0], 0);
+  graph.setTileMapping(index, 0);
 }
 
 Tensor CircBuf::prev(unsigned i, Sequence &seq,
                      const std::string &debugPrefix) {
-  if (i > size_)
+  if (i >= size_)
     std::abort();
-  auto t = graph.addTensor(hist.elementType(), shape);
-  auto N = t.numElements();
-  graph.setTileMapping(t, graph.getTileMapping(hist.slice({0, 0}, {N, 1})));
-  const auto dType = t.elementType();
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
-  ComputeSet cs = graph.addComputeSet(debugPrefix + "/CircBufSelect");
-  auto mapping = graph.getTileMapping(t);
-  const auto numTiles = deviceInfo.getNumTiles();
-  const auto tFlat = t.flatten();
-  const auto vectorWidth = dType == "float" ? deviceInfo.getFloatVectorWidth()
-                                            : deviceInfo.getHalfVectorWidth();
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
-    auto vertexRegions = splitRegionsBetweenWorkers(deviceInfo, mapping[tile],
-                                                    vectorWidth,
-                                                    2 * vectorWidth);
-    for (const auto &regions : vertexRegions) {
-      std::vector<Tensor> histSlices;
-      for (const auto &region : regions) {
-        histSlices.push_back(hist.slice(region).flatten());
-      }
-      auto v = graph.addVertex(cs, templateVertex("popstd::CircBufSelect",
-                                                  dType),
-                                {{"index", index[0]},
-                                 {"in", histSlices},
-                                 {"out", tFlat.slices(regions)}});
-      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-      graph.setInitialValue(v["offset"], i);
-      graph.setTileMapping(v, tile);
-    }
-  }
+  // compute required offset into an internal Tensor, prevIdx
+  // this is mapped onto the tile where index is located
+  Tensor prevIdx = graph.addTensor("unsigned", {1}, debugPrefix + "/Offset");
+  auto indexMapping = graph.getTileMapping(index);
+  graph.setTileMapping(prevIdx, indexMapping);
+  auto cs = graph.addComputeSet(debugPrefix + "/CircBufPrev");
+  auto v = graph.addVertex(cs, "popstd::CircOffset",
+                           {{"indexIn", index[0]},
+                            {"indexOut", prevIdx[0]}});
+  graph.setInitialValue(v["hSize"], size_);
+  graph.setInitialValue(v["offset"], size_ - i);
+  graph.setTileMapping(v, indexMapping[0][0].begin());
   seq.add(Execute(cs));
-  return t;
+  auto t = dynamicSlice(graph, hist, prevIdx, {1}, {1}, seq,
+                        debugPrefix + "/CircBuf");
+  t = popstd::pad(graph, t.flatten(), 0, -padElements, 0);
+  return t.reshape(shape);
 }
 
 void CircBuf::add(Tensor in, Sequence &seq, const std::string &debugPrefix) {
-  auto t = graph.addTensor(hist.elementType(), shape);
-  auto N = t.numElements();
-  graph.setTileMapping(t, graph.getTileMapping(hist.slice({0, 0}, {N, 1})));
-  seq.add(Copy(in, t));
-  const auto dType = t.elementType();
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
-  ComputeSet cs = graph.addComputeSet(debugPrefix + "/CircBufSet");
-  auto mapping = graph.getTileMapping(t);
-  const auto numTiles = deviceInfo.getNumTiles();
-  const auto tFlat = t.flatten();
-  const auto vectorWidth = dType == "float" ? deviceInfo.getFloatVectorWidth()
-                                            : deviceInfo.getHalfVectorWidth();
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
-    auto vertexRegions = splitRegionsBetweenWorkers(deviceInfo, mapping[tile],
-                                                    vectorWidth,
-                                                    2 * vectorWidth);
-    for (const auto &regions : vertexRegions) {
-      std::vector<Tensor> histSlices;
-      for (const auto &region : regions) {
-        histSlices.push_back(hist.slice(region).flatten());
-      }
-      auto v = graph.addVertex(cs, templateVertex("popstd::CircBufSet",
-                                                  dType),
-                                {{"index", index[0]},
-                                 {"out", histSlices},
-                                 {"in", tFlat.slices(regions)}});
-      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-      graph.setTileMapping(v, tile);
-    }
-  }
+  assert(in.shape() == shape);
   ComputeSet csIndexIncr = graph.addComputeSet(debugPrefix + "/CircBufSet");
   auto v = graph.addVertex(csIndexIncr, "popstd::CircBufIncrIndex",
-                            {{"index", index[0]}});
+                          {{"index", index[0]}});
   graph.setInitialValue(v["hSize"], size_);
   graph.setTileMapping(v, 0);
   seq.add(Execute(csIndexIncr));
-  seq.add(Execute(cs));
+  // Inserting data into the circular buffer requires extra padding elements.
+  // They will be discarded when extracted from the buffer.
+  in = popstd::pad(graph, in.flatten(), 0, padElements, 0);
+  dynamicUpdate(graph, hist, in.reshape({hist.dim(0), 1, hist.dim(2)}), index,
+                {1}, {1}, seq, debugPrefix + "/CircBuf");
 }
 
 }

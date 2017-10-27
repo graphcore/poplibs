@@ -12,14 +12,19 @@ class CircBuf {
   unsigned size_;
   poplar::Tensor index;
   std::vector<std::size_t> shape;
+  // The history buffer may be padded to ensure an integral number of grains
+  unsigned padElements;
   poplar::Tensor hist;
 public:
    CircBuf(poplar::Graph &graph, const std::string &dataType,
-           unsigned size, const std::vector<std::size_t> &shape);
+           unsigned size, const std::vector<std::size_t> &shape,
+           const std::string &debugPrefix = "");
 
+   // return elements \a i entries old. i must be < \a size_
    poplar::Tensor prev(unsigned i, poplar::program::Sequence &seq,
                        const std::string &debugPrefix = "");
 
+   // increment \a index and insert a new element
    void add(poplar::Tensor t, poplar::program::Sequence &seq,
             const std::string &debugPrefix = "");
 

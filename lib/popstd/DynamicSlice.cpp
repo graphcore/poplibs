@@ -7,7 +7,6 @@
 #include <cassert>
 #include <numeric>
 #include <algorithm>
-
 using namespace poplar;
 using namespace poplar::program;
 
@@ -57,12 +56,14 @@ static void generateVertices(std::string vertexName,
     if (tileContiguousRegions.size() == 1) {
       unsigned regionSize = 0;
       std::vector<Tensor> baseSlices, subSlices; // [slice]
-      for (const auto &region : tileContiguousRegions[0]) {
-        regionSize += region.size();
-        for (unsigned slice = 0; slice != numBaseElements; ++slice)
-          baseSlices.emplace_back(t2d[slice].slice(region));
-        for (unsigned slice = 0; slice != numSubElements; ++slice)
-          subSlices.emplace_back(s2d[slice].slice(region));
+      for (auto &regions : tileContiguousRegions) {
+        for (const auto &region : regions) {
+          regionSize += region.size();
+          for (unsigned slice = 0; slice != numBaseElements; ++slice)
+            baseSlices.emplace_back(t2d[slice].slice(region));
+          for (unsigned slice = 0; slice != numSubElements; ++slice)
+            subSlices.emplace_back(s2d[slice].slice(region));
+        }
       }
 
       Tensor tileBase = concat(baseSlices);
@@ -151,7 +152,7 @@ static Tensor slice(Graph &graph,
   Tensor t2d = t.dimRoll(dim).reshape({numInIndices,
                                        t.numElements() / numInIndices});
   Tensor s = graph.clone(t.slice(0, numOutIndices, dim),
-                         "sliced_" + std::to_string(dim));
+                         debugPrefix + "/sliced_" + std::to_string(dim));
   Tensor s2d = s.dimRoll(dim).reshape({numOutIndices,
                                        s.numElements() / numOutIndices});
   auto cs = graph.addComputeSet(debugPrefix + "/slice");
