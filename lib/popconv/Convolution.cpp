@@ -22,6 +22,7 @@
 #include "popstd/Zero.hpp"
 #include "popstd/Operations.hpp"
 #include <unordered_set>
+#include "util/Compiler.hpp"
 #include "util/print.hpp"
 #include <boost/icl/interval_map.hpp>
 
@@ -280,11 +281,42 @@ verifyStrideAndPaddingDimensions(const ConvParams &params) {
   }
 }
 
+static std::string
+getCapitalizedFieldDimName(unsigned dim, unsigned numFieldDims) {
+  assert(dim < numFieldDims);
+  if (numFieldDims > 3) {
+    return "Field dimension " + std::to_string(dim);
+  }
+  // Dimensions are named from the innermost dimension outwards.
+  switch (numFieldDims - dim) {
+  case 1: return "Width";
+  case 2: return "Height";
+  case 3: return "Depth";
+  }
+  POPLIB_UNREACHABLE();
+}
+
 static void verifyInputShapes(const ConvParams &params,
                               const Tensor &in,
                               const Tensor &weights) {
-  if (in.rank() != 5) {
+  const auto numFieldDims = params.getNumFieldDims();
+  if (in.rank() != 3 + numFieldDims) {
     throw popstd::poplib_error("Input tensor does not have the expected rank");
+  }
+  if (weights.rank() != 3 + numFieldDims) {
+    throw popstd::poplib_error("Weight tensor does not have the expected rank");
+  }
+  for (unsigned i = 0; i != numFieldDims; ++i) {
+    if (params.inputFieldShape[i] != in.dim(2 + i)) {
+      const auto dimName = getCapitalizedFieldDimName(i, numFieldDims);
+      throw popstd::poplib_error(dimName + " of input tensor does not match "
+                                 "convolution parameters");
+    }
+    if (params.kernelShape[i] != weights.dim(1 + i)) {
+      const auto dimName = getCapitalizedFieldDimName(i, numFieldDims);
+      throw popstd::poplib_error(dimName + " of kernel does not match "
+                                 "convolution parameters");
+    }
   }
   if (params.numConvGroups != in.dim(0)) {
     throw popstd::poplib_error("Number of convolution groups of input tensor "
@@ -294,15 +326,7 @@ static void verifyInputShapes(const ConvParams &params,
     throw popstd::poplib_error("Batchsize of input tensor does not match "
                                "convolution parameters");
   }
-  if (params.inputFieldShape[0] != in.dim(2)) {
-    throw popstd::poplib_error("Height of input tensor does not match "
-                               "convolution parameters");
-  }
-  if (params.inputFieldShape[1] != in.dim(3)) {
-    throw popstd::poplib_error("Width of input tensor does not match "
-                               "convolution parameters");
-  }
-  if (params.getNumInputChansPerConvGroup() != in.dim(4)) {
+  if (params.getNumInputChansPerConvGroup() != in.dim(in.rank() - 1)) {
     throw popstd::poplib_error("Number of channels per convolution group of "
                                "input tensor does not match convolution "
                                "parameters");
@@ -311,21 +335,19 @@ static void verifyInputShapes(const ConvParams &params,
     throw popstd::poplib_error("Number of convolution groups of weights tensor "
                                "does not match convolution parameters");
   }
-  if (params.kernelShape[0] != weights.dim(1)) {
-    throw popstd::poplib_error("Kernel height does not match convolution "
-                               "parameters");
-  }
-  if (params.kernelShape[1] != weights.dim(2)) {
-    throw popstd::poplib_error("Kernel width does not match convolution "
-                               "parameters");
-  }
-  if (params.getNumOutputChansPerConvGroup() != weights.dim(3)) {
+  if (params.getNumOutputChansPerConvGroup() !=
+      weights.dim(weights.rank() - 2)) {
     throw popstd::poplib_error("Kernel output channel size does not match "
                                "convolution parameters");
   }
-  if (params.getNumInputChansPerConvGroup() != weights.dim(4)) {
+  if (params.getNumInputChansPerConvGroup() !=
+      weights.dim(weights.rank() - 1)) {
     throw popstd::poplib_error("Kernel input channel size does not match "
                                "convolution parameters");
+  }
+  if (numFieldDims != 2) {
+    throw popstd::poplib_error(std::to_string(numFieldDims) +
+                               "D convolutions are not yet supported");
   }
 }
 
