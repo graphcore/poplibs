@@ -3364,16 +3364,12 @@ batchNormalise(Graph &graph,
   assert(acts.rank() == 4);
   const auto fnPrefix = debugPrefix + "/BN/batchNormalise";
   const auto actsShape = acts.shape();
-  const auto numElements = acts.numElements() / acts.dim(3);
-
-  auto actsZeroMean = sub(graph, acts,
-                          mean.broadcast(numElements, 0).reshape(actsShape),
-                           prog, fnPrefix);
-  auto actsWhitened = channelMul(graph, actsZeroMean, iStdDev, prog,
-                                 fnPrefix + "/istdDev");
-  auto actsOut = channelMul(graph, actsWhitened, gamma, prog,
-                            fnPrefix + "/gamma");
-
+  auto actsZeroMean = duplicate(graph, acts, prog);
+  addToChannel(graph, actsZeroMean, mean, -1.0, prog, fnPrefix + "/beta");
+  auto actsWhitened =
+    channelMul(graph, actsZeroMean, iStdDev, prog, fnPrefix + "/istdDev");
+  auto actsOut =
+    channelMul(graph, actsWhitened, gamma, prog, fnPrefix + "/gamma");
   addToChannel(graph, actsOut, beta, 1.0, prog, fnPrefix + "/beta");
   return std::make_pair(actsOut, actsWhitened);
 }
@@ -3406,15 +3402,16 @@ batchNormDeltas(Graph &graph,
     mul(graph, gradsIn, actsWhitened, prog, fnPrefix);
 
   std::vector< ComputeSet> csVec = {};
-  const auto betaDelta = batchNormReduce(graph, gradsIn, 1.0, false, csVec,
-                                         partialsType, fnPrefix + "/beta");
-  const auto gammaDelta = batchNormReduce(graph, gradsInMultActs, 1.0, false,
-                                          csVec, partialsType,
-                                          fnPrefix + "/gamma");
+  auto lastDim = gradsInMultActs.rank() - 1;
+  auto numChannels = gradsInMultActs.dim(lastDim);
+  const auto concatDeltas =
+    batchNormReduce(graph, concat({gradsInMultActs, gradsIn}, lastDim), 1.0,
+                    false, csVec, partialsType, fnPrefix + "/JointGammaDelta");
   for (const auto &cs : csVec) {
     prog.add(Execute(cs));
   }
-  return std::make_pair(gammaDelta, betaDelta);
+  return std::make_pair(concatDeltas.slice(0, numChannels),
+                        concatDeltas.slice(numChannels, 2 * numChannels));
 }
 
 Tensor batchNormGradients(Graph &graph,
