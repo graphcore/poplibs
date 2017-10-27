@@ -3120,7 +3120,7 @@ channelMul(Graph &graph, const Tensor &actsUngrouped, const Tensor &scale,
   const auto fnPrefix = debugPrefix + "/channelMul";
   auto cs = graph.addComputeSet(fnPrefix);
 
-  auto actsScaledUngrouped = graph.clone(actsUngrouped);
+  auto actsScaledUngrouped = graph.clone(actsUngrouped, fnPrefix + "/actsIn");
   const auto acts =
       splitActivationChanGroups(splitActivationConvGroups(actsUngrouped, 1))[0];
   const auto actsScaled =
@@ -3253,9 +3253,11 @@ batchNormEstimates(Graph &graph,
 
   std::vector< ComputeSet> csVec;
   auto mean =
-    batchNormReduce(graph, acts, scale, false, csVec, partialsType, fnPrefix);
+    batchNormReduce(graph, acts, scale, false, csVec, partialsType,
+                    fnPrefix + "/mean");
   auto power =
-    batchNormReduce(graph, acts, scale, true, csVec, partialsType, fnPrefix);
+    batchNormReduce(graph, acts, scale, true, csVec, partialsType,
+                    fnPrefix + "/power");
   for (const auto &cs : csVec) {
     prog.add(Execute(cs));
   }
@@ -3291,10 +3293,12 @@ batchNormalise(Graph &graph,
   auto actsZeroMean = sub(graph, acts,
                           mean.broadcast(numElements, 0).reshape(actsShape),
                            prog, fnPrefix);
-  auto actsWhitened = channelMul(graph, actsZeroMean, iStdDev, prog, fnPrefix);
-  auto actsOut = channelMul(graph, actsWhitened, gamma, prog, fnPrefix);
+  auto actsWhitened = channelMul(graph, actsZeroMean, iStdDev, prog,
+                                 fnPrefix + "/istdDev");
+  auto actsOut = channelMul(graph, actsWhitened, gamma, prog,
+                            fnPrefix + "/gamma");
 
-  addToChannel(graph, actsOut, beta, 1.0, prog, fnPrefix);
+  addToChannel(graph, actsOut, beta, 1.0, prog, fnPrefix + "/beta");
   return std::make_pair(actsOut, actsWhitened);
 }
 
@@ -3307,8 +3311,9 @@ batchNormalise(Graph &graph,
                const std::string &debugPrefix) {
   assert(acts.rank() == 4);
   const auto fnPrefix = debugPrefix + "/BN/batchNormaliseInference";
-  auto actsBN = channelMul(graph, acts, combinedMultiplicand, prog, fnPrefix);
-  addToChannel(graph, actsBN, addend, 1.0, prog, fnPrefix);
+  auto actsBN = channelMul(graph, acts, combinedMultiplicand, prog,
+                           fnPrefix + "/combinedMult");
+  addToChannel(graph, actsBN, addend, 1.0, prog, fnPrefix + "/combinedAdd");
   return actsBN;
 }
 
@@ -3326,9 +3331,10 @@ batchNormDeltas(Graph &graph,
 
   std::vector< ComputeSet> csVec = {};
   const auto betaDelta = batchNormReduce(graph, gradsIn, 1.0, false, csVec,
-                                         partialsType, fnPrefix);
+                                         partialsType, fnPrefix + "/beta");
   const auto gammaDelta = batchNormReduce(graph, gradsInMultActs, 1.0, false,
-                                          csVec, partialsType, fnPrefix);
+                                          csVec, partialsType,
+                                          fnPrefix + "/gamma");
   for (const auto &cs : csVec) {
     prog.add(Execute(cs));
   }
@@ -3355,13 +3361,13 @@ Tensor batchNormGradients(Graph &graph,
   prog.add(Copy(gradsIn, gradient));
   addTo(graph, gradient,
         channelMul(graph, actsWhitened, gammaDelta, prog, fnPrefix),
-        -rScale, prog, fnPrefix);
+        -rScale, prog, fnPrefix + "/gamma");
 
   addToChannel(graph, gradient, betaDelta, -rScale, prog, fnPrefix);
 
   return channelMul(graph, gradient,
-                    mul(graph, gamma, invStdDev, prog, fnPrefix), prog,
-                    fnPrefix);
+                    mul(graph, gamma, invStdDev, prog,
+                        fnPrefix + "/gamma_x_delta"), prog, fnPrefix);
 }
 
 } // namespace conv
