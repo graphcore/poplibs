@@ -18,9 +18,9 @@
 #include <boost/multi_array.hpp>
 
 // Tolerances used in tests
-#define FLOAT_REL_TOL  0.01
+#define FLOAT_REL_TOL  0.1
 #define HALF_REL_TOL   0.1
-#define FLOAT_ABS_TOL  1e-6
+#define FLOAT_ABS_TOL  1e-5
 #define HALF_ABS_TOL   1e-5
 
 using namespace poplar;
