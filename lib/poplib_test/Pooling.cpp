@@ -13,16 +13,16 @@ pooling(PoolingType pType, unsigned strideHeight, unsigned strideWidth,
         boost::multi_array<double, 4> &out,
         boost::multi_array_ref<double, 2> &scale) {
   const auto batchSize = in.shape()[0];
-  const auto channels = in.shape()[3];
-  const int inputHeight = in.shape()[1];
-  const int inputWidth = in.shape()[2];
+  const auto channels = in.shape()[1];
+  const int inputHeight = in.shape()[2];
+  const int inputWidth = in.shape()[3];
   const auto paddedHeight = inputHeight + paddingHeightL + paddingHeightU;
   const auto paddedWidth = inputWidth + paddingWidthL + paddingWidthU;
   const double lowestValue = std::numeric_limits<double>::lowest();
 
   for (unsigned b = 0; b != batchSize; ++b) {
     boost::multi_array<double, 3>
-        paddedIn(boost::extents[paddedHeight][paddedWidth][channels]);
+        paddedIn(boost::extents[channels][paddedHeight][paddedWidth]);
     std::fill(paddedIn.data(), paddedIn.data() + paddedIn.num_elements(),
               lowestValue);
 
@@ -35,7 +35,7 @@ pooling(PoolingType pType, unsigned strideHeight, unsigned strideWidth,
           continue;
         }
         for (unsigned c = 0; c != channels; ++c) {
-          paddedIn[y][x][c] = in[b][y - paddingHeightL][x - paddingWidthL][c];
+          paddedIn[c][y][x] = in[b][c][y - paddingHeightL][x - paddingWidthL];
         }
       }
     }
@@ -49,9 +49,9 @@ pooling(PoolingType pType, unsigned strideHeight, unsigned strideWidth,
     const auto poolOutHeight = paddedHeight - (kernelHeight - 1);
     const auto poolOutWidth = paddedWidth - (kernelWidth - 1);
     boost::multi_array<double, 3>
-        poolOut(boost::extents[poolOutHeight]
-                              [poolOutWidth]
-                              [channels]);
+        poolOut(boost::extents[channels]
+                              [poolOutHeight]
+                              [poolOutWidth]);
     boost::multi_array<double, 2>
         scaleOut(boost::extents[poolOutHeight]
                                [poolOutWidth]);
@@ -65,11 +65,11 @@ pooling(PoolingType pType, unsigned strideHeight, unsigned strideWidth,
           for (unsigned ky = 0; ky != kernelHeight; ++ky) {
             for (unsigned kx = 0; kx != kernelWidth; ++kx) {
               if (pType == PoolingType::MAX)
-                v = std::max(v, paddedIn[y + ky][x + kx][c]);
+                v = std::max(v, paddedIn[c][y + ky][x + kx]);
               else if ((pType ==  PoolingType::AVG
                         || pType ==  PoolingType::SUM)
-                       && (paddedIn[y + ky][x + kx][c] != lowestValue))  {
-                v += paddedIn[y + ky][x + kx][c];
+                       && (paddedIn[c][y + ky][x + kx] != lowestValue))  {
+                v += paddedIn[c][y + ky][x + kx];
                 if (pType ==  PoolingType::AVG) {
                   ++usedKernelElems;
                 }
@@ -78,7 +78,7 @@ pooling(PoolingType pType, unsigned strideHeight, unsigned strideWidth,
           }
           const double elScale = usedKernelElems != 0
                                  ? 1.0 / usedKernelElems : 1.0;
-          poolOut[y][x][c] = elScale * v;
+          poolOut[c][y][x] = elScale * v;
           scaleOut[y][x] = elScale;
         }
       }
@@ -87,15 +87,15 @@ pooling(PoolingType pType, unsigned strideHeight, unsigned strideWidth,
     // Downsample.
     const auto outHeight = (poolOutHeight + strideHeight - 1) / strideHeight;
     const auto outWidth = (poolOutWidth + strideWidth - 1) / strideWidth;
-    if (outHeight != out.shape()[1] ||
-        outWidth != out.shape()[2]) {
+    if (outHeight != out.shape()[2] ||
+        outWidth != out.shape()[3]) {
       throw poplib_test::poplib_test_error("Output tensor dimensions do not "
                                            "match expected dimensions");
     }
     for (unsigned y = 0; y != outHeight; ++y) {
       for (unsigned x = 0; x != outWidth; ++x) {
         for (unsigned oc = 0; oc != channels; ++oc) {
-          out[b][y][x][oc] = poolOut[y * strideHeight][x * strideWidth][oc];
+          out[b][oc][y][x] = poolOut[oc][y * strideHeight][x * strideWidth];
           scale[y][x] = scaleOut[y * strideHeight][x * strideWidth];
         }
       }
@@ -110,8 +110,8 @@ pooling(PoolingType pType, unsigned strideHeight, unsigned strideWidth,
         int paddingHeightU, int paddingWidthU,
         const boost::multi_array<double, 4> &in,
         boost::multi_array<double, 4> &out) {
-  boost::multi_array<double, 2> scale(boost::extents[out.shape()[1]]
-                                                    [out.shape()[2]]);
+  boost::multi_array<double, 2> scale(boost::extents[out.shape()[2]]
+                                                    [out.shape()[3]]);
   ::pooling(pType, strideHeight, strideWidth, kernelHeight, kernelWidth,
             paddingHeightL, paddingWidthL, paddingHeightU, paddingWidthU,
             in, out, scale);
@@ -128,21 +128,22 @@ maxPoolingBackward(unsigned strideHeight, unsigned strideWidth,
                    const boost::multi_array<double, 4> &in,
                    boost::multi_array<double, 4> &out) {
   const auto batchSize = in.shape()[0];
-  const auto channels = in.shape()[3];
-  const int inputHeight = in.shape()[1];
-  const int inputWidth = in.shape()[2];
-  const int outputHeight = out.shape()[1];
-  const int outputWidth = out.shape()[2];
+  const auto channels = in.shape()[1];
+  const int inputHeight = in.shape()[2];
+  const int inputWidth = in.shape()[3];
+  const int outputHeight = out.shape()[2];
+  const int outputWidth = out.shape()[3];
 
   for (unsigned b = 0; b != batchSize; ++b) {
     // Pad activations.
-    const int actHeight = prevAct.shape()[1];
-    const int actWidth = prevAct.shape()[2];
+    const int actHeight = prevAct.shape()[2];
+    const int actWidth = prevAct.shape()[3];
     const auto paddedHeight = actHeight + paddingHeightL + paddingHeightU;
     const auto paddedWidth = actWidth + paddingWidthL + paddingWidthU;
     boost::multi_array<double, 3>
-        paddedActivations(boost::extents[paddedHeight]
-                                        [paddedWidth][channels]);
+        paddedActivations(boost::extents[channels]
+                                        [paddedHeight]
+                                        [paddedWidth]);
     std::fill(paddedActivations.data(),
               paddedActivations.data() + paddedActivations.num_elements(),
               0.0);
@@ -155,8 +156,8 @@ maxPoolingBackward(unsigned strideHeight, unsigned strideWidth,
               (x - paddingWidthL) >= actWidth) {
             continue;
           }
-          paddedActivations[y][x][c] =
-              prevAct[b][y - paddingHeightL][x - paddingWidthL][c];
+          paddedActivations[c][y][x] =
+              prevAct[b][c][y - paddingHeightL][x - paddingWidthL];
         }
       }
     }
@@ -175,22 +176,24 @@ maxPoolingBackward(unsigned strideHeight, unsigned strideWidth,
                                            "do not match");
     }
     boost::multi_array<double, 3>
-        upsampledIn(boost::extents[upsampledHeight]
-                                  [upsampledWidth][channels]);
+        upsampledIn(boost::extents[channels]
+                                  [upsampledHeight]
+                                  [upsampledWidth]);
     boost::multi_array<double, 3>
-        upsampledNextAct(boost::extents[upsampledHeight]
-                                       [upsampledWidth][channels]);
+        upsampledNextAct(boost::extents[channels]
+                                       [upsampledHeight]
+                                       [upsampledWidth]);
     for (int y = 0; y != upsampledHeight; ++y) {
       for (int x = 0; x != upsampledWidth; ++x) {
         for (unsigned c = 0; c != channels; ++c) {
           if (y % strideHeight == 0 &&
               x % strideWidth == 0) {
-            upsampledIn[y][x][c] = in[b][y / strideHeight][x / strideWidth][c];
-            upsampledNextAct[y][x][c] =
-                nextAct[b][y / strideHeight][x / strideWidth][c];
+            upsampledIn[c][y][x] = in[b][c][y / strideHeight][x / strideWidth];
+            upsampledNextAct[c][y][x] =
+                nextAct[b][c][y / strideHeight][x / strideWidth];
           } else {
-            upsampledIn[y][x][c] = 0;
-            upsampledNextAct[y][x][c] =
+            upsampledIn[c][y][x] = 0;
+            upsampledNextAct[c][y][x] =
                 std::numeric_limits<double>::quiet_NaN();
           }
         }
@@ -198,7 +201,7 @@ maxPoolingBackward(unsigned strideHeight, unsigned strideWidth,
     }
 
     // Perform a full convolution with flipped weights.
-    const auto outputChannels = out.shape()[3];
+    const auto outputChannels = out.shape()[1];
     const int poolOutHeight = upsampledHeight + kernelHeight - 1;
     const int poolOutWidth = upsampledWidth + kernelWidth - 1;
     if (poolOutHeight != paddedHeight ||
@@ -207,9 +210,9 @@ maxPoolingBackward(unsigned strideHeight, unsigned strideWidth,
                                        "dimensions do not match");
     }
     boost::multi_array<double, 3>
-        poolOut(boost::extents[poolOutHeight]
-                              [poolOutWidth]
-                              [outputChannels]);
+        poolOut(boost::extents[outputChannels]
+                              [poolOutHeight]
+                              [poolOutWidth]);
     std::fill(poolOut.data(), poolOut.data() + poolOut.num_elements(), 0.0);
     for (unsigned c = 0; c != outputChannels; ++c) {
       for (int y = 0; y != poolOutHeight; ++y) {
@@ -221,13 +224,13 @@ maxPoolingBackward(unsigned strideHeight, unsigned strideWidth,
             for (int kx = 0; kx != static_cast<int>(kernelWidth); ++kx) {
               if (kx > x || (x - kx) >= upsampledWidth)
                 continue;
-              if (paddedActivations[y][x][c] ==
-                  upsampledNextAct[y - ky][x - kx][c]) {
-                v += upsampledIn[y - ky][x - kx][c];
+              if (paddedActivations[c][y][x] ==
+                  upsampledNextAct[c][y - ky][x - kx]) {
+                v += upsampledIn[c][y - ky][x - kx];
               }
             }
           }
-          poolOut[y][x][c] = v;
+          poolOut[c][y][x] = v;
         }
       }
     }
@@ -242,7 +245,7 @@ maxPoolingBackward(unsigned strideHeight, unsigned strideWidth,
               (x + paddingWidthL) >= poolOutWidth) {
             continue;
           }
-          out[b][y][x][c] = poolOut[y + paddingHeightL][x + paddingWidthL][c];
+          out[b][c][y][x] = poolOut[c][y + paddingHeightL][x + paddingWidthL];
         }
       }
     }
@@ -261,14 +264,14 @@ sumPoolingBackward(PoolingType pType,
                    boost::multi_array<double, 4> &out) {
   assert(pType == PoolingType::AVG || pType == PoolingType::SUM);
   const auto batchSize = in.shape()[0];
-  const auto channels = in.shape()[3];
-  const auto inputHeight = in.shape()[1];
-  const auto inputWidth = in.shape()[2];
-  const int outputHeight = out.shape()[1];
-  const int outputWidth = out.shape()[2];
+  const auto channels = in.shape()[1];
+  const auto inputHeight = in.shape()[2];
+  const auto inputWidth = in.shape()[3];
+  const int outputHeight = out.shape()[2];
+  const int outputWidth = out.shape()[3];
 
-  const auto actHeight = prevAct.shape()[1];
-  const auto actWidth = prevAct.shape()[2];
+  const auto actHeight = prevAct.shape()[2];
+  const auto actWidth = prevAct.shape()[3];
   const auto paddedHeight = actHeight + paddingHeightL + paddingHeightU;
   const auto paddedWidth = actWidth + paddingWidthL + paddingWidthU;
   const auto upsampledHeight =
@@ -299,26 +302,26 @@ sumPoolingBackward(PoolingType pType,
           paddingHeightL, paddingWidthL, paddingHeightU, paddingWidthU,
           prevAct, fwdAct, scale);
   boost::multi_array<double, 4> scaledIn(boost::extents[batchSize]
+                                                       [channels]
                                                        [inputHeight]
-                                                       [inputWidth]
-                                                       [channels]);
+                                                       [inputWidth]);
 
   for (unsigned b = 0; b != batchSize; ++b) {
     for (unsigned h = 0; h != inputHeight; ++h) {
       for (unsigned w = 0; w != inputWidth; ++w) {
         for (unsigned c = 0; c != channels; ++c) {
-          scaledIn[b][h][w][c] = in[b][h][w][c] * scale[h][w];
+          scaledIn[b][c][h][w] = in[b][c][h][w] * scale[h][w];
         }
       }
     }
   }
 
   for (unsigned b = 0; b != batchSize; ++b) {
-    const auto outputChannels = out.shape()[3];
+    const auto outputChannels = out.shape()[1];
     boost::multi_array<double, 3>
-        poolOut(boost::extents[poolOutHeight]
-                              [poolOutWidth]
-                              [outputChannels]);
+        poolOut(boost::extents[outputChannels]
+                              [poolOutHeight]
+                              [poolOutWidth]);
 
     std::fill(poolOut.data(), poolOut.data() + poolOut.num_elements(), 0.0);
 
@@ -333,8 +336,8 @@ sumPoolingBackward(PoolingType pType,
               if (x * strideWidth + kx >= poolOutWidth) {
                 continue;
               }
-              poolOut[y * strideHeight + ky][x * strideWidth + kx][c] +=
-                                                         scaledIn[b][y][x][c];
+              poolOut[c][y * strideHeight + ky][x * strideWidth + kx] +=
+                                                         scaledIn[b][c][y][x];
             }
           }
         }
@@ -350,7 +353,7 @@ sumPoolingBackward(PoolingType pType,
               (x + paddingWidthL) >= static_cast<int>(poolOutWidth)) {
             continue;
           }
-          out[b][y][x][c] = poolOut[y + paddingHeightL][x + paddingWidthL][c];
+          out[b][c][y][x] = poolOut[c][y + paddingHeightL][x + paddingWidthL];
         }
       }
     }

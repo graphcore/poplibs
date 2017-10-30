@@ -287,24 +287,27 @@ int main(int argc, char **argv) {
   const auto outWidth = outDims.second;
   // Create tensors.
   Tensor prevAct = graph.addTensor(dataTypeStr,
-                                   {batchSize,
-                                    chans / fwdChansPerGroup,
+                                   {chans / fwdChansPerGroup,
+                                    batchSize,
                                     height,
                                     width,
                                     fwdChansPerGroup}, "prevAct");
   mapTensorLinearly(graph, prevAct);
-  prevAct = prevAct.dimShufflePartial({1}, {3}).reshapePartial(3, 5, {chans});
+  prevAct = prevAct.dimShufflePartial({0, 4}, {1, 2})
+                   .reshapePartial(1, 3, {chans});
 
   Tensor zDeltas;
   if (!inferenceOnly) {
     zDeltas =
-        graph.addTensor(dataTypeStr, {batchSize,
-                                      chans / bwdChansPerGroup,
+        graph.addTensor(dataTypeStr, {chans / bwdChansPerGroup,
+                                      batchSize,
                                       outHeight,
-                                      outWidth, bwdChansPerGroup},
+                                      outWidth,
+                                      bwdChansPerGroup},
                         "zDeltas");
     mapTensorLinearly(graph, zDeltas);
-    zDeltas = zDeltas.dimShufflePartial({1}, {3}).reshapePartial(3, 5, {chans});
+    zDeltas = zDeltas.dimShufflePartial({0, 4}, {1, 2})
+                     .reshapePartial(1, 3, {chans});
   }
 
   auto fwdProg = Sequence();
@@ -346,9 +349,9 @@ int main(int argc, char **argv) {
 
 
   boost::multi_array<double, 4>
-      hostPrevAct(boost::extents[batchSize][height][width][chans]);
+      hostPrevAct(boost::extents[batchSize][chans][height][width]);
   boost::multi_array<double, 4>
-      hostNextAct(boost::extents[batchSize][outHeight][outWidth][chans]);
+      hostNextAct(boost::extents[batchSize][chans][outHeight][outWidth]);
   std::mt19937 randomEngine;
   writeRandomValues(hostPrevAct, -4.0, 4.0, randomEngine);
   copy<4>(hostPrevAct, dataTypeStr, rawHostPrevAct.get());
@@ -362,7 +365,7 @@ int main(int argc, char **argv) {
                                                             HALF_ABS_TOL;
   copy<4>(dataTypeStr, rawHostNextAct.get(), hostNextAct);
   boost::multi_array<double, 4>
-      modelNextAct(boost::extents[batchSize][outHeight][outWidth][chans]);
+      modelNextAct(boost::extents[batchSize][chans][outHeight][outWidth]);
   poplib_test::pooling::pooling(poolingType, strideHeight, strideWidth,
                                 kernelHeight, kernelWidth,
                                 paddingHeightL, paddingWidthL,
@@ -373,10 +376,10 @@ int main(int argc, char **argv) {
 
   if (!inferenceOnly) {
     boost::multi_array<double, 4> hostZDeltas(
-      boost::extents[batchSize][outHeight][outWidth][chans]
+      boost::extents[batchSize][chans][outHeight][outWidth]
     );
     boost::multi_array<double, 4> hostPrevDeltas(
-      boost::extents[batchSize][height][width][chans]
+      boost::extents[batchSize][chans][height][width]
     );
     // Run the backwards pass.
     writeRandomValues(hostZDeltas, -5.0, 5.0, randomEngine);
@@ -389,7 +392,7 @@ int main(int argc, char **argv) {
 
     // Validate against a reference model.
     boost::multi_array<double, 4>
-        modelPrevDeltas(boost::extents[batchSize][height][width][chans]);
+        modelPrevDeltas(boost::extents[batchSize][chans][height][width]);
     poplib_test::pooling::poolingBackward(poolingType,
                                           strideHeight, strideWidth,
                                           kernelHeight, kernelWidth,

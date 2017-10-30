@@ -14,35 +14,35 @@ dilateAndPadActivations(const boost::multi_array<double, 4> &in,
                         const std::vector<int> &paddingUpper) {
   // Pad input.
   const auto batchSize = in.shape()[0];
-  const auto inputChannels = in.shape()[3];
-  const auto inputHeight = in.shape()[1];
-  const auto inputWidth = in.shape()[2];
+  const auto inputChannels = in.shape()[1];
+  const auto inputHeight = in.shape()[2];
+  const auto inputWidth = in.shape()[3];
   std::vector<unsigned> dilatedShape(2);
   std::vector<unsigned> paddedShape(2);
   for (unsigned dim = 0; dim != 2; ++dim) {
-    dilatedShape[dim] = (in.shape()[dim + 1] - 1) * inputDilation[dim] + 1;
+    dilatedShape[dim] = (in.shape()[dim + 2] - 1) * inputDilation[dim] + 1;
     paddedShape[dim] = paddingLower[dim] + dilatedShape[dim] +
                        paddingUpper[dim];
   }
 
   boost::multi_array<double, 4>
-      dilatedIn(boost::extents[batchSize][dilatedShape[0]][dilatedShape[1]]
-                              [inputChannels]);
+      dilatedIn(boost::extents[batchSize][inputChannels]
+                              [dilatedShape[0]][dilatedShape[1]]);
   std::fill(dilatedIn.data(), dilatedIn.data() + dilatedIn.num_elements(),
             0.0);
   for (unsigned b = 0; b != batchSize; ++b) {
     for (unsigned c = 0; c != inputChannels; ++c) {
       for (unsigned y = 0; y != inputHeight; ++y) {
         for (unsigned x = 0; x != inputWidth; ++x) {
-          dilatedIn[b][y * inputDilation[0]][x * inputDilation[1]][c] =
-               in[b][y][x][c];
+          dilatedIn[b][c][y * inputDilation[0]][x * inputDilation[1]] =
+               in[b][c][y][x];
         }
       }
     }
   }
   boost::multi_array<double, 4>
-      paddedIn(boost::extents[batchSize][paddedShape[0]][paddedShape[1]]
-                             [inputChannels]);
+      paddedIn(boost::extents[batchSize][inputChannels][paddedShape[0]]
+                             [paddedShape[1]]);
   std::fill(paddedIn.data(), paddedIn.data() + paddedIn.num_elements(), 0.0);
   for (unsigned b = 0; b != batchSize; ++b) {
     for (unsigned c = 0; c != inputChannels; ++c) {
@@ -54,7 +54,7 @@ dilateAndPadActivations(const boost::multi_array<double, 4> &in,
           auto paddedX = static_cast<int>(x) + paddingLower[1];
           if (paddedX < 0 || static_cast<unsigned>(paddedX) >= paddedShape[1])
             continue;
-          paddedIn[b][paddedY][paddedX][c] = dilatedIn[b][y][x][c];
+          paddedIn[b][c][paddedY][paddedX] = dilatedIn[b][c][y][x];
         }
       }
     }
@@ -69,13 +69,13 @@ dilateAndPadActivationsInverse(const boost::multi_array<double, 4> &paddedActs,
                                const std::vector<int> &paddingUpper) {
   // Pad input.
   const auto batchSize = paddedActs.shape()[0];
-  const auto channels = paddedActs.shape()[3];
+  const auto channels = paddedActs.shape()[1];
 
   std::vector<unsigned> paddedShape(2);
   std::vector<unsigned> dilatedShape(2);
   std::vector<unsigned> inShape(2);
   for (unsigned dim = 0; dim != 2; ++dim) {
-    paddedShape[dim] = paddedActs.shape()[dim + 1];
+    paddedShape[dim] = paddedActs.shape()[dim + 2];
     dilatedShape[dim] = paddedShape[dim] - paddingLower[dim] -
                         paddingUpper[dim];
     inShape[dim] = (dilatedShape[dim] + dilation[dim] - 1) /
@@ -84,8 +84,8 @@ dilateAndPadActivationsInverse(const boost::multi_array<double, 4> &paddedActs,
 
   // Truncate.
   boost::multi_array<double, 4>
-      dilatedActs(boost::extents[batchSize][dilatedShape[0]][dilatedShape[1]]
-                                [channels]);
+      dilatedActs(boost::extents[batchSize][channels]
+                                [dilatedShape[0]][dilatedShape[1]]);
   for (unsigned b = 0; b != batchSize; ++b) {
     for (unsigned c = 0; c != channels; ++c) {
       for (unsigned y = 0; y != dilatedShape[0]; ++y) {
@@ -96,7 +96,7 @@ dilateAndPadActivationsInverse(const boost::multi_array<double, 4> &paddedActs,
           auto paddedX = static_cast<int>(x) + paddingLower[1];
           if (paddedX < 0 || static_cast<unsigned>(paddedX) >= paddedShape[1])
             continue;
-          dilatedActs[b][y][x][c] = paddedActs[b][paddedY][paddedX][c];
+          dilatedActs[b][c][y][x] = paddedActs[b][c][paddedY][paddedX];
         }
       }
     }
@@ -104,13 +104,13 @@ dilateAndPadActivationsInverse(const boost::multi_array<double, 4> &paddedActs,
 
   // Downsample.
   boost::multi_array<double, 4>
-      acts(boost::extents[batchSize][inShape[0]][inShape[1]][channels]);
+      acts(boost::extents[batchSize][channels][inShape[0]][inShape[1]]);
   for (unsigned b = 0; b != batchSize; ++b) {
     for (unsigned c = 0; c != channels; ++c) {
       for (unsigned y = 0; y != inShape[0]; ++y) {
         for (unsigned x = 0; x != inShape[1]; ++x) {
-          acts[b][y][x][c] = dilatedActs[b][y * dilation[0]]
-                                        [x * dilation[1]][c];
+          acts[b][c][y][x] = dilatedActs[b][c]
+                                        [y * dilation[0]][x * dilation[1]];
         }
       }
     }
@@ -271,17 +271,17 @@ convolution(const std::vector<unsigned> &stride,
   const auto batchSize = in.shape()[0];
   const auto numConvGroups = kernel.shape()[0];
   const auto inputChannelsPerConvGroup = kernel.shape()[4];
-  const auto inputChannels = in.shape()[3];
+  const auto inputChannels = in.shape()[1];
   if (inputChannels != inputChannelsPerConvGroup * numConvGroups) {
     throw poplib_test::poplib_test_error("Input channels in kernel do not "
                                          "match activations for grouped conv");
   }
   std::vector<unsigned> paddedShape(2);
   for (unsigned dim = 0; dim != 2; ++dim) {
-    paddedShape[dim] = paddedIn.shape()[dim + 1];
+    paddedShape[dim] = paddedIn.shape()[dim + 2];
   }
   const auto outputChannelsPerConvGroup = kernel.shape()[3];
-  const auto outputChannels = out.shape()[3];
+  const auto outputChannels = out.shape()[1];
   assert(outputChannels == outputChannelsPerConvGroup * numConvGroups);
   std::vector<unsigned> paddedKernelShape(2);
   std::vector<unsigned> convOutShape(2);
@@ -292,9 +292,9 @@ convolution(const std::vector<unsigned> &stride,
   }
   boost::multi_array<double, 4>
       convOut(boost::extents[batchSize]
+                            [outputChannels]
                             [convOutShape[0]]
-                            [convOutShape[1]]
-                            [outputChannels]);
+                            [convOutShape[1]]);
 
   std::fill(convOut.data(), convOut.data() + convOut.num_elements(), 0.0);
   for (unsigned gc = 0; gc != numConvGroups; ++gc) {
@@ -310,7 +310,7 @@ convolution(const std::vector<unsigned> &stride,
                    kx != std::min(paddedKernelShape[1], paddedShape[1]); ++kx) {
                 for (unsigned ic = 0; ic != inputChannelsPerConvGroup; ++ic) {
                   unsigned icAct = gc * inputChannelsPerConvGroup + ic;
-                  convOut[b][y][x][ocAct] +=
+                  convOut[b][ocAct][y][x] +=
                       paddedKernel[gc]
                                   [ky +
                                    (paddedKernelShape[0] < paddedShape[0] ? 0 :
@@ -319,17 +319,17 @@ convolution(const std::vector<unsigned> &stride,
                                    (paddedKernelShape[1] < paddedShape[1] ? 0 :
                                                                             x)]
                                   [oc][ic] *
-                      paddedIn[b]
+                      paddedIn[b][icAct]
                               [ky +
                                (paddedKernelShape[0] < paddedShape[0] ? y : 0)]
                               [kx +
                                (paddedKernelShape[1] < paddedShape[1]  ? x : 0)]
-                              [icAct];
+                              ;
 
                 }
               }
             }
-            convOut[b][y][x][ocAct] += biases[ocAct];
+            convOut[b][ocAct][y][x] += biases[ocAct];
           }
         }
       }
@@ -366,7 +366,7 @@ convolutionBackward(const std::vector<unsigned> &stride,
                                          kernelPaddingUpper);
 
   const auto batchSize = in.shape()[0];
-  const auto inputChannels = in.shape()[3];
+  const auto inputChannels = in.shape()[1];
   const auto numConvGroups = kernel.shape()[0];
   const auto inputChannelsPerConvGroup = kernel.shape()[3];
   if (inputChannels != inputChannelsPerConvGroup * numConvGroups) {
@@ -381,24 +381,24 @@ convolutionBackward(const std::vector<unsigned> &stride,
   std::vector<int> inPaddingUpper(2);
   for (unsigned dim = 0; dim != 2; ++dim) {
     convOutShape[dim] =
-        (out.shape()[dim + 1] - 1) * inputDilation[dim] + 1 +
+        (out.shape()[dim + 2] - 1) * inputDilation[dim] + 1 +
         paddingLower[dim] + paddingUpper[dim];
     paddedKernelShape[dim] = paddedKernel.shape()[dim + 1];
     paddedInShape[dim] =
         absdiff(convOutShape[dim], paddedKernelShape[dim]) + 1;
     if ((paddedInShape[dim] + stride[dim] - 1)/ stride[dim] !=
-        in.shape()[dim + 1]) {
+        in.shape()[dim + 2]) {
       throw poplib_test::poplib_test_error("Output and input tensor "
                                            "dimensions do not match");
     }
     inPaddingUpper[dim] = paddedInShape[dim] -
-                          ((in.shape()[dim + 1] - 1) * stride[dim] + 1);
+                          ((in.shape()[dim + 2] - 1) * stride[dim] + 1);
     assert(inPaddingUpper[dim] >= 0 &&
            static_cast<unsigned>(inPaddingUpper[dim]) < stride[dim]);
   }
   auto paddedIn = dilateAndPadActivations(in, stride, {0, 0}, inPaddingUpper);
 
-  const auto outputChannels = out.shape()[3];
+  const auto outputChannels = out.shape()[1];
   const auto outputChannelsPerConvGroup = kernel.shape()[4];
   assert(outputChannels == outputChannelsPerConvGroup * numConvGroups);
   if (outputChannels != outputChannelsPerConvGroup * numConvGroups) {
@@ -407,9 +407,9 @@ convolutionBackward(const std::vector<unsigned> &stride,
   }
   boost::multi_array<double, 4>
       convOut(boost::extents[batchSize]
+                            [outputChannels]
                             [convOutShape[0]]
-                            [convOutShape[1]]
-                            [outputChannels]);
+                            [convOutShape[1]]);
   std::fill(convOut.data(), convOut.data() + convOut.num_elements(), 0.0);
   for (unsigned gc = 0; gc != numConvGroups; ++gc) {
     for (unsigned b = 0; b != batchSize; ++b) {
@@ -428,11 +428,11 @@ convolutionBackward(const std::vector<unsigned> &stride,
                       y + ky < (paddedKernelShape[0] - 1) + paddedInShape[0] &&
                       x + kx >= (paddedKernelShape[1] - 1) &&
                       x + kx < (paddedKernelShape[1] - 1) + paddedInShape[1]) {
-                    convOut[b][y][x][ocAct] +=
+                    convOut[b][ocAct][y][x] +=
                         paddedKernel[gc][kyFlipped][kxFlipped][ic][oc] *
-                        paddedIn[b]
+                        paddedIn[b][icAct]
                                 [y - (paddedKernelShape[0] - 1) + ky]
-                                [x - (paddedKernelShape[1] - 1) + kx][icAct];
+                                [x - (paddedKernelShape[1] - 1) + kx];
                   }
                 }
               }
@@ -489,16 +489,16 @@ weightUpdate(const std::vector<unsigned> &stride,
   std::vector<int> deltasPaddingUpper(2);
   for (unsigned dim = 0; dim != 2; ++dim) {
     paddedKernelShape[dim] = paddedKernel.shape()[dim + 1];
-    paddedActivationsShape[dim] = paddedActivations.shape()[dim + 1];
+    paddedActivationsShape[dim] = paddedActivations.shape()[dim + 2];
     paddedDeltasShape[dim] = absdiff(paddedActivationsShape[dim],
                                      paddedKernelShape[dim]) + 1;
     if ((paddedDeltasShape[dim] + stride[dim] - 1) / stride[dim] !=
-        deltas.shape()[dim + 1]) {
+        deltas.shape()[dim + 2]) {
       throw poplib_test::poplib_test_error("Output and input tensor "
                                            "dimensions do not match");
     }
     deltasPaddingUpper[dim] = paddedDeltasShape[dim] -
-                              ((deltas.shape()[dim + 1] - 1) * stride[dim] + 1);
+                              ((deltas.shape()[dim + 2] - 1) * stride[dim] + 1);
     assert(deltasPaddingUpper[dim] >= 0 &&
            static_cast<unsigned>(deltasPaddingUpper[dim]) < stride[dim]);
   }
@@ -506,8 +506,8 @@ weightUpdate(const std::vector<unsigned> &stride,
   auto paddedDeltas =
       dilateAndPadActivations(deltas, stride, {0, 0}, deltasPaddingUpper);
   const auto batchSize = paddedActivations.shape()[0];
-  const auto inputChannels = paddedActivations.shape()[3];
-  const auto outputChannels = paddedDeltas.shape()[3];
+  const auto inputChannels = paddedActivations.shape()[1];
+  const auto outputChannels = paddedDeltas.shape()[1];
   const auto numConvGroups = kernel.shape()[0];
   const auto inputChannelsPerConvGroup = kernel.shape()[4];
   const auto outputChannelsPerConvGroup = kernel.shape()[3];
@@ -540,8 +540,8 @@ weightUpdate(const std::vector<unsigned> &stride,
               for (unsigned y = 0; y != paddedDeltasShape[0]; ++y) {
                 for (unsigned x = 0; x != paddedDeltasShape[1]; ++x) {
                   paddedWeightDeltas[gc][ky][kx][oc][ic] +=
-                      paddedActivations[b][y + ky][x + kx][icAct] *
-                      paddedDeltas[b][y][x][ocAct];
+                      paddedActivations[b][icAct][y + ky][x + kx] *
+                      paddedDeltas[b][ocAct][y][x];
                 }
               }
             }
@@ -577,7 +577,7 @@ weightUpdate(const std::vector<unsigned> &stride,
     for (unsigned y = 0; y != paddedDeltasShape[0]; ++y) {
       for (unsigned x = 0; x != paddedDeltasShape[1]; ++x) {
         for (unsigned oc = 0; oc != outputChannels; ++oc) {
-          biasDeltas[oc] += paddedDeltas[b][y][x][oc];
+          biasDeltas[oc] += paddedDeltas[b][oc][y][x];
         }
       }
     }
@@ -595,9 +595,9 @@ batchNormEstimates(const boost::multi_array_ref<double, 4> actsIn,
                    boost::multi_array_ref<double, 1> mean,
                    boost::multi_array_ref<double, 1> iStdDev) {
   const unsigned batchSize= actsIn.shape()[0];
-  const unsigned dimY = actsIn.shape()[1];
-  const unsigned dimX = actsIn.shape()[2];
-  const unsigned numChannels = actsIn.shape()[3];
+  const unsigned numChannels = actsIn.shape()[1];
+  const unsigned dimY = actsIn.shape()[2];
+  const unsigned dimX = actsIn.shape()[3];
   const auto numElems = batchSize * dimX * dimY;
 
   assert(iStdDev.shape()[0] == numChannels);
@@ -609,8 +609,8 @@ batchNormEstimates(const boost::multi_array_ref<double, 4> actsIn,
     for (unsigned b = 0; b != batchSize; ++b) {
       for (unsigned h = 0; h != dimY; ++h) {
         for (unsigned w = 0; w != dimX; ++w) {
-          sum += actsIn[b][h][w][c];
-          sumSquares += actsIn[b][h][w][c] * actsIn[b][h][w][c];
+          sum += actsIn[b][c][h][w];
+          sumSquares += actsIn[b][c][h][w] * actsIn[b][c][h][w];
         }
       }
     }
@@ -632,29 +632,29 @@ batchNormalise(const boost::multi_array_ref<double, 4> acts,
                boost::multi_array_ref<double, 4> actsWhitened) {
 
   const unsigned batchSize = acts.shape()[0];
-  const unsigned dimY = acts.shape()[1];
-  const unsigned dimX = acts.shape()[2];
-  const unsigned numChannels = acts.shape()[3];
+  const unsigned numChannels = acts.shape()[1];
+  const unsigned dimY = acts.shape()[2];
+  const unsigned dimX = acts.shape()[3];
 
   assert(gamma.shape()[0] == numChannels);
   assert(beta.shape()[0] == numChannels);
   assert(mean.shape()[0] == numChannels);
   assert(iStdDev.shape()[0] == numChannels);
   assert(actsOut.shape()[0] == batchSize);
-  assert(actsOut.shape()[1] == dimY);
-  assert(actsOut.shape()[2] == dimX);
-  assert(actsOut.shape()[3] == numChannels);
+  assert(actsOut.shape()[1] == numChannels);
+  assert(actsOut.shape()[2] == dimY);
+  assert(actsOut.shape()[3] == dimX);
   assert(actsWhitened.shape()[0] == batchSize);
-  assert(actsWhitened.shape()[1] == dimY);
-  assert(actsWhitened.shape()[2] == dimX);
-  assert(actsWhitened.shape()[3] == numChannels);
+  assert(actsWhitened.shape()[1] == numChannels);
+  assert(actsWhitened.shape()[2] == dimY);
+  assert(actsWhitened.shape()[3] == dimX);
 
   for (unsigned b = 0; b != batchSize; ++b) {
     for (unsigned h = 0; h != dimY; ++h) {
       for (unsigned w = 0; w != dimX; ++w) {
         for (unsigned c = 0; c != numChannels; ++c) {
-          actsWhitened[b][h][w][c] = (acts[b][h][w][c] - mean[c]) * iStdDev[c];
-          actsOut[b][h][w][c] = gamma[c] * actsWhitened[b][h][w][c] + beta[c];
+          actsWhitened[b][c][h][w] = (acts[b][c][h][w] - mean[c]) * iStdDev[c];
+          actsOut[b][c][h][w] = gamma[c] * actsWhitened[b][c][h][w] + beta[c];
         }
       }
     }
@@ -668,18 +668,18 @@ batchNormGradients(const boost::multi_array_ref<double, 4> actsWhitened,
                    const boost::multi_array_ref<double, 1> gamma,
                    boost::multi_array_ref<double, 4> gradsOut) {
   const unsigned batchSize = actsWhitened.shape()[0];
-  const unsigned height = actsWhitened.shape()[1];
-  const unsigned width = actsWhitened.shape()[2];
-  const unsigned numChannels = actsWhitened.shape()[3];
+  const unsigned numChannels = actsWhitened.shape()[1];
+  const unsigned height = actsWhitened.shape()[2];
+  const unsigned width = actsWhitened.shape()[3];
 
   assert(gradsIn.shape()[0] == batchSize);
-  assert(gradsIn.shape()[1] == height);
-  assert(gradsIn.shape()[2] == width);
-  assert(gradsIn.shape()[3] == numChannels);
+  assert(gradsIn.shape()[1] == numChannels);
+  assert(gradsIn.shape()[2] == height);
+  assert(gradsIn.shape()[3] == width);
   assert(gradsOut.shape()[0] == batchSize);
-  assert(gradsOut.shape()[1] == height);
-  assert(gradsOut.shape()[2] == width);
-  assert(gradsOut.shape()[3] == numChannels);
+  assert(gradsOut.shape()[1] == numChannels);
+  assert(gradsOut.shape()[2] == height);
+  assert(gradsOut.shape()[3] == width);
 
   assert(iStdDev.shape()[0] == numChannels);
   assert(gamma.shape()[0] == numChannels);
@@ -693,8 +693,8 @@ batchNormGradients(const boost::multi_array_ref<double, 4> actsWhitened,
     for (unsigned b = 0; b != batchSize; ++b) {
       for (unsigned h = 0; h != height; ++h) {
         for (unsigned w = 0; w != width; ++w) {
-          sumGradsIn += gradsIn[b][h][w][c];
-          sumGradsInAndxMu += actsWhitened[b][h][w][c] * gradsIn[b][h][w][c];
+          sumGradsIn += gradsIn[b][c][h][w];
+          sumGradsInAndxMu += actsWhitened[b][c][h][w] * gradsIn[b][c][h][w];
         }
       }
     }
@@ -703,11 +703,11 @@ batchNormGradients(const boost::multi_array_ref<double, 4> actsWhitened,
       for (unsigned h = 0; h != height; ++h) {
         for (unsigned w = 0; w != width; ++w) {
           double out =
-            gradsIn[b][h][w][c]
-            - actsWhitened[b][h][w][c] * sumGradsInAndxMu / numElements
+            gradsIn[b][c][h][w]
+            - actsWhitened[b][c][h][w] * sumGradsInAndxMu / numElements
             - sumGradsIn / numElements;
 
-          gradsOut[b][h][w][c] = out * gamma[c] * iStdDev[c];
+          gradsOut[b][c][h][w] = out * gamma[c] * iStdDev[c];
         }
       }
     }
@@ -721,14 +721,14 @@ batchNormParamUpdate(const boost::multi_array_ref<double, 4> actsWhitened,
                      boost::multi_array_ref<double, 1> gamma,
                      boost::multi_array_ref<double, 1> beta) {
   const unsigned batchSize = actsWhitened.shape()[0];
-  const unsigned height = actsWhitened.shape()[1];
-  const unsigned width = actsWhitened.shape()[2];
-  const unsigned numChannels = actsWhitened.shape()[3];
+  const unsigned numChannels = actsWhitened.shape()[1];
+  const unsigned height = actsWhitened.shape()[2];
+  const unsigned width = actsWhitened.shape()[3];
 
   assert(gradsIn.shape()[0] == batchSize);
-  assert(gradsIn.shape()[1] == height);
-  assert(gradsIn.shape()[2] == width);
-  assert(gradsIn.shape()[3] == numChannels);
+  assert(gradsIn.shape()[1] == numChannels);
+  assert(gradsIn.shape()[2] == height);
+  assert(gradsIn.shape()[3] == width);
 
   assert(gamma.shape()[0] == numChannels);
   assert(beta.shape()[0] == numChannels);
@@ -740,8 +740,8 @@ batchNormParamUpdate(const boost::multi_array_ref<double, 4> actsWhitened,
     for (unsigned b = 0; b != batchSize; ++b) {
       for (unsigned h = 0; h != height; ++h) {
         for (unsigned w = 0; w != width; ++w) {
-          dBeta += gradsIn[b][h][w][c];
-          dGamma += actsWhitened[b][h][w][c] * gradsIn[b][h][w][c];
+          dBeta += gradsIn[b][c][h][w];
+          dGamma += actsWhitened[b][c][h][w] * gradsIn[b][c][h][w];
         }
       }
     }

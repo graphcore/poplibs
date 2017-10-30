@@ -496,7 +496,7 @@ int main(int argc, char **argv) {
   Engine engine(graph, {std::move(fwdProg), std::move(revProg)});
 
   boost::multi_array<double, 4>
-      hostPrevAct(boost::extents[batchSize][height][width][fwdInChans]);
+      hostPrevAct(boost::extents[batchSize][fwdInChans][height][width]);
   boost::multi_array<double, 5>
       hostWeights(boost::extents[numConvGroups][kernelHeight][kernelWidth]
                                 [fwdOutChansPerConvGroup]
@@ -504,7 +504,7 @@ int main(int argc, char **argv) {
   boost::multi_array<double, 1>
       hostBiases(boost::extents[fwdOutChans]);
   boost::multi_array<double, 4>
-      hostNextAct(boost::extents[batchSize][outHeight][outWidth][fwdOutChans]);
+      hostNextAct(boost::extents[batchSize][fwdOutChans][outHeight][outWidth]);
   std::mt19937 randomEngine;
   writeRandomValues(hostPrevAct, -1.0, +5.0, randomEngine);
   writeRandomValues(hostWeights, -1.0, +7.0, randomEngine);
@@ -529,7 +529,7 @@ int main(int argc, char **argv) {
   bool matchesModel = true;
   copy(dataTypeStr, rawHostNextAct.get(), hostNextAct);
   boost::multi_array<double, 4>
-      modelNextAct(boost::extents[batchSize][outHeight][outWidth][fwdOutChans]);
+      modelNextAct(boost::extents[batchSize][fwdOutChans][outHeight][outWidth]);
   poplib_test::conv::convolution(stride,
                                  inDilation,
                                  paddingLower,
@@ -546,11 +546,11 @@ int main(int argc, char **argv) {
 
   if (doBwdPass || doWuPass) {
     boost::multi_array<double, 4> hostZDeltas(
-      boost::extents[batchSize][outHeight][outWidth]
-                    [bwdParams.getNumInputChans()]
+      boost::extents[batchSize][bwdParams.getNumInputChans()]
+                    [outHeight][outWidth]
     );
     boost::multi_array<double, 4> hostPrevDeltas(
-      boost::extents[batchSize][height][width][params.getNumInputChans()]
+      boost::extents[batchSize][params.getNumInputChans()][height][width]
     );
     auto modelWeights = hostWeights;
     auto modelBiases = hostBiases;
@@ -573,7 +573,7 @@ int main(int argc, char **argv) {
     // Validate against a reference model.
     if (doBwdPass) {
       boost::multi_array<double, 4>
-          modelPrevDeltas(boost::extents[batchSize][height][width][fwdInChans]);
+          modelPrevDeltas(boost::extents[batchSize][fwdInChans][height][width]);
       poplib_test::conv::convolutionBackward(
               stride,
               inDilation,

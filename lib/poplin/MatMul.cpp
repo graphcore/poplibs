@@ -45,11 +45,11 @@ static popconv::ConvOptions getConvOptions(
 // Transform a conv activations tensor to a  grouped matrix tensor view
 static Tensor matrixFromConvActivations(const Tensor &A, unsigned numGroups) {
   assert(A.rank() == 4);
-  assert(A.dim(3) % numGroups == 0);
   assert(A.dim(0) == 1);
-  assert(A.dim(1) == 1);
-  return A[0][0].reshape({A.dim(2), numGroups, A.dim(3) / numGroups})
-                .dimShuffle({1, 0, 2});
+  assert(A.dim(1) % numGroups == 0);
+  assert(A.dim(2) == 1);
+  return A.reshape({numGroups, A.dim(1) / numGroups, A.dim(3)})
+          .dimShuffle({0, 2, 1});
 }
 
 // Transpose a grouped matrix
@@ -74,7 +74,7 @@ static Tensor matrixFromConvWeights(const Tensor &A) {
 static Tensor convActivationsFromMatrix(const Tensor &A,
                                         const std::vector<std::size_t> &shape) {
   assert(shape.size() == 3);
-  return A.dimShuffle({1, 0, 2}).reshape({1, 1, shape[1], shape[0] * shape[2]});
+  return A.dimShuffle({0, 2, 1}).reshape({1, shape[0] * shape[2], 1, shape[1]});
 }
 
 // Transform a grouped matrix tensor to a weights tensor view with given

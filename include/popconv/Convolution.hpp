@@ -210,7 +210,7 @@ createBiases(poplar::Graph &graph, const poplar::Tensor &acts,
  * same set of parameters which will be passed to the convolution() should also
  * be passed to createInput()
  *
- * The returned tensor has the shape [B x H x W x inChans].
+ * The returned tensor has the shape [B x inChans x H x W].
  *
  * \param graph    The tensor will be added to this graph
  * \param params   Parameters as passed to the target convolution.
@@ -227,7 +227,7 @@ createInput(poplar::Graph &graph, const ConvParams &params,
  *
  * This is for a 2D convolution.
  *
- * The input tensor is in the form [B x H x W x inChans], and can be allocated
+ * The input tensor is in the form [B x inChans x H x W], and can be allocated
  * using createInput().  The weights tensor is in the form
  * [convGroups x H x W x outChans x inChans], and can be allocated using
  * createWeights().

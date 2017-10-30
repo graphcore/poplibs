@@ -32,7 +32,7 @@ static void check(Tensor acts) {
 }
 
 std::size_t numChannels(Tensor acts) {
-  return acts.dim(acts.rank() - 1);
+  return acts.dim(1);
 }
 
 std::size_t numActsPerChannel(Tensor acts) {

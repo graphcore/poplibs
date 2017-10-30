@@ -57,6 +57,7 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   auto acts = graph.addTensor(dataTypeStr, {batchSize, dimY, dimX, numChannels},
                               "act");
   popstd::mapTensorLinearly(graph, acts);
+  acts = acts.dimShufflePartial({3}, {1});
 
   auto prog = Sequence();
 
@@ -92,7 +93,7 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
 
   std::vector<std::pair<std::string, char *>> tmap;
   auto rawHostActs =
-          allocateHostMemoryForTensor(acts, "acts", graph, tmap);
+      allocateHostMemoryForTensor(acts, "acts", graph, tmap);
   auto rawHostActsBN =
           allocateHostMemoryForTensor(actsBN, "actsBN", graph, tmap);
   auto rawHostActsBNInf =
@@ -114,17 +115,17 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
           allocateHostMemoryForTensor(beta, "beta", graph, tmap);
 
   boost::multi_array<double, 4>
-      hostActs(boost::extents[batchSize][dimY][dimX][numChannels]);
+      hostActs(boost::extents[batchSize][numChannels][dimY][dimX]);
   boost::multi_array<double, 4>
-      hostActsBN(boost::extents[batchSize][dimY][dimX][numChannels]);
+      hostActsBN(boost::extents[batchSize][numChannels][dimY][dimX]);
   boost::multi_array<double, 4>
-      hostActsBNInf(boost::extents[batchSize][dimY][dimX][numChannels]);
+      hostActsBNInf(boost::extents[batchSize][numChannels][dimY][dimX]);
   boost::multi_array<double, 4>
-      hostGradsIn(boost::extents[batchSize][dimY][dimX][numChannels]);
+      hostGradsIn(boost::extents[batchSize][numChannels][dimY][dimX]);
   boost::multi_array<double, 4>
-      hostGradsOut(boost::extents[batchSize][dimY][dimX][numChannels]);
+      hostGradsOut(boost::extents[batchSize][numChannels][dimY][dimX]);
   boost::multi_array<double, 4>
-      hostActsWhitened(boost::extents[batchSize][dimY][dimX][numChannels]);
+      hostActsWhitened(boost::extents[batchSize][numChannels][dimY][dimX]);
   boost::multi_array<double, 1>
       hostMean(boost::extents[numChannels]);
   boost::multi_array<double, 1>
@@ -166,8 +167,8 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   bool matchesModel = true;
 
   boost::multi_array<double, 4> modelActsWhitened(boost::extents[batchSize]
-                                                                [dimY][dimX]
-                                                                [numChannels]);
+                                                                [numChannels]
+                                                                [dimY][dimX]);
   boost::multi_array<double, 1> modelMean(boost::extents[numChannels]);
   boost::multi_array<double, 1> modelInvStdDev(boost::extents[numChannels]);
 
@@ -175,12 +176,12 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
                                         modelInvStdDev);
 
   boost::multi_array<double, 4>
-      modelActsBN(boost::extents[batchSize][dimY][dimX][numChannels]);
+      modelActsBN(boost::extents[batchSize][numChannels][dimY][dimX]);
   poplib_test::conv::batchNormalise(hostActs, modelGamma, modelBeta, modelMean,
                                     modelInvStdDev, modelActsBN,
                                     modelActsWhitened);
   boost::multi_array<double, 4>
-      modelGradsOut(boost::extents[batchSize][dimY][dimX][numChannels]);
+      modelGradsOut(boost::extents[batchSize][numChannels][dimY][dimX]);
 
   poplib_test::conv::batchNormGradients(modelActsWhitened, modelGradsIn,
                                         modelInvStdDev, modelGamma,

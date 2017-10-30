@@ -288,13 +288,29 @@ struct Pixel {
 };
 }
 
+// Reshape the activations tensor from [N][C][H][W] shape to [N][H][W][C]
+// shape.
+static Tensor
+actsToInternalShape(const Tensor &act) {
+  return act.dimShufflePartial({1}, {act.rank() - 1});
+}
+
+// Reshape the activations tensor from [N][H][W][C] shape to [N][C][H][W]
+// shape.
+static Tensor
+actsToExternalShape(const Tensor &act) {
+  return act.dimShufflePartial({act.rank() - 1}, {1});
+}
+
 Tensor pool(Graph &graph,
             PoolingType poolingType,
             const std::vector<std::size_t> &kernelShape,
             const std::vector<unsigned> &stride,
             const std::vector<int> &inputPaddingLower,
             const std::vector<int> &inputPaddingUpper,
-            Tensor in, Sequence &prog, const std::string &debugPrefix) {
+            const Tensor &in_, Sequence &prog,
+            const std::string &debugPrefix) {
+  auto in = actsToInternalShape(in_);
   checkWindowParameters(kernelShape, stride, inputPaddingLower,
                         inputPaddingUpper);
   const auto dType = in.elementType();
@@ -419,7 +435,7 @@ Tensor pool(Graph &graph,
   }
 
   prog.add(Execute(cs));
-  return out;
+  return actsToExternalShape(out);
 }
 
 Tensor
@@ -429,9 +445,12 @@ poolInputGradient(Graph &graph,
                   const std::vector<unsigned> &stride,
                   const std::vector<int> &inputPaddingLower,
                   const std::vector<int> &inputPaddingUpper,
-                  Tensor in, Tensor pooled,
-                  Tensor pooledGradient, Sequence &prog,
+                  const Tensor &in_, const Tensor &pooled_,
+                  const Tensor &pooledGradient_, Sequence &prog,
                   const std::string &debugPrefix) {
+  auto in = actsToInternalShape(in_);
+  auto pooled = actsToInternalShape(pooled_);
+  auto pooledGradient = actsToInternalShape(pooledGradient_);
   checkWindowParameters(kernelShape, stride, inputPaddingLower,
                         inputPaddingUpper);
   const auto dType = in.elementType();
@@ -587,7 +606,7 @@ poolInputGradient(Graph &graph,
   }
 
   prog.add(Execute(cs));
-  return inGradient;
+  return actsToExternalShape(inGradient);
 }
 
 
