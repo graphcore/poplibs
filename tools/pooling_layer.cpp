@@ -278,13 +278,13 @@ int main(int argc, char **argv) {
   }
 
   const auto outDims =
-      popnn::pooling::getOutputDim(height, width,
-                                   {kernelHeight, kernelWidth},
-                                   {strideHeight, strideWidth},
-                                   {paddingHeightL, paddingWidthL},
-                                   {paddingHeightU, paddingWidthU});
-  const auto outHeight = outDims.first;
-  const auto outWidth = outDims.second;
+      popnn::pooling::getOutputFieldShape({height, width},
+                                          {kernelHeight, kernelWidth},
+                                          {strideHeight, strideWidth},
+                                          {paddingHeightL, paddingWidthL},
+                                          {paddingHeightU, paddingWidthU});
+  const auto outHeight = outDims[0];
+  const auto outWidth = outDims[1];
   // Create tensors.
   Tensor prevAct = graph.addTensor(dataTypeStr,
                                    {chans / fwdChansPerGroup,

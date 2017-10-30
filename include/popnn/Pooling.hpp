@@ -11,15 +11,15 @@ namespace pooling {
 
 const char *asString(const PoolingType &method);
 
-std::pair<unsigned, unsigned>
-getOutputDim(unsigned inDimY, unsigned inDimX,
-             const std::vector<std::size_t> &kernelShape,
-             const std::vector<unsigned> &stride,
-             const std::vector<int> &inputPaddingLower,
-             const std::vector<int> &inputPaddingUpper);
+std::vector<std::size_t>
+getOutputFieldShape(const std::vector<std::size_t> &inputFieldShape,
+                    const std::vector<std::size_t> &kernelShape,
+                    const std::vector<unsigned> &stride,
+                    const std::vector<int> &inputPaddingLower,
+                    const std::vector<int> &inputPaddingUpper);
 
 uint64_t getFwdFlops(unsigned batchSize,
-                     unsigned inDimY, unsigned inDimX,
+                     const std::vector<std::size_t> &inputFieldShape,
                      unsigned numChannels,
                      const std::vector<std::size_t> &kernelShape,
                      const std::vector<unsigned> &stride,
@@ -28,7 +28,7 @@ uint64_t getFwdFlops(unsigned batchSize,
                      PoolingType poolingType);
 
 uint64_t getBwdFlops(unsigned batchSize,
-                     unsigned inDimY, unsigned inDimX,
+                     const std::vector<std::size_t> &inputFieldShape,
                      unsigned numChannels,
                      const std::vector<std::size_t> &kernelShape,
                      const std::vector<unsigned> &stride,
@@ -38,7 +38,7 @@ uint64_t getBwdFlops(unsigned batchSize,
 
 double getFwdPerfectCycleCount(const poplar::Graph &graph,
                                std::string dType, unsigned batchSize,
-                               unsigned inDimY, unsigned inDimX,
+                               const std::vector<std::size_t> &inputFieldShape,
                                unsigned numChannels,
                                const std::vector<std::size_t> &kernelShape,
                                const std::vector<unsigned> &stride,
@@ -48,7 +48,7 @@ double getFwdPerfectCycleCount(const poplar::Graph &graph,
 
 double getBwdPerfectCycleCount(const poplar::Graph &graph,
                                std::string dType, unsigned batchSize,
-                               unsigned inDimY, unsigned inDimX,
+                               const std::vector<std::size_t> &inputFieldShape,
                                unsigned numChannels,
                                const std::vector<std::size_t> &kernelShape,
                                const std::vector<unsigned> &stride,
