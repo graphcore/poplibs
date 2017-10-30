@@ -387,9 +387,9 @@ static unsigned
 linearizeTileIndices(unsigned numTiles,
                      unsigned ky, unsigned izg, unsigned ox, unsigned oy,
                      unsigned b, unsigned ozg, unsigned cg, const Plan &plan) {
-
-  const auto tilesPerX = plan.tilesPerXAxis;
-  const auto tilesPerY = plan.tilesPerYAxis;
+  assert(plan.tilesPerFieldAxis.size() == 2);
+  const auto tilesPerX = plan.tilesPerFieldAxis[1];
+  const auto tilesPerY = plan.tilesPerFieldAxis[0];
   const auto tilesPerBatch = plan.tilesPerBatchAxis;
   const auto tilesPerZ = plan.tilesPerZAxis;
   const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
@@ -524,6 +524,20 @@ struct ConvSlice {
   unsigned kernelYBegin, kernelYEnd;
 };
 
+static std::pair<unsigned, unsigned>
+getTileOutRange(const ConvParams &params, const Plan &plan, unsigned tileIndex,
+                unsigned dim) {
+  const auto fieldSize = params.getOutputSize(dim);
+  const auto grainSize = plan.fieldAxisGrainSize[dim];
+  const auto numGrains = (fieldSize + grainSize - 1) / grainSize;
+  const auto split = plan.tilesPerFieldAxis[dim];
+  const auto outGrainBegin = (tileIndex * numGrains) / split;
+  const auto outGrainEnd = ((tileIndex + 1) * numGrains) / split;
+  const auto outBegin = outGrainBegin * grainSize;
+  const auto outEnd = std::min(outGrainEnd * grainSize, fieldSize);
+  return {outBegin, outEnd};
+}
+
 static void
 iterateTilePartition(const Graph &graph, const ConvParams &params,
                      const Plan &plan,
@@ -537,15 +551,14 @@ iterateTilePartition(const Graph &graph, const ConvParams &params,
   assert(params.getNumOutputChansPerConvGroup() % partialChansPerGroup == 0);
   const auto partialNumChanGroups =
       params.getNumOutputChansPerConvGroup() / partialChansPerGroup;
-  const auto tilesPerX = plan.tilesPerXAxis;
-  const auto tilesPerY = plan.tilesPerYAxis;
+  assert(plan.tilesPerFieldAxis.size() == 2);
+  const auto tilesPerX = plan.tilesPerFieldAxis[1];
+  const auto tilesPerY = plan.tilesPerFieldAxis[0];
   const auto tilesPerBatch = plan.tilesPerBatchAxis;
   const auto tilesPerZ = plan.tilesPerZAxis;
   const auto tilesPerKernelY = plan.tilesPerKernelYAxis;
   const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
   const unsigned batchSize = params.getBatchSize();
-  const unsigned outDimY = params.getOutputHeight();
-  const unsigned outDimX = params.getOutputWidth();
   const unsigned numInZGroups = inNumChans / inChansPerGroup;
   const unsigned kernelHeight = params.kernelShape[0];
   const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
@@ -569,17 +582,13 @@ iterateTilePartition(const Graph &graph, const ConvParams &params,
             std::tie(outZGroupBegin, outZGroupEnd) =
                 getOutZGroupRange(ozg, partialNumChanGroups, plan);
             for (unsigned oy = 0; oy != tilesPerY; ++oy) {
-              const auto outYBegin = (oy * outDimY) / tilesPerY;
-              const auto outYEnd = ((oy + 1) * outDimY) / tilesPerY;
+              unsigned outYBegin, outYEnd;
+              std::tie(outYBegin, outYEnd) =
+                  getTileOutRange(params, plan, oy, 0);
               for (unsigned ox = 0; ox != tilesPerX; ++ox) {
-                const auto xAxisGrainSize = plan.xAxisGrainSize;
-                const auto numXGrains = (outDimX + xAxisGrainSize - 1) /
-                                        plan.xAxisGrainSize;
-                const auto outXGrainBegin = (ox * numXGrains) / tilesPerX;
-                const auto outXGrainEnd = ((ox + 1) * numXGrains) / tilesPerX;
-                const auto outXBegin = outXGrainBegin * xAxisGrainSize;
-                const auto outXEnd = std::min(outXGrainEnd * xAxisGrainSize,
-                                              outDimX);
+                unsigned outXBegin, outXEnd;
+                std::tie(outXBegin, outXEnd) =
+                    getTileOutRange(params, plan, ox, 1);
                 const auto tile = linearizeTileIndices(numTiles, ky, izg,
                                                        ox, oy, b, ozg, cg,
                                                        plan);
@@ -2485,8 +2494,10 @@ convolution(Graph &graph, const poplar::Tensor &in_,
     prog.add(Copy(in, inRearranged));
     in = inRearranged;
   }
-  const auto weightsNumDests =
-      plan.tilesPerBatchAxis * plan.tilesPerXAxis * plan.tilesPerYAxis;
+  auto weightsNumDests = plan.tilesPerBatchAxis;
+  for (const auto split : plan.tilesPerFieldAxis) {
+    weightsNumDests *= split;
+  }
   if (weightsNumDests > weightViewMaxBroadcastDests) {
     auto weightsRearranged = createWeightsImpl(graph, params,
                                                "weightsRearranged", plan);
@@ -3100,8 +3111,8 @@ fullyConnectedWeightTranspose(Graph &graph,
                               const ConvOptions &options) {
   auto plan = getPlan(graph, params, options);
   auto fwdPlan = plan;
-  std::swap(fwdPlan.xAxisGrainSize, fwdPlan.inChansPerGroup);
-  std::swap(fwdPlan.tilesPerXAxis, fwdPlan.tilesPerInZGroupAxis);
+  std::swap(fwdPlan.fieldAxisGrainSize.back(), fwdPlan.inChansPerGroup);
+  std::swap(fwdPlan.tilesPerFieldAxis.back(), fwdPlan.tilesPerInZGroupAxis);
   Tensor transposed = createInput(graph, params, "transposed", options);
   // split activations into conv groups
   auto splitActivations =

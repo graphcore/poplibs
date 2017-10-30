@@ -8,8 +8,7 @@
 namespace popconv {
 
 struct Plan {
-  unsigned tilesPerXAxis;
-  unsigned tilesPerYAxis;
+  std::vector<unsigned> tilesPerFieldAxis;
   unsigned tilesPerBatchAxis;
   unsigned tilesPerZAxis;
   unsigned tilesPerKernelYAxis;
@@ -18,8 +17,8 @@ struct Plan {
   unsigned tilesPerConvGroups;
   unsigned inChansPerGroup;
   unsigned partialChansPerGroup;
-  /// Grain size to use when splitting the x-axis across tiles.
-  unsigned xAxisGrainSize;
+  /// Grain size to use when splitting the axes across tiles.
+  std::vector<unsigned> fieldAxisGrainSize;
   bool floatPartials;
   bool swapOperands = false;
   // Spatial dimensions that should be expanded by taking the activations
@@ -50,32 +49,32 @@ struct Plan {
   unsigned winogradPatchSize;
 
   Plan() = default;
-  Plan(unsigned tilesPerXAxis,
-       unsigned tilesPerYAxis,
-       unsigned tilesPerBatchAxis,
-       unsigned tilesPerZAxis,
-       unsigned tilesPerKernelYAxis,
-       unsigned tilesPerInZGroupAxis,
-       unsigned tilesPerConvGroups,
-       unsigned inChansPerGroup,
-       unsigned partialChansPerGroup,
-       unsigned xAxisGrainSize,
-       bool floatPartials,
-       Plan::Method method,
-       Plan::LinearizeTileOrder linearizeTileOrder) :
-    tilesPerXAxis(tilesPerXAxis),
-    tilesPerYAxis(tilesPerYAxis),
-    tilesPerBatchAxis(tilesPerBatchAxis),
-    tilesPerZAxis(tilesPerZAxis),
-    tilesPerKernelYAxis(tilesPerKernelYAxis),
-    tilesPerInZGroupAxis(tilesPerInZGroupAxis),
-    tilesPerConvGroups(tilesPerConvGroups),
-    inChansPerGroup(inChansPerGroup),
-    partialChansPerGroup(partialChansPerGroup),
-    xAxisGrainSize(xAxisGrainSize),
-    floatPartials(floatPartials),
-    method(method),
-    linearizeTileOrder(linearizeTileOrder) {}
+  Plan(std::vector<unsigned> tilesPerFieldAxis_,
+       unsigned tilesPerBatchAxis_,
+       unsigned tilesPerZAxis_,
+       unsigned tilesPerKernelYAxis_,
+       unsigned tilesPerInZGroupAxis_,
+       unsigned tilesPerConvGroups_,
+       unsigned inChansPerGroup_,
+       unsigned partialChansPerGroup_,
+       std::vector<unsigned> fieldAxisGrainSize_,
+       bool floatPartials_,
+       Plan::Method method_,
+       Plan::LinearizeTileOrder linearizeTileOrder_) :
+      tilesPerFieldAxis(std::move(tilesPerFieldAxis_)),
+      tilesPerBatchAxis(tilesPerBatchAxis_),
+      tilesPerZAxis(tilesPerZAxis_),
+      tilesPerKernelYAxis(tilesPerKernelYAxis_),
+      tilesPerInZGroupAxis(tilesPerInZGroupAxis_),
+      tilesPerConvGroups(tilesPerConvGroups_),
+      inChansPerGroup(inChansPerGroup_),
+      partialChansPerGroup(partialChansPerGroup_),
+      fieldAxisGrainSize(std::move(fieldAxisGrainSize_)),
+      floatPartials(floatPartials_),
+      method(method_),
+      linearizeTileOrder(linearizeTileOrder_) {
+    assert(tilesPerFieldAxis.size() == fieldAxisGrainSize.size());
+  }
   const char *getPartialType() const {
     return floatPartials ? "float" : "half";
   }

@@ -138,14 +138,17 @@ std::ostream& operator<<(std::ostream &os, Plan::Method m) {
 
 std::ostream& operator<<(std::ostream &os, const Plan &p)
 {
-  os << "  Plan: tilesPerXAxis           " << p.tilesPerXAxis << "\n"
-     << "        tilesPerYAxis           " << p.tilesPerYAxis << "\n"
+  os << "  Plan: tilesPerFieldAxis       ";
+  printContainer(p.tilesPerFieldAxis, os);
+  os << "\n"
      << "        tilesPerBatchAxis       " << p.tilesPerBatchAxis << "\n"
      << "        tilesPerZAxis           " << p.tilesPerZAxis << "\n"
      << "        tilesPerKernelYAxis     " << p.tilesPerKernelYAxis << "\n"
      << "        tilesPerInZGroupAxis    " << p.tilesPerInZGroupAxis << "\n"
      << "        tilesPerConvGroups      " << p.tilesPerConvGroups << "\n"
-     << "        xAxisGrainSize          " << p.xAxisGrainSize << "\n"
+     << "        fieldAxisGrainSize      ";
+  printContainer(p.fieldAxisGrainSize, os);
+  os << "\n"
      << "        inChansPerGroup         " << p.inChansPerGroup << "\n"
      << "        partialChansPerGroup    " << p.partialChansPerGroup << "\n"
      << "        method                  " << p.method << "\n"
@@ -428,14 +431,14 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
 }
 
 static unsigned
-getMaxTileOutWidth(const ConvParams &params, const Plan &plan) {
-  const auto outWidth = params.getOutputWidth();
-  const auto grainSize = plan.xAxisGrainSize;
-  const auto numGrains = (outWidth + grainSize - 1) / grainSize;
-  const auto tilesPerX = plan.tilesPerXAxis;
-  const auto tileNumGrains = (numGrains + tilesPerX - 1) / tilesPerX;
-  const auto tileOutWidth = std::min(outWidth, tileNumGrains * grainSize);
-  return tileOutWidth;
+getMaxTileOutSize(const ConvParams &params, const Plan &plan, unsigned dim) {
+  const auto outSize = params.getOutputSize(dim);
+  const auto grainSize = plan.fieldAxisGrainSize[dim];
+  const auto numGrains = (outSize + grainSize - 1) / grainSize;
+  const auto tilesPerDim = plan.tilesPerFieldAxis[dim];
+  const auto tileNumGrains = (numGrains + tilesPerDim - 1) / tilesPerDim;
+  const auto tileOutSize = std::min(outSize, tileNumGrains * grainSize);
+  return tileOutSize;
 }
 
 static unsigned
@@ -443,8 +446,9 @@ estimateExchangeCycles(const poplar::DeviceInfo &deviceInfo,
                        bool floatActivations,
                        const ConvParams &params,
                        const Plan &plan) {
-  const auto tilesPerX = plan.tilesPerXAxis;
-  const auto tilesPerY = plan.tilesPerYAxis;
+  assert(plan.tilesPerFieldAxis.size() == 2);
+  const auto tilesPerX = plan.tilesPerFieldAxis[1];
+  const auto tilesPerY = plan.tilesPerFieldAxis[0];
   const auto tilesPerBatch = plan.tilesPerBatchAxis;
   const auto tilesPerZ = plan.tilesPerZAxis;
   const auto tilesPerKernelYAxis = plan.tilesPerKernelYAxis;
@@ -457,9 +461,8 @@ estimateExchangeCycles(const poplar::DeviceInfo &deviceInfo,
   const auto tileKernelHeight = (kernelSizeY + tilesPerKernelYAxis - 1) /
                                 tilesPerKernelYAxis;
   const auto tileKernelWidth = kernelSizeX;
-  const auto tileOutWidth = getMaxTileOutWidth(params, plan);
-  const auto tileOutHeight =
-      (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
+  const auto tileOutHeight = getMaxTileOutSize(params, plan, 0);
+  const auto tileOutWidth = getMaxTileOutSize(params, plan, 1);
   const auto tileBatchElements =
       (params.getBatchSize() + tilesPerBatch - 1) / tilesPerBatch;
   const auto numOutChans = params.getNumOutputChansPerConvGroup();
@@ -588,14 +591,12 @@ estimateZeroCycles(const poplar::DeviceInfo &deviceInfo,
   if (!zeroPartials(params, plan)) {
     return 0;
   }
-  const auto tilesPerY = plan.tilesPerYAxis;
   const auto tilesPerBatch = plan.tilesPerBatchAxis;
   const auto tilesPerZ = plan.tilesPerZAxis;
   const auto tilesPerConvGroups = plan.tilesPerConvGroups;
   const auto partialChansPerGroup = plan.partialChansPerGroup;
-  const auto tileOutWidth = getMaxTileOutWidth(params, plan);
-  const auto tileOutHeight =
-      (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
+  const auto tileOutHeight = getMaxTileOutSize(params, plan, 0);
+  const auto tileOutWidth = getMaxTileOutSize(params, plan, 1);
   const auto tileBatchElements =
       (params.getBatchSize() + tilesPerBatch - 1) / tilesPerBatch;
   const auto numOutChans = params.getNumOutputChansPerConvGroup();
@@ -623,7 +624,6 @@ estimatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
                           const ConvParams &params,
                           const Plan &plan,
                           PlanningCacheImpl *cache) {
-  const auto tilesPerY = plan.tilesPerYAxis;
   const auto tilesPerZ = plan.tilesPerZAxis;
   const auto tilesPerBatch = plan.tilesPerBatchAxis;
   const auto inChansPerGroup = plan.inChansPerGroup;
@@ -632,9 +632,8 @@ estimatePartialCalcCycles(const poplar::DeviceInfo &deviceInfo,
   const auto tilesPerInZGroupAxis = plan.tilesPerInZGroupAxis;
   const auto tilesPerConvGroups = plan.tilesPerConvGroups;
 
-  const auto tileOutWidth = getMaxTileOutWidth(params, plan);
-  const auto tileOutHeight =
-      (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
+  const auto tileOutHeight = getMaxTileOutSize(params, plan, 0);
+  const auto tileOutWidth = getMaxTileOutSize(params, plan, 1);
   const auto tileBatchElements =
       (params.getBatchSize() + tilesPerBatch - 1) / tilesPerBatch;
   const auto numOutGroups =
@@ -749,14 +748,12 @@ estimateReduceCycles(const poplar::DeviceInfo &deviceInfo,
   if (tilesPerKernelYAxis == 1 &&
       tilesPerInZGroupAxis == 1)
     return 0;
-  const auto tilesPerY = plan.tilesPerYAxis;
   const auto tilesPerZ = plan.tilesPerZAxis;
   const auto tilesPerBatch = plan.tilesPerBatchAxis;
   const auto tilesPerConvGroups = plan.tilesPerConvGroups;
   const auto outChansPerGroup = plan.partialChansPerGroup;
-  const auto tileOutWidth = getMaxTileOutWidth(params, plan);
-  const auto tileOutHeight =
-      (params.getOutputHeight() + tilesPerY - 1) / tilesPerY;
+  const auto tileOutHeight = getMaxTileOutSize(params, plan, 0);
+  const auto tileOutWidth = getMaxTileOutSize(params, plan, 1);
   const auto tileBatchElements =
       (params.getBatchSize() + tilesPerBatch - 1) / tilesPerBatch;
   const auto numOutGroups =
@@ -843,10 +840,10 @@ addCycleEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
     const auto tilesPerKernelY = values[4];
     const auto tilesPerInZ = values[5];
     const auto tilesPerConvGroups = values[6];
-    Plan candidate(tilesPerX, tilesPerY, tilesPerBatch, tilesPerZ,
+    Plan candidate({tilesPerY, tilesPerX}, tilesPerBatch, tilesPerZ,
                    tilesPerKernelY, tilesPerInZ, tilesPerConvGroups,
                    inChansPerGroup, partialChansPerGroup,
-                   xAxisGrainSize,
+                   {1, xAxisGrainSize},
                    floatPartials,
                    method,
                    linearizeTileOrder);
@@ -864,10 +861,10 @@ addCycleEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
     const auto tilesPerKernelY = values[4];
     const auto tilesPerInZ = values[5];
     const auto tilesPerConvGroups = values[6];
-    Plan candidate(tilesPerX, tilesPerY, tilesPerBatch, tilesPerZ,
+    Plan candidate({tilesPerY, tilesPerX}, tilesPerBatch, tilesPerZ,
                    tilesPerKernelY, tilesPerInZ, tilesPerConvGroups,
                    inChansPerGroup, partialChansPerGroup,
-                   xAxisGrainSize,
+                   {1, xAxisGrainSize},
                    floatPartials,
                    method,
                    linearizeTileOrder);
@@ -884,10 +881,10 @@ addCycleEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
     const auto tilesPerKernelY = values[4];
     const auto tilesPerInZ = values[5];
     const auto tilesPerConvGroups = values[6];
-    Plan candidate(tilesPerX, tilesPerY, tilesPerBatch, tilesPerZ,
+    Plan candidate({tilesPerY, tilesPerX}, tilesPerBatch, tilesPerZ,
                    tilesPerKernelY, tilesPerInZ, tilesPerConvGroups,
                    inChansPerGroup, partialChansPerGroup,
-                   xAxisGrainSize,
+                   {1, xAxisGrainSize},
                    floatPartials,
                    method,
                    linearizeTileOrder);
@@ -916,10 +913,10 @@ addCycleEstimate(popsolver::Model &m, popsolver::Variable tilesPerX,
     const auto tilesPerKernelY = values[4];
     const auto tilesPerInZ = values[5];
     const auto tilesPerConvGroups = values[6];
-    Plan candidate(tilesPerX, tilesPerY, tilesPerBatch, tilesPerZ,
+    Plan candidate({tilesPerY, tilesPerX}, tilesPerBatch, tilesPerZ,
                    tilesPerKernelY, tilesPerInZ, tilesPerConvGroups,
                    inChansPerGroup, partialChansPerGroup,
-                   xAxisGrainSize,
+                   {1, xAxisGrainSize},
                    floatPartials,
                    method,
                    linearizeTileOrder);
@@ -1081,10 +1078,10 @@ choosePlan(const poplar::DeviceInfo &deviceInfo,
   } catch (NoSolution) {
     return {Plan(), highestCost};
   }
-  Plan plan(s[tilesPerX], s[tilesPerY], s[tilesPerBatch], s[tilesPerZ],
+  Plan plan({s[tilesPerY], s[tilesPerX]}, s[tilesPerBatch], s[tilesPerZ],
             s[tilesPerKernelY], s[tilesPerInZ], s[tilesPerConvGroups],
             inChansPerGroup, partialChansPerGroup,
-            xAxisGrainSize,
+            {1, xAxisGrainSize},
             convVertexType.floatPartials,
             convVertexType.method,
             Plan::LinearizeTileOrder::STANDARD);
@@ -1595,8 +1592,8 @@ static Plan getFullyConnectedBwdPlan(const poplar::DeviceInfo &deviceInfo,
   auto plan = fwdPlan;
   plan.method = getFullyConnectedBwdMethod(fwdParams, fwdPlan.method);
   plan.linearizeTileOrder = Plan::LinearizeTileOrder::FC_BWD_AS_CONV;
-  std::swap(plan.tilesPerXAxis, plan.tilesPerInZGroupAxis);
-  std::swap(plan.xAxisGrainSize, plan.inChansPerGroup);
+  std::swap(plan.tilesPerFieldAxis.back(), plan.tilesPerInZGroupAxis);
+  std::swap(plan.fieldAxisGrainSize.back(), plan.inChansPerGroup);
   return plan;
 }
 
