@@ -498,9 +498,10 @@ int main(int argc, char **argv) {
   boost::multi_array<double, 4>
       hostPrevAct(boost::extents[batchSize][fwdInChans][height][width]);
   boost::multi_array<double, 5>
-      hostWeights(boost::extents[numConvGroups][kernelHeight][kernelWidth]
+      hostWeights(boost::extents[numConvGroups]
                                 [fwdOutChansPerConvGroup]
-                                [fwdInChansPerConvGroup]);
+                                [fwdInChansPerConvGroup]
+                                [kernelHeight][kernelWidth]);
   boost::multi_array<double, 1>
       hostBiases(boost::extents[fwdOutChans]);
   boost::multi_array<double, 4>

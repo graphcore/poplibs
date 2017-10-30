@@ -124,26 +124,28 @@ dilateAndPadKernel(const boost::multi_array<double, 5> &kernel,
                    const std::vector<int> &kernelPaddingLower,
                    const std::vector<int> &kernelPaddingUpper) {
   const auto numConvGroups = kernel.shape()[0];
-  const auto outputChannelsPerConvGroup = kernel.shape()[3];
-  const auto inputChannelsPerConvGroup = kernel.shape()[4];
+  const auto outputChannelsPerConvGroup = kernel.shape()[1];
+  const auto inputChannelsPerConvGroup = kernel.shape()[2];
   std::vector<unsigned> kernelShape(2);
   std::vector<unsigned> dilatedShape(2);
   for (unsigned dim = 0; dim != 2; ++dim) {
-    kernelShape[dim] = kernel.shape()[dim + 1];
+    kernelShape[dim] = kernel.shape()[dim + 3];
     dilatedShape[dim] = (kernelShape[dim] - 1) * kernelDilation[dim] + 1;
   }
   boost::multi_array<double, 5>
-      dilated(boost::extents[numConvGroups][dilatedShape[0]][dilatedShape[1]]
+      dilated(boost::extents[numConvGroups]
                             [outputChannelsPerConvGroup]
-                            [inputChannelsPerConvGroup]);
+                            [inputChannelsPerConvGroup]
+                            [dilatedShape[0]]
+                            [dilatedShape[1]]);
   std::fill(dilated.data(), dilated.data() + dilated.num_elements(), 0.0);
   for (unsigned gc = 0; gc != numConvGroups; ++gc) {
-    for (unsigned y = 0; y != kernelShape[0]; ++y) {
-      for (unsigned x = 0; x != kernelShape[1]; ++x) {
-        for (unsigned oc = 0; oc != outputChannelsPerConvGroup; ++oc) {
-          for (unsigned ic = 0; ic != inputChannelsPerConvGroup; ++ic) {
-            dilated[gc][y * kernelDilation[0]][x * kernelDilation[1]][oc][ic] =
-                kernel[gc][y][x][oc][ic];
+    for (unsigned oc = 0; oc != outputChannelsPerConvGroup; ++oc) {
+      for (unsigned ic = 0; ic != inputChannelsPerConvGroup; ++ic) {
+        for (unsigned y = 0; y != kernelShape[0]; ++y) {
+          for (unsigned x = 0; x != kernelShape[1]; ++x) {
+            dilated[gc][oc][ic][y * kernelDilation[0]][x * kernelDilation[1]] =
+                kernel[gc][oc][ic][y][x];
           }
         }
       }
@@ -155,22 +157,24 @@ dilateAndPadKernel(const boost::multi_array<double, 5> &kernel,
                        kernelPaddingUpper[dim];
   }
   boost::multi_array<double, 5>
-      padded(boost::extents[numConvGroups][paddedShape[0]][paddedShape[1]]
+      padded(boost::extents[numConvGroups]
                            [outputChannelsPerConvGroup]
-                           [inputChannelsPerConvGroup]);
+                           [inputChannelsPerConvGroup]
+                           [paddedShape[0]]
+                           [paddedShape[1]]);
   std::fill(padded.data(), padded.data() + padded.num_elements(), 0.0);
   for (unsigned gc = 0; gc != numConvGroups; ++gc) {
-    for (unsigned y = 0; y != dilatedShape[0]; ++y) {
-      auto paddedY = static_cast<int>(y) + kernelPaddingLower[0];
-      if (paddedY < 0 || static_cast<unsigned>(paddedY) >= paddedShape[0])
-        continue;
-      for (unsigned x = 0; x != dilatedShape[1]; ++x) {
-        auto paddedX = static_cast<int>(x) + kernelPaddingLower[1];
-        if (paddedX < 0 || static_cast<unsigned>(paddedX) >= paddedShape[1])
-          continue;
-        for (unsigned oc = 0; oc != outputChannelsPerConvGroup; ++oc) {
-          for (unsigned ic = 0; ic != inputChannelsPerConvGroup; ++ic) {
-            padded[gc][paddedY][paddedX][oc][ic] = dilated[gc][y][x][oc][ic];
+    for (unsigned oc = 0; oc != outputChannelsPerConvGroup; ++oc) {
+      for (unsigned ic = 0; ic != inputChannelsPerConvGroup; ++ic) {
+        for (unsigned y = 0; y != dilatedShape[0]; ++y) {
+          auto paddedY = static_cast<int>(y) + kernelPaddingLower[0];
+          if (paddedY < 0 || static_cast<unsigned>(paddedY) >= paddedShape[0])
+            continue;
+          for (unsigned x = 0; x != dilatedShape[1]; ++x) {
+            auto paddedX = static_cast<int>(x) + kernelPaddingLower[1];
+            if (paddedX < 0 || static_cast<unsigned>(paddedX) >= paddedShape[1])
+              continue;
+            padded[gc][oc][ic][paddedY][paddedX] = dilated[gc][oc][ic][y][x];
           }
         }
       }
@@ -185,32 +189,34 @@ dilateAndPadKernelInverse(const boost::multi_array<double, 5> &padded,
                           const std::vector<int> &kernelPaddingLower,
                           const std::vector<int> &kernelPaddingUpper) {
   const auto numConvGroups = padded.shape()[0];
-  const auto outputChannelsPerConvGroup = padded.shape()[3];
-  const auto inputChannelsPerConvGroup = padded.shape()[4];
+  const auto outputChannelsPerConvGroup = padded.shape()[1];
+  const auto inputChannelsPerConvGroup = padded.shape()[2];
   std::vector<unsigned> paddedShape(2);
   std::vector<unsigned> dilatedShape(2);
   for (unsigned dim = 0; dim != 2; ++dim) {
-    paddedShape[dim] = padded.shape()[dim + 1];
+    paddedShape[dim] = padded.shape()[dim + 3];
     dilatedShape[dim] = paddedShape[dim] - kernelPaddingLower[dim] -
                         kernelPaddingUpper[dim];
   }
   boost::multi_array<double, 5>
-      dilated(boost::extents[numConvGroups][dilatedShape[0]][dilatedShape[1]]
+      dilated(boost::extents[numConvGroups]
                             [outputChannelsPerConvGroup]
-                            [inputChannelsPerConvGroup]);
+                            [inputChannelsPerConvGroup]
+                            [dilatedShape[0]]
+                            [dilatedShape[1]]);
   for (unsigned gc = 0; gc != numConvGroups; ++gc) {
-    for (unsigned y = 0; y != dilatedShape[0]; ++y) {
-      auto paddedY = static_cast<int>(y) + kernelPaddingLower[0];
-      if (paddedY < 0 || static_cast<unsigned>(paddedY) >= paddedShape[0])
-        continue;
-      for (unsigned x = 0; x != dilatedShape[1]; ++x) {
-        auto paddedX = static_cast<int>(x) + kernelPaddingLower[1];
-        if (paddedX < 0 || static_cast<unsigned>(paddedX) >= paddedShape[1])
-          continue;
-        for (unsigned oc = 0; oc != outputChannelsPerConvGroup; ++oc) {
-          for (unsigned ic = 0; ic != inputChannelsPerConvGroup; ++ic) {
-            dilated[gc][y][x][oc][ic] =
-                padded[gc][paddedY][paddedX][oc][ic];
+    for (unsigned oc = 0; oc != outputChannelsPerConvGroup; ++oc) {
+      for (unsigned ic = 0; ic != inputChannelsPerConvGroup; ++ic) {
+        for (unsigned y = 0; y != dilatedShape[0]; ++y) {
+          auto paddedY = static_cast<int>(y) + kernelPaddingLower[0];
+          if (paddedY < 0 || static_cast<unsigned>(paddedY) >= paddedShape[0])
+            continue;
+          for (unsigned x = 0; x != dilatedShape[1]; ++x) {
+            auto paddedX = static_cast<int>(x) + kernelPaddingLower[1];
+            if (paddedX < 0 || static_cast<unsigned>(paddedX) >= paddedShape[1])
+              continue;
+            dilated[gc][oc][ic][y][x] =
+                padded[gc][oc][ic][paddedY][paddedX];
           }
         }
       }
@@ -221,17 +227,19 @@ dilateAndPadKernelInverse(const boost::multi_array<double, 5> &padded,
     kernelShape[dim] = (dilatedShape[dim] - 1) / kernelDilation[dim] + 1;
   }
   boost::multi_array<double, 5>
-      kernel(boost::extents[numConvGroups][kernelShape[0]][kernelShape[1]]
+      kernel(boost::extents[numConvGroups]
                            [outputChannelsPerConvGroup]
-                           [inputChannelsPerConvGroup]);
+                           [inputChannelsPerConvGroup]
+                           [kernelShape[0]]
+                           [kernelShape[1]]);
   for (unsigned gc = 0; gc != numConvGroups; ++gc) {
-    for (unsigned y = 0; y != kernelShape[0]; ++y) {
-      for (unsigned x = 0; x != kernelShape[1]; ++x) {
-        for (unsigned oc = 0; oc != outputChannelsPerConvGroup; ++oc) {
-          for (unsigned ic = 0; ic != inputChannelsPerConvGroup; ++ic) {
-            kernel[gc][y][x][oc][ic] =
-                dilated[gc][y * kernelDilation[0]]
-                       [x * kernelDilation[1]][oc][ic];
+    for (unsigned oc = 0; oc != outputChannelsPerConvGroup; ++oc) {
+      for (unsigned ic = 0; ic != inputChannelsPerConvGroup; ++ic) {
+        for (unsigned y = 0; y != kernelShape[0]; ++y) {
+          for (unsigned x = 0; x != kernelShape[1]; ++x) {
+            kernel[gc][oc][ic][y][x] =
+                dilated[gc][oc][ic]
+                       [y * kernelDilation[0]][x * kernelDilation[1]];
           }
         }
       }
@@ -270,7 +278,7 @@ convolution(const std::vector<unsigned> &stride,
 
   const auto batchSize = in.shape()[0];
   const auto numConvGroups = kernel.shape()[0];
-  const auto inputChannelsPerConvGroup = kernel.shape()[4];
+  const auto inputChannelsPerConvGroup = kernel.shape()[2];
   const auto inputChannels = in.shape()[1];
   if (inputChannels != inputChannelsPerConvGroup * numConvGroups) {
     throw poplib_test::poplib_test_error("Input channels in kernel do not "
@@ -280,13 +288,13 @@ convolution(const std::vector<unsigned> &stride,
   for (unsigned dim = 0; dim != 2; ++dim) {
     paddedShape[dim] = paddedIn.shape()[dim + 2];
   }
-  const auto outputChannelsPerConvGroup = kernel.shape()[3];
+  const auto outputChannelsPerConvGroup = kernel.shape()[1];
   const auto outputChannels = out.shape()[1];
   assert(outputChannels == outputChannelsPerConvGroup * numConvGroups);
   std::vector<unsigned> paddedKernelShape(2);
   std::vector<unsigned> convOutShape(2);
   for (unsigned dim = 0; dim != 2; ++dim) {
-    paddedKernelShape[dim] = paddedKernel.shape()[dim + 1];
+    paddedKernelShape[dim] = paddedKernel.shape()[dim + 3];
     convOutShape[dim] = absdiff(paddedShape[dim],
                                 paddedKernelShape[dim]) + 1;
   }
@@ -312,13 +320,14 @@ convolution(const std::vector<unsigned> &stride,
                   unsigned icAct = gc * inputChannelsPerConvGroup + ic;
                   convOut[b][ocAct][y][x] +=
                       paddedKernel[gc]
+                                  [oc][ic]
                                   [ky +
                                    (paddedKernelShape[0] < paddedShape[0] ? 0 :
                                                                             y)]
                                   [kx +
                                    (paddedKernelShape[1] < paddedShape[1] ? 0 :
                                                                             x)]
-                                  [oc][ic] *
+                                   *
                       paddedIn[b][icAct]
                               [ky +
                                (paddedKernelShape[0] < paddedShape[0] ? y : 0)]
@@ -368,7 +377,7 @@ convolutionBackward(const std::vector<unsigned> &stride,
   const auto batchSize = in.shape()[0];
   const auto inputChannels = in.shape()[1];
   const auto numConvGroups = kernel.shape()[0];
-  const auto inputChannelsPerConvGroup = kernel.shape()[3];
+  const auto inputChannelsPerConvGroup = kernel.shape()[1];
   if (inputChannels != inputChannelsPerConvGroup * numConvGroups) {
     throw poplib_test::poplib_test_error("Input channels in kernel do not "
                                           "match activations for grouped conv");
@@ -383,7 +392,7 @@ convolutionBackward(const std::vector<unsigned> &stride,
     convOutShape[dim] =
         (out.shape()[dim + 2] - 1) * inputDilation[dim] + 1 +
         paddingLower[dim] + paddingUpper[dim];
-    paddedKernelShape[dim] = paddedKernel.shape()[dim + 1];
+    paddedKernelShape[dim] = paddedKernel.shape()[dim + 3];
     paddedInShape[dim] =
         absdiff(convOutShape[dim], paddedKernelShape[dim]) + 1;
     if ((paddedInShape[dim] + stride[dim] - 1)/ stride[dim] !=
@@ -399,7 +408,7 @@ convolutionBackward(const std::vector<unsigned> &stride,
   auto paddedIn = dilateAndPadActivations(in, stride, {0, 0}, inPaddingUpper);
 
   const auto outputChannels = out.shape()[1];
-  const auto outputChannelsPerConvGroup = kernel.shape()[4];
+  const auto outputChannelsPerConvGroup = kernel.shape()[2];
   assert(outputChannels == outputChannelsPerConvGroup * numConvGroups);
   if (outputChannels != outputChannelsPerConvGroup * numConvGroups) {
     throw poplib_test::poplib_test_error("Output channels in kernel do not "
@@ -429,7 +438,7 @@ convolutionBackward(const std::vector<unsigned> &stride,
                       x + kx >= (paddedKernelShape[1] - 1) &&
                       x + kx < (paddedKernelShape[1] - 1) + paddedInShape[1]) {
                     convOut[b][ocAct][y][x] +=
-                        paddedKernel[gc][kyFlipped][kxFlipped][ic][oc] *
+                        paddedKernel[gc][ic][oc][kyFlipped][kxFlipped] *
                         paddedIn[b][icAct]
                                 [y - (paddedKernelShape[0] - 1) + ky]
                                 [x - (paddedKernelShape[1] - 1) + kx];
@@ -488,7 +497,7 @@ weightUpdate(const std::vector<unsigned> &stride,
   std::vector<unsigned> paddedKernelShape(2);
   std::vector<int> deltasPaddingUpper(2);
   for (unsigned dim = 0; dim != 2; ++dim) {
-    paddedKernelShape[dim] = paddedKernel.shape()[dim + 1];
+    paddedKernelShape[dim] = paddedKernel.shape()[dim + 3];
     paddedActivationsShape[dim] = paddedActivations.shape()[dim + 2];
     paddedDeltasShape[dim] = absdiff(paddedActivationsShape[dim],
                                      paddedKernelShape[dim]) + 1;
@@ -509,8 +518,8 @@ weightUpdate(const std::vector<unsigned> &stride,
   const auto inputChannels = paddedActivations.shape()[1];
   const auto outputChannels = paddedDeltas.shape()[1];
   const auto numConvGroups = kernel.shape()[0];
-  const auto inputChannelsPerConvGroup = kernel.shape()[4];
-  const auto outputChannelsPerConvGroup = kernel.shape()[3];
+  const auto inputChannelsPerConvGroup = kernel.shape()[2];
+  const auto outputChannelsPerConvGroup = kernel.shape()[1];
   if (inputChannels != inputChannelsPerConvGroup * numConvGroups) {
     throw poplib_test::poplib_test_error("Input channels in kernel do not "
                                          "match channels in activations");
@@ -522,10 +531,10 @@ weightUpdate(const std::vector<unsigned> &stride,
 
   boost::multi_array<double, 5>
       paddedWeightDeltas(boost::extents[numConvGroups]
-                                       [paddedKernelShape[0]]
-                                       [paddedKernelShape[1]]
                                        [outputChannelsPerConvGroup]
-                                       [inputChannelsPerConvGroup]);
+                                       [inputChannelsPerConvGroup]
+                                       [paddedKernelShape[0]]
+                                       [paddedKernelShape[1]]);
   std::fill(paddedWeightDeltas.data(),
             paddedWeightDeltas.data() + paddedWeightDeltas.num_elements(), 0.0);
   for (unsigned gc = 0; gc != numConvGroups; ++gc) {
@@ -539,7 +548,7 @@ weightUpdate(const std::vector<unsigned> &stride,
             for (unsigned kx = 0; kx != paddedKernelShape[1]; ++kx) {
               for (unsigned y = 0; y != paddedDeltasShape[0]; ++y) {
                 for (unsigned x = 0; x != paddedDeltasShape[1]; ++x) {
-                  paddedWeightDeltas[gc][ky][kx][oc][ic] +=
+                  paddedWeightDeltas[gc][oc][ic][ky][kx] +=
                       paddedActivations[b][icAct][y + ky][x + kx] *
                       paddedDeltas[b][ocAct][y][x];
                 }
@@ -559,10 +568,10 @@ weightUpdate(const std::vector<unsigned> &stride,
   for (unsigned gc = 0; gc != numConvGroups; ++gc) {
     for (unsigned oc = 0; oc != outputChannelsPerConvGroup; ++oc) {
       for (unsigned ic = 0; ic != inputChannelsPerConvGroup; ++ic) {
-        for (unsigned ky = 0; ky != kernel.shape()[1]; ++ky) {
-          for (unsigned kx = 0; kx != kernel.shape()[2]; ++kx) {
-            kernel[gc][ky][kx][oc][ic] +=
-                learningRate * -weightDeltas[gc][ky][kx][oc][ic];
+        for (unsigned ky = 0; ky != kernel.shape()[3]; ++ky) {
+          for (unsigned kx = 0; kx != kernel.shape()[4]; ++kx) {
+            kernel[gc][oc][ic][ky][kx] +=
+                learningRate * -weightDeltas[gc][oc][ic][ky][kx];
           }
         }
       }

@@ -141,6 +141,20 @@ actsToExternalShape(const Tensor &act) {
             .reshapePartial(1, 3, {act.dim(0) * act.dim(act.rank() - 1)});
 }
 
+// Reshape the weights tensor from [G][OC][IC][H][W] shape to
+// [G][H][W][OC][IC].
+static Tensor
+weightsToInternalShape(const Tensor &act) {
+  return act.dimShufflePartial({1, 2}, {act.rank() - 2, act.rank() - 1});
+}
+
+// Reshape the weights tensor from [G][H][W][OC][IC] shape to
+// [G][OC][IC][H][W] shape.
+static Tensor
+weightsToExternalShape(const Tensor &act) {
+  return act.dimShufflePartial({act.rank() - 2, act.rank() - 1}, {1, 2});
+}
+
 // Reshape the activations tensor from [G][N][H][W][C] shape to
 // [G][C1][N][H][W][C2]
 //
@@ -1053,9 +1067,9 @@ static void mapActivations(Graph &graph, ConvParams params,
 }
 
 static Tensor
-createWeights(Graph &graph,
-              const ConvParams &params, const std::string &name,
-              const Plan &plan);
+createWeightsImpl(Graph &graph,
+                  const ConvParams &params, const std::string &name,
+                  const Plan &plan);
 
 static Tensor
 createInputImpl(Graph &graph, const ConvParams &params,
@@ -1066,7 +1080,7 @@ createInputImpl(Graph &graph, const ConvParams &params,
     auto newPlan = plan;
     swapOperands(newParams);
     newPlan.swapOperands = false;
-    auto t = createWeights(graph, newParams, name, newPlan);
+    auto t = createWeightsImpl(graph, newParams, name, newPlan);
     return t.dimRoll(3, 1);
   }
   const auto inNumChans = params.getNumInputChansPerConvGroup();
@@ -1178,9 +1192,9 @@ static void mapWeights(Graph &graph, Tensor weights,
 }
 
 static Tensor
-createWeights(Graph &graph,
-              const ConvParams &params, const std::string &name,
-              const Plan &plan) {
+createWeightsImpl(Graph &graph,
+                  const ConvParams &params, const std::string &name,
+                  const Plan &plan) {
   if (plan.swapOperands) {
     auto newParams = params;
     auto newPlan = plan;
@@ -1218,7 +1232,7 @@ createWeights(Graph &graph,
               const ConvOptions &options) {
   verifyStrideAndPaddingDimensions(params);
   const auto plan = getPlan(graph, params, options);
-  return createWeights(graph, params, name, plan);
+  return weightsToExternalShape(createWeightsImpl(graph, params, name, plan));
 }
 
 static std::vector<std::vector<poplar::Interval<std::size_t>>>
@@ -2421,22 +2435,23 @@ convolution(Graph &graph, const poplar::Tensor &in_,
             const ConvParams &params_,
             bool transposeAndFlipWeights, Sequence &prog,
             const std::string &debugPrefix, const ConvOptions &options) {
+  auto params = params_;
   auto weights = weights_;
   if (weights.rank() == params_.getNumFieldDims() + 2) {
     weights = weights.expand({0});
   }
-  auto params = params_;
-  auto in = actsToInternalShape(in_, params.numConvGroups);
-  verifyStrideAndPaddingDimensions(params);
-  const auto dType = in.elementType();
-  auto plan = getPlan(graph, params, options);
-
   if (transposeAndFlipWeights) {
     // Create transposed/flipped weights
     auto bwdWeights = createWeights(graph, params, "bwdWeights", options);
     weightsTransposeChansFlipXY(graph, weights, bwdWeights, prog, debugPrefix);
     weights = bwdWeights;
   }
+  weights = weightsToInternalShape(weights);
+  auto in = actsToInternalShape(in_, params.numConvGroups);
+  verifyStrideAndPaddingDimensions(params);
+  const auto dType = in.elementType();
+  auto plan = getPlan(graph, params, options);
+
   verifyInputShapes(params, in, weights);
 
   auto outputShape = getOutputShape(params);
@@ -2473,8 +2488,8 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   const auto weightsNumDests =
       plan.tilesPerBatchAxis * plan.tilesPerXAxis * plan.tilesPerYAxis;
   if (weightsNumDests > weightViewMaxBroadcastDests) {
-    auto weightsRearranged = createWeights(graph, params, "weightsRearranged",
-                                           plan);
+    auto weightsRearranged = createWeightsImpl(graph, params,
+                                               "weightsRearranged", plan);
     prog.add(Copy(weights, weightsRearranged));
     weights = weightsRearranged;
   }
@@ -2598,8 +2613,10 @@ void weightsTransposeChansFlipXY(Graph &graph,
                                  const Tensor &weightsOutUnGrouped,
                                  Sequence &prog,
                                  const std::string &debugPrefix) {
-  const auto weightsIn = groupWeights(weightsInUnGrouped);
-  const auto weightsOut = groupWeights(weightsOutUnGrouped);
+  const auto weightsIn =
+      groupWeights(weightsToInternalShape(weightsInUnGrouped));
+  const auto weightsOut =
+      groupWeights(weightsToInternalShape(weightsOutUnGrouped));
   // weightsIn = { O/G1, I/G2, KY, KX, G1, G2 }
   // weightsOut = { I/G3, O/G4, KY, KX, G3, G4 }
   const auto dType = weightsIn.elementType();
@@ -2716,7 +2733,7 @@ calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
   // - wu width = fwd width
   // - wu output channels = fwd output channels
   auto activationsRearranged = activations.dimShufflePartial({1, 4}, {4, 1});
-  auto deltasRearranged = zDeltas.dimShufflePartial({1}, {4});
+  auto deltasRearranged = zDeltas.dimShufflePartial({4}, {1});
   auto weightDeltas =
       convolution(graph,
                   actsToExternalShape(activationsRearranged),
@@ -2727,7 +2744,7 @@ calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
                   debugPrefix,
                   options);
   weightDeltas = actsToInternalShape(weightDeltas, numConvGroups);
-  return weightDeltas.dimShufflePartial({1}, {4});
+  return weightsToExternalShape(weightDeltas.dimShufflePartial({1}, {4}));
 }
 
 void

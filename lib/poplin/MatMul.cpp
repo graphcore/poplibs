@@ -64,9 +64,9 @@ static Tensor transpose(const Tensor &A) {
 // Transfom a conv weights tensor to a grouped matix tensor view
 static Tensor matrixFromConvWeights(const Tensor &A) {
   assert(A.rank() == 5);
-  assert(A.dim(1) == 1);
-  assert(A.dim(2) == 1);
-  return A.reshapePartial(1, 5, {A.dim(3), A.dim(4)});
+  assert(A.dim(3) == 1);
+  assert(A.dim(4) == 1);
+  return A.squeeze({3, 4});
 }
 
 // Transform a grouped matrix tensor to an activations tensor view with given
@@ -82,7 +82,7 @@ static Tensor convActivationsFromMatrix(const Tensor &A,
 static Tensor convWeightsFromMatrix(const Tensor &A,
                                     const std::vector<std::size_t> &shape) {
   assert(shape.size() == 3);
-  return A.expand({1, 1});
+  return A.expand({3, 3});
 }
 
 static popconv::ConvParams getConvParams(
