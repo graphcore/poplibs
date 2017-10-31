@@ -387,13 +387,13 @@ static unsigned
 linearizeTileIndices(unsigned numTiles,
                      unsigned ky, unsigned izg, unsigned ox, unsigned oy,
                      unsigned b, unsigned ozg, unsigned cg, const Plan &plan) {
-  assert(plan.tilesPerFieldAxis.size() == 2);
-  const auto tilesPerX = plan.tilesPerFieldAxis[1];
-  const auto tilesPerY = plan.tilesPerFieldAxis[0];
-  const auto tilesPerBatch = plan.tilesPerBatchAxis;
-  const auto tilesPerZ = plan.tilesPerZAxis;
-  const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
-  const auto tilesPerKernelYAxis = plan.tilesPerKernelYAxis;
+  assert(plan.fieldTileSplit.size() == 2);
+  const auto xTileSplit = plan.fieldTileSplit[1];
+  const auto yTileSplit = plan.fieldTileSplit[0];
+  const auto batchTileSplit = plan.batchTileSplit;
+  const auto outChanTileSplit = plan.outChanTileSplit;
+  const auto inChanTileSplit = plan.inChanTileSplit;
+  const auto kernelYTileSplit = plan.kernelYTileSplit;
   // If this is a multi IPU system then choose an order that avoids splitting
   // partial sums over IPUs
   unsigned tile;
@@ -401,35 +401,35 @@ linearizeTileIndices(unsigned numTiles,
   case Plan::LinearizeTileOrder::FC_WU:
     // For the fully connected weight update the in group and out group are
     // swapped compared to the forward pass.
-    tile = (izg + tilesPerInZGroup *
-             (ox + tilesPerX *
-               (oy + tilesPerY *
-                 (b + tilesPerBatch *
-                   (ky + tilesPerKernelYAxis *
-                     (ozg + tilesPerZ *
+    tile = (izg + inChanTileSplit *
+             (ox + xTileSplit *
+               (oy + yTileSplit *
+                 (b + batchTileSplit *
+                   (ky + kernelYTileSplit *
+                     (ozg + outChanTileSplit *
                       cg))))));
     break;
   case Plan::LinearizeTileOrder::FC_BWD_AS_CONV:
     // For the fully connected backward pass the width and the input channels
     // are swapped compared to the forward pass.
-    tile = (ozg + tilesPerZ *
-             (izg + tilesPerInZGroup *
-               (oy + tilesPerY *
-                 (b + tilesPerBatch *
-                   (ky + tilesPerKernelYAxis *
-                     (ox + tilesPerX *
+    tile = (ozg + outChanTileSplit *
+             (izg + inChanTileSplit *
+               (oy + yTileSplit *
+                 (b + batchTileSplit *
+                   (ky + kernelYTileSplit *
+                     (ox + xTileSplit *
                       cg))))));
     break;
   case Plan::LinearizeTileOrder::STANDARD:
     // Use ozg as the innermost dimension to increase the chance that
     // tiles in a supertile both read the same activations. This reduces
     // exchange time when supertile send / receive is used.
-    tile = (ozg + tilesPerZ *
-             (ox + tilesPerX *
-               (oy + tilesPerY *
-                 (b + tilesPerBatch *
-                   (ky + tilesPerKernelYAxis *
-                     (izg + tilesPerInZGroup *
+    tile = (ozg + outChanTileSplit *
+             (ox + xTileSplit *
+               (oy + yTileSplit *
+                 (b + batchTileSplit *
+                   (ky + kernelYTileSplit *
+                     (izg + inChanTileSplit *
                       cg))))));
     break;
   }
@@ -438,16 +438,16 @@ linearizeTileIndices(unsigned numTiles,
 }
 
 static std::pair<unsigned,unsigned>
-getOutZGroupRange(unsigned ozgIndex, unsigned partialNumChanGroups,
-                  const Plan &plan) {
-  const auto tilesPerZAxis = plan.tilesPerZAxis;
-  const auto maxZGroupsPerTile = (partialNumChanGroups + tilesPerZAxis - 1) /
-                                 tilesPerZAxis;
-  const auto outZBegin =
-      std::min(ozgIndex * maxZGroupsPerTile, partialNumChanGroups);
-  const auto outZEnd =
-      std::min((ozgIndex + 1) * maxZGroupsPerTile, partialNumChanGroups);
-  return {outZBegin, outZEnd};
+getOutChanGroupRange(unsigned ozgIndex, unsigned partialNumChanGroups,
+                     const Plan &plan) {
+  const auto outChanTileSplit = plan.outChanTileSplit;
+  const auto maxOutChanGroupsPerTile =
+      (partialNumChanGroups + outChanTileSplit - 1) / outChanTileSplit;
+  const auto outChanGroupBegin =
+      std::min(ozgIndex * maxOutChanGroupsPerTile, partialNumChanGroups);
+  const auto outChanGroupEnd =
+      std::min((ozgIndex + 1) * maxOutChanGroupsPerTile, partialNumChanGroups);
+  return {outChanGroupBegin, outChanGroupEnd};
 }
 
 static unsigned
@@ -530,7 +530,7 @@ getTileOutRange(const ConvParams &params, const Plan &plan, unsigned tileIndex,
   const auto fieldSize = params.getOutputSize(dim);
   const auto grainSize = plan.fieldAxisGrainSize[dim];
   const auto numGrains = (fieldSize + grainSize - 1) / grainSize;
-  const auto split = plan.tilesPerFieldAxis[dim];
+  const auto split = plan.fieldTileSplit[dim];
   const auto outGrainBegin = (tileIndex * numGrains) / split;
   const auto outGrainEnd = ((tileIndex + 1) * numGrains) / split;
   const auto outBegin = outGrainBegin * grainSize;
@@ -551,41 +551,41 @@ iterateTilePartition(const Graph &graph, const ConvParams &params,
   assert(params.getNumOutputChansPerConvGroup() % partialChansPerGroup == 0);
   const auto partialNumChanGroups =
       params.getNumOutputChansPerConvGroup() / partialChansPerGroup;
-  assert(plan.tilesPerFieldAxis.size() == 2);
-  const auto tilesPerX = plan.tilesPerFieldAxis[1];
-  const auto tilesPerY = plan.tilesPerFieldAxis[0];
-  const auto tilesPerBatch = plan.tilesPerBatchAxis;
-  const auto tilesPerZ = plan.tilesPerZAxis;
-  const auto tilesPerKernelY = plan.tilesPerKernelYAxis;
-  const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
+  assert(plan.fieldTileSplit.size() == 2);
+  const auto xTileSplit = plan.fieldTileSplit[1];
+  const auto yTileSplit = plan.fieldTileSplit[0];
+  const auto batchTileSplit = plan.batchTileSplit;
+  const auto outChanTileSplit = plan.outChanTileSplit;
+  const auto kernelYTileSplit = plan.kernelYTileSplit;
+  const auto inChanTileSplit = plan.inChanTileSplit;
   const unsigned batchSize = params.getBatchSize();
   const unsigned numInZGroups = inNumChans / inChansPerGroup;
   const unsigned kernelHeight = params.kernelShape[0];
   const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
-  const auto tilesPerConvGroups = plan.tilesPerConvGroups;
+  const auto convGroupTileSplit = plan.convGroupTileSplit;
   const unsigned numConvGroups = params.getNumConvGroups();
 
-  for (unsigned cg = 0; cg != tilesPerConvGroups; ++cg) {
-    const auto cgBegin = (cg * numConvGroups) / tilesPerConvGroups;
-    const auto cgEnd = ((cg + 1) * numConvGroups) / tilesPerConvGroups;
-    for (unsigned b = 0; b != tilesPerBatch; ++b) {
-      const auto batchBegin = (b * batchSize) / tilesPerBatch;
-      const auto batchEnd = ((b + 1) * batchSize) / tilesPerBatch;
-      for (unsigned izg = 0; izg != tilesPerInZGroup; ++izg) {
-        const auto inZGroupBegin = (izg * numInZGroups) / tilesPerInZGroup;
-        const auto inZGroupEnd = ((izg + 1) * numInZGroups) / tilesPerInZGroup;
-        for (unsigned ky = 0; ky != tilesPerKernelY; ++ky) {
-          const auto kernelYBegin = (ky * kernelHeight) / tilesPerKernelY;
-          const auto kernelYEnd = ((ky + 1) * kernelHeight) / tilesPerKernelY;
-          for (unsigned ozg = 0; ozg != tilesPerZ; ++ozg) {
+  for (unsigned cg = 0; cg != convGroupTileSplit; ++cg) {
+    const auto cgBegin = (cg * numConvGroups) / convGroupTileSplit;
+    const auto cgEnd = ((cg + 1) * numConvGroups) / convGroupTileSplit;
+    for (unsigned b = 0; b != batchTileSplit; ++b) {
+      const auto batchBegin = (b * batchSize) / batchTileSplit;
+      const auto batchEnd = ((b + 1) * batchSize) / batchTileSplit;
+      for (unsigned izg = 0; izg != inChanTileSplit; ++izg) {
+        const auto inZGroupBegin = (izg * numInZGroups) / inChanTileSplit;
+        const auto inZGroupEnd = ((izg + 1) * numInZGroups) / inChanTileSplit;
+        for (unsigned ky = 0; ky != kernelYTileSplit; ++ky) {
+          const auto kernelYBegin = (ky * kernelHeight) / kernelYTileSplit;
+          const auto kernelYEnd = ((ky + 1) * kernelHeight) / kernelYTileSplit;
+          for (unsigned ozg = 0; ozg != outChanTileSplit; ++ozg) {
             unsigned outZGroupBegin, outZGroupEnd;
             std::tie(outZGroupBegin, outZGroupEnd) =
-                getOutZGroupRange(ozg, partialNumChanGroups, plan);
-            for (unsigned oy = 0; oy != tilesPerY; ++oy) {
+                getOutChanGroupRange(ozg, partialNumChanGroups, plan);
+            for (unsigned oy = 0; oy != yTileSplit; ++oy) {
               unsigned outYBegin, outYEnd;
               std::tie(outYBegin, outYEnd) =
                   getTileOutRange(params, plan, oy, 0);
-              for (unsigned ox = 0; ox != tilesPerX; ++ox) {
+              for (unsigned ox = 0; ox != xTileSplit; ++ox) {
                 unsigned outXBegin, outXEnd;
                 std::tie(outXBegin, outXEnd) =
                     getTileOutRange(params, plan, ox, 1);
@@ -2083,7 +2083,7 @@ calcPartialSums(Graph &graph,
         slice.cgBegin == slice.cgEnd)
       return;
     unsigned partialIndex =
-        indices.izg * plan.tilesPerKernelYAxis + indices.ky;
+        indices.izg * plan.kernelYTileSplit + indices.ky;
     calcPartialConvOutput(graph, plan, dType, tile, slice, params, zeroCS,
                           convolveCS, in, weights, partials[partialIndex]);
   });
@@ -2298,14 +2298,14 @@ convolutionImpl(Graph &graph, const Plan &plan,
   const auto partialChansPerGroup = plan.partialChansPerGroup;
   assert(outNumChans % partialChansPerGroup == 0);
   const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
-  const auto tilesPerInZGroup = plan.tilesPerInZGroupAxis;
-  const auto tilesPerKernelY = plan.tilesPerKernelYAxis;
+  const auto inChanTileSplit = plan.inChanTileSplit;
+  const auto kernelYTileSplit = plan.kernelYTileSplit;
 
   const auto partialType = plan.getPartialType();
 
   // Calculate a set of partial sums of the convolutions.
   Tensor partials = graph.addTensor(partialType,
-                                     {tilesPerInZGroup * tilesPerKernelY,
+                                     {inChanTileSplit * kernelYTileSplit,
                                       params.getNumConvGroups(),
                                       partialNumChanGroups,
                                       numBatchGroups,
@@ -2488,14 +2488,14 @@ convolution(Graph &graph, const poplar::Tensor &in_,
       inputRearrangementIsExpensive(options) ? 1U : 7U;
   const auto weightViewMaxBroadcastDests =
       weightRearrangementIsExpensive(options) ? 1U : 7U;
-  const auto inNumDests = plan.tilesPerKernelYAxis * plan.tilesPerZAxis;
+  const auto inNumDests = plan.kernelYTileSplit * plan.outChanTileSplit;
   if (inNumDests > inViewMaxBroadcastDests) {
     auto inRearranged = createInputImpl(graph, params, "inRearranged", plan);
     prog.add(Copy(in, inRearranged));
     in = inRearranged;
   }
-  auto weightsNumDests = plan.tilesPerBatchAxis;
-  for (const auto split : plan.tilesPerFieldAxis) {
+  auto weightsNumDests = plan.batchTileSplit;
+  for (const auto split : plan.fieldTileSplit) {
     weightsNumDests *= split;
   }
   if (weightsNumDests > weightViewMaxBroadcastDests) {
@@ -3112,7 +3112,7 @@ fullyConnectedWeightTranspose(Graph &graph,
   auto plan = getPlan(graph, params, options);
   auto fwdPlan = plan;
   std::swap(fwdPlan.fieldAxisGrainSize.back(), fwdPlan.inChansPerGroup);
-  std::swap(fwdPlan.tilesPerFieldAxis.back(), fwdPlan.tilesPerInZGroupAxis);
+  std::swap(fwdPlan.fieldTileSplit.back(), fwdPlan.inChanTileSplit);
   Tensor transposed = createInput(graph, params, "transposed", options);
   // split activations into conv groups
   auto splitActivations =

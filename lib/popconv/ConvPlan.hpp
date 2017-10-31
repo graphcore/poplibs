@@ -8,13 +8,22 @@
 namespace popconv {
 
 struct Plan {
-  std::vector<unsigned> tilesPerFieldAxis;
-  unsigned tilesPerBatchAxis;
-  unsigned tilesPerZAxis;
-  unsigned tilesPerKernelYAxis;
-  unsigned tilesPerInZGroupAxis;
-  // tiles over which group of a grouped convolution is spread
-  unsigned tilesPerConvGroups;
+  // For each field axis the number of sections the axis is split into balance
+  // across tiles.
+  std::vector<unsigned> fieldTileSplit;
+  // The number of sections the batch axis is split into balance across tiles.
+  unsigned batchTileSplit;
+  // The number of sections the output channel axis is split to balance across
+  // tiles.
+  unsigned outChanTileSplit;
+  // The number of sections the kernel y axis is split to balance across tiles.
+  unsigned kernelYTileSplit;
+  // The number of sections the input channel axis is split to balance across
+  // tiles.
+  unsigned inChanTileSplit;
+  // The number of sections the convolution group axis is split to balance
+  // across tiles.
+  unsigned convGroupTileSplit;
   unsigned inChansPerGroup;
   unsigned partialChansPerGroup;
   /// Grain size to use when splitting the axes across tiles.
@@ -49,31 +58,31 @@ struct Plan {
   unsigned winogradPatchSize;
 
   Plan() = default;
-  Plan(std::vector<unsigned> tilesPerFieldAxis_,
-       unsigned tilesPerBatchAxis_,
-       unsigned tilesPerZAxis_,
-       unsigned tilesPerKernelYAxis_,
-       unsigned tilesPerInZGroupAxis_,
-       unsigned tilesPerConvGroups_,
+  Plan(std::vector<unsigned> fieldTileSplit_,
+       unsigned batchTileSplit_,
+       unsigned outChanTileSplit_,
+       unsigned kernelYTileSplit_,
+       unsigned inChanTileSplit_,
+       unsigned convGroupTileSplit_,
        unsigned inChansPerGroup_,
        unsigned partialChansPerGroup_,
        std::vector<unsigned> fieldAxisGrainSize_,
        bool floatPartials_,
        Plan::Method method_,
        Plan::LinearizeTileOrder linearizeTileOrder_) :
-      tilesPerFieldAxis(std::move(tilesPerFieldAxis_)),
-      tilesPerBatchAxis(tilesPerBatchAxis_),
-      tilesPerZAxis(tilesPerZAxis_),
-      tilesPerKernelYAxis(tilesPerKernelYAxis_),
-      tilesPerInZGroupAxis(tilesPerInZGroupAxis_),
-      tilesPerConvGroups(tilesPerConvGroups_),
+      fieldTileSplit(std::move(fieldTileSplit_)),
+      batchTileSplit(batchTileSplit_),
+      outChanTileSplit(outChanTileSplit_),
+      kernelYTileSplit(kernelYTileSplit_),
+      inChanTileSplit(inChanTileSplit_),
+      convGroupTileSplit(convGroupTileSplit_),
       inChansPerGroup(inChansPerGroup_),
       partialChansPerGroup(partialChansPerGroup_),
       fieldAxisGrainSize(std::move(fieldAxisGrainSize_)),
       floatPartials(floatPartials_),
       method(method_),
       linearizeTileOrder(linearizeTileOrder_) {
-    assert(tilesPerFieldAxis.size() == fieldAxisGrainSize.size());
+    assert(fieldTileSplit.size() == fieldAxisGrainSize.size());
   }
   const char *getPartialType() const {
     return floatPartials ? "float" : "half";
