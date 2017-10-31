@@ -20,110 +20,149 @@ class ConvPartialnx1: public SupervisorVertex {
 public:
   Vector<Input<Vector<FPType>>> in;
   Vector<Input<Vector<FPType>>> weights;
-  Vector<unsigned> weightReuseCount;
   Vector<typename std::conditional<inOut,
                                    InOut<Vector<AccumType>>,
                                    Output<Vector<AccumType>>>::type> out;
-  Vector<bool> zeroOut;
+  Vector<Input<Vector<unsigned>>> worklists;
+  Input<Vector<unsigned>> zeroWorklist;
+  unsigned numOutGroups;
+  unsigned numInGroups;
+  unsigned kernelSizeY;
+  unsigned kernelSizeX;
   unsigned inStride;
   unsigned outStride;
+  unsigned numConvGroups;
+  unsigned filterHeight;
+  unsigned inRowStride;
+  unsigned weightRowStride;
   bool flipOut;
 
-  SimOnlyField<unsigned> dataPathWidth;
-  SimOnlyField<unsigned> inChansPerGroup;
   SimOnlyField<unsigned> outChansPerGroup;
+  SimOnlyField<unsigned> inChansPerGroup;
+  SimOnlyField<unsigned> dataPathWidth;
+  SimOnlyField<unsigned> convUnitPipelineDepth;
   SimOnlyField<unsigned> convUnitCoeffLoadBytesPerCycle;
-
   bool compute() {
-    assert(out.size() > 0);
-    assert(inOut || zeroOut.size() == out.size());
-    assert(in.size() % out.size() == 0);
-    const auto filterHeight = in.size() / out.size();
-    assert(weights.size() % filterHeight == 0);
-    assert(weightReuseCount.size() % (weights.size() / filterHeight) == 0);
-    const auto numContexts = weightReuseCount.size() /
-                             (weights.size() / filterHeight);
-    unsigned convNum = 0;
-    for (unsigned w = 0; w != weights.size() / filterHeight; ++w) {
-      for (unsigned c = 0; c != numContexts; ++c) {
-        for (unsigned i = 0; i != weightReuseCount[w * numContexts + c]; ++i) {
-          const auto outWidth = out[convNum].size() / outChansPerGroup;
-          const auto inWidth = in[convNum * filterHeight].size() /
-                               inChansPerGroup;
-          assert((outWidth - 1) * inStride == (inWidth - 1) * outStride);
-          const auto numOutputs = (outWidth + outStride - 1) / outStride;
-          for (unsigned x = 0; x != numOutputs; ++x) {
-            for (unsigned fy = 0; fy != filterHeight; ++fy) {
-              for (unsigned inChanIndex = 0; inChanIndex != inChansPerGroup;
-                   ++inChanIndex) {
-                for (unsigned outChanIndex = 0;
-                     outChanIndex != outChansPerGroup;
-                     ++outChanIndex) {
-                  const auto outX =
-                      flipOut ? (outWidth - 1 - x * outStride) :
-                                x * outStride;
-                  const auto outIndex =
-                      outChanIndex + outChansPerGroup * outX;
-                  const auto weightIndex =
-                      inChanIndex + inChansPerGroup * outChanIndex;
-                  const auto inIndex =
-                      inChanIndex + inChansPerGroup * x * inStride;
-                  if (!inOut && fy == 0 && inChanIndex == 0 &&
-                      zeroOut[convNum]) {
-                    out[convNum][outIndex] = 0.0;
+    const auto numContexts = worklists.size() / (kernelSizeY * kernelSizeX);
+    assert(numConvGroups * numOutGroups * numInGroups == weights.size());
+    assert(out.size() == numOutGroups * numConvGroups);
+    assert(zeroWorklist.size() % 2 == 0);
+
+    for (unsigned cg = 0; cg != numConvGroups; ++cg) {
+      for (unsigned og = 0; og != numOutGroups; ++og) {
+        for (unsigned context = 0; context != zeroWorklist.size()  / 2;
+              ++context) {
+          for (unsigned i = 0; i != zeroWorklist[2 * context + 1]; ++i) {
+            out[cg * numOutGroups + og][zeroWorklist[2 * context] + i] = 0;
+          }
+        }
+      }
+    }
+    for (unsigned cg = 0; cg < numConvGroups; ++cg) {
+      for (unsigned og = 0; og < numOutGroups; ++og) {
+        for (unsigned ig = 0; ig < numInGroups; ++ig) {
+          const auto &w = weights[cg * numOutGroups * numInGroups +
+                                  og * numInGroups +
+                                  ig];
+          for (unsigned ky = 0; ky < kernelSizeY; ++ky) {
+            for (unsigned kx = 0; kx < kernelSizeX; ++kx) {
+              for (unsigned context = 0; context < numContexts; ++context) {
+                const auto &wl =
+                    worklists[(ky * kernelSizeX + kx) * numContexts + context];
+                unsigned wi = 0;
+                while (wi < wl.size()) {
+                  auto outOffset  = wl[wi];
+                  auto outWidth   = wl[wi + 1];
+                  auto inOffset   = wl[wi + 2];
+                  wi += 3;
+                  auto numConv = (outWidth + outStride - 1) / outStride;
+                  for (unsigned i = 0; i < numConv; ++i) {
+                    for (unsigned outChan = 0;
+                         outChan < outChansPerGroup;
+                         ++outChan) {
+                      const auto outX =
+                          flipOut ? (outWidth - 1 - i * outStride) :
+                                    i * outStride;
+                      const auto outIndex =
+                          (outOffset + outX) * outChansPerGroup +
+                          outChan;
+                      AccumType sum = out[cg * numOutGroups + og][outIndex];
+                      for (unsigned inChan = 0;
+                           inChan < inChansPerGroup;
+                           ++inChan) {
+                        for (unsigned c = 0; c < filterHeight; ++c) {
+                          const auto inIndex =
+                              (inOffset + i * inStride) * inChansPerGroup +
+                              c * inRowStride +
+                              inChan;
+                          const auto weightIndex =
+                              ky * filterHeight * weightRowStride +
+                              kx * outChansPerGroup * inChansPerGroup +
+                              outChan * inChansPerGroup +
+                              c * weightRowStride +
+                              inChan;
+                          sum +=
+                              in[cg * numInGroups + ig][inIndex] *
+                              w[weightIndex];
+                        }
+                      }
+                      out[cg * numOutGroups + og][outIndex] = sum;
+                    }
                   }
-                  out[convNum][outIndex] +=
-                      weights[w * filterHeight + fy][weightIndex] *
-                      in[convNum * filterHeight + fy][inIndex];
                 }
               }
             }
           }
-          ++convNum;
         }
       }
     }
-    assert(convNum == out.size());
     return true;
   }
-
   std::uint64_t getCycleEstimate() const {
-    const auto filterHeight = in.size() / out.size();
-    const auto numContexts = weightReuseCount.size() /
-                             (weights.size() / filterHeight);
-    const auto numConvUnitsPerTile = outChansPerGroup;
-    const auto bitWidth = std::is_same<FPType, float>::value ? 32 : 16;
-    assert(dataPathWidth % bitWidth == 0);
-    const auto vectorWidth = dataPathWidth / bitWidth;
-    assert(inChansPerGroup % vectorWidth == 0);
-    const auto convUnitPipelineDepth = inChansPerGroup / vectorWidth;
-    std::vector<std::vector<std::vector<unsigned>>>
-        convolutionsByWeightAndWorker;
-    unsigned convNum = 0;
-    for (unsigned w = 0; w != weights.size() / filterHeight; ++w) {
-      convolutionsByWeightAndWorker.emplace_back();
-      auto &convolutionsByWeight = convolutionsByWeightAndWorker.back();
-      for (unsigned c = 0; c != numContexts; ++c) {
-        convolutionsByWeight.emplace_back();
-        for (unsigned i = 0; i != weightReuseCount[w * numContexts + c];
-             ++i) {
-          auto outWidth = out[convNum].size() / outChansPerGroup;
-          const auto numOutputs = (outWidth + outStride - 1) / outStride;
-          convolutionsByWeight.back().push_back(numOutputs);
-          ++convNum;
+    std::vector<std::vector<std::vector<std::vector<unsigned>>>>
+                                                        workerPartitions;
+    const auto numContexts = worklists.size() / (kernelSizeY * kernelSizeX);
+
+    // find max worker cost for zeroing
+    const bool isFloat = std::is_same<AccumType, float>::value;
+    const unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    unsigned maxWorkerZeroCycles = 0;
+    for (unsigned context = 0; context != zeroWorklist.size() / 2; ++context) {
+      auto numVectors = (zeroWorklist[2 * context + 1] + vectorWidth - 1)
+                        / vectorWidth;
+      maxWorkerZeroCycles = std::max(maxWorkerZeroCycles, numVectors);
+    }
+    uint64_t zeroCycles = ((maxWorkerZeroCycles + 8) * 6 + 16)
+                          * numConvGroups * numOutGroups;
+
+    for (unsigned context = 0; context < numContexts; ++context) {
+      workerPartitions.emplace_back();
+      for (auto ky = 0U; ky != kernelSizeY; ++ky) {
+        workerPartitions.back().emplace_back();
+        for (auto kx = 0U; kx != kernelSizeX; ++kx) {
+          workerPartitions.back().back().emplace_back();
+          const auto &wl =
+                    worklists[(ky * kernelSizeX + kx) * numContexts + context];
+          for (auto wi = 0U; wi < wl.size(); wi += 3) {
+            auto numFieldPos = (wl[wi + 1] + outStride - 1) / outStride;
+            workerPartitions.back().back().back().push_back(numFieldPos);
+          }
         }
       }
     }
-    assert(convNum == out.size());
-    return getConvPartialnx1SupervisorCycleEstimate(
-      convolutionsByWeightAndWorker,
-      1,
-      convUnitPipelineDepth,
-      numConvUnitsPerTile,
-      convUnitCoeffLoadBytesPerCycle,
-      filterHeight,
-      useDeltasForEdges
-    );
+    return zeroCycles +
+      getConvPartialnx1SupervisorCycleEstimate(workerPartitions,
+                                               numConvGroups,
+                                               numOutGroups,
+                                               numInGroups,
+                                               kernelSizeY,
+                                               kernelSizeX,
+                                               filterHeight,
+                                               inChansPerGroup,
+                                               convUnitPipelineDepth,
+                                               outChansPerGroup,
+                                               convUnitCoeffLoadBytesPerCycle,
+                                               useDeltasForEdges);
   }
 };
 

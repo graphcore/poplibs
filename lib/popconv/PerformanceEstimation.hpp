@@ -105,6 +105,59 @@ getConvPartial1x1SupervisorCycleEstimate(
 
 inline std::uint64_t
 getConvPartialnx1SupervisorCycleEstimate(
+    const std::vector<std::vector<std::vector<std::vector<unsigned>>>>
+    &workerPartitions,
+    unsigned numConvGroups,
+    unsigned numOutGroups,
+    unsigned numInGroups,
+    unsigned kernelSizeY,
+    unsigned kernelSizeX,
+    unsigned filterHeight,
+    unsigned inChansPerGroup,
+    unsigned convUnitPipelineDepth,
+    unsigned numConvUnitsPerTile,
+    unsigned convUnitCoeffLoadBytesPerCycle,
+    unsigned useDeltaForEdges) {
+  unsigned usedContexts = workerPartitions.size();
+  const auto coeffBytesPerPipelineStage = 8;
+  const auto numLoads = convUnitPipelineDepth
+                          * numConvUnitsPerTile
+                          * coeffBytesPerPipelineStage
+                          / convUnitCoeffLoadBytesPerCycle;
+
+  // Assume that cost of filterHeight != 1 is just ensuring that stride is
+  // correctly computed
+  const auto ampInnerLoopCycles = 4 / filterHeight;
+  const unsigned numWorkerContexts = 6;
+  uint64_t cycles = 0;
+  for (auto k = 0U; k != kernelSizeY * kernelSizeX; ++k) {
+    // load coefficients
+    cycles += numLoads + 16;
+    uint64_t maxWorkerCycles = 0;
+    uint64_t minWorkerCycles = usedContexts < numWorkerContexts ?
+                               0 : std::numeric_limits<uint64_t>::max();
+    const auto ky = k / kernelSizeX;
+    const auto kx = k % kernelSizeX;
+    for (auto context = 0U; context != usedContexts; ++context) {
+      uint64_t thisWorkerCycles = 20;
+      for (auto &numElems :  workerPartitions[context][ky][kx]) {
+        thisWorkerCycles += 20 + numElems * ampInnerLoopCycles;
+      }
+      maxWorkerCycles =
+        std::max(maxWorkerCycles, numWorkerContexts * thisWorkerCycles);
+      minWorkerCycles =
+        std::min(minWorkerCycles, numWorkerContexts * thisWorkerCycles);
+    }
+    cycles += std::max(maxWorkerCycles, minWorkerCycles + 9);
+  }
+  return 6 + numConvGroups
+            * (40 + numOutGroups
+              * (8 + numInGroups
+                * (20 + cycles)));
+}
+
+inline std::uint64_t
+getConvPartialnx1SupervisorCycleEstimate(
     const std::vector<std::vector<std::vector<unsigned>>> &
     convSizesByWeightAndWorker,
     unsigned passesPerEntry,
