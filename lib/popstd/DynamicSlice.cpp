@@ -220,7 +220,7 @@ static std::vector<size_t> bestSliceOrder(const std::vector<std::size_t> &shape,
 {
 
   assert(dims.size() == sizes.size());
-  assert(dims.size() == shape.size());
+  assert(dims.size() <= shape.size());
 
   // Process the dimensions in an order that slices out the most elements
   // first. That dimension is the one that reduces the size of the tensor
