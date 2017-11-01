@@ -30,10 +30,10 @@ static void generateVertices(std::string vertexName,
   assert(t2d.rank() == 2);
   assert(s2d.rank() == 2);
   assert(t2d.dim(1) == s2d.dim(1));
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
-  const auto grainSize = deviceInfo.getVectorWidth(t2d.elementType());
-  const auto numTiles = deviceInfo.getNumTiles();
+  const auto &target = graph.getTarget();
+  const auto dataPathWidth = target.getDataPathWidth();
+  const auto grainSize = target.getVectorWidth(t2d.elementType());
+  const auto numTiles = target.getNumTiles();
   const unsigned numBaseElements = t2d.dim(0);
   const unsigned numSubElements = s2d.dim(0);
   assert(numSubElements <= numBaseElements);
@@ -69,7 +69,7 @@ static void generateVertices(std::string vertexName,
       Tensor tileSub = concat(subSlices);
 
       if (tileBase.isContiguous()) {
-        auto numWorkers = deviceInfo.numWorkerContexts;
+        auto numWorkers = target.getNumWorkerContexts();
         auto elementsPerWorker = (regionSize + numWorkers - 1)
                                  / numWorkers;
         auto v = graph.addVertex(cs,
@@ -91,7 +91,7 @@ static void generateVertices(std::string vertexName,
     }
 
     auto vertexSeqs =
-      splitRegionsBetweenWorkers(deviceInfo, tileContiguousRegions,
+      splitRegionsBetweenWorkers(target, tileContiguousRegions,
                                  grainSize, 2 * grainSize);
     for (const auto &sequences : vertexSeqs) {
       // vector of sequences per vertex

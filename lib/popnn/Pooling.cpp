@@ -248,9 +248,9 @@ double getFwdPerfectCycleCount(const Graph &graph,
                                PoolingType pType) {
   checkWindowParameters(inputFieldShape, kernelShape, stride, inputPaddingLower,
                         inputPaddingUpper);
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto &target = graph.getTarget();
   unsigned dTypeSize = dType == "float" ? 4 : 2;
-  const auto numTiles = deviceInfo.getNumTiles();
+  const auto numTiles = target.getNumTiles();
   const auto numFLOPs = getFwdFlops(batchSize,
                                     inputFieldShape,
                                     numChannels,
@@ -259,7 +259,7 @@ double getFwdPerfectCycleCount(const Graph &graph,
                                     inputPaddingLower,
                                     inputPaddingUpper,
                                     pType);
-  const auto vectorWidth = deviceInfo.dataPathWidth / (8 * dTypeSize);
+  const auto vectorWidth = target.getDataPathWidth() / (8 * dTypeSize);
   return static_cast<double>(numFLOPs) / (vectorWidth * numTiles);
 }
 
@@ -330,8 +330,8 @@ Tensor pool(Graph &graph,
                         inputPaddingLower, inputPaddingUpper);
   auto in = actsToInternalShape(in_);
   const auto dType = in.elementType();
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
+  const auto &target = graph.getTarget();
+  const auto dataPathWidth = target.getDataPathWidth();
   const auto layerName = debugPrefix + "/" + asString(poolingType) + "Pool"
                          + std::to_string(kernelShape[0]) + "x"
                          + std::to_string(kernelShape[1]);
@@ -355,7 +355,7 @@ Tensor pool(Graph &graph,
   auto out = outGrouped.dimShufflePartial({0}, {3})
                        .reshape({batchSize, outHeight, outWidth, numChannels});
 
-  const auto numTiles = deviceInfo.getNumTiles();
+  const auto numTiles = target.getNumTiles();
   auto outTileMapping = graph.getTileMapping(out);
   const auto params = makeConvParams(inputFieldShape,
                                      kernelShape, stride,
@@ -367,10 +367,10 @@ Tensor pool(Graph &graph,
     // up when allocating work to vertices.
     // The minimum amount of work per vertex is set to 2 * vectorwidth to
     // balance memory and loop overhead against parallel performance.
-    const auto grainSize = dType == "float" ? deviceInfo.getFloatVectorWidth()
-                                            : deviceInfo.getHalfVectorWidth();
+    const auto grainSize = dType == "float" ? target.getFloatVectorWidth()
+                                            : target.getHalfVectorWidth();
     auto vertexRegions =
-        splitRegionsBetweenWorkers(deviceInfo, outTileMapping[tile],
+        splitRegionsBetweenWorkers(target, outTileMapping[tile],
                                    grainSize, 2 * grainSize);
     for (const auto &regions : vertexRegions) {
       // A list of output vectors for the vertex to update
@@ -470,8 +470,8 @@ poolInputGradient(Graph &graph,
   auto pooled = actsToInternalShape(pooled_);
   auto pooledGradient = actsToInternalShape(pooledGradient_);
   const auto dType = in.elementType();
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
+  const auto &target = graph.getTarget();
+  const auto dataPathWidth = target.getDataPathWidth();
   const auto layerName = debugPrefix + "/" + asString(poolingType) + "PoolBwd"
                          + std::to_string(kernelShape[0]) + "x"
                          + std::to_string(kernelShape[1]);
@@ -507,7 +507,7 @@ poolInputGradient(Graph &graph,
   }
   auto inGradient = graph.clone(in);
 
-  const auto numTiles = deviceInfo.getNumTiles();
+  const auto numTiles = target.getNumTiles();
   auto outTileMapping = graph.getTileMapping(inGradient);
 
   auto bwdParams = getGradientParams(params);
@@ -518,10 +518,10 @@ poolInputGradient(Graph &graph,
     // up when allocating work to vertices.
     // The minimum amount of work per vertex is set to 2 * vectorwidth to
     // balance memory and loop overhead against parallel performance.
-    const auto grainSize = dType == "float" ? deviceInfo.getFloatVectorWidth()
-                                            : deviceInfo.getHalfVectorWidth();
+    const auto grainSize = dType == "float" ? target.getFloatVectorWidth()
+                                            : target.getHalfVectorWidth();
     auto vertexRegions =
-        splitRegionsBetweenWorkers(deviceInfo, outTileMapping[tile],
+        splitRegionsBetweenWorkers(target, outTileMapping[tile],
                                    grainSize, 2 * grainSize);
     for (const auto &regions : vertexRegions) {
       // A list of input gradient vectors for the vertex to update

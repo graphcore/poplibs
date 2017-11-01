@@ -9,6 +9,7 @@
 #include <string>
 #include <random>
 #include <Winograd.hpp>
+#include <poplar/IPUModel.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -140,7 +141,9 @@ static void computeReference(Tensor in, Tensor weights, Tensor activations,
 BOOST_AUTO_TEST_CASE(WinogradConvolution,
                        *utf::tolerance<float>(
                           fpc::percent_tolerance<float>(1))) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
   popreduce::addCodelets(graph);
   popconv::addCodelets(graph);
@@ -233,7 +236,7 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   graph.createHostWrite("weights", weights);
   graph.createHostRead("out", activations);
 
-  Engine eng(graph, wgdConv);
+  Engine eng(device, graph, wgdConv);
   eng.writeTensor("in", inBuffer.data());
   eng.writeTensor("weights", weightsBuffer.data());
   eng.run();

@@ -79,8 +79,8 @@ batchNormEstimates(Graph &graph, const Tensor acts,
     const auto fnPrefix = debugPrefix + "/BN/Estimates";
     ComputeSet cs = graph.addComputeSet(fnPrefix);
 
-    const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-    const auto dataPathWidth = deviceInfo.dataPathWidth;
+    const auto &target = graph.getTarget();
+    const auto dataPathWidth = target.getDataPathWidth();
 
     assert(acts.rank() == 2);
     const unsigned numChans = numChannels(acts);
@@ -98,7 +98,7 @@ batchNormEstimates(Graph &graph, const Tensor acts,
 
     for (auto tile = 0U; tile != mapping.size(); ++tile) {
       const auto vertexRegions =
-          splitRegionsBetweenWorkers(deviceInfo, mapping[tile], 1);
+          splitRegionsBetweenWorkers(target, mapping[tile], 1);
 
       for (const auto &regions : vertexRegions) {
         unsigned inpIdx = 0;

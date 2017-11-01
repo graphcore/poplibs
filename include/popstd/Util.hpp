@@ -30,7 +30,7 @@ splitRegions(const std::vector<poplar::Interval<std::size_t>> &regions,
 // Regions may be split to balance the work across workers.
 std::vector<std::vector<poplar::Interval<std::size_t>>>
 splitRegionsBetweenWorkers(
-    const poplar::DeviceInfo &deviceInfo,
+    const poplar::Target &target,
     const std::vector<poplar::Interval<std::size_t>> &regions,
     unsigned grainSize, unsigned minElementsPerPartition = 0);
 
@@ -49,7 +49,7 @@ splitRegions(
 // Regions may be split to balance the work across workers.
 std::vector<std::vector<std::vector<poplar::Interval<std::size_t>>>>
 splitRegionsBetweenWorkers(
-    const poplar::DeviceInfo &deviceInfo,
+    const poplar::Target &target,
     const std::vector<std::vector<poplar::Interval<std::size_t>>> &regions,
     unsigned grainSize, unsigned minElementsPerPartition = 0);
 

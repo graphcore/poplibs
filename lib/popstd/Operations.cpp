@@ -171,9 +171,9 @@ static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
                       enum UnaryOp op, const std::string &debugPrefix) {
 
   const auto inType = in.elementType();
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
-  const auto numTiles = deviceInfo.getNumTiles();
+  const auto &target = graph.getTarget();
+  const auto dataPathWidth = target.getDataPathWidth();
+  const auto numTiles = target.getNumTiles();
   const auto mapping = graph.getTileMapping(in);
   const auto cs = graph.addComputeSet(debugPrefix);
 
@@ -183,13 +183,13 @@ static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
   auto inFlat = in.flatten();
   auto outFlat = out.flatten();
 
-  const auto grainSize = deviceInfo.getVectorWidth(inType);
+  const auto grainSize = target.getVectorWidth(inType);
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, mapping[tile]);
     auto vertexRegions =
-      splitRegionsBetweenWorkers(deviceInfo, tileContiguousRegions,
+      splitRegionsBetweenWorkers(target, tileContiguousRegions,
                                  grainSize, 2 * grainSize);
 
     for (const auto &regions : vertexRegions) {
@@ -223,9 +223,9 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
   unsigned tensorSelection = compareTileMapDistributions(graph, {in1, in2});
 
   const auto outType = outputType(in1Type, op);
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
-  const auto numTiles = deviceInfo.getNumTiles();
+  const auto &target = graph.getTarget();
+  const auto dataPathWidth = target.getDataPathWidth();
+  const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix);
 
   auto out = graph.clone(outType, (tensorSelection == 0) ? in1 : in2,
@@ -237,13 +237,13 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
   auto in2Flat = in2.flatten();
   auto outFlat = out.flatten();
 
-  const auto grainSize = deviceInfo.getVectorWidth(in1Type);
+  const auto grainSize = target.getVectorWidth(in1Type);
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, mapping[tile]);
     auto vertexRegions =
-      splitRegionsBetweenWorkers(deviceInfo, tileContiguousRegions,
+      splitRegionsBetweenWorkers(target, tileContiguousRegions,
                                  grainSize, 2 * grainSize);
 
     for (const auto &regions : vertexRegions) {
@@ -283,9 +283,9 @@ static Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
   int tensorSelection = compareTileMapDistributions(graph, tensors);
 
   const auto outType = outputType(in1Type, op);
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
-  const auto numTiles = deviceInfo.getNumTiles();
+  const auto &target = graph.getTarget();
+  const auto dataPathWidth = target.getDataPathWidth();
+  const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix);
 
   Tensor toClone = tensors[tensorSelection];
@@ -299,11 +299,11 @@ static Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
   auto in3Flat = in3.flatten();
   auto outFlat = out.flatten();
 
-  const auto grainSize = deviceInfo.getVectorWidth(in1Type);
+  const auto grainSize = target.getVectorWidth(in1Type);
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
     auto vertexRegions =
-      splitRegionsBetweenWorkers(deviceInfo, mapping[tile],
+      splitRegionsBetweenWorkers(target, mapping[tile],
                                  grainSize, 2 * grainSize);
 
     for (const auto &regions : vertexRegions) {

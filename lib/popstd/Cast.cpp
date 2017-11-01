@@ -44,18 +44,18 @@ cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
   dst = dst.flatten();
   const auto srcType = src.elementType();
   const auto dstType = dst.elementType();
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto vectorWidth = deviceInfo.getFloatVectorWidth();
+  const auto &target = graph.getTarget();
+  const auto vectorWidth = target.getFloatVectorWidth();
   std::vector<std::vector<Interval<std::size_t>>> mapping;
   Tensor t = srcType == "float" ? src : dst;
   mapping = graph.getTileMapping(t);
   assert(mappingIsComplete(t, mapping));
-  const auto numTiles = deviceInfo.getNumTiles();
+  const auto numTiles = target.getNumTiles();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(t, mapping[tile]);
     auto vertexRegions =
-        splitRegionsBetweenWorkers(deviceInfo, tileContiguousRegions,
+        splitRegionsBetweenWorkers(target, tileContiguousRegions,
                                    vectorWidth, 2 * vectorWidth);
     for (const auto &regions : vertexRegions) {
       const auto numRegions = regions.size();
@@ -73,7 +73,7 @@ cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
         graph.connect(v["src"], src.slices(regions));
         graph.connect(v["dst"], dst.slices(regions));
       }
-      graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+      graph.setInitialValue(v["dataPathWidth"], target.getDataPathWidth());
       graph.setTileMapping(v, tile);
     };
   }

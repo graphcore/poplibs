@@ -76,18 +76,18 @@ static unsigned estimateReduceAtDstCost(
     const std::vector<
       std::vector<Interval<std::size_t>>
     > &reducedMapping) {
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto &target = graph.getTarget();
   const auto partialType = partials.elementType();
   const auto partialTypeBytes = partialType == "float" ? 4U : 2U;
   const auto partialVectorWidth =
-      partialType == "float" ? deviceInfo.getFloatVectorWidth() :
-                               deviceInfo.getHalfVectorWidth();
+      partialType == "float" ? target.getFloatVectorWidth() :
+                               target.getHalfVectorWidth();
   const auto maxElementsPerTile = getMaxElementsPerTile(reducedMapping);
   const auto partialsPerElement = partials.dim(0);
   const auto preComputeExchangeBytes =
       maxElementsPerTile * partialsPerElement * partialTypeBytes;
-  const auto exchangeBytesPerCycle = deviceInfo.exchangeBytesPerCycle;
-  const auto syncCycles = deviceInfo.getMaxIPUSyncDelay();
+  const auto exchangeBytesPerCycle = target.getExchangeBytesPerCycle();
+  const auto syncCycles = target.getMaxIPUSyncDelay();
   unsigned cycles = 0;
   cycles += (preComputeExchangeBytes + exchangeBytesPerCycle - 1) /
             exchangeBytesPerCycle;
@@ -106,18 +106,18 @@ static unsigned estimateBalancedReduceCost(
       std::vector<Interval<std::size_t>>
     > &reducedMapping,
     unsigned grainSize) {
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto &target = graph.getTarget();
   const auto partialType = partials.elementType();
   const auto partialTypeBytes = partialType == "float" ? 4U : 2U;
   const auto partialVectorWidth =
-      partialType == "float" ? deviceInfo.getFloatVectorWidth() :
-                               deviceInfo.getHalfVectorWidth();
+      partialType == "float" ? target.getFloatVectorWidth() :
+                               target.getHalfVectorWidth();
   const auto reducedType = reduced.elementType();
   const auto reducedTypeBytes = reducedType == "float" ? 4U : 2U;
   unsigned numReducedElements = reduced.numElements();
   unsigned numReducedGroups = (numReducedElements + grainSize - 1) /
                               grainSize;
-  const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
+  const auto numTiles = graph.getTarget().getNumTiles();
   unsigned maxReducedGroups = (numReducedGroups + numTiles - 1) / numTiles;
   const auto maxElementsPerTile = maxReducedGroups * grainSize;
   const auto partialsPerElement = partials.dim(0);
@@ -125,8 +125,8 @@ static unsigned estimateBalancedReduceCost(
       maxElementsPerTile * partialsPerElement * partialTypeBytes;
   const auto postComputeExchangeBytes =
       getMaxElementsPerTile(reducedMapping) * reducedTypeBytes;
-  const auto exchangeBytesPerCycle = deviceInfo.exchangeBytesPerCycle;
-  const auto syncCycles = deviceInfo.getMaxIPUSyncDelay();
+  const auto exchangeBytesPerCycle = target.getExchangeBytesPerCycle();
+  const auto syncCycles = target.getMaxIPUSyncDelay();
   unsigned cycles = 0;
   cycles += (preComputeExchangeBytes + exchangeBytesPerCycle - 1) /
             exchangeBytesPerCycle;
@@ -147,11 +147,11 @@ determineReduceVertexMapping(Graph &graph,
                              const std::vector<
                                std::vector<Interval<std::size_t>>
                              > &reducedMapping) {
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto &target = graph.getTarget();
   const auto partialType = partials.elementType();
   const auto partialVectorWidth =
-      partialType == "float" ? deviceInfo.getFloatVectorWidth() :
-                               deviceInfo.getHalfVectorWidth();
+      partialType == "float" ? target.getFloatVectorWidth() :
+                               target.getHalfVectorWidth();
   const auto reduceAtDstCost = estimateReduceAtDstCost(graph, partials,
                                                        reducedMapping);
   const auto grainSize = partialVectorWidth;
@@ -192,8 +192,8 @@ reduce(Graph &graph,
       partials.reshape({tilesPerInZGroup,
                         partials.numElements() / tilesPerInZGroup});
   auto flatReduced = reduced.flatten();
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
+  const auto &target = graph.getTarget();
+  const auto dataPathWidth = target.getDataPathWidth();
   std::string vertexName = "popreduce::" + getVertexStr(operation);
   if (isUpdate && operation == Operation::ADD) {
     vertexName = "popreduce::ReduceAddUpdate";
@@ -204,16 +204,16 @@ reduce(Graph &graph,
 
   // Accumulate the partial sums.
   const auto numUsedTiles =  reduceVertexMapping.size();
-  assert(numUsedTiles <= deviceInfo.getNumTiles());
+  assert(numUsedTiles <= target.getNumTiles());
   for (unsigned tile = 0; tile != numUsedTiles; ++tile) {
     const auto &tileRegions = reduceVertexMapping[tile];
     unsigned vectorWidth;
     if (partialType == "float")
-      vectorWidth = deviceInfo.getFloatVectorWidth();
+      vectorWidth = target.getFloatVectorWidth();
     else
-      vectorWidth = deviceInfo.getHalfVectorWidth();
+      vectorWidth = target.getHalfVectorWidth();
     const auto vertexRegions =
-        splitRegionsBetweenWorkers(deviceInfo, tileRegions, vectorWidth);
+        splitRegionsBetweenWorkers(target, tileRegions, vectorWidth);
     for (const auto &regions : vertexRegions) {
       const auto v = graph.addVertex(reduceCS,
                                      templateVertex(vertexName,

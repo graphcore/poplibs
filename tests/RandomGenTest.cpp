@@ -4,6 +4,7 @@
 #include <popstd/Util.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/HalfFloat.hpp>
+#include <poplar/IPUModel.hpp>
 #include <poprand/codelets.hpp>
 #include <boost/test/unit_test.hpp>
 #include <iostream>
@@ -116,9 +117,10 @@ static bool uniformTest(T hOut[DIM_SIZE][DIM_SIZE],
                         const double minVal, const double maxVal,
                         double percentError, RandomGenMode mode,
                         uint64_t seed = ~0, unsigned numIPUs = 1) {
-  DeviceInfo info;
-  info.numIPUs = numIPUs;
-  Graph graph(createIPUModelDevice(info));
+  IPUModel ipuModel;
+  ipuModel.numIPUs = numIPUs;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   poprand::addCodelets(graph);
 
   std::string dType = toTypeStr<T>();
@@ -132,7 +134,7 @@ static bool uniformTest(T hOut[DIM_SIZE][DIM_SIZE],
   Random r(mode, seed);
   r.uniform(graph, out, minVal, maxVal, prog);
 
-  Engine eng(graph, prog);
+  Engine eng(device, graph, prog);
   eng.run();
   eng.readTensor("out", hOut);
 
@@ -173,9 +175,10 @@ template <typename T>
 static bool bernoulliTest(T hOut[DIM_SIZE][DIM_SIZE], float prob,
                           double percentError, RandomGenMode mode,
                           uint64_t seed = ~0, unsigned numIPUs = 1) {
-  DeviceInfo info;
-  info.numIPUs = numIPUs;
-  Graph graph(createIPUModelDevice(info));
+  IPUModel ipuModel;
+  ipuModel.numIPUs = numIPUs;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   poprand::addCodelets(graph);
 
   std::string dType = toTypeStr<T>();
@@ -191,7 +194,7 @@ static bool bernoulliTest(T hOut[DIM_SIZE][DIM_SIZE], float prob,
   Random r(mode, seed);
   r.bernoulli(graph, out, prob, prog);
 
-  Engine eng(graph, prog);
+  Engine eng(device, graph, prog);
   eng.run();
   eng.readTensor("out", hOut);
 
@@ -243,9 +246,10 @@ template <typename T>
 static bool normalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean, float stdDev,
                        double percentError, RandomGenMode mode,
                        uint64_t seed = ~0, unsigned numIPUs = 1) {
-  DeviceInfo info;
-  info.numIPUs = numIPUs;
-  Graph graph(createIPUModelDevice(info));
+  IPUModel ipuModel;
+  ipuModel.numIPUs = numIPUs;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   poprand::addCodelets(graph);
 
   std::string dType = toTypeStr<T>();
@@ -261,7 +265,7 @@ static bool normalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean, float stdDev,
   Random r(mode, seed);
   r.normal(graph, out, mean, stdDev, prog);
 
-  Engine eng(graph, prog);
+  Engine eng(device, graph, prog);
   eng.run();
   eng.readTensor("out", hOut);
 
@@ -331,9 +335,10 @@ static bool truncatedNormalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean,
                                 float stdDev, float alpha,
                                 double percentError, RandomGenMode mode,
                                 uint64_t seed = ~0, unsigned numIPUs = 1) {
-  DeviceInfo info;
-  info.numIPUs = numIPUs;
-  Graph graph(createIPUModelDevice(info));
+  IPUModel ipuModel;
+  ipuModel.numIPUs = numIPUs;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   poprand::addCodelets(graph);
 
   std::string dType = toTypeStr<T>();
@@ -349,7 +354,7 @@ static bool truncatedNormalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean,
   Random r(mode, seed);
   r.truncatedNormal(graph, out, mean, stdDev, alpha, prog);
 
-  Engine eng(graph, prog);
+  Engine eng(device, graph, prog);
   eng.run();
   eng.readTensor("out", hOut);
 

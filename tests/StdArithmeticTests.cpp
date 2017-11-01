@@ -4,6 +4,7 @@
 #include <popstd/TileMapping.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/HalfFloat.hpp>
+#include <poplar/IPUModel.hpp>
 #include <popstd/codelets.hpp>
 #include <iostream>
 #include <popstd/Add.hpp>
@@ -66,7 +67,9 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
 
   float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
@@ -80,7 +83,7 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float,
   graph.createHostRead("out", in1);
   auto prog = Sequence();
   addTo(graph, in1, in2, 1.0, prog);
-  Engine eng(graph, prog);
+  Engine eng(device, graph, prog);
 
   float hOut[DIM_SIZE][DIM_SIZE];
 
@@ -99,7 +102,10 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float,
 }
 
 BOOST_AUTO_TEST_CASE(StdAddTo_int) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
+
   popstd::addCodelets(graph);
 
   int hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
@@ -115,7 +121,7 @@ BOOST_AUTO_TEST_CASE(StdAddTo_int) {
   addTo(graph, in1, in2, prog);
 
   int hOut[DIM_SIZE][DIM_SIZE];
-  Engine eng(graph, prog);
+  Engine eng(device, graph, prog);
 
   eng.writeTensor("in1", hIn1);
   eng.writeTensor("in2", hIn2);
@@ -136,7 +142,9 @@ BOOST_AUTO_TEST_CASE(StdSubtractFrom_float,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
 
   float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
@@ -153,7 +161,7 @@ BOOST_AUTO_TEST_CASE(StdSubtractFrom_float,
 
   float hOut[DIM_SIZE][DIM_SIZE];
 
-  Engine eng(graph, prog);
+  Engine eng(device, graph, prog);
 
   eng.writeTensor("in1", hIn1);
   eng.writeTensor("in2", hIn2);
@@ -169,8 +177,11 @@ BOOST_AUTO_TEST_CASE(StdSubtractFrom_float,
   }
 }
 
+
 BOOST_AUTO_TEST_CASE(StdSubtractFrom_int) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
 
   int hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
@@ -188,7 +199,7 @@ BOOST_AUTO_TEST_CASE(StdSubtractFrom_int) {
 
   int hOut[DIM_SIZE][DIM_SIZE];
 
-  Engine eng(graph, prog);
+  Engine eng(device, graph, prog);
 
   eng.writeTensor("in1", hIn1);
   eng.writeTensor("in2", hIn2);
@@ -205,7 +216,9 @@ BOOST_AUTO_TEST_CASE(StdSubtractFrom_int) {
 }
 
 BOOST_AUTO_TEST_CASE(StdCast) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
 
   float hIn[DIM_SIZE];
@@ -224,7 +237,7 @@ BOOST_AUTO_TEST_CASE(StdCast) {
 
   int hOut[DIM_SIZE];
 
-  Engine eng(graph, prog);
+  Engine eng(device, graph, prog);
   eng.writeTensor("in", hIn);
   eng.run();
   eng.readTensor("out", hOut);

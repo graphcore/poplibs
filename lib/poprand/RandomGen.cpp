@@ -54,14 +54,14 @@ struct VertexInfo {
 };
 
 std::vector<VertexInfo> buildVertices(Graph &graph, const Tensor &t) {
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto &target = graph.getTarget();
   // Maximum number of vertices is a function of number of tiles / IPU and
   // number of worker contexts per tile
-  // Note that deviceInfo.getNumTiles() returns the number of tiles in all
+  // Note that target.getNumTiles() returns the number of tiles in all
   // IPUs
   const auto maxVertices =
-    (deviceInfo.getNumTiles() * deviceInfo.numWorkerContexts)
-    / deviceInfo.numIPUs;
+    (target.getNumTiles() * target.getNumWorkerContexts())
+    / target.getNumIPUs();
   unsigned numElements = t.numElements();
   const unsigned minGrainSize = t.elementType() == "half" ? 2 : 4;
   unsigned elemsPerVertex = (numElements + maxVertices - 1) / maxVertices;
@@ -118,9 +118,9 @@ buildProgram(Graph &graph, const Tensor &A, uint64_t seed, uint16_t colouredId,
   };
 
   const auto dType = A.elementType();
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
-  const auto numTiles = deviceInfo.getNumTiles();
+  const auto &target = graph.getTarget();
+  const auto dataPathWidth = target.getDataPathWidth();
+  const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix + "/" + vertexName);
   const bool saveRestoreSeed = mode != NOT_REPEATABLE;
   auto aFlat = A.flatten();
@@ -150,7 +150,7 @@ buildProgram(Graph &graph, const Tensor &A, uint64_t seed, uint16_t colouredId,
     }
   } else {
     const auto mapping = graph.getTileMapping(A);
-    const auto grainSize = deviceInfo.getVectorWidth(dType);
+    const auto grainSize = target.getVectorWidth(dType);
 
     // In an actual system, a separate Compute Set or a tile power up routine
     // could initialise the seeds for each tile. We need a flag to indicate
@@ -161,7 +161,7 @@ buildProgram(Graph &graph, const Tensor &A, uint64_t seed, uint16_t colouredId,
       const auto tileContiguousRegions =
           graph.getSortedContiguousRegions(aFlat, mapping[tile]);
       auto vertexRegions =
-        splitRegionsBetweenWorkers(deviceInfo, tileContiguousRegions,
+        splitRegionsBetweenWorkers(target, tileContiguousRegions,
                                    grainSize, 2 * grainSize);
       uint32_t vertexCount = 0;
       for (const auto &regions : vertexRegions) {

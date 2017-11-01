@@ -25,7 +25,7 @@ CircBuf::CircBuf(Graph &graph, const std::string &dataType,
 
   hist = graph.addTensor(dataType, {nGrains, size, grainSize},
                          debugPrefix + "/CircBuf");
-  auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
+  auto numTiles = graph.getTarget().getNumTiles();
   auto regions = splitRegions({{0, nGrains}}, 1, numTiles);
   for (unsigned tile = 0; tile < regions.size(); ++tile) {
     const auto &tileRegions = regions[tile];

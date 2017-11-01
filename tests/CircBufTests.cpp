@@ -6,6 +6,7 @@
 #include <limits>
 #include <poplar/Engine.hpp>
 #include <popstd/codelets.hpp>
+#include <poplar/IPUModel.hpp>
 #include <iostream>
 
 using namespace poplar;
@@ -13,7 +14,9 @@ using namespace poplar::program;
 using namespace popstd;
 
 BOOST_AUTO_TEST_CASE(CircBufIncrIndex) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
   const unsigned circBufSize = 20;
   const unsigned indexBufSize = 25;
@@ -32,7 +35,7 @@ BOOST_AUTO_TEST_CASE(CircBufIncrIndex) {
 
   unsigned cbOut[indexBufSize];
 
-  Engine eng(graph, prog);
+  Engine eng(device, graph, prog);
   eng.run();
   eng.readTensor("out", cbOut);
 
@@ -42,7 +45,9 @@ BOOST_AUTO_TEST_CASE(CircBufIncrIndex) {
 }
 
 BOOST_AUTO_TEST_CASE(CircBufIncrIndex2d) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
   const unsigned circBufSize = 20;
   const unsigned indexBufSize = 25;
@@ -61,7 +66,7 @@ BOOST_AUTO_TEST_CASE(CircBufIncrIndex2d) {
 
   unsigned cbOut[indexBufSize];
 
-  Engine eng(graph, prog);
+  Engine eng(device, graph, prog);
   eng.run();
   eng.readTensor("out", cbOut);
 
@@ -71,10 +76,11 @@ BOOST_AUTO_TEST_CASE(CircBufIncrIndex2d) {
 }
 
 BOOST_AUTO_TEST_CASE(CircBufCheckAdd) {
-  DeviceInfo info;
-  info.tilesPerIPU = 16;
+  IPUModel ipuModel;
+  ipuModel.tilesPerIPU = 16;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
 
-  Graph graph(createIPUModelDevice(info));
   popstd::addCodelets(graph);
   const unsigned circBufSize = 20;
   const unsigned srcBufSize = 25;
@@ -110,7 +116,7 @@ BOOST_AUTO_TEST_CASE(CircBufCheckAdd) {
     }
   }
 
-  Engine eng(graph, prog);
+  Engine eng(device, graph, prog);
   eng.writeTensor("in", cbSrc);
   eng.run();
   eng.readTensor("out", cbDst);

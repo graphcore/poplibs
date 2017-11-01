@@ -16,21 +16,21 @@ void allTrue(Graph &graph, Tensor in, Sequence &prog,
   if (inType != "bool") {
     throw popstd::poplib_error("Operation allTrue only takes boolean tensors");
   }
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
-  const auto numTiles = deviceInfo.getNumTiles();
+  const auto &target = graph.getTarget();
+  const auto dataPathWidth = target.getDataPathWidth();
+  const auto numTiles = target.getNumTiles();
   const auto mapping = graph.getTileMapping(in);
   const auto cs = graph.addComputeSet(debugPrefix);
 
   auto inFlat = in.flatten();
 
-  const auto grainSize = deviceInfo.getVectorWidth(inType);
+  const auto grainSize = target.getVectorWidth(inType);
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
     const auto tileContiguousRegions =
             graph.getSortedContiguousRegions(inFlat, mapping[tile]);
     auto vertexRegions =
-            splitRegionsBetweenWorkers(deviceInfo, tileContiguousRegions,
+            splitRegionsBetweenWorkers(target, tileContiguousRegions,
                                        grainSize, 2 * grainSize);
 
     for (const auto &regions : vertexRegions) {

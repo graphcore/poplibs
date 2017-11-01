@@ -4,6 +4,7 @@
 #include <popstd/TileMapping.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/HalfFloat.hpp>
+#include <poplar/IPUModel.hpp>
 #include <popstd/codelets.hpp>
 #include <popreduce/codelets.hpp>
 #include <popreduce/Reduce.hpp>
@@ -151,7 +152,9 @@ static bool reduceAddTest(const std::vector<std::size_t> &dims,
                           float k,
                           bool update,
                           bool scale) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
   popreduce::addCodelets(graph);
 
@@ -201,7 +204,7 @@ static bool reduceAddTest(const std::vector<std::size_t> &dims,
   copy(hostPrev, outTypeStr, rawHostPrev.get());
   copy(hostIn, partialsTypeStr, rawHostIn.get());
 
-  Engine engine(graph, prog);
+  Engine engine(device, graph, prog);
 
   upload(engine, tmap);
   engine.run(0); // Run.
@@ -242,7 +245,9 @@ static bool reduceOpsTest(const std::vector<std::size_t> &dims,
                           const std::vector<std::size_t> &redVect,
                           const std::string &outTypeStr,
                           popreduce::Operation operation) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
   popreduce::addCodelets(graph);
 
@@ -304,7 +309,7 @@ static bool reduceOpsTest(const std::vector<std::size_t> &dims,
   copy(hostOut, outTypeStr, rawHostOut.get());
   copy(hostIn, outTypeStr, rawHostIn.get());
 
-  Engine engine(graph, prog);
+  Engine engine(device, graph, prog);
 
   upload(engine, tmap);
   engine.run(0); // Run.

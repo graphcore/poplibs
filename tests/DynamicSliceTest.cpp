@@ -10,6 +10,7 @@
 #include <poplar/Program.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/Interval.hpp>
+#include <poplar/IPUModel.hpp>
 #include <util/print.hpp>
 #include <boost/multi_array.hpp>
 
@@ -169,9 +170,10 @@ void sliceTestND(unsigned tilesPerIPU,
 {
   std::cerr << "\nTest "
             << boost::unit_test::framework::current_test_case().p_name << "\n";
-  DeviceInfo devInfo;
-  devInfo.tilesPerIPU = tilesPerIPU;
-  Graph graph(createIPUModelDevice(devInfo));
+  IPUModel ipuModel;
+  ipuModel.tilesPerIPU = tilesPerIPU;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
   std::vector<size_t> t1Shape = testShape;
   auto t1 = graph.addTensor("float", t1Shape, "t1");
@@ -208,7 +210,7 @@ void sliceTestND(unsigned tilesPerIPU,
   graph.createHostRead("out", tOut);
 
   std::cerr << "Creating engine\n";
-  Engine eng(graph, prog);
+  Engine eng(device, graph, prog);
 
   TestData testData(t1Shape, wantedShape, testBase);
 
@@ -309,9 +311,10 @@ void updateTestND(unsigned tilesPerIPU,
 {
   std::cerr << "\nTest "
             << boost::unit_test::framework::current_test_case().p_name << "\n";
-  DeviceInfo devInfo;
-  devInfo.tilesPerIPU = tilesPerIPU;
-  Graph graph(createIPUModelDevice(devInfo));
+  IPUModel ipuModel;
+  ipuModel.tilesPerIPU = tilesPerIPU;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
   std::vector<size_t> t1Shape = testShape;
   auto t1 = graph.addTensor("float", t1Shape, "t1");
@@ -346,7 +349,7 @@ void updateTestND(unsigned tilesPerIPU,
   graph.createHostRead("out", t1);
 
   std::cerr << "Creating engine\n";
-  Engine eng(graph, prog);
+  Engine eng(device, graph, prog);
 
   TestData testData(t1Shape, subShape, testBase);
 
@@ -430,9 +433,10 @@ BOOST_AUTO_TEST_CASE(SliceOrder) {
   // so that it slices the dimensions in the order [1, 2, 0] (and
   // idxOrder should be [2, 0, 1]).
 
-  DeviceInfo devInfo;
-  devInfo.tilesPerIPU = 4;
-  Graph graph(createIPUModelDevice(devInfo));
+  IPUModel ipuModel;
+  ipuModel.tilesPerIPU = 4;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
 
   std::vector<size_t> t1Shape = {100, 50, 10};
@@ -440,7 +444,7 @@ BOOST_AUTO_TEST_CASE(SliceOrder) {
   auto input = graph.addTensor("float", t1Shape, "input");
   auto offset = graph.addTensor("unsigned", { t1Shape.size() }, "offset");
 
-  MapAcrossTiles(graph, devInfo.tilesPerIPU, input);
+  MapAcrossTiles(graph, graph.getTarget().getTilesPerIPU(), input);
   graph.setTileMapping(offset, 0);
 
   auto prog = Sequence();

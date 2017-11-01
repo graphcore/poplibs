@@ -8,6 +8,7 @@
 #include <ostream>
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
+#include <poplar/IPUModel.hpp>
 #include <popstd/TileMapping.hpp>
 #include <poplin/MatMul.hpp>
 #include <popstd/Add.hpp>
@@ -75,9 +76,9 @@ int main(int argc, char **argv) {
   MatrixOp matAOp = MatrixOp::NORMAL;
   MatrixOp matBOp = MatrixOp::NORMAL;
 
-  DeviceInfo info;
-  info.IPUExchangeType =
-      DeviceInfo::ExchangeType::AGGRESSIVE_MULTICAST;
+  IPUModel ipuModel;
+  ipuModel.IPUExchangeType =
+      IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
 
   po::options_description desc("Options");
   desc.add_options()
@@ -113,10 +114,12 @@ int main(int argc, char **argv) {
      "Relative tolerance to use when validating results against the reference "
      "model")
     ("tiles-per-ipu",
-     po::value<unsigned>(&info.tilesPerIPU)->default_value(info.tilesPerIPU),
+     po::value<unsigned>(&ipuModel.tilesPerIPU)->
+                           default_value(ipuModel.tilesPerIPU),
      "Number of tiles per IPU")
     ("ipus",
-     po::value<unsigned>(&info.numIPUs)->default_value(info.numIPUs),
+     po::value<unsigned>(&ipuModel.numIPUs)->
+                           default_value(ipuModel.numIPUs),
      "Number of IPUs")
   ;
   po::variables_map vm;
@@ -135,8 +138,8 @@ int main(int argc, char **argv) {
   if (beta != 1.0) {
     throw popstd::poplib_error("Only beta = 1.0 is supported");
   }
-
-  Graph graph(createIPUModelDevice(info));
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popconv::addCodelets(graph);
   popstd::addCodelets(graph);
   popreduce::addCodelets(graph);
@@ -194,7 +197,7 @@ int main(int argc, char **argv) {
   auto rawHostMatB = allocateHostMemoryForTensor(matB, "matB", graph, tmap);
   auto rawHostMatC = allocateHostMemoryForTensor(matC, "matC", graph, tmap);
 
-  Engine engine(graph, prog);
+  Engine engine(device, graph, prog);
 
   boost::multi_array<double, 2>
       hostMatA(boost::extents[rowsMatA][colsMatA]);

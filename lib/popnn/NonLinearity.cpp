@@ -43,26 +43,26 @@ nonLinearityInputGradient(Graph &graph,
     throw popstd::poplib_error("SOFTMAX gradient not implemented");
   }
   const auto dType = out.elementType();
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
+  const auto &target = graph.getTarget();
+  const auto dataPathWidth = target.getDataPathWidth();
   auto inGradient = graph.clone(outGradient, debugPrefix + "/NonLinearityGrad");
   auto outFlat = out.flatten();
   auto outGradFlat = outGradient.flatten();
   auto inGradFlat = inGradient.flatten();
   auto outGradMapping = graph.getTileMapping(outGradFlat);
-  const auto numTiles = deviceInfo.getNumTiles();
+  const auto numTiles = target.getNumTiles();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     // On each tile split the elements of the output up between the workers.
     // The grainSize is set to the vector width so vectors will not be split
     // up when allocating work to vertices.
     // The minimum amount of work per vertex is set to 2 * vectorwidth to
     // balance memory and loop overhead against parallel performance.
-    const auto grainSize = dType == "float" ? deviceInfo.getFloatVectorWidth()
-                                            : deviceInfo.getHalfVectorWidth();
+    const auto grainSize = dType == "float" ? target.getFloatVectorWidth()
+                                            : target.getHalfVectorWidth();
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, outGradMapping[tile]);
     auto vertexRegions =
-        splitRegionsBetweenWorkers(deviceInfo, tileContiguousRegions,
+        splitRegionsBetweenWorkers(target, tileContiguousRegions,
                                    grainSize, 2 * grainSize);
     for (const auto &regions : vertexRegions) {
       auto v = graph.addVertex(cs, templateVertex("popnn::NonLinearityGrad",
@@ -70,7 +70,8 @@ nonLinearityInputGradient(Graph &graph,
                                {{"out", outFlat.slices(regions)},
                                 {"outGrad", outGradFlat.slices(regions)},
                                 {"inGrad", inGradFlat.slices(regions)}});
-      graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
+      graph.setInitialValue(v["nonLinearityType"],
+           static_cast<unsigned>(nonLinearityType));
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setTileMapping(v, tile);
     }
@@ -104,13 +105,13 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
     throw popstd::poplib_error("Trying to update tensor that cannot be "
                                "written in parallel");
   const auto dType = t.elementType();
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
+  const auto &target = graph.getTarget();
+  const auto dataPathWidth = target.getDataPathWidth();
   auto mapping = graph.getTileMapping(t);
-  const auto numTiles = deviceInfo.getNumTiles();
+  const auto numTiles = target.getNumTiles();
   const auto tFlat = t.flatten();
-  const auto vectorWidth = dType == "float" ? deviceInfo.getFloatVectorWidth()
-                                            : deviceInfo.getHalfVectorWidth();
+  const auto vectorWidth = dType == "float" ? target.getFloatVectorWidth()
+                                            : target.getHalfVectorWidth();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     // On each tile split the elements of the output up between the workers.
     // The grainSize is set to the vector width so vectors will not be split
@@ -122,15 +123,16 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
 
     auto numElements = intervalSequenceNumElements(tileContiguousRegions);
     auto minVectors =
-        numElements <= vectorWidth * deviceInfo.numWorkerContexts ? 1 : 2;
+        numElements <= vectorWidth * target.getNumWorkerContexts() ? 1 : 2;
     auto vertexRegions =
-        splitRegionsBetweenWorkers(deviceInfo, tileContiguousRegions,
+        splitRegionsBetweenWorkers(target, tileContiguousRegions,
                                    vectorWidth, minVectors * vectorWidth);
     for (const auto &regions : vertexRegions) {
       auto v = graph.addVertex(cs, templateVertex("popnn::NonLinearity",
                                                   dType),
                                {{"data", tFlat.slices(regions)}});
-      graph.setInitialValue(v["nonLinearityType"], nonLinearityType);
+      graph.setInitialValue(v["nonLinearityType"],
+          static_cast<unsigned>(nonLinearityType));
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setTileMapping(v, tile);
     }

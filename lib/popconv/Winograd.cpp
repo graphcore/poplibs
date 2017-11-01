@@ -143,7 +143,7 @@ public:
   uint64_t tilePartition(unsigned inpZic,
                      unsigned weightsZoc,
                      unsigned outZoc,
-                     const DeviceInfo &deviceInfo);
+                     const Target &target);
 
   std::pair<unsigned, unsigned> getPaddingX(unsigned patchX) const {
     unsigned prepad = 0;
@@ -300,10 +300,10 @@ uint64_t WgdTilePartition::tilePartition(
               unsigned inpZic,
               unsigned weightsZoc,
               unsigned outZoc,
-              const DeviceInfo &deviceInfo) {
+              const Target &target) {
 
-  const unsigned numTiles = deviceInfo.getNumTiles();
-  const unsigned numWorkers = deviceInfo.numWorkerContexts;
+  const unsigned numTiles = target.getNumTiles();
+  const unsigned numWorkers = target.getNumWorkerContexts();
   const auto numPatches = getNumPatches();
   const auto isFloat = dType == "float";
   const unsigned exchEfficiency = 100;
@@ -334,7 +334,7 @@ uint64_t WgdTilePartition::tilePartition(
                             / numTiles;
 
   /* exchange transfer bytes per cycle */
-  const unsigned eBytesPerCycle = deviceInfo.exchangeBytesPerCycle;
+  const unsigned eBytesPerCycle = target.getExchangeBytesPerCycle();
 
   Cost bestCost = std::numeric_limits<uint64_t>::max();
 
@@ -487,12 +487,12 @@ uint64_t WgdTilePartition::tilePartition(
          */
         Cost ecAcc = 0;
         const auto weightsPerConvUnit =
-                                deviceInfo.getWeightsPerConvUnit(isFloat);
+                                target.getWeightsPerConvUnit(isFloat);
         const auto numConvUnits = isFloat ?
-                                deviceInfo.fp32InFp32OutConvUnitsPerTile :
-                                deviceInfo.fp16InFp16OutConvUnitsPerTile;
+                                target.getFp32InFp32OutConvUnitsPerTile() :
+                                target.getFp16InFp16OutConvUnitsPerTile();
         const auto convUnitCoeffLoadBytesPerCycle =
-                              deviceInfo.convUnitCoeffLoadBytesPerCycle;
+                              target.getConvUnitCoeffLoadBytesPerCycle();
 
         Cost ccAcc;
         unsigned numBlocks = patchSizeX * patchSizeY * zogPerTile
@@ -656,9 +656,9 @@ static void wgdMapWeights(
               Tensor weights) {
   unsigned numUnits = (tp.zi * tp.zo + WgdTilePartition::kUnitSize - 1)
                       / WgdTilePartition::kUnitSize;
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto &target = graph.getTarget();
 
-  const unsigned numTiles = deviceInfo.getNumTiles();
+  const unsigned numTiles = target.getNumTiles();
 
   assert(tp.zic % WgdTilePartition::kUnitSize == 0);
 
@@ -701,8 +701,8 @@ static Program kernelTransform(
               std::vector<Tensor> &kTfMapping) {
 
   ComputeSet cs = graph.addComputeSet(layerName + "/KernelTrf");
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const unsigned numWorkers = deviceInfo.numWorkerContexts;
+  const auto &target = graph.getTarget();
+  const unsigned numWorkers = target.getNumWorkerContexts();
 
   unsigned numZig = tp.zig;
   for (unsigned zigTile = 0; zigTile < tp.tilesForZig; ++zigTile) {
@@ -835,10 +835,10 @@ static Program kernelTransform(
               Tensor kernelTf) {
   unsigned numUnits = (tp.zi * tp.zo + WgdTilePartition::kUnitSize - 1)
                       / WgdTilePartition::kUnitSize;
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto &target = graph.getTarget();
 
-  const unsigned numTiles = deviceInfo.getNumTiles();
-  const unsigned numWorkers = deviceInfo.numWorkerContexts;
+  const unsigned numTiles = target.getNumTiles();
+  const unsigned numWorkers = target.getNumWorkerContexts();
 
   ComputeSet cs = graph.addComputeSet(layerName + "/KernelTrf");
 
@@ -934,7 +934,7 @@ static std::vector<Tensor> allocateKernelTfTensor(
                                     "WgdKernelTransform");
 
   } else {
-    kernelTf.resize(graph.getDevice().getDeviceInfo().getNumTiles());
+    kernelTf.resize(graph.getTarget().getNumTiles());
   }
 
   return kernelTf;
@@ -964,8 +964,8 @@ static Program dataTransform(
   ComputeSet cs = graph.addComputeSet(layerName + "/DataTrf");
   ComputeSet zCs = graph.addComputeSet(layerName + "/Zeros");
 
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const unsigned numWorkers = deviceInfo.numWorkerContexts;
+  const auto &target = graph.getTarget();
+  const unsigned numWorkers = target.getNumWorkerContexts();
 
   unsigned numZig = tp.zig;
   for (unsigned zigTile = 0; zigTile < tp.tilesForZig; ++zigTile) {
@@ -1062,7 +1062,7 @@ static Program dataTransform(
                                         templateVertex("popstd::Zero",
                                                        tp.dType));
               graph.setInitialValue(vZ["dataPathWidth"],
-                                    deviceInfo.dataPathWidth);
+                                    target.getDataPathWidth());
 
               graph.connect(vZ["out"], zeroVec);
               graph.setTileMapping(vZ, tile);
@@ -1125,9 +1125,9 @@ static Program dataTransform(
                        + WgdTilePartition::dUnitSize - 1)
                       / WgdTilePartition::dUnitSize;
 
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const unsigned numTiles = deviceInfo.getNumTiles();
-  const unsigned numWorkers = deviceInfo.numWorkerContexts;
+  const auto &target = graph.getTarget();
+  const unsigned numTiles = target.getNumTiles();
+  const unsigned numWorkers = target.getNumWorkerContexts();
 
   ComputeSet dCs = graph.addComputeSet(layerName + "/DataTrf");
   ComputeSet zCs = graph.addComputeSet(layerName + "/Zeros");
@@ -1188,7 +1188,7 @@ static Program dataTransform(
           auto v = graph.addVertex(zCs, templateVertex("popstd::Zero",
                                                        tp.dType));
           graph.setInitialValue(v["dataPathWidth"],
-                                deviceInfo.dataPathWidth);
+                                target.getDataPathWidth());
 
           graph.connect(v["out"], zeroVec);
           graph.setTileMapping(v, tile);
@@ -1250,7 +1250,7 @@ static std::vector<Tensor> allocateDataTfTensor(
                                 },
                                 "WgdDataTransform");
   } else {
-    dataTf.resize(graph.getDevice().getDeviceInfo().getNumTiles());
+    dataTf.resize(graph.getTarget().getNumTiles());
   }
 
   return dataTf;
@@ -1277,22 +1277,22 @@ static Program accum(
               std::vector<Tensor> &dataTf,
               std::vector<Tensor> &kernelTf,
               Tensor acc) {
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const unsigned numWorkers = deviceInfo.numWorkerContexts;
+  const auto &target = graph.getTarget();
+  const unsigned numWorkers = target.getNumWorkerContexts();
 
   ComputeSet cs = graph.addComputeSet(layerName + "/Accum");
   ComputeSet zeroCS = graph.addComputeSet(layerName + "/ZeroAccum");
   const auto weightsPerConvUnit =
-      deviceInfo.getWeightsPerConvUnit(tp.dType == "float");
+      target.getWeightsPerConvUnit(tp.dType == "float");
 
   const auto numConvUnits = tp.dType == "float" ?
-                              deviceInfo.fp32InFp32OutConvUnitsPerTile :
+                              target.getFp32InFp32OutConvUnitsPerTile() :
                               tp.partialsType == "float" ?
-                                  deviceInfo.fp16InFp32OutConvUnitsPerTile:
-                                  deviceInfo.fp16InFp16OutConvUnitsPerTile;
+                                  target.getFp16InFp32OutConvUnitsPerTile() :
+                                  target.getFp16InFp16OutConvUnitsPerTile();
 
   const auto convUnitCoeffLoadBytesPerCycle =
-                              deviceInfo.convUnitCoeffLoadBytesPerCycle;
+                              target.getConvUnitCoeffLoadBytesPerCycle();
 
   unsigned numZig = tp.zig;
   for (unsigned zigTile = 0; zigTile < tp.tilesForZig; ++zigTile) {
@@ -1415,12 +1415,12 @@ static Program reduce(
               const std::string layerName,
               Tensor acc,
               Tensor red) {
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const unsigned numWorkers = deviceInfo.numWorkerContexts;
+  const auto &target = graph.getTarget();
+  const unsigned numWorkers = target.getNumWorkerContexts();
 
   ComputeSet cs = graph.addComputeSet(layerName + "/Reduce");
 
-  for (unsigned tile = 0; tile < deviceInfo.getNumTiles(); ++tile) {
+  for (unsigned tile = 0; tile < target.getNumTiles(); ++tile) {
 
     /* get information on patches assigned to this tile */
     unsigned patchS, patchesThisTile, zogS, numZog;
@@ -1489,12 +1489,12 @@ static Program inverseTransform(
               const std::string layerName,
               Tensor in,
               Tensor out) {
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const unsigned numWorkers = deviceInfo.numWorkerContexts;
+  const auto &target = graph.getTarget();
+  const unsigned numWorkers = target.getNumWorkerContexts();
 
   ComputeSet cs = graph.addComputeSet(layerName + "/InvTransform");
 
-  for (unsigned tile = 0; tile < deviceInfo.getNumTiles(); ++tile) {
+  for (unsigned tile = 0; tile < target.getNumTiles(); ++tile) {
 
     unsigned patchS, patchesThisTile, zogS, numZog;
     std::tie(patchS, patchesThisTile) = tp.getOutPatchInfo(tile);
@@ -1588,10 +1588,10 @@ static Program complete(
               Tensor in,
               Tensor act) {
   ComputeSet cs = graph.addComputeSet(layerName + "/Complete");
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const unsigned numWorkers = deviceInfo.numWorkerContexts;
+  const auto &target = graph.getTarget();
+  const unsigned numWorkers = target.getNumWorkerContexts();
 
-  for (unsigned tile = 0; tile < deviceInfo.getNumTiles(); ++tile) {
+  for (unsigned tile = 0; tile < target.getNumTiles(); ++tile) {
 
     unsigned patchS, patchesThisTile, zogS, numZog;
     std::tie(patchS, patchesThisTile) = tp.getOutPatchInfo(tile);
@@ -1731,7 +1731,7 @@ extern Program winogradConvolution(Graph &graph,
   tp.tilePartition(weights.dim(5),
                    weights.dim(4),
                    activations.dim(3),
-                   graph.getDevice().getDeviceInfo());
+                   graph.getTarget());
 
   auto prog = Sequence();
 

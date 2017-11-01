@@ -8,6 +8,7 @@
 #include <popstd/TileMapping.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/HalfFloat.hpp>
+#include <poplar/IPUModel.hpp>
 #include <popstd/codelets.hpp>
 #include <iostream>
 #include <cmath>
@@ -174,7 +175,9 @@ void unaryOpTest(const std::function<Tensor(Graph &, Tensor, Sequence &,
                                             const std::string &)> &op,
                  const std::function<TestT(T)> &testFn,
                  bool positiveInputs = false) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
 
   auto in = mapUnaryOpTensor(graph, typeName<T>());
@@ -184,7 +187,7 @@ void unaryOpTest(const std::function<Tensor(Graph &, Tensor, Sequence &,
   graph.createHostWrite("in", in);
   graph.createHostRead("out", out);
 
-  Engine eng(graph, prog);
+  Engine eng(device, graph, prog);
 
   T hIn[DIM_SIZE][DIM_SIZE];
   T hOut[DIM_SIZE][DIM_SIZE];
@@ -210,7 +213,9 @@ void binaryOpTest(const std::function<Tensor(Graph &, Tensor, Tensor,
                                              Sequence &,
                                              const std::string &)> &op,
                  const std::function<TestT(T, T)> &testFn) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
 
   Tensor in1, in2;
@@ -223,7 +228,7 @@ void binaryOpTest(const std::function<Tensor(Graph &, Tensor, Tensor,
   graph.createHostWrite("in2", in2);
   graph.createHostRead("out", out);
 
-  Engine eng(graph, prog);
+  Engine eng(device, graph, prog);
   T hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
   OutT hOut[DIM_SIZE][DIM_SIZE];
   setBinaryOpInputs(hIn1, hIn2);
@@ -681,7 +686,9 @@ BOOST_AUTO_TEST_CASE(StdOperationPower,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
 
   float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
@@ -703,7 +710,7 @@ BOOST_AUTO_TEST_CASE(StdOperationPower,
   graph.createHostWrite("in2", in2);
   graph.createHostRead("out", out);
 
-  Engine eng(graph, prog);
+  Engine eng(device, graph, prog);
   float hOut[DIM_SIZE][DIM_SIZE];
   eng.writeTensor("in1", hIn1);
   eng.writeTensor("in2", hIn2);
@@ -909,7 +916,9 @@ BOOST_AUTO_TEST_CASE(StdOperationSelectFloat,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
 
   float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
@@ -935,7 +944,7 @@ BOOST_AUTO_TEST_CASE(StdOperationSelectFloat,
 
   float hOut[DIM_SIZE][DIM_SIZE];
 
-  Engine eng(graph, prog);
+  Engine eng(device, graph, prog);
   eng.writeTensor("in1", hIn1);
   eng.writeTensor("in2", hIn2);
   eng.writeTensor("in3", hIn3);
@@ -956,7 +965,9 @@ BOOST_AUTO_TEST_CASE(StdOperationSelectInt,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
 
   int hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
@@ -982,7 +993,7 @@ BOOST_AUTO_TEST_CASE(StdOperationSelectInt,
 
   int hOut[DIM_SIZE][DIM_SIZE];
 
-  Engine eng(graph, prog);
+  Engine eng(device, graph, prog);
   eng.writeTensor("in1", hIn1);
   eng.writeTensor("in2", hIn2);
   eng.writeTensor("in3", hIn3);
@@ -1002,7 +1013,9 @@ BOOST_AUTO_TEST_CASE(StdOperationClampFloat,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
 
   float hIn1[DIM_SIZE][DIM_SIZE];
@@ -1029,7 +1042,7 @@ BOOST_AUTO_TEST_CASE(StdOperationClampFloat,
 
   float hOut[DIM_SIZE][DIM_SIZE];
 
-  Engine eng(graph, prog);
+  Engine eng(device, graph, prog);
   eng.writeTensor("in1", hIn1);
   eng.writeTensor("in2", hIn2);
   eng.writeTensor("in3", hIn3);
@@ -1055,7 +1068,9 @@ BOOST_AUTO_TEST_CASE(StdOperationClampInt,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
 
   int hIn1[DIM_SIZE][DIM_SIZE];
@@ -1082,7 +1097,7 @@ BOOST_AUTO_TEST_CASE(StdOperationClampInt,
 
   int hOut[DIM_SIZE][DIM_SIZE];
 
-  Engine eng(graph, prog);
+  Engine eng(device, graph, prog);
   eng.writeTensor("in1", hIn1);
   eng.writeTensor("in2", hIn2);
   eng.writeTensor("in3", hIn3);
@@ -1104,7 +1119,9 @@ BOOST_AUTO_TEST_CASE(StdOperationClampInt,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationBinaryOutputMapChoice) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
 
   Tensor in1, in2;
@@ -1138,7 +1155,9 @@ BOOST_AUTO_TEST_CASE(StdOperationBinaryOutputMapChoice) {
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationTrinaryOutputMapChoice) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
 
   Tensor in1, in2, in3, in4;
@@ -1191,7 +1210,9 @@ BOOST_AUTO_TEST_CASE(StdOperationTrinaryOutputMapChoice) {
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationAllTrueBadType) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
 
   Tensor in = graph.addTensor("float", {2, 2}, "t1");
@@ -1201,7 +1222,9 @@ BOOST_AUTO_TEST_CASE(StdOperationAllTrueBadType) {
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationAllTrue) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
 
   Tensor in = graph.addTensor("int", {2}, "t1");
@@ -1225,7 +1248,7 @@ BOOST_AUTO_TEST_CASE(StdOperationAllTrue) {
   graph.createHostWrite("in", in);
   graph.createHostRead("out", in);
 
-  Engine eng(graph, mainProg);
+  Engine eng(device, graph, mainProg);
   eng.writeTensor("in", init);
   eng.run();
   eng.readTensor("out", output);
@@ -1235,7 +1258,9 @@ BOOST_AUTO_TEST_CASE(StdOperationAllTrue) {
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationIsFinite) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
 
   float hIn[DIM_SIZE][DIM_SIZE];
@@ -1254,7 +1279,7 @@ BOOST_AUTO_TEST_CASE(StdOperationIsFinite) {
 
   bool hOut[DIM_SIZE][DIM_SIZE];
 
-  Engine eng(graph, prog);
+  Engine eng(device, graph, prog);
   eng.writeTensor("in", hIn);
   eng.run();
   eng.readTensor("out", hOut);

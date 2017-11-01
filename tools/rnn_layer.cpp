@@ -8,6 +8,7 @@
 #include <ostream>
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
+#include <poplar/IPUModel.hpp>
 #include <popconv/codelets.hpp>
 #include <popstd/TileMapping.hpp>
 #include <poplin/MatMul.hpp>
@@ -82,9 +83,9 @@ int main(int argc, char **argv) {
   popnn::NonLinearityType nonLinearityType =
                                 popnn::NonLinearityType::NON_LINEARITY_SIGMOID;
 
-  DeviceInfo info;
-  info.IPUExchangeType =
-      DeviceInfo::ExchangeType::AGGRESSIVE_MULTICAST;
+  IPUModel ipuModel;
+  ipuModel.IPUExchangeType =
+      IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
 
   poplib_test::Pass pass = poplib_test::Pass::FWD;
   po::options_description desc("Options");
@@ -118,10 +119,11 @@ int main(int argc, char **argv) {
      "Absolute tolerance to use when validating results against the reference "
      "model")
     ("tiles-per-ipu",
-     po::value<unsigned>(&info.tilesPerIPU)->default_value(info.tilesPerIPU),
+     po::value<unsigned>(&ipuModel.tilesPerIPU)->
+                           default_value(ipuModel.tilesPerIPU),
      "Number of tiles per IPU")
     ("ipus",
-     po::value<unsigned>(&info.numIPUs)->default_value(info.numIPUs),
+     po::value<unsigned>(&ipuModel.numIPUs)->default_value(ipuModel.numIPUs),
      "Number of IPUs")
     ("phase",
      po::value<poplib_test::Pass>(&pass)->default_value(pass),
@@ -165,7 +167,8 @@ int main(int argc, char **argv) {
   std::string dataTypeStr(asString(dataType));
   std::string partialsTypeStr(asString(partialsType));
 
-  Graph graph(createIPUModelDevice(info));
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popconv::addCodelets(graph);
   popstd::addCodelets(graph);
   popreduce::addCodelets(graph);
@@ -335,7 +338,7 @@ int main(int argc, char **argv) {
                                     "biasesDeltaAcc", graph, tmap);
   }
 
-  Engine engine(graph, prog);
+  Engine engine(device, graph, prog);
 
   boost::multi_array<double, 3>
       hostPrevAct(boost::extents[sequenceSize][batchSize][inputSize]);

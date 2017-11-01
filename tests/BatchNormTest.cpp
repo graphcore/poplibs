@@ -4,6 +4,7 @@
 #include <popstd/TileMapping.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/HalfFloat.hpp>
+#include <poplar/IPUModel.hpp>
 #include <popstd/codelets.hpp>
 #include <popstd/Operations.hpp>
 #include <popconv/codelets.hpp>
@@ -44,11 +45,12 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   const auto dimX = dims[2];
   const auto numChannels = dims[3];
 
-  DeviceInfo info;
-  info.IPUExchangeType =
-      DeviceInfo::ExchangeType::AGGRESSIVE_MULTICAST;
-  info.tilesPerIPU = tilesPerIPU;
-  Graph graph(createIPUModelDevice(info));
+  IPUModel ipuModel;
+  ipuModel.IPUExchangeType =
+      IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
+  ipuModel.tilesPerIPU = tilesPerIPU;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
   popnn::addCodelets(graph);
   popreduce::addCodelets(graph);
@@ -149,7 +151,7 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   copy(hostBeta, dataTypeStr, rawHostBeta.get());
   copy(hostGradsIn, dataTypeStr, rawHostGradsIn.get());
 
-  Engine engine(graph, prog);
+  Engine engine(device, graph, prog);
 
   upload(engine, tmap);
   engine.run(0); // Run.
@@ -227,11 +229,12 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
                         unsigned tilesPerIPU,
                         const std::string &dataTypeStr,
                         const std::string &partialsTypeStr) {
-  DeviceInfo info;
-  info.IPUExchangeType =
-      DeviceInfo::ExchangeType::AGGRESSIVE_MULTICAST;
-  info.tilesPerIPU = tilesPerIPU;
-  Graph graph(createIPUModelDevice(info));
+  IPUModel ipuModel;
+  ipuModel.IPUExchangeType =
+      IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
+  ipuModel.tilesPerIPU = tilesPerIPU;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popstd::addCodelets(graph);
   popnn::addCodelets(graph);
   popreduce::addCodelets(graph);
@@ -322,7 +325,7 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   copy(hostGamma, dataTypeStr, rawHostGamma.get());
   copy(hostBeta, dataTypeStr, rawHostBeta.get());
 
-  Engine engine(graph, prog);
+  Engine engine(device, graph, prog);
 
   upload(engine, tmap);
   engine.run(0); // Run.

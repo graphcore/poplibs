@@ -8,6 +8,7 @@
 #include <ostream>
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
+#include <poplar/IPUModel.hpp>
 #include <popstd/TileMapping.hpp>
 #include <popconv/Convolution.hpp>
 #include <popconv/codelets.hpp>
@@ -45,9 +46,9 @@ int main(int argc, char **argv) {
   FPDataType dataType;
   FPDataType partialsType;
   double relativeTolerance;
-  DeviceInfo info;
-  info.IPUExchangeType =
-      DeviceInfo::ExchangeType::AGGRESSIVE_MULTICAST;
+  IPUModel ipuModel;
+  ipuModel.IPUExchangeType =
+      IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
   Pass pass = Pass::ALL;
 
   po::options_description desc("Options");
@@ -68,10 +69,12 @@ int main(int argc, char **argv) {
      "Relative tolerance to use when validating results against the reference "
      "model")
     ("tiles-per-ipu",
-     po::value<unsigned>(&info.tilesPerIPU)->default_value(info.tilesPerIPU),
+     po::value<unsigned>(&ipuModel.tilesPerIPU)->
+                           default_value(ipuModel.tilesPerIPU),
      "Number of tiles per IPU")
     ("ipus",
-     po::value<unsigned>(&info.numIPUs)->default_value(info.numIPUs),
+     po::value<unsigned>(&ipuModel.numIPUs)->
+                           default_value(ipuModel.numIPUs),
      "Number of IPUs")
     ("batch-size",
      po::value<unsigned>(&batchSize)->default_value(1),
@@ -110,7 +113,8 @@ int main(int argc, char **argv) {
   bool doWuPass = !inferenceOnly && (pass == Pass::ALL || pass == Pass::WU);
 
   const auto learningRate = 0.5;
-  Graph graph(createIPUModelDevice(info));
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popconv::addCodelets(graph);
   popstd::addCodelets(graph);
   popreduce::addCodelets(graph);
@@ -201,7 +205,7 @@ int main(int argc, char **argv) {
     addTo(graph, biases, biasDeltas, -learningRate, bwdProg);
   }
 
-  Engine engine(graph, {std::move(fwdProg), std::move(bwdProg)});
+  Engine engine(device, graph, {std::move(fwdProg), std::move(bwdProg)});
 
   boost::multi_array<double, 3>
       hostPrevAct(boost::extents[numGroups][batchSize][inputSize]);

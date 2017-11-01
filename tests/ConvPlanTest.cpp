@@ -5,7 +5,7 @@
 #include <vector>
 
 BOOST_AUTO_TEST_CASE(getPlan){
-  poplar::Graph graph(poplar::createCPUDevice());
+  poplar::Graph graph(poplar::Target::createCPUTarget());
 
   auto params = popconv::ConvParams("float",
                                     // batch size

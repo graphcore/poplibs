@@ -565,7 +565,7 @@ iterateTilePartition(const Graph &graph, const ConvParams &params,
   const unsigned batchSize = params.getBatchSize();
   const unsigned numInZGroups = inNumChans / inChansPerGroup;
   const unsigned kernelHeight = params.kernelShape[0];
-  const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
+  const auto numTiles = graph.getTarget().getNumTiles();
   const auto convGroupTileSplit = plan.convGroupTileSplit;
   const unsigned numConvGroups = params.getNumConvGroups();
 
@@ -712,7 +712,7 @@ calculateMappingBasedOnUsage(const Graph &graph,
     tilesToGrains[entry.second].emplace_back(entry.first.lower(),
                                              entry.first.upper());
   }
-  const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
+  const auto numTiles = graph.getTarget().getNumTiles();
   std::vector<std::vector<Interval<std::size_t>>> mapping(numTiles);
   const auto minGrainsPerTile =
       (minElementsPerTile + grainSize - 1) / grainSize;
@@ -758,7 +758,7 @@ calculateActivationMapping(Graph &graph, const ConvParams &params,
     params.getInputWidth(),
     plan.inChansPerGroup
   };
-  const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
+  const auto numTiles = graph.getTarget().getNumTiles();
   std::vector<boost::icl::interval_set<unsigned>> used(numTiles);
   boost::icl::interval_map<unsigned, std::set<unsigned>> actsToTiles;
   iterateTilePartition(graph, params, plan,
@@ -1250,10 +1250,10 @@ createWeights(Graph &graph,
 
 static std::vector<std::vector<poplar::Interval<std::size_t>>>
 computeBiasMapping(Graph &graph, const Tensor &out) {
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto &target = graph.getTarget();
   const auto dType = out.elementType();
   const auto dTypeSize = dType == "float" ? 4 : 2;
-  const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
+  const auto numTiles = graph.getTarget().getNumTiles();
   const unsigned numChans = out.dim(0) * out.dim(4);
   // Create a view of the output where channels are the outermost dimension.
   auto outRegrouped = out.dimShufflePartial({4}, {1})
@@ -1272,8 +1272,8 @@ computeBiasMapping(Graph &graph, const Tensor &out) {
     }
   }
   const auto grainSize =
-      dType == "float" ? deviceInfo.getFloatVectorWidth() :
-                         deviceInfo.getHalfVectorWidth();
+      dType == "float" ? target.getFloatVectorWidth() :
+                         target.getHalfVectorWidth();
   // Limit the minimum number of bias bytes per tile to reduce the amount of
   // exchange code. Increasing this constant reduces exchange code size and
   // increases execution time due to imbalance. The current limit was
@@ -1329,11 +1329,11 @@ createConvPartial1x1OutVertex(Graph &graph,
   const auto inZGroupEnd = slice.inZGroupEnd;
   const auto inChansPerGroup = plan.inChansPerGroup;
   const auto outChansPerGroup = plan.partialChansPerGroup;
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
-  const auto convUnitPipelineDepth = deviceInfo.convUnitPipelineDepth;
+  const auto &target = graph.getTarget();
+  const auto dataPathWidth = target.getDataPathWidth();
+  const auto convUnitPipelineDepth = target.getConvUnitPipelineDepth();
   const auto convUnitCoeffLoadBytesPerCycle =
-      deviceInfo.convUnitCoeffLoadBytesPerCycle;
+      target.getConvUnitCoeffLoadBytesPerCycle();
   std::vector<Tensor> outWindow;
   for (unsigned cg = cgBegin; cg < cgEnd; ++cg) {
     for (unsigned ozg = outZGroupBegin; ozg < outZGroupEnd; ++ozg) {
@@ -1360,6 +1360,7 @@ createConvPartial1x1OutVertex(Graph &graph,
                                   {cg + 1, izg + 1, batchEnd, inYEnd,
                                    inXEnd, in.dim(5)}).flatten());
     }
+
   }
 
   assert(weights.dim(4) == 1);
@@ -1383,7 +1384,7 @@ createConvPartial1x1OutVertex(Graph &graph,
   const auto outWidth = outXEnd - outXBegin;
   const auto inHeight = inYEnd - inYBegin;
   const auto inWidth = inXEnd - inXBegin;
-  const auto contextsPerVertex = deviceInfo.numWorkerContexts;
+  const auto contextsPerVertex = target.getNumWorkerContexts();
   std::vector<std::vector<unsigned>> worklist(contextsPerVertex);
   unsigned convOutYBegin, convOutYEnd;
   std::tie(convOutYBegin, convOutYEnd) =
@@ -1461,12 +1462,12 @@ createConvPartial1x1OutVertex(Graph &graph,
 
 static unsigned getNumConvUnits(bool floatActivations,
                                 bool floatPartial,
-                                const poplar::DeviceInfo &deviceInfo) {
+                                const poplar::Target &target) {
   if (floatActivations) {
-    return deviceInfo.fp32InFp32OutConvUnitsPerTile;
+    return target.getFp32InFp32OutConvUnitsPerTile();
   } else {
-    return floatPartial ? deviceInfo.fp16InFp32OutConvUnitsPerTile :
-                          deviceInfo.fp16InFp16OutConvUnitsPerTile;
+    return floatPartial ? target.getFp16InFp32OutConvUnitsPerTile() :
+                          target.getFp16InFp16OutConvUnitsPerTile();
   }
 }
 
@@ -1479,11 +1480,11 @@ createConvPartialnx1Vertex(Graph &graph,
                            ConvParams params,
                            ComputeSet fwdCS,
                            Tensor in, Tensor weights, Tensor out) {
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
+  const auto &target = graph.getTarget();
+  const auto dataPathWidth = target.getDataPathWidth();
   const bool floatActivations = dType == "float";
   const auto weightsPerConvUnit =
-      deviceInfo.getWeightsPerConvUnit(floatActivations);
+      target.getWeightsPerConvUnit(floatActivations);
   const auto convUnitWeightHeight = weightsPerConvUnit / plan.inChansPerGroup;
   const auto batchBegin = slice.batchBegin;
   const auto batchEnd = slice.batchEnd;
@@ -1504,9 +1505,9 @@ createConvPartialnx1Vertex(Graph &graph,
   const auto outChansPerGroup = plan.partialChansPerGroup;
   bool flipOut = params.getPaddedDilatedKernelSize(1) >
                  params.getPaddedDilatedInputSize(1);
-  const auto convUnitPipelineDepth = deviceInfo.convUnitPipelineDepth;
+  const auto convUnitPipelineDepth = target.getConvUnitPipelineDepth();
   const auto convUnitCoeffLoadBytesPerCycle =
-      deviceInfo.convUnitCoeffLoadBytesPerCycle;
+      target.getConvUnitCoeffLoadBytesPerCycle();
 
   std::vector<Tensor> outWindow;
   for (unsigned cg = cgBegin; cg < cgEnd; ++cg) {
@@ -1612,7 +1613,7 @@ createConvPartialnx1Vertex(Graph &graph,
   const auto outWidth = outXEnd - outXBegin;
   const auto inHeight = inYEnd - inYBegin;
   const auto inWidth = inXEnd - inXBegin;
-  const auto contextsPerVertex = deviceInfo.numWorkerContexts;
+  const auto contextsPerVertex = target.getNumWorkerContexts();
   unsigned numConvY =
       (kernelYEnd - kernelYBegin + convUnitWeightHeight - 1)
         /  convUnitWeightHeight;
@@ -1719,8 +1720,8 @@ createConvPartialnx1Vertex(Graph &graph,
     graph.connect(v["worklists"][i], t);
   }
 
-  const auto grainSize = floatActivations ? deviceInfo.getFloatVectorWidth() :
-                                            deviceInfo.getHalfVectorWidth();
+  const auto grainSize = floatActivations ? target.getFloatVectorWidth() :
+                                            target.getHalfVectorWidth();
   auto splitZeroList = splitRegions({{0, outWindow[0].numElements()}},
                                     grainSize, contextsPerVertex);
   std::vector<unsigned> zeroWorklist(2 * contextsPerVertex);
@@ -1764,7 +1765,7 @@ createConvPartialHorizontalMacVertex(
     const Tensor &weights,
     const Tensor &out) {
   const auto kernelWidth = weights.dim(4);
-  const auto dataPathWidth = graph.getDevice().getDeviceInfo().dataPathWidth;
+  const auto dataPathWidth = graph.getTarget().getDataPathWidth();
   const auto dType = in.elementType();
   const auto partialType = out.elementType();
   const auto outChansPerGroup = out.dim(5);
@@ -1838,7 +1839,7 @@ createOuterProductVertex(
     Tensor in,
     Tensor weights,
     const Tensor &out) {
-  const auto dataPathWidth = graph.getDevice().getDeviceInfo().dataPathWidth;
+  const auto dataPathWidth = graph.getTarget().getDataPathWidth();
   assert(params.stride[0] == 1);
   assert(params.stride[1] == 1);
   assert(params.inputDilation[0] == 1);
@@ -1946,14 +1947,14 @@ partitionConvOutputBetweenWorkers(const Graph &graph,
                                   unsigned outZGroupEnd,
                                   unsigned cgBegin, unsigned cgEnd) {
   std::vector<std::vector<ConvOutputSlice>> perWorkerConvOutputSlices;
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto &target = graph.getTarget();
   const auto batchElements = batchEnd - batchBegin;
   const auto outWidth = outXEnd - outXBegin;
   const auto outHeight = outYEnd - outYBegin;
   const auto outDepth = outZGroupEnd - outZGroupBegin;
   const auto numConvGroups = cgEnd - cgBegin;
   const auto numRows = batchElements * outHeight * outDepth * numConvGroups;
-  const auto numWorkers = deviceInfo.numWorkerContexts;
+  const auto numWorkers = target.getNumWorkerContexts();
   unsigned rowSplitFactor = numWorkers / gcd(numWorkers, numRows);
   unsigned numPartRows = numRows * rowSplitFactor;
   for (unsigned worker = 0; worker != numWorkers; ++worker) {
@@ -2023,7 +2024,7 @@ calcPartialConvOutput(Graph &graph,
   const auto tileKernelHeight = kernelYEnd - kernelYBegin;
   const auto kernelSizeX = weights.dim(4);
   const auto outChansPerGroup = plan.partialChansPerGroup;
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto &target = graph.getTarget();
 
   Tensor zeros;
   bool useConvPartial1x1OutVertex = false;
@@ -2035,7 +2036,7 @@ calcPartialConvOutput(Graph &graph,
       const auto partialsType = out.elementType();
       const auto outChansPerPass = getNumConvUnits(dType == "float",
                                                    partialsType == "float",
-                                                   deviceInfo);
+                                                   target);
       assert(outChansPerGroup % outChansPerPass == 0);
       const auto passesPerOutputGroup = outChansPerGroup / outChansPerPass;
       bool nx1Vertex =
@@ -2089,7 +2090,7 @@ calcPartialConvOutput(Graph &graph,
     case Plan::Method::OUTER_PRODUCT:
       {
         const auto perWorkerRegions =
-            splitRegionsBetweenWorkers(deviceInfo, {{outXBegin, outXEnd}}, 1);
+            splitRegionsBetweenWorkers(target, {{outXBegin, outXEnd}}, 1);
         for (const auto &entry : perWorkerRegions) {
           assert(entry.size() == 1);
           createOuterProductVertex(graph, tile,
@@ -2150,12 +2151,12 @@ partialGroupedReduce(
   Tensor out = graph.addTensor(resultType,
                                outDims,
                                "partialReduceOut");
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto numTiles = deviceInfo.getNumTiles();
+  const auto &target = graph.getTarget();
+  const auto numTiles = target.getNumTiles();
   const auto numTileGroups = tileGroupRegions.size();
   const unsigned minGrainSize =
-    resultType == "float" ? deviceInfo.getFloatVectorWidth() :
-                            deviceInfo.getHalfVectorWidth();
+    resultType == "float" ? target.getFloatVectorWidth() :
+                            target.getHalfVectorWidth();
   const unsigned partialChansPerGroup = partials.dim(partials.rank()-1);
   const auto grainSize = std::max(partialChansPerGroup, minGrainSize);
 
@@ -2579,21 +2580,21 @@ uint64_t getWuFlops(const ConvParams &params) {
 static double getPerfectCycleCount(const Graph &graph,
                                    const ConvParams &params) {
   verifyStrideAndPaddingDimensions(params);
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto numTiles = deviceInfo.getNumTiles();
+  const auto &target = graph.getTarget();
+  const auto numTiles = target.getNumTiles();
   auto numMacs = getNumberOfMACs(params);
   if (params.dType == "float") {
-    const auto floatVectorWidth = deviceInfo.getFloatVectorWidth();
+    const auto floatVectorWidth = target.getFloatVectorWidth();
     auto macCycles =
         static_cast<double>(numMacs) / (floatVectorWidth * numTiles);
     return macCycles;
   }
   assert(params.dType == "half");
   const auto convUnitsPerTile =
-      std::max(std::max(deviceInfo.fp16InFp16OutConvUnitsPerTile,
-                        deviceInfo.fp32InFp32OutConvUnitsPerTile),
-               deviceInfo.fp16InFp32OutConvUnitsPerTile);
-  const auto halfVectorWidth = deviceInfo.getHalfVectorWidth();
+      std::max(std::max(target.getFp16InFp16OutConvUnitsPerTile(),
+                        target.getFp32InFp32OutConvUnitsPerTile()),
+               target.getFp16InFp32OutConvUnitsPerTile());
+  const auto halfVectorWidth = target.getHalfVectorWidth();
   auto macsPerCycle = convUnitsPerTile * halfVectorWidth;
   auto macCycles = static_cast<double>(numMacs) / (macsPerCycle * numTiles);
   return macCycles;
@@ -2618,7 +2619,7 @@ double getWuPerfectCycleCount(const Graph &graph, const ConvParams &params) {
  * the results to a new tensor.
  */
 static Tensor weightsPartialTranspose(Graph &graph, Tensor in, ComputeSet cs) {
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto &target = graph.getTarget();
   const auto rank = in.rank();
   const auto numSrcRows = in.dim(rank - 2);
   const auto numSrcColumns = in.dim(rank - 1);
@@ -2634,7 +2635,7 @@ static Tensor weightsPartialTranspose(Graph &graph, Tensor in, ComputeSet cs) {
   const auto numTiles = transpositionMapping.size();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto perWorkerTranspositions =
-        splitRegionsBetweenWorkers(deviceInfo, transpositionMapping[tile], 1);
+        splitRegionsBetweenWorkers(target, transpositionMapping[tile], 1);
     for (const auto &entry : perWorkerTranspositions) {
       const auto v =
           graph.addVertex(cs, templateVertex("popconv::Transpose2D", dType));
@@ -2858,9 +2859,9 @@ convChannelReduce(Graph &graph,
   //     The final stage reduces the 'biasPartials' 2-d tensor to get the
   //     final gradient for each bias, multiplies it by the learning rate and
   //     subtracts from the bias in the 'biases' tensor.
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto &target = graph.getTarget();
   auto dType = inGrouped.elementType();
-  auto numTiles = deviceInfo.getNumTiles();
+  auto numTiles = target.getNumTiles();
   auto numOut = dst.numElements();
   auto inDimY = inGrouped.dim(2), inDimX = inGrouped.dim(3);
   auto inChansPerGroup = inGrouped.dim(4);
@@ -2924,7 +2925,7 @@ convChannelReduce(Graph &graph,
       }
       graph.setFieldSize(v["in"], numRanges);
       graph.connect(v["out"], r[outIndex++]);
-      graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+      graph.setInitialValue(v["dataPathWidth"], target.getDataPathWidth());
       graph.setInitialValue(v["useDoubleDataPathInstr"],
                             useDoubleDataPathInstr);
       graph.setTileMapping(v, tile);
@@ -2934,7 +2935,7 @@ convChannelReduce(Graph &graph,
   /** The number of outputs is often small. So the reduction of ouputs
    *  is done in two stages to balance compute.
    */
-  auto numWorkers = deviceInfo.numWorkerContexts * deviceInfo.getNumTiles();
+  auto numWorkers = target.getNumWorkerContexts() * target.getNumTiles();
   unsigned workersPerOutput, usedWorkers, maxOutputsPerWorker;
   if (numWorkers > numOut) {
     workersPerOutput = numWorkers / numOut;
@@ -2949,7 +2950,7 @@ convChannelReduce(Graph &graph,
       graph.addTensor(partialsType, {usedWorkers, maxOutputsPerWorker},
                       "partials");
   for (unsigned worker = 0; worker  < usedWorkers; ++worker ) {
-    auto tile = worker / deviceInfo.numWorkerContexts;
+    auto tile = worker / target.getNumWorkerContexts();
     graph.setTileMapping(partials[worker].slice(0, maxOutputsPerWorker), tile);
     unsigned outBegin = (worker  * numOut) / usedWorkers;
     unsigned outEnd = ((worker  + workersPerOutput) * numOut) / usedWorkers;
@@ -2983,7 +2984,7 @@ convChannelReduce(Graph &graph,
       auto v = graph.addVertex(computeSets[1],
                                templateVertex("popstd::Zero", partialsType));
       graph.connect(v["out"], partials[worker].slice(0, maxOutputsPerWorker));
-      graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+      graph.setInitialValue(v["dataPathWidth"], target.getDataPathWidth());
       graph.setTileMapping(v, tile);
       continue;
     }
@@ -3075,7 +3076,7 @@ addToChannel(Graph &graph, const Tensor &actsUngrouped,
         actsToInternalShape(actsUngrouped, 1)
       )[0];
   const auto dType = acts.elementType();
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto &target = graph.getTarget();
   const auto outChansPerGroup = acts.dim(4);
   const auto addendByGroup =
       addend.reshape({addend.numElements() / outChansPerGroup,
@@ -3087,7 +3088,7 @@ addToChannel(Graph &graph, const Tensor &actsUngrouped,
   const unsigned numTiles = firstInGroupMapping.size();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto perWorkerGroups =
-        splitRegionsBetweenWorkers(deviceInfo, firstInGroupMapping[tile], 1);
+        splitRegionsBetweenWorkers(target, firstInGroupMapping[tile], 1);
     for (const auto &entry : perWorkerGroups) {
       VertexRef v;
       if (scale == 1.0) {
@@ -3134,7 +3135,7 @@ addToChannel(Graph &graph, const Tensor &actsUngrouped,
       }
       graph.setFieldSize(v["acts"], num);
       graph.setFieldSize(v["addend"], num);
-      graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+      graph.setInitialValue(v["dataPathWidth"], target.getDataPathWidth());
     }
   }
   prog.add(Execute(cs));
@@ -3169,7 +3170,7 @@ fullyConnectedWeightTranspose(Graph &graph,
   const auto bwdGroupSize =
       getInChansPerGroup(plan, static_cast<unsigned>(splitActivations.dim(3)));
   const auto dType = activations.elementType();
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto &target = graph.getTarget();
   splitActivations =
       splitActivations.reshape({splitActivations.dim(0),
                                 splitActivations.dim(1) *
@@ -3201,7 +3202,7 @@ fullyConnectedWeightTranspose(Graph &graph,
   auto transposeCS = graph.addComputeSet(debugPrefix + "/Transpose");
   for (unsigned tile = 0; tile != blockTileMapping.size(); ++tile) {
     const auto perWorkerGroups =
-        splitRegionsBetweenWorkers(deviceInfo, blockTileMapping[tile], 1);
+        splitRegionsBetweenWorkers(target, blockTileMapping[tile], 1);
     for (const auto &entry : perWorkerGroups) {
       // Create a vertex.
       const auto v =
@@ -3280,7 +3281,7 @@ channelMul(Graph &graph, const Tensor &actsUngrouped, const Tensor &scale,
         actsToInternalShape(actsScaledUngrouped, 1)
       )[0];
   const auto dType = acts.elementType();
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto &target = graph.getTarget();
   const auto outChansPerGroup = acts.dim(4);
   const auto scaleByGroup =
       scale.reshape({scale.numElements() / outChansPerGroup,
@@ -3292,7 +3293,7 @@ channelMul(Graph &graph, const Tensor &actsUngrouped, const Tensor &scale,
   const unsigned numTiles = firstInGroupMapping.size();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto perWorkerGroups =
-        splitRegionsBetweenWorkers(deviceInfo, firstInGroupMapping[tile], 1);
+        splitRegionsBetweenWorkers(target, firstInGroupMapping[tile], 1);
     for (const auto &entry : perWorkerGroups) {
       auto v = graph.addVertex(cs,
                                templateVertex("popconv::ChannelMul",
@@ -3336,7 +3337,7 @@ channelMul(Graph &graph, const Tensor &actsUngrouped, const Tensor &scale,
       graph.setFieldSize(v["actsIn"], num);
       graph.setFieldSize(v["actsOut"], num);
       graph.setFieldSize(v["scale"], num);
-      graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+      graph.setInitialValue(v["dataPathWidth"], target.getDataPathWidth());
     }
   }
   prog.add(Execute(cs));
@@ -3356,19 +3357,19 @@ static Tensor computeInvStdDev(Graph &graph, const Tensor &mean,
   const auto powerFlat = power.flatten();
   const auto iStdDevFlat = iStdDev.flatten();
 
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto dataPathWidth = deviceInfo.dataPathWidth;
-  const auto numTiles = deviceInfo.getNumTiles();
+  const auto &target = graph.getTarget();
+  const auto dataPathWidth = target.getDataPathWidth();
+  const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix + "/iStdDev");
 
   const auto mapping = graph.getTileMapping(iStdDev);
-  const auto grainSize = deviceInfo.getVectorWidth(invStdDevType);
+  const auto grainSize = target.getVectorWidth(invStdDevType);
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(iStdDevFlat, mapping[tile]);
     auto vertexRegions =
-      splitRegionsBetweenWorkers(deviceInfo, tileContiguousRegions,
+      splitRegionsBetweenWorkers(target, tileContiguousRegions,
                                  grainSize, 2 * grainSize);
 
     for (const auto &regions : vertexRegions) {

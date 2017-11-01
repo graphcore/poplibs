@@ -149,22 +149,22 @@ splitRegions(
 
 std::vector<std::vector<poplar::Interval<std::size_t>>>
 splitRegionsBetweenWorkers(
-    const poplar::DeviceInfo &deviceInfo,
+    const poplar::Target &target,
     const std::vector<poplar::Interval<std::size_t>> &regions,
     unsigned grainSize,
     unsigned minElementsPerVertex) {
-  const auto workersPerTile = deviceInfo.numWorkerContexts;
+  const auto workersPerTile = target.getNumWorkerContexts();
   return splitRegions(regions, grainSize, workersPerTile,
                       minElementsPerVertex);
 }
 
 std::vector<std::vector<std::vector<poplar::Interval<std::size_t>>>>
 splitRegionsBetweenWorkers(
-    const poplar::DeviceInfo &deviceInfo,
+    const poplar::Target &target,
     const std::vector<std::vector<poplar::Interval<std::size_t>>> &regions,
     unsigned grainSize,
     unsigned minElementsPerVertex) {
-  const auto workersPerTile = deviceInfo.numWorkerContexts;
+  const auto workersPerTile = target.getNumWorkerContexts();
   return splitRegions(regions, grainSize, workersPerTile,
                       minElementsPerVertex);
 }

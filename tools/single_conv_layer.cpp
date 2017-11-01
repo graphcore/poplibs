@@ -8,6 +8,7 @@
 #include <ostream>
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
+#include <poplar/IPUModel.hpp>
 #include <popstd/TileMapping.hpp>
 #include <popconv/Convolution.hpp>
 #include <popconv/ConvUtil.hpp>
@@ -53,9 +54,9 @@ int main(int argc, char **argv) {
   FPDataType dataType;
   FPDataType partialsType;
   double relativeTolerance;
-  DeviceInfo info;
-  info.IPUExchangeType =
-      DeviceInfo::ExchangeType::AGGRESSIVE_MULTICAST;
+  IPUModel ipuModel;
+  ipuModel.IPUExchangeType =
+      IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
   bool reportPlan;
   bool reportTensorStorage;
 
@@ -177,7 +178,8 @@ int main(int argc, char **argv) {
      "Relative tolerance to use when validating results against the reference "
      "model")
     ("tiles-per-ipu",
-     po::value<unsigned>(&info.tilesPerIPU)->default_value(info.tilesPerIPU),
+     po::value<unsigned>(&ipuModel.tilesPerIPU)->
+                           default_value(ipuModel.tilesPerIPU),
      "Number of tiles per IPU")
     ("batch-size",
      po::value<unsigned>(&batchSize)->default_value(1),
@@ -374,7 +376,8 @@ int main(int argc, char **argv) {
   bool doBwdPass = pass == Pass::ALL || pass == Pass::BWD;
   bool doWuPass = pass == Pass::ALL || pass == Pass::WU;
 
-  Device dev = useCpuModel ? createCPUDevice() : createIPUModelDevice(info);
+  Device dev = useCpuModel ? Device::createCPUDevice() :
+                             ipuModel.createDevice();
   Graph graph(dev);
   popstd::addCodelets(graph);
   popreduce::addCodelets(graph);
@@ -493,7 +496,7 @@ int main(int argc, char **argv) {
     rawHostPrevDeltas = allocateHostMemoryForTensor(prevDeltas, "prevDeltas",
                                                     graph, tmap);
   }
-  Engine engine(graph, {std::move(fwdProg), std::move(revProg)});
+  Engine engine(dev, graph, {std::move(fwdProg), std::move(revProg)});
 
   boost::multi_array<double, 3>
       hostPrevAct(boost::extents[batchSize][fwdInChans][height * width]);

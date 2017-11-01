@@ -86,14 +86,15 @@ template <typename FPType>
 class NonLinearity : public Vertex {
 public:
   Vector<InOut<Vector<FPType>>> data;
-  NonLinearityType nonLinearityType;
+  unsigned nonLinearityType;
 
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i < data.size(); ++i) {
       for (unsigned j = 0; j < data[i].size(); ++j) {
-        data[i][j] = nonlinearity(nonLinearityType, data[i][j]);
+        data[i][j] = nonlinearity(NonLinearityType(nonLinearityType),
+                                  data[i][j]);
       }
     }
     return true;
@@ -104,7 +105,8 @@ public:
     std::vector<unsigned> regionSizes;
     for (const auto region : data)
       regionSizes.push_back(region.size());
-    return getNonLinearityCycles(regionSizes, nonLinearityType, isFloat,
+    return getNonLinearityCycles(regionSizes,
+                                 NonLinearityType(nonLinearityType), isFloat,
                                  dataPathWidth);
   }
 };

@@ -8,6 +8,7 @@
 #include <ostream>
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
+#include <poplar/IPUModel.hpp>
 #include <popstd/TileMapping.hpp>
 #include <popnn/Pooling.hpp>
 #include <poplar/HalfFloat.hpp>
@@ -70,9 +71,9 @@ int main(int argc, char **argv) {
   unsigned batchSize;
   FPDataType dataType;
   double relativeTolerance;
-  DeviceInfo info;
-  info.IPUExchangeType =
-      DeviceInfo::ExchangeType::AGGRESSIVE_MULTICAST;
+  IPUModel ipuModel;
+  ipuModel.IPUExchangeType =
+      IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
   PoolingType poolingType = PoolingType::MAX;
 
   /* these are used when the same value is shared across both height and width*/
@@ -145,10 +146,11 @@ int main(int argc, char **argv) {
      "Relative tolerance to use when validating results against the reference "
      "model")
     ("tiles-per-ipu",
-     po::value<unsigned>(&info.tilesPerIPU)->default_value(info.tilesPerIPU),
+     po::value<unsigned>(&ipuModel.tilesPerIPU)->
+                           default_value(ipuModel.tilesPerIPU),
      "Number of tiles per IPU")
      ("ipus",
-     po::value<unsigned>(&info.numIPUs)->default_value(info.numIPUs),
+     po::value<unsigned>(&ipuModel.numIPUs)->default_value(ipuModel.numIPUs),
      "Number of IPUs")
     ("pooling-type",
      po::value<PoolingType>(
@@ -256,7 +258,8 @@ int main(int argc, char **argv) {
   }
 
   bool inferenceOnly = vm.count("inference-only");
-  Graph graph(createIPUModelDevice(info));
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popnn::addCodelets(graph);
   popstd::addCodelets(graph);
 
@@ -345,7 +348,7 @@ int main(int argc, char **argv) {
     rawHostPrevDeltas = allocateHostMemoryForTensor(prevDeltas, "prevDeltas",
                                                     graph, tmap);
   }
-  Engine engine(graph, {std::move(fwdProg), std::move(bwdProg)});
+  Engine engine(device, graph, {std::move(fwdProg), std::move(bwdProg)});
 
 
   boost::multi_array<double, 4>

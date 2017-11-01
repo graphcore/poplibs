@@ -6,6 +6,7 @@
 #include <limits>
 #include <poplar/Engine.hpp>
 #include <poplar/HalfFloat.hpp>
+#include <poplar/IPUModel.hpp>
 #include <popstd/TileMapping.hpp>
 #include <popnn/codelets.hpp>
 #include <popstd/codelets.hpp>
@@ -30,7 +31,9 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
                     *utf::tolerance<float>(fpc::percent_tolerance<float>(TOL))
                     *utf::tolerance<double>(fpc::percent_tolerance<double>(TOL))
                      ) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popnn::addCodelets(graph);
   //layer parameters
 
@@ -130,7 +133,7 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     auto fwdProg = Sequence();
     nonLinearity(graph, n, actF, fwdProg);
     nonLinearity(graph, n, actH, fwdProg);;
-    Engine fwdEng(graph, fwdProg);
+    Engine fwdEng(device, graph, fwdProg);
 
     fwdEng.writeTensor("inF", hActInF);
     fwdEng.writeTensor("inH", hActInH);
@@ -153,7 +156,7 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     bwdProg.add(Copy(deltaFF, deltaF));
     auto deltaHH = nonLinearityInputGradient(graph, n, actH, deltaH, bwdProg);
     bwdProg.add(Copy(deltaHH, deltaH));
-    Engine bwdEng(graph, bwdProg);
+    Engine bwdEng(device, graph, bwdProg);
     bwdEng.writeTensor("inF", hActInF);
     bwdEng.writeTensor("inH", hActInH);
     bwdEng.writeTensor("inDeltaF", hDeltaInF);
@@ -184,7 +187,9 @@ BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
                     *utf::tolerance<float>(fpc::percent_tolerance<float>(0.1))
                     *utf::tolerance<double>(fpc::percent_tolerance<double>(0.1))
                      ) {
-  Graph graph(createIPUModelDevice());
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
   popnn::addCodelets(graph);
   popstd::addCodelets(graph);
   popreduce::addCodelets(graph);
@@ -229,7 +234,7 @@ BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
   auto fwdProg = Sequence();
   nonLinearity(graph, nl, actF, fwdProg);
   nonLinearity(graph, nl, actH, fwdProg);
-  Engine fwdEng(graph, fwdProg);
+  Engine fwdEng(device, graph, fwdProg);
 
   fwdEng.writeTensor("inF", hActInF);
   fwdEng.writeTensor("inH", hActInH);

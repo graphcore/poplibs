@@ -15,7 +15,7 @@ calcLinearTileMapping(const poplar::Graph &graph,
                       std::vector<std::size_t> shape,
                       unsigned minElementsPerTile,
                       unsigned grainSize) {
-  const auto numTiles = graph.getDevice().getDeviceInfo().getNumTiles();
+  const auto numTiles = graph.getTarget().getNumTiles();
   const auto numElements = std::accumulate(shape.begin(), shape.end(), 1UL,
                                            std::multiplies<std::size_t>());
   std::vector<poplar::Interval<std::size_t>> regions = {
@@ -30,10 +30,10 @@ calcLinearTileMapping(const poplar::Graph &graph,
   const auto dType = t.elementType();
   // TODO - this get the correct type size from Poplar when poplar allows
   // that type of introspection.
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto &target = graph.getTarget();
   const auto typeSize = dType == "half" ? 2 : 4;
-  unsigned grainSize = dType == "half" ? deviceInfo.getHalfVectorWidth() :
-                                         deviceInfo.getFloatVectorWidth();
+  unsigned grainSize = dType == "half" ? target.getHalfVectorWidth() :
+                                         target.getFloatVectorWidth();
   const auto minBytesPerTile = 128;
   const auto minElementsPerTile =
     (minBytesPerTile + typeSize - 1) / minBytesPerTile;

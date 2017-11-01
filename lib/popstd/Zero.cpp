@@ -16,14 +16,14 @@ zero(poplar::Graph &graph,
      unsigned tile,
      poplar::ComputeSet zeroCS) {
   const auto dType = t.elementType();
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
+  const auto &target = graph.getTarget();
   const auto tFlat = t.flatten();
-  const auto vectorWidth = dType == "float" ? deviceInfo.getFloatVectorWidth()
-                                            : deviceInfo.getHalfVectorWidth();
+  const auto vectorWidth = dType == "float" ? target.getFloatVectorWidth()
+                                            : target.getHalfVectorWidth();
   const auto tileContiguousRegions =
       graph.getSortedContiguousRegions(t, tileRegions);
   auto vertexRegions =
-      splitRegionsBetweenWorkers(deviceInfo, tileContiguousRegions,
+      splitRegionsBetweenWorkers(target, tileContiguousRegions,
                                  vectorWidth, 2 * vectorWidth);
   for (const auto &regions : vertexRegions) {
     const auto numRegions = regions.size();
@@ -38,7 +38,7 @@ zero(poplar::Graph &graph,
       auto out = tFlat.slices(regions);
       graph.connect(v["out"], out);
     }
-    graph.setInitialValue(v["dataPathWidth"], deviceInfo.dataPathWidth);
+    graph.setInitialValue(v["dataPathWidth"], target.getDataPathWidth());
     graph.setTileMapping(v, tile);
   }
 }
@@ -50,8 +50,8 @@ zero(Graph &graph,
        std::vector<Interval<std::size_t>>
      > &mapping,
      ComputeSet zeroCS) {
-  const auto &deviceInfo = graph.getDevice().getDeviceInfo();
-  const auto numTiles = deviceInfo.getNumTiles();
+  const auto &target = graph.getTarget();
+  const auto numTiles = target.getNumTiles();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     zero(graph, t, mapping[tile], tile, zeroCS);
   }
