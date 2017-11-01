@@ -2082,6 +2082,7 @@ public:
 template class DynamicSelect<float>;
 template class DynamicSelect<half>;
 template class DynamicSelect<int>;
+template class DynamicSelect<bool>;
 
 // Copy each \numSubElements regions from \a in to
 // \a out regions [\a offset : \a offset + \a numInElements)
@@ -2129,6 +2130,7 @@ public:
 template class DynamicUpdateSlice<float>;
 template class DynamicUpdateSlice<half>;
 template class DynamicUpdateSlice<int>;
+template class DynamicUpdateSlice<bool>;
 
 // Copy slices [\a offset : \a offset + \a numOutElements) of regions of
 // \a baseT to \a subT.
@@ -2180,6 +2182,7 @@ public:
 template class DynamicSelect2d<float>;
 template class DynamicSelect2d<half>;
 template class DynamicSelect2d<int>;
+template class DynamicSelect2d<bool>;
 
 // Copy each \numSubElements regions from \a in to
 // \a out regions [\a offset : \a offset + \a numInElements)
@@ -2231,6 +2234,7 @@ public:
 template class DynamicUpdateSlice2d<float>;
 template class DynamicUpdateSlice2d<half>;
 template class DynamicUpdateSlice2d<int>;
+template class DynamicUpdateSlice2d<bool>;
 
 class AllTrue : public Vertex {
 public:
