@@ -264,13 +264,19 @@ Tensor dynamicSlice(Graph &graph,
     if (dims[i] >= tRank)
       throw graph_connection_error(
         "dynamicSlice: invalid dimension " + std::to_string(dims[i]));
-    if (sizes[i] == 0)
-      // Should this be allowed?
-      throw graph_connection_error(
-        "dynamicSlice: requested empty dimension");
     if (sizes[i] > t.dim(dims[i]))
       throw graph_connection_error(
         "dynamicSlice: requested output dimension bigger than input");
+    if (sizes[i] == 0) {
+      // Since one of the slice sizes is zero, the resulting tensor has no
+      // elements. We can return a static slice of the original tensor
+      // of the correct size. The offset for each slice can be 0 because
+      // it won't have any elements anyway. Tensorflow tests for 0-sized slices.
+      Tensor emptyT = t;
+      for (unsigned d = 0; d < dims.size(); ++d)
+        emptyT = emptyT.slice(0, sizes[d], dims[d]);
+      return emptyT;
+    }
   }
   Tensor out = t;
 
@@ -297,6 +303,11 @@ void dynamicUpdate(Graph &graph,
                    poplar::program::Sequence &prog,
                    const std::string &debugPrefix = "")
 {
+  // If any of sizes is 0 then this is a nop. Tensorflow tests do this.
+  for (auto& sz : sizes)
+    if (sz == 0)
+      return;
+
   // We insert into a single dimension at a time. When more than one dimension
   // is to be inserted this entails slicing off the outer dimensions until there
   // is a single dynamic dimension. That Tensor is updated with s. Then
