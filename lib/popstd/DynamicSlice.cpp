@@ -1,4 +1,3 @@
-#include "popstd/Regroup.hpp"
 #include "util/gcd.hpp"
 #include "popstd/VertexTemplates.hpp"
 #include "popstd/Util.hpp"

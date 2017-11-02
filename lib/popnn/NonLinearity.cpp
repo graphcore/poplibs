@@ -2,7 +2,6 @@
 #include "popstd/TileMapping.hpp"
 #include "popstd/exceptions.hpp"
 #include "popstd/VertexTemplates.hpp"
-#include "popstd/Regroup.hpp"
 #include "popstd/Operations.hpp"
 #include "popreduce/Reduce.hpp"
 #include "popstd/Util.hpp"

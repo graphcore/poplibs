@@ -13,7 +13,6 @@ add_library(popstd SHARED
   OperationsDef.hpp
   Operations.cpp
   Pad.cpp
-  Regroup.cpp
   SubtractFrom.cpp
   TileMapping.cpp
   Util.cpp
@@ -29,7 +28,6 @@ add_library(popstd SHARED
   ${CMAKE_SOURCE_DIR}/include/popstd/HadamardProduct.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/Operations.hpp  
   ${CMAKE_SOURCE_DIR}/include/popstd/Pad.hpp
-  ${CMAKE_SOURCE_DIR}/include/popstd/Regroup.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/SubtractFrom.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/TileMapping.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/Util.hpp

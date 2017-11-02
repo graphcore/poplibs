@@ -10,7 +10,6 @@
 #include "popstd/Add.hpp"
 #include "popstd/TileMapping.hpp"
 #include "popreduce/Reduce.hpp"
-#include "popstd/Regroup.hpp"
 #include "popstd/VertexTemplates.hpp"
 #include "util/gcd.hpp"
 #include "PerformanceEstimation.hpp"
@@ -121,8 +120,8 @@ std::ostream& operator<<(std::ostream &os, const ConvParams &p) {
   return os;
 }
 
-// Reshape the activations tensor from [N][G * C][H][W] shape to
-// [G][N][H][W][C].
+// Reshape the activations tensor from [N][G * C]... shape to
+// [G][N]...[C].
 static Tensor
 actsToInternalShape(const Tensor &act, unsigned numConvGroups) {
   if (act.dim(1) % numConvGroups != 0) {
@@ -133,42 +132,43 @@ actsToInternalShape(const Tensor &act, unsigned numConvGroups) {
             .dimShufflePartial({1, 2}, {0, act.rank()});
 }
 
-// Reshape the activations tensor from [G][N][H][W][C] shape to
-// [N][G * C][H][W] shape.
+// Reshape the activations tensor from [G][N]...[C] shape to
+// [N][G * C]... shape.
 static Tensor
 actsToExternalShape(const Tensor &act) {
   return act.dimShufflePartial({0, act.rank() - 1}, {1, 2})
             .reshapePartial(1, 3, {act.dim(0) * act.dim(act.rank() - 1)});
 }
 
-// Reshape the weights tensor from [G][OC][IC][H][W] shape to
-// [G][H][W][OC][IC].
+// Reshape the weights tensor from [G][OC][IC]... shape to
+// [G]...[OC][IC].
 static Tensor
 weightsToInternalShape(const Tensor &act) {
   return act.dimShufflePartial({1, 2}, {act.rank() - 2, act.rank() - 1});
 }
 
-// Reshape the weights tensor from [G][H][W][OC][IC] shape to
-// [G][OC][IC][H][W] shape.
+// Reshape the weights tensor from [G]...[OC][IC] shape to
+// [G][OC][IC]... shape.
 static Tensor
 weightsToExternalShape(const Tensor &act) {
   return act.dimShufflePartial({act.rank() - 2, act.rank() - 1}, {1, 2});
 }
 
-// Reshape the activations tensor from [G][N][H][W][C] shape to
-// [G][C1][N][H][W][C2]
+// Reshape the activations tensor from [G][N]...[C] shape to
+// [G][C1][N]...[C2]
 //
 // Where C1 * C2 = C
 static Tensor
 splitActivationChanGroups(const Tensor &act, unsigned chansPerGroup) {
-  assert(act.rank() == 5);
-  assert(act.dim(4) % chansPerGroup == 0);
-  return act.reshapePartial(4, 5, {act.dim(4) / chansPerGroup, chansPerGroup})
-            .dimShufflePartial({4}, {1});
+  const auto rank = act.rank();
+  assert(act.dim(rank - 1) % chansPerGroup == 0);
+  return act.reshapePartial(rank - 1, rank,
+                            {act.dim(rank - 1) / chansPerGroup, chansPerGroup})
+            .dimShufflePartial({rank - 1}, {1});
 }
 
-// Reshape the activations tensor from [G][N][H][W][C] shape to
-// [G][C1][N][H][W][C2]
+// Reshape the activations tensor from [G][N]...[C] shape to
+// [G][C1][N]...[C2]
 //
 // Where C1 * C2 = C
 static Tensor
@@ -177,47 +177,48 @@ splitActivationChanGroups(const Tensor &act) {
   return splitActivationChanGroups(act, chansPerGroup);
 }
 
-// Reshape the activations tensor from [G][C1][N][H][W][C2] shape to
-// [G][N][H][W][C]
+// Reshape the activations tensor from [G][C1][N]...[C2] shape to
+// [G][N]...[C]
 //
 // Where C1 * C2 = C
 static Tensor
 unsplitActivationChanGroups(const Tensor &act) {
-  assert(act.rank() == 6);
-  return act.dimShufflePartial({1}, {4})
-            .reshapePartial(4, 6, {act.dim(1) * act.dim(5)});
+  const auto rank = act.rank();
+  return act.dimShufflePartial({1}, {rank - 2})
+            .reshapePartial(rank - 2, rank, {act.dim(1) * act.dim(rank - 1)});
 }
 
 static std::pair<unsigned, unsigned>
 detectWeightsChannelGrouping(const Tensor &w) {
   auto inChansPerGroup = detectChannelGrouping(w);
+  const auto rank = w.rank();
   const auto w1 =
-      regroup(w, inChansPerGroup).reshape({w.dim(0),
-                                           w.dim(4) / inChansPerGroup,
-                                           w.dim(1), w.dim(2),
-                                           w.dim(3) * inChansPerGroup});
+      w.reshapePartial(rank - 1, rank, {w.dim(rank - 1) / inChansPerGroup,
+                                        inChansPerGroup})
+       .dimRoll(rank - 1, 0);
   auto outChansPerGroup = detectChannelGrouping(w1);
   assert(outChansPerGroup % inChansPerGroup == 0);
   outChansPerGroup /= inChansPerGroup;
   return {outChansPerGroup, inChansPerGroup};
 }
 
-// Groups tensor from standard convolution weight tensor shape [G][H][W][OC][IC]
-// to internal shape [G][OC1][IC1][H][W][OC2][IC2]
+// Groups tensor from standard convolution weight tensor shape [G]...[OC][IC]
+// to internal shape [G][OC1][IC1]...[OC2][IC2]
 //
 // where OC1 * OC2 = OC
 // and   IC1 * IC2 = IC
 static Tensor groupWeights(const Tensor &weights, unsigned inChansPerGroup,
                            unsigned outChansPerGroup) {
-  assert(weights.rank() == 5);
-  assert(weights.dim(4) % inChansPerGroup == 0);
-  assert(weights.dim(3) % outChansPerGroup == 0);
-  const unsigned inChanGroups = weights.dim(4) / inChansPerGroup;
-  const unsigned outChanGroups = weights.dim(3) / outChansPerGroup;
+  const auto rank = weights.rank();
+  assert(weights.dim(rank - 1) % inChansPerGroup == 0);
+  assert(weights.dim(rank - 2) % outChansPerGroup == 0);
+  const unsigned inChanGroups = weights.dim(rank - 1) / inChansPerGroup;
+  const unsigned outChanGroups = weights.dim(rank - 2) / outChansPerGroup;
 
-  return weights.reshapePartial(3, 5, {outChanGroups, outChansPerGroup,
-                                       inChanGroups, inChansPerGroup})
-                .dimShufflePartial({3, 5}, {1, 2});
+  return weights.reshapePartial(rank - 2, rank,
+                                {outChanGroups, outChansPerGroup,
+                                 inChanGroups, inChansPerGroup})
+                .dimShufflePartial({rank - 2, rank}, {1, 2});
 }
 
 
@@ -228,16 +229,17 @@ static Tensor groupWeights(const Tensor &weights) {
   return groupWeights(weights, inChansPerGroup, outChansPerGroup);
 }
 
-// Ungroups tensors from internal shape [G][OC1][IC1][H][W][OC2][IC2] to
-// standard convolution weight tensor shape [G][H][W][OC][IC]
+// Ungroups tensors from internal shape [G][OC1][IC1]...[OC2][IC2] to
+// standard convolution weight tensor shape [G]...[OC][IC]
 //
 // where OC1 * OC2 = OC
 // and   IC1 * IC2 = IC
 static Tensor ungroupWeights(const Tensor &weights) {
-  assert(weights.rank() == 7);
-  return weights.dimShufflePartial({1, 2}, {3, 5})
-                .reshapePartial(3, 7, {weights.dim(1) * weights.dim(5),
-                                       weights.dim(2) * weights.dim(6)});
+  const auto rank = weights.rank();
+  return weights.dimShufflePartial({1, 2}, {rank - 4, rank - 2})
+                .reshapePartial(rank - 4, rank,
+                                {weights.dim(1) * weights.dim(rank - 2),
+                                 weights.dim(2) * weights.dim(rank - 1)});
 }
 
 std::size_t ConvParams::getOutputSize(unsigned dim) const {
