@@ -89,6 +89,7 @@ createInput(poplar::Graph &graph,
  * \param batchSize       Number of batch elements
  * \param outputSize      Output(hidden) of each sequence element
  * \param prog            Control program
+ * \param initState       Initialise the state
  * \param inferenceOnly   Set this flag to true if the RNN layer is to be run
  *                        for inference only
  * \param debugPrefix     String annotation
@@ -100,6 +101,7 @@ poplar::Tensor createFwdState(poplar::Graph &graph,
                               unsigned batchSize,
                               unsigned outputSize,
                               poplar::program::Sequence &prog,
+                              bool initState,
                               bool inferenceOnly,
                               const std::string &debugPrefix = "");
 

@@ -87,12 +87,16 @@ uint64_t getWuFlops(unsigned sequenceSize, unsigned batchSize,
 
 Tensor createFwdState(Graph &graph, const std::string &dType,
                       unsigned batchSize, unsigned outputSize,
-                      Sequence & /* prog */,
+                      Sequence &prog,
+                      bool initState,
                       bool /* inferenceOnly */, const std::string &name) {
   auto state = createMatMulInputLHS(graph, dType,
                                     {batchSize, outputSize},
                                     {outputSize, outputSize},
                                     name + "/FwdState");
+  if (initState) {
+    popstd::zero(graph, state, prog, name);
+  }
   return state;
 }
 

@@ -204,7 +204,8 @@ calcSequenceWeightedInputs(poplar::Graph  &graph,
  * number of units within each LSTM cell is BASIC_LSTM_CELL_NUM_UNITS.
  *
  * \param graph         Graph to which the LSTM cell belongs to
- * \param weightedIn    Input of shape {sequenceSize, batchSize, outputSize}
+ * \param weightedIn    Input of shape {lstmUnits, sequenceSize, batchSize,
+ *                      outputSize}
  * \param biases        Biases for each of the units of shape
  *                      {BASIC_LSTM_CELL_NUM_UNITS, outputSize}
  * \param prevOutAct    Output activation from previous step

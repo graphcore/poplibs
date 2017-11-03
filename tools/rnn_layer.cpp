@@ -194,7 +194,7 @@ int main(int argc, char **argv) {
     for (unsigned s = 0U; s != sequenceSize; ++s) {
       auto h =
         popnn::rnn::createFwdState(graph, dataTypeStr, batchSize, outputSize,
-                                   prog, false);
+                                   prog, false, false);
 
       feedFwdOutput = append(feedFwdOutput,
                              popnn::rnn::getOutputFromFwdState(h));
@@ -203,7 +203,7 @@ int main(int argc, char **argv) {
 
   auto fwdInitState =
     popnn::rnn::createFwdState(graph, dataTypeStr, batchSize, outputSize, prog,
-                               false);
+                               false, false);
   auto initAct =  popnn::rnn::getOutputFromFwdState(fwdInitState);
 
   /* map biases and brooadcast them */
@@ -473,7 +473,7 @@ int main(int argc, char **argv) {
   }
 
   if (doBwdPass) {
-    for (auto s = 0; s != sequenceSize; ++s) {
+    for (unsigned s = 0; s != sequenceSize; ++s) {
       auto seqStr = std::to_string(s);
       boost::multi_array<double, 2> gradInputRef = modelPrevLayerGrads[s];
       boost::multi_array<double, 2> gradInputImpl = hostPrevLayerGrads[s];
