@@ -23,7 +23,7 @@
  *  Wfb is named weightsFeedback
  */
 
- #include <poplar/Graph.hpp>
+#include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <popnn/NonLinearity.hpp>
 
@@ -94,7 +94,7 @@ createInput(poplar::Graph &graph,
  *                        for inference only
  * \param debugPrefix     String annotation
  *
- * @return A 2D tensor of shape {batchSize, outputSize}
+ * \return A 2D tensor of shape {batchSize, outputSize}
  */
 poplar::Tensor createFwdState(poplar::Graph &graph,
                               const std::string &dType,
@@ -236,7 +236,7 @@ poplar::Tensor forwardIterate(poplar::Graph &graph,
  * \param prog            Control program
  * \param debugPrefix     String annotation
  *
- * @return Tile mapped initial state tensor
+ * \return Tile mapped initial state tensor
  */
 poplar::Tensor createBwdState(poplar::Graph &graph, const std::string &dType,
                               unsigned batchSize, unsigned outputSize,
@@ -316,22 +316,22 @@ backwardGradientStep(poplar::Graph &graph,
  *  from previous steps. The caller must zero the accumulated tensors at the
  *  first call if the tensors to maintain the result are in-place
  *
- * @param graph           Graph object
- * @param bwdState        Gradient state for this step
- * @param actIn           Input activations for this step
- * @param prevOut         Previous RNN output activations for this step
- * @param weightsInputDeltasAcc    Previous weights input deltas tensor. This
+ * \param graph           Graph object
+ * \param bwdState        Gradient state for this step
+ * \param actIn           Input activations for this step
+ * \param prevOut         Previous RNN output activations for this step
+ * \param weightsInputDeltasAcc    Previous weights input deltas tensor. This
  *                                 tensor must be tile-mapped. The deltas from
  *                                 this step are added to this tensor
- * @param weightsFeedbackDeltasAcc Previous feedback weights deltas tensor. This
+ * \param weightsFeedbackDeltasAcc Previous feedback weights deltas tensor. This
  *                                 tensor must be tile-mapped. The deltas from
  *                                 this step are added to this tensor
- * @param biasDeltasAcc   Previous bias deltas tensor. This tensor must be
+ * \param biasDeltasAcc   Previous bias deltas tensor. This tensor must be
  *                        tile-mapped. The deltas from this step are added to
  *                        this tensor
- * @param prog            Control program to which to add programs to
- * @param partialsTypeStr Data type used in intermediate calculations
- * @param debugPrefix     String anotation
+ * \param prog            Control program to which to add programs to
+ * \param partialsTypeStr Data type used in intermediate calculations
+ * \param debugPrefix     String anotation
  */
 void paramDeltaUpdate(poplar::Graph &graph,
                       const poplar::Tensor &bwdState,
