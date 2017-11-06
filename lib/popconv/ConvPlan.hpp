@@ -8,16 +8,17 @@
 namespace popconv {
 
 struct Plan {
-  // For each field axis the number of sections the axis is split into balance
-  // across tiles.
+  // For each spatial dimension the number of sections the input is split into
+  // in that dimension to balance across tiles.
   std::vector<unsigned> fieldTileSplit;
   // The number of sections the batch axis is split into balance across tiles.
   unsigned batchTileSplit;
   // The number of sections the output channel axis is split to balance across
   // tiles.
   unsigned outChanTileSplit;
-  // The number of sections the kernel y axis is split to balance across tiles.
-  unsigned kernelYTileSplit;
+  // For each spatial dimension the number of sections the kernel is split into
+  // in that dimension to balance across tiles.
+  std::vector<unsigned> kernelTileSplit;
   // The number of sections the input channel axis is split to balance across
   // tiles.
   unsigned inChanTileSplit;
@@ -61,7 +62,7 @@ struct Plan {
   Plan(std::vector<unsigned> fieldTileSplit_,
        unsigned batchTileSplit_,
        unsigned outChanTileSplit_,
-       unsigned kernelYTileSplit_,
+       std::vector<unsigned> kernelTileSplit_,
        unsigned inChanTileSplit_,
        unsigned convGroupTileSplit_,
        unsigned inChansPerGroup_,
@@ -73,7 +74,7 @@ struct Plan {
       fieldTileSplit(std::move(fieldTileSplit_)),
       batchTileSplit(batchTileSplit_),
       outChanTileSplit(outChanTileSplit_),
-      kernelYTileSplit(kernelYTileSplit_),
+      kernelTileSplit(std::move(kernelTileSplit_)),
       inChanTileSplit(inChanTileSplit_),
       convGroupTileSplit(convGroupTileSplit_),
       inChansPerGroup(inChansPerGroup_),

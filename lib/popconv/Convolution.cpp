@@ -395,7 +395,8 @@ linearizeTileIndices(unsigned numTiles,
   const auto batchTileSplit = plan.batchTileSplit;
   const auto outChanTileSplit = plan.outChanTileSplit;
   const auto inChanTileSplit = plan.inChanTileSplit;
-  const auto kernelYTileSplit = plan.kernelYTileSplit;
+  assert(plan.kernelTileSplit[1] == 1);
+  const auto kernelYTileSplit = plan.kernelTileSplit[0];
   // If this is a multi IPU system then choose an order that avoids splitting
   // partial sums over IPUs
   unsigned tile;
@@ -558,7 +559,8 @@ iterateTilePartition(const Graph &graph, const ConvParams &params,
   const auto yTileSplit = plan.fieldTileSplit[0];
   const auto batchTileSplit = plan.batchTileSplit;
   const auto outChanTileSplit = plan.outChanTileSplit;
-  const auto kernelYTileSplit = plan.kernelYTileSplit;
+  assert(plan.kernelTileSplit[1] == 1);
+  const auto kernelYTileSplit = plan.kernelTileSplit[0];
   const auto inChanTileSplit = plan.inChanTileSplit;
   const unsigned batchSize = params.getBatchSize();
   const unsigned numInZGroups = inNumChans / inChansPerGroup;
@@ -2117,8 +2119,9 @@ calcPartialSums(Graph &graph,
     if (slice.outZGroupBegin == slice.outZGroupEnd ||
         slice.cgBegin == slice.cgEnd)
       return;
+    assert(plan.kernelTileSplit[1] == 1);
     unsigned partialIndex =
-        indices.izg * plan.kernelYTileSplit + indices.ky;
+        indices.izg * plan.kernelTileSplit[0] + indices.ky;
     calcPartialConvOutput(graph, plan, dType, tile, slice, params, zeroCS,
                           convolveCS, in, weights, partials[partialIndex]);
   });
@@ -2334,7 +2337,8 @@ convolutionImpl(Graph &graph, const Plan &plan,
   assert(outNumChans % partialChansPerGroup == 0);
   const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
   const auto inChanTileSplit = plan.inChanTileSplit;
-  const auto kernelYTileSplit = plan.kernelYTileSplit;
+  assert(plan.kernelTileSplit[1] == 1);
+  const auto kernelYTileSplit = plan.kernelTileSplit[0];
 
   const auto partialType = plan.getPartialType();
 
@@ -2523,7 +2527,11 @@ convolution(Graph &graph, const poplar::Tensor &in_,
       inputRearrangementIsExpensive(options) ? 1U : 7U;
   const auto weightViewMaxBroadcastDests =
       weightRearrangementIsExpensive(options) ? 1U : 7U;
-  const auto inNumDests = plan.kernelYTileSplit * plan.outChanTileSplit;
+  const auto inNumDests = std::accumulate(plan.kernelTileSplit.begin(),
+                                          plan.kernelTileSplit.end(),
+                                          1U,
+                                          std::multiplies<unsigned>()) *
+                          plan.outChanTileSplit;
   if (inNumDests > inViewMaxBroadcastDests) {
     auto inRearranged = createInputImpl(graph, params, "inRearranged", plan);
     prog.add(Copy(in, inRearranged));
