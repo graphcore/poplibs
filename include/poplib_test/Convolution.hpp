@@ -6,41 +6,47 @@
 namespace poplib_test {
 namespace conv {
 
-void convolution(const std::vector<unsigned> &stride,
+void convolution(const std::vector<unsigned> &inputFieldSize,
                  const std::vector<unsigned> &inputDilation,
                  const std::vector<int> &paddingLower,
                  const std::vector<int> &paddingUpper,
-                 const std::vector<unsigned> kernelDilation,
+                 const std::vector<unsigned> &kernelSize,
+                 const std::vector<unsigned> &kernelDilation,
                  const std::vector<int> &kernelPaddingLower,
                  const std::vector<int> &kernelPaddingUpper,
-                 const boost::multi_array<double, 4> &in,
-                 const boost::multi_array<double, 5> &weights,
-                 const boost::multi_array<double, 1> &biases,
-                 boost::multi_array<double, 4> &out);
+                 const std::vector<unsigned> &stride,
+                 boost::const_multi_array_ref<double, 3> in,
+                 boost::const_multi_array_ref<double, 4> weights,
+                 boost::const_multi_array_ref<double, 1> biases,
+                 boost::multi_array_ref<double, 3> out);
 
-void convolutionBackward(const std::vector<unsigned> &stride,
+void convolutionBackward(const std::vector<unsigned> &inputFieldSize,
                          const std::vector<unsigned> &inputDilation,
                          const std::vector<int> &paddingLower,
                          const std::vector<int> &paddingUpper,
-                         const std::vector<unsigned> kernelDilation,
+                         const std::vector<unsigned> &kernelSize,
+                         const std::vector<unsigned> &kernelDilation,
                          const std::vector<int> &kernelPaddingLower,
                          const std::vector<int> &kernelPaddingUpper,
-                         const boost::multi_array<double, 4> &in,
-                         const boost::multi_array<double, 5> &weights,
-                         boost::multi_array<double, 4> &out);
+                         const std::vector<unsigned> &stride,
+                         boost::const_multi_array_ref<double, 3> in,
+                         boost::const_multi_array_ref<double, 4> weights,
+                         boost::multi_array_ref<double, 3> out);
 
-void weightUpdate(const std::vector<unsigned> &stride,
+void weightUpdate(const std::vector<unsigned> &inputFieldSize,
                   const std::vector<unsigned> &inputDilation,
                   const std::vector<int> &paddingLower,
                   const std::vector<int> &paddingUpper,
-                  const std::vector<unsigned> kernelDilation,
+                  const std::vector<unsigned> &kernelSize,
+                  const std::vector<unsigned> &kernelDilation,
                   const std::vector<int> &kernelPaddingLower,
                   const std::vector<int> &kernelPaddingUpper,
+                  const std::vector<unsigned> &stride,
                   double learningRate,
-                  const boost::multi_array<double, 4> &activations,
-                  const boost::multi_array<double, 4> &deltas,
-                  boost::multi_array<double, 5> &weights,
-                  boost::multi_array<double, 1> &biases);
+                  boost::const_multi_array_ref<double, 3> activations,
+                  boost::const_multi_array_ref<double, 3> deltas,
+                  boost::multi_array_ref<double, 4> weights,
+                  boost::multi_array_ref<double, 1> biases);
 
 // Compute estimates of mean and standard deviation for a batch of activations
 // and return
