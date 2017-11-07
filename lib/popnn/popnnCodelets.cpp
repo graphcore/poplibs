@@ -383,7 +383,7 @@ public:
 
   Vector<FPType> probs;
 
-  LossType lossType;
+  unsigned lossType;
 
   bool compute() {
     const auto batchSize = batchIn.size();

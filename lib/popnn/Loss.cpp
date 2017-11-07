@@ -31,7 +31,7 @@ calcLoss(poplar::Graph &graph,
                            {"numCorrect", numCorrect[0]}});
   graph.setTileMapping(v, 0);
   graph.setFieldSize(v["probs"], activations[0].numElements());
-  graph.setInitialValue(v["lossType"], lossType);
+  graph.setInitialValue(v["lossType"], unsigned(lossType));
   return Execute(lossCS);
 }
 
