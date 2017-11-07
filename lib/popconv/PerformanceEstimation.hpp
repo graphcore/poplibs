@@ -62,9 +62,10 @@ getConvPartial1x1SupervisorCycleEstimate(
     unsigned numConvGroups,
     unsigned numInGroups,
     unsigned numOutGroups,
-    unsigned convUnitPipelineDepth,
+    unsigned convUnitInputLoadElemsPerCycle,
     unsigned numConvUnitsPerTile,
     unsigned convUnitCoeffLoadBytesPerCycle,
+    bool floatWeights,
     bool useDeltasForEdges) {
   const auto numWorkerContexts = 6;
   uint64_t maxWorkerCycles = 0;
@@ -85,10 +86,10 @@ getConvPartial1x1SupervisorCycleEstimate(
   // tag cost to worker with min cycles
   maxWorkerCycles = std::max(maxWorkerCycles, minWorkerCycles + 14);
 
-  const auto coeffBytesPerPipelineStage = 8;
-  const auto numLoads = convUnitPipelineDepth
+  const auto numInputLoadsInnerLoop = 4;
+  const auto numLoads = convUnitInputLoadElemsPerCycle * numInputLoadsInnerLoop
                           * numConvUnitsPerTile
-                          * coeffBytesPerPipelineStage
+                          * (floatWeights ? 4 : 2)
                           / convUnitCoeffLoadBytesPerCycle;
   if (useDeltasForEdges) {
     const uint64_t supervisorNonloopOverhead = 48;
@@ -105,43 +106,37 @@ getConvPartial1x1SupervisorCycleEstimate(
 
 inline std::uint64_t
 getConvPartialnx1SupervisorCycleEstimate(
-    const std::vector<std::vector<std::vector<std::vector<unsigned>>>>
+    const std::vector<std::vector<std::vector<unsigned>>>
     &workerPartitions,
     unsigned numConvGroups,
     unsigned numOutGroups,
     unsigned numInGroups,
-    unsigned kernelSizeY,
-    unsigned kernelSizeX,
+    unsigned kernelSize,
     unsigned filterHeight,
     unsigned inChansPerGroup,
-    unsigned convUnitPipelineDepth,
+    unsigned convUnitInputLoadElemsPerCycle,
     unsigned numConvUnitsPerTile,
     unsigned convUnitCoeffLoadBytesPerCycle,
+    bool floatWeights,
     unsigned useDeltaForEdges) {
   unsigned usedContexts = workerPartitions.size();
-  const auto coeffBytesPerPipelineStage = 8;
-  const auto numLoads = convUnitPipelineDepth
-                          * numConvUnitsPerTile
-                          * coeffBytesPerPipelineStage
-                          / convUnitCoeffLoadBytesPerCycle;
-
-  // Assume that cost of filterHeight != 1 is just ensuring that stride is
-  // correctly computed
-  const auto ampInnerLoopCycles = 4 / filterHeight;
+  const auto numInputLoadsInnerLoop = 4;
+  const auto numLoads = convUnitInputLoadElemsPerCycle * numInputLoadsInnerLoop
+                        * numConvUnitsPerTile
+                        * (floatWeights ? 4 : 2)
+                         / convUnitCoeffLoadBytesPerCycle;
   const unsigned numWorkerContexts = 6;
   uint64_t cycles = 0;
-  for (auto k = 0U; k != kernelSizeY * kernelSizeX; ++k) {
+  for (auto k = 0U; k != kernelSize; ++k) {
     // load coefficients
-    cycles += numLoads + 16;
+    cycles += numLoads + 15 + 8 * (filterHeight - 1);
     uint64_t maxWorkerCycles = 0;
     uint64_t minWorkerCycles = usedContexts < numWorkerContexts ?
                                0 : std::numeric_limits<uint64_t>::max();
-    const auto ky = k / kernelSizeX;
-    const auto kx = k % kernelSizeX;
     for (auto context = 0U; context != usedContexts; ++context) {
-      uint64_t thisWorkerCycles = 20;
-      for (auto &numElems :  workerPartitions[context][ky][kx]) {
-        thisWorkerCycles += 20 + numElems * ampInnerLoopCycles;
+      uint64_t thisWorkerCycles = 15;
+      for (auto &numElems :  workerPartitions[context][k]) {
+        thisWorkerCycles += 22 + numElems * 4;
       }
       maxWorkerCycles =
         std::max(maxWorkerCycles, numWorkerContexts * thisWorkerCycles);
@@ -151,9 +146,9 @@ getConvPartialnx1SupervisorCycleEstimate(
     cycles += std::max(maxWorkerCycles, minWorkerCycles + 9);
   }
   return 6 + numConvGroups
-            * (40 + numOutGroups
-              * (8 + numInGroups
-                * (20 + cycles)));
+            * (46 + numOutGroups
+              * (9 + numInGroups
+                * (21 + cycles)));
 }
 
 inline std::uint64_t
@@ -161,15 +156,14 @@ getConvPartialnx1SupervisorCycleEstimate(
     const std::vector<std::vector<std::vector<unsigned>>> &
     convSizesByWeightAndWorker,
     unsigned passesPerEntry,
-    unsigned convUnitPipelineDepth,
+    unsigned convUnitInputLoadElemsPerCycle,
     unsigned numConvUnitsPerTile,
     unsigned convUnitCoeffLoadBytesPerCycle,
     unsigned numInputPointers,
+    bool floatWeights,
     bool useDeltasForEdges) {
   const unsigned numOutputPointers = 1;
   const auto numWorkerContexts = 6;
-  const auto coeffBytesPerPipelineStage = 8;
-
   const unsigned supervisorNonLoopOverhead = 14U;
 
   unsigned cycles = supervisorNonLoopOverhead;
@@ -178,11 +172,11 @@ getConvPartialnx1SupervisorCycleEstimate(
     assert(convSizesByWorker.size() <= numWorkerContexts);
 
     unsigned entryCycles = 0;
-
-    // Load weights in the supervisor.
-    const auto numLoads = convUnitPipelineDepth
+    const auto numInputLoadsInnerLoop = 4;
+    const auto numLoads = convUnitInputLoadElemsPerCycle
+                          * numInputLoadsInnerLoop
                           * numConvUnitsPerTile
-                          * coeffBytesPerPipelineStage
+                          * (floatWeights ? 4 : 2)
                           / convUnitCoeffLoadBytesPerCycle;
 
     entryCycles += numLoads;
@@ -209,7 +203,7 @@ getConvPartialnx1SupervisorCycleEstimate(
                                              (useDeltasForEdges ? 5 : 3);
         workerCycles += innerLoopOverhead +
                         packedAddrCompCyles +
-                        convSize * convUnitPipelineDepth;
+                        convSize * 4;
       }
       maxWorkerCycles = std::max(maxWorkerCycles, workerCycles);
     }

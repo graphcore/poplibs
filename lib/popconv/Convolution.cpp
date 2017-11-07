@@ -1331,7 +1331,8 @@ createConvPartial1x1OutVertex(Graph &graph,
   const auto outChansPerGroup = plan.partialChansPerGroup;
   const auto &target = graph.getTarget();
   const auto dataPathWidth = target.getDataPathWidth();
-  const auto convUnitPipelineDepth = target.getConvUnitPipelineDepth();
+  const auto convUnitInputLoadElemsPerCycle =
+    target.getConvUnitInputLoadElemsPerCycle(dType == "float");
   const auto convUnitCoeffLoadBytesPerCycle =
       target.getConvUnitCoeffLoadBytesPerCycle();
   std::vector<Tensor> outWindow;
@@ -1448,7 +1449,8 @@ createConvPartial1x1OutVertex(Graph &graph,
   graph.setInitialValue(v["inStride"], params.stride.back());
   graph.setInitialValue(v["numConvGroups"], cgEnd - cgBegin);
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-  graph.setInitialValue(v["convUnitPipelineDepth"], convUnitPipelineDepth);
+  graph.setInitialValue(v["convUnitInputLoadElemsPerCycle"],
+                        convUnitInputLoadElemsPerCycle);
   graph.setInitialValue(v["convUnitCoeffLoadBytesPerCycle"],
                         convUnitCoeffLoadBytesPerCycle);
   graph.setFieldSize(v["worklists"], worklist.size());
@@ -1505,7 +1507,8 @@ createConvPartialnx1Vertex(Graph &graph,
   const auto outChansPerGroup = plan.partialChansPerGroup;
   bool flipOut = params.getPaddedDilatedKernelSize(1) >
                  params.getPaddedDilatedInputSize(1);
-  const auto convUnitPipelineDepth = target.getConvUnitPipelineDepth();
+  const auto convUnitInputLoadElemsPerCycle =
+    target.getConvUnitInputLoadElemsPerCycle (dType == "float");
   const auto convUnitCoeffLoadBytesPerCycle =
       target.getConvUnitCoeffLoadBytesPerCycle();
 
@@ -1710,7 +1713,8 @@ createConvPartialnx1Vertex(Graph &graph,
   graph.setInitialValue(v["filterHeight"], convUnitWeightHeight);
   graph.setInitialValue(v["inRowStride"], inRowStride);
   graph.setInitialValue(v["weightRowStride"], weightRowStride);
-  graph.setInitialValue(v["convUnitPipelineDepth"], convUnitPipelineDepth);
+  graph.setInitialValue(v["convUnitInputLoadElemsPerCycle"],
+                        convUnitInputLoadElemsPerCycle);
   graph.setInitialValue(v["convUnitCoeffLoadBytesPerCycle"],
                         convUnitCoeffLoadBytesPerCycle);
   graph.setFieldSize(v["worklists"], worklist.size());

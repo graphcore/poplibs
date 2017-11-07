@@ -40,7 +40,7 @@ public:
   SimOnlyField<unsigned> outChansPerGroup;
   SimOnlyField<unsigned> inChansPerGroup;
   SimOnlyField<unsigned> dataPathWidth;
-  SimOnlyField<unsigned> convUnitPipelineDepth;
+  SimOnlyField<unsigned> convUnitInputLoadElemsPerCycle;
   SimOnlyField<unsigned> convUnitCoeffLoadBytesPerCycle;
   bool compute() {
     const auto numContexts = worklists.size() / (kernelSizeY * kernelSizeX);
@@ -119,9 +119,9 @@ public:
     return true;
   }
   std::uint64_t getCycleEstimate() const {
-    std::vector<std::vector<std::vector<std::vector<unsigned>>>>
-                                                        workerPartitions;
-    const auto numContexts = worklists.size() / (kernelSizeY * kernelSizeX);
+    std::vector<std::vector<std::vector<unsigned>>> workerPartitions;
+    const auto kernelSize = kernelSizeY * kernelSizeX;
+    const auto numContexts = worklists.size() / kernelSize;
 
     // find max worker cost for zeroing
     const bool isFloat = std::is_same<AccumType, float>::value;
@@ -137,31 +137,29 @@ public:
 
     for (unsigned context = 0; context < numContexts; ++context) {
       workerPartitions.emplace_back();
-      for (auto ky = 0U; ky != kernelSizeY; ++ky) {
+      for (auto k = 0U; k != kernelSize; ++k) {
         workerPartitions.back().emplace_back();
-        for (auto kx = 0U; kx != kernelSizeX; ++kx) {
-          workerPartitions.back().back().emplace_back();
-          const auto &wl =
-                    worklists[(ky * kernelSizeX + kx) * numContexts + context];
-          for (auto wi = 0U; wi < wl.size(); wi += 3) {
-            auto numFieldPos = (wl[wi + 1] + outStride - 1) / outStride;
-            workerPartitions.back().back().back().push_back(numFieldPos);
-          }
+        const auto &wl = worklists[k * numContexts + context];
+        for (auto wi = 0U; wi < wl.size(); wi += 3) {
+          auto numFieldPos = (wl[wi + 1] + outStride - 1) / outStride;
+          workerPartitions.back().back().push_back(numFieldPos);
         }
       }
     }
+
+    const bool floatWeights = std::is_same<FPType, float>::value;
     return zeroCycles +
       getConvPartialnx1SupervisorCycleEstimate(workerPartitions,
                                                numConvGroups,
                                                numOutGroups,
                                                numInGroups,
-                                               kernelSizeY,
-                                               kernelSizeX,
+                                               kernelSize,
                                                filterHeight,
                                                inChansPerGroup,
-                                               convUnitPipelineDepth,
+                                               convUnitInputLoadElemsPerCycle,
                                                outChansPerGroup,
                                                convUnitCoeffLoadBytesPerCycle,
+                                               floatWeights,
                                                useDeltasForEdges);
   }
 };
@@ -256,7 +254,7 @@ public:
   SimOnlyField<unsigned> outChansPerGroup;
   SimOnlyField<unsigned> inChansPerGroup;
   SimOnlyField<unsigned> dataPathWidth;
-  SimOnlyField<unsigned> convUnitPipelineDepth;
+  SimOnlyField<unsigned> convUnitInputLoadElemsPerCycle;
   SimOnlyField<unsigned> convUnitCoeffLoadBytesPerCycle;
   SimOnlyField<bool> useDeltaForEdges;
 
@@ -320,14 +318,16 @@ public:
         workerPartitions.back().push_back(wl[wi + 1]);
       }
     }
+    const bool floatWeights = std::is_same<FPType, float>::value;
     return
       getConvPartial1x1SupervisorCycleEstimate(workerPartitions,
                                                numConvGroups,
                                                numInGroups,
                                                numOutGroups,
-                                               convUnitPipelineDepth,
+                                               convUnitInputLoadElemsPerCycle,
                                                outChansPerGroup,
                                                convUnitCoeffLoadBytesPerCycle,
+                                               floatWeights,
                                                useDeltaForEdges
                                                );
   }

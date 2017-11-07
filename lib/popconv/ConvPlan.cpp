@@ -172,9 +172,10 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
                                unsigned batchElements,
                                unsigned outputHeight,
                                unsigned outputWidth,
-                               unsigned convUnitPipelineDepth,
+                               unsigned convUnitInputLoadElemsPerCycle,
                                unsigned numConvUnitsPerTile,
                                unsigned convUnitCoeffLoadBytesPerCycle,
+                               bool floatWeights,
                                const std::vector<unsigned> &inputDilation,
                                unsigned numInputPointers);
 
@@ -380,9 +381,10 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
                                unsigned batchElements,
                                unsigned outputHeight,
                                unsigned outputWidth,
-                               unsigned convUnitPipelineDepth,
+                               unsigned convUnitInputLoadElemsPerCycle,
                                unsigned numConvUnitsPerTile,
                                unsigned convUnitCoeffLoadBytesPerCycle,
+                               bool floatWeights,
                                const std::vector<unsigned> &inputDilation,
                                unsigned numInputPointers)
 {
@@ -413,10 +415,11 @@ getConvPartialnx1CycleEstimate(unsigned passesPerOutput,
   return getConvPartialnx1SupervisorCycleEstimate(
                 convSizesByWeightAndWorker,
                 passesPerOutput,
-                convUnitPipelineDepth,
+                convUnitInputLoadElemsPerCycle,
                 numConvUnitsPerTile,
                 convUnitCoeffLoadBytesPerCycle,
                 numInputPointers,
+                floatWeights,
                 useDeltaEdgesForConvPartials(numEdges));
 }
 
@@ -675,11 +678,11 @@ estimatePartialCalcCycles(const poplar::Target &target,
           tileNumOutGroups * tileNumGroupedConv *
           cache->mGetConvPartialnx1CycleEstimate(
             passesPerOutput, tileBatchElements, tileOutElements / tileOutWidth,
-            tileOutWidth, target.getConvUnitPipelineDepth(),
+            tileOutWidth,
+            target.getConvUnitInputLoadElemsPerCycle(floatActivations),
             getNumConvUnits(floatActivations, plan.floatPartials, target),
-            target.getConvUnitCoeffLoadBytesPerCycle(), params.inputDilation,
-            convUnitWeightHeight);
-
+            target.getConvUnitCoeffLoadBytesPerCycle(), floatActivations,
+            params.inputDilation, convUnitWeightHeight);
     }
     break;
   case Plan::Method::MAC:
