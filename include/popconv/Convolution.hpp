@@ -122,6 +122,7 @@ struct ConvParams {
   }
   std::size_t getInputWidth() const { return inputFieldShape[1]; }
   std::size_t getInputHeight() const { return inputFieldShape[0]; }
+  std::size_t getInputSize(unsigned dim) const { return inputFieldShape[dim]; }
   std::size_t getNumInputChansPerConvGroup() const { return inputChannels; }
   std::size_t getNumInputChans() const {
     return inputChannels * numConvGroups;

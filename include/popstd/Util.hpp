@@ -1,6 +1,7 @@
 #ifndef _popstd_Util_hpp_
 #define _popstd_Util_hpp_
 
+#include <algorithm>
 #include <poplar/Device.hpp>
 #include <poplar/Interval.hpp>
 #include <poplar/Graph.hpp>
@@ -55,8 +56,17 @@ splitRegionsBetweenWorkers(
 
 /// Given an index into a flattened tensor returns the indices into the
 /// dimensions of the original tensor.
-std::vector<std::size_t> unflattenIndex(const std::vector<std::size_t> &shape,
-                                        std::size_t index);
+template <class T>
+std::vector<T> unflattenIndex(const std::vector<T> &shape, std::size_t index) {
+  std::vector<T> coord;
+  for (auto it = shape.rbegin(); it != shape.rend(); ++it) {
+    const auto dim = *it;
+    coord.push_back(index % dim);
+    index /= dim;
+  }
+  std::reverse(coord.begin(), coord.end());
+  return coord;
+}
 
 /// Given an list of indices into a tensor return the corresponding index in a
 /// flattened version of the tensor.

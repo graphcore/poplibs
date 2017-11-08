@@ -169,10 +169,12 @@ partitionConvPartialByWorker(unsigned batchElements,
     if (beginElement == endElement)
       continue;
     const auto lastElement = endElement - 1;
-    auto beginIndices = popstd::unflattenIndex({batchElements, activeRows,
-                                                elementsPerRow}, beginElement);
-    auto lastIndices = popstd::unflattenIndex({batchElements, activeRows,
-                                               elementsPerRow}, lastElement);
+    auto beginIndices =
+        popstd::unflattenIndex<std::size_t>({batchElements, activeRows,
+                                             elementsPerRow}, beginElement);
+    auto lastIndices =
+        popstd::unflattenIndex<std::size_t>({batchElements, activeRows,
+                                             elementsPerRow}, lastElement);
     for (unsigned b = beginIndices[0]; b != lastIndices[0] + 1; ++b) {
       unsigned activeYBegin = b == beginIndices[0] ?
                              beginIndices[1] :

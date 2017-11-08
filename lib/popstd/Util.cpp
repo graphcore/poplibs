@@ -169,18 +169,6 @@ splitRegionsBetweenWorkers(
                       minElementsPerVertex);
 }
 
-std::vector<std::size_t> unflattenIndex(const std::vector<std::size_t> &shape,
-                                        std::size_t index) {
-  std::vector<std::size_t> coord;
-  for (auto it = shape.rbegin(); it != shape.rend(); ++it) {
-    const auto dim = *it;
-    coord.push_back(index % dim);
-    index /= dim;
-  }
-  std::reverse(coord.begin(), coord.end());
-  return coord;
-}
-
 std::size_t flattenIndex(const std::vector<std::size_t> &shape,
                          const std::vector<std::size_t> &indices) {
   auto rank = shape.size();
