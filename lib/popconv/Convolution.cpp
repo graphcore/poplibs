@@ -125,6 +125,44 @@ static T product(const std::vector<T> &v) {
   return std::accumulate(v.begin(), v.end(), T(1), std::multiplies<T>());
 }
 
+template <class To, class From>
+static std::vector<To> vectorConvert(const std::vector<From> &in) {
+  std::vector<To> out;
+  out.reserve(in.size());
+  for (const auto &x : in) {
+    out.emplace_back(x);
+  }
+  return out;
+}
+
+static unsigned
+getNumElementsInSlice(const std::vector<unsigned> &sliceBegin,
+                      const std::vector<unsigned> &sliceEnd) {
+  const auto rank = sliceBegin.size();
+  assert(sliceEnd.size() == rank);
+  unsigned numElements = 1;
+  for (unsigned dim = 0; dim != rank; ++dim) {
+    numElements *= sliceEnd[dim] - sliceBegin[dim];
+  }
+  return numElements;
+}
+
+static std::vector<unsigned>
+unflattenIndexInSlice(const std::vector<unsigned> &sliceBegin,
+                      const std::vector<unsigned> &sliceEnd,
+                      std::size_t index) {
+  const auto rank = sliceBegin.size();
+  assert(sliceEnd.size() == rank);
+  std::vector<unsigned> coord;
+  for (int dim = rank - 1; dim >= 0; --dim) {
+    const auto sliceSize = sliceEnd[dim] - sliceBegin[dim];
+    coord.push_back(index % sliceSize + sliceBegin[dim]);
+    index /= sliceSize;
+  }
+  std::reverse(coord.begin(), coord.end());
+  return coord;
+}
+
 // Reshape the activations tensor from [N][G * C]... shape to
 // [G][N]...[C].
 static Tensor
@@ -1786,13 +1824,15 @@ struct ConvOutputSlice {
   unsigned outXBegin;
   unsigned outXEnd;
   unsigned b;
-  unsigned outY;
+  std::vector<unsigned> outerFieldIndices;
   unsigned outZGroup;
   unsigned cg;
   ConvOutputSlice(unsigned outXBegin, unsigned outXEnd, unsigned b,
-                  unsigned outY, unsigned outZGroup, unsigned cg) :
+                  std::vector<unsigned> outerFieldIndices,
+                  unsigned outZGroup, unsigned cg) :
     outXBegin(outXBegin), outXEnd(outXEnd),
-    b(b), outY(outY), outZGroup(outZGroup), cg(cg) {}
+    b(b), outerFieldIndices(std::move(outerFieldIndices)), outZGroup(outZGroup),
+    cg(cg) {}
 
 };
 
@@ -1801,18 +1841,21 @@ createConvPartialHorizontalMacVertex(
     Graph &graph,
     unsigned tile,
     const std::vector<ConvOutputSlice> &outRegions,
-    unsigned kernelYBegin, unsigned kernelYEnd,
+    const std::vector<unsigned> &kernelBegin,
+    const std::vector<unsigned> &kernelEnd,
     unsigned inZGroupBegin, unsigned inZGroupEnd,
     const ConvParams &params,
     ComputeSet fwdCS,
     const Tensor &in,
     const Tensor &weights,
     const Tensor &out) {
-  const auto kernelWidth = weights.dim(4);
+  const auto numFieldDims = params.getNumFieldDims();
+  const auto vertexKernelElements = getNumElementsInSlice(kernelBegin,
+                                                          kernelEnd);
   const auto dataPathWidth = graph.getTarget().getDataPathWidth();
   const auto dType = in.elementType();
   const auto partialType = out.elementType();
-  const auto outChansPerGroup = out.dim(5);
+  const auto outChansPerGroup = out.dim(out.rank() - 1);
   assert(outChansPerGroup == 1);
   (void)outChansPerGroup;
   std::vector<Tensor> inEdges;
@@ -1822,30 +1865,47 @@ createConvPartialHorizontalMacVertex(
     const auto cg = region.cg;
     const auto b = region.b;
     const auto ozg = region.outZGroup;
-    const auto y = region.outY;
+    const auto &outFieldIndices = region.outerFieldIndices;
     const auto outXBegin = region.outXBegin;
     const auto outXEnd = region.outXEnd;
     for (unsigned izg = inZGroupBegin; izg != inZGroupEnd; ++izg) {
-      for (unsigned ky = kernelYBegin; ky != kernelYEnd; ++ky) {
-        for (unsigned kx = 0; kx != kernelWidth; ++kx) {
-          unsigned inY = getInputIndex(0, y, ky, params);
-          if (inY == ~0U)
-            continue;
-          auto inRange = getInputRange(1, {outXBegin, outXEnd}, kx, params);
-          if (inRange.first == inRange.second)
-            continue;
-          auto outRange = getOutputRange(1, {outXBegin, outXEnd}, kx, params);
-          Tensor inWindow =
-              in[cg][izg][b][inY].slice(inRange.first, inRange.second)
-                                 .flatten();
-          Tensor weightsWindow = weights[cg][ozg][izg][ky][kx].flatten();
-          Tensor outWindow =
-              out[cg][ozg][b][y].slice(outRange.first, outRange.second)
-                                .flatten();
-          inEdges.emplace_back(std::move(inWindow));
-          weightsEdges.emplace_back(std::move(weightsWindow));
-          outEdges.emplace_back(std::move(outWindow));
+      for (unsigned ke = 0; ke != vertexKernelElements; ++ke) {
+        auto kernelIndices = unflattenIndexInSlice(kernelBegin, kernelEnd, ke);
+        std::vector<unsigned> inFieldIndices;
+        bool hasValidInputIndices = true;
+        for (unsigned dim = 0; dim != outFieldIndices.size(); ++dim) {
+          unsigned inIndex = getInputIndex(dim, outFieldIndices[dim],
+                                           kernelIndices[dim], params);
+          if (inIndex == ~0U) {
+            hasValidInputIndices = false;
+            break;
+          }
+          inFieldIndices.push_back(inIndex);
         }
+        if (!hasValidInputIndices)
+          continue;
+        auto inRange = getInputRange(numFieldDims - 1,
+                                     {outXBegin, outXEnd}, kernelIndices.back(),
+                                     params);
+        if (inRange.first == inRange.second)
+          continue;
+        auto outRange = getOutputRange(numFieldDims - 1, {outXBegin, outXEnd},
+                                       kernelIndices.back(), params);
+        Tensor inWindow =
+            in[cg][izg][b].index(vectorConvert<std::size_t>(inFieldIndices))
+                          .slice(inRange.first, inRange.second)
+                          .flatten();
+        Tensor weightsWindow =
+            weights[cg][ozg][izg]
+                .index(vectorConvert<std::size_t>(kernelIndices))
+                .flatten();
+        Tensor outWindow =
+            out[cg][ozg][b].index(vectorConvert<std::size_t>(outFieldIndices))
+                           .slice(outRange.first, outRange.second)
+                           .flatten();
+        inEdges.emplace_back(std::move(inWindow));
+        weightsEdges.emplace_back(std::move(weightsWindow));
+        outEdges.emplace_back(std::move(outWindow));
       }
     }
   }
@@ -2011,56 +2071,63 @@ static bool writtenRangeEqualsOutputRange(
 static std::vector<std::vector<ConvOutputSlice>>
 partitionConvOutputBetweenWorkers(const Graph &graph,
                                   unsigned batchBegin, unsigned batchEnd,
-                                  unsigned outXBegin, unsigned outXEnd,
-                                  unsigned outYBegin, unsigned outYEnd,
+                                  const std::vector<unsigned> &outFieldBegin,
+                                  const std::vector<unsigned> &outFieldEnd,
                                   unsigned outZGroupBegin,
                                   unsigned outZGroupEnd,
                                   unsigned cgBegin, unsigned cgEnd) {
+  const auto numFieldDims = outFieldBegin.size();
+  assert(outFieldEnd.size() == numFieldDims);
   std::vector<std::vector<ConvOutputSlice>> perWorkerConvOutputSlices;
   const auto &target = graph.getTarget();
-  const auto batchElements = batchEnd - batchBegin;
-  const auto outWidth = outXEnd - outXBegin;
-  const auto outHeight = outYEnd - outYBegin;
-  const auto outDepth = outZGroupEnd - outZGroupBegin;
-  const auto numConvGroups = cgEnd - cgBegin;
-  const auto numRows = batchElements * outHeight * outDepth * numConvGroups;
+  std::vector<unsigned> rowIterationSpace = {
+    outZGroupEnd - outZGroupBegin,
+    batchEnd - batchBegin,
+    cgEnd - cgBegin
+  };
+  for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
+    rowIterationSpace.push_back(outFieldEnd[dim] - outFieldBegin[dim]);
+  }
+  const auto numRows = product(rowIterationSpace);
   const auto numWorkers = target.getNumWorkerContexts();
   unsigned rowSplitFactor = numWorkers / gcd(numWorkers, numRows);
-  unsigned numPartRows = numRows * rowSplitFactor;
+  rowIterationSpace.push_back(rowSplitFactor);
+  const auto numPartRows = numRows * rowSplitFactor;
+  const auto outXBegin = outFieldBegin.back();
+  const auto outXEnd = outFieldEnd.back();
+  const auto outWidth = outXEnd - outXBegin;
   for (unsigned worker = 0; worker != numWorkers; ++worker) {
     const auto begin = (worker * numPartRows) / numWorkers;
     const auto end = ((worker + 1) * numPartRows) / numWorkers;
     perWorkerConvOutputSlices.emplace_back();
     for (unsigned partRow = begin; partRow != end; ++partRow) {
-      auto row = partRow / rowSplitFactor;
-      auto partInRow = partRow % rowSplitFactor;
-      const auto cg = cgBegin + row / (outHeight * outDepth * batchElements);
-      const auto b =
-          batchBegin + (row / (outHeight * outDepth)) % batchElements;
-      const auto ozg = outZGroupBegin + (row / outHeight) % outDepth;
-      const auto y = outYBegin + row % outHeight;
+      auto indices = unflattenIndex(rowIterationSpace, partRow);
+      const auto ocg = outZGroupBegin + indices[0];
+      const auto b = batchBegin + indices[1];
+      const auto cg = cgBegin + indices[2];
+      std::vector<unsigned> outerFieldIndices;
+      for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
+        outerFieldIndices.push_back(outFieldBegin[dim] + indices[dim + 3]);
+      }
+      const auto partInRow = indices.back();
       const auto workerOutXBegin =
           outXBegin + (partInRow * outWidth) / rowSplitFactor;
       const auto workerOutXEnd =
           outXBegin + ((partInRow + 1) * outWidth) / rowSplitFactor;
-      assert(outXBegin <= workerOutXBegin && workerOutXBegin <= workerOutXEnd &&
-             workerOutXEnd <= outXEnd);
-      assert(b >= batchBegin && b < batchEnd);
-      assert(y >= outYBegin && y < outYEnd);
-      assert(cg >= cgBegin && cg < cgEnd);
-      assert(ozg >= outZGroupBegin && ozg < outZGroupEnd);
       if (workerOutXBegin == workerOutXEnd)
         continue;
       if (!perWorkerConvOutputSlices.back().empty() &&
           cg == perWorkerConvOutputSlices.back().back().cg &&
           b == perWorkerConvOutputSlices.back().back().b &&
-          ozg == perWorkerConvOutputSlices.back().back().outZGroup &&
-          y == perWorkerConvOutputSlices.back().back().outY) {
+          ocg == perWorkerConvOutputSlices.back().back().outZGroup &&
+          outerFieldIndices ==
+          perWorkerConvOutputSlices.back().back().outerFieldIndices) {
         perWorkerConvOutputSlices.back().back().outXEnd = workerOutXEnd;
       } else {
         perWorkerConvOutputSlices.back().emplace_back(workerOutXBegin,
                                                       workerOutXEnd,
-                                                      b, y, ozg, cg);
+                                                      b, outerFieldIndices, ocg,
+                                                      cg);
       }
     }
   }
@@ -2143,14 +2210,15 @@ calcPartialConvOutput(Graph &graph,
         assert(zeroPartialsBefore);
         auto perWorkerConvOutputSlices =
             partitionConvOutputBetweenWorkers(graph, batchBegin, batchEnd,
-                                              outXBegin, outXEnd,
-                                              outYBegin, outYEnd,
+                                              slice.outFieldBegin,
+                                              slice.outFieldEnd,
                                               outZGroupBegin, outZGroupEnd,
                                               cgBegin, cgEnd);
         for (const auto &workerConvOutputSlices : perWorkerConvOutputSlices) {
           createConvPartialHorizontalMacVertex(graph, tile,
                                                workerConvOutputSlices,
-                                               kernelYBegin, kernelYEnd,
+                                               slice.kernelBegin,
+                                               slice.kernelEnd,
                                                inZGroupBegin, inZGroupEnd,
                                                params,
                                                fwdCS, in, weights, out);
