@@ -144,27 +144,18 @@ int main(int argc, char **argv) {
 
   std::vector<std::pair<std::string, char *>> tmap;
 
-  Tensor fwdState;
+  Tensor weightedIn;
   if (preweightInput) {
-    auto weightedIn =
+    weightedIn =
       lstm::calcSequenceWeightedInputs(graph, prevLayerAct, weightsInput, prog,
                                        partialsTypeStr);
-    auto prevOutAct = popnn::lstm::getOutputFromFwdState(fwdStateInit);
-    auto prevCellState = popnn::lstm::getCellFromFwdState(fwdStateInit);
-    fwdState =
-      lstm::basicLstmCellForwardPassWeightedInputs(graph, weightedIn, biases,
-                                                   prevOutAct, prevCellState,
-                                                   weightsOutput,
-                                                   prog, partialsTypeStr,
-                                                   fwdOnly);
-  } else {
-    auto prevOutAct = popnn::lstm::getOutputFromFwdState(fwdStateInit);
-    auto prevCellState = popnn::lstm::getCellFromFwdState(fwdStateInit);
-    fwdState =
-      lstm::basicLstmCellForwardPass(graph, prevLayerAct, biases, prevOutAct,
-                                     prevCellState, weightsInput, weightsOutput,
-                                     prog, partialsTypeStr, fwdOnly);
   }
+
+  Tensor fwdState = popnn::lstm::lstmFwdSequence(
+    graph, fwdOnly, prog, fwdStateInit,
+    preweightInput ? &weightedIn : nullptr,
+    biases, weightsInput, weightsOutput, prevLayerAct, dataTypeStr,
+    partialsTypeStr);
 
   auto nextLayerGrads =
      graph.addTensor(dataTypeStr, {sequenceSize, batchSize, outputSize});
@@ -179,42 +170,15 @@ int main(int argc, char **argv) {
   Tensor bwdState;
   Tensor weightsInputDeltas, weightsOutputDeltas, biasDeltas;
 
-  if (doWuPass) {
-    weightsInputDeltas = graph.clone(weightsInput);
-    weightsOutputDeltas = graph.clone(weightsOutput);
-    biasDeltas = graph.clone(biases);
-    popstd::zero(graph, weightsInputDeltas, prog);
-    popstd::zero(graph, weightsOutputDeltas, prog);
-    popstd::zero(graph, biasDeltas, prog);
-  }
-
   Tensor prevLayerGrads;
   if (doBwdPass || doWuPass) {
-    std::vector<Tensor> prevLayerGradsVec(sequenceSize);
-    for (auto i = sequenceSize; i != 0; --i) {
-      const auto s = i - 1;
-      auto bwdStateThisStep = s == sequenceSize - 1 ? bwdStateInit : bwdState;
-      auto fwdStatePrevStep = s == 0 ? fwdStateInit : fwdState[s - 1];
-      auto prevCellState =
-        lstm::getCellFromFwdState(s == 0 ? fwdStateInit : fwdState[s - 1]);
-      Tensor gradIn;
-      std::tie(gradIn, bwdState) =
-        lstm::basicLstmBackwardStep(graph, nextLayerGrads[s], fwdState[s],
-                                    prevCellState, bwdStateThisStep,
-                                    weightsInput, weightsOutput, prog,
-                                    partialsTypeStr);
-      prevLayerGradsVec[s] = gradIn.expand({0});
-
-      if (doWuPass) {
-        auto outState = s == 0 ? fwdStateInit : fwdState[s - 1];
-        lstm::basicLstmParamUpdate(graph, prevLayerAct[s],
-                                   lstm::getOutputFromFwdState(outState),
-                                   bwdState, weightsInputDeltas,
-                                   weightsOutputDeltas, biasDeltas, prog,
-                                   partialsTypeStr);
-      }
-    }
-    prevLayerGrads = concat(prevLayerGradsVec);
+    std::tie(prevLayerGrads, weightsInputDeltas, weightsOutputDeltas,
+             biasDeltas) =
+      lstm::lstmBwdSequence(graph, doWuPass, false, prog,
+                            fwdStateInit, fwdState, biases,
+                            weightsInput, weightsOutput,
+                            prevLayerAct, nextLayerGrads, bwdStateInit,
+                            dataTypeStr, partialsTypeStr);
   }
 
   auto rawHostWeightsInput =

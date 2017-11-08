@@ -1,10 +1,13 @@
+#include <popnn/Recurrent.hpp>
 #include <poplin/MatMul.hpp>
 #include <popstd/Add.hpp>
+#include <popstd/SubtractFrom.hpp>
 #include <popstd/TileMapping.hpp>
-#include <popnn/Recurrent.hpp>
 #include <popnn/NonLinearity.hpp>
 #include <popreduce/Reduce.hpp>
 #include <popstd/Zero.hpp>
+#include <popstd/Util.hpp>
+#include <popstd/DynamicSlice.hpp>
 #include <cstdint>
 
 using namespace poplar;
@@ -247,6 +250,80 @@ Tensor forwardIterate(Graph  &graph,
   return actOut;
 }
 
+poplar::Tensor rnnFwdSequence(poplar::Graph &graph,
+                         poplar::program::Sequence &prog,
+                         const poplar::Tensor &fwdStateInit,
+                         const poplar::Tensor *weightedIn,
+                         const poplar::Tensor &biases,
+                         const poplar::Tensor &feedFwdWeights,
+                         const poplar::Tensor &feedbackWeights,
+                         const poplar::Tensor &prevLayerActs,
+                         const popnn::NonLinearityType &nonLinearityType,
+                         const std::string &partialsType,
+                         const std::string &debugPrefix)
+{
+  auto seqSize = prevLayerActs.dim(0);
+  auto stateShape = fwdStateInit.shape();
+  stateShape.insert(stateShape.begin(), seqSize);
+  const auto dType = prevLayerActs.elementType();
+  auto fwdState = graph.addTensor(dType, stateShape,
+                                  debugPrefix + "/fwdState");
+  // loop counter
+  const auto &target = graph.getTarget();
+  unsigned numTiles = target.getNumTiles();
+  //TODO: replace these per-tile counters and constants with scalars
+  // once poplar is enhanced to auto-expand them
+  auto seqIdx = graph.addTensor("unsigned", {1, numTiles},
+                                 debugPrefix + "/seqIdx");
+  auto one = graph.addConstantTensor("unsigned", {1, numTiles}, 1);
+  for (unsigned i = 0; i != numTiles; ++i) {
+    graph.setTileMapping(seqIdx[0][i], i);
+    graph.setTileMapping(one[0][i], i);
+  }
+  popstd::zero(graph, seqIdx, prog, debugPrefix + "/seqIdx");
+
+  // state for current layer, start from initialiser
+  Tensor thisState = popstd::duplicate(graph, fwdStateInit, prog);
+
+  // core rnn loop
+  auto loop = Sequence();
+  {
+    // input is either sliced from weightedIn, or
+    // sliced from prevLayerActs then weighted
+    Tensor feedFwdOutput;
+    if (weightedIn) {
+      feedFwdOutput = popstd::dynamicSlice(
+        graph, *weightedIn, seqIdx, {0}, {1}, loop,
+        debugPrefix + "/rnnInput");
+    } else {
+      Tensor cellInputS = popstd::dynamicSlice(
+        graph, prevLayerActs, seqIdx, {0}, {1}, loop,
+        debugPrefix + "/rnnInput");
+      feedFwdOutput = popnn::rnn::forwardWeightInput(
+        graph, cellInputS, feedFwdWeights, loop, partialsType,
+        debugPrefix);
+    }
+
+    Tensor newState = popnn::rnn::forwardIterate(
+      graph, feedFwdOutput, thisState, feedbackWeights, biases, loop,
+      nonLinearityType, partialsType, debugPrefix);
+    // all output sequence elements take the same mapping so will only
+    // require on-tile copies
+    for (unsigned i = 0; i != seqSize; ++i) {
+      graph.setTileMapping(fwdState[i],
+                           graph.getTileMapping(newState[0]));
+    }
+    loop.add(Copy(newState, thisState));
+
+    popstd::dynamicUpdate(
+      graph, fwdState, newState, seqIdx, {0}, {1}, loop,
+      debugPrefix + "/rnnUpdateState");
+    addTo(graph, seqIdx, one, loop, debugPrefix + "/seqIdxIncr");
+  }
+  prog.add(Repeat(seqSize, loop));
+  return fwdState;
+};
+
 std::pair<Tensor, Tensor>
 backwardGradientStepImpl(Graph &graph,
                      const Tensor &gradientOut,
@@ -366,6 +443,118 @@ void paramDeltaUpdate(Graph &graph,
                   fnPrefix);
   addTo(graph, biasDeltasAcc, r, prog, fnPrefix);
 }
+
+std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor, poplar::Tensor>
+  rnnBwdSequence(poplar::Graph &graph,
+                         bool doWU,
+                         bool ignoreInputGradientCalc,
+                         poplar::program::Sequence &prog,
+                         const poplar::Tensor &fwdStateInit,
+                         const poplar::Tensor &fwdState,
+                         const poplar::Tensor &biases,
+                         const poplar::Tensor &feedFwdWeights,
+                         const poplar::Tensor &feedbackWeights,
+                         const poplar::Tensor &outGradient,
+                         const poplar::Tensor &actIn,
+                         const popnn::NonLinearityType &nonLinearityType,
+                         const std::string &partialsType,
+                         const std::string &debugPrefix)
+{
+  Tensor feedFwdWeightsDeltaAcc, feedbackWeightsDeltaAcc, biasesDeltaAcc;
+  if (doWU) {
+    feedFwdWeightsDeltaAcc = graph.clone(feedFwdWeights);
+    feedbackWeightsDeltaAcc = graph.clone(feedbackWeights);
+    biasesDeltaAcc = graph.clone(biases);
+    // zero all tensors updated in the BPTT
+    zero(graph, feedFwdWeightsDeltaAcc, prog,
+         debugPrefix + "/ZeroFeedFwdWeightsDeltasAcc");
+    zero(graph, feedbackWeightsDeltaAcc, prog,
+         debugPrefix + "/ZeroFeedbackWeightsDeltasAcc");
+    zero(graph, biasesDeltaAcc, prog,
+         debugPrefix + "/ZeroBiasesDeltasAcc");
+  }
+  const auto dType = actIn.elementType();
+  const auto seqSize = actIn.dim(0);
+  const auto batchSize = actIn.dim(1);
+  const auto inputSize = actIn.dim(2);
+  const auto outputSize = feedbackWeights.dim(1);
+
+  Tensor bwdState =
+    popnn::rnn::createBwdState(graph, dType, batchSize, outputSize,
+                               prog, debugPrefix);
+  auto actOut = popnn::rnn::getOutputFromFwdState(fwdStateInit);
+  auto seqIdx = graph.addTensor("unsigned", {1}, debugPrefix + "/seqIdx");
+  auto start = graph.addConstantTensor("unsigned", {1}, seqSize- 1);
+  auto one = graph.addConstantTensor("unsigned", {1}, 1);
+  graph.setTileMapping(seqIdx, 0);
+  prog.add(Copy(start, seqIdx));
+
+  // state for gradient backprop
+  std::vector<std::size_t> gradientShape =
+    {seqSize, batchSize, !ignoreInputGradientCalc ? inputSize : outputSize};
+  auto prevLayerGradsVec = graph.addTensor(dType,
+                                           gradientShape,
+                                           debugPrefix + "/gradient");
+  Tensor fwdStateS = graph.clone(fwdStateInit, debugPrefix + "/fwdStateS");
+  Tensor fwdStateOffset = concat(fwdStateInit.expand({0}),
+                                 fwdState.slice(0, fwdState.dim(0)-1));
+  graph.setTileMapping(fwdStateOffset[0],
+                       graph.getTileMapping(fwdStateOffset[1]));
+  auto loop = Sequence();
+  {
+    Tensor gradientInputThisStep;
+    Tensor outGradS = popstd::dynamicSlice(
+      graph, outGradient.dimShuffle({1, 0, 2}), seqIdx, {0}, {1}, loop,
+      debugPrefix + "/OutGradient").squeeze({0});
+    Tensor prevOutput;
+    if (!ignoreInputGradientCalc || doWU) {
+      prevOutput = popnn::rnn::getOutputFromFwdState(fwdStateS);
+    }
+    if (!ignoreInputGradientCalc){
+      std::tie(gradientInputThisStep, bwdState) =
+        popnn::rnn::backwardGradientStep(
+          graph, outGradS, bwdState, prevOutput,
+          feedFwdWeights, feedbackWeights,
+          loop, nonLinearityType, partialsType, debugPrefix);
+      gradientInputThisStep = gradientInputThisStep.expand({0});
+      for (unsigned s = 0; s != seqSize; ++s)
+        graph.setTileMapping(prevLayerGradsVec[s],
+                             graph.getTileMapping(gradientInputThisStep));
+      popstd::dynamicUpdate(graph, prevLayerGradsVec, gradientInputThisStep,
+                            seqIdx, {0}, {1}, loop,
+                            debugPrefix + "/rnnUpdateGradient");
+
+    } else {
+      bwdState = popnn::rnn::backwardGradientStep(
+        graph, outGradS, bwdState, prevOutput,
+        feedbackWeights,
+        loop, nonLinearityType, partialsType, debugPrefix);
+      for (unsigned s = 0; s != seqSize; ++s) {
+        mapTensorLinearly(graph, prevLayerGradsVec.slice(s, s + 1));
+      }
+    }
+    Tensor fwdStateSM1 =
+      popstd::dynamicSlice(graph, fwdStateOffset, seqIdx, {0}, {1}, loop,
+                           debugPrefix + "/fwdState").squeeze({0});
+    loop.add(Copy(fwdStateSM1, fwdStateS));
+    if (doWU) {
+      Tensor actInS = popstd::dynamicSlice(graph, actIn,
+                                           seqIdx, {0}, {1}, loop,
+                                           debugPrefix + "/rnnActIn")
+                                            .squeeze({0});
+      // Note that the delta update uses the fwdState[s-1], or fwdInit
+      // when s == -1.
+      popnn::rnn::paramDeltaUpdate(
+        graph, bwdState, actInS, fwdStateSM1,
+        feedFwdWeightsDeltaAcc, feedbackWeightsDeltaAcc, biasesDeltaAcc,
+        loop, partialsType, debugPrefix);
+    }
+    subtractFrom(graph, seqIdx, one, loop, debugPrefix + "/seqIdxDecr");
+  }
+  prog.add(Repeat(seqSize, loop));
+  return std::tie(prevLayerGradsVec, feedFwdWeightsDeltaAcc,
+                  feedbackWeightsDeltaAcc, biasesDeltaAcc);
+};
 
 } // namespace rnn
 } // namespace popnn

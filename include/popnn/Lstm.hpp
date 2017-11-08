@@ -138,7 +138,7 @@ createWeightsOutput(poplar::Graph &graph,
  *   7) The final output is gO * (new CellState)
  *
  * The LSTM may be run for a given step size stepSize each with a batch of size
- * batchSize and input size inputSize and outputSize outputSize. The total
+ * batchSize and input size inputSize and output size outputSize. The total
  * number of units within each LSTM cell is BASIC_LSTM_CELL_NUM_UNITS.
  *
  * \param graph         Graph to which the LSTM cell belongs to
@@ -201,7 +201,8 @@ calcSequenceWeightedInputs(poplar::Graph  &graph,
  *
  * The LSTM may be run for a given step size stepSize each with a batch of size
  * batchSize and input size inputSize and outputSize outputSize. The total
- * number of units within each LSTM cell is BASIC_LSTM_CELL_NUM_UNITS.
+ * number of units within each LSTM cell is lstmUnits =
+ * BASIC_LSTM_CELL_NUM_UNITS.
  *
  * \param graph         Graph to which the LSTM cell belongs to
  * \param weightedIn    Input of shape {lstmUnits, sequenceSize, batchSize,
@@ -349,6 +350,99 @@ basicLstmParamUpdate(poplar::Graph &graph,
                      poplar::program::Sequence &prog,
                      const std::string &partialsTypeStr = "float",
                      const std::string &debugPrefix = "");
+
+/** Calculate the result of applying an LSTM across a sequence
+ *
+ * The LSTM is run for seqSize steps each with a batch of size batchSize and
+ * input size inputSize and output size outputSize. The total number of units
+ * within each LSTM cell is lstmUnits = BASIC_LSTM_CELL_NUM_UNITS.
+ *
+ * \param graph         Graph to which the LSTM cell belongs to
+ * \param inferenceOnly Set this to true if the forward pass is only for
+ *                      inference
+ * \param fwdProg       Program sequence
+ * \param fwdStateInit  Initial state for this layer
+ * \param weightedIn    Input of shape {lstmUnits, sequenceSize, batchSize,
+ *                      outputSize}, or nullptr if Wff is to be applied
+ * \param biases        Biases for each of the units of shape
+ *                      {BASIC_LSTM_CELL_NUM_UNITS, outputSize}
+ * \param weightsInput  Input weights for each of the unit in the cell of shape
+ *                      {BASIC_LSTM_CELL_NUM_UNITS, inputSize, outputSize}
+ * \param weightsOutput Input weights for each of the unit in the cell of shape
+ *                      {BASIC_LSTM_CELL_NUM_UNITS, outputSize, outputSize}
+ * \param prevLayerActs Output activation from previous step
+ * \param dataTypeStr   Data type of the activations and weights
+ * \param partialsTypeStr Intermediate data type used in operations
+ * \param debugPrefix   String used as prefix for compute sets
+ *
+ * \return output state tensor for every sequence step this function is executed
+ */
+poplar::Tensor lstmFwdSequence(
+                     poplar::Graph &graph,
+                     bool inferenceOnly,
+                     poplar::program::Sequence &fwdProg,
+                     const poplar::Tensor &fwdStateInit,
+                     const poplar::Tensor *weightedIn,
+                     const poplar::Tensor &biases,
+                     const poplar::Tensor &weightsInput,
+                     const poplar::Tensor &weightsOutput,
+                     const poplar::Tensor &prevLayerActs,
+                     const std::string &dataTypeStr,
+                     const std::string &partialsTypeStr = "float",
+                     const std::string &debugPrefix = "");
+
+/**
+ *  Run LSTM backward pass. The backward pass executes in reverse order as
+ *  compared to the forward pass. If the forward steps for a LSTM layer are sf =
+ *  {0, 1, 2, ..., S - 1} then the backward steps run for sb = {S - 1, S - 2,
+ *  .... , 1, 0}.
+ *
+ * \param graph           Graph object
+ * \param doWU            When true weight and bias delta updates are calculated
+ * \param ignoreInputGradientCalc Do not calculate the gradients over the input
+ *                        weights
+ * \param prog            Control program
+ * \param fwdStateInit    Forward state tensor for initial step
+ * \param fwdState        Forward state tensor for all steps [0:seqSize)
+ * \param biases          Biases for each of the units of shape
+ *                        {BASIC_LSTM_CELL_NUM_UNITS, outputSize}. Used only
+ *                        for shape and mapping
+ * \param weightsInput    Input weights tensor (created using
+ *                        \createWeightsInput)
+ * \param weightsOutput   Output weights tensor (created using
+ *                        \createWeightsOutput
+ * \param prevLayerActs   Previous layer activations for step s
+ * \param gradNextLayer   Gradient from next layer
+ * \param bwdState        Initial backward state, typically created
+ *                        using \createBackwardState
+ * \param dataTypeStr     Data type of the weights and activations
+ * \param partialsTypeStr Data type of the intermediate precision
+ * \param debugPrefix     String annotation
+ *
+ * \return Returns four tensors:
+ *         - gradients for previous layer
+ *         - input weight deltas
+ *         - output weight deltas
+ *         - bias deltas
+ * When doWU is false the weight and bias deltas are not calculated
+ */
+std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor, poplar::Tensor>
+  lstmBwdSequence(
+    poplar::Graph &graph,
+    bool doWU,
+    bool ignoreInputGradientCalc,
+    poplar::program::Sequence &prog,
+    const poplar::Tensor &fwdStateInit,
+    const poplar::Tensor &fwdState,
+    const poplar::Tensor &biases,
+    const poplar::Tensor &weightsInput,
+    const poplar::Tensor &weightsOutput,
+    const poplar::Tensor &prevLayerActs,
+    const poplar::Tensor &gradNextLayer,
+    const poplar::Tensor &bwdState,
+    const std::string &dataType,
+    const std::string &partialsType,
+    const std::string &debugPrefix = "");
 
 } // namespace lstm
 } // namespave popnn

@@ -1,5 +1,6 @@
 #include <poplin/MatMul.hpp>
 #include <popstd/Add.hpp>
+#include <popstd/SubtractFrom.hpp>
 #include <popstd/TileMapping.hpp>
 #include <popnn/NonLinearity.hpp>
 #include <popstd/HadamardProduct.hpp>
@@ -8,9 +9,10 @@
 #include <popstd/Operations.hpp>
 #include <popconv/Convolution.hpp>
 #include <popstd/Zero.hpp>
+#include <popstd/Util.hpp>
+#include <popstd/DynamicSlice.hpp>
 #include <popreduce/Reduce.hpp>
 #include <cstdint>
-
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplin;
@@ -474,6 +476,86 @@ basicLstmCellForwardPass(Graph &graph,
                                  debugPrefix);
 }
 
+Tensor lstmFwdSequence(Graph &graph,
+                       bool inferenceOnly,
+                       Sequence &fwdProg,
+                       const Tensor &fwdStateInit,
+                       const Tensor *weightedIn,
+                       const Tensor &biases,
+                       const Tensor &weightsInput,
+                       const Tensor &weightsOutput,
+                       const Tensor &prevLayerActs,
+                       const std::string &dataType,
+                       const std::string &partialsType,
+                       const std::string &debugPrefix) {
+  Tensor fwdState;
+  // loop counter
+  const auto &target = graph.getTarget();
+  unsigned numTiles = target.getNumTiles();
+  //TODO: replace these per-tile counters and constants with scalars
+  // once poplar is enhanced to auto-expand them
+  auto seqIdx = graph.addTensor("unsigned", {1, numTiles},
+                                debugPrefix + "/seqIdx");
+  auto one = graph.addConstantTensor("unsigned", {1, numTiles}, 1);
+  for (unsigned i = 0; i != numTiles; ++i) {
+    graph.setTileMapping(seqIdx[0][i], i);
+    graph.setTileMapping(one[0][i], i);
+  }
+  popstd::zero(graph, seqIdx, fwdProg, debugPrefix + "/seqIdx");
+
+  // state for current layer, start from initialiser
+  Tensor thisState = duplicate(graph, fwdStateInit, fwdProg);
+
+  unsigned seqSize = prevLayerActs.dim(0);
+  // core lstm loop
+  auto loop = Sequence();
+  {
+    Tensor newState;
+    auto prevOutputAct = popnn::lstm::getOutputFromFwdState(thisState);
+    auto prevCellState = popnn::lstm::getCellFromFwdState(thisState);
+    if (weightedIn) {
+      Tensor fwdInput = popstd::dynamicSlice(
+        graph, *weightedIn, seqIdx, {1}, {1}, loop,
+        debugPrefix + "/lstmWeighted");
+      newState = popnn::lstm::basicLstmCellForwardPassWeightedInputs(
+        graph, fwdInput, biases,
+        prevOutputAct, prevCellState,
+        weightsOutput,
+        loop, partialsType, inferenceOnly, debugPrefix);
+    } else {
+      Tensor fwdInput = popstd::dynamicSlice(
+        graph, prevLayerActs, seqIdx, {0}, {1}, loop,
+        debugPrefix + "/lstm");
+      newState = popnn::lstm::basicLstmCellForwardPass(
+        graph, fwdInput, biases,
+        prevOutputAct, prevCellState,
+        weightsInput, weightsOutput,
+        loop, partialsType, inferenceOnly, debugPrefix);
+    }
+
+    Tensor newAct = popnn::lstm::getOutputFromFwdState(newState);
+    // all output sequence elements take the same mapping so will only
+    // require on-tile copies
+    fwdState = graph.addTensor(dataType, {seqSize, fwdStateInit.dim(0),
+                               fwdStateInit.dim(1), fwdStateInit.dim(2)},
+                               debugPrefix + "/fwdState");
+    for (unsigned i = 0; i != seqSize; ++i) {
+      graph.setTileMapping(fwdState[i],
+                           graph.getTileMapping(newState[0]));
+    }
+    graph.setTileMapping(thisState, graph.getTileMapping(newState));
+    loop.add(Copy(newState, thisState));
+
+    popstd::dynamicUpdate(
+      graph, fwdState, newState, seqIdx, {0}, {1}, loop,
+      debugPrefix + "/lstmUpdateState");
+
+    addTo(graph, seqIdx, one, loop, debugPrefix + "/seqIdxIncr");
+  }
+  fwdProg.add(Repeat(seqSize, loop));
+  return fwdState;
+}
+
 static std::pair<Tensor, Tensor>
 BackwardStepImpl(Graph &graph,
                       const Tensor &gradNextLayer,
@@ -657,6 +739,113 @@ basicLstmParamUpdate(Graph &graph,
   popreduce::reduceAcc(graph, biasDeltaAcc, 1.0,
                        gradUnits.dimShuffle({1, 0, 2}), prog, fPrefix +"/Bias");
 }
+
+std::tuple<Tensor, Tensor, Tensor, Tensor> lstmBwdSequence(
+  Graph &graph,
+  bool doWU,
+  bool ignoreInputGradientCalc,
+  Sequence &prog,
+  const Tensor &fwdStateInit,
+  const Tensor &fwdState,
+  const Tensor &biases,
+  const Tensor &weightsInput,
+  const Tensor &weightsOutput,
+  const Tensor &prevLayerActs,
+  const Tensor &gradLayerNext,
+  const Tensor &bwdState,
+  const std::string &dataType,
+  const std::string &partialsType,
+  const std::string &debugPrefix)
+{
+  Tensor gradPrevLayer, weightsInputDeltasAcc, weightsOutputDeltasAcc,
+         biasDeltasAcc;
+  if (doWU) {
+    weightsInputDeltasAcc =
+      graph.clone(weightsInput, "WeightsInputDeltasAcc");
+    weightsOutputDeltasAcc =
+      graph.clone(weightsOutput, "WeightsOutputDeltasAcc");
+    biasDeltasAcc = graph.clone(biases, "biasDeltasAcc");
+    popstd::zero(graph, weightsInputDeltasAcc, prog);
+    popstd::zero(graph, weightsOutputDeltasAcc, prog);
+    popstd::zero(graph, biasDeltasAcc, prog);
+  }
+
+  unsigned seqSize = gradLayerNext.dim(0);
+  // sequence down-counter
+  auto seqIdx = graph.addTensor("unsigned", {1}, debugPrefix + "/seqIdx");
+  auto start = graph.addConstantTensor("unsigned", {1}, seqSize - 1);
+  auto one = graph.addConstantTensor("unsigned", {1}, 1);
+  graph.setTileMapping(seqIdx, 0);
+  prog.add(Copy(start, seqIdx));
+
+  // input state from the previous layer
+  Tensor fwdStateS = duplicate(graph, fwdState[seqSize - 1],
+                               prog);
+  graph.setTileMapping(fwdStateS, graph.getTileMapping(fwdStateInit));
+  auto gradSize = ignoreInputGradientCalc ? weightsOutput.dim(2)
+                                          : weightsInput.dim(1);
+  // output gradient to previous layer
+  gradPrevLayer = graph.addTensor(dataType,
+                                  {seqSize, gradLayerNext.dim(1), gradSize},
+                                  debugPrefix + "/gradPrevLayer");
+  auto loop = Sequence();
+  {
+    Tensor gradPrevLayerS, bwdStateUpdated;
+    // fwdStateM1 is an offset version of fwdState
+    Tensor fwdStateM1 = concat(fwdStateInit.expand({0}),
+                               fwdState.slice(0, fwdState.dim(0) - 1));
+
+    Tensor fwdStateM1Copy = duplicate(graph, fwdStateM1, prog);
+    for (unsigned s = 0; s != fwdStateM1Copy.dim(0); ++s)
+      graph.setTileMapping(fwdStateM1Copy[s],
+                           graph.getTileMapping(fwdStateS));
+    Tensor fwdStateM1S =
+      dynamicSlice(graph, fwdStateM1Copy, seqIdx, {0}, {1}, loop,
+                   debugPrefix + "/fwdStateM1").squeeze({0});
+    Tensor outGradientShufS =
+      dynamicSlice(graph, gradLayerNext, seqIdx, {0}, {1}, loop,
+                   debugPrefix + "/gradLayerNext").squeeze({0});
+    Tensor cellState = popnn::lstm::getCellFromFwdState(fwdStateM1S);
+    if (ignoreInputGradientCalc) {
+      bwdStateUpdated = popnn::lstm::basicLstmBackwardStep(
+        graph, outGradientShufS, fwdStateS, cellState, bwdState,
+        weightsOutput, loop,
+        partialsType, debugPrefix);
+      for (unsigned s = 0; s != seqSize; ++s)
+        mapTensorLinearly(graph, gradPrevLayer[s]);
+    } else {
+      std::tie(gradPrevLayerS, bwdStateUpdated) =
+        popnn::lstm::basicLstmBackwardStep(
+          graph, outGradientShufS, fwdStateS, cellState, bwdState,
+          weightsInput, weightsOutput, loop,
+          partialsType, debugPrefix);
+      gradPrevLayerS = gradPrevLayerS.expand({0});
+      for (unsigned s = 0; s != seqSize; ++s)
+        graph.setTileMapping(gradPrevLayer[s],
+                             graph.getTileMapping(gradPrevLayerS));
+      dynamicUpdate(graph, gradPrevLayer, gradPrevLayerS,
+                    seqIdx, {0}, {1}, loop,
+                    debugPrefix + "/gradPrevLayer");
+    }
+    if (doWU) {
+      Tensor actsOutS = popnn::lstm::getOutputFromFwdState(fwdStateM1S);
+      Tensor actsInS = dynamicSlice(graph, prevLayerActs,seqIdx, {0}, {1}, loop,
+                                    debugPrefix + "/prevLayerActs")
+                                   .squeeze({0});
+      popnn::lstm::basicLstmParamUpdate(
+        graph, actsInS, actsOutS,
+        bwdStateUpdated,
+        weightsInputDeltasAcc, weightsOutputDeltasAcc, biasDeltasAcc,
+        loop, partialsType, debugPrefix);
+    }
+    loop.add(Copy(fwdStateM1S, fwdStateS));
+    loop.add(Copy(bwdStateUpdated, bwdState));
+    subtractFrom(graph, seqIdx, one, loop, debugPrefix + "/seqIdxDecr");
+  }
+  prog.add(Repeat(seqSize, loop));
+  return std::tie(gradPrevLayer, weightsInputDeltasAcc,
+                  weightsOutputDeltasAcc, biasDeltasAcc);
+};
 
 uint64_t getBasicLstmCellFwdFlops(unsigned sequenceSize, unsigned batchSize,
                                   unsigned inputSize, unsigned outputSize,

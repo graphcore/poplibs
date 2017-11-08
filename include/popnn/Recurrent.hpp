@@ -344,6 +344,98 @@ void paramDeltaUpdate(poplar::Graph &graph,
                       const std::string &partialsTypeStr = "float",
                       const std::string &debugPrefix = "");
 
+/**
+ * Perform the forward part of the RNN layer. The feedback part of the RNN layer
+ * must be preceded by the feedforward part of the RNN layer to complete the
+ * layer
+ * \see rnnForwardWeightInput
+ *
+ * The following definitions are used below:
+ *   numSteps is the number of steps
+ *   batchSize is the batchSize
+ *   inputSize is the size of the input for each step
+ *   outputSize is the size of the output for each step
+ *
+ * \param graph           Graph object
+ * \param prog            Control program
+ * \param fwdStateInit    Forward state tensor for initial step
+ * \param weightedIn      Preweighted input, or nullptr if Wff is to be applied
+ * \param biases          Biases
+ * \param feedFwdWeights  Input weights Wff
+ * \param feedbackWeights Feedback weights Wfb
+ * \param prevLayerActs   Activations from previous layer (output from
+ *                        feedforward part of the RNN layer
+ * \param nonLinearityType Non linearity used for the output activations
+ * \param partialsTypeStr Data type for intermediates
+ * \param debugPrefix     Debug prefix string
+ *
+ * \return Forward state tensor for all steps [0:seqSize)
+ */
+poplar::Tensor rnnFwdSequence(poplar::Graph &graph,
+                              poplar::program::Sequence &prog,
+                              const poplar::Tensor &fwdStateInit,
+                              const poplar::Tensor *weightedIn,
+                              const poplar::Tensor &biases,
+                              const poplar::Tensor &feedFwdWeights,
+                              const poplar::Tensor &feedbackWeights,
+                              const poplar::Tensor &prevLayerActs,
+                              const popnn::NonLinearityType &nonLinearityType,
+                              const std::string &partialsTypeStr,
+                              const std::string &debugPrefix);
+
+/**
+ * Perform the feedback part of the RNN layer. The feedback part of the RNN
+ * layer must be preceded by the feedforward part of the RNN layer to complete
+ * the layer
+ * \see rnnForwardWeightInput
+ *
+ * The following definitions are used below:
+ *   numSteps is the number of steps
+ *   batchSize is the batchSize
+ *   inputSize is the size of the input for each step
+ *   outputSize is the size of the output for each step
+ *
+ * \param graph           Graph object
+ * \param doWU            Calculate weight updates
+ * \param ignoreInputGradientCalc Do not calculate the gradients over the input
+ *                        weights
+ * \param prog            Control program
+ * \param fwdStateInit    Forward state tensor for initial step
+ * \param fwdState        Forward state tensor for all steps [0:seqSize)
+ * \param biases          Biases
+ * \param feedFwdWeights  Input weights Wff
+ * \param feedbackWeights Feedback weights Wfb
+ * \param outGradient     Gradient from next layer
+ * \param actIn           Activations from previous layer (output from
+ *                        feedforward part of the RNN layer
+ * \param nonLinearityType Non linearity used for the output activations
+ * \param partialsTypeStr Data type for intermediates
+ * \param debugPrefix     Debug prefix string
+ *
+ * \return Returns four tensors:
+ *         - gradients for previous layer
+ *         - input weight deltas
+ *         - output weight deltas
+ *         - bias deltas
+ * When doWU is false the weight and bias deltas are not calculated
+ *
+ */
+std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor, poplar::Tensor>
+  rnnBwdSequence(poplar::Graph &graph,
+                 bool doWU,
+                 bool ignoreInputGradientCalc,
+                 poplar::program::Sequence &prog,
+                 const poplar::Tensor &fwdStateInit,
+                 const poplar::Tensor &fwdState,
+                 const poplar::Tensor &biases,
+                 const poplar::Tensor &feedFwdWeights,
+                 const poplar::Tensor &feedbackWeights,
+                 const poplar::Tensor &outGradient,
+                 const poplar::Tensor &actIn,
+                 const popnn::NonLinearityType &nonLinearityType,
+                 const std::string &partialsTypeStr,
+                 const std::string &debugPrefix);
+
 } // namespace rnn
 } // namespace popnn
 
