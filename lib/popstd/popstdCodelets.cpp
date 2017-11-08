@@ -77,7 +77,9 @@ static uint64_t comparisonOpsCycles(unsigned dataPathWidth,
 namespace popstd {
 
 template <typename InType>
-class ScaledAdd : public Vertex {
+class
+[[poplar::constraint("elem(**data) != elem(**deltas)")]]
+ScaledAdd : public Vertex {
 public:
   Vector<InOut<Vector<InType>>> data;
   Vector<Input<Vector<InType>>> deltas;
@@ -127,7 +129,10 @@ template class ScaledAdd<unsigned>;
 
 
 template <typename FPType>
-class HadamardProd : public Vertex {
+class
+//Note this constraint is misspelt
+[[poplar::constraint("elem(**A) != elem(**C)")]]
+HadamardProd : public Vertex {
 public:
   Vector<InOut<Vector<FPType>>> A;
   Vector<Input<Vector<FPType>>> B;
@@ -380,7 +385,12 @@ template class Absolute<int>;
 
 
 template <typename InType>
-class Add : public Vertex {
+class
+// Meeting these constraints would give cyclesPerVector==1
+[[poplar::constraint("elem(**in1) != elem(**in2)",
+                     "elem(**in1) != elem(**out)",
+                     "elem(**in2) != elem(**out)")]]
+Add : public Vertex {
 public:
   Vector<Input<Vector<InType>>> in1;
   Vector<Input<Vector<InType>>> in2;
