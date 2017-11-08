@@ -75,7 +75,11 @@ getConvPartial1x1SupervisorCycleEstimate(
     uint64_t thisWorkerCycles = 9;
     for (auto wi : worker) {
       const auto numElems =  wi;
-      thisWorkerCycles += 20 + numElems * 4;
+      if (numElems) {
+        thisWorkerCycles += 20 + numElems * 4;
+      } else {
+        thisWorkerCycles += 3;
+      }
     }
     maxWorkerCycles =
       std::max(maxWorkerCycles, numWorkerContexts * thisWorkerCycles);
@@ -129,14 +133,18 @@ getConvPartialnx1SupervisorCycleEstimate(
   uint64_t cycles = 0;
   for (auto k = 0U; k != kernelSize; ++k) {
     // load coefficients
-    cycles += numLoads + 15 + 8 * (filterHeight - 1);
+    cycles += numLoads + 9 + 8 * (filterHeight - 1);
     uint64_t maxWorkerCycles = 0;
     uint64_t minWorkerCycles = usedContexts < numWorkerContexts ?
                                0 : std::numeric_limits<uint64_t>::max();
     for (auto context = 0U; context != usedContexts; ++context) {
       uint64_t thisWorkerCycles = 15;
       for (auto &numElems :  workerPartitions[context][k]) {
-        thisWorkerCycles += 22 + numElems * 4;
+        if (numElems) {
+          thisWorkerCycles += 22 + numElems * 4;
+        } else {
+          thisWorkerCycles += 3;
+        }
       }
       maxWorkerCycles =
         std::max(maxWorkerCycles, numWorkerContexts * thisWorkerCycles);
@@ -145,75 +153,17 @@ getConvPartialnx1SupervisorCycleEstimate(
     }
     cycles += std::max(maxWorkerCycles, minWorkerCycles + 9);
   }
-  return 6 + numConvGroups
-            * (46 + numOutGroups
-              * (9 + numInGroups
-                * (21 + cycles)));
-}
-
-inline std::uint64_t
-getConvPartialnx1SupervisorCycleEstimate(
-    const std::vector<std::vector<std::vector<unsigned>>> &
-    convSizesByWeightAndWorker,
-    unsigned passesPerEntry,
-    unsigned convUnitInputLoadElemsPerCycle,
-    unsigned numConvUnitsPerTile,
-    unsigned convUnitCoeffLoadBytesPerCycle,
-    unsigned numInputPointers,
-    bool floatWeights,
-    bool useDeltasForEdges) {
-  const unsigned numOutputPointers = 1;
-  const auto numWorkerContexts = 6;
-  const unsigned supervisorNonLoopOverhead = 14U;
-
-  unsigned cycles = supervisorNonLoopOverhead;
-
-  for (const auto &convSizesByWorker : convSizesByWeightAndWorker) {
-    assert(convSizesByWorker.size() <= numWorkerContexts);
-
-    unsigned entryCycles = 0;
-    const auto numInputLoadsInnerLoop = 4;
-    const auto numLoads = convUnitInputLoadElemsPerCycle
-                          * numInputLoadsInnerLoop
-                          * numConvUnitsPerTile
-                          * (floatWeights ? 4 : 2)
-                          / convUnitCoeffLoadBytesPerCycle;
-
-    entryCycles += numLoads;
-
-    const unsigned supervisorLoopOverhead = 2;
-    // Overhead to modify supervisor struct.
-    entryCycles += supervisorLoopOverhead;
-
-    unsigned maxWorkerCycles = 0;
-    // Start workers.
-    for (const auto &convSizes : convSizesByWorker) {
-      unsigned workerCycles = 0;
-      const auto vertexOverhead = 21U;
-      workerCycles += vertexOverhead;
-
-      for (const auto convSize : convSizes) {
-        /* inner loop overhead includes cycles to warm-up and cool down AMP loop
-         */
-        const unsigned innerLoopOverhead = 12;
-
-        /* Cycles to form packed addresses */
-        const unsigned packedAddrCompCyles = std::max(numInputPointers,
-                                                      numOutputPointers) *
-                                             (useDeltasForEdges ? 5 : 3);
-        workerCycles += innerLoopOverhead +
-                        packedAddrCompCyles +
-                        convSize * 4;
-      }
-      maxWorkerCycles = std::max(maxWorkerCycles, workerCycles);
-    }
-    entryCycles += maxWorkerCycles * numWorkerContexts;
-    entryCycles += 2 * numWorkerContexts; // run instruction
-    entryCycles += 1; // Sync.
-    entryCycles += numWorkerContexts - 1; // Pipeline bubble.
-    cycles += entryCycles * passesPerEntry;
+  if (useDeltaForEdges) {
+    return 6 + numConvGroups
+               * (46 + numOutGroups
+                 * (9 + numInGroups
+                   * (21 + cycles)));
+  } else {
+    return 6 + numConvGroups
+               * (42 + numOutGroups
+                 * (9 + numInGroups
+                   * (19 + cycles)));
   }
-  return cycles;
 }
 
 inline std::uint64_t
