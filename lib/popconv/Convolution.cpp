@@ -1919,8 +1919,8 @@ createConvPartialHorizontalMacVertex(
     return;
   // If the kernel is bigger than the input we must walk the partial sums in the
   // opposite direction.
-  bool flipOut = params.getPaddedDilatedKernelSize(1) >
-                 params.getPaddedDilatedInputSize(1);
+  bool flipOut = params.getPaddedDilatedKernelSize(numFieldDims - 1) >
+                 params.getPaddedDilatedInputSize(numFieldDims - 1);
   auto v = graph.addVertex(fwdCS,
                            templateVertex(
                              "popconv::ConvPartialHorizontalMac", dType,
