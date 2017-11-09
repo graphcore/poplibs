@@ -71,19 +71,21 @@ getInputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
 
 struct PartialRow {
   unsigned b;
-  unsigned y;
+  std::vector<unsigned> outerFieldIndices;
   unsigned xBegin;
   unsigned xEnd;
-  PartialRow(unsigned b, unsigned y, unsigned xBegin, unsigned xEnd) :
+  PartialRow(unsigned b, std::vector<unsigned> outerFieldIndices,
+             unsigned xBegin, unsigned xEnd) :
     b(b),
-    y(y),
+    outerFieldIndices(std::move(outerFieldIndices)),
     xBegin(xBegin),
     xEnd(xEnd) {}
 };
 
 std::vector<std::vector<PartialRow>>
-partitionConvPartialByWorker(unsigned batchElements, unsigned convHeight,
-                             unsigned convWidth, unsigned numContexts,
+partitionConvPartialByWorker(unsigned batchElements,
+                             const std::vector<unsigned> &tileConvOutSize,
+                             unsigned numContexts,
                              const std::vector<unsigned> &inputDilation);
 
 std::vector<std::size_t> getOutputShape(const ConvParams &params);

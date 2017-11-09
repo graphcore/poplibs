@@ -1478,12 +1478,14 @@ createConvPartial1x1OutVertex(Graph &graph,
   if (convOutWidth == 0)
     return;
   auto workerPartition =
-      partitionConvPartialByWorker(batchEnd - batchBegin, convOutHeight,
-                                   convOutWidth, contextsPerVertex,
+      partitionConvPartialByWorker(batchEnd - batchBegin,
+                                   {convOutHeight, convOutWidth},
+                                   contextsPerVertex,
                                    params.inputDilation);
   for (unsigned i = 0; i != contextsPerVertex; ++i) {
     for (const auto &partialRow : workerPartition[i]) {
-      const auto workerOutY = convOutYBegin + partialRow.y;
+      assert(partialRow.outerFieldIndices.size() == 1);
+      const auto workerOutY = convOutYBegin + partialRow.outerFieldIndices[0];
       auto workerOutXBegin = convOutXBegin + partialRow.xBegin;
       auto workerOutXEnd = convOutXBegin + partialRow.xEnd;
       std::tie(workerOutXBegin, workerOutXEnd) =
@@ -1721,14 +1723,16 @@ createConvPartialnx1Vertex(Graph &graph,
       if (convOutWidth == 0)
         continue;
       auto workerPartition =
-          partitionConvPartialByWorker(batchEnd - batchBegin, convOutHeight,
-                                       convOutWidth, contextsPerVertex,
-                                       params.inputDilation);
+          partitionConvPartialByWorker(batchEnd - batchBegin,
+                                       {convOutHeight, convOutWidth},
+                                       contextsPerVertex, params.inputDilation);
       auto k =
           ((kyBegin - kernelYBegin) / convUnitWeightHeight) * kernelSizeX + kx;
       for (unsigned i = 0; i != contextsPerVertex; ++i) {
         for (const auto &partialRow : workerPartition[i]) {
-          const auto workerOutY = convOutYBegin + partialRow.y;
+          assert(partialRow.outerFieldIndices.size() == 1);
+          const auto workerOutY = convOutYBegin +
+                                  partialRow.outerFieldIndices[0];
           auto workerOutXBegin = convOutXBegin + partialRow.xBegin;
           auto workerOutXEnd = convOutXBegin + partialRow.xEnd;
           std::tie(workerOutXBegin, workerOutXEnd) =

@@ -152,16 +152,24 @@ getOutputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
 
 std::vector<std::vector<PartialRow>>
 partitionConvPartialByWorker(unsigned batchElements,
-                             unsigned convHeight, unsigned convWidth,
+                             const std::vector<unsigned> &tileConvOutSize,
                              unsigned numContexts,
                              const std::vector<unsigned> &inputDilation) {
+  const auto numFieldDims = tileConvOutSize.size();
+  assert(inputDilation.size() == numFieldDims);
   std::vector<std::vector<PartialRow>> partitionByWorker;
   partitionByWorker.reserve(numContexts);
   const auto elementsPerRow =
-      (convWidth + inputDilation[1] - 1) / inputDilation[1];
-  const auto activeRows =
-      (convHeight + inputDilation[0] - 1) / inputDilation[0];
+      (tileConvOutSize.back() + inputDilation.back() - 1) /
+      inputDilation.back();
+  unsigned activeRows = 1;
+  for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
+    activeRows *= (tileConvOutSize[dim] + inputDilation[dim] - 1) /
+                  inputDilation[dim];
+  }
   const auto numElements = batchElements * activeRows * elementsPerRow;
+  auto rowShape = tileConvOutSize;
+  rowShape.pop_back();
   for (unsigned i = 0; i != numContexts; ++i) {
     partitionByWorker.emplace_back();
     const auto beginElement = (i * numElements) / numContexts;
@@ -176,28 +184,32 @@ partitionConvPartialByWorker(unsigned batchElements,
         popstd::unflattenIndex<std::size_t>({batchElements, activeRows,
                                              elementsPerRow}, lastElement);
     for (unsigned b = beginIndices[0]; b != lastIndices[0] + 1; ++b) {
-      unsigned activeYBegin = b == beginIndices[0] ?
-                             beginIndices[1] :
-                             0;
-      unsigned activeYLast = b == lastIndices[0] ?
-                            lastIndices[1] :
-                            activeRows - 1;
-      for (unsigned activeY = activeYBegin; activeY != activeYLast + 1;
-           ++activeY) {
+      unsigned activeRowBegin = b == beginIndices[0] ?
+                                beginIndices[1] :
+                                0;
+      unsigned activeRowLast = b == lastIndices[0] ?
+                               lastIndices[1] :
+                               activeRows - 1;
+      for (unsigned activeRow = activeRowBegin; activeRow != activeRowLast + 1;
+           ++activeRow) {
         unsigned activeXBegin =
-            b == beginIndices[0] && activeY == beginIndices[1] ?
+            b == beginIndices[0] && activeRow == beginIndices[1] ?
               beginIndices[2] : 0;
         unsigned activeXLast =
-            b == lastIndices[0] && activeY == lastIndices[1] ?
+            b == lastIndices[0] && activeRow == lastIndices[1] ?
               lastIndices[2] : elementsPerRow - 1;
-        const auto y = activeY * inputDilation[0];
-        const auto xBegin = activeXBegin * inputDilation[1];
-        const auto xEnd = activeXLast * inputDilation[1] + 1;
+        auto outerFieldIndices = popstd::unflattenIndex(rowShape, activeRow);
+        for (unsigned dim = 0; dim != outerFieldIndices.size(); ++dim) {
+          outerFieldIndices[dim] *= inputDilation[dim];
+          assert(outerFieldIndices[dim] < tileConvOutSize[dim]);
+        }
+        const auto xBegin = activeXBegin * inputDilation.back();
+        const auto xEnd = activeXLast * inputDilation.back() + 1;
         assert(b < batchElements);
-        assert(y < convHeight);
-        assert(xBegin < convWidth);
-        assert(xEnd <= convWidth);
-        partitionByWorker.back().emplace_back(b, y, xBegin, xEnd);
+        assert(xBegin < tileConvOutSize.back());
+        assert(xEnd <= tileConvOutSize.back());
+        partitionByWorker.back().emplace_back(b, outerFieldIndices, xBegin,
+                                              xEnd);
       }
     }
   }

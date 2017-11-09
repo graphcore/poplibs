@@ -170,12 +170,10 @@ std::ostream& operator<<(std::ostream &os, const Plan &p)
 static std::uint64_t
 getConvPartialnx1CycleEstimate(unsigned convGroups,
                                unsigned batchElements,
-                               unsigned outputHeight,
-                               unsigned outputWidth,
+                               const std::vector<unsigned> &outShape,
                                unsigned numInGroups,
                                unsigned numOutGroups,
-                               unsigned kernelHeight,
-                               unsigned kernelWidth,
+                               const std::vector<unsigned> &kernelShape,
                                unsigned filterHeight,
                                unsigned inChansPerGroup,
                                unsigned convUnitInputLoadElemsPerCycle,
@@ -383,12 +381,10 @@ getMaxInputRangeSize(unsigned outputRangeSize, unsigned dim,
 static std::uint64_t
 getConvPartialnx1CycleEstimate(unsigned convGroups,
                                unsigned batchElements,
-                               unsigned outputHeight,
-                               unsigned outputWidth,
+                               const std::vector<unsigned> &outShape,
                                unsigned numInGroups,
                                unsigned numOutGroups,
-                               unsigned kernelHeight,
-                               unsigned kernelWidth,
+                               const std::vector<unsigned> &kernelShape,
                                unsigned filterHeight,
                                unsigned inChansPerGroup,
                                unsigned convUnitInputLoadElemsPerCycle,
@@ -403,13 +399,15 @@ getConvPartialnx1CycleEstimate(unsigned convGroups,
   auto dilationFactor = std::accumulate(inputDilation.begin(),
                                         inputDilation.end(), 1UL,
                                         std::multiplies<std::size_t>());
+  auto kernelElements = std::accumulate(kernelShape.begin(),
+                                        kernelShape.end(), 1UL,
+                                        std::multiplies<std::size_t>());
   std::vector<std::vector<PartialRow>> partition =
-      partitionConvPartialByWorker(batchElements, outputHeight, outputWidth,
+      partitionConvPartialByWorker(batchElements, outShape,
                                    numWorkerContexts, inputDilation);
 
   unsigned numEdges = numInGroups + numOutGroups + numInGroups * numOutGroups;
-  if (kernelHeight == 1 && kernelWidth == 1 && filterHeight == 1
-      && dilationFactor == 1) {
+  if (kernelElements == 1 && filterHeight == 1 && dilationFactor == 1) {
     // use conv 1x1 vertex
     std::vector<std::vector<unsigned>> worklist(numWorkerContexts);
     for (unsigned context = 0; context != numWorkerContexts; ++context) {
@@ -429,12 +427,13 @@ getConvPartialnx1CycleEstimate(unsigned convGroups,
   } else {
     // use conv nx1 vertex
     std::vector<std::vector<std::vector<unsigned>>> workList;
-    unsigned numConvY = (kernelHeight + filterHeight - 1) / filterHeight;
-    unsigned kernelElems = numConvY * kernelWidth;
+    unsigned positionsOuter =
+        (kernelShape[0] + filterHeight - 1) / filterHeight;
+    unsigned numKernelPositions = (positionsOuter * kernelElements / kernelShape[0]);
     const auto outStrideX = inputDilation.back();
     for (unsigned context = 0; context < numWorkerContexts; ++context) {
       workList.emplace_back();
-      for (auto k = 0U; k != kernelElems; ++k) {
+      for (auto k = 0U; k != numKernelPositions; ++k) {
         workList.back().emplace_back();
         for (const auto &partialRow : partition[context]) {
           const auto workerOutWidth = partialRow.xEnd - partialRow.xBegin;
@@ -447,7 +446,7 @@ getConvPartialnx1CycleEstimate(unsigned convGroups,
     }
     cycles = getConvPartialnx1SupervisorCycleEstimate(
                         workList, convGroups, numOutGroups, numInGroups,
-                        kernelElems, filterHeight,
+                        numKernelPositions, filterHeight,
                         inChansPerGroup, convUnitInputLoadElemsPerCycle,
                         numConvUnitsPerTile,
                         convUnitCoeffLoadBytesPerCycle,
@@ -675,12 +674,17 @@ estimatePartialCalcCycles(const poplar::Target &target,
 
   unsigned tileOutElements = 1;
   unsigned tileKernelFieldElements = 1;
+  std::vector<unsigned> tileOutShape, tileKernelShape;
+  tileOutShape.reserve(numFieldDims);
+  tileKernelShape.reserve(numFieldDims);
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     const auto tileOutSize = getMaxTileOutSize(params, plan, dim);
+    tileOutShape.push_back(tileOutSize);
     tileOutElements *= tileOutSize;
     const auto tileKernelSize =
         (params.kernelShape[dim] + plan.kernelTileSplit[dim] - 1) /
         plan.kernelTileSplit[dim];
+    tileKernelShape.push_back(tileKernelSize);
     tileKernelFieldElements *= tileKernelSize;
   }
   const auto tileKernelWidth =
@@ -701,16 +705,13 @@ estimatePartialCalcCycles(const poplar::Target &target,
                                                 plan.floatPartials,
                                                 target);
       assert(outChansPerGroup % numConvUnits == 0);
-      const auto passesPerOutputGroup = outChansPerGroup / numConvUnits;
       const auto convUnitInputLoadElemsPerCycle =
           target.getConvUnitInputLoadElemsPerCycle(floatActivations);
       computeCycles =
           cache->mGetConvPartialnx1CycleEstimate(
-            tileNumGroupedConv, tileBatchElements,
-            tileOutElements / tileOutWidth, tileOutWidth,
+            tileNumGroupedConv, tileBatchElements, tileOutShape,
             tileNumInGroups, tileNumOutGroups,
-            tileKernelFieldElements / tileKernelWidth,
-            tileKernelWidth, convUnitWeightHeight, inChansPerGroup,
+            tileKernelShape, convUnitWeightHeight, inChansPerGroup,
             convUnitInputLoadElemsPerCycle, numConvUnits,
             target.getConvUnitCoeffLoadBytesPerCycle(), floatActivations,
             params.inputDilation);
