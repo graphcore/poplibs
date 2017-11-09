@@ -179,6 +179,7 @@ getConvPartialnx1CycleEstimate(unsigned convGroups,
                                unsigned convUnitInputLoadElemsPerCycle,
                                unsigned numConvUnitsPerTile,
                                unsigned convUnitCoeffLoadBytesPerCycle,
+                               unsigned numWorkerContexts,
                                bool floatWeights,
                                const std::vector<unsigned> &inputDilation);
 static unsigned
@@ -390,12 +391,11 @@ getConvPartialnx1CycleEstimate(unsigned convGroups,
                                unsigned convUnitInputLoadElemsPerCycle,
                                unsigned numConvUnitsPerTile,
                                unsigned convUnitCoeffLoadBytesPerCycle,
+                               unsigned numWorkerContexts,
                                bool floatWeights,
                                const std::vector<unsigned> &inputDilation)
 {
   uint64_t cycles = 0;
-  const auto numWorkerContexts = 6;
-
   auto dilationFactor = std::accumulate(inputDilation.begin(),
                                         inputDilation.end(), 1UL,
                                         std::multiplies<std::size_t>());
@@ -422,6 +422,7 @@ getConvPartialnx1CycleEstimate(unsigned convGroups,
                         worklist, convGroups, numInGroups, numOutGroups,
                         convUnitInputLoadElemsPerCycle,
                         numConvUnitsPerTile, convUnitCoeffLoadBytesPerCycle,
+                        numWorkerContexts,
                         floatWeights, useDeltaEdgesForConvPartials(numEdges))
              * convGroups;
   } else {
@@ -450,6 +451,7 @@ getConvPartialnx1CycleEstimate(unsigned convGroups,
                         inChansPerGroup, convUnitInputLoadElemsPerCycle,
                         numConvUnitsPerTile,
                         convUnitCoeffLoadBytesPerCycle,
+                        numWorkerContexts,
                         floatWeights,
                         useDeltaEdgesForConvPartials(numEdges))
              * convGroups;
@@ -713,7 +715,9 @@ estimatePartialCalcCycles(const poplar::Target &target,
             tileNumInGroups, tileNumOutGroups,
             tileKernelShape, convUnitWeightHeight, inChansPerGroup,
             convUnitInputLoadElemsPerCycle, numConvUnits,
-            target.getConvUnitCoeffLoadBytesPerCycle(), floatActivations,
+            target.getConvUnitCoeffLoadBytesPerCycle(),
+            target.getNumWorkerContexts(),
+            floatActivations,
             params.inputDilation);
     }
     break;

@@ -65,9 +65,9 @@ getConvPartial1x1SupervisorCycleEstimate(
     unsigned convUnitInputLoadElemsPerCycle,
     unsigned numConvUnitsPerTile,
     unsigned convUnitCoeffLoadBytesPerCycle,
+    unsigned numWorkerContexts,
     bool floatWeights,
     bool useDeltasForEdges) {
-  const auto numWorkerContexts = 6;
   uint64_t maxWorkerCycles = 0;
   uint64_t minWorkerCycles = workerList.size() < numWorkerContexts ?
                              0 : std::numeric_limits<uint64_t>::max();
@@ -121,6 +121,7 @@ getConvPartialnx1SupervisorCycleEstimate(
     unsigned convUnitInputLoadElemsPerCycle,
     unsigned numConvUnitsPerTile,
     unsigned convUnitCoeffLoadBytesPerCycle,
+    unsigned numWorkerContexts,
     bool floatWeights,
     unsigned useDeltaForEdges) {
   unsigned usedContexts = workerPartitions.size();
@@ -129,7 +130,6 @@ getConvPartialnx1SupervisorCycleEstimate(
                         * numConvUnitsPerTile
                         * (floatWeights ? 4 : 2)
                          / convUnitCoeffLoadBytesPerCycle;
-  const unsigned numWorkerContexts = 6;
   uint64_t cycles = 0;
   for (auto k = 0U; k != kernelSize; ++k) {
     // load coefficients

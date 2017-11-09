@@ -1533,6 +1533,7 @@ createConvPartial1x1OutVertex(Graph &graph,
                         convUnitInputLoadElemsPerCycle);
   graph.setInitialValue(v["convUnitCoeffLoadBytesPerCycle"],
                         convUnitCoeffLoadBytesPerCycle);
+  graph.setInitialValue(v["numWorkerContexts"], contextsPerVertex);
   graph.setFieldSize(v["worklists"], worklist.size());
   for (unsigned i = 0;i < worklist.size(); ++i) {
     auto t = graph.addConstantTensor("unsigned", {worklist[i].size()},
@@ -1799,6 +1800,7 @@ createConvPartialnx1Vertex(Graph &graph,
                         convUnitInputLoadElemsPerCycle);
   graph.setInitialValue(v["convUnitCoeffLoadBytesPerCycle"],
                         convUnitCoeffLoadBytesPerCycle);
+  graph.setInitialValue(v["numWorkerContexts"], contextsPerVertex);
   graph.setFieldSize(v["worklists"], worklist.size());
   for (unsigned i = 0;i < worklist.size(); ++i) {
     auto t = graph.addConstantTensor("unsigned", {worklist[i].size()},

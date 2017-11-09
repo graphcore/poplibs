@@ -42,8 +42,9 @@ public:
   SimOnlyField<unsigned> dataPathWidth;
   SimOnlyField<unsigned> convUnitInputLoadElemsPerCycle;
   SimOnlyField<unsigned> convUnitCoeffLoadBytesPerCycle;
+  SimOnlyField<unsigned> numWorkerContexts;
   bool compute() {
-    const auto numContexts = worklists.size() / (kernelSizeY * kernelSizeX);
+    const auto usedContexts = worklists.size() / (kernelSizeY * kernelSizeX);
     assert(numConvGroups * numOutGroups * numInGroups == weights.size());
     assert(out.size() == numOutGroups * numConvGroups);
     assert(zeroWorklist.size() % 2 == 0);
@@ -66,9 +67,9 @@ public:
                                   ig];
           for (unsigned ky = 0; ky < kernelSizeY; ++ky) {
             for (unsigned kx = 0; kx < kernelSizeX; ++kx) {
-              for (unsigned context = 0; context < numContexts; ++context) {
+              for (unsigned context = 0; context < usedContexts; ++context) {
                 const auto &wl =
-                    worklists[(ky * kernelSizeX + kx) * numContexts + context];
+                    worklists[(ky * kernelSizeX + kx) * usedContexts + context];
                 unsigned wi = 0;
                 while (wi < wl.size()) {
                   auto outOffset  = wl[wi];
@@ -121,7 +122,7 @@ public:
   std::uint64_t getCycleEstimate() const {
     std::vector<std::vector<std::vector<unsigned>>> workerPartitions;
     const auto kernelSize = kernelSizeY * kernelSizeX;
-    const auto numContexts = worklists.size() / kernelSize;
+    const auto usedContexts = worklists.size() / kernelSize;
 
     // find max worker cost for zeroing
     const bool isFloat = std::is_same<AccumType, float>::value;
@@ -135,11 +136,11 @@ public:
     uint64_t zeroCycles = ((maxWorkerZeroCycles + 8) * 6 + 16)
                           * numConvGroups * numOutGroups;
 
-    for (unsigned context = 0; context < numContexts; ++context) {
+    for (unsigned context = 0; context < usedContexts; ++context) {
       workerPartitions.emplace_back();
       for (auto k = 0U; k != kernelSize; ++k) {
         workerPartitions.back().emplace_back();
-        const auto &wl = worklists[k * numContexts + context];
+        const auto &wl = worklists[k * usedContexts + context];
         for (auto wi = 0U; wi < wl.size(); wi += 3) {
           auto numFieldPos = (wl[wi + 1] + outStride - 1) / outStride;
           workerPartitions.back().back().push_back(numFieldPos);
@@ -159,6 +160,7 @@ public:
                                                convUnitInputLoadElemsPerCycle,
                                                outChansPerGroup,
                                                convUnitCoeffLoadBytesPerCycle,
+                                               numWorkerContexts,
                                                floatWeights,
                                                useDeltasForEdges);
   }
@@ -256,10 +258,10 @@ public:
   SimOnlyField<unsigned> dataPathWidth;
   SimOnlyField<unsigned> convUnitInputLoadElemsPerCycle;
   SimOnlyField<unsigned> convUnitCoeffLoadBytesPerCycle;
-  SimOnlyField<bool> useDeltaForEdges;
+  SimOnlyField<unsigned> numWorkerContexts;
 
   bool compute() {
-    const auto numContexts = worklists.size();
+    const auto usedContexts = worklists.size();
     assert(numConvGroups * numOutGroups * numInGroups == weights.size());
     assert(out.size() == numOutGroups * numConvGroups);
     for (unsigned cg = 0; cg < numConvGroups; ++cg) {
@@ -268,7 +270,7 @@ public:
           const auto &w = weights[cg * numOutGroups * numInGroups +
                                   og * numInGroups +
                                   ig];
-          for (unsigned context = 0; context < numContexts; ++context) {
+          for (unsigned context = 0; context < usedContexts; ++context) {
             const auto &wl = worklists[context];
             unsigned wi = 0;
             while (wi < wl.size()) {
@@ -309,8 +311,8 @@ public:
   std::uint64_t getCycleEstimate() const {
     // find max work to bt done per worker
     std::vector<std::vector<unsigned>> workerPartitions;
-    const auto numContexts = worklists.size();
-    for (unsigned context = 0; context != numContexts; ++context) {
+    const auto usedContexts = worklists.size();
+    for (unsigned context = 0; context != usedContexts; ++context) {
       workerPartitions.emplace_back();
       const auto &wl = worklists[context];
       assert(wl.size() % 3 == 0);
@@ -327,8 +329,9 @@ public:
                                                convUnitInputLoadElemsPerCycle,
                                                outChansPerGroup,
                                                convUnitCoeffLoadBytesPerCycle,
+                                               numWorkerContexts,
                                                floatWeights,
-                                               useDeltaForEdges
+                                               useDeltasForEdges
                                                );
   }
 };
