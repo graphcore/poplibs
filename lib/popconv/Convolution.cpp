@@ -1198,38 +1198,39 @@ calculateWeightMapping(const Graph &graph,
   const auto numOutChans = params.getNumOutputChansPerConvGroup();
   assert(numOutChans % plan.partialChansPerGroup == 0);
   const auto numOutChanGroups = numOutChans / plan.partialChansPerGroup;
-  const auto kernelHeight = params.kernelShape[0];
-  const auto kernelWidth = params.kernelShape[1];
   std::vector<std::size_t> weightsShape = {
     params.getNumConvGroups(),
     numOutChanGroups,
-    numInChanGroups,
-    kernelHeight,
-    kernelWidth,
-    plan.partialChansPerGroup,
-    plan.inChansPerGroup
+    numInChanGroups
   };
+  weightsShape.insert(weightsShape.end(), params.kernelShape.begin(),
+                      params.kernelShape.end());
+  weightsShape.push_back(plan.partialChansPerGroup);
+  weightsShape.push_back(plan.inChansPerGroup);
   boost::icl::interval_map<unsigned, std::set<unsigned>> weightsToTiles;
   iterateTilePartition(graph, params, plan,
                        [&](unsigned tile, const ConvTileIndices &,
                            const ConvSlice &slice) {
     std::vector<Interval<std::size_t>> intervals;
-    addFlattenedRegions(weightsShape,
-                        {slice.cgBegin,
-                         slice.outChanGroupBegin,
-                         slice.inChanGroupBegin,
-                         slice.kernelBegin[0],
-                         slice.kernelBegin[1],
-                         0,
-                         0},
-                        {slice.cgEnd,
-                         slice.outChanGroupEnd,
-                         slice.inChanGroupEnd,
-                         slice.kernelEnd[0],
-                         slice.kernelEnd[1],
-                         plan.partialChansPerGroup,
-                         plan.inChansPerGroup},
-                        intervals);
+    std::vector<std::size_t> sliceBegin = {
+      slice.cgBegin,
+      slice.outChanGroupBegin,
+      slice.inChanGroupBegin
+    };
+    sliceBegin.insert(sliceBegin.end(), slice.kernelBegin.begin(),
+                      slice.kernelBegin.end());
+    sliceBegin.push_back(0);
+    sliceBegin.push_back(0);
+    std::vector<std::size_t> sliceEnd = {
+      slice.cgEnd,
+      slice.outChanGroupEnd,
+      slice.inChanGroupEnd
+    };
+    sliceEnd.insert(sliceEnd.end(), slice.kernelEnd.begin(),
+                    slice.kernelEnd.end());
+    sliceEnd.push_back(plan.partialChansPerGroup);
+    sliceEnd.push_back(plan.inChansPerGroup);
+    addFlattenedRegions(weightsShape, sliceBegin, sliceEnd, intervals);
     for (const auto &interval : intervals) {
       weightsToTiles += std::make_pair(toIclInterval(interval),
                                        std::set<unsigned>({tile}));
@@ -1320,9 +1321,9 @@ computeBiasMapping(Graph &graph, const Tensor &out) {
   const auto dType = out.elementType();
   const auto dTypeSize = dType == "float" ? 4 : 2;
   const auto numTiles = graph.getTarget().getNumTiles();
-  const unsigned numChans = out.dim(0) * out.dim(4);
+  const unsigned numChans = out.dim(0) * out.dim(out.rank() - 1);
   // Create a view of the output where channels are the outermost dimension.
-  auto outRegrouped = out.dimShufflePartial({4}, {1})
+  auto outRegrouped = out.dimShufflePartial({out.rank() - 1}, {1})
                          .reshape({numChans, out.numElements() / numChans});
   const auto outRegroupedMapping = graph.getTileMapping(outRegrouped);
   // Build a map from the bias to the set of tiles that access it.
