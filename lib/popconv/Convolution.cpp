@@ -23,6 +23,7 @@
 #include <unordered_set>
 #include "util/Compiler.hpp"
 #include "util/print.hpp"
+#include "util/VectorUtils.hpp"
 #include <boost/icl/interval_map.hpp>
 
 using namespace poplar;
@@ -118,21 +119,6 @@ std::ostream& operator<<(std::ostream &os, const ConvParams &p) {
   printContainer(p.kernelDilation, os);
   os << "\n";
   return os;
-}
-
-template <class T>
-static T product(const std::vector<T> &v) {
-  return std::accumulate(v.begin(), v.end(), T(1), std::multiplies<T>());
-}
-
-template <class To, class From>
-static std::vector<To> vectorConvert(const std::vector<From> &in) {
-  std::vector<To> out;
-  out.reserve(in.size());
-  for (const auto &x : in) {
-    out.emplace_back(x);
-  }
-  return out;
 }
 
 static unsigned

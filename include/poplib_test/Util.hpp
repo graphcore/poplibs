@@ -1,13 +1,16 @@
 #ifndef _poplib_test_Util_hpp_
 #define _poplib_test_Util_hpp_
+#include <cassert>
 #include <memory>
 #include <random>
+#include <boost/lexical_cast.hpp>
 #include <boost/multi_array.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Program.hpp>
 #include <poplib_test/Util.hpp>
+#include <stdexcept>
 #include <util/Compiler.hpp>
 
 namespace poplib_test {
@@ -125,6 +128,91 @@ enum class FPDataType {
 const char *asString(const FPDataType &type);
 std::ostream &operator<<(std::ostream &os, const FPDataType &type);
 std::istream &operator>>(std::istream &in, FPDataType &type);
+
+template <class T>
+struct ShapeOption {
+  bool canBeBroadcast = false;
+  std::vector<T> val;
+
+  ShapeOption() = default;
+  ShapeOption(const T &x) : canBeBroadcast(true) {
+    val.push_back(x);
+  }
+
+  void broadcast(unsigned numDims) {
+    if (!canBeBroadcast)
+      return;
+    assert(val.size() == 1);
+    val.resize(numDims, val.back());
+    canBeBroadcast = false;
+  }
+};
+
+template <class T>
+std::ostream &operator<<(std::ostream &os, const ShapeOption<T> &s);
+template <class T>
+std::istream &operator>>(std::istream &in, ShapeOption<T> &s);
+
+inline void skipSpaces(std::istream &in) {
+  while (std::isspace(in.peek()))
+    in.ignore();
+}
+
+template <class T>
+std::ostream &operator<<(std::ostream &os, const ShapeOption<T> &s) {
+  if (s.canBeBroadcast) {
+    assert(s.val.size() == 1);
+    return os << s.val.front();
+  }
+  os << '{';
+  bool needComma = false;
+  for (const auto x : s.val) {
+    if (needComma)
+      os << ", ";
+    os << x;
+    needComma = true;
+  }
+  return os << '}';
+}
+
+template <class T>
+inline T readInteger(std::istream &in) {
+  std::string number;
+  auto c = in.peek();
+  if (!std::isdigit(c) && c != '-')
+    throw std::runtime_error("Invalid shape; expected digit");
+  do {
+    number += in.get();
+  } while (std::isdigit(in.peek()));
+  return boost::lexical_cast<T>(number);
+}
+
+template <class T>
+std::istream &operator>>(std::istream &in, ShapeOption<T> &s) {
+  auto c = in.peek();
+  if (c == '{') {
+    in.ignore();
+    while (true) {
+      skipSpaces(in);
+      auto c = in.peek();
+      s.val.push_back(readInteger<T>(in));
+      skipSpaces(in);
+      c = in.get();
+      if (c == '}') {
+        break;
+      } else if (c != ',') {
+        throw std::runtime_error("Invalid shape; expected `,' or `}'");
+      }
+    }
+  } else {
+    if (!std::isdigit(c) && c != '-') {
+      throw std::runtime_error("Invalid shape; expected `{' or digit");
+    }
+    s.canBeBroadcast = true;
+    s.val.push_back(readInteger<T>(in));
+  }
+  return in;
+}
 
 } // End namespace poplib_test
 } // End namespace ref.

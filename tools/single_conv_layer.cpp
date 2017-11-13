@@ -24,6 +24,7 @@
 #include <poplib_test/Pass.hpp>
 #include <poplib_test/Util.hpp>
 #include <util/Compiler.hpp>
+#include "util/VectorUtils.hpp"
 #include <random>
 
 using namespace poplar;
@@ -37,18 +38,15 @@ int main(int argc, char **argv) {
   bool useCpuModel;
   unsigned fwdInChansPerConvGroup;
   unsigned fwdOutChansPerConvGroup;
-  unsigned width;
-  unsigned height;
-  unsigned kernelHeight;
-  unsigned kernelWidth;
+  ShapeOption<std::size_t> inputFieldSizeOption;
+  ShapeOption<std::size_t> kernelSizeOption;
   unsigned numConvGroups = 1;
-  std::vector<int> paddingLower = {0, 0};
-  std::vector<int> paddingUpper = {0, 0};
-  std::vector<unsigned> inDilation = {1, 1};
-  std::vector<int> kernelPaddingLower = {0, 0};
-  std::vector<int> kernelPaddingUpper = {0, 0};
-  std::vector<unsigned> kernelDilation = {1, 1};
-  std::vector<unsigned> stride = {1, 1};
+  ShapeOption<int> paddingLowerOption, paddingUpperOption, paddingOption;
+  ShapeOption<unsigned> inDilationOption;
+  ShapeOption<int> kernelPaddingLowerOption, kernelPaddingUpperOption,
+                   kernelPaddingOption;
+  ShapeOption<unsigned> kernelDilationOption;
+  ShapeOption<unsigned> strideOption;
   unsigned batchSize;
   bool bias;
   FPDataType dataType;
@@ -60,17 +58,6 @@ int main(int argc, char **argv) {
   bool reportPlan;
   bool reportTensorStorage;
 
-  /* these are used when the same value is shared across both height and width*/
-  unsigned kernelSize;
-  int sharedPadding;
-  int sharedPaddingHeight;
-  int sharedPaddingWidth;
-  unsigned sharedInDilation;
-  int sharedKernelPadding;
-  int sharedKernelPaddingHeight;
-  int sharedKernelPaddingWidth;
-  unsigned sharedKernelDilation;
-  unsigned sharedStride;
   Pass pass = Pass::ALL;
   popconv::ConvOptions convOptions;
   popconv::PlanningCache cache;
@@ -85,18 +72,13 @@ int main(int argc, char **argv) {
     ("output-channels",
      po::value<unsigned>(&fwdOutChansPerConvGroup)->required(),
      "Number of output channels per grouped convolution")
-    ("width", po::value<unsigned>(&width)->required(), "Field width")
-    ("height", po::value<unsigned>(&height)->required(), "Field height")
+    ("field",
+     po::value<ShapeOption<std::size_t>>(&inputFieldSizeOption)->required(),
+      "Field size")
     ("kernel-size",
-      po::value<unsigned>(&kernelSize)->default_value(1),
+      po::value<ShapeOption<std::size_t>>(&kernelSizeOption)->default_value(1),
      "Size of square kernel. If set, it is an error to also set either "
      "kernel-height and/or kernel-width")
-    ("kernel-height",
-      po::value<unsigned>(&kernelHeight)->default_value(1),
-     "Size of kernel height")
-    ("kernel-width",
-      po::value<unsigned>(&kernelWidth)->default_value(1),
-     "Size of kernel width")
     ("bias", po::value<bool>(&bias)->default_value(true),
      "Add a bias to each channel")
     ("data-type",
@@ -105,72 +87,34 @@ int main(int argc, char **argv) {
     ("partials-type",
      po::value<FPDataType>(&partialsType)->default_value(FPDataType::FLOAT),
      "Type of partials")
-    ("padding", po::value<int>(&sharedPadding)->default_value(0),
-     "Amount of zero padding for height and width. If set, it is an "
-     "error to also set any other padding value")
-    ("padding-height", po::value<int>(&sharedPaddingHeight)->default_value(0),
-     "Amount of zero padding in the height dimension, upper and lower")
-    ("padding-width", po::value<int>(&sharedPaddingWidth)->default_value(0),
-     "Amount of zero padding in the width dimension, upper and lower")
-    ("padding-height-lower",
-     po::value<int>(&paddingLower[0])->default_value(0),
-     "Amount of zero padding in the height dimension, lower edge")
-    ("padding-width-lower",
-     po::value<int>(&paddingLower[1])->default_value(0),
-     "Amount of zero padding in the width dimension, lower edge")
-    ("padding-height-upper",
-     po::value<int>(&paddingUpper[0])->default_value(0),
-     "Amount of zero padding in the height dimension, upper edge")
-    ("padding-width-upper",
-     po::value<int>(&paddingUpper[1])->default_value(0),
-     "Amount of zero padding in the width dimension, upper edge")
-    ("in-dilation", po::value<unsigned>(&sharedInDilation)->default_value(1),
-     "Input dilation for both height and width. If set, it is an error "
-     "to also set either inDilation-height and/or inDilation-width")
-    ("in-dilation-height",
-     po::value<unsigned>(&inDilation[0])->default_value(1),
-     "Input dilation in the height dimension")
-    ("in-dilation-width", po::value<unsigned>(&inDilation[1])->default_value(1),
-     "Input dilation in the width dimension")
+    ("padding", po::value<ShapeOption<int>>(&paddingOption)->default_value(0),
+     "Amount of zero padding to add to the start and end of each dimension")
+    ("padding-upper",
+     po::value<ShapeOption<int>>(&paddingUpperOption)->default_value(0),
+     "Amount of zero padding to add at the end of each dimension")
+    ("padding-lower",
+     po::value<ShapeOption<int>>(&paddingLowerOption)->default_value(0),
+     "Amount of zero padding to add at the start of each dimension")
+    ("in-dilation",
+     po::value<ShapeOption<unsigned>>(&inDilationOption)->default_value(1),
+     "Input dilation")
     ("kernel-padding",
-     po::value<int>(&sharedKernelPadding)->default_value(0),
-     "Amount of zero kernel padding for height and width. If set, it is an "
-     "error to also set any other kernel padding value")
-    ("kernel-padding-height",
-     po::value<int>(&sharedKernelPaddingHeight)->default_value(0),
-     "Amount of zero kernel padding in the height dimension, upper and lower")
-    ("kernel-padding-width",
-     po::value<int>(&sharedKernelPaddingWidth)->default_value(0),
-     "Amount of zero kernel padding in the width dimension, upper and lower")
-    ("kernel-padding-height-lower",
-     po::value<int>(&kernelPaddingLower[0])->default_value(0),
-     "Amount of zero kernel padding in the height dimension, lower edge")
-    ("kernel-padding-width-lower",
-     po::value<int>(&kernelPaddingLower[1])->default_value(0),
-     "Amount of zero kernel padding in the width dimension, lower edge")
-    ("kernel-padding-height-upper",
-     po::value<int>(&kernelPaddingUpper[0])->default_value(0),
-     "Amount of zero kernel padding in the height dimension, upper edge")
-    ("kernel-padding-width-upper",
-     po::value<int>(&kernelPaddingUpper[1])->default_value(0),
-     "Amount of zero kernel padding in the width dimension, upper edge")
+     po::value<ShapeOption<int>>(&kernelPaddingOption)->default_value(0),
+     "Amount of zero kernel padding to add at the start and end of each"
+     "dimension")
+    ("kernel-padding-upper",
+     po::value<ShapeOption<int>>(&kernelPaddingUpperOption)->default_value(0),
+     "Amount of zero kernel padding to add at the start of each dimension")
+    ("kernel-padding-lower",
+     po::value<ShapeOption<int>>(&kernelPaddingLowerOption)->default_value(0),
+     "Amount of zero kernel padding to add at the end of each dimension")
     ("kernel-dilation",
-     po::value<unsigned>(&sharedKernelDilation)->default_value(1),
-     "Kernel dilation for both height and width. If set, it is an error "
-     "to also set either kernelDilation-height and/or kernelDilation-width")
-    ("kernel-dilation-height",
-     po::value<unsigned>(&kernelDilation[0])->default_value(1),
-     "Kernel dilation in the height dimension")
-    ("kernel-dilation-width",
-     po::value<unsigned>(&kernelDilation[1])->default_value(1),
-     "Kernel dilation in the width dimension")
-    ("stride", po::value<unsigned>(&sharedStride)->default_value(1),
-     "Stride for both height and width. If set, it is an error "
-     "to also set either stride-height and/or stride-width")
-    ("stride-height", po::value<unsigned>(&stride[0])->default_value(1),
-     "Stride in the height dimension")
-    ("stride-width", po::value<unsigned>(&stride[1])->default_value(1),
-     "Stride in the width dimension")
+     po::value<ShapeOption<unsigned>>(&kernelDilationOption)
+         ->default_value(1),
+     "Kernel dilation")
+    ("stride",
+     po::value<ShapeOption<unsigned>>(&strideOption)->default_value(1),
+     "Stride")
     ("single-phase",
      po::value<Pass>(&pass)->default_value(pass),
      "Run phase all | fwd | bwd | wu")
@@ -214,7 +158,12 @@ int main(int argc, char **argv) {
   try {
     po::store(po::parse_command_line(argc, argv, desc), vm);
     if (vm.count("help")) {
-      std::cout << desc << "\n";
+      std::cout << desc << "\n\n";
+      std::cout <<
+"A multi-dimensional shape can be specified using a brace enclosed comma\n"
+"separated list, for example --stride={1,2}. You may also specify a single\n"
+"number without braces in which case that value is used for each dimension,\n"
+"for example --stride=2\n";
       return 1;
     }
     po::notify(vm);
@@ -223,27 +172,16 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (!vm["kernel-size"].defaulted()) {
-    if (!vm["kernel-height"].defaulted()) {
-      std::cerr << "--kernel as well as --kernel-height set\n";
-      return 1;
-    }
-    if (!vm["kernel-width"].defaulted()) {
-      std::cerr << "--kernel as well as --kernel-width set\n";
-      return 1;
-    }
-    kernelHeight = kernelSize;
-    kernelWidth = kernelSize;
-  }
+  auto &inputFieldSize = inputFieldSizeOption.val;
+  const auto numFieldDims = inputFieldSize.size();
+
+  kernelSizeOption.broadcast(numFieldDims);
+  auto &kernelSize = kernelSizeOption.val;
 
   if (!vm["padding"].defaulted()) {
     const char *conflictingOptions[] = {
-      "padding-height",
-      "padding-width",
-      "padding-height-lower",
-      "padding-width-lower",
-      "padding-height-upper",
-      "padding-width-upper",
+      "padding-lower",
+      "padding-upper"
     };
     for (auto option : conflictingOptions) {
       if (!vm[option].defaulted()) {
@@ -251,56 +189,22 @@ int main(int argc, char **argv) {
         return 1;
       }
     }
-    std::fill(paddingLower.begin(), paddingLower.end(), sharedPadding);
-    std::fill(paddingUpper.begin(), paddingUpper.end(), sharedPadding);
+    paddingLowerOption = paddingOption;
+    paddingUpperOption = paddingOption;
   }
 
-  if (!vm["padding-height"].defaulted()) {
-    if (!vm["padding-height-lower"].defaulted()) {
-      std::cerr << "--padding-height as well as --padding-height-lower set\n";
-      return 1;
-    }
-    if (!vm["padding-height-upper"].defaulted()) {
-      std::cerr << "--padding-height as well as --padding-height-upper set\n";
-      return 1;
-    }
-    paddingLower[0] = sharedPaddingHeight;
-    paddingUpper[0] = sharedPaddingHeight;
-  }
+  paddingLowerOption.broadcast(numFieldDims);
+  auto &paddingLower = paddingLowerOption.val;
+  paddingUpperOption.broadcast(numFieldDims);
+  auto &paddingUpper = paddingUpperOption.val;
 
-  if (!vm["padding-width"].defaulted()) {
-    if (!vm["padding-width-lower"].defaulted()) {
-      std::cerr << "--padding-width as well as --padding-width-lower set\n";
-      return 1;
-    }
-    if (!vm["padding-width-upper"].defaulted()) {
-      std::cerr << "--padding-width as well as --padding-width-upper set\n";
-      return 1;
-    }
-    paddingLower[1] = sharedPaddingWidth;
-    paddingUpper[1] = sharedPaddingWidth;
-  }
-
-  if (!vm["in-dilation"].defaulted()) {
-    if (!vm["in-dilation-height"].defaulted()) {
-      std::cerr << "--in-dilation as well as --in-dilation-height set\n";
-      return 1;
-    }
-    if (!vm["in-dilation-width"].defaulted()) {
-      std::cerr << "--in-dilation as well as --in-dilation-width set\n";
-      return 1;
-    }
-    std::fill(inDilation.begin(), inDilation.end(), sharedInDilation);
-  }
+  inDilationOption.broadcast(numFieldDims);
+  auto &inDilation = inDilationOption.val;
 
   if (!vm["kernel-padding"].defaulted()) {
     const char *conflictingOptions[] = {
-      "kernel-padding-height",
-      "kernel-padding-width",
-      "kernel-padding-height-lower",
-      "kernel-padding-width-lower",
-      "kernel-padding-height-upper",
-      "kernel-padding-width-upper",
+      "kernel-padding-lower",
+      "kernel-padding-upper",
     };
     for (auto option : conflictingOptions) {
       if (!vm[option].defaulted()) {
@@ -308,67 +212,19 @@ int main(int argc, char **argv) {
         return 1;
       }
     }
-    std::fill(kernelPaddingLower.begin(), kernelPaddingLower.end(),
-              sharedKernelPadding);
-    std::fill(kernelPaddingUpper.begin(), kernelPaddingUpper.end(),
-              sharedKernelPadding);
+    kernelPaddingLowerOption = kernelPaddingOption;
+    kernelPaddingUpperOption = kernelPaddingOption;
   }
 
-  if (!vm["kernel-padding-height"].defaulted()) {
-    if (!vm["kernel-padding-height-lower"].defaulted()) {
-      std::cerr << "--kernel-padding-height as well as "
-                   "--kernel-padding-height-lower set\n";
-      return 1;
-    }
-    if (!vm["kernel-padding-height-upper"].defaulted()) {
-      std::cerr << "--kernel-padding-height as well as "
-                   "--kernel-padding-height-upper set\n";
-      return 1;
-    }
-    kernelPaddingLower[0] = sharedKernelPaddingHeight;
-    kernelPaddingUpper[0] = sharedKernelPaddingHeight;
-  }
+  kernelPaddingLowerOption.broadcast(numFieldDims);
+  auto &kernelPaddingLower = kernelPaddingLowerOption.val;
+  kernelPaddingUpperOption.broadcast(numFieldDims);
+  auto &kernelPaddingUpper = kernelPaddingLowerOption.val;
 
-  if (!vm["kernel-padding-width"].defaulted()) {
-    if (!vm["kernel-padding-width-lower"].defaulted()) {
-      std::cerr << "--kernel-padding-width as well as "
-                   "--kernel-padding-width-lower set\n";
-      return 1;
-    }
-    if (!vm["kernel-padding-width-upper"].defaulted()) {
-      std::cerr << "--kernel-padding-width as well as "
-                   "--kernel-padding-width-upper set\n";
-      return 1;
-    }
-    kernelPaddingLower[1] = sharedKernelPaddingWidth;
-    kernelPaddingUpper[1] = sharedKernelPaddingWidth;
-  }
-
-  if (!vm["kernel-dilation"].defaulted()) {
-    if (!vm["kernel-dilation-height"].defaulted()) {
-      std::cerr << "--kernel-dilation as well as "
-                   "--kernel-dilation-height set\n";
-      return 1;
-    }
-    if (!vm["kernel-dilation-width"].defaulted()) {
-      std::cerr << "--kernel-dilation as well as --kernel-dilation-width set\n";
-      return 1;
-    }
-    std::fill(kernelDilation.begin(), kernelDilation.end(),
-              sharedKernelDilation);
-  }
-
-  if (!vm["stride"].defaulted()) {
-    if (!vm["stride-height"].defaulted()) {
-      std::cerr << "--stride as well as --stride-height set\n";
-      return 1;
-    }
-    if (!vm["stride-width"].defaulted()) {
-      std::cerr << "--stride as well as --stride-width set\n";
-      return 1;
-    }
-    std::fill(stride.begin(), stride.end(), sharedStride);
-  }
+  kernelDilationOption.broadcast(numFieldDims);
+  auto &kernelDilation = kernelDilationOption.val;
+  strideOption.broadcast(numFieldDims);
+  auto &stride = strideOption.val;
   const auto fwdInChans = fwdInChansPerConvGroup * numConvGroups;
   const auto fwdOutChans = fwdOutChansPerConvGroup * numConvGroups;
 
@@ -389,8 +245,8 @@ int main(int argc, char **argv) {
   const auto params =
       popconv::ConvParams(dataTypeStr,
                           batchSize,
-                          {height, width},
-                          {kernelHeight, kernelWidth},
+                          inputFieldSize,
+                          kernelSize,
                           fwdInChansPerConvGroup,
                           fwdOutChansPerConvGroup,
                           stride,
@@ -415,9 +271,7 @@ int main(int argc, char **argv) {
   }
 
 
-  const auto outHeight = params.getOutputHeight();
-  const auto outWidth = params.getOutputWidth();
-
+  const auto outFieldSize = params.getOutputFieldShape();
   const auto bwdParams = getGradientParams(params);
 
   // Create tensors.
@@ -499,16 +353,18 @@ int main(int argc, char **argv) {
   Engine engine(dev, graph, {std::move(fwdProg), std::move(revProg)});
 
   boost::multi_array<double, 3>
-      hostPrevAct(boost::extents[batchSize][fwdInChans][height * width]);
+      hostPrevAct(boost::extents[batchSize][fwdInChans]
+                                [product(inputFieldSize)]);
   boost::multi_array<double, 4>
       hostWeights(boost::extents[numConvGroups]
                                 [fwdOutChansPerConvGroup]
                                 [fwdInChansPerConvGroup]
-                                [kernelHeight * kernelWidth]);
+                                [product(kernelSize)]);
   boost::multi_array<double, 1>
       hostBiases(boost::extents[fwdOutChans]);
   boost::multi_array<double, 3>
-      hostNextAct(boost::extents[batchSize][fwdOutChans][outHeight * outWidth]);
+      hostNextAct(boost::extents[batchSize][fwdOutChans]
+                                [product(outFieldSize)]);
   std::mt19937 randomEngine;
   writeRandomValues(hostPrevAct, -1.0, +5.0, randomEngine);
   writeRandomValues(hostWeights, -1.0, +7.0, randomEngine);
@@ -534,12 +390,12 @@ int main(int argc, char **argv) {
   copy(dataTypeStr, rawHostNextAct.get(), hostNextAct);
   boost::multi_array<double, 3>
       modelNextAct(boost::extents[batchSize][fwdOutChans]
-                                 [outHeight * outWidth]);
-  poplib_test::conv::convolution({height, width},
+                                 [product(outFieldSize)]);
+  poplib_test::conv::convolution(vectorConvert<unsigned>(inputFieldSize),
                                  inDilation,
                                  paddingLower,
                                  paddingUpper,
-                                 {kernelHeight, kernelWidth},
+                                 vectorConvert<unsigned>(kernelSize),
                                  kernelDilation,
                                  kernelPaddingLower,
                                  kernelPaddingUpper,
@@ -554,10 +410,11 @@ int main(int argc, char **argv) {
   if (doBwdPass || doWuPass) {
     boost::multi_array<double, 3> hostZDeltas(
       boost::extents[batchSize][bwdParams.getNumInputChans()]
-                    [outHeight * outWidth]
+                    [product(outFieldSize)]
     );
     boost::multi_array<double, 3> hostPrevDeltas(
-      boost::extents[batchSize][params.getNumInputChans()][height * width]
+      boost::extents[batchSize][params.getNumInputChans()]
+                    [product(inputFieldSize)]
     );
     auto modelWeights = hostWeights;
     auto modelBiases = hostBiases;
@@ -581,13 +438,13 @@ int main(int argc, char **argv) {
     if (doBwdPass) {
       boost::multi_array<double, 3>
           modelPrevDeltas(boost::extents[batchSize][fwdInChans]
-                                        [height * width]);
+                                        [product(inputFieldSize)]);
       poplib_test::conv::convolutionBackward(
-              {height, width},
+              vectorConvert<unsigned>(inputFieldSize),
               inDilation,
               paddingLower,
               paddingUpper,
-              {kernelHeight, kernelWidth},
+              vectorConvert<unsigned>(kernelSize),
               kernelDilation,
               kernelPaddingLower,
               kernelPaddingUpper,
@@ -599,11 +456,11 @@ int main(int argc, char **argv) {
                                    relativeTolerance);
     }
     if (doWuPass) {
-      poplib_test::conv::weightUpdate({height, width},
+      poplib_test::conv::weightUpdate(vectorConvert<unsigned>(inputFieldSize),
                                       inDilation,
                                       paddingLower,
                                       paddingUpper,
-                                      {kernelHeight, kernelWidth},
+                                      vectorConvert<unsigned>(kernelSize),
                                       kernelDilation,
                                       kernelPaddingLower,
                                       kernelPaddingUpper,
