@@ -20,6 +20,10 @@
 
 namespace popconv {
 
+static bool equalsOne(unsigned x) {
+  return x == 1;
+};
+
 std::uint64_t getNumberOfMACs(const ConvParams &params) {
   std::uint64_t numMACs = params.getNumConvGroups() *
                           params.getBatchSize() *
@@ -723,16 +727,19 @@ estimatePartialCalcCycles(const poplar::Target &target,
     break;
   case Plan::Method::MAC:
     {
-      const auto outputStrideX = params.inputDilation[1];
-      const auto outputStrideY = params.inputDilation[0];
-      const auto numOutRows =
-          tileNumOutGroups * tileNumGroupedConv *
-          (tileOutElements / tileOutWidth + outputStrideY - 1) / outputStrideY *
-          tileBatchElements;
+      const auto outputStrideX = params.inputDilation.back();
+      unsigned numActiveOutRows =
+          tileNumOutGroups * tileNumGroupedConv * tileBatchElements;
+      for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
+        const auto dimActiveRows =
+            (tileOutShape[dim] + params.inputDilation[dim] - 1) /
+            params.inputDilation[dim];
+        numActiveOutRows *= dimActiveRows;
+      }
       auto vertexRuntime =
           cache->mEstimateConvPartialHorizontalMacCycles(
             tileNumInGroups,
-            numOutRows,
+            numActiveOutRows,
             tileOutWidth,
             outputStrideX,
             tileKernelFieldElements / tileKernelWidth,
@@ -749,10 +756,10 @@ estimatePartialCalcCycles(const poplar::Target &target,
       assert(tileOutElements == tileOutWidth);
       assert(tileBatchElements == 1);
       assert(tileNumInGroups == 1);
-      assert(params.stride[0] == 1);
-      assert(params.stride[1] == 1);
-      assert(params.inputDilation[0] == 1);
-      assert(params.inputDilation[1] == 1);
+      assert(std::all_of(params.stride.begin(),
+                         params.stride.end(), equalsOne));
+      assert(std::all_of(params.inputDilation.begin(),
+                         params.inputDilation.end(), equalsOne));
       const auto workerOutWidth =
           (tileOutWidth + target.getNumWorkerContexts() - 1) /
           target.getNumWorkerContexts();
@@ -774,7 +781,6 @@ static unsigned
 estimateReduceCycles(const poplar::Target &target,
                      const ConvParams &params, const Plan &plan) {
   const auto inChanTileSplit = plan.inChanTileSplit;
-  auto equalsOne = [](unsigned x) { return x == 1; };
   if (inChanTileSplit == 1 &&
       std::all_of(plan.kernelTileSplit.begin(),
                   plan.kernelTileSplit.end(), equalsOne))
@@ -1662,10 +1668,6 @@ static Plan getFullyConnectedBwdPlan(const poplar::Target &target,
 Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
              ConvOptions options) {
   const auto &target = graph.getTarget();
-  assert (params.kernelShape.size() == 2);
-  assert (params.stride.size() == 2);
-  assert (params.inputPaddingLower.size() == 2);
-  assert (params.inputPaddingUpper.size() == 2);
   if (options.pass == Pass::FC_TRAINING_WU ||
       options.pass == Pass::FC_TRAINING_BWD) {
     auto fwdParams = getFullyConnectedFwdParams(params, options);
@@ -1697,6 +1699,10 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
       return *match->second;
   }
   if (options.useWinograd) {
+    assert(params.kernelShape.size() == 2);
+    assert(params.stride.size() == 2);
+    assert(params.inputPaddingLower.size() == 2);
+    assert(params.inputPaddingUpper.size() == 2);
     if (options.winogradPatchSize != 4 ||
         params.stride[0] != 1 || params.stride[1] != 1 ||
         params.inputDilation[0] != 1 || params.inputDilation[1] != 1 ||
