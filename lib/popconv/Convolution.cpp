@@ -1943,12 +1943,14 @@ createOuterProductVertex(
   assert(params.stride[1] == 1);
   assert(params.inputDilation[0] == 1);
   assert(params.inputDilation[1] == 1);
-  for (unsigned dim = 0; dim != 2; ++dim) {
+
+  for (unsigned dim = 0; dim != params.getNumFieldDims(); ++dim) {
     in = pad(graph, in, params.inputPaddingLower[dim],
-             params.inputPaddingUpper[dim], 2 + dim);
+             params.inputPaddingUpper[dim], 3 + dim);
     weights = pad(graph, weights, params.kernelPaddingLower[dim],
                   params.kernelPaddingUpper[dim], 3 + dim);
   }
+
   assert(in.dim(1) == 1);
   assert(in.dim(2) == 1);
   assert(in.dim(3) == 1);
