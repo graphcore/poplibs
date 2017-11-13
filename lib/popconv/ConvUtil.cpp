@@ -226,7 +226,8 @@ getOutputShape(const ConvParams &params) {
 
 ConvParams canonicalizeParams(const ConvParams &params) {
   ConvParams newParams = params;
-  for (unsigned dim = 0; dim != 2; ++dim) {
+  const auto numFieldDims = params.getNumFieldDims();
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     const auto paddedInputSize = newParams.getPaddedDilatedInputSize(dim);
     const auto paddedKernelSize = newParams.getPaddedDilatedKernelSize(dim);
     const auto postConvolveSize =
