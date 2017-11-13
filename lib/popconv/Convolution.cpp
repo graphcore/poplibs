@@ -1163,15 +1163,15 @@ createInputImpl(Graph &graph, const ConvParams &params,
   const auto inNumChans = params.getNumInputChansPerConvGroup();
   const auto inChansPerGroup = getInChansPerGroup(plan, inNumChans);
   assert(params.getNumInputChansPerConvGroup() % inChansPerGroup == 0);
-  auto t =
-      graph.addTensor(params.dType,
-                      {params.getNumConvGroups(),
-                       params.getNumInputChansPerConvGroup() / inChansPerGroup,
-                       params.getBatchSize(),
-                       params.inputFieldShape[0],
-                       params.inputFieldShape[1],
-                       inChansPerGroup},
-                           name);
+  std::vector<std::size_t> tensorShape = {
+    params.getNumConvGroups(),
+    params.getNumInputChansPerConvGroup() / inChansPerGroup,
+    params.getBatchSize(),
+  };
+  tensorShape.insert(tensorShape.end(), params.inputFieldShape.begin(),
+                     params.inputFieldShape.end());
+  tensorShape.push_back(inChansPerGroup);
+  auto t = graph.addTensor(params.dType, tensorShape, name);
   t = unsplitActivationChanGroups(t);
   mapActivations(graph, params, plan, t);
   return t;
@@ -1290,14 +1290,16 @@ createWeightsImpl(Graph &graph,
   const auto weightInChansPerGroup = getWeightInChansPerGroup(plan, inNumChans);
   assert(inNumChans % weightInChansPerGroup == 0);
   const auto weightNumInChanGroups = inNumChans / weightInChansPerGroup;
-  auto weights = graph.addTensor(dType, {params.getNumConvGroups(),
-                                         weightNumOutChanGroups,
-                                         weightNumInChanGroups,
-                                         params.kernelShape[0],
-                                         params.kernelShape[1],
-                                         weightOutChansPerGroup,
-                                         weightInChansPerGroup},
-                                 name);
+  std::vector<std::size_t> weightsShape = {
+    params.getNumConvGroups(),
+    weightNumOutChanGroups,
+    weightNumInChanGroups
+  };
+  weightsShape.insert(weightsShape.end(), params.kernelShape.begin(),
+                      params.kernelShape.end());
+  weightsShape.push_back(weightOutChansPerGroup);
+  weightsShape.push_back(weightInChansPerGroup);
+  auto weights = graph.addTensor(dType, weightsShape, name);
   weights = ungroupWeights(weights);
   mapWeights(graph, weights, params, plan);
   return weights;
