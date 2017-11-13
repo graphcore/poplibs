@@ -2636,11 +2636,6 @@ convolution(Graph &graph, const poplar::Tensor &in_,
 
   verifyInputShapes(params, in, weights);
 
-  auto outputShape = getOutputShape(params);
-  // Output shape doesn't include grouped conv.
-  const auto numConvGroups = params.getNumConvGroups();
-  outputShape.insert(outputShape.begin(), numConvGroups);
-  outputShape.back() /= numConvGroups;
   const auto originalParams = params;
   const auto originalPlan = plan;
   convolutionPreprocess(graph, params, plan, &in, &weights);

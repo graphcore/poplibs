@@ -216,14 +216,6 @@ partitionConvPartialByWorker(unsigned batchElements,
   return partitionByWorker;
 }
 
-std::vector<std::size_t>
-getOutputShape(const ConvParams &params) {
-  return {params.getBatchSize(),
-          params.getOutputHeight(),
-          params.getOutputWidth(),
-          params.getNumOutputChans()};
-}
-
 ConvParams canonicalizeParams(const ConvParams &params) {
   ConvParams newParams = params;
   const auto numFieldDims = params.getNumFieldDims();

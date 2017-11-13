@@ -88,8 +88,6 @@ partitionConvPartialByWorker(unsigned batchElements,
                              unsigned numContexts,
                              const std::vector<unsigned> &inputDilation);
 
-std::vector<std::size_t> getOutputShape(const ConvParams &params);
-
 ConvParams canonicalizeParams(const ConvParams &params);
 
 // Given a set of parameters, return the set of params that
