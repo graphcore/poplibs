@@ -2060,9 +2060,28 @@ static bool writtenRangeEqualsOutputRange(
     std::pair<unsigned, unsigned> outRange,
     std::pair<unsigned, unsigned> kernelIndexRange,
     const ConvParams &params) {
-  auto writtenYRange =
+  auto writtenRange =
       getOutputRange(dim, outRange, kernelIndexRange, params);
-  return writtenYRange == outRange;
+  return writtenRange == outRange;
+}
+
+static bool writtenRangeEqualsOutputRange(
+    const std::vector<unsigned> &outRangeBegin,
+    const std::vector<unsigned> &outRangeEnd,
+    const std::vector<unsigned> &kernelRangeBegin,
+    const std::vector<unsigned> &kernelRangeEnd,
+    const ConvParams &params) {
+  const auto numFieldDims = params.getNumFieldDims();
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    if (!writtenRangeEqualsOutputRange(
+             dim, {outRangeBegin[dim], outRangeEnd[dim]},
+             {kernelRangeBegin[dim], kernelRangeEnd[dim]},
+             params
+         )) {
+      return false;
+    }
+  }
+  return true;
 }
 
 static std::vector<std::vector<ConvOutputSlice>>
@@ -2143,20 +2162,12 @@ calcPartialConvOutput(Graph &graph,
                       Tensor in, Tensor weights, Tensor out) {
   const auto batchBegin = slice.batchBegin;
   const auto batchEnd = slice.batchEnd;
-  const auto outYBegin = slice.outFieldBegin[0];
-  const auto outYEnd = slice.outFieldEnd[0];
-  const auto outXBegin = slice.outFieldBegin[1];
-  const auto outXEnd = slice.outFieldEnd[1];
   const auto outZGroupBegin = slice.outChanGroupBegin;
   const auto outZGroupEnd = slice.outChanGroupEnd;
   const auto cgBegin = slice.cgBegin;
   const auto cgEnd = slice.cgEnd;
-  const auto kernelYBegin = slice.kernelBegin[0];
-  const auto kernelYEnd = slice.kernelEnd[0];
   const auto inZGroupBegin = slice.inChanGroupBegin;
   const auto inZGroupEnd = slice.inChanGroupEnd;
-  const auto tileKernelHeight = kernelYEnd - kernelYBegin;
-  const auto kernelSizeX = weights.dim(4);
   const auto outChansPerGroup = plan.partialChansPerGroup;
   const auto &target = graph.getTarget();
 
@@ -2173,11 +2184,14 @@ calcPartialConvOutput(Graph &graph,
                                                    target);
       assert(outChansPerGroup % outChansPerPass == 0);
       const auto passesPerOutputGroup = outChansPerGroup / outChansPerPass;
+      auto equalsOne = [](unsigned x) { return x == 1; };
       bool nx1Vertex =
-          kernelSizeX != 1 || tileKernelHeight != 1 ||
-          (params.inputDilation[1] != 1 || params.inputDilation[0] != 1) ||
-          !writtenRangeEqualsOutputRange(0, {outYBegin, outYEnd},
-                                         {kernelYBegin, kernelYEnd}, params);
+          getNumElementsInSlice(slice.kernelBegin, slice.kernelEnd) != 1 ||
+          !std::all_of(params.inputDilation.begin(), params.inputDilation.end(),
+                       equalsOne) ||
+          !writtenRangeEqualsOutputRange(slice.outFieldBegin, slice.outFieldEnd,
+                                         slice.kernelBegin, slice.kernelEnd,
+                                         params);
       useConvPartial1x1OutVertex = !nx1Vertex &&
                                    passesPerOutputGroup == 1;
       zeroPartialsBefore = false;
@@ -2224,6 +2238,8 @@ calcPartialConvOutput(Graph &graph,
       break;
     case Plan::Method::OUTER_PRODUCT:
       {
+        const auto outXBegin = slice.outFieldBegin.back();
+        const auto outXEnd = slice.outFieldEnd.back();
         const auto perWorkerRegions =
             splitRegionsBetweenWorkers(target, {{outXBegin, outXEnd}}, 1);
         for (const auto &entry : perWorkerRegions) {
