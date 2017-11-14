@@ -311,19 +311,6 @@ applyTensorMapping(
   }
 }
 
-static void
-verifyStrideAndPaddingDimensions(const ConvParams &params) {
-  if (params.stride.size() != 2) {
-    throw popstd::poplib_error("Only 2D stride is valid");
-  }
-  if (params.inputPaddingLower.size() != 2) {
-    throw popstd::poplib_error("Only 2D inputPaddingLower is valid");
-  }
-  if (params.inputPaddingUpper.size() != 2) {
-    throw popstd::poplib_error("Only 2D inputPaddingUpper is valid");
-  }
-}
-
 static std::string
 getCapitalizedFieldDimName(unsigned dim, unsigned numFieldDims) {
   assert(dim < numFieldDims);
@@ -387,10 +374,6 @@ static void verifyInputShapes(const ConvParams &params,
       weights.dim(weights.rank() - 1)) {
     throw popstd::poplib_error("Kernel input channel size does not match "
                                "convolution parameters");
-  }
-  if (numFieldDims != 2) {
-    throw popstd::poplib_error(std::to_string(numFieldDims) +
-                               "D convolutions are not yet supported");
   }
 }
 
@@ -1181,7 +1164,6 @@ Tensor
 createInput(Graph &graph, const ConvParams &params,
             const std::string &name,
             const ConvOptions &options) {
-  verifyStrideAndPaddingDimensions(params);
   const auto plan = getPlan(graph, params, options);
   auto input = createInputImpl(graph, params, name, plan);
   return actsToExternalShape(input);
@@ -1310,7 +1292,6 @@ Tensor
 createWeights(Graph &graph,
               const ConvParams &params, const std::string &name,
               const ConvOptions &options) {
-  verifyStrideAndPaddingDimensions(params);
   const auto plan = getPlan(graph, params, options);
   return weightsToExternalShape(createWeightsImpl(graph, params, name, plan));
 }
@@ -2653,7 +2634,6 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   }
   weights = weightsToInternalShape(weights);
   auto in = actsToInternalShape(in_, params.numConvGroups);
-  verifyStrideAndPaddingDimensions(params);
   const auto dType = in.elementType();
   auto plan = getPlan(graph, params, options);
 
@@ -2712,7 +2692,6 @@ convolution(Graph &graph, const poplar::Tensor &in_,
 }
 
 static uint64_t getFlops(const ConvParams &params) {
-  verifyStrideAndPaddingDimensions(params);
   return (2 * getNumberOfMACs(params));
 }
 
@@ -2730,7 +2709,6 @@ uint64_t getWuFlops(const ConvParams &params) {
 
 static double getPerfectCycleCount(const Graph &graph,
                                    const ConvParams &params) {
-  verifyStrideAndPaddingDimensions(params);
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
   auto numMacs = getNumberOfMACs(params);
@@ -2962,7 +2940,6 @@ convolutionWeightUpdate(Graph &graph,
                         Sequence &prog,
                         const std::string &debugPrefix,
                         const ConvOptions &options) {
-  verifyStrideAndPaddingDimensions(params);
   auto weightDeltas = calculateWeightDeltas(graph, zDeltas, activations, params,
                                             prog, debugPrefix, options);
   // Add the weight deltas to the weights.
@@ -3392,7 +3369,6 @@ fullyConnectedWeightTranspose(Graph &graph,
 void reportPlanInfo(std::ostream &out,
                     const poplar::Graph &graph,
                     const ConvParams &params, const ConvOptions &options) {
-  verifyStrideAndPaddingDimensions(params);
   auto plan = getPlan(graph, params, options);
   out << plan;
 }
