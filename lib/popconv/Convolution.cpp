@@ -2271,9 +2271,12 @@ calcPartialSums(Graph &graph,
     if (slice.outChanGroupBegin == slice.outChanGroupEnd ||
         slice.cgBegin == slice.cgEnd)
       return;
-    assert(plan.kernelTileSplit[1] == 1);
-    unsigned partialIndex =
-        indices.ic * plan.kernelTileSplit[0] + indices.kernel[0];
+    const auto numFieldDims = params.getNumFieldDims();
+    unsigned partialIndex = indices.ic;
+    for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+      partialIndex = partialIndex * plan.kernelTileSplit[dim] +
+                     indices.kernel[dim];
+    }
     calcPartialConvOutput(graph, plan, dType, tile, slice, params, zeroCS,
                           convolveCS, in, weights, partials[partialIndex]);
   });
