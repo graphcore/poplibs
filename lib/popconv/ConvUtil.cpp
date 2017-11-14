@@ -243,7 +243,8 @@ ConvParams getGradientParams(const ConvParams &params) {
   std::vector<unsigned> bwdStride, bwdInputDilation;
   bwdStride = canonicalParams.inputDilation;
   bwdInputDilation = canonicalParams.stride;
-  for (const auto dim : {0, 1}) {
+  const auto numFieldDims = params.getNumFieldDims();
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     const auto kernelSize = canonicalParams.getPaddedDilatedKernelSize(dim);
     const auto inputPaddingLower = canonicalParams.inputPaddingLower[dim];
     const auto inputPaddingUpper = canonicalParams.inputPaddingUpper[dim];
