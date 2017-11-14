@@ -922,7 +922,15 @@ add_test(NAME fully_connected_half_bwd
                 --tiles-per-ipu 16
                 --data-type=half)
 
-add_test(NAME fully_connected_half_wu
+add_test(NAME fully_connected_small_field_half_wu
+        COMMAND fully_connected_layer
+                --single-phase=wu
+                --input-size 4
+                --output-size 4
+                --tiles-per-ipu 16
+                --data-type=half)
+
+add_test(NAME fully_connected_large_field_half_wu
         COMMAND fully_connected_layer
                 --single-phase=wu
                 --input-size 300

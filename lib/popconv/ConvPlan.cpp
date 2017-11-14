@@ -963,8 +963,15 @@ addCycleEstimate(popsolver::Model &m,
 static Plan::Method
 getFullyConnectedWUMethod(const ConvParams &fwdParams,
                           Plan::Method fwdMethod,
+                          unsigned fwdOutChansPerGroups,
                           unsigned fwdInChansPerGroup) {
-  if (fwdParams.getNumOutputChansPerConvGroup() == 1) {
+  const auto wuInChansPerGroup = fwdOutChansPerGroups;
+
+  // Avoid outer product method if the padded input channels per group are not
+  // 1. This is because the current implementation of createOuterProductVertex
+  // only supports channel grouping of 1.
+  if (fwdParams.getNumOutputChansPerConvGroup() == 1 &&
+      wuInChansPerGroup == 1) {
     return Plan::Method::OUTER_PRODUCT;
   }
   const auto wuPartialChansPerGroup = fwdInChansPerGroup;
@@ -1098,6 +1105,7 @@ choosePlan(const poplar::Target &target,
     const auto wuMethod =
         getFullyConnectedWUMethod(params,
                                   convVertexType.method,
+                                  partialChansPerGroup,
                                   inChansPerGroup);
     const auto wuCycles =
         addCycleEstimate(m, fieldTileSplit, kernelTileSplit, batchTileSplit,
@@ -1628,7 +1636,9 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
   plan.inChanTileSplit = fwdPlan.outChanTileSplit;
   plan.outChanTileSplit = fwdPlan.inChanTileSplit;
   plan.partialChansPerGroup = fwdPlan.inChansPerGroup;
+
   plan.method = getFullyConnectedWUMethod(fwdParams, fwdPlan.method,
+                                          fwdPlan.partialChansPerGroup,
                                           fwdPlan.inChansPerGroup);
   // TODO make the fwd pass aware that it would be good to use a grouping of
   // 16 if possible.
