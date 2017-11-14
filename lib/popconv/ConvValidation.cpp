@@ -3,11 +3,12 @@
 
 void popconv::
 validateLayerParams(const ConvParams &params) {
-  std::vector<std::string> dimName = {"height", "width"};
-  for (const auto &dim : {0, 1}) {
+  const auto numFieldDims = params.getNumFieldDims();
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     if (params.getPaddedDilatedInputSize(dim) < 0) {
-      throw popstd::poplib_error("Negative " + dimName[dim] + " padding " +
-                                 "truncates more than the input size");
+      throw popstd::poplib_error("Negative padding in dimension " +
+                                 std::to_string(dim) +
+                                 " truncates more than the input size");
     }
   }
   if (params.dType != "half" && params.dType != "float") {
