@@ -1920,12 +1920,11 @@ createOuterProductVertex(
     Tensor weights,
     const Tensor &out) {
   const auto dataPathWidth = graph.getTarget().getDataPathWidth();
-  assert(params.stride[0] == 1);
-  assert(params.stride[1] == 1);
-  assert(params.inputDilation[0] == 1);
-  assert(params.inputDilation[1] == 1);
+  const auto numFieldDims = params.getNumFieldDims();
+  assert(product(params.stride) == 1);
+  assert(product(params.inputDilation) == 1);
 
-  for (unsigned dim = 0; dim != params.getNumFieldDims(); ++dim) {
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     in = pad(graph, in, params.inputPaddingLower[dim],
              params.inputPaddingUpper[dim], 3 + dim);
     weights = pad(graph, weights, params.kernelPaddingLower[dim],
@@ -1934,26 +1933,49 @@ createOuterProductVertex(
 
   assert(in.dim(1) == 1);
   assert(in.dim(2) == 1);
-  assert(in.dim(3) == 1);
-  assert(in.dim(5) == 1);
+
+  // check all input field dimensions other than the innermost is 1
+  for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
+    assert(in.dim(dim + 3) == 1);
+  }
+  assert(in.dim(in.rank() - 1) == 1);
+
+  // check every field dimensions of the weights tensor is 1
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    assert(weights.dim(dim + 3) == 1);
+  }
+
   assert(weights.dim(2) == 1);
-  assert(weights.dim(3) == 1);
-  assert(weights.dim(4) == 1);
-  assert(weights.dim(6) == 1);
+  assert(weights.dim(weights.rank() - 1) == 1);
   assert(out.dim(1) == weights.dim(1));
   assert(out.dim(2) == 1);
-  assert(out.dim(3) == 1);
-  assert(out.dim(4) == in.dim(4));
-  assert(out.dim(5) == weights.dim(5));
-  const auto chansPerGroup = weights.dim(5);
+
+  // check all output field dimensions other than the innermost is 1
+  for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
+    assert(out.dim(dim + 3) == 1);
+  }
+  assert(out.dim(3 + numFieldDims - 1) == in.dim(3 + numFieldDims - 1));
+  assert(out.dim(out.rank() - 1) == weights.dim(weights.rank() - 2));
+  const auto chansPerGroup = weights.dim(weights.rank() - 2);
   const auto dType = in.elementType();
+  const auto outShape = out.shape();
+
+  // create output tensor slice vectors
+  std::vector<std::size_t> sliceBegin(numFieldDims + 1);
+  std::vector<std::size_t> sliceEnd;
+  sliceEnd.insert(sliceEnd.begin(), outShape.begin() + 1,
+                  outShape.begin() + numFieldDims + 2);
+  sliceBegin.push_back(xBegin);
+  sliceEnd.push_back(xEnd);
+
   for (auto cg = cgBegin; cg != cgEnd; ++cg) {
     const auto chanBegin = chanGroupBegin * chansPerGroup;
     const auto chanEnd = chanGroupEnd * chansPerGroup;
     auto inWindow = in[cg].flatten().slice(xBegin, xEnd);
+    sliceBegin[0] = chanGroupBegin;
+    sliceEnd[0] = chanGroupEnd;
     auto outWindow =
-        out[cg].slice({chanGroupBegin, 0, 0, xBegin, 0},
-                      {chanGroupEnd, 1, 1, xEnd, chansPerGroup})
+        out[cg].slice(sliceBegin, sliceEnd)
                .reshape({chanGroupEnd - chanGroupBegin,
                          (xEnd - xBegin) * chansPerGroup});
     auto weightsWindow = weights[cg].flatten().slice(chanBegin, chanEnd);
@@ -2185,6 +2207,7 @@ calcPartialConvOutput(Graph &graph,
     zeroPartialsBefore = false;
     break;
   }
+
   if (useConvPartial1x1OutVertex) {
     assert(!zeroPartialsBefore);
     createConvPartial1x1OutVertex(graph, plan, dType, tile, slice, params,
