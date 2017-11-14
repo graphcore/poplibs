@@ -7,6 +7,7 @@ add_library(popstd SHARED
   Cast.cpp
   CircBuf.cpp
   codelets.cpp
+  popstdCycleEstimators.cpp
   DynamicSlice.cpp
   GraphFunction.cpp
   HadamardProduct.cpp
@@ -26,7 +27,7 @@ add_library(popstd SHARED
   ${CMAKE_SOURCE_DIR}/include/popstd/exceptions.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/GraphFunction.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/HadamardProduct.hpp
-  ${CMAKE_SOURCE_DIR}/include/popstd/Operations.hpp  
+  ${CMAKE_SOURCE_DIR}/include/popstd/Operations.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/Pad.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/SubtractFrom.hpp
   ${CMAKE_SOURCE_DIR}/include/popstd/TileMapping.hpp

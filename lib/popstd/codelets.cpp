@@ -1,4 +1,6 @@
 #include <popstd/codelets.hpp>
+#include "popstdCycleEstimators.hpp"
+
 #if defined(__linux__) || defined(__APPLE__)
 #include <dlfcn.h>
 #endif
@@ -34,6 +36,9 @@ static std::string findGraphProg() {
 
 void addCodelets(poplar::Graph &graph) {
   graph.addCodelets(findGraphProg());
+  for (auto& p : popstd::cyclesFunctionTable) {
+    graph.registerCycleEstimator(p.first, std::move(p.second));
+  }
 }
 
 } // namespace popstd

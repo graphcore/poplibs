@@ -617,7 +617,6 @@ public:
     for (unsigned i = 0; i < in.size(); ++i) {
       unsigned overhead = 6;
       unsigned numElem = in[i].size();
-      bool isFloat = std::is_same<InType, float>::value;
       unsigned vectorWidth = 1;
       unsigned cyclesPerVector = 1;
       if (std::is_same<InType, float>::value) {
@@ -712,6 +711,7 @@ public:
     for (unsigned i = 0; i < in1.size(); ++i) {
       // E = A and B, F = A or B, G = F andc E, result = 1 andc G
       const auto numBoolOpCycles = std::is_same<InType, bool>::value ? 4 : 0;
+      /// IS THIS WRONG? Shouldn't it be in1[i].size() below?
       cycles += comparisonOpsCycles<InType>(dataPathWidth, in1.size(),
                                             numBoolOpCycles);
     }
@@ -1736,7 +1736,6 @@ public:
     for (unsigned i = 0; i < in.size(); ++i) {
       unsigned overhead = 6;
       unsigned numElem = in[i].size();
-      bool isFloat = std::is_same<InType, float>::value;
       unsigned vectorWidth = 1;
       unsigned cyclesPerVector = 1;
       if (std::is_same<InType, float>::value) {
