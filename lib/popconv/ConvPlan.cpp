@@ -186,8 +186,10 @@ getConvPartialnx1CycleEstimate(unsigned convGroups,
                                unsigned numWorkerContexts,
                                bool floatWeights,
                                const std::vector<unsigned> &inputDilation);
-static unsigned
-estimateConvPartialHorizontalMacCycles(unsigned tileNumInGroups,
+static std::uint64_t
+estimateConvPartialHorizontalMacCycles(unsigned tileNumConvGroups,
+                                       unsigned tileNumInGroups,
+                                       unsigned tileNumOutGroups,
                                        unsigned numOutRows,
                                        unsigned tileOutWidth,
                                        unsigned outputStrideX,
@@ -426,8 +428,8 @@ getConvPartialnx1CycleEstimate(unsigned convGroups,
                         worklist, convGroups, numInGroups, numOutGroups,
                         convUnitInputLoadElemsPerCycle,
                         numConvUnitsPerTile, convUnitCoeffLoadBytesPerCycle,
-                        numWorkerContexts,
-                        floatWeights, useDeltaEdgesForConvPartials(numEdges))
+                        numWorkerContexts, floatWeights,
+                        useDeltaEdgesForConvPartials(numEdges))
              * convGroups;
   } else {
     // use conv nx1 vertex
@@ -455,8 +457,7 @@ getConvPartialnx1CycleEstimate(unsigned convGroups,
                         inChansPerGroup, convUnitInputLoadElemsPerCycle,
                         numConvUnitsPerTile,
                         convUnitCoeffLoadBytesPerCycle,
-                        numWorkerContexts,
-                        floatWeights,
+                        numWorkerContexts, floatWeights,
                         useDeltaEdgesForConvPartials(numEdges))
              * convGroups;
   }
@@ -546,8 +547,10 @@ estimateExchangeCycles(const poplar::Target &target,
   return numCycles;
 }
 
-static unsigned
-estimateConvPartialHorizontalMacCycles(unsigned tileNumInGroups,
+static std::uint64_t
+estimateConvPartialHorizontalMacCycles(unsigned tileNumConvGroups,
+                                       unsigned tileNumInGroups,
+                                       unsigned tileNumOutGroups,
                                        unsigned numOutRows,
                                        unsigned tileOutWidth,
                                        unsigned outputStrideX,
@@ -561,25 +564,37 @@ estimateConvPartialHorizontalMacCycles(unsigned tileNumInGroups,
   unsigned numPartRows = numOutRows * rowSplitFactor;
   const auto maxPartRows = (numPartRows + numWorkers - 1) / numWorkers;
   const auto workerWholeRows = maxPartRows / rowSplitFactor;
-  const auto workerPartRows = maxPartRows % rowSplitFactor;
+  const auto workerPartRows = maxPartRows % rowSplitFactor ;
   const auto wholeRowConvSize =
       (tileOutWidth + outputStrideX - 1) / outputStrideX;
-  unsigned convCount =
-      workerWholeRows * tileKernelWidth * tileKernelHeight * tileNumInGroups;
-  unsigned totalConvSize = convCount * wholeRowConvSize;
-  if (workerPartRows > 0) {
-    auto pConv = tileKernelWidth * tileKernelHeight * tileNumInGroups;
-    convCount += pConv;
-    totalConvSize +=
-        pConv * ((wholeRowConvSize * workerPartRows + rowSplitFactor - 1) /
-                 rowSplitFactor);
+  std::vector<std::vector<std::vector<unsigned>>> workerPartitions;
+  workerPartitions.emplace_back();
+  const auto kernelSize = tileKernelWidth * tileKernelHeight;
+  for (auto k = 0U; k != kernelSize; ++k) {
+    workerPartitions.back().emplace_back();
+    if (wholeRowConvSize) {
+      for (unsigned r = 0; r != workerWholeRows; ++r) {
+        workerPartitions.back().back().push_back(wholeRowConvSize);
+      }
+      if (workerPartRows) {
+        auto convSize =
+          workerPartRows *
+          (wholeRowConvSize +  rowSplitFactor - 1) / rowSplitFactor;
+        workerPartitions.back().back().push_back(convSize);
+      }
+    }
   }
-  return getConvPartialHorizontalMacCycleEstimate(
-    floatActivations,
+
+  return getConvPartialHorizontalMacSupervisorCycleEstimate(
+    workerPartitions,
+    tileNumConvGroups,
+    tileNumInGroups,
+    tileNumOutGroups,
+    kernelSize,
     inChansPerGroup,
-    convCount, totalConvSize,
-    dataPathWidth
-  );
+    dataPathWidth,
+    numWorkers,
+    floatActivations);
 }
 
 static bool zeroPartials(const ConvParams &params, const Plan &plan) {
@@ -721,24 +736,24 @@ estimatePartialCalcCycles(const poplar::Target &target,
             convUnitInputLoadElemsPerCycle, numConvUnits,
             target.getConvUnitCoeffLoadBytesPerCycle(),
             target.getNumWorkerContexts(),
-            floatActivations,
-            params.inputDilation);
+            floatActivations, params.inputDilation);
     }
     break;
   case Plan::Method::MAC:
     {
       const auto outputStrideX = params.inputDilation.back();
-      unsigned numActiveOutRows =
-          tileNumOutGroups * tileNumGroupedConv * tileBatchElements;
+      unsigned numActiveOutRows = tileBatchElements;
       for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
         const auto dimActiveRows =
             (tileOutShape[dim] + params.inputDilation[dim] - 1) /
             params.inputDilation[dim];
         numActiveOutRows *= dimActiveRows;
       }
-      auto vertexRuntime =
+      computeCycles =
           cache->mEstimateConvPartialHorizontalMacCycles(
+            tileNumGroupedConv,
             tileNumInGroups,
+            tileNumOutGroups,
             numActiveOutRows,
             tileOutWidth,
             outputStrideX,
@@ -748,7 +763,6 @@ estimatePartialCalcCycles(const poplar::Target &target,
             floatActivations,
             inChansPerGroup,
             target.getDataPathWidth());
-      computeCycles = vertexRuntime * numContexts;
     }
     break;
   case Plan::Method::OUTER_PRODUCT:

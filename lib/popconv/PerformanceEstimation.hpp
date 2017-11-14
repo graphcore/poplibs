@@ -19,6 +19,7 @@ getDenseDotProductCycles(bool isFloat, unsigned size, unsigned dataPathWidth) {
   return (size + halfVectorWidth - 1) / halfVectorWidth + 2;
 }
 
+
 template <class InputIterator>
 bool allEqual(InputIterator begin, InputIterator end) {
   if (begin == end)
@@ -34,12 +35,17 @@ bool allEqual(InputIterator begin, InputIterator end) {
 inline std::uint64_t
 getConvPartialHorizontalMacCycleEstimate(
     bool isFloat,
-    unsigned numChans, unsigned convCount, unsigned totalConvSize,
+    unsigned numChans,
+    const std::vector<unsigned> &convSizes,
     unsigned dataPathWidth) {
-  std::uint64_t cycles = 5;
-  cycles +=
-    4 * convCount +
-    totalConvSize * getDenseDotProductCycles(isFloat, numChans, dataPathWidth);
+  uint64_t cycles = 0;
+  for (auto convSize : convSizes) {
+    // 3 to load in offset, out offset and width,
+    // 3 to setup pointers + tapack
+    // 1 additional cycles for pipeline
+    cycles += 7 + convSize * getDenseDotProductCycles(isFloat, numChans,
+                                                      dataPathWidth);
+  }
   return cycles;
 }
 
@@ -63,21 +69,49 @@ getZeroSupervisorVertexCycleEstimate(const std::vector<unsigned> &worklist,
 }
 
 inline std::uint64_t
-getConvPartialHorizontalMacCycleEstimate(
-    bool isFloat,
-    unsigned numChans,
-    const std::vector<unsigned> &convSizes,
-    unsigned dataPathWidth) {
-  const auto convCount = convSizes.size();
-  const auto totalConvSize = std::accumulate(convSizes.begin(), convSizes.end(),
-                                             0U);
-  return getConvPartialHorizontalMacCycleEstimate(isFloat, numChans, convCount,
-                                                  totalConvSize, dataPathWidth);
+getConvPartialHorizontalMacSupervisorCycleEstimate(
+    const std::vector<std::vector<std::vector<unsigned>>> &workerPartitions,
+    unsigned numConvGroups,
+    unsigned numInGroups,
+    unsigned numOutGroups,
+    unsigned kernelSize,
+    unsigned numInChansPerGroup,
+    unsigned dataPathWidth,
+    unsigned numWorkerContexts,
+    bool isFloat) {
+  unsigned usedContexts = workerPartitions.size();
+  uint64_t cycles = 0;
+  uint64_t maxWorkerCycles = 0;
+  uint64_t minWorkerCycles = usedContexts < numWorkerContexts ?
+                               0 : std::numeric_limits<uint64_t>::max();
+  for (auto context = 0U; context != usedContexts; ++context) {
+    uint64_t thisWorkerCycles = 0;
+    for (auto k = 0U; k != kernelSize; ++k) {
+      thisWorkerCycles +=
+        getConvPartialHorizontalMacCycleEstimate(isFloat, numInChansPerGroup,
+                                                 workerPartitions[context][k],
+                                                 dataPathWidth);
+      // to load partition with post increment and branch
+      thisWorkerCycles += 2;
+    }
+    const unsigned workerNonLoopOverhead = 6;
+    thisWorkerCycles += workerNonLoopOverhead;
+    maxWorkerCycles =
+        std::max(maxWorkerCycles, numWorkerContexts * thisWorkerCycles);
+    minWorkerCycles =
+        std::min(minWorkerCycles, numWorkerContexts * thisWorkerCycles);
+  }
+  cycles += std::max(maxWorkerCycles, minWorkerCycles + 11);
+
+  return 6  + numConvGroups
+            * (16 + numOutGroups
+                * (8 + numInGroups
+                   * (2 + cycles)));
 }
 
 inline std::uint64_t
 getConvPartial1x1SupervisorCycleEstimate(
-    const std::vector<std::vector<unsigned>> &workerList,
+    const std::vector<std::vector<unsigned>> &workerPartitions,
     unsigned numConvGroups,
     unsigned numInGroups,
     unsigned numOutGroups,
@@ -87,10 +121,11 @@ getConvPartial1x1SupervisorCycleEstimate(
     unsigned numWorkerContexts,
     bool floatWeights,
     bool useDeltasForEdges) {
+  unsigned usedContexts = workerPartitions.size();
   uint64_t maxWorkerCycles = 0;
-  uint64_t minWorkerCycles = workerList.size() < numWorkerContexts ?
+  uint64_t minWorkerCycles = usedContexts < numWorkerContexts ?
                              0 : std::numeric_limits<uint64_t>::max();
-  for (const auto &worker : workerList) {
+  for (const auto &worker : workerPartitions) {
     uint64_t thisWorkerCycles = 9;
     for (auto wi : worker) {
       const auto numElems =  wi;
@@ -129,8 +164,7 @@ getConvPartial1x1SupervisorCycleEstimate(
 
 inline std::uint64_t
 getConvPartialnx1SupervisorCycleEstimate(
-    const std::vector<std::vector<std::vector<unsigned>>>
-    &workerPartitions,
+    const std::vector<std::vector<std::vector<unsigned>>> &workerPartitions,
     unsigned numConvGroups,
     unsigned numOutGroups,
     unsigned numInGroups,

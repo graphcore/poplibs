@@ -147,7 +147,6 @@ public:
         }
       }
     }
-
     const bool floatWeights = std::is_same<FPType, float>::value;
     return zeroCycles +
       getConvPartialnx1SupervisorCycleEstimate(workerPartitions,
@@ -347,61 +346,127 @@ template class ConvPartial1x1Out<float, float, false>;
 
 /* Perform a series of 1x1 convolutions using the MAC instruction were the
  * axis of accumulation is across the vector. */
-template <typename InType, typename AccumType>
-class ConvPartialHorizontalMac: public Vertex {
+template <class FPType, class AccumType>
+class ConvPartialHorizontalMac : public SupervisorVertex {
 public:
-  Vector<Input<Vector<InType>>> in;
-  Vector<Input<Vector<InType>>> weights;
+  Vector<Input<Vector<FPType>>> in;
+  Vector<Input<Vector<FPType>>> weights;
   Vector<InOut<Vector<AccumType>>> out;
-
+  Vector<Input<Vector<unsigned>>> worklists;
+  Input<Vector<unsigned>> zeroWorklist;
+  unsigned numOutGroups;
+  unsigned numInGroups;
+  unsigned kernelSize;
   unsigned inStride;
   unsigned outStride;
+  unsigned numConvGroups;
   bool flipOut;
+
+  SimOnlyField<unsigned> outChansPerGroup;
+  SimOnlyField<unsigned> inChansPerGroup;
   SimOnlyField<unsigned> dataPathWidth;
-
+  SimOnlyField<unsigned> numWorkerContexts;
   bool compute() {
-    unsigned numInRows = in.size();
-    assert(weights.size() == numInRows);
-    assert(out.size() == numInRows);
+    const auto usedContexts = worklists.size() / kernelSize;
+    assert(numConvGroups * numOutGroups * numInGroups == weights.size());
+    assert(out.size() == numOutGroups * numConvGroups);
+    assert(in.size() == numInGroups * numConvGroups);
+    assert(zeroWorklist.size() % 2 == 0);
 
-    for (unsigned i = 0; i != numInRows; ++i) {
-      const auto outWidth = out[i].size();
-      const auto numChans = weights[i].size();
-      assert(in[i].size() % numChans == 0);
-      const auto inWidth = in[i].size() / numChans;
-      assert((outWidth - 1) * inStride == (inWidth - 1) * outStride);
-      for (unsigned outX = 0, inX = 0; outX < outWidth; outX += outStride,
-                                                        inX += inStride) {
-        for (unsigned chan = 0; chan != numChans; ++chan) {
-          auto product = in[i][inX * numChans + chan] * weights[i][chan];
-          if (flipOut) {
-            out[i][outWidth - 1 - outX] += product;
-          } else {
-            out[i][outX] += product;
+    for (unsigned cg = 0; cg != numConvGroups; ++cg) {
+      for (unsigned og = 0; og != numOutGroups; ++og) {
+        for (unsigned context = 0; context != zeroWorklist.size()  / 2;
+              ++context) {
+          for (unsigned i = 0; i != zeroWorklist[2 * context + 1]; ++i) {
+            out[cg * numOutGroups + og][zeroWorklist[2 * context] + i] = 0;
+          }
+        }
+      }
+    }
+    for (unsigned cg = 0; cg != numConvGroups; ++cg) {
+      for (unsigned og = 0; og != numOutGroups; ++og) {
+        for (unsigned ig = 0; ig != numInGroups; ++ig) {
+          const auto &w = weights[cg * numOutGroups * numInGroups +
+                                  og * numInGroups +
+                                  ig];
+          for (unsigned k = 0; k != kernelSize; ++k) {
+            for (unsigned context = 0; context < usedContexts; ++context) {
+              const auto &wl =
+                  worklists[k * usedContexts + context];
+              unsigned wi = 0;
+              while (wi < wl.size()) {
+                auto outOffset  = wl[wi];
+                auto outWidth   = wl[wi + 1];
+                auto inOffset   = wl[wi + 2];
+                wi += 3;
+                auto numConv = (outWidth + outStride - 1) / outStride;
+                for (unsigned i = 0; i != numConv; ++i) {
+                  for (unsigned oc = 0; oc != outChansPerGroup; ++oc) {
+                    const auto outX =
+                        flipOut ? (outWidth - 1 - i * outStride) :
+                                  i * outStride;
+                    const auto outIndex =
+                        (outOffset + outX) * outChansPerGroup + oc;
+                    AccumType sum = out[cg * numOutGroups + og][outIndex];
+                    for (unsigned ic = 0; ic != inChansPerGroup; ++ic) {
+                      const auto inIndex =
+                        (inOffset + i * inStride) * inChansPerGroup + ic;
+                      const auto weightIndex =
+                            k * outChansPerGroup * inChansPerGroup +
+                            oc * inChansPerGroup + ic;
+                      sum += in[cg * numInGroups + ig][inIndex]
+                               * w[weightIndex];
+                    }
+                    out[cg * numOutGroups + og][outIndex] = sum;
+                  }
+                }
+              }
+            }
           }
         }
       }
     }
     return true;
   }
-
-  uint64_t getCycleEstimate() const {
-    unsigned numInRows = in.size();
-    assert(numInRows != 0);
-    const auto numChans = weights[0].size();
-    std::vector<unsigned> convSizes;
-    convSizes.reserve(numInRows);
-    for (unsigned i = 0; i != numInRows; ++i) {
-      const auto outWidth = out[i].size();
-      const auto numOutputs = (outWidth + outStride - 1) / outStride;
-      convSizes.push_back(numOutputs);
+  std::uint64_t getCycleEstimate() const {
+    const bool floatActivations = std::is_same<FPType, float>::value;
+    const bool floatPartials = std::is_same<AccumType, float>::value;
+    const unsigned zerosVectorWidth = dataPathWidth / (floatPartials ? 32 : 16);
+    unsigned maxWorkerZeroCycles = 0;
+    for (unsigned context = 0; context != zeroWorklist.size() / 2; ++context) {
+      auto numVectors = (zeroWorklist[2 * context + 1] + zerosVectorWidth - 1)
+                        / zerosVectorWidth;
+      maxWorkerZeroCycles = std::max(maxWorkerZeroCycles, numVectors);
     }
-    bool isFloat = std::is_same<InType, float>::value;
-    return getConvPartialHorizontalMacCycleEstimate(isFloat, numChans,
-                                                    convSizes, dataPathWidth);
+    uint64_t zeroCycles = (((maxWorkerZeroCycles + 4) * numOutGroups + 5) *
+                           numWorkerContexts + 8) * numConvGroups;
+
+    std::vector<std::vector<std::vector<unsigned>>> workerPartitions;
+    const auto usedContexts = worklists.size() / kernelSize;
+    for (unsigned context = 0; context < usedContexts; ++context) {
+      workerPartitions.emplace_back();
+      for (auto k = 0U; k != kernelSize; ++k) {
+        workerPartitions.back().emplace_back();
+        const auto &wl = worklists[k * usedContexts + context];
+        for (auto wi = 0U; wi < wl.size(); wi += 3) {
+          auto numFieldPos = (wl[wi + 1] + outStride - 1) / outStride;
+          workerPartitions.back().back().push_back(numFieldPos);
+        }
+      }
+    }
+    return zeroCycles +
+      getConvPartialHorizontalMacSupervisorCycleEstimate(
+          workerPartitions,
+          numConvGroups,
+          numInGroups,
+          numOutGroups,
+          kernelSize,
+          inChansPerGroup,
+          dataPathWidth,
+          numWorkerContexts,
+          floatActivations);
   }
 };
-
 template class ConvPartialHorizontalMac<float, float>;
 template class ConvPartialHorizontalMac<half, float>;
 template class ConvPartialHorizontalMac<half, half>;
