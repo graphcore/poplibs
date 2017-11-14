@@ -2468,26 +2468,28 @@ convolutionImpl(Graph &graph, const Plan &plan,
                          plan.partialChansPerGroup);
   const auto numBatchGroups = in.dim(2);
   const auto dType = in.elementType();
-  const auto outNumChans = weights.dim(1) * weights.dim(5);
+  const auto outNumChans = weights.dim(1) * weights.dim(weights.rank() - 2);
   const auto partialChansPerGroup = plan.partialChansPerGroup;
   assert(outNumChans % partialChansPerGroup == 0);
   const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
   const auto inChanTileSplit = plan.inChanTileSplit;
-  assert(plan.kernelTileSplit[1] == 1);
-  const auto kernelYTileSplit = plan.kernelTileSplit[0];
+  const auto kernelTileSplit = product(plan.kernelTileSplit);
 
   const auto partialType = plan.getPartialType();
 
   // Calculate a set of partial sums of the convolutions.
-  Tensor partials = graph.addTensor(partialType,
-                                     {inChanTileSplit * kernelYTileSplit,
-                                      params.getNumConvGroups(),
-                                      partialNumChanGroups,
-                                      numBatchGroups,
-                                      params.getOutputHeight(),
-                                      params.getOutputWidth(),
-                                      partialChansPerGroup},
-                                    "partials");
+  std::vector<std::size_t> partialsShape = {
+    inChanTileSplit * kernelTileSplit,
+    params.getNumConvGroups(),
+    partialNumChanGroups,
+    numBatchGroups
+  };
+  const auto numFieldDims = params.getNumFieldDims();
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    partialsShape.push_back(params.getOutputSize(dim));
+  }
+  partialsShape.push_back(partialChansPerGroup);
+  Tensor partials = graph.addTensor(partialType, partialsShape, "partials");
   prog.add(calcPartialSums(graph, plan, params, dType, in, weights, partials,
                            debugPrefix));
   std::vector<ComputeSet> reduceComputeSets;
