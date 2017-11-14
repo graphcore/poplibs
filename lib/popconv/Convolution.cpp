@@ -3225,13 +3225,12 @@ addToChannel(Graph &graph, const Tensor &actsUngrouped,
       )[0];
   const auto dType = acts.elementType();
   const auto &target = graph.getTarget();
-  const auto outChansPerGroup = acts.dim(4);
+  const auto outChansPerGroup = acts.dim(acts.rank() - 1);
   const auto addendByGroup =
       addend.reshape({addend.numElements() / outChansPerGroup,
                       outChansPerGroup});
-  const auto firstInGroup = acts.slice(0, 1, 4)
-                                .reshapePartial(2, 5,
-                                                {acts.dim(2) * acts.dim(3)});
+  const auto firstInGroup = acts.slice(0, 1, acts.rank() - 1)
+                                .flatten(2, acts.rank());
   const auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
   const unsigned numTiles = firstInGroupMapping.size();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
