@@ -124,18 +124,18 @@ public:
     const auto kernelSize = kernelSizeY * kernelSizeX;
     const auto usedContexts = worklists.size() / kernelSize;
 
-    // find max worker cost for zeroing
-    const bool isFloat = std::is_same<AccumType, float>::value;
-    const unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    unsigned maxWorkerZeroCycles = 0;
-    for (unsigned context = 0; context != zeroWorklist.size() / 2; ++context) {
-      auto numVectors = (zeroWorklist[2 * context + 1] + vectorWidth - 1)
-                        / vectorWidth;
-      maxWorkerZeroCycles = std::max(maxWorkerZeroCycles, numVectors);
+    std::vector<unsigned> tZeroWorkList;
+    for (unsigned i = 0; i != zeroWorklist.size() / 2; ++i) {
+      tZeroWorkList.push_back(zeroWorklist[2 * i + 1]);
     }
-    uint64_t zeroCycles = ((maxWorkerZeroCycles + 8) * 6 + 16)
-                          * numConvGroups * numOutGroups;
-
+    const bool floatPartials = std::is_same<AccumType, float>::value;
+    uint64_t zeroCycles =
+      getZeroSupervisorVertexCycleEstimate(tZeroWorkList,
+                                           numOutGroups * numConvGroups,
+                                           dataPathWidth,
+                                           numWorkerContexts,
+                                           floatPartials,
+                                           useDeltasForEdges);
     for (unsigned context = 0; context < usedContexts; ++context) {
       workerPartitions.emplace_back();
       for (auto k = 0U; k != kernelSize; ++k) {

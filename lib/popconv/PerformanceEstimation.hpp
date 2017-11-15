@@ -44,6 +44,25 @@ getConvPartialHorizontalMacCycleEstimate(
 }
 
 inline std::uint64_t
+getZeroSupervisorVertexCycleEstimate(const std::vector<unsigned> &worklist,
+                                     unsigned numGroups,
+                                     unsigned dataPathWidth,
+                                     unsigned numWorkerContexts,
+                                     bool isFloat,
+                                     bool useDeltasForEdges) {
+  const unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+  std::uint64_t maxWorkerCyclesZero = 0;
+  for (unsigned context = 0; context != worklist.size(); ++context) {
+    uint64_t numVectors = (worklist[context] + vectorWidth - 1) / vectorWidth;
+    maxWorkerCyclesZero = std::max(maxWorkerCyclesZero, numVectors + 4);
+  }
+  unsigned nonLoopOverhead = useDeltasForEdges ? 6 : 4;
+  uint64_t zeroCycles = ((maxWorkerCyclesZero * numGroups + useDeltasForEdges) *
+                         numWorkerContexts + 12);
+  return zeroCycles;
+}
+
+inline std::uint64_t
 getConvPartialHorizontalMacCycleEstimate(
     bool isFloat,
     unsigned numChans,
