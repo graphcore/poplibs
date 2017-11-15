@@ -126,9 +126,9 @@ int main(int argc, char **argv) {
 
   PlanningCache cache;
   fwdOptions.cache = &cache;
-  if (!inferenceOnly) {
-    fwdOptions.fullyConnectedPass = FullyConnectedPass::FWD;
-  }
+  fwdOptions.fullyConnectedPass =
+      inferenceOnly ? FullyConnectedPass::INFERENCE_FWD :
+                      FullyConnectedPass::TRAINING_FWD;
   Tensor prevAct =
       createMatMulGroupedInputLHS(graph, dataTypeStr,
                                   {numGroups, batchSize, inputSize},
@@ -145,7 +145,7 @@ int main(int argc, char **argv) {
   mapTensorLinearly(graph, biases);
 
   auto bwdOptions = fwdOptions;
-  bwdOptions.fullyConnectedPass = FullyConnectedPass::BWD;
+  bwdOptions.fullyConnectedPass = FullyConnectedPass::TRAINING_BWD;
 
   auto fwdProg = Sequence();
   auto bwdProg = Sequence();
@@ -196,7 +196,7 @@ int main(int argc, char **argv) {
   }
   if (doWuPass) {
     auto wuOptions = fwdOptions;
-    wuOptions.fullyConnectedPass = FullyConnectedPass::WU;
+    wuOptions.fullyConnectedPass = FullyConnectedPass::TRAINING_WU;
     poplin::matMulGroupedAcc(graph, weights, -learningRate,
                              poplin::transposeGroupedMatrix(prevAct),
                              zDeltas, bwdProg, "", wuOptions);

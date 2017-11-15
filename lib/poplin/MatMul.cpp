@@ -29,13 +29,16 @@ static popconv::ConvOptions getConvOptions(
   case FullyConnectedPass::NONE:
     convOptions.pass = popconv::Pass::NONE;
     break;
-  case FullyConnectedPass::FWD:
+  case FullyConnectedPass::INFERENCE_FWD:
+    convOptions.pass = popconv::Pass::FC_INFERENCE_FWD;
+    break;
+  case FullyConnectedPass::TRAINING_FWD:
     convOptions.pass = popconv::Pass::FC_TRAINING_FWD;
     break;
-  case FullyConnectedPass::BWD:
+  case FullyConnectedPass::TRAINING_BWD:
     convOptions.pass = popconv::Pass::FC_TRAINING_BWD;
     break;
-  case FullyConnectedPass::WU:
+  case FullyConnectedPass::TRAINING_WU:
     convOptions.pass = popconv::Pass::FC_TRAINING_WU;
     break;
   }
@@ -107,7 +110,8 @@ static popconv::ConvParams getConvParams(
 
   switch (options.fullyConnectedPass) {
   case FullyConnectedPass::NONE:
-  case FullyConnectedPass::FWD:
+  case FullyConnectedPass::INFERENCE_FWD:
+  case FullyConnectedPass::TRAINING_FWD:
     // A fully connected fwd pass is equivalent to a convolution with
     // input channels = inputSize
     // width = outputSize
@@ -146,7 +150,7 @@ static popconv::ConvParams getConvParams(
                               {1, 1},
                               numGroups);
     }
-  case FullyConnectedPass::BWD:
+  case FullyConnectedPass::TRAINING_BWD:
     // A fully connected bwd pass is equivalent to a convolution with
     // input channels = outputSize
     // width = inputSize
@@ -185,7 +189,7 @@ static popconv::ConvParams getConvParams(
                               {1, 1},
                               numGroups);
     }
-  case FullyConnectedPass::WU:
+  case FullyConnectedPass::TRAINING_WU:
     // Implement the weight update as a convolutional layer with
     // input channels = batch size
     // width = outputSize
@@ -242,7 +246,8 @@ matMulImpl(poplar::Graph &graph,
   Tensor out;
   switch (options.fullyConnectedPass) {
   case FullyConnectedPass::NONE:
-  case FullyConnectedPass::FWD:
+  case FullyConnectedPass::INFERENCE_FWD:
+  case FullyConnectedPass::TRAINING_FWD:
     // A fully connected fwd pass is equivalent to a convolution with
     // input channels = inputSize
     // width = outputSize
@@ -265,7 +270,7 @@ matMulImpl(poplar::Graph &graph,
       out = transpose(matrixFromConvActivations(out, numGroups));
       break;
     }
-  case FullyConnectedPass::BWD:
+  case FullyConnectedPass::TRAINING_BWD:
     // A fully connected bwd pass is equivalent to a convolution with
     // input channels = outputSize
     // width = inputSize
@@ -293,7 +298,7 @@ matMulImpl(poplar::Graph &graph,
       out = transpose(matrixFromConvActivations(out, numGroups));
       break;
     }
-  case FullyConnectedPass::WU:
+  case FullyConnectedPass::TRAINING_WU:
     // Implement the weight update as a convolutional layer with
     // input channels = batch size
     // width = outputSize
@@ -388,9 +393,9 @@ createMatMulInputLHSImpl(poplar::Graph &graph,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
                      const MatMulOptions &options) {
-  if (options.fullyConnectedPass == FullyConnectedPass::WU) {
+  if (options.fullyConnectedPass == FullyConnectedPass::TRAINING_WU) {
     auto fwdOptions = options;
-    fwdOptions.fullyConnectedPass = FullyConnectedPass::FWD;
+    fwdOptions.fullyConnectedPass = FullyConnectedPass::TRAINING_FWD;
     auto fwdLHS = createMatMulInputLHSImpl(graph, dType,
                                           {aShape[0], aShape[2], aShape[1]},
                                           {aShape[0], aShape[1], bShape[2]},
@@ -402,13 +407,14 @@ createMatMulInputLHSImpl(poplar::Graph &graph,
   switch (options.fullyConnectedPass) {
   default: assert(0 && "Unexpected pass");
   case FullyConnectedPass::NONE:
-  case FullyConnectedPass::FWD:
+  case FullyConnectedPass::INFERENCE_FWD:
+  case FullyConnectedPass::TRAINING_FWD:
     {
       auto convWeights = popconv::createWeights(graph, convParams, name,
                                                 convOptions);
       return matrixFromConvWeights(convWeights);
     }
-  case FullyConnectedPass::BWD:
+  case FullyConnectedPass::TRAINING_BWD:
     {
       auto convWeights = popconv::createWeights(graph, convParams, name,
                                                 convOptions);
@@ -424,9 +430,9 @@ createMatMulInputRHSImpl(poplar::Graph &graph,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
                      const MatMulOptions &options) {
-  if (options.fullyConnectedPass == FullyConnectedPass::BWD) {
+  if (options.fullyConnectedPass == FullyConnectedPass::TRAINING_BWD) {
     auto fwdOptions = options;
-    fwdOptions.fullyConnectedPass = FullyConnectedPass::FWD;
+    fwdOptions.fullyConnectedPass = FullyConnectedPass::TRAINING_FWD;
     auto fwdRHS = createMatMulInputRHSImpl(graph, dType,
                                           {aShape[0], aShape[1], bShape[2]},
                                           {bShape[0], bShape[2], bShape[1]},
@@ -439,13 +445,14 @@ createMatMulInputRHSImpl(poplar::Graph &graph,
   switch (options.fullyConnectedPass) {
   default: assert(0 && "Unexpected pass");
   case FullyConnectedPass::NONE:
-  case FullyConnectedPass::FWD:
+  case FullyConnectedPass::INFERENCE_FWD:
+  case FullyConnectedPass::TRAINING_FWD:
     {
       auto convInput = popconv::createInput(graph, convParams, name,
                                             convOptions);
       return transpose(matrixFromConvActivations(convInput, numGroups));
     }
-  case FullyConnectedPass::WU:
+  case FullyConnectedPass::TRAINING_WU:
     {
       auto convInput = popconv::createInput(graph, convParams, name,
                                             convOptions);

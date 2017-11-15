@@ -133,9 +133,8 @@ Tensor createInput(Graph &graph,
                    const std::string &name) {
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsType;
-  if (!inferenceOnly) {
-    mmOpt.fullyConnectedPass = FullyConnectedPass::FWD;
-  }
+  mmOpt.fullyConnectedPass = inferenceOnly ? FullyConnectedPass::INFERENCE_FWD :
+                                             FullyConnectedPass::TRAINING_FWD;
   std::vector<Tensor> input;
   input.emplace_back(createMatMulInputLHS(graph, dType,
                                  {batchSize, inputSize},
@@ -161,9 +160,8 @@ createWeightsInput(Graph &graph,
                    const std::string &namePrefix) {
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsType;
-  if (!inferenceOnly) {
-    mmOpt.fullyConnectedPass = FullyConnectedPass::FWD;
-  }
+  mmOpt.fullyConnectedPass = inferenceOnly ? FullyConnectedPass::INFERENCE_FWD :
+                                             FullyConnectedPass::TRAINING_FWD;
   return
       createMatMulInputRHS(graph, dType,
                            {batchSize, inputSize},
@@ -182,9 +180,8 @@ createWeightsFeedback(Graph &graph,
                       const std::string &namePrefix) {
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsType;
-  if (!inferenceOnly) {
-    mmOpt.fullyConnectedPass = FullyConnectedPass::FWD;
-  }
+  mmOpt.fullyConnectedPass = inferenceOnly ? FullyConnectedPass::INFERENCE_FWD :
+                                             FullyConnectedPass::TRAINING_FWD;
   return
       createMatMulInputRHS(graph, dType,
                            {batchSize, outputSize},
@@ -340,7 +337,7 @@ backwardGradientStepImpl(Graph &graph,
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsTypeStr;
   mmOpt.cache = &cache;
-  mmOpt.fullyConnectedPass = FullyConnectedPass::BWD;
+  mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_BWD;
 
   auto t = matMul(graph, bwdState, weightsFeedback->transpose(), prog,
                   debugPrefix + "/RnnBwd/Fb", mmOpt);
@@ -425,7 +422,7 @@ void paramDeltaUpdate(Graph &graph,
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsTypeStr;
   mmOpt.cache = &cache;
-  mmOpt.fullyConnectedPass = FullyConnectedPass::WU;
+  mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_WU;
   const bool combineMatMul =  false;
 
   if (combineMatMul) {

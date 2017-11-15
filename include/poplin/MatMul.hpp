@@ -14,9 +14,10 @@ class PlanningCache;
 
 enum class FullyConnectedPass {
   NONE,
-  FWD,
-  BWD,
-  WU,
+  INFERENCE_FWD,
+  TRAINING_FWD,
+  TRAINING_BWD,
+  TRAINING_WU,
 };
 
 /** Options to control the implementation of matrix multiplication */

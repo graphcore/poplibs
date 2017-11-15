@@ -199,9 +199,8 @@ Tensor createInput(Graph &graph,
                    const std::string &name) {
   MatMulOptions mmOpt;
   mmOpt.partialsType = "float";
-  if (!inferenceOnly) {
-    mmOpt.fullyConnectedPass = FullyConnectedPass::FWD;
-  }
+  mmOpt.fullyConnectedPass = inferenceOnly ? FullyConnectedPass::INFERENCE_FWD :
+                                             FullyConnectedPass::TRAINING_FWD;
   auto fcOutputSize = BASIC_LSTM_CELL_NUM_UNITS * outputSize;
   auto fcInputSize = inputSize;
   auto fcBatchSize = sequenceSize * batchSize;
@@ -279,9 +278,8 @@ Tensor createWeightsInput(Graph &graph,
                           ) {
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsType;
-  if (!inferenceOnly) {
-    mmOpt.fullyConnectedPass = FullyConnectedPass::FWD;
-  }
+  mmOpt.fullyConnectedPass = inferenceOnly ? FullyConnectedPass::INFERENCE_FWD :
+                                             FullyConnectedPass::TRAINING_FWD;
   std::vector<std::size_t> aShape(2);
   aShape[0] = preweights ? seqSize * batchSize : batchSize;
   aShape[1] = inputSize;
@@ -306,9 +304,8 @@ Tensor createWeightsOutput(Graph &graph,
                            ) {
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsType;
-  if (!inferenceOnly) {
-    mmOpt.fullyConnectedPass = FullyConnectedPass::FWD;
-  }
+  mmOpt.fullyConnectedPass = inferenceOnly ? FullyConnectedPass::INFERENCE_FWD :
+                                             FullyConnectedPass::TRAINING_FWD;
   auto weightsOutput =
       createMatMulInputRHS(graph, dType,
                            {batchSize, outputSize},
@@ -389,9 +386,8 @@ basicLstmCellForwardPassImpl(Graph &graph,
   PlanningCache cache;
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsTypeStr;
-  if (!inferenceOnly) {
-    mmOpt.fullyConnectedPass = FullyConnectedPass::FWD;
-  }
+  mmOpt.fullyConnectedPass = inferenceOnly ? FullyConnectedPass::INFERENCE_FWD :
+                                             FullyConnectedPass::TRAINING_FWD;
   mmOpt.cache = &cache;
   unsigned stateDims = inferenceOnly ? LSTM_NUM_FWD_STATES_INFERENCE :
                                        LSTM_NUM_FWD_STATES_TRAINING;
@@ -636,7 +632,7 @@ BackwardStepImpl(Graph &graph,
   PlanningCache cache;
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsTypeStr;
-  mmOpt.fullyConnectedPass = FullyConnectedPass::BWD;
+  mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_BWD;
   mmOpt.cache = &cache;
 
   Tensor gradientIn;
@@ -719,7 +715,7 @@ basicLstmParamUpdate(Graph &graph,
   PlanningCache cache;
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsTypeStr;
-  mmOpt.fullyConnectedPass = FullyConnectedPass::WU;
+  mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_WU;
   mmOpt.cache = &cache;
   auto gradUnits =
     concat({getBwdState(bwdState, LSTM_BWD_STATE_GRAD_FORGET_GATE).expand({0}),

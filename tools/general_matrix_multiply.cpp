@@ -162,9 +162,9 @@ int main(int argc, char **argv) {
   mmOpt.partialsType = partialsTypeStr;
   mmOpt.cache = &cache;
   if (transposeB) {
-    mmOpt.fullyConnectedPass = FullyConnectedPass::BWD;
+    mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_BWD;
   } else if (transposeA) {
-    mmOpt.fullyConnectedPass = FullyConnectedPass::WU;
+    mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_WU;
   }
 
   auto matA = createMatMulInputLHS(graph, dataTypeStr,
