@@ -430,16 +430,18 @@ public:
   }
   std::uint64_t getCycleEstimate() const {
     const bool floatActivations = std::is_same<FPType, float>::value;
-    const bool floatPartials = std::is_same<AccumType, float>::value;
-    const unsigned zerosVectorWidth = dataPathWidth / (floatPartials ? 32 : 16);
-    unsigned maxWorkerZeroCycles = 0;
-    for (unsigned context = 0; context != zeroWorklist.size() / 2; ++context) {
-      auto numVectors = (zeroWorklist[2 * context + 1] + zerosVectorWidth - 1)
-                        / zerosVectorWidth;
-      maxWorkerZeroCycles = std::max(maxWorkerZeroCycles, numVectors);
+    std::vector<unsigned> tZeroWorkList;
+    for (unsigned i = 0; i != zeroWorklist.size() / 2; ++i) {
+      tZeroWorkList.push_back(zeroWorklist[2 * i + 1]);
     }
-    uint64_t zeroCycles = (((maxWorkerZeroCycles + 4) * numOutGroups + 5) *
-                           numWorkerContexts + 8) * numConvGroups;
+    const bool floatPartials = std::is_same<AccumType, float>::value;
+    uint64_t zeroCycles =
+      getZeroSupervisorVertexCycleEstimate(tZeroWorkList,
+                                           numOutGroups * numConvGroups,
+                                           dataPathWidth,
+                                           numWorkerContexts,
+                                           floatPartials,
+                                           false);
 
     std::vector<std::vector<std::vector<unsigned>>> workerPartitions;
     const auto usedContexts = worklists.size() / kernelSize;
