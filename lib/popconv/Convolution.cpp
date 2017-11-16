@@ -3001,22 +3001,22 @@ void weightsTransposeChansFlipXY(Graph &graph,
                                  const Tensor &weightsOutUnGrouped,
                                  Sequence &prog,
                                  const std::string &debugPrefix) {
+  assert(weightsInUnGrouped.rank() >= 3);
+  const auto numFieldDims = weightsInUnGrouped.rank() - 3;
   const auto weightsIn =
       groupWeights(weightsToInternalShape(weightsInUnGrouped));
   const auto weightsOut =
       groupWeights(weightsToInternalShape(weightsOutUnGrouped));
-  // weightsIn = { O/G1, I/G2, KY, KX, G1, G2 }
-  // weightsOut = { I/G3, O/G4, KY, KX, G3, G4 }
+  // weightsIn = { O/G1, I/G2, ..., G1, G2 }
+  // weightsOut = { I/G3, O/G4, ..., G3, G4 }
   const auto dType = weightsIn.elementType();
   const auto GC = weightsOut.dim(0);
-  const auto KY = weightsOut.dim(3);
-  const auto KX = weightsOut.dim(4);
-  const auto I = weightsOut.dim(1) * weightsOut.dim(5);
-  const auto O = weightsOut.dim(2) * weightsOut.dim(6);
-  const auto G1 = weightsIn.dim(5);
-  const auto G2 = weightsIn.dim(6);
-  const auto G3 = weightsOut.dim(5);
-  const auto G4 = weightsOut.dim(6);
+  const auto G1 = weightsIn.dim(weightsIn.rank() - 2);
+  const auto G2 = weightsIn.dim(weightsIn.rank() - 1);
+  const auto G3 = weightsOut.dim(weightsOut.rank() - 2);
+  const auto G4 = weightsOut.dim(weightsOut.rank() - 1);
+  const auto I = weightsOut.dim(1) * G3;
+  const auto O = weightsOut.dim(2) * G4;
 
   // Express the rearrangement as a composition of two rearrangements such
   // that the first rearrangement avoids exchange and maximises the size of the
@@ -3031,33 +3031,54 @@ void weightsTransposeChansFlipXY(Graph &graph,
   Tensor partiallyTransposed;
   if (G5 == 1) {
     partiallyTransposed =
-        weightsIn.reshape({GC, O/G1, I/G2, KY, KX, G1, G2, 1});
+        weightsIn.reshapePartial(0, 3, {GC, O/G1, I/G2})
+                 .reshapePartial(weightsIn.rank() - 2, weightsIn.rank(),
+                                 {G1, G2, 1});
   } else {
     auto cs = graph.addComputeSet(debugPrefix + "/WeightTranspose");
     partiallyTransposed =
         weightsPartialTranspose(
           graph,
-          weightsIn.reshape({GC, O/G1, I/G2, KY, KX, G1/G5, G5, G2}),
+          weightsIn.reshapePartial(0, 3, {GC, O/G1, I/G2})
+                   .reshapePartial(weightsIn.rank() - 2, weightsIn.rank(),
+                                   {G1/G5, G5, G2}),
           cs
         );
     prog.add(Execute(cs));
   }
 
-  std::vector<Tensor> flipped;
-  for (int wy = KY - 1; wy >= 0; --wy) {
-    flipped.push_back(partiallyTransposed.slice(wy, wy + 1, 3));
+  auto flipped = partiallyTransposed;
+  std::vector<Tensor> flippedSlices;
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    const auto kernelSize = partiallyTransposed.dim(3 + dim);
+    for (int w = kernelSize - 1; w >= 0; --w) {
+      flippedSlices.push_back(flipped.slice(w, w + 1, 3 + dim));
+    }
+    flipped = concat(flippedSlices, 3 + dim);
+    flippedSlices.clear();
   }
-  auto wFlippedY = concat(flipped, 3);
-
-  flipped.clear();
-  for (int wx = KX - 1; wx >= 0; --wx) {
-    flipped.push_back(wFlippedY.slice(wx, wx + 1, 4));
-  }
-  auto wFlippedYX = concat(flipped, 4);
-  prog.add(Copy(wFlippedYX.dimShuffle({0, 3, 4, 1, 5, 7, 2, 6})
-                           .reshape({GC, KY, KX, O/G4, G4, I/G3, G3})
-                           .dimShuffle({0, 5, 3, 1, 2, 6, 4}),
+  prog.add(Copy(flipped.dimShufflePartial({1,
+                                           3 + numFieldDims,
+                                           3 + numFieldDims + 2,
+                                           2,
+                                           3 + numFieldDims + 1},
+                                          {1 + numFieldDims,
+                                           1 + numFieldDims + 1,
+                                           1 + numFieldDims + 2,
+                                           1 + numFieldDims + 3,
+                                           1 + numFieldDims + 4})
+                       .reshapePartial(flipped.rank() - 5, flipped.rank(),
+                                       {O/G4, G4, I/G3, G3})
+                       .dimShufflePartial({1 + numFieldDims + 2,
+                                           1 + numFieldDims,
+                                           1 + numFieldDims + 3,
+                                           1 + numFieldDims + 1},
+                                          {1,
+                                           2,
+                                           3 + numFieldDims,
+                                           3 + numFieldDims + 1}),
                 weightsOut));
+
 }
 
 static ConvParams
