@@ -162,6 +162,8 @@ flattenIndexInSlice(const std::vector<unsigned> &sliceBegin,
   (void)rank;
   unsigned index = 0;
   for (unsigned i = 0; i != indices.size(); ++i) {
+    assert(indices[i] >= sliceBegin[i]);
+    assert(indices[i] < sliceEnd[i]);
     const auto sliceSize = sliceEnd[i] - sliceBegin[i];
     index = sliceSize * index + indices[i] - sliceBegin[i];
   }
@@ -1382,14 +1384,9 @@ createConvPartial1x1OutVertex(Graph &graph,
                               const ConvParams &params,
                               ComputeSet fwdCS,
                               Tensor in, Tensor weights, Tensor out) {
-  const auto kernelY = slice.kernelBegin[0];
-  assert(slice.kernelEnd[0] == kernelY + 1);
+  const auto numFieldDims = params.getNumFieldDims();
   const auto batchBegin = slice.batchBegin;
   const auto batchEnd = slice.batchEnd;
-  auto outYBegin = slice.outFieldBegin[0];
-  auto outYEnd = slice.outFieldEnd[0];
-  auto outXBegin = slice.outFieldBegin[1];
-  auto outXEnd = slice.outFieldEnd[1];
   const auto outZGroupBegin = slice.outChanGroupBegin;
   const auto outZGroupEnd = slice.outChanGroupEnd;
   const auto cgBegin = slice.cgBegin;
@@ -1405,44 +1402,86 @@ createConvPartial1x1OutVertex(Graph &graph,
   const auto convUnitCoeffLoadBytesPerCycle =
       target.getConvUnitCoeffLoadBytesPerCycle();
   std::vector<Tensor> outWindow;
+  std::vector<unsigned> tileOutBatchAndFieldBegin = { batchBegin };
+  tileOutBatchAndFieldBegin.insert(tileOutBatchAndFieldBegin.end(),
+                                   slice.outFieldBegin.begin(),
+                                   slice.outFieldBegin.end());
+  std::vector<unsigned> tileOutBatchAndFieldEnd = { batchEnd };
+  tileOutBatchAndFieldEnd.insert(tileOutBatchAndFieldEnd.end(),
+                                 slice.outFieldEnd.begin(),
+                                 slice.outFieldEnd.end());
   for (unsigned cg = cgBegin; cg < cgEnd; ++cg) {
     for (unsigned ozg = outZGroupBegin; ozg < outZGroupEnd; ++ozg) {
-      auto o =
-        out.slice({cg, ozg, batchBegin,
-                   outYBegin, outXBegin, 0},
-                   {cg + 1, ozg + 1, batchEnd, outYEnd,
-                    outXEnd, out.dim(5)})
-           .flatten();
+      std::vector<std::size_t> sliceBegin = {
+        cg, ozg
+      };
+      std::vector<std::size_t> sliceEnd = {
+        cg + 1, ozg + 1
+      };
+      sliceBegin.insert(sliceBegin.end(), tileOutBatchAndFieldBegin.begin(),
+                        tileOutBatchAndFieldBegin.end());
+      sliceEnd.insert(sliceEnd.end(), tileOutBatchAndFieldEnd.begin(),
+                      tileOutBatchAndFieldEnd.end());
+      sliceBegin.push_back(0);
+      sliceEnd.push_back(out.dim(out.rank() - 1));
+      auto o = out.slice(sliceBegin, sliceEnd).flatten();
       graph.setTileMapping(o, tile);
       outWindow.push_back(o);
     }
   }
-  unsigned inYBegin, inYEnd, inXBegin, inXEnd;
-  std::tie(inYBegin, inYEnd) = getInputRange(0, {outYBegin, outYEnd},
-                                             kernelY, params);
-  std::tie(inXBegin, inXEnd) = getInputRange(1, {outXBegin, outXEnd}, params);
+  std::vector<unsigned> tileInBatchAndFieldBegin = { batchBegin };
+  std::vector<unsigned> tileInBatchAndFieldEnd = { batchEnd };
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    const auto kernelIndex = slice.kernelBegin[dim];
+    assert(slice.kernelEnd[dim] == kernelIndex + 1);
+    auto range = getInputRange(dim,
+                               {slice.outFieldBegin[dim],
+                                slice.outFieldEnd[dim]},
+                               kernelIndex,
+                               params);
+    tileInBatchAndFieldBegin.push_back(range.first);
+    tileInBatchAndFieldEnd.push_back(range.second);
+  }
 
   std::vector<Tensor> inWindow;
   for (unsigned cg = cgBegin; cg < cgEnd; ++cg) {
     for (unsigned izg = inZGroupBegin; izg < inZGroupEnd; ++izg) {
-      inWindow.push_back(in.slice({cg, izg, batchBegin,
-                                   inYBegin, inXBegin, 0},
-                                  {cg + 1, izg + 1, batchEnd, inYEnd,
-                                   inXEnd, in.dim(5)}).flatten());
+      std::vector<std::size_t> sliceBegin = {
+        cg, izg
+      };
+      std::vector<std::size_t> sliceEnd = {
+        cg + 1, izg + 1
+      };
+      sliceBegin.insert(sliceBegin.end(), tileInBatchAndFieldBegin.begin(),
+                        tileInBatchAndFieldBegin.end());
+      sliceEnd.insert(sliceEnd.end(), tileInBatchAndFieldEnd.begin(),
+                      tileInBatchAndFieldEnd.end());
+      sliceBegin.push_back(0);
+      sliceEnd.push_back(in.dim(in.rank() - 1));
+      inWindow.push_back(in.slice(sliceBegin, sliceEnd).flatten());
     }
-
   }
 
-  assert(weights.dim(4) == 1);
   std::vector<Tensor> weightsWindow;
   for (unsigned cg = cgBegin; cg < cgEnd; ++cg) {
     for (unsigned ozg = outZGroupBegin; ozg < outZGroupEnd; ++ozg) {
       for (unsigned izg = inZGroupBegin; izg < inZGroupEnd; ++izg) {
+        std::vector<std::size_t> sliceBegin = {
+          cg, ozg, izg
+        };
+        std::vector<std::size_t> sliceEnd = {
+          cg + 1, ozg + 1, izg + 1
+        };
+        sliceBegin.insert(sliceBegin.end(), slice.kernelBegin.begin(),
+                          slice.kernelBegin.end());
+        sliceEnd.insert(sliceEnd.end(), slice.kernelEnd.begin(),
+                        slice.kernelEnd.end());
+        sliceBegin.push_back(0);
+        sliceEnd.push_back(weights.dim(weights.rank() - 2));
+        sliceBegin.push_back(0);
+        sliceEnd.push_back(weights.dim(weights.rank() - 1));
         weightsWindow.push_back(
-              weights.slice({cg, ozg, izg, kernelY, 0, 0, 0},
-                            {cg + 1, ozg + 1, izg + 1, kernelY + 1,
-                             1, weights.dim(5), weights.dim(6)})
-                     .flatten()
+          weights.slice(sliceBegin,sliceEnd).flatten()
         );
       }
     }
@@ -1450,54 +1489,67 @@ createConvPartial1x1OutVertex(Graph &graph,
 
   unsigned numEdges = outWindow.size() + inWindow.size() + weightsWindow.size();
 
-  const auto outHeight = outYEnd - outYBegin;
-  const auto outWidth = outXEnd - outXBegin;
-  const auto inHeight = inYEnd - inYBegin;
-  const auto inWidth = inXEnd - inXBegin;
   const auto contextsPerVertex = target.getNumWorkerContexts();
   std::vector<std::vector<unsigned>> worklist(contextsPerVertex);
-  unsigned convOutYBegin, convOutYEnd;
-  std::tie(convOutYBegin, convOutYEnd) =
-      getOutputRange(0, {outYBegin, outYEnd}, kernelY, params);
-  const auto convOutHeight = convOutYEnd - convOutYBegin;
-  if (convOutHeight == 0)
-    return;
-  unsigned convOutXBegin, convOutXEnd;
-  std::tie(convOutXBegin, convOutXEnd) =
-      getOutputRange(1, {outXBegin, outXEnd}, 0, params);
-  const auto convOutWidth = convOutXEnd - convOutXBegin;
-  if (convOutWidth == 0)
-    return;
+  std::vector<unsigned> tileConvOutBegin;
+  std::vector<unsigned> tileConvOutSize;
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    auto dimOutRange =
+        getOutputRange(dim, {slice.outFieldBegin[dim], slice.outFieldEnd[dim]},
+                       {slice.kernelBegin[dim], slice.kernelEnd[dim]}, params);
+    if (dimOutRange.first == dimOutRange.second)
+      return;
+    tileConvOutBegin.push_back(dimOutRange.first);
+    tileConvOutSize.push_back(dimOutRange.second - dimOutRange.first);
+  }
   auto workerPartition =
-      partitionConvPartialByWorker(batchEnd - batchBegin,
-                                   {convOutHeight, convOutWidth},
-                                   contextsPerVertex,
-                                   params.inputDilation);
+      partitionConvPartialByWorker(batchEnd - batchBegin, tileConvOutSize,
+                                   contextsPerVertex, params.inputDilation);
   for (unsigned i = 0; i != contextsPerVertex; ++i) {
     for (const auto &partialRow : workerPartition[i]) {
-      assert(partialRow.outerFieldIndices.size() == 1);
-      const auto workerOutY = convOutYBegin + partialRow.outerFieldIndices[0];
-      auto workerOutXBegin = convOutXBegin + partialRow.xBegin;
-      auto workerOutXEnd = convOutXBegin + partialRow.xEnd;
+      std::vector<unsigned> outBeginIndices = {
+        partialRow.b + batchBegin
+      };
+      std::vector<unsigned> inBeginIndices = {
+        partialRow.b + batchBegin
+      };
+      bool inBeginIndicesValid = true;
+      for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
+        const auto dimOutIndex = partialRow.outerFieldIndices[dim] +
+                                 tileConvOutBegin[dim];
+        const auto dimInIndex =
+            getInputIndex(dim, dimOutIndex, slice.kernelBegin[dim], params);
+        if (dimInIndex == ~0U) {
+          inBeginIndicesValid = false;
+          break;
+        }
+        outBeginIndices.push_back(dimOutIndex);
+        inBeginIndices.push_back(dimInIndex);
+      }
+      if (!inBeginIndicesValid)
+        continue;
+      auto workerOutXBegin = tileConvOutBegin.back() + partialRow.xBegin;
+      auto workerOutXEnd = tileConvOutBegin.back() + partialRow.xEnd;
       std::tie(workerOutXBegin, workerOutXEnd) =
-          getOutputRange(1, {workerOutXBegin, workerOutXEnd}, 0, params);
+          getOutputRange(numFieldDims - 1, {workerOutXBegin, workerOutXEnd}, 0,
+                         params);
       const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
       if (workerOutWidth == 0)
         continue;
-      const auto workerInY = getInputIndex(0, workerOutY, kernelY, params);
-      if (workerInY == ~0U)
-        continue;
       unsigned workerInXBegin, workerInXEnd;
       std::tie(workerInXBegin, workerInXEnd) =
-          getInputRange(1, {workerOutXBegin, workerOutXEnd}, 0, params);
+          getInputRange(numFieldDims - 1, {workerOutXBegin, workerOutXEnd}, 0,
+                        params);
+      inBeginIndices.push_back(workerInXBegin);
+      outBeginIndices.push_back(workerOutXBegin);
       const auto outBeginOffset =
-          partialRow.b * outHeight * outWidth +
-          (workerOutY - outYBegin) * outWidth +
-          (workerOutXBegin - outXBegin);
+          flattenIndexInSlice(tileOutBatchAndFieldBegin,
+                              tileOutBatchAndFieldEnd,
+                              outBeginIndices);
       const auto inBeginOffset =
-          partialRow.b * inHeight * inWidth +
-          (workerInY - inYBegin) * inWidth +
-          (workerInXBegin - inXBegin);
+          flattenIndexInSlice(tileInBatchAndFieldBegin,
+                              tileInBatchAndFieldEnd,
+                              inBeginIndices);
       worklist[i].push_back(outBeginOffset);
       worklist[i].push_back(workerOutWidth);
       worklist[i].push_back(inBeginOffset);
