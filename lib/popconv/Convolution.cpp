@@ -1104,10 +1104,11 @@ convolutionPreprocess(Graph &graph, ConvParams &params, Plan &plan,
   if (convNumChans != numInChans) {
     // Zero pad the input / weights.
     if (acts) {
-      *acts = pad(graph, *acts, 0, convNumChans - numInChans, 4);
+      *acts = pad(graph, *acts, 0, convNumChans - numInChans, acts->rank() - 1);
     }
     if (weights) {
-      *weights = pad(graph, *weights, 0, convNumChans - numInChans, 4);
+      *weights = pad(graph, *weights, 0, convNumChans - numInChans,
+                     weights->rank() - 1);
     }
     params.inputChannels = convNumChans;
   }
@@ -1118,7 +1119,8 @@ convolutionPreprocess(Graph &graph, ConvParams &params, Plan &plan,
   const auto partialNumChans = partialNumChanGroups * partialChansPerGroup;
   if (partialNumChans != outNumChans) {
     if (weights) {
-      *weights = pad(graph, *weights, 0, partialNumChans - outNumChans, 3);
+      *weights = pad(graph, *weights, 0, partialNumChans - outNumChans,
+                     weights->rank() - 2);
     }
     params.outputChannels = partialNumChans;
   }
@@ -2718,7 +2720,7 @@ convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
   const auto outNumChans =
       postOutChanFlattenParams.getNumOutputChansPerConvGroup();
   // Undo padding.
-  activations = activations.slice(0, outNumChans, 4);
+  activations = activations.slice(0, outNumChans, activations.rank() - 1);
   // Undo flattening of the batch / spatial fields.
   if (!originalPlan.flattenDims.empty()) {
     for (auto it = originalPlan.flattenDims.begin(),
@@ -2745,7 +2747,8 @@ convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
   }
   // Undo the swapping of operands.
   if (originalPlan.swapOperands) {
-    activations = activations.dimShufflePartial({1, 4}, {4, 1});
+    activations = activations.dimShufflePartial({1, activations.rank() - 1},
+                                                {activations.rank() - 1, 1});
   }
   return activations;
 }
