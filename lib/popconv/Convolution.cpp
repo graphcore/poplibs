@@ -1058,8 +1058,8 @@ convolutionPreprocess(Graph &graph, ConvParams &params, Plan &plan,
     swapOperands(params);
     if (acts && weights) {
       std::swap(*acts, *weights);
-      *acts = acts->dimRoll(3, 1);
-      *weights = weights->dimRoll(1, 3);
+      *acts = acts->dimRoll(acts->rank() - 2, 1);
+      *weights = weights->dimRoll(1, weights->rank() - 2);
     } else {
       assert(!acts && !weights);
     }
