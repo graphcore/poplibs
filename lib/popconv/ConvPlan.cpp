@@ -1673,6 +1673,12 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
       target.getFp16InFp32OutConvUnitsPerTile()) {
     plan.floatPartials = false;
   }
+
+  // Set the partials type to the output type as there are no reductions
+  // required
+  if (plan.method == Plan::Method::OUTER_PRODUCT) {
+    plan.floatPartials = fwdParams.dType == "float";
+  }
   return plan;
 }
 
