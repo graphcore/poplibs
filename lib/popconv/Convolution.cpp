@@ -3216,12 +3216,9 @@ convChannelReduce(Graph &graph,
   auto dType = inGrouped.elementType();
   auto numTiles = target.getNumTiles();
   auto numOut = dst.numElements();
-  auto inDimY = inGrouped.dim(2), inDimX = inGrouped.dim(3);
-  auto inChansPerGroup = inGrouped.dim(4);
-  auto batchSize = inGrouped.dim(1);
+  auto inChansPerGroup = inGrouped.dim(inGrouped.rank() - 1);
   // Before the cross tile reduction. Reduce biases on each tile.
-  auto inFlatField = inGrouped.reshapePartial(1, 4,
-                                              {batchSize * inDimY * inDimX});
+  auto inFlatField = inGrouped.flatten(1, inGrouped.rank() - 1);
 
   // Calculate which bias groups have values to reduce on each tile
   auto firstInGroup = inFlatField.slice(0, 1, 2).squeeze({2});
