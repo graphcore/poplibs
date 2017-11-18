@@ -72,8 +72,8 @@ createInput(poplar::Graph &graph,
             unsigned batchSize,
             unsigned inputSize,
             unsigned outputSize,
-            const std::string &dType,
-            const std::string &partialsType = "float",
+            const poplar::Type &dType,
+            const poplar::Type &partialsType = poplar::FLOAT,
             bool inferenceOnly = false,
             const std::string &name = "");
 
@@ -97,7 +97,7 @@ createInput(poplar::Graph &graph,
  * \return A 2D tensor of shape {batchSize, outputSize}
  */
 poplar::Tensor createFwdState(poplar::Graph &graph,
-                              const std::string &dType,
+                              const poplar::Type &dType,
                               unsigned batchSize,
                               unsigned outputSize,
                               poplar::program::Sequence &prog,
@@ -132,8 +132,8 @@ poplar::Tensor
 createWeightsInput(poplar::Graph &graph,
                    unsigned sequenceSize, unsigned batchSize,
                    unsigned inputSize, unsigned outputSize,
-                   const std::string &dType,
-                   const std::string &partialsType = "float",
+                   const poplar::Type &dType,
+                   const poplar::Type &partialsType = poplar::FLOAT,
                    bool inferenceOnly = false,
                    const std::string &namePrefix = "");
 
@@ -153,8 +153,8 @@ poplar::Tensor
 createWeightsFeedback(poplar::Graph &graph,
                       unsigned batchSize,
                       unsigned outputSize,
-                      const std::string &dType,
-                      const std::string &partialsType = "float",
+                      const poplar::Type &dType,
+                      const poplar::Type &partialsType = poplar::FLOAT,
                       bool inferenceOnly = false,
                       const std::string &namePrefix = "");
 
@@ -176,18 +176,19 @@ createWeightsFeedback(poplar::Graph &graph,
  * \param weights         Feedforward weights with shape {outputSize, inputSize}
  * \param prog            Program sequence to which  programs added by this
  *                        function are appended to
- * \param partialsTypeStr Data type for intermediates
+ * \param partialsType    Data type for intermediates
  * \param debugPrefix     Debug prefix string
  *
  * \return                Output tensor with shape {numSteps, batchSize,
  *                        outputSize}
  */
-poplar::Tensor forwardWeightInput(poplar::Graph &graph,
-                                  const poplar::Tensor &actIn,
-                                  const poplar::Tensor &weights,
-                                  poplar::program::Sequence &prog,
-                                  const std::string partialsTypeStr = "float",
-                                  const std::string &debugPrefix = "");
+poplar::Tensor
+forwardWeightInput(poplar::Graph &graph,
+                   const poplar::Tensor &actIn,
+                   const poplar::Tensor &weights,
+                   poplar::program::Sequence &prog,
+                   const poplar::Type &partialsType = poplar::FLOAT,
+                   const std::string &debugPrefix = "");
 
 /**
  * Perform the feedback part of the RNN layer. The feedback part of the RNN
@@ -211,7 +212,7 @@ poplar::Tensor forwardWeightInput(poplar::Graph &graph,
  * \param prog            Program sequence to which programs added by
  *                        this function are appended to
  * \param nonLinearityType Non linearity used for the output activations
- * \param partialsTypeStr Data type for intermediates
+ * \param partialsType    Data type for intermediates
  * \param debugPrefix     Debug prefix string
  *
  * \return                Output activations of RNN layer
@@ -224,7 +225,7 @@ poplar::Tensor forwardIterate(poplar::Graph &graph,
                               const poplar::Tensor &biases,
                               poplar::program::Sequence &prog,
                               popnn::NonLinearityType nonLinearityType,
-                              const std::string partialsTypeStr = "float",
+                              const poplar::Type &partialsType = poplar::FLOAT,
                               const std::string &debugPrefix = "");
 
 /** Create initial state for backward pass of a vanilla RNN
@@ -238,7 +239,7 @@ poplar::Tensor forwardIterate(poplar::Graph &graph,
  *
  * \return Tile mapped initial state tensor
  */
-poplar::Tensor createBwdState(poplar::Graph &graph, const std::string &dType,
+poplar::Tensor createBwdState(poplar::Graph &graph, const poplar::Type &dType,
                               unsigned batchSize, unsigned outputSize,
                               poplar::program::Sequence &prog,
                               const std::string &debugPrefix = "");
@@ -270,7 +271,7 @@ poplar::Tensor createBwdState(poplar::Graph &graph, const std::string &dType,
  * \param nonLinearityType Type of non-linearity
  * \param firstStep       Set to true to indicate if first step in the backward
  *                        pass
- * \param partialsTypeStr Data type used in intermediate calculations
+ * \param partialsType    Data type used in intermediate calculations
  * \param debugPrefix     A string annotation
  *
  * \return std::pair<poplar::Tensor,poplar::Tensor>
@@ -287,7 +288,7 @@ backwardGradientStep(poplar::Graph &graph,
                      const poplar::Tensor &weightsFeedback,
                      poplar::program::Sequence &prog,
                      popnn::NonLinearityType nonLinearityType,
-                     const std::string &partialsTypeStr = "float",
+                     const poplar::Type &partialsType = poplar::FLOAT,
                      const std::string &debugPrefix = ""
                      );
 
@@ -302,7 +303,7 @@ backwardGradientStep(poplar::Graph &graph,
                      const poplar::Tensor &weightsFeedback,
                      poplar::program::Sequence &prog,
                      popnn::NonLinearityType nonLinearityType,
-                     const std::string &partialsTypeStr = "float",
+                     const poplar::Type &partialsType = poplar::FLOAT,
                      const std::string &debugPrefix = ""
                      );
 
@@ -330,7 +331,7 @@ backwardGradientStep(poplar::Graph &graph,
  *                        tile-mapped. The deltas from this step are added to
  *                        this tensor
  * \param prog            Control program to which to add programs to
- * \param partialsTypeStr Data type used in intermediate calculations
+ * \param partialsType    Data type used in intermediate calculations
  * \param debugPrefix     String anotation
  */
 void paramDeltaUpdate(poplar::Graph &graph,
@@ -341,7 +342,7 @@ void paramDeltaUpdate(poplar::Graph &graph,
                       poplar::Tensor &weightsFeedbackDeltasAcc,
                       poplar::Tensor &biasDeltasAcc,
                       poplar::program::Sequence &prog,
-                      const std::string &partialsTypeStr = "float",
+                      const poplar::Type &partialsType = poplar::FLOAT,
                       const std::string &debugPrefix = "");
 
 /**
@@ -366,7 +367,7 @@ void paramDeltaUpdate(poplar::Graph &graph,
  * \param prevLayerActs   Activations from previous layer (output from
  *                        feedforward part of the RNN layer
  * \param nonLinearityType Non linearity used for the output activations
- * \param partialsTypeStr Data type for intermediates
+ * \param partialsType    Data type for intermediates
  * \param debugPrefix     Debug prefix string
  *
  * \return Forward state tensor for all steps [0:seqSize)
@@ -380,7 +381,7 @@ poplar::Tensor rnnFwdSequence(poplar::Graph &graph,
                               const poplar::Tensor &feedbackWeights,
                               const poplar::Tensor &prevLayerActs,
                               const popnn::NonLinearityType &nonLinearityType,
-                              const std::string &partialsTypeStr,
+                              const poplar::Type &partialsType,
                               const std::string &debugPrefix);
 
 /**
@@ -409,7 +410,7 @@ poplar::Tensor rnnFwdSequence(poplar::Graph &graph,
  * \param actIn           Activations from previous layer (output from
  *                        feedforward part of the RNN layer
  * \param nonLinearityType Non linearity used for the output activations
- * \param partialsTypeStr Data type for intermediates
+ * \param partialsType    Data type for intermediates
  * \param debugPrefix     Debug prefix string
  *
  * \return Returns four tensors:
@@ -433,7 +434,7 @@ std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor, poplar::Tensor>
                  const poplar::Tensor &outGradient,
                  const poplar::Tensor &actIn,
                  const popnn::NonLinearityType &nonLinearityType,
-                 const std::string &partialsTypeStr,
+                 const poplar::Type &partialsType,
                  const std::string &debugPrefix);
 
 } // namespace rnn

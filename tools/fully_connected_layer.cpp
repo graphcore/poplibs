@@ -43,8 +43,8 @@ int main(int argc, char **argv) {
   unsigned outputSize;
   unsigned batchSize;
   bool inPlaceUpdate = true;
-  FPDataType dataType;
-  FPDataType partialsType;
+  Type dataType;
+  Type partialsType;
   double relativeTolerance;
   IPUModel ipuModel;
   ipuModel.IPUExchangeType =
@@ -59,10 +59,10 @@ int main(int argc, char **argv) {
     ("output-size", po::value<unsigned>(&outputSize)->required(),
      "Number of output channels")
     ("data-type",
-     po::value<FPDataType>(&dataType)->default_value(FPDataType::HALF),
+     po::value<Type>(&dataType)->default_value(HALF),
      "Type of the data and the parameters")
     ("partials-type",
-     po::value<FPDataType>(&partialsType)->default_value(FPDataType::FLOAT),
+     po::value<Type>(&partialsType)->default_value(FLOAT),
      "Type of the partials")
     ("inference-only", "Benchmark inference only")
     ("tolerance", po::value<double>(&relativeTolerance)->default_value(0.01),
@@ -120,9 +120,7 @@ int main(int argc, char **argv) {
   popreduce::addCodelets(graph);
   poplin::addCodelets(graph);
 
-  std::string dataTypeStr(asString(dataType));
-  std::string partialsTypeStr(asString(partialsType));
-  fwdOptions.partialsType = partialsTypeStr;
+  fwdOptions.partialsType = partialsType;
 
   PlanningCache cache;
   fwdOptions.cache = &cache;
@@ -130,18 +128,18 @@ int main(int argc, char **argv) {
       inferenceOnly ? FullyConnectedPass::INFERENCE_FWD :
                       FullyConnectedPass::TRAINING_FWD;
   Tensor prevAct =
-      createMatMulGroupedInputLHS(graph, dataTypeStr,
+      createMatMulGroupedInputLHS(graph, dataType,
                                   {numGroups, batchSize, inputSize},
                                   {numGroups, inputSize, outputSize},
                                   "prevAct",
                                   fwdOptions);
   Tensor weights =
-      createMatMulGroupedInputRHS(graph, dataTypeStr,
+      createMatMulGroupedInputRHS(graph, dataType,
                                   {numGroups, batchSize, inputSize},
                                   {numGroups, inputSize, outputSize},
                                   "weights",
                                   fwdOptions);
-  auto biases = graph.addTensor(dataTypeStr, {numGroups, outputSize}, "biases");
+  auto biases = graph.addTensor(dataType, {numGroups, outputSize}, "biases");
   mapTensorLinearly(graph, biases);
 
   auto bwdOptions = fwdOptions;
@@ -158,7 +156,7 @@ int main(int argc, char **argv) {
                          .broadcast(batchSize, 1);
     addTo(graph, nextAct, bBiases, 1, fwdProg);
   } else {
-    nextAct = graph.addTensor(dataTypeStr, {numGroups, batchSize, outputSize},
+    nextAct = graph.addTensor(dataType, {numGroups, batchSize, outputSize},
                               "nextAct");
     mapTensorLinearly(graph, nextAct);
   }
@@ -177,7 +175,7 @@ int main(int argc, char **argv) {
   std::unique_ptr<char[]> rawHostZDeltas;
   if (doBwdPass || doWuPass) {
     zDeltas =
-        poplin::createMatMulGroupedInputLHS(graph, dataTypeStr,
+        poplin::createMatMulGroupedInputLHS(graph, dataType,
                                             {numGroups, batchSize, outputSize},
                                             {numGroups, outputSize, inputSize},
                                             "zDeltas", bwdOptions);
@@ -219,14 +217,14 @@ int main(int argc, char **argv) {
   writeRandomValues(hostPrevAct, -4.0, 4.0, randomEngine);
   writeRandomValues(hostWeights, -3.0, 3.0, randomEngine);
   writeRandomValues(hostBiases, -4.0, 4.0, randomEngine);
-  copy(hostPrevAct, dataTypeStr, rawHostPrevAct.get());
-  copy(hostWeights, dataTypeStr, rawHostWeights.get());
-  copy(hostBiases, dataTypeStr, rawHostBiases.get());
+  copy(hostPrevAct, dataType, rawHostPrevAct.get());
+  copy(hostWeights, dataType, rawHostWeights.get());
+  copy(hostBiases, dataType, rawHostBiases.get());
   // Run the forward pass.
   upload(engine, tmap);
   engine.run(0); // Run.
   download(engine, tmap);
-  copy(dataTypeStr, rawHostNextAct.get(), hostNextAct);
+  copy(dataType, rawHostNextAct.get(), hostNextAct);
 
   // Validate against a reference model.
   bool matchesModel = true;
@@ -250,14 +248,14 @@ int main(int argc, char **argv) {
     auto modelBiases = hostBiases;
     // Run the backwards pass.
     writeRandomValues(hostZDeltas, -5.0, 5.0, randomEngine);
-    copy(hostZDeltas, dataTypeStr, rawHostZDeltas.get());
+    copy(hostZDeltas, dataType, rawHostZDeltas.get());
     upload(engine, tmap);
     engine.run(1); // Run.
     download(engine, tmap);
 
     // Validate against a reference model.
     if (doBwdPass) {
-      copy(dataTypeStr, rawHostPrevDeltas.get(), hostPrevDeltas);
+      copy(dataType, rawHostPrevDeltas.get(), hostPrevDeltas);
       boost::multi_array<double, 3>
           modelPrevDeltas(boost::extents[numGroups][batchSize][inputSize]);
       poplib_test::fc::fullyConnectedBackward(hostZDeltas, modelWeights,
@@ -266,8 +264,8 @@ int main(int argc, char **argv) {
                                    relativeTolerance);
     }
     if (doWuPass) {
-      copy(dataTypeStr, rawHostWeights.get(), hostWeights);
-      copy(dataTypeStr, rawHostBiases.get(), hostBiases);
+      copy(dataType, rawHostWeights.get(), hostWeights);
+      copy(dataType, rawHostBiases.get(), hostBiases);
       poplib_test::fc::fullyConnectedWeightUpdate(learningRate, hostPrevAct,
                                                   hostZDeltas, modelWeights,
                                                   modelBiases);

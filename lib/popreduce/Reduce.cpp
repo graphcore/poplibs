@@ -37,8 +37,7 @@ const std::string getVertexStr(Operation operation) {
 }
 
 // return vertex name for a given Operation
-const std::string getOutputType(Operation operation, const std::string
-                                &inType) {
+const Type getOutputType(Operation operation, const Type &inType) {
   switch (operation) {
   case Operation::ADD:
   case Operation::MUL:
@@ -47,7 +46,7 @@ const std::string getOutputType(Operation operation, const std::string
     return inType;
   case Operation::AND:
   case Operation::OR:
-    return "bool";
+    return BOOL;
   }
   POPLIB_UNREACHABLE();
 }
@@ -78,10 +77,8 @@ static unsigned estimateReduceAtDstCost(
     > &reducedMapping) {
   const auto &target = graph.getTarget();
   const auto partialType = partials.elementType();
-  const auto partialTypeBytes = partialType == "float" ? 4U : 2U;
-  const auto partialVectorWidth =
-      partialType == "float" ? target.getFloatVectorWidth() :
-                               target.getHalfVectorWidth();
+  const auto partialTypeBytes = target.getTypeSize(partialType);
+  const auto partialVectorWidth = target.getVectorWidth(partialType);
   const auto maxElementsPerTile = getMaxElementsPerTile(reducedMapping);
   const auto partialsPerElement = partials.dim(0);
   const auto preComputeExchangeBytes =
@@ -108,12 +105,10 @@ static unsigned estimateBalancedReduceCost(
     unsigned grainSize) {
   const auto &target = graph.getTarget();
   const auto partialType = partials.elementType();
-  const auto partialTypeBytes = partialType == "float" ? 4U : 2U;
-  const auto partialVectorWidth =
-      partialType == "float" ? target.getFloatVectorWidth() :
-                               target.getHalfVectorWidth();
+  const auto partialTypeBytes = target.getTypeSize(partialType);
+  const auto partialVectorWidth = target.getVectorWidth(partialType);
   const auto reducedType = reduced.elementType();
-  const auto reducedTypeBytes = reducedType == "float" ? 4U : 2U;
+  const auto reducedTypeBytes = target.getTypeSize(reducedType);
   unsigned numReducedElements = reduced.numElements();
   unsigned numReducedGroups = (numReducedElements + grainSize - 1) /
                               grainSize;
@@ -149,9 +144,7 @@ determineReduceVertexMapping(Graph &graph,
                              > &reducedMapping) {
   const auto &target = graph.getTarget();
   const auto partialType = partials.elementType();
-  const auto partialVectorWidth =
-      partialType == "float" ? target.getFloatVectorWidth() :
-                               target.getHalfVectorWidth();
+  const auto partialVectorWidth = target.getTypeSize(partialType);
   const auto reduceAtDstCost = estimateReduceAtDstCost(graph, partials,
                                                        reducedMapping);
   const auto grainSize = partialVectorWidth;
@@ -207,11 +200,7 @@ reduce(Graph &graph,
   assert(numUsedTiles <= target.getNumTiles());
   for (unsigned tile = 0; tile != numUsedTiles; ++tile) {
     const auto &tileRegions = reduceVertexMapping[tile];
-    unsigned vectorWidth;
-    if (partialType == "float")
-      vectorWidth = target.getFloatVectorWidth();
-    else
-      vectorWidth = target.getHalfVectorWidth();
+    unsigned vectorWidth = target.getVectorWidth(partialType);
     const auto vertexRegions =
         splitRegionsBetweenWorkers(target, tileRegions, vectorWidth);
     for (const auto &regions : vertexRegions) {
@@ -309,7 +298,7 @@ void reduceAcc(Graph &graph, Tensor out, float k, Tensor in,
 
 
 Tensor reduceScale(Graph &graph, float k, Tensor &in,
-                   const std::string &outType,
+                   const Type &outType,
                    Sequence &prog, const std::string &debugPrefix) {
   const auto numAddends = in.dim(0);
   const auto resultSize = in.dim(1);
@@ -318,7 +307,7 @@ Tensor reduceScale(Graph &graph, float k, Tensor &in,
   // If batch size is 1 then no reduction is required.
   if (numAddends == 1) {
     Tensor B;
-    if (dType == "half") {
+    if (dType == HALF) {
       B = graph.addConstantTensor<half>(outType, in.shape(), k);
     } else {
       B = graph.addConstantTensor<float>(outType, in.shape(), k);
@@ -398,7 +387,7 @@ reduce(Graph &graph, const Tensor &A_, const std::vector<std::size_t> &dims,
 
   const auto aShuffled = A.dimShuffle({permutation}).reshape({reshapeDims});
   const auto outType = getOutputType(operation, A.elementType());
-  auto out = graph.clone(aShuffled[0], outType);
+  auto out = graph.clone(outType, aShuffled[0]);
 
   /* No reduction to be done if number of elements to reduce is 1 */
   if (numElements == 1) {

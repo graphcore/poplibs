@@ -57,8 +57,7 @@ nonLinearityInputGradient(Graph &graph,
     // up when allocating work to vertices.
     // The minimum amount of work per vertex is set to 2 * vectorwidth to
     // balance memory and loop overhead against parallel performance.
-    const auto grainSize = dType == "float" ? target.getFloatVectorWidth()
-                                            : target.getHalfVectorWidth();
+    const auto grainSize = target.getVectorWidth(dType);
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, outGradMapping[tile]);
     auto vertexRegions =
@@ -110,8 +109,7 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
   auto mapping = graph.getTileMapping(t);
   const auto numTiles = target.getNumTiles();
   const auto tFlat = t.flatten();
-  const auto vectorWidth = dType == "float" ? target.getFloatVectorWidth()
-                                            : target.getHalfVectorWidth();
+  const auto vectorWidth = target.getVectorWidth(dType);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     // On each tile split the elements of the output up between the workers.
     // The grainSize is set to the vector width so vectors will not be split

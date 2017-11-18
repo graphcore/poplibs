@@ -1341,7 +1341,7 @@ estimateTransformCycles(const poplar::Target &target,
     expandedOutputFieldSize *= params.getOutputSize(dim);
   }
   unsigned cycles = 0;
-  const auto bytesPerElement = expandedParams.dType == "float" ? 4U : 2U;
+  const auto bytesPerElement = target.getTypeSize(expandedParams.dType);
   const auto expandedInputChannelsPerGroup =
       expandedParams.getNumInputChansPerConvGroup();
   unsigned rearrangeElementsPerTile = 0;
@@ -1379,7 +1379,7 @@ estimateTransformCycles(const poplar::Target &target,
             exchangeBytesPerCycle;
   // Assume we copy at most one element per cycle.
   const auto reorderBytesPerCycle =
-      std::min(target.getMemcpyBytesPerCycle(), bytesPerElement);
+      std::min<unsigned>(target.getMemcpyBytesPerCycle(), bytesPerElement);
   cycles += (expandedBytesPerTile + reorderBytesPerCycle - 1) /
             reorderBytesPerCycle;
   // Apply an experimentally determined fudge factor to account for other
@@ -1478,7 +1478,7 @@ static std::vector<bool> getSwapOperandCandidates(const ConvOptions &options) {
 
 static std::pair<Plan, Cost>
 createPlan(ConvParams params,
-           std::string partialsType,
+           const poplar::Type &partialsType,
            const ConvOptions &options,
            const CostBounds costBounds,
            const poplar::Graph &graph,
@@ -1537,8 +1537,8 @@ createPlan(ConvParams params,
       } else {
         flattenDims.clear();
       }
-      const bool floatActivations = params.dType == "float";
-      const bool floatPartials = partialsType == "float";
+      const bool floatActivations = params.dType == poplar::FLOAT;
+      const bool floatPartials = partialsType == poplar::FLOAT;
       const auto convVertexTypeCandidates =
           getConvVertexTypeCandidates(target, floatActivations,
                                       floatPartials, params, options);
@@ -1658,16 +1658,16 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
   // 16 if possible.
   plan.inChansPerGroup = fwdPlan.partialChansPerGroup;
   if (plan.method == Plan::Method::AMP &&
-      !canUseConvolutionInstruction(fwdParams.dType == "float",
-                                    fwdOptions.partialsType == "float",
+      !canUseConvolutionInstruction(fwdParams.dType == poplar::FLOAT,
+                                    fwdOptions.partialsType == poplar::FLOAT,
                                     plan.inChansPerGroup, target)) {
     plan.inChansPerGroup =
-        target.getWeightsPerConvUnit(fwdParams.dType == "float");
+        target.getWeightsPerConvUnit(fwdParams.dType == poplar::FLOAT);
   }
   // If the result type is half and all the reduction is done within a single
   // pass of the AMP unit then there is no reason to use a higher precision
   // partial type.
-  if (fwdParams.dType != "float" &&
+  if (fwdParams.dType != poplar::FLOAT &&
       fwdParams.getNumOutputChansPerConvGroup() == plan.inChansPerGroup &&
       target.getFp16InFp16OutConvUnitsPerTile() ==
       target.getFp16InFp32OutConvUnitsPerTile()) {
@@ -1677,7 +1677,7 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
   // Set the partials type to the output type as there are no reductions
   // required
   if (plan.method == Plan::Method::OUTER_PRODUCT) {
-    plan.floatPartials = fwdParams.dType == "float";
+    plan.floatPartials = fwdParams.dType == poplar::FLOAT;
   }
   return plan;
 }

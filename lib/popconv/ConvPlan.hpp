@@ -85,8 +85,8 @@ struct Plan {
       linearizeTileOrder(linearizeTileOrder_) {
     assert(fieldTileSplit.size() == fieldAxisGrainSize.size());
   }
-  const char *getPartialType() const {
-    return floatPartials ? "float" : "half";
+  poplar::Type getPartialType() const {
+    return floatPartials ? poplar::FLOAT : poplar::HALF;
   }
 };
 

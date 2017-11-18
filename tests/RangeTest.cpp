@@ -14,7 +14,7 @@ namespace std
 static popconv::ConvParams
 makeParams(unsigned stride, unsigned kernelSize, int paddingLower,
            int paddingUpper, unsigned inputSize) {
-  return {"float",
+  return {poplar::FLOAT,
           1,
           {inputSize, inputSize},
           {kernelSize, kernelSize},
@@ -117,7 +117,7 @@ getOutputDim(unsigned inDimY, unsigned inDimX,
              const std::vector<int> &paddingLower,
              const std::vector<int> &paddingUpper) {
   auto params =
-      popconv::ConvParams("",
+      popconv::ConvParams(poplar::FLOAT,
                           1,
                           {inDimY, inDimX},
                           {kernelSizeY, kernelSizeX},

@@ -11,7 +11,7 @@ poplar::program::Program winogradConvolution(poplar::Graph &graph,
             const poplar::Tensor &in, const poplar::Tensor &weights,
             const poplar::Tensor &out,
             unsigned patchSizeX, unsigned patchSizeY,
-            const std::string &partialsType,
+            const poplar::Type &partialsType,
             const std::string &debugPrefix = "",
             const ConvOptions &options = ConvOptions());
 

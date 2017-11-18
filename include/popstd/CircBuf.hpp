@@ -16,7 +16,7 @@ class CircBuf {
   unsigned padElements;
   poplar::Tensor hist;
 public:
-   CircBuf(poplar::Graph &graph, const std::string &dataType,
+   CircBuf(poplar::Graph &graph, const poplar::Type &dataType,
            unsigned size, const std::vector<std::size_t> &shape,
            const std::string &debugPrefix = "");
 

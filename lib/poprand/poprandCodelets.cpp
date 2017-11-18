@@ -118,14 +118,16 @@ public:
   float scale;
   // A separate vertex needs to be defined if save/restore of seeds is not
   // required
-  uint64_t seedH;
-  uint64_t seedL;
+  Vector<uint32_t> vSeedH;
+  Vector<uint32_t> vSeedL;
   SimOnlyField<unsigned> dataPathWidth;
   // It is expected that there will be two variants of vertices: one which
   // saves and restores seeds
   SimOnlyField<bool> saveRestoreSeed;
 
   bool compute() {
+    uint64_t seedH = *reinterpret_cast<uint64_t *>(&vSeedH[0]);
+    uint64_t seedL = *reinterpret_cast<uint64_t *>(&vSeedL[0]);
     auto s = initialiseAndPrime({seedL, seedH});
     bool isHalf = std::is_same<OutType, half>::value;
     const unsigned maxPerCall = isHalf ? 4 : 2;
@@ -187,13 +189,15 @@ public:
   unsigned int scale;
   // A separate vertex needs to be defined if save/restore of seeds is not
   // required
-  uint64_t seedH;
-  uint64_t seedL;
+  Vector<uint32_t> vSeedH;
+  Vector<uint32_t> vSeedL;
   SimOnlyField<unsigned> dataPathWidth;
   // It is expected that there will be two variants of vertices: one which
   // saves and restores seeds
   SimOnlyField<bool> saveRestoreSeed;
   bool compute() {
+    uint64_t seedH = *reinterpret_cast<uint64_t *>(&vSeedH[0]);
+    uint64_t seedL = *reinterpret_cast<uint64_t *>(&vSeedL[0]);
     auto s = initialiseAndPrime({seedL, seedH});
     const unsigned maxPerCall = 2;
     const unsigned bitsPerVal = 32;
@@ -247,14 +251,16 @@ public:
   float prob;
   // A separate vertex needs to be defined if save/restore of seeds is not
   // required
-  uint64_t seedH;
-  uint64_t seedL;
+  Vector<uint32_t> vSeedH;
+  Vector<uint32_t> vSeedL;
   SimOnlyField<unsigned> dataPathWidth;
   // It is expected that there will be two variants of vertices: one which
   // saves and restores seeds
   SimOnlyField<bool> saveRestoreSeed;
 
   bool compute() {
+    uint64_t seedH = *reinterpret_cast<uint64_t *>(&vSeedH[0]);
+    uint64_t seedL = *reinterpret_cast<uint64_t *>(&vSeedL[0]);
     auto s = initialiseAndPrime({seedL, seedH});
     bool isHalf = std::is_same<OutType, half>::value;
     const unsigned maxPerCall = isHalf ? 4 : 2;
@@ -317,14 +323,16 @@ public:
   float stdDev;             // standard deviation of normal distribution
   // A separate vertex needs to be defined if save/restore of seeds is not
   // required
-  uint64_t seedH;
-  uint64_t seedL;
+  Vector<uint32_t> vSeedH;
+  Vector<uint32_t> vSeedL;
   SimOnlyField<unsigned> dataPathWidth;
   // It is expected that there will be two variants of vertices: one which
   // saves and restores seeds
   SimOnlyField<bool> saveRestoreSeed;
 
   bool compute() {
+    uint64_t seedH = *reinterpret_cast<uint64_t *>(&vSeedH[0]);
+    uint64_t seedL = *reinterpret_cast<uint64_t *>(&vSeedL[0]);
     auto s = initialiseAndPrime({seedL, seedH});
     bool isHalf = std::is_same<OutType, half>::value;
     const unsigned maxPerCall = isHalf ? 4 : 2;
@@ -383,14 +391,16 @@ public:
   float alpha;           // truncation as a multiple of stdDev
   // A separate vertex needs to be defined if save/restore of seeds is not
   // required
-  uint64_t seedH;
-  uint64_t seedL;
+  Vector<uint32_t> vSeedH;
+  Vector<uint32_t> vSeedL;
   SimOnlyField<unsigned> dataPathWidth;
   // It is expected that there will be two variants of vertices: one which
   // saves and restores seeds
   SimOnlyField<bool> saveRestoreSeed;
 
   bool compute() {
+    uint64_t seedH = *reinterpret_cast<uint64_t *>(&vSeedH[0]);
+    uint64_t seedL = *reinterpret_cast<uint64_t *>(&vSeedL[0]);
     auto s = initialiseAndPrime({seedL, seedH});
     bool isHalf = std::is_same<OutType, half>::value;
     const unsigned maxPerCall = isHalf ? 4 : 2;

@@ -47,7 +47,7 @@ cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
   const auto &target = graph.getTarget();
   const auto vectorWidth = target.getFloatVectorWidth();
   std::vector<std::vector<Interval<std::size_t>>> mapping;
-  Tensor t = srcType == "float" ? src : dst;
+  Tensor t = srcType == FLOAT ? src : dst;
   mapping = graph.getTileMapping(t);
   assert(mappingIsComplete(t, mapping));
   const auto numTiles = target.getNumTiles();
@@ -80,7 +80,7 @@ cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
 }
 
 poplar::Tensor
-cast(Graph &graph, const Tensor &src, const std::string &dstType,
+cast(Graph &graph, const Tensor &src, const Type &dstType,
      Sequence &prog, const std::string &debugPrefix) {
   auto dst = graph.clone(dstType, src, "cast");
   prog.add(cast(graph, src, dst, debugPrefix));

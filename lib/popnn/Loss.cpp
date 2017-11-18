@@ -16,8 +16,8 @@ calcLoss(poplar::Graph &graph,
          const poplar::Tensor& loss,
          const poplar::Tensor& deltas,
          const poplar::Tensor& numCorrect,
-         const std::string& activationType,
-         const std::string& expectedType,
+         const poplar::Type& activationType,
+         const poplar::Type& expectedType,
          LossType lossType,
          const std::string &debugPrefix) {
   auto lossCS = graph.addComputeSet(debugPrefix + "/LossLayer");

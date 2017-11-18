@@ -194,11 +194,11 @@ Tensor createInput(Graph &graph,
                    unsigned batchSize,
                    unsigned inputSize,
                    unsigned outputSize,
-                   const std::string &dType,
+                   const Type &dType,
                    bool inferenceOnly,
                    const std::string &name) {
   MatMulOptions mmOpt;
-  mmOpt.partialsType = "float";
+  mmOpt.partialsType = FLOAT;
   mmOpt.fullyConnectedPass = inferenceOnly ? FullyConnectedPass::INFERENCE_FWD :
                                              FullyConnectedPass::TRAINING_FWD;
   auto fcOutputSize = BASIC_LSTM_CELL_NUM_UNITS * outputSize;
@@ -216,7 +216,7 @@ Tensor createFwdState(Graph &graph,
                       unsigned outputSize,
                       Sequence &prog,
                       bool initState,
-                      const std::string &dType,
+                      const Type &dType,
                       bool inferenceOnly,
                       const std::string &debugPrefix) {
   auto stateDims = inferenceOnly ? LSTM_NUM_FWD_STATES_INFERENCE :
@@ -245,7 +245,7 @@ Tensor createBwdState(Graph &graph,
                       unsigned batchSize,
                       unsigned outputSize,
                       Sequence &prog,
-                      const std::string &dType,
+                      const Type &dType,
                       const std::string &debugPrefix) {
   auto state =
     graph.addTensor(dType, {LSTM_NUM_BWD_STATES, batchSize, outputSize},
@@ -271,8 +271,8 @@ Tensor createWeightsInput(Graph &graph,
                           unsigned inputSize,
                           unsigned outputSize,
                           bool preweights,
-                          const std::string &dType,
-                          const std::string &partialsType,
+                          const Type &dType,
+                          const Type &partialsType,
                           bool inferenceOnly,
                           const std::string &name
                           ) {
@@ -297,8 +297,8 @@ Tensor createWeightsOutput(Graph &graph,
                            unsigned seqSize,
                            unsigned batchSize,
                            unsigned outputSize,
-                           const std::string &dType,
-                           const std::string &partialsType,
+                           const Type &dType,
+                           const Type &partialsType,
                            bool inferenceOnly,
                            const std::string &name
                            ) {
@@ -320,10 +320,10 @@ calcSequenceWeightedInputs(Graph &graph,
                            const Tensor &in_,
                            const Tensor &weightsInput_,
                            program::Sequence &prog,
-                           const std::string &partialsTypeStr,
+                           const Type &partialsType,
                            const std::string &debugPrefix) {
   MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsTypeStr;
+  mmOpt.partialsType = partialsType;
   auto sequenceSize = in_.dim(0);
   auto batchSize = in_.dim(1);
   auto inputSize = in_.dim(2);
@@ -347,7 +347,7 @@ basicLstmCellForwardPassImpl(Graph &graph,
                              const Tensor *weightsInput,
                              const Tensor &weightsOutput,
                              Sequence &prog,
-                             const std::string &partialsTypeStr,
+                             const Type &partialsType,
                              bool inferenceOnly,
                              const std::string &debugPrefix) {
   unsigned sequenceSize;
@@ -385,7 +385,7 @@ basicLstmCellForwardPassImpl(Graph &graph,
   }
   PlanningCache cache;
   MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsTypeStr;
+  mmOpt.partialsType = partialsType;
   mmOpt.fullyConnectedPass = inferenceOnly ? FullyConnectedPass::INFERENCE_FWD :
                                              FullyConnectedPass::TRAINING_FWD;
   mmOpt.cache = &cache;
@@ -443,13 +443,13 @@ basicLstmCellForwardPassWeightedInputs(Graph &graph,
                                        const Tensor &prevCellState,
                                        const Tensor &weightsOutput,
                                        Sequence &prog,
-                                       const std::string &partialsTypeStr,
+                                       const Type &partialsType,
                                        bool inferenceOnly,
                                        const std::string &debugPrefix) {
   return
     basicLstmCellForwardPassImpl(graph, weightedIn, biases, prevOutputAct,
                                  prevCellState, nullptr, weightsOutput,
-                                 prog, partialsTypeStr, inferenceOnly,
+                                 prog, partialsType, inferenceOnly,
                                  debugPrefix);
 }
 
@@ -462,13 +462,13 @@ basicLstmCellForwardPass(Graph &graph,
                          const Tensor &weightsInput,
                          const Tensor &weightsOutput,
                          Sequence &prog,
-                         const std::string &partialsTypeStr,
+                         const Type &partialsType,
                          bool inferenceOnly,
                          const std::string &debugPrefix) {
   return
     basicLstmCellForwardPassImpl(graph, in, biases, prevOutputAct,
                                  prevCellState, &weightsInput, weightsOutput,
-                                 prog, partialsTypeStr, inferenceOnly,
+                                 prog, partialsType, inferenceOnly,
                                  debugPrefix);
 }
 
@@ -481,8 +481,8 @@ Tensor lstmFwdSequence(Graph &graph,
                        const Tensor &weightsInput,
                        const Tensor &weightsOutput,
                        const Tensor &prevLayerActs,
-                       const std::string &dataType,
-                       const std::string &partialsType,
+                       const Type &dataType,
+                       const Type &partialsType,
                        const std::string &debugPrefix) {
   Tensor fwdState;
   // loop counter
@@ -490,9 +490,9 @@ Tensor lstmFwdSequence(Graph &graph,
   unsigned numTiles = target.getNumTiles();
   //TODO: replace these per-tile counters and constants with scalars
   // once poplar is enhanced to auto-expand them
-  auto seqIdx = graph.addTensor("unsigned", {1, numTiles},
+  auto seqIdx = graph.addTensor(UNSIGNED_INT, {1, numTiles},
                                 debugPrefix + "/seqIdx");
-  auto one = graph.addConstantTensor("unsigned", {1, numTiles}, 1);
+  auto one = graph.addConstantTensor(UNSIGNED_INT, {1, numTiles}, 1);
   for (unsigned i = 0; i != numTiles; ++i) {
     graph.setTileMapping(seqIdx[0][i], i);
     graph.setTileMapping(one[0][i], i);
@@ -561,7 +561,7 @@ BackwardStepImpl(Graph &graph,
                       const Tensor *weightsInput,
                       const Tensor *weightsOutput,
                       Sequence &prog,
-                      const std::string &partialsTypeStr,
+                      const Type &partialsType,
                       const std::string &debugPrefix) {
   const auto fPrefix = debugPrefix + "/LstmBwd";
   auto gradSum =
@@ -631,7 +631,7 @@ BackwardStepImpl(Graph &graph,
 
   PlanningCache cache;
   MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsTypeStr;
+  mmOpt.partialsType = partialsType;
   mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_BWD;
   mmOpt.cache = &cache;
 
@@ -673,13 +673,13 @@ basicLstmBackwardStep(Graph &graph,
                       const Tensor &weightsInput,
                       const Tensor &weightsOutput,
                       Sequence &prog,
-                      const std::string &partialsTypeStr,
+                      const Type &partialsType,
                       const std::string &debugPrefix) {
   Tensor gradientIn, gradAtPrevOutput;
   return
     BackwardStepImpl(graph, gradNextLayer, fwdStateThisStep, prevCellState,
                      bwdState, &weightsInput, &weightsOutput, prog,
-                     partialsTypeStr, debugPrefix);
+                     partialsType, debugPrefix);
 }
 
 Tensor
@@ -690,13 +690,13 @@ basicLstmBackwardStep(Graph &graph,
                       const Tensor &bwdState,
                       const Tensor &weightsOutput,
                       Sequence &prog,
-                      const std::string &partialsTypeStr,
+                      const Type &partialsType,
                       const std::string &debugPrefix) {
   Tensor gradientIn, gradAtPrevOutput;
   std::tie(gradientIn, gradAtPrevOutput) =
     BackwardStepImpl(graph, gradNextLayer, fwdStateThisStep, prevCellState,
                      bwdState, nullptr, &weightsOutput, prog,
-                     partialsTypeStr, debugPrefix);
+                     partialsType, debugPrefix);
   return gradAtPrevOutput;
 }
 
@@ -709,12 +709,12 @@ basicLstmParamUpdate(Graph &graph,
                      const Tensor &weightsOutputDeltaAcc,
                      const Tensor &biasDeltaAcc,
                      Sequence &prog,
-                     const std::string &partialsTypeStr,
+                     const Type &partialsType,
                      const std::string &debugPrefix) {
   const auto fPrefix = debugPrefix + "/LstmDeltas";
   PlanningCache cache;
   MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsTypeStr;
+  mmOpt.partialsType = partialsType;
   mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_WU;
   mmOpt.cache = &cache;
   auto gradUnits =
@@ -749,8 +749,8 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> lstmBwdSequence(
   const Tensor &prevLayerActs,
   const Tensor &gradLayerNext,
   const Tensor &bwdState,
-  const std::string &dataType,
-  const std::string &partialsType,
+  const Type &dataType,
+  const Type &partialsType,
   const std::string &debugPrefix)
 {
   Tensor gradPrevLayer, weightsInputDeltasAcc, weightsOutputDeltasAcc,
@@ -768,9 +768,9 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> lstmBwdSequence(
 
   unsigned seqSize = gradLayerNext.dim(0);
   // sequence down-counter
-  auto seqIdx = graph.addTensor("unsigned", {1}, debugPrefix + "/seqIdx");
-  auto start = graph.addConstantTensor("unsigned", {1}, seqSize - 1);
-  auto one = graph.addConstantTensor("unsigned", {1}, 1);
+  auto seqIdx = graph.addTensor(UNSIGNED_INT, {1}, debugPrefix + "/seqIdx");
+  auto start = graph.addConstantTensor(UNSIGNED_INT, {1}, seqSize - 1);
+  auto one = graph.addConstantTensor(UNSIGNED_INT, {1}, 1);
   graph.setTileMapping(seqIdx, 0);
   prog.add(Copy(start, seqIdx));
 

@@ -42,7 +42,7 @@ struct ConvOptions {
   unsigned percentageCyclesExcessForMemOptim = 0;
   /// The pass this layer corresponds to.
   Pass pass = Pass::NONE;
-  std::string partialsType = "float";
+  poplar::Type partialsType = poplar::FLOAT;
   PlanningCache *cache = nullptr;
   bool operator<(const ConvOptions &other) const {
     return std::tie(weightUpdateMethod, useWinograd, winogradPatchSize,
@@ -56,7 +56,7 @@ struct ConvOptions {
 };
 
 struct ConvParams {
-  std::string dType;
+  poplar::Type dType;
   // batch size (B)
   std::size_t batchSize;
   // Input field shape for each channel in a batch
@@ -88,7 +88,7 @@ struct ConvParams {
   // {B, O{dims}, Co/G}. O{dims} is the output field dimensions
   std::size_t numConvGroups;
   ConvParams() = default;
-  ConvParams(std::string dType,
+  ConvParams(poplar::Type dType,
              std::size_t batchSize,
              std::vector<std::size_t> inputFieldShape,
              std::vector<std::size_t> kernelShape,
@@ -283,7 +283,7 @@ convolutionWeightUpdate(poplar::Graph &graph,
 void
 convolutionBiasUpdate(poplar::Graph &graph, const poplar::Tensor &zDeltas,
                       const poplar::Tensor &biases,
-                      float learningRate, const std::string &partialsType,
+                      float learningRate, const poplar::Type &partialsType,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix = "");
 
@@ -324,7 +324,7 @@ batchNormEstimates(poplar::Graph &graph,
                    const poplar::Tensor &actsUngrouped,
                    float eps,
                    poplar::program::Sequence &prog,
-                   const std::string &partialsType = "float",
+                   const poplar::Type &partialsType = poplar::FLOAT,
                    const std::string &debugPrefix = "");
 
 // Computes and returns the following given mean and inverse of standard
@@ -359,7 +359,7 @@ batchNormDeltas(poplar::Graph &graph,
                 const poplar::Tensor &actsWhitened,
                 const poplar::Tensor &gradsIn,
                 poplar::program::Sequence &prog,
-                const std::string &partialsType = "float",
+                const poplar::Type &partialsType = poplar::FLOAT,
                 const std::string &debugPrefix = "");
 
 
@@ -372,7 +372,7 @@ batchNormGradients(poplar::Graph &graph,
                    const poplar::Tensor &invStdDev,
                    const poplar::Tensor &gamma,
                    poplar::program::Sequence &prog,
-                   const std::string &partialsType = "float",
+                   const poplar::Type &partialsType = poplar::FLOAT,
                    const std::string &debugPrefix = "");
 
 struct Plan;

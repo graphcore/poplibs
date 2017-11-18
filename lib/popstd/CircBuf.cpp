@@ -13,7 +13,7 @@ using namespace popstd;
 
 namespace popstd {
 
-CircBuf::CircBuf(Graph &graph, const std::string &dataType,
+CircBuf::CircBuf(Graph &graph, const Type &dataType,
                  unsigned size, const std::vector<std::size_t> &shape,
                  const std::string &debugPrefix) :
   graph(graph), size_(size), shape(shape) {
@@ -34,7 +34,7 @@ CircBuf::CircBuf(Graph &graph, const std::string &dataType,
     }
   }
 
-  index = graph.addTensor("unsigned", {1}, debugPrefix + "/CircBufIndex");
+  index = graph.addTensor(UNSIGNED_INT, {1}, debugPrefix + "/CircBufIndex");
   graph.setInitialValue(index[0], 0);
   graph.setTileMapping(index, 0);
 }
@@ -45,7 +45,7 @@ Tensor CircBuf::prev(unsigned i, Sequence &seq,
     std::abort();
   // compute required offset into an internal Tensor, prevIdx
   // this is mapped onto the tile where index is located
-  Tensor prevIdx = graph.addTensor("unsigned", {1}, debugPrefix + "/Offset");
+  Tensor prevIdx = graph.addTensor(UNSIGNED_INT, {1}, debugPrefix + "/Offset");
   auto indexMapping = graph.getTileMapping(index);
   graph.setTileMapping(prevIdx, indexMapping);
   auto cs = graph.addComputeSet(debugPrefix + "/CircBufPrev");

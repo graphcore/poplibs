@@ -8,16 +8,16 @@ using namespace popstd;
 using namespace poplar;
 using namespace poplar::program;
 
-static std::string outputType(const std::string &inType, enum UnaryOp op) {
+static Type outputType(const Type &inType, enum UnaryOp op) {
   if (op == IS_FINITE
       || op == LOGICAL_NOT) {
-    return "bool";
+    return BOOL;
   } else {
     return inType;
   }
 }
 
-static std::string outputType(const std::string &inType, enum BinaryOp op) {
+static Type outputType(const Type &inType, enum BinaryOp op) {
   if (op == EQUAL
       || op == GREATER_THAN_EQUAL
       || op == GREATER_THAN
@@ -26,14 +26,14 @@ static std::string outputType(const std::string &inType, enum BinaryOp op) {
       || op == LOGICAL_OR
       || op == LESS_THAN
       || op == NOT_EQUAL) {
-    return "bool";
+    return BOOL;
   } else {
     return inType;
   }
 }
 
-static std::string outputType(const std::string &inType,
-                              enum TernaryOp /*op*/) {
+static Type outputType(const Type &inType,
+                       enum TernaryOp /*op*/) {
   return inType;
 }
 
@@ -371,7 +371,7 @@ Tensor div(Graph &graph, float k, Tensor A, Sequence &prog,
           const std::string &debugPrefix) {
   Tensor B;
   const auto dType = A.elementType();
-  if (dType == "half") {
+  if (dType == HALF) {
     B = graph.addConstantTensor<half>(dType, A.shape(), k);
   } else {
     B = graph.addConstantTensor<float>(dType, A.shape(), k);

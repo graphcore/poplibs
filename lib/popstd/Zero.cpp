@@ -18,8 +18,7 @@ zero(poplar::Graph &graph,
   const auto dType = t.elementType();
   const auto &target = graph.getTarget();
   const auto tFlat = t.flatten();
-  const auto vectorWidth = dType == "float" ? target.getFloatVectorWidth()
-                                            : target.getHalfVectorWidth();
+  const auto vectorWidth = target.getVectorWidth(dType);
   const auto tileContiguousRegions =
       graph.getSortedContiguousRegions(t, tileRegions);
   auto vertexRegions =

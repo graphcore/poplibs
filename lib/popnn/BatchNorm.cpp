@@ -66,13 +66,13 @@ std::pair<Tensor, Tensor>
 batchNormEstimates(Graph &graph, const Tensor acts,
                    float eps,
                    Sequence &prog,
-                   const std::string &partialsTypeStr,
+                   const Type &partialsType,
                    const std::string &debugPrefix) {
 
   const auto rank = acts.rank();
   check(acts);
   if (rank == 4) {
-    return popconv::batchNormEstimates(graph, acts, eps, prog, partialsTypeStr,
+    return popconv::batchNormEstimates(graph, acts, eps, prog, partialsType,
                                        debugPrefix);
   } else {
 
@@ -104,7 +104,7 @@ batchNormEstimates(Graph &graph, const Tensor acts,
         unsigned inpIdx = 0;
         unsigned num = 0;
         auto v = graph.addVertex(cs, templateVertex("popnn::BatchNormEstimates",
-                                                    dType, partialsTypeStr));
+                                                    dType, partialsType));
 
         for (const auto &interval : regions) {
           const auto begin = interval.begin();
@@ -202,13 +202,13 @@ batchNormDeltas(Graph &graph,
                 const Tensor &actsWhitened,
                 const Tensor &gradsIn,
                 Sequence &prog,
-                const std::string &partialsTypeStr,
+                const Type &partialsType,
                 const std::string &debugPrefix) {
   check(actsWhitened);
   const auto rank = actsWhitened.rank();
   if (rank == 4) {
     return popconv::batchNormDeltas(graph, actsWhitened, gradsIn, prog,
-                                    partialsTypeStr, debugPrefix);
+                                    partialsType, debugPrefix);
   } else {
     const auto fnPrefix = debugPrefix + "/BN/deltas";
     const auto betaDelta = reduce(graph, gradsIn, prog, fnPrefix);
@@ -227,14 +227,14 @@ Tensor batchNormGradients(Graph &graph,
                           const Tensor &iStdDev,
                           const Tensor &gamma,
                           Sequence &prog,
-                          const std::string &partialsTypeStr,
+                          const Type &partialsType,
                           const std::string &debugPrefix) {
   const auto rank = actsWhitened.rank();
   check(actsWhitened);
   if (rank == 4) {
     return popconv::batchNormGradients(graph, actsWhitened, gradsIn, gammaDelta,
                                        betaDelta, iStdDev, gamma, prog,
-                                       partialsTypeStr, debugPrefix);
+                                       partialsType, debugPrefix);
   } else {
     const auto fnPrefix = debugPrefix + "/BN/gradients";
     const auto actsShape = actsWhitened.shape();

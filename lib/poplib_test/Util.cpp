@@ -13,14 +13,14 @@ std::unique_ptr<char []>
 allocateHostMemoryForTensor(const Tensor &t) {
   const auto dType = t.elementType();
   std::unique_ptr<char []> p;
-  if (dType == "float") {
+  if (dType == FLOAT) {
     p.reset(new char[t.numElements() * sizeof(float)]);
-  } else if (dType == "half"){
+  } else if (dType == HALF){
     p.reset(new char[t.numElements() * sizeof(poplar::half)]);
-  } else if (dType == "int") {
+  } else if (dType == INT) {
     p.reset(new char[t.numElements() * sizeof(int)]);
   } else {
-    assert(dType == "bool");
+    assert(dType == BOOL);
     p.reset(new char[t.numElements() * sizeof(bool)]);
   }
   return p;
@@ -105,30 +105,20 @@ bool checkIsClose(const std::string &name, const double *actual,
   return isClose;
 }
 
-const char *asString(const FPDataType &type) {
-  switch (type) {
-  case FPDataType::HALF: return "half";
-  case FPDataType::FLOAT: return "float";
-  }
-  POPLIB_UNREACHABLE();
-}
+} // end namespace util
+} // end namespace poplib_test
 
-std::ostream &operator<<(std::ostream &os, const FPDataType &type) {
-  return os << asString(type);
-}
-
-std::istream &operator>>(std::istream &in, FPDataType &type) {
+namespace std {
+std::istream &operator>>(std::istream &in, poplar::Type &type) {
   std::string token;
   in >> token;
   if (token == "half")
-    type = FPDataType::HALF;
+    type = poplar::HALF;
   else if (token == "float")
-    type = FPDataType::FLOAT;
+    type = poplar::FLOAT;
   else
     throw popstd::poplib_error(
       "Invalid data-type <" + token + ">; must be half or float");
   return in;
 }
-
-} // end namespace util
-} // end namespace poplib_test
+}

@@ -58,8 +58,8 @@ public:
                   unsigned dimInX, unsigned dimInY,
                   unsigned patchSizeX, unsigned patchSizeY,
                   unsigned kernelX, unsigned kernelY,
-                  unsigned zi, unsigned zo, std::string dType,
-                  std::string partialsType) :
+                  unsigned zi, unsigned zo, Type dType,
+                  Type partialsType) :
 
                   padX(padX), padY(padY), dimInX(dimInX), dimInY(dimInY),
                   patchSizeX(patchSizeX), patchSizeY(patchSizeY),
@@ -75,8 +75,8 @@ public:
   const unsigned patchSizeX, patchSizeY;
   const unsigned kernelX, kernelY;
   const unsigned zi, zo;
-  const std::string dType;
-  const std::string partialsType;
+  const Type dType;
+  const Type partialsType;
 
 
   /* Tiles over which all patches are distributed */
@@ -305,7 +305,7 @@ uint64_t WgdTilePartition::tilePartition(
   const unsigned numTiles = target.getNumTiles();
   const unsigned numWorkers = target.getNumWorkerContexts();
   const auto numPatches = getNumPatches();
-  const auto isFloat = dType == "float";
+  const auto isFloat = dType == FLOAT;
   const unsigned exchEfficiency = 100;
 
   /* for now use number of channel groups to be what is input.
@@ -535,7 +535,7 @@ uint64_t WgdTilePartition::tilePartition(
                                    * patchSizeX
                                    * patchSizeY + numWorkers - 1) / numWorkers;
           ccRed = getWgdReduceCycles(numRedBlocks * zoc, tilesForZig,
-                                     partialsType == "float") * numWorkers;
+                                     partialsType == FLOAT) * numWorkers;
         }
 
         std::get<REDUCTION>(cc) = ccRed;
@@ -1283,11 +1283,11 @@ static Program accum(
   ComputeSet cs = graph.addComputeSet(layerName + "/Accum");
   ComputeSet zeroCS = graph.addComputeSet(layerName + "/ZeroAccum");
   const auto weightsPerConvUnit =
-      target.getWeightsPerConvUnit(tp.dType == "float");
+      target.getWeightsPerConvUnit(tp.dType == FLOAT);
 
-  const auto numConvUnits = tp.dType == "float" ?
+  const auto numConvUnits = tp.dType == FLOAT ?
                               target.getFp32InFp32OutConvUnitsPerTile() :
-                              tp.partialsType == "float" ?
+                              tp.partialsType == FLOAT ?
                                   target.getFp16InFp32OutConvUnitsPerTile() :
                                   target.getFp16InFp16OutConvUnitsPerTile();
 
@@ -1689,7 +1689,7 @@ extern Program winogradConvolution(Graph &graph,
             const std::vector<int> &paddingUpper,
             unsigned xDim, unsigned yDim,
             unsigned outNumChans, unsigned patchSizeX, unsigned patchSizeY,
-            const std::string &dType, const std::string &partialsType,
+            const Type &dType, const Type &partialsType,
             Tensor in, Tensor weights, Tensor activations,
             const std::string &debugPrefix) {
 
@@ -1798,7 +1798,7 @@ Program winogradConvolution(Graph &graph,
             const Tensor &in, const Tensor &weights,
             const Tensor &out,
             unsigned patchSizeX, unsigned patchSizeY,
-            const std::string &partialsType,
+            const Type &partialsType,
             const std::string &debugPrefix,
             const ConvOptions &options) {
   Sequence prog;

@@ -24,21 +24,6 @@ namespace fpc = boost::test_tools::fpc;
 #define DIM_SIZE  200
 
 template <typename T>
-std::string toTypeStr() {
-  if (std::is_same<T, float>::value) {
-    return "float";
-  } else if (std::is_same<T, half>::value) {
-    return "half";
-  } else if (std::is_same<T, int>::value) {
-    return "int";
-  } else {
-    assert(0 && "Invalid type");
-  }
-  return "";
-}
-
-
-template <typename T>
 static bool compareMatrices(T a[DIM_SIZE][DIM_SIZE],
                             T b[DIM_SIZE][DIM_SIZE]){
   bool pass = true;
@@ -123,10 +108,7 @@ static bool uniformTest(T hOut[DIM_SIZE][DIM_SIZE],
   Graph graph(device);
   poprand::addCodelets(graph);
 
-  std::string dType = toTypeStr<T>();
-  if (dType.empty()) {
-    return false;
-  }
+  auto dType = equivalent_device_type<T>().value;
   auto out = graph.addTensor(dType, {DIM_SIZE, DIM_SIZE}, "out");
   mapTensorLinearly(graph, out);
   graph.createHostRead("out", out);
@@ -181,10 +163,7 @@ static bool bernoulliTest(T hOut[DIM_SIZE][DIM_SIZE], float prob,
   Graph graph(device);
   poprand::addCodelets(graph);
 
-  std::string dType = toTypeStr<T>();
-  if (dType.empty()) {
-    return false;
-  }
+  auto dType = equivalent_device_type<T>().value;
 
   auto out = graph.addTensor(dType, {DIM_SIZE, DIM_SIZE}, "out");
   mapTensorLinearly(graph, out);
@@ -252,10 +231,7 @@ static bool normalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean, float stdDev,
   Graph graph(device);
   poprand::addCodelets(graph);
 
-  std::string dType = toTypeStr<T>();
-  if (dType.empty()) {
-    return false;
-  }
+  auto dType = equivalent_device_type<T>().value;
 
   auto out = graph.addTensor(dType, {DIM_SIZE, DIM_SIZE}, "out");
   mapTensorLinearly(graph, out);
@@ -341,10 +317,7 @@ static bool truncatedNormalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean,
   Graph graph(device);
   poprand::addCodelets(graph);
 
-  std::string dType = toTypeStr<T>();
-  if (dType.empty()) {
-    return false;
-  }
+  auto dType = equivalent_device_type<T>().value;
 
   auto out = graph.addTensor(dType, {DIM_SIZE, DIM_SIZE}, "out");
   mapTensorLinearly(graph, out);

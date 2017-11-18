@@ -29,8 +29,7 @@ void hadamardProduct(Graph &graph, Tensor A, Tensor B,
     // up when allocating work to vertices.
     // The minimum amount of work per vertex is set to 2 * vectorwidth to
     // balance memory and loop overhead against parallel performance.
-    const auto grainSize = dType == "float" ? target.getFloatVectorWidth()
-                                            : target.getHalfVectorWidth();
+    const auto grainSize = target.getVectorWidth(dType);
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(A, mapping[tile]);
     auto vertexRegions =

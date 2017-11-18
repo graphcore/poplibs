@@ -11,7 +11,7 @@ validateLayerParams(const ConvParams &params) {
                                  " truncates more than the input size");
     }
   }
-  if (params.dType != "half" && params.dType != "float") {
+  if (params.dType != poplar::HALF && params.dType != poplar::FLOAT) {
     throw popstd::poplib_error("Unknown element type");
   }
 }

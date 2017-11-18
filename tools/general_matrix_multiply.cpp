@@ -70,8 +70,8 @@ int main(int argc, char **argv) {
   //        op(matB)  is a k x n matrix
   unsigned m, k, n;
   float alpha, beta;
-  FPDataType dataType;
-  FPDataType partialsType;
+  Type dataType;
+  Type partialsType;
   double relativeTolerance;
   MatrixOp matAOp = MatrixOp::NORMAL;
   MatrixOp matBOp = MatrixOp::NORMAL;
@@ -91,10 +91,10 @@ int main(int argc, char **argv) {
     ("n",  po::value<unsigned>(&n)->required(),
       "Number of columns of the right matrix right-matrix-op(B)")
     ("data-type",
-      po::value<FPDataType>(&dataType)->default_value(FPDataType::HALF),
+      po::value<Type>(&dataType)->default_value(HALF),
       "Input and output data type")
     ("partials-type",
-     po::value<FPDataType>(&partialsType)->default_value(FPDataType::FLOAT),
+     po::value<Type>(&partialsType)->default_value(FLOAT),
      "Type of the partials")
     ("alpha",
       po::value<float>(&alpha)->default_value(1.0),
@@ -145,9 +145,6 @@ int main(int argc, char **argv) {
   popreduce::addCodelets(graph);
   poplin::addCodelets(graph);
 
-  std::string dataTypeStr(asString(dataType));
-  std::string partialsTypeStr(asString(partialsType));
-
   const bool transposeA = matAOp == MatrixOp::TRANSPOSE;
   const bool transposeB = matBOp == MatrixOp::TRANSPOSE;
 
@@ -159,7 +156,7 @@ int main(int argc, char **argv) {
 
   PlanningCache cache;
   MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsTypeStr;
+  mmOpt.partialsType = partialsType;
   mmOpt.cache = &cache;
   if (transposeB) {
     mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_BWD;
@@ -167,13 +164,13 @@ int main(int argc, char **argv) {
     mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_WU;
   }
 
-  auto matA = createMatMulInputLHS(graph, dataTypeStr,
+  auto matA = createMatMulInputLHS(graph, dataType,
                                    {m, k}, {k, n}, "matA", mmOpt);
 
   if (transposeA)
     matA = matA.transpose();
 
-  auto matB = createMatMulInputRHS(graph, dataTypeStr,
+  auto matB = createMatMulInputRHS(graph, dataType,
                                    {m, k},
                                    {k, n},
                                    "matB", mmOpt);
@@ -187,7 +184,7 @@ int main(int argc, char **argv) {
                        transposeB ? matB.transpose() : matB,
                        prog, "op(A) x op(B)", mmOpt);
 
-  auto matC = graph.addTensor(dataTypeStr, {m, n}, "matC");
+  auto matC = graph.addTensor(dataType, {m, n}, "matC");
   mapTensorLinearly(graph, matC);
 
   addTo(graph, matC, matAxB, alpha, prog);
@@ -216,15 +213,15 @@ int main(int argc, char **argv) {
                                            refMatC, alpha, beta, transposeA,
                                            transposeB);
 
-  copy(hostMatA, dataTypeStr, rawHostMatA.get());
-  copy(hostMatB, dataTypeStr, rawHostMatB.get());
-  copy(hostMatC, dataTypeStr, rawHostMatC.get());
+  copy(hostMatA, dataType, rawHostMatA.get());
+  copy(hostMatB, dataType, rawHostMatB.get());
+  copy(hostMatC, dataType, rawHostMatC.get());
 
   upload(engine, tmap);
   engine.run(0);    // matrix operation
   download(engine, tmap);
 
-  copy(dataTypeStr, rawHostMatC.get(), hostMatC);
+  copy(dataType, rawHostMatC.get(), hostMatC);
 
   const bool matchesModel = checkIsClose("gemm", hostMatC, refMatC,
                                          relativeTolerance);

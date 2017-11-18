@@ -120,7 +120,7 @@ public:
   Vector<Input<Vector<FPType>>> outGrad;
   Vector<Input<Vector<FPType>>> out;
   Vector<Output<Vector<FPType>>> inGrad;
-  NonLinearityType nonLinearityType;
+  unsigned nonLinearityType;
 
   SimOnlyField<unsigned> dataPathWidth;
 
@@ -130,8 +130,9 @@ public:
       assert(outGrad[i].size() == out[i].size());
       for (unsigned j = 0; j < outGrad[i].size(); ++j) {
         inGrad[i][j] =
-            outGrad[i][j] * nonlinearity_derivative(nonLinearityType,
-                                                    out[i][j]);
+            outGrad[i][j] *
+              nonlinearity_derivative(NonLinearityType(nonLinearityType),
+                                                       out[i][j]);
       }
     }
     return true;

@@ -47,20 +47,20 @@ writeRandomValues(boost::multi_array<T, N> &a, double min,
 template <unsigned long N>
 inline void
 copy(boost::multi_array_ref<double, N> src,
-     const std::string &dstType,
+     const poplar::Type &dstType,
      void *dst) {
   assert(src.storage_order() == boost::c_storage_order());
-  if (dstType == "float") {
+  if (dstType == poplar::FLOAT) {
     std::copy(src.data(), src.data() + src.num_elements(),
               reinterpret_cast<float*>(dst));
-  } else if (dstType == "half") {
+  } else if (dstType == poplar::HALF) {
     std::copy(src.data(), src.data() + src.num_elements(),
               reinterpret_cast<poplar::half*>(dst));
-  } else if (dstType == "int") {
+  } else if (dstType == poplar::INT) {
     std::copy(src.data(), src.data() + src.num_elements(),
               reinterpret_cast<int*>(dst));
   } else {
-    assert(dstType == "bool");
+    assert(dstType == poplar::BOOL);
     std::copy(src.data(), src.data() + src.num_elements(),
               reinterpret_cast<bool*>(dst));
   }
@@ -68,19 +68,19 @@ copy(boost::multi_array_ref<double, N> src,
 
 template <unsigned long N>
 inline void
-copy(const std::string &srcType,
+copy(const poplar::Type &srcType,
      void *src,
      boost::multi_array_ref<double, N> dst) {
   assert(dst.storage_order() == boost::c_storage_order());
-  if (srcType == "float") {
+  if (srcType == poplar::FLOAT) {
     std::copy(reinterpret_cast<float*>(src),
               reinterpret_cast<float*>(src) + dst.num_elements(),
               dst.data());
-  } else if (srcType == "half") {
+  } else if (srcType == poplar::HALF) {
     std::copy(reinterpret_cast<poplar::half*>(src),
               reinterpret_cast<poplar::half*>(src) + dst.num_elements(),
               dst.data());
-  } else if (srcType == "int") {
+  } else if (srcType == poplar::INT) {
     std::copy(reinterpret_cast<int*>(src),
               reinterpret_cast<int*>(src) + dst.num_elements(),
               dst.data());
@@ -119,15 +119,6 @@ inline bool checkIsClose(const std::string &name,
                       relativeTolerance,
                       absoluteTolerance);
 }
-
-enum class FPDataType {
-  HALF,
-  FLOAT
-};
-
-const char *asString(const FPDataType &type);
-std::ostream &operator<<(std::ostream &os, const FPDataType &type);
-std::istream &operator>>(std::istream &in, FPDataType &type);
 
 template <class T>
 struct ShapeOption {
@@ -217,5 +208,8 @@ std::istream &operator>>(std::istream &in, ShapeOption<T> &s) {
 } // End namespace poplib_test
 } // End namespace ref.
 
+namespace std {
+std::istream &operator>>(std::istream &in, poplar::Type &type);
+}
 
 #endif  // _poplib_test_Util_hpp_

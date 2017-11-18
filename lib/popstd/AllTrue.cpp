@@ -13,7 +13,7 @@ void allTrue(Graph &graph, Tensor in, Sequence &prog,
              const std::string &debugPrefix) {
   const auto inType = in.elementType();
 
-  if (inType != "bool") {
+  if (inType != BOOL) {
     throw popstd::poplib_error("Operation allTrue only takes boolean tensors");
   }
   const auto &target = graph.getTarget();

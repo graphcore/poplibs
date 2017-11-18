@@ -63,7 +63,7 @@ std::vector<VertexInfo> buildVertices(Graph &graph, const Tensor &t) {
     (target.getNumTiles() * target.getNumWorkerContexts())
     / target.getNumIPUs();
   unsigned numElements = t.numElements();
-  const unsigned minGrainSize = t.elementType() == "half" ? 2 : 4;
+  const unsigned minGrainSize = target.getTypeSize(t.elementType());
   unsigned elemsPerVertex = (numElements + maxVertices - 1) / maxVertices;
 
   if (elemsPerVertex < minGrainSize) {
@@ -97,10 +97,10 @@ buildProgram(Graph &graph, const Tensor &A, uint64_t seed, uint16_t colouredId,
   auto setParamsInVertex = [](Graph &graph, VertexRef &v,
                               const std::string &vertexName,
                               const ParamsList &params,
-                              const std::string &dType) {
+                              const Type &dType) {
     for (const auto &p : params) {
       // special case for uniform int
-      if (dType == "int" && vertexName == "Uniform" &&
+      if (dType == INT && vertexName == "Uniform" &&
            (p.first == "scale" || p.first == "offset")) {
         if  (p.first == "scale") {
           const unsigned val = static_cast<unsigned>(p.second);
@@ -139,8 +139,12 @@ buildProgram(Graph &graph, const Tensor &A, uint64_t seed, uint16_t colouredId,
         graph.setFieldSize(v["out"], 1);
         setParamsInVertex(graph, v, vertexName, params, dType);
         graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-        graph.setInitialValue(v["seedL"], seed);
-        graph.setInitialValue(v["seedH"], createSeedU64(colouredId, 0, i));
+        std::vector<uint32_t> vSeedL{(uint32_t) seed, (uint32_t) (seed >> 32)};
+        graph.setInitialValue(v["vSeedL"], vSeedL);
+        auto seedH = createSeedU64(colouredId, 0, i);
+        std::vector<uint32_t> vSeedH{(uint32_t) seedH,
+                                     (uint32_t) (seedH >> 32)};
+        graph.setInitialValue(v["vSeedH"], vSeedH);
         graph.setInitialValue(v["saveRestoreSeed"], saveRestoreSeed);
         graph.setTileMapping(v, tile);
       }
@@ -172,9 +176,13 @@ buildProgram(Graph &graph, const Tensor &A, uint64_t seed, uint16_t colouredId,
         graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
         setParamsInVertex(graph, v, vertexName, params, dType);
         if (simulateNonRepeatable || mode != NOT_REPEATABLE) {
-          graph.setInitialValue(v["seedL"], seed);
-          graph.setInitialValue(v["seedH"],  createSeedU64(colouredId, tile,
-                                                           vertexCount));
+          std::vector<uint32_t> vSeedL{(uint32_t) seed,
+                                       (uint32_t) (seed >> 32)};
+          graph.setInitialValue(v["vSeedL"], vSeedL);
+          auto seedH = createSeedU64(colouredId, tile, vertexCount);
+          std::vector<uint32_t> vSeedH{(uint32_t) seedH,
+                                       (uint32_t) (seedH >> 32)};
+          graph.setInitialValue(v["vSeedH"], vSeedH);
         }
         graph.setInitialValue(v["saveRestoreSeed"], saveRestoreSeed);
         graph.setTileMapping(v, tile);
@@ -188,9 +196,9 @@ buildProgram(Graph &graph, const Tensor &A, uint64_t seed, uint16_t colouredId,
 // Convert a range [minVal, maxVal] for uniform number generation into a
 // scale and offset used internally by the uniform random number generator
 static std::pair<double, double>
-uniformScaleAndOffset(double minVal, double maxVal, const std::string dType) {
+uniformScaleAndOffset(double minVal, double maxVal, const Type &dType) {
   double scale = maxVal - minVal;
-  if (dType != "int") {
+  if (dType != INT) {
     double offset = scale /  2 + minVal;
     return std::make_pair(scale, offset);
   } else {

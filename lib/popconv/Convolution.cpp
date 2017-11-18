@@ -32,7 +32,7 @@ using namespace popstd;
 
 namespace popconv {
 
-ConvParams::ConvParams(std::string dType_,
+ConvParams::ConvParams(const Type dType_,
                        std::size_t batchSize_,
                        std::vector<std::size_t> inputFieldShape_,
                        std::vector<std::size_t> kernelShape_,
@@ -868,7 +868,7 @@ calculateActivationMapping(Graph &graph, const ConvParams &params,
   // increases execution time due to imbalance. The current limit was
   // chosen experimentally.
   const auto actType = params.dType;
-  const auto actTypeSize = actType == "float" ? 4 : 2;
+  const auto actTypeSize = graph.getTarget().getTypeSize(actType);
   const auto minBytesPerTile = 128;
   const auto minElementsPerTile =
     (minBytesPerTile + actTypeSize - 1) / minBytesPerTile;
@@ -1246,7 +1246,7 @@ calculateWeightMapping(const Graph &graph,
   // size and increases execution time due to imbalance. The current limit was
   // chosen experimentally.
   const auto weightType = params.dType;
-  const auto weightTypeSize = weightType == "float" ? 4 : 2;
+  const auto weightTypeSize = graph.getTarget().getTypeSize(weightType);
   const auto minBytesPerTile = 256;
   const auto minElementsPerTile =
     (minBytesPerTile + weightTypeSize - 1) / minBytesPerTile;
@@ -1323,7 +1323,7 @@ static std::vector<std::vector<poplar::Interval<std::size_t>>>
 computeBiasMapping(Graph &graph, const Tensor &out) {
   const auto &target = graph.getTarget();
   const auto dType = out.elementType();
-  const auto dTypeSize = dType == "float" ? 4 : 2;
+  const auto dTypeSize = target.getTypeSize(dType);
   const auto numTiles = graph.getTarget().getNumTiles();
   const unsigned numChans = out.dim(0) * out.dim(out.rank() - 1);
   // Create a view of the output where channels are the outermost dimension.
@@ -1342,9 +1342,8 @@ computeBiasMapping(Graph &graph, const Tensor &out) {
       biasToTiles += std::make_pair(biasInterval, std::set<unsigned>({tile}));
     }
   }
-  const auto grainSize =
-      dType == "float" ? target.getFloatVectorWidth() :
-                         target.getHalfVectorWidth();
+  const auto grainSize = target.getVectorWidth(dType);
+
   // Limit the minimum number of bias bytes per tile to reduce the amount of
   // exchange code. Increasing this constant reduces exchange code size and
   // increases execution time due to imbalance. The current limit was
@@ -1390,9 +1389,7 @@ static unsigned getNumConvUnits(bool floatActivations,
 // in memory
 static std::vector<unsigned>
 createZeroWorklist(const Target &target, const Tensor &out) {
-  auto dType = out.elementType() == "float";
-  const auto grainSize = dType ? target.getFloatVectorWidth() :
-                                 target.getHalfVectorWidth();
+  const auto grainSize = target.getVectorWidth(out.elementType());
   const auto contextsPerVertex = target.getNumWorkerContexts();
   auto splitZeroList = splitRegions({{0, out.numElements()}},
                                     grainSize, contextsPerVertex);
@@ -1520,7 +1517,7 @@ static bool writtenRangeEqualsOutputRange(
 
 static void createConvPartialAmpVertex(Graph &graph,
                                        const Plan &plan,
-                                       std::string dType,
+                                       const Type &dType,
                                        unsigned tile,
                                        const ConvSlice &slice,
                                        ConvParams params,
@@ -1529,8 +1526,8 @@ static void createConvPartialAmpVertex(Graph &graph,
   const auto &target = graph.getTarget();
   const auto outChansPerGroup = plan.partialChansPerGroup;
   const auto partialsType = out.elementType();
-  const auto outChansPerPass = getNumConvUnits(dType == "float",
-                                               partialsType == "float",
+  const auto outChansPerPass = getNumConvUnits(dType == FLOAT,
+                                               partialsType == FLOAT,
                                                target);
   assert(outChansPerGroup % outChansPerPass == 0);
   const auto passesPerOutputGroup = outChansPerGroup / outChansPerPass;
@@ -1546,7 +1543,7 @@ static void createConvPartialAmpVertex(Graph &graph,
                                     passesPerOutputGroup == 1;
   const auto numFieldDims = params.getNumFieldDims();
   const auto dataPathWidth = target.getDataPathWidth();
-  const bool floatActivations = dType == "float";
+  const bool floatActivations = dType == FLOAT;
   const auto weightsPerConvUnit =
       target.getWeightsPerConvUnit(floatActivations);
   const auto convUnitWeightHeight = weightsPerConvUnit / plan.inChansPerGroup;
@@ -1562,7 +1559,7 @@ static void createConvPartialAmpVertex(Graph &graph,
   bool flipOut = params.getPaddedDilatedKernelSize(numFieldDims - 1) >
                  params.getPaddedDilatedInputSize(numFieldDims - 1);
   const auto convUnitInputLoadElemsPerCycle =
-    target.getConvUnitInputLoadElemsPerCycle (dType == "float");
+    target.getConvUnitInputLoadElemsPerCycle(dType == FLOAT);
   const auto convUnitCoeffLoadBytesPerCycle =
       target.getConvUnitCoeffLoadBytesPerCycle();
 
@@ -1801,7 +1798,7 @@ static void createConvPartialAmpVertex(Graph &graph,
   graph.setInitialValue(v["numWorkerContexts"], contextsPerVertex);
   graph.setFieldSize(v["worklists"], worklist.size());
   for (unsigned i = 0;i < worklist.size(); ++i) {
-    auto t = graph.addConstantTensor("unsigned", {worklist[i].size()},
+    auto t = graph.addConstantTensor(UNSIGNED_INT, {worklist[i].size()},
                                      worklist[i].data());
     graph.connect(v["worklists"][i], t);
   }
@@ -1815,7 +1812,7 @@ static void createConvPartialAmpVertex(Graph &graph,
     graph.setInitialValue(v["inRowStride"], inRowStride);
 
     const auto zeroWorklist = createZeroWorklist(target, outWindow[0]);
-    auto zeroWorklistTensor = graph.addConstantTensor("unsigned",
+    auto zeroWorklistTensor = graph.addConstantTensor(UNSIGNED_INT,
                                                       {zeroWorklist.size()},
                                                       zeroWorklist.data());
     graph.connect(v["zeroWorklist"], zeroWorklistTensor);
@@ -1826,7 +1823,7 @@ static void createConvPartialAmpVertex(Graph &graph,
 static void
 createConvPartialHorizontalMacVertex(Graph &graph,
                                      const Plan &plan,
-                                     const std::string &dType,
+                                     const Type &dType,
                                      unsigned tile,
                                      const ConvSlice &slice,
                                      const ConvParams &params,
@@ -1861,7 +1858,7 @@ createConvPartialHorizontalMacVertex(Graph &graph,
   const auto dataPathWidth = target.getDataPathWidth();
 
   assert(outChansPerGroup == 1);
-  if (dType == "half") {
+  if (dType == HALF) {
     assert(inChansPerGroup % 2 == 0);
   }
   const auto numOutElems =
@@ -2034,14 +2031,14 @@ createConvPartialHorizontalMacVertex(Graph &graph,
   graph.setInitialValue(v["numWorkerContexts"], contextsPerVertex);
   graph.setFieldSize(v["worklists"], worklist.size());
   for (unsigned i = 0;i < worklist.size(); ++i) {
-    auto t = graph.addConstantTensor("unsigned", {worklist[i].size()},
+    auto t = graph.addConstantTensor(UNSIGNED_INT, {worklist[i].size()},
                                      worklist[i].data());
     graph.connect(v["worklists"][i], t);
   }
   const auto zeroWorklist = createZeroWorklist(target, outWindow[0]);
   for (unsigned i = 0; i != zeroWorklist.size(); ++i) {
   }
-  auto zeroWorklistTensor = graph.addConstantTensor("unsigned",
+  auto zeroWorklistTensor = graph.addConstantTensor(UNSIGNED_INT,
                                                     {zeroWorklist.size()},
                                                      zeroWorklist.data());
   graph.connect(v["zeroWorklist"], zeroWorklistTensor);
@@ -2198,7 +2195,7 @@ mapPartialSums(Graph &graph, const ConvSlice &slice, unsigned tile,
 static void
 calcPartialConvOutput(Graph &graph,
                       const Plan &plan,
-                      std::string dType,
+                      const Type &dType,
                       unsigned tile,
                       const ConvSlice &slice,
                       const ConvParams &params,
@@ -2244,7 +2241,7 @@ static Program
 calcPartialSums(Graph &graph,
                 const Plan &plan,
                 const ConvParams &params,
-                std::string dType,
+                const Type &dType,
                 Tensor in, Tensor weights, Tensor partials,
                 const std::string &layerName) {
   ComputeSet convolveCS = graph.addComputeSet(layerName + "/Convolve");
@@ -2276,7 +2273,7 @@ partialGroupedReduce(
         tileGroupRegions,
     const Tensor &partials,
     unsigned outDepth,
-    const std::string &resultType,
+    const Type &resultType,
     ComputeSet cs) {
   const auto partialsDepth = partials.dim(0);
   assert(partialsDepth >= outDepth);
@@ -2288,9 +2285,7 @@ partialGroupedReduce(
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
   const auto numTileGroups = tileGroupRegions.size();
-  const unsigned minGrainSize =
-    resultType == "float" ? target.getFloatVectorWidth() :
-                            target.getHalfVectorWidth();
+  const unsigned minGrainSize = target.getVectorWidth(resultType);
   const unsigned partialChansPerGroup = partials.dim(partials.rank()-1);
   const auto grainSize = std::max(partialChansPerGroup, minGrainSize);
 
@@ -2326,7 +2321,7 @@ groupedReduce(Graph &graph,
                 std::vector<Interval<std::size_t>>
               > &tileGroupRegions,
               const Tensor &partials,
-              const std::string &resultType,
+              const Type &resultType,
               ComputeSet cs) {
   return partialGroupedReduce(graph, tileGroups, tileGroupRegions, partials,
          1, resultType, cs).reshape(partials[0].shape());
@@ -2397,7 +2392,7 @@ multiStageGroupedReduce(
     const std::vector<std::vector<Interval<std::size_t>>> &
         tileGroupRegions,
     Tensor partials,
-    const std::string &resultType,
+    const Type &resultType,
     std::vector<ComputeSet> &computeSets,
     const std::string &debugPrefix) {
   const auto partialsDepth = partials.dim(0);
@@ -2422,7 +2417,7 @@ multiStageGroupedReduce(
 static Tensor
 multiStageGroupedReduce(Graph &graph,
                         Tensor partials,
-                        const std::string &resultType,
+                        const Type &resultType,
                         std::vector<ComputeSet> &computeSets,
                         const std::string &debugPrefix) {
   const auto partialsDepth = partials.dim(0);
@@ -2712,13 +2707,13 @@ static double getPerfectCycleCount(const Graph &graph,
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
   auto numMacs = getNumberOfMACs(params);
-  if (params.dType == "float") {
+  if (params.dType == FLOAT) {
     const auto floatVectorWidth = target.getFloatVectorWidth();
     auto macCycles =
         static_cast<double>(numMacs) / (floatVectorWidth * numTiles);
     return macCycles;
   }
-  assert(params.dType == "half");
+  assert(params.dType == HALF);
   const auto convUnitsPerTile =
       std::max(std::max(target.getFp16InFp16OutConvUnitsPerTile(),
                         target.getFp32InFp32OutConvUnitsPerTile()),
@@ -2981,7 +2976,7 @@ convChannelReduce(Graph &graph,
                   float scale,
                   bool doSquare,
                   std::vector<ComputeSet> &computeSets,
-                  const std::string &partialsType,
+                  const Type &partialsType,
                   const std::string &debugPrefix) {
 
   if (computeSets.size() == 0) {
@@ -3185,7 +3180,7 @@ batchNormReduce(Graph &graph,
                 float scale,
                 bool doSquare,
                 std::vector<ComputeSet> &csVec,
-                const std::string &partialsType,
+                const Type &partialsType,
                 const std::string &debugPrefix) {
   auto t = createBiases(graph, actsUngrouped,
                         "bnReduceResult");
@@ -3201,7 +3196,7 @@ void
 convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
                       const Tensor &biases,
                       float learningRate,
-                      const std::string &partialsType,
+                      const Type &partialsType,
                       Sequence &prog,
                       const std::string &debugPrefix) {
   std::vector< ComputeSet> csVec;
@@ -3495,7 +3490,7 @@ channelMul(Graph &graph, const Tensor &actsUngrouped, const Tensor &scale,
 static Tensor computeInvStdDev(Graph &graph, const Tensor &mean,
                                const Tensor &power, float eps,
                                Sequence &prog,
-                               const std::string &invStdDevType,
+                               const Type &invStdDevType,
                                const std::string debugPrefix) {
   const auto meanType = mean.elementType();
   const auto powerType = power.elementType();
@@ -3542,7 +3537,7 @@ batchNormEstimates(Graph &graph,
                    const Tensor &acts,
                    float eps,
                    Sequence &prog,
-                   const std::string &partialsType,
+                   const Type &partialsType,
                    const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/BN/estimates";
   assert(acts.rank() == 4);
@@ -3619,7 +3614,7 @@ batchNormDeltas(Graph &graph,
                 const Tensor &actsWhitened,
                 const Tensor &gradsIn,
                 Sequence &prog,
-                const std::string &partialsType,
+                const Type &partialsType,
                 const std::string &debugPrefix) {
 
   const auto fnPrefix = debugPrefix + "/BN/deltas";
@@ -3646,7 +3641,7 @@ Tensor batchNormGradients(Graph &graph,
                           const Tensor &invStdDev,
                           const Tensor &gamma,
                           Sequence &prog,
-                          const std::string &partialsType,
+                          const Type &partialsType,
                           const std::string &debugPrefix) {
   assert(actsWhitened.rank() == 4);
   const auto fnPrefix = debugPrefix + "/BN/gradients";

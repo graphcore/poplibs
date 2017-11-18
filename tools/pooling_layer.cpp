@@ -69,7 +69,7 @@ int main(int argc, char **argv) {
   unsigned fwdChansPerGroup;
   unsigned bwdChansPerGroup;
   unsigned batchSize;
-  FPDataType dataType;
+  Type dataType;
   double relativeTolerance;
   IPUModel ipuModel;
   ipuModel.IPUExchangeType =
@@ -102,7 +102,7 @@ int main(int argc, char **argv) {
       po::value<unsigned>(&kernelWidth)->default_value(1),
      "Size of kernel width")
     ("data-type",
-     po::value<FPDataType>(&dataType)->default_value(FPDataType::HALF),
+     po::value<Type>(&dataType)->default_value(HALF),
      "Type of the data and the parameters")
 
     ("padding", po::value<int>(&padding)->default_value(0),
@@ -263,7 +263,6 @@ int main(int argc, char **argv) {
   popnn::addCodelets(graph);
   popstd::addCodelets(graph);
 
-  std::string dataTypeStr(asString(dataType));
   // If the output grouping is unspecified, assume the output uses the same
   // grouping as the input unless that is impossible.
   if (!vm.count("fwd-chans-per-group")) {
@@ -289,7 +288,7 @@ int main(int argc, char **argv) {
   const auto outHeight = outDims[0];
   const auto outWidth = outDims[1];
   // Create tensors.
-  Tensor prevAct = graph.addTensor(dataTypeStr,
+  Tensor prevAct = graph.addTensor(dataType,
                                    {chans / fwdChansPerGroup,
                                     batchSize,
                                     height,
@@ -302,11 +301,11 @@ int main(int argc, char **argv) {
   Tensor zDeltas;
   if (!inferenceOnly) {
     zDeltas =
-        graph.addTensor(dataTypeStr, {chans / bwdChansPerGroup,
-                                      batchSize,
-                                      outHeight,
-                                      outWidth,
-                                      bwdChansPerGroup},
+        graph.addTensor(dataType, {chans / bwdChansPerGroup,
+                                   batchSize,
+                                   outHeight,
+                                   outWidth,
+                                   bwdChansPerGroup},
                         "zDeltas");
     mapTensorLinearly(graph, zDeltas);
     zDeltas = zDeltas.dimShufflePartial({0, 4}, {1, 2})
@@ -357,16 +356,16 @@ int main(int argc, char **argv) {
       hostNextAct(boost::extents[batchSize][chans][outHeight][outWidth]);
   std::mt19937 randomEngine;
   writeRandomValues(hostPrevAct, -4.0, 4.0, randomEngine);
-  copy<4>(hostPrevAct, dataTypeStr, rawHostPrevAct.get());
+  copy<4>(hostPrevAct, dataType, rawHostPrevAct.get());
   // Run the forward pass.
   upload(engine, tmap);
   engine.run(0); // Run.
   download(engine, tmap);
 
   // Validate against a reference model.
-  const double absoluteTolerance = dataTypeStr == "float" ? FLOAT_ABS_TOL :
-                                                            HALF_ABS_TOL;
-  copy<4>(dataTypeStr, rawHostNextAct.get(), hostNextAct);
+  const double absoluteTolerance = dataType == FLOAT ? FLOAT_ABS_TOL :
+                                                       HALF_ABS_TOL;
+  copy<4>(dataType, rawHostNextAct.get(), hostNextAct);
   boost::multi_array<double, 4>
       modelNextAct(boost::extents[batchSize][chans][outHeight][outWidth]);
   poplib_test::pooling::pooling(poolingType, strideHeight, strideWidth,
@@ -386,12 +385,12 @@ int main(int argc, char **argv) {
     );
     // Run the backwards pass.
     writeRandomValues(hostZDeltas, -5.0, 5.0, randomEngine);
-    copy<4>(hostZDeltas, dataTypeStr, rawHostZDeltas.get());
+    copy<4>(hostZDeltas, dataType, rawHostZDeltas.get());
     upload(engine, tmap);
     engine.run(1); // Run.
     download(engine, tmap);
-    copy<4>(dataTypeStr, rawHostZDeltas.get(), hostZDeltas);
-    copy<4>(dataTypeStr, rawHostPrevDeltas.get(), hostPrevDeltas);
+    copy<4>(dataType, rawHostZDeltas.get(), hostZDeltas);
+    copy<4>(dataType, rawHostPrevDeltas.get(), hostPrevDeltas);
 
     // Validate against a reference model.
     boost::multi_array<double, 4>

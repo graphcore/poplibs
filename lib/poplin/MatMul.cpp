@@ -89,7 +89,7 @@ static Tensor convWeightsFromMatrix(const Tensor &A,
 }
 
 static popconv::ConvParams getConvParams(
-    const std::string &dType,
+    const Type &dType,
     const std::vector<std::size_t> &aShape,
     const std::vector<std::size_t> &bShape,
     const MatMulOptions &options) {
@@ -388,7 +388,7 @@ matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
 
 static poplar::Tensor
 createMatMulInputLHSImpl(poplar::Graph &graph,
-                     const std::string &dType,
+                     const Type &dType,
                      const std::vector<std::size_t> &aShape,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
@@ -425,7 +425,7 @@ createMatMulInputLHSImpl(poplar::Graph &graph,
 
 poplar::Tensor
 createMatMulInputRHSImpl(poplar::Graph &graph,
-                     const std::string &dType,
+                     const Type &dType,
                      const std::vector<std::size_t> &aShape,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
@@ -463,7 +463,7 @@ createMatMulInputRHSImpl(poplar::Graph &graph,
 
 poplar::Tensor
 createMatMulInputRHS(poplar::Graph &graph,
-                     const std::string &dType,
+                     const Type &dType,
                      const std::vector<std::size_t> &aShape,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
@@ -476,7 +476,7 @@ createMatMulInputRHS(poplar::Graph &graph,
 
 poplar::Tensor
 createMatMulGroupedInputRHS(poplar::Graph &graph,
-                            const std::string &dType,
+                            const Type &dType,
                             const std::vector<std::size_t> &aShape,
                             const std::vector<std::size_t> &bShape,
                             const std::string &name,
@@ -508,7 +508,7 @@ matMulGrouped(poplar::Graph &graph,
 
 poplar::Tensor
 createMatMulInputLHS(poplar::Graph &graph,
-                     const std::string &dType,
+                     const Type &dType,
                      const std::vector<std::size_t> &aShape,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
@@ -522,7 +522,7 @@ createMatMulInputLHS(poplar::Graph &graph,
 
 poplar::Tensor
 createMatMulGroupedInputLHS(poplar::Graph &graph,
-                            const std::string &dType,
+                            const Type &dType,
                             const std::vector<std::size_t> &aShape,
                             const std::vector<std::size_t> &bShape,
                             const std::string &name,

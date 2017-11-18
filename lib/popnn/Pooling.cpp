@@ -74,7 +74,7 @@ makeConvParams(const std::vector<std::size_t> &inputFieldShape,
                const std::vector<unsigned> &stride,
                const std::vector<int> &inputPaddingLower,
                const std::vector<int> &inputPaddingUpper) {
-  return  {"",
+  return  {FLOAT,
            // batch size
            1,
            // input field shape for each channel and batch
@@ -238,7 +238,7 @@ uint64_t getBwdFlops(unsigned batchSize,
 
 
 double getFwdPerfectCycleCount(const Graph &graph,
-                               std::string dType, unsigned batchSize,
+                               const Type &dType, unsigned batchSize,
                                const std::vector<std::size_t> &inputFieldShape,
                                unsigned numChannels,
                                const std::vector<std::size_t> &kernelShape,
@@ -249,7 +249,7 @@ double getFwdPerfectCycleCount(const Graph &graph,
   checkWindowParameters(inputFieldShape, kernelShape, stride, inputPaddingLower,
                         inputPaddingUpper);
   const auto &target = graph.getTarget();
-  unsigned dTypeSize = dType == "float" ? 4 : 2;
+  unsigned dTypeSize = target.getTypeSize(dType);
   const auto numTiles = target.getNumTiles();
   const auto numFLOPs = getFwdFlops(batchSize,
                                     inputFieldShape,
@@ -264,7 +264,7 @@ double getFwdPerfectCycleCount(const Graph &graph,
 }
 
 double getBwdPerfectCycleCount(const Graph &graph,
-                               std::string dType, unsigned batchSize,
+                               const Type &dType, unsigned batchSize,
                                const std::vector<std::size_t> &inputFieldShape,
                                unsigned numChannels,
                                const std::vector<std::size_t> &kernelShape,
@@ -367,8 +367,7 @@ Tensor pool(Graph &graph,
     // up when allocating work to vertices.
     // The minimum amount of work per vertex is set to 2 * vectorwidth to
     // balance memory and loop overhead against parallel performance.
-    const auto grainSize = dType == "float" ? target.getFloatVectorWidth()
-                                            : target.getHalfVectorWidth();
+    const auto grainSize = target.getVectorWidth(dType);
     auto vertexRegions =
         splitRegionsBetweenWorkers(target, outTileMapping[tile],
                                    grainSize, 2 * grainSize);
@@ -497,7 +496,7 @@ poolInputGradient(Graph &graph,
                                inputPaddingLower, inputPaddingUpper);
 
   if (poolingType == PoolingType::AVG) {
-    if (dType == "float") {
+    if (dType == FLOAT) {
       pooledGradient = scaleGradient<float>(graph, params, pooledGradient, prog,
                                             layerName);
     } else {
@@ -518,8 +517,7 @@ poolInputGradient(Graph &graph,
     // up when allocating work to vertices.
     // The minimum amount of work per vertex is set to 2 * vectorwidth to
     // balance memory and loop overhead against parallel performance.
-    const auto grainSize = dType == "float" ? target.getFloatVectorWidth()
-                                            : target.getHalfVectorWidth();
+    const auto grainSize = target.getVectorWidth(dType);
     auto vertexRegions =
         splitRegionsBetweenWorkers(target, outTileMapping[tile],
                                    grainSize, 2 * grainSize);

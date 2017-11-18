@@ -49,8 +49,8 @@ int main(int argc, char **argv) {
   ShapeOption<unsigned> strideOption;
   unsigned batchSize;
   bool bias;
-  FPDataType dataType;
-  FPDataType partialsType;
+  Type dataType;
+  Type partialsType;
   double relativeTolerance;
   IPUModel ipuModel;
   ipuModel.IPUExchangeType =
@@ -82,10 +82,10 @@ int main(int argc, char **argv) {
     ("bias", po::value<bool>(&bias)->default_value(true),
      "Add a bias to each channel")
     ("data-type",
-     po::value<FPDataType>(&dataType)->default_value(FPDataType::HALF),
+     po::value<Type>(&dataType)->default_value(HALF),
      "Type of the data and the parameters")
     ("partials-type",
-     po::value<FPDataType>(&partialsType)->default_value(FPDataType::FLOAT),
+     po::value<Type>(&partialsType)->default_value(FLOAT),
      "Type of partials")
     ("padding", po::value<ShapeOption<int>>(&paddingOption)->default_value(0),
      "Amount of zero padding to add to the start and end of each dimension")
@@ -243,11 +243,8 @@ int main(int argc, char **argv) {
   popreduce::addCodelets(graph);
   popconv::addCodelets(graph);
 
-  std::string dataTypeStr(asString(dataType));
-  std::string partialsTypeStr(asString(partialsType));
-
   const auto params =
-      popconv::ConvParams(dataTypeStr,
+      popconv::ConvParams(dataType,
                           batchSize,
                           inputFieldSize,
                           kernelSize,
@@ -324,7 +321,7 @@ int main(int argc, char **argv) {
                                      revProg, "", convOptions);
     if (bias) {
       popconv::convolutionBiasUpdate(graph, zDeltas, biases, learningRate,
-                                     partialsTypeStr, revProg);
+                                     partialsType, revProg);
     }
     if (reportPlan) {
       std::cout << "WU plan:\n";
@@ -378,10 +375,10 @@ int main(int argc, char **argv) {
     std::fill(hostBiases.data(), hostBiases.data() + hostBiases.num_elements(),
               0.0);
   }
-  copy(hostPrevAct, dataTypeStr, rawHostPrevAct.get());
-  copy(hostWeights, dataTypeStr, rawHostWeights.get());
+  copy(hostPrevAct, dataType, rawHostPrevAct.get());
+  copy(hostWeights, dataType, rawHostWeights.get());
   if (bias) {
-    copy(hostBiases, dataTypeStr, rawHostBiases.get());
+    copy(hostBiases, dataType, rawHostBiases.get());
   }
 
   // Run the forward pass.
@@ -391,7 +388,7 @@ int main(int argc, char **argv) {
 
   // Validate against a reference model.
   bool matchesModel = true;
-  copy(dataTypeStr, rawHostNextAct.get(), hostNextAct);
+  copy(dataType, rawHostNextAct.get(), hostNextAct);
   boost::multi_array<double, 3>
       modelNextAct(boost::extents[batchSize][fwdOutChans]
                                  [product(outFieldSize)]);
@@ -424,18 +421,18 @@ int main(int argc, char **argv) {
     auto modelBiases = hostBiases;
     // Run the backwards and/or weight update passes.
     writeRandomValues(hostZDeltas, -3.0, 7.0, randomEngine);
-    copy(hostZDeltas, dataTypeStr, rawHostZDeltas.get());
+    copy(hostZDeltas, dataType, rawHostZDeltas.get());
     upload(engine, tmap);
     engine.run(1); // Run.
     download(engine, tmap);
 
-    copy(dataTypeStr, rawHostZDeltas.get(), hostZDeltas);
+    copy(dataType, rawHostZDeltas.get(), hostZDeltas);
     if (doBwdPass) {
-      copy(dataTypeStr, rawHostPrevDeltas.get(), hostPrevDeltas);
+      copy(dataType, rawHostPrevDeltas.get(), hostPrevDeltas);
     }
-    copy(dataTypeStr, rawHostWeights.get(), hostWeights);
+    copy(dataType, rawHostWeights.get(), hostWeights);
     if (bias) {
-      copy(dataTypeStr, rawHostBiases.get(), hostBiases);
+      copy(dataType, rawHostBiases.get(), hostBiases);
     }
 
     // Validate against a reference model.

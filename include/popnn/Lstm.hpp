@@ -44,7 +44,7 @@ createInput(poplar::Graph &graph,
             unsigned batchSize,
             unsigned inputSize,
             unsigned outputSize,
-            const std::string &dType,
+            const poplar::Type &dType,
             bool inferenceOnly = false,
             const std::string &name = "");
 
@@ -75,7 +75,7 @@ createFwdState(poplar::Graph &graph,
                unsigned outputSize,
                poplar::program::Sequence &prog,
                bool initState,
-               const std::string &dType,
+               const poplar::Type &dType,
                bool inferenceOnly,
                const std::string &debugPrefix = "");
 
@@ -111,8 +111,8 @@ createWeightsInput(poplar::Graph &graph,
                    unsigned inputSize,
                    unsigned outputSize,
                    bool preweights,
-                   const std::string &dType,
-                   const std::string &partialsType = "float",
+                   const poplar::Type &dType,
+                   const poplar::Type &partialsType = poplar::FLOAT,
                    bool inferenceOnly = false,
                    const std::string &name = "");
 
@@ -121,8 +121,8 @@ createWeightsOutput(poplar::Graph &graph,
                     unsigned sequenceSize,
                     unsigned batchSize,
                     unsigned outputSize,
-                    const std::string &dType,
-                    const std::string &partialsType = "float",
+                    const poplar::Type &dType,
+                    const poplar::Type &partialsType = poplar::FLOAT,
                     bool inferenceOnly = false,
                     const std::string &name = "");
 
@@ -152,7 +152,7 @@ createWeightsOutput(poplar::Graph &graph,
  * \param weightsOutput Input weights for each of the unit in the cell of shape
  *                      {BASIC_LSTM_CELL_NUM_UNITS, outputSize, outputSize}
  * \param prog          Program sequence
- * \param partialsTypeStr Intermediate data type used in operations
+ * \param partialsType  Intermediate data type used in operations
  * \param inferenceOnly Set this to true if the forward pass is only for
  *                      inference
  * \param debugPrefix   String used as prefix for compute sets
@@ -169,7 +169,7 @@ basicLstmCellForwardPass(poplar::Graph &graph,
                          const poplar::Tensor &weightsInput,
                          const poplar::Tensor &weightsOutput,
                          poplar::program::Sequence &prog,
-                         const std::string &partialsTypeStr = "float",
+                         const poplar::Type &partialsType = poplar::FLOAT,
                          bool inferenceOnly = false,
                          const std::string &debugPrefix = "");
 
@@ -181,7 +181,7 @@ basicLstmCellForwardPass(poplar::Graph &graph,
  * \param weightsInput  Input weights for each of the unit in the cell of shape
  *                      {BASIC_LSTM_CELL_NUM_UNITS, inputSize, outputSize}
  * \param prog          Program sequence
- * \param partialsTypeStr Intermediatedata type used in operations
+ * \param partialsType  Intermediatedata type used in operations
  * \param debugPrefix   String used as prefix for compute sets
  *
  * \return weighted gate inputs tensor of shape
@@ -192,7 +192,7 @@ calcSequenceWeightedInputs(poplar::Graph  &graph,
                            const poplar::Tensor &in,
                            const poplar::Tensor &weightsInput,
                            poplar::program::Sequence &prog,
-                           const std::string &partialsTypeStr = "float",
+                           const poplar::Type &partialsType = poplar::FLOAT,
                            const std::string &debugPrefix = "");
 
 
@@ -215,7 +215,7 @@ calcSequenceWeightedInputs(poplar::Graph  &graph,
  * \param weightsOutput Input weights for each of the unit in the cell of shape
  *                      {BASIC_LSTM_CELL_NUM_UNITS, outputSize, outputSize}
  * \param prog          Program sequence
- * \param partialsTypeStr Intermediate data type used in operations
+ * \param partialsType  Intermediate data type used in operations
  * \param inferenceOnly Set this to true if the forward pass is only for
  *                      inference
  * \param debugPrefix   String used as prefix for compute sets
@@ -231,7 +231,7 @@ basicLstmCellForwardPassWeightedInputs(
               const poplar::Tensor &prevCellState,
               const poplar::Tensor &weightsOutput,
               poplar::program::Sequence &prog,
-              const std::string &partialsTypeStr = "float",
+              const poplar::Type &partialsType = poplar::FLOAT,
               bool inferenceOnly = false,
               const std::string &debugPrefix = "");
 
@@ -256,7 +256,7 @@ createBwdState(poplar::Graph &graph,
                unsigned batchSize,
                unsigned outputSize,
                poplar::program::Sequence &prog,
-               const std::string &dType,
+               const poplar::Type &dType,
                const std::string &debugPrefix = "");
 
 /** A single step of a LSTM backward pass with S sequence steps. The backward
@@ -282,7 +282,7 @@ createBwdState(poplar::Graph &graph,
  * \param weightsOutput    Output weights tensor (created using
  *                         \createWeightsOutput
  * \param prog             Control program
- * \param partialsTypeStr  Data type of the intermediate precision
+ * \param partialsType     Data type of the intermediate precision
  * \param debugPrefix      String annotation
  *
  * \return Returns two tensors. The first tensor is the gradient of the input
@@ -298,7 +298,7 @@ basicLstmBackwardStep(poplar::Graph &graph,
                       const poplar::Tensor &weightsInput,
                       const poplar::Tensor &weightsOutput,
                       poplar::program::Sequence &prog,
-                      const std::string &partialsTypeStr = "float",
+                      const poplar::Type &partialsType = poplar::FLOAT,
                       const std::string &fPrefix = "");
 
 /** Same as \see basicLstmBackwardStep but without the input weight matrix.
@@ -312,7 +312,7 @@ basicLstmBackwardStep(poplar::Graph &graph,
                       const poplar::Tensor &bwdState,
                       const poplar::Tensor &weightsOutput,
                       poplar::program::Sequence &prog,
-                      const std::string &partialsTypeStr = "float",
+                      const poplar::Type &partialsType = poplar::FLOAT,
                       const std::string &fPrefix = "");
 
 /** A single step of a LSTM param deltas update with S sequence steps. The param
@@ -336,7 +336,7 @@ basicLstmBackwardStep(poplar::Graph &graph,
  * \param biasDeltaAcc    Bias delta values are accumulated into this tensor. It
  *                        must be created, mapped and initialised to zero
  * \param prog            Control program
- * \param partialsTypeStr Data type of intermediate calculations
+ * \param partialsType    Data type of intermediate calculations
  * \param debugPrefix     String annotation
  */
 void
@@ -348,7 +348,7 @@ basicLstmParamUpdate(poplar::Graph &graph,
                      const poplar::Tensor &weightsOutputDeltaAcc,
                      const poplar::Tensor &biasDeltaAcc,
                      poplar::program::Sequence &prog,
-                     const std::string &partialsTypeStr = "float",
+                     const poplar::Type &partialsType = poplar::FLOAT,
                      const std::string &debugPrefix = "");
 
 /** Calculate the result of applying an LSTM across a sequence
@@ -371,8 +371,8 @@ basicLstmParamUpdate(poplar::Graph &graph,
  * \param weightsOutput Input weights for each of the unit in the cell of shape
  *                      {BASIC_LSTM_CELL_NUM_UNITS, outputSize, outputSize}
  * \param prevLayerActs Output activation from previous step
- * \param dataTypeStr   Data type of the activations and weights
- * \param partialsTypeStr Intermediate data type used in operations
+ * \param dataType      Data type of the activations and weights
+ * \param partialsType  Intermediate data type used in operations
  * \param debugPrefix   String used as prefix for compute sets
  *
  * \return output state tensor for every sequence step this function is executed
@@ -387,8 +387,8 @@ poplar::Tensor lstmFwdSequence(
                      const poplar::Tensor &weightsInput,
                      const poplar::Tensor &weightsOutput,
                      const poplar::Tensor &prevLayerActs,
-                     const std::string &dataTypeStr,
-                     const std::string &partialsTypeStr = "float",
+                     const poplar::Type &dataType,
+                     const poplar::Type &partialsType = poplar::FLOAT,
                      const std::string &debugPrefix = "");
 
 /**
@@ -415,8 +415,8 @@ poplar::Tensor lstmFwdSequence(
  * \param gradNextLayer   Gradient from next layer
  * \param bwdState        Initial backward state, typically created
  *                        using \createBackwardState
- * \param dataTypeStr     Data type of the weights and activations
- * \param partialsTypeStr Data type of the intermediate precision
+ * \param dataType        Data type of the weights and activations
+ * \param partialsType    Data type of the intermediate precision
  * \param debugPrefix     String annotation
  *
  * \return Returns four tensors:
@@ -440,8 +440,8 @@ std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor, poplar::Tensor>
     const poplar::Tensor &prevLayerActs,
     const poplar::Tensor &gradNextLayer,
     const poplar::Tensor &bwdState,
-    const std::string &dataType,
-    const std::string &partialsType,
+    const poplar::Type &dataType,
+    const poplar::Type &partialsType,
     const std::string &debugPrefix = "");
 
 } // namespace lstm

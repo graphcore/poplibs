@@ -23,7 +23,7 @@ namespace fpc = boost::test_tools::fpc;
 
 
 static std::tuple<Tensor, Tensor> mapBinaryOpTensors(Graph &graph,
-                                                     const std::string &type) {
+                                                     const Type &type) {
   auto in1 = graph.addTensor(type, {DIM_SIZE, DIM_SIZE}, "in1");
   mapTensorLinearly(graph, in1);
 
@@ -76,7 +76,7 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float,
   setBinaryOpInputs(hIn1, hIn2);
 
   Tensor in1, in2;
-  std::tie(in1, in2) = mapBinaryOpTensors(graph, "float");
+  std::tie(in1, in2) = mapBinaryOpTensors(graph, FLOAT);
 
   graph.createHostWrite("in1", in1);
   graph.createHostWrite("in2", in2);
@@ -112,7 +112,7 @@ BOOST_AUTO_TEST_CASE(StdAddTo_int) {
   setBinaryOpInputs(hIn1, hIn2);
 
   Tensor in1, in2;
-  std::tie(in1, in2) = mapBinaryOpTensors(graph, "int");
+  std::tie(in1, in2) = mapBinaryOpTensors(graph, INT);
   graph.createHostWrite("in1", in1);
   graph.createHostWrite("in2", in2);
   graph.createHostRead("out", in1);
@@ -151,7 +151,7 @@ BOOST_AUTO_TEST_CASE(StdSubtractFrom_float,
   setBinaryOpInputs(hIn1, hIn2);
 
   Tensor in1, in2;
-  std::tie(in1, in2) = mapBinaryOpTensors(graph, "float");
+  std::tie(in1, in2) = mapBinaryOpTensors(graph, FLOAT);
   graph.createHostWrite("in1", in1);
   graph.createHostWrite("in2", in2);
   graph.createHostRead("out", in1);
@@ -188,7 +188,7 @@ BOOST_AUTO_TEST_CASE(StdSubtractFrom_int) {
   setBinaryOpInputs(hIn1, hIn2);
 
   Tensor in1, in2;
-  std::tie(in1, in2) = mapBinaryOpTensors(graph, "int");
+  std::tie(in1, in2) = mapBinaryOpTensors(graph, INT);
   graph.createHostWrite("in1", in1);
   graph.createHostWrite("in2", in2);
   graph.createHostRead("out", in1);
@@ -226,13 +226,13 @@ BOOST_AUTO_TEST_CASE(StdCast) {
     hIn[i] = (float)i;
   }
 
-  auto in = graph.addTensor("float", {DIM_SIZE}, "in");
+  auto in = graph.addTensor(FLOAT, {DIM_SIZE}, "in");
   mapTensorLinearly(graph, in);
   graph.createHostWrite("in", in);
 
   auto prog = Sequence();
 
-  poplar::Tensor out = cast(graph, in, "int", prog, "cast");
+  poplar::Tensor out = cast(graph, in, INT, prog, "cast");
   graph.createHostRead("out", out);
 
   int hOut[DIM_SIZE];

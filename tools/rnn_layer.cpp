@@ -76,8 +76,8 @@ int main(int argc, char **argv) {
   unsigned sequenceSize, inputSize = 1, outputSize;
   unsigned batchSize = 1;
 
-  FPDataType dataType;
-  FPDataType partialsType;
+  Type dataType;
+  Type partialsType;
   double relativeTolerance, absoluteTolerance;
 
   popnn::NonLinearityType nonLinearityType =
@@ -105,12 +105,12 @@ int main(int argc, char **argv) {
     ("apply-feedforward-weights",
      "Transform input by multipling it with input feedforward weights")
     ("data-type",
-      po::value<FPDataType>(&dataType)->default_value(FPDataType::HALF),
+      po::value<Type>(&dataType)->default_value(HALF),
       "Input and output data type")
     ("batch-size", po::value<unsigned>(&batchSize)->default_value(batchSize),
       "Batch size")
     ("partials-type",
-     po::value<FPDataType>(&partialsType)->default_value(FPDataType::FLOAT),
+     po::value<Type>(&partialsType)->default_value(FLOAT),
      "Type of the partials")
     ("rel-tolerance",po::value<double>(&relativeTolerance)->default_value(0.01),
      "Relative tolerance to use when validating results against the reference "
@@ -164,9 +164,6 @@ int main(int argc, char **argv) {
     applyFeedFwdWeights = true;
   }
 
-  std::string dataTypeStr(asString(dataType));
-  std::string partialsTypeStr(asString(partialsType));
-
   auto device = ipuModel.createDevice();
   Graph graph(device);
   popconv::addCodelets(graph);
@@ -180,23 +177,23 @@ int main(int argc, char **argv) {
 
   if (applyFeedFwdWeights) {
     prevAct = popnn::rnn::createInput(graph, sequenceSize, batchSize, inputSize,
-                                      outputSize, dataTypeStr, partialsTypeStr,
+                                      outputSize, dataType, partialsType,
                                       fwdOnly);
     feedFwdWeights =
         popnn::rnn::createWeightsInput(graph, sequenceSize, batchSize,
                                        inputSize, outputSize,
-                                       dataTypeStr, partialsTypeStr, fwdOnly);
+                                       dataType, partialsType, fwdOnly);
 
     feedFwdOutput = popnn::rnn::forwardWeightInput(graph, prevAct,
                                                    feedFwdWeights, prog,
-                                                   partialsTypeStr, "");
+                                                   partialsType, "");
   } else {
-    feedFwdOutput = graph.addTensor(dataTypeStr,
+    feedFwdOutput = graph.addTensor(dataType,
                                          {0, batchSize, outputSize},
                                          "feedFwdOutput");
     for (unsigned s = 0U; s != sequenceSize; ++s) {
       auto h =
-        popnn::rnn::createFwdState(graph, dataTypeStr, batchSize, outputSize,
+        popnn::rnn::createFwdState(graph, dataType, batchSize, outputSize,
                                    prog, false, false);
 
       feedFwdOutput = append(feedFwdOutput,
@@ -205,26 +202,26 @@ int main(int argc, char **argv) {
   }
 
   auto fwdInitState =
-    popnn::rnn::createFwdState(graph, dataTypeStr, batchSize, outputSize, prog,
+    popnn::rnn::createFwdState(graph, dataType, batchSize, outputSize, prog,
                                false, false);
   auto initAct =  popnn::rnn::getOutputFromFwdState(fwdInitState);
 
   /* map biases and brooadcast them */
-  auto biases = graph.addTensor(dataTypeStr, {outputSize}, "biases");
+  auto biases = graph.addTensor(dataType, {outputSize}, "biases");
   mapTensorLinearly(graph, biases);
 
   auto feedbackWeights =
     popnn::rnn::createWeightsFeedback(graph, batchSize,outputSize,
-                                        dataTypeStr, partialsTypeStr, fwdOnly);
+                                        dataType, partialsType, fwdOnly);
 
   auto fwdNextState =
     popnn::rnn::forwardIterate(graph, feedFwdOutput, fwdInitState,
                                feedbackWeights, biases, prog, nonLinearityType,
-                               partialsTypeStr, "");
+                               partialsType, "");
 
   Tensor nextLayerGrads;
   if (doBwdPass || doWuPass) {
-    nextLayerGrads = graph.addTensor(dataTypeStr,
+    nextLayerGrads = graph.addTensor(dataType,
                                      {sequenceSize, batchSize, outputSize},
                                      "nextLayerGrads");
     mapTensorLinearly(graph, nextLayerGrads);
@@ -234,7 +231,7 @@ int main(int argc, char **argv) {
   Tensor prevLayerGradsThisStep, bwdState;
 
   if (doBwdPass || doWuPass) {
-    bwdState = popnn::rnn::createBwdState(graph, dataTypeStr, batchSize,
+    bwdState = popnn::rnn::createBwdState(graph, dataType, batchSize,
                                           outputSize, prog);
   }
 
@@ -420,21 +417,21 @@ int main(int argc, char **argv) {
   }
 
   if (applyFeedFwdWeights) {
-    copy(hostPrevAct, dataTypeStr, rawHostPrevAct.get());
-    copy(hostFeedFwdWeights, dataTypeStr, rawHostFeedFwdWeights.get());
+    copy(hostPrevAct, dataType, rawHostPrevAct.get());
+    copy(hostFeedFwdWeights, dataType, rawHostFeedFwdWeights.get());
   } else {
     for (auto s = 0U; s != rawHostfeedFwdOutput.size(); ++s) {
       boost::multi_array<double, 2> subMat = hostfeedFwdOutput[s];
-      copy(subMat, dataTypeStr, rawHostfeedFwdOutput[s].get());
+      copy(subMat, dataType, rawHostfeedFwdOutput[s].get());
     }
   }
 
-  copy(hostFeedbackWeights, dataTypeStr, rawHostFeedbackWeights.get());
-  copy(hostBiases, dataTypeStr, rawHostBiases.get());
-  copy(hostInitAct, dataTypeStr, rawHostInitAct.get());
+  copy(hostFeedbackWeights, dataType, rawHostFeedbackWeights.get());
+  copy(hostBiases, dataType, rawHostBiases.get());
+  copy(hostInitAct, dataType, rawHostInitAct.get());
 
   if (doBwdPass || doWuPass) {
-    copy(hostNextLayerGrads, dataTypeStr, rawNextLayerGrads.get());
+    copy(hostNextLayerGrads, dataType, rawNextLayerGrads.get());
   }
 
   upload(engine, tmap);
@@ -447,7 +444,7 @@ int main(int argc, char **argv) {
     for (auto s = 0U; s != rawHostfeedFwdOutput.size(); ++s) {
       boost::multi_array<double, 2>
           impSubMat(boost::extents[batchSize][outputSize]);
-      copy(dataTypeStr, rawHostfeedFwdOutput[s].get(), impSubMat);
+      copy(dataType, rawHostfeedFwdOutput[s].get(), impSubMat);
       boost::multi_array<double, 2> refSubMat = modelfeedFwdOutput[s];
       matchesModel &= checkIsClose("feedFwdOutput", impSubMat, refSubMat,
                                    relativeTolerance, absoluteTolerance);
@@ -457,22 +454,22 @@ int main(int argc, char **argv) {
   for (auto s = 0U; s != rawHostNextAct.size(); ++s) {
     boost::multi_array<double, 2>
         impSubMat(boost::extents[batchSize][outputSize]);
-    copy(dataTypeStr, rawHostNextAct[s].get(), impSubMat);
+    copy(dataType, rawHostNextAct[s].get(), impSubMat);
     boost::multi_array<double, 2> refSubMat = modelNextAct[s];
     matchesModel &= checkIsClose("nextAct", impSubMat, refSubMat,
                                   relativeTolerance, absoluteTolerance);
   }
 
   if (doWuPass || doBwdPass) {
-    copy(dataTypeStr, rawHostPrevLayerGrads.get(), hostPrevLayerGrads);
-    copy(dataTypeStr, rawHostGradientSum.get(), hostGradientSum);
+    copy(dataType, rawHostPrevLayerGrads.get(), hostPrevLayerGrads);
+    copy(dataType, rawHostGradientSum.get(), hostGradientSum);
   }
   if (doWuPass) {
-    copy(dataTypeStr, rawHostFeedFwdWeightsDeltasAcc.get(),
+    copy(dataType, rawHostFeedFwdWeightsDeltasAcc.get(),
          hostFeedFwdWeightsDeltasAcc);
-    copy(dataTypeStr, rawHostFeedbackWeightsDeltasAcc.get(),
+    copy(dataType, rawHostFeedbackWeightsDeltasAcc.get(),
          hostFeedbackWeightsDeltasAcc);
-    copy(dataTypeStr, rawHostBiasesDeltasAcc.get(), hostBiasesDeltasAcc);
+    copy(dataType, rawHostBiasesDeltasAcc.get(), hostBiasesDeltasAcc);
   }
 
   if (doBwdPass) {

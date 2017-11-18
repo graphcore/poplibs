@@ -150,7 +150,7 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
 
   /* Test configuration */
 
-  const std::string dType = "float";
+  const auto dType = FLOAT;
   const unsigned numOutPartialChanGroups = 256/8;
   const unsigned numOutPartialChansInGroup = 8;
   const unsigned numInpChanGroups = 128/16;
@@ -230,7 +230,7 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   auto wgdConv = popconv::winogradConvolution(graph, params, in, weights,
                                               activations,
                                               patchSizeX, patchSizeY,
-                                              "float");
+                                              FLOAT);
 
   graph.createHostWrite("in", in);
   graph.createHostWrite("weights", weights);

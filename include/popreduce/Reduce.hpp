@@ -64,7 +64,7 @@ void reduceByDstMapping(poplar::Graph &graph,
 
 /// Perform  reduction<ADD>(A) * k with output tensor of type outTypeStr
 poplar::Tensor reduceScale(poplar::Graph &graph, float k, poplar::Tensor &in,
-                           const std::string &outTypeStr,
+                           const poplar::Type &outTypeStr,
                            poplar::program::Sequence &prog,
                            const std::string &debugPrefix = "");
 

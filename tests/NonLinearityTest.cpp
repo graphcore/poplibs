@@ -41,13 +41,13 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
   const std::size_t zChunk = 1;
   const std::size_t ySize = 100;
   const std::size_t xSize = 30;
-  auto actF = graph.addTensor("float", {1, zNGroups, ySize, xSize, zChunk},
+  auto actF = graph.addTensor(FLOAT, {1, zNGroups, ySize, xSize, zChunk},
                               "actF");
-  auto actH = graph.addTensor("half", {1, zNGroups, ySize, xSize, zChunk},
+  auto actH = graph.addTensor(HALF, {1, zNGroups, ySize, xSize, zChunk},
                               "actH");
-  auto deltaF = graph.addTensor("float", {1, zNGroups, ySize, xSize, zChunk},
+  auto deltaF = graph.addTensor(FLOAT, {1, zNGroups, ySize, xSize, zChunk},
                               "actF");
-  auto deltaH = graph.addTensor("half", {1, zNGroups, ySize, xSize, zChunk},
+  auto deltaH = graph.addTensor(HALF, {1, zNGroups, ySize, xSize, zChunk},
                               "actH");
 
   // arbitraray mappings
@@ -140,8 +140,8 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     fwdEng.run();
     fwdEng.readTensor("outF", rawHActOutF.get());
     fwdEng.readTensor("outH", rawHActOutH.get());
-    copy("half", rawHActOutH.get(), hActOutH);
-    copy("float", rawHActOutF.get(), hActOutF);
+    copy(HALF, rawHActOutH.get(), hActOutH);
+    copy(FLOAT, rawHActOutF.get(), hActOutF);
 
     BOOST_TEST(
       checkIsClose("hRefActOutF", hActOutF, hRefActOut, TOL, ATOL));
@@ -164,8 +164,8 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     bwdEng.run();
     bwdEng.readTensor("outDeltaF", rawHDeltaOutF.get());
     bwdEng.readTensor("outDeltaH", rawHDeltaOutH.get());
-    copy("half", rawHDeltaOutH.get(), hDeltaOutH);
-    copy("float", rawHDeltaOutF.get(), hDeltaOutF);
+    copy(HALF, rawHDeltaOutH.get(), hDeltaOutH);
+    copy(FLOAT, rawHDeltaOutF.get(), hDeltaOutF);
 
     for (unsigned b = 0; b < batchSize; ++b) {
       for (unsigned y = 0; y < xSize; ++y) {
@@ -199,8 +199,8 @@ BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
   const unsigned batchSize = 2;
   const unsigned numChannels = 128;
 
-  auto actF = graph.addTensor("float", {batchSize, numChannels}, "actF");
-  auto actH = graph.addTensor("half", {batchSize, numChannels}, "actH");
+  auto actF = graph.addTensor(FLOAT, {batchSize, numChannels}, "actF");
+  auto actH = graph.addTensor(HALF, {batchSize, numChannels}, "actH");
 
   graph.createHostWrite("inF", actF);
   graph.createHostWrite("inH", actH);

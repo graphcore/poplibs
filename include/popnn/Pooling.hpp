@@ -37,7 +37,7 @@ uint64_t getBwdFlops(unsigned batchSize,
                      PoolingType poolingType);
 
 double getFwdPerfectCycleCount(const poplar::Graph &graph,
-                               std::string dType, unsigned batchSize,
+                               const poplar::Type  &dType, unsigned batchSize,
                                const std::vector<std::size_t> &inputFieldShape,
                                unsigned numChannels,
                                const std::vector<std::size_t> &kernelShape,
@@ -47,7 +47,7 @@ double getFwdPerfectCycleCount(const poplar::Graph &graph,
                                PoolingType poolingType);
 
 double getBwdPerfectCycleCount(const poplar::Graph &graph,
-                               std::string dType, unsigned batchSize,
+                               const poplar::Type &dType, unsigned batchSize,
                                const std::vector<std::size_t> &inputFieldShape,
                                unsigned numChannels,
                                const std::vector<std::size_t> &kernelShape,

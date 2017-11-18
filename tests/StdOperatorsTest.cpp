@@ -24,7 +24,7 @@ namespace fpc = boost::test_tools::fpc;
 #define DIM_SIZE  10
 
 static Tensor mapUnaryOpTensor(Graph &graph,
-                               const std::string type) {
+                               const Type &type) {
   auto in = graph.addTensor(type, {DIM_SIZE, DIM_SIZE}, "in0");
   mapTensorLinearly(graph, in);
 
@@ -32,7 +32,7 @@ static Tensor mapUnaryOpTensor(Graph &graph,
 }
 
 static std::pair<Tensor, Tensor> mapBinaryOpTensors(Graph &graph,
-                                                     const std::string &type) {
+                                                    const Type &type) {
   auto in1 = graph.addTensor(type, {DIM_SIZE, DIM_SIZE}, "in1");
   mapTensorLinearly(graph, in1);
 
@@ -136,19 +136,6 @@ static void setBinaryOpInputs(int hIn1[DIM_SIZE][DIM_SIZE],
   }
 }
 
-template <typename T>
-std::string typeName() {
-  if (std::is_same<T, float>::value)
-    return "float";
-  if (std::is_same<T, int>::value)
-    return "int";
-  if (std::is_same<T, bool>::value)
-    return "bool";
-  if (std::is_same<T, half>::value)
-    return "half";
-  std::abort();
-}
-
 template<typename T>
 void convertToPositive(T array[DIM_SIZE][DIM_SIZE]) {
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -180,7 +167,7 @@ void unaryOpTest(const std::function<Tensor(Graph &, Tensor, Sequence &,
   Graph graph(device);
   popstd::addCodelets(graph);
 
-  auto in = mapUnaryOpTensor(graph, typeName<T>());
+  auto in = mapUnaryOpTensor(graph, equivalent_device_type<T>().value);
   auto prog = Sequence();
 
   auto out = op(graph, in, prog, "unaryOp");
@@ -219,7 +206,8 @@ void binaryOpTest(const std::function<Tensor(Graph &, Tensor, Tensor,
   popstd::addCodelets(graph);
 
   Tensor in1, in2;
-  std::tie(in1, in2) = mapBinaryOpTensors(graph, typeName<T>());
+  std::tie(in1, in2) = mapBinaryOpTensors(graph,
+                                          equivalent_device_type<T>().value);
 
   auto prog = Sequence();
 
@@ -702,7 +690,7 @@ BOOST_AUTO_TEST_CASE(StdOperationPower,
   }
 
   Tensor in1, in2;
-  std::tie(in1, in2) = mapBinaryOpTensors(graph, "float");
+  std::tie(in1, in2) = mapBinaryOpTensors(graph, FLOAT);
 
   auto prog = Sequence();
   auto out = pow(graph, in1, in2, prog);
@@ -932,8 +920,8 @@ BOOST_AUTO_TEST_CASE(StdOperationSelectFloat,
   }
 
   Tensor in1, in2;
-  std::tie(in1, in2) = mapBinaryOpTensors(graph, "float");
-  Tensor in3 = mapUnaryOpTensor(graph, "bool");
+  std::tie(in1, in2) = mapBinaryOpTensors(graph, FLOAT);
+  Tensor in3 = mapUnaryOpTensor(graph, BOOL);
 
   auto prog = Sequence();
   auto out = select(graph, in1, in2, in3, prog);
@@ -981,8 +969,8 @@ BOOST_AUTO_TEST_CASE(StdOperationSelectInt,
   }
 
   Tensor in1, in2;
-  std::tie(in1, in2) = mapBinaryOpTensors(graph, "int");
-  Tensor in3 = mapUnaryOpTensor(graph, "bool");
+  std::tie(in1, in2) = mapBinaryOpTensors(graph, INT);
+  Tensor in3 = mapUnaryOpTensor(graph, BOOL);
 
   auto prog = Sequence();
   auto out = select(graph, in1, in2, in3, prog);
@@ -1030,8 +1018,8 @@ BOOST_AUTO_TEST_CASE(StdOperationClampFloat,
   }
 
   Tensor in1, in2;
-  std::tie(in1, in2) = mapBinaryOpTensors(graph, "float");
-  Tensor in3 = mapUnaryOpTensor(graph, "float");
+  std::tie(in1, in2) = mapBinaryOpTensors(graph, FLOAT);
+  Tensor in3 = mapUnaryOpTensor(graph, FLOAT);
 
   auto prog = Sequence();
   auto out = clamp(graph, in1, in2, in3, prog);
@@ -1085,8 +1073,8 @@ BOOST_AUTO_TEST_CASE(StdOperationClampInt,
   }
 
   Tensor in1, in2;
-  std::tie(in1, in2) = mapBinaryOpTensors(graph, "int");
-  Tensor in3 = mapUnaryOpTensor(graph, "int");
+  std::tie(in1, in2) = mapBinaryOpTensors(graph, INT);
+  Tensor in3 = mapUnaryOpTensor(graph, INT);
 
   auto prog = Sequence();
   auto out = clamp(graph, in1, in2, in3, prog);
@@ -1125,8 +1113,8 @@ BOOST_AUTO_TEST_CASE(StdOperationBinaryOutputMapChoice) {
   popstd::addCodelets(graph);
 
   Tensor in1, in2;
-  in1 = graph.addTensor("float", {2, 2}, "t1");
-  in2 = graph.addTensor("float", {2, 2}, "t2");
+  in1 = graph.addTensor(FLOAT, {2, 2}, "t1");
+  in2 = graph.addTensor(FLOAT, {2, 2}, "t2");
 
   // Tensor in1 all on tile 0
   graph.setTileMapping(in1, 0);
@@ -1161,10 +1149,10 @@ BOOST_AUTO_TEST_CASE(StdOperationTrinaryOutputMapChoice) {
   popstd::addCodelets(graph);
 
   Tensor in1, in2, in3, in4;
-  in1 = graph.addTensor("float", {2, 2}, "t1");
-  in2 = graph.addTensor("float", {2, 2}, "t2");
-  in3 = graph.addTensor("bool", {2, 2}, "pred1");
-  in4 = graph.addTensor("bool", {2, 2}, "pred2");
+  in1 = graph.addTensor(FLOAT, {2, 2}, "t1");
+  in2 = graph.addTensor(FLOAT, {2, 2}, "t2");
+  in3 = graph.addTensor(BOOL, {2, 2}, "pred1");
+  in4 = graph.addTensor(BOOL, {2, 2}, "pred2");
 
   // Tensor in1 all on tile 0
   graph.setTileMapping(in1, 0);
@@ -1215,7 +1203,7 @@ BOOST_AUTO_TEST_CASE(StdOperationAllTrueBadType) {
   Graph graph(device);
   popstd::addCodelets(graph);
 
-  Tensor in = graph.addTensor("float", {2, 2}, "t1");
+  Tensor in = graph.addTensor(FLOAT, {2, 2}, "t1");
   auto prog = Sequence();
   BOOST_CHECK_THROW(allTrue(graph, in, prog, "all_true"),
                     poplib_error);
@@ -1227,9 +1215,9 @@ BOOST_AUTO_TEST_CASE(StdOperationAllTrue) {
   Graph graph(device);
   popstd::addCodelets(graph);
 
-  Tensor in = graph.addTensor("int", {2}, "t1");
-  Tensor ones = graph.addConstantTensor("int", {2}, 1);
-  Tensor zeros = graph.addConstantTensor("int", {2}, 0);
+  Tensor in = graph.addTensor(INT, {2}, "t1");
+  Tensor ones = graph.addConstantTensor(INT, {2}, 1);
+  Tensor zeros = graph.addConstantTensor(INT, {2}, 0);
 
   graph.setTileMapping(in, 0);
 
@@ -1271,7 +1259,7 @@ BOOST_AUTO_TEST_CASE(StdOperationIsFinite) {
   hIn[1][1] = NAN;
   hIn[0][2] = 0.0f;
 
-  auto in = mapUnaryOpTensor(graph, "float");
+  auto in = mapUnaryOpTensor(graph, FLOAT);
   auto prog = Sequence();
   auto out = isFinite(graph, in, prog);
   graph.createHostWrite("in", in);

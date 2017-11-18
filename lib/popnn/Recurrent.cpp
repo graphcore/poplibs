@@ -88,7 +88,7 @@ uint64_t getWuFlops(unsigned sequenceSize, unsigned batchSize,
 }
 
 
-Tensor createFwdState(Graph &graph, const std::string &dType,
+Tensor createFwdState(Graph &graph, const Type &dType,
                       unsigned batchSize, unsigned outputSize,
                       Sequence &prog,
                       bool initState,
@@ -109,7 +109,7 @@ Tensor getOutputFromFwdState(const Tensor &fwdState) {
 }
 
 Tensor createBwdState(Graph &graph,
-                      const std::string &dType,
+                      const Type &dType,
                       unsigned batchSize,
                       unsigned outputSize,
                       Sequence &prog,
@@ -127,8 +127,8 @@ Tensor createInput(Graph &graph,
                    unsigned batchSize,
                    unsigned inputSize,
                    unsigned outputSize,
-                   const std::string &dType,
-                   const std::string &partialsType,
+                   const Type &dType,
+                   const Type &partialsType,
                    bool inferenceOnly,
                    const std::string &name) {
   MatMulOptions mmOpt;
@@ -154,8 +154,8 @@ createWeightsInput(Graph &graph,
                    unsigned batchSize,
                    unsigned inputSize,
                    unsigned outputSize,
-                   const std::string &dType,
-                   const std::string &partialsType,
+                   const Type &dType,
+                   const Type &partialsType,
                    bool inferenceOnly,
                    const std::string &namePrefix) {
   MatMulOptions mmOpt;
@@ -174,8 +174,8 @@ poplar::Tensor
 createWeightsFeedback(Graph &graph,
                       unsigned batchSize,
                       unsigned outputSize,
-                      const std::string &dType,
-                      const std::string &partialsType,
+                      const Type &dType,
+                      const Type &partialsType,
                       bool inferenceOnly,
                       const std::string &namePrefix) {
   MatMulOptions mmOpt;
@@ -193,12 +193,12 @@ createWeightsFeedback(Graph &graph,
 Tensor forwardWeightInput(Graph &graph, const Tensor &actIn,
                           const Tensor &weights,
                           Sequence &prog,
-                          const std::string partialsTypeStr,
+                          const Type &partialsType,
                           const std::string &debugPrefix) {
   const unsigned sequenceSize = actIn.dim(0);
   PlanningCache cache;
   MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsTypeStr;
+  mmOpt.partialsType = partialsType;
   mmOpt.cache = &cache;
 
   return unflattenSeqDims(matMul(graph, flattenSeqDims(actIn), weights, prog,
@@ -213,7 +213,7 @@ Tensor forwardIterate(Graph  &graph,
                       const Tensor &biases,
                       Sequence &prog,
                       popnn::NonLinearityType nonLinearityType,
-                      const std::string partialsTypeStr,
+                      const Type &partialsType,
                       const std::string &debugPrefix) {
   const unsigned sequenceSize = feedFwdIn.dim(0);
   const unsigned batchSize = feedFwdIn.dim(1);
@@ -227,7 +227,7 @@ Tensor forwardIterate(Graph  &graph,
                                 "actOut");
   PlanningCache cache;
   MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsTypeStr;
+  mmOpt.partialsType = partialsType;
   mmOpt.cache = &cache;
 
   for (unsigned s = 0U; s != sequenceSize; ++s) {
@@ -256,7 +256,7 @@ poplar::Tensor rnnFwdSequence(poplar::Graph &graph,
                          const poplar::Tensor &feedbackWeights,
                          const poplar::Tensor &prevLayerActs,
                          const popnn::NonLinearityType &nonLinearityType,
-                         const std::string &partialsType,
+                         const poplar::Type &partialsType,
                          const std::string &debugPrefix)
 {
   auto seqSize = prevLayerActs.dim(0);
@@ -270,9 +270,9 @@ poplar::Tensor rnnFwdSequence(poplar::Graph &graph,
   unsigned numTiles = target.getNumTiles();
   //TODO: replace these per-tile counters and constants with scalars
   // once poplar is enhanced to auto-expand them
-  auto seqIdx = graph.addTensor("unsigned", {1, numTiles},
+  auto seqIdx = graph.addTensor(UNSIGNED_INT, {1, numTiles},
                                  debugPrefix + "/seqIdx");
-  auto one = graph.addConstantTensor("unsigned", {1, numTiles}, 1);
+  auto one = graph.addConstantTensor(UNSIGNED_INT, {1, numTiles}, 1);
   for (unsigned i = 0; i != numTiles; ++i) {
     graph.setTileMapping(seqIdx[0][i], i);
     graph.setTileMapping(one[0][i], i);
@@ -330,12 +330,12 @@ backwardGradientStepImpl(Graph &graph,
                      const Tensor *weightsFeedback,
                      Sequence &prog,
                      popnn::NonLinearityType nonLinearityType,
-                     const std::string &partialsTypeStr,
+                     const Type &partialsType,
                      const std::string &debugPrefix
                      ) {
   PlanningCache cache;
   MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsTypeStr;
+  mmOpt.partialsType = partialsType;
   mmOpt.cache = &cache;
   mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_BWD;
 
@@ -365,7 +365,7 @@ backwardGradientStep(Graph &graph,
                      const Tensor &weightsFeedback,
                      Sequence &prog,
                      popnn::NonLinearityType nonLinearityType,
-                     const std::string &partialsTypeStr,
+                     const Type &partialsType,
                      const std::string &debugPrefix
                      ) {
   return backwardGradientStepImpl(graph,
@@ -376,7 +376,7 @@ backwardGradientStep(Graph &graph,
                                   &weightsFeedback,
                                   prog,
                                   nonLinearityType,
-                                  partialsTypeStr,
+                                  partialsType,
                                   debugPrefix);
 }
 
@@ -388,7 +388,7 @@ backwardGradientStep(Graph &graph,
                      const Tensor &weightsFeedback,
                      Sequence &prog,
                      popnn::NonLinearityType nonLinearityType,
-                     const std::string &partialsTypeStr,
+                     const Type &partialsType,
                      const std::string &debugPrefix
                      ) {
   Tensor gradAtInput, state;
@@ -402,7 +402,7 @@ backwardGradientStep(Graph &graph,
                              &weightsFeedback,
                              prog,
                              nonLinearityType,
-                             partialsTypeStr,
+                             partialsType,
                              debugPrefix);
   return state;
 }
@@ -415,12 +415,12 @@ void paramDeltaUpdate(Graph &graph,
                       Tensor &weightsFeedbackDeltasAcc,
                       Tensor &biasDeltasAcc,
                       Sequence &prog,
-                      const std::string &partialsTypeStr,
+                      const Type &partialsType,
                       const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/RnDeltas";
   PlanningCache cache;
   MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsTypeStr;
+  mmOpt.partialsType = partialsType;
   mmOpt.cache = &cache;
   mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_WU;
   const bool combineMatMul =  false;
@@ -454,7 +454,7 @@ std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor, poplar::Tensor>
                          const poplar::Tensor &outGradient,
                          const poplar::Tensor &actIn,
                          const popnn::NonLinearityType &nonLinearityType,
-                         const std::string &partialsType,
+                         const poplar::Type &partialsType,
                          const std::string &debugPrefix)
 {
   Tensor feedFwdWeightsDeltaAcc, feedbackWeightsDeltaAcc, biasesDeltaAcc;
@@ -480,9 +480,9 @@ std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor, poplar::Tensor>
     popnn::rnn::createBwdState(graph, dType, batchSize, outputSize,
                                prog, debugPrefix);
   auto actOut = popnn::rnn::getOutputFromFwdState(fwdStateInit);
-  auto seqIdx = graph.addTensor("unsigned", {1}, debugPrefix + "/seqIdx");
-  auto start = graph.addConstantTensor("unsigned", {1}, seqSize- 1);
-  auto one = graph.addConstantTensor("unsigned", {1}, 1);
+  auto seqIdx = graph.addTensor(UNSIGNED_INT, {1}, debugPrefix + "/seqIdx");
+  auto start = graph.addConstantTensor(UNSIGNED_INT, {1}, seqSize- 1);
+  auto one = graph.addConstantTensor(UNSIGNED_INT, {1}, 1);
   graph.setTileMapping(seqIdx, 0);
   prog.add(Copy(start, seqIdx));
 

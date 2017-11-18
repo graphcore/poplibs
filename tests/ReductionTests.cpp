@@ -147,8 +147,8 @@ static void reduceTensor(boost::multi_array_ref<double, 2> in,
 }
 
 static bool reduceAddTest(const std::vector<std::size_t> &dims,
-                          const std::string &partialsTypeStr,
-                          const std::string &outTypeStr,
+                          const Type &partialsType,
+                          const Type &outType,
                           float k,
                           bool update,
                           bool scale) {
@@ -161,17 +161,17 @@ static bool reduceAddTest(const std::vector<std::size_t> &dims,
   assert(!(scale && update));
   assert(dims.size() == 2);
 
-  auto in = graph.addTensor(partialsTypeStr, {dims}, "in");
+  auto in = graph.addTensor(partialsType, {dims}, "in");
   popstd::mapTensorLinearly(graph, in);
 
-  auto prev = graph.addTensor(outTypeStr, {dims[1]}, "prev");
+  auto prev = graph.addTensor(outType, {dims[1]}, "prev");
   popstd::mapTensorLinearly(graph, prev);
 
   auto prog = Sequence();
   Tensor out;
 
   if (scale) {
-    out = popreduce::reduceScale(graph, k, in, outTypeStr, prog);
+    out = popreduce::reduceScale(graph, k, in, outType, prog);
   } else if (update) {
     out = graph.clone(prev);
     prog.add(Copy(prev, out));
@@ -200,9 +200,9 @@ static bool reduceAddTest(const std::vector<std::size_t> &dims,
   writeRandomValues(hostPrev, -1.0, +5.0, randomEngine);
   writeRandomValues(hostIn, 1.5, 1.6, randomEngine);
 
-  copy(hostOut, outTypeStr, rawHostOut.get());
-  copy(hostPrev, outTypeStr, rawHostPrev.get());
-  copy(hostIn, partialsTypeStr, rawHostIn.get());
+  copy(hostOut, outType, rawHostOut.get());
+  copy(hostPrev, outType, rawHostPrev.get());
+  copy(hostIn, partialsType, rawHostIn.get());
 
   Engine engine(device, graph, prog);
 
@@ -210,7 +210,7 @@ static bool reduceAddTest(const std::vector<std::size_t> &dims,
   engine.run(0); // Run.
   download(engine, tmap);
 
-  copy(outTypeStr, rawHostOut.get(), hostOut);
+  copy(outType, rawHostOut.get(), hostOut);
 
   boost::multi_array<double, 1>
       modelReduced(boost::extents[dims[1]]);
@@ -231,10 +231,10 @@ static bool reduceAddTest(const std::vector<std::size_t> &dims,
     modelOut[c] = kp * hostPrev[c] + kn * modelReduced[c];
   }
 
-  const double absoluteTolerance = outTypeStr == "float" ? FLOAT_ABS_TOL :
-                                                           HALF_ABS_TOL;
-  const double relativeTolerance = outTypeStr == "float" ? FLOAT_REL_TOL :
-                                                           HALF_REL_TOL;
+  const double absoluteTolerance = outType == FLOAT ? FLOAT_ABS_TOL :
+                                                      HALF_ABS_TOL;
+  const double relativeTolerance = outType == FLOAT ? FLOAT_REL_TOL :
+                                                      HALF_REL_TOL;
 
   auto matchesModel = checkIsClose("out", hostOut, modelOut,
                                    relativeTolerance, absoluteTolerance);
@@ -243,7 +243,7 @@ static bool reduceAddTest(const std::vector<std::size_t> &dims,
 
 static bool reduceOpsTest(const std::vector<std::size_t> &dims,
                           const std::vector<std::size_t> &redVect,
-                          const std::string &outTypeStr,
+                          const Type &outType,
                           popreduce::Operation operation) {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
@@ -254,7 +254,7 @@ static bool reduceOpsTest(const std::vector<std::size_t> &dims,
   assert(dims.size() == 3);
   assert(redVect.size() <= 3);
 
-  auto in = graph.addTensor(outTypeStr, {dims}, "in");
+  auto in = graph.addTensor(outType, {dims}, "in");
   popstd::mapTensorLinearly(graph, in);
 
   auto prog = Sequence();
@@ -294,20 +294,20 @@ static bool reduceOpsTest(const std::vector<std::size_t> &dims,
   std::fill(hostOut.data(), hostOut.data() + hostOut.num_elements(), 0);
   writeRandomValues(hostIn, -2, 2, randomEngine);
 
-  if (outTypeStr == "bool") {
+  if (outType == BOOL) {
     for (auto it = hostIn.data(); it != hostIn.data() + hostIn.num_elements();
           ++it) {
       *it = *it <= 0 ? 0 : 1;
     }
-  } else if (outTypeStr == "int") {
+  } else if (outType == INT) {
     for (auto it = hostIn.data(); it != hostIn.data() + hostIn.num_elements();
          ++it) {
       *it = std::floor(*it);
     }
   }
 
-  copy(hostOut, outTypeStr, rawHostOut.get());
-  copy(hostIn, outTypeStr, rawHostIn.get());
+  copy(hostOut, outType, rawHostOut.get());
+  copy(hostIn, outType, rawHostIn.get());
 
   Engine engine(device, graph, prog);
 
@@ -315,17 +315,17 @@ static bool reduceOpsTest(const std::vector<std::size_t> &dims,
   engine.run(0); // Run.
   download(engine, tmap);
 
-  copy(outTypeStr, rawHostOut.get(), hostOut);
+  copy(outType, rawHostOut.get(), hostOut);
 
   boost::multi_array<double, 1>
       modelReduced(boost::extents[numOutElements]);
 
   reduceTensor(hostIn, modelReduced, outDims, operation);
 
-  const double absoluteTolerance = outTypeStr == "float" ? FLOAT_ABS_TOL :
-                                                           HALF_ABS_TOL;
-  const double relativeTolerance = outTypeStr == "float" ? FLOAT_REL_TOL :
-                                                           HALF_REL_TOL;
+  const double absoluteTolerance = outType == FLOAT ? FLOAT_ABS_TOL :
+                                                      HALF_ABS_TOL;
+  const double relativeTolerance = outType == FLOAT ? FLOAT_REL_TOL :
+                                                      HALF_REL_TOL;
 
   auto matchesModel = checkIsClose("out", hostOut, modelReduced,
                                    relativeTolerance, absoluteTolerance);
@@ -333,158 +333,158 @@ static bool reduceOpsTest(const std::vector<std::size_t> &dims,
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_100x100_float_float_noupdate) {
-  auto matchesModel = reduceAddTest({100, 100}, "float", "float",
+  auto matchesModel = reduceAddTest({100, 100}, FLOAT, FLOAT,
                                      1.0, false, false);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_10x200_half_half) {
-  auto matchesModel = reduceAddTest({10, 200}, "half", "half",
+  auto matchesModel = reduceAddTest({10, 200}, HALF, HALF,
                                      2.0, false, false);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_31x201_scale_half_half) {
-  auto matchesModel = reduceAddTest({31, 201}, "half", "half",
+  auto matchesModel = reduceAddTest({31, 201}, HALF, HALF,
                                      3.0, false, true);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_31x201_scale_float_half) {
-  auto matchesModel = reduceAddTest({31, 201}, "float", "half",
+  auto matchesModel = reduceAddTest({31, 201}, FLOAT, HALF,
                                     -1.5, false, true);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_1x201_scale_float_half) {
-  auto matchesModel = reduceAddTest({1, 201}, "float", "half",
+  auto matchesModel = reduceAddTest({1, 201}, FLOAT, HALF,
                                     -1.5, false, true);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_1x201_scale_half_half) {
-  auto matchesModel = reduceAddTest({1, 201}, "half", "half",
+  auto matchesModel = reduceAddTest({1, 201}, HALF, HALF,
                                     -1.5, false, true);
   BOOST_TEST(matchesModel == true);
 }
 
 
 BOOST_AUTO_TEST_CASE(Reduce_31x201_update_float_float) {
-  auto matchesModel = reduceAddTest({31, 201}, "float", "float",
+  auto matchesModel = reduceAddTest({31, 201}, FLOAT, FLOAT,
                                     -1.5, true, false);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_31x201_update_half_half) {
-  auto matchesModel = reduceAddTest({31, 201}, "half", "half",
+  auto matchesModel = reduceAddTest({31, 201}, HALF, HALF,
                                     2.0, true, false);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_31x201_update_float_half) {
-  auto matchesModel = reduceAddTest({31, 201}, "float", "half",
+  auto matchesModel = reduceAddTest({31, 201}, FLOAT, HALF,
                                     -1.5, true, false);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Add_float) {
-  auto matchesModel = reduceOpsTest({10, 20, 30}, {0}, "float",
+  auto matchesModel = reduceOpsTest({10, 20, 30}, {0}, FLOAT,
                                     popreduce::Operation::ADD);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Add_half) {
-  auto matchesModel = reduceOpsTest({10, 20, 30}, {0}, "half",
+  auto matchesModel = reduceOpsTest({10, 20, 30}, {0}, HALF,
                                     popreduce::Operation::ADD);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Add_int) {
-  auto matchesModel = reduceOpsTest({10, 20, 30}, {0}, "int",
+  auto matchesModel = reduceOpsTest({10, 20, 30}, {0}, INT,
                                     popreduce::Operation::ADD);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Mul_float) {
-  auto matchesModel = reduceOpsTest({33, 22, 11}, {0}, "float",
+  auto matchesModel = reduceOpsTest({33, 22, 11}, {0}, FLOAT,
                                     popreduce::Operation::MUL);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Mul_half) {
-  auto matchesModel = reduceOpsTest({33, 22, 11}, {0}, "float",
+  auto matchesModel = reduceOpsTest({33, 22, 11}, {0}, FLOAT,
                                     popreduce::Operation::MUL);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Mul_int) {
-  auto matchesModel = reduceOpsTest({33, 22, 11}, {0}, "float",
+  auto matchesModel = reduceOpsTest({33, 22, 11}, {0}, FLOAT,
                                     popreduce::Operation::MUL);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Max_float) {
-  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, "half",
+  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, HALF,
                                     popreduce::Operation::MAX);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Max_half) {
-  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, "half",
+  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, HALF,
   popreduce::Operation::MAX);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Max_int) {
-  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, "half",
+  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, HALF,
                                     popreduce::Operation::MAX);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Min_float) {
-  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, "float",
+  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, FLOAT,
                                     popreduce::Operation::MIN);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Min_half) {
-  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, "float",
+  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, FLOAT,
                                     popreduce::Operation::MIN);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Min_int) {
-  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, "float",
+  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, FLOAT,
                                     popreduce::Operation::MIN);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_And_bool) {
-  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, "bool",
+  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, BOOL,
                                     popreduce::Operation::AND);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Or_bool) {
-  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, "bool",
+  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, BOOL,
                                     popreduce::Operation::OR);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_All_ADD_float) {
-  auto matchesModel = reduceOpsTest({20, 30, 11}, {1, 0, 2}, "float",
+  auto matchesModel = reduceOpsTest({20, 30, 11}, {1, 0, 2}, FLOAT,
                                     popreduce::Operation::ADD);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_None_ADD_float) {
-  auto matchesModel = reduceOpsTest({20, 30, 11}, {}, "float",
+  auto matchesModel = reduceOpsTest({20, 30, 11}, {}, FLOAT,
                                     popreduce::Operation::ADD);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Skip_ADD_float) {
-  auto matchesModel = reduceOpsTest({1, 1, 11}, {0, 1}, "float",
+  auto matchesModel = reduceOpsTest({1, 1, 11}, {0, 1}, FLOAT,
                                     popreduce::Operation::ADD);
   BOOST_TEST(matchesModel == true);
 }

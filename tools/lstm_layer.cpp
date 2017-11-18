@@ -38,8 +38,8 @@ int main(int argc, char **argv) {
   unsigned sequenceSize, inputSize, outputSize;
   unsigned batchSize = 1;
 
-  FPDataType dataType;
-  FPDataType partialsType;
+  Type dataType;
+  Type partialsType;
   double relativeTolerance;
   double absoluteTolerance;
 
@@ -59,12 +59,12 @@ int main(int argc, char **argv) {
     ("output-size", po::value<unsigned>(&outputSize)->required(),
      "Number of outputs in each element in the sequence")
     ("data-type",
-      po::value<FPDataType>(&dataType)->default_value(FPDataType::HALF),
+      po::value<Type>(&dataType)->default_value(HALF),
       "Input and output data type")
     ("batch-size", po::value<unsigned>(&batchSize)->default_value(batchSize),
       "Batch size")
     ("partials-type",
-     po::value<FPDataType>(&partialsType)->default_value(FPDataType::FLOAT),
+     po::value<Type>(&partialsType)->default_value(FLOAT),
      "Type of the partials")
     ("rel-tolerance", po::value<double>(&relativeTolerance)->
      default_value(0.01),
@@ -100,8 +100,6 @@ int main(int argc, char **argv) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }
-  std::string dataTypeStr(asString(dataType));
-  std::string partialsTypeStr(asString(partialsType));
 
   auto device = ipuModel.createDevice();
   Graph graph(device);
@@ -122,25 +120,25 @@ int main(int argc, char **argv) {
 
   auto prevLayerAct =
     lstm::createInput(graph, sequenceSize, batchSize, inputSize, outputSize,
-                      dataTypeStr, fwdOnly, "prevLayerAct");
+                      dataType, fwdOnly, "prevLayerAct");
   auto prog = Sequence();
   auto fwdStateInit =
-    lstm::createFwdState(graph, batchSize, outputSize, prog, false, dataTypeStr,
+    lstm::createFwdState(graph, batchSize, outputSize, prog, false, dataType,
                          false);
 
   auto outputInit = lstm::getOutputFromFwdState(fwdStateInit);
   auto cellStateInit = lstm::getCellFromFwdState(fwdStateInit);
 
-  auto biases = graph.addTensor(dataTypeStr,
+  auto biases = graph.addTensor(dataType,
                                 {BASIC_LSTM_CELL_NUM_UNITS, outputSize},
                                 "biases");
   auto weightsInput =
     lstm::createWeightsInput(graph, sequenceSize, batchSize, inputSize,
-                             outputSize, false, dataTypeStr, partialsTypeStr,
+                             outputSize, false, dataType, partialsType,
                              fwdOnly);
   auto weightsOutput =
     lstm::createWeightsOutput(graph, sequenceSize, batchSize, outputSize,
-                              dataTypeStr, partialsTypeStr, fwdOnly);
+                              dataType, partialsType, fwdOnly);
 
   std::vector<std::pair<std::string, char *>> tmap;
 
@@ -148,23 +146,23 @@ int main(int argc, char **argv) {
   if (preweightInput) {
     weightedIn =
       lstm::calcSequenceWeightedInputs(graph, prevLayerAct, weightsInput, prog,
-                                       partialsTypeStr);
+                                       partialsType);
   }
 
   Tensor fwdState = popnn::lstm::lstmFwdSequence(
     graph, fwdOnly, prog, fwdStateInit,
     preweightInput ? &weightedIn : nullptr,
-    biases, weightsInput, weightsOutput, prevLayerAct, dataTypeStr,
-    partialsTypeStr);
+    biases, weightsInput, weightsOutput, prevLayerAct, dataType,
+    partialsType);
 
   auto nextLayerGrads =
-     graph.addTensor(dataTypeStr, {sequenceSize, batchSize, outputSize});
+     graph.addTensor(dataType, {sequenceSize, batchSize, outputSize});
   mapTensorLinearly(graph, nextLayerGrads);
 
   Tensor bwdStateInit;
   if (doBwdPass || doWuPass) {
     bwdStateInit =
-      lstm::createBwdState(graph, batchSize, outputSize, prog, dataTypeStr);
+      lstm::createBwdState(graph, batchSize, outputSize, prog, dataType);
   }
 
   Tensor bwdState;
@@ -178,7 +176,7 @@ int main(int argc, char **argv) {
                             fwdStateInit, fwdState, biases,
                             weightsInput, weightsOutput,
                             prevLayerAct, nextLayerGrads, bwdStateInit,
-                            dataTypeStr, partialsTypeStr);
+                            dataType, partialsType);
   }
 
   auto rawHostWeightsInput =
@@ -282,14 +280,14 @@ int main(int argc, char **argv) {
 
   modelCellState = hostCellStateInit;
 
-  copy(hostPrevLayerAct, dataTypeStr, rawHostPrevLayerAct.get());
-  copy(hostCellStateInit, dataTypeStr, rawHostCellStateInit.get());
-  copy(hostOutputInit, dataTypeStr, rawHostOutputInit.get());
-  copy(hostBiases, dataTypeStr, rawHostBiases.get());
-  copy(hostWeightsInput, dataTypeStr, rawHostWeightsInput.get());
-  copy(hostWeightsOutput, dataTypeStr, rawHostWeightsOutput.get());
+  copy(hostPrevLayerAct, dataType, rawHostPrevLayerAct.get());
+  copy(hostCellStateInit, dataType, rawHostCellStateInit.get());
+  copy(hostOutputInit, dataType, rawHostOutputInit.get());
+  copy(hostBiases, dataType, rawHostBiases.get());
+  copy(hostWeightsInput, dataType, rawHostWeightsInput.get());
+  copy(hostWeightsOutput, dataType, rawHostWeightsOutput.get());
   if (doBwdPass) {
-    copy(hostNextLayerGrads, dataTypeStr, rawHostNextLayerGrads.get());
+    copy(hostNextLayerGrads, dataType, rawHostNextLayerGrads.get());
   }
 
   upload(engine, tmap);
@@ -316,7 +314,7 @@ int main(int argc, char **argv) {
   for (auto s = 0U; s != rawHostNextAct.size(); ++s) {
     boost::multi_array<double, 2> subMatImp(boost::extents[batchSize]
                                                           [outputSize]);
-    copy(dataTypeStr, rawHostNextAct[s].get(), subMatImp);
+    copy(dataType, rawHostNextAct[s].get(), subMatImp);
     boost::multi_array<double, 2> subMatRef =
         modelFwdState[LSTM_FWD_STATE_ACTS_IDX][s];
     matchesModel &= checkIsClose("nextLayerAct", subMatRef, subMatImp,
@@ -324,7 +322,7 @@ int main(int argc, char **argv) {
   }
 
   if (doBwdPass) {
-    copy(dataTypeStr, rawHostPrevLayerGrads.get(), hostPrevLayerGrads);
+    copy(dataType, rawHostPrevLayerGrads.get(), hostPrevLayerGrads);
 
     matchesModel &=
       checkIsClose("prevLayerGrads", modelPrevLayerGrads, hostPrevLayerGrads,
@@ -332,10 +330,10 @@ int main(int argc, char **argv) {
   }
 
   if (doWuPass) {
-    copy(dataTypeStr, rawHostWeightsInputDeltas.get(), hostWeightsInputDeltas);
-    copy(dataTypeStr, rawHostWeightsOutputDeltas.get(),
+    copy(dataType, rawHostWeightsInputDeltas.get(), hostWeightsInputDeltas);
+    copy(dataType, rawHostWeightsOutputDeltas.get(),
          hostWeightsOutputDeltas);
-    copy(dataTypeStr, rawHostBiasDeltas.get(), hostBiasesDeltas);
+    copy(dataType, rawHostBiasDeltas.get(), hostBiasesDeltas);
     boost::multi_array<double, 3>
         modelWeightsOutputDeltas(boost::extents[BASIC_LSTM_CELL_NUM_UNITS]
                                               [outputSize][outputSize]);

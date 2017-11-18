@@ -23,7 +23,7 @@ enum class FullyConnectedPass {
 /** Options to control the implementation of matrix multiplication */
 struct MatMulOptions {
   /** Type used for partial sum calculation */
-  std::string partialsType = "float";
+  poplar::Type partialsType = poplar::FLOAT;
   /// The fully connected pass this multiplication corresponds to. If this
   /// variable is not set to NONE look for a joint plan that avoids the need to
   /// exchange weights. In the forward and backward passes the weight matrix is
@@ -179,7 +179,7 @@ matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
  */
 poplar::Tensor
 createMatMulInputLHS(poplar::Graph &graph,
-                     const std::string &type,
+                     const poplar::Type &type,
                      const std::vector<std::size_t> &aShape,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
@@ -209,7 +209,7 @@ createMatMulInputLHS(poplar::Graph &graph,
  */
 poplar::Tensor
 createMatMulGroupedInputLHS(poplar::Graph &graph,
-                           const std::string &type,
+                           const poplar::Type &type,
                            const std::vector<std::size_t> &aShape,
                            const std::vector<std::size_t> &bShape,
                            const std::string &name,
@@ -235,7 +235,7 @@ createMatMulGroupedInputLHS(poplar::Graph &graph,
  */
 poplar::Tensor
 createMatMulInputRHS(poplar::Graph &graph,
-                     const std::string &type,
+                     const poplar::Type &type,
                      const std::vector<std::size_t> &aShape,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
@@ -266,7 +266,7 @@ createMatMulInputRHS(poplar::Graph &graph,
  */
 poplar::Tensor
 createMatMulGroupedInputRHS(poplar::Graph &graph,
-                            const std::string &type,
+                            const poplar::Type &type,
                             const std::vector<std::size_t> &aShape,
                             const std::vector<std::size_t> &bShape,
                             const std::string &name,

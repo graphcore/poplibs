@@ -37,8 +37,8 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
                           float eps,
                           float learningRate,
                           unsigned tilesPerIPU,
-                          const std::string &dataTypeStr,
-                          const std::string &partialsTypeStr) {
+                          const Type &dataType,
+                          const Type &partialsType) {
   assert(dims.size() == 4);
   const auto batchSize = dims[0];
   const auto dimY = dims[1];
@@ -56,7 +56,7 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   popreduce::addCodelets(graph);
   popconv::addCodelets(graph);
 
-  auto acts = graph.addTensor(dataTypeStr, {batchSize, dimY, dimX, numChannels},
+  auto acts = graph.addTensor(dataType, {batchSize, dimY, dimX, numChannels},
                               "act");
   popstd::mapTensorLinearly(graph, acts);
   acts = acts.dimShufflePartial({3}, {1});
@@ -65,7 +65,7 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
 
   Tensor mean, invStdDev;
   std::tie(mean, invStdDev) =
-      bn::batchNormEstimates(graph, acts, eps, prog, partialsTypeStr);
+      bn::batchNormEstimates(graph, acts, eps, prog, partialsType);
   Tensor gamma, beta;
   std::tie(gamma, beta) =
       bn::createBatchNormParams(graph, acts);
@@ -146,10 +146,10 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   auto modelBeta = hostBeta;
   auto modelGradsIn = hostGradsIn;
 
-  copy(hostActs, dataTypeStr, rawHostActs.get());
-  copy(hostGamma, dataTypeStr, rawHostGamma.get());
-  copy(hostBeta, dataTypeStr, rawHostBeta.get());
-  copy(hostGradsIn, dataTypeStr, rawHostGradsIn.get());
+  copy(hostActs, dataType, rawHostActs.get());
+  copy(hostGamma, dataType, rawHostGamma.get());
+  copy(hostBeta, dataType, rawHostBeta.get());
+  copy(hostGradsIn, dataType, rawHostGradsIn.get());
 
   Engine engine(device, graph, prog);
 
@@ -157,14 +157,14 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   engine.run(0); // Run.
   download(engine, tmap);
 
-  copy(dataTypeStr, rawHostActsWhitened.get(), hostActsWhitened);
-  copy(dataTypeStr, rawHostMean.get(), hostMean);
-  copy(dataTypeStr, rawHostInvStdDev.get(), hostInvStdDev);
-  copy(dataTypeStr, rawHostActsBN.get(), hostActsBN);
-  copy(dataTypeStr, rawHostActsBNInf.get(), hostActsBNInf);
-  copy(dataTypeStr, rawHostGradsOut.get(), hostGradsOut);
-  copy(dataTypeStr, rawHostBeta.get(), hostBeta);
-  copy(dataTypeStr, rawHostGamma.get(), hostGamma);
+  copy(dataType, rawHostActsWhitened.get(), hostActsWhitened);
+  copy(dataType, rawHostMean.get(), hostMean);
+  copy(dataType, rawHostInvStdDev.get(), hostInvStdDev);
+  copy(dataType, rawHostActsBN.get(), hostActsBN);
+  copy(dataType, rawHostActsBNInf.get(), hostActsBNInf);
+  copy(dataType, rawHostGradsOut.get(), hostGradsOut);
+  copy(dataType, rawHostBeta.get(), hostBeta);
+  copy(dataType, rawHostGamma.get(), hostGamma);
 
   bool matchesModel = true;
 
@@ -191,9 +191,9 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   poplib_test::conv::batchNormParamUpdate(modelActsWhitened, modelGradsIn,
                                           learningRate, modelGamma, modelBeta);
 
-  const double relativeTolerance = dataTypeStr == "float"
+  const double relativeTolerance = dataType == FLOAT
                                    ? FLOAT_REL_TOL : HALF_REL_TOL;
-  const double absoluteTolerance = dataTypeStr == "float"
+  const double absoluteTolerance = dataType == FLOAT
                                    ? FLOAT_ABS_TOL : HALF_ABS_TOL;
   matchesModel &=
     checkIsClose("actsWhitened", hostActsWhitened, modelActsWhitened,
@@ -227,8 +227,8 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
                         float eps,
                         float learningRate,
                         unsigned tilesPerIPU,
-                        const std::string &dataTypeStr,
-                        const std::string &partialsTypeStr) {
+                        const Type &dataType,
+                        const Type &partialsType) {
   IPUModel ipuModel;
   ipuModel.IPUExchangeType =
       IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
@@ -243,15 +243,15 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   const unsigned batchSize = dims[0];
   const unsigned numActs = dims[1];
 
-  auto acts = graph.addTensor(dataTypeStr, {batchSize, numActs}, "act");
+  auto acts = graph.addTensor(dataType, {batchSize, numActs}, "act");
   popstd::mapTensorLinearly(graph, acts);
-  auto gradsIn = graph.addTensor(dataTypeStr, {batchSize, numActs}, "gradsIn");
+  auto gradsIn = graph.addTensor(dataType, {batchSize, numActs}, "gradsIn");
   popstd::mapTensorLinearly(graph, gradsIn);
   auto prog = Sequence();
 
   Tensor mean, invStdDev;
   std::tie(mean, invStdDev) =
-      popnn::bn::batchNormEstimates(graph, acts, eps, prog, partialsTypeStr);
+      popnn::bn::batchNormEstimates(graph, acts, eps, prog, partialsType);
 
   Tensor gamma, beta;
   std::tie(gamma, beta) =
@@ -320,10 +320,10 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   auto modelBeta = hostBeta;
   auto modelGamma = hostGamma;
 
-  copy(hostActs, dataTypeStr, rawHostActs.get());
-  copy(hostGradsIn, dataTypeStr, rawHostGradsIn.get());
-  copy(hostGamma, dataTypeStr, rawHostGamma.get());
-  copy(hostBeta, dataTypeStr, rawHostBeta.get());
+  copy(hostActs, dataType, rawHostActs.get());
+  copy(hostGradsIn, dataType, rawHostGradsIn.get());
+  copy(hostGamma, dataType, rawHostGamma.get());
+  copy(hostBeta, dataType, rawHostBeta.get());
 
   Engine engine(device, graph, prog);
 
@@ -331,14 +331,14 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   engine.run(0); // Run.
   download(engine, tmap); // Download.
 
-  copy(dataTypeStr, rawHostActsWhitened.get(), hostActsWhitened);
-  copy(dataTypeStr, rawHostGradsOut.get(), hostGradsOut);
-  copy(dataTypeStr, rawHostMean.get(), hostMean);
-  copy(dataTypeStr, rawHostInvStdDev.get(), hostInvStdDev);
-  copy(dataTypeStr, rawHostActsBN.get(), hostActsBN);
-  copy(dataTypeStr, rawHostActsBNInf.get(), hostActsBNInf);
-  copy(dataTypeStr, rawHostBeta.get(), hostBeta);
-  copy(dataTypeStr, rawHostGamma.get(), hostGamma);
+  copy(dataType, rawHostActsWhitened.get(), hostActsWhitened);
+  copy(dataType, rawHostGradsOut.get(), hostGradsOut);
+  copy(dataType, rawHostMean.get(), hostMean);
+  copy(dataType, rawHostInvStdDev.get(), hostInvStdDev);
+  copy(dataType, rawHostActsBN.get(), hostActsBN);
+  copy(dataType, rawHostActsBNInf.get(), hostActsBNInf);
+  copy(dataType, rawHostBeta.get(), hostBeta);
+  copy(dataType, rawHostGamma.get(), hostGamma);
 
   bool matchesModel = true;
 
@@ -362,9 +362,9 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   poplib_test::fc::batchNormParamUpdate(modelActsWhitened, hostGradsIn,
                                         learningRate, modelGamma, modelBeta);
 
-  const double relativeTolerance = dataTypeStr == "float"
+  const double relativeTolerance = dataType == FLOAT
                                    ? FLOAT_REL_TOL : HALF_REL_TOL;
-  const double absoluteTolerance = dataTypeStr == "float"
+  const double absoluteTolerance = dataType == FLOAT
                                    ? FLOAT_ABS_TOL : HALF_ABS_TOL;
 
   matchesModel &=
@@ -395,92 +395,92 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
 BOOST_AUTO_TEST_CASE(BatchNormConv_Batch2_Dim28x28_Ch32_SmallEps){
   const float eps = 0.000001;
   const float learningRate = 0.1;
-  const std::string dataTypeStr = "half";
-  const std::string partialsTypeStr = "float";
+  const Type dataType = HALF;
+  const Type partialsType = FLOAT;
   const unsigned tilesPerIPU = 128;
 
   auto matchesModel = BatchNormConv({2, 28, 28, 32}, eps, learningRate,
-                                    tilesPerIPU, dataTypeStr, partialsTypeStr);
+                                    tilesPerIPU, dataType, partialsType);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(BatchNormConv_Batch4_Dim56x56_Ch64_LargeEps){
   const float eps = 0.01;
   const float learningRate = 0.1;
-  const std::string dataTypeStr = "half";
-  const std::string partialsTypeStr = "float";
+  const Type dataType = HALF;
+  const Type partialsType = FLOAT;
 
   const unsigned tilesPerIPU = 64;
   auto matchesModel = BatchNormConv({4, 56, 56, 64}, eps, learningRate,
-                                    tilesPerIPU, dataTypeStr, partialsTypeStr);
+                                    tilesPerIPU, dataType, partialsType);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(BatchNormConv_Batch16_Dim7x7_Ch8){
   const float eps = 0.001;
   const float learningRate = 0.1;
-  const std::string dataTypeStr = "half";
-  const std::string partialsTypeStr = "float";
+  const Type dataType = HALF;
+  const Type partialsType = FLOAT;
 
   const unsigned tilesPerIPU = 32;
   auto matchesModel = BatchNormConv({16, 7, 7, 8}, eps, learningRate,
-                                    tilesPerIPU, dataTypeStr, partialsTypeStr);
+                                    tilesPerIPU, dataType, partialsType);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(BatchNormConv_Batch4_DataFloat_PartialsFloat){
   const float eps = 0.0001;
   const float learningRate = 0.1;
-  const std::string dataTypeStr = "float";
-  const std::string partialsTypeStr = "float";
+  const Type dataType = FLOAT;
+  const Type partialsType = FLOAT;
 
   const unsigned tilesPerIPU = 64;
   auto matchesModel = BatchNormConv({1, 56, 56, 8}, eps, learningRate,
-                                    tilesPerIPU, dataTypeStr, partialsTypeStr);
+                                    tilesPerIPU, dataType, partialsType);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(BatchNormFc_Batch4_Acts2048) {
   const float eps = 0.001;
   const float learningRate = 0.1;
-  const std::string dataTypeStr = "half";
-  const std::string partialsTypeStr = "float";
+  const Type dataType = HALF;
+  const Type partialsType = FLOAT;
   const unsigned tilesPerIPU = 1216;
   auto matchesModel = BatchNormFc({4, 2048}, eps, learningRate,
-                                  tilesPerIPU, dataTypeStr, partialsTypeStr);
+                                  tilesPerIPU, dataType, partialsType);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(BatchNormFc_Batch16_Acts256_SmallEps) {
   const float eps = 0.00001;
   const float learningRate = 0.1;
-  const std::string dataTypeStr = "half";
-  const std::string partialsTypeStr = "float";
+  const Type dataType = HALF;
+  const Type partialsType = FLOAT;
   const unsigned tilesPerIPU = 64;
   auto matchesModel = BatchNormFc({16, 256}, eps, learningRate,
-                                  tilesPerIPU, dataTypeStr, partialsTypeStr);
+                                  tilesPerIPU, dataType, partialsType);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(BatchNormFc_Batch8_Acts512_LargeEps) {
   const float eps = 0.01;
   const float learningRate = 0.1;
-  const std::string dataTypeStr = "half";
-  const std::string partialsTypeStr = "float";
+  const Type dataType = HALF;
+  const Type partialsType = FLOAT;
   const unsigned tilesPerIPU = 64;
   auto matchesModel = BatchNormFc({16, 256}, eps, learningRate,
-                                  tilesPerIPU, dataTypeStr, partialsTypeStr);
+                                  tilesPerIPU, dataType, partialsType);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(BatchNormFc_Batch8_Acts512_DataFloat_PartialsFloat) {
   const float eps = 0.001;
   const float learningRate = 0.1;
-  const std::string dataTypeStr = "float";
-  const std::string partialsTypeStr = "float";
+  const Type dataType = FLOAT;
+  const Type partialsType = FLOAT;
   const unsigned tilesPerIPU = 64;
   auto matchesModel = BatchNormFc({16, 256}, eps, learningRate,
-                                  tilesPerIPU, dataTypeStr, partialsTypeStr);
+                                  tilesPerIPU, dataType, partialsType);
   BOOST_TEST(matchesModel == true);
 }
 

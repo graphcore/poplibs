@@ -28,12 +28,9 @@ std::vector<std::vector<poplar::Interval<std::size_t>>>
 calcLinearTileMapping(const poplar::Graph &graph,
                       const poplar::Tensor &t) {
   const auto dType = t.elementType();
-  // TODO - this get the correct type size from Poplar when poplar allows
-  // that type of introspection.
   const auto &target = graph.getTarget();
-  const auto typeSize = dType == "half" ? 2 : 4;
-  unsigned grainSize = dType == "half" ? target.getHalfVectorWidth() :
-                                         target.getFloatVectorWidth();
+  const auto typeSize = target.getTypeSize(dType);
+  unsigned grainSize = target.getVectorWidth(dType);
   const auto minBytesPerTile = 128;
   const auto minElementsPerTile =
     (minBytesPerTile + typeSize - 1) / minBytesPerTile;

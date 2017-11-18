@@ -17,7 +17,7 @@ std::pair<poplar::Tensor, poplar::Tensor>
 batchNormEstimates(poplar::Graph &graph, const poplar::Tensor acts,
                    float eps,
                    poplar::program::Sequence &prog,
-                   const std::string &partialsTypeStr = "float",
+                   const poplar::Type &partialsType= poplar::FLOAT,
                    const std::string &debugPrefix = "");
 
 // Batch normalise activations given mean, standard deviation and batch norm
@@ -52,7 +52,7 @@ batchNormDeltas(poplar::Graph &graph,
                 const poplar::Tensor &actsWhitened,
                 const poplar::Tensor &gradsIn,
                 poplar::program::Sequence &prog,
-                const std::string &partialsType = "float",
+                const poplar::Type &partialsType = poplar::FLOAT,
                 const std::string &debugPrefix = "");
 
 poplar::Tensor
@@ -64,7 +64,7 @@ batchNormGradients(poplar::Graph &graph,
                    const poplar::Tensor &invStdDev,
                    const poplar::Tensor &gamma,
                    poplar::program::Sequence &prog,
-                   const std::string &partialsTypeStr = "float",
+                   const poplar::Type &partialsType = poplar::FLOAT,
                    const std::string &debugPrefix = "");
 
 void batchNormParamUpdate(poplar::Graph &graph,
