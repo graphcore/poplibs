@@ -27,14 +27,14 @@ public:
   Input<Vector<unsigned>> zeroWorklist;
   unsigned numOutGroups;
   unsigned numInGroups;
-  unsigned kernelSizeY;
-  unsigned kernelSizeX;
+  unsigned kernelOuterSize;
+  unsigned kernelInnerElements;
   unsigned inStride;
   unsigned outStride;
   unsigned numConvGroups;
-  unsigned filterHeight;
+  // The number of kernel elements we accumulate across within the AMP unit.
+  unsigned ampKernelHeight;
   unsigned inRowStride;
-  unsigned weightRowStride;
   bool flipOut;
 
   SimOnlyField<unsigned> outChansPerGroup;
@@ -44,7 +44,8 @@ public:
   SimOnlyField<unsigned> convUnitCoeffLoadBytesPerCycle;
   SimOnlyField<unsigned> numWorkerContexts;
   bool compute() {
-    const auto usedContexts = worklists.size() / (kernelSizeY * kernelSizeX);
+    const auto usedContexts = worklists.size() / (kernelOuterSize *
+                                                  kernelInnerElements);
     assert(numConvGroups * numOutGroups * numInGroups == weights.size());
     assert(out.size() == numOutGroups * numConvGroups);
     assert(zeroWorklist.size() % 2 == 0);
@@ -65,11 +66,11 @@ public:
           const auto &w = weights[cg * numOutGroups * numInGroups +
                                   og * numInGroups +
                                   ig];
-          for (unsigned ky = 0; ky < kernelSizeY; ++ky) {
-            for (unsigned kx = 0; kx < kernelSizeX; ++kx) {
+          for (unsigned ky = 0; ky < kernelOuterSize; ++ky) {
+            for (unsigned kx = 0; kx < kernelInnerElements; ++kx) {
               for (unsigned context = 0; context < usedContexts; ++context) {
-                const auto &wl =
-                    worklists[(ky * kernelSizeX + kx) * usedContexts + context];
+                const auto k = (ky * kernelInnerElements + kx);
+                const auto &wl = worklists[k * usedContexts + context];
                 unsigned wi = 0;
                 while (wi < wl.size()) {
                   auto outOffset  = wl[wi];
@@ -88,19 +89,21 @@ public:
                           (outOffset + outX) * outChansPerGroup +
                           outChan;
                       AccumType sum = out[cg * numOutGroups + og][outIndex];
-                      for (unsigned inChan = 0;
-                           inChan < inChansPerGroup;
-                           ++inChan) {
-                        for (unsigned c = 0; c < filterHeight; ++c) {
+                      for (unsigned ak = 0; ak < ampKernelHeight; ++ak) {
+                        for (unsigned inChan = 0;
+                             inChan < inChansPerGroup;
+                             ++inChan) {
                           const auto inIndex =
                               (inOffset + i * inStride) * inChansPerGroup +
-                              c * inRowStride +
+                              ak * inRowStride +
                               inChan;
                           const auto weightIndex =
-                              ky * filterHeight * weightRowStride +
+                              ky * ampKernelHeight * kernelInnerElements *
+                                   outChansPerGroup * inChansPerGroup +
                               kx * outChansPerGroup * inChansPerGroup +
+                              ak * kernelInnerElements * outChansPerGroup *
+                                   inChansPerGroup +
                               outChan * inChansPerGroup +
-                              c * weightRowStride +
                               inChan;
                           sum +=
                               in[cg * numInGroups + ig][inIndex] *
@@ -121,7 +124,7 @@ public:
   }
   std::uint64_t getCycleEstimate() const {
     std::vector<std::vector<std::vector<unsigned>>> workerPartitions;
-    const auto kernelSize = kernelSizeY * kernelSizeX;
+    const auto kernelSize = kernelOuterSize * kernelInnerElements;
     const auto usedContexts = worklists.size() / kernelSize;
 
     std::vector<unsigned> tZeroWorkList;
@@ -154,7 +157,7 @@ public:
                                                numOutGroups,
                                                numInGroups,
                                                kernelSize,
-                                               filterHeight,
+                                               ampKernelHeight,
                                                inChansPerGroup,
                                                convUnitInputLoadElemsPerCycle,
                                                outChansPerGroup,
