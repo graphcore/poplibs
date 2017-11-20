@@ -472,6 +472,14 @@ add_test(NAME conv3x3_stride_1_half_partials
                  --kernel-size=3
                  --partials-type=half)
 
+add_test(NAME conv1x1_kernel_with_padding_larger_than_field
+         COMMAND single_conv_layer
+                 --input-channels=16
+                 --output-channels=8
+                 --field={1,128}
+                 --tiles-per-ipu=2
+                 --padding={1,64})
+
 #  Grouped convolution layer tests
 add_test(NAME grouped_conv3x3_stride_2_256_out
          COMMAND single_conv_layer

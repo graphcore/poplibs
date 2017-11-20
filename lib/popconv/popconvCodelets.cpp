@@ -253,6 +253,7 @@ public:
   SimOnlyField<unsigned> convUnitInputLoadElemsPerCycle;
   SimOnlyField<unsigned> convUnitCoeffLoadBytesPerCycle;
   SimOnlyField<unsigned> numWorkerContexts;
+  bool flipOut;
 
   bool compute() {
     const auto usedContexts = worklists.size();
@@ -277,8 +278,9 @@ public:
                 for (unsigned outChan = 0;
                      outChan < outChansPerGroup;
                      ++outChan) {
+                  const auto outX = flipOut ? (outWidth - 1 - i) : i;
                   const auto outIndex =
-                      (outOffset + i) * outChansPerGroup + outChan;
+                      (outOffset + outX) * outChansPerGroup + outChan;
                   if (ig == 0)
                     out[cg * numOutGroups + og][outIndex] = 0;
                   float sum = 0;

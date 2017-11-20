@@ -1796,6 +1796,7 @@ static void createConvPartialAmpVertex(Graph &graph,
   graph.setInitialValue(v["convUnitCoeffLoadBytesPerCycle"],
                         convUnitCoeffLoadBytesPerCycle);
   graph.setInitialValue(v["numWorkerContexts"], contextsPerVertex);
+  graph.setInitialValue(v["flipOut"], flipOut);
   graph.setFieldSize(v["worklists"], worklist.size());
   for (unsigned i = 0;i < worklist.size(); ++i) {
     auto t = graph.addConstantTensor(UNSIGNED_INT, {worklist[i].size()},
@@ -1807,7 +1808,6 @@ static void createConvPartialAmpVertex(Graph &graph,
     graph.setInitialValue(v["kernelInnerElements"], kernelInnerElements);
     graph.setInitialValue(v["kernelOuterSize"], subKernelPositionsEnd[0]);
     graph.setInitialValue(v["outStride"], outStrideX);
-    graph.setInitialValue(v["flipOut"], flipOut);
     graph.setInitialValue(v["ampKernelHeight"], convUnitWeightHeight);
     graph.setInitialValue(v["inRowStride"], inRowStride);
 
