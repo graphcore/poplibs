@@ -1216,6 +1216,7 @@ public:
 
 template class ConvChanReduce<float, float>;
 template class ConvChanReduce<half, float>;
+template class ConvChanReduce<half, half>;
 
 
 template <typename InType, typename OutType>

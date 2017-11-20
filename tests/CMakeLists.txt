@@ -462,6 +462,15 @@ add_test(NAME conv_outer_product
                  --field={1,512}
                  --tiles-per-ipu=64)
 
+add_test(NAME conv3x3_stride_1_half_partials
+         COMMAND single_conv_layer
+                 --input-channels=32
+                 --output-channels=16
+                 --field={7,7}
+                 --tiles-per-ipu=16
+                 --stride=1
+                 --kernel-size=3
+                 --partials-type=half)
 
 #  Grouped convolution layer tests
 add_test(NAME grouped_conv3x3_stride_2_256_out
