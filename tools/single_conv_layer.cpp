@@ -125,6 +125,10 @@ int main(int argc, char **argv) {
      po::value<unsigned>(&ipuModel.tilesPerIPU)->
                            default_value(ipuModel.tilesPerIPU),
      "Number of tiles per IPU")
+    ("workers-per-tile",
+     po::value<unsigned>(&ipuModel.numWorkerContexts)->
+                           default_value(ipuModel.numWorkerContexts),
+     "Number of worker contexts per tile")
     ("batch-size",
      po::value<unsigned>(&batchSize)->default_value(1),
      "Batch size")
