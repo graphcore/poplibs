@@ -3084,6 +3084,7 @@ void weightsTransposeChansFlipXY(Graph &graph,
 static ConvParams
 getWeightUpdateParams(ConvParams fwdParams) {
   fwdParams = canonicalizeParams(fwdParams);
+  const auto numFieldDims = fwdParams.getNumFieldDims();
   for (unsigned dim = 0; dim != fwdParams.getNumFieldDims(); ++dim) {
     if (fwdParams.kernelPaddingLower[dim] != 0 ||
         fwdParams.kernelPaddingUpper[dim] != 0) {
@@ -3098,15 +3099,14 @@ getWeightUpdateParams(ConvParams fwdParams) {
       std::abort();
     }
   }
+  std::vector<int> noPadding(numFieldDims);
   return ConvParams(fwdParams.dType,
                     fwdParams.getNumInputChansPerConvGroup(), // batchSize
                     {
-                      fwdParams.getInputHeight(),
-                      fwdParams.getInputWidth()
+                      fwdParams.inputFieldShape
                     }, // inputFieldShape
                     {
-                      fwdParams.getOutputHeight(),
-                      fwdParams.getOutputWidth(),
+                      fwdParams.getOutputFieldShape()
                     }, // kernelShape
                     fwdParams.getBatchSize(), // inputChannels
                     fwdParams.getNumOutputChansPerConvGroup(), // outputChannels
@@ -3114,8 +3114,8 @@ getWeightUpdateParams(ConvParams fwdParams) {
                     fwdParams.inputPaddingLower, // inputPaddingLower
                     fwdParams.inputPaddingUpper, // inputPaddingUpper
                     fwdParams.inputDilation,     // inputDilation
-                    {0, 0}, // kernelPaddingLower
-                    {0, 0}, // kernelPaddingUpper
+                    noPadding, // kernelPaddingLower
+                    noPadding, // kernelPaddingUpper
                     fwdParams.stride, // kernelDilation
                     fwdParams.numConvGroups // numConvGroups
                     );
@@ -3141,8 +3141,10 @@ calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
   // - wu height = fwd height
   // - wu width = fwd width
   // - wu output channels = fwd output channels
-  auto activationsRearranged = activations.dimShufflePartial({1, 4}, {4, 1});
-  auto deltasRearranged = zDeltas.dimShufflePartial({4}, {1});
+  auto activationsRearranged =
+      activations.dimShufflePartial({1, activations.rank() - 1},
+                                    {activations.rank() - 1, 1});
+  auto deltasRearranged = zDeltas.dimShufflePartial({zDeltas.rank() - 1}, {1});
   auto weightDeltas =
       convolution(graph,
                   actsToExternalShape(activationsRearranged),
@@ -3153,7 +3155,9 @@ calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
                   debugPrefix,
                   options);
   weightDeltas = actsToInternalShape(weightDeltas, numConvGroups);
-  return weightsToExternalShape(weightDeltas.dimShufflePartial({1}, {4}));
+  return weightsToExternalShape(
+           weightDeltas.dimShufflePartial({1}, {weightDeltas.rank() - 1})
+         );
 }
 
 void
