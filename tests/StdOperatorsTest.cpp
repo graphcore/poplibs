@@ -25,7 +25,7 @@ namespace fpc = boost::test_tools::fpc;
 
 static Tensor mapUnaryOpTensor(Graph &graph,
                                const Type &type) {
-  auto in = graph.addTensor(type, {DIM_SIZE, DIM_SIZE}, "in0");
+  auto in = graph.addVariable(type, {DIM_SIZE, DIM_SIZE}, "in0");
   mapTensorLinearly(graph, in);
 
   return in.dimShuffle({1, 0});
@@ -33,10 +33,10 @@ static Tensor mapUnaryOpTensor(Graph &graph,
 
 static std::pair<Tensor, Tensor> mapBinaryOpTensors(Graph &graph,
                                                     const Type &type) {
-  auto in1 = graph.addTensor(type, {DIM_SIZE, DIM_SIZE}, "in1");
+  auto in1 = graph.addVariable(type, {DIM_SIZE, DIM_SIZE}, "in1");
   mapTensorLinearly(graph, in1);
 
-  auto in2 = graph.addTensor(type, {DIM_SIZE, DIM_SIZE}, "in2");
+  auto in2 = graph.addVariable(type, {DIM_SIZE, DIM_SIZE}, "in2");
   mapTensorLinearly(graph, in2);
 
   return std::make_pair(in1.dimShuffle({1, 0}), in2.dimShuffle({1, 0}));
@@ -1113,8 +1113,8 @@ BOOST_AUTO_TEST_CASE(StdOperationBinaryOutputMapChoice) {
   popstd::addCodelets(graph);
 
   Tensor in1, in2;
-  in1 = graph.addTensor(FLOAT, {2, 2}, "t1");
-  in2 = graph.addTensor(FLOAT, {2, 2}, "t2");
+  in1 = graph.addVariable(FLOAT, {2, 2}, "t1");
+  in2 = graph.addVariable(FLOAT, {2, 2}, "t2");
 
   // Tensor in1 all on tile 0
   graph.setTileMapping(in1, 0);
@@ -1149,10 +1149,10 @@ BOOST_AUTO_TEST_CASE(StdOperationTrinaryOutputMapChoice) {
   popstd::addCodelets(graph);
 
   Tensor in1, in2, in3, in4;
-  in1 = graph.addTensor(FLOAT, {2, 2}, "t1");
-  in2 = graph.addTensor(FLOAT, {2, 2}, "t2");
-  in3 = graph.addTensor(BOOL, {2, 2}, "pred1");
-  in4 = graph.addTensor(BOOL, {2, 2}, "pred2");
+  in1 = graph.addVariable(FLOAT, {2, 2}, "t1");
+  in2 = graph.addVariable(FLOAT, {2, 2}, "t2");
+  in3 = graph.addVariable(BOOL, {2, 2}, "pred1");
+  in4 = graph.addVariable(BOOL, {2, 2}, "pred2");
 
   // Tensor in1 all on tile 0
   graph.setTileMapping(in1, 0);
@@ -1203,7 +1203,7 @@ BOOST_AUTO_TEST_CASE(StdOperationAllTrueBadType) {
   Graph graph(device);
   popstd::addCodelets(graph);
 
-  Tensor in = graph.addTensor(FLOAT, {2, 2}, "t1");
+  Tensor in = graph.addVariable(FLOAT, {2, 2}, "t1");
   auto prog = Sequence();
   BOOST_CHECK_THROW(allTrue(graph, in, prog, "all_true"),
                     poplib_error);
@@ -1215,9 +1215,9 @@ BOOST_AUTO_TEST_CASE(StdOperationAllTrue) {
   Graph graph(device);
   popstd::addCodelets(graph);
 
-  Tensor in = graph.addTensor(INT, {2}, "t1");
-  Tensor ones = graph.addConstantTensor(INT, {2}, 1);
-  Tensor zeros = graph.addConstantTensor(INT, {2}, 0);
+  Tensor in = graph.addVariable(INT, {2}, "t1");
+  Tensor ones = graph.addConstant(INT, {2}, 1);
+  Tensor zeros = graph.addConstant(INT, {2}, 0);
 
   graph.setTileMapping(in, 0);
 

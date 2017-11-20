@@ -56,7 +56,7 @@ int main(int argc, char **argv) {
   ipuModel.IPUExchangeType =
       IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
   bool reportPlan;
-  bool reportTensorStorage;
+  bool reportVarStorage;
 
   Pass pass = Pass::ALL;
   popconv::ConvOptions convOptions;
@@ -154,9 +154,9 @@ int main(int argc, char **argv) {
      "Weight update method: amp | auto")
     ("report-plan", po::value<bool>(&reportPlan)->default_value(false),
      "Display plan")
-    ("report-tensor-storage",
-     po::value<bool>(&reportTensorStorage)->default_value(false),
-     "Report tensor storage information")
+    ("report-var-storage",
+     po::value<bool>(&reportVarStorage)->default_value(false),
+     "Report variable storage information")
   ;
   po::variables_map vm;
   try {
@@ -481,8 +481,8 @@ int main(int argc, char **argv) {
   if (!useCpuModel) {
     Engine::ReportOptions opt;
     opt.doLayerWiseProfile = true;
-    if (reportTensorStorage) {
-      opt.showTensorStorage = true;
+    if (reportVarStorage) {
+      opt.showVariableStorage = true;
     }
     engine.report(std::cout, opt);
   }

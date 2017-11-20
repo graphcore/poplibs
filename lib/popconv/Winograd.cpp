@@ -732,16 +732,16 @@ static Program kernelTransform(
         auto numUnits = (tp.zic * tp.zoc + WgdTilePartition::kUnitSize - 1)
                         / WgdTilePartition::kUnitSize;
 
-        Tensor kTf = graph.addTensor(tp.dType,
-                                     {
-                                      zogThisTile,
-                                      zigThisTile,
-                                      tp.patchSizeY,
-                                      tp.patchSizeX,
-                                      tp.zoc,
-                                      tp.zic
-                                     },
-                                     "kernelTf"+std::to_string(tile));
+        Tensor kTf = graph.addVariable(tp.dType,
+                                       {
+                                        zogThisTile,
+                                        zigThisTile,
+                                        tp.patchSizeY,
+                                        tp.patchSizeX,
+                                        tp.zoc,
+                                        tp.zic
+                                       },
+                                       "kernelTf"+std::to_string(tile));
 
         graph.setTileMapping(kTf, tile);
         assert(tile < kTfMapping.size());
@@ -922,7 +922,7 @@ static std::vector<Tensor> allocateKernelTfTensor(
   if (!tp.replicateKTf) {
 
     kernelTf.resize(1);
-    kernelTf[0] = graph.addTensor(tp.dType,
+    kernelTf[0] = graph.addVariable(tp.dType,
                                     {
                                       tp.zog,
                                       tp.zig,
@@ -991,7 +991,7 @@ static Program dataTransform(
         const auto zigS = zigTile * tp.zigPerTile;
         const auto patchS = pTile * tp.patchesPerTile;
 
-        Tensor dTf = graph.addTensor(
+        Tensor dTf = graph.addVariable(
                             tp.dType,
                             {
                               zigThisTile,
@@ -1053,9 +1053,9 @@ static Program dataTransform(
 
             if ((prepadX || prepadY || postpadX || postpadY)
                    && !zeroTensorCreated) {
-              zeroVec = graph.addTensor(tp.dType,
-                                        {WgdTilePartition::dUnitSize},
-                                        "zero");
+              zeroVec = graph.addVariable(tp.dType,
+                                          {WgdTilePartition::dUnitSize},
+                                          "zero");
               graph.setTileMapping(zeroVec, tile);
 
               auto vZ = graph.addVertex(zCs,
@@ -1180,9 +1180,9 @@ static Program dataTransform(
 
         if ((prepadX || prepadY || postpadX || postpadY)
              && !zeroTensorCreated) {
-          zeroVec = graph.addTensor(tp.dType,
-                                    {WgdTilePartition::dUnitSize},
-                                    "zero");
+          zeroVec = graph.addVariable(tp.dType,
+                                      {WgdTilePartition::dUnitSize},
+                                      "zero");
           graph.setTileMapping(zeroVec, tile);
 
           auto v = graph.addVertex(zCs, templateVertex("popstd::Zero",
@@ -1240,15 +1240,15 @@ static std::vector<Tensor> allocateDataTfTensor(
   if (!tp.replicateDTf) {
 
     dataTf.resize(1);
-    dataTf[0] = graph.addTensor(tp.dType,
-                                {
-                                 tp.zig,
-                                 tp.getNumPatches(),
-                                 tp.patchSizeY,
-                                 tp.patchSizeX,
-                                 tp.zic
-                                },
-                                "WgdDataTransform");
+    dataTf[0] = graph.addVariable(tp.dType,
+                                  {
+                                   tp.zig,
+                                   tp.getNumPatches(),
+                                   tp.patchSizeY,
+                                   tp.patchSizeX,
+                                   tp.zic
+                                  },
+                                  "WgdDataTransform");
   } else {
     dataTf.resize(graph.getTarget().getNumTiles());
   }
@@ -1748,42 +1748,42 @@ extern Program winogradConvolution(Graph &graph,
   prog.add(computeKernelTransform(graph, tp, layerName, weights, kernelTf));
 
   /* accumulate across tiles */
-  Tensor accumTen = graph.addTensor(partialsType,
-                                   {
-                                     tp.zog,
-                                     tp.tilesForZig,
-                                     tp.getNumPatches(),
-                                     patchSizeY,
-                                     patchSizeX,
-                                     tp.zoc
-                                   },
-                                   "WgdAccumulate");
+  Tensor accumTen = graph.addVariable(partialsType,
+                                      {
+                                        tp.zog,
+                                        tp.tilesForZig,
+                                        tp.getNumPatches(),
+                                        patchSizeY,
+                                        patchSizeX,
+                                        tp.zoc
+                                      },
+                                      "WgdAccumulate");
 
   prog.add(accum(graph, tp, layerName, dataTf, kernelTf, accumTen));
 
 
-  Tensor invTfIn = graph.addTensor(dType,
-                                   {
-                                     tp.zog,
-                                     tp.getNumPatches(),
-                                     patchSizeY,
-                                     patchSizeX,
-                                     tp.zoc
-                                   },
-                                   "WgdInvTrfIn");
+  Tensor invTfIn = graph.addVariable(dType,
+                                     {
+                                       tp.zog,
+                                       tp.getNumPatches(),
+                                       patchSizeY,
+                                       patchSizeX,
+                                       tp.zoc
+                                     },
+                                     "WgdInvTrfIn");
 
   prog.add(reduce(graph, tp, layerName, accumTen, invTfIn));
 
 
-  Tensor invTfOut = graph.addTensor(dType,
-                                   {
-                                     tp.zog,
-                                     tp.getNumPatches(),
-                                     tp.getNumOutputsPerPatchY(),
-                                     tp.getNumOutputsPerPatchX(),
-                                     tp.zoc
-                                   },
-                                   "WgdInvTrfOut");
+  Tensor invTfOut = graph.addVariable(dType,
+                                      {
+                                        tp.zog,
+                                        tp.getNumPatches(),
+                                        tp.getNumOutputsPerPatchY(),
+                                        tp.getNumOutputsPerPatchX(),
+                                        tp.zoc
+                                      },
+                                      "WgdInvTrfOut");
 
   prog.add(inverseTransform(graph, tp, layerName, invTfIn, invTfOut));
 

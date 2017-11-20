@@ -54,9 +54,9 @@ createBatchNormParams(Graph &graph, const Tensor acts) {
   } else {
     const unsigned numActs = acts.shape()[1];
     const auto dType = acts.elementType();
-    auto gamma = graph.addTensor(dType, {numActs}, "gamma");
+    auto gamma = graph.addVariable(dType, {numActs}, "gamma");
     mapTensorLinearly(graph, gamma);
-    auto beta = graph.addTensor(dType, {numActs}, "beta");
+    auto beta = graph.addVariable(dType, {numActs}, "beta");
     mapTensorLinearly(graph, beta);
     return std::make_pair(gamma, beta);
   }
@@ -86,9 +86,9 @@ batchNormEstimates(Graph &graph, const Tensor acts,
     const unsigned numChans = numChannels(acts);
     const auto dType = acts.elementType();
 
-    auto mean = graph.addTensor(dType, {numChans}, "mean");
+    auto mean = graph.addVariable(dType, {numChans}, "mean");
     mapTensorLinearly(graph, mean);
-    auto iStdDev = graph.addTensor(dType, {numChans}, "stdDev");
+    auto iStdDev = graph.addVariable(dType, {numChans}, "stdDev");
     mapTensorLinearly(graph, iStdDev);
 
     auto actsShuf = acts.dimShuffle({1, 0});

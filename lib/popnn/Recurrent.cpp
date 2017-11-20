@@ -222,9 +222,9 @@ Tensor forwardIterate(Graph  &graph,
   auto bBiases = biases.broadcast(batchSize, 0)
                        .reshape({batchSize, outputSize});
 
-  auto actOut = graph.addTensor(feedFwdIn.elementType(),
-                                {0, batchSize, outputSize},
-                                "actOut");
+  auto actOut = graph.addVariable(feedFwdIn.elementType(),
+                                  {0, batchSize, outputSize},
+                                  "actOut");
   PlanningCache cache;
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsType;
@@ -263,16 +263,16 @@ poplar::Tensor rnnFwdSequence(poplar::Graph &graph,
   auto stateShape = fwdStateInit.shape();
   stateShape.insert(stateShape.begin(), seqSize);
   const auto dType = prevLayerActs.elementType();
-  auto fwdState = graph.addTensor(dType, stateShape,
-                                  debugPrefix + "/fwdState");
+  auto fwdState = graph.addVariable(dType, stateShape,
+                                    debugPrefix + "/fwdState");
   // loop counter
   const auto &target = graph.getTarget();
   unsigned numTiles = target.getNumTiles();
   //TODO: replace these per-tile counters and constants with scalars
   // once poplar is enhanced to auto-expand them
-  auto seqIdx = graph.addTensor(UNSIGNED_INT, {1, numTiles},
-                                 debugPrefix + "/seqIdx");
-  auto one = graph.addConstantTensor(UNSIGNED_INT, {1, numTiles}, 1);
+  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1, numTiles},
+                                  debugPrefix + "/seqIdx");
+  auto one = graph.addConstant(UNSIGNED_INT, {1, numTiles}, 1);
   for (unsigned i = 0; i != numTiles; ++i) {
     graph.setTileMapping(seqIdx[0][i], i);
     graph.setTileMapping(one[0][i], i);
@@ -480,18 +480,18 @@ std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor, poplar::Tensor>
     popnn::rnn::createBwdState(graph, dType, batchSize, outputSize,
                                prog, debugPrefix);
   auto actOut = popnn::rnn::getOutputFromFwdState(fwdStateInit);
-  auto seqIdx = graph.addTensor(UNSIGNED_INT, {1}, debugPrefix + "/seqIdx");
-  auto start = graph.addConstantTensor(UNSIGNED_INT, {1}, seqSize- 1);
-  auto one = graph.addConstantTensor(UNSIGNED_INT, {1}, 1);
+  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, debugPrefix + "/seqIdx");
+  auto start = graph.addConstant(UNSIGNED_INT, {1}, seqSize- 1);
+  auto one = graph.addConstant(UNSIGNED_INT, {1}, 1);
   graph.setTileMapping(seqIdx, 0);
   prog.add(Copy(start, seqIdx));
 
   // state for gradient backprop
   std::vector<std::size_t> gradientShape =
     {seqSize, batchSize, !ignoreInputGradientCalc ? inputSize : outputSize};
-  auto prevLayerGradsVec = graph.addTensor(dType,
-                                           gradientShape,
-                                           debugPrefix + "/gradient");
+  auto prevLayerGradsVec = graph.addVariable(dType,
+                                             gradientShape,
+                                             debugPrefix + "/gradient");
   Tensor fwdStateS = graph.clone(fwdStateInit, debugPrefix + "/fwdStateS");
   Tensor fwdStateOffset = concat(fwdStateInit.expand({0}),
                                  fwdState.slice(0, fwdState.dim(0)-1));

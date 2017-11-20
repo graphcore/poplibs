@@ -269,8 +269,8 @@ Tensor reduce(poplar::Graph &graph,  poplar::Tensor in,
   const auto numAddends = in.dim(0);
   const auto resultSize = in.dim(1);
   const auto dType = in.elementType();
-  const auto out = graph.addTensor(dType, {resultSize},
-                                   debugPrefix + "/Reduced");
+  const auto out = graph.addVariable(dType, {resultSize},
+                                     debugPrefix + "/Reduced");
   popstd::mapTensorLinearly(graph, out);
 
   // If batch size is 1 then no reduction is required.
@@ -308,9 +308,9 @@ Tensor reduceScale(Graph &graph, float k, Tensor &in,
   if (numAddends == 1) {
     Tensor B;
     if (dType == HALF) {
-      B = graph.addConstantTensor<half>(outType, in.shape(), k);
+      B = graph.addConstant<half>(outType, in.shape(), k);
     } else {
-      B = graph.addConstantTensor<float>(outType, in.shape(), k);
+      B = graph.addConstant<float>(outType, in.shape(), k);
     }
     Tensor A = in;
 
@@ -321,8 +321,8 @@ Tensor reduceScale(Graph &graph, float k, Tensor &in,
     return popstd::mul(graph, A, B, prog, debugPrefix);
   }
 
-  const auto out = graph.addTensor(outType, {resultSize},
-                                   debugPrefix + "/ReducedScaled");
+  const auto out = graph.addVariable(outType, {resultSize},
+                                     debugPrefix + "/ReducedScaled");
   popstd::mapTensorLinearly(graph, out);
 
   const auto reduceVertexMapping =

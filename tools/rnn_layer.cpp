@@ -188,9 +188,9 @@ int main(int argc, char **argv) {
                                                    feedFwdWeights, prog,
                                                    partialsType, "");
   } else {
-    feedFwdOutput = graph.addTensor(dataType,
-                                         {0, batchSize, outputSize},
-                                         "feedFwdOutput");
+    feedFwdOutput = graph.addVariable(dataType,
+                                      {0, batchSize, outputSize},
+                                      "feedFwdOutput");
     for (unsigned s = 0U; s != sequenceSize; ++s) {
       auto h =
         popnn::rnn::createFwdState(graph, dataType, batchSize, outputSize,
@@ -207,7 +207,7 @@ int main(int argc, char **argv) {
   auto initAct =  popnn::rnn::getOutputFromFwdState(fwdInitState);
 
   /* map biases and brooadcast them */
-  auto biases = graph.addTensor(dataType, {outputSize}, "biases");
+  auto biases = graph.addVariable(dataType, {outputSize}, "biases");
   mapTensorLinearly(graph, biases);
 
   auto feedbackWeights =
@@ -221,9 +221,9 @@ int main(int argc, char **argv) {
 
   Tensor nextLayerGrads;
   if (doBwdPass || doWuPass) {
-    nextLayerGrads = graph.addTensor(dataType,
-                                     {sequenceSize, batchSize, outputSize},
-                                     "nextLayerGrads");
+    nextLayerGrads = graph.addVariable(dataType,
+                                       {sequenceSize, batchSize, outputSize},
+                                       "nextLayerGrads");
     mapTensorLinearly(graph, nextLayerGrads);
   }
 

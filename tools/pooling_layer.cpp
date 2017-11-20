@@ -288,12 +288,12 @@ int main(int argc, char **argv) {
   const auto outHeight = outDims[0];
   const auto outWidth = outDims[1];
   // Create tensors.
-  Tensor prevAct = graph.addTensor(dataType,
-                                   {chans / fwdChansPerGroup,
-                                    batchSize,
-                                    height,
-                                    width,
-                                    fwdChansPerGroup}, "prevAct");
+  Tensor prevAct = graph.addVariable(dataType,
+                                     {chans / fwdChansPerGroup,
+                                     batchSize,
+                                     height,
+                                     width,
+                                     fwdChansPerGroup}, "prevAct");
   mapTensorLinearly(graph, prevAct);
   prevAct = prevAct.dimShufflePartial({0, 4}, {1, 2})
                    .reshapePartial(1, 3, {chans});
@@ -301,12 +301,12 @@ int main(int argc, char **argv) {
   Tensor zDeltas;
   if (!inferenceOnly) {
     zDeltas =
-        graph.addTensor(dataType, {chans / bwdChansPerGroup,
-                                   batchSize,
-                                   outHeight,
-                                   outWidth,
-                                   bwdChansPerGroup},
-                        "zDeltas");
+        graph.addVariable(dataType, {chans / bwdChansPerGroup,
+                                     batchSize,
+                                     outHeight,
+                                     outWidth,
+                                     bwdChansPerGroup},
+                          "zDeltas");
     mapTensorLinearly(graph, zDeltas);
     zDeltas = zDeltas.dimShufflePartial({0, 4}, {1, 2})
                      .reshapePartial(1, 3, {chans});

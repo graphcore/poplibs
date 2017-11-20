@@ -951,7 +951,7 @@ static Tensor dilate(Graph &graph, const Tensor &t, unsigned dilationFactor,
   const auto dType = t.elementType();
   auto zeroShape = t.shape();
   zeroShape[dim] = 1;
-  Tensor zero = graph.addConstantTensor(dType, zeroShape, 0);
+  Tensor zero = graph.addConstant(dType, zeroShape, 0);
   std::vector<Tensor> slices;
   slices.reserve(newSize);
   for (unsigned i = 0; i != newSize; ++i) {
@@ -1026,7 +1026,7 @@ static void expandSpatialDim(Graph &graph, ConvParams &params,
       } else {
         auto zerosShape = expandedShape;
         zerosShape.back() = larger->dim(larger->rank() - 1);
-        slice = graph.addConstantTensor(dType, zerosShape, 0);
+        slice = graph.addConstant(dType, zerosShape, 0);
       }
       slices.push_back(std::move(slice));
     }
@@ -1178,7 +1178,7 @@ createInputImpl(Graph &graph, const ConvParams &params,
   tensorShape.insert(tensorShape.end(), params.inputFieldShape.begin(),
                      params.inputFieldShape.end());
   tensorShape.push_back(inChansPerGroup);
-  auto t = graph.addTensor(params.dType, tensorShape, name);
+  auto t = graph.addVariable(params.dType, tensorShape, name);
   t = unsplitActivationChanGroups(t);
   mapActivations(graph, params, plan, t);
   return t;
@@ -1306,7 +1306,7 @@ createWeightsImpl(Graph &graph,
                       params.kernelShape.end());
   weightsShape.push_back(weightOutChansPerGroup);
   weightsShape.push_back(weightInChansPerGroup);
-  auto weights = graph.addTensor(dType, weightsShape, name);
+  auto weights = graph.addVariable(dType, weightsShape, name);
   weights = ungroupWeights(weights);
   mapWeights(graph, weights, params, plan);
   return weights;
@@ -1369,7 +1369,7 @@ createBiases(poplar::Graph &graph, const Tensor &acts_,
   const auto acts = actsToInternalShape(acts_, 1);
   const auto numOutChans = acts.dim(acts.rank() - 1);
   const auto dType = acts.elementType();
-  auto biases = graph.addTensor(dType, {numOutChans}, name);
+  auto biases = graph.addVariable(dType, {numOutChans}, name);
   mapBiases(graph, biases, acts);
   return biases;
 }
@@ -1800,8 +1800,8 @@ static void createConvPartialAmpVertex(Graph &graph,
   graph.setInitialValue(v["flipOut"], flipOut);
   graph.setFieldSize(v["worklists"], worklist.size());
   for (unsigned i = 0;i < worklist.size(); ++i) {
-    auto t = graph.addConstantTensor(UNSIGNED_INT, {worklist[i].size()},
-                                     worklist[i].data());
+    auto t = graph.addConstant(UNSIGNED_INT, {worklist[i].size()},
+                               worklist[i].data());
     graph.connect(v["worklists"][i], t);
   }
 
@@ -1813,9 +1813,9 @@ static void createConvPartialAmpVertex(Graph &graph,
     graph.setInitialValue(v["inRowStride"], inRowStride);
 
     const auto zeroWorklist = createZeroWorklist(target, outWindow[0]);
-    auto zeroWorklistTensor = graph.addConstantTensor(UNSIGNED_INT,
-                                                      {zeroWorklist.size()},
-                                                      zeroWorklist.data());
+    auto zeroWorklistTensor = graph.addConstant(UNSIGNED_INT,
+                                                {zeroWorklist.size()},
+                                                zeroWorklist.data());
     graph.connect(v["zeroWorklist"], zeroWorklistTensor);
   }
   graph.setTileMapping(v, tile);
@@ -2032,16 +2032,16 @@ createConvPartialHorizontalMacVertex(Graph &graph,
   graph.setInitialValue(v["numWorkerContexts"], contextsPerVertex);
   graph.setFieldSize(v["worklists"], worklist.size());
   for (unsigned i = 0;i < worklist.size(); ++i) {
-    auto t = graph.addConstantTensor(UNSIGNED_INT, {worklist[i].size()},
-                                     worklist[i].data());
+    auto t = graph.addConstant(UNSIGNED_INT, {worklist[i].size()},
+                               worklist[i].data());
     graph.connect(v["worklists"][i], t);
   }
   const auto zeroWorklist = createZeroWorklist(target, outWindow[0]);
   for (unsigned i = 0; i != zeroWorklist.size(); ++i) {
   }
-  auto zeroWorklistTensor = graph.addConstantTensor(UNSIGNED_INT,
-                                                    {zeroWorklist.size()},
-                                                     zeroWorklist.data());
+  auto zeroWorklistTensor = graph.addConstant(UNSIGNED_INT,
+                                              {zeroWorklist.size()},
+                                              zeroWorklist.data());
   graph.connect(v["zeroWorklist"], zeroWorklistTensor);
   graph.setTileMapping(v, tile);
 }
@@ -2280,9 +2280,9 @@ partialGroupedReduce(
   assert(partialsDepth >= outDepth);
   auto outDims = partials.shape();
   outDims[0] = outDepth;
-  Tensor out = graph.addTensor(resultType,
-                               outDims,
-                               "partialReduceOut");
+  Tensor out = graph.addVariable(resultType,
+                                 outDims,
+                                 "partialReduceOut");
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
   const auto numTileGroups = tileGroupRegions.size();
@@ -2484,7 +2484,7 @@ convolutionImpl(Graph &graph, const Plan &plan,
     partialsShape.push_back(params.getOutputSize(dim));
   }
   partialsShape.push_back(partialChansPerGroup);
-  Tensor partials = graph.addTensor(partialType, partialsShape, "partials");
+  Tensor partials = graph.addVariable(partialType, partialsShape, "partials");
   prog.add(calcPartialSums(graph, plan, params, dType, in, weights, partials,
                            debugPrefix));
   std::vector<ComputeSet> reduceComputeSets;
@@ -2494,7 +2494,7 @@ convolutionImpl(Graph &graph, const Plan &plan,
   // Perform the reduction of partial sums.
   if (partials.dim(0) == 1) {
     if (dType != partialType) {
-      reduced = graph.addTensor(dType, partials.shape(), "reduced");
+      reduced = graph.addVariable(dType, partials.shape(), "reduced");
       if (reduceComputeSets.empty()) {
         reduceComputeSets.push_back(graph.addComputeSet(debugPrefix +
                                                            "/Cast"));
@@ -2751,7 +2751,7 @@ static Tensor weightsPartialTranspose(Graph &graph, Tensor in, ComputeSet cs) {
   const auto dType = in.elementType();
   auto outShape = in.shape();
   std::swap(outShape[rank - 2], outShape[rank - 1]);
-  auto out = graph.addTensor(dType, outShape, "partialTranspose");
+  auto out = graph.addVariable(dType, outShape, "partialTranspose");
   auto inFlat = in.reshape({in.numElements() / (numSrcRows * numSrcColumns),
                             numSrcRows * numSrcColumns});
   auto outFlat = out.reshape(inFlat.shape());
@@ -3052,8 +3052,8 @@ convChannelReduce(Graph &graph,
                                      inChansPerGroup});
   for (unsigned tile = 0; tile < numTiles; ++tile) {
     auto tileNumGroups = tileLocalReductions[tile].size();
-    Tensor r = graph.addTensor(partialsType, {tileNumGroups, inChansPerGroup},
-                               "tileReduced");
+    Tensor r = graph.addVariable(partialsType, {tileNumGroups, inChansPerGroup},
+                                 "tileReduced");
     tileReduced.push_back(r);
     graph.setTileMapping(r, tile);
     unsigned outIndex = 0;
@@ -3093,8 +3093,8 @@ convChannelReduce(Graph &graph,
     maxOutputsPerWorker = (numOut + numWorkers - 1) / numWorkers;
   }
   auto partials =
-      graph.addTensor(partialsType, {usedWorkers, maxOutputsPerWorker},
-                      "partials");
+      graph.addVariable(partialsType, {usedWorkers, maxOutputsPerWorker},
+                        "partials");
   for (unsigned worker = 0; worker  < usedWorkers; ++worker ) {
     auto tile = worker / target.getNumWorkerContexts();
     graph.setTileMapping(partials[worker].slice(0, maxOutputsPerWorker), tile);
@@ -3103,12 +3103,12 @@ convChannelReduce(Graph &graph,
     if (outBegin == outEnd)
       continue;
     unsigned numWorkerOutputs = outEnd - outBegin;
-    auto toReduce = graph.addTensor(partialsType, {0});
+    auto toReduce = graph.addVariable(partialsType, {0});
     std::vector<unsigned> numInputsPerOutput;
     for (auto o = outBegin; o != outEnd; ++o) {
       auto outGroup = o / inChansPerGroup;
       auto outInGroup = o % inChansPerGroup;
-      auto inputs = graph.addTensor(partialsType, {0});
+      auto inputs = graph.addVariable(partialsType, {0});
       for (unsigned srcTile = 0; srcTile < numTiles; ++srcTile) {
         auto it = tileLocalReductions[srcTile].find(outGroup);
         if (it == tileLocalReductions[srcTile].end())

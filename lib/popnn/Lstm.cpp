@@ -222,8 +222,8 @@ Tensor createFwdState(Graph &graph,
   auto stateDims = inferenceOnly ? LSTM_NUM_FWD_STATES_INFERENCE :
                    LSTM_NUM_FWD_STATES_TRAINING;
   auto state =
-    graph.addTensor(dType, {stateDims, batchSize, outputSize},
-                    debugPrefix + "/fwdStateOut");
+    graph.addVariable(dType, {stateDims, batchSize, outputSize},
+                      debugPrefix + "/fwdStateOut");
   for (auto i = 0; i != stateDims; ++i) {
     mapTensorLinearly(graph, state[i]);
   }
@@ -248,8 +248,8 @@ Tensor createBwdState(Graph &graph,
                       const Type &dType,
                       const std::string &debugPrefix) {
   auto state =
-    graph.addTensor(dType, {LSTM_NUM_BWD_STATES, batchSize, outputSize},
-                    debugPrefix + "/BwdState");
+    graph.addVariable(dType, {LSTM_NUM_BWD_STATES, batchSize, outputSize},
+                      debugPrefix + "/BwdState");
   for (auto i = 0; i != LSTM_NUM_BWD_STATES; ++i) {
     mapTensorLinearly(graph, state[i]);
   }
@@ -377,7 +377,8 @@ basicLstmCellForwardPassImpl(Graph &graph,
 
   const auto dType = in.elementType();
 
-  auto bBiases = graph.addTensor(dType, {0, batchSize, outputSize}, "bbiases");
+  auto bBiases = graph.addVariable(dType, {0, batchSize, outputSize},
+                                   "bbiases");
   for (unsigned u = 0; u != BASIC_LSTM_CELL_NUM_UNITS; ++u) {
     auto unitBias = biases[u].broadcast(batchSize, 0)
                              .reshape({batchSize, outputSize});
@@ -392,7 +393,8 @@ basicLstmCellForwardPassImpl(Graph &graph,
   unsigned stateDims = inferenceOnly ? LSTM_NUM_FWD_STATES_INFERENCE :
                                        LSTM_NUM_FWD_STATES_TRAINING;
   Tensor stateOut
-    = graph.addTensor(dType, {0, stateDims, batchSize, outputSize}, "stateOut");
+    = graph.addVariable(dType, {0, stateDims, batchSize, outputSize},
+                        "stateOut");
 
   for (auto s = 0U; s != sequenceSize; ++s) {
     const std::string baseStr = debugPrefix
@@ -490,9 +492,9 @@ Tensor lstmFwdSequence(Graph &graph,
   unsigned numTiles = target.getNumTiles();
   //TODO: replace these per-tile counters and constants with scalars
   // once poplar is enhanced to auto-expand them
-  auto seqIdx = graph.addTensor(UNSIGNED_INT, {1, numTiles},
-                                debugPrefix + "/seqIdx");
-  auto one = graph.addConstantTensor(UNSIGNED_INT, {1, numTiles}, 1);
+  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1, numTiles},
+                                  debugPrefix + "/seqIdx");
+  auto one = graph.addConstant(UNSIGNED_INT, {1, numTiles}, 1);
   for (unsigned i = 0; i != numTiles; ++i) {
     graph.setTileMapping(seqIdx[0][i], i);
     graph.setTileMapping(one[0][i], i);
@@ -532,9 +534,9 @@ Tensor lstmFwdSequence(Graph &graph,
     Tensor newAct = popnn::lstm::getOutputFromFwdState(newState);
     // all output sequence elements take the same mapping so will only
     // require on-tile copies
-    fwdState = graph.addTensor(dataType, {seqSize, fwdStateInit.dim(0),
-                               fwdStateInit.dim(1), fwdStateInit.dim(2)},
-                               debugPrefix + "/fwdState");
+    fwdState = graph.addVariable(dataType, {seqSize, fwdStateInit.dim(0),
+                                 fwdStateInit.dim(1), fwdStateInit.dim(2)},
+                                 debugPrefix + "/fwdState");
     for (unsigned i = 0; i != seqSize; ++i) {
       graph.setTileMapping(fwdState[i],
                            graph.getTileMapping(newState[0]));
@@ -768,9 +770,9 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> lstmBwdSequence(
 
   unsigned seqSize = gradLayerNext.dim(0);
   // sequence down-counter
-  auto seqIdx = graph.addTensor(UNSIGNED_INT, {1}, debugPrefix + "/seqIdx");
-  auto start = graph.addConstantTensor(UNSIGNED_INT, {1}, seqSize - 1);
-  auto one = graph.addConstantTensor(UNSIGNED_INT, {1}, 1);
+  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, debugPrefix + "/seqIdx");
+  auto start = graph.addConstant(UNSIGNED_INT, {1}, seqSize - 1);
+  auto one = graph.addConstant(UNSIGNED_INT, {1}, 1);
   graph.setTileMapping(seqIdx, 0);
   prog.add(Copy(start, seqIdx));
 
@@ -781,9 +783,9 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> lstmBwdSequence(
   auto gradSize = ignoreInputGradientCalc ? weightsOutput.dim(2)
                                           : weightsInput.dim(1);
   // output gradient to previous layer
-  gradPrevLayer = graph.addTensor(dataType,
-                                  {seqSize, gradLayerNext.dim(1), gradSize},
-                                  debugPrefix + "/gradPrevLayer");
+  gradPrevLayer = graph.addVariable(dataType,
+                                    {seqSize, gradLayerNext.dim(1), gradSize},
+                                    debugPrefix + "/gradPrevLayer");
   auto loop = Sequence();
   {
     Tensor gradPrevLayerS, bwdStateUpdated;

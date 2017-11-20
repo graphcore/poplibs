@@ -56,8 +56,8 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   popreduce::addCodelets(graph);
   popconv::addCodelets(graph);
 
-  auto acts = graph.addTensor(dataType, {batchSize, dimY, dimX, numChannels},
-                              "act");
+  auto acts = graph.addVariable(dataType, {batchSize, dimY, dimX, numChannels},
+                                "act");
   popstd::mapTensorLinearly(graph, acts);
   acts = acts.dimShufflePartial({3}, {1});
 
@@ -243,9 +243,9 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   const unsigned batchSize = dims[0];
   const unsigned numActs = dims[1];
 
-  auto acts = graph.addTensor(dataType, {batchSize, numActs}, "act");
+  auto acts = graph.addVariable(dataType, {batchSize, numActs}, "act");
   popstd::mapTensorLinearly(graph, acts);
-  auto gradsIn = graph.addTensor(dataType, {batchSize, numActs}, "gradsIn");
+  auto gradsIn = graph.addVariable(dataType, {batchSize, numActs}, "gradsIn");
   popstd::mapTensorLinearly(graph, gradsIn);
   auto prog = Sequence();
 

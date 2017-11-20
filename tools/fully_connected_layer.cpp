@@ -139,7 +139,7 @@ int main(int argc, char **argv) {
                                   {numGroups, inputSize, outputSize},
                                   "weights",
                                   fwdOptions);
-  auto biases = graph.addTensor(dataType, {numGroups, outputSize}, "biases");
+  auto biases = graph.addVariable(dataType, {numGroups, outputSize}, "biases");
   mapTensorLinearly(graph, biases);
 
   auto bwdOptions = fwdOptions;
@@ -156,8 +156,8 @@ int main(int argc, char **argv) {
                          .broadcast(batchSize, 1);
     addTo(graph, nextAct, bBiases, 1, fwdProg);
   } else {
-    nextAct = graph.addTensor(dataType, {numGroups, batchSize, outputSize},
-                              "nextAct");
+    nextAct = graph.addVariable(dataType, {numGroups, batchSize, outputSize},
+                                "nextAct");
     mapTensorLinearly(graph, nextAct);
   }
 

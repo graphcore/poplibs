@@ -41,14 +41,14 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
   const std::size_t zChunk = 1;
   const std::size_t ySize = 100;
   const std::size_t xSize = 30;
-  auto actF = graph.addTensor(FLOAT, {1, zNGroups, ySize, xSize, zChunk},
-                              "actF");
-  auto actH = graph.addTensor(HALF, {1, zNGroups, ySize, xSize, zChunk},
-                              "actH");
-  auto deltaF = graph.addTensor(FLOAT, {1, zNGroups, ySize, xSize, zChunk},
-                              "actF");
-  auto deltaH = graph.addTensor(HALF, {1, zNGroups, ySize, xSize, zChunk},
-                              "actH");
+  auto actF = graph.addVariable(FLOAT, {1, zNGroups, ySize, xSize, zChunk},
+                                "actF");
+  auto actH = graph.addVariable(HALF, {1, zNGroups, ySize, xSize, zChunk},
+                                "actH");
+  auto deltaF = graph.addVariable(FLOAT, {1, zNGroups, ySize, xSize, zChunk},
+                                  "actF");
+  auto deltaH = graph.addVariable(HALF, {1, zNGroups, ySize, xSize, zChunk},
+                                  "actH");
 
   // arbitraray mappings
   mapTensorLinearly(graph, actF);
@@ -199,8 +199,8 @@ BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
   const unsigned batchSize = 2;
   const unsigned numChannels = 128;
 
-  auto actF = graph.addTensor(FLOAT, {batchSize, numChannels}, "actF");
-  auto actH = graph.addTensor(HALF, {batchSize, numChannels}, "actH");
+  auto actF = graph.addVariable(FLOAT, {batchSize, numChannels}, "actF");
+  auto actH = graph.addVariable(HALF, {batchSize, numChannels}, "actH");
 
   graph.createHostWrite("inF", actF);
   graph.createHostWrite("inH", actH);

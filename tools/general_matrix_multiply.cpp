@@ -184,7 +184,7 @@ int main(int argc, char **argv) {
                        transposeB ? matB.transpose() : matB,
                        prog, "op(A) x op(B)", mmOpt);
 
-  auto matC = graph.addTensor(dataType, {m, n}, "matC");
+  auto matC = graph.addVariable(dataType, {m, n}, "matC");
   mapTensorLinearly(graph, matC);
 
   addTo(graph, matC, matAxB, alpha, prog);

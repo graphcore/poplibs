@@ -183,9 +183,9 @@ static Tensor scaleGradient(Graph &graph,
   // create constant tensor and broadcast
   const auto batchSize = grad.dim(0);
   const auto channels = grad.dim(3);
-  auto scaleTensor = graph.addConstantTensor<T>(grad.elementType(),
-                                                { outHeight * outWidth },
-                                                scale.data());
+  auto scaleTensor = graph.addConstant<T>(grad.elementType(),
+                                          { outHeight * outWidth },
+                                          scale.data());
   auto bScaleTensor =
     scaleTensor.broadcast(batchSize * channels, 0)
                .reshape({batchSize, channels, outHeight, outWidth})
@@ -348,9 +348,9 @@ Tensor pool(Graph &graph,
   // Create output
   auto chansPerGroup = detectChannelGrouping(in);
   auto outGrouped =
-      graph.addTensor(dType, {numChannels / chansPerGroup, batchSize,
-                              outHeight, outWidth, chansPerGroup},
-                      debugPrefix + "/" + asString(poolingType) + "Pool");
+      graph.addVariable(dType, {numChannels / chansPerGroup, batchSize,
+                                outHeight, outWidth, chansPerGroup},
+                        debugPrefix + "/" + asString(poolingType) + "Pool");
   mapTensorLinearly(graph, outGrouped);
   auto out = outGrouped.dimShufflePartial({0}, {3})
                        .reshape({batchSize, outHeight, outWidth, numChannels});

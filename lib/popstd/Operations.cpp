@@ -372,9 +372,9 @@ Tensor div(Graph &graph, float k, Tensor A, Sequence &prog,
   Tensor B;
   const auto dType = A.elementType();
   if (dType == HALF) {
-    B = graph.addConstantTensor<half>(dType, A.shape(), k);
+    B = graph.addConstant<half>(dType, A.shape(), k);
   } else {
-    B = graph.addConstantTensor<float>(dType, A.shape(), k);
+    B = graph.addConstant<float>(dType, A.shape(), k);
   }
   return binaryOp(graph, B, A, prog, BinaryOp::DIVIDE, debugPrefix + "/Op/Div");
 }

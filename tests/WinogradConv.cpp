@@ -169,16 +169,16 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   const float    stdDev = 1.0;
 
 
-  auto in = graph.addTensor(
+  auto in = graph.addVariable(
                   dType,
                   {1, numInpChanGroups, featureY, featureX, numInpChansInGroup},
                   "in");
-  auto weights = graph.addTensor(
+  auto weights = graph.addVariable(
           dType,
           {numOutPartialChanGroups, numInpChanGroups, kernelSizeY,
            kernelSizeX, numOutPartialChansInGroup, numInpChansInGroup},
           "weights");
-  auto activations = graph.addTensor(
+  auto activations = graph.addVariable(
           dType,
           {1, numOutChanGroups, featureY, featureX, numOutChansInGroup},
           "activations");

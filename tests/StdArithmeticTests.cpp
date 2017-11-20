@@ -24,10 +24,10 @@ namespace fpc = boost::test_tools::fpc;
 
 static std::tuple<Tensor, Tensor> mapBinaryOpTensors(Graph &graph,
                                                      const Type &type) {
-  auto in1 = graph.addTensor(type, {DIM_SIZE, DIM_SIZE}, "in1");
+  auto in1 = graph.addVariable(type, {DIM_SIZE, DIM_SIZE}, "in1");
   mapTensorLinearly(graph, in1);
 
-  auto in2 = graph.addTensor(type, {DIM_SIZE, DIM_SIZE}, "in2");
+  auto in2 = graph.addVariable(type, {DIM_SIZE, DIM_SIZE}, "in2");
   mapTensorLinearly(graph, in2);
 
   return std::make_pair(in1.dimShuffle({1, 0}), in2.dimShuffle({1, 0}));
@@ -226,7 +226,7 @@ BOOST_AUTO_TEST_CASE(StdCast) {
     hIn[i] = (float)i;
   }
 
-  auto in = graph.addTensor(FLOAT, {DIM_SIZE}, "in");
+  auto in = graph.addVariable(FLOAT, {DIM_SIZE}, "in");
   mapTensorLinearly(graph, in);
   graph.createHostWrite("in", in);
 

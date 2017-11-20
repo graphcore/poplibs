@@ -176,10 +176,10 @@ void sliceTestND(unsigned tilesPerIPU,
   Graph graph(device);
   popstd::addCodelets(graph);
   std::vector<size_t> t1Shape = testShape;
-  auto t1 = graph.addTensor(FLOAT, t1Shape, "t1");
+  auto t1 = graph.addVariable(FLOAT, t1Shape, "t1");
   std::cerr<<"Created tensor t1: " << t1 << "\n";
-  auto tWantedOffsets = graph.addTensor(UNSIGNED_INT, {sliceDims.size()},
-                                        "wantedOffsets");
+  auto tWantedOffsets = graph.addVariable(UNSIGNED_INT, {sliceDims.size()},
+                                          "wantedOffsets");
   graph.setTileMapping(tWantedOffsets, 0);
 
   MapAcrossTiles(graph, tilesPerIPU, t1);
@@ -317,17 +317,17 @@ void updateTestND(unsigned tilesPerIPU,
   Graph graph(device);
   popstd::addCodelets(graph);
   std::vector<size_t> t1Shape = testShape;
-  auto t1 = graph.addTensor(FLOAT, t1Shape, "t1");
+  auto t1 = graph.addVariable(FLOAT, t1Shape, "t1");
   std::cerr<<"Created tensor t1: " << t1 << "\n";
 
     std::vector<size_t> subShape = t1.shape();
   for (unsigned i = 0; i != sliceDims.size(); ++i) {
     subShape[sliceDims[i]] = sliceSizes[i];
   }
-  auto s1 = graph.addTensor(FLOAT, subShape, "s1");
+  auto s1 = graph.addVariable(FLOAT, subShape, "s1");
   std::cerr<<"Created tensor s1: " << s1 << "\n";
-  auto tWantedOffsets = graph.addTensor(UNSIGNED_INT, {sliceDims.size()},
-                                        "wantedOffsets");
+  auto tWantedOffsets = graph.addVariable(UNSIGNED_INT, {sliceDims.size()},
+                                          "wantedOffsets");
   graph.setTileMapping(tWantedOffsets, 0);
 
   MapAcrossTiles(graph, tilesPerIPU, t1);
@@ -441,8 +441,8 @@ BOOST_AUTO_TEST_CASE(SliceOrder) {
 
   std::vector<size_t> t1Shape = {100, 50, 10};
 
-  auto input = graph.addTensor(FLOAT, t1Shape, "input");
-  auto offset = graph.addTensor(UNSIGNED_INT, { t1Shape.size() }, "offset");
+  auto input = graph.addVariable(FLOAT, t1Shape, "input");
+  auto offset = graph.addVariable(UNSIGNED_INT, { t1Shape.size() }, "offset");
 
   MapAcrossTiles(graph, graph.getTarget().getTilesPerIPU(), input);
   graph.setTileMapping(offset, 0);

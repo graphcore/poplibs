@@ -129,9 +129,9 @@ int main(int argc, char **argv) {
   auto outputInit = lstm::getOutputFromFwdState(fwdStateInit);
   auto cellStateInit = lstm::getCellFromFwdState(fwdStateInit);
 
-  auto biases = graph.addTensor(dataType,
-                                {BASIC_LSTM_CELL_NUM_UNITS, outputSize},
-                                "biases");
+  auto biases = graph.addVariable(dataType,
+                                  {BASIC_LSTM_CELL_NUM_UNITS, outputSize},
+                                  "biases");
   auto weightsInput =
     lstm::createWeightsInput(graph, sequenceSize, batchSize, inputSize,
                              outputSize, false, dataType, partialsType,
@@ -156,7 +156,7 @@ int main(int argc, char **argv) {
     partialsType);
 
   auto nextLayerGrads =
-     graph.addTensor(dataType, {sequenceSize, batchSize, outputSize});
+     graph.addVariable(dataType, {sequenceSize, batchSize, outputSize});
   mapTensorLinearly(graph, nextLayerGrads);
 
   Tensor bwdStateInit;

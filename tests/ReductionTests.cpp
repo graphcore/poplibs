@@ -161,10 +161,10 @@ static bool reduceAddTest(const std::vector<std::size_t> &dims,
   assert(!(scale && update));
   assert(dims.size() == 2);
 
-  auto in = graph.addTensor(partialsType, {dims}, "in");
+  auto in = graph.addVariable(partialsType, {dims}, "in");
   popstd::mapTensorLinearly(graph, in);
 
-  auto prev = graph.addTensor(outType, {dims[1]}, "prev");
+  auto prev = graph.addVariable(outType, {dims[1]}, "prev");
   popstd::mapTensorLinearly(graph, prev);
 
   auto prog = Sequence();
@@ -254,7 +254,7 @@ static bool reduceOpsTest(const std::vector<std::size_t> &dims,
   assert(dims.size() == 3);
   assert(redVect.size() <= 3);
 
-  auto in = graph.addTensor(outType, {dims}, "in");
+  auto in = graph.addVariable(outType, {dims}, "in");
   popstd::mapTensorLinearly(graph, in);
 
   auto prog = Sequence();

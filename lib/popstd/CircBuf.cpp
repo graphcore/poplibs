@@ -23,8 +23,8 @@ CircBuf::CircBuf(Graph &graph, const Type &dataType,
   auto nGrains = (N + grainSize - 1) / grainSize;
   padElements = nGrains * grainSize - N;
 
-  hist = graph.addTensor(dataType, {nGrains, size, grainSize},
-                         debugPrefix + "/CircBuf");
+  hist = graph.addVariable(dataType, {nGrains, size, grainSize},
+                           debugPrefix + "/CircBuf");
   auto numTiles = graph.getTarget().getNumTiles();
   auto regions = splitRegions({{0, nGrains}}, 1, numTiles);
   for (unsigned tile = 0; tile < regions.size(); ++tile) {
@@ -34,7 +34,7 @@ CircBuf::CircBuf(Graph &graph, const Type &dataType,
     }
   }
 
-  index = graph.addTensor(UNSIGNED_INT, {1}, debugPrefix + "/CircBufIndex");
+  index = graph.addVariable(UNSIGNED_INT, {1}, debugPrefix + "/CircBufIndex");
   graph.setInitialValue(index[0], 0);
   graph.setTileMapping(index, 0);
 }
@@ -45,7 +45,8 @@ Tensor CircBuf::prev(unsigned i, Sequence &seq,
     std::abort();
   // compute required offset into an internal Tensor, prevIdx
   // this is mapped onto the tile where index is located
-  Tensor prevIdx = graph.addTensor(UNSIGNED_INT, {1}, debugPrefix + "/Offset");
+  Tensor prevIdx = graph.addVariable(UNSIGNED_INT, {1},
+                                     debugPrefix + "/Offset");
   auto indexMapping = graph.getTileMapping(index);
   graph.setTileMapping(prevIdx, indexMapping);
   auto cs = graph.addComputeSet(debugPrefix + "/CircBufPrev");

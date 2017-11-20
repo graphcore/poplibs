@@ -21,9 +21,9 @@ BOOST_AUTO_TEST_CASE(CircBufIncrIndex) {
   const unsigned circBufSize = 20;
   const unsigned indexBufSize = 25;
   auto cb = CircBuf(graph, FLOAT, circBufSize, {1});
-  auto indexStore = graph.addTensor(UNSIGNED_INT, {indexBufSize});
+  auto indexStore = graph.addVariable(UNSIGNED_INT, {indexBufSize});
   mapTensorLinearly(graph, indexStore);
-  auto dummy = graph.addTensor(FLOAT, {1});
+  auto dummy = graph.addVariable(FLOAT, {1});
   mapTensorLinearly(graph, dummy);
 
   auto prog = Sequence();
@@ -52,9 +52,9 @@ BOOST_AUTO_TEST_CASE(CircBufIncrIndex2d) {
   const unsigned circBufSize = 20;
   const unsigned indexBufSize = 25;
   auto cb = CircBuf(graph, FLOAT, circBufSize, {5, 3});
-  auto indexStore = graph.addTensor(UNSIGNED_INT, {indexBufSize});
+  auto indexStore = graph.addVariable(UNSIGNED_INT, {indexBufSize});
   mapTensorLinearly(graph, indexStore);
-  auto dummy = graph.addTensor(FLOAT, {5, 3});
+  auto dummy = graph.addVariable(FLOAT, {5, 3});
   mapTensorLinearly(graph, dummy);
 
   auto prog = Sequence();
@@ -87,9 +87,9 @@ BOOST_AUTO_TEST_CASE(CircBufCheckAdd) {
   const unsigned numElemsA = 33, numElemsB = 2;
   auto cb = CircBuf(graph, FLOAT, circBufSize, {numElemsA, numElemsB});
 
-  auto src = graph.addTensor(FLOAT, {srcBufSize, numElemsA, numElemsB});
+  auto src = graph.addVariable(FLOAT, {srcBufSize, numElemsA, numElemsB});
   mapTensorLinearly(graph, src);
-  auto dst = graph.addTensor(FLOAT, {circBufSize, numElemsA, numElemsB});
+  auto dst = graph.addVariable(FLOAT, {circBufSize, numElemsA, numElemsB});
   mapTensorLinearly(graph, dst);
 
 

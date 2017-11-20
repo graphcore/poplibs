@@ -39,7 +39,7 @@ pad(poplar::Graph &graph, poplar::Tensor t,
     if (paddingLower[i] > 0) {
       auto paddingShape = t.shape();
       paddingShape[i] = paddingLower[i];
-      auto padding = graph.addConstantTensor(type, paddingShape, 0);
+      auto padding = graph.addConstant(type, paddingShape, 0);
       t = concat(padding, t, i);
     } else if (paddingLower[i] < 0) {
       t = t.slice(-paddingLower[i], t.dim(i), i);
@@ -47,7 +47,7 @@ pad(poplar::Graph &graph, poplar::Tensor t,
     if (paddingUpper[i] > 0) {
       auto paddingShape = t.shape();
       paddingShape[i] = paddingUpper[i];
-      auto padding = graph.addConstantTensor(type, paddingShape, 0);
+      auto padding = graph.addConstant(type, paddingShape, 0);
       t = concat(t, padding, i);
     } else if (paddingUpper[i] < 0) {
       t = t.slice(0, t.dim(i) + paddingUpper[i], i);

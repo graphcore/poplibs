@@ -109,7 +109,7 @@ static bool uniformTest(T hOut[DIM_SIZE][DIM_SIZE],
   poprand::addCodelets(graph);
 
   auto dType = equivalent_device_type<T>().value;
-  auto out = graph.addTensor(dType, {DIM_SIZE, DIM_SIZE}, "out");
+  auto out = graph.addVariable(dType, {DIM_SIZE, DIM_SIZE}, "out");
   mapTensorLinearly(graph, out);
   graph.createHostRead("out", out);
   auto prog = Sequence();
@@ -165,7 +165,7 @@ static bool bernoulliTest(T hOut[DIM_SIZE][DIM_SIZE], float prob,
 
   auto dType = equivalent_device_type<T>().value;
 
-  auto out = graph.addTensor(dType, {DIM_SIZE, DIM_SIZE}, "out");
+  auto out = graph.addVariable(dType, {DIM_SIZE, DIM_SIZE}, "out");
   mapTensorLinearly(graph, out);
   graph.createHostRead("out", out);
 
@@ -233,7 +233,7 @@ static bool normalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean, float stdDev,
 
   auto dType = equivalent_device_type<T>().value;
 
-  auto out = graph.addTensor(dType, {DIM_SIZE, DIM_SIZE}, "out");
+  auto out = graph.addVariable(dType, {DIM_SIZE, DIM_SIZE}, "out");
   mapTensorLinearly(graph, out);
   graph.createHostRead("out", out);
 
@@ -319,7 +319,7 @@ static bool truncatedNormalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean,
 
   auto dType = equivalent_device_type<T>().value;
 
-  auto out = graph.addTensor(dType, {DIM_SIZE, DIM_SIZE}, "out");
+  auto out = graph.addVariable(dType, {DIM_SIZE, DIM_SIZE}, "out");
   mapTensorLinearly(graph, out);
   graph.createHostRead("out", out);
 
