@@ -15,14 +15,12 @@ namespace popconv {
 /**
  * Compute nx1 convolutions and accumulate them with partial sums in memory.
  **/
-template <class FPType, class AccumType, bool inOut, bool useDeltasForEdges>
+template <class FPType, class AccumType, bool useDeltasForEdges>
 class ConvPartialnx1: public SupervisorVertex {
 public:
   Vector<Input<Vector<FPType>>> in;
   Vector<Input<Vector<FPType>>> weights;
-  Vector<typename std::conditional<inOut,
-                                   InOut<Vector<AccumType>>,
-                                   Output<Vector<AccumType>>>::type> out;
+  Vector<Output<Vector<AccumType>>> out;
   Vector<Input<Vector<unsigned>>> worklists;
   Input<Vector<unsigned>> zeroWorklist;
   unsigned numOutGroups;
@@ -168,18 +166,12 @@ public:
   }
 };
 
-template class ConvPartialnx1<float, float, true, true>;
-template class ConvPartialnx1<half, half, true, true>;
-template class ConvPartialnx1<half, float, true, true>;
-template class ConvPartialnx1<float, float, true, false>;
-template class ConvPartialnx1<half, half, true, false>;
-template class ConvPartialnx1<half, float, true, false>;
-template class ConvPartialnx1<float, float, false, true>;
-template class ConvPartialnx1<half, half, false, true>;
-template class ConvPartialnx1<half, float, false, true>;
-template class ConvPartialnx1<float, float, false, false>;
-template class ConvPartialnx1<half, half, false, false>;
-template class ConvPartialnx1<half, float, false, false>;
+template class ConvPartialnx1<float, float, true>;
+template class ConvPartialnx1<half, half, true>;
+template class ConvPartialnx1<half, float, true>;
+template class ConvPartialnx1<float, float, false>;
+template class ConvPartialnx1<half, half, false>;
+template class ConvPartialnx1<half, float, false>;
 
 template <typename FPType>
 class ConvChanReduce2: public Vertex {
