@@ -1183,6 +1183,17 @@ static bool allKernelDimensionsAreOne(const ConvParams &params) {
   return true;
 }
 
+static bool canUseOuterProductMethod(const ConvParams &params) {
+  const auto numFieldDims = params.getNumFieldDims();
+  for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
+    if (params.getOutputSize(dim) != 1)
+      return false;
+  }
+  return params.getNumInputChansPerConvGroup() == 1 &&
+         params.getBatchSize() == 1 &&
+         allKernelDimensionsAreOne(params);
+}
+
 static std::vector<ConvVertexType>
 getConvVertexTypeCandidates(const poplar::Target &target,
                             bool floatActivations,
@@ -1190,10 +1201,7 @@ getConvVertexTypeCandidates(const poplar::Target &target,
                             const ConvParams &params,
                             const ConvOptions &options) {
   std::vector<ConvVertexType> convVertexTypeCandidates;
-  if (params.getNumInputChansPerConvGroup() == 1 &&
-      params.getOutputHeight() == 1 &&
-      params.getBatchSize() == 1 &&
-      allKernelDimensionsAreOne(params)) {
+  if (canUseOuterProductMethod(params)) {
     const auto partialChansPerGroup = floatActivations ?
                                       target.getFloatVectorWidth() :
                                       target.getHalfVectorWidth();
