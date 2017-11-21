@@ -64,6 +64,7 @@ std::vector<T> unflattenIndex(const std::vector<T> &shape, std::size_t index) {
     coord.push_back(index % dim);
     index /= dim;
   }
+  assert(index == 0);
   std::reverse(coord.begin(), coord.end());
   return coord;
 }

@@ -145,6 +145,7 @@ unflattenIndexInSlice(const std::vector<unsigned> &sliceBegin,
     coord.push_back(index % sliceSize + sliceBegin[dim]);
     index /= sliceSize;
   }
+  assert(index == 0);
   std::reverse(coord.begin(), coord.end());
   return coord;
 }
