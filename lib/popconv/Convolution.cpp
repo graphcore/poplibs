@@ -1164,7 +1164,7 @@ createInputImpl(Graph &graph, const ConvParams &params,
     swapOperands(newParams);
     newPlan.swapOperands = false;
     auto t = createWeightsImpl(graph, newParams, name, newPlan);
-    return t.dimRoll(3, 1);
+    return t.dimRoll(t.rank() - 2, 1);
   }
   const auto inNumChans = params.getNumInputChansPerConvGroup();
   const auto inChansPerGroup = getInChansPerGroup(plan, inNumChans);
@@ -1284,7 +1284,7 @@ createWeightsImpl(Graph &graph,
     swapOperands(newParams);
     newPlan.swapOperands = false;
     auto t = createInputImpl(graph, newParams, name, newPlan);
-    return t.dimRoll(1, 3);
+    return t.dimRoll(1, t.rank() - 2);
   }
   const auto dType = params.dType;
   const auto inNumChans = params.getNumInputChansPerConvGroup();
