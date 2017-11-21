@@ -126,8 +126,10 @@ public:
   SimOnlyField<bool> saveRestoreSeed;
 
   bool compute() {
-    uint64_t seedH = *reinterpret_cast<uint64_t *>(&vSeedH[0]);
-    uint64_t seedL = *reinterpret_cast<uint64_t *>(&vSeedL[0]);
+    uint64_t seedH =
+      vSeedH[0] + (static_cast<uint64_t>(vSeedH[1]) << 32);
+    uint64_t seedL =
+      vSeedL[0] + (static_cast<uint64_t>(vSeedL[1]) << 32);
     auto s = initialiseAndPrime({seedL, seedH});
     bool isHalf = std::is_same<OutType, half>::value;
     const unsigned maxPerCall = isHalf ? 4 : 2;
@@ -196,8 +198,10 @@ public:
   // saves and restores seeds
   SimOnlyField<bool> saveRestoreSeed;
   bool compute() {
-    uint64_t seedH = *reinterpret_cast<uint64_t *>(&vSeedH[0]);
-    uint64_t seedL = *reinterpret_cast<uint64_t *>(&vSeedL[0]);
+    uint64_t seedH =
+      vSeedH[0] + (static_cast<uint64_t>(vSeedH[1]) << 32);
+    uint64_t seedL =
+      vSeedL[0] + (static_cast<uint64_t>(vSeedL[1]) << 32);
     auto s = initialiseAndPrime({seedL, seedH});
     const unsigned maxPerCall = 2;
     const unsigned bitsPerVal = 32;
@@ -259,8 +263,10 @@ public:
   SimOnlyField<bool> saveRestoreSeed;
 
   bool compute() {
-    uint64_t seedH = *reinterpret_cast<uint64_t *>(&vSeedH[0]);
-    uint64_t seedL = *reinterpret_cast<uint64_t *>(&vSeedL[0]);
+    uint64_t seedH =
+      vSeedH[0] + (static_cast<uint64_t>(vSeedH[1]) << 32);
+    uint64_t seedL =
+      vSeedL[0] + (static_cast<uint64_t>(vSeedL[1]) << 32);
     auto s = initialiseAndPrime({seedL, seedH});
     bool isHalf = std::is_same<OutType, half>::value;
     const unsigned maxPerCall = isHalf ? 4 : 2;
@@ -331,8 +337,10 @@ public:
   SimOnlyField<bool> saveRestoreSeed;
 
   bool compute() {
-    uint64_t seedH = *reinterpret_cast<uint64_t *>(&vSeedH[0]);
-    uint64_t seedL = *reinterpret_cast<uint64_t *>(&vSeedL[0]);
+    uint64_t seedH =
+      vSeedH[0] + (static_cast<uint64_t>(vSeedH[1]) << 32);
+    uint64_t seedL =
+      vSeedL[0] + (static_cast<uint64_t>(vSeedL[1]) << 32);
     auto s = initialiseAndPrime({seedL, seedH});
     bool isHalf = std::is_same<OutType, half>::value;
     const unsigned maxPerCall = isHalf ? 4 : 2;
@@ -399,8 +407,10 @@ public:
   SimOnlyField<bool> saveRestoreSeed;
 
   bool compute() {
-    uint64_t seedH = *reinterpret_cast<uint64_t *>(&vSeedH[0]);
-    uint64_t seedL = *reinterpret_cast<uint64_t *>(&vSeedL[0]);
+    uint64_t seedH =
+      vSeedH[0] + (static_cast<uint64_t>(vSeedH[1]) << 32);
+    uint64_t seedL =
+      vSeedL[0] + (static_cast<uint64_t>(vSeedL[1]) << 32);
     auto s = initialiseAndPrime({seedL, seedH});
     bool isHalf = std::is_same<OutType, half>::value;
     const unsigned maxPerCall = isHalf ? 4 : 2;
