@@ -7,10 +7,21 @@
 namespace popconv {
 
 /// Given an index in a volume return the corresponding index the volume after
-/// applying the specified dilation and padding.
+/// applying the specified dilation and padding. Return ~0U if negative padding
+/// means the element is ignored.
 static unsigned
-applyDilationAndPadding(unsigned index, unsigned dilation, int paddingLower) {
-  return index * dilation + paddingLower;
+applyDilationAndPadding(unsigned index, unsigned inputSize, unsigned dilation,
+                        int paddingLower, int paddingUpper) {
+  assert(index < inputSize);
+  auto dilatedIndex = index * dilation;
+  if (static_cast<int>(dilatedIndex) + paddingLower < 0) {
+    return ~0U;
+  }
+  const auto dilatedInputSize = 1 + (inputSize - 1) * dilation;
+  if (dilatedIndex >= dilatedInputSize + paddingUpper) {
+    return ~0U;
+  }
+  return dilatedIndex + paddingLower;
 }
 
 /// Given a index in a dilated and padded volume return the index in the
@@ -36,8 +47,12 @@ getInputIndex(unsigned dim, unsigned outputIndex, unsigned kernelIndex,
               const ConvParams &params) {
   assert(outputIndex < params.getOutputSize(dim));
   const auto paddedKernelIndex =
-      applyDilationAndPadding(kernelIndex, params.kernelDilation[dim],
-                              params.kernelPaddingLower[dim]);
+      applyDilationAndPadding(kernelIndex, params.kernelShape[dim],
+                              params.kernelDilation[dim],
+                              params.kernelPaddingLower[dim],
+                              params.kernelPaddingUpper[dim]);
+  if (paddedKernelIndex == ~0U)
+    return ~0U;
   const auto upsampledOutputIndex = outputIndex * params.stride[dim];
   const auto paddedKernelSize = params.getPaddedDilatedKernelSize(dim);
   const auto paddedInputSize = params.getPaddedDilatedInputSize(dim);

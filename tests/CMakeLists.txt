@@ -410,6 +410,17 @@ foreach(phase fwd bwd)
                   --kernel-padding-lower={0,-1}
                   --tiles-per-ipu=1
                   --single-phase=${phase})
+
+  add_test(NAME conv_positive_and_negative_kernel_padding_${phase}
+           COMMAND single_conv_layer
+           --input-channels=16
+           --output-channels=16
+           --field={5,5}
+           --kernel-size=2
+           --kernel-padding-lower=1
+           --kernel-padding-upper=-1
+           --tiles-per-ipu=1
+           --single-phase=${phase})
 endforeach(phase)
 
 add_test(NAME conv_negative_input_padding_lower_simple
