@@ -223,7 +223,7 @@ int main(int argc, char **argv) {
   kernelPaddingLowerOption.broadcast(numFieldDims);
   auto &kernelPaddingLower = kernelPaddingLowerOption.val;
   kernelPaddingUpperOption.broadcast(numFieldDims);
-  auto &kernelPaddingUpper = kernelPaddingLowerOption.val;
+  auto &kernelPaddingUpper = kernelPaddingUpperOption.val;
 
   kernelDilationOption.broadcast(numFieldDims);
   auto &kernelDilation = kernelDilationOption.val;
