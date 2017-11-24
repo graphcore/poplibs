@@ -1682,13 +1682,14 @@ static void createConvPartialAmpVertex(Graph &graph,
     std::vector<unsigned> tileConvOutBegin;
     std::vector<unsigned> tileConvOutSize;
     for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+      const auto kernelBeginIndex = kernelBeginIndices[dim];
+      const auto kernelEndIndex =
+          std::min(kernelBeginIndex + (dim == 0 ? convUnitWeightHeight : 1),
+                   slice.kernelEnd[dim]);
       auto convOutRange =
           getOutputRange(dim, {slice.outFieldBegin[dim],
                                slice.outFieldEnd[dim]},
-                         {kernelBeginIndices[dim],
-                          kernelBeginIndices[dim] +
-                          (dim == 0 ? convUnitWeightHeight : 1)
-                         },
+                         {kernelBeginIndex, kernelEndIndex},
                          params);
       tileConvOutBegin.push_back(convOutRange.first);
       tileConvOutSize.push_back(convOutRange.second - convOutRange.first);
@@ -1723,15 +1724,17 @@ static void createConvPartialAmpVertex(Graph &graph,
               outBeginIndices);
         std::vector<unsigned> inBeginIndices = { partialRow.b + batchBegin };
         if (numFieldDims > 1) {
-          const auto koBegin = kernelBeginIndices[0];
+          const auto kOuterBegin = kernelBeginIndices[0];
+          const auto kOuterEnd = std::min(kOuterBegin + convUnitWeightHeight,
+                                          slice.kernelEnd[0]);
           const auto outOuterIndex = tileConvOutBegin[0] +
                                      partialRow.outerFieldIndices[0];
-          for (unsigned j = 0; j != convUnitWeightHeight; ++j) {
-            int inOuterIndex = getInputIndex(0, outOuterIndex, koBegin + j,
-                                             params);
+          for (unsigned k = kOuterBegin; k != kOuterEnd; ++k) {
+            auto inOuterIndex = getInputIndex(0, outOuterIndex, k, params);
             if (inOuterIndex != ~0U) {
-              auto inOuterBeginIndex = inOuterIndex + prePaddingSize -
-                                       j * params.kernelDilation.front();
+              auto inOuterBeginIndex =
+                  inOuterIndex + prePaddingSize -
+                  (k - kOuterBegin) * params.kernelDilation.front();
               inBeginIndices.push_back(inOuterBeginIndex);
               break;
             }
