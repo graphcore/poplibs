@@ -2,6 +2,7 @@
 #include <cassert>
 #include <popstd/exceptions.hpp>
 #include <popstd/Util.hpp>
+#include "util/gcd.hpp"
 
 namespace popconv {
 
@@ -154,19 +155,25 @@ std::vector<std::vector<PartialRow>>
 partitionConvPartialByWorker(unsigned batchElements,
                              const std::vector<unsigned> &tileConvOutSize,
                              unsigned numContexts,
-                             const std::vector<unsigned> &inputDilation) {
+                             const std::vector<unsigned> &inputDilation,
+                             const std::vector<unsigned> &stride) {
   const auto numFieldDims = tileConvOutSize.size();
   assert(inputDilation.size() == numFieldDims);
+  assert(stride.size() == numFieldDims);
+  std::vector<unsigned> outputStride = inputDilation;
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    outputStride[dim] /= gcd(outputStride[dim], stride[dim]);
+  }
   std::vector<std::vector<PartialRow>> partitionByWorker;
   partitionByWorker.reserve(numContexts);
   const auto elementsPerRow =
-      (tileConvOutSize.back() + inputDilation.back() - 1) /
-      inputDilation.back();
+      (tileConvOutSize.back() + outputStride.back() - 1) /
+      outputStride.back();
   unsigned activeRows = 1;
   std::vector<unsigned> activeRowShape;
   for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
-    auto dimActiveRows = (tileConvOutSize[dim] + inputDilation[dim] - 1) /
-                         inputDilation[dim];
+    auto dimActiveRows = (tileConvOutSize[dim] + outputStride[dim] - 1) /
+                         outputStride[dim];
     activeRowShape.push_back(dimActiveRows);
     activeRows *= dimActiveRows;
   }
@@ -202,11 +209,11 @@ partitionConvPartialByWorker(unsigned batchElements,
         auto outerFieldIndices = popstd::unflattenIndex(activeRowShape,
                                                         activeRow);
         for (unsigned dim = 0; dim != outerFieldIndices.size(); ++dim) {
-          outerFieldIndices[dim] *= inputDilation[dim];
+          outerFieldIndices[dim] *= outputStride[dim];
           assert(outerFieldIndices[dim] < tileConvOutSize[dim]);
         }
-        const auto xBegin = activeXBegin * inputDilation.back();
-        const auto xEnd = activeXLast * inputDilation.back() + 1;
+        const auto xBegin = activeXBegin * outputStride.back();
+        const auto xEnd = activeXLast * outputStride.back() + 1;
         assert(b < batchElements);
         assert(xBegin < tileConvOutSize.back());
         assert(xEnd <= tileConvOutSize.back());

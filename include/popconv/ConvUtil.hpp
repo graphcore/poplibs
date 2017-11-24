@@ -86,7 +86,8 @@ std::vector<std::vector<PartialRow>>
 partitionConvPartialByWorker(unsigned batchElements,
                              const std::vector<unsigned> &tileConvOutSize,
                              unsigned numContexts,
-                             const std::vector<unsigned> &inputDilation);
+                             const std::vector<unsigned> &inputDilation,
+                             const std::vector<unsigned> &stride);
 
 ConvParams canonicalizeParams(const ConvParams &params);
 

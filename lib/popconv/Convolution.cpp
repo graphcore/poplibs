@@ -1524,6 +1524,7 @@ static void createConvPartialAmpVertex(Graph &graph,
                                        ConvParams params,
                                        ComputeSet fwdCS,
                                        Tensor in, Tensor weights, Tensor out) {
+  const auto numFieldDims = params.getNumFieldDims();
   const auto &target = graph.getTarget();
   const auto outChansPerGroup = plan.partialChansPerGroup;
   const auto partialsType = out.elementType();
@@ -1532,17 +1533,14 @@ static void createConvPartialAmpVertex(Graph &graph,
                                                target);
   assert(outChansPerGroup % outChansPerPass == 0);
   const auto passesPerOutputGroup = outChansPerGroup / outChansPerPass;
-  auto equalsOne = [](unsigned x) { return x == 1; };
   bool nx1Vertex =
       getNumElementsInSlice(slice.kernelBegin, slice.kernelEnd) != 1 ||
-      !std::all_of(params.inputDilation.begin(), params.inputDilation.end(),
-                   equalsOne) ||
+      params.inputDilation != params.stride ||
       !writtenRangeEqualsOutputRange(slice.outFieldBegin, slice.outFieldEnd,
                                      slice.kernelBegin, slice.kernelEnd,
                                      params);
   bool useConvPartial1x1OutVertex = !nx1Vertex &&
                                     passesPerOutputGroup == 1;
-  const auto numFieldDims = params.getNumFieldDims();
   const auto dataPathWidth = target.getDataPathWidth();
   const bool floatActivations = dType == FLOAT;
   const auto weightsPerConvUnit =
@@ -1700,7 +1698,8 @@ static void createConvPartialAmpVertex(Graph &graph,
     auto workerPartition =
         partitionConvPartialByWorker(batchEnd - batchBegin,
                                      tileConvOutSize,
-                                     contextsPerVertex, params.inputDilation);
+                                     contextsPerVertex, params.inputDilation,
+                                     params.stride);
     for (unsigned i = 0; i != contextsPerVertex; ++i) {
       for (const auto &partialRow : workerPartition[i]) {
         auto workerOutXBegin = tileConvOutBegin.back() + partialRow.xBegin;
@@ -1776,12 +1775,16 @@ static void createConvPartialAmpVertex(Graph &graph,
                                           plan.getPartialType(),
                                         useDeltaEdgesForConvPartials(numEdges) ?
                                                           "true" : "false"));
-  const auto outStrideX = params.inputDilation.back();
   unsigned kernelInnerElements = 1;
   for (unsigned dim = 1; dim < numFieldDims; ++dim) {
     kernelInnerElements *= subKernelPositionsEnd[dim] -
                            subKernelPositionsBegin[dim];
   }
+  auto inStrideX = params.stride.back();
+  auto outStrideX = params.inputDilation.back();
+  const auto strideDivisor = gcd(inStrideX, outStrideX);
+  inStrideX /= strideDivisor;
+  outStrideX /= strideDivisor;
   graph.connect(v["in"], inWindow);
   graph.connect(v["out"], outWindow);
   graph.connect(v["weights"], weightsWindow);
@@ -1789,7 +1792,7 @@ static void createConvPartialAmpVertex(Graph &graph,
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
   graph.setInitialValue(v["numOutGroups"], outZGroupEnd - outZGroupBegin);
   graph.setInitialValue(v["numInGroups"], inZGroupEnd - inZGroupBegin);
-  graph.setInitialValue(v["inStride"], params.stride.back()) ;
+  graph.setInitialValue(v["inStride"], inStrideX) ;
   graph.setInitialValue(v["numConvGroups"], cgEnd - cgBegin);
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
   graph.setInitialValue(v["convUnitInputLoadElemsPerCycle"],
@@ -2012,7 +2015,11 @@ createConvPartialHorizontalMacVertex(Graph &graph,
     }
   }
 
-  const unsigned outStrideX = params.inputDilation.back();
+  auto inStrideX = params.stride.back();
+  auto outStrideX = params.inputDilation.back();
+  const auto strideDivisor = gcd(inStrideX, outStrideX);
+  inStrideX /= strideDivisor;
+  outStrideX /= strideDivisor;
   auto v = graph.addVertex(fwdCS,
                            templateVertex("popconv::ConvPartialHorizontalMac",
                                           dType, plan.getPartialType()));
@@ -2024,7 +2031,7 @@ createConvPartialHorizontalMacVertex(Graph &graph,
   graph.setInitialValue(v["numOutGroups"], outZGroupEnd - outZGroupBegin);
   graph.setInitialValue(v["numInGroups"], inZGroupEnd - inZGroupBegin);
   graph.setInitialValue(v["kernelSize"], numKernelElems);
-  graph.setInitialValue(v["inStride"], params.stride.back());
+  graph.setInitialValue(v["inStride"], inStrideX);
   graph.setInitialValue(v["outStride"], outStrideX);
   graph.setInitialValue(v["numConvGroups"], cgEnd - cgBegin);
   graph.setInitialValue(v["flipOut"], flipOut);

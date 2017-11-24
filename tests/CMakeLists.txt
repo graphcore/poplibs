@@ -480,6 +480,56 @@ add_test(NAME conv1x1_kernel_with_padding_larger_than_field
                  --tiles-per-ipu=2
                  --padding={1,64})
 
+add_test(NAME conv_input_dilation_and_stride_share_factor1
+         COMMAND single_conv_layer
+                 --input-channels=32
+                 --output-channels=64
+                 --field={14,14}
+                 --kernel-size={3,3}
+                 --in-dilation=3
+                 --stride=3
+                 --tiles-per-ipu=16)
+
+add_test(NAME conv_input_dilation_and_stride_share_factor2
+         COMMAND single_conv_layer
+                 --input-channels=32
+                 --output-channels=64
+                 --field={14,14}
+                 --kernel-size={3,3}
+                 --in-dilation=4
+                 --stride=2
+                 --tiles-per-ipu=16)
+
+add_test(NAME conv_input_dilation_and_stride_share_factor3
+         COMMAND single_conv_layer
+                 --input-channels=32
+                 --output-channels=64
+                 --field={14,14}
+                 --kernel-size={3,3}
+                 --in-dilation=2
+                 --stride=4
+                 --tiles-per-ipu=16)
+
+add_test(NAME conv_input_dilation_and_stride_share_factor4
+        COMMAND single_conv_layer
+                --input-channels=32
+                --output-channels=64
+                --field={14,14}
+                --kernel-size={3,3}
+                --in-dilation=4
+                --stride=6
+                --tiles-per-ipu=16)
+
+add_test(NAME conv_input_dilation_and_stride_share_factor5
+        COMMAND single_conv_layer
+                --input-channels=32
+                --output-channels=64
+                --field={14,14}
+                --kernel-size={3,3}
+                --in-dilation=6
+                --stride=4
+                --tiles-per-ipu=16)
+
 #  Grouped convolution layer tests
 add_test(NAME grouped_conv3x3_stride_2_256_out
          COMMAND single_conv_layer

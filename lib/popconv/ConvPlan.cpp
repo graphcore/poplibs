@@ -185,7 +185,8 @@ getConvPartialnx1CycleEstimate(unsigned convGroups,
                                unsigned convUnitCoeffLoadBytesPerCycle,
                                unsigned numWorkerContexts,
                                bool floatWeights,
-                               const std::vector<unsigned> &inputDilation);
+                               const std::vector<unsigned> &inputDilation,
+                               const std::vector<unsigned> &stride);
 static std::uint64_t
 estimateConvPartialHorizontalMacCycles(unsigned tileNumConvGroups,
                                        unsigned tileNumInGroups,
@@ -399,21 +400,20 @@ getConvPartialnx1CycleEstimate(unsigned convGroups,
                                unsigned convUnitCoeffLoadBytesPerCycle,
                                unsigned numWorkerContexts,
                                bool floatWeights,
-                               const std::vector<unsigned> &inputDilation)
+                               const std::vector<unsigned> &inputDilation,
+                               const std::vector<unsigned> &stride)
 {
   uint64_t cycles = 0;
-  auto dilationFactor = std::accumulate(inputDilation.begin(),
-                                        inputDilation.end(), 1UL,
-                                        std::multiplies<std::size_t>());
   auto kernelElements = std::accumulate(kernelShape.begin(),
                                         kernelShape.end(), 1UL,
                                         std::multiplies<std::size_t>());
   std::vector<std::vector<PartialRow>> partition =
       partitionConvPartialByWorker(batchElements, outShape,
-                                   numWorkerContexts, inputDilation);
+                                   numWorkerContexts, inputDilation,
+                                   stride);
 
   unsigned numEdges = numInGroups + numOutGroups + numInGroups * numOutGroups;
-  if (kernelElements == 1 && filterHeight == 1 && dilationFactor == 1) {
+  if (kernelElements == 1 && filterHeight == 1 && inputDilation == stride) {
     // use conv 1x1 vertex
     std::vector<std::vector<unsigned>> worklist(numWorkerContexts);
     for (unsigned context = 0; context != numWorkerContexts; ++context) {
@@ -437,7 +437,8 @@ getConvPartialnx1CycleEstimate(unsigned convGroups,
     unsigned positionsOuter =
         (kernelShape[0] + filterHeight - 1) / filterHeight;
     unsigned numKernelPositions = (positionsOuter * kernelElements / kernelShape[0]);
-    const auto outStrideX = inputDilation.back();
+    const auto outStrideX = inputDilation.back() / gcd(inputDilation.back(),
+                                                       stride.back());
     for (unsigned context = 0; context < numWorkerContexts; ++context) {
       workList.emplace_back();
       for (auto k = 0U; k != numKernelPositions; ++k) {
@@ -736,7 +737,7 @@ estimatePartialCalcCycles(const poplar::Target &target,
             convUnitInputLoadElemsPerCycle, numConvUnits,
             target.getConvUnitCoeffLoadBytesPerCycle(),
             target.getNumWorkerContexts(),
-            floatActivations, params.inputDilation);
+            floatActivations, params.inputDilation, params.stride);
     }
     break;
   case Plan::Method::MAC:
