@@ -1606,25 +1606,20 @@ static void createConvPartialAmpVertex(Graph &graph,
       inRowStride *= range.second - range.first;
   }
 
-
-  int dilatedPadding = params.inputPaddingLower[0] * params.kernelDilation[0];
-  unsigned prePaddingSize =
-      std::max<int>(dilatedPadding -
-                    static_cast<int>(tileInBatchAndFieldBegin[1]), 0);
-  // If the kernel is larger than the field, padding is required before the
-  // field.
-  auto largeKernel = params.getPaddedDilatedKernelSize(0) >
-                     params.getPaddedDilatedInputSize(0);
-  if (largeKernel) {
-    prePaddingSize =
-        std::max((convUnitWeightHeight - 1) * params.kernelDilation.front(),
-                 prePaddingSize);
+  unsigned prePaddingSize = 0;
+  unsigned postPaddingSize = 0;
+  if (convUnitWeightHeight != 1) {
+    // Pad the input window so it contains, for each position of the amp sub
+    // kernel where at least one kernel element is multiplied by a non padding
+    // input element, all input padding elements multiplied by the amp sub
+    // kernel in that position. This avoids special handling in the vertex for
+    // the beginning or end of the field. Compute the amount of padding required
+    // by conservatively assuming the first non padding input element in the
+    // window is multiplied by the last kernel element and the last non padding
+    // input element in the window is multiplied by the first kernel element.
+    prePaddingSize = (convUnitWeightHeight - 1) * params.kernelDilation.front();
+    postPaddingSize = prePaddingSize;
   }
-  // If we are doing an nx1 convolution need to pad the bottom of the
-  // input field for convolutions that "run off the end".
-  auto postPaddingSize =
-      (convUnitWeightHeight - 1) * params.kernelDilation.front();
-
   std::vector<Tensor> inWindow;
   for (unsigned cg = cgBegin; cg < cgEnd; ++cg) {
     for (unsigned izg = inZGroupBegin; izg < inZGroupEnd; ++izg) {

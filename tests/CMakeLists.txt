@@ -530,6 +530,20 @@ add_test(NAME conv_input_dilation_and_stride_share_factor5
                 --stride=4
                 --tiles-per-ipu=16)
 
+# Example where the amount of padding that must be added to start of the input
+# window for the conv nx1 vertex exceeds the amount of lower padding for the
+# layer.
+add_test(NAME conv_nx1_vertex_lower_padding
+         COMMAND single_conv_layer
+                 --field={16,32}
+                 --input-channels=4
+                 --padding-lower={1,0}
+                 --output-channels=8
+                 --kernel-size={2,1}
+                 --kernel-dilation={2,1}
+                 --stride={3,1}
+                 --tiles-per-ipu=1)
+
 #  Grouped convolution layer tests
 add_test(NAME grouped_conv3x3_stride_2_256_out
          COMMAND single_conv_layer
