@@ -397,7 +397,7 @@ BOOST_AUTO_TEST_CASE(BatchNormConv_Batch2_Dim28x28_Ch32_SmallEps){
   const float learningRate = 0.1;
   const Type dataType = HALF;
   const Type partialsType = FLOAT;
-  const unsigned tilesPerIPU = 128;
+  const unsigned tilesPerIPU = 16;
 
   auto matchesModel = BatchNormConv({2, 28, 28, 32}, eps, learningRate,
                                     tilesPerIPU, dataType, partialsType);
@@ -410,7 +410,7 @@ BOOST_AUTO_TEST_CASE(BatchNormConv_Batch4_Dim56x56_Ch64_LargeEps){
   const Type dataType = HALF;
   const Type partialsType = FLOAT;
 
-  const unsigned tilesPerIPU = 64;
+  const unsigned tilesPerIPU = 16;
   auto matchesModel = BatchNormConv({4, 56, 56, 64}, eps, learningRate,
                                     tilesPerIPU, dataType, partialsType);
   BOOST_TEST(matchesModel == true);
@@ -422,19 +422,19 @@ BOOST_AUTO_TEST_CASE(BatchNormConv_Batch16_Dim7x7_Ch8){
   const Type dataType = HALF;
   const Type partialsType = FLOAT;
 
-  const unsigned tilesPerIPU = 32;
+  const unsigned tilesPerIPU = 16;
   auto matchesModel = BatchNormConv({16, 7, 7, 8}, eps, learningRate,
                                     tilesPerIPU, dataType, partialsType);
   BOOST_TEST(matchesModel == true);
 }
 
-BOOST_AUTO_TEST_CASE(BatchNormConv_Batch4_DataFloat_PartialsFloat){
+BOOST_AUTO_TEST_CASE(BatchNormConv_Batch1_DataFloat_PartialsFloat){
   const float eps = 0.0001;
   const float learningRate = 0.1;
   const Type dataType = FLOAT;
   const Type partialsType = FLOAT;
 
-  const unsigned tilesPerIPU = 64;
+  const unsigned tilesPerIPU = 16;
   auto matchesModel = BatchNormConv({1, 56, 56, 8}, eps, learningRate,
                                     tilesPerIPU, dataType, partialsType);
   BOOST_TEST(matchesModel == true);
@@ -445,7 +445,7 @@ BOOST_AUTO_TEST_CASE(BatchNormFc_Batch4_Acts2048) {
   const float learningRate = 0.1;
   const Type dataType = HALF;
   const Type partialsType = FLOAT;
-  const unsigned tilesPerIPU = 1216;
+  const unsigned tilesPerIPU = 16;
   auto matchesModel = BatchNormFc({4, 2048}, eps, learningRate,
                                   tilesPerIPU, dataType, partialsType);
   BOOST_TEST(matchesModel == true);
@@ -456,7 +456,7 @@ BOOST_AUTO_TEST_CASE(BatchNormFc_Batch16_Acts256_SmallEps) {
   const float learningRate = 0.1;
   const Type dataType = HALF;
   const Type partialsType = FLOAT;
-  const unsigned tilesPerIPU = 64;
+  const unsigned tilesPerIPU = 16;
   auto matchesModel = BatchNormFc({16, 256}, eps, learningRate,
                                   tilesPerIPU, dataType, partialsType);
   BOOST_TEST(matchesModel == true);
@@ -467,8 +467,8 @@ BOOST_AUTO_TEST_CASE(BatchNormFc_Batch8_Acts512_LargeEps) {
   const float learningRate = 0.1;
   const Type dataType = HALF;
   const Type partialsType = FLOAT;
-  const unsigned tilesPerIPU = 64;
-  auto matchesModel = BatchNormFc({16, 256}, eps, learningRate,
+  const unsigned tilesPerIPU = 16;
+  auto matchesModel = BatchNormFc({8, 256}, eps, learningRate,
                                   tilesPerIPU, dataType, partialsType);
   BOOST_TEST(matchesModel == true);
 }
@@ -478,8 +478,8 @@ BOOST_AUTO_TEST_CASE(BatchNormFc_Batch8_Acts512_DataFloat_PartialsFloat) {
   const float learningRate = 0.1;
   const Type dataType = FLOAT;
   const Type partialsType = FLOAT;
-  const unsigned tilesPerIPU = 64;
-  auto matchesModel = BatchNormFc({16, 256}, eps, learningRate,
+  const unsigned tilesPerIPU = 16;
+  auto matchesModel = BatchNormFc({8, 256}, eps, learningRate,
                                   tilesPerIPU, dataType, partialsType);
   BOOST_TEST(matchesModel == true);
 }

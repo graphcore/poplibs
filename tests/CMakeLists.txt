@@ -898,9 +898,10 @@ add_test(NAME grouped_conv_batch_bwd_float
 
 add_test(NAME grouped_conv_batch_group
          COMMAND single_conv_layer
-                 --field={28,28}
+                 --field={14,14}
                  --input-channels=512
                  --output-channels=128
+                 --tiles-per-ipu=304
                  --conv-groups=2
                  --batch-size=2)
 
@@ -1307,9 +1308,10 @@ add_test(NAME max_pool_layer_2ipu
          COMMAND pooling_layer
                  --channels 64
                  --bwd-chans-per-group=8
-                 --width=112
-                 --height=112
+                 --width=56
+                 --height=56
                  --kernel-size=3
+                 --tiles-per-ipu 304
                  --stride=2
                  --ipus 2)
 
@@ -1409,9 +1411,10 @@ add_test(NAME avg_pool_layer_2ipu
                  --channels 64
                  --pooling-type=avg
                  --bwd-chans-per-group=8
-                 --width=112
-                 --height=112
+                 --width=56
+                 --height=56
                  --kernel-size=3
+                 --tiles-per-ipu=304
                  --stride=2
                  --ipus 2)
 
@@ -1515,9 +1518,10 @@ add_test(NAME sum_pool_layer_2ipu
                  --channels 64
                  --pooling-type=sum
                  --bwd-chans-per-group=8
-                 --width=112
-                 --height=112
+                 --width=56
+                 --height=56
                  --kernel-size=3
+                 --tiles-per-ipu=304
                  --stride=2
                  --ipus 2)
 

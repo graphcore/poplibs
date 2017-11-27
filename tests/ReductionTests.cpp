@@ -153,6 +153,7 @@ static bool reduceAddTest(const std::vector<std::size_t> &dims,
                           bool update,
                           bool scale) {
   IPUModel ipuModel;
+  ipuModel.tilesPerIPU = 64;
   auto device = ipuModel.createDevice();
   Graph graph(device);
   popstd::addCodelets(graph);
@@ -246,6 +247,7 @@ static bool reduceOpsTest(const std::vector<std::size_t> &dims,
                           const Type &outType,
                           popreduce::Operation operation) {
   IPUModel ipuModel;
+  ipuModel.tilesPerIPU = 64;
   auto device = ipuModel.createDevice();
   Graph graph(device);
   popstd::addCodelets(graph);
@@ -370,7 +372,7 @@ BOOST_AUTO_TEST_CASE(Reduce_1x201_scale_half_half) {
 
 
 BOOST_AUTO_TEST_CASE(Reduce_31x201_update_float_float) {
-  auto matchesModel = reduceAddTest({31, 201}, FLOAT, FLOAT,
+  auto matchesModel = reduceAddTest({31, 101}, FLOAT, FLOAT,
                                     -1.5, true, false);
   BOOST_TEST(matchesModel == true);
 }
@@ -430,43 +432,43 @@ BOOST_AUTO_TEST_CASE(Reduce_Max_float) {
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Max_half) {
-  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, HALF,
+  auto matchesModel = reduceOpsTest({20, 30, 10}, {0, 1}, HALF,
   popreduce::Operation::MAX);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Max_int) {
-  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, HALF,
+  auto matchesModel = reduceOpsTest({20, 30, 10}, {0, 1}, HALF,
                                     popreduce::Operation::MAX);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Min_float) {
-  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, FLOAT,
+  auto matchesModel = reduceOpsTest({20, 30, 10}, {0, 1}, FLOAT,
                                     popreduce::Operation::MIN);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Min_half) {
-  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, FLOAT,
+  auto matchesModel = reduceOpsTest({20, 30, 10}, {0, 1}, FLOAT,
                                     popreduce::Operation::MIN);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Min_int) {
-  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, FLOAT,
+  auto matchesModel = reduceOpsTest({20, 30, 10}, {0, 1}, FLOAT,
                                     popreduce::Operation::MIN);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_And_bool) {
-  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, BOOL,
+  auto matchesModel = reduceOpsTest({20, 30, 10}, {0, 1}, BOOL,
                                     popreduce::Operation::AND);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Or_bool) {
-  auto matchesModel = reduceOpsTest({20, 30, 40}, {0, 1}, BOOL,
+  auto matchesModel = reduceOpsTest({20, 30, 10}, {0, 1}, BOOL,
                                     popreduce::Operation::OR);
   BOOST_TEST(matchesModel == true);
 }

@@ -142,6 +142,7 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
                        *utf::tolerance<float>(
                           fpc::percent_tolerance<float>(1))) {
   IPUModel ipuModel;
+  ipuModel.tilesPerIPU = 304;
   auto device = ipuModel.createDevice();
   Graph graph(device);
   popstd::addCodelets(graph);
