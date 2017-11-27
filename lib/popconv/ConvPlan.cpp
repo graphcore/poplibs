@@ -1192,6 +1192,10 @@ static bool canUseOuterProductMethod(const ConvParams &params) {
   }
   return params.getNumInputChansPerConvGroup() == 1 &&
          params.getBatchSize() == 1 &&
+         std::all_of(params.stride.begin(),
+                     params.stride.end(), equalsOne) &&
+         std::all_of(params.inputDilation.begin(),
+                     params.inputDilation.end(), equalsOne) &&
          allKernelDimensionsAreOne(params);
 }
 
