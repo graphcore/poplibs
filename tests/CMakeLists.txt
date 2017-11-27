@@ -555,6 +555,20 @@ add_test(NAME conv_nx1_vertex_lower_padding
                  --stride={3,1}
                  --tiles-per-ipu=1)
 
+# Test where, after padding and dilation, the last input index that would be
+# multiplied by the a kernel element is in the middle of the lower input
+# padding.
+add_test(NAME conv1x1_input_ignored_with_stride
+         COMMAND single_conv_layer
+                 --field={2,2}
+                 --in-dilation=2
+                 --padding-lower=2
+                 --padding-upper=1
+                 --stride=7
+                 --input-channels=16
+                 --output-channels=16
+                 --tiles-per-ipu=1)
+
 #  Grouped convolution layer tests
 add_test(NAME grouped_conv3x3_stride_2_256_out
          COMMAND single_conv_layer

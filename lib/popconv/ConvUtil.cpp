@@ -244,19 +244,33 @@ ConvParams canonicalizeParams(const ConvParams &params) {
   ConvParams newParams = params;
   const auto numFieldDims = params.getNumFieldDims();
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    const auto paddedInputSize = newParams.getPaddedDilatedInputSize(dim);
-    const auto paddedKernelSize = newParams.getPaddedDilatedKernelSize(dim);
+    const auto dilatedPaddedInputSize =
+        newParams.getPaddedDilatedInputSize(dim);
+    const auto dilatedPaddedKernelSize =
+        newParams.getPaddedDilatedKernelSize(dim);
+    bool kernelIsLarger = dilatedPaddedKernelSize > dilatedPaddedInputSize;
     const auto postConvolveSize =
-        absdiff(paddedInputSize, paddedKernelSize) + 1;
+        absdiff(dilatedPaddedInputSize, dilatedPaddedKernelSize) + 1;
     // Truncate the input or the kernel (whichever is larger) so there are no
     // excess elements at the end that are ignored. If there are no ignored
     // elements backprop of the striding operation is input dilation with no
     // padding.
     const auto ignored = (postConvolveSize - 1) % newParams.stride[dim];
-    if (paddedInputSize > paddedKernelSize)
-      newParams.inputPaddingUpper[dim] -= ignored;
-    else
-      newParams.kernelPaddingUpper[dim] -= ignored;
+    auto &paddingUpper = kernelIsLarger ? newParams.kernelPaddingUpper[dim] :
+                                          newParams.inputPaddingUpper[dim];
+    const auto dilatedPaddedDimSize =
+        kernelIsLarger ? dilatedPaddedKernelSize :
+                         dilatedPaddedInputSize;
+    auto &paddingLower = kernelIsLarger ? newParams.kernelPaddingLower[dim] :
+                                          newParams.inputPaddingLower[dim];
+    const auto dilatedDimSize = dilatedPaddedDimSize -
+                                (paddingLower + paddingUpper);
+    if (ignored > dilatedDimSize + paddingUpper) {
+      paddingLower -= ignored - (dilatedDimSize + paddingUpper);
+      paddingUpper = -dilatedDimSize;
+    } else {
+      paddingUpper -= ignored;
+    }
   }
   return newParams;
 }
