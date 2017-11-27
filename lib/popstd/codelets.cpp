@@ -36,9 +36,7 @@ static std::string findGraphProg() {
 
 void addCodelets(poplar::Graph &graph) {
   graph.addCodelets(findGraphProg());
-  for (auto& p : popstd::cyclesFunctionTable) {
-    graph.registerCycleEstimator(p.first, std::move(p.second));
-  }
+  poplibs::registerCyclesFunctions(graph, popstd::cyclesFunctionTable);
 }
 
 } // namespace popstd

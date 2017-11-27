@@ -444,9 +444,7 @@ Tensor pool(Graph &graph,
         graph.setInitialValue(v["scaleOutput"],
                               poolingType == PoolingType::AVG);
       }
-      graph.setFieldSize(v["windowSizes"], windowSizes.size());
-      for (unsigned i = 0; i < windowSizes.size(); ++i)
-        graph.setInitialValue(v["windowSizes"][i], windowSizes[i]);
+      graph.setInitialValue(v["windowSizes"], windowSizes);
     }
   }
 
@@ -613,9 +611,7 @@ poolInputGradient(Graph &graph,
                          {"inGrad", vertexInGrad}});
       graph.setTileMapping(v, tile);
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-      graph.setFieldSize(v["windowSizes"], windowSizes.size());
-      for (unsigned i = 0; i < windowSizes.size(); ++i)
-        graph.setInitialValue(v["windowSizes"][i], windowSizes[i]);
+      graph.setInitialValue(v["windowSizes"], windowSizes);
     }
   }
 

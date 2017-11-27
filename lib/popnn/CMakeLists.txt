@@ -7,6 +7,7 @@ add_library(popnn SHARED
   Loss.cpp
   Lstm.cpp
   Pooling.cpp
+  popnnCycleEstimators.cpp
   NonLinearity.cpp
   PerformanceEstimation.hpp
   Recurrent.cpp

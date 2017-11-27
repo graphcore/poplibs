@@ -44,13 +44,15 @@ std::uint64_t  MAKE_CYCLE_ESTIMATOR_NAME(codelet) CYCLES_PARAMS(v,t)
 // but the cycle estimator need not be (i.e. cycles count is
 // independent of type)
 #define TYPED_CYCLE_ESTIMATOR_ENTRY(ns, codelet, TYPES...) \
-  std::make_pair(templateVertex(#ns"::"#codelet, removeCommaSpaces(#TYPES)), \
+  std::make_pair(popstd::templateVertex(#ns"::"#codelet, \
+                 removeCommaSpaces(#TYPES)), \
   MAKE_CYCLE_ESTIMATOR_NAME(codelet))
 
 // This macros is to be used when both the codelet and the cycles
 // estimator function are templated (identically).
 #define TEMPLATE_CYCLE_ESTIMATOR_ENTRY(ns, codelet, TYPES...) \
-  std::make_pair(templateVertex(#ns"::"#codelet, removeCommaSpaces(#TYPES)), \
+  std::make_pair(popstd::templateVertex(#ns"::"#codelet, \
+                 removeCommaSpaces(#TYPES)), \
   MAKE_CYCLE_ESTIMATOR_NAME(codelet)<TYPES>)
 
 // This macros is to be used when neither the codelet or cycles
@@ -63,6 +65,14 @@ namespace poplibs {
 
 using CycleEstimatorTable = std::vector<
   std::pair<std::string, poplar::CycleEstimateFunc>>;
+
+inline void registerCyclesFunctions(poplar::Graph& graph,
+                             const CycleEstimatorTable& table) {
+  for (auto& kv : table) {
+    graph.registerCycleEstimator(kv.first,
+                                 poplar::CycleEstimateFunc(kv.second));
+  }
+}
 
 } // end namespace popstd
 
