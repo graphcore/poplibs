@@ -1005,6 +1005,40 @@ add_test(NAME grouped_conv_outer_product
                  --conv-groups=2
                  --tiles-per-ipu=64)
 
+add_test(NAME conv3d_simple
+         COMMAND single_conv_layer
+                 --field={5,6,7}
+                 --kernel-size={4,3,2}
+                 --padding={1,1,1}
+                 --input-channels=32
+                 --output-channels=64
+                 --tiles-per-ipu=48)
+
+add_test(NAME conv3d_1_output_chan
+         COMMAND single_conv_layer
+                 --field={5,6,7}
+                 --kernel-size={4,3,2}
+                 --padding={1,1,1}
+                 --input-channels=32
+                 --output-channels=1
+                 --tiles-per-ipu=48)
+
+# 3D convolution with multiple batches, convolution groups, input dilation,
+# kernel dilation and striding.
+add_test(NAME conv3d_complex
+         COMMAND single_conv_layer
+                 --conv-groups=2
+                 --batch-size=2
+                 --field={4,3,32}
+                 --in-dilation={1,2,1}
+                 --padding={1,0,1}
+                 --kernel-size={3,2,3}
+                 --kernel-dilation={1,1,2}
+                 --input-channels=16
+                 --output-channels=64
+                 --stride={1,1,3}
+                 --tiles-per-ipu=16)
+
 add_test(NAME fully_connected_half
          COMMAND fully_connected_layer
                  --input-size 300
