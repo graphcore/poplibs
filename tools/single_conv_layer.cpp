@@ -258,18 +258,6 @@ int main(int argc, char **argv) {
                           kernelPaddingUpper,
                           kernelDilation,
                           numConvGroups);
-  if (params.getPaddedDilatedInputSize(0) < 0 ||
-      params.getPaddedDilatedInputSize(1) < 0) {
-    throw popstd::poplib_error("Convolution pass does not support "
-                               "padding that truncates more than the input "
-                               "size");
-  }
-  if (params.getPaddedDilatedKernelSize(0) < 0 ||
-      params.getPaddedDilatedKernelSize(1) < 0) {
-    throw popstd::poplib_error("Convolution pass does not support "
-                               "padding that truncates more than the kernel "
-                               "size");
-  }
 
 
   const auto outFieldSize = params.getOutputFieldShape();

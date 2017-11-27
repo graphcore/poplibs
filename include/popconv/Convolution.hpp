@@ -133,14 +133,19 @@ struct ConvParams {
 
   int getPaddedDilatedInputSize(unsigned dim) const {
     int inputSize = inputFieldShape[dim];
-    int dilatedInputSize = (inputSize - 1) * inputDilation[dim] + 1;
-    return inputPaddingLower[dim] + dilatedInputSize + inputPaddingUpper[dim];
+    int dilatedSize = (inputSize - 1) * inputDilation[dim] + 1;
+    int dilatedPaddedSize = inputPaddingLower[dim] + dilatedSize +
+                            inputPaddingUpper[dim];
+    assert(dilatedPaddedSize >= 0);
+    return dilatedPaddedSize;
   }
   int getPaddedDilatedKernelSize(unsigned dim) const {
     int kernelSize = kernelShape[dim];
-    int dilatedKernelSize = (kernelSize - 1) * kernelDilation[dim] + 1;
-    return kernelPaddingLower[dim] + dilatedKernelSize +
-           kernelPaddingUpper[dim];
+    int dilatedSize = (kernelSize - 1) * kernelDilation[dim] + 1;
+    int dilatedPaddedSize = kernelPaddingLower[dim] + dilatedSize +
+                            kernelPaddingUpper[dim];
+    assert(dilatedPaddedSize >= 0);
+    return dilatedPaddedSize;
   }
   // Returns the shape of the output field
   std::vector<size_t> getOutputFieldShape() const;

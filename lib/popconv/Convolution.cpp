@@ -81,6 +81,50 @@ ConvParams::ConvParams(const Type dType_,
                                  "field dimensions");
     }
   }
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    const int dilatedInputSize =
+        static_cast<int>(1 + (inputFieldShape[dim] - 1) * inputDilation[dim]);
+    if (inputPaddingLower[dim] + dilatedInputSize < 0) {
+      throw popstd::poplib_error("Lower padding for dimension " +
+                                 std::to_string(dim) +
+                                 " truncates by more than the size of the "
+                                 "field");
+    }
+    if (inputPaddingUpper[dim] + dilatedInputSize < 0) {
+      throw popstd::poplib_error("Upper padding for dimension " +
+                                 std::to_string(dim) +
+                                 " truncates by more than the size of the "
+                                 "field");
+    }
+    if (inputPaddingLower[dim] + dilatedInputSize +
+        inputPaddingUpper[dim] < 0) {
+      throw popstd::poplib_error("Padding for dimension " +
+                                 std::to_string(dim) +
+                                 " truncates by more than the size of the "
+                                 "field");
+    }
+    const int dilatedKernelSize =
+        static_cast<int>(1 + (kernelShape[dim] - 1) * kernelDilation[dim]);
+    if (kernelPaddingLower[dim] + dilatedKernelSize < 0) {
+      throw popstd::poplib_error("Lower padding for dimension " +
+                                 std::to_string(dim) +
+                                 " truncates by more than the size of the "
+                                 "kernel");
+    }
+    if (kernelPaddingUpper[dim] + dilatedKernelSize < 0) {
+      throw popstd::poplib_error("Upper padding for dimension " +
+                                 std::to_string(dim) +
+                                 " truncates by more than the size of the "
+                                 "kernel");
+    }
+    if (kernelPaddingLower[dim] + dilatedKernelSize +
+        kernelPaddingUpper[dim] < 0) {
+      throw popstd::poplib_error("Padding for dimension " +
+                                 std::to_string(dim) +
+                                 " truncates by more than the size of the "
+                                 "kernel");
+    }
+  }
 }
 
 std::ostream& operator<<(std::ostream &os, const ConvParams &p) {
