@@ -51,7 +51,7 @@ int main(int argc, char **argv) {
   bool bias;
   Type dataType;
   Type partialsType;
-  double relativeTolerance;
+  double absoluteTolerance, relativeTolerance;
   IPUModel ipuModel;
   ipuModel.IPUExchangeType =
       IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
@@ -120,6 +120,10 @@ int main(int argc, char **argv) {
      "Run phase all | fwd | bwd | wu")
     ("tolerance", po::value<double>(&relativeTolerance)->default_value(0.01),
      "Relative tolerance to use when validating results against the reference "
+     "model")
+    ("absolute-tolerance",
+     po::value<double>(&absoluteTolerance)->default_value(0.00001),
+     "Absolute tolerance to use when validating results against the reference "
      "model")
     ("tiles-per-ipu",
      po::value<unsigned>(&ipuModel.tilesPerIPU)->
@@ -393,7 +397,7 @@ int main(int argc, char **argv) {
                                  hostWeights, hostBiases, modelNextAct);
   if (doFwdPass) {
     matchesModel &= checkIsClose("fwd", hostNextAct, modelNextAct,
-                                 relativeTolerance);
+                                 relativeTolerance, absoluteTolerance);
   }
 
   if (doBwdPass || doWuPass) {
@@ -442,7 +446,7 @@ int main(int argc, char **argv) {
               modelWeights,
               modelPrevDeltas);
       matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
-                                   relativeTolerance);
+                                   relativeTolerance, absoluteTolerance);
     }
     if (doWuPass) {
       poplib_test::conv::weightUpdate(vectorConvert<unsigned>(inputFieldSize),
@@ -457,11 +461,13 @@ int main(int argc, char **argv) {
                                       learningRate, hostPrevAct,
                                       hostZDeltas, modelWeights, modelBiases);
       matchesModel &= checkIsClose("weights",
-                                  hostWeights, modelWeights, relativeTolerance);
+                                  hostWeights, modelWeights, relativeTolerance,
+                                  absoluteTolerance);
       if (bias) {
         matchesModel &= checkIsClose("biases",
                                      hostBiases, modelBiases,
-                                     relativeTolerance);
+                                     relativeTolerance,
+                                     absoluteTolerance);
       }
     }
   }
