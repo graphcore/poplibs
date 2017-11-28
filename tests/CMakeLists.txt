@@ -1,4 +1,5 @@
 find_package(Boost REQUIRED unit_test_framework timer system program_options)
+find_package(PythonInterp REQUIRED)
 
 add_subdirectory(popsolver)
 
@@ -38,6 +39,17 @@ add_popnn_unit_test(ReductionTests ReductionTests.cpp)
 add_popnn_unit_test(LargeSplitRegionsTest LargeSplitRegionsTest.cpp)
 add_popnn_unit_test(DynamicSliceTest DynamicSliceTest.cpp)
 add_popnn_unit_test(CircBufTests CircBufTests.cpp)
+
+# Random single_conv_layer tests with fixed seed.
+set(NUM_CONV_RANDOM_TESTS 50)
+foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
+  add_test(NAME conv_random_${n}
+           COMMAND ${PYTHON_EXECUTABLE}
+                   ${CMAKE_SOURCE_DIR}/tools/single_conv_layer_random.py
+                   --n 1
+                   --seed ${n}
+                   --binary $<TARGET_FILE:single_conv_layer>)
+endforeach()
 
 #  ORIG Layer tests
 add_test(NAME conv3x3_stride_2_128_out
