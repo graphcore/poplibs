@@ -30,6 +30,8 @@ struct Plan {
   /// Grain size to use when splitting the axes across tiles.
   std::vector<unsigned> fieldAxisGrainSize;
   bool floatPartials;
+  // The number of additional size 1 dimensions to insert at the front.
+  unsigned extraFieldDims = 0;
   bool swapOperands = false;
   // Spatial dimensions that should be expanded by taking the activations
   // multiplied by each weight in each position of the filter in this axis and
@@ -92,6 +94,9 @@ struct Plan {
 
 Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
              ConvOptions options);
+
+/// Insert the specified number of dimensions of size 1 at the front.
+void addExtraDims(ConvParams &params, unsigned extraDims);
 
 /// Return whether expanding the specified spatial dimension involves
 /// expanding the activations or the weights.

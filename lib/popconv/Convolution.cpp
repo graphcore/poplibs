@@ -1099,6 +1099,20 @@ static void expandSpatialDim(Graph &graph, ConvParams &params,
 static void
 convolutionPreprocess(Graph &graph, ConvParams &params, Plan &plan,
                       Tensor *acts, Tensor *weights) {
+  if (plan.extraFieldDims) {
+    addExtraDims(params, plan.extraFieldDims);
+    if (acts) {
+      *acts = acts->expand(
+                std::vector<std::size_t>(plan.extraFieldDims, 2)
+              );
+    }
+    if (weights) {
+      *weights = weights->expand(
+                   std::vector<std::size_t>(plan.extraFieldDims, 1)
+                 );
+    }
+    plan.extraFieldDims = 0;
+  }
   if (plan.swapOperands) {
     swapOperands(params);
     if (acts && weights) {
@@ -2597,7 +2611,11 @@ static Tensor
 convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
                        const Plan &originalPlan,
                        Tensor activations) {
-  auto postExpandParams = originalParams;
+  auto postAddExtraDimsParams = originalParams;
+  if (originalPlan.extraFieldDims) {
+    addExtraDims(postAddExtraDimsParams, originalPlan.extraFieldDims);
+  }
+  auto postExpandParams = postAddExtraDimsParams;
   if (originalPlan.swapOperands) {
     swapOperands(postExpandParams);
   }
@@ -2633,7 +2651,8 @@ convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
   for (auto it = originalPlan.outChanFlattenDims.rbegin(),
        end = originalPlan.outChanFlattenDims.rend(); it != end; ++it) {
     const auto spatialDim = *it;
-    const auto spatialDimSize = originalParams.getOutputSize(spatialDim);
+    const auto spatialDimSize =
+        postAddExtraDimsParams.getOutputSize(spatialDim);
     activations =
         unflattenDims(activations, 2 + spatialDim, activations.rank() - 1,
                       spatialDimSize);
@@ -2642,6 +2661,11 @@ convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
   if (originalPlan.swapOperands) {
     activations = activations.dimShufflePartial({1, activations.rank() - 1},
                                                 {activations.rank() - 1, 1});
+  }
+  if (originalPlan.extraFieldDims) {
+    std::vector<std::size_t> toSqueeze(originalPlan.extraFieldDims);
+    std::iota(toSqueeze.begin(), toSqueeze.end(), std::size_t(2));
+    activations = activations.squeeze(toSqueeze);
   }
   return activations;
 }

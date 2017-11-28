@@ -1489,6 +1489,25 @@ static std::vector<bool> getSwapOperandCandidates(const ConvOptions &options) {
   }
 }
 
+template <class T>
+void insertAtFront(std::vector<T> &v, std::size_t n, const T &val) {
+  v.insert(v.begin(), n, val);
+}
+
+void addExtraDims(ConvParams &params, unsigned extraDims) {
+  if (extraDims == 0)
+    return;
+  insertAtFront(params.inputDilation, extraDims, 1U);
+  insertAtFront(params.inputFieldShape, extraDims, std::size_t(1));
+  insertAtFront(params.inputPaddingLower, extraDims, 0);
+  insertAtFront(params.inputPaddingUpper, extraDims, 0);
+  insertAtFront(params.kernelDilation, extraDims, 1U);
+  insertAtFront(params.kernelPaddingLower, extraDims, 0);
+  insertAtFront(params.kernelPaddingUpper, extraDims, 0);
+  insertAtFront(params.kernelShape, extraDims, std::size_t(1));
+  insertAtFront(params.stride, extraDims, 1U);
+}
+
 static std::pair<Plan, Cost>
 createPlan(ConvParams params,
            const poplar::Type &partialsType,
@@ -1497,6 +1516,17 @@ createPlan(ConvParams params,
            const poplar::Graph &graph,
            PlanningCacheImpl *cache) {
   validateLayerParams(params);
+  unsigned addedFieldDims = 0;
+  auto numFieldDims = params.getNumFieldDims();
+  if (numFieldDims < 2) {
+    // Various places assume there are at least two dimensions. In particular
+    // code related to the nx1ConvPartial vertex has special handling for the
+    // outermost dimension and special handling for the innermost dimension
+    // and there is an assumption that these two dimensions are distinct.
+    addedFieldDims = 2 - numFieldDims;
+    addExtraDims(params, addedFieldDims);
+    numFieldDims = 2;
+  }
   const auto &target = graph.getTarget();
   Cost bestCost = highestCost;
   Plan bestPlan;
@@ -1512,7 +1542,6 @@ createPlan(ConvParams params,
         expandDim(expandedParams, dim);
       }
       std::vector<unsigned> outChanFlattenDims;
-      const auto numFieldDims = expandedParams.getNumFieldDims();
       for (unsigned spatialDim = 0; spatialDim != numFieldDims;
            ++spatialDim) {
         if (dimCanBeFlattenedIntoOutChans(expandedParams, spatialDim) &&
@@ -1592,6 +1621,7 @@ createPlan(ConvParams params,
                        cache, options);
         if (candidateCost == highestCost)
           continue;
+        candidate.extraFieldDims = addedFieldDims;
         candidate.swapOperands = swapOperands;
         candidate.expandDims = expandDims;
         candidate.outChanFlattenDims = outChanFlattenDims;

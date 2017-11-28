@@ -1017,6 +1017,23 @@ add_test(NAME grouped_conv_outer_product
                  --conv-groups=2
                  --tiles-per-ipu=64)
 
+add_test(NAME conv0d_simple
+         COMMAND single_conv_layer
+                 --field={}
+                 --batch-size=4
+                 --input-channels=256
+                 --output-channels=128
+                 --tiles-per-ipu=48)
+
+add_test(NAME conv1d_simple
+         COMMAND single_conv_layer
+                  --field={80}
+                  --kernel-size=3
+                  --padding=1
+                  --input-channels=128
+                  --output-channels=128
+                  --tiles-per-ipu=48)
+
 add_test(NAME conv3d_simple
          COMMAND single_conv_layer
                  --field={5,6,7}

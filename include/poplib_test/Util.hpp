@@ -183,16 +183,21 @@ std::istream &operator>>(std::istream &in, ShapeOption<T> &s) {
   auto c = in.peek();
   if (c == '{') {
     in.ignore();
-    while (true) {
-      skipSpaces(in);
-      auto c = in.peek();
-      s.val.push_back(readInteger<T>(in));
-      skipSpaces(in);
-      c = in.get();
-      if (c == '}') {
-        break;
-      } else if (c != ',') {
-        throw std::runtime_error("Invalid shape; expected `,' or `}'");
+    skipSpaces(in);
+    auto c = in.peek();
+    if (c == '}') {
+      in.ignore();
+    } else {
+      while (true) {
+        s.val.push_back(readInteger<T>(in));
+        skipSpaces(in);
+        c = in.get();
+        if (c == '}') {
+          break;
+        } else if (c != ',') {
+          throw std::runtime_error("Invalid shape; expected `,' or `}'");
+        }
+        skipSpaces(in);
       }
     }
   } else {
