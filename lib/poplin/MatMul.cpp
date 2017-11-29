@@ -47,11 +47,10 @@ static popconv::ConvOptions getConvOptions(
 
 // Transform a conv activations tensor to a  grouped matrix tensor view
 static Tensor matrixFromConvActivations(const Tensor &A, unsigned numGroups) {
-  assert(A.rank() == 4);
+  assert(A.rank() == 3);
   assert(A.dim(0) == 1);
   assert(A.dim(1) % numGroups == 0);
-  assert(A.dim(2) == 1);
-  return A.reshape({numGroups, A.dim(1) / numGroups, A.dim(3)})
+  return A.reshape({numGroups, A.dim(1) / numGroups, A.dim(2)})
           .dimShuffle({0, 2, 1});
 }
 
@@ -66,10 +65,9 @@ static Tensor transpose(const Tensor &A) {
 
 // Transfom a conv weights tensor to a grouped matix tensor view
 static Tensor matrixFromConvWeights(const Tensor &A) {
-  assert(A.rank() == 5);
+  assert(A.rank() == 4);
   assert(A.dim(3) == 1);
-  assert(A.dim(4) == 1);
-  return A.squeeze({3, 4});
+  return A.squeeze({3});
 }
 
 // Transform a grouped matrix tensor to an activations tensor view with given
@@ -77,7 +75,7 @@ static Tensor matrixFromConvWeights(const Tensor &A) {
 static Tensor convActivationsFromMatrix(const Tensor &A,
                                         const std::vector<std::size_t> &shape) {
   assert(shape.size() == 3);
-  return A.dimShuffle({0, 2, 1}).reshape({1, shape[0] * shape[2], 1, shape[1]});
+  return A.dimShuffle({0, 2, 1}).reshape({1, shape[0] * shape[2], shape[1]});
 }
 
 // Transform a grouped matrix tensor to a weights tensor view with given
@@ -85,7 +83,7 @@ static Tensor convActivationsFromMatrix(const Tensor &A,
 static Tensor convWeightsFromMatrix(const Tensor &A,
                                     const std::vector<std::size_t> &shape) {
   assert(shape.size() == 3);
-  return A.expand({3, 3});
+  return A.expand({3});
 }
 
 static popconv::ConvParams getConvParams(
@@ -112,10 +110,9 @@ static popconv::ConvParams getConvParams(
   case FullyConnectedPass::NONE:
   case FullyConnectedPass::INFERENCE_FWD:
   case FullyConnectedPass::TRAINING_FWD:
-    // A fully connected fwd pass is equivalent to a convolution with
+    // A fully connected fwd pass is equivalent to a 1-d convolution with
     // input channels = inputSize
     // width = outputSize
-    // height = 1
     // output channels = batchSize.
     {
       const auto inputSize = bShape[1];
@@ -127,34 +124,33 @@ static popconv::ConvParams getConvParams(
                               // batch size
                               1,
                               // input field shape for each channel and batch
-                              {1, outputSize},
+                              {outputSize},
                               // kernel shape for each input and output channel
-                              {1, 1},
+                              {1},
                               // input channels
                               inputSize,
                               // output channels
                               batchSize,
                               // stride
-                              {1, 1},
+                              {1},
                               // lower input padding
-                              {0, 0},
+                              {0},
                               // upper input padding
-                              {0, 0},
+                              {0},
                               // input dilation
-                              {1, 1},
+                              {1},
                               // lower kernal padding
-                              {0, 0},
+                              {0},
                               // upper kernel padding
-                              {0, 0},
+                              {0},
                               // kernel dilation
-                              {1, 1},
+                              {1},
                               numGroups);
     }
   case FullyConnectedPass::TRAINING_BWD:
-    // A fully connected bwd pass is equivalent to a convolution with
+    // A fully connected bwd pass is equivalent to a 1-d convolution with
     // input channels = outputSize
     // width = inputSize
-    // height = 1
     // output channels = batchSize.
     {
       const auto inputSize = bShape[2];
@@ -166,34 +162,33 @@ static popconv::ConvParams getConvParams(
                               // batch size
                               1,
                               // input field shape for each channel and batch
-                              {1, inputSize},
+                              {inputSize},
                               // kernel shape for each input and output channel
-                              {1, 1,},
+                              {1},
                               // input channels
                               outputSize,
                               // output channels
                               batchSize,
                               // stride
-                              {1, 1},
+                              {1},
                               // lower input padding
-                              {0, 0},
+                              {0},
                               // upper input padding
-                              {0, 0},
+                              {0},
                               // input dilation
-                              {1, 1},
+                              {1},
                               // lower kernel padding
-                              {0, 0},
+                              {0},
                               // upper kernel padding
-                              {0, 0},
+                              {0},
                               // kernel dilation
-                              {1, 1},
+                              {1},
                               numGroups);
     }
   case FullyConnectedPass::TRAINING_WU:
     // Implement the weight update as a convolutional layer with
     // input channels = batch size
     // width = outputSize
-    // height = 1
     // output channels = inputSize
     {
       const auto inputSize = aShape[1];
@@ -205,27 +200,27 @@ static popconv::ConvParams getConvParams(
                               // batch size
                               1,
                               // input field shape for each channel and batch
-                              {1, outputSize},
+                              {outputSize},
                               // kernel shape for each input and output channel
-                              {1, 1,},
+                              {1},
                               // input channels
                               batchSize,
                               // output channels
                               inputSize,
                               // stride
-                              {1, 1},
+                              {1},
                               // lower input padding
-                              {0, 0},
+                              {0},
                               // upper input padding
-                              {0, 0},
+                              {0},
                               // input dilation
-                              {1, 1},
+                              {1},
                               // lower kernel padding
-                              {0, 0},
+                              {0},
                               // upper kernel padding
-                              {0, 0},
+                              {0},
                               // kernel dilation
-                              {1, 1},
+                              {1},
                               numGroups);
     }
   }

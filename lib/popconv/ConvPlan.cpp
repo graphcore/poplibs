@@ -1091,7 +1091,7 @@ choosePlan(const poplar::Target &target,
   if (options.pass == Pass::FC_TRAINING_FWD) {
     popsolver::Variable bwdCycles;
     auto bwdParams = params;
-    std::swap(bwdParams.inputFieldShape[1], bwdParams.inputChannels);
+    std::swap(bwdParams.inputFieldShape.back(), bwdParams.inputChannels);
     auto bwdFieldTileSplit = fieldTileSplit;
     bwdFieldTileSplit.back() = inChanTileSplit;
     const auto bwdInChanTileSplit = fieldTileSplit.back();
@@ -1640,38 +1640,38 @@ static ConvParams getFullyConnectedFwdParams(const ConvParams &params,
                                              const ConvOptions &options) {
   // Translate back into parameters of the fully connected layer.
   unsigned outputSize, inputSize, batchSize;
-  assert(params.getInputHeight() == 1);
-  assert(params.stride == std::vector<unsigned>({1U, 1U}));
-  assert(params.inputPaddingLower == std::vector<int>({0, 0}));
-  assert(params.inputPaddingUpper == std::vector<int>({0, 0}));
-  assert(params.kernelShape[0] == 1 && params.kernelShape[1] == 1);
-  assert(params.inputDilation[0] == 1 && params.inputDilation[1] == 1);
+  assert(params.getNumFieldDims() == 1);
+  assert(params.stride[0] == 1);
+  assert(params.inputPaddingLower[0] == 0);
+  assert(params.inputPaddingUpper[0] == 0);
+  assert(params.kernelShape[0] == 1);
+  assert(params.inputDilation[0] == 1);
   switch (options.pass) {
   default: assert(0 && "Unexpected pass");
   case Pass::FC_TRAINING_BWD:
-    inputSize = params.getInputWidth();
+    inputSize = params.getInputSize(0);
     batchSize = params.getNumOutputChansPerConvGroup();
     outputSize = params.getNumInputChansPerConvGroup();
     break;
   case Pass::FC_TRAINING_WU:
-    outputSize = params.getInputWidth();
+    outputSize = params.getInputSize(0);
     batchSize = params.getNumInputChansPerConvGroup();
     inputSize = params.getNumOutputChansPerConvGroup();
     break;
   }
   return ConvParams(params.dType,
-                    1,                       // batchSize
-                    {1, outputSize},         // inputShape
-                    {1, 1},                  // kernelShape
-                    inputSize,               // input channels
-                    batchSize,               // output channels
-                    {1, 1},                  // stride
-                    {0, 0},
-                    {0, 0},
-                    {1, 1},
-                    {0, 0},
-                    {0, 0},
-                    {1, 1},
+                    1,                    // batchSize
+                    {outputSize},         // inputShape
+                    {1},                  // kernelShape
+                    inputSize,            // input channels
+                    batchSize,            // output channels
+                    {1},                  // stride
+                    {0},
+                    {0},
+                    {1},
+                    {0},
+                    {0},
+                    {1},
                     params.getNumConvGroups());
 }
 

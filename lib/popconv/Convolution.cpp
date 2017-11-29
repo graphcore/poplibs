@@ -3371,6 +3371,10 @@ fullyConnectedWeightTranspose(Graph &graph,
                               ConvParams params,
                               Sequence &prog, const std::string &debugPrefix,
                               const ConvOptions &options) {
+  if (params.getNumFieldDims() != 1) {
+    throw popstd::poplib_error("fullyConnectedWeightTranspose() expects a 1-d "
+                               "convolution");
+  }
   auto plan = getPlan(graph, params, options);
   auto fwdPlan = plan;
   std::swap(fwdPlan.fieldAxisGrainSize.back(), fwdPlan.inChansPerGroup);
@@ -3384,27 +3388,25 @@ fullyConnectedWeightTranspose(Graph &graph,
   auto splitTransposedUngroupedShape = splitTransposed.shape();
   const auto fwdGroupSize =
       getInChansPerGroup(fwdPlan,
-                         static_cast<unsigned>(splitActivations.dim(4)));
+                         static_cast<unsigned>(splitActivations.dim(3)));
   const auto bwdGroupSize =
-      getInChansPerGroup(plan, static_cast<unsigned>(splitActivations.dim(3)));
+      getInChansPerGroup(plan, static_cast<unsigned>(splitActivations.dim(2)));
   const auto dType = activations.elementType();
   const auto &target = graph.getTarget();
   splitActivations =
       splitActivations.reshape({splitActivations.dim(0),
-                                splitActivations.dim(1) *
-                                  splitActivations.dim(2),
-                                splitActivations.dim(3) / bwdGroupSize,
+                                splitActivations.dim(1),
+                                splitActivations.dim(2) / bwdGroupSize,
                                 bwdGroupSize,
-                                splitActivations.dim(4) / fwdGroupSize,
+                                splitActivations.dim(3) / fwdGroupSize,
                                 fwdGroupSize})
                       .dimShufflePartial({3}, {4});
   splitTransposed =
       splitTransposed.reshape({splitTransposed.dim(0),
-                               splitTransposed.dim(1) *
-                                 splitTransposed.dim(2),
-                               splitTransposed.dim(3) / fwdGroupSize,
+                               splitTransposed.dim(1),
+                               splitTransposed.dim(2) / fwdGroupSize,
                                fwdGroupSize,
-                               splitTransposed.dim(4) / bwdGroupSize,
+                               splitTransposed.dim(3) / bwdGroupSize,
                                bwdGroupSize})
                       .dimShufflePartial({3}, {4});
   auto firstInBlock =
