@@ -130,8 +130,7 @@ template class ScaledAdd<unsigned>;
 
 template <typename FPType>
 class
-//Note this constraint is misspelt
-[[poplar::constraint("elem(**A) != elem(**C)")]]
+[[poplar::constraint("elem(**A) != elem(**B)")]]
 HadamardProd : public Vertex {
 public:
   Vector<InOut<Vector<FPType>>> A;
