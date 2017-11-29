@@ -3,6 +3,7 @@ get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(popconv SHARED
   codelets.cpp
+  popconvCycleEstimators.cpp
   Convolution.cpp
   ConvPlan.cpp
   ConvPlan.hpp

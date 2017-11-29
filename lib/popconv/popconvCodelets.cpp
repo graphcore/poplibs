@@ -129,7 +129,7 @@ public:
     for (unsigned i = 0; i != zeroWorklist.size() / 2; ++i) {
       tZeroWorkList.push_back(zeroWorklist[2 * i + 1]);
     }
-    const bool floatPartials = std::is_same<AccumType, float>::value;
+    constexpr bool floatPartials = std::is_same<AccumType, float>::value;
     uint64_t zeroCycles =
       getZeroSupervisorVertexCycleEstimate(tZeroWorkList,
                                            numOutGroups * numConvGroups,
@@ -148,7 +148,7 @@ public:
         }
       }
     }
-    const bool floatWeights = std::is_same<FPType, float>::value;
+    constexpr bool floatWeights = std::is_same<FPType, float>::value;
     return zeroCycles +
       getConvPartialnx1SupervisorCycleEstimate(workerPartitions,
                                                numConvGroups,

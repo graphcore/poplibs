@@ -62,7 +62,6 @@ getZeroSupervisorVertexCycleEstimate(const std::vector<unsigned> &worklist,
     uint64_t numVectors = (worklist[context] + vectorWidth - 1) / vectorWidth;
     maxWorkerCyclesZero = std::max(maxWorkerCyclesZero, numVectors + 4);
   }
-  unsigned nonLoopOverhead = useDeltasForEdges ? 6 : 4;
   uint64_t zeroCycles = ((maxWorkerCyclesZero * numGroups + useDeltasForEdges) *
                          numWorkerContexts + 12);
   return zeroCycles;

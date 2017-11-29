@@ -2092,8 +2092,6 @@ createConvPartialHorizontalMacVertex(Graph &graph,
     graph.connect(v["worklists"][i], t);
   }
   const auto zeroWorklist = createZeroWorklist(target, outWindow[0]);
-  for (unsigned i = 0; i != zeroWorklist.size(); ++i) {
-  }
   auto zeroWorklistTensor = graph.addConstant(UNSIGNED_INT,
                                               {zeroWorklist.size()},
                                               zeroWorklist.data());
