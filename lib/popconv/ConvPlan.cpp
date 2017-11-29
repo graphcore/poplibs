@@ -186,7 +186,92 @@ getConvPartialnx1CycleEstimate(unsigned convGroups,
                                unsigned numWorkerContexts,
                                bool floatWeights,
                                const std::vector<unsigned> &inputDilation,
-                               const std::vector<unsigned> &stride);
+                               const std::vector<unsigned> &stride)
+{
+  uint64_t cycles = 0;
+  auto kernelElements = std::accumulate(kernelShape.begin(),
+                                        kernelShape.end(), 1UL,
+                                        std::multiplies<std::size_t>());
+  std::vector<std::vector<PartialRow>> partition =
+      partitionConvPartialByWorker(batchElements, outShape,
+                                   numWorkerContexts, inputDilation,
+                                   stride);
+
+  unsigned numEdges = numInGroups + numOutGroups + numInGroups * numOutGroups;
+  // use conv nx1 vertex
+  std::vector<std::vector<std::vector<unsigned>>> workList;
+  unsigned positionsOuter =
+      (kernelShape[0] + filterHeight - 1) / filterHeight;
+  unsigned numKernelPositions =
+      (positionsOuter * kernelElements / kernelShape[0]);
+  const auto outStrideX = inputDilation.back() / gcd(inputDilation.back(),
+                                                     stride.back());
+  for (unsigned context = 0; context < numWorkerContexts; ++context) {
+    workList.emplace_back();
+    for (auto k = 0U; k != numKernelPositions; ++k) {
+      workList.back().emplace_back();
+      for (const auto &partialRow : partition[context]) {
+        const auto workerOutWidth = partialRow.xEnd - partialRow.xBegin;
+        auto numFieldPos = (workerOutWidth + outStrideX - 1) / outStrideX;
+        if (numFieldPos) {
+          workList.back().back().push_back(numFieldPos);
+        }
+      }
+    }
+  }
+  cycles = getConvPartialnx1SupervisorCycleEstimate(
+                      workList, convGroups, numOutGroups, numInGroups,
+                      numKernelPositions, filterHeight,
+                      inChansPerGroup, convUnitInputLoadElemsPerCycle,
+                      numConvUnitsPerTile,
+                      convUnitCoeffLoadBytesPerCycle,
+                      numWorkerContexts, floatWeights,
+                      useDeltaEdgesForConvPartials(numEdges));
+  return cycles;
+}
+
+static std::uint64_t
+getConvPartial1x1CycleEstimate(unsigned convGroups,
+                               unsigned batchElements,
+                               const std::vector<unsigned> &outShape,
+                               unsigned numInGroups,
+                               unsigned numOutGroups,
+                               unsigned inChansPerGroup,
+                               unsigned convUnitInputLoadElemsPerCycle,
+                               unsigned numConvUnitsPerTile,
+                               unsigned convUnitCoeffLoadBytesPerCycle,
+                               unsigned numWorkerContexts,
+                               bool floatWeights,
+                               const std::vector<unsigned> &inputDilation,
+                               const std::vector<unsigned> &stride)
+{
+  assert(inputDilation == stride);
+  uint64_t cycles = 0;
+  std::vector<std::vector<PartialRow>> partition =
+      partitionConvPartialByWorker(batchElements, outShape,
+                                   numWorkerContexts, inputDilation,
+                                   stride);
+
+  unsigned numEdges = numInGroups + numOutGroups + numInGroups * numOutGroups;
+  // use conv 1x1 vertex
+  std::vector<std::vector<unsigned>> worklist(numWorkerContexts);
+  for (unsigned context = 0; context != numWorkerContexts; ++context) {
+    for (const auto &partialRow : partition[context]) {
+      const auto workerOutWidth = partialRow.xEnd - partialRow.xBegin;
+      if (workerOutWidth == 0)
+        continue;
+      worklist[context].push_back(workerOutWidth);
+    }
+  }
+  cycles += getConvPartial1x1SupervisorCycleEstimate(
+                      worklist, convGroups, numInGroups, numOutGroups,
+                      convUnitInputLoadElemsPerCycle,
+                      numConvUnitsPerTile, convUnitCoeffLoadBytesPerCycle,
+                      numWorkerContexts, floatWeights,
+                      useDeltaEdgesForConvPartials(numEdges));
+  return cycles;
+}
+
 static std::uint64_t
 estimateConvPartialHorizontalMacCycles(unsigned tileNumConvGroups,
                                        unsigned tileNumInGroups,
@@ -203,11 +288,16 @@ estimateConvPartialHorizontalMacCycles(unsigned tileNumConvGroups,
 
 class PlanningCacheImpl {
 public:
+  decltype(memoize(getConvPartial1x1CycleEstimate))
+    mGetConvPartial1x1CycleEstimate;
   decltype(memoize(getConvPartialnx1CycleEstimate))
     mGetConvPartialnx1CycleEstimate;
   decltype(memoize(estimateConvPartialHorizontalMacCycles))
     mEstimateConvPartialHorizontalMacCycles;
   PlanningCacheImpl() :
+    mGetConvPartial1x1CycleEstimate(
+      memoize(getConvPartial1x1CycleEstimate)
+    ),
     mGetConvPartialnx1CycleEstimate(
       memoize(getConvPartialnx1CycleEstimate)
     ),
@@ -384,83 +474,6 @@ getMaxInputRangeSize(unsigned outputRangeSize, unsigned dim,
     inputRangeSize = (inputRangeSize - 1) / stride + 1;
   }
   return inputRangeSize;
-}
-
-static std::uint64_t
-getConvPartialnx1CycleEstimate(unsigned convGroups,
-                               unsigned batchElements,
-                               const std::vector<unsigned> &outShape,
-                               unsigned numInGroups,
-                               unsigned numOutGroups,
-                               const std::vector<unsigned> &kernelShape,
-                               unsigned filterHeight,
-                               unsigned inChansPerGroup,
-                               unsigned convUnitInputLoadElemsPerCycle,
-                               unsigned numConvUnitsPerTile,
-                               unsigned convUnitCoeffLoadBytesPerCycle,
-                               unsigned numWorkerContexts,
-                               bool floatWeights,
-                               const std::vector<unsigned> &inputDilation,
-                               const std::vector<unsigned> &stride)
-{
-  uint64_t cycles = 0;
-  auto kernelElements = std::accumulate(kernelShape.begin(),
-                                        kernelShape.end(), 1UL,
-                                        std::multiplies<std::size_t>());
-  std::vector<std::vector<PartialRow>> partition =
-      partitionConvPartialByWorker(batchElements, outShape,
-                                   numWorkerContexts, inputDilation,
-                                   stride);
-
-  unsigned numEdges = numInGroups + numOutGroups + numInGroups * numOutGroups;
-  if (kernelElements == 1 && filterHeight == 1 && inputDilation == stride) {
-    // use conv 1x1 vertex
-    std::vector<std::vector<unsigned>> worklist(numWorkerContexts);
-    for (unsigned context = 0; context != numWorkerContexts; ++context) {
-      for (const auto &partialRow : partition[context]) {
-        const auto workerOutWidth = partialRow.xEnd - partialRow.xBegin;
-        if (workerOutWidth == 0)
-          continue;
-        worklist[context].push_back(workerOutWidth);
-      }
-    }
-    cycles += getConvPartial1x1SupervisorCycleEstimate(
-                        worklist, convGroups, numInGroups, numOutGroups,
-                        convUnitInputLoadElemsPerCycle,
-                        numConvUnitsPerTile, convUnitCoeffLoadBytesPerCycle,
-                        numWorkerContexts, floatWeights,
-                        useDeltaEdgesForConvPartials(numEdges));
-  } else {
-    // use conv nx1 vertex
-    std::vector<std::vector<std::vector<unsigned>>> workList;
-    unsigned positionsOuter =
-        (kernelShape[0] + filterHeight - 1) / filterHeight;
-    unsigned numKernelPositions = (positionsOuter * kernelElements / kernelShape[0]);
-    const auto outStrideX = inputDilation.back() / gcd(inputDilation.back(),
-                                                       stride.back());
-    for (unsigned context = 0; context < numWorkerContexts; ++context) {
-      workList.emplace_back();
-      for (auto k = 0U; k != numKernelPositions; ++k) {
-        workList.back().emplace_back();
-        for (const auto &partialRow : partition[context]) {
-          const auto workerOutWidth = partialRow.xEnd - partialRow.xBegin;
-          auto numFieldPos = (workerOutWidth + outStrideX - 1) / outStrideX;
-          if (numFieldPos) {
-            workList.back().back().push_back(numFieldPos);
-          }
-        }
-      }
-    }
-    cycles = getConvPartialnx1SupervisorCycleEstimate(
-                        workList, convGroups, numOutGroups, numInGroups,
-                        numKernelPositions, filterHeight,
-                        inChansPerGroup, convUnitInputLoadElemsPerCycle,
-                        numConvUnitsPerTile,
-                        convUnitCoeffLoadBytesPerCycle,
-                        numWorkerContexts, floatWeights,
-                        useDeltaEdgesForConvPartials(numEdges));
-  }
-  return cycles;
 }
 
 static unsigned
@@ -656,6 +669,40 @@ estimateZeroCycles(const poplar::Target &target,
   return numCycles;
 }
 
+static bool
+canUseConvPartial1x1Vertex(const ConvParams &params,
+                           unsigned convUnitWeightHeight,
+                           const std::vector<unsigned> &tileKernelShape) {
+  if (convUnitWeightHeight != 1)
+    return false;
+  if (params.inputDilation != params.stride)
+    return false;
+  auto tileKernelElements = std::accumulate(tileKernelShape.begin(),
+                                        tileKernelShape.end(), 1UL,
+                                        std::multiplies<std::size_t>());
+  if (tileKernelElements != 1)
+    return false;
+  // We can only use the 1x1 vertex if every output value is written. It may be
+  // the case every output value is written on some tiles but not others - we
+  // return false in this case since we are interested in the worse case
+  // and we assume the nx1 vertex is always slower.
+  const auto numFieldDims = params.getNumFieldDims();
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    std::pair<unsigned, unsigned> outputRange = {
+      0,
+      params.getOutputSize(dim)
+    };
+    for (unsigned k = 0; k != params.kernelShape[dim]; ++k) {
+      const auto writtenOutputRange =
+          getOutputRange(dim, outputRange, k, params);
+      if (writtenOutputRange != outputRange) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 static unsigned
 estimatePartialCalcCycles(const poplar::Target &target,
                           bool floatActivations,
@@ -727,15 +774,27 @@ estimatePartialCalcCycles(const poplar::Target &target,
       assert(outChansPerGroup % numConvUnits == 0);
       const auto convUnitInputLoadElemsPerCycle =
           target.getConvUnitInputLoadElemsPerCycle(floatActivations);
-      computeCycles =
-          cache->mGetConvPartialnx1CycleEstimate(
-            tileNumGroupedConv, tileBatchElements, tileOutShape,
-            tileNumInGroups, tileNumOutGroups,
-            tileKernelShape, convUnitWeightHeight, inChansPerGroup,
-            convUnitInputLoadElemsPerCycle, numConvUnits,
-            target.getConvUnitCoeffLoadBytesPerCycle(),
-            target.getNumWorkerContexts(),
-            floatActivations, params.inputDilation, params.stride);
+      if (canUseConvPartial1x1Vertex(params, convUnitWeightHeight,
+                                     tileKernelShape)) {
+        computeCycles =
+            cache->mGetConvPartial1x1CycleEstimate(
+              tileNumGroupedConv, tileBatchElements, tileOutShape,
+              tileNumInGroups, tileNumOutGroups, inChansPerGroup,
+              convUnitInputLoadElemsPerCycle, numConvUnits,
+              target.getConvUnitCoeffLoadBytesPerCycle(),
+              target.getNumWorkerContexts(),
+              floatActivations, params.inputDilation, params.stride);
+      } else {
+        computeCycles =
+            cache->mGetConvPartialnx1CycleEstimate(
+              tileNumGroupedConv, tileBatchElements, tileOutShape,
+              tileNumInGroups, tileNumOutGroups,
+              tileKernelShape, convUnitWeightHeight, inChansPerGroup,
+              convUnitInputLoadElemsPerCycle, numConvUnits,
+              target.getConvUnitCoeffLoadBytesPerCycle(),
+              target.getNumWorkerContexts(),
+              floatActivations, params.inputDilation, params.stride);
+      }
     }
     break;
   case Plan::Method::MAC:
