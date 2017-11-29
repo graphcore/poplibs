@@ -429,8 +429,7 @@ getConvPartialnx1CycleEstimate(unsigned convGroups,
                         convUnitInputLoadElemsPerCycle,
                         numConvUnitsPerTile, convUnitCoeffLoadBytesPerCycle,
                         numWorkerContexts, floatWeights,
-                        useDeltaEdgesForConvPartials(numEdges))
-             * convGroups;
+                        useDeltaEdgesForConvPartials(numEdges));
   } else {
     // use conv nx1 vertex
     std::vector<std::vector<std::vector<unsigned>>> workList;
@@ -459,8 +458,7 @@ getConvPartialnx1CycleEstimate(unsigned convGroups,
                         numConvUnitsPerTile,
                         convUnitCoeffLoadBytesPerCycle,
                         numWorkerContexts, floatWeights,
-                        useDeltaEdgesForConvPartials(numEdges))
-             * convGroups;
+                        useDeltaEdgesForConvPartials(numEdges));
   }
   return cycles;
 }
