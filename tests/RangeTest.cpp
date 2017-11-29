@@ -124,7 +124,7 @@ getOutputDim(unsigned inDimY, unsigned inDimX,
                           1, 1,
                           stride, paddingLower, paddingUpper, {1, 1},
                           {0, 0}, {0, 0}, {1, 1});
-  return {params.getOutputHeight(), params.getOutputWidth()};
+  return {params.getOutputSize(0), params.getOutputSize(1)};
 }
 
 BOOST_AUTO_TEST_CASE(outputDimTest){

@@ -114,14 +114,10 @@ struct ConvParams {
                     other.numConvGroups);
   }
   std::size_t getOutputSize(unsigned dim) const;
-  std::size_t getOutputWidth() const;
-  std::size_t getOutputHeight() const;
   std::size_t getNumOutputChansPerConvGroup() const { return outputChannels;}
   std::size_t getNumOutputChans() const {
     return outputChannels * numConvGroups;
   }
-  std::size_t getInputWidth() const { return inputFieldShape[1]; }
-  std::size_t getInputHeight() const { return inputFieldShape[0]; }
   std::size_t getInputSize(unsigned dim) const { return inputFieldShape[dim]; }
   std::size_t getNumInputChansPerConvGroup() const { return inputChannels; }
   std::size_t getNumInputChans() const {

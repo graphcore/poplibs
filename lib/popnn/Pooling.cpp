@@ -119,8 +119,9 @@ static Tensor scaleGradient(Graph &graph,
                             const Tensor grad,
                             Sequence &prog,
                             const std::string &debugPrefix) {
-  const int inputHeight = params.getInputHeight();
-  const int inputWidth = params.getInputWidth();
+  assert(params.getNumFieldDims() == 2);
+  const int inputHeight = params.getInputSize(0);
+  const int inputWidth = params.getInputSize(1);
   const int paddingHeightL =  params.inputPaddingLower[0] ;
   const int paddingWidthL = params.inputPaddingLower[1];
   const int paddingHeightU =  params.inputPaddingUpper[0] ;
@@ -206,8 +207,9 @@ uint64_t getFwdFlops(unsigned batchSize,
                         inputPaddingUpper);
   auto params = makeConvParams(inputFieldShape, kernelShape, stride,
                                inputPaddingLower, inputPaddingUpper);
-  auto outDimY = params.getOutputHeight();
-  auto outDimX = params.getOutputWidth();
+  assert(params.getNumFieldDims() == 2);
+  auto outDimY = params.getOutputSize(0);
+  auto outDimX = params.getOutputSize(1);
   std::uint64_t numFlops = 0;
   for (unsigned y = 0; y < outDimY; ++y) {
     unsigned inYBegin, inYEnd;

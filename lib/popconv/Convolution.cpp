@@ -344,14 +344,6 @@ std::size_t ConvParams::getOutputSize(unsigned dim) const {
                  stride[dim] + 1;
 }
 
-std::size_t ConvParams::getOutputHeight() const {
-  return getOutputSize(0);
-}
-
-std::size_t ConvParams::getOutputWidth() const {
-  return getOutputSize(1);
-}
-
 std::vector<std::size_t> ConvParams::getOutputFieldShape() const {
   std::vector<std::size_t> outputFieldShape;
   for (auto dim = 0U; dim != inputFieldShape.size(); ++dim) {
