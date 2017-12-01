@@ -129,7 +129,7 @@ MAKE_CYCLE_ESTIMATOR(Zero, vertex, target) {
   return cycles;
 }
 
-MAKE_CYCLE_ESTIMATOR(Zero2D, vertex, target) {
+MAKE_CYCLE_ESTIMATOR(Zero2d, vertex, target) {
   const auto dst = vertex.getFieldInfo("out");
   // These are not valid for integer and boolean casts
   const auto floatVectorWidth = target.getDataPathWidth() / 32;
@@ -148,7 +148,7 @@ MAKE_CYCLE_ESTIMATOR(Cast, vertex, target) {
   return (dst.size() + floatVectorWidth - 1) / floatVectorWidth + 5;
 }
 
-MAKE_CYCLE_ESTIMATOR(Cast2D, vertex, target) {
+MAKE_CYCLE_ESTIMATOR(Cast2d, vertex, target) {
   const auto floatVectorWidth = target.getDataPathWidth() / 32;
   std::uint64_t cycles = 5;
   const auto dst = vertex.getFieldInfo("dst");
@@ -1039,8 +1039,8 @@ poplibs::CycleEstimatorTable cyclesFunctionTable = {
   TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Zero, int),
   TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Zero, unsigned int),
 
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Zero2D, float),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Zero2D, half),
+  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Zero2d, float),
+  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Zero2d, half),
 
   TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast, float, float),
   TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast, float, half),
@@ -1063,25 +1063,25 @@ poplibs::CycleEstimatorTable cyclesFunctionTable = {
   TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast, bool,int),
   TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast, bool,bool),
 
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2D, float, float),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2D, float, half),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2D, float, int),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2D, float, bool),
+  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, float, float),
+  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, float, half),
+  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, float, int),
+  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, float, bool),
 
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2D, half, float),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2D, half, half),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2D, half, int),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2D, half, bool),
+  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, half, float),
+  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, half, half),
+  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, half, int),
+  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, half, bool),
 
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2D, int,float),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2D, int,half),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2D, int,int),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2D, int,bool),
+  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, int,float),
+  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, int,half),
+  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, int,int),
+  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, int,bool),
 
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2D, bool,float),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2D, bool,half),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2D, bool,int),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2D, bool,bool),
+  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, bool,float),
+  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, bool,half),
+  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, bool,int),
+  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, bool,bool),
 
   TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Absolute, float),
   TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Absolute, half),

@@ -33,7 +33,7 @@ zero(poplar::Graph &graph,
       auto out = concat(tFlat.slices(region));
       graph.connect(v["out"], out);
     } else {
-      v = graph.addVertex(zeroCS, templateVertex("popstd::Zero2D", dType));
+      v = graph.addVertex(zeroCS, templateVertex("popstd::Zero2d", dType));
       auto out = tFlat.slices(regions);
       graph.connect(v["out"], out);
     }

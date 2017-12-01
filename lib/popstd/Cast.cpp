@@ -68,7 +68,7 @@ cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
         graph.connect(v["src"], concat(src.slices(region)));
         graph.connect(v["dst"], concat(dst.slices(region)));
       } else {
-        v = graph.addVertex(cs, templateVertex("popstd::Cast2D", srcType,
+        v = graph.addVertex(cs, templateVertex("popstd::Cast2d", srcType,
                                                dstType));
         graph.connect(v["src"], src.slices(regions));
         graph.connect(v["dst"], dst.slices(regions));

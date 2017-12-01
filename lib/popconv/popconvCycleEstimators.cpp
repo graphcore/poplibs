@@ -269,7 +269,7 @@ MAKE_CYCLE_ESTIMATOR(WgdConvComplete, vertex, target) {
 }
 
 template <typename T>
-MAKE_CYCLE_ESTIMATOR(Transpose2D, vertex, target) {
+MAKE_CYCLE_ESTIMATOR(Transpose2d, vertex, target) {
   CODELET_FIELD(src);
   CODELET_FIELD(dst);
   CODELET_SCALAR_VAL(numSrcColumns, unsigned);
@@ -501,8 +501,8 @@ poplibs::CycleEstimatorTable cyclesFunctionTable = {
   TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, AddToChannel, float),
   TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, AddToChannel, half),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, Transpose2D, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, Transpose2D, half),
+  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, Transpose2d, float),
+  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, Transpose2d, half),
 
   TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, WgdConvComplete, float),
   TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, WgdConvComplete, half),

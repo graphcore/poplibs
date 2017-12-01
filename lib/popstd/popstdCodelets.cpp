@@ -198,7 +198,7 @@ template class Zero<int>;
 template class Zero<unsigned>;
 
 template <typename FPType>
-class Zero2D : public Vertex {
+class Zero2d : public Vertex {
 public:
   Vector<Output<Vector<FPType>>> out;
 
@@ -228,8 +228,8 @@ public:
   }
 };
 
-template class Zero2D<float>;
-template class Zero2D<half>;
+template class Zero2d<float>;
+template class Zero2d<half>;
 
 
 template <typename SrcType, typename DstType>
@@ -274,7 +274,7 @@ template class Cast<bool,int>;
 template class Cast<bool,bool>;
 
 template <typename SrcType, typename DstType>
-class Cast2D : public Vertex {
+class Cast2d : public Vertex {
 public:
   Vector<Input<Vector<SrcType>>> src;
   Vector<Output<Vector<DstType>>> dst;
@@ -310,25 +310,25 @@ public:
   }
 };
 
-template class Cast2D<float, float>;
-template class Cast2D<float, half>;
-template class Cast2D<float, int>;
-template class Cast2D<float, bool>;
+template class Cast2d<float, float>;
+template class Cast2d<float, half>;
+template class Cast2d<float, int>;
+template class Cast2d<float, bool>;
 
-template class Cast2D<half, float>;
-template class Cast2D<half, half>;
-template class Cast2D<half, int>;
-template class Cast2D<half, bool>;
+template class Cast2d<half, float>;
+template class Cast2d<half, half>;
+template class Cast2d<half, int>;
+template class Cast2d<half, bool>;
 
-template class Cast2D<int,float>;
-template class Cast2D<int,half>;
-template class Cast2D<int,int>;
-template class Cast2D<int,bool>;
+template class Cast2d<int,float>;
+template class Cast2d<int,half>;
+template class Cast2d<int,int>;
+template class Cast2d<int,bool>;
 
-template class Cast2D<bool,float>;
-template class Cast2D<bool,half>;
-template class Cast2D<bool,int>;
-template class Cast2D<bool,bool>;
+template class Cast2d<bool,float>;
+template class Cast2d<bool,half>;
+template class Cast2d<bool,int>;
+template class Cast2d<bool,bool>;
 
 
 template <typename InType>

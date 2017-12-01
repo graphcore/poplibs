@@ -965,7 +965,7 @@ template class WgdConvComplete<float>;
 template class WgdConvComplete<half>;
 
 template <typename T>
-class Transpose2D : public Vertex {
+class Transpose2d : public Vertex {
 public:
   Vector<Input<Vector<T>>> src;
   Vector<Output<Vector<T>>> dst;
@@ -1026,8 +1026,8 @@ public:
   }
 };
 
-template class Transpose2D<float>;
-template class Transpose2D<half>;
+template class Transpose2d<float>;
+template class Transpose2d<half>;
 
 template <class FPType>
 class AddToChannel : public Vertex {

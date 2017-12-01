@@ -2824,7 +2824,7 @@ static Tensor weightsPartialTranspose(Graph &graph, Tensor in, ComputeSet cs) {
         splitRegionsBetweenWorkers(target, transpositionMapping[tile], 1);
     for (const auto &entry : perWorkerTranspositions) {
       const auto v =
-          graph.addVertex(cs, templateVertex("popconv::Transpose2D", dType));
+          graph.addVertex(cs, templateVertex("popconv::Transpose2d", dType));
       graph.setInitialValue(v["numSrcColumns"],
                             static_cast<unsigned>(numSrcColumns));
       graph.setTileMapping(v, tile);
@@ -3415,7 +3415,7 @@ fullyConnectedWeightTranspose(Graph &graph,
       // Create a vertex.
       const auto v =
           graph.addVertex(transposeCS,
-                          templateVertex("popconv::Transpose2D", dType));
+                          templateVertex("popconv::Transpose2d", dType));
       graph.setTileMapping(v, tile);
       graph.setInitialValue(v["numSrcColumns"],
                             static_cast<unsigned>(fwdGroupSize));
