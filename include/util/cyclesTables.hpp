@@ -66,6 +66,14 @@ namespace poplibs {
 using CycleEstimatorTable = std::vector<
   std::pair<std::string, poplar::CycleEstimateFunc>>;
 
-} // end namespace popstd
+inline void registerCyclesFunctions(poplar::Graph& graph,
+                             const CycleEstimatorTable& table) {
+  for (auto& kv : table) {
+    graph.registerCycleEstimator(kv.first,
+                                 poplar::CycleEstimateFunc(kv.second));
+  }
+}
+
+} // end namespace poplibs
 
 #endif
