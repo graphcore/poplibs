@@ -1899,10 +1899,8 @@ createConvPartialHorizontalMacVertex(Graph &graph,
   const auto inChansPerGroup = plan.inChansPerGroup;
   const auto outChansPerGroup = plan.partialChansPerGroup;
 
-  const auto kernelXBegin = 0U;
-  const auto kernelXEnd = weights.dim(weights.rank() - 3);
-  assert(kernelXBegin == slice.kernelBegin.back());
-  assert(kernelXEnd == slice.kernelEnd.back());
+  const auto kernelXBegin = slice.kernelBegin.back();
+  const auto kernelXEnd = slice.kernelEnd.back();
 
   bool flipOut = params.getPaddedDilatedKernelSize(xDimIndex) >
                  params.getPaddedDilatedInputSize(xDimIndex);
