@@ -3,6 +3,7 @@ get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(popreduce SHARED
   codelets.cpp
+  popreduceCycleEstimators.cpp
   Reduce.cpp
   PerformanceEstimation.hpp
   ${CMAKE_SOURCE_DIR}/include/popreduce/codelets.hpp

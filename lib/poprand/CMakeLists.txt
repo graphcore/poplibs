@@ -4,6 +4,7 @@ get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 add_library(poprand SHARED
   codelets.cpp
   RandomGen.cpp
+  poprandCycleEstimators.cpp
   ${CMAKE_SOURCE_DIR}/include/poprand/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/poprand/RandomGen.hpp
 )

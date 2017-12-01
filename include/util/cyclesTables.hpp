@@ -61,6 +61,18 @@ std::uint64_t  MAKE_CYCLE_ESTIMATOR_NAME(codelet) CYCLES_PARAMS(v,t)
   std::make_pair(#ns"::"#codelet, \
   MAKE_CYCLE_ESTIMATOR_NAME(codelet))
 
+// These macros reduce boiler plate code when accessing
+// the codelet fields in cycle estimators:
+#define CODELET_FIELD(field) \
+  const auto field = vertex.getFieldInfo(#field)
+#define CODELET_SCALAR_VAL(field, type) \
+  const auto field = vertex.getFieldInfo(#field).getInitialValue<type>(target);
+#define CODELET_VECTOR_VALS(field, type) \
+  const auto field = vertex.getFieldInfo(#field).getInitialValues<type>(target);
+#define CODELET_VECTOR_2D_VALS(field, type) \
+  const auto field = vertex.getFieldInfo(#field) \
+    .getInitialValues<std::vector<type>>(target);
+
 namespace poplibs {
 
 using CycleEstimatorTable = std::vector<

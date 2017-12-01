@@ -1,20 +1,10 @@
-#include <poplar/HalfFloat.hpp>
 #include "popconvCycleEstimators.hpp"
+#include <poplar/HalfFloat.hpp>
 #include "PerformanceEstimation.hpp"
 
 using namespace poplar;
 
 namespace popconv {
-
-#define CODELET_FIELD(field, type) \
-  const auto field = vertex.getFieldInfo(#field)
-#define CODELET_SCALAR_VAL(field, type) \
-  const auto field = vertex.getFieldInfo(#field).getInitialValue<type>(target);
-#define CODELET_VECTOR_VALS(field, type) \
-  const auto field = vertex.getFieldInfo(#field).getInitialValues<type>(target);
-#define CODELET_VECTOR_2D_VALS(field, type) \
-  const auto field = vertex.getFieldInfo(#field) \
-    .getInitialValues<std::vector<type>>(target);
 
 template <class FPType, class AccumType, bool useDeltasForEdges>
 MAKE_CYCLE_ESTIMATOR(ConvPartialnx1, vertex, target) {
@@ -82,7 +72,7 @@ MAKE_CYCLE_ESTIMATOR(ConvPartialnx1, vertex, target) {
 
 template <class FPType>
 MAKE_CYCLE_ESTIMATOR(ConvChanReduce2, vertex, target) {
-  CODELET_FIELD(out, FPType);
+  CODELET_FIELD(out);
   CODELET_VECTOR_VALS(numInputsPerOutput, unsigned);
   auto numBiases = out.size();
   uint64_t cycles = 10;
@@ -95,7 +85,7 @@ MAKE_CYCLE_ESTIMATOR(ConvChanReduce2, vertex, target) {
 
 template <typename InType, typename OutType>
 MAKE_CYCLE_ESTIMATOR(ConvChanReduceAcc, vertex, target) {
-  CODELET_FIELD(in, InType);
+  CODELET_FIELD(in);
   return 15 + in.size();
 }
 
@@ -193,7 +183,7 @@ MAKE_CYCLE_ESTIMATOR(ConvPartialHorizontalMac, vertex, target) {
 template <class FPType, unsigned patchSizeX, unsigned patchSizeY,
           unsigned kernelX, unsigned kernelY>
 MAKE_CYCLE_ESTIMATOR(WgdDataTransform, vertex, target) {
-  CODELET_FIELD(dIn, FPType);
+  CODELET_FIELD(dIn);
 
   constexpr bool isFloat = std::is_same<FPType, float>::value;
   const unsigned numInpRows = patchSizeX;
@@ -206,9 +196,9 @@ MAKE_CYCLE_ESTIMATOR(WgdDataTransform, vertex, target) {
 
 template <class FPType>
 MAKE_CYCLE_ESTIMATOR(WgdPartials, vertex, target) {
-  CODELET_FIELD(dTf, FPType);
-  CODELET_FIELD(wTf, FPType);
-  CODELET_FIELD(partials, FPType);
+  CODELET_FIELD(dTf);
+  CODELET_FIELD(wTf);
+  CODELET_FIELD(partials);
   CODELET_SCALAR_VAL(numConvUnits, unsigned);
   CODELET_SCALAR_VAL(weightsPerConvUnit, unsigned);
   CODELET_SCALAR_VAL(convUnitCoeffLoadBytesPerCycle, unsigned);
@@ -234,8 +224,8 @@ MAKE_CYCLE_ESTIMATOR(WgdPartials, vertex, target) {
 
 template <class FPType, unsigned patchSizeX, unsigned patchSizeY>
 MAKE_CYCLE_ESTIMATOR(WgdReduce, vertex, target) {
-  CODELET_FIELD(inPartial, FPType);
-  CODELET_FIELD(outPartial, FPType);
+  CODELET_FIELD(inPartial);
+  CODELET_FIELD(outPartial);
 
   constexpr bool isFloat = std::is_same<FPType, float>::value;
 
@@ -253,8 +243,8 @@ MAKE_CYCLE_ESTIMATOR(WgdReduce, vertex, target) {
 template <class FPType, unsigned patchSizeX, unsigned patchSizeY,
           unsigned kernelX, unsigned kernelY>
 MAKE_CYCLE_ESTIMATOR(WgdInverseTransform, vertex, target) {
-  CODELET_FIELD(dTf, FPType);
-  CODELET_FIELD(dOut, FPType);
+  CODELET_FIELD(dTf);
+  CODELET_FIELD(dOut);
 
   constexpr bool isFloat = std::is_same<FPType, float>::value;
   const unsigned numInCols = patchSizeY;
@@ -268,7 +258,7 @@ MAKE_CYCLE_ESTIMATOR(WgdInverseTransform, vertex, target) {
 
 template <class FPType>
 MAKE_CYCLE_ESTIMATOR(WgdConvComplete, vertex, target) {
-  CODELET_FIELD(dIn, FPType);
+  CODELET_FIELD(dIn);
 
   constexpr bool isFloat = std::is_same<FPType, float>::value;
   const unsigned nGroups = dIn.size();
@@ -280,8 +270,8 @@ MAKE_CYCLE_ESTIMATOR(WgdConvComplete, vertex, target) {
 
 template <typename T>
 MAKE_CYCLE_ESTIMATOR(Transpose2D, vertex, target) {
-  CODELET_FIELD(src, T);
-  CODELET_FIELD(dst, T);
+  CODELET_FIELD(src);
+  CODELET_FIELD(dst);
   CODELET_SCALAR_VAL(numSrcColumns, unsigned);
 
   constexpr bool isFloat = std::is_same<T, float>::value;
@@ -320,8 +310,8 @@ MAKE_CYCLE_ESTIMATOR(Transpose2D, vertex, target) {
 
 template <typename FPType>
 MAKE_CYCLE_ESTIMATOR(AddToChannel, vertex, target) {
-  CODELET_FIELD(acts, FPType);
-  CODELET_FIELD(addend, FPType);
+  CODELET_FIELD(acts);
+  CODELET_FIELD(addend);
   const auto dataPathWidth = target.getDataPathWidth();
 
   constexpr bool isFloat = std::is_same<FPType, float>::value;
@@ -342,8 +332,8 @@ MAKE_CYCLE_ESTIMATOR(AddToChannel, vertex, target) {
 
 template <typename FPType>
 MAKE_CYCLE_ESTIMATOR(ScaledAddToChannel, vertex, target) {
-  CODELET_FIELD(acts, FPType);
-  CODELET_FIELD(addend, FPType);
+  CODELET_FIELD(acts);
+  CODELET_FIELD(addend);
   const auto dataPathWidth = target.getDataPathWidth();
 
   constexpr bool isFloat = std::is_same<FPType, float>::value;
@@ -364,9 +354,9 @@ MAKE_CYCLE_ESTIMATOR(ScaledAddToChannel, vertex, target) {
 
 template <typename FPType>
 MAKE_CYCLE_ESTIMATOR(ChannelMul, vertex, target) {
-  CODELET_FIELD(actsIn, FPType);
-  CODELET_FIELD(actsOut, FPType);
-  CODELET_FIELD(scale, FPType);
+  CODELET_FIELD(actsIn);
+  CODELET_FIELD(actsOut);
+  CODELET_FIELD(scale);
   const auto dataPathWidth = target.getDataPathWidth();
 
   constexpr bool isFloat = std::is_same<FPType, float>::value;
@@ -388,8 +378,8 @@ MAKE_CYCLE_ESTIMATOR(ChannelMul, vertex, target) {
 
 template <typename InType, typename OutType>
 MAKE_CYCLE_ESTIMATOR(ConvChanReduce, vertex, target) {
-  CODELET_FIELD(out, OutType);
-  CODELET_FIELD(in, InType);
+  CODELET_FIELD(out);
+  CODELET_FIELD(in);
   CODELET_SCALAR_VAL(useDoubleDataPathInstr, bool);
   const auto dataPathWidth = target.getDataPathWidth();
 
@@ -413,8 +403,8 @@ MAKE_CYCLE_ESTIMATOR(ConvChanReduce, vertex, target) {
 
 template <typename InType, typename OutType>
 MAKE_CYCLE_ESTIMATOR(ConvChanReduceSquare, vertex, target) {
-  CODELET_FIELD(out, OutType);
-  CODELET_FIELD(in, InType);
+  CODELET_FIELD(out);
+  CODELET_FIELD(in);
   CODELET_SCALAR_VAL(useDoubleDataPathInstr, bool);
   const auto dataPathWidth = target.getDataPathWidth();
 
@@ -438,13 +428,13 @@ MAKE_CYCLE_ESTIMATOR(ConvChanReduceSquare, vertex, target) {
 
 template <typename InType, typename OutType>
 MAKE_CYCLE_ESTIMATOR(ConvChanReduceAndScale, vertex, target) {
-  CODELET_FIELD(in, InType);
+  CODELET_FIELD(in);
   return 15 + in.size();
 }
 
 template <class MeanType, class PowerType, class OutType>
 MAKE_CYCLE_ESTIMATOR(InverseStdDeviation, vertex, target) {
-  CODELET_FIELD(mean, MeanType);
+  CODELET_FIELD(mean);
   const auto dataPathWidth = target.getDataPathWidth();
 
   uint64_t cycles = 6;
@@ -463,9 +453,9 @@ MAKE_CYCLE_ESTIMATOR(InverseStdDeviation, vertex, target) {
 
 template <class T>
 MAKE_CYCLE_ESTIMATOR(OuterProduct, vertex, target) {
-  CODELET_FIELD(in, T);
-  CODELET_FIELD(weights, T);
-  CODELET_FIELD(out, T);
+  CODELET_FIELD(in);
+  CODELET_FIELD(weights);
+  CODELET_FIELD(out);
   const auto dataPathWidth = target.getDataPathWidth();
 
   constexpr bool isFloat = std::is_same<T, float>::value;
