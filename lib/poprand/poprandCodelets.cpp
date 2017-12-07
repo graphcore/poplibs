@@ -2,7 +2,6 @@
 #include <poplar/HalfFloat.hpp>
 #include <array>
 #include <algorithm>
-#include <iostream>
 #include <cmath>
 
 using namespace poplar;
@@ -154,27 +153,6 @@ public:
     vSeedH[1] = static_cast<uint32_t>(s[1] >> 32);
     return true;
   }
-
-  uint64_t getCycleEstimate() const {
-    uint64_t cycles = 7;  // overhead + broadcast offset
-    if (saveRestoreSeed) {
-      cycles += 5;        // to set up seeds in CSR
-      cycles += WARMUP_ITERATIONS;
-    }
-    bool isFloat = std::is_same<OutType, float>::value;
-    unsigned vectorWidth =  dataPathWidth / (isFloat ? 32 : 16);
-
-    for (auto i = 0; i != out.size(); ++i) {
-      cycles += 3; // overhead to load pointers + rpt + brnzdec
-      // rand gen/convert/axpb
-      cycles += (out[i].size() + vectorWidth - 1) / vectorWidth * 3;
-    }
-    if ((saveRestoreSeed)) {
-      // save seeds
-      cycles += 6;
-    }
-    return cycles;
-  }
 };
 
 template class Uniform<float>;
@@ -232,23 +210,6 @@ public:
     vSeedH[1] = static_cast<uint32_t>(s[1] >> 32);
     return true;
   }
-
-  uint64_t getCycleEstimate() const {
-    uint64_t cycles = 5;  // overhead + broadcast offset
-    if (saveRestoreSeed) {
-      cycles += 5;        // to set up seeds in CSR
-      cycles += WARMUP_ITERATIONS;
-    }
-    for (auto i = 0; i != out.size(); ++i) {
-      // use modulo instruction
-      cycles += out[i].size() * 23;
-    }
-    if ((saveRestoreSeed)) {
-      // save seeds
-      cycles += 6;
-    }
-    return cycles;
-  }
 };
 
 
@@ -298,29 +259,6 @@ public:
     vSeedH[1] = static_cast<uint32_t>(s[1] >> 32);
     return true;
   }
-
-  uint64_t getCycleEstimate() const {
-    uint64_t cycles = 7;  // overhead to form and broadcast 1.0. float/int
-                          // should take less
-    if (saveRestoreSeed) {
-      cycles += 5;          // to set up seeds in CSR
-      cycles += WARMUP_ITERATIONS;
-    }
-    bool isFloat = std::is_same<OutType, float>::value;
-    unsigned vectorWidth =  dataPathWidth / (isFloat ? 32 : 16);
-
-    for (auto i = 0; i != out.size(); ++i) {
-      cycles += 3; // overhead to load pointers + rpt + brnzdec
-      // use f16v4rmask for half and f32v2mask for int/float + store64
-      // assumption that rmask ignores NaNs (as it seems from archman)
-      cycles += (out[i].size() + vectorWidth - 1) / vectorWidth * 1;
-    }
-    if (saveRestoreSeed) {
-      // save seeds
-      cycles += 6;
-    }
-    return cycles;
-  }
 };
 
 template class Bernoulli<float>;
@@ -369,28 +307,6 @@ public:
     vSeedH[1] = static_cast<uint32_t>(s[1] >> 32);
     return true;
   }
-
-  uint64_t getCycleEstimate() const {
-    uint64_t cycles = 7;  // overhead to store stdDev into CSR. broadcast mean
-    if (saveRestoreSeed) {
-      cycles += 5;        // to set up seeds in CSR
-      cycles += WARMUP_ITERATIONS;
-    }
-    bool isFloat = std::is_same<OutType, float>::value;
-    unsigned vectorWidth =  dataPathWidth / (isFloat ? 32 : 16);
-
-    for (auto i = 0; i != out.size(); ++i) {
-      cycles += 3; // overhead to load pointers + rpt + brnzdec
-      // use f16v4grand for half and f32v2grand for int/float + store64
-      // and axpby
-      cycles += (out[i].size() + vectorWidth - 1) / vectorWidth * 2;
-    }
-    if (saveRestoreSeed) {
-      // save seeds
-      cycles += 6;
-    }
-    return cycles;
-  }
 };
 
 template class Normal<float>;
@@ -438,29 +354,6 @@ public:
     seedL = s[0];
     seedH = s[1];
     return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    uint64_t cycles = 8;  // overhead to store stdDev into CSR. broadcast mean
-                          // store constants in stack
-    if (saveRestoreSeed) {
-      cycles += 5;          // to set up seeds in CSR
-      cycles += WARMUP_ITERATIONS;
-    }
-    bool isFloat = std::is_same<OutType, float>::value;
-    unsigned vectorWidth =  dataPathWidth / (isFloat ? 32 : 16);
-
-    for (auto i = 0; i != out.size(); ++i) {
-      cycles += 3; // overhead to load pointer + brnzdec + init mask
-      // 6 cycles per iter + axpby + store + 5 (for triangular/uniform)
-      cycles += (out[i].size() + vectorWidth - 1)
-                / vectorWidth * ( 6 * iterations + 6);
-    }
-    if (saveRestoreSeed) {
-      // save seeds
-      cycles += 6;
-    }
-    return cycles;
   }
 };
 

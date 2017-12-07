@@ -1,4 +1,5 @@
 #include <poprand/codelets.hpp>
+#include "poprandCycleEstimators.hpp"
 #if defined(__linux__) || defined(__APPLE__)
 #include <dlfcn.h>
 #endif
@@ -34,6 +35,7 @@ static std::string findGraphProg() {
 
 void addCodelets(poplar::Graph &graph) {
   graph.addCodelets(findGraphProg());
+  poplibs::registerCyclesFunctions(graph, poprand::cyclesFunctionTable);
 }
 
 } // namespace poprand

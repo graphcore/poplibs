@@ -1,12 +1,8 @@
 #include <poplar/Vertex.hpp>
 #include <poplar/HalfFloat.hpp>
-#include <iostream>
-#include <iomanip>
 #include <cassert>
 #include <cmath>
 #include <type_traits>
-#include <vector>
-#include "PerformanceEstimation.hpp"
 
 using namespace poplar;
 
@@ -120,50 +116,6 @@ public:
     }
     return true;
   }
-  std::uint64_t getCycleEstimate() const {
-    std::vector<std::vector<std::vector<unsigned>>> workerPartitions;
-    const auto kernelSize = kernelOuterSize * kernelInnerElements;
-    const auto usedContexts = worklists.size() / kernelSize;
-
-    std::vector<unsigned> tZeroWorkList;
-    for (unsigned i = 0; i != zeroWorklist.size() / 2; ++i) {
-      tZeroWorkList.push_back(zeroWorklist[2 * i + 1]);
-    }
-    constexpr bool floatPartials = std::is_same<AccumType, float>::value;
-    uint64_t zeroCycles =
-      getZeroSupervisorVertexCycleEstimate(tZeroWorkList,
-                                           numOutGroups * numConvGroups,
-                                           dataPathWidth,
-                                           numWorkerContexts,
-                                           floatPartials,
-                                           useDeltasForEdges);
-    for (unsigned context = 0; context < usedContexts; ++context) {
-      workerPartitions.emplace_back();
-      for (auto k = 0U; k != kernelSize; ++k) {
-        workerPartitions.back().emplace_back();
-        const auto &wl = worklists[k * usedContexts + context];
-        for (auto wi = 0U; wi < wl.size(); wi += 3) {
-          auto numFieldPos = (wl[wi + 1] + outStride - 1) / outStride;
-          workerPartitions.back().back().push_back(numFieldPos);
-        }
-      }
-    }
-    constexpr bool floatWeights = std::is_same<FPType, float>::value;
-    return zeroCycles +
-      getConvPartialnx1SupervisorCycleEstimate(workerPartitions,
-                                               numConvGroups,
-                                               numOutGroups,
-                                               numInGroups,
-                                               kernelSize,
-                                               ampKernelHeight,
-                                               inChansPerGroup,
-                                               convUnitInputLoadElemsPerCycle,
-                                               outChansPerGroup,
-                                               convUnitCoeffLoadBytesPerCycle,
-                                               numWorkerContexts,
-                                               floatWeights,
-                                               useDeltasForEdges);
-  }
 };
 
 template class ConvPartialnx1<float, float, true>;
@@ -192,16 +144,6 @@ public:
     }
     return true;
   }
-
-  uint64_t getCycleEstimate() const {
-    auto numBiases= out.size();
-    uint64_t cycles = 10;
-
-    for (unsigned bias = 0; bias < numBiases; ++bias) {
-      cycles += numInputsPerOutput[bias];
-    }
-    return cycles;
-  }
 };
 
 template class ConvChanReduce2<float>;
@@ -221,10 +163,6 @@ public:
     }
     *out += K * sum;
     return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    return 15 + in.size();
   }
 };
 
@@ -303,32 +241,6 @@ public:
       }
     }
     return true;
-  }
-  std::uint64_t getCycleEstimate() const {
-    // find max work to bt done per worker
-    std::vector<std::vector<unsigned>> workerPartitions;
-    const auto usedContexts = worklists.size();
-    for (unsigned context = 0; context != usedContexts; ++context) {
-      workerPartitions.emplace_back();
-      const auto &wl = worklists[context];
-      assert(wl.size() % 3 == 0);
-      for (unsigned wi = 0; wi != wl.size(); wi += 3) {
-        workerPartitions.back().push_back(wl[wi + 1]);
-      }
-    }
-    const bool floatWeights = std::is_same<FPType, float>::value;
-    return
-      getConvPartial1x1SupervisorCycleEstimate(workerPartitions,
-                                               numConvGroups,
-                                               numInGroups,
-                                               numOutGroups,
-                                               convUnitInputLoadElemsPerCycle,
-                                               outChansPerGroup,
-                                               convUnitCoeffLoadBytesPerCycle,
-                                               numWorkerContexts,
-                                               floatWeights,
-                                               useDeltasForEdges
-                                               );
   }
 };
 
@@ -425,46 +337,6 @@ public:
     }
     return true;
   }
-  std::uint64_t getCycleEstimate() const {
-    const bool floatActivations = std::is_same<FPType, float>::value;
-    std::vector<unsigned> tZeroWorkList;
-    for (unsigned i = 0; i != zeroWorklist.size() / 2; ++i) {
-      tZeroWorkList.push_back(zeroWorklist[2 * i + 1]);
-    }
-    const bool floatPartials = std::is_same<AccumType, float>::value;
-    uint64_t zeroCycles =
-      getZeroSupervisorVertexCycleEstimate(tZeroWorkList,
-                                           numOutGroups * numConvGroups,
-                                           dataPathWidth,
-                                           numWorkerContexts,
-                                           floatPartials,
-                                           false);
-
-    std::vector<std::vector<std::vector<unsigned>>> workerPartitions;
-    const auto usedContexts = worklists.size() / kernelSize;
-    for (unsigned context = 0; context < usedContexts; ++context) {
-      workerPartitions.emplace_back();
-      for (auto k = 0U; k != kernelSize; ++k) {
-        workerPartitions.back().emplace_back();
-        const auto &wl = worklists[k * usedContexts + context];
-        for (auto wi = 0U; wi < wl.size(); wi += 3) {
-          auto numFieldPos = (wl[wi + 1] + outStride - 1) / outStride;
-          workerPartitions.back().back().push_back(numFieldPos);
-        }
-      }
-    }
-    return zeroCycles +
-      getConvPartialHorizontalMacSupervisorCycleEstimate(
-          workerPartitions,
-          numConvGroups,
-          numInGroups,
-          numOutGroups,
-          kernelSize,
-          inChansPerGroup,
-          dataPathWidth,
-          numWorkerContexts,
-          floatActivations);
-  }
 };
 template class ConvPartialHorizontalMac<float, float>;
 template class ConvPartialHorizontalMac<half, float>;
@@ -546,16 +418,6 @@ public:
       }
     }
     return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    bool isFloat = std::is_same<FPType, float>::value;
-    const unsigned numInpRows = patchSizeX;
-    const unsigned numInpCols = patchSizeY;
-
-    const unsigned nPatches = dIn.size() / (numInpCols * numInpRows);
-
-    return getWgdDataTransformCycles(nPatches * dIn[0].size(), isFloat);
   }
 };
 
@@ -658,17 +520,6 @@ public:
     }
     return true;
   }
-
-
-  uint64_t getCycleEstimate() const {
-    bool isFloat = std::is_same<FPType, float>::value;
-    const unsigned numOutRows = patchSizeX;
-    const unsigned numOutCols = patchSizeY;
-
-    const unsigned nGroups = wTf.size() / (numOutCols * numOutRows);
-
-    return getWgdInvTransformCycles(wIn[0].size() * nGroups, isFloat);
-  }
 };
 
 template class WgdKernelTransform<float, 4, 4, 3, 3>;
@@ -733,26 +584,6 @@ public:
     }
     return true;
   }
-
-  uint64_t getCycleEstimate() const {
-    bool isFloat = std::is_same<FPType, float>::value;
-    const unsigned outChanDepth = partials[0].size();
-    const unsigned inpChanDepth = dTf[0].size();
-    const unsigned comPencils = partials.size();
-    const unsigned numInpGroups = wTf.size();
-
-
-    return getWgdAccumCycles(
-                      numInpGroups,
-                      comPencils,
-                      inpChanDepth,
-                      outChanDepth,
-                      numWorkers,
-                      numConvUnits,
-                      weightsPerConvUnit,
-                      convUnitCoeffLoadBytesPerCycle,
-                      isFloat);
-  }
 };
 
 template class WgdPartials<float>;
@@ -801,22 +632,6 @@ public:
       }
     }
     return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    bool isFloat = std::is_same<FPType, float>::value;
-    const unsigned numOutCols = patchSizeY;
-    const unsigned numOutRows = patchSizeX;
-
-    const unsigned numElems = outPartial.size();
-    const unsigned numOutChans = outPartial[0].size();
-    const unsigned numInpChans = inPartial.size() / numElems;
-
-    return getWgdReduceCycles(
-                   numElems * numOutChans,
-                   numInpChans,
-                   isFloat
-                   );
   }
 };
 
@@ -910,17 +725,6 @@ public:
     }
     return true;
   }
-
-  uint64_t getCycleEstimate() const {
-    bool isFloat = std::is_same<FPType, float>::value;
-    const unsigned numInCols = patchSizeY;
-    const unsigned numInRows = patchSizeX;
-
-    const unsigned nGroups = dTf.size() / (numInCols * numInRows);
-    const unsigned depthDim = dOut[0].size();
-
-    return getWgdInvTransformCycles(nGroups * depthDim, isFloat);
-  }
 };
 
 template class WgdInverseTransform<float, 4, 4, 3, 3>;
@@ -949,15 +753,6 @@ public:
       }
     }
     return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    bool isFloat = std::is_same<FPType, float>::value;
-    const unsigned nGroups = dIn.size();
-    const unsigned vecLen = dIn[0].size();
-    return getWgdCompleteCycles(
-                               vecLen * nGroups,
-                               isFloat);
   }
 };
 
@@ -989,41 +784,6 @@ public:
     }
     return true;
   }
-
-  std::uint64_t getCycleEstimate() const {
-    bool isFloat = std::is_same<T, float>::value;
-    std::uint64_t cycles = 2; // Run instruction.
-    if (isFloat)
-      cycles += 6;  // Vertex overhead.
-    else
-      cycles += 7;
-    const auto numTranspositions = src.size();
-    for (unsigned i = 0; i != numTranspositions; ++i) {
-      const auto numElements = src[i].size();
-      cycles += 2; // Load src and dst pointers.
-      if (isFloat) {
-        cycles += 1; // 1 cycle latency before first value is written to memory.
-        cycles += numElements;
-      } else {
-        // Cycle count based on the transpose16x16 microbenchmark which takes
-        // 75 cycles per 16x16 block, reading each 4xn in turn. Any nx4 block
-        // where n is 1 or even will have a similar cost until the offset
-        // between rows exceeds the allowable triple addressing offset
-        assert(numElements % numSrcColumns == 0);
-        if (numSrcColumns % 4 == 0 && numElements % 16 == 0) {
-          const auto num4x4Blocks = numElements / (4 * 4);
-          cycles += 11 + num4x4Blocks * 4;
-        } else {
-          // Cycle count taken from transpose16x8 microbenchmark.
-          const auto numSrcRows = numElements / numSrcColumns;
-          const auto middleIterations = (numSrcColumns + 3) / 4;
-          const auto innerIterations = (numSrcRows + 1) / 2;
-          cycles += 3 + middleIterations * (3 + innerIterations * 6);
-        }
-      }
-    }
-    return cycles;
-  }
 };
 
 template class Transpose2d<float>;
@@ -1051,23 +811,6 @@ public:
       }
     }
     return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    bool isFloat = std::is_same<FPType, float>::value;
-    const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    unsigned n = acts.size();
-    unsigned numCycles = 5;
-    for (unsigned i = 0; i != n; ++i) {
-      unsigned chansPerGroup = addend[i].size();
-      assert(acts[i].size() % chansPerGroup == 0);
-      unsigned len = acts[i].size() / chansPerGroup;
-      numCycles += 2; // Load bias and act pointers.
-      numCycles += 1; // Warmup.
-      // Add biases to acts using add + dual load + store.
-      numCycles += (len * chansPerGroup + vectorWidth - 1) / vectorWidth;
-    }
-    return numCycles;
   }
 };
 
@@ -1097,23 +840,6 @@ public:
       }
     }
     return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    bool isFloat = std::is_same<FPType, float>::value;
-    const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    unsigned n = acts.size();
-    unsigned numCycles = 6;
-    for (unsigned i = 0; i != n; ++i) {
-      unsigned chansPerGroup = addend[i].size();
-      assert(acts[i].size() % chansPerGroup == 0);
-      unsigned len = acts[i].size() / chansPerGroup;
-      numCycles += 2; // Load addend and act pointers.
-      numCycles += 1; // Warmup.
-      // Add addend to acts using axpby + dual load + store.
-      numCycles += (len * chansPerGroup + vectorWidth - 1) / vectorWidth;
-    }
-    return numCycles;
   }
 };
 
@@ -1147,24 +873,6 @@ public:
     }
     return true;
   }
-
-  uint64_t getCycleEstimate() const {
-    bool isFloat = std::is_same<FPType, float>::value;
-    const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    unsigned n = actsIn.size();
-    unsigned numCycles = 5;
-    for (unsigned i = 0; i != n; ++i) {
-      unsigned chansPerGroup = scale[i].size();
-      assert(actsIn[i].size() % chansPerGroup == 0);
-      assert(actsOut[i].size() % chansPerGroup == 0);
-      unsigned len = actsIn[i].size() / chansPerGroup;
-      numCycles += 3; // Load scale and act pointers.
-      numCycles += 1; // Warmup.
-      // multiply scale by acts using mul + dual load + store.
-      numCycles += (len * chansPerGroup + vectorWidth - 1) / vectorWidth;
-    }
-    return numCycles;
-  }
 };
 
 template class ChannelMul<float>;
@@ -1194,25 +902,6 @@ public:
       out[est] = s;
     }
     return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    bool isFloat = std::is_same<InType, float>::value;
-    // factor of 2 for instructions that allow double the datapath width
-    unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    if (useDoubleDataPathInstr) {
-      vectorWidth *= 2;
-    }
-    unsigned numVectors = (out.size() + vectorWidth - 1) / vectorWidth;
-
-    uint64_t cycles = 11; // overhead from benchmark including 2 cycles for run
-    cycles += 7 * numVectors;
-    for (unsigned d = 0; d < in.size(); d++) {
-      cycles += 5;
-      auto samplesPerEst = in[d].size() / out.size();
-      cycles += numVectors * (3 + samplesPerEst);
-    }
-    return cycles;
   }
 };
 
@@ -1245,24 +934,6 @@ public:
     }
     return true;
   }
-  uint64_t getCycleEstimate() const {
-    bool isFloat = std::is_same<InType, float>::value;
-    // factor of 2 for instructions that allow double the datapath width
-    unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    if (useDoubleDataPathInstr) {
-      vectorWidth *= 2;
-    }
-    unsigned numVectors = (out.size() + vectorWidth - 1) / vectorWidth;
-
-    uint64_t cycles = 11; // overhead from benchmark including 2 cycles for run
-    cycles += 7 * numVectors;
-    for (unsigned d = 0; d < in.size(); d++) {
-      cycles += 5;
-      auto samplesPerEst = in[d].size() / out.size();
-      cycles += numVectors * (3 + samplesPerEst);
-    }
-    return cycles;
-  }
 };
 
 template class ConvChanReduceSquare<float, float>;
@@ -1283,10 +954,6 @@ public:
     float m = K * sumTotal;
     *out = m;
     return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    return 15 + in.size();
   }
 };
 
@@ -1316,21 +983,6 @@ public:
       }
     }
     return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    uint64_t cycles = 6;
-    for (unsigned i = 0; i < mean.size(); ++i) {
-      unsigned numElem = mean[i].size();
-      // always use float as we want float intermediates
-      unsigned vectorWidth = dataPathWidth / 32;
-      // mul, add, sub done as vectors of vectorWidth.
-      // invsqrt is scalar
-      unsigned cyclesPerVector = 3 + 1 * vectorWidth;
-      unsigned numVectors = (numElem + vectorWidth - 1) / vectorWidth;
-      cycles += 4 + cyclesPerVector * numVectors;
-    }
-    return cycles;
   }
 };
 
@@ -1364,16 +1016,6 @@ public:
       }
     }
     return true;
-  }
-  std::uint64_t getCycleEstimate() const {
-    bool isFloat = std::is_same<T, float>::value;
-    const auto width = in.size();
-    const auto numChans = weights.size();
-    const auto numChanGroups = out.size();
-    assert(numChans % numChanGroups == 0);
-    const auto chansPerGroup = numChans / numChanGroups;
-    return getOuterProductCycleEstimate(isFloat, width, numChans, chansPerGroup,
-                                        dataPathWidth);
   }
 };
 

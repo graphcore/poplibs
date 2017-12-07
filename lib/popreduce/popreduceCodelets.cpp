@@ -1,8 +1,8 @@
-#include "PerformanceEstimation.hpp"
 #include <poplar/Vertex.hpp>
 #include <poplar/HalfFloat.hpp>
-#include <vector>
+#include <algorithm>
 #include <limits>
+
 using namespace poplar;
 
 namespace popreduce {
@@ -29,16 +29,6 @@ public:
       }
     }
     return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    std::vector<unsigned> outSizes;
-    for (const auto &o : out)
-      outSizes.push_back(o.size());
-    return reduceCycleEstimate<OutType, PartialsType>(outSizes,
-                                                      partials.size(),
-                                                      dataPathWidth,
-                                                      false, false);
   }
 };
 
@@ -71,16 +61,6 @@ public:
     }
     return true;
   }
-
-  uint64_t getCycleEstimate() const {
-    std::vector<unsigned> outSizes;
-    for (const auto &o : out)
-      outSizes.push_back(o.size());
-    return reduceCycleEstimate<OutType, PartialsType>(outSizes,
-                                                      partials.size(),
-                                                      dataPathWidth,
-                                                      true, false);
-  }
 };
 
 template class ReduceAddUpdate<float, float>;
@@ -110,16 +90,6 @@ public:
       }
     }
     return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    std::vector<unsigned> outSizes;
-    for (const auto &o : out)
-      outSizes.push_back(o.size());
-    return reduceCycleEstimate<OutType, PartialsType>(outSizes,
-                                                      partials.size(),
-                                                      dataPathWidth,
-                                                      false, true);
   }
 };
 
@@ -152,15 +122,6 @@ public:
     }
     return true;
   }
-
-  uint64_t getCycleEstimate() const {
-    std::vector<unsigned> outSizes;
-    for (const auto &o : out)
-      outSizes.push_back(o.size());
-    return reduceOpsCycleEstimate<OutType, PartialsType>(outSizes,
-                                                         partials.size(),
-                                                         dataPathWidth);
-  }
 };
 
 template class ReduceMul<float, float>;
@@ -190,15 +151,6 @@ public:
       }
     }
     return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    std::vector<unsigned> outSizes;
-    for (const auto &o : out)
-      outSizes.push_back(o.size());
-    return reduceOpsCycleEstimate<OutType, PartialsType>(outSizes,
-                                                         partials.size(),
-                                                         dataPathWidth);
   }
 };
 
@@ -230,15 +182,6 @@ public:
     }
     return true;
   }
-
-  uint64_t getCycleEstimate() const {
-    std::vector<unsigned> outSizes;
-    for (const auto &o : out)
-      outSizes.push_back(o.size());
-    return reduceOpsCycleEstimate<OutType, PartialsType>(outSizes,
-                                                         partials.size(),
-                                                         dataPathWidth);
-  }
 };
 
 template class ReduceMin<float, float>;
@@ -269,15 +212,6 @@ public:
     }
     return true;
   }
-
-  uint64_t getCycleEstimate() const {
-    std::vector<unsigned> outSizes;
-    for (const auto &o : out)
-      outSizes.push_back(o.size());
-    return reduceOpsCycleEstimate<OutType, PartialsType>(outSizes,
-                                                         partials.size(),
-                                                         dataPathWidth);
-  }
 };
 
 template class ReduceAnd<bool, bool>;
@@ -305,15 +239,6 @@ public:
       }
     }
     return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    std::vector<unsigned> outSizes;
-    for (const auto &o : out)
-      outSizes.push_back(o.size());
-    return reduceOpsCycleEstimate<OutType, PartialsType>(outSizes,
-                                                         partials.size(),
-                                                         dataPathWidth);
   }
 };
 

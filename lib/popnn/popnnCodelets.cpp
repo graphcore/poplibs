@@ -1,14 +1,11 @@
 #include <poplar/Vertex.hpp>
 #include <poplar/HalfFloat.hpp>
-#include <iostream>
-#include <iomanip>
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <type_traits>
-#include <vector>
 #include "popnn/Loss.hpp"
 #include "popnn/NonLinearity.hpp"
-#include "PerformanceEstimation.hpp"
 
 using namespace poplar;
 
@@ -99,16 +96,6 @@ public:
     }
     return true;
   }
-
-  uint64_t getCycleEstimate() const {
-    bool isFloat = std::is_same<FPType, float>::value;
-    std::vector<unsigned> regionSizes;
-    for (const auto region : data)
-      regionSizes.push_back(region.size());
-    return getNonLinearityCycles(regionSizes,
-                                 NonLinearityType(nonLinearityType), isFloat,
-                                 dataPathWidth);
-  }
 };
 
 template class NonLinearity<float>;
@@ -136,33 +123,6 @@ public:
       }
     }
     return true;
-  }
-
-
-  uint64_t getCycleEstimate() const {
-    bool isFloat = std::is_same<FPType, float>::value;
-    uint64_t cycles = 5;
-    for (unsigned i = 0; i < inGrad.size(); ++i) {
-      unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-      unsigned numVectors = (inGrad[i].size() + vectorWidth - 1) / vectorWidth;
-      switch (nonLinearityType) {
-      case NON_LINEARITY_SIGMOID:
-        cycles += 5 + numVectors * 3;
-        break;
-      case NON_LINEARITY_RELU: {
-        const unsigned vertexOverhead = 2    // run instruction
-                                        + 7; // remaining vertex overhead
-        cycles += vertexOverhead + numVectors * 3;
-        }
-        break;
-      case NON_LINEARITY_TANH:
-        cycles += 5 + numVectors * 3;
-        break;
-      default:
-        throw std::runtime_error("Invalid nonlinearity type");
-      }
-    }
-    return cycles;
   }
 };
 
@@ -193,19 +153,6 @@ public:
       inIndex += windowSizes[i];
     }
     return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    unsigned numCycles = 10;
-    bool isFloat = std::is_same<FPType, float>::value;
-    const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    for (unsigned i = 0; i < out.size(); ++i) {
-      auto numVectors = (out[i].size() + vectorWidth - 1) / vectorWidth;
-      auto windowSize = windowSizes[i];
-      // TODO: This is too optimistic
-      numCycles += 1 + numVectors * (1 + windowSize);
-    }
-    return numCycles;
   }
 };
 
@@ -243,21 +190,6 @@ public:
     }
     return true;
   }
-
-  uint64_t getCycleEstimate() const {
-    unsigned numCycles = 10;
-    bool isFloat = std::is_same<FPType, float>::value;
-    const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    const unsigned scaleCycles = scaleOutput ? 1 : 0;
-    for (unsigned i = 0; i < out.size(); ++i) {
-      auto numVectors = (out[i].size() + vectorWidth - 1) / vectorWidth;
-      auto windowSize = windowSizes[i];
-      // load ptr/vec/ load data/add for windowSize
-      // axpby and store
-      numCycles += 2 + scaleCycles + numVectors * (3 + 2 * windowSize);
-    }
-    return numCycles;
-  }
 };
 
 template class ScaledSumPooling<float>;
@@ -292,29 +224,6 @@ public:
     }
     return true;
   }
-
-  uint64_t getCycleEstimate() const {
-    unsigned numCycles = 10;
-    bool isFloat = std::is_same<FPType, float>::value;
-    const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    // Expected implementation per group:
-    // load group of actIn
-    // for windowsize:
-    // load actOut
-    //  compare
-    //  res<<=14 (covert to 0.5/0)
-    //  mac
-    // getacc
-    // double
-    // store
-    for (unsigned i = 0; i < inGrad.size(); ++i) {
-      auto numVectors = (inGrad[i].size() + vectorWidth - 1) / vectorWidth;
-      auto windowSize = windowSizes[i];
-      // TODO: This is too optimistic
-      numCycles += 5 + numVectors * (5 + windowSize * 3);
-    }
-    return numCycles;
-  }
 };
 
 template class MaxPoolingGrad<float>;
@@ -344,27 +253,6 @@ public:
       inIndex += windowSizes[i];
     }
     return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    unsigned numCycles = 10;
-    bool isFloat = std::is_same<FPType, float>::value;
-    const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-    // Expected implementation per group:
-    // for windowsize:
-    // load deltaIn
-    //  acc
-    // getacc
-    // axpby
-    // double
-    // store
-    for (unsigned i = 0; i < inGrad.size(); ++i) {
-      auto numVectors = (inGrad[i].size() + vectorWidth - 1) / vectorWidth;
-      auto windowSize = windowSizes[i];
-      // TODO: This is too optimistic
-      numCycles += 2 + numVectors * (4 + windowSize * 1);
-    }
-    return numCycles;
   }
 };
 
@@ -453,10 +341,6 @@ public:
     }
     return true;
   }
-
-  uint64_t getCycleEstimate() const {
-    return 0;
-  }
 };
 
 
@@ -496,17 +380,6 @@ public:
       }
     }
     return true;
-  }
-
-  uint64_t getCycleEstimate() const {
-    unsigned numCycles = 5;
-    const unsigned n = mean.size();
-    const unsigned batchSize = acts[0].size();
-    for (unsigned i = 0; i != n; ++i) {
-      const unsigned numActs = mean[i].size();
-      numCycles += (batchSize + 7) * numActs;
-    }
-    return numCycles;
   }
 };
 
