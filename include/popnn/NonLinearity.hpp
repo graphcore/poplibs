@@ -1,6 +1,5 @@
 #ifndef __popnn_NonLinearity_hpp__
 #define __popnn_NonLinearity_hpp__
-#include "poplar/Program.hpp"
 
 namespace popnn {
 
@@ -11,7 +10,12 @@ enum NonLinearityType {
   NON_LINEARITY_SOFTMAX
 };
 
+} // end namespace popnn
+
 #ifndef __POPC__
+#include "poplar/Program.hpp"
+
+namespace popnn {
 
 // Update tensor t in place by applying a non-linearity
 // For SOFTMAX nonlinearity type, the soft max is done over the innermost
@@ -63,8 +67,8 @@ nonLinearityInputGradient(poplar::Graph &graph,
                           poplar::program::Sequence &prog,
                           const std::string &debugPrefix = "");
 
-#endif // !__POPC__
+} // end namespace popnn
 
-}
+#endif // !__POPC__
 
 #endif // __popnn_NonLinearity_hpp__

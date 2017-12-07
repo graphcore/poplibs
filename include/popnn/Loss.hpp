@@ -1,7 +1,5 @@
 #ifndef __popnn_Loss_hpp__
 #define __popnn_Loss_hpp__
-#include "poplar/Program.hpp"
-#include "poplar/Tensor.hpp"
 
 namespace popnn {
 
@@ -10,7 +8,13 @@ enum LossType {
   SOFTMAX_CROSS_ENTROPY_LOSS
 };
 
+} // end namespace popnn
+
 #ifndef __POPC__
+#include "poplar/Program.hpp"
+#include "poplar/Tensor.hpp"
+
+namespace popnn {
 
 poplar::program::Program
 calcLoss(poplar::Graph &graph,
@@ -24,8 +28,9 @@ calcLoss(poplar::Graph &graph,
          LossType lossType,
          const std::string &debugPrefix = "");
 
+} // end namespace popnn
+
 #endif // !__POPC__
 
-}
 
 #endif // __Loss_hpp__
