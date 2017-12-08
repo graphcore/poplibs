@@ -1,7 +1,6 @@
 #include <poplar/Vertex.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <cmath>
-#include <algorithm>
 
 using namespace poplar;
 namespace popstd {
@@ -676,6 +675,10 @@ public:
 
 template class LogicalOr<bool>;
 
+template <typename T>
+static const T &max(const T &x, const T &y) {
+  return x < y ? y : x;
+}
 
 template <typename InType>
 class Maximum : public Vertex {
@@ -692,7 +695,7 @@ public:
       assert(in1[i].size() == out[i].size());
       assert(in2[i].size() == in1[i].size());
       for (unsigned j = 0; j != in1[i].size(); ++j) {
-        out[i][j] = std::max(in1[i][j], in2[i][j]);
+        out[i][j] = max(in1[i][j], in2[i][j]);
       }
     }
     return true;
@@ -703,6 +706,11 @@ template class Maximum<float>;
 template class Maximum<half>;
 template class Maximum<int>;
 
+
+template <typename T>
+static const T &min(const T &x, const T &y) {
+  return x < y ? x : y;
+}
 
 template <typename InType>
 class Minimum : public Vertex {
@@ -719,7 +727,7 @@ public:
       assert(in1[i].size() == out[i].size());
       assert(in2[i].size() == in1[i].size());
       for (unsigned j = 0; j != in1[i].size(); ++j) {
-        out[i][j] = std::min(in1[i][j], in2[i][j]);
+        out[i][j] = min(in1[i][j], in2[i][j]);
       }
     }
     return true;

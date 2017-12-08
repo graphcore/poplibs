@@ -1,10 +1,14 @@
 #include <poplar/Vertex.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <array>
-#include <algorithm>
 #include <cmath>
 
 using namespace poplar;
+
+template <typename T>
+static const T &min(const T &x, const T &y) {
+  return x < y ? x : y;
+}
 
 // number of warmup iterations the PRNG takes to have a random number of 0s
 // and 1s in its state given any seed
@@ -138,7 +142,7 @@ public:
       unsigned n = out[i].size();
       unsigned idx = 0;
       while (n) {
-        const unsigned genSamples =  std::min(n, maxPerCall);
+        const unsigned genSamples =  min(n, maxPerCall);
         auto r = next(s);
         for (auto k = 0; k != genSamples; ++k, ++idx, r >>= bitsPerVal) {
           out[i][idx] = convertToUniform<OutType>(r) * scale + offset;
@@ -189,7 +193,7 @@ public:
       unsigned n = out[i].size();
       unsigned idx = 0;
       while (n) {
-        const unsigned genSamples =  std::min(n, maxPerCall);
+        const unsigned genSamples =  min(n, maxPerCall);
         auto r = next(s);
         for (auto k = 0; k != genSamples; ++k, ++idx, r >>= bitsPerVal) {
           uint64_t rmasked = r & ((1ULL << bitsPerVal) - 1);
@@ -243,7 +247,7 @@ public:
       unsigned n = out[i].size();
       unsigned idx = 0;
       while (n) {
-        const unsigned genSamples =  std::min(n, maxPerCall);
+        const unsigned genSamples =  min(n, maxPerCall);
         auto r = next(s);
         for (auto k = 0; k != genSamples; ++k, ++idx, r >>= bitsPerVal) {
           const uint64_t thisVal = r & ((1ULL << bitsPerVal) - 1);
@@ -292,7 +296,7 @@ public:
       unsigned n = out[i].size();
       unsigned idx = 0;
       while (n) {
-        const unsigned genSamples =  std::min(n, maxPerCall);
+        const unsigned genSamples = min(n, maxPerCall);
         const auto grandVec = grand(s);
         for (auto k = 0; k != genSamples; ++k, ++idx) {
           out[i][idx] = grandVec[k] * stdDev + mean;
@@ -342,7 +346,7 @@ public:
       unsigned n = out[i].size();
       unsigned idx = 0;
       while (n) {
-        const unsigned genSamples =  std::min(n, maxPerCall);
+        const unsigned genSamples =  min(n, maxPerCall);
         const auto grandVec = truncNormal(s, iterations, alpha);
         for (auto k = 0; k != genSamples; ++k, ++idx) {
           out[i][idx] = grandVec[k] * stdDev + mean;

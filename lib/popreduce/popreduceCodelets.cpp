@@ -1,6 +1,5 @@
 #include <poplar/Vertex.hpp>
 #include <poplar/HalfFloat.hpp>
-#include <algorithm>
 #include <limits>
 
 using namespace poplar;
@@ -129,6 +128,12 @@ template class ReduceMul<half, half>;
 template class ReduceMul<half, float>;
 template class ReduceMul<int, int>;
 
+
+template <typename T>
+static const T &max(const T &x, const T &y) {
+  return x < y ? y : x;
+}
+
 template <typename OutType, typename PartialsType>
 class ReduceMax : public Vertex {
 public:
@@ -145,7 +150,7 @@ public:
       for (unsigned i = 0; i < numElem; ++i) {
         OutType maxVal = std::numeric_limits<PartialsType>::lowest();
         for (unsigned j = 0; j < numPartials; ++j) {
-          maxVal = std::max(maxVal, partials[r * numPartials + j][i]);
+          maxVal = max(maxVal, partials[r * numPartials + j][i]);
         }
         out[r][i] = maxVal;
       }
@@ -158,6 +163,11 @@ template class ReduceMax<float, float>;
 template class ReduceMax<half, half>;
 template class ReduceMax<int, int>;
 
+
+template <typename T>
+static const T &min(const T &x, const T &y) {
+  return x < y ? x : y;
+}
 
 template <typename OutType, typename PartialsType>
 class ReduceMin : public Vertex {
@@ -175,7 +185,7 @@ public:
       for (unsigned i = 0; i < numElem; ++i) {
         OutType minVal = std::numeric_limits<PartialsType>::max();
         for (unsigned j = 0; j < numPartials; ++j) {
-          minVal = std::min(minVal, partials[r * numPartials + j][i]);
+          minVal = min(minVal, partials[r * numPartials + j][i]);
         }
         out[r][i] = minVal;
       }

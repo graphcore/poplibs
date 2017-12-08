@@ -1,6 +1,5 @@
 #include <poplar/Vertex.hpp>
 #include <poplar/HalfFloat.hpp>
-#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <type_traits>
