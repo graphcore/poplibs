@@ -24,8 +24,8 @@ static void generateVertices(std::string vertexName,
                              Graph &graph,
                              ComputeSet &cs,
                              const Tensor &offset,
-                             const Tensor &t2d,   // 2d base Tensor [sliceD][]
-                             const Tensor &s2d)   // 2d sub Tensor [sizeD][]
+                             Tensor t2d,   // 2d base Tensor [sliceD][]
+                             Tensor s2d)   // 2d sub Tensor [sizeD][]
 {
   assert(t2d.rank() == 2);
   assert(s2d.rank() == 2);
@@ -36,11 +36,30 @@ static void generateVertices(std::string vertexName,
   const auto numTiles = target.getNumTiles();
   const unsigned numBaseElements = t2d.dim(0);
   const unsigned numSubElements = s2d.dim(0);
+  const unsigned elemSize = s2d.dim(1);
   assert(numSubElements <= numBaseElements);
 
   // offset can be specified for each tile
   assert((offset.rank() == 0 && offset.numElements() == 1) ||
          (offset.rank() == 1 && offset.numElements() == numTiles));
+
+  // Reorder every element to minimize the number of contiguous regions when
+  // copying.
+  std::vector<Tensor *> toRearrange;
+  std::vector<Tensor> s2dElems(numSubElements), t2dElems(numBaseElements);
+
+  for (unsigned i = 0; i != numSubElements; ++i) {
+    s2dElems[i] = s2d[i];
+    if (i != 0)
+      toRearrange.push_back(&s2dElems[i]);
+  }
+  for (unsigned i = 0; i != numBaseElements; ++i) {
+    t2dElems[i] = t2d[i];
+    toRearrange.push_back(&t2dElems[i]);
+  }
+  graph.reorderToSimplify(&s2dElems[0], toRearrange);
+  s2d = concat(s2dElems).reshape({numSubElements, elemSize});
+  t2d = concat(t2dElems).reshape({numBaseElements, elemSize});
 
   // map vertices following the mapping of t's first slice
   const auto mapping = graph.getTileMapping(t2d[0]);
