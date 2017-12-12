@@ -116,12 +116,13 @@ dilateIndices(const std::vector<unsigned> &indices,
 }
 
 static boost::multi_array<double, 2>
-dilateAndPad(boost::const_multi_array_ref<double, 2> in,
-             const std::vector<unsigned> &size,
-             const std::vector<unsigned> &dilation,
-             const std::vector<int> &paddingLower,
-             const std::vector<int> &paddingUpper,
-             std::vector<unsigned> &paddedSize) {
+dilatePadAndFlip(boost::const_multi_array_ref<double, 2> in,
+                 const std::vector<unsigned> &size,
+                 const std::vector<unsigned> &dilation,
+                 const std::vector<int> &paddingLower,
+                 const std::vector<int> &paddingUpper,
+                 const std::vector<bool> &flip,
+                 std::vector<unsigned> &paddedSize) {
   const auto numFieldElements = product(size);
   assert(in.shape()[1] == numFieldElements);
   const auto numFieldDims = size.size();
@@ -153,13 +154,15 @@ dilateAndPad(boost::const_multi_array_ref<double, 2> in,
       bool hasPaddedIndex = true;
       for (unsigned dim = 0; dim != numFieldDims; ++dim) {
         const auto index = indices[dim];
-        const auto paddedIndex =
+        auto paddedIndex =
             static_cast<int>(index) + paddingLower[dim];
         if (paddedIndex < 0 ||
             static_cast<unsigned>(paddedIndex) >= paddedSize[dim]) {
           hasPaddedIndex = false;
           break;
         }
+        if (flip[dim])
+          paddedIndex = paddedSize[dim] - 1 - paddedIndex;
         paddedIndices.push_back(paddedIndex);
       }
       if (hasPaddedIndex) {
@@ -172,12 +175,13 @@ dilateAndPad(boost::const_multi_array_ref<double, 2> in,
 }
 
 static boost::multi_array<double, 3>
-dilateAndPadActivations(boost::const_multi_array_ref<double, 3> in,
-                        const std::vector<unsigned> &fieldSize,
-                        const std::vector<unsigned> inputDilation,
-                        const std::vector<int> &paddingLower,
-                        const std::vector<int> &paddingUpper,
-                        std::vector<unsigned> &paddedFieldSize) {
+dilatePadAndFlipActivations(boost::const_multi_array_ref<double, 3> in,
+                            const std::vector<unsigned> &fieldSize,
+                            const std::vector<unsigned> inputDilation,
+                            const std::vector<int> &paddingLower,
+                            const std::vector<int> &paddingUpper,
+                            const std::vector<bool> &flipInput,
+                            std::vector<unsigned> &paddedFieldSize) {
   const auto numFieldElements = in.shape()[2];
   assert(numFieldElements == product(fieldSize));
   boost::const_multi_array_ref<double, 2>
@@ -185,8 +189,8 @@ dilateAndPadActivations(boost::const_multi_array_ref<double, 3> in,
                       boost::extents[in.num_elements() / numFieldElements]
                                     [numFieldElements]);
   auto paddedFlattened =
-      dilateAndPad(kernelFlattened, fieldSize, inputDilation,
-                   paddingLower, paddingUpper, paddedFieldSize);
+      dilatePadAndFlip(kernelFlattened, fieldSize, inputDilation,
+                       paddingLower, paddingUpper, flipInput, paddedFieldSize);
   boost::multi_array<double, 3>
       padded(boost::extents[in.shape()[0]]
                            [in.shape()[1]]
@@ -199,23 +203,25 @@ dilateAndPadActivations(boost::const_multi_array_ref<double, 3> in,
 }
 
 static boost::multi_array<double, 3>
-dilateAndPadActivations(boost::const_multi_array_ref<double, 3> in,
-                        const std::vector<unsigned> &fieldSize,
-                        const std::vector<unsigned> inputDilation,
-                        const std::vector<int> &paddingLower,
-                        const std::vector<int> &paddingUpper) {
+dilatePadAndFlipActivations(boost::const_multi_array_ref<double, 3> in,
+                            const std::vector<unsigned> &fieldSize,
+                            const std::vector<unsigned> inputDilation,
+                            const std::vector<int> &paddingLower,
+                            const std::vector<int> &paddingUpper,
+                            const std::vector<bool> &flipInput) {
   std::vector<unsigned> dummy;
-  return dilateAndPadActivations(in, fieldSize, inputDilation, paddingLower,
-                                 paddingUpper, dummy);
+  return dilatePadAndFlipActivations(in, fieldSize, inputDilation, paddingLower,
+                                     paddingUpper, flipInput, dummy);
 }
 
 static boost::multi_array<double, 4>
-dilateAndPadKernel(boost::const_multi_array_ref<double, 4> kernel,
-                   const std::vector<unsigned> &kernelSize,
-                   const std::vector<unsigned> &kernelDilation,
-                   const std::vector<int> &kernelPaddingLower,
-                   const std::vector<int> &kernelPaddingUpper,
-                   std::vector<unsigned> &paddedSize) {
+dilatePadAndFlipKernel(boost::const_multi_array_ref<double, 4> kernel,
+                       const std::vector<unsigned> &kernelSize,
+                       const std::vector<unsigned> &kernelDilation,
+                       const std::vector<int> &kernelPaddingLower,
+                       const std::vector<int> &kernelPaddingUpper,
+                       const std::vector<bool> &flipKernel,
+                       std::vector<unsigned> &paddedSize) {
   const auto numFieldElements = kernel.shape()[3];
   assert(numFieldElements == product(kernelSize));
   boost::const_multi_array_ref<double, 2>
@@ -223,8 +229,9 @@ dilateAndPadKernel(boost::const_multi_array_ref<double, 4> kernel,
                       boost::extents[kernel.num_elements() / numFieldElements]
                                     [numFieldElements]);
   auto paddedFlattened =
-      dilateAndPad(kernelFlattened, kernelSize, kernelDilation,
-                   kernelPaddingLower, kernelPaddingUpper, paddedSize);
+      dilatePadAndFlip(kernelFlattened, kernelSize, kernelDilation,
+                       kernelPaddingLower, kernelPaddingUpper,
+                       flipKernel, paddedSize);
   boost::multi_array<double, 4>
       padded(boost::extents[kernel.shape()[0]]
                            [kernel.shape()[1]]
@@ -238,12 +245,13 @@ dilateAndPadKernel(boost::const_multi_array_ref<double, 4> kernel,
 }
 
 static boost::multi_array<double, 2>
-dilateAndPadInverse(boost::const_multi_array_ref<double, 2> padded,
-                    const std::vector<unsigned> &paddedSize,
-                    const std::vector<unsigned> &dilation,
-                    const std::vector<int> &paddingLower,
-                    const std::vector<int> &paddingUpper,
-                    std::vector<unsigned> &size) {
+dilatePadAndFlipInverse(boost::const_multi_array_ref<double, 2> padded,
+                        const std::vector<unsigned> &paddedSize,
+                        const std::vector<unsigned> &dilation,
+                        const std::vector<int> &paddingLower,
+                        const std::vector<int> &paddingUpper,
+                        const std::vector<bool> &flip,
+                        std::vector<unsigned> &size) {
   assert(padded.shape()[1] == product(paddedSize));
   const auto numFieldDims = paddedSize.size();
   std::vector<unsigned> dilatedSize(numFieldDims);
@@ -264,13 +272,15 @@ dilateAndPadInverse(boost::const_multi_array_ref<double, 2> padded,
       bool hasPaddedIndex = true;
       for (unsigned dim = 0; dim != numFieldDims; ++dim) {
         const auto index = indices[dim];
-        const auto paddedIndex =
+        auto paddedIndex =
             static_cast<int>(index) + paddingLower[dim];
         if (paddedIndex < 0 ||
             static_cast<unsigned>(paddedIndex) >= paddedSize[dim]) {
           hasPaddedIndex = false;
           break;
         }
+        if (flip[dim])
+          paddedIndex = paddedSize[dim] - 1 - paddedIndex;
         paddedIndices.push_back(paddedIndex);
       }
       if (hasPaddedIndex) {
@@ -299,6 +309,7 @@ dilateAndPadActivationsInverse(
     const std::vector<unsigned> dilation,
     const std::vector<int> &paddingLower,
     const std::vector<int> &paddingUpper,
+    const std::vector<bool> &flip,
     std::vector<unsigned> &fieldSize) {
   const auto numFieldElements = paddedActs.shape()[2];
   assert(numFieldElements == product(paddedFieldSize));
@@ -309,8 +320,8 @@ dilateAndPadActivationsInverse(
                       [numFieldElements]
       );
   auto actsFlattened =
-      dilateAndPadInverse(paddedFlattened, paddedFieldSize, dilation,
-                          paddingLower, paddingUpper, fieldSize);
+      dilatePadAndFlipInverse(paddedFlattened, paddedFieldSize, dilation,
+                              paddingLower, paddingUpper, flip, fieldSize);
   boost::multi_array<double, 3>
       acts(boost::extents[paddedActs.shape()[0]]
                          [paddedActs.shape()[1]]
@@ -328,20 +339,22 @@ dilateAndPadActivationsInverse(
     const std::vector<unsigned> &paddedFieldSize,
     const std::vector<unsigned> dilation,
     const std::vector<int> &paddingLower,
-    const std::vector<int> &paddingUpper) {
+    const std::vector<int> &paddingUpper,
+    const std::vector<bool> &flip) {
   std::vector<unsigned> dummy;
   return dilateAndPadActivationsInverse(paddedActs, paddedFieldSize,
                                         dilation, paddingLower, paddingUpper,
-                                        dummy);
+                                        flip, dummy);
 }
 
 static boost::multi_array<double, 4>
-dilateAndPadKernelInverse(boost::const_multi_array_ref<double, 4> padded,
-                          const std::vector<unsigned> &paddedSize,
-                          const std::vector<unsigned> &kernelDilation,
-                          const std::vector<int> &kernelPaddingLower,
-                          const std::vector<int> &kernelPaddingUpper,
-                          std::vector<unsigned> &kernelSize) {
+dilatePadAndFlipKernelInverse(boost::const_multi_array_ref<double, 4> padded,
+                              const std::vector<unsigned> &paddedSize,
+                              const std::vector<unsigned> &kernelDilation,
+                              const std::vector<int> &kernelPaddingLower,
+                              const std::vector<int> &kernelPaddingUpper,
+                              const std::vector<bool> &flipKernel,
+                              std::vector<unsigned> &kernelSize) {
   const auto numFieldElements = padded.shape()[3];
   assert(numFieldElements == product(paddedSize));
   boost::const_multi_array_ref<double, 2>
@@ -349,8 +362,9 @@ dilateAndPadKernelInverse(boost::const_multi_array_ref<double, 4> padded,
                       boost::extents[padded.num_elements() / numFieldElements]
                                     [numFieldElements]);
   auto kernelFlattened =
-      dilateAndPadInverse(paddedFlattened, paddedSize, kernelDilation,
-                          kernelPaddingLower, kernelPaddingUpper, kernelSize);
+      dilatePadAndFlipInverse(paddedFlattened, paddedSize, kernelDilation,
+                              kernelPaddingLower, kernelPaddingUpper,
+                              flipKernel, kernelSize);
   boost::multi_array<double, 4>
       kernel(boost::extents[padded.shape()[0]]
                            [padded.shape()[1]]
@@ -364,15 +378,16 @@ dilateAndPadKernelInverse(boost::const_multi_array_ref<double, 4> padded,
 }
 
 static boost::multi_array<double, 4>
-dilateAndPadKernelInverse(boost::const_multi_array_ref<double, 4> padded,
+dilatePadAndFlipKernelInverse(boost::const_multi_array_ref<double, 4> padded,
                           const std::vector<unsigned> &paddedSize,
                           const std::vector<unsigned> &kernelDilation,
                           const std::vector<int> &kernelPaddingLower,
-                          const std::vector<int> &kernelPaddingUpper) {
+                          const std::vector<int> &kernelPaddingUpper,
+                          const std::vector<bool> &flipKernel) {
   std::vector<unsigned> dummy;
-  return dilateAndPadKernelInverse(padded, paddedSize, kernelDilation,
-                                   kernelPaddingLower, kernelPaddingUpper,
-                                   dummy);
+  return dilatePadAndFlipKernelInverse(padded, paddedSize, kernelDilation,
+                                       kernelPaddingLower, kernelPaddingUpper,
+                                       flipKernel, dummy);
 }
 
 static unsigned
@@ -415,10 +430,12 @@ convolution(const std::vector<unsigned> &inputFieldSize,
             const std::vector<unsigned> &inputDilation,
             const std::vector<int> &paddingLower,
             const std::vector<int> &paddingUpper,
+            const std::vector<bool> &flipInput,
             const std::vector<unsigned> &kernelSize,
             const std::vector<unsigned> &kernelDilation,
             const std::vector<int> &kernelPaddingLower,
             const std::vector<int> &kernelPaddingUpper,
+            const std::vector<bool> &flipKernel,
             const std::vector<unsigned> &stride,
             boost::const_multi_array_ref<double, 3> in,
             boost::const_multi_array_ref<double, 4> kernel,
@@ -427,10 +444,12 @@ convolution(const std::vector<unsigned> &inputFieldSize,
   if (inputFieldSize.size() != inputDilation.size() ||
       inputFieldSize.size() != paddingLower.size() ||
       inputFieldSize.size() != paddingUpper.size() ||
+      inputFieldSize.size() != flipInput.size() ||
       inputFieldSize.size() != kernelSize.size() ||
       inputFieldSize.size() != kernelDilation.size() ||
       inputFieldSize.size() != kernelPaddingLower.size() ||
       inputFieldSize.size() != kernelPaddingUpper.size() ||
+      inputFieldSize.size() != flipKernel.size() ||
       inputFieldSize.size() != stride.size()) {
     throw poplib_test::poplib_test_error(
       "Mismatch in number of spatial dimensions."
@@ -452,14 +471,16 @@ convolution(const std::vector<unsigned> &inputFieldSize,
   }
   const auto numFieldDims = inputFieldSize.size();
   std::vector<unsigned> paddedKernelSize;
-  auto paddedKernel = dilateAndPadKernel(kernel, kernelSize, kernelDilation,
-                                         kernelPaddingLower,
-                                         kernelPaddingUpper,
-                                         paddedKernelSize);
+  auto paddedKernel = dilatePadAndFlipKernel(kernel, kernelSize, kernelDilation,
+                                             kernelPaddingLower,
+                                             kernelPaddingUpper,
+                                             flipKernel,
+                                             paddedKernelSize);
   std::vector<unsigned> paddedFieldSize;
-  auto paddedIn = dilateAndPadActivations(in, inputFieldSize, inputDilation,
-                                          paddingLower, paddingUpper,
-                                          paddedFieldSize);
+  auto paddedIn = dilatePadAndFlipActivations(in, inputFieldSize, inputDilation,
+                                              paddingLower, paddingUpper,
+                                              flipInput,
+                                              paddedFieldSize);
 
   const auto outputChannelsPerConvGroup = kernel.shape()[1];
   const auto outputChannels = out.shape()[1];
@@ -504,8 +525,9 @@ convolution(const std::vector<unsigned> &inputFieldSize,
   }
 
   std::vector<int> noPadding(numFieldDims);
+  std::vector<bool> noFlipping(numFieldDims);
   out = dilateAndPadActivationsInverse(convOut, convOutSize, stride, noPadding,
-                                       noPadding);
+                                       noPadding, noFlipping);
 }
 
 void poplib_test::conv::
@@ -513,10 +535,12 @@ convolutionBackward(const std::vector<unsigned> &fwdInputFieldSize,
                     const std::vector<unsigned> &inputDilation,
                     const std::vector<int> &paddingLower,
                     const std::vector<int> &paddingUpper,
+                    const std::vector<bool> &flipInput,
                     const std::vector<unsigned> &kernelSize,
                     const std::vector<unsigned> &kernelDilation,
                     const std::vector<int> &kernelPaddingLower,
                     const std::vector<int> &kernelPaddingUpper,
+                    const std::vector<bool> &flipKernel,
                     const std::vector<unsigned> &stride,
                     boost::const_multi_array_ref<double, 3> deltasIn,
                     boost::const_multi_array_ref<double, 4> kernel,
@@ -524,10 +548,12 @@ convolutionBackward(const std::vector<unsigned> &fwdInputFieldSize,
   if (fwdInputFieldSize.size() != inputDilation.size() ||
       fwdInputFieldSize.size() != paddingLower.size() ||
       fwdInputFieldSize.size() != paddingUpper.size() ||
+      fwdInputFieldSize.size() != flipInput.size() ||
       fwdInputFieldSize.size() != kernelSize.size() ||
       fwdInputFieldSize.size() != kernelDilation.size() ||
       fwdInputFieldSize.size() != kernelPaddingLower.size() ||
       fwdInputFieldSize.size() != kernelPaddingUpper.size() ||
+      fwdInputFieldSize.size() != flipKernel.size() ||
       fwdInputFieldSize.size() != stride.size()) {
     throw poplib_test::poplib_test_error(
       "Mismatch in number of spatial dimensions."
@@ -559,10 +585,11 @@ convolutionBackward(const std::vector<unsigned> &fwdInputFieldSize,
   }
 
   std::vector<unsigned> paddedKernelSize;
-  auto paddedKernel = dilateAndPadKernel(kernel, kernelSize, kernelDilation,
-                                         kernelPaddingLower,
-                                         kernelPaddingUpper,
-                                         paddedKernelSize);
+  auto paddedKernel = dilatePadAndFlipKernel(kernel, kernelSize, kernelDilation,
+                                             kernelPaddingLower,
+                                             kernelPaddingUpper,
+                                             flipKernel,
+                                             paddedKernelSize);
 
   // Pad input.
   const auto numFieldDims = fwdInputFieldSize.size();
@@ -586,9 +613,11 @@ convolutionBackward(const std::vector<unsigned> &fwdInputFieldSize,
            static_cast<unsigned>(deltasInPaddingUpper[dim]) < stride[dim]);
   }
   std::vector<int> deltasInPaddingLower(numFieldDims);
-  auto paddedDeltasIn = dilateAndPadActivations(deltasIn, fwdOutputFieldSize,
-                                                stride, deltasInPaddingLower,
-                                                deltasInPaddingUpper);
+  std::vector<bool> noFlipping(numFieldDims);
+  auto paddedDeltasIn =
+      dilatePadAndFlipActivations(deltasIn, fwdOutputFieldSize, stride,
+                                  deltasInPaddingLower, deltasInPaddingUpper,
+                                  noFlipping);
 
   const auto fwdInputChannels = deltasOut.shape()[1];
   const auto fwdInputChannelsPerConvGroup = kernel.shape()[2];
@@ -631,7 +660,7 @@ convolutionBackward(const std::vector<unsigned> &fwdInputFieldSize,
   }
   deltasOut = dilateAndPadActivationsInverse(convOut, fwdPaddedInSize,
                                              inputDilation, paddingLower,
-                                             paddingUpper);
+                                             paddingUpper, flipInput);
 }
 
 void poplib_test::conv::
@@ -639,10 +668,12 @@ weightUpdate(const std::vector<unsigned> &inputFieldSize,
              const std::vector<unsigned> &inputDilation,
              const std::vector<int> &paddingLower,
              const std::vector<int> &paddingUpper,
+             const std::vector<bool> &flipInput,
              const std::vector<unsigned> &kernelSize,
              const std::vector<unsigned> &kernelDilation,
              const std::vector<int> &kernelPaddingLower,
              const std::vector<int> &kernelPaddingUpper,
+             const std::vector<bool> &flipKernel,
              const std::vector<unsigned> &stride,
              double learningRate,
              boost::const_multi_array_ref<double, 3> activations,
@@ -652,12 +683,16 @@ weightUpdate(const std::vector<unsigned> &inputFieldSize,
   if (inputFieldSize.size() != inputDilation.size() ||
       inputFieldSize.size() != paddingLower.size() ||
       inputFieldSize.size() != paddingUpper.size() ||
+      inputFieldSize.size() != flipInput.size() ||
       inputFieldSize.size() != kernelSize.size() ||
       inputFieldSize.size() != kernelDilation.size() ||
       inputFieldSize.size() != kernelPaddingLower.size() ||
       inputFieldSize.size() != kernelPaddingUpper.size() ||
+      inputFieldSize.size() != flipKernel.size() ||
       inputFieldSize.size() != stride.size()) {
-    throw poplib_test::poplib_test_error("Mismatch in size of spatial field.");
+    throw poplib_test::poplib_test_error(
+      "Mismatch in number of spatial dimensions."
+    );
   }
   auto outputFieldSize =
       getOutputFieldSize(inputFieldSize, inputDilation, paddingLower,
@@ -678,9 +713,10 @@ weightUpdate(const std::vector<unsigned> &inputFieldSize,
   // Pad activations.
   std::vector<unsigned> paddedActivationsSize;
   auto paddedActivations =
-      dilateAndPadActivations(activations, inputFieldSize, inputDilation,
-                              paddingLower, paddingUpper,
-                              paddedActivationsSize);
+      dilatePadAndFlipActivations(activations, inputFieldSize, inputDilation,
+                                  paddingLower, paddingUpper,
+                                  flipInput,
+                                  paddedActivationsSize);
   const auto numFieldDims = inputFieldSize.size();
   std::vector<unsigned> paddedDeltasSize(numFieldDims);
   std::vector<int> deltasPaddingUpper(numFieldDims);
@@ -699,9 +735,11 @@ weightUpdate(const std::vector<unsigned> &inputFieldSize,
   }
   // Pad deltas.
   std::vector<int> deltasPaddingLower(numFieldDims);
+  std::vector<bool> flipDeltas(numFieldDims);
   auto paddedDeltas =
-      dilateAndPadActivations(deltas, outputFieldSize, stride,
-                              deltasPaddingLower, deltasPaddingUpper);
+      dilatePadAndFlipActivations(deltas, outputFieldSize, stride,
+                                  deltasPaddingLower, deltasPaddingUpper,
+                                  flipDeltas);
   const auto batchSize = paddedActivations.shape()[0];
   const auto inputChannels = paddedActivations.shape()[1];
   const auto outputChannels = paddedDeltas.shape()[1];
@@ -753,9 +791,9 @@ weightUpdate(const std::vector<unsigned> &inputFieldSize,
   }
 
   auto weightDeltas =
-      dilateAndPadKernelInverse(paddedWeightDeltas, paddedKernelSize,
-                                kernelDilation, kernelPaddingLower,
-                                kernelPaddingUpper);
+      dilatePadAndFlipKernelInverse(paddedWeightDeltas, paddedKernelSize,
+                                    kernelDilation, kernelPaddingLower,
+                                    kernelPaddingUpper, flipKernel);
 
   // Add the weight deltas.
   for (unsigned gc = 0; gc != numConvGroups; ++gc) {
