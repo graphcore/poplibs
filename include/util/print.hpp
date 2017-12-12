@@ -36,7 +36,7 @@ template <class T>
 static void printContainer(const T &container, std::ostream &os) {
   os << "{";
   bool needComma = false;
-  for (auto &x : container) {
+  for (const auto &x : container) {
     if (needComma)
       os << ',';
     os << x;
