@@ -43,9 +43,11 @@ int main(int argc, char **argv) {
   unsigned numConvGroups = 1;
   ShapeOption<int> paddingLowerOption, paddingUpperOption, paddingOption;
   ShapeOption<unsigned> inDilationOption;
+  ShapeOption<bool> flipInputOption;
   ShapeOption<int> kernelPaddingLowerOption, kernelPaddingUpperOption,
                    kernelPaddingOption;
   ShapeOption<unsigned> kernelDilationOption;
+  ShapeOption<bool> flipKernelOption;
   ShapeOption<unsigned> strideOption;
   unsigned batchSize;
   bool bias;
@@ -98,6 +100,9 @@ int main(int argc, char **argv) {
     ("in-dilation",
      po::value<ShapeOption<unsigned>>(&inDilationOption)->default_value(1),
      "Input dilation")
+    ("flip-input",
+     po::value<ShapeOption<bool>>(&flipInputOption)->default_value(false),
+     "Whether to flip each input spatial field")
     ("kernel-padding",
      po::value<ShapeOption<int>>(&kernelPaddingOption)->default_value(0),
      "Amount of zero kernel padding to add at the start and end of each"
@@ -112,6 +117,9 @@ int main(int argc, char **argv) {
      po::value<ShapeOption<unsigned>>(&kernelDilationOption)
          ->default_value(1),
      "Kernel dilation")
+    ("flip-kernel",
+     po::value<ShapeOption<bool>>(&flipKernelOption)->default_value(false),
+     "Whether to flip each kernel spatial field")
     ("stride",
      po::value<ShapeOption<unsigned>>(&strideOption)->default_value(1),
      "Stride")
@@ -208,6 +216,8 @@ int main(int argc, char **argv) {
 
   inDilationOption.broadcast(numFieldDims);
   auto &inDilation = inDilationOption.val;
+  flipInputOption.broadcast(numFieldDims);
+  auto &flipInput = flipInputOption.val;
 
   if (!vm["kernel-padding"].defaulted()) {
     const char *conflictingOptions[] = {
@@ -231,6 +241,8 @@ int main(int argc, char **argv) {
 
   kernelDilationOption.broadcast(numFieldDims);
   auto &kernelDilation = kernelDilationOption.val;
+  flipKernelOption.broadcast(numFieldDims);
+  auto &flipKernel = flipKernelOption.val;
   strideOption.broadcast(numFieldDims);
   auto &stride = strideOption.val;
   const auto fwdInChans = fwdInChansPerConvGroup * numConvGroups;
