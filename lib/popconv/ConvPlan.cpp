@@ -1640,7 +1640,7 @@ createPlan(ConvParams params,
       const bool floatPartials = partialsType == poplar::FLOAT;
       const auto convVertexTypeCandidates =
           getConvVertexTypeCandidates(target, floatActivations,
-                                      floatPartials, params, options);
+                                      floatPartials, expandedParams, options);
       for (const auto &convVertexType : convVertexTypeCandidates) {
         auto paddedParams = expandedParams;
         const auto inChansPerGroup = convVertexType.inChansPerGroup;
