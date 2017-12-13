@@ -174,7 +174,6 @@ static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
   const auto &target = graph.getTarget();
   const auto dataPathWidth = target.getDataPathWidth();
   const auto numTiles = target.getNumTiles();
-  const auto mapping = graph.getTileMapping(in);
   const auto cs = graph.addComputeSet(debugPrefix);
 
   const auto outType = outputType(inType, op);
@@ -182,7 +181,8 @@ static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
 
   auto inFlat = in.flatten();
   auto outFlat = out.flatten();
-
+  graph.reorderToSimplify(&outFlat, {&inFlat});
+  const auto mapping = graph.getTileMapping(inFlat);
   const auto grainSize = target.getVectorWidth(inType);
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
@@ -231,11 +231,12 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
   auto out = graph.clone(outType, (tensorSelection == 0) ? in1 : in2,
                          debugPrefix + "/Out");
 
-  const auto mapping = graph.getTileMapping(out);
 
   auto in1Flat = in1.flatten();
   auto in2Flat = in2.flatten();
   auto outFlat = out.flatten();
+  graph.reorderToSimplify(&outFlat, {&in1Flat, &in2Flat});
+  const auto mapping = graph.getTileMapping(outFlat);
 
   const auto grainSize = target.getVectorWidth(in1Type);
 
@@ -292,12 +293,13 @@ static Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
 
   auto out = graph.clone(outType, toClone, debugPrefix + "/Out");
 
-  const auto mapping = graph.getTileMapping(out);
 
   auto in1Flat = in1.flatten();
   auto in2Flat = in2.flatten();
   auto in3Flat = in3.flatten();
   auto outFlat = out.flatten();
+  graph.reorderToSimplify(&outFlat, {&in1Flat, &in2Flat, &in3Flat});
+  const auto mapping = graph.getTileMapping(outFlat);
 
   const auto grainSize = target.getVectorWidth(in1Type);
 

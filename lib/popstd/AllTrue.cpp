@@ -19,11 +19,12 @@ void allTrue(Graph &graph, Tensor in, Sequence &prog,
   const auto &target = graph.getTarget();
   const auto dataPathWidth = target.getDataPathWidth();
   const auto numTiles = target.getNumTiles();
-  const auto mapping = graph.getTileMapping(in);
   const auto cs = graph.addComputeSet(debugPrefix);
 
   auto inFlat = in.flatten();
+  graph.reorderToSimplify(&inFlat, {});
 
+  const auto mapping = graph.getTileMapping(inFlat);
   const auto grainSize = target.getVectorWidth(inType);
 
   for (auto tile = 0U; tile != numTiles; ++tile) {

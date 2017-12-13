@@ -60,7 +60,9 @@ void zero(poplar::Graph &graph, const poplar::Tensor &t,
           poplar::program::Sequence &prog,
           const std::string &debugPrefix) {
   auto cs = graph.addComputeSet(debugPrefix + "/Zero");
-  zero(graph, t, graph.getTileMapping(t), cs);
+  auto tFlat = t.flatten();
+  graph.reorderToSimplify(&tFlat, {});
+  zero(graph, tFlat, graph.getTileMapping(tFlat), cs);
   prog.add(Execute(cs));
 }
 

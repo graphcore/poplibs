@@ -21,8 +21,9 @@ void addTo(Graph &graph, Tensor A, Tensor B, float k,
   const auto mapping = graph.getTileMapping(A);
   const auto cs = graph.addComputeSet(debugPrefix + "/AddTo");
 
-  const auto paramsFlat = A.flatten();
-  const auto deltasFlat = B.flatten();
+  auto aFlat = A.flatten();
+  auto bFlat = B.flatten();
+  graph.reorderToSimplify(&aFlat, {&bFlat});
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     // On each tile split the elements of the output up between the workers.
     // The grainSize is set to the vector width so vectors will not be split
@@ -31,7 +32,7 @@ void addTo(Graph &graph, Tensor A, Tensor B, float k,
     // balance memory and loop overhead against parallel performance.
     const auto grainSize = target.getVectorWidth(dType);
     const auto tileContiguousRegions =
-        graph.getSortedContiguousRegions(A, mapping[tile]);
+        graph.getSortedContiguousRegions(aFlat, mapping[tile]);
     auto vertexRegions =
         splitRegionsBetweenWorkers(target, tileContiguousRegions,
                                    grainSize, 2 * grainSize);
@@ -39,8 +40,8 @@ void addTo(Graph &graph, Tensor A, Tensor B, float k,
       auto v = graph.addVertex(cs,
                                templateVertex("popstd::ScaledAdd",
                                               dType),
-                               {{"data", paramsFlat.slices(regions)},
-                                {"deltas", deltasFlat.slices(regions)}});
+                               {{"data", aFlat.slices(regions)},
+                                {"deltas", bFlat.slices(regions)}});
       graph.setInitialValue(v["K"], k);
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setTileMapping(v, tile);

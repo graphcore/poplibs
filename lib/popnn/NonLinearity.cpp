@@ -49,6 +49,7 @@ nonLinearityInputGradient(Graph &graph,
   auto outFlat = out.flatten();
   auto outGradFlat = outGradient.flatten();
   auto inGradFlat = inGradient.flatten();
+  graph.reorderToSimplify(&inGradFlat, {&outFlat, &outGradFlat});
   auto outGradMapping = graph.getTileMapping(outGradFlat);
   const auto numTiles = target.getNumTiles();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
@@ -103,6 +104,8 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
   if (!t.isParallelWriteable())
     throw popstd::poplib_error("Trying to update tensor that cannot be "
                                "written in parallel");
+  t = t.flatten();
+  graph.reorderToSimplify(&t, {});
   const auto dType = t.elementType();
   const auto &target = graph.getTarget();
   const auto dataPathWidth = target.getDataPathWidth();

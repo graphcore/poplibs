@@ -42,6 +42,7 @@ cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
   assert(src.shape() == dst.shape());
   src = src.flatten();
   dst = dst.flatten();
+  graph.reorderToSimplify(&dst, {&src});
   const auto srcType = src.elementType();
   const auto dstType = dst.elementType();
   const auto &target = graph.getTarget();
