@@ -68,11 +68,8 @@ getZeroSupervisorVertexCycleEstimate(const std::vector<unsigned> &worklist,
 }
 
 inline std::uint64_t
-getConvPartialHorizontalMacSupervisorCycleEstimate(
+getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
     const std::vector<std::vector<std::vector<unsigned>>> &workerPartitions,
-    unsigned numConvGroups,
-    unsigned numInGroups,
-    unsigned numOutGroups,
     unsigned kernelSize,
     unsigned numInChansPerGroup,
     unsigned dataPathWidth,
@@ -101,7 +98,16 @@ getConvPartialHorizontalMacSupervisorCycleEstimate(
         std::min(minWorkerCycles, numWorkerContexts * thisWorkerCycles);
   }
   cycles += std::max(maxWorkerCycles, minWorkerCycles + 11);
+  return cycles;
+}
 
+inline std::uint64_t
+getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(
+    std::uint64_t innerLoopCycles,
+    unsigned numConvGroups,
+    unsigned numInGroups,
+    unsigned numOutGroups) {
+  uint64_t cycles = innerLoopCycles;
   return 6  + numConvGroups
             * (16 + numOutGroups
                 * (8 + numInGroups
@@ -109,17 +115,28 @@ getConvPartialHorizontalMacSupervisorCycleEstimate(
 }
 
 inline std::uint64_t
-getConvPartial1x1SupervisorCycleEstimate(
-    const std::vector<std::vector<unsigned>> &workerPartitions,
+getConvPartialHorizontalMacSupervisorCycleEstimate(
+    const std::vector<std::vector<std::vector<unsigned>>> &workerPartitions,
     unsigned numConvGroups,
     unsigned numInGroups,
     unsigned numOutGroups,
-    unsigned convUnitInputLoadElemsPerCycle,
-    unsigned numConvUnitsPerTile,
-    unsigned convUnitCoeffLoadBytesPerCycle,
+    unsigned kernelSize,
+    unsigned numInChansPerGroup,
+    unsigned dataPathWidth,
     unsigned numWorkerContexts,
-    bool floatWeights,
-    bool useDeltasForEdges) {
+    bool isFloat) {
+  auto cycles =
+      getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
+        workerPartitions, kernelSize, numInChansPerGroup, dataPathWidth,
+        numWorkerContexts, isFloat);
+  return getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(
+        cycles, numConvGroups, numInGroups, numOutGroups);
+}
+
+inline std::uint64_t
+getConvPartial1x1SupervisorInnerLoopCycleEstimate(
+    const std::vector<std::vector<unsigned>> &workerPartitions,
+    unsigned numWorkerContexts) {
   unsigned usedContexts = workerPartitions.size();
   uint64_t maxWorkerCycles = 0;
   uint64_t minWorkerCycles = usedContexts < numWorkerContexts ?
@@ -143,6 +160,22 @@ getConvPartial1x1SupervisorCycleEstimate(
   // tag cost to worker with min cycles
   maxWorkerCycles = std::max(maxWorkerCycles, minWorkerCycles + 14);
 
+  return maxWorkerCycles;
+}
+
+inline std::uint64_t
+getConvPartial1x1SupervisorOuterLoopCycleEstimate(
+    std::uint64_t innerLoopCycles,
+    unsigned numConvGroups,
+    unsigned numInGroups,
+    unsigned numOutGroups,
+    unsigned convUnitInputLoadElemsPerCycle,
+    unsigned numConvUnitsPerTile,
+    unsigned convUnitCoeffLoadBytesPerCycle,
+    bool floatWeights,
+    bool useDeltasForEdges) {
+
+
   const auto numInputLoadsInnerLoop = 4;
   const auto numLoads = convUnitInputLoadElemsPerCycle * numInputLoadsInnerLoop
                           * numConvUnitsPerTile
@@ -152,40 +185,77 @@ getConvPartial1x1SupervisorCycleEstimate(
     const uint64_t supervisorNonloopOverhead = 48;
     return supervisorNonloopOverhead + numConvGroups
            * (numInGroups
-              * (9 + numOutGroups * (18 + numLoads + maxWorkerCycles)));
+              * (9 + numOutGroups * (18 + numLoads + innerLoopCycles)));
   } else {
     const uint64_t supervisorNonloopOverhead = 39;
     return supervisorNonloopOverhead + numConvGroups
            * (numInGroups
-              * (8 + numOutGroups * (16 + numLoads + maxWorkerCycles)));
+              * (8 + numOutGroups * (16 + numLoads + innerLoopCycles)));
   }
 }
 
 inline std::uint64_t
-getConvPartialnx1SupervisorCycleEstimate(
-    const std::vector<std::vector<std::vector<unsigned>>> &workerPartitions,
+getConvPartial1x1SupervisorCycleEstimate(
+    const std::vector<std::vector<unsigned>> &workerPartitions,
     unsigned numConvGroups,
-    unsigned numOutGroups,
     unsigned numInGroups,
-    unsigned kernelSize,
-    unsigned filterHeight,
-    unsigned inChansPerGroup,
+    unsigned numOutGroups,
     unsigned convUnitInputLoadElemsPerCycle,
     unsigned numConvUnitsPerTile,
     unsigned convUnitCoeffLoadBytesPerCycle,
     unsigned numWorkerContexts,
     bool floatWeights,
+    bool useDeltasForEdges) {
+  auto innerLoopCycles =
+      getConvPartial1x1SupervisorInnerLoopCycleEstimate(workerPartitions,
+                                                        numWorkerContexts);
+  return getConvPartial1x1SupervisorOuterLoopCycleEstimate(
+            innerLoopCycles, numConvGroups, numInGroups, numOutGroups,
+            convUnitInputLoadElemsPerCycle, numConvUnitsPerTile,
+            convUnitCoeffLoadBytesPerCycle, floatWeights, useDeltasForEdges);
+}
+
+inline std::uint64_t
+getConvPartialnx1SupervisorCycleOuterLoopEstimate(
+    std::uint64_t innerLoopCycles,
+    unsigned numConvGroups,
+    unsigned numOutGroups,
+    unsigned numInGroups,
     unsigned useDeltaForEdges) {
+  uint64_t cycles = innerLoopCycles;
+  if (useDeltaForEdges) {
+    return 6 + numConvGroups
+               * (46 + numOutGroups
+                 * (9 + numInGroups
+                   * (21 + cycles)));
+  } else {
+    return 6 + numConvGroups
+               * (42 + numOutGroups
+                 * (9 + numInGroups
+                   * (19 + cycles)));
+  }
+}
+
+inline std::uint64_t
+getConvPartialnx1SupervisorCycleInnerLoopEstimate(
+    const std::vector<std::vector<std::vector<unsigned>>> &workerPartitions,
+    unsigned kernelSize,
+    unsigned filterHeight,
+    unsigned convUnitInputLoadElemsPerCycle,
+    unsigned numConvUnitsPerTile,
+    unsigned convUnitCoeffLoadBytesPerCycle,
+    unsigned numWorkerContexts,
+    bool floatWeights) {
   unsigned usedContexts = workerPartitions.size();
   const auto numInputLoadsInnerLoop = 4;
   const auto numLoads = convUnitInputLoadElemsPerCycle * numInputLoadsInnerLoop
                         * numConvUnitsPerTile
                         * (floatWeights ? 4 : 2)
                          / convUnitCoeffLoadBytesPerCycle;
-  uint64_t cycles = 0;
+  uint64_t innerLoopCycles = 0;
   for (auto k = 0U; k != kernelSize; ++k) {
     // load coefficients
-    cycles += numLoads + 9 + 8 * (filterHeight - 1);
+    innerLoopCycles += numLoads + 9 + 8 * (filterHeight - 1);
     uint64_t maxWorkerCycles = 0;
     uint64_t minWorkerCycles = usedContexts < numWorkerContexts ?
                                0 : std::numeric_limits<uint64_t>::max();
@@ -203,19 +273,36 @@ getConvPartialnx1SupervisorCycleEstimate(
       minWorkerCycles =
         std::min(minWorkerCycles, numWorkerContexts * thisWorkerCycles);
     }
-    cycles += std::max(maxWorkerCycles, minWorkerCycles + 9);
+    innerLoopCycles += std::max(maxWorkerCycles, minWorkerCycles + 9);
   }
-  if (useDeltaForEdges) {
-    return 6 + numConvGroups
-               * (46 + numOutGroups
-                 * (9 + numInGroups
-                   * (21 + cycles)));
-  } else {
-    return 6 + numConvGroups
-               * (42 + numOutGroups
-                 * (9 + numInGroups
-                   * (19 + cycles)));
-  }
+  return innerLoopCycles;
+}
+
+inline std::uint64_t
+getConvPartialnx1SupervisorCycleEstimate(
+    const std::vector<std::vector<std::vector<unsigned>>> &workerPartitions,
+    unsigned numConvGroups,
+    unsigned numOutGroups,
+    unsigned numInGroups,
+    unsigned kernelSize,
+    unsigned filterHeight,
+    unsigned inChansPerGroup,
+    unsigned convUnitInputLoadElemsPerCycle,
+    unsigned numConvUnitsPerTile,
+    unsigned convUnitCoeffLoadBytesPerCycle,
+    unsigned numWorkerContexts,
+    bool floatWeights,
+    unsigned useDeltaForEdges) {
+  auto innerLoopCycles =
+      getConvPartialnx1SupervisorCycleInnerLoopEstimate(
+        workerPartitions, kernelSize, filterHeight,
+        convUnitInputLoadElemsPerCycle, numConvUnitsPerTile,
+        convUnitCoeffLoadBytesPerCycle, numWorkerContexts, floatWeights);
+  return getConvPartialnx1SupervisorCycleOuterLoopEstimate(innerLoopCycles,
+                                                           numConvGroups,
+                                                           numOutGroups,
+                                                           numInGroups,
+                                                           useDeltaForEdges);
 }
 
 inline std::uint64_t
