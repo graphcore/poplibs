@@ -36,7 +36,7 @@ static void generateVertices(std::string vertexName,
   const auto numTiles = target.getNumTiles();
   const unsigned numBaseElements = t2d.dim(0);
   const unsigned numSubElements = s2d.dim(0);
-  const unsigned elemSize = s2d.dim(1);
+  unsigned elemSize = s2d.dim(1);
   assert(numSubElements <= numBaseElements);
 
   // offset can be specified for each tile
@@ -58,6 +58,9 @@ static void generateVertices(std::string vertexName,
     toRearrange.push_back(&t2dElems[i]);
   }
   graph.reorderToSimplify(&s2dElems[0], toRearrange);
+  // Reordering may cause the element size to change if there were repeated
+  // elements in s2d.
+  elemSize = s2dElems[0].numElements();
   s2d = concat(s2dElems).reshape({numSubElements, elemSize});
   t2d = concat(t2dElems).reshape({numBaseElements, elemSize});
 
