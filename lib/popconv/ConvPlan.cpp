@@ -20,6 +20,10 @@
 
 namespace popconv {
 
+static bool equalsZero(unsigned x) {
+  return x == 0;
+};
+
 static bool equalsOne(unsigned x) {
   return x == 1;
 };
@@ -1253,6 +1257,8 @@ static bool canUseOuterProductMethod(const ConvParams &params) {
                      params.stride.end(), equalsOne) &&
          std::all_of(params.inputDilation.begin(),
                      params.inputDilation.end(), equalsOne) &&
+         std::all_of(params.flipInput.begin(),
+                     params.flipInput.end(), equalsZero) &&
          allKernelDimensionsAreOne(params);
 }
 
@@ -1344,37 +1350,19 @@ getConvVertexTypeCandidates(const poplar::Target &target,
   return convVertexTypeCandidates;
 }
 
-/// Return whether expanding the specified spatial dimension involves
-/// expanding the activations or the weights.
-bool expandDimExpandActs(ConvParams &params, unsigned dim) {
-  auto paddedInputSize = params.getPaddedDilatedInputSize(dim);
-  auto paddedKernelSize = params.getPaddedDilatedKernelSize(dim);
-  if (paddedInputSize == paddedKernelSize) {
-    // We could legitimately expand either operand. zero padding /
-    // input dilation is made explicit for the operand we expand so we are
-    // better off expanding the operand with less padding.
-    return params.inputFieldShape[dim] > params.kernelShape[dim];
-  }
-  return paddedInputSize > paddedKernelSize;
-}
-
 static void expandDim(ConvParams &params, unsigned dim) {
-  if (expandDimExpandActs(params, dim)) {
-    params.inputFieldShape[dim] = params.getOutputSize(dim);
-    params.inputChannels *= params.kernelShape[dim];
-    params.kernelShape[dim] = 1;
-  } else {
-    params.kernelShape[dim] = params.getOutputSize(dim);
-    params.inputChannels *= params.inputFieldShape[dim];
-    params.inputFieldShape[dim] = 1;
-  }
+  params.inputFieldShape[dim] = params.getOutputSize(dim);
+  params.inputChannels *= params.kernelShape[dim];
+  params.kernelShape[dim] = 1;
   params.stride[dim] = 1;
   params.inputDilation[dim] = 1;
   params.inputPaddingLower[dim] = 0;
   params.inputPaddingUpper[dim] = 0;
+  params.flipInput[dim] = false;
   params.kernelDilation[dim] = 1;
   params.kernelPaddingLower[dim] = 0;
   params.kernelPaddingUpper[dim] = 0;
+  params.flipKernel[dim] = false;
 }
 
 static unsigned
@@ -1508,11 +1496,15 @@ getExpandDimsCandidates(const ConvParams &params) {
 }
 
 static bool dimCanBeFlattened(const ConvParams &params, unsigned dim) {
+  // TODO two dimensions can be flattened if they both have flipInput set to
+  // true. To target this we would need to pass information about the two
+  // dimensions that are candidates for flattening.
   return params.getPaddedDilatedKernelSize(dim) == 1 &&
          params.stride[dim] == 1 &&
          params.inputDilation[dim] == 1 &&
          params.inputPaddingLower[dim] == 0 &&
-         params.inputPaddingUpper[dim] == 0;
+         params.inputPaddingUpper[dim] == 0 &&
+         !params.flipInput[dim];
 }
 
 static bool
@@ -1521,16 +1513,30 @@ dimCanBeFlattenedIntoOutChans(const ConvParams &params, unsigned dim) {
          params.stride[dim] == 1 &&
          params.kernelDilation[dim] == 1 &&
          params.kernelPaddingLower[dim] == 0 &&
-         params.kernelPaddingUpper[dim] == 0;
+         params.kernelPaddingUpper[dim] == 0 &&
+         !params.flipKernel[dim];
 }
 
 void
 swapOperands(ConvParams &params) {
-  std::swap(params.inputFieldShape, params.kernelShape);
-  std::swap(params.inputPaddingLower, params.kernelPaddingLower);
-  std::swap(params.inputPaddingUpper, params.kernelPaddingUpper);
-  std::swap(params.inputDilation, params.kernelDilation);
+  const auto numFieldDims = params.getNumFieldDims();
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    const auto paddedDilatedInputSize = params.getPaddedDilatedInputSize(dim);
+    const auto paddedDilatedKernelSize = params.getPaddedDilatedKernelSize(dim);
+    std::swap(params.inputFieldShape[dim], params.kernelShape[dim]);
+    std::swap(params.inputPaddingLower[dim], params.kernelPaddingLower[dim]);
+    std::swap(params.inputPaddingUpper[dim], params.kernelPaddingUpper[dim]);
+    std::swap(params.inputDilation[dim], params.kernelDilation[dim]);
+    std::swap(params.flipInput[dim], params.flipKernel[dim]);
+    params.flipInput[dim] = !params.flipInput[dim];
+    params.flipKernel[dim] = !params.flipKernel[dim];
+    const auto extraInputPadding =
+        paddedDilatedInputSize - paddedDilatedKernelSize;
+    params.inputPaddingLower[dim] += extraInputPadding;
+    params.inputPaddingUpper[dim] += extraInputPadding;
+  }
   std::swap(params.batchSize, params.outputChannels);
+  canonicalizeParams(params);
 }
 
 static std::vector<bool> getSwapOperandCandidates(const ConvOptions &options) {
@@ -1558,10 +1564,12 @@ void addExtraDims(ConvParams &params, unsigned extraDims) {
   insertAtFront(params.inputFieldShape, extraDims, std::size_t(1));
   insertAtFront(params.inputPaddingLower, extraDims, 0);
   insertAtFront(params.inputPaddingUpper, extraDims, 0);
+  insertAtFront(params.flipInput, extraDims, false);
   insertAtFront(params.kernelDilation, extraDims, 1U);
   insertAtFront(params.kernelPaddingLower, extraDims, 0);
   insertAtFront(params.kernelPaddingUpper, extraDims, 0);
   insertAtFront(params.kernelShape, extraDims, std::size_t(1));
+  insertAtFront(params.flipKernel, extraDims, false);
   insertAtFront(params.stride, extraDims, 1U);
 }
 
@@ -1723,12 +1731,14 @@ static ConvParams getFullyConnectedFwdParams(const ConvParams &params,
                     inputSize,            // input channels
                     batchSize,            // output channels
                     {1},                  // stride
-                    {0},
-                    {0},
-                    {1},
-                    {0},
-                    {0},
-                    {1},
+                    {0},                  // input padding lower
+                    {0},                  // input padding upper
+                    {1},                  // input dilation
+                    {false},              // flip input
+                    {0},                  // kernel padding lower
+                    {0},                  // kernel padding upper
+                    {1},                  // kernel dilation
+                    {false},              // flip kernel
                     params.getNumConvGroups());
 }
 

@@ -22,8 +22,9 @@ makeParams(unsigned stride, unsigned kernelSize, int paddingLower,
           {stride, stride},
           {paddingLower, paddingLower},
           {paddingUpper, paddingUpper},
-          {1, 1},
-          {0, 0}, {0, 0}, {1, 1}};
+          {1, 1}, {false, false},
+          {0, 0}, {0, 0},
+          {1, 1}, {false, false}};
 }
 
 BOOST_AUTO_TEST_CASE(inputRangeTest){
@@ -122,8 +123,9 @@ getOutputDim(unsigned inDimY, unsigned inDimX,
                           {inDimY, inDimX},
                           {kernelSizeY, kernelSizeX},
                           1, 1,
-                          stride, paddingLower, paddingUpper, {1, 1},
-                          {0, 0}, {0, 0}, {1, 1});
+                          stride,
+                          paddingLower, paddingUpper, {1, 1}, {false, false},
+                          {0, 0}, {0, 0}, {1, 1}, {false, false});
   return {params.getOutputSize(0), params.getOutputSize(1)};
 }
 

@@ -28,7 +28,7 @@ public:
   unsigned numConvGroups;
   // The number of kernel elements we accumulate across within the AMP unit.
   unsigned ampKernelHeight;
-  unsigned inRowStride;
+  int inRowStride;
   bool flipOut;
 
   SimOnlyField<unsigned> outChansPerGroup;

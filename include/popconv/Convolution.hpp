@@ -75,6 +75,9 @@ struct ConvParams {
   // padding and convolution. Dilation is peformed by placing
   // zeroed elements between the elements of the field.
   std::vector<unsigned> inputDilation;
+  // For each spatial input dimension whether it should be flipped. Flipping
+  // is applied after dilation and padding.
+  std::vector<bool> flipInput;
   // Padding applied to kernel after dilation and before input
   std::vector<int> kernelPaddingLower;
   std::vector<int> kernelPaddingUpper;
@@ -82,6 +85,9 @@ struct ConvParams {
   // padding and convolution. Dilation is peformed by placing
   // zeroed elements between the elements of the filter.
   std::vector<unsigned> kernelDilation;
+  // For each spatial kernel dimension whether it should be flipped. Flipping
+  // is applied after dilation and padding.
+  std::vector<bool> flipKernel;
   // number of groups in a grouped convolution (G). The input and output
   // channels are divided by G such that G kernels are applied to an input
   // tensors of size {B, {dims}, Ci/G} to produce output tensors of size
@@ -98,19 +104,27 @@ struct ConvParams {
              std::vector<int> inputPaddingLower,
              std::vector<int> inputPaddingUpper,
              std::vector<unsigned> inputDilation,
+             std::vector<bool> flipInput,
              std::vector<int> kernelPaddingLower,
              std::vector<int> kernelPaddingUpper,
              std::vector<unsigned> kernelDilation,
+             std::vector<bool> flipKernel,
              std::size_t numConvGroups = 1);
   bool operator<(const ConvParams &other) const {
     return std::tie(dType, batchSize, inputFieldShape, kernelShape,
                     inputChannels, outputChannels, stride,
                     inputPaddingLower, inputPaddingUpper,
-                    inputDilation, numConvGroups) <
+                    inputDilation, flipInput,
+                    kernelPaddingLower, kernelPaddingUpper,
+                    kernelDilation, flipKernel,
+                    numConvGroups) <
            std::tie(other.dType, other.batchSize, other.inputFieldShape,
                     other.kernelShape, other.inputChannels,
-                    other.outputChannels, other.stride, other.inputPaddingLower,
-                    other.inputPaddingUpper, other.inputDilation,
+                    other.outputChannels, other.stride,
+                    other.inputPaddingLower, other.inputPaddingUpper,
+                    other.inputDilation, other.flipInput,
+                    other.kernelPaddingLower, other.kernelPaddingUpper,
+                    other.kernelDilation, other.flipKernel,
                     other.numConvGroups);
   }
   std::size_t getOutputSize(unsigned dim) const;

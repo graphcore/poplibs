@@ -10,6 +10,11 @@ validateLayerParams(const ConvParams &params) {
                                  std::to_string(dim) +
                                  " truncates more than the input size");
     }
+    if (params.getPaddedDilatedKernelSize(dim) >
+        params.getPaddedDilatedInputSize(dim)) {
+      throw popstd::poplib_error("Kernel is larger than input in dimension " +
+                                 std::to_string(dim));
+    }
   }
   if (params.dType != poplar::HALF && params.dType != poplar::FLOAT) {
     throw popstd::poplib_error("Unknown element type");

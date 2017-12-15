@@ -98,10 +98,6 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
 /// Insert the specified number of dimensions of size 1 at the front.
 void addExtraDims(ConvParams &params, unsigned extraDims);
 
-/// Return whether expanding the specified spatial dimension involves
-/// expanding the activations or the weights.
-bool expandDimExpandActs(ConvParams &params, unsigned dim);
-
 void swapOperands(ConvParams &params);
 
 std::uint64_t getNumberOfMACs(const ConvParams &params);

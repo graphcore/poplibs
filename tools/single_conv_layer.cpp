@@ -270,9 +270,11 @@ int main(int argc, char **argv) {
                           paddingLower,
                           paddingUpper,
                           inDilation,
+                          flipInput,
                           kernelPaddingLower,
                           kernelPaddingUpper,
                           kernelDilation,
+                          flipKernel,
                           numConvGroups);
 
 

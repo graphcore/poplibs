@@ -26,11 +26,15 @@ BOOST_AUTO_TEST_CASE(getPlan){
                                     {0, 0},
                                     // input dilation
                                     {1, 1},
+                                    // flip input
+                                    {false, false},
                                     // lower kernel padding
                                     {0, 0},
                                     // upper kernel padding
                                     {0, 0},
                                     // kernel dilation
-                                    {1, 1});
+                                    {1, 1},
+                                    // flip kernel
+                                    {false, false});
   popconv::getPlan(graph, params, popconv::ConvOptions());
 }

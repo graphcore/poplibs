@@ -139,12 +139,16 @@ static popconv::ConvParams getConvParams(
                               {0},
                               // input dilation
                               {1},
+                              // flip input
+                              {false},
                               // lower kernal padding
                               {0},
                               // upper kernel padding
                               {0},
                               // kernel dilation
                               {1},
+                              // flip kernel
+                              {false},
                               numGroups);
     }
   case FullyConnectedPass::TRAINING_BWD:
@@ -177,12 +181,16 @@ static popconv::ConvParams getConvParams(
                               {0},
                               // input dilation
                               {1},
+                              // flip input
+                              {false},
                               // lower kernel padding
                               {0},
                               // upper kernel padding
                               {0},
                               // kernel dilation
                               {1},
+                              // flip kernel
+                              {false},
                               numGroups);
     }
   case FullyConnectedPass::TRAINING_WU:
@@ -215,12 +223,16 @@ static popconv::ConvParams getConvParams(
                               {0},
                               // input dilation
                               {1},
+                              // flip input
+                              {false},
                               // lower kernel padding
                               {0},
                               // upper kernel padding
                               {0},
                               // kernel dilation
                               {1},
+                              // flip kernel
+                              {false},
                               numGroups);
     }
   }

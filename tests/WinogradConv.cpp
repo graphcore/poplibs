@@ -225,8 +225,9 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
                           numOutChanGroups * numOutChansInGroup,
                           {1, 1},
                           {paddingY, paddingX}, {paddingY, paddingX},
-                          {1, 1},
-                          {0, 0}, {0, 0}, {1, 1});
+                          {1, 1}, {false, false},
+                          {0, 0}, {0, 0},
+                          {1, 1}, {false, false});
 
   auto wgdConv = popconv::winogradConvolution(graph, params, in, weights,
                                               activations,

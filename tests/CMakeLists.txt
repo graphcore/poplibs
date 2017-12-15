@@ -328,23 +328,48 @@ add_test(NAME conv_large_kernel_with_small_field
                  --output-channels=16
                  --tiles-per-ipu=16)
 
-add_test(NAME conv_kernel_larger_than_field_1
+add_test(NAME conv_flip_input_and_kernel_1
          COMMAND single_conv_layer
                  --field={6,2}
+                 --padding={0,1}
+                 --flip-input={0,1}
                  --kernel-size={1,3}
+                 --kernel-padding={0,0}
+                 --flip-kernel={0,1}
                  --input-channels=2
                  --output-channels=1
-                 --tiles-per-ipu=1
-                 --single-phase=fwd)
+                 --tiles-per-ipu=1)
 
-add_test(NAME conv_kernel_larger_than_field_2
+add_test(NAME conv_flip_input_and_kernel_2
          COMMAND single_conv_layer
                  --field={1,32}
+                 --padding={0,16}
+                 --flip-input={0,1}
                  --kernel-size={1,48}
+                 --flip-kernel={0,1}
                  --input-channels=32
                  --output-channels=8
-                 --tiles-per-ipu=4
-                 --single-phase=fwd)
+                 --tiles-per-ipu=4)
+
+add_test(NAME conv_flip_input_only
+         COMMAND single_conv_layer
+                 --field={28,28}
+                 --padding=1
+                 --flip-input=1
+                 --kernel-size=3
+                 --input-channels=32
+                 --output-channels=32
+                 --tiles-per-ipu=16)
+
+add_test(NAME conv_flip_kernel_only
+         COMMAND single_conv_layer
+                 --field={28,28}
+                 --padding=1
+                 --kernel-size=3
+                 --flip-kernel=1
+                 --input-channels=32
+                 --output-channels=32
+                 --tiles-per-ipu=16)
 
 add_test(NAME conv_batch_bwd
          COMMAND single_conv_layer
@@ -471,9 +496,12 @@ add_test(NAME conv_large_output_tensor
 add_test(NAME conv_large_weights
          COMMAND single_conv_layer
                 --field={14,16}
+                --padding={2,0}
+                --flip-input={1,0}
                 --input-channels=64
                 --output-channels=64
                 --kernel-size={16,1}
+                --flip-kernel={1,0}
                 --tiles-per-ipu=16
                 --data-type=half
                 --single-phase=fwd)
@@ -1002,9 +1030,12 @@ add_test(NAME grouped_conv_large_output_tensor
 add_test(NAME grouped_conv_large_weights
          COMMAND single_conv_layer
                 --field={14,16}
+                --padding={2,0}
+                --flip-input={1,0}
                 --input-channels=32
                 --output-channels=32
                 --kernel-size={16,1}
+                --flip-kernel={1,0}
                 --tiles-per-ipu=16
                 --data-type=half
                 --conv-groups=2

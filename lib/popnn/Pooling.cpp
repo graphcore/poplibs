@@ -90,12 +90,16 @@ makeConvParams(const std::vector<std::size_t> &inputFieldShape,
            inputPaddingUpper,
            // input dilation
            {1, 1},
+           // flip input
+           {false, false},
            // lower kernel padding
            {0, 0},
            // upper kernel padding
            {0, 0},
            // kernel dilation
-           {1, 1}};
+           {1, 1},
+           // flip kernel
+           {false, false}};
 }
 
 std::vector<std::size_t>
