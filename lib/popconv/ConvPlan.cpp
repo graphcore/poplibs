@@ -1465,9 +1465,43 @@ static std::vector<std::vector<unsigned>>
 getExpandDimsCandidates(const ConvParams &params) {
   std::vector<unsigned> candidateDims;
   for (unsigned i = 0; i != params.getNumFieldDims(); ++i) {
-    if (expandingDimChangesParams(params, i)) {
-      candidateDims.push_back(i);
+    if (!expandingDimChangesParams(params, i)) {
+      continue;
     }
+    // Don't expand this dimension if the number of non zero kernel entries is
+    // larger than the number of non zero input entries as it is unlikely to be
+    // profitable. This heuristic cuts down the size of the search space.
+    // TODO investigate better heuristics.
+    if (params.inputFieldShape[i] < params.kernelShape[i])
+      continue;
+    candidateDims.push_back(i);
+  }
+  auto subsets = getPowerSet(candidateDims);
+  for (auto &subset : subsets) {
+    // The subsets returned by getPowerSet have the outermost dimension first
+    // but it is more efficient to expand the innermost dimension first.
+    std::reverse(subset.begin(), subset.end());
+  }
+  return subsets;
+}
+
+static std::vector<std::vector<unsigned>>
+getOutChanFlattenDimsCandidates(const ConvParams &params) {
+  auto swappedParams = params;
+  popconv::swapOperands(swappedParams);
+  std::vector<unsigned> candidateDims;
+  for (unsigned i = 0; i != swappedParams.getNumFieldDims(); ++i) {
+    // Don't flatten this dimension into the output channel dimension if it
+    // wouldn't increase the number of output channels.
+    if (params.getOutputSize(i) == 1)
+      continue;
+    // Don't flatten this dimension into the output channel dimension if the
+    // number of non zero input entries is larger than the number of non zero
+    // kernel entries as it is unlikely to be profitable. This heuristic cuts
+    // down the size of the search space. TODO investigate better heuristics.
+    if (params.inputFieldShape[i] > params.kernelShape[i])
+      continue;
+    candidateDims.push_back(i);
   }
   auto subsets = getPowerSet(candidateDims);
   for (auto &subset : subsets) {
@@ -1490,16 +1524,6 @@ static bool dimCanBeFlattened(const ConvParams &params, unsigned dim) {
          !params.flipInput[dim];
 }
 
-static bool
-dimCanBeFlattenedIntoOutChans(const ConvParams &params, unsigned dim) {
-  return params.getPaddedDilatedInputSize(dim) == 1 &&
-         params.stride[dim] == 1 &&
-         params.kernelDilation[dim] == 1 &&
-         params.kernelPaddingLower[dim] == 0 &&
-         params.kernelPaddingUpper[dim] == 0 &&
-         !params.flipKernel[dim];
-}
-
 void
 swapOperands(ConvParams &params) {
   const auto numFieldDims = params.getNumFieldDims();
@@ -1519,7 +1543,7 @@ swapOperands(ConvParams &params) {
     params.inputPaddingUpper[dim] += extraInputPadding;
   }
   std::swap(params.batchSize, params.outputChannels);
-  canonicalizeParams(params);
+  params = canonicalizeParams(params);
 }
 
 static std::vector<bool> getSwapOperandCandidates(const ConvOptions &options) {
@@ -1584,99 +1608,104 @@ createPlan(ConvParams params,
       popconv::swapOperands(swappedParams);
     }
     for (std::vector<unsigned> expandDims :
-         getExpandDimsCandidates(params)) {
+         getExpandDimsCandidates(swappedParams)) {
       auto expandedParams = swappedParams;
       for (unsigned dim : expandDims) {
         expandDim(expandedParams, dim);
       }
-      std::vector<unsigned> outChanFlattenDims;
-      for (unsigned spatialDim = 0; spatialDim != numFieldDims;
-           ++spatialDim) {
-        if (dimCanBeFlattenedIntoOutChans(expandedParams, spatialDim) &&
-            expandedParams.kernelShape[spatialDim] > 1) {
-          outChanFlattenDims.push_back(spatialDim);
-          expandedParams.outputChannels *=
-              expandedParams.kernelShape[spatialDim];
-          expandedParams.kernelShape[spatialDim] = 1;
+      for (std::vector<unsigned> outChanFlattenDims :
+           getOutChanFlattenDimsCandidates(expandedParams)) {
+        auto flattenedParams = expandedParams;
+        if (!outChanFlattenDims.empty()) {
+          popconv::swapOperands(flattenedParams);
+          for (unsigned dim : outChanFlattenDims) {
+            expandDim(flattenedParams, dim);
+            // Flatten into the batch axis (this will become the output channel
+            // axis when we swap back).
+            flattenedParams.batchSize *= flattenedParams.inputFieldShape[dim];
+            flattenedParams.inputFieldShape[dim] = 1;
+          }
+          popconv::swapOperands(flattenedParams);
         }
-      }
-      // Flatten from the innermost out.
-      std::reverse(outChanFlattenDims.begin(), outChanFlattenDims.end());
-      std::vector<unsigned> flattenDims;
-      flattenDims.push_back(0);
-      for (unsigned spatialDim = 0;
-           spatialDim != expandedParams.getNumFieldDims();
-           ++spatialDim) {
-        if (dimCanBeFlattened(expandedParams, spatialDim)) {
-          flattenDims.push_back(spatialDim + 1);
+        // Flatten from the innermost out.
+        std::vector<unsigned> flattenDims;
+        flattenDims.push_back(0);
+        for (unsigned spatialDim = 0;
+             spatialDim != flattenedParams.getNumFieldDims();
+             ++spatialDim) {
+          if (dimCanBeFlattened(flattenedParams, spatialDim)) {
+            flattenDims.push_back(spatialDim + 1);
+          }
         }
-      }
-      if (flattenDims.size() > 1) {
-        const auto innermostFlattenableDim = flattenDims.back();
-        assert(innermostFlattenableDim > 0);
-        for (auto it = std::next(flattenDims.rbegin()),
-             end = flattenDims.rend(); it != end; ++it) {
-          const auto fromDimIndex = *it;
-          auto &fromDimSize =
-              fromDimIndex ? expandedParams.inputFieldShape[fromDimIndex - 1] :
-                             expandedParams.batchSize;
-          expandedParams.inputFieldShape[innermostFlattenableDim - 1] *=
-              fromDimSize;
-          fromDimSize = 1;
+        if (flattenDims.size() > 1) {
+          const auto innermostFlattenableDim = flattenDims.back();
+          assert(innermostFlattenableDim > 0);
+          for (auto it = std::next(flattenDims.rbegin()),
+               end = flattenDims.rend(); it != end; ++it) {
+            const auto fromDimIndex = *it;
+            auto &fromDimSize =
+                fromDimIndex ?
+                  flattenedParams.inputFieldShape[fromDimIndex - 1] :
+                flattenedParams.batchSize;
+            flattenedParams.inputFieldShape[innermostFlattenableDim - 1] *=
+                fromDimSize;
+            fromDimSize = 1;
+          }
+        } else {
+          flattenDims.clear();
         }
-      } else {
-        flattenDims.clear();
-      }
-      const bool floatActivations = params.dType == poplar::FLOAT;
-      const bool floatPartials = partialsType == poplar::FLOAT;
-      const auto convVertexTypeCandidates =
-          getConvVertexTypeCandidates(target, floatActivations,
-                                      floatPartials, expandedParams, options);
-      for (const auto &convVertexType : convVertexTypeCandidates) {
-        auto paddedParams = expandedParams;
-        const auto inChansPerGroup = convVertexType.inChansPerGroup;
-        const auto inChans = expandedParams.getNumInputChansPerConvGroup();
-        paddedParams.inputChannels =
-            ((inChans + inChansPerGroup - 1) / inChansPerGroup) *
-            inChansPerGroup;
-        unsigned inChansPadding = paddedParams.inputChannels - inChans;
-        const auto partialChansPerGroup = convVertexType.partialChansPerGroup;
-        const auto partialChans =
-            expandedParams.getNumOutputChansPerConvGroup();
-        paddedParams.outputChannels =
-            ((partialChans + partialChansPerGroup - 1) / partialChansPerGroup) *
-            partialChansPerGroup;
-        unsigned partialChansPadding = paddedParams.outputChannels -
-                                       partialChans;
-        std::vector<unsigned> fieldGrainSize(numFieldDims, 1);
-        if (options.pass == Pass::FC_TRAINING_FWD) {
-          // The innermost grain size becomes the inChansPerGroup in the
-          // backward pass. For now assume the same grouping in both passes.
-          // TODO search for the optimal grouping in each pass.
-          fieldGrainSize.back() = convVertexType.inChansPerGroup;
-        }
-        Plan candidate;
-        Cost candidateCost;
-        auto transformCostFn = [&](unsigned usedTiles) {
-          return estimateTransformCycles(graph.getTarget(),
-                                         paddedParams, options, swapOperands,
-                                         expandDims, inChansPadding,
-                                         partialChansPadding, usedTiles);
-        };
-        std::tie(candidate, candidateCost) =
-            choosePlan(target, fieldGrainSize, convVertexType,
-                       paddedParams, transformCostFn, bestCost, costBounds,
-                       cache, options);
-        if (candidateCost == highestCost)
-          continue;
-        candidate.extraFieldDims = addedFieldDims;
-        candidate.swapOperands = swapOperands;
-        candidate.expandDims = expandDims;
-        candidate.outChanFlattenDims = outChanFlattenDims;
-        candidate.flattenDims = flattenDims;
-        if (compareCost(candidateCost, bestCost, costBounds)) {
-          bestPlan = candidate;
-          bestCost = candidateCost;
+        const bool floatActivations = params.dType == poplar::FLOAT;
+        const bool floatPartials = partialsType == poplar::FLOAT;
+        const auto convVertexTypeCandidates =
+            getConvVertexTypeCandidates(target, floatActivations,
+                                        floatPartials, flattenedParams,
+                                        options);
+        for (const auto &convVertexType : convVertexTypeCandidates) {
+          auto paddedParams = flattenedParams;
+          const auto inChansPerGroup = convVertexType.inChansPerGroup;
+          const auto inChans = flattenedParams.getNumInputChansPerConvGroup();
+          paddedParams.inputChannels =
+              ((inChans + inChansPerGroup - 1) / inChansPerGroup) *
+              inChansPerGroup;
+          unsigned inChansPadding = paddedParams.inputChannels - inChans;
+          const auto partialChansPerGroup = convVertexType.partialChansPerGroup;
+          const auto partialChans =
+              flattenedParams.getNumOutputChansPerConvGroup();
+          paddedParams.outputChannels =
+              ((partialChans + partialChansPerGroup - 1) /
+               partialChansPerGroup) * partialChansPerGroup;
+          unsigned partialChansPadding = paddedParams.outputChannels -
+                                         partialChans;
+          std::vector<unsigned> fieldGrainSize(numFieldDims, 1);
+          if (options.pass == Pass::FC_TRAINING_FWD) {
+            // The innermost grain size becomes the inChansPerGroup in the
+            // backward pass. For now assume the same grouping in both passes.
+            // TODO search for the optimal grouping in each pass.
+            fieldGrainSize.back() = convVertexType.inChansPerGroup;
+          }
+          Plan candidate;
+          Cost candidateCost;
+          auto transformCostFn = [&](unsigned usedTiles) {
+            return estimateTransformCycles(graph.getTarget(),
+                                           paddedParams, options, swapOperands,
+                                           expandDims, inChansPadding,
+                                           partialChansPadding, usedTiles);
+          };
+          std::tie(candidate, candidateCost) =
+              choosePlan(target, fieldGrainSize, convVertexType,
+                         paddedParams, transformCostFn, bestCost, costBounds,
+                         cache, options);
+          if (candidateCost == highestCost)
+            continue;
+          candidate.extraFieldDims = addedFieldDims;
+          candidate.swapOperands = swapOperands;
+          candidate.expandDims = expandDims;
+          candidate.outChanFlattenDims = outChanFlattenDims;
+          candidate.flattenDims = flattenDims;
+          if (compareCost(candidateCost, bestCost, costBounds)) {
+            bestPlan = candidate;
+            bestCost = candidateCost;
+          }
         }
       }
     }

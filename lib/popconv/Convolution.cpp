@@ -2,6 +2,7 @@
 #include "ConvPlan.hpp"
 #include <limits>
 #include <algorithm>
+#include <boost/optional.hpp>
 #include <cassert>
 #include <cmath>
 #include <functional>
@@ -1091,6 +1092,30 @@ static void expandSpatialDim(Graph &graph, ConvParams &params,
   params.stride[dim] = 1;
 }
 
+static void swapOperands(ConvParams &params, Tensor *acts, Tensor *weights) {
+  swapOperands(params);
+  if (acts && weights) {
+    std::swap(*acts, *weights);
+    *acts = acts->dimRoll(acts->rank() - 2, 1);
+    *weights = weights->dimRoll(1, weights->rank() - 2);
+  } else {
+    assert(!acts && !weights);
+  }
+}
+
+static void
+swapOperands(ConvParams &params, boost::optional<Tensor> &acts,
+             boost::optional<Tensor> &weights) {
+  swapOperands(params);
+  std::swap(acts, weights);
+  if (acts) {
+    *acts = acts->dimRoll(acts->rank() - 2, 1);
+  }
+  if (weights) {
+    *weights = weights->dimRoll(1, weights->rank() - 2);
+  }
+}
+
 /// Apply any pre-convolution transformations implied by the plan. The
 /// plan and the parameters are updated to describe the convolution operation
 /// performed on the transformed input. If the \a acts or \ weights pointers are
@@ -1114,28 +1139,36 @@ convolutionPreprocess(Graph &graph, ConvParams &params, Plan &plan,
     plan.extraFieldDims = 0;
   }
   if (plan.swapOperands) {
-    swapOperands(params);
-    if (acts && weights) {
-      std::swap(*acts, *weights);
-      *acts = acts->dimRoll(acts->rank() - 2, 1);
-      *weights = weights->dimRoll(1, weights->rank() - 2);
-    } else {
-      assert(!acts && !weights);
-    }
+    swapOperands(params, acts, weights);
     plan.swapOperands = false;
   }
   for (auto dim : plan.expandDims) {
     expandSpatialDim(graph, params, acts, weights, dim);
   }
   plan.expandDims.clear();
-  for (auto dim : plan.outChanFlattenDims) {
-    if (weights) {
-      *weights = flattenDims(*weights, dim + 1, weights->rank() - 2);
+  if (!plan.outChanFlattenDims.empty()) {
+    boost::optional<Tensor> maybeActs, maybeWeights;
+    if (acts)
+      maybeActs.reset(*acts);
+    if (weights)
+      maybeWeights.reset(*weights);
+    swapOperands(params, maybeActs, maybeWeights);
+    for (auto dim : plan.outChanFlattenDims) {
+      expandSpatialDim(graph, params, maybeActs.get_ptr(),
+                       maybeWeights.get_ptr(), dim);
+      if (maybeActs) {
+        *maybeActs = flattenDims(*maybeActs, dim + 2, 1);
+      }
+      params.batchSize *= params.inputFieldShape[dim];
+      params.inputFieldShape[dim] = 1;
     }
-    params.outputChannels *= params.kernelShape[dim];
-    params.kernelShape[dim] = 1;
+    swapOperands(params, maybeActs, maybeWeights);
+    if (acts)
+      *acts = *maybeActs;
+    if (weights)
+      *weights = *maybeWeights;
+    plan.outChanFlattenDims.clear();
   }
-  plan.outChanFlattenDims.clear();
   if (!plan.flattenDims.empty()) {
     for (auto it = std::next(plan.flattenDims.rbegin()),
          end = plan.flattenDims.rend(); it != end; ++it) {
@@ -2621,10 +2654,17 @@ convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
     expandSpatialDim(graph, postExpandParams, nullptr, nullptr, dim);
   }
   auto postOutChanFlattenParams = postExpandParams;
-  for (auto dim : originalPlan.outChanFlattenDims) {
-    postOutChanFlattenParams.outputChannels *=
-        postOutChanFlattenParams.kernelShape[dim];
-    postOutChanFlattenParams.kernelShape[dim] = 1;
+  if (!originalPlan.outChanFlattenDims.empty()) {
+    swapOperands(postOutChanFlattenParams);
+    for (auto dim : originalPlan.outChanFlattenDims) {
+      expandSpatialDim(graph, postOutChanFlattenParams, nullptr, nullptr, dim);
+      // Flatten into the batch axis (this will become the output channel
+      // axis when we swap back).
+      postOutChanFlattenParams.batchSize *=
+          postOutChanFlattenParams.inputFieldShape[dim];
+      postOutChanFlattenParams.inputFieldShape[dim] = 1;
+    }
+    swapOperands(postOutChanFlattenParams);
   }
   const auto outNumChans =
       postOutChanFlattenParams.getNumOutputChansPerConvGroup();
