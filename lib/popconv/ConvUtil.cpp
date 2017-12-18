@@ -280,6 +280,34 @@ ConvParams canonicalizeParams(const ConvParams &params) {
     } else {
       flippedPaddingUpper -= ignored;
     }
+    // Remove excess padding.
+    auto &flippedKernelPaddingLower =
+        params.flipKernel[dim] ? newParams.kernelPaddingUpper[dim] :
+                                 newParams.kernelPaddingLower[dim];
+    auto &flippedKernelPaddingUpper =
+        params.flipKernel[dim] ? newParams.kernelPaddingLower[dim] :
+                                 newParams.kernelPaddingUpper[dim];
+    if (flippedPaddingLower > 0 && flippedKernelPaddingLower > 0) {
+      auto excess = std::min(flippedPaddingLower, flippedKernelPaddingLower);
+      flippedPaddingLower -= excess;
+      flippedKernelPaddingLower -= excess;
+    }
+    if (flippedPaddingUpper > 0 && flippedKernelPaddingUpper > 0) {
+      auto excess = std::min(flippedPaddingUpper, flippedKernelPaddingUpper);
+      flippedPaddingUpper -= excess;
+      flippedKernelPaddingUpper -= excess;
+    }
+    // Avoid unnecessary flipping.
+    if (params.flipInput[dim] && params.inputFieldShape[dim] == 1) {
+      newParams.flipInput[dim] = false;
+      std::swap(newParams.inputPaddingLower[dim],
+                newParams.inputPaddingUpper[dim]);
+    }
+    if (params.flipKernel[dim] && params.kernelShape[dim] == 1) {
+      newParams.flipKernel[dim] = false;
+      std::swap(newParams.kernelPaddingLower[dim],
+                newParams.kernelPaddingUpper[dim]);
+    }
   }
   return newParams;
 }
