@@ -1,5 +1,5 @@
 #include "popconv/Convolution.hpp"
-#include "ConvPlan.hpp"
+#include "popconv/internal/ConvPlan.hpp"
 #include <limits>
 #include <algorithm>
 #include <boost/optional.hpp>

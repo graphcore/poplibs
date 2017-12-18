@@ -105,5 +105,11 @@ std::uint64_t getNumberOfMACs(const ConvParams &params);
 std::ostream& operator<<(std::ostream &os, const Plan::Method m);
 std::ostream& operator<<(std::ostream &os, const Plan &p);
 
+std::uint64_t estimateConvCost(const poplar::Target &target,
+                               const ConvParams &params,
+                               const ConvOptions &options,
+                               const Plan &plan,
+                               PlanningCache *cache = nullptr);
+
 }
 #endif // __popconv_ConvPlan_hpp__

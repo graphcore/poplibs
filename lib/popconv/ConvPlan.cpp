@@ -1,4 +1,4 @@
-#include "ConvPlan.hpp"
+#include "popconv/internal/ConvPlan.hpp"
 #include "popconv/Convolution.hpp"
 #include "popstd/exceptions.hpp"
 #include "poplar/Graph.hpp"
@@ -1580,6 +1580,90 @@ void addExtraDims(ConvParams &params, unsigned extraDims) {
   insertAtFront(params.stride, extraDims, 1U);
 }
 
+static ConvParams
+calculateSwappedParams(const ConvParams &params, bool swapOperands) {
+  auto swappedParams = params;
+  if (swapOperands) {
+    popconv::swapOperands(swappedParams);
+  }
+  return swappedParams;
+}
+
+static ConvParams
+calculateExpandedParams(const ConvParams &params,
+                        const std::vector<unsigned> &expandDims) {
+  auto expandedParams = params;
+  for (unsigned dim : expandDims) {
+    expandDim(expandedParams, dim);
+  }
+  return expandedParams;
+}
+
+static ConvParams
+calculateFlattenedParams(const ConvParams &params,
+                         const std::vector<unsigned> &outChanFlattenDims,
+                         std::vector<unsigned> &flattenDims) {
+  auto flattenedParams = params;
+  if (!outChanFlattenDims.empty()) {
+    popconv::swapOperands(flattenedParams);
+    for (unsigned dim : outChanFlattenDims) {
+      expandDim(flattenedParams, dim);
+      // Flatten into the batch axis (this will become the output channel
+      // axis when we swap back).
+      flattenedParams.batchSize *= flattenedParams.inputFieldShape[dim];
+      flattenedParams.inputFieldShape[dim] = 1;
+    }
+    popconv::swapOperands(flattenedParams);
+  }
+  // Flatten from the innermost out.
+
+  flattenDims.push_back(0);
+  for (unsigned spatialDim = 0;
+       spatialDim != flattenedParams.getNumFieldDims();
+       ++spatialDim) {
+    if (dimCanBeFlattened(flattenedParams, spatialDim)) {
+      flattenDims.push_back(spatialDim + 1);
+    }
+  }
+  if (flattenDims.size() > 1) {
+    const auto innermostFlattenableDim = flattenDims.back();
+    assert(innermostFlattenableDim > 0);
+    for (auto it = std::next(flattenDims.rbegin()),
+         end = flattenDims.rend(); it != end; ++it) {
+      const auto fromDimIndex = *it;
+      auto &fromDimSize =
+          fromDimIndex ?
+            flattenedParams.inputFieldShape[fromDimIndex - 1] :
+          flattenedParams.batchSize;
+      flattenedParams.inputFieldShape[innermostFlattenableDim - 1] *=
+          fromDimSize;
+      fromDimSize = 1;
+    }
+  } else {
+    flattenDims.clear();
+  }
+  return flattenedParams;
+}
+
+static ConvParams
+calculatePaddedParams(const ConvParams &params, unsigned inChansPerGroup,
+                      unsigned partialChansPerGroup,
+                      unsigned &inChansPadding, unsigned &partialChansPadding) {
+  auto paddedParams = params;
+  const auto inChans = params.getNumInputChansPerConvGroup();
+  paddedParams.inputChannels =
+      ((inChans + inChansPerGroup - 1) / inChansPerGroup) *
+      inChansPerGroup;
+  inChansPadding = paddedParams.inputChannels - inChans;
+  const auto partialChans =
+      params.getNumOutputChansPerConvGroup();
+  paddedParams.outputChannels =
+      ((partialChans + partialChansPerGroup - 1) / partialChansPerGroup) *
+      partialChansPerGroup;
+  partialChansPadding = paddedParams.outputChannels - partialChans;
+  return paddedParams;
+}
+
 static std::pair<Plan, Cost>
 createPlan(ConvParams params,
            const poplar::Type &partialsType,
@@ -1603,57 +1687,16 @@ createPlan(ConvParams params,
   Cost bestCost = highestCost;
   Plan bestPlan;
   for (bool swapOperands : getSwapOperandCandidates(options)) {
-    auto swappedParams = params;
-    if (swapOperands) {
-      popconv::swapOperands(swappedParams);
-    }
+    auto swappedParams = calculateSwappedParams(params, swapOperands);
     for (std::vector<unsigned> expandDims :
          getExpandDimsCandidates(swappedParams)) {
-      auto expandedParams = swappedParams;
-      for (unsigned dim : expandDims) {
-        expandDim(expandedParams, dim);
-      }
+      auto expandedParams = calculateExpandedParams(swappedParams, expandDims);
       for (std::vector<unsigned> outChanFlattenDims :
            getOutChanFlattenDimsCandidates(expandedParams)) {
-        auto flattenedParams = expandedParams;
-        if (!outChanFlattenDims.empty()) {
-          popconv::swapOperands(flattenedParams);
-          for (unsigned dim : outChanFlattenDims) {
-            expandDim(flattenedParams, dim);
-            // Flatten into the batch axis (this will become the output channel
-            // axis when we swap back).
-            flattenedParams.batchSize *= flattenedParams.inputFieldShape[dim];
-            flattenedParams.inputFieldShape[dim] = 1;
-          }
-          popconv::swapOperands(flattenedParams);
-        }
-        // Flatten from the innermost out.
         std::vector<unsigned> flattenDims;
-        flattenDims.push_back(0);
-        for (unsigned spatialDim = 0;
-             spatialDim != flattenedParams.getNumFieldDims();
-             ++spatialDim) {
-          if (dimCanBeFlattened(flattenedParams, spatialDim)) {
-            flattenDims.push_back(spatialDim + 1);
-          }
-        }
-        if (flattenDims.size() > 1) {
-          const auto innermostFlattenableDim = flattenDims.back();
-          assert(innermostFlattenableDim > 0);
-          for (auto it = std::next(flattenDims.rbegin()),
-               end = flattenDims.rend(); it != end; ++it) {
-            const auto fromDimIndex = *it;
-            auto &fromDimSize =
-                fromDimIndex ?
-                  flattenedParams.inputFieldShape[fromDimIndex - 1] :
-                flattenedParams.batchSize;
-            flattenedParams.inputFieldShape[innermostFlattenableDim - 1] *=
-                fromDimSize;
-            fromDimSize = 1;
-          }
-        } else {
-          flattenDims.clear();
-        }
+        auto flattenedParams = calculateFlattenedParams(expandedParams,
+                                                        outChanFlattenDims,
+                                                        flattenDims);
         const bool floatActivations = params.dType == poplar::FLOAT;
         const bool floatPartials = partialsType == poplar::FLOAT;
         const auto convVertexTypeCandidates =
@@ -1661,21 +1704,13 @@ createPlan(ConvParams params,
                                         floatPartials, flattenedParams,
                                         options);
         for (const auto &convVertexType : convVertexTypeCandidates) {
-          auto paddedParams = flattenedParams;
           const auto inChansPerGroup = convVertexType.inChansPerGroup;
-          const auto inChans = flattenedParams.getNumInputChansPerConvGroup();
-          paddedParams.inputChannels =
-              ((inChans + inChansPerGroup - 1) / inChansPerGroup) *
-              inChansPerGroup;
-          unsigned inChansPadding = paddedParams.inputChannels - inChans;
           const auto partialChansPerGroup = convVertexType.partialChansPerGroup;
-          const auto partialChans =
-              flattenedParams.getNumOutputChansPerConvGroup();
-          paddedParams.outputChannels =
-              ((partialChans + partialChansPerGroup - 1) /
-               partialChansPerGroup) * partialChansPerGroup;
-          unsigned partialChansPadding = paddedParams.outputChannels -
-                                         partialChans;
+          unsigned inChansPadding, partialChansPadding;
+          auto paddedParams =
+              calculatePaddedParams(flattenedParams, inChansPerGroup,
+                                    partialChansPerGroup, inChansPadding,
+                                    partialChansPadding);
           std::vector<unsigned> fieldGrainSize(numFieldDims, 1);
           if (options.pass == Pass::FC_TRAINING_FWD) {
             // The innermost grain size becomes the inChansPerGroup in the
@@ -1884,6 +1919,58 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
     return *res.first->second;
   }
   return plan;
+}
+
+std::uint64_t estimateConvCost(const poplar::Target &target,
+                               const ConvParams &params,
+                               const ConvOptions &options,
+                               const Plan &plan,
+                               PlanningCache *cache) {
+  auto cacheImpl = cache ? cache->impl.get() : nullptr;
+  std::unique_ptr<PlanningCacheImpl> tempCache;
+  if (!cache) {
+    tempCache = std::unique_ptr<PlanningCacheImpl>(new PlanningCacheImpl);
+    cacheImpl = tempCache.get();
+  }
+  std::vector<unsigned> flattenDims;
+  const auto swappedParams = calculateSwappedParams(params, plan.swapOperands);
+  const auto expandedParams =
+      calculateExpandedParams(swappedParams, plan.expandDims);
+  const auto flattenedParams =
+      calculateFlattenedParams(expandedParams, plan.outChanFlattenDims,
+                               flattenDims);
+  unsigned inChansPadding, partialChansPadding;
+  const auto paddedParams =
+      calculatePaddedParams(flattenedParams, plan.inChansPerGroup,
+                            plan.partialChansPerGroup, inChansPadding,
+                            partialChansPadding);
+  std::vector<unsigned> splits = {
+    plan.batchTileSplit, plan.outChanTileSplit, plan.inChanTileSplit,
+    plan.convGroupTileSplit
+  };
+  splits.insert(splits.end(), plan.fieldTileSplit.begin(),
+                plan.fieldTileSplit.end());
+  splits.insert(splits.end(), plan.kernelTileSplit.begin(),
+                plan.kernelTileSplit.end());
+  const auto usedTiles = std::accumulate(splits.begin(), splits.end(), 1U,
+                                         std::multiplies<unsigned>());
+  const auto transformCycles =
+      estimateTransformCycles(target,
+                              paddedParams, options, plan.swapOperands,
+                              plan.expandDims, inChansPadding,
+                              partialChansPadding, usedTiles);
+  const auto floatActivations = params.dType == poplar::FLOAT;
+  const auto exchangeCycles =
+      estimateExchangeCycles(target, floatActivations, params, plan);
+  const auto zeroCycles =
+      estimateZeroCycles(target, params, plan);
+  const auto partialCalcCycles =
+      estimatePartialCalcCycles(target, floatActivations, params,
+                                plan, cacheImpl);
+  const auto reduceCycles =
+      estimateReduceCycles(target, params, plan);
+  return transformCycles + exchangeCycles + zeroCycles +
+         partialCalcCycles + reduceCycles;
 }
 
 } // end namespace conv

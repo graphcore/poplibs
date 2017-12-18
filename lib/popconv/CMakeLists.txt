@@ -6,7 +6,6 @@ add_library(popconv SHARED
   popconvCycleEstimators.cpp
   Convolution.cpp
   ConvPlan.cpp
-  ConvPlan.hpp
   ConvUtil.cpp
   ConvValidation.hpp
   ConvValidation.cpp
@@ -16,6 +15,7 @@ add_library(popconv SHARED
   ${CMAKE_SOURCE_DIR}/include/popconv/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/popconv/Convolution.hpp
   ${CMAKE_SOURCE_DIR}/include/popconv/ConvUtil.hpp
+  ${CMAKE_SOURCE_DIR}/include/popconv/internal/ConvPlan.hpp
   ${CMAKE_SOURCE_DIR}/include/util/Compiler.hpp
   ${CMAKE_SOURCE_DIR}/include/util/gcd.hpp
 )
