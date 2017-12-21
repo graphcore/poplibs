@@ -30,52 +30,157 @@ void mergeAdjacentRegions(
   }
 }
 
+// Take a vector of items, which each has a size and split them into a maximum
+// of `maxPartitions` different sets. Typically the item is an interval
+// and its size is the size of the interval (end - begin).
+//
+// Each partition will have a total size of at least `minSizePerPartition`
+// and the size will be a multiple of `grainSize` (except possibly the last
+// one).
+//
+// This takes two template function - one to tell the size of an item,
+// and one to add part of an item to a partition.
+//
+// Consider the following example.
+//
+//   T = poplar::Interval<std::size_t>
+//
+//   std::size_t size(const poplar::Interval<..> &ival) {
+//     return ival.end() - ival.begin();
+//   }
+//   void extend(std::vector<poplar::Interval<..>> &partition,
+//               const poplar::Interval<..> &ival,
+//               unsigned offset,
+//               unsigned len) {
+//     partition.emplace_back(ival.begin() + offset,
+//                            ival.begin() + offset + len);
+//   }
+//
+//    item: [{0, 10}, {15, 20}, {33, 60}]
+//    grainSize: 4
+//    maxPartitions: 8
+//    minSizePerPartition: 6
+//
+// In this case, the function will calculate the total size using the supplied
+// size() function:
+//
+//   (10-0) + (20-15) + (60-33) = 42
+//
+// Then it will work out how many grains that is:
+//
+//   ceil(42/4) = 11
+//
+// And then divide those into up to 8 partitions, respecting the
+// minSizePerPartition (6 here, therefore at least 2 grains per partition).
+// In this case it means we actually get 4 partitions with this many grains:
+// (3,3,3,2). You might expect 5 (3,2,2,2,2) but the algorithm tries to
+// minimise the number of partitions if it doesn't affect the maximum partition
+// size (i.e. the execution time).
+//
+// Once the number of grains per partition is decided, it loops through
+// the partitions and adds grainSize * numGrains worth of the items to
+// each partition, using the supplied extend() function. In this example it
+// would call extend like this:
+//
+//   extend(partition1, {0, 10}, 0, 10);  // size(partition1) = 10
+//   extend(partition1, {15, 20}, 0, 2);  // size(partition1) = 12 (3 grains)
+//   extend(partition2, {15, 20}, 2, 3);  // size(partition2) = 3
+//   extend(partition2, {33, 60}, 0, 9);  // size(partition2) = 12 (3 grains)
+//   extend(partition3, {33, 60}, 9, 12); // size(partition3) = 12 (3 grains)
+//   extend(partition4, {33, 60}, 21, 6); // size(partition4) = 6
+//
+// And the final output would be
+//
+//   [
+//      [{0, 10}, {15, 17}],
+//      [{17, 20}, {33, 42}],
+//      [{42, 54}],
+//      [{54, 60}],
+//   ]
+//
 template <typename T, std::size_t size(const T &),
           void extend(std::vector<T> &, const T&, unsigned, unsigned)>
 std::vector<std::vector<T>>
 splitRegionsAux(const std::vector<T> &items,
                 unsigned grainSize, unsigned maxPartitions,
                 unsigned minSizePerPartition) {
+
+  // The list of regions (items) for each vertex (partition).
   std::vector<std::vector<T>> vertexItems;
+
+  // The total size of all the regions.
   std::size_t totalSize =
       std::accumulate(items.begin(), items.end(), 0UL,
                       [](std::size_t totalSize, const T &item) {
     return totalSize + size(item);
   });
+
   if (totalSize == 0)
     return vertexItems;
-  const auto numGroups = (totalSize + grainSize - 1) / grainSize;
-  auto maxGroupsPerPartition =
-    (numGroups + maxPartitions - 1) / maxPartitions;
-  if (minSizePerPartition) {
-    const auto minGroupsPerPartition =
-      (minSizePerPartition + grainSize - 1) / grainSize;
+
+  // Divide a by b, rounding up.
+  auto udiv = [](std::size_t a, std::size_t b) { return (a + b - 1) / b; };
+
+  // The number of grains required. E.g. if grainSize is 8 and totalSize
+  // is 20 there are 3 grains.
+  const auto numGrains = udiv(totalSize, grainSize);
+
+  // The maximum number of grains in each vertex. For example if there
+  // are 10 grains and 3 vertices this is 4.
+  auto maxGrainsPerPartition = udiv(numGrains, maxPartitions);
+
+  // Adjust maxGrainsPerPartition if minSizePerPartitions is not 0.
+  if (minSizePerPartition != 0) {
+    const auto minGrainsPerPartition = udiv(minSizePerPartition, grainSize);
     const auto maxVerticesToCreate =
-      std::max(1UL, numGroups / minGroupsPerPartition);
-    maxGroupsPerPartition =
-        std::max(maxGroupsPerPartition,
-                 (numGroups + maxVerticesToCreate - 1) / maxVerticesToCreate);
+      std::max(1UL, numGrains / minGrainsPerPartition);
+    maxGrainsPerPartition =
+        std::max(maxGrainsPerPartition, udiv(numGrains, maxVerticesToCreate));
   }
-  const auto verticesToCreate =
-    (numGroups + maxGroupsPerPartition - 1) / maxGroupsPerPartition;
+
+  // The number of vertices to create.
+  const auto verticesToCreate = udiv(numGrains, maxGrainsPerPartition);
+
+  // Pointer to the item we are currently processing, and the offset into it.
   auto it = items.begin();
   unsigned offset = 0;
+
   vertexItems.resize(verticesToCreate);
+
+  // Distribute the grains among verticesToCreate vertices.
   for (std::size_t vertex = 0; vertex != verticesToCreate; ++vertex) {
-    const auto groupBegin = (vertex * numGroups) / verticesToCreate;
-    const auto groupEnd = ((vertex + 1) * numGroups) / verticesToCreate;
-    const auto elemBegin = groupBegin * grainSize;
-    const auto elemEnd = std::min(totalSize, groupEnd * grainSize);
+    // The first and last+1 grains in this vertex.
+    const auto grainBegin = (vertex * numGrains) / verticesToCreate;
+    const auto grainEnd = ((vertex + 1) * numGrains) / verticesToCreate;
+
+    // The corresponding elements.
+    const auto elemBegin = grainBegin * grainSize;
+    const auto elemEnd = std::min(totalSize, grainEnd * grainSize);
+
+    // Total size in this vertex.
     auto vertexSize = elemEnd - elemBegin;
-    while (vertexSize) {
+
+    // While there are still elements to add to this vertex...
+    while (vertexSize > 0) {
+
+      // If we have finished adding the current item, go to the start of
+      // the next one.
       if (offset == size(*it)) {
         offset = 0;
         ++it;
       }
+
+      // Get the size of the item we are adding, starting from
+      // the current offset and going to the end, or until we have enough
+      // for vertexSize.
       const auto vertexItemSize =
           std::min(static_cast<std::size_t>(vertexSize),
                    size(*it) - offset);
+
+      // Add (the part of) the item to the end of the list of items for this
+      // vertex.
       extend(vertexItems[vertex], *it, offset, vertexItemSize);
+
       offset += vertexItemSize;
       vertexSize -= vertexItemSize;
     }
