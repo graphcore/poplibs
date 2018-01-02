@@ -17,6 +17,11 @@ poplar::Tensor add(poplar::Graph &graph,
                    poplar::program::Sequence &prog,
                    const std::string &debugPrefix = "");
 
+poplar::Tensor atan2(poplar::Graph &graph,
+                     poplar::Tensor A, poplar::Tensor B,
+                     poplar::program::Sequence &prog,
+                     const std::string &debugPrefix = "");
+
 poplar::Tensor bitwiseAnd(poplar::Graph &graph,
                           poplar::Tensor A, poplar::Tensor B,
                           poplar::program::Sequence &prog,

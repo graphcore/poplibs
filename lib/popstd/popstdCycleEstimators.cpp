@@ -219,6 +219,28 @@ MAKE_CYCLE_ESTIMATOR(Add, vertex, target) {
 }
 
 template <class InType>
+MAKE_CYCLE_ESTIMATOR(Atan2, vertex, target) {
+  uint64_t cycles = 5;
+  const auto in1 = vertex.getFieldInfo("in1");
+  for (unsigned i = 0; i < in1.size(); ++i) {
+    unsigned cyclesPerVector = 1;
+    unsigned overhead = 6;
+    unsigned numElem = in1[i].size();
+    unsigned vectorWidth = 1;
+    if (std::is_same<InType, float>::value) {
+      vectorWidth = 1;
+      cyclesPerVector = 25;
+    } else if (std::is_same<InType, half>::value) {
+      vectorWidth = 1;
+      cyclesPerVector = 25 + 3;
+    }
+    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
+            cyclesPerVector);
+  }
+  return cycles;
+}
+
+template <class InType>
 MAKE_CYCLE_ESTIMATOR(BitwiseAnd, vertex, target) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
@@ -1091,6 +1113,9 @@ poplibs::CycleEstimatorTable cyclesFunctionTable = {
   TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Add, half),
   TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Add, int),
   TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Add, unsigned int),
+
+  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Atan2, float),
+  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Atan2, half),
 
   TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, BitwiseAnd, int),
 

@@ -79,6 +79,8 @@ static std::string vertexName(enum BinaryOp op) {
   switch(op) {
     case ADD:
       return "popstd::Add";
+    case ATAN2:
+      return "popstd::Atan2";
     case BITWISE_AND:
       return "popstd::BitwiseAnd";
     case BITWISE_OR:
@@ -333,6 +335,12 @@ Tensor add(Graph &graph, Tensor A, Tensor B, Sequence &prog,
 Tensor abs(Graph &graph, Tensor A, Sequence &prog,
            const std::string &debugPrefix) {
   return unaryOp(graph, A, prog, UnaryOp::ABSOLUTE, debugPrefix + "/Op/Abs");
+}
+
+Tensor atan2(Graph &graph, Tensor A, Tensor B, Sequence &prog,
+             const std::string &debugPrefix) {
+  return binaryOp(graph, A, B, prog, BinaryOp::ATAN2,
+                  debugPrefix + "/Op/Atan2");
 }
 
 Tensor bitwiseAnd(Graph &graph, Tensor A, Tensor B, Sequence &prog,

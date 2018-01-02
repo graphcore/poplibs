@@ -10,6 +10,7 @@ enum TernaryOp {
 
 enum BinaryOp {
   ADD,
+  ATAN2,
   BITWISE_AND,
   BITWISE_OR,
   DIVIDE,

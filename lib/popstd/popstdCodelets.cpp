@@ -206,6 +206,32 @@ template class Absolute<int>;
 
 
 template <typename InType>
+class Atan2 : public Vertex {
+public:
+  Vector<Input<Vector<InType>>> in1;
+  Vector<Input<Vector<InType>>> in2;
+  Vector<Output<Vector<InType>>> out;
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    assert(in1.size() == out.size());
+    assert(in2.size() == in1.size());
+    for (unsigned i = 0; i != in1.size(); ++i) {
+      assert(in1[i].size() == out[i].size());
+      assert(in2[i].size() == in1[i].size());
+      for (unsigned j = 0; j != in1[i].size(); ++j) {
+        out[i][j] = std::atan2(in1[i][j], in2[i][j]);
+      }
+    }
+    return true;
+  }
+};
+
+template class Atan2<float>;
+template class Atan2<half>;
+
+
+template <typename InType>
 class
 // Meeting these constraints would give cyclesPerVector==1
 [[poplar::constraint("elem(**in1) != elem(**in2)",

@@ -266,6 +266,18 @@ BOOST_AUTO_TEST_CASE(StdOperationAddFloat,
                               });
 }
 
+BOOST_AUTO_TEST_CASE(StdOperationAtan2Float,
+                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  ) {
+  binaryOpTest<float, double>(popstd::atan2,
+                              [](float x, float y) -> double {
+                                double res = std::atan2(x, y);
+                                return res;
+                              });
+}
+
 BOOST_AUTO_TEST_CASE(StdOperationAddInt,
                   *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
