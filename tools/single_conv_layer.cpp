@@ -32,6 +32,37 @@ using namespace poplar::program;
 using namespace poplib_test::util;
 using namespace popstd;
 using poplib_test::Pass;
+
+static void addGlobalExchangeConstraints(IPUModel &ipuModel) {
+  const auto numIPUs = ipuModel.numIPUs;
+  if (numIPUs == 1)
+    return;
+  // The amount of data each IPU sends or receives cannot exceed the available
+  // bandwidth. This constraint provides an optimistic lower bound on the
+  // amount of time required. This is equivalent to assuming all-to-all
+  // connectivity between IPUs limited only by the total off chip bandwidth.
+  // TODO Derive a more precise set of constraints based on the network
+  // topology.
+  const auto linkBandwidth = 128.0 * 1024 * 1024 * 1024;
+  const auto linkEfficiency = 0.85;
+  const auto numLinks = 10;
+  const auto ipuExternalBandwidth = linkBandwidth * linkEfficiency * numLinks;
+  for (unsigned i = 0; i != numIPUs; ++i) {
+    std::vector<GlobalExchangeFlow> inFlows;
+    std::vector<GlobalExchangeFlow> outFlows;
+    for (unsigned j = 0; j != numIPUs; ++j) {
+      if (j == i)
+        continue;
+      inFlows.emplace_back(j, i);
+      outFlows.emplace_back(i, j);
+    }
+    ipuModel.globalExchangeConstraints.emplace_back(ipuExternalBandwidth,
+                                                    std::move(inFlows));
+    ipuModel.globalExchangeConstraints.emplace_back(ipuExternalBandwidth,
+                                                    std::move(outFlows));
+  }
+}
+
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
@@ -133,6 +164,9 @@ int main(int argc, char **argv) {
      po::value<double>(&absoluteTolerance)->default_value(0.00001),
      "Absolute tolerance to use when validating results against the reference "
      "model")
+    ("ipus",
+     po::value<unsigned>(&ipuModel.numIPUs)->default_value(ipuModel.numIPUs),
+     "Number of IPUs")
     ("tiles-per-ipu",
      po::value<unsigned>(&ipuModel.tilesPerIPU)->
                            default_value(ipuModel.tilesPerIPU),
@@ -252,6 +286,7 @@ int main(int argc, char **argv) {
   bool doBwdPass = pass == Pass::ALL || pass == Pass::BWD;
   bool doWuPass = pass == Pass::ALL || pass == Pass::WU;
 
+  addGlobalExchangeConstraints(ipuModel);
   Device dev = useCpuModel ? Device::createCPUDevice() :
                              ipuModel.createDevice();
   Graph graph(dev);
