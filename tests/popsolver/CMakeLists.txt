@@ -17,4 +17,5 @@ function(add_popsolver_unit_test name)
 endfunction()
 
 add_popsolver_unit_test(Simple Simple.cpp)
+add_popsolver_unit_test(Less Less.cpp)
 add_popsolver_unit_test(LessOrEqual LessOrEqual.cpp)

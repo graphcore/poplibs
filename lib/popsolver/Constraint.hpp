@@ -68,6 +68,17 @@ public:
   }
 };
 
+class Less : public Constraint {
+  Variable left;
+  Variable right;
+public:
+  Less(Variable left, Variable right) : left(left), right(right) {}
+  bool propagate(Scheduler &scheduler) override;
+  std::vector<Variable> getVariables() override {
+    return {left, right};
+  }
+};
+
 class LessOrEqual : public Constraint {
   Variable left;
   Variable right;

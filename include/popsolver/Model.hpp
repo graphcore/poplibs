@@ -86,6 +86,12 @@ public:
   Variable product(std::vector<Variable> vars);
   /// Add a new variable that is the sum of the specified variables.
   Variable sum(std::vector<Variable> vars);
+  /// Constrain the left variable to be less than the right variable.
+  void less(Variable left, Variable right);
+  /// Constrain the left variable to be less than the right constant.
+  void less(Variable left, unsigned right);
+  /// Constrain the left constant to be less than the right variable.
+  void less(unsigned left, Variable right);
   /// Constrain the left variable to be less than or equal to the right
   /// variable.
   void lessOrEqual(Variable left, Variable right);

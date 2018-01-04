@@ -97,6 +97,21 @@ propagate(Scheduler &scheduler) {
   return true;
 }
 
+bool Less::
+propagate(Scheduler &scheduler) {
+  const Domains &domains = scheduler.getDomains();
+  if (domains[left].min() >= domains[right].max()) {
+    return false;
+  }
+  if (domains[left].min() >= domains[right].min()) {
+    scheduler.setMin(right, domains[left].min() + 1);
+  }
+  if (domains[right].max() <= domains[left].max()) {
+    scheduler.setMax(left, domains[right].max() - 1);
+  }
+  return true;
+}
+
 bool LessOrEqual::
 propagate(Scheduler &scheduler) {
   const Domains &domains = scheduler.getDomains();

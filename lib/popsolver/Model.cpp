@@ -50,6 +50,23 @@ Variable Model::sum(std::vector<Variable> vars) {
   return result;
 }
 
+void Model::less(Variable left, Variable right) {
+  auto p = std::unique_ptr<Constraint>(
+             new Less(left, right)
+           );
+  addConstraint(std::move(p));
+}
+
+void Model::less(Variable left, unsigned right) {
+  auto rightVar = addConstant(right);
+  less(left, rightVar);
+}
+
+void Model::less(unsigned left, Variable right) {
+  auto leftVar = addConstant(left);
+  less(leftVar, right);
+}
+
 void Model::lessOrEqual(Variable left, Variable right) {
   auto p = std::unique_ptr<Constraint>(
              new LessOrEqual(left, right)
