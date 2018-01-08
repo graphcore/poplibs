@@ -7,28 +7,51 @@
 
 namespace popconv {
 
+struct Partition {
+  // For each spatial dimension the number of parts the input is split into.
+  std::vector<unsigned> fieldSplit;
+  // The number of parts the batch axis is split into.
+  unsigned batchSplit;
+  // The number of parts the output channel axis is split into.
+  unsigned outChanSplit;
+  // For each spatial dimension the number of parts the kernel is split into.
+  std::vector<unsigned> kernelSplit;
+  // The number of parts the input channel axis is split into.
+  unsigned inChanSplit;
+  // The number of parts the convolution group axis is split into.
+  unsigned convGroupSplit;
+  // Grain size to use when splitting each spatial dimension.
+  std::vector<unsigned> fieldAxisGrainSize;
+  // Grain size to use when splitting the input channels.
+  unsigned inChanGrainSize;
+  // Grain size to use when splitting the output channels.
+  unsigned outChanGrainSize;
+
+  Partition() = default;
+  Partition(std::vector<unsigned> fieldSplit_,
+            unsigned batchSplit_,
+            unsigned outChanSplit_,
+            std::vector<unsigned> kernelSplit_,
+            unsigned inChanSplit_,
+            unsigned convGroupSplit_,
+            std::vector<unsigned> fieldAxisGrainSize_,
+            unsigned inChanGrainSize_,
+            unsigned outChanGrainSize_) :
+    fieldSplit(std::move(fieldSplit_)),
+    batchSplit(batchSplit_),
+    outChanSplit(outChanSplit_),
+    kernelSplit(std::move(kernelSplit_)),
+    inChanSplit(inChanSplit_),
+    convGroupSplit(convGroupSplit_),
+    fieldAxisGrainSize(std::move(fieldAxisGrainSize_)),
+    inChanGrainSize(inChanGrainSize_),
+    outChanGrainSize(outChanGrainSize_) { }
+};
+
 struct Plan {
-  // For each spatial dimension the number of sections the input is split into
-  // in that dimension to balance across tiles.
-  std::vector<unsigned> fieldTileSplit;
-  // The number of sections the batch axis is split into balance across tiles.
-  unsigned batchTileSplit;
-  // The number of sections the output channel axis is split to balance across
-  // tiles.
-  unsigned outChanTileSplit;
-  // For each spatial dimension the number of sections the kernel is split into
-  // in that dimension to balance across tiles.
-  std::vector<unsigned> kernelTileSplit;
-  // The number of sections the input channel axis is split to balance across
-  // tiles.
-  unsigned inChanTileSplit;
-  // The number of sections the convolution group axis is split to balance
-  // across tiles.
-  unsigned convGroupTileSplit;
+  Partition tilePartition;
   unsigned inChansPerGroup;
   unsigned partialChansPerGroup;
-  /// Grain size to use when splitting the axes across tiles.
-  std::vector<unsigned> fieldAxisGrainSize;
   bool floatPartials;
   // The number of additional size 1 dimensions to insert at the front.
   unsigned extraFieldDims = 0;
@@ -61,32 +84,18 @@ struct Plan {
   unsigned winogradPatchSize;
 
   Plan() = default;
-  Plan(std::vector<unsigned> fieldTileSplit_,
-       unsigned batchTileSplit_,
-       unsigned outChanTileSplit_,
-       std::vector<unsigned> kernelTileSplit_,
-       unsigned inChanTileSplit_,
-       unsigned convGroupTileSplit_,
+  Plan(Partition tilePartition_,
        unsigned inChansPerGroup_,
        unsigned partialChansPerGroup_,
-       std::vector<unsigned> fieldAxisGrainSize_,
        bool floatPartials_,
        Plan::Method method_,
        Plan::LinearizeTileOrder linearizeTileOrder_) :
-      fieldTileSplit(std::move(fieldTileSplit_)),
-      batchTileSplit(batchTileSplit_),
-      outChanTileSplit(outChanTileSplit_),
-      kernelTileSplit(std::move(kernelTileSplit_)),
-      inChanTileSplit(inChanTileSplit_),
-      convGroupTileSplit(convGroupTileSplit_),
+      tilePartition(std::move(tilePartition_)),
       inChansPerGroup(inChansPerGroup_),
       partialChansPerGroup(partialChansPerGroup_),
-      fieldAxisGrainSize(std::move(fieldAxisGrainSize_)),
       floatPartials(floatPartials_),
       method(method_),
-      linearizeTileOrder(linearizeTileOrder_) {
-    assert(fieldTileSplit.size() == fieldAxisGrainSize.size());
-  }
+      linearizeTileOrder(linearizeTileOrder_) { }
   poplar::Type getPartialType() const {
     return floatPartials ? poplar::FLOAT : poplar::HALF;
   }
@@ -103,6 +112,7 @@ void swapOperands(ConvParams &params);
 std::uint64_t getNumberOfMACs(const ConvParams &params);
 
 std::ostream& operator<<(std::ostream &os, const Plan::Method m);
+std::ostream& operator<<(std::ostream &os, const Partition &p);
 std::ostream& operator<<(std::ostream &os, const Plan &p);
 
 std::uint64_t estimateConvCost(const poplar::Target &target,

@@ -506,12 +506,12 @@ linearizeTileIndices(unsigned numTiles, const std::vector<unsigned> &outIndices,
   const auto fwdb = b;
   auto fwdoc = oc;
   const auto fwdcg = cg;
-  auto fwdFieldTileSplit = plan.fieldTileSplit;
-  const auto &fwdKernelTileSplit = plan.kernelTileSplit;
-  auto fwdInChanTileSplit = plan.inChanTileSplit;
-  const auto &fwdBatchTileSplit = plan.batchTileSplit;
-  auto fwdOutChanTileSplit = plan.outChanTileSplit;
-  const auto &convGroupTileSplit = plan.convGroupTileSplit;
+  auto fwdFieldTileSplit = plan.tilePartition.fieldSplit;
+  const auto &fwdKernelTileSplit = plan.tilePartition.kernelSplit;
+  auto fwdInChanTileSplit = plan.tilePartition.inChanSplit;
+  const auto &fwdBatchTileSplit = plan.tilePartition.batchSplit;
+  auto fwdOutChanTileSplit = plan.tilePartition.outChanSplit;
+  const auto &convGroupTileSplit = plan.tilePartition.convGroupSplit;
   switch (plan.linearizeTileOrder) {
   case Plan::LinearizeTileOrder::FC_WU:
     // For the fully connected weight update the in group and out group are
@@ -537,19 +537,6 @@ linearizeTileIndices(unsigned numTiles, const std::vector<unsigned> &outIndices,
                                    convGroupTileSplit);
   assert(tile < numTiles);
   return tile;
-}
-
-static std::pair<unsigned,unsigned>
-getOutChanGroupRange(unsigned ozgIndex, unsigned partialNumChanGroups,
-                     const Plan &plan) {
-  const auto outChanTileSplit = plan.outChanTileSplit;
-  const auto maxOutChanGroupsPerTile =
-      (partialNumChanGroups + outChanTileSplit - 1) / outChanTileSplit;
-  const auto outChanGroupBegin =
-      std::min(ozgIndex * maxOutChanGroupsPerTile, partialNumChanGroups);
-  const auto outChanGroupEnd =
-      std::min((ozgIndex + 1) * maxOutChanGroupsPerTile, partialNumChanGroups);
-  return {outChanGroupBegin, outChanGroupEnd};
 }
 
 static unsigned
@@ -619,8 +606,8 @@ struct ConvSlice {
   unsigned cgBegin, cgEnd;
   unsigned batchBegin, batchEnd;
   std::vector<unsigned> outFieldBegin, outFieldEnd;
-  unsigned outChanGroupBegin, outChanGroupEnd;
-  unsigned inChanGroupBegin, inChanGroupEnd;
+  unsigned outChanBegin, outChanEnd;
+  unsigned inChanBegin, inChanEnd;
   std::vector<unsigned> kernelBegin, kernelEnd;
 };
 
@@ -628,9 +615,9 @@ static std::pair<unsigned, unsigned>
 getTileOutRange(const ConvParams &params, const Plan &plan, unsigned tileIndex,
                 unsigned dim) {
   const auto fieldSize = params.getOutputSize(dim);
-  const auto grainSize = plan.fieldAxisGrainSize[dim];
+  const auto grainSize = plan.tilePartition.fieldAxisGrainSize[dim];
   const auto numGrains = (fieldSize + grainSize - 1) / grainSize;
-  const auto split = plan.fieldTileSplit[dim];
+  const auto split = plan.tilePartition.fieldSplit[dim];
   const auto outGrainBegin = (tileIndex * numGrains) / split;
   const auto outGrainEnd = ((tileIndex + 1) * numGrains) / split;
   const auto outBegin = outGrainBegin * grainSize;
@@ -645,49 +632,59 @@ iterateTilePartition(const Graph &graph, const ConvParams &params,
                        void(unsigned, const ConvTileIndices &,
                             const ConvSlice &)
                      > &f) {
+  const auto &partition = plan.tilePartition;
   const auto numFieldDims = params.getNumFieldDims();
-  const unsigned inNumChans = params.getNumInputChansPerConvGroup();
-  const auto inChansPerGroup = plan.inChansPerGroup;
-  const auto partialChansPerGroup = plan.partialChansPerGroup;
-  assert(params.getNumOutputChansPerConvGroup() % partialChansPerGroup == 0);
-  const auto partialNumChanGroups =
-      params.getNumOutputChansPerConvGroup() / partialChansPerGroup;
-  const auto batchTileSplit = plan.batchTileSplit;
-  const auto outChanTileSplit = plan.outChanTileSplit;
-  const auto inChanTileSplit = plan.inChanTileSplit;
+  const unsigned numOutChans = params.getNumOutputChansPerConvGroup();
+  const auto outChanGrainSize = partition.outChanGrainSize;
+  const auto outChanNumGrains = (numOutChans + outChanGrainSize - 1) /
+                                outChanGrainSize;
+  const auto batchTileSplit = partition.batchSplit;
+  const auto outChanTileSplit = partition.outChanSplit;
+  const auto inChanTileSplit = partition.inChanSplit;
   const unsigned batchSize = params.getBatchSize();
-  const unsigned numInZGroups = inNumChans / inChansPerGroup;
+  const unsigned numInChans = params.getNumInputChansPerConvGroup();
+  const auto inChanGrainSize = partition.inChanGrainSize;
+  const auto inChanNumGrains = (numInChans + inChanGrainSize - 1) /
+                               inChanGrainSize;
   const auto numTiles = graph.getTarget().getNumTiles();
-  const auto convGroupTileSplit = plan.convGroupTileSplit;
+  const auto convGroupTileSplit = partition.convGroupSplit;
   const unsigned numConvGroups = params.getNumConvGroups();
-  const auto totalFieldTileSplit = product(plan.fieldTileSplit);
-  const auto totalKernelTileSplit = product(plan.kernelTileSplit);
+  const auto totalFieldTileSplit = product(partition.fieldSplit);
+  const auto totalKernelTileSplit = product(partition.kernelSplit);
   for (unsigned cg = 0; cg != convGroupTileSplit; ++cg) {
     const auto cgBegin = (cg * numConvGroups) / convGroupTileSplit;
     const auto cgEnd = ((cg + 1) * numConvGroups) / convGroupTileSplit;
     for (unsigned b = 0; b != batchTileSplit; ++b) {
       const auto batchBegin = (b * batchSize) / batchTileSplit;
       const auto batchEnd = ((b + 1) * batchSize) / batchTileSplit;
-      for (unsigned izg = 0; izg != inChanTileSplit; ++izg) {
-        const auto inZGroupBegin = (izg * numInZGroups) / inChanTileSplit;
-        const auto inZGroupEnd = ((izg + 1) * numInZGroups) / inChanTileSplit;
+      for (unsigned ic = 0; ic != inChanTileSplit; ++ic) {
+        const auto inChanGrainBegin = (ic * inChanNumGrains) / inChanTileSplit;
+        const auto inChanGrainEnd = ((ic + 1) * inChanNumGrains) /
+                                    inChanTileSplit;
+        const auto inChanBegin = inChanGrainBegin * inChanGrainSize;
+        const auto inChanEnd = std::min(inChanGrainEnd * inChanGrainSize,
+                                        numInChans);
         for (unsigned k = 0; k != totalKernelTileSplit; ++k) {
-          auto kernelIndices = unflattenIndex(plan.kernelTileSplit, k);
+          auto kernelIndices = unflattenIndex(partition.kernelSplit, k);
           std::vector<unsigned> kernelBegin(numFieldDims),
                                 kernelEnd(numFieldDims);
           for (unsigned dim = 0; dim != numFieldDims; ++dim) {
             kernelBegin[dim] = (kernelIndices[dim] * params.kernelShape[dim]) /
-                               plan.kernelTileSplit[dim];
+                               partition.kernelSplit[dim];
             kernelEnd[dim] = ((kernelIndices[dim] + 1) *
                               params.kernelShape[dim]) /
-                             plan.kernelTileSplit[dim];
+                             partition.kernelSplit[dim];
           }
-          for (unsigned ozg = 0; ozg != outChanTileSplit; ++ozg) {
-            unsigned outZGroupBegin, outZGroupEnd;
-            std::tie(outZGroupBegin, outZGroupEnd) =
-                getOutChanGroupRange(ozg, partialNumChanGroups, plan);
+          for (unsigned oc = 0; oc != outChanTileSplit; ++oc) {
+            const auto outChanGrainBegin = (oc * outChanNumGrains) /
+                                           outChanTileSplit;
+            const auto outChanGrainEnd = ((oc + 1) * outChanNumGrains) /
+                                         outChanTileSplit;
+            const auto outChanBegin = outChanGrainBegin * outChanGrainSize;
+            const auto outChanEnd = std::min(outChanGrainEnd * outChanGrainSize,
+                                             numOutChans);
             for (unsigned of = 0; of != totalFieldTileSplit; ++of) {
-              auto outIndices = unflattenIndex(plan.fieldTileSplit, of);
+              auto outIndices = unflattenIndex(partition.fieldSplit, of);
               std::vector<unsigned> outFieldBegin(numFieldDims),
                                     outFieldEnd(numFieldDims);
               for (unsigned dim = 0; dim != numFieldDims; ++dim) {
@@ -695,16 +692,18 @@ iterateTilePartition(const Graph &graph, const ConvParams &params,
                     getTileOutRange(params, plan, outIndices[dim], dim);
               }
               const auto tile = linearizeTileIndices(numTiles, outIndices,
-                                                     kernelIndices, izg, b, ozg,
+                                                     kernelIndices, ic, b, oc,
                                                      cg, plan);
               f(tile,
-                {cg, b, outIndices, ozg, izg, kernelIndices},
+                {cg, b, outIndices, oc, ic, kernelIndices},
                 {cgBegin, cgEnd,
                  batchBegin, batchEnd,
                  outFieldBegin,
                  outFieldEnd,
-                 outZGroupBegin, outZGroupEnd,
-                 inZGroupBegin, inZGroupEnd,
+                 outChanBegin,
+                 outChanEnd,
+                 inChanBegin,
+                 inChanEnd,
                  kernelBegin,
                  kernelEnd
                 });
@@ -856,14 +855,17 @@ addFlattenedPrevActsRegions(const std::vector<std::size_t> &actsShape,
   assert(slice.outFieldEnd.size() == numFieldDims);
   assert(slice.kernelBegin.size() == numFieldDims);
   assert(slice.kernelEnd.size() == numFieldDims);
+  const auto inChansPerGroup = actsShape.back();
+  assert(slice.inChanBegin % inChansPerGroup == 0);
   std::vector<std::size_t> sliceBegin = {
     slice.cgBegin,
-    slice.inChanGroupBegin,
+    slice.inChanBegin / inChansPerGroup,
     slice.batchBegin
   };
+  assert(slice.inChanEnd % inChansPerGroup == 0);
   std::vector<std::size_t> sliceEnd = {
     slice.cgEnd,
-    slice.inChanGroupEnd,
+    slice.inChanEnd / inChansPerGroup,
     slice.batchEnd
   };
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
@@ -1309,10 +1311,14 @@ calculateWeightMapping(const Graph &graph,
                        [&](unsigned tile, const ConvTileIndices &,
                            const ConvSlice &slice) {
     std::vector<Interval<std::size_t>> intervals;
+    assert(slice.outChanBegin % plan.partialChansPerGroup == 0);
+    assert(slice.outChanEnd % plan.partialChansPerGroup == 0);
+    assert(slice.inChanBegin % plan.inChansPerGroup == 0);
+    assert(slice.inChanEnd % plan.inChansPerGroup == 0);
     std::vector<std::size_t> sliceBegin = {
       slice.cgBegin,
-      slice.outChanGroupBegin,
-      slice.inChanGroupBegin
+      slice.outChanBegin / plan.partialChansPerGroup,
+      slice.inChanBegin / plan.inChansPerGroup
     };
     sliceBegin.insert(sliceBegin.end(), slice.kernelBegin.begin(),
                       slice.kernelBegin.end());
@@ -1320,8 +1326,8 @@ calculateWeightMapping(const Graph &graph,
     sliceBegin.push_back(0);
     std::vector<std::size_t> sliceEnd = {
       slice.cgEnd,
-      slice.outChanGroupEnd,
-      slice.inChanGroupEnd
+      slice.outChanEnd / plan.partialChansPerGroup,
+      slice.inChanEnd / plan.inChansPerGroup
     };
     sliceEnd.insert(sliceEnd.end(), slice.kernelEnd.begin(),
                     slice.kernelEnd.end());
@@ -1639,12 +1645,16 @@ static void createConvPartialAmpVertex(Graph &graph,
   const auto convUnitWeightHeight = weightsPerConvUnit / plan.inChansPerGroup;
   const auto batchBegin = slice.batchBegin;
   const auto batchEnd = slice.batchEnd;
-  const auto outZGroupBegin = slice.outChanGroupBegin;
-  const auto outZGroupEnd = slice.outChanGroupEnd;
+  assert(slice.outChanBegin % plan.partialChansPerGroup == 0);
+  assert(slice.outChanEnd % plan.partialChansPerGroup == 0);
+  const auto outZGroupBegin = slice.outChanBegin / plan.partialChansPerGroup;
+  const auto outZGroupEnd = slice.outChanEnd / plan.partialChansPerGroup;
   const auto cgBegin = slice.cgBegin;
   const auto cgEnd = slice.cgEnd;
-  const auto inZGroupBegin = slice.inChanGroupBegin;
-  const auto inZGroupEnd = slice.inChanGroupEnd;
+  assert(slice.inChanBegin % plan.inChansPerGroup == 0);
+  assert(slice.inChanEnd % plan.inChansPerGroup == 0);
+  const auto inZGroupBegin = slice.inChanBegin / plan.inChansPerGroup;
+  const auto inZGroupEnd = slice.inChanEnd / plan.inChansPerGroup;
   const auto inChansPerGroup = plan.inChansPerGroup;
   bool flipOut = params.flipInput[numFieldDims - 1];
   const auto convUnitInputLoadElemsPerCycle =
@@ -1934,12 +1944,16 @@ createConvPartialHorizontalMacVertex(Graph &graph,
   const auto batchEnd = slice.batchEnd;
   const auto outXBegin = slice.outFieldBegin.back();
   const auto outXEnd = slice.outFieldEnd.back();
-  const auto outZGroupBegin = slice.outChanGroupBegin;
-  const auto outZGroupEnd = slice.outChanGroupEnd;
+  assert(slice.outChanBegin % plan.partialChansPerGroup == 0);
+  assert(slice.outChanEnd % plan.partialChansPerGroup == 0);
+  const auto outZGroupBegin = slice.outChanBegin / plan.partialChansPerGroup;
+  const auto outZGroupEnd = slice.outChanEnd / plan.partialChansPerGroup;
   const auto cgBegin = slice.cgBegin;
   const auto cgEnd = slice.cgEnd;
-  const auto inZGroupBegin = slice.inChanGroupBegin;
-  const auto inZGroupEnd = slice.inChanGroupEnd;
+  assert(slice.inChanBegin % plan.inChansPerGroup == 0);
+  assert(slice.inChanEnd % plan.inChansPerGroup == 0);
+  const auto inZGroupBegin = slice.inChanBegin / plan.inChansPerGroup;
+  const auto inZGroupEnd = slice.inChanEnd / plan.inChansPerGroup;
   const auto inChansPerGroup = plan.inChansPerGroup;
   const auto outChansPerGroup = plan.partialChansPerGroup;
 
@@ -2225,36 +2239,6 @@ createOuterProductVertex(
 }
 
 static void
-addFlattenedPartialSumRegions(const std::vector<std::size_t> &actsShape,
-                              const ConvSlice &slice,
-                              const ConvParams &params,
-                              std::vector<Interval<std::size_t>> &regions) {
-  assert(actsShape.size() >= 4);
-  const auto numFieldDims = actsShape.size() - 4;
-  assert(slice.outFieldBegin.size() == numFieldDims);
-  assert(slice.outFieldEnd.size() == numFieldDims);
-  assert(slice.kernelBegin.size() == numFieldDims);
-  assert(slice.kernelEnd.size() == numFieldDims);
-  std::vector<std::size_t> sliceBegin = {
-    slice.cgBegin,
-    slice.outChanGroupBegin,
-    slice.batchBegin
-  };
-  std::vector<std::size_t> sliceEnd = {
-    slice.cgEnd,
-    slice.outChanGroupEnd,
-    slice.batchEnd
-  };
-  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    sliceBegin.push_back(slice.outFieldBegin[dim]);
-    sliceEnd.push_back(slice.outFieldEnd[dim]);
-  }
-  sliceBegin.push_back(0);
-  sliceEnd.push_back(actsShape.back());
-  addFlattenedRegions(actsShape, sliceBegin, sliceEnd, regions);
-}
-
-static void
 mapPartialSums(Graph &graph, const ConvSlice &slice, unsigned tile,
                const Tensor &out) {
   assert(out.rank() >= 4);
@@ -2263,14 +2247,17 @@ mapPartialSums(Graph &graph, const ConvSlice &slice, unsigned tile,
   assert(slice.outFieldEnd.size() == numFieldDims);
   assert(slice.kernelBegin.size() == numFieldDims);
   assert(slice.kernelEnd.size() == numFieldDims);
+  const auto partialChansPerGroup = out.dim(out.rank() - 1);
+  assert(slice.outChanBegin % partialChansPerGroup == 0);
   std::vector<std::size_t> sliceBegin = {
     slice.cgBegin,
-    slice.outChanGroupBegin,
+    slice.outChanBegin / partialChansPerGroup,
     slice.batchBegin
   };
+  assert(slice.outChanEnd % partialChansPerGroup == 0);
   std::vector<std::size_t> sliceEnd = {
     slice.cgEnd,
-    slice.outChanGroupEnd,
+    slice.outChanEnd / partialChansPerGroup,
     slice.batchEnd
   };
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
@@ -2315,8 +2302,12 @@ calcPartialConvOutput(Graph &graph,
       const auto cgEnd = slice.cgEnd;
       const auto outXBegin = slice.outFieldBegin.back();
       const auto outXEnd = slice.outFieldEnd.back();
-      const auto outZGroupBegin = slice.outChanGroupBegin;
-      const auto outZGroupEnd = slice.outChanGroupEnd;
+      assert(slice.outChanBegin % plan.partialChansPerGroup == 0);
+      assert(slice.outChanEnd % plan.partialChansPerGroup == 0);
+      const auto outZGroupBegin = slice.outChanBegin /
+                                  plan.partialChansPerGroup;
+      const auto outZGroupEnd = slice.outChanEnd /
+                                plan.partialChansPerGroup;
       const auto perWorkerRegions =
           splitRegionsBetweenWorkers(target, {{outXBegin, outXEnd}}, 1);
       for (const auto &entry : perWorkerRegions) {
@@ -2343,13 +2334,13 @@ calcPartialSums(Graph &graph,
   iterateTilePartition(graph, params, plan,
                        [&](unsigned tile, const ConvTileIndices &indices,
                            const ConvSlice &slice) {
-    if (slice.outChanGroupBegin == slice.outChanGroupEnd ||
+    if (slice.outChanBegin == slice.outChanEnd ||
         slice.cgBegin == slice.cgEnd)
       return;
     const auto numFieldDims = params.getNumFieldDims();
     unsigned partialIndex = indices.ic;
     for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-      partialIndex = partialIndex * plan.kernelTileSplit[dim] +
+      partialIndex = partialIndex * plan.tilePartition.kernelSplit[dim] +
                      indices.kernel[dim];
     }
     calcPartialConvOutput(graph, plan, dType, tile, slice, params,
@@ -2561,8 +2552,8 @@ convolutionImpl(Graph &graph, const Plan &plan,
   const auto partialChansPerGroup = plan.partialChansPerGroup;
   assert(outNumChans % partialChansPerGroup == 0);
   const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
-  const auto inChanTileSplit = plan.inChanTileSplit;
-  const auto kernelTileSplit = product(plan.kernelTileSplit);
+  const auto inChanTileSplit = plan.tilePartition.inChanSplit;
+  const auto kernelTileSplit = product(plan.tilePartition.kernelSplit);
 
   const auto partialType = plan.getPartialType();
 
@@ -2766,18 +2757,19 @@ convolution(Graph &graph, const poplar::Tensor &in_,
       inputRearrangementIsExpensive(options) ? 1U : 7U;
   const auto weightViewMaxBroadcastDests =
       weightRearrangementIsExpensive(options) ? 1U : 7U;
-  const auto inNumDests = std::accumulate(plan.kernelTileSplit.begin(),
-                                          plan.kernelTileSplit.end(),
-                                          1U,
-                                          std::multiplies<unsigned>()) *
-                          plan.outChanTileSplit;
+  const auto inNumDests =
+      std::accumulate(plan.tilePartition.kernelSplit.begin(),
+                      plan.tilePartition.kernelSplit.end(),
+                      1U,
+                      std::multiplies<unsigned>()) *
+                      plan.tilePartition.outChanSplit;
   if (inNumDests > inViewMaxBroadcastDests) {
     auto inRearranged = createInputImpl(graph, params, "inRearranged", plan);
     prog.add(Copy(in, inRearranged));
     in = inRearranged;
   }
-  auto weightsNumDests = plan.batchTileSplit;
-  for (const auto split : plan.fieldTileSplit) {
+  auto weightsNumDests = plan.tilePartition.batchSplit;
+  for (const auto split : plan.tilePartition.fieldSplit) {
     weightsNumDests *= split;
   }
   if (weightsNumDests > weightViewMaxBroadcastDests) {
@@ -3422,8 +3414,11 @@ fullyConnectedWeightTranspose(Graph &graph,
   }
   auto plan = getPlan(graph, params, options);
   auto fwdPlan = plan;
-  std::swap(fwdPlan.fieldAxisGrainSize.back(), fwdPlan.inChansPerGroup);
-  std::swap(fwdPlan.fieldTileSplit.back(), fwdPlan.inChanTileSplit);
+  std::swap(fwdPlan.tilePartition.fieldAxisGrainSize.back(),
+            fwdPlan.tilePartition.inChanGrainSize);
+  fwdPlan.inChansPerGroup = fwdPlan.tilePartition.inChanGrainSize;
+  std::swap(fwdPlan.tilePartition.fieldSplit.back(),
+            fwdPlan.tilePartition.inChanSplit);
   Tensor transposed = createInput(graph, params, "transposed", options);
   // split activations into conv groups
   auto splitActivations =
