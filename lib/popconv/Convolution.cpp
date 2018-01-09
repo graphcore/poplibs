@@ -178,6 +178,40 @@ std::ostream& operator<<(std::ostream &os, const ConvParams &p) {
   return os;
 }
 
+namespace {
+  struct ConvIndices {
+    unsigned cg;
+    unsigned b;
+    std::vector<unsigned> out;
+    unsigned oc;
+    unsigned ic;
+    std::vector<unsigned> kernel;
+  };
+
+  struct ConvSlice {
+    unsigned cgBegin, cgEnd;
+    unsigned batchBegin, batchEnd;
+    std::vector<unsigned> outFieldBegin, outFieldEnd;
+    unsigned outChanBegin, outChanEnd;
+    unsigned inChanBegin, inChanEnd;
+    std::vector<unsigned> kernelBegin, kernelEnd;
+
+    unsigned getNumFieldDims() const {
+      return outFieldBegin.size();
+    }
+    unsigned getNumConvGroups() const { return cgEnd - cgBegin; }
+    unsigned getBatchSize() const { return batchEnd - batchBegin; }
+    unsigned getNumOutputChans() const { return outChanEnd - outChanBegin; }
+    unsigned getNumInputChans() const { return inChanEnd - inChanBegin; }
+    unsigned getOutputSize(unsigned dim) const {
+      return outFieldEnd[dim] - outFieldBegin[dim];
+    }
+    unsigned getKernelSize(unsigned dim) const {
+      return kernelEnd[dim] - kernelBegin[dim];
+    }
+  };
+} // End anonymous namespace
+
 static unsigned
 getNumElementsInSlice(const std::vector<unsigned> &sliceBegin,
                       const std::vector<unsigned> &sliceEnd) {
@@ -470,72 +504,79 @@ getOutChansPerGroup(const Plan &plan, unsigned numOutChans) {
 }
 
 static unsigned
-linearizeTileIndices(unsigned numTiles,
-                     const std::vector<unsigned> &outIndices,
+linearizeConvIndices(const std::vector<unsigned> &outIndices,
                      const std::vector<unsigned> &kernelIndices,
                      unsigned ic, unsigned b, unsigned oc, unsigned cg,
-                     const std::vector<unsigned> &fieldTileSplit,
-                     const std::vector<unsigned> &kernelTileSplit,
-                     unsigned inChanTileSplit, unsigned batchTileSplit,
-                     unsigned outChanTileSplit, unsigned convGroupTileSplit) {
+                     const std::vector<unsigned> &fieldSplit,
+                     const std::vector<unsigned> &kernelSplit,
+                     unsigned inChanSplit, unsigned batchSplit,
+                     unsigned outChanSplit, unsigned convGroupSplit) {
   const auto numFieldDims = outIndices.size();
   // Use ozg as the innermost dimension to increase the chance that
   // tiles in a supertile both read the same activations. This reduces
   // exchange time when supertile send / receive is used.
   auto tile = cg;
-  tile = tile * inChanTileSplit + ic;
+  tile = tile * inChanSplit + ic;
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    tile = tile * kernelTileSplit[dim] + kernelIndices[dim];
+    tile = tile * kernelSplit[dim] + kernelIndices[dim];
   }
-  tile = tile * batchTileSplit + b;
+  tile = tile * batchSplit + b;
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    tile = tile * fieldTileSplit[dim] + outIndices[dim];
+    tile = tile * fieldSplit[dim] + outIndices[dim];
   }
-  tile = tile * outChanTileSplit + oc;
-  assert(tile < numTiles);
+  tile = tile * outChanSplit + oc;
   return tile;
 }
 
 static unsigned
-linearizeTileIndices(unsigned numTiles, const std::vector<unsigned> &outIndices,
-                     const std::vector<unsigned> &kernelIndices, unsigned ic,
-                     unsigned b, unsigned oc, unsigned cg, const Plan &plan) {
-  auto fwdOutIndices = outIndices;
-  const auto &fwdKernelIndices = kernelIndices;
-  auto fwdic = ic;
-  const auto fwdb = b;
-  auto fwdoc = oc;
-  const auto fwdcg = cg;
-  auto fwdFieldTileSplit = plan.tilePartition.fieldSplit;
-  const auto &fwdKernelTileSplit = plan.tilePartition.kernelSplit;
-  auto fwdInChanTileSplit = plan.tilePartition.inChanSplit;
-  const auto &fwdBatchTileSplit = plan.tilePartition.batchSplit;
-  auto fwdOutChanTileSplit = plan.tilePartition.outChanSplit;
-  const auto &convGroupTileSplit = plan.tilePartition.convGroupSplit;
-  switch (plan.linearizeTileOrder) {
-  case Plan::LinearizeTileOrder::FC_WU:
-    // For the fully connected weight update the in group and out group are
-    // swapped compared to the forward pass.
-    std::swap(fwdInChanTileSplit, fwdOutChanTileSplit);
-    std::swap(fwdic, fwdoc);
-    break;
-  case Plan::LinearizeTileOrder::FC_BWD_AS_CONV:
-    // For the fully connected backward pass the width and the input channels
-    // are swapped compared to the forward pass.
-    {
-      std::swap(fwdFieldTileSplit.back(), fwdInChanTileSplit);
-      std::swap(fwdOutIndices.back(), fwdic);
+linearizeTileIndices(const Target &target,
+                     const std::vector<ConvIndices> &indices,
+                     const Plan &plan) {
+  const auto hierarchy = getTileHierarchy(target);
+  const auto numLevels = hierarchy.size();
+  assert(indices.size() == numLevels);
+  assert(plan.partitions.size() == numLevels);
+  unsigned tile = 0;
+  for (unsigned i = 0; i != numLevels; ++i) {
+    auto fwdOutIndices = indices[i].out;
+    const auto &fwdKernelIndices = indices[i].kernel;
+    auto fwdic = indices[i].ic;
+    const auto fwdb = indices[i].b;
+    auto fwdoc = indices[i].oc;
+    const auto fwdcg = indices[i].cg;
+    auto fwdFieldSplit = plan.partitions[i].fieldSplit;
+    const auto &fwdKernelSplit = plan.partitions[i].kernelSplit;
+    auto fwdInChanSplit = plan.partitions[i].inChanSplit;
+    const auto &fwdBatchSplit = plan.partitions[i].batchSplit;
+    auto fwdOutChanSplit = plan.partitions[i].outChanSplit;
+    const auto &convGroupSplit = plan.partitions[i].convGroupSplit;
+    switch (plan.linearizeTileOrder) {
+    case Plan::LinearizeTileOrder::FC_WU:
+      // For the fully connected weight update the in group and out group are
+      // swapped compared to the forward pass.
+      std::swap(fwdInChanSplit, fwdOutChanSplit);
+      std::swap(fwdic, fwdoc);
+      break;
+    case Plan::LinearizeTileOrder::FC_BWD_AS_CONV:
+      // For the fully connected backward pass the width and the input channels
+      // are swapped compared to the forward pass.
+      {
+        std::swap(fwdFieldSplit.back(), fwdInChanSplit);
+        std::swap(fwdOutIndices.back(), fwdic);
+      }
+      break;
+    case Plan::LinearizeTileOrder::STANDARD:
+      break;
     }
-    break;
-  case Plan::LinearizeTileOrder::STANDARD:
-    break;
+    const auto linearizedIndex =
+        linearizeConvIndices(fwdOutIndices, fwdKernelIndices, fwdic, fwdb,
+                             fwdoc, fwdcg, fwdFieldSplit,
+                             fwdKernelSplit, fwdInChanSplit,
+                             fwdBatchSplit, fwdOutChanSplit,
+                             convGroupSplit);
+    tile = tile * hierarchy[i] + linearizedIndex;
   }
-  auto tile = linearizeTileIndices(numTiles, fwdOutIndices, fwdKernelIndices,
-                                   fwdic, fwdb, fwdoc, fwdcg, fwdFieldTileSplit,
-                                   fwdKernelTileSplit, fwdInChanTileSplit,
-                                   fwdBatchTileSplit, fwdOutChanTileSplit,
-                                   convGroupTileSplit);
-  assert(tile < numTiles);
+  assert(tile < target.getNumTiles());
   return tile;
 }
 
@@ -592,110 +633,96 @@ addFlattenedRegions(const std::vector<std::size_t> &shape,
   }
 }
 
-
-struct ConvTileIndices {
-  unsigned cg;
-  unsigned b;
-  std::vector<unsigned> out;
-  unsigned oc;
-  unsigned ic;
-  std::vector<unsigned> kernel;
-};
-
-struct ConvSlice {
-  unsigned cgBegin, cgEnd;
-  unsigned batchBegin, batchEnd;
-  std::vector<unsigned> outFieldBegin, outFieldEnd;
-  unsigned outChanBegin, outChanEnd;
-  unsigned inChanBegin, inChanEnd;
-  std::vector<unsigned> kernelBegin, kernelEnd;
-};
-
 static std::pair<unsigned, unsigned>
-getTileOutRange(const ConvParams &params, const Plan &plan, unsigned tileIndex,
-                unsigned dim) {
-  const auto fieldSize = params.getOutputSize(dim);
-  const auto grainSize = plan.tilePartition.fieldAxisGrainSize[dim];
-  const auto numGrains = (fieldSize + grainSize - 1) / grainSize;
-  const auto split = plan.tilePartition.fieldSplit[dim];
+getTileOutRange(const ConvSlice &parentSlice, const Partition &partition,
+                unsigned tileIndex, unsigned dim) {
+  const auto outSize = parentSlice.getOutputSize(dim);
+  const auto outOffset = parentSlice.outFieldBegin[dim];
+  const auto grainSize = partition.fieldAxisGrainSize[dim];
+  const auto numGrains = (outSize + grainSize - 1) / grainSize;
+  const auto split = partition.fieldSplit[dim];
   const auto outGrainBegin = (tileIndex * numGrains) / split;
   const auto outGrainEnd = ((tileIndex + 1) * numGrains) / split;
-  const auto outBegin = outGrainBegin * grainSize;
-  const auto outEnd = std::min(outGrainEnd * grainSize, fieldSize);
+  const auto outBegin = outOffset + outGrainBegin * grainSize;
+  const auto outEnd = outOffset + std::min(outGrainEnd * grainSize, outSize);
   return {outBegin, outEnd};
 }
 
 static void
-iterateTilePartition(const Graph &graph, const ConvParams &params,
-                     const Plan &plan,
+iteratePartition(const ConvSlice &parentSlice,
+                 const Partition &partition,
                      const std::function<
-                       void(unsigned, const ConvTileIndices &,
+                       void(const ConvIndices &,
                             const ConvSlice &)
                      > &f) {
-  const auto &partition = plan.tilePartition;
-  const auto numFieldDims = params.getNumFieldDims();
-  const unsigned numOutChans = params.getNumOutputChansPerConvGroup();
+  const auto numFieldDims = parentSlice.getNumFieldDims();
+  const unsigned numOutChans = parentSlice.getNumOutputChans();
   const auto outChanGrainSize = partition.outChanGrainSize;
   const auto outChanNumGrains = (numOutChans + outChanGrainSize - 1) /
                                 outChanGrainSize;
-  const auto batchTileSplit = partition.batchSplit;
-  const auto outChanTileSplit = partition.outChanSplit;
-  const auto inChanTileSplit = partition.inChanSplit;
-  const unsigned batchSize = params.getBatchSize();
-  const unsigned numInChans = params.getNumInputChansPerConvGroup();
+  const auto batchSplit = partition.batchSplit;
+  const auto outChanSplit = partition.outChanSplit;
+  const auto inChanSplit = partition.inChanSplit;
+  const unsigned batchSize = parentSlice.getBatchSize();
+  const unsigned numInChans = parentSlice.getNumInputChans();
   const auto inChanGrainSize = partition.inChanGrainSize;
   const auto inChanNumGrains = (numInChans + inChanGrainSize - 1) /
                                inChanGrainSize;
-  const auto numTiles = graph.getTarget().getNumTiles();
-  const auto convGroupTileSplit = partition.convGroupSplit;
-  const unsigned numConvGroups = params.getNumConvGroups();
-  const auto totalFieldTileSplit = product(partition.fieldSplit);
-  const auto totalKernelTileSplit = product(partition.kernelSplit);
-  for (unsigned cg = 0; cg != convGroupTileSplit; ++cg) {
-    const auto cgBegin = (cg * numConvGroups) / convGroupTileSplit;
-    const auto cgEnd = ((cg + 1) * numConvGroups) / convGroupTileSplit;
-    for (unsigned b = 0; b != batchTileSplit; ++b) {
-      const auto batchBegin = (b * batchSize) / batchTileSplit;
-      const auto batchEnd = ((b + 1) * batchSize) / batchTileSplit;
-      for (unsigned ic = 0; ic != inChanTileSplit; ++ic) {
-        const auto inChanGrainBegin = (ic * inChanNumGrains) / inChanTileSplit;
+  const auto convGroupSplit = partition.convGroupSplit;
+  const unsigned numConvGroups = parentSlice.getNumConvGroups();
+  const auto totalFieldSplit = product(partition.fieldSplit);
+  const auto totalKernelSplit = product(partition.kernelSplit);
+  for (unsigned cg = 0; cg != convGroupSplit; ++cg) {
+    const auto cgBegin = (cg * numConvGroups) / convGroupSplit;
+    const auto cgEnd = ((cg + 1) * numConvGroups) / convGroupSplit;
+    for (unsigned b = 0; b != batchSplit; ++b) {
+      const auto batchBegin = parentSlice.batchBegin +
+                              (b * batchSize) / batchSplit;
+      const auto batchEnd = parentSlice.batchBegin +
+                            ((b + 1) * batchSize) / batchSplit;
+      for (unsigned ic = 0; ic != inChanSplit; ++ic) {
+        const auto inChanGrainBegin = (ic * inChanNumGrains) / inChanSplit;
         const auto inChanGrainEnd = ((ic + 1) * inChanNumGrains) /
-                                    inChanTileSplit;
-        const auto inChanBegin = inChanGrainBegin * inChanGrainSize;
-        const auto inChanEnd = std::min(inChanGrainEnd * inChanGrainSize,
+                                    inChanSplit;
+        const auto inChanBegin = parentSlice.inChanBegin +
+                                 inChanGrainBegin * inChanGrainSize;
+        const auto inChanEnd = parentSlice.inChanBegin +
+                               std::min(inChanGrainEnd * inChanGrainSize,
                                         numInChans);
-        for (unsigned k = 0; k != totalKernelTileSplit; ++k) {
+        for (unsigned k = 0; k != totalKernelSplit; ++k) {
           auto kernelIndices = unflattenIndex(partition.kernelSplit, k);
           std::vector<unsigned> kernelBegin(numFieldDims),
                                 kernelEnd(numFieldDims);
           for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-            kernelBegin[dim] = (kernelIndices[dim] * params.kernelShape[dim]) /
+            const auto kernelSize = parentSlice.getKernelSize(dim);
+            const auto kernelOffset = parentSlice.kernelBegin[dim];
+            kernelBegin[dim] = kernelOffset +
+                               (kernelIndices[dim] * kernelSize) /
                                partition.kernelSplit[dim];
-            kernelEnd[dim] = ((kernelIndices[dim] + 1) *
-                              params.kernelShape[dim]) /
+            kernelEnd[dim] = kernelOffset +
+                             ((kernelIndices[dim] + 1) * kernelSize) /
                              partition.kernelSplit[dim];
           }
-          for (unsigned oc = 0; oc != outChanTileSplit; ++oc) {
+          for (unsigned oc = 0; oc != outChanSplit; ++oc) {
             const auto outChanGrainBegin = (oc * outChanNumGrains) /
-                                           outChanTileSplit;
+                                           outChanSplit;
             const auto outChanGrainEnd = ((oc + 1) * outChanNumGrains) /
-                                         outChanTileSplit;
-            const auto outChanBegin = outChanGrainBegin * outChanGrainSize;
-            const auto outChanEnd = std::min(outChanGrainEnd * outChanGrainSize,
+                                         outChanSplit;
+            const auto outChanBegin = parentSlice.outChanBegin +
+                                      outChanGrainBegin * outChanGrainSize;
+            const auto outChanEnd = parentSlice.outChanBegin +
+                                    std::min(outChanGrainEnd * outChanGrainSize,
                                              numOutChans);
-            for (unsigned of = 0; of != totalFieldTileSplit; ++of) {
+            for (unsigned of = 0; of != totalFieldSplit; ++of) {
               auto outIndices = unflattenIndex(partition.fieldSplit, of);
               std::vector<unsigned> outFieldBegin(numFieldDims),
                                     outFieldEnd(numFieldDims);
               for (unsigned dim = 0; dim != numFieldDims; ++dim) {
                 std::tie(outFieldBegin[dim], outFieldEnd[dim]) =
-                    getTileOutRange(params, plan, outIndices[dim], dim);
+                    getTileOutRange(parentSlice, partition, outIndices[dim],
+                                    dim);
               }
-              const auto tile = linearizeTileIndices(numTiles, outIndices,
-                                                     kernelIndices, ic, b, oc,
-                                                     cg, plan);
-              f(tile,
-                {cg, b, outIndices, oc, ic, kernelIndices},
+              f({cg, b, outIndices, oc, ic, kernelIndices},
                 {cgBegin, cgEnd,
                  batchBegin, batchEnd,
                  outFieldBegin,
@@ -713,6 +740,71 @@ iterateTilePartition(const Graph &graph, const ConvParams &params,
       }
     }
   }
+}
+
+static void
+iteratePartitionsImpl(const ConvSlice &parentSlice,
+                      std::vector<Partition>::const_iterator begin,
+                      std::vector<Partition>::const_iterator end,
+                      const std::vector<ConvIndices> &parentIndices,
+                      const std::function<
+                        void(const std::vector<ConvIndices> &,
+                             const ConvSlice &)
+                      > &f) {
+  if (begin == end) {
+    f(parentIndices, parentSlice);
+    return;
+  }
+  auto indices = parentIndices;
+  indices.emplace_back();
+  iteratePartition(parentSlice, *begin, [&](const ConvIndices &sliceIndices,
+                                            const ConvSlice &slice) {
+    indices.back() = sliceIndices;
+    iteratePartitionsImpl(slice, std::next(begin), end, indices, f);
+  });
+}
+
+static void
+iteratePartitions(const ConvSlice &parentSlice,
+                  const std::vector<Partition> &partitions,
+                  const std::function<
+                    void(const std::vector<ConvIndices> &,
+                         const ConvSlice &)
+                  > &f) {
+  std::vector<ConvIndices> indices;
+  iteratePartitionsImpl(parentSlice, partitions.begin(), partitions.end(),
+                        indices, f);
+}
+
+static ConvSlice getWholeConvSlice(const ConvParams &params) {
+  const auto numFieldDims = params.getNumFieldDims();
+  std::vector<unsigned> zeros(numFieldDims);
+  ConvSlice slice = {
+    0, static_cast<unsigned>(params.getNumConvGroups()),
+    0, static_cast<unsigned>(params.getBatchSize()),
+    zeros, vectorConvert<unsigned>(params.getOutputFieldShape()),
+    0, static_cast<unsigned>(params.getNumOutputChansPerConvGroup()),
+    0, static_cast<unsigned>(params.getNumInputChansPerConvGroup()),
+    zeros, vectorConvert<unsigned>(params.kernelShape)
+  };
+  return slice;
+}
+
+static void
+iterateTilePartition(const Graph &graph, const ConvParams &params,
+                     const Plan &plan,
+                     const std::function<
+                       void(unsigned,
+                            const std::vector<ConvIndices> &,
+                            const ConvSlice &)
+                     > &f) {
+  ConvSlice parentSlice = getWholeConvSlice(params);
+  iteratePartitions(parentSlice, plan.partitions,
+                    [&](const std::vector<ConvIndices> &indices,
+                        const ConvSlice &slice) {
+    const auto tile = linearizeTileIndices(graph.getTarget(), indices, plan);
+    f(tile, indices, slice);
+  });
 }
 
 /// Extend a partial map to a total map in the range [lower, upper). The value
@@ -901,7 +993,7 @@ calculateActivationMapping(Graph &graph, const ConvParams &params,
   std::vector<boost::icl::interval_set<unsigned>> used(numTiles);
   boost::icl::interval_map<unsigned, std::set<unsigned>> actsToTiles;
   iterateTilePartition(graph, params, plan,
-                       [&](unsigned tile, const ConvTileIndices &,
+                       [&](unsigned tile, const std::vector<ConvIndices> &,
                            const ConvSlice &slice) {
     std::vector<Interval<std::size_t>> intervals;
     addFlattenedPrevActsRegions(actsShape, slice, params, intervals);
@@ -1308,7 +1400,7 @@ calculateWeightMapping(const Graph &graph,
   weightsShape.push_back(plan.inChansPerGroup);
   boost::icl::interval_map<unsigned, std::set<unsigned>> weightsToTiles;
   iterateTilePartition(graph, params, plan,
-                       [&](unsigned tile, const ConvTileIndices &,
+                       [&](unsigned tile, const std::vector<ConvIndices> &,
                            const ConvSlice &slice) {
     std::vector<Interval<std::size_t>> intervals;
     assert(slice.outChanBegin % plan.partialChansPerGroup == 0);
@@ -1723,6 +1815,8 @@ static void createConvPartialAmpVertex(Graph &graph,
     prePaddingSize = (convUnitWeightHeight - 1) * params.kernelDilation.front();
     postPaddingSize = prePaddingSize;
   }
+  // TODO if the tile kernel size is 1 and the stride is greater than one we
+  // could subsample the input instead of using input striding.
   std::vector<Tensor> inWindow;
   for (unsigned cg = cgBegin; cg < cgEnd; ++cg) {
     for (unsigned izg = inZGroupBegin; izg < inZGroupEnd; ++izg) {
@@ -2323,32 +2417,62 @@ calcPartialConvOutput(Graph &graph,
   }
 }
 
-static Program
+static Tensor
 calcPartialSums(Graph &graph,
                 const Plan &plan,
                 const ConvParams &params,
-                const Type &dType,
-                Tensor in, Tensor weights, Tensor partials,
+                Tensor in, Tensor weights,
+                Sequence &prog,
                 const std::string &layerName) {
+  const auto numBatchGroups = in.dim(2);
+  const auto dType = in.elementType();
+  const auto outNumChans = weights.dim(1) * weights.dim(weights.rank() - 2);
+  const auto partialChansPerGroup = plan.partialChansPerGroup;
+  assert(outNumChans % partialChansPerGroup == 0);
+  const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
+
+  const auto partialType = plan.getPartialType();
+  // Calculate a set of partial sums of the convolutions.
+  std::vector<std::size_t> partialsShape;
+  for (const auto p : plan.partitions) {
+    partialsShape.push_back(p.inChanSplit * product(p.kernelSplit));
+  }
+  partialsShape.push_back(params.getNumConvGroups());
+  partialsShape.push_back(partialNumChanGroups);
+  partialsShape.push_back(numBatchGroups);
+  const auto numFieldDims = params.getNumFieldDims();
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    partialsShape.push_back(params.getOutputSize(dim));
+  }
+  partialsShape.push_back(partialChansPerGroup);
+  Tensor partials = graph.addVariable(partialType, partialsShape, "partials");
   ComputeSet convolveCS = graph.addComputeSet(layerName + "/Convolve");
   iterateTilePartition(graph, params, plan,
-                       [&](unsigned tile, const ConvTileIndices &indices,
+                       [&](unsigned tile,
+                           const std::vector<ConvIndices> &indices,
                            const ConvSlice &slice) {
     if (slice.outChanBegin == slice.outChanEnd ||
         slice.cgBegin == slice.cgEnd)
       return;
     const auto numFieldDims = params.getNumFieldDims();
-    unsigned partialIndex = indices.ic;
-    for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-      partialIndex = partialIndex * plan.tilePartition.kernelSplit[dim] +
-                     indices.kernel[dim];
+    std::vector<unsigned> partialIndices;
+    const auto numLevels = plan.partitions.size();
+    assert(indices.size() == numLevels);
+    auto partialsSlice = partials;
+    for (unsigned i = 0; i != numLevels; ++i) {
+      unsigned partialIndex = indices[i].ic;
+      for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+        partialIndex =
+            partialIndex * plan.partitions[i].kernelSplit[dim] +
+            indices[i].kernel[dim];
+      }
+      partialsSlice = partialsSlice[partialIndex];
     }
-    calcPartialConvOutput(graph, plan, dType, tile, slice, params,
-                          convolveCS, in, weights, partials[partialIndex]);
+    calcPartialConvOutput(graph, plan, dType, tile, slice, params, convolveCS,
+                          in, weights, partialsSlice);
   });
-  Sequence prog;
   prog.add(Execute(convolveCS));
-  return prog;
+  return partials;
 }
 
 static Tensor
@@ -2546,58 +2670,41 @@ convolutionImpl(Graph &graph, const Plan &plan,
   in = splitActivationChanGroups(in, plan.inChansPerGroup);
   weights = groupWeights(weights, plan.inChansPerGroup,
                          plan.partialChansPerGroup);
-  const auto numBatchGroups = in.dim(2);
   const auto dType = in.elementType();
-  const auto outNumChans = weights.dim(1) * weights.dim(weights.rank() - 2);
-  const auto partialChansPerGroup = plan.partialChansPerGroup;
-  assert(outNumChans % partialChansPerGroup == 0);
-  const auto partialNumChanGroups = outNumChans / partialChansPerGroup;
-  const auto inChanTileSplit = plan.tilePartition.inChanSplit;
-  const auto kernelTileSplit = product(plan.tilePartition.kernelSplit);
-
   const auto partialType = plan.getPartialType();
-
-  // Calculate a set of partial sums of the convolutions.
-  std::vector<std::size_t> partialsShape = {
-    inChanTileSplit * kernelTileSplit,
-    params.getNumConvGroups(),
-    partialNumChanGroups,
-    numBatchGroups
-  };
-  const auto numFieldDims = params.getNumFieldDims();
-  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    partialsShape.push_back(params.getOutputSize(dim));
-  }
-  partialsShape.push_back(partialChansPerGroup);
-  Tensor partials = graph.addVariable(partialType, partialsShape, "partials");
-  prog.add(calcPartialSums(graph, plan, params, dType, in, weights, partials,
-                           debugPrefix));
-  std::vector<ComputeSet> reduceComputeSets;
-  // For each element of the batch, we add the reduction vertices to same
-  // compute sets so the batch will be executed in parallel.
-  Tensor reduced;
-  // Perform the reduction of partial sums.
-  if (partials.dim(0) == 1) {
-    if (dType != partialType) {
-      reduced = graph.addVariable(dType, partials.shape(), "reduced");
-      if (reduceComputeSets.empty()) {
-        reduceComputeSets.push_back(graph.addComputeSet(debugPrefix +
-                                                           "/Cast"));
+  auto partials =
+      calcPartialSums(graph, plan, params, in, weights, prog, debugPrefix);
+  const auto numLevels = plan.partitions.size();
+  for (int i = static_cast<int>(numLevels) - 1; i >= 0; --i) {
+    const auto resultType = i == 0 ? dType : partialType;
+    std::vector<ComputeSet> reduceComputeSets;
+    // For each element of the batch, we add the reduction vertices to same
+    // compute sets so the batch will be executed in parallel.
+    Tensor reduced;
+    // Perform the reduction of partial sums.
+    if (partials.dim(i) == 1) {
+      if (partialType != resultType) {
+        reduced = graph.clone(dType, partials, "reduced");
+        if (reduceComputeSets.empty()) {
+          reduceComputeSets.push_back(graph.addComputeSet(debugPrefix +
+                                                             "/Cast"));
+        }
+        cast(graph, partials, reduced, reduceComputeSets[0]);
+      } else {
+        reduced = partials;
       }
-      applyTensorMapping(graph, reduced, graph.getTileMapping(partials));
-      cast(graph, partials, reduced, reduceComputeSets[0]);
+      reduced = reduced.squeeze({std::size_t(i)});
     } else {
-      reduced = partials;
+      reduced = multiStageGroupedReduce(graph, partials.dimRoll(i, 0),
+                                        resultType, reduceComputeSets,
+                                        debugPrefix);
     }
-    reduced = reduced[0];
-  } else {
-    reduced = multiStageGroupedReduce(graph, partials, dType, reduceComputeSets,
-                                      debugPrefix);
+    for (const auto &cs : reduceComputeSets) {
+      prog.add(Execute(cs));
+    }
+    partials = reduced;
   }
-  for (const auto &cs : reduceComputeSets) {
-    prog.add(Execute(cs));
-  }
-  return unsplitActivationChanGroups(reduced);
+  return unsplitActivationChanGroups(partials);
 }
 
 template <typename T>
@@ -2758,18 +2865,18 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   const auto weightViewMaxBroadcastDests =
       weightRearrangementIsExpensive(options) ? 1U : 7U;
   const auto inNumDests =
-      std::accumulate(plan.tilePartition.kernelSplit.begin(),
-                      plan.tilePartition.kernelSplit.end(),
+      std::accumulate(plan.partitions.back().kernelSplit.begin(),
+                      plan.partitions.back().kernelSplit.end(),
                       1U,
                       std::multiplies<unsigned>()) *
-                      plan.tilePartition.outChanSplit;
+                      plan.partitions.back().outChanSplit;
   if (inNumDests > inViewMaxBroadcastDests) {
     auto inRearranged = createInputImpl(graph, params, "inRearranged", plan);
     prog.add(Copy(in, inRearranged));
     in = inRearranged;
   }
-  auto weightsNumDests = plan.tilePartition.batchSplit;
-  for (const auto split : plan.tilePartition.fieldSplit) {
+  auto weightsNumDests = plan.partitions.back().batchSplit;
+  for (const auto split : plan.partitions.back().fieldSplit) {
     weightsNumDests *= split;
   }
   if (weightsNumDests > weightViewMaxBroadcastDests) {
@@ -3414,11 +3521,11 @@ fullyConnectedWeightTranspose(Graph &graph,
   }
   auto plan = getPlan(graph, params, options);
   auto fwdPlan = plan;
-  std::swap(fwdPlan.tilePartition.fieldAxisGrainSize.back(),
-            fwdPlan.tilePartition.inChanGrainSize);
-  fwdPlan.inChansPerGroup = fwdPlan.tilePartition.inChanGrainSize;
-  std::swap(fwdPlan.tilePartition.fieldSplit.back(),
-            fwdPlan.tilePartition.inChanSplit);
+  for (auto &p : fwdPlan.partitions) {
+    std::swap(p.fieldAxisGrainSize.back(), p.inChanGrainSize);
+    std::swap(p.fieldSplit.back(), p.inChanSplit);
+  }
+  fwdPlan.inChansPerGroup = fwdPlan.partitions.back().inChanGrainSize;
   Tensor transposed = createInput(graph, params, "transposed", options);
   // split activations into conv groups
   auto splitActivations =
