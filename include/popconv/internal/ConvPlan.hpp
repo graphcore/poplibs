@@ -49,8 +49,7 @@ struct Partition {
 };
 
 struct Plan {
-  // Description of how each level of the hierarchy is partitioned.
-  std::vector<Partition> partitions;
+  Partition tilePartition;
   unsigned inChansPerGroup;
   unsigned partialChansPerGroup;
   bool floatPartials;
@@ -85,13 +84,13 @@ struct Plan {
   unsigned winogradPatchSize;
 
   Plan() = default;
-  Plan(std::vector<Partition> partitions_,
+  Plan(Partition tilePartition_,
        unsigned inChansPerGroup_,
        unsigned partialChansPerGroup_,
        bool floatPartials_,
        Plan::Method method_,
        Plan::LinearizeTileOrder linearizeTileOrder_) :
-      partitions(std::move(partitions_)),
+      tilePartition(std::move(tilePartition_)),
       inChansPerGroup(inChansPerGroup_),
       partialChansPerGroup(partialChansPerGroup_),
       floatPartials(floatPartials_),
@@ -101,8 +100,6 @@ struct Plan {
     return floatPartials ? poplar::FLOAT : poplar::HALF;
   }
 };
-
-std::vector<unsigned> getTileHierarchy(const poplar::Target &target);
 
 Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
              ConvOptions options);
