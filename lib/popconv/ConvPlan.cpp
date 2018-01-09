@@ -1996,14 +1996,14 @@ std::uint64_t estimateConvCost(const poplar::Target &target,
                               partialChansPadding, usedTiles);
   const auto floatActivations = params.dType == poplar::FLOAT;
   const auto exchangeCycles =
-      estimateExchangeCycles(target, floatActivations, params, plan);
+      estimateExchangeCycles(target, floatActivations, paddedParams, plan);
   const auto zeroCycles =
-      estimateZeroCycles(target, params, plan);
+      estimateZeroCycles(target, paddedParams, plan);
   const auto partialCalcCycles =
-      estimatePartialCalcCycles(target, floatActivations, params,
+      estimatePartialCalcCycles(target, floatActivations, paddedParams,
                                 plan, cacheImpl);
   const auto reduceCycles =
-      estimateReduceCycles(target, params, plan);
+      estimateReduceCycles(target, paddedParams, plan);
   return transformCycles + exchangeCycles + zeroCycles +
          partialCalcCycles + reduceCycles;
 }
