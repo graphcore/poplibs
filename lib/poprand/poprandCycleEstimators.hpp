@@ -5,7 +5,7 @@
 
 namespace poprand {
 
-extern poplibs::CycleEstimatorTable cyclesFunctionTable;
+poplibs::CycleEstimatorTable makeCyclesFunctionTable();
 
 }
 

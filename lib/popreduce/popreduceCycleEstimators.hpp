@@ -5,7 +5,7 @@
 
 namespace popreduce {
 
-extern poplibs::CycleEstimatorTable cyclesFunctionTable;
+poplibs::CycleEstimatorTable makeCyclesFunctionTable();
 
 }
 

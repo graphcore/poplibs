@@ -1,13 +1,16 @@
 #include "popconvCycleEstimators.hpp"
-#include <poplar/HalfFloat.hpp>
 #include "PerformanceEstimation.hpp"
 
 using namespace poplar;
 
 namespace popconv {
 
-template <class FPType, class AccumType, bool useDeltasForEdges>
-MAKE_CYCLE_ESTIMATOR(ConvPartialnx1, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(const VertexIntrospector &vertex,
+                                          const Target &target,
+                                          const Type &fpType,
+                                          const Type &accumType,
+                                          bool useDeltasForEdges) {
   CODELET_SCALAR_VAL(kernelOuterSize, unsigned);
   CODELET_SCALAR_VAL(kernelInnerElements, unsigned);
   CODELET_SCALAR_VAL(numOutGroups, unsigned);
@@ -34,7 +37,7 @@ MAKE_CYCLE_ESTIMATOR(ConvPartialnx1, vertex, target) {
   for (unsigned i = 0; i != zeroWorklist.size() / 2; ++i) {
     tZeroWorkList.push_back(zeroWorklist[2 * i + 1]);
   }
-  constexpr bool floatPartials = std::is_same<AccumType, float>::value;
+  bool floatPartials = accumType == FLOAT;
   uint64_t zeroCycles =
     getZeroSupervisorVertexCycleEstimate(tZeroWorkList,
                                          numOutGroups * numConvGroups,
@@ -53,7 +56,7 @@ MAKE_CYCLE_ESTIMATOR(ConvPartialnx1, vertex, target) {
       }
     }
   }
-  constexpr bool floatWeights = std::is_same<FPType, float>::value;
+  bool floatWeights = fpType == FLOAT;
   return zeroCycles +
     getConvPartialnx1SupervisorCycleEstimate(workerPartitions,
                                              numConvGroups,
@@ -70,8 +73,11 @@ MAKE_CYCLE_ESTIMATOR(ConvPartialnx1, vertex, target) {
                                              useDeltasForEdges);
 }
 
-template <class FPType>
-MAKE_CYCLE_ESTIMATOR(ConvChanReduce2, vertex, target) {
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ConvChanReduce2)(const VertexIntrospector &vertex,
+                                           const Target &target,
+                                           const Type &fpType) {
   CODELET_FIELD(out);
   CODELET_VECTOR_VALS(numInputsPerOutput, unsigned);
   auto numBiases = out.size();
@@ -83,14 +89,22 @@ MAKE_CYCLE_ESTIMATOR(ConvChanReduce2, vertex, target) {
   return cycles;
 }
 
-template <typename InType, typename OutType>
-MAKE_CYCLE_ESTIMATOR(ConvChanReduceAcc, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ConvChanReduceAcc)(const VertexIntrospector &vertex,
+                                             const Target &target,
+                                             const Type &inType,
+                                             const Type &outType) {
   CODELET_FIELD(in);
   return 15 + in.size();
 }
 
-template <class FPType, class AccumType, bool useDeltasForEdges>
-MAKE_CYCLE_ESTIMATOR(ConvPartial1x1Out, vertex, target) {
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(const VertexIntrospector &vertex,
+                                             const Target &target,
+                                             const Type &fpType,
+                                             const Type &accumType,
+                                             bool useDeltasForEdges) {
   CODELET_VECTOR_2D_VALS(worklists, unsigned);
   CODELET_SCALAR_VAL(numConvGroups, unsigned);
   CODELET_SCALAR_VAL(numInGroups, unsigned);
@@ -111,7 +125,7 @@ MAKE_CYCLE_ESTIMATOR(ConvPartial1x1Out, vertex, target) {
       workerPartitions.back().push_back(wl[wi + 1]);
     }
   }
-  constexpr bool floatWeights = std::is_same<FPType, float>::value;
+  bool floatWeights = fpType == FLOAT;
   return
     getConvPartial1x1SupervisorCycleEstimate(workerPartitions,
                                              numConvGroups,
@@ -126,8 +140,12 @@ MAKE_CYCLE_ESTIMATOR(ConvPartial1x1Out, vertex, target) {
                                              );
 }
 
-template <class FPType, class AccumType>
-MAKE_CYCLE_ESTIMATOR(ConvPartialHorizontalMac, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
+    const VertexIntrospector &vertex,
+    const Target &target,
+    const Type &fpType,
+    const Type &accumType) {
   CODELET_VECTOR_2D_VALS(worklists, unsigned);
   CODELET_VECTOR_VALS(zeroWorklist, unsigned);
   CODELET_SCALAR_VAL(numOutGroups, unsigned);
@@ -140,12 +158,12 @@ MAKE_CYCLE_ESTIMATOR(ConvPartialHorizontalMac, vertex, target) {
   const auto dataPathWidth = target.getDataPathWidth();
   const auto numWorkerContexts = target.getNumWorkerContexts();
 
-  constexpr bool floatActivations = std::is_same<FPType, float>::value;
+  bool floatActivations = fpType == FLOAT;
   std::vector<unsigned> tZeroWorkList;
   for (unsigned i = 0; i != zeroWorklist.size() / 2; ++i) {
     tZeroWorkList.push_back(zeroWorklist[2 * i + 1]);
   }
-  constexpr bool floatPartials = std::is_same<AccumType, float>::value;
+  bool floatPartials = accumType == FLOAT;
   uint64_t zeroCycles =
     getZeroSupervisorVertexCycleEstimate(tZeroWorkList,
                                          numOutGroups * numConvGroups,
@@ -180,12 +198,17 @@ MAKE_CYCLE_ESTIMATOR(ConvPartialHorizontalMac, vertex, target) {
         floatActivations);
 }
 
-template <class FPType, unsigned patchSizeX, unsigned patchSizeY,
-          unsigned kernelX, unsigned kernelY>
-MAKE_CYCLE_ESTIMATOR(WgdDataTransform, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(WgdDataTransform)(const VertexIntrospector &vertex,
+                                            const Target &target,
+                                            const Type &fpType,
+                                            unsigned patchSizeX,
+                                            unsigned patchSizeY,
+                                            unsigned kernelX,
+                                            unsigned kernelY) {
   CODELET_FIELD(dIn);
 
-  constexpr bool isFloat = std::is_same<FPType, float>::value;
+  const bool isFloat = fpType == FLOAT;
   const unsigned numInpRows = patchSizeX;
   const unsigned numInpCols = patchSizeY;
 
@@ -194,8 +217,10 @@ MAKE_CYCLE_ESTIMATOR(WgdDataTransform, vertex, target) {
   return getWgdDataTransformCycles(nPatches * dIn[0].size(), isFloat);
 }
 
-template <class FPType>
-MAKE_CYCLE_ESTIMATOR(WgdPartials, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(WgdPartials)(const VertexIntrospector &vertex,
+                                       const Target &target,
+                                       const Type &fpType) {
   CODELET_FIELD(dTf);
   CODELET_FIELD(wTf);
   CODELET_FIELD(partials);
@@ -204,7 +229,7 @@ MAKE_CYCLE_ESTIMATOR(WgdPartials, vertex, target) {
   CODELET_SCALAR_VAL(convUnitCoeffLoadBytesPerCycle, unsigned);
   const auto  numWorkers = target.getNumWorkerContexts();
 
-  constexpr bool isFloat = std::is_same<FPType, float>::value;
+  const bool isFloat = fpType == FLOAT;
   const unsigned outChanDepth = partials[0].size();
   const unsigned inpChanDepth = dTf[0].size();
   const unsigned comPencils = partials.size();
@@ -222,12 +247,16 @@ MAKE_CYCLE_ESTIMATOR(WgdPartials, vertex, target) {
                     isFloat);
 }
 
-template <class FPType, unsigned patchSizeX, unsigned patchSizeY>
-MAKE_CYCLE_ESTIMATOR(WgdReduce, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(WgdReduce)(const VertexIntrospector &vertex,
+                                     const Target &target,
+                                     const Type &fpType,
+                                     unsigned patchSizeX,
+                                     unsigned patchSizeY) {
   CODELET_FIELD(inPartial);
   CODELET_FIELD(outPartial);
 
-  constexpr bool isFloat = std::is_same<FPType, float>::value;
+  const bool isFloat = fpType == FLOAT;
 
   const unsigned numElems = outPartial.size();
   const unsigned numOutChans = outPartial[0].size();
@@ -240,13 +269,18 @@ MAKE_CYCLE_ESTIMATOR(WgdReduce, vertex, target) {
                  );
 }
 
-template <class FPType, unsigned patchSizeX, unsigned patchSizeY,
-          unsigned kernelX, unsigned kernelY>
-MAKE_CYCLE_ESTIMATOR(WgdInverseTransform, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(WgdInverseTransform)(const VertexIntrospector &vertex,
+                                               const Target &target,
+                                               const Type &fpType,
+                                               unsigned patchSizeX,
+                                               unsigned patchSizeY,
+                                               unsigned kernelX,
+                                               unsigned kernelY) {
   CODELET_FIELD(dTf);
   CODELET_FIELD(dOut);
 
-  constexpr bool isFloat = std::is_same<FPType, float>::value;
+  const bool isFloat = fpType == FLOAT;
   const unsigned numInCols = patchSizeY;
   const unsigned numInRows = patchSizeX;
 
@@ -256,11 +290,14 @@ MAKE_CYCLE_ESTIMATOR(WgdInverseTransform, vertex, target) {
   return getWgdInvTransformCycles(nGroups * depthDim, isFloat);
 }
 
-template <class FPType>
-MAKE_CYCLE_ESTIMATOR(WgdConvComplete, vertex, target) {
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(WgdConvComplete)(const VertexIntrospector &vertex,
+                                           const Target &target,
+                                           const Type &fpType) {
   CODELET_FIELD(dIn);
 
-  constexpr bool isFloat = std::is_same<FPType, float>::value;
+  const bool isFloat = fpType == FLOAT;
   const unsigned nGroups = dIn.size();
   const unsigned vecLen = dIn[0].size();
   return getWgdCompleteCycles(
@@ -268,13 +305,16 @@ MAKE_CYCLE_ESTIMATOR(WgdConvComplete, vertex, target) {
                              isFloat);
 }
 
-template <typename T>
-MAKE_CYCLE_ESTIMATOR(Transpose2d, vertex, target) {
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
+                                       const Target &target,
+                                       const Type &type) {
   CODELET_FIELD(src);
   CODELET_FIELD(dst);
   CODELET_SCALAR_VAL(numSrcColumns, unsigned);
 
-  constexpr bool isFloat = std::is_same<T, float>::value;
+  const bool isFloat = type == FLOAT;
   std::uint64_t cycles = 2; // Run instruction.
   if (isFloat)
     cycles += 6;  // Vertex overhead.
@@ -308,13 +348,15 @@ MAKE_CYCLE_ESTIMATOR(Transpose2d, vertex, target) {
   return cycles;
 }
 
-template <typename FPType>
-MAKE_CYCLE_ESTIMATOR(AddToChannel, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(AddToChannel)(const VertexIntrospector &vertex,
+                                        const Target &target,
+                                        const Type &type) {
   CODELET_FIELD(acts);
   CODELET_FIELD(addend);
   const auto dataPathWidth = target.getDataPathWidth();
 
-  constexpr bool isFloat = std::is_same<FPType, float>::value;
+  const bool isFloat = type == FLOAT;
   const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
   unsigned n = acts.size();
   unsigned numCycles = 5;
@@ -330,13 +372,15 @@ MAKE_CYCLE_ESTIMATOR(AddToChannel, vertex, target) {
   return numCycles;
 }
 
-template <typename FPType>
-MAKE_CYCLE_ESTIMATOR(ScaledAddToChannel, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddToChannel)(const VertexIntrospector &vertex,
+                                              const Target &target,
+                                              const Type &type) {
   CODELET_FIELD(acts);
   CODELET_FIELD(addend);
   const auto dataPathWidth = target.getDataPathWidth();
 
-  constexpr bool isFloat = std::is_same<FPType, float>::value;
+  const bool isFloat = type == FLOAT;
   const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
   unsigned n = acts.size();
   unsigned numCycles = 6;
@@ -352,14 +396,16 @@ MAKE_CYCLE_ESTIMATOR(ScaledAddToChannel, vertex, target) {
   return numCycles;
 }
 
-template <typename FPType>
-MAKE_CYCLE_ESTIMATOR(ChannelMul, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ChannelMul)(const VertexIntrospector &vertex,
+                                      const Target &target,
+                                      const Type &type) {
   CODELET_FIELD(actsIn);
   CODELET_FIELD(actsOut);
   CODELET_FIELD(scale);
   const auto dataPathWidth = target.getDataPathWidth();
 
-  constexpr bool isFloat = std::is_same<FPType, float>::value;
+  const bool isFloat = type == FLOAT;
   const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
   unsigned n = actsIn.size();
   unsigned numCycles = 5;
@@ -376,14 +422,17 @@ MAKE_CYCLE_ESTIMATOR(ChannelMul, vertex, target) {
   return numCycles;
 }
 
-template <typename InType, typename OutType>
-MAKE_CYCLE_ESTIMATOR(ConvChanReduce, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ConvChanReduce)(const VertexIntrospector &vertex,
+                                          const Target &target,
+                                          const Type &inType,
+                                          const Type &outType) {
   CODELET_FIELD(out);
   CODELET_FIELD(in);
   CODELET_SCALAR_VAL(useDoubleDataPathInstr, bool);
   const auto dataPathWidth = target.getDataPathWidth();
 
-  constexpr bool isFloat = std::is_same<InType, float>::value;
+  const bool isFloat = inType == FLOAT;
   // factor of 2 for instructions that allow double the datapath width
   unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
   if (useDoubleDataPathInstr) {
@@ -401,14 +450,18 @@ MAKE_CYCLE_ESTIMATOR(ConvChanReduce, vertex, target) {
   return cycles;
 }
 
-template <typename InType, typename OutType>
-MAKE_CYCLE_ESTIMATOR(ConvChanReduceSquare, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ConvChanReduceSquare)(
+    const VertexIntrospector &vertex,
+    const Target &target,
+    const Type &inType,
+    const Type &outType) {
   CODELET_FIELD(out);
   CODELET_FIELD(in);
   CODELET_SCALAR_VAL(useDoubleDataPathInstr, bool);
   const auto dataPathWidth = target.getDataPathWidth();
 
-  constexpr bool isFloat = std::is_same<InType, float>::value;
+  const bool isFloat = inType == FLOAT;
   // factor of 2 for instructions that allow double the datapath width
   unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
   if (useDoubleDataPathInstr) {
@@ -426,14 +479,23 @@ MAKE_CYCLE_ESTIMATOR(ConvChanReduceSquare, vertex, target) {
   return cycles;
 }
 
-template <typename InType, typename OutType>
-MAKE_CYCLE_ESTIMATOR(ConvChanReduceAndScale, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ConvChanReduceAndScale)(
+    const VertexIntrospector &vertex,
+    const Target &target,
+    const Type &inType,
+    const Type &outType) {
   CODELET_FIELD(in);
   return 15 + in.size();
 }
 
-template <class MeanType, class PowerType, class OutType>
-MAKE_CYCLE_ESTIMATOR(InverseStdDeviation, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(InverseStdDeviation)(
+    const VertexIntrospector &vertex,
+    const Target &target,
+    const Type &meanType,
+    const Type &powerType,
+    const Type &outType) {
   CODELET_FIELD(mean);
   const auto dataPathWidth = target.getDataPathWidth();
 
@@ -451,14 +513,16 @@ MAKE_CYCLE_ESTIMATOR(InverseStdDeviation, vertex, target) {
   return cycles;
 }
 
-template <class T>
-MAKE_CYCLE_ESTIMATOR(OuterProduct, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(OuterProduct)(const VertexIntrospector &vertex,
+                                        const Target &target,
+                                        const Type &type) {
   CODELET_FIELD(in);
   CODELET_FIELD(weights);
   CODELET_FIELD(out);
   const auto dataPathWidth = target.getDataPathWidth();
 
-  constexpr bool isFloat = std::is_same<T, float>::value;
+  const bool isFloat = type == FLOAT;
   const auto width = in.size();
   const auto numChans = weights.size();
   const auto numChanGroups = out.size();
@@ -468,94 +532,98 @@ MAKE_CYCLE_ESTIMATOR(OuterProduct, vertex, target) {
                                       dataPathWidth);
 }
 
-poplibs::CycleEstimatorTable cyclesFunctionTable = {
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, OuterProduct, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, OuterProduct, half),
+poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
+  return
+  {
+    CYCLE_ESTIMATOR_ENTRY(popconv, OuterProduct, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popconv, OuterProduct, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, InverseStdDeviation,
-                                 float, float, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, InverseStdDeviation,
-                                 float, float, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, InverseStdDeviation,
-                                 half, float, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, InverseStdDeviation,
-                                 half, half, half),
+    CYCLE_ESTIMATOR_ENTRY(popconv, InverseStdDeviation,
+                                   FLOAT, FLOAT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popconv, InverseStdDeviation,
+                                   FLOAT, FLOAT, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popconv, InverseStdDeviation,
+                                   HALF, FLOAT, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popconv, InverseStdDeviation,
+                                   HALF, HALF, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceAndScale, float, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceAndScale, float, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceAndScale, half, half),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceAndScale, FLOAT,
+                                   FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceAndScale, FLOAT, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceAndScale, HALF, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceSquare, float, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceSquare, half, float),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceSquare, FLOAT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceSquare, HALF, FLOAT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduce, float, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduce, half, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduce, half, half),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduce, FLOAT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduce, HALF, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduce, HALF, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ChannelMul, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ChannelMul, half),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ChannelMul, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ChannelMul, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ScaledAddToChannel, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ScaledAddToChannel, half),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ScaledAddToChannel, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ScaledAddToChannel, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, AddToChannel, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, AddToChannel, half),
+    CYCLE_ESTIMATOR_ENTRY(popconv, AddToChannel, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popconv, AddToChannel, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, Transpose2d, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, Transpose2d, half),
+    CYCLE_ESTIMATOR_ENTRY(popconv, Transpose2d, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popconv, Transpose2d, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, WgdConvComplete, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, WgdConvComplete, half),
+    CYCLE_ESTIMATOR_ENTRY(popconv, WgdConvComplete, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popconv, WgdConvComplete, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, WgdInverseTransform,
-                                 float, 4, 4, 3, 3),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, WgdInverseTransform,
-                                 half, 4, 4, 3, 3),
+    CYCLE_ESTIMATOR_ENTRY(popconv, WgdInverseTransform,
+                                   FLOAT, 4, 4, 3, 3),
+    CYCLE_ESTIMATOR_ENTRY(popconv, WgdInverseTransform,
+                                   HALF, 4, 4, 3, 3),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, WgdReduce, float, 4, 4),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, WgdReduce, half, 4, 4),
+    CYCLE_ESTIMATOR_ENTRY(popconv, WgdReduce, FLOAT, 4, 4),
+    CYCLE_ESTIMATOR_ENTRY(popconv, WgdReduce, HALF, 4, 4),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, WgdPartials, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, WgdPartials, half),
+    CYCLE_ESTIMATOR_ENTRY(popconv, WgdPartials, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popconv, WgdPartials, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, WgdDataTransform,
-                                 float, 4, 4, 3, 3),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, WgdDataTransform,
-                                 half, 4, 4, 3, 3),
+    CYCLE_ESTIMATOR_ENTRY(popconv, WgdDataTransform,
+                                   FLOAT, 4, 4, 3, 3),
+    CYCLE_ESTIMATOR_ENTRY(popconv, WgdDataTransform,
+                                   HALF, 4, 4, 3, 3),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialHorizontalMac,
-                                 float, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialHorizontalMac,
-                                 half, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialHorizontalMac,
-                                 half, half),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialHorizontalMac,
+                                   FLOAT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialHorizontalMac,
+                                   HALF, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialHorizontalMac,
+                                   HALF, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartial1x1Out, half, half, true),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartial1x1Out, half, float, true),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartial1x1Out, float, half, true),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartial1x1Out,
-                                 float, float, true),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartial1x1Out, half, half, false),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartial1x1Out,
-                                 half, float, false),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartial1x1Out,
-                                 float, half, false),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartial1x1Out,
-                                 float, float, false),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartial1x1Out, HALF, HALF, true),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartial1x1Out, HALF, FLOAT, true),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartial1x1Out, FLOAT, HALF, true),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartial1x1Out,
+                                   FLOAT, FLOAT, true),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartial1x1Out, HALF, HALF, false),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartial1x1Out,
+                                   HALF, FLOAT, false),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartial1x1Out,
+                                   FLOAT, HALF, false),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartial1x1Out,
+                                   FLOAT, FLOAT, false),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceAcc, float, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceAcc, half, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceAcc, float, half),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceAcc, FLOAT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceAcc, HALF, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceAcc, FLOAT, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduce2, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduce2, half),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduce2, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduce2, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialnx1, float, float, true),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialnx1, half, half, true),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialnx1, half, float, true),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialnx1, float, float, false),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialnx1, half, half, false),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialnx1, half, float, false)
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialnx1, FLOAT, FLOAT, true),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialnx1, HALF, HALF, true),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialnx1, HALF, FLOAT, true),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialnx1, FLOAT, FLOAT, false),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialnx1, HALF, HALF, false),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialnx1, HALF, FLOAT, false)
+  };
 };
 
 } // end namespace popconv

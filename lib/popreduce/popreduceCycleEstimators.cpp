@@ -1,13 +1,15 @@
 #include "popreduceCycleEstimators.hpp"
-#include <poplar/HalfFloat.hpp>
 #include "PerformanceEstimation.hpp"
 
 using namespace poplar;
 
 namespace popreduce {
 
-template <typename OutType, typename PartialsType>
-MAKE_CYCLE_ESTIMATOR(ReduceAdd, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ReduceAdd)(const VertexIntrospector &vertex,
+                                     const Target &target,
+                                     const Type &outType,
+                                     const Type &partialsType) {
   CODELET_FIELD(out);
   CODELET_FIELD(partials);
   const auto dataPathWidth = target.getDataPathWidth();
@@ -15,14 +17,18 @@ MAKE_CYCLE_ESTIMATOR(ReduceAdd, vertex, target) {
   std::vector<unsigned> outSizes;
   for (auto i = 0u; i < out.size(); ++i) outSizes.push_back(out[i].size());
 
-  return reduceCycleEstimate<OutType, PartialsType>(outSizes,
-                                                    partials.size(),
-                                                    dataPathWidth,
-                                                    false, false);
+  return reduceCycleEstimate(outSizes,
+                             partials.size(),
+                             dataPathWidth,
+                             false, false,
+                             outType, partialsType);
 }
 
-template <typename OutType, typename PartialsType>
-MAKE_CYCLE_ESTIMATOR(ReduceAddUpdate, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ReduceAddUpdate)(const VertexIntrospector &vertex,
+                                           const Target &target,
+                                           const Type &outType,
+                                           const Type &partialsType) {
   CODELET_FIELD(out);
   CODELET_FIELD(partials);
   const auto dataPathWidth = target.getDataPathWidth();
@@ -30,14 +36,18 @@ MAKE_CYCLE_ESTIMATOR(ReduceAddUpdate, vertex, target) {
   std::vector<unsigned> outSizes;
   for (auto i = 0u; i < out.size(); ++i) outSizes.push_back(out[i].size());
 
-  return reduceCycleEstimate<OutType, PartialsType>(outSizes,
-                                                    partials.size(),
-                                                    dataPathWidth,
-                                                    true, false);
+  return reduceCycleEstimate(outSizes,
+                             partials.size(),
+                             dataPathWidth,
+                             true, false,
+                             outType, partialsType);
 }
 
-template <typename OutType, typename PartialsType>
-MAKE_CYCLE_ESTIMATOR(ReduceAddScale, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ReduceAddScale)(const VertexIntrospector &vertex,
+                                          const Target &target,
+                                          const Type &outType,
+                                          const Type &partialsType) {
   CODELET_FIELD(out);
   CODELET_FIELD(partials);
   const auto dataPathWidth = target.getDataPathWidth();
@@ -45,14 +55,18 @@ MAKE_CYCLE_ESTIMATOR(ReduceAddScale, vertex, target) {
   std::vector<unsigned> outSizes;
   for (auto i = 0u; i < out.size(); ++i) outSizes.push_back(out[i].size());
 
-  return reduceCycleEstimate<OutType, PartialsType>(outSizes,
-                                                    partials.size(),
-                                                    dataPathWidth,
-                                                    false, true);
+  return reduceCycleEstimate(outSizes,
+                             partials.size(),
+                             dataPathWidth,
+                             false, true,
+                             outType, partialsType);
 }
 
-template <typename OutType, typename PartialsType>
-MAKE_CYCLE_ESTIMATOR(ReduceMul, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ReduceMul)(const VertexIntrospector &vertex,
+                                     const Target &target,
+                                     const Type &outType,
+                                     const Type &partialsType) {
   CODELET_FIELD(out);
   CODELET_FIELD(partials);
   const auto dataPathWidth = target.getDataPathWidth();
@@ -60,67 +74,82 @@ MAKE_CYCLE_ESTIMATOR(ReduceMul, vertex, target) {
   std::vector<unsigned> outSizes;
   for (auto i = 0u; i < out.size(); ++i) outSizes.push_back(out[i].size());
 
-  return reduceOpsCycleEstimate<OutType, PartialsType>(outSizes,
-                                                       partials.size(),
-                                                       dataPathWidth);
+  return reduceOpsCycleEstimate(outSizes,
+                                partials.size(),
+                                dataPathWidth,
+                                outType, partialsType);
 }
 
-template <typename OutType, typename PartialsType>
-MAKE_CYCLE_ESTIMATOR(ReduceMax, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ReduceMax)(const VertexIntrospector &vertex,
+                                     const Target &target,
+                                     const Type &outType,
+                                     const Type &partialsType) {
   return
-    MAKE_CYCLE_ESTIMATOR_NAME(ReduceMul)<OutType, PartialsType>(vertex, target);
+    MAKE_CYCLE_ESTIMATOR_NAME(ReduceMul)(vertex, target, outType, partialsType);
 }
 
-template <typename OutType, typename PartialsType>
-MAKE_CYCLE_ESTIMATOR(ReduceMin, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ReduceMin)(const VertexIntrospector &vertex,
+                                     const Target &target,
+                                     const Type &outType,
+                                     const Type &partialsType) {
   return
-    MAKE_CYCLE_ESTIMATOR_NAME(ReduceMul)<OutType, PartialsType>(vertex, target);
+    MAKE_CYCLE_ESTIMATOR_NAME(ReduceMul)(vertex, target, outType, partialsType);
 }
 
-template <typename OutType, typename PartialsType>
-MAKE_CYCLE_ESTIMATOR(ReduceAnd, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ReduceAnd)(const VertexIntrospector &vertex,
+                                     const Target &target,
+                                     const Type &outType,
+                                     const Type &partialsType) {
   return
-    MAKE_CYCLE_ESTIMATOR_NAME(ReduceMul)<OutType, PartialsType>(vertex, target);
+    MAKE_CYCLE_ESTIMATOR_NAME(ReduceMul)(vertex, target, outType, partialsType);
 }
 
-template <typename OutType, typename PartialsType>
-MAKE_CYCLE_ESTIMATOR(ReduceOr, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ReduceOr)(const VertexIntrospector &vertex,
+                                    const Target &target,
+                                    const Type &outType,
+                                    const Type &partialsType) {
   return
-    MAKE_CYCLE_ESTIMATOR_NAME(ReduceAnd)<OutType, PartialsType>(vertex, target);
+    MAKE_CYCLE_ESTIMATOR_NAME(ReduceAnd)(vertex, target, outType, partialsType);
 }
 
-poplibs::CycleEstimatorTable cyclesFunctionTable = {
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceOr, bool, bool),
+poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
+  return {
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceOr, BOOL, BOOL),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAnd, bool, bool),
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAnd, BOOL, BOOL),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceMin, float, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceMin, half, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceMin, int, int),
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceMin, FLOAT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceMin, HALF, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceMin, INT, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceMax, float, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceMax, half, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceMax, int, int),
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceMax, FLOAT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceMax, HALF, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceMax, INT, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceMul, float, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceMul, half, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceMul, half, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceMul, int, int),
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceMul, FLOAT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceMul, HALF, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceMul, HALF, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceMul, INT, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAddScale, float, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAddScale, half, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAddScale, half, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAddScale, int, int),
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAddScale, FLOAT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAddScale, HALF, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAddScale, HALF, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAddScale, INT, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAddUpdate, float, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAddUpdate, half, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAddUpdate, half, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAddUpdate, int, int),
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAddUpdate, FLOAT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAddUpdate, HALF, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAddUpdate, HALF, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAddUpdate, INT, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAdd, float, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAdd, half, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAdd, half, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAdd, int, int)
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAdd, FLOAT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAdd, HALF, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAdd, HALF, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popreduce, ReduceAdd, INT, INT)
+  };
 };
 
 } // end namespace popreduce

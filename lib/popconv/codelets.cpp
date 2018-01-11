@@ -50,7 +50,7 @@ const std::vector<std::string> winogradCodelets =
 
 void addCodelets(poplar::Graph &graph) {
   graph.addCodelets(findGraphProg());
-  poplibs::registerCyclesFunctions(graph, popconv::cyclesFunctionTable);
+  poplibs::registerCyclesFunctions(graph, makeCyclesFunctionTable());
 
   // The winograd codelets are not currently supported and do not have correct
   // cycle estimators.

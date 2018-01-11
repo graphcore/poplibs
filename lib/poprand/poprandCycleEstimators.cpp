@@ -1,5 +1,4 @@
 #include "poprandCycleEstimators.hpp"
-#include <poplar/HalfFloat.hpp>
 
 using namespace poplar;
 
@@ -7,57 +6,58 @@ namespace poprand {
 
 constexpr unsigned WARMUP_ITERATIONS = 4;
 
-template <class OutType>
-MAKE_CYCLE_ESTIMATOR(Uniform, vertex, target) {
-  CODELET_FIELD(out);
-  CODELET_SCALAR_VAL(saveRestoreSeed, bool);
-  const auto dataPathWidth = target.getDataPathWidth();
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Uniform)(const VertexIntrospector &vertex,
+                                   const Target &target,
+                                   const Type &type) {
+  if (type == INT) {
+    CODELET_FIELD(out);
+    CODELET_SCALAR_VAL(saveRestoreSeed, bool);
 
-  uint64_t cycles = 7;  // overhead + broadcast offset
-  if (saveRestoreSeed) {
-    cycles += 5;        // to set up seeds in CSR
-    cycles += WARMUP_ITERATIONS;
-  }
-  bool isFloat = std::is_same<OutType, float>::value;
-  unsigned vectorWidth =  dataPathWidth / (isFloat ? 32 : 16);
+    uint64_t cycles = 5;  // overhead + broadcast offset
+    if (saveRestoreSeed) {
+      cycles += 5;        // to set up seeds in CSR
+      cycles += WARMUP_ITERATIONS;
+    }
+    for (auto i = 0; i != out.size(); ++i) {
+      // use modulo instruction
+      cycles += out[i].size() * 23;
+    }
+    if ((saveRestoreSeed)) {
+      // save seeds
+      cycles += 6;
+    }
+    return cycles;
+  } else {
+    CODELET_FIELD(out);
+    CODELET_SCALAR_VAL(saveRestoreSeed, bool);
+    const auto dataPathWidth = target.getDataPathWidth();
 
-  for (auto i = 0; i != out.size(); ++i) {
-    cycles += 3; // overhead to load pointers + rpt + brnzdec
-    // rand gen/convert/axpb
-    cycles += (out[i].size() + vectorWidth - 1) / vectorWidth * 3;
+    uint64_t cycles = 7;  // overhead + broadcast offset
+    if (saveRestoreSeed) {
+      cycles += 5;        // to set up seeds in CSR
+      cycles += WARMUP_ITERATIONS;
+    }
+    bool isFloat = type == FLOAT;
+    unsigned vectorWidth =  dataPathWidth / (isFloat ? 32 : 16);
+
+    for (auto i = 0; i != out.size(); ++i) {
+      cycles += 3; // overhead to load pointers + rpt + brnzdec
+      // rand gen/convert/axpb
+      cycles += (out[i].size() + vectorWidth - 1) / vectorWidth * 3;
+    }
+    if ((saveRestoreSeed)) {
+      // save seeds
+      cycles += 6;
+    }
+    return cycles;
   }
-  if ((saveRestoreSeed)) {
-    // save seeds
-    cycles += 6;
-  }
-  return cycles;
 }
 
-// NB: Specialising template functions is usually considered bad!
-// In this case the usage and is so restricted that it doesn't matter.
-template <>
-MAKE_CYCLE_ESTIMATOR(Uniform<int>, vertex, target) {
-  CODELET_FIELD(out);
-  CODELET_SCALAR_VAL(saveRestoreSeed, bool);
-
-  uint64_t cycles = 5;  // overhead + broadcast offset
-  if (saveRestoreSeed) {
-    cycles += 5;        // to set up seeds in CSR
-    cycles += WARMUP_ITERATIONS;
-  }
-  for (auto i = 0; i != out.size(); ++i) {
-    // use modulo instruction
-    cycles += out[i].size() * 23;
-  }
-  if ((saveRestoreSeed)) {
-    // save seeds
-    cycles += 6;
-  }
-  return cycles;
-}
-
-template <class OutType>
-MAKE_CYCLE_ESTIMATOR(Bernoulli, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Bernoulli)(const VertexIntrospector &vertex,
+                                     const Target &target,
+                                     const Type &type) {
   CODELET_FIELD(out);
   CODELET_SCALAR_VAL(saveRestoreSeed, bool);
   const auto dataPathWidth = target.getDataPathWidth();
@@ -68,7 +68,7 @@ MAKE_CYCLE_ESTIMATOR(Bernoulli, vertex, target) {
     cycles += 5;          // to set up seeds in CSR
     cycles += WARMUP_ITERATIONS;
   }
-  bool isFloat = std::is_same<OutType, float>::value;
+  bool isFloat = type == FLOAT;
   unsigned vectorWidth =  dataPathWidth / (isFloat ? 32 : 16);
 
   for (auto i = 0; i != out.size(); ++i) {
@@ -84,8 +84,10 @@ MAKE_CYCLE_ESTIMATOR(Bernoulli, vertex, target) {
   return cycles;
 }
 
-template <class OutType>
-MAKE_CYCLE_ESTIMATOR(Normal, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Normal)(const VertexIntrospector &vertex,
+                                  const Target &target,
+                                  const Type &type) {
   CODELET_FIELD(out);
   CODELET_SCALAR_VAL(saveRestoreSeed, bool);
   const auto dataPathWidth = target.getDataPathWidth();
@@ -95,7 +97,7 @@ MAKE_CYCLE_ESTIMATOR(Normal, vertex, target) {
     cycles += 5;        // to set up seeds in CSR
     cycles += WARMUP_ITERATIONS;
   }
-  bool isFloat = std::is_same<OutType, float>::value;
+  bool isFloat = type == FLOAT;
   unsigned vectorWidth =  dataPathWidth / (isFloat ? 32 : 16);
 
   for (auto i = 0; i != out.size(); ++i) {
@@ -111,8 +113,10 @@ MAKE_CYCLE_ESTIMATOR(Normal, vertex, target) {
   return cycles;
 }
 
-template <class OutType>
-MAKE_CYCLE_ESTIMATOR(TruncatedNormal, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(TruncatedNormal)(const VertexIntrospector &vertex,
+                                           const Target &target,
+                                           const Type &type) {
   CODELET_FIELD(out);
   CODELET_SCALAR_VAL(iterations, unsigned);
   CODELET_SCALAR_VAL(saveRestoreSeed, bool);
@@ -124,7 +128,7 @@ MAKE_CYCLE_ESTIMATOR(TruncatedNormal, vertex, target) {
     cycles += 5;          // to set up seeds in CSR
     cycles += WARMUP_ITERATIONS;
   }
-  bool isFloat = std::is_same<OutType, float>::value;
+  bool isFloat = type == FLOAT;
   unsigned vectorWidth =  dataPathWidth / (isFloat ? 32 : 16);
 
   for (auto i = 0; i != out.size(); ++i) {
@@ -140,20 +144,22 @@ MAKE_CYCLE_ESTIMATOR(TruncatedNormal, vertex, target) {
   return cycles;
 }
 
-poplibs::CycleEstimatorTable cyclesFunctionTable = {
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(poprand, TruncatedNormal, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(poprand, TruncatedNormal, half),
+poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
+  return {
+    CYCLE_ESTIMATOR_ENTRY(poprand, TruncatedNormal, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(poprand, TruncatedNormal, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(poprand, Normal, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(poprand, Normal, half),
+    CYCLE_ESTIMATOR_ENTRY(poprand, Normal, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(poprand, Normal, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(poprand, Bernoulli, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(poprand, Bernoulli, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(poprand, Bernoulli, int),
+    CYCLE_ESTIMATOR_ENTRY(poprand, Bernoulli, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(poprand, Bernoulli, HALF),
+    CYCLE_ESTIMATOR_ENTRY(poprand, Bernoulli, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(poprand, Uniform, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(poprand, Uniform, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(poprand, Uniform, int)
+    CYCLE_ESTIMATOR_ENTRY(poprand, Uniform, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(poprand, Uniform, HALF),
+    CYCLE_ESTIMATOR_ENTRY(poprand, Uniform, INT)
+  };
 };
 
 } // end namespace poprand

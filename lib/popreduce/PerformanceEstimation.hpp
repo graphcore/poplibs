@@ -5,15 +5,17 @@
 #include <cstdint>
 #include <numeric>
 #include <vector>
+#include <poplar/Type.hpp>
 
-template <typename OutType, typename PartialsType>
 static uint64_t
 reduceCycleEstimate(const std::vector<unsigned> &outSizes,
                     unsigned partialsSize,
                     unsigned dataPathWidth,
-                    bool isUpdate, bool isScale) {
-  bool isPartialsFloat = std::is_same<PartialsType, float>::value;
-  bool isOutTypeFloat = std::is_same<OutType, float>::value;
+                    bool isUpdate, bool isScale,
+                    const poplar::Type &outType,
+                    const poplar::Type &partialsType) {
+  bool isPartialsFloat = partialsType == poplar::FLOAT;
+  bool isOutTypeFloat = outType == poplar::FLOAT;
   unsigned vectorWidth = dataPathWidth / (isPartialsFloat ? 32 : 16);
   bool conversionCyles = isPartialsFloat != isOutTypeFloat;
   unsigned cycles;
@@ -72,13 +74,14 @@ reduceCycleEstimate(const std::vector<unsigned> &outSizes,
   return cycles;
 }
 
-template <typename OutType, typename PartialsType>
 static uint64_t
 reduceOpsCycleEstimate(const std::vector<unsigned> &outSizes,
                        unsigned partialsSize,
-                       unsigned dataPathWidth) {
-  bool isPartialsFloat = std::is_same<PartialsType, float>::value;
-  bool isOutTypeFloat = std::is_same<OutType, float>::value;
+                       unsigned dataPathWidth,
+                       const poplar::Type &outType,
+                       const poplar::Type &partialsType) {
+  bool isPartialsFloat = partialsType == poplar::FLOAT;
+  bool isOutTypeFloat = outType == poplar::FLOAT;
   // assumed that bool is 16 bits. If it is 8, vector operations are possible
   // on the AUX side but the cycle count will be different
   unsigned vectorWidth = dataPathWidth / (isPartialsFloat ? 32 : 16);

@@ -36,7 +36,7 @@ static std::string findGraphProg() {
 
 void addCodelets(poplar::Graph &graph) {
   graph.addCodelets(findGraphProg());
-  poplibs::registerCyclesFunctions(graph, popreduce::cyclesFunctionTable);
+  poplibs::registerCyclesFunctions(graph, makeCyclesFunctionTable());
 }
 
 } // namespace popreduce

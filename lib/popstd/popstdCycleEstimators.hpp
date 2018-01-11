@@ -5,7 +5,7 @@
 
 namespace popstd {
 
-extern poplibs::CycleEstimatorTable cyclesFunctionTable;
+poplibs::CycleEstimatorTable makeCyclesFunctionTable();
 
 }
 

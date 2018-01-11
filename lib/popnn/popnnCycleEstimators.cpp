@@ -1,14 +1,17 @@
 #include "popnnCycleEstimators.hpp"
-#include <poplar/HalfFloat.hpp>
 
 #include "popnn/NonLinearity.hpp"
 #include "PerformanceEstimation.hpp"
 
+using namespace poplar;
+
 namespace popnn {
 
-template <class FPType>
-MAKE_CYCLE_ESTIMATOR(NonLinearity, vertex, target) {
-  bool isFloat = std::is_same<FPType, float>::value;
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(NonLinearity)(const VertexIntrospector &vertex,
+                                        const Target &target,
+                                        const Type &type) {
+  bool isFloat = type == FLOAT;
   std::vector<unsigned> regionSizes;
   const auto data = vertex.getFieldInfo("data");
   auto nonLinearityType =
@@ -20,9 +23,11 @@ MAKE_CYCLE_ESTIMATOR(NonLinearity, vertex, target) {
                                target.getDataPathWidth());
 }
 
-template <class FPType>
-MAKE_CYCLE_ESTIMATOR(NonLinearityGrad, vertex, target) {
-  bool isFloat = std::is_same<FPType, float>::value;
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(NonLinearityGrad)(const VertexIntrospector &vertex,
+                                            const Target &target,
+                                            const Type &type) {
+  bool isFloat = type == FLOAT;
   uint64_t cycles = 5;
   const auto inGrad = vertex.getFieldInfo("inGrad");
   auto nonLinearityType =
@@ -50,10 +55,12 @@ MAKE_CYCLE_ESTIMATOR(NonLinearityGrad, vertex, target) {
   return cycles;
 }
 
-template <class FPType>
-MAKE_CYCLE_ESTIMATOR(MaxPooling, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(MaxPooling)(const VertexIntrospector &vertex,
+                                      const Target &target,
+                                      const Type &type) {
   unsigned numCycles = 10;
-  bool isFloat = std::is_same<FPType, float>::value;
+  bool isFloat = type == FLOAT;
   const auto out = vertex.getFieldInfo("out");
   const auto windowSizes = vertex.getFieldInfo("windowSizes");
   const auto windowSizeValues =
@@ -68,10 +75,12 @@ MAKE_CYCLE_ESTIMATOR(MaxPooling, vertex, target) {
   return numCycles;
 }
 
-template <class FPType>
-MAKE_CYCLE_ESTIMATOR(ScaledSumPooling, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ScaledSumPooling)(const VertexIntrospector &vertex,
+                                            const Target &target,
+                                            const Type &type) {
   unsigned numCycles = 10;
-  bool isFloat = std::is_same<FPType, float>::value;
+  bool isFloat = type == FLOAT;
   const auto out = vertex.getFieldInfo("out");
   const auto windowSizes = vertex.getFieldInfo("windowSizes");
   const auto windowSizeValues =
@@ -90,10 +99,12 @@ MAKE_CYCLE_ESTIMATOR(ScaledSumPooling, vertex, target) {
   return numCycles;
 }
 
-template <class FPType>
-MAKE_CYCLE_ESTIMATOR(MaxPoolingGrad, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(MaxPoolingGrad)(const VertexIntrospector &vertex,
+                                          const Target &target,
+                                          const Type &type) {
   unsigned numCycles = 10;
-  bool isFloat = std::is_same<FPType, float>::value;
+  bool isFloat = type == FLOAT;
   const auto inGrad = vertex.getFieldInfo("inGrad");
   const auto windowSizes = vertex.getFieldInfo("windowSizes");
   const auto windowSizeValues =
@@ -118,10 +129,12 @@ MAKE_CYCLE_ESTIMATOR(MaxPoolingGrad, vertex, target) {
   return numCycles;
 }
 
-template <class FPType>
-MAKE_CYCLE_ESTIMATOR(SumPoolingGrad, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(SumPoolingGrad)(const VertexIntrospector &vertex,
+                                          const Target &target,
+                                          const Type &type) {
   unsigned numCycles = 10;
-  bool isFloat = std::is_same<FPType, float>::value;
+  bool isFloat = type == FLOAT;
   const auto inGrad = vertex.getFieldInfo("inGrad");
   const auto windowSizes = vertex.getFieldInfo("windowSizes");
   const auto windowSizeValues =
@@ -144,11 +157,20 @@ MAKE_CYCLE_ESTIMATOR(SumPoolingGrad, vertex, target) {
   return numCycles;
 }
 
-MAKE_CYCLE_ESTIMATOR(CalcLoss, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(CalcLoss)(const VertexIntrospector &vertex,
+                                    const Target &target,
+                                    const Type &fpType,
+                                    const Type &labelType) {
+  // TODO
   return 0;
 }
 
-MAKE_CYCLE_ESTIMATOR(BatchNormEstimates, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(BatchNormEstimates)(const VertexIntrospector &vertex,
+                                              const Target &target,
+                                              const Type &inType,
+                                              const Type &partialsType) {
   unsigned numCycles = 5;
   const auto mean = vertex.getFieldInfo("mean");
   const auto acts = vertex.getFieldInfo("acts");
@@ -161,33 +183,35 @@ MAKE_CYCLE_ESTIMATOR(BatchNormEstimates, vertex, target) {
   return numCycles;
 }
 
-using half = poplar::half;
-poplibs::CycleEstimatorTable cyclesFunctionTable = {
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popnn, BatchNormEstimates, float, float),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popnn, BatchNormEstimates, half, float),
+poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
+  return
+  {
+    CYCLE_ESTIMATOR_ENTRY(popnn, BatchNormEstimates, FLOAT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, BatchNormEstimates, HALF, FLOAT),
 
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popnn, CalcLoss, float, unsigned int),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popnn, CalcLoss, float, int),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popnn, CalcLoss, half, unsigned int),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popnn, CalcLoss, half, int),
+    CYCLE_ESTIMATOR_ENTRY(popnn, CalcLoss, FLOAT, UNSIGNED_INT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, CalcLoss, FLOAT, INT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, CalcLoss, HALF, UNSIGNED_INT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, CalcLoss, HALF, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popnn, SumPoolingGrad, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popnn, SumPoolingGrad, half),
+    CYCLE_ESTIMATOR_ENTRY(popnn, SumPoolingGrad, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, SumPoolingGrad, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popnn, MaxPoolingGrad, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popnn, MaxPoolingGrad, half),
+    CYCLE_ESTIMATOR_ENTRY(popnn, MaxPoolingGrad, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, MaxPoolingGrad, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popnn, ScaledSumPooling, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popnn, ScaledSumPooling, half),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ScaledSumPooling, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ScaledSumPooling, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popnn, MaxPooling, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popnn, MaxPooling, half),
+    CYCLE_ESTIMATOR_ENTRY(popnn, MaxPooling, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, MaxPooling, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popnn, NonLinearityGrad, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popnn, NonLinearityGrad, half),
+    CYCLE_ESTIMATOR_ENTRY(popnn, NonLinearityGrad, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, NonLinearityGrad, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popnn, NonLinearity, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popnn, NonLinearity, half)
+    CYCLE_ESTIMATOR_ENTRY(popnn, NonLinearity, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, NonLinearity, HALF)
+  };
 };
 
 } // end namespace popnn

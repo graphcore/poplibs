@@ -1,4 +1,3 @@
-#include <poplar/HalfFloat.hpp>
 #include <popstdCycleEstimators.hpp>
 
 using namespace poplar;
@@ -17,11 +16,11 @@ static uint64_t basicOpLoopCycles(unsigned overhead,
  * For boolean inputs the number of cycles depend on the type of operation
  * as some ops have to be synthesized from the available instruction set
  */
-template<typename InType>
 static uint64_t comparisonOpsCycles(unsigned dataPathWidth,
                                     unsigned numElems,
-                                    unsigned boolInputComputeCycles) {
-  if (std::is_same<InType, float>::value) {
+                                    unsigned boolInputComputeCycles,
+                                    Type type) {
+  if (type == FLOAT) {
     unsigned vectorWidth = dataPathWidth / 32;
     if (sizeof(bool) == 4) {
       // for dataPathWidth = 64:
@@ -38,7 +37,7 @@ static uint64_t comparisonOpsCycles(unsigned dataPathWidth,
       return basicOpLoopCycles(5, numElems, 4 / vectorWidth,
                                (4 / vectorWidth) * 4 + 5);
     }
-  } else if (std::is_same<InType, half>::value) {
+  } else if (type == HALF) {
     unsigned vectorWidth = dataPathWidth / 32;
     if (sizeof(bool) == 4) {
       // for dataPathWidth = 64:
@@ -55,7 +54,7 @@ static uint64_t comparisonOpsCycles(unsigned dataPathWidth,
       return basicOpLoopCycles(5, numElems, 4 / vectorWidth,
                                (4 / vectorWidth) * 4 + 2);
     }
-  } else if (std::is_same<InType, int>::value) {
+  } else if (type == INT) {
     if (sizeof(bool) == 4) {
       return basicOpLoopCycles(5, numElems, 1, 4);
     } else if (sizeof(bool) == 2) {
@@ -65,7 +64,7 @@ static uint64_t comparisonOpsCycles(unsigned dataPathWidth,
       // (ld32, ld32, cmp) * 4, sort16, sort16, sort8, st32
       return basicOpLoopCycles(5, numElems, 4, 16);
     }
-  } else if (std::is_same<InType, bool>::value) {
+  } else if (type == BOOL) {
     unsigned vectorWidth = dataPathWidth / sizeof(bool);
     // ld64/ xor(and), ld64st64
     return basicOpLoopCycles(5, numElems, vectorWidth, boolInputComputeCycles);
@@ -74,18 +73,20 @@ static uint64_t comparisonOpsCycles(unsigned dataPathWidth,
   return 0;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(ScaledAdd, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ScaledAdd)(const VertexIntrospector &vertex,
+                                     const Target &target,
+                                     const Type &type) {
     uint64_t cycles = 5;
     const auto data = vertex.getFieldInfo("data");
     for (unsigned i = 0; i < data.size(); ++i) {
       unsigned numElem = data[i].size();
       unsigned vectorWidth = 1;
       unsigned cyclesPerVector = 1;
-      if (std::is_same<InType, float>::value) {
+      if (type == FLOAT) {
         vectorWidth = target.getDataPathWidth() / 32;
       }
-      else if (std::is_same<InType, half>::value) {
+      else if (type == HALF) {
         vectorWidth = target.getDataPathWidth() / 16;
       }
       else {// integer types are not vectorisable
@@ -99,13 +100,15 @@ MAKE_CYCLE_ESTIMATOR(ScaledAdd, vertex, target) {
     return cycles;
 }
 
-template <class FPType>
-MAKE_CYCLE_ESTIMATOR(HadamardProd, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(HadamardProd)(const VertexIntrospector &vertex,
+                                        const Target &target,
+                                        const Type &type) {
   uint64_t cycles = 5;
   const auto A = vertex.getFieldInfo("A");
   for (unsigned i = 0; i < A.size(); ++i) {
     unsigned numElem = A[i].size();
-    bool isFloat = std::is_same<FPType, float>::value;
+    bool isFloat = type == FLOAT;
     unsigned vectorWidth = target.getDataPathWidth() / (isFloat ? 32 : 16);
     unsigned numVectors = (numElem + vectorWidth - 1) / vectorWidth;
     cycles += 5 + (1 + numVectors * 2);
@@ -113,11 +116,13 @@ MAKE_CYCLE_ESTIMATOR(HadamardProd, vertex, target) {
   return cycles;
 }
 
-template <class FPType>
-MAKE_CYCLE_ESTIMATOR(Zero, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Zero)(const VertexIntrospector &vertex,
+                                const Target &target,
+                                const Type &type) {
   // TODO: make this more accurate
   const auto out = vertex.getFieldInfo("out");
-  bool isFloat = std::is_same<FPType, float>::value;
+  bool isFloat = type == FLOAT;
   const auto vectorWidth = target.getDataPathWidth() / (isFloat ? 32 : 16);
   std::uint64_t cycles = 2 // run
                          + 5; // vertex overhead
@@ -129,7 +134,10 @@ MAKE_CYCLE_ESTIMATOR(Zero, vertex, target) {
   return cycles;
 }
 
-MAKE_CYCLE_ESTIMATOR(Zero2d, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Zero2d)(const VertexIntrospector &vertex,
+                                  const Target &target,
+                                  const Type &type) {
   const auto dst = vertex.getFieldInfo("out");
   // These are not valid for integer and boolean casts
   const auto floatVectorWidth = target.getDataPathWidth() / 32;
@@ -141,14 +149,22 @@ MAKE_CYCLE_ESTIMATOR(Zero2d, vertex, target) {
 // special case at estimator registration time as we can't automatically
 // lookup based on the template name. (c) INSTANTIATE_TEMPLATE_CYCLE_ESTIMATOR
 // doesn't handle funcs with more than one template parameter.
-MAKE_CYCLE_ESTIMATOR(Cast, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Cast)(const VertexIntrospector &vertex,
+                                const Target &target,
+                                const Type &fromType,
+                                const Type &toType) {
   // These are not valid for integer and boolean casts
   const auto dst = vertex.getFieldInfo("dst");
   const auto floatVectorWidth = target.getDataPathWidth() / 32;
   return (dst.size() + floatVectorWidth - 1) / floatVectorWidth + 5;
 }
 
-MAKE_CYCLE_ESTIMATOR(Cast2d, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Cast2d)(const VertexIntrospector &vertex,
+                                  const Target &target,
+                                  const Type &fromType,
+                                  const Type &toType) {
   const auto floatVectorWidth = target.getDataPathWidth() / 32;
   std::uint64_t cycles = 5;
   const auto dst = vertex.getFieldInfo("dst");
@@ -167,8 +183,10 @@ MAKE_CYCLE_ESTIMATOR(Cast2d, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Absolute, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Absolute)(const VertexIntrospector &vertex,
+                                    const Target &target,
+                                    const Type &type) {
   uint64_t cycles = 5;
   const auto in = vertex.getFieldInfo("in");
   for (unsigned i = 0; i < in.size(); ++i) {
@@ -177,13 +195,13 @@ MAKE_CYCLE_ESTIMATOR(Absolute, vertex, target) {
     unsigned numElem = in[i].size();
     unsigned vectorWidth = 1;
 
-    if (std::is_same<InType, float>::value) {
+    if (type == FLOAT) {
       vectorWidth = target.getDataPathWidth() / 32;
       cyclesPerVector = 2;
-    } else if (std::is_same<InType, half>::value) {
+    } else if (type == HALF) {
       vectorWidth = target.getDataPathWidth() / 16;
       cyclesPerVector = 2;
-    } else if (std::is_same<InType, int>::value) {
+    } else if (type == INT) {
       // ld, abs, st
       cyclesPerVector = 3;
     }
@@ -193,8 +211,10 @@ MAKE_CYCLE_ESTIMATOR(Absolute, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Add, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Add)(const VertexIntrospector &vertex,
+                                const Target &target,
+                                const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
   for (unsigned i = 0; i < in1.size(); ++i) {
@@ -202,13 +222,13 @@ MAKE_CYCLE_ESTIMATOR(Add, vertex, target) {
     unsigned overhead = 6;
     unsigned numElem = in1[i].size();
     unsigned vectorWidth = 1;
-    if (std::is_same<InType, float>::value) {
+    if (type == FLOAT) {
       vectorWidth = target.getDataPathWidth() / 32;
       cyclesPerVector = 2;
-    } else if (std::is_same<InType, half>::value) {
+    } else if (type == HALF) {
       vectorWidth = target.getDataPathWidth() / 16;
       cyclesPerVector = 2;
-    } else if (std::is_same<InType, int>::value) {
+    } else if (type == INT) {
       // ld, ld, add, st
       cyclesPerVector = 4;
     }
@@ -218,8 +238,10 @@ MAKE_CYCLE_ESTIMATOR(Add, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Atan2, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Atan2)(const VertexIntrospector &vertex,
+                                 const Target &target,
+                                 const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
   for (unsigned i = 0; i < in1.size(); ++i) {
@@ -227,10 +249,10 @@ MAKE_CYCLE_ESTIMATOR(Atan2, vertex, target) {
     unsigned overhead = 6;
     unsigned numElem = in1[i].size();
     unsigned vectorWidth = 1;
-    if (std::is_same<InType, float>::value) {
+    if (type == FLOAT) {
       vectorWidth = 1;
       cyclesPerVector = 25;
-    } else if (std::is_same<InType, half>::value) {
+    } else if (type == HALF) {
       vectorWidth = 1;
       cyclesPerVector = 25 + 3;
     }
@@ -240,8 +262,10 @@ MAKE_CYCLE_ESTIMATOR(Atan2, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(BitwiseAnd, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(BitwiseAnd)(const VertexIntrospector &vertex,
+                                      const Target &target,
+                                      const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
   for (unsigned i = 0; i < in1.size(); ++i) {
@@ -257,8 +281,10 @@ MAKE_CYCLE_ESTIMATOR(BitwiseAnd, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(BitwiseNot, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(BitwiseNot)(const VertexIntrospector &vertex,
+                                       const Target &target,
+                                       const Type &type) {
   uint64_t cycles = 7;
   const auto in = vertex.getFieldInfo("in");
   for (unsigned i = 0; i < in.size(); ++i) {
@@ -274,8 +300,10 @@ MAKE_CYCLE_ESTIMATOR(BitwiseNot, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(BitwiseOr, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(BitwiseOr)(const VertexIntrospector &vertex,
+                                     const Target &target,
+                                     const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
   for (unsigned i = 0; i < in1.size(); ++i) {
@@ -291,14 +319,16 @@ MAKE_CYCLE_ESTIMATOR(BitwiseOr, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Ceil, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Ceil)(const VertexIntrospector &vertex,
+                                const Target &target,
+                                const Type &type) {
   uint64_t cycles = 6;
   const auto in = vertex.getFieldInfo("in");
   for (unsigned i = 0; i < in.size(); ++i) {
     unsigned overhead = 6;
     unsigned numElem = in[i].size();
-    bool isFloat = std::is_same<InType, float>::value;
+    bool isFloat = type == FLOAT;
     // use mul with 1.0 and use correct rounding mode
     unsigned cyclesPerVector = 1;
     unsigned vectorWidth = target.getDataPathWidth() / (isFloat ? 32 : 16);
@@ -308,8 +338,10 @@ MAKE_CYCLE_ESTIMATOR(Ceil, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Cos, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Cos)(const VertexIntrospector &vertex,
+                               const Target &target,
+                               const Type &type) {
   uint64_t cycles = 6;
   const auto in = vertex.getFieldInfo("in");
   for (unsigned i = 0; i < in.size(); ++i) {
@@ -317,10 +349,10 @@ MAKE_CYCLE_ESTIMATOR(Cos, vertex, target) {
     unsigned numElem = in[i].size();
     unsigned vectorWidth = 1;
     unsigned cyclesPerVector = 1;
-    if (std::is_same<InType, float>::value) {
+    if (type == FLOAT) {
       vectorWidth = 1;
       cyclesPerVector = 150;
-    } else if (std::is_same<InType, half>::value) {
+    } else if (type == HALF) {
       vectorWidth = 1;
       cyclesPerVector = 100;
     }
@@ -330,8 +362,10 @@ MAKE_CYCLE_ESTIMATOR(Cos, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Divide, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Divide)(const VertexIntrospector &vertex,
+                                  const Target &target,
+                                  const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
   for (unsigned i = 0; i < in1.size(); ++i) {
@@ -339,13 +373,13 @@ MAKE_CYCLE_ESTIMATOR(Divide, vertex, target) {
     unsigned overhead = 6;
     unsigned numElem = in1[i].size();
     unsigned vectorWidth = 1;
-    if (std::is_same<InType, float>::value) {
+    if (type == FLOAT) {
       cyclesPerVector = 1;
-    } else if (std::is_same<InType, half>::value) {
+    } else if (type == HALF) {
       // Convert to f32 using v2 and divide and convert back to f16
       vectorWidth = 2;
       cyclesPerVector = 4;
-    } else if (std::is_same<InType, int>::value) {
+    } else if (type == INT) {
       // ld into aux, ld into aux, div, st
       cyclesPerVector = 4;
     }
@@ -355,27 +389,32 @@ MAKE_CYCLE_ESTIMATOR(Divide, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Equal, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Equal)(const VertexIntrospector &vertex,
+                                 const Target &target,
+                                 const Type &type) {
   uint64_t cycles = 7;
   const auto in1 = vertex.getFieldInfo("in1");
   for (unsigned i = 0; i < in1.size(); ++i) {
     // E = A and B, F = A or B, G = F andc E, result = 1 andc G
-    const auto numBoolOpCycles = std::is_same<InType, bool>::value ? 4 : 0;
-    cycles += comparisonOpsCycles<InType>(target.getDataPathWidth(),
-                                          in1.size(),
-                                          numBoolOpCycles);
+    const auto numBoolOpCycles = type == BOOL ? 4 : 0;
+    cycles += comparisonOpsCycles(target.getDataPathWidth(),
+                                  in1.size(),
+                                  numBoolOpCycles,
+                                  type);
   }
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Exponent, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Exponent)(const VertexIntrospector &vertex,
+                                    const Target &target,
+                                    const Type &type) {
   uint64_t cycles = 5;
   const auto in = vertex.getFieldInfo("in");
   for (unsigned i = 0; i < in.size(); ++i) {
     unsigned numElem = in[i].size();
-    bool isFloat = std::is_same<InType, float>::value;
+    bool isFloat = type == FLOAT;
     unsigned vectorWidth = 1;
     unsigned cyclesPerVector = 3;
     unsigned overhead = 6;
@@ -391,14 +430,16 @@ MAKE_CYCLE_ESTIMATOR(Exponent, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Floor, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Floor)(const VertexIntrospector &vertex,
+                                const Target &target,
+                                const Type &type) {
   uint64_t cycles = 6;
   const auto in = vertex.getFieldInfo("in");
   for (unsigned i = 0; i < in.size(); ++i) {
     const unsigned overhead = 6;
     unsigned numElem = in[i].size();
-    bool isFloat = std::is_same<InType, float>::value;
+    bool isFloat = type == FLOAT;
 
     // Use mul with 1.0 and use correct rounding mode
     unsigned vectorWidth = target.getDataPathWidth() / (isFloat ? 32 : 16);
@@ -409,44 +450,52 @@ MAKE_CYCLE_ESTIMATOR(Floor, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(GreaterThan, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(GreaterThan)(const VertexIntrospector &vertex,
+                                       const Target &target,
+                                       const Type &type) {
   uint64_t cycles = 7;
   const auto in1 = vertex.getFieldInfo("in1");
   for (unsigned i = 0; i < in1.size(); ++i) {
     // same as B < A
     // E = A and B, result = A andc E
-    const auto numBoolOpCycles = std::is_same<InType, bool>::value ? 2 : 0;
-    cycles += comparisonOpsCycles<InType>(target.getDataPathWidth(),
-                                          in1.size(),
-                                          numBoolOpCycles);
+    const auto numBoolOpCycles = type == BOOL ? 2 : 0;
+    cycles += comparisonOpsCycles(target.getDataPathWidth(),
+                                  in1.size(),
+                                  numBoolOpCycles,
+                                  type);
   }
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(GreaterThanEqual, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(GreaterThanEqual)(const VertexIntrospector &vertex,
+                                            const Target &target,
+                                            const Type &type) {
   uint64_t cycles = 7;
   const auto in1 = vertex.getFieldInfo("in1");
   for (unsigned i = 0; i < in1.size(); ++i) {
     // same as B <= A
     // E = 1 andc B, result = E or A
-    const auto numBoolOpCycles = std::is_same<InType, bool>::value ? 2 : 0;
-    cycles += comparisonOpsCycles<InType>(target.getDataPathWidth(),
-                                          in1.size(),
-                                          numBoolOpCycles);
+    const auto numBoolOpCycles = type == BOOL ? 2 : 0;
+    cycles += comparisonOpsCycles(target.getDataPathWidth(),
+                                  in1.size(),
+                                  numBoolOpCycles,
+                                  type);
   }
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(IsFinite, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(IsFinite)(const VertexIntrospector &vertex,
+                                    const Target &target,
+                                    const Type &type) {
   uint64_t cycles = 6;
   const auto in = vertex.getFieldInfo("in");
   for (unsigned i = 0; i < in.size(); ++i) {
     unsigned overhead = 6;
     unsigned numElem = in[i].size();
-    bool isFloat = std::is_same<InType, float>::value;
+    bool isFloat = type == FLOAT;
     unsigned vectorWidth = 2;
 
     // 1 for v==v
@@ -464,40 +513,48 @@ MAKE_CYCLE_ESTIMATOR(IsFinite, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(LessThan, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(LessThan)(const VertexIntrospector &vertex,
+                                    const Target &target,
+                                    const Type &type) {
   uint64_t cycles = 7;
   const auto in1 = vertex.getFieldInfo("in1");
   for (unsigned i = 0; i < in1.size(); ++i) {
     // E = A and B, result = B andc E
-    const auto numBoolOpCycles = std::is_same<InType, bool>::value ? 2 : 0;
-    cycles += comparisonOpsCycles<InType>(target.getDataPathWidth(),
-                                          in1.size(),
-                                          numBoolOpCycles);
+    const auto numBoolOpCycles = type == BOOL ? 2 : 0;
+    cycles += comparisonOpsCycles(target.getDataPathWidth(),
+                                  in1.size(),
+                                  numBoolOpCycles,
+                                  type);
   }
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(LessThanEqual, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(LessThanEqual)(const VertexIntrospector &vertex,
+                                         const Target &target,
+                                         const Type &type) {
   uint64_t cycles = 7;
   const auto in1 = vertex.getFieldInfo("in1");
   for (unsigned i = 0; i < in1.size(); ++i) {
     // E = 1 andc A, result = E or B
-    const auto numBoolOpCycles = std::is_same<InType, bool>::value ? 2 : 0;
-    cycles += comparisonOpsCycles<InType>(target.getDataPathWidth(),
-                                          in1.size(),
-                                          numBoolOpCycles);
+    const auto numBoolOpCycles = type == BOOL ? 2 : 0;
+    cycles += comparisonOpsCycles(target.getDataPathWidth(),
+                                  in1.size(),
+                                  numBoolOpCycles,
+                                  type);
   }
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Logarithm, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Logarithm)(const VertexIntrospector &vertex,
+                                     const Target &target,
+                                     const Type &type) {
   uint64_t cycles = 5;
   const auto in = vertex.getFieldInfo("in");
   for (unsigned i = 0; i < in.size(); ++i) {
-    bool isFloat = std::is_same<InType, float>::value;
+    bool isFloat = type == FLOAT;
     unsigned cyclesPerVector = 6;
     unsigned overhead = 6;
     unsigned numElem = in[i].size();
@@ -514,8 +571,10 @@ MAKE_CYCLE_ESTIMATOR(Logarithm, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(LogicalAnd, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(LogicalAnd)(const VertexIntrospector &vertex,
+                                      const Target &target,
+                                      const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
   for (unsigned i = 0; i < in1.size(); ++i) {
@@ -532,8 +591,10 @@ MAKE_CYCLE_ESTIMATOR(LogicalAnd, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(LogicalNot, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(LogicalNot)(const VertexIntrospector &vertex,
+                                      const Target &target,
+                                      const Type &type) {
   uint64_t cycles = 7;
   const auto in = vertex.getFieldInfo("in");
   for (unsigned i = 0; i < in.size(); ++i) {
@@ -549,8 +610,10 @@ MAKE_CYCLE_ESTIMATOR(LogicalNot, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(LogicalOr, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(LogicalOr)(const VertexIntrospector &vertex,
+                                     const Target &target,
+                                     const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
   for (unsigned i = 0; i < in1.size(); ++i) {
@@ -567,8 +630,10 @@ MAKE_CYCLE_ESTIMATOR(LogicalOr, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Maximum, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Maximum)(const VertexIntrospector &vertex,
+                                   const Target &target,
+                                   const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
   for (unsigned i = 0; i < in1.size(); ++i) {
@@ -577,13 +642,13 @@ MAKE_CYCLE_ESTIMATOR(Maximum, vertex, target) {
     unsigned numElem = in1[i].size();
     unsigned vectorWidth = 1;
 
-    if (std::is_same<InType, float>::value) {
+    if (type == FLOAT) {
       vectorWidth = target.getDataPathWidth() / 32;
       cyclesPerVector = 2;
-    } else if (std::is_same<InType, half>::value) {
+    } else if (type == HALF) {
       vectorWidth = target.getDataPathWidth() / 16;
       cyclesPerVector = 2;
-    } else if (std::is_same<InType, int>::value) {
+    } else if (type == INT) {
       // ld, ld, max, st
       cyclesPerVector = 4;
     }
@@ -593,8 +658,10 @@ MAKE_CYCLE_ESTIMATOR(Maximum, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Minimum, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Minimum)(const VertexIntrospector &vertex,
+                                   const Target &target,
+                                   const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
   for (unsigned i = 0; i < in1.size(); ++i) {
@@ -604,13 +671,13 @@ MAKE_CYCLE_ESTIMATOR(Minimum, vertex, target) {
     unsigned numElem = in1[i].size();
     unsigned vectorWidth = 1;
 
-    if (std::is_same<InType, float>::value) {
+    if (type == FLOAT) {
       vectorWidth = target.getDataPathWidth() / 32;
       cyclesPerVector = 2;
-    } else if (std::is_same<InType, half>::value) {
+    } else if (type == HALF) {
       vectorWidth = target.getDataPathWidth() / 16;
       cyclesPerVector = 2;
-    } else if (std::is_same<InType, int>::value) {
+    } else if (type == INT) {
       // ld, ld, min, st
       cyclesPerVector = 4;
     }
@@ -620,8 +687,10 @@ MAKE_CYCLE_ESTIMATOR(Minimum, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Multiply, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Multiply)(const VertexIntrospector &vertex,
+                                    const Target &target,
+                                    const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
   for (unsigned i = 0; i < in1.size(); ++i) {
@@ -629,13 +698,13 @@ MAKE_CYCLE_ESTIMATOR(Multiply, vertex, target) {
     unsigned overhead = 6;
     unsigned numElem = in1[i].size();
     unsigned vectorWidth = 1;
-    if (std::is_same<InType, float>::value) {
+    if (type == FLOAT) {
       vectorWidth = target.getDataPathWidth() / 32;
       cyclesPerVector = 2;
-    } else if (std::is_same<InType, half>::value) {
+    } else if (type == HALF) {
       vectorWidth = target.getDataPathWidth() / 16;
       cyclesPerVector = 2;
-    } else if (std::is_same<InType, int>::value) {
+    } else if (type == INT) {
       // ld, ld, mul, st
       cyclesPerVector = 4;
     }
@@ -645,22 +714,27 @@ MAKE_CYCLE_ESTIMATOR(Multiply, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(NotEqual, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(NotEqual)(const VertexIntrospector &vertex,
+                                    const Target &target,
+                                    const Type &type) {
   uint64_t cycles = 7;
   const auto in1 = vertex.getFieldInfo("in1");
   for (unsigned i = 0; i < in1.size(); ++i) {
     // E = A and B, F = A or B, result = F andc E
-    const auto numBoolOpCycles = std::is_same<InType, bool>::value ? 3 : 0;
-    cycles += comparisonOpsCycles<InType>(target.getDataPathWidth(),
-                                          in1.size(),
-                                          numBoolOpCycles);
+    const auto numBoolOpCycles = type == BOOL ? 3 : 0;
+    cycles += comparisonOpsCycles(target.getDataPathWidth(),
+                                  in1.size(),
+                                  numBoolOpCycles,
+                                  type);
   }
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Negate, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Negate)(const VertexIntrospector &vertex,
+                                  const Target &target,
+                                  const Type &type) {
       uint64_t cycles = 6;
   const auto in = vertex.getFieldInfo("in");
   for (unsigned i = 0; i < in.size(); ++i) {
@@ -669,11 +743,11 @@ MAKE_CYCLE_ESTIMATOR(Negate, vertex, target) {
     unsigned overhead = 6;
     unsigned numElem = in[i].size();
     unsigned vectorWidth = 1;
-    if (std::is_same<InType, float>::value) {
+    if (type == FLOAT) {
       vectorWidth = target.getDataPathWidth() / 32;
-    } else if (std::is_same<InType, half>::value) {
+    } else if (type == HALF) {
       vectorWidth = target.getDataPathWidth() / 16;
-    } else if (std::is_same<InType, int>::value) {
+    } else if (type == INT) {
       // ld, sub, st
       cyclesPerVector = 3;
     }
@@ -683,12 +757,14 @@ MAKE_CYCLE_ESTIMATOR(Negate, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Power, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Power)(const VertexIntrospector &vertex,
+                                 const Target &target,
+                                 const Type &type) {
   uint64_t cycles = 7;
   const auto in1 = vertex.getFieldInfo("in1");
   for (unsigned i = 0; i < in1.size(); ++i) {
-    bool isFloat = std::is_same<InType, float>::value;
+    bool isFloat = type == FLOAT;
     unsigned vectorWidth = 1;
     unsigned cyclesPerVector = 100;
     unsigned overhead = 6;
@@ -708,8 +784,10 @@ MAKE_CYCLE_ESTIMATOR(Power, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Remainder, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Remainder)(const VertexIntrospector &vertex,
+                                     const Target &target,
+                                     const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
   for (unsigned i = 0; i < in1.size(); ++i) {
@@ -718,13 +796,13 @@ MAKE_CYCLE_ESTIMATOR(Remainder, vertex, target) {
     unsigned numElem = in1[i].size();
     unsigned vectorWidth = 1;
 
-    if (std::is_same<InType, float>::value) {
+    if (type == FLOAT) {
       vectorWidth = target.getDataPathWidth() / 32;
-    } else if (std::is_same<InType, half>::value) {
+    } else if (type == HALF) {
       // Convert to f32 using v2 and divide and convert back to f16
       vectorWidth = 2;
       cyclesPerVector = 4;
-    } else if (std::is_same<InType, int>::value) {
+    } else if (type == INT) {
       // load on aux side, mod and store result from aux
       cyclesPerVector = 4;
     }
@@ -734,8 +812,10 @@ MAKE_CYCLE_ESTIMATOR(Remainder, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Round, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Round)(const VertexIntrospector &vertex,
+                                 const Target &target,
+                                 const Type &type) {
   uint64_t cycles = 5;
   const auto in = vertex.getFieldInfo("in");
   for (unsigned i = 0; i < in.size(); ++i) {
@@ -749,8 +829,10 @@ MAKE_CYCLE_ESTIMATOR(Round, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(ShiftLeft, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ShiftLeft)(const VertexIntrospector &vertex,
+                                     const Target &target,
+                                     const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
   for (unsigned i = 0; i < in1.size(); ++i) {
@@ -766,18 +848,25 @@ MAKE_CYCLE_ESTIMATOR(ShiftLeft, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(ShiftRight, vertex, target) {
-  return MAKE_CYCLE_ESTIMATOR_NAME(ShiftLeft)<InType>(vertex,target);
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ShiftRight)(const VertexIntrospector &vertex,
+                                      const Target &target,
+                                      const Type &type) {
+  return MAKE_CYCLE_ESTIMATOR_NAME(ShiftLeft)(vertex, target, type);
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(ShiftRightSignExtend, vertex, target) {
-  return MAKE_CYCLE_ESTIMATOR_NAME(ShiftLeft)<InType>(vertex,target);
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ShiftRightSignExtend)(
+    const VertexIntrospector &vertex,
+    const Target &target,
+    const Type &type) {
+  return MAKE_CYCLE_ESTIMATOR_NAME(ShiftLeft)(vertex, target, type);
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Signum, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Signum)(const VertexIntrospector &vertex,
+                                  const Target &target,
+                                  const Type &type) {
   // extra cycles to form constants
   uint64_t cycles = 7;
   const auto in = vertex.getFieldInfo("in");
@@ -794,8 +883,8 @@ MAKE_CYCLE_ESTIMATOR(Signum, vertex, target) {
     unsigned cyclesPerVector = 5;
     unsigned vectorWidth = 1;
 
-    if (!std::is_same<InType, int>::value) {
-      bool isFloat = std::is_same<InType, float>::value;
+    if (type != INT) {
+      bool isFloat = type == FLOAT;
       vectorWidth = target.getDataPathWidth() / (isFloat ? 32 : 16);
       // For float and half:
       // use clamp (f16v4 or f32v2)
@@ -807,8 +896,10 @@ MAKE_CYCLE_ESTIMATOR(Signum, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Sin, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Sin)(const VertexIntrospector &vertex,
+                               const Target &target,
+                               const Type &type) {
   uint64_t cycles = 6;
   const auto in = vertex.getFieldInfo("in");
   for (unsigned i = 0; i < in.size(); ++i) {
@@ -816,10 +907,10 @@ MAKE_CYCLE_ESTIMATOR(Sin, vertex, target) {
     unsigned numElem = in[i].size();
     unsigned vectorWidth = 1;
     unsigned cyclesPerVector = 1;
-    if (std::is_same<InType, float>::value) {
+    if (type == FLOAT) {
       vectorWidth = 1;
       cyclesPerVector = 150;
-    } else if (std::is_same<InType, half>::value) {
+    } else if (type == HALF) {
       vectorWidth = 1;
       cyclesPerVector = 100;
     }
@@ -829,8 +920,10 @@ MAKE_CYCLE_ESTIMATOR(Sin, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Subtract, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Subtract)(const VertexIntrospector &vertex,
+                                    const Target &target,
+                                    const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
   for (unsigned i = 0; i < in1.size(); ++i) {
@@ -838,13 +931,13 @@ MAKE_CYCLE_ESTIMATOR(Subtract, vertex, target) {
     unsigned overhead = 6;
     unsigned numElem = in1[i].size();
     unsigned vectorWidth = 1;
-    if (std::is_same<InType, float>::value) {
+    if (type == FLOAT) {
       vectorWidth = target.getDataPathWidth() / 32;
       cyclesPerVector = 2;
-    } else if (std::is_same<InType, half>::value) {
+    } else if (type == HALF) {
       vectorWidth = target.getDataPathWidth() / 16;
       cyclesPerVector = 2;
-    } else if (std::is_same<InType, int>::value) {
+    } else if (type == INT) {
       // ld, ld, sub, st
       cyclesPerVector = 4;
     }
@@ -854,8 +947,10 @@ MAKE_CYCLE_ESTIMATOR(Subtract, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Tanh, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Tanh)(const VertexIntrospector &vertex,
+                                const Target &target,
+                                const Type &type) {
   uint64_t cycles = 6;
   const auto in = vertex.getFieldInfo("in");
   for (unsigned i = 0; i < in.size(); ++i) {
@@ -863,11 +958,11 @@ MAKE_CYCLE_ESTIMATOR(Tanh, vertex, target) {
     unsigned numElem = in[i].size();
     unsigned vectorWidth;
     unsigned cyclesPerVector;
-    if (std::is_same<InType, float>::value) {
+    if (type == FLOAT) {
       // f32tanh
       vectorWidth = 1;
       cyclesPerVector = 7;
-    } else if (std::is_same<InType, half>::value) {
+    } else if (type == HALF) {
       // f16v2tanh
       vectorWidth = 2;
       cyclesPerVector = 2;
@@ -878,8 +973,10 @@ MAKE_CYCLE_ESTIMATOR(Tanh, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Sqrt, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Sqrt)(const VertexIntrospector &vertex,
+                                const Target &target,
+                                const Type &type) {
   uint64_t cycles = 5;
   const auto in = vertex.getFieldInfo("in");
   for (unsigned i = 0; i < in.size(); ++i) {
@@ -887,12 +984,12 @@ MAKE_CYCLE_ESTIMATOR(Sqrt, vertex, target) {
     unsigned overhead = 6;
     unsigned numElem = in[i].size();
     unsigned vectorWidth = 1;
-    if (std::is_same<InType, float>::value) {
+    if (type == FLOAT) {
       cyclesPerVector = 5;
-    } else if (std::is_same<InType, half>::value) {
+    } else if (type == HALF) {
       // f32sqrt + conversions f16<->f32
       cyclesPerVector = 7;
-    } else if (std::is_same<InType, int>::value) {
+    } else if (type == INT) {
       // ld, mul, st
       cyclesPerVector = 10; // placeholder
     }
@@ -902,14 +999,16 @@ MAKE_CYCLE_ESTIMATOR(Sqrt, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Square, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Square)(const VertexIntrospector &vertex,
+                                  const Target &target,
+                                  const Type &type) {
   uint64_t cycles = 6;
   const auto in = vertex.getFieldInfo("in");
   for (unsigned i = 0; i < in.size(); ++i) {
     unsigned overhead = 6;
     unsigned numElem = in[i].size();
-    bool isFloat = std::is_same<InType, float>::value;
+    bool isFloat = type == FLOAT;
     unsigned vectorWidth = 1;
     unsigned cyclesPerVector = 1;
     if (!isFloat) {
@@ -921,8 +1020,10 @@ MAKE_CYCLE_ESTIMATOR(Square, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Select, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Select)(const VertexIntrospector &vertex,
+                                  const Target &target,
+                                  const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
   for (unsigned i = 0; i < in1.size(); ++i) {
@@ -940,8 +1041,10 @@ MAKE_CYCLE_ESTIMATOR(Select, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(Clamp, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Clamp)(const VertexIntrospector &vertex,
+                                 const Target &target,
+                                 const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
   for (unsigned i = 0; i < in1.size(); ++i) {
@@ -949,13 +1052,13 @@ MAKE_CYCLE_ESTIMATOR(Clamp, vertex, target) {
     unsigned overhead = 6;
     unsigned numElem = in1[i].size();
     unsigned vectorWidth = 1;
-    if (std::is_same<InType, float>::value) {
+    if (type == FLOAT) {
       vectorWidth = target.getDataPathWidth() / 32;
       cyclesPerVector = 2;
-    } else if (std::is_same<InType, half>::value) {
+    } else if (type == HALF) {
       vectorWidth = target.getDataPathWidth() / 16;
       cyclesPerVector = 2;
-    } else if (std::is_same<InType, int>::value) {
+    } else if (type == INT) {
       // ld, ld, ld, cmp, movz, cmp, st
       cyclesPerVector = 7;
     }
@@ -965,15 +1068,17 @@ MAKE_CYCLE_ESTIMATOR(Clamp, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(DynamicSelect, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(DynamicSelect)(const VertexIntrospector &vertex,
+                                         const Target &target,
+                                         const Type &type) {
   const auto baseT = vertex.getFieldInfo("baseT");
   const unsigned numBaseElements =
     vertex.getFieldInfo("numBaseElements").getInitialValue<unsigned>(target);
   const unsigned numSubElements =
     vertex.getFieldInfo("numSubElements").getInitialValue<unsigned>(target);
 
-  unsigned vectorWidth = target.getDataPathWidth() / (sizeof(InType) * 8);
+  unsigned vectorWidth = target.getDataPathWidth() / (sizeof(type) * 8);
   auto numRegions = baseT.size() / numBaseElements;
   auto cycles = 5;
   for (unsigned r = 0; r != numRegions; ++r) {
@@ -984,15 +1089,17 @@ MAKE_CYCLE_ESTIMATOR(DynamicSelect, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(DynamicUpdateSlice, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(DynamicUpdateSlice)(const VertexIntrospector &vertex,
+                                              const Target &target,
+                                              const Type &type) {
   const auto baseT = vertex.getFieldInfo("baseT");
   const unsigned numBaseElements =
     vertex.getFieldInfo("numBaseElements").getInitialValue<unsigned>(target);
   const unsigned numSubElements =
     vertex.getFieldInfo("numSubElements").getInitialValue<unsigned>(target);
 
-  unsigned vectorWidth = target.getDataPathWidth() / (sizeof(InType) * 8);
+  unsigned vectorWidth = target.getDataPathWidth() / (sizeof(type) * 8);
   auto numRegions = baseT.size() / numBaseElements;
   auto cycles = 5;
   for (unsigned r = 0; r != numRegions; ++r) {
@@ -1003,9 +1110,11 @@ MAKE_CYCLE_ESTIMATOR(DynamicUpdateSlice, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(DynamicSelect2d, vertex, target) {
-  unsigned vectorWidth = target.getDataPathWidth() / (sizeof(InType) * 8);
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(DynamicSelect2d)(const VertexIntrospector &vertex,
+                                           const Target &target,
+                                           const Type &type) {
+  unsigned vectorWidth = target.getDataPathWidth() / (sizeof(type) * 8);
   const unsigned numSubElements =
     vertex.getFieldInfo("numSubElements").getInitialValue<unsigned>(target);
   const unsigned elementsPerWorker =
@@ -1020,12 +1129,17 @@ MAKE_CYCLE_ESTIMATOR(DynamicSelect2d, vertex, target) {
   return cycles;
 }
 
-template <class InType>
-MAKE_CYCLE_ESTIMATOR(DynamicUpdateSlice2d, vertex, target) {
-  return MAKE_CYCLE_ESTIMATOR_NAME(DynamicSelect2d)<InType>(vertex, target);
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(DynamicUpdateSlice2d)(
+    const VertexIntrospector &vertex,
+    const Target &target,
+    const Type &type) {
+  return MAKE_CYCLE_ESTIMATOR_NAME(DynamicSelect2d)(vertex, target, type);
 }
 
-MAKE_CYCLE_ESTIMATOR(AllTrue, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(AllTrue)(const VertexIntrospector &vertex,
+                                   const Target &target) {
   uint64_t cycles = 6;
   const auto in = vertex.getFieldInfo("in");
   for (unsigned i = 0; i < in.size(); ++i) {
@@ -1039,233 +1153,240 @@ MAKE_CYCLE_ESTIMATOR(AllTrue, vertex, target) {
   return cycles;
 }
 
-MAKE_CYCLE_ESTIMATOR(CircBufIncrIndex, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(CircBufIncrIndex)(const VertexIntrospector &vertex,
+                                            const Target &target) {
   return 8;
 }
 
-MAKE_CYCLE_ESTIMATOR(CircOffset, vertex, target) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(CircOffset)(const VertexIntrospector &vertex,
+                                      const Target &target) {
   return 10;
 }
 
-poplibs::CycleEstimatorTable cyclesFunctionTable = {
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, ScaledAdd, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, ScaledAdd, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, ScaledAdd, unsigned int),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, ScaledAdd, int),
+poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
+  return
+  {
+    CYCLE_ESTIMATOR_ENTRY(popstd, ScaledAdd, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, ScaledAdd, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, ScaledAdd, UNSIGNED_INT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, ScaledAdd, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, HadamardProd, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, HadamardProd, half),
+    CYCLE_ESTIMATOR_ENTRY(popstd, HadamardProd, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, HadamardProd, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Zero, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Zero, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Zero, int),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Zero, unsigned int),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Zero, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Zero, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Zero, INT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Zero, UNSIGNED_INT),
 
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Zero2d, float),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Zero2d, half),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Zero2d, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Zero2d, HALF),
 
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast, float, float),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast, float, half),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast, float, int),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast, float, int),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast, float, bool),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast, FLOAT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast, FLOAT, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast, FLOAT, INT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast, FLOAT, INT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast, FLOAT, BOOL),
 
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast, half, float),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast, half, half),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast, half, int),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast, half, bool),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast, HALF, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast, HALF, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast, HALF, INT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast, HALF, BOOL),
 
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast, int,float),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast, int,half),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast, int,int),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast, int,bool),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast, INT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast, INT, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast, INT, INT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast, INT, BOOL),
 
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast, bool,float),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast, bool,half),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast, bool,int),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast, bool,bool),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast, BOOL, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast, BOOL, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast, BOOL, INT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast, BOOL, BOOL),
 
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, float, float),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, float, half),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, float, int),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, float, bool),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, FLOAT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, FLOAT, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, FLOAT, INT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, FLOAT, BOOL),
 
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, half, float),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, half, half),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, half, int),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, half, bool),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, HALF, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, HALF, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, HALF, INT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, HALF, BOOL),
 
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, int,float),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, int,half),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, int,int),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, int,bool),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, INT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, INT, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, INT, INT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, INT, BOOL),
 
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, bool,float),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, bool,half),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, bool,int),
-  TYPED_CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, bool,bool),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, BOOL, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, BOOL, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, BOOL, INT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cast2d, BOOL, BOOL),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Absolute, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Absolute, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Absolute, int),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Absolute, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Absolute, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Absolute, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Add, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Add, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Add, int),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Add, unsigned int),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Add, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Add, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Add, INT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Add, UNSIGNED_INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Atan2, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Atan2, half),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Atan2, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Atan2, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, BitwiseAnd, int),
+    CYCLE_ESTIMATOR_ENTRY(popstd, BitwiseAnd, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, BitwiseNot, int),
+    CYCLE_ESTIMATOR_ENTRY(popstd, BitwiseNot, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, BitwiseOr, int),
+    CYCLE_ESTIMATOR_ENTRY(popstd, BitwiseOr, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Ceil, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Ceil, half),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Ceil, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Ceil, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Cos, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Cos, half),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cos, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Cos, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Divide, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Divide, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Divide, int),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Divide, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Divide, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Divide, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Equal, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Equal, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Equal, bool),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Equal, int),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Equal, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Equal, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Equal, BOOL),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Equal, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Exponent, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Exponent, half),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Exponent, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Exponent, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Floor, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Floor, half),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Floor, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Floor, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, GreaterThan, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, GreaterThan, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, GreaterThan, int),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, GreaterThan, bool),
+    CYCLE_ESTIMATOR_ENTRY(popstd, GreaterThan, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, GreaterThan, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, GreaterThan, INT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, GreaterThan, BOOL),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, GreaterThanEqual, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, GreaterThanEqual, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, GreaterThanEqual, int),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, GreaterThanEqual, bool),
+    CYCLE_ESTIMATOR_ENTRY(popstd, GreaterThanEqual, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, GreaterThanEqual, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, GreaterThanEqual, INT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, GreaterThanEqual, BOOL),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, IsFinite, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, IsFinite, half),
+    CYCLE_ESTIMATOR_ENTRY(popstd, IsFinite, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, IsFinite, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, LessThan, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, LessThan, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, LessThan, int),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, LessThan, bool),
+    CYCLE_ESTIMATOR_ENTRY(popstd, LessThan, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, LessThan, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, LessThan, INT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, LessThan, BOOL),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, LessThanEqual, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, LessThanEqual, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, LessThanEqual, int),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, LessThanEqual, bool),
+    CYCLE_ESTIMATOR_ENTRY(popstd, LessThanEqual, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, LessThanEqual, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, LessThanEqual, INT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, LessThanEqual, BOOL),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Logarithm, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Logarithm, half),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Logarithm, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Logarithm, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, LogicalAnd, bool),
+    CYCLE_ESTIMATOR_ENTRY(popstd, LogicalAnd, BOOL),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, LogicalNot, bool),
+    CYCLE_ESTIMATOR_ENTRY(popstd, LogicalNot, BOOL),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, LogicalOr, bool),
+    CYCLE_ESTIMATOR_ENTRY(popstd, LogicalOr, BOOL),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Maximum, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Maximum, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Maximum, int),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Maximum, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Maximum, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Maximum, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Minimum, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Minimum, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Minimum, int),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Minimum, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Minimum, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Minimum, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Multiply, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Multiply, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Multiply, int),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Multiply, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Multiply, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Multiply, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, NotEqual, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, NotEqual, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, NotEqual, int),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, NotEqual, bool),
+    CYCLE_ESTIMATOR_ENTRY(popstd, NotEqual, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, NotEqual, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, NotEqual, INT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, NotEqual, BOOL),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Negate, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Negate, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Negate, int),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Negate, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Negate, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Negate, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Power, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Power, half),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Power, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Power, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Remainder, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Remainder, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Remainder, int),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Remainder, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Remainder, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Remainder, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Round, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Round, half),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Round, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Round, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, ShiftLeft, int),
+    CYCLE_ESTIMATOR_ENTRY(popstd, ShiftLeft, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, ShiftRight, int),
+    CYCLE_ESTIMATOR_ENTRY(popstd, ShiftRight, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, ShiftRightSignExtend, int),
+    CYCLE_ESTIMATOR_ENTRY(popstd, ShiftRightSignExtend, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Signum, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Signum, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Signum, int),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Signum, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Signum, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Signum, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Sin, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Sin, half),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Sin, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Sin, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Subtract, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Subtract, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Subtract, int),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Subtract, unsigned int),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Subtract, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Subtract, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Subtract, INT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Subtract, UNSIGNED_INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Tanh, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Tanh, half),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Tanh, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Tanh, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Sqrt, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Sqrt, half),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Sqrt, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Sqrt, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Square, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Square, half),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Square, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Square, HALF),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Select, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Select, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Select, int),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Select, bool),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Select, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Select, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Select, INT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Select, BOOL),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Clamp, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Clamp, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, Clamp, int),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Clamp, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Clamp, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, Clamp, INT),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, DynamicSelect, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, DynamicSelect, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, DynamicSelect, int),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, DynamicSelect, bool),
+    CYCLE_ESTIMATOR_ENTRY(popstd, DynamicSelect, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, DynamicSelect, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, DynamicSelect, INT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, DynamicSelect, BOOL),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, DynamicUpdateSlice, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, DynamicUpdateSlice, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, DynamicUpdateSlice, int),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, DynamicUpdateSlice, bool),
+    CYCLE_ESTIMATOR_ENTRY(popstd, DynamicUpdateSlice, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, DynamicUpdateSlice, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, DynamicUpdateSlice, INT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, DynamicUpdateSlice, BOOL),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, DynamicSelect2d, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, DynamicSelect2d, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, DynamicSelect2d, int),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, DynamicSelect2d, bool),
+    CYCLE_ESTIMATOR_ENTRY(popstd, DynamicSelect2d, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, DynamicSelect2d, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, DynamicSelect2d, INT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, DynamicSelect2d, BOOL),
 
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, DynamicUpdateSlice2d, float),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, DynamicUpdateSlice2d, half),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, DynamicUpdateSlice2d, int),
-  TEMPLATE_CYCLE_ESTIMATOR_ENTRY(popstd, DynamicUpdateSlice2d, bool),
+    CYCLE_ESTIMATOR_ENTRY(popstd, DynamicUpdateSlice2d, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, DynamicUpdateSlice2d, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popstd, DynamicUpdateSlice2d, INT),
+    CYCLE_ESTIMATOR_ENTRY(popstd, DynamicUpdateSlice2d, BOOL),
 
-  CYCLE_ESTIMATOR_ENTRY(popstd, AllTrue),
-  CYCLE_ESTIMATOR_ENTRY(popstd, CircBufIncrIndex),
-  CYCLE_ESTIMATOR_ENTRY(popstd, CircOffset)
+    CYCLE_ESTIMATOR_ENTRY(popstd, AllTrue),
+    CYCLE_ESTIMATOR_ENTRY(popstd, CircBufIncrIndex),
+    CYCLE_ESTIMATOR_ENTRY(popstd, CircOffset)
+  };
 };
 
 } // end namespace popstd
