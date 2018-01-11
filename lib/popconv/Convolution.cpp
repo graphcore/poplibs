@@ -3213,12 +3213,12 @@ convChannelReduce(Graph &graph,
     if (outBegin == outEnd)
       continue;
     unsigned numWorkerOutputs = outEnd - outBegin;
-    auto toReduce = graph.addVariable(partialsType, {0});
+    std::vector<Tensor> toReduceSlices;
     std::vector<unsigned> numInputsPerOutput;
     for (auto o = outBegin; o != outEnd; ++o) {
       auto outGroup = o / inChansPerGroup;
       auto outInGroup = o % inChansPerGroup;
-      auto inputs = graph.addVariable(partialsType, {0});
+      std::vector<Tensor> inputSlices;
       for (unsigned srcTile = 0; srcTile < numTiles; ++srcTile) {
         auto it = tileLocalReductions[srcTile].find(outGroup);
         if (it == tileLocalReductions[srcTile].end())
@@ -3226,17 +3226,24 @@ convChannelReduce(Graph &graph,
         unsigned i = std::distance(tileLocalReductions[srcTile].begin(),
                                    it);
         auto srcBias = tileReduced[srcTile][i][outInGroup];
-        inputs = append(inputs, srcBias);
+        inputSlices.push_back(srcBias.expand({0}));
       }
-      const auto numInputs = inputs.numElements();
-      auto inBegin =
-          ((worker  % workersPerOutput) * numInputs) / workersPerOutput;
-      unsigned inEnd =
-          (((worker  % workersPerOutput) + 1) * numInputs) / workersPerOutput;
-      toReduce = concat(toReduce, inputs.slice(inBegin, inEnd));
-      numInputsPerOutput.push_back(inEnd - inBegin);
+      if (inputSlices.empty()) {
+        numInputsPerOutput.push_back(0);
+      } else {
+        auto inputs = concat(inputSlices);
+        const auto numInputs = inputs.numElements();
+        auto inBegin =
+            ((worker  % workersPerOutput) * numInputs) / workersPerOutput;
+        unsigned inEnd =
+            (((worker  % workersPerOutput) + 1) * numInputs) / workersPerOutput;
+        if (inBegin != inEnd) {
+          toReduceSlices.push_back(inputs.slice(inBegin, inEnd));
+        }
+        numInputsPerOutput.push_back(inEnd - inBegin);
+      }
     }
-    if (toReduce.numElements() == 0) {
+    if (toReduceSlices.empty()) {
       auto v = graph.addVertex(computeSets[1],
                                templateVertex("popstd::Zero", partialsType));
       graph.connect(v["out"], partials[worker].slice(0, maxOutputsPerWorker));
@@ -3244,6 +3251,7 @@ convChannelReduce(Graph &graph,
       graph.setTileMapping(v, tile);
       continue;
     }
+    auto toReduce = concat(toReduceSlices);
     auto v = graph.addVertex(computeSets[1],
                              templateVertex("popconv::ConvChanReduce2",
                                             partialsType));
