@@ -32,13 +32,26 @@ Variable Model::addConstant(unsigned value) {
   return addVariable(value, value);
 }
 
-Variable Model::product(std::vector<Variable> vars) {
+Variable Model::product(const Variable *begin, const Variable *end) {
+  const auto numVariables = end - begin;
+  assert(numVariables > 0);
+  if (numVariables == 1)
+    return *begin;
+  const auto mid = begin + numVariables / 2;
+  const auto left = product(begin, mid);
+  const auto right = product(mid, end);
   auto result = addVariable();
   auto p = std::unique_ptr<Constraint>(
-             new Product(result, std::move(vars))
+             new Product(result, left, right)
            );
   addConstraint(std::move(p));
   return result;
+}
+
+Variable Model::product(const std::vector<Variable> &vars) {
+  if (vars.empty())
+    return addConstant(1);
+  return product(vars.data(), vars.data() + vars.size());
 }
 
 Variable Model::sum(std::vector<Variable> vars) {

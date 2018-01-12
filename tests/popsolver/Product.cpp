@@ -8,7 +8,7 @@ using namespace popsolver;
 
 BOOST_AUTO_TEST_CASE(PropagateNoChange) {
   Variable a(0), b(1), c(2);
-  auto product = std::unique_ptr<Product>(new Product(c, {a, b}));
+  auto product = std::unique_ptr<Product>(new Product(c, a, b));
   Domains domains;
   domains.push_back({7, 8});   // a
   domains.push_back({2, 5});   // b
@@ -26,7 +26,7 @@ BOOST_AUTO_TEST_CASE(PropagateNoChange) {
 
 BOOST_AUTO_TEST_CASE(PropagateResult) {
   Variable a(0), b(1), c(2);
-  auto product = std::unique_ptr<Product>(new Product(c, {a, b}));
+  auto product = std::unique_ptr<Product>(new Product(c, a, b));
   Domains domains;
   domains.push_back({3, 4}); // a
   domains.push_back({2, 5}); // b
@@ -44,7 +44,7 @@ BOOST_AUTO_TEST_CASE(PropagateResult) {
 
 BOOST_AUTO_TEST_CASE(PropagateOperands) {
   Variable a(0), b(1), c(2);
-  auto product = std::unique_ptr<Product>(new Product(c, {a, b}));
+  auto product = std::unique_ptr<Product>(new Product(c, a, b));
   Domains domains;
   domains.push_back({2, 10});   // a
   domains.push_back({4, 1000}); // b
@@ -62,7 +62,7 @@ BOOST_AUTO_TEST_CASE(PropagateOperands) {
 
 BOOST_AUTO_TEST_CASE(PropagateBoth) {
   Variable a(0), b(1), c(2);
-  auto product = std::unique_ptr<Product>(new Product(c, {a, b}));
+  auto product = std::unique_ptr<Product>(new Product(c, a, b));
   Domains domains;
   domains.push_back({2, 10});   // a
   domains.push_back({4, 1000}); // b
@@ -80,7 +80,7 @@ BOOST_AUTO_TEST_CASE(PropagateBoth) {
 
 BOOST_AUTO_TEST_CASE(PropagateBoth2) {
   Variable a(0), b(1), c(2);
-  auto product = std::unique_ptr<Product>(new Product(c, {a, b}));
+  auto product = std::unique_ptr<Product>(new Product(c, a, b));
   Domains domains;
   domains.push_back({1, 40}); // a
   domains.push_back({2, 3});  // b
@@ -97,13 +97,12 @@ BOOST_AUTO_TEST_CASE(PropagateBoth2) {
 }
 
 BOOST_AUTO_TEST_CASE(AvoidOverflow) {
-  Variable a(0), b(1), c(2), d(3);
-  auto product = std::unique_ptr<Product>(new Product(d, {a, b, c}));
+  Variable a(0), b(1), c(2);
+  auto product = std::unique_ptr<Product>(new Product(c, a, b));
   Domains domains;
   domains.push_back({0, std::numeric_limits<unsigned>::max() - 1}); // a
   domains.push_back({0, std::numeric_limits<unsigned>::max() - 1}); // b
-  domains.push_back({0, std::numeric_limits<unsigned>::max() - 1}); // c
-  domains.push_back({27, 64}); // d
+  domains.push_back({27, 64}); // c
   Scheduler scheduler(domains, {product.get()});
   bool success = product->propagate(scheduler);
   BOOST_CHECK(success);
@@ -111,6 +110,4 @@ BOOST_AUTO_TEST_CASE(AvoidOverflow) {
   BOOST_CHECK_EQUAL(scheduler.getDomains()[a].max(), 64);
   BOOST_CHECK_EQUAL(scheduler.getDomains()[b].min(), 1);
   BOOST_CHECK_EQUAL(scheduler.getDomains()[b].max(), 64);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[c].min(), 1);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[c].max(), 64);
 }

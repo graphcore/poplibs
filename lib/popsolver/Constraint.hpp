@@ -42,15 +42,14 @@ public:
 
 class Product : public Constraint {
   Variable result;
-  std::vector<Variable> vars;
+  Variable left;
+  Variable right;
 public:
-  Product(Variable result, std::vector<Variable> vars) :
-    result(result), vars(std::move(vars)) {}
+  Product(Variable result, Variable left, Variable right) :
+    result(result), left(left), right(right) {}
   bool propagate(Scheduler &scheduler) override;
   std::vector<Variable> getVariables() override {
-    std::vector<Variable> allVars = vars;
-    allVars.push_back(result);
-    return allVars;
+    return {result, left, right};
   }
 };
 

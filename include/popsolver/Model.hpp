@@ -69,6 +69,7 @@ class Model {
   bool minimize(Scheduler &scheduler,
                 const std::vector<Variable> &objectives,
                 bool &foundSolution, Solution &solution);
+  Variable product(const Variable *begin, const Variable *end);
 public:
   Model();
   ~Model();
@@ -83,7 +84,7 @@ public:
   /// Add a constant with the specified value.
   Variable addConstant(unsigned value);
   /// Add a new variable that is the product of the specified variables.
-  Variable product(std::vector<Variable> vars);
+  Variable product(const std::vector<Variable> &vars);
   /// Add a new variable that is the sum of the specified variables.
   Variable sum(std::vector<Variable> vars);
   /// Constrain the left variable to be less than the right variable.

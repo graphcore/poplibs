@@ -6,21 +6,6 @@
 
 using namespace popsolver;
 
-/// Saturated multipliciation.
-static unsigned long long satMul(unsigned long long a, unsigned long long b) {
-#if __GNUC__ >= 5 || __has_builtin(__builtin_umulll_overflow)
-  unsigned long long result;
-  if (__builtin_umulll_overflow(a, b, &result))
-    return std::numeric_limits<unsigned long long>::max();
-#else
-  unsigned long long result = a * b;
-  bool overflow = a != 0 && result / a != b;
-  if (overflow)
-    result = std::numeric_limits<unsigned long long>::max();
-#endif
-  return result;
-}
-
 Constraint::~Constraint() = default;
 
 bool Product::
@@ -29,17 +14,11 @@ propagate(Scheduler &scheduler) {
   bool madeChange;
   do {
     madeChange = false;
-    // The data type used to store the max product must be large enough to store
-    // the maximum value of the result times the maximum value of any operand so
-    // that we can compute the max product of a subset containing all but on
-    // variable by dividing max product by the maximum value of the variable.
     static_assert(sizeof(unsigned long long) >= sizeof(unsigned) * 2, "");
-    unsigned long long minProduct = 1;
-    unsigned long long maxProduct = 1;
-    for (const auto &v : vars) {
-      minProduct = satMul(minProduct, domains[v].min());
-      maxProduct = satMul(maxProduct, domains[v].max());
-    }
+    auto maxProduct = static_cast<unsigned long long>(domains[left].max()) *
+                      domains[right].max();
+    auto minProduct = static_cast<unsigned long long>(domains[left].min()) *
+                      domains[right].min();
     if (minProduct > domains[result].max() ||
         maxProduct < domains[result].min()) {
       return false;
@@ -52,29 +31,42 @@ propagate(Scheduler &scheduler) {
       scheduler.setMax(result, maxProduct);
       madeChange = true;
     }
-    for (const auto &v : vars) {
-      auto &domain = domains[v];
-      if (minProduct != 0) {
-        auto minOtherVarsProduct = minProduct / domain.min();
-        auto newMax = domains[result].max() / minOtherVarsProduct;
-        if (newMax < domain.min())
+    if (domains[right].min() != 0) {
+      auto newLeftMax = domains[result].max() / domains[right].min();
+      if (newLeftMax < domains[left].max()) {
+        if (newLeftMax < domains[left].min())
           return false;
-        if (newMax < domain.max()) {
-          scheduler.setMax(v, newMax);
-          madeChange = true;
-        }
+        scheduler.setMax(left, newLeftMax);
+        madeChange = true;
       }
-      if (maxProduct != 0) {
-        auto maxOtherVarsProduct = maxProduct / domain.max();
-        auto newMin = domains[result].min() / maxOtherVarsProduct +
-                      (domains[result].min() % maxOtherVarsProduct != 0);
-        if (newMin > domain.max())
+    }
+    if (domains[left].min() != 0) {
+      auto newRightMax = domains[result].max() / domains[left].min();
+      if (newRightMax < domains[right].max()) {
+        if (newRightMax < domains[right].min())
           return false;
-        auto oldMin = domain.min();
-        if (newMin > oldMin) {
-          scheduler.setMin(v, newMin);
-          madeChange = true;
-        }
+        scheduler.setMax(right, newRightMax);
+        madeChange = true;
+      }
+    }
+    if (domains[right].max() != 0) {
+      auto newLeftMin = domains[result].min() / domains[right].max() +
+                        (domains[result].min() % domains[right].max() != 0);
+      if (newLeftMin > domains[left].min()) {
+        if (newLeftMin > domains[left].max())
+          return false;
+        scheduler.setMin(left, newLeftMin);
+        madeChange = true;
+      }
+    }
+    if (domains[left].max() != 0) {
+      auto newRightMin = domains[result].min() / domains[left].max() +
+                         (domains[result].min() % domains[left].max() != 0);
+      if (newRightMin > domains[right].min()) {
+        if (newRightMin > domains[right].max())
+          return false;
+        scheduler.setMin(right, newRightMin);
+        madeChange = true;
       }
     }
   } while (madeChange);
