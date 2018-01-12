@@ -7,18 +7,17 @@
 using namespace popsolver;
 
 /// Saturated multipliciation.
-static unsigned satMul(unsigned a, unsigned b) {
-  static_assert(sizeof(unsigned long long) >= sizeof(unsigned) * 2, "");
-  auto result = (unsigned long long)a * b;
-  auto max = std::numeric_limits<unsigned>::max();
-  return std::min<unsigned long long>(result, max);
-}
-
-/// Saturated addition.
-static unsigned satAdd(unsigned a, unsigned b) {
-  auto result = a + b;
-  if (result < a)
-    return std::numeric_limits<unsigned>::max();
+static unsigned long long satMul(unsigned long long a, unsigned long long b) {
+#if __GNUC__ >= 5 || __has_builtin(__builtin_umulll_overflow)
+  unsigned long long result;
+  if (__builtin_umulll_overflow(a, b, &result))
+    return std::numeric_limits<unsigned long long>::max();
+#else
+  unsigned long long result = a * b;
+  bool overflow = a != 0 && result / a != b;
+  if (overflow)
+    result = std::numeric_limits<unsigned long long>::max();
+#endif
   return result;
 }
 
@@ -27,72 +26,103 @@ Constraint::~Constraint() = default;
 bool Product::
 propagate(Scheduler &scheduler) {
   const Domains &domains = scheduler.getDomains();
-  unsigned minProduct = 1;
-  for (const auto &v : vars) {
-    minProduct = satMul(minProduct, domains[v].min());
-  }
-  if (minProduct > domains[result].max()) {
-    return false;
-  }
-  if (minProduct > domains[result].min()) {
-    scheduler.setMin(result, minProduct);
-  }
-  if (minProduct != 0) {
+  bool madeChange;
+  do {
+    madeChange = false;
+    // The data type used to store the max product must be large enough to store
+    // the maximum value of the result times the maximum value of any operand so
+    // that we can compute the max product of a subset containing all but on
+    // variable by dividing max product by the maximum value of the variable.
+    static_assert(sizeof(unsigned long long) >= sizeof(unsigned) * 2, "");
+    unsigned long long minProduct = 1;
+    unsigned long long maxProduct = 1;
+    for (const auto &v : vars) {
+      minProduct = satMul(minProduct, domains[v].min());
+      maxProduct = satMul(maxProduct, domains[v].max());
+    }
+    if (minProduct > domains[result].max() ||
+        maxProduct < domains[result].min()) {
+      return false;
+    }
+    if (minProduct > domains[result].min()) {
+      scheduler.setMin(result, minProduct);
+      madeChange = true;
+    }
+    if (maxProduct < domains[result].max()) {
+      scheduler.setMax(result, maxProduct);
+      madeChange = true;
+    }
     for (const auto &v : vars) {
       auto &domain = domains[v];
-      auto newMax = domains[result].max() / (minProduct / domain.min());
-      if (newMax < domain.min())
-        return false;
-      auto oldMax = domain.max();
-      if (newMax >= oldMax)
-        continue;
-      scheduler.setMax(v, newMax);
+      if (minProduct != 0) {
+        auto minOtherVarsProduct = minProduct / domain.min();
+        auto newMax = domains[result].max() / minOtherVarsProduct;
+        if (newMax < domain.min())
+          return false;
+        if (newMax < domain.max()) {
+          scheduler.setMax(v, newMax);
+          madeChange = true;
+        }
+      }
+      if (maxProduct != 0) {
+        auto maxOtherVarsProduct = maxProduct / domain.max();
+        auto newMin = domains[result].min() / maxOtherVarsProduct +
+                      (domains[result].min() % maxOtherVarsProduct != 0);
+        if (newMin > domain.max())
+          return false;
+        auto oldMin = domain.min();
+        if (newMin > oldMin) {
+          scheduler.setMin(v, newMin);
+          madeChange = true;
+        }
+      }
     }
-  }
-  unsigned maxProduct = 1;
-  for (const auto &v : vars) {
-    maxProduct = satMul(maxProduct, domains[v].max());
-  }
-  if (maxProduct < domains[result].min()) {
-    return false;
-  }
-  if (maxProduct < domains[result].max()) {
-    scheduler.setMax(result, maxProduct);
-  }
+  } while (madeChange);
   return true;
 }
 
 bool Sum::
 propagate(Scheduler &scheduler) {
   const Domains &domains = scheduler.getDomains();
-  unsigned minSum = 0;
+  // The data type used to store the max sum must be large enough to store
+  // the maximum value of the result plus the maximum value of any operand so
+  // that we can compute the max sum of a subset containing all but one variable
+  // by subtracting the the maximum value of the variable from the max sum.
+  static_assert(sizeof(unsigned long long) >= sizeof(unsigned) * 2, "");
+  unsigned long long minSum = 0;
+  unsigned long long maxSum = 0;
   for (const auto &v : vars) {
-    minSum = satAdd(minSum, domains[v].min());
+    minSum = minSum + domains[v].min();
+    maxSum = maxSum + domains[v].max();
   }
-  if (minSum > domains[result].max()) {
+  if (minSum > domains[result].max() ||
+      maxSum < domains[result].min()) {
     return false;
   }
   if (minSum > domains[result].min()) {
     scheduler.setMin(result, minSum);
   }
-  for (const auto &v : vars) {
-    auto &domain = domains[v];
-    auto newMax = domains[result].max() - minSum + domain.min();
-    if (newMax < domain.min())
-      return false;
-    if (newMax >= domain.max())
-      continue;
-    scheduler.setMax(v, newMax);
-  }
-  unsigned maxSum = 0;
-  for (const auto &v : vars) {
-    maxSum = satAdd(maxSum, domains[v].max());
-  }
-  if (maxSum < domains[result].min()) {
-    return false;
-  }
   if (maxSum < domains[result].max()) {
     scheduler.setMax(result, maxSum);
+  }
+  for (const auto &v : vars) {
+    auto &domain = domains[v];
+    auto minOtherVarsSum = minSum - domain.min();
+    if (minOtherVarsSum > domains[result].max())
+      return false;
+    auto newMax = domains[result].max() - minOtherVarsSum;
+    if (newMax < domain.min())
+      return false;
+    if (newMax < domain.max())
+      scheduler.setMax(v, newMax);
+    auto maxOtherVarsSum = maxSum - domain.max();
+    if (maxOtherVarsSum < domains[result].min()) {
+      auto newMin = domains[result].min() - maxOtherVarsSum;
+      if (newMin > domain.max())
+        return false;
+      if (newMin > domain.min())
+        scheduler.setMin(v, newMin);
+    }
   }
   return true;
 }
