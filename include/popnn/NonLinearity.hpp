@@ -13,7 +13,8 @@ enum NonLinearityType {
 } // end namespace popnn
 
 #ifndef __POPC__
-#include "poplar/Program.hpp"
+#include <poplar/Graph.hpp>
+#include <poplar/Program.hpp>
 
 namespace popnn {
 

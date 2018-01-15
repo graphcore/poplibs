@@ -11,8 +11,9 @@ enum LossType {
 } // end namespace popnn
 
 #ifndef __POPC__
-#include "poplar/Program.hpp"
-#include "poplar/Tensor.hpp"
+#include <poplar/Graph.hpp>
+#include <poplar/Program.hpp>
+#include <poplar/Tensor.hpp>
 
 namespace popnn {
 

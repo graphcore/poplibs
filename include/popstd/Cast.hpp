@@ -2,6 +2,7 @@
 #define __popstd_Cast_hpp__
 
 #include <poplar/Interval.hpp>
+#include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <vector>
 

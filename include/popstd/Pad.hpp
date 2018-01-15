@@ -1,6 +1,7 @@
 #ifndef __popstd_Pad_hpp__
 #define __popstd_Pad_hpp__
-#include "poplar/Program.hpp"
+#include <poplar/Graph.hpp>
+#include <poplar/Program.hpp>
 #include <vector>
 
 namespace popstd {

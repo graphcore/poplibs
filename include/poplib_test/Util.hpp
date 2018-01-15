@@ -12,6 +12,7 @@
 #include <poplib_test/Util.hpp>
 #include <stdexcept>
 #include <util/Compiler.hpp>
+#include <iostream>
 
 namespace poplib_test {
 namespace util {
