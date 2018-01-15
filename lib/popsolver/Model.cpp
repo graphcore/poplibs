@@ -19,6 +19,11 @@ void Model::addConstraint(std::unique_ptr<Constraint> c) {
 Variable Model::addVariable(unsigned min, unsigned max) {
   assert(min <= max);
   Variable v(initialDomains.size());
+  if (min == max) {
+    auto result = constants.emplace(min, v);
+    if (!result.second)
+      return result.first->second;
+  }
   initialDomains.push_back({min, max});
   isCallOperand.push_back(false);
   return v;

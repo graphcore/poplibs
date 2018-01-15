@@ -4,6 +4,7 @@
 #include <cassert>
 #include <functional>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 #include <popsolver/Variable.hpp>
 
@@ -73,6 +74,7 @@ class Model {
 public:
   Model();
   ~Model();
+  std::unordered_map<unsigned, Variable> constants;
   std::vector<bool> isCallOperand;
   std::vector<std::unique_ptr<Constraint>> constraints;
   Domains initialDomains;
