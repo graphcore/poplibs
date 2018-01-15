@@ -1413,10 +1413,11 @@ static void expandDim(ConvParams &params, unsigned dim) {
 
 static unsigned
 estimateTransformCycles(const poplar::Target &target,
-                        const ConvParams &params,
+                        const ConvParams &transformedParams,
                         const ConvOptions &options,
                         bool swapOperands,
-                        std::vector<unsigned> expandDims,
+                        const std::vector<unsigned> &expandDims,
+                        const std::vector<unsigned> &outChanFlattenDims,
                         unsigned inChansPadding,
                         unsigned partialChansPadding,
                         unsigned usedTiles) {
@@ -1426,23 +1427,20 @@ estimateTransformCycles(const poplar::Target &target,
   bool rearrangeInput = isWeightUpdate || !expandDims.empty() || swapOperands ||
                         inChansPadding;
   bool rearrangeWeights = isWeightUpdate || !expandDims.empty() ||
+                          !outChanFlattenDims.empty() ||
                           swapOperands || inChansPadding || partialChansPadding;
   bool rearrangeOutput = (!isWeightUpdate && swapOperands) ||
                          (isWeightUpdate && !swapOperands) ||
+                         !outChanFlattenDims.empty() ||
                          partialChansPadding;
-  auto expandedParams = params;
-  for (const auto dim : expandDims) {
-    expandDim(expandedParams, dim);
-  }
-  expandedParams.inputChannels += inChansPadding;
-  expandedParams.outputChannels += partialChansPadding;
+  auto expandedParams = transformedParams;
   unsigned expandedInputFieldSize = 1;
   unsigned expandedFilterSize = 1;
   unsigned expandedOutputFieldSize = 1;
-  for (unsigned dim = 0; dim != params.getNumFieldDims(); ++dim) {
-    expandedInputFieldSize *= params.inputFieldShape[dim];
-    expandedFilterSize *= params.kernelShape[dim];
-    expandedOutputFieldSize *= params.getOutputSize(dim);
+  for (unsigned dim = 0; dim != expandedParams.getNumFieldDims(); ++dim) {
+    expandedInputFieldSize *= expandedParams.inputFieldShape[dim];
+    expandedFilterSize *= expandedParams.kernelShape[dim];
+    expandedOutputFieldSize *= expandedParams.getOutputSize(dim);
   }
   unsigned cycles = 0;
   const auto bytesPerElement = target.getTypeSize(expandedParams.dType);
@@ -1837,7 +1835,8 @@ createPlan(ConvParams params,
           auto transformCostFn = [&](unsigned usedTiles) {
             return estimateTransformCycles(graph.getTarget(),
                                            paddedParams, options, swapOperands,
-                                           expandDims, inChansPadding,
+                                           expandDims, outChanFlattenDims,
+                                           inChansPadding,
                                            partialChansPadding, usedTiles);
           };
           std::tie(candidate, candidateCost) =
@@ -2088,8 +2087,8 @@ std::uint64_t estimateConvCost(const poplar::Target &target,
   const auto transformCycles =
       estimateTransformCycles(target,
                               paddedParams, options, plan.swapOperands,
-                              plan.expandDims, inChansPadding,
-                              partialChansPadding, usedTiles);
+                              plan.expandDims, plan.outChanFlattenDims,
+                              inChansPadding, partialChansPadding, usedTiles);
   const auto floatActivations = params.dType == poplar::FLOAT;
   const auto exchangeCycles =
       estimateExchangeCycles(target, perLevelExchangeBytesPerCycle,
