@@ -357,15 +357,39 @@ Tensor pool(Graph &graph,
       graph.addVariable(dType, {numChannels / chansPerGroup, batchSize,
                                 outHeight, outWidth, chansPerGroup},
                         debugPrefix + "/" + asString(poolingType) + "Pool");
+  // Default mapping to ensure every output element is mapped regardless of
+  // padding.
   mapTensorLinearly(graph, outGrouped);
   auto out = outGrouped.dimShufflePartial({0}, {3})
                        .reshape({batchSize, outHeight, outWidth, numChannels});
 
   const auto numTiles = target.getNumTiles();
-  auto outTileMapping = graph.getTileMapping(out);
   const auto params = makeConvParams(inputFieldShape,
                                      kernelShape, stride,
                                      inputPaddingLower, inputPaddingUpper);
+  // Map each output element to the tile containing the input element that
+  // lies at the center of the kernel when that output element is computed.
+  Tensor outputWindow = out;
+  Tensor inputWindow = in;
+  for (unsigned dim = 0; dim != 2; ++dim) {
+    const auto kernelMidpoint = kernelShape[dim] / 2;
+    const auto outputSize = params.getOutputSize(dim);
+    const auto inRange = getInputRange(dim, {0, outputSize}, kernelMidpoint,
+                                       params);
+    const auto outRange =
+        getOutputRange(dim, {0, outputSize}, kernelMidpoint, params);
+    const auto firstSpatialDimIndex = 1;
+    outputWindow = outputWindow.slice(outRange.first, outRange.second,
+                                      firstSpatialDimIndex + dim);
+    inputWindow = inputWindow.slice(inRange.first, inRange.second,
+                                    firstSpatialDimIndex + dim)
+                             .subSample(params.stride[dim],
+                                        firstSpatialDimIndex + dim);
+    assert(inputWindow.dim(firstSpatialDimIndex + dim) ==
+           outputWindow.dim(firstSpatialDimIndex + dim));
+  }
+  graph.setTileMapping(outputWindow, graph.getTileMapping(inputWindow));
+  auto outTileMapping = graph.getTileMapping(out);
 
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     // On each tile split the elements of the output up between the workers.
