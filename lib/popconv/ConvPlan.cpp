@@ -729,12 +729,6 @@ estimatePartialCalcCycles(const poplar::Target &target,
   const auto tileNumOutGroups =
       (tileNumOutChans + outChansPerGroup - 1) / outChansPerGroup;
 
-  // The use of supervisor vertices only affects vertices that use the
-  // convolution instructions.
-  unsigned numContexts = target.getNumWorkerContexts();
-  if (plan.method == Plan::Method::AMP) {
-    numContexts = 1;
-  }
   const auto tileNumInChans = getMaxTileInChans(params, plan);
   const auto tileNumInGroups =
       (tileNumInChans + (inChansPerGroup - 1)) / inChansPerGroup;
@@ -754,9 +748,6 @@ estimatePartialCalcCycles(const poplar::Target &target,
     tileKernelShape.push_back(tileKernelSize);
     tileKernelFieldElements *= tileKernelSize;
   }
-  const auto tileKernelWidth =
-      getMaxTileKernelSize(params, plan, numFieldDims - 1);
-  const auto tileOutWidth = getMaxTileOutSize(params, plan, numFieldDims - 1);
   unsigned computeCycles;
   switch (plan.method) {
   default: assert(0 && "Unexpected method");
@@ -772,6 +763,10 @@ estimatePartialCalcCycles(const poplar::Target &target,
       assert(outChansPerGroup % numConvUnits == 0);
       const auto convUnitInputLoadElemsPerCycle =
           target.getConvUnitInputLoadElemsPerCycle(floatActivations);
+      unsigned numEdges =
+          tileNumInGroups + tileNumOutGroups +
+          tileNumInGroups * tileNumOutGroups;
+      bool useDeltasForEdges = useDeltaEdgesForConvPartials(numEdges);
       if (canUseConvPartial1x1Vertex(params, convUnitWeightHeight,
                                      tileKernelShape)) {
         auto innerLoopCycles =
@@ -779,15 +774,12 @@ estimatePartialCalcCycles(const poplar::Target &target,
               tileBatchElements, tileOutShape,
               target.getNumWorkerContexts(), params.inputDilation,
               params.stride);
-        unsigned numEdges =
-            tileNumInGroups + tileNumOutGroups +
-            tileNumInGroups * tileNumOutGroups;
         computeCycles =
           getConvPartial1x1SupervisorOuterLoopCycleEstimate(
               innerLoopCycles, tileNumGroupedConv, tileNumInGroups,
               tileNumOutGroups, convUnitInputLoadElemsPerCycle,
               numConvUnits, target.getConvUnitCoeffLoadBytesPerCycle(),
-              floatActivations, useDeltaEdgesForConvPartials(numEdges));
+              floatActivations, useDeltasForEdges);
       } else {
         auto innerLoopCycles =
             cache->mGetConvPartialnx1InnerLoopCycleEstimate(
@@ -796,13 +788,10 @@ estimatePartialCalcCycles(const poplar::Target &target,
               numConvUnits, target.getConvUnitCoeffLoadBytesPerCycle(),
               target.getNumWorkerContexts(), floatActivations,
               params.inputDilation, params.stride);
-        unsigned numEdges =
-            tileNumInGroups + tileNumOutGroups +
-            tileNumInGroups * tileNumOutGroups;
         computeCycles =
             getConvPartialnx1SupervisorCycleOuterLoopEstimate(
               innerLoopCycles, tileNumGroupedConv, tileNumOutGroups,
-              tileNumInGroups, useDeltaEdgesForConvPartials(numEdges));
+              tileNumInGroups, useDeltasForEdges);
       }
     }
     break;
@@ -816,6 +805,10 @@ estimatePartialCalcCycles(const poplar::Target &target,
             params.inputDilation[dim];
         numActiveOutRows *= dimActiveRows;
       }
+      const auto tileKernelWidth =
+          getMaxTileKernelSize(params, plan, numFieldDims - 1);
+      const auto tileOutWidth = getMaxTileOutSize(params, plan,
+                                                  numFieldDims - 1);
       auto innerLoopCycles =
           cache->mEstimateConvPartialHorizontalMacInnerLoopCycles(
             numActiveOutRows,
@@ -837,16 +830,18 @@ estimatePartialCalcCycles(const poplar::Target &target,
     break;
   case Plan::Method::OUTER_PRODUCT:
     {
-      assert(tileOutElements == tileOutWidth);
+      const auto tileOutWidth = getMaxTileOutSize(params, plan,
+                                                  numFieldDims - 1);
+      assert(tileOutWidth == tileOutElements);
       assert(tileBatchElements == 1);
       assert(tileNumInGroups == 1);
       assert(std::all_of(params.stride.begin(),
                          params.stride.end(), equalsOne));
       assert(std::all_of(params.inputDilation.begin(),
                          params.inputDilation.end(), equalsOne));
+      const auto numContexts = target.getNumWorkerContexts();
       const auto workerOutWidth =
-          (tileOutWidth + target.getNumWorkerContexts() - 1) /
-          target.getNumWorkerContexts();
+          (tileOutWidth + numContexts - 1) / numContexts;
       auto vertexRuntime =
           getOuterProductCycleEstimate(floatActivations, workerOutWidth,
                                        tileNumOutGroups * outChansPerGroup *
