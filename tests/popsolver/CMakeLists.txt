@@ -16,7 +16,6 @@ function(add_popsolver_unit_test name)
     COMMAND ${name})
 endfunction()
 
-add_popsolver_unit_test(Div Div.cpp)
 add_popsolver_unit_test(Less Less.cpp)
 add_popsolver_unit_test(LessOrEqual LessOrEqual.cpp)
 add_popsolver_unit_test(Product Product.cpp)
