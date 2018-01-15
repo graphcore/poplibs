@@ -531,74 +531,6 @@ getMaxTileConvGroups(const ConvParams &params, const Plan &plan) {
   return size;
 }
 
-static unsigned
-estimateExchangeCycles(
-    const poplar::Target &target,
-    const std::vector<double> &perLevelExchangeBytesPerCycle,
-    bool floatActivations,
-    const ConvParams &params,
-    const Plan &plan) {
-  const auto numFieldDims = params.getNumFieldDims();
-  const auto activationSize = floatActivations ? 4 : 2;
-  const auto partialSize = plan.floatPartials ? 4 : 2;
-  auto batchElements = params.getBatchSize();
-  auto numOutChans = params.getNumOutputChansPerConvGroup();
-  auto numInChans = params.getNumInputChansPerConvGroup();
-  auto numConvGroups = params.getNumConvGroups();
-  auto outputFieldSize = params.getOutputFieldShape();
-  auto kernelSize = params.kernelShape;
-  unsigned numCycles = 0;
-  const auto numLevelsOfHierarchy = plan.partitions.size();
-  for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
-    const auto &partition = plan.partitions[level];
-    batchElements = getMaxSize(batchElements, partition.batchSplit);
-    numOutChans = getMaxSize(numOutChans, partition.outChanSplit,
-                             partition.outChanGrainSize);
-    numInChans = getMaxSize(numInChans, partition.inChanSplit,
-                            partition.inChanGrainSize);
-    numConvGroups = getMaxSize(numConvGroups, partition.convGroupSplit);
-    auto numberOfInputElements = batchElements * numInChans *
-                                 numConvGroups;
-    auto numberOfWeights = numOutChans * numInChans * numConvGroups;
-    auto numberOfOutputElements = batchElements * numOutChans *
-                                  numConvGroups;
-    for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-      kernelSize[dim] = getMaxSize(kernelSize[dim],
-                                   partition.kernelSplit[dim]);
-      outputFieldSize[dim] = getMaxSize(outputFieldSize[dim],
-                                        partition.fieldSplit[dim],
-                                        partition.fieldAxisGrainSize[dim]);
-      const auto tileInSize =
-          getMaxInputRangeSize(outputFieldSize[dim], dim, params,
-                               kernelSize[dim]);
-      numberOfInputElements *= tileInSize;
-      numberOfWeights *= kernelSize[dim];
-      numberOfOutputElements *= outputFieldSize[dim];
-    }
-    auto inputElementsBytes = numberOfInputElements * activationSize;
-    auto weightBytes = numberOfWeights * activationSize;
-    const auto numberOfPartialSums = numberOfOutputElements;
-    const auto partialSumBytes = numberOfPartialSums * partialSize;
-
-    const auto tilesPerSuperTile = target.getTilesPerSharedExchangeBus();
-    const auto exchangeBytesPerCycle = perLevelExchangeBytesPerCycle[level];
-
-    const auto inputElementBytesPerCycle =
-        (target.supportsExchangeBusSharing() &&
-         level + 1 == numLevelsOfHierarchy &&
-         plan.linearizeTileOrder == Plan::LinearizeTileOrder::STANDARD &&
-         (partition.outChanSplit % tilesPerSuperTile) == 0) ?
-              exchangeBytesPerCycle * tilesPerSuperTile :
-              exchangeBytesPerCycle;
-    numCycles +=
-        std::ceil(inputElementsBytes / inputElementBytesPerCycle) +
-        std::ceil(weightBytes / exchangeBytesPerCycle) +
-        std::ceil(partialSumBytes / exchangeBytesPerCycle);
-
-  }
-  return numCycles;
-}
-
 static std::uint64_t
 estimateConvPartialHorizontalMacInnerLoopCycles(unsigned numOutRows,
                                                 unsigned tileOutWidth,
@@ -1187,18 +1119,21 @@ makePartition(const popsolver::Solution &s, const PartitionVariables &vars) {
 }
 
 template <class TransformCostFn>
-static std::pair<Plan, Cost>
-choosePlan(const poplar::Target &target,
-           const std::vector<unsigned> &hierarchy,
-           const std::vector<double> &perLevelExchangeBytesPerCycle,
-           const std::vector<unsigned> &fieldGrainSize,
-           const ConvVertexType &convVertexType,
-           const ConvParams &params,
-           TransformCostFn transformCost,
-           Cost bestCost,
-           const CostBounds costBounds,
-           PlanningCacheImpl *cache,
-           const ConvOptions &options) {
+static void
+constructModel(const poplar::Target &target,
+               const std::vector<unsigned> &hierarchy,
+               const std::vector<double> &perLevelExchangeBytesPerCycle,
+               const std::vector<unsigned> &fieldGrainSize,
+               const ConvVertexType &convVertexType,
+               const ConvParams &params,
+               TransformCostFn transformCost,
+               Cost bestCost,
+               const CostBounds costBounds,
+               PlanningCacheImpl *cache,
+               const ConvOptions &options,
+               popsolver::Model &m,
+               std::vector<PartitionVariables> &partitionVars,
+               popsolver::Variable &cycles) {
   const auto inChansPerGroup = convVertexType.inChansPerGroup;
   const auto partialChansPerGroup = convVertexType.partialChansPerGroup;
   const auto floatActivations = convVertexType.floatActivations;
@@ -1219,11 +1154,10 @@ choosePlan(const poplar::Target &target,
   // rows of partial sum per tile pair.
   // TODO investigate the alternative strategy outlined above.
   using namespace popsolver;
-  Model m;
   const auto numFieldDims = params.getNumFieldDims();
   const auto numLevelsOfHierarchy = hierarchy.size();
   assert(numLevelsOfHierarchy >= 1);
-  std::vector<PartitionVariables> partitionVars;
+  partitionVars.clear();
   const auto outChanGrains =
       (params.getNumOutputChansPerConvGroup() + outChanGrainSize - 1) /
       outChanGrainSize;
@@ -1323,7 +1257,7 @@ choosePlan(const poplar::Target &target,
   const auto usedTiles = m.product(perLevelSplits);
   convSize.erase(convSize.begin());
 
-  auto cycles =
+  cycles =
       addCycleEstimate(m, partitionVars, convSize, usedTiles, target,
                        perLevelExchangeBytesPerCycle, params,
                        inChansPerGroup, partialChansPerGroup,
@@ -1418,11 +1352,33 @@ choosePlan(const poplar::Target &target,
   if (cycleBound < std::numeric_limits<unsigned>::max()) {
     m.lessOrEqual(cycles, cycleBound);
   }
-  Solution s;
+}
+
+template <class TransformCostFn>
+static std::pair<Plan, Cost>
+choosePlan(const poplar::Target &target,
+           const std::vector<unsigned> &hierarchy,
+           const std::vector<double> &perLevelExchangeBytesPerCycle,
+           const std::vector<unsigned> &fieldGrainSize,
+           const ConvVertexType &convVertexType,
+           const ConvParams &params,
+           TransformCostFn transformCost,
+           Cost bestCost,
+           const CostBounds costBounds,
+           PlanningCacheImpl *cache,
+           const ConvOptions &options) {
+  popsolver::Model m;
+  std::vector<PartitionVariables> partitionVars;
+  popsolver::Variable cycles;
+  constructModel(target, hierarchy, perLevelExchangeBytesPerCycle,
+                 fieldGrainSize, convVertexType, params, transformCost,
+                 bestCost, costBounds, cache, options, m, partitionVars,
+                 cycles);
+  popsolver::Solution s;
   try {
     assert(costBounds.primaryCheckIsCycles);
     s = m.minimize(cycles);
-  } catch (NoSolution) {
+  } catch (popsolver::NoSolution) {
     return {Plan(), highestCost};
   }
   std::vector<Partition> partitions;
@@ -1430,7 +1386,7 @@ choosePlan(const poplar::Target &target,
     partitions.push_back(makePartition(s, p));
   }
   Plan plan(std::move(partitions),
-            inChansPerGroup, partialChansPerGroup,
+            convVertexType.inChansPerGroup, convVertexType.partialChansPerGroup,
             convVertexType.floatPartials,
             convVertexType.method,
             Plan::LinearizeTileOrder::STANDARD);
@@ -2203,6 +2159,27 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
   return plan;
 }
 
+static void
+constrainVariable(popsolver::Model &m, popsolver::Variable v, unsigned value) {
+  m.lessOrEqual(v, value);
+  m.lessOrEqual(value, v);
+}
+
+static void
+constrainPartitionVars(popsolver::Model &m,
+                       const PartitionVariables &vars,
+                       const Partition &partition) {
+  const auto numFieldDims = vars.fieldSplit.size();
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    constrainVariable(m, vars.fieldSplit[dim], partition.fieldSplit[dim]);
+    constrainVariable(m, vars.kernelSplit[dim], partition.kernelSplit[dim]);
+  }
+  constrainVariable(m, vars.batchSplit, partition.batchSplit);
+  constrainVariable(m, vars.outChanSplit, partition.outChanSplit);
+  constrainVariable(m, vars.inChanSplit, partition.inChanSplit);
+  constrainVariable(m, vars.convGroupSplit, partition.convGroupSplit);
+}
+
 std::uint64_t estimateConvCost(const poplar::Target &target,
                                const ConvParams &params,
                                const ConvOptions &options,
@@ -2226,41 +2203,48 @@ std::uint64_t estimateConvCost(const poplar::Target &target,
       calculatePaddedParams(flattenedParams, plan.inChansPerGroup,
                             plan.partialChansPerGroup, inChansPadding,
                             partialChansPadding);
-  unsigned usedTiles = 1;
-  for (const auto &partition :  plan.partitions) {
-    usedTiles *= partition.batchSplit *
-                 partition.outChanSplit *
-                 partition.inChanSplit *
-                 partition.convGroupSplit;
-    usedTiles = std::accumulate(partition.fieldSplit.begin(),
-                                partition.fieldSplit.end(),
-                                usedTiles, std::multiplies<unsigned>());
-    usedTiles = std::accumulate(partition.kernelSplit.begin(),
-                                partition.kernelSplit.end(),
-                                usedTiles, std::multiplies<unsigned>());
-  }
   std::vector<double> perLevelExchangeBytesPerCycle;
-  (void)getTileHierarchy(target, perLevelExchangeBytesPerCycle);
+  const auto hierarchy =
+      getTileHierarchy(target, perLevelExchangeBytesPerCycle);
   assert(perLevelExchangeBytesPerCycle.size() ==
          plan.partitions.size());
-  const auto transformCycles =
-      estimateTransformCycles(target,
-                              paddedParams, options, plan.swapOperands,
-                              plan.expandDims, plan.outChanFlattenDims,
-                              inChansPadding, partialChansPadding, usedTiles);
-  const auto floatActivations = params.dType == poplar::FLOAT;
-  const auto exchangeCycles =
-      estimateExchangeCycles(target, perLevelExchangeBytesPerCycle,
-                             floatActivations, paddedParams, plan);
-  const auto zeroCycles =
-      estimateZeroCycles(target, paddedParams, plan);
-  const auto partialCalcCycles =
-      estimatePartialCalcCycles(target, floatActivations, paddedParams,
-                                plan, cacheImpl);
-  const auto reduceCycles =
-      estimateReduceCycles(target, paddedParams, plan);
-  return transformCycles + exchangeCycles + zeroCycles +
-         partialCalcCycles + reduceCycles;
+  auto transformCostFn = [&](unsigned usedTiles) {
+    return estimateTransformCycles(target,
+                                   paddedParams, options, plan.swapOperands,
+                                   plan.expandDims, plan.outChanFlattenDims,
+                                   inChansPadding, partialChansPadding,
+                                   usedTiles);
+  };
+  CostBounds costBounds(0, 0);
+  bool floatActivations = params.dType == poplar::FLOAT;
+  ConvVertexType convVertexType(plan.method, floatActivations,
+                                plan.floatPartials,
+                                plan.inChansPerGroup,
+                                plan.partialChansPerGroup);
+  const auto fieldGrainSize = plan.partitions.back().fieldAxisGrainSize;
+  // Check grain size is the same at each level.
+  for (const auto &p : plan.partitions) {
+    assert(p.fieldAxisGrainSize == fieldGrainSize);
+  }
+  popsolver::Model m;
+  std::vector<PartitionVariables> partitionVars;
+  popsolver::Variable cycles;
+  constructModel(target, hierarchy, perLevelExchangeBytesPerCycle,
+                 fieldGrainSize, convVertexType, paddedParams, transformCostFn,
+                 highestCost, costBounds, cacheImpl, options, m, partitionVars,
+                 cycles);
+  const auto numLevelsOfHierarchy = plan.partitions.size();
+  assert(partitionVars.size() == numLevelsOfHierarchy);
+  for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
+    constrainPartitionVars(m, partitionVars[level], plan.partitions[level]);
+  }
+  popsolver::Solution s;
+  try {
+    s = m.minimize(cycles);
+  } catch (popsolver::NoSolution) {
+    return highestCost.cycles;
+  }
+  return s[cycles];
 }
 
 } // end namespace conv
