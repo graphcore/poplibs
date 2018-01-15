@@ -9,6 +9,7 @@
 #include "VertexOptim.hpp"
 #include "util/Compiler.hpp"
 #include <cassert>
+#include <cmath>
 #include <limits>
 #include <map>
 #include <set>
@@ -522,51 +523,70 @@ getMaxTileConvGroups(const ConvParams &params, const Plan &plan) {
 }
 
 static unsigned
-estimateExchangeCycles(const poplar::Target &target,
-                       bool floatActivations,
-                       const ConvParams &params,
-                       const Plan &plan) {
+estimateExchangeCycles(
+    const poplar::Target &target,
+    const std::vector<double> &perLevelExchangeBytesPerCycle,
+    bool floatActivations,
+    const ConvParams &params,
+    const Plan &plan) {
   const auto numFieldDims = params.getNumFieldDims();
-  const auto tileBatchElements = getMaxTileBatchElements(params, plan);
-  const auto tileNumOutChans = getMaxTileOutChans(params, plan);
-  const auto tileNumInChans = getMaxTileInChans(params, plan);
-  const auto tileNumGroupedConv = getMaxTileConvGroups(params, plan);
-  auto numberOfInputElements = tileBatchElements * tileNumInChans *
-                               tileNumGroupedConv;
-  auto numberOfWeights = tileNumOutChans * tileNumInChans * tileNumGroupedConv;
-  auto numberOfOutputElements = tileBatchElements * tileNumOutChans *
-                                tileNumGroupedConv;
-  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    const auto tileKernelSize = getMaxTileKernelSize(params, plan, dim);
-    const auto tileOutSize = getMaxTileOutSize(params, plan, dim);
-    const auto tileInSize =
-        getMaxInputRangeSize(tileOutSize, dim, params, tileKernelSize);
-    numberOfInputElements *= tileInSize;
-    numberOfWeights *= tileKernelSize;
-    numberOfOutputElements *= tileOutSize;
-  }
   const auto activationSize = floatActivations ? 4 : 2;
-  auto inputElementsBytes = numberOfInputElements * activationSize;
-  auto weightBytes = numberOfWeights * activationSize;
   const auto partialSize = plan.floatPartials ? 4 : 2;
-  const auto numberOfPartialSums = numberOfOutputElements;
-  const auto partialSumBytes = numberOfPartialSums * partialSize;
+  auto batchElements = params.getBatchSize();
+  auto numOutChans = params.getNumOutputChansPerConvGroup();
+  auto numInChans = params.getNumInputChansPerConvGroup();
+  auto numConvGroups = params.getNumConvGroups();
+  auto outputFieldSize = params.getOutputFieldShape();
+  auto kernelSize = params.kernelShape;
+  unsigned numCycles = 0;
+  const auto numLevelsOfHierarchy = plan.partitions.size();
+  for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
+    const auto &partition = plan.partitions[level];
+    batchElements = getMaxSize(batchElements, partition.batchSplit);
+    numOutChans = getMaxSize(numOutChans, partition.outChanSplit,
+                             partition.outChanGrainSize);
+    numInChans = getMaxSize(numInChans, partition.inChanSplit,
+                            partition.inChanGrainSize);
+    numConvGroups = getMaxSize(numConvGroups, partition.convGroupSplit);
+    auto numberOfInputElements = batchElements * numInChans *
+                                 numConvGroups;
+    auto numberOfWeights = numOutChans * numInChans * numConvGroups;
+    auto numberOfOutputElements = batchElements * numOutChans *
+                                  numConvGroups;
+    for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+      kernelSize[dim] = getMaxSize(kernelSize[dim],
+                                   partition.kernelSplit[dim]);
+      outputFieldSize[dim] = getMaxSize(outputFieldSize[dim],
+                                        partition.fieldSplit[dim],
+                                        partition.fieldAxisGrainSize[dim]);
+      const auto tileInSize =
+          getMaxInputRangeSize(outputFieldSize[dim], dim, params,
+                               kernelSize[dim]);
+      numberOfInputElements *= tileInSize;
+      numberOfWeights *= kernelSize[dim];
+      numberOfOutputElements *= outputFieldSize[dim];
+    }
+    auto inputElementsBytes = numberOfInputElements * activationSize;
+    auto weightBytes = numberOfWeights * activationSize;
+    const auto numberOfPartialSums = numberOfOutputElements;
+    const auto partialSumBytes = numberOfPartialSums * partialSize;
 
-  const auto tilesPerSuperTile = target.getTilesPerSharedExchangeBus();
-  const auto exchangeBytesPerCycle = target.getExchangeBytesPerCycle();
+    const auto tilesPerSuperTile = target.getTilesPerSharedExchangeBus();
+    const auto exchangeBytesPerCycle = perLevelExchangeBytesPerCycle[level];
 
-  const auto inputElementBytesPerCycle =
-      (target.supportsExchangeBusSharing() &&
-       plan.linearizeTileOrder == Plan::LinearizeTileOrder::STANDARD &&
-       (plan.partitions.back().outChanSplit % tilesPerSuperTile) == 0) ?
-            exchangeBytesPerCycle * tilesPerSuperTile :
-            exchangeBytesPerCycle;
-  const auto numCycles =
-      (inputElementsBytes + inputElementBytesPerCycle - 1) /
-      inputElementBytesPerCycle +
-      (weightBytes + exchangeBytesPerCycle - 1) / exchangeBytesPerCycle +
-      (partialSumBytes + exchangeBytesPerCycle - 1) / exchangeBytesPerCycle;
+    const auto inputElementBytesPerCycle =
+        (target.supportsExchangeBusSharing() &&
+         level + 1 == numLevelsOfHierarchy &&
+         plan.linearizeTileOrder == Plan::LinearizeTileOrder::STANDARD &&
+         (partition.outChanSplit % tilesPerSuperTile) == 0) ?
+              exchangeBytesPerCycle * tilesPerSuperTile :
+              exchangeBytesPerCycle;
+    numCycles +=
+        std::ceil(inputElementsBytes / inputElementBytesPerCycle) +
+        std::ceil(weightBytes / exchangeBytesPerCycle) +
+        std::ceil(partialSumBytes / exchangeBytesPerCycle);
 
+  }
   return numCycles;
 }
 
@@ -842,33 +862,38 @@ estimatePartialCalcCycles(const poplar::Target &target,
 
 
 static unsigned
-estimateIntraIPUReduceCycles(const poplar::Target &target,
-                             const ConvParams &params, const Plan &plan) {
-  const auto inChanTileSplit = plan.partitions.back().inChanSplit;
-  if (inChanTileSplit == 1 &&
-      std::all_of(plan.partitions.back().kernelSplit.begin(),
-                  plan.partitions.back().kernelSplit.end(), equalsOne))
-    return 0;
+estimateReduceCycles(const poplar::Target &target, const ConvParams &params,
+                     const Plan &plan) {
   const auto tileBatchElements = getMaxTileBatchElements(params, plan);
   const auto tileNumConvGroups = getMaxTileConvGroups(params, plan);
   const auto tileNumOutChans = getMaxTileOutChans(params, plan);
-  auto numOutputs = tileBatchElements * tileNumOutChans *
-                    tileNumConvGroups;
+  auto partialsPerTile = tileBatchElements * tileNumOutChans *
+                         tileNumConvGroups;
   for (unsigned dim = 0; dim != params.getNumFieldDims(); ++dim) {
-    numOutputs *= getMaxTileOutSize(params, plan, dim);
+    partialsPerTile *= getMaxTileOutSize(params, plan, dim);
   }
-  // Consider a group of tiles that compute partial sums for the same output
-  // volume. The number of partial sums that to be reduced is
-  // numOutputs * numTiles. Calculation of the output is spread evenly across
-  // the tiles so the number of partial sums each tile must reduce is
-  // (numOutputs * numTiles) / numTiles = numOutputs.
-  const auto reduceElementsPerTile = numOutputs;
-
-  const auto vectorWidth =
-      plan.floatPartials ? target.getFloatVectorWidth() :
-                                target.getHalfVectorWidth();
-  const auto numCycles = (reduceElementsPerTile + vectorWidth - 1) /
-                         vectorWidth;
+  unsigned numCycles = 0;
+  for (int level = plan.partitions.size() - 1; level >= 0; --level) {
+    const auto &partition = plan.partitions[level];
+    const auto reductionDepth =
+        std::accumulate(partition.kernelSplit.begin(),
+                        partition.kernelSplit.end(),
+                        partition.inChanSplit,
+                        std::multiplies<std::size_t>());
+    if (reductionDepth > 1) {
+      // Consider a group of tiles that compute partial sums for the same output
+      // volume. The number of partial sums that to be reduced is
+      // partialsPerTile * numTiles. Calculation of the output is spread evenly
+      // across the tiles so the number of partial sums each tile must reduce is
+      // (partialsPerTile * numTiles) / numTiles = partialsPerTile.
+      const auto reduceElementsPerTile = partialsPerTile;
+      const auto vectorWidth =
+          plan.floatPartials ? target.getFloatVectorWidth() :
+                               target.getHalfVectorWidth();
+      numCycles += (reduceElementsPerTile + vectorWidth - 1) / vectorWidth;
+      partialsPerTile = (partialsPerTile + reductionDepth - 1) / reductionDepth;
+    }
+  }
   return numCycles;
 }
 
@@ -901,9 +926,10 @@ unsigned getMaxMACsPerCyclePerTile(const poplar::Target &target,
 
 static popsolver::Variable
 addCycleEstimate(popsolver::Model &m,
-                 const PartitionVariables &tilePartitionVars,
+                 std::vector<PartitionVariables> &partitionVars,
                  popsolver::Variable usedTiles,
                  const poplar::Target &target,
+                 const std::vector<double> &perLevelExchangeBytesPerCycle,
                  const ConvParams &params,
                  unsigned inChansPerGroup,
                  unsigned partialChansPerGroup,
@@ -912,35 +938,44 @@ addCycleEstimate(popsolver::Model &m,
                  Plan::Method method,
                  Plan::LinearizeTileOrder linearizeTileOrder,
                  PlanningCacheImpl *cache) {
-  const auto numFieldDims = tilePartitionVars.fieldGrainSize.size();
-  std::vector<popsolver::Variable> variables = {
-    {tilePartitionVars.batchSplit, tilePartitionVars.outChanSplit,
-     tilePartitionVars.inChanSplit, tilePartitionVars.convGroupSplit}
+  const auto numLevelsOfHierarchy = partitionVars.size();
+  const auto numFieldDims = partitionVars[0].fieldGrainSize.size();
+  std::vector<popsolver::Variable> variables;
+  for (const auto &vars : partitionVars) {
+    variables.push_back(vars.batchSplit);
+    variables.push_back(vars.outChanSplit);
+    variables.push_back(vars.inChanSplit);
+    variables.push_back(vars.convGroupSplit);
+    variables.insert(variables.end(), vars.fieldSplit.begin(),
+                     vars.fieldSplit.end());
+    variables.insert(variables.end(), vars.kernelSplit.begin(),
+                     vars.kernelSplit.end());
   };
-  variables.insert(variables.end(), tilePartitionVars.fieldSplit.begin(),
-                   tilePartitionVars.fieldSplit.end());
-  variables.insert(variables.end(), tilePartitionVars.kernelSplit.begin(),
-                   tilePartitionVars.kernelSplit.end());
-  const auto fieldGrainSize = tilePartitionVars.fieldGrainSize;
-  const auto inChanGrainSize = tilePartitionVars.inChanGrainSize;
-  const auto outChanGrainSize = tilePartitionVars.outChanGrainSize;
   auto makePlan = [=](const std::vector<unsigned> &values) {
-    const auto batchTileSplit = values[0];
-    const auto outChanTileSplit = values[1];
-    const auto inChanTileSplit = values[2];
-    const auto convGroupTileSplit = values[3];
-    std::vector<unsigned> fieldTileSplit(values.begin() + 4,
-                                         values.begin() + 4 + numFieldDims);
-    std::vector<unsigned> kernelTileSplit(values.begin() + 4 + numFieldDims,
-                                          values.begin() + 4 +
-                                          2 * numFieldDims);
-    Partition tilePartition(fieldTileSplit, batchTileSplit, outChanTileSplit,
-                            kernelTileSplit, inChanTileSplit,
-                            convGroupTileSplit,
-                            fieldGrainSize,
-                            inChanGrainSize,
-                            outChanGrainSize);
-    std::vector<Partition> partitions(1, std::move(tilePartition));
+    std::vector<Partition> partitions;
+    partitions.reserve(numLevelsOfHierarchy);
+    const auto varsPerLevel = 4 + numFieldDims * 2;
+    assert(varsPerLevel * numLevelsOfHierarchy == values.size());
+    for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
+      const auto batchSplit = values[level * varsPerLevel];
+      const auto outChanSplit = values[level * varsPerLevel + 1];
+      const auto inChanSplit = values[level * varsPerLevel + 2];
+      const auto convGroupSplit = values[level * varsPerLevel + 3];
+      std::vector<unsigned> fieldSplit(
+        values.begin() + level * varsPerLevel + 4,
+        values.begin() + level * varsPerLevel + 4 + numFieldDims
+      );
+      std::vector<unsigned> kernelSplit(
+        values.begin() + level * varsPerLevel + 4 + numFieldDims,
+        values.begin() + level * varsPerLevel + 4 + 2 * numFieldDims
+      );
+      Partition partition(fieldSplit, batchSplit, outChanSplit,
+                          kernelSplit, inChanSplit, convGroupSplit,
+                          partitionVars[level].fieldGrainSize,
+                          partitionVars[level].inChanGrainSize,
+                          partitionVars[level].outChanGrainSize);
+      partitions.push_back(std::move(partition));
+    }
     Plan candidate(std::move(partitions), inChansPerGroup, partialChansPerGroup,
                    floatPartials, method, linearizeTileOrder);
     return candidate;
@@ -949,8 +984,8 @@ addCycleEstimate(popsolver::Model &m,
       m.call(variables,
              [=,&target](const std::vector<unsigned> &values) {
     Plan candidate = makePlan(values);
-    return estimateExchangeCycles(target, floatActivations, params,
-                                  candidate);
+    return estimateExchangeCycles(target, perLevelExchangeBytesPerCycle,
+                                  floatActivations, params, candidate);
   });
   const auto zeroCycles =
       m.call(variables,
@@ -980,7 +1015,7 @@ addCycleEstimate(popsolver::Model &m,
       m.call(variables,
              [=,&target](const std::vector<unsigned> &values) {
     Plan candidate = makePlan(values);
-    return estimateIntraIPUReduceCycles(target, params, candidate);
+    return estimateReduceCycles(target, params, candidate);
   });
   return m.sum({exchangeCycles, zeroCycles, partialCalcCycles, reduceCycles});
 }
@@ -1032,18 +1067,11 @@ makePartition(const popsolver::Solution &s, const PartitionVariables &vars) {
   return partition;
 }
 
-std::vector<unsigned> getTileHierarchy(const poplar::Target &target) {
-  std::vector<unsigned> hierarchy;
-  if (target.getNumIPUs() > 1) {
-    hierarchy.push_back(target.getNumIPUs());
-  }
-  hierarchy.push_back(target.getTilesPerIPU());
-  return hierarchy;
-}
-
 template <class TransformCostFn>
 static std::pair<Plan, Cost>
 choosePlan(const poplar::Target &target,
+           const std::vector<unsigned> &hierarchy,
+           const std::vector<double> &perLevelExchangeBytesPerCycle,
            const std::vector<unsigned> &fieldGrainSize,
            const ConvVertexType &convVertexType,
            const ConvParams &params,
@@ -1074,69 +1102,74 @@ choosePlan(const poplar::Target &target,
   using namespace popsolver;
   Model m;
   const auto numFieldDims = params.getNumFieldDims();
-  const auto hierarchy = getTileHierarchy(target);
   assert(hierarchy.size() >= 1);
   std::vector<PartitionVariables> partitionVars;
-  if (hierarchy.size() > 1) {
-    assert(hierarchy.size() == 2);
-    const auto one = m.addConstant(1);
-    PartitionVariables ipuPartitionVars;
-    ipuPartitionVars.fieldSplit.reserve(numFieldDims);
-    ipuPartitionVars.kernelSplit.reserve(numFieldDims);
-    for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-      ipuPartitionVars.fieldSplit.push_back(one);
-      ipuPartitionVars.kernelSplit.push_back(one);
-    }
-    ipuPartitionVars.batchSplit = one;
-    ipuPartitionVars.convGroupSplit = one;
-    ipuPartitionVars.outChanSplit = one;
-    ipuPartitionVars.outChanGrainSize = outChanGrainSize;
-    ipuPartitionVars.inChanSplit = one;
-    ipuPartitionVars.inChanGrainSize = inChanGrainSize;
-    ipuPartitionVars.fieldGrainSize = fieldGrainSize;
-    partitionVars.push_back(std::move(ipuPartitionVars));
-  }
-  PartitionVariables tilePartitionVars;
-  tilePartitionVars.fieldSplit.reserve(numFieldDims);
-  tilePartitionVars.kernelSplit.reserve(numFieldDims);
+  const auto outChanGrains =
+      (params.getNumOutputChansPerConvGroup() + outChanGrainSize - 1) /
+      outChanGrainSize;
+  const auto inChanGrains =
+      (params.getNumInputChansPerConvGroup() + inChanGrainSize - 1)
+      / inChanGrainSize;
+  std::vector<Variable> maxFieldSplit;
+  std::vector<Variable> maxKernelSplit;
+  maxFieldSplit.reserve(numFieldDims);
+  maxKernelSplit.reserve(numFieldDims);
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     const unsigned numGrains =
         (params.getOutputSize(dim) + fieldGrainSize[dim] - 1) /
         fieldGrainSize[dim];
-    tilePartitionVars.fieldSplit.push_back(m.addVariable(1, numGrains));
+    maxFieldSplit.push_back(m.addConstant(numGrains));
     // Currenlty the implementation doesn't support splitting the innermost
     // kernel dimension. TODO lift this restriction.
-    tilePartitionVars.kernelSplit.push_back(
-          m.addVariable(1, dim == numFieldDims - 1 ? 1 :
-                                                     params.kernelShape[dim]));
+    maxKernelSplit.push_back(m.addConstant(dim == numFieldDims - 1 ? 1 :
+                                             params.kernelShape[dim]));
   }
-  tilePartitionVars.batchSplit = m.addVariable(1, params.getBatchSize());
-  tilePartitionVars.convGroupSplit =
-      m.addVariable(1, params.getNumConvGroups());
-  unsigned maxTilesPerZ;
-  if (options.pass == Pass::FC_TRAINING_FWD) {
-    // The joint planning cost function assumes that no exchange is required to
-    // rearrange weights between passes. Because of the way we derive the
-    // backward and weight update plans from the forward plan this is guaranteed
-    // to be the case if each weight is used on exactly one tile in the forward
-    // pass. Disallow splitting of fully connected batch (or equivalently the
-    // convolutional output channels) across tiles to ensure this holds.
-    maxTilesPerZ = 1;
-  } else {
-    const auto outChanGroups =
-        (params.getNumOutputChansPerConvGroup() + partialChansPerGroup - 1) /
-        partialChansPerGroup;
-    maxTilesPerZ = outChanGroups;
+  auto maxBatchSplit = m.addConstant(params.getBatchSize());
+  auto maxConvGroupSplit = m.addConstant(params.getNumConvGroups());
+  // The joint planning cost function assumes that no exchange is required to
+  // rearrange weights between passes. Because of the way we derive the
+  // backward and weight update plans from the forward plan this is guaranteed
+  // to be the case if each weight is used on exactly one tile in the forward
+  // pass. Disallow splitting of fully connected batch (or equivalently the
+  // convolutional output channels) across tiles to ensure this holds.
+  auto maxOutChanSplit =
+      m.addConstant(options.pass == Pass::FC_TRAINING_FWD ? 1 : outChanGrains);
+  auto maxInChanSplit = m.addConstant(inChanGrains);
+  for (unsigned level = 0; level != hierarchy.size(); ++level) {
+    const auto levelMaxSplit = hierarchy[level];
+    PartitionVariables p;
+    p.fieldSplit.reserve(numFieldDims);
+    p.kernelSplit.reserve(numFieldDims);
+    for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+      p.fieldSplit.push_back(m.addVariable(1, levelMaxSplit));
+      p.kernelSplit.push_back(m.addVariable(1, levelMaxSplit));
+      m.lessOrEqual(p.fieldSplit.back(), maxFieldSplit[dim]);
+      m.lessOrEqual(p.kernelSplit.back(), maxKernelSplit[dim]);
+      if (level + 1 != hierarchy.size()) {
+        maxFieldSplit[dim] = m.ceildiv(maxFieldSplit[dim], p.fieldSplit.back());
+        maxKernelSplit[dim] =
+            m.ceildiv(maxKernelSplit[dim], p.kernelSplit.back());
+      }
+    }
+    p.batchSplit = m.addVariable(1, levelMaxSplit);
+    p.convGroupSplit = m.addVariable(1, levelMaxSplit);
+    p.outChanSplit = m.addVariable(1, levelMaxSplit);
+    p.inChanSplit = m.addVariable(1, levelMaxSplit);
+    m.lessOrEqual(p.batchSplit, maxBatchSplit);
+    m.lessOrEqual(p.convGroupSplit, maxConvGroupSplit);
+    m.lessOrEqual(p.outChanSplit, maxOutChanSplit);
+    m.lessOrEqual(p.inChanSplit, maxInChanSplit);
+    p.outChanGrainSize = outChanGrainSize;
+    p.inChanGrainSize = inChanGrainSize;
+    p.fieldGrainSize = fieldGrainSize;
+    if (level + 1 != hierarchy.size()) {
+      maxBatchSplit = m.ceildiv(maxBatchSplit, p.batchSplit);
+      maxConvGroupSplit = m.ceildiv(maxConvGroupSplit, p.convGroupSplit);
+      maxOutChanSplit = m.ceildiv(maxOutChanSplit, p.outChanSplit);
+      maxInChanSplit = m.ceildiv(maxInChanSplit, p.inChanSplit);
+    }
+    partitionVars.push_back(std::move(p));
   }
-  tilePartitionVars.outChanSplit = m.addVariable(1, maxTilesPerZ);
-  tilePartitionVars.outChanGrainSize = outChanGrainSize;
-  const auto inChanGroups =
-      (params.getNumInputChansPerConvGroup() + inChansPerGroup - 1)
-      / inChansPerGroup;
-  tilePartitionVars.inChanSplit = m.addVariable(1, inChanGroups);
-  tilePartitionVars.inChanGrainSize = inChanGrainSize;
-  tilePartitionVars.fieldGrainSize = fieldGrainSize;
-  partitionVars.push_back(std::move(tilePartitionVars));
 
   std::vector<Variable> perLevelSplits;
   for (unsigned level = 0; level != partitionVars.size(); ++level) {
@@ -1150,11 +1183,13 @@ choosePlan(const poplar::Target &target,
     splits.insert(splits.end(), p.kernelSplit.begin(), p.kernelSplit.end());
     const auto levelSplit = m.product(splits);
     m.lessOrEqual(levelSplit, hierarchy[level]);
+    perLevelSplits.push_back(levelSplit);
   }
   const auto usedTiles = m.product(perLevelSplits);
 
   auto cycles =
-      addCycleEstimate(m, partitionVars.back(), usedTiles, target, params,
+      addCycleEstimate(m, partitionVars, usedTiles, target,
+                       perLevelExchangeBytesPerCycle, params,
                        inChansPerGroup, partialChansPerGroup,
                        convVertexType.floatPartials,
                        floatActivations, convVertexType.method,
@@ -1176,9 +1211,9 @@ choosePlan(const poplar::Target &target,
         getFullyConnectedBwdMethod(params,
                                    convVertexType.method);
     const auto bwdCycles =
-        addCycleEstimate(m, bwdPartitionVars.back(),
-                         usedTiles, target, params,
-                         bwdInChansPerGroup, partialChansPerGroup,
+        addCycleEstimate(m, bwdPartitionVars,
+                         usedTiles, target, perLevelExchangeBytesPerCycle,
+                         params, bwdInChansPerGroup, partialChansPerGroup,
                          convVertexType.floatPartials,
                          floatActivations, bwdMethod,
                          Plan::LinearizeTileOrder::FC_BWD_AS_CONV, cache);
@@ -1202,9 +1237,9 @@ choosePlan(const poplar::Target &target,
                                   partialChansPerGroup,
                                   inChansPerGroup);
     const auto wuCycles =
-        addCycleEstimate(m, wuPartitionVars.back(),
-                         usedTiles, target, wuParams,
-                         wuInChansPerGroup, wuPartialChansPerGroup,
+        addCycleEstimate(m, wuPartitionVars,
+                         usedTiles, target, perLevelExchangeBytesPerCycle,
+                         wuParams, wuInChansPerGroup, wuPartialChansPerGroup,
                          convVertexType.floatPartials,
                          floatActivations, wuMethod,
                          Plan::LinearizeTileOrder::FC_WU,
@@ -1692,6 +1727,54 @@ calculatePaddedParams(const ConvParams &params, unsigned inChansPerGroup,
   return paddedParams;
 }
 
+static std::vector<unsigned>
+getTileHierarchy(const poplar::Target &target,
+                 std::vector<double> &perLevelExchangeBytesPerCycle) {
+  std::vector<unsigned> hierarchy;
+  perLevelExchangeBytesPerCycle.clear();
+  // TODO query target, see T2125
+  const auto clockFrequency = 1.6 * 1000 * 1000 * 1000;
+  if (target.getNumIPUs() > 1) {
+    hierarchy.push_back(target.getNumIPUs());
+    auto ipuExchangeBytesPerCycle =
+        static_cast<double>(std::numeric_limits<double>::infinity());
+    // Compute the maximum number of bytes per cycle for a traffic pattern
+    // where every IPU sends an equal amount of data to every other IPU.
+    for (const auto &constraint : target.getGlobalExchangeConstraints()) {
+      std::map<unsigned, unsigned> ipuSrcCount;
+      std::map<unsigned, unsigned> ipuDstCount;
+      for (const auto &flow : constraint.flows) {
+        ++ipuSrcCount[flow.src];
+        ++ipuDstCount[flow.dst];
+      }
+      auto secondLess = [](const std::pair<unsigned, unsigned> &a,
+                           const std::pair<unsigned, unsigned> &b) {
+        return a.second < b.second;
+      };
+      const auto maxSrcCount =
+          std::max_element(ipuSrcCount.begin(), ipuSrcCount.end(),
+                           secondLess)->second;
+      const auto maxDstCount =
+          std::max_element(ipuDstCount.begin(), ipuDstCount.end(),
+                           secondLess)->second;
+      const auto maxCount = std::max(maxSrcCount, maxDstCount);
+      const auto constraintBytesPerCycle =
+          (constraint.bandwidth / clockFrequency) / 8;
+      ipuExchangeBytesPerCycle = std::min(ipuExchangeBytesPerCycle,
+                                          constraintBytesPerCycle / maxCount);
+    }
+    perLevelExchangeBytesPerCycle.push_back(ipuExchangeBytesPerCycle);
+  }
+  perLevelExchangeBytesPerCycle.push_back(target.getExchangeBytesPerCycle());
+  hierarchy.push_back(target.getTilesPerIPU());
+  return hierarchy;
+}
+
+std::vector<unsigned> getTileHierarchy(const poplar::Target &target) {
+  std::vector<double> dummy;
+  return getTileHierarchy(target, dummy);
+}
+
 static std::pair<Plan, Cost>
 createPlan(ConvParams params,
            const poplar::Type &partialsType,
@@ -1712,6 +1795,9 @@ createPlan(ConvParams params,
     numFieldDims = 2;
   }
   const auto &target = graph.getTarget();
+  std::vector<double> perLevelExchangeBytesPerCycle;
+  const auto hierarchy = getTileHierarchy(target,
+                                          perLevelExchangeBytesPerCycle);
   Cost bestCost = highestCost;
   Plan bestPlan;
   for (bool swapOperands : getSwapOperandCandidates(options)) {
@@ -1755,7 +1841,8 @@ createPlan(ConvParams params,
                                            partialChansPadding, usedTiles);
           };
           std::tie(candidate, candidateCost) =
-              choosePlan(target, fieldGrainSize, convVertexType,
+              choosePlan(target, hierarchy, perLevelExchangeBytesPerCycle,
+                         fieldGrainSize, convVertexType,
                          paddedParams, transformCostFn, bestCost, costBounds,
                          cache, options);
           if (candidateCost == highestCost)
@@ -1994,6 +2081,10 @@ std::uint64_t estimateConvCost(const poplar::Target &target,
                                 partition.kernelSplit.end(),
                                 usedTiles, std::multiplies<unsigned>());
   }
+  std::vector<double> perLevelExchangeBytesPerCycle;
+  (void)getTileHierarchy(target, perLevelExchangeBytesPerCycle);
+  assert(perLevelExchangeBytesPerCycle.size() ==
+         plan.partitions.size());
   const auto transformCycles =
       estimateTransformCycles(target,
                               paddedParams, options, plan.swapOperands,
@@ -2001,14 +2092,15 @@ std::uint64_t estimateConvCost(const poplar::Target &target,
                               partialChansPadding, usedTiles);
   const auto floatActivations = params.dType == poplar::FLOAT;
   const auto exchangeCycles =
-      estimateExchangeCycles(target, floatActivations, paddedParams, plan);
+      estimateExchangeCycles(target, perLevelExchangeBytesPerCycle,
+                             floatActivations, paddedParams, plan);
   const auto zeroCycles =
       estimateZeroCycles(target, paddedParams, plan);
   const auto partialCalcCycles =
       estimatePartialCalcCycles(target, floatActivations, paddedParams,
                                 plan, cacheImpl);
   const auto reduceCycles =
-      estimateIntraIPUReduceCycles(target, paddedParams, plan);
+      estimateReduceCycles(target, paddedParams, plan);
   return transformCycles + exchangeCycles + zeroCycles +
          partialCalcCycles + reduceCycles;
 }
