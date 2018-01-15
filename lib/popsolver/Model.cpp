@@ -63,6 +63,26 @@ Variable Model::sum(std::vector<Variable> vars) {
   return result;
 }
 
+Variable Model::floordiv(Variable left, Variable right) {
+  auto result = addVariable();
+  auto resultTimesRight = product({result, right});
+  // result * right <= left
+  lessOrEqual(resultTimesRight, left);
+  // result * right + right > left
+  less(left, sum({resultTimesRight, right}));
+  return result;
+}
+
+Variable Model::ceildiv(Variable left, Variable right) {
+  auto result = addVariable();
+  auto resultTimesRight = product({result, right});
+  // result * right >= left
+  lessOrEqual(left, resultTimesRight);
+  // result * right < left + right
+  less(resultTimesRight, sum({left, right}));
+  return result;
+}
+
 void Model::less(Variable left, Variable right) {
   auto p = std::unique_ptr<Constraint>(
              new Less(left, right)

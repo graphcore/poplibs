@@ -87,6 +87,12 @@ public:
   Variable product(const std::vector<Variable> &vars);
   /// Add a new variable that is the sum of the specified variables.
   Variable sum(std::vector<Variable> vars);
+  /// Add a new variable that is \a left divided by \a right, rounded down to
+  /// the nearest integer.
+  Variable floordiv(Variable left, Variable right);
+  /// Add a new variable that is \a left divided by \a right, rounded up to the
+  /// nearest integer.
+  Variable ceildiv(Variable left, Variable right);
   /// Constrain the left variable to be less than the right variable.
   void less(Variable left, Variable right);
   /// Constrain the left variable to be less than the right constant.
