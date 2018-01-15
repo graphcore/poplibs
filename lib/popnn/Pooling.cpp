@@ -524,13 +524,8 @@ poolInputGradient(Graph &graph,
                                inputPaddingLower, inputPaddingUpper);
 
   if (poolingType == PoolingType::AVG) {
-    if (dType == FLOAT) {
-      pooledGradient = scaleGradient<float>(graph, params, pooledGradient, prog,
-                                            layerName);
-    } else {
-      pooledGradient = scaleGradient<half>(graph, params, pooledGradient, prog,
-                                           layerName);
-    }
+    pooledGradient = scaleGradient<float>(graph, params, pooledGradient, prog,
+                                          layerName);
   }
   auto inGradient = graph.clone(in);
 

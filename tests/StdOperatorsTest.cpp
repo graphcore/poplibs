@@ -7,7 +7,6 @@
 #include <limits>
 #include <popstd/TileMapping.hpp>
 #include <poplar/Engine.hpp>
-#include <poplar/HalfFloat.hpp>
 #include <poplar/IPUModel.hpp>
 #include <popstd/codelets.hpp>
 #include <iostream>
@@ -96,8 +95,8 @@ static void setBinaryOpInputs(float hIn1[DIM_SIZE][DIM_SIZE],
 }
 
 
-static void setBinaryOpInputs(half hIn1[DIM_SIZE][DIM_SIZE],
-                              half hIn2[DIM_SIZE][DIM_SIZE]) {
+static void setBinaryOpInputsHalf(float hIn1[DIM_SIZE][DIM_SIZE],
+                                  float hIn2[DIM_SIZE][DIM_SIZE]) {
   float val1 = -100;
   float val2 = 50;
   for (auto r = 0U; r != DIM_SIZE; ++r) {
@@ -206,8 +205,9 @@ void binaryOpTest(const std::function<Tensor(Graph &, Tensor, Tensor,
   popstd::addCodelets(graph);
 
   Tensor in1, in2;
-  std::tie(in1, in2) = mapBinaryOpTensors(graph,
-                                          equivalent_device_type<T>().value);
+  auto type = equivalent_device_type<T>().value;
+
+  std::tie(in1, in2) = mapBinaryOpTensors(graph, type);
 
   auto prog = Sequence();
 
@@ -234,8 +234,54 @@ void binaryOpTest(const std::function<Tensor(Graph &, Tensor, Tensor,
   }
 }
 
+void binaryOpTestHalf(const std::function<Tensor(Graph &, Tensor, Tensor,
+                                                 Sequence &,
+                                                 const std::string &)> &op,
+                      const std::function<float(float, float)> &testFn) {
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  const auto &target = device.getTarget();
+  Graph graph(device);
+  popstd::addCodelets(graph);
+
+  Tensor in1, in2;
+  std::tie(in1, in2) = mapBinaryOpTensors(graph, poplar::HALF);
+
+  auto prog = Sequence();
+
+  auto out = op(graph, in1, in2, prog, "binaryOp");
+  graph.createHostWrite("in1", in1);
+  graph.createHostWrite("in2", in2);
+  graph.createHostRead("out", out);
+
+  Engine eng(device, graph, prog);
+  float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
+  float hOut[DIM_SIZE][DIM_SIZE];
+  setBinaryOpInputsHalf(hIn1, hIn2);
+  auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE * DIM_SIZE;
+  std::vector<char> rawIn1(rawBufSize), rawIn2(rawBufSize),
+                    rawOut(rawBufSize);
+  poplar::copyFloatToDeviceHalf(target, &hIn1[0][0], rawIn1.data(),
+                                DIM_SIZE * DIM_SIZE);
+  poplar::copyFloatToDeviceHalf(target, &hIn2[0][0], rawIn2.data(),
+                                DIM_SIZE * DIM_SIZE);
+  eng.writeTensor("in1", rawIn1.data());
+  eng.writeTensor("in2", rawIn2.data());
+  eng.run();
+  eng.readTensor("out", rawOut.data());
+  poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0][0],
+                                DIM_SIZE * DIM_SIZE);
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      auto res = testFn(hIn1[i][j], hIn2[i][j]);
+      BOOST_TEST(static_cast<float>(hOut[i][j]) == res);
+    }
+  }
+}
+
+
 BOOST_AUTO_TEST_CASE(StdOperationAbsFloat,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -247,7 +293,6 @@ BOOST_AUTO_TEST_CASE(StdOperationAbsFloat,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationAbsInt,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -255,7 +300,6 @@ BOOST_AUTO_TEST_CASE(StdOperationAbsInt,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationAddFloat,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -267,7 +311,6 @@ BOOST_AUTO_TEST_CASE(StdOperationAddFloat,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationAtan2Float,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -279,7 +322,6 @@ BOOST_AUTO_TEST_CASE(StdOperationAtan2Float,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationAddInt,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -287,7 +329,6 @@ BOOST_AUTO_TEST_CASE(StdOperationAddInt,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationBitwiseAndInt,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                      ) {
@@ -296,7 +337,6 @@ BOOST_AUTO_TEST_CASE(StdOperationBitwiseAndInt,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationBitwiseOrInt,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                      ) {
@@ -305,7 +345,6 @@ BOOST_AUTO_TEST_CASE(StdOperationBitwiseOrInt,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationBitwiseNotInt,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                      ) {
@@ -314,7 +353,6 @@ BOOST_AUTO_TEST_CASE(StdOperationBitwiseNotInt,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationCeil,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -326,7 +364,6 @@ BOOST_AUTO_TEST_CASE(StdOperationCeil,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationCos,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
 ) {
@@ -338,7 +375,6 @@ BOOST_AUTO_TEST_CASE(StdOperationCos,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationDivideFloat,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -353,7 +389,6 @@ BOOST_AUTO_TEST_CASE(StdOperationDivideFloat,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationDivideInt,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -368,7 +403,6 @@ BOOST_AUTO_TEST_CASE(StdOperationDivideInt,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationEqualFloat,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -380,7 +414,6 @@ BOOST_AUTO_TEST_CASE(StdOperationEqualFloat,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationEqualBool,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -392,7 +425,6 @@ BOOST_AUTO_TEST_CASE(StdOperationEqualBool,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationGreaterThanBool,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -404,7 +436,6 @@ BOOST_AUTO_TEST_CASE(StdOperationGreaterThanBool,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationGreaterThanEqualBool,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -416,7 +447,6 @@ BOOST_AUTO_TEST_CASE(StdOperationGreaterThanEqualBool,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationLessThanBool,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -428,7 +458,6 @@ BOOST_AUTO_TEST_CASE(StdOperationLessThanBool,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationLessThanEqualBool,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -441,7 +470,6 @@ BOOST_AUTO_TEST_CASE(StdOperationLessThanEqualBool,
 
 
 BOOST_AUTO_TEST_CASE(StdOperationExponent,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -453,7 +481,6 @@ BOOST_AUTO_TEST_CASE(StdOperationExponent,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationFloor,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -466,7 +493,6 @@ BOOST_AUTO_TEST_CASE(StdOperationFloor,
 
 
 BOOST_AUTO_TEST_CASE(StdOperationGreaterThanFloat,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -478,7 +504,6 @@ BOOST_AUTO_TEST_CASE(StdOperationGreaterThanFloat,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationGreaterThanInt,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -490,7 +515,6 @@ BOOST_AUTO_TEST_CASE(StdOperationGreaterThanInt,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationGreaterThanEqual,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -502,7 +526,6 @@ BOOST_AUTO_TEST_CASE(StdOperationGreaterThanEqual,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationLessThan,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -514,7 +537,6 @@ BOOST_AUTO_TEST_CASE(StdOperationLessThan,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationLessThanEqual,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -527,7 +549,6 @@ BOOST_AUTO_TEST_CASE(StdOperationLessThanEqual,
 
 
 BOOST_AUTO_TEST_CASE(StdOperationLogarithm,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -540,7 +561,6 @@ BOOST_AUTO_TEST_CASE(StdOperationLogarithm,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationLogicalAnd,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -553,7 +573,6 @@ BOOST_AUTO_TEST_CASE(StdOperationLogicalAnd,
 
 
 BOOST_AUTO_TEST_CASE(StdOperationLogicalNot,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -562,7 +581,6 @@ BOOST_AUTO_TEST_CASE(StdOperationLogicalNot,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationLogicalOr,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -574,8 +592,7 @@ BOOST_AUTO_TEST_CASE(StdOperationLogicalOr,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationMaximumFloat,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
-                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                 *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
   binaryOpTest<float, double>(popstd::max,
@@ -586,7 +603,6 @@ BOOST_AUTO_TEST_CASE(StdOperationMaximumFloat,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationMaximumInt,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -598,7 +614,6 @@ BOOST_AUTO_TEST_CASE(StdOperationMaximumInt,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationMinimumFloat,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -610,7 +625,6 @@ BOOST_AUTO_TEST_CASE(StdOperationMinimumFloat,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationMinimumInt,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -622,7 +636,6 @@ BOOST_AUTO_TEST_CASE(StdOperationMinimumInt,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationMultiply,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -635,7 +648,6 @@ BOOST_AUTO_TEST_CASE(StdOperationMultiply,
 
 
 BOOST_AUTO_TEST_CASE(StdOperationNotEqualFloat,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -647,7 +659,6 @@ BOOST_AUTO_TEST_CASE(StdOperationNotEqualFloat,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationNotEqualBool,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -660,7 +671,6 @@ BOOST_AUTO_TEST_CASE(StdOperationNotEqualBool,
 
 
 BOOST_AUTO_TEST_CASE(StdOperationNegateFloat,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -671,7 +681,6 @@ BOOST_AUTO_TEST_CASE(StdOperationNegateFloat,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationNegateInt,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -682,7 +691,6 @@ BOOST_AUTO_TEST_CASE(StdOperationNegateInt,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationPower,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -728,7 +736,6 @@ BOOST_AUTO_TEST_CASE(StdOperationPower,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationRemainderFloat,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -743,7 +750,6 @@ BOOST_AUTO_TEST_CASE(StdOperationRemainderFloat,
 
 
 BOOST_AUTO_TEST_CASE(StdOperationRemainderInt,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -754,7 +760,6 @@ BOOST_AUTO_TEST_CASE(StdOperationRemainderInt,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationShiftLeftInt,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -765,7 +770,6 @@ BOOST_AUTO_TEST_CASE(StdOperationShiftLeftInt,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationShiftRightInt,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -776,7 +780,6 @@ BOOST_AUTO_TEST_CASE(StdOperationShiftRightInt,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationShiftRightSignExtendInt,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -787,7 +790,6 @@ BOOST_AUTO_TEST_CASE(StdOperationShiftRightSignExtendInt,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationSignumFloat,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -799,7 +801,6 @@ BOOST_AUTO_TEST_CASE(StdOperationSignumFloat,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationSignumInt,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -811,7 +812,6 @@ BOOST_AUTO_TEST_CASE(StdOperationSignumInt,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationSin,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -823,7 +823,6 @@ BOOST_AUTO_TEST_CASE(StdOperationSin,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationTanh,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -835,7 +834,6 @@ BOOST_AUTO_TEST_CASE(StdOperationTanh,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationSquare,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -849,7 +847,6 @@ BOOST_AUTO_TEST_CASE(StdOperationSquare,
 
 
 BOOST_AUTO_TEST_CASE(StdOperationSqrt,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -864,7 +861,6 @@ BOOST_AUTO_TEST_CASE(StdOperationSqrt,
 
 
 BOOST_AUTO_TEST_CASE(StdOperationSubtractFloat,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -876,19 +872,17 @@ BOOST_AUTO_TEST_CASE(StdOperationSubtractFloat,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationSubtractHalf,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
-                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
-                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.14))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.14))
                   ) {
-  binaryOpTest<half, double>(
+  binaryOpTestHalf(
     popstd::sub,
-    [](half x, half y) -> double {
-      return static_cast<double>(x) - static_cast<double>(y);
+    [](float x, float y) -> float {
+      return x - y;
     });
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationSubtractInt,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -900,7 +894,6 @@ BOOST_AUTO_TEST_CASE(StdOperationSubtractInt,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationRoundFloat,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -912,7 +905,6 @@ BOOST_AUTO_TEST_CASE(StdOperationRoundFloat,
 
 
 BOOST_AUTO_TEST_CASE(StdOperationSelectFloat,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -961,7 +953,6 @@ BOOST_AUTO_TEST_CASE(StdOperationSelectFloat,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationSelectInt,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -1009,7 +1000,6 @@ BOOST_AUTO_TEST_CASE(StdOperationSelectInt,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationClampFloat,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -1064,7 +1054,6 @@ BOOST_AUTO_TEST_CASE(StdOperationClampFloat,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationClampInt,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {

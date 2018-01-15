@@ -13,7 +13,6 @@
 #include <popconv/Convolution.hpp>
 #include <popconv/ConvUtil.hpp>
 #include <popstd/exceptions.hpp>
-#include <poplar/HalfFloat.hpp>
 #include <popstd/codelets.hpp>
 #include <popstd/Add.hpp>
 #include <popreduce/codelets.hpp>
@@ -26,6 +25,12 @@
 #include <util/Compiler.hpp>
 #include "util/VectorUtils.hpp"
 #include <random>
+
+// Default tolerances used in tests
+#define FLOAT_REL_TOL  0.1
+#define HALF_REL_TOL   0.3
+#define FLOAT_ABS_TOL  1e-5
+#define HALF_ABS_TOL   7e-2
 
 using namespace poplar;
 using namespace poplar::program;
@@ -157,11 +162,11 @@ int main(int argc, char **argv) {
     ("single-phase",
      po::value<Pass>(&pass)->default_value(pass),
      "Run phase all | fwd | bwd | wu")
-    ("tolerance", po::value<double>(&relativeTolerance)->default_value(0.01),
+    ("tolerance", po::value<double>(&relativeTolerance),
      "Relative tolerance to use when validating results against the reference "
      "model")
     ("absolute-tolerance",
-     po::value<double>(&absoluteTolerance)->default_value(0.00001),
+     po::value<double>(&absoluteTolerance),
      "Absolute tolerance to use when validating results against the reference "
      "model")
     ("ipus",
@@ -287,8 +292,25 @@ int main(int argc, char **argv) {
   bool doWuPass = pass == Pass::ALL || pass == Pass::WU;
 
   addGlobalExchangeConstraints(ipuModel);
+
+  if (vm["tolerance"].empty()) {
+    if (dataType == FLOAT) {
+      relativeTolerance = FLOAT_REL_TOL;
+    } else {
+      relativeTolerance = HALF_REL_TOL;
+    }
+  }
+  if (vm["absolute-tolerance"].empty()) {
+    if (dataType == FLOAT) {
+      absoluteTolerance = FLOAT_ABS_TOL;
+    } else {
+      absoluteTolerance = HALF_ABS_TOL;
+    }
+  }
+
   Device dev = useCpuModel ? Device::createCPUDevice() :
                              ipuModel.createDevice();
+  const auto &target = dev.getTarget();
   Graph graph(dev);
   popstd::addCodelets(graph);
   popreduce::addCodelets(graph);
@@ -408,18 +430,18 @@ int main(int argc, char **argv) {
       hostNextAct(boost::extents[batchSize][fwdOutChans]
                                 [product(outFieldSize)]);
   std::mt19937 randomEngine;
-  writeRandomValues(hostPrevAct, -1.0, +5.0, randomEngine);
-  writeRandomValues(hostWeights, -1.0, +7.0, randomEngine);
+  writeRandomValues(target, dataType, hostPrevAct, -1.0, +5.0, randomEngine);
+  writeRandomValues(target, dataType, hostWeights, -1.0, +7.0, randomEngine);
   if (bias) {
-    writeRandomValues(hostBiases, -2.0, +6.0, randomEngine);
+    writeRandomValues(target, dataType, hostBiases, -2.0, +6.0, randomEngine);
   } else {
     std::fill(hostBiases.data(), hostBiases.data() + hostBiases.num_elements(),
               0.0);
   }
-  copy(hostPrevAct, dataType, rawHostPrevAct.get());
-  copy(hostWeights, dataType, rawHostWeights.get());
+  copy(target, hostPrevAct, dataType, rawHostPrevAct.get());
+  copy(target, hostWeights, dataType, rawHostWeights.get());
   if (bias) {
-    copy(hostBiases, dataType, rawHostBiases.get());
+    copy(target, hostBiases, dataType, rawHostBiases.get());
   }
 
   // Run the forward pass.
@@ -429,7 +451,7 @@ int main(int argc, char **argv) {
 
   // Validate against a reference model.
   bool matchesModel = true;
-  copy(dataType, rawHostNextAct.get(), hostNextAct);
+  copy(target, dataType, rawHostNextAct.get(), hostNextAct);
   boost::multi_array<double, 3>
       modelNextAct(boost::extents[batchSize][fwdOutChans]
                                  [product(outFieldSize)]);
@@ -463,19 +485,19 @@ int main(int argc, char **argv) {
     auto modelWeights = hostWeights;
     auto modelBiases = hostBiases;
     // Run the backwards and/or weight update passes.
-    writeRandomValues(hostZDeltas, -3.0, 7.0, randomEngine);
-    copy(hostZDeltas, dataType, rawHostZDeltas.get());
+    writeRandomValues(target, dataType, hostZDeltas, -3.0, 7.0, randomEngine);
+    copy(target, hostZDeltas, dataType, rawHostZDeltas.get());
     upload(engine, tmap);
     engine.run(1); // Run.
     download(engine, tmap);
 
-    copy(dataType, rawHostZDeltas.get(), hostZDeltas);
+    copy(target, dataType, rawHostZDeltas.get(), hostZDeltas);
     if (doBwdPass) {
-      copy(dataType, rawHostPrevDeltas.get(), hostPrevDeltas);
+      copy(target, dataType, rawHostPrevDeltas.get(), hostPrevDeltas);
     }
-    copy(dataType, rawHostWeights.get(), hostWeights);
+    copy(target, dataType, rawHostWeights.get(), hostWeights);
     if (bias) {
-      copy(dataType, rawHostBiases.get(), hostBiases);
+      copy(target, dataType, rawHostBiases.get(), hostBiases);
     }
 
     // Validate against a reference model.

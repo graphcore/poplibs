@@ -306,12 +306,7 @@ Tensor reduceScale(Graph &graph, float k, Tensor &in,
 
   // If batch size is 1 then no reduction is required.
   if (numAddends == 1) {
-    Tensor B;
-    if (dType == HALF) {
-      B = graph.addConstant<half>(outType, in.shape(), k);
-    } else {
-      B = graph.addConstant<float>(outType, in.shape(), k);
-    }
+    Tensor B = graph.addConstant<float>(outType, in.shape(), k);
     Tensor A = in;
 
     // TODO: Remove the cast when standard operators have output type as an arg

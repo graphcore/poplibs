@@ -3,8 +3,8 @@
 #include <popstd/TileMapping.hpp>
 #include <popstd/Util.hpp>
 #include <poplar/Engine.hpp>
-#include <poplar/HalfFloat.hpp>
 #include <poplar/IPUModel.hpp>
+#include <poplar/Target.hpp>
 #include <poprand/codelets.hpp>
 #include <boost/test/unit_test.hpp>
 #include <iostream>
@@ -22,6 +22,27 @@ namespace fpc = boost::test_tools::fpc;
 
 #define ALLONES_SEED static_cast<uint64_t>(~0)
 #define DIM_SIZE  200
+
+template <typename T, bool deviceHalf>
+static void readAndConvertTensor(
+    const Target &target, Engine &eng,
+    const std::string &handle,
+    T *out, std::size_t N,
+    typename std::enable_if<!deviceHalf, int>::type = 0) {
+  eng.readTensor(handle, out);
+}
+
+template <typename T, bool deviceHalf = false>
+static void readAndConvertTensor(
+    const Target &target, Engine &eng,
+    const std::string &handle,
+    T *out, std::size_t N,
+    typename std::enable_if<std::is_same<T, float>::value && deviceHalf,
+                            int>::type = 0) {
+  std::vector<char> buf(target.getTypeSize(HALF) * N);
+  eng.readTensor(handle, buf.data());
+  copyDeviceHalfToFloat(target, buf.data(), out, N);
+}
 
 template <typename T>
 static bool compareMatrices(T a[DIM_SIZE][DIM_SIZE],
@@ -97,7 +118,7 @@ static bool validateUniform(T mat[DIM_SIZE][DIM_SIZE], double minVal,
   return boundsMet && meanTest && stdDevTest;
 }
 
-template <typename T>
+template <typename T, bool deviceHalf = false>
 static bool uniformTest(T hOut[DIM_SIZE][DIM_SIZE],
                         const double minVal, const double maxVal,
                         double percentError, RandomGenMode mode,
@@ -108,7 +129,8 @@ static bool uniformTest(T hOut[DIM_SIZE][DIM_SIZE],
   Graph graph(device);
   poprand::addCodelets(graph);
 
-  auto dType = equivalent_device_type<T>().value;
+  auto dType = deviceHalf ? poplar::HALF : equivalent_device_type<T>().value;
+
   auto out = graph.addVariable(dType, {DIM_SIZE, DIM_SIZE}, "out");
   mapTensorLinearly(graph, out);
   graph.createHostRead("out", out);
@@ -118,7 +140,9 @@ static bool uniformTest(T hOut[DIM_SIZE][DIM_SIZE],
 
   Engine eng(device, graph, prog);
   eng.run();
-  eng.readTensor("out", hOut);
+  readAndConvertTensor<T, deviceHalf>(graph.getTarget(), eng, "out",
+                                      &hOut[0][0],
+                                      DIM_SIZE * DIM_SIZE);
 
   return validateUniform<T>(hOut, minVal, maxVal, percentError);
 }
@@ -152,8 +176,7 @@ static bool validateBernoulli(T mat[DIM_SIZE][DIM_SIZE], float prob,
   return validEvents && probTest;
 }
 
-
-template <typename T>
+template <typename T, bool deviceHalf = false>
 static bool bernoulliTest(T hOut[DIM_SIZE][DIM_SIZE], float prob,
                           double percentError, RandomGenMode mode,
                           uint64_t seed = ~0, unsigned numIPUs = 1) {
@@ -163,7 +186,7 @@ static bool bernoulliTest(T hOut[DIM_SIZE][DIM_SIZE], float prob,
   Graph graph(device);
   poprand::addCodelets(graph);
 
-  auto dType = equivalent_device_type<T>().value;
+  auto dType = deviceHalf ? poplar::HALF : equivalent_device_type<T>().value;
 
   auto out = graph.addVariable(dType, {DIM_SIZE, DIM_SIZE}, "out");
   mapTensorLinearly(graph, out);
@@ -175,10 +198,13 @@ static bool bernoulliTest(T hOut[DIM_SIZE][DIM_SIZE], float prob,
 
   Engine eng(device, graph, prog);
   eng.run();
-  eng.readTensor("out", hOut);
-
+  readAndConvertTensor<T, deviceHalf>(graph.getTarget(), eng, "out",
+                                      &hOut[0][0],
+                                      DIM_SIZE * DIM_SIZE);
   return validateBernoulli<T>(hOut, prob, percentError);
 }
+
+
 
 
 template <typename T>
@@ -221,7 +247,7 @@ static bool validateNormal(T mat[DIM_SIZE][DIM_SIZE], float actualMean,
   return meanTest && stdDevTest;
 }
 
-template <typename T>
+template <typename T, bool deviceHalf = false>
 static bool normalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean, float stdDev,
                        double percentError, RandomGenMode mode,
                        uint64_t seed = ~0, unsigned numIPUs = 1) {
@@ -231,7 +257,7 @@ static bool normalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean, float stdDev,
   Graph graph(device);
   poprand::addCodelets(graph);
 
-  auto dType = equivalent_device_type<T>().value;
+  auto dType = deviceHalf ? poplar::HALF : equivalent_device_type<T>().value;
 
   auto out = graph.addVariable(dType, {DIM_SIZE, DIM_SIZE}, "out");
   mapTensorLinearly(graph, out);
@@ -243,7 +269,9 @@ static bool normalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean, float stdDev,
 
   Engine eng(device, graph, prog);
   eng.run();
-  eng.readTensor("out", hOut);
+  readAndConvertTensor<T, deviceHalf>(graph.getTarget(), eng, "out",
+                                      &hOut[0][0],
+                                      DIM_SIZE * DIM_SIZE);
 
   return validateNormal<T>(hOut, mean, stdDev, percentError);
 }
@@ -306,7 +334,7 @@ static bool validateTruncNormal(T mat[DIM_SIZE][DIM_SIZE], float actualMean,
   return boundsMet && meanTest && stdDevTest;
 }
 
-template <typename T>
+template <typename T, bool deviceHalf = false>
 static bool truncatedNormalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean,
                                 float stdDev, float alpha,
                                 double percentError, RandomGenMode mode,
@@ -317,7 +345,7 @@ static bool truncatedNormalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean,
   Graph graph(device);
   poprand::addCodelets(graph);
 
-  auto dType = equivalent_device_type<T>().value;
+  auto dType = deviceHalf ? poplar::HALF : equivalent_device_type<T>().value;
 
   auto out = graph.addVariable(dType, {DIM_SIZE, DIM_SIZE}, "out");
   mapTensorLinearly(graph, out);
@@ -329,15 +357,16 @@ static bool truncatedNormalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean,
 
   Engine eng(device, graph, prog);
   eng.run();
-  eng.readTensor("out", hOut);
+  readAndConvertTensor<T, deviceHalf>(graph.getTarget(), eng, "out",
+                                      &hOut[0][0],
+                                      DIM_SIZE * DIM_SIZE);
 
   return validateTruncNormal<T>(hOut, mean, stdDev, alpha, percentError);
 }
 
 BOOST_AUTO_TEST_CASE(RandomGenUniformHalf) {
-  using T = half;
-  T hOut[DIM_SIZE][DIM_SIZE];
-  bool result = uniformTest<T>(hOut, -2.0, 0, 5.0, SYSTEM_REPEATABLE);
+  float hOut[DIM_SIZE][DIM_SIZE];
+  bool result = uniformTest<float, true>(hOut, -2.0, 0, 5.0, SYSTEM_REPEATABLE);
   BOOST_TEST(result == true);
 }
 
@@ -365,9 +394,8 @@ BOOST_AUTO_TEST_CASE(RandomGenUniformFloat) {
 }
 
 BOOST_AUTO_TEST_CASE(RandomGenBernoulliHalf) {
-  using T = half;
-  T hOut[DIM_SIZE][DIM_SIZE];
-  bool result = bernoulliTest<T>(hOut, 0.75, 5.0, SYSTEM_REPEATABLE);
+  float hOut[DIM_SIZE][DIM_SIZE];
+  bool result = bernoulliTest<float, true>(hOut, 0.75, 5.0, SYSTEM_REPEATABLE);
   BOOST_TEST(result == true);
 }
 
@@ -400,12 +428,10 @@ BOOST_AUTO_TEST_CASE(RandomGenBernoulliIntProb1) {
 }
 
 BOOST_AUTO_TEST_CASE(RandomGenNormalHalf) {
-  using T = half;
-  T hOut[DIM_SIZE][DIM_SIZE];
-  bool result = normalTest<T>(hOut, 0.5, 2.5, 5.0, ALWAYS_REPEATABLE);
+  float hOut[DIM_SIZE][DIM_SIZE];
+  bool result = normalTest<float, true>(hOut, 0.5, 2.5, 5.0, ALWAYS_REPEATABLE);
   BOOST_TEST(result == true);
 }
-
 BOOST_AUTO_TEST_CASE(RandomGenNormalFloat) {
   using T = float;
   T hOut[DIM_SIZE][DIM_SIZE];
@@ -414,9 +440,9 @@ BOOST_AUTO_TEST_CASE(RandomGenNormalFloat) {
 }
 
 BOOST_AUTO_TEST_CASE(RandomGenTruncatedNormalHalf) {
-  using T = half;
-  T hOut[DIM_SIZE][DIM_SIZE];
-  bool result = truncatedNormalTest<T>(hOut, 1, 1, 2, 5, NOT_REPEATABLE);
+  float hOut[DIM_SIZE][DIM_SIZE];
+  bool result = truncatedNormalTest<float, true>(hOut, 1, 1, 2, 5,
+                                                 NOT_REPEATABLE);
   BOOST_TEST(result == true);
 }
 

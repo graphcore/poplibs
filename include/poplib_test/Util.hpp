@@ -7,8 +7,8 @@
 #include <boost/multi_array.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
-#include <poplar/HalfFloat.hpp>
 #include <poplar/Program.hpp>
+#include <poplar/Target.hpp>
 #include <poplib_test/Util.hpp>
 #include <stdexcept>
 #include <util/Compiler.hpp>
@@ -16,7 +16,8 @@
 namespace poplib_test {
 namespace util {
 std::unique_ptr<char []>
-allocateHostMemoryForTensor(const poplar::Tensor &t);
+allocateHostMemoryForTensor(const poplar::Target &target,
+                            const poplar::Tensor &t);
 
 std::unique_ptr<char []>
 allocateHostMemoryForTensor(const poplar::Tensor &t,  const std::string &name,
@@ -33,20 +34,25 @@ void download(poplar::Engine &e,
 /// The specific values returned seem the same on ubuntu/gcc and
 /// osx/clang
 void
-writeRandomValues(double *begin, double *end, double min, double max,
+writeRandomValues(const poplar::Target &target,
+                  const poplar::Type &type,
+                  double *begin, double *end, double min, double max,
                   std::mt19937 &randomEngine);
 
 template <class T, std::size_t N>
 void inline
-writeRandomValues(boost::multi_array<T, N> &a, double min,
+writeRandomValues(const poplar::Target &target,
+                  const poplar::Type &type,
+                  boost::multi_array<T, N> &a, double min,
                   double max, std::mt19937 &randomEngine) {
-  return writeRandomValues(a.data(), a.data() + a.num_elements(),
+  return writeRandomValues(target, type, a.data(), a.data() + a.num_elements(),
                            min, max, randomEngine);
 }
 
 template <unsigned long N>
 inline void
-copy(boost::multi_array_ref<double, N> src,
+copy(const poplar::Target &target,
+     boost::multi_array_ref<double, N> src,
      const poplar::Type &dstType,
      void *dst) {
   assert(src.storage_order() == boost::c_storage_order());
@@ -54,8 +60,7 @@ copy(boost::multi_array_ref<double, N> src,
     std::copy(src.data(), src.data() + src.num_elements(),
               reinterpret_cast<float*>(dst));
   } else if (dstType == poplar::HALF) {
-    std::copy(src.data(), src.data() + src.num_elements(),
-              reinterpret_cast<poplar::half*>(dst));
+    poplar::copyDoubleToDeviceHalf(target, src.data(), dst, src.num_elements());
   } else if (dstType == poplar::INT) {
     std::copy(src.data(), src.data() + src.num_elements(),
               reinterpret_cast<int*>(dst));
@@ -68,7 +73,8 @@ copy(boost::multi_array_ref<double, N> src,
 
 template <unsigned long N>
 inline void
-copy(const poplar::Type &srcType,
+copy(const poplar::Target &target,
+     const poplar::Type &srcType,
      void *src,
      boost::multi_array_ref<double, N> dst) {
   assert(dst.storage_order() == boost::c_storage_order());
@@ -77,9 +83,7 @@ copy(const poplar::Type &srcType,
               reinterpret_cast<float*>(src) + dst.num_elements(),
               dst.data());
   } else if (srcType == poplar::HALF) {
-    std::copy(reinterpret_cast<poplar::half*>(src),
-              reinterpret_cast<poplar::half*>(src) + dst.num_elements(),
-              dst.data());
+    poplar::copyDeviceHalfToDouble(target, src, dst.data(), dst.num_elements());
   } else if (srcType == poplar::INT) {
     std::copy(reinterpret_cast<int*>(src),
               reinterpret_cast<int*>(src) + dst.num_elements(),

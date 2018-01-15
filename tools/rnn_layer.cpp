@@ -16,7 +16,6 @@
 #include <popstd/Zero.hpp>
 #include <popreduce/Reduce.hpp>
 #include <popnn/Recurrent.hpp>
-#include <poplar/HalfFloat.hpp>
 #include <popstd/codelets.hpp>
 #include <popreduce/codelets.hpp>
 #include <poplin/codelets.hpp>
@@ -36,6 +35,12 @@ using namespace popreduce;
 using namespace poplin;
 using namespace popstd;
 
+
+// Default tolerances used in tests
+#define FLOAT_REL_TOL  0.1
+#define HALF_REL_TOL   0.3
+#define FLOAT_ABS_TOL  1e-5
+#define HALF_ABS_TOL   7e-2
 
 const char *asString(popnn::NonLinearityType &type) {
   switch (type) {
@@ -143,6 +148,21 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  if (vm["rel-tolerance"].empty()) {
+    if (dataType == FLOAT) {
+      relativeTolerance = FLOAT_REL_TOL;
+    } else {
+      relativeTolerance = HALF_REL_TOL;
+    }
+  }
+  if (vm["abs-tolerance"].empty()) {
+    if (dataType == FLOAT) {
+      absoluteTolerance = FLOAT_ABS_TOL;
+    } else {
+      absoluteTolerance = HALF_ABS_TOL;
+    }
+  }
+
   bool applyFeedFwdWeights = vm.count("apply-feedforward-weights");
 
   if (applyFeedFwdWeights) {
@@ -165,6 +185,7 @@ int main(int argc, char **argv) {
   }
 
   auto device = ipuModel.createDevice();
+  const auto &target = device.getTarget();
   Graph graph(device);
   popconv::addCodelets(graph);
   popstd::addCodelets(graph);
@@ -373,15 +394,18 @@ int main(int argc, char **argv) {
   std::mt19937 randomEngine;
 
   if (applyFeedFwdWeights) {
-    writeRandomValues(hostPrevAct, -4.0, 4.0, randomEngine);
-    writeRandomValues(hostFeedFwdWeights, -3.0, 3.0, randomEngine);
+    writeRandomValues(target, dataType, hostPrevAct, -4.0, 4.0, randomEngine);
+    writeRandomValues(target, dataType, hostFeedFwdWeights, -3.0, 3.0,
+                      randomEngine);
     poplib_test::rnn::forwardWeightInput(hostPrevAct, hostFeedFwdWeights,
                                          modelfeedFwdOutput);
   }
 
-  writeRandomValues(hostFeedbackWeights, -2.0, 2.0, randomEngine);
-  writeRandomValues(hostBiases, -1.0, 1.0, randomEngine);
-  writeRandomValues(hostNextLayerGrads, -1.0, 1.0, randomEngine);
+  writeRandomValues(target, dataType, hostFeedbackWeights, -2.0, 2.0,
+                    randomEngine);
+  writeRandomValues(target, dataType, hostBiases, -1.0, 1.0, randomEngine);
+  writeRandomValues(target, dataType, hostNextLayerGrads, -1.0, 1.0,
+                    randomEngine);
 
   poplib_test::rnn::forwardIterate(applyFeedFwdWeights
                                           ? modelfeedFwdOutput :
@@ -417,21 +441,21 @@ int main(int argc, char **argv) {
   }
 
   if (applyFeedFwdWeights) {
-    copy(hostPrevAct, dataType, rawHostPrevAct.get());
-    copy(hostFeedFwdWeights, dataType, rawHostFeedFwdWeights.get());
+    copy(target, hostPrevAct, dataType, rawHostPrevAct.get());
+    copy(target, hostFeedFwdWeights, dataType, rawHostFeedFwdWeights.get());
   } else {
     for (auto s = 0U; s != rawHostfeedFwdOutput.size(); ++s) {
       boost::multi_array<double, 2> subMat = hostfeedFwdOutput[s];
-      copy(subMat, dataType, rawHostfeedFwdOutput[s].get());
+      copy(target, subMat, dataType, rawHostfeedFwdOutput[s].get());
     }
   }
 
-  copy(hostFeedbackWeights, dataType, rawHostFeedbackWeights.get());
-  copy(hostBiases, dataType, rawHostBiases.get());
-  copy(hostInitAct, dataType, rawHostInitAct.get());
+  copy(target, hostFeedbackWeights, dataType, rawHostFeedbackWeights.get());
+  copy(target, hostBiases, dataType, rawHostBiases.get());
+  copy(target, hostInitAct, dataType, rawHostInitAct.get());
 
   if (doBwdPass || doWuPass) {
-    copy(hostNextLayerGrads, dataType, rawNextLayerGrads.get());
+    copy(target, hostNextLayerGrads, dataType, rawNextLayerGrads.get());
   }
 
   upload(engine, tmap);
@@ -444,7 +468,7 @@ int main(int argc, char **argv) {
     for (auto s = 0U; s != rawHostfeedFwdOutput.size(); ++s) {
       boost::multi_array<double, 2>
           impSubMat(boost::extents[batchSize][outputSize]);
-      copy(dataType, rawHostfeedFwdOutput[s].get(), impSubMat);
+      copy(target, dataType, rawHostfeedFwdOutput[s].get(), impSubMat);
       boost::multi_array<double, 2> refSubMat = modelfeedFwdOutput[s];
       matchesModel &= checkIsClose("feedFwdOutput", impSubMat, refSubMat,
                                    relativeTolerance, absoluteTolerance);
@@ -454,22 +478,22 @@ int main(int argc, char **argv) {
   for (auto s = 0U; s != rawHostNextAct.size(); ++s) {
     boost::multi_array<double, 2>
         impSubMat(boost::extents[batchSize][outputSize]);
-    copy(dataType, rawHostNextAct[s].get(), impSubMat);
+    copy(target, dataType, rawHostNextAct[s].get(), impSubMat);
     boost::multi_array<double, 2> refSubMat = modelNextAct[s];
     matchesModel &= checkIsClose("nextAct", impSubMat, refSubMat,
                                   relativeTolerance, absoluteTolerance);
   }
 
   if (doWuPass || doBwdPass) {
-    copy(dataType, rawHostPrevLayerGrads.get(), hostPrevLayerGrads);
-    copy(dataType, rawHostGradientSum.get(), hostGradientSum);
+    copy(target, dataType, rawHostPrevLayerGrads.get(), hostPrevLayerGrads);
+    copy(target, dataType, rawHostGradientSum.get(), hostGradientSum);
   }
   if (doWuPass) {
-    copy(dataType, rawHostFeedFwdWeightsDeltasAcc.get(),
+    copy(target, dataType, rawHostFeedFwdWeightsDeltasAcc.get(),
          hostFeedFwdWeightsDeltasAcc);
-    copy(dataType, rawHostFeedbackWeightsDeltasAcc.get(),
+    copy(target, dataType, rawHostFeedbackWeightsDeltasAcc.get(),
          hostFeedbackWeightsDeltasAcc);
-    copy(dataType, rawHostBiasesDeltasAcc.get(), hostBiasesDeltasAcc);
+    copy(target, dataType, rawHostBiasesDeltasAcc.get(), hostBiasesDeltasAcc);
   }
 
   if (doBwdPass) {

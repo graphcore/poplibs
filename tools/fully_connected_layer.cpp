@@ -15,7 +15,6 @@
 #include <poplin/MatMul.hpp>
 #include <popstd/Add.hpp>
 #include <popreduce/Reduce.hpp>
-#include <poplar/HalfFloat.hpp>
 #include <popstd/codelets.hpp>
 #include <popreduce/codelets.hpp>
 #include <poplin/codelets.hpp>
@@ -34,6 +33,12 @@ using namespace popstd;
 using namespace popreduce;
 using poplib_test::Pass;
 
+// Default tolerances used in tests
+#define FLOAT_REL_TOL  0.1
+#define HALF_REL_TOL   0.3
+#define FLOAT_ABS_TOL  1e-5
+#define HALF_ABS_TOL   7e-2
+
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
@@ -45,7 +50,7 @@ int main(int argc, char **argv) {
   bool inPlaceUpdate = true;
   Type dataType;
   Type partialsType;
-  double relativeTolerance;
+  double relativeTolerance, absoluteTolerance;
   IPUModel ipuModel;
   ipuModel.IPUExchangeType =
       IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
@@ -65,7 +70,7 @@ int main(int argc, char **argv) {
      po::value<Type>(&partialsType)->default_value(FLOAT),
      "Type of the partials")
     ("inference-only", "Benchmark inference only")
-    ("tolerance", po::value<double>(&relativeTolerance)->default_value(0.01),
+    ("tolerance", po::value<double>(&relativeTolerance),
      "Relative tolerance to use when validating results against the reference "
      "model")
     ("tiles-per-ipu",
@@ -112,9 +117,24 @@ int main(int argc, char **argv) {
   bool doBwdPass = !inferenceOnly && (pass == Pass::ALL || pass == Pass::BWD);
   bool doWuPass = !inferenceOnly && (pass == Pass::ALL || pass == Pass::WU);
 
+  if (vm["tolerance"].empty()) {
+    if (dataType == FLOAT) {
+      relativeTolerance = FLOAT_REL_TOL;
+    } else {
+      relativeTolerance = HALF_REL_TOL;
+    }
+  }
+  if (dataType == FLOAT) {
+    absoluteTolerance = FLOAT_ABS_TOL;
+   } else {
+    absoluteTolerance = HALF_ABS_TOL;
+  }
+
   const auto learningRate = 0.5;
-  auto device = ipuModel.createDevice();
-  Graph graph(device);
+  auto device  = ipuModel.createDevice();
+  const auto &target = device.getTarget();
+
+  Graph graph(device );
   popconv::addCodelets(graph);
   popstd::addCodelets(graph);
   popreduce::addCodelets(graph);
@@ -203,7 +223,7 @@ int main(int argc, char **argv) {
     addTo(graph, biases, biasDeltas, -learningRate, bwdProg);
   }
 
-  Engine engine(device, graph, {std::move(fwdProg), std::move(bwdProg)});
+  Engine engine(device , graph, {std::move(fwdProg), std::move(bwdProg)});
 
   boost::multi_array<double, 3>
       hostPrevAct(boost::extents[numGroups][batchSize][inputSize]);
@@ -214,17 +234,17 @@ int main(int argc, char **argv) {
   boost::multi_array<double, 3>
       hostNextAct(boost::extents[numGroups][batchSize][outputSize]);
   std::mt19937 randomEngine;
-  writeRandomValues(hostPrevAct, -4.0, 4.0, randomEngine);
-  writeRandomValues(hostWeights, -3.0, 3.0, randomEngine);
-  writeRandomValues(hostBiases, -4.0, 4.0, randomEngine);
-  copy(hostPrevAct, dataType, rawHostPrevAct.get());
-  copy(hostWeights, dataType, rawHostWeights.get());
-  copy(hostBiases, dataType, rawHostBiases.get());
+  writeRandomValues(target, dataType, hostPrevAct, -4.0, 4.0, randomEngine);
+  writeRandomValues(target, dataType, hostWeights, -3.0, 3.0, randomEngine);
+  writeRandomValues(target, dataType, hostBiases, -4.0, 4.0, randomEngine);
+  copy(target, hostPrevAct, dataType, rawHostPrevAct.get());
+  copy(target, hostWeights, dataType, rawHostWeights.get());
+  copy(target, hostBiases, dataType, rawHostBiases.get());
   // Run the forward pass.
   upload(engine, tmap);
   engine.run(0); // Run.
   download(engine, tmap);
-  copy(dataType, rawHostNextAct.get(), hostNextAct);
+  copy(target, dataType, rawHostNextAct.get(), hostNextAct);
 
   // Validate against a reference model.
   bool matchesModel = true;
@@ -234,7 +254,7 @@ int main(int argc, char **argv) {
     poplib_test::fc::fullyConnected(hostPrevAct, hostWeights, hostBiases,
                                     modelNextAct);
     matchesModel &= checkIsClose("fwd", hostNextAct, modelNextAct,
-                                 relativeTolerance);
+                                 relativeTolerance, absoluteTolerance);
 
   }
   if (doBwdPass || doWuPass) {
@@ -247,33 +267,34 @@ int main(int argc, char **argv) {
     auto modelWeights = hostWeights;
     auto modelBiases = hostBiases;
     // Run the backwards pass.
-    writeRandomValues(hostZDeltas, -5.0, 5.0, randomEngine);
-    copy(hostZDeltas, dataType, rawHostZDeltas.get());
+    writeRandomValues(target, dataType, hostZDeltas, -5.0, 5.0, randomEngine);
+    copy(target, hostZDeltas, dataType, rawHostZDeltas.get());
     upload(engine, tmap);
     engine.run(1); // Run.
     download(engine, tmap);
 
     // Validate against a reference model.
     if (doBwdPass) {
-      copy(dataType, rawHostPrevDeltas.get(), hostPrevDeltas);
+      copy(target, dataType, rawHostPrevDeltas.get(), hostPrevDeltas);
       boost::multi_array<double, 3>
           modelPrevDeltas(boost::extents[numGroups][batchSize][inputSize]);
       poplib_test::fc::fullyConnectedBackward(hostZDeltas, modelWeights,
                                               modelPrevDeltas);
       matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
-                                   relativeTolerance);
+                                   relativeTolerance, absoluteTolerance);
     }
     if (doWuPass) {
-      copy(dataType, rawHostWeights.get(), hostWeights);
-      copy(dataType, rawHostBiases.get(), hostBiases);
+      copy(target, dataType, rawHostWeights.get(), hostWeights);
+      copy(target, dataType, rawHostBiases.get(), hostBiases);
       poplib_test::fc::fullyConnectedWeightUpdate(learningRate, hostPrevAct,
                                                   hostZDeltas, modelWeights,
                                                   modelBiases);
       matchesModel &= checkIsClose("weights",
                                    hostWeights, modelWeights,
-                                   relativeTolerance);
+                                   relativeTolerance, absoluteTolerance);
       matchesModel &= checkIsClose("biases",
-                                   hostBiases, modelBiases, relativeTolerance);
+                                   hostBiases, modelBiases, relativeTolerance,
+                                   absoluteTolerance);
     }
   }
 

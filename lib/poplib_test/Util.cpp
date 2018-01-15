@@ -10,18 +10,22 @@ namespace poplib_test {
 namespace util {
 
 std::unique_ptr<char []>
-allocateHostMemoryForTensor(const Tensor &t) {
+allocateHostMemoryForTensor(const Target &target, const Tensor &t) {
   const auto dType = t.elementType();
   std::unique_ptr<char []> p;
   if (dType == FLOAT) {
     p.reset(new char[t.numElements() * sizeof(float)]);
+    std::fill(&p[0], &p[t.numElements() * sizeof(float)], 0);
   } else if (dType == HALF){
-    p.reset(new char[t.numElements() * sizeof(poplar::half)]);
+    p.reset(new char[t.numElements() * target.getTypeSize(HALF)]);
+    std::fill(&p[0], &p[t.numElements() * target.getTypeSize(HALF)], 0);
   } else if (dType == INT) {
     p.reset(new char[t.numElements() * sizeof(int)]);
+    std::fill(&p[0], &p[t.numElements() * sizeof(int)], 0);
   } else {
     assert(dType == BOOL);
     p.reset(new char[t.numElements() * sizeof(bool)]);
+    std::fill(&p[0], &p[t.numElements() * sizeof(bool)], 0);
   }
   return p;
 }
@@ -30,7 +34,8 @@ std::unique_ptr<char []>
 allocateHostMemoryForTensor(const Tensor &t,  const std::string &name,
                             Graph &graph,
                             std::vector<std::pair<std::string, char *>> &map) {
-  std::unique_ptr<char []> p = allocateHostMemoryForTensor(t);
+  std::unique_ptr<char []> p = allocateHostMemoryForTensor(graph.getTarget(),
+                                                           t);
   map.emplace_back(name, p.get());
   graph.createHostRead(name, t);
   graph.createHostWrite(name, t);
@@ -48,11 +53,24 @@ void download(Engine &e, std::vector<std::pair<std::string, char *>> &map) {
 }
 
 void
-writeRandomValues(double *begin, double *end, double min, double max,
+writeRandomValues(const Target &target,
+                  const Type &type,
+                  double *begin, double *end, double min, double max,
                   std::mt19937 &randomEngine) {
   std::uniform_real_distribution<> dist(min, max);
   for (auto it = begin; it != end; ++it) {
     *it = dist(randomEngine);
+  }
+  // Round floating point values to nearest representable value on device.
+  if (type == poplar::FLOAT) {
+    for (auto it = begin; it != end; ++it) {
+      *it = static_cast<float>(*it);
+    }
+  } else if (type == poplar::HALF) {
+    auto N = end - begin;
+    std::vector<char> buf(N * target.getTypeSize(type));
+    poplar::copyDoubleToDeviceHalf(target, begin, buf.data(), N);
+    poplar::copyDeviceHalfToDouble(target, buf.data(), begin, N);
   }
 }
 

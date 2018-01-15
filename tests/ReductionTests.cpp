@@ -3,7 +3,6 @@
 #include <boost/test/unit_test.hpp>
 #include <popstd/TileMapping.hpp>
 #include <poplar/Engine.hpp>
-#include <poplar/HalfFloat.hpp>
 #include <poplar/IPUModel.hpp>
 #include <popstd/codelets.hpp>
 #include <popreduce/codelets.hpp>
@@ -155,6 +154,7 @@ static bool reduceAddTest(const std::vector<std::size_t> &dims,
   IPUModel ipuModel;
   ipuModel.tilesPerIPU = 64;
   auto device = ipuModel.createDevice();
+  const auto &target = device.getTarget();
   Graph graph(device);
   popstd::addCodelets(graph);
   popreduce::addCodelets(graph);
@@ -198,12 +198,12 @@ static bool reduceAddTest(const std::vector<std::size_t> &dims,
 
   std::mt19937 randomEngine;
   std::fill(hostOut.data(), hostOut.data() + hostOut.num_elements(), 0);
-  writeRandomValues(hostPrev, -1.0, +5.0, randomEngine);
-  writeRandomValues(hostIn, 1.5, 1.6, randomEngine);
+  writeRandomValues(target, partialsType, hostPrev, -1.0, +5.0, randomEngine);
+  writeRandomValues(target, partialsType, hostIn, 1.5, 1.6, randomEngine);
 
-  copy(hostOut, outType, rawHostOut.get());
-  copy(hostPrev, outType, rawHostPrev.get());
-  copy(hostIn, partialsType, rawHostIn.get());
+  copy(target, hostOut, outType, rawHostOut.get());
+  copy(target, hostPrev, outType, rawHostPrev.get());
+  copy(target, hostIn, partialsType, rawHostIn.get());
 
   Engine engine(device, graph, prog);
 
@@ -211,7 +211,7 @@ static bool reduceAddTest(const std::vector<std::size_t> &dims,
   engine.run(0); // Run.
   download(engine, tmap);
 
-  copy(outType, rawHostOut.get(), hostOut);
+  copy(target, outType, rawHostOut.get(), hostOut);
 
   boost::multi_array<double, 1>
       modelReduced(boost::extents[dims[1]]);
@@ -249,6 +249,7 @@ static bool reduceOpsTest(const std::vector<std::size_t> &dims,
   IPUModel ipuModel;
   ipuModel.tilesPerIPU = 64;
   auto device = ipuModel.createDevice();
+  const auto &target = device.getTarget();
   Graph graph(device);
   popstd::addCodelets(graph);
   popreduce::addCodelets(graph);
@@ -294,7 +295,7 @@ static bool reduceOpsTest(const std::vector<std::size_t> &dims,
 
   std::mt19937 randomEngine;
   std::fill(hostOut.data(), hostOut.data() + hostOut.num_elements(), 0);
-  writeRandomValues(hostIn, -2, 2, randomEngine);
+  writeRandomValues(target, outType, hostIn, -2, 2, randomEngine);
 
   if (outType == BOOL) {
     for (auto it = hostIn.data(); it != hostIn.data() + hostIn.num_elements();
@@ -308,8 +309,8 @@ static bool reduceOpsTest(const std::vector<std::size_t> &dims,
     }
   }
 
-  copy(hostOut, outType, rawHostOut.get());
-  copy(hostIn, outType, rawHostIn.get());
+  copy(target, hostOut, outType, rawHostOut.get());
+  copy(target, hostIn, outType, rawHostIn.get());
 
   Engine engine(device, graph, prog);
 
@@ -317,7 +318,7 @@ static bool reduceOpsTest(const std::vector<std::size_t> &dims,
   engine.run(0); // Run.
   download(engine, tmap);
 
-  copy(outType, rawHostOut.get(), hostOut);
+  copy(target, outType, rawHostOut.get(), hostOut);
 
   boost::multi_array<double, 1>
       modelReduced(boost::extents[numOutElements]);

@@ -3,7 +3,6 @@
 #include <boost/test/unit_test.hpp>
 #include <popstd/TileMapping.hpp>
 #include <poplar/Engine.hpp>
-#include <poplar/HalfFloat.hpp>
 #include <poplar/IPUModel.hpp>
 #include <popstd/codelets.hpp>
 #include <popstd/Operations.hpp>
@@ -20,9 +19,9 @@
 
 // Tolerances used in tests
 #define FLOAT_REL_TOL  0.1
-#define HALF_REL_TOL   0.1
+#define HALF_REL_TOL   0.2
 #define FLOAT_ABS_TOL  1e-5
-#define HALF_ABS_TOL   1e-5
+#define HALF_ABS_TOL   7e-2
 
 using namespace poplar;
 using namespace poplar::program;
@@ -50,6 +49,7 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
       IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
   ipuModel.tilesPerIPU = tilesPerIPU;
   auto device = ipuModel.createDevice();
+  const auto &target = device.getTarget();
   Graph graph(device);
   popstd::addCodelets(graph);
   popnn::addCodelets(graph);
@@ -138,18 +138,18 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
       hostBeta(boost::extents[numChannels]);
 
   std::mt19937 randomEngine;
-  writeRandomValues(hostActs, -1.0, +5.0, randomEngine);
-  writeRandomValues(hostGamma, 0, +6.0, randomEngine);
-  writeRandomValues(hostBeta, -1.0, +5.0, randomEngine);
-  writeRandomValues(hostGradsIn, 0, +4.0, randomEngine);
+  writeRandomValues(target, dataType, hostActs, -1.0, +5.0, randomEngine);
+  writeRandomValues(target, dataType, hostGamma, 0, +6.0, randomEngine);
+  writeRandomValues(target, dataType, hostBeta, -1.0, +5.0, randomEngine);
+  writeRandomValues(target, dataType, hostGradsIn, 0, +4.0, randomEngine);
   auto modelGamma = hostGamma;
   auto modelBeta = hostBeta;
   auto modelGradsIn = hostGradsIn;
 
-  copy(hostActs, dataType, rawHostActs.get());
-  copy(hostGamma, dataType, rawHostGamma.get());
-  copy(hostBeta, dataType, rawHostBeta.get());
-  copy(hostGradsIn, dataType, rawHostGradsIn.get());
+  copy(target, hostActs, dataType, rawHostActs.get());
+  copy(target, hostGamma, dataType, rawHostGamma.get());
+  copy(target, hostBeta, dataType, rawHostBeta.get());
+  copy(target, hostGradsIn, dataType, rawHostGradsIn.get());
 
   Engine engine(device, graph, prog);
 
@@ -157,14 +157,14 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   engine.run(0); // Run.
   download(engine, tmap);
 
-  copy(dataType, rawHostActsWhitened.get(), hostActsWhitened);
-  copy(dataType, rawHostMean.get(), hostMean);
-  copy(dataType, rawHostInvStdDev.get(), hostInvStdDev);
-  copy(dataType, rawHostActsBN.get(), hostActsBN);
-  copy(dataType, rawHostActsBNInf.get(), hostActsBNInf);
-  copy(dataType, rawHostGradsOut.get(), hostGradsOut);
-  copy(dataType, rawHostBeta.get(), hostBeta);
-  copy(dataType, rawHostGamma.get(), hostGamma);
+  copy(target, dataType, rawHostActsWhitened.get(), hostActsWhitened);
+  copy(target, dataType, rawHostMean.get(), hostMean);
+  copy(target, dataType, rawHostInvStdDev.get(), hostInvStdDev);
+  copy(target, dataType, rawHostActsBN.get(), hostActsBN);
+  copy(target, dataType, rawHostActsBNInf.get(), hostActsBNInf);
+  copy(target, dataType, rawHostGradsOut.get(), hostGradsOut);
+  copy(target, dataType, rawHostBeta.get(), hostBeta);
+  copy(target, dataType, rawHostGamma.get(), hostGamma);
 
   bool matchesModel = true;
 
@@ -234,6 +234,7 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
       IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
   ipuModel.tilesPerIPU = tilesPerIPU;
   auto device = ipuModel.createDevice();
+  const auto &target = device.getTarget();
   Graph graph(device);
   popstd::addCodelets(graph);
   popnn::addCodelets(graph);
@@ -313,17 +314,17 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   boost::multi_array<double, 1> hostBeta(boost::extents[numActs]);
 
   std::mt19937 randomEngine;
-  writeRandomValues(hostActs, -1.0, +5.0, randomEngine);
-  writeRandomValues(hostGradsIn, 0, +4.0, randomEngine);
-  writeRandomValues(hostGamma, 0, +6.0, randomEngine);
-  writeRandomValues(hostBeta, -1.0, +5.0, randomEngine);
+  writeRandomValues(target, dataType, hostActs, -1.0, +5.0, randomEngine);
+  writeRandomValues(target, dataType, hostGradsIn, 0, +4.0, randomEngine);
+  writeRandomValues(target, dataType, hostGamma, 0, +6.0, randomEngine);
+  writeRandomValues(target, dataType, hostBeta, -1.0, +5.0, randomEngine);
   auto modelBeta = hostBeta;
   auto modelGamma = hostGamma;
 
-  copy(hostActs, dataType, rawHostActs.get());
-  copy(hostGradsIn, dataType, rawHostGradsIn.get());
-  copy(hostGamma, dataType, rawHostGamma.get());
-  copy(hostBeta, dataType, rawHostBeta.get());
+  copy(target, hostActs, dataType, rawHostActs.get());
+  copy(target, hostGradsIn, dataType, rawHostGradsIn.get());
+  copy(target, hostGamma, dataType, rawHostGamma.get());
+  copy(target, hostBeta, dataType, rawHostBeta.get());
 
   Engine engine(device, graph, prog);
 
@@ -331,14 +332,14 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   engine.run(0); // Run.
   download(engine, tmap); // Download.
 
-  copy(dataType, rawHostActsWhitened.get(), hostActsWhitened);
-  copy(dataType, rawHostGradsOut.get(), hostGradsOut);
-  copy(dataType, rawHostMean.get(), hostMean);
-  copy(dataType, rawHostInvStdDev.get(), hostInvStdDev);
-  copy(dataType, rawHostActsBN.get(), hostActsBN);
-  copy(dataType, rawHostActsBNInf.get(), hostActsBNInf);
-  copy(dataType, rawHostBeta.get(), hostBeta);
-  copy(dataType, rawHostGamma.get(), hostGamma);
+  copy(target, dataType, rawHostActsWhitened.get(), hostActsWhitened);
+  copy(target, dataType, rawHostGradsOut.get(), hostGradsOut);
+  copy(target, dataType, rawHostMean.get(), hostMean);
+  copy(target, dataType, rawHostInvStdDev.get(), hostInvStdDev);
+  copy(target, dataType, rawHostActsBN.get(), hostActsBN);
+  copy(target, dataType, rawHostActsBNInf.get(), hostActsBNInf);
+  copy(target, dataType, rawHostBeta.get(), hostBeta);
+  copy(target, dataType, rawHostGamma.get(), hostGamma);
 
   bool matchesModel = true;
 

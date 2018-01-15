@@ -5,7 +5,6 @@
 #include <boost/test/unit_test.hpp>
 #include <limits>
 #include <poplar/Engine.hpp>
-#include <poplar/HalfFloat.hpp>
 #include <poplar/IPUModel.hpp>
 #include <popstd/TileMapping.hpp>
 #include <popnn/codelets.hpp>
@@ -25,14 +24,17 @@ namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
 
 #define TOL 0.1 //tolerance of 0.1%
-#define ATOL 1e-30
+#define FLOAT_ATOL 1e-20
+#define HALF_ATOL 1e-7
+
 BOOST_AUTO_TEST_CASE(NonLinearity,
-                    *utf::tolerance<half>(fpc::percent_tolerance<half>(TOL))
                     *utf::tolerance<float>(fpc::percent_tolerance<float>(TOL))
                     *utf::tolerance<double>(fpc::percent_tolerance<double>(TOL))
                      ) {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
+  //auto device = Device::createCPUDevice();
+  const auto &target = device.getTarget();
   Graph graph(device);
   popnn::addCodelets(graph);
   //layer parameters
@@ -68,20 +70,20 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
   const auto batchSize=1;
 
   // test inputs calculated in harness
-  float hActInF[batchSize][ySize][xSize][zChunk];
-  half  hActInH[batchSize][ySize][xSize][zChunk];
-  float hDeltaInF[batchSize][ySize][xSize][zChunk];
-  half  hDeltaInH[batchSize][ySize][xSize][zChunk];
   boost::multi_array<double, 4>
     hActIn(boost::extents[batchSize][ySize][xSize][zChunk]);
   boost::multi_array<double, 4>
     hDeltaIn(boost::extents[batchSize][ySize][xSize][zChunk]);
 
   // outputs calculated by target code
-  auto rawHActOutF = allocateHostMemoryForTensor(actF);
-  auto rawHActOutH = allocateHostMemoryForTensor(actH);
-  auto rawHDeltaOutF = allocateHostMemoryForTensor(deltaF);
-  auto rawHDeltaOutH = allocateHostMemoryForTensor(deltaH);
+  auto rawHActOutF = allocateHostMemoryForTensor(target, actF);
+  auto rawHActOutH = allocateHostMemoryForTensor(target, actH);
+  auto rawHActInF = allocateHostMemoryForTensor(target, actF);
+  auto rawHActInH = allocateHostMemoryForTensor(target, actH);
+  auto rawHDeltaOutF = allocateHostMemoryForTensor(target, deltaF);
+  auto rawHDeltaOutH = allocateHostMemoryForTensor(target, deltaH);
+  auto rawHDeltaInF = allocateHostMemoryForTensor(target, deltaF);
+  auto rawHDeltaInH = allocateHostMemoryForTensor(target, deltaH);
   boost::multi_array<double, 4>
     hActOutF(boost::extents[batchSize][ySize][xSize][zChunk]);
   boost::multi_array<double, 4>
@@ -104,10 +106,7 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
       for (unsigned x = 0; x < xSize; ++x) {
         for (unsigned chan = 0; chan < zChunk; chan++) {
           hRefDeltaOut[b][y][x][chan]
-            = hDeltaInH[b][y][x][chan]
-            = hDeltaInF[b][y][x][chan]
-            = hDeltaIn[b][y][x][chan] = val / 20;
-          hActInH[b][y][x][chan] = hActInF[b][y][x][chan] =
+            = hDeltaIn[b][y][x][chan] = val / 200;
            hActIn[b][y][x][chan] = val + 1000 * chan;
         }
         val += 7.01;
@@ -134,19 +133,20 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     nonLinearity(graph, n, actF, fwdProg);
     nonLinearity(graph, n, actH, fwdProg);;
     Engine fwdEng(device, graph, fwdProg);
-
-    fwdEng.writeTensor("inF", hActInF);
-    fwdEng.writeTensor("inH", hActInH);
+    copy(target, hActIn, FLOAT, rawHActInF.get());
+    fwdEng.writeTensor("inF", rawHActInF.get());
+    copy(target, hActIn, HALF, rawHActInH.get());
+    fwdEng.writeTensor("inH", rawHActInH.get());
     fwdEng.run();
     fwdEng.readTensor("outF", rawHActOutF.get());
     fwdEng.readTensor("outH", rawHActOutH.get());
-    copy(HALF, rawHActOutH.get(), hActOutH);
-    copy(FLOAT, rawHActOutF.get(), hActOutF);
+    copy(target, HALF, rawHActOutH.get(), hActOutH);
+    copy(target, FLOAT, rawHActOutF.get(), hActOutF);
 
     BOOST_TEST(
-      checkIsClose("hRefActOutF", hActOutF, hRefActOut, TOL, ATOL));
+      checkIsClose("outF", hActOutF, hRefActOut, TOL, FLOAT_ATOL));
     BOOST_TEST(
-      checkIsClose("hRefActOutH", hActOutH, hRefActOut, TOL, ATOL));
+      checkIsClose("outH", hActOutH, hRefActOut, TOL, HALF_ATOL));
 
     hRefDeltaOut = hDeltaIn;
     poplib_test::bwdNonLinearity(n, hActIn, hRefDeltaOut);
@@ -157,38 +157,36 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     auto deltaHH = nonLinearityInputGradient(graph, n, actH, deltaH, bwdProg);
     bwdProg.add(Copy(deltaHH, deltaH));
     Engine bwdEng(device, graph, bwdProg);
-    bwdEng.writeTensor("inF", hActInF);
-    bwdEng.writeTensor("inH", hActInH);
-    bwdEng.writeTensor("inDeltaF", hDeltaInF);
-    bwdEng.writeTensor("inDeltaH", hDeltaInH);
+    copy(target, hActIn, FLOAT, rawHActInF.get());
+    bwdEng.writeTensor("inF", rawHActInF.get());
+    copy(target, hActIn, HALF, rawHActInH.get());
+    bwdEng.writeTensor("inH", rawHActInH.get());
+    copy(target, hDeltaIn, FLOAT, rawHDeltaInF.get());
+    bwdEng.writeTensor("inDeltaF", rawHDeltaInF.get());
+    copy(target, hDeltaIn, HALF, rawHDeltaInH.get());
+    bwdEng.writeTensor("inDeltaH", rawHDeltaInH.get());
     bwdEng.run();
     bwdEng.readTensor("outDeltaF", rawHDeltaOutF.get());
     bwdEng.readTensor("outDeltaH", rawHDeltaOutH.get());
-    copy(HALF, rawHDeltaOutH.get(), hDeltaOutH);
-    copy(FLOAT, rawHDeltaOutF.get(), hDeltaOutF);
+    copy(target, HALF, rawHDeltaOutH.get(), hDeltaOutH);
+    copy(target, FLOAT, rawHDeltaOutF.get(), hDeltaOutF);
 
-    for (unsigned b = 0; b < batchSize; ++b) {
-      for (unsigned y = 0; y < xSize; ++y) {
-        for (unsigned x = 0; x < xSize; ++x) {
-          for (unsigned chan = 0; chan < zChunk; chan++) {
-            BOOST_TEST(hDeltaOutF[b][y][x][chan]
-                       == (float)hRefDeltaOut[b][y][x][chan]);
-            BOOST_TEST((float)hDeltaOutH[b][y][x][chan]
-                       == (float)hRefDeltaOut[b][y][x][chan]);
-          }
-        }
-      }
-    }
+
+    BOOST_TEST(
+      checkIsClose("deltaOutF", hDeltaOutF, hRefDeltaOut, TOL, FLOAT_ATOL));
+    BOOST_TEST(
+      checkIsClose("deltaOutH", hDeltaOutH, hRefDeltaOut, TOL, HALF_ATOL));
   }
 }
 
+
 BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
-                    *utf::tolerance<half>(fpc::percent_tolerance<half>(1))
                     *utf::tolerance<float>(fpc::percent_tolerance<float>(0.1))
                     *utf::tolerance<double>(fpc::percent_tolerance<double>(0.1))
                      ) {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
+  const auto &target = device.getTarget();
   Graph graph(device);
   popnn::addCodelets(graph);
   popstd::addCodelets(graph);
@@ -211,18 +209,20 @@ BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
   mapTensorLinearly(graph, actF);
   mapTensorLinearly(graph, actH);
 
-  float hActInF[batchSize][numChannels];
-  half hActInH[batchSize][numChannels];
-  float hActOutF[batchSize][numChannels];
-  half hActOutH[batchSize][numChannels];
+  auto rawHActOutF = allocateHostMemoryForTensor(target, actF);
+  auto rawHActOutH = allocateHostMemoryForTensor(target, actH);
+  auto rawHActInF = allocateHostMemoryForTensor(target, actF);
+  auto rawHActInH = allocateHostMemoryForTensor(target, actH);
 
   boost::multi_array<double, 2>
-    hActIn(boost::extents[batchSize][numChannels]);
+    hActIn(boost::extents[batchSize][numChannels]),
+    hActOutF(boost::extents[batchSize][numChannels]),
+    hActOutH(boost::extents[batchSize][numChannels]);
 
   for (unsigned b = 0; b < batchSize; ++b) {
     for (unsigned c = 0; c < numChannels; ++c) {
       double sample = (1.0 - 2 * (c&1)) * (1 + b) * 0.01 * c;
-      hActInH[b][c] = hActInF[b][c] =  hActIn[b][c] = sample;
+      hActIn[b][c] = sample;
     }
   }
 
@@ -236,16 +236,21 @@ BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
   nonLinearity(graph, nl, actH, fwdProg);
   Engine fwdEng(device, graph, fwdProg);
 
-  fwdEng.writeTensor("inF", hActInF);
-  fwdEng.writeTensor("inH", hActInH);
+  copy(target, hActIn, FLOAT, rawHActInF.get());
+  fwdEng.writeTensor("inF", rawHActInF.get());
+  copy(target, hActIn, HALF, rawHActInH.get());
+  fwdEng.writeTensor("inH", rawHActInH.get());
+  fwdEng.writeTensor("inF", rawHActInF.get());
+  fwdEng.writeTensor("inH", rawHActInH.get());
   fwdEng.run();
-  fwdEng.readTensor("outF", hActOutF);
-  fwdEng.readTensor("outH", hActOutH);
+  fwdEng.readTensor("outF", rawHActOutF.get());
+  fwdEng.readTensor("outH", rawHActOutH.get());
+  copy(target, HALF, rawHActOutH.get(), hActOutH);
+  copy(target, FLOAT, rawHActOutF.get(), hActOutF);
 
-  for (unsigned b = 0; b < batchSize; ++b) {
-    for (unsigned c = 0; c < numChannels; ++c) {
-      BOOST_TEST(hActOutF[b][c] == hActOut[b][c]);
-      BOOST_TEST((float)hActOutH[b][c] == hActOut[b][c]);
-    }
-  }
+
+  BOOST_TEST(
+    checkIsClose("actOutF", hActOutF, hActOut, TOL, FLOAT_ATOL));
+  BOOST_TEST(
+    checkIsClose("actOutH", hActOutH, hActOut, TOL, HALF_ATOL));
 }

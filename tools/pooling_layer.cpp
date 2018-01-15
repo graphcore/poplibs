@@ -11,7 +11,6 @@
 #include <poplar/IPUModel.hpp>
 #include <popstd/TileMapping.hpp>
 #include <popnn/Pooling.hpp>
-#include <poplar/HalfFloat.hpp>
 #include <popnn/codelets.hpp>
 #include <popstd/codelets.hpp>
 #include <popnn/NonLinearity.hpp>
@@ -21,8 +20,13 @@
 #include <popstd/exceptions.hpp>
 #include <random>
 
-#define FLOAT_ABS_TOL  1e-6
-#define HALF_ABS_TOL   1e-5
+
+
+// Default tolerances used in tests
+#define FLOAT_REL_TOL  0.1
+#define HALF_REL_TOL   0.3
+#define FLOAT_ABS_TOL  1e-5
+#define HALF_ABS_TOL   7e-2
 
 using namespace poplar;
 using namespace poplar::program;
@@ -70,7 +74,7 @@ int main(int argc, char **argv) {
   unsigned bwdChansPerGroup;
   unsigned batchSize;
   Type dataType;
-  double relativeTolerance;
+  double relativeTolerance, absoluteTolerance;
   IPUModel ipuModel;
   ipuModel.IPUExchangeType =
       IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
@@ -142,7 +146,7 @@ int main(int argc, char **argv) {
      "The number of channels per group of the deltas written in the backwards "
      "pass")
     ("inference-only", "Benchmark inference only")
-    ("tolerance", po::value<double>(&relativeTolerance)->default_value(0.01),
+    ("tolerance", po::value<double>(&relativeTolerance),
      "Relative tolerance to use when validating results against the reference "
      "model")
     ("tiles-per-ipu",
@@ -259,6 +263,7 @@ int main(int argc, char **argv) {
 
   bool inferenceOnly = vm.count("inference-only");
   auto device = ipuModel.createDevice();
+  const auto &target = device.getTarget();
   Graph graph(device);
   popnn::addCodelets(graph);
   popstd::addCodelets(graph);
@@ -347,25 +352,37 @@ int main(int argc, char **argv) {
     rawHostPrevDeltas = allocateHostMemoryForTensor(prevDeltas, "prevDeltas",
                                                     graph, tmap);
   }
-  Engine engine(device, graph, {std::move(fwdProg), std::move(bwdProg)});
-
+  EngineOptions engOpt;
+  engOpt.cpuMultiThreadExecution = false;
+  Engine engine(device, graph, {std::move(fwdProg), std::move(bwdProg)},
+                engOpt);
 
   boost::multi_array<double, 4>
       hostPrevAct(boost::extents[batchSize][chans][height][width]);
   boost::multi_array<double, 4>
       hostNextAct(boost::extents[batchSize][chans][outHeight][outWidth]);
   std::mt19937 randomEngine;
-  writeRandomValues(hostPrevAct, -4.0, 4.0, randomEngine);
-  copy<4>(hostPrevAct, dataType, rawHostPrevAct.get());
+  writeRandomValues(target, dataType, hostPrevAct, -4.0, 4.0, randomEngine);
+  copy<4>(target, hostPrevAct, dataType, rawHostPrevAct.get());
   // Run the forward pass.
   upload(engine, tmap);
   engine.run(0); // Run.
   download(engine, tmap);
 
   // Validate against a reference model.
-  const double absoluteTolerance = dataType == FLOAT ? FLOAT_ABS_TOL :
-                                                       HALF_ABS_TOL;
-  copy<4>(dataType, rawHostNextAct.get(), hostNextAct);
+  if (vm["tolerance"].empty()) {
+    if (dataType == FLOAT) {
+      relativeTolerance = FLOAT_REL_TOL;
+    } else {
+      relativeTolerance = HALF_REL_TOL;
+    }
+  }
+  if (dataType == FLOAT) {
+    absoluteTolerance = FLOAT_ABS_TOL;
+   } else {
+    absoluteTolerance = HALF_ABS_TOL;
+  }
+  copy<4>(target, dataType, rawHostNextAct.get(), hostNextAct);
   boost::multi_array<double, 4>
       modelNextAct(boost::extents[batchSize][chans][outHeight][outWidth]);
   poplib_test::pooling::pooling(poolingType, strideHeight, strideWidth,
@@ -384,13 +401,15 @@ int main(int argc, char **argv) {
       boost::extents[batchSize][chans][height][width]
     );
     // Run the backwards pass.
-    writeRandomValues(hostZDeltas, -5.0, 5.0, randomEngine);
-    copy<4>(hostZDeltas, dataType, rawHostZDeltas.get());
+    writeRandomValues(target, dataType, hostZDeltas, -5.0, 5.0, randomEngine);
+    copy<4>(target, hostZDeltas, dataType, rawHostZDeltas.get());
+    copy<4>(target, modelNextAct, dataType, rawHostNextAct.get());
+    copy<4>(target, hostPrevAct, dataType, rawHostPrevAct.get());
     upload(engine, tmap);
     engine.run(1); // Run.
     download(engine, tmap);
-    copy<4>(dataType, rawHostZDeltas.get(), hostZDeltas);
-    copy<4>(dataType, rawHostPrevDeltas.get(), hostPrevDeltas);
+    copy<4>(target, dataType, rawHostZDeltas.get(), hostZDeltas);
+    copy<4>(target, dataType, rawHostPrevDeltas.get(), hostPrevDeltas);
 
     // Validate against a reference model.
     boost::multi_array<double, 4>

@@ -379,13 +379,8 @@ Tensor div(Graph &graph, Tensor A, Tensor B, Sequence &prog,
 
 Tensor div(Graph &graph, float k, Tensor A, Sequence &prog,
           const std::string &debugPrefix) {
-  Tensor B;
   const auto dType = A.elementType();
-  if (dType == HALF) {
-    B = graph.addConstant<half>(dType, A.shape(), k);
-  } else {
-    B = graph.addConstant<float>(dType, A.shape(), k);
-  }
+  auto B = graph.addConstant<float>(dType, A.shape(), k);
   return binaryOp(graph, B, A, prog, BinaryOp::DIVIDE, debugPrefix + "/Op/Div");
 }
 

@@ -3,7 +3,6 @@
 #include <boost/test/unit_test.hpp>
 #include <popstd/TileMapping.hpp>
 #include <poplar/Engine.hpp>
-#include <poplar/HalfFloat.hpp>
 #include <poplar/IPUModel.hpp>
 #include <popstd/codelets.hpp>
 #include <iostream>
@@ -63,7 +62,6 @@ static void setBinaryOpInputs(int hIn1[DIM_SIZE][DIM_SIZE],
 }
 
 BOOST_AUTO_TEST_CASE(StdAddTo_float,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -138,7 +136,6 @@ BOOST_AUTO_TEST_CASE(StdAddTo_int) {
 }
 
 BOOST_AUTO_TEST_CASE(StdSubtractFrom_float,
-                  *utf::tolerance<half>(fpc::percent_tolerance<half>(0.1))
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {

@@ -13,7 +13,6 @@
 #include <poplin/MatMul.hpp>
 #include <popstd/Add.hpp>
 #include <popreduce/Reduce.hpp>
-#include <poplar/HalfFloat.hpp>
 #include <popconv/codelets.hpp>
 #include <popstd/codelets.hpp>
 #include <popreduce/codelets.hpp>
@@ -30,6 +29,11 @@ using namespace poplib_test::util;
 using namespace poplin;
 using namespace popstd;
 
+// Default tolerances used in tests
+#define FLOAT_REL_TOL  0.1
+#define HALF_REL_TOL   0.3
+#define FLOAT_ABS_TOL  1e-5
+#define HALF_ABS_TOL   7e-2
 
 // Class to specify matrix operation
 enum class MatrixOp {
@@ -72,7 +76,7 @@ int main(int argc, char **argv) {
   float alpha, beta;
   Type dataType;
   Type partialsType;
-  double relativeTolerance;
+  double relativeTolerance, absoluteTolerance;
   MatrixOp matAOp = MatrixOp::NORMAL;
   MatrixOp matBOp = MatrixOp::NORMAL;
 
@@ -110,7 +114,7 @@ int main(int argc, char **argv) {
     ("right-matrix-op",
       po::value<MatrixOp>(&matBOp)->default_value(matBOp),
       "Operation on right matrix  normal | transpose")
-    ("tolerance", po::value<double>(&relativeTolerance)->default_value(0.01),
+    ("tolerance", po::value<double>(&relativeTolerance),
      "Relative tolerance to use when validating results against the reference "
      "model")
     ("tiles-per-ipu",
@@ -135,10 +139,20 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  if (dataType == FLOAT) {
+    absoluteTolerance = FLOAT_ABS_TOL;
+    relativeTolerance = FLOAT_REL_TOL;
+  } else {
+    absoluteTolerance = HALF_ABS_TOL;
+    relativeTolerance = HALF_REL_TOL;
+  }
+
+
   if (beta != 1.0) {
     throw popstd::poplib_error("Only beta = 1.0 is supported");
   }
   auto device = ipuModel.createDevice();
+  const auto &target = device.getTarget();
   Graph graph(device);
   popconv::addCodelets(graph);
   popstd::addCodelets(graph);
@@ -203,9 +217,9 @@ int main(int argc, char **argv) {
   boost::multi_array<double, 2>
       hostMatC(boost::extents[m][n]);
   std::mt19937 randomEngine;
-  writeRandomValues(hostMatA, -4.0, 4.0, randomEngine);
-  writeRandomValues(hostMatB, -3.0, 3.0, randomEngine);
-  writeRandomValues(hostMatC, -2.0, 2.0, randomEngine);
+  writeRandomValues(target, dataType, hostMatA, -4.0, 4.0, randomEngine);
+  writeRandomValues(target, dataType, hostMatB, -3.0, 3.0, randomEngine);
+  writeRandomValues(target, dataType, hostMatC, -2.0, 2.0, randomEngine);
 
   // validate against a reference model
   boost::multi_array<double, 2> refMatC(boost::extents[m][n]);
@@ -213,18 +227,18 @@ int main(int argc, char **argv) {
                                            refMatC, alpha, beta, transposeA,
                                            transposeB);
 
-  copy(hostMatA, dataType, rawHostMatA.get());
-  copy(hostMatB, dataType, rawHostMatB.get());
-  copy(hostMatC, dataType, rawHostMatC.get());
+  copy(target, hostMatA, dataType, rawHostMatA.get());
+  copy(target, hostMatB, dataType, rawHostMatB.get());
+  copy(target, hostMatC, dataType, rawHostMatC.get());
 
   upload(engine, tmap);
   engine.run(0);    // matrix operation
   download(engine, tmap);
 
-  copy(dataType, rawHostMatC.get(), hostMatC);
+  copy(target, dataType, rawHostMatC.get(), hostMatC);
 
   const bool matchesModel = checkIsClose("gemm", hostMatC, refMatC,
-                                         relativeTolerance);
+                                         relativeTolerance, absoluteTolerance);
 
   Engine::ReportOptions opt;
   opt.doLayerWiseProfile = true;

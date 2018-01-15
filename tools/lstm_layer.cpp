@@ -12,7 +12,6 @@
 #include <poplin/MatMul.hpp>
 #include <popnn/Lstm.hpp>
 #include <popstd/TileMapping.hpp>
-#include <poplar/HalfFloat.hpp>
 #include <popconv/codelets.hpp>
 #include <popstd/codelets.hpp>
 #include <popreduce/codelets.hpp>
@@ -31,6 +30,12 @@ using namespace poplib_test::util;
 using namespace poplin;
 using namespace popstd;
 using namespace popnn;
+
+// Default tolerances used in tests
+#define FLOAT_REL_TOL  0.1
+#define HALF_REL_TOL   0.3
+#define FLOAT_ABS_TOL  1e-5
+#define HALF_ABS_TOL   7e-2
 
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
@@ -66,11 +71,10 @@ int main(int argc, char **argv) {
     ("partials-type",
      po::value<Type>(&partialsType)->default_value(FLOAT),
      "Type of the partials")
-    ("rel-tolerance", po::value<double>(&relativeTolerance)->
-     default_value(0.01),
+    ("rel-tolerance", po::value<double>(&relativeTolerance),
      "Relative tolerance to use when validating results against the reference "
      "model")
-    ("abs-tolerance",po::value<double>(&absoluteTolerance)->default_value(1e-6),
+    ("abs-tolerance",po::value<double>(&absoluteTolerance),
      "Absolute tolerance to use when validating results against the reference "
      "model")
     ("tiles-per-ipu",
@@ -101,7 +105,23 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  if (vm["rel-tolerance"].empty()) {
+    if (dataType == FLOAT) {
+      relativeTolerance = FLOAT_REL_TOL;
+    } else {
+      relativeTolerance = HALF_REL_TOL;
+    }
+  }
+  if (vm["abs-tolerance"].empty()) {
+    if (dataType == FLOAT) {
+      absoluteTolerance = FLOAT_ABS_TOL;
+    } else {
+      absoluteTolerance = HALF_ABS_TOL;
+    }
+  }
+
   auto device = ipuModel.createDevice();
+  const auto &target = device.getTarget();
   Graph graph(device);
   popconv::addCodelets(graph);
   popstd::addCodelets(graph);
@@ -267,27 +287,32 @@ int main(int argc, char **argv) {
 
   std::mt19937 randomEngine;
 
-  writeRandomValues(hostPrevLayerAct, -4.0, 4.0, randomEngine);
-  writeRandomValues(hostOutputInit, -3.0, 3.0, randomEngine);
-  writeRandomValues(hostCellStateInit, -3.0, 3.0, randomEngine);
-  writeRandomValues(hostWeightsInput, -1.0, 1.0, randomEngine);
-  writeRandomValues(hostWeightsOutput, -1.0, 1.0, randomEngine);
-  writeRandomValues(hostBiases, -1.0, 1.0, randomEngine);
+  writeRandomValues(target, dataType, hostPrevLayerAct, -4.0, 4.0,
+                    randomEngine);
+  writeRandomValues(target, dataType, hostOutputInit, -3.0, 3.0, randomEngine);
+  writeRandomValues(target, dataType, hostCellStateInit, -3.0, 3.0,
+                    randomEngine);
+  writeRandomValues(target, dataType, hostWeightsInput, -1.0, 1.0,
+                    randomEngine);
+  writeRandomValues(target, dataType, hostWeightsOutput, -1.0, 1.0,
+                    randomEngine);
+  writeRandomValues(target, dataType, hostBiases, -1.0, 1.0, randomEngine);
 
   if (doBwdPass) {
-    writeRandomValues(hostNextLayerGrads, -2.0, 2.0, randomEngine);
+    writeRandomValues(target, dataType, hostNextLayerGrads, -2.0, 2.0,
+                      randomEngine);
   }
 
   modelCellState = hostCellStateInit;
 
-  copy(hostPrevLayerAct, dataType, rawHostPrevLayerAct.get());
-  copy(hostCellStateInit, dataType, rawHostCellStateInit.get());
-  copy(hostOutputInit, dataType, rawHostOutputInit.get());
-  copy(hostBiases, dataType, rawHostBiases.get());
-  copy(hostWeightsInput, dataType, rawHostWeightsInput.get());
-  copy(hostWeightsOutput, dataType, rawHostWeightsOutput.get());
+  copy(target, hostPrevLayerAct, dataType, rawHostPrevLayerAct.get());
+  copy(target, hostCellStateInit, dataType, rawHostCellStateInit.get());
+  copy(target, hostOutputInit, dataType, rawHostOutputInit.get());
+  copy(target, hostBiases, dataType, rawHostBiases.get());
+  copy(target, hostWeightsInput, dataType, rawHostWeightsInput.get());
+  copy(target, hostWeightsOutput, dataType, rawHostWeightsOutput.get());
   if (doBwdPass) {
-    copy(hostNextLayerGrads, dataType, rawHostNextLayerGrads.get());
+    copy(target, hostNextLayerGrads, dataType, rawHostNextLayerGrads.get());
   }
 
   upload(engine, tmap);
@@ -314,15 +339,15 @@ int main(int argc, char **argv) {
   for (auto s = 0U; s != rawHostNextAct.size(); ++s) {
     boost::multi_array<double, 2> subMatImp(boost::extents[batchSize]
                                                           [outputSize]);
-    copy(dataType, rawHostNextAct[s].get(), subMatImp);
+    copy(target, dataType, rawHostNextAct[s].get(), subMatImp);
     boost::multi_array<double, 2> subMatRef =
         modelFwdState[LSTM_FWD_STATE_ACTS_IDX][s];
     matchesModel &= checkIsClose("nextLayerAct", subMatRef, subMatImp,
-                                 relativeTolerance);
+                                 relativeTolerance, absoluteTolerance);
   }
 
   if (doBwdPass) {
-    copy(dataType, rawHostPrevLayerGrads.get(), hostPrevLayerGrads);
+    copy(target, dataType, rawHostPrevLayerGrads.get(), hostPrevLayerGrads);
 
     matchesModel &=
       checkIsClose("prevLayerGrads", modelPrevLayerGrads, hostPrevLayerGrads,
@@ -330,10 +355,11 @@ int main(int argc, char **argv) {
   }
 
   if (doWuPass) {
-    copy(dataType, rawHostWeightsInputDeltas.get(), hostWeightsInputDeltas);
-    copy(dataType, rawHostWeightsOutputDeltas.get(),
+    copy(target, dataType, rawHostWeightsInputDeltas.get(),
+         hostWeightsInputDeltas);
+    copy(target, dataType, rawHostWeightsOutputDeltas.get(),
          hostWeightsOutputDeltas);
-    copy(dataType, rawHostBiasDeltas.get(), hostBiasesDeltas);
+    copy(target, dataType, rawHostBiasDeltas.get(), hostBiasesDeltas);
     boost::multi_array<double, 3>
         modelWeightsOutputDeltas(boost::extents[BASIC_LSTM_CELL_NUM_UNITS]
                                               [outputSize][outputSize]);
