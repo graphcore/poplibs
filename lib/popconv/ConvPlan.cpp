@@ -575,50 +575,54 @@ estimateConvPartialHorizontalMacInnerLoopCycles(unsigned numOutRows,
     floatActivations);
 }
 
-static bool zeroPartials(const ConvParams &params, const Plan &plan) {
-  if (plan.method == Plan::Method::MAC) {
-    return true;
-  }
-  const auto numFieldDims = params.getNumFieldDims();
-  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    const auto tileKernelSize = getMaxTileKernelSize(params, plan, dim);
-    if (tileKernelSize != 1)
-      return true;
-    if (params.stride[dim] != 1 ||
-        params.inputDilation[dim] != 1 ||
-        params.kernelDilation[dim] != 1 ||
-        params.inputPaddingLower[dim] != 0 ||
-        params.inputPaddingUpper[dim] != 0 ||
-        params.kernelPaddingLower[dim] != 0 ||
-        params.kernelPaddingUpper[dim] != 0) {
-      return true;
+static popsolver::Variable
+addZeroCycles(popsolver::Model &m,
+              const poplar::Target &target,
+              const popsolver::Variable partialsPerTile,
+              const ConvSizeVariables &convSize,
+              const ConvParams &params,
+              bool floatPartials,
+              Plan::Method method) {
+  enum { Yes, No, Maybe } zeroPartials = Maybe;
+  if (method == Plan::Method::MAC) {
+    zeroPartials = Yes;
+  } else {
+    const auto numFieldDims = params.getNumFieldDims();
+    for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+      if (params.stride[dim] != 1 ||
+          params.inputDilation[dim] != 1 ||
+          params.kernelDilation[dim] != 1 ||
+          params.inputPaddingLower[dim] != 0 ||
+          params.inputPaddingUpper[dim] != 0 ||
+          params.kernelPaddingLower[dim] != 0 ||
+          params.kernelPaddingUpper[dim] != 0) {
+        zeroPartials = Yes;
+        break;
+      }
+    }
+    const auto kernelElements =
+        std::accumulate(params.kernelShape.begin(),
+                        params.kernelShape.end(), std::size_t(1UL),
+                        std::multiplies<std::size_t>());
+    if (kernelElements != 1) {
+      zeroPartials = No;
     }
   }
-  return false;
-}
-
-static unsigned
-estimateZeroCycles(const poplar::Target &target,
-                   const ConvParams &params,
-                   const Plan &plan) {
-  if (!zeroPartials(params, plan)) {
-    return 0;
-  }
-  const auto tileBatchElements = getMaxTileBatchElements(params, plan);
-  const auto tileNumOutChans = getMaxTileOutChans(params, plan);
-  const auto tileNumGroupedConv = getMaxTileConvGroups(params, plan);
-  auto numberOfOutputElements = tileBatchElements * tileNumOutChans *
-                                tileNumGroupedConv;
-  const auto numFieldDims = params.getNumFieldDims();
-  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    const auto tileOutSize = getMaxTileOutSize(params, plan, dim);
-    numberOfOutputElements *= tileOutSize;
-  }
+  if (zeroPartials == No)
+    return m.addConstant(0);
   const auto vectorWidth =
-      plan.floatPartials ? target.getFloatVectorWidth() :
-                           target.getHalfVectorWidth();
-  const auto numCycles = (numberOfOutputElements + vectorWidth - 1) /
-                         vectorWidth;
+      m.addConstant(floatPartials ? target.getFloatVectorWidth() :
+                                    target.getHalfVectorWidth());
+  auto numCycles = m.ceildiv(partialsPerTile, vectorWidth);
+  if (zeroPartials == Maybe) {
+    const auto tileKernelElements = m.product(convSize.kernelSize);
+    auto cycleMultiplier = m.call({tileKernelElements},
+                                  [](const std::vector<unsigned> &values) {
+      return values[0] > 1 ? 1 : 0;
+    });
+    m.lessOrEqual(cycleMultiplier, 1);
+    numCycles = m.product({numCycles, cycleMultiplier});
+  }
   return numCycles;
 }
 
@@ -796,43 +800,6 @@ estimatePartialCalcCycles(const poplar::Target &target,
   return computeCycles;
 }
 
-
-static unsigned
-estimateReduceCycles(const poplar::Target &target, const ConvParams &params,
-                     const Plan &plan) {
-  const auto tileBatchElements = getMaxTileBatchElements(params, plan);
-  const auto tileNumConvGroups = getMaxTileConvGroups(params, plan);
-  const auto tileNumOutChans = getMaxTileOutChans(params, plan);
-  auto partialsPerTile = tileBatchElements * tileNumOutChans *
-                         tileNumConvGroups;
-  for (unsigned dim = 0; dim != params.getNumFieldDims(); ++dim) {
-    partialsPerTile *= getMaxTileOutSize(params, plan, dim);
-  }
-  unsigned numCycles = 0;
-  for (int level = plan.partitions.size() - 1; level >= 0; --level) {
-    const auto &partition = plan.partitions[level];
-    const auto reductionDepth =
-        std::accumulate(partition.kernelSplit.begin(),
-                        partition.kernelSplit.end(),
-                        partition.inChanSplit,
-                        std::multiplies<std::size_t>());
-    if (reductionDepth > 1) {
-      // Consider a group of tiles that compute partial sums for the same output
-      // volume. The number of partial sums that to be reduced is
-      // partialsPerTile * numTiles. Calculation of the output is spread evenly
-      // across the tiles so the number of partial sums each tile must reduce is
-      // (partialsPerTile * numTiles) / numTiles = partialsPerTile.
-      const auto reduceElementsPerTile = partialsPerTile;
-      const auto vectorWidth =
-          plan.floatPartials ? target.getFloatVectorWidth() :
-                               target.getHalfVectorWidth();
-      numCycles += (reduceElementsPerTile + vectorWidth - 1) / vectorWidth;
-      partialsPerTile = (partialsPerTile + reductionDepth - 1) / reductionDepth;
-    }
-  }
-  return numCycles;
-}
-
 unsigned getMaxMACsPerCyclePerTile(const poplar::Target &target,
                                    bool floatPartials,
                                    bool floatActivations,
@@ -977,6 +944,62 @@ addExchangeCycleEstimate(
 }
 
 static popsolver::Variable
+addReduceCycleEstimate(
+    popsolver::Model &m,
+    const std::vector<PartitionVariables> &partitionVars,
+    popsolver::Variable partialsPerTile,
+    const poplar::Target &target,
+    bool floatPartials) {
+  std::vector<popsolver::Variable> cycleSumOperands;
+  const auto numLevelsOfHierarchy = partitionVars.size();
+  const auto vectorWidth =
+      m.addConstant(floatPartials ? target.getFloatVectorWidth() :
+                                    target.getHalfVectorWidth());
+  for (int level = numLevelsOfHierarchy - 1; level >= 0; --level) {
+    auto reduceDimSizes = partitionVars[level].kernelSplit;
+    reduceDimSizes.push_back(partitionVars[level].inChanSplit);
+    const auto reductionDepth = m.product(reduceDimSizes);
+    // Consider a group of tiles that compute partial sums for the same output
+    // volume. The number of partial sums that to be reduced is
+    // partialsPerTile * numTiles. Calculation of the output is spread evenly
+    // across the tiles so the number of partial sums each tile must reduce is
+    // (partialsPerTile * numTiles) / numTiles = partialsPerTile.
+    auto reduceElementsPerTile = partialsPerTile;
+    // Nothing to do if the reduction depth is one.
+    const auto reduceMultiplier =
+        m.call({reductionDepth},
+               [](const std::vector<unsigned> &vars) {
+      return vars[0] > 1 ? 1 : 0;
+    });
+    m.lessOrEqual(reduceMultiplier, 1);
+    reduceElementsPerTile = m.product({reduceElementsPerTile,
+                                       reduceMultiplier});
+    cycleSumOperands.push_back(m.ceildiv(reduceElementsPerTile, vectorWidth));
+    if (level != 0) {
+      partialsPerTile = m.ceildiv(partialsPerTile, reductionDepth);
+    }
+  }
+  return m.sum(cycleSumOperands);
+}
+
+static popsolver::Variable
+addPartialsPerTile(popsolver::Model &m,
+                   const std::vector<PartitionVariables> &partitionVars,
+                   const std::vector<ConvSizeVariables> &convSize) {
+  unsigned grainSizeProduct = partitionVars.back().outChanGrainSize;
+  std::accumulate(partitionVars.back().fieldGrainSize.begin(),
+                  partitionVars.back().fieldGrainSize.end(),
+                  grainSizeProduct,
+                  std::multiplies<unsigned>());
+  auto partialDimSizes = convSize.back().numFieldGrains;
+  partialDimSizes.push_back(convSize.back().batchSize);
+  partialDimSizes.push_back(convSize.back().numConvGroups);
+  partialDimSizes.push_back(convSize.back().numOutChanGrains);
+  partialDimSizes.push_back(m.addConstant(grainSizeProduct));
+  return m.product(partialDimSizes);
+}
+
+static popsolver::Variable
 addCycleEstimate(popsolver::Model &m,
                  const std::vector<PartitionVariables> &partitionVars,
                  const std::vector<ConvSizeVariables> &convSize,
@@ -1038,12 +1061,10 @@ addCycleEstimate(popsolver::Model &m,
                                perLevelExchangeBytesPerCycle, params,
                                floatPartials, floatActivations,
                                linearizeTileOrder);
+  const auto partialsPerTile = addPartialsPerTile(m, partitionVars, convSize);
   const auto zeroCycles =
-      m.call(variables,
-             [=,&target](const std::vector<unsigned> &values) {
-    Plan candidate = makePlan(values);
-    return estimateZeroCycles(target, params, candidate);
-  });
+      addZeroCycles(m, target, partialsPerTile, convSize.back(), params,
+                    floatPartials, method);
   const auto partialCalcCycles =
       m.call(variables,
              [=,&target](const std::vector<unsigned> &values) {
@@ -1063,11 +1084,8 @@ addCycleEstimate(popsolver::Model &m,
   m.lessOrEqual(totalMacs / maxMACsPerCyclePerTile,
                 m.product({usedTiles, partialCalcCycles}));
   const auto reduceCycles =
-      m.call(variables,
-             [=,&target](const std::vector<unsigned> &values) {
-    Plan candidate = makePlan(values);
-    return estimateReduceCycles(target, params, candidate);
-  });
+      addReduceCycleEstimate(m, partitionVars, partialsPerTile, target,
+                             floatPartials);
   return m.sum({exchangeCycles, zeroCycles, partialCalcCycles, reduceCycles});
 }
 
