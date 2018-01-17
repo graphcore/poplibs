@@ -18,12 +18,12 @@ void addTo(Graph &graph, Tensor A, Tensor B, float k,
   const auto dataPathWidth = target.getDataPathWidth();
   const auto dType = A.elementType();
   const auto numTiles = target.getNumTiles();
-  const auto mapping = graph.getTileMapping(A);
   const auto cs = graph.addComputeSet(debugPrefix + "/AddTo");
 
   auto aFlat = A.flatten();
   auto bFlat = B.flatten();
   graph.reorderToSimplify(&aFlat, {&bFlat});
+  const auto mapping = graph.getTileMapping(aFlat);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     // On each tile split the elements of the output up between the workers.
     // The grainSize is set to the vector width so vectors will not be split
