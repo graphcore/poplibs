@@ -7,7 +7,9 @@ using namespace poplar;
 namespace popreduce {
 
 template <typename OutType, typename PartialsType>
-class ReduceAdd : public Vertex {
+class
+[[poplar::constraint("elem(**out) != elem(**partials)")]]
+ReduceAdd : public Vertex {
 public:
   Vector<Output<Vector<OutType>>> out;
   Vector<Input<Vector<PartialsType>>> partials;
@@ -37,7 +39,9 @@ template class ReduceAdd<half, half>;
 template class ReduceAdd<int, int>;
 
 template <typename OutType, typename PartialsType>
-class ReduceAddUpdate : public Vertex {
+class
+[[poplar::constraint("elem(**out) != elem(**partials)")]]
+ReduceAddUpdate : public Vertex {
 public:
   Vector<InOut<Vector<OutType>>> out;
   Vector<Input<Vector<PartialsType>>> partials;
@@ -68,7 +72,9 @@ template class ReduceAddUpdate<half, half>;
 template class ReduceAddUpdate<int, int>;
 
 template <typename OutType, typename PartialsType>
-class ReduceAddScale : public Vertex {
+class
+[[poplar::constraint("elem(**out) != elem(**partials)")]]
+ReduceAddScale : public Vertex {
 public:
   Vector<InOut<Vector<OutType>>> out;
   Vector<Input<Vector<PartialsType>>> partials;
@@ -99,7 +105,9 @@ template class ReduceAddScale<int, int>;
 
 
 template <typename OutType, typename PartialsType>
-class ReduceMul : public Vertex {
+class
+[[poplar::constraint("elem(**out) != elem(**partials)")]]
+ReduceMul : public Vertex {
 public:
   Vector<Output<Vector<OutType>>> out;
   Vector<Input<Vector<PartialsType>>> partials;
@@ -135,7 +143,9 @@ static const T &max(const T &x, const T &y) {
 }
 
 template <typename OutType, typename PartialsType>
-class ReduceMax : public Vertex {
+class
+[[poplar::constraint("elem(**out) != elem(**partials)")]]
+ReduceMax : public Vertex {
 public:
   Vector<Output<Vector<OutType>>> out;
   Vector<Input<Vector<PartialsType>>> partials;
@@ -170,7 +180,9 @@ static const T &min(const T &x, const T &y) {
 }
 
 template <typename OutType, typename PartialsType>
-class ReduceMin : public Vertex {
+class
+[[poplar::constraint("elem(**out) != elem(**partials)")]]
+ReduceMin : public Vertex {
 public:
   Vector<Output<Vector<OutType>>> out;
   Vector<Input<Vector<PartialsType>>> partials;
@@ -200,7 +212,9 @@ template class ReduceMin<int, int>;
 
 
 template <typename OutType, typename PartialsType>
-class ReduceAnd : public Vertex {
+class
+[[poplar::constraint("elem(**out) != elem(**partials)")]]
+ReduceAnd : public Vertex {
 public:
   Vector<Output<Vector<OutType>>> out;
   Vector<Input<Vector<PartialsType>>> partials;
@@ -228,7 +242,9 @@ template class ReduceAnd<bool, bool>;
 
 
 template <typename OutType, typename PartialsType>
-class ReduceOr : public Vertex {
+class
+[[poplar::constraint("elem(**out) != elem(**partials)")]]
+ReduceOr : public Vertex {
 public:
   Vector<Output<Vector<OutType>>> out;
   Vector<Input<Vector<PartialsType>>> partials;

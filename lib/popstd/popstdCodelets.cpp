@@ -103,7 +103,9 @@ template class Zero2d<half>;
 
 
 template <typename SrcType, typename DstType>
-class Cast : public Vertex {
+class
+[[poplar::constraint("elem(*src) != elem(*dst)")]]
+Cast : public Vertex {
 public:
   Input<Vector<SrcType>> src;
   Output<Vector<DstType>> dst;
@@ -138,7 +140,9 @@ template class Cast<bool,int>;
 template class Cast<bool,bool>;
 
 template <typename SrcType, typename DstType>
-class Cast2d : public Vertex {
+class
+[[poplar::constraint("elem(**src) != elem(**dst)")]]
+Cast2d : public Vertex {
 public:
   Vector<Input<Vector<SrcType>>> src;
   Vector<Output<Vector<DstType>>> dst;
@@ -233,10 +237,7 @@ template class Atan2<half>;
 
 template <typename InType>
 class
-// Meeting these constraints would give cyclesPerVector==1
-[[poplar::constraint("elem(**in1) != elem(**in2)",
-                     "elem(**in1) != elem(**out)",
-                     "elem(**in2) != elem(**out)")]]
+[[poplar::constraint("elem(**in1) != elem(**in2)")]]
 Add : public Vertex {
 public:
   Vector<Input<Vector<InType>>> in1;
@@ -264,7 +265,12 @@ template class Add<int>;
 template class Add<unsigned>;
 
 template <typename InType>
-class BitwiseAnd : public Vertex {
+class
+[[poplar::constraint("elem(**in1) != elem(**in2)",
+                     "elem(**in2) != elem(**out)",
+                     "elem(**in1) != elem(**out)")]]
+
+BitwiseAnd : public Vertex {
 public:
   Vector<Input<Vector<InType>>> in1;
   Vector<Input<Vector<InType>>> in2;
@@ -289,7 +295,9 @@ template class BitwiseAnd<int>;
 
 
 template <typename InType>
-class BitwiseNot : public Vertex {
+class
+[[poplar::constraint("elem(**in) != elem(**out)")]]
+BitwiseNot : public Vertex {
 public:
   Vector<Input<Vector<InType>>> in;
   Vector<Output<Vector<InType>>> out;
@@ -311,7 +319,11 @@ template class BitwiseNot<int>;
 
 
 template <typename InType>
-class BitwiseOr : public Vertex {
+class
+[[poplar::constraint("elem(**in1) != elem(**in2)",
+                     "elem(**in2) != elem(**out)",
+                     "elem(**in1) != elem(**out)")]]
+BitwiseOr : public Vertex {
 public:
   Vector<Input<Vector<InType>>> in1;
   Vector<Input<Vector<InType>>> in2;
@@ -336,7 +348,9 @@ template class BitwiseOr<int>;
 
 
 template <typename InType>
-class Ceil : public Vertex {
+class
+[[poplar::constraint("elem(**in) != elem(**out)")]]
+Ceil : public Vertex {
 public:
   Vector<Input<Vector<InType>>> in;
   Vector<Output<Vector<InType>>> out;
@@ -380,7 +394,11 @@ template class Cos<float>;
 template class Cos<half>;
 
 template <typename InType>
-class Divide : public Vertex {
+class
+[[poplar::constraint("elem(**in1) != elem(**in2)",
+                     "elem(**in2) != elem(**out)",
+                     "elem(**in1) != elem(**out)")]]
+Divide : public Vertex {
 public:
   Vector<Input<Vector<InType>>> in1;
   Vector<Input<Vector<InType>>> in2;
@@ -456,7 +474,9 @@ template class Exponent<float>;
 template class Exponent<half>;
 
 template <typename InType>
-class Floor : public Vertex {
+class
+[[poplar::constraint("elem(**in) != elem(**out)")]]
+Floor : public Vertex {
 public:
   Vector<Input<Vector<InType>>> in;
   Vector<Output<Vector<InType>>> out;
@@ -707,7 +727,9 @@ static const T &max(const T &x, const T &y) {
 }
 
 template <typename InType>
-class Maximum : public Vertex {
+class
+[[poplar::constraint("elem(**in1) != elem(**in2)")]]
+Maximum : public Vertex {
 public:
   Vector<Input<Vector<InType>>> in1;
   Vector<Input<Vector<InType>>> in2;
@@ -739,7 +761,9 @@ static const T &min(const T &x, const T &y) {
 }
 
 template <typename InType>
-class Minimum : public Vertex {
+class
+[[poplar::constraint("elem(**in1) != elem(**in2)")]]
+Minimum : public Vertex {
 public:
   Vector<Input<Vector<InType>>> in1;
   Vector<Input<Vector<InType>>> in2;
@@ -766,7 +790,9 @@ template class Minimum<int>;
 
 
 template <typename InType>
-class Multiply : public Vertex {
+class
+[[poplar::constraint("elem(**in1) != elem(**in2)")]]
+Multiply : public Vertex {
 public:
   Vector<Input<Vector<InType>>> in1;
   Vector<Input<Vector<InType>>> in2;
@@ -821,7 +847,9 @@ template class NotEqual<bool>;
 
 
 template <typename InType>
-class Negate : public Vertex {
+class
+[[poplar::constraint("elem(**in) != elem(**out)")]]
+Negate : public Vertex {
 public:
   Vector<Input<Vector<InType>>> in;
   Vector<Output<Vector<InType>>> out;
@@ -871,7 +899,11 @@ template class Power<half>;
 
 
 template <typename InType>
-class Remainder : public Vertex {
+class
+[[poplar::constraint("elem(**in1) != elem(**in2)",
+                     "elem(**in1) != elem(**out)",
+                     "elem(**in2) != elem(**out)")]]
+Remainder : public Vertex {
 public:
   Vector<Input<Vector<InType>>> in1;
   Vector<Input<Vector<InType>>> in2;
@@ -997,7 +1029,9 @@ public:
 template class ShiftRightSignExtend<int>;
 
 template <typename InType>
-class Signum : public Vertex {
+class
+[[poplar::constraint("elem(**in) != elem(**out)")]]
+Signum : public Vertex {
 public:
   Vector<Input<Vector<InType>>> in;
   Vector<Output<Vector<InType>>> out;
@@ -1042,7 +1076,9 @@ template class Sin<float>;
 template class Sin<half>;
 
 template <typename InType>
-class Subtract : public Vertex {
+class
+[[poplar::constraint("elem(**in1) != elem(**in2)")]]
+Subtract : public Vertex {
 public:
   Vector<Input<Vector<InType>>> in1;
   Vector<Input<Vector<InType>>> in2;
@@ -1115,7 +1151,9 @@ template class Sqrt<float>;
 template class Sqrt<half>;
 
 template <typename InType>
-class Square : public Vertex {
+class
+[[poplar::constraint("elem(**in) != elem(**out)")]]
+Square : public Vertex {
 public:
   Vector<Input<Vector<InType>>> in;
   Vector<Output<Vector<InType>>> out;

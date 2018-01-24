@@ -12,7 +12,9 @@ namespace popconv {
  * Compute nx1 convolutions and accumulate them with partial sums in memory.
  **/
 template <class FPType, class AccumType, bool useDeltasForEdges>
-class ConvPartialnx1: public SupervisorVertex {
+class
+[[poplar::constraint("elem(**in) != elem(**out)")]]
+ConvPartialnx1: public SupervisorVertex {
 public:
   Vector<Input<Vector<FPType>>> in;
   Vector<Input<Vector<FPType>>> weights;
@@ -126,7 +128,9 @@ template class ConvPartialnx1<half, half, false>;
 template class ConvPartialnx1<half, float, false>;
 
 template <typename FPType>
-class ConvChanReduce2: public Vertex {
+class
+[[poplar::constraint("elem(*in) != elem(*out)")]]
+ConvChanReduce2: public Vertex {
 public:
   Vector<Output<FPType>> out;
   Vector<Input<FPType>> in;
@@ -175,7 +179,9 @@ template class ConvChanReduceAcc<float, half>;
  * multiple output channels.
  **/
 template <class FPType, class AccumType, bool useDeltasForEdges>
-class ConvPartial1x1Out: public SupervisorVertex {
+class
+[[poplar::constraint("elem(**in) != elem(**out)")]]
+ConvPartial1x1Out: public SupervisorVertex {
 public:
   Vector<Input<Vector<FPType>>> in;
   Vector<Input<Vector<FPType>>> weights;
@@ -256,7 +262,9 @@ template class ConvPartial1x1Out<float, float, false>;
 /* Perform a series of 1x1 convolutions using the MAC instruction were the
  * axis of accumulation is across the vector. */
 template <class FPType, class AccumType>
-class ConvPartialHorizontalMac : public SupervisorVertex {
+class
+[[poplar::constraint("elem(**in) != elem(**weights)")]]
+ConvPartialHorizontalMac : public SupervisorVertex {
 public:
   Vector<Input<Vector<FPType>>> in;
   Vector<Input<Vector<FPType>>> weights;
@@ -760,7 +768,9 @@ template class WgdConvComplete<float>;
 template class WgdConvComplete<half>;
 
 template <typename T>
-class Transpose2d : public Vertex {
+class
+[[poplar::constraint("elem(**src) != elem(**dst)")]]
+Transpose2d : public Vertex {
 public:
   Vector<Input<Vector<T>>> src;
   Vector<Output<Vector<T>>> dst;
@@ -790,7 +800,9 @@ template class Transpose2d<float>;
 template class Transpose2d<half>;
 
 template <class FPType>
-class AddToChannel : public Vertex {
+class
+[[poplar::constraint("elem(**acts) != elem(**addend)")]]
+AddToChannel : public Vertex {
 public:
   Vector<InOut<Vector<FPType>>> acts;
   Vector<Input<Vector<FPType>>> addend;
@@ -818,7 +830,9 @@ template class AddToChannel<float>;
 template class AddToChannel<half>;
 
 template <class FPType>
-class ScaledAddToChannel : public Vertex {
+class
+[[poplar::constraint("elem(**acts) != elem(**addend)")]]
+ScaledAddToChannel : public Vertex {
 public:
   Vector<InOut<Vector<FPType>>> acts;
   Vector<Input<Vector<FPType>>> addend;
@@ -847,7 +861,11 @@ template class ScaledAddToChannel<float>;
 template class ScaledAddToChannel<half>;
 
 template <class FPType>
-class ChannelMul : public Vertex {
+class
+[[poplar::constraint("elem(**actsIn) != elem(**actsOut)",
+                     "elem(**actsIn) != elem(**scale)",
+                     "elem(**scale) != elem(**actsOut)" )]]
+ChannelMul : public Vertex {
 public:
   Vector<Input<Vector<FPType>>> actsIn;
   Vector<Output<Vector<FPType>>> actsOut;
@@ -880,7 +898,9 @@ template class ChannelMul<half>;
 
 
 template <typename InType, typename OutType>
-class ConvChanReduce: public Vertex {
+class
+[[poplar::constraint("elem(**in) != elem(*out)")]]
+ConvChanReduce: public Vertex {
 public:
   Output<Vector<OutType>> out;
   Vector<Input<Vector<InType>>> in;
@@ -911,7 +931,9 @@ template class ConvChanReduce<half, half>;
 
 
 template <typename InType, typename OutType>
-class ConvChanReduceSquare: public Vertex {
+class
+[[poplar::constraint("elem(**in) != elem(*out)")]]
+ConvChanReduceSquare: public Vertex {
 public:
   Output<Vector<OutType>> out;
   Vector<Input<Vector<InType>>> in;
@@ -992,7 +1014,9 @@ template class InverseStdDeviation<half, float, half>;
 template class InverseStdDeviation<half, half, half>;
 
 template <class T>
-class OuterProduct : public Vertex {
+class
+[[poplar::constraint("elem(*weights) != elem(**out)")]]
+OuterProduct : public Vertex {
 public:
   Input<Vector<T>> in;
   Input<Vector<T>> weights;
