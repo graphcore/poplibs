@@ -52,6 +52,7 @@ add_custom_command(
   DEPENDS
     popnnCodelets.cpp
     PerformanceEstimation.hpp
+    popc_bin
 )
 
 add_custom_target(popnn_codelets DEPENDS popnn.gp SOURCES popnnCodelets.cpp)

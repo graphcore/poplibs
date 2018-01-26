@@ -37,6 +37,7 @@ add_custom_command(
     ${CMAKE_CURRENT_SOURCE_DIR}/poprandCodelets.cpp
   DEPENDS
     poprandCodelets.cpp
+    popc_bin
 )
 
 add_custom_target(poprand_codelets DEPENDS poprand.gp

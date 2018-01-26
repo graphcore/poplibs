@@ -39,6 +39,7 @@ add_custom_command(
   DEPENDS
     PerformanceEstimation.hpp
     popreduceCodelets.cpp
+    popc_bin
 )
 
 add_custom_target(popreduce_codelets DEPENDS popreduce.gp

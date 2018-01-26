@@ -49,6 +49,7 @@ add_custom_command(
   DEPENDS
     popconvCodelets.cpp
     PerformanceEstimation.hpp
+    popc_bin
 )
 
 add_custom_target(graph_program DEPENDS popconv.gp SOURCES popconvCodelets.cpp)

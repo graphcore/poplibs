@@ -64,6 +64,7 @@ add_custom_command(
     ${CMAKE_CURRENT_SOURCE_DIR}/popstdCodelets.cpp
   DEPENDS
     popstdCodelets.cpp
+    popc_bin
 )
 
 add_custom_target(popstd_codelets DEPENDS popstd.gp
