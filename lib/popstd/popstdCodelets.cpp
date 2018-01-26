@@ -240,7 +240,9 @@ class
 [[poplar::constraint("elem(**in1) != elem(**in2)")]]
 Add : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
+  // One of the edges from {in1, in2} must be in uuper half of memory.
+  // See T2272.
+  Vector<Input<Vector<InType, 1, true>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
@@ -272,7 +274,9 @@ class
 
 BitwiseAnd : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
+  // T2272: One of the edges from {in1, in2} must be in uuper half of
+  // memory
+  Vector<Input<Vector<InType, 1, true>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
@@ -325,7 +329,9 @@ class
                      "elem(**in1) != elem(**out)")]]
 BitwiseOr : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
+  // One of the edges from {in1, in2} must be in uuper half of memory.
+  // See T2272.
+  Vector<Input<Vector<InType, 1, true>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
@@ -400,7 +406,9 @@ class
                      "elem(**in1) != elem(**out)")]]
 Divide : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
+  // One of the edges from {in1, in2} must be in uuper half of memory.
+  // See T2272.
+  Vector<Input<Vector<InType, 1, true>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
@@ -731,7 +739,9 @@ class
 [[poplar::constraint("elem(**in1) != elem(**in2)")]]
 Maximum : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
+  // One of the edges from {in1, in2} must be in uuper half of memory.
+  // See T2272.
+  Vector<Input<Vector<InType, 1, true>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
@@ -765,7 +775,9 @@ class
 [[poplar::constraint("elem(**in1) != elem(**in2)")]]
 Minimum : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
+  // One of the edges from {in1, in2} must be in uuper half of memory.
+  // See T2272.
+  Vector<Input<Vector<InType, 1, true>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
@@ -794,7 +806,9 @@ class
 [[poplar::constraint("elem(**in1) != elem(**in2)")]]
 Multiply : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
+  // One of the edges from {in1, in2} must be in uuper half of memory.
+  // See T2272.
+  Vector<Input<Vector<InType, 1, true>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
@@ -905,7 +919,9 @@ class
                      "elem(**in2) != elem(**out)")]]
 Remainder : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
+  // One of the edges from {in1, in2} must be in uuper half of memory.
+  // See T2272.
+  Vector<Input<Vector<InType, 1, true>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
@@ -1080,7 +1096,9 @@ class
 [[poplar::constraint("elem(**in1) != elem(**in2)")]]
 Subtract : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
+  // One of the edges from {in1, in2} must be in uuper half of memory.
+  // See T2272.
+  Vector<Input<Vector<InType, 1, true>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
