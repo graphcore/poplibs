@@ -1863,8 +1863,7 @@ getTileHierarchy(const poplar::Target &target,
                  std::vector<double> &perLevelExchangeBytesPerCycle) {
   std::vector<unsigned> hierarchy;
   perLevelExchangeBytesPerCycle.clear();
-  // TODO query target, see T2125
-  const auto clockFrequency = 1.6 * 1000 * 1000 * 1000;
+  const auto clockFrequency = target.getTileClockFrequency();
   if (target.getNumIPUs() > 1) {
     hierarchy.push_back(target.getNumIPUs());
     auto ipuExchangeBytesPerCycle =
