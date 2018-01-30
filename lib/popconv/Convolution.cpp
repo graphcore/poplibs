@@ -1782,7 +1782,7 @@ static void createConvPartialAmpVertex(Graph &graph,
   }
   std::vector<std::size_t> tileInBatchAndFieldBegin = { batchBegin };
   std::vector<std::size_t> tileInBatchAndFieldEnd = { batchEnd };
-  // This stride is whats use to move down one element in the input field by
+  // This stride is what's used to move down one element in the input field by
   // the vertex.
   int inRowStride = inChansPerGroup * params.kernelDilation.front();
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
