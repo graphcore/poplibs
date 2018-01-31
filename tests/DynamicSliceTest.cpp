@@ -187,7 +187,6 @@ void sliceTestND(unsigned tilesPerIPU,
             << " mapping " << graph.getTileMapping(t1) << "\n";
 
   auto prog = Sequence();
-
   auto tOut = dynamicSlice(graph, t1, tWantedOffsets, sliceDims, sliceSizes,
                            prog, "DSND");
 
@@ -250,6 +249,11 @@ static void subTestSmallSlice(unsigned tilesPerIPU,
 {
   sliceTestND(tilesPerIPU, smallTestShape, smallTestData,
             sliceDims, sliceSizes);
+}
+
+// Test empty slice
+BOOST_AUTO_TEST_CASE(Slice_Empty){
+  subTestSmallSlice(5, {}, {});
 }
 
 // Test slicing of a single dimension
@@ -320,7 +324,7 @@ void updateTestND(unsigned tilesPerIPU,
   auto t1 = graph.addVariable(FLOAT, t1Shape, "t1");
   std::cerr<<"Created tensor t1: " << t1 << "\n";
 
-    std::vector<size_t> subShape = t1.shape();
+  std::vector<size_t> subShape = t1.shape();
   for (unsigned i = 0; i != sliceDims.size(); ++i) {
     subShape[sliceDims[i]] = sliceSizes[i];
   }
@@ -398,6 +402,18 @@ static void testSmallUpdate(unsigned tilesPerIPU,
 {
   updateTestND(tilesPerIPU, smallTestShape, smallTestData,
                sliceDims, sliceSizes);
+}
+
+// Test full update
+
+
+BOOST_AUTO_TEST_CASE(Update_Full){
+  subTestSmallSlice(5, {0, 1, 2}, smallTestShape);
+}
+
+BOOST_AUTO_TEST_CASE(Update_Empty){
+  // result should be the same as the full update with offsets 0,0,0
+  subTestSmallSlice(5, {}, {});
 }
 
 // Test insertion of a single dimension

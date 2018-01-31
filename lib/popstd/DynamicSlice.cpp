@@ -3,6 +3,7 @@
 #include "popstd/Util.hpp"
 #include "poplar/Tensor.hpp"
 #include "poplar/Interval.hpp"
+#include "poplar/Program.hpp"
 #include <cassert>
 #include <numeric>
 #include <algorithm>
@@ -266,6 +267,37 @@ static std::vector<size_t> bestSliceOrder(const std::vector<std::size_t> &shape,
   return idxOrder;
 }
 
+static void ValidateParams(std::string name,
+                           const Tensor &t,
+                           const Tensor &offset,
+                           const std::vector<std::size_t> &dims,
+                           const std::vector<std::size_t> &sizes
+                           ) {
+  auto tRank = t.rank();
+  auto offsetElems = offset.rank() == 0 ? 0 : offset.dim(0);
+  if (offset.rank() > 2 || offsetElems != dims.size()
+      || dims.size() != sizes.size())
+    throw graph_connection_error(
+      name + ": offset (" + std::to_string(offsetElems) +
+      "), dims (" + std::to_string(dims.size()) +
+      ") and sizes " + std::to_string(sizes.size()) +
+      ") must all be the same size");
+  std::vector<bool> dimUsed(dims.size());
+  for (unsigned i = 0; i != dims.size(); ++i) {
+    if (dims[i] >= tRank)
+      throw graph_connection_error(
+        name + ": invalid dimension " + std::to_string(dims[i]));
+    if (sizes[i] > t.dim(dims[i]))
+      throw graph_connection_error(
+        name + ": requested slice dimension bigger than buffer");
+    if (dimUsed[dims[i]])
+      throw graph_connection_error(
+        name + ": dimension " + std::to_string(dims[i])
+        + " specified multiple times");
+    dimUsed[dims[i]] = true;
+  }
+}
+
 Tensor dynamicSlice(Graph &graph,
                     const Tensor &t,
                     const Tensor &offset,
@@ -274,21 +306,8 @@ Tensor dynamicSlice(Graph &graph,
                     poplar::program::Sequence &prog,
                     const std::string &debugPrefix = "")
 {
-  auto tRank = t.rank();
-  if (offset.rank() > 2 || offset.dim(0) != dims.size()
-      || dims.size() != sizes.size())
-    throw graph_connection_error(
-      "dynamicSlice offset (" + std::to_string(offset.numElements()) +
-      "), dims (" + std::to_string(dims.size()) +
-      ") and sizes " + std::to_string(sizes.size()) +
-      ") must all be the same size");
+  ValidateParams("dynamicSlice", t, offset, dims, sizes);
   for (unsigned i = 0; i != dims.size(); ++i) {
-    if (dims[i] >= tRank)
-      throw graph_connection_error(
-        "dynamicSlice: invalid dimension " + std::to_string(dims[i]));
-    if (sizes[i] > t.dim(dims[i]))
-      throw graph_connection_error(
-        "dynamicSlice: requested output dimension bigger than input");
     if (sizes[i] == 0) {
       // Since one of the slice sizes is zero, the resulting tensor has no
       // elements. We can return a static slice of the original tensor
@@ -325,6 +344,12 @@ void dynamicUpdate(Graph &graph,
                    poplar::program::Sequence &prog,
                    const std::string &debugPrefix = "")
 {
+  ValidateParams("dynamicUpdate", t, offset, dims, sizes);
+  // empty sizes or dimensions are full update (TF does this)
+  if (dims.size() == 0) {
+    prog.add(Copy(s, t));
+    return;
+  }
   // If any of sizes is 0 then this is a nop. Tensorflow tests do this.
   for (auto& sz : sizes)
     if (sz == 0)
@@ -335,8 +360,6 @@ void dynamicUpdate(Graph &graph,
   // is a single dynamic dimension. That Tensor is updated with s. Then
   // the dimension traversal is reversed, updating one into one extra dimension
   // each time.
-  if (offset.rank() == 0)
-    return;
 
   auto idxOrder = bestSliceOrder(t.shape(), dims, sizes);
 
