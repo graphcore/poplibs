@@ -412,7 +412,7 @@ Tensor pool(Graph &graph,
       for (const auto &region : regions) {
         // For each contiguous regions of output points group them by
         // pixel location.
-        std::map<Pixel, std::vector<Interval<std::size_t>>> groupedByPixel;
+        std::map<Pixel, std::vector<Interval>> groupedByPixel;
         for (unsigned i = region.begin(); i < region.end(); ++i) {
           auto coord = unflattenIndex(out.shape(), i);
           auto pixel = Pixel(coord[0], coord[1], coord[2]);
@@ -420,7 +420,7 @@ Tensor pool(Graph &graph,
           if (!groupedByPixel[pixel].empty() &&
               groupedByPixel[pixel].back().end() == channel) {
             groupedByPixel[pixel].back() =
-                Interval<std::size_t>(groupedByPixel[pixel].back().begin(),
+                Interval(groupedByPixel[pixel].back().begin(),
                                       channel + 1);
           } else {
             groupedByPixel[pixel].emplace_back(channel, channel + 1);
@@ -561,7 +561,7 @@ poolInputGradient(Graph &graph,
       for (const auto &region : regions) {
         // For each contiguous regions of output points group them by
         // pixel location.
-        std::map<Pixel, std::vector<Interval<std::size_t>>> groupedByPixel;
+        std::map<Pixel, std::vector<Interval>> groupedByPixel;
         for (unsigned i = region.begin(); i < region.end(); ++i) {
           auto coord = unflattenIndex(inGradient.shape(), i);
           auto pixel = Pixel(coord[0], coord[1], coord[2]);
@@ -569,8 +569,7 @@ poolInputGradient(Graph &graph,
           if (!groupedByPixel[pixel].empty() &&
               groupedByPixel[pixel].back().end() == channel) {
             groupedByPixel[pixel].back() =
-                Interval<std::size_t>(groupedByPixel[pixel].back().begin(),
-                                      channel + 1);
+                Interval(groupedByPixel[pixel].back().begin(), channel + 1);
           } else {
             groupedByPixel[pixel].emplace_back(channel, channel + 1);
           }

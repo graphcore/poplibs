@@ -66,7 +66,7 @@ computeActivationsMapping(const poplar::Graph &graph,
   const auto numBatchTiles = endTile - beginTile;
   std::vector<unsigned> mapping;
   mapping.resize(numTiles + 1);
-  std::vector<poplar::Interval<std::size_t>> regions = {
+  std::vector<poplar::Interval> regions = {
     {0, numActivations}
   };
   const auto perTileRegions =

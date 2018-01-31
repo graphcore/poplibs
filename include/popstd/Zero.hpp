@@ -10,7 +10,7 @@ namespace popstd {
 void
 zero(poplar::Graph &graph,
      poplar::Tensor t,
-     const std::vector<poplar::Interval<std::size_t>> &tileRegions,
+     const std::vector<poplar::Interval> &tileRegions,
      unsigned tile,
      poplar::ComputeSet zeroCS);
 
@@ -18,7 +18,7 @@ void
 zero(poplar::Graph &graph,
      const poplar::Tensor &t,
      const std::vector<
-       std::vector<poplar::Interval<std::size_t>>
+       std::vector<poplar::Interval>
      > &mapping,
      poplar::ComputeSet zeroCS);
 

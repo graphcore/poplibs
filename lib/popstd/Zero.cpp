@@ -12,7 +12,7 @@ namespace popstd {
 void
 zero(poplar::Graph &graph,
      poplar::Tensor t,
-     const std::vector<poplar::Interval<std::size_t>> &tileRegions,
+     const std::vector<poplar::Interval> &tileRegions,
      unsigned tile,
      poplar::ComputeSet zeroCS) {
   const auto dType = t.elementType();
@@ -46,7 +46,7 @@ void
 zero(Graph &graph,
      const Tensor &t,
      const std::vector<
-       std::vector<Interval<std::size_t>>
+       std::vector<Interval>
      > &mapping,
      ComputeSet zeroCS) {
   const auto &target = graph.getTarget();

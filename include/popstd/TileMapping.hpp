@@ -10,7 +10,7 @@ namespace popstd {
  * indices of the flatenned tensor mapped across from low -> high tile
  * numbers).
  */
-std::vector<std::vector<poplar::Interval<std::size_t>>>
+std::vector<std::vector<poplar::Interval>>
 calcLinearTileMapping(const poplar::Graph &graph,
                       std::vector<std::size_t> shape,
                       unsigned minElementsPerTile,
@@ -25,7 +25,7 @@ calcLinearTileMapping(const poplar::Graph &graph,
  * for the devices natural vector widths and to try and keep at least 128 bytes
  * of data on each tile to avoid high exchange costs.
  */
-std::vector<std::vector<poplar::Interval<std::size_t>>>
+std::vector<std::vector<poplar::Interval>>
 calcLinearTileMapping(const poplar::Graph &graph,
                       const poplar::Tensor &t);
 

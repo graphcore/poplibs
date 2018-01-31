@@ -405,7 +405,7 @@ applyTensorMapping(
     Graph &graph,
     const Tensor &t,
     const std::vector<
-      std::vector<Interval<std::size_t>>
+      std::vector<Interval>
     > &mapping) {
   auto flattened = t.flatten();
   const auto numTiles = mapping.size();
@@ -598,7 +598,7 @@ static void
 addFlattenedRegions(const std::vector<std::size_t> &shape,
                     const std::vector<std::size_t> &begin,
                     const std::vector<std::size_t> &end,
-                    std::vector<Interval<std::size_t>> &regions) {
+                    std::vector<Interval> &regions) {
   const auto numDims = shape.size();
   assert(begin.size() == numDims);
   assert(end.size() == numDims);
@@ -615,8 +615,7 @@ addFlattenedRegions(const std::vector<std::size_t> &shape,
     unsigned regionEnd = regionBegin + (end.back() - begin.back());
     if (!regions.empty() &&
         regions.back().end() == regionBegin) {
-      regions.back() = Interval<std::size_t>(regions.back().begin(),
-                                             regionEnd);
+      regions.back() = Interval(regions.back().begin(), regionEnd);
     } else {
       regions.emplace_back(regionBegin, regionEnd);
     }
@@ -868,7 +867,7 @@ optimizeHaloMapping(boost::icl::interval_map<
   std::swap(map, optimizedMap);
 }
 
-static std::vector<std::vector<Interval<std::size_t>>>
+static std::vector<std::vector<Interval>>
 calculateMappingBasedOnUsage(const Graph &graph,
                              const std::vector<std::size_t> &shape,
                              const boost::icl::interval_map<
@@ -899,14 +898,14 @@ calculateMappingBasedOnUsage(const Graph &graph,
   optimizeHaloMapping(grainToTiles);
 
   // Build a map from sets of tiles to grains they use.
-  std::map<std::set<unsigned>, std::vector<Interval<std::size_t>>>
+  std::map<std::set<unsigned>, std::vector<Interval>>
       tilesToGrains;
   for (const auto &entry : grainToTiles) {
     tilesToGrains[entry.second].emplace_back(entry.first.lower(),
                                              entry.first.upper());
   }
   const auto numTiles = graph.getTarget().getNumTiles();
-  std::vector<std::vector<Interval<std::size_t>>> mapping(numTiles);
+  std::vector<std::vector<Interval>> mapping(numTiles);
   const auto minGrainsPerTile =
       (minElementsPerTile + grainSize - 1) / grainSize;
   for (const auto &entry : tilesToGrains) {
@@ -931,7 +930,7 @@ calculateMappingBasedOnUsage(const Graph &graph,
 }
 
 static boost::icl::discrete_interval<unsigned>
-toIclInterval(const Interval<std::size_t> &interval) {
+toIclInterval(const Interval &interval) {
   return boost::icl::interval<unsigned>::right_open(interval.begin(),
                                                     interval.end());
 }
@@ -940,7 +939,7 @@ static void
 addFlattenedPrevActsRegions(const std::vector<std::size_t> &actsShape,
                             const ConvSlice &slice,
                             const ConvParams &params,
-                            std::vector<Interval<std::size_t>> &regions) {
+                            std::vector<Interval> &regions) {
   assert(actsShape.size() >= 4);
   const auto numFieldDims = actsShape.size() - 4;
   assert(slice.outFieldBegin.size() == numFieldDims);
@@ -972,7 +971,7 @@ addFlattenedPrevActsRegions(const std::vector<std::size_t> &actsShape,
   addFlattenedRegions(actsShape, sliceBegin, sliceEnd, regions);
 }
 
-static std::vector<std::vector<Interval<std::size_t>>>
+static std::vector<std::vector<Interval>>
 calculateActivationMapping(Graph &graph, const ConvParams &params,
                            const Plan &plan) {
   // Build a map from activations to the set of tiles that access them.
@@ -995,7 +994,7 @@ calculateActivationMapping(Graph &graph, const ConvParams &params,
   iterateTilePartition(graph, params, plan,
                        [&](unsigned tile, const std::vector<ConvIndices> &,
                            const ConvSlice &slice) {
-    std::vector<Interval<std::size_t>> intervals;
+    std::vector<Interval> intervals;
     addFlattenedPrevActsRegions(actsShape, slice, params, intervals);
     auto &useSet = used[tile];
     for (const auto &interval : intervals) {
@@ -1378,7 +1377,7 @@ createInput(Graph &graph, const ConvParams &params,
   return actsToExternalShape(input);
 }
 
-static std::vector<std::vector<Interval<std::size_t>>>
+static std::vector<std::vector<Interval>>
 calculateWeightMapping(const Graph &graph,
                        const ConvParams &params,
                        const Plan &plan) {
@@ -1402,7 +1401,7 @@ calculateWeightMapping(const Graph &graph,
   iterateTilePartition(graph, params, plan,
                        [&](unsigned tile, const std::vector<ConvIndices> &,
                            const ConvSlice &slice) {
-    std::vector<Interval<std::size_t>> intervals;
+    std::vector<Interval> intervals;
     assert(slice.outChanBegin % plan.partialChansPerGroup == 0);
     assert(slice.outChanEnd % plan.partialChansPerGroup == 0);
     assert(slice.inChanBegin % plan.inChansPerGroup == 0);
@@ -1509,7 +1508,7 @@ createWeights(Graph &graph,
   return weightsToExternalShape(createWeightsImpl(graph, params, name, plan));
 }
 
-static std::vector<std::vector<poplar::Interval<std::size_t>>>
+static std::vector<std::vector<poplar::Interval>>
 computeBiasMapping(Graph &graph, const Tensor &out) {
   const auto &target = graph.getTarget();
   const auto dType = out.elementType();
@@ -2360,7 +2359,7 @@ mapPartialSums(Graph &graph, const ConvSlice &slice, unsigned tile,
   }
   sliceBegin.push_back(0);
   sliceEnd.push_back(out.dim(out.rank() - 1));
-  std::vector<Interval<std::size_t>> regions;
+  std::vector<Interval> regions;
   addFlattenedRegions(out.shape(), sliceBegin, sliceEnd, regions);
   Tensor flatOut = out.flatten();
   for (const auto &region : regions) {
@@ -2479,7 +2478,7 @@ static Tensor
 partialGroupedReduce(
     Graph &graph,
     const std::vector<std::vector<unsigned>> &tileGroups,
-    const std::vector<std::vector<Interval<std::size_t>>> &
+    const std::vector<std::vector<Interval>> &
         tileGroupRegions,
     const Tensor &partials,
     unsigned outDepth,
@@ -2502,7 +2501,7 @@ partialGroupedReduce(
   for (unsigned i = 0; i != outDepth; ++i) {
     unsigned begin = (i * partialsDepth) / outDepth;
     unsigned end = ((i + 1) * partialsDepth) / outDepth;
-    std::vector<std::vector<Interval<std::size_t>>>
+    std::vector<std::vector<Interval>>
         outSubMapping(numTiles);
     for (unsigned tileGroup = 0; tileGroup != numTileGroups; ++tileGroup) {
       const auto tilesInGroup = tileGroups[tileGroup].size();
@@ -2528,7 +2527,7 @@ static Tensor
 groupedReduce(Graph &graph,
               const std::vector<std::vector<unsigned>> &tileGroups,
               const std::vector<
-                std::vector<Interval<std::size_t>>
+                std::vector<Interval>
               > &tileGroupRegions,
               const Tensor &partials,
               const Type &resultType,
@@ -2599,7 +2598,7 @@ static Tensor
 multiStageGroupedReduce(
     Graph &graph,
     const std::vector<std::vector<unsigned>> &tileGroups,
-    const std::vector<std::vector<Interval<std::size_t>>> &
+    const std::vector<std::vector<Interval>> &
         tileGroupRegions,
     Tensor partials,
     const Type &resultType,
@@ -2644,14 +2643,14 @@ multiStageGroupedReduce(Graph &graph,
     }
   }
   // Build a map from sets of tiles the outputs they contribute to.
-  std::map<std::set<unsigned>, std::vector<Interval<std::size_t>>>
+  std::map<std::set<unsigned>, std::vector<Interval>>
       tilesToOutputs;
   for (const auto &entry : outputToTiles) {
     tilesToOutputs[entry.second].emplace_back(entry.first.lower(),
                                               entry.first.upper());
   }
   std::vector<std::vector<unsigned>> tileGroups;
-  std::vector<std::vector<Interval<std::size_t>>> tileGroupRegions;
+  std::vector<std::vector<Interval>> tileGroupRegions;
   tileGroups.reserve(tilesToOutputs.size());
   tileGroupRegions.reserve(tilesToOutputs.size());
   for (const auto &entry : tilesToOutputs) {
@@ -3236,7 +3235,7 @@ convChannelReduce(Graph &graph,
   // Calculate which bias groups have values to reduce on each tile
   auto firstInGroup = inFlatField.slice(0, 1, 2).squeeze({2});
   auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
-  std::vector<std::map<unsigned, std::vector<Interval<std::size_t>>>>
+  std::vector<std::map<unsigned, std::vector<Interval>>>
       tileLocalReductions(numTiles);
   for (unsigned tile = 0; tile < numTiles; ++tile) {
     for (const auto &interval : firstInGroupMapping[tile]) {

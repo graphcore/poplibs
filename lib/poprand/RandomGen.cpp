@@ -50,7 +50,7 @@ static uint16_t colouredIdU64(uint16_t id, uint16_t callCount,
 }
 
 struct VertexInfo {
-  poplar::Interval<std::size_t> region;
+  poplar::Interval region;
 };
 
 std::vector<VertexInfo> buildVertices(Graph &graph, const Tensor &t) {

@@ -79,12 +79,12 @@ static void MapAcrossTiles(Graph &graph, size_t tilesPerIPU, const Tensor &t)
   auto elemPerSlice = t.numElements() / t.dim(0);
   Graph::TileToTensorMapping map;
   for (unsigned a = 0; a != nTilesForT; ++a) {
-    std::vector<Interval<std::size_t>> submap;
+    std::vector<Interval> submap;
     auto iBegin = a * elemPerSlice;
     {
       auto iEnd = (a == nTilesForT-1) ? t.numElements()
                                       : iBegin + elemPerSlice;
-      auto interval = Interval<std::size_t>(iBegin, iEnd);
+      auto interval = Interval(iBegin, iEnd);
       submap.emplace_back(interval);
       map.emplace_back(submap);
     }

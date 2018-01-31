@@ -25,7 +25,7 @@ cast(Graph &graph, Tensor src, Tensor dst, const std::string &debugPrefix) {
 static bool
 mappingIsComplete(const Tensor &t,
                   const std::vector<
-                    std::vector<Interval<std::size_t>>
+                    std::vector<Interval>
                   > &mapping) {
   unsigned mappedElements = 0;
   for (const auto &regions : mapping) {
@@ -47,7 +47,7 @@ cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
   const auto dstType = dst.elementType();
   const auto &target = graph.getTarget();
   const auto vectorWidth = target.getFloatVectorWidth();
-  std::vector<std::vector<Interval<std::size_t>>> mapping;
+  std::vector<std::vector<Interval>> mapping;
   Tensor t = srcType == FLOAT ? src : dst;
   mapping = graph.getTileMapping(t);
   assert(mappingIsComplete(t, mapping));

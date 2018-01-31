@@ -54,14 +54,14 @@ const Type getOutputType(Operation operation, const Type &inType) {
 
 static unsigned getMaxElementsPerTile(
     const std::vector<
-      std::vector<Interval<std::size_t>>
+      std::vector<Interval>
     > &reducedMapping) {
   unsigned maxElementsPerTile = 0;
   for (const auto &entry : reducedMapping) {
     unsigned tileElements =
         std::accumulate(entry.begin(), entry.end(), 0U,
                         [](unsigned sum,
-                           const Interval<std::size_t> &region) {
+                           const Interval &region) {
           return sum + region.end() - region.begin();
         });
     maxElementsPerTile = std::max(maxElementsPerTile, tileElements);
@@ -73,7 +73,7 @@ static unsigned estimateReduceAtDstCost(
     Graph &graph,
     Tensor partials,
     const std::vector<
-      std::vector<Interval<std::size_t>>
+      std::vector<Interval>
     > &reducedMapping) {
   const auto &target = graph.getTarget();
   const auto partialType = partials.elementType();
@@ -100,7 +100,7 @@ static unsigned estimateBalancedReduceCost(
     Tensor partials,
     Tensor reduced,
     const std::vector<
-      std::vector<Interval<std::size_t>>
+      std::vector<Interval>
     > &reducedMapping,
     unsigned grainSize) {
   const auto &target = graph.getTarget();
@@ -135,12 +135,12 @@ static unsigned estimateBalancedReduceCost(
   return cycles;
 }
 
-static std::vector<std::vector<Interval<std::size_t>>>
+static std::vector<std::vector<Interval>>
 determineReduceVertexMapping(Graph &graph,
                              Tensor partials,
                              Tensor reduced,
                              const std::vector<
-                               std::vector<Interval<std::size_t>>
+                               std::vector<Interval>
                              > &reducedMapping) {
   const auto &target = graph.getTarget();
   const auto partialType = partials.elementType();
@@ -163,7 +163,7 @@ reduce(Graph &graph,
        Tensor reduced, float k, bool isUpdate, bool isScale,
        Operation operation,
        const std::vector<
-         std::vector<Interval<std::size_t>>
+         std::vector<Interval>
        > &reduceVertexMapping,
        ComputeSet reduceCS) {
   // can't have both scale and update
@@ -237,7 +237,7 @@ reduce(Graph &graph,
        Tensor partials,
        Tensor reduced,
        const std::vector<
-         std::vector<Interval<std::size_t>>
+         std::vector<Interval>
        > &reduceVertexMapping,
        ComputeSet reduceCS) {
   reduce(graph, partials, reduced, 1, false, false, Operation::ADD,
@@ -249,7 +249,7 @@ reduceByDstMapping(Graph &graph,
                    Tensor partials,
                    Tensor reduced,
                    const std::vector<
-                     std::vector<Interval<std::size_t>>
+                     std::vector<Interval>
                    > &reducedMapping,
                    ComputeSet reduceCS) {
   if (partials.dim(0) < 2) {

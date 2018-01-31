@@ -10,7 +10,7 @@
 
 namespace popstd {
 
-std::vector<std::vector<poplar::Interval<std::size_t>>>
+std::vector<std::vector<poplar::Interval>>
 calcLinearTileMapping(const poplar::Graph &graph,
                       std::vector<std::size_t> shape,
                       unsigned minElementsPerTile,
@@ -18,13 +18,13 @@ calcLinearTileMapping(const poplar::Graph &graph,
   const auto numTiles = graph.getTarget().getNumTiles();
   const auto numElements = std::accumulate(shape.begin(), shape.end(), 1UL,
                                            std::multiplies<std::size_t>());
-  std::vector<poplar::Interval<std::size_t>> regions = {
+  std::vector<poplar::Interval> regions = {
     {0, numElements}
   };
   return splitRegions(regions, grainSize, numTiles, minElementsPerTile);
 }
 
-std::vector<std::vector<poplar::Interval<std::size_t>>>
+std::vector<std::vector<poplar::Interval>>
 calcLinearTileMapping(const poplar::Graph &graph,
                       const poplar::Tensor &t) {
   const auto dType = t.elementType();

@@ -12,46 +12,46 @@
 namespace popstd {
 
 void mergeAdjacentRegions(
-    std::vector<poplar::Interval<std::size_t>> &regions);
+    std::vector<poplar::Interval> &regions);
 
 void mergeAdjacentRegions(
-    std::vector<std::vector<poplar::Interval<std::size_t>>> &mapping);
+    std::vector<std::vector<poplar::Interval>> &mapping);
 
 // Given a set of contiguous regions, partition these regions trying to
 // balance the number of elements in each partition, respecting the specified
 // grain. At most maxPartitions partitions are created. Regions may be split to
 // achieve a better balance.
-std::vector<std::vector<poplar::Interval<std::size_t>>>
-splitRegions(const std::vector<poplar::Interval<std::size_t>> &regions,
+std::vector<std::vector<poplar::Interval>>
+splitRegions(const std::vector<poplar::Interval> &regions,
              unsigned grainSize, unsigned maxPartitions,
              unsigned minElementsPerPartition = 0);
 
 // Given a set of contiguous regions per tile, partition these regions
 // between workers on that tile, respecting the specified grain size.
 // Regions may be split to balance the work across workers.
-std::vector<std::vector<poplar::Interval<std::size_t>>>
+std::vector<std::vector<poplar::Interval>>
 splitRegionsBetweenWorkers(
     const poplar::Target &target,
-    const std::vector<poplar::Interval<std::size_t>> &regions,
+    const std::vector<poplar::Interval> &regions,
     unsigned grainSize, unsigned minElementsPerPartition = 0);
 
 // Given a set of sequences of regions, partition these sequences trying to
 // balance the number of elements in each partition, respecting the specified
 // grain. At most maxPartitions partitions are created. Sequences (and regions
 // within them may be split to achieve a better balance.
-std::vector<std::vector<std::vector<poplar::Interval<std::size_t>>>>
+std::vector<std::vector<std::vector<poplar::Interval>>>
 splitRegions(
-    const std::vector<std::vector<poplar::Interval<std::size_t>>> &regions,
+    const std::vector<std::vector<poplar::Interval>> &regions,
     unsigned grainSize, unsigned maxPartitions,
     unsigned minElementsPerPartition = 0);
 
 // Given a set of sequences of regions per tile, partition these sequences
 // between workers on that tile, respecting the specified grain size.
 // Regions may be split to balance the work across workers.
-std::vector<std::vector<std::vector<poplar::Interval<std::size_t>>>>
+std::vector<std::vector<std::vector<poplar::Interval>>>
 splitRegionsBetweenWorkers(
     const poplar::Target &target,
-    const std::vector<std::vector<poplar::Interval<std::size_t>>> &regions,
+    const std::vector<std::vector<poplar::Interval>> &regions,
     unsigned grainSize, unsigned minElementsPerPartition = 0);
 
 /// Given an index into a flattened tensor returns the indices into the
@@ -76,7 +76,7 @@ std::size_t flattenIndex(const std::vector<std::size_t> &shape,
 
 // Total number of elements in the interval sequence
 std::size_t intervalSequenceNumElements(
-    const std::vector<std::vector<poplar::Interval<std::size_t>>> &seq);
+    const std::vector<std::vector<poplar::Interval>> &seq);
 
 // Copy a tensors data to a new tensor. The duplicated tensor has the same tile
 // mapping as the original tensor.

@@ -6,8 +6,8 @@
 namespace popstd {
 
 void mergeAdjacentRegions(
-    std::vector<poplar::Interval<std::size_t>> &regions) {
-  std::vector<poplar::Interval<std::size_t>> newRegions;
+    std::vector<poplar::Interval> &regions) {
+  std::vector<poplar::Interval> newRegions;
   std::sort(regions.begin(), regions.end());
   for (const auto &region : regions) {
     if (region.begin() == region.end())
@@ -23,7 +23,7 @@ void mergeAdjacentRegions(
 }
 
 void mergeAdjacentRegions(
-    std::vector<std::vector<poplar::Interval<std::size_t>>> &mapping) {
+    std::vector<std::vector<poplar::Interval>> &mapping) {
   const auto numTiles = mapping.size();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     mergeAdjacentRegions(mapping[tile]);
@@ -43,13 +43,13 @@ void mergeAdjacentRegions(
 //
 // Consider the following example.
 //
-//   T = poplar::Interval<std::size_t>
+//   T = poplar::Interval
 //
-//   std::size_t size(const poplar::Interval<..> &ival) {
+//   std::size_t size(const poplar::Interval &ival) {
 //     return ival.end() - ival.begin();
 //   }
-//   void extend(std::vector<poplar::Interval<..>> &partition,
-//               const poplar::Interval<..> &ival,
+//   void extend(std::vector<poplar::Interval> &partition,
+//               const poplar::Interval &ival,
 //               unsigned offset,
 //               unsigned len) {
 //     partition.emplace_back(ival.begin() + offset,
@@ -188,43 +188,43 @@ splitRegionsAux(const std::vector<T> &items,
   return vertexItems;
 }
 
-static std::size_t intervalSize(const poplar::Interval<std::size_t> &i) {
+static std::size_t intervalSize(const poplar::Interval &i) {
   return i.size();
 }
 
 static void
 extendIntervalVector(
-    std::vector<poplar::Interval<std::size_t>> &xs,
-    const poplar::Interval<std::size_t> &region,
+    std::vector<poplar::Interval> &xs,
+    const poplar::Interval &region,
     unsigned offset, unsigned size) {
   xs.emplace_back(region.begin() + offset, region.begin() + offset + size);
 }
 
-std::vector<std::vector<poplar::Interval<std::size_t>>>
-splitRegions(const std::vector<poplar::Interval<std::size_t>> &regions,
+std::vector<std::vector<poplar::Interval>>
+splitRegions(const std::vector<poplar::Interval> &regions,
              unsigned grainSize, unsigned maxPartitions,
              unsigned minElementsPerPartition) {
-  return splitRegionsAux<poplar::Interval<std::size_t>,
+  return splitRegionsAux<poplar::Interval,
                          intervalSize,
                          extendIntervalVector>(
     regions, grainSize, maxPartitions, minElementsPerPartition);
 }
 
 static std::size_t
-intervalSequenceSize(const std::vector<poplar::Interval<std::size_t>> &is) {
+intervalSequenceSize(const std::vector<poplar::Interval> &is) {
   return std::accumulate(is.begin(), is.end(), 0UL,
                          [](std::size_t size,
-                            const poplar::Interval<std::size_t> &i) {
+                            const poplar::Interval &i) {
                            return size + i.size();
                          });
 }
 
 static void
 extendIntervalSequenceVector(
-    std::vector<std::vector<poplar::Interval<std::size_t>>> &xs,
-    const std::vector<poplar::Interval<std::size_t>> &regions,
+    std::vector<std::vector<poplar::Interval>> &xs,
+    const std::vector<poplar::Interval> &regions,
     unsigned offset, unsigned size) {
-  std::vector<poplar::Interval<std::size_t>> slice;
+  std::vector<poplar::Interval> slice;
   auto it = regions.begin();
   while (offset >= it->size()) {
     offset -= it->size();
@@ -241,21 +241,21 @@ extendIntervalSequenceVector(
   xs.emplace_back(std::move(slice));
 }
 
-std::vector<std::vector<std::vector<poplar::Interval<std::size_t>>>>
+std::vector<std::vector<std::vector<poplar::Interval>>>
 splitRegions(
-  const std::vector<std::vector<poplar::Interval<std::size_t>>> &regions,
+  const std::vector<std::vector<poplar::Interval>> &regions,
     unsigned grainSize, unsigned maxPartitions,
     unsigned minElementsPerPartition) {
-  return splitRegionsAux<std::vector<poplar::Interval<std::size_t>>,
+  return splitRegionsAux<std::vector<poplar::Interval>,
                          intervalSequenceSize,
                          extendIntervalSequenceVector>(
     regions, grainSize, maxPartitions, minElementsPerPartition);
 }
 
-std::vector<std::vector<poplar::Interval<std::size_t>>>
+std::vector<std::vector<poplar::Interval>>
 splitRegionsBetweenWorkers(
     const poplar::Target &target,
-    const std::vector<poplar::Interval<std::size_t>> &regions,
+    const std::vector<poplar::Interval> &regions,
     unsigned grainSize,
     unsigned minElementsPerVertex) {
   const auto workersPerTile = target.getNumWorkerContexts();
@@ -263,10 +263,10 @@ splitRegionsBetweenWorkers(
                       minElementsPerVertex);
 }
 
-std::vector<std::vector<std::vector<poplar::Interval<std::size_t>>>>
+std::vector<std::vector<std::vector<poplar::Interval>>>
 splitRegionsBetweenWorkers(
     const poplar::Target &target,
-    const std::vector<std::vector<poplar::Interval<std::size_t>>> &regions,
+    const std::vector<std::vector<poplar::Interval>> &regions,
     unsigned grainSize,
     unsigned minElementsPerVertex) {
   const auto workersPerTile = target.getNumWorkerContexts();
@@ -286,7 +286,7 @@ std::size_t flattenIndex(const std::vector<std::size_t> &shape,
 }
 
 std::size_t intervalSequenceNumElements(
-    const std::vector<std::vector<poplar::Interval<std::size_t>>> &seq) {
+    const std::vector<std::vector<poplar::Interval>> &seq) {
   std::size_t numElements = 0;
   for (const auto &s : seq) {
     numElements += intervalSequenceSize(s);
