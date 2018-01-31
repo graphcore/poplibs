@@ -240,8 +240,8 @@ class
 [[poplar::constraint("elem(**in1) != elem(**in2)")]]
 Add : public Vertex {
 public:
-  // One of the edges from {in1, in2} must be in uuper half of memory.
-  // See T2272.
+  // One of the edges from {in1, in2} must be in upper half of memory. See
+  // T2272.
   Vector<Input<Vector<InType, 1, true>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
@@ -274,8 +274,7 @@ class
 
 BitwiseAnd : public Vertex {
 public:
-  // T2272: One of the edges from {in1, in2} must be in uuper half of
-  // memory
+  // T2272: One of the edges from {in1, in2} must be in upper half of memory
   Vector<Input<Vector<InType, 1, true>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
@@ -329,8 +328,8 @@ class
                      "elem(**in1) != elem(**out)")]]
 BitwiseOr : public Vertex {
 public:
-  // One of the edges from {in1, in2} must be in uuper half of memory.
-  // See T2272.
+  // One of the edges from {in1, in2} must be in upper half of memory. See
+  // T2272.
   Vector<Input<Vector<InType, 1, true>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
@@ -406,8 +405,8 @@ class
                      "elem(**in1) != elem(**out)")]]
 Divide : public Vertex {
 public:
-  // One of the edges from {in1, in2} must be in uuper half of memory.
-  // See T2272.
+  // One of the edges from {in1, in2} must be in upper half of memory. See
+  // T2272.
   Vector<Input<Vector<InType, 1, true>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
@@ -739,8 +738,8 @@ class
 [[poplar::constraint("elem(**in1) != elem(**in2)")]]
 Maximum : public Vertex {
 public:
-  // One of the edges from {in1, in2} must be in uuper half of memory.
-  // See T2272.
+  // One of the edges from {in1, in2} must be in upper half of memory. See
+  // T2272.
   Vector<Input<Vector<InType, 1, true>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
@@ -775,7 +774,7 @@ class
 [[poplar::constraint("elem(**in1) != elem(**in2)")]]
 Minimum : public Vertex {
 public:
-  // One of the edges from {in1, in2} must be in uuper half of memory.
+  // One of the edges from {in1, in2} must be in upper half of memory.
   // See T2272.
   Vector<Input<Vector<InType, 1, true>>> in1;
   Vector<Input<Vector<InType>>> in2;
@@ -806,8 +805,8 @@ class
 [[poplar::constraint("elem(**in1) != elem(**in2)")]]
 Multiply : public Vertex {
 public:
-  // One of the edges from {in1, in2} must be in uuper half of memory.
-  // See T2272.
+  // One of the edges from {in1, in2} must be in upper half of memory. See
+  // T2272.
   Vector<Input<Vector<InType, 1, true>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
@@ -919,8 +918,8 @@ class
                      "elem(**in2) != elem(**out)")]]
 Remainder : public Vertex {
 public:
-  // One of the edges from {in1, in2} must be in uuper half of memory.
-  // See T2272.
+  // One of the edges from {in1, in2} must be in upper half of memory. See
+  // T2272.
   Vector<Input<Vector<InType, 1, true>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
@@ -1096,8 +1095,8 @@ class
 [[poplar::constraint("elem(**in1) != elem(**in2)")]]
 Subtract : public Vertex {
 public:
-  // One of the edges from {in1, in2} must be in uuper half of memory.
-  // See T2272.
+  // One of the edges from {in1, in2} must be in upper half of memory. See
+  // T2272.
   Vector<Input<Vector<InType, 1, true>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
