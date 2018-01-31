@@ -956,8 +956,8 @@ MAKE_CYCLE_ESTIMATOR_NAME(Tanh)(const VertexIntrospector &vertex,
   for (unsigned i = 0; i < in.size(); ++i) {
     unsigned overhead = 6;
     unsigned numElem = in[i].size();
-    unsigned vectorWidth;
-    unsigned cyclesPerVector;
+    unsigned vectorWidth = 1;
+    unsigned cyclesPerVector = 1;
     if (type == FLOAT) {
       // f32tanh
       vectorWidth = 1;
