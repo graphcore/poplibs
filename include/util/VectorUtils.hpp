@@ -1,7 +1,8 @@
 #ifndef __VectorUtils_hpp__
 #define __VectorUtils_hpp__
 
-#include <algorithm>
+#include <functional>
+#include <numeric>
 #include <vector>
 
 template <class T>
