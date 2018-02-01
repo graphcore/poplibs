@@ -72,8 +72,25 @@ static ConvParams
 makeConvParams(const std::vector<std::size_t> &inputFieldShape,
                const std::vector<std::size_t> &kernelShape,
                const std::vector<unsigned> &stride,
-               const std::vector<int> &inputPaddingLower,
-               const std::vector<int> &inputPaddingUpper) {
+               const std::vector<int> &inputTruncationOrPaddingLower,
+               const std::vector<int> &inputTruncationOrPaddingUpper) {
+  const auto numFieldDims = inputFieldShape.size();
+  std::vector<unsigned> inputTruncationLower(numFieldDims),
+                        inputPaddingLower(numFieldDims),
+                        inputTruncationUpper(numFieldDims),
+                        inputPaddingUpper(numFieldDims);
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    if (inputTruncationOrPaddingLower[dim] < 0) {
+      inputTruncationLower[dim] = -inputTruncationOrPaddingLower[dim];
+    } else {
+      inputPaddingLower[dim] = inputTruncationOrPaddingLower[dim];
+    }
+    if (inputTruncationOrPaddingUpper[dim] < 0) {
+      inputTruncationUpper[dim] = -inputTruncationOrPaddingUpper[dim];
+    } else {
+      inputPaddingUpper[dim] = inputTruncationOrPaddingUpper[dim];
+    }
+  }
   return  {FLOAT,
            // batch size
            1,
@@ -85,21 +102,39 @@ makeConvParams(const std::vector<std::size_t> &inputFieldShape,
            1,
            // output channels
            1,
-           stride,
-           inputPaddingLower,
-           inputPaddingUpper,
+           // conv groups
+           1,
+           // input truncation lower
+           inputTruncationLower,
+           // input truncation upper
+           inputTruncationUpper,
            // input dilation
            {1, 1},
+           inputPaddingLower,
+           inputPaddingUpper,
            // flip input
            {false, false},
-           // lower kernel padding
+           // kernel truncation lower
            {0, 0},
-           // upper kernel padding
+           // kernel truncation upper
            {0, 0},
            // kernel dilation
            {1, 1},
+           // kernel padding lower
+           {0, 0},
+           // kernel padding upper
+           {0, 0},
            // flip kernel
-           {false, false}};
+           {false, false},
+           // output truncation lower
+           {0, 0},
+           // output truncation upper
+           {0, 0},
+           stride,
+           // output padding lower
+           {0, 0},
+           // output padding upper
+           {0, 0}};
 }
 
 std::vector<std::size_t>
@@ -119,21 +154,25 @@ getOutputFieldShape(const std::vector<std::size_t> &inputFieldShape,
 // used in the averaging of a pooled sample in the forward pass
 template <class T>
 static Tensor scaleGradient(Graph &graph,
-                            const ConvParams &params,
+                            const std::vector<std::size_t> &inputFieldShape,
+                            const std::vector<std::size_t> &kernelShape,
+                            const std::vector<int> &inputPaddingLower,
+                            const std::vector<int> &inputPaddingUpper,
+                            const std::vector<unsigned> &stride,
                             const Tensor grad,
                             Sequence &prog,
                             const std::string &debugPrefix) {
-  assert(params.getNumFieldDims() == 2);
-  const int inputHeight = params.getInputSize(0);
-  const int inputWidth = params.getInputSize(1);
-  const int paddingHeightL =  params.inputPaddingLower[0] ;
-  const int paddingWidthL = params.inputPaddingLower[1];
-  const int paddingHeightU =  params.inputPaddingUpper[0] ;
-  const int paddingWidthU = params.inputPaddingUpper[1];
-  const int kernelHeight = params.kernelShape[0];
-  const int kernelWidth = params.kernelShape[1];
-  const int strideHeight = params.stride[0];
-  const int strideWidth = params.stride[1];
+  assert(inputFieldShape.size() == 2);
+  const int inputHeight = inputFieldShape[0];
+  const int inputWidth = inputFieldShape[1];
+  const int paddingHeightL = inputPaddingLower[0] ;
+  const int paddingWidthL = inputPaddingLower[1];
+  const int paddingHeightU = inputPaddingUpper[0] ;
+  const int paddingWidthU = inputPaddingUpper[1];
+  const int kernelHeight = kernelShape[0];
+  const int kernelWidth = kernelShape[1];
+  const int strideHeight = stride[0];
+  const int strideWidth = stride[1];
 
   const auto paddedHeight = inputHeight + paddingHeightL + paddingHeightU;
   const auto paddedWidth = inputWidth + paddingWidthL + paddingWidthU;
@@ -383,7 +422,7 @@ Tensor pool(Graph &graph,
                                       firstSpatialDimIndex + dim);
     inputWindow = inputWindow.slice(inRange.first, inRange.second,
                                     firstSpatialDimIndex + dim)
-                             .subSample(params.stride[dim],
+                             .subSample(params.outputTransform.stride[dim],
                                         firstSpatialDimIndex + dim);
     assert(inputWindow.dim(firstSpatialDimIndex + dim) ==
            outputWindow.dim(firstSpatialDimIndex + dim));
@@ -524,7 +563,9 @@ poolInputGradient(Graph &graph,
                                inputPaddingLower, inputPaddingUpper);
 
   if (poolingType == PoolingType::AVG) {
-    pooledGradient = scaleGradient<float>(graph, params, pooledGradient, prog,
+    pooledGradient = scaleGradient<float>(graph, inputFieldShape, kernelShape,
+                                          inputPaddingLower, inputPaddingUpper,
+                                          stride, pooledGradient, prog,
                                           layerName);
   }
   auto inGradient = graph.clone(in);

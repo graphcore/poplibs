@@ -35,9 +35,7 @@ max_padding = 5
 
 max_kernel_size = 16
 max_kernel_dilation = 4
-# Kernel padding in the forward pass translates to output truncation in the
-# weight update pass but this isn't supported yet
-max_kernel_padding = 0
+max_kernel_padding = 3
 
 max_chans = 128
 max_stride = 4
@@ -98,7 +96,7 @@ def dilate_and_pad(shape, dilation, padding_lower, padding_upper):
     """Return the shape of a volume with dilation and padding applied"""
     result = []
     for s, d, l, u in zip(shape, dilation, padding_lower, padding_upper):
-        result.append(1 + (s - 1) * d + l + u)
+        result.append((1 + (s - 1) * d + l + u) if s > 0 else 0)
     return result
 
 
@@ -219,10 +217,10 @@ def make_params():
             geometric_choice(range(1, max_kernel_size + 1), 0.70)
         )
         params.kernel_padding_lower.append(
-            geometric_choice(range(0, max_kernel_padding + 1), 0.70)
+            geometric_choice(range(0, max_kernel_padding + 1), 0.3)
         )
         params.kernel_padding_upper.append(
-            geometric_choice(range(0, max_kernel_padding + 1), 0.70)
+            geometric_choice(range(0, max_kernel_padding + 1), 0.3)
         )
         params.kernel_dilation.append(
             geometric_choice(range(1, max_kernel_dilation + 1), 0.5)

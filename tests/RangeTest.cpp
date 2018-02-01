@@ -12,19 +12,28 @@ namespace std
 }
 
 static popconv::ConvParams
-makeParams(unsigned stride, unsigned kernelSize, int paddingLower,
-           int paddingUpper, unsigned inputSize) {
-  return {poplar::FLOAT,
-          1,
-          {inputSize, inputSize},
-          {kernelSize, kernelSize},
-          1, 1,
+makeParams(unsigned stride, unsigned kernelSize, unsigned paddingLower,
+           unsigned paddingUpper, unsigned inputSize) {
+  return {poplar::FLOAT, // type
+          1, // batch size
+          {inputSize, inputSize}, // input size
+          {kernelSize, kernelSize}, // kernel size
+          1, // input channels
+          1, // output channels
+          1, // conv groups
+          {0, 0}, {0, 0},// input truncation
+          {1, 1}, // input dilation
+          {paddingLower, paddingLower}, // input padding lower
+          {paddingUpper, paddingUpper}, // input padding upper
+          {false, false}, // flip input
+          {0, 0}, {0, 0}, // kernel truncation
+          {1, 1}, // kernel dilation
+          {0, 0}, {0, 0}, // kernel padding
+          {false, false}, // flip kernel
+          {0, 0}, {0, 0}, // output truncation
           {stride, stride},
-          {paddingLower, paddingLower},
-          {paddingUpper, paddingUpper},
-          {1, 1}, {false, false},
-          {0, 0}, {0, 0},
-          {1, 1}, {false, false}};
+          {0, 0}, {0, 0} // output padding
+         };
 }
 
 BOOST_AUTO_TEST_CASE(inputRangeTest){
@@ -115,17 +124,28 @@ std::pair<unsigned, unsigned>
 getOutputDim(unsigned inDimY, unsigned inDimX,
              unsigned kernelSizeY, unsigned kernelSizeX,
              const std::vector<unsigned> &stride,
-             const std::vector<int> &paddingLower,
-             const std::vector<int> &paddingUpper) {
+             const std::vector<unsigned> &paddingLower,
+             const std::vector<unsigned> &paddingUpper) {
   auto params =
-      popconv::ConvParams(poplar::FLOAT,
-                          1,
-                          {inDimY, inDimX},
-                          {kernelSizeY, kernelSizeX},
-                          1, 1,
-                          stride,
-                          paddingLower, paddingUpper, {1, 1}, {false, false},
-                          {0, 0}, {0, 0}, {1, 1}, {false, false});
+      popconv::ConvParams(poplar::FLOAT, // type
+                          1, // batch size
+                          {inDimY, inDimX}, // input size
+                          {kernelSizeY, kernelSizeX}, // kernel size
+                          1, // input channels
+                          1, // output channels
+                          1, // conv groups
+                          {0, 0}, {0, 0}, // input truncation
+                          {1, 1}, // input dilation
+                          paddingLower, paddingUpper, // input padding
+                          {false, false}, // flip input
+                          {0, 0}, {0, 0}, // kernel truncation
+                          {1, 1}, // kernel dilation
+                          {0, 0}, {0, 0}, // kernel padding
+                          {false, false}, // flip kernel
+                          {0, 0}, {0, 0}, // output truncation
+                          stride, // stride
+                          {0, 0}, {0, 0} // output padding
+                          );
   return {params.getOutputSize(0), params.getOutputSize(1)};
 }
 

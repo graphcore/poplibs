@@ -33,53 +33,108 @@ using namespace popstd;
 
 namespace popconv {
 
-ConvParams::ConvParams(const Type dType_,
-                       std::size_t batchSize_,
-                       std::vector<std::size_t> inputFieldShape_,
-                       std::vector<std::size_t> kernelShape_,
-                       std::size_t inputChannels_,
-                       std::size_t outputChannels_,
-                       std::vector<unsigned> stride_,
-                       std::vector<int> inputPaddingLower_,
-                       std::vector<int> inputPaddingUpper_,
-                       std::vector<unsigned> inputDilation_,
-                       std::vector<bool> flipInput_,
-                       std::vector<int> kernelPaddingLower_,
-                       std::vector<int> kernelPaddingUpper_,
-                       std::vector<unsigned> kernelDilation_,
-                       std::vector<bool> flipKernel_,
-                       std::size_t numConvGroups_) :
+ConvParams::InputTransform::
+InputTransform(std::vector<unsigned> truncationLower_,
+               std::vector<unsigned> truncationUpper_,
+               std::vector<unsigned> dilation_,
+               std::vector<unsigned> paddingLower_,
+               std::vector<unsigned> paddingUpper_,
+               std::vector<bool> flip_) :
+    truncationLower(std::move(truncationLower_)),
+    truncationUpper(std::move(truncationUpper_)),
+    dilation(std::move(dilation_)),
+    paddingLower(std::move(paddingLower_)),
+    paddingUpper(std::move(paddingUpper_)),
+    flip(flip_) {}
+
+ConvParams::OutputTransform::
+OutputTransform(std::vector<unsigned> truncationLower_,
+                std::vector<unsigned> truncationUpper_,
+                std::vector<unsigned> stride_,
+                std::vector<unsigned> paddingLower_,
+                std::vector<unsigned> paddingUpper_) :
+    truncationLower(std::move(truncationLower_)),
+    truncationUpper(std::move(truncationUpper_)),
+    stride(std::move(stride_)),
+    paddingLower(std::move(paddingLower_)),
+    paddingUpper(std::move(paddingUpper_))
+{}
+
+ConvParams::
+ConvParams(poplar::Type dType_,
+           std::size_t batchSize_,
+           std::vector<std::size_t> inputFieldShape_,
+           std::vector<std::size_t> kernelShape_,
+           std::size_t inputChannels_,
+           std::size_t outputChannels_,
+           std::size_t numConvGroups_,
+
+           std::vector<unsigned> inputTruncationLower_,
+           std::vector<unsigned> inputTruncationUpper_,
+           std::vector<unsigned> inputDilation_,
+           std::vector<unsigned> inputPaddingLower_,
+           std::vector<unsigned> inputPaddingUpper_,
+           std::vector<bool> flipInput_,
+
+           std::vector<unsigned> kernelTruncationLower_,
+           std::vector<unsigned> kernelTruncationUpper_,
+           std::vector<unsigned> kernelDilation_,
+           std::vector<unsigned> kernelPaddingLower_,
+           std::vector<unsigned> kernelPaddingUpper_,
+           std::vector<bool> flipKernel_,
+
+           std::vector<unsigned> outputTruncationLower_,
+           std::vector<unsigned> outputTruncationUpper_,
+           std::vector<unsigned> stride_,
+           std::vector<unsigned> outputPaddingLower_,
+           std::vector<unsigned> outputPaddingUpper_) :
     dType(std::move(dType_)),
     batchSize(batchSize_),
     inputFieldShape(std::move(inputFieldShape_)),
     kernelShape(std::move(kernelShape_)),
     inputChannels(inputChannels_),
     outputChannels(outputChannels_),
-    stride(std::move(stride_)),
-    inputPaddingLower(std::move(inputPaddingLower_)),
-    inputPaddingUpper(std::move(inputPaddingUpper_)),
-    inputDilation(std::move(inputDilation_)),
-    flipInput(std::move(flipInput_)),
-    kernelPaddingLower(std::move(kernelPaddingLower_)),
-    kernelPaddingUpper(std::move(kernelPaddingUpper_)),
-    kernelDilation(std::move(kernelDilation_)),
-    flipKernel(std::move(flipKernel_)),
-    numConvGroups(numConvGroups_) {
+    numConvGroups(numConvGroups_),
+    inputTransform(std::move(inputTruncationLower_),
+                   std::move(inputTruncationUpper_),
+                   std::move(inputDilation_),
+                   std::move(inputPaddingLower_),
+                   std::move(inputPaddingUpper_),
+                   std::move(flipInput_)),
+    kernelTransform(std::move(kernelTruncationLower_),
+                    std::move(kernelTruncationUpper_),
+                    std::move(kernelDilation_),
+                    std::move(kernelPaddingLower_),
+                    std::move(kernelPaddingUpper_),
+                    std::move(flipKernel_)),
+    outputTransform(std::move(outputTruncationLower_),
+                    std::move(outputTruncationUpper_),
+                    std::move(stride_),
+                    std::move(outputPaddingLower_),
+                    std::move(outputPaddingUpper_)) {
   const auto numFieldDims = inputFieldShape.size();
   if (kernelShape.size() != numFieldDims) {
     throw popstd::poplib_error("Number of kernel field dimensions does not"
                                "match the number of input field dimensions");
   }
   const std::pair<std::size_t, const char *> sizes[] = {
-    {stride.size(), "stride"},
-    {inputPaddingLower.size(), "input padding (lower)"},
-    {inputPaddingUpper.size(), "input padding (upper)"},
-    {inputDilation.size(), "input dilation"},
-    {flipInput.size(), "input flip"},
-    {kernelPaddingLower.size(), "kernel padding (lower)"},
-    {kernelPaddingUpper.size(), "kernel padding (upper)"},
-    {kernelDilation.size(), "kernel dilation"},
-    {flipKernel.size(), "kernel flip"}
+    {inputTransform.truncationLower.size(), "input truncation (lower)"},
+    {inputTransform.truncationUpper.size(), "input truncation (upper)"},
+    {inputTransform.dilation.size(), "input dilation"},
+    {inputTransform.paddingLower.size(), "input padding (lower)"},
+    {inputTransform.paddingUpper.size(), "input padding (upper)"},
+    {inputTransform.flip.size(), "input flip"},
+    {kernelTransform.truncationLower.size(), "kernel truncation (lower)"},
+    {kernelTransform.truncationUpper.size(), "kernel truncation (upper)"},
+    {kernelTransform.dilation.size(), "kernel dilation"},
+    {kernelTransform.paddingLower.size(), "kernel padding (lower)"},
+    {kernelTransform.paddingUpper.size(), "kernel padding (upper)"},
+    {kernelTransform.flip.size(), "kernel flip"},
+    {outputTransform.truncationLower.size(), "output truncation (lower)"},
+    {outputTransform.truncationUpper.size(), "output truncation (upper)"},
+    {outputTransform.stride.size(), "stride"},
+    {outputTransform.paddingLower.size(), "output padding (lower)"},
+    {outputTransform.paddingUpper.size(), "output padding (upper)"},
   };
   for (const auto &entry : sizes) {
     if (entry.first != numFieldDims) {
@@ -89,47 +144,30 @@ ConvParams::ConvParams(const Type dType_,
     }
   }
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    const int dilatedInputSize =
-        static_cast<int>(1 + (inputFieldShape[dim] - 1) * inputDilation[dim]);
-    if (inputPaddingLower[dim] + dilatedInputSize < 0) {
-      throw popstd::poplib_error("Lower padding for dimension " +
+    if (inputTransform.truncationLower[dim] +
+        inputTransform.truncationUpper[dim] >
+        inputFieldShape[dim]) {
+      throw popstd::poplib_error("Truncation for dimension " +
                                  std::to_string(dim) +
                                  " truncates by more than the size of the "
                                  "field");
     }
-    if (inputPaddingUpper[dim] + dilatedInputSize < 0) {
-      throw popstd::poplib_error("Upper padding for dimension " +
-                                 std::to_string(dim) +
-                                 " truncates by more than the size of the "
-                                 "field");
-    }
-    if (inputPaddingLower[dim] + dilatedInputSize +
-        inputPaddingUpper[dim] < 0) {
-      throw popstd::poplib_error("Padding for dimension " +
-                                 std::to_string(dim) +
-                                 " truncates by more than the size of the "
-                                 "field");
-    }
-    const int dilatedKernelSize =
-        static_cast<int>(1 + (kernelShape[dim] - 1) * kernelDilation[dim]);
-    if (kernelPaddingLower[dim] + dilatedKernelSize < 0) {
-      throw popstd::poplib_error("Lower padding for dimension " +
+    if (kernelTransform.truncationLower[dim] +
+        kernelTransform.truncationUpper[dim] >
+        kernelShape[dim]) {
+      throw popstd::poplib_error("Truncation for dimension " +
                                  std::to_string(dim) +
                                  " truncates by more than the size of the "
                                  "kernel");
     }
-    if (kernelPaddingUpper[dim] + dilatedKernelSize < 0) {
-      throw popstd::poplib_error("Upper padding for dimension " +
+    const auto convOutSize = getUntransformedOutputSize(dim);
+    if (outputTransform.truncationLower[dim] +
+        outputTransform.truncationUpper[dim] >
+        convOutSize) {
+      throw popstd::poplib_error("Output truncation for dimension " +
                                  std::to_string(dim) +
                                  " truncates by more than the size of the "
-                                 "kernel");
-    }
-    if (kernelPaddingLower[dim] + dilatedKernelSize +
-        kernelPaddingUpper[dim] < 0) {
-      throw popstd::poplib_error("Padding for dimension " +
-                                 std::to_string(dim) +
-                                 " truncates by more than the size of the "
-                                 "kernel");
+                                 "convolution output");
     }
   }
 }
@@ -148,32 +186,59 @@ std::ostream& operator<<(std::ostream &os, const ConvParams &p) {
   os << p.getNumInputChansPerConvGroup() << "\n";
   os << "        outputChannelsPerConvGroup ";
   os << p.getNumOutputChansPerConvGroup() << "\n";
-  os << "        stride                     ";
-  printContainer(p.stride, os);
+  os << "        inputTruncationLower       ";
+  printContainer(p.inputTransform.truncationLower, os);
   os << "\n";
-  os << "        inputPaddingLower          ";
-  printContainer(p.inputPaddingLower, os);
-  os << "\n";
-  os << "        inputPaddingUpper          ";
-  printContainer(p.inputPaddingUpper, os);
+  os << "        inputTruncationUpper       ";
+  printContainer(p.inputTransform.truncationUpper, os);
   os << "\n";
   os << "        inputDilation              ";
-  printContainer(p.inputDilation, os);
+  printContainer(p.inputTransform.dilation, os);
+  os << "\n";
+  os << "        inputPaddingLower          ";
+  printContainer(p.inputTransform.paddingLower, os);
+  os << "\n";
+  os << "        inputPaddingUpper          ";
+  printContainer(p.inputTransform.paddingUpper, os);
   os << "\n";
   os << "        flipInput                  ";
-  printContainer(p.flipInput, os);
+  printContainer(p.inputTransform.flip, os);
   os << "\n";
-  os << "        kernelPaddingLower         ";
-  printContainer(p.kernelPaddingLower, os);
+  os << "        kernelTruncationLower      ";
+  printContainer(p.kernelTransform.truncationLower, os);
   os << "\n";
-  os << "        kernelPaddingUpper         ";
-  printContainer(p.kernelPaddingUpper, os);
+  os << "        kernelTruncationUpper      ";
+  printContainer(p.kernelTransform.truncationUpper, os);
   os << "\n";
   os << "        kernelDilation             ";
-  printContainer(p.kernelDilation, os);
+  printContainer(p.kernelTransform.dilation, os);
+  os << "\n";
+  os << "        kernelPaddingLower         ";
+  printContainer(p.kernelTransform.paddingLower, os);
+  os << "\n";
+  os << "        kernelPaddingUpper         ";
+  printContainer(p.kernelTransform.paddingUpper, os);
   os << "\n";
   os << "        flipKernel                 ";
-  printContainer(p.flipKernel, os);
+  printContainer(p.kernelTransform.flip, os);
+  os << "\n";
+  os << "        outputTruncationLower      ";
+  printContainer(p.outputTransform.truncationLower, os);
+  os << "\n";
+  os << "        outputTruncationUpper      ";
+  printContainer(p.outputTransform.truncationUpper, os);
+  os << "\n";
+  os << "        stride                     ";
+  printContainer(p.outputTransform.stride, os);
+  os << "\n";
+  os << "        outputPaddingLower         ";
+  printContainer(p.outputTransform.paddingLower, os);
+  os << "\n";
+  os << "        outputPaddingUpper         ";
+  printContainer(p.outputTransform.paddingUpper, os);
+  os << "\n";
+  os << "        outputFieldShape           ";
+  printContainer(p.getOutputFieldShape(), os);
   os << "\n";
   return os;
 }
@@ -384,12 +449,48 @@ static Tensor ungroupWeights(const Tensor &weights) {
                                  weights.dim(2) * weights.dim(rank - 1)});
 }
 
+static unsigned
+getTransformedSize(const std::vector<std::size_t> &size,
+                   const ConvParams::InputTransform &transform,
+                   unsigned dim) {
+  assert(size[dim] >= transform.truncationLower[dim] +
+         transform.truncationUpper[dim]);
+  const auto truncatedSize =
+      size[dim] - (transform.truncationLower[dim] +
+                   transform.truncationUpper[dim]);
+  const auto truncatedDilatedSize =
+      getDilatedSize(truncatedSize, transform.dilation[dim]);
+  int truncatedDilatedPaddedSize =
+      transform.paddingLower[dim] + truncatedDilatedSize +
+      transform.paddingUpper[dim];
+  return truncatedDilatedPaddedSize;
+}
+
+unsigned ConvParams::getTransformedInputSize(unsigned dim) const {
+  return getTransformedSize(inputFieldShape, inputTransform, dim);
+}
+unsigned ConvParams::getTransformedKernelSize(unsigned dim) const {
+  return getTransformedSize(kernelShape, kernelTransform, dim);
+}
+
+std::size_t ConvParams::getUntransformedOutputSize(unsigned dim) const {
+  auto transformedInputSize = getTransformedInputSize(dim);
+  auto transformedKernelSize = getTransformedKernelSize(dim);
+  assert(transformedInputSize >= transformedKernelSize);
+  return transformedInputSize - transformedKernelSize + 1;
+}
+
 std::size_t ConvParams::getOutputSize(unsigned dim) const {
-  auto paddedDilatedInputSize = getPaddedDilatedInputSize(dim);
-  auto paddedDilatedKernelSize = getPaddedDilatedKernelSize(dim);
-  assert(paddedDilatedInputSize >= paddedDilatedKernelSize);
-  return (paddedDilatedInputSize - paddedDilatedKernelSize) /
-                 stride[dim] + 1;
+  auto convOutSize = getUntransformedOutputSize(dim);
+  auto truncatedSize =
+      convOutSize - (outputTransform.truncationLower[dim] +
+                     outputTransform.truncationUpper[dim]);
+  auto stride = outputTransform.stride[dim];
+  auto truncatedStridedSize = (truncatedSize + stride - 1) / stride;
+  auto truncatedStridedPaddedSize =
+      outputTransform.paddingLower[dim] + truncatedStridedSize +
+      outputTransform.paddingUpper[dim];
+  return truncatedStridedPaddedSize;
 }
 
 std::vector<std::size_t> ConvParams::getOutputFieldShape() const {
@@ -1088,7 +1189,7 @@ unflattenDims(Tensor t, unsigned from, unsigned to, unsigned fromSize) {
 static Tensor dilate(Graph &graph, const Tensor &t, unsigned dilationFactor,
                      unsigned dim) {
   const auto oldSize = t.dim(dim);
-  const auto newSize = (oldSize - 1) * dilationFactor + 1;
+  const auto newSize = getDilatedSize(oldSize, dilationFactor);
   if (newSize == oldSize)
     return t;
   const auto dType = t.elementType();
@@ -1114,15 +1215,29 @@ static void expandSpatialDim(Graph &graph, ConvParams &params,
   unsigned weightsDimIndex = dim + 1;
   auto &actsSize = params.inputFieldShape[dim];
   auto &weightsSize = params.kernelShape[dim];
-  auto &actsDilation = params.inputDilation[dim];
-  auto &weightsDilation = params.kernelDilation[dim];
-  std::vector<bool>::reference actsFlip = params.flipInput[dim];
-  std::vector<bool>::reference weightsFlip = params.flipKernel[dim];
-  auto &actsPaddingLower = params.inputPaddingLower[dim];
-  auto &weightsPaddingLower = params.kernelPaddingLower[dim];
-  auto &actsPaddingUpper = params.inputPaddingUpper[dim];
-  auto &weightsPaddingUpper = params.kernelPaddingUpper[dim];
+  auto &actsTruncationLower = params.inputTransform.truncationLower[dim];
+  auto &actsTruncationUpper = params.inputTransform.truncationUpper[dim];
+  auto &actsDilation = params.inputTransform.dilation[dim];
+  auto &actsPaddingLower = params.inputTransform.paddingLower[dim];
+  auto &actsPaddingUpper = params.inputTransform.paddingUpper[dim];
+  std::vector<bool>::reference actsFlip = params.inputTransform.flip[dim];
+  std::vector<bool>::reference weightsFlip = params.kernelTransform.flip[dim];
+  auto &weightsTruncationLower = params.kernelTransform.truncationLower[dim];
+  auto &weightsTruncationUpper = params.kernelTransform.truncationUpper[dim];
+  auto &weightsDilation = params.kernelTransform.dilation[dim];
+  auto &weightsPaddingLower = params.kernelTransform.paddingLower[dim];
+  auto &weightsPaddingUpper = params.kernelTransform.paddingUpper[dim];
+  auto &outputTruncationLower = params.outputTransform.truncationLower[dim];
+  auto &outputTruncationUpper = params.outputTransform.truncationUpper[dim];
+  auto &stride = params.outputTransform.stride[dim];
+  auto &outputPaddingLower = params.outputTransform.paddingLower[dim];
+  auto &outputPaddingUpper = params.outputTransform.paddingUpper[dim];
   if (acts) {
+    // Explicitly truncate.
+    *acts = pad(graph, *acts,
+                -static_cast<int>(actsTruncationLower),
+                -static_cast<int>(actsTruncationUpper),
+                actsDimIndex);
     // Explicitly dilate.
     *acts = dilate(graph, *acts, actsDilation, actsDimIndex);
     // Explicitly pad.
@@ -1132,9 +1247,12 @@ static void expandSpatialDim(Graph &graph, ConvParams &params,
       *acts = acts->reverse(actsDimIndex);
     }
   }
-  actsSize = (actsSize - 1) * actsDilation + 1;
+  actsSize -= (actsTruncationLower + actsTruncationUpper);
+  actsSize = getDilatedSize(actsSize, actsDilation);
   actsSize += actsPaddingLower + actsPaddingUpper;
   actsDilation = 1;
+  actsTruncationLower = 0;
+  actsTruncationUpper = 0;
   actsPaddingLower = 0;
   actsPaddingUpper = 0;
   actsFlip = false;
@@ -1144,26 +1262,28 @@ static void expandSpatialDim(Graph &graph, ConvParams &params,
     auto expandedShape = acts->shape();
     expandedShape[actsDimIndex] = params.getOutputSize(dim);
     expandedShape.back() = 0;
-    auto weightsPaddedDilatedSize = params.getPaddedDilatedKernelSize(dim);
     std::vector<Tensor> slices;
     for (unsigned k = 0; k != weightsSize; ++k) {
-      auto dilatedPaddedK =
-          static_cast<int>(k * weightsDilation) + weightsPaddingLower;
       Tensor slice;
-      if (dilatedPaddedK >= 0 && dilatedPaddedK < weightsPaddedDilatedSize) {
-        auto dilatedPaddedFlippedK =
-            weightsFlip ? weightsPaddedDilatedSize - 1 - dilatedPaddedK :
-                          dilatedPaddedK;
-        slice =
-            acts->slice(dilatedPaddedFlippedK,
-                        dilatedPaddedFlippedK + 1 +
-                          (params.getOutputSize(dim) - 1) * params.stride[dim],
-                        actsDimIndex);
-        slice = slice.subSample(params.stride[dim], actsDimIndex);
-      } else {
+      auto weightOutRange = getOutputRange(dim, {0, params.getOutputSize(dim)},
+                                           k, params);
+      if (weightOutRange.first == weightOutRange.second) {
         auto zerosShape = expandedShape;
         zerosShape.back() = acts->dim(acts->rank() - 1);
         slice = graph.addConstant(dType, zerosShape, 0);
+      } else {
+        auto weightInRange = getInputRange(dim, {0, params.getOutputSize(dim)},
+                                           k, params);
+        slice = acts->slice(weightInRange.first,
+                            weightInRange.second,
+                            actsDimIndex);
+        slice = slice.subSample(stride, actsDimIndex);
+        const auto slicePaddingLower = weightOutRange.first;
+        const auto slicePaddingUpper =
+            params.getOutputSize(dim) - weightOutRange.second;
+        slice = pad(graph, slice, slicePaddingLower, slicePaddingUpper,
+                    actsDimIndex);
+        assert(slice.dim(actsDimIndex) == params.getOutputSize(dim));
       }
       slices.push_back(std::move(slice));
     }
@@ -1178,11 +1298,17 @@ static void expandSpatialDim(Graph &graph, ConvParams &params,
   actsSize = params.getOutputSize(dim);
   params.inputChannels *= weightsSize;
   weightsSize = 1;
+  weightsTruncationLower = 0;
+  weightsTruncationUpper = 0;
   weightsDilation = 1;
   weightsPaddingLower = 0;
   weightsPaddingUpper = 0;
   weightsFlip = false;
-  params.stride[dim] = 1;
+  outputTruncationLower = 0;
+  outputTruncationUpper = 0;
+  stride = 1;
+  outputPaddingLower = 0;
+  outputPaddingUpper = 0;
 }
 
 static void swapOperands(ConvParams &params, Tensor *acts, Tensor *weights) {
@@ -1723,7 +1849,7 @@ static void createConvPartialAmpVertex(Graph &graph,
   const auto passesPerOutputGroup = outChansPerGroup / outChansPerPass;
   bool nx1Vertex =
       getNumElementsInSlice(slice.kernelBegin, slice.kernelEnd) != 1 ||
-      params.inputDilation != params.stride ||
+      params.inputTransform.dilation != params.outputTransform.stride ||
       !writtenRangeEqualsOutputRange(slice.outFieldBegin, slice.outFieldEnd,
                                      slice.kernelBegin, slice.kernelEnd,
                                      params);
@@ -1747,7 +1873,7 @@ static void createConvPartialAmpVertex(Graph &graph,
   const auto inZGroupBegin = slice.inChanBegin / plan.inChansPerGroup;
   const auto inZGroupEnd = slice.inChanEnd / plan.inChansPerGroup;
   const auto inChansPerGroup = plan.inChansPerGroup;
-  bool flipOut = params.flipInput[numFieldDims - 1];
+  bool flipOut = params.inputTransform.flip[numFieldDims - 1];
   const auto convUnitInputLoadElemsPerCycle =
     target.getConvUnitInputLoadElemsPerCycle(dType == FLOAT);
   const auto convUnitCoeffLoadBytesPerCycle =
@@ -1772,18 +1898,25 @@ static void createConvPartialAmpVertex(Graph &graph,
     }
   }
   // Explicitly dilate the input tensor if needed
-  if (convUnitWeightHeight != 1 && params.inputDilation.front() > 1) {
-    const auto inputDilation = params.inputDilation.front();
+  if (convUnitWeightHeight != 1 && params.inputTransform.dilation[0] > 1) {
+    const auto inputDilation = params.inputTransform.dilation[0];
+    const auto inputTruncationLower = params.inputTransform.truncationLower[0];
+    const auto inputTruncationUpper = params.inputTransform.truncationUpper[0];
+    in = pad(graph, in, -static_cast<int>(inputTruncationLower),
+             -static_cast<int>(inputTruncationUpper), 3);
+    params.inputFieldShape[0] -= inputTruncationLower + inputTruncationUpper;
+    params.inputTransform.truncationLower[0] = 0;
+    params.inputTransform.truncationUpper[0] = 0;
     in = dilate(graph, in, inputDilation, 3);
-    params.inputDilation[0] = 1;
-    params.inputFieldShape[0] =
-        (params.inputFieldShape[0] - 1) * inputDilation + 1;
+    params.inputTransform.dilation[0] = 1;
+    params.inputFieldShape[0] = getDilatedSize(params.inputFieldShape[0],
+                                               inputDilation);
   }
   std::vector<std::size_t> tileInBatchAndFieldBegin = { batchBegin };
   std::vector<std::size_t> tileInBatchAndFieldEnd = { batchEnd };
   // This stride is what's used to move down one element in the input field by
   // the vertex.
-  int inRowStride = inChansPerGroup * params.kernelDilation.front();
+  int inRowStride = inChansPerGroup * params.kernelTransform.dilation.front();
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     auto range = getInputRange(dim,
                                {slice.outFieldBegin[dim],
@@ -1796,7 +1929,8 @@ static void createConvPartialAmpVertex(Graph &graph,
     if (dim != 0)
       inRowStride *= range.second - range.first;
   }
-  if (params.flipInput.front() != params.flipKernel.front()) {
+  if (params.inputTransform.flip.front() !=
+      params.kernelTransform.flip.front()) {
     inRowStride = -inRowStride;
   }
 
@@ -1811,7 +1945,8 @@ static void createConvPartialAmpVertex(Graph &graph,
     // by conservatively assuming the first non padding input element in the
     // window is multiplied by the last kernel element and the last non padding
     // input element in the window is multiplied by the first kernel element.
-    prePaddingSize = (convUnitWeightHeight - 1) * params.kernelDilation.front();
+    prePaddingSize = (convUnitWeightHeight - 1) *
+                     params.kernelTransform.dilation.front();
     postPaddingSize = prePaddingSize;
   }
   // TODO if the tile kernel size is 1 and the stride is greater than one we
@@ -1890,8 +2025,9 @@ static void createConvPartialAmpVertex(Graph &graph,
     auto workerPartition =
         partitionConvPartialByWorker(batchEnd - batchBegin,
                                      tileConvOutSize,
-                                     contextsPerVertex, params.inputDilation,
-                                     params.stride);
+                                     contextsPerVertex,
+                                     params.inputTransform.dilation,
+                                     params.outputTransform.stride);
     for (unsigned i = 0; i != contextsPerVertex; ++i) {
       for (const auto &partialRow : workerPartition[i]) {
         auto workerOutXBegin = tileConvOutBegin.back() + partialRow.xBegin;
@@ -1926,7 +2062,7 @@ static void createConvPartialAmpVertex(Graph &graph,
               auto inOuterBeginIndex =
                   inOuterIndex + prePaddingSize +
                   (inRowStride < 0 ? 1 : -1) *
-                  (k - kOuterBegin) * params.kernelDilation.front();
+                  (k - kOuterBegin) * params.kernelTransform.dilation.front();
               inBeginIndices.push_back(inOuterBeginIndex);
               break;
             }
@@ -1975,8 +2111,8 @@ static void createConvPartialAmpVertex(Graph &graph,
     kernelInnerElements *= subKernelPositionsEnd[dim] -
                            subKernelPositionsBegin[dim];
   }
-  auto inStrideX = params.stride.back();
-  auto outStrideX = params.inputDilation.back();
+  auto inStrideX = params.outputTransform.stride.back();
+  auto outStrideX = params.inputTransform.dilation.back();
   const auto strideDivisor = gcd(inStrideX, outStrideX);
   inStrideX /= strideDivisor;
   outStrideX /= strideDivisor;
@@ -2053,7 +2189,7 @@ createConvPartialHorizontalMacVertex(Graph &graph,
   const auto kernelXBegin = slice.kernelBegin.back();
   const auto kernelXEnd = slice.kernelEnd.back();
 
-  bool flipOut = params.flipInput[xDimIndex];
+  bool flipOut = params.inputTransform.flip[xDimIndex];
 
   const auto dataPathWidth = target.getDataPathWidth();
 
@@ -2211,8 +2347,8 @@ createConvPartialHorizontalMacVertex(Graph &graph,
     }
   }
 
-  auto inStrideX = params.stride.back();
-  auto outStrideX = params.inputDilation.back();
+  auto inStrideX = params.outputTransform.stride.back();
+  auto outStrideX = params.inputTransform.dilation.back();
   const auto strideDivisor = gcd(inStrideX, outStrideX);
   inStrideX /= strideDivisor;
   outStrideX /= strideDivisor;
@@ -2261,14 +2397,26 @@ createOuterProductVertex(
     const Tensor &out) {
   const auto dataPathWidth = graph.getTarget().getDataPathWidth();
   const auto numFieldDims = params.getNumFieldDims();
-  assert(product(params.stride) == 1);
-  assert(product(params.inputDilation) == 1);
+  assert(product(params.outputTransform.stride) == 1);
+  assert(product(params.inputTransform.dilation) == 1);
 
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    in = pad(graph, in, params.inputPaddingLower[dim],
-             params.inputPaddingUpper[dim], 3 + dim);
-    weights = pad(graph, weights, params.kernelPaddingLower[dim],
-                  params.kernelPaddingUpper[dim], 3 + dim);
+    in = pad(graph, in,
+             -static_cast<int>(params.inputTransform.truncationLower[dim]),
+             -static_cast<int>(params.inputTransform.truncationUpper[dim]),
+             3 + dim);
+    in = pad(graph, in,
+             static_cast<int>(params.inputTransform.paddingLower[dim]),
+             static_cast<int>(params.inputTransform.paddingUpper[dim]),
+             3 + dim);
+    weights = pad(graph, weights,
+             -static_cast<int>(params.kernelTransform.truncationLower[dim]),
+             -static_cast<int>(params.kernelTransform.truncationUpper[dim]),
+                  3 + dim);
+    weights = pad(graph, weights,
+             static_cast<int>(params.kernelTransform.paddingLower[dim]),
+             static_cast<int>(params.kernelTransform.paddingUpper[dim]),
+                  3 + dim);
   }
 
   assert(in.dim(1) == 1);
@@ -2721,13 +2869,15 @@ static std::string
 convSuffix(const ConvParams &params) {
   std::string s = "_";
   s += getShapeAsString(params.kernelShape);
-  if (std::any_of(params.stride.begin(), params.stride.end(),
+  if (std::any_of(params.outputTransform.stride.begin(),
+                  params.outputTransform.stride.end(),
                   [](unsigned x) { return x != 1; })) {
-    s += "_stride" + getShapeAsString(params.stride);
+    s += "_stride" + getShapeAsString(params.outputTransform.stride);
   }
-  if (std::any_of(params.inputDilation.begin(), params.inputDilation.end(),
+  if (std::any_of(params.inputTransform.dilation.begin(),
+                  params.inputTransform.dilation.end(),
                   [](unsigned x) { return x != 1; })) {
-    s += "_inDilation" + getShapeAsString(params.inputDilation);
+    s += "_inDilation" + getShapeAsString(params.inputTransform.dilation);
   }
   return s;
 }
@@ -3086,19 +3236,10 @@ static ConvParams
 getWeightUpdateParams(ConvParams fwdParams) {
   fwdParams = canonicalizeParams(fwdParams);
   const auto numFieldDims = fwdParams.getNumFieldDims();
-  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    if (fwdParams.kernelPaddingLower[dim] != 0 ||
-        fwdParams.kernelPaddingUpper[dim] != 0) {
-      // Kernel padding in the forward pass translates to output truncation in
-      // the weight update pass but this isn't supported yet.
-      std::abort();
-    }
-  }
-  std::vector<int> noPadding(numFieldDims);
-  auto wuFlipInput = fwdParams.flipInput;
+  auto wuFlipInput = fwdParams.inputTransform.flip;
   std::vector<bool> wuFlipKernel(numFieldDims);
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    if (fwdParams.flipKernel[dim]) {
+    if (fwdParams.kernelTransform.flip[dim]) {
       // If the kernel is flipped in the forward pass we must flip the output
       // in the weight update pass. This is equivalent to flipping both the
       // activations and the deltas in the weight update pass.
@@ -3106,27 +3247,33 @@ getWeightUpdateParams(ConvParams fwdParams) {
       wuFlipKernel[dim] = !wuFlipKernel[dim];
     }
   }
-  return ConvParams(fwdParams.dType,
-                    fwdParams.getNumInputChansPerConvGroup(), // batchSize
-                    {
-                      fwdParams.inputFieldShape
-                    }, // inputFieldShape
-                    {
-                      fwdParams.getOutputFieldShape()
-                    }, // kernelShape
-                    fwdParams.getBatchSize(), // inputChannels
-                    fwdParams.getNumOutputChansPerConvGroup(), // outputChannels
-                    fwdParams.kernelDilation, // stride
-                    fwdParams.inputPaddingLower, // inputPaddingLower
-                    fwdParams.inputPaddingUpper, // inputPaddingUpper
-                    fwdParams.inputDilation,     // inputDilation
-                    wuFlipInput, // flipInput
-                    noPadding, // kernelPaddingLower
-                    noPadding, // kernelPaddingUpper
-                    fwdParams.stride, // kernelDilation
-                    wuFlipKernel, // flipKernel
-                    fwdParams.numConvGroups // numConvGroups
-                    );
+  ConvParams wuParams(
+    fwdParams.dType,
+    fwdParams.getNumInputChansPerConvGroup(), // batchSize
+    fwdParams.inputFieldShape, // inputFieldShape
+    fwdParams.getOutputFieldShape(), // kernelShape
+    fwdParams.getBatchSize(), // inputChannels
+    fwdParams.getNumOutputChansPerConvGroup(), // outputChannels
+    fwdParams.numConvGroups, // numConvGroups
+    fwdParams.inputTransform.truncationLower, // inputTruncationLower
+    fwdParams.inputTransform.truncationUpper, // inputTruncationUpper
+    fwdParams.inputTransform.dilation, // inputDilation
+    fwdParams.inputTransform.paddingLower, // inputPaddingLower
+    fwdParams.inputTransform.paddingUpper, // inputPaddingUpper
+    wuFlipInput, // flipInput
+    fwdParams.outputTransform.paddingLower, // kernelTruncationLower
+    fwdParams.outputTransform.paddingUpper, // kernelTruncationUpper
+    fwdParams.outputTransform.stride, // kernelDilation
+    fwdParams.outputTransform.truncationLower, // kernelPaddingLower
+    fwdParams.outputTransform.truncationUpper, // kernelPaddingUpper
+    wuFlipKernel, // flipKernel
+    fwdParams.kernelTransform.paddingLower, // outputTruncationLower
+    fwdParams.kernelTransform.paddingUpper, // outputTruncationIpper
+    fwdParams.kernelTransform.dilation, // stride
+    fwdParams.kernelTransform.truncationLower, // outputPaddingLower
+    fwdParams.kernelTransform.truncationUpper // outputPaddingUpper
+  );
+  return canonicalizeParams(wuParams);
 }
 
 Tensor

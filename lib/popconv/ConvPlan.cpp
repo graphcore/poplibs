@@ -461,8 +461,8 @@ getMaxInputRangeSize(unsigned outputRangeSize, unsigned dim,
     auto inputRange = getInputRange(dim, {0, outputRangeSize}, params);
     return inputRange.second - inputRange.first;
   }
-  const auto stride = params.stride[dim];
-  const auto inputDilation = params.inputDilation[dim];
+  const auto stride = params.outputTransform.stride[dim];
+  const auto inputDilation = params.inputTransform.dilation[dim];
   const auto preDownSampleOutputSize = (outputRangeSize - 1) * stride + 1;
   const auto dilatedInputSize = preDownSampleOutputSize + tileKernelSize - 1;
   const auto inputRangeSize = (dilatedInputSize - 1) / inputDilation + 1;
@@ -589,13 +589,15 @@ addZeroCycles(popsolver::Model &m,
   } else {
     const auto numFieldDims = params.getNumFieldDims();
     for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-      if (params.stride[dim] != 1 ||
-          params.inputDilation[dim] != 1 ||
-          params.kernelDilation[dim] != 1 ||
-          params.inputPaddingLower[dim] != 0 ||
-          params.inputPaddingUpper[dim] != 0 ||
-          params.kernelPaddingLower[dim] != 0 ||
-          params.kernelPaddingUpper[dim] != 0) {
+      if (params.outputTransform.stride[dim] != 1 ||
+          params.inputTransform.dilation[dim] != 1 ||
+          params.kernelTransform.dilation[dim] != 1 ||
+          params.inputTransform.paddingLower[dim] != 0 ||
+          params.inputTransform.paddingUpper[dim] != 0 ||
+          params.outputTransform.paddingLower[dim] != 0 ||
+          params.outputTransform.paddingUpper[dim] != 0 ||
+          params.kernelTransform.paddingLower[dim] != 0 ||
+          params.kernelTransform.paddingUpper[dim] != 0) {
         zeroPartials = Yes;
         break;
       }
@@ -632,7 +634,7 @@ canUseConvPartial1x1Vertex(const ConvParams &params,
                            const std::vector<unsigned> &tileKernelShape) {
   if (convUnitWeightHeight != 1)
     return false;
-  if (params.inputDilation != params.stride)
+  if (params.inputTransform.dilation != params.outputTransform.stride)
     return false;
   auto tileKernelElements = std::accumulate(tileKernelShape.begin(),
                                         tileKernelShape.end(), 1UL,
@@ -717,8 +719,8 @@ estimatePartialCalcCycles(const poplar::Target &target,
         auto innerLoopCycles =
             cache->mGetConvPartial1x1InnerLoopCycleEstimate(
               tileBatchElements, tileOutShape,
-              target.getNumWorkerContexts(), params.inputDilation,
-              params.stride);
+              target.getNumWorkerContexts(), params.inputTransform.dilation,
+              params.outputTransform.stride);
         computeCycles =
           getConvPartial1x1SupervisorOuterLoopCycleEstimate(
               innerLoopCycles, tileNumGroupedConv, tileNumInGroups,
@@ -732,7 +734,7 @@ estimatePartialCalcCycles(const poplar::Target &target,
               convUnitWeightHeight, convUnitInputLoadElemsPerCycle,
               numConvUnits, target.getConvUnitCoeffLoadBytesPerCycle(),
               target.getNumWorkerContexts(), floatActivations,
-              params.inputDilation, params.stride);
+              params.inputTransform.dilation, params.outputTransform.stride);
         computeCycles =
             getConvPartialnx1SupervisorCycleOuterLoopEstimate(
               innerLoopCycles, tileNumGroupedConv, tileNumOutGroups,
@@ -742,12 +744,12 @@ estimatePartialCalcCycles(const poplar::Target &target,
     break;
   case Plan::Method::MAC:
     {
-      const auto outputStrideX = params.inputDilation.back();
+      const auto outputStrideX = params.inputTransform.dilation.back();
       unsigned numActiveOutRows = tileBatchElements;
       for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
         const auto dimActiveRows =
-            (tileOutShape[dim] + params.inputDilation[dim] - 1) /
-            params.inputDilation[dim];
+            (tileOutShape[dim] + params.inputTransform.dilation[dim] - 1) /
+            params.inputTransform.dilation[dim];
         numActiveOutRows *= dimActiveRows;
       }
       const auto tileKernelWidth =
@@ -780,10 +782,10 @@ estimatePartialCalcCycles(const poplar::Target &target,
       assert(tileOutWidth == tileOutElements);
       assert(tileBatchElements == 1);
       assert(tileNumInGroups == 1);
-      assert(std::all_of(params.stride.begin(),
-                         params.stride.end(), equalsOne));
-      assert(std::all_of(params.inputDilation.begin(),
-                         params.inputDilation.end(), equalsOne));
+      assert(std::all_of(params.outputTransform.stride.begin(),
+                         params.outputTransform.stride.end(), equalsOne));
+      assert(std::all_of(params.inputTransform.dilation.begin(),
+                         params.inputTransform.dilation.end(), equalsOne));
       const auto numContexts = target.getNumWorkerContexts();
       const auto workerOutWidth =
           (tileOutWidth + numContexts - 1) / numContexts;
@@ -1417,7 +1419,7 @@ choosePlan(const poplar::Target &target,
 static bool allKernelDimensionsAreOne(const ConvParams &params) {
   const auto numFieldDims = params.getNumFieldDims();
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    if (params.getPaddedDilatedKernelSize(dim) != 1) {
+    if (params.getTransformedKernelSize(dim) != 1) {
       return false;
     }
   }
@@ -1432,12 +1434,22 @@ static bool canUseOuterProductMethod(const ConvParams &params) {
   }
   return params.getNumInputChansPerConvGroup() == 1 &&
          params.getBatchSize() == 1 &&
-         std::all_of(params.stride.begin(),
-                     params.stride.end(), equalsOne) &&
-         std::all_of(params.inputDilation.begin(),
-                     params.inputDilation.end(), equalsOne) &&
-         std::all_of(params.flipInput.begin(),
-                     params.flipInput.end(), equalsZero) &&
+         std::all_of(params.outputTransform.truncationLower.begin(),
+                     params.outputTransform.truncationLower.end(),
+                     equalsZero) &&
+         std::all_of(params.outputTransform.truncationUpper.begin(),
+                     params.outputTransform.truncationUpper.end(),
+                     equalsZero) &&
+         std::all_of(params.outputTransform.stride.begin(),
+                     params.outputTransform.stride.end(), equalsOne) &&
+         std::all_of(params.outputTransform.paddingLower.begin(),
+                     params.outputTransform.paddingLower.end(), equalsZero) &&
+         std::all_of(params.outputTransform.paddingUpper.begin(),
+                     params.outputTransform.paddingUpper.end(), equalsZero) &&
+         std::all_of(params.inputTransform.dilation.begin(),
+                     params.inputTransform.dilation.end(), equalsOne) &&
+         std::all_of(params.inputTransform.flip.begin(),
+                     params.inputTransform.flip.end(), equalsZero) &&
          allKernelDimensionsAreOne(params);
 }
 
@@ -1533,15 +1545,23 @@ static void expandDim(ConvParams &params, unsigned dim) {
   params.inputFieldShape[dim] = params.getOutputSize(dim);
   params.inputChannels *= params.kernelShape[dim];
   params.kernelShape[dim] = 1;
-  params.stride[dim] = 1;
-  params.inputDilation[dim] = 1;
-  params.inputPaddingLower[dim] = 0;
-  params.inputPaddingUpper[dim] = 0;
-  params.flipInput[dim] = false;
-  params.kernelDilation[dim] = 1;
-  params.kernelPaddingLower[dim] = 0;
-  params.kernelPaddingUpper[dim] = 0;
-  params.flipKernel[dim] = false;
+  params.inputTransform.truncationLower[dim] = 0;
+  params.inputTransform.truncationUpper[dim] = 0;
+  params.inputTransform.dilation[dim] = 1;
+  params.inputTransform.paddingLower[dim] = 0;
+  params.inputTransform.paddingUpper[dim] = 0;
+  params.inputTransform.flip[dim] = false;
+  params.kernelTransform.truncationLower[dim] = 0;
+  params.kernelTransform.truncationUpper[dim] = 0;
+  params.kernelTransform.dilation[dim] = 1;
+  params.kernelTransform.paddingLower[dim] = 0;
+  params.kernelTransform.paddingUpper[dim] = 0;
+  params.kernelTransform.flip[dim] = false;
+  params.outputTransform.truncationLower[dim] = 0;
+  params.outputTransform.truncationUpper[dim] = 0;
+  params.outputTransform.stride[dim] = 1;
+  params.outputTransform.paddingLower[dim] = 0;
+  params.outputTransform.paddingUpper[dim] = 0;
 }
 
 static unsigned
@@ -1710,33 +1730,38 @@ static bool dimCanBeFlattened(const ConvParams &params, unsigned dim) {
   // TODO two dimensions can be flattened if they both have flipInput set to
   // true. To target this we would need to pass information about the two
   // dimensions that are candidates for flattening.
-  return params.getPaddedDilatedKernelSize(dim) == 1 &&
-         params.stride[dim] == 1 &&
-         params.inputDilation[dim] == 1 &&
-         params.inputPaddingLower[dim] == 0 &&
-         params.inputPaddingUpper[dim] == 0 &&
-         !params.flipInput[dim];
+  return params.getTransformedKernelSize(dim) == 1 &&
+         params.inputTransform.truncationLower[dim] == 0 &&
+         params.inputTransform.truncationUpper[dim] == 0 &&
+         params.inputTransform.dilation[dim] == 1 &&
+         params.inputTransform.paddingLower[dim] == 0 &&
+         params.inputTransform.paddingUpper[dim] == 0 &&
+         !params.inputTransform.flip[dim] &&
+         params.outputTransform.truncationLower[dim] == 0 &&
+         params.outputTransform.truncationUpper[dim] == 0 &&
+         params.outputTransform.stride[dim] == 1 &&
+         params.outputTransform.paddingLower[dim] == 0 &&
+         params.outputTransform.paddingUpper[dim] == 0;
 }
 
 void
 swapOperands(ConvParams &params) {
   const auto numFieldDims = params.getNumFieldDims();
+  std::vector<unsigned> extraInputPadding(numFieldDims);
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    const auto paddedDilatedInputSize = params.getPaddedDilatedInputSize(dim);
-    const auto paddedDilatedKernelSize = params.getPaddedDilatedKernelSize(dim);
-    std::swap(params.inputFieldShape[dim], params.kernelShape[dim]);
-    std::swap(params.inputPaddingLower[dim], params.kernelPaddingLower[dim]);
-    std::swap(params.inputPaddingUpper[dim], params.kernelPaddingUpper[dim]);
-    std::swap(params.inputDilation[dim], params.kernelDilation[dim]);
-    std::swap(params.flipInput[dim], params.flipKernel[dim]);
-    params.flipInput[dim] = !params.flipInput[dim];
-    params.flipKernel[dim] = !params.flipKernel[dim];
-    const auto extraInputPadding =
-        paddedDilatedInputSize - paddedDilatedKernelSize;
-    params.inputPaddingLower[dim] += extraInputPadding;
-    params.inputPaddingUpper[dim] += extraInputPadding;
+    const auto transformedInputSize = params.getTransformedInputSize(dim);
+    const auto transformedKernelSize = params.getTransformedKernelSize(dim);
+    extraInputPadding[dim] = transformedInputSize - transformedKernelSize;
   }
+  std::swap(params.inputFieldShape, params.kernelShape);
+  std::swap(params.inputTransform, params.kernelTransform);
   std::swap(params.batchSize, params.outputChannels);
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    params.inputTransform.flip[dim] = !params.inputTransform.flip[dim];
+    params.kernelTransform.flip[dim] = !params.kernelTransform.flip[dim];
+    params.inputTransform.paddingLower[dim] += extraInputPadding[dim];
+    params.inputTransform.paddingUpper[dim] += extraInputPadding[dim];
+  }
   params = canonicalizeParams(params);
 }
 
@@ -1761,17 +1786,28 @@ void insertAtFront(std::vector<T> &v, std::size_t n, const T &val) {
 void addExtraDims(ConvParams &params, unsigned extraDims) {
   if (extraDims == 0)
     return;
-  insertAtFront(params.inputDilation, extraDims, 1U);
   insertAtFront(params.inputFieldShape, extraDims, std::size_t(1));
-  insertAtFront(params.inputPaddingLower, extraDims, 0);
-  insertAtFront(params.inputPaddingUpper, extraDims, 0);
-  insertAtFront(params.flipInput, extraDims, false);
-  insertAtFront(params.kernelDilation, extraDims, 1U);
-  insertAtFront(params.kernelPaddingLower, extraDims, 0);
-  insertAtFront(params.kernelPaddingUpper, extraDims, 0);
   insertAtFront(params.kernelShape, extraDims, std::size_t(1));
-  insertAtFront(params.flipKernel, extraDims, false);
-  insertAtFront(params.stride, extraDims, 1U);
+
+  insertAtFront(params.inputTransform.truncationLower, extraDims, 0U);
+  insertAtFront(params.inputTransform.truncationUpper, extraDims, 0U);
+  insertAtFront(params.inputTransform.dilation, extraDims, 1U);
+  insertAtFront(params.inputTransform.paddingLower, extraDims, 0U);
+  insertAtFront(params.inputTransform.paddingUpper, extraDims, 0U);
+  insertAtFront(params.inputTransform.flip, extraDims, false);
+
+  insertAtFront(params.kernelTransform.truncationLower, extraDims, 0U);
+  insertAtFront(params.kernelTransform.truncationUpper, extraDims, 0U);
+  insertAtFront(params.kernelTransform.dilation, extraDims, 1U);
+  insertAtFront(params.kernelTransform.paddingLower, extraDims, 0U);
+  insertAtFront(params.kernelTransform.paddingUpper, extraDims, 0U);
+  insertAtFront(params.kernelTransform.flip, extraDims, false);
+
+  insertAtFront(params.outputTransform.truncationLower, extraDims, 0U);
+  insertAtFront(params.outputTransform.truncationUpper, extraDims, 0U);
+  insertAtFront(params.outputTransform.stride, extraDims, 1U);
+  insertAtFront(params.outputTransform.paddingLower, extraDims, 0U);
+  insertAtFront(params.outputTransform.paddingUpper, extraDims, 0U);
 }
 
 static ConvParams
@@ -1999,11 +2035,21 @@ static ConvParams getFullyConnectedFwdParams(const ConvParams &params,
   // Translate back into parameters of the fully connected layer.
   unsigned outputSize, inputSize, batchSize;
   assert(params.getNumFieldDims() == 1);
-  assert(params.stride[0] == 1);
-  assert(params.inputPaddingLower[0] == 0);
-  assert(params.inputPaddingUpper[0] == 0);
+  assert(params.inputTransform.truncationLower[0] == 0);
+  assert(params.inputTransform.truncationUpper[0] == 0);
+  assert(params.inputTransform.dilation[0] == 1);
+  assert(params.inputTransform.paddingLower[0] == 0);
+  assert(params.inputTransform.paddingUpper[0] == 0);
+  assert(params.kernelTransform.truncationLower[0] == 0);
+  assert(params.kernelTransform.truncationUpper[0] == 0);
   assert(params.kernelShape[0] == 1);
-  assert(params.inputDilation[0] == 1);
+  assert(params.kernelTransform.truncationLower[0] == 0);
+  assert(params.kernelTransform.truncationUpper[0] == 0);
+  assert(params.outputTransform.truncationLower[0] == 0);
+  assert(params.outputTransform.truncationUpper[0] == 0);
+  assert(params.outputTransform.stride[0] == 1);
+  assert(params.outputTransform.paddingLower[0] == 0);
+  assert(params.outputTransform.paddingUpper[0] == 0);
   switch (options.pass) {
   default: assert(0 && "Unexpected pass");
   case Pass::FC_TRAINING_BWD:
@@ -2018,21 +2064,30 @@ static ConvParams getFullyConnectedFwdParams(const ConvParams &params,
     break;
   }
   return ConvParams(params.dType,
-                    1,                    // batchSize
-                    {outputSize},         // inputShape
-                    {1},                  // kernelShape
-                    inputSize,            // input channels
-                    batchSize,            // output channels
-                    {1},                  // stride
-                    {0},                  // input padding lower
-                    {0},                  // input padding upper
-                    {1},                  // input dilation
-                    {false},              // flip input
-                    {0},                  // kernel padding lower
-                    {0},                  // kernel padding upper
-                    {1},                  // kernel dilation
-                    {false},              // flip kernel
-                    params.getNumConvGroups());
+                    1,                         // batchSize
+                    {outputSize},              // inputShape
+                    {1},                       // kernelShape
+                    inputSize,                 // input channels
+                    batchSize,                 // output channels
+                    params.getNumConvGroups(), // conv groups
+                    {0},                       // input truncation lower
+                    {0},                       // input truncation upper
+                    {1},                       // input dilation
+                    {0},                       // input padding lower
+                    {0},                       // input padding upper
+                    {false},                   // flip input
+                    {0},                       // kernel truncation lower
+                    {0},                       // kernel truncation upper
+                    {1},                       // kernel dilation
+                    {0},                       // kernel padding lower
+                    {0},                       // kernel padding upper
+                    {false},                   // flip kernel
+                    {0},                       // output truncation lower
+                    {0},                       // output truncation upper
+                    {1},                       // stride
+                    {0},                       // output padding lower
+                    {0}                        // output padding upper
+                    );
 }
 
 static ConvOptions getFullyConnectedFwdOptions(const ConvOptions &options) {
@@ -2142,12 +2197,14 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
   }
   if (options.useWinograd) {
     assert(params.kernelShape.size() == 2);
-    assert(params.stride.size() == 2);
-    assert(params.inputPaddingLower.size() == 2);
-    assert(params.inputPaddingUpper.size() == 2);
+    assert(params.outputTransform.stride.size() == 2);
+    assert(params.inputTransform.paddingLower.size() == 2);
+    assert(params.inputTransform.paddingUpper.size() == 2);
     if (options.winogradPatchSize != 4 ||
-        params.stride[0] != 1 || params.stride[1] != 1 ||
-        params.inputDilation[0] != 1 || params.inputDilation[1] != 1 ||
+        params.outputTransform.stride[0] != 1 ||
+        params.outputTransform.stride[1] != 1 ||
+        params.inputTransform.dilation[0] != 1 ||
+        params.inputTransform.dilation[1] != 1 ||
         params.kernelShape[0] != 3 || params.kernelShape[1] != 3 ||
         params.getNumConvGroups() == 1) {
       throw popstd::poplib_error("Attempt to force winograd convolution for "

@@ -1685,8 +1685,8 @@ static Program complete(
 
 extern Program winogradConvolution(Graph &graph,
             const std::vector<unsigned> &stride,
-            const std::vector<int> &paddingLower,
-            const std::vector<int> &paddingUpper,
+            const std::vector<unsigned> &paddingLower,
+            const std::vector<unsigned> &paddingUpper,
             unsigned xDim, unsigned yDim,
             unsigned outNumChans, unsigned patchSizeX, unsigned patchSizeY,
             const Type &dType, const Type &partialsType,
@@ -1806,8 +1806,9 @@ Program winogradConvolution(Graph &graph,
   const auto dType = in.elementType();
   // Perform each element of the batch serially
   for (unsigned b = 0; b < batchSize; ++b) {
-    prog.add(winogradConvolution(graph, params.stride, params.inputPaddingLower,
-                                 params.inputPaddingUpper,
+    prog.add(winogradConvolution(graph, params.outputTransform.stride,
+                                 params.inputTransform.paddingLower,
+                                 params.inputTransform.paddingUpper,
                                  in.dim(3), in.dim(2),
                                  out.dim(1) * out.dim(4), patchSizeX,
                                  patchSizeY, dType, partialsType,

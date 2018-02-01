@@ -77,14 +77,23 @@ int main(int argc, char **argv) {
   ShapeOption<std::size_t> inputFieldSizeOption;
   ShapeOption<std::size_t> kernelSizeOption;
   unsigned numConvGroups = 1;
-  ShapeOption<int> paddingLowerOption, paddingUpperOption, paddingOption;
+  ShapeOption<unsigned> truncationLowerOption, truncationUpperOption,
+                        truncationOption;
   ShapeOption<unsigned> inDilationOption;
+  ShapeOption<unsigned> paddingLowerOption, paddingUpperOption, paddingOption;
   ShapeOption<bool> flipInputOption;
-  ShapeOption<int> kernelPaddingLowerOption, kernelPaddingUpperOption,
-                   kernelPaddingOption;
+  ShapeOption<unsigned> kernelTruncationLowerOption,
+                        kernelTruncationUpperOption,
+                        kernelTruncationOption;
   ShapeOption<unsigned> kernelDilationOption;
+  ShapeOption<unsigned> kernelPaddingLowerOption, kernelPaddingUpperOption,
+                        kernelPaddingOption;
   ShapeOption<bool> flipKernelOption;
+  ShapeOption<unsigned> outputTruncationOption, outputTruncationLowerOption,
+                        outputTruncationUpperOption;
   ShapeOption<unsigned> strideOption;
+  ShapeOption<unsigned> outputPaddingOption, outputPaddingLowerOption,
+                        outputPaddingUpperOption;
   unsigned batchSize;
   bool bias;
   Type dataType;
@@ -125,40 +134,88 @@ int main(int argc, char **argv) {
     ("partials-type",
      po::value<Type>(&partialsType)->default_value(FLOAT),
      "Type of partials")
-    ("padding", po::value<ShapeOption<int>>(&paddingOption)->default_value(0),
-     "Amount of zero padding to add to the start and end of each dimension")
-    ("padding-upper",
-     po::value<ShapeOption<int>>(&paddingUpperOption)->default_value(0),
-     "Amount of zero padding to add at the end of each dimension")
-    ("padding-lower",
-     po::value<ShapeOption<int>>(&paddingLowerOption)->default_value(0),
-     "Amount of zero padding to add at the start of each dimension")
+    ("truncation",
+     po::value<ShapeOption<unsigned>>(&truncationOption)->default_value(0),
+     "Amount to truncate the start and end of each dimension of the input")
+    ("truncation-upper",
+     po::value<ShapeOption<unsigned>>(&truncationUpperOption)->default_value(0),
+     "Amount to truncate the end of each dimension of the input")
+    ("truncation-lower",
+     po::value<ShapeOption<unsigned>>(&truncationLowerOption)->default_value(0),
+     "Amount to truncate the start of each dimension of the input")
     ("in-dilation",
      po::value<ShapeOption<unsigned>>(&inDilationOption)->default_value(1),
      "Input dilation")
+    ("padding",
+     po::value<ShapeOption<unsigned>>(&paddingOption)->default_value(0),
+     "Amount of zero padding to add to the start and end of each dimension")
+    ("padding-upper",
+     po::value<ShapeOption<unsigned>>(&paddingUpperOption)->default_value(0),
+     "Amount of zero padding to add at the end of each dimension")
+    ("padding-lower",
+     po::value<ShapeOption<unsigned>>(&paddingLowerOption)->default_value(0),
+     "Amount of zero padding to add at the start of each dimension")
     ("flip-input",
      po::value<ShapeOption<bool>>(&flipInputOption)->default_value(false),
      "Whether to flip each input spatial field")
-    ("kernel-padding",
-     po::value<ShapeOption<int>>(&kernelPaddingOption)->default_value(0),
-     "Amount of zero kernel padding to add at the start and end of each"
-     "dimension")
-    ("kernel-padding-upper",
-     po::value<ShapeOption<int>>(&kernelPaddingUpperOption)->default_value(0),
-     "Amount of zero kernel padding to add at the start of each dimension")
-    ("kernel-padding-lower",
-     po::value<ShapeOption<int>>(&kernelPaddingLowerOption)->default_value(0),
-     "Amount of zero kernel padding to add at the end of each dimension")
+    ("kernel-truncation",
+     po::value<ShapeOption<unsigned>>(&kernelTruncationOption)
+         ->default_value(0),
+     "Amount to truncate the start and end of each dimension of the kernel")
+    ("kernel-truncation-upper",
+     po::value<ShapeOption<unsigned>>(&kernelTruncationUpperOption)
+         ->default_value(0),
+     "Amount to truncate the end of each dimension of the kernel")
+    ("kernel-truncation-lower",
+     po::value<ShapeOption<unsigned>>(&kernelTruncationLowerOption)
+         ->default_value(0),
+     "Amount to truncate the start of each dimension of the kernel")
     ("kernel-dilation",
      po::value<ShapeOption<unsigned>>(&kernelDilationOption)
          ->default_value(1),
      "Kernel dilation")
+    ("kernel-padding",
+     po::value<ShapeOption<unsigned>>(&kernelPaddingOption)
+         ->default_value(0),
+     "Amount of zero kernel padding to add at the start and end of each"
+     "dimension")
+    ("kernel-padding-upper",
+     po::value<ShapeOption<unsigned>>(&kernelPaddingUpperOption)
+         ->default_value(0),
+     "Amount of zero kernel padding to add at the start of each dimension")
+    ("kernel-padding-lower",
+     po::value<ShapeOption<unsigned>>(&kernelPaddingLowerOption)
+         ->default_value(0),
+     "Amount of zero kernel padding to add at the end of each dimension")
     ("flip-kernel",
      po::value<ShapeOption<bool>>(&flipKernelOption)->default_value(false),
      "Whether to flip each kernel spatial field")
+    ("output-truncation",
+     po::value<ShapeOption<unsigned>>(&outputTruncationOption)
+         ->default_value(0),
+     "Number of output elements to truncate")
+    ("output-truncation-upper",
+     po::value<ShapeOption<unsigned>>(&outputTruncationUpperOption)
+         ->default_value(0),
+     "Number of output elements to truncate at the end of each dimension")
+    ("output-truncation-lower",
+     po::value<ShapeOption<unsigned>>(&outputTruncationLowerOption)
+         ->default_value(0),
+     "Number of output elements to truncate at the start of each dimension")
     ("stride",
      po::value<ShapeOption<unsigned>>(&strideOption)->default_value(1),
      "Stride")
+    ("output-padding",
+     po::value<ShapeOption<unsigned>>(&outputPaddingOption)->default_value(0),
+     "Number of output elements to truncate")
+    ("output-padding-upper",
+     po::value<ShapeOption<unsigned>>(&outputPaddingUpperOption)
+         ->default_value(0),
+     "Number of output elements to truncate at the end of each dimension")
+    ("output-padding-lower",
+     po::value<ShapeOption<unsigned>>(&outputPaddingLowerOption)
+         ->default_value(0),
+     "Number of output elements to truncate at the start of each dimension")
     ("single-phase",
      po::value<Pass>(&pass)->default_value(pass),
      "Run phase all | fwd | bwd | wu")
@@ -233,55 +290,64 @@ int main(int argc, char **argv) {
   kernelSizeOption.broadcast(numFieldDims);
   auto &kernelSize = kernelSizeOption.val;
 
-  if (!vm["padding"].defaulted()) {
-    const char *conflictingOptions[] = {
-      "padding-lower",
-      "padding-upper"
-    };
-    for (auto option : conflictingOptions) {
-      if (!vm[option].defaulted()) {
-        std::cerr << "--padding as well as --" << option << " set\n";
-        return 1;
+  struct UpperLowerOption {
+    ShapeOption<unsigned> &lowerOption;
+    ShapeOption<unsigned> &upperOption;
+    std::string name;
+  } upperLowerOptionTriples[] = {
+    {paddingLowerOption, paddingUpperOption, "padding"},
+    {truncationLowerOption, truncationUpperOption, "truncation"},
+    {kernelTruncationLowerOption, kernelTruncationUpperOption,
+     "kernel-truncation"},
+    {kernelPaddingLowerOption, kernelPaddingUpperOption, "kernel-padding"},
+    {outputTruncationLowerOption, outputTruncationUpperOption,
+     "output-truncation"},
+    {outputPaddingLowerOption, outputPaddingUpperOption, "output-padding"}
+  };
+  for (const auto &entry : upperLowerOptionTriples) {
+    if (!vm[entry.name].defaulted()) {
+      std::string conflictingOptions[] = {
+        entry.name + "-lower",
+        entry.name + "-upper"
+      };
+      for (auto option : conflictingOptions) {
+        if (!vm[option].defaulted()) {
+          std::cerr << "--" << entry.name << " as well as --";
+          std::cerr << option << " set\n";
+          return 1;
+        }
       }
+      entry.lowerOption = vm[entry.name].as<ShapeOption<unsigned>>();
+      entry.upperOption = vm[entry.name].as<ShapeOption<unsigned>>();
     }
-    paddingLowerOption = paddingOption;
-    paddingUpperOption = paddingOption;
+    entry.lowerOption.broadcast(numFieldDims);
+    entry.upperOption.broadcast(numFieldDims);
   }
-
-  paddingLowerOption.broadcast(numFieldDims);
+  auto &truncationLower = truncationLowerOption.val;
+  auto &truncationUpper = truncationUpperOption.val;
   auto &paddingLower = paddingLowerOption.val;
-  paddingUpperOption.broadcast(numFieldDims);
   auto &paddingUpper = paddingUpperOption.val;
+
+  auto &outputTruncationLower = outputTruncationLowerOption.val;
+  auto &outputTruncationUpper = outputTruncationUpperOption.val;
+  auto &outputPaddingLower = outputPaddingLowerOption.val;
+  auto &outputPaddingUpper = outputPaddingUpperOption.val;
+
+  auto &kernelTruncationLower = kernelTruncationLowerOption.val;
+  auto &kernelTruncationUpper = kernelTruncationUpperOption.val;
+  auto &kernelPaddingLower = kernelPaddingLowerOption.val;
+  auto &kernelPaddingUpper = kernelPaddingUpperOption.val;
 
   inDilationOption.broadcast(numFieldDims);
   auto &inDilation = inDilationOption.val;
   flipInputOption.broadcast(numFieldDims);
   auto &flipInput = flipInputOption.val;
 
-  if (!vm["kernel-padding"].defaulted()) {
-    const char *conflictingOptions[] = {
-      "kernel-padding-lower",
-      "kernel-padding-upper",
-    };
-    for (auto option : conflictingOptions) {
-      if (!vm[option].defaulted()) {
-        std::cerr << "--kernel-padding as well as --" << option << " set\n";
-        return 1;
-      }
-    }
-    kernelPaddingLowerOption = kernelPaddingOption;
-    kernelPaddingUpperOption = kernelPaddingOption;
-  }
-
-  kernelPaddingLowerOption.broadcast(numFieldDims);
-  auto &kernelPaddingLower = kernelPaddingLowerOption.val;
-  kernelPaddingUpperOption.broadcast(numFieldDims);
-  auto &kernelPaddingUpper = kernelPaddingUpperOption.val;
-
   kernelDilationOption.broadcast(numFieldDims);
   auto &kernelDilation = kernelDilationOption.val;
   flipKernelOption.broadcast(numFieldDims);
   auto &flipKernel = flipKernelOption.val;
+
   strideOption.broadcast(numFieldDims);
   auto &stride = strideOption.val;
   const auto fwdInChans = fwdInChansPerConvGroup * numConvGroups;
@@ -323,16 +389,24 @@ int main(int argc, char **argv) {
                           kernelSize,
                           fwdInChansPerConvGroup,
                           fwdOutChansPerConvGroup,
-                          stride,
+                          numConvGroups,
+                          truncationLower,
+                          truncationUpper,
+                          inDilation,
                           paddingLower,
                           paddingUpper,
-                          inDilation,
                           flipInput,
+                          kernelTruncationLower,
+                          kernelTruncationUpper,
+                          kernelDilation,
                           kernelPaddingLower,
                           kernelPaddingUpper,
-                          kernelDilation,
                           flipKernel,
-                          numConvGroups);
+                          outputTruncationLower,
+                          outputTruncationUpper,
+                          stride,
+                          outputPaddingLower,
+                          outputPaddingUpper);
 
 
   const auto outFieldSize = params.getOutputFieldShape();
@@ -456,16 +530,24 @@ int main(int argc, char **argv) {
       modelNextAct(boost::extents[batchSize][fwdOutChans]
                                  [product(outFieldSize)]);
   poplib_test::conv::convolution(vectorConvert<unsigned>(inputFieldSize),
+                                 truncationLower,
+                                 truncationUpper,
                                  inDilation,
                                  paddingLower,
                                  paddingUpper,
                                  flipInput,
                                  vectorConvert<unsigned>(kernelSize),
+                                 kernelTruncationLower,
+                                 kernelTruncationUpper,
                                  kernelDilation,
                                  kernelPaddingLower,
                                  kernelPaddingUpper,
                                  flipKernel,
+                                 outputTruncationLower,
+                                 outputTruncationUpper,
                                  stride,
+                                 outputPaddingLower,
+                                 outputPaddingUpper,
                                  hostPrevAct,
                                  hostWeights, hostBiases, modelNextAct);
   if (doFwdPass) {
@@ -507,16 +589,24 @@ int main(int argc, char **argv) {
                                         [product(inputFieldSize)]);
       poplib_test::conv::convolutionBackward(
               vectorConvert<unsigned>(inputFieldSize),
+              truncationLower,
+              truncationUpper,
               inDilation,
               paddingLower,
               paddingUpper,
               flipInput,
               vectorConvert<unsigned>(kernelSize),
+              kernelTruncationLower,
+              kernelTruncationUpper,
               kernelDilation,
               kernelPaddingLower,
               kernelPaddingUpper,
               flipKernel,
+              outputTruncationLower,
+              outputTruncationUpper,
               stride,
+              outputPaddingLower,
+              outputPaddingUpper,
               hostZDeltas,
               modelWeights,
               modelPrevDeltas);
@@ -525,16 +615,24 @@ int main(int argc, char **argv) {
     }
     if (doWuPass) {
       poplib_test::conv::weightUpdate(vectorConvert<unsigned>(inputFieldSize),
+                                      truncationLower,
+                                      truncationUpper,
                                       inDilation,
                                       paddingLower,
                                       paddingUpper,
                                       flipInput,
                                       vectorConvert<unsigned>(kernelSize),
+                                      kernelTruncationLower,
+                                      kernelTruncationUpper,
                                       kernelDilation,
                                       kernelPaddingLower,
                                       kernelPaddingUpper,
                                       flipKernel,
+                                      outputTruncationLower,
+                                      outputTruncationUpper,
                                       stride,
+                                      outputPaddingLower,
+                                      outputPaddingUpper,
                                       learningRate, hostPrevAct,
                                       hostZDeltas, modelWeights, modelBiases);
       matchesModel &= checkIsClose("weights",

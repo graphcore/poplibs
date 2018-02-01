@@ -56,6 +56,46 @@ struct ConvOptions {
 };
 
 struct ConvParams {
+  struct InputTransform {
+    // Amount each spatial dimension is truncated before dilation.
+    std::vector<unsigned> truncationLower;
+    std::vector<unsigned> truncationUpper;
+    // Dilation applied to each spatial dimensions after truncation and before
+    // padding. Dilation is peformed by placing zeroed elements between the
+    // elements of the field.
+    std::vector<unsigned> dilation;
+    // Padding applied to each spatial dimension after dilation and before
+    // flipping.
+    std::vector<unsigned> paddingLower;
+    std::vector<unsigned> paddingUpper;
+    // Whether to flip each spatial dimension. Flipping is applied after
+    // padding.
+    std::vector<bool> flip;
+    InputTransform() = default;
+    InputTransform(std::vector<unsigned> truncationLower,
+                   std::vector<unsigned> truncationUpper,
+                   std::vector<unsigned> dilation,
+                   std::vector<unsigned> paddingLower,
+                   std::vector<unsigned> paddingUpper,
+                   std::vector<bool> flip);
+  };
+  struct OutputTransform {
+    // Amount each spatial dimension is truncated before striding.
+    std::vector<unsigned> truncationLower;
+    std::vector<unsigned> truncationUpper;
+    // Striding applied to each spatial dimension after truncation and before
+    // padding.
+    std::vector<unsigned> stride;
+    // Padding applied to each spatial dimension after striding.
+    std::vector<unsigned> paddingLower;
+    std::vector<unsigned> paddingUpper;
+    OutputTransform() = default;
+    OutputTransform(std::vector<unsigned> truncationLower,
+                    std::vector<unsigned> truncationUpper,
+                    std::vector<unsigned> striding,
+                    std::vector<unsigned> paddingLower,
+                    std::vector<unsigned> paddingUpper);
+  };
   poplar::Type dType;
   // batch size (B)
   std::size_t batchSize;
@@ -67,32 +107,18 @@ struct ConvParams {
   std::size_t inputChannels;
   // output channels (Co)
   std::size_t outputChannels;
-  std::vector<unsigned> stride;
-  // Padding applied to input after dilation and before input
-  std::vector<int> inputPaddingLower;
-  std::vector<int> inputPaddingUpper;
-  // Dilation applied to the input in spatial dimensions before
-  // padding and convolution. Dilation is peformed by placing
-  // zeroed elements between the elements of the field.
-  std::vector<unsigned> inputDilation;
-  // For each spatial input dimension whether it should be flipped. Flipping
-  // is applied after dilation and padding.
-  std::vector<bool> flipInput;
-  // Padding applied to kernel after dilation and before input
-  std::vector<int> kernelPaddingLower;
-  std::vector<int> kernelPaddingUpper;
-  // Dilation applied to the kernel in spatial dimensions before
-  // padding and convolution. Dilation is peformed by placing
-  // zeroed elements between the elements of the filter.
-  std::vector<unsigned> kernelDilation;
-  // For each spatial kernel dimension whether it should be flipped. Flipping
-  // is applied after dilation and padding.
-  std::vector<bool> flipKernel;
   // number of groups in a grouped convolution (G). The input and output
   // channels are divided by G such that G kernels are applied to an input
   // tensors of size {B, {dims}, Ci/G} to produce output tensors of size
   // {B, O{dims}, Co/G}. O{dims} is the output field dimensions
   std::size_t numConvGroups;
+
+  // The transform applied to the input.
+  InputTransform inputTransform;
+  // The transform applied to the kernel.
+  InputTransform kernelTransform;
+  // The transform applied to the output.
+  OutputTransform outputTransform;
   ConvParams() = default;
   ConvParams(poplar::Type dType,
              std::size_t batchSize,
@@ -100,33 +126,32 @@ struct ConvParams {
              std::vector<std::size_t> kernelShape,
              std::size_t inputChannels,
              std::size_t outputChannels,
-             std::vector<unsigned> stride,
-             std::vector<int> inputPaddingLower,
-             std::vector<int> inputPaddingUpper,
+             std::size_t numConvGroups,
+
+             std::vector<unsigned> inputTruncationLower,
+             std::vector<unsigned> inputTruncationUpper,
              std::vector<unsigned> inputDilation,
+             std::vector<unsigned> inputPaddingLower,
+             std::vector<unsigned> inputPaddingUpper,
              std::vector<bool> flipInput,
-             std::vector<int> kernelPaddingLower,
-             std::vector<int> kernelPaddingUpper,
+
+             std::vector<unsigned> kernelTruncationLower,
+             std::vector<unsigned> kernelTruncationUpper,
              std::vector<unsigned> kernelDilation,
+             std::vector<unsigned> kernelPaddingLower,
+             std::vector<unsigned> kernelPaddingUpper,
              std::vector<bool> flipKernel,
-             std::size_t numConvGroups = 1);
-  bool operator<(const ConvParams &other) const {
-    return std::tie(dType, batchSize, inputFieldShape, kernelShape,
-                    inputChannels, outputChannels, stride,
-                    inputPaddingLower, inputPaddingUpper,
-                    inputDilation, flipInput,
-                    kernelPaddingLower, kernelPaddingUpper,
-                    kernelDilation, flipKernel,
-                    numConvGroups) <
-           std::tie(other.dType, other.batchSize, other.inputFieldShape,
-                    other.kernelShape, other.inputChannels,
-                    other.outputChannels, other.stride,
-                    other.inputPaddingLower, other.inputPaddingUpper,
-                    other.inputDilation, other.flipInput,
-                    other.kernelPaddingLower, other.kernelPaddingUpper,
-                    other.kernelDilation, other.flipKernel,
-                    other.numConvGroups);
-  }
+
+             std::vector<unsigned> outputTruncationLower,
+             std::vector<unsigned> outputTruncationUpper,
+             std::vector<unsigned> stride,
+             std::vector<unsigned> outputPaddingLower,
+             std::vector<unsigned> outputPaddingUpper);
+
+  /// Return the size of the output of the convolution operation, before
+  /// output transformations are applied.
+  std::size_t getUntransformedOutputSize(unsigned dim) const;
+  /// Return the size of the output.
   std::size_t getOutputSize(unsigned dim) const;
   std::size_t getNumOutputChansPerConvGroup() const { return outputChannels;}
   std::size_t getNumOutputChans() const {
@@ -141,36 +166,126 @@ struct ConvParams {
   std::size_t getNumFieldDims() const { return inputFieldShape.size(); }
   std::size_t getBatchSize() const { return batchSize; }
 
-  int getPaddedDilatedInputSize(unsigned dim) const {
-    int inputSize = inputFieldShape[dim];
-    int dilatedSize = (inputSize - 1) * inputDilation[dim] + 1;
-    int dilatedPaddedSize = inputPaddingLower[dim] + dilatedSize +
-                            inputPaddingUpper[dim];
-    assert(dilatedPaddedSize >= 0);
-    return dilatedPaddedSize;
-  }
-  int getPaddedDilatedKernelSize(unsigned dim) const {
-    int kernelSize = kernelShape[dim];
-    int dilatedSize = (kernelSize - 1) * kernelDilation[dim] + 1;
-    int dilatedPaddedSize = kernelPaddingLower[dim] + dilatedSize +
-                            kernelPaddingUpper[dim];
-    assert(dilatedPaddedSize >= 0);
-    return dilatedPaddedSize;
-  }
+  unsigned getTransformedInputSize(unsigned dim) const;
+  unsigned getTransformedKernelSize(unsigned dim) const;
   // Returns the shape of the output field
   std::vector<size_t> getOutputFieldShape() const;
 };
 
+inline bool operator<(const ConvParams::InputTransform &a,
+                      const ConvParams::InputTransform &b) {
+  return std::tie(a.truncationLower,
+                  a.truncationUpper,
+                  a.dilation,
+                  a.paddingLower,
+                  a.paddingUpper,
+                  a.flip) <
+         std::tie(b.truncationLower,
+                  b.truncationUpper,
+                  b.dilation,
+                  b.paddingLower,
+                  b.paddingUpper,
+                  b.flip);
+}
+
+inline bool operator==(const ConvParams::InputTransform &a,
+                       const ConvParams::InputTransform &b) {
+  return std::tie(a.truncationLower,
+                  a.truncationUpper,
+                  a.dilation,
+                  a.paddingLower,
+                  a.paddingUpper,
+                  a.flip) ==
+         std::tie(b.truncationLower,
+                  b.truncationUpper,
+                  b.dilation,
+                  b.paddingLower,
+                  b.paddingUpper,
+                  b.flip);
+}
+
+inline bool operator!=(const ConvParams::InputTransform &a,
+                       const ConvParams::InputTransform &b) {
+  return !(a == b);
+}
+
+inline bool operator<(const ConvParams::OutputTransform &a,
+                      const ConvParams::OutputTransform &b) {
+  return std::tie(a.truncationLower,
+                  a.truncationUpper,
+                  a.stride,
+                  a.paddingLower,
+                  a.paddingUpper) <
+         std::tie(b.truncationLower,
+                  b.truncationUpper,
+                  b.stride,
+                  b.paddingLower,
+                  b.paddingUpper);
+}
+
+inline bool operator==(const ConvParams::OutputTransform &a,
+                       const ConvParams::OutputTransform &b) {
+  return std::tie(a.truncationLower,
+                  a.truncationUpper,
+                  a.stride,
+                  a.paddingLower,
+                  a.paddingUpper) ==
+         std::tie(b.truncationLower,
+                  b.truncationUpper,
+                  b.stride,
+                  b.paddingLower,
+                  b.paddingUpper);
+}
+
+inline bool operator!=(const ConvParams::OutputTransform &a,
+                       const ConvParams::OutputTransform &b) {
+  return !(a == b);
+}
+
+inline bool operator<(const ConvParams &a, const ConvParams &b) {
+  return std::tie(a.dType,
+                  a.batchSize,
+                  a.inputFieldShape,
+                  a.kernelShape,
+                  a.inputChannels,
+                  a.outputChannels,
+                  a.numConvGroups,
+                  a.inputTransform,
+                  a.kernelTransform,
+                  a.outputTransform) <
+         std::tie(b.dType,
+                  b.batchSize,
+                  b.inputFieldShape,
+                  b.kernelShape,
+                  b.inputChannels,
+                  b.outputChannels,
+                  b.numConvGroups,
+                  b.inputTransform,
+                  b.kernelTransform,
+                  b.outputTransform);
+}
+
 inline bool operator==(const ConvParams &a, const ConvParams &b) {
-  return std::tie(a.dType, a.batchSize, a.inputFieldShape, a.kernelShape,
-                  a.inputChannels, a.outputChannels, a.stride,
-                  a.inputPaddingLower, a.inputPaddingUpper,
-                  a.inputDilation, a.numConvGroups) ==
-         std::tie(b.dType, b.batchSize, b.inputFieldShape,
-                  b.kernelShape, b.inputChannels,
-                  b.outputChannels, b.stride, b.inputPaddingLower,
-                  b.inputPaddingUpper, b.inputDilation,
-                  b.numConvGroups);
+  return std::tie(a.dType,
+                  a.batchSize,
+                  a.inputFieldShape,
+                  a.kernelShape,
+                  a.inputChannels,
+                  a.outputChannels,
+                  a.numConvGroups,
+                  a.inputTransform,
+                  a.kernelTransform,
+                  a.outputTransform) ==
+         std::tie(b.dType,
+                  b.batchSize,
+                  b.inputFieldShape,
+                  b.kernelShape,
+                  b.inputChannels,
+                  b.outputChannels,
+                  b.numConvGroups,
+                  b.inputTransform,
+                  b.kernelTransform,
+                  b.outputTransform);
 }
 
 inline bool operator!=(const ConvParams &a, const ConvParams &b) {

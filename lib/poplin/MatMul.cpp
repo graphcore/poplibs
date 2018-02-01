@@ -131,25 +131,42 @@ static popconv::ConvParams getConvParams(
                               inputSize,
                               // output channels
                               batchSize,
-                              // stride
+                              // conv groups
+                              numGroups,
+                              // lower input truncation
+                              {0},
+                              // upper input truncation
+                              {0},
+                              // input dilation
                               {1},
                               // lower input padding
                               {0},
                               // upper input padding
                               {0},
-                              // input dilation
-                              {1},
                               // flip input
                               {false},
+                              // lower kernal truncation
+                              {0},
+                              // upper kernel truncation
+                              {0},
+                              // kernel dilation
+                              {1},
                               // lower kernal padding
                               {0},
                               // upper kernel padding
                               {0},
-                              // kernel dilation
-                              {1},
                               // flip kernel
                               {false},
-                              numGroups);
+                              // lower output truncation
+                              {0},
+                              // upper output truncation
+                              {0},
+                              // stride
+                              {1},
+                              // lower output padding
+                              {0},
+                              // upper output padding
+                              {0});
     }
   case FullyConnectedPass::TRAINING_BWD:
     // A fully connected bwd pass is equivalent to a 1-d convolution with
@@ -173,25 +190,42 @@ static popconv::ConvParams getConvParams(
                               outputSize,
                               // output channels
                               batchSize,
-                              // stride
+                              // conv groups
+                              numGroups,
+                              // lower input truncation
+                              {0},
+                              // upper input truncation
+                              {0},
+                              // input dilation
                               {1},
                               // lower input padding
                               {0},
                               // upper input padding
                               {0},
-                              // input dilation
-                              {1},
                               // flip input
                               {false},
+                              // lower kernel truncation
+                              {0},
+                              // upper kernel truncation
+                              {0},
+                              // kernel dilation
+                              {1},
                               // lower kernel padding
                               {0},
                               // upper kernel padding
                               {0},
-                              // kernel dilation
-                              {1},
                               // flip kernel
                               {false},
-                              numGroups);
+                              // lower output truncation
+                              {0},
+                              // upper output truncation
+                              {0},
+                              // stride
+                              {1},
+                              // lower output padding
+                              {0},
+                              // upper output padding
+                              {0});
     }
   case FullyConnectedPass::TRAINING_WU:
     // Implement the weight update as a convolutional layer with
@@ -215,25 +249,42 @@ static popconv::ConvParams getConvParams(
                               batchSize,
                               // output channels
                               inputSize,
-                              // stride
+                              // conv groups
+                              numGroups,
+                              // lower input truncation
+                              {0},
+                              // upper input truncation
+                              {0},
+                              // input dilation
                               {1},
                               // lower input padding
                               {0},
                               // upper input padding
                               {0},
-                              // input dilation
-                              {1},
                               // flip input
                               {false},
+                              // lower kernel truncation
+                              {0},
+                              // upper kernel truncation
+                              {0},
+                              // kernel dilation
+                              {1},
                               // lower kernel padding
                               {0},
                               // upper kernel padding
                               {0},
-                              // kernel dilation
-                              {1},
                               // flip kernel
                               {false},
-                              numGroups);
+                              // lower output truncation
+                              {0},
+                              // upper output truncation
+                              {0},
+                              // stride
+                              {1},
+                              // lower output padding
+                              {0},
+                              // upper output padding
+                              {0});
     }
   }
 }

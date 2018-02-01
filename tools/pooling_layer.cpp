@@ -83,9 +83,9 @@ int main(int argc, char **argv) {
   /* these are used when the same value is shared across both height and width*/
   unsigned kernelSize;
   unsigned stride;
-  int padding;
-  int paddingHeight;
-  int paddingWidth;
+  unsigned padding;
+  unsigned paddingHeight;
+  unsigned paddingWidth;
 
   po::options_description desc("Options");
   desc.add_options()
@@ -109,12 +109,12 @@ int main(int argc, char **argv) {
      po::value<Type>(&dataType)->default_value(HALF),
      "Type of the data and the parameters")
 
-    ("padding", po::value<int>(&padding)->default_value(0),
+    ("padding", po::value<unsigned>(&padding)->default_value(0),
      "Amount of zero padding for height and width. If set, it is an "
      "error to also set either padding-height and/or padding-width")
-    ("padding-height", po::value<int>(&paddingHeight)->default_value(0),
+    ("padding-height", po::value<unsigned>(&paddingHeight)->default_value(0),
      "Amount of zero padding in the height dimension")
-    ("padding-width", po::value<int>(&paddingWidth)->default_value(0),
+    ("padding-width", po::value<unsigned>(&paddingWidth)->default_value(0),
      "Amount of zero padding in the width dimension")
     ("padding-height-upper",
      po::value<int>(&paddingHeightU)->default_value(0),
