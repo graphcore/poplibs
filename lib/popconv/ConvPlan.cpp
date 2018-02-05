@@ -653,7 +653,7 @@ canUseConvPartial1x1Vertex(const ConvParams &params,
     };
     for (unsigned k = 0; k != params.kernelShape[dim]; ++k) {
       const auto writtenOutputRange =
-          getOutputRange(dim, outputRange, k, params);
+          getOutputRangeForKernelIndex(dim, outputRange, k, params);
       if (writtenOutputRange != outputRange) {
         return false;
       }

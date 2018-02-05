@@ -18,26 +18,49 @@ inline unsigned absdiff(unsigned a, unsigned b) {
 /// input of the specified size.
 unsigned getDilatedSize(unsigned size, unsigned dilation);
 
-/// Return the index of the input that is associated with the specified
-/// kernel index to be incorporated into the specified output.
-/// Return ~0U if there is no
-/// such output.
+/// Return the index of the input element that is multiplied by the specified
+/// kernel index to produce the specified output.
+/// Return ~0U if there is no such input element.
 unsigned
 getInputIndex(unsigned dim, unsigned outputIndex, unsigned kernelIndex,
               const ConvParams &params);
 
+/// Return the index of the kernel element that is multiplied by the specified
+/// input index to produce the specified output.
+/// Return ~0U if there is no such kernel element.
+unsigned
+getKernelIndex(unsigned dim, unsigned outputIndex,
+               unsigned inputIndex, const ConvParams &params);
+
 /// Given an output range, return the subset whose calculation
-/// involves the specified kernel.
+/// involves the specified kernel index.
 std::pair<unsigned, unsigned>
-getOutputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
-               unsigned kernelIndex, const ConvParams &params);
+getOutputRangeForKernelIndex(unsigned dim,
+                             std::pair<unsigned, unsigned> outputRange,
+                             unsigned kernelIndex, const ConvParams &params);
+
+/// Given an output range, return the subset whose calculation
+/// involves the specified input.
+std::pair<unsigned, unsigned>
+getOutputRangeForInputIndex(unsigned dim,
+                            std::pair<unsigned, unsigned> outputRange,
+                            unsigned inputIndex, const ConvParams &params);
 
 /// Given an output range, return the subset whose calculation
 /// involves the specified range of kernel indicies.
 std::pair<unsigned, unsigned>
-getOutputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
-               std::pair<unsigned, unsigned> kernelIndexRange,
-               const ConvParams &params);
+getOutputRangeForKernelRange(unsigned dim,
+                             std::pair<unsigned, unsigned> outputRange,
+                             std::pair<unsigned, unsigned> kernelIndexRange,
+                             const ConvParams &params);
+
+/// Given an output range, return the subset whose calculation
+/// involves the specified range of input indicies.
+std::pair<unsigned, unsigned>
+getOutputRangeForInputRange(unsigned dim,
+                            std::pair<unsigned, unsigned> outputRange,
+                            std::pair<unsigned, unsigned> inputRange,
+                            const ConvParams &params);
 
 /// Return the input range that is associated with
 /// the specified kernel index when calculating the specified output range.
@@ -45,12 +68,25 @@ std::pair<unsigned, unsigned>
 getInputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
               unsigned kernelIndex, const ConvParams &params);
 
+/// Return the kernel range that is associated with
+/// the specified input index when calculating the specified output range.
+std::pair<unsigned, unsigned>
+getKernelRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
+               unsigned inputIndex, const ConvParams &params);
+
 /// Return the input range that is associated with the specified kernel index
 /// range when calculating the specified output range.
 std::pair<unsigned, unsigned>
 getInputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
               std::pair<unsigned, unsigned> kernelIndexRange,
               const ConvParams &params);
+
+/// Return the kernel range that is associated with the specified input index
+/// range when calculating the specified output range.
+std::pair<unsigned, unsigned>
+getKernelRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
+               std::pair<unsigned, unsigned> inputRange,
+               const ConvParams &params);
 
 inline std::pair<unsigned, unsigned>
 getInputRange(unsigned dim, unsigned outputIndex,

@@ -416,7 +416,8 @@ Tensor pool(Graph &graph,
     const auto inRange = getInputRange(dim, {0, outputSize}, kernelMidpoint,
                                        params);
     const auto outRange =
-        getOutputRange(dim, {0, outputSize}, kernelMidpoint, params);
+        getOutputRangeForKernelIndex(dim, {0, outputSize}, kernelMidpoint,
+                                     params);
     const auto firstSpatialDimIndex = 1;
     outputWindow = outputWindow.slice(outRange.first, outRange.second,
                                       firstSpatialDimIndex + dim);

@@ -1265,8 +1265,9 @@ static void expandSpatialDim(Graph &graph, ConvParams &params,
     std::vector<Tensor> slices;
     for (unsigned k = 0; k != weightsSize; ++k) {
       Tensor slice;
-      auto weightOutRange = getOutputRange(dim, {0, params.getOutputSize(dim)},
-                                           k, params);
+      auto weightOutRange =
+          getOutputRangeForKernelIndex(dim, {0, params.getOutputSize(dim)},
+                                       k, params);
       if (weightOutRange.first == weightOutRange.second) {
         auto zerosShape = expandedShape;
         zerosShape.back() = acts->dim(acts->rank() - 1);
@@ -1807,7 +1808,7 @@ static bool writtenRangeEqualsOutputRange(
     std::pair<unsigned, unsigned> kernelIndexRange,
     const ConvParams &params) {
   auto writtenRange =
-      getOutputRange(dim, outRange, kernelIndexRange, params);
+      getOutputRangeForKernelRange(dim, outRange, kernelIndexRange, params);
   return writtenRange == outRange;
 }
 
@@ -2013,10 +2014,10 @@ static void createConvPartialAmpVertex(Graph &graph,
           std::min(kernelBeginIndex + (dim == 0 ? convUnitWeightHeight : 1),
                    slice.kernelEnd[dim]);
       auto convOutRange =
-          getOutputRange(dim, {slice.outFieldBegin[dim],
-                               slice.outFieldEnd[dim]},
-                         {kernelBeginIndex, kernelEndIndex},
-                         params);
+          getOutputRangeForKernelRange(dim, {slice.outFieldBegin[dim],
+                                             slice.outFieldEnd[dim]},
+                                       {kernelBeginIndex, kernelEndIndex},
+                                       params);
       tileConvOutBegin.push_back(convOutRange.first);
       tileConvOutSize.push_back(convOutRange.second - convOutRange.first);
     }
@@ -2033,8 +2034,9 @@ static void createConvPartialAmpVertex(Graph &graph,
         auto workerOutXBegin = tileConvOutBegin.back() + partialRow.xBegin;
         auto workerOutXEnd = tileConvOutBegin.back() + partialRow.xEnd;
         std::tie(workerOutXBegin, workerOutXEnd) =
-            getOutputRange(numFieldDims - 1, {workerOutXBegin, workerOutXEnd},
-                           kernelBeginIndices.back(), params);
+            getOutputRangeForKernelIndex(numFieldDims - 1,
+                                         {workerOutXBegin, workerOutXEnd},
+                                         kernelBeginIndices.back(), params);
         const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
         if (workerOutWidth == 0)
           continue;
@@ -2273,8 +2275,10 @@ createConvPartialHorizontalMacVertex(Graph &graph,
     for (auto dim = 0U; dim + 1 != numFieldDims; ++dim ) {
       unsigned begin, end;
       std::tie(begin, end) =
-        getOutputRange(dim, {slice.outFieldBegin[dim], slice.outFieldEnd[dim]},
-                       kCoord[dim], params);
+        getOutputRangeForKernelIndex(dim,
+                                     {slice.outFieldBegin[dim],
+                                      slice.outFieldEnd[dim]},
+                                     kCoord[dim], params);
       convOutBegin.push_back(begin);
       convOutEnd.push_back(end);
       convOutSizesForKy.push_back(end - begin);
@@ -2285,7 +2289,8 @@ createConvPartialHorizontalMacVertex(Graph &graph,
     for (auto kx = kernelXBegin; kx != kernelXEnd; ++kx) {
       unsigned convOutXBegin, convOutXEnd;
       std::tie(convOutXBegin, convOutXEnd) =
-          getOutputRange(xDimIndex, {outXBegin, outXEnd}, kx, params);
+          getOutputRangeForKernelIndex(xDimIndex, {outXBegin, outXEnd}, kx,
+                                       params);
       const auto convOutWidth = convOutXEnd - convOutXBegin;
       if (convOutWidth == 0)
         continue;
@@ -2303,8 +2308,9 @@ createConvPartialHorizontalMacVertex(Graph &graph,
           auto workerOutXBegin = workerSlice.outXBegin;
           auto workerOutXEnd = workerSlice.outXEnd;
           std::tie(workerOutXBegin, workerOutXEnd) =
-              getOutputRange(xDimIndex, {workerOutXBegin, workerOutXEnd},
-                             kx, params);
+              getOutputRangeForKernelIndex(xDimIndex,
+                                           {workerOutXBegin, workerOutXEnd},
+                                           kx, params);
           const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
           if (workerOutWidth == 0)
             continue;

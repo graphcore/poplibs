@@ -113,28 +113,193 @@ getInputIndex(unsigned dim, unsigned truncatedStridedPaddedOutputIndex,
   );
 }
 
+unsigned
+getKernelIndex(unsigned dim, unsigned truncatedStridedPaddedOutputIndex,
+               unsigned inputIndex, const ConvParams &params) {
+  const auto outputSize = params.getOutputSize(dim);
+  assert(truncatedStridedPaddedOutputIndex < outputSize);
+  const auto paddedInputIndex =
+      applyTruncateDilatePadAndFlip(inputIndex,
+                                    params.inputFieldShape[dim],
+                                    params.inputTransform.truncationLower[dim],
+                                    params.inputTransform.truncationUpper[dim],
+                                    params.inputTransform.dilation[dim],
+                                    params.inputTransform.paddingLower[dim],
+                                    params.inputTransform.paddingUpper[dim],
+                                    params.inputTransform.flip[dim]);
+  if (paddedInputIndex == ~0U)
+    return ~0U;
+  if (truncatedStridedPaddedOutputIndex <
+        params.outputTransform.paddingLower[dim] ||
+      truncatedStridedPaddedOutputIndex >=
+        outputSize - params.outputTransform.paddingUpper[dim])
+    return ~0U;
+  const auto truncatedStridedOutputIndex =
+      truncatedStridedPaddedOutputIndex -
+      params.outputTransform.paddingLower[dim];
+  const auto truncatedOutputIndex =
+      truncatedStridedOutputIndex * params.outputTransform.stride[dim];
+  const auto outputIndex = truncatedOutputIndex +
+                           params.outputTransform.truncationLower[dim];
+  if (outputIndex > paddedInputIndex)
+    return ~0U;
+  const auto paddedKernelIndex = paddedInputIndex - outputIndex;
+  if (paddedKernelIndex >= params.getTransformedKernelSize(dim))
+    return ~0U;
+  return reverseTruncateDilatePadAndFlip(
+    paddedKernelIndex,
+    params.kernelShape[dim],
+    params.kernelTransform.truncationLower[dim],
+    params.kernelTransform.truncationUpper[dim],
+    params.kernelTransform.dilation[dim],
+    params.kernelTransform.paddingLower[dim],
+    params.kernelTransform.paddingUpper[dim],
+    params.kernelTransform.flip[dim]
+  );
+}
+
+std::pair<unsigned, unsigned>
+getOutputRangeForKernelIndex(unsigned dim,
+                             std::pair<unsigned, unsigned> outputRange,
+                             unsigned kernelIndex, const ConvParams &params) {
+  assert(outputRange.first <= outputRange.second);
+  if (outputRange.first == outputRange.second) {
+    return {0, 0};
+  }
+  unsigned outputBegin = 0, outputEnd = 0;
+  for (unsigned i = outputRange.first; i != outputRange.second; ++i) {
+    if (getInputIndex(dim, i, kernelIndex, params) == ~0U) {
+      continue;
+    }
+    outputBegin = i;
+    break;
+  }
+  for (unsigned i = outputRange.second; i != outputRange.first; --i) {
+    if (getInputIndex(dim, i - 1, kernelIndex, params) == ~0U) {
+      continue;
+    }
+    outputEnd = i;
+    break;
+  }
+  return {outputBegin, outputEnd};
+}
+
+std::pair<unsigned, unsigned>
+getOutputRangeForInputIndex(unsigned dim,
+                            std::pair<unsigned, unsigned> outputRange,
+                            unsigned inputIndex, const ConvParams &params) {
+  assert(outputRange.first <= outputRange.second);
+  if (outputRange.first == outputRange.second) {
+    return {0, 0};
+  }
+  unsigned outputBegin = 0, outputEnd = 0;
+  for (unsigned i = outputRange.first; i != outputRange.second; ++i) {
+    if (getKernelIndex(dim, i, inputIndex, params) == ~0U) {
+      continue;
+    }
+    outputBegin = i;
+    break;
+  }
+  for (unsigned i = outputRange.second; i != outputRange.first; --i) {
+    if (getKernelIndex(dim, i - 1, inputIndex, params) == ~0U) {
+      continue;
+    }
+    outputEnd = i;
+    break;
+  }
+  return {outputBegin, outputEnd};
+}
+
+std::pair<unsigned, unsigned>
+getOutputRangeForKernelRange(
+    unsigned dim, std::pair<unsigned, unsigned> outputRange,
+    std::pair<unsigned, unsigned> kernelIndexRange,
+    const ConvParams &params) {
+  assert(kernelIndexRange.second >= kernelIndexRange.first);
+  unsigned outputBegin = 0, outputEnd = 0;
+  bool first = true;
+  for (unsigned kernelIndex = kernelIndexRange.first;
+       kernelIndex != kernelIndexRange.second; ++kernelIndex) {
+    const auto trimmedOutputRange =
+        getOutputRangeForKernelIndex(dim, outputRange, kernelIndex, params);
+    if (trimmedOutputRange.first != trimmedOutputRange.second) {
+      if (first) {
+        outputBegin = trimmedOutputRange.first;
+        outputEnd = trimmedOutputRange.second;
+        first = false;
+      } else {
+        outputBegin = std::min(outputBegin, trimmedOutputRange.first);
+        outputEnd = std::max(outputEnd, trimmedOutputRange.second);
+      }
+    }
+  }
+  return {outputBegin, outputEnd};
+}
+
+std::pair<unsigned, unsigned>
+getOutputRangeForInputRange(unsigned dim,
+                            std::pair<unsigned, unsigned> outputRange,
+                            std::pair<unsigned, unsigned> inputRange,
+               const ConvParams &params) {
+  assert(inputRange.second >= inputRange.first);
+  unsigned outputBegin = 0, outputEnd = 0;
+  bool first = true;
+  for (unsigned inputIndex = inputRange.first;
+       inputIndex != inputRange.second; ++inputIndex) {
+    const auto trimmedOutputRange =
+        getOutputRangeForInputIndex(dim, outputRange, inputIndex, params);
+    if (trimmedOutputRange.first != trimmedOutputRange.second) {
+      if (first) {
+        outputBegin = trimmedOutputRange.first;
+        outputEnd = trimmedOutputRange.second;
+        first = false;
+      } else {
+        outputBegin = std::min(outputBegin, trimmedOutputRange.first);
+        outputEnd = std::max(outputEnd, trimmedOutputRange.second);
+      }
+    }
+  }
+  return {outputBegin, outputEnd};
+}
+
 std::pair<unsigned, unsigned>
 getInputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
               unsigned kernelIndex, const ConvParams &params) {
   unsigned inputBegin = 0, inputEnd = 0;
-  auto trimmedOutputRange = getOutputRange(dim, outputRange, kernelIndex,
-                                           params);
+  auto trimmedOutputRange = getOutputRangeForKernelIndex(dim, outputRange,
+                                                         kernelIndex, params);
   if (trimmedOutputRange.first != trimmedOutputRange.second) {
-    bool flip = params.inputTransform.flip[dim];
-    if (flip) {
-      inputBegin = getInputIndex(dim, trimmedOutputRange.second - 1,
-                                 kernelIndex, params);
-      inputEnd = getInputIndex(dim, trimmedOutputRange.first, kernelIndex,
-                               params) + 1;
-    } else {
-      inputBegin = getInputIndex(dim, trimmedOutputRange.first, kernelIndex,
-                                 params);
-      inputEnd = getInputIndex(dim, trimmedOutputRange.second - 1, kernelIndex,
-                               params) + 1;
+    inputBegin = getInputIndex(dim, trimmedOutputRange.first, kernelIndex,
+                               params);
+    auto inputLast = getInputIndex(dim, trimmedOutputRange.second - 1,
+                                   kernelIndex, params);
+    if (params.inputTransform.flip[dim]) {
+      std::swap(inputBegin, inputLast);
     }
+    inputEnd = inputLast + 1;
   }
   assert(inputBegin <= inputEnd);
   return {inputBegin, inputEnd};
+}
+
+std::pair<unsigned, unsigned>
+getKernelRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
+               unsigned inputIndex, const ConvParams &params) {
+  unsigned kernelBegin = 0, kernelEnd = 0;
+  auto trimmedOutputRange =
+      getOutputRangeForInputIndex(dim, outputRange, inputIndex, params);
+  if (trimmedOutputRange.first != trimmedOutputRange.second) {
+    kernelBegin = getKernelIndex(dim, trimmedOutputRange.second - 1,
+                                 inputIndex, params);
+    auto kernelLast = getKernelIndex(dim, trimmedOutputRange.first, inputIndex,
+                                     params);
+    if (params.kernelTransform.flip[dim]) {
+      std::swap(kernelBegin, kernelLast);
+    }
+    kernelEnd = kernelLast + 1;
+  }
+  assert(kernelBegin <= kernelEnd);
+  return {kernelBegin, kernelEnd};
 }
 
 std::pair<unsigned, unsigned>
@@ -169,53 +334,34 @@ getInputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
 }
 
 std::pair<unsigned, unsigned>
-getOutputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
-               unsigned kernelIndex, const ConvParams &params) {
-  assert(outputRange.first <= outputRange.second);
-  if (outputRange.first == outputRange.second) {
-    return {0, 0};
-  }
-  unsigned outputBegin = 0, outputEnd = 0;
-  for (unsigned i = outputRange.first; i != outputRange.second; ++i) {
-    if (getInputIndex(dim, i, kernelIndex, params) == ~0U) {
-      continue;
-    }
-    outputBegin = i;
-    break;
-  }
-  for (unsigned i = outputRange.second; i != outputRange.first; --i) {
-    if (getInputIndex(dim, i - 1, kernelIndex, params) == ~0U) {
-      continue;
-    }
-    outputEnd = i;
-    break;
-  }
-  return {outputBegin, outputEnd};
-}
-
-std::pair<unsigned, unsigned>
-getOutputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
-               std::pair<unsigned, unsigned> kernelIndexRange,
+getKernelRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
+               std::pair<unsigned, unsigned> inputRange,
                const ConvParams &params) {
-  assert(kernelIndexRange.second >= kernelIndexRange.first);
-  unsigned outputBegin = 0, outputEnd = 0;
-  bool first = true;
-  for (unsigned kernelIndex = kernelIndexRange.first;
-       kernelIndex != kernelIndexRange.second; ++kernelIndex) {
-    const auto trimmedOutputRange =
-        getOutputRange(dim, outputRange, kernelIndex, params);
-    if (trimmedOutputRange.first != trimmedOutputRange.second) {
-      if (first) {
-        outputBegin = trimmedOutputRange.first;
-        outputEnd = trimmedOutputRange.second;
-        first = false;
-      } else {
-        outputBegin = std::min(outputBegin, trimmedOutputRange.first);
-        outputEnd = std::max(outputEnd, trimmedOutputRange.second);
-      }
-    }
+  unsigned kernelEnd = 0;
+  unsigned minBegin = 0, maxEnd = params.kernelShape[dim];
+  const auto inputRangeFwd =
+      boost::irange(static_cast<int>(inputRange.first),
+                    static_cast<int>(inputRange.second),
+                    1);
+  const auto inputRangeBwd =
+      boost::irange(static_cast<int>(inputRange.second) - 1,
+                    static_cast<int>(inputRange.first) - 1,
+                    -1);
+  bool flip = params.inputTransform.flip[dim];
+  for (unsigned i : flip ? inputRangeBwd : inputRangeFwd) {
+    auto kernelRange = getKernelRange(dim, outputRange, i, params);
+    kernelEnd = std::max(kernelEnd, kernelRange.second);
+    if (kernelEnd == maxEnd)
+      break;
   }
-  return {outputBegin, outputEnd};
+  unsigned kernelBegin = kernelEnd;
+  for (unsigned i : flip ? inputRangeFwd : inputRangeBwd) {
+    auto kernelRange = getKernelRange(dim, outputRange, i, params);
+    kernelBegin = std::min(kernelBegin, kernelRange.first);
+    if (kernelBegin == minBegin)
+      break;
+  }
+  return {kernelBegin, kernelEnd};
 }
 
 std::vector<std::vector<PartialRow>>
@@ -339,6 +485,12 @@ static ConvParams canonicalizeParamsImpl(const ConvParams &params) {
     auto &inputTruncationUpper = newParams.inputTransform.truncationUpper[dim];
     auto &inputPaddingLower = newParams.inputTransform.paddingLower[dim];
     auto &inputPaddingUpper = newParams.inputTransform.paddingUpper[dim];
+    auto &kernelTruncationLower =
+        newParams.kernelTransform.truncationLower[dim];
+    auto &kernelTruncationUpper =
+        newParams.kernelTransform.truncationUpper[dim];
+    auto &kernelPaddingLower = newParams.kernelTransform.paddingLower[dim];
+    auto &kernelPaddingUpper = newParams.kernelTransform.paddingUpper[dim];
     auto &outputTruncationLower =
         newParams.outputTransform.truncationLower[dim];
     auto &outputTruncationUpper =
@@ -348,8 +500,9 @@ static ConvParams canonicalizeParamsImpl(const ConvParams &params) {
 
     // Compute output elements that are known to be zero.
     auto nonZeroRange =
-        getOutputRange(dim, {0, newParams.getOutputSize(dim)},
-                       {0, newParams.kernelShape[dim]}, newParams);
+        getOutputRangeForKernelRange(dim, {0, newParams.getOutputSize(dim)},
+                                     {0, newParams.kernelShape[dim]},
+                                     newParams);
     // Truncate and pad the output so the number zero elements can be
     // determined directly from the output padding.
     if (nonZeroRange.first == nonZeroRange.second) {
@@ -403,7 +556,25 @@ static ConvParams canonicalizeParamsImpl(const ConvParams &params) {
     }
 
     // Compute kernel elements that are ignored.
-    // TODO
+    auto kernelUsedRange =
+        getKernelRange(dim, {0, outSize},
+                       {0, newParams.getInputSize(dim)}, newParams);
+    // Truncate and pad the kernel so the number of ignored elements can
+    // be determined directly from the kernel truncation.
+    assert(kernelUsedRange.first != kernelUsedRange.second);
+    const auto kernelIgnoredLower = kernelUsedRange.first;
+    const auto kernelIgnoredUpper = newParams.kernelShape[dim] -
+                                   kernelUsedRange.second;
+    if (kernelIgnoredLower > kernelTruncationLower) {
+      kernelPaddingLower += (kernelIgnoredLower - kernelTruncationLower) *
+                           newParams.kernelTransform.dilation[dim];
+      kernelTruncationLower = kernelIgnoredLower;
+    }
+    if (kernelIgnoredUpper > kernelTruncationUpper) {
+      kernelPaddingUpper += (kernelIgnoredUpper - kernelTruncationUpper) *
+                           newParams.kernelTransform.dilation[dim];
+      kernelTruncationUpper = kernelIgnoredUpper;
+    }
 
     // Remove padding if both the input and the kernel are padded.
     auto &flippedKernelPaddingLower =
