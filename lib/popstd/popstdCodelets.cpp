@@ -237,12 +237,11 @@ template class Atan2<half>;
 
 template <typename InType>
 class
-[[poplar::constraint("elem(**in1) != elem(**in2)")]]
+[[poplar::constraint("elem(**in1) != elem(**in2)",
+                     "upper(**in1) || upper(**in2)")]]
 Add : public Vertex {
 public:
-  // One of the edges from {in1, in2} must be in upper half of memory. See
-  // T2272.
-  Vector<Input<Vector<InType, 1, true>>> in1;
+  Vector<Input<Vector<InType>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
@@ -270,12 +269,12 @@ template <typename InType>
 class
 [[poplar::constraint("elem(**in1) != elem(**in2)",
                      "elem(**in2) != elem(**out)",
-                     "elem(**in1) != elem(**out)")]]
+                     "elem(**in1) != elem(**out)",
+                     "upper(**in1) || upper(**in2)")]]
 
 BitwiseAnd : public Vertex {
 public:
-  // T2272: One of the edges from {in1, in2} must be in upper half of memory
-  Vector<Input<Vector<InType, 1, true>>> in1;
+  Vector<Input<Vector<InType>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
@@ -325,12 +324,11 @@ template <typename InType>
 class
 [[poplar::constraint("elem(**in1) != elem(**in2)",
                      "elem(**in2) != elem(**out)",
-                     "elem(**in1) != elem(**out)")]]
+                     "elem(**in1) != elem(**out)",
+                     "upper(**in1) || upper(**in2)")]]
 BitwiseOr : public Vertex {
 public:
-  // One of the edges from {in1, in2} must be in upper half of memory. See
-  // T2272.
-  Vector<Input<Vector<InType, 1, true>>> in1;
+  Vector<Input<Vector<InType>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
@@ -402,12 +400,11 @@ template <typename InType>
 class
 [[poplar::constraint("elem(**in1) != elem(**in2)",
                      "elem(**in2) != elem(**out)",
-                     "elem(**in1) != elem(**out)")]]
+                     "elem(**in1) != elem(**out)",
+                     "upper(**in1) || upper(**in2)")]]
 Divide : public Vertex {
 public:
-  // One of the edges from {in1, in2} must be in upper half of memory. See
-  // T2272.
-  Vector<Input<Vector<InType, 1, true>>> in1;
+  Vector<Input<Vector<InType>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
@@ -735,12 +732,11 @@ static const T &max(const T &x, const T &y) {
 
 template <typename InType>
 class
-[[poplar::constraint("elem(**in1) != elem(**in2)")]]
+[[poplar::constraint("elem(**in1) != elem(**in2)",
+                     "upper(**in1) || upper(**in2)")]]
 Maximum : public Vertex {
 public:
-  // One of the edges from {in1, in2} must be in upper half of memory. See
-  // T2272.
-  Vector<Input<Vector<InType, 1, true>>> in1;
+  Vector<Input<Vector<InType>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
@@ -771,12 +767,11 @@ static const T &min(const T &x, const T &y) {
 
 template <typename InType>
 class
-[[poplar::constraint("elem(**in1) != elem(**in2)")]]
+[[poplar::constraint("elem(**in1) != elem(**in2)",
+                     "upper(**in1) || upper(**in2)")]]
 Minimum : public Vertex {
 public:
-  // One of the edges from {in1, in2} must be in upper half of memory.
-  // See T2272.
-  Vector<Input<Vector<InType, 1, true>>> in1;
+  Vector<Input<Vector<InType>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
@@ -802,12 +797,11 @@ template class Minimum<int>;
 
 template <typename InType>
 class
-[[poplar::constraint("elem(**in1) != elem(**in2)")]]
+[[poplar::constraint("elem(**in1) != elem(**in2)",
+                     "upper(**in1) || upper(**in2)")]]
 Multiply : public Vertex {
 public:
-  // One of the edges from {in1, in2} must be in upper half of memory. See
-  // T2272.
-  Vector<Input<Vector<InType, 1, true>>> in1;
+  Vector<Input<Vector<InType>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
@@ -915,12 +909,11 @@ template <typename InType>
 class
 [[poplar::constraint("elem(**in1) != elem(**in2)",
                      "elem(**in1) != elem(**out)",
-                     "elem(**in2) != elem(**out)")]]
+                     "elem(**in2) != elem(**out)",
+                     "upper(**in1) || upper(**in2)")]]
 Remainder : public Vertex {
 public:
-  // One of the edges from {in1, in2} must be in upper half of memory. See
-  // T2272.
-  Vector<Input<Vector<InType, 1, true>>> in1;
+  Vector<Input<Vector<InType>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
@@ -1092,12 +1085,11 @@ template class Sin<half>;
 
 template <typename InType>
 class
-[[poplar::constraint("elem(**in1) != elem(**in2)")]]
+[[poplar::constraint("elem(**in1) != elem(**in2)",
+                     "upper(**in1) || upper(**in2)")]]
 Subtract : public Vertex {
 public:
-  // One of the edges from {in1, in2} must be in upper half of memory. See
-  // T2272.
-  Vector<Input<Vector<InType, 1, true>>> in1;
+  Vector<Input<Vector<InType>>> in1;
   Vector<Input<Vector<InType>>> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;

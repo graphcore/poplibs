@@ -864,12 +864,11 @@ template <class FPType>
 class
 [[poplar::constraint("elem(**actsIn) != elem(**actsOut)",
                      "elem(**actsIn) != elem(**scale)",
-                     "elem(**scale) != elem(**actsOut)" )]]
+                     "elem(**scale) != elem(**actsOut)",
+                     "upper(**actsIn) || upper(**actsOut)")]]
 ChannelMul : public Vertex {
 public:
-  // One of the edges from {actsIn, actsOut} must be in uuper half of memory.
-  // See T2272.
-  Vector<Input<Vector<FPType, 1, true>>> actsIn;
+  Vector<Input<Vector<FPType>>> actsIn;
   Vector<Output<Vector<FPType>>> actsOut;
   Vector<Input<Vector<FPType>>> scale;
 
