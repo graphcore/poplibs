@@ -2162,7 +2162,6 @@ createConvPartialHorizontalMacVertex(Graph &graph,
                                      const Plan &plan,
                                      const Type &dType,
                                      unsigned tile,
-                                     const ConvSlice &slice,
                                      const ConvParams &params,
                                      ComputeSet fwdCS,
                                      const Tensor &in,
@@ -2171,25 +2170,11 @@ createConvPartialHorizontalMacVertex(Graph &graph,
   const auto &target = graph.getTarget();
   const auto numFieldDims = params.getNumFieldDims();
   const auto xDimIndex = numFieldDims - 1;
-  const auto batchBegin = slice.batchBegin;
-  const auto batchEnd = slice.batchEnd;
-  const auto outXBegin = slice.outFieldBegin.back();
-  const auto outXEnd = slice.outFieldEnd.back();
-  assert(slice.outChanBegin % plan.partialChansPerGroup == 0);
-  assert(slice.outChanEnd % plan.partialChansPerGroup == 0);
-  const auto outZGroupBegin = slice.outChanBegin / plan.partialChansPerGroup;
-  const auto outZGroupEnd = slice.outChanEnd / plan.partialChansPerGroup;
-  const auto cgBegin = slice.cgBegin;
-  const auto cgEnd = slice.cgEnd;
-  assert(slice.inChanBegin % plan.inChansPerGroup == 0);
-  assert(slice.inChanEnd % plan.inChansPerGroup == 0);
-  const auto inZGroupBegin = slice.inChanBegin / plan.inChansPerGroup;
-  const auto inZGroupEnd = slice.inChanEnd / plan.inChansPerGroup;
-  const auto inChansPerGroup = plan.inChansPerGroup;
-  const auto outChansPerGroup = plan.partialChansPerGroup;
-
-  const auto kernelXBegin = slice.kernelBegin.back();
-  const auto kernelXEnd = slice.kernelEnd.back();
+  const unsigned numConvGroups = out.dim(0);
+  const unsigned numOutChanGroups = out.dim(1);
+  const unsigned numInChanGroups = in.dim(1);
+  const unsigned inChansPerGroup = plan.inChansPerGroup;
+  const unsigned outChansPerGroup = plan.partialChansPerGroup;
 
   bool flipOut = params.inputTransform.flip[xDimIndex];
 
@@ -2199,97 +2184,62 @@ createConvPartialHorizontalMacVertex(Graph &graph,
   if (dType == HALF) {
     assert(inChansPerGroup % 2 == 0);
   }
-  const auto numOutElems =
-      getNumElementsInSlice(slice.outFieldBegin, slice.outFieldEnd);
-  if (!numOutElems)
+  const auto outputFieldShape = params.getOutputFieldShape();
+  const unsigned numOutFieldElems = product(outputFieldShape);
+  if (numOutFieldElems == 0)
     return;
-  const auto outWidth = outXEnd - outXBegin;
 
   std::vector<Tensor> outWindow;
-  // Output Tensor slices
-  auto outSliceBegin = vectorConvert<std::size_t>(slice.outFieldBegin);
-  auto outSliceEnd = vectorConvert<std::size_t>(slice.outFieldEnd);
-  outSliceBegin.insert(outSliceBegin.begin(), batchBegin);
-  outSliceEnd.insert(outSliceEnd.begin(), batchEnd);
-  for (unsigned cg = cgBegin; cg != cgEnd; ++cg) {
-    for (unsigned ozg = outZGroupBegin; ozg != outZGroupEnd; ++ozg) {
-      auto o = out[cg][ozg].slice(outSliceBegin, outSliceEnd).flatten();
-      graph.setTileMapping(o, tile);
+  std::vector<Tensor> inWindow;
+  std::vector<Tensor> weightsWindow;
+  for (unsigned cg = 0; cg != numConvGroups; ++cg) {
+    // Output Tensor slices
+    for (unsigned ozg = 0; ozg != numOutChanGroups; ++ozg) {
+      auto o = out[cg][ozg].flatten();
       outWindow.push_back(o);
     }
-  }
-
-  // Compute input field slices for output range
-  std::vector<unsigned> inFieldBegin, inFieldEnd;
-  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    auto inRange =
-        getInputRange(dim, {slice.outFieldBegin[dim], slice.outFieldEnd[dim]},
-                      {slice.kernelBegin[dim], slice.kernelEnd[dim]}, params);
-    inFieldBegin.push_back(inRange.first);
-    inFieldEnd.push_back(inRange.second);
-  }
-
-  const auto inXBegin = inFieldBegin.back();
-  const auto inXEnd = inFieldEnd.back();
-  const auto numInElems = getNumElementsInSlice(inFieldBegin, inFieldEnd);
-  const auto inWidth = inXEnd - inXBegin;
-
-  std::vector<Tensor> inWindow;
-  // Input tensor slices
-  auto inSliceBegin = vectorConvert<std::size_t>(inFieldBegin);
-  auto inSliceEnd = vectorConvert<std::size_t>(inFieldEnd);
-  inSliceBegin.insert(inSliceBegin.begin(), batchBegin);
-  inSliceEnd.insert(inSliceEnd.begin(), batchEnd);
-  for (unsigned cg = cgBegin; cg != cgEnd; ++cg) {
-    for (unsigned izg = inZGroupBegin; izg != inZGroupEnd; ++izg) {
-      auto i = in[cg][izg].slice(inSliceBegin, inSliceEnd).flatten();
+    // Input tensor slices
+    for (unsigned izg = 0; izg != numInChanGroups; ++izg) {
+      auto i = in[cg][izg].flatten();
       inWindow.push_back(i);
     }
-  }
-
-  // kernel tensor slices
-  auto kernelSliceBegin = vectorConvert<std::size_t>(slice.kernelBegin);
-  auto kernelSliceEnd = vectorConvert<std::size_t>(slice.kernelEnd);
-  std::vector<Tensor> weightsWindow;
-  for (unsigned cg = cgBegin; cg != cgEnd; ++cg) {
-    for (unsigned ozg = outZGroupBegin; ozg != outZGroupEnd; ++ozg) {
-      for (unsigned izg = inZGroupBegin; izg != inZGroupEnd; ++izg) {
-        auto w = weights[cg][ozg][izg].slice(kernelSliceBegin, kernelSliceEnd)
-                                      .flatten();
+    // kernel tensor slices
+    for (unsigned ozg = 0; ozg != numOutChanGroups; ++ozg) {
+      for (unsigned izg = 0; izg != numInChanGroups; ++izg) {
+        auto w = weights[cg][ozg][izg].flatten();
         weightsWindow.push_back(w);
       }
     }
   }
 
-  const auto numKernelElems = getNumElementsInSlice(slice.kernelBegin,
-                                                    slice.kernelEnd);
-  const auto kernelSizeX = kernelXEnd - kernelXBegin;
+  const unsigned numInFieldElems = product(params.inputFieldShape);
+  const unsigned numKernelFieldElems = product(params.kernelShape);
+  const unsigned kernelSizeX = params.kernelShape.back();
   const auto contextsPerVertex = target.getNumWorkerContexts();
   std::vector<std::vector<unsigned>> worklist(contextsPerVertex
-                                              * numKernelElems);
-  for (auto k = 0; k != numKernelElems / kernelSizeX ; ++k) {
+                                              * numKernelFieldElems);
+  for (unsigned k = 0; k != numKernelFieldElems / kernelSizeX ; ++k) {
     // unflatten kernel index into a co-ordinate for the kernel
-    auto kCoord = unflattenIndexInSlice(slice.kernelBegin, slice.kernelEnd,
-                                        k * kernelSizeX);
-    std::vector<unsigned> convOutBegin, convOutEnd, convOutSizesForKy;
+    auto kCoord = unflattenIndex(params.kernelShape, k * kernelSizeX);
+    std::vector<unsigned> convOutBegin, convOutEnd;
     for (auto dim = 0U; dim + 1 != numFieldDims; ++dim ) {
       unsigned begin, end;
       std::tie(begin, end) =
         getOutputRangeForKernelIndex(dim,
-                                     {slice.outFieldBegin[dim],
-                                      slice.outFieldEnd[dim]},
+                                     {0, params.getOutputSize(dim)},
                                      kCoord[dim], params);
       convOutBegin.push_back(begin);
       convOutEnd.push_back(end);
-      convOutSizesForKy.push_back(end - begin);
     }
     const auto convOutElems = getNumElementsInSlice(convOutBegin, convOutEnd);
     if (convOutElems == 0)
       continue;
-    for (auto kx = kernelXBegin; kx != kernelXEnd; ++kx) {
+    for (unsigned kx = 0; kx != params.kernelShape.back(); ++kx) {
       unsigned convOutXBegin, convOutXEnd;
       std::tie(convOutXBegin, convOutXEnd) =
-          getOutputRangeForKernelIndex(xDimIndex, {outXBegin, outXEnd}, kx,
+          getOutputRangeForKernelIndex(xDimIndex,
+                                       {0, params.getOutputSize(xDimIndex)},
+                                       kx,
                                        params);
       const auto convOutWidth = convOutXEnd - convOutXBegin;
       if (convOutWidth == 0)
@@ -2300,7 +2250,7 @@ createConvPartialHorizontalMacVertex(Graph &graph,
       auto outFieldEnd = convOutEnd;
       outFieldEnd.push_back(convOutXEnd);
       auto workerPartition =
-          partitionConvOutputBetweenWorkers(graph, batchBegin, batchEnd,
+          partitionConvOutputBetweenWorkers(graph, 0, params.getBatchSize(),
                                             outFieldBegin, outFieldEnd, 0, 1,
                                             0, 1);
       for (unsigned i = 0; i != contextsPerVertex; ++i) {
@@ -2314,7 +2264,7 @@ createConvPartialHorizontalMacVertex(Graph &graph,
           const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
           if (workerOutWidth == 0)
             continue;
-          std::vector<unsigned> workerIn;
+          std::vector<std::size_t> workerIn;
           bool validRow = true;
           for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
             auto outIndex = workerSlice.outerFieldIndices[dim];
@@ -2332,19 +2282,19 @@ createConvPartialHorizontalMacVertex(Graph &graph,
           std::tie(workerInXBegin, workerInXEnd) =
               getInputRange(xDimIndex, {workerOutXBegin, workerOutXEnd},
                             kx, params);
+          workerIn.push_back(workerInXBegin);
 
+          auto workerOutFieldIndicesBegin =
+              vectorConvert<std::size_t>(workerSlice.outerFieldIndices);
+          workerOutFieldIndicesBegin.push_back(workerOutXBegin);
           const auto outBeginOffset =
-              (workerSlice.b - batchBegin) * numOutElems +
-              flattenIndexInSlice(slice.outFieldBegin, slice.outFieldEnd,
-                                  workerSlice.outerFieldIndices) * outWidth +
-              (workerOutXBegin - outXBegin);
+              workerSlice.b * numOutFieldElems +
+              flattenIndex(outputFieldShape, workerOutFieldIndicesBegin);
 
           const auto inBeginOffset =
-              (workerSlice.b - batchBegin) * numInElems +
-              flattenIndexInSlice(inFieldBegin, inFieldEnd,
-                                   workerIn) * inWidth +
-              (workerInXBegin - inXBegin);
-          auto kIndex = k * kernelSizeX + kx - kernelXBegin;
+              workerSlice.b * numInFieldElems +
+              flattenIndex(params.inputFieldShape, workerIn);
+          auto kIndex = k * kernelSizeX + kx;
           worklist[kIndex * contextsPerVertex + i].push_back(outBeginOffset);
           worklist[kIndex * contextsPerVertex + i].push_back(workerOutWidth);
           worklist[kIndex * contextsPerVertex + i].push_back(inBeginOffset);
@@ -2366,12 +2316,12 @@ createConvPartialHorizontalMacVertex(Graph &graph,
   graph.connect(v["weights"], weightsWindow);
   graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
-  graph.setInitialValue(v["numOutGroups"], outZGroupEnd - outZGroupBegin);
-  graph.setInitialValue(v["numInGroups"], inZGroupEnd - inZGroupBegin);
-  graph.setInitialValue(v["kernelSize"], numKernelElems);
+  graph.setInitialValue(v["numOutGroups"], numOutChanGroups);
+  graph.setInitialValue(v["numInGroups"], numInChanGroups);
+  graph.setInitialValue(v["kernelSize"], numKernelFieldElems);
   graph.setInitialValue(v["inStride"], inStrideX);
   graph.setInitialValue(v["outStride"], outStrideX);
-  graph.setInitialValue(v["numConvGroups"], cgEnd - cgBegin);
+  graph.setInitialValue(v["numConvGroups"], numConvGroups);
   graph.setInitialValue(v["flipOut"], flipOut);
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
   graph.setInitialValue(v["numWorkerContexts"], contextsPerVertex);
@@ -2640,9 +2590,8 @@ calcPartialConvOutput(Graph &graph,
                                in, weights, out);
     break;
   case Plan::Method::MAC:
-    createConvPartialHorizontalMacVertex(graph, plan, dType, tile,
-                                         slice, params,fwdCS, in, weights,
-                                         out);
+    createConvPartialHorizontalMacVertex(graph, plan, dType, tile, params,
+                                         fwdCS, in, weights, out);
     break;
   case Plan::Method::OUTER_PRODUCT:
     {
