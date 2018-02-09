@@ -2393,8 +2393,6 @@ static void
 createOuterProductVertex(
     Graph &graph,
     unsigned tile,
-    unsigned cgBegin, unsigned cgEnd,
-    unsigned chanGroupBegin, unsigned chanGroupEnd,
     unsigned xBegin, unsigned xEnd,
     const ConvParams &params,
     ComputeSet fwdCS,
@@ -2434,7 +2432,7 @@ createOuterProductVertex(
   }
   assert(in.dim(in.rank() - 1) == 1);
 
-  // check every field dimensions of the weights tensor is 1
+  // check every field dimension of the weights tensor is 1
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     assert(weights.dim(dim + 3) == 1);
   }
@@ -2452,27 +2450,15 @@ createOuterProductVertex(
   assert(out.dim(out.rank() - 1) == weights.dim(weights.rank() - 2));
   const auto chansPerGroup = weights.dim(weights.rank() - 2);
   const auto dType = in.elementType();
-  const auto outShape = out.shape();
 
-  // create output tensor slice vectors
-  std::vector<std::size_t> sliceBegin(numFieldDims + 1);
-  std::vector<std::size_t> sliceEnd;
-  sliceEnd.insert(sliceEnd.begin(), outShape.begin() + 1,
-                  outShape.begin() + numFieldDims + 2);
-  sliceBegin.push_back(xBegin);
-  sliceEnd.push_back(xEnd);
-
-  for (auto cg = cgBegin; cg != cgEnd; ++cg) {
-    const auto chanBegin = chanGroupBegin * chansPerGroup;
-    const auto chanEnd = chanGroupEnd * chansPerGroup;
+  const auto numConvGroups = params.getNumConvGroups();
+  for (unsigned cg = 0; cg != numConvGroups; ++cg) {
     auto inWindow = in[cg].flatten().slice(xBegin, xEnd);
-    sliceBegin[0] = chanGroupBegin;
-    sliceEnd[0] = chanGroupEnd;
     auto outWindow =
-        out[cg].slice(sliceBegin, sliceEnd)
-               .reshape({chanGroupEnd - chanGroupBegin,
-                         (xEnd - xBegin) * chansPerGroup});
-    auto weightsWindow = weights[cg].flatten().slice(chanBegin, chanEnd);
+        out.slice(cg, cg + 1, 0)
+           .slice(xBegin, xEnd, out.rank() - 2)
+           .reshape({out.dim(1), (xEnd - xBegin) * chansPerGroup});
+    auto weightsWindow = weights[cg].flatten();
     auto v = graph.addVertex(fwdCS,
                              templateVertex(
                                "popconv::OuterProduct", dType
@@ -2661,23 +2647,13 @@ calcPartialConvOutput(Graph &graph,
   case Plan::Method::OUTER_PRODUCT:
     {
       const auto &target = graph.getTarget();
-      const auto cgBegin = slice.cgBegin;
-      const auto cgEnd = slice.cgEnd;
-      const auto outXBegin = slice.outFieldBegin.back();
-      const auto outXEnd = slice.outFieldEnd.back();
-      assert(slice.outChanBegin % plan.partialChansPerGroup == 0);
-      assert(slice.outChanEnd % plan.partialChansPerGroup == 0);
-      const auto outZGroupBegin = slice.outChanBegin /
-                                  plan.partialChansPerGroup;
-      const auto outZGroupEnd = slice.outChanEnd /
-                                plan.partialChansPerGroup;
+      const auto outputLength =
+          params.getOutputSize(params.getNumFieldDims() - 1);
       const auto perWorkerRegions =
-          splitRegionsBetweenWorkers(target, {{outXBegin, outXEnd}}, 1);
+          splitRegionsBetweenWorkers(target, {{0, outputLength}}, 1);
       for (const auto &entry : perWorkerRegions) {
         assert(entry.size() == 1);
         createOuterProductVertex(graph, tile,
-                                 cgBegin, cgEnd,
-                                 outZGroupBegin, outZGroupEnd,
                                  entry[0].begin(), entry[0].end(), params,
                                  fwdCS, in, weights, out);
       }
