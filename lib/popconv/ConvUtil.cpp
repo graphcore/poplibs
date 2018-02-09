@@ -319,6 +319,8 @@ getInputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
   bool flip = params.inputTransform.flip[dim];
   for (unsigned k : flip ? kernelRangeFwd : kernelRangeBwd) {
     auto inputRange = getInputRange(dim, outputRange, k, params);
+    if (inputRange.first == inputRange.second)
+      continue;
     inputEnd = std::max(inputEnd, inputRange.second);
     if (inputEnd == maxEnd)
       break;
@@ -326,6 +328,8 @@ getInputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
   unsigned inputBegin = inputEnd;
   for (unsigned k : flip ? kernelRangeBwd : kernelRangeFwd) {
     auto inputRange = getInputRange(dim, outputRange, k, params);
+    if (inputRange.first == inputRange.second)
+      continue;
     inputBegin = std::min(inputBegin, inputRange.first);
     if (inputBegin == minBegin)
       break;
@@ -350,6 +354,8 @@ getKernelRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
   bool flip = params.inputTransform.flip[dim];
   for (unsigned i : flip ? inputRangeBwd : inputRangeFwd) {
     auto kernelRange = getKernelRange(dim, outputRange, i, params);
+    if (kernelRange.first == kernelRange.second)
+      continue;
     kernelEnd = std::max(kernelEnd, kernelRange.second);
     if (kernelEnd == maxEnd)
       break;
@@ -357,6 +363,8 @@ getKernelRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
   unsigned kernelBegin = kernelEnd;
   for (unsigned i : flip ? inputRangeFwd : inputRangeBwd) {
     auto kernelRange = getKernelRange(dim, outputRange, i, params);
+    if (kernelRange.first == kernelRange.second)
+      continue;
     kernelBegin = std::min(kernelBegin, kernelRange.first);
     if (kernelBegin == minBegin)
       break;
