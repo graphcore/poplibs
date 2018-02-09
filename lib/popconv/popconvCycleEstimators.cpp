@@ -31,6 +31,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(const VertexIntrospector &vertex,
 
   std::vector<std::vector<std::vector<unsigned>>> workerPartitions;
   const auto kernelSize = kernelOuterSize * kernelInnerElements;
+  assert(kernelSize > 0);
   const auto usedContexts = worklists.size() / kernelSize;
 
   std::vector<unsigned> tZeroWorkList;
@@ -173,6 +174,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
                                          false);
 
   std::vector<std::vector<std::vector<unsigned>>> workerPartitions;
+  assert(kernelSize > 0);
   const auto usedContexts = worklists.size() / kernelSize;
   for (unsigned context = 0; context < usedContexts; ++context) {
     workerPartitions.emplace_back();

@@ -2485,40 +2485,151 @@ createOuterProductVertex(
   }
 }
 
+/// Compute the sub-convolution corresponding to the specified slice of a larger
+/// convolution. The parameters and tensors are updated in place to
+/// the parameters and tensors for the sub-convolution.
 static void
-mapPartialSums(Graph &graph, const ConvSlice &slice, unsigned tile,
-               const Tensor &out) {
-  assert(out.rank() >= 4);
-  const auto numFieldDims = out.rank() - 4;
-  assert(slice.outFieldBegin.size() == numFieldDims);
-  assert(slice.outFieldEnd.size() == numFieldDims);
-  assert(slice.kernelBegin.size() == numFieldDims);
-  assert(slice.kernelEnd.size() == numFieldDims);
-  const auto partialChansPerGroup = out.dim(out.rank() - 1);
+getSubConvolution(ConvSlice &slice,
+                  ConvParams &params,
+                  Tensor &in, Tensor &weights, Tensor &out) {
+  auto tileSlice = slice;
+  const auto numFieldDims = params.getNumFieldDims();
+  // Explicitly truncate the convGroup, channel and batch axes.
+  const auto partialChansPerGroup = weights.dim(weights.rank() - 2);
+  const auto inChansPerGroup = weights.dim(weights.rank() - 1);
   assert(slice.outChanBegin % partialChansPerGroup == 0);
-  std::vector<std::size_t> sliceBegin = {
-    slice.cgBegin,
-    slice.outChanBegin / partialChansPerGroup,
-    slice.batchBegin
-  };
   assert(slice.outChanEnd % partialChansPerGroup == 0);
-  std::vector<std::size_t> sliceEnd = {
-    slice.cgEnd,
-    slice.outChanEnd / partialChansPerGroup,
-    slice.batchEnd
-  };
+  const auto outZGroupBegin = slice.outChanBegin / partialChansPerGroup;
+  const auto outZGroupEnd = slice.outChanEnd / partialChansPerGroup;
+  assert(slice.inChanBegin % inChansPerGroup == 0);
+  assert(slice.inChanEnd % inChansPerGroup == 0);
+  const auto inZGroupBegin = slice.inChanBegin / inChansPerGroup;
+  const auto inZGroupEnd = slice.inChanEnd / inChansPerGroup;
+  params.numConvGroups = slice.getNumConvGroups();
+  params.batchSize = slice.getBatchSize();
+  params.inputChannels = slice.getNumInputChans() * slice.getNumConvGroups();
+  params.outputChannels = slice.getNumOutputChans() * slice.getNumConvGroups();
+  in = in.slice({slice.cgBegin, inZGroupBegin, slice.batchBegin},
+                {slice.cgEnd, inZGroupEnd, slice.batchEnd});
+  weights = weights.slice({slice.cgBegin, outZGroupBegin, inZGroupBegin},
+                          {slice.cgEnd, outZGroupEnd, inZGroupEnd});
+  out = out.slice({slice.cgBegin, outZGroupBegin, slice.batchBegin},
+                  {slice.cgEnd, outZGroupEnd, slice.batchEnd});
+  tileSlice.cgBegin = 0;
+  tileSlice.cgEnd = slice.getNumConvGroups();
+  tileSlice.batchBegin = 0;
+  tileSlice.batchEnd = slice.getBatchSize();
+  tileSlice.inChanBegin = 0;
+  tileSlice.inChanEnd = slice.getNumInputChans();
+  tileSlice.outChanBegin = 0;
+  tileSlice.outChanEnd = slice.getNumOutputChans();
+  // Explicitly truncate the spatial dimensions.
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    sliceBegin.push_back(slice.outFieldBegin[dim]);
-    sliceEnd.push_back(slice.outFieldEnd[dim]);
+    auto extraTruncationLower = slice.outFieldBegin[dim];
+    auto extraTruncationUpper =
+        static_cast<unsigned>(params.getOutputSize(dim))
+        - slice.outFieldEnd[dim];
+    auto &outputPaddingLower = params.outputTransform.paddingLower[dim];
+    auto &outputPaddingUpper = params.outputTransform.paddingUpper[dim];
+    const auto &stride = params.outputTransform.stride[dim];
+    auto &outputTruncationLower = params.outputTransform.truncationLower[dim];
+    auto &outputTruncationUpper = params.outputTransform.truncationUpper[dim];
+    const auto excessPaddingLower = std::min(outputPaddingLower,
+                                             extraTruncationLower);
+    outputPaddingLower -= excessPaddingLower;
+    extraTruncationLower -= excessPaddingLower;
+    if (extraTruncationLower == params.getOutputSize(dim)) {
+      outputTruncationLower += 1 + (extraTruncationLower - 1) * stride;
+    } else {
+      outputTruncationLower += extraTruncationLower * stride;
+    }
+    extraTruncationLower = 0;
+    const auto excessPaddingUpper = std::min(outputPaddingUpper,
+                                             extraTruncationUpper);
+    outputPaddingUpper -= excessPaddingUpper;
+    extraTruncationUpper -= excessPaddingUpper;
+    if (extraTruncationUpper == params.getOutputSize(dim)) {
+      outputTruncationUpper += 1 + (extraTruncationUpper - 1) * stride;
+    } else {
+      outputTruncationUpper += extraTruncationUpper * stride;
+    }
+    extraTruncationUpper = 0;
+    out = out.slice(slice.outFieldBegin[dim],
+                    slice.outFieldEnd[dim],
+                    3 + dim);
+    tileSlice.outFieldBegin[dim] = 0;
+    tileSlice.outFieldEnd[dim] = slice.getOutputSize(dim);
   }
-  sliceBegin.push_back(0);
-  sliceEnd.push_back(out.dim(out.rank() - 1));
-  std::vector<Interval> regions;
-  addFlattenedRegions(out.shape(), sliceBegin, sliceEnd, regions);
-  Tensor flatOut = out.flatten();
-  for (const auto &region : regions) {
-    graph.setTileMapping(flatOut.slice(region.begin(), region.end()), tile);
+  // Replace unused kernel elements with zero padding.
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    auto sliceBegin = std::max(slice.kernelBegin[dim],
+                               params.kernelTransform.truncationLower[dim]);
+    auto sliceEnd = std::min(slice.kernelEnd[dim],
+                             static_cast<unsigned>(params.kernelShape[dim]) -
+                             params.kernelTransform.truncationUpper[dim]);
+    const auto transformedKernelSize = params.getTransformedKernelSize(dim);
+    if (sliceBegin >= sliceEnd) {
+      sliceBegin = 0;
+      sliceEnd = 0;
+      params.kernelTransform.truncationLower[dim] = 0;
+      params.kernelTransform.truncationUpper[dim] = params.kernelShape[dim];
+      params.kernelTransform.paddingLower[dim] = 0;
+      params.kernelTransform.paddingUpper[dim] = transformedKernelSize;
+      continue;
+    }
+    params.kernelTransform.truncationLower[dim] = sliceBegin;
+    params.kernelTransform.paddingLower[dim] +=
+        transformedKernelSize - params.getTransformedKernelSize(dim);
+    params.kernelTransform.truncationUpper[dim] =
+        params.kernelShape[dim] - sliceEnd;
+    params.kernelTransform.paddingUpper[dim] +=
+        transformedKernelSize - params.getTransformedKernelSize(dim);
   }
+
+  // Canonicalize parameters. This may move truncation from the output to
+  // the input or the kernel.
+  params = canonicalizeParams(params);
+
+  // Explicitly truncate the input.
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    auto &inputTruncationLower = params.inputTransform.truncationLower[dim];
+    auto &inputTruncationUpper = params.inputTransform.truncationUpper[dim];
+    in = in.slice(inputTruncationLower,
+                  params.inputFieldShape[dim] - inputTruncationUpper,
+                  3 + dim);
+    params.inputFieldShape[dim] -= inputTruncationLower + inputTruncationUpper;
+    inputTruncationLower = 0;
+    inputTruncationUpper = 0;
+  }
+
+  // Explicitly truncate the kernel.
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    auto &kernelTruncationLower = params.kernelTransform.truncationLower[dim];
+    auto &kernelTruncationUpper = params.kernelTransform.truncationUpper[dim];
+    weights = weights.slice(kernelTruncationLower,
+                            params.kernelShape[dim] - kernelTruncationUpper,
+                            3 + dim);
+    params.kernelShape[dim] -= kernelTruncationLower + kernelTruncationUpper;
+    kernelTruncationLower = 0;
+    kernelTruncationUpper = 0;
+    tileSlice.kernelBegin[dim] = 0;
+    tileSlice.kernelEnd[dim] = params.kernelShape[dim];
+  }
+  assert(params == canonicalizeParams(params));
+
+  slice = tileSlice;
+}
+
+static bool isZeroConvolution(const ConvParams &params) {
+  const auto numFieldDims = params.getNumFieldDims();
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    if (params.outputTransform.paddingLower[dim] +
+        params.outputTransform.paddingUpper[dim] ==
+        params.getOutputSize(dim)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 static void
@@ -2526,12 +2637,16 @@ calcPartialConvOutput(Graph &graph,
                       const Plan &plan,
                       const Type &dType,
                       unsigned tile,
-                      const ConvSlice &slice,
-                      const ConvParams &params,
+                      ConvSlice slice,
+                      ConvParams params,
                       ComputeSet fwdCS,
                       Tensor in, Tensor weights, Tensor out) {
-  const auto &target = graph.getTarget();
-  mapPartialSums(graph, slice, tile, out);
+  getSubConvolution(slice, params, in, weights, out);
+  graph.setTileMapping(out, tile);
+  if (isZeroConvolution(params)) {
+    zero(graph, out, tile, fwdCS);
+    return;
+  }
   switch (plan.method) {
   default: assert(0 && "Unexpected method");
   case Plan::Method::AMP:
@@ -2545,6 +2660,7 @@ calcPartialConvOutput(Graph &graph,
     break;
   case Plan::Method::OUTER_PRODUCT:
     {
+      const auto &target = graph.getTarget();
       const auto cgBegin = slice.cgBegin;
       const auto cgEnd = slice.cgEnd;
       const auto outXBegin = slice.outFieldBegin.back();

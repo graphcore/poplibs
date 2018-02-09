@@ -43,6 +43,14 @@ zero(poplar::Graph &graph,
 }
 
 void
+zero(poplar::Graph &graph,
+     const poplar::Tensor &t,
+     unsigned tile,
+     poplar::ComputeSet zeroCS) {
+  return zero(graph, t, {{0, t.numElements()}}, tile, zeroCS);
+}
+
+void
 zero(Graph &graph,
      const Tensor &t,
      const std::vector<
