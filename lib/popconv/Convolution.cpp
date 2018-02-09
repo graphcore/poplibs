@@ -2353,10 +2353,9 @@ createOuterProductVertex(
 /// convolution. The parameters and tensors are updated in place to
 /// the parameters and tensors for the sub-convolution.
 static void
-getSubConvolution(ConvSlice &slice,
+getSubConvolution(const ConvSlice &slice,
                   ConvParams &params,
                   Tensor &in, Tensor &weights, Tensor &out) {
-  auto tileSlice = slice;
   const auto numFieldDims = params.getNumFieldDims();
   // Explicitly truncate the convGroup, channel and batch axes.
   const auto partialChansPerGroup = weights.dim(weights.rank() - 2);
@@ -2379,14 +2378,6 @@ getSubConvolution(ConvSlice &slice,
                           {slice.cgEnd, outZGroupEnd, inZGroupEnd});
   out = out.slice({slice.cgBegin, outZGroupBegin, slice.batchBegin},
                   {slice.cgEnd, outZGroupEnd, slice.batchEnd});
-  tileSlice.cgBegin = 0;
-  tileSlice.cgEnd = slice.getNumConvGroups();
-  tileSlice.batchBegin = 0;
-  tileSlice.batchEnd = slice.getBatchSize();
-  tileSlice.inChanBegin = 0;
-  tileSlice.inChanEnd = slice.getNumInputChans();
-  tileSlice.outChanBegin = 0;
-  tileSlice.outChanEnd = slice.getNumOutputChans();
   // Explicitly truncate the spatial dimensions.
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     auto extraTruncationLower = slice.outFieldBegin[dim];
@@ -2421,8 +2412,6 @@ getSubConvolution(ConvSlice &slice,
     out = out.slice(slice.outFieldBegin[dim],
                     slice.outFieldEnd[dim],
                     3 + dim);
-    tileSlice.outFieldBegin[dim] = 0;
-    tileSlice.outFieldEnd[dim] = slice.getOutputSize(dim);
   }
   // Replace unused kernel elements with zero padding.
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
@@ -2476,12 +2465,8 @@ getSubConvolution(ConvSlice &slice,
     params.kernelShape[dim] -= kernelTruncationLower + kernelTruncationUpper;
     kernelTruncationLower = 0;
     kernelTruncationUpper = 0;
-    tileSlice.kernelBegin[dim] = 0;
-    tileSlice.kernelEnd[dim] = params.kernelShape[dim];
   }
   assert(params == canonicalizeParams(params));
-
-  slice = tileSlice;
 }
 
 static bool isZeroConvolution(const ConvParams &params) {
