@@ -1801,46 +1801,72 @@ partitionConvOutputBetweenWorkers(const Graph &graph,
   return perWorkerConvOutputSlices;
 }
 
-
-static bool writtenRangeEqualsOutputRange(
-    unsigned dim,
-    std::pair<unsigned, unsigned> outRange,
-    std::pair<unsigned, unsigned> kernelIndexRange,
-    const ConvParams &params) {
-  auto writtenRange =
-      getOutputRangeForKernelRange(dim, outRange, kernelIndexRange, params);
-  return writtenRange == outRange;
-}
-
-static bool writtenRangeEqualsOutputRange(
-    const std::vector<unsigned> &outRangeBegin,
-    const std::vector<unsigned> &outRangeEnd,
-    const std::vector<unsigned> &kernelRangeBegin,
-    const std::vector<unsigned> &kernelRangeEnd,
-    const ConvParams &params) {
-  const auto numFieldDims = params.getNumFieldDims();
-  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    if (!writtenRangeEqualsOutputRange(
-             dim, {outRangeBegin[dim], outRangeEnd[dim]},
-             {kernelRangeBegin[dim], kernelRangeEnd[dim]},
-             params
-         )) {
-      return false;
-    }
-  }
-  return true;
-}
-
 static void createConvPartialAmpVertex(Graph &graph,
                                        const Plan &plan,
                                        const Type &dType,
                                        unsigned tile,
-                                       const ConvSlice &slice,
                                        ConvParams params,
                                        ComputeSet fwdCS,
                                        Tensor in, Tensor weights, Tensor out) {
-  const auto numFieldDims = params.getNumFieldDims();
+  assert(params == canonicalizeParams(params));
   const auto &target = graph.getTarget();
+  const bool floatActivations = dType == FLOAT;
+  const auto weightsPerConvUnit =
+      target.getWeightsPerConvUnit(floatActivations);
+  const auto convUnitWeightHeight = weightsPerConvUnit / plan.inChansPerGroup;
+  if (convUnitWeightHeight != 1) {
+    // If we are doing an nx1 convolution we need to pad the weights to a
+    // multiple of n.
+    const auto kernelHeight = weights.dim(3);
+    if (kernelHeight % convUnitWeightHeight != 0) {
+      const auto extraKernelPadding =
+          (convUnitWeightHeight - kernelHeight % convUnitWeightHeight);
+      const auto extraInputPadding =
+          extraKernelPadding * params.kernelTransform.dilation[0];
+      unsigned extraKernelPaddingLower = 0, extraKernelPaddingUpper = 0;
+      auto &flippedExtraKernelPaddingUpper =
+          params.kernelTransform.flip[0] ? extraKernelPaddingLower :
+                                           extraKernelPaddingUpper;
+      auto &inputPaddingLower = params.inputTransform.paddingLower[0];
+      auto &inputPaddingUpper = params.inputTransform.paddingUpper[0];
+      auto &flippedInputPaddingUpper =
+          params.inputTransform.flip[0] ? inputPaddingLower : inputPaddingUpper;
+      flippedExtraKernelPaddingUpper += extraKernelPadding;
+      flippedInputPaddingUpper += extraInputPadding;
+      weights = pad(graph, weights, extraKernelPaddingLower,
+                    extraKernelPaddingUpper, 3);
+      params.kernelShape[0] += extraKernelPadding;
+    }
+    // Explicitly truncate, dilate and pad the outermost spatial field of the
+    // input.
+    const auto inputTruncationLower =
+        params.inputTransform.truncationLower[0];
+    const auto inputTruncationUpper =
+        params.inputTransform.truncationUpper[0];
+    in = pad(graph, in, -static_cast<int>(inputTruncationLower),
+             -static_cast<int>(inputTruncationUpper), 3);
+    params.inputFieldShape[0] -= inputTruncationLower + inputTruncationUpper;
+    params.inputTransform.truncationLower[0] = 0;
+    params.inputTransform.truncationUpper[0] = 0;
+
+    const auto inputDilation = params.inputTransform.dilation[0];
+    in = dilate(graph, in, inputDilation, 3);
+    params.inputTransform.dilation[0] = 1;
+    params.inputFieldShape[0] = getDilatedSize(params.inputFieldShape[0],
+                                               inputDilation);
+
+    const auto inputPaddingLower = params.inputTransform.paddingLower[0];
+    const auto inputPaddingUpper = params.inputTransform.paddingUpper[0];
+    in = pad(graph, in, inputPaddingLower, inputPaddingUpper, 3);
+    params.inputFieldShape[0] += inputPaddingLower + inputPaddingUpper;
+    params.inputTransform.paddingLower[0] = 0;
+    params.inputTransform.paddingUpper[0] = 0;
+  }
+
+  const auto numFieldDims = params.getNumFieldDims();
+  const unsigned numConvGroups = out.dim(0);
+  const unsigned numOutChanGroups = out.dim(1);
+  const unsigned numInChanGroups = in.dim(1);
   const auto outChansPerGroup = plan.partialChansPerGroup;
   const auto partialsType = out.elementType();
   const auto outChansPerPass = getNumConvUnits(dType == FLOAT,
@@ -1848,32 +1874,22 @@ static void createConvPartialAmpVertex(Graph &graph,
                                                target);
   assert(outChansPerGroup % outChansPerPass == 0);
   const auto passesPerOutputGroup = outChansPerGroup / outChansPerPass;
+  auto isNonZero = [](unsigned x) {
+    return x != 0;
+  };
   bool nx1Vertex =
-      getNumElementsInSlice(slice.kernelBegin, slice.kernelEnd) != 1 ||
+      product(params.kernelShape) != 1 ||
       params.inputTransform.dilation != params.outputTransform.stride ||
-      !writtenRangeEqualsOutputRange(slice.outFieldBegin, slice.outFieldEnd,
-                                     slice.kernelBegin, slice.kernelEnd,
-                                     params);
+      std::any_of(params.outputTransform.paddingLower.begin(),
+                  params.outputTransform.paddingLower.end(),
+                  isNonZero) ||
+      std::any_of(params.outputTransform.paddingUpper.begin(),
+                  params.outputTransform.paddingUpper.end(),
+                  isNonZero);
   bool useConvPartial1x1OutVertex = !nx1Vertex &&
                                     passesPerOutputGroup == 1;
   const auto dataPathWidth = target.getDataPathWidth();
-  const bool floatActivations = dType == FLOAT;
-  const auto weightsPerConvUnit =
-      target.getWeightsPerConvUnit(floatActivations);
-  const auto convUnitWeightHeight = weightsPerConvUnit / plan.inChansPerGroup;
-  const auto batchBegin = slice.batchBegin;
-  const auto batchEnd = slice.batchEnd;
-  assert(slice.outChanBegin % plan.partialChansPerGroup == 0);
-  assert(slice.outChanEnd % plan.partialChansPerGroup == 0);
-  const auto outZGroupBegin = slice.outChanBegin / plan.partialChansPerGroup;
-  const auto outZGroupEnd = slice.outChanEnd / plan.partialChansPerGroup;
-  const auto cgBegin = slice.cgBegin;
-  const auto cgEnd = slice.cgEnd;
-  assert(slice.inChanBegin % plan.inChansPerGroup == 0);
-  assert(slice.inChanEnd % plan.inChansPerGroup == 0);
-  const auto inZGroupBegin = slice.inChanBegin / plan.inChansPerGroup;
-  const auto inZGroupEnd = slice.inChanEnd / plan.inChansPerGroup;
-  const auto inChansPerGroup = plan.inChansPerGroup;
+  const unsigned inChansPerGroup = plan.inChansPerGroup;
   bool flipOut = params.inputTransform.flip[numFieldDims - 1];
   const auto convUnitInputLoadElemsPerCycle =
     target.getConvUnitInputLoadElemsPerCycle(dType == FLOAT);
@@ -1881,141 +1897,64 @@ static void createConvPartialAmpVertex(Graph &graph,
       target.getConvUnitCoeffLoadBytesPerCycle();
 
   std::vector<Tensor> outWindow;
-  std::vector<std::size_t> tileOutBatchAndFieldBegin = { batchBegin };
-  tileOutBatchAndFieldBegin.insert(tileOutBatchAndFieldBegin.end(),
-                                   slice.outFieldBegin.begin(),
-                                   slice.outFieldBegin.end());
-  std::vector<std::size_t> tileOutBatchAndFieldEnd = { batchEnd };
-  tileOutBatchAndFieldEnd.insert(tileOutBatchAndFieldEnd.end(),
-                                 slice.outFieldEnd.begin(),
-                                 slice.outFieldEnd.end());
-  for (unsigned cg = cgBegin; cg < cgEnd; ++cg) {
-    for (unsigned ozg = outZGroupBegin; ozg < outZGroupEnd; ++ozg) {
-      auto o = out[cg][ozg].slice(tileOutBatchAndFieldBegin,
-                                  tileOutBatchAndFieldEnd)
-                           .flatten();
-      graph.setTileMapping(o, tile);
+  std::vector<Tensor> inWindow;
+  std::vector<Tensor> weightsWindow;
+  for (unsigned cg = 0; cg != numConvGroups; ++cg) {
+    for (unsigned ozg = 0; ozg != numOutChanGroups; ++ozg) {
+      auto o = out[cg][ozg].flatten();
       outWindow.push_back(o);
     }
-  }
-  // Explicitly dilate the input tensor if needed
-  if (convUnitWeightHeight != 1 && params.inputTransform.dilation[0] > 1) {
-    const auto inputDilation = params.inputTransform.dilation[0];
-    const auto inputTruncationLower = params.inputTransform.truncationLower[0];
-    const auto inputTruncationUpper = params.inputTransform.truncationUpper[0];
-    in = pad(graph, in, -static_cast<int>(inputTruncationLower),
-             -static_cast<int>(inputTruncationUpper), 3);
-    params.inputFieldShape[0] -= inputTruncationLower + inputTruncationUpper;
-    params.inputTransform.truncationLower[0] = 0;
-    params.inputTransform.truncationUpper[0] = 0;
-    in = dilate(graph, in, inputDilation, 3);
-    params.inputTransform.dilation[0] = 1;
-    params.inputFieldShape[0] = getDilatedSize(params.inputFieldShape[0],
-                                               inputDilation);
-  }
-  std::vector<std::size_t> tileInBatchAndFieldBegin = { batchBegin };
-  std::vector<std::size_t> tileInBatchAndFieldEnd = { batchEnd };
-  // This stride is what's used to move down one element in the input field by
-  // the vertex.
-  int inRowStride = inChansPerGroup * params.kernelTransform.dilation.front();
-  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    auto range = getInputRange(dim,
-                               {slice.outFieldBegin[dim],
-                                slice.outFieldEnd[dim]},
-                               {slice.kernelBegin[dim],
-                                slice.kernelEnd[dim]},
-                               params);
-    tileInBatchAndFieldBegin.push_back(range.first);
-    tileInBatchAndFieldEnd.push_back(range.second);
-    if (dim != 0)
-      inRowStride *= range.second - range.first;
-  }
-  if (params.inputTransform.flip.front() !=
-      params.kernelTransform.flip.front()) {
-    inRowStride = -inRowStride;
-  }
-
-  unsigned prePaddingSize = 0;
-  unsigned postPaddingSize = 0;
-  if (convUnitWeightHeight != 1) {
-    // Pad the input window so it contains, for each position of the amp sub
-    // kernel where at least one kernel element is multiplied by a non padding
-    // input element, all input padding elements multiplied by the amp sub
-    // kernel in that position. This avoids special handling in the vertex for
-    // the beginning or end of the field. Compute the amount of padding required
-    // by conservatively assuming the first non padding input element in the
-    // window is multiplied by the last kernel element and the last non padding
-    // input element in the window is multiplied by the first kernel element.
-    prePaddingSize = (convUnitWeightHeight - 1) *
-                     params.kernelTransform.dilation.front();
-    postPaddingSize = prePaddingSize;
-  }
-  // TODO if the tile kernel size is 1 and the stride is greater than one we
-  // could subsample the input instead of using input striding.
-  std::vector<Tensor> inWindow;
-  for (unsigned cg = cgBegin; cg < cgEnd; ++cg) {
-    for (unsigned izg = inZGroupBegin; izg < inZGroupEnd; ++izg) {
-      auto window = in[cg][izg].slice(tileInBatchAndFieldBegin,
-                                      tileInBatchAndFieldEnd);
-      window = pad(graph, window,
-                   prePaddingSize,
-                   postPaddingSize,
-                   1);
-      inWindow.push_back(window.flatten());
+    // TODO if the tile kernel size is 1 and the stride is greater than one we
+    // could subsample the input instead of using input striding.
+    for (unsigned izg = 0; izg != numInChanGroups; ++izg) {
+      auto window = in[cg][izg].flatten();
+      inWindow.push_back(window);
     }
-  }
-  tileInBatchAndFieldEnd[1] += prePaddingSize + postPaddingSize;
-
-  std::vector<Tensor> weightsWindow;
-  for (unsigned cg = cgBegin; cg < cgEnd; ++cg) {
-    for (unsigned ozg = outZGroupBegin; ozg < outZGroupEnd; ++ozg) {
-      for (unsigned izg = inZGroupBegin; izg < inZGroupEnd; ++izg) {
-        auto window =
-            weights[cg][ozg][izg].slice(
-              vectorConvert<std::size_t>(slice.kernelBegin),
-              vectorConvert<std::size_t>(slice.kernelEnd)
-            );
-        const auto kernelHeight = window.dim(0);
-        if (kernelHeight % convUnitWeightHeight != 0) {
-          // If we are doing an nx1 convolution need to pad the bottom of the
-          // weights to round up to a multiple of n
-          auto postPaddingSize =
-               (convUnitWeightHeight - kernelHeight % convUnitWeightHeight);
-          window = pad(graph, window, 0, postPaddingSize, 0);
-        }
+    for (unsigned ozg = 0; ozg < numOutChanGroups; ++ozg) {
+      for (unsigned izg = 0; izg < numInChanGroups; ++izg) {
+        auto window = weights[cg][ozg][izg].flatten();
         weightsWindow.push_back(window.flatten());
       }
     }
   }
 
+  // This stride is what's used to move down one element in the input field by
+  // the vertex.
+  int inRowStride =
+      inChansPerGroup * params.kernelTransform.dilation.front() *
+      product(params.inputFieldShape) / params.inputFieldShape[0];
+  if (params.inputTransform.flip.front() !=
+      params.kernelTransform.flip.front()) {
+    inRowStride = -inRowStride;
+  }
+
+  std::vector<std::size_t> inputBatchAndFieldShape = { params.getBatchSize() };
+  std::copy(params.inputFieldShape.begin(), params.inputFieldShape.end(),
+            std::back_inserter(inputBatchAndFieldShape));
+  std::vector<std::size_t> outputBatchAndFieldShape = { params.getBatchSize() };
+  const auto outputFieldShape = params.getOutputFieldShape();
+  std::copy(outputFieldShape.begin(), outputFieldShape.end(),
+            std::back_inserter(outputBatchAndFieldShape));
   const auto contextsPerVertex = target.getNumWorkerContexts();
-  auto subKernelPositionsBegin = slice.kernelBegin;
-  auto subKernelPositionsEnd = slice.kernelEnd;
-  subKernelPositionsBegin[0] = 0;
-  subKernelPositionsEnd[0] =
-      (slice.kernelEnd[0] - slice.kernelBegin[0] + convUnitWeightHeight - 1) /
-      convUnitWeightHeight;
-  const auto numSubKernelPositions =
-      getNumElementsInSlice(subKernelPositionsBegin,
-                            subKernelPositionsEnd);
+  // The number of n x 1 x ... 1 slices required to cover the kernel in each
+  // dimension.
+  auto numSubKernelSlices = params.kernelShape;
+  assert(numSubKernelSlices[0] % convUnitWeightHeight == 0);
+  numSubKernelSlices[0] /= convUnitWeightHeight;
+  const auto numSubKernelPositions = product(numSubKernelSlices);
   std::vector<std::vector<unsigned>> worklist(contextsPerVertex *
                                               numSubKernelPositions);
   for (unsigned k = 0; k != numSubKernelPositions; ++k) {
-    auto kernelBeginIndices = unflattenIndexInSlice(subKernelPositionsBegin,
-                                                    subKernelPositionsEnd,
-                                                    k);
-    kernelBeginIndices[0] = kernelBeginIndices[0] * convUnitWeightHeight +
-                            slice.kernelBegin[0];
+    auto kernelBeginIndices = unflattenIndex(numSubKernelSlices, k);
+    kernelBeginIndices[0] = kernelBeginIndices[0] * convUnitWeightHeight;
     std::vector<unsigned> tileConvOutBegin;
     std::vector<unsigned> tileConvOutSize;
     for (unsigned dim = 0; dim != numFieldDims; ++dim) {
       const auto kernelBeginIndex = kernelBeginIndices[dim];
       const auto kernelEndIndex =
-          std::min(kernelBeginIndex + (dim == 0 ? convUnitWeightHeight : 1),
-                   slice.kernelEnd[dim]);
+          kernelBeginIndex + (dim == 0 ? convUnitWeightHeight : 1);
       auto convOutRange =
-          getOutputRangeForKernelRange(dim, {slice.outFieldBegin[dim],
-                                             slice.outFieldEnd[dim]},
+          getOutputRangeForKernelRange(dim, {0, params.getOutputSize(dim)},
                                        {kernelBeginIndex, kernelEndIndex},
                                        params);
       tileConvOutBegin.push_back(convOutRange.first);
@@ -2024,7 +1963,7 @@ static void createConvPartialAmpVertex(Graph &graph,
     if (product(tileConvOutSize) == 0)
       continue;
     auto workerPartition =
-        partitionConvPartialByWorker(batchEnd - batchBegin,
+        partitionConvPartialByWorker(params.getBatchSize(),
                                      tileConvOutSize,
                                      contextsPerVertex,
                                      params.inputTransform.dilation,
@@ -2040,29 +1979,25 @@ static void createConvPartialAmpVertex(Graph &graph,
         const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
         if (workerOutWidth == 0)
           continue;
-        std::vector<unsigned> outBeginIndices = { partialRow.b + batchBegin };
+        std::vector<std::size_t> outBeginIndices = { partialRow.b };
         for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
           outBeginIndices.push_back(partialRow.outerFieldIndices[dim] +
                                     tileConvOutBegin[dim]);
         }
         outBeginIndices.push_back(partialRow.xBegin + tileConvOutBegin.back());
         const auto outBeginOffset =
-            flattenIndexInSlice(
-              vectorConvert<unsigned>(tileOutBatchAndFieldBegin),
-              vectorConvert<unsigned>(tileOutBatchAndFieldEnd),
-              outBeginIndices);
-        std::vector<unsigned> inBeginIndices = { partialRow.b + batchBegin };
+            flattenIndex(outputBatchAndFieldShape, outBeginIndices);
+        std::vector<std::size_t> inBeginIndices = { partialRow.b };
         if (numFieldDims > 1) {
           const auto kOuterBegin = kernelBeginIndices[0];
-          const auto kOuterEnd = std::min(kOuterBegin + convUnitWeightHeight,
-                                          slice.kernelEnd[0]);
+          const auto kOuterEnd = kOuterBegin + convUnitWeightHeight;
           const auto outOuterIndex = tileConvOutBegin[0] +
                                      partialRow.outerFieldIndices[0];
           for (unsigned k = kOuterBegin; k != kOuterEnd; ++k) {
             auto inOuterIndex = getInputIndex(0, outOuterIndex, k, params);
             if (inOuterIndex != ~0U) {
               auto inOuterBeginIndex =
-                  inOuterIndex + prePaddingSize +
+                  inOuterIndex +
                   (inRowStride < 0 ? 1 : -1) *
                   (k - kOuterBegin) * params.kernelTransform.dilation.front();
               inBeginIndices.push_back(inOuterBeginIndex);
@@ -2088,11 +2023,7 @@ static void createConvPartialAmpVertex(Graph &graph,
         assert(workerInXBegin != ~0U);
         inBeginIndices.push_back(workerInXBegin);
         const auto inBeginOffset =
-            flattenIndexInSlice(
-              vectorConvert<unsigned>(tileInBatchAndFieldBegin),
-              vectorConvert<unsigned>(tileInBatchAndFieldEnd),
-              inBeginIndices
-            );
+            flattenIndex(inputBatchAndFieldShape, inBeginIndices);
         worklist[k * contextsPerVertex + i].push_back(outBeginOffset);
         worklist[k * contextsPerVertex + i].push_back(workerOutWidth);
         worklist[k * contextsPerVertex + i].push_back(inBeginOffset);
@@ -2108,11 +2039,8 @@ static void createConvPartialAmpVertex(Graph &graph,
                                           plan.getPartialType(),
                                         useDeltaEdgesForConvPartials(numEdges) ?
                                                           "true" : "false"));
-  unsigned kernelInnerElements = 1;
-  for (unsigned dim = 1; dim < numFieldDims; ++dim) {
-    kernelInnerElements *= subKernelPositionsEnd[dim] -
-                           subKernelPositionsBegin[dim];
-  }
+  auto kernelInnerElements = product(numSubKernelSlices) /
+                             numSubKernelSlices[0];
   auto inStrideX = params.outputTransform.stride.back();
   auto outStrideX = params.inputTransform.dilation.back();
   const auto strideDivisor = gcd(inStrideX, outStrideX);
@@ -2123,10 +2051,10 @@ static void createConvPartialAmpVertex(Graph &graph,
   graph.connect(v["weights"], weightsWindow);
   graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
-  graph.setInitialValue(v["numOutGroups"], outZGroupEnd - outZGroupBegin);
-  graph.setInitialValue(v["numInGroups"], inZGroupEnd - inZGroupBegin);
+  graph.setInitialValue(v["numOutGroups"], numOutChanGroups);
+  graph.setInitialValue(v["numInGroups"], numInChanGroups);
   graph.setInitialValue(v["inStride"], inStrideX) ;
-  graph.setInitialValue(v["numConvGroups"], cgEnd - cgBegin);
+  graph.setInitialValue(v["numConvGroups"], numConvGroups);
   graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
   graph.setInitialValue(v["convUnitInputLoadElemsPerCycle"],
                         convUnitInputLoadElemsPerCycle);
@@ -2143,7 +2071,7 @@ static void createConvPartialAmpVertex(Graph &graph,
 
   if (!useConvPartial1x1OutVertex) {
     graph.setInitialValue(v["kernelInnerElements"], kernelInnerElements);
-    graph.setInitialValue(v["kernelOuterSize"], subKernelPositionsEnd[0]);
+    graph.setInitialValue(v["kernelOuterSize"], numSubKernelSlices[0]);
     graph.setInitialValue(v["outStride"], outStrideX);
     graph.setInitialValue(v["ampKernelHeight"], convUnitWeightHeight);
     graph.setInitialValue(v["inRowStride"], inRowStride);
@@ -2586,7 +2514,7 @@ calcPartialConvOutput(Graph &graph,
   switch (plan.method) {
   default: assert(0 && "Unexpected method");
   case Plan::Method::AMP:
-    createConvPartialAmpVertex(graph, plan, dType, tile, slice, params, fwdCS,
+    createConvPartialAmpVertex(graph, plan, dType, tile, params, fwdCS,
                                in, weights, out);
     break;
   case Plan::Method::MAC:
