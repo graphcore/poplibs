@@ -40,9 +40,9 @@ static void generateVertices(std::string vertexName,
   unsigned elemSize = s2d.dim(1);
   assert(numSubElements <= numBaseElements);
 
-  // offset can be specified for each tile
-  assert((offset.rank() == 0 && offset.numElements() == 1) ||
-         (offset.rank() == 1 && offset.numElements() == numTiles));
+  // Offset must be a scalar. It will be replicated over tiles
+  // by the small graph  replication optimisation during lowering.
+  assert(offset.rank() == 0 && offset.numElements() == 1);
 
   // Reorder every element to minimize the number of contiguous regions when
   // copying.
@@ -74,7 +74,7 @@ static void generateVertices(std::string vertexName,
       // do nothing on this tile
       continue;
 
-    auto &tileOffset = offset.numElements() == 1 ? offset : offset[tile];
+    assert(offset.numElements() == 1);
     if (tileContiguousRegions.size() == 1) {
       unsigned regionSize = 0;
       std::vector<Tensor> baseSlices, subSlices; // [slice]
@@ -96,9 +96,9 @@ static void generateVertices(std::string vertexName,
         auto elementsPerWorker = (regionSize + numWorkers - 1)
                                  / numWorkers;
         auto v = graph.addVertex(cs,
-                                templateVertex(vertexName + "2d",
+                                 templateVertex(vertexName + "2d",
                                                 t2d.elementType()),
-                                 {{"offset", tileOffset},
+                                 {{"offset", offset},
                                   {"baseT", tileBase},
                                   {"subT", tileSub}
                                  });
@@ -132,7 +132,7 @@ static void generateVertices(std::string vertexName,
       }
       auto v = graph.addVertex(cs,
                                templateVertex(vertexName, t2d.elementType()),
-                               {{"offset", tileOffset},
+                               {{"offset", offset},
                                 {"baseT", base},
                                 {"subT", sub}
                                });
@@ -141,7 +141,7 @@ static void generateVertices(std::string vertexName,
       graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setTileMapping(v, tile);
     }
-  }
+  } // end loop over tiles
 }
 
 /** Return the sub-tensor acquired by indexing 't' at position 'offset' in
@@ -179,8 +179,7 @@ static Tensor slice(Graph &graph,
                                        s.numElements() / numOutIndices});
   auto cs = graph.addComputeSet(debugPrefix + "/slice");
 
-  generateVertices("popstd::DynamicSelect",
-                   graph, cs, offset, t2d, s2d);
+  generateVertices("popstd::DynamicSelect", graph, cs, offset, t2d, s2d);
   prog.add(Execute(cs));
 
   return s;

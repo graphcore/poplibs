@@ -266,17 +266,11 @@ poplar::Tensor rnnFwdSequence(poplar::Graph &graph,
   auto fwdState = graph.addVariable(dType, stateShape,
                                     debugPrefix + "/fwdState");
   // loop counter
-  const auto &target = graph.getTarget();
-  unsigned numTiles = target.getNumTiles();
-  //TODO: replace these per-tile counters and constants with scalars
-  // once poplar is enhanced to auto-expand them
-  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1, numTiles},
+  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1},
                                   debugPrefix + "/seqIdx");
-  auto one = graph.addConstant(UNSIGNED_INT, {1, numTiles}, 1);
-  for (unsigned i = 0; i != numTiles; ++i) {
-    graph.setTileMapping(seqIdx[0][i], i);
-    graph.setTileMapping(one[0][i], i);
-  }
+  auto one = graph.addConstant(UNSIGNED_INT, {1}, 1);
+  graph.setTileMapping(seqIdx, 0);
+
   popstd::zero(graph, seqIdx, prog, debugPrefix + "/seqIdx");
 
   // state for current layer, start from initialiser
