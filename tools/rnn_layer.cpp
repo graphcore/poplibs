@@ -10,30 +10,29 @@
 #include <poplar/Engine.hpp>
 #include <poplar/IPUModel.hpp>
 #include <popconv/codelets.hpp>
-#include <popstd/TileMapping.hpp>
+#include <poputil/TileMapping.hpp>
 #include <poplin/MatMul.hpp>
-#include <popstd/Add.hpp>
-#include <popstd/Zero.hpp>
-#include <popreduce/Reduce.hpp>
+#include <popops/Add.hpp>
+#include <popops/Zero.hpp>
+#include <popops/Reduce.hpp>
 #include <popnn/Recurrent.hpp>
-#include <popstd/codelets.hpp>
-#include <popreduce/codelets.hpp>
+#include <popops/codelets.hpp>
 #include <poplin/codelets.hpp>
 #include <popnn/codelets.hpp>
-#include <poplib_test/Util.hpp>
-#include <util/Compiler.hpp>
-#include <poplib_test/GeneralMatrixMultiply.hpp>
-#include <poplib_test/NonLinearity.hpp>
-#include <poplib_test/Rnn.hpp>
-#include <poplib_test/Pass.hpp>
+#include <poplibs_test/Util.hpp>
+#include <poplibs_support/Compiler.hpp>
+#include <poplibs_test/GeneralMatrixMultiply.hpp>
+#include <poplibs_test/NonLinearity.hpp>
+#include <poplibs_test/Rnn.hpp>
+#include <poplibs_test/Pass.hpp>
 #include <random>
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace poplib_test::util;
-using namespace popreduce;
+using namespace poplibs_test::util;
+using namespace popops;
 using namespace poplin;
-using namespace popstd;
+using namespace poputil;
 
 
 // Default tolerances used in tests
@@ -68,7 +67,7 @@ std::istream &operator>>(std::istream &in, popnn::NonLinearityType &type) {
   else if (token == "tanh")
     type = popnn::NonLinearityType::NON_LINEARITY_TANH;
   else
-    throw poplib_test::poplib_test_error(
+    throw poplibs_test::poplibs_test_error(
         "Unsupported nonlinearity <" + token + ">");
 
   return in;
@@ -92,7 +91,7 @@ int main(int argc, char **argv) {
   ipuModel.IPUExchangeType =
       IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
 
-  poplib_test::Pass pass = poplib_test::Pass::FWD;
+  poplibs_test::Pass pass = poplibs_test::Pass::FWD;
   po::options_description desc("Options");
   desc.add_options()
     ("help", "Produce help message")
@@ -131,7 +130,7 @@ int main(int argc, char **argv) {
      po::value<unsigned>(&ipuModel.numIPUs)->default_value(ipuModel.numIPUs),
      "Number of IPUs")
     ("phase",
-     po::value<poplib_test::Pass>(&pass)->default_value(pass),
+     po::value<poplibs_test::Pass>(&pass)->default_value(pass),
      "Run phase all | fwd | bwd | wu")
   ;
 
@@ -173,10 +172,10 @@ int main(int argc, char **argv) {
     }
   }
 
-  bool doBwdPass = pass == poplib_test::Pass::ALL
-                   || pass == poplib_test::Pass::BWD;
-  bool doWuPass = pass == poplib_test::Pass::ALL
-                  || pass == poplib_test::Pass::WU;
+  bool doBwdPass = pass == poplibs_test::Pass::ALL
+                   || pass == poplibs_test::Pass::BWD;
+  bool doWuPass = pass == poplibs_test::Pass::ALL
+                  || pass == poplibs_test::Pass::WU;
   bool fwdOnly = !doBwdPass && !doWuPass;
 
   // force appication of feed-forward weights if bwd pass or fwd pass is enabled
@@ -188,8 +187,7 @@ int main(int argc, char **argv) {
   const auto &target = device.getTarget();
   Graph graph(device);
   popconv::addCodelets(graph);
-  popstd::addCodelets(graph);
-  popreduce::addCodelets(graph);
+  popops::addCodelets(graph);
   poplin::addCodelets(graph);
   popnn::addCodelets(graph);
 
@@ -397,7 +395,7 @@ int main(int argc, char **argv) {
     writeRandomValues(target, dataType, hostPrevAct, -4.0, 4.0, randomEngine);
     writeRandomValues(target, dataType, hostFeedFwdWeights, -3.0, 3.0,
                       randomEngine);
-    poplib_test::rnn::forwardWeightInput(hostPrevAct, hostFeedFwdWeights,
+    poplibs_test::rnn::forwardWeightInput(hostPrevAct, hostFeedFwdWeights,
                                          modelfeedFwdOutput);
   }
 
@@ -407,7 +405,7 @@ int main(int argc, char **argv) {
   writeRandomValues(target, dataType, hostNextLayerGrads, -1.0, 1.0,
                     randomEngine);
 
-  poplib_test::rnn::forwardIterate(applyFeedFwdWeights
+  poplibs_test::rnn::forwardIterate(applyFeedFwdWeights
                                           ? modelfeedFwdOutput :
                                             hostfeedFwdOutput,
                                    hostInitAct,
@@ -420,7 +418,7 @@ int main(int argc, char **argv) {
       modelGradientSum(boost::extents[sequenceSize][batchSize][outputSize]);
 
   if (doBwdPass || doWuPass) {
-    poplib_test::rnn::backward(modelNextAct, hostNextLayerGrads,
+    poplibs_test::rnn::backward(modelNextAct, hostNextLayerGrads,
                                hostFeedFwdWeights, hostFeedbackWeights,
                                modelPrevLayerGrads, modelGradientSum,
                                nonLinearityType);
@@ -433,7 +431,7 @@ int main(int argc, char **argv) {
   boost::multi_array<double, 1>
       modelBiasesDeltasAcc(boost::extents[outputSize]);
   if (doWuPass) {
-    poplib_test::rnn::paramUpdate(hostPrevAct, hostInitAct, modelNextAct,
+    poplibs_test::rnn::paramUpdate(hostPrevAct, hostInitAct, modelNextAct,
                                   modelGradientSum,
                                   modelFeedFwdWeightsDeltasAcc,
                                   modelFeedbackWeightsDeltasAcc,

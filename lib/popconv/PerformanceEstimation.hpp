@@ -1,7 +1,6 @@
 #ifndef _performance_estimation_h_
 #define _performance_estimation_h_
 
-#include "popnn/NonLinearity.hpp"
 #include <limits>
 #include <algorithm>
 #include <cassert>

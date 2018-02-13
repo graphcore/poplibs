@@ -1,7 +1,7 @@
 #include "poplin/MatMul.hpp"
 #include "popconv/Convolution.hpp"
-#include "popstd/exceptions.hpp"
-#include "popstd/Add.hpp"
+#include "poputil/exceptions.hpp"
+#include "popops/Add.hpp"
 #include <cassert>
 
 using namespace poplar;
@@ -57,7 +57,7 @@ static Tensor matrixFromConvActivations(const Tensor &A, unsigned numGroups) {
 // Transpose a grouped matrix
 static Tensor transpose(const Tensor &A) {
   if (A.rank() != 3) {
-    throw popstd::poplib_error("Tensor is not a grouped matrix tensor");
+    throw poputil::poplib_error("Tensor is not a grouped matrix tensor");
   }
   assert(A.rank() == 3);
   return A.dimShuffle({0, 2, 1});
@@ -92,16 +92,16 @@ static popconv::ConvParams getConvParams(
     const std::vector<std::size_t> &bShape,
     const MatMulOptions &options) {
   if (aShape.size() != 3 || bShape.size() != 3) {
-    throw popstd::poplib_error("Operand to matrix multiplication is not a "
+    throw poputil::poplib_error("Operand to matrix multiplication is not a "
                                "grouped matrix ");
   }
   if (aShape[0] != bShape[0]) {
-    throw popstd::poplib_error("Number of matrix multiplication groups must "
+    throw poputil::poplib_error("Number of matrix multiplication groups must "
                                "be the same for both operands");
   }
 
   if (aShape[2] != bShape[1]) {
-    throw popstd::poplib_error("Third dimension of first operand to matrix "
+    throw poputil::poplib_error("Third dimension of first operand to matrix "
                                "multiplication does not match second dimension "
                                "of second operand.");
   }
@@ -391,11 +391,11 @@ matMulImpl(poplar::Graph &graph,
 static void
 matMulDimChecks(const Tensor &A_, const Tensor &B_) {
   if (A_.rank() != 2 || B_.rank() != 2) {
-    throw popstd::poplib_error("Operand to matrix multiplication is not a "
+    throw poputil::poplib_error("Operand to matrix multiplication is not a "
                                "matrix.");
   }
   if (A_.dim(1) != B_.dim(0)) {
-    throw popstd::poplib_error("Second dimension of first operand to matrix "
+    throw poputil::poplib_error("Second dimension of first operand to matrix "
                                "multiplication does not match first dimension "
                                "of second operand.");
   }
@@ -404,11 +404,11 @@ matMulDimChecks(const Tensor &A_, const Tensor &B_) {
 static void
 matMulGroupedDimChecks(const Tensor &A, const Tensor &B) {
   if (A.dim(0) != B.dim(0)) {
-    throw popstd::poplib_error("Group dimensions for the two operands in the "
+    throw poputil::poplib_error("Group dimensions for the two operands in the "
                                "grouped multiplication must be the same");
   }
   if (A.rank() != 3 || B.rank() != 3) {
-    throw popstd::poplib_error("Operand to grouped matrix multiplication is "
+    throw poputil::poplib_error("Operand to grouped matrix multiplication is "
                                "not a matrix.");
   }
   matMulDimChecks(A[0], B[0]);
@@ -429,7 +429,7 @@ matMulAcc(poplar::Graph &graph, const poplar::Tensor &C_, float k,
   const auto A = A_.expand({0});
   const auto B = B_.expand({0});
   auto product = matMulImpl(graph, A, B, prog, debugPrefix, options)[0];
-  popstd::addTo(graph, C_, product, k, prog, debugPrefix);
+  popops::addTo(graph, C_, product, k, prog, debugPrefix);
 }
 
 void
@@ -440,7 +440,7 @@ matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
                  const MatMulOptions &options) {
   matMulGroupedDimChecks(A, B);
   auto product = matMulImpl(graph, A, B, prog, debugPrefix, options);
-  popstd::addTo(graph, C, product, k, prog, debugPrefix);
+  popops::addTo(graph, C, product, k, prog, debugPrefix);
 }
 
 

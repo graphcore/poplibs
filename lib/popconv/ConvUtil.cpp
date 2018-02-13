@@ -2,10 +2,10 @@
 
 #include <boost/range/irange.hpp>
 #include <cassert>
-#include <popstd/exceptions.hpp>
-#include <popstd/Util.hpp>
-#include "util/gcd.hpp"
-#include "util/VectorUtils.hpp"
+#include <poputil/exceptions.hpp>
+#include <poputil/Util.hpp>
+#include "poplibs_support/gcd.hpp"
+#include "poplibs_support/VectorUtils.hpp"
 
 namespace popconv {
 
@@ -407,10 +407,10 @@ partitionConvPartialByWorker(unsigned batchElements,
       continue;
     const auto lastElement = endElement - 1;
     auto beginIndices =
-        popstd::unflattenIndex<std::size_t>({batchElements, activeRows,
+        poputil::unflattenIndex<std::size_t>({batchElements, activeRows,
                                              elementsPerRow}, beginElement);
     auto lastIndices =
-        popstd::unflattenIndex<std::size_t>({batchElements, activeRows,
+        poputil::unflattenIndex<std::size_t>({batchElements, activeRows,
                                              elementsPerRow}, lastElement);
     for (unsigned b = beginIndices[0]; b != lastIndices[0] + 1; ++b) {
       unsigned activeRowBegin = b == beginIndices[0] ?
@@ -427,7 +427,7 @@ partitionConvPartialByWorker(unsigned batchElements,
         unsigned activeXLast =
             b == lastIndices[0] && activeRow == lastIndices[1] ?
               lastIndices[2] : elementsPerRow - 1;
-        auto outerFieldIndices = popstd::unflattenIndex(activeRowShape,
+        auto outerFieldIndices = poputil::unflattenIndex(activeRowShape,
                                                         activeRow);
         for (unsigned dim = 0; dim != outerFieldIndices.size(); ++dim) {
           outerFieldIndices[dim] *= outputStride[dim];
@@ -735,7 +735,7 @@ ConvParams getGradientParams(const ConvParams &params) {
 
 unsigned detectChannelGrouping(const poplar::Tensor &t0) {
   if (t0.rank() == 0)
-    throw popstd::poplib_error("Cannot detect channel grouping of "
+    throw poputil::poplib_error("Cannot detect channel grouping of "
                                "0-rank tensor");
   // Sample the first point in the inner dimension
   auto t = t0;

@@ -4,19 +4,20 @@
 #include <sstream>
 #include <boost/test/unit_test.hpp>
 #include <boost/test/framework.hpp>
-#include <popstd/DynamicSlice.hpp>
-#include <popstd/TileMapping.hpp>
-#include <popstd/codelets.hpp>
+#include <popops/DynamicSlice.hpp>
+#include <poputil/TileMapping.hpp>
+#include <popops/codelets.hpp>
 #include <poplar/Program.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/Interval.hpp>
 #include <poplar/IPUModel.hpp>
-#include <util/print.hpp>
+#include <poplibs_support/print.hpp>
 #include <boost/multi_array.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace popstd;
+using namespace poputil;
+using namespace popops;
 
 #define NUM_DIMS 3
 
@@ -174,7 +175,7 @@ void sliceTestND(unsigned tilesPerIPU,
   ipuModel.tilesPerIPU = tilesPerIPU;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
   std::vector<size_t> t1Shape = testShape;
   auto t1 = graph.addVariable(FLOAT, t1Shape, "t1");
   std::cerr<<"Created tensor t1: " << t1 << "\n";
@@ -319,7 +320,7 @@ void updateTestND(unsigned tilesPerIPU,
   ipuModel.tilesPerIPU = tilesPerIPU;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
   std::vector<size_t> t1Shape = testShape;
   auto t1 = graph.addVariable(FLOAT, t1Shape, "t1");
   std::cerr<<"Created tensor t1: " << t1 << "\n";
@@ -453,7 +454,7 @@ BOOST_AUTO_TEST_CASE(SliceOrder) {
   ipuModel.tilesPerIPU = 4;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
 
   std::vector<size_t> t1Shape = {100, 50, 10};
 

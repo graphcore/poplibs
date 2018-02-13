@@ -1,6 +1,6 @@
 #ifndef __popconv_Convolution_hpp__
 #define __popconv_Convolution_hpp__
-#include "popstd/exceptions.hpp"
+#include "poputil/exceptions.hpp"
 #include <tuple>
 #include <map>
 #include <poplar/Graph.hpp>

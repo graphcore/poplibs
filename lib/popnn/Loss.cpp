@@ -1,11 +1,11 @@
 #include "popnn/Loss.hpp"
 
 #include "poplar/Graph.hpp"
-#include "popstd/VertexTemplates.hpp"
+#include "poputil/VertexTemplates.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace popstd;
+using namespace poputil;
 
 namespace popnn {
 

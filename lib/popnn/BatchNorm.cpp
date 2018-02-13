@@ -1,12 +1,12 @@
-#include "popstd/VertexTemplates.hpp"
-#include "popstd/TileMapping.hpp"
-#include "popstd/Util.hpp"
-#include "popstd/Operations.hpp"
+#include "poputil/VertexTemplates.hpp"
+#include "poputil/TileMapping.hpp"
+#include "poputil/Util.hpp"
+#include "popops/ElementWise.hpp"
 #include "popnn/BatchNorm.hpp"
-#include "popreduce/Reduce.hpp"
-#include "popstd/Add.hpp"
+#include "popops/Reduce.hpp"
+#include "popops/Add.hpp"
 #include "popconv/Convolution.hpp"
-#include "popstd/exceptions.hpp"
+#include "poputil/exceptions.hpp"
 #include <poplar/Program.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/Tensor.hpp>
@@ -17,8 +17,8 @@
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace popstd;
-using namespace popreduce;
+using namespace poputil;
+using namespace popops;
 
 namespace popnn {
 namespace bn {
@@ -26,7 +26,7 @@ namespace bn {
 static void check(Tensor acts) {
   const auto rank = acts.rank();
   if (rank != 2 && rank != 4 ) {
-    throw popstd::poplib_error("Batch norm supported for tensors of rank 2 or "
+    throw poputil::poplib_error("Batch norm supported for tensors of rank 2 or "
                                "4");
   }
 }
@@ -154,8 +154,8 @@ batchNormalise(Graph &graph,
         mean.broadcast(actsPerChan, 0).reshape({actsPerChan, numChans});
     auto bIStdDev =
         iStdDev.broadcast(actsPerChan, 0).reshape({actsPerChan, numChans});
-    auto actsZeroMean = popstd::sub(graph, acts, bMean, prog, fnPrefix);
-    auto actsWhitened = popstd::mul(graph, actsZeroMean, bIStdDev, prog,
+    auto actsZeroMean = popops::sub(graph, acts, bMean, prog, fnPrefix);
+    auto actsWhitened = popops::mul(graph, actsZeroMean, bIStdDev, prog,
                                     fnPrefix);
 
     auto actsOut = mul(graph, actsWhitened,

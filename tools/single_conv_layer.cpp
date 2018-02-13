@@ -9,21 +9,20 @@
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/IPUModel.hpp>
-#include <popstd/TileMapping.hpp>
+#include <poputil/TileMapping.hpp>
 #include <popconv/Convolution.hpp>
 #include <popconv/ConvUtil.hpp>
-#include <popstd/exceptions.hpp>
-#include <popstd/codelets.hpp>
-#include <popstd/Add.hpp>
-#include <popreduce/codelets.hpp>
+#include <poputil/exceptions.hpp>
+#include <popops/Add.hpp>
+#include <popops/codelets.hpp>
 #include <popconv/codelets.hpp>
 #include <popnn/NonLinearity.hpp>
-#include <poplib_test/Convolution.hpp>
-#include <poplib_test/NonLinearity.hpp>
-#include <poplib_test/Pass.hpp>
-#include <poplib_test/Util.hpp>
-#include <util/Compiler.hpp>
-#include "util/VectorUtils.hpp"
+#include <poplibs_test/Convolution.hpp>
+#include <poplibs_test/NonLinearity.hpp>
+#include <poplibs_test/Pass.hpp>
+#include <poplibs_test/Util.hpp>
+#include <poplibs_support/Compiler.hpp>
+#include "poplibs_support/VectorUtils.hpp"
 #include <random>
 
 // Default tolerances used in tests
@@ -34,9 +33,9 @@
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace poplib_test::util;
-using namespace popstd;
-using poplib_test::Pass;
+using namespace poplibs_test::util;
+using namespace poputil;
+using poplibs_test::Pass;
 
 static void addGlobalExchangeConstraints(IPUModel &ipuModel) {
   const auto numIPUs = ipuModel.numIPUs;
@@ -378,8 +377,7 @@ int main(int argc, char **argv) {
                              ipuModel.createDevice();
   const auto &target = dev.getTarget();
   Graph graph(dev);
-  popstd::addCodelets(graph);
-  popreduce::addCodelets(graph);
+  popops::addCodelets(graph);
   popconv::addCodelets(graph);
 
   const auto params =
@@ -529,7 +527,7 @@ int main(int argc, char **argv) {
   boost::multi_array<double, 3>
       modelNextAct(boost::extents[batchSize][fwdOutChans]
                                  [product(outFieldSize)]);
-  poplib_test::conv::convolution(vectorConvert<unsigned>(inputFieldSize),
+  poplibs_test::conv::convolution(vectorConvert<unsigned>(inputFieldSize),
                                  truncationLower,
                                  truncationUpper,
                                  inDilation,
@@ -587,7 +585,7 @@ int main(int argc, char **argv) {
       boost::multi_array<double, 3>
           modelPrevDeltas(boost::extents[batchSize][fwdInChans]
                                         [product(inputFieldSize)]);
-      poplib_test::conv::convolutionBackward(
+      poplibs_test::conv::convolutionBackward(
               vectorConvert<unsigned>(inputFieldSize),
               truncationLower,
               truncationUpper,
@@ -614,7 +612,7 @@ int main(int argc, char **argv) {
                                    relativeTolerance, absoluteTolerance);
     }
     if (doWuPass) {
-      poplib_test::conv::weightUpdate(vectorConvert<unsigned>(inputFieldSize),
+      poplibs_test::conv::weightUpdate(vectorConvert<unsigned>(inputFieldSize),
                                       truncationLower,
                                       truncationUpper,
                                       inDilation,

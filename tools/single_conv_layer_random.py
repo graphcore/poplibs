@@ -12,6 +12,9 @@ import sys
 from bisect import bisect_left
 from operator import mul
 
+if sys.version_info[0] >= 3:
+    from functools import reduce
+
 vector_width = {
     'half': 4,
     'float': 2

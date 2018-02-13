@@ -1,14 +1,14 @@
 #include "popnn/NonLinearity.hpp"
-#include "popstd/TileMapping.hpp"
-#include "popstd/exceptions.hpp"
-#include "popstd/VertexTemplates.hpp"
-#include "popstd/Operations.hpp"
-#include "popreduce/Reduce.hpp"
-#include "popstd/Util.hpp"
+#include "poputil/TileMapping.hpp"
+#include "poputil/exceptions.hpp"
+#include "poputil/VertexTemplates.hpp"
+#include "popops/ElementWise.hpp"
+#include "popops/Reduce.hpp"
+#include "poputil/Util.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace popstd;
+using namespace poputil;
 
 
 // computes softmax along the innermost dimension
@@ -21,12 +21,12 @@ static Tensor softmaxImpl(Graph &graph, Tensor t, Sequence &prog,
   auto tShuf = t.dimShufflePartial({0}, {rank - 1});
 
   const auto fnStr = debugStr + "/SoftMax";
-  auto e = exp(graph, tShuf, prog, fnStr);
+  auto e = popops::exp(graph, tShuf, prog, fnStr);
   auto r =
-    popreduce::reduce(graph, e, {0}, popreduce::Operation::ADD, prog, fnStr);
+    popops::reduce(graph, e, {0}, popops::Operation::ADD, prog, fnStr);
 
   auto rShuf = r.expand({0}).broadcast(t.dim(rank - 1), 0);
-  auto outShuf = div(graph, e, rShuf, prog, fnStr);
+  auto outShuf = popops::div(graph, e, rShuf, prog, fnStr);
 
   return outShuf.dimShufflePartial({0}, {rank - 1});
 }
@@ -40,7 +40,7 @@ nonLinearityInputGradient(Graph &graph,
                           ComputeSet &cs,
                           const std::string &debugPrefix) {
   if (nonLinearityType == NON_LINEARITY_SOFTMAX) {
-    throw popstd::poplib_error("SOFTMAX gradient not implemented");
+    throw poputil::poplib_error("SOFTMAX gradient not implemented");
   }
   const auto dType = out.elementType();
   const auto &target = graph.getTarget();
@@ -98,11 +98,11 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
                   poplar::Tensor t, ComputeSet &cs,
                   const std::string &debugPrefix) {
   if (nonLinearityType == NON_LINEARITY_SOFTMAX) {
-    throw popstd::poplib_error("Compute set variant of softmax not "
+    throw poputil::poplib_error("Compute set variant of softmax not "
                                "implemented");
   }
   if (!t.isParallelWriteable())
-    throw popstd::poplib_error("Trying to update tensor that cannot be "
+    throw poputil::poplib_error("Trying to update tensor that cannot be "
                                "written in parallel");
   t = t.flatten();
   graph.reorderToSimplify(&t, {});

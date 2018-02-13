@@ -1,10 +1,10 @@
 #include "popconv/Convolution.hpp"
 #include "popconv/ConvUtil.hpp"
-#include "popstd/TileMapping.hpp"
-#include "popstd/VertexTemplates.hpp"
-#include "util/gcd.hpp"
+#include "poputil/TileMapping.hpp"
+#include "poputil/VertexTemplates.hpp"
+#include "poplibs_support/gcd.hpp"
 #include "PerformanceEstimation.hpp"
-#include "popstd/exceptions.hpp"
+#include "poputil/exceptions.hpp"
 #include <cassert>
 #include <iostream>
 #include <array>
@@ -17,7 +17,7 @@
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace popstd;
+using namespace poputil;
 
 namespace popconv {
 
@@ -1059,7 +1059,7 @@ static Program dataTransform(
               graph.setTileMapping(zeroVec, tile);
 
               auto vZ = graph.addVertex(zCs,
-                                        templateVertex("popstd::Zero",
+                                        templateVertex("popops::Zero",
                                                        tp.dType));
               graph.setInitialValue(vZ["dataPathWidth"],
                                     target.getDataPathWidth());
@@ -1185,7 +1185,7 @@ static Program dataTransform(
                                       "zero");
           graph.setTileMapping(zeroVec, tile);
 
-          auto v = graph.addVertex(zCs, templateVertex("popstd::Zero",
+          auto v = graph.addVertex(zCs, templateVertex("popops::Zero",
                                                        tp.dType));
           graph.setInitialValue(v["dataPathWidth"],
                                 target.getDataPathWidth());

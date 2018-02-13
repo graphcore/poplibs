@@ -1,11 +1,11 @@
 #include "popnn/Pooling.hpp"
-#include "popstd/VertexTemplates.hpp"
-#include "popstd/TileMapping.hpp"
+#include "poputil/VertexTemplates.hpp"
+#include "poputil/TileMapping.hpp"
 #include "popconv/ConvUtil.hpp"
-#include "popstd/exceptions.hpp"
-#include "popstd/Util.hpp"
-#include "util/Compiler.hpp"
-#include "popstd/Operations.hpp"
+#include "poputil/exceptions.hpp"
+#include "poputil/Util.hpp"
+#include "poplibs_support/Compiler.hpp"
+#include "popops/ElementWise.hpp"
 #include <boost/multi_array.hpp>
 #include <functional>
 #include <numeric>
@@ -16,7 +16,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace popconv;
 using std::tie;
-using namespace popstd;
+using namespace poputil;
 
 namespace popnn {
 namespace pooling {
@@ -58,11 +58,11 @@ checkWindowParameters(const std::vector<std::size_t> &inputFieldShape,
       kernelShape.size() != stride.size() ||
       stride.size() != inputPaddingLower.size() ||
       inputPaddingLower.size() != inputPaddingUpper.size()) {
-    throw popstd::poplib_error("Mismatched window dimensions on poplibs "
+    throw poputil::poplib_error("Mismatched window dimensions on poplibs "
                                "maxpool operation");
   }
   if (inputFieldShape.size() != 2) {
-    throw popstd::poplib_error("poplibs maxpool only supports 2D operation");
+    throw poputil::poplib_error("poplibs maxpool only supports 2D operation");
   }
 }
 
@@ -234,7 +234,8 @@ static Tensor scaleGradient(Graph &graph,
     scaleTensor.broadcast(batchSize * channels, 0)
                .reshape({batchSize, channels, outHeight, outWidth})
                .dimShufflePartial({1}, {3});
-  return mul(graph, grad, bScaleTensor, prog, debugPrefix + "/preScale");
+  return popops::mul(graph, grad, bScaleTensor, prog,
+                     debugPrefix + "/preScale");
 }
 
 
@@ -351,7 +352,7 @@ actsToExternalShape(const Tensor &act) {
 
 static std::vector<std::size_t> getInputFieldShape(const Tensor &in) {
   if (in.rank() < 2) {
-    throw popstd::poplib_error("Pooling input tensor has fewer than two "
+    throw poputil::poplib_error("Pooling input tensor has fewer than two "
                                "dimensions");
   }
   const auto numFieldDims = in.rank() - 2;
@@ -548,16 +549,16 @@ poolInputGradient(Graph &graph,
   const auto numChannels = pooledGradient.dim(3);
 
   if (in.dim(0) != batchSize || pooled.dim(0) != batchSize)
-    throw popstd::poplib_error("Forward pass batch size does not match gradient"
-                               "calculation pass");
+    throw poputil::poplib_error("Forward pass batch size does not match "
+                                "gradient calculation pass");
   if (in.dim(3) != numChannels || pooled.dim(3) != numChannels)
-    throw popstd::poplib_error("Forward pass number of channels does not match "
-                               "gradient calculation pass");
+    throw poputil::poplib_error("Forward pass number of channels does not "
+                                "match gradient calculation pass");
   if (pooled.dim(1) != pooledGradient.dim(1) ||
       pooled.dim(2) != pooledGradient.dim(2))
-    throw popstd::poplib_error("Forward pass output height and width does not "
-                               "match gradient calculation input height and "
-                               "width");
+    throw poputil::poplib_error("Forward pass output height and width does "
+                                "not match gradient calculation input height "
+                                "and width");
 
   auto params = makeConvParams(inputFieldShape,
                                kernelShape, stride,

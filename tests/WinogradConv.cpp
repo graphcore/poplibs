@@ -1,9 +1,8 @@
 #define BOOST_TEST_MODULE FullyConnectedTest
 #include <boost/test/unit_test.hpp>
 #include <popconv/Convolution.hpp>
-#include <popstd/TileMapping.hpp>
-#include <popstd/codelets.hpp>
-#include <popreduce/codelets.hpp>
+#include <poputil/TileMapping.hpp>
+#include <popops/codelets.hpp>
 #include <popconv/codelets.hpp>
 #include <poplin/codelets.hpp>
 #include <string>
@@ -13,7 +12,7 @@
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace popstd;
+using namespace poputil;
 
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
@@ -145,8 +144,7 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   ipuModel.tilesPerIPU = 304;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
-  popreduce::addCodelets(graph);
+  popops::addCodelets(graph);
   popconv::addCodelets(graph);
 
   /* Test configuration */

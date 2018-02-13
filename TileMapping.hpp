@@ -1,11 +1,11 @@
-#include "popstd/ActivationMapping.hpp"
+#include "poputil/ActivationMapping.hpp"
 
-#include "popstd/Util.hpp"
+#include "poputil/Util.hpp"
 #include <algorithm>
 #include <cassert>
 #include <functional>
 #include <numeric>
-#include "util/gcd.hpp"
+#include "poplibs_support/gcd.hpp"
 
 namespace popstd {
 

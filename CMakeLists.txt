@@ -4,10 +4,7 @@ project(poplibs)
 include(CheckCXXCompilerFlag)
 
 # Add path for custom modules
-set(CMAKE_MODULE_PATH
-        ${CMAKE_MODULE_PATH}
-        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules"
-        )
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules" )
 
 enable_testing()
 
@@ -21,16 +18,18 @@ find_package(poplar REQUIRED)
 find_package(Boost REQUIRED regex)
 find_package(Sparsehash REQUIRED)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall")
+# Require C++11.
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 
-check_cxx_compiler_flag(-Wno-maybe-uninitialized COMPILER_SUPPORTS_W_NMI)
-if(COMPILER_SUPPORTS_W_NMI)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-maybe-uninitialized")
-endif()
+# Add some warning flags. check_cxx_compiler_flag isn't very good at detecting
+# unsupported flags that don't cause an error, so it is simpler to switch based
+# on the compiler ID.
 
-check_cxx_compiler_flag(-Werror=vla COMPILER_SUPPORTS_W_VLA)
-if(COMPILER_SUPPORTS_W_VLA)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror=vla")
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  string(APPEND CMAKE_CXX_FLAGS " -Wall -Werror=vla -Wno-maybe-uninitialized")
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  string(APPEND CMAKE_CXX_FLAGS " -Wall -Werror=vla")
 endif()
 
 add_subdirectory(lib)

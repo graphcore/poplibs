@@ -1,7 +1,7 @@
 #ifndef __popconvCycleEstimators_hpp__
 #define __popconvCycleEstimators_hpp__
 
-#include <util/cyclesTables.hpp>
+#include <poplibs_support/cyclesTables.hpp>
 
 namespace popconv {
 

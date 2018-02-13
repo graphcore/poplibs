@@ -1,20 +1,20 @@
 #include <popnn/Recurrent.hpp>
 #include <poplin/MatMul.hpp>
-#include <popstd/Add.hpp>
-#include <popstd/SubtractFrom.hpp>
-#include <popstd/TileMapping.hpp>
+#include <popops/Add.hpp>
+#include <popops/SubtractFrom.hpp>
+#include <poputil/TileMapping.hpp>
 #include <popnn/NonLinearity.hpp>
-#include <popreduce/Reduce.hpp>
-#include <popstd/Zero.hpp>
-#include <popstd/Util.hpp>
-#include <popstd/DynamicSlice.hpp>
+#include <popops/Reduce.hpp>
+#include <popops/Zero.hpp>
+#include <poputil/Util.hpp>
+#include <popops/DynamicSlice.hpp>
 #include <cstdint>
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplin;
-using namespace popstd;
-using namespace popreduce;
+using namespace poputil;
+using namespace popops;
 
 // flatten the first two dimension of a 3D tensor to a 2D tensor used in matMul
 static Tensor flattenSeqDims(const Tensor &t) {
@@ -98,7 +98,7 @@ Tensor createFwdState(Graph &graph, const Type &dType,
                                     {outputSize, outputSize},
                                     name + "/FwdState");
   if (initState) {
-    popstd::zero(graph, state, prog, name);
+    popops::zero(graph, state, prog, name);
   }
   return state;
 }
@@ -118,7 +118,7 @@ Tensor createBwdState(Graph &graph,
                                     {batchSize, outputSize},
                                     {outputSize, outputSize},
                                     name + "/BwdState");
-  popstd::zero(graph, state, prog, name + "/BwdState");
+  popops::zero(graph, state, prog, name + "/BwdState");
   return state;
 }
 
@@ -271,10 +271,10 @@ poplar::Tensor rnnFwdSequence(poplar::Graph &graph,
   auto one = graph.addConstant(UNSIGNED_INT, {1}, 1);
   graph.setTileMapping(seqIdx, 0);
 
-  popstd::zero(graph, seqIdx, prog, debugPrefix + "/seqIdx");
+  popops::zero(graph, seqIdx, prog, debugPrefix + "/seqIdx");
 
   // state for current layer, start from initialiser
-  Tensor thisState = popstd::duplicate(graph, fwdStateInit, prog);
+  Tensor thisState = poputil::duplicate(graph, fwdStateInit, prog);
 
   // core rnn loop
   auto loop = Sequence();
@@ -283,11 +283,11 @@ poplar::Tensor rnnFwdSequence(poplar::Graph &graph,
     // sliced from prevLayerActs then weighted
     Tensor feedFwdOutput;
     if (weightedIn) {
-      feedFwdOutput = popstd::dynamicSlice(
+      feedFwdOutput = popops::dynamicSlice(
         graph, *weightedIn, seqIdx, {0}, {1}, loop,
         debugPrefix + "/rnnInput");
     } else {
-      Tensor cellInputS = popstd::dynamicSlice(
+      Tensor cellInputS = popops::dynamicSlice(
         graph, prevLayerActs, seqIdx, {0}, {1}, loop,
         debugPrefix + "/rnnInput");
       feedFwdOutput = popnn::rnn::forwardWeightInput(
@@ -306,7 +306,7 @@ poplar::Tensor rnnFwdSequence(poplar::Graph &graph,
     }
     loop.add(Copy(newState, thisState));
 
-    popstd::dynamicUpdate(
+    popops::dynamicUpdate(
       graph, fwdState, newState, seqIdx, {0}, {1}, loop,
       debugPrefix + "/rnnUpdateState");
     addTo(graph, seqIdx, one, loop, debugPrefix + "/seqIdxIncr");
@@ -430,7 +430,7 @@ void paramDeltaUpdate(Graph &graph,
     matMulAcc(graph, weightsFeedbackDeltasAcc, 1.0, prevOut.transpose(),
               bwdState, prog, fnPrefix + "/Wfb", mmOpt);
   }
-  auto r = reduce(graph, bwdState, {0}, popreduce::Operation::ADD, prog,
+  auto r = reduce(graph, bwdState, {0}, popops::Operation::ADD, prog,
                   fnPrefix);
   addTo(graph, biasDeltasAcc, r, prog, fnPrefix);
 }
@@ -494,7 +494,7 @@ std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor, poplar::Tensor>
   auto loop = Sequence();
   {
     Tensor gradientInputThisStep;
-    Tensor outGradS = popstd::dynamicSlice(
+    Tensor outGradS = popops::dynamicSlice(
       graph, outGradient.dimShuffle({1, 0, 2}), seqIdx, {0}, {1}, loop,
       debugPrefix + "/OutGradient").squeeze({0});
     Tensor prevOutput;
@@ -511,7 +511,7 @@ std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor, poplar::Tensor>
       for (unsigned s = 0; s != seqSize; ++s)
         graph.setTileMapping(prevLayerGradsVec[s],
                              graph.getTileMapping(gradientInputThisStep));
-      popstd::dynamicUpdate(graph, prevLayerGradsVec, gradientInputThisStep,
+      popops::dynamicUpdate(graph, prevLayerGradsVec, gradientInputThisStep,
                             seqIdx, {0}, {1}, loop,
                             debugPrefix + "/rnnUpdateGradient");
 
@@ -525,11 +525,11 @@ std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor, poplar::Tensor>
       }
     }
     Tensor fwdStateSM1 =
-      popstd::dynamicSlice(graph, fwdStateOffset, seqIdx, {0}, {1}, loop,
+      popops::dynamicSlice(graph, fwdStateOffset, seqIdx, {0}, {1}, loop,
                            debugPrefix + "/fwdState").squeeze({0});
     loop.add(Copy(fwdStateSM1, fwdStateS));
     if (doWU) {
-      Tensor actInS = popstd::dynamicSlice(graph, actIn,
+      Tensor actInS = popops::dynamicSlice(graph, actIn,
                                            seqIdx, {0}, {1}, loop,
                                            debugPrefix + "/rnnActIn")
                                             .squeeze({0});

@@ -11,24 +11,23 @@
 #include <poplar/IPUModel.hpp>
 #include <poplin/MatMul.hpp>
 #include <popnn/Lstm.hpp>
-#include <popstd/TileMapping.hpp>
+#include <poputil/TileMapping.hpp>
 #include <popconv/codelets.hpp>
-#include <popstd/codelets.hpp>
-#include <popreduce/codelets.hpp>
-#include <popstd/Zero.hpp>
+#include <popops/codelets.hpp>
+#include <popops/Zero.hpp>
 #include <poplin/codelets.hpp>
 #include <popnn/codelets.hpp>
-#include <poplib_test/Lstm.hpp>
-#include <poplib_test/Util.hpp>
-#include <poplib_test/Pass.hpp>
-#include <util/Compiler.hpp>
+#include <poplibs_test/Lstm.hpp>
+#include <poplibs_test/Util.hpp>
+#include <poplibs_test/Pass.hpp>
+#include <poplibs_support/Compiler.hpp>
 #include <random>
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace poplib_test::util;
+using namespace poplibs_test::util;
 using namespace poplin;
-using namespace popstd;
+using namespace poputil;
 using namespace popnn;
 
 // Default tolerances used in tests
@@ -52,7 +51,7 @@ int main(int argc, char **argv) {
   ipuModel.IPUExchangeType =
       IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
   bool preweightInput = false;
-  poplib_test::Pass pass = poplib_test::Pass::FWD;
+  poplibs_test::Pass pass = poplibs_test::Pass::FWD;
 
   po::options_description desc("Options");
   desc.add_options()
@@ -88,7 +87,7 @@ int main(int argc, char **argv) {
        po::value<bool>(&preweightInput)->default_value(preweightInput),
      "Pre-weight whole sequence before recursive part is computed (0 / 1)")
       ("phase",
-     po::value<poplib_test::Pass>(&pass)->default_value(pass),
+     po::value<poplibs_test::Pass>(&pass)->default_value(pass),
      "Run phase all | fwd | bwd | wu")
   ;
 
@@ -124,18 +123,17 @@ int main(int argc, char **argv) {
   const auto &target = device.getTarget();
   Graph graph(device);
   popconv::addCodelets(graph);
-  popstd::addCodelets(graph);
-  popreduce::addCodelets(graph);
+  popops::addCodelets(graph);
   poplin::addCodelets(graph);
   popnn::addCodelets(graph);
 
   // Bwd pass is always run if WU is run. This may change is tensors input to
   //  WU are created on host
-  bool doBwdPass = pass == poplib_test::Pass::ALL
-                   || pass == poplib_test::Pass::BWD
-                   || pass == poplib_test::Pass::WU;
-  bool doWuPass = pass == poplib_test::Pass::ALL
-                  || pass == poplib_test::Pass::WU;
+  bool doBwdPass = pass == poplibs_test::Pass::ALL
+                   || pass == poplibs_test::Pass::BWD
+                   || pass == poplibs_test::Pass::WU;
+  bool doWuPass = pass == poplibs_test::Pass::ALL
+                  || pass == poplibs_test::Pass::WU;
   bool fwdOnly = !doBwdPass && !doWuPass;
 
   auto prevLayerAct =
@@ -319,13 +317,13 @@ int main(int argc, char **argv) {
   engine.run(0);
   download(engine, tmap);
 
-  poplib_test::lstm::basicLstmCellForwardPass(
+  poplibs_test::lstm::basicLstmCellForwardPass(
                           hostPrevLayerAct, hostBiases, hostOutputInit,
                           hostWeightsInput, hostWeightsOutput, modelCellState,
                           modelFwdState);
 
   if (doBwdPass) {
-    poplib_test::lstm::basicLstmCellBackwardPass(
+    poplibs_test::lstm::basicLstmCellBackwardPass(
                             hostWeightsInput, hostWeightsOutput,
                             hostNextLayerGrads, hostCellStateInit,
                             modelFwdState,  modelBwdState, modelPrevLayerGrads);
@@ -369,7 +367,7 @@ int main(int argc, char **argv) {
     boost::multi_array<double, 2>
         modelBiasesDeltas(boost::extents[BASIC_LSTM_CELL_NUM_UNITS]
                                         [outputSize]);
-    poplib_test::lstm::basicLstmCellParamUpdate(
+    poplibs_test::lstm::basicLstmCellParamUpdate(
                             hostPrevLayerAct, modelFwdState, hostOutputInit,
                             modelBwdState, modelWeightsInputDeltas,
                             modelWeightsOutputDeltas, modelBiasesDeltas);

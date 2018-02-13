@@ -9,7 +9,7 @@ add_library(poprand SHARED
   ${CMAKE_SOURCE_DIR}/include/poprand/RandomGen.hpp
 )
 
-target_link_libraries(poprand poplar popstd)
+target_link_libraries(poprand poplar poputil)
 
 target_include_directories(poprand
   PUBLIC

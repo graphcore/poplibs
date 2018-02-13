@@ -1,23 +1,24 @@
 #define BOOST_TEST_MODULE StdOperatorTest
-#include <popstd/CircBuf.hpp>
-#include <popstd/TileMapping.hpp>
-#include <popstd/exceptions.hpp>
+#include <popops/CircBuf.hpp>
+#include <poputil/TileMapping.hpp>
+#include <poputil/exceptions.hpp>
 #include <boost/test/unit_test.hpp>
 #include <limits>
 #include <poplar/Engine.hpp>
-#include <popstd/codelets.hpp>
+#include <popops/codelets.hpp>
 #include <poplar/IPUModel.hpp>
 #include <iostream>
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace popstd;
+using namespace popops;
+using namespace poputil;
 
 BOOST_AUTO_TEST_CASE(CircBufIncrIndex) {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
   const unsigned circBufSize = 20;
   const unsigned indexBufSize = 25;
   auto cb = CircBuf(graph, FLOAT, circBufSize, {1});
@@ -48,7 +49,7 @@ BOOST_AUTO_TEST_CASE(CircBufIncrIndex2d) {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
   const unsigned circBufSize = 20;
   const unsigned indexBufSize = 25;
   auto cb = CircBuf(graph, FLOAT, circBufSize, {5, 3});
@@ -81,7 +82,7 @@ BOOST_AUTO_TEST_CASE(CircBufCheckAdd) {
   auto device = ipuModel.createDevice();
   Graph graph(device);
 
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
   const unsigned circBufSize = 20;
   const unsigned srcBufSize = 25;
   const unsigned numElemsA = 33, numElemsB = 2;

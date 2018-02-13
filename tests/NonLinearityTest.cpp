@@ -6,19 +6,18 @@
 #include <limits>
 #include <poplar/Engine.hpp>
 #include <poplar/IPUModel.hpp>
-#include <popstd/TileMapping.hpp>
+#include <poputil/TileMapping.hpp>
 #include <popnn/codelets.hpp>
-#include <popstd/codelets.hpp>
-#include <popreduce/codelets.hpp>
-#include <poplib_test/NonLinearity.hpp>
+#include <popops/codelets.hpp>
+#include <poplibs_test/NonLinearity.hpp>
 #include <iostream>
-#include <poplib_test/Util.hpp>
+#include <poplibs_test/Util.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace popstd;
+using namespace poputil;
 using namespace popnn;
-using namespace poplib_test::util;
+using namespace poplibs_test::util;
 
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
@@ -127,7 +126,7 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     std::cerr<<"Check nl type "<< n << "\n";
     //Check forward activation calculation
     hRefActOut = hActIn;
-    poplib_test::nonLinearity(n, hRefActOut);
+    poplibs_test::nonLinearity(n, hRefActOut);
     // build and run the target code
     auto fwdProg = Sequence();
     nonLinearity(graph, n, actF, fwdProg);
@@ -149,7 +148,7 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
       checkIsClose("outH", hActOutH, hRefActOut, TOL, HALF_ATOL));
 
     hRefDeltaOut = hDeltaIn;
-    poplib_test::bwdNonLinearity(n, hActIn, hRefDeltaOut);
+    poplibs_test::bwdNonLinearity(n, hActIn, hRefDeltaOut);
     // build and run the target code
     auto bwdProg = Sequence();
     auto deltaFF = nonLinearityInputGradient(graph, n, actF, deltaF, bwdProg);
@@ -189,8 +188,7 @@ BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
   const auto &target = device.getTarget();
   Graph graph(device);
   popnn::addCodelets(graph);
-  popstd::addCodelets(graph);
-  popreduce::addCodelets(graph);
+  popops::addCodelets(graph);
 
   // support only 2D
   const auto nl = NON_LINEARITY_SOFTMAX;
@@ -229,7 +227,7 @@ BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
   std::cerr<<"Check nl type "<< nl << "\n";
 
   auto hActOut = hActIn;
-  poplib_test::nonLinearity(nl, hActOut);
+  poplibs_test::nonLinearity(nl, hActOut);
   // build and run the target code
   auto fwdProg = Sequence();
   nonLinearity(graph, nl, actF, fwdProg);

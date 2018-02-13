@@ -1,8 +1,8 @@
 #define BOOST_TEST_MODULE LargeSplitRegionsTest
 #include <boost/test/unit_test.hpp>
-#include <popstd/Util.hpp>
+#include <poputil/Util.hpp>
 
-using namespace popstd;
+using namespace poputil;
 
 BOOST_AUTO_TEST_CASE(largeSplitRegionsTest){
   auto N = 100000000UL;

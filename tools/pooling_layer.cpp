@@ -9,15 +9,15 @@
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/IPUModel.hpp>
-#include <popstd/TileMapping.hpp>
+#include <poputil/TileMapping.hpp>
 #include <popnn/Pooling.hpp>
 #include <popnn/codelets.hpp>
-#include <popstd/codelets.hpp>
+#include <popops/codelets.hpp>
 #include <popnn/NonLinearity.hpp>
-#include <poplib_test/Pooling.hpp>
-#include <poplib_test/Util.hpp>
-#include <util/Compiler.hpp>
-#include <popstd/exceptions.hpp>
+#include <poplibs_test/Pooling.hpp>
+#include <poplibs_test/Util.hpp>
+#include <poplibs_support/Compiler.hpp>
+#include <poputil/exceptions.hpp>
 #include <random>
 
 
@@ -30,8 +30,8 @@
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace poplib_test::util;
-using namespace popstd;
+using namespace poplibs_test::util;
+using namespace poputil;
 using popnn::PoolingType;
 
 namespace popnn {
@@ -50,7 +50,7 @@ namespace popnn {
     else if (token == "sum") {
       pType = PoolingType::SUM;
     } else
-      throw popstd::poplib_error(
+      throw poputil::poplib_error(
         "Unknown pooling type<" + token + ">");
     return is;
   }
@@ -266,7 +266,7 @@ int main(int argc, char **argv) {
   const auto &target = device.getTarget();
   Graph graph(device);
   popnn::addCodelets(graph);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
 
   // If the output grouping is unspecified, assume the output uses the same
   // grouping as the input unless that is impossible.
@@ -385,7 +385,7 @@ int main(int argc, char **argv) {
   copy<4>(target, dataType, rawHostNextAct.get(), hostNextAct);
   boost::multi_array<double, 4>
       modelNextAct(boost::extents[batchSize][chans][outHeight][outWidth]);
-  poplib_test::pooling::pooling(poolingType, strideHeight, strideWidth,
+  poplibs_test::pooling::pooling(poolingType, strideHeight, strideWidth,
                                 kernelHeight, kernelWidth,
                                 paddingHeightL, paddingWidthL,
                                 paddingHeightU, paddingWidthU,
@@ -414,7 +414,7 @@ int main(int argc, char **argv) {
     // Validate against a reference model.
     boost::multi_array<double, 4>
         modelPrevDeltas(boost::extents[batchSize][chans][height][width]);
-    poplib_test::pooling::poolingBackward(poolingType,
+    poplibs_test::pooling::poolingBackward(poolingType,
                                           strideHeight, strideWidth,
                                           kernelHeight, kernelWidth,
                                           paddingHeightL, paddingWidthL,

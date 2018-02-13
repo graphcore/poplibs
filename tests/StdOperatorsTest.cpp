@@ -1,21 +1,22 @@
 #define BOOST_TEST_MODULE StdOperatorTest
-#include <popstd/AllTrue.hpp>
-#include <popstd/exceptions.hpp>
-#include <popstd/Operations.hpp>
-#include <popstd/SubtractFrom.hpp>
+#include <popops/AllTrue.hpp>
+#include <poputil/exceptions.hpp>
+#include <popops/ElementWise.hpp>
+#include <popops/SubtractFrom.hpp>
 #include <boost/test/unit_test.hpp>
 #include <limits>
-#include <popstd/TileMapping.hpp>
+#include <poputil/TileMapping.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/IPUModel.hpp>
-#include <popstd/codelets.hpp>
+#include <popops/codelets.hpp>
 #include <iostream>
 #include <cmath>
 
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace popstd;
+using namespace poputil;
+using namespace popops;
 
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
@@ -164,7 +165,7 @@ void unaryOpTest(const std::function<Tensor(Graph &, Tensor, Sequence &,
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
 
   auto in = mapUnaryOpTensor(graph, equivalent_device_type<T>().value);
   auto prog = Sequence();
@@ -202,7 +203,7 @@ void binaryOpTest(const std::function<Tensor(Graph &, Tensor, Tensor,
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
 
   Tensor in1, in2;
   auto type = equivalent_device_type<T>().value;
@@ -242,7 +243,7 @@ void binaryOpTestHalf(const std::function<Tensor(Graph &, Tensor, Tensor,
   auto device = ipuModel.createDevice();
   const auto &target = device.getTarget();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
 
   Tensor in1, in2;
   std::tie(in1, in2) = mapBinaryOpTensors(graph, poplar::HALF);
@@ -285,7 +286,7 @@ BOOST_AUTO_TEST_CASE(StdOperationAbsFloat,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  unaryOpTest<float, double>(popstd::abs,
+  unaryOpTest<float, double>(popops::abs,
                              [](float x) -> double {
                                 double res = fabs(static_cast<double>(x));
                                 return res;
@@ -296,14 +297,14 @@ BOOST_AUTO_TEST_CASE(StdOperationAbsInt,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  unaryOpTest<int, int>(popstd::abs, [](int x) -> int { return std::abs(x);});
+  unaryOpTest<int, int>(popops::abs, [](int x) -> int { return std::abs(x);});
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationAddFloat,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  binaryOpTest<float, double>(popstd::add,
+  binaryOpTest<float, double>(popops::add,
                               [](float x, float y) -> double {
                                  double res = x + y;
                                  return res;
@@ -314,7 +315,7 @@ BOOST_AUTO_TEST_CASE(StdOperationAtan2Float,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  binaryOpTest<float, double>(popstd::atan2,
+  binaryOpTest<float, double>(popops::atan2,
                               [](float x, float y) -> double {
                                 double res = std::atan2(x, y);
                                 return res;
@@ -325,14 +326,14 @@ BOOST_AUTO_TEST_CASE(StdOperationAddInt,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  binaryOpTest<int, int>(popstd::add, [](int x, int y) -> int {return x + y;});
+  binaryOpTest<int, int>(popops::add, [](int x, int y) -> int {return x + y;});
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationBitwiseAndInt,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                      ) {
-  binaryOpTest<int, int>(popstd::bitwiseAnd,
+  binaryOpTest<int, int>(popops::bitwiseAnd,
                          [](int x, int y) -> int {return x & y;});
 }
 
@@ -340,7 +341,7 @@ BOOST_AUTO_TEST_CASE(StdOperationBitwiseOrInt,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                      ) {
-  binaryOpTest<int, int>(popstd::bitwiseOr,
+  binaryOpTest<int, int>(popops::bitwiseOr,
                          [](int x, int y) -> int {return x | y;});
 }
 
@@ -348,7 +349,7 @@ BOOST_AUTO_TEST_CASE(StdOperationBitwiseNotInt,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                      ) {
-  unaryOpTest<int, int>(popstd::bitwiseNot,
+  unaryOpTest<int, int>(popops::bitwiseNot,
                         [](int x) -> int { return ~x;});
 }
 
@@ -356,7 +357,7 @@ BOOST_AUTO_TEST_CASE(StdOperationCeil,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  unaryOpTest<float, double>(popstd::ceil,
+  unaryOpTest<float, double>(popops::ceil,
                              [](float x) -> double {
                                 double res = std::ceil(static_cast<double>(x));
                                 return res;
@@ -367,7 +368,7 @@ BOOST_AUTO_TEST_CASE(StdOperationCos,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
 ) {
-  unaryOpTest<float, double>(popstd::cos,
+  unaryOpTest<float, double>(popops::cos,
                              [](float x) -> double {
                                 double res = std::cos(static_cast<double>(x));
                                 return res;
@@ -380,7 +381,7 @@ BOOST_AUTO_TEST_CASE(StdOperationDivideFloat,
                   ) {
   binaryOpTest<float, double>([](Graph &g, Tensor x, Tensor y,
                                  Sequence &prog, const std::string &d) {
-                                return popstd::div(g, x, y, prog, d);
+                                return popops::div(g, x, y, prog, d);
                               },
                               [](float x, float y) -> double {
                                  double res = x / y;
@@ -394,7 +395,7 @@ BOOST_AUTO_TEST_CASE(StdOperationDivideInt,
                   ) {
   binaryOpTest<int, int>([](Graph &g, Tensor x, Tensor y,
                             Sequence &prog, const std::string &d) {
-                           return popstd::div(g, x, y, prog, d);
+                           return popops::div(g, x, y, prog, d);
                          },
                          [](int x, int y) -> int {
                             int res = x / y;
@@ -407,7 +408,7 @@ BOOST_AUTO_TEST_CASE(StdOperationEqualFloat,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
   binaryOpTest<float, bool, bool>(
-    popstd::eq,
+    popops::eq,
     [](float x, float y) -> bool {
        return x == y;
     });
@@ -418,7 +419,7 @@ BOOST_AUTO_TEST_CASE(StdOperationEqualBool,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
   binaryOpTest<bool, bool, bool>(
-    popstd::eq,
+    popops::eq,
     [](bool x, bool y) -> bool {
        return x == y;
     });
@@ -429,7 +430,7 @@ BOOST_AUTO_TEST_CASE(StdOperationGreaterThanBool,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
   binaryOpTest<bool, bool, bool>(
-    popstd::gt,
+    popops::gt,
     [](bool x, bool y) -> bool {
        return x > y;
     });
@@ -440,7 +441,7 @@ BOOST_AUTO_TEST_CASE(StdOperationGreaterThanEqualBool,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
   binaryOpTest<bool, bool, bool>(
-    popstd::gteq,
+    popops::gteq,
     [](bool x, bool y) -> bool {
        return x >= y;
     });
@@ -451,7 +452,7 @@ BOOST_AUTO_TEST_CASE(StdOperationLessThanBool,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
   binaryOpTest<bool, bool, bool>(
-    popstd::lt,
+    popops::lt,
     [](bool x, bool y) -> bool {
        return x < y;
     });
@@ -462,7 +463,7 @@ BOOST_AUTO_TEST_CASE(StdOperationLessThanEqualBool,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
   binaryOpTest<bool, bool, bool>(
-    popstd::lteq,
+    popops::lteq,
     [](bool x, bool y) -> bool {
        return x <= y;
     });
@@ -473,7 +474,7 @@ BOOST_AUTO_TEST_CASE(StdOperationExponent,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  unaryOpTest<float, float>(popstd::exp,
+  unaryOpTest<float, float>(popops::exp,
                            [](float x) -> float {
                               double res = std::exp(static_cast<double>(x));
                               return res;
@@ -484,7 +485,7 @@ BOOST_AUTO_TEST_CASE(StdOperationFloor,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  unaryOpTest<float, double>(popstd::floor,
+  unaryOpTest<float, double>(popops::floor,
                              [](float x) -> double {
                                 double res = std::floor(static_cast<double>(x));
                                 return res;
@@ -497,7 +498,7 @@ BOOST_AUTO_TEST_CASE(StdOperationGreaterThanFloat,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
   binaryOpTest<float, bool, bool>(
-    popstd::gt,
+    popops::gt,
     [](float x, float y) -> bool {
        return x > y;
     });
@@ -508,7 +509,7 @@ BOOST_AUTO_TEST_CASE(StdOperationGreaterThanInt,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
   binaryOpTest<int, bool, bool>(
-    popstd::gt,
+    popops::gt,
     [](int x, int y) -> bool {
        return x > y;
     });
@@ -519,7 +520,7 @@ BOOST_AUTO_TEST_CASE(StdOperationGreaterThanEqual,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
   binaryOpTest<float, bool, bool>(
-    popstd::gteq,
+    popops::gteq,
     [](float x, float y) -> bool {
        return x >= y;
     });
@@ -530,7 +531,7 @@ BOOST_AUTO_TEST_CASE(StdOperationLessThan,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
   binaryOpTest<float, bool, bool>(
-    popstd::lt,
+    popops::lt,
     [](float x, float y) -> bool {
        return x < y;
     });
@@ -541,7 +542,7 @@ BOOST_AUTO_TEST_CASE(StdOperationLessThanEqual,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
   binaryOpTest<float, bool, bool>(
-    popstd::lteq,
+    popops::lteq,
     [](float x, float y) -> bool {
        return x <= y;
     });
@@ -552,7 +553,7 @@ BOOST_AUTO_TEST_CASE(StdOperationLogarithm,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  unaryOpTest<float, double>(popstd::log,
+  unaryOpTest<float, double>(popops::log,
                              [](float x) -> double {
                                 double res = std::log(static_cast<double>(x));
                                 return res;
@@ -565,7 +566,7 @@ BOOST_AUTO_TEST_CASE(StdOperationLogicalAnd,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
   binaryOpTest<bool, bool, bool>(
-    popstd::logicalAnd,
+    popops::logicalAnd,
     [](bool x, bool y) -> bool {
        return x && y;
     });
@@ -576,7 +577,7 @@ BOOST_AUTO_TEST_CASE(StdOperationLogicalNot,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  unaryOpTest<bool, bool>(popstd::logicalNot,
+  unaryOpTest<bool, bool>(popops::logicalNot,
                          [](bool x) -> bool { return !x; });
 }
 
@@ -585,7 +586,7 @@ BOOST_AUTO_TEST_CASE(StdOperationLogicalOr,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
   binaryOpTest<bool, bool, bool>(
-    popstd::logicalOr,
+    popops::logicalOr,
     [](bool x, bool y) -> bool {
        return x || y;
     });
@@ -595,7 +596,7 @@ BOOST_AUTO_TEST_CASE(StdOperationMaximumFloat,
                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  binaryOpTest<float, double>(popstd::max,
+  binaryOpTest<float, double>(popops::max,
                               [](float x, float y) -> double {
                                  double res = std::max(x, y);
                                  return res;
@@ -606,7 +607,7 @@ BOOST_AUTO_TEST_CASE(StdOperationMaximumInt,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  binaryOpTest<int, int>(popstd::max,
+  binaryOpTest<int, int>(popops::max,
                          [](int x, int y) -> int {
                             auto res = std::max(x, y);
                             return res;
@@ -617,7 +618,7 @@ BOOST_AUTO_TEST_CASE(StdOperationMinimumFloat,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  binaryOpTest<float, double>(popstd::min,
+  binaryOpTest<float, double>(popops::min,
                               [](float x, float y) -> double {
                                  double res = std::min(x, y);
                                  return res;
@@ -628,7 +629,7 @@ BOOST_AUTO_TEST_CASE(StdOperationMinimumInt,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  binaryOpTest<int, int>(popstd::min,
+  binaryOpTest<int, int>(popops::min,
                          [](int x, int y) -> int {
                             auto res = std::min(x, y);
                             return res;
@@ -639,7 +640,7 @@ BOOST_AUTO_TEST_CASE(StdOperationMultiply,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  binaryOpTest<float, double>(popstd::mul,
+  binaryOpTest<float, double>(popops::mul,
                               [](float x, float y) -> double {
                                  double res = x * y;
                                  return res;
@@ -652,7 +653,7 @@ BOOST_AUTO_TEST_CASE(StdOperationNotEqualFloat,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
   binaryOpTest<float, bool, bool>(
-    popstd::neq,
+    popops::neq,
     [](float x, float y) -> bool {
        return x != y;
     });
@@ -663,7 +664,7 @@ BOOST_AUTO_TEST_CASE(StdOperationNotEqualBool,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
   binaryOpTest<bool, bool, bool>(
-    popstd::neq,
+    popops::neq,
     [](bool x, bool y) -> bool {
        return x != y;
     });
@@ -674,7 +675,7 @@ BOOST_AUTO_TEST_CASE(StdOperationNegateFloat,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  unaryOpTest<float, double>(popstd::neg,
+  unaryOpTest<float, double>(popops::neg,
                              [](float x) -> double {
                                 return -x;
                              });
@@ -684,7 +685,7 @@ BOOST_AUTO_TEST_CASE(StdOperationNegateInt,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  unaryOpTest<int, int>(popstd::neg,
+  unaryOpTest<int, int>(popops::neg,
                              [](int x) -> int {
                                 return -x;
                              });
@@ -697,7 +698,7 @@ BOOST_AUTO_TEST_CASE(StdOperationPower,
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
 
   float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
 
@@ -713,7 +714,7 @@ BOOST_AUTO_TEST_CASE(StdOperationPower,
   std::tie(in1, in2) = mapBinaryOpTensors(graph, FLOAT);
 
   auto prog = Sequence();
-  auto out = pow(graph, in1, in2, prog);
+  auto out = popops::pow(graph, in1, in2, prog);
   graph.createHostWrite("in1", in1);
   graph.createHostWrite("in2", in2);
   graph.createHostRead("out", out);
@@ -739,7 +740,7 @@ BOOST_AUTO_TEST_CASE(StdOperationRemainderFloat,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  binaryOpTest<float, double>(popstd::rem,
+  binaryOpTest<float, double>(popops::rem,
                               [](float x, float y) -> double {
                                 double res = std::fmod(static_cast<double>(x),
                                                        static_cast<double>(y));
@@ -753,7 +754,7 @@ BOOST_AUTO_TEST_CASE(StdOperationRemainderInt,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  binaryOpTest<int, int>(popstd::rem,
+  binaryOpTest<int, int>(popops::rem,
                          [](int x, int y) -> double {
                             return x % y;
                          });
@@ -763,7 +764,7 @@ BOOST_AUTO_TEST_CASE(StdOperationShiftLeftInt,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  binaryOpTest<int, int, int>(popstd::shiftLeft,
+  binaryOpTest<int, int, int>(popops::shiftLeft,
                               [](int x, int y) -> int {
                                  return x << y;
                               });
@@ -773,7 +774,7 @@ BOOST_AUTO_TEST_CASE(StdOperationShiftRightInt,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  binaryOpTest<int, int, int>(popstd::shiftRight,
+  binaryOpTest<int, int, int>(popops::shiftRight,
                               [](int x, int y) -> int {
                                 return (unsigned)x >> y;
                               });
@@ -783,7 +784,7 @@ BOOST_AUTO_TEST_CASE(StdOperationShiftRightSignExtendInt,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  binaryOpTest<int, int, int>(popstd::shiftRightSignExtend,
+  binaryOpTest<int, int, int>(popops::shiftRightSignExtend,
                               [](int x, int y) -> int {
                                 return x >> y;
                               });
@@ -793,7 +794,7 @@ BOOST_AUTO_TEST_CASE(StdOperationSignumFloat,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  unaryOpTest<float, double>(popstd::signum,
+  unaryOpTest<float, double>(popops::signum,
                              [](float x) -> double {
                                 double res = (0 < x) - (x < 0);
                                 return res;
@@ -804,7 +805,7 @@ BOOST_AUTO_TEST_CASE(StdOperationSignumInt,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  unaryOpTest<int, int>(popstd::signum,
+  unaryOpTest<int, int>(popops::signum,
                              [](int x) -> int {
                                 int res = (0 < x) - (x < 0);
                                 return res;
@@ -815,7 +816,7 @@ BOOST_AUTO_TEST_CASE(StdOperationSin,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  unaryOpTest<float, double>(popstd::sin,
+  unaryOpTest<float, double>(popops::sin,
                              [](float x) -> double {
                                 double res = std::sin(static_cast<double>(x));
                                 return res;
@@ -826,7 +827,7 @@ BOOST_AUTO_TEST_CASE(StdOperationTanh,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  unaryOpTest<float, double>(popstd::tanh,
+  unaryOpTest<float, double>(popops::tanh,
                              [](float x) -> double {
                                 double res = std::tanh(static_cast<double>(x));
                                 return res;
@@ -837,7 +838,7 @@ BOOST_AUTO_TEST_CASE(StdOperationSquare,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  unaryOpTest<float, double>(popstd::square,
+  unaryOpTest<float, double>(popops::square,
                              [](float x) -> double {
                                 double xd = static_cast<double>(x);
                                 double res = xd * xd;
@@ -850,7 +851,7 @@ BOOST_AUTO_TEST_CASE(StdOperationSqrt,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  unaryOpTest<float, double>(popstd::sqrt,
+  unaryOpTest<float, double>(popops::sqrt,
                              [](float x) -> double {
                                 double xd = static_cast<double>(x);
                                 double res = std::sqrt(xd);
@@ -865,7 +866,7 @@ BOOST_AUTO_TEST_CASE(StdOperationSubtractFloat,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
   binaryOpTest<float, double>(
-    popstd::sub,
+    popops::sub,
     [](float x, float y) -> double {
        return static_cast<double>(x) - static_cast<double>(y);
     });
@@ -876,7 +877,7 @@ BOOST_AUTO_TEST_CASE(StdOperationSubtractHalf,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.14))
                   ) {
   binaryOpTestHalf(
-    popstd::sub,
+    popops::sub,
     [](float x, float y) -> float {
       return x - y;
     });
@@ -887,7 +888,7 @@ BOOST_AUTO_TEST_CASE(StdOperationSubtractInt,
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
   binaryOpTest<int, int>(
-    popstd::sub,
+    popops::sub,
     [](int x, int y) -> int {
       return (x - y);
     });
@@ -897,7 +898,7 @@ BOOST_AUTO_TEST_CASE(StdOperationRoundFloat,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  unaryOpTest<float, double>(popstd::round,
+  unaryOpTest<float, double>(popops::round,
     [](float x) -> double {
       return std::round(x);
     });
@@ -911,7 +912,7 @@ BOOST_AUTO_TEST_CASE(StdOperationSelectFloat,
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
 
   float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
   setBinaryOpInputs(hIn1, hIn2);
@@ -959,7 +960,7 @@ BOOST_AUTO_TEST_CASE(StdOperationSelectInt,
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
 
   int hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
   setBinaryOpInputs(hIn1, hIn2);
@@ -1006,7 +1007,7 @@ BOOST_AUTO_TEST_CASE(StdOperationClampFloat,
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
 
   float hIn1[DIM_SIZE][DIM_SIZE];
   setUnaryOpInput(hIn1);
@@ -1060,7 +1061,7 @@ BOOST_AUTO_TEST_CASE(StdOperationClampInt,
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
 
   int hIn1[DIM_SIZE][DIM_SIZE];
   setUnaryOpInput(hIn1);
@@ -1111,7 +1112,7 @@ BOOST_AUTO_TEST_CASE(StdOperationBinaryOutputMapChoice) {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
 
   Tensor in1, in2;
   in1 = graph.addVariable(FLOAT, {2, 2}, "t1");
@@ -1147,7 +1148,7 @@ BOOST_AUTO_TEST_CASE(StdOperationTrinaryOutputMapChoice) {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
 
   Tensor in1, in2, in3, in4;
   in1 = graph.addVariable(FLOAT, {2, 2}, "t1");
@@ -1202,7 +1203,7 @@ BOOST_AUTO_TEST_CASE(StdOperationAllTrueBadType) {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
 
   Tensor in = graph.addVariable(FLOAT, {2, 2}, "t1");
   auto prog = Sequence();
@@ -1214,7 +1215,7 @@ BOOST_AUTO_TEST_CASE(StdOperationAllTrue) {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
 
   Tensor in = graph.addVariable(INT, {2}, "t1");
   Tensor ones = graph.addConstant(INT, {2}, 1);
@@ -1250,7 +1251,7 @@ BOOST_AUTO_TEST_CASE(StdOperationIsFinite) {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
 
   float hIn[DIM_SIZE][DIM_SIZE];
   setUnaryOpInput(hIn);

@@ -1,18 +1,19 @@
 #define BOOST_TEST_MODULE StdArithmeticTests
 
 #include <boost/test/unit_test.hpp>
-#include <popstd/TileMapping.hpp>
+#include <poputil/TileMapping.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/IPUModel.hpp>
-#include <popstd/codelets.hpp>
+#include <popops/codelets.hpp>
 #include <iostream>
-#include <popstd/Add.hpp>
-#include <popstd/SubtractFrom.hpp>
-#include <popstd/Cast.hpp>
+#include <popops/Add.hpp>
+#include <popops/SubtractFrom.hpp>
+#include <popops/Cast.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace popstd;
+using namespace poputil;
+using namespace popops;
 
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
@@ -68,7 +69,7 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float,
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
 
   float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
   setBinaryOpInputs(hIn1, hIn2);
@@ -104,7 +105,7 @@ BOOST_AUTO_TEST_CASE(StdAddTo_int) {
   auto device = ipuModel.createDevice();
   Graph graph(device);
 
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
 
   int hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
   setBinaryOpInputs(hIn1, hIn2);
@@ -142,7 +143,7 @@ BOOST_AUTO_TEST_CASE(StdSubtractFrom_float,
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
 
   float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
   setBinaryOpInputs(hIn1, hIn2);
@@ -179,7 +180,7 @@ BOOST_AUTO_TEST_CASE(StdSubtractFrom_int) {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
 
   int hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
   setBinaryOpInputs(hIn1, hIn2);
@@ -216,7 +217,7 @@ BOOST_AUTO_TEST_CASE(StdCast) {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
 
   float hIn[DIM_SIZE];
   for (auto i = 0U; i<DIM_SIZE; ++i) {

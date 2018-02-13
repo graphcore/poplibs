@@ -18,12 +18,12 @@ add_library(popnn SHARED
   ${CMAKE_SOURCE_DIR}/include/popnn/Lstm.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Pooling.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/NonLinearity.hpp
-  ${CMAKE_SOURCE_DIR}/include/util/Compiler.hpp
-  ${CMAKE_SOURCE_DIR}/include/util/gcd.hpp
-  ${CMAKE_SOURCE_DIR}/include/util/VectorUtils.hpp
+  ${CMAKE_SOURCE_DIR}/include/poplibs_support/Compiler.hpp
+  ${CMAKE_SOURCE_DIR}/include/poplibs_support/gcd.hpp
+  ${CMAKE_SOURCE_DIR}/include/poplibs_support/VectorUtils.hpp
 )
 
-target_link_libraries(popnn poplar popconv popstd poplin)
+target_link_libraries(popnn poplar popconv poputil poplin)
 
 target_include_directories(popnn
   PUBLIC

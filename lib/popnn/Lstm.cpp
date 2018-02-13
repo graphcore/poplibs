@@ -1,23 +1,25 @@
 #include <poplin/MatMul.hpp>
-#include <popstd/Add.hpp>
-#include <popstd/SubtractFrom.hpp>
-#include <popstd/TileMapping.hpp>
+#include <popops/Add.hpp>
+#include <popops/SubtractFrom.hpp>
+#include <poputil/TileMapping.hpp>
 #include <popnn/NonLinearity.hpp>
-#include <popstd/HadamardProduct.hpp>
-#include <popstd/VertexTemplates.hpp>
+#include <popops/HadamardProduct.hpp>
+#include <poputil/VertexTemplates.hpp>
 #include <popnn/Lstm.hpp>
-#include <popstd/Operations.hpp>
+#include <popops/ElementWise.hpp>
 #include <popconv/Convolution.hpp>
-#include <popstd/Zero.hpp>
-#include <popstd/Util.hpp>
-#include <popstd/DynamicSlice.hpp>
-#include <popreduce/Reduce.hpp>
+#include <popops/Zero.hpp>
+#include <poputil/Util.hpp>
+#include <popops/DynamicSlice.hpp>
+#include <popops/Reduce.hpp>
 #include <cstdint>
+
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplin;
-using namespace popstd;
+using namespace poputil;
 using namespace popnn;
+using namespace popops;
 
 // Tensor elements maintained in forward state. The number of elements is a
 // function of the amount of recomputation done in the backward pass
@@ -63,7 +65,7 @@ static Tensor unflattenUnits(const Tensor &t) {
 static Tensor getFwdState(const Tensor &fwdState, unsigned idx) {
   const auto rank = fwdState.rank();
   if (rank != 3 && rank != 4) {
-    throw popstd::poplib_error("Unexpected state tensor dimensions");
+    throw poputil::poplib_error("Unexpected state tensor dimensions");
   }
   if (rank == 3) {
     assert(fwdState.dim(0) == LSTM_NUM_FWD_STATES_INFERENCE ||
@@ -79,7 +81,7 @@ static Tensor getFwdState(const Tensor &fwdState, unsigned idx) {
 static Tensor getBwdState(const Tensor &bwdState, unsigned idx) {
   const auto rank = bwdState.rank();
   if (rank != 3 && rank != 4) {
-    throw popstd::poplib_error("Unexpected state tensor dimensions");
+    throw poputil::poplib_error("Unexpected state tensor dimensions");
   }
   assert(idx < LSTM_NUM_BWD_STATES);
   if (rank == 3) {
@@ -172,7 +174,7 @@ basicLstmComputeOutput(Graph &graph,
 
   addTo(graph, updatedCellState, updatedCandidate, 1.0, prog,
         debugStr + "/AddCellCand");
-  auto tanhOutput = popstd::tanh(graph, updatedCellState, prog, debugStr);
+  auto tanhOutput = popops::tanh(graph, updatedCellState, prog, debugStr);
   auto output = mul(graph, tanhOutput, outputGate, prog,
                     debugStr + "/OutputGate");
   Tensor state = concat(output.expand({0}), updatedCellState.expand({0}));
@@ -493,7 +495,7 @@ Tensor lstmFwdSequence(Graph &graph,
   auto one = graph.addConstant(UNSIGNED_INT, {1}, 1);
   graph.setTileMapping(seqIdx, 0);
 
-  popstd::zero(graph, seqIdx, fwdProg, debugPrefix + "/seqIdx");
+  popops::zero(graph, seqIdx, fwdProg, debugPrefix + "/seqIdx");
 
   // state for current layer, start from initialiser
   Tensor thisState = duplicate(graph, fwdStateInit, fwdProg);
@@ -506,7 +508,7 @@ Tensor lstmFwdSequence(Graph &graph,
     auto prevOutputAct = popnn::lstm::getOutputFromFwdState(thisState);
     auto prevCellState = popnn::lstm::getCellFromFwdState(thisState);
     if (weightedIn) {
-      Tensor fwdInput = popstd::dynamicSlice(
+      Tensor fwdInput = popops::dynamicSlice(
         graph, *weightedIn, seqIdx, {1}, {1}, loop,
         debugPrefix + "/lstmWeighted");
       newState = popnn::lstm::basicLstmCellForwardPassWeightedInputs(
@@ -515,7 +517,7 @@ Tensor lstmFwdSequence(Graph &graph,
         weightsOutput,
         loop, partialsType, inferenceOnly, debugPrefix);
     } else {
-      Tensor fwdInput = popstd::dynamicSlice(
+      Tensor fwdInput = popops::dynamicSlice(
         graph, prevLayerActs, seqIdx, {0}, {1}, loop,
         debugPrefix + "/lstm");
       newState = popnn::lstm::basicLstmCellForwardPass(
@@ -538,7 +540,7 @@ Tensor lstmFwdSequence(Graph &graph,
     graph.setTileMapping(thisState, graph.getTileMapping(newState));
     loop.add(Copy(newState, thisState));
 
-    popstd::dynamicUpdate(
+    popops::dynamicUpdate(
       graph, fwdState, newState, seqIdx, {0}, {1}, loop,
       debugPrefix + "/lstmUpdateState");
 
@@ -561,7 +563,7 @@ BackwardStepImpl(Graph &graph,
                       const std::string &debugPrefix) {
   const auto fPrefix = debugPrefix + "/LstmBwd";
   auto gradSum =
-    popstd::add(graph, getBwdState(bwdState, LSTM_BWD_STATE_GRAD_ACT_GRAD),
+    popops::add(graph, getBwdState(bwdState, LSTM_BWD_STATE_GRAD_ACT_GRAD),
                 gradNextLayer, prog, fPrefix + "/AddActGrads");
   auto actOutputGate =
     getFwdState(fwdStateThisStep, LSTM_FWD_STATE_ACTS_OUTPUT_GATE);
@@ -728,7 +730,7 @@ basicLstmParamUpdate(Graph &graph,
             prog,
             fPrefix + "/Wi",
             mmOpt);
-  popreduce::reduceAcc(graph, biasDeltaAcc, 1.0,
+  popops::reduceAcc(graph, biasDeltaAcc, 1.0,
                        gradUnits.dimShuffle({1, 0, 2}), prog, fPrefix +"/Bias");
 }
 
@@ -757,9 +759,9 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> lstmBwdSequence(
     weightsOutputDeltasAcc =
       graph.clone(weightsOutput, "WeightsOutputDeltasAcc");
     biasDeltasAcc = graph.clone(biases, "biasDeltasAcc");
-    popstd::zero(graph, weightsInputDeltasAcc, prog);
-    popstd::zero(graph, weightsOutputDeltasAcc, prog);
-    popstd::zero(graph, biasDeltasAcc, prog);
+    popops::zero(graph, weightsInputDeltasAcc, prog);
+    popops::zero(graph, weightsOutputDeltasAcc, prog);
+    popops::zero(graph, biasDeltasAcc, prog);
   }
 
   unsigned seqSize = gradLayerNext.dim(0);

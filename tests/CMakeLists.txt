@@ -11,7 +11,7 @@ function(add_popnn_unit_test name)
       $<TARGET_PROPERTY:popconv,INCLUDE_DIRECTORIES>)
   target_link_libraries(${name} poprand popnn
                         poplar
-                        poplib_test
+                        poplibs_test
                         Boost::unit_test_framework
                         Boost::timer
                         Boost::system

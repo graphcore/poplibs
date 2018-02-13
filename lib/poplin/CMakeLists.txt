@@ -7,7 +7,7 @@ add_library(poplin SHARED
   ${CMAKE_SOURCE_DIR}/include/poplin/MatMul.hpp
 )
 
-target_link_libraries(poplin poplar popconv popreduce popstd)
+target_link_libraries(poplin poplar popconv popops poputil)
 
 target_include_directories(poplin
   PUBLIC

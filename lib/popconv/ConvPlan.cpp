@@ -1,13 +1,13 @@
 #include "popconv/internal/ConvPlan.hpp"
 #include "popconv/Convolution.hpp"
-#include "popstd/exceptions.hpp"
+#include "poputil/exceptions.hpp"
 #include "poplar/Graph.hpp"
 #include "popconv/ConvUtil.hpp"
 #include "ConvValidation.hpp"
-#include "util/gcd.hpp"
+#include "poplibs_support/gcd.hpp"
 #include "PerformanceEstimation.hpp"
 #include "VertexOptim.hpp"
-#include "util/Compiler.hpp"
+#include "poplibs_support/Compiler.hpp"
 #include <cassert>
 #include <cmath>
 #include <limits>
@@ -17,7 +17,7 @@
 #include <type_traits>
 #include <iostream>
 #include <popsolver/Model.hpp>
-#include "util/print.hpp"
+#include "poplibs_support/print.hpp"
 
 namespace popconv {
 
@@ -92,7 +92,7 @@ std::istream &operator>>(std::istream &is, WeightUpdateMethod &method) {
   else if (token == "auto")
     method = WeightUpdateMethod::AUTO;
   else
-    throw popstd::poplib_error(
+    throw poputil::poplib_error(
       "Unknown weight update method <" + token + ">");
   return is;
 
@@ -2207,7 +2207,7 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
         params.inputTransform.dilation[1] != 1 ||
         params.kernelShape[0] != 3 || params.kernelShape[1] != 3 ||
         params.getNumConvGroups() == 1) {
-      throw popstd::poplib_error("Attempt to force winograd convolution for "
+      throw poputil::poplib_error("Attempt to force winograd convolution for "
                                "invalid parameters");
 
     }
@@ -2222,7 +2222,7 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
                                              costBounds, graph,
                                              cache);
   if (options.percentageCyclesExcessForMemOptim) {
-    throw popstd::poplib_error("Optimizing for memory is not supported");
+    throw poputil::poplib_error("Optimizing for memory is not supported");
   }
   if (!tempCache.get()) {
     auto &plans = cache->plans;

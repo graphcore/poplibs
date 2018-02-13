@@ -1,15 +1,15 @@
 #define BOOST_TEST_MODULE GraphFunctionTest
 #include <boost/test/unit_test.hpp>
 #include <poplar/Engine.hpp>
-#include <popstd/GraphFunction.hpp>
-#include <popstd/codelets.hpp>
-#include <popstd/TileMapping.hpp>
-#include <popstd/Add.hpp>
+#include <poputil/GraphFunction.hpp>
+#include <popops/codelets.hpp>
+#include <poputil/TileMapping.hpp>
+#include <popops/Add.hpp>
 #include <poplar/IPUModel.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace popstd;
+using namespace poputil;
 
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
@@ -18,7 +18,7 @@ BOOST_AUTO_TEST_CASE(VoidFunctionTest) {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
   Tensor x1 = graph.addVariable(FLOAT, {5});
   mapTensorLinearly(graph, x1);
   graph.createHostRead("x1", x1);
@@ -29,7 +29,7 @@ BOOST_AUTO_TEST_CASE(VoidFunctionTest) {
   graphfn::VoidFunction f(graph, {graphfn::inout(x1), graphfn::input(y1)},
                           [&](std::vector<Tensor> &args,
                               Sequence &prog) {
-                             addTo(graph, args[0], args[1], 1.0, prog);
+                             popops::addTo(graph, args[0], args[1], 1.0, prog);
                           });
   Tensor x2 = graph.addVariable(FLOAT, {5});
   mapTensorLinearly(graph, x2);
@@ -67,7 +67,7 @@ BOOST_AUTO_TEST_CASE(ProgramFunctionTest) {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
   Tensor x1 = graph.addVariable(FLOAT, {5});
   mapTensorLinearly(graph, x1);
   graph.createHostWrite("x1", x1);
@@ -82,7 +82,7 @@ BOOST_AUTO_TEST_CASE(ProgramFunctionTest) {
                           [&](std::vector<Tensor> &args) {
                              Sequence prog;
                              prog.add(Copy(args[0], args[2]));
-                             addTo(graph, args[2], args[1], 1.0, prog);
+                             popops::addTo(graph, args[2], args[1], 1.0, prog);
                              return prog;
                           });
   Tensor x2 = graph.addVariable(FLOAT, {5});
@@ -126,7 +126,7 @@ BOOST_AUTO_TEST_CASE(CreatedTensorFunctionTest) {
   auto device = ipuModel.createDevice();
   Graph graph(device);
 
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
   Tensor x1 = graph.addVariable(FLOAT, {5});
   mapTensorLinearly(graph, x1);
   graph.createHostWrite("x1", x1);
@@ -140,7 +140,7 @@ BOOST_AUTO_TEST_CASE(CreatedTensorFunctionTest) {
                              args[2] = graph.addVariable(FLOAT, {5});
                              mapTensorLinearly(graph, args[2]);
                              prog.add(Copy(args[0], args[2]));
-                             addTo(graph, args[2], args[1], 1.0, prog);
+                             popops::addTo(graph, args[2], args[1], 1.0, prog);
                              return prog;
                           });
   Tensor x2 = graph.addVariable(FLOAT, {5});
@@ -183,7 +183,7 @@ BOOST_AUTO_TEST_CASE(TensorFunctionTest) {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
   Tensor x1 = graph.addVariable(FLOAT, {5});
   mapTensorLinearly(graph, x1);
   graph.createHostRead("x1", x1);
@@ -197,7 +197,7 @@ BOOST_AUTO_TEST_CASE(TensorFunctionTest) {
                              Tensor z = graph.addVariable(FLOAT, {5});
                              mapTensorLinearly(graph, z);
                              prog.add(Copy(args[0], z));
-                             addTo(graph, z, args[1], 1.0, prog);
+                             popops::addTo(graph, z, args[1], 1.0, prog);
                              return z;
                              });
   Tensor x2 = graph.addVariable(FLOAT, {5});

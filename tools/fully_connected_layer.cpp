@@ -9,29 +9,28 @@
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/IPUModel.hpp>
-#include <popstd/TileMapping.hpp>
+#include <poputil/TileMapping.hpp>
 #include <popconv/Convolution.hpp>
 #include <popconv/codelets.hpp>
 #include <poplin/MatMul.hpp>
-#include <popstd/Add.hpp>
-#include <popreduce/Reduce.hpp>
-#include <popstd/codelets.hpp>
-#include <popreduce/codelets.hpp>
+#include <popops/Add.hpp>
+#include <popops/Reduce.hpp>
+#include <popops/codelets.hpp>
 #include <poplin/codelets.hpp>
-#include <poplib_test/FullyConnected.hpp>
-#include <poplib_test/NonLinearity.hpp>
-#include <poplib_test/Pass.hpp>
-#include <poplib_test/Util.hpp>
-#include <util/Compiler.hpp>
+#include <poplibs_test/FullyConnected.hpp>
+#include <poplibs_test/NonLinearity.hpp>
+#include <poplibs_test/Pass.hpp>
+#include <poplibs_test/Util.hpp>
+#include <poplibs_support/Compiler.hpp>
 #include <random>
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace poplib_test::util;
+using namespace poplibs_test::util;
 using namespace poplin;
-using namespace popstd;
-using namespace popreduce;
-using poplib_test::Pass;
+using namespace poputil;
+using namespace popops;
+using poplibs_test::Pass;
 
 // Default tolerances used in tests
 #define FLOAT_REL_TOL  0.1
@@ -136,8 +135,7 @@ int main(int argc, char **argv) {
 
   Graph graph(device );
   popconv::addCodelets(graph);
-  popstd::addCodelets(graph);
-  popreduce::addCodelets(graph);
+  popops::addCodelets(graph);
   poplin::addCodelets(graph);
 
   fwdOptions.partialsType = partialsType;
@@ -218,7 +216,7 @@ int main(int argc, char **argv) {
     poplin::matMulGroupedAcc(graph, weights, -learningRate,
                              poplin::transposeGroupedMatrix(prevAct),
                              zDeltas, bwdProg, "", wuOptions);
-    auto biasDeltas = reduce(graph, zDeltas, {1}, popreduce::Operation::ADD,
+    auto biasDeltas = reduce(graph, zDeltas, {1}, popops::Operation::ADD,
                              bwdProg);
     addTo(graph, biases, biasDeltas, -learningRate, bwdProg);
   }
@@ -251,7 +249,7 @@ int main(int argc, char **argv) {
   if (doFwdPass) {
     boost::multi_array<double, 3>
         modelNextAct(boost::extents[numGroups][batchSize][outputSize]);
-    poplib_test::fc::fullyConnected(hostPrevAct, hostWeights, hostBiases,
+    poplibs_test::fc::fullyConnected(hostPrevAct, hostWeights, hostBiases,
                                     modelNextAct);
     matchesModel &= checkIsClose("fwd", hostNextAct, modelNextAct,
                                  relativeTolerance, absoluteTolerance);
@@ -278,7 +276,7 @@ int main(int argc, char **argv) {
       copy(target, dataType, rawHostPrevDeltas.get(), hostPrevDeltas);
       boost::multi_array<double, 3>
           modelPrevDeltas(boost::extents[numGroups][batchSize][inputSize]);
-      poplib_test::fc::fullyConnectedBackward(hostZDeltas, modelWeights,
+      poplibs_test::fc::fullyConnectedBackward(hostZDeltas, modelWeights,
                                               modelPrevDeltas);
       matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
                                    relativeTolerance, absoluteTolerance);
@@ -286,7 +284,7 @@ int main(int argc, char **argv) {
     if (doWuPass) {
       copy(target, dataType, rawHostWeights.get(), hostWeights);
       copy(target, dataType, rawHostBiases.get(), hostBiases);
-      poplib_test::fc::fullyConnectedWeightUpdate(learningRate, hostPrevAct,
+      poplibs_test::fc::fullyConnectedWeightUpdate(learningRate, hostPrevAct,
                                                   hostZDeltas, modelWeights,
                                                   modelBiases);
       matchesModel &= checkIsClose("weights",

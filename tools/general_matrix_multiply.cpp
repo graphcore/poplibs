@@ -9,25 +9,25 @@
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/IPUModel.hpp>
-#include <popstd/TileMapping.hpp>
+#include <poputil/TileMapping.hpp>
 #include <poplin/MatMul.hpp>
-#include <popstd/Add.hpp>
-#include <popreduce/Reduce.hpp>
+#include <popops/Add.hpp>
+#include <popops/Reduce.hpp>
 #include <popconv/codelets.hpp>
-#include <popstd/codelets.hpp>
-#include <popreduce/codelets.hpp>
+#include <popops/codelets.hpp>
 #include <poplin/codelets.hpp>
-#include <poplib_test/Util.hpp>
-#include <util/Compiler.hpp>
-#include <popstd/exceptions.hpp>
-#include <poplib_test/GeneralMatrixMultiply.hpp>
+#include <poplibs_test/Util.hpp>
+#include <poplibs_support/Compiler.hpp>
+#include <poputil/exceptions.hpp>
+#include <poplibs_test/GeneralMatrixMultiply.hpp>
 #include <random>
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace poplib_test::util;
+using namespace poplibs_test::util;
 using namespace poplin;
-using namespace popstd;
+using namespace poputil;
+using namespace popops;
 
 // Default tolerances used in tests
 #define FLOAT_REL_TOL  0.1
@@ -58,7 +58,7 @@ std::istream &operator>>(std::istream &is, MatrixOp &op) {
   else if (token == "transpose")
     op = MatrixOp::TRANSPOSE;
   else
-    throw popstd::poplib_error("Invalid pass <" + token + ">");
+    throw poputil::poplib_error("Invalid pass <" + token + ">");
   return is;
 }
 
@@ -149,14 +149,13 @@ int main(int argc, char **argv) {
 
 
   if (beta != 1.0) {
-    throw popstd::poplib_error("Only beta = 1.0 is supported");
+    throw poputil::poplib_error("Only beta = 1.0 is supported");
   }
   auto device = ipuModel.createDevice();
   const auto &target = device.getTarget();
   Graph graph(device);
   popconv::addCodelets(graph);
-  popstd::addCodelets(graph);
-  popreduce::addCodelets(graph);
+  popops::addCodelets(graph);
   poplin::addCodelets(graph);
 
   const bool transposeA = matAOp == MatrixOp::TRANSPOSE;
@@ -223,7 +222,7 @@ int main(int argc, char **argv) {
 
   // validate against a reference model
   boost::multi_array<double, 2> refMatC(boost::extents[m][n]);
-  poplib_test::gemm::generalMatrixMultiply(hostMatA, hostMatB, hostMatC,
+  poplibs_test::gemm::generalMatrixMultiply(hostMatA, hostMatB, hostMatC,
                                            refMatC, alpha, beta, transposeA,
                                            transposeB);
 

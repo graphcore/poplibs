@@ -1,7 +1,7 @@
 #ifndef __poprand_RandomGen_hpp__
 #define __poprand_RandomGen_hpp__
 
-#include "popstd/exceptions.hpp"
+#include "poputil/exceptions.hpp"
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <string>

@@ -7,29 +7,30 @@
 #include <cmath>
 #include <functional>
 #include "popconv/ConvUtil.hpp"
-#include "popstd/Pad.hpp"
-#include "popstd/Add.hpp"
-#include "popstd/TileMapping.hpp"
-#include "popreduce/Reduce.hpp"
-#include "popstd/VertexTemplates.hpp"
-#include "util/gcd.hpp"
+#include "popops/Pad.hpp"
+#include "popops/Add.hpp"
+#include "poputil/TileMapping.hpp"
+#include "popops/Reduce.hpp"
+#include "poputil/VertexTemplates.hpp"
+#include "poplibs_support/gcd.hpp"
 #include "PerformanceEstimation.hpp"
 #include "VertexOptim.hpp"
-#include "popstd/exceptions.hpp"
-#include "popstd/Cast.hpp"
-#include "popstd/Util.hpp"
+#include "poputil/exceptions.hpp"
+#include "popops/Cast.hpp"
+#include "poputil/Util.hpp"
 #include "Winograd.hpp"
-#include "popstd/Zero.hpp"
-#include "popstd/Operations.hpp"
+#include "popops/Zero.hpp"
+#include "popops/ElementWise.hpp"
 #include <unordered_set>
-#include "util/Compiler.hpp"
-#include "util/print.hpp"
-#include "util/VectorUtils.hpp"
+#include "poplibs_support/Compiler.hpp"
+#include "poplibs_support/print.hpp"
+#include "poplibs_support/VectorUtils.hpp"
 #include <boost/icl/interval_map.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace popstd;
+using namespace poputil;
+using namespace popops;
 
 namespace popconv {
 
@@ -114,7 +115,7 @@ ConvParams(poplar::Type dType_,
                     std::move(outputPaddingUpper_)) {
   const auto numFieldDims = inputFieldShape.size();
   if (kernelShape.size() != numFieldDims) {
-    throw popstd::poplib_error("Number of kernel field dimensions does not"
+    throw poputil::poplib_error("Number of kernel field dimensions does not"
                                "match the number of input field dimensions");
   }
   const std::pair<std::size_t, const char *> sizes[] = {
@@ -138,7 +139,7 @@ ConvParams(poplar::Type dType_,
   };
   for (const auto &entry : sizes) {
     if (entry.first != numFieldDims) {
-      throw popstd::poplib_error(std::string("Number of ") + entry.second +
+      throw poputil::poplib_error(std::string("Number of ") + entry.second +
                                  " dimensions does not match the number of "
                                  "field dimensions");
     }
@@ -147,7 +148,7 @@ ConvParams(poplar::Type dType_,
     if (inputTransform.truncationLower[dim] +
         inputTransform.truncationUpper[dim] >
         inputFieldShape[dim]) {
-      throw popstd::poplib_error("Truncation for dimension " +
+      throw poputil::poplib_error("Truncation for dimension " +
                                  std::to_string(dim) +
                                  " truncates by more than the size of the "
                                  "field");
@@ -155,7 +156,7 @@ ConvParams(poplar::Type dType_,
     if (kernelTransform.truncationLower[dim] +
         kernelTransform.truncationUpper[dim] >
         kernelShape[dim]) {
-      throw popstd::poplib_error("Truncation for dimension " +
+      throw poputil::poplib_error("Truncation for dimension " +
                                  std::to_string(dim) +
                                  " truncates by more than the size of the "
                                  "kernel");
@@ -164,7 +165,7 @@ ConvParams(poplar::Type dType_,
     if (outputTransform.truncationLower[dim] +
         outputTransform.truncationUpper[dim] >
         convOutSize) {
-      throw popstd::poplib_error("Output truncation for dimension " +
+      throw poputil::poplib_error("Output truncation for dimension " +
                                  std::to_string(dim) +
                                  " truncates by more than the size of the "
                                  "convolution output");
@@ -332,7 +333,7 @@ flattenIndexInSlice(const std::vector<unsigned> &sliceBegin,
 static Tensor
 actsToInternalShape(const Tensor &act, unsigned numConvGroups) {
   if (act.dim(1) % numConvGroups != 0) {
-    throw popstd::poplib_error("Number of input channels is not a multiple "
+    throw poputil::poplib_error("Number of input channels is not a multiple "
                                "of the number of convolutional groups");
   }
   return act.reshapePartial(1, 2, {numConvGroups, act.dim(1) / numConvGroups})
@@ -538,48 +539,49 @@ static void verifyInputShapes(const ConvParams &params,
                               const Tensor &weights) {
   const auto numFieldDims = params.getNumFieldDims();
   if (in.rank() != 3 + numFieldDims) {
-    throw popstd::poplib_error("Input tensor does not have the expected rank");
+    throw poputil::poplib_error("Input tensor does not have the expected rank");
   }
   if (weights.rank() != 3 + numFieldDims) {
-    throw popstd::poplib_error("Weight tensor does not have the expected rank");
+    throw poputil::poplib_error("Weight tensor does not have the expected "
+                                "rank");
   }
   for (unsigned i = 0; i != numFieldDims; ++i) {
     if (params.inputFieldShape[i] != in.dim(2 + i)) {
       const auto dimName = getCapitalizedFieldDimName(i, numFieldDims);
-      throw popstd::poplib_error(dimName + " of input tensor does not match "
+      throw poputil::poplib_error(dimName + " of input tensor does not match "
                                  "convolution parameters");
     }
     if (params.kernelShape[i] != weights.dim(1 + i)) {
       const auto dimName = getCapitalizedFieldDimName(i, numFieldDims);
-      throw popstd::poplib_error(dimName + " of kernel does not match "
+      throw poputil::poplib_error(dimName + " of kernel does not match "
                                  "convolution parameters");
     }
   }
   if (params.numConvGroups != in.dim(0)) {
-    throw popstd::poplib_error("Number of convolution groups of input tensor "
+    throw poputil::poplib_error("Number of convolution groups of input tensor "
                                "does not match convolution parameters");
   }
   if (params.getBatchSize() != in.dim(1)) {
-    throw popstd::poplib_error("Batchsize of input tensor does not match "
+    throw poputil::poplib_error("Batchsize of input tensor does not match "
                                "convolution parameters");
   }
   if (params.getNumInputChansPerConvGroup() != in.dim(in.rank() - 1)) {
-    throw popstd::poplib_error("Number of channels per convolution group of "
+    throw poputil::poplib_error("Number of channels per convolution group of "
                                "input tensor does not match convolution "
                                "parameters");
   }
   if (params.numConvGroups != weights.dim(0)) {
-    throw popstd::poplib_error("Number of convolution groups of weights tensor "
-                               "does not match convolution parameters");
+    throw poputil::poplib_error("Number of convolution groups of weights "
+                                "tensor does not match convolution parameters");
   }
   if (params.getNumOutputChansPerConvGroup() !=
       weights.dim(weights.rank() - 2)) {
-    throw popstd::poplib_error("Kernel output channel size does not match "
+    throw poputil::poplib_error("Kernel output channel size does not match "
                                "convolution parameters");
   }
   if (params.getNumInputChansPerConvGroup() !=
       weights.dim(weights.rank() - 1)) {
-    throw popstd::poplib_error("Kernel input channel size does not match "
+    throw poputil::poplib_error("Kernel input channel size does not match "
                                "convolution parameters");
   }
 }
@@ -977,7 +979,7 @@ calculateMappingBasedOnUsage(const Graph &graph,
                              unsigned grainSize,
                              unsigned minElementsPerTile) {
   if (iterative_size(uses) == 0) {
-    return popstd::calcLinearTileMapping(graph, shape,
+    return poputil::calcLinearTileMapping(graph, shape,
                                          minElementsPerTile, grainSize);
   }
   boost::icl::interval_map<unsigned, std::set<unsigned>> grainToTiles;
@@ -2625,7 +2627,7 @@ partialGroupedReduce(
       }
     }
     applyTensorMapping(graph, out[i], outSubMapping);
-    popreduce::reduce(graph, partials.slice(begin, end), out[i],
+    popops::reduce(graph, partials.slice(begin, end), out[i],
                       outSubMapping, cs);
   }
   return out;
@@ -2996,7 +2998,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   }
 
   if (plan.useWinograd) {
-    throw popstd::poplib_error("Winograd not yet supported");
+    throw poputil::poplib_error("Winograd not yet supported");
   }
   const auto layerName = debugPrefix + "/Conv" + convSuffix(params);
   auto activations =
@@ -3288,8 +3290,8 @@ convolutionWeightUpdate(Graph &graph,
                                             prog, debugPrefix, options);
   // Add the weight deltas to the weights.
   assert(weightDeltas.shape() == weights.shape());
-  popstd::addTo(graph, weights, weightDeltas, -learningRate, prog,
-                debugPrefix + "/UpdateWeights");
+  addTo(graph, weights, weightDeltas, -learningRate, prog,
+        debugPrefix + "/UpdateWeights");
 }
 
 static void
@@ -3348,8 +3350,8 @@ convChannelReduce(Graph &graph,
     for (const auto &interval : firstInGroupMapping[tile]) {
       auto begin = interval.begin();
       auto last = interval.end() - 1;
-      auto beginIndices = popstd::unflattenIndex(firstInGroup.shape(), begin);
-      auto lastIndices = popstd::unflattenIndex(firstInGroup.shape(), last);
+      auto beginIndices = poputil::unflattenIndex(firstInGroup.shape(), begin);
+      auto lastIndices = poputil::unflattenIndex(firstInGroup.shape(), last);
       for (unsigned g = beginIndices[0]; g != lastIndices[0] + 1; ++g) {
         unsigned fieldBegin = g == beginIndices[0] ?
                                    beginIndices[1] :
@@ -3458,7 +3460,7 @@ convChannelReduce(Graph &graph,
     }
     if (toReduceSlices.empty()) {
       auto v = graph.addVertex(computeSets[1],
-                               templateVertex("popstd::Zero", partialsType));
+                               templateVertex("popops::Zero", partialsType));
       graph.connect(v["out"], partials[worker].slice(0, maxOutputsPerWorker));
       graph.setInitialValue(v["dataPathWidth"], target.getDataPathWidth());
       graph.setTileMapping(v, tile);
@@ -3580,8 +3582,10 @@ addToChannel(Graph &graph, const Tensor &actsUngrouped,
         const auto begin = interval.begin();
         const auto end = interval.end();
         const auto last = end - 1;
-        auto beginIndices = popstd::unflattenIndex(firstInGroup.shape(), begin);
-        auto lastIndices = popstd::unflattenIndex(firstInGroup.shape(), last);
+        auto beginIndices = poputil::unflattenIndex(firstInGroup.shape(),
+                                                    begin);
+        auto lastIndices = poputil::unflattenIndex(firstInGroup.shape(),
+                                                   last);
         for (unsigned g = beginIndices[0]; g != lastIndices[0] + 1; ++g) {
           unsigned batchBegin = g == beginIndices[0] ?
                                 beginIndices[1] :
@@ -3630,7 +3634,7 @@ fullyConnectedWeightTranspose(Graph &graph,
                               Sequence &prog, const std::string &debugPrefix,
                               const ConvOptions &options) {
   if (params.getNumFieldDims() != 1) {
-    throw popstd::poplib_error("fullyConnectedWeightTranspose() expects a 1-d "
+    throw poputil::poplib_error("fullyConnectedWeightTranspose() expects a 1-d "
                                "convolution");
   }
   auto plan = getPlan(graph, params, options);
@@ -3695,7 +3699,7 @@ fullyConnectedWeightTranspose(Graph &graph,
       unsigned index = 0;
       for (const auto interval : entry) {
         for (auto block = interval.begin(); block != interval.end(); ++block) {
-          auto blockIndices = popstd::unflattenIndex(firstInBlock.shape(),
+          auto blockIndices = poputil::unflattenIndex(firstInBlock.shape(),
                                                      block);
           graph.connect(v["src"][index],
                         splitActivations[blockIndices[0]]
@@ -3784,8 +3788,10 @@ channelMul(Graph &graph, const Tensor &actsUngrouped, const Tensor &scale,
         const auto begin = interval.begin();
         const auto end = interval.end();
         const auto last = end - 1;
-        auto beginIndices = popstd::unflattenIndex(firstInGroup.shape(), begin);
-        auto lastIndices = popstd::unflattenIndex(firstInGroup.shape(), last);
+        auto beginIndices = poputil::unflattenIndex(firstInGroup.shape(),
+                                                    begin);
+        auto lastIndices = poputil::unflattenIndex(firstInGroup.shape(),
+                                                   last);
         for (unsigned g = beginIndices[0]; g != lastIndices[0] + 1; ++g) {
           unsigned batchBegin = g == beginIndices[0] ?
                                 beginIndices[1] :

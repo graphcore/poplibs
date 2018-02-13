@@ -1,7 +1,7 @@
 #define BOOST_TEST_MODULE RandomGenTests
 #include <poprand/RandomGen.hpp>
-#include <popstd/TileMapping.hpp>
-#include <popstd/Util.hpp>
+#include <poputil/TileMapping.hpp>
+#include <poputil/Util.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/IPUModel.hpp>
 #include <poplar/Target.hpp>
@@ -15,7 +15,7 @@
 using namespace poplar;
 using namespace poplar::program;
 using namespace poprand;
-using namespace popstd;
+using namespace poputil;
 
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;

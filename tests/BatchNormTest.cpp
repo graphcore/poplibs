@@ -1,17 +1,16 @@
 #define BOOST_TEST_MODULE BatchNormTests
 
 #include <boost/test/unit_test.hpp>
-#include <popstd/TileMapping.hpp>
+#include <poputil/TileMapping.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/IPUModel.hpp>
-#include <popstd/codelets.hpp>
-#include <popstd/Operations.hpp>
+#include <popops/ElementWise.hpp>
 #include <popconv/codelets.hpp>
 #include <popnn/codelets.hpp>
-#include <popreduce/codelets.hpp>
-#include <poplib_test/Convolution.hpp>
-#include <poplib_test/FullyConnected.hpp>
-#include <poplib_test/Util.hpp>
+#include <popops/codelets.hpp>
+#include <poplibs_test/Convolution.hpp>
+#include <poplibs_test/FullyConnected.hpp>
+#include <poplibs_test/Util.hpp>
 #include <popnn/BatchNorm.hpp>
 #include <iostream>
 #include <functional>
@@ -25,9 +24,10 @@
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace popstd;
-using namespace poplib_test::util;
+using namespace poputil;
+using namespace poplibs_test::util;
 using namespace popnn;
+using namespace popops;
 
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
@@ -51,14 +51,13 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   auto device = ipuModel.createDevice();
   const auto &target = device.getTarget();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
   popnn::addCodelets(graph);
-  popreduce::addCodelets(graph);
   popconv::addCodelets(graph);
 
   auto acts = graph.addVariable(dataType, {batchSize, dimY, dimX, numChannels},
                                 "act");
-  popstd::mapTensorLinearly(graph, acts);
+  poputil::mapTensorLinearly(graph, acts);
   acts = acts.dimShufflePartial({3}, {1});
 
   auto prog = Sequence();
@@ -174,21 +173,21 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   boost::multi_array<double, 1> modelMean(boost::extents[numChannels]);
   boost::multi_array<double, 1> modelInvStdDev(boost::extents[numChannels]);
 
-  poplib_test::conv::batchNormEstimates(hostActs, eps, modelMean,
+  poplibs_test::conv::batchNormEstimates(hostActs, eps, modelMean,
                                         modelInvStdDev);
 
   boost::multi_array<double, 4>
       modelActsBN(boost::extents[batchSize][numChannels][dimY][dimX]);
-  poplib_test::conv::batchNormalise(hostActs, modelGamma, modelBeta, modelMean,
+  poplibs_test::conv::batchNormalise(hostActs, modelGamma, modelBeta, modelMean,
                                     modelInvStdDev, modelActsBN,
                                     modelActsWhitened);
   boost::multi_array<double, 4>
       modelGradsOut(boost::extents[batchSize][numChannels][dimY][dimX]);
 
-  poplib_test::conv::batchNormGradients(modelActsWhitened, modelGradsIn,
+  poplibs_test::conv::batchNormGradients(modelActsWhitened, modelGradsIn,
                                         modelInvStdDev, modelGamma,
                                         modelGradsOut);
-  poplib_test::conv::batchNormParamUpdate(modelActsWhitened, modelGradsIn,
+  poplibs_test::conv::batchNormParamUpdate(modelActsWhitened, modelGradsIn,
                                           learningRate, modelGamma, modelBeta);
 
   const double relativeTolerance = dataType == FLOAT
@@ -236,18 +235,17 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   auto device = ipuModel.createDevice();
   const auto &target = device.getTarget();
   Graph graph(device);
-  popstd::addCodelets(graph);
+  popops::addCodelets(graph);
   popnn::addCodelets(graph);
-  popreduce::addCodelets(graph);
 
   assert(dims.size() == 2);
   const unsigned batchSize = dims[0];
   const unsigned numActs = dims[1];
 
   auto acts = graph.addVariable(dataType, {batchSize, numActs}, "act");
-  popstd::mapTensorLinearly(graph, acts);
+  poputil::mapTensorLinearly(graph, acts);
   auto gradsIn = graph.addVariable(dataType, {batchSize, numActs}, "gradsIn");
-  popstd::mapTensorLinearly(graph, gradsIn);
+  poputil::mapTensorLinearly(graph, gradsIn);
   auto prog = Sequence();
 
   Tensor mean, invStdDev;
@@ -348,19 +346,20 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   boost::multi_array<double, 1> modelMean(boost::extents[numActs]);
   boost::multi_array<double, 1> modelInvStdDev(boost::extents[numActs]);
 
-  poplib_test::fc::batchNormEstimates(hostActs, eps, modelMean, modelInvStdDev);
+  poplibs_test::fc::batchNormEstimates(hostActs, eps,
+                                       modelMean, modelInvStdDev);
 
   boost::multi_array<double, 2> modelActsBN(boost::extents[batchSize][numActs]);
-  poplib_test::fc::batchNormalise(hostActs, modelGamma, modelBeta, modelMean,
+  poplibs_test::fc::batchNormalise(hostActs, modelGamma, modelBeta, modelMean,
                                   modelInvStdDev, modelActsBN,
                                   modelActsWhitened);
 
   boost::multi_array<double, 2> modelGradsOut(boost::extents[batchSize]
                                                             [numActs]);
-  poplib_test::fc::batchNormGradients(hostActsWhitened, hostGradsIn,
+  poplibs_test::fc::batchNormGradients(hostActsWhitened, hostGradsIn,
                                       modelInvStdDev, modelGamma,
                                       modelGradsOut);
-  poplib_test::fc::batchNormParamUpdate(modelActsWhitened, hostGradsIn,
+  poplibs_test::fc::batchNormParamUpdate(modelActsWhitened, hostGradsIn,
                                         learningRate, modelGamma, modelBeta);
 
   const double relativeTolerance = dataType == FLOAT
