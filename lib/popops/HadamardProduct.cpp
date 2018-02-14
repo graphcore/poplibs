@@ -6,8 +6,9 @@
 
 using namespace poplar;
 using namespace poplar::program;
+using namespace poputil;
 
-namespace poputil {
+namespace popops {
 
 void hadamardProduct(Graph &graph, Tensor A, Tensor B,
                      Sequence &prog, const std::string &debugPrefix) {
