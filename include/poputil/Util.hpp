@@ -1,5 +1,5 @@
-#ifndef _popstd_Util_hpp_
-#define _popstd_Util_hpp_
+#ifndef poputil_Util_hpp
+#define poputil_Util_hpp
 
 #include <algorithm>
 #include <poplar/Device.hpp>
@@ -86,4 +86,4 @@ poplar::Tensor duplicate(poplar::Graph &graph, const poplar::Tensor &in,
 } // end namespace popstd
 
 
-#endif // _popstd_Util_hpp_
+#endif // poputil_Util_hpp

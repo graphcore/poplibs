@@ -1,5 +1,5 @@
-#ifndef __poprand_RandomGen_hpp__
-#define __poprand_RandomGen_hpp__
+#ifndef poprand_RandomGen_hpp
+#define poprand_RandomGen_hpp
 
 #include "poputil/exceptions.hpp"
 #include <poplar/Graph.hpp>
@@ -98,4 +98,4 @@ public:
 
 }// namespace poprand
 
-#endif // __poprand_RandomGen_hpp__
+#endif // poprand_RandomGen_hpp

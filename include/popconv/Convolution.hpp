@@ -1,5 +1,5 @@
-#ifndef __popconv_Convolution_hpp__
-#define __popconv_Convolution_hpp__
+#ifndef popconv_Convolution_hpp
+#define popconv_Convolution_hpp
 #include "poputil/exceptions.hpp"
 #include <tuple>
 #include <map>
@@ -517,4 +517,4 @@ public:
 };
 
 }
-#endif  // __popconv_Convolution_hpp__
+#endif // popconv_Convolution_hpp

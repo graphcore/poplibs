@@ -1,5 +1,5 @@
-#ifndef _popconv_ConvUtil_hpp_
-#define _popconv_ConvUtil_hpp_
+#ifndef popconv_ConvUtil_hpp
+#define popconv_ConvUtil_hpp
 #include <popconv/Convolution.hpp>
 #include <tuple>
 #include <vector>
@@ -140,4 +140,4 @@ ConvParams getGradientParams(const ConvParams &params);
 unsigned detectChannelGrouping(const poplar::Tensor &t);
 
 }
-#endif // _popconv_ConvUtil_hpp_
+#endif // popconv_ConvUtil_hpp

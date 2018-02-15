@@ -1,5 +1,5 @@
-#ifndef __operations_hpp__
-#define __operations_hpp__
+#ifndef popops_ElementWise_hpp
+#define popops_ElementWise_hpp
 
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
@@ -223,4 +223,4 @@ poplar::Tensor clamp(poplar::Graph &graph,
 
 }
 
-#endif // __operations_hpp__
+#endif // popops_ElementWise_hpp

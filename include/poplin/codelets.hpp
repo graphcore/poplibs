@@ -1,9 +1,9 @@
-#ifndef __poplin_codelets_hpp__
-#define __poplin_codelets_hpp__
+#ifndef poplin_codelets_hpp
+#define poplin_codelets_hpp
 #include <poplar/Graph.hpp>
 
 namespace poplin {
   void addCodelets(poplar::Graph &graph);
 }
 
-#endif // __poplin_codelets_hpp__
+#endif // poplin_codelets_hpp

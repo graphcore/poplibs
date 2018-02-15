@@ -1,5 +1,5 @@
-#ifndef __popreduce_Reduce_hpp__
-#define __popreduce_Reduce_hpp__
+#ifndef popops_Reduce_hpp
+#define popops_Reduce_hpp
 
 #include "poplar/Graph.hpp"
 #include "poplar/Program.hpp"
@@ -94,4 +94,4 @@ reduce(poplar::Graph &graph, const poplar::Tensor &A,
 
 }
 
-#endif // __popreduce_Reduce_hpp__
+#endif // popops_Reduce_hpp

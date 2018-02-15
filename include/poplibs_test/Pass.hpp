@@ -1,5 +1,5 @@
-#ifndef _poplibs_test_Pass_hpp_
-#define _poplibs_test_Pass_hpp_
+#ifndef poplibs_test_Pass_hpp
+#define poplibs_test_Pass_hpp
 
 #include <iosfwd>
 
@@ -21,4 +21,4 @@ std::ostream &operator<<(std::ostream &os, const Pass &pass);
 
 } // End namespace poplibs_test.
 
-#endif  // _poplibs_test_Pass_hpp_
+#endif // poplibs_test_Pass_hpp

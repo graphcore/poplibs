@@ -1,5 +1,5 @@
-#ifndef __popstd_TileMapping_hpp__
-#define __popstd_TileMapping_hpp__
+#ifndef poputil_TileMapping_hpp
+#define poputil_TileMapping_hpp
 #include <vector>
 #include "poplar/Graph.hpp"
 
@@ -40,4 +40,4 @@ mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t);
 
 }
 
-#endif // __popstd_TileMapping_hpp__
+#endif // poputil_TileMapping_hpp

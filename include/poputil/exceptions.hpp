@@ -1,7 +1,7 @@
 // Copyright (c) 2016, Graphcore Ltd, All rights reserved.
 
-#ifndef popstd_exceptions_hpp_
-#define popstd_exceptions_hpp_
+#ifndef poputil_exceptions_hpp
+#define poputil_exceptions_hpp
 
 #include <stdexcept>
 #include <string>
@@ -20,4 +20,4 @@ struct poplib_error : std::logic_error {
 
 } // End namespace popstd.
 
-#endif // popstd_exceptions_hpp_
+#endif // poputil_exceptions_hpp

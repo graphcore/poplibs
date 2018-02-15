@@ -1,5 +1,5 @@
-#ifndef __poplibs_cycles_tables__hpp__
-#define __poplibs_cycles_tables__hpp__
+#ifndef poplibs_support_cyclesTables_hpp
+#define poplibs_support_cyclesTables_hpp
 
 #include <poplar/Target.hpp>
 #include <poplar/VertexIntrospector.hpp>
@@ -70,4 +70,4 @@ inline void registerCyclesFunctions(poplar::Graph& graph,
 
 } // end namespace poplibs
 
-#endif
+#endif // poplibs_support_cyclesTables_hpp

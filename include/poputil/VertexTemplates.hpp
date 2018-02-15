@@ -1,5 +1,5 @@
-#ifndef __popstd_vertex_templates_hpp__
-#define __popstd_vertex_templates_hpp__
+#ifndef poputil_VertexTemplates_hpp
+#define poputil_VertexTemplates_hpp
 #include <string>
 #include <poplar/Type.hpp>
 
@@ -87,4 +87,4 @@ inline std::string templateVertex(const std::string &name,
 
 } // end namespace popstd
 
-#endif // __popstd_vertex_templates_hpp__
+#endif // poputil_VertexTemplates_hpp

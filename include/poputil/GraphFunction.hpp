@@ -1,5 +1,5 @@
-#ifndef __popstd_GraphFunction_hpp__
-#define __popstd_GraphFunction_hpp__
+#ifndef poputil_GraphFunction_hpp
+#define poputil_GraphFunction_hpp
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 
@@ -86,4 +86,4 @@ public:
 }} // end namespace popops::graphfn
 
 
-#endif // __popstd_GraphFunction_hpp__
+#endif // poputil_GraphFunction_hpp

@@ -1,5 +1,5 @@
-#ifndef __popstd_Compiler_hpp__
-#define __popstd_Compiler_hpp__
+#ifndef poplibs_support_Compiler_hpp
+#define poplibs_support_Compiler_hpp
 
 // This file provides useful macros to use in the Poplar libraries
 
@@ -9,4 +9,4 @@
 #define POPLIB_UNREACHABLE() __builtin_trap()
 #endif
 
-#endif // _popstd_Compiler_hpp__
+#endif // poplibs_support_Compiler_hpp

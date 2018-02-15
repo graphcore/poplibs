@@ -1,5 +1,5 @@
-#ifndef _poplibs_test_FullyConnected_hpp_
-#define _poplibs_test_FullyConnected_hpp_
+#ifndef poplibs_test_FullyConnected_hpp
+#define poplibs_test_FullyConnected_hpp
 
 #include<boost/multi_array.hpp>
 
@@ -65,4 +65,4 @@ void batchNormParamUpdate(
 } // End namespace poplibs_test.
 } // End namespace conv.
 
-#endif  // _poplibs_test_FullyConnected_hpp_
+#endif // poplibs_test_FullyConnected_hpp

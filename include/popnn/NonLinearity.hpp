@@ -1,5 +1,5 @@
-#ifndef __popnn_NonLinearity_hpp__
-#define __popnn_NonLinearity_hpp__
+#ifndef popnn_NonLinearity_hpp
+#define popnn_NonLinearity_hpp
 
 namespace popnn {
 
@@ -72,4 +72,4 @@ nonLinearityInputGradient(poplar::Graph &graph,
 
 #endif // !__POPC__
 
-#endif // __popnn_NonLinearity_hpp__
+#endif // popnn_NonLinearity_hpp

@@ -1,5 +1,5 @@
-#ifndef _popnn_Lstm_hpp_
-#define _popnn_Lstm_hpp_
+#ifndef popnn_Lstm_hpp
+#define popnn_Lstm_hpp
 
 #include <popnn/LstmDef.hpp>
 #include <poplar/Graph.hpp>
@@ -446,4 +446,4 @@ std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor, poplar::Tensor>
 
 } // namespace lstm
 } // namespave popnn
-#endif  // _popnn_Lstm_hpp_
+#endif // popnn_Lstm_hpp

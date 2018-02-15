@@ -1,5 +1,5 @@
-#ifndef __popstd_HadamardProduct_hpp__
-#define __popstd_HadamardProduct_hpp__
+#ifndef popops_HadamardProduct_hpp
+#define popops_HadamardProduct_hpp
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <string>
@@ -18,4 +18,4 @@ void hadamardProduct(poplar::Graph &graph,
 
 }
 
-#endif // __popstd_HadamardProduct_hpp__
+#endif // popops_HadamardProduct_hpp

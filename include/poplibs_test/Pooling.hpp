@@ -1,5 +1,5 @@
-#ifndef _poplibs_test_Pooling_hpp_
-#define _poplibs_test_Pooling_hpp_
+#ifndef poplibs_test_Pooling_hpp
+#define poplibs_test_Pooling_hpp
 #include "popnn/PoolingDef.hpp"
 #include <boost/multi_array.hpp>
 
@@ -26,4 +26,4 @@ void poolingBackward(popnn::PoolingType pType, unsigned strideHeight,
 } // End namespace pooling.
 } // End namespace poplibs_test.
 
-#endif  // _poplibs_test_Pooling__
+#endif // poplibs_test_Pooling_hpp

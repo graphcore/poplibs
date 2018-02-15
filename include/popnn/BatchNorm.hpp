@@ -1,5 +1,5 @@
-#ifndef __popnn_BatchNorm_hpp__
-#define __popnn_BatchNorm_hpp__
+#ifndef popnn_BatchNorm_hpp
+#define popnn_BatchNorm_hpp
 #include "poplar/Program.hpp"
 #include "poplar/Tensor.hpp"
 #include <utility>
@@ -96,4 +96,4 @@ uint64_t getWuFlops(uint64_t numChannels, uint64_t actsPerChannel);
 
 } // namespace bn
 } // namespace popnn
-#endif // __popnn_BatchNorm_hpp__
+#endif // popnn_BatchNorm_hpp

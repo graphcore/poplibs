@@ -1,5 +1,5 @@
-#ifndef __alltrue_hpp__
-#define __alltrue_hpp__
+#ifndef popops_AllTrue_hpp
+#define popops_AllTrue_hpp
 
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
@@ -22,4 +22,4 @@ void allTrue(poplar::Graph &graph,
 
 }
 
-#endif // __operations_hpp__
+#endif // popops_AllTrue_hpp

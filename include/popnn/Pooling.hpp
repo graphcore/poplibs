@@ -1,5 +1,5 @@
-#ifndef __popnn_MaxPool_hpp__
-#define __popnn_MaxPool_hpp__
+#ifndef popnn_Pooling_hpp
+#define popnn_Pooling_hpp
 #include <popnn/PoolingDef.hpp>
 #include <tuple>
 #include <poplar/Graph.hpp>
@@ -100,4 +100,4 @@ poolInputGradient(poplar::Graph &graph,
 }
 }
 
-#endif  // __MaxPool_hpp__
+#endif // popnn_Pooling_hpp

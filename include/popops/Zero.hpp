@@ -1,5 +1,5 @@
-#ifndef __popstd_Zero_hpp__
-#define __popstd_Zero_hpp__
+#ifndef popops_Zero_hpp
+#define popops_Zero_hpp
 
 #include "poplar/Graph.hpp"
 #include "poplar/Program.hpp"
@@ -34,4 +34,4 @@ void zero(poplar::Graph &graph, const poplar::Tensor &t,
 
 }
 
-#endif // __popstd_Zero_hpp__
+#endif // popops_Zero_hpp

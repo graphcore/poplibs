@@ -1,5 +1,5 @@
-#ifndef _poplibs_test_Util_hpp_
-#define _poplibs_test_Util_hpp_
+#ifndef poplibs_test_Util_hpp
+#define poplibs_test_Util_hpp
 #include <cassert>
 #include <memory>
 #include <random>
@@ -222,4 +222,4 @@ namespace std {
 std::istream &operator>>(std::istream &in, poplar::Type &type);
 }
 
-#endif  // _poplibs_test_Util_hpp_
+#endif // poplibs_test_Util_hpp

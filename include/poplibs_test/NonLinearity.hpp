@@ -1,5 +1,5 @@
-#ifndef _poplibs_test_NonLinearity_hpp_
-#define _poplibs_test_NonLinearity_hpp_
+#ifndef poplibs_test_NonLinearity_hpp
+#define poplibs_test_NonLinearity_hpp
 
 #include "popnn/NonLinearity.hpp"
 #include "poplibs_support/Compiler.hpp"
@@ -57,4 +57,4 @@ void bwdNonLinearity(popnn::NonLinearityType nonLinearityType,
 
 } // End namespace poplibs_test.
 
-#endif  // _poplibs_test_NonLinearity_hpp_
+#endif // poplibs_test_NonLinearity_hpp

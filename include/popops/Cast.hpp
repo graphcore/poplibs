@@ -1,5 +1,5 @@
-#ifndef __popstd_Cast_hpp__
-#define __popstd_Cast_hpp__
+#ifndef popops_Cast_hpp
+#define popops_Cast_hpp
 
 #include <poplar/Interval.hpp>
 #include <poplar/Graph.hpp>
@@ -29,4 +29,4 @@ cast(poplar::Graph &graph, poplar::Tensor src, poplar::Tensor dst,
 
 }
 
-#endif // __posptd_Cast_hpp__
+#endif // popops_Cast_hpp

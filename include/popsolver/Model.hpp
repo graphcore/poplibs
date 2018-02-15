@@ -1,5 +1,5 @@
-#ifndef _popsolver_Model_hpp_
-#define _popsolver_Model_hpp_
+#ifndef popsolver_Model_hpp
+#define popsolver_Model_hpp
 
 #include <cassert>
 #include <functional>
@@ -130,4 +130,4 @@ public:
 
 } // End namespace popsolver.
 
-#endif // _popsolver_Model_hpp_
+#endif // popsolver_Model_hpp

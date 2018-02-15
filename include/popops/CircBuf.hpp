@@ -1,5 +1,5 @@
-#ifndef __CircBuf_hpp__
-#define __CircBuf_hpp__
+#ifndef popops_CircBuf_hpp
+#define popops_CircBuf_hpp
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <poplar/Tensor.hpp>
@@ -38,4 +38,4 @@ public:
 
 }
 
-#endif // __CircBuf_hpp__
+#endif // popops_CircBuf_hpp

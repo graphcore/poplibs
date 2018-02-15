@@ -1,5 +1,5 @@
-#ifndef __popstd_Add_hpp__
-#define __popstd_Add_hpp__
+#ifndef popops_Add_hpp
+#define popops_Add_hpp
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <string>
@@ -46,4 +46,4 @@ void addTo(poplar::Graph &graph,
 
 }
 
-#endif // __popstd_Add_hpp__
+#endif // popops_Add_hpp

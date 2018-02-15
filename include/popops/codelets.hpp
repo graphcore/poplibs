@@ -1,9 +1,9 @@
-#ifndef __popreduce_codelets_hpp__
-#define __popreduce_codelets_hpp__
+#ifndef popops_codelets_hpp
+#define popops_codelets_hpp
 #include <poplar/Graph.hpp>
 
 namespace popops {
   void addCodelets(poplar::Graph &graph);
 }
 
-#endif // __popreduce_codelets_hpp__
+#endif // popops_codelets_hpp

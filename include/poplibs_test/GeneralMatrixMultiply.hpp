@@ -1,5 +1,5 @@
-#ifndef _poplibs_test_gemm_hpp_
-#define _poplibs_test_gemm_hpp_
+#ifndef poplibs_test_GeneralMatrixMultiply_hpp
+#define poplibs_test_GeneralMatrixMultiply_hpp
 
 #include<boost/multi_array.hpp>
 
@@ -85,4 +85,4 @@ void generalMatrixMultiply(const boost::multi_array_ref<double, 2> matA,
 } // End namespace gemm.
 } // End namespace ref.
 
-#endif  // _poplibs_test_FullyConnected_hpp_
+#endif // poplibs_test_GeneralMatrixMultiply_hpp

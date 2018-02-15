@@ -1,5 +1,5 @@
-#ifndef __popnn_Loss_hpp__
-#define __popnn_Loss_hpp__
+#ifndef popnn_Loss_hpp
+#define popnn_Loss_hpp
 
 namespace popnn {
 
@@ -34,4 +34,4 @@ calcLoss(poplar::Graph &graph,
 #endif // !__POPC__
 
 
-#endif // __Loss_hpp__
+#endif // popnn_Loss_hpp

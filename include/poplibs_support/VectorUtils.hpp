@@ -1,5 +1,5 @@
-#ifndef __VectorUtils_hpp__
-#define __VectorUtils_hpp__
+#ifndef poplibs_support_VectorUtils_hpp
+#define poplibs_support_VectorUtils_hpp
 
 #include <functional>
 #include <numeric>
@@ -20,4 +20,4 @@ std::vector<To> vectorConvert(const std::vector<From> &in) {
   return out;
 }
 
-#endif // __VectorUtils_hpp__
+#endif // poplibs_support_VectorUtils_hpp

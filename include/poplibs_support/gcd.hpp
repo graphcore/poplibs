@@ -1,5 +1,5 @@
-#ifndef _gcd_hpp_
-#define _gcd_hpp_
+#ifndef poplibs_support_gcd_hpp
+#define poplibs_support_gcd_hpp
 
 // Greatest common divisor
 template <typename T>
@@ -18,4 +18,4 @@ static T lcm(T a, T b) {
   return (a * b) / gcd(a, b);
 }
 
-#endif
+#endif // poplibs_support_gcd_hpp

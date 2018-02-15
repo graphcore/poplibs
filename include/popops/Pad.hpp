@@ -1,5 +1,5 @@
-#ifndef __popstd_Pad_hpp__
-#define __popstd_Pad_hpp__
+#ifndef popops_Pad_hpp
+#define popops_Pad_hpp
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <vector>
@@ -35,4 +35,4 @@ pad(poplar::Graph &graph, const poplar::Tensor &t, std::ptrdiff_t paddingLower,
 
 }
 
-#endif // __popstd_Pad_hpp__
+#endif // popops_Pad_hpp

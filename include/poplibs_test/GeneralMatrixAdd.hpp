@@ -1,5 +1,5 @@
-#ifndef _poplibs_test_GeneralMatrixAdd_hpp_
-#define _poplibs_test_GeneralMatrixAdd_hpp_
+#ifndef poplibs_test_GeneralMatrixAdd_hpp
+#define poplibs_test_GeneralMatrixAdd_hpp
 
 #include<boost/multi_array.hpp>
 
@@ -36,4 +36,4 @@ void add(const boost::multi_array_ref<double, 1> matA,
 } // End namespace axpby.
 } // End namespace poplibs_test.
 
-#endif  // _poplibs_test_GeneralMatrixAdd_hpp_
+#endif // poplibs_test_GeneralMatrixAdd_hpp

@@ -1,5 +1,5 @@
-#ifndef _poplibs_test_rnn_hpp_
-#define _poplibs_test_rnn_hpp_
+#ifndef poplibs_test_Rnn_hpp
+#define poplibs_test_Rnn_hpp
 
 /**
  * Functions to compute forward, backward and weight update phases of a Vanilla
@@ -123,4 +123,4 @@ void paramUpdate(
 } // End namespace rnn.
 } // End namespace poplibs_test.
 
-#endif  // _poplibs_test_rnn_hpp_
+#endif // poplibs_test_Rnn_hpp

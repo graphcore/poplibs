@@ -1,9 +1,9 @@
-#ifndef __poprand_codelets_hpp__
-#define __poprand_codelets_hpp__
+#ifndef poprand_codelets_hpp
+#define poprand_codelets_hpp
 #include <poplar/Graph.hpp>
 
 namespace poprand {
   void addCodelets(poplar::Graph &graph);
 }
 
-#endif // __poprand_codelets_hpp__
+#endif // poprand_codelets_hpp

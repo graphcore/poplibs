@@ -1,5 +1,5 @@
-#ifndef __poplin_MatMul_hpp__
-#define __poplin_MatMul_hpp__
+#ifndef poplin_MatMul_hpp
+#define poplin_MatMul_hpp
 #include <map>
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
@@ -295,4 +295,4 @@ public:
 
 } // namespace poplin
 
-#endif // __poplin_MatMul_hpp__
+#endif // poplin_MatMul_hpp

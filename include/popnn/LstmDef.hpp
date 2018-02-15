@@ -1,5 +1,5 @@
-#ifndef __popnn_LstmDef_hpp__
-#define __popnn_LstmDef_hpp__
+#ifndef popnn_LstmDef_hpp
+#define popnn_LstmDef_hpp
 
 
 /**
@@ -15,4 +15,4 @@ enum BasicLstmCellUnit {BASIC_LSTM_CELL_FORGET_GATE,
                         BASIC_LSTM_CELL_NUM_UNITS
                        };
 
-#endif // _popnn_LstmDef_hpp__
+#endif // popnn_LstmDef_hpp

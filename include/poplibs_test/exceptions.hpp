@@ -1,7 +1,7 @@
 // Copyright (c) 2016, Graphcore Ltd, All rights reserved.
 
-#ifndef poplibs_test_exceptions_hpp_
-#define poplibs_test_exceptions_hpp_
+#ifndef poplibs_test_exceptions_hpp
+#define poplibs_test_exceptions_hpp
 
 #include <stdexcept>
 #include <string>
@@ -20,4 +20,4 @@ struct poplibs_test_error : std::logic_error {
 
 } // End namespace poplibs_test.
 
-#endif // poplibs_test_exceptions_hpp_
+#endif // poplibs_test_exceptions_hpp

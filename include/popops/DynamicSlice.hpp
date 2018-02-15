@@ -1,5 +1,5 @@
-#ifndef __popstd_DynamicSlice_hpp__
-#define __popstd_DynamicSlice_hpp__
+#ifndef popops_DynamicSlice_hpp
+#define popops_DynamicSlice_hpp
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <string>
@@ -64,4 +64,4 @@ void dynamicUpdate(poplar::Graph &graph,
 
 }
 
-#endif //__popstd_DynamicSlice_hpp__
+#endif // popops_DynamicSlice_hpp

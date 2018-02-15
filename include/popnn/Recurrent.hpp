@@ -1,5 +1,5 @@
-#ifndef __popnn_Recurrent_hpp__
-#define __popnn_Recurrent_hpp__
+#ifndef popnn_Recurrent_hpp
+#define popnn_Recurrent_hpp
 
 /**
  *  Vanilla RNN layer implementation:
@@ -440,4 +440,4 @@ std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor, poplar::Tensor>
 } // namespace rnn
 } // namespace popnn
 
-#endif  // __popnn_Recurrent_hpp__
+#endif // popnn_Recurrent_hpp

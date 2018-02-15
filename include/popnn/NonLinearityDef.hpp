@@ -1,5 +1,5 @@
-#ifndef __nonlinearitydef_hpp__
-#define __nonlinearitydef_hpp__
+#ifndef popnn_NonLinearityDef_hpp
+#define popnn_NonLinearityDef_hpp
 
 enum NonLinearityType {
   NON_LINEARITY_SIGMOID,
@@ -8,4 +8,4 @@ enum NonLinearityType {
   NON_LINEARITY_SOFTMAX
 };
 
-#endif //__nonlinearitydef_hpp__
+#endif // popnn_NonLinearityDef_hpp

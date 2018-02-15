@@ -1,5 +1,5 @@
-#ifndef __popconv_ConvPlan_hpp__
-#define __popconv_ConvPlan_hpp__
+#ifndef popconv_internal_ConvPlan_hpp
+#define popconv_internal_ConvPlan_hpp
 #include <popconv/Convolution.hpp>
 #include <string>
 #include <poplar/Graph.hpp>
@@ -125,4 +125,4 @@ std::uint64_t estimateConvCost(const poplar::Target &target,
                                PlanningCache *cache = nullptr);
 
 }
-#endif // __popconv_ConvPlan_hpp__
+#endif // popconv_internal_ConvPlan_hpp

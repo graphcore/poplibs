@@ -1,5 +1,5 @@
-#ifndef __popstd_Subtract_hpp__
-#define __popstd_Subtract_hpp__
+#ifndef popops_SubtractFrom_hpp
+#define popops_SubtractFrom_hpp
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <string>
@@ -45,4 +45,4 @@ void subtractFrom(poplar::Graph &graph,
 
 }
 
-#endif // __popstd_Subtract_hpp__
+#endif // popops_SubtractFrom_hpp

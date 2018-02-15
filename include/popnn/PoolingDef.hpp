@@ -1,5 +1,5 @@
-#ifndef __popnn_PoolingDef_hpp__
-#define __popnn_PoolingDef_hpp__
+#ifndef popnn_PoolingDef_hpp
+#define popnn_PoolingDef_hpp
 
 namespace popnn {
 
@@ -8,4 +8,4 @@ enum class PoolingType {MAX, AVG, SUM};
 
 } // End namespace popnn.
 
-#endif // __popnn_PoolingDef_hpp__
+#endif // popnn_PoolingDef_hpp

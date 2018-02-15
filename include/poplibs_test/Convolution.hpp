@@ -1,5 +1,5 @@
-#ifndef _poplibs_test_Convolution_hpp_
-#define _poplibs_test_Convolution_hpp_
+#ifndef poplibs_test_Convolution_hpp
+#define poplibs_test_Convolution_hpp
 
 #include<boost/multi_array.hpp>
 
@@ -115,4 +115,4 @@ void batchNormParamUpdate(const boost::multi_array_ref<double, 4> actsWhitened,
 } // End namespace poplibs_test.
 } // End namespace conv.
 
-#endif  // _poplibs_test_Convolution_hpp_
+#endif // poplibs_test_Convolution_hpp

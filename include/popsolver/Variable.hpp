@@ -1,5 +1,5 @@
-#ifndef _popsolver_Variable_hpp_
-#define _popsolver_Variable_hpp_
+#ifndef popsolver_Variable_hpp
+#define popsolver_Variable_hpp
 
 namespace popsolver {
 
@@ -12,4 +12,4 @@ public:
 
 } // End namespace popsolver.
 
-#endif // _popsolver_Variable_hpp_
+#endif // popsolver_Variable_hpp

@@ -1,5 +1,5 @@
-#ifndef __poplibs_test_Lstm_hpp_
-#define __poplibs_test_Lstm_hpp_
+#ifndef poplibs_test_Lstm_hpp
+#define poplibs_test_Lstm_hpp
 
 #include <popnn/LstmDef.hpp>
 #include <boost/multi_array.hpp>
@@ -108,4 +108,4 @@ basicLstmCellParamUpdate(
 } // poplib_lstm
 } // ref
 
-#endif // __poplibs_test_Lstm_hpp_
+#endif // poplibs_test_Lstm_hpp

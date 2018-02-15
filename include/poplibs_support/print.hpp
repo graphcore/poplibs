@@ -1,6 +1,6 @@
-#ifndef _print_hpp_
+#ifndef poplibs_support_print_hpp
 // Copyright (c) 2017, Graphcore Ltd, All rights reserved.
-#define _print_hpp_
+#define poplibs_support_print_hpp
 
 #include <ostream>
 #include <type_traits>
@@ -55,4 +55,4 @@ operator<<(std::ostream &os, const Container &container)
 
 
 
-#endif // _print_hpp_
+#endif // poplibs_support_print_hpp
