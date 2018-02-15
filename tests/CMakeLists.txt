@@ -9,7 +9,7 @@ function(add_popnn_unit_test name)
     PRIVATE
       $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
       $<TARGET_PROPERTY:popconv,INCLUDE_DIRECTORIES>)
-  target_link_libraries(${name} poprand popnn
+  target_link_libraries(${name} poprand popnn poputil
                         poplar
                         poplibs_test
                         Boost::unit_test_framework
@@ -39,6 +39,7 @@ add_popnn_unit_test(ReductionTests ReductionTests.cpp)
 add_popnn_unit_test(LargeSplitRegionsTest LargeSplitRegionsTest.cpp)
 add_popnn_unit_test(DynamicSliceTest DynamicSliceTest.cpp)
 add_popnn_unit_test(CircBufTests CircBufTests.cpp)
+add_popnn_unit_test(BroadcastToMatchTest BroadcastToMatchTest.cpp)
 
 # Random single_conv_layer tests with fixed seed.
 set(NUM_CONV_RANDOM_TESTS 50)

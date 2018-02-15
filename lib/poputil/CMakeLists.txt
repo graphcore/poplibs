@@ -2,9 +2,11 @@ include(GNUInstallDirs)
 get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(poputil SHARED
+  Broadcast.cpp
   GraphFunction.cpp
   TileMapping.cpp
   Util.cpp
+  ${CMAKE_SOURCE_DIR}/include/poputil/Broadcast.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/exceptions.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/GraphFunction.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/TileMapping.hpp
