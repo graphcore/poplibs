@@ -189,6 +189,8 @@ std::ostream& operator<<(std::ostream &os, const Plan &p)
      << "        flattenDims             ";
   printContainer(p.flattenDims, os);
   os << "\n";
+  os << "        inChansPadding          " << p.inChansPadding << "\n";
+  os << "        partialChansPadding     " << p.partialChansPadding << "\n";
   return os;
 }
 
@@ -1877,8 +1879,8 @@ calculateFlattenedParams(const ConvParams &params,
 
 static ConvParams
 calculatePaddedParams(const ConvParams &params, unsigned inChansPerGroup,
-                      unsigned partialChansPerGroup,
-                      unsigned &inChansPadding, unsigned &partialChansPadding) {
+                      unsigned partialChansPerGroup, unsigned &inChansPadding,
+                      unsigned &partialChansPadding) {
   auto paddedParams = params;
   const auto inChans = params.getNumInputChansPerConvGroup();
   paddedParams.inputChannels =
@@ -2015,6 +2017,8 @@ createPlan(ConvParams params,
           if (candidateCost == highestCost)
             continue;
           candidate.extraFieldDims = addedFieldDims;
+          candidate.inChansPadding = inChansPadding;
+          candidate.partialChansPadding = partialChansPadding;
           candidate.swapOperands = swapOperands;
           candidate.expandDims = expandDims;
           candidate.outChanFlattenDims = outChanFlattenDims;
@@ -2113,6 +2117,9 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
     plan.partitions[i].inChanGrainSize = fwdPlan.partitions[i].outChanGrainSize;
   }
   plan.partialChansPerGroup = fwdPlan.inChansPerGroup;
+  plan.partialChansPadding = fwdPlan.inChansPadding;
+  plan.inChansPerGroup = fwdPlan.partialChansPerGroup;
+  plan.inChansPadding = fwdPlan.partialChansPadding;
 
   plan.method = getFullyConnectedWUMethod(fwdParams, fwdPlan.method,
                                           fwdPlan.partialChansPerGroup,
@@ -2159,6 +2166,11 @@ static Plan getFullyConnectedBwdPlan(const poplar::Target &target,
     std::swap(partition.fieldAxisGrainSize.back(), partition.inChanGrainSize);
   }
   plan.inChansPerGroup = plan.partitions.back().inChanGrainSize;
+  const auto bwdInputChans = fwdParams.inputFieldShape.back();
+  const auto bwdPaddedInputChans =
+      ((bwdInputChans + plan.inChansPerGroup - 1) / plan.inChansPerGroup) *
+      plan.inChansPerGroup;
+  plan.inChansPadding = bwdPaddedInputChans - bwdInputChans;
   return plan;
 }
 

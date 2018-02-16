@@ -1411,35 +1411,20 @@ convolutionPreprocess(Graph &graph, ConvParams &params, Plan &plan,
     }
   }
   plan.flattenDims.clear();
-  const auto numInChans = params.getNumInputChansPerConvGroup();
-  const auto convInChansPerGroup = plan.inChansPerGroup;
-  const auto convNumChanGroups =
-      (numInChans + convInChansPerGroup - 1) / convInChansPerGroup;
-  const auto convNumChans = convInChansPerGroup * convNumChanGroups;
-
-  if (convNumChans != numInChans) {
-    // Zero pad the input / weights.
-    if (acts) {
-      *acts = pad(graph, *acts, 0, convNumChans - numInChans, acts->rank() - 1);
-    }
-    if (weights) {
-      *weights = pad(graph, *weights, 0, convNumChans - numInChans,
-                     weights->rank() - 1);
-    }
-    params.inputChannels = convNumChans;
+  // Zero pad the input / weights.
+  if (acts) {
+    *acts = pad(graph, *acts, 0, plan.inChansPadding, acts->rank() - 1);
   }
-  const auto outNumChans = params.getNumOutputChansPerConvGroup();
-  const auto partialChansPerGroup = plan.partialChansPerGroup;
-  const auto partialNumChanGroups =
-      (outNumChans + partialChansPerGroup - 1) / partialChansPerGroup;
-  const auto partialNumChans = partialNumChanGroups * partialChansPerGroup;
-  if (partialNumChans != outNumChans) {
-    if (weights) {
-      *weights = pad(graph, *weights, 0, partialNumChans - outNumChans,
-                     weights->rank() - 2);
-    }
-    params.outputChannels = partialNumChans;
+  if (weights) {
+    *weights = pad(graph, *weights, 0, plan.inChansPadding,
+                   weights->rank() - 1);
+    *weights = pad(graph, *weights, 0, plan.partialChansPadding,
+                   weights->rank() - 2);
   }
+  params.inputChannels += plan.inChansPadding;
+  params.outputChannels += plan.partialChansPadding;
+  plan.inChansPadding = 0;
+  plan.partialChansPadding = 0;
 }
 
 /// Map the activations tensor such that the exchange required during the
@@ -2875,10 +2860,10 @@ convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
     }
     swapOperands(postOutChanFlattenParams);
   }
-  const auto outNumChans =
-      postOutChanFlattenParams.getNumOutputChansPerConvGroup();
   // Undo padding.
-  activations = activations.slice(0, outNumChans, activations.rank() - 1);
+  activations = pad(graph, activations, 0,
+                    -static_cast<int>(originalPlan.partialChansPadding),
+                    activations.rank() - 1);
   // Undo flattening of the batch / spatial fields.
   if (!originalPlan.flattenDims.empty()) {
     for (auto it = originalPlan.flattenDims.begin(),

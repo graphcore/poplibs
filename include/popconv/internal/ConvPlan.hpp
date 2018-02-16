@@ -68,6 +68,14 @@ struct Plan {
   // the batch is dimension 0 and the spatial dimensions start at 1.
   // The dimensions are flattened into the last dimension in reverse order.
   std::vector<unsigned> flattenDims;
+  // The amount of zero padding to add to the input channel axis. This padding
+  // is applied after the spatial dimensions are expanded.
+  unsigned inChansPadding = 0;
+  // The amount of zero padding to add to the output channel axis of the
+  // weights / partials. This padding is applied after the spatial dimensions
+  // are flattened into the output channels. This padding is removed in the
+  // final output.
+  unsigned partialChansPadding = 0;
   bool useWinograd = false;
   enum class Method {
     // Direction convolution using the MAC instruction.
