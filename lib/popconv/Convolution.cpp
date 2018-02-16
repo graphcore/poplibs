@@ -1344,38 +1344,39 @@ swapOperands(ConvParams &params, boost::optional<Tensor> &acts,
 /// not null they are updated to be views of the original tensors with
 /// dimensions that match the shape expected by the convolution operation.
 static void
-convolutionPreprocess(Graph &graph, ConvParams &params, Plan &plan,
-                      Tensor *acts, Tensor *weights) {
-  if (plan.extraFieldDims) {
-    addExtraDims(params, plan.extraFieldDims);
+convolutionPreprocess(Graph &graph, ConvParams &params,
+                      ConvTransform &transform, Tensor *acts,
+                      Tensor *weights) {
+  if (transform.extraFieldDims) {
+    addExtraDims(params, transform.extraFieldDims);
     if (acts) {
       *acts = acts->expand(
-                std::vector<std::size_t>(plan.extraFieldDims, 2)
+                std::vector<std::size_t>(transform.extraFieldDims, 2)
               );
     }
     if (weights) {
       *weights = weights->expand(
-                   std::vector<std::size_t>(plan.extraFieldDims, 1)
+                   std::vector<std::size_t>(transform.extraFieldDims, 1)
                  );
     }
-    plan.extraFieldDims = 0;
+    transform.extraFieldDims = 0;
   }
-  if (plan.swapOperands) {
+  if (transform.swapOperands) {
     swapOperands(params, acts, weights);
-    plan.swapOperands = false;
+    transform.swapOperands = false;
   }
-  for (auto dim : plan.expandDims) {
+  for (auto dim : transform.expandDims) {
     expandSpatialDim(graph, params, acts, weights, dim);
   }
-  plan.expandDims.clear();
-  if (!plan.outChanFlattenDims.empty()) {
+  transform.expandDims.clear();
+  if (!transform.outChanFlattenDims.empty()) {
     boost::optional<Tensor> maybeActs, maybeWeights;
     if (acts)
       maybeActs.reset(*acts);
     if (weights)
       maybeWeights.reset(*weights);
     swapOperands(params, maybeActs, maybeWeights);
-    for (auto dim : plan.outChanFlattenDims) {
+    for (auto dim : transform.outChanFlattenDims) {
       expandSpatialDim(graph, params, maybeActs.get_ptr(),
                        maybeWeights.get_ptr(), dim);
       if (maybeActs) {
@@ -1389,13 +1390,13 @@ convolutionPreprocess(Graph &graph, ConvParams &params, Plan &plan,
       *acts = *maybeActs;
     if (weights)
       *weights = *maybeWeights;
-    plan.outChanFlattenDims.clear();
+    transform.outChanFlattenDims.clear();
   }
-  if (!plan.flattenDims.empty()) {
-    for (auto it = std::next(plan.flattenDims.rbegin()),
-         end = plan.flattenDims.rend(); it != end; ++it) {
+  if (!transform.flattenDims.empty()) {
+    for (auto it = std::next(transform.flattenDims.rbegin()),
+         end = transform.flattenDims.rend(); it != end; ++it) {
       const auto fromDimIndex = *it;
-      const auto toDimIndex = plan.flattenDims.back();
+      const auto toDimIndex = transform.flattenDims.back();
       assert(fromDimIndex != toDimIndex);
       if (acts) {
         *acts = flattenDims(*acts, fromDimIndex + 1, toDimIndex + 1);
@@ -1410,21 +1411,21 @@ convolutionPreprocess(Graph &graph, ConvParams &params, Plan &plan,
       fromDimSize = 1;
     }
   }
-  plan.flattenDims.clear();
+  transform.flattenDims.clear();
   // Zero pad the input / weights.
   if (acts) {
-    *acts = pad(graph, *acts, 0, plan.inChansPadding, acts->rank() - 1);
+    *acts = pad(graph, *acts, 0, transform.inChansPadding, acts->rank() - 1);
   }
   if (weights) {
-    *weights = pad(graph, *weights, 0, plan.inChansPadding,
+    *weights = pad(graph, *weights, 0, transform.inChansPadding,
                    weights->rank() - 1);
-    *weights = pad(graph, *weights, 0, plan.partialChansPadding,
+    *weights = pad(graph, *weights, 0, transform.partialChansPadding,
                    weights->rank() - 2);
   }
-  params.inputChannels += plan.inChansPadding;
-  params.outputChannels += plan.partialChansPadding;
-  plan.inChansPadding = 0;
-  plan.partialChansPadding = 0;
+  params.inputChannels += transform.inChansPadding;
+  params.outputChannels += transform.partialChansPadding;
+  transform.inChansPadding = 0;
+  transform.partialChansPadding = 0;
 }
 
 /// Map the activations tensor such that the exchange required during the
@@ -1438,7 +1439,7 @@ static void mapActivations(Graph &graph, ConvParams params,
   // activations that don't appear in the transformed view are mapped to a tile.
   mapTensorLinearly(graph, acts);
   // Apply the transform to the activations.
-  convolutionPreprocess(graph, params, plan, &acts, nullptr);
+  convolutionPreprocess(graph, params, plan.transform, &acts, nullptr);
   // Compute a mapping for the transformed activations tensor that minimizes
   // exchange.
   acts = splitActivationChanGroups(acts, plan.inChansPerGroup);
@@ -1457,11 +1458,11 @@ static Tensor
 createInputImpl(Graph &graph, const ConvParams &params,
                 const std::string &name,
                 const Plan &plan) {
-  if (plan.swapOperands) {
+  if (plan.transform.swapOperands) {
     auto newParams = params;
     auto newPlan = plan;
     swapOperands(newParams);
-    newPlan.swapOperands = false;
+    newPlan.transform.swapOperands = false;
     auto t = createWeightsImpl(graph, newParams, name, newPlan);
     return t.dimRoll(t.rank() - 2, 1);
   }
@@ -1566,7 +1567,7 @@ static void mapWeights(Graph &graph, Tensor weights,
   // padding). Map the weights tensor before it is transformed so
   // weights that don't appear in the transformed view are mapped to a tile.
   mapTensorLinearly(graph, weights);
-  convolutionPreprocess(graph, params, plan, nullptr, &weights);
+  convolutionPreprocess(graph, params, plan.transform, nullptr, &weights);
   weights = groupWeights(weights, plan.inChansPerGroup,
                          plan.partialChansPerGroup);
   // Compute a mapping for the transformed weights tensor that minimizes
@@ -1581,11 +1582,11 @@ static Tensor
 createWeightsImpl(Graph &graph,
                   const ConvParams &params, const std::string &name,
                   const Plan &plan) {
-  if (plan.swapOperands) {
+  if (plan.transform.swapOperands) {
     auto newParams = params;
     auto newPlan = plan;
     swapOperands(newParams);
-    newPlan.swapOperands = false;
+    newPlan.transform.swapOperands = false;
     auto t = createInputImpl(graph, newParams, name, newPlan);
     return t.dimRoll(1, t.rank() - 2);
   }
@@ -2834,23 +2835,23 @@ convSuffix(const ConvParams &params) {
 // - undo any padding
 static Tensor
 convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
-                       const Plan &originalPlan,
+                       const ConvTransform &transform,
                        Tensor activations) {
   auto postAddExtraDimsParams = originalParams;
-  if (originalPlan.extraFieldDims) {
-    addExtraDims(postAddExtraDimsParams, originalPlan.extraFieldDims);
+  if (transform.extraFieldDims) {
+    addExtraDims(postAddExtraDimsParams, transform.extraFieldDims);
   }
   auto postExpandParams = postAddExtraDimsParams;
-  if (originalPlan.swapOperands) {
+  if (transform.swapOperands) {
     swapOperands(postExpandParams);
   }
-  for (auto dim : originalPlan.expandDims) {
+  for (auto dim : transform.expandDims) {
     expandSpatialDim(graph, postExpandParams, nullptr, nullptr, dim);
   }
   auto postOutChanFlattenParams = postExpandParams;
-  if (!originalPlan.outChanFlattenDims.empty()) {
+  if (!transform.outChanFlattenDims.empty()) {
     swapOperands(postOutChanFlattenParams);
-    for (auto dim : originalPlan.outChanFlattenDims) {
+    for (auto dim : transform.outChanFlattenDims) {
       expandSpatialDim(graph, postOutChanFlattenParams, nullptr, nullptr, dim);
       // Flatten into the batch axis (this will become the output channel
       // axis when we swap back).
@@ -2862,14 +2863,14 @@ convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
   }
   // Undo padding.
   activations = pad(graph, activations, 0,
-                    -static_cast<int>(originalPlan.partialChansPadding),
+                    -static_cast<int>(transform.partialChansPadding),
                     activations.rank() - 1);
   // Undo flattening of the batch / spatial fields.
-  if (!originalPlan.flattenDims.empty()) {
-    for (auto it = originalPlan.flattenDims.begin(),
-         end = std::prev(originalPlan.flattenDims.end()); it != end; ++it) {
+  if (!transform.flattenDims.empty()) {
+    for (auto it = transform.flattenDims.begin(),
+         end = std::prev(transform.flattenDims.end()); it != end; ++it) {
       const auto fromDimIndex = *it;
-      const auto toDimIndex = originalPlan.flattenDims.back();
+      const auto toDimIndex = transform.flattenDims.back();
       const auto fromSize =
           fromDimIndex ?
             postOutChanFlattenParams.inputFieldShape[fromDimIndex - 1] :
@@ -2880,8 +2881,8 @@ convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
     }
   }
   // Undo flattening into output channels.
-  for (auto it = originalPlan.outChanFlattenDims.rbegin(),
-       end = originalPlan.outChanFlattenDims.rend(); it != end; ++it) {
+  for (auto it = transform.outChanFlattenDims.rbegin(),
+       end = transform.outChanFlattenDims.rend(); it != end; ++it) {
     const auto spatialDim = *it;
     const auto spatialDimSize =
         postAddExtraDimsParams.getOutputSize(spatialDim);
@@ -2890,12 +2891,12 @@ convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
                       spatialDimSize);
   }
   // Undo the swapping of operands.
-  if (originalPlan.swapOperands) {
+  if (transform.swapOperands) {
     activations = activations.dimShufflePartial({1, activations.rank() - 1},
                                                 {activations.rank() - 1, 1});
   }
-  if (originalPlan.extraFieldDims) {
-    std::vector<std::size_t> toSqueeze(originalPlan.extraFieldDims);
+  if (transform.extraFieldDims) {
+    std::vector<std::size_t> toSqueeze(transform.extraFieldDims);
     std::iota(toSqueeze.begin(), toSqueeze.end(), std::size_t(2));
     activations = activations.squeeze(toSqueeze);
   }
@@ -2941,8 +2942,8 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   verifyInputShapes(params, in, weights);
 
   const auto originalParams = params;
-  const auto originalPlan = plan;
-  convolutionPreprocess(graph, params, plan, &in, &weights);
+  const auto originalTransform = plan.transform;
+  convolutionPreprocess(graph, params, plan.transform, &in, &weights);
 
   // If the input tensors have a different memory layout to the one expected by
   // the vertices poplar will rearrange the data using exchange code or copy
@@ -2988,7 +2989,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   const auto layerName = debugPrefix + "/Conv" + convSuffix(params);
   auto activations =
       convolutionImpl(graph, plan, params, in, weights, prog, layerName);
-  activations = convolutionPostprocess(graph, originalParams, originalPlan,
+  activations = convolutionPostprocess(graph, originalParams, originalTransform,
                                        activations);
   return actsToExternalShape(activations);
 }

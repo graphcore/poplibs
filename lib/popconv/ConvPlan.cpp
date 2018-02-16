@@ -163,37 +163,6 @@ static const char *asString(Plan::Method m) {
   }
 }
 
-std::ostream& operator<<(std::ostream &os, Plan::Method m) {
-  os << asString(m);
-  return os;
-}
-
-std::ostream& operator<<(std::ostream &os, const Plan &p)
-{
-  os << "  Plan:";
-  const auto numPartitions = p.partitions.size();
-  for (unsigned i = 0; i != numPartitions; ++i) {
-    os << "        partition #" << i << "\n";
-    os << p.partitions[i];
-  }
-  os << "        inChansPerGroup         " << p.inChansPerGroup << "\n"
-     << "        partialChansPerGroup    " << p.partialChansPerGroup << "\n"
-     << "        method                  " << p.method << "\n"
-     << "        swapOperands            " << p.swapOperands << "\n"
-     << "        expandDims              ";
-  printContainer(p.expandDims, os);
-  os << "\n"
-     << "        outChanFlattenDims      ";
-  printContainer(p.outChanFlattenDims, os);
-  os << "\n"
-     << "        flattenDims             ";
-  printContainer(p.flattenDims, os);
-  os << "\n";
-  os << "        inChansPadding          " << p.inChansPadding << "\n";
-  os << "        partialChansPadding     " << p.partialChansPadding << "\n";
-  return os;
-}
-
 std::ostream& operator<<(std::ostream &os, const Partition &p) {
   os << "  Partition: fieldSplit          ";
   printContainer(p.fieldSplit, os);
@@ -210,6 +179,42 @@ std::ostream& operator<<(std::ostream &os, const Partition &p) {
   os << "\n"
      << "             inChanGrainSize     " << p.inChanGrainSize << "\n"
      << "             outChanGrainSize    " << p.outChanGrainSize << "\n";
+  return os;
+}
+
+std::ostream& operator<<(std::ostream &os, const ConvTransform &t) {
+  os << "  Transform: swapOperands        " << t.swapOperands << "\n"
+        "             expandDims          ";
+  printContainer(t.expandDims, os);
+  os << "\n"
+     << "        outChanFlattenDims      ";
+  printContainer(t.outChanFlattenDims, os);
+  os << "\n"
+     << "        flattenDims             ";
+  printContainer(t.flattenDims, os);
+  os << "\n"
+     << "        inChansPadding          " << t.inChansPadding << "\n"
+     << "        partialChansPadding     " << t.partialChansPadding << "\n";
+  return os;
+}
+
+std::ostream& operator<<(std::ostream &os, Plan::Method m) {
+  os << asString(m);
+  return os;
+}
+
+std::ostream& operator<<(std::ostream &os, const Plan &p)
+{
+  os << "  Plan:";
+  const auto numPartitions = p.partitions.size();
+  for (unsigned i = 0; i != numPartitions; ++i) {
+    os << "        partition #" << i << "\n";
+    os << p.partitions[i];
+  }
+  os << p.transform << "\n";
+  os << "        inChansPerGroup         " << p.inChansPerGroup << "\n"
+     << "        partialChansPerGroup    " << p.partialChansPerGroup << "\n"
+     << "        method                  " << p.method << "\n";
   return os;
 }
 
@@ -1570,24 +1575,21 @@ static unsigned
 estimateTransformCycles(const poplar::Target &target,
                         const ConvParams &transformedParams,
                         const ConvOptions &options,
-                        bool swapOperands,
-                        const std::vector<unsigned> &expandDims,
-                        const std::vector<unsigned> &outChanFlattenDims,
-                        unsigned inChansPadding,
-                        unsigned partialChansPadding,
+                        const ConvTransform &transform,
                         unsigned usedTiles) {
   assert(options.pass != Pass::FC_TRAINING_WU &&
          options.pass != Pass::FC_TRAINING_BWD);
   bool isWeightUpdate = options.pass == Pass::TRAINING_WU;
-  bool rearrangeInput = isWeightUpdate || !expandDims.empty() || swapOperands ||
-                        inChansPadding;
-  bool rearrangeWeights = isWeightUpdate || !expandDims.empty() ||
-                          !outChanFlattenDims.empty() ||
-                          swapOperands || inChansPadding || partialChansPadding;
-  bool rearrangeOutput = (!isWeightUpdate && swapOperands) ||
-                         (isWeightUpdate && !swapOperands) ||
-                         !outChanFlattenDims.empty() ||
-                         partialChansPadding;
+  bool rearrangeInput = isWeightUpdate || !transform.expandDims.empty() ||
+                        transform.swapOperands || transform.inChansPadding;
+  bool rearrangeWeights = isWeightUpdate || !transform.expandDims.empty() ||
+                          !transform.outChanFlattenDims.empty() ||
+                          transform.swapOperands || transform.inChansPadding ||
+                          transform.partialChansPadding;
+  bool rearrangeOutput = (!isWeightUpdate && transform.swapOperands) ||
+                         (isWeightUpdate && !transform.swapOperands) ||
+                         !transform.outChanFlattenDims.empty() ||
+                         transform.partialChansPadding;
   auto expandedParams = transformedParams;
   unsigned expandedInputFieldSize = 1;
   unsigned expandedFilterSize = 1;
@@ -1835,6 +1837,7 @@ static ConvParams
 calculateFlattenedParams(const ConvParams &params,
                          const std::vector<unsigned> &outChanFlattenDims,
                          std::vector<unsigned> &flattenDims) {
+  flattenDims.clear();
   auto flattenedParams = params;
   if (!outChanFlattenDims.empty()) {
     popconv::swapOperands(flattenedParams);
@@ -1968,17 +1971,21 @@ createPlan(ConvParams params,
                                           perLevelExchangeBytesPerCycle);
   Cost bestCost = highestCost;
   Plan bestPlan;
+  ConvTransform transform;
+  transform.extraFieldDims = addedFieldDims;
   for (bool swapOperands : getSwapOperandCandidates(options)) {
+    transform.swapOperands = swapOperands;
     auto swappedParams = calculateSwappedParams(params, swapOperands);
     for (std::vector<unsigned> expandDims :
          getExpandDimsCandidates(swappedParams)) {
+      transform.expandDims = expandDims;
       auto expandedParams = calculateExpandedParams(swappedParams, expandDims);
       for (std::vector<unsigned> outChanFlattenDims :
            getOutChanFlattenDimsCandidates(expandedParams)) {
-        std::vector<unsigned> flattenDims;
+        transform.outChanFlattenDims = outChanFlattenDims;
         auto flattenedParams = calculateFlattenedParams(expandedParams,
                                                         outChanFlattenDims,
-                                                        flattenDims);
+                                                        transform.flattenDims);
         const bool floatActivations = params.dType == poplar::FLOAT;
         const bool floatPartials = partialsType == poplar::FLOAT;
         const auto convVertexTypeCandidates =
@@ -1988,11 +1995,11 @@ createPlan(ConvParams params,
         for (const auto &convVertexType : convVertexTypeCandidates) {
           const auto inChansPerGroup = convVertexType.inChansPerGroup;
           const auto partialChansPerGroup = convVertexType.partialChansPerGroup;
-          unsigned inChansPadding, partialChansPadding;
           auto paddedParams =
               calculatePaddedParams(flattenedParams, inChansPerGroup,
-                                    partialChansPerGroup, inChansPadding,
-                                    partialChansPadding);
+                                    partialChansPerGroup,
+                                    transform.inChansPadding,
+                                    transform.partialChansPadding);
           std::vector<unsigned> fieldGrainSize(numFieldDims, 1);
           if (options.pass == Pass::FC_TRAINING_FWD) {
             // The innermost grain size becomes the inChansPerGroup in the
@@ -2004,10 +2011,8 @@ createPlan(ConvParams params,
           Cost candidateCost;
           auto transformCostFn = [&](unsigned usedTiles) {
             return estimateTransformCycles(graph.getTarget(),
-                                           paddedParams, options, swapOperands,
-                                           expandDims, outChanFlattenDims,
-                                           inChansPadding,
-                                           partialChansPadding, usedTiles);
+                                           paddedParams, options, transform,
+                                           usedTiles);
           };
           std::tie(candidate, candidateCost) =
               choosePlan(target, hierarchy, perLevelExchangeBytesPerCycle,
@@ -2016,13 +2021,7 @@ createPlan(ConvParams params,
                          cache, options);
           if (candidateCost == highestCost)
             continue;
-          candidate.extraFieldDims = addedFieldDims;
-          candidate.inChansPadding = inChansPadding;
-          candidate.partialChansPadding = partialChansPadding;
-          candidate.swapOperands = swapOperands;
-          candidate.expandDims = expandDims;
-          candidate.outChanFlattenDims = outChanFlattenDims;
-          candidate.flattenDims = flattenDims;
+          candidate.transform = transform;
           if (compareCost(candidateCost, bestCost, costBounds)) {
             bestPlan = candidate;
             bestCost = candidateCost;
@@ -2106,7 +2105,7 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
                                     const Plan &fwdPlan) {
   assert(fwdPlan.method == Plan::Method::AMP ||
          fwdPlan.method == Plan::Method::MAC);
-  assert(!fwdPlan.swapOperands);
+  assert(!fwdPlan.transform.swapOperands);
   auto plan = fwdPlan;
   plan.linearizeTileOrder = Plan::LinearizeTileOrder::FC_WU;
   const auto numPartitions = plan.partitions.size();
@@ -2117,9 +2116,9 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
     plan.partitions[i].inChanGrainSize = fwdPlan.partitions[i].outChanGrainSize;
   }
   plan.partialChansPerGroup = fwdPlan.inChansPerGroup;
-  plan.partialChansPadding = fwdPlan.inChansPadding;
+  plan.transform.partialChansPadding = fwdPlan.transform.inChansPadding;
   plan.inChansPerGroup = fwdPlan.partialChansPerGroup;
-  plan.inChansPadding = fwdPlan.partialChansPadding;
+  plan.transform.inChansPadding = fwdPlan.transform.partialChansPadding;
 
   plan.method = getFullyConnectedWUMethod(fwdParams, fwdPlan.method,
                                           fwdPlan.partialChansPerGroup,
@@ -2157,7 +2156,7 @@ static Plan getFullyConnectedBwdPlan(const poplar::Target &target,
                                       const ConvParams &fwdParams,
                                       const ConvOptions &fwdOptions,
                                       const Plan &fwdPlan) {
-  assert(!fwdPlan.swapOperands);
+  assert(!fwdPlan.transform.swapOperands);
   auto plan = fwdPlan;
   plan.method = getFullyConnectedBwdMethod(fwdParams, fwdPlan.method);
   plan.linearizeTileOrder = Plan::LinearizeTileOrder::FC_BWD_AS_CONV;
@@ -2170,7 +2169,7 @@ static Plan getFullyConnectedBwdPlan(const poplar::Target &target,
   const auto bwdPaddedInputChans =
       ((bwdInputChans + plan.inChansPerGroup - 1) / plan.inChansPerGroup) *
       plan.inChansPerGroup;
-  plan.inChansPadding = bwdPaddedInputChans - bwdInputChans;
+  plan.transform.inChansPadding = bwdPaddedInputChans - bwdInputChans;
   return plan;
 }
 
@@ -2278,11 +2277,13 @@ std::uint64_t estimateConvCost(const poplar::Target &target,
     cacheImpl = tempCache.get();
   }
   std::vector<unsigned> flattenDims;
-  const auto swappedParams = calculateSwappedParams(params, plan.swapOperands);
+  const auto swappedParams =
+      calculateSwappedParams(params, plan.transform.swapOperands);
   const auto expandedParams =
-      calculateExpandedParams(swappedParams, plan.expandDims);
+      calculateExpandedParams(swappedParams, plan.transform.expandDims);
   const auto flattenedParams =
-      calculateFlattenedParams(expandedParams, plan.outChanFlattenDims,
+      calculateFlattenedParams(expandedParams,
+                               plan.transform.outChanFlattenDims,
                                flattenDims);
   unsigned inChansPadding, partialChansPadding;
   const auto paddedParams =
@@ -2296,9 +2297,7 @@ std::uint64_t estimateConvCost(const poplar::Target &target,
          plan.partitions.size());
   auto transformCostFn = [&](unsigned usedTiles) {
     return estimateTransformCycles(target,
-                                   paddedParams, options, plan.swapOperands,
-                                   plan.expandDims, plan.outChanFlattenDims,
-                                   inChansPadding, partialChansPadding,
+                                   paddedParams, options, plan.transform,
                                    usedTiles);
   };
   CostBounds costBounds(0, 0);
