@@ -35,6 +35,8 @@ BOOST_AUTO_TEST_CASE(BroadcastToMatchTest) {
   Graph g(Target::createCPUTarget());
   matchTest(g, {1,4},{4,4});
   matchTest(g, {9},{5,9},{5,9});
+  matchTest(g, {1,4},{4,4});
+  matchTest(g, {},{11,22},{11,22});
 
   matchTest(g, {1,4},{3,1},{3,4});
   matchTest(g, {1,9},{1,9},{1,9});

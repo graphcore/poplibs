@@ -35,13 +35,17 @@ void poputil::broadcastToMatch(Tensor &a,
 
 void poputil::broadcastToMatch(Tensor &a, Tensor &b) {
   // First expand with singleton dimensions to match ranks.
-  if (a.rank() < b.rank())
-    for (unsigned i = 0; i < b.rank() - a.rank(); ++i)
+  if (a.rank() < b.rank()) {
+    const auto N = b.rank() - a.rank();
+    for (unsigned i = 0; i < N; ++i)
       a = a.expand({0});
+  }
 
-  if (b.rank() < a.rank())
-    for (unsigned i = 0; i < a.rank() - b.rank(); ++i)
+  if (b.rank() < a.rank()) {
+    const auto N = a.rank() - b.rank();
+    for (unsigned i = 0; i < N; ++i)
       b = b.expand({0});
+  }
 
   auto rank = a.rank();
 
