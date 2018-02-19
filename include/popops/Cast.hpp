@@ -27,6 +27,13 @@ void
 cast(poplar::Graph &graph, poplar::Tensor src, poplar::Tensor dst,
      poplar::ComputeSet cs);
 
+/// Create vertices to cast elements of the specified \a src tensor to \a
+/// dstType, returning the result as a new tensor. The vertices are added to the
+/// specified compute set.
+poplar::Tensor
+cast(poplar::Graph &graph, poplar::Tensor src, const poplar::Type &dstType,
+     poplar::ComputeSet cs);
+
 }
 
 #endif // popops_Cast_hpp

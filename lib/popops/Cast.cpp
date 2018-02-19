@@ -64,6 +64,13 @@ cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
   }
 }
 
+Tensor
+cast(Graph &graph, Tensor src, const Type &dstType, ComputeSet cs) {
+  auto dst = graph.clone(dstType, src, "cast");
+  cast(graph, src, dst, cs);
+  return dst;
+}
+
 poplar::Tensor
 cast(Graph &graph, const Tensor &src, const Type &dstType,
      Sequence &prog, const std::string &debugPrefix) {
