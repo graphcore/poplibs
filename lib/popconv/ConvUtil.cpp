@@ -306,6 +306,20 @@ std::pair<unsigned, unsigned>
 getInputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
               std::pair<unsigned, unsigned> kernelRange,
               const ConvParams &params) {
+  assert(kernelRange.second >= kernelRange.first);
+  // If the kernel range is large try to narrow it down by calculating the
+  // kernel range corresponding to the output range.
+  if (kernelRange.second - kernelRange.first > params.inputFieldShape[dim]) {
+    auto kernelRangeForOutputRange =
+        getKernelRange(dim, outputRange, {0, params.inputFieldShape[dim]},
+                       params);
+    kernelRange.first = std::max(kernelRange.first,
+                                 kernelRangeForOutputRange.first);
+    kernelRange.second = std::min(kernelRange.second,
+                                  kernelRangeForOutputRange.second);
+  }
+  if (kernelRange.first >= kernelRange.second)
+    return {0, 0};
   unsigned inputEnd = 0;
   unsigned minBegin = 0, maxEnd = params.inputFieldShape[dim];
   const auto kernelRangeFwd =
@@ -341,6 +355,20 @@ std::pair<unsigned, unsigned>
 getKernelRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
                std::pair<unsigned, unsigned> inputRange,
                const ConvParams &params) {
+  assert(inputRange.second >= inputRange.first);
+  // If the input range is large try to narrow it down by calculating the
+  // input range corresponding to the output range.
+  if (inputRange.second - inputRange.first > params.kernelShape[dim]) {
+    auto inputRangeForOutputRange =
+        getInputRange(dim, outputRange, {0, params.kernelShape[dim]},
+                      params);
+    inputRange.first = std::max(inputRange.first,
+                                inputRangeForOutputRange.first);
+    inputRange.second = std::min(inputRange.second,
+                                 inputRangeForOutputRange.second);
+  }
+  if (inputRange.first >= inputRange.second)
+    return {0, 0};
   unsigned kernelEnd = 0;
   unsigned minBegin = 0, maxEnd = params.kernelShape[dim];
   const auto inputRangeFwd =
