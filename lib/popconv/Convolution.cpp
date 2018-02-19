@@ -1486,21 +1486,9 @@ mapWeights(Graph &graph, ConvParams params, Plan plan, Tensor weights) {
 }
 
 static Tensor
-createWeightsImpl(Graph &graph, const ConvParams &params,
-                  const std::string &name, const Plan &plan);
-
-static Tensor
 createInputImpl(Graph &graph, const ConvParams &params,
                 const std::string &name,
                 const Plan &plan) {
-  if (plan.transform.swapOperands) {
-    auto newParams = params;
-    auto newPlan = plan;
-    swapOperands(newParams);
-    newPlan.transform.swapOperands = false;
-    auto t = createWeightsImpl(graph, newParams, name, newPlan);
-    return t.dimRoll(t.rank() - 2, 1);
-  }
   const auto inNumChans = params.getNumInputChansPerConvGroup();
   const auto inChansPerGroup = getInChansPerGroup(plan, inNumChans);
   assert(params.getNumInputChansPerConvGroup() % inChansPerGroup == 0);
@@ -1531,14 +1519,6 @@ static Tensor
 createWeightsImpl(Graph &graph,
                   const ConvParams &params, const std::string &name,
                   const Plan &plan) {
-  if (plan.transform.swapOperands) {
-    auto newParams = params;
-    auto newPlan = plan;
-    swapOperands(newParams);
-    newPlan.transform.swapOperands = false;
-    auto t = createInputImpl(graph, newParams, name, newPlan);
-    return t.dimRoll(1, t.rank() - 2);
-  }
   const auto dType = params.dType;
   const auto inNumChans = params.getNumInputChansPerConvGroup();
   const auto outNumChans = params.getNumOutputChansPerConvGroup();
