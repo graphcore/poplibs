@@ -601,6 +601,15 @@ add_test(NAME conv1x1_input_ignored_with_stride
                  --output-channels=16
                  --tiles-per-ipu=1)
 
+# Test with large amounts of output padding
+add_test(NAME conv1x1_output_padding
+         COMMAND single_conv_layer
+                 --field={1,1}
+                 --input-channels=16
+                 --output-channels=16
+                 --output-padding=10
+                 --tiles-per-ipu=16)
+
 #  Grouped convolution layer tests
 add_test(NAME grouped_conv3x3_stride_2_256_out
          COMMAND single_conv_layer

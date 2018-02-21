@@ -445,6 +445,8 @@ std::size_t ConvParams::getUntransformedOutputSize(unsigned dim) const {
 
 std::size_t ConvParams::getOutputSize(unsigned dim) const {
   auto convOutSize = getUntransformedOutputSize(dim);
+  assert(convOutSize >= outputTransform.truncationLower[dim] +
+                        outputTransform.truncationUpper[dim]);
   auto truncatedSize =
       convOutSize - (outputTransform.truncationLower[dim] +
                      outputTransform.truncationUpper[dim]);
@@ -689,6 +691,31 @@ getSubConvolution(const ConvSlice &slice,
     auto extraTruncationUpper =
         static_cast<unsigned>(params.getOutputSize(dim))
         - slice.outFieldEnd[dim];
+    // Ensure the truncation at either end is less than or equal to the padding
+    // at that end plus the size of the downsampled convolution output. If the
+    // truncation exceeds this amount the final output is zero and it is
+    // therefore equivalent to any other convolution with inputs of the same
+    // size that results in a zero output of the same size. We choose to
+    // transform it into a convolution where the truncation at one end equals
+    // the padding at that end plus the size of the downsampled convolution
+    // output (ensuring the output remains zero) and the truncation at the other
+    // end is adjusted to keep the same output size.
+    if (extraTruncationLower >
+        params.getOutputSize(dim) - params.outputTransform.paddingUpper[dim]) {
+      auto excess = extraTruncationLower -
+                    (params.getOutputSize(dim) -
+                     params.outputTransform.paddingUpper[dim]);
+      extraTruncationUpper += excess;
+      extraTruncationLower -= excess;
+    }
+    if (extraTruncationUpper >
+        params.getOutputSize(dim) - params.outputTransform.paddingLower[dim]) {
+      auto excess = extraTruncationUpper -
+                    (params.getOutputSize(dim) -
+                     params.outputTransform.paddingLower[dim]);
+      extraTruncationLower += excess;
+      extraTruncationUpper -= excess;
+    }
     auto &outputPaddingLower = params.outputTransform.paddingLower[dim];
     auto &outputPaddingUpper = params.outputTransform.paddingUpper[dim];
     const auto &stride = params.outputTransform.stride[dim];
@@ -698,7 +725,8 @@ getSubConvolution(const ConvSlice &slice,
                                              extraTruncationLower);
     outputPaddingLower -= excessPaddingLower;
     extraTruncationLower -= excessPaddingLower;
-    if (extraTruncationLower == params.getOutputSize(dim)) {
+    if (extraTruncationLower == params.getOutputSize(dim) -
+                                outputPaddingUpper) {
       outputTruncationLower += 1 + (extraTruncationLower - 1) * stride;
     } else {
       outputTruncationLower += extraTruncationLower * stride;
@@ -708,7 +736,8 @@ getSubConvolution(const ConvSlice &slice,
                                              extraTruncationUpper);
     outputPaddingUpper -= excessPaddingUpper;
     extraTruncationUpper -= excessPaddingUpper;
-    if (extraTruncationUpper == params.getOutputSize(dim)) {
+    if (extraTruncationUpper == params.getOutputSize(dim) -
+                                outputPaddingLower) {
       outputTruncationUpper += 1 + (extraTruncationUpper - 1) * stride;
     } else {
       outputTruncationUpper += extraTruncationUpper * stride;
