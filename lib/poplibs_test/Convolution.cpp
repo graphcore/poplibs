@@ -1045,9 +1045,9 @@ weightUpdate(const std::vector<unsigned> &inputFieldSize,
             biasDeltas.data() + biasDeltas.num_elements(), 0.0);
   for (unsigned b = 0; b != batchSize; ++b) {
     // Compute the bias deltas.
-    for (unsigned e = 0; e != paddedDeltasElements; ++e) {
-      for (unsigned oc = 0; oc != outputChannels; ++oc) {
-        biasDeltas[oc] += paddedDeltas[b][oc][e];
+    for (unsigned oc = 0; oc != outputChannels; ++oc) {
+      for (const auto &e :deltas[b][oc]) {
+        biasDeltas[oc] += e;
       }
     }
   }
