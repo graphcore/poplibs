@@ -13,7 +13,7 @@ class
 ReduceAdd : public Vertex {
 public:
   Vector<Output<Vector<OutType>>> out;
-  Vector<Input<Vector<PartialsType, 1, true>>> partials;
+  Vector<Input<Vector<PartialsType, TWO_PTR, 1, true>>> partials;
 
   SimOnlyField<unsigned> dataPathWidth;
 
@@ -45,7 +45,7 @@ class
 ReduceAddUpdate : public Vertex {
 public:
   Vector<InOut<Vector<OutType>>> out;
-  Vector<Input<Vector<PartialsType, 1, true>>> partials;
+  Vector<Input<Vector<PartialsType, TWO_PTR, 1, true>>> partials;
   float k;
 
   SimOnlyField<unsigned> dataPathWidth;
@@ -78,7 +78,7 @@ class
 ReduceAddScale : public Vertex {
 public:
   Vector<InOut<Vector<OutType>>> out;
-  Vector<Input<Vector<PartialsType, 1, true>>> partials;
+  Vector<Input<Vector<PartialsType, TWO_PTR, 1, true>>> partials;
   float k;
   SimOnlyField<unsigned> dataPathWidth;
 
@@ -111,7 +111,7 @@ class
 ReduceMul : public Vertex {
 public:
   Vector<Output<Vector<OutType>>> out;
-  Vector<Input<Vector<PartialsType, 1, true>>> partials;
+  Vector<Input<Vector<PartialsType, TWO_PTR, 1, true>>> partials;
 
   SimOnlyField<unsigned> dataPathWidth;
 
@@ -143,7 +143,7 @@ class
 ReduceMax : public Vertex {
 public:
   Vector<Output<Vector<OutType>>> out;
-  Vector<Input<Vector<PartialsType, 1, true>>> partials;
+  Vector<Input<Vector<PartialsType, TWO_PTR, 1, true>>> partials;
 
   SimOnlyField<unsigned> dataPathWidth;
 
@@ -175,7 +175,7 @@ class
 ReduceMin : public Vertex {
 public:
   Vector<Output<Vector<OutType>>> out;
-  Vector<Input<Vector<PartialsType, 1, true>>> partials;
+  Vector<Input<Vector<PartialsType, TWO_PTR, 1, true>>> partials;
 
   SimOnlyField<unsigned> dataPathWidth;
 
@@ -207,7 +207,7 @@ class
 ReduceAnd : public Vertex {
 public:
   Vector<Output<Vector<OutType>>> out;
-  Vector<Input<Vector<PartialsType, 1, true>>> partials;
+  Vector<Input<Vector<PartialsType, TWO_PTR, 1, true>>> partials;
 
   SimOnlyField<unsigned> dataPathWidth;
 
@@ -237,7 +237,7 @@ class
 ReduceOr : public Vertex {
 public:
   Vector<Output<Vector<OutType>>> out;
-  Vector<Input<Vector<PartialsType, 1, true>>> partials;
+  Vector<Input<Vector<PartialsType, TWO_PTR, 1, true>>> partials;
 
   SimOnlyField<unsigned> dataPathWidth;
 

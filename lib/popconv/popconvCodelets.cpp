@@ -17,8 +17,8 @@ class
 ConvPartialnx1: public SupervisorVertex {
 public:
   Vector<Input<Vector<FPType>>> in;
-  Vector<Input<Vector<FPType, 1, true>>> weights;
-  Vector<Output<Vector<AccumType, 1, true>>> out;
+  Vector<Input<Vector<FPType, TWO_PTR, 1, true>>> weights;
+  Vector<Output<Vector<AccumType, TWO_PTR, 1, true>>> out;
   Vector<Input<Vector<unsigned>>> worklists;
   Input<Vector<unsigned>> zeroWorklist;
   unsigned numOutGroups;
@@ -184,8 +184,8 @@ class
 ConvPartial1x1Out: public SupervisorVertex {
 public:
   Vector<Input<Vector<FPType>>> in;
-  Vector<Input<Vector<FPType, 1, true>>> weights;
-  Vector<Output<Vector<AccumType, 1, true>>> out;
+  Vector<Input<Vector<FPType, TWO_PTR, 1, true>>> weights;
+  Vector<Output<Vector<AccumType, TWO_PTR, 1, true>>> out;
   Vector<Input<Vector<unsigned>>> worklists;
   unsigned numConvGroups;
   unsigned numOutGroups;
@@ -805,7 +805,7 @@ class
 AddToChannel : public Vertex {
 public:
   Vector<InOut<Vector<FPType>>> acts;
-  Vector<Input<Vector<FPType, 1, true>>> addend;
+  Vector<Input<Vector<FPType, TWO_PTR, 1, true>>> addend;
 
   SimOnlyField<unsigned> dataPathWidth;
 
@@ -835,7 +835,7 @@ class
 ScaledAddToChannel : public Vertex {
 public:
   Vector<InOut<Vector<FPType>>> acts;
-  Vector<Input<Vector<FPType, 1, true>>> addend;
+  Vector<Input<Vector<FPType, TWO_PTR, 1, true>>> addend;
   float scale;
 
   SimOnlyField<unsigned> dataPathWidth;
@@ -904,7 +904,7 @@ class
 ConvChanReduce: public Vertex {
 public:
   Output<Vector<OutType>> out;
-  Vector<Input<Vector<InType, 1, true>>> in;
+  Vector<Input<Vector<InType, TWO_PTR, 1, true>>> in;
   SimOnlyField<unsigned> dataPathWidth;
   SimOnlyField<bool> useDoubleDataPathInstr;
 
@@ -937,7 +937,7 @@ class
 ConvChanReduceSquare: public Vertex {
 public:
   Output<Vector<OutType>> out;
-  Vector<Input<Vector<InType, 1, true>>> in;
+  Vector<Input<Vector<InType, TWO_PTR, 1, true>>> in;
   SimOnlyField<unsigned> dataPathWidth;
   SimOnlyField<bool> useDoubleDataPathInstr;
 
@@ -966,7 +966,7 @@ template <typename InType, typename OutType>
 class ConvChanReduceAndScale: public Vertex {
 public:
   Output<OutType> out;
-  Vector<Input<InType>, 1, true> in; // partial running sum
+  Vector<Input<InType>, TWO_PTR, 1, true> in; // partial running sum
   float K;
 
   bool compute() {

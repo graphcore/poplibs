@@ -351,8 +351,8 @@ basicLstmCellParamUpdate(const Array3dRef prevLayerActs,
 
       gemm::generalMatrixMultiply(inActs, grad, wInputDeltasUnit,
                                   wInputDeltasUnit, 1.0, 0, true, false);
-      for (auto ic = 0; ic != inputSize; ++ic) {
-        for (auto oc = 0; oc != outputSize; ++oc) {
+      for (auto ic = 0u; ic != inputSize; ++ic) {
+        for (auto oc = 0u; oc != outputSize; ++oc) {
           weightsInputDeltas[unit][ic][oc] += wInputDeltasUnit[ic][oc];
         }
       }
@@ -360,14 +360,14 @@ basicLstmCellParamUpdate(const Array3dRef prevLayerActs,
 
       gemm::generalMatrixMultiply(outActs, grad, wOutputDeltasUnit,
                                   wOutputDeltasUnit, 1.0, 0, true, false);
-      for (auto oc1 = 0; oc1 != outputSize; ++oc1) {
-        for (auto oc2 = 0; oc2 != outputSize; ++oc2) {
+      for (auto oc1 = 0u; oc1 != outputSize; ++oc1) {
+        for (auto oc2 = 0u; oc2 != outputSize; ++oc2) {
           weightsOutputDeltas[unit][oc1][oc2] += wOutputDeltasUnit[oc1][oc2];
         }
       }
 
-      for (auto oc = 0; oc != outputSize; ++oc) {
-        for (auto b = 0; b != batchSize; ++b) {
+      for (auto oc = 0u; oc != outputSize; ++oc) {
+        for (auto b = 0u; b != batchSize; ++b) {
           biasDeltas[unit][oc] += grad[b][oc];
         }
       }
