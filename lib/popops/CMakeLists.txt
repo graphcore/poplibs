@@ -65,6 +65,12 @@ add_custom_command(
   DEPENDS
     PerformanceEstimation.hpp
     ${codelet_sources}
+    # CMake doesn't know this is a C++ compilation so it can't
+    # automatically find #include'd dependencies unfortunately.
+    "${CMAKE_CURRENT_SOURCE_DIR}/codelets/dynamicSliceCodelets.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/codelets/elementwiseCodelets.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/codelets/miscCodelets.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/codelets/reduceCodelets.cpp"
     popc_bin
 )
 
