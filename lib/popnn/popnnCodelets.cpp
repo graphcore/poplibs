@@ -103,7 +103,7 @@ template class NonLinearity<half>;
 template <typename FPType>
 class NonLinearityGrad : public Vertex {
 public:
-  Vector<Input<Vector<FPType>>> outGrad;
+  Vector<Input<Vector<FPType>>, ONE_PTR> outGrad;
   Vector<Input<Vector<FPType>>> out;
   Vector<Output<Vector<FPType>>> inGrad;
   unsigned nonLinearityType;
@@ -131,7 +131,7 @@ template class NonLinearityGrad<half>;
 template <typename FPType>
 class MaxPooling : public Vertex {
 public:
-  Vector<Input<Vector<FPType>>> in;
+  Vector<Input<Vector<FPType>>, ONE_PTR> in;
   Vector<Output<Vector<FPType>>> out;
   Vector<unsigned> windowSizes;
 
@@ -161,9 +161,9 @@ template class MaxPooling<half>;
 template <typename FPType>
 class ScaledSumPooling : public Vertex {
 public:
-  Vector<Input<Vector<FPType>>> in;
+  Vector<Input<Vector<FPType>>, ONE_PTR> in;
   Vector<Output<Vector<FPType>>> out;
-  Vector<unsigned> windowSizes;
+  Vector<unsigned, ONE_PTR> windowSizes;
   // This field may be removed if separate vertices are defined for
   // Sum Pooling and Avg pooling
   bool scaleOutput;
@@ -197,9 +197,9 @@ template class ScaledSumPooling<half>;
 template <typename FPType>
 class MaxPoolingGrad : public Vertex {
 public:
-  Vector<Input<Vector<FPType>>> outGrad;
-  Vector<Input<Vector<FPType>>> in;
-  Vector<Input<Vector<FPType>>> out;
+  Vector<Input<Vector<FPType>>, ONE_PTR> outGrad;
+  Vector<Input<Vector<FPType>>, ONE_PTR> in;
+  Vector<Input<Vector<FPType>>, ONE_PTR> out;
   Vector<Output<Vector<FPType>>> inGrad;
   Vector<unsigned> windowSizes;
 
@@ -232,7 +232,7 @@ template class MaxPoolingGrad<half>;
 template <typename FPType>
 class SumPoolingGrad : public Vertex {
 public:
-  Vector<Input<Vector<FPType>>> outGrad;
+  Vector<Input<Vector<FPType>>, ONE_PTR> outGrad;
   Vector<Output<Vector<FPType>>> inGrad;
   Vector<unsigned> windowSizes;
 
@@ -263,10 +263,10 @@ template <typename FPType, typename LabelType>
 class CalcLoss : public Vertex {
 public:
   Vector<Input<Vector<FPType>>> batchIn;
-  Input<Vector<LabelType>> label;
+  Input<Vector<LabelType, ONE_PTR>> label;
 
   Vector<Output<Vector<FPType>>> batchDeltaOut;
-  Vector<Output<FPType>> loss;
+  Vector<Output<FPType>, ONE_PTR> loss;
   InOut<unsigned> numCorrect;
 
   Vector<FPType> probs;
@@ -353,7 +353,7 @@ class BatchNormEstimates : public Vertex {
 public:
   Vector<Input<Vector<InType>>> acts;
   Vector<Output<Vector<InType>>> mean;
-  Vector<Output<Vector<InType>>> iStdDev;
+  Vector<Output<Vector<InType, ONE_PTR>>, ONE_PTR> iStdDev;
   float eps;
   SimOnlyField<unsigned> dataPathWidth;
 

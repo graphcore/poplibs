@@ -16,9 +16,9 @@ class
 [[poplar::constraint("elem(**in) != elem(**out)")]]
 ConvPartialnx1: public SupervisorVertex {
 public:
-  Vector<Input<Vector<FPType>>> in;
-  Vector<Input<Vector<FPType, TWO_PTR, 1, true>>> weights;
-  Vector<Output<Vector<AccumType, TWO_PTR, 1, true>>> out;
+  Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> in;
+  Vector<Input<Vector<FPType, ONE_PTR, 1, true>>> weights;
+  Vector<Output<Vector<AccumType, ONE_PTR, 1, true>>> out;
   Vector<Input<Vector<unsigned>>> worklists;
   Input<Vector<unsigned>> zeroWorklist;
   unsigned numOutGroups;
@@ -133,7 +133,7 @@ class
 ConvChanReduce2: public Vertex {
 public:
   Vector<Output<FPType>> out;
-  Vector<Input<FPType>> in;
+  Vector<Input<FPType>, ONE_PTR> in;
   Vector<unsigned> numInputsPerOutput;
 
   bool compute() {
@@ -184,8 +184,8 @@ class
 ConvPartial1x1Out: public SupervisorVertex {
 public:
   Vector<Input<Vector<FPType>>> in;
-  Vector<Input<Vector<FPType, TWO_PTR, 1, true>>> weights;
-  Vector<Output<Vector<AccumType, TWO_PTR, 1, true>>> out;
+  Vector<Input<Vector<FPType, ONE_PTR, 1, true>>> weights;
+  Vector<Output<Vector<AccumType, ONE_PTR, 1, true>>> out;
   Vector<Input<Vector<unsigned>>> worklists;
   unsigned numConvGroups;
   unsigned numOutGroups;
@@ -266,9 +266,9 @@ class
 [[poplar::constraint("elem(**in) != elem(**weights)")]]
 ConvPartialHorizontalMac : public SupervisorVertex {
 public:
-  Vector<Input<Vector<FPType>>> in;
-  Vector<Input<Vector<FPType>>> weights;
-  Vector<InOut<Vector<AccumType>>> out;
+  Vector<Input<Vector<FPType, ONE_PTR>>> in;
+  Vector<Input<Vector<FPType, ONE_PTR>>> weights;
+  Vector<InOut<Vector<AccumType, ONE_PTR>>> out;
   Vector<Input<Vector<unsigned>>> worklists;
   Input<Vector<unsigned>> zeroWorklist;
   unsigned numOutGroups;
@@ -458,12 +458,12 @@ public:
    * required to have all elements of a kernel. The 1D vectors are stored in row
    * order
    */
-  Vector<Input<Vector<FPType>>> wIn;
+  Vector<Input<Vector<FPType>>, ONE_PTR> wIn;
 
   /* Same as wIn except that numOutCols*numOutRows vectors each of dimension
    * 1xdepth are stored
    */
-  Vector<Output<Vector<FPType>>> wTf;
+  Vector<Output<Vector<FPType, ONE_PTR>>> wTf;
 
 
   bool compute() {
@@ -541,7 +541,7 @@ public:
    * Every input vector shares the same weight vector.
    * A total of nGroups 1D vectors may be provided.
    */
-  Vector<Input<Vector<FPType>>> dTf;
+  Vector<Input<Vector<FPType>>, ONE_PTR> dTf;
 
   /* kernel transform vector. Each vector is of length inpChanDepth*outChanDepth
    * The same input data is used to generate outChanDepth outputs for each input
@@ -607,7 +607,7 @@ public:
    * the same length as the input vector. Several such operations may be
    * performed to produce nGroups vectors of 1D vectors.
    */
-  Vector<Input<Vector<FPType>>> inPartial;
+  Vector<Input<Vector<FPType, ONE_PTR>>> inPartial;
 
   /*
    * The output may be a sum of all partials to produce partial sum or a full
@@ -683,7 +683,7 @@ public:
   /* Each output vector in the array of vectors is of length depthDim.
    * numOutCols*numOutRows vectors are produced for each group
    */
-  Vector<Output<Vector<FPType>>> dOut;
+  Vector<Output<Vector<FPType, ONE_PTR>>, ONE_PTR> dOut;
 
   bool compute() {
 
@@ -749,7 +749,7 @@ public:
 
   /* The output activation once non-linearity is applied
    */
-  Vector<Output<Vector<FPType>>> act;
+  Vector<Output<Vector<FPType, ONE_PTR>>, ONE_PTR> act;
 
   bool compute() {
     const unsigned nGroups = dIn.size();

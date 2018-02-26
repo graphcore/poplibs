@@ -121,8 +121,8 @@ public:
   float scale;
   // A separate vertex needs to be defined if save/restore of seeds is not
   // required
-  Vector<uint32_t> vSeedH;
-  Vector<uint32_t> vSeedL;
+  Vector<uint32_t, ONE_PTR> vSeedH;
+  Vector<uint32_t, ONE_PTR> vSeedL;
   SimOnlyField<unsigned> dataPathWidth;
   // It is expected that there will be two variants of vertices: one which
   // saves and restores seeds
@@ -175,8 +175,8 @@ public:
   unsigned int scale;
   // A separate vertex needs to be defined if save/restore of seeds is not
   // required
-  Vector<uint32_t> vSeedH;
-  Vector<uint32_t> vSeedL;
+  Vector<uint32_t, ONE_PTR> vSeedH;
+  Vector<uint32_t, ONE_PTR> vSeedL;
   SimOnlyField<unsigned> dataPathWidth;
   // It is expected that there will be two variants of vertices: one which
   // saves and restores seeds
@@ -224,8 +224,8 @@ public:
   float prob;
   // A separate vertex needs to be defined if save/restore of seeds is not
   // required
-  Vector<uint32_t> vSeedH;
-  Vector<uint32_t> vSeedL;
+  Vector<uint32_t, ONE_PTR> vSeedH;
+  Vector<uint32_t, ONE_PTR> vSeedL;
   SimOnlyField<unsigned> dataPathWidth;
   // It is expected that there will be two variants of vertices: one which
   // saves and restores seeds
@@ -277,8 +277,8 @@ public:
   float stdDev;             // standard deviation of normal distribution
   // A separate vertex needs to be defined if save/restore of seeds is not
   // required
-  Vector<uint32_t> vSeedH;
-  Vector<uint32_t> vSeedL;
+  Vector<uint32_t, ONE_PTR> vSeedH;
+  Vector<uint32_t, ONE_PTR> vSeedL;
   SimOnlyField<unsigned> dataPathWidth;
   // It is expected that there will be two variants of vertices: one which
   // saves and restores seeds
@@ -327,8 +327,8 @@ public:
   float alpha;           // truncation as a multiple of stdDev
   // A separate vertex needs to be defined if save/restore of seeds is not
   // required
-  Vector<uint32_t> vSeedH;
-  Vector<uint32_t> vSeedL;
+  Vector<uint32_t, ONE_PTR> vSeedH;
+  Vector<uint32_t, ONE_PTR> vSeedL;
   SimOnlyField<unsigned> dataPathWidth;
   // It is expected that there will be two variants of vertices: one which
   // saves and restores seeds
