@@ -34,6 +34,15 @@ namespace {
     unsigned outChanGrainSize;
   };
 
+  struct ConvSize {
+    std::vector<unsigned> numFieldGrains;
+    unsigned batchSize;
+    unsigned numOutChanGrains;
+    std::vector<unsigned> kernelSize;
+    unsigned numInChanGrains;
+    unsigned numConvGroups;
+  };
+
   struct ConvSizeVariables {
     std::vector<popsolver::Variable> numFieldGrains;
     popsolver::Variable batchSize;
@@ -476,68 +485,6 @@ getMaxInputRangeSize(unsigned outputRangeSize, unsigned dim,
   return inputRangeSize;
 }
 
-static unsigned
-getMaxSize(unsigned size, unsigned split, unsigned grainSize = 1) {
-  const auto numGrains = (size + grainSize - 1) / grainSize;
-  const auto tileNumGrains = (numGrains + split - 1) / split;
-  return std::min(size, tileNumGrains * grainSize);
-}
-
-static unsigned
-getMaxTileOutSize(const ConvParams &params, const Plan &plan, unsigned dim) {
-  auto size = params.getOutputSize(dim);
-  for (const auto &partition : plan.partitions) {
-    size = getMaxSize(size, partition.fieldSplit[dim],
-                      partition.fieldAxisGrainSize[dim]);
-  }
-  return size;
-}
-
-static unsigned getMaxTileInChans(const ConvParams &params, const Plan &plan) {
-  auto size = params.getNumInputChansPerConvGroup();
-  for (const auto &partition : plan.partitions) {
-    size = getMaxSize(size, partition.inChanSplit,
-                      partition.inChanGrainSize);
-  }
-  return size;
-}
-
-static unsigned getMaxTileOutChans(const ConvParams &params, const Plan &plan) {
-  auto size = params.getNumOutputChansPerConvGroup();
-  for (const auto &partition : plan.partitions) {
-    size = getMaxSize(size, partition.outChanSplit,
-                      partition.outChanGrainSize);
-  }
-  return size;
-}
-
-static unsigned
-getMaxTileKernelSize(const ConvParams &params, const Plan &plan, unsigned dim) {
-  auto size = params.kernelShape[dim];
-  for (const auto &partition : plan.partitions) {
-    size = getMaxSize(size, partition.kernelSplit[dim]);
-  }
-  return size;
-}
-
-static unsigned
-getMaxTileBatchElements(const ConvParams &params, const Plan &plan) {
-  auto size = params.getBatchSize();
-  for (const auto &partition : plan.partitions) {
-    size = getMaxSize(size, partition.batchSplit);
-  }
-  return size;
-}
-
-static unsigned
-getMaxTileConvGroups(const ConvParams &params, const Plan &plan) {
-  auto size = params.getNumConvGroups();
-  for (const auto &partition : plan.partitions) {
-    size = getMaxSize(size, partition.convGroupSplit);
-  }
-  return size;
-}
-
 static std::uint64_t
 estimateConvPartialHorizontalMacInnerLoopCycles(unsigned numOutRows,
                                                 unsigned tileOutWidth,
@@ -669,144 +616,194 @@ canUseConvPartial1x1Vertex(const ConvParams &params,
   return true;
 }
 
-static unsigned
-estimatePartialCalcCycles(const poplar::Target &target,
-                          bool floatActivations,
-                          const ConvParams &params,
-                          const Plan &plan,
-                          PlanningCacheImpl *cache) {
-  const auto inChansPerGroup = plan.inChansPerGroup;
-  const auto outChansPerGroup = plan.partialChansPerGroup;
-  const auto tileBatchElements = getMaxTileBatchElements(params, plan);
-  const auto tileNumGroupedConv = getMaxTileConvGroups(params, plan);
-  const auto tileNumOutChans = getMaxTileOutChans(params, plan);
-  const auto tileNumOutGroups =
-      (tileNumOutChans + outChansPerGroup - 1) / outChansPerGroup;
-
-  const auto tileNumInChans = getMaxTileInChans(params, plan);
-  const auto tileNumInGroups =
-      (tileNumInChans + (inChansPerGroup - 1)) / inChansPerGroup;
-
-  const auto numFieldDims = params.getNumFieldDims();
-
-  unsigned tileOutElements = 1;
-  unsigned tileKernelFieldElements = 1;
-  std::vector<unsigned> tileOutShape, tileKernelShape;
-  tileOutShape.reserve(numFieldDims);
-  tileKernelShape.reserve(numFieldDims);
-  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    const auto tileOutSize = getMaxTileOutSize(params, plan, dim);
-    tileOutShape.push_back(tileOutSize);
-    tileOutElements *= tileOutSize;
-    const auto tileKernelSize = getMaxTileKernelSize(params, plan, dim);
-    tileKernelShape.push_back(tileKernelSize);
-    tileKernelFieldElements *= tileKernelSize;
-  }
-  unsigned computeCycles;
-  switch (plan.method) {
+static popsolver::Variable
+addPartialCalcCycleEstimate(
+    popsolver::Model &m,
+    const std::vector<unsigned> &fieldGrainSize,
+    unsigned inChanGrainSize,
+    unsigned outChanGrainSize,
+    const ConvSizeVariables &convSizeVars,
+    const poplar::Target &target,
+    const ConvParams &params,
+    unsigned inChansPerGroup,
+    unsigned outChansPerGroup,
+    bool floatPartials,
+    bool floatActivations,
+    Plan::Method method,
+    PlanningCacheImpl *cache) {
+  const auto numFieldDims = convSizeVars.numFieldGrains.size();
+  std::vector<popsolver::Variable> convSizeVarsVector = {
+    convSizeVars.batchSize,
+    convSizeVars.numOutChanGrains,
+    convSizeVars.numInChanGrains,
+    convSizeVars.numConvGroups,
+  };
+  convSizeVarsVector.insert(convSizeVarsVector.end(),
+                            convSizeVars.numFieldGrains.begin(),
+                            convSizeVars.numFieldGrains.end());
+  convSizeVarsVector.insert(convSizeVarsVector.end(),
+                            convSizeVars.kernelSize.begin(),
+                            convSizeVars.kernelSize.end());
+  auto makeConvSize = [](const std::vector<unsigned> &values,
+                         unsigned numFieldDims) {
+    ConvSize convSize;
+    convSize.batchSize = values[0];
+    convSize.numOutChanGrains = values[1];
+    convSize.numInChanGrains = values[2];
+    convSize.numConvGroups = values[3];
+    convSize.numFieldGrains.insert(convSize.numFieldGrains.begin(),
+                                   values.begin() + 4,
+                                   values.begin() + 4 + numFieldDims);
+    convSize.kernelSize.insert(convSize.kernelSize.begin(),
+                               values.begin() + 4 + numFieldDims,
+                               values.begin() + 4 + 2 * numFieldDims);
+    return convSize;
+  };
+  auto makeTileFieldSize = [](const ConvSize &convSize,
+                              const std::vector<unsigned> &fieldGrainSize) {
+    const auto numFieldDims = convSize.numFieldGrains.size();
+    std::vector<unsigned> tileFieldSize;
+    for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+      tileFieldSize.push_back(convSize.numFieldGrains[dim] *
+                              fieldGrainSize[dim]);
+    }
+    return tileFieldSize;
+  };
+  switch (method) {
   default: assert(0 && "Unexpected method");
   case Plan::Method::AMP:
     {
       assert(target.getWeightsPerConvUnit(floatActivations) %
-             inChansPerGroup == 0);
+           inChansPerGroup == 0);
       const auto convUnitWeightHeight =
-          target.getWeightsPerConvUnit(floatActivations) / inChansPerGroup;
+         target.getWeightsPerConvUnit(floatActivations) / inChansPerGroup;
       const auto numConvUnits = getNumConvUnits(floatActivations,
-                                                plan.floatPartials,
-                                                target);
+                                               floatPartials,
+                                               target);
       assert(outChansPerGroup % numConvUnits == 0);
       const auto convUnitInputLoadElemsPerCycle =
-          target.getConvUnitInputLoadElemsPerCycle(floatActivations);
-      unsigned numEdges =
-          tileNumInGroups + tileNumOutGroups +
-          tileNumInGroups * tileNumOutGroups;
-      bool useDeltasForEdges = useDeltaEdgesForConvPartials(numEdges);
-      if (canUseConvPartial1x1Vertex(params, convUnitWeightHeight,
-                                     tileKernelShape)) {
-        auto innerLoopCycles =
-            cache->mGetConvPartial1x1InnerLoopCycleEstimate(
-              tileBatchElements, tileOutShape,
-              target.getNumWorkerContexts(), params.inputTransform.dilation,
-              params.outputTransform.stride);
-        computeCycles =
-          getConvPartial1x1SupervisorOuterLoopCycleEstimate(
-              innerLoopCycles, tileNumGroupedConv, tileNumInGroups,
-              tileNumOutGroups, convUnitInputLoadElemsPerCycle,
-              numConvUnits, target.getConvUnitCoeffLoadBytesPerCycle(),
-              floatActivations, useDeltasForEdges);
-      } else {
+         target.getConvUnitInputLoadElemsPerCycle(floatActivations);
+
+      return m.call(convSizeVarsVector,
+          [=,&target](const std::vector<unsigned> &values) {
+        auto convSize = makeConvSize(values, numFieldDims);
+        auto tileFieldSize = makeTileFieldSize(convSize, fieldGrainSize);
+        const auto tileNumInChans = convSize.numInChanGrains * inChanGrainSize;
+        const auto tileNumInGroups =
+            (tileNumInChans + inChansPerGroup - 1) / inChansPerGroup;
+        const auto tileNumOutChans = convSize.numOutChanGrains *
+                                     outChanGrainSize;
+        const auto tileNumOutGroups =
+            (tileNumOutChans + outChansPerGroup - 1) / outChansPerGroup;
+        unsigned numEdges =
+            tileNumInGroups + tileNumOutGroups +
+            tileNumInGroups * tileNumOutGroups;
+        bool useDeltasForEdges = useDeltaEdgesForConvPartials(numEdges);
+        if (canUseConvPartial1x1Vertex(params, convUnitWeightHeight,
+                                       convSize.kernelSize)) {
+          auto innerLoopCycles =
+              cache->mGetConvPartial1x1InnerLoopCycleEstimate(
+                convSize.batchSize, tileFieldSize,
+                target.getNumWorkerContexts(), params.inputTransform.dilation,
+                params.outputTransform.stride);
+          return
+              getConvPartial1x1SupervisorOuterLoopCycleEstimate(
+                innerLoopCycles, convSize.numConvGroups, tileNumInGroups,
+                tileNumOutGroups, convUnitInputLoadElemsPerCycle,
+                numConvUnits, target.getConvUnitCoeffLoadBytesPerCycle(),
+                floatActivations, useDeltasForEdges);
+        }
         auto innerLoopCycles =
             cache->mGetConvPartialnx1InnerLoopCycleEstimate(
-              tileBatchElements, tileOutShape, tileKernelShape,
+              convSize.batchSize, tileFieldSize, convSize.kernelSize,
               convUnitWeightHeight, convUnitInputLoadElemsPerCycle,
               numConvUnits, target.getConvUnitCoeffLoadBytesPerCycle(),
               target.getNumWorkerContexts(), floatActivations,
               params.inputTransform.dilation, params.outputTransform.stride);
-        computeCycles =
+        return
             getConvPartialnx1SupervisorCycleOuterLoopEstimate(
-              innerLoopCycles, tileNumGroupedConv, tileNumOutGroups,
+              innerLoopCycles, convSize.numConvGroups, tileNumOutGroups,
               tileNumInGroups, useDeltasForEdges);
-      }
+      });
     }
-    break;
   case Plan::Method::MAC:
     {
       const auto outputStrideX = params.inputTransform.dilation.back();
-      unsigned numActiveOutRows = tileBatchElements;
-      for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
-        const auto dimActiveRows =
-            (tileOutShape[dim] + params.inputTransform.dilation[dim] - 1) /
-            params.inputTransform.dilation[dim];
-        numActiveOutRows *= dimActiveRows;
-      }
-      const auto tileKernelWidth =
-          getMaxTileKernelSize(params, plan, numFieldDims - 1);
-      const auto tileOutWidth = getMaxTileOutSize(params, plan,
-                                                  numFieldDims - 1);
-      auto innerLoopCycles =
-          cache->mEstimateConvPartialHorizontalMacInnerLoopCycles(
-            numActiveOutRows,
-            tileOutWidth,
-            outputStrideX,
-            tileKernelFieldElements / tileKernelWidth,
-            tileKernelWidth,
-            target.getNumWorkerContexts(),
-            floatActivations,
-            inChansPerGroup,
-            target.getDataPathWidth());
-      computeCycles =
-          getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(
-            innerLoopCycles,
-            tileNumGroupedConv,
-            tileNumInGroups,
-            tileNumOutGroups);
+      return m.call(convSizeVarsVector,
+          [=,&target](const std::vector<unsigned> &values) {
+        auto convSize = makeConvSize(values, numFieldDims);
+        auto tileOutShape = makeTileFieldSize(convSize, fieldGrainSize);
+        const auto tileNumInChans = convSize.numInChanGrains * inChanGrainSize;
+        const auto tileNumInGroups =
+            (tileNumInChans + inChansPerGroup - 1) / inChansPerGroup;
+        const auto tileNumOutChans = convSize.numOutChanGrains *
+                                     outChanGrainSize;
+        const auto tileNumOutGroups =
+            (tileNumOutChans + outChansPerGroup - 1) / outChansPerGroup;
+        const auto tileKernelElements =
+            std::accumulate(convSize.kernelSize.begin(),
+                            convSize.kernelSize.end(),
+                            1U,
+                            std::multiplies<unsigned>());
+        unsigned numActiveOutRows = convSize.batchSize;
+        for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
+          const auto dimActiveRows =
+              (tileOutShape[dim] + params.inputTransform.dilation[dim] - 1) /
+              params.inputTransform.dilation[dim];
+          numActiveOutRows *= dimActiveRows;
+        }
+        const auto tileKernelWidth =
+            convSize.kernelSize.back();
+        const auto tileOutWidth = tileOutShape.back();
+        auto innerLoopCycles =
+            cache->mEstimateConvPartialHorizontalMacInnerLoopCycles(
+              numActiveOutRows,
+              tileOutWidth,
+              outputStrideX,
+              tileKernelElements / tileKernelWidth,
+              tileKernelWidth,
+              target.getNumWorkerContexts(),
+              floatActivations,
+              inChansPerGroup,
+              target.getDataPathWidth());
+        return
+            getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(
+              innerLoopCycles,
+              convSize.numConvGroups,
+              tileNumInGroups,
+              tileNumOutGroups);
+      });
     }
     break;
   case Plan::Method::OUTER_PRODUCT:
     {
-      const auto tileOutWidth = getMaxTileOutSize(params, plan,
-                                                  numFieldDims - 1);
-      assert(tileOutWidth == tileOutElements);
-      assert(tileBatchElements == 1);
-      assert(tileNumInGroups == 1);
+      assert(params.getBatchSize() == 1);
+      assert(params.getNumInputChansPerConvGroup() == 1);
       assert(std::all_of(params.outputTransform.stride.begin(),
                          params.outputTransform.stride.end(), equalsOne));
       assert(std::all_of(params.inputTransform.dilation.begin(),
                          params.inputTransform.dilation.end(), equalsOne));
       const auto numContexts = target.getNumWorkerContexts();
-      const auto workerOutWidth =
-          (tileOutWidth + numContexts - 1) / numContexts;
-      auto vertexRuntime =
-          getOuterProductCycleEstimate(floatActivations, workerOutWidth,
-                                       tileNumOutGroups * outChansPerGroup *
-                                       tileNumGroupedConv,
-                                       outChansPerGroup,
-                                       target.getDataPathWidth());
-      computeCycles = vertexRuntime * numContexts;
+      return m.call(convSizeVarsVector,
+          [=](const std::vector<unsigned> &values) {
+        auto convSize = makeConvSize(values, numFieldDims);
+        const auto tileOutWidth =
+            convSize.numFieldGrains.back() * fieldGrainSize.back();
+        const auto workerOutWidth =
+            (tileOutWidth + numContexts - 1) / numContexts;
+        const auto tileNumOutChans = convSize.numOutChanGrains *
+                                     outChanGrainSize;
+        auto vertexRuntime =
+            getOuterProductCycleEstimate(floatActivations, workerOutWidth,
+                                         tileNumOutChans *
+                                             convSize.numConvGroups,
+                                         outChansPerGroup,
+                                         target.getDataPathWidth());
+        return vertexRuntime * numContexts;
+      });
     }
     break;
   }
-  return computeCycles;
 }
 
 unsigned getMaxMACsPerCyclePerTile(const poplar::Target &target,
@@ -1025,6 +1022,12 @@ addCycleEstimate(popsolver::Model &m,
                  PlanningCacheImpl *cache) {
   const auto numLevelsOfHierarchy = partitionVars.size();
   const auto numFieldDims = partitionVars[0].fieldGrainSize.size();
+  // popsolver takes into account whether a variable is an operand of a call
+  // when deciding the order to set variables. Add a dummy call to ensure the
+  // split variables are prioritized as this reduces the amount of time spent
+  // in the planner. TODO Improve popsolver's heuristics for ordering variables
+  // so this hack is no longer necessary (or provide a proper mechanism for
+  // ordering hints).
   std::vector<popsolver::Variable> variables;
   for (const auto &vars : partitionVars) {
     variables.push_back(vars.batchSplit);
@@ -1036,35 +1039,9 @@ addCycleEstimate(popsolver::Model &m,
     variables.insert(variables.end(), vars.kernelSplit.begin(),
                      vars.kernelSplit.end());
   };
-  auto makePlan = [=](const std::vector<unsigned> &values) {
-    std::vector<Partition> partitions;
-    partitions.reserve(numLevelsOfHierarchy);
-    const auto varsPerLevel = 4 + numFieldDims * 2;
-    assert(varsPerLevel * numLevelsOfHierarchy == values.size());
-    for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
-      const auto batchSplit = values[level * varsPerLevel];
-      const auto outChanSplit = values[level * varsPerLevel + 1];
-      const auto inChanSplit = values[level * varsPerLevel + 2];
-      const auto convGroupSplit = values[level * varsPerLevel + 3];
-      std::vector<unsigned> fieldSplit(
-        values.begin() + level * varsPerLevel + 4,
-        values.begin() + level * varsPerLevel + 4 + numFieldDims
-      );
-      std::vector<unsigned> kernelSplit(
-        values.begin() + level * varsPerLevel + 4 + numFieldDims,
-        values.begin() + level * varsPerLevel + 4 + 2 * numFieldDims
-      );
-      Partition partition(fieldSplit, batchSplit, outChanSplit,
-                          kernelSplit, inChanSplit, convGroupSplit,
-                          partitionVars[level].fieldGrainSize,
-                          partitionVars[level].inChanGrainSize,
-                          partitionVars[level].outChanGrainSize);
-      partitions.push_back(std::move(partition));
-    }
-    Plan candidate(std::move(partitions), inChansPerGroup, partialChansPerGroup,
-                   floatPartials, method, linearizeTileOrder);
-    return candidate;
-  };
+  (void)m.call(variables, [](const std::vector<unsigned> &) {
+    return 0U;
+  });
   const auto exchangeCycles =
       addExchangeCycleEstimate(m, partitionVars, convSize, target,
                                perLevelExchangeBytesPerCycle, params,
@@ -1075,12 +1052,13 @@ addCycleEstimate(popsolver::Model &m,
       addZeroCycles(m, target, partialsPerTile, convSize.back(), params,
                     floatPartials, method);
   const auto partialCalcCycles =
-      m.call(variables,
-             [=,&target](const std::vector<unsigned> &values) {
-    Plan candidate = makePlan(values);
-    return estimatePartialCalcCycles(target, floatActivations, params,
-                                     candidate, cache);
-  });
+      addPartialCalcCycleEstimate(m, partitionVars.back().fieldGrainSize,
+                                  partitionVars.back().inChanGrainSize,
+                                  partitionVars.back().outChanGrainSize,
+                                  convSize.back(), target, params,
+                                  inChansPerGroup, partialChansPerGroup,
+                                  floatPartials, floatActivations,
+                                  method, cache);
   // Add a redunant inequality that relates the cycles required to calculate the
   // partial sums with the maximum number of MACs per cycle. Although this
   // constraint isn't necessary it provides an easy to calculate lower bound
