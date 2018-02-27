@@ -7,6 +7,7 @@
 #include "popnn/NonLinearity.hpp"
 
 using namespace poplar;
+static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 
 /****************************************************************************/
 /*            Auxiliary math functions                                      */

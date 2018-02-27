@@ -6,6 +6,9 @@
 
 using namespace poplar;
 
+static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
+static constexpr auto TWO_PTR = poplar::VectorLayout::TWO_PTR;
+
 namespace popconv {
 
 /**

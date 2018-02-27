@@ -4,6 +4,7 @@
 #include <cmath>
 
 using namespace poplar;
+static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 
 template <typename T>
 static const T &min(const T &x, const T &y) {

@@ -6,6 +6,8 @@
 
 using namespace poplar;
 namespace popops {
+static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
+static constexpr auto TWO_PTR = poplar::VectorLayout::TWO_PTR;
 
 template <typename OutType, typename PartialsType>
 class
