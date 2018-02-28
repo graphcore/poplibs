@@ -19,7 +19,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(Uniform)(const VertexIntrospector &vertex,
       cycles += 5;        // to set up seeds in CSR
       cycles += WARMUP_ITERATIONS;
     }
-    for (auto i = 0; i != out.size(); ++i) {
+    for (auto i = 0u; i != out.size(); ++i) {
       // use modulo instruction
       cycles += out[i].size() * 23;
     }
@@ -41,7 +41,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(Uniform)(const VertexIntrospector &vertex,
     bool isFloat = type == FLOAT;
     unsigned vectorWidth =  dataPathWidth / (isFloat ? 32 : 16);
 
-    for (auto i = 0; i != out.size(); ++i) {
+    for (auto i = 0u; i != out.size(); ++i) {
       cycles += 3; // overhead to load pointers + rpt + brnzdec
       // rand gen/convert/axpb
       cycles += (out[i].size() + vectorWidth - 1) / vectorWidth * 3;
@@ -71,7 +71,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(Bernoulli)(const VertexIntrospector &vertex,
   bool isFloat = type == FLOAT;
   unsigned vectorWidth =  dataPathWidth / (isFloat ? 32 : 16);
 
-  for (auto i = 0; i != out.size(); ++i) {
+  for (auto i = 0u; i != out.size(); ++i) {
     cycles += 3; // overhead to load pointers + rpt + brnzdec
     // use f16v4rmask for half and f32v2mask for int/float + store64
     // assumption that rmask ignores NaNs (as it seems from archman)
@@ -100,7 +100,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(Normal)(const VertexIntrospector &vertex,
   bool isFloat = type == FLOAT;
   unsigned vectorWidth =  dataPathWidth / (isFloat ? 32 : 16);
 
-  for (auto i = 0; i != out.size(); ++i) {
+  for (auto i = 0u; i != out.size(); ++i) {
     cycles += 3; // overhead to load pointers + rpt + brnzdec
     // use f16v4grand for half and f32v2grand for int/float + store64
     // and axpby
@@ -131,7 +131,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(TruncatedNormal)(const VertexIntrospector &vertex,
   bool isFloat = type == FLOAT;
   unsigned vectorWidth =  dataPathWidth / (isFloat ? 32 : 16);
 
-  for (auto i = 0; i != out.size(); ++i) {
+  for (auto i = 0u; i != out.size(); ++i) {
     cycles += 3; // overhead to load pointer + brnzdec + init mask
     // 6 cycles per iter + axpby + store + 5 (for triangular/uniform)
     cycles += (out[i].size() + vectorWidth - 1)

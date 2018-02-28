@@ -25,6 +25,11 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(const VertexIntrospector &vertex,
 
   CODELET_VECTOR_2D_VALS(worklists, unsigned);
   CODELET_VECTOR_VALS(zeroWorklist, unsigned);
+  CODELET_FIELD(out);
+  CODELET_FIELD(weights);
+  assert(numConvGroups * numOutGroups * numInGroups == weights.size());
+  assert(out.size() == numOutGroups * numConvGroups);
+  assert(zeroWorklist.size() % 2 == 0);
 
   const auto dataPathWidth = target.getDataPathWidth();
   const auto numWorkerContexts = target.getNumWorkerContexts();
@@ -114,7 +119,12 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(const VertexIntrospector &vertex,
   CODELET_SCALAR_VAL(outChansPerGroup, unsigned);
   CODELET_SCALAR_VAL(convUnitCoeffLoadBytesPerCycle, unsigned);
   const auto numWorkerContexts = target.getNumWorkerContexts();
-
+  CODELET_FIELD(weights);
+  CODELET_FIELD(out);
+  CODELET_FIELD(in);
+  assert(numConvGroups * numOutGroups * numInGroups == weights.size());
+  assert(out.size() == numOutGroups * numConvGroups);
+  assert(in.size() == numOutGroups * numConvGroups);
   // find max work to bt done per worker
   std::vector<std::vector<unsigned>> workerPartitions;
   const auto usedContexts = worklists.size();
@@ -155,6 +165,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
   CODELET_SCALAR_VAL(kernelSize, unsigned);
   CODELET_SCALAR_VAL(outStride, unsigned);
   CODELET_SCALAR_VAL(inChansPerGroup, unsigned);
+  CODELET_FIELD(out);
+  CODELET_FIELD(in);
+  CODELET_FIELD(weights);
+  assert(numConvGroups * numOutGroups * numInGroups == weights.size());
+  assert(out.size() == numOutGroups * numConvGroups);
+  assert(in.size() == numInGroups * numConvGroups);
+  assert(zeroWorklist.size() % 2 == 0);
 
   const auto dataPathWidth = target.getDataPathWidth();
   const auto numWorkerContexts = target.getNumWorkerContexts();
@@ -323,6 +340,14 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
   else
     cycles += 7;
   const auto numTranspositions = src.size();
+  assert(src.size() == dst.size());
+#ifndef NDEBUG
+  for (unsigned i = 0; i != numTranspositions; ++i) {
+    assert(src[i].size() == dst[i].size());
+    const auto numElements = src[i].size();
+    assert(numElements % numSrcColumns == 0);
+  }
+#endif
   for (unsigned i = 0; i != numTranspositions; ++i) {
     const auto numElements = src[i].size();
     cycles += 2; // Load src and dst pointers.
@@ -358,6 +383,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(AddToChannel)(const VertexIntrospector &vertex,
   CODELET_FIELD(addend);
   const auto dataPathWidth = target.getDataPathWidth();
 
+  assert(acts.size() == addend.size());
   const bool isFloat = type == FLOAT;
   const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
   unsigned n = acts.size();
@@ -411,6 +437,8 @@ MAKE_CYCLE_ESTIMATOR_NAME(ChannelMul)(const VertexIntrospector &vertex,
   const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
   unsigned n = actsIn.size();
   unsigned numCycles = 5;
+  assert(actsIn.size() == actsOut.size());
+  assert(scale.size() == n);
   for (unsigned i = 0; i != n; ++i) {
     unsigned chansPerGroup = scale[i].size();
     assert(actsIn[i].size() % chansPerGroup == 0);
@@ -500,9 +528,14 @@ MAKE_CYCLE_ESTIMATOR_NAME(InverseStdDeviation)(
     const Type &outType) {
   CODELET_FIELD(mean);
   const auto dataPathWidth = target.getDataPathWidth();
-
+  CODELET_FIELD(power);
+  CODELET_FIELD(iStdDev);
+  assert(mean.size() == power.size());
+  assert(mean.size() == iStdDev.size());
   uint64_t cycles = 6;
   for (unsigned i = 0; i < mean.size(); ++i) {
+    assert(mean[i].size() == power[i].size());
+    assert(mean[i].size() == iStdDev[i].size());
     unsigned numElem = mean[i].size();
     // always use float as we want float intermediates
     unsigned vectorWidth = dataPathWidth / 32;

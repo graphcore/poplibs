@@ -5,6 +5,8 @@
 #include "util.hpp"
 
 using namespace poplar;
+static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
+
 namespace popops {
 
 template <typename InType>
@@ -13,15 +15,13 @@ class
 ScaledAdd : public Vertex {
 public:
   Vector<InOut<Vector<InType>>> data;
-  Vector<Input<Vector<InType>>> deltas;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> deltas;
 
   InType K;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(data.size() == deltas.size());
     for (unsigned i = 0; i < data.size(); ++i) {
-      assert (deltas[i].size() == data[i].size());
       for (unsigned j = 0; j < data[i].size(); ++j) {
         data[i][j] += K * deltas[i][j];
       }
@@ -42,14 +42,12 @@ class
 HadamardProd : public Vertex {
 public:
   Vector<InOut<Vector<FPType>>> A;
-  Vector<Input<Vector<FPType>>> B;
+  Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> B;
 
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(A.size() == B.size());
     for (unsigned i = 0; i < A.size(); ++i) {
-      assert (A[i].size() == B[i].size());
       for (unsigned j = 0; j < A[i].size(); ++j) {
         A[i][j] *= B[i][j];
       }
@@ -109,7 +107,7 @@ class
 [[poplar::constraint("elem(*src) != elem(*dst)")]]
 Cast : public Vertex {
 public:
-  Input<Vector<SrcType>> src;
+  Input<Vector<SrcType, ONE_PTR>> src;
   Output<Vector<DstType>> dst;
   SimOnlyField<unsigned> dataPathWidth;
 
@@ -146,14 +144,12 @@ class
 [[poplar::constraint("elem(**src) != elem(**dst)")]]
 Cast2d : public Vertex {
 public:
-  Vector<Input<Vector<SrcType>>> src;
+  Vector<Input<Vector<SrcType, ONE_PTR>>, ONE_PTR> src;
   Vector<Output<Vector<DstType>>> dst;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(src.size() == dst.size());
     for (unsigned i = 0; i != dst.size(); ++i) {
-      assert(src[i].size() == dst[i].size());
       for (unsigned j = 0; j != dst[i].size(); ++j) {
         dst[i][j] = static_cast<DstType>(src[i][j]);
       }
@@ -186,15 +182,13 @@ template class Cast2d<bool,bool>;
 template <typename InType>
 class Absolute : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in.size() == out.size());
-    for (unsigned i = 0; i != in.size(); ++i) {
-      assert (in[i].size() == out[i].size());
-      for (unsigned j = 0; j != in[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         if (in[i][j] >= 0) {
           out[i][j] = in[i][j];
         } else {
@@ -214,18 +208,15 @@ template class Absolute<int>;
 template <typename InType>
 class Atan2 : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = std::atan2(in1[i][j], in2[i][j]);
       }
     }
@@ -243,18 +234,15 @@ class
                      "upper(**in1) || upper(**in2)")]]
 Add : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = in1[i][j] + in2[i][j];
       }
     }
@@ -276,18 +264,14 @@ class
 
 BitwiseAnd : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = in1[i][j] & in2[i][j];
       }
     }
@@ -303,15 +287,13 @@ class
 [[poplar::constraint("elem(**in) != elem(**out)")]]
 BitwiseNot : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in.size() == out.size());
-    for (unsigned i = 0; i != in.size(); ++i) {
-      assert (in[i].size() == out[i].size());
-      for (unsigned j = 0; j != in[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = ~in[i][j];
       }
     }
@@ -330,18 +312,14 @@ class
                      "upper(**in1) || upper(**in2)")]]
 BitwiseOr : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = in1[i][j] | in2[i][j];
       }
     }
@@ -357,15 +335,13 @@ class
 [[poplar::constraint("elem(**in) != elem(**out)")]]
 Ceil : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in.size() == out.size());
-    for (unsigned i = 0; i != in.size(); ++i) {
-      assert (in[i].size() == out[i].size());
-      for (unsigned j = 0; j != in[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = std::ceil(in[i][j]);
       }
     }
@@ -379,15 +355,13 @@ template class Ceil<half>;
 template <typename InType>
 class Cos : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in.size() == out.size());
-    for (unsigned i = 0; i != in.size(); ++i) {
-      assert (in[i].size() == out[i].size());
-      for (unsigned j = 0; j != in[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = std::cos(in[i][j]);
       }
     }
@@ -406,18 +380,14 @@ class
                      "upper(**in1) || upper(**in2)")]]
 Divide : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = in1[i][j] / in2[i][j];
       }
     }
@@ -432,18 +402,14 @@ template class Divide<int>;
 template <typename InType>
 class Equal : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<bool>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = in1[i][j] == in2[i][j];
       }
     }
@@ -460,15 +426,13 @@ template class Equal<int>;
 template <typename InType>
 class Exponent : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in.size() == out.size());
-    for (unsigned i = 0; i != in.size(); ++i) {
-      assert (in[i].size() == out[i].size());
-      for (unsigned j = 0; j != in[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = std::exp(in[i][j]);
       }
     }
@@ -484,15 +448,13 @@ class
 [[poplar::constraint("elem(**in) != elem(**out)")]]
 Floor : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in.size() == out.size());
-    for (unsigned i = 0; i != in.size(); ++i) {
-      assert (in[i].size() == out[i].size());
-      for (unsigned j = 0; j != in[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = std::floor(in[i][j]);
       }
     }
@@ -506,18 +468,14 @@ template class Floor<half>;
 template <typename InType>
 class GreaterThan : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<bool>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = in1[i][j] > in2[i][j];
       }
     }
@@ -533,18 +491,14 @@ template class GreaterThan<bool>;
 template <typename InType>
 class GreaterThanEqual : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<bool>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = in1[i][j] >= in2[i][j];
       }
     }
@@ -560,15 +514,13 @@ template class GreaterThanEqual<bool>;
 template <typename InType>
 class IsFinite : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<bool>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in.size() == out.size());
-    for (unsigned i = 0; i != in.size(); ++i) {
-      assert (in[i].size() == out[i].size());
-      for (unsigned j = 0; j != in[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         InType v = in[i][j];
         out[i][j] = (v == v) && (std::abs(v) != INFINITY);
       }
@@ -583,18 +535,14 @@ template class IsFinite<half>;
 template <typename InType>
 class LessThan : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<bool>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = in1[i][j] < in2[i][j];
       }
     }
@@ -610,18 +558,14 @@ template class LessThan<bool>;
 template <typename InType>
 class LessThanEqual : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<bool>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = in1[i][j] <= in2[i][j];
       }
     }
@@ -637,15 +581,13 @@ template class LessThanEqual<bool>;
 template <typename InType>
 class Logarithm : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in.size() == out.size());
-    for (unsigned i = 0; i != in.size(); ++i) {
-      assert (in[i].size() == out[i].size());
-      for (unsigned j = 0; j != in[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = std::log(in[i][j]);
       }
     }
@@ -659,18 +601,14 @@ template class Logarithm<half>;
 template <typename InType>
 class LogicalAnd : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<bool>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = in1[i][j] && in2[i][j];
       }
     }
@@ -684,15 +622,13 @@ template class LogicalAnd<bool>;
 template <typename InType>
 class LogicalNot : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in.size() == out.size());
-    for (unsigned i = 0; i != in.size(); ++i) {
-      assert (in[i].size() == out[i].size());
-      for (unsigned j = 0; j != in[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = !in[i][j];
       }
     }
@@ -706,18 +642,14 @@ template class LogicalNot<bool>;
 template <typename InType>
 class LogicalOr : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<bool>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = in1[i][j] || in2[i][j];
       }
     }
@@ -733,18 +665,14 @@ class
                      "upper(**in1) || upper(**in2)")]]
 Maximum : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = max(in1[i][j], in2[i][j]);
       }
     }
@@ -763,18 +691,14 @@ class
                      "upper(**in1) || upper(**in2)")]]
 Minimum : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = min(in1[i][j], in2[i][j]);
       }
     }
@@ -793,18 +717,14 @@ class
                      "upper(**in1) || upper(**in2)")]]
 Multiply : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = in1[i][j] * in2[i][j];
       }
     }
@@ -820,18 +740,14 @@ template class Multiply<int>;
 template <typename InType>
 class NotEqual : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<bool>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = in1[i][j] != in2[i][j];
       }
     }
@@ -850,15 +766,13 @@ class
 [[poplar::constraint("elem(**in) != elem(**out)")]]
 Negate : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in.size() == out.size());
-    for (unsigned i = 0; i != in.size(); ++i) {
-      assert (in[i].size() == out[i].size());
-      for (unsigned j = 0; j != in[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = -in[i][j];
       }
     }
@@ -874,18 +788,14 @@ template class Negate<int>;
 template <typename InType>
 class Power : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = std::pow(in1[i][j], in2[i][j]);
       }
     }
@@ -905,18 +815,14 @@ class
                      "upper(**in1) || upper(**in2)")]]
 Remainder : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         if (std::is_same<InType, int>::value) {
           int r = in1[i][j] / in2[i][j];
           out[i][j] = in1[i][j] - r * in2[i][j];
@@ -937,15 +843,13 @@ template class Remainder<int>;
 template <typename InType>
 class Round : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in.size() == out.size());
-    for (unsigned i = 0; i != in.size(); ++i) {
-      assert (in[i].size() == out[i].size());
-      for (unsigned j = 0; j != in[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] =  std::round(in[i][j]);
       }
     }
@@ -959,18 +863,14 @@ template class Round<half>;
 template <typename InType>
 class ShiftLeft : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = in1[i][j] << in2[i][j];
       }
     }
@@ -983,18 +883,14 @@ template class ShiftLeft<int>;
 template <typename InType>
 class ShiftRight : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = (unsigned)in1[i][j] >> in2[i][j];
       }
     }
@@ -1007,18 +903,14 @@ template class ShiftRight<int>;
 template <typename InType>
 class ShiftRightSignExtend : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = in1[i][j] >> in2[i][j];
       }
     }
@@ -1033,15 +925,13 @@ class
 [[poplar::constraint("elem(**in) != elem(**out)")]]
 Signum : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in.size() == out.size());
-    for (unsigned i = 0; i != in.size(); ++i) {
-      assert (in[i].size() == out[i].size());
-      for (unsigned j = 0; j != in[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] =  (0 < in[i][j]) - (in[i][j] < 0);
       }
     }
@@ -1056,15 +946,13 @@ template class Signum<int>;
 template <typename InType>
 class Sin : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in.size() == out.size());
-    for (unsigned i = 0; i != in.size(); ++i) {
-      assert (in[i].size() == out[i].size());
-      for (unsigned j = 0; j != in[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = std::sin(in[i][j]);
       }
     }
@@ -1081,18 +969,14 @@ class
                      "upper(**in1) || upper(**in2)")]]
 Subtract : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = in1[i][j] - in2[i][j];
       }
     }
@@ -1109,15 +993,13 @@ template class Subtract<unsigned>;
 template <typename InType>
 class Tanh : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in.size() == out.size());
-    for (unsigned i = 0; i != in.size(); ++i) {
-      assert (in[i].size() == out[i].size());
-      for (unsigned j = 0; j != in[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = std::tanh(in[i][j]);
       }
     }
@@ -1132,15 +1014,13 @@ template class Tanh<half>;
 template <typename InType>
 class Sqrt : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in.size() == out.size());
-    for (unsigned i = 0; i != in.size(); ++i) {
-      assert (in[i].size() == out[i].size());
-      for (unsigned j = 0; j != in[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = std::sqrt(in[i][j]);
       }
     }
@@ -1156,15 +1036,13 @@ class
 [[poplar::constraint("elem(**in) != elem(**out)")]]
 Square : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in.size() == out.size());
-    for (unsigned i = 0; i != in.size(); ++i) {
-      assert (in[i].size() == out[i].size());
-      for (unsigned j = 0; j != in[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = in[i][j] * in[i][j];
       }
     }
@@ -1178,22 +1056,16 @@ template class Square<half>;
 template <typename InType>
 class Clamp : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;  // lower bound
-  Vector<Input<Vector<InType>>> in3;  // upper bound
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;  // lower bound
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in3;  // upper bound
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    assert(in3.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      assert(in3[i].size() == in1[i].size());
+    for (unsigned i = 0; i != out.size(); ++i) {
 
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = in1[i][j];
         if (out[i][j] < in2[i][j]) {
           out[i][j] = in2[i][j];
@@ -1214,21 +1086,15 @@ template class Clamp<int>;
 template <typename InType>
 class Select : public Vertex {
 public:
-  Vector<Input<Vector<InType>>> in1;
-  Vector<Input<Vector<InType>>> in2;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Input<Vector<bool>>> in3;
   Vector<Output<Vector<InType>>> out;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(in1.size() == out.size());
-    assert(in2.size() == in1.size());
-    assert(in3.size() == in1.size());
-    for (unsigned i = 0; i != in1.size(); ++i) {
-      assert(in1[i].size() == out[i].size());
-      assert(in2[i].size() == in1[i].size());
-      assert(in3[i].size() == in1[i].size());
-      for (unsigned j = 0; j != in1[i].size(); ++j) {
+    for (unsigned i = 0; i != out.size(); ++i) {
+      for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = in3[i][j] ? in1[i][j] : in2[i][j];
       }
     }

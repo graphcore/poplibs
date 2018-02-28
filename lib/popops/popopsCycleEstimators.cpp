@@ -191,27 +191,30 @@ std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(ScaledAdd)(const VertexIntrospector &vertex,
                                      const Target &target,
                                      const Type &type) {
-    uint64_t cycles = 5;
-    const auto data = vertex.getFieldInfo("data");
-    for (unsigned i = 0; i < data.size(); ++i) {
-      unsigned numElem = data[i].size();
-      unsigned vectorWidth = 1;
-      unsigned cyclesPerVector = 1;
-      if (type == FLOAT) {
-        vectorWidth = target.getDataPathWidth() / 32;
-      }
-      else if (type == HALF) {
-        vectorWidth = target.getDataPathWidth() / 16;
-      }
-      else {// integer types are not vectorisable
-        cyclesPerVector = 4; //ld/mpy/add/st
-        vectorWidth = 1;
-      }
-      // Inner loop uses the axpy instruction.
-      cycles += 5 + cyclesPerVector *
-                      (1 + (numElem + vectorWidth - 1) / vectorWidth);
+  CODELET_FIELD(deltas);
+  uint64_t cycles = 5;
+  const auto data = vertex.getFieldInfo("data");
+  assert(data.size() == deltas.size());
+  for (unsigned i = 0; i < data.size(); ++i) {
+    unsigned numElem = data[i].size();
+    assert(data[i].size() == deltas[i].size());
+    unsigned vectorWidth = 1;
+    unsigned cyclesPerVector = 1;
+    if (type == FLOAT) {
+      vectorWidth = target.getDataPathWidth() / 32;
     }
-    return cycles;
+    else if (type == HALF) {
+      vectorWidth = target.getDataPathWidth() / 16;
+    }
+    else {// integer types are not vectorisable
+      cyclesPerVector = 4; //ld/mpy/add/st
+      vectorWidth = 1;
+    }
+    // Inner loop uses the axpy instruction.
+    cycles += 5 + cyclesPerVector *
+        (1 + (numElem + vectorWidth - 1) / vectorWidth);
+  }
+  return cycles;
 }
 
 std::uint64_t
@@ -220,7 +223,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(HadamardProd)(const VertexIntrospector &vertex,
                                         const Type &type) {
   uint64_t cycles = 5;
   const auto A = vertex.getFieldInfo("A");
+  CODELET_FIELD(B);
+  assert(A.size() == B.size());
   for (unsigned i = 0; i < A.size(); ++i) {
+    assert(A[i].size() == B[i].size());
     unsigned numElem = A[i].size();
     bool isFloat = type == FLOAT;
     unsigned vectorWidth = target.getDataPathWidth() / (isFloat ? 32 : 16);
@@ -282,7 +288,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(Cast2d)(const VertexIntrospector &vertex,
   const auto floatVectorWidth = target.getDataPathWidth() / 32;
   std::uint64_t cycles = 5;
   const auto dst = vertex.getFieldInfo("dst");
+  CODELET_FIELD(src);
+  assert(src.size() == dst.size());
   for (unsigned i = 0; i != dst.size(); ++i) {
+    assert(src[i].size() == dst[i].size());
     // Estimate based on 6 cycles of loop overhead per src / dst pointer pair:
     //
     // 1: load src
@@ -303,7 +312,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(Absolute)(const VertexIntrospector &vertex,
                                     const Type &type) {
   uint64_t cycles = 5;
   const auto in = vertex.getFieldInfo("in");
+  CODELET_FIELD(out);
+  assert(in.size() == out.size());
   for (unsigned i = 0; i < in.size(); ++i) {
+    assert (in[i].size() == out[i].size());
     unsigned cyclesPerVector = 1;
     unsigned overhead = 6;
     unsigned numElem = in[i].size();
@@ -331,7 +343,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(Add)(const VertexIntrospector &vertex,
                                 const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(in2);
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
+  assert(in2.size() == in1.size());
   for (unsigned i = 0; i < in1.size(); ++i) {
+    assert(in1[i].size() == out[i].size());
+    assert(in2[i].size() == in1[i].size());
     unsigned cyclesPerVector = 1;
     unsigned overhead = 6;
     unsigned numElem = in1[i].size();
@@ -358,7 +376,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(Atan2)(const VertexIntrospector &vertex,
                                  const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(in2);
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
+  assert(in2.size() == in1.size());
   for (unsigned i = 0; i < in1.size(); ++i) {
+    assert(in1[i].size() == out[i].size());
+    assert(in2[i].size() == in1[i].size());
     unsigned cyclesPerVector = 1;
     unsigned overhead = 6;
     unsigned numElem = in1[i].size();
@@ -382,7 +406,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(BitwiseAnd)(const VertexIntrospector &vertex,
                                       const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(in2);
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
+  assert(in2.size() == in1.size());
   for (unsigned i = 0; i < in1.size(); ++i) {
+    assert(in1[i].size() == out[i].size());
+    assert(in2[i].size() == in1[i].size());
     unsigned numElem = in1[i].size();
     unsigned overhead = 6;
     unsigned vectorWidth = 2;
@@ -401,7 +431,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(BitwiseNot)(const VertexIntrospector &vertex,
                                        const Type &type) {
   uint64_t cycles = 7;
   const auto in = vertex.getFieldInfo("in");
-  for (unsigned i = 0; i < in.size(); ++i) {
+  CODELET_FIELD(out);
+  assert(in.size() == out.size());
+  for (unsigned i = 0; i != in.size(); ++i) {
+    assert (in[i].size() == out[i].size());
     unsigned numElem = in[i].size();
     unsigned overhead = 6;
     unsigned vectorWidth = 2;
@@ -420,7 +453,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(BitwiseOr)(const VertexIntrospector &vertex,
                                      const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(in2);
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
+  assert(in2.size() == in1.size());
   for (unsigned i = 0; i < in1.size(); ++i) {
+    assert(in1[i].size() == out[i].size());
+    assert(in2[i].size() == in1[i].size());
     unsigned numElem = in1[i].size();
     unsigned overhead = 6;
     unsigned vectorWidth = 2;
@@ -439,7 +478,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(Ceil)(const VertexIntrospector &vertex,
                                 const Type &type) {
   uint64_t cycles = 6;
   const auto in = vertex.getFieldInfo("in");
-  for (unsigned i = 0; i < in.size(); ++i) {
+  CODELET_FIELD(out);
+  assert(in.size() == out.size());
+  for (unsigned i = 0; i != in.size(); ++i) {
+    assert (in[i].size() == out[i].size());
     unsigned overhead = 6;
     unsigned numElem = in[i].size();
     bool isFloat = type == FLOAT;
@@ -458,7 +500,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(Cos)(const VertexIntrospector &vertex,
                                const Type &type) {
   uint64_t cycles = 6;
   const auto in = vertex.getFieldInfo("in");
-  for (unsigned i = 0; i < in.size(); ++i) {
+  CODELET_FIELD(out);
+  assert(in.size() == out.size());
+  for (unsigned i = 0; i != in.size(); ++i) {
+    assert (in[i].size() == out[i].size());
     unsigned overhead = 6;
     unsigned numElem = in[i].size();
     unsigned vectorWidth = 1;
@@ -482,7 +527,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(Divide)(const VertexIntrospector &vertex,
                                   const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(in2);
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
+  assert(in2.size() == in1.size());
   for (unsigned i = 0; i < in1.size(); ++i) {
+    assert(in1[i].size() == out[i].size());
+    assert(in2[i].size() == in1[i].size());
     unsigned cyclesPerVector = 1;
     unsigned overhead = 6;
     unsigned numElem = in1[i].size();
@@ -509,7 +560,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(Equal)(const VertexIntrospector &vertex,
                                  const Type &type) {
   uint64_t cycles = 7;
   const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(in2);
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
+  assert(in2.size() == in1.size());
   for (unsigned i = 0; i < in1.size(); ++i) {
+    assert(in1[i].size() == out[i].size());
+    assert(in2[i].size() == in1[i].size());
     // E = A and B, F = A or B, G = F andc E, result = 1 andc G
     const auto numBoolOpCycles = type == BOOL ? 4 : 0;
     cycles += comparisonOpsCycles(target.getDataPathWidth(),
@@ -526,7 +583,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(Exponent)(const VertexIntrospector &vertex,
                                     const Type &type) {
   uint64_t cycles = 5;
   const auto in = vertex.getFieldInfo("in");
-  for (unsigned i = 0; i < in.size(); ++i) {
+  CODELET_FIELD(out);
+  assert(in.size() == out.size());
+  for (unsigned i = 0; i != in.size(); ++i) {
+    assert (in[i].size() == out[i].size());
     unsigned numElem = in[i].size();
     bool isFloat = type == FLOAT;
     unsigned vectorWidth = 1;
@@ -550,7 +610,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(Floor)(const VertexIntrospector &vertex,
                                 const Type &type) {
   uint64_t cycles = 6;
   const auto in = vertex.getFieldInfo("in");
-  for (unsigned i = 0; i < in.size(); ++i) {
+  CODELET_FIELD(out);
+  assert(in.size() == out.size());
+  for (unsigned i = 0; i != in.size(); ++i) {
+    assert (in[i].size() == out[i].size());
     const unsigned overhead = 6;
     unsigned numElem = in[i].size();
     bool isFloat = type == FLOAT;
@@ -570,7 +633,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(GreaterThan)(const VertexIntrospector &vertex,
                                        const Type &type) {
   uint64_t cycles = 7;
   const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(in2);
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
+  assert(in2.size() == in1.size());
   for (unsigned i = 0; i < in1.size(); ++i) {
+    assert(in1[i].size() == out[i].size());
+    assert(in2[i].size() == in1[i].size());
     // same as B < A
     // E = A and B, result = A andc E
     const auto numBoolOpCycles = type == BOOL ? 2 : 0;
@@ -588,7 +657,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(GreaterThanEqual)(const VertexIntrospector &vertex,
                                             const Type &type) {
   uint64_t cycles = 7;
   const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(in2);
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
+  assert(in2.size() == in1.size());
   for (unsigned i = 0; i < in1.size(); ++i) {
+    assert(in1[i].size() == out[i].size());
+    assert(in2[i].size() == in1[i].size());
     // same as B <= A
     // E = 1 andc B, result = E or A
     const auto numBoolOpCycles = type == BOOL ? 2 : 0;
@@ -606,7 +681,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(IsFinite)(const VertexIntrospector &vertex,
                                     const Type &type) {
   uint64_t cycles = 6;
   const auto in = vertex.getFieldInfo("in");
-  for (unsigned i = 0; i < in.size(); ++i) {
+  CODELET_FIELD(out);
+  assert(in.size() == out.size());
+  for (unsigned i = 0; i != in.size(); ++i) {
+    assert (in[i].size() == out[i].size());
     unsigned overhead = 6;
     unsigned numElem = in[i].size();
     bool isFloat = type == FLOAT;
@@ -633,8 +711,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(LessThan)(const VertexIntrospector &vertex,
                                     const Type &type) {
   uint64_t cycles = 7;
   const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(in2);
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
+  assert(in2.size() == in1.size());
   for (unsigned i = 0; i < in1.size(); ++i) {
-    // E = A and B, result = B andc E
+    assert(in1[i].size() == out[i].size());
+    assert(in2[i].size() == in1[i].size());    // E = A and B, result = B andc E
     const auto numBoolOpCycles = type == BOOL ? 2 : 0;
     cycles += comparisonOpsCycles(target.getDataPathWidth(),
                                   in1.size(),
@@ -650,8 +733,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(LessThanEqual)(const VertexIntrospector &vertex,
                                          const Type &type) {
   uint64_t cycles = 7;
   const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(in2);
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
+  assert(in2.size() == in1.size());
   for (unsigned i = 0; i < in1.size(); ++i) {
-    // E = 1 andc A, result = E or B
+    assert(in1[i].size() == out[i].size());
+    assert(in2[i].size() == in1[i].size());    // E = 1 andc A, result = E or B
     const auto numBoolOpCycles = type == BOOL ? 2 : 0;
     cycles += comparisonOpsCycles(target.getDataPathWidth(),
                                   in1.size(),
@@ -667,7 +755,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(Logarithm)(const VertexIntrospector &vertex,
                                      const Type &type) {
   uint64_t cycles = 5;
   const auto in = vertex.getFieldInfo("in");
+  CODELET_FIELD(out);
+  assert(in.size() == out.size());
   for (unsigned i = 0; i < in.size(); ++i) {
+    assert(in[i].size() == out[i].size());
     bool isFloat = type == FLOAT;
     unsigned cyclesPerVector = 6;
     unsigned overhead = 6;
@@ -691,7 +782,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(LogicalAnd)(const VertexIntrospector &vertex,
                                       const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(in2);
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
+  assert(in2.size() == in1.size());
   for (unsigned i = 0; i < in1.size(); ++i) {
+    assert(in1[i].size() == out[i].size());
+    assert(in2[i].size() == in1[i].size());
     unsigned numElem = in1[i].size();
     unsigned overhead = 6;
     unsigned vectorWidth = target.getDataPathWidth() / sizeof(bool);
@@ -711,7 +808,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(LogicalNot)(const VertexIntrospector &vertex,
                                       const Type &type) {
   uint64_t cycles = 7;
   const auto in = vertex.getFieldInfo("in");
+  CODELET_FIELD(out);
+  assert(in.size() == out.size());
   for (unsigned i = 0; i < in.size(); ++i) {
+    assert(in[i].size() == out[i].size());
     unsigned numElem = in[i].size();
     unsigned overhead = 6;
     unsigned vectorWidth = target.getDataPathWidth() / sizeof(bool);
@@ -730,7 +830,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(LogicalOr)(const VertexIntrospector &vertex,
                                      const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(in2);
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
+  assert(in2.size() == in1.size());
   for (unsigned i = 0; i < in1.size(); ++i) {
+    assert(in1[i].size() == out[i].size());
+    assert(in2[i].size() == in1[i].size());
     unsigned numElem = in1[i].size();
     unsigned overhead = 6;
     unsigned vectorWidth = target.getDataPathWidth() / sizeof(bool);
@@ -750,7 +856,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(Maximum)(const VertexIntrospector &vertex,
                                    const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(in2);
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
+  assert(in2.size() == in1.size());
   for (unsigned i = 0; i < in1.size(); ++i) {
+    assert(in1[i].size() == out[i].size());
+    assert(in2[i].size() == in1[i].size());
     unsigned cyclesPerVector = 1;
     unsigned overhead = 6;
     unsigned numElem = in1[i].size();
@@ -778,8 +890,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(Minimum)(const VertexIntrospector &vertex,
                                    const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
   for (unsigned i = 0; i < in1.size(); ++i) {
-
+    assert(in1[i].size() == out[i].size());
     unsigned cyclesPerVector = 1;
     unsigned overhead = 6;
     unsigned numElem = in1[i].size();
@@ -807,7 +921,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(Multiply)(const VertexIntrospector &vertex,
                                     const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(in2);
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
+  assert(in2.size() == in1.size());
   for (unsigned i = 0; i < in1.size(); ++i) {
+    assert(in1[i].size() == out[i].size());
+    assert(in2[i].size() == in1[i].size());
     unsigned cyclesPerVector = 1;
     unsigned overhead = 6;
     unsigned numElem = in1[i].size();
@@ -834,7 +954,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(NotEqual)(const VertexIntrospector &vertex,
                                     const Type &type) {
   uint64_t cycles = 7;
   const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(in2);
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
+  assert(in2.size() == in1.size());
   for (unsigned i = 0; i < in1.size(); ++i) {
+    assert(in1[i].size() == out[i].size());
+    assert(in2[i].size() == in1[i].size());
     // E = A and B, F = A or B, result = F andc E
     const auto numBoolOpCycles = type == BOOL ? 3 : 0;
     cycles += comparisonOpsCycles(target.getDataPathWidth(),
@@ -851,8 +977,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(Negate)(const VertexIntrospector &vertex,
                                   const Type &type) {
       uint64_t cycles = 6;
   const auto in = vertex.getFieldInfo("in");
+  CODELET_FIELD(out);
+  assert(in.size() == out.size());
   for (unsigned i = 0; i < in.size(); ++i) {
-
+    assert(in[i].size() == out[i].size());
     unsigned cyclesPerVector = 1;
     unsigned overhead = 6;
     unsigned numElem = in[i].size();
@@ -877,7 +1005,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(Power)(const VertexIntrospector &vertex,
                                  const Type &type) {
   uint64_t cycles = 7;
   const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(in2);
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
+  assert(in2.size() == in1.size());
   for (unsigned i = 0; i < in1.size(); ++i) {
+    assert(in1[i].size() == out[i].size());
+    assert(in2[i].size() == in1[i].size());
     bool isFloat = type == FLOAT;
     unsigned vectorWidth = 1;
     unsigned cyclesPerVector = 100;
@@ -904,7 +1038,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(Remainder)(const VertexIntrospector &vertex,
                                      const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(in2);
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
+  assert(in2.size() == in1.size());
   for (unsigned i = 0; i < in1.size(); ++i) {
+    assert(in1[i].size() == out[i].size());
+    assert(in2[i].size() == in1[i].size());
     unsigned cyclesPerVector = 1;
     unsigned overhead = 6;
     unsigned numElem = in1[i].size();
@@ -932,7 +1072,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(Round)(const VertexIntrospector &vertex,
                                  const Type &type) {
   uint64_t cycles = 5;
   const auto in = vertex.getFieldInfo("in");
+  CODELET_FIELD(out);
+  assert(in.size() == out.size());
   for (unsigned i = 0; i < in.size(); ++i) {
+    assert(in[i].size() == out[i].size());
     unsigned cyclesPerVector = 2;
     unsigned overhead = 6;
     unsigned numElem = in[i].size();
@@ -949,7 +1092,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(ShiftLeft)(const VertexIntrospector &vertex,
                                      const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(in2);
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
+  assert(in2.size() == in1.size());
   for (unsigned i = 0; i < in1.size(); ++i) {
+    assert(in1[i].size() == out[i].size());
+    assert(in2[i].size() == in1[i].size());
     unsigned numElem = in1[i].size();
     unsigned overhead = 6;
     unsigned vectorWidth = 1;
@@ -984,7 +1133,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(Signum)(const VertexIntrospector &vertex,
   // extra cycles to form constants
   uint64_t cycles = 7;
   const auto in = vertex.getFieldInfo("in");
+  CODELET_FIELD(out);
+  assert(in.size() == out.size());
   for (unsigned i = 0; i < in.size(); ++i) {
+    assert(in[i].size() == out[i].size());
     unsigned overhead = 6;
     unsigned numElem = in[i].size();
 
@@ -1016,7 +1168,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(Sin)(const VertexIntrospector &vertex,
                                const Type &type) {
   uint64_t cycles = 6;
   const auto in = vertex.getFieldInfo("in");
+  CODELET_FIELD(out);
+  assert(in.size() == out.size());
   for (unsigned i = 0; i < in.size(); ++i) {
+    assert(in[i].size() == out[i].size());
     unsigned overhead = 6;
     unsigned numElem = in[i].size();
     unsigned vectorWidth = 1;
@@ -1040,7 +1195,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(Subtract)(const VertexIntrospector &vertex,
                                     const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(in2);
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
+  assert(in2.size() == in1.size());
   for (unsigned i = 0; i < in1.size(); ++i) {
+    assert(in1[i].size() == out[i].size());
+    assert(in2[i].size() == in1[i].size());
     unsigned cyclesPerVector = 1;
     unsigned overhead = 6;
     unsigned numElem = in1[i].size();
@@ -1067,7 +1228,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(Tanh)(const VertexIntrospector &vertex,
                                 const Type &type) {
   uint64_t cycles = 6;
   const auto in = vertex.getFieldInfo("in");
+  CODELET_FIELD(out);
+  assert(in.size() == out.size());
   for (unsigned i = 0; i < in.size(); ++i) {
+    assert(in[i].size() == out[i].size());
     unsigned overhead = 6;
     unsigned numElem = in[i].size();
     unsigned vectorWidth = 1;
@@ -1093,7 +1257,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(Sqrt)(const VertexIntrospector &vertex,
                                 const Type &type) {
   uint64_t cycles = 5;
   const auto in = vertex.getFieldInfo("in");
+  CODELET_FIELD(out);
+  assert(in.size() == out.size());
   for (unsigned i = 0; i < in.size(); ++i) {
+    assert(in[i].size() == out[i].size());
     unsigned cyclesPerVector = 1;
     unsigned overhead = 6;
     unsigned numElem = in[i].size();
@@ -1119,7 +1286,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(Square)(const VertexIntrospector &vertex,
                                   const Type &type) {
   uint64_t cycles = 6;
   const auto in = vertex.getFieldInfo("in");
+  CODELET_FIELD(out);
+  assert(in.size() == out.size());
   for (unsigned i = 0; i < in.size(); ++i) {
+    assert(in[i].size() == out[i].size());
     unsigned overhead = 6;
     unsigned numElem = in[i].size();
     bool isFloat = type == FLOAT;
@@ -1140,7 +1310,16 @@ MAKE_CYCLE_ESTIMATOR_NAME(Select)(const VertexIntrospector &vertex,
                                   const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(in2);
+  CODELET_FIELD(in3);
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
+  assert(in2.size() == in1.size());
+  assert(in3.size() == in1.size());
   for (unsigned i = 0; i < in1.size(); ++i) {
+    assert(in1[i].size() == out[i].size());
+    assert(in2[i].size() == in1[i].size());
+    assert(in3[i].size() == in1[i].size());
     unsigned cyclesPerVector = 5;
     unsigned overhead = 6;
     unsigned numElem = in1[i].size();
@@ -1161,7 +1340,16 @@ MAKE_CYCLE_ESTIMATOR_NAME(Clamp)(const VertexIntrospector &vertex,
                                  const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(in2);
+  CODELET_FIELD(in3);
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
+  assert(in2.size() == in1.size());
+  assert(in3.size() == in1.size());
   for (unsigned i = 0; i < in1.size(); ++i) {
+    assert(in1[i].size() == out[i].size());
+    assert(in2[i].size() == in1[i].size());
+    assert(in3[i].size() == in1[i].size());
     unsigned cyclesPerVector = 1;
     unsigned overhead = 6;
     unsigned numElem = in1[i].size();

@@ -20,8 +20,8 @@ class
 ConvPartialnx1: public SupervisorVertex {
 public:
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> in;
-  Vector<Input<Vector<FPType, ONE_PTR, 1, true>>> weights;
-  Vector<Output<Vector<AccumType, ONE_PTR, 1, true>>> out;
+  Vector<Input<Vector<FPType, ONE_PTR, 1, true>>, ONE_PTR> weights;
+  Vector<Output<Vector<AccumType, ONE_PTR, 1, true>>, ONE_PTR> out;
   Vector<Input<Vector<unsigned>>> worklists;
   Input<Vector<unsigned>> zeroWorklist;
   unsigned numOutGroups;
@@ -45,8 +45,6 @@ public:
   bool compute() {
     const auto usedContexts = worklists.size() / (kernelOuterSize *
                                                   kernelInnerElements);
-    assert(numConvGroups * numOutGroups * numInGroups == weights.size());
-    assert(out.size() == numOutGroups * numConvGroups);
     assert(zeroWorklist.size() % 2 == 0);
 
     for (unsigned cg = 0; cg != numConvGroups; ++cg) {
@@ -186,9 +184,9 @@ class
 [[poplar::constraint("elem(**in) != elem(**out)")]]
 ConvPartial1x1Out: public SupervisorVertex {
 public:
-  Vector<Input<Vector<FPType>>> in;
-  Vector<Input<Vector<FPType, ONE_PTR, 1, true>>> weights;
-  Vector<Output<Vector<AccumType, ONE_PTR, 1, true>>> out;
+  Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> in;
+  Vector<Input<Vector<FPType, ONE_PTR, 1, true>>, ONE_PTR> weights;
+  Vector<Output<Vector<AccumType, ONE_PTR, 1, true>>, ONE_PTR> out;
   Vector<Input<Vector<unsigned>>> worklists;
   unsigned numConvGroups;
   unsigned numOutGroups;
@@ -204,8 +202,6 @@ public:
 
   bool compute() {
     const auto usedContexts = worklists.size();
-    assert(numConvGroups * numOutGroups * numInGroups == weights.size());
-    assert(out.size() == numOutGroups * numConvGroups);
     for (unsigned cg = 0; cg < numConvGroups; ++cg) {
       for (unsigned og = 0; og < numOutGroups; ++og) {
         for (unsigned ig = 0; ig < numInGroups; ++ig) {
@@ -269,9 +265,9 @@ class
 [[poplar::constraint("elem(**in) != elem(**weights)")]]
 ConvPartialHorizontalMac : public SupervisorVertex {
 public:
-  Vector<Input<Vector<FPType, ONE_PTR>>> in;
-  Vector<Input<Vector<FPType, ONE_PTR>>> weights;
-  Vector<InOut<Vector<AccumType, ONE_PTR>>> out;
+  Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> in;
+  Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> weights;
+  Vector<InOut<Vector<AccumType, ONE_PTR>>, ONE_PTR> out;
   Vector<Input<Vector<unsigned>>> worklists;
   Input<Vector<unsigned>> zeroWorklist;
   unsigned numOutGroups;
@@ -288,10 +284,6 @@ public:
   SimOnlyField<unsigned> numWorkerContexts;
   bool compute() {
     const auto usedContexts = worklists.size() / kernelSize;
-    assert(numConvGroups * numOutGroups * numInGroups == weights.size());
-    assert(out.size() == numOutGroups * numConvGroups);
-    assert(in.size() == numInGroups * numConvGroups);
-    assert(zeroWorklist.size() % 2 == 0);
 
     for (unsigned cg = 0; cg != numConvGroups; ++cg) {
       for (unsigned og = 0; og != numOutGroups; ++og) {
@@ -776,18 +768,15 @@ class
 Transpose2d : public Vertex {
 public:
   Vector<Input<Vector<T>>> src;
-  Vector<Output<Vector<T>>> dst;
+  Vector<Output<Vector<T, ONE_PTR>>, ONE_PTR> dst;
   // TODO specialize the vertex based on the value of this field to avoid extra
   // memory usage.
   unsigned numSrcColumns;
 
   bool compute() {
-    assert(src.size() == dst.size());
     const auto numTranspositions = src.size();
     for (unsigned i = 0; i != numTranspositions; ++i) {
-      assert(src[i].size() == dst[i].size());
       const auto numElements = src[i].size();
-      assert(numElements % numSrcColumns == 0);
       const auto numSrcRows = numElements / numSrcColumns;
       for (unsigned x = 0; x != numSrcColumns; ++x) {
         for (unsigned y = 0; y != numSrcRows; ++y) {
@@ -837,18 +826,16 @@ class
 [[poplar::constraint("elem(**acts) != elem(**addend)")]]
 ScaledAddToChannel : public Vertex {
 public:
-  Vector<InOut<Vector<FPType>>> acts;
+  Vector<InOut<Vector<FPType>>, ONE_PTR> acts;
   Vector<Input<Vector<FPType, TWO_PTR, 1, true>>> addend;
   float scale;
 
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    unsigned n = acts.size();
-    assert(addend.size() == n);
+    unsigned n = addend.size();
     for (unsigned i = 0; i != n; ++i) {
       unsigned chansPerGroup = addend[i].size();
-      assert(acts[i].size() % chansPerGroup == 0);
       unsigned len = acts[i].size() / chansPerGroup;
       for (unsigned j = 0; j != len; ++j) {
         for (unsigned k = 0; k != chansPerGroup; ++k) {
@@ -872,19 +859,15 @@ class
 ChannelMul : public Vertex {
 public:
   Vector<Input<Vector<FPType>>> actsIn;
-  Vector<Output<Vector<FPType>>> actsOut;
-  Vector<Input<Vector<FPType>>> scale;
+  Vector<Output<Vector<FPType, ONE_PTR>>, ONE_PTR> actsOut;
+  Vector<Input<Vector<FPType>>, ONE_PTR> scale;
 
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(actsIn.size() == actsOut.size());
     unsigned n = actsIn.size();
-    assert(scale.size() == n);
     for (unsigned i = 0; i != n; ++i) {
       unsigned chansPerGroup = scale[i].size();
-      assert(actsIn[i].size() % chansPerGroup == 0);
-      assert(actsOut[i].size() % chansPerGroup == 0);
       unsigned len = actsIn[i].size() / chansPerGroup;
       for (unsigned j = 0; j != len; ++j) {
         for (unsigned k = 0; k != chansPerGroup; ++k) {
@@ -992,17 +975,15 @@ class InverseStdDeviation : public Vertex {
 public:
 
   Vector<Input<Vector<MeanType>>> mean;
-  Vector<Input<Vector<PowerType>>> power;
-  Vector<Output<Vector<OutType>>> iStdDev;
+  Vector<Input<Vector<PowerType, ONE_PTR>>, ONE_PTR> power;
+  Vector<Output<Vector<OutType, ONE_PTR>>, ONE_PTR> iStdDev;
   float eps;
   SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
-    assert(mean.size() == power.size());
-    assert(mean.size() == iStdDev.size());
+
     for (unsigned i = 0; i != mean.size(); ++i) {
-      assert (mean[i].size() == power[i].size());
-      assert (mean[i].size() == iStdDev[i].size());
+
       for (unsigned j = 0; j != mean[i].size(); ++j) {
         iStdDev[i][j] =
           1.0 / std::sqrt((power[i][j] - mean[i][j] * mean[i][j] + eps));
@@ -1024,7 +1005,7 @@ OuterProduct : public Vertex {
 public:
   Input<Vector<T>> in;
   Input<Vector<T>> weights;
-  Vector<Output<Vector<T>>> out;
+  Vector<Output<Vector<T, ONE_PTR>>> out;
 
   SimOnlyField<unsigned> dataPathWidth;
 

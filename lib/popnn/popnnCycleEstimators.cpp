@@ -32,7 +32,12 @@ MAKE_CYCLE_ESTIMATOR_NAME(NonLinearityGrad)(const VertexIntrospector &vertex,
   const auto inGrad = vertex.getFieldInfo("inGrad");
   auto nonLinearityType =
     vertex.getFieldInfo("nonLinearityType").getInitialValue<unsigned>(target);
+  CODELET_FIELD(outGrad);
+  CODELET_FIELD(out);
+  assert(outGrad.size() == inGrad.size());
   for (unsigned i = 0; i < inGrad.size(); ++i) {
+    assert(outGrad[i].size() == inGrad[i].size());
+    assert(outGrad[i].size() == out[i].size());
     unsigned vectorWidth = target.getDataPathWidth() / (isFloat ? 32 : 16);
     unsigned numVectors = (inGrad[i].size() + vectorWidth - 1) / vectorWidth;
     switch (nonLinearityType) {
@@ -66,7 +71,14 @@ MAKE_CYCLE_ESTIMATOR_NAME(MaxPooling)(const VertexIntrospector &vertex,
   const auto windowSizeValues =
     windowSizes.getInitialValues<unsigned>(target);
   const auto vectorWidth = target.getDataPathWidth() / (isFloat ? 32 : 16);
+  unsigned inIndex = 0;
+  CODELET_FIELD(in);
+  assert(windowSizes.size() == out.size());
   for (unsigned i = 0; i < out.size(); ++i) {
+    for (unsigned w = 0; w < windowSizeValues[i]; ++w) {
+      assert(out[i].size() == in[inIndex++].size());
+    }
+    inIndex += windowSizeValues[i];
     auto numVectors = (out[i].size() + vectorWidth - 1) / vectorWidth;
     auto windowSize = windowSizeValues[i];
     // TODO: This is too optimistic
@@ -89,7 +101,15 @@ MAKE_CYCLE_ESTIMATOR_NAME(ScaledSumPooling)(const VertexIntrospector &vertex,
   const auto scaleOutput =
     vertex.getFieldInfo("scaleOutput").getInitialValue<bool>(target);
   const unsigned scaleCycles = scaleOutput ? 1 : 0;
+  CODELET_FIELD(in);
+  unsigned inIndex = 0;
   for (unsigned i = 0; i < out.size(); ++i) {
+    for (unsigned chan = 0; chan < out[i].size(); ++chan) {
+      for (unsigned w = 0; w < windowSizeValues[i]; ++w) {
+        assert(out[i].size() == in[inIndex].size());
+        inIndex++;
+      }
+    }
     auto numVectors = (out[i].size() + vectorWidth - 1) / vectorWidth;
     auto windowSize = windowSizeValues[i];
     // load ptr/vec/ load data/add for windowSize
@@ -120,7 +140,17 @@ MAKE_CYCLE_ESTIMATOR_NAME(MaxPoolingGrad)(const VertexIntrospector &vertex,
   // getacc
   // double
   // store
+  CODELET_FIELD(in);
+  CODELET_FIELD(out);
+  CODELET_FIELD(outGrad);
+  unsigned inIndex = 0;
   for (unsigned i = 0; i < inGrad.size(); ++i) {
+    assert(inGrad[i].size() == in[i].size());
+    for (unsigned w = 0; w < windowSizeValues[i]; ++w) {
+      assert(inGrad[i].size() == outGrad[inIndex].size());
+      assert(inGrad[i].size() == out[inIndex].size());
+      inIndex++;
+    }
     auto numVectors = (inGrad[i].size() + vectorWidth - 1) / vectorWidth;
     auto windowSize = windowSizeValues[i];
     // TODO: This is too optimistic
@@ -148,7 +178,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(SumPoolingGrad)(const VertexIntrospector &vertex,
   // axpby
   // double
   // store
+#ifndef NDEBUG
+  CODELET_FIELD(outGrad);
+  unsigned inIndex = 0;
+#endif
   for (unsigned i = 0; i < inGrad.size(); ++i) {
+    for (unsigned w = 0; w < windowSizeValues[i]; ++w)
+      assert(inGrad[i].size() == outGrad[inIndex++].size());
     auto numVectors = (inGrad[i].size() + vectorWidth - 1) / vectorWidth;
     auto windowSize = windowSizeValues[i];
     // TODO: This is too optimistic
@@ -163,6 +199,19 @@ MAKE_CYCLE_ESTIMATOR_NAME(CalcLoss)(const VertexIntrospector &vertex,
                                     const Type &fpType,
                                     const Type &labelType) {
   // TODO
+  CODELET_FIELD(batchIn);
+  CODELET_FIELD(batchDeltaOut);
+  CODELET_FIELD(probs);
+  assert(batchIn.size() == batchDeltaOut.size());
+  const auto batchSize = batchIn.size();
+  for (unsigned batchNum = 0; batchNum < batchSize; ++batchNum) {
+#ifndef NDEBUG
+    auto in = batchIn[batchNum];
+    auto deltaOut = batchDeltaOut[batchNum];
+    assert(in.size() == deltaOut.size());
+    assert(probs.size() == in.size());
+#endif
+  }
   return 0;
 }
 
@@ -175,10 +224,16 @@ MAKE_CYCLE_ESTIMATOR_NAME(BatchNormEstimates)(const VertexIntrospector &vertex,
   const auto mean = vertex.getFieldInfo("mean");
   const auto acts = vertex.getFieldInfo("acts");
   const unsigned n = mean.size();
-  const unsigned batchSize = acts[0].size();
+  const auto batchSize = acts[0].size();
+#ifndef NDEBUG
+  unsigned actsIdx = 0;
+#endif
   for (unsigned i = 0; i != n; ++i) {
     const unsigned numActs = mean[i].size();
     numCycles += (batchSize + 7) * numActs;
+    for (unsigned a = 0; a != numActs; ++a) {
+      assert(acts[actsIdx++].size() == batchSize);
+    }
   }
   return numCycles;
 }

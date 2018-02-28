@@ -177,7 +177,7 @@ class
 ReduceMin : public Vertex {
 public:
   Vector<Output<Vector<OutType>>> out;
-  Vector<Input<Vector<PartialsType, TWO_PTR, 1, true>>> partials;
+  Vector<Input<Vector<PartialsType, ONE_PTR, 1, true>>> partials;
 
   SimOnlyField<unsigned> dataPathWidth;
 
@@ -209,7 +209,7 @@ class
 ReduceAnd : public Vertex {
 public:
   Vector<Output<Vector<OutType>>> out;
-  Vector<Input<Vector<PartialsType, TWO_PTR, 1, true>>> partials;
+  Vector<Input<Vector<PartialsType, ONE_PTR, 1, true>>> partials;
 
   SimOnlyField<unsigned> dataPathWidth;
 
@@ -239,7 +239,7 @@ class
 ReduceOr : public Vertex {
 public:
   Vector<Output<Vector<OutType>>> out;
-  Vector<Input<Vector<PartialsType, TWO_PTR, 1, true>>> partials;
+  Vector<Input<Vector<PartialsType, ONE_PTR, 1, true>>> partials;
 
   SimOnlyField<unsigned> dataPathWidth;
 
