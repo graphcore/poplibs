@@ -121,8 +121,11 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(const VertexIntrospector &vertex,
   const auto numWorkerContexts = target.getNumWorkerContexts();
   CODELET_FIELD(weights);
   CODELET_FIELD(out);
+  CODELET_FIELD(in);
+
   assert(numConvGroups * numOutGroups * numInGroups == weights.size());
   assert(out.size() == numOutGroups * numConvGroups);
+  assert(in.size() == numInGroups * numConvGroups);
   // find max work to bt done per worker
   std::vector<std::vector<unsigned>> workerPartitions;
   const auto usedContexts = worklists.size();

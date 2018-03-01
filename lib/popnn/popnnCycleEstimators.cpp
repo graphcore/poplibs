@@ -76,7 +76,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(MaxPooling)(const VertexIntrospector &vertex,
   assert(windowSizes.size() == out.size());
   for (unsigned i = 0; i < out.size(); ++i) {
     for (unsigned w = 0; w < windowSizeValues[i]; ++w) {
-      assert(out[i].size() == in[inIndex++].size());
+      assert(out[i].size() == in[inIndex].size());
     }
     inIndex += windowSizeValues[i];
     auto numVectors = (out[i].size() + vectorWidth - 1) / vectorWidth;
@@ -104,11 +104,9 @@ MAKE_CYCLE_ESTIMATOR_NAME(ScaledSumPooling)(const VertexIntrospector &vertex,
   CODELET_FIELD(in);
   unsigned inIndex = 0;
   for (unsigned i = 0; i < out.size(); ++i) {
-    for (unsigned chan = 0; chan < out[i].size(); ++chan) {
-      for (unsigned w = 0; w < windowSizeValues[i]; ++w) {
-        assert(out[i].size() == in[inIndex].size());
-        inIndex++;
-      }
+    for (unsigned w = 0; w < windowSizeValues[i]; ++w) {
+      assert(out[i].size() == in[inIndex].size());
+      inIndex++;
     }
     auto numVectors = (out[i].size() + vectorWidth - 1) / vectorWidth;
     auto windowSize = windowSizeValues[i];
