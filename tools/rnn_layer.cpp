@@ -526,7 +526,8 @@ int main(int argc, char **argv) {
 
   Engine::ReportOptions opt;
   opt.doLayerWiseProfile = true;
-  engine.report(std::cout, opt);
+  engine.reportStatic(std::cout, opt);
+  engine.reportDynamic(std::cout, opt);
 
   if (!matchesModel) {
     std::cerr << "Validation failed\n";

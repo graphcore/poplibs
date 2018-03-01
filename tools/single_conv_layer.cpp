@@ -651,7 +651,8 @@ int main(int argc, char **argv) {
     if (reportVarStorage) {
       opt.showVariableStorage = true;
     }
-    engine.report(std::cout, opt);
+    engine.reportStatic(std::cout, opt);
+    engine.reportDynamic(std::cout, opt);
   }
 
   if (!matchesModel) {
