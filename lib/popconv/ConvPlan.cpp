@@ -2111,6 +2111,11 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
     plan.inChansPerGroup =
         target.getWeightsPerConvUnit(fwdParams.dType == poplar::FLOAT);
     plan.partitions.back().inChanGrainSize = plan.inChansPerGroup;
+    const auto wuInputChans = fwdParams.getNumOutputChansPerConvGroup();
+    const auto wuPaddedInputChans =
+        ((wuInputChans + plan.inChansPerGroup - 1) / plan.inChansPerGroup) *
+        plan.inChansPerGroup;
+    plan.transform.inChansPadding = wuPaddedInputChans - wuInputChans;
   }
   // If the result type is half and all the reduction is done within a single
   // pass of the AMP unit then there is no reason to use a higher precision
