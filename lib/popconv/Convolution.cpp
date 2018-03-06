@@ -1228,8 +1228,16 @@ swapOperands(ConvParams &params, boost::optional<Tensor> &acts,
 /// dimensions that match the shape expected by the convolution operation.
 static void
 convolutionPreprocess(Graph &graph, ConvParams &params,
-                      ConvTransform &transform, boost::optional<Tensor> &acts,
+                      Plan &plan, unsigned level,
+                      boost::optional<Tensor> &acts,
                       boost::optional<Tensor> &weights) {
+  ConvTransform &transform = plan.transforms[level];
+  const auto inChanGrainSize = level < plan.partitions.size() ?
+                               plan.partitions[level].inChanGrainSize :
+                               plan.inChansPerGroup;
+  const auto outChanGrainSize = level < plan.partitions.size() ?
+                                plan.partitions[level].outChanGrainSize :
+                                plan.partialChansPerGroup;
   if (transform.extraFieldDims) {
     addExtraDims(params, transform.extraFieldDims);
     if (acts) {
@@ -1296,27 +1304,33 @@ convolutionPreprocess(Graph &graph, ConvParams &params,
   }
   transform.flattenDims.clear();
   // Zero pad the input / weights.
+  const auto inChanGrains = (params.inputChannels + inChanGrainSize - 1) /
+                            inChanGrainSize;
+  const auto paddedInChans = inChanGrains * inChanGrainSize;
+  const auto outChanGrains = (params.outputChannels + outChanGrainSize - 1) /
+                            outChanGrainSize;
+  const auto paddedOutChans = outChanGrains * outChanGrainSize;
   if (acts) {
-    *acts = pad(graph, *acts, 0, transform.inChansPadding, acts->rank() - 1);
+    *acts = pad(graph, *acts, 0, paddedInChans - params.inputChannels,
+                acts->rank() - 1);
   }
   if (weights) {
-    *weights = pad(graph, *weights, 0, transform.inChansPadding,
+    *weights = pad(graph, *weights, 0, paddedInChans - params.inputChannels,
                    weights->rank() - 1);
-    *weights = pad(graph, *weights, 0, transform.partialChansPadding,
+    *weights = pad(graph, *weights, 0, paddedOutChans - params.outputChannels,
                    weights->rank() - 2);
   }
-  params.inputChannels += transform.inChansPadding;
-  params.outputChannels += transform.partialChansPadding;
-  transform.inChansPadding = 0;
-  transform.partialChansPadding = 0;
+  params.inputChannels = paddedInChans;
+  params.outputChannels = paddedOutChans;
 }
 
 static void
 convolutionPreprocess(Graph &graph, ConvParams &params,
-                      ConvTransform &transform, Tensor &acts, Tensor &weights) {
+                      Plan &plan, unsigned level, Tensor &acts,
+                      Tensor &weights) {
   auto actsOptional = boost::make_optional(acts);
   auto weightsOptional = boost::make_optional(weights);
-  convolutionPreprocess(graph, params, transform, actsOptional,
+  convolutionPreprocess(graph, params, plan, level, actsOptional,
                         weightsOptional);
   acts = *actsOptional;
   weights = *weightsOptional;
@@ -1354,8 +1368,11 @@ convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
     swapOperands(postOutChanFlattenParams);
   }
   // Undo padding.
-  activations = pad(graph, activations, 0,
-                    -static_cast<int>(transform.partialChansPadding),
+  assert(activations.dim(activations.rank() - 1) >=
+         postOutChanFlattenParams.outputChannels);
+  const auto outChanPadding = activations.dim(activations.rank() - 1) -
+                              postOutChanFlattenParams.outputChannels;
+  activations = pad(graph, activations, 0, -static_cast<int>(outChanPadding),
                     activations.rank() - 1);
   // Undo flattening of the batch / spatial fields.
   if (!transform.flattenDims.empty()) {
@@ -1397,17 +1414,18 @@ convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
 
 static Tensor
 iterateTilePartitionImpl(
-    Graph &graph, ConvParams params, Plan plan, unsigned level, Tensor *actsPtr,
-    Tensor *weightsPtr, const std::vector<ConvIndices> &indices,
+    Graph &graph, ConvParams params, Plan plan, unsigned level,
+    bool postPreprocess, Tensor *actsPtr, Tensor *weightsPtr,
+    const std::vector<ConvIndices> &indices,
     std::function<void (unsigned, Tensor *, Tensor *)> f) {
   boost::optional<Tensor> acts, weights;
   if (actsPtr)
     acts = *actsPtr;
   if (weightsPtr)
     weights = *weightsPtr;
-  // Transform.
-  if (level == 0) {
-    convolutionPreprocess(graph, params, plan.transform, acts, weights);
+  if (!postPreprocess) {
+    // Transform.
+    convolutionPreprocess(graph, params, plan, level, acts, weights);
   }
   Tensor out;
   if (level == plan.partitions.size()) {
@@ -1426,7 +1444,7 @@ iterateTilePartitionImpl(
       subIndices.push_back(levelIndices);
       getSubConvolution(slice, subParams, subActs.get_ptr(),
                         subWeights.get_ptr());
-      iterateTilePartitionImpl(graph, subParams, plan, level + 1,
+      iterateTilePartitionImpl(graph, subParams, plan, level + 1, false,
                                subActs.get_ptr(), subWeights.get_ptr(),
                                subIndices, f);
     });
@@ -1438,8 +1456,8 @@ static Tensor
 iterateTilePartition(
     Graph &graph, ConvParams params, Plan plan, Tensor *actsPtr,
     Tensor *weightsPtr, std::function<void (unsigned, Tensor *, Tensor *)> f) {
-  return iterateTilePartitionImpl(graph, params, plan, 0, actsPtr, weightsPtr,
-                                  {}, f);
+  return iterateTilePartitionImpl(graph, params, plan, 0, false, actsPtr,
+                                  weightsPtr, {}, f);
 }
 
 /// Map the input tensor such that the exchange required during the
@@ -1447,7 +1465,10 @@ iterateTilePartition(
 /// tensor is mapped assuming it the activations operand in convolution
 /// operation, otherwise it is mapped assuming it is the weights operand.
 static void mapActivationsOrWeights(Graph &graph, ConvParams params,
-                                    Plan plan, Tensor in, bool isActs) {
+                                    Plan plan, unsigned level,
+                                    bool postPreprocess,
+                                    const std::vector<ConvIndices> &indices,
+                                    Tensor in, bool isActs) {
   auto flattenedIn = in.flatten();
   in = isActs ? unsplitActivationChanGroups(in) : ungroupWeights(in);
 
@@ -1455,9 +1476,10 @@ static void mapActivationsOrWeights(Graph &graph, ConvParams params,
   const auto numTiles = graph.getTarget().getNumTiles();
   std::vector<boost::icl::interval_set<unsigned>> used(numTiles);
   auto zeroElement = graph.addConstant(in.elementType(), {}, 0);
-  iterateTilePartition(graph, params, plan, isActs ? &in : nullptr,
-                       isActs ? nullptr : &in,
-                       [&](unsigned tile, Tensor *acts, Tensor *weights) {
+  iterateTilePartitionImpl(graph, params, plan, level, postPreprocess,
+                           isActs ? &in : nullptr,
+                           isActs ? nullptr : &in, indices,
+                           [&](unsigned tile, Tensor *acts, Tensor *weights) {
     assert((acts && !weights) || (weights && !acts));
     Tensor flattened = acts ? acts->flatten() : weights->flatten();
     std::vector<Interval> intervals;
@@ -1505,17 +1527,25 @@ static void mapActivationsOrWeights(Graph &graph, ConvParams params,
 }
 
 static void
-mapActivations(Graph &graph, ConvParams params, Plan plan, Tensor acts) {
-  return mapActivationsOrWeights(graph, params, plan, acts, true);
+mapActivations(Graph &graph, ConvParams params, Plan plan, unsigned level,
+               bool postPreprocess, const std::vector<ConvIndices> &indices,
+               Tensor acts) {
+  return mapActivationsOrWeights(graph, params, plan, level, postPreprocess,
+                                 indices, acts, true);
 }
 
 static void
-mapWeights(Graph &graph, ConvParams params, Plan plan, Tensor weights) {
-  return mapActivationsOrWeights(graph, params, plan, weights, false);
+mapWeights(Graph &graph, ConvParams params, Plan plan, unsigned level,
+           bool postPreprocess, const std::vector<ConvIndices> &indices,
+           Tensor weights) {
+  return mapActivationsOrWeights(graph, params, plan, level, postPreprocess,
+                                 indices, weights, false);
 }
 
 static Tensor
 createInputImpl(Graph &graph, const ConvParams &params,
+                unsigned level, bool postPreprocess,
+                const std::vector<ConvIndices> &indices,
                 const std::string &name,
                 const Plan &plan) {
   const auto inNumChans = params.getNumInputChansPerConvGroup();
@@ -1530,7 +1560,7 @@ createInputImpl(Graph &graph, const ConvParams &params,
                      params.inputFieldShape.end());
   tensorShape.push_back(inChansPerGroup);
   auto t = graph.addVariable(params.dType, tensorShape, name);
-  mapActivations(graph, params, plan, t);
+  mapActivations(graph, params, plan, level, postPreprocess, indices, t);
   t = unsplitActivationChanGroups(t);
   return t;
 }
@@ -1540,14 +1570,15 @@ createInput(Graph &graph, const ConvParams &params,
             const std::string &name,
             const ConvOptions &options) {
   const auto plan = getPlan(graph, params, options);
-  auto input = createInputImpl(graph, params, name, plan);
+  auto input = createInputImpl(graph, params, 0, false, {}, name, plan);
   return actsToExternalShape(input);
 }
 
 static Tensor
-createWeightsImpl(Graph &graph,
-                  const ConvParams &params, const std::string &name,
-                  const Plan &plan) {
+createWeightsImpl(Graph &graph, const ConvParams &params, unsigned level,
+                  bool postPreprocess,
+                  const std::vector<ConvIndices> &indices,
+                  const std::string &name, const Plan &plan) {
   const auto dType = params.dType;
   const auto inNumChans = params.getNumInputChansPerConvGroup();
   const auto outNumChans = params.getNumOutputChansPerConvGroup();
@@ -1568,7 +1599,7 @@ createWeightsImpl(Graph &graph,
   weightsShape.push_back(weightOutChansPerGroup);
   weightsShape.push_back(weightInChansPerGroup);
   auto weights = graph.addVariable(dType, weightsShape, name);
-  mapWeights(graph, params, plan, weights);
+  mapWeights(graph, params, plan, level, postPreprocess, indices, weights);
   weights = ungroupWeights(weights);
   return weights;
 }
@@ -1578,7 +1609,8 @@ createWeights(Graph &graph,
               const ConvParams &params, const std::string &name,
               const ConvOptions &options) {
   const auto plan = getPlan(graph, params, options);
-  return weightsToExternalShape(createWeightsImpl(graph, params, name, plan));
+  return weightsToExternalShape(createWeightsImpl(graph, params, 0, false, {},
+                                                  name, plan));
 }
 
 static std::vector<std::vector<poplar::Interval>>
@@ -2665,9 +2697,10 @@ convolutionImpl(Graph &graph, ConvParams params,
                 const ConvOptions &options) {
   // Transform.
   const auto originalParams = params;
-  const auto originalTransform = plan.transform;
-  if (level == 0) {
-    convolutionPreprocess(graph, params, plan.transform, in, weights);
+  const auto originalTransform = plan.transforms[level];
+  convolutionPreprocess(graph, params, plan, level, in, weights);
+  const auto ipuLevel = plan.transforms.size() - 2;
+  if (level == ipuLevel) {
     // If the input tensors have a different memory layout to the one expected
     // by the vertices poplar will rearrange the data using exchange code or
     // copy pointers. If the data is broadcast this rearrangement happens on
@@ -2691,7 +2724,8 @@ convolutionImpl(Graph &graph, ConvParams params,
                         std::multiplies<unsigned>()) *
                         plan.partitions.back().outChanSplit;
     if (inNumDests > inViewMaxBroadcastDests) {
-      auto inRearranged = createInputImpl(graph, params, "inRearranged", plan);
+      auto inRearranged = createInputImpl(graph, params, level, true, indices,
+                                          "inRearranged", plan);
       copies[level].add(Copy(in, inRearranged));
       in = inRearranged;
     }
@@ -2700,8 +2734,9 @@ convolutionImpl(Graph &graph, ConvParams params,
       weightsNumDests *= split;
     }
     if (weightsNumDests > weightViewMaxBroadcastDests) {
-      auto weightsRearranged = createWeightsImpl(graph, params,
-                                                 "weightsRearranged", plan);
+      auto weightsRearranged = createWeightsImpl(graph, params, level, true,
+                                                 indices, "weightsRearranged",
+                                                 plan);
       copies[level].add(Copy(weights, weightsRearranged));
       weights = weightsRearranged;
     }
@@ -2751,11 +2786,11 @@ convolutionImpl(Graph &graph, ConvParams params,
       out = partials.squeeze({0});
     } else {
       const auto partialsRank = partials.rank();
-      const auto partialChansPerGroup = plan.partialChansPerGroup;
+      const auto outChanGrainSize = partition.outChanGrainSize;
       partials = partials.reshapePartial(partialsRank - 1, partialsRank,
                                          {partials.dim(partialsRank - 1) /
-                                          partialChansPerGroup,
-                                          partialChansPerGroup})
+                                          outChanGrainSize,
+                                          outChanGrainSize})
                          .dimShufflePartial({partialsRank - 1}, {2});
       out = multiStageGroupedReduce(graph, partials, resultType,
                                     reduceComputeSets[level],
@@ -2771,9 +2806,7 @@ convolutionImpl(Graph &graph, ConvParams params,
     out = cast(graph, out, resultType, reduceComputeSets[level][0]);
   }
   // Inverse transform.
-  if (level == 0) {
-    out = convolutionPostprocess(graph, originalParams, originalTransform, out);
-  }
+  out = convolutionPostprocess(graph, originalParams, originalTransform, out);
   return out;
 }
 

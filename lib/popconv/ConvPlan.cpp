@@ -15,6 +15,7 @@
 #include <set>
 #include <tuple>
 #include <type_traits>
+#include <unordered_set>
 #include <iostream>
 #include <popsolver/Model.hpp>
 #include "poplibs_support/print.hpp"
@@ -201,9 +202,7 @@ std::ostream& operator<<(std::ostream &os, const ConvTransform &t) {
   os << "\n"
      << "        flattenDims             ";
   printContainer(t.flattenDims, os);
-  os << "\n"
-     << "        inChansPadding          " << t.inChansPadding << "\n"
-     << "        partialChansPadding     " << t.partialChansPadding << "\n";
+  os << "\n";
   return os;
 }
 
@@ -215,12 +214,15 @@ std::ostream& operator<<(std::ostream &os, Plan::Method m) {
 std::ostream& operator<<(std::ostream &os, const Plan &p)
 {
   os << "  Plan:";
-  const auto numPartitions = p.partitions.size();
-  for (unsigned i = 0; i != numPartitions; ++i) {
-    os << "        partition #" << i << "\n";
-    os << p.partitions[i];
+  const auto numLevels = p.transforms.size();
+  for (unsigned i = 0; i != numLevels; ++i) {
+    os << "        transform #" << i << "\n";
+    os << p.transforms[i] << "\n";
+    if (i + 1 != numLevels) {
+      os << "        partition #" << i << "\n";
+      os << p.partitions[i];
+    }
   }
-  os << p.transform << "\n";
   os << "        inChansPerGroup         " << p.inChansPerGroup << "\n"
      << "        partialChansPerGroup    " << p.partialChansPerGroup << "\n"
      << "        method                  " << p.method << "\n";
@@ -534,6 +536,7 @@ addZeroCycles(popsolver::Model &m,
               const poplar::Target &target,
               const popsolver::Variable partialsPerTile,
               const ConvSizeVariables &convSize,
+              const std::unordered_set<unsigned> &transformedDims,
               const ConvParams &params,
               bool floatPartials,
               Plan::Method method) {
@@ -542,7 +545,11 @@ addZeroCycles(popsolver::Model &m,
     zeroPartials = Yes;
   } else {
     const auto numFieldDims = params.getNumFieldDims();
+    unsigned kernelElements = 1;
     for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+      if (transformedDims.count(dim))
+        continue;
+      kernelElements *= params.kernelShape[dim];
       if (params.outputTransform.stride[dim] != 1 ||
           params.inputTransform.dilation[dim] != 1 ||
           params.kernelTransform.dilation[dim] != 1 ||
@@ -556,11 +563,7 @@ addZeroCycles(popsolver::Model &m,
         break;
       }
     }
-    const auto kernelElements =
-        std::accumulate(params.kernelShape.begin(),
-                        params.kernelShape.end(), std::size_t(1UL),
-                        std::multiplies<std::size_t>());
-    if (kernelElements != 1) {
+    if (kernelElements == 1) {
       zeroPartials = No;
     }
   }
@@ -583,16 +586,20 @@ addZeroCycles(popsolver::Model &m,
 }
 
 static bool
-canUseConvPartial1x1Vertex(const ConvParams &params,
-                           unsigned convUnitWeightHeight,
-                           const std::vector<unsigned> &tileKernelShape) {
+canUseConvPartial1x1Vertex(
+    const ConvParams &params,
+    const std::unordered_set<unsigned> &transformedDims,
+    const std::vector<unsigned> &transformedInputDilation,
+    const std::vector<unsigned> &transformedOutputStride,
+    unsigned convUnitWeightHeight,
+    const std::vector<unsigned> &tileKernelShape) {
   if (convUnitWeightHeight != 1)
     return false;
-  if (params.inputTransform.dilation != params.outputTransform.stride)
+  if (transformedInputDilation != transformedOutputStride)
     return false;
   auto tileKernelElements = std::accumulate(tileKernelShape.begin(),
-                                        tileKernelShape.end(), 1UL,
-                                        std::multiplies<std::size_t>());
+                                            tileKernelShape.end(), 1UL,
+                                            std::multiplies<std::size_t>());
   if (tileKernelElements != 1)
     return false;
   // We can only use the 1x1 vertex if every output value is written. It may be
@@ -601,6 +608,8 @@ canUseConvPartial1x1Vertex(const ConvParams &params,
   // and we assume the nx1 vertex is always slower.
   const auto numFieldDims = params.getNumFieldDims();
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    if (transformedDims.count(dim))
+      continue;
     std::pair<unsigned, unsigned> outputRange = {
       0,
       params.getOutputSize(dim)
@@ -623,6 +632,7 @@ addPartialCalcCycleEstimate(
     unsigned inChanGrainSize,
     unsigned outChanGrainSize,
     const ConvSizeVariables &convSizeVars,
+    const std::unordered_set<unsigned> &transformedDims,
     const poplar::Target &target,
     const ConvParams &params,
     unsigned inChansPerGroup,
@@ -669,6 +679,12 @@ addPartialCalcCycleEstimate(
     }
     return tileFieldSize;
   };
+  auto transformedInputDilation = params.inputTransform.dilation;
+  auto transformedOutputStride = params.outputTransform.stride;
+  for (const auto dim : transformedDims) {
+    transformedInputDilation[dim] = 1;
+    transformedOutputStride[dim] = 1;
+  }
   switch (method) {
   default: assert(0 && "Unexpected method");
   case Plan::Method::AMP:
@@ -699,13 +715,16 @@ addPartialCalcCycleEstimate(
             tileNumInGroups + tileNumOutGroups +
             tileNumInGroups * tileNumOutGroups;
         bool useDeltasForEdges = useDeltaEdgesForConvPartials(numEdges);
-        if (canUseConvPartial1x1Vertex(params, convUnitWeightHeight,
+        if (canUseConvPartial1x1Vertex(params, transformedDims,
+                                       transformedInputDilation,
+                                       transformedOutputStride,
+                                       convUnitWeightHeight,
                                        convSize.kernelSize)) {
           auto innerLoopCycles =
               cache->mGetConvPartial1x1InnerLoopCycleEstimate(
                 convSize.batchSize, tileFieldSize,
-                target.getNumWorkerContexts(), params.inputTransform.dilation,
-                params.outputTransform.stride);
+                target.getNumWorkerContexts(), transformedInputDilation,
+                transformedOutputStride);
           return
               getConvPartial1x1SupervisorOuterLoopCycleEstimate(
                 innerLoopCycles, convSize.numConvGroups, tileNumInGroups,
@@ -719,7 +738,7 @@ addPartialCalcCycleEstimate(
               convUnitWeightHeight, convUnitInputLoadElemsPerCycle,
               numConvUnits, target.getConvUnitCoeffLoadBytesPerCycle(),
               target.getNumWorkerContexts(), floatActivations,
-              params.inputTransform.dilation, params.outputTransform.stride);
+              transformedInputDilation, transformedOutputStride);
         return
             getConvPartialnx1SupervisorCycleOuterLoopEstimate(
               innerLoopCycles, convSize.numConvGroups, tileNumOutGroups,
@@ -728,7 +747,7 @@ addPartialCalcCycleEstimate(
     }
   case Plan::Method::MAC:
     {
-      const auto outputStrideX = params.inputTransform.dilation.back();
+      const auto outputStrideX = transformedInputDilation.back();
       return m.call(convSizeVarsVector,
           [=,&target](const std::vector<unsigned> &values) {
         auto convSize = makeConvSize(values, numFieldDims);
@@ -748,8 +767,8 @@ addPartialCalcCycleEstimate(
         unsigned numActiveOutRows = convSize.batchSize;
         for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
           const auto dimActiveRows =
-              (tileOutShape[dim] + params.inputTransform.dilation[dim] - 1) /
-              params.inputTransform.dilation[dim];
+              (tileOutShape[dim] + transformedInputDilation[dim] - 1) /
+              transformedInputDilation[dim];
           numActiveOutRows *= dimActiveRows;
         }
         const auto tileKernelWidth =
@@ -779,10 +798,10 @@ addPartialCalcCycleEstimate(
     {
       assert(params.getBatchSize() == 1);
       assert(params.getNumInputChansPerConvGroup() == 1);
-      assert(std::all_of(params.outputTransform.stride.begin(),
-                         params.outputTransform.stride.end(), equalsOne));
-      assert(std::all_of(params.inputTransform.dilation.begin(),
-                         params.inputTransform.dilation.end(), equalsOne));
+      assert(std::all_of(transformedOutputStride.begin(),
+                         transformedOutputStride.end(), equalsOne));
+      assert(std::all_of(transformedInputDilation.begin(),
+                         transformedInputDilation.end(), equalsOne));
       const auto numContexts = target.getNumWorkerContexts();
       return m.call(convSizeVarsVector,
           [=](const std::vector<unsigned> &values) {
@@ -856,6 +875,7 @@ addExchangeCycleEstimate(
     popsolver::Model &m,
     const std::vector<PartitionVariables> &partitionVars,
     const std::vector<ConvSizeVariables> &convSizes,
+    const std::vector<std::unordered_set<unsigned>> &transformedDims,
     const poplar::Target &target,
     const std::vector<double> &perLevelExchangeBytesPerCycle,
     const ConvParams &params,
@@ -880,8 +900,8 @@ addExchangeCycleEstimate(
   const auto scaledPartialSize =
       m.addConstant(partialSize * exchangeBytesScalingFactor);
   std::vector<popsolver::Variable> cycleSumOperands;
-  for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
-    const auto &convSize = convSizes[level];
+  for (unsigned level = 0; level != numLevelsOfHierarchy - 1; ++level) {
+    const auto &convSize = convSizes[level + 1];
     const auto scaledExchangeBytesPerCycle =
         getScaledExchangeBytesPerCycle(m, perLevelExchangeBytesPerCycle[level],
                                        exchangeBytesScalingFactor);
@@ -894,12 +914,17 @@ addExchangeCycleEstimate(
         outputFieldSize = m.product({outputFieldSize,
                                      m.addConstant(fieldGrainSize)});
       }
-      auto inputFieldSize = m.call({outputFieldSize, convSize.kernelSize[dim]},
-                                   [=](const std::vector<unsigned> &values) {
-        return getMaxInputRangeSize(values[0], dim, params, values[1]);
-      });
       outputFieldSizes.push_back(outputFieldSize);
-      inputFieldSizes.push_back(inputFieldSize);
+      if (transformedDims[level].count(dim)) {
+        inputFieldSizes.push_back(outputFieldSize);
+      } else {
+        auto inputFieldSize =
+            m.call({outputFieldSize, convSize.kernelSize[dim]},
+                   [=](const std::vector<unsigned> &values) {
+          return getMaxInputRangeSize(values[0], dim, params, values[1]);
+        });
+        inputFieldSizes.push_back(inputFieldSize);
+      }
     }
     auto totalOutputFieldSize = m.product(outputFieldSizes);
     auto totalInputFieldSize = m.product(inputFieldSizes);
@@ -929,7 +954,7 @@ addExchangeCycleEstimate(
     const auto tilesPerSuperTile = target.getTilesPerSharedExchangeBus();
     auto scaledInputElementBytesPerCycle = scaledExchangeBytesPerCycle;
     if (target.supportsExchangeBusSharing() &&
-        level + 1 == numLevelsOfHierarchy &&
+        level + 2 == numLevelsOfHierarchy &&
         linearizeTileOrder == Plan::LinearizeTileOrder::STANDARD) {
       auto multiplier =
           m.call({partitionVars[level].outChanSplit},
@@ -990,17 +1015,18 @@ addReduceCycleEstimate(
 
 static popsolver::Variable
 addPartialsPerTile(popsolver::Model &m,
-                   const std::vector<PartitionVariables> &partitionVars,
-                   const std::vector<ConvSizeVariables> &convSize) {
-  unsigned grainSizeProduct = partitionVars.back().outChanGrainSize;
-  std::accumulate(partitionVars.back().fieldGrainSize.begin(),
-                  partitionVars.back().fieldGrainSize.end(),
+                   const PartitionVariables &partitionVars,
+                   unsigned partialChansPerGroup,
+                   const ConvSizeVariables &convSize) {
+  unsigned grainSizeProduct = partialChansPerGroup;
+  std::accumulate(partitionVars.fieldGrainSize.begin(),
+                  partitionVars.fieldGrainSize.end(),
                   grainSizeProduct,
                   std::multiplies<unsigned>());
-  auto partialDimSizes = convSize.back().numFieldGrains;
-  partialDimSizes.push_back(convSize.back().batchSize);
-  partialDimSizes.push_back(convSize.back().numConvGroups);
-  partialDimSizes.push_back(convSize.back().numOutChanGrains);
+  auto partialDimSizes = convSize.numFieldGrains;
+  partialDimSizes.push_back(convSize.batchSize);
+  partialDimSizes.push_back(convSize.numConvGroups);
+  partialDimSizes.push_back(convSize.numOutChanGrains);
   partialDimSizes.push_back(m.addConstant(grainSizeProduct));
   return m.product(partialDimSizes);
 }
@@ -1009,7 +1035,11 @@ static popsolver::Variable
 addCycleEstimate(popsolver::Model &m,
                  const std::vector<PartitionVariables> &partitionVars,
                  const std::vector<ConvSizeVariables> &convSize,
+                 const std::vector<ConvSizeVariables> &transformedConvSize,
                  popsolver::Variable usedTiles,
+                 const std::vector<
+                   std::unordered_set<unsigned>
+                 > &transformedDims,
                  const poplar::Target &target,
                  const std::vector<double> &perLevelExchangeBytesPerCycle,
                  const ConvParams &params,
@@ -1043,22 +1073,25 @@ addCycleEstimate(popsolver::Model &m,
     return 0U;
   });
   const auto exchangeCycles =
-      addExchangeCycleEstimate(m, partitionVars, convSize, target,
-                               perLevelExchangeBytesPerCycle, params,
+      addExchangeCycleEstimate(m, partitionVars, convSize, transformedDims,
+                               target, perLevelExchangeBytesPerCycle, params,
                                floatPartials, floatActivations,
                                linearizeTileOrder);
-  const auto partialsPerTile = addPartialsPerTile(m, partitionVars, convSize);
+  const auto partialsPerTile = addPartialsPerTile(m, partitionVars.back(),
+                                                  partialChansPerGroup,
+                                                  transformedConvSize.back());
   const auto zeroCycles =
-      addZeroCycles(m, target, partialsPerTile, convSize.back(), params,
-                    floatPartials, method);
+      addZeroCycles(m, target, partialsPerTile, transformedConvSize.back(),
+                    transformedDims.back(), params, floatPartials, method);
   const auto partialCalcCycles =
       addPartialCalcCycleEstimate(m, partitionVars.back().fieldGrainSize,
-                                  partitionVars.back().inChanGrainSize,
-                                  partitionVars.back().outChanGrainSize,
-                                  convSize.back(), target, params,
-                                  inChansPerGroup, partialChansPerGroup,
-                                  floatPartials, floatActivations,
-                                  method, cache);
+                                  inChansPerGroup,
+                                  partialChansPerGroup,
+                                  transformedConvSize.back(),
+                                  transformedDims.back(),
+                                  target, params, inChansPerGroup,
+                                  partialChansPerGroup, floatPartials,
+                                  floatActivations, method, cache);
   // Add a redunant inequality that relates the cycles required to calculate the
   // partial sums with the maximum number of MACs per cycle. Although this
   // constraint isn't necessary it provides an easy to calculate lower bound
@@ -1123,15 +1156,385 @@ makePartition(const popsolver::Solution &s, const PartitionVariables &vars) {
   return partition;
 }
 
-template <class TransformCostFn>
+template <class T>
+void insertAtFront(std::vector<T> &v, std::size_t n, const T &val) {
+  v.insert(v.begin(), n, val);
+}
+
+void addExtraDims(ConvParams &params, unsigned extraDims) {
+  if (extraDims == 0)
+    return;
+  insertAtFront(params.inputFieldShape, extraDims, std::size_t(1));
+  insertAtFront(params.kernelShape, extraDims, std::size_t(1));
+
+  insertAtFront(params.inputTransform.truncationLower, extraDims, 0U);
+  insertAtFront(params.inputTransform.truncationUpper, extraDims, 0U);
+  insertAtFront(params.inputTransform.dilation, extraDims, 1U);
+  insertAtFront(params.inputTransform.paddingLower, extraDims, 0U);
+  insertAtFront(params.inputTransform.paddingUpper, extraDims, 0U);
+  insertAtFront(params.inputTransform.flip, extraDims, false);
+
+  insertAtFront(params.kernelTransform.truncationLower, extraDims, 0U);
+  insertAtFront(params.kernelTransform.truncationUpper, extraDims, 0U);
+  insertAtFront(params.kernelTransform.dilation, extraDims, 1U);
+  insertAtFront(params.kernelTransform.paddingLower, extraDims, 0U);
+  insertAtFront(params.kernelTransform.paddingUpper, extraDims, 0U);
+  insertAtFront(params.kernelTransform.flip, extraDims, false);
+
+  insertAtFront(params.outputTransform.truncationLower, extraDims, 0U);
+  insertAtFront(params.outputTransform.truncationUpper, extraDims, 0U);
+  insertAtFront(params.outputTransform.stride, extraDims, 1U);
+  insertAtFront(params.outputTransform.paddingLower, extraDims, 0U);
+  insertAtFront(params.outputTransform.paddingUpper, extraDims, 0U);
+}
+
+static ConvParams
+calculateSwappedParams(const ConvParams &params, bool swapOperands) {
+  auto swappedParams = params;
+  if (swapOperands) {
+    popconv::swapOperands(swappedParams);
+  }
+  return swappedParams;
+}
+
+static void expandDim(ConvParams &params, unsigned dim) {
+  params.inputFieldShape[dim] = params.getOutputSize(dim);
+  params.inputChannels *= params.kernelShape[dim];
+  params.kernelShape[dim] = 1;
+  params.inputTransform.truncationLower[dim] = 0;
+  params.inputTransform.truncationUpper[dim] = 0;
+  params.inputTransform.dilation[dim] = 1;
+  params.inputTransform.paddingLower[dim] = 0;
+  params.inputTransform.paddingUpper[dim] = 0;
+  params.inputTransform.flip[dim] = false;
+  params.kernelTransform.truncationLower[dim] = 0;
+  params.kernelTransform.truncationUpper[dim] = 0;
+  params.kernelTransform.dilation[dim] = 1;
+  params.kernelTransform.paddingLower[dim] = 0;
+  params.kernelTransform.paddingUpper[dim] = 0;
+  params.kernelTransform.flip[dim] = false;
+  params.outputTransform.truncationLower[dim] = 0;
+  params.outputTransform.truncationUpper[dim] = 0;
+  params.outputTransform.stride[dim] = 1;
+  params.outputTransform.paddingLower[dim] = 0;
+  params.outputTransform.paddingUpper[dim] = 0;
+}
+
+static ConvParams
+calculateExpandedParams(const ConvParams &params,
+                        const std::vector<unsigned> &expandDims) {
+  auto expandedParams = params;
+  for (unsigned dim : expandDims) {
+    expandDim(expandedParams, dim);
+  }
+  return expandedParams;
+}
+
+static bool dimCanBeFlattened(const ConvParams &params, unsigned dim) {
+  // TODO two dimensions can be flattened if they both have flipInput set to
+  // true. To target this we would need to pass information about the two
+  // dimensions that are candidates for flattening.
+  return params.getTransformedKernelSize(dim) == 1 &&
+         params.inputTransform.truncationLower[dim] == 0 &&
+         params.inputTransform.truncationUpper[dim] == 0 &&
+         params.inputTransform.dilation[dim] == 1 &&
+         params.inputTransform.paddingLower[dim] == 0 &&
+         params.inputTransform.paddingUpper[dim] == 0 &&
+         !params.inputTransform.flip[dim] &&
+         params.outputTransform.truncationLower[dim] == 0 &&
+         params.outputTransform.truncationUpper[dim] == 0 &&
+         params.outputTransform.stride[dim] == 1 &&
+         params.outputTransform.paddingLower[dim] == 0 &&
+         params.outputTransform.paddingUpper[dim] == 0;
+}
+
+static ConvParams
+calculateFlattenedParams(const ConvParams &params,
+                         const std::vector<unsigned> &outChanFlattenDims,
+                         std::vector<unsigned> &flattenDims) {
+  flattenDims.clear();
+  auto flattenedParams = params;
+  if (!outChanFlattenDims.empty()) {
+    popconv::swapOperands(flattenedParams);
+    for (unsigned dim : outChanFlattenDims) {
+      expandDim(flattenedParams, dim);
+      // Flatten into the batch axis (this will become the output channel
+      // axis when we swap back).
+      flattenedParams.batchSize *= flattenedParams.inputFieldShape[dim];
+      flattenedParams.inputFieldShape[dim] = 1;
+    }
+    popconv::swapOperands(flattenedParams);
+  }
+  // Flatten from the innermost out.
+
+  flattenDims.push_back(0);
+  for (unsigned spatialDim = 0;
+       spatialDim != flattenedParams.getNumFieldDims();
+       ++spatialDim) {
+    if (dimCanBeFlattened(flattenedParams, spatialDim)) {
+      flattenDims.push_back(spatialDim + 1);
+    }
+  }
+  if (flattenDims.size() > 1) {
+    const auto innermostFlattenableDim = flattenDims.back();
+    assert(innermostFlattenableDim > 0);
+    for (auto it = std::next(flattenDims.rbegin()),
+         end = flattenDims.rend(); it != end; ++it) {
+      const auto fromDimIndex = *it;
+      auto &fromDimSize =
+          fromDimIndex ?
+            flattenedParams.inputFieldShape[fromDimIndex - 1] :
+          flattenedParams.batchSize;
+      flattenedParams.inputFieldShape[innermostFlattenableDim - 1] *=
+          fromDimSize;
+      fromDimSize = 1;
+    }
+  } else {
+    flattenDims.clear();
+  }
+  return flattenedParams;
+}
+
+static ConvParams
+calculatePaddedParams(const ConvParams &params, unsigned inChanGrainSize,
+                      unsigned partialChanGrainSize, unsigned &inChansPadding,
+                      unsigned &partialChansPadding) {
+  auto paddedParams = params;
+  const auto inChans = params.getNumInputChansPerConvGroup();
+  paddedParams.inputChannels =
+      ((inChans + inChanGrainSize - 1) / inChanGrainSize) *
+      inChanGrainSize;
+  inChansPadding = paddedParams.inputChannels - inChans;
+  const auto partialChans =
+      params.getNumOutputChansPerConvGroup();
+  paddedParams.outputChannels =
+      ((partialChans + partialChanGrainSize - 1) / partialChanGrainSize) *
+      partialChanGrainSize;
+  partialChansPadding = paddedParams.outputChannels - partialChans;
+  return paddedParams;
+}
+
+static ConvParams applyTransform(const ConvParams &params,
+                                 const ConvTransform &transform,
+                                 unsigned inChanGrainSize,
+                                 unsigned outChanGrainSize) {
+  auto paramsWithExtraDims = params;
+  addExtraDims(paramsWithExtraDims, transform.extraFieldDims);
+  const auto swappedParams =
+      calculateSwappedParams(paramsWithExtraDims, transform.swapOperands);
+  const auto expandedParams =
+      calculateExpandedParams(swappedParams, transform.expandDims);
+  std::vector<unsigned> flattenDims;
+  const auto flattenedParams =
+      calculateFlattenedParams(expandedParams, transform.outChanFlattenDims,
+                               flattenDims);
+  unsigned inChansPadding, outChansPadding;
+  auto paddedParams = calculatePaddedParams(flattenedParams, inChanGrainSize,
+                                            outChanGrainSize, inChansPadding,
+                                            outChansPadding);
+  return paddedParams;
+}
+
+static void getTransformedDims(const ConvTransform &transform,
+                               std::unordered_set<unsigned> &transformed) {
+  for (const auto dim : transform.expandDims) {
+    transformed.insert(dim);
+  }
+  for (const auto dim : transform.outChanFlattenDims) {
+    transformed.insert(dim);
+  }
+  for (const auto dim : transform.flattenDims) {
+    if (dim == 0)
+      continue;
+    transformed.insert(dim - 1);
+  }
+}
+
+static std::vector<unsigned>
+getOutChanGrainSizes(const std::vector<ConvTransform> &transforms,
+                     unsigned partialChansPerGroup) {
+  assert(transforms.size() >= 1);
+  std::vector<unsigned> outChanGrainSizes(transforms.size());
+  // The grain size at the last level is equal to partialChansPerGroup.
+  // To avoid rearrangement we use the same grain size at upper levels
+  // unless these is a transform that rearranges the output channel axis.
+  outChanGrainSizes[transforms.size() - 1] = partialChansPerGroup;
+  for (int i = static_cast<int>(transforms.size()) - 2; i >= 0; --i) {
+    outChanGrainSizes[i] = (i == 0 ||
+                            transforms[i].outChanFlattenDims.empty()) ?
+                           outChanGrainSizes[i + 1] : 1;
+  }
+  return outChanGrainSizes;
+}
+
+static std::vector<unsigned>
+getInChanGrainSizes(const std::vector<ConvTransform> &transforms,
+                    unsigned inChansPerGroup) {
+  assert(transforms.size() >= 1);
+  std::vector<unsigned> inChanGrainSizes(transforms.size());
+  // The grain size at the last level is equal to inChansPerGroup.
+  // To avoid rearrangement we use the same grain size at upper levels
+  // unless these is a transform that rearranges the input channel axis.
+  inChanGrainSizes[transforms.size() - 1] = inChansPerGroup;
+  for (int i = static_cast<int>(transforms.size()) - 2; i >= 0; --i) {
+    inChanGrainSizes[i] = (transforms[i + 1].outChanFlattenDims.empty() &&
+                           transforms[i + 1].expandDims.empty()) ?
+                          inChanGrainSizes[i + 1] : 1;
+  }
+  return inChanGrainSizes;
+}
+
+popsolver::Variable
+addTransformCycleEstimate(
+    popsolver::Model &m,
+    const ConvParams &params,
+    const ConvParams &transformedOnceParams,
+    const std::vector<ConvTransform> &transforms,
+    const std::vector<PartitionVariables> &partitionVars,
+    const std::vector<ConvSizeVariables> &transformedConvSizes,
+    const std::vector<std::unordered_set<unsigned>> &transformedDims,
+    unsigned inChansPerGroup,
+    unsigned partialChansPerGroup,
+    bool floatPartials,
+    const ConvOptions &options,
+    const poplar::Target &target) {
+  assert(options.pass != Pass::FC_TRAINING_WU &&
+         options.pass != Pass::FC_TRAINING_BWD);
+  bool isWeightUpdate = options.pass == Pass::TRAINING_WU;
+  bool expandDims = false;
+  bool swapOperands = false;
+  bool outChanFlattenDims = false;
+  assert(transforms.size() >= 2);
+  const auto ipuLevel = transforms.size() - 2;
+  for (unsigned level = 0; level <= ipuLevel; ++level) {
+    if (transforms[level].swapOperands)
+      swapOperands = true;
+    if (!transforms[level].expandDims.empty())
+      expandDims = true;
+    if (!transforms[level].outChanFlattenDims.empty())
+      outChanFlattenDims = true;
+  }
+  bool padInChannels = params.inputChannels % inChansPerGroup;
+  bool padPartialChannels = params.outputChannels % partialChansPerGroup;
+  bool rearrangeInput = isWeightUpdate || expandDims ||
+                        swapOperands || padInChannels;
+  bool rearrangeWeights = isWeightUpdate || expandDims ||
+                          outChanFlattenDims ||
+                          swapOperands || padInChannels ||
+                          padPartialChannels;
+  bool rearrangeOutput = (!isWeightUpdate && swapOperands) ||
+                         (isWeightUpdate && !swapOperands) ||
+                         outChanFlattenDims ||
+                         padPartialChannels;
+  if (!rearrangeInput && !rearrangeOutput && !rearrangeWeights)
+    return m.addConstant(0);
+  const auto &convSize = transformedConvSizes[ipuLevel];
+  std::vector<popsolver::Variable> outputFieldSizes;
+  std::vector<popsolver::Variable> inputFieldSizes;
+  const auto numFieldDims = partitionVars[ipuLevel].fieldSplit.size();
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    const auto fieldGrainSize = partitionVars[ipuLevel].fieldGrainSize[dim];
+    auto outputFieldSize = convSize.numFieldGrains[dim];
+    if (fieldGrainSize != 1) {
+      outputFieldSize = m.product({outputFieldSize,
+                                   m.addConstant(fieldGrainSize)});
+    }
+    outputFieldSizes.push_back(outputFieldSize);
+    if (transformedDims[ipuLevel].count(dim)) {
+      inputFieldSizes.push_back(outputFieldSize);
+    } else {
+      auto inputFieldSize =
+          m.call({outputFieldSize, convSize.kernelSize[dim]},
+                 [=](const std::vector<unsigned> &values) {
+        return getMaxInputRangeSize(values[0], dim, transformedOnceParams,
+                                    values[1]);
+      });
+      inputFieldSizes.push_back(inputFieldSize);
+    }
+  }
+  auto numInChans =
+      m.product({convSize.numInChanGrains,
+                 m.addConstant(partitionVars[ipuLevel].inChanGrainSize)});
+  auto numOutChans =
+      m.product({convSize.numOutChanGrains,
+                 m.addConstant(partitionVars[ipuLevel].outChanGrainSize)});
+  std::vector<popsolver::Variable> ipuSplits = {
+    partitionVars[ipuLevel].batchSplit,
+    partitionVars[ipuLevel].convGroupSplit,
+    partitionVars[ipuLevel].inChanSplit,
+    partitionVars[ipuLevel].outChanSplit
+  };
+  ipuSplits.insert(ipuSplits.end(),
+                   partitionVars[ipuLevel].fieldSplit.begin(),
+                   partitionVars[ipuLevel].fieldSplit.end());
+  ipuSplits.insert(ipuSplits.end(),
+                   partitionVars[ipuLevel].kernelSplit.begin(),
+                   partitionVars[ipuLevel].kernelSplit.end());
+  auto ipuUsedTiles = m.product(ipuSplits);
+  const auto bytesPerElement = target.getTypeSize(params.dType);
+  const auto exchangeBytesPerCycle = target.getExchangeBytesPerCycle();
+  std::vector<popsolver::Variable> cyclesOperands;
+  if (rearrangeInput || rearrangeWeights) {
+    const auto reorderBytesPerCycle =
+        std::min<unsigned>(target.getMemcpyBytesPerCycle(), bytesPerElement);
+    std::vector<popsolver::Variable> numElementsOperands;
+    if (rearrangeInput) {
+      auto totalInputFieldSize = m.product(inputFieldSizes);
+      auto numInputElements =
+          m.product({totalInputFieldSize, convSize.batchSize, numInChans,
+                     convSize.numConvGroups});
+      numElementsOperands.push_back(numInputElements);
+    }
+    if (rearrangeWeights) {
+      auto totalKernelSize = m.product(convSize.kernelSize);
+      auto numWeightElements =
+          m.product({totalKernelSize, numInChans, numOutChans,
+                     convSize.numConvGroups});
+      numElementsOperands.push_back(numWeightElements);
+    }
+    auto numElements = m.sum(numElementsOperands);
+    auto numElementsPerTile = m.ceildiv(numElements, ipuUsedTiles);
+    auto bytesPerTile = m.product({numElementsPerTile,
+                                   m.addConstant(bytesPerElement)});
+    cyclesOperands.push_back(m.ceildiv(bytesPerTile,
+                                       m.addConstant(exchangeBytesPerCycle)));
+    cyclesOperands.push_back(m.ceildiv(bytesPerTile,
+                                       m.addConstant(reorderBytesPerCycle)));
+  }
+  if (rearrangeOutput) {
+    const auto outputBytesPerElement = ipuLevel == 0 ? bytesPerElement :
+                                                       (floatPartials ? 4 : 2);
+    const auto outputReorderBytesPerCycle =
+        std::min<unsigned>(target.getMemcpyBytesPerCycle(),
+                           outputBytesPerElement);
+    auto totalOutputFieldSize = m.product(outputFieldSizes);
+    auto numElements =
+        m.product({totalOutputFieldSize, convSize.batchSize,
+                   numOutChans, convSize.numConvGroups});
+    auto numElementsPerTile = m.ceildiv(numElements, ipuUsedTiles);
+    auto bytesPerTile = m.product({numElementsPerTile,
+                                   m.addConstant(outputBytesPerElement)});
+    cyclesOperands.push_back(m.ceildiv(bytesPerTile,
+                                       m.addConstant(exchangeBytesPerCycle)));
+    cyclesOperands.push_back(
+      m.ceildiv(bytesPerTile, m.addConstant(outputReorderBytesPerCycle))
+    );
+  }
+  auto cycles = m.sum(cyclesOperands);
+  // Apply an experimentally determined fudge factor to account for other
+  // overheads that aren't modeled.
+  cycles = m.ceildiv(m.product({cycles, m.addConstant(3)}), m.addConstant(2));
+  return cycles;
+}
+
 static void
 constructModel(const poplar::Target &target,
+               const std::vector<ConvTransform> &transforms,
                const std::vector<unsigned> &hierarchy,
                const std::vector<double> &perLevelExchangeBytesPerCycle,
                const std::vector<unsigned> &fieldGrainSize,
                const ConvVertexType &convVertexType,
-               const ConvParams &params,
-               TransformCostFn &&transformCost,
+               const ConvParams &params_,
                Cost bestCost,
                const CostBounds costBounds,
                PlanningCacheImpl *cache,
@@ -1141,9 +1544,18 @@ constructModel(const poplar::Target &target,
                popsolver::Variable &cycles) {
   const auto inChansPerGroup = convVertexType.inChansPerGroup;
   const auto partialChansPerGroup = convVertexType.partialChansPerGroup;
+  const auto outChanGrainSize = getOutChanGrainSizes(transforms,
+                                                     partialChansPerGroup);
+  const auto inChanGrainSize = getInChanGrainSizes(transforms,
+                                                   inChansPerGroup);
+  // Apply the top level transform to the parameters. The top level transform is
+  // the only transform that can add dimensions / swap operands. Applying the
+  // top level transform to the parameters here means we don't need to support
+  // adding dimensions / swapping operands in the generic code that handles
+  // transforms different levels.
+  auto params = applyTransform(params_, transforms[0], inChanGrainSize[0],
+                               outChanGrainSize[0]);
   const auto floatActivations = convVertexType.floatActivations;
-  const auto inChanGrainSize = inChansPerGroup;
-  const auto outChanGrainSize = partialChansPerGroup;
   // If yTileSplit is greater than one we end up splitting across the y axis of
   // the output volume. The input elements required to compute output elements
   // on one side of the split will overlap with the input elements required for
@@ -1160,16 +1572,20 @@ constructModel(const poplar::Target &target,
   // TODO investigate the alternative strategy outlined above.
   using namespace popsolver;
   const auto numFieldDims = params.getNumFieldDims();
-  const auto numLevelsOfHierarchy = hierarchy.size();
+  const auto numLevelsOfHierarchy = hierarchy.size() + 1;
   assert(numLevelsOfHierarchy >= 1);
   partitionVars.clear();
+
   const auto outChanGrains =
-      (params.getNumOutputChansPerConvGroup() + outChanGrainSize - 1) /
-      outChanGrainSize;
+      (params.getNumOutputChansPerConvGroup() + outChanGrainSize[0] - 1) /
+      outChanGrainSize[0];
   const auto inChanGrains =
-      (params.getNumInputChansPerConvGroup() + inChanGrainSize - 1)
-      / inChanGrainSize;
+      (params.getNumInputChansPerConvGroup() + inChanGrainSize[0] - 1)
+      / inChanGrainSize[0];
+  // For each level the set of dimensions that are flattened / expanded.
+  std::vector<std::unordered_set<unsigned>> transformedDims;
   std::vector<ConvSizeVariables> convSize;
+  std::vector<ConvSizeVariables> transformedConvSize;
   convSize.emplace_back();
   convSize.back().numFieldGrains.reserve(numFieldDims);
   convSize.back().kernelSize.reserve(numFieldDims);
@@ -1187,7 +1603,95 @@ constructModel(const poplar::Target &target,
   convSize.back().numOutChanGrains = m.addConstant(outChanGrains);
   convSize.back().numInChanGrains = m.addConstant(inChanGrains);
   for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
-    const auto &prevConvSize = convSize.back();
+    if (level == 0) {
+      transformedDims.emplace_back();
+    } else {
+      transformedDims.emplace_back(transformedDims.back());
+    }
+    getTransformedDims(transforms[level], transformedDims.back());
+    transformedConvSize.push_back(convSize.back());
+    // Don't transform level 0 since this transform has already been applied to
+    // the parameters.
+    if (level != 0) {
+      assert(!transforms[level].swapOperands);
+      assert(transforms[level].extraFieldDims == 0);
+      for (const auto dim : transforms[level].expandDims) {
+        transformedConvSize.back().numInChanGrains =
+            m.product({transformedConvSize.back().numInChanGrains,
+                       transformedConvSize.back().kernelSize[dim]});
+        transformedConvSize.back().kernelSize[dim] = m.addConstant(1);
+      }
+      for (const auto dim : transforms[level].outChanFlattenDims) {
+        popsolver::Variable outputSize =
+            transformedConvSize.back().numFieldGrains[dim];
+        if (fieldGrainSize[dim] != 1) {
+          outputSize = m.product({outputSize,
+                                  m.addConstant(fieldGrainSize[dim])});
+        }
+        transformedConvSize.back().numOutChanGrains =
+            m.product({transformedConvSize.back().numOutChanGrains,
+                       outputSize});
+        popsolver::Variable inputSize;
+        if (level != 0 && transformedDims[level - 1].count(dim)) {
+          inputSize = outputSize;
+        } else {
+          inputSize = m.call({outputSize,
+                              transformedConvSize.back().kernelSize[dim]},
+                             [=](const std::vector<unsigned> &values) {
+            return getMaxInputRangeSize(values[0], dim, params, values[1]);
+          });
+        }
+        transformedConvSize.back().numInChanGrains =
+            m.product({transformedConvSize.back().numInChanGrains, inputSize});
+        transformedConvSize.back().numFieldGrains[dim] = m.addConstant(1);
+      }
+      if (!transforms[level].flattenDims.empty()) {
+        std::vector<Variable> vars;
+        unsigned multiplier = 1;
+        for (const auto dim : transforms[level].flattenDims) {
+          if (dim == 0) {
+            vars.push_back(transformedConvSize.back().batchSize);
+            transformedConvSize.back().batchSize = m.addConstant(1);
+          } else {
+            vars.push_back(transformedConvSize.back().numFieldGrains[dim - 1]);
+            multiplier *= fieldGrainSize[dim - 1];
+            transformedConvSize.back().numFieldGrains[dim - 1] =
+                m.addConstant(1);
+          }
+        }
+        const auto toDim = transforms[level].flattenDims.back();
+        if (toDim != 0) {
+          multiplier /= fieldGrainSize[toDim - 1];
+        }
+        if (multiplier != 1)
+          vars.push_back(m.addConstant(multiplier));
+        if (toDim == 0) {
+          transformedConvSize.back().batchSize = m.product(vars);
+        } else {
+          transformedConvSize.back().numFieldGrains[toDim - 1] =
+              m.product(vars);
+        }
+      }
+      if (outChanGrainSize[level] != outChanGrainSize[level - 1]) {
+        assert(outChanGrainSize[level] % outChanGrainSize[level - 1] == 0);
+        const auto divisor = outChanGrainSize[level] /
+                             outChanGrainSize[level - 1];
+        transformedConvSize.back().numOutChanGrains =
+            m.ceildiv(transformedConvSize.back().numOutChanGrains,
+                      m.addConstant(divisor));
+      }
+      if (inChanGrainSize[level] != inChanGrainSize[level - 1]) {
+        assert(inChanGrainSize[level] % inChanGrainSize[level - 1] == 0);
+        const auto divisor = inChanGrainSize[level] /
+                             inChanGrainSize[level - 1];
+        transformedConvSize.back().numInChanGrains =
+            m.ceildiv(transformedConvSize.back().numInChanGrains,
+                      m.addConstant(divisor));
+      }
+    }
+    if (level + 1 == numLevelsOfHierarchy)
+      break;
+    const auto &prevConvSize = transformedConvSize.back();
     ConvSizeVariables nextConvSize;
     convSize.back().numFieldGrains.reserve(numFieldDims);
     convSize.back().kernelSize.reserve(numFieldDims);
@@ -1231,8 +1735,8 @@ constructModel(const poplar::Target &target,
     }
     p.inChanSplit = m.addVariable(1, levelMaxSplit);
     m.lessOrEqual(p.inChanSplit, prevConvSize.numInChanGrains);
-    p.outChanGrainSize = outChanGrainSize;
-    p.inChanGrainSize = inChanGrainSize;
+    p.outChanGrainSize = outChanGrainSize[level];
+    p.inChanGrainSize = inChanGrainSize[level];
     p.fieldGrainSize = fieldGrainSize;
     nextConvSize.batchSize = m.ceildiv(prevConvSize.batchSize, p.batchSplit);
     nextConvSize.numConvGroups =
@@ -1246,7 +1750,7 @@ constructModel(const poplar::Target &target,
   }
 
   std::vector<Variable> perLevelSplits;
-  for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
+  for (unsigned level = 0; level != numLevelsOfHierarchy - 1; ++level) {
     const auto &p = partitionVars[level];
     std::vector<Variable> splits;
     splits.push_back(p.batchSplit);
@@ -1260,11 +1764,11 @@ constructModel(const poplar::Target &target,
     perLevelSplits.push_back(levelSplit);
   }
   const auto usedTiles = m.product(perLevelSplits);
-  convSize.erase(convSize.begin());
 
   cycles =
-      addCycleEstimate(m, partitionVars, convSize, usedTiles, target,
-                       perLevelExchangeBytesPerCycle, params,
+      addCycleEstimate(m, partitionVars, convSize, transformedConvSize,
+                       usedTiles, transformedDims,
+                       target, perLevelExchangeBytesPerCycle, params,
                        inChansPerGroup, partialChansPerGroup,
                        convVertexType.floatPartials,
                        floatActivations, convVertexType.method,
@@ -1274,20 +1778,29 @@ constructModel(const poplar::Target &target,
     std::swap(bwdParams.inputFieldShape.back(), bwdParams.inputChannels);
     std::vector<PartitionVariables> bwdPartitionVars;
     std::vector<ConvSizeVariables> bwdConvSize;
+    std::vector<ConvSizeVariables> bwdTransformedConvSize;
     for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
-      const auto &p = partitionVars[level];
-      auto bwdP = p;
-      bwdP.fieldSplit.back() = p.inChanSplit;
-      bwdP.inChanSplit = p.fieldSplit.back();
-      bwdP.inChanGrainSize = p.fieldGrainSize.back();
-      bwdP.fieldGrainSize.back() = inChansPerGroup;
-      bwdPartitionVars.push_back(bwdP);
+      if (level + 1 < numLevelsOfHierarchy) {
+        const auto &p = partitionVars[level];
+        auto bwdP = p;
+        bwdP.fieldSplit.back() = p.inChanSplit;
+        bwdP.inChanSplit = p.fieldSplit.back();
+        bwdP.inChanGrainSize = p.fieldGrainSize.back();
+        bwdP.fieldGrainSize.back() = inChansPerGroup;
+        bwdPartitionVars.push_back(bwdP);
+      }
 
       const auto &s = convSize[level];
       auto bwdS = s;
       bwdS.numFieldGrains.back() = s.numInChanGrains;
       bwdS.numInChanGrains = s.numFieldGrains.back();
       bwdConvSize.push_back(bwdS);
+
+      const auto &tS = convSize[level];
+      auto bwdTS = tS;
+      bwdTS.numFieldGrains.back() = tS.numInChanGrains;
+      bwdTS.numInChanGrains = tS.numFieldGrains.back();
+      bwdTransformedConvSize.push_back(bwdTS);
     }
     const auto bwdInChansPerGroup = bwdPartitionVars.back().inChanGrainSize;
     const auto bwdMethod =
@@ -1295,7 +1808,12 @@ constructModel(const poplar::Target &target,
                                    convVertexType.method);
     const auto bwdCycles =
         addCycleEstimate(m, bwdPartitionVars, bwdConvSize,
-                         usedTiles, target, perLevelExchangeBytesPerCycle,
+                         bwdTransformedConvSize,
+                         usedTiles,
+                         std::vector<
+                           std::unordered_set<unsigned>
+                         >(numLevelsOfHierarchy), target,
+                         perLevelExchangeBytesPerCycle,
                          params, bwdInChansPerGroup, partialChansPerGroup,
                          convVertexType.floatPartials,
                          floatActivations, bwdMethod,
@@ -1304,28 +1822,50 @@ constructModel(const poplar::Target &target,
     std::swap(wuParams.inputChannels, wuParams.outputChannels);
     std::vector<PartitionVariables> wuPartitionVars;
     std::vector<ConvSizeVariables> wuConvSize;
+    std::vector<ConvSizeVariables> wuTransformedConvSize;
     for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
-      const auto &p = partitionVars[level];
-      auto wuP = p;
-      wuP.outChanSplit = p.inChanSplit;
-      wuP.inChanSplit = p.outChanSplit;
-      wuP.inChanGrainSize = p.outChanGrainSize;
-      wuP.outChanGrainSize = p.inChanGrainSize;
-      wuP.fieldGrainSize = std::vector<unsigned>(numFieldDims, 1);
-      wuPartitionVars.push_back(wuP);
+      if (level + 1 < numLevelsOfHierarchy) {
+        const auto &p = partitionVars[level];
+        auto wuP = p;
+        wuP.outChanSplit = p.inChanSplit;
+        wuP.inChanSplit = p.outChanSplit;
+        wuP.inChanGrainSize = p.outChanGrainSize;
+        wuP.outChanGrainSize = p.inChanGrainSize;
+        wuP.fieldGrainSize = std::vector<unsigned>(numFieldDims, 1);
+        wuPartitionVars.push_back(wuP);
+      }
 
       const auto &s = convSize[level];
       auto wuS = s;
       wuS.numInChanGrains = s.numOutChanGrains;
       wuS.numOutChanGrains = s.numInChanGrains;
       for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-        const auto fieldGrainSize = partitionVars[level].fieldGrainSize[dim];
-        if (partitionVars[level].fieldGrainSize[dim] != 1) {
+        const auto fieldGrainSize =
+            level > 0 ? partitionVars[level - 1].fieldGrainSize[dim] :
+                        partitionVars[level].fieldGrainSize[dim];
+        if (fieldGrainSize != 1) {
           wuS.numFieldGrains[dim] =
               m.product({s.numFieldGrains[dim], m.addConstant(fieldGrainSize)});
         }
       }
       wuConvSize.push_back(wuS);
+
+      const auto &tS = convSize[level];
+      auto wuTS = tS;
+      wuTS.numInChanGrains = tS.numOutChanGrains;
+      wuTS.numOutChanGrains = tS.numInChanGrains;
+      for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+        const auto fieldGrainSize =
+            level + 1 < numLevelsOfHierarchy ?
+              partitionVars[level].fieldGrainSize[dim] :
+              partitionVars[level - 1].fieldGrainSize[dim];
+        if (fieldGrainSize != 1) {
+          wuTS.numFieldGrains[dim] =
+              m.product({tS.numFieldGrains[dim],
+                         m.addConstant(fieldGrainSize)});
+        }
+      }
+      wuTransformedConvSize.push_back(wuTS);
     }
     const auto wuInChansPerGroup = partialChansPerGroup;
     const auto wuPartialChansPerGroup = inChansPerGroup;
@@ -1336,7 +1876,12 @@ constructModel(const poplar::Target &target,
                                   inChansPerGroup);
     const auto wuCycles =
         addCycleEstimate(m, wuPartitionVars, wuConvSize,
-                         usedTiles, target, perLevelExchangeBytesPerCycle,
+                         wuTransformedConvSize,
+                         usedTiles,
+                         std::vector<
+                           std::unordered_set<unsigned>
+                         >(numLevelsOfHierarchy), target,
+                         perLevelExchangeBytesPerCycle,
                          wuParams, wuInChansPerGroup, wuPartialChansPerGroup,
                          convVertexType.floatPartials,
                          floatActivations, wuMethod,
@@ -1345,10 +1890,10 @@ constructModel(const poplar::Target &target,
     cycles = m.sum({cycles, bwdCycles, wuCycles});
   }
   auto transformCycles =
-      m.call({usedTiles},
-             [=](const std::vector<unsigned> &values) {
-        return transformCost(values[0]);
-      });
+      addTransformCycleEstimate(m, params_, params, transforms, partitionVars,
+                                transformedConvSize, transformedDims,
+                                inChansPerGroup, partialChansPerGroup,
+                                convVertexType.floatPartials, options, target);
   cycles = m.sum({cycles, transformCycles});
   auto cycleBound = bestCost.cycles;
   if (costBounds.cycles > 0) {
@@ -1359,15 +1904,14 @@ constructModel(const poplar::Target &target,
   }
 }
 
-template <class TransformCostFn>
 static std::pair<Plan, Cost>
 choosePlan(const poplar::Target &target,
+           const std::vector<ConvTransform> &transforms,
            const std::vector<unsigned> &hierarchy,
            const std::vector<double> &perLevelExchangeBytesPerCycle,
            const std::vector<unsigned> &fieldGrainSize,
            const ConvVertexType &convVertexType,
            const ConvParams &params,
-           TransformCostFn &&transformCost,
            Cost bestCost,
            const CostBounds costBounds,
            PlanningCacheImpl *cache,
@@ -1375,10 +1919,9 @@ choosePlan(const poplar::Target &target,
   popsolver::Model m;
   std::vector<PartitionVariables> partitionVars;
   popsolver::Variable cycles;
-  constructModel(target, hierarchy, perLevelExchangeBytesPerCycle,
-                 fieldGrainSize, convVertexType, params, transformCost,
-                 bestCost, costBounds, cache, options, m, partitionVars,
-                 cycles);
+  constructModel(target, transforms, hierarchy, perLevelExchangeBytesPerCycle,
+                 fieldGrainSize, convVertexType, params, bestCost, costBounds,
+                 cache, options, m, partitionVars, cycles);
   popsolver::Solution s;
   try {
     assert(costBounds.primaryCheckIsCycles);
@@ -1395,6 +1938,7 @@ choosePlan(const poplar::Target &target,
             convVertexType.floatPartials,
             convVertexType.method,
             Plan::LinearizeTileOrder::STANDARD);
+  plan.transforms = transforms;
   // TODO estimate memory usage.
   unsigned memory = 0;
   Cost cost = {s[cycles], memory};
@@ -1526,106 +2070,6 @@ getConvVertexTypeCandidates(const poplar::Target &target,
   return convVertexTypeCandidates;
 }
 
-static void expandDim(ConvParams &params, unsigned dim) {
-  params.inputFieldShape[dim] = params.getOutputSize(dim);
-  params.inputChannels *= params.kernelShape[dim];
-  params.kernelShape[dim] = 1;
-  params.inputTransform.truncationLower[dim] = 0;
-  params.inputTransform.truncationUpper[dim] = 0;
-  params.inputTransform.dilation[dim] = 1;
-  params.inputTransform.paddingLower[dim] = 0;
-  params.inputTransform.paddingUpper[dim] = 0;
-  params.inputTransform.flip[dim] = false;
-  params.kernelTransform.truncationLower[dim] = 0;
-  params.kernelTransform.truncationUpper[dim] = 0;
-  params.kernelTransform.dilation[dim] = 1;
-  params.kernelTransform.paddingLower[dim] = 0;
-  params.kernelTransform.paddingUpper[dim] = 0;
-  params.kernelTransform.flip[dim] = false;
-  params.outputTransform.truncationLower[dim] = 0;
-  params.outputTransform.truncationUpper[dim] = 0;
-  params.outputTransform.stride[dim] = 1;
-  params.outputTransform.paddingLower[dim] = 0;
-  params.outputTransform.paddingUpper[dim] = 0;
-}
-
-static unsigned
-estimateTransformCycles(const poplar::Target &target,
-                        const ConvParams &transformedParams,
-                        const ConvOptions &options,
-                        const ConvTransform &transform,
-                        unsigned usedTiles) {
-  assert(options.pass != Pass::FC_TRAINING_WU &&
-         options.pass != Pass::FC_TRAINING_BWD);
-  bool isWeightUpdate = options.pass == Pass::TRAINING_WU;
-  bool rearrangeInput = isWeightUpdate || !transform.expandDims.empty() ||
-                        transform.swapOperands || transform.inChansPadding;
-  bool rearrangeWeights = isWeightUpdate || !transform.expandDims.empty() ||
-                          !transform.outChanFlattenDims.empty() ||
-                          transform.swapOperands || transform.inChansPadding ||
-                          transform.partialChansPadding;
-  bool rearrangeOutput = (!isWeightUpdate && transform.swapOperands) ||
-                         (isWeightUpdate && !transform.swapOperands) ||
-                         !transform.outChanFlattenDims.empty() ||
-                         transform.partialChansPadding;
-  auto expandedParams = transformedParams;
-  unsigned expandedInputFieldSize = 1;
-  unsigned expandedFilterSize = 1;
-  unsigned expandedOutputFieldSize = 1;
-  for (unsigned dim = 0; dim != expandedParams.getNumFieldDims(); ++dim) {
-    expandedInputFieldSize *= expandedParams.inputFieldShape[dim];
-    expandedFilterSize *= expandedParams.kernelShape[dim];
-    expandedOutputFieldSize *= expandedParams.getOutputSize(dim);
-  }
-  unsigned cycles = 0;
-  const auto bytesPerElement = target.getTypeSize(expandedParams.dType);
-  const auto expandedInputChannelsPerGroup =
-      expandedParams.getNumInputChansPerConvGroup();
-  unsigned rearrangeElementsPerTile = 0;
-  if (rearrangeInput) {
-    const auto expandedInputElements =
-        expandedInputFieldSize * expandedInputChannelsPerGroup *
-        expandedParams.getBatchSize() * expandedParams.getNumConvGroups();
-    const auto expandedInputElementsPerTile =
-        (expandedInputElements + usedTiles - 1) / usedTiles;
-    rearrangeElementsPerTile += expandedInputElementsPerTile;
-  }
-  if (rearrangeWeights) {
-    const auto expandedFilterElements =
-        expandedFilterSize * expandedInputChannelsPerGroup *
-        expandedParams.getNumOutputChansPerConvGroup() *
-        expandedParams.getNumConvGroups();
-    const auto expandedFilterElementsPerTile =
-        (expandedFilterElements + usedTiles - 1) / usedTiles;
-    rearrangeElementsPerTile += expandedFilterElementsPerTile;
-  }
-  if (rearrangeOutput) {
-    const auto expandedOutputElements =
-        expandedOutputFieldSize *
-        expandedParams.getNumOutputChansPerConvGroup() *
-        expandedParams.getBatchSize() * expandedParams.getNumConvGroups();
-    const auto expandedOutputElementsPerTile =
-        (expandedOutputElements + usedTiles - 1) / usedTiles;
-    rearrangeElementsPerTile += expandedOutputElementsPerTile;
-  }
-  const auto expandedBytesPerTile =
-      rearrangeElementsPerTile * bytesPerElement;
-  // Estimate cost assuming every byte must be exchanged and copied.
-  const auto exchangeBytesPerCycle = target.getExchangeBytesPerCycle();
-  cycles += (expandedBytesPerTile + exchangeBytesPerCycle - 1) /
-            exchangeBytesPerCycle;
-  // Assume we copy at most one element per cycle.
-  const auto reorderBytesPerCycle =
-      std::min<unsigned>(target.getMemcpyBytesPerCycle(), bytesPerElement);
-  cycles += (expandedBytesPerTile + reorderBytesPerCycle - 1) /
-            reorderBytesPerCycle;
-  // Apply an experimentally determined fudge factor to account for other
-  // overheads that aren't modeled.
-  double fudgeFactor = 1.5;
-  cycles *= fudgeFactor;
-  return cycles;
-}
-
 static bool expandingDimChangesParams(const ConvParams &params, unsigned dim) {
   auto newParams = params;
   expandDim(newParams, dim);
@@ -1708,24 +2152,6 @@ getOutChanFlattenDimsCandidates(const ConvParams &params) {
   return subsets;
 }
 
-static bool dimCanBeFlattened(const ConvParams &params, unsigned dim) {
-  // TODO two dimensions can be flattened if they both have flipInput set to
-  // true. To target this we would need to pass information about the two
-  // dimensions that are candidates for flattening.
-  return params.getTransformedKernelSize(dim) == 1 &&
-         params.inputTransform.truncationLower[dim] == 0 &&
-         params.inputTransform.truncationUpper[dim] == 0 &&
-         params.inputTransform.dilation[dim] == 1 &&
-         params.inputTransform.paddingLower[dim] == 0 &&
-         params.inputTransform.paddingUpper[dim] == 0 &&
-         !params.inputTransform.flip[dim] &&
-         params.outputTransform.truncationLower[dim] == 0 &&
-         params.outputTransform.truncationUpper[dim] == 0 &&
-         params.outputTransform.stride[dim] == 1 &&
-         params.outputTransform.paddingLower[dim] == 0 &&
-         params.outputTransform.paddingUpper[dim] == 0;
-}
-
 void
 swapOperands(ConvParams &params) {
   const auto numFieldDims = params.getNumFieldDims();
@@ -1758,123 +2184,6 @@ static std::vector<bool> getSwapOperandCandidates(const ConvOptions &options) {
   default:
     return {false, true};
   }
-}
-
-template <class T>
-void insertAtFront(std::vector<T> &v, std::size_t n, const T &val) {
-  v.insert(v.begin(), n, val);
-}
-
-void addExtraDims(ConvParams &params, unsigned extraDims) {
-  if (extraDims == 0)
-    return;
-  insertAtFront(params.inputFieldShape, extraDims, std::size_t(1));
-  insertAtFront(params.kernelShape, extraDims, std::size_t(1));
-
-  insertAtFront(params.inputTransform.truncationLower, extraDims, 0U);
-  insertAtFront(params.inputTransform.truncationUpper, extraDims, 0U);
-  insertAtFront(params.inputTransform.dilation, extraDims, 1U);
-  insertAtFront(params.inputTransform.paddingLower, extraDims, 0U);
-  insertAtFront(params.inputTransform.paddingUpper, extraDims, 0U);
-  insertAtFront(params.inputTransform.flip, extraDims, false);
-
-  insertAtFront(params.kernelTransform.truncationLower, extraDims, 0U);
-  insertAtFront(params.kernelTransform.truncationUpper, extraDims, 0U);
-  insertAtFront(params.kernelTransform.dilation, extraDims, 1U);
-  insertAtFront(params.kernelTransform.paddingLower, extraDims, 0U);
-  insertAtFront(params.kernelTransform.paddingUpper, extraDims, 0U);
-  insertAtFront(params.kernelTransform.flip, extraDims, false);
-
-  insertAtFront(params.outputTransform.truncationLower, extraDims, 0U);
-  insertAtFront(params.outputTransform.truncationUpper, extraDims, 0U);
-  insertAtFront(params.outputTransform.stride, extraDims, 1U);
-  insertAtFront(params.outputTransform.paddingLower, extraDims, 0U);
-  insertAtFront(params.outputTransform.paddingUpper, extraDims, 0U);
-}
-
-static ConvParams
-calculateSwappedParams(const ConvParams &params, bool swapOperands) {
-  auto swappedParams = params;
-  if (swapOperands) {
-    popconv::swapOperands(swappedParams);
-  }
-  return swappedParams;
-}
-
-static ConvParams
-calculateExpandedParams(const ConvParams &params,
-                        const std::vector<unsigned> &expandDims) {
-  auto expandedParams = params;
-  for (unsigned dim : expandDims) {
-    expandDim(expandedParams, dim);
-  }
-  return expandedParams;
-}
-
-static ConvParams
-calculateFlattenedParams(const ConvParams &params,
-                         const std::vector<unsigned> &outChanFlattenDims,
-                         std::vector<unsigned> &flattenDims) {
-  flattenDims.clear();
-  auto flattenedParams = params;
-  if (!outChanFlattenDims.empty()) {
-    popconv::swapOperands(flattenedParams);
-    for (unsigned dim : outChanFlattenDims) {
-      expandDim(flattenedParams, dim);
-      // Flatten into the batch axis (this will become the output channel
-      // axis when we swap back).
-      flattenedParams.batchSize *= flattenedParams.inputFieldShape[dim];
-      flattenedParams.inputFieldShape[dim] = 1;
-    }
-    popconv::swapOperands(flattenedParams);
-  }
-  // Flatten from the innermost out.
-
-  flattenDims.push_back(0);
-  for (unsigned spatialDim = 0;
-       spatialDim != flattenedParams.getNumFieldDims();
-       ++spatialDim) {
-    if (dimCanBeFlattened(flattenedParams, spatialDim)) {
-      flattenDims.push_back(spatialDim + 1);
-    }
-  }
-  if (flattenDims.size() > 1) {
-    const auto innermostFlattenableDim = flattenDims.back();
-    assert(innermostFlattenableDim > 0);
-    for (auto it = std::next(flattenDims.rbegin()),
-         end = flattenDims.rend(); it != end; ++it) {
-      const auto fromDimIndex = *it;
-      auto &fromDimSize =
-          fromDimIndex ?
-            flattenedParams.inputFieldShape[fromDimIndex - 1] :
-          flattenedParams.batchSize;
-      flattenedParams.inputFieldShape[innermostFlattenableDim - 1] *=
-          fromDimSize;
-      fromDimSize = 1;
-    }
-  } else {
-    flattenDims.clear();
-  }
-  return flattenedParams;
-}
-
-static ConvParams
-calculatePaddedParams(const ConvParams &params, unsigned inChansPerGroup,
-                      unsigned partialChansPerGroup, unsigned &inChansPadding,
-                      unsigned &partialChansPadding) {
-  auto paddedParams = params;
-  const auto inChans = params.getNumInputChansPerConvGroup();
-  paddedParams.inputChannels =
-      ((inChans + inChansPerGroup - 1) / inChansPerGroup) *
-      inChansPerGroup;
-  inChansPadding = paddedParams.inputChannels - inChans;
-  const auto partialChans =
-      params.getNumOutputChansPerConvGroup();
-  paddedParams.outputChannels =
-      ((partialChans + partialChansPerGroup - 1) / partialChansPerGroup) *
-      partialChansPerGroup;
-  partialChansPadding = paddedParams.outputChannels - partialChans;
-  return paddedParams;
 }
 
 static std::vector<unsigned>
@@ -1934,13 +2243,14 @@ createPlan(ConvParams params,
   validateLayerParams(params);
   unsigned addedFieldDims = 0;
   auto numFieldDims = params.getNumFieldDims();
+  auto paramsWithExtraDims = params;
   if (numFieldDims < 2) {
     // Various places assume there are at least two dimensions. In particular
     // code related to the nx1ConvPartial vertex has special handling for the
     // outermost dimension and special handling for the innermost dimension
     // and there is an assumption that these two dimensions are distinct.
     addedFieldDims = 2 - numFieldDims;
-    addExtraDims(params, addedFieldDims);
+    addExtraDims(paramsWithExtraDims, addedFieldDims);
     numFieldDims = 2;
   }
   const auto &target = graph.getTarget();
@@ -1949,21 +2259,23 @@ createPlan(ConvParams params,
                                           perLevelExchangeBytesPerCycle);
   Cost bestCost = highestCost;
   Plan bestPlan;
-  ConvTransform transform;
-  transform.extraFieldDims = addedFieldDims;
+  std::vector<ConvTransform> transforms(hierarchy.size() + 1);
+  const auto ipuLevel = transforms.size() - 2;
+  transforms[0].extraFieldDims = addedFieldDims;
   for (bool swapOperands : getSwapOperandCandidates(options)) {
-    transform.swapOperands = swapOperands;
-    auto swappedParams = calculateSwappedParams(params, swapOperands);
+    transforms[0].swapOperands = swapOperands;
+    auto swappedParams = calculateSwappedParams(paramsWithExtraDims,
+                                                swapOperands);
     for (std::vector<unsigned> expandDims :
          getExpandDimsCandidates(swappedParams)) {
-      transform.expandDims = expandDims;
+      transforms[ipuLevel].expandDims = expandDims;
       auto expandedParams = calculateExpandedParams(swappedParams, expandDims);
       for (std::vector<unsigned> outChanFlattenDims :
            getOutChanFlattenDimsCandidates(expandedParams)) {
-        transform.outChanFlattenDims = outChanFlattenDims;
-        auto flattenedParams = calculateFlattenedParams(expandedParams,
-                                                        outChanFlattenDims,
-                                                        transform.flattenDims);
+        transforms[ipuLevel].outChanFlattenDims = outChanFlattenDims;
+        auto flattenedParams =
+            calculateFlattenedParams(expandedParams, outChanFlattenDims,
+                                     transforms[ipuLevel].flattenDims);
         const bool floatActivations = params.dType == poplar::FLOAT;
         const bool floatPartials = partialsType == poplar::FLOAT;
         const auto convVertexTypeCandidates =
@@ -1971,13 +2283,6 @@ createPlan(ConvParams params,
                                         floatPartials, flattenedParams,
                                         options);
         for (const auto &convVertexType : convVertexTypeCandidates) {
-          const auto inChansPerGroup = convVertexType.inChansPerGroup;
-          const auto partialChansPerGroup = convVertexType.partialChansPerGroup;
-          auto paddedParams =
-              calculatePaddedParams(flattenedParams, inChansPerGroup,
-                                    partialChansPerGroup,
-                                    transform.inChansPadding,
-                                    transform.partialChansPadding);
           std::vector<unsigned> fieldGrainSize(numFieldDims, 1);
           if (options.pass == Pass::FC_TRAINING_FWD) {
             // The innermost grain size becomes the inChansPerGroup in the
@@ -1987,19 +2292,13 @@ createPlan(ConvParams params,
           }
           Plan candidate;
           Cost candidateCost;
-          auto transformCostFn = [&](unsigned usedTiles) {
-            return estimateTransformCycles(graph.getTarget(),
-                                           paddedParams, options, transform,
-                                           usedTiles);
-          };
           std::tie(candidate, candidateCost) =
-              choosePlan(target, hierarchy, perLevelExchangeBytesPerCycle,
-                         fieldGrainSize, convVertexType,
-                         paddedParams, transformCostFn, bestCost, costBounds,
-                         cache, options);
+              choosePlan(target, transforms, hierarchy,
+                         perLevelExchangeBytesPerCycle, fieldGrainSize,
+                         convVertexType, params, bestCost, costBounds, cache,
+                         options);
           if (candidateCost == highestCost)
             continue;
-          candidate.transform = transform;
           if (compareCost(candidateCost, bestCost, costBounds)) {
             bestPlan = candidate;
             bestCost = candidateCost;
@@ -2083,7 +2382,7 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
                                     const Plan &fwdPlan) {
   assert(fwdPlan.method == Plan::Method::AMP ||
          fwdPlan.method == Plan::Method::MAC);
-  assert(!fwdPlan.transform.swapOperands);
+  assert(!fwdPlan.transforms[0].swapOperands);
   auto plan = fwdPlan;
   plan.linearizeTileOrder = Plan::LinearizeTileOrder::FC_WU;
   const auto numPartitions = plan.partitions.size();
@@ -2094,9 +2393,7 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
     plan.partitions[i].inChanGrainSize = fwdPlan.partitions[i].outChanGrainSize;
   }
   plan.partialChansPerGroup = fwdPlan.inChansPerGroup;
-  plan.transform.partialChansPadding = fwdPlan.transform.inChansPadding;
   plan.inChansPerGroup = fwdPlan.partialChansPerGroup;
-  plan.transform.inChansPadding = fwdPlan.transform.partialChansPadding;
 
   plan.method = getFullyConnectedWUMethod(fwdParams, fwdPlan.method,
                                           fwdPlan.partialChansPerGroup,
@@ -2111,11 +2408,6 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
     plan.inChansPerGroup =
         target.getWeightsPerConvUnit(fwdParams.dType == poplar::FLOAT);
     plan.partitions.back().inChanGrainSize = plan.inChansPerGroup;
-    const auto wuInputChans = fwdParams.getNumOutputChansPerConvGroup();
-    const auto wuPaddedInputChans =
-        ((wuInputChans + plan.inChansPerGroup - 1) / plan.inChansPerGroup) *
-        plan.inChansPerGroup;
-    plan.transform.inChansPadding = wuPaddedInputChans - wuInputChans;
   }
   // If the result type is half and all the reduction is done within a single
   // pass of the AMP unit then there is no reason to use a higher precision
@@ -2139,7 +2431,7 @@ static Plan getFullyConnectedBwdPlan(const poplar::Target &target,
                                       const ConvParams &fwdParams,
                                       const ConvOptions &fwdOptions,
                                       const Plan &fwdPlan) {
-  assert(!fwdPlan.transform.swapOperands);
+  assert(!fwdPlan.transforms[0].swapOperands);
   auto plan = fwdPlan;
   plan.method = getFullyConnectedBwdMethod(fwdParams, fwdPlan.method);
   plan.linearizeTileOrder = Plan::LinearizeTileOrder::FC_BWD_AS_CONV;
@@ -2148,11 +2440,6 @@ static Plan getFullyConnectedBwdPlan(const poplar::Target &target,
     std::swap(partition.fieldAxisGrainSize.back(), partition.inChanGrainSize);
   }
   plan.inChansPerGroup = plan.partitions.back().inChanGrainSize;
-  const auto bwdInputChans = fwdParams.inputFieldShape.back();
-  const auto bwdPaddedInputChans =
-      ((bwdInputChans + plan.inChansPerGroup - 1) / plan.inChansPerGroup) *
-      plan.inChansPerGroup;
-  plan.transform.inChansPadding = bwdPaddedInputChans - bwdInputChans;
   return plan;
 }
 
@@ -2259,30 +2546,11 @@ std::uint64_t estimateConvCost(const poplar::Target &target,
     tempCache = std::unique_ptr<PlanningCacheImpl>(new PlanningCacheImpl);
     cacheImpl = tempCache.get();
   }
-  std::vector<unsigned> flattenDims;
-  const auto swappedParams =
-      calculateSwappedParams(params, plan.transform.swapOperands);
-  const auto expandedParams =
-      calculateExpandedParams(swappedParams, plan.transform.expandDims);
-  const auto flattenedParams =
-      calculateFlattenedParams(expandedParams,
-                               plan.transform.outChanFlattenDims,
-                               flattenDims);
-  unsigned inChansPadding, partialChansPadding;
-  const auto paddedParams =
-      calculatePaddedParams(flattenedParams, plan.inChansPerGroup,
-                            plan.partialChansPerGroup, inChansPadding,
-                            partialChansPadding);
   std::vector<double> perLevelExchangeBytesPerCycle;
   const auto hierarchy =
       getTileHierarchy(target, perLevelExchangeBytesPerCycle);
   assert(perLevelExchangeBytesPerCycle.size() ==
          plan.partitions.size());
-  auto transformCostFn = [&](unsigned usedTiles) {
-    return estimateTransformCycles(target,
-                                   paddedParams, options, plan.transform,
-                                   usedTiles);
-  };
   CostBounds costBounds(0, 0);
   bool floatActivations = params.dType == poplar::FLOAT;
   ConvVertexType convVertexType(plan.method, floatActivations,
@@ -2297,10 +2565,10 @@ std::uint64_t estimateConvCost(const poplar::Target &target,
   popsolver::Model m;
   std::vector<PartitionVariables> partitionVars;
   popsolver::Variable cycles;
-  constructModel(target, hierarchy, perLevelExchangeBytesPerCycle,
-                 fieldGrainSize, convVertexType, paddedParams, transformCostFn,
-                 highestCost, costBounds, cacheImpl, options, m, partitionVars,
-                 cycles);
+  constructModel(target, plan.transforms, hierarchy,
+                 perLevelExchangeBytesPerCycle, fieldGrainSize, convVertexType,
+                 params, highestCost, costBounds, cacheImpl,
+                 options, m, partitionVars, cycles);
   const auto numLevelsOfHierarchy = plan.partitions.size();
   assert(partitionVars.size() == numLevelsOfHierarchy);
   for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {

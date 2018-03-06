@@ -65,23 +65,16 @@ struct ConvTransform {
   // the batch is dimension 0 and the spatial dimensions start at 1.
   // The dimensions are flattened into the last dimension in reverse order.
   std::vector<unsigned> flattenDims;
-  // The amount of zero padding to add to the input channel axis. This padding
-  // is applied after the spatial dimensions are expanded.
-  unsigned inChansPadding = 0;
-  // The amount of zero padding to add to the output channel axis of the
-  // weights / partials. This padding is applied after the spatial dimensions
-  // are flattened into the output channels. This padding is removed in the
-  // final output.
-  unsigned partialChansPadding = 0;
 };
 
 std::ostream& operator<<(std::ostream &os, const ConvTransform &t);
 
 struct Plan {
+  // Description of how the convolution is transformed at each level of the
+  // hierarchy.
+  std::vector<ConvTransform> transforms;
   // Description of how each level of the hierarchy is partitioned.
   std::vector<Partition> partitions;
-  // Description of how the convolution in transformed.
-  ConvTransform transform;
   unsigned inChansPerGroup;
   unsigned partialChansPerGroup;
   bool floatPartials;
