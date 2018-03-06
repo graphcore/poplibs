@@ -161,6 +161,19 @@ ConvParams(poplar::Type dType_,
                                  " truncates by more than the size of the "
                                  "kernel");
     }
+    const auto transformedInputSize = getTransformedInputSize(dim);
+    const auto transformedKernelSize = getTransformedKernelSize(dim);
+    if (transformedKernelSize == 0) {
+      throw poputil::poplib_error("Transformed kernel for dimension " +
+                                  std::to_string(dim) +
+                                  " has zero size");
+    }
+
+    if (transformedInputSize < transformedKernelSize) {
+      throw poputil::poplib_error("Transformed input size for dimension " +
+                                  std::to_string(dim) +
+                                  " is less than the transformed kernel size");
+    }
     const auto convOutSize = getUntransformedOutputSize(dim);
     if (outputTransform.truncationLower[dim] +
         outputTransform.truncationUpper[dim] >
