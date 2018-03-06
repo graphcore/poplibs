@@ -47,6 +47,7 @@ int main(int argc, char **argv) {
   unsigned outputSize;
   unsigned batchSize;
   bool inPlaceUpdate = true;
+  bool reportPlan;
   Type dataType;
   Type partialsType;
   double relativeTolerance, absoluteTolerance;
@@ -92,6 +93,8 @@ int main(int argc, char **argv) {
     ("single-phase",
      po::value<Pass>(&pass)->default_value(pass),
      "Run phase all | fwd | bwd | wu")
+    ("report-plan", po::value<bool>(&reportPlan)->default_value(false),
+     "Display plan")
   ;
   po::variables_map vm;
   try {
@@ -170,6 +173,12 @@ int main(int argc, char **argv) {
   if (doFwdPass) {
     nextAct = poplin::matMulGrouped(graph, prevAct, weights, fwdProg, "",
                                     fwdOptions);
+    if (reportPlan) {
+      std::cout << "Forward plan:\n";
+      poplin::matMulGroupedReportPlan(std::cout, graph, dataType,
+                                      prevAct.shape(), weights.shape(),
+                                      fwdOptions);
+    }
     auto bBiases = biases.reshape({numGroups, 1, outputSize})
                          .broadcast(batchSize, 1);
     addTo(graph, nextAct, bBiases, 1, fwdProg);
@@ -203,19 +212,32 @@ int main(int argc, char **argv) {
   Tensor prevDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
   if (doBwdPass) {
+    auto weightsTransposed = poplin::transposeGroupedMatrix(weights);
     prevDeltas =
-        poplin::matMulGrouped(graph, zDeltas,
-                              poplin::transposeGroupedMatrix(weights),
-                              bwdProg, "", bwdOptions);
+        poplin::matMulGrouped(graph, zDeltas, weightsTransposed, bwdProg, "",
+                              bwdOptions);
+    if (reportPlan) {
+      std::cout << "Backward plan:\n";
+      poplin::matMulGroupedReportPlan(std::cout, graph, dataType,
+                                      zDeltas.shape(),
+                                      weightsTransposed.shape(), bwdOptions);
+    }
     rawHostPrevDeltas =
         allocateHostMemoryForTensor(prevDeltas, "prevDeltas", graph, tmap);
   }
   if (doWuPass) {
     auto wuOptions = fwdOptions;
     wuOptions.fullyConnectedPass = FullyConnectedPass::TRAINING_WU;
+    auto prevActTransposed = poplin::transposeGroupedMatrix(prevAct);
     poplin::matMulGroupedAcc(graph, weights, -learningRate,
-                             poplin::transposeGroupedMatrix(prevAct),
-                             zDeltas, bwdProg, "", wuOptions);
+                             prevActTransposed, zDeltas, bwdProg, "",
+                             wuOptions);
+    if (reportPlan) {
+      std::cout << "WU plan:\n";
+      poplin::matMulGroupedReportPlan(std::cout, graph, dataType,
+                                      prevActTransposed.shape(),
+                                      zDeltas.shape(), wuOptions);
+    }
     auto biasDeltas = reduce(graph, zDeltas, {1}, popops::Operation::ADD,
                              bwdProg);
     addTo(graph, biases, biasDeltas, -learningRate, bwdProg);

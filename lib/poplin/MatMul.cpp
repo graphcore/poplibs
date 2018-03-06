@@ -3,6 +3,7 @@
 #include "poputil/exceptions.hpp"
 #include "popops/Add.hpp"
 #include <cassert>
+#include <ostream>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -554,6 +555,19 @@ matMul(poplar::Graph &graph,
   return matMulImpl(graph, A, B, prog, debugPrefix, options)[0];
 }
 
+void matMulReportPlan(std::ostream &out,
+                      const poplar::Graph &graph,
+                      const poplar::Type &dType,
+                      const std::vector<std::size_t> &aShape_,
+                      const std::vector<std::size_t> &bShape_,
+                      const MatMulOptions &options) {
+  auto aShape = aShape_;
+  aShape.insert(aShape.begin(), 1);
+  auto bShape = bShape_;
+  bShape.insert(bShape.begin(), 1);
+  return matMulGroupedReportPlan(out, graph, dType, aShape, bShape, options);
+}
+
 poplar::Tensor
 matMulGrouped(poplar::Graph &graph,
               const poplar::Tensor &A, const poplar::Tensor &B,
@@ -562,6 +576,17 @@ matMulGrouped(poplar::Graph &graph,
               const MatMulOptions &options) {
   matMulGroupedDimChecks(A, B);
   return matMulImpl(graph, A, B, prog, debugPrefix, options);
+}
+
+void matMulGroupedReportPlan(std::ostream &out,
+                             const poplar::Graph &graph,
+                             const Type &dType,
+                             const std::vector<std::size_t> &aShape,
+                             const std::vector<std::size_t> &bShape,
+                             const MatMulOptions &options) {
+  auto convOptions = getConvOptions(options);
+  auto convParams = getConvParams(dType, aShape, bShape, options);
+  return popconv::reportPlanInfo(out, graph, convParams, convOptions);
 }
 
 poplar::Tensor

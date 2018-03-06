@@ -1,5 +1,6 @@
 #ifndef poplin_MatMul_hpp
 #define poplin_MatMul_hpp
+#include <iosfwd>
 #include <map>
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
@@ -66,6 +67,12 @@ matMul(poplar::Graph &graph, const poplar::Tensor &A, const poplar::Tensor &B,
        const std::string &debugPrefix = "",
        const MatMulOptions &options = MatMulOptions());
 
+void matMulReportPlan(std::ostream &out,
+                      const poplar::Graph &graph,
+                      const poplar::Type &dType,
+                      const std::vector<std::size_t> &aShape,
+                      const std::vector<std::size_t> &bShape,
+                      const MatMulOptions &options = MatMulOptions());
 
 /** Multiply two grouped matrices.
  *
@@ -97,6 +104,13 @@ matMulGrouped(poplar::Graph &graph, const poplar::Tensor &A,
               const poplar::Tensor &B, poplar::program::Sequence &prog,
               const std::string &debugPrefix = "",
               const MatMulOptions &options = MatMulOptions());
+
+void matMulGroupedReportPlan(std::ostream &out,
+                             const poplar::Graph &graph,
+                             const poplar::Type &dType,
+                             const std::vector<std::size_t> &aShape,
+                             const std::vector<std::size_t> &bShape,
+                             const MatMulOptions &options = MatMulOptions());
 
 /** Multiply two matrices and add to a third (with a scaling factor).
  *
