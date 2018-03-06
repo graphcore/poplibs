@@ -2281,7 +2281,7 @@ createPlan(ConvParams params,
   Cost bestCost = highestCost;
   Plan bestPlan;
   std::vector<ConvTransform> transforms(numLevels);
-  const auto convTypes = getConvTypes(numLevels, params.dType, options);
+  auto convTypes = getConvTypes(numLevels, params.dType, options);
   const auto ipuLevel = transforms.size() - 2;
   transforms[0].extraFieldDims = addedFieldDims;
   for (bool swapOperands : getSwapOperandCandidates(options)) {
