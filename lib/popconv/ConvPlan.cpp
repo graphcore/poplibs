@@ -2243,13 +2243,36 @@ std::vector<unsigned> getTileHierarchy(const poplar::Target &target) {
   return getTileHierarchy(target, dummy);
 }
 
-static std::vector<ConvTypes> getConvTypes(unsigned numLevels,
+static std::vector<ConvTypes> getConvTypes(const poplar::Target &target,
+                                           unsigned numLevels,
                                            poplar::Type resultType,
                                            const ConvOptions &options) {
-  std::vector<ConvTypes> types;
-  for (unsigned level = 0; level != numLevels; ++level) {
-    auto levelResultType = level == 0 ? resultType : options.partialsType;
-    types.emplace_back(options.partialsType, levelResultType);
+  std::vector<ConvTypes> types(numLevels);
+  for (int level = numLevels - 1; level >= 0; --level) {
+    types[level].partialType = options.partialsType;
+    if (level == 0) {
+      types[level].resultType = resultType;
+    } else {
+      bool isTileLevel = static_cast<unsigned>(level) == numLevels - 1;
+      auto levelResultType = isTileLevel ?
+                               options.interTilePartialsType :
+                               options.interIpuPartialsType;
+      // Use the result type of the previous level if it is smaller than the
+      // requested result type. This means that if a user wants to use half
+      // partials they only need to set the option for the first level that
+      // should use half partials.
+      if (!isTileLevel &&
+          target.getTypeSize(levelResultType) >
+          target.getTypeSize(types[level + 1].resultType)) {
+        levelResultType = types[level + 1].resultType;
+      }
+      // There is no point in using a result type larger than the partial type.
+      if (target.getTypeSize(levelResultType) >
+          target.getTypeSize(types[level].partialType)) {
+        levelResultType = types[level].partialType;
+      }
+      types[level].resultType = levelResultType;
+    }
   }
   return types;
 }
@@ -2281,7 +2304,8 @@ createPlan(ConvParams params,
   Cost bestCost = highestCost;
   Plan bestPlan;
   std::vector<ConvTransform> transforms(numLevels);
-  auto convTypes = getConvTypes(numLevels, params.dType, options);
+  auto convTypes = getConvTypes(graph.getTarget(), numLevels, params.dType,
+                                options);
   const auto ipuLevel = transforms.size() - 2;
   transforms[0].extraFieldDims = addedFieldDims;
   for (bool swapOperands : getSwapOperandCandidates(options)) {

@@ -43,6 +43,8 @@ struct ConvOptions {
   /// The pass this layer corresponds to.
   Pass pass = Pass::NONE;
   poplar::Type partialsType = poplar::FLOAT;
+  poplar::Type interTilePartialsType = poplar::FLOAT;
+  poplar::Type interIpuPartialsType = poplar::FLOAT;
   PlanningCache *cache = nullptr;
   bool operator<(const ConvOptions &other) const {
     return std::tie(weightUpdateMethod, useWinograd, winogradPatchSize,

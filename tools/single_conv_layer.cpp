@@ -96,7 +96,6 @@ int main(int argc, char **argv) {
   unsigned batchSize;
   bool bias;
   Type dataType;
-  Type partialsType;
   double absoluteTolerance, relativeTolerance;
   IPUModel ipuModel;
   ipuModel.IPUExchangeType =
@@ -131,8 +130,17 @@ int main(int argc, char **argv) {
      po::value<Type>(&dataType)->default_value(HALF),
      "Type of the data and the parameters")
     ("partials-type",
-     po::value<Type>(&partialsType)->default_value(FLOAT),
+     po::value<Type>(&convOptions.partialsType)->
+         default_value(convOptions.partialsType),
      "Type of partials")
+    ("tile-partials-type",
+     po::value<Type>(&convOptions.interTilePartialsType)->
+         default_value(convOptions.interTilePartialsType),
+     "Type of inter-tile partials")
+    ("ipu-partials-type",
+     po::value<Type>(&convOptions.interIpuPartialsType)->
+         default_value(convOptions.interIpuPartialsType),
+     "Type of inter-IPU partials")
     ("truncation",
      po::value<ShapeOption<unsigned>>(&truncationOption)->default_value(0),
      "Amount to truncate the start and end of each dimension of the input")
@@ -456,7 +464,7 @@ int main(int argc, char **argv) {
                                      revProg, "", convOptions);
     if (bias) {
       popconv::convolutionBiasUpdate(graph, zDeltas, biases, learningRate,
-                                     partialsType, revProg);
+                                     convOptions.partialsType, revProg);
     }
     if (reportPlan) {
       std::cout << "WU plan:\n";
