@@ -69,15 +69,31 @@ struct ConvTransform {
 
 std::ostream& operator<<(std::ostream &os, const ConvTransform &t);
 
+struct ConvTypes {
+  /// Type to use for intermediate calculations.
+  poplar::Type partialType;
+  /// Type to use for the result.
+  poplar::Type resultType;
+
+  ConvTypes() = default;
+
+  ConvTypes(poplar::Type partialType, poplar::Type resultType) :
+    partialType(partialType),
+    resultType(resultType) {}
+};
+
+std::ostream& operator<<(std::ostream &os, const ConvTypes &t);
+
 struct Plan {
   // Description of how the convolution is transformed at each level of the
   // hierarchy.
   std::vector<ConvTransform> transforms;
   // Description of how each level of the hierarchy is partitioned.
   std::vector<Partition> partitions;
+  // The types to use at each level of the hierarchy.
+  std::vector<ConvTypes> types;
   unsigned inChansPerGroup;
   unsigned partialChansPerGroup;
-  bool floatPartials;
   bool useWinograd = false;
   enum class Method {
     // Direction convolution using the MAC instruction.
@@ -96,20 +112,17 @@ struct Plan {
 
   Plan() = default;
   Plan(std::vector<Partition> partitions_,
+       std::vector<ConvTypes> types_,
        unsigned inChansPerGroup_,
        unsigned partialChansPerGroup_,
-       bool floatPartials_,
        Plan::Method method_,
        Plan::LinearizeTileOrder linearizeTileOrder_) :
       partitions(std::move(partitions_)),
+      types(std::move(types_)),
       inChansPerGroup(inChansPerGroup_),
       partialChansPerGroup(partialChansPerGroup_),
-      floatPartials(floatPartials_),
       method(method_),
       linearizeTileOrder(linearizeTileOrder_) { }
-  poplar::Type getPartialType() const {
-    return floatPartials ? poplar::FLOAT : poplar::HALF;
-  }
 };
 
 std::ostream& operator<<(std::ostream &os, const Plan::Method m);

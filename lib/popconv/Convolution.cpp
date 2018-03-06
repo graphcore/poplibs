@@ -2012,7 +2012,7 @@ static void createConvPartialAmpVertex(Graph &graph,
                        "popconv::ConvPartialnx1";
   auto v = graph.addVertex(fwdCS,
                            templateVertex(codeletName, in.elementType(),
-                                          plan.getPartialType(),
+                                          plan.types.back().partialType,
                                         useDeltaEdgesForConvPartials(numEdges) ?
                                                           "true" : "false"));
   auto kernelInnerElements = product(numSubKernelSlices) /
@@ -2214,7 +2214,7 @@ createConvPartialHorizontalMacVertex(Graph &graph,
   auto v = graph.addVertex(fwdCS,
                            templateVertex("popconv::ConvPartialHorizontalMac",
                                           in.elementType(),
-                                          plan.getPartialType()));
+                                          plan.types.back().partialType));
   graph.connect(v["in"], inWindow);
   graph.connect(v["out"], outWindow);
   graph.connect(v["weights"], weightsWindow);
@@ -2357,7 +2357,8 @@ calcPartialConvOutput(Graph &graph,
     outShape.push_back(params.getOutputSize(dim));
   }
   outShape.push_back(outChansPerGroup);
-  auto out = graph.addVariable(plan.getPartialType(), outShape, "partials");
+  auto out = graph.addVariable(plan.types.back().partialType, outShape,
+                               "partials");
   graph.setTileMapping(out, tile);
   in = splitActivationChanGroups(in, plan.inChansPerGroup);
   weights = groupWeights(weights, plan.inChansPerGroup,
@@ -2742,8 +2743,7 @@ convolutionImpl(Graph &graph, ConvParams params,
     }
   }
   Tensor out;
-  const auto resultType = level == 0 ? in.elementType() :
-                                       plan.getPartialType();
+  const auto resultType = plan.types[level].resultType;
   if (level == plan.partitions.size()) {
     const auto tile = linearizeTileIndices(graph.getTarget(), indices,
                                            plan);
