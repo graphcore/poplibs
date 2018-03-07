@@ -2283,7 +2283,7 @@ createPlan(ConvParams params,
            const CostBounds costBounds,
            const poplar::Graph &graph,
            PlanningCacheImpl *cache) {
-  validateLayerParams(params);
+  validateLayerParams(params, options);
   unsigned addedFieldDims = 0;
   auto numFieldDims = params.getNumFieldDims();
   auto paramsWithExtraDims = params;
