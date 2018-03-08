@@ -11,7 +11,7 @@
 #include <popops/codelets.hpp>
 #include <iostream>
 #include <cmath>
-
+#include <random>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -157,9 +157,12 @@ void convertToPositive(float array[DIM_SIZE][DIM_SIZE]) {
   }
 }
 
+using UnaryOpFn = std::function<Tensor(Graph &, const Tensor &, Sequence &,
+                                 const std::string &,
+                                 const std::vector<std::string> &)>;
+
 template <typename T, typename TestT>
-void unaryOpTest(const std::function<Tensor(Graph &, Tensor, Sequence &,
-                                            const std::string &)> &op,
+void unaryOpTest(const UnaryOpFn &op,
                  const std::function<TestT(T)> &testFn,
                  bool positiveInputs = false) {
   IPUModel ipuModel;
@@ -170,7 +173,7 @@ void unaryOpTest(const std::function<Tensor(Graph &, Tensor, Sequence &,
   auto in = mapUnaryOpTensor(graph, equivalent_device_type<T>().value);
   auto prog = Sequence();
 
-  auto out = op(graph, in, prog, "unaryOp");
+  auto out = op(graph, in, prog, "unaryOp", {});
   graph.createHostWrite("in", in);
   graph.createHostRead("out", out);
 
@@ -195,10 +198,13 @@ void unaryOpTest(const std::function<Tensor(Graph &, Tensor, Sequence &,
   }
 }
 
+using BinaryOpFn = std::function<Tensor(Graph &, const Tensor &,
+                                 const Tensor &, Sequence &,
+                                 const std::string &,
+                                 const std::vector<std::string> &)>;
+
 template <typename T, typename TestT, typename OutT = T>
-void binaryOpTest(const std::function<Tensor(Graph &, Tensor, Tensor,
-                                             Sequence &,
-                                             const std::string &)> &op,
+void binaryOpTest(const BinaryOpFn &op,
                  const std::function<TestT(T, T)> &testFn) {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
@@ -212,7 +218,7 @@ void binaryOpTest(const std::function<Tensor(Graph &, Tensor, Tensor,
 
   auto prog = Sequence();
 
-  auto out = op(graph, in1, in2, prog, "binaryOp");
+  auto out = op(graph, in1, in2, prog, "binaryOp", {});
   graph.createHostWrite("in1", in1);
   graph.createHostWrite("in2", in2);
   graph.createHostRead("out", out);
@@ -235,9 +241,7 @@ void binaryOpTest(const std::function<Tensor(Graph &, Tensor, Tensor,
   }
 }
 
-void binaryOpTestHalf(const std::function<Tensor(Graph &, Tensor, Tensor,
-                                                 Sequence &,
-                                                 const std::string &)> &op,
+void binaryOpTestHalf(const BinaryOpFn &op,
                       const std::function<float(float, float)> &testFn) {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
@@ -250,7 +254,7 @@ void binaryOpTestHalf(const std::function<Tensor(Graph &, Tensor, Tensor,
 
   auto prog = Sequence();
 
-  auto out = op(graph, in1, in2, prog, "binaryOp");
+  auto out = op(graph, in1, in2, prog, "binaryOp", {});
   graph.createHostWrite("in1", in1);
   graph.createHostWrite("in2", in2);
   graph.createHostRead("out", out);
@@ -379,10 +383,7 @@ BOOST_AUTO_TEST_CASE(StdOperationDivideFloat,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  binaryOpTest<float, double>([](Graph &g, Tensor x, Tensor y,
-                                 Sequence &prog, const std::string &d) {
-                                return popops::div(g, x, y, prog, d);
-                              },
+  binaryOpTest<float, double>(popops::div,
                               [](float x, float y) -> double {
                                  double res = x / y;
                                  return res;
@@ -393,10 +394,7 @@ BOOST_AUTO_TEST_CASE(StdOperationDivideInt,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  binaryOpTest<int, int>([](Graph &g, Tensor x, Tensor y,
-                            Sequence &prog, const std::string &d) {
-                           return popops::div(g, x, y, prog, d);
-                         },
+  binaryOpTest<int, int>(popops::div,
                          [](int x, int y) -> int {
                             int res = x / y;
                            return res;
@@ -1278,6 +1276,132 @@ BOOST_AUTO_TEST_CASE(StdOperationIsFinite) {
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     for (auto j = 0U; j < DIM_SIZE; ++j) {
       bool expected = !(i<=1 && j<=1);
+      BOOST_TEST(hOut[i][j] == expected);
+    }
+  }
+}
+
+using namespace popops::expr;
+
+BOOST_AUTO_TEST_CASE(MapTest) {
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
+  popops::addCodelets(graph);
+
+  auto prog = Sequence();
+  auto in = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "in");
+  mapTensorLinearly(graph, in);
+  auto out = map(graph, Add(Abs(_1), Const(3)), {in}, prog);
+
+  graph.createHostWrite("in", in);
+  graph.createHostRead("out", out);
+
+  float hIn[DIM_SIZE][DIM_SIZE];
+  float hOut[DIM_SIZE][DIM_SIZE];
+
+  setUnaryOpInput(hIn);
+
+  Engine eng(device, graph, prog);
+  eng.writeTensor("in", hIn);
+  eng.run();
+  eng.readTensor("out", hOut);
+
+  Engine::ReportOptions opt;
+  opt.doLayerWiseProfile = true;
+  eng.reportDynamic(std::cerr, opt);
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      auto expected = fabs(hIn[i][j]) + 3;
+      BOOST_TEST(hOut[i][j] == expected);
+    }
+  }
+}
+
+
+BOOST_AUTO_TEST_CASE(MapTestMultiTensor) {
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
+  popops::addCodelets(graph);
+
+  auto prog = Sequence();
+  auto a = graph.addVariable(FLOAT, {DIM_SIZE}, "a");
+  mapTensorLinearly(graph, a);
+  auto b = graph.addVariable(FLOAT, {DIM_SIZE}, "b");
+  mapTensorLinearly(graph, b);
+  auto c = graph.addVariable(FLOAT, {DIM_SIZE}, "c");
+  mapTensorLinearly(graph, c);
+  auto out = map(graph, Select(Add(_3, _2), Add(_1, _2), Gte(_1, _2)),
+                 {a, b, c}, prog);
+
+  graph.createHostWrite("a", a);
+  graph.createHostWrite("b", b);
+  graph.createHostWrite("c", c);
+  graph.createHostRead("out", out);
+
+  float aIn[DIM_SIZE],
+        bIn[DIM_SIZE],
+        cIn[DIM_SIZE];
+  float hOut[DIM_SIZE];
+
+  std::mt19937 randomEngine;
+  std::uniform_real_distribution<> dist(-10.0, +10.0);
+  for (unsigned i = 0; i < DIM_SIZE; ++i) {
+    aIn[i] = dist(randomEngine);
+    bIn[i] = dist(randomEngine);
+    cIn[i] = dist(randomEngine);
+  }
+
+  Engine eng(device, graph, prog);
+  eng.writeTensor("a", aIn);
+  eng.writeTensor("b", bIn);
+  eng.writeTensor("c", cIn);
+  eng.run();
+  eng.readTensor("out", hOut);
+
+  Engine::ReportOptions opt;
+  opt.doLayerWiseProfile = true;
+  eng.reportDynamic(std::cerr, opt);
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    auto expected = (aIn[i] >= bIn[i]) ? cIn[i] + bIn[i] : aIn[i] + bIn[i];
+    BOOST_TEST(hOut[i] == expected);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(MapInPlaceTest) {
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
+  popops::addCodelets(graph);
+
+  auto prog = Sequence();
+  auto t = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "in");
+  mapTensorLinearly(graph, t);
+  mapInPlace(graph, Add(Abs(_1), Const(3)), {t}, prog);
+
+  graph.createHostWrite("in", t);
+  graph.createHostRead("out", t);
+
+  float hIn[DIM_SIZE][DIM_SIZE];
+  float hOut[DIM_SIZE][DIM_SIZE];
+
+  setUnaryOpInput(hIn);
+
+  Engine eng(device, graph, prog);
+  eng.writeTensor("in", hIn);
+  eng.run();
+  eng.readTensor("out", hOut);
+
+  Engine::ReportOptions opt;
+  opt.doLayerWiseProfile = true;
+  eng.reportDynamic(std::cerr, opt);
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      auto expected = fabs(hIn[i][j]) + 3;
       BOOST_TEST(hOut[i][j] == expected);
     }
   }

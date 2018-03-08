@@ -1,6 +1,5 @@
 #include "popops/AllTrue.hpp"
 
-#include "ElementWiseDef.hpp"
 #include "popops/ElementWise.hpp"
 #include "poputil/exceptions.hpp"
 #include "poputil/Util.hpp"

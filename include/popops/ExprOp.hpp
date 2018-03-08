@@ -1,14 +1,16 @@
-#ifndef __operationsdef_hpp__
-#define __operationsdef_hpp__
+#ifndef _popops_ExprOp_hpp_
+#define _popops_ExprOp_hpp_
 
-namespace popops {
+namespace popops { namespace expr {
 
-enum TernaryOp {
+// Enum classes uses for expressions.
+
+enum class TernaryOpType {
   CLAMP,
   SELECT
 };
 
-enum BinaryOp {
+enum class BinaryOpType {
   ADD,
   ATAN2,
   BITWISE_AND,
@@ -33,7 +35,7 @@ enum BinaryOp {
   SUBTRACT
 };
 
-enum UnaryOp {
+enum class UnaryOpType {
   ABSOLUTE,
   BITWISE_NOT,
   CEIL,
@@ -52,6 +54,6 @@ enum UnaryOp {
   SQUARE
 };
 
-} // namespace popops
+}} // end namespace popops::expr
 
-#endif // __operationsdef_hpp__
+#endif // _popops_ExprOp_hpp_

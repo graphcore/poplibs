@@ -1,33 +1,41 @@
-#include "ElementWiseDef.hpp"
 #include "popops/ElementWise.hpp"
+
+#include "poputil/Broadcast.hpp"
 #include "poputil/exceptions.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
+#include "poplibs_support/Compiler.hpp"
+#include <unordered_map>
+#include <boost/optional.hpp>
 
 using namespace poputil;
 using namespace poplar;
 using namespace poplar::program;
 
+using popops::expr::UnaryOpType;
+using popops::expr::BinaryOpType;
+using popops::expr::TernaryOpType;
+
 namespace popops {
 
-static Type outputType(const Type &inType, enum UnaryOp op) {
-  if (op == IS_FINITE
-      || op == LOGICAL_NOT) {
+static Type outputType(const Type &inType, enum UnaryOpType op) {
+  if (op == UnaryOpType::IS_FINITE
+      || op == UnaryOpType::LOGICAL_NOT) {
     return BOOL;
   } else {
     return inType;
   }
 }
 
-static Type outputType(const Type &inType, enum BinaryOp op) {
-  if (op == EQUAL
-      || op == GREATER_THAN_EQUAL
-      || op == GREATER_THAN
-      || op == LESS_THAN_EQUAL
-      || op == LOGICAL_AND
-      || op == LOGICAL_OR
-      || op == LESS_THAN
-      || op == NOT_EQUAL) {
+static Type outputType(const Type &inType, BinaryOpType op) {
+  if (op == BinaryOpType::EQUAL
+      || op == BinaryOpType::GREATER_THAN_EQUAL
+      || op == BinaryOpType::GREATER_THAN
+      || op == BinaryOpType::LESS_THAN_EQUAL
+      || op == BinaryOpType::LOGICAL_AND
+      || op == BinaryOpType::LOGICAL_OR
+      || op == BinaryOpType::LESS_THAN
+      || op == BinaryOpType::NOT_EQUAL) {
     return BOOL;
   } else {
     return inType;
@@ -35,107 +43,207 @@ static Type outputType(const Type &inType, enum BinaryOp op) {
 }
 
 static Type outputType(const Type &inType,
-                       enum TernaryOp /*op*/) {
+                       TernaryOpType /*op*/) {
   return inType;
 }
 
-static std::string vertexName(enum UnaryOp op) {
+static std::string vertexName(UnaryOpType op) {
   switch(op) {
-  case ABSOLUTE:
+  case UnaryOpType::ABSOLUTE:
     return "popops::Absolute";
-  case BITWISE_NOT:
+  case UnaryOpType::BITWISE_NOT:
     return "popops::BitwiseNot";
-  case CEIL:
+  case UnaryOpType::CEIL:
     return "popops::Ceil";
-  case COS:
+  case UnaryOpType::COS:
     return "popops::Cos";
-  case EXPONENT:
+  case UnaryOpType::EXPONENT:
     return "popops::Exponent";
-  case FLOOR:
+  case UnaryOpType::FLOOR:
     return "popops::Floor";
-  case IS_FINITE:
+  case UnaryOpType::IS_FINITE:
     return "popops::IsFinite";
-  case LOGARITHM:
+  case UnaryOpType::LOGARITHM:
     return "popops::Logarithm";
-  case LOGICAL_NOT:
+  case UnaryOpType::LOGICAL_NOT:
     return "popops::LogicalNot";
-  case NEGATE:
+  case UnaryOpType::NEGATE:
     return "popops::Negate";
-  case ROUND:
+  case UnaryOpType::ROUND:
       return "popops::Round";
-  case SIGNUM:
+  case UnaryOpType::SIGNUM:
     return "popops::Signum";
-  case SIN:
+  case UnaryOpType::SIN:
     return "popops::Sin";
-  case TANH:
+  case UnaryOpType::TANH:
     return "popops::Tanh";
-  case SQRT:
+  case UnaryOpType::SQRT:
     return "popops::Sqrt";
-  case SQUARE:
+  case UnaryOpType::SQUARE:
     return "popops::Square";
   }
   throw poputil::poplib_error("Op not supported");
 }
 
-static std::string vertexName(enum BinaryOp op) {
+static std::string vertexName(BinaryOpType op) {
   switch(op) {
-    case ADD:
+    case BinaryOpType::ADD:
       return "popops::Add";
-    case ATAN2:
+    case BinaryOpType::ATAN2:
       return "popops::Atan2";
-    case BITWISE_AND:
+    case BinaryOpType::BITWISE_AND:
       return "popops::BitwiseAnd";
-    case BITWISE_OR:
+    case BinaryOpType::BITWISE_OR:
       return "popops::BitwiseOr";
-    case DIVIDE:
+    case BinaryOpType::DIVIDE:
       return "popops::Divide";
-    case EQUAL:
+    case BinaryOpType::EQUAL:
       return "popops::Equal";
-    case GREATER_THAN_EQUAL:
+    case BinaryOpType::GREATER_THAN_EQUAL:
       return "popops::GreaterThanEqual";
-    case GREATER_THAN:
+    case BinaryOpType::GREATER_THAN:
       return "popops::GreaterThan";
-    case LESS_THAN_EQUAL:
+    case BinaryOpType::LESS_THAN_EQUAL:
       return "popops::LessThanEqual";
-    case LOGICAL_AND:
+    case BinaryOpType::LOGICAL_AND:
       return "popops::LogicalAnd";
-    case LOGICAL_OR:
+    case BinaryOpType::LOGICAL_OR:
       return "popops::LogicalOr";
-    case LESS_THAN:
+    case BinaryOpType::LESS_THAN:
       return "popops::LessThan";
-    case MAXIMUM:
+    case BinaryOpType::MAXIMUM:
       return "popops::Maximum";
-    case MINIMUM:
+    case BinaryOpType::MINIMUM:
       return "popops::Minimum";
-    case MULTIPLY:
+    case BinaryOpType::MULTIPLY:
       return "popops::Multiply";
-    case NOT_EQUAL:
+    case BinaryOpType::NOT_EQUAL:
       return "popops::NotEqual";
-    case POWER:
+    case BinaryOpType::POWER:
       return "popops::Power";
-    case REMAINDER:
+    case BinaryOpType::REMAINDER:
       return "popops::Remainder";
-    case SHIFT_LEFT:
+    case BinaryOpType::SHIFT_LEFT:
       return "popops::ShiftLeft";
-    case SHIFT_RIGHT:
+    case BinaryOpType::SHIFT_RIGHT:
       return "popops::ShiftRight";
-    case SHIFT_RIGHT_SIGN_EXTEND:
+    case BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND:
       return "popops::ShiftRightSignExtend";
-    case SUBTRACT:
+    case BinaryOpType::SUBTRACT:
       return "popops::Subtract";
   }
   throw poputil::poplib_error("Op not supported");
 }
 
-static std::string vertexName(enum TernaryOp op) {
+static std::string vertexName(TernaryOpType op) {
   switch(op) {
-  case CLAMP:
+  case TernaryOpType::CLAMP:
     return "popops::Clamp";
-  case SELECT:
+  case TernaryOpType::SELECT:
     return "popops::Select";
   }
   throw poputil::poplib_error("Op not supported");
 }
+
+static std::string debugName(UnaryOpType op) {
+  switch(op) {
+  case UnaryOpType::ABSOLUTE:
+    return "Absolute";
+  case UnaryOpType::BITWISE_NOT:
+    return "BitwiseNot";
+  case UnaryOpType::CEIL:
+    return "Ceil";
+  case UnaryOpType::COS:
+    return "Cos";
+  case UnaryOpType::EXPONENT:
+    return "Exponent";
+  case UnaryOpType::FLOOR:
+    return "Floor";
+  case UnaryOpType::IS_FINITE:
+    return "IsFinite";
+  case UnaryOpType::LOGARITHM:
+    return "Logarithm";
+  case UnaryOpType::LOGICAL_NOT:
+    return "LogicalNot";
+  case UnaryOpType::NEGATE:
+    return "Negate";
+  case UnaryOpType::ROUND:
+      return "Round";
+  case UnaryOpType::SIGNUM:
+    return "Signum";
+  case UnaryOpType::SIN:
+    return "Sin";
+  case UnaryOpType::TANH:
+    return "Tanh";
+  case UnaryOpType::SQRT:
+    return "Sqrt";
+  case UnaryOpType::SQUARE:
+    return "Square";
+  }
+  throw poputil::poplib_error("Op not supported");
+}
+
+static std::string debugName(BinaryOpType op) {
+  switch(op) {
+    case BinaryOpType::ADD:
+      return "Add";
+    case BinaryOpType::ATAN2:
+      return "Atan2";
+    case BinaryOpType::BITWISE_AND:
+      return "BitwiseAnd";
+    case BinaryOpType::BITWISE_OR:
+      return "BitwiseOr";
+    case BinaryOpType::DIVIDE:
+      return "Divide";
+    case BinaryOpType::EQUAL:
+      return "Equal";
+    case BinaryOpType::GREATER_THAN_EQUAL:
+      return "GreaterThanEqual";
+    case BinaryOpType::GREATER_THAN:
+      return "GreaterThan";
+    case BinaryOpType::LESS_THAN_EQUAL:
+      return "LessThanEqual";
+    case BinaryOpType::LOGICAL_AND:
+      return "LogicalAnd";
+    case BinaryOpType::LOGICAL_OR:
+      return "LogicalOr";
+    case BinaryOpType::LESS_THAN:
+      return "LessThan";
+    case BinaryOpType::MAXIMUM:
+      return "Maximum";
+    case BinaryOpType::MINIMUM:
+      return "Minimum";
+    case BinaryOpType::MULTIPLY:
+      return "Multiply";
+    case BinaryOpType::NOT_EQUAL:
+      return "NotEqual";
+    case BinaryOpType::POWER:
+      return "Power";
+    case BinaryOpType::REMAINDER:
+      return "Remainder";
+    case BinaryOpType::SHIFT_LEFT:
+      return "ShiftLeft";
+    case BinaryOpType::SHIFT_RIGHT:
+      return "ShiftRight";
+    case BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND:
+      return "ShiftRightSignExtend";
+    case BinaryOpType::SUBTRACT:
+      return "Subtract";
+  }
+  throw poputil::poplib_error("Op not supported");
+}
+
+static std::string debugName(TernaryOpType op) {
+  switch(op) {
+  case TernaryOpType::CLAMP:
+    return "Clamp";
+  case TernaryOpType::SELECT:
+    return "Select";
+  }
+  throw poputil::poplib_error("Op not supported");
+}
+
+
 
 static unsigned
 compareTileMapDistributions(Graph &graph, std::vector<Tensor> in) {
@@ -172,8 +280,8 @@ compareTileMapDistributions(Graph &graph, std::vector<Tensor> in) {
 }
 
 static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
-                      enum UnaryOp op, const std::string &debugPrefix) {
-
+                      UnaryOpType op, const std::string &debugPrefix_) {
+  const auto debugPrefix = debugPrefix_ + "/Op/" + debugName(op);
   const auto inType = in.elementType();
   const auto &target = graph.getTarget();
   const auto dataPathWidth = target.getDataPathWidth();
@@ -210,7 +318,8 @@ static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
 }
 
 static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
-                       enum BinaryOp op, const std::string &debugPrefix) {
+                       BinaryOpType op, const std::string &debugPrefix_) {
+  const auto debugPrefix = debugPrefix_ + "/Op/" + debugName(op);
   const auto in1Type = in1.elementType();
   const auto in2Type = in2.elementType();
 
@@ -267,8 +376,9 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
 
 
 static Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
-                        Sequence &prog, enum TernaryOp op,
-                        const std::string &debugPrefix) {
+                        Sequence &prog, TernaryOpType op,
+                        const std::string &debugPrefix_) {
+  const auto debugPrefix = debugPrefix_ + "/Op/" + debugName(op);
   const auto in1Type = in1.elementType();
   const auto in2Type = in2.elementType();
   const auto in3Type = in3.elementType();
@@ -327,237 +437,213 @@ static Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
   return out;
 }
 
-Tensor add(Graph &graph, Tensor A, Tensor B, Sequence &prog,
-           const std::string &debugPrefix) {
-  return binaryOp(graph, A, B, prog, BinaryOp::ADD, debugPrefix + "/Op/Add");
+static bool isRelational(expr::UnaryOpType op) {
+  switch (op) {
+  case expr::UnaryOpType::IS_FINITE:
+    return true;
+  default:
+    return false;
+  }
 }
 
-Tensor abs(Graph &graph, Tensor A, Sequence &prog,
-           const std::string &debugPrefix) {
-  return unaryOp(graph, A, prog, UnaryOp::ABSOLUTE, debugPrefix + "/Op/Abs");
+static bool isRelational(expr::BinaryOpType op) {
+  switch (op) {
+  case expr::BinaryOpType::GREATER_THAN_EQUAL:
+  case expr::BinaryOpType::GREATER_THAN:
+  case expr::BinaryOpType::LESS_THAN_EQUAL:
+  case expr::BinaryOpType::LESS_THAN:
+  case expr::BinaryOpType::NOT_EQUAL:
+    return true;
+  default:
+    return false;
+  }
 }
 
-Tensor atan2(Graph &graph, Tensor A, Tensor B, Sequence &prog,
-             const std::string &debugPrefix) {
-  return binaryOp(graph, A, B, prog, BinaryOp::ATAN2,
-                  debugPrefix + "/Op/Atan2");
+static const Tensor &
+getTensorFromPlaceHolder(const expr::PlaceHolder &p,
+                          const std::vector<Tensor> &ts) {
+  auto index = p.getIndex() - 1;
+  if (index > ts.size()) {
+    throw poplib_error("Invalid placeholder _" + std::to_string(index + 1) +
+                       " in expression");
+  }
+  return ts[index];
 }
 
-Tensor bitwiseAnd(Graph &graph, Tensor A, Tensor B, Sequence &prog,
-           const std::string &debugPrefix) {
-  return binaryOp(graph, A, B, prog, BinaryOp::BITWISE_AND,
-                  debugPrefix + "/Op/BitwiseAnd");
+static boost::optional<Type>
+inferType(const expr::Expr &expr,
+          const std::vector<Tensor> &ts,
+          std::unordered_map<const expr::Expr *, Type> &constTypes,
+          std::vector<const expr::Expr *> &unknown) {
+  if (expr.isA<expr::Const>()) {
+    unknown.push_back(&expr);
+    return {};
+  } else if (const expr::PlaceHolder *p = expr.getAs<expr::PlaceHolder>()) {
+    return getTensorFromPlaceHolder(*p, ts).elementType();
+  } else if (const expr::UnaryOp *u = expr.getAs<expr::UnaryOp>()) {
+    auto opType = u->getOpType();
+    auto argType = inferType(u->getArg(), ts, constTypes, unknown);
+    if (isRelational(opType)) {
+      if (!unknown.empty())
+        throw poplib_error("Cannot infer constant types in expression");
+      return BOOL;
+    }
+    return argType;
+  } else if (const expr::BinaryOp *b = expr.getAs<expr::BinaryOp>()) {
+    auto opType = b->getOpType();
+    auto lhsType = inferType(b->getLHS(), ts, constTypes, unknown);
+    auto rhsType = inferType(b->getRHS(), ts, constTypes, unknown);
+    if (!lhsType && rhsType) {
+      lhsType = rhsType;
+      for (const auto e : unknown)
+        constTypes[e] = *rhsType;
+      unknown.clear();
+    }
+    if (!rhsType && lhsType) {
+      rhsType = lhsType;
+      for (const auto e : unknown)
+        constTypes[e] = *lhsType;
+      unknown.clear();
+    }
+    if (lhsType != rhsType)
+      throw poplib_error("Arguments of binary operator in expression do not "
+                         "have the same type");
+    if (isRelational(opType)) {
+      if (!unknown.empty())
+        throw poplib_error("Cannot infer constant types in expression");
+      return BOOL;
+    }
+    return lhsType;
+  } else if (const expr::TernaryOp *t = expr.getAs<expr::TernaryOp>()) {
+    auto opType = t->getOpType();
+    if (opType == TernaryOpType::SELECT) {
+      auto predType = inferType(t->getArg2(), ts, constTypes, unknown);
+      if (!predType || *predType != BOOL)
+        throw poplib_error("Invalid type of condition argument of "
+                           "select operator in expression");
+
+      auto lhsType = inferType(t->getArg0(), ts, constTypes, unknown);
+      auto rhsType = inferType(t->getArg1(), ts, constTypes, unknown);
+      if (!lhsType && rhsType) {
+        lhsType = rhsType;
+        for (const auto e : unknown)
+          constTypes[e] = *rhsType;
+        unknown.clear();
+      }
+      if (rhsType && !lhsType) {
+        rhsType = lhsType;
+        for (const auto e : unknown)
+          constTypes[e] = *lhsType;
+        unknown.clear();
+      }
+      if (lhsType != rhsType)
+        throw poplib_error("Arguments of select operator in expression do not "
+                           "have the same type");
+      return lhsType;
+    } else {
+      assert(opType == TernaryOpType::CLAMP);
+      auto argType = inferType(t->getArg0(), ts, constTypes, unknown);
+      if (!argType)
+        throw poplib_error("Cannot infer type in clamp expression");
+      auto lowerType = inferType(t->getArg1(), ts, constTypes, unknown);
+      if (!lowerType) {
+        lowerType = argType;
+        for (const auto e : unknown)
+          constTypes[e] = *argType;
+        unknown.clear();
+      }
+      auto higherType = inferType(t->getArg2(), ts, constTypes, unknown);
+      if (!higherType) {
+        higherType = argType;
+        for (const auto e : unknown)
+          constTypes[e] = *argType;
+        unknown.clear();
+      }
+      return argType;
+    }
+  }
+  POPLIB_UNREACHABLE();
 }
 
-Tensor bitwiseOr(Graph &graph, Tensor A, Tensor B, Sequence &prog,
-           const std::string &debugPrefix) {
-  return binaryOp(graph, A, B, prog, BinaryOp::BITWISE_OR,
-                  debugPrefix + "/Op/BitwiseOr");
+static Tensor
+map(Graph &graph,
+    const expr::Expr &expr,
+    const std::vector<Tensor> &ts,
+    program::Sequence &prog,
+    const std::string &debugPrefix,
+    const std::unordered_map<const expr::Expr *, Type> constTypes,
+    bool topLevel) {
+  if (const expr::Const *c = expr.getAs<expr::Const>()) {
+    assert(constTypes.find(&expr) != constTypes.end());
+    return graph.addConstant(constTypes.at(&expr), {},
+                             c->getData(), c->getTypeTraits(), false);
+  } else if (const expr::PlaceHolder *p = expr.getAs<expr::PlaceHolder>()) {
+    const auto &t =  getTensorFromPlaceHolder(*p, ts);
+    if (topLevel)
+      return graph.clone(t);
+    return t;
+  } else if (const expr::UnaryOp *u = expr.getAs<expr::UnaryOp>()) {
+    auto opType = u->getOpType();
+    auto t1 = map(graph, u->getArg(), ts, prog, debugPrefix,
+                  constTypes, false);
+    return unaryOp(graph, t1, prog, opType, debugPrefix);
+  } else if (const expr::BinaryOp *b = expr.getAs<expr::BinaryOp>()) {
+    auto opType = b->getOpType();
+    auto lhs = map(graph, b->getLHS(), ts, prog, debugPrefix,
+                   constTypes, false);
+    auto rhs = map(graph, b->getRHS(), ts, prog, debugPrefix,
+                   constTypes, false);
+    broadcastToMatch(lhs, rhs);
+    return binaryOp(graph, lhs,  rhs, prog, opType, debugPrefix);
+  } else if (const expr::TernaryOp *t = expr.getAs<expr::TernaryOp>()) {
+    auto opType = t->getOpType();
+    if (opType == TernaryOpType::SELECT) {
+      auto lhs = map(graph, t->getArg0(), ts, prog, debugPrefix,
+                     constTypes, false);
+      auto rhs = map(graph, t->getArg1(), ts, prog, debugPrefix,
+                     constTypes, false);
+      auto pred = map(graph, t->getArg2(), ts, prog, debugPrefix,
+                      constTypes, false);
+      broadcastToMatch(lhs, rhs);
+      return ternaryOp(graph, lhs,  rhs, pred, prog, opType, debugPrefix);
+    } else {
+      assert(opType == TernaryOpType::CLAMP);
+      auto in = map(graph, t->getArg0(), ts, prog, debugPrefix,
+                     constTypes, false);
+      auto lower = map(graph, t->getArg1(), ts, prog, debugPrefix,
+                     constTypes, false);
+      auto upper = map(graph, t->getArg2(), ts, prog, debugPrefix,
+                      constTypes, false);
+      return ternaryOp(graph, in, lower, upper, prog, opType, debugPrefix);
+    }
+  }
+  POPLIB_UNREACHABLE();
+ }
+
+Tensor map(Graph &graph, const expr::Expr &expr,
+           const std::vector<Tensor> &ts,
+           program::Sequence &prog,
+           const std::string &debugPrefix,
+           const std::vector<std::string> &options) {
+  std::unordered_map<const expr::Expr *, Type> constTypes;
+  std::vector<const expr::Expr *> unknown;
+  auto type = inferType(expr, ts, constTypes, unknown);
+  if (!type || !unknown.empty())
+    throw poplib_error("Cannot infer type of expression");
+  return map(graph, expr, ts, prog, debugPrefix, constTypes, true);
 }
 
-Tensor bitwiseNot(Graph &graph, Tensor A, Sequence &prog,
-           const std::string &debugPrefix) {
-  return unaryOp(graph, A, prog, UnaryOp::BITWISE_NOT,
-                 debugPrefix + "/Op/BitwiseNot");
-}
-
-Tensor ceil(Graph &graph, Tensor A, Sequence &prog,
-            const std::string &debugPrefix) {
-  return unaryOp(graph, A, prog, UnaryOp::CEIL, debugPrefix + "/Op/Ceil");
-}
-
-Tensor cos(Graph &graph, Tensor A, Sequence &prog,
-            const std::string &debugPrefix) {
-  return unaryOp(graph, A, prog, UnaryOp::COS, debugPrefix + "/Op/Cos");
-}
-
-Tensor div(Graph &graph, Tensor A, Tensor B, Sequence &prog,
-          const std::string &debugPrefix) {
-  return binaryOp(graph, A, B, prog, BinaryOp::DIVIDE, debugPrefix + "/Op/Div");
-}
-
-
-Tensor div(Graph &graph, float k, Tensor A, Sequence &prog,
-          const std::string &debugPrefix) {
-  const auto dType = A.elementType();
-  auto B = graph.addConstant<float>(dType, A.shape(), k);
-  return binaryOp(graph, B, A, prog, BinaryOp::DIVIDE, debugPrefix + "/Op/Div");
-}
-
-
-Tensor eq(Graph &graph, Tensor A, Tensor B, Sequence &prog,
-          const std::string &debugPrefix) {
-  return binaryOp(graph, A, B, prog, BinaryOp::EQUAL,
-                  debugPrefix + "/Op/Equal");
-}
-
-Tensor exp(Graph &graph, Tensor A, Sequence &prog,
-           const std::string &debugPrefix) {
-  return unaryOp(graph, A, prog, UnaryOp::EXPONENT, debugPrefix + "/Op/Exp");
-}
-
-Tensor floor(Graph &graph, Tensor A, Sequence &prog,
-             const std::string &debugPrefix) {
-  return unaryOp(graph, A, prog, UnaryOp::FLOOR, debugPrefix + "/Op/Floor");
-}
-
-Tensor gt(Graph &graph, Tensor A, Tensor B, Sequence &prog,
-          const std::string &debugPrefix) {
-  return binaryOp(graph, A, B, prog, BinaryOp::GREATER_THAN,
-                  debugPrefix + "/Op/Gteq");
-}
-
-Tensor gteq(Graph &graph, Tensor A, Tensor B, Sequence &prog,
-            const std::string &debugPrefix) {
-  return binaryOp(graph, A, B, prog, BinaryOp::GREATER_THAN_EQUAL,
-                  debugPrefix + "/Op/Gteq");
-}
-
-Tensor isFinite(Graph &graph, Tensor A, Sequence &prog,
-                const std::string &debugPrefix) {
-  return unaryOp(graph, A, prog, UnaryOp::IS_FINITE,
-                 debugPrefix + "/Op/IsFinite");
-}
-
-Tensor lt(Graph &graph, Tensor A, Tensor B, Sequence &prog,
-          const std::string &debugPrefix) {
-  return binaryOp(graph, A, B, prog, BinaryOp::LESS_THAN,
-                  debugPrefix + "/Op/Lteq");
-}
-
-Tensor lteq(Graph &graph, Tensor A, Tensor B, Sequence &prog,
-           const std::string &debugPrefix) {
-  return binaryOp(graph, A, B, prog, BinaryOp::LESS_THAN_EQUAL,
-                  debugPrefix + "/Op/Lteq");
-}
-
-Tensor log(Graph &graph, Tensor A, Sequence &prog,
-           const std::string &debugPrefix) {
-   return unaryOp(graph, A, prog, UnaryOp::LOGARITHM, debugPrefix + "/Op/Log");
-}
-
-Tensor logicalAnd(Graph &graph, Tensor A, Tensor B, Sequence &prog,
-                  const std::string &debugPrefix) {
-  return binaryOp(graph, A, B, prog, BinaryOp::LOGICAL_AND,
-                  debugPrefix + "/Op/And");
-}
-
-Tensor logicalNot(Graph &graph, Tensor A, Sequence &prog,
-                  const std::string &debugPrefix) {
-  return unaryOp(graph, A, prog, UnaryOp::LOGICAL_NOT, debugPrefix + "/Op/Not");
-}
-
-Tensor logicalOr(Graph &graph, Tensor A, Tensor B, Sequence &prog,
-                 const std::string &debugPrefix) {
-  return binaryOp(graph, A, B, prog, BinaryOp::LOGICAL_OR,
-                  debugPrefix + "/Op/Or");
-}
-
-Tensor max(Graph &graph, Tensor A, Tensor B, Sequence &prog,
-           const std::string &debugPrefix) {
-  return binaryOp(graph, A, B, prog, BinaryOp::MAXIMUM,
-                  debugPrefix + "/Op/Max");
-}
-
-Tensor min(Graph &graph, Tensor A, Tensor B, Sequence &prog,
-           const std::string &debugPrefix) {
-  return binaryOp(graph, A, B, prog, BinaryOp::MINIMUM,
-                  debugPrefix + "/Op/Min");
-}
-
-Tensor mul(Graph &graph, Tensor A, Tensor B, Sequence &prog,
-           const std::string &debugPrefix) {
-  return binaryOp(graph, A, B, prog, BinaryOp::MULTIPLY,
-                  debugPrefix + "/Op/Mul");
-}
-
-Tensor neq(Graph &graph, Tensor A, Tensor B, Sequence &prog,
-           const std::string &debugPrefix) {
-  return binaryOp(graph, A, B, prog, BinaryOp::NOT_EQUAL,
-                  debugPrefix + "/Op/Neq");
-}
-
-Tensor neg(Graph &graph, Tensor A, Sequence &prog,
-           const std::string &debugPrefix) {
-  return unaryOp(graph, A, prog, UnaryOp::NEGATE, debugPrefix + "/Op/Neg");
-}
-
-Tensor pow(Graph &graph, Tensor A, Tensor B, Sequence &prog,
-           const std::string &debugPrefix) {
-  return binaryOp(graph, A, B, prog, BinaryOp::POWER, debugPrefix + "/Op/Pow");
-}
-
-Tensor rem(Graph &graph, Tensor A, Tensor B, Sequence &prog,
-           const std::string &debugPrefix) {
-  return binaryOp(graph, A, B, prog, BinaryOp::REMAINDER,
-                  debugPrefix + "/Op/Rem");
-}
-
-Tensor round(Graph &graph, Tensor A, Sequence &prog,
-             const std::string &debugPrefix) {
-  return unaryOp(graph, A, prog, UnaryOp::ROUND, debugPrefix + "/Op/Round");
-}
-
-
-Tensor shiftLeft(Graph &graph, Tensor A, Tensor B, Sequence &prog,
-                 const std::string &debugPrefix) {
-  return binaryOp(graph, A, B, prog, BinaryOp::SHIFT_LEFT,
-                  debugPrefix + "/Op/Lsl");
-}
-
-Tensor shiftRight(Graph &graph, Tensor A, Tensor B, Sequence &prog,
-                  const std::string &debugPrefix) {
-  return binaryOp(graph, A, B, prog, BinaryOp::SHIFT_RIGHT,
-                  debugPrefix + "/Op/Lsr");
-}
-
-Tensor shiftRightSignExtend(Graph &graph, Tensor A, Tensor B, Sequence &prog,
-                            const std::string &debugPrefix) {
-  return binaryOp(graph, A, B, prog, BinaryOp::SHIFT_RIGHT_SIGN_EXTEND,
-                  debugPrefix + "/Op/Asr");
-}
-
-Tensor signum(Graph &graph, Tensor A, Sequence &prog,
-              const std::string &debugPrefix) {
-  return unaryOp(graph, A, prog, UnaryOp::SIGNUM, debugPrefix + "/Op/Signum");
-}
-
-Tensor sin(Graph &graph, Tensor A, Sequence &prog,
-           const std::string &debugPrefix) {
-  return unaryOp(graph, A, prog, UnaryOp::SIN, debugPrefix + "/Op/Sin");
-}
-
-Tensor sub(Graph &graph, Tensor A, Tensor B, Sequence &prog,
-           const std::string &debugPrefix) {
-  return binaryOp(graph, A, B, prog, BinaryOp::SUBTRACT,
-                  debugPrefix + "/Op/Sub");
-}
-
-Tensor tanh(Graph &graph, Tensor A, Sequence &prog,
-            const std::string &debugPrefix) {
-  return unaryOp(graph, A, prog, UnaryOp::TANH, debugPrefix + "/Op/Tanh");
-}
-
-Tensor sqrt(Graph &graph, Tensor A, Sequence &prog,
-            const std::string &debugPrefix) {
-  return unaryOp(graph, A, prog, UnaryOp::SQRT, debugPrefix + "/Op/Sqrt");
-}
-
-Tensor square(Graph &graph, Tensor A, Sequence &prog,
-            const std::string &debugPrefix) {
-  return unaryOp(graph, A, prog, UnaryOp::SQUARE, debugPrefix + "/Op/Square");
-}
-
-Tensor select(Graph &graph, Tensor A, Tensor B, Tensor pred, Sequence &prog,
-              const std::string &debugPrefix) {
-  return ternaryOp(graph, A, B, pred, prog, TernaryOp::SELECT,
-                   debugPrefix + "/Op/Select");
-}
-
-Tensor clamp(Graph &graph, Tensor A, Tensor lowerBound, Tensor upperBound,
-             Sequence &prog, const std::string &debugPrefix) {
-  return ternaryOp(graph, A, lowerBound, upperBound, prog, TernaryOp::CLAMP,
-                   debugPrefix + "/Op/Clamp");
+void mapInPlace(Graph &graph, const expr::Expr &expr,
+                const std::vector<Tensor> &ts,
+                program::Sequence &prog,
+                const std::string &debugPrefix,
+                const std::vector<std::string> &options) {
+  // TODO: This method of creating an explicit intermediate tensor
+  // is quite inefficient. We can replace this with specialized vertices
+  // that write back the result in place.
+  auto result = map(graph, expr, ts, prog, debugPrefix, options);
+  prog.add(Copy(result, ts[0]));
+  return;
 }
 
 } // namespace popops

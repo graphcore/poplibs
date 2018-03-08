@@ -9,7 +9,7 @@ add_library(popops SHARED
   codelets.cpp
   DynamicSlice.cpp
   ElementWise.cpp
-  ElementWiseDef.hpp
+  Expr.cpp
   HadamardProduct.cpp
   Pad.cpp
   PerformanceEstimation.hpp
@@ -24,6 +24,8 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/CircBuf.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/DynamicSlice.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/ElementWise.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/Expr.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/ExprOp.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/HadamardProduct.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Pad.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Reduce.hpp
