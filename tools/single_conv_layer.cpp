@@ -226,6 +226,7 @@ int main(int argc, char **argv) {
     ("single-phase",
      po::value<Pass>(&pass)->default_value(pass),
      "Run phase all | fwd | bwd | wu")
+    ("inference-only", "Benchmark inference only")
     ("tolerance", po::value<double>(&relativeTolerance),
      "Relative tolerance to use when validating results against the reference "
      "model")
@@ -360,9 +361,10 @@ int main(int argc, char **argv) {
   const auto fwdInChans = fwdInChansPerConvGroup * numConvGroups;
   const auto fwdOutChans = fwdOutChansPerConvGroup * numConvGroups;
 
+  bool inferenceOnly = vm.count("inference-only");
   bool doFwdPass = pass == Pass::ALL || pass == Pass::FWD;
-  bool doBwdPass = pass == Pass::ALL || pass == Pass::BWD;
-  bool doWuPass = pass == Pass::ALL || pass == Pass::WU;
+  bool doBwdPass = !inferenceOnly && (pass == Pass::ALL || pass == Pass::BWD);
+  bool doWuPass = !inferenceOnly && (pass == Pass::ALL || pass == Pass::WU);
 
   addGlobalExchangeConstraints(ipuModel);
 
@@ -417,26 +419,34 @@ int main(int argc, char **argv) {
 
   const auto outFieldSize = params.getOutputFieldShape();
   const auto bwdParams = getGradientParams(params);
+  auto fwdOptions = convOptions;
+  fwdOptions.pass =
+      inferenceOnly ? popconv::Pass::INFERENCE_FWD :
+                      popconv::Pass::TRAINING_FWD;
+  auto bwdOptions = convOptions;
+  bwdOptions.pass = popconv::Pass::TRAINING_BWD;
+  auto wuOptions = convOptions;
+  wuOptions.pass = popconv::Pass::TRAINING_WU;
 
   // Create tensors.
   Tensor prevAct =
-      popconv::createInput(graph, params, "prevAct", convOptions);
+      popconv::createInput(graph, params, "prevAct", fwdOptions);
   Tensor weights =
-      popconv::createWeights(graph, params, "weights", convOptions);
+      popconv::createWeights(graph, params, "weights", fwdOptions);
 
   Tensor prevDeltas, zDeltas;
   if (doBwdPass || doWuPass) {
-    zDeltas = popconv::createInput(graph, bwdParams, "zDeltas", convOptions);
+    zDeltas = popconv::createInput(graph, bwdParams, "zDeltas", bwdOptions);
   }
 
   auto fwdProg = Sequence();
   // Always generate the fwd program as it maps the weights and biases. Only
   // actually create the engined if the fwd pass is to be run
   Tensor nextAct = popconv::convolution(graph, prevAct, weights, params, false,
-                                        fwdProg, "", convOptions);
+                                        fwdProg, "", fwdOptions);
   if (reportPlan) {
     std::cout << "Forward plan:\n";
-    popconv::reportPlanInfo(std::cout, graph, params, convOptions);
+    popconv::reportPlanInfo(std::cout, graph, params, fwdOptions);
   }
   Tensor biases;
   if (bias) {
@@ -452,16 +462,16 @@ int main(int argc, char **argv) {
   if (doBwdPass) {
     prevDeltas = popconv::convolution(graph, zDeltas, weights, bwdParams,
                                       true, revProg, "",
-                                      convOptions);
+                                      bwdOptions);
     if (reportPlan) {
       std::cout << "Backward plan:\n";
-      popconv::reportPlanInfo(std::cout, graph, bwdParams, convOptions);
+      popconv::reportPlanInfo(std::cout, graph, bwdParams, bwdOptions);
     }
   }
   if (doWuPass) {
     popconv::convolutionWeightUpdate(graph, zDeltas, weights, prevAct,
                                      params, learningRate,
-                                     revProg, "", convOptions);
+                                     revProg, "", wuOptions);
     if (bias) {
       popconv::convolutionBiasUpdate(graph, zDeltas, biases, learningRate,
                                      convOptions.partialsType, revProg);
@@ -469,7 +479,7 @@ int main(int argc, char **argv) {
     if (reportPlan) {
       std::cout << "WU plan:\n";
       popconv::reportWeightUpdatePlanInfo(std::cout, graph, zDeltas, prevAct,
-                                          params, convOptions);
+                                          params, wuOptions);
     }
   }
   std::vector<std::pair<std::string, char *>> tmap;
