@@ -1,6 +1,7 @@
 #include <popops/Expr.hpp>
 
-namespace popops::expr {
+namespace popops {
+namespace expr {
 
 Expr::~Expr() {}
 
@@ -15,4 +16,4 @@ template<> void ExprType<UnaryOp>::loc() {}
 template<> void ExprType<BinaryOp>::loc() {}
 template<> void ExprType<TernaryOp>::loc() {}
 
-} // popops::expr
+}} // popops::expr
