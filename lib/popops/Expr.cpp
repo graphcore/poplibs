@@ -1,8 +1,18 @@
 #include <popops/Expr.hpp>
 
-popops::expr::Expr::~Expr() {}
+namespace popops::expr {
 
-popops::expr::PlaceHolder popops::expr::_1(1);
-popops::expr::PlaceHolder popops::expr::_2(2);
-popops::expr::PlaceHolder popops::expr::_3(3);
-popops::expr::PlaceHolder popops::expr::_4(4);
+Expr::~Expr() {}
+
+PlaceHolder _1(1);
+PlaceHolder _2(2);
+PlaceHolder _3(3);
+PlaceHolder _4(4);
+
+template<> void ExprType<Const>::loc() {}
+template<> void ExprType<PlaceHolder>::loc() {}
+template<> void ExprType<UnaryOp>::loc() {}
+template<> void ExprType<BinaryOp>::loc() {}
+template<> void ExprType<TernaryOp>::loc() {}
+
+} // popops::expr

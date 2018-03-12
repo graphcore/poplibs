@@ -50,7 +50,7 @@ public:
 
 template <class T>
 class ExprType : public Expr {
-  static void loc() {}
+  static void loc();
   static ExprClassID getClassId() { return &loc; }
 public:
   ExprType() : Expr(getClassId()) {}
