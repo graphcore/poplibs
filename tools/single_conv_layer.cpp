@@ -478,8 +478,8 @@ int main(int argc, char **argv) {
     }
     if (reportPlan) {
       std::cout << "WU plan:\n";
-      popconv::reportWeightUpdatePlanInfo(std::cout, graph, zDeltas, prevAct,
-                                          params, wuOptions);
+      popconv::reportWeightUpdatePlanInfo(std::cout, graph, params,
+                                          wuOptions);
     }
   }
   std::vector<std::pair<std::string, char *>> tmap;

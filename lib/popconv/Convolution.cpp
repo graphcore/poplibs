@@ -3082,7 +3082,6 @@ void weightsTransposeChansFlipXY(Graph &graph,
                                            3 + numFieldDims,
                                            3 + numFieldDims + 1}),
                 weightsOut));
-
 }
 
 static ConvParams
@@ -3624,8 +3623,6 @@ void reportPlanInfo(std::ostream &out,
 
 void reportWeightUpdatePlanInfo(std::ostream &out,
                                 const Graph &graph,
-                                const Tensor &activations,
-                                const Tensor &zDeltas,
                                 const ConvParams &fwdParams,
                                 const ConvOptions &options) {
   auto params = getWeightUpdateParams(fwdParams);
