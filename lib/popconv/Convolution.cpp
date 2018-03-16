@@ -3624,8 +3624,10 @@ void reportPlanInfo(std::ostream &out,
 void reportWeightUpdatePlanInfo(std::ostream &out,
                                 const Graph &graph,
                                 const ConvParams &fwdParams,
-                                const ConvOptions &options) {
+                                const ConvOptions &fwdOptions) {
   auto params = getWeightUpdateParams(fwdParams);
+  auto options = fwdOptions;
+  options.pass = Pass::TRAINING_WU;
   // The weight update is equivalent to a convolution where:
   // - wu conv groups = fwd conv groups
   // - wu batch size = fwd input channels
