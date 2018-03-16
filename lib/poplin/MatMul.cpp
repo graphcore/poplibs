@@ -2,9 +2,9 @@
 #include "popconv/Convolution.hpp"
 #include "poputil/exceptions.hpp"
 #include "popops/Add.hpp"
+#include <boost/optional.hpp>
 #include <cassert>
 #include <ostream>
-
 using namespace poplar;
 using namespace poplar::program;
 
@@ -20,7 +20,7 @@ PlanningCache::PlanningCache() :
 PlanningCache::~PlanningCache() = default;
 
 static popconv::ConvOptions getConvOptions(
-    const MatMulOptions &options) {
+    const MatMulOptions &options, const std::vector<std::size_t> &aShape) {
   popconv::ConvOptions convOptions;
   if (options.cache) {
     convOptions.cache = options.cache->impl.get();
@@ -85,6 +85,39 @@ static Tensor convWeightsFromMatrix(const Tensor &A,
                                     const std::vector<std::size_t> &shape) {
   assert(shape.size() == 3);
   return A.expand({3});
+}
+
+enum class SpecialOpHandling {
+  MATMUL_RESULT,
+  CREATE_LHS,
+  CREATE_RHS
+};
+
+// Special handling is required to avoid a convolution being called with zero
+// field size. This function returns the result tensor if convolution cannot be
+// called to produce results
+static boost::optional<Tensor>
+specialMatrixOpHandling(Graph &graph,
+                        poplar::Type dType,
+                        const std::vector<std::size_t> &aShape,
+                        const std::vector<std::size_t> &bShape,
+                        SpecialOpHandling op) {
+  boost::optional<Tensor> resultTensor;
+  if (!bShape[2]) {
+    Tensor out;
+    if (op == SpecialOpHandling::MATMUL_RESULT) {
+      out = graph.addVariable(dType, {aShape[0], aShape[1], bShape[2]},
+                              VariableMappingMethod::LINEAR);
+    } else if (op == SpecialOpHandling::CREATE_LHS) {
+      out = graph.addVariable(dType, {aShape[0], aShape[1], aShape[2]},
+                              VariableMappingMethod::LINEAR);
+    } else if (op == SpecialOpHandling::CREATE_RHS) {
+      out = graph.addVariable(dType, {bShape[0], bShape[1], bShape[2]},
+                              VariableMappingMethod::LINEAR);
+    }
+    resultTensor = out;
+  }
+  return resultTensor;
 }
 
 static popconv::ConvParams getConvParams(
@@ -300,7 +333,11 @@ matMulImpl(poplar::Graph &graph,
   assert(A.rank() == 3 && B.rank() == 3);
   const auto dType = A.elementType();
   // TODO cache.
-  popconv::ConvOptions convOptions = getConvOptions(options);
+  popconv::ConvOptions convOptions = getConvOptions(options, A.shape());
+  const auto spOut = specialMatrixOpHandling(graph, dType, A.shape(), B.shape(),
+                                             SpecialOpHandling::MATMUL_RESULT);
+  if (spOut)
+    return *spOut;
   auto convParams = getConvParams(dType, A.shape(), B.shape(), options);
   Tensor out;
   switch (options.fullyConnectedPass) {
@@ -461,8 +498,12 @@ createMatMulInputLHSImpl(poplar::Graph &graph,
                                           name, fwdOptions);
     return transpose(fwdLHS);
   }
+  const auto spOut = specialMatrixOpHandling(graph, dType, aShape, bShape,
+                                             SpecialOpHandling::CREATE_LHS);
+  if (spOut)
+    return *spOut;
   auto convParams = getConvParams(dType, aShape, bShape, options);
-  auto convOptions = getConvOptions(options);
+  auto convOptions = getConvOptions(options, aShape);
   switch (options.fullyConnectedPass) {
   default: assert(0 && "Unexpected pass");
   case FullyConnectedPass::NONE:
@@ -498,8 +539,12 @@ createMatMulInputRHSImpl(poplar::Graph &graph,
                                           name, fwdOptions);
     return transpose(fwdRHS);
   }
+  const auto spOut = specialMatrixOpHandling(graph, dType, aShape, bShape,
+                                             SpecialOpHandling::CREATE_RHS);
+  if (spOut)
+    return *spOut;
   auto convParams = getConvParams(dType, aShape, bShape, options);
-  const auto convOptions = getConvOptions(options);
+  const auto convOptions = getConvOptions(options, aShape);
   const auto numGroups = convParams.getNumConvGroups();
   switch (options.fullyConnectedPass) {
   default: assert(0 && "Unexpected pass");
@@ -584,8 +629,12 @@ void matMulGroupedReportPlan(std::ostream &out,
                              const std::vector<std::size_t> &aShape,
                              const std::vector<std::size_t> &bShape,
                              const MatMulOptions &options) {
-  auto convOptions = getConvOptions(options);
+  auto convOptions = getConvOptions(options, aShape);
   auto convParams = getConvParams(dType, aShape, bShape, options);
+  if (!bShape[2]) {
+    out << "Matrix multiplication result produced via special handling\n";
+    return;
+  }
   return popconv::reportPlanInfo(out, graph, convParams, convOptions);
 }
 

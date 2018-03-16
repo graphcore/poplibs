@@ -526,26 +526,34 @@ static void verifyInputShapes(const ConvParams &params,
     if (params.inputFieldShape[i] != in.dim(2 + i)) {
       const auto dimName = getCapitalizedFieldDimName(i, numFieldDims);
       throw poputil::poplib_error(dimName + " of input tensor does not match "
-                                 "convolution parameters");
+                                  "convolution parameters");
     }
     if (params.kernelShape[i] != weights.dim(1 + i)) {
       const auto dimName = getCapitalizedFieldDimName(i, numFieldDims);
       throw poputil::poplib_error(dimName + " of kernel does not match "
-                                 "convolution parameters");
+                                  "convolution parameters");
     }
+  }
+  if (in.dim(0) == 0) {
+    throw poputil::poplib_error("Number of convolution groups equal to zero "
+                                "is not supported");
   }
   if (params.numConvGroups != in.dim(0)) {
     throw poputil::poplib_error("Number of convolution groups of input tensor "
-                               "does not match convolution parameters");
+                                "does not match convolution parameters");
   }
   if (params.getBatchSize() != in.dim(1)) {
     throw poputil::poplib_error("Batchsize of input tensor does not match "
-                               "convolution parameters");
+                                "convolution parameters");
+  }
+  if (in.dim(1) == 0) {
+    throw poputil::poplib_error("Batch size of input tensor equal to zero "
+                                 "is not supported");
   }
   if (params.getNumInputChansPerConvGroup() != in.dim(in.rank() - 1)) {
     throw poputil::poplib_error("Number of channels per convolution group of "
-                               "input tensor does not match convolution "
-                               "parameters");
+                                "input tensor does not match convolution "
+                                "parameters");
   }
   if (params.numConvGroups != weights.dim(0)) {
     throw poputil::poplib_error("Number of convolution groups of weights "
@@ -554,12 +562,12 @@ static void verifyInputShapes(const ConvParams &params,
   if (params.getNumOutputChansPerConvGroup() !=
       weights.dim(weights.rank() - 2)) {
     throw poputil::poplib_error("Kernel output channel size does not match "
-                               "convolution parameters");
+                                "convolution parameters");
   }
   if (params.getNumInputChansPerConvGroup() !=
       weights.dim(weights.rank() - 1)) {
     throw poputil::poplib_error("Kernel input channel size does not match "
-                               "convolution parameters");
+                                "convolution parameters");
   }
 }
 
@@ -1197,8 +1205,8 @@ static void expandSpatialDim(Graph &graph, ConvParams &params,
       }
       slices.push_back(std::move(slice));
     }
-    auto expanded = concat(slices, acts->rank() - 1);
-    *acts = expanded;
+      auto expanded = concat(slices, acts->rank() - 1);
+      *acts = expanded;
   }
   if (weights) {
     // Flatten the spatial dimension of the weights tensor into the input
@@ -2339,6 +2347,8 @@ createOuterProductVertex(
 }
 
 static bool isZeroConvolution(const ConvParams &params) {
+  if (!params.getNumOutputChansPerConvGroup())
+    return true;
   const auto numFieldDims = params.getNumFieldDims();
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     if (params.outputTransform.paddingLower[dim] +
@@ -2865,13 +2875,14 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   if (transposeAndFlipWeights) {
     // Create transposed/flipped weights
     auto bwdWeights = createWeights(graph, params, "bwdWeights", options);
-    weightsTransposeChansFlipXY(graph, weights, bwdWeights, prog, debugPrefix);
+    if (bwdWeights.dim(1) && bwdWeights.dim(2))
+      weightsTransposeChansFlipXY(graph, weights, bwdWeights, prog,
+                                  debugPrefix);
     weights = bwdWeights;
   }
   weights = weightsToInternalShape(weights);
   auto in = actsToInternalShape(in_, params.numConvGroups);
   auto plan = getPlan(graph, params, options);
-
   verifyInputShapes(params, in, weights);
   if (plan.useWinograd) {
     throw poputil::poplib_error("Winograd not yet supported");

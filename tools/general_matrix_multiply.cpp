@@ -176,10 +176,8 @@ int main(int argc, char **argv) {
   } else if (transposeA) {
     mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_WU;
   }
-
   auto matA = createMatMulInputLHS(graph, dataType,
                                    {m, k}, {k, n}, "matA", mmOpt);
-
   if (transposeA)
     matA = matA.transpose();
 
@@ -199,6 +197,11 @@ int main(int argc, char **argv) {
 
   auto matC = graph.addVariable(dataType, {m, n}, "matC");
   mapTensorLinearly(graph, matC);
+
+  if (matC.shape() != matAxB.shape()) {
+    std::cerr << "Output matrix shape doesn't match expected shape\n";
+    return 1;
+  }
 
   addTo(graph, matC, matAxB, alpha, prog);
 
@@ -238,7 +241,6 @@ int main(int argc, char **argv) {
 
   const bool matchesModel = checkIsClose("gemm", hostMatC, refMatC,
                                          relativeTolerance, absoluteTolerance);
-
   Engine::ReportOptions opt;
   opt.doLayerWiseProfile = true;
   engine.reportStatic(std::cout, opt);

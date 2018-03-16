@@ -1590,6 +1590,127 @@ add_test(NAME sum_pool_layer_negative_mixed_padding
                 --padding-height-lower=-3
                 --padding-height-upper=4)
 
+add_test(NAME gemm_5x0x4
+          COMMAND general_matrix_multiply
+                  --m 5
+                  --k 0
+                  --n 4
+                  --alpha 1
+                  --beta 1
+                  --left-matrix-op=normal
+                  --right-matrix-op=normal)
+
+add_test(NAME gemm_0x3x4
+          COMMAND general_matrix_multiply
+                  --m 0
+                  --k 3
+                  --n 4
+                  --alpha 1
+                  --beta 1
+                  --left-matrix-op=normal
+                  --right-matrix-op=normal)
+
+add_test(NAME gemm_5x3x0
+          COMMAND general_matrix_multiply
+                  --m 0
+                  --k 3
+                  --n 4
+                  --alpha 1
+                  --beta 1
+                  --left-matrix-op=normal
+                  --right-matrix-op=normal)
+
+
+add_test(NAME gemm_5x0x4_trA
+          COMMAND general_matrix_multiply
+                  --m 5
+                  --k 0
+                  --n 4
+                  --alpha 1
+                  --beta 1
+                  --left-matrix-op=transpose
+                  --right-matrix-op=normal)
+
+add_test(NAME gemm_0x3x4_trA
+          COMMAND general_matrix_multiply
+                  --m 0
+                  --k 3
+                  --n 4
+                  --alpha 1
+                  --beta 1
+                  --left-matrix-op=transpose
+                  --right-matrix-op=normal)
+
+add_test(NAME gemm_5x3x0_trA
+          COMMAND general_matrix_multiply
+                  --m 0
+                  --k 3
+                  --n 4
+                  --alpha 1
+                  --beta 1
+                  --left-matrix-op=transpose
+                  --right-matrix-op=normal)
+
+add_test(NAME gemm_5x0x4_trB
+          COMMAND general_matrix_multiply
+                  --m 5
+                  --k 0
+                  --n 4
+                  --alpha 1
+                  --beta 1
+                  --left-matrix-op=normal
+                  --right-matrix-op=transpose)
+
+add_test(NAME gemm_0x3x4_trB
+          COMMAND general_matrix_multiply
+                  --m 0
+                  --k 3
+                  --n 4
+                  --alpha 1
+                  --beta 1
+                  --left-matrix-op=normal
+                  --right-matrix-op=transpose)
+
+add_test(NAME gemm_5x3x0_trB
+          COMMAND general_matrix_multiply
+                  --m 0
+                  --k 3
+                  --n 4
+                  --alpha 1
+                  --beta 1
+                  --left-matrix-op=normal
+                  --right-matrix-op=transpose)
+
+add_test(NAME gemm_5x0x4_trA_trB
+          COMMAND general_matrix_multiply
+                  --m 5
+                  --k 0
+                  --n 4
+                  --alpha 1
+                  --beta 1
+                  --left-matrix-op=transpose
+                  --right-matrix-op=transpose)
+
+add_test(NAME gemm_0x3x4_trA_trB
+          COMMAND general_matrix_multiply
+                  --m 0
+                  --k 3
+                  --n 4
+                  --alpha 1
+                  --beta 1
+                  --left-matrix-op=transpose
+                  --right-matrix-op=transpose)
+
+add_test(NAME gemm_5x3x0_trA_trB
+          COMMAND general_matrix_multiply
+                  --m 0
+                  --k 3
+                  --n 4
+                  --alpha 1
+                  --beta 1
+                  --left-matrix-op=transpose
+                  --right-matrix-op=transpose)
+
 add_test(NAME gemm_1x3x1
           COMMAND general_matrix_multiply
                   --m 1

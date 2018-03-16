@@ -1584,12 +1584,13 @@ constructModel(const poplar::Target &target,
   assert(numLevelsOfHierarchy >= 1);
   partitionVars.clear();
 
-  const auto outChanGrains =
+  const auto outChanGrains = params.getNumOutputChansPerConvGroup() ?
       (params.getNumOutputChansPerConvGroup() + outChanGrainSize[0] - 1) /
-      outChanGrainSize[0];
-  const auto inChanGrains =
+      outChanGrainSize[0] : 1;
+  const auto inChanGrains = params.getNumInputChansPerConvGroup() ?
       (params.getNumInputChansPerConvGroup() + inChanGrainSize[0] - 1)
-      / inChanGrainSize[0];
+      / inChanGrainSize[0] : 1;
+
   // For each level the set of dimensions that are flattened / expanded.
   std::vector<std::unordered_set<unsigned>> transformedDims;
   std::vector<ConvSizeVariables> convSize;
@@ -2138,7 +2139,8 @@ getExpandDimsCandidates(const ConvParams &params) {
 static std::vector<std::vector<unsigned>>
 getOutChanFlattenDimsCandidates(const ConvParams &params) {
   auto swappedParams = params;
-  popconv::swapOperands(swappedParams);
+  if (params.outputChannels)
+    popconv::swapOperands(swappedParams);
   std::vector<unsigned> candidateDims;
   for (unsigned i = 0; i != swappedParams.getNumFieldDims(); ++i) {
     // Don't flatten this dimension into the output channel dimension if it
@@ -2183,7 +2185,14 @@ swapOperands(ConvParams &params) {
   params = canonicalizeParams(params);
 }
 
-static std::vector<bool> getSwapOperandCandidates(const ConvOptions &options) {
+static std::vector<bool> getSwapOperandCandidates(const ConvParams &params,
+                                                  const ConvOptions &options) {
+  // Avoid swapping operands when output channels could be swapped with batch
+  // size
+  if (!params.outputChannels) {
+    return {false};
+  }
+
   switch (options.pass) {
   case Pass::FC_TRAINING_FWD:
   case Pass::FC_TRAINING_BWD:
@@ -2308,7 +2317,7 @@ createPlan(ConvParams params,
                                 options);
   const auto ipuLevel = transforms.size() - 2;
   transforms[0].extraFieldDims = addedFieldDims;
-  for (bool swapOperands : getSwapOperandCandidates(options)) {
+  for (bool swapOperands : getSwapOperandCandidates(params, options)) {
     transforms[0].swapOperands = swapOperands;
     auto swappedParams = calculateSwappedParams(paramsWithExtraDims,
                                                 swapOperands);
@@ -2375,6 +2384,13 @@ static ConvParams getFullyConnectedFwdParams(const ConvParams &params,
   assert(params.outputTransform.stride[0] == 1);
   assert(params.outputTransform.paddingLower[0] == 0);
   assert(params.outputTransform.paddingUpper[0] == 0);
+
+  // In FC backward pass, input channels becomes input shape. Avoid this if
+  // number of input channels are zero
+  if (options.pass == Pass::FC_TRAINING_BWD &&
+      params.getNumInputChansPerConvGroup() == 0)
+    return params;
+
   switch (options.pass) {
   default: assert(0 && "Unexpected pass");
   case Pass::FC_TRAINING_BWD:
