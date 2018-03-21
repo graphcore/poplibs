@@ -665,12 +665,8 @@ int main(int argc, char **argv) {
 
   if (!useCpuModel) {
     Engine::ReportOptions opt;
-    opt.doLayerWiseProfile = true;
-    if (reportVarStorage) {
-      opt.showVariableStorage = true;
-    }
-    engine.reportStatic(std::cout, opt);
-    engine.reportDynamic(std::cout, opt);
+    opt.doLayerWiseBreakdown = true;
+    engine.printSummary(std::cout, opt);
   }
 
   if (!matchesModel) {

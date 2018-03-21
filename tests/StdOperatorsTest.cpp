@@ -1308,8 +1308,10 @@ BOOST_AUTO_TEST_CASE(MapTest) {
   eng.readTensor("out", hOut);
 
   Engine::ReportOptions opt;
-  opt.doLayerWiseProfile = true;
-  eng.reportDynamic(std::cerr, opt);
+  opt.doLayerWiseBreakdown = true;
+  auto execReport = eng.getExecutionReport(opt);
+  execReport.printSummary(std::cerr);
+
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     for (auto j = 0U; j < DIM_SIZE; ++j) {
@@ -1362,8 +1364,10 @@ BOOST_AUTO_TEST_CASE(MapTestMultiTensor) {
   eng.readTensor("out", hOut);
 
   Engine::ReportOptions opt;
-  opt.doLayerWiseProfile = true;
-  eng.reportDynamic(std::cerr, opt);
+  opt.doLayerWiseBreakdown = true;
+  auto execReport = eng.getExecutionReport(opt);
+  execReport.printSummary(std::cerr);
+
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     auto expected = (aIn[i] >= bIn[i]) ? cIn[i] + bIn[i] : aIn[i] + bIn[i];
@@ -1396,8 +1400,10 @@ BOOST_AUTO_TEST_CASE(MapInPlaceTest) {
   eng.readTensor("out", hOut);
 
   Engine::ReportOptions opt;
-  opt.doLayerWiseProfile = true;
-  eng.reportDynamic(std::cerr, opt);
+  opt.doLayerWiseBreakdown = true;
+  auto execReport = eng.getExecutionReport(opt);
+  execReport.printSummary(std::cerr);
+
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     for (auto j = 0U; j < DIM_SIZE; ++j) {

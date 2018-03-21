@@ -425,9 +425,8 @@ int main(int argc, char **argv) {
                                  relativeTolerance, absoluteTolerance);
   }
   Engine::ReportOptions opt;
-  opt.doLayerWiseProfile = true;
-  engine.reportStatic(std::cout, opt);
-  engine.reportDynamic(std::cout, opt);
+  opt.doLayerWiseBreakdown = true;
+  engine.printSummary(std::cout, opt);
   if (!matchesModel) {
     std::cerr << "Validation failed\n";
     return 1;

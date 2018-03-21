@@ -330,9 +330,8 @@ int main(int argc, char **argv) {
   }
 
   Engine::ReportOptions opt;
-  opt.doLayerWiseProfile = true;
-  engine.reportStatic(std::cout, opt);
-  engine.reportDynamic(std::cout, opt);
+  opt.doLayerWiseBreakdown = true;
+  engine.printSummary(std::cout, opt);
   bool matchesModel = true;
 
   for (auto s = 0U; s != rawHostNextAct.size(); ++s) {
