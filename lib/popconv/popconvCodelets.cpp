@@ -38,10 +38,7 @@ public:
 
   SimOnlyField<unsigned> outChansPerGroup;
   SimOnlyField<unsigned> inChansPerGroup;
-  SimOnlyField<unsigned> dataPathWidth;
-  SimOnlyField<unsigned> convUnitInputLoadElemsPerCycle;
-  SimOnlyField<unsigned> convUnitCoeffLoadBytesPerCycle;
-  SimOnlyField<unsigned> numWorkerContexts;
+
   bool compute() {
     const auto usedContexts = worklists.size() / (kernelOuterSize *
                                                   kernelInnerElements);
@@ -194,10 +191,6 @@ public:
   unsigned inStride;
   SimOnlyField<unsigned> outChansPerGroup;
   SimOnlyField<unsigned> inChansPerGroup;
-  SimOnlyField<unsigned> dataPathWidth;
-  SimOnlyField<unsigned> convUnitInputLoadElemsPerCycle;
-  SimOnlyField<unsigned> convUnitCoeffLoadBytesPerCycle;
-  SimOnlyField<unsigned> numWorkerContexts;
   bool flipOut;
 
   bool compute() {
@@ -280,8 +273,6 @@ public:
 
   SimOnlyField<unsigned> outChansPerGroup;
   SimOnlyField<unsigned> inChansPerGroup;
-  SimOnlyField<unsigned> dataPathWidth;
-  SimOnlyField<unsigned> numWorkerContexts;
   bool compute() {
     const auto usedContexts = worklists.size() / kernelSize;
 
@@ -549,12 +540,6 @@ public:
    */
   Vector<InOut<Vector<FPType>>> partials;
 
-
-  SimOnlyField<unsigned> numWorkers;
-  SimOnlyField<unsigned> weightsPerConvUnit;
-  SimOnlyField<unsigned> numConvUnits;
-  SimOnlyField<unsigned> convUnitCoeffLoadBytesPerCycle;
-
   bool compute() {
 
     const unsigned outChanDepth = partials[0].size();
@@ -799,8 +784,6 @@ public:
   Vector<InOut<Vector<FPType>>> acts;
   Vector<Input<Vector<FPType, TWO_PTR, 1, true>>> addend;
 
-  SimOnlyField<unsigned> dataPathWidth;
-
   bool compute() {
     unsigned n = acts.size();
     assert(addend.size() == n);
@@ -829,8 +812,6 @@ public:
   Vector<InOut<Vector<FPType>>, ONE_PTR> acts;
   Vector<Input<Vector<FPType, TWO_PTR, 1, true>>> addend;
   float scale;
-
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     unsigned n = addend.size();
@@ -862,8 +843,6 @@ public:
   Vector<Output<Vector<FPType, ONE_PTR>>, ONE_PTR> actsOut;
   Vector<Input<Vector<FPType>>, ONE_PTR> scale;
 
-  SimOnlyField<unsigned> dataPathWidth;
-
   bool compute() {
     unsigned n = actsIn.size();
     for (unsigned i = 0; i != n; ++i) {
@@ -891,7 +870,6 @@ ConvChanReduce: public Vertex {
 public:
   Output<Vector<OutType>> out;
   Vector<Input<Vector<InType, TWO_PTR, 1, true>>> in;
-  SimOnlyField<unsigned> dataPathWidth;
   SimOnlyField<bool> useDoubleDataPathInstr;
 
   bool compute() {
@@ -924,7 +902,6 @@ ConvChanReduceSquare: public Vertex {
 public:
   Output<Vector<OutType>> out;
   Vector<Input<Vector<InType, TWO_PTR, 1, true>>> in;
-  SimOnlyField<unsigned> dataPathWidth;
   SimOnlyField<bool> useDoubleDataPathInstr;
 
   bool compute() {
@@ -978,7 +955,6 @@ public:
   Vector<Input<Vector<PowerType, ONE_PTR>>, ONE_PTR> power;
   Vector<Output<Vector<OutType, ONE_PTR>>, ONE_PTR> iStdDev;
   float eps;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
 
@@ -1006,8 +982,6 @@ public:
   Input<Vector<T>> in;
   Input<Vector<T>> weights;
   Vector<Output<Vector<T, ONE_PTR>>> out;
-
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     const auto width = in.size();

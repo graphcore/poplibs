@@ -44,7 +44,6 @@ nonLinearityInputGradient(Graph &graph,
   }
   const auto dType = out.elementType();
   const auto &target = graph.getTarget();
-  const auto dataPathWidth = target.getDataPathWidth();
   auto inGradient = graph.clone(outGradient, debugPrefix + "/NonLinearityGrad");
   auto outFlat = out.flatten();
   auto outGradFlat = outGradient.flatten();
@@ -72,7 +71,6 @@ nonLinearityInputGradient(Graph &graph,
                                 {"inGrad", inGradFlat.slices(regions)}});
       graph.setInitialValue(v["nonLinearityType"],
            static_cast<unsigned>(nonLinearityType));
-      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setTileMapping(v, tile);
     }
   }
@@ -108,7 +106,6 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
   graph.reorderToSimplify(&t, {});
   const auto dType = t.elementType();
   const auto &target = graph.getTarget();
-  const auto dataPathWidth = target.getDataPathWidth();
   auto mapping = graph.getTileMapping(t);
   const auto numTiles = target.getNumTiles();
   const auto tFlat = t.flatten();
@@ -134,7 +131,6 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
                                {{"data", tFlat.slices(regions)}});
       graph.setInitialValue(v["nonLinearityType"],
           static_cast<unsigned>(nonLinearityType));
-      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setTileMapping(v, tile);
     }
   }

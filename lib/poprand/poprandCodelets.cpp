@@ -124,7 +124,6 @@ public:
   // required
   Vector<uint32_t, ONE_PTR> vSeedH;
   Vector<uint32_t, ONE_PTR> vSeedL;
-  SimOnlyField<unsigned> dataPathWidth;
   // It is expected that there will be two variants of vertices: one which
   // saves and restores seeds
   SimOnlyField<bool> saveRestoreSeed;
@@ -178,7 +177,6 @@ public:
   // required
   Vector<uint32_t, ONE_PTR> vSeedH;
   Vector<uint32_t, ONE_PTR> vSeedL;
-  SimOnlyField<unsigned> dataPathWidth;
   // It is expected that there will be two variants of vertices: one which
   // saves and restores seeds
   SimOnlyField<bool> saveRestoreSeed;
@@ -227,7 +225,6 @@ public:
   // required
   Vector<uint32_t, ONE_PTR> vSeedH;
   Vector<uint32_t, ONE_PTR> vSeedL;
-  SimOnlyField<unsigned> dataPathWidth;
   // It is expected that there will be two variants of vertices: one which
   // saves and restores seeds
   SimOnlyField<bool> saveRestoreSeed;
@@ -280,7 +277,6 @@ public:
   // required
   Vector<uint32_t, ONE_PTR> vSeedH;
   Vector<uint32_t, ONE_PTR> vSeedL;
-  SimOnlyField<unsigned> dataPathWidth;
   // It is expected that there will be two variants of vertices: one which
   // saves and restores seeds
   SimOnlyField<bool> saveRestoreSeed;
@@ -330,7 +326,6 @@ public:
   // required
   Vector<uint32_t, ONE_PTR> vSeedH;
   Vector<uint32_t, ONE_PTR> vSeedL;
-  SimOnlyField<unsigned> dataPathWidth;
   // It is expected that there will be two variants of vertices: one which
   // saves and restores seeds
   SimOnlyField<bool> saveRestoreSeed;

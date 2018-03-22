@@ -186,7 +186,6 @@ reduce(Graph &graph,
                         partials.numElements() / tilesPerInZGroup});
   auto flatReduced = reduced.flatten();
   const auto &target = graph.getTarget();
-  const auto dataPathWidth = target.getDataPathWidth();
   std::string vertexName = "popops::" + getVertexStr(operation);
   if (isUpdate && operation == Operation::ADD) {
     vertexName = "popops::ReduceAddUpdate";
@@ -208,7 +207,6 @@ reduce(Graph &graph,
                                      templateVertex(vertexName,
                                                     reducedType,
                                                     partialType));
-      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setFieldSize(v["out"], regions.size());
       graph.setFieldSize(v["partials"], regions.size() * tilesPerInZGroup);
       if (isUpdate || isScale)

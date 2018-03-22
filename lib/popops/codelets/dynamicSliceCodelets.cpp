@@ -17,7 +17,6 @@ public:
   Vector<Output<Vector<InType>>> subT; // [region*numSubElements+sliceIdx][os]
   unsigned numBaseElements;  // in the slice dimension
   unsigned numSubElements; // int the slice dimension
-  SimOnlyField<unsigned> dataPathWidth;
   bool compute() {
     assert(baseT.size() % numBaseElements == 0);
     auto numRegions = baseT.size() / numBaseElements;
@@ -58,7 +57,6 @@ public:
   unsigned numSubElements;   // in the slice dimension
   unsigned regionSize;       // stride between slices
   unsigned elementsPerWorker;// number of elements to copy
-  SimOnlyField<unsigned> dataPathWidth;
   SimOnlyField<unsigned> numWorkers;
   bool compute() {
     assert(baseT.size() == numBaseElements * regionSize);
@@ -95,7 +93,6 @@ public:
   Vector<Input<Vector<InType>>> subT; // [region*numSubElements+sliceIdx][os]
   unsigned numBaseElements;  // in the slice dimension
   unsigned numSubElements; // in the slice dimension
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     assert(baseT.size() % numBaseElements == 0);
@@ -137,7 +134,6 @@ public:
   unsigned numSubElements;   // in the slice dimension
   unsigned regionSize;       // stride between slices
   unsigned elementsPerWorker;// number of elements to copy
-  SimOnlyField<unsigned> dataPathWidth;
   SimOnlyField<unsigned> numWorkers;
   bool compute() {
     assert(baseT.size() == numBaseElements * regionSize);

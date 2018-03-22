@@ -36,7 +36,6 @@ static void generateVertices(std::string vertexName,
   assert(s2d.rank() == 2);
   assert(t2d.dim(1) == s2d.dim(1));
   const auto &target = graph.getTarget();
-  const auto dataPathWidth = target.getDataPathWidth();
   const auto grainSize = target.getVectorWidth(t2d.elementType());
   const auto numTiles = target.getNumTiles();
   const unsigned numBaseElements = t2d.dim(0);
@@ -110,7 +109,6 @@ static void generateVertices(std::string vertexName,
         graph.setInitialValue(v["numSubElements"], numSubElements);
         graph.setInitialValue(v["regionSize"], regionSize);
         graph.setInitialValue(v["elementsPerWorker"], elementsPerWorker);
-        graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
         graph.setInitialValue(v["numWorkers"], numWorkers);
         graph.setTileMapping(v, tile);
         continue;
@@ -142,7 +140,6 @@ static void generateVertices(std::string vertexName,
                                });
       graph.setInitialValue(v["numBaseElements"], numBaseElements);
       graph.setInitialValue(v["numSubElements"], numSubElements);
-      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setTileMapping(v, tile);
     }
   } // end loop over tiles

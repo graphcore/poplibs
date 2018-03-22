@@ -284,7 +284,6 @@ static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
   const auto debugPrefix = debugPrefix_ + "/Op/" + debugName(op);
   const auto inType = in.elementType();
   const auto &target = graph.getTarget();
-  const auto dataPathWidth = target.getDataPathWidth();
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix);
 
@@ -309,7 +308,6 @@ static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
                                templateVertex(vertexName(op), inType),
                                {{"in", inFlat.slices(regions)},
                                 {"out", outFlat.slices(regions)}});
-      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setTileMapping(v, tile);
     }
   }
@@ -337,7 +335,6 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
 
   const auto outType = outputType(in1Type, op);
   const auto &target = graph.getTarget();
-  const auto dataPathWidth = target.getDataPathWidth();
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix);
 
@@ -366,7 +363,6 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
                                {{"in1", in1Flat.slices(regions)},
                                 {"in2", in2Flat.slices(regions)},
                                 {"out", outFlat.slices(regions)}});
-      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setTileMapping(v, tile);
     }
   }
@@ -399,7 +395,6 @@ static Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
 
   const auto outType = outputType(in1Type, op);
   const auto &target = graph.getTarget();
-  const auto dataPathWidth = target.getDataPathWidth();
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix);
 
@@ -429,7 +424,6 @@ static Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
                                 {"in2", in2Flat.slices(regions)},
                                 {"in3", in3Flat.slices(regions)},
                                 {"out", outFlat.slices(regions)}});
-      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setTileMapping(v, tile);
     }
   }

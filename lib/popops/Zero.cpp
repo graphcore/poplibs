@@ -38,7 +38,6 @@ zero(poplar::Graph &graph,
       auto out = tFlat.slices(regions);
       graph.connect(v["out"], out);
     }
-    graph.setInitialValue(v["dataPathWidth"], target.getDataPathWidth());
     graph.setTileMapping(v, tile);
   }
 }

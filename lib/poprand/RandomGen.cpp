@@ -119,7 +119,6 @@ buildProgram(Graph &graph, const Tensor &A, uint64_t seed, uint16_t colouredId,
 
   const auto dType = A.elementType();
   const auto &target = graph.getTarget();
-  const auto dataPathWidth = target.getDataPathWidth();
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix + "/" + vertexName);
   const bool saveRestoreSeed = mode != NOT_REPEATABLE;
@@ -138,7 +137,6 @@ buildProgram(Graph &graph, const Tensor &A, uint64_t seed, uint16_t colouredId,
         graph.connect(v["out"][0], aFlat.slice(vertexTab[i].region));
         graph.setFieldSize(v["out"], 1);
         setParamsInVertex(graph, v, vertexName, params, dType);
-        graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
         std::vector<uint32_t> vSeedL{(uint32_t) seed, (uint32_t) (seed >> 32)};
         graph.setInitialValue(v["vSeedL"], vSeedL);
         auto seedH = createSeedU64(colouredId, 0, i);
@@ -173,7 +171,6 @@ buildProgram(Graph &graph, const Tensor &A, uint64_t seed, uint16_t colouredId,
                                  templateVertex("poprand::" + vertexName,
                                                 dType),
                                  {{"out", aFlat.slices(regions)}});
-        graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
         setParamsInVertex(graph, v, vertexName, params, dType);
         if (simulateNonRepeatable || mode != NOT_REPEATABLE) {
           std::vector<uint32_t> vSeedL{(uint32_t) seed,

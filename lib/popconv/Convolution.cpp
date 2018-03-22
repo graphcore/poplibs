@@ -1879,13 +1879,8 @@ static void createConvPartialAmpVertex(Graph &graph,
                   params.outputTransform.paddingUpper.end(),
                   isNonZero);
   bool useConvPartial1x1OutVertex = !nx1Vertex;
-  const auto dataPathWidth = target.getDataPathWidth();
   const unsigned inChansPerGroup = plan.inChansPerGroup;
   bool flipOut = params.inputTransform.flip[numFieldDims - 1];
-  const auto convUnitInputLoadElemsPerCycle =
-    target.getConvUnitInputLoadElemsPerCycle(in.elementType() == FLOAT);
-  const auto convUnitCoeffLoadBytesPerCycle =
-      target.getConvUnitCoeffLoadBytesPerCycle();
 
   std::vector<Tensor> outWindow;
   std::vector<Tensor> inWindow;
@@ -2046,12 +2041,6 @@ static void createConvPartialAmpVertex(Graph &graph,
   graph.setInitialValue(v["numInGroups"], numInChanGroups);
   graph.setInitialValue(v["inStride"], inStrideX) ;
   graph.setInitialValue(v["numConvGroups"], numConvGroups);
-  graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-  graph.setInitialValue(v["convUnitInputLoadElemsPerCycle"],
-                        convUnitInputLoadElemsPerCycle);
-  graph.setInitialValue(v["convUnitCoeffLoadBytesPerCycle"],
-                        convUnitCoeffLoadBytesPerCycle);
-  graph.setInitialValue(v["numWorkerContexts"], contextsPerVertex);
   graph.setInitialValue(v["flipOut"], flipOut);
   graph.setFieldSize(v["worklists"], worklist.size());
   for (unsigned i = 0;i < worklist.size(); ++i) {
@@ -2095,8 +2084,6 @@ createConvPartialHorizontalMacVertex(Graph &graph,
   const unsigned outChansPerGroup = plan.partialChansPerGroup;
 
   bool flipOut = params.inputTransform.flip[xDimIndex];
-
-  const auto dataPathWidth = target.getDataPathWidth();
 
   assert(outChansPerGroup == 1);
   if (in.elementType() == HALF) {
@@ -2242,8 +2229,6 @@ createConvPartialHorizontalMacVertex(Graph &graph,
   graph.setInitialValue(v["outStride"], outStrideX);
   graph.setInitialValue(v["numConvGroups"], numConvGroups);
   graph.setInitialValue(v["flipOut"], flipOut);
-  graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
-  graph.setInitialValue(v["numWorkerContexts"], contextsPerVertex);
   graph.setFieldSize(v["worklists"], worklist.size());
   for (unsigned i = 0;i < worklist.size(); ++i) {
     auto t = graph.addConstant(UNSIGNED_INT, {worklist[i].size()},
@@ -2268,7 +2253,6 @@ createOuterProductVertex(
     Tensor in,
     Tensor weights,
     const Tensor &out) {
-  const auto dataPathWidth = graph.getTarget().getDataPathWidth();
   const auto numFieldDims = params.getNumFieldDims();
   assert(product(params.outputTransform.stride) == 1);
   assert(product(params.inputTransform.dilation) == 1);
@@ -2335,7 +2319,6 @@ createOuterProductVertex(
                              {{"in", inWindow},
                               {"weights", weightsWindow},
                               {"out", outWindow}});
-    graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
     graph.setTileMapping(v, tile);
   }
 }
@@ -3291,7 +3274,6 @@ convChannelReduce(Graph &graph,
       }
       graph.setFieldSize(v["in"], numRanges);
       graph.connect(v["out"], r[outIndex++]);
-      graph.setInitialValue(v["dataPathWidth"], target.getDataPathWidth());
       graph.setInitialValue(v["useDoubleDataPathInstr"],
                             useDoubleDataPathInstr);
       graph.setTileMapping(v, tile);
@@ -3357,7 +3339,6 @@ convChannelReduce(Graph &graph,
       auto v = graph.addVertex(computeSets[1],
                                templateVertex("popops::Zero", partialsType));
       graph.connect(v["out"], partials[worker].slice(0, maxOutputsPerWorker));
-      graph.setInitialValue(v["dataPathWidth"], target.getDataPathWidth());
       graph.setTileMapping(v, tile);
       continue;
     }
@@ -3510,7 +3491,6 @@ addToChannel(Graph &graph, const Tensor &actsUngrouped,
       }
       graph.setFieldSize(v["acts"], num);
       graph.setFieldSize(v["addend"], num);
-      graph.setInitialValue(v["dataPathWidth"], target.getDataPathWidth());
     }
   }
   prog.add(Execute(cs));
@@ -3718,7 +3698,6 @@ channelMul(Graph &graph, const Tensor &actsUngrouped, const Tensor &scale,
       graph.setFieldSize(v["actsIn"], num);
       graph.setFieldSize(v["actsOut"], num);
       graph.setFieldSize(v["scale"], num);
-      graph.setInitialValue(v["dataPathWidth"], target.getDataPathWidth());
     }
   }
   prog.add(Execute(cs));
@@ -3739,7 +3718,6 @@ static Tensor computeInvStdDev(Graph &graph, const Tensor &mean,
   const auto iStdDevFlat = iStdDev.flatten();
 
   const auto &target = graph.getTarget();
-  const auto dataPathWidth = target.getDataPathWidth();
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix + "/iStdDev");
 
@@ -3761,7 +3739,6 @@ static Tensor computeInvStdDev(Graph &graph, const Tensor &mean,
                                {{"mean", meanFlat.slices(regions)},
                                 {"power", powerFlat.slices(regions)},
                                 {"iStdDev", iStdDevFlat.slices(regions)}});
-      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setInitialValue(v["eps"], eps);
       graph.setTileMapping(v, tile);
     }

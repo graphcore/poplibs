@@ -16,7 +16,6 @@ void hadamardProduct(Graph &graph, Tensor A, Tensor B,
     throw poputil::poplib_error("Trying to write to tensor that cannot be "
                                "written in parallel");
   const auto &target = graph.getTarget();
-  const auto dataPathWidth = target.getDataPathWidth();
   const auto dType = A.elementType();
   const auto numTiles = target.getNumTiles();
   const auto mapping = graph.getTileMapping(A);
@@ -42,7 +41,6 @@ void hadamardProduct(Graph &graph, Tensor A, Tensor B,
                                               dType),
                                {{"A", aFlat.slices(regions)},
                                 {"B", bFlat.slices(regions)}});
-      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setTileMapping(v, tile);
     }
   }

@@ -85,8 +85,6 @@ public:
   Vector<InOut<Vector<FPType>>> data;
   unsigned nonLinearityType;
 
-  SimOnlyField<unsigned> dataPathWidth;
-
   bool compute() {
     for (unsigned i = 0; i < data.size(); ++i) {
       for (unsigned j = 0; j < data[i].size(); ++j) {
@@ -108,8 +106,6 @@ public:
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> out;
   Vector<Output<Vector<FPType>>> inGrad;
   unsigned nonLinearityType;
-
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i < inGrad.size(); ++i) {
@@ -133,8 +129,6 @@ public:
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<FPType>>> out;
   Vector<unsigned> windowSizes;
-
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     unsigned inIndex = 0;
@@ -165,8 +159,6 @@ public:
   // This field may be removed if separate vertices are defined for
   // Sum Pooling and Avg pooling
   bool scaleOutput;
-
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     unsigned inIndex = 0;
@@ -200,8 +192,6 @@ public:
   Vector<Output<Vector<FPType>>> inGrad;
   Vector<unsigned> windowSizes;
 
-  SimOnlyField<unsigned> dataPathWidth;
-
   bool compute() {
     unsigned inIndex = 0;
     for (unsigned i = 0; i < inGrad.size(); ++i) {
@@ -229,8 +219,6 @@ public:
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> outGrad;
   Vector<Output<Vector<FPType>>> inGrad;
   Vector<unsigned> windowSizes;
-
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     unsigned inIndex = 0;
@@ -345,7 +333,6 @@ public:
   Vector<Output<Vector<InType>>> mean;
   Vector<Output<Vector<InType, ONE_PTR>>, ONE_PTR> iStdDev;
   float eps;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     const unsigned n = mean.size();

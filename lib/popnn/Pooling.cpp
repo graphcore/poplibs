@@ -377,7 +377,6 @@ Tensor pool(Graph &graph,
   auto in = actsToInternalShape(in_);
   const auto dType = in.elementType();
   const auto &target = graph.getTarget();
-  const auto dataPathWidth = target.getDataPathWidth();
   const auto layerName = debugPrefix + "/" + asString(poolingType) + "Pool"
                          + std::to_string(kernelShape[0]) + "x"
                          + std::to_string(kernelShape[1]);
@@ -508,7 +507,6 @@ Tensor pool(Graph &graph,
                                                   dType),
                                {{"in", vertexIn}, {"out", vertexOut}});
       graph.setTileMapping(v, tile);
-      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       if (poolingType != PoolingType::MAX) {
         graph.setInitialValue(v["scaleOutput"],
                               poolingType == PoolingType::AVG);
@@ -539,7 +537,6 @@ poolInputGradient(Graph &graph,
   auto pooledGradient = actsToInternalShape(pooledGradient_);
   const auto dType = in.elementType();
   const auto &target = graph.getTarget();
-  const auto dataPathWidth = target.getDataPathWidth();
   const auto layerName = debugPrefix + "/" + asString(poolingType) + "PoolBwd"
                          + std::to_string(kernelShape[0]) + "x"
                          + std::to_string(kernelShape[1]);
@@ -675,7 +672,6 @@ poolInputGradient(Graph &graph,
                         {{"outGrad", vertexPooledGrad},
                          {"inGrad", vertexInGrad}});
       graph.setTileMapping(v, tile);
-      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setInitialValue(v["windowSizes"], windowSizes);
     }
   }

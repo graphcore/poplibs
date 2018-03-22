@@ -58,7 +58,6 @@ cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
         graph.connect(v["src"], src.slices(regions));
         graph.connect(v["dst"], dst.slices(regions));
       }
-      graph.setInitialValue(v["dataPathWidth"], target.getDataPathWidth());
       graph.setTileMapping(v, tile);
     };
   }

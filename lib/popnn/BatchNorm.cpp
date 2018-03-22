@@ -80,7 +80,6 @@ batchNormEstimates(Graph &graph, const Tensor acts,
     ComputeSet cs = graph.addComputeSet(fnPrefix);
 
     const auto &target = graph.getTarget();
-    const auto dataPathWidth = target.getDataPathWidth();
 
     assert(acts.rank() == 2);
     const unsigned numChans = numChannels(acts);
@@ -120,7 +119,6 @@ batchNormEstimates(Graph &graph, const Tensor acts,
         graph.setFieldSize(v["acts"], inpIdx);
         graph.setFieldSize(v["mean"], num);
         graph.setFieldSize(v["iStdDev"], num);
-        graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
         graph.setInitialValue(v["eps"], eps);
         graph.setTileMapping(v, tile);
       }

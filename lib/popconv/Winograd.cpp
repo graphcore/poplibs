@@ -1061,9 +1061,6 @@ static Program dataTransform(
               auto vZ = graph.addVertex(zCs,
                                         templateVertex("popops::Zero",
                                                        tp.dType));
-              graph.setInitialValue(vZ["dataPathWidth"],
-                                    target.getDataPathWidth());
-
               graph.connect(vZ["out"], zeroVec);
               graph.setTileMapping(vZ, tile);
               zeroTensorCreated = true;
@@ -1187,8 +1184,6 @@ static Program dataTransform(
 
           auto v = graph.addVertex(zCs, templateVertex("popops::Zero",
                                                        tp.dType));
-          graph.setInitialValue(v["dataPathWidth"],
-                                target.getDataPathWidth());
 
           graph.connect(v["out"], zeroVec);
           graph.setTileMapping(v, tile);
@@ -1277,22 +1272,8 @@ static Program accum(
               std::vector<Tensor> &dataTf,
               std::vector<Tensor> &kernelTf,
               Tensor acc) {
-  const auto &target = graph.getTarget();
-  const unsigned numWorkers = target.getNumWorkerContexts();
-
   ComputeSet cs = graph.addComputeSet(layerName + "/Accum");
   ComputeSet zeroCS = graph.addComputeSet(layerName + "/ZeroAccum");
-  const auto weightsPerConvUnit =
-      target.getWeightsPerConvUnit(tp.dType == FLOAT);
-
-  const auto numConvUnits = tp.dType == FLOAT ?
-                              target.getFp32InFp32OutConvUnitsPerTile() :
-                              tp.partialsType == FLOAT ?
-                                  target.getFp16InFp32OutConvUnitsPerTile() :
-                                  target.getFp16InFp16OutConvUnitsPerTile();
-
-  const auto convUnitCoeffLoadBytesPerCycle =
-                              target.getConvUnitCoeffLoadBytesPerCycle();
 
   unsigned numZig = tp.zig;
   for (unsigned zigTile = 0; zigTile < tp.tilesForZig; ++zigTile) {
@@ -1333,12 +1314,6 @@ static Program accum(
                                      templateVertex("popconv::WgdPartials",
                                                      tp.dType));
 
-            graph.setInitialValue(v["numWorkers"], numWorkers);
-            graph.setInitialValue(v["numConvUnits"], numConvUnits);
-            graph.setInitialValue(v["weightsPerConvUnit"],
-                                    weightsPerConvUnit);
-            graph.setInitialValue(v["convUnitCoeffLoadBytesPerCycle"],
-                                  convUnitCoeffLoadBytesPerCycle);
             graph.setFieldSize(v["wTf"], zigThisTile);
             graph.setFieldSize(v["dTf"], patchesThisTile * zigThisTile);
             graph.setFieldSize(v["partials"], patchesThisTile);

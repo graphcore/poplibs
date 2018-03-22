@@ -8,7 +8,6 @@ namespace popops {
 class AllTrue : public Vertex {
 public:
   Vector<Input<Vector<bool>>> in;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     bool v = true;

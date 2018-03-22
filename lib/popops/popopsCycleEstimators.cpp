@@ -1421,8 +1421,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(DynamicSlice2d)(const VertexIntrospector &vertex,
     vertex.getFieldInfo("numSubElements").getInitialValue<unsigned>(target);
   const unsigned elementsPerWorker =
     vertex.getFieldInfo("elementsPerWorker").getInitialValue<unsigned>(target);
-  const unsigned numWorkers =
-    vertex.getFieldInfo("numWorkers").getInitialValue<unsigned>(target);
+  const unsigned numWorkers = target.getNumWorkerContexts();
 
   auto cycles = 5;
   unsigned nVectors = (elementsPerWorker + vectorWidth - 1) / vectorWidth;

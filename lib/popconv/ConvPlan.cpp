@@ -1060,8 +1060,6 @@ addCycleEstimate(popsolver::Model &m,
                  Plan::Method method,
                  Plan::LinearizeTileOrder linearizeTileOrder,
                  PlanningCacheImpl *cache) {
-  const auto numLevelsOfHierarchy = partitionVars.size();
-  const auto numFieldDims = partitionVars[0].fieldGrainSize.size();
   // popsolver takes into account whether a variable is an operand of a call
   // when deciding the order to set variables. Add a dummy call to ensure the
   // split variables are prioritized as this reduces the amount of time spent

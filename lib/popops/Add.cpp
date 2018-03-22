@@ -16,7 +16,6 @@ void addTo(Graph &graph, Tensor A, Tensor B, float k,
     throw poputil::poplib_error("Trying to accumulate to tensor that cannot be "
                                "written in parallel");
   const auto &target = graph.getTarget();
-  const auto dataPathWidth = target.getDataPathWidth();
   const auto dType = A.elementType();
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix + "/AddTo");
@@ -44,7 +43,6 @@ void addTo(Graph &graph, Tensor A, Tensor B, float k,
                                {{"data", aFlat.slices(regions)},
                                 {"deltas", bFlat.slices(regions)}});
       graph.setInitialValue(v["K"], k);
-      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setTileMapping(v, tile);
     }
   }

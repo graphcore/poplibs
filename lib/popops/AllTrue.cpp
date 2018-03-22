@@ -19,7 +19,6 @@ void allTrue(Graph &graph, Tensor in, Sequence &prog,
     throw poputil::poplib_error("Operation allTrue only takes boolean tensors");
   }
   const auto &target = graph.getTarget();
-  const auto dataPathWidth = target.getDataPathWidth();
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix);
 
@@ -40,7 +39,6 @@ void allTrue(Graph &graph, Tensor in, Sequence &prog,
       auto v = graph.addVertex(cs,
                                "popops::AllTrue",
                                {{"in", inFlat.slices(regions)}});
-      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setTileMapping(v, tile);
     }
   }

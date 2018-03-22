@@ -16,9 +16,7 @@ ScaledAdd : public Vertex {
 public:
   Vector<InOut<Vector<InType>>> data;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> deltas;
-
   InType K;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i < data.size(); ++i) {
@@ -44,7 +42,6 @@ public:
   Vector<InOut<Vector<FPType>>> A;
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> B;
 
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i < A.size(); ++i) {
@@ -66,8 +63,6 @@ class Zero : public Vertex {
 public:
   Output<Vector<InType>> out;
 
-  SimOnlyField<unsigned> dataPathWidth;
-
   bool compute() {
     for (unsigned i = 0; i < out.size(); ++i) {
       out[i] = 0;
@@ -85,8 +80,6 @@ template <typename FPType>
 class Zero2d : public Vertex {
 public:
   Vector<Output<Vector<FPType>>> out;
-
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (auto &row : out) {
@@ -109,7 +102,6 @@ Cast : public Vertex {
 public:
   Input<Vector<SrcType, ONE_PTR>> src;
   Output<Vector<DstType>> dst;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i < dst.size(); ++i) {
@@ -146,7 +138,6 @@ Cast2d : public Vertex {
 public:
   Vector<Input<Vector<SrcType, ONE_PTR>>, ONE_PTR> src;
   Vector<Output<Vector<DstType>>> dst;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != dst.size(); ++i) {
@@ -184,7 +175,6 @@ class Absolute : public Vertex {
 public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -211,7 +201,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
 
@@ -237,7 +226,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
 
@@ -267,7 +255,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -289,7 +276,6 @@ BitwiseNot : public Vertex {
 public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -315,7 +301,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -337,7 +322,6 @@ Ceil : public Vertex {
 public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -357,7 +341,6 @@ class Cos : public Vertex {
 public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -383,7 +366,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -405,7 +387,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<bool>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -428,7 +409,6 @@ class Exponent : public Vertex {
 public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -450,7 +430,6 @@ Floor : public Vertex {
 public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -471,7 +450,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<bool>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -494,7 +472,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<bool>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -516,7 +493,6 @@ class IsFinite : public Vertex {
 public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<bool>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -538,7 +514,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<bool>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -561,7 +536,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<bool>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -583,7 +557,6 @@ class Logarithm : public Vertex {
 public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -604,7 +577,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<bool>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -624,7 +596,6 @@ class LogicalNot : public Vertex {
 public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -645,7 +616,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<bool>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -668,7 +638,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -694,7 +663,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -720,7 +688,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -743,7 +710,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<bool>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -768,7 +734,6 @@ Negate : public Vertex {
 public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -791,7 +756,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -818,7 +782,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -845,7 +808,6 @@ class Round : public Vertex {
 public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -866,7 +828,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -886,7 +847,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -906,7 +866,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -927,7 +886,6 @@ Signum : public Vertex {
 public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -948,7 +906,6 @@ class Sin : public Vertex {
 public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -972,7 +929,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -995,7 +951,6 @@ class Tanh : public Vertex {
 public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -1016,7 +971,6 @@ class Sqrt : public Vertex {
 public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -1038,7 +992,6 @@ Square : public Vertex {
 public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -1060,7 +1013,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;  // lower bound
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in3;  // upper bound
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
@@ -1090,7 +1042,6 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Input<Vector<bool>>> in3;
   Vector<Output<Vector<InType>>> out;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {

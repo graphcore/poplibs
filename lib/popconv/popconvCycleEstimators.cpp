@@ -32,8 +32,6 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(const VertexIntrospector &vertex,
   CODELET_SCALAR_VAL(ampKernelHeight, unsigned);
   CODELET_SCALAR_VAL(outChansPerGroup, unsigned);
   CODELET_SCALAR_VAL(inChansPerGroup, unsigned);
-  CODELET_SCALAR_VAL(convUnitInputLoadElemsPerCycle, unsigned);
-  CODELET_SCALAR_VAL(convUnitCoeffLoadBytesPerCycle, unsigned);
 
   CODELET_VECTOR_2D_VALS(worklists, unsigned);
   CODELET_VECTOR_VALS(zeroWorklist, unsigned);
@@ -76,6 +74,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(const VertexIntrospector &vertex,
     }
   }
   bool floatWeights = fpType == FLOAT;
+  const auto convUnitInputLoadElemsPerCycle =
+    target.getConvUnitInputLoadElemsPerCycle(fpType == FLOAT);
+  const auto convUnitCoeffLoadBytesPerCycle =
+      target.getConvUnitCoeffLoadBytesPerCycle();
   return zeroCycles +
     getConvPartialnx1SupervisorCycleEstimate(workerPartitions,
                                              numConvGroups,
@@ -129,9 +131,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(const VertexIntrospector &vertex,
   CODELET_SCALAR_VAL(numConvGroups, unsigned);
   CODELET_SCALAR_VAL(numInGroups, unsigned);
   CODELET_SCALAR_VAL(numOutGroups, unsigned);
-  CODELET_SCALAR_VAL(convUnitInputLoadElemsPerCycle, unsigned);
   CODELET_SCALAR_VAL(outChansPerGroup, unsigned);
-  CODELET_SCALAR_VAL(convUnitCoeffLoadBytesPerCycle, unsigned);
   const auto numWorkerContexts = target.getNumWorkerContexts();
   CODELET_FIELD(weights);
   CODELET_FIELD(out);
@@ -153,6 +153,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(const VertexIntrospector &vertex,
   }
   bool floatWeights = fpType == FLOAT;
   const auto numConvUnits = getNumConvUnits(fpType, accumType, target);
+  const auto convUnitInputLoadElemsPerCycle =
+      target.getConvUnitInputLoadElemsPerCycle(fpType == FLOAT);
+  const auto convUnitCoeffLoadBytesPerCycle =
+                        target.getConvUnitCoeffLoadBytesPerCycle();
   return
     getConvPartial1x1SupervisorCycleEstimate(workerPartitions,
                                              numConvGroups,

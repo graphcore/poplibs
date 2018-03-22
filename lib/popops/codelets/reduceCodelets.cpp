@@ -17,8 +17,6 @@ public:
   Vector<Output<Vector<OutType>>> out;
   Vector<Input<Vector<PartialsType, ONE_PTR, 1, true>>> partials;
 
-  SimOnlyField<unsigned> dataPathWidth;
-
   bool compute() {
     unsigned numReductions = out.size();
     unsigned numPartials = partials.size() / numReductions;
@@ -50,8 +48,6 @@ public:
   Vector<Input<Vector<PartialsType, ONE_PTR, 1, true>>> partials;
   float k;
 
-  SimOnlyField<unsigned> dataPathWidth;
-
   bool compute() {
     unsigned numReductions = out.size();
     unsigned numPartials = partials.size() / numReductions;
@@ -82,7 +78,6 @@ public:
   Vector<InOut<Vector<OutType>>> out;
   Vector<Input<Vector<PartialsType, ONE_PTR, 1, true>>> partials;
   float k;
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     unsigned numReductions = out.size();
@@ -115,8 +110,6 @@ public:
   Vector<Output<Vector<OutType>>> out;
   Vector<Input<Vector<PartialsType, ONE_PTR, 1, true>>> partials;
 
-  SimOnlyField<unsigned> dataPathWidth;
-
   bool compute() {
     unsigned numReductions = out.size();
     unsigned numPartials = partials.size() / numReductions;
@@ -146,8 +139,6 @@ ReduceMax : public Vertex {
 public:
   Vector<Output<Vector<OutType>>> out;
   Vector<Input<Vector<PartialsType, ONE_PTR, 1, true>>> partials;
-
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     unsigned numReductions = out.size();
@@ -179,8 +170,6 @@ public:
   Vector<Output<Vector<OutType>>> out;
   Vector<Input<Vector<PartialsType, ONE_PTR, 1, true>>> partials;
 
-  SimOnlyField<unsigned> dataPathWidth;
-
   bool compute() {
     unsigned numReductions = out.size();
     unsigned numPartials = partials.size() / numReductions;
@@ -211,8 +200,6 @@ public:
   Vector<Output<Vector<OutType>>> out;
   Vector<Input<Vector<PartialsType, ONE_PTR, 1, true>>> partials;
 
-  SimOnlyField<unsigned> dataPathWidth;
-
   bool compute() {
     unsigned numReductions = out.size();
     unsigned numPartials = partials.size() / numReductions;
@@ -240,8 +227,6 @@ ReduceOr : public Vertex {
 public:
   Vector<Output<Vector<OutType>>> out;
   Vector<Input<Vector<PartialsType, ONE_PTR, 1, true>>> partials;
-
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     unsigned numReductions = out.size();

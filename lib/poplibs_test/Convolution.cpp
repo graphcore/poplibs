@@ -174,8 +174,10 @@ truncateDilatePadAndFlip(boost::const_multi_array_ref<double, 2> in,
                          const std::vector<unsigned> &paddingUpper,
                          const std::vector<bool> &flip,
                          std::vector<unsigned> &paddedSize) {
+#ifndef NDEBUG
   const auto numFieldElements = product(size);
   assert(in.shape()[1] == numFieldElements);
+#endif
   const auto numFieldDims = size.size();
   std::vector<unsigned> truncatedSize(numFieldDims);
   std::vector<unsigned> dilatedSize(numFieldDims);
