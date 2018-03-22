@@ -46,16 +46,26 @@ struct ConvOptions {
   poplar::Type interTilePartialsType = poplar::FLOAT;
   poplar::Type interIpuPartialsType = poplar::FLOAT;
   PlanningCache *cache = nullptr;
-  bool operator<(const ConvOptions &other) const {
-    return std::tie(weightUpdateMethod, useWinograd, winogradPatchSize,
-                    percentageCyclesExcessForMemOptim,
-                    partialsType) <
-             std::tie(other.weightUpdateMethod, other.useWinograd,
-                      other.winogradPatchSize,
-                      other.percentageCyclesExcessForMemOptim,
-                      other.partialsType);
-  }
 };
+
+inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
+  return std::tie(a.weightUpdateMethod,
+                  a.useWinograd,
+                  a.winogradPatchSize,
+                  a.percentageCyclesExcessForMemOptim,
+                  a.pass,
+                  a.partialsType,
+                  a.interTilePartialsType,
+                  a.interIpuPartialsType) <
+           std::tie(b.weightUpdateMethod,
+                    b.useWinograd,
+                    b.winogradPatchSize,
+                    b.percentageCyclesExcessForMemOptim,
+                    b.pass,
+                    b.partialsType,
+                    b.interTilePartialsType,
+                    b.interIpuPartialsType);
+}
 
 struct ConvParams {
   struct InputTransform {
