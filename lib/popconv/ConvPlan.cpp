@@ -706,7 +706,6 @@ addPartialCalcCycleEstimate(
       const auto numConvUnits = getNumConvUnits(floatActivations,
                                                floatPartials,
                                                target);
-      assert(outChansPerGroup % numConvUnits == 0);
       const auto convUnitInputLoadElemsPerCycle =
          target.getConvUnitInputLoadElemsPerCycle(floatActivations);
 
@@ -738,8 +737,9 @@ addPartialCalcCycleEstimate(
           return
               getConvPartial1x1SupervisorOuterLoopCycleEstimate(
                 innerLoopCycles, convSize.numConvGroups, tileNumInGroups,
-                tileNumOutGroups, convUnitInputLoadElemsPerCycle,
-                numConvUnits, target.getConvUnitCoeffLoadBytesPerCycle(),
+                tileNumOutGroups, outChansPerGroup,
+                convUnitInputLoadElemsPerCycle, numConvUnits,
+                target.getConvUnitCoeffLoadBytesPerCycle(),
                 floatActivations, useDeltasForEdges);
         }
         auto innerLoopCycles =
@@ -751,8 +751,9 @@ addPartialCalcCycleEstimate(
               transformedInputDilation, transformedOutputStride);
         return
             getConvPartialnx1SupervisorCycleOuterLoopEstimate(
-              innerLoopCycles, convSize.numConvGroups, tileNumOutGroups,
-              tileNumInGroups, useDeltasForEdges);
+              innerLoopCycles, convSize.numConvGroups,
+              tileNumOutGroups, tileNumInGroups, outChansPerGroup,
+              useDeltasForEdges, numConvUnits);
       });
     }
   case Plan::Method::MAC:
@@ -1681,13 +1682,20 @@ constructModel(const poplar::Target &target,
               m.product(vars);
         }
       }
-      if (outChanGrainSize[level] != outChanGrainSize[level - 1]) {
+      if (outChanGrainSize[level] > outChanGrainSize[level - 1]) {
         assert(outChanGrainSize[level] % outChanGrainSize[level - 1] == 0);
         const auto divisor = outChanGrainSize[level] /
                              outChanGrainSize[level - 1];
         transformedConvSize.back().numOutChanGrains =
             m.ceildiv(transformedConvSize.back().numOutChanGrains,
                       m.addConstant(divisor));
+      } else if (outChanGrainSize[level] < outChanGrainSize[level - 1]) {
+        assert(outChanGrainSize[level - 1] % outChanGrainSize[level] == 0);
+        const auto multiplier = outChanGrainSize[level - 1] /
+                                outChanGrainSize[level];
+        transformedConvSize.back().numOutChanGrains =
+            m.product({transformedConvSize.back().numOutChanGrains,
+                       m.addConstant(multiplier)});
       }
       if (inChanGrainSize[level] != inChanGrainSize[level - 1]) {
         assert(inChanGrainSize[level] % inChanGrainSize[level - 1] == 0);

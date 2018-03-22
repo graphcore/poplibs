@@ -5,6 +5,18 @@ using namespace poplar;
 
 namespace popconv {
 
+static unsigned getNumConvUnits(const Type &fpType, const Type &accumType,
+                                const poplar::Target &target) {
+  if (fpType == FLOAT) {
+    return target.getFp32InFp32OutConvUnitsPerTile();
+  }
+  assert(fpType == HALF);
+  if (accumType == FLOAT)
+    return target.getFp16InFp32OutConvUnitsPerTile();
+  assert(accumType == HALF);
+  return target.getFp16InFp16OutConvUnitsPerTile();
+}
+
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(const VertexIntrospector &vertex,
                                           const Target &target,
@@ -33,6 +45,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(const VertexIntrospector &vertex,
 
   const auto dataPathWidth = target.getDataPathWidth();
   const auto numWorkerContexts = target.getNumWorkerContexts();
+  const auto numConvUnits = getNumConvUnits(fpType, accumType, target);
 
   std::vector<std::vector<std::vector<unsigned>>> workerPartitions;
   const auto kernelSize = kernelOuterSize * kernelInnerElements;
@@ -71,8 +84,9 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(const VertexIntrospector &vertex,
                                              kernelSize,
                                              ampKernelHeight,
                                              inChansPerGroup,
-                                             convUnitInputLoadElemsPerCycle,
                                              outChansPerGroup,
+                                             convUnitInputLoadElemsPerCycle,
+                                             numConvUnits,
                                              convUnitCoeffLoadBytesPerCycle,
                                              numWorkerContexts,
                                              floatWeights,
@@ -138,13 +152,15 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(const VertexIntrospector &vertex,
     }
   }
   bool floatWeights = fpType == FLOAT;
+  const auto numConvUnits = getNumConvUnits(fpType, accumType, target);
   return
     getConvPartial1x1SupervisorCycleEstimate(workerPartitions,
                                              numConvGroups,
                                              numInGroups,
                                              numOutGroups,
-                                             convUnitInputLoadElemsPerCycle,
                                              outChansPerGroup,
+                                             convUnitInputLoadElemsPerCycle,
+                                             numConvUnits,
                                              convUnitCoeffLoadBytesPerCycle,
                                              numWorkerContexts,
                                              floatWeights,

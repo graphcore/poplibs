@@ -168,12 +168,14 @@ getConvPartial1x1SupervisorOuterLoopCycleEstimate(
     unsigned numConvGroups,
     unsigned numInGroups,
     unsigned numOutGroups,
+    unsigned outChansPerGroup,
     unsigned convUnitInputLoadElemsPerCycle,
     unsigned numConvUnitsPerTile,
     unsigned convUnitCoeffLoadBytesPerCycle,
     bool floatWeights,
     bool useDeltasForEdges) {
-
+  const auto outputPassesPerGroup =
+      (outChansPerGroup + numConvUnitsPerTile - 1) / numConvUnitsPerTile;
 
   const auto numInputLoadsInnerLoop = 4;
   const auto numLoads = convUnitInputLoadElemsPerCycle * numInputLoadsInnerLoop
@@ -184,12 +186,14 @@ getConvPartial1x1SupervisorOuterLoopCycleEstimate(
     const uint64_t supervisorNonloopOverhead = 48;
     return supervisorNonloopOverhead + numConvGroups
            * (numInGroups
-              * (9 + numOutGroups * (18 + numLoads + innerLoopCycles)));
+              * (9 + numOutGroups * outputPassesPerGroup
+                 * (18 + numLoads + innerLoopCycles)));
   } else {
     const uint64_t supervisorNonloopOverhead = 39;
     return supervisorNonloopOverhead + numConvGroups
            * (numInGroups
-              * (8 + numOutGroups * (16 + numLoads + innerLoopCycles)));
+              * (8 + numOutGroups * outputPassesPerGroup
+                 * (16 + numLoads + innerLoopCycles)));
   }
 }
 
@@ -199,6 +203,7 @@ getConvPartial1x1SupervisorCycleEstimate(
     unsigned numConvGroups,
     unsigned numInGroups,
     unsigned numOutGroups,
+    unsigned outChansPerGroup,
     unsigned convUnitInputLoadElemsPerCycle,
     unsigned numConvUnitsPerTile,
     unsigned convUnitCoeffLoadBytesPerCycle,
@@ -210,8 +215,9 @@ getConvPartial1x1SupervisorCycleEstimate(
                                                         numWorkerContexts);
   return getConvPartial1x1SupervisorOuterLoopCycleEstimate(
             innerLoopCycles, numConvGroups, numInGroups, numOutGroups,
-            convUnitInputLoadElemsPerCycle, numConvUnitsPerTile,
-            convUnitCoeffLoadBytesPerCycle, floatWeights, useDeltasForEdges);
+            outChansPerGroup, convUnitInputLoadElemsPerCycle,
+            numConvUnitsPerTile, convUnitCoeffLoadBytesPerCycle, floatWeights,
+            useDeltasForEdges);
 }
 
 inline std::uint64_t
@@ -220,16 +226,20 @@ getConvPartialnx1SupervisorCycleOuterLoopEstimate(
     unsigned numConvGroups,
     unsigned numOutGroups,
     unsigned numInGroups,
-    unsigned useDeltaForEdges) {
+    unsigned outChansPerGroup,
+    unsigned useDeltaForEdges,
+    unsigned numConvUnitsPerTile) {
   uint64_t cycles = innerLoopCycles;
+  const auto outputPassesPerGroup =
+      (outChansPerGroup + numConvUnitsPerTile - 1) / numConvUnitsPerTile;
   if (useDeltaForEdges) {
     return 6 + numConvGroups
-               * (46 + numOutGroups
+               * (46 + numOutGroups * outputPassesPerGroup
                  * (9 + numInGroups
                    * (21 + cycles)));
   } else {
     return 6 + numConvGroups
-               * (42 + numOutGroups
+               * (42 + numOutGroups * outputPassesPerGroup
                  * (9 + numInGroups
                    * (19 + cycles)));
   }
@@ -286,6 +296,7 @@ getConvPartialnx1SupervisorCycleEstimate(
     unsigned kernelSize,
     unsigned filterHeight,
     unsigned inChansPerGroup,
+    unsigned outChansPerGroup,
     unsigned convUnitInputLoadElemsPerCycle,
     unsigned numConvUnitsPerTile,
     unsigned convUnitCoeffLoadBytesPerCycle,
@@ -297,11 +308,14 @@ getConvPartialnx1SupervisorCycleEstimate(
         workerPartitions, kernelSize, filterHeight,
         convUnitInputLoadElemsPerCycle, numConvUnitsPerTile,
         convUnitCoeffLoadBytesPerCycle, numWorkerContexts, floatWeights);
-  return getConvPartialnx1SupervisorCycleOuterLoopEstimate(innerLoopCycles,
-                                                           numConvGroups,
-                                                           numOutGroups,
-                                                           numInGroups,
-                                                           useDeltaForEdges);
+  return getConvPartialnx1SupervisorCycleOuterLoopEstimate(
+           innerLoopCycles,
+           numConvGroups,
+           numOutGroups,
+           numInGroups,
+           outChansPerGroup,
+           useDeltaForEdges,
+           numConvUnitsPerTile);
 }
 
 inline std::uint64_t

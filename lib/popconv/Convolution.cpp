@@ -1866,11 +1866,6 @@ static void createConvPartialAmpVertex(Graph &graph,
   const unsigned numInChanGroups = in.dim(1);
   const auto outChansPerGroup = plan.partialChansPerGroup;
   const auto partialsType = out.elementType();
-  const auto outChansPerPass = getNumConvUnits(in.elementType() == FLOAT,
-                                               partialsType == FLOAT,
-                                               target);
-  assert(outChansPerGroup % outChansPerPass == 0);
-  const auto passesPerOutputGroup = outChansPerGroup / outChansPerPass;
   auto isNonZero = [](unsigned x) {
     return x != 0;
   };
@@ -1883,8 +1878,7 @@ static void createConvPartialAmpVertex(Graph &graph,
       std::any_of(params.outputTransform.paddingUpper.begin(),
                   params.outputTransform.paddingUpper.end(),
                   isNonZero);
-  bool useConvPartial1x1OutVertex = !nx1Vertex &&
-                                    passesPerOutputGroup == 1;
+  bool useConvPartial1x1OutVertex = !nx1Vertex;
   const auto dataPathWidth = target.getDataPathWidth();
   const unsigned inChansPerGroup = plan.inChansPerGroup;
   bool flipOut = params.inputTransform.flip[numFieldDims - 1];
