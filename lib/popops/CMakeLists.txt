@@ -10,6 +10,8 @@ add_library(popops SHARED
   DynamicSlice.cpp
   ElementWise.cpp
   Expr.cpp
+  ExprOpUtil.cpp
+  ExprOpUtil.hpp
   HadamardProduct.cpp
   Pad.cpp
   PerformanceEstimation.hpp

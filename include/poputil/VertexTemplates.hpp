@@ -32,12 +32,20 @@ inline std::string templateVertexParams(bool first,
                                         bool b,
                                         Args&&... args);
 
+template <typename T>
+struct VertexTemplateToString {
+  static std::string to_string(const T &x) {
+    return std::to_string(x);
+  }
+};
+
 template <typename T, typename ...Args>
 inline std::string templateVertexParams(bool first,
                                         const T&val, Args&&... args) {
   std::string p = first ? "<" : ",";
-  p += std::to_string(val) + templateVertexParams(false,
-                                                  std::forward<Args>(args)...);
+  p += VertexTemplateToString<T>::to_string(val) +
+      templateVertexParams(false,
+                           std::forward<Args>(args)...);
   return p;
 }
 

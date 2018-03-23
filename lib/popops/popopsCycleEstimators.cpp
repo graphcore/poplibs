@@ -1,5 +1,7 @@
 #include "popopsCycleEstimators.hpp"
 #include "PerformanceEstimation.hpp"
+#include "popops/Expr.hpp"
+#include "ExprOpUtil.hpp"
 
 using namespace poplar;
 
@@ -306,892 +308,186 @@ MAKE_CYCLE_ESTIMATOR_NAME(Cast2d)(const VertexIntrospector &vertex,
   return cycles;
 }
 
+struct OpPerformanceInfo {
+  unsigned cyclesPerVector;
+  bool vectorize;
+  OpPerformanceInfo(unsigned cyclesPerVector,
+                    bool vectorize) :
+    cyclesPerVector(cyclesPerVector),
+    vectorize(vectorize) {}
+  OpPerformanceInfo(unsigned cyclesPerVector) :
+    OpPerformanceInfo(cyclesPerVector, false) {}
+};
+
+using UnaryOpType = popops::expr::UnaryOpType;
+
+static std::map<std::pair<UnaryOpType, poplar::Type>, OpPerformanceInfo>
+unaryOpPerfInfo;
+
+static void initializeUnaryOpPerfInfo() {
+  unaryOpPerfInfo =
+      { { {UnaryOpType::ABSOLUTE, FLOAT}, {2, true} },
+        { {UnaryOpType::ABSOLUTE, HALF}, {2, true} },
+        { {UnaryOpType::ABSOLUTE, INT}, {3} },
+        // NOT on AUX side, ldst64pace
+        { {UnaryOpType::BITWISE_NOT, INT}, {1, true} },
+        // use mul with 1.0 and use correct rounding mode
+        { {UnaryOpType::CEIL, FLOAT}, {1, true} },
+        { {UnaryOpType::CEIL, HALF}, {1, true} },
+        { {UnaryOpType::COS, FLOAT}, {150, false} },
+        { {UnaryOpType::COS, HALF}, {100, false} },
+        { {UnaryOpType::EXPONENT, FLOAT}, {3, false} },
+        // Use f16v2exp
+        { {UnaryOpType::EXPONENT, HALF}, {4, true} },
+
+        // Use mul with 1.0 and use correct rounding mode
+        { {UnaryOpType::FLOOR, FLOAT}, {1, true} },
+        { {UnaryOpType::FLOOR, HALF}, {1, true} },
+        // 1 for v==v
+        // 1 for v!=INFINITY
+        // 1 for anding the two together
+        // 1 for converting a match from 0xffff to 0x0001
+        // 1 to convert the 32/16bit individual results to 8bits each
+        { {UnaryOpType::IS_FINITE, FLOAT}, {5, true} },
+        { {UnaryOpType::IS_FINITE, HALF}, {5, true} },
+        { {UnaryOpType::LOGARITHM, FLOAT}, {2, true} },
+        { {UnaryOpType::LOGARITHM, HALF}, {4, true} },
+        { {UnaryOpType::LOGICAL_NOT, BOOL}, {1, true} },
+        { {UnaryOpType::NEGATE, FLOAT}, {1, true} },
+        { {UnaryOpType::NEGATE, HALF}, {1, true} },
+        { {UnaryOpType::NEGATE, INT}, {3} },
+        { {UnaryOpType::ROUND, FLOAT}, {2, true} },
+        { {UnaryOpType::ROUND, HALF}, {2, true} },
+        { {UnaryOpType::SIGNUM, FLOAT}, {1, true} },
+        { {UnaryOpType::SIGNUM, HALF}, {1, true} },
+        { {UnaryOpType::SIGNUM, INT}, {5} },
+        { {UnaryOpType::SIN, FLOAT}, {150, false} },
+        { {UnaryOpType::SIN, HALF}, {100, false} },
+        { {UnaryOpType::SQRT, FLOAT}, {5, false} },
+        { {UnaryOpType::SQRT, HALF}, {7, false} },
+        { {UnaryOpType::SQRT, INT}, {10, false} },
+        { {UnaryOpType::SQUARE, FLOAT}, {1, false} },
+        { {UnaryOpType::SQUARE, HALF}, {1, false} },
+        { {UnaryOpType::TANH, FLOAT}, {7, false} },
+        { {UnaryOpType::TANH, HALF}, {4, true} },
+      };
+}
+
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Absolute)(const VertexIntrospector &vertex,
-                                    const Target &target,
-                                    const Type &type) {
+MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp)(const VertexIntrospector &vertex,
+                                   const Target &target,
+                                   popops::expr::UnaryOpType op,
+                                   const Type &type) {
   uint64_t cycles = 5;
   const auto in = vertex.getFieldInfo("in");
-  CODELET_FIELD(out);
+  const auto out = vertex.getFieldInfo("out");
   assert(in.size() == out.size());
+  const auto &info = unaryOpPerfInfo.at({op, type});
   for (unsigned i = 0; i < in.size(); ++i) {
     assert (in[i].size() == out[i].size());
-    unsigned cyclesPerVector = 1;
-    unsigned overhead = 6;
     unsigned numElem = in[i].size();
     unsigned vectorWidth = 1;
-
-    if (type == FLOAT) {
-      vectorWidth = target.getDataPathWidth() / 32;
-      cyclesPerVector = 2;
-    } else if (type == HALF) {
-      vectorWidth = target.getDataPathWidth() / 16;
-      cyclesPerVector = 2;
-    } else if (type == INT) {
-      // ld, abs, st
-      cyclesPerVector = 3;
+    if (info.vectorize) {
+      vectorWidth = target.getDataPathWidth() / target.getTypeSize(type);
     }
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
+    const auto loopOverhead = 6;
+    cycles += basicOpLoopCycles(loopOverhead, numElem, vectorWidth,
+                                info.cyclesPerVector);
   }
   return cycles;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Add)(const VertexIntrospector &vertex,
-                                const Target &target,
-                                const Type &type) {
-  uint64_t cycles = 5;
-  const auto in1 = vertex.getFieldInfo("in1");
-  CODELET_FIELD(in2);
-  CODELET_FIELD(out);
-  assert(in1.size() == out.size());
-  assert(in2.size() == in1.size());
-  for (unsigned i = 0; i < in1.size(); ++i) {
-    assert(in1[i].size() == out[i].size());
-    assert(in2[i].size() == in1[i].size());
-    unsigned cyclesPerVector = 1;
-    unsigned overhead = 6;
-    unsigned numElem = in1[i].size();
-    unsigned vectorWidth = 1;
-    if (type == FLOAT) {
-      vectorWidth = target.getDataPathWidth() / 32;
-      cyclesPerVector = 2;
-    } else if (type == HALF) {
-      vectorWidth = target.getDataPathWidth() / 16;
-      cyclesPerVector = 2;
-    } else if (type == INT) {
-      // ld, ld, add, st
-      cyclesPerVector = 4;
-    }
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
+using BinaryOpType = popops::expr::BinaryOpType;
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Atan2)(const VertexIntrospector &vertex,
-                                 const Target &target,
-                                 const Type &type) {
-  uint64_t cycles = 5;
-  const auto in1 = vertex.getFieldInfo("in1");
-  CODELET_FIELD(in2);
-  CODELET_FIELD(out);
-  assert(in1.size() == out.size());
-  assert(in2.size() == in1.size());
-  for (unsigned i = 0; i < in1.size(); ++i) {
-    assert(in1[i].size() == out[i].size());
-    assert(in2[i].size() == in1[i].size());
-    unsigned cyclesPerVector = 1;
-    unsigned overhead = 6;
-    unsigned numElem = in1[i].size();
-    unsigned vectorWidth = 1;
-    if (type == FLOAT) {
-      vectorWidth = 1;
-      cyclesPerVector = 25;
-    } else if (type == HALF) {
-      vectorWidth = 1;
-      cyclesPerVector = 25 + 3;
-    }
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-            cyclesPerVector);
-  }
-  return cycles;
-}
+static std::map<std::pair<BinaryOpType, poplar::Type>, OpPerformanceInfo>
+binaryOpPerfInfo;
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(BitwiseAnd)(const VertexIntrospector &vertex,
-                                      const Target &target,
-                                      const Type &type) {
-  uint64_t cycles = 5;
-  const auto in1 = vertex.getFieldInfo("in1");
-  CODELET_FIELD(in2);
-  CODELET_FIELD(out);
-  assert(in1.size() == out.size());
-  assert(in2.size() == in1.size());
-  for (unsigned i = 0; i < in1.size(); ++i) {
-    assert(in1[i].size() == out[i].size());
-    assert(in2[i].size() == in1[i].size());
-    unsigned numElem = in1[i].size();
-    unsigned overhead = 6;
-    unsigned vectorWidth = 2;
-    unsigned cyclesPerVector = 1;
+static std::map<std::pair<BinaryOpType, poplar::Type>, unsigned>
+comparisonOpPerfInfo;
 
+void initializeBinaryOpPerfInfo() {
+  binaryOpPerfInfo =
+  {
+    { {BinaryOpType::ADD, FLOAT}, {2, true} },
+    { {BinaryOpType::ADD, HALF}, {2, true} },
+    { {BinaryOpType::ADD, INT}, {4} },
+    { {BinaryOpType::ADD, UNSIGNED_INT}, {4} },
+    { {BinaryOpType::ATAN2, FLOAT}, {25, false} },
+    { {BinaryOpType::ATAN2, HALF}, {25 + 3, false} },
     // AND in parallel with ld2xstpace
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(BitwiseNot)(const VertexIntrospector &vertex,
-                                       const Target &target,
-                                       const Type &type) {
-  uint64_t cycles = 7;
-  const auto in = vertex.getFieldInfo("in");
-  CODELET_FIELD(out);
-  assert(in.size() == out.size());
-  for (unsigned i = 0; i != in.size(); ++i) {
-    assert (in[i].size() == out[i].size());
-    unsigned numElem = in[i].size();
-    unsigned overhead = 6;
-    unsigned vectorWidth = 2;
-    unsigned cyclesPerVector = 1;
-
-    // NOT on AUX side, ldst64pace
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(BitwiseOr)(const VertexIntrospector &vertex,
-                                     const Target &target,
-                                     const Type &type) {
-  uint64_t cycles = 5;
-  const auto in1 = vertex.getFieldInfo("in1");
-  CODELET_FIELD(in2);
-  CODELET_FIELD(out);
-  assert(in1.size() == out.size());
-  assert(in2.size() == in1.size());
-  for (unsigned i = 0; i < in1.size(); ++i) {
-    assert(in1[i].size() == out[i].size());
-    assert(in2[i].size() == in1[i].size());
-    unsigned numElem = in1[i].size();
-    unsigned overhead = 6;
-    unsigned vectorWidth = 2;
-    unsigned cyclesPerVector = 1;
-
+    { {BinaryOpType::BITWISE_AND, INT}, {1, true} },
     // OR on AUX side, ld2xstpace
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Ceil)(const VertexIntrospector &vertex,
-                                const Target &target,
-                                const Type &type) {
-  uint64_t cycles = 6;
-  const auto in = vertex.getFieldInfo("in");
-  CODELET_FIELD(out);
-  assert(in.size() == out.size());
-  for (unsigned i = 0; i != in.size(); ++i) {
-    assert (in[i].size() == out[i].size());
-    unsigned overhead = 6;
-    unsigned numElem = in[i].size();
-    bool isFloat = type == FLOAT;
-    // use mul with 1.0 and use correct rounding mode
-    unsigned cyclesPerVector = 1;
-    unsigned vectorWidth = target.getDataPathWidth() / (isFloat ? 32 : 16);
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Cos)(const VertexIntrospector &vertex,
-                               const Target &target,
-                               const Type &type) {
-  uint64_t cycles = 6;
-  const auto in = vertex.getFieldInfo("in");
-  CODELET_FIELD(out);
-  assert(in.size() == out.size());
-  for (unsigned i = 0; i != in.size(); ++i) {
-    assert (in[i].size() == out[i].size());
-    unsigned overhead = 6;
-    unsigned numElem = in[i].size();
-    unsigned vectorWidth = 1;
-    unsigned cyclesPerVector = 1;
-    if (type == FLOAT) {
-      vectorWidth = 1;
-      cyclesPerVector = 150;
-    } else if (type == HALF) {
-      vectorWidth = 1;
-      cyclesPerVector = 100;
-    }
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Divide)(const VertexIntrospector &vertex,
-                                  const Target &target,
-                                  const Type &type) {
-  uint64_t cycles = 5;
-  const auto in1 = vertex.getFieldInfo("in1");
-  CODELET_FIELD(in2);
-  CODELET_FIELD(out);
-  assert(in1.size() == out.size());
-  assert(in2.size() == in1.size());
-  for (unsigned i = 0; i < in1.size(); ++i) {
-    assert(in1[i].size() == out[i].size());
-    assert(in2[i].size() == in1[i].size());
-    unsigned cyclesPerVector = 1;
-    unsigned overhead = 6;
-    unsigned numElem = in1[i].size();
-    unsigned vectorWidth = 1;
-    if (type == FLOAT) {
-      cyclesPerVector = 1;
-    } else if (type == HALF) {
-      // Convert to f32 using v2 and divide and convert back to f16
-      vectorWidth = 2;
-      cyclesPerVector = 4;
-    } else if (type == INT) {
-      // ld into aux, ld into aux, div, st
-      cyclesPerVector = 4;
-    }
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Equal)(const VertexIntrospector &vertex,
-                                 const Target &target,
-                                 const Type &type) {
-  uint64_t cycles = 7;
-  const auto in1 = vertex.getFieldInfo("in1");
-  CODELET_FIELD(in2);
-  CODELET_FIELD(out);
-  assert(in1.size() == out.size());
-  assert(in2.size() == in1.size());
-  for (unsigned i = 0; i < in1.size(); ++i) {
-    assert(in1[i].size() == out[i].size());
-    assert(in2[i].size() == in1[i].size());
-    // E = A and B, F = A or B, G = F andc E, result = 1 andc G
-    const auto numBoolOpCycles = type == BOOL ? 4 : 0;
-    cycles += comparisonOpsCycles(target.getDataPathWidth(),
-                                  in1.size(),
-                                  numBoolOpCycles,
-                                  type);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Exponent)(const VertexIntrospector &vertex,
-                                    const Target &target,
-                                    const Type &type) {
-  uint64_t cycles = 5;
-  const auto in = vertex.getFieldInfo("in");
-  CODELET_FIELD(out);
-  assert(in.size() == out.size());
-  for (unsigned i = 0; i != in.size(); ++i) {
-    assert (in[i].size() == out[i].size());
-    unsigned numElem = in[i].size();
-    bool isFloat = type == FLOAT;
-    unsigned vectorWidth = 1;
-    unsigned cyclesPerVector = 3;
-    unsigned overhead = 6;
-
-    if(!isFloat) {
-      // Use f16v2exp
-      vectorWidth = 2;
-      cyclesPerVector = 2;
-    }
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Floor)(const VertexIntrospector &vertex,
-                                const Target &target,
-                                const Type &type) {
-  uint64_t cycles = 6;
-  const auto in = vertex.getFieldInfo("in");
-  CODELET_FIELD(out);
-  assert(in.size() == out.size());
-  for (unsigned i = 0; i != in.size(); ++i) {
-    assert (in[i].size() == out[i].size());
-    const unsigned overhead = 6;
-    unsigned numElem = in[i].size();
-    bool isFloat = type == FLOAT;
-
-    // Use mul with 1.0 and use correct rounding mode
-    unsigned vectorWidth = target.getDataPathWidth() / (isFloat ? 32 : 16);
-    unsigned cyclesPerVector = 1;
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(GreaterThan)(const VertexIntrospector &vertex,
-                                       const Target &target,
-                                       const Type &type) {
-  uint64_t cycles = 7;
-  const auto in1 = vertex.getFieldInfo("in1");
-  CODELET_FIELD(in2);
-  CODELET_FIELD(out);
-  assert(in1.size() == out.size());
-  assert(in2.size() == in1.size());
-  for (unsigned i = 0; i < in1.size(); ++i) {
-    assert(in1[i].size() == out[i].size());
-    assert(in2[i].size() == in1[i].size());
-    // same as B < A
-    // E = A and B, result = A andc E
-    const auto numBoolOpCycles = type == BOOL ? 2 : 0;
-    cycles += comparisonOpsCycles(target.getDataPathWidth(),
-                                  in1.size(),
-                                  numBoolOpCycles,
-                                  type);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(GreaterThanEqual)(const VertexIntrospector &vertex,
-                                            const Target &target,
-                                            const Type &type) {
-  uint64_t cycles = 7;
-  const auto in1 = vertex.getFieldInfo("in1");
-  CODELET_FIELD(in2);
-  CODELET_FIELD(out);
-  assert(in1.size() == out.size());
-  assert(in2.size() == in1.size());
-  for (unsigned i = 0; i < in1.size(); ++i) {
-    assert(in1[i].size() == out[i].size());
-    assert(in2[i].size() == in1[i].size());
-    // same as B <= A
-    // E = 1 andc B, result = E or A
-    const auto numBoolOpCycles = type == BOOL ? 2 : 0;
-    cycles += comparisonOpsCycles(target.getDataPathWidth(),
-                                  in1.size(),
-                                  numBoolOpCycles,
-                                  type);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(IsFinite)(const VertexIntrospector &vertex,
-                                    const Target &target,
-                                    const Type &type) {
-  uint64_t cycles = 6;
-  const auto in = vertex.getFieldInfo("in");
-  CODELET_FIELD(out);
-  assert(in.size() == out.size());
-  for (unsigned i = 0; i != in.size(); ++i) {
-    assert (in[i].size() == out[i].size());
-    unsigned overhead = 6;
-    unsigned numElem = in[i].size();
-    bool isFloat = type == FLOAT;
-    unsigned vectorWidth = 2;
-
-    // 1 for v==v
-    // 1 for v!=INFINITY
-    // 1 for anding the two together
-    // 1 for converting a match from 0xffff to 0x0001
-    // 1 to convert the 32/16bit individual results to 8bits each
-    unsigned cyclesPerVector = 5;
-    if (!isFloat) {
-      vectorWidth = 4;
-    }
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(LessThan)(const VertexIntrospector &vertex,
-                                    const Target &target,
-                                    const Type &type) {
-  uint64_t cycles = 7;
-  const auto in1 = vertex.getFieldInfo("in1");
-  CODELET_FIELD(in2);
-  CODELET_FIELD(out);
-  assert(in1.size() == out.size());
-  assert(in2.size() == in1.size());
-  for (unsigned i = 0; i < in1.size(); ++i) {
-    assert(in1[i].size() == out[i].size());
-    assert(in2[i].size() == in1[i].size());    // E = A and B, result = B andc E
-    const auto numBoolOpCycles = type == BOOL ? 2 : 0;
-    cycles += comparisonOpsCycles(target.getDataPathWidth(),
-                                  in1.size(),
-                                  numBoolOpCycles,
-                                  type);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(LessThanEqual)(const VertexIntrospector &vertex,
-                                         const Target &target,
-                                         const Type &type) {
-  uint64_t cycles = 7;
-  const auto in1 = vertex.getFieldInfo("in1");
-  CODELET_FIELD(in2);
-  CODELET_FIELD(out);
-  assert(in1.size() == out.size());
-  assert(in2.size() == in1.size());
-  for (unsigned i = 0; i < in1.size(); ++i) {
-    assert(in1[i].size() == out[i].size());
-    assert(in2[i].size() == in1[i].size());    // E = 1 andc A, result = E or B
-    const auto numBoolOpCycles = type == BOOL ? 2 : 0;
-    cycles += comparisonOpsCycles(target.getDataPathWidth(),
-                                  in1.size(),
-                                  numBoolOpCycles,
-                                  type);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Logarithm)(const VertexIntrospector &vertex,
-                                     const Target &target,
-                                     const Type &type) {
-  uint64_t cycles = 5;
-  const auto in = vertex.getFieldInfo("in");
-  CODELET_FIELD(out);
-  assert(in.size() == out.size());
-  for (unsigned i = 0; i < in.size(); ++i) {
-    assert(in[i].size() == out[i].size());
-    bool isFloat = type == FLOAT;
-    unsigned cyclesPerVector = 6;
-    unsigned overhead = 6;
-    unsigned numElem = in[i].size();
-    unsigned vectorWidth = 1;
-
-    if(!isFloat) {
-      // used f16v2 variant
-      cyclesPerVector = 2;
-      vectorWidth = 2;
-    }
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(LogicalAnd)(const VertexIntrospector &vertex,
-                                      const Target &target,
-                                      const Type &type) {
-  uint64_t cycles = 5;
-  const auto in1 = vertex.getFieldInfo("in1");
-  CODELET_FIELD(in2);
-  CODELET_FIELD(out);
-  assert(in1.size() == out.size());
-  assert(in2.size() == in1.size());
-  for (unsigned i = 0; i < in1.size(); ++i) {
-    assert(in1[i].size() == out[i].size());
-    assert(in2[i].size() == in1[i].size());
-    unsigned numElem = in1[i].size();
-    unsigned overhead = 6;
-    unsigned vectorWidth = target.getDataPathWidth() / sizeof(bool);
-    unsigned cyclesPerVector = 2;
-
-    // Use AND on AUX side
-    // Assume ld2xst64 cannot be used
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(LogicalNot)(const VertexIntrospector &vertex,
-                                      const Target &target,
-                                      const Type &type) {
-  uint64_t cycles = 7;
-  const auto in = vertex.getFieldInfo("in");
-  CODELET_FIELD(out);
-  assert(in.size() == out.size());
-  for (unsigned i = 0; i < in.size(); ++i) {
-    assert(in[i].size() == out[i].size());
-    unsigned numElem = in[i].size();
-    unsigned overhead = 6;
-    unsigned vectorWidth = target.getDataPathWidth() / sizeof(bool);
-    unsigned cyclesPerVector = 1;
-
-    // XOR on aux side
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(LogicalOr)(const VertexIntrospector &vertex,
-                                     const Target &target,
-                                     const Type &type) {
-  uint64_t cycles = 5;
-  const auto in1 = vertex.getFieldInfo("in1");
-  CODELET_FIELD(in2);
-  CODELET_FIELD(out);
-  assert(in1.size() == out.size());
-  assert(in2.size() == in1.size());
-  for (unsigned i = 0; i < in1.size(); ++i) {
-    assert(in1[i].size() == out[i].size());
-    assert(in2[i].size() == in1[i].size());
-    unsigned numElem = in1[i].size();
-    unsigned overhead = 6;
-    unsigned vectorWidth = target.getDataPathWidth() / sizeof(bool);
-    unsigned cyclesPerVector = 2;
-
-    // OR on the aux side
-    // Assume ld2xst64 cannot be used
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Maximum)(const VertexIntrospector &vertex,
-                                   const Target &target,
-                                   const Type &type) {
-  uint64_t cycles = 5;
-  const auto in1 = vertex.getFieldInfo("in1");
-  CODELET_FIELD(in2);
-  CODELET_FIELD(out);
-  assert(in1.size() == out.size());
-  assert(in2.size() == in1.size());
-  for (unsigned i = 0; i < in1.size(); ++i) {
-    assert(in1[i].size() == out[i].size());
-    assert(in2[i].size() == in1[i].size());
-    unsigned cyclesPerVector = 1;
-    unsigned overhead = 6;
-    unsigned numElem = in1[i].size();
-    unsigned vectorWidth = 1;
-
-    if (type == FLOAT) {
-      vectorWidth = target.getDataPathWidth() / 32;
-      cyclesPerVector = 2;
-    } else if (type == HALF) {
-      vectorWidth = target.getDataPathWidth() / 16;
-      cyclesPerVector = 2;
-    } else if (type == INT) {
-      // ld, ld, max, st
-      cyclesPerVector = 4;
-    }
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Minimum)(const VertexIntrospector &vertex,
-                                   const Target &target,
-                                   const Type &type) {
-  uint64_t cycles = 5;
-  const auto in1 = vertex.getFieldInfo("in1");
-  CODELET_FIELD(out);
-  assert(in1.size() == out.size());
-  for (unsigned i = 0; i < in1.size(); ++i) {
-    assert(in1[i].size() == out[i].size());
-    unsigned cyclesPerVector = 1;
-    unsigned overhead = 6;
-    unsigned numElem = in1[i].size();
-    unsigned vectorWidth = 1;
-
-    if (type == FLOAT) {
-      vectorWidth = target.getDataPathWidth() / 32;
-      cyclesPerVector = 2;
-    } else if (type == HALF) {
-      vectorWidth = target.getDataPathWidth() / 16;
-      cyclesPerVector = 2;
-    } else if (type == INT) {
-      // ld, ld, min, st
-      cyclesPerVector = 4;
-    }
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Multiply)(const VertexIntrospector &vertex,
-                                    const Target &target,
-                                    const Type &type) {
-  uint64_t cycles = 5;
-  const auto in1 = vertex.getFieldInfo("in1");
-  CODELET_FIELD(in2);
-  CODELET_FIELD(out);
-  assert(in1.size() == out.size());
-  assert(in2.size() == in1.size());
-  for (unsigned i = 0; i < in1.size(); ++i) {
-    assert(in1[i].size() == out[i].size());
-    assert(in2[i].size() == in1[i].size());
-    unsigned cyclesPerVector = 1;
-    unsigned overhead = 6;
-    unsigned numElem = in1[i].size();
-    unsigned vectorWidth = 1;
-    if (type == FLOAT) {
-      vectorWidth = target.getDataPathWidth() / 32;
-      cyclesPerVector = 2;
-    } else if (type == HALF) {
-      vectorWidth = target.getDataPathWidth() / 16;
-      cyclesPerVector = 2;
-    } else if (type == INT) {
-      // ld, ld, mul, st
-      cyclesPerVector = 4;
-    }
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(NotEqual)(const VertexIntrospector &vertex,
-                                    const Target &target,
-                                    const Type &type) {
-  uint64_t cycles = 7;
-  const auto in1 = vertex.getFieldInfo("in1");
-  CODELET_FIELD(in2);
-  CODELET_FIELD(out);
-  assert(in1.size() == out.size());
-  assert(in2.size() == in1.size());
-  for (unsigned i = 0; i < in1.size(); ++i) {
-    assert(in1[i].size() == out[i].size());
-    assert(in2[i].size() == in1[i].size());
-    // E = A and B, F = A or B, result = F andc E
-    const auto numBoolOpCycles = type == BOOL ? 3 : 0;
-    cycles += comparisonOpsCycles(target.getDataPathWidth(),
-                                  in1.size(),
-                                  numBoolOpCycles,
-                                  type);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Negate)(const VertexIntrospector &vertex,
-                                  const Target &target,
-                                  const Type &type) {
-      uint64_t cycles = 6;
-  const auto in = vertex.getFieldInfo("in");
-  CODELET_FIELD(out);
-  assert(in.size() == out.size());
-  for (unsigned i = 0; i < in.size(); ++i) {
-    assert(in[i].size() == out[i].size());
-    unsigned cyclesPerVector = 1;
-    unsigned overhead = 6;
-    unsigned numElem = in[i].size();
-    unsigned vectorWidth = 1;
-    if (type == FLOAT) {
-      vectorWidth = target.getDataPathWidth() / 32;
-    } else if (type == HALF) {
-      vectorWidth = target.getDataPathWidth() / 16;
-    } else if (type == INT) {
-      // ld, sub, st
-      cyclesPerVector = 3;
-    }
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Power)(const VertexIntrospector &vertex,
-                                 const Target &target,
-                                 const Type &type) {
-  uint64_t cycles = 7;
-  const auto in1 = vertex.getFieldInfo("in1");
-  CODELET_FIELD(in2);
-  CODELET_FIELD(out);
-  assert(in1.size() == out.size());
-  assert(in2.size() == in1.size());
-  for (unsigned i = 0; i < in1.size(); ++i) {
-    assert(in1[i].size() == out[i].size());
-    assert(in2[i].size() == in1[i].size());
-    bool isFloat = type == FLOAT;
-    unsigned vectorWidth = 1;
-    unsigned cyclesPerVector = 100;
-    unsigned overhead = 6;
-    unsigned numElem = in1[i].size();
-
+    { {BinaryOpType::BITWISE_OR, INT}, {1, true} },
+    { {BinaryOpType::DIVIDE, FLOAT}, {1, false} },
+    // Convert to f32 using v2 and divide and convert back to f16
+    { {BinaryOpType::DIVIDE, HALF}, {8, true} },
+    // ld into aux, ld into aux, div, st
+    { {BinaryOpType::DIVIDE, INT}, {4, false} },
+    { {BinaryOpType::LOGICAL_AND, BOOL}, {2, false} },
+    { {BinaryOpType::LOGICAL_OR, BOOL}, {2, false} },
+    { {BinaryOpType::MAXIMUM, FLOAT}, {2, true} },
+    { {BinaryOpType::MAXIMUM, HALF}, {2, true} },
+    { {BinaryOpType::MAXIMUM, INT}, {4} },
+    { {BinaryOpType::MINIMUM, FLOAT}, {2, true} },
+    { {BinaryOpType::MINIMUM, HALF}, {2, true} },
+    { {BinaryOpType::MINIMUM, INT}, {4} },
+    { {BinaryOpType::MULTIPLY, FLOAT}, {2, true} },
+    { {BinaryOpType::MULTIPLY, HALF}, {2, true} },
+    { {BinaryOpType::MULTIPLY, INT}, {4} },
     // This cycles are wrong
     // Accuracy concerns using ln
     // pow(a,b) = exp(b * log(a))
     // Doesn't handle negative values yet
-    if(!isFloat) {
-      // used f16v4 variant: Accuracy converns using half precision log
-      vectorWidth = target.getDataPathWidth() / 16;
-    }
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
+    { {BinaryOpType::POWER, FLOAT}, {100, true} },
+    // used f16v4 variant: Accuracy concerns using half precision log
+    { {BinaryOpType::POWER, HALF}, {100, true} },
+    { {BinaryOpType::REMAINDER, FLOAT}, {4, true} },
+    { {BinaryOpType::REMAINDER, HALF}, {4, true} },
+    { {BinaryOpType::REMAINDER, INT}, {1} },
+    { {BinaryOpType::SHIFT_LEFT, INT}, {3} },
+    { {BinaryOpType::SHIFT_RIGHT, INT}, {3} },
+    { {BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, INT}, {4} },
+    { {BinaryOpType::SUBTRACT, FLOAT}, {2, true} },
+    { {BinaryOpType::SUBTRACT, HALF}, {2, true} },
+    { {BinaryOpType::SUBTRACT, INT}, {4} },
+    { {BinaryOpType::SUBTRACT, UNSIGNED_INT}, {4} },
+  };
+  comparisonOpPerfInfo =
+  {
+    // E = A and B, F = A or B, G = F andc E, result = 1 andc G
+    { {BinaryOpType::EQUAL, FLOAT}, 0 },
+    { {BinaryOpType::EQUAL, HALF}, 0 },
+    { {BinaryOpType::EQUAL, INT}, 0 },
+    { {BinaryOpType::EQUAL, BOOL}, 4 },
+    // same as B < A
+    // E = A and B, result = A andc E
+    { {BinaryOpType::GREATER_THAN, FLOAT}, 0 },
+    { {BinaryOpType::GREATER_THAN, HALF}, 0 },
+    { {BinaryOpType::GREATER_THAN, INT}, 0 },
+    { {BinaryOpType::GREATER_THAN, BOOL}, 2 },
+    { {BinaryOpType::GREATER_THAN_EQUAL, FLOAT}, 0 },
+    { {BinaryOpType::GREATER_THAN_EQUAL, HALF}, 0 },
+    { {BinaryOpType::GREATER_THAN_EQUAL, INT}, 0 },
+    { {BinaryOpType::GREATER_THAN_EQUAL, BOOL}, 2 },
+    { {BinaryOpType::LESS_THAN, FLOAT}, 0 },
+    { {BinaryOpType::LESS_THAN, HALF}, 0 },
+    { {BinaryOpType::LESS_THAN, INT}, 0 },
+    { {BinaryOpType::LESS_THAN, BOOL}, 2 },
+    { {BinaryOpType::LESS_THAN_EQUAL, FLOAT}, 0 },
+    { {BinaryOpType::LESS_THAN_EQUAL, HALF}, 0 },
+    { {BinaryOpType::LESS_THAN_EQUAL, INT}, 0 },
+    { {BinaryOpType::LESS_THAN_EQUAL, BOOL}, 2 },
+    { {BinaryOpType::NOT_EQUAL, FLOAT}, 0 },
+    { {BinaryOpType::NOT_EQUAL, HALF}, 0 },
+    { {BinaryOpType::NOT_EQUAL, INT}, 0 },
+    { {BinaryOpType::NOT_EQUAL, BOOL}, 3 },
+  };
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Remainder)(const VertexIntrospector &vertex,
-                                     const Target &target,
-                                     const Type &type) {
-  uint64_t cycles = 5;
-  const auto in1 = vertex.getFieldInfo("in1");
-  CODELET_FIELD(in2);
-  CODELET_FIELD(out);
-  assert(in1.size() == out.size());
-  assert(in2.size() == in1.size());
-  for (unsigned i = 0; i < in1.size(); ++i) {
-    assert(in1[i].size() == out[i].size());
-    assert(in2[i].size() == in1[i].size());
-    unsigned cyclesPerVector = 1;
-    unsigned overhead = 6;
-    unsigned numElem = in1[i].size();
-    unsigned vectorWidth = 1;
-
-    if (type == FLOAT) {
-      vectorWidth = target.getDataPathWidth() / 32;
-    } else if (type == HALF) {
-      // Convert to f32 using v2 and divide and convert back to f16
-      vectorWidth = 2;
-      cyclesPerVector = 4;
-    } else if (type == INT) {
-      // load on aux side, mod and store result from aux
-      cyclesPerVector = 4;
-    }
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Round)(const VertexIntrospector &vertex,
-                                 const Target &target,
-                                 const Type &type) {
-  uint64_t cycles = 5;
-  const auto in = vertex.getFieldInfo("in");
-  CODELET_FIELD(out);
-  assert(in.size() == out.size());
-  for (unsigned i = 0; i < in.size(); ++i) {
-    assert(in[i].size() == out[i].size());
-    unsigned cyclesPerVector = 2;
-    unsigned overhead = 6;
-    unsigned numElem = in[i].size();
-    unsigned vectorWidth = 1;
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(ShiftLeft)(const VertexIntrospector &vertex,
-                                     const Target &target,
-                                     const Type &type) {
-  uint64_t cycles = 5;
-  const auto in1 = vertex.getFieldInfo("in1");
-  CODELET_FIELD(in2);
-  CODELET_FIELD(out);
-  assert(in1.size() == out.size());
-  assert(in2.size() == in1.size());
-  for (unsigned i = 0; i < in1.size(); ++i) {
-    assert(in1[i].size() == out[i].size());
-    assert(in2[i].size() == in1[i].size());
-    unsigned numElem = in1[i].size();
-    unsigned overhead = 6;
-    unsigned vectorWidth = 1;
-    unsigned cyclesPerVector = 3;
-
-    // OR on AUX side, ld2xstpace
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(ShiftRight)(const VertexIntrospector &vertex,
-                                      const Target &target,
-                                      const Type &type) {
-  return MAKE_CYCLE_ESTIMATOR_NAME(ShiftLeft)(vertex, target, type);
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(ShiftRightSignExtend)(
-    const VertexIntrospector &vertex,
-    const Target &target,
-    const Type &type) {
-  return MAKE_CYCLE_ESTIMATOR_NAME(ShiftLeft)(vertex, target, type);
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Signum)(const VertexIntrospector &vertex,
-                                  const Target &target,
-                                  const Type &type) {
-  // extra cycles to form constants
-  uint64_t cycles = 7;
-  const auto in = vertex.getFieldInfo("in");
-  CODELET_FIELD(out);
-  assert(in.size() == out.size());
-  for (unsigned i = 0; i < in.size(); ++i) {
-    assert(in[i].size() == out[i].size());
-    unsigned overhead = 6;
-    unsigned numElem = in[i].size();
-
-    // default value for int:
-    // ld32 in
-    // cmpslt a, mzero, in
-    // cmpslt b, in, mzero
-    // sub c, a, b
-    // st32 c
-    unsigned cyclesPerVector = 5;
-    unsigned vectorWidth = 1;
-
-    if (type != INT) {
-      bool isFloat = type == FLOAT;
-      vectorWidth = target.getDataPathWidth() / (isFloat ? 32 : 16);
-      // For float and half:
-      // use clamp (f16v4 or f32v2)
-      cyclesPerVector = 1;
-    }
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Sin)(const VertexIntrospector &vertex,
-                               const Target &target,
-                               const Type &type) {
-  uint64_t cycles = 6;
-  const auto in = vertex.getFieldInfo("in");
-  CODELET_FIELD(out);
-  assert(in.size() == out.size());
-  for (unsigned i = 0; i < in.size(); ++i) {
-    assert(in[i].size() == out[i].size());
-    unsigned overhead = 6;
-    unsigned numElem = in[i].size();
-    unsigned vectorWidth = 1;
-    unsigned cyclesPerVector = 1;
-    if (type == FLOAT) {
-      vectorWidth = 1;
-      cyclesPerVector = 150;
-    } else if (type == HALF) {
-      vectorWidth = 1;
-      cyclesPerVector = 100;
-    }
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Subtract)(const VertexIntrospector &vertex,
+MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp)(const VertexIntrospector &vertex,
                                     const Target &target,
+                                    BinaryOpType op,
                                     const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
@@ -1202,104 +498,24 @@ MAKE_CYCLE_ESTIMATOR_NAME(Subtract)(const VertexIntrospector &vertex,
   for (unsigned i = 0; i < in1.size(); ++i) {
     assert(in1[i].size() == out[i].size());
     assert(in2[i].size() == in1[i].size());
-    unsigned cyclesPerVector = 1;
-    unsigned overhead = 6;
-    unsigned numElem = in1[i].size();
-    unsigned vectorWidth = 1;
-    if (type == FLOAT) {
-      vectorWidth = target.getDataPathWidth() / 32;
-      cyclesPerVector = 2;
-    } else if (type == HALF) {
-      vectorWidth = target.getDataPathWidth() / 16;
-      cyclesPerVector = 2;
-    } else if (type == INT) {
-      // ld, ld, sub, st
-      cyclesPerVector = 4;
+    auto c = comparisonOpPerfInfo.find({op, type});
+    if (c != comparisonOpPerfInfo.end()) {
+      const auto numBoolOpCycles = c->second;
+      cycles += comparisonOpsCycles(target.getDataPathWidth(),
+                                    in1.size(),
+                                    numBoolOpCycles,
+                                    type);
+    } else {
+      const auto &info = binaryOpPerfInfo.at({op, type});
+      unsigned numElem = in1[i].size();
+      unsigned vectorWidth = 1;
+      if (info.vectorize) {
+        vectorWidth = target.getDataPathWidth() / target.getTypeSize(type);
+      }
+      const auto loopOverhead = 6;
+      cycles += basicOpLoopCycles(loopOverhead, numElem, vectorWidth,
+                                  info.cyclesPerVector);
     }
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Tanh)(const VertexIntrospector &vertex,
-                                const Target &target,
-                                const Type &type) {
-  uint64_t cycles = 6;
-  const auto in = vertex.getFieldInfo("in");
-  CODELET_FIELD(out);
-  assert(in.size() == out.size());
-  for (unsigned i = 0; i < in.size(); ++i) {
-    assert(in[i].size() == out[i].size());
-    unsigned overhead = 6;
-    unsigned numElem = in[i].size();
-    unsigned vectorWidth = 1;
-    unsigned cyclesPerVector = 1;
-    if (type == FLOAT) {
-      // f32tanh
-      vectorWidth = 1;
-      cyclesPerVector = 7;
-    } else if (type == HALF) {
-      // f16v2tanh
-      vectorWidth = 2;
-      cyclesPerVector = 2;
-    }
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Sqrt)(const VertexIntrospector &vertex,
-                                const Target &target,
-                                const Type &type) {
-  uint64_t cycles = 5;
-  const auto in = vertex.getFieldInfo("in");
-  CODELET_FIELD(out);
-  assert(in.size() == out.size());
-  for (unsigned i = 0; i < in.size(); ++i) {
-    assert(in[i].size() == out[i].size());
-    unsigned cyclesPerVector = 1;
-    unsigned overhead = 6;
-    unsigned numElem = in[i].size();
-    unsigned vectorWidth = 1;
-    if (type == FLOAT) {
-      cyclesPerVector = 5;
-    } else if (type == HALF) {
-      // f32sqrt + conversions f16<->f32
-      cyclesPerVector = 7;
-    } else if (type == INT) {
-      // ld, mul, st
-      cyclesPerVector = 10; // placeholder
-    }
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Square)(const VertexIntrospector &vertex,
-                                  const Target &target,
-                                  const Type &type) {
-  uint64_t cycles = 6;
-  const auto in = vertex.getFieldInfo("in");
-  CODELET_FIELD(out);
-  assert(in.size() == out.size());
-  for (unsigned i = 0; i < in.size(); ++i) {
-    assert(in[i].size() == out[i].size());
-    unsigned overhead = 6;
-    unsigned numElem = in[i].size();
-    bool isFloat = type == FLOAT;
-    unsigned vectorWidth = 1;
-    unsigned cyclesPerVector = 1;
-    if (!isFloat) {
-      vectorWidth = target.getDataPathWidth() / 16;
-    }
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
   }
   return cycles;
 }
@@ -1468,7 +684,9 @@ MAKE_CYCLE_ESTIMATOR_NAME(CircOffset)(const VertexIntrospector &vertex,
 
 
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
-  return {
+  initializeBinaryOpPerfInfo();
+  initializeUnaryOpPerfInfo();
+  poplibs::CycleEstimatorTable table = {
     CYCLE_ESTIMATOR_ENTRY(popops, ReduceOr, BOOL, BOOL),
 
     CYCLE_ESTIMATOR_ENTRY(popops, ReduceAnd, BOOL, BOOL),
@@ -1558,144 +776,6 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, BOOL, INT),
     CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, BOOL, BOOL),
 
-    CYCLE_ESTIMATOR_ENTRY(popops, Absolute, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Absolute, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, Absolute, INT),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Add, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Add, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, Add, INT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Add, UNSIGNED_INT),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Atan2, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Atan2, HALF),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, BitwiseAnd, INT),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, BitwiseNot, INT),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, BitwiseOr, INT),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Ceil, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Ceil, HALF),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Cos, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Cos, HALF),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Divide, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Divide, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, Divide, INT),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Equal, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Equal, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, Equal, BOOL),
-    CYCLE_ESTIMATOR_ENTRY(popops, Equal, INT),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Exponent, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Exponent, HALF),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Floor, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Floor, HALF),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, GreaterThan, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, GreaterThan, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, GreaterThan, INT),
-    CYCLE_ESTIMATOR_ENTRY(popops, GreaterThan, BOOL),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, GreaterThanEqual, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, GreaterThanEqual, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, GreaterThanEqual, INT),
-    CYCLE_ESTIMATOR_ENTRY(popops, GreaterThanEqual, BOOL),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, IsFinite, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, IsFinite, HALF),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, LessThan, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, LessThan, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, LessThan, INT),
-    CYCLE_ESTIMATOR_ENTRY(popops, LessThan, BOOL),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, LessThanEqual, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, LessThanEqual, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, LessThanEqual, INT),
-    CYCLE_ESTIMATOR_ENTRY(popops, LessThanEqual, BOOL),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Logarithm, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Logarithm, HALF),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, LogicalAnd, BOOL),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, LogicalNot, BOOL),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, LogicalOr, BOOL),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Maximum, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Maximum, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, Maximum, INT),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Minimum, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Minimum, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, Minimum, INT),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Multiply, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Multiply, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, Multiply, INT),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, NotEqual, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, NotEqual, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, NotEqual, INT),
-    CYCLE_ESTIMATOR_ENTRY(popops, NotEqual, BOOL),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Negate, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Negate, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, Negate, INT),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Power, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Power, HALF),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Remainder, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Remainder, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, Remainder, INT),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Round, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Round, HALF),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, ShiftLeft, INT),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, ShiftRight, INT),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, ShiftRightSignExtend, INT),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Signum, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Signum, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, Signum, INT),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Sin, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Sin, HALF),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Subtract, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Subtract, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, Subtract, INT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Subtract, UNSIGNED_INT),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Tanh, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Tanh, HALF),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Sqrt, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Sqrt, HALF),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Square, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Square, HALF),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Select, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Select, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, Select, INT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Select, BOOL),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, Clamp, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Clamp, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, Clamp, INT),
-
     CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice, HALF),
     CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice, INT),
@@ -1718,9 +798,36 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
 
     CYCLE_ESTIMATOR_ENTRY(popops, AllTrue),
     CYCLE_ESTIMATOR_ENTRY(popops, CircBufIncrIndex),
-    CYCLE_ESTIMATOR_ENTRY(popops, CircOffset)
+    CYCLE_ESTIMATOR_ENTRY(popops, CircOffset),
 
+    CYCLE_ESTIMATOR_ENTRY(popops, Select, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, Select, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, Select, INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, Select, BOOL),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, Clamp, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, Clamp, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, Clamp, INT),
   };
+  for (const auto &entry : unaryOpPerfInfo) {
+    table.push_back(
+      CYCLE_ESTIMATOR_ENTRY(popops, UnaryOp, entry.first.first,
+                            entry.first.second)
+    );
+  }
+  for (const auto &entry : binaryOpPerfInfo) {
+    table.push_back(
+      CYCLE_ESTIMATOR_ENTRY(popops, BinaryOp, entry.first.first,
+                            entry.first.second)
+    );
+  }
+  for (const auto &entry : comparisonOpPerfInfo) {
+    table.push_back(
+      CYCLE_ESTIMATOR_ENTRY(popops, BinaryOp, entry.first.first,
+                            entry.first.second)
+    );
+  }
+  return table;
 };
 
 } // end namespace popreduce

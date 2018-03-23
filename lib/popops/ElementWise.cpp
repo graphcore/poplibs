@@ -7,6 +7,7 @@
 #include "poplibs_support/Compiler.hpp"
 #include <unordered_map>
 #include <boost/optional.hpp>
+#include "ExprOpUtil.hpp"
 
 using namespace poputil;
 using namespace poplar;
@@ -45,94 +46,6 @@ static Type outputType(const Type &inType, BinaryOpType op) {
 static Type outputType(const Type &inType,
                        TernaryOpType /*op*/) {
   return inType;
-}
-
-static std::string vertexName(UnaryOpType op) {
-  switch(op) {
-  case UnaryOpType::ABSOLUTE:
-    return "popops::Absolute";
-  case UnaryOpType::BITWISE_NOT:
-    return "popops::BitwiseNot";
-  case UnaryOpType::CEIL:
-    return "popops::Ceil";
-  case UnaryOpType::COS:
-    return "popops::Cos";
-  case UnaryOpType::EXPONENT:
-    return "popops::Exponent";
-  case UnaryOpType::FLOOR:
-    return "popops::Floor";
-  case UnaryOpType::IS_FINITE:
-    return "popops::IsFinite";
-  case UnaryOpType::LOGARITHM:
-    return "popops::Logarithm";
-  case UnaryOpType::LOGICAL_NOT:
-    return "popops::LogicalNot";
-  case UnaryOpType::NEGATE:
-    return "popops::Negate";
-  case UnaryOpType::ROUND:
-      return "popops::Round";
-  case UnaryOpType::SIGNUM:
-    return "popops::Signum";
-  case UnaryOpType::SIN:
-    return "popops::Sin";
-  case UnaryOpType::TANH:
-    return "popops::Tanh";
-  case UnaryOpType::SQRT:
-    return "popops::Sqrt";
-  case UnaryOpType::SQUARE:
-    return "popops::Square";
-  }
-  throw poputil::poplib_error("Op not supported");
-}
-
-static std::string vertexName(BinaryOpType op) {
-  switch(op) {
-    case BinaryOpType::ADD:
-      return "popops::Add";
-    case BinaryOpType::ATAN2:
-      return "popops::Atan2";
-    case BinaryOpType::BITWISE_AND:
-      return "popops::BitwiseAnd";
-    case BinaryOpType::BITWISE_OR:
-      return "popops::BitwiseOr";
-    case BinaryOpType::DIVIDE:
-      return "popops::Divide";
-    case BinaryOpType::EQUAL:
-      return "popops::Equal";
-    case BinaryOpType::GREATER_THAN_EQUAL:
-      return "popops::GreaterThanEqual";
-    case BinaryOpType::GREATER_THAN:
-      return "popops::GreaterThan";
-    case BinaryOpType::LESS_THAN_EQUAL:
-      return "popops::LessThanEqual";
-    case BinaryOpType::LOGICAL_AND:
-      return "popops::LogicalAnd";
-    case BinaryOpType::LOGICAL_OR:
-      return "popops::LogicalOr";
-    case BinaryOpType::LESS_THAN:
-      return "popops::LessThan";
-    case BinaryOpType::MAXIMUM:
-      return "popops::Maximum";
-    case BinaryOpType::MINIMUM:
-      return "popops::Minimum";
-    case BinaryOpType::MULTIPLY:
-      return "popops::Multiply";
-    case BinaryOpType::NOT_EQUAL:
-      return "popops::NotEqual";
-    case BinaryOpType::POWER:
-      return "popops::Power";
-    case BinaryOpType::REMAINDER:
-      return "popops::Remainder";
-    case BinaryOpType::SHIFT_LEFT:
-      return "popops::ShiftLeft";
-    case BinaryOpType::SHIFT_RIGHT:
-      return "popops::ShiftRight";
-    case BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND:
-      return "popops::ShiftRightSignExtend";
-    case BinaryOpType::SUBTRACT:
-      return "popops::Subtract";
-  }
-  throw poputil::poplib_error("Op not supported");
 }
 
 static std::string vertexName(TernaryOpType op) {
@@ -305,7 +218,8 @@ static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
 
     for (const auto &regions : vertexRegions) {
       auto v = graph.addVertex(cs,
-                               templateVertex(vertexName(op), inType),
+                               templateVertex("popops::UnaryOp", op,
+                                              inType),
                                {{"in", inFlat.slices(regions)},
                                 {"out", outFlat.slices(regions)}});
       graph.setTileMapping(v, tile);
@@ -359,7 +273,8 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
 
     for (const auto &regions : vertexRegions) {
       auto v = graph.addVertex(cs,
-                               templateVertex(vertexName(op), in1Type),
+                               templateVertex("popops::BinaryOp", op,
+                                              in1Type),
                                {{"in1", in1Flat.slices(regions)},
                                 {"in2", in2Flat.slices(regions)},
                                 {"out", outFlat.slices(regions)}});
