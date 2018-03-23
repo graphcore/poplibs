@@ -329,9 +329,9 @@ int main(int argc, char **argv) {
                             modelFwdState,  modelBwdState, modelPrevLayerGrads);
   }
 
-  Engine::ReportOptions opt;
-  opt.doLayerWiseBreakdown = true;
-  engine.printSummary(std::cout, opt);
+  engine.printSummary(std::cout, OptionFlags{
+    { "doLayerWiseBreakdown", "true" }
+  });
   bool matchesModel = true;
 
   for (auto s = 0U; s != rawHostNextAct.size(); ++s) {

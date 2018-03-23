@@ -664,9 +664,9 @@ int main(int argc, char **argv) {
   }
 
   if (!useCpuModel) {
-    Engine::ReportOptions opt;
-    opt.doLayerWiseBreakdown = true;
-    engine.printSummary(std::cout, opt);
+    engine.printSummary(std::cout, OptionFlags{
+      { "doLayerWiseBreakdown", "true" }
+    });
   }
 
   if (!matchesModel) {

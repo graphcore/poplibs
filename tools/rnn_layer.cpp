@@ -524,9 +524,9 @@ int main(int argc, char **argv) {
                    modelBiasesDeltasAcc, relativeTolerance, absoluteTolerance);
   }
 
-  Engine::ReportOptions opt;
-  opt.doLayerWiseBreakdown = true;
-  engine.printSummary(std::cout, opt);
+  engine.printSummary(std::cout, OptionFlags{
+    { "doLayerWiseBreakdown", "true" }
+  });
 
   if (!matchesModel) {
     std::cerr << "Validation failed\n";

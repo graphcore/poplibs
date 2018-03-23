@@ -1307,9 +1307,9 @@ BOOST_AUTO_TEST_CASE(MapTest) {
   eng.run();
   eng.readTensor("out", hOut);
 
-  Engine::ReportOptions opt;
-  opt.doLayerWiseBreakdown = true;
-  auto execReport = eng.getExecutionReport(opt);
+  auto execReport = eng.getExecutionReport({
+    { "doLayerWiseBreakdown", "true" }
+  });
   execReport.printSummary(std::cerr);
 
   /* Check result */
@@ -1363,9 +1363,9 @@ BOOST_AUTO_TEST_CASE(MapTestMultiTensor) {
   eng.run();
   eng.readTensor("out", hOut);
 
-  Engine::ReportOptions opt;
-  opt.doLayerWiseBreakdown = true;
-  auto execReport = eng.getExecutionReport(opt);
+  auto execReport = eng.getExecutionReport({
+    { "doLayerWiseBreakdown", "true" }
+  });
   execReport.printSummary(std::cerr);
 
   /* Check result */
@@ -1399,9 +1399,9 @@ BOOST_AUTO_TEST_CASE(MapInPlaceTest) {
   eng.run();
   eng.readTensor("out", hOut);
 
-  Engine::ReportOptions opt;
-  opt.doLayerWiseBreakdown = true;
-  auto execReport = eng.getExecutionReport(opt);
+  auto execReport = eng.getExecutionReport({
+    { "doLayerWiseBreakdown", "true" }
+  });
   execReport.printSummary(std::cerr);
 
   /* Check result */

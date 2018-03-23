@@ -352,8 +352,9 @@ int main(int argc, char **argv) {
     rawHostPrevDeltas = allocateHostMemoryForTensor(prevDeltas, "prevDeltas",
                                                     graph, tmap);
   }
-  EngineOptions engOpt;
-  engOpt.cpuMultiThreadExecution = false;
+  OptionFlags engOpt{
+    { "debug.cpuMultiThreadExecution", "false" }
+  };
   Engine engine(device, graph, {std::move(fwdProg), std::move(bwdProg)},
                 engOpt);
 
@@ -424,9 +425,9 @@ int main(int argc, char **argv) {
     matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
                                  relativeTolerance, absoluteTolerance);
   }
-  Engine::ReportOptions opt;
-  opt.doLayerWiseBreakdown = true;
-  engine.printSummary(std::cout, opt);
+  engine.printSummary(std::cout, OptionFlags{
+    { "doLayerWiseBreakdown", "true" }
+  });
   if (!matchesModel) {
     std::cerr << "Validation failed\n";
     return 1;
