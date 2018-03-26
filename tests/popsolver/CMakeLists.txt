@@ -9,7 +9,7 @@ function(add_popsolver_unit_test name)
                         Boost::system)
   target_include_directories(${name}
     PRIVATE $<TARGET_PROPERTY:popsolver,INCLUDE_DIRECTORIES>)
-  if(NOT ${Boost_USE_STATIC_LIBS})
+  if(NOT Boost_UNIT_TEST_FRAMEWORK_LIBRARY MATCHES "\\.a$")
     target_compile_definitions(${name} PRIVATE -DBOOST_TEST_DYN_LINK)
   endif()
   add_test(NAME ${name}

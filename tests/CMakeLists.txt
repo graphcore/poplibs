@@ -16,7 +16,7 @@ function(add_popnn_unit_test name)
                         Boost::timer
                         Boost::system
                         Boost::program_options)
-  if(NOT ${Boost_USE_STATIC_LIBS})
+  if(NOT Boost_UNIT_TEST_FRAMEWORK_LIBRARY MATCHES "\\.a$")
     target_compile_definitions(${name} PRIVATE -DBOOST_TEST_DYN_LINK)
   endif()
   add_test(NAME ${name}
