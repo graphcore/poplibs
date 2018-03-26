@@ -1429,11 +1429,31 @@ addTransformCycleEstimate(
                           outChanFlattenDims ||
                           swapOperands || padInChannels ||
                           padPartialChannels;
+  const auto weightsPerConvUnit =
+      target.getWeightsPerConvUnit(params.dType == poplar::FLOAT);
   bool rearrangeOutput = (!isWeightUpdate && swapOperands) ||
                          (isWeightUpdate && !swapOperands) ||
                          outChanFlattenDims ||
                          padPartialChannels;
-  if (!rearrangeInput && !rearrangeOutput && !rearrangeWeights)
+  // We assume the next layer uses an input channel grouping of
+  // weightsPerConvUnit and apply a small cost if the output channel
+  // grouping of this layer doesn't match.
+  bool regroupOutput = options.pass != Pass::FC_TRAINING_FWD &&
+                       partialChansPerGroup != weightsPerConvUnit;
+  // If the input channel grouping of the backward pass doesn't divide the
+  // output channel grouping of the forward pass the block size for the
+  // cross-tile rearrangement of weights between the forward and backward pass
+  // will be small. We assume the backward pass uses an input channel grouping
+  // of weightsPerConvUnit and apply a small cost if the output channel grouping
+  // of this layer isn't a multiple of this weightsPerConvUnit.
+  bool regroupWeights = options.pass == Pass::TRAINING_FWD &&
+                        partialChansPerGroup % weightsPerConvUnit != 0;
+  const auto bytesPerElement = target.getTypeSize(params.dType);
+  const auto regroupBytesPerCycle =
+      std::min<unsigned>(target.getMemcpyBytesPerCycle(),
+                         partialChansPerGroup * bytesPerElement);
+  if (!rearrangeInput && !rearrangeOutput && !rearrangeWeights &&
+      !regroupOutput && !regroupWeights)
     return m.addConstant(0);
   const auto &convSize = transformedConvSizes[ipuLevel];
   std::vector<popsolver::Variable> outputFieldSizes;
@@ -1478,10 +1498,9 @@ addTransformCycleEstimate(
                    partitionVars[ipuLevel].kernelSplit.begin(),
                    partitionVars[ipuLevel].kernelSplit.end());
   auto ipuUsedTiles = m.product(ipuSplits);
-  const auto bytesPerElement = target.getTypeSize(params.dType);
   const auto exchangeBytesPerCycle = target.getExchangeBytesPerCycle();
   std::vector<popsolver::Variable> cyclesOperands;
-  if (rearrangeInput || rearrangeWeights) {
+  if (rearrangeInput || rearrangeWeights || regroupWeights) {
     const auto reorderBytesPerCycle =
         std::min<unsigned>(target.getMemcpyBytesPerCycle(), bytesPerElement);
     std::vector<popsolver::Variable> numElementsOperands;
@@ -1492,12 +1511,21 @@ addTransformCycleEstimate(
                      convSize.numConvGroups});
       numElementsOperands.push_back(numInputElements);
     }
-    if (rearrangeWeights) {
+    if (rearrangeWeights || regroupWeights) {
       auto totalKernelSize = m.product(convSize.kernelSize);
       auto numWeightElements =
           m.product({totalKernelSize, numInChans, numOutChans,
                      convSize.numConvGroups});
-      numElementsOperands.push_back(numWeightElements);
+      if (rearrangeWeights) {
+        numElementsOperands.push_back(numWeightElements);
+      } else if (regroupWeights) {
+        auto numElementsPerTile = m.ceildiv(numWeightElements, ipuUsedTiles);
+        auto bytesPerTile = m.product({numElementsPerTile,
+                                       m.addConstant(bytesPerElement)});
+        cyclesOperands.push_back(
+          m.ceildiv(bytesPerTile, m.addConstant(regroupBytesPerCycle))
+        );
+      }
     }
     auto numElements = m.sum(numElementsOperands);
     auto numElementsPerTile = m.ceildiv(numElements, ipuUsedTiles);
@@ -1508,24 +1536,30 @@ addTransformCycleEstimate(
     cyclesOperands.push_back(m.ceildiv(bytesPerTile,
                                        m.addConstant(reorderBytesPerCycle)));
   }
-  if (rearrangeOutput) {
-    const auto outputBytesPerElement =
-        target.getTypeSize(types[ipuLevel].resultType);
-    const auto outputReorderBytesPerCycle =
-        std::min<unsigned>(target.getMemcpyBytesPerCycle(),
-                           outputBytesPerElement);
+  if (rearrangeOutput || regroupOutput) {
     auto totalOutputFieldSize = m.product(outputFieldSizes);
     auto numElements =
         m.product({totalOutputFieldSize, convSize.batchSize,
                    numOutChans, convSize.numConvGroups});
     auto numElementsPerTile = m.ceildiv(numElements, ipuUsedTiles);
+    const auto outputBytesPerElement =
+        target.getTypeSize(types[ipuLevel].resultType);
     auto bytesPerTile = m.product({numElementsPerTile,
                                    m.addConstant(outputBytesPerElement)});
-    cyclesOperands.push_back(m.ceildiv(bytesPerTile,
-                                       m.addConstant(exchangeBytesPerCycle)));
-    cyclesOperands.push_back(
-      m.ceildiv(bytesPerTile, m.addConstant(outputReorderBytesPerCycle))
-    );
+    if (rearrangeOutput) {
+      const auto outputReorderBytesPerCycle =
+          std::min<unsigned>(target.getMemcpyBytesPerCycle(),
+                             outputBytesPerElement);
+      cyclesOperands.push_back(m.ceildiv(bytesPerTile,
+                                         m.addConstant(exchangeBytesPerCycle)));
+      cyclesOperands.push_back(
+        m.ceildiv(bytesPerTile, m.addConstant(outputReorderBytesPerCycle))
+      );
+    } else if (regroupOutput) {
+      cyclesOperands.push_back(
+        m.ceildiv(bytesPerTile, m.addConstant(regroupBytesPerCycle))
+      );
+    }
   }
   auto cycles = m.sum(cyclesOperands);
   // Apply an experimentally determined fudge factor to account for other
@@ -2033,25 +2067,30 @@ getConvVertexTypeCandidates(const poplar::Target &target,
         target.getWeightsPerConvUnit(floatActivations);
     for (unsigned inChansPerGroup = 1; inChansPerGroup <= weightsPerConvUnit;
          ++inChansPerGroup) {
-      if (!floatActivations && inChansPerGroup % 2 != 0)
-        continue;
-      if (!canUseConvolutionInstruction(floatActivations,
-                                        floatPartials,
-                                        inChansPerGroup, target))
-        continue;
-      if (isFullyConnectedFwd) {
-        // The input channels in the forward pass become the output channels of
-        // the weight update pass. Make sure it is a multiple of the supported
-        // output channels per group.
-        if (inChansPerGroup != 1 && inChansPerGroup % numConvUnits != 0)
+      bool isFullyConnected = options.pass == Pass::FC_INFERENCE_FWD ||
+                              options.pass == Pass::FC_TRAINING_BWD ||
+                              options.pass == Pass::FC_TRAINING_FWD ||
+                              options.pass == Pass::FC_TRAINING_WU;
+      for (unsigned partialChansPerGroup : {numConvUnits, weightsPerConvUnit}) {
+        if (!floatActivations && inChansPerGroup % 2 != 0)
           continue;
+        if (isFullyConnected && partialChansPerGroup != numConvUnits)
+          continue;
+        if (!canUseConvolutionInstruction(floatActivations,
+                                          floatPartials,
+                                          inChansPerGroup, target))
+          continue;
+        if (isFullyConnectedFwd) {
+          // The input channels in the forward pass become the output channels
+          // of the weight update pass. Make sure it is a multiple of the
+          // supported output channels per group.
+          if (inChansPerGroup != 1 && inChansPerGroup % numConvUnits != 0)
+            continue;
+        }
+        convVertexTypeCandidates.emplace_back(Plan::Method::AMP, inputType,
+                                              ampPartialType, inChansPerGroup,
+                                              partialChansPerGroup);
       }
-      // TODO take into account the best grouping for all the phases if
-      // options.fullyConnectedFwd is set.
-      const auto partialChansPerGroup = numConvUnits;
-      convVertexTypeCandidates.emplace_back(Plan::Method::AMP, inputType,
-                                            ampPartialType, inChansPerGroup,
-                                            partialChansPerGroup);
     }
   }
   // Constrain the input channel grouping to a mulitple of two if the activation
