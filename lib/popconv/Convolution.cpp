@@ -1119,37 +1119,6 @@ static Tensor dilate(Graph &graph, const Tensor &t, unsigned dilationFactor,
            .slice(0, newSize, dim);
 }
 
-// Dilate a tensor but instead of padding with zeros duplicate the nearest
-// neighbouring element.
-static Tensor
-dilateWithNearestNeighbour(const Tensor &t, unsigned dilationFactor,
-                           unsigned dim) {
-  const auto oldSize = t.dim(dim);
-  const auto newSize = getDilatedSize(oldSize, dilationFactor);
-  if (newSize == oldSize)
-    return t;
-  return t.expand({dim + 1})
-          .broadcast(dilationFactor, dim + 1)
-          .flatten(dim, dim + 2)
-          .slice(dilationFactor / 2, newSize + dilationFactor / 2, dim);
-}
-
-poplar::Tensor
-padWithNearestNeighbour(poplar::Tensor t, unsigned paddingLower,
-                        unsigned paddingUpper, unsigned dim) {
-  const auto type = t.elementType();
-  if (paddingLower > 0) {
-    auto padding = t.slice(0, 1, dim).broadcast(paddingLower, dim);
-    t = concat(padding, t, dim);
-  }
-  if (paddingUpper > 0) {
-    auto padding = t.slice(t.rank() - 1, t.rank(), dim)
-                    .broadcast(paddingUpper, dim);
-    t = concat(t, padding, dim);
-  }
-  return t;
-}
-
 static void expandSpatialDim(Graph &graph, ConvParams &params,
                              Tensor *acts, Tensor *weights, unsigned dim) {
   unsigned actsDimIndex = dim + 2;
@@ -1297,9 +1266,6 @@ convolutionPreprocess(Graph &graph, ConvParams &params,
     }
     transform.extraFieldDims = 0;
   }
-  params = calculateParamsWithDeferredDilation(params,
-                                               transform.dilatePostConv);
-  transform.dilatePostConv.clear();
   if (transform.swapOperands) {
     swapOperands(params, acts, weights);
     transform.swapOperands = false;
@@ -1390,15 +1356,12 @@ convolutionPreprocess(Graph &graph, ConvParams &params,
 static Tensor
 convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
                        const ConvTransform &transform,
-                       Tensor activations, Sequence &copies) {
+                       Tensor activations) {
   auto postAddExtraDimsParams = originalParams;
   if (transform.extraFieldDims) {
     addExtraDims(postAddExtraDimsParams, transform.extraFieldDims);
   }
-  auto postDeferDilationParams =
-      calculateParamsWithDeferredDilation(postAddExtraDimsParams,
-                                          transform.dilatePostConv);
-  auto postExpandParams = postDeferDilationParams;
+  auto postExpandParams = postAddExtraDimsParams;
   if (transform.swapOperands) {
     swapOperands(postExpandParams);
   }
@@ -1455,44 +1418,6 @@ convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
     activations = activations.dimShufflePartial({1, activations.rank() - 1},
                                                 {activations.rank() - 1, 1});
   }
-  // Perform any dilations that were deferred until after the convolution.
-  if (!transform.dilatePostConv.empty()) {
-    // Create a dilated padded view of the activations and copy it to a
-    // new variable. It is not valid to return the view as the result as the
-    // convolution function is expected to be a writable tensor.
-    auto outChansPerGroup = detectChannelGrouping(activations);
-    auto activationsView = activations;
-    // View that matches the activations view except each zero element is
-    // replaced with the nearest non zero element. This is used to
-    // determine the tile mapping of the variable we create.
-    auto mappingView = activations;
-    for (const auto spatialDim : transform.dilatePostConv) {
-      const auto dilation =
-          postAddExtraDimsParams.inputTransform.dilation[spatialDim];
-      const auto paddingLower =
-          postAddExtraDimsParams.outputTransform.paddingLower[spatialDim];
-      const auto paddingUpper =
-          postAddExtraDimsParams.outputTransform.paddingUpper[spatialDim];
-      const auto dim = 2 + spatialDim;
-      activationsView = dilate(graph, activationsView, dilation, dim);
-      mappingView = dilateWithNearestNeighbour(mappingView, dilation, dim);
-      activationsView = pad(graph, activationsView, paddingLower, paddingUpper,
-                            dim);
-      mappingView = padWithNearestNeighbour(mappingView, paddingLower,
-                                            paddingUpper, dim);
-    }
-    assert(activationsView.shape() == mappingView.shape());
-    activationsView = splitActivationChanGroups(activationsView,
-                                                outChansPerGroup);
-    mappingView = splitActivationChanGroups(mappingView, outChansPerGroup);
-    activations = graph.addVariable(activationsView.elementType(),
-                                    activationsView.shape(),
-                                    "activations");
-    graph.setTileMapping(activations, graph.getTileMapping(mappingView));
-    copies.add(Copy(activationsView, activations));
-    activations = unsplitActivationChanGroups(activations);
-  }
-  // Remove extra dimensions.
   if (transform.extraFieldDims) {
     std::vector<std::size_t> toSqueeze(transform.extraFieldDims);
     std::iota(toSqueeze.begin(), toSqueeze.end(), std::size_t(2));
@@ -2761,7 +2686,6 @@ convolutionImpl(Graph &graph, ConvParams params,
                 std::vector<Sequence> &copies,
                 ComputeSet convolveCS,
                 std::vector<std::vector<ComputeSet>> &reduceComputeSets,
-                std::vector<Sequence> &postCopies,
                 const std::vector<ConvIndices> &indices,
                 const std::string &debugPrefix,
                 const ConvOptions &options) {
@@ -2840,8 +2764,8 @@ convolutionImpl(Graph &graph, ConvParams params,
       getSubConvolution(slice, subParams, &subIn, &subWeights);
       auto subOut = convolutionImpl(graph, subParams, plan, level + 1, subIn,
                                     subWeights, copies, convolveCS,
-                                    reduceComputeSets, postCopies, subIndices,
-                                    debugPrefix, options);
+                                    reduceComputeSets, subIndices, debugPrefix,
+                                    options);
       auto partialIndex = getPartialIndex(levelIndices, partition);
       auto outputIndex = getOutputIndex(levelIndices, partition);
       results[partialIndex][outputIndex] = subOut;
@@ -2875,8 +2799,7 @@ convolutionImpl(Graph &graph, ConvParams params,
     out = cast(graph, out, resultType, reduceComputeSets[level][0]);
   }
   // Inverse transform.
-  out = convolutionPostprocess(graph, originalParams, originalTransform, out,
-                               postCopies[level]);
+  out = convolutionPostprocess(graph, originalParams, originalTransform, out);
   return out;
 }
 
@@ -2936,22 +2859,22 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   }
   const auto layerName = debugPrefix + "/Conv" + convSuffix(params);
   const auto numLevels = plan.partitions.size() + 1;
-  std::vector<Sequence> copies(numLevels), postCopies(numLevels);
+  std::vector<Sequence> copies(numLevels);
   std::vector<std::vector<ComputeSet>> reduceComputeSets(numLevels);
   auto convolveCS = graph.addComputeSet(layerName + "/Convolve");
   auto activations =
       convolutionImpl(graph, params, plan, 0, in, weights, copies, convolveCS,
-                      reduceComputeSets, postCopies, std::vector<ConvIndices>(),
+                      reduceComputeSets, std::vector<ConvIndices>(),
                       layerName, options);
   for (const auto &p : copies) {
     prog.add(p);
   }
   prog.add(Execute(convolveCS));
-  for (int level = numLevels - 1; level >= 0; --level) {
-    for (const auto &reduceCS : reduceComputeSets[level]) {
+  for (auto it = reduceComputeSets.rbegin(), end = reduceComputeSets.rend();
+       it != end; ++it) {
+    for (const auto &reduceCS : *it) {
       prog.add(Execute(reduceCS));
     }
-    prog.add(postCopies[level]);
   }
   assert(activations.elementType() == in.elementType());
   return actsToExternalShape(activations);

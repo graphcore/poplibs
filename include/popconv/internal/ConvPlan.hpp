@@ -53,9 +53,6 @@ std::ostream& operator<<(std::ostream &os, const Partition &p);
 struct ConvTransform {
   // The number of additional size 1 dimensions to insert at the front.
   unsigned extraFieldDims = 0;
-  // Dimensions for which input dilation should be applied after the convolution
-  // instead of before.
-  std::vector<unsigned> dilatePostConv;
   bool swapOperands = false;
   // Spatial dimensions that should be expanded by taking the activations
   // multiplied by each weight in each position of the filter in this axis and
@@ -138,12 +135,6 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
 
 /// Insert the specified number of dimensions of size 1 at the front.
 void addExtraDims(ConvParams &params, unsigned extraDims);
-
-ConvParams
-calculateParamsWithDeferredDilation(
-    const ConvParams &params,
-    const std::vector<unsigned> &dilatePostConv
-);
 
 void swapOperands(ConvParams &params);
 
