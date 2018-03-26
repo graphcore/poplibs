@@ -1109,21 +1109,14 @@ static Tensor dilate(Graph &graph, const Tensor &t, unsigned dilationFactor,
   const auto newSize = getDilatedSize(oldSize, dilationFactor);
   if (newSize == oldSize)
     return t;
-  const auto dType = t.elementType();
-  auto zeroShape = t.shape();
-  zeroShape[dim] = 1;
+  auto expandedT = t.expand({dim + 1});
+  const auto dType = expandedT.elementType();
+  auto zeroShape = expandedT.shape();
+  zeroShape[dim + 1] = dilationFactor - 1;
   Tensor zero = graph.addConstant(dType, zeroShape, 0);
-  std::vector<Tensor> slices;
-  slices.reserve(newSize);
-  for (unsigned i = 0; i != newSize; ++i) {
-    if (i % dilationFactor == 0) {
-      const auto oldIndex = i / dilationFactor;
-      slices.push_back(t.slice(oldIndex, oldIndex + 1, dim));
-    } else {
-      slices.push_back(zero);
-    }
-  }
-  return concat(slices, dim);
+  return concat(expandedT, zero, dim + 1)
+           .flatten(dim, dim + 2)
+           .slice(0, newSize, dim);
 }
 
 static void expandSpatialDim(Graph &graph, ConvParams &params,
