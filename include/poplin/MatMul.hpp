@@ -32,8 +32,6 @@ struct MatMulOptions {
   /// weight update pass we arrange for the result to have the same layout as
   /// the weights so it can be added to the weights without any exchange.
   FullyConnectedPass fullyConnectedPass = FullyConnectedPass::NONE;
-  /** An optional pointer to a planning cache. */
-  PlanningCache *cache = nullptr;
   bool operator<(const MatMulOptions &other) const {
     return std::tie(partialsType, fullyConnectedPass) <
              std::tie(other.partialsType, other.fullyConnectedPass);
@@ -56,6 +54,7 @@ struct MatMulOptions {
  *                         names.
  *  \param options         The structure describing options on how the
  *                         multiplication should be implemented.
+ *  \param cache           Optional pointer to planning cache to use.
  *
  *  \returns               The tensor holding the result of the multiplication.
  *                         This tensor will be created, added to the graph and
@@ -65,14 +64,16 @@ poplar::Tensor
 matMul(poplar::Graph &graph, const poplar::Tensor &A, const poplar::Tensor &B,
        poplar::program::Sequence &prog,
        const std::string &debugPrefix = "",
-       const MatMulOptions &options = MatMulOptions());
+       const MatMulOptions &options = MatMulOptions(),
+       PlanningCache *cache = nullptr);
 
 void matMulReportPlan(std::ostream &out,
                       const poplar::Graph &graph,
                       const poplar::Type &dType,
                       const std::vector<std::size_t> &aShape,
                       const std::vector<std::size_t> &bShape,
-                      const MatMulOptions &options = MatMulOptions());
+                      const MatMulOptions &options = MatMulOptions(),
+                      PlanningCache *cache = nullptr);
 
 /** Multiply two grouped matrices.
  *
@@ -94,6 +95,7 @@ void matMulReportPlan(std::ostream &out,
  *                         names.
  *  \param options         The structure describing options on how the
  *                         grouped multiplication should be implemented.
+ *  \param cache           Optional pointer to planning cache to use.
  *
  *  \returns               The tensor holding the result of the grouped
  *                         multiplication. This tensor will be created, added to
@@ -103,14 +105,16 @@ poplar::Tensor
 matMulGrouped(poplar::Graph &graph, const poplar::Tensor &A,
               const poplar::Tensor &B, poplar::program::Sequence &prog,
               const std::string &debugPrefix = "",
-              const MatMulOptions &options = MatMulOptions());
+              const MatMulOptions &options = MatMulOptions(),
+              PlanningCache *cache = nullptr);
 
 void matMulGroupedReportPlan(std::ostream &out,
                              const poplar::Graph &graph,
                              const poplar::Type &dType,
                              const std::vector<std::size_t> &aShape,
                              const std::vector<std::size_t> &bShape,
-                             const MatMulOptions &options = MatMulOptions());
+                             const MatMulOptions &options = MatMulOptions(),
+                             PlanningCache *cache = nullptr);
 
 /** Multiply two matrices and add to a third (with a scaling factor).
  *
@@ -133,13 +137,15 @@ void matMulGroupedReportPlan(std::ostream &out,
  *                         names.
  *  \param options         The structure describing options on how the
  *                         multiplication should be implemented.
+ *  \param cache           Optional pointer to planning cache to use.
  */
 void
 matMulAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
           const poplar::Tensor &A, const poplar::Tensor &B,
           poplar::program::Sequence &prog,
           const std::string &debugPrefix = "",
-          const MatMulOptions &options = MatMulOptions());
+          const MatMulOptions &options = MatMulOptions(),
+          PlanningCache *cache = nullptr);
 
 /** Multiply two grouped matrices and add to a third (with a scaling factor).
  *
@@ -165,13 +171,15 @@ matMulAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
  *                         names.
  *  \param options         The structure describing options on how the
  *                         multiplication should be implemented.
+ *  \param cache           Optional pointer to planning cache to use.
  */
 void
 matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
           const poplar::Tensor &A, const poplar::Tensor &B,
           poplar::program::Sequence &prog,
           const std::string &debugPrefix = "",
-          const MatMulOptions &options = MatMulOptions());
+          const MatMulOptions &options = MatMulOptions(),
+          PlanningCache *cache = nullptr);
 
 /**
  * Create an tensor that is used as the left operand of matrix multiplication.
@@ -187,6 +195,7 @@ matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
  *                        be multiplied by.
  * \param name            The debug name of the required matrix.
  * \param options         The implementation options of the multiplication.
+ * \param cache           Optional pointer to planning cache to use.
  *
  * \returns               A matrix of type \type and shape \aShape. The
  *                        tensor will have been mapped to tiles.
@@ -197,7 +206,8 @@ createMatMulInputLHS(poplar::Graph &graph,
                      const std::vector<std::size_t> &aShape,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
-                     const MatMulOptions &options = MatMulOptions());
+                     const MatMulOptions &options = MatMulOptions(),
+                     PlanningCache *cache = nullptr);
 
 /**
  * Create an tensor that is used as the left operand of a grouped matrix
@@ -217,6 +227,7 @@ createMatMulInputLHS(poplar::Graph &graph,
  *                        be multiplied by.
  * \param name            The debug name of the required matrix.
  * \param options         The implementation options of the multiplication.
+ * \param cache           Optional pointer to planning cache to use.
  *
  * \returns               A matrix of type \type and shape \aShape. The
  *                        tensor will have been mapped to tiles.
@@ -227,7 +238,8 @@ createMatMulGroupedInputLHS(poplar::Graph &graph,
                            const std::vector<std::size_t> &aShape,
                            const std::vector<std::size_t> &bShape,
                            const std::string &name,
-                           const MatMulOptions &options = MatMulOptions());
+                           const MatMulOptions &options = MatMulOptions(),
+                           PlanningCache *cache = nullptr);
 
 /**
  * Create an tensor that is used as the right operand of matrix multiplication.
@@ -243,6 +255,7 @@ createMatMulGroupedInputLHS(poplar::Graph &graph,
  * \param bShape          The shape of the required matrix.
  * \param name            The debug name of the required matrix.
  * \param options         The implementation options of the multiplication.
+ * \param cache           Optional pointer to planning cache to use.
  *
  * \returns               A matrix of type \type and shape \bShape. The tensor
  *                        will have been mapped to tiles.
@@ -253,7 +266,8 @@ createMatMulInputRHS(poplar::Graph &graph,
                      const std::vector<std::size_t> &aShape,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
-                     const MatMulOptions &options = MatMulOptions());
+                     const MatMulOptions &options = MatMulOptions(),
+                     PlanningCache *cache = nullptr);
 
 
 /**
@@ -274,6 +288,7 @@ createMatMulInputRHS(poplar::Graph &graph,
  * \param bShape          The shape of the required matrix.
  * \param name            The debug name of the required matrix.
  * \param options         The implementation options of the multiplication.
+ * \param cache           Optional pointer to planning cache to use.
  *
  * \returns               A matrix of type \type and shape \bShape. The tensor
  *                        will have been mapped to tiles.
@@ -284,7 +299,8 @@ createMatMulGroupedInputRHS(poplar::Graph &graph,
                             const std::vector<std::size_t> &aShape,
                             const std::vector<std::size_t> &bShape,
                             const std::string &name,
-                            const MatMulOptions &options = MatMulOptions());
+                            const MatMulOptions &options = MatMulOptions(),
+                            PlanningCache *cache = nullptr);
 
 /**
  * Transposes a grouped matrix tensor

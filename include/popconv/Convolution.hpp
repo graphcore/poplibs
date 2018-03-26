@@ -45,7 +45,6 @@ struct ConvOptions {
   poplar::Type partialsType = poplar::FLOAT;
   poplar::Type interTilePartialsType = poplar::FLOAT;
   poplar::Type interIpuPartialsType = poplar::FLOAT;
-  PlanningCache *cache = nullptr;
 };
 
 inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
@@ -327,12 +326,14 @@ getWuPerfectCycleCount(const poplar::Graph &graph, const ConvParams &params);
  * \param params  The same parameters as used by the convolution()
  * \param name    Debugging name for the tensor
  * \param options Options controlling the implementation
+ * \param cache   Optional pointer to planning cache to use
  * \return        The weights tensor suitable for use with convolution()
  */
 poplar::Tensor
 createWeights(poplar::Graph &graph, const ConvParams &params,
               const std::string &name,
-              const ConvOptions &options = ConvOptions());
+              const ConvOptions &options = ConvOptions(),
+              PlanningCache *cache = nullptr);
 
 /** Create a bias tensor suitable for input to addBias() function
  *
@@ -359,12 +360,14 @@ createBiases(poplar::Graph &graph, const poplar::Tensor &acts,
  * \param params   Parameters as passed to the target convolution.
  * \param name     Debugging name for the tensor
  * \param options  Options controlling the implementation
+ * \param cache    Optional pointer to planning cache to use
  * \return         The allocated input tensor
  */
 poplar::Tensor
 createInput(poplar::Graph &graph, const ConvParams &params,
             const std::string &name,
-            const ConvOptions &options = ConvOptions());
+            const ConvOptions &options = ConvOptions(),
+            PlanningCache *cache = nullptr);
 
 /** Convolve an input with a set of weights.
  *
@@ -385,6 +388,7 @@ createInput(poplar::Graph &graph, const ConvParams &params,
  * \param prog                    Poplar program sequence to append to op onto
  * \param debugPrefix             Name of the operation, for debugging
  * \param options                 Options that control the implementation
+ * \param cache                   Optional pointer to planning cache to use
  * \return                        The convolved output tensor
  */
 poplar::Tensor
@@ -395,7 +399,8 @@ convolution(poplar::Graph &graph,
             bool transposeAndFlipWeights,
             poplar::program::Sequence &prog,
             const std::string &debugPrefix = "",
-            const ConvOptions &options = ConvOptions());
+            const ConvOptions &options = ConvOptions(),
+            PlanningCache *cache = nullptr);
 
 void
 weightsTransposeChansFlipXY(poplar::Graph &graph,
@@ -410,7 +415,8 @@ calculateWeightDeltas(poplar::Graph &graph, const poplar::Tensor &zDeltas,
                       const ConvParams &params,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix = "",
-                      const ConvOptions &options = ConvOptions());
+                      const ConvOptions &options = ConvOptions(),
+                      PlanningCache *cache = nullptr);
 
 void
 convolutionWeightUpdate(poplar::Graph &graph,
@@ -420,7 +426,8 @@ convolutionWeightUpdate(poplar::Graph &graph,
                         const ConvParams &params, float learningRate,
                         poplar::program::Sequence &prog,
                         const std::string &debugPrefix = "",
-                        const ConvOptions &options = ConvOptions());
+                        const ConvOptions &options = ConvOptions(),
+                        PlanningCache *cache = nullptr);
 
 void
 convolutionBiasUpdate(poplar::Graph &graph, const poplar::Tensor &zDeltas,
@@ -441,16 +448,19 @@ fullyConnectedWeightTranspose(poplar::Graph &graph,
                               ConvParams params,
                               poplar::program::Sequence &prog,
                               const std::string &debugPrefix,
-                              const ConvOptions &options);
+                              const ConvOptions &options,
+                              PlanningCache *cache = nullptr);
 
 void reportPlanInfo(std::ostream &out, const poplar::Graph &graph,
                     const ConvParams &params,
-                    const ConvOptions &options = ConvOptions());
+                    const ConvOptions &options = ConvOptions(),
+                    PlanningCache *cache = nullptr);
 
 void reportWeightUpdatePlanInfo(std::ostream &out,
                                 const poplar::Graph &graph,
                                 const ConvParams &params,
-                                const ConvOptions &options = ConvOptions());
+                                const ConvOptions &options = ConvOptions(),
+                                PlanningCache *cache = nullptr);
 
 // creates a tensor pair of batch normalisation parameters (gamma, beta)
 std::pair<poplar::Tensor, poplar::Tensor>
@@ -522,7 +532,7 @@ public:
   PlanningCache();
   ~PlanningCache();
   friend Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
-                      ConvOptions options);
+                      ConvOptions options, PlanningCache *cache);
   std::unique_ptr<PlanningCacheImpl> impl;
 };
 

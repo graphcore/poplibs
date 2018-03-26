@@ -134,7 +134,7 @@ std::ostream& operator<<(std::ostream &os, const Plan &p);
 std::vector<unsigned> getTileHierarchy(const poplar::Target &target);
 
 Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
-             ConvOptions options);
+             ConvOptions options, PlanningCache *cache);
 
 /// Insert the specified number of dimensions of size 1 at the front.
 void addExtraDims(ConvParams &params, unsigned extraDims);
@@ -152,8 +152,8 @@ std::uint64_t getNumberOfMACs(const ConvParams &params);
 std::uint64_t estimateConvCost(const poplar::Target &target,
                                const ConvParams &params,
                                const ConvOptions &options,
-                               const Plan &plan,
-                               PlanningCache *cache = nullptr);
+                               PlanningCache *cache,
+                               const Plan &plan);
 
 }
 #endif // popconv_internal_ConvPlan_hpp

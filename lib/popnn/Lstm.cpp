@@ -115,12 +115,13 @@ basicLstmUnitsNlInputPreWeighted(Graph &graph,
                                        Tensor weightsOutput,
                                        Sequence &prog,
                                        MatMulOptions &mmOpt,
+                                       PlanningCache *cache,
                                        const std::string debugStr) {
   assert(weightedIn.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   assert(weightsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   auto output =
       unflattenUnits(matMul(graph, prevOutput, flattenUnits(weightsOutput),
-                     prog, debugStr + "/WeighOutput", mmOpt));
+                     prog, debugStr + "/WeighOutput", mmOpt, cache));
   addTo(graph, output, weightedIn, 1.0, prog, debugStr + "/AddWeightedOutputs");
   return output;
 }
@@ -134,15 +135,17 @@ basicLstmUnitsNlInput(Graph &graph,
                       Tensor weightsOutput,
                       Sequence &prog,
                       MatMulOptions &mmOpt,
+                      PlanningCache *cache,
                       const std::string &debugStr) {
   assert(weightsInput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   assert(weightsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   auto prodInp =
       unflattenUnits(matMul(graph, prevAct, flattenUnits(weightsInput),
-                            prog, debugStr + "/WeighInput", mmOpt));
+                            prog, debugStr + "/WeighInput", mmOpt, cache));
   return
       basicLstmUnitsNlInputPreWeighted(graph, prodInp, prevOutput,
-                                       weightsOutput, prog, mmOpt, debugStr);
+                                       weightsOutput, prog,
+                                       mmOpt, cache, debugStr);
 }
 
 // Add bias and compute LSTM output and update cellState given output of all
@@ -391,7 +394,6 @@ basicLstmCellForwardPassImpl(Graph &graph,
   mmOpt.partialsType = partialsType;
   mmOpt.fullyConnectedPass = inferenceOnly ? FullyConnectedPass::INFERENCE_FWD :
                                              FullyConnectedPass::TRAINING_FWD;
-  mmOpt.cache = &cache;
   unsigned stateDims = inferenceOnly ? LSTM_NUM_FWD_STATES_INFERENCE :
                                        LSTM_NUM_FWD_STATES_TRAINING;
   Tensor stateOut
@@ -414,7 +416,7 @@ basicLstmCellForwardPassImpl(Graph &graph,
                                          in[s],
                                          prevOutputActThisStep,
                                          weightsOutput,
-                                         prog, mmOpt,
+                                         prog, mmOpt, &cache,
                                          baseStr + "/ProcessUnits");
     } else {
       unitsOutput =
@@ -422,7 +424,7 @@ basicLstmCellForwardPassImpl(Graph &graph,
                               prevOutputActThisStep,
                               *weightsInput,
                               weightsOutput,
-                              prog, mmOpt,
+                              prog, mmOpt, &cache,
                               baseStr + "/ProcessUnits");
     }
     if (s == 0) {
@@ -631,7 +633,6 @@ BackwardStepImpl(Graph &graph,
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsType;
   mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_BWD;
-  mmOpt.cache = &cache;
 
   Tensor gradientIn;
 
@@ -641,14 +642,14 @@ BackwardStepImpl(Graph &graph,
            flattenUnits(gradUnits),
            flattenUnits(*weightsInput).transpose(),
            prog,
-           fPrefix + "/InputGrad", mmOpt);
+           fPrefix + "/InputGrad", mmOpt, &cache);
   }
   auto gradientPrevStep =
     matMul(graph,
            flattenUnits(gradUnits),
            flattenUnits(*weightsOutput).transpose(),
            prog,
-           fPrefix + "/PrevStepGrad", mmOpt);
+           fPrefix + "/PrevStepGrad", mmOpt, &cache);
 
   // update state
   auto newState = concat({newGradCellState.expand({0}),
@@ -714,7 +715,6 @@ basicLstmParamUpdate(Graph &graph,
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsType;
   mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_WU;
-  mmOpt.cache = &cache;
   auto gradUnits =
     concat({getBwdState(bwdState, LSTM_BWD_STATE_GRAD_FORGET_GATE).expand({0}),
             getBwdState(bwdState, LSTM_BWD_STATE_GRAD_INPUT_GATE).expand({0}),
@@ -729,7 +729,7 @@ basicLstmParamUpdate(Graph &graph,
             flattenUnits(gradUnits),
             prog,
             fPrefix + "/Wi",
-            mmOpt);
+            mmOpt, &cache);
   popops::reduceAcc(graph, biasDeltaAcc, 1.0,
                        gradUnits.dimShuffle({1, 0, 2}), prog, fPrefix +"/Bias");
 }

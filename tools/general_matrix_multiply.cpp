@@ -170,21 +170,20 @@ int main(int argc, char **argv) {
   PlanningCache cache;
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsType;
-  mmOpt.cache = &cache;
   if (transposeB) {
     mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_BWD;
   } else if (transposeA) {
     mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_WU;
   }
   auto matA = createMatMulInputLHS(graph, dataType,
-                                   {m, k}, {k, n}, "matA", mmOpt);
+                                   {m, k}, {k, n}, "matA", mmOpt, &cache);
   if (transposeA)
     matA = matA.transpose();
 
   auto matB = createMatMulInputRHS(graph, dataType,
                                    {m, k},
                                    {k, n},
-                                   "matB", mmOpt);
+                                   "matB", mmOpt, &cache);
   if (transposeB)
     matB = matB.transpose();
 
@@ -193,7 +192,7 @@ int main(int argc, char **argv) {
   auto matAxB = matMul(graph,
                        transposeA ? matA.transpose() : matA,
                        transposeB ? matB.transpose() : matB,
-                       prog, "op(A) x op(B)", mmOpt);
+                       prog, "op(A) x op(B)", mmOpt, &cache);
 
   auto matC = graph.addVariable(dataType, {m, n}, "matC");
   mapTensorLinearly(graph, matC);

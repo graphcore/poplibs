@@ -2611,14 +2611,14 @@ static Plan getFullyConnectedBwdPlan(const poplar::Target &target,
 }
 
 Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
-             ConvOptions options) {
+             ConvOptions options, PlanningCache *cache) {
   const auto &target = graph.getTarget();
   if (options.pass == Pass::FC_TRAINING_WU ||
       options.pass == Pass::FC_TRAINING_BWD) {
     auto fwdParams = getFullyConnectedFwdParams(params, options);
     auto fwdOptions = getFullyConnectedFwdOptions(options);
     const auto fwdPlan =
-        getPlan(graph, fwdParams, fwdOptions);
+        getPlan(graph, fwdParams, fwdOptions, cache);
     if (options.pass == Pass::FC_TRAINING_WU)
       return getFullyConnectedWUPlan(target, fwdParams, fwdOptions,
                                      fwdPlan);
@@ -2629,15 +2629,15 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
   Plan plan;
   Cost cost;
   CostBounds costBounds(0, 0);
-  auto cache = options.cache ? options.cache->impl.get() : nullptr;
+  auto cacheImpl = cache ? cache->impl.get() : nullptr;
   std::unique_ptr<PlanningCacheImpl> tempCache;
-  if (!cache) {
+  if (!cacheImpl) {
     tempCache = std::unique_ptr<PlanningCacheImpl>(new PlanningCacheImpl);
-    cache = tempCache.get();
+    cacheImpl = tempCache.get();
   }
   PlanningCacheImpl::Key key(params, options, false, 0, 0);
   if (!tempCache.get()) {
-    auto &plans = cache->plans;
+    auto &plans = cacheImpl->plans;
     auto match = plans.find(key);
     if (match != plans.end())
       return *match->second;
@@ -2666,12 +2666,12 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
   std::tie(plan, cost) = popconv::createPlan(params,
                                              options,
                                              costBounds, graph,
-                                             cache);
+                                             cacheImpl);
   if (options.percentageCyclesExcessForMemOptim) {
     throw poputil::poplib_error("Optimizing for memory is not supported");
   }
   if (!tempCache.get()) {
-    auto &plans = cache->plans;
+    auto &plans = cacheImpl->plans;
     auto pPlan = std::unique_ptr<Plan>(new Plan(std::move(plan)));
     auto res = plans.emplace(std::make_pair(key, std::move(pPlan)));
     return *res.first->second;
@@ -2703,8 +2703,8 @@ constrainPartitionVars(popsolver::Model &m,
 std::uint64_t estimateConvCost(const poplar::Target &target,
                                const ConvParams &params,
                                const ConvOptions &options,
-                               const Plan &plan,
-                               PlanningCache *cache) {
+                               PlanningCache *cache,
+                               const Plan &plan) {
   auto cacheImpl = cache ? cache->impl.get() : nullptr;
   std::unique_ptr<PlanningCacheImpl> tempCache;
   if (!cache) {

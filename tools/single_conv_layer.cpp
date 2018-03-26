@@ -106,7 +106,6 @@ int main(int argc, char **argv) {
   Pass pass = Pass::ALL;
   popconv::ConvOptions convOptions;
   popconv::PlanningCache cache;
-  convOptions.cache = &cache;
   po::options_description desc("Options");
   desc.add_options()
     ("help", "Produce help message")
@@ -430,23 +429,24 @@ int main(int argc, char **argv) {
 
   // Create tensors.
   Tensor prevAct =
-      popconv::createInput(graph, params, "prevAct", fwdOptions);
+      popconv::createInput(graph, params, "prevAct", fwdOptions, &cache);
   Tensor weights =
-      popconv::createWeights(graph, params, "weights", fwdOptions);
+      popconv::createWeights(graph, params, "weights", fwdOptions, &cache);
 
   Tensor prevDeltas, zDeltas;
   if (doBwdPass || doWuPass) {
-    zDeltas = popconv::createInput(graph, bwdParams, "zDeltas", bwdOptions);
+    zDeltas = popconv::createInput(graph, bwdParams, "zDeltas",
+                                   bwdOptions, &cache);
   }
 
   auto fwdProg = Sequence();
   // Always generate the fwd program as it maps the weights and biases. Only
   // actually create the engined if the fwd pass is to be run
   Tensor nextAct = popconv::convolution(graph, prevAct, weights, params, false,
-                                        fwdProg, "", fwdOptions);
+                                        fwdProg, "", fwdOptions, &cache);
   if (reportPlan) {
     std::cout << "Forward plan:\n";
-    popconv::reportPlanInfo(std::cout, graph, params, fwdOptions);
+    popconv::reportPlanInfo(std::cout, graph, params, fwdOptions, &cache);
   }
   Tensor biases;
   if (bias) {
@@ -462,16 +462,16 @@ int main(int argc, char **argv) {
   if (doBwdPass) {
     prevDeltas = popconv::convolution(graph, zDeltas, weights, bwdParams,
                                       true, revProg, "",
-                                      bwdOptions);
+                                      bwdOptions, &cache);
     if (reportPlan) {
       std::cout << "Backward plan:\n";
-      popconv::reportPlanInfo(std::cout, graph, bwdParams, bwdOptions);
+      popconv::reportPlanInfo(std::cout, graph, bwdParams, bwdOptions, &cache);
     }
   }
   if (doWuPass) {
     popconv::convolutionWeightUpdate(graph, zDeltas, weights, prevAct,
                                      params, learningRate,
-                                     revProg, "", wuOptions);
+                                     revProg, "", wuOptions, &cache);
     if (bias) {
       popconv::convolutionBiasUpdate(graph, zDeltas, biases, learningRate,
                                      convOptions.partialsType, revProg);
@@ -479,7 +479,7 @@ int main(int argc, char **argv) {
     if (reportPlan) {
       std::cout << "WU plan:\n";
       popconv::reportWeightUpdatePlanInfo(std::cout, graph, params,
-                                          wuOptions);
+                                          wuOptions, &cache);
     }
   }
   std::vector<std::pair<std::string, char *>> tmap;

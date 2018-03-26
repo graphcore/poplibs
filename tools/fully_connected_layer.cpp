@@ -144,7 +144,6 @@ int main(int argc, char **argv) {
   fwdOptions.partialsType = partialsType;
 
   PlanningCache cache;
-  fwdOptions.cache = &cache;
   fwdOptions.fullyConnectedPass =
       inferenceOnly ? FullyConnectedPass::INFERENCE_FWD :
                       FullyConnectedPass::TRAINING_FWD;
@@ -153,13 +152,13 @@ int main(int argc, char **argv) {
                                   {numGroups, batchSize, inputSize},
                                   {numGroups, inputSize, outputSize},
                                   "prevAct",
-                                  fwdOptions);
+                                  fwdOptions, &cache);
   Tensor weights =
       createMatMulGroupedInputRHS(graph, dataType,
                                   {numGroups, batchSize, inputSize},
                                   {numGroups, inputSize, outputSize},
                                   "weights",
-                                  fwdOptions);
+                                  fwdOptions, &cache);
   auto biases = graph.addVariable(dataType, {numGroups, outputSize}, "biases");
   mapTensorLinearly(graph, biases);
 
@@ -172,12 +171,12 @@ int main(int argc, char **argv) {
   Tensor nextAct;
   if (doFwdPass) {
     nextAct = poplin::matMulGrouped(graph, prevAct, weights, fwdProg, "",
-                                    fwdOptions);
+                                    fwdOptions, &cache);
     if (reportPlan) {
       std::cout << "Forward plan:\n";
       poplin::matMulGroupedReportPlan(std::cout, graph, dataType,
                                       prevAct.shape(), weights.shape(),
-                                      fwdOptions);
+                                      fwdOptions, &cache);
     }
     auto bBiases = biases.reshape({numGroups, 1, outputSize})
                          .broadcast(batchSize, 1);
@@ -205,7 +204,7 @@ int main(int argc, char **argv) {
         poplin::createMatMulGroupedInputLHS(graph, dataType,
                                             {numGroups, batchSize, outputSize},
                                             {numGroups, outputSize, inputSize},
-                                            "zDeltas", bwdOptions);
+                                            "zDeltas", bwdOptions, &cache);
     rawHostZDeltas =
         allocateHostMemoryForTensor(zDeltas, "zDeltas", graph, tmap);
   }
@@ -215,12 +214,13 @@ int main(int argc, char **argv) {
     auto weightsTransposed = poplin::transposeGroupedMatrix(weights);
     prevDeltas =
         poplin::matMulGrouped(graph, zDeltas, weightsTransposed, bwdProg, "",
-                              bwdOptions);
+                              bwdOptions, &cache);
     if (reportPlan) {
       std::cout << "Backward plan:\n";
       poplin::matMulGroupedReportPlan(std::cout, graph, dataType,
                                       zDeltas.shape(),
-                                      weightsTransposed.shape(), bwdOptions);
+                                      weightsTransposed.shape(),
+                                      bwdOptions, &cache);
     }
     rawHostPrevDeltas =
         allocateHostMemoryForTensor(prevDeltas, "prevDeltas", graph, tmap);
@@ -236,7 +236,7 @@ int main(int argc, char **argv) {
       std::cout << "WU plan:\n";
       poplin::matMulGroupedReportPlan(std::cout, graph, dataType,
                                       prevActTransposed.shape(),
-                                      zDeltas.shape(), wuOptions);
+                                      zDeltas.shape(), wuOptions, &cache);
     }
     auto biasDeltas = reduce(graph, zDeltas, {1}, popops::Operation::ADD,
                              bwdProg);

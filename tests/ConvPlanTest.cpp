@@ -54,5 +54,5 @@ BOOST_AUTO_TEST_CASE(getPlan){
                                     {0, 0},
                                     // upper output truncation
                                     {0, 0});
-  popconv::getPlan(graph, params, popconv::ConvOptions());
+  popconv::getPlan(graph, params, popconv::ConvOptions(), nullptr);
 }

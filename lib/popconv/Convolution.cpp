@@ -1657,9 +1657,10 @@ createInputImpl(Graph &graph, const ConvParams &params,
 Tensor
 createInput(Graph &graph, const ConvParams &params_,
             const std::string &name,
-            const ConvOptions &options) {
+            const ConvOptions &options,
+            PlanningCache *cache) {
   auto params = canonicalizeParams(params_);
-  const auto plan = getPlan(graph, params, options);
+  const auto plan = getPlan(graph, params, options, cache);
   auto input = createInputImpl(graph, params, 0, false, {}, name, plan);
   return actsToExternalShape(input);
 }
@@ -1697,9 +1698,10 @@ createWeightsImpl(Graph &graph, const ConvParams &params, unsigned level,
 Tensor
 createWeights(Graph &graph,
               const ConvParams &params_, const std::string &name,
-              const ConvOptions &options) {
+              const ConvOptions &options,
+              PlanningCache *cache) {
   auto params = canonicalizeParams(params_);
-  const auto plan = getPlan(graph, params, options);
+  const auto plan = getPlan(graph, params, options, cache);
   return weightsToExternalShape(createWeightsImpl(graph, params, 0, false, {},
                                                   name, plan));
 }
@@ -2915,7 +2917,9 @@ convolution(Graph &graph, const poplar::Tensor &in_,
             const poplar::Tensor &weights_,
             const ConvParams &params_,
             bool transposeAndFlipWeights, Sequence &prog,
-            const std::string &debugPrefix, const ConvOptions &options) {
+            const std::string &debugPrefix,
+            const ConvOptions &options,
+            PlanningCache *cache) {
   auto params = canonicalizeParams(params_);
   auto weights = weights_;
   if (weights.rank() == params_.getNumFieldDims() + 2) {
@@ -2923,7 +2927,8 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   }
   if (transposeAndFlipWeights) {
     // Create transposed/flipped weights
-    auto bwdWeights = createWeights(graph, params, "bwdWeights", options);
+    auto bwdWeights = createWeights(graph, params, "bwdWeights",
+                                    options, cache);
     if (bwdWeights.dim(1) && bwdWeights.dim(2))
       weightsTransposeChansFlipXY(graph, weights, bwdWeights, prog,
                                   debugPrefix);
@@ -2931,7 +2936,7 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   }
   weights = weightsToInternalShape(weights);
   auto in = actsToInternalShape(in_, params.numConvGroups);
-  auto plan = getPlan(graph, params, options);
+  auto plan = getPlan(graph, params, options, cache);
   verifyInputShapes(params, in, weights);
   if (plan.useWinograd) {
     throw poputil::poplib_error("Winograd not yet supported");
@@ -3194,7 +3199,8 @@ calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
                       const ConvParams &fwdParams,
                       Sequence &prog,
                       const std::string &debugPrefix,
-                      const ConvOptions &fwdOptions) {
+                      const ConvOptions &fwdOptions,
+                      PlanningCache *cache) {
   const auto numConvGroups = fwdParams.numConvGroups;
   auto zDeltas = actsToInternalShape(zDeltas_, numConvGroups);
   auto activations = actsToInternalShape(activations_, numConvGroups);
@@ -3220,7 +3226,8 @@ calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
                   false,
                   prog,
                   debugPrefix,
-                  options);
+                  options,
+                  cache);
   weightDeltas = actsToInternalShape(weightDeltas, numConvGroups);
   return weightsToExternalShape(
            weightDeltas.dimShufflePartial({1}, {weightDeltas.rank() - 1})
@@ -3235,9 +3242,10 @@ convolutionWeightUpdate(Graph &graph,
                         float learningRate,
                         Sequence &prog,
                         const std::string &debugPrefix,
-                        const ConvOptions &options) {
+                        const ConvOptions &options,
+                        PlanningCache *cache) {
   auto weightDeltas = calculateWeightDeltas(graph, zDeltas, activations, params,
-                                            prog, debugPrefix, options);
+                                            prog, debugPrefix, options, cache);
   // Add the weight deltas to the weights.
   assert(weightDeltas.shape() == weights.shape());
   addTo(graph, weights, weightDeltas, -learningRate, prog,
@@ -3579,19 +3587,20 @@ fullyConnectedWeightTranspose(Graph &graph,
                               Tensor activations,
                               ConvParams params,
                               Sequence &prog, const std::string &debugPrefix,
-                              const ConvOptions &options) {
+                              const ConvOptions &options,
+                              PlanningCache *cache) {
   if (params.getNumFieldDims() != 1) {
     throw poputil::poplib_error("fullyConnectedWeightTranspose() expects a 1-d "
                                "convolution");
   }
-  auto plan = getPlan(graph, params, options);
+  auto plan = getPlan(graph, params, options, cache);
   auto fwdPlan = plan;
   for (auto &p : fwdPlan.partitions) {
     std::swap(p.fieldAxisGrainSize.back(), p.inChanGrainSize);
     std::swap(p.fieldSplit.back(), p.inChanSplit);
   }
   fwdPlan.inChansPerGroup = fwdPlan.partitions.back().inChanGrainSize;
-  Tensor transposed = createInput(graph, params, "transposed", options);
+  Tensor transposed = createInput(graph, params, "transposed", options, cache);
   // split activations into conv groups
   auto splitActivations =
       actsToInternalShape(activations, params.getNumConvGroups());
@@ -3673,15 +3682,18 @@ fullyConnectedWeightTranspose(Graph &graph,
 
 void reportPlanInfo(std::ostream &out,
                     const poplar::Graph &graph,
-                    const ConvParams &params, const ConvOptions &options) {
-  auto plan = getPlan(graph, params, options);
+                    const ConvParams &params,
+                    const ConvOptions &options,
+                    PlanningCache *cache) {
+  auto plan = getPlan(graph, params, options, cache);
   out << plan;
 }
 
 void reportWeightUpdatePlanInfo(std::ostream &out,
                                 const Graph &graph,
                                 const ConvParams &fwdParams,
-                                const ConvOptions &fwdOptions) {
+                                const ConvOptions &fwdOptions,
+                                PlanningCache *cache) {
   auto params = getWeightUpdateParams(fwdParams);
   auto options = fwdOptions;
   options.pass = Pass::TRAINING_WU;
@@ -3692,7 +3704,7 @@ void reportWeightUpdatePlanInfo(std::ostream &out,
   // - wu height = fwd height
   // - wu width = fwd width
   // - wu output channels = fwd output channels
-  reportPlanInfo(out, graph, params, options);
+  reportPlanInfo(out, graph, params, options, cache);
 }
 
 

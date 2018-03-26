@@ -199,11 +199,11 @@ Tensor forwardWeightInput(Graph &graph, const Tensor &actIn,
   PlanningCache cache;
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsType;
-  mmOpt.cache = &cache;
 
-  return unflattenSeqDims(matMul(graph, flattenSeqDims(actIn), weights, prog,
-                                 debugPrefix + "/RnnFwd/FeedFwd", mmOpt),
-                          sequenceSize);
+  return unflattenSeqDims(
+    matMul(graph, flattenSeqDims(actIn), weights, prog,
+           debugPrefix + "/RnnFwd/FeedFwd", mmOpt, &cache),
+    sequenceSize);
 }
 
 Tensor forwardIterate(Graph  &graph,
@@ -228,13 +228,12 @@ Tensor forwardIterate(Graph  &graph,
   PlanningCache cache;
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsType;
-  mmOpt.cache = &cache;
 
   for (unsigned s = 0U; s != sequenceSize; ++s) {
     const auto dbgStr = debugPrefix + "/RnnFwd/Feedback/"+ std::to_string(s);
     Tensor yP = s == 0 ? initState : actOut[s - 1];
     auto prod = matMul(graph, yP, weightsFeedback, prog, dbgStr,
-                       mmOpt);
+                       mmOpt, &cache);
     addTo(graph, prod, feedFwdIn[s], 1.0, prog, dbgStr + "/Sum");
 
     /* Add broadcast bias */
@@ -330,11 +329,10 @@ backwardGradientStepImpl(Graph &graph,
   PlanningCache cache;
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsType;
-  mmOpt.cache = &cache;
   mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_BWD;
 
   auto t = matMul(graph, bwdState, weightsFeedback->transpose(), prog,
-                  debugPrefix + "/RnnBwd/Fb", mmOpt);
+                  debugPrefix + "/RnnBwd/Fb", mmOpt, &cache);
   addTo(graph, t, gradientOut, prog, debugPrefix + "/RnnBwd/AddOutGrad");
 
   auto newBwdState =
@@ -415,7 +413,6 @@ void paramDeltaUpdate(Graph &graph,
   PlanningCache cache;
   MatMulOptions mmOpt;
   mmOpt.partialsType = partialsType;
-  mmOpt.cache = &cache;
   mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_WU;
   const bool combineMatMul =  false;
 
@@ -423,12 +420,12 @@ void paramDeltaUpdate(Graph &graph,
     matMulAcc(graph, concat(weightsInputDeltasAcc, weightsFeedbackDeltasAcc),
               1.0,
               concat(actIn.transpose(), prevOut.transpose()), bwdState,
-              prog, fnPrefix + "/Wi+Wfb", mmOpt);
+              prog, fnPrefix + "/Wi+Wfb", mmOpt, &cache);
   } else {
     matMulAcc(graph, weightsInputDeltasAcc, 1.0, actIn.transpose(), bwdState,
-              prog, fnPrefix + "/Wi", mmOpt);
+              prog, fnPrefix + "/Wi", mmOpt, &cache);
     matMulAcc(graph, weightsFeedbackDeltasAcc, 1.0, prevOut.transpose(),
-              bwdState, prog, fnPrefix + "/Wfb", mmOpt);
+              bwdState, prog, fnPrefix + "/Wfb", mmOpt, &cache);
   }
   auto r = reduce(graph, bwdState, {0}, popops::Operation::ADD, prog,
                   fnPrefix);
