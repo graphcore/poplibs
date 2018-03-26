@@ -193,8 +193,14 @@ std::ostream& operator<<(std::ostream &os, const Partition &p) {
 }
 
 std::ostream& operator<<(std::ostream &os, const ConvTransform &t) {
-  os << "  Transform: swapOperands        " << t.swapOperands << "\n"
-        "             expandDims          ";
+  os << "  Transform:\n";
+  os << "        dilatePostConv          ";
+  printContainer(t.dilatePostConv, os);
+  os << "\n"
+     << "        swapOperands            "
+     << t.swapOperands
+     << "\n"
+     << "             expandDims          ";
   printContainer(t.expandDims, os);
   os << "\n"
      << "        outChanFlattenDims      ";
@@ -1195,6 +1201,31 @@ void addExtraDims(ConvParams &params, unsigned extraDims) {
   insertAtFront(params.outputTransform.paddingUpper, extraDims, 0U);
 }
 
+/// Return whether the dilation can be sunk until after the striding (before
+/// output padding is applied).
+static bool canDeferDilation(const ConvParams &params, unsigned dim) {
+  return params.inputTransform.paddingLower[dim] == 0 &&
+         params.inputTransform.paddingUpper[dim] == 0 &&
+         params.outputTransform.stride[dim] == 1 &&
+         params.outputTransform.truncationLower[dim] == 0 &&
+         params.outputTransform.truncationUpper[dim] == 0 &&
+         params.getTransformedKernelSize(dim) == 1;
+}
+
+ConvParams
+calculateParamsWithDeferredDilation(
+    const ConvParams &params,
+    const std::vector<unsigned> &dilatePostConv) {
+  auto paramsWithDeferredDilation = params;
+  for (const auto dim : dilatePostConv) {
+    assert(canDeferDilation(params, dim));
+    paramsWithDeferredDilation.inputTransform.dilation[dim] = 1;
+    paramsWithDeferredDilation.outputTransform.paddingLower[dim] = 0;
+    paramsWithDeferredDilation.outputTransform.paddingUpper[dim] = 0;
+  }
+  return paramsWithDeferredDilation;
+}
+
 static ConvParams
 calculateSwappedParams(const ConvParams &params, bool swapOperands) {
   auto swappedParams = params;
@@ -1327,8 +1358,12 @@ static ConvParams applyTransform(const ConvParams &params,
                                  unsigned outChanGrainSize) {
   auto paramsWithExtraDims = params;
   addExtraDims(paramsWithExtraDims, transform.extraFieldDims);
-  const auto swappedParams =
-      calculateSwappedParams(paramsWithExtraDims, transform.swapOperands);
+  auto paramsWithDeferredDilation =
+      calculateParamsWithDeferredDilation(paramsWithExtraDims,
+                                          transform.dilatePostConv);
+  auto swappedParams =
+      calculateSwappedParams(paramsWithDeferredDilation,
+                             transform.swapOperands);
   const auto expandedParams =
       calculateExpandedParams(swappedParams, transform.expandDims);
   std::vector<unsigned> flattenDims;
@@ -1657,6 +1692,7 @@ constructModel(const poplar::Target &target,
     if (level != 0) {
       assert(!transforms[level].swapOperands);
       assert(transforms[level].extraFieldDims == 0);
+      assert(transforms[level].dilatePostConv.empty());
       for (const auto dim : transforms[level].expandDims) {
         transformedConvSize.back().numInChanGrains =
             m.product({transformedConvSize.back().numInChanGrains,
@@ -2331,6 +2367,20 @@ static std::vector<ConvTypes> getConvTypes(const poplar::Target &target,
   return types;
 }
 
+static std::vector<unsigned>
+getDilatePostConvDims(const ConvParams &params) {
+  const auto numFieldDims = params.getNumFieldDims();
+  std::vector<unsigned> dilateAfterConv;
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    if (params.inputTransform.dilation[dim] != 1 &&
+        canDeferDilation(params, dim)) {
+      dilateAfterConv.push_back(dim);
+    }
+  }
+  std::reverse(dilateAfterConv.begin(), dilateAfterConv.end());
+  return dilateAfterConv;
+}
+
 static std::pair<Plan, Cost>
 createPlan(ConvParams params,
            const ConvOptions &options,
@@ -2338,6 +2388,18 @@ createPlan(ConvParams params,
            const poplar::Graph &graph,
            PlanningCacheImpl *cache) {
   validateLayerParams(params, options);
+  params = canonicalizeParams(params);
+  const auto &target = graph.getTarget();
+  std::vector<double> perLevelExchangeBytesPerCycle;
+  const auto hierarchy = getTileHierarchy(target,
+                                          perLevelExchangeBytesPerCycle);
+  const auto numLevels = hierarchy.size() + 1;
+  Cost bestCost = highestCost;
+  Plan bestPlan;
+  std::vector<ConvTransform> transforms(numLevels);
+  auto convTypes = getConvTypes(graph.getTarget(), numLevels, params.dType,
+                                options);
+  const auto ipuLevel = transforms.size() - 2;
   unsigned addedFieldDims = 0;
   auto numFieldDims = params.getNumFieldDims();
   auto paramsWithExtraDims = params;
@@ -2350,21 +2412,15 @@ createPlan(ConvParams params,
     addExtraDims(paramsWithExtraDims, addedFieldDims);
     numFieldDims = 2;
   }
-  const auto &target = graph.getTarget();
-  std::vector<double> perLevelExchangeBytesPerCycle;
-  const auto hierarchy = getTileHierarchy(target,
-                                          perLevelExchangeBytesPerCycle);
-  const auto numLevels = hierarchy.size() + 1;
-  Cost bestCost = highestCost;
-  Plan bestPlan;
-  std::vector<ConvTransform> transforms(numLevels);
-  auto convTypes = getConvTypes(graph.getTarget(), numLevels, params.dType,
-                                options);
-  const auto ipuLevel = transforms.size() - 2;
   transforms[0].extraFieldDims = addedFieldDims;
-  for (bool swapOperands : getSwapOperandCandidates(params, options)) {
+  transforms[0].dilatePostConv = getDilatePostConvDims(paramsWithExtraDims);
+  auto paramsWithDeferredDilation =
+      calculateParamsWithDeferredDilation(paramsWithExtraDims,
+                                          transforms[0].dilatePostConv);
+  for (bool swapOperands : getSwapOperandCandidates(paramsWithDeferredDilation,
+                                                    options)) {
     transforms[0].swapOperands = swapOperands;
-    auto swappedParams = calculateSwappedParams(paramsWithExtraDims,
+    auto swappedParams = calculateSwappedParams(paramsWithDeferredDilation,
                                                 swapOperands);
     for (std::vector<unsigned> expandDims :
          getExpandDimsCandidates(swappedParams)) {
