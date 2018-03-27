@@ -2,6 +2,7 @@
 #include "PerformanceEstimation.hpp"
 #include "popops/Expr.hpp"
 #include "ExprOpUtil.hpp"
+#include <map>
 
 using namespace poplar;
 
