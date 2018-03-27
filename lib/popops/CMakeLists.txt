@@ -1,4 +1,16 @@
 include(GNUInstallDirs)
+
+find_package(Boost REQUIRED)
+
+# Before cmake 3.6 imported targets are only created if you specify a list of
+# components (or not at all before cmake 3.5). Workaround this by adding the
+# imported target ourselves.
+if(NOT TARGET Boost::boost)
+  add_library(Boost::boost INTERFACE IMPORTED)
+  set_target_properties(Boost::boost PROPERTIES
+                        INTERFACE_INCLUDE_DIRECTORIES "${Boost_INCLUDE_DIRS}")
+endif()
+
 get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(popops SHARED
@@ -35,7 +47,7 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/Zero.hpp
 )
 
-target_link_libraries(popops poplar poputil ${CMAKE_DL_LIBS})
+target_link_libraries(popops poplar poputil Boost::boost ${CMAKE_DL_LIBS})
 
 target_include_directories(popops
   PUBLIC
