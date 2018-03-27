@@ -1,3 +1,5 @@
+// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+
 #ifndef poputil_TileMapping_hpp
 #define poputil_TileMapping_hpp
 #include <vector>

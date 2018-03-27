@@ -1,3 +1,5 @@
+// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+
 #ifndef popops_AllTrue_hpp
 #define popops_AllTrue_hpp
 

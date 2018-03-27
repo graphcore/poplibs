@@ -1,3 +1,5 @@
+// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+
 #ifndef popops_Reduce_hpp
 #define popops_Reduce_hpp
 

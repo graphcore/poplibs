@@ -1,3 +1,5 @@
+// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+
 #ifndef popops_ElementWise_hpp
 #define popops_ElementWise_hpp
 

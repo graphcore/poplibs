@@ -1,3 +1,5 @@
+// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+
 #ifndef popconv_Convolution_hpp
 #define popconv_Convolution_hpp
 #include "poputil/exceptions.hpp"

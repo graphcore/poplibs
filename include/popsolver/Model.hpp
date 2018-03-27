@@ -1,3 +1,5 @@
+// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+
 #ifndef popsolver_Model_hpp
 #define popsolver_Model_hpp
 

@@ -1,3 +1,5 @@
+// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+
 #ifndef popnn_Recurrent_hpp
 #define popnn_Recurrent_hpp
 

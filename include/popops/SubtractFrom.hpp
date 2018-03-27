@@ -1,3 +1,5 @@
+// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+
 #ifndef popops_SubtractFrom_hpp
 #define popops_SubtractFrom_hpp
 #include <poplar/Graph.hpp>

@@ -1,5 +1,6 @@
+// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+
 #ifndef poplibs_support_print_hpp
-// Copyright (c) 2017, Graphcore Ltd, All rights reserved.
 #define poplibs_support_print_hpp
 
 #include <ostream>

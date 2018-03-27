@@ -1,3 +1,5 @@
+// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+
 #ifndef _poputil_Broadcast_hpp_
 #define _poputil_Broadcast_hpp_
 #include <poplar/Tensor.hpp>

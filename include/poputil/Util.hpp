@@ -1,3 +1,5 @@
+// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+
 #ifndef poputil_Util_hpp
 #define poputil_Util_hpp
 

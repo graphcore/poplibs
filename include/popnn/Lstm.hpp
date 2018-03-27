@@ -1,3 +1,5 @@
+// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+
 #ifndef popnn_Lstm_hpp
 #define popnn_Lstm_hpp
 

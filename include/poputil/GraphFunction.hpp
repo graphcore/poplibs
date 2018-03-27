@@ -1,3 +1,5 @@
+// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+
 #ifndef poputil_GraphFunction_hpp
 #define poputil_GraphFunction_hpp
 #include <poplar/Graph.hpp>

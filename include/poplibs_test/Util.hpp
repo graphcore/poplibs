@@ -1,3 +1,5 @@
+// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+
 #ifndef poplibs_test_Util_hpp
 #define poplibs_test_Util_hpp
 #include <cassert>

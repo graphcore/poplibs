@@ -1,3 +1,5 @@
+// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+
 #ifndef popops_HadamardProduct_hpp
 #define popops_HadamardProduct_hpp
 #include <poplar/Graph.hpp>

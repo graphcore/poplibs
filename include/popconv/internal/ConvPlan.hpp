@@ -1,3 +1,5 @@
+// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+
 #ifndef popconv_internal_ConvPlan_hpp
 #define popconv_internal_ConvPlan_hpp
 #include <popconv/Convolution.hpp>

@@ -1,3 +1,5 @@
+// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+
 #ifndef poplibs_test_Pooling_hpp
 #define poplibs_test_Pooling_hpp
 #include "popnn/PoolingDef.hpp"

@@ -1,3 +1,5 @@
+// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+
 #ifndef poputil_VertexTemplates_hpp
 #define poputil_VertexTemplates_hpp
 #include <string>

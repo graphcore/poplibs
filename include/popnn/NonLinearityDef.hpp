@@ -1,3 +1,5 @@
+// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+
 #ifndef popnn_NonLinearityDef_hpp
 #define popnn_NonLinearityDef_hpp
 

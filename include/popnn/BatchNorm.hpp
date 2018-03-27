@@ -1,3 +1,5 @@
+// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+
 #ifndef popnn_BatchNorm_hpp
 #define popnn_BatchNorm_hpp
 #include "poplar/Program.hpp"

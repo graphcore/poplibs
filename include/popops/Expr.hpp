@@ -1,3 +1,5 @@
+// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+
 #ifndef __popops_Expr_hpp__
 #define __popops_Expr_hpp__
 #include <memory>
