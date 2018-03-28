@@ -782,11 +782,10 @@ class
 AddToChannel : public Vertex {
 public:
   Vector<InOut<Vector<FPType>>> acts;
-  Vector<Input<Vector<FPType, TWO_PTR, 1, true>>> addend;
+  Vector<Input<Vector<FPType, TWO_PTR, 1, true>>, ONE_PTR> addend;
 
   bool compute() {
     unsigned n = acts.size();
-    assert(addend.size() == n);
     for (unsigned i = 0; i != n; ++i) {
       unsigned chansPerGroup = addend[i].size();
       assert(acts[i].size() % chansPerGroup == 0);

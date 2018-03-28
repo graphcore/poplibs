@@ -404,7 +404,6 @@ MAKE_CYCLE_ESTIMATOR_NAME(AddToChannel)(const VertexIntrospector &vertex,
   CODELET_FIELD(addend);
   const auto dataPathWidth = target.getDataPathWidth();
 
-  assert(acts.size() == addend.size());
   const bool isFloat = type == FLOAT;
   const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
   unsigned n = acts.size();
