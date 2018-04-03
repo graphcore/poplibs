@@ -3,15 +3,6 @@ get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 find_package(Boost REQUIRED)
 
-# Before cmake 3.6 imported targets are only created if you specify a list of
-# components (or not at all before cmake 3.5). Workaround this by adding the
-# imported target ourselves.
-if(NOT TARGET Boost::boost)
-  add_library(Boost::boost INTERFACE IMPORTED)
-  set_target_properties(Boost::boost PROPERTIES
-                        INTERFACE_INCLUDE_DIRECTORIES "${Boost_INCLUDE_DIRS}")
-endif()
-
 add_library(popconv SHARED
   codelets.cpp
   popconvCycleEstimators.cpp
