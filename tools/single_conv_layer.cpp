@@ -104,7 +104,13 @@ int main(int argc, char **argv) {
   bool reportVarStorage;
 
   Pass pass = Pass::ALL;
-  popconv::ConvOptions convOptions;
+  Type partialsType = FLOAT;
+  Type interTilePartialsType = FLOAT;
+  Type interIpuPartialsType = FLOAT;
+  std::string useWinograd = "false";
+  std::string winogradPatchSize = "4";
+  std::string percentageCyclesExcessForMemOptim = "0";
+  std::string weightUpdateMethod = "AUTO";
   popconv::PlanningCache cache;
   po::options_description desc("Options");
   desc.add_options()
@@ -129,16 +135,15 @@ int main(int argc, char **argv) {
      po::value<Type>(&dataType)->default_value(HALF),
      "Type of the data and the parameters")
     ("partials-type",
-     po::value<Type>(&convOptions.partialsType)->
-         default_value(convOptions.partialsType),
+     po::value<Type>(&partialsType)->default_value(partialsType),
      "Type of partials")
     ("tile-partials-type",
-     po::value<Type>(&convOptions.interTilePartialsType)->
-         default_value(convOptions.interTilePartialsType),
+     po::value<Type>(&interTilePartialsType)
+         ->default_value(interTilePartialsType),
      "Type of inter-tile partials")
     ("ipu-partials-type",
-     po::value<Type>(&convOptions.interIpuPartialsType)->
-         default_value(convOptions.interIpuPartialsType),
+     po::value<Type>(&interIpuPartialsType)
+         ->default_value(interIpuPartialsType),
      "Type of inter-IPU partials")
     ("truncation",
      po::value<ShapeOption<unsigned>>(&truncationOption)->default_value(0),
@@ -251,21 +256,20 @@ int main(int argc, char **argv) {
      po::value<unsigned>(&numConvGroups)->default_value(1),
      "Number of convolution groups in grouped convolution")
     ("use-winograd-conv",
-     po::value<bool>(&convOptions.useWinograd)->default_value(0),
+     po::value<std::string>(&useWinograd)->default_value(useWinograd),
      "Use winograd convolution")
     ("winograd-patch-size",
-      po::value<unsigned>(&convOptions.winogradPatchSize)->default_value(4),
+     po::value<std::string>(&winogradPatchSize)
+         ->default_value(winogradPatchSize),
      "Square patch size to use in winograd convolution")
     ("percent-cyc-excess-for-mem-optim",
-     po::value<unsigned>(
-       &convOptions.percentageCyclesExcessForMemOptim
-     )->default_value(0),
+     po::value<std::string>(&percentageCyclesExcessForMemOptim)
+         ->default_value(percentageCyclesExcessForMemOptim),
      "Percentage cycles excess to use for memory optimisation. "
      "if 0, no memory optimisation is performed")
     ("weight-update-method",
-     po::value<popconv::WeightUpdateMethod>(
-         &convOptions.weightUpdateMethod
-     )->default_value(convOptions.weightUpdateMethod),
+     po::value<std::string>(&weightUpdateMethod)
+         ->default_value(weightUpdateMethod),
      "Weight update method: amp | auto")
     ("report-plan", po::value<bool>(&reportPlan)->default_value(false),
      "Display plan")
@@ -418,14 +422,22 @@ int main(int argc, char **argv) {
 
   const auto outFieldSize = params.getOutputFieldShape();
   const auto bwdParams = getGradientParams(params);
+  OptionFlags convOptions{
+    { "partialsType", partialsType.toString() },
+    { "partialsType.interTile", interTilePartialsType.toString() },
+    { "partialsType.interIPU", interIpuPartialsType.toString() },
+    { "useWinograd", useWinograd },
+    { "winogradPatchSize", winogradPatchSize },
+    { "percentageCyclesExcessForMemOptim", percentageCyclesExcessForMemOptim },
+    { "weightUpdateMethod", weightUpdateMethod }
+  };
   auto fwdOptions = convOptions;
-  fwdOptions.pass =
-      inferenceOnly ? popconv::Pass::INFERENCE_FWD :
-                      popconv::Pass::TRAINING_FWD;
+  fwdOptions.set("pass", inferenceOnly ? "INFERENCE_FWD" :
+                                         "TRAINING_FWD");
   auto bwdOptions = convOptions;
-  bwdOptions.pass = popconv::Pass::TRAINING_BWD;
+  bwdOptions.set("pass", "TRAINING_BWD");
   auto wuOptions = convOptions;
-  wuOptions.pass = popconv::Pass::TRAINING_WU;
+  wuOptions.set("pass", "TRAINING_WU");
 
   // Create tensors.
   Tensor prevAct =
@@ -474,7 +486,7 @@ int main(int argc, char **argv) {
                                      revProg, "", wuOptions, &cache);
     if (bias) {
       popconv::convolutionBiasUpdate(graph, zDeltas, biases, learningRate,
-                                     convOptions.partialsType, revProg);
+                                     partialsType, revProg);
     }
     if (reportPlan) {
       std::cout << "WU plan:\n";

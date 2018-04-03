@@ -131,10 +131,11 @@ Tensor createInput(Graph &graph,
                    const Type &partialsType,
                    bool inferenceOnly,
                    const std::string &name) {
-  MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsType;
-  mmOpt.fullyConnectedPass = inferenceOnly ? FullyConnectedPass::INFERENCE_FWD :
-                                             FullyConnectedPass::TRAINING_FWD;
+  OptionFlags mmOpt{
+    { "partialsType", partialsType.toString() },
+    { "fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" :
+                                            "TRAINING_FWD" }
+  };
   std::vector<Tensor> input;
   input.emplace_back(createMatMulInputLHS(graph, dType,
                                  {batchSize, inputSize},
@@ -158,10 +159,11 @@ createWeightsInput(Graph &graph,
                    const Type &partialsType,
                    bool inferenceOnly,
                    const std::string &namePrefix) {
-  MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsType;
-  mmOpt.fullyConnectedPass = inferenceOnly ? FullyConnectedPass::INFERENCE_FWD :
-                                             FullyConnectedPass::TRAINING_FWD;
+  OptionFlags mmOpt{
+    { "partialsType", partialsType.toString() },
+    { "fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" :
+                                            "TRAINING_FWD" }
+  };
   return
       createMatMulInputRHS(graph, dType,
                            {batchSize, inputSize},
@@ -178,10 +180,11 @@ createWeightsFeedback(Graph &graph,
                       const Type &partialsType,
                       bool inferenceOnly,
                       const std::string &namePrefix) {
-  MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsType;
-  mmOpt.fullyConnectedPass = inferenceOnly ? FullyConnectedPass::INFERENCE_FWD :
-                                             FullyConnectedPass::TRAINING_FWD;
+  OptionFlags mmOpt{
+    { "partialsType", partialsType.toString() },
+    { "fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" :
+                                            "TRAINING_FWD" }
+  };
   return
       createMatMulInputRHS(graph, dType,
                            {batchSize, outputSize},
@@ -197,8 +200,9 @@ Tensor forwardWeightInput(Graph &graph, const Tensor &actIn,
                           const std::string &debugPrefix) {
   const unsigned sequenceSize = actIn.dim(0);
   PlanningCache cache;
-  MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsType;
+  OptionFlags mmOpt{
+    { "partialsType", partialsType.toString() }
+  };
 
   return unflattenSeqDims(
     matMul(graph, flattenSeqDims(actIn), weights, prog,
@@ -226,8 +230,9 @@ Tensor forwardIterate(Graph  &graph,
                                   {0, batchSize, outputSize},
                                   "actOut");
   PlanningCache cache;
-  MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsType;
+  OptionFlags mmOpt{
+    { "partialsType", partialsType.toString() }
+  };
 
   for (unsigned s = 0U; s != sequenceSize; ++s) {
     const auto dbgStr = debugPrefix + "/RnnFwd/Feedback/"+ std::to_string(s);
@@ -327,9 +332,10 @@ backwardGradientStepImpl(Graph &graph,
                      const std::string &debugPrefix
                      ) {
   PlanningCache cache;
-  MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsType;
-  mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_BWD;
+  OptionFlags mmOpt{
+    { "partialsType", partialsType.toString() },
+    { "fullyConnectedPass", "TRAINING_BWD" }
+  };
 
   auto t = matMul(graph, bwdState, weightsFeedback->transpose(), prog,
                   debugPrefix + "/RnnBwd/Fb", mmOpt, &cache);
@@ -411,9 +417,10 @@ void paramDeltaUpdate(Graph &graph,
                       const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/RnDeltas";
   PlanningCache cache;
-  MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsType;
-  mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_WU;
+  OptionFlags mmOpt{
+    { "partialsType", partialsType.toString() },
+    { "fullyConnectedPass", "TRAINING_WU" }
+  };
   const bool combineMatMul =  false;
 
   if (combineMatMul) {

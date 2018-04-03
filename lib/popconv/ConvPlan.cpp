@@ -1,4 +1,5 @@
 #include "popconv/internal/ConvPlan.hpp"
+#include "popconv/internal/ConvOptions.hpp"
 #include "popconv/Convolution.hpp"
 #include "poputil/exceptions.hpp"
 #include "poplar/Graph.hpp"
@@ -2611,7 +2612,7 @@ static Plan getFullyConnectedBwdPlan(const poplar::Target &target,
 }
 
 Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
-             ConvOptions options, PlanningCache *cache) {
+             const ConvOptions &options, PlanningCache *cache) {
   const auto &target = graph.getTarget();
   if (options.pass == Pass::FC_TRAINING_WU ||
       options.pass == Pass::FC_TRAINING_BWD) {

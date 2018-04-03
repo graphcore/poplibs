@@ -1875,7 +1875,7 @@ add_test(NAME conv3x3_kernel_dilation_amp
         COMMAND single_conv_layer
                 --input-channels=32
                 --output-channels=32
-                --weight-update-method=amp
+                --weight-update-method=AMP
                 --field={14,28}
                 --kernel-size={3,5}
                 --kernel-dilation={3,2}
@@ -1885,7 +1885,7 @@ add_test(NAME conv3x3_kernel_padding_amp
          COMMAND single_conv_layer
                  --input-channels=32
                  --output-channels=32
-                 --weight-update-method=amp
+                 --weight-update-method=AMP
                  --field={14,14}
                  --kernel-size={3,3}
                  --kernel-padding-lower={4,2}

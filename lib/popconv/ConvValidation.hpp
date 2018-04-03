@@ -7,6 +7,8 @@
 
 namespace popconv {
 
+struct ConvOptions;
+
 void validateLayerParams(const ConvParams &params, const ConvOptions &options);
 
 } // End namespace conv

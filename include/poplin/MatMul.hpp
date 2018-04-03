@@ -6,6 +6,7 @@
 #include <map>
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
+#include <poplar/OptionFlags.hpp>
 #include <tuple>
 
 namespace poplin {
@@ -14,31 +15,6 @@ namespace poplin {
  *  multiplication operations.
  */
 class PlanningCache;
-
-enum class FullyConnectedPass {
-  NONE,
-  INFERENCE_FWD,
-  TRAINING_FWD,
-  TRAINING_BWD,
-  TRAINING_WU,
-};
-
-/** Options to control the implementation of matrix multiplication */
-struct MatMulOptions {
-  /** Type used for partial sum calculation */
-  poplar::Type partialsType = poplar::FLOAT;
-  /// The fully connected pass this multiplication corresponds to. If this
-  /// variable is not set to NONE look for a joint plan that avoids the need to
-  /// exchange weights. In the forward and backward passes the weight matrix is
-  /// assumed to be the right hand side operand of the multiplication. In the
-  /// weight update pass we arrange for the result to have the same layout as
-  /// the weights so it can be added to the weights without any exchange.
-  FullyConnectedPass fullyConnectedPass = FullyConnectedPass::NONE;
-  bool operator<(const MatMulOptions &other) const {
-    return std::tie(partialsType, fullyConnectedPass) <
-             std::tie(other.partialsType, other.fullyConnectedPass);
-  }
-};
 
 /** Multiply two matrices.
  *
@@ -66,7 +42,7 @@ poplar::Tensor
 matMul(poplar::Graph &graph, const poplar::Tensor &A, const poplar::Tensor &B,
        poplar::program::Sequence &prog,
        const std::string &debugPrefix = "",
-       const MatMulOptions &options = MatMulOptions(),
+       const poplar::OptionFlags &options = {},
        PlanningCache *cache = nullptr);
 
 void matMulReportPlan(std::ostream &out,
@@ -74,7 +50,7 @@ void matMulReportPlan(std::ostream &out,
                       const poplar::Type &dType,
                       const std::vector<std::size_t> &aShape,
                       const std::vector<std::size_t> &bShape,
-                      const MatMulOptions &options = MatMulOptions(),
+                      const poplar::OptionFlags &options = {},
                       PlanningCache *cache = nullptr);
 
 /** Multiply two grouped matrices.
@@ -107,7 +83,7 @@ poplar::Tensor
 matMulGrouped(poplar::Graph &graph, const poplar::Tensor &A,
               const poplar::Tensor &B, poplar::program::Sequence &prog,
               const std::string &debugPrefix = "",
-              const MatMulOptions &options = MatMulOptions(),
+              const poplar::OptionFlags &options = {},
               PlanningCache *cache = nullptr);
 
 void matMulGroupedReportPlan(std::ostream &out,
@@ -115,7 +91,7 @@ void matMulGroupedReportPlan(std::ostream &out,
                              const poplar::Type &dType,
                              const std::vector<std::size_t> &aShape,
                              const std::vector<std::size_t> &bShape,
-                             const MatMulOptions &options = MatMulOptions(),
+                             const poplar::OptionFlags &options = {},
                              PlanningCache *cache = nullptr);
 
 /** Multiply two matrices and add to a third (with a scaling factor).
@@ -146,7 +122,7 @@ matMulAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
           const poplar::Tensor &A, const poplar::Tensor &B,
           poplar::program::Sequence &prog,
           const std::string &debugPrefix = "",
-          const MatMulOptions &options = MatMulOptions(),
+          const poplar::OptionFlags &options = {},
           PlanningCache *cache = nullptr);
 
 /** Multiply two grouped matrices and add to a third (with a scaling factor).
@@ -180,7 +156,7 @@ matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
           const poplar::Tensor &A, const poplar::Tensor &B,
           poplar::program::Sequence &prog,
           const std::string &debugPrefix = "",
-          const MatMulOptions &options = MatMulOptions(),
+          const poplar::OptionFlags &options = {},
           PlanningCache *cache = nullptr);
 
 /**
@@ -208,7 +184,7 @@ createMatMulInputLHS(poplar::Graph &graph,
                      const std::vector<std::size_t> &aShape,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
-                     const MatMulOptions &options = MatMulOptions(),
+                     const poplar::OptionFlags &options = {},
                      PlanningCache *cache = nullptr);
 
 /**
@@ -240,7 +216,7 @@ createMatMulGroupedInputLHS(poplar::Graph &graph,
                            const std::vector<std::size_t> &aShape,
                            const std::vector<std::size_t> &bShape,
                            const std::string &name,
-                           const MatMulOptions &options = MatMulOptions(),
+                           const poplar::OptionFlags &options = {},
                            PlanningCache *cache = nullptr);
 
 /**
@@ -268,7 +244,7 @@ createMatMulInputRHS(poplar::Graph &graph,
                      const std::vector<std::size_t> &aShape,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
-                     const MatMulOptions &options = MatMulOptions(),
+                     const poplar::OptionFlags &options = {},
                      PlanningCache *cache = nullptr);
 
 
@@ -301,7 +277,7 @@ createMatMulGroupedInputRHS(poplar::Graph &graph,
                             const std::vector<std::size_t> &aShape,
                             const std::vector<std::size_t> &bShape,
                             const std::string &name,
-                            const MatMulOptions &options = MatMulOptions(),
+                            const poplar::OptionFlags &options = {},
                             PlanningCache *cache = nullptr);
 
 /**

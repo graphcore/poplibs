@@ -1,6 +1,7 @@
 #define BOOST_TEST_MODULE ConvPlanTest
 #include <boost/test/unit_test.hpp>
 #include <popconv/internal/ConvPlan.hpp>
+#include "popconv/internal/ConvOptions.hpp"
 #include <popnn/codelets.hpp>
 #include <vector>
 

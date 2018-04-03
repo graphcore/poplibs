@@ -41,7 +41,6 @@ using poplibs_test::Pass;
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
-  MatMulOptions fwdOptions;
   unsigned numGroups;
   unsigned inputSize;
   unsigned outputSize;
@@ -141,12 +140,13 @@ int main(int argc, char **argv) {
   popops::addCodelets(graph);
   poplin::addCodelets(graph);
 
-  fwdOptions.partialsType = partialsType;
+  poplar::OptionFlags fwdOptions{
+    { "partialsType", partialsType.toString() },
+    { "fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" :
+                                            "TRAINING_FWD" }
+  };
 
   PlanningCache cache;
-  fwdOptions.fullyConnectedPass =
-      inferenceOnly ? FullyConnectedPass::INFERENCE_FWD :
-                      FullyConnectedPass::TRAINING_FWD;
   Tensor prevAct =
       createMatMulGroupedInputLHS(graph, dataType,
                                   {numGroups, batchSize, inputSize},
@@ -163,7 +163,7 @@ int main(int argc, char **argv) {
   mapTensorLinearly(graph, biases);
 
   auto bwdOptions = fwdOptions;
-  bwdOptions.fullyConnectedPass = FullyConnectedPass::TRAINING_BWD;
+  bwdOptions.set("fullyConnectedPass", "TRAINING_BWD");
 
   auto fwdProg = Sequence();
   auto bwdProg = Sequence();
@@ -227,7 +227,7 @@ int main(int argc, char **argv) {
   }
   if (doWuPass) {
     auto wuOptions = fwdOptions;
-    wuOptions.fullyConnectedPass = FullyConnectedPass::TRAINING_WU;
+    wuOptions.set("fullyConnectedPass", "TRAINING_WU");
     auto prevActTransposed = poplin::transposeGroupedMatrix(prevAct);
     poplin::matMulGroupedAcc(graph, weights, -learningRate,
                              prevActTransposed, zDeltas, bwdProg, "",

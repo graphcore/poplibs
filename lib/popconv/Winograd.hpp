@@ -3,6 +3,7 @@
 
 #include <poplar/Program.hpp>
 #include <popconv/Convolution.hpp>
+#include "popconv/internal/ConvOptions.hpp"
 
 namespace popconv {
 

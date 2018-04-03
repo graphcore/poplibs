@@ -9,6 +9,8 @@
 
 namespace popconv {
 
+struct ConvOptions;
+
 struct Partition {
   // For each spatial dimension the number of parts the input is split into.
   std::vector<unsigned> fieldSplit;
@@ -136,7 +138,7 @@ std::ostream& operator<<(std::ostream &os, const Plan &p);
 std::vector<unsigned> getTileHierarchy(const poplar::Target &target);
 
 Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
-             ConvOptions options, PlanningCache *cache);
+             const ConvOptions &options, PlanningCache *cache);
 
 /// Insert the specified number of dimensions of size 1 at the front.
 void addExtraDims(ConvParams &params, unsigned extraDims);

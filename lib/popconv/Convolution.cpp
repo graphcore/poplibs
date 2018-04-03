@@ -1,5 +1,6 @@
 #include "popconv/Convolution.hpp"
 #include "popconv/internal/ConvPlan.hpp"
+#include "popconv/internal/ConvOptions.hpp"
 #include <limits>
 #include <algorithm>
 #include <boost/optional.hpp>
@@ -23,6 +24,7 @@
 #include "popops/ElementWise.hpp"
 #include <unordered_set>
 #include "poplibs_support/Compiler.hpp"
+#include "poplibs_support/OptionParsing.hpp"
 #include "poplibs_support/print.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include <boost/icl/interval_map.hpp>
@@ -33,6 +35,62 @@ using namespace poputil;
 using namespace popops;
 
 namespace popconv {
+
+namespace {
+
+std::map<std::string, WeightUpdateMethod> updateMethodMap {
+  { "AMP", WeightUpdateMethod::AMP },
+  { "AUTO", WeightUpdateMethod::AUTO }
+};
+
+std::map<std::string, Pass> passMap {
+  { "NONE", Pass::NONE },
+  { "INFERENCE_FWD", Pass::INFERENCE_FWD },
+  { "TRAINING_FWD", Pass::TRAINING_FWD },
+  { "TRAINING_BWD", Pass::TRAINING_BWD },
+  { "TRAINING_WU", Pass::TRAINING_WU },
+  { "FC_INFERENCE_FWD", Pass::FC_INFERENCE_FWD },
+  { "FC_TRAINING_FWD", Pass::FC_TRAINING_FWD },
+  { "FC_TRAINING_BWD", Pass::FC_TRAINING_BWD },
+  { "FC_TRAINING_WU", Pass::FC_TRAINING_WU }
+};
+
+std::map<std::string, poplar::Type> partialsTypeMap {
+  { "half", poplar::HALF },
+  { "float", poplar::FLOAT }
+};
+
+ConvOptions parseConvOptions(const poplar::OptionFlags &options) {
+  ConvOptions convOptions;
+
+  using poplibs::OptionHandler;
+  using poplibs::OptionSpec;
+  const OptionSpec convSpec{
+    { "weightUpdateMethod", OptionHandler::createWithEnum(
+      convOptions.weightUpdateMethod, updateMethodMap) },
+    { "useWinograd", OptionHandler::createWithBool(
+      convOptions.useWinograd) },
+    { "winogradPatchSize", OptionHandler::createWithUnsignedInt(
+      convOptions.winogradPatchSize) },
+    { "percentageCyclesExcessForMemOptim",
+      OptionHandler::createWithUnsignedInt(
+        convOptions.percentageCyclesExcessForMemOptim) },
+    { "pass", OptionHandler::createWithEnum(
+      convOptions.pass, passMap) },
+    { "partialsType", OptionHandler::createWithEnum(
+      convOptions.partialsType, partialsTypeMap) },
+    { "partialsType.interTile", OptionHandler::createWithEnum(
+      convOptions.interTilePartialsType, partialsTypeMap) },
+    { "partialsType.interIPU", OptionHandler::createWithEnum(
+      convOptions.interIpuPartialsType, partialsTypeMap) }
+  };
+  options.list([&](const std::string &option, const std::string &value) {
+    convSpec.parse(option, value);
+  });
+  return convOptions;
+}
+
+}
 
 ConvParams::InputTransform::
 InputTransform(std::vector<unsigned> truncationLower_,
@@ -1654,7 +1712,7 @@ createInputImpl(Graph &graph, const ConvParams &params,
   return t;
 }
 
-Tensor
+static Tensor
 createInput(Graph &graph, const ConvParams &params_,
             const std::string &name,
             const ConvOptions &options,
@@ -1663,6 +1721,15 @@ createInput(Graph &graph, const ConvParams &params_,
   const auto plan = getPlan(graph, params, options, cache);
   auto input = createInputImpl(graph, params, 0, false, {}, name, plan);
   return actsToExternalShape(input);
+}
+
+Tensor
+createInput(Graph &graph, const ConvParams &params_,
+            const std::string &name,
+            const poplar::OptionFlags &options_,
+            PlanningCache *cache) {
+  const auto options = parseConvOptions(options_);
+  return createInput(graph, params_, name, options, cache);
 }
 
 static Tensor
@@ -1695,7 +1762,7 @@ createWeightsImpl(Graph &graph, const ConvParams &params, unsigned level,
   return weights;
 }
 
-Tensor
+static Tensor
 createWeights(Graph &graph,
               const ConvParams &params_, const std::string &name,
               const ConvOptions &options,
@@ -1704,6 +1771,15 @@ createWeights(Graph &graph,
   const auto plan = getPlan(graph, params, options, cache);
   return weightsToExternalShape(createWeightsImpl(graph, params, 0, false, {},
                                                   name, plan));
+}
+
+Tensor
+createWeights(Graph &graph,
+              const ConvParams &params_, const std::string &name,
+              const poplar::OptionFlags &options_,
+              PlanningCache *cache) {
+  const auto options = parseConvOptions(options_);
+  return createWeights(graph, params_, name, options, cache);
 }
 
 static std::vector<std::vector<poplar::Interval>>
@@ -2918,8 +2994,9 @@ convolution(Graph &graph, const poplar::Tensor &in_,
             const ConvParams &params_,
             bool transposeAndFlipWeights, Sequence &prog,
             const std::string &debugPrefix,
-            const ConvOptions &options,
+            const poplar::OptionFlags &options_,
             PlanningCache *cache) {
+  const auto options = parseConvOptions(options_);
   auto params = canonicalizeParams(params_);
   auto weights = weights_;
   if (weights.rank() == params_.getNumFieldDims() + 2) {
@@ -3199,14 +3276,14 @@ calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
                       const ConvParams &fwdParams,
                       Sequence &prog,
                       const std::string &debugPrefix,
-                      const ConvOptions &fwdOptions,
+                      const poplar::OptionFlags &fwdOptions,
                       PlanningCache *cache) {
   const auto numConvGroups = fwdParams.numConvGroups;
   auto zDeltas = actsToInternalShape(zDeltas_, numConvGroups);
   auto activations = actsToInternalShape(activations_, numConvGroups);
   auto params = getWeightUpdateParams(fwdParams);
   auto options = fwdOptions;
-  options.pass = Pass::TRAINING_WU;
+  options.set("pass", "TRAINING_WU");
   // The weight update is equivalent to a convolution where:
   // - wu conv groups = fwd conv groups
   // - wu batch size = fwd input channels
@@ -3242,7 +3319,7 @@ convolutionWeightUpdate(Graph &graph,
                         float learningRate,
                         Sequence &prog,
                         const std::string &debugPrefix,
-                        const ConvOptions &options,
+                        const poplar::OptionFlags &options,
                         PlanningCache *cache) {
   auto weightDeltas = calculateWeightDeltas(graph, zDeltas, activations, params,
                                             prog, debugPrefix, options, cache);
@@ -3587,8 +3664,9 @@ fullyConnectedWeightTranspose(Graph &graph,
                               Tensor activations,
                               ConvParams params,
                               Sequence &prog, const std::string &debugPrefix,
-                              const ConvOptions &options,
+                              const poplar::OptionFlags &options_,
                               PlanningCache *cache) {
+  const auto options = parseConvOptions(options_);
   if (params.getNumFieldDims() != 1) {
     throw poputil::poplib_error("fullyConnectedWeightTranspose() expects a 1-d "
                                "convolution");
@@ -3683,8 +3761,9 @@ fullyConnectedWeightTranspose(Graph &graph,
 void reportPlanInfo(std::ostream &out,
                     const poplar::Graph &graph,
                     const ConvParams &params,
-                    const ConvOptions &options,
+                    const poplar::OptionFlags &options_,
                     PlanningCache *cache) {
+  const auto options = parseConvOptions(options_);
   auto plan = getPlan(graph, params, options, cache);
   out << plan;
 }
@@ -3692,11 +3771,11 @@ void reportPlanInfo(std::ostream &out,
 void reportWeightUpdatePlanInfo(std::ostream &out,
                                 const Graph &graph,
                                 const ConvParams &fwdParams,
-                                const ConvOptions &fwdOptions,
+                                const poplar::OptionFlags &fwdOptions,
                                 PlanningCache *cache) {
   auto params = getWeightUpdateParams(fwdParams);
   auto options = fwdOptions;
-  options.pass = Pass::TRAINING_WU;
+  options.set("pass", "TRAINING_WU");
   // The weight update is equivalent to a convolution where:
   // - wu conv groups = fwd conv groups
   // - wu batch size = fwd input channels

@@ -7,6 +7,7 @@
 #include <map>
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
+#include <poplar/OptionFlags.hpp>
 #include <poplar/Engine.hpp>
 
 namespace popconv {
@@ -14,59 +15,6 @@ namespace popconv {
 /** Class used to cache the calculation of plans for convolution operations.
  */
 class PlanningCache;
-
-enum class WeightUpdateMethod {
-  AMP,
-  AUTO
-};
-
-const char *asString(const WeightUpdateMethod &method);
-std::ostream &operator<<(std::ostream &os, const WeightUpdateMethod &method);
-std::istream &operator>>(std::istream &is, WeightUpdateMethod &method);
-
-enum class Pass {
-  NONE,
-  INFERENCE_FWD,
-  TRAINING_FWD,
-  TRAINING_BWD,
-  TRAINING_WU,
-  FC_INFERENCE_FWD,
-  FC_TRAINING_FWD,
-  FC_TRAINING_BWD,
-  FC_TRAINING_WU
-};
-
-/** Options to control the implementation of a convolution */
-struct ConvOptions {
-  WeightUpdateMethod weightUpdateMethod = WeightUpdateMethod::AUTO;
-  bool useWinograd = false;
-  unsigned winogradPatchSize = 4;
-  unsigned percentageCyclesExcessForMemOptim = 0;
-  /// The pass this layer corresponds to.
-  Pass pass = Pass::NONE;
-  poplar::Type partialsType = poplar::FLOAT;
-  poplar::Type interTilePartialsType = poplar::FLOAT;
-  poplar::Type interIpuPartialsType = poplar::FLOAT;
-};
-
-inline bool operator<(const ConvOptions &a, const ConvOptions &b) {
-  return std::tie(a.weightUpdateMethod,
-                  a.useWinograd,
-                  a.winogradPatchSize,
-                  a.percentageCyclesExcessForMemOptim,
-                  a.pass,
-                  a.partialsType,
-                  a.interTilePartialsType,
-                  a.interIpuPartialsType) <
-           std::tie(b.weightUpdateMethod,
-                    b.useWinograd,
-                    b.winogradPatchSize,
-                    b.percentageCyclesExcessForMemOptim,
-                    b.pass,
-                    b.partialsType,
-                    b.interTilePartialsType,
-                    b.interIpuPartialsType);
-}
 
 struct ConvParams {
   struct InputTransform {
@@ -334,7 +282,7 @@ getWuPerfectCycleCount(const poplar::Graph &graph, const ConvParams &params);
 poplar::Tensor
 createWeights(poplar::Graph &graph, const ConvParams &params,
               const std::string &name,
-              const ConvOptions &options = ConvOptions(),
+              const poplar::OptionFlags &options = {},
               PlanningCache *cache = nullptr);
 
 /** Create a bias tensor suitable for input to addBias() function
@@ -368,7 +316,7 @@ createBiases(poplar::Graph &graph, const poplar::Tensor &acts,
 poplar::Tensor
 createInput(poplar::Graph &graph, const ConvParams &params,
             const std::string &name,
-            const ConvOptions &options = ConvOptions(),
+            const poplar::OptionFlags &options = {},
             PlanningCache *cache = nullptr);
 
 /** Convolve an input with a set of weights.
@@ -401,7 +349,7 @@ convolution(poplar::Graph &graph,
             bool transposeAndFlipWeights,
             poplar::program::Sequence &prog,
             const std::string &debugPrefix = "",
-            const ConvOptions &options = ConvOptions(),
+            const poplar::OptionFlags &options = {},
             PlanningCache *cache = nullptr);
 
 void
@@ -417,7 +365,7 @@ calculateWeightDeltas(poplar::Graph &graph, const poplar::Tensor &zDeltas,
                       const ConvParams &params,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix = "",
-                      const ConvOptions &options = ConvOptions(),
+                      const poplar::OptionFlags &options = {},
                       PlanningCache *cache = nullptr);
 
 void
@@ -428,7 +376,7 @@ convolutionWeightUpdate(poplar::Graph &graph,
                         const ConvParams &params, float learningRate,
                         poplar::program::Sequence &prog,
                         const std::string &debugPrefix = "",
-                        const ConvOptions &options = ConvOptions(),
+                        const poplar::OptionFlags &options = {},
                         PlanningCache *cache = nullptr);
 
 void
@@ -450,18 +398,18 @@ fullyConnectedWeightTranspose(poplar::Graph &graph,
                               ConvParams params,
                               poplar::program::Sequence &prog,
                               const std::string &debugPrefix,
-                              const ConvOptions &options,
+                              const poplar::OptionFlags &options,
                               PlanningCache *cache = nullptr);
 
 void reportPlanInfo(std::ostream &out, const poplar::Graph &graph,
                     const ConvParams &params,
-                    const ConvOptions &options = ConvOptions(),
+                    const poplar::OptionFlags &options = {},
                     PlanningCache *cache = nullptr);
 
 void reportWeightUpdatePlanInfo(std::ostream &out,
                                 const poplar::Graph &graph,
                                 const ConvParams &params,
-                                const ConvOptions &options = ConvOptions(),
+                                const poplar::OptionFlags &options = {},
                                 PlanningCache *cache = nullptr);
 
 // creates a tensor pair of batch normalisation parameters (gamma, beta)
@@ -533,8 +481,6 @@ class PlanningCache {
 public:
   PlanningCache();
   ~PlanningCache();
-  friend Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
-                      ConvOptions options, PlanningCache *cache);
   std::unique_ptr<PlanningCacheImpl> impl;
 };
 

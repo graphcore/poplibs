@@ -168,12 +168,13 @@ int main(int argc, char **argv) {
   const auto colsMatB = transposeB ? k : n;
 
   PlanningCache cache;
-  MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsType;
+  poplar::OptionFlags mmOpt{
+    { "partialsType", partialsType.toString() }
+  };
   if (transposeB) {
-    mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_BWD;
+    mmOpt.set("fullyConnectedPass", "TRAINING_BWD");
   } else if (transposeA) {
-    mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_WU;
+    mmOpt.set("fullyConnectedPass", "TRAINING_WU");
   }
   auto matA = createMatMulInputLHS(graph, dataType,
                                    {m, k}, {k, n}, "matA", mmOpt, &cache);

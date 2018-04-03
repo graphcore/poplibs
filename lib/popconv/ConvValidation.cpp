@@ -1,4 +1,5 @@
 #include "ConvValidation.hpp"
+#include "popconv/internal/ConvOptions.hpp"
 #include <poputil/exceptions.hpp>
 #include <string>
 

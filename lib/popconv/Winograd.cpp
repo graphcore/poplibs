@@ -1,3 +1,4 @@
+#include "Winograd.hpp"
 #include "popconv/Convolution.hpp"
 #include "popconv/ConvUtil.hpp"
 #include "poputil/TileMapping.hpp"

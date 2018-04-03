@@ -114,7 +114,7 @@ basicLstmUnitsNlInputPreWeighted(Graph &graph,
                                        Tensor prevOutput,
                                        Tensor weightsOutput,
                                        Sequence &prog,
-                                       MatMulOptions &mmOpt,
+                                       OptionFlags &mmOpt,
                                        PlanningCache *cache,
                                        const std::string debugStr) {
   assert(weightedIn.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
@@ -134,7 +134,7 @@ basicLstmUnitsNlInput(Graph &graph,
                       Tensor weightsInput,
                       Tensor weightsOutput,
                       Sequence &prog,
-                      MatMulOptions &mmOpt,
+                      OptionFlags &mmOpt,
                       PlanningCache *cache,
                       const std::string &debugStr) {
   assert(weightsInput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
@@ -202,10 +202,11 @@ Tensor createInput(Graph &graph,
                    const Type &dType,
                    bool inferenceOnly,
                    const std::string &name) {
-  MatMulOptions mmOpt;
-  mmOpt.partialsType = FLOAT;
-  mmOpt.fullyConnectedPass = inferenceOnly ? FullyConnectedPass::INFERENCE_FWD :
-                                             FullyConnectedPass::TRAINING_FWD;
+  OptionFlags mmOpt{
+    { "partialsType", "float" },
+    { "fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" :
+                                            "TRAINING_FWD" }
+  };
   auto fcOutputSize = BASIC_LSTM_CELL_NUM_UNITS * outputSize;
   auto fcInputSize = inputSize;
   auto fcBatchSize = sequenceSize * batchSize;
@@ -281,10 +282,11 @@ Tensor createWeightsInput(Graph &graph,
                           bool inferenceOnly,
                           const std::string &name
                           ) {
-  MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsType;
-  mmOpt.fullyConnectedPass = inferenceOnly ? FullyConnectedPass::INFERENCE_FWD :
-                                             FullyConnectedPass::TRAINING_FWD;
+  OptionFlags mmOpt{
+    { "partialsType", partialsType.toString() },
+    { "fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" :
+                                            "TRAINING_FWD" }
+  };
   std::vector<std::size_t> aShape(2);
   aShape[0] = preweights ? seqSize * batchSize : batchSize;
   aShape[1] = inputSize;
@@ -307,10 +309,11 @@ Tensor createWeightsOutput(Graph &graph,
                            bool inferenceOnly,
                            const std::string &name
                            ) {
-  MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsType;
-  mmOpt.fullyConnectedPass = inferenceOnly ? FullyConnectedPass::INFERENCE_FWD :
-                                             FullyConnectedPass::TRAINING_FWD;
+  OptionFlags mmOpt{
+    { "partialsType", partialsType.toString() },
+    { "fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" :
+                                            "TRAINING_FWD" }
+  };
   auto weightsOutput =
       createMatMulInputRHS(graph, dType,
                            {batchSize, outputSize},
@@ -327,8 +330,9 @@ calcSequenceWeightedInputs(Graph &graph,
                            program::Sequence &prog,
                            const Type &partialsType,
                            const std::string &debugPrefix) {
-  MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsType;
+  OptionFlags mmOpt{
+    { "partialsType", partialsType.toString() }
+  };
   auto sequenceSize = in_.dim(0);
   auto batchSize = in_.dim(1);
   auto inputSize = in_.dim(2);
@@ -390,10 +394,11 @@ basicLstmCellForwardPassImpl(Graph &graph,
     bBiases = append(bBiases, unitBias);
   }
   PlanningCache cache;
-  MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsType;
-  mmOpt.fullyConnectedPass = inferenceOnly ? FullyConnectedPass::INFERENCE_FWD :
-                                             FullyConnectedPass::TRAINING_FWD;
+  OptionFlags mmOpt{
+    { "partialsType", partialsType.toString() },
+    { "fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" :
+                                            "TRAINING_FWD" }
+  };
   unsigned stateDims = inferenceOnly ? LSTM_NUM_FWD_STATES_INFERENCE :
                                        LSTM_NUM_FWD_STATES_TRAINING;
   Tensor stateOut
@@ -630,11 +635,11 @@ BackwardStepImpl(Graph &graph,
                            gradOutputGate.expand({0})});
 
   PlanningCache cache;
-  MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsType;
-  mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_BWD;
-
   Tensor gradientIn;
+  OptionFlags mmOpt{
+    { "partialsType", partialsType.toString() },
+    { "fullyConnectedPass", "TRAINING_BWD" }
+  };
 
   if (weightsInput != nullptr) {
     gradientIn =
@@ -712,9 +717,10 @@ basicLstmParamUpdate(Graph &graph,
                      const std::string &debugPrefix) {
   const auto fPrefix = debugPrefix + "/LstmDeltas";
   PlanningCache cache;
-  MatMulOptions mmOpt;
-  mmOpt.partialsType = partialsType;
-  mmOpt.fullyConnectedPass = FullyConnectedPass::TRAINING_WU;
+  OptionFlags mmOpt{
+    { "partialsType", partialsType.toString() },
+    { "fullyConnectedPass", "TRAINING_WU" }
+  };
   auto gradUnits =
     concat({getBwdState(bwdState, LSTM_BWD_STATE_GRAD_FORGET_GATE).expand({0}),
             getBwdState(bwdState, LSTM_BWD_STATE_GRAD_INPUT_GATE).expand({0}),
