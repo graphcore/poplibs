@@ -1,5 +1,6 @@
 find_package(Boost REQUIRED unit_test_framework timer system program_options)
 find_package(PythonInterp REQUIRED)
+find_package(Threads)
 
 add_subdirectory(popsolver)
 
@@ -15,7 +16,8 @@ function(add_popnn_unit_test name)
                         Boost::unit_test_framework
                         Boost::timer
                         Boost::system
-                        Boost::program_options)
+                        Boost::program_options
+                        ${CMAKE_THREAD_LIBS_INIT})
   if(NOT Boost_UNIT_TEST_FRAMEWORK_LIBRARY MATCHES "\\.a$")
     target_compile_definitions(${name} PRIVATE -DBOOST_TEST_DYN_LINK)
   endif()
