@@ -190,17 +190,16 @@ static uint64_t comparisonOpsCycles(unsigned dataPathWidth,
   return 0;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(ScaledAdd)(const VertexIntrospector &vertex,
-                                     const Target &target,
-                                     const Type &type) {
-  CODELET_FIELD(deltas);
+static std::uint64_t
+scaledAddCycles(std::vector<unsigned> regionSizes,
+                 const Target &target,
+                 const Type &type,
+                 bool is2D) {
   uint64_t cycles = 5;
-  const auto data = vertex.getFieldInfo("data");
-  assert(data.size() == deltas.size());
-  for (unsigned i = 0; i < data.size(); ++i) {
-    unsigned numElem = data[i].size();
-    assert(data[i].size() == deltas[i].size());
+  if (!is2D)
+    assert(regionSizes.size() == 1);
+
+  for (const auto numElem : regionSizes) {
     unsigned vectorWidth = 1;
     unsigned cyclesPerVector = 1;
     if (type == FLOAT) {
@@ -215,9 +214,41 @@ MAKE_CYCLE_ESTIMATOR_NAME(ScaledAdd)(const VertexIntrospector &vertex,
     }
     // Inner loop uses the axpy instruction.
     cycles += 5 + cyclesPerVector *
-        (1 + (numElem + vectorWidth - 1) / vectorWidth);
+             (1 + (numElem + vectorWidth - 1) / vectorWidth);
   }
+  if (!is2D)
+    cycles -= 3;
   return cycles;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ScaledAdd)(const VertexIntrospector &vertex,
+                                     const Target &target,
+                                     const Type &type) {
+  CODELET_FIELD(deltas);
+  uint64_t cycles = 5;
+  std::vector<unsigned> regionSizes;
+  const auto data = vertex.getFieldInfo("data");
+  assert(data.size() == deltas.size());
+  regionSizes.push_back(data.size());
+  return scaledAddCycles(regionSizes, target, type, false);
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ScaledAdd2D)(const VertexIntrospector &vertex,
+                                       const Target &target,
+                                       const Type &type) {
+  CODELET_FIELD(deltas);
+  uint64_t cycles = 5;
+  std::vector<unsigned> regionSizes;
+  const auto data = vertex.getFieldInfo("data");
+  assert(data.size() == deltas.size());
+  for (unsigned i = 0; i < data.size(); ++i) {
+    unsigned numElem = data[i].size();
+    assert(data[i].size() == deltas[i].size());
+    regionSizes.push_back(numElem);
+  }
+  return scaledAddCycles(regionSizes, target, type, true);
 }
 
 std::uint64_t
@@ -710,6 +741,11 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd, HALF),
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd, UNSIGNED_INT),
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd, INT),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, UNSIGNED_INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, INT),
 
     CYCLE_ESTIMATOR_ENTRY(popops, HadamardProd, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popops, HadamardProd, HALF),

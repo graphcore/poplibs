@@ -37,11 +37,20 @@ void addTo(Graph &graph, Tensor A, Tensor B, float k,
         splitRegionsBetweenWorkers(target, tileContiguousRegions,
                                    grainSize, 2 * grainSize);
     for (const auto &regions : vertexRegions) {
-      auto v = graph.addVertex(cs,
-                               templateVertex("popops::ScaledAdd",
-                                              dType),
-                               {{"data", aFlat.slices(regions)},
-                                {"deltas", bFlat.slices(regions)}});
+      VertexRef v;
+      if (regions.size() == 1 && regions[0].size() == 1) {
+          const auto &region = regions[0][0];
+        v = graph.addVertex(cs,
+                            templateVertex("popops::ScaledAdd", dType),
+                                           {{"data", aFlat.slice(region)},
+                                            {"deltas", bFlat.slice(region)}});
+
+      } else {
+        v = graph.addVertex(cs,
+                            templateVertex("popops::ScaledAdd2D", dType),
+                            {{"data", aFlat.slices(regions)},
+                             {"deltas", bFlat.slices(regions)}});
+      }
       graph.setInitialValue(v["K"], k);
       graph.setTileMapping(v, tile);
     }

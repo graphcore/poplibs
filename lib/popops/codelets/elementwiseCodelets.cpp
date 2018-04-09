@@ -243,8 +243,30 @@ INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::SUBTRACT,
 
 template <typename InType>
 class
-[[poplar::constraint("elem(**data) != elem(**deltas)")]]
+[[poplar::constraint("elem(*data) != elem(*deltas)")]]
 ScaledAdd : public Vertex {
+public:
+  InOut<Vector<InType>> data;
+  Input<Vector<InType, ONE_PTR>> deltas;
+  InType K;
+
+  bool compute() {
+    for (unsigned i = 0; i < data.size(); ++i) {
+      data[i] += K * deltas[i];
+    }
+    return true;
+  }
+};
+
+template class ScaledAdd<float>;
+template class ScaledAdd<half>;
+template class ScaledAdd<int>;
+template class ScaledAdd<unsigned>;
+
+template <typename InType>
+class
+[[poplar::constraint("elem(**data) != elem(**deltas)")]]
+ScaledAdd2D : public Vertex {
 public:
   Vector<InOut<Vector<InType>>> data;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> deltas;
@@ -260,10 +282,10 @@ public:
   }
 };
 
-template class ScaledAdd<float>;
-template class ScaledAdd<half>;
-template class ScaledAdd<int>;
-template class ScaledAdd<unsigned>;
+template class ScaledAdd2D<float>;
+template class ScaledAdd2D<half>;
+template class ScaledAdd2D<int>;
+template class ScaledAdd2D<unsigned>;
 
 
 template <typename FPType>
