@@ -178,7 +178,6 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
   }
 }
 
-
 BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
                     *utf::tolerance<float>(fpc::percent_tolerance<float>(0.1))
                     *utf::tolerance<double>(fpc::percent_tolerance<double>(0.1))

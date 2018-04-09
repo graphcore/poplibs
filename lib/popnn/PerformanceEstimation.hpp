@@ -11,14 +11,18 @@
 inline uint64_t getNonLinearityCycles(std::vector<unsigned> regionSizes,
                                       popnn::NonLinearityType nonLinearityType,
                                       bool isFloat,
+                                      bool is2D,
                                       unsigned dataPathWidth)
 {
   uint64_t cycles = 5; // vertex overhead
+  if (!is2D)
+    assert(regionSizes.size() == 1);
+
   for (const auto numItems : regionSizes) {
     const auto floatVectorWidth = dataPathWidth / 32;
     const auto halfVectorWidth =  dataPathWidth / 16;
     const auto transHalfVectorWidth = 2;
-    cycles += 10; // Loop overhead
+    cycles += 10;
     switch (nonLinearityType) {
     case popnn::NonLinearityType::NON_LINEARITY_RELU:
       {
@@ -53,33 +57,47 @@ inline uint64_t getNonLinearityCycles(std::vector<unsigned> regionSizes,
       throw std::runtime_error("Invalid nonlinearity type");
     }
   }
+  if (!is2D)
+    cycles -= 2;
   return cycles;
 }
 
 inline uint64_t getBwdNonlinearityDerivativeCycles(
-                  unsigned numDeltas,
+                  std::vector<unsigned> regionSizes,
                   popnn::NonLinearityType nonLinearityType,
                   bool isFloat,
+                  bool is2D,
                   unsigned dataPathWidth) {
+  uint64_t cycles = 5;
+  if (!is2D)
+    assert(regionSizes.size() == 1);
+  for (const auto numItems : regionSizes) {
+    const unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+    const unsigned numVectors = (numItems + vectorWidth - 1) / vectorWidth;
 
-  unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-  unsigned numVectors = (numDeltas + vectorWidth - 1) / vectorWidth;
-
-  switch (nonLinearityType) {
-  case popnn::NonLinearityType::NON_LINEARITY_SIGMOID:
-    return 5 + numVectors * 3;
-  case popnn::NonLinearityType::NON_LINEARITY_RELU:
-    {
-      const unsigned vertexOverhead = 2    // run instruction
+    switch (nonLinearityType) {
+    case popnn::NonLinearityType::NON_LINEARITY_SIGMOID:
+      cycles += 5 + numVectors * 3;
+      break;
+    case popnn::NonLinearityType::NON_LINEARITY_RELU:
+      {
+        const unsigned vertexOverhead = 2    // run instruction
                                       + 7; // remaining vertex overhead
-      return vertexOverhead + numVectors * 3;
+        cycles += vertexOverhead + numVectors * 3;
+      }
+      break;
+    case popnn::NonLinearityType::NON_LINEARITY_TANH:
+      cycles += 5 + numVectors * 3;
+        break;
+    case popnn::NonLinearityType::NON_LINEARITY_SOFTMAX:
+      throw std::runtime_error("Nonlinearity not implemented");
+    default:
+      throw std::runtime_error("Invalid nonlinearity type");
     }
-  case popnn::NonLinearityType::NON_LINEARITY_TANH:
-    return 5 + numVectors * 3;
-  case popnn::NonLinearityType::NON_LINEARITY_SOFTMAX:
-    throw std::runtime_error("Nonlinearity not implemented");
   }
-  throw std::runtime_error("Invalid nonlinearity type");
+  if (!is2D)
+    cycles -= 4;
+  return cycles;
 }
 
 #endif // _performance_estimation_h_

@@ -9,6 +9,21 @@
 using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 
+// Macro to instantiate a template class for non linear operations
+#define INSTANTIATE_NL(v) \
+        template class v<float, \
+                         popnn::NonLinearityType::NON_LINEARITY_SIGMOID>; \
+        template class v<half, \
+                         popnn::NonLinearityType::NON_LINEARITY_SIGMOID>; \
+        template class v<float, \
+                         popnn::NonLinearityType::NON_LINEARITY_RELU>; \
+        template class v<half, \
+                         popnn::NonLinearityType::NON_LINEARITY_RELU>; \
+        template class v<float, \
+                         popnn::NonLinearityType::NON_LINEARITY_TANH>; \
+        template class v<half, \
+                         popnn::NonLinearityType::NON_LINEARITY_TANH>;
+
 /****************************************************************************/
 /*            Auxiliary math functions                                      */
 /****************************************************************************/
@@ -78,41 +93,69 @@ static float nonlinearity_derivative(popnn::NonLinearityType t,
 /****************************************************************************/
 
 namespace popnn {
-
-template <typename FPType>
+template <typename FPType, unsigned nlType>
 class NonLinearity : public Vertex {
 public:
+  InOut<Vector<FPType>> data;
+
+  bool compute() {
+    for (unsigned i = 0; i < data.size(); ++i) {
+      data[i] = nonlinearity(NonLinearityType(nlType), data[i]);
+    }
+    return true;
+  }
+};
+
+INSTANTIATE_NL(NonLinearity)
+
+template <typename FPType, unsigned nlType>
+class NonLinearityGrad : public Vertex {
+public:
+  Input<Vector<FPType, ONE_PTR>> outGrad;
+  Input<Vector<FPType, ONE_PTR>> out;
+  Output<Vector<FPType>> inGrad;
+
+  bool compute() {
+    for (unsigned i = 0; i < inGrad.size(); ++i) {
+      inGrad[i] = outGrad[i] *
+                  nonlinearity_derivative(NonLinearityType(nlType), out[i]);
+    }
+    return true;
+  }
+};
+
+INSTANTIATE_NL(NonLinearityGrad)
+
+template <typename FPType, unsigned nlType>
+class NonLinearity2D : public Vertex {
+public:
   Vector<InOut<Vector<FPType>>> data;
-  unsigned nonLinearityType;
 
   bool compute() {
     for (unsigned i = 0; i < data.size(); ++i) {
       for (unsigned j = 0; j < data[i].size(); ++j) {
-        data[i][j] = nonlinearity(NonLinearityType(nonLinearityType),
-                                  data[i][j]);
+        data[i][j] = nonlinearity(NonLinearityType(nlType), data[i][j]);
       }
     }
     return true;
   }
 };
 
-template class NonLinearity<float>;
-template class NonLinearity<half>;
+INSTANTIATE_NL(NonLinearity2D)
 
-template <typename FPType>
-class NonLinearityGrad : public Vertex {
+template <typename FPType, unsigned nlType>
+class NonLinearityGrad2D : public Vertex {
 public:
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> outGrad;
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> out;
   Vector<Output<Vector<FPType>>> inGrad;
-  unsigned nonLinearityType;
 
   bool compute() {
     for (unsigned i = 0; i < inGrad.size(); ++i) {
       for (unsigned j = 0; j < inGrad[i].size(); ++j) {
         inGrad[i][j] =
             outGrad[i][j] *
-              nonlinearity_derivative(NonLinearityType(nonLinearityType),
+              nonlinearity_derivative(NonLinearityType(nlType),
                                                        out[i][j]);
       }
     }
@@ -120,8 +163,7 @@ public:
   }
 };
 
-template class NonLinearityGrad<float>;
-template class NonLinearityGrad<half>;
+INSTANTIATE_NL(NonLinearityGrad2D)
 
 template <typename FPType>
 class MaxPooling : public Vertex {

@@ -5,7 +5,6 @@
 #include "popops/ElementWise.hpp"
 #include "popops/Reduce.hpp"
 #include "poputil/Util.hpp"
-
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
@@ -64,13 +63,24 @@ nonLinearityInputGradient(Graph &graph,
         splitRegionsBetweenWorkers(target, tileContiguousRegions,
                                    grainSize, 2 * grainSize);
     for (const auto &regions : vertexRegions) {
-      auto v = graph.addVertex(cs, templateVertex("popnn::NonLinearityGrad",
-                                                  dType),
-                               {{"out", outFlat.slices(regions)},
-                                {"outGrad", outGradFlat.slices(regions)},
-                                {"inGrad", inGradFlat.slices(regions)}});
-      graph.setInitialValue(v["nonLinearityType"],
-           static_cast<unsigned>(nonLinearityType));
+      VertexRef v;
+      if (regions.size() == 1 && regions[0].size() == 1) {
+        const auto region = regions[0][0];
+        v = graph.addVertex(cs,
+                            templateVertex("popnn::NonLinearityGrad", dType,
+                                       static_cast<unsigned>(nonLinearityType)),
+                            {{"out", outFlat.slice(region)},
+                             {"outGrad", outGradFlat.slice(region)},
+                             {"inGrad", inGradFlat.slice(region)}});
+
+      } else {
+        v = graph.addVertex(cs,
+                            templateVertex("popnn::NonLinearityGrad2D", dType,
+                                       static_cast<unsigned>(nonLinearityType)),
+                            {{"out", outFlat.slices(regions)},
+                             {"outGrad", outGradFlat.slices(regions)},
+                             {"inGrad", inGradFlat.slices(regions)}});
+      }
       graph.setTileMapping(v, tile);
     }
   }
@@ -125,12 +135,22 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
     auto vertexRegions =
         splitRegionsBetweenWorkers(target, tileContiguousRegions,
                                    vectorWidth, minVectors * vectorWidth);
+
     for (const auto &regions : vertexRegions) {
-      auto v = graph.addVertex(cs, templateVertex("popnn::NonLinearity",
-                                                  dType),
-                               {{"data", tFlat.slices(regions)}});
-      graph.setInitialValue(v["nonLinearityType"],
-          static_cast<unsigned>(nonLinearityType));
+      VertexRef v;
+      if (regions.size() == 1 && regions[0].size() == 1) {
+        v = graph.addVertex(cs,
+                            templateVertex("popnn::NonLinearity", dType,
+                                       static_cast<unsigned>(nonLinearityType)),
+                            {{"data", tFlat.slice(regions[0][0])}});
+
+      } else {
+        v =
+          graph.addVertex(cs,
+                          templateVertex("popnn::NonLinearity2D",dType,
+                                       static_cast<unsigned>(nonLinearityType)),
+                          {{"data", tFlat.slices(regions)}});
+      }
       graph.setTileMapping(v, tile);
     }
   }
