@@ -170,7 +170,7 @@ class MaxPooling : public Vertex {
 public:
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<FPType>>> out;
-  Vector<unsigned short, ONE_PTR> windowSizes;
+  Vector<unsigned, ONE_PTR> windowSizes;
 
   bool compute() {
     unsigned inIndex = 0;
@@ -197,7 +197,7 @@ class ScaledSumPooling : public Vertex {
 public:
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<FPType>>> out;
-  Vector<unsigned short, ONE_PTR> windowSizes;
+  Vector<unsigned, ONE_PTR> windowSizes;
   // This field may be removed if separate vertices are defined for
   // Sum Pooling and Avg pooling
   bool scaleOutput;
@@ -232,7 +232,7 @@ public:
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> in;
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> out;
   Vector<Output<Vector<FPType>>> inGrad;
-  Vector<unsigned short, ONE_PTR> windowSizes;
+  Vector<unsigned, ONE_PTR> windowSizes;
 
   bool compute() {
     unsigned inIndex = 0;
@@ -260,7 +260,7 @@ class SumPoolingGrad : public Vertex {
 public:
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> outGrad;
   Vector<Output<Vector<FPType>>> inGrad;
-  Vector<unsigned short, ONE_PTR> windowSizes;
+  Vector<unsigned, ONE_PTR> windowSizes;
 
   bool compute() {
     unsigned inIndex = 0;
