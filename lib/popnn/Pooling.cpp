@@ -448,7 +448,7 @@ Tensor pool(Graph &graph,
       // vertexOut. Each output element in vertexOut corresponds to
       // kernelSize number of input elements in vertexIn.
       std::vector<Tensor> vertexIn;
-      std::vector<unsigned> windowSizes;
+      std::vector<unsigned short> windowSizes;
       for (const auto &region : regions) {
         // For each contiguous regions of output points group them by
         // pixel location.
@@ -597,7 +597,7 @@ poolInputGradient(Graph &graph,
       // A list of output vectors from the forward pass (the activations
       // going into the next layer).
       std::vector<Tensor> vertexPooled;
-      std::vector<unsigned> windowSizes;
+      std::vector<unsigned short> windowSizes;
       for (const auto &region : regions) {
         // For each contiguous regions of output points group them by
         // pixel location.

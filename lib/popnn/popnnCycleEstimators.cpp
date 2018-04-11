@@ -94,7 +94,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(MaxPooling)(const VertexIntrospector &vertex,
   const auto out = vertex.getFieldInfo("out");
   const auto windowSizes = vertex.getFieldInfo("windowSizes");
   const auto windowSizeValues =
-    windowSizes.getInitialValues<unsigned>(target);
+    windowSizes.getInitialValues<unsigned short>(target);
   const auto vectorWidth = target.getDataPathWidth() / (isFloat ? 32 : 16);
   unsigned inIndex = 0;
   CODELET_FIELD(in);
@@ -121,7 +121,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(ScaledSumPooling)(const VertexIntrospector &vertex,
   const auto out = vertex.getFieldInfo("out");
   const auto windowSizes = vertex.getFieldInfo("windowSizes");
   const auto windowSizeValues =
-    windowSizes.getInitialValues<unsigned>(target);
+    windowSizes.getInitialValues<unsigned short>(target);
   const auto vectorWidth = target.getDataPathWidth() / (isFloat ? 32 : 16);
   const auto scaleOutput =
     vertex.getFieldInfo("scaleOutput").getInitialValue<bool>(target);
@@ -151,7 +151,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(MaxPoolingGrad)(const VertexIntrospector &vertex,
   const auto inGrad = vertex.getFieldInfo("inGrad");
   const auto windowSizes = vertex.getFieldInfo("windowSizes");
   const auto windowSizeValues =
-    windowSizes.getInitialValues<unsigned>(target);
+    windowSizes.getInitialValues<unsigned short>(target);
   const auto vectorWidth = target.getDataPathWidth() / (isFloat ? 32 : 16);
   // Expected implementation per group:
   // load group of actIn
@@ -191,7 +191,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(SumPoolingGrad)(const VertexIntrospector &vertex,
   const auto inGrad = vertex.getFieldInfo("inGrad");
   const auto windowSizes = vertex.getFieldInfo("windowSizes");
   const auto windowSizeValues =
-    windowSizes.getInitialValues<unsigned>(target);
+    windowSizes.getInitialValues<unsigned short>(target);
   const auto vectorWidth = target.getDataPathWidth() / (isFloat ? 32 : 16);
   // Expected implementation per group:
   // for windowsize:
