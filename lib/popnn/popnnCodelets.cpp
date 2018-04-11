@@ -8,6 +8,7 @@
 
 using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
+static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
 
 // Macro to instantiate a template class for non linear operations
 #define INSTANTIATE_NL(v) \
@@ -96,10 +97,11 @@ namespace popnn {
 template <typename FPType, unsigned nlType>
 class NonLinearity : public Vertex {
 public:
-  InOut<Vector<FPType>> data;
+  InOut<Vector<FPType, SCALED_PTR32>> data;
+  unsigned short n;
 
   bool compute() {
-    for (unsigned i = 0; i < data.size(); ++i) {
+    for (unsigned i = 0; i < n; ++i) {
       data[i] = nonlinearity(NonLinearityType(nlType), data[i]);
     }
     return true;
@@ -111,12 +113,13 @@ INSTANTIATE_NL(NonLinearity)
 template <typename FPType, unsigned nlType>
 class NonLinearityGrad : public Vertex {
 public:
-  Input<Vector<FPType, ONE_PTR>> outGrad;
-  Input<Vector<FPType, ONE_PTR>> out;
-  Output<Vector<FPType>> inGrad;
+  Input<Vector<FPType, SCALED_PTR32>> outGrad;
+  Input<Vector<FPType, SCALED_PTR32>> out;
+  Output<Vector<FPType, SCALED_PTR32>> inGrad;
+  unsigned short n;
 
   bool compute() {
-    for (unsigned i = 0; i < inGrad.size(); ++i) {
+    for (unsigned i = 0; i < n; ++i) {
       inGrad[i] = outGrad[i] *
                   nonlinearity_derivative(NonLinearityType(nlType), out[i]);
     }

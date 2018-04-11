@@ -72,6 +72,7 @@ nonLinearityInputGradient(Graph &graph,
                             {{"out", outFlat.slice(region)},
                              {"outGrad", outGradFlat.slice(region)},
                              {"inGrad", inGradFlat.slice(region)}});
+        graph.setInitialValue(v["n"], region.size());
 
       } else {
         v = graph.addVertex(cs,
@@ -139,10 +140,12 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
     for (const auto &regions : vertexRegions) {
       VertexRef v;
       if (regions.size() == 1 && regions[0].size() == 1) {
+        const auto region = regions[0][0];
         v = graph.addVertex(cs,
                             templateVertex("popnn::NonLinearity", dType,
                                        static_cast<unsigned>(nonLinearityType)),
-                            {{"data", tFlat.slice(regions[0][0])}});
+                            {{"data", tFlat.slice(region)}});
+        graph.setInitialValue(v["n"], region.size());
 
       } else {
         v =

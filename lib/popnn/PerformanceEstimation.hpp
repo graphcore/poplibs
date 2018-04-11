@@ -57,8 +57,12 @@ inline uint64_t getNonLinearityCycles(std::vector<unsigned> regionSizes,
       throw std::runtime_error("Invalid nonlinearity type");
     }
   }
-  if (!is2D)
+  if (!is2D) {
+    // no outer loop
     cycles -= 2;
+    // scaled32 pointers
+    cycles += 1+2*2; // form base constant, 2*add+shift
+  }
   return cycles;
 }
 
@@ -74,7 +78,7 @@ inline uint64_t getBwdNonlinearityDerivativeCycles(
   for (const auto numItems : regionSizes) {
     const unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
     const unsigned numVectors = (numItems + vectorWidth - 1) / vectorWidth;
-
+    // scaled32 pointers for out/outGrad
     switch (nonLinearityType) {
     case popnn::NonLinearityType::NON_LINEARITY_SIGMOID:
       cycles += 5 + numVectors * 3;
@@ -95,8 +99,15 @@ inline uint64_t getBwdNonlinearityDerivativeCycles(
       throw std::runtime_error("Invalid nonlinearity type");
     }
   }
-  if (!is2D)
+  if (!is2D) {
+    // no outer loop
     cycles -= 4;
+    // scaled32 pointer for inGrad
+    cycles += 1+3*2; // 3pointers*add+shift
+
+
+  }
+
   return cycles;
 }
 
