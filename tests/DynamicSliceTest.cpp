@@ -483,8 +483,8 @@ BOOST_AUTO_TEST_CASE(SliceOrder) {
   auto d0_idx = cg.find("/dynamicSlice_d0/slice");
   auto d1_idx = cg.find("/dynamicSlice_d1/slice");
   auto d2_idx = cg.find("/dynamicSlice_d2/slice");
-
-  BOOST_CHECK(d0_idx != -1 && d1_idx != -1 && d2_idx != -1);
+  const auto npos = std::string::npos;
+  BOOST_CHECK(d0_idx != npos && d1_idx != npos && d2_idx != npos);
   BOOST_CHECK(d1_idx < d2_idx);
   BOOST_CHECK(d2_idx < d0_idx);
 }

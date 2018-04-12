@@ -226,7 +226,6 @@ MAKE_CYCLE_ESTIMATOR_NAME(ScaledAdd)(const VertexIntrospector &vertex,
                                      const Target &target,
                                      const Type &type) {
   CODELET_FIELD(deltas);
-  uint64_t cycles = 5;
   std::vector<unsigned> regionSizes;
   const auto data = vertex.getFieldInfo("data");
   assert(data.size() == deltas.size());
@@ -239,7 +238,6 @@ MAKE_CYCLE_ESTIMATOR_NAME(ScaledAdd2D)(const VertexIntrospector &vertex,
                                        const Target &target,
                                        const Type &type) {
   CODELET_FIELD(deltas);
-  uint64_t cycles = 5;
   std::vector<unsigned> regionSizes;
   const auto data = vertex.getFieldInfo("data");
   assert(data.size() == deltas.size());

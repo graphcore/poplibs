@@ -645,18 +645,13 @@ getWeightOutChansPerGroup(const Plan &plan, unsigned numOutChans) {
 }
 
 static unsigned
-getOutChansPerGroup(const Plan &plan, unsigned numOutChans) {
-  return gcd(plan.partialChansPerGroup, numOutChans);
-}
-
-static unsigned
 linearizeConvIndices(const std::vector<unsigned> &outIndices,
                      const std::vector<unsigned> &kernelIndices,
                      unsigned ic, unsigned b, unsigned oc, unsigned cg,
                      const std::vector<unsigned> &fieldSplit,
                      const std::vector<unsigned> &kernelSplit,
                      unsigned inChanSplit, unsigned batchSplit,
-                     unsigned outChanSplit, unsigned convGroupSplit) {
+                     unsigned outChanSplit) {
   const auto numFieldDims = outIndices.size();
   // Use ozg as the innermost dimension to increase the chance that
   // tiles in a supertile both read the same activations. This reduces
@@ -695,7 +690,6 @@ linearizeTileIndices(const Target &target,
     auto fwdInChanSplit = plan.partitions[i].inChanSplit;
     const auto &fwdBatchSplit = plan.partitions[i].batchSplit;
     auto fwdOutChanSplit = plan.partitions[i].outChanSplit;
-    const auto &convGroupSplit = plan.partitions[i].convGroupSplit;
     switch (plan.linearizeTileOrder) {
     case Plan::LinearizeTileOrder::FC_WU:
       // For the fully connected weight update the in group and out group are
@@ -718,8 +712,7 @@ linearizeTileIndices(const Target &target,
         linearizeConvIndices(fwdOutIndices, fwdKernelIndices, fwdic, fwdb,
                              fwdoc, fwdcg, fwdFieldSplit,
                              fwdKernelSplit, fwdInChanSplit,
-                             fwdBatchSplit, fwdOutChanSplit,
-                             convGroupSplit);
+                             fwdBatchSplit, fwdOutChanSplit);
     tile = tile * hierarchy[i] + linearizedIndex;
   }
   assert(tile < target.getNumTiles());
@@ -1599,14 +1592,6 @@ iterateTilePartitionImpl(
   return out;
 }
 
-static Tensor
-iterateTilePartition(
-    Graph &graph, ConvParams params, Plan plan, Tensor *actsPtr,
-    Tensor *weightsPtr, std::function<void (unsigned, Tensor *, Tensor *)> f) {
-  return iterateTilePartitionImpl(graph, params, plan, 0, false, actsPtr,
-                                  weightsPtr, {}, f);
-}
-
 /// Map the input tensor such that the exchange required during the
 /// convolution operation is minimized. If \a isActs is true then the
 /// tensor is mapped assuming it the activations operand in convolution
@@ -1834,17 +1819,6 @@ createBiases(poplar::Graph &graph, const Tensor &acts_,
   auto biases = graph.addVariable(dType, {numOutChans}, name);
   mapBiases(graph, biases, acts);
   return biases;
-}
-
-static unsigned getNumConvUnits(bool floatActivations,
-                                bool floatPartial,
-                                const poplar::Target &target) {
-  if (floatActivations) {
-    return target.getFp32InFp32OutConvUnitsPerTile();
-  } else {
-    return floatPartial ? target.getFp16InFp32OutConvUnitsPerTile() :
-                          target.getFp16InFp16OutConvUnitsPerTile();
-  }
 }
 
 // create a zero list for a tensor based on the number of elements in the tensor
@@ -4019,7 +3993,7 @@ Tensor batchNormGradients(Graph &graph,
                           const Tensor &invStdDev,
                           const Tensor &gamma,
                           Sequence &prog,
-                          const Type &partialsType,
+                          const Type &, // &partialsType, currently unused
                           const std::string &debugPrefix) {
   assert(actsWhitened.rank() == 4);
   const auto fnPrefix = debugPrefix + "/BN/gradients";

@@ -172,6 +172,7 @@ static const char *asString(Plan::Method m) {
   case Plan::Method::MAC: return "MAC";
   case Plan::Method::OUTER_PRODUCT: return "OUTER_PRODUCT";
   }
+  POPLIB_UNREACHABLE();
 }
 
 std::ostream& operator<<(std::ostream &os, const Partition &p) {
@@ -870,6 +871,7 @@ unsigned getMaxMACsPerCyclePerTile(const poplar::Target &target,
       return numConvUnits * vectorWidth;
     }
   }
+  POPLIB_UNREACHABLE();
 }
 
 static popsolver::Variable
@@ -1147,8 +1149,7 @@ getFullyConnectedWUMethod(const ConvParams &fwdParams,
 }
 
 static Plan::Method
-getFullyConnectedBwdMethod(const ConvParams &fwdParams,
-                           Plan::Method fwdMethod) {
+getFullyConnectedBwdMethod(Plan::Method fwdMethod) {
   return fwdMethod;
 }
 
@@ -1889,8 +1890,7 @@ constructModel(const poplar::Target &target,
     }
     const auto bwdInChansPerGroup = bwdPartitionVars.back().inChanGrainSize;
     const auto bwdMethod =
-        getFullyConnectedBwdMethod(params,
-                                   convVertexType.method);
+        getFullyConnectedBwdMethod(convVertexType.method);
     const auto bwdCycles =
         addCycleEstimate(m, bwdPartitionVars, bwdConvSize,
                          bwdTransformedConvSize,
@@ -2184,7 +2184,7 @@ static std::vector<std::vector<T>> getPowerSet(const std::vector<T> &items) {
   // We associate each subset with a number. The nth bit of the number indicates
   // whether the nth item is in the subset. We enumerate all subsets by
   // iterating over all numbers in the range [0, 1 << numItems).
-  for (unsigned i = 0; i < (1 << numItems); ++i) {
+  for (unsigned i = 0; i < (1u << numItems); ++i) {
     subsets.emplace_back();
     for (unsigned item = 0; item != numItems; ++item) {
       if ((i >> item) & 1)
@@ -2595,13 +2595,11 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
   return plan;
 }
 
-static Plan getFullyConnectedBwdPlan(const poplar::Target &target,
-                                      const ConvParams &fwdParams,
-                                      const ConvOptions &fwdOptions,
-                                      const Plan &fwdPlan) {
+static Plan getFullyConnectedBwdPlan(const ConvParams &fwdParams,
+                                     const Plan &fwdPlan) {
   assert(!fwdPlan.transforms[0].swapOperands);
   auto plan = fwdPlan;
-  plan.method = getFullyConnectedBwdMethod(fwdParams, fwdPlan.method);
+  plan.method = getFullyConnectedBwdMethod(fwdPlan.method);
   plan.linearizeTileOrder = Plan::LinearizeTileOrder::FC_BWD_AS_CONV;
   for (auto &partition : plan.partitions) {
     std::swap(partition.fieldSplit.back(), partition.inChanSplit);
@@ -2624,8 +2622,7 @@ Plan getPlan(const poplar::Graph &graph, const ConvParams &params,
       return getFullyConnectedWUPlan(target, fwdParams, fwdOptions,
                                      fwdPlan);
     assert(options.pass == Pass::FC_TRAINING_BWD);
-    return getFullyConnectedBwdPlan(target, fwdParams, fwdOptions,
-                                    fwdPlan);
+    return getFullyConnectedBwdPlan(fwdParams, fwdPlan);
   }
   Plan plan;
   Cost cost;
@@ -2724,9 +2721,11 @@ std::uint64_t estimateConvCost(const poplar::Target &target,
                                 plan.partialChansPerGroup);
   const auto fieldGrainSize = plan.partitions.back().fieldAxisGrainSize;
   // Check grain size is the same at each level.
+#ifndef NDEBUG
   for (const auto &p : plan.partitions) {
     assert(p.fieldAxisGrainSize == fieldGrainSize);
   }
+#endif
   popsolver::Model m;
   std::vector<PartitionVariables> partitionVars;
   popsolver::Variable cycles;

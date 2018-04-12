@@ -13,7 +13,7 @@ BOOST_AUTO_TEST_CASE(ManyParallelGraphLoads){
 
     std::vector<std::thread> threads;
 
-    for(int t = 0; t<nthreads; t++)
+    for (unsigned t = 0; t<nthreads; t++)
     {
         threads.push_back(std::thread([]() {
           IPUModel ipuModel;
@@ -24,7 +24,7 @@ BOOST_AUTO_TEST_CASE(ManyParallelGraphLoads){
         }));
     }
 
-    for (int t = 0; t<nthreads; t++) {
+    for (unsigned t = 0; t<nthreads; t++) {
         threads[t].join();
     }
 }

@@ -3,6 +3,7 @@
 #include "poputil/exceptions.hpp"
 #include "popops/Add.hpp"
 #include "poplibs_support/OptionParsing.hpp"
+#include "poplibs_support/Compiler.hpp"
 #include <boost/optional.hpp>
 #include <cassert>
 #include <ostream>
@@ -378,6 +379,7 @@ static popconv::ConvParams getConvParams(
                               {0});
     }
   }
+  POPLIB_UNREACHABLE();
 }
 
 

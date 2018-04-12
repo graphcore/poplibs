@@ -26,12 +26,12 @@ static double nonLinearity(NonLinearityType nonLinearityType,
 }
 
 static void softmax(boost::multi_array_ref<double, 2> &array) {
-  for (auto b = 0; b != array.shape()[0]; ++b) {
+  for (auto b = 0u; b != array.shape()[0]; ++b) {
     double sum = 0;
-    for (auto c = 0; c != array.shape()[1]; ++c) {
+    for (auto c = 0u; c != array.shape()[1]; ++c) {
       sum += exp(array[b][c]);
     }
-    for (auto c = 0; c != array.shape()[1]; ++c) {
+    for (auto c = 0u; c != array.shape()[1]; ++c) {
       array[b][c] = exp(array[b][c]) / sum;
     }
   }
