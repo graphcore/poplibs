@@ -58,7 +58,7 @@ nonLinearityInputGradient(Graph &graph,
     // balance memory and loop overhead against parallel performance.
     const auto grainSize = target.getVectorWidth(dType);
     const auto tileContiguousRegions =
-        graph.getSortedContiguousRegions(outFlat, outGradMapping[tile]);
+        graph.getSortedContiguousRegions(outGradFlat, outGradMapping[tile]);
     auto vertexRegions =
         splitRegionsBetweenWorkers(target, tileContiguousRegions,
                                    grainSize, 2 * grainSize);
