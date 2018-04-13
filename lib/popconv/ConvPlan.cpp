@@ -2111,7 +2111,13 @@ getConvVertexTypeCandidates(const poplar::Target &target,
       for (unsigned partialChansPerGroup : {numConvUnits, weightsPerConvUnit}) {
         if (!floatActivations && inChansPerGroup % 2 != 0)
           continue;
+#if 0
+// This breaks training of conv_mnist
+// When T2706 is fixed this code should be re-enabled
         if (isFullyConnected && partialChansPerGroup != numConvUnits)
+#else
+        if (partialChansPerGroup != numConvUnits)
+#endif
           continue;
         if (!canUseConvolutionInstruction(floatActivations,
                                           floatPartials,
