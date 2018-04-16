@@ -1,3 +1,4 @@
+// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
 #ifndef popconv_internal_ConvOptions_hpp
 #define popconv_internal_ConvOptions_hpp
 
