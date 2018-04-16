@@ -1,0 +1,11 @@
+__ZN?pop*
+__ZN??pop*
+__ZNK?pop*
+__ZNK??pop*
+__ZTSN?pop*
+__ZTSN??pop*
+__ZTIN?pop*
+__ZTIN??pop*
+__ZTVN?pop*
+__ZTVN??pop*
+__ZStrs*6poplar4TypeE

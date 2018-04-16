@@ -32,6 +32,18 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   string(APPEND CMAKE_CXX_FLAGS " -Wall -Werror=vla")
 endif()
 
+# Add an explicit exported symbols file (a linker flag)
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  string(APPEND CMAKE_SHARED_LINKER_FLAGS
+         " -Wl,--version-script,"
+         "${CMAKE_CURRENT_SOURCE_DIR}/exported_symbols_gcc.lds")
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  string(APPEND CMAKE_SHARED_LINKER_FLAGS
+         " -Wl,-exported_symbols_list,"
+         "${CMAKE_CURRENT_SOURCE_DIR}/exported_symbols_clang.lds")
+endif()
+
 add_subdirectory(lib)
 add_subdirectory(tests)
 add_subdirectory(tools)
