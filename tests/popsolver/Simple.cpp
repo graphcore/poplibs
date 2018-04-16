@@ -17,7 +17,7 @@ BOOST_AUTO_TEST_CASE(Unsatisfiable) {
   Model m;
   auto a = m.addVariable(2, 5);
   m.lessOrEqual(a, 1);
-  BOOST_CHECK_THROW(m.minimize(a), NoSolution);
+  BOOST_CHECK_EQUAL(m.minimize(a).validSolution(), false);
 }
 
 BOOST_AUTO_TEST_CASE(MultiObjective) {

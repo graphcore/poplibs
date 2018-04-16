@@ -59,12 +59,7 @@ public:
   unsigned operator[](Variable v) const {
     return values[v.id];
   }
-};
-
-/// Type of object that is thrown if no solution exists.
-class NoSolution : std::runtime_error {
-public:
-  NoSolution() : std::runtime_error("No solution exists") {}
+  bool validSolution() const { return values.size() > 0; }
 };
 
 class Model {
@@ -120,11 +115,9 @@ public:
   /// Find a solution that minimizes the value of the specified variables.
   /// Lexicographical comparison is used to compare the values of the variables.
   /// \returns The solution
-  /// \throws NoSolution if no solution exists.
   Solution minimize(const std::vector<Variable> &v);
   /// Find a solution that minimizes the specified variable.
   /// \returns The solution
-  /// \throws NoSolution if no solution exists.
   Solution minimize(Variable v) {
     return minimize(std::vector<Variable>({v}));
   }

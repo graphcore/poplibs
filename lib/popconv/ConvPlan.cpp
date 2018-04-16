@@ -2008,10 +2008,10 @@ choosePlan(const poplar::Target &target,
                  params, bestCost, costBounds, cache, options, m, partitionVars,
                  cycles);
   popsolver::Solution s;
-  try {
-    assert(costBounds.primaryCheckIsCycles);
-    s = m.minimize(cycles);
-  } catch (popsolver::NoSolution) {
+
+  assert(costBounds.primaryCheckIsCycles);
+  s = m.minimize(cycles);
+  if (!s.validSolution()) {
     return {Plan(), highestCost};
   }
   std::vector<Partition> partitions;
@@ -2745,9 +2745,8 @@ std::uint64_t estimateConvCost(const poplar::Target &target,
     constrainPartitionVars(m, partitionVars[level], plan.partitions[level]);
   }
   popsolver::Solution s;
-  try {
-    s = m.minimize(cycles);
-  } catch (popsolver::NoSolution) {
+  s = m.minimize(cycles);
+  if (!s.validSolution()) {
     return highestCost.cycles;
   }
   return s[cycles];

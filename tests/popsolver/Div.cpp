@@ -42,5 +42,5 @@ BOOST_AUTO_TEST_CASE(CeilDivZero) {
   auto a = m.addVariable();
   auto b = m.addConstant(0);
   auto c = m.ceildiv(a, b);
-  BOOST_CHECK_THROW(m.minimize(c), NoSolution);
+  BOOST_CHECK_EQUAL(m.minimize(c).validSolution(), false);
 }

@@ -227,5 +227,5 @@ Solution Model::minimize(const std::vector<Variable> &v) {
   if (scheduler.initialPropagate() &&
       minimize(scheduler, v, foundSolution, solution))
     return solution;
-  throw NoSolution();
+  return Solution();
 }
