@@ -2111,13 +2111,7 @@ getConvVertexTypeCandidates(const poplar::Target &target,
       for (unsigned partialChansPerGroup : {numConvUnits, weightsPerConvUnit}) {
         if (!floatActivations && inChansPerGroup % 2 != 0)
           continue;
-#if 0
-// This breaks training of conv_mnist
-// When T2706 is fixed this code should be re-enabled
         if (isFullyConnected && partialChansPerGroup != numConvUnits)
-#else
-        if (partialChansPerGroup != numConvUnits)
-#endif
           continue;
         if (!canUseConvolutionInstruction(floatActivations,
                                           floatPartials,
@@ -2429,11 +2423,11 @@ createPlan(ConvParams params,
     transforms[0].swapOperands = swapOperands;
     auto swappedParams = calculateSwappedParams(paramsWithDeferredDilation,
                                                 swapOperands);
-    for (std::vector<unsigned> expandDims :
+    for (const std::vector<unsigned> &expandDims :
          getExpandDimsCandidates(swappedParams)) {
       transforms[ipuLevel].expandDims = expandDims;
       auto expandedParams = calculateExpandedParams(swappedParams, expandDims);
-      for (std::vector<unsigned> outChanFlattenDims :
+      for (const std::vector<unsigned> &outChanFlattenDims :
            getOutChanFlattenDimsCandidates(expandedParams)) {
         transforms[ipuLevel].outChanFlattenDims = outChanFlattenDims;
         auto flattenedParams =
