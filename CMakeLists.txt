@@ -34,14 +34,14 @@ endif()
 
 # Add an explicit exported symbols file (a linker flag)
 
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  string(APPEND CMAKE_SHARED_LINKER_FLAGS
-         " -Wl,--version-script,"
-         "${CMAKE_CURRENT_SOURCE_DIR}/exported_symbols_gcc.lds")
-elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+if(APPLE)
   string(APPEND CMAKE_SHARED_LINKER_FLAGS
          " -Wl,-exported_symbols_list,"
-         "${CMAKE_CURRENT_SOURCE_DIR}/exported_symbols_clang.lds")
+         "${CMAKE_CURRENT_SOURCE_DIR}/exported_symbols_osx.lds")
+else()
+  string(APPEND CMAKE_SHARED_LINKER_FLAGS
+         " -Wl,--version-script,"
+         "${CMAKE_CURRENT_SOURCE_DIR}/exported_symbols_linux.lds")
 endif()
 
 add_subdirectory(lib)
