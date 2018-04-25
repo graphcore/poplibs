@@ -23,7 +23,9 @@ add_library(popnn SHARED
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/VectorUtils.hpp
 )
 
-target_link_libraries(popnn poplar popconv poputil poplin ${CMAKE_DL_LIBS})
+target_link_libraries(popnn PUBLIC poplar popconv poputil poplin
+                                   ${CMAKE_DL_LIBS})
+target_link_libraries(popnn PRIVATE Boost::boost)
 
 target_include_directories(popnn
   PUBLIC

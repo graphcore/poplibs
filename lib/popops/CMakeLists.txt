@@ -38,7 +38,8 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/Zero.hpp
 )
 
-target_link_libraries(popops poplar poputil Boost::boost ${CMAKE_DL_LIBS})
+target_link_libraries(popops PUBLIC poplar poputil ${CMAKE_DL_LIBS})
+target_link_libraries(popops PRIVATE Boost::boost)
 
 target_include_directories(popops
   PUBLIC
