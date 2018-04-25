@@ -75,6 +75,8 @@ int main(int argc, char **argv) {
   unsigned batchSize;
   Type dataType;
   double relativeTolerance, absoluteTolerance;
+  bool useCpuModel;
+
   IPUModel ipuModel;
   ipuModel.IPUExchangeType =
       IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
@@ -90,6 +92,8 @@ int main(int argc, char **argv) {
   po::options_description desc("Options");
   desc.add_options()
     ("help", "Produce help message")
+    ("use-cpu", po::value<bool>(&useCpuModel)->default_value(false),
+     "When true, use a CPU model of the device. Otherwise use the IPU model")
     ("channels", po::value<unsigned>(&chans)->required(),
      "Number of channels")
     ("width", po::value<unsigned>(&width)->required(), "Field width")
@@ -262,7 +266,8 @@ int main(int argc, char **argv) {
   }
 
   bool inferenceOnly = vm.count("inference-only");
-  auto device = ipuModel.createDevice();
+  Device device = useCpuModel ? Device::createCPUDevice() :
+                                ipuModel.createDevice();
   const auto &target = device.getTarget();
   Graph graph(device);
   popnn::addCodelets(graph);
@@ -425,9 +430,12 @@ int main(int argc, char **argv) {
     matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
                                  relativeTolerance, absoluteTolerance);
   }
-  engine.printSummary(std::cout, OptionFlags{
-    { "doLayerWiseBreakdown", "true" }
-  });
+  if (!useCpuModel) {
+    engine.printSummary(std::cout, OptionFlags{
+      { "doLayerWiseBreakdown", "true" }
+    });
+  }
+
   if (!matchesModel) {
     std::cerr << "Validation failed\n";
     return 1;

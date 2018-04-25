@@ -46,7 +46,7 @@ int main(int argc, char **argv) {
   Type partialsType;
   double relativeTolerance;
   double absoluteTolerance;
-
+  bool useCpuModel;
   IPUModel ipuModel;
   ipuModel.IPUExchangeType =
       IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
@@ -56,6 +56,8 @@ int main(int argc, char **argv) {
   po::options_description desc("Options");
   desc.add_options()
     ("help", "Produce help message")
+    ("use-cpu", po::value<bool>(&useCpuModel)->default_value(false),
+     "When true, use a CPU model of the device. Otherwise use the IPU model")
     ("sequence-size", po::value<unsigned>(&sequenceSize)->required(),
      "Sequence size in the RNN")
     ("input-size", po::value<unsigned>(&inputSize)->required(),
@@ -119,7 +121,9 @@ int main(int argc, char **argv) {
     }
   }
 
-  auto device = ipuModel.createDevice();
+  Device device = useCpuModel ? Device::createCPUDevice() :
+                                ipuModel.createDevice();
+
   const auto &target = device.getTarget();
   Graph graph(device);
   popconv::addCodelets(graph);
@@ -329,9 +333,11 @@ int main(int argc, char **argv) {
                             modelFwdState,  modelBwdState, modelPrevLayerGrads);
   }
 
-  engine.printSummary(std::cout, OptionFlags{
-    { "doLayerWiseBreakdown", "true" }
-  });
+  if (!useCpuModel) {
+    engine.printSummary(std::cout, OptionFlags{
+      { "doLayerWiseBreakdown", "true" }
+    });
+  }
   bool matchesModel = true;
 
   for (auto s = 0U; s != rawHostNextAct.size(); ++s) {
