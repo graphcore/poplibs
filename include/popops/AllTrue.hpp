@@ -10,17 +10,18 @@
 namespace popops {
 
 /**
- * Takes a boolean tensor, produces a logical AND of all elements
- * and returns the result through the exit status
+ * Given a boolean tensor, compute the logical AND of all its elements.
+ * A new variable is created to store the result.
  * \param graph         The poplar graph
  * \param A             The boolean tensor
  * \param prog          The program sequence to add this operation to
  * \param debugPrefix   A debug name for the operation
+ * \returns             A variable that holds the result of the operation
  */
-void allTrue(poplar::Graph &graph,
-             poplar::Tensor A,
-             poplar::program::Sequence &prog,
-             const std::string &debugPrefix = "");
+poplar::Tensor allTrue(poplar::Graph &graph,
+                       poplar::Tensor A,
+                       poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "");
 
 }
 

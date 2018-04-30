@@ -11,8 +11,8 @@ using namespace poputil;
 
 namespace popops {
 
-void allTrue(Graph &graph, Tensor in, Sequence &prog,
-             const std::string &debugPrefix) {
+Tensor allTrue(Graph &graph, Tensor in, Sequence &prog,
+               const std::string &debugPrefix) {
   const auto inType = in.elementType();
 
   if (inType != BOOL) {
@@ -42,7 +42,10 @@ void allTrue(Graph &graph, Tensor in, Sequence &prog,
       graph.setTileMapping(v, tile);
     }
   }
-  prog.add(Execute(cs));
+  auto predicate = graph.addVariable(BOOL, {}, debugPrefix + "/predicate");
+  graph.setTileMapping(predicate, 0);
+  prog.add(Execute(cs, predicate));
+  return predicate;
 }
 
 };

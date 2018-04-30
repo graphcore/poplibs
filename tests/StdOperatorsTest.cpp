@@ -1226,13 +1226,13 @@ BOOST_AUTO_TEST_CASE(StdOperationAllTrue) {
 
   auto condProg = Sequence();
   Tensor neZero = neq(graph, in, zeros, condProg);
-  allTrue(graph, neZero, condProg, "all_true");
+  auto predicate = allTrue(graph, neZero, condProg, "all_true");
 
   int init[2] = {10, 8};
   int output[2] = {0, 0};
 
   auto mainProg = Sequence();
-  mainProg.add(RepeatWhileTrue(condProg, bodyProg));
+  mainProg.add(RepeatWhileTrue(condProg, predicate, bodyProg));
   graph.createHostWrite("in", in);
   graph.createHostRead("out", in);
 
