@@ -3551,6 +3551,30 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
   }
 }
 
+// Returns a pair with second element set to true if a single channel group is
+// assigned in all the intervals assigned to a tile. The first element is the
+// group number
+static std::pair<std::size_t, bool>
+getAssignedGroupForTile(const std::vector<Interval> &tileMap,
+                        const std::vector<std::size_t> &firstInGroupShape)  {
+  if (tileMap.empty())
+    return {0, false};
+  // Number of elements except the outermost dimension
+  const std::size_t numElemsInInnerDims =
+      std::accumulate(firstInGroupShape.begin() + 1, firstInGroupShape.end(),
+                      1U, std::multiplies<std::size_t>());
+
+  std::size_t singleGroupIndex = tileMap[0].begin() / numElemsInInnerDims;
+  bool singleGroup = true;
+
+  for (std::size_t index = 0U; index < tileMap.size() && singleGroup; ++index) {
+    auto bIndex = tileMap[index].begin() / numElemsInInnerDims;
+    auto eIndex = (tileMap[index].end() - 1) / numElemsInInnerDims;
+    singleGroup = singleGroupIndex == bIndex && singleGroupIndex == eIndex;
+  }
+  return {singleGroupIndex, singleGroup};
+}
+
 static void
 addToChannel(Graph &graph, const Tensor &actsUngrouped,
              const Tensor &addend, float scale, Sequence &prog,
@@ -3561,6 +3585,7 @@ addToChannel(Graph &graph, const Tensor &actsUngrouped,
       splitActivationChanGroups(
         actsToInternalShape(actsUngrouped, 1)
       )[0];
+
   const auto dType = acts.elementType();
   const auto &target = graph.getTarget();
   const auto outChansPerGroup = acts.dim(acts.rank() - 1);
@@ -3571,18 +3596,28 @@ addToChannel(Graph &graph, const Tensor &actsUngrouped,
                                 .flatten(2, acts.rank());
   const auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
   const unsigned numTiles = firstInGroupMapping.size();
+  const auto flattenedActsMapping = graph.getTileMapping(acts.flatten());
+  const std::string vertexName =
+      scale == 1.0 ? "popconv::AddToChannel" : "popconv::ScaledAddToChannel";
   for (unsigned tile = 0; tile != numTiles; ++tile) {
+    const auto singleGroup = getAssignedGroupForTile(firstInGroupMapping[tile],
+                                                     firstInGroup.shape());
+    if (singleGroup.second) {
+      const auto tileMap = flattenedActsMapping[tile];
+      auto v =
+        graph.addVertex(cs, templateVertex(vertexName, dType),
+                        {{"acts", concat(acts.flatten().slices(tileMap))},
+                         {"addend", addendByGroup[singleGroup.first]}});
+      if (scale != 1.0)
+          graph.setInitialValue(v["scale"], scale);
+      graph.setTileMapping(v, tile);
+      continue;
+    }
     const auto perWorkerGroups =
         splitRegionsBetweenWorkers(target, firstInGroupMapping[tile], 1);
     for (const auto &entry : perWorkerGroups) {
       VertexRef v;
-      if (scale == 1.0) {
-        v = graph.addVertex(cs, templateVertex("popconv::AddToChannel",
-                                               dType));
-      } else {
-        v = graph.addVertex(cs, templateVertex("popconv::ScaledAddToChannel",
-                                               dType));
-      }
+      v = graph.addVertex(cs, templateVertex(vertexName + "2D", dType));
       graph.setTileMapping(v, tile);
       unsigned num = 0;
       for (const auto &interval : entry) {
@@ -3760,7 +3795,6 @@ void reportWeightUpdatePlanInfo(std::ostream &out,
   reportPlanInfo(out, graph, params, options, cache);
 }
 
-
 static Tensor
 channelMul(Graph &graph, const Tensor &actsUngrouped, const Tensor &scale,
              Sequence &prog, const std::string &debugPrefix) {
@@ -3787,13 +3821,28 @@ channelMul(Graph &graph, const Tensor &actsUngrouped, const Tensor &scale,
                                                 {acts.dim(2) * acts.dim(3)});
   const auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
   const unsigned numTiles = firstInGroupMapping.size();
+  const auto flattenedActs = acts.flatten();
+  const auto flattenedScaledActs = actsScaled.flatten();
+  // scaledActs has the same mapping as acts
+  const auto actsMapping = graph.getTileMapping(flattenedActs);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
+    const auto singleGroup = getAssignedGroupForTile(firstInGroupMapping[tile],
+                                                     firstInGroup.shape());
+    if (singleGroup.second) {
+      const auto tileMap = actsMapping[tile];
+      auto v =
+        graph.addVertex(cs, templateVertex("popconv::ChannelMul", dType),
+                      {{"actsIn", concat(flattenedActs.slices(tileMap))},
+                       {"actsOut", concat(flattenedScaledActs.slices(tileMap))},
+                       {"scale", scaleByGroup[singleGroup.first]}});
+      graph.setTileMapping(v, tile);
+      continue;
+    }
     const auto perWorkerGroups =
         splitRegionsBetweenWorkers(target, firstInGroupMapping[tile], 1);
     for (const auto &entry : perWorkerGroups) {
-      auto v = graph.addVertex(cs,
-                               templateVertex("popconv::ChannelMul",
-                                              dType));
+      auto v =
+          graph.addVertex(cs, templateVertex("popconv::ChannelMul2D", dType));
       graph.setTileMapping(v, tile);
       unsigned num = 0;
       for (const auto &interval : entry) {

@@ -396,6 +396,21 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
   return cycles;
 }
 
+static std::uint64_t
+addToChannelCycles(unsigned elemsPerWorker, unsigned chansPerGroup,
+                   unsigned dataPathWidth, const Type &type, bool scaledAdd) {
+  const bool isFloat = type == FLOAT;
+  const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+  // Load bias and act pointers.
+  std::uint64_t numCycles = 2;
+  if (scaledAdd) // to load CSR
+    numCycles += 1;
+  // Add addend to acts using add + dual load + store
+  // Add addend to acts using axpby + dual load + store for scaledAdd = 1
+  numCycles += (elemsPerWorker * chansPerGroup + vectorWidth - 1) / vectorWidth;
+  return numCycles;
+}
+
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(AddToChannel)(const VertexIntrospector &vertex,
                                         const Target &target,
@@ -403,19 +418,32 @@ MAKE_CYCLE_ESTIMATOR_NAME(AddToChannel)(const VertexIntrospector &vertex,
   CODELET_FIELD(acts);
   CODELET_FIELD(addend);
   const auto dataPathWidth = target.getDataPathWidth();
+  const auto numWorkerContexts = target.getNumWorkerContexts();
+  std::uint64_t numCycles = 10;
+  unsigned chansPerGroup = addend.size();
+  assert(acts.size() % chansPerGroup == 0);
+  const auto elemsPerWorker =
+      (acts.size() / chansPerGroup + numWorkerContexts - 1) / numWorkerContexts;
+  numCycles += addToChannelCycles(elemsPerWorker, chansPerGroup, dataPathWidth,
+                                  type, false);
+  return numCycles * numWorkerContexts + 10;
+}
 
-  const bool isFloat = type == FLOAT;
-  const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(AddToChannel2D)(const VertexIntrospector &vertex,
+                                        const Target &target,
+                                        const Type &type) {
+  CODELET_FIELD(acts);
+  CODELET_FIELD(addend);
+  const auto dataPathWidth = target.getDataPathWidth();
   unsigned n = acts.size();
-  unsigned numCycles = 5;
+  std::uint64_t numCycles = 5;
   for (unsigned i = 0; i != n; ++i) {
     unsigned chansPerGroup = addend[i].size();
     assert(acts[i].size() % chansPerGroup == 0);
-    unsigned len = acts[i].size() / chansPerGroup;
-    numCycles += 2; // Load bias and act pointers.
-    numCycles += 1; // Warmup.
-    // Add biases to acts using add + dual load + store.
-    numCycles += (len * chansPerGroup + vectorWidth - 1) / vectorWidth;
+    numCycles += addToChannelCycles(acts[i].size() / chansPerGroup,
+                                    chansPerGroup, dataPathWidth, type, false);
+    numCycles += 1; // branch.
   }
   return numCycles;
 }
@@ -427,19 +455,68 @@ MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddToChannel)(const VertexIntrospector &vertex,
   CODELET_FIELD(acts);
   CODELET_FIELD(addend);
   const auto dataPathWidth = target.getDataPathWidth();
+  const auto numWorkerContexts = target.getNumWorkerContexts();
+  std::uint64_t numCycles = 10;
+  unsigned chansPerGroup = addend.size();
+  assert(acts.size() % chansPerGroup == 0);
+  const auto elemsPerWorker =
+      (acts.size() / chansPerGroup + numWorkerContexts - 1) / numWorkerContexts;
+  numCycles += addToChannelCycles(elemsPerWorker, chansPerGroup,
+                                               dataPathWidth, type, true);
+  return numCycles * numWorkerContexts + 10;
+}
 
-  const bool isFloat = type == FLOAT;
-  const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddToChannel2D)(
+                                        const VertexIntrospector &vertex,
+                                        const Target &target,
+                                        const Type &type) {
+  CODELET_FIELD(acts);
+  CODELET_FIELD(addend);
+  const auto dataPathWidth = target.getDataPathWidth();
   unsigned n = acts.size();
-  unsigned numCycles = 6;
+  std::uint64_t numCycles = 5;
   for (unsigned i = 0; i != n; ++i) {
     unsigned chansPerGroup = addend[i].size();
     assert(acts[i].size() % chansPerGroup == 0);
-    unsigned len = acts[i].size() / chansPerGroup;
-    numCycles += 2; // Load addend and act pointers.
-    numCycles += 1; // Warmup.
-    // Add addend to acts using axpby + dual load + store.
-    numCycles += (len * chansPerGroup + vectorWidth - 1) / vectorWidth;
+    numCycles += addToChannelCycles(acts[i].size() / chansPerGroup,
+                                    chansPerGroup, dataPathWidth, type, true);
+    numCycles += 1; // branch.
+  }
+  return numCycles;
+}
+
+static std::uint64_t
+channelMulCycles(unsigned elemsPerWorker, unsigned chansPerGroup,
+                 unsigned dataPathWidth, const Type &type) {
+  const bool isFloat = type == FLOAT;
+  const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+  std::uint64_t numCycles = 3; // Load scale and act pointers.
+
+  // multiply scale by acts using mul + dual load + store.
+  numCycles += (elemsPerWorker * chansPerGroup + vectorWidth - 1) / vectorWidth;
+  return numCycles;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ChannelMul2D)(const VertexIntrospector &vertex,
+                                        const Target &target,
+                                        const Type &type) {
+  CODELET_FIELD(actsIn);
+  CODELET_FIELD(actsOut);
+  CODELET_FIELD(scale);
+  const auto dataPathWidth = target.getDataPathWidth();
+  unsigned n = actsIn.size();
+  unsigned numCycles = 5;
+  assert(actsIn.size() == actsOut.size());
+  assert(scale.size() == n);
+  for (unsigned i = 0; i != n; ++i) {
+    unsigned chansPerGroup = scale[i].size();
+    assert(actsIn[i].size() % chansPerGroup == 0);
+    assert(actsOut[i].size() % chansPerGroup == 0);
+    numCycles +=
+        channelMulCycles(actsIn[i].size() / chansPerGroup, chansPerGroup,
+                         dataPathWidth, type);
   }
   return numCycles;
 }
@@ -452,25 +529,18 @@ MAKE_CYCLE_ESTIMATOR_NAME(ChannelMul)(const VertexIntrospector &vertex,
   CODELET_FIELD(actsOut);
   CODELET_FIELD(scale);
   const auto dataPathWidth = target.getDataPathWidth();
-
-  const bool isFloat = type == FLOAT;
-  const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-  unsigned n = actsIn.size();
-  unsigned numCycles = 5;
+  const auto numWorkerContexts = target.getNumWorkerContexts();
   assert(actsIn.size() == actsOut.size());
-  assert(scale.size() == n);
-  for (unsigned i = 0; i != n; ++i) {
-    unsigned chansPerGroup = scale[i].size();
-    assert(actsIn[i].size() % chansPerGroup == 0);
-    assert(actsOut[i].size() % chansPerGroup == 0);
-    unsigned len = actsIn[i].size() / chansPerGroup;
-    numCycles += 3; // Load scale and act pointers.
-    numCycles += 1; // Warmup.
-    // multiply scale by acts using mul + dual load + store.
-    numCycles += (len * chansPerGroup + vectorWidth - 1) / vectorWidth;
-  }
-  return numCycles;
+  unsigned chansPerGroup = scale.size();
+  assert(actsIn.size() % chansPerGroup == 0);
+  assert(actsOut.size() % chansPerGroup == 0);
+  unsigned len = actsIn.size() / chansPerGroup;
+  unsigned elemsPerWorker = (len + numWorkerContexts - 1) / numWorkerContexts;
+  std::uint64_t numCycles =
+      10 + channelMulCycles(elemsPerWorker, chansPerGroup, dataPathWidth, type);
+  return numCycles * numWorkerContexts + 10;
 }
+
 
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(ConvChanReduce)(const VertexIntrospector &vertex,
@@ -616,12 +686,18 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
 
     CYCLE_ESTIMATOR_ENTRY(popconv, ChannelMul, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popconv, ChannelMul, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ChannelMul2D, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ChannelMul2D, HALF),
 
     CYCLE_ESTIMATOR_ENTRY(popconv, ScaledAddToChannel, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popconv, ScaledAddToChannel, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ScaledAddToChannel2D, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ScaledAddToChannel2D, HALF),
 
     CYCLE_ESTIMATOR_ENTRY(popconv, AddToChannel, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popconv, AddToChannel, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popconv, AddToChannel2D, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popconv, AddToChannel2D, HALF),
 
     CYCLE_ESTIMATOR_ENTRY(popconv, Transpose2d, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popconv, Transpose2d, HALF),

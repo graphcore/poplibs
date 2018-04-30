@@ -778,8 +778,31 @@ template class Transpose2d<half>;
 
 template <class FPType>
 class
+[[poplar::constraint("elem(*acts) != elem(*addend)")]]
+AddToChannel : public SupervisorVertex {
+public:
+  InOut<Vector<FPType>> acts;
+  Input<Vector<FPType, TWO_PTR, 1, true>> addend;
+
+  bool compute() {
+    unsigned chansPerGroup = addend.size();
+    assert(acts.size() % chansPerGroup == 0);
+    unsigned len = acts.size() / chansPerGroup;
+    for (unsigned j = 0; j != len; ++j) {
+      for (unsigned k = 0; k != chansPerGroup; ++k) {
+        acts[j * chansPerGroup + k] += addend[k];
+      }
+    }
+    return true;
+  }
+};
+template class AddToChannel<float>;
+template class AddToChannel<half>;
+
+template <class FPType>
+class
 [[poplar::constraint("elem(**acts) != elem(**addend)")]]
-AddToChannel : public Vertex {
+AddToChannel2D : public Vertex {
 public:
   Vector<InOut<Vector<FPType>>> acts;
   Vector<Input<Vector<FPType, TWO_PTR, 1, true>>, ONE_PTR> addend;
@@ -799,14 +822,37 @@ public:
     return true;
   }
 };
+template class AddToChannel2D<float>;
+template class AddToChannel2D<half>;
 
-template class AddToChannel<float>;
-template class AddToChannel<half>;
+template <class FPType>
+class
+[[poplar::constraint("elem(*acts) != elem(*addend)")]]
+ScaledAddToChannel : public SupervisorVertex {
+public:
+  InOut<Vector<FPType>> acts;
+  Input<Vector<FPType, TWO_PTR, 1, true>> addend;
+  float scale;
+
+  bool compute() {
+    unsigned chansPerGroup = addend.size();
+    unsigned len = acts.size() / chansPerGroup;
+    for (unsigned j = 0; j != len; ++j) {
+      for (unsigned k = 0; k != chansPerGroup; ++k) {
+        acts[j * chansPerGroup + k] += scale * addend[k];
+      }
+    }
+    return true;
+  }
+};
+
+template class ScaledAddToChannel<float>;
+template class ScaledAddToChannel<half>;
 
 template <class FPType>
 class
 [[poplar::constraint("elem(**acts) != elem(**addend)")]]
-ScaledAddToChannel : public Vertex {
+ScaledAddToChannel2D : public Vertex {
 public:
   Vector<InOut<Vector<FPType>>, ONE_PTR> acts;
   Vector<Input<Vector<FPType, TWO_PTR, 1, true>>> addend;
@@ -827,8 +873,8 @@ public:
   }
 };
 
-template class ScaledAddToChannel<float>;
-template class ScaledAddToChannel<half>;
+template class ScaledAddToChannel2D<float>;
+template class ScaledAddToChannel2D<half>;
 
 template <class FPType>
 class
@@ -836,7 +882,7 @@ class
                      "elem(**actsIn) != elem(**scale)",
                      "elem(**scale) != elem(**actsOut)",
                      "upper(**actsIn) || upper(**actsOut)")]]
-ChannelMul : public Vertex {
+ChannelMul2D : public Vertex {
 public:
   Vector<Input<Vector<FPType>>> actsIn;
   Vector<Output<Vector<FPType, ONE_PTR>>, ONE_PTR> actsOut;
@@ -852,6 +898,34 @@ public:
           actsOut[i][j * chansPerGroup + k] =
             actsIn[i][j * chansPerGroup + k] * scale[i][k];
         }
+      }
+    }
+    return true;
+  }
+};
+
+template class ChannelMul2D<float>;
+template class ChannelMul2D<half>;
+
+template <class FPType>
+class
+[[poplar::constraint("elem(*actsIn) != elem(*actsOut)",
+                     "elem(*actsIn) != elem(*scale)",
+                     "elem(*scale) != elem(*actsOut)",
+                     "upper(*actsIn) || upper(*actsOut)")]]
+ChannelMul : public SupervisorVertex {
+public:
+  Input<Vector<FPType>> actsIn;
+  Output<Vector<FPType, ONE_PTR>> actsOut;
+  Input<Vector<FPType>> scale;
+
+  bool compute() {
+    unsigned chansPerGroup = scale.size();
+    unsigned len = actsIn.size() / chansPerGroup;
+    for (unsigned j = 0; j != len; ++j) {
+      for (unsigned k = 0; k != chansPerGroup; ++k) {
+        actsOut[j * chansPerGroup + k] =
+        actsIn[j * chansPerGroup + k] * scale[k];
       }
     }
     return true;
