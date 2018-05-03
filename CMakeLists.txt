@@ -18,6 +18,8 @@ find_package(poplar REQUIRED)
 find_package(Boost REQUIRED regex)
 find_package(Sparsehash REQUIRED)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Require C++11.
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
