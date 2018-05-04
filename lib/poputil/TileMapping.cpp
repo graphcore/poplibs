@@ -76,7 +76,7 @@ public:
     auto m = usage.find(v);
     if (m != usage.end())
       return m->second;
-    return usage.emplace(v, numTiles).first->second;
+    return usage.emplace(v, TileUsage(numTiles)).first->second;
   }
 };
 
