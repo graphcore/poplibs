@@ -3,7 +3,6 @@
 #include <limits>
 
 #include "util.hpp"
-
 using namespace poplar;
 namespace popops {
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
@@ -11,11 +10,11 @@ static constexpr auto TWO_PTR = poplar::VectorLayout::TWO_PTR;
 
 template <typename OutType, typename PartialsType>
 class
-[[poplar::constraint("elem(**out) != elem(**partials)")]]
+[[poplar::constraint("elem(*out) != elem(*partials)")]]
 ReduceAdd : public Vertex {
 public:
-  Vector<Output<Vector<OutType>>> out;
-  Vector<Input<Vector<PartialsType, ONE_PTR, 1, true>>> partials;
+  Output<VectorList<OutType, VectorListLayout::DELTAN>> out;
+  Input<VectorList<PartialsType, VectorListLayout::DELTAN, 1, true>> partials;
 
   bool compute() {
     unsigned numReductions = out.size();
@@ -41,11 +40,11 @@ template class ReduceAdd<int, int>;
 
 template <typename OutType, typename PartialsType>
 class
-[[poplar::constraint("elem(**out) != elem(**partials)")]]
+[[poplar::constraint("elem(*out) != elem(*partials)")]]
 ReduceAddUpdate : public Vertex {
 public:
-  Vector<InOut<Vector<OutType>>> out;
-  Vector<Input<Vector<PartialsType, ONE_PTR, 1, true>>> partials;
+  InOut<VectorList<OutType, VectorListLayout::DELTAN>> out;
+  Input<VectorList<PartialsType, VectorListLayout::DELTAN, 1, true>> partials;
   float k;
 
   bool compute() {
@@ -72,11 +71,11 @@ template class ReduceAddUpdate<int, int>;
 
 template <typename OutType, typename PartialsType>
 class
-[[poplar::constraint("elem(**out) != elem(**partials)")]]
+[[poplar::constraint("elem(*out) != elem(*partials)")]]
 ReduceAddScale : public Vertex {
 public:
-  Vector<InOut<Vector<OutType>>> out;
-  Vector<Input<Vector<PartialsType, ONE_PTR, 1, true>>> partials;
+  InOut<VectorList<OutType, VectorListLayout::DELTAN>> out;
+  Input<VectorList<PartialsType, VectorListLayout::DELTAN, 1, true>> partials;
   float k;
 
   bool compute() {
@@ -104,11 +103,11 @@ template class ReduceAddScale<int, int>;
 
 template <typename OutType, typename PartialsType>
 class
-[[poplar::constraint("elem(**out) != elem(**partials)")]]
+[[poplar::constraint("elem(*out) != elem(*partials)")]]
 ReduceMul : public Vertex {
 public:
-  Vector<Output<Vector<OutType>>> out;
-  Vector<Input<Vector<PartialsType, ONE_PTR, 1, true>>> partials;
+  Output<VectorList<OutType, VectorListLayout::DELTAN>> out;
+  Input<VectorList<PartialsType, VectorListLayout::DELTAN, 1, true>> partials;
 
   bool compute() {
     unsigned numReductions = out.size();
@@ -134,12 +133,11 @@ template class ReduceMul<int, int>;
 
 template <typename OutType, typename PartialsType>
 class
-[[poplar::constraint("elem(**out) != elem(**partials)")]]
+[[poplar::constraint("elem(*out) != elem(*partials)")]]
 ReduceMax : public Vertex {
 public:
-  Vector<Output<Vector<OutType>>> out;
-  Vector<Input<Vector<PartialsType, ONE_PTR, 1, true>>> partials;
-
+  Output<VectorList<OutType, VectorListLayout::DELTAN>> out;
+  Input<VectorList<PartialsType, VectorListLayout::DELTAN, 1, true>> partials;
   bool compute() {
     unsigned numReductions = out.size();
     unsigned numPartials = partials.size() / numReductions;
@@ -164,11 +162,11 @@ template class ReduceMax<int, int>;
 
 template <typename OutType, typename PartialsType>
 class
-[[poplar::constraint("elem(**out) != elem(**partials)")]]
+[[poplar::constraint("elem(*out) != elem(*partials)")]]
 ReduceMin : public Vertex {
 public:
-  Vector<Output<Vector<OutType>>> out;
-  Vector<Input<Vector<PartialsType, ONE_PTR, 1, true>>> partials;
+  Output<VectorList<OutType, VectorListLayout::DELTAN>> out;
+  Input<VectorList<PartialsType, VectorListLayout::DELTAN, 1, true>> partials;
 
   bool compute() {
     unsigned numReductions = out.size();
@@ -194,11 +192,11 @@ template class ReduceMin<int, int>;
 
 template <typename OutType, typename PartialsType>
 class
-[[poplar::constraint("elem(**out) != elem(**partials)")]]
+[[poplar::constraint("elem(*out) != elem(*partials)")]]
 ReduceAnd : public Vertex {
 public:
-  Vector<Output<Vector<OutType>>> out;
-  Vector<Input<Vector<PartialsType, ONE_PTR, 1, true>>> partials;
+  Output<VectorList<OutType, VectorListLayout::DELTAN>> out;
+  Input<VectorList<PartialsType, VectorListLayout::DELTAN, 1, true>> partials;
 
   bool compute() {
     unsigned numReductions = out.size();
@@ -222,11 +220,11 @@ template class ReduceAnd<bool, bool>;
 
 template <typename OutType, typename PartialsType>
 class
-[[poplar::constraint("elem(**out) != elem(**partials)")]]
+[[poplar::constraint("elem(*out) != elem(*partials)")]]
 ReduceOr : public Vertex {
 public:
-  Vector<Output<Vector<OutType>>> out;
-  Vector<Input<Vector<PartialsType, ONE_PTR, 1, true>>> partials;
+  Output<VectorList<OutType, VectorListLayout::DELTAN>> out;
+  Input<VectorList<PartialsType, VectorListLayout::DELTAN, 1, true>> partials;
 
   bool compute() {
     unsigned numReductions = out.size();
