@@ -379,6 +379,11 @@ BOOST_AUTO_TEST_CASE(StdOperationCos,
                              });
 }
 
+BOOST_AUTO_TEST_CASE(StdOperationCountLeadingZeros) {
+  unaryOpTest<int, int>(popops::countLeadingZeros,
+                        [](int x) -> int { return x ? __builtin_clz(x) : 0; });
+}
+
 BOOST_AUTO_TEST_CASE(StdOperationDivideFloat,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
@@ -687,6 +692,11 @@ BOOST_AUTO_TEST_CASE(StdOperationNegateInt,
                              [](int x) -> int {
                                 return -x;
                              });
+}
+
+BOOST_AUTO_TEST_CASE(StdOperationPopcount) {
+  unaryOpTest<int, int>(popops::popcount,
+                        [](int x) -> int { return __builtin_popcount(x); });
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationPower,

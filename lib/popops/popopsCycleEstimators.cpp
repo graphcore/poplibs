@@ -363,6 +363,7 @@ unaryOpPerfInfo = {
   { {UnaryOpType::CEIL, HALF}, {1, true} },
   { {UnaryOpType::COS, FLOAT}, {150, false} },
   { {UnaryOpType::COS, HALF}, {100, false} },
+  { {UnaryOpType::COUNT_LEADING_ZEROS, INT}, {1, false} },
   { {UnaryOpType::EXPONENT, FLOAT}, {3, false} },
   // Use f16v2exp
   { {UnaryOpType::EXPONENT, HALF}, {4, true} },
@@ -383,6 +384,7 @@ unaryOpPerfInfo = {
   { {UnaryOpType::NEGATE, FLOAT}, {1, true} },
   { {UnaryOpType::NEGATE, HALF}, {1, true} },
   { {UnaryOpType::NEGATE, INT}, {3} },
+  { {UnaryOpType::POPCOUNT, INT}, {1, false} },
   { {UnaryOpType::ROUND, FLOAT}, {2, true} },
   { {UnaryOpType::ROUND, HALF}, {2, true} },
   { {UnaryOpType::SIGNUM, FLOAT}, {1, true} },

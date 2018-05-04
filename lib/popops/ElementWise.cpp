@@ -68,6 +68,8 @@ static std::string debugName(UnaryOpType op) {
     return "Ceil";
   case UnaryOpType::COS:
     return "Cos";
+  case UnaryOpType::COUNT_LEADING_ZEROS:
+    return "CountLeadingZeros";
   case UnaryOpType::EXPONENT:
     return "Exponent";
   case UnaryOpType::FLOOR:
@@ -80,6 +82,8 @@ static std::string debugName(UnaryOpType op) {
     return "LogicalNot";
   case UnaryOpType::NEGATE:
     return "Negate";
+  case UnaryOpType::POPCOUNT:
+    return "Popcount";
   case UnaryOpType::ROUND:
       return "Round";
   case UnaryOpType::SIGNUM:

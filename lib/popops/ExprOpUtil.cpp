@@ -14,6 +14,8 @@ std::string unaryOpTypeToString(UnaryOpType op) {
     return "CEIL";
   case UnaryOpType::COS:
     return "COS";
+  case UnaryOpType::COUNT_LEADING_ZEROS:
+    return "COUNT_LEADING_ZEROS";
   case UnaryOpType::EXPONENT:
     return "EXPONENT";
   case UnaryOpType::FLOOR:
@@ -26,6 +28,8 @@ std::string unaryOpTypeToString(UnaryOpType op) {
     return "LOGICAL_NOT";
   case UnaryOpType::NEGATE:
     return "NEGATE";
+  case UnaryOpType::POPCOUNT:
+    return "POPCOUNT";
   case UnaryOpType::ROUND:
     return "ROUND";
   case UnaryOpType::SIGNUM:
