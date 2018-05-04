@@ -40,6 +40,53 @@ mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t,
 void
 mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t);
 
+class TensorUseTrackerState;
+
+/** Class that tracks the usage of data on different tiles.
+ *
+ *  If data is broadcast to many tiles, it is sometimes efficient to
+ *  map the data to be spread evenly amongst the tiles that use it.
+ *
+ *  This class can collect uses of data and then calculate such a tile
+ *  mapping.
+ */
+class TensorUseTracker {
+  std::unique_ptr<TensorUseTrackerState> st;
+public:
+  TensorUseTracker(unsigned numTiles);
+  ~TensorUseTracker();
+  /** Add a data use case.
+   *
+   *  \param graph  The poplar graph
+   *  \param tile   The tile that the use occurs on.
+   *  \param t      The tensor representing the data being used.
+   */
+  void add(const poplar::Graph &graph, unsigned tile, const poplar::Tensor &t);
+
+  /** Map data according to use.
+   *
+   *  This function will set the tile mapping of all the variables references
+   *  by the use() method to be spread over the tiles that use them.
+   *
+   *  \param graph                The poplar graph
+   *  \param grainSize            The number of elements that cannot be split
+   *                              amongst tiles.
+   *  \param minElemntsPerTile    The minimum number of elements that must be
+   *                              mapped to a tile.
+   *  \param optimizeHaloRegions  Map "halo regions" to single tiles. Halo
+   *                              regions that are used by multiple tiles but
+   *                              have neighbouring regions used by subsets of
+   *                              those tiles.
+   */
+  void mapTensorsByUse(poplar::Graph &graph,
+                       unsigned grainSize,
+                       unsigned minElementsPerTile,
+                       bool optimizeHaloRegions = false);
+
+  /** Have any use cases by registered. */
+  bool empty() const;
+};
+
 }
 
 #endif // poputil_TileMapping_hpp

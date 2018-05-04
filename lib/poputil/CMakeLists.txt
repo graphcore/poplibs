@@ -1,6 +1,8 @@
 include(GNUInstallDirs)
 get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
+find_package(Boost REQUIRED)
+
 add_library(poputil SHARED
   Broadcast.cpp
   GraphFunction.cpp
@@ -14,7 +16,8 @@ add_library(poputil SHARED
   ${CMAKE_SOURCE_DIR}/include/poputil/VertexTemplates.hpp
 )
 
-target_link_libraries(poputil poplar)
+target_link_libraries(poputil PUBLIC poplar)
+target_link_libraries(poputil PRIVATE Boost::boost)
 
 target_include_directories(poputil
   PUBLIC
