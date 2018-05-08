@@ -1786,6 +1786,34 @@ constructModel(const poplar::Target &target,
     PartitionVariables p;
     p.fieldSplit.reserve(numFieldDims);
     p.kernelSplit.reserve(numFieldDims);
+    // Return m.ceildiv(dividend, divisor) and constrain the divisor so it is
+    // the smallest divisor that gives us that result. This reduces the size of
+    // the search space without sacrificing the quality of the plan since the
+    // maximum amount of work / data on any one tile stays the same.
+    auto ceildivConstrainDivisor =
+        [](Model &m, popsolver::Variable dividend,
+           popsolver::Variable divisor) -> popsolver::Variable {
+      auto isSmallestDivisorTheGivesResult =
+          [](const std::vector<unsigned> &values) -> unsigned {
+        auto dividend = values[0];
+        auto divisor = values[1];
+        // The divisor is the smallest divisor that gives this result if
+        // it is 1 or if dividing by (divisor - 1) would gives a larger
+        // result.
+        if (divisor == 1)
+          return 1;
+        if ((dividend + divisor - 1) / divisor <
+            (dividend + divisor - 2) / (divisor - 1))
+          return 1;
+        return 0;
+      };
+      auto isSmallest = m.call({dividend, divisor},
+                               isSmallestDivisorTheGivesResult);
+      // Add constraint that isSmallestDivisorTheGivesResult > 0, i.e.
+      // it returns true.
+      m.less(0, isSmallest);
+      return m.ceildiv(dividend, divisor);
+    };
     for (unsigned dim = 0; dim != numFieldDims; ++dim) {
       p.fieldSplit.push_back(m.addVariable(1, levelMaxSplit));
       m.lessOrEqual(p.fieldSplit.back(), prevConvSize.numFieldGrains[dim]);
@@ -1798,10 +1826,12 @@ constructModel(const poplar::Target &target,
         m.lessOrEqual(p.kernelSplit.back(), prevConvSize.kernelSize[dim]);
       }
       nextConvSize.numFieldGrains.push_back(
-        m.ceildiv(prevConvSize.numFieldGrains[dim], p.fieldSplit.back())
+        ceildivConstrainDivisor(m, prevConvSize.numFieldGrains[dim],
+                                p.fieldSplit.back())
       );
       nextConvSize.kernelSize.push_back(
-        m.ceildiv(prevConvSize.kernelSize[dim], p.kernelSplit.back())
+        ceildivConstrainDivisor(m, prevConvSize.kernelSize[dim],
+                                p.kernelSplit.back())
       );
     }
     p.batchSplit = m.addVariable(1, levelMaxSplit);
@@ -1825,13 +1855,16 @@ constructModel(const poplar::Target &target,
     p.outChanGrainSize = outChanGrainSize[level];
     p.inChanGrainSize = inChanGrainSize[level];
     p.fieldGrainSize = fieldGrainSize;
-    nextConvSize.batchSize = m.ceildiv(prevConvSize.batchSize, p.batchSplit);
+    nextConvSize.batchSize =
+        ceildivConstrainDivisor(m, prevConvSize.batchSize, p.batchSplit);
     nextConvSize.numConvGroups =
-        m.ceildiv(prevConvSize.numConvGroups, p.convGroupSplit);
+        ceildivConstrainDivisor(m, prevConvSize.numConvGroups,
+                                p.convGroupSplit);
     nextConvSize.numOutChanGrains =
-        m.ceildiv(prevConvSize.numOutChanGrains, p.outChanSplit);
+        ceildivConstrainDivisor(m, prevConvSize.numOutChanGrains,
+                                p.outChanSplit);
     nextConvSize.numInChanGrains =
-        m.ceildiv(prevConvSize.numInChanGrains, p.inChanSplit);
+        ceildivConstrainDivisor(m, prevConvSize.numInChanGrains, p.inChanSplit);
     partitionVars.push_back(std::move(p));
     convSize.push_back(std::move(nextConvSize));
   }
