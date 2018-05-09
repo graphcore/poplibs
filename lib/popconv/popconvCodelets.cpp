@@ -22,8 +22,8 @@ public:
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> in;
   Vector<Input<Vector<FPType, ONE_PTR, 1, true>>, ONE_PTR> weights;
   Vector<Output<Vector<AccumType, ONE_PTR, 1, true>>, ONE_PTR> out;
-  Vector<Input<Vector<unsigned>>> worklists;
-  Input<Vector<unsigned>> zeroWorklist;
+  Vector<Input<Vector<unsigned short>>> worklists;
+  Input<Vector<unsigned short>> zeroWorklist;
   unsigned numOutGroups;
   unsigned numInGroups;
   unsigned kernelOuterSize;
@@ -132,7 +132,7 @@ ConvChanReduce2: public Vertex {
 public:
   Vector<Output<FPType>> out;
   Vector<Input<FPType>, ONE_PTR> in;
-  Vector<unsigned> numInputsPerOutput;
+  Vector<unsigned short, ONE_PTR> numInputsPerOutput;
 
   bool compute() {
     auto numBiases = out.size();
@@ -184,7 +184,7 @@ public:
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> in;
   Vector<Input<Vector<FPType, ONE_PTR, 1, true>>, ONE_PTR> weights;
   Vector<Output<Vector<AccumType, ONE_PTR, 1, true>>, ONE_PTR> out;
-  Vector<Input<Vector<unsigned>>> worklists;
+  Vector<Input<Vector<unsigned short>>> worklists;
   unsigned numConvGroups;
   unsigned numOutGroups;
   unsigned numInGroups;
@@ -261,8 +261,8 @@ public:
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> in;
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> weights;
   Vector<InOut<Vector<AccumType, ONE_PTR>>, ONE_PTR> out;
-  Vector<Input<Vector<unsigned>>> worklists;
-  Input<Vector<unsigned>> zeroWorklist;
+  Vector<Input<Vector<unsigned short>>> worklists;
+  Input<Vector<unsigned short>> zeroWorklist;
   unsigned numOutGroups;
   unsigned numInGroups;
   unsigned kernelSize;

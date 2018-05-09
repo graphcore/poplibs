@@ -1662,8 +1662,11 @@ createZeroWorklist(const Target &target, const Tensor &out) {
   std::vector<unsigned> zeroWorklist(2 * contextsPerVertex);
   for (auto i = 0U; i != splitZeroList.size(); ++i) {
     for (auto &region : splitZeroList[i]) {
-      zeroWorklist[2 * i] = region.begin();
-      zeroWorklist[2 * i + 1] = region.end() - region.begin();
+      unsigned begin, end;
+      zeroWorklist[2 * i] = begin = region.begin();
+      zeroWorklist[2 * i + 1] = end = region.end() - region.begin();
+      assert(begin < std::numeric_limits<unsigned short>::max());
+      assert(end < std::numeric_limits<unsigned short>::max());
     }
   }
   return zeroWorklist;
@@ -1961,6 +1964,9 @@ static void createConvPartialAmpVertex(Graph &graph,
         inBeginIndices.push_back(workerInXBegin);
         const auto inBeginOffset =
             flattenIndex(inputBatchAndFieldShape, inBeginIndices);
+        assert(outBeginOffset < std::numeric_limits<unsigned short>::max());
+        assert(workerOutWidth < std::numeric_limits<unsigned short>::max());
+        assert(inBeginOffset < std::numeric_limits<unsigned short>::max());
         worklist[k * contextsPerVertex + i].push_back(outBeginOffset);
         worklist[k * contextsPerVertex + i].push_back(workerOutWidth);
         worklist[k * contextsPerVertex + i].push_back(inBeginOffset);
@@ -1995,7 +2001,7 @@ static void createConvPartialAmpVertex(Graph &graph,
   graph.setInitialValue(v["flipOut"], flipOut);
   graph.setFieldSize(v["worklists"], worklist.size());
   for (unsigned i = 0;i < worklist.size(); ++i) {
-    auto t = graph.addConstant(UNSIGNED_INT, {worklist[i].size()},
+    auto t = graph.addConstant(UNSIGNED_SHORT, {worklist[i].size()},
                                worklist[i].data());
     graph.connect(v["worklists"][i], t);
   }
@@ -2008,7 +2014,7 @@ static void createConvPartialAmpVertex(Graph &graph,
     graph.setInitialValue(v["inRowStride"], inRowStride);
 
     const auto zeroWorklist = createZeroWorklist(target, outWindow[0]);
-    auto zeroWorklistTensor = graph.addConstant(UNSIGNED_INT,
+    auto zeroWorklistTensor = graph.addConstant(UNSIGNED_SHORT,
                                                 {zeroWorklist.size()},
                                                 zeroWorklist.data());
     graph.connect(v["zeroWorklist"], zeroWorklistTensor);
@@ -2151,6 +2157,9 @@ createConvPartialHorizontalMacVertex(Graph &graph,
               workerSlice.b * numInFieldElems +
               flattenIndex(params.inputFieldShape, workerIn);
           auto kIndex = k * kernelSizeX + kx;
+          assert(outBeginOffset < std::numeric_limits<unsigned short>::max());
+          assert(workerOutWidth < std::numeric_limits<unsigned short>::max());
+          assert(inBeginOffset < std::numeric_limits<unsigned short>::max());
           worklist[kIndex * contextsPerVertex + i].push_back(outBeginOffset);
           worklist[kIndex * contextsPerVertex + i].push_back(workerOutWidth);
           worklist[kIndex * contextsPerVertex + i].push_back(inBeginOffset);
@@ -2182,12 +2191,12 @@ createConvPartialHorizontalMacVertex(Graph &graph,
   graph.setInitialValue(v["flipOut"], flipOut);
   graph.setFieldSize(v["worklists"], worklist.size());
   for (unsigned i = 0;i < worklist.size(); ++i) {
-    auto t = graph.addConstant(UNSIGNED_INT, {worklist[i].size()},
+    auto t = graph.addConstant(UNSIGNED_SHORT, {worklist[i].size()},
                                worklist[i].data());
     graph.connect(v["worklists"][i], t);
   }
   const auto zeroWorklist = createZeroWorklist(target, outWindow[0]);
-  auto zeroWorklistTensor = graph.addConstant(UNSIGNED_INT,
+  auto zeroWorklistTensor = graph.addConstant(UNSIGNED_SHORT,
                                               {zeroWorklist.size()},
                                               zeroWorklist.data());
   graph.connect(v["zeroWorklist"], zeroWorklistTensor);
