@@ -1047,22 +1047,6 @@ dilateWithNearestNeighbour(const Tensor &t, unsigned dilationFactor,
           .slice(dilationFactor / 2, newSize + dilationFactor / 2, dim);
 }
 
-poplar::Tensor
-padWithNearestNeighbour(poplar::Tensor t, unsigned paddingLower,
-                        unsigned paddingUpper, unsigned dim) {
-  const auto type = t.elementType();
-  if (paddingLower > 0) {
-    auto padding = t.slice(0, 1, dim).broadcast(paddingLower, dim);
-    t = concat(padding, t, dim);
-  }
-  if (paddingUpper > 0) {
-    auto padding = t.slice(t.dim(dim) - 1, t.dim(dim), dim)
-                    .broadcast(paddingUpper, dim);
-    t = concat(t, padding, dim);
-  }
-  return t;
-}
-
 static void expandSpatialDim(Graph &graph, ConvParams &params,
                              Tensor *acts, Tensor *weights, unsigned dim) {
   unsigned actsDimIndex = dim + 2;
@@ -1391,8 +1375,9 @@ convolutionPostprocess(Graph &graph, const ConvParams &originalParams,
       mappingView = dilateWithNearestNeighbour(mappingView, dilation, dim);
       activationsView = pad(graph, activationsView, paddingLower, paddingUpper,
                             dim);
-      mappingView = padWithNearestNeighbour(mappingView, paddingLower,
-                                            paddingUpper, dim);
+      // pad with nearest neighbour.
+      mappingView = pad(mappingView, paddingLower, paddingUpper, dim,
+                        popops::padding::Type::EDGE);
     }
     assert(activationsView.shape() == mappingView.shape());
     activationsView = splitActivationChanGroups(activationsView,

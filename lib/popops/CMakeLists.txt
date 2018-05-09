@@ -17,6 +17,7 @@ add_library(popops SHARED
   ExprOpUtil.hpp
   HadamardProduct.cpp
   Pad.cpp
+  Padder.cpp
   popopsCycleEstimators.cpp
   SubtractFrom.cpp
   Zero.cpp
