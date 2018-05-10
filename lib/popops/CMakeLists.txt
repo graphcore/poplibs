@@ -17,9 +17,7 @@ add_library(popops SHARED
   ExprOpUtil.hpp
   HadamardProduct.cpp
   Pad.cpp
-  PerformanceEstimation.hpp
   popopsCycleEstimators.cpp
-  Reduce.cpp
   SubtractFrom.cpp
   Zero.cpp
   ${CMAKE_SOURCE_DIR}/include/popops/codelets.hpp
@@ -36,9 +34,29 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/Reduce.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/SubtractFrom.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Zero.hpp
+
+  reduction/CycleEstimationFunctions.cpp
+  reduction/CycleEstimationFunctions.hpp
+  reduction/IntermediatePartials.cpp
+  reduction/IntermediatePartials.hpp
+  reduction/IntermediatePartialsUtil.cpp
+  reduction/IntermediatePartialsUtil.hpp
+  reduction/Reduction.cpp
+  reduction/Reduction.hpp
+  reduction/ReductionConnection.cpp
+  reduction/ReductionConnection.hpp
+  reduction/ReductionDebug.hpp
+  reduction/ReductionPlan.cpp
+  reduction/ReductionPlan.hpp
+  reduction/ReductionStages.cpp
+  reduction/ReductionStages.hpp
+  reduction/ReductionVertex.hpp
+  reduction/RegionWrapping.cpp
+  reduction/RegionWrapping.hpp
 )
 
-target_link_libraries(popops PUBLIC poplar poputil ${CMAKE_DL_LIBS})
+target_link_libraries(popops PUBLIC poplar poputil ${CMAKE_DL_LIBS}
+                      poplibs_support)
 target_link_libraries(popops PRIVATE Boost::boost)
 
 target_include_directories(popops
@@ -58,6 +76,13 @@ else()
   list(APPEND POPC_FLAGS -O3)
 endif()
 
+set(codelet_deps
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/allCodelets.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/dynamicSliceCodelets.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elementwiseCodelets.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/miscCodelets.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/reduceCodelets.cpp
+  )
 set(codelet_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/allCodelets.cpp
   )
@@ -71,14 +96,7 @@ add_custom_command(
     -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
     ${codelet_sources}
   DEPENDS
-    PerformanceEstimation.hpp
-    ${codelet_sources}
-    # CMake doesn't know this is a C++ compilation so it can't
-    # automatically find #include'd dependencies unfortunately.
-    "${CMAKE_CURRENT_SOURCE_DIR}/codelets/dynamicSliceCodelets.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/codelets/elementwiseCodelets.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/codelets/miscCodelets.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/codelets/reduceCodelets.cpp"
+    ${codelet_deps}
     popc_bin
 )
 

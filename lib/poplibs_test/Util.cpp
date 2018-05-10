@@ -2,6 +2,7 @@
 #include <boost/test/tools/floating_point_comparison.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include <poputil/exceptions.hpp>
+#include <cmath>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -75,6 +76,12 @@ writeRandomValues(const Target &target,
 }
 
 bool checkIsClose(double a, double b, double relativeTolerance) {
+  // These checks are necessary because close_at_tolerance doesn't handle
+  // NaN or infinity.
+  if (a == b)
+    return true;
+  if (std::isnan(a) && std::isnan(b))
+    return true;
   return boost::math::fpc::close_at_tolerance<double>(relativeTolerance)(a, b);
 }
 
@@ -134,9 +141,13 @@ std::istream &operator>>(std::istream &in, poplar::Type &type) {
     type = poplar::HALF;
   else if (token == "float")
     type = poplar::FLOAT;
+  else if (token == "int")
+    type = poplar::INT;
+  else if (token == "bool")
+    type = poplar::BOOL;
   else
     throw poputil::poplib_error(
-      "Invalid data-type <" + token + ">; must be half or float");
+      "Invalid data-type <" + token + ">; must be half, float, int or bool");
   return in;
 }
 }

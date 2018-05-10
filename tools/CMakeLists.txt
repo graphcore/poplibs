@@ -37,3 +37,8 @@ add_tool(rnn_layer rnn_layer.cpp)
 target_link_libraries(rnn_layer
                       poplibs_test
                       Boost::program_options)
+
+add_tool(reduce_op reduce_op.cpp)
+target_link_libraries(reduce_op
+                      poplibs_test
+                      Boost::program_options)

@@ -55,6 +55,13 @@ foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
                    --binary $<TARGET_FILE:single_conv_layer>)
 endforeach()
 
+# Random reduce_op tests with fixed seed.
+set(NUM_CONV_RANDOM_TESTS 50)
+foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
+  add_test(NAME reduce_random_${n}
+           COMMAND $<TARGET_FILE:reduce_op> --seed ${n})
+endforeach()
+
 #  ORIG Layer tests
 add_test(NAME conv3x3_stride_2_128_out
          COMMAND single_conv_layer

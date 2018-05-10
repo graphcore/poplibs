@@ -60,21 +60,30 @@ splitRegionsBetweenWorkers(
 /// dimensions of the original tensor.
 template <class T>
 std::vector<T> unflattenIndex(const std::vector<T> &shape, std::size_t index) {
-  std::vector<T> coord;
-  for (auto it = shape.rbegin(); it != shape.rend(); ++it) {
-    const auto dim = *it;
-    coord.push_back(index % dim);
-    index /= dim;
+  std::vector<T> coord(shape.size());
+
+  for (std::size_t i = shape.size(); i > 0; --i) {
+    coord[i-1] = index % shape[i-1];
+    index /= shape[i-1];
   }
+
   assert(index == 0);
-  std::reverse(coord.begin(), coord.end());
   return coord;
 }
 
 /// Given an list of indices into a tensor return the corresponding index in a
 /// flattened version of the tensor.
-std::size_t flattenIndex(const std::vector<std::size_t> &shape,
-                         const std::vector<std::size_t> &indices);
+template <class T>
+std::size_t flattenIndex(const std::vector<T> &shape,
+                         const std::vector<T> &indices) {
+  auto rank = shape.size();
+  assert(indices.size() == rank);
+  std::size_t index = 0;
+  for (unsigned i = 0; i != rank; ++i) {
+    index = index * shape[i] + indices[i];
+  }
+  return index;
+}
 
 // Total number of elements in the interval sequence
 std::size_t intervalSequenceNumElements(

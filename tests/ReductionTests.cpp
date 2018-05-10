@@ -29,10 +29,11 @@ namespace fpc = boost::test_tools::fpc;
 
 // Initialise value for a given type of computation
 static double initValue(popops::Operation operation) {
-  double val = 0;
+  double val = 0.0;
   switch (operation) {
   case popops::Operation::ADD:
-    val = 0;
+  case popops::Operation::SQUARE_ADD:
+    val = 0.0;
     break;
   case popops::Operation::MUL:
     val = 1.0;
@@ -43,10 +44,10 @@ static double initValue(popops::Operation operation) {
   case popops::Operation::MAX:
     val = std::numeric_limits<double>::lowest();
     break;
-  case popops::Operation::AND:
+  case popops::Operation::LOGICAL_AND:
     val = 1.0;
     break;
-  case popops::Operation::OR:
+  case popops::Operation::LOGICAL_OR:
     val = 0.0;
     break;
   }
@@ -60,6 +61,9 @@ static double doComputation(double x, double y, popops::Operation comp) {
   case popops::Operation::ADD:
     res += x;
     break;
+  case popops::Operation::SQUARE_ADD:
+    res += x * x;
+    break;
   case popops::Operation::MUL:
     res *= x;
     break;
@@ -69,10 +73,10 @@ static double doComputation(double x, double y, popops::Operation comp) {
   case popops::Operation::MAX:
     res = std::max(res, x);
     break;
-  case popops::Operation::AND:
+  case popops::Operation::LOGICAL_AND:
     res = res && x;
     break;
-  case popops::Operation::OR:
+  case popops::Operation::LOGICAL_OR:
     res = res || x;
     break;
   }
@@ -170,13 +174,16 @@ static bool reduceAddTest(const std::vector<std::size_t> &dims,
   Tensor out;
 
   if (scale) {
-    out = popops::reduceScale(graph, k, in, outType, prog);
+    out = popops::reduce(graph, in, outType, {0},
+                         {popops::Operation::ADD, k}, prog);
   } else if (update) {
     out = graph.clone(prev);
     prog.add(Copy(prev, out));
-    popops::reduceAcc(graph, out, k, in, prog);
+    popops::reduceWithOutput(graph, in, out, {0},
+                             {popops::Operation::ADD, k, true}, prog);
   } else {
-    out = popops::reduce(graph, in, prog);
+    out = popops::reduce(graph, in, outType, {0},
+                         popops::Operation::ADD, prog);
   }
 
   std::vector<std::pair<std::string, char *>> tmap;
@@ -388,37 +395,55 @@ BOOST_AUTO_TEST_CASE(Reduce_31x201_update_float_half) {
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Add_float) {
-  auto matchesModel = reduceOpsTest({10, 20, 8}, {0}, FLOAT,
+  auto matchesModel = reduceOpsTest({10, 20, 30}, {0}, FLOAT,
                                     popops::Operation::ADD);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Add_half) {
-  auto matchesModel = reduceOpsTest({10, 20, 8}, {0}, HALF,
+  auto matchesModel = reduceOpsTest({10, 20, 30}, {0}, HALF,
                                     popops::Operation::ADD);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Add_int) {
-  auto matchesModel = reduceOpsTest({10, 20, 8}, {0}, INT,
+  auto matchesModel = reduceOpsTest({10, 20, 30}, {0}, INT,
                                     popops::Operation::ADD);
   BOOST_TEST(matchesModel == true);
 }
 
+BOOST_AUTO_TEST_CASE(Reduce_SquareAdd_float) {
+  auto matchesModel = reduceOpsTest({10, 20, 30}, {0}, FLOAT,
+                                    popops::Operation::SQUARE_ADD);
+  BOOST_TEST(matchesModel == true);
+}
+
+BOOST_AUTO_TEST_CASE(Reduce_SquareAdd_half) {
+  auto matchesModel = reduceOpsTest({10, 20, 30}, {0}, HALF,
+                                    popops::Operation::SQUARE_ADD);
+  BOOST_TEST(matchesModel == true);
+}
+
+BOOST_AUTO_TEST_CASE(Reduce_SquareAdd_int) {
+  auto matchesModel = reduceOpsTest({10, 20, 30}, {0}, INT,
+                                    popops::Operation::SQUARE_ADD);
+  BOOST_TEST(matchesModel == true);
+}
+
 BOOST_AUTO_TEST_CASE(Reduce_Mul_float) {
-  auto matchesModel = reduceOpsTest({9, 22, 11}, {0}, FLOAT,
+  auto matchesModel = reduceOpsTest({33, 22, 11}, {0}, FLOAT,
                                     popops::Operation::MUL);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Mul_half) {
-  auto matchesModel = reduceOpsTest({9, 22, 11}, {0}, FLOAT,
+  auto matchesModel = reduceOpsTest({33, 22, 11}, {0}, FLOAT,
                                     popops::Operation::MUL);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Mul_int) {
-  auto matchesModel = reduceOpsTest({9, 22, 11}, {0}, FLOAT,
+  auto matchesModel = reduceOpsTest({33, 22, 11}, {0}, FLOAT,
                                     popops::Operation::MUL);
   BOOST_TEST(matchesModel == true);
 }
@@ -430,55 +455,55 @@ BOOST_AUTO_TEST_CASE(Reduce_Max_float) {
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Max_half) {
-  auto matchesModel = reduceOpsTest({20, 8, 10}, {0, 1}, HALF,
+  auto matchesModel = reduceOpsTest({20, 30, 10}, {0, 1}, HALF,
   popops::Operation::MAX);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Max_int) {
-  auto matchesModel = reduceOpsTest({20, 8, 10}, {0, 1}, HALF,
+  auto matchesModel = reduceOpsTest({20, 30, 10}, {0, 1}, HALF,
                                     popops::Operation::MAX);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Min_float) {
-  auto matchesModel = reduceOpsTest({20, 8, 10}, {0, 1}, FLOAT,
+  auto matchesModel = reduceOpsTest({20, 30, 10}, {0, 1}, FLOAT,
                                     popops::Operation::MIN);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Min_half) {
-  auto matchesModel = reduceOpsTest({20, 8, 10}, {0, 1}, FLOAT,
+  auto matchesModel = reduceOpsTest({20, 30, 10}, {0, 1}, FLOAT,
                                     popops::Operation::MIN);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Min_int) {
-  auto matchesModel = reduceOpsTest({20, 8, 10}, {0, 1}, FLOAT,
+  auto matchesModel = reduceOpsTest({20, 30, 10}, {0, 1}, FLOAT,
                                     popops::Operation::MIN);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_And_bool) {
-  auto matchesModel = reduceOpsTest({20, 8, 10}, {0, 1}, BOOL,
-                                    popops::Operation::AND);
+  auto matchesModel = reduceOpsTest({20, 30, 10}, {0, 1}, BOOL,
+                                    popops::Operation::LOGICAL_AND);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Or_bool) {
-  auto matchesModel = reduceOpsTest({20, 8, 10}, {0, 1}, BOOL,
-                                    popops::Operation::OR);
+  auto matchesModel = reduceOpsTest({20, 30, 10}, {0, 1}, BOOL,
+                                    popops::Operation::LOGICAL_OR);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_All_ADD_float) {
-  auto matchesModel = reduceOpsTest({20, 8, 11}, {1, 0, 2}, FLOAT,
+  auto matchesModel = reduceOpsTest({20, 30, 11}, {1, 0, 2}, FLOAT,
                                     popops::Operation::ADD);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_None_ADD_float) {
-  auto matchesModel = reduceOpsTest({20, 8, 11}, {}, FLOAT,
+  auto matchesModel = reduceOpsTest({20, 30, 11}, {}, FLOAT,
                                     popops::Operation::ADD);
   BOOST_TEST(matchesModel == true);
 }

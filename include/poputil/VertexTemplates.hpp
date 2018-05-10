@@ -41,6 +41,13 @@ struct VertexTemplateToString {
   }
 };
 
+template <>
+struct VertexTemplateToString<poplar::StringRef> {
+  static std::string to_string(const poplar::StringRef &ref) {
+    return ref;
+  }
+};
+
 template <typename T, typename ...Args>
 inline std::string templateVertexParams(bool first,
                                         const T&val, Args&&... args) {

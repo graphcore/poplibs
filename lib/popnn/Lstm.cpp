@@ -736,8 +736,10 @@ basicLstmParamUpdate(Graph &graph,
             prog,
             fPrefix + "/Wi",
             mmOpt, &cache);
-  popops::reduceAcc(graph, biasDeltaAcc, 1.0,
-                       gradUnits.dimShuffle({1, 0, 2}), prog, fPrefix +"/Bias");
+
+  popops::reduceWithOutput(graph, gradUnits, biasDeltaAcc, {1},
+                           {popops::Operation::ADD, 1.0f, true},
+                           prog, fPrefix +"/Bias");
 }
 
 std::tuple<Tensor, Tensor, Tensor, Tensor> lstmBwdSequence(

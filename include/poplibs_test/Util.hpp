@@ -52,6 +52,24 @@ writeRandomValues(const poplar::Target &target,
                            min, max, randomEngine);
 }
 
+inline void
+copy(const poplar::Target &target,
+     const double *src,
+     std::size_t n,
+     const poplar::Type &dstType,
+     void *dst) {
+  if (dstType == poplar::FLOAT) {
+    std::copy(src, src + n, reinterpret_cast<float*>(dst));
+  } else if (dstType == poplar::HALF) {
+    poplar::copyDoubleToDeviceHalf(target, src, dst, n);
+  } else if (dstType == poplar::INT) {
+    std::copy(src, src + n, reinterpret_cast<int*>(dst));
+  } else {
+    assert(dstType == poplar::BOOL);
+    std::copy(src, src + n, reinterpret_cast<bool*>(dst));
+  }
+}
+
 template <unsigned long N>
 inline void
 copy(const poplar::Target &target,
@@ -59,18 +77,29 @@ copy(const poplar::Target &target,
      const poplar::Type &dstType,
      void *dst) {
   assert(src.storage_order() == boost::c_storage_order());
-  if (dstType == poplar::FLOAT) {
-    std::copy(src.data(), src.data() + src.num_elements(),
-              reinterpret_cast<float*>(dst));
-  } else if (dstType == poplar::HALF) {
-    poplar::copyDoubleToDeviceHalf(target, src.data(), dst, src.num_elements());
-  } else if (dstType == poplar::INT) {
-    std::copy(src.data(), src.data() + src.num_elements(),
-              reinterpret_cast<int*>(dst));
+  copy(target, src.data(), src.num_elements(), dstType, dst);
+}
+
+inline void
+copy(const poplar::Target &target,
+     const poplar::Type &srcType,
+     void *src,
+     double *dst,
+     size_t n) {
+  if (srcType == poplar::FLOAT) {
+    std::copy(reinterpret_cast<float*>(src),
+              reinterpret_cast<float*>(src) + n,
+              dst);
+  } else if (srcType == poplar::HALF) {
+    poplar::copyDeviceHalfToDouble(target, src, dst, n);
+  } else if (srcType == poplar::INT) {
+    std::copy(reinterpret_cast<int*>(src),
+              reinterpret_cast<int*>(src) + n,
+              dst);
   } else {
-    assert(dstType == poplar::BOOL);
-    std::copy(src.data(), src.data() + src.num_elements(),
-              reinterpret_cast<bool*>(dst));
+    std::copy(reinterpret_cast<bool*>(src),
+              reinterpret_cast<bool*>(src) + n,
+              dst);
   }
 }
 
@@ -81,21 +110,7 @@ copy(const poplar::Target &target,
      void *src,
      boost::multi_array_ref<double, N> dst) {
   assert(dst.storage_order() == boost::c_storage_order());
-  if (srcType == poplar::FLOAT) {
-    std::copy(reinterpret_cast<float*>(src),
-              reinterpret_cast<float*>(src) + dst.num_elements(),
-              dst.data());
-  } else if (srcType == poplar::HALF) {
-    poplar::copyDeviceHalfToDouble(target, src, dst.data(), dst.num_elements());
-  } else if (srcType == poplar::INT) {
-    std::copy(reinterpret_cast<int*>(src),
-              reinterpret_cast<int*>(src) + dst.num_elements(),
-              dst.data());
-  } else {
-    std::copy(reinterpret_cast<bool*>(src),
-              reinterpret_cast<bool*>(src) + dst.num_elements(),
-              dst.data());
-  }
+  copy(target, srcType, src, dst.data(), dst.num_elements());
 }
 
 bool checkIsClose(const std::string &name, const double *actual,

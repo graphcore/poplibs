@@ -657,6 +657,26 @@ MAKE_CYCLE_ESTIMATOR_NAME(OuterProduct)(const VertexIntrospector &vertex,
                                       dataPathWidth);
 }
 
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ReduceAdd)(const VertexIntrospector &vertex,
+                                     const Target &target,
+                                     const Type &outType,
+                                     const Type &partialsType) {
+  CODELET_FIELD(out);
+  CODELET_FIELD(partials);
+  const auto dataPathWidth = target.getDataPathWidth();
+
+  std::vector<unsigned> outSizes;
+  for (auto i = 0u; i < out.size(); ++i) outSizes.push_back(out[i].size());
+
+  return getReduceCycleEstimate(outSizes,
+                                partials.size(),
+                                dataPathWidth,
+                                false, false,
+                                outType == FLOAT,
+                                partialsType == FLOAT);
+}
+
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
   return
   {
@@ -753,7 +773,12 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialnx1, HALF, FLOAT, true),
     CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialnx1, FLOAT, FLOAT, false),
     CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialnx1, HALF, HALF, false),
-    CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialnx1, HALF, FLOAT, false)
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialnx1, HALF, FLOAT, false),
+
+    CYCLE_ESTIMATOR_ENTRY(popconv, ReduceAdd, FLOAT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ReduceAdd, HALF, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ReduceAdd, FLOAT, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ReduceAdd, HALF, HALF)
   };
 };
 

@@ -8,6 +8,8 @@ add_library(popconv SHARED
   popconvCycleEstimators.cpp
   Convolution.cpp
   ConvPlan.cpp
+  ConvReduce.hpp
+  ConvReduce.cpp
   ConvUtil.cpp
   ConvValidation.hpp
   ConvValidation.cpp

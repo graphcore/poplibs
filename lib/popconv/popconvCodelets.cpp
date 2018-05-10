@@ -1078,4 +1078,36 @@ public:
 template class OuterProduct<float>;
 template class OuterProduct<half>;
 
+template <typename OutType, typename PartialsType>
+class
+[[poplar::constraint("elem(**out) != elem(**partials)")]]
+ReduceAdd : public Vertex {
+public:
+  Vector<Output<Vector<OutType>>> out;
+  Vector<Input<Vector<PartialsType, ONE_PTR, 1, true>>> partials;
+
+  SimOnlyField<unsigned> dataPathWidth;
+
+  bool compute() {
+    unsigned numReductions = out.size();
+    unsigned numPartials = partials.size() / numReductions;
+    for (unsigned r = 0; r < numReductions; ++r) {
+      unsigned numElem = out[r].size();
+      for (unsigned i = 0; i < numElem; ++i) {
+        float sum = 0;
+        for (unsigned j = 0; j < numPartials; ++j) {
+          sum += partials[r * numPartials + j][i];
+        }
+        out[r][i] = sum;
+      }
+    }
+    return true;
+  }
+};
+
+template class ReduceAdd<float, float>;
+template class ReduceAdd<half, float>;
+template class ReduceAdd<float, half>;
+template class ReduceAdd<half, half>;
+
 } // end namespace popconv

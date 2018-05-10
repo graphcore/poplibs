@@ -1,7 +1,7 @@
 // Copyright (c) 2018, Graphcore Ltd, All rights reserved.
 
-#ifndef _poputil_Broadcast_hpp_
-#define _poputil_Broadcast_hpp_
+#ifndef poputil_Broadcast_hpp
+#define poputil_Broadcast_hpp
 #include <poplar/Tensor.hpp>
 
 namespace poputil {
@@ -47,4 +47,4 @@ void broadcastToMatch(poplar::Tensor &a, const std::vector<std::size_t> &shape);
 
 }
 
-#endif // _poputil_Broadcast_hpp_
+#endif // poputil_Broadcast_hpp

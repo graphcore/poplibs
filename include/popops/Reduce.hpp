@@ -15,84 +15,72 @@ enum class Operation {
   MUL,
   MIN,
   MAX,
-  AND,
-  OR
+  LOGICAL_AND,
+  LOGICAL_OR,
+  SQUARE_ADD,
+  // TODO: ABS_ADD
 };
 
-/// Reduction with ADD operation on first dimension of tensor A
-poplar::Tensor
-reduce(poplar::Graph &graph, poplar::Tensor A,
-       poplar::program::Sequence &prog,
-       const std::string &debugPrefix = "");
+/// A reduce operation can optionally scale the output, and can also be an
+/// "update", i.e. A += reduce(B) rather than A = reduce(B).
+///
+/// FullOperation stores that information, as well as the basic operation
+/// being performed (add, mul, etc).
+///
+/// scale == 1.0f is treated as a special case and no scaling is applied.
+///
+struct ReduceParams {
+  ReduceParams() = default;
+  // Allow implicit convertion from a popops::Operation.
+  ReduceParams(popops::Operation op, float scale = 1.0f, bool update = false)
+    : op(op), scale(scale), update(update) {}
 
+  popops::Operation op;
+  float scale = 1.0f;
+  bool update = false;
+};
 
-/// Reduction with ADD operation on first dimension of tensor B, scaled and
-/// added to tensor B
-///  A += k * reduction<ADD>(B)
-void
-reduceAcc(poplar::Graph &graph, poplar::Tensor A, float k,
-          poplar::Tensor B,
-          poplar::program::Sequence &prog,
-          const std::string &debugPrefix = "");
+// Debug information about the reduction. This is internal currently.
+struct ReductionDebug;
 
-/// Perform a reduction over the first dimension of the partials tensor, writing
-/// the result to the reduced tensor. The dimensions of the reduced tensor must
-/// be the same as the dimensions of the partials tensor with the first
-/// dimension removed. reduceMapping specifies a mapping from tiles to regions
-/// of the reduced tensor that should be calculated on the tile.
-void reduce(poplar::Graph &graph,
-            poplar::Tensor partials,
-            poplar::Tensor reduced,
-            const std::vector<
-              std::vector<poplar::Interval>
-            > &reduceMapping,
-            poplar::ComputeSet reduceCS);
+/// Reduce A in dimensions dims. params specifies the operation. Note that
+/// currently scale and update are only valid with the Add operation, and they
+/// cannot be used simultaneously.
+///
+/// Optionally a ReductionDebug object can be filled in with debug information
+/// to help visualise and debug the reduction.
+///
+/// Internally this creates a new variable for the output then calls
+/// reduceWithOutput(). The type of the output will be the same as the input.
+poplar::Tensor reduce(poplar::Graph &graph,
+                      const poplar::Tensor &A,
+                      const poplar::Type &outType,
+                      const std::vector<std::size_t> &dims,
+                      ReduceParams params,
+                      poplar::program::Sequence &prog,
+                      const std::string &debugPrefix = "",
+                      ReductionDebug *debug = nullptr);
 
-/// Perform a reduction over the first dimension of the partials tensor, writing
-/// the result to the reduced tensor. The dimensions of the reduced tensor must
-/// be the same as the dimensions of the partials tensor with the first
-/// dimension removed. reducedMapping specifies the tile mapping of the reduced
-/// tensor. The mapping for the reduced tensor influences the mapping fo the
-/// computation but it does not dictate it - elements may be reduced on
-/// a different tile if that improves balance.
-void reduceByDstMapping(poplar::Graph &graph,
-                        poplar::Tensor partials,
-                        poplar::Tensor reduced,
-                        const std::vector<
-                          std::vector<poplar::Interval>
-                        > &reducedMapping,
-                        poplar::ComputeSet reduceCS);
+// An alias for reduce(graph, A, A.elementType(), ...)
+poplar::Tensor reduce(poplar::Graph &graph,
+                      const poplar::Tensor &A,
+                      const std::vector<std::size_t> &dims,
+                      ReduceParams params,
+                      poplar::program::Sequence &prog,
+                      const std::string &debugPrefix = "",
+                      ReductionDebug *debug = nullptr);
 
-
-/// Perform  reduction<ADD>(A) * k with output tensor of type outTypeStr
-poplar::Tensor reduceScale(poplar::Graph &graph, float k, poplar::Tensor &in,
-                           const poplar::Type &outTypeStr,
-                           poplar::program::Sequence &prog,
-                           const std::string &debugPrefix = "");
-
-/// Perform a reduction operation of given type along the given dimensions of a
-/// tensor. The relative order between the remaining dimensions in the input is
-/// preserved in the output
-/// \param graph
-///        Graph to which reduction operation belongs to
-/// \param A
-///        Tensor to reduce
-/// \param dims
-///        Unordered dimensions to reduce (must be a subset of dimensions of A)
-/// \param operation
-///        The reduction operation (\see Operation)
-/// \param prog
-///        Poplar program to add the reduction to
-/// \debugPrefix
-///        String annotation
-/// \return Tensor of rank rank(A) - size(dims) with the first dimension the
-/// lowest dimension of A not part of dims
-poplar::Tensor
-reduce(poplar::Graph &graph, const poplar::Tensor &A,
-       const std::vector<std::size_t> &dims,
-       Operation operation,
-       poplar::program::Sequence &prog,
-       const std::string &debugPrefix = "");
+/// This is similar to reduce() but allows you to specify the output.
+/// If the tile mapping of `out` is not complete it will be set. Otherwise it
+/// won't be changed.
+poplar::Tensor reduceWithOutput(poplar::Graph &graph,
+                                const poplar::Tensor &A,
+                                const poplar::Tensor &out,
+                                const std::vector<std::size_t> &dims,
+                                ReduceParams params,
+                                poplar::program::Sequence &prog,
+                                const std::string &debugPrefix = "",
+                                ReductionDebug *debug = nullptr);
 
 }
 
