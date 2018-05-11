@@ -1145,11 +1145,17 @@ getFullyConnectedWUMethod(const ConvParams &fwdParams,
     // so we must force the use of the convolutional instructions.
     return Plan::Method::AMP;
   }
+  if (fwdMethod == Plan::Method::OUTER_PRODUCT) {
+    return Plan::Method::MAC;
+  }
   return fwdMethod;
 }
 
 static Plan::Method
 getFullyConnectedBwdMethod(Plan::Method fwdMethod) {
+  if (fwdMethod == Plan::Method::OUTER_PRODUCT) {
+    return Plan::Method::MAC;
+  }
   return fwdMethod;
 }
 
@@ -2576,8 +2582,6 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
                                     const ConvParams &fwdParams,
                                     const ConvOptions &fwdOptions,
                                     const Plan &fwdPlan) {
-  assert(fwdPlan.method == Plan::Method::AMP ||
-         fwdPlan.method == Plan::Method::MAC);
   assert(!fwdPlan.transforms[0].swapOperands);
   auto plan = fwdPlan;
   plan.linearizeTileOrder = Plan::LinearizeTileOrder::FC_WU;
