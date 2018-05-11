@@ -249,7 +249,7 @@ INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::SUBTRACT,
 template <typename InType>
 class
 [[poplar::constraint("elem(*data) != elem(*deltas)")]]
-ScaledAdd : public Vertex {
+ScaledAddSupervisor : public SupervisorVertex {
 public:
   InOut<Vector<InType>> data;
   Input<Vector<InType, ONE_PTR>> deltas;
@@ -263,10 +263,10 @@ public:
   }
 };
 
-template class ScaledAdd<float>;
-template class ScaledAdd<half>;
-template class ScaledAdd<int>;
-template class ScaledAdd<unsigned>;
+template class ScaledAddSupervisor<float>;
+template class ScaledAddSupervisor<half>;
+template class ScaledAddSupervisor<int>;
+template class ScaledAddSupervisor<unsigned>;
 
 template <typename InType>
 class

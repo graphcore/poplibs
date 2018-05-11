@@ -108,15 +108,19 @@ scaledAddCycles(std::vector<unsigned> regionSizes,
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(ScaledAdd)(const VertexIntrospector &vertex,
+MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddSupervisor)(const VertexIntrospector &vertex,
                                      const Target &target,
                                      const Type &type) {
   CODELET_FIELD(deltas);
+  const auto numWorkers = target.getNumWorkerContexts();
   std::vector<unsigned> regionSizes;
   const auto data = vertex.getFieldInfo("data");
   assert(data.size() == deltas.size());
-  regionSizes.push_back(data.size());
-  return scaledAddCycles(regionSizes, target, type, false);
+  regionSizes.push_back((data.size() + numWorkers - 1) / numWorkers);
+  // 6 additional cycles overhead to divide work in worker and 9 cycles overhead
+  // in supervisor
+  return 9 +
+      (scaledAddCycles(regionSizes, target, type, false) + 6) * numWorkers;
 }
 
 std::uint64_t
@@ -132,7 +136,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(ScaledAdd2D)(const VertexIntrospector &vertex,
     assert(data[i].size() == deltas[i].size());
     regionSizes.push_back(numElem);
   }
-  return scaledAddCycles(regionSizes, target, type, true);
+  return 5 + scaledAddCycles(regionSizes, target, type, true);
 }
 
 std::uint64_t
@@ -591,10 +595,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(CircOffset)(const VertexIntrospector &vertex,
 
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
   poplibs::CycleEstimatorTable table = {
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd, UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd, INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, UNSIGNED_INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, INT),
 
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF),
