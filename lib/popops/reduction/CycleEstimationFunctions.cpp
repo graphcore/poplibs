@@ -63,7 +63,11 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
 
   if (operation == popops::Operation::ADD ||
       operation == popops::Operation::SQUARE_ADD) { // Or ABS_ADD
-    cycles = 2 + 5 + 1;
+    cycles = 5 + 1;
+    // VectorList costs 7 or 9 cycles to load n+base+descriptorPtr.
+    // These vertices have two VectorList::DELTAN so we'll have one of each and
+    // save a cycle (basemem only created once)
+    cycles += 7 + 8 - 1;
 
     if (equalPartials) {
       // Based on the previous reduceCycleEstimate() "version 1".
@@ -117,7 +121,11 @@ getCyclesEstimateForReduce(const std::vector<std::size_t> &partialsSizes,
     }
   } else {
     // Non-add code.
-    cycles = 10;
+    cycles = 8;
+    // VectorList costs 7 or 9 cycles to load n+base+descriptorPtr.
+    // These vertices have two VectorList::DELTAN so we'll have one of each and
+    // save a cycle (basemem only created once)
+    cycles += 7 + 8 - 1;
 
     if (equalPartials) {
       // Based on the previous reduceOpsCycleEstimate().

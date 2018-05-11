@@ -8,6 +8,7 @@ using namespace poplar;
 
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 static constexpr auto TWO_PTR = poplar::VectorLayout::TWO_PTR;
+static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
 
 namespace popconv {
 
@@ -1080,11 +1081,11 @@ template class OuterProduct<half>;
 
 template <typename OutType, typename PartialsType>
 class
-[[poplar::constraint("elem(**out) != elem(**partials)")]]
+[[poplar::constraint("elem(*out) != elem(*partials)")]]
 ReduceAdd : public Vertex {
 public:
-  Vector<Output<Vector<OutType>>> out;
-  Vector<Input<Vector<PartialsType, ONE_PTR, 1, true>>> partials;
+  Output<VectorList<OutType, DELTAN>> out;
+  Input<VectorList<PartialsType, DELTAN, 1, true>> partials;
 
   SimOnlyField<unsigned> dataPathWidth;
 

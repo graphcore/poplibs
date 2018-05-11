@@ -8,9 +8,6 @@ using namespace poplar;
 
 namespace popops {
 
-static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
-static constexpr auto TWO_PTR = poplar::VectorLayout::TWO_PTR;
-
 /** Generic vertex template for all reductions. The template parameters provide
  *  the information on types, what the reduction operator is, whether to
  *  update in place or not etc. */
@@ -18,7 +15,7 @@ template <typename ReduceOp,
           typename PartialsType, typename OutType, bool partialsAreOutputSize,
           bool isScale, bool isUpdate>
 class
-[[poplar::constraint("elem(**out) != elem(**partials)")]]
+[[poplar::constraint("elem(*out) != elem(*partials)")]]
 Reduce : public Vertex {
 public:
   /* If `out` were:                                        */
@@ -59,9 +56,9 @@ public:
       typename std::conditional<isUpdate, InOut<T>, Output<T>>::type;
 
   /* Vector of regions to output. */
-  Vector<ReduceOutput<Vector<OutType>>> out;
+  ReduceOutput<VectorList<OutType, VectorListLayout::DELTAN>> out;
   /* Vector of regions to use as input. */
-  Vector<Input<Vector<PartialsType, TWO_PTR, 1, true>>> partials;
+  Input<VectorList<PartialsType, VectorListLayout::DELTAN, 1, true>> partials;
 
   /* The number of input regions (partials) for each output region. */
   /* This should sum to `partials.size()`. */

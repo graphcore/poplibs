@@ -448,15 +448,19 @@ getReduceCycleEstimate(const std::vector<unsigned> &outSizes,
   case 1:
     // Innermost loop accumulates vector across all input tiles
     // This estimate based on float->float code
-    // Inner loop processes 128bits/2cycles
+    // Inner loop processes 128bits/3 cycles (1 for masking the deltaN)
     // Inner loop cycles would halve for strided data given f32v4add IS addtion
-    cycles = 2+5+1;
+    cycles = 5+1;
+    // VectorList costs 7 or 9 cycles to load n+base+descriptorPtr.
+    // These vertices have two VectorList::DELTAN so we'll have one of each and
+    // save a cycle (basemem only created once)
+    cycles += 7 + 8 - 1;
     for (unsigned r = 0; r < numReductions; ++r) {
       cycles += 6;
       const unsigned numElem = outSizes[r];
       auto numVectorWidths = (numElem + 2 * vectorWidth - 1)
                              / (2 * vectorWidth);
-      cycles += (2 * numPartials + 1 + 3) * numVectorWidths;
+      cycles += (3 * numPartials + 1 + 3) * numVectorWidths;
       cycles += numVectorWidths * addCycles;
     }
     break;
