@@ -1232,6 +1232,14 @@ add_test(NAME fully_connected_input_size_1
                  --data-type=half
                  --batch-size=16)
 
+add_test(NAME fully_connected_output_size_1
+         COMMAND fully_connected_layer
+                 --input-size=100
+                 --output-size=1
+                 --tiles-per-ipu=4
+                 --data-type=half
+                 --batch-size=16)
+
 add_test(NAME grouped_fully_connected_half
          COMMAND fully_connected_layer
                  --input-size 300
