@@ -87,7 +87,8 @@ getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
                                                  workerPartitions[context][k],
                                                  dataPathWidth);
       // to load partition with post increment and branch
-      thisWorkerCycles += 2;
+      // + additional cycles to create pointer to worklist
+      thisWorkerCycles += 2 + 2;
     }
     const unsigned workerNonLoopOverhead = 6;
     thisWorkerCycles += workerNonLoopOverhead;
@@ -124,7 +125,8 @@ getConvPartialHorizontalMacSupervisorCycleEstimate(
     unsigned dataPathWidth,
     unsigned numWorkerContexts,
     bool isFloat) {
-  auto cycles =
+  // 8 cycles to extract from vectorlist::deltan
+  auto cycles = 8 +
       getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
         workerPartitions, kernelSize, numInChansPerGroup, dataPathWidth,
         numWorkerContexts, isFloat);
@@ -142,6 +144,8 @@ getConvPartial1x1SupervisorInnerLoopCycleEstimate(
                              0 : std::numeric_limits<uint64_t>::max();
   for (const auto &worker : workerPartitions) {
     uint64_t thisWorkerCycles = 9;
+    // additional cycles to create pointer to worklist
+    thisWorkerCycles += 2;
     for (auto wi : worker) {
       const auto numElems =  wi;
       if (numElems) {
@@ -182,14 +186,15 @@ getConvPartial1x1SupervisorOuterLoopCycleEstimate(
                           * numConvUnitsPerTile
                           * (floatWeights ? 4 : 2)
                           / convUnitCoeffLoadBytesPerCycle;
+  // 8 cycles to extract vectorlist
   if (useDeltasForEdges) {
-    const uint64_t supervisorNonloopOverhead = 48;
+    const uint64_t supervisorNonloopOverhead = 48 + 8;
     return supervisorNonloopOverhead + numConvGroups
            * (numInGroups
               * (9 + numOutGroups * outputPassesPerGroup
                  * (18 + numLoads + innerLoopCycles)));
   } else {
-    const uint64_t supervisorNonloopOverhead = 39;
+    const uint64_t supervisorNonloopOverhead = 39 + 8;
     return supervisorNonloopOverhead + numConvGroups
            * (numInGroups
               * (8 + numOutGroups * outputPassesPerGroup
@@ -232,13 +237,14 @@ getConvPartialnx1SupervisorCycleOuterLoopEstimate(
   uint64_t cycles = innerLoopCycles;
   const auto outputPassesPerGroup =
       (outChansPerGroup + numConvUnitsPerTile - 1) / numConvUnitsPerTile;
+  // 8 additional cycles to expand vectorlist
   if (useDeltaForEdges) {
-    return 6 + numConvGroups
+    return 8 + 6 + numConvGroups
                * (46 + numOutGroups * outputPassesPerGroup
                  * (9 + numInGroups
                    * (21 + cycles)));
   } else {
-    return 6 + numConvGroups
+    return 8 + 6 + numConvGroups
                * (42 + numOutGroups * outputPassesPerGroup
                  * (9 + numInGroups
                    * (19 + cycles)));
@@ -270,6 +276,8 @@ getConvPartialnx1SupervisorCycleInnerLoopEstimate(
                                0 : std::numeric_limits<uint64_t>::max();
     for (auto context = 0U; context != usedContexts; ++context) {
       uint64_t thisWorkerCycles = 15;
+      // additional cycles to create pointer to worklist
+      thisWorkerCycles += 2;
       for (auto &numElems :  workerPartitions[context][k]) {
         if (numElems) {
           thisWorkerCycles += 22 + numElems * 4;

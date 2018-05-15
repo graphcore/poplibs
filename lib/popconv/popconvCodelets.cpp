@@ -23,7 +23,7 @@ public:
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> in;
   Vector<Input<Vector<FPType, ONE_PTR, 1, true>>, ONE_PTR> weights;
   Vector<Output<Vector<AccumType, ONE_PTR, 1, true>>, ONE_PTR> out;
-  Vector<Input<Vector<unsigned short>>> worklists;
+  Input<VectorList<unsigned short, VectorListLayout::DELTAN>> worklists;
   Input<Vector<unsigned short>> zeroWorklist;
   unsigned numOutGroups;
   unsigned numInGroups;
@@ -185,7 +185,7 @@ public:
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> in;
   Vector<Input<Vector<FPType, ONE_PTR, 1, true>>, ONE_PTR> weights;
   Vector<Output<Vector<AccumType, ONE_PTR, 1, true>>, ONE_PTR> out;
-  Vector<Input<Vector<unsigned short>>> worklists;
+  Input<VectorList<unsigned short, VectorListLayout::DELTAN>> worklists;
   unsigned numConvGroups;
   unsigned numOutGroups;
   unsigned numInGroups;
@@ -262,7 +262,7 @@ public:
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> in;
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> weights;
   Vector<InOut<Vector<AccumType, ONE_PTR>>, ONE_PTR> out;
-  Vector<Input<Vector<unsigned short>>> worklists;
+  Input<VectorList<unsigned short, VectorListLayout::DELTAN>> worklists;
   Input<Vector<unsigned short>> zeroWorklist;
   unsigned numOutGroups;
   unsigned numInGroups;
@@ -1086,8 +1086,6 @@ ReduceAdd : public Vertex {
 public:
   Output<VectorList<OutType, DELTAN>> out;
   Input<VectorList<PartialsType, DELTAN, 1, true>> partials;
-
-  SimOnlyField<unsigned> dataPathWidth;
 
   bool compute() {
     unsigned numReductions = out.size();

@@ -64,7 +64,6 @@ static void reduce(Graph &graph,
                                      templateVertex(vertexName,
                                                     reducedType,
                                                     partialType));
-      graph.setInitialValue(v["dataPathWidth"], dataPathWidth);
       graph.setFieldSize(v["out"], regions.size());
       graph.setFieldSize(v["partials"], regions.size() * tilesPerInZGroup);
       graph.setTileMapping(v, tile);
