@@ -56,9 +56,12 @@ add_library(popops SHARED
   reduction/RegionWrapping.hpp
 )
 
-target_link_libraries(popops PUBLIC poplar poputil ${CMAKE_DL_LIBS}
-                      poplibs_support)
-target_link_libraries(popops PRIVATE Boost::boost)
+target_link_libraries(popops
+  PUBLIC
+    poplar poputil ${CMAKE_DL_LIBS}
+  PRIVATE
+    poplibs_support Boost::boost
+)
 
 target_include_directories(popops
   PUBLIC

@@ -22,9 +22,12 @@ add_library(popconv SHARED
   ${CMAKE_SOURCE_DIR}/include/popconv/internal/ConvPlan.hpp
 )
 
-target_link_libraries(popconv PUBLIC poplar popops poputil popsolver
-                                     ${CMAKE_DL_LIBS})
-target_link_libraries(popconv PRIVATE Boost::boost)
+target_link_libraries(popconv
+  PUBLIC
+    poplar popops poputil popsolver ${CMAKE_DL_LIBS}
+  PRIVATE
+    Boost::boost
+)
 
 target_include_directories(popconv
   PUBLIC

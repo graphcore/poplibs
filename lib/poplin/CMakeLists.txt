@@ -7,8 +7,12 @@ add_library(poplin SHARED
   ${CMAKE_SOURCE_DIR}/include/poplin/MatMul.hpp
 )
 
-target_link_libraries(poplin PUBLIC poplar popconv popops poputil)
-target_link_libraries(poplin PRIVATE Boost::boost)
+target_link_libraries(poplin
+  PUBLIC
+    poplar popconv popops poputil
+  PRIVATE
+    Boost::boost
+)
 
 target_include_directories(poplin
   PUBLIC

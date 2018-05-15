@@ -12,7 +12,10 @@ add_library(popsolver SHARED
   ${CMAKE_SOURCE_DIR}/include/popsolver/Variable.hpp
 )
 
-target_link_libraries(popsolver PRIVATE Boost::boost)
+target_link_libraries(popsolver
+  PRIVATE
+    Boost::boost
+)
 
 target_include_directories(popsolver
   PUBLIC

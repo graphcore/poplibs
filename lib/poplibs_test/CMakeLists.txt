@@ -27,7 +27,10 @@ add_library(poplibs_test SHARED
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Util.hpp
 )
 
-target_link_libraries(poplibs_test poplar Boost::boost)
+target_link_libraries(poplibs_test
+  PUBLIC
+    poplar Boost::boost
+)
 
 target_include_directories(poplibs_test
   PUBLIC
