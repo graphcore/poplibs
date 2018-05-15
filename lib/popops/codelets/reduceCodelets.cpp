@@ -224,7 +224,7 @@ DECLARE_BOOL_TYPES_REDUCTION(ReduceAnd)
 
 struct ReduceOr {
   template <typename T>
-  static T init() { return true; }
+  static T init() { return false; }
   template <typename T>
   static void update(T &acc, T val) { acc = acc || val; }
 };
