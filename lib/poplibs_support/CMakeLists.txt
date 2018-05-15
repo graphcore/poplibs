@@ -19,14 +19,3 @@ target_include_directories(poplibs_support
   PRIVATE
     .
 )
-
-install(TARGETS poplibs_support
-        EXPORT poplibs_support
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        COMPONENT poplibs_support
-        INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-
-install(EXPORT poplibs_support
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/poplibs_support
-        FILE poplibs_support-targets.cmake
-        COMPONENT poplibs_support)
