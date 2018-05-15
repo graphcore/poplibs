@@ -1,7 +1,7 @@
 // Copyright (c) 2018, Graphcore Ltd, All rights reserved.
 
-#ifndef poputil_Algorithms_hpp
-#define poputil_Algorithms_hpp
+#ifndef poplibs_support_Algorithms_hpp
+#define poplibs_support_Algorithms_hpp
 
 #include <vector>
 #include <cstddef>
@@ -9,7 +9,7 @@
 
 #include <boost/icl/discrete_interval.hpp>
 
-namespace poputil {
+namespace poplibs {
 
 // Flatten a vector of vectors into one vector.
 template<typename T>
@@ -109,6 +109,6 @@ void for_each_zipped_region(
   }
 }
 
-} // namespace poputil
+} // namespace poplibs
 
-#endif // poputil_Algorithms_hpp
+#endif // poplibs_support_Algorithms_hpp

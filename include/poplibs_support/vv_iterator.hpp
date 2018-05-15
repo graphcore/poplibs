@@ -1,12 +1,12 @@
 // Copyright (c) 2018, Graphcore Ltd, All rights reserved.
 
-#ifndef poputil_vv_iterator_hpp
-#define poputil_vv_iterator_hpp
+#ifndef poplibs_support_vv_iterator_hpp
+#define poplibs_support_vv_iterator_hpp
 
 #include <iterator>
 #include <vector>
 
-namespace poputil {
+namespace poplibs {
 
 // Private utility functions for vv_iterator and vv_const_iterator to reduce
 // code duplication.
@@ -222,4 +222,4 @@ private:
 
 }
 
-#endif // poputil_vv_iterator_hpp
+#endif // poplibs_support_vv_iterator_hpp

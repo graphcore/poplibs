@@ -1,7 +1,7 @@
 // Copyright (c) 2018, Graphcore Ltd, All rights reserved.
 
-#ifndef poputil_ContiguousRegionsByTile_hpp
-#define poputil_ContiguousRegionsByTile_hpp
+#ifndef poplibs_support_ContiguousRegionsByTile_hpp
+#define poplibs_support_ContiguousRegionsByTile_hpp
 
 #include <poplar/Graph.hpp>
 #include <poplar/Tensor.hpp>
@@ -10,7 +10,7 @@
 #include <vector>
 #include <cstdint>
 
-namespace poputil {
+namespace poplibs {
 
 /// For the given tensor return a list for each tile of contiguous memory
 /// regions on that tile. Each contiguous memory region is made up of a list
@@ -37,6 +37,6 @@ getSortedContiguousRegionsByTile(
     const poplar::Tensor &A,
     const poplar::Graph::TileToTensorMapping &mapping);
 
-} // namespace poputil
+} // namespace poplibs
 
-#endif // poputil_ContiguousRegionsByTile_hpp
+#endif // poplibs_support_ContiguousRegionsByTile_hpp

@@ -7,13 +7,13 @@
 #include <boost/icl/split_interval_map.hpp>
 #include <boost/optional.hpp>
 
-#include <poputil/Algorithms.hpp>
-#include <poputil/ContiguousRegionsByTile.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
-#include <poputil/vv_iterator.hpp>
 
+#include <poplibs_support/Algorithms.hpp>
+#include <poplibs_support/ContiguousRegionsByTile.hpp>
+#include <poplibs_support/vv_iterator.hpp>
 #include <poplibs_support/IclUtil.hpp>
 #include <poplibs_support/print.hpp>
 

@@ -1,11 +1,11 @@
-#include "poputil/ContiguousRegionsByTile.hpp"
+#include "poplibs_support/ContiguousRegionsByTile.hpp"
 
 #if defined(ALTERNATE_IMPLEMENTATION__)
 #include <boost/icl/interval_map.hpp>
 #include <boost/optional.hpp>
 #endif
 
-namespace poputil {
+namespace poplibs {
 
 #if defined(ALTERNATE_IMPLEMENTATION__)
 
@@ -104,4 +104,4 @@ getSortedContiguousRegionsByTile(
 
 #endif
 
-} // namespace poputil
+} // namespace poplibs

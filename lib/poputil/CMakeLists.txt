@@ -4,16 +4,11 @@ get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 find_package(Boost REQUIRED)
 
 add_library(poputil SHARED
-
-  Algorithms.cpp
   Broadcast.cpp
-  ContiguousRegionsByTile.cpp
   GraphFunction.cpp
   TileMapping.cpp
   Util.cpp
-  ${CMAKE_SOURCE_DIR}/include/poputil/Algorithms.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/Broadcast.hpp
-  ${CMAKE_SOURCE_DIR}/include/poputil/ContiguousRegionsByTile.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/exceptions.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/GraphFunction.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/TileMapping.hpp

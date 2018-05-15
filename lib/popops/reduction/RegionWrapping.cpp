@@ -3,10 +3,10 @@
 #include <boost/icl/split_interval_map.hpp>
 #include <boost/icl/split_interval_set.hpp>
 
-#include <poputil/Algorithms.hpp>
 #include <poputil/Util.hpp>
 #include <poputil/exceptions.hpp>
-#include <poputil/vv_iterator.hpp>
+#include <poplibs_support/Algorithms.hpp>
+#include <poplibs_support/vv_iterator.hpp>
 
 using boost::icl::interval_map;
 using boost::icl::interval_set;
@@ -15,7 +15,7 @@ using boost::icl::split_interval_set;
 using poplar::Interval;
 using std::size_t;
 using std::vector;
-using namespace poputil;
+using namespace poplibs;
 
 namespace popops {
 

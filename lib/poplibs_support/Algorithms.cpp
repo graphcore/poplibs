@@ -1,6 +1,6 @@
-#include "poputil/Algorithms.hpp"
+#include "poplibs_support/Algorithms.hpp"
 
-namespace poputil {
+namespace poplibs {
 
 template<>
 std::size_t ival_begin<boost::icl::discrete_interval<std::size_t>>(
@@ -13,4 +13,4 @@ std::size_t ival_end<boost::icl::discrete_interval<std::size_t>>(
    return ival.upper();
 }
 
-} // namespace poputil
+} // namespace poplibs
