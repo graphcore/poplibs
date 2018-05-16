@@ -513,3 +513,47 @@ BOOST_AUTO_TEST_CASE(Reduce_Skip_ADD_float) {
                                     popops::Operation::ADD);
   BOOST_TEST(matchesModel == true);
 }
+
+BOOST_AUTO_TEST_CASE(Reduce_Nop_ADD_float) {
+
+  // Tests for nop reductions, where the reduced dimension is 1, or
+  // any of the input dimensions are 0.
+
+  std::vector<
+      std::tuple<std::vector<std::size_t>, // Input shape
+                 std::vector<std::size_t>, // Reduced dimensions
+                 std::vector<std::size_t>> // Expected output shape
+    > testCases = {
+    {{2, 1, 2, 3},   {1, 2},  {2, 3}},
+    {{2, 3, 4, 0},   {3},     {2, 3, 4}},
+    {{2, 3, 4, 0},   {0},     {3, 4, 0}},
+    {{1, 1, 1},      {1},     {1, 1}},
+    {{1, 1, 1, 0},   {0, 1},  {1, 0}},
+    {{0, 1, 2},      {},      {0, 1, 2}},
+    {{0, 1, 2, 3},   {3},     {0, 1, 2}},
+  };
+
+
+  IPUModel ipuModel;
+  ipuModel.tilesPerIPU = 64;
+  auto device = ipuModel.createDevice();
+  const auto &target = device.getTarget();
+  Graph graph(device);
+  popops::addCodelets(graph);
+
+  Sequence prog;
+
+  for (const auto &testCase : testCases) {
+    const auto &inShape = std::get<0>(testCase);
+    const auto &dims = std::get<1>(testCase);
+    const auto &outShape = std::get<2>(testCase);
+
+    auto in = graph.addVariable(FLOAT, inShape, "in");
+    poputil::mapTensorLinearly(graph, in);
+
+    auto out = popops::reduce(graph, in, FLOAT, dims,
+                              popops::Operation::ADD, prog);
+
+    BOOST_TEST(out.shape() == outShape);
+  }
+}

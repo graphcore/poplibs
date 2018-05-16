@@ -233,25 +233,91 @@ Tensor reduceWithOutput(Graph &graph,
                                   + std::to_string(A.rank()));
   }
 
-  // Remove any dimensions where the size of that dimension is less than 2
-  // since a reduction in that case does nothing.
-  for (auto it = reducedDims.begin(); it != reducedDims.end();) {
-    if (A.dim(*it) < 2)
-      it = reducedDims.erase(it);
-    else
-      ++it;
+  // Check that the output tensor has the right shape.
+  std::vector<std::size_t> reducedShape;
+  for (std::size_t d = 0; d < A.rank(); ++d)
+    if (reducedDims.count(d) == 0)
+      reducedShape.push_back(A.dim(d));
+
+  if (out.shape() != reducedShape) {
+    std::stringstream s;
+    s << "Dimension mismatch in output. Input shape: ";
+    printContainer(A.shape(), s);
+    s << " Output shape: ";
+    printContainer(out.shape(), s);
+    s << " Reduced dimensions: ";
+    printContainer(dims, s);
+
+    throw poputil::poplib_error(s.str());
   }
 
-  // If there are no dimensions to reduce, or any of the dimensions are 0
-  // just return a copy of it but with the correct output type.
-  //
-  // A copy is returned rather than just returning the original because
+  // If there are no output elements... this is easy!
+  if (out.numElements() == 0)
+    return out;
+
+  // If the number of input elements is zero we definitely don't need
+  // to do a reduction. In this case there are 0 elements in the input,
+  // but some elements in the output. This is possible for example when
+  // reducing a 10x10x0 tensor in the third dimension to 10x10. It's a bit
+  // weird but it makes sense. This is how Tensorflow works.
+  if (A.numElements() == 0) {
+    // If the output mapping isn't complete, just linearly map it.
+    try {
+      graph.getTileMapping(out);
+    } catch (poplar::invalid_tile_mapping &) {
+      poputil::mapTensorLinearly(graph, out);
+    }
+
+    // Initialise it to the default value which depends on the operation.
+
+    if (params.op == popops::Operation::ADD ||
+        params.op == popops::Operation::SQUARE_ADD ||
+        params.op == popops::Operation::LOGICAL_OR) {
+      popops::zero(graph, out, prog, debugPrefix + "/add_init");
+    } else {
+      double initVal = 0.0;
+      switch (params.op) {
+      case popops::Operation::MUL:
+        initVal = params.scale;
+        break;
+      case popops::Operation::MIN:
+        initVal = std::numeric_limits<double>::infinity();
+        break;
+      case popops::Operation::MAX:
+        initVal = -std::numeric_limits<double>::infinity();
+        break;
+      case popops::Operation::LOGICAL_AND:
+        initVal = 1.0;
+        break;
+      default:
+        throw poputil::poplib_error("Internal error, unhandled reduction type: "
+                                    + std::to_string(
+                                      static_cast<int>(params.op)));
+      }
+
+      Tensor initialiser = graph.addConstant(out.elementType(), out.shape(),
+                                             initVal);
+      prog.add(program::Copy(initialiser, out));
+    }
+
+    return out;
+  }
+
+  // If the input only reduces dimensions of size 1, we don't need to
+  // do a reduction - just copy the input tensor to the output. A copy is
+  // returned (using cast) rather than just returning the original because
   // then the user can be sure that the returned tensor refers to a distinct
   // variable and changing the tile mapping won't affect anything else.
-  //
-  // Also if there is a scale or update to do, do that using addTo().
-  if (reducedDims.empty() || A.numElements() == 0) {
+  bool reductionRequired = false;
 
+  for (auto dim : reducedDims) {
+    if (A.dim(dim) >= 2) {
+      reductionRequired = true;
+      break;
+    }
+  }
+
+  if (!reductionRequired) {
     // If the graph mapping isn't complete, set it to the same as the input.
     try {
       graph.getTileMapping(out);
@@ -300,32 +366,6 @@ Tensor reduceWithOutput(Graph &graph,
     if (reducedDims.count(i) == 0) {
       otherDims.insert(i);
     }
-  }
-
-  // Check that the dimensions of out match the the dimensions in otherDims,
-  // skipping 1-sized dimensions.
-
-  std::vector<std::size_t> nonSingletonReducedShape;
-  std::vector<std::size_t> nonSingletonOutShape;
-
-  for (auto otherDim : otherDims)
-    if (A.dim(otherDim) > 1)
-      nonSingletonReducedShape.push_back(A.dim(otherDim));
-
-  for (auto outDimSize : out.shape())
-    if (outDimSize > 1)
-      nonSingletonOutShape.push_back(outDimSize);
-
-  if (nonSingletonOutShape != nonSingletonReducedShape) {
-    std::stringstream s;
-    s << "Dimension mismatch in output. Input shape: ";
-    printContainer(A.shape(), s);
-    s << " Output shape: ";
-    printContainer(out.shape(), s);
-    s << " Reduced dimensions: ";
-    printContainer(dims, s);
-
-    throw poputil::poplib_error(s.str());
   }
 
   // Flatten it to 2D.
