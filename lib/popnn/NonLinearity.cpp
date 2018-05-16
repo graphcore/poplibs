@@ -61,7 +61,7 @@ nonLinearityInputGradient(Graph &graph,
         graph.getSortedContiguousRegions(outGradFlat, outGradMapping[tile]);
     auto vertexRegions =
         splitRegionsBetweenWorkers(target, tileContiguousRegions,
-                                   grainSize, 2 * grainSize);
+                                   grainSize, 2 * grainSize, 0xfff);
     for (const auto &regions : vertexRegions) {
       VertexRef v;
       if (regions.size() == 1 && regions[0].size() == 1) {
@@ -135,7 +135,8 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
         numElements <= vectorWidth * target.getNumWorkerContexts() ? 1 : 2;
     auto vertexRegions =
         splitRegionsBetweenWorkers(target, tileContiguousRegions,
-                                   vectorWidth, minVectors * vectorWidth);
+                                   vectorWidth, minVectors * vectorWidth,
+                                   0xfff);
 
     for (const auto &regions : vertexRegions) {
       VertexRef v;

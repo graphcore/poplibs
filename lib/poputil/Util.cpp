@@ -30,8 +30,9 @@ void mergeAdjacentRegions(
   }
 }
 
-// Take a vector of items, which each has a size and split them into a maximum
-// of `maxPartitions` different sets. Typically the item is an interval
+// Take a vector of items, which each has a size and split them into sets. If
+// both minSizePerPartition and maxSizePerPartition can be satisfied there will
+// be `maxPartitions` different sets. Typically the item is an interval
 // and its size is the size of the interval (end - begin).
 //
 // Each partition will have a total size of at least `minSizePerPartition`
@@ -103,7 +104,8 @@ template <typename T, std::size_t size(const T &),
 std::vector<std::vector<T>>
 splitRegionsAux(const std::vector<T> &items,
                 unsigned grainSize, unsigned maxPartitions,
-                unsigned minSizePerPartition) {
+                unsigned minSizePerPartition,
+                unsigned maxSizePerPartition) {
 
   // The list of regions (items) for each vertex (partition).
   std::vector<std::vector<T>> vertexItems;
@@ -128,6 +130,10 @@ splitRegionsAux(const std::vector<T> &items,
   // The maximum number of grains in each vertex. For example if there
   // are 10 grains and 3 vertices this is 4.
   auto maxGrainsPerPartition = udiv(numGrains, maxPartitions);
+
+  // Ensure that maxSizePerPartition is honoured
+  if (maxGrainsPerPartition > maxSizePerPartition / grainSize)
+    maxGrainsPerPartition = maxSizePerPartition / grainSize;
 
   // Adjust maxGrainsPerPartition if minSizePerPartitions is not 0.
   if (minSizePerPartition != 0) {
@@ -203,11 +209,13 @@ extendIntervalVector(
 std::vector<std::vector<poplar::Interval>>
 splitRegions(const std::vector<poplar::Interval> &regions,
              unsigned grainSize, unsigned maxPartitions,
-             unsigned minElementsPerPartition) {
+             unsigned minElementsPerPartition,
+             unsigned maxElementsPerPartition) {
   return splitRegionsAux<poplar::Interval,
                          intervalSize,
                          extendIntervalVector>(
-    regions, grainSize, maxPartitions, minElementsPerPartition);
+    regions, grainSize, maxPartitions, minElementsPerPartition,
+    maxElementsPerPartition);
 }
 
 static std::size_t
@@ -245,11 +253,13 @@ std::vector<std::vector<std::vector<poplar::Interval>>>
 splitRegions(
   const std::vector<std::vector<poplar::Interval>> &regions,
     unsigned grainSize, unsigned maxPartitions,
-    unsigned minElementsPerPartition) {
+    unsigned minElementsPerPartition,
+    unsigned maxElementsPerPartition) {
   return splitRegionsAux<std::vector<poplar::Interval>,
                          intervalSequenceSize,
                          extendIntervalSequenceVector>(
-    regions, grainSize, maxPartitions, minElementsPerPartition);
+    regions, grainSize, maxPartitions, minElementsPerPartition,
+    maxElementsPerPartition);
 }
 
 std::vector<std::vector<poplar::Interval>>
@@ -257,10 +267,11 @@ splitRegionsBetweenWorkers(
     const poplar::Target &target,
     const std::vector<poplar::Interval> &regions,
     unsigned grainSize,
-    unsigned minElementsPerVertex) {
+    unsigned minElementsPerVertex,
+    unsigned maxElementsPerVertex) {
   const auto workersPerTile = target.getNumWorkerContexts();
   return splitRegions(regions, grainSize, workersPerTile,
-                      minElementsPerVertex);
+                      minElementsPerVertex, maxElementsPerVertex);
 }
 
 std::vector<std::vector<std::vector<poplar::Interval>>>
@@ -268,10 +279,11 @@ splitRegionsBetweenWorkers(
     const poplar::Target &target,
     const std::vector<std::vector<poplar::Interval>> &regions,
     unsigned grainSize,
-    unsigned minElementsPerVertex) {
+    unsigned minElementsPerVertex,
+    unsigned maxElementsPerVertex) {
   const auto workersPerTile = target.getNumWorkerContexts();
   return splitRegions(regions, grainSize, workersPerTile,
-                      minElementsPerVertex);
+                      minElementsPerVertex, maxElementsPerVertex);
 }
 
 std::size_t flattenIndex(const std::vector<std::size_t> &shape,
