@@ -10,7 +10,7 @@
 #include <poplar/Program.hpp>
 #include <poplar/Tensor.hpp>
 #include <vector>
-#include <limits>
+#include <climits>
 
 namespace poputil {
 
