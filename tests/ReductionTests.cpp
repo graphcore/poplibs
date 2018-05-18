@@ -519,18 +519,19 @@ BOOST_AUTO_TEST_CASE(Reduce_Nop_ADD_float) {
   // Tests for nop reductions, where the reduced dimension is 1, or
   // any of the input dimensions are 0.
 
-  std::vector<
-      std::tuple<std::vector<std::size_t>, // Input shape
-                 std::vector<std::size_t>, // Reduced dimensions
-                 std::vector<std::size_t>> // Expected output shape
-    > testCases = {
-    {{2, 1, 2, 3},   {1, 2},  {2, 3}},
-    {{2, 3, 4, 0},   {3},     {2, 3, 4}},
-    {{2, 3, 4, 0},   {0},     {3, 4, 0}},
-    {{1, 1, 1},      {1},     {1, 1}},
-    {{1, 1, 1, 0},   {0, 1},  {1, 0}},
-    {{0, 1, 2},      {},      {0, 1, 2}},
-    {{0, 1, 2, 3},   {3},     {0, 1, 2}},
+  // Workaround GCC 5 bug.
+  using TestCase = std::tuple<std::vector<std::size_t>, // Input shape
+                              std::vector<std::size_t>, // Reduced dimensions
+                              std::vector<std::size_t>>;// Expected output shape
+
+  std::vector<TestCase> testCases = {
+    TestCase{{2, 1, 2, 3},   {1, 2},  {2, 3}},
+    TestCase{{2, 3, 4, 0},   {3},     {2, 3, 4}},
+    TestCase{{2, 3, 4, 0},   {0},     {3, 4, 0}},
+    TestCase{{1, 1, 1},      {1},     {1, 1}},
+    TestCase{{1, 1, 1, 0},   {0, 1},  {1, 0}},
+    TestCase{{0, 1, 2},      {},      {0, 1, 2}},
+    TestCase{{0, 1, 2, 3},   {3},     {0, 1, 2}},
   };
 
 
