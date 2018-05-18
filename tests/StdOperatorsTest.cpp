@@ -1422,3 +1422,55 @@ BOOST_AUTO_TEST_CASE(MapInPlaceTest) {
     }
   }
 }
+
+BOOST_AUTO_TEST_CASE(MapInferTypeTest) {
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
+  popops::addCodelets(graph);
+
+  auto prog = Sequence();
+  auto a = graph.addVariable(FLOAT, {DIM_SIZE}, "a");
+  mapTensorLinearly(graph, a);
+  auto b = graph.addVariable(FLOAT, {DIM_SIZE}, "b");
+  mapTensorLinearly(graph, b);
+  auto c = graph.addVariable(BOOL, {DIM_SIZE}, "c");
+  mapTensorLinearly(graph, c);
+  auto out = map(graph, And(Equal(_1, _2), _3),
+                 {a, b, c}, prog);
+
+  graph.createHostWrite("a", a);
+  graph.createHostWrite("b", b);
+  graph.createHostWrite("c", c);
+  graph.createHostRead("out", out);
+
+  float aIn[DIM_SIZE],
+        bIn[DIM_SIZE];
+  bool  cIn[DIM_SIZE];
+  bool  hOut[DIM_SIZE];
+
+  std::mt19937 randomEngine;
+  std::uniform_real_distribution<> dist(-10.0, +10.0);
+  for (unsigned i = 0; i < DIM_SIZE; ++i) {
+    aIn[i] = dist(randomEngine);
+    bIn[i] = dist(randomEngine);
+    cIn[i] = dist(randomEngine) > 0.0;
+  }
+
+  Engine eng(device, graph, prog);
+  eng.writeTensor("a", aIn);
+  eng.writeTensor("b", bIn);
+  eng.writeTensor("c", cIn);
+  eng.run();
+  eng.readTensor("out", hOut);
+
+  auto execReport = eng.getExecutionReport({
+    { "doLayerWiseBreakdown", "true" }
+  });
+  execReport.printSummary(std::cerr);
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    auto expected = (aIn[i] == bIn[i]) && cIn[i];
+    BOOST_TEST(hOut[i] == expected);
+  }
+}

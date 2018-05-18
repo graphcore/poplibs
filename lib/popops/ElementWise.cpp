@@ -361,11 +361,31 @@ static bool isRelational(expr::UnaryOpType op) {
 
 static bool isRelational(expr::BinaryOpType op) {
   switch (op) {
+  case expr::BinaryOpType::EQUAL:
   case expr::BinaryOpType::GREATER_THAN_EQUAL:
   case expr::BinaryOpType::GREATER_THAN:
   case expr::BinaryOpType::LESS_THAN_EQUAL:
   case expr::BinaryOpType::LESS_THAN:
   case expr::BinaryOpType::NOT_EQUAL:
+    return true;
+  default:
+    return false;
+  }
+}
+
+static bool isLogical(expr::UnaryOpType op) {
+  switch (op) {
+  case expr::UnaryOpType::LOGICAL_NOT:
+    return true;
+  default:
+    return false;
+  }
+}
+
+static bool isLogical(expr::BinaryOpType op) {
+  switch (op) {
+  case expr::BinaryOpType::LOGICAL_AND:
+  case expr::BinaryOpType::LOGICAL_OR:
     return true;
   default:
     return false;
@@ -396,7 +416,7 @@ inferType(const expr::Expr &expr,
   } else if (const expr::UnaryOp *u = expr.getAs<expr::UnaryOp>()) {
     auto opType = u->getOpType();
     auto argType = inferType(u->getArg(), ts, constTypes, unknown);
-    if (isRelational(opType)) {
+    if (isRelational(opType) || isLogical(opType)) {
       if (!unknown.empty())
         throw poplib_error("Cannot infer constant types in expression");
       return BOOL;
@@ -421,7 +441,7 @@ inferType(const expr::Expr &expr,
     if (lhsType != rhsType)
       throw poplib_error("Arguments of binary operator in expression do not "
                          "have the same type");
-    if (isRelational(opType)) {
+    if (isRelational(opType) || isLogical(opType)) {
       if (!unknown.empty())
         throw poplib_error("Cannot infer constant types in expression");
       return BOOL;
