@@ -36,12 +36,7 @@ std::size_t numChannels(Tensor acts) {
 }
 
 std::size_t numActsPerChannel(Tensor acts) {
-  if (acts.rank() > 1) {
-    const auto shape = acts.shape();
-    return std::accumulate(shape.begin(), shape.end()-1,
-                           1, std::multiplies<std::size_t>());
-  }
-  return 0;
+  return acts.numElements() / numChannels(acts);
 }
 
 
