@@ -80,15 +80,11 @@ else()
   list(APPEND POPC_FLAGS -O3)
 endif()
 
-set(codelet_deps
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/allCodelets.cpp
+set(codelet_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/dynamicSliceCodelets.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elementwiseCodelets.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/miscCodelets.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/reduceCodelets.cpp
-  )
-set(codelet_sources
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/allCodelets.cpp
   )
 
 add_custom_command(
@@ -100,7 +96,7 @@ add_custom_command(
     -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
     ${codelet_sources}
   DEPENDS
-    ${codelet_deps}
+    ${codelet_sources}
     popc_bin
 )
 
