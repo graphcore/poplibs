@@ -72,12 +72,16 @@ static std::string debugName(UnaryOpType op) {
     return "CountLeadingZeros";
   case UnaryOpType::EXPONENT:
     return "Exponent";
+  case UnaryOpType::EXPONENT_MINUS_ONE:
+    return "ExponentMinusOne";
   case UnaryOpType::FLOOR:
     return "Floor";
   case UnaryOpType::IS_FINITE:
     return "IsFinite";
   case UnaryOpType::LOGARITHM:
     return "Logarithm";
+  case UnaryOpType::LOGARITHM_ONE_PLUS:
+    return "LogarithmOnePlus";
   case UnaryOpType::LOGICAL_NOT:
     return "LogicalNot";
   case UnaryOpType::NEGATE:

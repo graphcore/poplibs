@@ -18,12 +18,16 @@ std::string unaryOpTypeToString(UnaryOpType op) {
     return "COUNT_LEADING_ZEROS";
   case UnaryOpType::EXPONENT:
     return "EXPONENT";
+  case UnaryOpType::EXPONENT_MINUS_ONE:
+    return "EXPONENT_MINUS_ONE";
   case UnaryOpType::FLOOR:
     return "FLOOR";
   case UnaryOpType::IS_FINITE:
     return "IS_FINITE";
   case UnaryOpType::LOGARITHM:
     return "LOGARITHM";
+  case UnaryOpType::LOGARITHM_ONE_PLUS:
+    return "LOGARITHM_ONE_PLUS";
   case UnaryOpType::LOGICAL_NOT:
     return "LOGICAL_NOT";
   case UnaryOpType::NEGATE:

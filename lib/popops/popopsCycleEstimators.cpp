@@ -257,6 +257,8 @@ unaryOpPerfInfo = {
   { {UnaryOpType::EXPONENT, FLOAT}, {3, false} },
   // Use f16v2exp
   { {UnaryOpType::EXPONENT, HALF}, {4, true} },
+  { {UnaryOpType::EXPONENT_MINUS_ONE, FLOAT}, {4, false} },
+  { {UnaryOpType::EXPONENT_MINUS_ONE, HALF}, {5, true} },
 
   // Use mul with 1.0 and use correct rounding mode
   { {UnaryOpType::FLOOR, FLOAT}, {1, true} },
@@ -270,6 +272,8 @@ unaryOpPerfInfo = {
   { {UnaryOpType::IS_FINITE, HALF}, {5, true} },
   { {UnaryOpType::LOGARITHM, FLOAT}, {2, true} },
   { {UnaryOpType::LOGARITHM, HALF}, {4, true} },
+  { {UnaryOpType::LOGARITHM_ONE_PLUS, FLOAT}, {3, true} },
+  { {UnaryOpType::LOGARITHM_ONE_PLUS, HALF}, {5, true} },
   { {UnaryOpType::LOGICAL_NOT, BOOL}, {1, true} },
   { {UnaryOpType::NEGATE, FLOAT}, {1, true} },
   { {UnaryOpType::NEGATE, HALF}, {1, true} },

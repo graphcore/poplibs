@@ -60,10 +60,14 @@ namespace {
   DEFINE_UNARY_OP_FN(expr::UnaryOpType::COUNT_LEADING_ZEROS,
                      return x ? __builtin_clz(x) : 32;)
   DEFINE_UNARY_OP_FN(expr::UnaryOpType::EXPONENT, return std::exp(x);)
+  DEFINE_UNARY_OP_FN(expr::UnaryOpType::EXPONENT_MINUS_ONE,
+                     return std::expm1(x);)
   DEFINE_UNARY_OP_FN(expr::UnaryOpType::FLOOR, return std::floor(x);)
   DEFINE_UNARY_OP_FN(expr::UnaryOpType::IS_FINITE,
                      return (x == x) && (std::abs(x) != INFINITY);)
   DEFINE_UNARY_OP_FN(expr::UnaryOpType::LOGARITHM, return std::log(x);)
+  DEFINE_UNARY_OP_FN(expr::UnaryOpType::LOGARITHM_ONE_PLUS,
+                     return std::log1p(x);)
   DEFINE_UNARY_OP_FN(expr::UnaryOpType::LOGICAL_NOT, return !x;)
   DEFINE_UNARY_OP_FN(expr::UnaryOpType::NEGATE, return -x;)
   DEFINE_UNARY_OP_FN(expr::UnaryOpType::POPCOUNT, return __builtin_popcount(x);)
@@ -105,9 +109,11 @@ INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::COUNT_LEADING_ZEROS, int)
 INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::EXPONENT, float, half)
+INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::EXPONENT_MINUS_ONE, float, half)
 INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::FLOOR, float, half)
 INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::IS_FINITE, float, half)
 INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::LOGARITHM, float, half)
+INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::LOGARITHM_ONE_PLUS, float, half)
 INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::LOGICAL_NOT, bool)
 INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::NEGATE, float, half, int)
 INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::POPCOUNT, int)

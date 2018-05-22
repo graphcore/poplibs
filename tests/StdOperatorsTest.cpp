@@ -484,6 +484,17 @@ BOOST_AUTO_TEST_CASE(StdOperationExponent,
                            });
 }
 
+BOOST_AUTO_TEST_CASE(StdOperationExponentMinusOne,
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  ) {
+  unaryOpTest<float, float>(popops::expm1,
+                           [](float x) -> float {
+                              double res = std::expm1(static_cast<double>(x));
+                              return res;
+                           });
+}
+
 BOOST_AUTO_TEST_CASE(StdOperationFloor,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
@@ -559,6 +570,18 @@ BOOST_AUTO_TEST_CASE(StdOperationLogarithm,
   unaryOpTest<float, double>(popops::log,
                              [](float x) -> double {
                                 double res = std::log(static_cast<double>(x));
+                                return res;
+                             },
+                             true /* positive inputs */);
+}
+
+BOOST_AUTO_TEST_CASE(StdOperationLogarithmOnePlus,
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  ) {
+  unaryOpTest<float, double>(popops::log1p,
+                             [](float x) -> double {
+                                double res = std::log1p(static_cast<double>(x));
                                 return res;
                              },
                              true /* positive inputs */);
