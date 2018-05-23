@@ -51,37 +51,46 @@ nonLinearityInputGradient(Graph &graph,
   auto outGradMapping = graph.getTileMapping(outGradFlat);
   const auto numTiles = target.getNumTiles();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
+    const auto thisTileMap = outGradMapping[tile];
+    const auto tileContiguousRegions =
+        graph.getSortedContiguousRegions(outGradFlat, thisTileMap);
+    // If mapping of outGrad tensor on this tile is only region(s) from a
+    // single variable, gather all the inputs to the non-linearity into
+    // a single edge
+    if (tileContiguousRegions.size() == 1) {
+      const auto outGradTile = concat(outGradFlat.slices(thisTileMap));
+      // TODO: use max of field from target
+      if (outGradTile.numElements() <= 0xFFFF) {
+        auto v =
+          graph.addVertex(cs,
+                          templateVertex("popnn::NonLinearityGradSupervisor",
+                                         dType,
+                                      static_cast<unsigned>(nonLinearityType)),
+                          {{"out", concat(outFlat.slices(thisTileMap))},
+                           {"outGrad", outGradTile},
+                           {"inGrad", concat(inGradFlat.slices(thisTileMap))}});
+        graph.setInitialValue(v["n"], outGradTile.numElements());
+        graph.setTileMapping(v, tile);
+        continue;
+      }
+    }
     // On each tile split the elements of the output up between the workers.
     // The grainSize is set to the vector width so vectors will not be split
     // up when allocating work to vertices.
     // The minimum amount of work per vertex is set to 2 * vectorwidth to
     // balance memory and loop overhead against parallel performance.
     const auto grainSize = target.getVectorWidth(dType);
-    const auto tileContiguousRegions =
-        graph.getSortedContiguousRegions(outGradFlat, outGradMapping[tile]);
     auto vertexRegions =
         splitRegionsBetweenWorkers(target, tileContiguousRegions,
                                    grainSize, 2 * grainSize, 0xfff);
     for (const auto &regions : vertexRegions) {
-      VertexRef v;
-      if (regions.size() == 1 && regions[0].size() == 1) {
-        const auto region = regions[0][0];
-        v = graph.addVertex(cs,
-                            templateVertex("popnn::NonLinearityGrad", dType,
+      auto v =
+          graph.addVertex(cs,
+                          templateVertex("popnn::NonLinearityGrad2D", dType,
                                        static_cast<unsigned>(nonLinearityType)),
-                            {{"out", outFlat.slice(region)},
-                             {"outGrad", outGradFlat.slice(region)},
-                             {"inGrad", inGradFlat.slice(region)}});
-        graph.setInitialValue(v["n"], region.size());
-
-      } else {
-        v = graph.addVertex(cs,
-                            templateVertex("popnn::NonLinearityGrad2D", dType,
-                                       static_cast<unsigned>(nonLinearityType)),
-                            {{"out", outFlat.slices(regions)},
-                             {"outGrad", outGradFlat.slices(regions)},
-                             {"inGrad", inGradFlat.slices(regions)}});
-      }
+                          {{"out", outFlat.slices(regions)},
+                           {"outGrad", outGradFlat.slices(regions)},
+                           {"inGrad", inGradFlat.slices(regions)}});
       graph.setTileMapping(v, tile);
     }
   }
@@ -122,14 +131,32 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
   const auto tFlat = t.flatten();
   const auto vectorWidth = target.getVectorWidth(dType);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
+    const auto thisTileMap = mapping[tile];
+    const auto tileContiguousRegions =
+        graph.getSortedContiguousRegions(t, thisTileMap);
+    // If mapping of outGrad tensor on this tile is only region(s) from a
+    // single variable, gather all the inputs to the non-linearity into
+    // a single edge
+    if (tileContiguousRegions.size() == 1) {
+      const auto tThisTile = concat(tFlat.slices(thisTileMap));
+      // TODO: use max of field from target
+      if (tThisTile.numElements() <= 0xFFFF) {
+        auto v =
+            graph.addVertex(cs,
+                            templateVertex("popnn::NonLinearitySupervisor",
+                                           dType,
+                                       static_cast<unsigned>(nonLinearityType)),
+                            {{"data", tThisTile}});
+        graph.setInitialValue(v["n"], tThisTile.numElements());
+        graph.setTileMapping(v, tile);
+        continue;
+      }
+    }
     // On each tile split the elements of the output up between the workers.
     // The grainSize is set to the vector width so vectors will not be split
     // up when allocating work to vertices.
     // The minimum amount of work per vertex is set to 2 * vectorwidth to
     // balance memory and loop overhead against parallel performance.
-    const auto tileContiguousRegions =
-        graph.getSortedContiguousRegions(t, mapping[tile]);
-
     auto numElements = intervalSequenceNumElements(tileContiguousRegions);
     auto minVectors =
         numElements <= vectorWidth * target.getNumWorkerContexts() ? 1 : 2;
@@ -139,22 +166,11 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
                                    0xfff);
 
     for (const auto &regions : vertexRegions) {
-      VertexRef v;
-      if (regions.size() == 1 && regions[0].size() == 1) {
-        const auto region = regions[0][0];
-        v = graph.addVertex(cs,
-                            templateVertex("popnn::NonLinearity", dType,
-                                       static_cast<unsigned>(nonLinearityType)),
-                            {{"data", tFlat.slice(region)}});
-        graph.setInitialValue(v["n"], region.size());
-
-      } else {
-        v =
+      auto v =
           graph.addVertex(cs,
                           templateVertex("popnn::NonLinearity2D",dType,
-                                       static_cast<unsigned>(nonLinearityType)),
+                                     static_cast<unsigned>(nonLinearityType)),
                           {{"data", tFlat.slices(regions)}});
-      }
       graph.setTileMapping(v, tile);
     }
   }

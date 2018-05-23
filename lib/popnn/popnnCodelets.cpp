@@ -95,7 +95,7 @@ static float nonlinearity_derivative(popnn::NonLinearityType t,
 
 namespace popnn {
 template <typename FPType, unsigned nlType>
-class NonLinearity : public Vertex {
+class NonLinearitySupervisor : public SupervisorVertex {
 public:
   InOut<Vector<FPType, SCALED_PTR32>> data;
   unsigned short n;
@@ -108,10 +108,10 @@ public:
   }
 };
 
-INSTANTIATE_NL(NonLinearity)
+INSTANTIATE_NL(NonLinearitySupervisor)
 
 template <typename FPType, unsigned nlType>
-class NonLinearityGrad : public Vertex {
+class NonLinearityGradSupervisor : public SupervisorVertex {
 public:
   Input<Vector<FPType, SCALED_PTR32>> outGrad;
   Input<Vector<FPType, SCALED_PTR32>> out;
@@ -127,7 +127,7 @@ public:
   }
 };
 
-INSTANTIATE_NL(NonLinearityGrad)
+INSTANTIATE_NL(NonLinearityGradSupervisor)
 
 template <typename FPType, unsigned nlType>
 class NonLinearity2D : public Vertex {

@@ -12,12 +12,12 @@ inline uint64_t getNonLinearityCycles(std::vector<unsigned> regionSizes,
                                       popnn::NonLinearityType nonLinearityType,
                                       bool isFloat,
                                       bool is2D,
-                                      unsigned dataPathWidth)
-{
-  uint64_t cycles = 5; // vertex overhead
+                                      bool supervisorVertex,
+                                      unsigned dataPathWidth,
+                                      unsigned numWorkers) {
+  uint64_t cycles = supervisorVertex ? 9 : 5; // vertex overhead
   if (!is2D)
     assert(regionSizes.size() == 1);
-
   for (const auto numItems : regionSizes) {
     const auto floatVectorWidth = dataPathWidth / 32;
     const auto halfVectorWidth =  dataPathWidth / 16;
@@ -60,9 +60,12 @@ inline uint64_t getNonLinearityCycles(std::vector<unsigned> regionSizes,
   if (!is2D) {
     // no outer loop
     cycles -= 2;
-    // scaled32 pointers
-    cycles += 1+2*2; // form base constant, 2*add+shift
+    // scaled32 pointer
+    cycles += 1+2; // form base constant, add+shift
   }
+
+  if (supervisorVertex)
+    cycles = numWorkers * cycles + 9;
   return cycles;
 }
 
@@ -71,8 +74,10 @@ inline uint64_t getBwdNonlinearityDerivativeCycles(
                   popnn::NonLinearityType nonLinearityType,
                   bool isFloat,
                   bool is2D,
-                  unsigned dataPathWidth) {
-  uint64_t cycles = 5;
+                  bool supervisorVertex,
+                  unsigned dataPathWidth,
+                  unsigned numWorkers) {
+  uint64_t cycles = supervisorVertex ? 9 : 5; // vertex overhead;
   if (!is2D)
     assert(regionSizes.size() == 1);
   for (const auto numItems : regionSizes) {
@@ -85,14 +90,16 @@ inline uint64_t getBwdNonlinearityDerivativeCycles(
       break;
     case popnn::NonLinearityType::NON_LINEARITY_RELU:
       {
-        const unsigned vertexOverhead = 2    // run instruction
-                                      + 7; // remaining vertex overhead
+        const unsigned vertexOverhead =
+                                       // run instruction
+                                       (supervisorVertex ? 0 : 2)
+                                       + 7; // remaining vertex overhead
         cycles += vertexOverhead + numVectors * 3;
       }
       break;
     case popnn::NonLinearityType::NON_LINEARITY_TANH:
       cycles += 5 + numVectors * 3;
-        break;
+      break;
     case popnn::NonLinearityType::NON_LINEARITY_SOFTMAX:
       throw std::runtime_error("Nonlinearity not implemented");
     default:
@@ -104,10 +111,9 @@ inline uint64_t getBwdNonlinearityDerivativeCycles(
     cycles -= 4;
     // scaled32 pointer for inGrad
     cycles += 1+3*2; // 3pointers*add+shift
-
-
   }
-
+  if (supervisorVertex)
+    cycles = numWorkers * cycles + 9;
   return cycles;
 }
 

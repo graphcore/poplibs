@@ -22,23 +22,26 @@ using namespace poplar;
 namespace popnn {
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(NonLinearity)(const VertexIntrospector &vertex,
-                                        const Target &target,
-                                        const Type &type,
-                                        const NonLinearityType &nlType) {
+MAKE_CYCLE_ESTIMATOR_NAME(NonLinearitySupervisor)(
+                              const VertexIntrospector &vertex,
+                              const Target &target,
+                              const Type &type,
+                              const NonLinearityType &nlType) {
   bool isFloat = type == FLOAT;
   std::vector<unsigned> regionSizes;
   const auto data = vertex.getFieldInfo("data");
   regionSizes.push_back(data.size());
-  return getNonLinearityCycles(regionSizes, nlType, isFloat, false,
-                               target.getDataPathWidth());
+  return getNonLinearityCycles(regionSizes, nlType, isFloat, false, true,
+                               target.getDataPathWidth(),
+                               target.getNumWorkerContexts());
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(NonLinearityGrad)(const VertexIntrospector &vertex,
-                                            const Target &target,
-                                            const Type &type,
-                                            const NonLinearityType &nlType) {
+MAKE_CYCLE_ESTIMATOR_NAME(NonLinearityGradSupervisor)(
+                              const VertexIntrospector &vertex,
+                              const Target &target,
+                              const Type &type,
+                              const NonLinearityType &nlType) {
   bool isFloat = type == FLOAT;
   std::vector<unsigned> regionSizes;
   const auto inGrad = vertex.getFieldInfo("inGrad");
@@ -48,7 +51,8 @@ MAKE_CYCLE_ESTIMATOR_NAME(NonLinearityGrad)(const VertexIntrospector &vertex,
   assert(outGrad.size() == out.size());
   regionSizes.push_back(inGrad.size());
   return getBwdNonlinearityDerivativeCycles(regionSizes, nlType, isFloat, false,
-                                            target.getDataPathWidth());
+                                            true, target.getDataPathWidth(),
+                                            target.getNumWorkerContexts());
 }
 
 std::uint64_t
@@ -61,8 +65,9 @@ MAKE_CYCLE_ESTIMATOR_NAME(NonLinearity2D)(const VertexIntrospector &vertex,
   const auto data = vertex.getFieldInfo("data");
   for (unsigned i=0;i<data.size(); ++i)
     regionSizes.push_back(data[i].size());
-  return getNonLinearityCycles(regionSizes, nlType, isFloat, true,
-                               target.getDataPathWidth());
+  return getNonLinearityCycles(regionSizes, nlType, isFloat, true, false,
+                               target.getDataPathWidth(),
+                               target.getNumWorkerContexts());
 }
 
 std::uint64_t
@@ -82,7 +87,8 @@ MAKE_CYCLE_ESTIMATOR_NAME(NonLinearityGrad2D)(const VertexIntrospector &vertex,
     regionSizes.push_back(inGrad[i].size());
   }
   return getBwdNonlinearityDerivativeCycles(regionSizes, nlType, isFloat, true,
-                                            target.getDataPathWidth());
+                                            false, target.getDataPathWidth(),
+                                            target.getNumWorkerContexts());
 }
 
 std::uint64_t
@@ -284,8 +290,8 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popnn, MaxPooling, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popnn, MaxPooling, HALF),
 
-    INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearityGrad),
-    INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearity),
+    INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearityGradSupervisor),
+    INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearitySupervisor),
     INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearityGrad2D),
     INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearity2D)
   };
