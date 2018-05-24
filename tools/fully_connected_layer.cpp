@@ -51,8 +51,6 @@ int main(int argc, char **argv) {
   Type partialsType;
   double relativeTolerance, absoluteTolerance;
   IPUModel ipuModel;
-  ipuModel.IPUExchangeType =
-      IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
   Pass pass = Pass::ALL;
 
   po::options_description desc("Options");

@@ -88,8 +88,6 @@ int main(int argc, char **argv) {
                                 popnn::NonLinearityType::NON_LINEARITY_SIGMOID;
 
   IPUModel ipuModel;
-  ipuModel.IPUExchangeType =
-      IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
 
   poplibs_test::Pass pass = poplibs_test::Pass::FWD;
   po::options_description desc("Options");

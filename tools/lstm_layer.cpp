@@ -48,8 +48,6 @@ int main(int argc, char **argv) {
   double absoluteTolerance;
   bool useCpuModel;
   IPUModel ipuModel;
-  ipuModel.IPUExchangeType =
-      IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
   bool preweightInput = false;
   poplibs_test::Pass pass = poplibs_test::Pass::FWD;
 

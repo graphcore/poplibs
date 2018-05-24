@@ -81,8 +81,6 @@ int main(int argc, char **argv) {
   MatrixOp matBOp = MatrixOp::NORMAL;
 
   IPUModel ipuModel;
-  ipuModel.IPUExchangeType =
-      IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
 
   po::options_description desc("Options");
   desc.add_options()

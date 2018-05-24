@@ -78,8 +78,6 @@ int main(int argc, char **argv) {
   bool useCpuModel;
 
   IPUModel ipuModel;
-  ipuModel.IPUExchangeType =
-      IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
   PoolingType poolingType = PoolingType::MAX;
 
   /* these are used when the same value is shared across both height and width*/

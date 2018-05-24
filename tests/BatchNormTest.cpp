@@ -45,8 +45,6 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   const auto numChannels = dims[3];
 
   IPUModel ipuModel;
-  ipuModel.IPUExchangeType =
-      IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
   ipuModel.tilesPerIPU = tilesPerIPU;
   auto device = ipuModel.createDevice();
   const auto &target = device.getTarget();
@@ -229,8 +227,6 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
                         const Type &dataType,
                         const Type &partialsType) {
   IPUModel ipuModel;
-  ipuModel.IPUExchangeType =
-      IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
   ipuModel.tilesPerIPU = tilesPerIPU;
   auto device = ipuModel.createDevice();
   const auto &target = device.getTarget();

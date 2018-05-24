@@ -98,8 +98,6 @@ int main(int argc, char **argv) {
   Type dataType;
   double absoluteTolerance, relativeTolerance;
   IPUModel ipuModel;
-  ipuModel.IPUExchangeType =
-      IPUModel::ExchangeType::AGGRESSIVE_MULTICAST;
   bool reportPlan;
   bool reportVarStorage;
 
