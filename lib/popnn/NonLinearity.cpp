@@ -130,6 +130,16 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
   const auto numTiles = target.getNumTiles();
   const auto tFlat = t.flatten();
   const auto vectorWidth = target.getVectorWidth(dType);
+  // generate regions such that the 1d nonlinearity function can be called
+  const auto codeletName2D =
+    templateVertex("popnn::NonLinearity2D", dType,
+                   static_cast<unsigned>(nonLinearityType));
+  const auto codeletNameSupervisor =
+      templateVertex("popnn::NonLinearitySupervisor", dType,
+                     static_cast<unsigned>(nonLinearityType));
+  auto maxSupervisorElements =
+      graph.getMaxVertexFieldValue(codeletNameSupervisor, "n");
+  auto max2DElements = graph.getMaxFieldDim(codeletName2D, "data", 1);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto thisTileMap = mapping[tile];
     const auto tileContiguousRegions =
@@ -139,13 +149,9 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
     // a single edge
     if (tileContiguousRegions.size() == 1) {
       const auto tThisTile = concat(tFlat.slices(thisTileMap));
-      // TODO: use max of field from target
-      if (tThisTile.numElements() <= 0xFFFF) {
+      if (tThisTile.numElements() <= maxSupervisorElements) {
         auto v =
-            graph.addVertex(cs,
-                            templateVertex("popnn::NonLinearitySupervisor",
-                                           dType,
-                                       static_cast<unsigned>(nonLinearityType)),
+            graph.addVertex(cs, codeletNameSupervisor,
                             {{"data", tThisTile}});
         graph.setInitialValue(v["n"], tThisTile.numElements());
         graph.setTileMapping(v, tile);
@@ -163,13 +169,11 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
     auto vertexRegions =
         splitRegionsBetweenWorkers(target, tileContiguousRegions,
                                    vectorWidth, minVectors * vectorWidth,
-                                   0xfff);
+                                   max2DElements);
 
     for (const auto &regions : vertexRegions) {
       auto v =
-          graph.addVertex(cs,
-                          templateVertex("popnn::NonLinearity2D",dType,
-                                     static_cast<unsigned>(nonLinearityType)),
+          graph.addVertex(cs, codeletName2D,
                           {{"data", tFlat.slices(regions)}});
       graph.setTileMapping(v, tile);
     }
