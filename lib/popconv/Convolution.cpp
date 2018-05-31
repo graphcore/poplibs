@@ -2282,24 +2282,35 @@ static bool isZeroConvolution(const ConvParams &params) {
   return false;
 }
 
-static void
+static Tensor
 calcPartialConvOutput(Graph &graph,
                       const Plan &plan,
                       unsigned tile,
                       ConvParams params,
                       ComputeSet convolveCS,
-                      Tensor in, Tensor weights,
-                      Tensor out) {
+                      Tensor in, Tensor weights) {
   const auto numOutChans = params.getNumOutputChansPerConvGroup();
   const auto outChansPerGroup = plan.partialChansPerGroup;
   assert(numOutChans % outChansPerGroup == 0);
+  std::vector<std::size_t> outShape = {
+    params.getNumConvGroups(),
+    numOutChans / outChansPerGroup,
+    params.getBatchSize()
+  };
+  const auto numFieldDims = params.getNumFieldDims();
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    outShape.push_back(params.getOutputSize(dim));
+  }
+  outShape.push_back(outChansPerGroup);
+  auto out = graph.addVariable(plan.types.back().partialType, outShape,
+                               "partials");
   graph.setTileMapping(out, tile);
   in = splitActivationChanGroups(in, plan.inChansPerGroup);
   weights = groupWeights(weights, plan.inChansPerGroup,
                          plan.partialChansPerGroup);
   if (isZeroConvolution(params)) {
     zero(graph, out, tile, convolveCS);
-    return;
+    return unsplitActivationChanGroups(out);
   }
   switch (plan.method) {
   default: assert(0 && "Unexpected method");
@@ -2327,6 +2338,7 @@ calcPartialConvOutput(Graph &graph,
     }
     break;
   }
+  return unsplitActivationChanGroups(out);
 }
 
 static bool inputRearrangementIsExpensive(const ConvOptions &options) {
@@ -2386,7 +2398,7 @@ static std::vector<unsigned> getOutputDimSplits(const Partition &partition) {
 }
 
 /// Stich each runs of \a dimSplit partial result tensors together by
-/// concatenating them in the specified dimension to form a new
+/// concaternating them in the specified dimension to form a new
 /// list of results that is written back to \a results.
 static void stichResultsImpl(std::vector<Tensor> &results, unsigned dim,
                              unsigned dimSplit) {
@@ -2432,42 +2444,6 @@ stichPartialResults(const std::vector<std::vector<Tensor>> &results,
   return concat(partials, 0);
 }
 
-static Tensor sliceOutput(const Tensor &out, const ConvSlice &slice,
-                          unsigned outChansPerGroup) {
-  std::vector<std::size_t> begin, end;
-  begin.push_back(slice.cgBegin); end.push_back(slice.cgEnd);
-  assert(slice.outChanBegin % outChansPerGroup == 0);
-  begin.push_back(slice.outChanBegin / outChansPerGroup);
-  assert(slice.outChanEnd % outChansPerGroup == 0);
-  end.push_back(slice.outChanEnd / outChansPerGroup);
-  begin.push_back(slice.batchBegin); end.push_back(slice.batchEnd);
-  const auto numFieldDims = slice.outFieldBegin.size();
-  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    begin.push_back(slice.outFieldBegin[dim]);
-    end.push_back(slice.outFieldEnd[dim]);
-  }
-  begin.push_back(0);
-  end.push_back(outChansPerGroup);
-  return out.slice(begin, end);
-}
-
-static std::vector<std::size_t>
-getPartialOutputShape(const ConvParams &params, const Plan &plan) {
-  auto numOutChans = params.getNumOutputChansPerConvGroup();
-  const auto outChansPerGroup = plan.partialChansPerGroup;
-  std::vector<std::size_t> outShape = {
-    params.getNumConvGroups(),
-    numOutChans / outChansPerGroup,
-    params.getBatchSize()
-  };
-  const auto numFieldDims = params.getNumFieldDims();
-  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    outShape.push_back(params.getOutputSize(dim));
-  }
-  outShape.push_back(outChansPerGroup);
-  return outShape;
-}
-
 static Tensor
 convolutionImpl(Graph &graph, ConvParams params,
                 Plan plan, unsigned level,
@@ -2477,7 +2453,6 @@ convolutionImpl(Graph &graph, ConvParams params,
                 std::vector<std::vector<ComputeSet>> &reduceComputeSets,
                 std::vector<Sequence> &postCopies,
                 const std::vector<ConvIndices> &indices,
-                Tensor partials, unsigned createPartialsLevel,
                 const std::string &debugPrefix,
                 const ConvOptions &options) {
   // Transform.
@@ -2526,28 +2501,14 @@ convolutionImpl(Graph &graph, ConvParams params,
       weights = weightsRearranged;
     }
   }
-  if (level == createPartialsLevel) {
-    auto partialsShape = getPartialOutputShape(params, plan);
-    if (level != plan.partitions.size()) {
-      const auto numPartials = plan.partitions[level].inChanSplit *
-                               product(plan.partitions[level].kernelSplit);
-      partialsShape.insert(partialsShape.begin(), numPartials);
-    }
-    partials = graph.addVariable(plan.types.back().partialType, partialsShape,
-                                 "partials");
-  }
   Tensor out;
   const auto resultType = plan.types[level].resultType;
   if (level == plan.partitions.size()) {
     const auto tile = linearizeTileIndices(graph.getTarget(), indices,
                                            plan);
-    calcPartialConvOutput(graph, plan, tile, params, convolveCS, in,
-                          weights, partials);
-    out = partials;
-
-    if (level == createPartialsLevel) {
-      out = unsplitActivationChanGroups(out);
-    }
+    out =
+        calcPartialConvOutput(graph, plan, tile, params, convolveCS, in,
+                              weights);
   } else {
     const auto &partition = plan.partitions[level];
     const auto numPartials = partition.inChanSplit *
@@ -2567,35 +2528,16 @@ convolutionImpl(Graph &graph, ConvParams params,
       auto subIndices = indices;
       subIndices.push_back(levelIndices);
       getSubConvolution(slice, subParams, &subIn, &subWeights);
-      auto partialIndex = getPartialIndex(levelIndices, partition);
-      Tensor nextLevelPartials;
-      if (level == createPartialsLevel) {
-        nextLevelPartials = sliceOutput(partials[partialIndex], slice,
-                                        plan.partialChansPerGroup);
-      } else if (level > createPartialsLevel){
-        nextLevelPartials = partials;
-      }
       auto subOut = convolutionImpl(graph, subParams, plan, level + 1, subIn,
                                     subWeights, copies, convolveCS,
                                     reduceComputeSets, postCopies, subIndices,
-                                    nextLevelPartials, createPartialsLevel,
                                     debugPrefix, options);
+      auto partialIndex = getPartialIndex(levelIndices, partition);
       auto outputIndex = getOutputIndex(levelIndices, partition);
       results[partialIndex][outputIndex] = subOut;
     });
     // Stich together results.
-    if (level < createPartialsLevel) {
-      partials = stichPartialResults(results, partition);
-    } else {
-      if (level != createPartialsLevel)
-        partials = partials.expand({0});
-      const auto rank = partials.rank();
-      partials =
-         partials.dimShufflePartial({2}, {rank - 2})
-                 .reshapePartial(rank - 2, rank,
-                                 {partials.dim(2) *
-                                  partials.dim(rank - 1)});
-    }
+    auto partials = stichPartialResults(results, partition);
     // Reduce
     const auto partialType = partials.elementType();
     // Perform the reduction of partial sums.
@@ -2656,56 +2598,6 @@ convSuffix(const ConvParams &params) {
   return s;
 }
 
-static bool requiresReduction(const Partition &partition) {
-  if (partition.inChanSplit != 1)
-    return true;
-  for (const auto &split : partition.kernelSplit) {
-    if (split != 1)
-      return true;
-  }
-  return false;
-}
-
-// Get the lowest level that we can create the partials tensor
-// at.
-static unsigned getCreatePartialsLevel(const Plan &plan) {
-  const auto numLevels = plan.partitions.size();
-  unsigned level = numLevels;
-  const auto &partialType = plan.types.back().partialType;
-  // TODO: Currently if we create the partials as a large variable
-  // with a chan grouping of one it can cause a problem in addToBias
-  // detecting the chan grouping. When addToBias is replaced with
-  // correct introspection we can remove this check.
-  if (plan.partialChansPerGroup == 1)
-    return level;
-  while (level > 0) {
-    const auto &transform = plan.transforms[level];
-    // If this level transorms the input in anyway then stop since
-    // creating partials earlier may not be the right shape.
-    if (transform.swapOperands ||
-        !transform.outChanFlattenDims.empty() ||
-        !transform.flattenDims.empty() ||
-        !transform.expandDims.empty() ||
-        !transform.dilatePostConv.empty())
-      break;
-    // If this level casts the partials to a different type then stop.s
-    if (partialType != plan.types[level].resultType)
-      break;
-    if (level < plan.partitions.size()) {
-      // If this level is earlier than the tile level, there may be a post
-      // transformation of the partials (a regrouping or reduction) in which
-      // we must also stop.
-      const auto &partition = plan.partitions[level];
-      if (partition.outChanGrainSize != plan.partialChansPerGroup)
-        break;
-      if (requiresReduction(partition))
-        break;
-    }
-    level--;
-  }
-  return level;
-}
-
 Tensor
 convolution(Graph &graph, const poplar::Tensor &in_,
             const poplar::Tensor &weights_,
@@ -2738,14 +2630,13 @@ convolution(Graph &graph, const poplar::Tensor &in_,
   }
   const auto layerName = debugPrefix + "/Conv" + convSuffix(params);
   const auto numLevels = plan.partitions.size() + 1;
-  const auto createPartialsLevel = getCreatePartialsLevel(plan);
   std::vector<Sequence> copies(numLevels), postCopies(numLevels);
   std::vector<std::vector<ComputeSet>> reduceComputeSets(numLevels);
   auto convolveCS = graph.addComputeSet(layerName + "/Convolve");
   auto activations =
       convolutionImpl(graph, params, plan, 0, in, weights, copies, convolveCS,
                       reduceComputeSets, postCopies, std::vector<ConvIndices>(),
-                      Tensor(), createPartialsLevel, layerName, options);
+                      layerName, options);
   for (const auto &p : copies) {
     prog.add(p);
   }
