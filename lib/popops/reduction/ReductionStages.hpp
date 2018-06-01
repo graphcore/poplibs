@@ -27,6 +27,8 @@ namespace popops {
 /// \param out      The output tensor. Doesn't not have to have its tile mapping
 ///                 set yet.
 /// \param params   The reduce operation to do, including scale & update.
+/// \param accumType The accumulation type of the reduction - this may be
+///                  different to the type of the 'out' tensor.
 /// \param prog     Sequence to append to.
 /// \param debugPrefix
 /// \param debug    Optional pointer (can be null) to be filled with debug info.
@@ -37,6 +39,7 @@ poplar::Tensor inputToOutputNoExchange(
     const poplar::Tensor &A,
     const poplar::Graph::TileToTensorMapping &mapping,
     const poplar::Tensor &out,
+    const poplar::Type &accumType,
     ReduceParams params,
     poplar::program::Sequence &prog,
     const std::string &debugPrefix,
@@ -49,6 +52,7 @@ poplar::Tensor inputToOutputNoExchange(
 /// \param A        The 2D input tensor
 /// \param mapping  The result of graph.getTileMapping(A)
 /// \param params   The reduce operation to do, including scale & update.
+/// \param outType  The required output type
 /// \param prog     Sequence to append to.
 /// \param debugPrefix
 /// \param debug    Optional pointer (can be null) to be filled with debug info.
@@ -58,6 +62,7 @@ IntermediatePartials inputToIntermediateNoExchange(poplar::Graph &graph,
     const poplar::Tensor &A,
     const poplar::Graph::TileToTensorMapping &mapping,
     ReduceParams params,
+    const poplar::Type &outType,
     poplar::program::Sequence &prog,
     const std::string &debugPrefix,
     ReductionDebug *debug);
@@ -67,7 +72,8 @@ IntermediatePartials inputToIntermediateNoExchange(poplar::Graph &graph,
 ///
 /// \param graph    The graph
 /// \param ipIn     The intermediate partials from the prevoius stage.
-/// \param op       The reduction operation, not including scale or update.
+/// \param params   The parametres of the reduction
+/// \param outType  The required output type
 /// \param prog     Sequence to append to.
 /// \param debugPrefix
 /// \param debug    Optional pointer (can be null) to be filled with debug info.
@@ -76,6 +82,7 @@ IntermediatePartials inputToIntermediateNoExchange(poplar::Graph &graph,
 IntermediatePartials intermediateToIntermediate(poplar::Graph &graph,
     const IntermediatePartials &ipIn,
     ReduceParams params,
+    const poplar::Type &outType,
     poplar::program::Sequence &prog,
     const std::string &debugPrefix,
     ReductionDebug *debug);
@@ -88,6 +95,8 @@ IntermediatePartials intermediateToIntermediate(poplar::Graph &graph,
 /// \param ipIn     The intermediate partials from the prevoius stage.
 /// \param output   The output tensor, may not be mapped.
 /// \param params   The reduction operation, scale and update are applied.
+/// \param accumType The accumulation type of the reduction - this may be
+///                  different to the type of the 'out' tensor.
 /// \param prog     Sequence to append to.
 /// \param debugPrefix
 /// \param debug    Optional pointer (can be null) to be filled with debug info.
@@ -97,6 +106,7 @@ poplar::Tensor intermediateToOutput(poplar::Graph &graph,
     const IntermediatePartials &ipIn,
     const poplar::Tensor &output,
     ReduceParams params,
+    const poplar::Type &accumType,
     poplar::program::Sequence &prog,
     const std::string &debugPrefix,
     ReductionDebug *debug);

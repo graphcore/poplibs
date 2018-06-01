@@ -5,6 +5,7 @@
 
 #include "poplar/Graph.hpp"
 #include "poplar/Program.hpp"
+#include <poplar/OptionFlags.hpp>
 #include <vector>
 
 namespace popops {
@@ -52,6 +53,18 @@ struct ReductionDebug;
 ///
 /// Internally this creates a new variable for the output then calls
 /// reduceWithOutput(). The type of the output will be the same as the input.
+///
+/// The options parameter accepts the following:
+///
+///    'accumType.interTile' - The type to used for intermediate values
+///                            between tiles (either 'float' or 'half').
+///    'accumType.inVertex' - The type to used for intermediate values within
+///                           a vertex (either 'float' or 'half').
+/// If either of the above options are not set then the intermediate type will
+/// default to either the input tensor element type or `float` if the input
+/// is of type 'half' and the reduction operation benefits from
+/// higher precision (e.g. add).
+///
 poplar::Tensor reduce(poplar::Graph &graph,
                       const poplar::Tensor &A,
                       const poplar::Type &outType,
@@ -59,6 +72,7 @@ poplar::Tensor reduce(poplar::Graph &graph,
                       ReduceParams params,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix = "",
+                      const poplar::OptionFlags &options = {},
                       ReductionDebug *debug = nullptr);
 
 // An alias for reduce(graph, A, A.elementType(), ...)
@@ -68,6 +82,7 @@ poplar::Tensor reduce(poplar::Graph &graph,
                       ReduceParams params,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix = "",
+                      const poplar::OptionFlags &options = {},
                       ReductionDebug *debug = nullptr);
 
 /// This is similar to reduce() but allows you to specify the output.
@@ -80,6 +95,7 @@ poplar::Tensor reduceWithOutput(poplar::Graph &graph,
                                 ReduceParams params,
                                 poplar::program::Sequence &prog,
                                 const std::string &debugPrefix = "",
+                                const poplar::OptionFlags &options = {},
                                 ReductionDebug *debug = nullptr);
 
 }

@@ -17,6 +17,7 @@
 #include <popops/Zero.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include <poplibs_support/print.hpp>
+#include "poplibs_support/OptionParsing.hpp"
 
 #include "IntermediatePartials.hpp"
 #include "IntermediatePartialsUtil.hpp"
@@ -29,6 +30,14 @@ namespace popops {
 
 namespace {
 
+
+// Structure to describe the accumulation types at different levels of the
+// reduction.
+struct ReductionTypes {
+  Type interTile;
+  Type inVertex;
+};
+
 // Reduce a 2D tensor in the first dimension. No other tensor shape
 // is supported. The tensor must be at least 1x2.
 //
@@ -38,6 +47,7 @@ Tensor reduceFirstDim2D(Graph &graph,
                         const Tensor &A,
                         const Tensor &out,
                         ReduceParams params,
+                        const ReductionTypes &reductionTypes,
                         program::Sequence &prog,
                         const std::string &debugPrefix,
                         ReductionDebug *debug) {
@@ -85,6 +95,7 @@ Tensor reduceFirstDim2D(Graph &graph,
                                    A,
                                    mapping,
                                    out,
+                                   reductionTypes.inVertex,
                                    params,
                                    prog,
                                    debugPrefix + "/full_on_tile",
@@ -105,6 +116,7 @@ Tensor reduceFirstDim2D(Graph &graph,
                                          A,
                                          mapping,
                                          params.op,
+                                         reductionTypes.interTile,
                                          prog,
                                          debugPrefix + "/on_tile",
                                          debug);
@@ -129,6 +141,7 @@ Tensor reduceFirstDim2D(Graph &graph,
         ip = intermediateToIntermediate(graph,
                                         ip,
                                         params.op,
+                                        reductionTypes.interTile,
                                         prog,
                                         debugPrefix + "/stage_"
                                           + std::to_string(i),
@@ -143,6 +156,7 @@ Tensor reduceFirstDim2D(Graph &graph,
                                     ip,
                                     out,
                                     params,
+                                    reductionTypes.inVertex,
                                     prog,
                                     debugPrefix + "/final_stage",
                                     debug);
@@ -161,9 +175,10 @@ Tensor reduce(Graph &graph,
               ReduceParams params,
               program::Sequence &prog,
               const std::string &debugPrefix,
+              const poplar::OptionFlags &options,
               ReductionDebug *debug) {
   return reduce(graph, A, A.elementType(), dims, params, prog,
-                debugPrefix, debug);
+                debugPrefix, options, debug);
 }
 
 Tensor reduce(Graph &graph,
@@ -173,6 +188,7 @@ Tensor reduce(Graph &graph,
               ReduceParams params,
               program::Sequence &prog,
               const std::string &debugPrefix,
+              const poplar::OptionFlags &options,
               ReductionDebug *debug) {
 
   if (params.update)
@@ -194,8 +210,29 @@ Tensor reduce(Graph &graph,
   // in reduceLastDim2D() and set appropriately.
 
   return reduceWithOutput(
-      graph, A, out, dims, params, prog, debugPrefix, debug);
+      graph, A, out, dims, params, prog, debugPrefix, options, debug);
 }
+
+namespace {
+
+bool opBenefitsFromHigherIntermediatePrecision(const popops::Operation &op) {
+  switch (op) {
+  case popops::Operation::ADD:
+  case popops::Operation::SQUARE_ADD:
+  case popops::Operation::MUL:
+    return true;
+  default:
+    return false;
+  }
+  POPLIB_UNREACHABLE();
+}
+
+std::map<std::string, poplar::Type> accumTypeMap {
+  { "half", poplar::HALF },
+  { "float", poplar::FLOAT }
+};
+
+} // end anonymous namespace
 
 // This wangles the tensors into a 2D matrix so that the reduction only
 // has to be done on the first dimension. Then it calls reduceFirstDim2D
@@ -207,7 +244,28 @@ Tensor reduceWithOutput(Graph &graph,
                         ReduceParams params,
                         program::Sequence &prog,
                         const std::string &debugPrefix,
+                        const poplar::OptionFlags &options,
                         ReductionDebug *debug) {
+   // Decide the reduction types for each stage.
+   ReductionTypes reductionTypes;
+   auto useFloatAccum = (out.elementType() == poplar::HALF &&
+                         opBenefitsFromHigherIntermediatePrecision(params.op));
+   auto accumType = useFloatAccum ? poplar::FLOAT : out.elementType();
+   reductionTypes.interTile = accumType;
+   reductionTypes.inVertex = accumType;
+
+   using poplibs::OptionHandler;
+   using poplibs::OptionSpec;
+   const OptionSpec reductionSpec{
+     { "accumType.interTile", OptionHandler::createWithEnum(
+       reductionTypes.interTile, accumTypeMap) },
+     { "accumType.inVertex", OptionHandler::createWithEnum(
+       reductionTypes.inVertex, accumTypeMap) }
+   };
+
+   options.list([&](const std::string &option, const std::string &value) {
+     reductionSpec.parse(option, value);
+   });
 
   if (params.scale != 1.0f &&
       !(params.op == popops::Operation::ADD ||
@@ -376,6 +434,7 @@ Tensor reduceWithOutput(Graph &graph,
                               mangledTensor.tensor,
                               out.flatten(),
                               params,
+                              reductionTypes,
                               prog,
                               debugPrefix,
                               debug);

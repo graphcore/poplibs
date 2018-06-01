@@ -98,7 +98,7 @@ public:
       for (unsigned outIdx = 0; outIdx < numElem; ++outIdx) {
 
         /* Calculate the sum of this element... */
-        PartialsType acc = ReduceOp::template init<PartialsType>();
+        OutType acc = ReduceOp::template init<OutType>();
 
         /* ..by summing the corresponding element in the partials regions. */
         for (unsigned p = 0; p < numPartials_r; ++p) {
@@ -171,8 +171,8 @@ public:
 struct ReduceAdd {
   template <typename T>
   static T init() { return 0; }
-  template <typename T>
-  static void update(T &acc, T val) { acc += val; }
+  template <typename OutType, typename PartialsType>
+  static void update(OutType &acc, PartialsType val) { acc += val; }
 };
 
 DECLARE_FULL_TYPES_REDUCTION(ReduceAdd)
@@ -180,8 +180,8 @@ DECLARE_FULL_TYPES_REDUCTION(ReduceAdd)
 struct ReduceSquareAdd {
   template <typename T>
   static T init() { return 0; }
-  template <typename T>
-  static void update(T &acc, T val) { acc += val * val; }
+  template <typename OutType, typename PartialsType>
+  static void update(OutType &acc, PartialsType val) { acc += val * val; }
 };
 
 DECLARE_FULL_TYPES_REDUCTION(ReduceSquareAdd)
@@ -189,8 +189,8 @@ DECLARE_FULL_TYPES_REDUCTION(ReduceSquareAdd)
 struct ReduceMul {
   template <typename T>
   static T init() { return 1; }
-  template <typename T>
-  static void update(T &acc, T val) { acc *= val; }
+  template <typename OutType, typename PartialsType>
+  static void update(OutType &acc, PartialsType val) { acc *= val; }
 };
 
 DECLARE_FULL_TYPES_REDUCTION(ReduceMul)
@@ -198,8 +198,8 @@ DECLARE_FULL_TYPES_REDUCTION(ReduceMul)
 struct ReduceMax {
   template <typename T>
   static T init() { return std::numeric_limits<T>::lowest(); }
-  template <typename T>
-  static void update(T &acc, T val) { acc = max(acc, val); }
+  template <typename OutType, typename PartialsType>
+  static void update(OutType &acc, PartialsType val) { acc = max(acc, val); }
 };
 
 DECLARE_EQUAL_TYPES_REDUCTION(ReduceMax)
@@ -207,8 +207,8 @@ DECLARE_EQUAL_TYPES_REDUCTION(ReduceMax)
 struct ReduceMin {
   template <typename T>
   static T init() { return std::numeric_limits<T>::max(); }
-  template <typename T>
-  static void update(T &acc, T val) { acc = min(acc, val); }
+  template <typename OutType, typename PartialsType>
+  static void update(OutType &acc, PartialsType val) { acc = min(acc, val); }
 };
 
 DECLARE_EQUAL_TYPES_REDUCTION(ReduceMin)
@@ -216,8 +216,8 @@ DECLARE_EQUAL_TYPES_REDUCTION(ReduceMin)
 struct ReduceAnd {
   template <typename T>
   static T init() { return true; }
-  template <typename T>
-  static void update(T &acc, T val) { acc = acc && val; }
+  template <typename OutType, typename PartialsType>
+  static void update(OutType &acc, PartialsType val) { acc = acc && val; }
 };
 
 DECLARE_BOOL_TYPES_REDUCTION(ReduceAnd)
@@ -225,8 +225,8 @@ DECLARE_BOOL_TYPES_REDUCTION(ReduceAnd)
 struct ReduceOr {
   template <typename T>
   static T init() { return false; }
-  template <typename T>
-  static void update(T &acc, T val) { acc = acc || val; }
+  template <typename OutType, typename PartialsType>
+  static void update(OutType &acc, PartialsType val) { acc = acc || val; }
 };
 
 DECLARE_BOOL_TYPES_REDUCTION(ReduceOr)

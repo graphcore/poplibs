@@ -17,6 +17,8 @@
 #include <poplibs_support/IclUtil.hpp>
 #include <poplibs_support/print.hpp>
 
+#include <popops/Cast.hpp>
+
 #include "ReductionConnection.hpp"
 #include "RegionWrapping.hpp"
 #include "IntermediatePartialsUtil.hpp"
@@ -30,11 +32,20 @@ namespace popops {
 Tensor inputToOutputNoExchange(Graph &graph,
     const Tensor &A,
     const Graph::TileToTensorMapping &mapping,
-    const poplar::Tensor &out,
+    const poplar::Tensor &finalOutput,
+    const poplar::Type &accumType,
     ReduceParams params,
     program::Sequence &prog,
     const std::string &debugPrefix,
     ReductionDebug *debug) {
+  Tensor out;
+  bool castRequired = accumType != finalOutput.elementType();
+  if (castRequired) {
+    out = graph.clone(accumType, finalOutput);
+    graph.setTileMapping(out, graph.getTileMapping(finalOutput, false));
+  } else {
+    out = finalOutput;
+  }
 
   assert(A.rank() == 2);
 
@@ -45,7 +56,6 @@ Tensor inputToOutputNoExchange(Graph &graph,
   assert(out.numElements() == outputSize);
 
   auto partialType = A.elementType();
-  auto outType = out.elementType();
 
   // If the output isn't mapped yet, map it exactly the same as the first
   // row of the input which ensures no exchange will happen.
@@ -157,14 +167,21 @@ Tensor inputToOutputNoExchange(Graph &graph,
       tileDebug = &stageDebug->tiles.back();
     }
 
-    connectReductions(graph, computeSets, params, partialType, outType,
+    connectReductions(graph, computeSets, params, partialType, accumType,
                       tile, reductions, tileDebug);
   }
 
   for (const auto &cs : computeSets)
     prog.add(program::Execute(cs));
 
-  return out;
+  if (castRequired) {
+    // If the mapping of finalOutput was incomplete we need to
+    // set it.
+    graph.setTileMapping(finalOutput, graph.getTileMapping(out));
+    prog.add(popops::cast(graph, out, finalOutput, debugPrefix + "/Cast"));
+  }
+
+  return finalOutput;
 }
 
 struct WrappedSplitContiguousSortedRegions {
@@ -236,6 +253,7 @@ IntermediatePartials inputToIntermediateNoExchange(
     const Tensor &A,
     const Graph::TileToTensorMapping &mapping,
     ReduceParams params,
+    const Type &outType,
     program::Sequence &prog,
     const std::string &debugPrefix,
     ReductionDebug *debug) {
@@ -244,7 +262,6 @@ IntermediatePartials inputToIntermediateNoExchange(
   auto outputSize = A.dim(1);
 
   auto partialType = A.elementType();
-  auto outType = partialType; // TODO: Sort out types.
 
   // Add a new tensor for each tile to output its partials to. These tensors
   // and the meta-info needed are stored in an IntermediatePartials.
@@ -414,6 +431,7 @@ IntermediatePartials inputToIntermediateNoExchange(
 IntermediatePartials intermediateToIntermediate(Graph &graph,
     const IntermediatePartials &ipIn,
     ReduceParams params,
+    const Type &outType,
     program::Sequence &prog,
     const std::string &debugPrefix,
     ReductionDebug *debug) {
@@ -429,10 +447,9 @@ IntermediatePartials intermediateToIntermediate(Graph &graph,
   IntermediatePartials ir;
 
   ir.setOutputSize(ipIn.outputSize());
-  ir.setDataType(ipIn.dataType());
+  ir.setDataType(outType);
 
   auto partialType = ipIn.dataType();
-  auto outType = partialType; // TODO: Sort out types.
 
   const auto &target = graph.getTarget();
 
@@ -619,17 +636,26 @@ IntermediatePartials intermediateToIntermediate(Graph &graph,
 
 Tensor intermediateToOutput(Graph &graph,
     const IntermediatePartials &ipIn,
-    const Tensor &out,
+    const Tensor &finalOutput,
     ReduceParams params,
+    const Type &accumType,
     program::Sequence &prog,
     const std::string &debugPrefix,
     ReductionDebug *debug) {
+  Tensor out;
+  bool castRequired = accumType != finalOutput.elementType();
+  if (castRequired) {
+    out = graph.clone(accumType, finalOutput);
+    graph.setTileMapping(out, graph.getTileMapping(finalOutput, false));
+
+  } else {
+    out = finalOutput;
+  }
 
   // This is assumed below.
   assert(out.rank() == 1);
 
   auto partialType = ipIn.dataType();
-  auto outType = out.elementType();
 
   // Debug information.
   ReductionDebug::ReductionStage *stageDebug = nullptr;
@@ -648,7 +674,7 @@ Tensor intermediateToOutput(Graph &graph,
     if (!shouldReduceAtDestination(graph.getTarget(),
                                    ipIn,
                                    mapping,
-                                   outType,
+                                   accumType,
                                    out.numElements())) {
       mapping = poputil::calcLinearTileMapping(graph, out);
     }
@@ -746,7 +772,7 @@ Tensor intermediateToOutput(Graph &graph,
                            graph.getTarget(),
                            graph.getTarget().getNumWorkerContexts(),
                            params.op,
-                           partialType,
+                           accumType,
                            outputRegionsSplit
                          );
 
@@ -798,14 +824,21 @@ Tensor intermediateToOutput(Graph &graph,
       tileDebug = &stageDebug->tiles.back();
     }
 
-    connectReductions(graph, computeSets, params, partialType, outType,
+    connectReductions(graph, computeSets, params, partialType, accumType,
                       tile, reductions, tileDebug);
   }
 
   for (const auto &cs : computeSets)
     prog.add(program::Execute(cs));
 
-  return out;
+  if (castRequired) {
+    // If the mapping of finalOutput was incomplete we need to
+    // set it.
+    graph.setTileMapping(finalOutput, graph.getTileMapping(out));
+    prog.add(popops::cast(graph, out, finalOutput, debugPrefix + "/Cast"));
+  }
+
+  return finalOutput;
 }
 
 }

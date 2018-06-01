@@ -558,3 +558,48 @@ BOOST_AUTO_TEST_CASE(Reduce_Nop_ADD_float) {
     BOOST_TEST(out.shape() == outShape);
   }
 }
+
+
+
+BOOST_AUTO_TEST_CASE(ReduceIntermediatePrec) {
+  // Test that we can accumulate in higher precision by adding lots of small
+  // values to a large value such that if it were done with half precision
+  // accumulation all the smaller terms would be lost.
+  IPUModel ipuModel;
+  ipuModel.tilesPerIPU = 1;
+  auto device = ipuModel.createDevice();
+  const auto &target = device.getTarget();
+  Graph graph(device);
+  popops::addCodelets(graph);
+
+  const auto N = 100;
+  Tensor input = graph.addVariable(HALF, {N});
+  poputil::mapTensorLinearly(graph, input);
+
+  Sequence prog;
+
+  auto out = reduce(graph, input, {0}, popops::Operation::ADD, prog);
+
+  std::vector<float> hInput(N);
+  hInput[0] = 8192;
+  for (unsigned i = 1; i < N; ++i)
+    hInput[i] = 1;
+
+  graph.setInitialValue(input, poplar::ArrayRef<float>(hInput));
+  graph.createHostRead("out", out);
+
+  Engine engine(device, graph, prog);
+
+  engine.run(0);
+
+  std::vector<char> hVal(target.getTypeSize(HALF));
+  float val;
+
+  engine.readTensor("out", hVal.data());
+
+  copyDeviceHalfToFloat(target, hVal.data(), &val, 1);
+
+  // In the half precision range > 8192 the representation will round to
+  // multiples of 8
+  BOOST_CHECK_EQUAL(val, 8192 + ((N-1)/8)*8);
+}
