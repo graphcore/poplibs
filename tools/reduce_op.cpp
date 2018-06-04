@@ -594,7 +594,5 @@ int main(int argc, char **argv) {
   }
 
   std::cerr << "Validation succeeded!\n";
-  auto rd = engine.reportData();
-  std::cout << rd.cycleCount << ", " << rd.totalMemoryUsage << "\n";
   return 0;
 }
