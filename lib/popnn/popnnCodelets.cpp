@@ -97,7 +97,7 @@ namespace popnn {
 template <typename FPType, unsigned nlType>
 class NonLinearitySupervisor : public SupervisorVertex {
 public:
-  InOut<Vector<FPType, SCALED_PTR32>> data;
+  InOut<Vector<FPType, SCALED_PTR32, 2>> data;
   unsigned short n;
 
   bool compute() {
@@ -113,9 +113,9 @@ INSTANTIATE_NL(NonLinearitySupervisor)
 template <typename FPType, unsigned nlType>
 class NonLinearityGradSupervisor : public SupervisorVertex {
 public:
-  Input<Vector<FPType, SCALED_PTR32>> outGrad;
-  Input<Vector<FPType, SCALED_PTR32>> out;
-  Output<Vector<FPType, SCALED_PTR32>> inGrad;
+  Input<Vector<FPType, SCALED_PTR32, 2>> outGrad;
+  Input<Vector<FPType, SCALED_PTR32, 2>> out;
+  Output<Vector<FPType, SCALED_PTR32, 2>> inGrad;
   unsigned short n;
 
   bool compute() {
