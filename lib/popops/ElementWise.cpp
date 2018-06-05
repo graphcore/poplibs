@@ -201,7 +201,8 @@ compareTileMapDistributions(Graph &graph, std::vector<Tensor> in) {
 }
 
 static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
-                      UnaryOpType op, const std::string &debugPrefix_) {
+                      UnaryOpType op, bool inPlace,
+                      const std::string &debugPrefix_) {
   const auto debugPrefix = debugPrefix_ + "/Op/" + debugName(op);
   const auto inType = in.elementType();
   const auto &target = graph.getTarget();
@@ -209,8 +210,7 @@ static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
   const auto cs = graph.addComputeSet(debugPrefix);
 
   const auto outType = outputType(inType, op);
-  auto out = graph.clone(outType, in, debugPrefix + "/Out");
-
+  auto out = inPlace ? in : graph.clone(outType, in, debugPrefix + "/Out");
   auto inFlat = in.flatten();
   auto outFlat = out.flatten();
   graph.reorderToSimplify(&outFlat, {&inFlat});
@@ -221,15 +221,18 @@ static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, mapping[tile]);
     auto vertexRegions =
-      splitRegionsBetweenWorkers(target, tileContiguousRegions,
-                                 grainSize, 2 * grainSize);
+        splitRegionsBetweenWorkers(target, tileContiguousRegions,
+                                   grainSize, 2 * grainSize);
 
     for (const auto &regions : vertexRegions) {
-      auto v = graph.addVertex(cs,
-                               templateVertex("popops::UnaryOp", op,
-                                              inType),
-                               {{"in", inFlat.slices(regions)},
-                                {"out", outFlat.slices(regions)}});
+      VertexRef v = inPlace ?
+          graph.addVertex(cs,
+                          templateVertex("popops::UnaryOpInPlace", op, inType),
+                          {{"inOut", inFlat.slices(regions)}}) :
+          graph.addVertex(cs,
+                          templateVertex("popops::UnaryOp", op, inType),
+                          {{"in", inFlat.slices(regions)},
+                           {"out", outFlat.slices(regions)}});
       graph.setTileMapping(v, tile);
     }
   }
@@ -237,8 +240,9 @@ static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
   return out;
 }
 
-static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
-                       BinaryOpType op, const std::string &debugPrefix_) {
+static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
+                       Sequence &prog, BinaryOpType op, bool inPlace,
+                       const std::string &debugPrefix_) {
   const auto debugPrefix = debugPrefix_ + "/Op/" + debugName(op);
   const auto in1Type = in1.elementType();
   const auto in2Type = in2.elementType();
@@ -260,10 +264,9 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix);
 
-  auto out = graph.clone(outType, (tensorSelection == 0) ? in1 : in2,
-                         debugPrefix + "/Out");
-
-
+  auto out =
+      inPlace ? in1 : graph.clone(outType, (tensorSelection == 0) ? in1 : in2,
+                                  debugPrefix + "/Out");
   auto in1Flat = in1.flatten();
   auto in2Flat = in2.flatten();
   auto outFlat = out.flatten();
@@ -280,8 +283,14 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
                                  grainSize, 2 * grainSize);
 
     for (const auto &regions : vertexRegions) {
-      auto v = graph.addVertex(cs,
-                               templateVertex("popops::BinaryOp", op,
+      auto v = inPlace ?
+            graph.addVertex(cs,
+                            templateVertex("popops::BinaryOpInPlace", op,
+                                              in1Type),
+                               {{"in1Out", outFlat.slices(regions)},
+                                {"in2", in2Flat.slices(regions)}}) :
+            graph.addVertex(cs,
+                            templateVertex("popops::BinaryOp", op,
                                               in1Type),
                                {{"in1", in1Flat.slices(regions)},
                                 {"in2", in2Flat.slices(regions)},
@@ -293,9 +302,8 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
   return out;
 }
 
-
 static Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
-                        Sequence &prog, TernaryOpType op,
+                        Sequence &prog, TernaryOpType op, bool inPlace,
                         const std::string &debugPrefix_) {
   const auto debugPrefix = debugPrefix_ + "/Op/" + debugName(op);
   const auto in1Type = in1.elementType();
@@ -322,9 +330,8 @@ static Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
   const auto cs = graph.addComputeSet(debugPrefix);
 
   Tensor toClone = tensors[tensorSelection];
-
-  auto out = graph.clone(outType, toClone, debugPrefix + "/Out");
-
+  Tensor out = inPlace ? in1 :
+                         graph.clone(outType, toClone, debugPrefix + "/Out");
 
   auto in1Flat = in1.flatten();
   auto in2Flat = in2.flatten();
@@ -334,6 +341,7 @@ static Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
   const auto mapping = graph.getTileMapping(outFlat);
 
   const auto grainSize = target.getVectorWidth(in1Type);
+  const auto opVertexName = vertexName(op) + (inPlace ? "InPlace" : "");
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
     auto vertexRegions =
@@ -341,8 +349,14 @@ static Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
                                  grainSize, 2 * grainSize);
 
     for (const auto &regions : vertexRegions) {
-      auto v = graph.addVertex(cs,
-                               templateVertex(vertexName(op), in1Type),
+      auto v = inPlace ?
+            graph.addVertex(cs,
+                               templateVertex(opVertexName, in1Type),
+                               {{"in1Out", in1Flat.slices(regions)},
+                                {"in2", in2Flat.slices(regions)},
+                                {"in3", in3Flat.slices(regions)}}) :
+            graph.addVertex(cs,
+                               templateVertex(opVertexName, in1Type),
                                {{"in1", in1Flat.slices(regions)},
                                 {"in2", in2Flat.slices(regions)},
                                 {"in3", in3Flat.slices(regions)},
@@ -502,72 +516,134 @@ inferType(const expr::Expr &expr,
   POPLIB_UNREACHABLE();
 }
 
-static Tensor
+// Recursively walk up the expression tree and do inPlace operations if
+// conditions are met
+// topLevel :
+//   If true indicates root node
+// constructGraph :
+//   If true, graph is constructed as the expression tree is traversed. The
+//   inPlaceExpr is used if inPlace flag is set
+//   If false, no graph is constructed but inPlaceExpr may be set if a
+//   placeholder expression with index 1 is found
+// inPlace :
+//   If true an attempt is made to do an in-place operation. An inplace
+//   operation succeeds if placeholder with index 1 is on the leftmost traversal
+//   path
+//
+// Further in-place optimisations are possble by traversing the tree and
+// transforming the operations.
+static std::pair<Tensor, bool>
 map(Graph &graph,
     const expr::Expr &expr,
     const std::vector<Tensor> &ts,
     program::Sequence &prog,
     const std::string &debugPrefix,
     const std::unordered_map<const expr::Expr *, Type> constTypes,
-    bool topLevel) {
+    bool topLevel,
+    bool constructGraph,
+    bool inPlace,
+    const expr::Expr *&inPlaceExpr) {
+  if (!constructGraph)
+    assert(!inPlace);
   if (const expr::Const *c = expr.getAs<expr::Const>()) {
     assert(constTypes.find(&expr) != constTypes.end());
-    return graph.addConstant(constTypes.at(&expr), {},
-                             c->getData(), c->getTypeTraits(), false);
+    return {graph.addConstant(constTypes.at(&expr), {},
+                              c->getData(), c->getTypeTraits(), false), false};
   } else if (const expr::PlaceHolder *p = expr.getAs<expr::PlaceHolder>()) {
     const auto &t =  getTensorFromPlaceHolder(*p, ts);
-    if (topLevel)
-      return graph.clone(t);
-    return t;
+    const auto index = p->getIndex();
+    bool useInPlace;
+    if (!constructGraph) {
+      // record expression only when graph is not constructed. The last
+      // expression with placeholder = 1 is recorded
+      if (index == 1)
+        inPlaceExpr = p;
+      useInPlace = false;
+    } else {
+      useInPlace = inPlace && index == 1 && inPlaceExpr == p;
+      if (topLevel &&
+          (!useInPlace || (useInPlace && index != 1))) {
+        return {graph.clone(t), useInPlace};
+      }
+    }
+    return {t, useInPlace};
   } else if (const expr::UnaryOp *u = expr.getAs<expr::UnaryOp>()) {
     auto opType = u->getOpType();
-    auto t1 = map(graph, u->getArg(), ts, prog, debugPrefix,
-                  constTypes, false);
-    return unaryOp(graph, t1, prog, opType, debugPrefix);
+    auto t = map(graph, u->getArg(), ts, prog, debugPrefix, constTypes, false,
+                 constructGraph, inPlace, inPlaceExpr);
+    if (constructGraph) {
+      return {unaryOp(graph, t.first, prog, opType, t.second, debugPrefix),
+              t.second};
+    } else {
+      return t;
+    }
   } else if (const expr::BinaryOp *b = expr.getAs<expr::BinaryOp>()) {
     auto opType = b->getOpType();
-    auto lhs = map(graph, b->getLHS(), ts, prog, debugPrefix,
-                   constTypes, false);
-    auto rhs = map(graph, b->getRHS(), ts, prog, debugPrefix,
-                   constTypes, false);
-    broadcastToMatch(lhs, rhs);
-    return binaryOp(graph, lhs,  rhs, prog, opType, debugPrefix);
+    auto lhs = map(graph, b->getLHS(), ts, prog, debugPrefix, constTypes, false,
+                   constructGraph, inPlace, inPlaceExpr);
+    auto rhs = map(graph, b->getRHS(), ts, prog, debugPrefix, constTypes, false,
+                  constructGraph, false, inPlaceExpr);
+    if (constructGraph) {
+      broadcastToMatch(lhs.first, rhs.first);
+      return {binaryOp(graph, lhs.first, rhs.first, prog, opType, lhs.second,
+                       debugPrefix), lhs.second};
+    } else {
+      return lhs;
+    }
   } else if (const expr::TernaryOp *t = expr.getAs<expr::TernaryOp>()) {
     auto opType = t->getOpType();
     if (opType == TernaryOpType::SELECT) {
-      auto lhs = map(graph, t->getArg0(), ts, prog, debugPrefix,
-                     constTypes, false);
-      auto rhs = map(graph, t->getArg1(), ts, prog, debugPrefix,
-                     constTypes, false);
-      auto pred = map(graph, t->getArg2(), ts, prog, debugPrefix,
-                      constTypes, false);
-      broadcastToMatch(lhs, rhs);
-      return ternaryOp(graph, lhs,  rhs, pred, prog, opType, debugPrefix);
+      auto lhs = map(graph, t->getArg0(), ts, prog, debugPrefix, constTypes,
+                     false, constructGraph, inPlace, inPlaceExpr);
+      auto rhs = map(graph, t->getArg1(), ts, prog, debugPrefix, constTypes,
+                     false, constructGraph, false, inPlaceExpr);
+      auto pred = map(graph, t->getArg2(), ts, prog, debugPrefix, constTypes,
+                      false, constructGraph, false, inPlaceExpr);
+      if (constructGraph) {
+        broadcastToMatch(lhs.first, rhs.first);
+        return {ternaryOp(graph, lhs.first, rhs.first, pred.first, prog, opType,
+                          lhs.second, debugPrefix), lhs.second};
+      } else {
+        return lhs;
+      }
     } else {
       assert(opType == TernaryOpType::CLAMP);
-      auto in = map(graph, t->getArg0(), ts, prog, debugPrefix,
-                     constTypes, false);
-      auto lower = map(graph, t->getArg1(), ts, prog, debugPrefix,
-                     constTypes, false);
-      auto upper = map(graph, t->getArg2(), ts, prog, debugPrefix,
-                      constTypes, false);
-      return ternaryOp(graph, in, lower, upper, prog, opType, debugPrefix);
+      auto in = map(graph, t->getArg0(), ts, prog, debugPrefix, constTypes,
+                    false, constructGraph, inPlace, inPlaceExpr);
+      auto lower = map(graph, t->getArg1(), ts, prog, debugPrefix, constTypes,
+                       false, constructGraph, false, inPlaceExpr);
+      auto upper = map(graph, t->getArg2(), ts, prog, debugPrefix, constTypes,
+                       false, constructGraph, false, inPlaceExpr);
+      if (constructGraph) {
+        return {ternaryOp(graph, in.first, lower.first, upper.first, prog,
+                          opType, in.second, debugPrefix), in.second};
+      } else {
+        return in;
+      }
     }
   }
   POPLIB_UNREACHABLE();
- }
+}
+
+static std::unordered_map<const expr::Expr *, Type>
+getConstType(const expr::Expr &expr, const std::vector<Tensor> &ts) {
+  std::unordered_map<const expr::Expr *, Type> constTypes;
+  std::vector<const expr::Expr *> unknown;
+  auto type = inferType(expr, ts, constTypes, unknown);
+  if (!type || !unknown.empty())
+    throw poplib_error("Cannot infer type of expression");
+  return constTypes;
+}
 
 Tensor map(Graph &graph, const expr::Expr &expr,
            const std::vector<Tensor> &ts,
            program::Sequence &prog,
            const std::string &debugPrefix,
            const std::vector<std::string> &options) {
-  std::unordered_map<const expr::Expr *, Type> constTypes;
-  std::vector<const expr::Expr *> unknown;
-  auto type = inferType(expr, ts, constTypes, unknown);
-  if (!type || !unknown.empty())
-    throw poplib_error("Cannot infer type of expression");
-  return map(graph, expr, ts, prog, debugPrefix, constTypes, true);
+  auto constTypes = getConstType(expr, ts);
+  const expr::Expr *inplaceExpr = nullptr;
+  return map(graph, expr, ts, prog, debugPrefix, constTypes, true, true, false,
+             inplaceExpr).first;
 }
 
 void mapInPlace(Graph &graph, const expr::Expr &expr,
@@ -575,12 +651,28 @@ void mapInPlace(Graph &graph, const expr::Expr &expr,
                 program::Sequence &prog,
                 const std::string &debugPrefix,
                 const std::vector<std::string> &options) {
-  // TODO: This method of creating an explicit intermediate tensor
-  // is quite inefficient. We can replace this with specialized vertices
-  // that write back the result in place.
-  auto result = map(graph, expr, ts, prog, debugPrefix, options);
-  prog.add(Copy(result, ts[0]));
-  return;
+  auto constTypes = getConstType(expr, ts);
+  const expr::Expr *inPlaceExpr = nullptr;
+  const bool doInPlace = !ts[0].containsAliases() && !ts[0].containsConstant();
+  if (doInPlace) {
+    // As the tree is traveresed, find the last expression which uses the
+    // tensor used for in-place operation as a placeholder
+    map(graph, expr, ts, prog, debugPrefix, constTypes, true, false, false,
+        inPlaceExpr);
+  }
+  auto t = map(graph, expr, ts, prog, debugPrefix, constTypes, true, true,
+               doInPlace, inPlaceExpr);
+  // If in-place operations were not performed, then copy the final result
+  // into the tensor supplied.
+  // @TODO Optimisation: If placeholder _1 is not used, a copy may be done
+  // early enough to avoid this copy and use in-place operations after that
+  // copy. Or, the unary, binary and ternary operations must allow an output
+  // tensor to be given as an argument (the current method either uses one of
+  // the input tensors if the operation is in-place, or creates and output
+  // tensor)
+  if (!t.second) {
+    prog.add(Copy(t.first, ts[0]));
+  }
 }
 
 } // namespace popops

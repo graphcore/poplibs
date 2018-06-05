@@ -1,7 +1,7 @@
 #include "poplin/MatMul.hpp"
 #include "popconv/Convolution.hpp"
 #include "poputil/exceptions.hpp"
-#include "popops/Add.hpp"
+#include "popops/ScaledAdd.hpp"
 #include "poplibs_support/OptionParsing.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include <boost/optional.hpp>
@@ -531,7 +531,7 @@ matMulAcc(poplar::Graph &graph, const poplar::Tensor &C_, float k,
   const auto A = A_.expand({0});
   const auto B = B_.expand({0});
   auto product = matMulImpl(graph, A, B, prog, debugPrefix, options, cache)[0];
-  popops::addTo(graph, C_, product, k, prog, debugPrefix);
+  popops::scaledAddTo(graph, C_, product, k, prog, debugPrefix);
 }
 
 void
@@ -544,7 +544,7 @@ matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
   const auto options = parseMatMulOptions(options_);
   matMulGroupedDimChecks(A, B);
   auto product = matMulImpl(graph, A, B, prog, debugPrefix, options, cache);
-  popops::addTo(graph, C, product, k, prog, debugPrefix);
+  popops::scaledAddTo(graph, C, product, k, prog, debugPrefix);
 }
 
 

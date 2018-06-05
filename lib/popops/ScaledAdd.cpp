@@ -1,5 +1,4 @@
-#include "popops/Add.hpp"
-
+#include "popops/ScaledAdd.hpp"
 #include "poputil/exceptions.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
@@ -10,7 +9,7 @@ using namespace poputil;
 
 namespace popops {
 
-void addTo(Graph &graph, Tensor A, Tensor B, float k,
+void scaledAddTo(Graph &graph, Tensor A, Tensor B, float k,
            Sequence &prog, const std::string &debugPrefix) {
   if (!A.isParallelWriteable())
     throw poputil::poplib_error("Trying to accumulate to tensor that cannot be "
@@ -60,10 +59,9 @@ void addTo(Graph &graph, Tensor A, Tensor B, float k,
   prog.add(Execute(cs));
 }
 
-
-void addTo(Graph &graph, Tensor A, Tensor B,
-           Sequence &prog, const std::string &debugPrefix) {
-  addTo(graph, A, B, 1.0, prog, debugPrefix);
+void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float k,
+                        Sequence &prog, const std::string &debugPrefix) {
+  scaledAddTo(graph, A, B, -k, prog, debugPrefix);
 }
 
 }

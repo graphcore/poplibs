@@ -12,7 +12,6 @@
 #include <popconv/codelets.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poplin/MatMul.hpp>
-#include <popops/Add.hpp>
 #include <popops/Zero.hpp>
 #include <popops/Reduce.hpp>
 #include <popnn/Recurrent.hpp>

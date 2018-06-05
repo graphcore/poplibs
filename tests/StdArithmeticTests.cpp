@@ -6,8 +6,7 @@
 #include <poplar/IPUModel.hpp>
 #include <popops/codelets.hpp>
 #include <iostream>
-#include <popops/Add.hpp>
-#include <popops/SubtractFrom.hpp>
+#include <popops/ScaledAdd.hpp>
 #include <popops/Cast.hpp>
 
 using namespace poplar;
@@ -74,6 +73,7 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float,
   float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
   setBinaryOpInputs(hIn1, hIn2);
 
+  float k = 2;
   Tensor in1, in2;
   std::tie(in1, in2) = mapBinaryOpTensors(graph, FLOAT);
 
@@ -81,7 +81,7 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float,
   graph.createHostWrite("in2", in2);
   graph.createHostRead("out", in1);
   auto prog = Sequence();
-  addTo(graph, in1, in2, 1.0, prog);
+  scaledAddTo(graph, in1, in2, k, prog);
   Engine eng(device, graph, prog);
 
   float hOut[DIM_SIZE][DIM_SIZE];
@@ -94,49 +94,13 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float,
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     for (auto j = 0U; j < DIM_SIZE; ++j) {
-      double res = hIn1[i][j] + hIn2[i][j];
+      double res = hIn1[i][j] + k * hIn2[i][j];
       BOOST_TEST(hOut[i][j] == res);
     }
   }
 }
 
-BOOST_AUTO_TEST_CASE(StdAddTo_int) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
-  Graph graph(device);
-
-  popops::addCodelets(graph);
-
-  int hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
-  setBinaryOpInputs(hIn1, hIn2);
-
-  Tensor in1, in2;
-  std::tie(in1, in2) = mapBinaryOpTensors(graph, INT);
-  graph.createHostWrite("in1", in1);
-  graph.createHostWrite("in2", in2);
-  graph.createHostRead("out", in1);
-  auto prog = Sequence();
-
-  addTo(graph, in1, in2, prog);
-
-  int hOut[DIM_SIZE][DIM_SIZE];
-  Engine eng(device, graph, prog);
-
-  eng.writeTensor("in1", hIn1);
-  eng.writeTensor("in2", hIn2);
-  eng.run();
-  eng.readTensor("out", hOut);
-
-  /* Check result */
-  for (auto i = 0U; i < DIM_SIZE; ++i) {
-    for (auto j = 0U; j < DIM_SIZE; ++j) {
-      double res = hIn1[i][j] + hIn2[i][j];
-      BOOST_TEST(hOut[i][j] == res);
-    }
-  }
-}
-
-BOOST_AUTO_TEST_CASE(StdSubtractFrom_float,
+BOOST_AUTO_TEST_CASE(StdSubFrom_int,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -145,59 +109,21 @@ BOOST_AUTO_TEST_CASE(StdSubtractFrom_float,
   Graph graph(device);
   popops::addCodelets(graph);
 
-  float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
-  setBinaryOpInputs(hIn1, hIn2);
-
-  Tensor in1, in2;
-  std::tie(in1, in2) = mapBinaryOpTensors(graph, FLOAT);
-  graph.createHostWrite("in1", in1);
-  graph.createHostWrite("in2", in2);
-  graph.createHostRead("out", in1);
-  auto prog = Sequence();
-
-  subtractFrom(graph, in1, in2, 1.0, prog);
-
-  float hOut[DIM_SIZE][DIM_SIZE];
-
-  Engine eng(device, graph, prog);
-
-  eng.writeTensor("in1", hIn1);
-  eng.writeTensor("in2", hIn2);
-  eng.run();
-  eng.readTensor("out", hOut);
-
-  /* Check result */
-  for (auto i = 0U; i < DIM_SIZE; ++i) {
-    for (auto j = 0U; j < DIM_SIZE; ++j) {
-      double res = hIn1[i][j] - hIn2[i][j];
-      BOOST_TEST(hOut[i][j] == res);
-    }
-  }
-}
-
-
-BOOST_AUTO_TEST_CASE(StdSubtractFrom_int) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
-  Graph graph(device);
-  popops::addCodelets(graph);
-
   int hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
   setBinaryOpInputs(hIn1, hIn2);
 
+  int k = 2;
   Tensor in1, in2;
   std::tie(in1, in2) = mapBinaryOpTensors(graph, INT);
+
   graph.createHostWrite("in1", in1);
   graph.createHostWrite("in2", in2);
   graph.createHostRead("out", in1);
-
   auto prog = Sequence();
-
-  subtractFrom(graph, in1, in2, prog);
+  scaledSubtractFrom(graph, in1, in2, k, prog);
+  Engine eng(device, graph, prog);
 
   int hOut[DIM_SIZE][DIM_SIZE];
-
-  Engine eng(device, graph, prog);
 
   eng.writeTensor("in1", hIn1);
   eng.writeTensor("in2", hIn2);
@@ -207,11 +133,12 @@ BOOST_AUTO_TEST_CASE(StdSubtractFrom_int) {
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     for (auto j = 0U; j < DIM_SIZE; ++j) {
-      double res = hIn1[i][j] - hIn2[i][j];
+      double res = hIn1[i][j] - k * hIn2[i][j];
       BOOST_TEST(hOut[i][j] == res);
     }
   }
 }
+
 
 BOOST_AUTO_TEST_CASE(StdCast) {
   IPUModel ipuModel;

@@ -157,7 +157,6 @@ POPLIBS_DEFINE_UNARY_OPERATOR_FN(cos, COS)
 POPLIBS_DEFINE_UNARY_OPERATOR_FN(exp, EXPONENT)
 POPLIBS_DEFINE_UNARY_OPERATOR_FN(expm1, EXPONENT_MINUS_ONE)
 POPLIBS_DEFINE_UNARY_OPERATOR_FN(floor, FLOOR)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(isFinite, IS_FINITE)
 POPLIBS_DEFINE_UNARY_OPERATOR_FN(log, LOGARITHM)
 POPLIBS_DEFINE_UNARY_OPERATOR_FN(log1p, LOGARITHM_ONE_PLUS)
 POPLIBS_DEFINE_UNARY_OPERATOR_FN(logicalNot, LOGICAL_NOT)
@@ -169,6 +168,16 @@ POPLIBS_DEFINE_UNARY_OPERATOR_FN(tanh, TANH)
 POPLIBS_DEFINE_UNARY_OPERATOR_FN(round, ROUND)
 POPLIBS_DEFINE_UNARY_OPERATOR_FN(sqrt, SQRT)
 POPLIBS_DEFINE_UNARY_OPERATOR_FN(square, SQUARE)
+
+inline
+poplar::Tensor isFinite(poplar::Graph &graph,
+                        const poplar::Tensor &A,
+                        poplar::program::Sequence &prog,
+                        const std::string &debugPrefix = "",
+                        const std::vector<std::string> &options = {}) {
+  return map(graph, expr::UnaryOpType::IS_FINITE, A, prog, debugPrefix,
+             options);
+}
 
 #define POPLIBS_DEFINE_BINARY_OPERATOR_FN(fn, op) \
   inline \

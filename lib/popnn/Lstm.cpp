@@ -1,9 +1,6 @@
 #include <poplin/MatMul.hpp>
-#include <popops/Add.hpp>
-#include <popops/SubtractFrom.hpp>
 #include <poputil/TileMapping.hpp>
 #include <popnn/NonLinearity.hpp>
-#include <popops/HadamardProduct.hpp>
 #include <poputil/VertexTemplates.hpp>
 #include <popnn/Lstm.hpp>
 #include <popops/ElementWise.hpp>
@@ -12,6 +9,7 @@
 #include <poputil/Util.hpp>
 #include <popops/DynamicSlice.hpp>
 #include <popops/Reduce.hpp>
+#include <popops/ScaledAdd.hpp>
 #include <cstdint>
 
 using namespace poplar;
@@ -122,7 +120,7 @@ basicLstmUnitsNlInputPreWeighted(Graph &graph,
   auto output =
       unflattenUnits(matMul(graph, prevOutput, flattenUnits(weightsOutput),
                      prog, debugStr + "/WeighOutput", mmOpt, cache));
-  addTo(graph, output, weightedIn, 1.0, prog, debugStr + "/AddWeightedOutputs");
+  addInPlace(graph, output, weightedIn, prog, debugStr + "/AddWeightedOutputs");
   return output;
 }
 
@@ -164,7 +162,7 @@ basicLstmComputeOutput(Graph &graph,
   auto outputGate = gatesOutput[BASIC_LSTM_CELL_OUTPUT_GATE];
   auto inputGate = gatesOutput[BASIC_LSTM_CELL_INPUT_GATE];
   const auto dType = cellState.elementType();
-  addTo(graph, gatesOutput, bBiases, 1.0, prog, debugStr + "/AddBias");
+  addInPlace(graph, gatesOutput, bBiases, prog, debugStr + "/AddBias");
   applyGateNonlinearities(graph, gatesOutput, prog, debugStr);
 
   auto prod = mul(graph, concat(forgetGate, candidate),
@@ -175,8 +173,8 @@ basicLstmComputeOutput(Graph &graph,
   auto updatedCandidate = prod.slice(forgetGate.dim(0),
                                      forgetGate.dim(0) + candidate.dim(0));
 
-  addTo(graph, updatedCellState, updatedCandidate, 1.0, prog,
-        debugStr + "/AddCellCand");
+  addInPlace(graph, updatedCellState, updatedCandidate, prog,
+             debugStr + "/AddCellCand");
   auto tanhOutput = popops::tanh(graph, updatedCellState, prog, debugStr);
   auto output = mul(graph, tanhOutput, outputGate, prog,
                     debugStr + "/OutputGate");
@@ -551,7 +549,7 @@ Tensor lstmFwdSequence(Graph &graph,
       graph, fwdState, newState, seqIdx, {0}, {1}, loop,
       debugPrefix + "/lstmUpdateState");
 
-    addTo(graph, seqIdx, one, loop, debugPrefix + "/seqIdxIncr");
+    addInPlace(graph, seqIdx, one, loop, debugPrefix + "/seqIdxIncr");
   }
   fwdProg.add(Repeat(seqSize, loop));
   return fwdState;
@@ -595,8 +593,8 @@ BackwardStepImpl(Graph &graph,
 
   auto gradCellState = getBwdState(bwdState, LSTM_BWD_STATE_GRAD_CELL_STATE);
 
-  addTo(graph, gradAtOTanhOutput, gradCellState, prog,
-        fPrefix + "/AddCellState");
+  addInPlace(graph, gradAtOTanhOutput, gradCellState, prog,
+             fPrefix + "/AddCellState");
   auto actInputGate =
     getFwdState(fwdStateThisStep, LSTM_FWD_STATE_ACTS_INPUT_GATE);
   auto actCandidate =
@@ -842,7 +840,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> lstmBwdSequence(
     }
     loop.add(Copy(fwdStateM1S, fwdStateS));
     loop.add(Copy(bwdStateUpdated, bwdState));
-    subtractFrom(graph, seqIdx, one, loop, debugPrefix + "/seqIdxDecr");
+    subInPlace(graph, seqIdx, one, loop, debugPrefix + "/seqIdxDecr");
   }
   prog.add(Repeat(seqSize, loop));
   return std::tie(gradPrevLayer, weightsInputDeltasAcc,

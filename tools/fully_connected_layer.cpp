@@ -13,7 +13,8 @@
 #include <popconv/Convolution.hpp>
 #include <popconv/codelets.hpp>
 #include <poplin/MatMul.hpp>
-#include <popops/Add.hpp>
+#include <popops/ElementWise.hpp>
+#include <popops/ScaledAdd.hpp>
 #include <popops/Reduce.hpp>
 #include <popops/codelets.hpp>
 #include <poplin/codelets.hpp>
@@ -178,7 +179,7 @@ int main(int argc, char **argv) {
     }
     auto bBiases = biases.reshape({numGroups, 1, outputSize})
                          .broadcast(batchSize, 1);
-    addTo(graph, nextAct, bBiases, 1, fwdProg);
+    addInPlace(graph, nextAct, bBiases, fwdProg);
   } else {
     nextAct = graph.addVariable(dataType, {numGroups, batchSize, outputSize},
                                 "nextAct");
@@ -238,7 +239,7 @@ int main(int argc, char **argv) {
     }
     auto biasDeltas = reduce(graph, zDeltas, {1}, popops::Operation::ADD,
                              bwdProg);
-    addTo(graph, biases, biasDeltas, -learningRate, bwdProg);
+    scaledAddTo(graph, biases, biasDeltas, -learningRate, bwdProg);
   }
 
   Engine engine(device , graph, {std::move(fwdProg), std::move(bwdProg)});

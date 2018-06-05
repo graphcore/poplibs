@@ -4,7 +4,7 @@
 #include "popops/ElementWise.hpp"
 #include "popnn/BatchNorm.hpp"
 #include "popops/Reduce.hpp"
-#include "popops/Add.hpp"
+#include "popops/ScaledAdd.hpp"
 #include "popconv/Convolution.hpp"
 #include "poputil/exceptions.hpp"
 #include <poplar/Program.hpp>
@@ -154,8 +154,9 @@ batchNormalise(Graph &graph,
     auto actsOut = mul(graph, actsWhitened,
                        gamma.broadcast(actsPerChan, 0).reshape(actsShape),
                        prog, fnPrefix);
-    addTo(graph, actsOut, beta.broadcast(actsPerChan, 0).reshape(actsShape),
-          1.0, prog, fnPrefix);
+    addInPlace(graph, actsOut,
+               beta.broadcast(actsPerChan, 0).reshape(actsShape),
+               prog, fnPrefix);
     return std::make_pair(actsOut, actsWhitened);
   }
 }
@@ -185,7 +186,7 @@ batchNormalise(Graph &graph,
                             .reshape({actsPerChan, numChans});
     auto actsBN = mul(graph, acts, bCombinedMultiplicand, prog, fnPrefix);
 
-    addTo(graph, actsBN, bAddend, prog, fnPrefix);
+    addInPlace(graph, actsBN, bAddend, prog, fnPrefix);
     return actsBN;
   }
 }
@@ -243,8 +244,8 @@ Tensor batchNormGradients(Graph &graph,
 
     auto gradient = graph.clone(actsWhitened);
     prog.add(Copy(gradsIn, gradient));
-    addTo(graph, gradient, gammaDeltaMulAct, -rScale, prog, fnPrefix);
-    addTo(graph, gradient,
+    scaledAddTo(graph, gradient, gammaDeltaMulAct, -rScale, prog, fnPrefix);
+    scaledAddTo(graph, gradient,
           betaDelta.broadcast(numElements, 0).reshape(actsShape),
           -rScale, prog, fnPrefix);
 
@@ -266,8 +267,8 @@ void batchNormParamUpdate(Graph &graph,
                           const std::string &debugPrefix) {
   const std::string fnPrefix = debugPrefix + "/BN/paramUpdate";
   // Do update of beta and gamma together
-  addTo(graph, concat(beta, gamma), concat(betaDelta, gammaDelta),
-        -learningRate, prog, fnPrefix);
+  scaledAddTo(graph, concat(beta, gamma), concat(betaDelta, gammaDelta),
+              -learningRate, prog, fnPrefix);
 }
 
 uint64_t getFwdFlops(uint64_t numChannels, uint64_t actsPerChannel,

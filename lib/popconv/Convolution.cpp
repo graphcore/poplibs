@@ -9,7 +9,7 @@
 #include <functional>
 #include "popconv/ConvUtil.hpp"
 #include "popops/Pad.hpp"
-#include "popops/Add.hpp"
+#include "popops/ScaledAdd.hpp"
 #include "poputil/TileMapping.hpp"
 #include "popops/Reduce.hpp"
 #include "poputil/VertexTemplates.hpp"
@@ -3056,8 +3056,8 @@ convolutionWeightUpdate(Graph &graph,
                                             prog, debugPrefix, options, cache);
   // Add the weight deltas to the weights.
   assert(weightDeltas.shape() == weights.shape());
-  addTo(graph, weights, weightDeltas, -learningRate, prog,
-        debugPrefix + "/UpdateWeights");
+  scaledAddTo(graph, weights, weightDeltas, -learningRate, prog,
+              debugPrefix + "/UpdateWeights");
 }
 
 static void
@@ -3809,9 +3809,9 @@ Tensor batchNormGradients(Graph &graph,
 
   auto gradient = graph.clone(actsWhitened);
   prog.add(Copy(gradsIn, gradient));
-  addTo(graph, gradient,
-        channelMul(graph, actsWhitened, gammaDelta, prog, fnPrefix),
-        -rScale, prog, fnPrefix + "/gamma");
+  scaledAddTo(graph, gradient,
+              channelMul(graph, actsWhitened, gammaDelta, prog, fnPrefix),
+              -rScale, prog, fnPrefix + "/gamma");
 
   addToChannel(graph, gradient, betaDelta, -rScale, prog, fnPrefix);
 

@@ -13,7 +13,6 @@
 #include <popconv/Convolution.hpp>
 #include <popconv/ConvUtil.hpp>
 #include <poputil/exceptions.hpp>
-#include <popops/Add.hpp>
 #include <popops/codelets.hpp>
 #include <popconv/codelets.hpp>
 #include <popnn/NonLinearity.hpp>

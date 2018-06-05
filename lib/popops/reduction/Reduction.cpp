@@ -12,7 +12,7 @@
 #include <poputil/TileMapping.hpp>
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
-#include <popops/Add.hpp>
+#include <popops/ScaledAdd.hpp>
 #include <popops/Cast.hpp>
 #include <popops/Zero.hpp>
 #include <poplibs_support/Compiler.hpp>
@@ -398,7 +398,7 @@ Tensor reduceWithOutput(Graph &graph,
             graph, A, out.elementType(), prog, debugPrefix + "/cast");
       }
 
-      popops::addTo(
+      popops::scaledAddTo(
           graph, out, Acast, params.scale, prog, debugPrefix + "/update");
 
     } else {

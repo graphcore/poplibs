@@ -1,7 +1,7 @@
 #include <popnn/Recurrent.hpp>
 #include <poplin/MatMul.hpp>
-#include <popops/Add.hpp>
-#include <popops/SubtractFrom.hpp>
+#include <popops/ElementWise.hpp>
+#include <popops/ScaledAdd.hpp>
 #include <poputil/TileMapping.hpp>
 #include <popnn/NonLinearity.hpp>
 #include <popops/Reduce.hpp>
@@ -239,10 +239,10 @@ Tensor forwardIterate(Graph  &graph,
     Tensor yP = s == 0 ? initState : actOut[s - 1];
     auto prod = matMul(graph, yP, weightsFeedback, prog, dbgStr,
                        mmOpt, &cache);
-    addTo(graph, prod, feedFwdIn[s], 1.0, prog, dbgStr + "/Sum");
+    addInPlace(graph, prod, feedFwdIn[s], prog, dbgStr + "/Sum");
 
     /* Add broadcast bias */
-    addTo(graph, prod, bBiases, 1.0, prog, dbgStr + "/Bias");
+    addInPlace(graph, prod, bBiases, prog, dbgStr + "/Bias");
 
     nonLinearity(graph, nonLinearityType, prod, prog, dbgStr);
 
@@ -313,7 +313,7 @@ poplar::Tensor rnnFwdSequence(poplar::Graph &graph,
     popops::dynamicUpdate(
       graph, fwdState, newState, seqIdx, {0}, {1}, loop,
       debugPrefix + "/rnnUpdateState");
-    addTo(graph, seqIdx, one, loop, debugPrefix + "/seqIdxIncr");
+    addInPlace(graph, seqIdx, one, loop, debugPrefix + "/seqIdxIncr");
   }
   prog.add(Repeat(seqSize, loop));
   return fwdState;
@@ -339,7 +339,7 @@ backwardGradientStepImpl(Graph &graph,
 
   auto t = matMul(graph, bwdState, weightsFeedback->transpose(), prog,
                   debugPrefix + "/RnnBwd/Fb", mmOpt, &cache);
-  addTo(graph, t, gradientOut, prog, debugPrefix + "/RnnBwd/AddOutGrad");
+  addInPlace(graph, t, gradientOut, prog, debugPrefix + "/RnnBwd/AddOutGrad");
 
   auto newBwdState =
       nonLinearityInputGradient(graph, nonLinearityType, actOut, t, prog,
@@ -436,7 +436,7 @@ void paramDeltaUpdate(Graph &graph,
   }
   auto r = reduce(graph, bwdState, {0}, popops::Operation::ADD, prog,
                   fnPrefix);
-  addTo(graph, biasDeltasAcc, r, prog, fnPrefix);
+  addInPlace(graph, biasDeltasAcc, r, prog, fnPrefix);
 }
 
 std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor, poplar::Tensor>
@@ -544,7 +544,7 @@ std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor, poplar::Tensor>
         feedFwdWeightsDeltaAcc, feedbackWeightsDeltaAcc, biasesDeltaAcc,
         loop, partialsType, debugPrefix);
     }
-    subtractFrom(graph, seqIdx, one, loop, debugPrefix + "/seqIdxDecr");
+    subInPlace(graph, seqIdx, one, loop, debugPrefix + "/seqIdxDecr");
   }
   prog.add(Repeat(seqSize, loop));
   return std::tie(prevLayerGradsVec, feedFwdWeightsDeltaAcc,

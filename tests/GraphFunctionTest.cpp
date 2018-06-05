@@ -4,7 +4,7 @@
 #include <poputil/GraphFunction.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
-#include <popops/Add.hpp>
+#include <popops/ElementWise.hpp>
 #include <poplar/IPUModel.hpp>
 
 using namespace poplar;
@@ -29,7 +29,7 @@ BOOST_AUTO_TEST_CASE(VoidFunctionTest) {
   graphfn::VoidFunction f(graph, {graphfn::inout(x1), graphfn::input(y1)},
                           [&](std::vector<Tensor> &args,
                               Sequence &prog) {
-                             popops::addTo(graph, args[0], args[1], 1.0, prog);
+                             popops::addInPlace(graph, args[0], args[1], prog);
                           });
   Tensor x2 = graph.addVariable(FLOAT, {5});
   mapTensorLinearly(graph, x2);
@@ -82,7 +82,7 @@ BOOST_AUTO_TEST_CASE(ProgramFunctionTest) {
                           [&](std::vector<Tensor> &args) {
                              Sequence prog;
                              prog.add(Copy(args[0], args[2]));
-                             popops::addTo(graph, args[2], args[1], 1.0, prog);
+                             popops::addInPlace(graph, args[2], args[1], prog);
                              return prog;
                           });
   Tensor x2 = graph.addVariable(FLOAT, {5});
@@ -140,7 +140,7 @@ BOOST_AUTO_TEST_CASE(CreatedTensorFunctionTest) {
                              args[2] = graph.addVariable(FLOAT, {5});
                              mapTensorLinearly(graph, args[2]);
                              prog.add(Copy(args[0], args[2]));
-                             popops::addTo(graph, args[2], args[1], 1.0, prog);
+                             popops::addInPlace(graph, args[2], args[1], prog);
                              return prog;
                           });
   Tensor x2 = graph.addVariable(FLOAT, {5});
@@ -197,7 +197,7 @@ BOOST_AUTO_TEST_CASE(TensorFunctionTest) {
                              Tensor z = graph.addVariable(FLOAT, {5});
                              mapTensorLinearly(graph, z);
                              prog.add(Copy(args[0], z));
-                             popops::addTo(graph, z, args[1], 1.0, prog);
+                             popops::addInPlace(graph, z, args[1], prog);
                              return z;
                              });
   Tensor x2 = graph.addVariable(FLOAT, {5});

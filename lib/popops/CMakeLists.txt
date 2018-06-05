@@ -5,7 +5,7 @@ find_package(Boost REQUIRED)
 get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(popops SHARED
-  Add.cpp
+  ScaledAdd.cpp
   AllTrue.cpp
   Cast.cpp
   CircBuf.cpp
@@ -15,14 +15,12 @@ add_library(popops SHARED
   Expr.cpp
   ExprOpUtil.cpp
   ExprOpUtil.hpp
-  HadamardProduct.cpp
   Pad.cpp
   Padder.cpp
   popopsCycleEstimators.cpp
-  SubtractFrom.cpp
   Zero.cpp
   ${CMAKE_SOURCE_DIR}/include/popops/codelets.hpp
-  ${CMAKE_SOURCE_DIR}/include/popops/Add.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/ScaledAdd.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/AllTrue.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Cast.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/CircBuf.hpp
@@ -30,10 +28,8 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/ElementWise.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Expr.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/ExprOp.hpp
-  ${CMAKE_SOURCE_DIR}/include/popops/HadamardProduct.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Pad.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Reduce.hpp
-  ${CMAKE_SOURCE_DIR}/include/popops/SubtractFrom.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Zero.hpp
 
   reduction/CycleEstimationFunctions.cpp

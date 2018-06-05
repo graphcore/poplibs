@@ -2,7 +2,7 @@
 #include <popops/AllTrue.hpp>
 #include <poputil/exceptions.hpp>
 #include <popops/ElementWise.hpp>
-#include <popops/SubtractFrom.hpp>
+#include <popops/ScaledAdd.hpp>
 #include <boost/test/unit_test.hpp>
 #include <limits>
 #include <poputil/TileMapping.hpp>
@@ -21,7 +21,7 @@ using namespace popops;
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
 
-#define DIM_SIZE  10
+#define DIM_SIZE  3
 
 static Tensor mapUnaryOpTensor(Graph &graph,
                                const Type &type) {
@@ -284,7 +284,6 @@ void binaryOpTestHalf(const BinaryOpFn &op,
     }
   }
 }
-
 
 BOOST_AUTO_TEST_CASE(StdOperationAbsFloat,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
@@ -1139,6 +1138,60 @@ BOOST_AUTO_TEST_CASE(StdOperationClampInt,
   }
 }
 
+BOOST_AUTO_TEST_CASE(StdOperationClampInPlaceFloat,
+                  *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
+                  *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
+                  ) {
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
+  popops::addCodelets(graph);
+
+  float hIn1[DIM_SIZE][DIM_SIZE];
+  setUnaryOpInput(hIn1);
+  float hIn2[DIM_SIZE][DIM_SIZE], hIn3[DIM_SIZE][DIM_SIZE];
+
+  for (auto r = 0U; r != DIM_SIZE; ++r) {
+    for (auto c = 0U; c != DIM_SIZE; ++c) {
+      hIn2[r][c] = -10;
+      hIn3[r][c] = 10;
+    }
+  }
+
+  Tensor in1, in2;
+  std::tie(in1, in2) = mapBinaryOpTensors(graph, FLOAT);
+  Tensor in3 = mapUnaryOpTensor(graph, FLOAT);
+
+  auto prog = Sequence();
+  clampInPlace(graph, in1, in2, in3, prog);
+  graph.createHostWrite("in1", in1);
+  graph.createHostWrite("in2", in2);
+  graph.createHostWrite("in3", in3);
+  graph.createHostRead("out", in1);
+
+  float hOut[DIM_SIZE][DIM_SIZE];
+
+  Engine eng(device, graph, prog);
+  eng.writeTensor("in1", hIn1);
+  eng.writeTensor("in2", hIn2);
+  eng.writeTensor("in3", hIn3);
+  eng.run();
+  eng.readTensor("out", hOut);
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      int res = hIn1[i][j];
+      if (res < hIn2[i][j])
+        res = hIn2[i][j];
+      if (res > hIn3[i][j])
+        res = hIn3[i][j];
+
+      BOOST_TEST(hOut[i][j] == res);
+    }
+  }
+}
+
 BOOST_AUTO_TEST_CASE(StdOperationBinaryOutputMapChoice) {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
@@ -1255,7 +1308,7 @@ BOOST_AUTO_TEST_CASE(StdOperationAllTrue) {
   graph.setTileMapping(in, 0);
 
   auto bodyProg = Sequence();
-  subtractFrom(graph, in, ones, bodyProg);
+  subInPlace(graph, in, ones, bodyProg);
 
   auto condProg = Sequence();
   Tensor neZero = neq(graph, in, zeros, condProg);
@@ -1268,6 +1321,7 @@ BOOST_AUTO_TEST_CASE(StdOperationAllTrue) {
   mainProg.add(RepeatWhileTrue(condProg, predicate, bodyProg));
   graph.createHostWrite("in", in);
   graph.createHostRead("out", in);
+
 
   Engine eng(device, graph, mainProg);
   eng.writeTensor("in", init);
@@ -1408,6 +1462,7 @@ BOOST_AUTO_TEST_CASE(MapTestMultiTensor) {
   }
 }
 
+
 BOOST_AUTO_TEST_CASE(MapInPlaceTest) {
   IPUModel ipuModel;
   auto device = ipuModel.createDevice();
@@ -1417,7 +1472,7 @@ BOOST_AUTO_TEST_CASE(MapInPlaceTest) {
   auto prog = Sequence();
   auto t = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "in");
   mapTensorLinearly(graph, t);
-  mapInPlace(graph, Add(Abs(_1), Const(3)), {t}, prog);
+  mapInPlace(graph, Add(Abs(_1), _1), {t}, prog);
 
   graph.createHostWrite("in", t);
   graph.createHostRead("out", t);
@@ -1440,7 +1495,7 @@ BOOST_AUTO_TEST_CASE(MapInPlaceTest) {
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     for (auto j = 0U; j < DIM_SIZE; ++j) {
-      auto expected = fabs(hIn[i][j]) + 3;
+      auto expected = fabs(hIn[i][j]) + hIn[i][j];
       BOOST_TEST(hOut[i][j] == expected);
     }
   }
@@ -1495,5 +1550,50 @@ BOOST_AUTO_TEST_CASE(MapInferTypeTest) {
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     auto expected = (aIn[i] == bIn[i]) && cIn[i];
     BOOST_TEST(hOut[i] == expected);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(AddInPlaceTest) {
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
+  popops::addCodelets(graph);
+
+  auto prog = Sequence();
+  auto t1 = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "in1");
+  auto t2 = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "in2");
+
+  mapTensorLinearly(graph, t1);
+  mapTensorLinearly(graph, t2);
+  addInPlace(graph, t1, t2,  prog);
+
+  graph.createHostWrite("in1", t1);
+  graph.createHostWrite("in2", t2);
+  graph.createHostRead("out",  t1);
+
+  float hIn1[DIM_SIZE][DIM_SIZE];
+  float hIn2[DIM_SIZE][DIM_SIZE];
+  float hOut[DIM_SIZE][DIM_SIZE];
+
+  setUnaryOpInput(hIn1);
+  setUnaryOpInput(hIn2);
+
+  Engine eng(device, graph, prog);
+  eng.writeTensor("in1", hIn1);
+  eng.writeTensor("in2", hIn2);
+  eng.run();
+  eng.readTensor("out", hOut);
+
+  auto execReport = eng.getExecutionReport({
+    { "doLayerWiseBreakdown", "true" }
+  });
+  execReport.printSummary(std::cerr);
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      auto expected = hIn1[i][j] + hIn2[i][j];
+      BOOST_TEST(hOut[i][j] == expected);
+    }
   }
 }

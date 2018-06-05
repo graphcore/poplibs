@@ -7,6 +7,7 @@
 
 using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
+static constexpr auto TWO_PTR = poplar::VectorLayout::TWO_PTR;
 
 namespace popops {
 
@@ -103,6 +104,23 @@ public:
   }
 };
 
+
+template <expr::UnaryOpType op, typename T>
+class
+UnaryOpInPlace : public Vertex {
+public:
+  Vector<InOut<Vector<T>>> inOut;
+
+  bool compute() {
+    for (unsigned i = 0; i != inOut.size(); ++i) {
+      for (unsigned j = 0; j != inOut[i].size(); ++j) {
+        inOut[i][j] = UnaryOpFn<op, T>::fn(inOut[i][j]);
+      }
+    }
+    return true;
+  }
+};
+
 INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::ABSOLUTE, float, half, int)
 INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::BITWISE_NOT, int)
 INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::CEIL, float, half)
@@ -123,6 +141,24 @@ INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::TANH, float, half)
 INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::ROUND, float, half)
 INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::SQRT, float, half, int)
 INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::SQUARE, float, half)
+
+INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::ABSOLUTE, float, half, int)
+INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::BITWISE_NOT, int)
+INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::CEIL, float, half)
+INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::COS, float, half)
+INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::COUNT_LEADING_ZEROS, int)
+INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::EXPONENT, float, half)
+INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::FLOOR, float, half)
+INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::LOGARITHM, float, half)
+INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::LOGICAL_NOT, bool)
+INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::NEGATE, float, half, int)
+INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::POPCOUNT, int)
+INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::SIGNUM, float, half, int)
+INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::SIN, float, half)
+INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::TANH, float, half)
+INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::ROUND, float, half)
+INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::SQRT, float, half, int)
+INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::SQUARE, float, half)
 
 namespace {
   // Structure with template specialization to define the output type
@@ -223,6 +259,25 @@ public:
   }
 };
 
+template <expr::BinaryOpType op, typename T>
+class
+[[poplar::constraint("elem(**in2) != elem(**in1Out)")]]
+BinaryOpInPlace : public Vertex {
+public:
+  Vector<InOut<Vector<typename BinaryOpOutputType<op, T>::type, TWO_PTR, 1,
+         true>>> in1Out;
+  Vector<Input<Vector<T, ONE_PTR>>, ONE_PTR> in2;
+
+  bool compute() {
+    for (unsigned i = 0; i != in1Out.size(); ++i) {
+      for (unsigned j = 0; j != in1Out[i].size(); ++j) {
+        in1Out[i][j] = BinaryOpFn<op, T>::fn(in1Out[i][j], in2[i][j]);
+      }
+    }
+    return true;
+  }
+};
+
 INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::ADD, float, half, int, unsigned)
 INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::ATAN2, float, half)
 INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::BITWISE_AND, int)
@@ -251,6 +306,35 @@ INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND,
                int)
 INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::SUBTRACT,
                float, half, int, unsigned)
+
+
+INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::ADD, float, half, int,
+               unsigned)
+INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::ATAN2, float, half)
+INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::BITWISE_AND, int)
+INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::BITWISE_OR, int)
+INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::DIVIDE, float, half, int)
+INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::EQUAL, bool)
+INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::GREATER_THAN_EQUAL, bool)
+INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::GREATER_THAN, bool)
+INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::LESS_THAN_EQUAL, bool)
+INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::LOGICAL_AND, bool)
+INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::LOGICAL_OR, bool)
+INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::LESS_THAN, bool)
+INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::MAXIMUM, float, half, int)
+INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::MINIMUM, float, half, int)
+INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::MULTIPLY, float, half, int)
+INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::NOT_EQUAL, bool)
+INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::POWER, float, half)
+INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::REMAINDER, float, half, int)
+INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::SHIFT_LEFT, int)
+INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::SHIFT_RIGHT, int)
+INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND,
+               int)
+INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::SUBTRACT,
+               float, half, int, unsigned)
+
+
 
 template <typename InType>
 class
@@ -434,7 +518,6 @@ template class Cast2d<bool,half>;
 template class Cast2d<bool,int>;
 template class Cast2d<bool,bool>;
 
-
 template <typename InType>
 class Clamp : public Vertex {
 public:
@@ -486,5 +569,54 @@ template class Select<float>;
 template class Select<half>;
 template class Select<int>;
 template class Select<bool>;
+
+
+template <typename InType>
+class ClampInPlace : public Vertex {
+public:
+  Vector<InOut<Vector<InType>>> in1Out;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;  // lower bound
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in3;  // upper bound
+
+  bool compute() {
+    for (unsigned i = 0; i != in1Out.size(); ++i) {
+      for (unsigned j = 0; j != in1Out[i].size(); ++j) {
+        if (in1Out[i][j] < in2[i][j]) {
+          in1Out[i][j] = in2[i][j];
+        }
+        if (in1Out[i][j] > in3[i][j]) {
+          in1Out[i][j] = in3[i][j];
+        }
+      }
+    }
+    return true;
+  }
+};
+
+template class ClampInPlace<float>;
+template class ClampInPlace<half>;
+template class ClampInPlace<int>;
+
+template <typename InType>
+class SelectInPlace : public Vertex {
+public:
+  Vector<InOut<Vector<InType>>> in1Out;
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
+  Vector<Input<Vector<bool, ONE_PTR>>, ONE_PTR> in3;
+
+  bool compute() {
+    for (unsigned i = 0; i != in1Out.size(); ++i) {
+      for (unsigned j = 0; j != in1Out[i].size(); ++j) {
+        in1Out[i][j] = in3[i][j] ? in1Out[i][j] : in2[i][j];
+      }
+    }
+    return true;
+  }
+};
+
+template class SelectInPlace<float>;
+template class SelectInPlace<half>;
+template class SelectInPlace<int>;
+template class SelectInPlace<bool>;
 
 }

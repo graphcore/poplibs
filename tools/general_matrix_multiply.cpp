@@ -11,7 +11,7 @@
 #include <poplar/IPUModel.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poplin/MatMul.hpp>
-#include <popops/Add.hpp>
+#include <popops/ScaledAdd.hpp>
 #include <popops/Reduce.hpp>
 #include <popconv/codelets.hpp>
 #include <popops/codelets.hpp>
@@ -201,7 +201,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  addTo(graph, matC, matAxB, alpha, prog);
+  scaledAddTo(graph, matC, matAxB, alpha, prog);
 
   std::vector<std::pair<std::string, char *>> tmap;
   auto rawHostMatA = allocateHostMemoryForTensor(matA, "matA", graph, tmap);

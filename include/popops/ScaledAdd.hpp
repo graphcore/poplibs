@@ -1,7 +1,7 @@
 // Copyright (c) 2018, Graphcore Ltd, All rights reserved.
 
-#ifndef popops_Add_hpp
-#define popops_Add_hpp
+#ifndef popops_ScaledAdd_hpp
+#define popops_ScaledAdd_hpp
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <string>
@@ -22,30 +22,31 @@ namespace popops {
  *                     add will be appended.
  * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
  */
-void addTo(poplar::Graph &graph,
-           poplar::Tensor A, poplar::Tensor B,
-           float k, poplar::program::Sequence &prog,
-           const std::string &debugPrefix = "");
+void scaledAddTo(poplar::Graph &graph,
+                 poplar::Tensor A, poplar::Tensor B,
+                 float k, poplar::program::Sequence &prog,
+                 const std::string &debugPrefix = "");
 
-
-
-/** Add the elements of one tensor multiplied by a scalar to another tensor.
+/** Subtract the elements of one tensor multiplied by a scalar from another
+ * tensor.
  *
- *  Performs the calculations A += B
+ *  Performs the calculations A -= k * B
  *
  * \param graph        The poplar graph.
  * \param A            The destination tensor.
  * \param B            The second tensor to add elements from (must be of
  *                     the same shape as \A).
+ * \param k            The scalar to multiply elements of B with before
+ *                     addition.
  * \param prog         A sequence program to which the code performing the
  *                     add will be appended.
  * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
  */
-void addTo(poplar::Graph &graph,
-           poplar::Tensor A, poplar::Tensor B,
-           poplar::program::Sequence &prog,
-           const std::string &debugPrefix = "");
-
+void scaledSubtractFrom(poplar::Graph &graph,
+                        poplar::Tensor A, poplar::Tensor B,
+                        float k, poplar::program::Sequence &prog,
+                        const std::string &debugPrefix = "");
 }
 
-#endif // popops_Add_hpp
+
+#endif // popops_ScaledAdd_hpp
