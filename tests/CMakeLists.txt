@@ -44,6 +44,8 @@ add_popnn_unit_test(DynamicSliceTest DynamicSliceTest.cpp)
 add_popnn_unit_test(CircBufTests CircBufTests.cpp)
 add_popnn_unit_test(BroadcastToMatchTest BroadcastToMatchTest.cpp)
 add_popnn_unit_test(ParallelTest ParallelTest.cpp)
+add_popnn_unit_test(LossTest LossTest.cpp)
+add_popnn_unit_test(EncodingTest EncodingTest.cpp)
 
 # Random single_conv_layer tests with fixed seed.
 set(NUM_CONV_RANDOM_TESTS 50)

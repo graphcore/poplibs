@@ -92,11 +92,16 @@ copy(const poplar::Target &target,
               dst);
   } else if (srcType == poplar::HALF) {
     poplar::copyDeviceHalfToDouble(target, src, dst, n);
+  } else if (srcType == poplar::UNSIGNED_INT) {
+    std::copy(reinterpret_cast<unsigned*>(src),
+              reinterpret_cast<unsigned*>(src) + n,
+              dst);
   } else if (srcType == poplar::INT) {
     std::copy(reinterpret_cast<int*>(src),
               reinterpret_cast<int*>(src) + n,
               dst);
   } else {
+    assert(srcType == poplar::BOOL);
     std::copy(reinterpret_cast<bool*>(src),
               reinterpret_cast<bool*>(src) + n,
               dst);

@@ -285,92 +285,80 @@ public:
 template class SumPoolingGrad<float>;
 template class SumPoolingGrad<half>;
 
-
-template <typename FPType, typename LabelType>
-class CalcLoss : public Vertex {
+template <typename FPType>
+class LossSumSquaredTransform : public Vertex {
 public:
-  Vector<Input<Vector<FPType>>> batchIn;
-  Input<Vector<LabelType, ONE_PTR>> label;
+  Input<Vector<FPType>> probs;
+  Input<Vector<FPType, ONE_PTR>> expected;
 
-  Vector<Output<Vector<FPType, ONE_PTR>>, ONE_PTR> batchDeltaOut;
-  Vector<Output<FPType>, ONE_PTR> loss;
-  InOut<unsigned> numCorrect;
-
-  Vector<FPType> probs;
-
-  unsigned lossType;
-
+  Output<Vector<FPType, ONE_PTR>> deltas;
+  Output<Vector<FPType, ONE_PTR>> transformed;
   bool compute() {
-    const auto batchSize = batchIn.size();
-    for (unsigned batchNum = 0; batchNum < batchSize; ++batchNum) {
-      auto in = batchIn[batchNum];
-      auto deltaOut = batchDeltaOut[batchNum];
-      switch (lossType) {
-      case SUM_SQUARED_LOSS: {
-        /* Calculate the sum-squared error and the partial derivative
-           to pass back. */
-        FPType sum = 0;
-        for (LabelType i = 0;  i < in.size(); ++i) {
-          FPType expected = (i == label[batchNum] ? 1 : 0);
-          FPType actual = in[i];
-          deltaOut[i] = (actual - expected);
-          sum += 0.5 * (actual - expected) *  (actual - expected);
-        }
-        loss[batchNum] = sum;
-        }
-        break;
-      case SOFTMAX_CROSS_ENTROPY_LOSS:
-        /* Calculate the softmax probability distribution */
-        for (LabelType i = 0;  i < in.size(); ++i) {
-          FPType act = in[i];
-          probs[i] = exp(act);
-        }
-        FPType sum = 0;
-        for (FPType p : probs)
-          sum += p;
-
-        for (LabelType i = 0;  i < in.size(); ++i) {
-          probs[i] /= sum;
-        }
-
-        /* Calculate the cross-entropy error and the partial derivative
-         to pass back. */
-        FPType error = 0;
-        for (LabelType i = 0;  i < probs.size(); ++i) {
-          FPType expected = (i == label[batchNum] ? 1 : 0);
-          deltaOut[i] = (probs[i] - expected);
-          error += -expected * log(probs[i]);
-        }
-        loss[batchNum] = error;
-        break;
-      }
-
-      // Calculate the classification error for reporting test results
-      // This assumes that the
-      // non-linearity is monotonic, so the max output of the previous
-      // layer is the max z-term of the previous layer.
-      FPType max = in[0];
-      LabelType maxIndex = 0;
-      for (LabelType i = 0;  i < in.size(); ++i) {
-        if (in[i] > max) {
-          max = in[i];
-          maxIndex = i;
-        }
-      }
-      bool correct = (maxIndex == label[batchNum]);
-      if (correct) {
-        *numCorrect += 1;
-      }
+    for (std::size_t i = 0; i < probs.size(); i++) {
+      FPType expect = expected[i];
+      FPType actual = probs[i];
+      FPType delta = (actual - expect);
+      deltas[i] = delta;
+      transformed[i] = 0.5 * delta * delta;
     }
     return true;
   }
 };
 
+template class LossSumSquaredTransform<float>;
+template class LossSumSquaredTransform<half>;
 
-template class CalcLoss<float,unsigned int>;
-template class CalcLoss<float,int>;
-template class CalcLoss<half,unsigned int>;
-template class CalcLoss<half,int>;
+template <typename FPType>
+class LossSoftmaxTransform : public Vertex {
+public:
+  Input<Vector<FPType>> probs;
+  Input<Vector<FPType, ONE_PTR>> expected;
+
+  Output<Vector<FPType, ONE_PTR>> deltas;
+  Output<Vector<FPType, ONE_PTR>> transformed;
+  bool compute() {
+    for (std::size_t i = 0; i < probs.size(); i++) {
+      FPType expect = expected[i];
+      FPType actual = probs[i];
+      deltas[i] = (actual - expect);
+      transformed[i] = -expect * log(actual);
+    }
+    return true;
+  }
+};
+
+template class LossSoftmaxTransform<float>;
+template class LossSoftmaxTransform<half>;
+
+template <typename FPType, typename LabelType>
+class CalcAccuracy : public Vertex {
+public:
+  Input<VectorList<FPType, VectorListLayout::DELTAN>> activations;
+  Input<Vector<LabelType, ONE_PTR>> labels;
+
+  InOut<unsigned> numCorrect;
+  bool compute() {
+    const auto batchSize = activations.size();
+    for (unsigned batch = 0; batch < batchSize; ++batch) {
+      auto in = activations[batch];
+      FPType max = in[0];
+      LabelType maxIndex = 0;
+      for (LabelType i = 0; i < in.size(); i++) {
+        if (in[i] > max) {
+          max = in[i];
+          maxIndex = i;
+        }
+      }
+      *numCorrect += (maxIndex == labels[batch] ? 1 : 0);
+    }
+    return true;
+  }
+};
+
+template class CalcAccuracy<float,unsigned int>;
+template class CalcAccuracy<half,unsigned int>;
+template class CalcAccuracy<float,int>;
+template class CalcAccuracy<half,int>;
 
 template <class InType, class PartialsType>
 class BatchNormEstimates : public Vertex {

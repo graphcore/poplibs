@@ -223,24 +223,29 @@ MAKE_CYCLE_ESTIMATOR_NAME(SumPoolingGrad)(const VertexIntrospector &vertex,
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(CalcLoss)(const VertexIntrospector &vertex,
-                                    const Target &target,
-                                    const Type &fpType,
-                                    const Type &labelType) {
+MAKE_CYCLE_ESTIMATOR_NAME(LossSumSquaredTransform)
+  (const VertexIntrospector &vertex,
+   const Target &target,
+   const Type &fpType) {
   // TODO
-  CODELET_FIELD(batchIn);
-  CODELET_FIELD(batchDeltaOut);
-  CODELET_FIELD(probs);
-  assert(batchIn.size() == batchDeltaOut.size());
-  const auto batchSize = batchIn.size();
-  for (unsigned batchNum = 0; batchNum < batchSize; ++batchNum) {
-#ifndef NDEBUG
-    auto in = batchIn[batchNum];
-    auto deltaOut = batchDeltaOut[batchNum];
-    assert(in.size() == deltaOut.size());
-    assert(probs.size() == in.size());
-#endif
-  }
+  return 0;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(LossSoftmaxTransform)
+  (const VertexIntrospector &vertex,
+   const Target &target,
+   const Type &fpType) {
+  // TODO
+  return 0;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(CalcAccuracy)(const VertexIntrospector &vertex,
+                                        const Target &target,
+                                        const Type &fpType,
+                                        const Type &labelType) {
+  // TODO
   return 0;
 }
 
@@ -273,10 +278,16 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popnn, BatchNormEstimates, FLOAT, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popnn, BatchNormEstimates, HALF, FLOAT),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, CalcLoss, FLOAT, UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, CalcLoss, FLOAT, INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, CalcLoss, HALF, UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, CalcLoss, HALF, INT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, LossSumSquaredTransform, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, LossSumSquaredTransform, HALF),
+
+    CYCLE_ESTIMATOR_ENTRY(popnn, LossSoftmaxTransform, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, LossSoftmaxTransform, HALF),
+
+    CYCLE_ESTIMATOR_ENTRY(popnn, CalcAccuracy, FLOAT, UNSIGNED_INT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, CalcAccuracy, HALF, UNSIGNED_INT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, CalcAccuracy, FLOAT, INT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, CalcAccuracy, HALF, INT),
 
     CYCLE_ESTIMATOR_ENTRY(popnn, SumPoolingGrad, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popnn, SumPoolingGrad, HALF),

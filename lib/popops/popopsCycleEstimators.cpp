@@ -805,6 +805,24 @@ MAKE_CYCLE_ESTIMATOR_NAME(CircOffset)(const VertexIntrospector &vertex,
   return 10;
 }
 
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHot)(const VertexIntrospector &vertex,
+                                        const Target &target,
+                                        const Type &indexType,
+                                        const Type &outputType) {
+  // TODO: Proper cycle estimates
+  return 0;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHot2D)(const VertexIntrospector &vertex,
+                                          const Target &target,
+                                          const Type &indexType,
+                                          const Type &outputType) {
+  // TODO: Proper cycle estimates
+  return 0;
+}
+
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
   poplibs::CycleEstimatorTable table = {
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, FLOAT),
@@ -910,6 +928,26 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, ClampInPlace, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popops, ClampInPlace, HALF),
     CYCLE_ESTIMATOR_ENTRY(popops, ClampInPlace, INT),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot, UNSIGNED_INT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot, UNSIGNED_INT, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot, UNSIGNED_INT, UNSIGNED_INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot, UNSIGNED_INT, INT),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot, INT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot, INT, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot, INT, UNSIGNED_INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot, INT, INT),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot2D, UNSIGNED_INT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot2D, UNSIGNED_INT, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot2D, UNSIGNED_INT, UNSIGNED_INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot2D, UNSIGNED_INT, INT),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot2D, INT, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot2D, INT, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot2D, INT, UNSIGNED_INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot2D, INT, INT),
 
   };
   for (const auto &entry : unaryOpPerfInfo) {

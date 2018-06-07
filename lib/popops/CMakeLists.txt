@@ -12,6 +12,7 @@ add_library(popops SHARED
   codelets.cpp
   DynamicSlice.cpp
   ElementWise.cpp
+  Encoding.cpp
   Expr.cpp
   ExprOpUtil.cpp
   ExprOpUtil.hpp
@@ -26,6 +27,7 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/CircBuf.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/DynamicSlice.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/ElementWise.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/Encoding.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Expr.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/ExprOp.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Pad.hpp
@@ -79,6 +81,7 @@ endif()
 set(codelet_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/dynamicSliceCodelets.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elementwiseCodelets.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/encodingCodelets.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/miscCodelets.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/reduceCodelets.cpp
   )

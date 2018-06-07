@@ -20,6 +20,9 @@ allocateHostMemoryForTensor(const Target &target, const Tensor &t) {
   } else if (dType == HALF){
     p.reset(new char[t.numElements() * target.getTypeSize(HALF)]);
     std::fill(&p[0], &p[t.numElements() * target.getTypeSize(HALF)], 0);
+  } else if (dType == UNSIGNED_INT) {
+    p.reset(new char[t.numElements() * sizeof(unsigned int)]);
+    std::fill(&p[0], &p[t.numElements() * sizeof(unsigned int)], 0);
   } else if (dType == INT) {
     p.reset(new char[t.numElements() * sizeof(int)]);
     std::fill(&p[0], &p[t.numElements() * sizeof(int)], 0);
