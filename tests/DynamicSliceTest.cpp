@@ -10,9 +10,9 @@
 #include <poplar/Program.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/Interval.hpp>
-#include <poplar/IPUModel.hpp>
 #include <poplibs_support/print.hpp>
 #include <boost/multi_array.hpp>
+#include "TestDevice.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
@@ -171,9 +171,7 @@ void sliceTestND(unsigned tilesPerIPU,
 {
   std::cerr << "\nTest "
             << boost::unit_test::framework::current_test_case().p_name << "\n";
-  IPUModel ipuModel;
-  ipuModel.tilesPerIPU = tilesPerIPU;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET, tilesPerIPU);
   Graph graph(device);
   popops::addCodelets(graph);
   std::vector<size_t> t1Shape = testShape;
@@ -316,9 +314,7 @@ void updateTestND(unsigned tilesPerIPU,
 {
   std::cerr << "\nTest "
             << boost::unit_test::framework::current_test_case().p_name << "\n";
-  IPUModel ipuModel;
-  ipuModel.tilesPerIPU = tilesPerIPU;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET, tilesPerIPU);
   Graph graph(device);
   popops::addCodelets(graph);
   std::vector<size_t> t1Shape = testShape;
@@ -450,9 +446,7 @@ BOOST_AUTO_TEST_CASE(SliceOrder) {
   // so that it slices the dimensions in the order [1, 2, 0] (and
   // idxOrder should be [2, 0, 1]).
 
-  IPUModel ipuModel;
-  ipuModel.tilesPerIPU = 4;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET, 4);
   Graph graph(device);
   popops::addCodelets(graph);
 

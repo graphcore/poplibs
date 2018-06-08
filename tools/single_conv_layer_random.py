@@ -289,6 +289,8 @@ def main():
                         help='Number of convolutions to run')
     parser.add_argument('--seed', default=42, type=int,
                         help='Random number seed')
+    parser.add_argument('--model-type', default='IpuModel',
+                        help='Underlying target model to use')
     parser.add_argument('--dummy', action='store_true',
                         help='Print parameters without running convolution')
     args = parser.parse_args()
@@ -297,7 +299,8 @@ def main():
         params = make_constrained_params()
         device_args = make_device_args()
         print('Run #{}:'.format(i))
-        run(params, binary=args.binary, extra_args=device_args,
+        run(params, binary=args.binary,
+            extra_args=device_args + ['--model-type=' + str(args.model_type)],
             dummy_run=args.dummy)
 
 if __name__ == "__main__":

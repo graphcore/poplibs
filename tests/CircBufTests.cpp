@@ -6,8 +6,8 @@
 #include <limits>
 #include <poplar/Engine.hpp>
 #include <popops/codelets.hpp>
-#include <poplar/IPUModel.hpp>
 #include <iostream>
+#include "TestDevice.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
@@ -15,8 +15,7 @@ using namespace popops;
 using namespace poputil;
 
 BOOST_AUTO_TEST_CASE(CircBufIncrIndex) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
   const unsigned circBufSize = 20;
@@ -46,8 +45,7 @@ BOOST_AUTO_TEST_CASE(CircBufIncrIndex) {
 }
 
 BOOST_AUTO_TEST_CASE(CircBufIncrIndex2d) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
   const unsigned circBufSize = 20;
@@ -77,9 +75,7 @@ BOOST_AUTO_TEST_CASE(CircBufIncrIndex2d) {
 }
 
 BOOST_AUTO_TEST_CASE(CircBufCheckAdd) {
-  IPUModel ipuModel;
-  ipuModel.tilesPerIPU = 16;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET, 16);
   Graph graph(device);
 
   popops::addCodelets(graph);

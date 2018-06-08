@@ -8,6 +8,7 @@
 #include <iostream>
 #include <popops/ScaledAdd.hpp>
 #include <popops/Cast.hpp>
+#include "TestDevice.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
@@ -65,8 +66,7 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
 
@@ -99,13 +99,11 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float,
     }
   }
 }
-
 BOOST_AUTO_TEST_CASE(StdSubFrom_int,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
 
@@ -141,8 +139,7 @@ BOOST_AUTO_TEST_CASE(StdSubFrom_int,
 
 
 BOOST_AUTO_TEST_CASE(StdCast) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
 

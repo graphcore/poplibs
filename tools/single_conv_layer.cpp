@@ -69,7 +69,7 @@ static void addGlobalExchangeConstraints(IPUModel &ipuModel) {
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
-  bool useCpuModel;
+  std::string modelType = "IpuModel";
   unsigned fwdInChansPerConvGroup;
   unsigned fwdOutChansPerConvGroup;
   ShapeOption<std::size_t> inputFieldSizeOption;
@@ -112,8 +112,8 @@ int main(int argc, char **argv) {
   po::options_description desc("Options");
   desc.add_options()
     ("help", "Produce help message")
-    ("use-cpu", po::value<bool>(&useCpuModel)->default_value(false),
-     "When true, use a CPU model of the device. Otherwise use the IPU model")
+    ("model-type", po::value<std::string>(&modelType)->default_value(modelType),
+     "poplar model type: IpuModel | Cpu | | Sim | Sim1IPU")
     ("input-channels", po::value<unsigned>(&fwdInChansPerConvGroup)->required(),
      "Number of input channels per grouped convolution")
     ("output-channels",
@@ -383,8 +383,36 @@ int main(int argc, char **argv) {
     }
   }
 
-  Device dev = useCpuModel ? Device::createCPUDevice() :
-                             ipuModel.createDevice();
+  Device dev;
+  if (modelType == "IpuModel") {
+    dev = ipuModel.createDevice();
+  } else if (modelType == "Cpu") {
+    dev = Device::createCPUDevice();
+  } else if (modelType == "Sim") {
+    if (ipuModel.numIPUs > 1) {
+      std::cerr << "Multi-IPU Simulation models not supported\n";
+      exit(1);
+    }
+    std::string system;
+    if (ipuModel.tilesPerIPU == 1)
+      system = "_TEST_SYSTEM_ONE_TILE";
+    else if (ipuModel.tilesPerIPU < 16)
+      system = "_TEST_SYSTEM_SIXTEEN_TILE";
+    else
+      system = "_TEST_SYSTEM_ALL_TILES";
+    auto target = Target::createIPUTarget(1, system);
+    dev = Device::createSimulatorDevice(target);
+  } else if (modelType == "Sim1IPU") {
+    if (ipuModel.numIPUs > 1) {
+      std::cerr << "Multi-IPU Simulation models not supported\n";
+      exit(1);
+    }
+    auto target = Target::createIPUTarget(1, "_TEST_SYSTEM_ALL_TILES");
+    dev = Device::createSimulatorDevice(target);
+  } else {
+    std::cerr << "Invalid model type requested\n";
+    return 1;
+  }
   const auto &target = dev.getTarget();
   Graph graph(dev);
   popops::addCodelets(graph);
@@ -672,7 +700,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (!useCpuModel) {
+  if (modelType != "Cpu") {
     engine.printSummary(std::cout, OptionFlags{
       { "doLayerWiseBreakdown", "true" }
     });

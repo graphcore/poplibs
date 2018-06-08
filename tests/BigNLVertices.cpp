@@ -43,7 +43,7 @@ BOOST_AUTO_TEST_CASE(BigVectorList) {
 
     std::vector<float> hPre(nElms);
     std::vector<float> hPost(nElms);
-    for (int i = 0; i < nElms; ++i) {
+    for (unsigned i = 0; i < nElms; ++i) {
       // set all initial values to -1.0
       hPre[i]  = -1.0;
       hPost[i] = 10.0;

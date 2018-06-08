@@ -7,11 +7,11 @@
 #include <limits>
 #include <poputil/TileMapping.hpp>
 #include <poplar/Engine.hpp>
-#include <poplar/IPUModel.hpp>
 #include <popops/codelets.hpp>
 #include <iostream>
 #include <cmath>
 #include <random>
+#include "TestDevice.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
@@ -165,8 +165,7 @@ template <typename T, typename TestT>
 void unaryOpTest(const UnaryOpFn &op,
                  const std::function<TestT(T)> &testFn,
                  bool positiveInputs = false) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
 
@@ -206,8 +205,7 @@ using BinaryOpFn = std::function<Tensor(Graph &, const Tensor &,
 template <typename T, typename TestT, typename OutT = T>
 void binaryOpTest(const BinaryOpFn &op,
                  const std::function<TestT(T, T)> &testFn) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
 
@@ -243,10 +241,9 @@ void binaryOpTest(const BinaryOpFn &op,
 
 void binaryOpTestHalf(const BinaryOpFn &op,
                       const std::function<float(float, float)> &testFn) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
-  const auto &target = device.getTarget();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
+  const auto &target = device.getTarget();
   popops::addCodelets(graph);
 
   Tensor in1, in2;
@@ -725,8 +722,7 @@ BOOST_AUTO_TEST_CASE(StdOperationPower,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
 
@@ -939,8 +935,7 @@ BOOST_AUTO_TEST_CASE(StdOperationSelectFloat,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
 
@@ -987,8 +982,7 @@ BOOST_AUTO_TEST_CASE(StdOperationSelectInt,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
 
@@ -1034,8 +1028,7 @@ BOOST_AUTO_TEST_CASE(StdOperationClampFloat,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
 
@@ -1088,8 +1081,7 @@ BOOST_AUTO_TEST_CASE(StdOperationClampInt,
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
 
@@ -1193,8 +1185,7 @@ BOOST_AUTO_TEST_CASE(StdOperationClampInPlaceFloat,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationBinaryOutputMapChoice) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET, 4);
   Graph graph(device);
   popops::addCodelets(graph);
 
@@ -1229,8 +1220,7 @@ BOOST_AUTO_TEST_CASE(StdOperationBinaryOutputMapChoice) {
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationTrinaryOutputMapChoice) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET, 4);
   Graph graph(device);
   popops::addCodelets(graph);
 
@@ -1284,8 +1274,7 @@ BOOST_AUTO_TEST_CASE(StdOperationTrinaryOutputMapChoice) {
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationAllTrueBadType) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
 
@@ -1296,8 +1285,7 @@ BOOST_AUTO_TEST_CASE(StdOperationAllTrueBadType) {
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationAllTrue) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
 
@@ -1333,8 +1321,7 @@ BOOST_AUTO_TEST_CASE(StdOperationAllTrue) {
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationIsFinite) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
 
@@ -1371,8 +1358,7 @@ BOOST_AUTO_TEST_CASE(StdOperationIsFinite) {
 using namespace popops::expr;
 
 BOOST_AUTO_TEST_CASE(MapTest) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
 
@@ -1410,8 +1396,7 @@ BOOST_AUTO_TEST_CASE(MapTest) {
 
 
 BOOST_AUTO_TEST_CASE(MapTestMultiTensor) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
 
@@ -1464,8 +1449,7 @@ BOOST_AUTO_TEST_CASE(MapTestMultiTensor) {
 
 
 BOOST_AUTO_TEST_CASE(MapInPlaceTest) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
 
@@ -1502,8 +1486,7 @@ BOOST_AUTO_TEST_CASE(MapInPlaceTest) {
 }
 
 BOOST_AUTO_TEST_CASE(MapInferTypeTest) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
 

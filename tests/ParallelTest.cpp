@@ -1,7 +1,7 @@
 #define BOOST_TEST_MODULE ParallelTest
 #include <boost/test/unit_test.hpp>
 #include <popops/codelets.hpp>
-#include <poplar/IPUModel.hpp>
+#include "TestDevice.hpp"
 
 #include <thread>
 
@@ -16,8 +16,7 @@ BOOST_AUTO_TEST_CASE(ManyParallelGraphLoads){
     for (unsigned t = 0; t<nthreads; t++)
     {
         threads.push_back(std::thread([]() {
-          IPUModel ipuModel;
-          auto device = ipuModel.createDevice();
+          auto device = createTestDevice(TEST_TARGET);
 
           Graph graph(device);
           popops::addCodelets(graph);

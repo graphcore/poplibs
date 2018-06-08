@@ -1,9 +1,9 @@
 #define BOOST_TEST_MODULE BatchNormTests
 
+#include "TestDevice.hpp"
 #include <boost/test/unit_test.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poplar/Engine.hpp>
-#include <poplar/IPUModel.hpp>
 #include <popops/ElementWise.hpp>
 #include <popconv/codelets.hpp>
 #include <popnn/codelets.hpp>
@@ -44,9 +44,7 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   const auto dimX = dims[2];
   const auto numChannels = dims[3];
 
-  IPUModel ipuModel;
-  ipuModel.tilesPerIPU = tilesPerIPU;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET, tilesPerIPU);
   const auto &target = device.getTarget();
   Graph graph(device);
   popops::addCodelets(graph);
@@ -226,9 +224,7 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
                         unsigned tilesPerIPU,
                         const Type &dataType,
                         const Type &partialsType) {
-  IPUModel ipuModel;
-  ipuModel.tilesPerIPU = tilesPerIPU;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET, tilesPerIPU);
   const auto &target = device.getTarget();
   Graph graph(device);
   popops::addCodelets(graph);

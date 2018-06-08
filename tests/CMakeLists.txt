@@ -2,27 +2,90 @@ find_package(Boost REQUIRED unit_test_framework timer system program_options)
 find_package(PythonInterp REQUIRED)
 find_package(Threads)
 
+if(OVERRIDE_TEST_DEVICES)
+  set(ENABLED_TEST_DEVICES ${OVERRIDE_TEST_DEVICES})
+else()
+  set(ENABLED_TEST_DEVICES "IpuModel" CACHE STRING
+      "Generate tests for these devices" FORCE)
+endif()
+
 add_subdirectory(popsolver)
 
-function(add_popnn_unit_test name)
-  add_executable(${name} ${ARGN})
-  target_include_directories(${name}
-    PRIVATE
-      $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
-      $<TARGET_PROPERTY:popconv,INCLUDE_DIRECTORIES>)
-  target_link_libraries(${name} poprand popnn poputil
-                        poplar
-                        poplibs_test
-                        Boost::unit_test_framework
-                        Boost::timer
-                        Boost::system
-                        Boost::program_options
-                        ${CMAKE_THREAD_LIBS_INIT})
-  if(NOT Boost_UNIT_TEST_FRAMEWORK_LIBRARY MATCHES "\\.a$")
-    target_compile_definitions(${name} PRIVATE -DBOOST_TEST_DYN_LINK)
+# remove any requested targets not present in ${ENABLED_TEST_DEVICES}
+# If no targets were requested all ${ENABLED_TEST_DEVICES} are returned
+function(sanitise_targets target_name)
+  set(targets ${${target_name}})
+  set(old_targets "${targets}")
+  if (NOT old_targets)
+    set(new_targets ${ENABLED_TEST_DEVICES})
+  else()
+    set(new_targets "")
+    # test for all targets that are supported
+    foreach(target ${old_targets})
+      if (${target} IN_LIST ENABLED_TEST_DEVICES)
+        list(APPEND new_targets ${target})
+      endif()
+    endforeach()
   endif()
-  add_test(NAME ${name}
-    COMMAND ${name})
+  set(${target_name} "${new_targets}" PARENT_SCOPE)
+endfunction()
+
+# first parameter is the test name, following ones are source files,
+# everything after TARGETS is a target
+function(add_popnn_unit_test name)
+  cmake_parse_arguments(add_unit_test "" "FILES" "TARGETS" "FILES;${ARGN}")
+  sanitise_targets(add_unit_test_TARGETS)
+  set(FILES "${add_unit_test_FILES}")
+
+  foreach(TEST_TARGET ${add_unit_test_TARGETS})
+    set(test_name "${TEST_TARGET}_${name}")
+    message("generating test for test_name=${test_name}")
+    add_executable(${test_name} ${ARGN})
+    set_property(TARGET ${test_name}
+        APPEND_STRING PROPERTY
+	COMPILE_FLAGS "-DTEST_TARGET=DeviceType::${TEST_TARGET}")
+    target_include_directories(${test_name}
+	PRIVATE
+	$<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
+        $<TARGET_PROPERTY:popconv,INCLUDE_DIRECTORIES>)
+    target_link_libraries(${test_name} poprand popnn poputil
+                          poplar
+                          poplibs_test
+                          Boost::unit_test_framework
+                          Boost::timer
+                          Boost::system
+                          Boost::program_options
+                          ${CMAKE_THREAD_LIBS_INIT})
+    if(NOT Boost_UNIT_TEST_FRAMEWORK_LIBRARY MATCHES "\\.a$")
+      target_compile_definitions(${name} PRIVATE -DBOOST_TEST_DYN_LINK)
+    endif()
+    add_test(NAME ${test_name}
+      COMMAND ${test_name})
+    if (TEST_TARGET STREQUAL "Sim1IPU")
+      set_property(TEST "${test_name}" PROPERTY LABELS SLOW)
+    endif()
+  endforeach()
+endfunction()
+
+# add a test to run on the specified TARGETs
+function(add_multitarget_test)
+  cmake_parse_arguments(add_multitarget_test "" "NAME"
+                        "TARGETS;COMMAND"
+                        "${ARGN}")
+  sanitise_targets(add_multitarget_test_TARGETS)
+  set(name ${add_multitarget_test_NAME})
+  if (NOT add_multitarget_test_NAME)
+    message(FATAL_ERROR "add_multitarget_test requires a NAME to be specified")
+  endif()
+  foreach (TEST_TARGET ${add_multitarget_test_TARGETS})
+    set(test_name "${TEST_TARGET}_${name}")
+    add_test(
+      NAME ${test_name}
+      COMMAND ${add_multitarget_test_COMMAND} "--model-type=${TEST_TARGET}")
+    if (TEST_TARGET STREQUAL "Sim1IPU")
+      set_property(TEST "${test_name}" PROPERTY LABELS SLOW)
+    endif()
+  endforeach()
 endfunction()
 
 # Unit tests
@@ -50,7 +113,8 @@ add_popnn_unit_test(EncodingTest EncodingTest.cpp)
 # Random single_conv_layer tests with fixed seed.
 set(NUM_CONV_RANDOM_TESTS 50)
 foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
-  add_test(NAME conv_random_${n}
+  add_multitarget_test(
+           NAME conv_random_${n}
            COMMAND ${PYTHON_EXECUTABLE}
                    ${CMAKE_SOURCE_DIR}/tools/single_conv_layer_random.py
                    --n 1
@@ -66,7 +130,7 @@ foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
 endforeach()
 
 #  ORIG Layer tests
-add_test(NAME conv3x3_stride_2_128_out
+add_multitarget_test(NAME conv3x3_stride_2_128_out
          COMMAND single_conv_layer
                  --input-channels=64
                  --output-channels=128
@@ -76,7 +140,8 @@ add_test(NAME conv3x3_stride_2_128_out
                  --padding=2
                  --stride=2)
 
-add_test(NAME conv1x1_stride_1
+add_multitarget_test(
+         NAME conv1x1_stride_1
          COMMAND single_conv_layer
              --input-channels=128
              --output-channels=256
@@ -85,7 +150,8 @@ add_test(NAME conv1x1_stride_1
              --stride=1
              --kernel-size=1)
 
-add_test(NAME conv1x1_no_bias
+add_multitarget_test(
+         NAME conv1x1_no_bias
         COMMAND single_conv_layer
             --input-channels=64
             --output-channels=32
@@ -95,7 +161,8 @@ add_test(NAME conv1x1_no_bias
             --kernel-size=1
             --bias=0)
 
-add_test(NAME conv1x1_stride_1_odd_outchans
+add_multitarget_test(
+         NAME conv1x1_stride_1_odd_outchans
         COMMAND single_conv_layer
             --input-channels=128
             --output-channels=257
@@ -104,7 +171,8 @@ add_test(NAME conv1x1_stride_1_odd_outchans
             --stride=1
             --kernel-size=1)
 
-add_test(NAME conv1x1_stride_1_odd_inchans
+add_multitarget_test(
+         NAME conv1x1_stride_1_odd_inchans
         COMMAND single_conv_layer
             --input-channels=129
             --output-channels=256
@@ -113,7 +181,8 @@ add_test(NAME conv1x1_stride_1_odd_inchans
             --stride=1
             --kernel-size=1)
 
-add_test(NAME conv1x1_stride_1_odd_in_and_out_chans
+add_multitarget_test(
+         NAME conv1x1_stride_1_odd_in_and_out_chans
         COMMAND single_conv_layer
             --input-channels=129
             --output-channels=257
@@ -122,7 +191,8 @@ add_test(NAME conv1x1_stride_1_odd_in_and_out_chans
             --stride=1
             --kernel-size=1)
 
-add_test(NAME conv1x1_stride_3
+add_multitarget_test(
+         NAME conv1x1_stride_3
          COMMAND single_conv_layer
              --input-channels=64
              --output-channels=128
@@ -131,13 +201,15 @@ add_test(NAME conv1x1_stride_3
              --stride=3
              --kernel-size=1)
 
-add_test(NAME conv1x1_thinly_spread
+add_multitarget_test(
+         NAME conv1x1_thinly_spread
          COMMAND single_conv_layer
              --field={1,128}
              --input-channels=16
              --output-channels=8)
 
-add_test(NAME conv3x3_stride_1
+add_multitarget_test(
+         NAME conv3x3_stride_1
          COMMAND single_conv_layer
              --input-channels=32
              --output-channels=16
@@ -147,7 +219,8 @@ add_test(NAME conv3x3_stride_1
              --kernel-size=3)
 
 
-add_test(NAME conv3x3_stride_2
+add_multitarget_test(
+         NAME conv3x3_stride_2
          COMMAND single_conv_layer
              --input-channels=32
              --output-channels=16
@@ -156,7 +229,8 @@ add_test(NAME conv3x3_stride_2
              --stride=2
              --kernel-size=3)
 
-add_test(NAME conv3x3_asymmetric_stride
+add_multitarget_test(
+         NAME conv3x3_asymmetric_stride
          COMMAND single_conv_layer
              --input-channels=32
              --output-channels=16
@@ -165,7 +239,8 @@ add_test(NAME conv3x3_asymmetric_stride
              --stride={2,3}
              --kernel-size=3)
 
-add_test(NAME conv3x3_stride_1_padding_1
+add_multitarget_test(
+         NAME conv3x3_stride_1_padding_1
          COMMAND single_conv_layer
               --input-channels=32
               --output-channels=16
@@ -175,7 +250,8 @@ add_test(NAME conv3x3_stride_1_padding_1
               --kernel-size=3
               --padding=1)
 
-add_test(NAME conv4x4_stride_1_padding_2
+add_multitarget_test(
+         NAME conv4x4_stride_1_padding_2
          COMMAND single_conv_layer
               --input-channels=32
               --output-channels=16
@@ -185,7 +261,8 @@ add_test(NAME conv4x4_stride_1_padding_2
               --kernel-size=4
               --padding=2)
 
-add_test(NAME conv3x3_stride_2_multi_tile
+add_multitarget_test(
+         NAME conv3x3_stride_2_multi_tile
          COMMAND single_conv_layer
                  --input-channels=16
                  --output-channels=16
@@ -194,7 +271,8 @@ add_test(NAME conv3x3_stride_2_multi_tile
                  --stride=2
                  --kernel-size=3)
 
-add_test(NAME conv1x1_stride_3_fwd
+add_multitarget_test(
+         NAME conv1x1_stride_3_fwd
          COMMAND single_conv_layer
                  --single-phase=fwd
                  --input-channels=16
@@ -203,7 +281,8 @@ add_test(NAME conv1x1_stride_3_fwd
                  --tiles-per-ipu=1
                  --stride=3)
 
-add_test(NAME conv3x3_batch_2
+add_multitarget_test(
+         NAME conv3x3_batch_2
          COMMAND single_conv_layer
                   --input-channels=16
                   --output-channels=16
@@ -213,7 +292,8 @@ add_test(NAME conv3x3_batch_2
                   --kernel-size=3
                   --batch-size=2)
 
-add_test(NAME conv3x3_16_to_16_stride_1_differing_padding
+add_multitarget_test(
+         NAME conv3x3_16_to_16_stride_1_differing_padding
         COMMAND single_conv_layer
         --input-channels=16
         --output-channels=16
@@ -223,7 +303,8 @@ add_test(NAME conv3x3_16_to_16_stride_1_differing_padding
         --padding={1,2}
         --stride=1)
 
-add_test(NAME conv3x3_batch_2_differing_padding
+add_multitarget_test(
+         NAME conv3x3_batch_2_differing_padding
         COMMAND single_conv_layer
         --input-channels=16
         --output-channels=16
@@ -234,7 +315,8 @@ add_test(NAME conv3x3_batch_2_differing_padding
         --padding={1,2}
         --batch-size=2)
 
-add_test(NAME conv3x3_stride_1_fwd_asym_padding
+add_multitarget_test(
+         NAME conv3x3_stride_1_fwd_asym_padding
         COMMAND single_conv_layer
                 --input-channels=32
                 --output-channels=48
@@ -244,7 +326,8 @@ add_test(NAME conv3x3_stride_1_fwd_asym_padding
                 --padding-lower=1
                 --padding-upper=2
                 --stride=1)
-add_test(NAME conv3x3_stride_1_fwd_asym_padding_2
+add_multitarget_test(
+         NAME conv3x3_stride_1_fwd_asym_padding_2
          COMMAND single_conv_layer
                 --input-channels=32
                 --output-channels=48
@@ -255,7 +338,8 @@ add_test(NAME conv3x3_stride_1_fwd_asym_padding_2
                 --padding-upper=0
                 --stride=1)
 
-add_test(NAME conv5x5_stride_2_fwd_asym_padding
+add_multitarget_test(
+         NAME conv5x5_stride_2_fwd_asym_padding
          COMMAND single_conv_layer
                   --input-channels=64
                   --output-channels=64
@@ -267,7 +351,8 @@ add_test(NAME conv5x5_stride_2_fwd_asym_padding
                   --stride=2
                   --tiles-per-ipu=16)
 
-add_test(NAME small_conv_many_tiles_1x1
+add_multitarget_test(
+         NAME small_conv_many_tiles_1x1
          COMMAND single_conv_layer
                  --input-channels=32
                  --output-channels=32
@@ -275,7 +360,8 @@ add_test(NAME small_conv_many_tiles_1x1
                  --partials-type=float
                  --tiles-per-ipu=1216)
 
-add_test(NAME small_conv_many_tiles_3x3
+add_multitarget_test(
+         NAME small_conv_many_tiles_3x3
          COMMAND single_conv_layer
                  --input-channels=32
                  --output-channels=32
@@ -284,14 +370,16 @@ add_test(NAME small_conv_many_tiles_3x3
                  --partials-type=float
                  --tiles-per-ipu=1216)
 
-add_test(NAME conv1x1_shallow_input
+add_multitarget_test(
+         NAME conv1x1_shallow_input
          COMMAND single_conv_layer
                  --input-channels=8
                  --output-channels=1024
                  --field={16,16}
                  --data-type=half)
 
-add_test(NAME conv3x3_feature8x8_shallow
+add_multitarget_test(
+         NAME conv3x3_feature8x8_shallow
          COMMAND single_conv_layer
                  --batch-size=1
                  --input-channels=1
@@ -302,7 +390,8 @@ add_test(NAME conv3x3_feature8x8_shallow
                  --stride=1
                  --data-type=half)
 
-add_test(NAME conv3x3_feature8x8_shallow_stride2
+add_multitarget_test(
+         NAME conv3x3_feature8x8_shallow_stride2
          COMMAND single_conv_layer
                  --batch-size=1
                  --input-channels=1
@@ -313,7 +402,8 @@ add_test(NAME conv3x3_feature8x8_shallow_stride2
                  --stride=2
                  --data-type=half)
 
-add_test(NAME conv_large_kernel
+add_multitarget_test(
+         NAME conv_large_kernel
          COMMAND single_conv_layer
                  --single-phase=fwd
                  --field={64,14}
@@ -323,7 +413,8 @@ add_test(NAME conv_large_kernel
                  --padding=1
                  --stride=2)
 
-add_test(NAME conv_large_kernel_bwd
+add_multitarget_test(
+         NAME conv_large_kernel_bwd
          COMMAND single_conv_layer
                  --single-phase=bwd
                  --field={64,14}
@@ -333,7 +424,8 @@ add_test(NAME conv_large_kernel_bwd
                  --padding=1
                  --stride=2)
 
-add_test(NAME conv_large_kernel_with_small_field
+add_multitarget_test(
+         NAME conv_large_kernel_with_small_field
          COMMAND single_conv_layer
                  --field={1,16}
                  --padding={1,6}
@@ -342,7 +434,8 @@ add_test(NAME conv_large_kernel_with_small_field
                  --output-channels=16
                  --tiles-per-ipu=16)
 
-add_test(NAME conv_flip_input_and_kernel_1
+add_multitarget_test(
+         NAME conv_flip_input_and_kernel_1
          COMMAND single_conv_layer
                  --field={6,2}
                  --padding={0,1}
@@ -354,7 +447,8 @@ add_test(NAME conv_flip_input_and_kernel_1
                  --output-channels=1
                  --tiles-per-ipu=1)
 
-add_test(NAME conv_flip_input_and_kernel_2
+add_multitarget_test(
+         NAME conv_flip_input_and_kernel_2
          COMMAND single_conv_layer
                  --field={1,32}
                  --padding={0,16}
@@ -365,7 +459,8 @@ add_test(NAME conv_flip_input_and_kernel_2
                  --output-channels=8
                  --tiles-per-ipu=4)
 
-add_test(NAME conv_flip_input_only
+add_multitarget_test(
+         NAME conv_flip_input_only
          COMMAND single_conv_layer
                  --field={28,28}
                  --padding=1
@@ -375,7 +470,8 @@ add_test(NAME conv_flip_input_only
                  --output-channels=32
                  --tiles-per-ipu=16)
 
-add_test(NAME conv_flip_kernel_only
+add_multitarget_test(
+         NAME conv_flip_kernel_only
          COMMAND single_conv_layer
                  --field={28,28}
                  --padding=1
@@ -385,7 +481,8 @@ add_test(NAME conv_flip_kernel_only
                  --output-channels=32
                  --tiles-per-ipu=16)
 
-add_test(NAME conv_batch_bwd
+add_multitarget_test(
+         NAME conv_batch_bwd
          COMMAND single_conv_layer
                  --field={14,14}
                  --input-channels=32
@@ -394,7 +491,8 @@ add_test(NAME conv_batch_bwd
                  --data-type=half
                  --batch-size=4)
 
-add_test(NAME conv_batch_bwd_float
+add_multitarget_test(
+         NAME conv_batch_bwd_float
          COMMAND single_conv_layer
                  --field={14,14}
                  --input-channels=32
@@ -403,7 +501,8 @@ add_test(NAME conv_batch_bwd_float
                  --data-type=float
                  --batch-size=4)
 
-add_test(NAME conv_batch_group
+add_multitarget_test(
+         NAME conv_batch_group
          COMMAND single_conv_layer
                  --field={28,28}
                  --input-channels=512
@@ -411,7 +510,8 @@ add_test(NAME conv_batch_group
                  --batch-size=2)
 
 # conv_batch_bwd_float test split into the three component phases
-add_test(NAME conv_batch_bwd_float_fwd
+add_multitarget_test(
+         NAME conv_batch_bwd_float_fwd
          COMMAND single_conv_layer
                  --field={14,14}
                  --input-channels=32
@@ -421,7 +521,8 @@ add_test(NAME conv_batch_bwd_float_fwd
                  --batch-size=4
                  --single-phase=fwd)
 
-add_test(NAME conv_batch_bwd_float_bwd
+add_multitarget_test(
+         NAME conv_batch_bwd_float_bwd
          COMMAND single_conv_layer
                  --field={14,14}
                  --input-channels=32
@@ -431,7 +532,8 @@ add_test(NAME conv_batch_bwd_float_bwd
                  --batch-size=4
                  --single-phase=bwd)
 
-add_test(NAME conv_batch_bwd_float_wu
+add_multitarget_test(
+         NAME conv_batch_bwd_float_wu
          COMMAND single_conv_layer
                  --field={14,14}
                  --input-channels=32
@@ -441,7 +543,8 @@ add_test(NAME conv_batch_bwd_float_wu
                  --batch-size=4
                  --single-phase=wu)
 
-add_test(NAME conv_negative_input_padding_upper_simple
+add_multitarget_test(
+         NAME conv_negative_input_padding_upper_simple
         COMMAND single_conv_layer
                 --input-channels=1
                 --output-channels=1
@@ -450,7 +553,8 @@ add_test(NAME conv_negative_input_padding_upper_simple
                 --truncation-upper={0,1}
                 --tiles-per-ipu=1)
 
-add_test(NAME conv_negative_kernel_padding_upper_simple
+add_multitarget_test(
+         NAME conv_negative_kernel_padding_upper_simple
         COMMAND single_conv_layer
                 --input-channels=1
                 --output-channels=1
@@ -459,7 +563,8 @@ add_test(NAME conv_negative_kernel_padding_upper_simple
                 --kernel-truncation-upper={0,1}
                 --tiles-per-ipu=1)
 
-add_test(NAME conv_positive_and_negative_kernel_padding
+add_multitarget_test(
+         NAME conv_positive_and_negative_kernel_padding
          COMMAND single_conv_layer
          --input-channels=16
          --output-channels=16
@@ -469,7 +574,8 @@ add_test(NAME conv_positive_and_negative_kernel_padding
          --kernel-truncation-upper=1
          --tiles-per-ipu=1)
 
-add_test(NAME conv_negative_input_padding_lower_simple
+add_multitarget_test(
+         NAME conv_negative_input_padding_lower_simple
          COMMAND single_conv_layer
                  --input-channels=1
                  --output-channels=1
@@ -478,7 +584,8 @@ add_test(NAME conv_negative_input_padding_lower_simple
                  --truncation-upper={0,1}
                  --tiles-per-ipu=1)
 
-add_test(NAME conv_negative_kernel_padding_lower_simple
+add_multitarget_test(
+         NAME conv_negative_kernel_padding_lower_simple
          COMMAND single_conv_layer
                  --input-channels=1
                  --output-channels=1
@@ -490,7 +597,8 @@ add_test(NAME conv_negative_kernel_padding_lower_simple
 # Test where the size of the output tensor is much bigger than the size weight
 # tensor. As such it likely to be better to rearranging the weight deltas
 # instead of the deltas in the weight update phase.
-add_test(NAME conv_large_output_tensor
+add_multitarget_test(
+         NAME conv_large_output_tensor
          COMMAND single_conv_layer
                 --field={16,16}
                 --input-channels=16
@@ -498,7 +606,8 @@ add_test(NAME conv_large_output_tensor
                 --tiles-per-ipu=16
                 --data-type=half)
 
-add_test(NAME conv_large_weights
+add_multitarget_test(
+         NAME conv_large_weights
          COMMAND single_conv_layer
                 --field={14,16}
                 --padding={2,0}
@@ -511,14 +620,16 @@ add_test(NAME conv_large_weights
                 --data-type=half
                 --single-phase=fwd)
 
-add_test(NAME conv_outer_product
+add_multitarget_test(
+         NAME conv_outer_product
          COMMAND single_conv_layer
                  --input-channels=1
                  --output-channels=1024
                  --field={1,512}
                  --tiles-per-ipu=64)
 
-add_test(NAME conv3x3_stride_1_half_partials
+add_multitarget_test(
+         NAME conv3x3_stride_1_half_partials
          COMMAND single_conv_layer
                  --input-channels=32
                  --output-channels=16
@@ -528,7 +639,8 @@ add_test(NAME conv3x3_stride_1_half_partials
                  --kernel-size=3
                  --partials-type=half)
 
-add_test(NAME conv1x1_kernel_with_padding_larger_than_field
+add_multitarget_test(
+         NAME conv1x1_kernel_with_padding_larger_than_field
          COMMAND single_conv_layer
                  --input-channels=16
                  --output-channels=8
@@ -536,7 +648,8 @@ add_test(NAME conv1x1_kernel_with_padding_larger_than_field
                  --tiles-per-ipu=2
                  --padding={1,64})
 
-add_test(NAME conv_input_dilation_and_stride_share_factor1
+add_multitarget_test(
+         NAME conv_input_dilation_and_stride_share_factor1
          COMMAND single_conv_layer
                  --input-channels=32
                  --output-channels=64
@@ -546,7 +659,8 @@ add_test(NAME conv_input_dilation_and_stride_share_factor1
                  --stride=3
                  --tiles-per-ipu=16)
 
-add_test(NAME conv_input_dilation_and_stride_share_factor2
+add_multitarget_test(
+         NAME conv_input_dilation_and_stride_share_factor2
          COMMAND single_conv_layer
                  --input-channels=32
                  --output-channels=64
@@ -556,7 +670,8 @@ add_test(NAME conv_input_dilation_and_stride_share_factor2
                  --stride=2
                  --tiles-per-ipu=16)
 
-add_test(NAME conv_input_dilation_and_stride_share_factor3
+add_multitarget_test(
+         NAME conv_input_dilation_and_stride_share_factor3
          COMMAND single_conv_layer
                  --input-channels=32
                  --output-channels=64
@@ -566,7 +681,8 @@ add_test(NAME conv_input_dilation_and_stride_share_factor3
                  --stride=4
                  --tiles-per-ipu=16)
 
-add_test(NAME conv_input_dilation_and_stride_share_factor4
+add_multitarget_test(
+         NAME conv_input_dilation_and_stride_share_factor4
         COMMAND single_conv_layer
                 --input-channels=32
                 --output-channels=64
@@ -576,7 +692,8 @@ add_test(NAME conv_input_dilation_and_stride_share_factor4
                 --stride=6
                 --tiles-per-ipu=16)
 
-add_test(NAME conv_input_dilation_and_stride_share_factor5
+add_multitarget_test(
+         NAME conv_input_dilation_and_stride_share_factor5
         COMMAND single_conv_layer
                 --input-channels=32
                 --output-channels=64
@@ -589,7 +706,8 @@ add_test(NAME conv_input_dilation_and_stride_share_factor5
 # Example where the amount of padding that must be added to start of the input
 # window for the conv nx1 vertex exceeds the amount of lower padding for the
 # layer.
-add_test(NAME conv_nx1_vertex_lower_padding
+add_multitarget_test(
+         NAME conv_nx1_vertex_lower_padding
          COMMAND single_conv_layer
                  --field={16,32}
                  --input-channels=4
@@ -603,7 +721,8 @@ add_test(NAME conv_nx1_vertex_lower_padding
 # Test where, after padding and dilation, the last input index that would be
 # multiplied by the a kernel element is in the middle of the lower input
 # padding.
-add_test(NAME conv1x1_input_ignored_with_stride
+add_multitarget_test(
+         NAME conv1x1_input_ignored_with_stride
          COMMAND single_conv_layer
                  --field={2,2}
                  --in-dilation=2
@@ -615,7 +734,8 @@ add_test(NAME conv1x1_input_ignored_with_stride
                  --tiles-per-ipu=1)
 
 # Test with large amounts of output padding
-add_test(NAME conv1x1_output_padding
+add_multitarget_test(
+         NAME conv1x1_output_padding
          COMMAND single_conv_layer
                  --field={1,1}
                  --input-channels=16
@@ -624,7 +744,8 @@ add_test(NAME conv1x1_output_padding
                  --tiles-per-ipu=16)
 
 #  Grouped convolution layer tests
-add_test(NAME grouped_conv3x3_stride_2_256_out
+add_multitarget_test(
+         NAME grouped_conv3x3_stride_2_256_out
          COMMAND single_conv_layer
                  --input-channels=64
                  --output-channels=128
@@ -635,7 +756,8 @@ add_test(NAME grouped_conv3x3_stride_2_256_out
                  --conv-groups=2
                  --stride=2)
 
-add_test(NAME grouped_conv1x1_stride_1
+add_multitarget_test(
+         NAME grouped_conv1x1_stride_1
          COMMAND single_conv_layer
              --input-channels=32
              --output-channels=64
@@ -645,7 +767,8 @@ add_test(NAME grouped_conv1x1_stride_1
              --conv-groups=4
              --kernel-size=1)
 
-add_test(NAME grouped_conv1x1_stride_1_odd_outchans
+add_multitarget_test(
+         NAME grouped_conv1x1_stride_1_odd_outchans
         COMMAND single_conv_layer
             --input-channels=64
             --output-channels=129
@@ -655,7 +778,8 @@ add_test(NAME grouped_conv1x1_stride_1_odd_outchans
             --conv-groups=2
             --kernel-size=1)
 
-add_test(NAME grouped_conv1x1_stride_1_odd_inchans
+add_multitarget_test(
+         NAME grouped_conv1x1_stride_1_odd_inchans
         COMMAND single_conv_layer
             --input-channels=65
             --output-channels=128
@@ -665,7 +789,8 @@ add_test(NAME grouped_conv1x1_stride_1_odd_inchans
             --conv-groups=2
             --kernel-size=1)
 
-add_test(NAME grouped_conv1x1_stride_1_odd_in_and_out_chans
+add_multitarget_test(
+         NAME grouped_conv1x1_stride_1_odd_in_and_out_chans
         COMMAND single_conv_layer
             --input-channels=65
             --output-channels=129
@@ -675,7 +800,8 @@ add_test(NAME grouped_conv1x1_stride_1_odd_in_and_out_chans
             --conv-groups=2
             --kernel-size=1)
 
-add_test(NAME grouped_conv1x1_stride_3_odd_conv_groups
+add_multitarget_test(
+         NAME grouped_conv1x1_stride_3_odd_conv_groups
          COMMAND single_conv_layer
              --input-channels=32
              --output-channels=64
@@ -685,14 +811,16 @@ add_test(NAME grouped_conv1x1_stride_3_odd_conv_groups
              --conv-groups=3
              --kernel-size=1)
 
-add_test(NAME grouped_conv1x1_thinly_spread
+add_multitarget_test(
+         NAME grouped_conv1x1_thinly_spread
          COMMAND single_conv_layer
              --field={1,128}
              --input-channels=16
              --conv-groups=2
              --output-channels=8)
 
-add_test(NAME grouped_conv3x3_stride_1_odd_groups
+add_multitarget_test(
+         NAME grouped_conv3x3_stride_1_odd_groups
          COMMAND single_conv_layer
              --input-channels=32
              --output-channels=16
@@ -703,7 +831,8 @@ add_test(NAME grouped_conv3x3_stride_1_odd_groups
              --kernel-size=3)
 
 
-add_test(NAME grouped_conv3x3_stride_2
+add_multitarget_test(
+         NAME grouped_conv3x3_stride_2
          COMMAND single_conv_layer
              --input-channels=32
              --output-channels=16
@@ -713,7 +842,8 @@ add_test(NAME grouped_conv3x3_stride_2
              --conv-groups=2
              --kernel-size=3)
 
-add_test(NAME grouped_conv3x3_asymmetric_stride
+add_multitarget_test(
+         NAME grouped_conv3x3_asymmetric_stride
          COMMAND single_conv_layer
              --input-channels=16
              --output-channels=8
@@ -723,7 +853,8 @@ add_test(NAME grouped_conv3x3_asymmetric_stride
              --conv-groups=2
              --kernel-size=3)
 
-add_test(NAME grouped_conv3x3_stride_1_padding_1
+add_multitarget_test(
+         NAME grouped_conv3x3_stride_1_padding_1
          COMMAND single_conv_layer
               --input-channels=32
               --output-channels=16
@@ -734,7 +865,8 @@ add_test(NAME grouped_conv3x3_stride_1_padding_1
               --conv-groups=2
               --padding=1)
 
-add_test(NAME grouped_conv4x4_stride_1_padding_2
+add_multitarget_test(
+         NAME grouped_conv4x4_stride_1_padding_2
          COMMAND single_conv_layer
               --input-channels=16
               --output-channels=8
@@ -745,7 +877,8 @@ add_test(NAME grouped_conv4x4_stride_1_padding_2
               --conv-groups=2
               --padding=2)
 
-add_test(NAME grouped_conv3x3_stride_2_multi_tile
+add_multitarget_test(
+         NAME grouped_conv3x3_stride_2_multi_tile
          COMMAND single_conv_layer
                  --input-channels=16
                  --output-channels=16
@@ -755,7 +888,8 @@ add_test(NAME grouped_conv3x3_stride_2_multi_tile
                  --conv-groups=2
                  --kernel-size=3)
 
-add_test(NAME grouped_conv1x1_stride_3_fwd
+add_multitarget_test(
+         NAME grouped_conv1x1_stride_3_fwd
          COMMAND single_conv_layer
                  --single-phase=fwd
                  --input-channels=16
@@ -765,7 +899,8 @@ add_test(NAME grouped_conv1x1_stride_3_fwd
                  --conv-groups=2
                  --stride=3)
 
-add_test(NAME grouped_conv3x3_batch_2
+add_multitarget_test(
+         NAME grouped_conv3x3_batch_2
          COMMAND single_conv_layer
                   --input-channels=16
                   --output-channels=16
@@ -776,7 +911,8 @@ add_test(NAME grouped_conv3x3_batch_2
                   --conv-groups=2
                   --batch-size=2)
 
-add_test(NAME grouped_conv3x3_16_to_16_stride_1_differing_padding
+add_multitarget_test(
+         NAME grouped_conv3x3_16_to_16_stride_1_differing_padding
         COMMAND single_conv_layer
         --input-channels=16
         --output-channels=16
@@ -787,7 +923,8 @@ add_test(NAME grouped_conv3x3_16_to_16_stride_1_differing_padding
         --conv-groups=2
         --stride=1)
 
-add_test(NAME grouped_conv3x3_batch_2_differing_padding
+add_multitarget_test(
+         NAME grouped_conv3x3_batch_2_differing_padding
         COMMAND single_conv_layer
         --input-channels=16
         --output-channels=16
@@ -799,7 +936,8 @@ add_test(NAME grouped_conv3x3_batch_2_differing_padding
         --conv-groups=2
         --batch-size=2)
 
-add_test(NAME grouped_conv3x3_stride_1_fwd_asym_padding
+add_multitarget_test(
+         NAME grouped_conv3x3_stride_1_fwd_asym_padding
         COMMAND single_conv_layer
                 --input-channels=32
                 --output-channels=48
@@ -810,7 +948,8 @@ add_test(NAME grouped_conv3x3_stride_1_fwd_asym_padding
                 --padding-upper=2
                 --conv-groups=2
                 --stride=1)
-add_test(NAME grouped_conv3x3_stride_1_fwd_asym_padding_2
+add_multitarget_test(
+         NAME grouped_conv3x3_stride_1_fwd_asym_padding_2
          COMMAND single_conv_layer
                 --input-channels=32
                 --output-channels=48
@@ -822,7 +961,8 @@ add_test(NAME grouped_conv3x3_stride_1_fwd_asym_padding_2
                 --conv-groups=2
                 --stride=1)
 
-add_test(NAME grouped_conv5x5_stride_2_fwd_asym_padding
+add_multitarget_test(
+         NAME grouped_conv5x5_stride_2_fwd_asym_padding
          COMMAND single_conv_layer
                   --input-channels=64
                   --output-channels=64
@@ -835,7 +975,8 @@ add_test(NAME grouped_conv5x5_stride_2_fwd_asym_padding
                   --conv-groups=2
                   --tiles-per-ipu=16)
 
-add_test(NAME grouped_small_conv_many_tiles_1x1
+add_multitarget_test(
+         NAME grouped_small_conv_many_tiles_1x1
          COMMAND single_conv_layer
                  --input-channels=32
                  --output-channels=32
@@ -844,7 +985,8 @@ add_test(NAME grouped_small_conv_many_tiles_1x1
                  --conv-groups=2
                  --tiles-per-ipu=1216)
 
-add_test(NAME grouped_small_conv_many_tiles_3x3
+add_multitarget_test(
+         NAME grouped_small_conv_many_tiles_3x3
          COMMAND single_conv_layer
                  --input-channels=32
                  --output-channels=32
@@ -854,7 +996,8 @@ add_test(NAME grouped_small_conv_many_tiles_3x3
                  --conv-groups=2
                  --tiles-per-ipu=1216)
 
-add_test(NAME grouped_conv1x1_shallow_input
+add_multitarget_test(
+         NAME grouped_conv1x1_shallow_input
         COMMAND single_conv_layer
                 --input-channels=8
                 --output-channels=1024
@@ -862,7 +1005,8 @@ add_test(NAME grouped_conv1x1_shallow_input
                 --conv-groups=2
                 --data-type=half)
 
-add_test(NAME grouped_conv3x3_feature8x8_shallow
+add_multitarget_test(
+         NAME grouped_conv3x3_feature8x8_shallow
          COMMAND single_conv_layer
                  --batch-size=1
                  --input-channels=1
@@ -874,7 +1018,8 @@ add_test(NAME grouped_conv3x3_feature8x8_shallow
                  --conv-groups=2
                  --data-type=half)
 
-add_test(NAME grouped_conv3x3_feature8x8_shallow_stride2
+add_multitarget_test(
+         NAME grouped_conv3x3_feature8x8_shallow_stride2
          COMMAND single_conv_layer
                  --batch-size=1
                  --input-channels=1
@@ -886,7 +1031,8 @@ add_test(NAME grouped_conv3x3_feature8x8_shallow_stride2
                  --conv-groups=2
                  --data-type=half)
 
-add_test(NAME grouped_conv_large_kernel
+add_multitarget_test(
+         NAME grouped_conv_large_kernel
          COMMAND single_conv_layer
                  --single-phase=fwd
                  --field={64,14}
@@ -897,7 +1043,8 @@ add_test(NAME grouped_conv_large_kernel
                  --conv-groups=2
                  --stride=2)
 
-add_test(NAME grouped_conv_large_kernel_bwd
+add_multitarget_test(
+         NAME grouped_conv_large_kernel_bwd
          COMMAND single_conv_layer
                  --single-phase=bwd
                  --field={64,14}
@@ -908,7 +1055,8 @@ add_test(NAME grouped_conv_large_kernel_bwd
                  --conv-groups=2
                  --stride=2)
 
-add_test(NAME grouped_conv_large_kernel_with_small_field
+add_multitarget_test(
+         NAME grouped_conv_large_kernel_with_small_field
          COMMAND single_conv_layer
                 --field={1,16}
                  --padding={6,1}
@@ -918,7 +1066,8 @@ add_test(NAME grouped_conv_large_kernel_with_small_field
                  --conv-groups=2
                  --tiles-per-ipu=16)
 
-add_test(NAME grouped_conv_batch_bwd
+add_multitarget_test(
+         NAME grouped_conv_batch_bwd
          COMMAND single_conv_layer
                  --field={14,14}
                  --input-channels=32
@@ -928,7 +1077,8 @@ add_test(NAME grouped_conv_batch_bwd
                  --conv-groups=2
                  --batch-size=4)
 
-add_test(NAME grouped_conv_batch_bwd_float
+add_multitarget_test(
+         NAME grouped_conv_batch_bwd_float
          COMMAND single_conv_layer
                  --field={14,14}
                  --input-channels=32
@@ -938,7 +1088,8 @@ add_test(NAME grouped_conv_batch_bwd_float
                  --conv-groups=2
                  --batch-size=4)
 
-add_test(NAME grouped_conv_batch_group
+add_multitarget_test(
+         NAME grouped_conv_batch_group
          COMMAND single_conv_layer
                  --field={14,14}
                  --input-channels=512
@@ -948,7 +1099,8 @@ add_test(NAME grouped_conv_batch_group
                  --batch-size=2)
 
 # conv_batch_bwd_float test split into the three component phases
-add_test(NAME grouped_conv_batch_bwd_float_fwd
+add_multitarget_test(
+         NAME grouped_conv_batch_bwd_float_fwd
          COMMAND single_conv_layer
                  --field={14,14}
                  --input-channels=32
@@ -959,7 +1111,8 @@ add_test(NAME grouped_conv_batch_bwd_float_fwd
                  --conv-groups=2
                  --single-phase=fwd)
 
-add_test(NAME grouped_conv_batch_bwd_float_bwd
+add_multitarget_test(
+         NAME grouped_conv_batch_bwd_float_bwd
          COMMAND single_conv_layer
                  --field={14,14}
                  --input-channels=32
@@ -970,7 +1123,8 @@ add_test(NAME grouped_conv_batch_bwd_float_bwd
                  --conv-groups=2
                  --single-phase=bwd)
 
-add_test(NAME grouped_conv_batch_bwd_float_wu
+add_multitarget_test(
+         NAME grouped_conv_batch_bwd_float_wu
          COMMAND single_conv_layer
                  --field={14,14}
                  --input-channels=32
@@ -981,7 +1135,8 @@ add_test(NAME grouped_conv_batch_bwd_float_wu
                  --conv-groups=2
                  --single-phase=wu)
 
-add_test(NAME grouped_conv_negative_input_padding_upper_simple
+add_multitarget_test(
+         NAME grouped_conv_negative_input_padding_upper_simple
         COMMAND single_conv_layer
                 --input-channels=1
                 --output-channels=1
@@ -991,7 +1146,8 @@ add_test(NAME grouped_conv_negative_input_padding_upper_simple
                 --conv-groups=2
                 --tiles-per-ipu=1)
 
-add_test(NAME grouped_conv_negative_kernel_padding_upper_simple
+add_multitarget_test(
+         NAME grouped_conv_negative_kernel_padding_upper_simple
          COMMAND single_conv_layer
                  --input-channels=1
                  --output-channels=1
@@ -1001,7 +1157,8 @@ add_test(NAME grouped_conv_negative_kernel_padding_upper_simple
                  --conv-groups=2
                  --tiles-per-ipu=1)
 
-add_test(NAME grouped_conv_negative_input_padding_lower_simple
+add_multitarget_test(
+         NAME grouped_conv_negative_input_padding_lower_simple
         COMMAND single_conv_layer
                 --input-channels=1
                 --output-channels=1
@@ -1011,7 +1168,8 @@ add_test(NAME grouped_conv_negative_input_padding_lower_simple
                 --conv-groups=2
                 --tiles-per-ipu=1)
 
-add_test(NAME grouped_conv_negative_kernel_padding_lower_simple_${phase}
+add_multitarget_test(
+         NAME grouped_conv_negative_kernel_padding_lower_simple_${phase}
          COMMAND single_conv_layer
                  --input-channels=1
                  --output-channels=1
@@ -1024,7 +1182,8 @@ add_test(NAME grouped_conv_negative_kernel_padding_lower_simple_${phase}
 # Test where the size of the output tensor is much bigger than the size weight
 # tensor. As such it likely to be better to rearranging the weight deltas
 # instead of the deltas in the weight update phase.
-add_test(NAME grouped_conv_large_output_tensor
+add_multitarget_test(
+         NAME grouped_conv_large_output_tensor
          COMMAND single_conv_layer
                 --field={16,16}
                 --input-channels=16
@@ -1033,7 +1192,8 @@ add_test(NAME grouped_conv_large_output_tensor
                 --conv-groups=2
                 --data-type=half)
 
-add_test(NAME grouped_conv_large_weights
+add_multitarget_test(
+         NAME grouped_conv_large_weights
          COMMAND single_conv_layer
                 --field={14,16}
                 --padding={2,0}
@@ -1047,7 +1207,8 @@ add_test(NAME grouped_conv_large_weights
                 --conv-groups=2
                 --single-phase=fwd)
 
-add_test(NAME grouped_conv_outer_product
+add_multitarget_test(
+         NAME grouped_conv_outer_product
          COMMAND single_conv_layer
                  --input-channels=1
                  --output-channels=1024
@@ -1055,7 +1216,8 @@ add_test(NAME grouped_conv_outer_product
                  --conv-groups=2
                  --tiles-per-ipu=64)
 
-add_test(NAME conv0d_simple
+add_multitarget_test(
+         NAME conv0d_simple
          COMMAND single_conv_layer
                  --field={}
                  --batch-size=4
@@ -1063,7 +1225,8 @@ add_test(NAME conv0d_simple
                  --output-channels=128
                  --tiles-per-ipu=48)
 
-add_test(NAME conv1d_simple
+add_multitarget_test(
+         NAME conv1d_simple
          COMMAND single_conv_layer
                   --field={80}
                   --kernel-size=3
@@ -1072,7 +1235,8 @@ add_test(NAME conv1d_simple
                   --output-channels=128
                   --tiles-per-ipu=48)
 
-add_test(NAME conv3d_simple
+add_multitarget_test(
+         NAME conv3d_simple
          COMMAND single_conv_layer
                  --field={5,6,7}
                  --kernel-size={4,3,2}
@@ -1081,7 +1245,8 @@ add_test(NAME conv3d_simple
                  --output-channels=64
                  --tiles-per-ipu=48)
 
-add_test(NAME conv3d_1_output_chan
+add_multitarget_test(
+         NAME conv3d_1_output_chan
          COMMAND single_conv_layer
                  --field={5,6,7}
                  --kernel-size={4,3,2}
@@ -1092,7 +1257,8 @@ add_test(NAME conv3d_1_output_chan
 
 # 3D convolution with multiple batches, convolution groups, input dilation,
 # kernel dilation and striding.
-add_test(NAME conv3d_complex
+add_multitarget_test(
+         NAME conv3d_complex
          COMMAND single_conv_layer
                  --conv-groups=2
                  --batch-size=2
@@ -1847,7 +2013,8 @@ add_test(NAME basic_lstm_40x4x38_seq_2_float_data
                  --phase all
                  --data-type=float)
 
-add_test(NAME conv1x1_in_dilation_2_fwd
+add_multitarget_test(
+         NAME conv1x1_in_dilation_2_fwd
          COMMAND single_conv_layer
                  --single-phase=fwd
                  --input-channels=16
@@ -1856,7 +2023,8 @@ add_test(NAME conv1x1_in_dilation_2_fwd
                  --tiles-per-ipu=1
                  --in-dilation=2)
 
-add_test(NAME conv1x1_stride_3_in_dilation_2_fwd
+add_multitarget_test(
+         NAME conv1x1_stride_3_in_dilation_2_fwd
          COMMAND single_conv_layer
                  --single-phase=fwd
                  --input-channels=16
@@ -1866,7 +2034,8 @@ add_test(NAME conv1x1_stride_3_in_dilation_2_fwd
                  --stride=3
                  --in-dilation=2)
 
-add_test(NAME conv3x3_in_dilation_2_fwd
+add_multitarget_test(
+         NAME conv3x3_in_dilation_2_fwd
          COMMAND single_conv_layer
                  --single-phase=fwd
                  --input-channels=16
@@ -1876,7 +2045,8 @@ add_test(NAME conv3x3_in_dilation_2_fwd
                  --tiles-per-ipu=1
                  --in-dilation=2)
 
-add_test(NAME conv3x3_stride_3_in_dilation_2_fwd
+add_multitarget_test(
+         NAME conv3x3_stride_3_in_dilation_2_fwd
          COMMAND single_conv_layer
                  --single-phase=fwd
                  --input-channels=16
@@ -1887,7 +2057,8 @@ add_test(NAME conv3x3_stride_3_in_dilation_2_fwd
                  --stride=3
                  --in-dilation=2)
 
-add_test(NAME conv3x3_in_dilation_asymmetric
+add_multitarget_test(
+         NAME conv3x3_in_dilation_asymmetric
          COMMAND single_conv_layer
                  --single-phase=fwd
                  --input-channels=16
@@ -1897,7 +2068,8 @@ add_test(NAME conv3x3_in_dilation_asymmetric
                  --tiles-per-ipu=1
                  --in-dilation={2,3})
 
-add_test(NAME conv3x3_kernel_dilation_amp
+add_multitarget_test(
+         NAME conv3x3_kernel_dilation_amp
         COMMAND single_conv_layer
                 --input-channels=32
                 --output-channels=32
@@ -1907,7 +2079,8 @@ add_test(NAME conv3x3_kernel_dilation_amp
                 --kernel-dilation={3,2}
                 --tiles-per-ipu=16)
 
-add_test(NAME conv3x3_kernel_padding_amp
+add_multitarget_test(
+         NAME conv3x3_kernel_padding_amp
          COMMAND single_conv_layer
                  --input-channels=32
                  --output-channels=32

@@ -5,13 +5,13 @@
 #include <boost/test/unit_test.hpp>
 #include <limits>
 #include <poplar/Engine.hpp>
-#include <poplar/IPUModel.hpp>
 #include <poputil/TileMapping.hpp>
 #include <popnn/codelets.hpp>
 #include <popops/codelets.hpp>
 #include <poplibs_test/NonLinearity.hpp>
 #include <iostream>
 #include <poplibs_test/Util.hpp>
+#include "TestDevice.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
@@ -30,10 +30,8 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
                     *utf::tolerance<float>(fpc::percent_tolerance<float>(TOL))
                     *utf::tolerance<double>(fpc::percent_tolerance<double>(TOL))
                      ) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
-  //auto device = Device::createCPUDevice();
-  const auto &target = device.getTarget();
+  auto device = createTestDevice(TEST_TARGET);
+  auto &target = device.getTarget();
   Graph graph(device);
   popnn::addCodelets(graph);
   //layer parameters
@@ -182,9 +180,8 @@ BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
                     *utf::tolerance<float>(fpc::percent_tolerance<float>(0.1))
                     *utf::tolerance<double>(fpc::percent_tolerance<double>(0.1))
                      ) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
-  const auto &target = device.getTarget();
+  auto device = createTestDevice(TEST_TARGET);
+  auto &target = device.getTarget();
   Graph graph(device);
   popnn::addCodelets(graph);
   popops::addCodelets(graph);

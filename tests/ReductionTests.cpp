@@ -3,7 +3,6 @@
 #include <boost/test/unit_test.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poplar/Engine.hpp>
-#include <poplar/IPUModel.hpp>
 #include <popops/codelets.hpp>
 #include <popops/Reduce.hpp>
 #include <poplibs_test/Util.hpp>
@@ -11,6 +10,7 @@
 #include <functional>
 #include <limits>
 #include <boost/multi_array.hpp>
+#include "TestDevice.hpp"
 
 // Tolerances used in tests
 #define FLOAT_REL_TOL  0.01
@@ -154,10 +154,8 @@ static bool reduceAddTest(const std::vector<std::size_t> &dims,
                           float k,
                           bool update,
                           bool scale) {
-  IPUModel ipuModel;
-  ipuModel.tilesPerIPU = 64;
-  auto device = ipuModel.createDevice();
-  const auto &target = device.getTarget();
+  auto device = createTestDevice(TEST_TARGET, 64);
+  auto &target = device.getTarget();
   Graph graph(device);
   popops::addCodelets(graph);
 
@@ -251,9 +249,7 @@ static bool reduceOpsTest(const std::vector<std::size_t> &dims,
                           const std::vector<std::size_t> &redVect,
                           const Type &outType,
                           popops::Operation operation) {
-  IPUModel ipuModel;
-  ipuModel.tilesPerIPU = 64;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET, 64);
   const auto &target = device.getTarget();
   Graph graph(device);
   popops::addCodelets(graph);
@@ -535,10 +531,7 @@ BOOST_AUTO_TEST_CASE(Reduce_Nop_ADD_float) {
   };
 
 
-  IPUModel ipuModel;
-  ipuModel.tilesPerIPU = 64;
-  auto device = ipuModel.createDevice();
-  const auto &target = device.getTarget();
+  auto device = createTestDevice(TEST_TARGET, 64);
   Graph graph(device);
   popops::addCodelets(graph);
 

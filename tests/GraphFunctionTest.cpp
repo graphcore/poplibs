@@ -5,7 +5,7 @@
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
 #include <popops/ElementWise.hpp>
-#include <poplar/IPUModel.hpp>
+#include "TestDevice.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
@@ -15,8 +15,7 @@ namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
 
 BOOST_AUTO_TEST_CASE(VoidFunctionTest) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
   Tensor x1 = graph.addVariable(FLOAT, {5});
@@ -64,8 +63,7 @@ BOOST_AUTO_TEST_CASE(VoidFunctionTest) {
 }
 
 BOOST_AUTO_TEST_CASE(ProgramFunctionTest) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
   Tensor x1 = graph.addVariable(FLOAT, {5});
@@ -122,8 +120,7 @@ BOOST_AUTO_TEST_CASE(ProgramFunctionTest) {
 
 
 BOOST_AUTO_TEST_CASE(CreatedTensorFunctionTest) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
 
   popops::addCodelets(graph);
@@ -180,8 +177,7 @@ BOOST_AUTO_TEST_CASE(CreatedTensorFunctionTest) {
 }
 
 BOOST_AUTO_TEST_CASE(TensorFunctionTest) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
   popops::addCodelets(graph);
   Tensor x1 = graph.addVariable(FLOAT, {5});
