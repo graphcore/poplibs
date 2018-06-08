@@ -36,28 +36,21 @@ inline poplar::Device createTestDevice(DeviceType deviceType,
   case DeviceType::Sim:
   {
     assert(minNumTiles <= 1216);
-    std::string system;
-    if (minNumTiles == 1)
-      system = "_TEST_SYSTEM_ONE_TILE";
-    else if (minNumTiles <= 4)
-      system = "_TEST_SYSTEM_FOUR_TILE";
-    else if (minNumTiles <= 16)
-      system = "_TEST_SYSTEM_SIXTEEN_TILE";
-    else
-      system = "_TEST_SYSTEM_ALL_TILES";
-    target = poplar::Target::createIPUTarget(1, system);
-    d = poplar::Device::createSimulatorDevice(target, minNumTiles <=16);
+    target = poplar::Target::createIPUTarget(1, minNumTiles, "_TEST_SYSTEM");
+    poplar::OptionFlags opt;
+    opt.set("debug.trace", minNumTiles <= 16 ? "true" : "false");
+    d = poplar::Device::createSimulatorDevice(target, opt);
     break;
   }
   case DeviceType::Sim4IPU4:
     assert(minNumTiles <= 4);
-    target = poplar::Target::createIPUTarget(4, "_TEST_SYSTEM_FOUR_TILE");
+    target = poplar::Target::createIPUTarget(4, 4, "_TEST_SYSTEM");
     d = poplar::Device::createSimulatorDevice(target);
     break;
   case DeviceType::Sim1IPU:
     assert(minNumTiles <= 1216);
-    target = poplar::Target::createIPUTarget(1, "_TEST_SYSTEM_ALL_TILES");
-    d = poplar::Device::createSimulatorDevice(target, false);
+    target = poplar::Target::createIPUTarget(1, "_TEST_SYSTEM");
+    d = poplar::Device::createSimulatorDevice(target);
     break;
 
   default:
