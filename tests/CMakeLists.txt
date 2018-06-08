@@ -6,7 +6,7 @@ if(OVERRIDE_TEST_DEVICES)
   set(ENABLED_TEST_DEVICES ${OVERRIDE_TEST_DEVICES})
 else()
   set(ENABLED_TEST_DEVICES "IpuModel" CACHE STRING
-      "Generate tests for these devices" FORCE)
+      "Generate tests for these devices")
 endif()
 
 add_subdirectory(popsolver)
