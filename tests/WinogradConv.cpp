@@ -14,6 +14,10 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 
+const OptionFlags options {
+  {"target.textSectionSizeInBytes", "0x9000"}
+};
+
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
 
@@ -244,7 +248,7 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   graph.createHostWrite("weights", weights);
   graph.createHostRead("out", activations);
 
-  Engine eng(device, graph, wgdConv);
+  Engine eng(device, graph, wgdConv, options);
   eng.writeTensor("in", inBuffer.data());
   eng.writeTensor("weights", weightsBuffer.data());
   eng.run();

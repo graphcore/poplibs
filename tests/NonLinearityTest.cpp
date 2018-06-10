@@ -19,6 +19,10 @@ using namespace poputil;
 using namespace popnn;
 using namespace poplibs_test::util;
 
+const OptionFlags options {
+  {"target.textSectionSizeInBytes", "0x9000"}
+};
+
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
 
@@ -129,7 +133,7 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     auto fwdProg = Sequence();
     nonLinearity(graph, n, actF, fwdProg);
     nonLinearity(graph, n, actH, fwdProg);;
-    Engine fwdEng(device, graph, fwdProg);
+    Engine fwdEng(device, graph, fwdProg, options);
     copy(target, hActIn, FLOAT, rawHActInF.get());
     fwdEng.writeTensor("inF", rawHActInF.get());
     copy(target, hActIn, HALF, rawHActInH.get());
@@ -153,7 +157,7 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     bwdProg.add(Copy(deltaFF, deltaF));
     auto deltaHH = nonLinearityInputGradient(graph, n, actH, deltaH, bwdProg);
     bwdProg.add(Copy(deltaHH, deltaH));
-    Engine bwdEng(device, graph, bwdProg);
+    Engine bwdEng(device, graph, bwdProg, options);
     copy(target, hActIn, FLOAT, rawHActInF.get());
     bwdEng.writeTensor("inF", rawHActInF.get());
     copy(target, hActIn, HALF, rawHActInH.get());
@@ -228,7 +232,7 @@ BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
   auto fwdProg = Sequence();
   nonLinearity(graph, nl, actF, fwdProg);
   nonLinearity(graph, nl, actH, fwdProg);
-  Engine fwdEng(device, graph, fwdProg);
+  Engine fwdEng(device, graph, fwdProg, options);
 
   copy(target, hActIn, FLOAT, rawHActInF.get());
   fwdEng.writeTensor("inF", rawHActInF.get());

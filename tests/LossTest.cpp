@@ -21,6 +21,10 @@ using namespace poplar::program;
 using namespace popnn;
 using namespace poplibs_test::util;
 
+const OptionFlags options {
+  {"target.textSectionSizeInBytes", "0x9000"}
+};
+
 namespace {
 
 static unsigned
@@ -201,7 +205,7 @@ static bool lossTest(const LossType lossType,
                        fpType, expectedType,
                        lossType);
 
-  Engine engine(device, graph, prog);
+  Engine engine(device, graph, prog, options);
 
   upload(engine, tmap);
   engine.run(0);
@@ -274,7 +278,7 @@ static bool accuracyTest(const Type &fpType,
                            expected, numCorrect,
                            fpType, labelType);
 
-  Engine engine(device, graph, prog);
+  Engine engine(device, graph, prog, options);
 
   upload(engine, tmap);
   engine.run(0);

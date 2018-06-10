@@ -19,6 +19,10 @@ using namespace poputil;
 using namespace popnn;
 using namespace poplibs_test::util;
 
+const OptionFlags options {
+  {"target.textSectionSizeInBytes", "0x9000"}
+};
+
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
 
@@ -68,7 +72,7 @@ BOOST_AUTO_TEST_CASE(BigVectorList) {
 
 
 
-    poplar::Engine eng(device, graph, prog);
+    poplar::Engine eng(device, graph, prog, options);
     eng.writeTensor("hPre", hPre.data());
     eng.run();
     eng.readTensor("hPost", hPost.data());

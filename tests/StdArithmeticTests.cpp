@@ -20,7 +20,9 @@ namespace fpc = boost::test_tools::fpc;
 
 #define DIM_SIZE  10
 
-
+const OptionFlags options {
+  {"target.textSectionSizeInBytes", "0x4000"}
+};
 
 static std::tuple<Tensor, Tensor> mapBinaryOpTensors(Graph &graph,
                                                      const Type &type) {
@@ -82,7 +84,7 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float,
   graph.createHostRead("out", in1);
   auto prog = Sequence();
   scaledAddTo(graph, in1, in2, k, prog);
-  Engine eng(device, graph, prog);
+  Engine eng(device, graph, prog, options);
 
   float hOut[DIM_SIZE][DIM_SIZE];
 
@@ -119,7 +121,7 @@ BOOST_AUTO_TEST_CASE(StdSubFrom_int,
   graph.createHostRead("out", in1);
   auto prog = Sequence();
   scaledSubtractFrom(graph, in1, in2, k, prog);
-  Engine eng(device, graph, prog);
+  Engine eng(device, graph, prog, options);
 
   int hOut[DIM_SIZE][DIM_SIZE];
 
@@ -159,7 +161,7 @@ BOOST_AUTO_TEST_CASE(StdCast) {
 
   int hOut[DIM_SIZE];
 
-  Engine eng(device, graph, prog);
+  Engine eng(device, graph, prog, options);
   eng.writeTensor("in", hIn);
   eng.run();
   eng.readTensor("out", hOut);

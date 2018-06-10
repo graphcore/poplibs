@@ -24,6 +24,10 @@ using namespace poputil;
 using namespace popops;
 using namespace poplibs_test::util;
 
+const OptionFlags options {
+  {"target.textSectionSizeInBytes", "0x9000"}
+};
+
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
 
@@ -208,7 +212,7 @@ static bool reduceAddTest(const std::vector<std::size_t> &dims,
   copy(target, hostPrev, outType, rawHostPrev.get());
   copy(target, hostIn, partialsType, rawHostIn.get());
 
-  Engine engine(device, graph, prog);
+  Engine engine(device, graph, prog, options);
 
   upload(engine, tmap);
   engine.run(0); // Run.
@@ -312,7 +316,7 @@ static bool reduceOpsTest(const std::vector<std::size_t> &dims,
   copy(target, hostOut, outType, rawHostOut.get());
   copy(target, hostIn, outType, rawHostIn.get());
 
-  Engine engine(device, graph, prog);
+  Engine engine(device, graph, prog, options);
 
   upload(engine, tmap);
   engine.run(0); // Run.
@@ -581,7 +585,7 @@ BOOST_AUTO_TEST_CASE(ReduceIntermediatePrec) {
   graph.setInitialValue(input, poplar::ArrayRef<float>(hInput));
   graph.createHostRead("out", out);
 
-  Engine engine(device, graph, prog);
+  Engine engine(device, graph, prog, options);
 
   engine.run(0);
 

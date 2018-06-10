@@ -19,6 +19,10 @@ using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
 
+const OptionFlags options {
+  {"target.textSectionSizeInBytes", "0x9000"}
+};
+
 #define NUM_DIMS 3
 
 struct TestData {
@@ -208,7 +212,7 @@ void sliceTestND(unsigned tilesPerIPU,
   graph.createHostRead("out", tOut);
 
   std::cerr << "Creating engine\n";
-  Engine eng(device, graph, prog);
+  Engine eng(device, graph, prog, options);
 
   TestData testData(t1Shape, wantedShape, testBase);
 
@@ -350,7 +354,7 @@ void updateTestND(unsigned tilesPerIPU,
   graph.createHostRead("out", t1);
 
   std::cerr << "Creating engine\n";
-  Engine eng(device, graph, prog);
+  Engine eng(device, graph, prog, options);
 
   TestData testData(t1Shape, subShape, testBase);
 

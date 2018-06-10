@@ -29,6 +29,10 @@ using namespace poplibs_test::util;
 using namespace popnn;
 using namespace popops;
 
+const OptionFlags options {
+  {"target.textSectionSizeInBytes", "0x9000"}
+};
+
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
 
@@ -146,7 +150,7 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   copy(target, hostBeta, dataType, rawHostBeta.get());
   copy(target, hostGradsIn, dataType, rawHostGradsIn.get());
 
-  Engine engine(device, graph, prog);
+  Engine engine(device, graph, prog, options);
 
   upload(engine, tmap);
   engine.run(0); // Run.
@@ -316,7 +320,7 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   copy(target, hostGamma, dataType, rawHostGamma.get());
   copy(target, hostBeta, dataType, rawHostBeta.get());
 
-  Engine engine(device, graph, prog);
+  Engine engine(device, graph, prog, options);
 
   upload(engine, tmap);
   engine.run(0); // Run.

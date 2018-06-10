@@ -36,6 +36,11 @@ using namespace poplibs_test::util;
 using namespace poputil;
 using poplibs_test::Pass;
 
+const OptionFlags options {
+  {"target.textSectionSizeInBytes", "0x4000"}
+};
+
+
 static void addGlobalExchangeConstraints(IPUModel &ipuModel) {
   const auto numIPUs = ipuModel.numIPUs;
   if (numIPUs == 1)
@@ -393,13 +398,7 @@ int main(int argc, char **argv) {
       std::cerr << "Multi-IPU Simulation models not supported\n";
       exit(1);
     }
-    std::string system;
-    if (ipuModel.tilesPerIPU == 1)
-      system = "_TEST_SYSTEM_ONE_TILE";
-    else if (ipuModel.tilesPerIPU < 16)
-      system = "_TEST_SYSTEM_SIXTEEN_TILE";
-    else
-      system = "_TEST_SYSTEM_ALL_TILES";
+    std::string system = "_TEST_SYSTEM";
     auto target = Target::createIPUTarget(1, system);
     dev = Device::createSimulatorDevice(target);
   } else if (modelType == "Sim1IPU") {
@@ -541,7 +540,7 @@ int main(int argc, char **argv) {
     rawHostPrevDeltas = allocateHostMemoryForTensor(prevDeltas, "prevDeltas",
                                                     graph, tmap);
   }
-  Engine engine(dev, graph, {std::move(fwdProg), std::move(revProg)});
+  Engine engine(dev, graph, {std::move(fwdProg), std::move(revProg)}, options);
 
   boost::multi_array<double, 3>
       hostPrevAct(boost::extents[batchSize][fwdInChans]

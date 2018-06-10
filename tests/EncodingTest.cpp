@@ -18,6 +18,10 @@ using namespace poplar::program;
 using namespace poplibs_test::util;
 using namespace popops;
 
+const OptionFlags options {
+  {"target.textSectionSizeInBytes", "0x9000"}
+};
+
 static inline std::vector<std::uint64_t>
 getRandomIndices(std::size_t numIndices,
                  std::size_t length) {
@@ -93,7 +97,7 @@ static bool encodeTest(std::size_t numIndices,
   auto rawHostEncoded =
     allocateHostMemoryForTensor(encoded, "encoded", graph, tmap);
 
-  Engine engine(device, graph, prog);
+  Engine engine(device, graph, prog, options);
 
   upload(engine, tmap);
   engine.run(0);

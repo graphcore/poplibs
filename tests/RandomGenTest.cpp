@@ -17,6 +17,10 @@ using namespace poplar::program;
 using namespace poprand;
 using namespace poputil;
 
+const OptionFlags options {
+  {"target.textSectionSizeInBytes", "0x9000"}
+};
+
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
 
@@ -138,7 +142,7 @@ static bool uniformTest(T hOut[DIM_SIZE][DIM_SIZE],
   Random r(mode, seed);
   r.uniform(graph, out, minVal, maxVal, prog);
 
-  Engine eng(device, graph, prog);
+  Engine eng(device, graph, prog, options);
   eng.run();
   readAndConvertTensor<T, deviceHalf>(graph.getTarget(), eng, "out",
                                       &hOut[0][0],
@@ -196,7 +200,7 @@ static bool bernoulliTest(T hOut[DIM_SIZE][DIM_SIZE], float prob,
   Random r(mode, seed);
   r.bernoulli(graph, out, prob, prog);
 
-  Engine eng(device, graph, prog);
+  Engine eng(device, graph, prog, options);
   eng.run();
   readAndConvertTensor<T, deviceHalf>(graph.getTarget(), eng, "out",
                                       &hOut[0][0],
@@ -267,7 +271,7 @@ static bool normalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean, float stdDev,
   Random r(mode, seed);
   r.normal(graph, out, mean, stdDev, prog);
 
-  Engine eng(device, graph, prog);
+  Engine eng(device, graph, prog, options);
   eng.run();
   readAndConvertTensor<T, deviceHalf>(graph.getTarget(), eng, "out",
                                       &hOut[0][0],
@@ -355,7 +359,7 @@ static bool truncatedNormalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean,
   Random r(mode, seed);
   r.truncatedNormal(graph, out, mean, stdDev, alpha, prog);
 
-  Engine eng(device, graph, prog);
+  Engine eng(device, graph, prog, options);
   eng.run();
   readAndConvertTensor<T, deviceHalf>(graph.getTarget(), eng, "out",
                                       &hOut[0][0],

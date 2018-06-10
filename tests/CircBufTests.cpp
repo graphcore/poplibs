@@ -14,6 +14,10 @@ using namespace poplar::program;
 using namespace popops;
 using namespace poputil;
 
+const OptionFlags options {
+  {"target.textSectionSizeInBytes", "0x9000"}
+};
+
 BOOST_AUTO_TEST_CASE(CircBufIncrIndex) {
   auto device = createTestDevice(TEST_TARGET);
   Graph graph(device);
@@ -35,7 +39,7 @@ BOOST_AUTO_TEST_CASE(CircBufIncrIndex) {
 
   unsigned cbOut[indexBufSize];
 
-  Engine eng(device, graph, prog);
+  Engine eng(device, graph, prog, options);
   eng.run();
   eng.readTensor("out", cbOut);
 
@@ -65,7 +69,7 @@ BOOST_AUTO_TEST_CASE(CircBufIncrIndex2d) {
 
   unsigned cbOut[indexBufSize];
 
-  Engine eng(device, graph, prog);
+  Engine eng(device, graph, prog, options);
   eng.run();
   eng.readTensor("out", cbOut);
 
@@ -113,7 +117,7 @@ BOOST_AUTO_TEST_CASE(CircBufCheckAdd) {
     }
   }
 
-  Engine eng(device, graph, prog);
+  Engine eng(device, graph, prog, options);
   eng.writeTensor("in", cbSrc);
   eng.run();
   eng.readTensor("out", cbDst);
