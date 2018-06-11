@@ -37,7 +37,7 @@ using namespace poputil;
 using poplibs_test::Pass;
 
 const OptionFlags options {
-  {"target.textSectionSizeInBytes", "0x4000"}
+  {"target.textSectionSizeInBytes", "0x9000"}
 };
 
 
