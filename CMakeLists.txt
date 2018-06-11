@@ -46,6 +46,21 @@ else()
          "${CMAKE_CURRENT_SOURCE_DIR}/exported_symbols_linux.lds")
 endif()
 
+# Set up popc flags.
+set(POPC_FLAGS -I ${CMAKE_SOURCE_DIR}/include)
+if(CMAKE_BUILD_TYPE STREQUAL Debug)
+  list(APPEND POPC_FLAGS -g)
+elseif(CMAKE_BUILD_TYPE STREQUAL RelWithDebInfo)
+  list(APPEND POPC_FLAGS -O3 -g)
+else()
+  list(APPEND POPC_FLAGS -O3)
+endif()
+
+# If requested, optimise the debug builds too.
+if (OPTIMISE_IPU_DEBUG AND CMAKE_BUILD_TYPE STREQUAL Debug)
+  list(APPEND POPC_FLAGS -O3)
+endif()
+
 add_subdirectory(lib)
 add_subdirectory(tests)
 add_subdirectory(tools)

@@ -69,15 +69,6 @@ target_include_directories(popops
     .
 )
 
-set(POPC_FLAGS -I ${CMAKE_CURRENT_SOURCE_DIR} -I ${CMAKE_SOURCE_DIR}/include)
-if(CMAKE_BUILD_TYPE STREQUAL Debug)
-  list(APPEND POPC_FLAGS -g)
-elseif(CMAKE_BUILD_TYPE STREQUAL RelWithDebInfo)
-  list(APPEND POPC_FLAGS -O3 -g)
-else()
-  list(APPEND POPC_FLAGS -O3)
-endif()
-
 set(codelet_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/dynamicSliceCodelets.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elementwiseCodelets.cpp
@@ -91,8 +82,9 @@ add_custom_command(
     popops.gp
   COMMAND
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
-    -o popops.gp
+    -I ${CMAKE_CURRENT_SOURCE_DIR}
     -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
+    -o popops.gp
     ${codelet_sources}
   DEPENDS
     ${codelet_sources}
