@@ -1,4 +1,5 @@
 include(GNUInstallDirs)
+get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(popnn SHARED
   codelets.cpp
@@ -37,7 +38,21 @@ target_include_directories(popnn
     .
 )
 
-add_subdirectory(codelets)
+add_custom_command(
+  OUTPUT
+    popnn.gp
+  COMMAND
+    ${POPC_EXECUTABLE} ${POPC_FLAGS}
+    -I ${CMAKE_CURRENT_SOURCE_DIR}
+    -o popnn.gp
+    ${CMAKE_CURRENT_SOURCE_DIR}/popnnCodelets.cpp
+  DEPENDS
+    popnnCodelets.cpp
+    PerformanceEstimation.hpp
+    popc_bin
+)
+
+add_custom_target(popnn_codelets DEPENDS popnn.gp SOURCES popnnCodelets.cpp)
 add_dependencies(popnn popnn_codelets)
 
 install(TARGETS popnn
@@ -53,4 +68,8 @@ install(EXPORT popnn
 
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/popnn
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        COMPONENT popnn)
+
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/popnn.gp
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}
         COMPONENT popnn)
