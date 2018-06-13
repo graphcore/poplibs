@@ -38,6 +38,10 @@ target_include_directories(popnn
     .
 )
 
+set(codelets_cpp_sources
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/popnnCodelets.cpp
+)
+
 add_custom_command(
   OUTPUT
     popnn.gp
@@ -45,14 +49,15 @@ add_custom_command(
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
     -I ${CMAKE_CURRENT_SOURCE_DIR}
     -o popnn.gp
-    ${CMAKE_CURRENT_SOURCE_DIR}/popnnCodelets.cpp
+    ${codelets_cpp_sources}
   DEPENDS
-    popnnCodelets.cpp
+    ${codelets_cpp_sources}
     PerformanceEstimation.hpp
     popc_bin
 )
 
-add_custom_target(popnn_codelets DEPENDS popnn.gp SOURCES popnnCodelets.cpp)
+add_custom_target(popnn_codelets DEPENDS popnn.gp
+                  SOURCES ${codelets_cpp_sources})
 add_dependencies(popnn popnn_codelets)
 
 install(TARGETS popnn
