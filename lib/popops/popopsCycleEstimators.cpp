@@ -810,8 +810,46 @@ MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHot)(const VertexIntrospector &vertex,
                                         const Target &target,
                                         const Type &indexType,
                                         const Type &outputType) {
-  // TODO: Proper cycle estimates
-  return 0;
+  // 3 cycles unconditionally to load index from the input and exit.
+  std::uint64_t cycles = 3;
+
+  // 1 cycle to check if index is negative when IndexType is signed.
+  if (indexType == INT) {
+    cycles += 1;
+  }
+
+  // 2 cycles to load remaining vertex state and 2 cycles to caculate
+  // count: (end-begin)/sizeof(OutputType).
+  cycles += 4;
+
+  // 2 cycles to compare and branch on index < count.
+  cycles += 2;
+
+  // one cycle to load 1 into a register when on the main side (the aux
+  // equivalent should get bundled).
+  if (outputType == INT || outputType == UNSIGNED_INT) {
+    cycles += 1;
+  } else {
+    assert(outputType == HALF || outputType == FLOAT);
+  }
+
+  const auto outputTypeSize = target.getTypeSize(outputType);
+  if (outputTypeSize == 32) {
+    // one cycle to do a 32-bit store.
+    cycles += 1;
+  } else {
+    assert(outputTypeSize == 16);
+
+    // 6 cycles to align pointer to 32-bits and load the word to store into.
+    cycles += 6;
+
+    // there is an extra cycle required if we store at the start of the word
+    // but there is no way to check the alignment of the address to deduce
+    // that here so we ignore it.
+    cycles += 2;
+  }
+
+  return cycles;
 }
 
 std::uint64_t

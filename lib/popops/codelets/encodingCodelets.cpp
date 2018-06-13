@@ -22,7 +22,7 @@ public:
   Input<IndexType> index;
   Output<Vector<OutType>> out;
   bool compute() {
-    if (index < out.size()) {
+    if (index >= 0 && index < out.size()) {
       out[index] = 1;
     }
     return true;
@@ -39,7 +39,7 @@ public:
   bool compute() {
     for (std::size_t i = 0; i < indices.size(); i++) {
       const auto index = indices[i];
-      if (index < out[i].size()) {
+      if (index >= 0 && index < out[i].size()) {
         out[i][index] = 1;
       }
     }
