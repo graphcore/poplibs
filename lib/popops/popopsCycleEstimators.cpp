@@ -833,12 +833,12 @@ MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHot)(const VertexIntrospector &vertex,
     assert(outputType == HALF || outputType == FLOAT);
   }
 
-  const auto outputTypeSize = target.getTypeSize(outputType);
-  if (outputTypeSize == 32) {
+  const auto outputTypeSizeBytes = target.getTypeSize(outputType);
+  if (outputTypeSizeBytes == 4) {
     // one cycle to do a 32-bit store.
     cycles += 1;
   } else {
-    assert(outputTypeSize == 16);
+    assert(outputTypeSizeBytes == 2);
 
     // 6 cycles to align pointer to 32-bits and load the word to store into.
     cycles += 6;
