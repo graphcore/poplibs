@@ -35,7 +35,14 @@ inline poplar::Device createTestDevice(DeviceType deviceType,
   }
   case DeviceType::Sim:
   {
-    assert(minNumTiles <= 1216);
+    // support a 2tile sim using a 4tile sim
+    if (minNumTiles == 2)
+      minNumTiles = 4;
+    // any multi-tile sim must have a multiple of 4 tiles
+    if ((minNumTiles != 1 && (minNumTiles % 4) != 0) || minNumTiles > 1216)
+      throw std::logic_error(
+      "createDevice:: minNumTiles must be 1 or a multiple of 4 "
+      "less than 1216\n");
     target = poplar::Target::createIPUTarget(1, minNumTiles, "_TEST_SYSTEM");
     poplar::OptionFlags opt;
     opt.set("debug.trace", minNumTiles <= 16 ? "true" : "false");
@@ -43,12 +50,18 @@ inline poplar::Device createTestDevice(DeviceType deviceType,
     break;
   }
   case DeviceType::Sim4IPU4:
-    assert(minNumTiles <= 4);
+    if (minNumTiles > 4)
+      throw std::logic_error("Sim1IPU4 supports only 1 or 4 tiles\n");
     target = poplar::Target::createIPUTarget(4, 4, "_TEST_SYSTEM");
     d = poplar::Device::createSimulatorDevice(target);
     break;
   case DeviceType::Sim1IPU:
-    assert(minNumTiles <= 1216);
+    // any multi-tile sim must have a multiple of 4 tiles
+    if ((minNumTiles != 1 && (minNumTiles % 4) != 0) || minNumTiles > 1216)
+      throw std::logic_error(
+      "createDevice:: minNumTiles must be 1 or a multiple of 4 "
+      "less than 1216\n");
+
     target = poplar::Target::createIPUTarget(1, "_TEST_SYSTEM");
     d = poplar::Device::createSimulatorDevice(target);
     break;

@@ -398,8 +398,12 @@ int main(int argc, char **argv) {
       std::cerr << "Multi-IPU Simulation models not supported\n";
       exit(1);
     }
+    // Exchange requires that there are a multiple of 4 tiles
+    if (ipuModel.tilesPerIPU == 2)
+      ipuModel.tilesPerIPU = 4;
+    assert(ipuModel.tilesPerIPU == 1 || (ipuModel.tilesPerIPU % 4) == 0);
     std::string system = "_TEST_SYSTEM";
-    auto target = Target::createIPUTarget(1, system);
+    auto target = Target::createIPUTarget(1, ipuModel.tilesPerIPU, system);
     dev = Device::createSimulatorDevice(target);
   } else if (modelType == "Sim1IPU") {
     if (ipuModel.numIPUs > 1) {
