@@ -36,8 +36,12 @@ using namespace poplibs_test::util;
 using namespace poputil;
 using poplibs_test::Pass;
 
-const OptionFlags options {
-  {"target.textSectionSizeInBytes", "0x9000"}
+const OptionFlags engineOptions {
+  {"target.textSectionSizeInBytes", "0xe000"}
+};
+
+const OptionFlags simDebugOptions {
+  {"debug.trace", "true"}
 };
 
 
@@ -404,7 +408,10 @@ int main(int argc, char **argv) {
     assert(ipuModel.tilesPerIPU == 1 || (ipuModel.tilesPerIPU % 4) == 0);
     std::string system = "_TEST_SYSTEM";
     auto target = Target::createIPUTarget(1, ipuModel.tilesPerIPU, system);
-    dev = Device::createSimulatorDevice(target);
+    if (ipuModel.tilesPerIPU <= 16)
+      dev = Device::createSimulatorDevice(target, simDebugOptions);
+    else
+      dev = Device::createSimulatorDevice(target);
   } else if (modelType == "Sim1IPU") {
     if (ipuModel.numIPUs > 1) {
       std::cerr << "Multi-IPU Simulation models not supported\n";
@@ -544,7 +551,8 @@ int main(int argc, char **argv) {
     rawHostPrevDeltas = allocateHostMemoryForTensor(prevDeltas, "prevDeltas",
                                                     graph, tmap);
   }
-  Engine engine(dev, graph, {std::move(fwdProg), std::move(revProg)}, options);
+  Engine engine(dev, graph, {std::move(fwdProg), std::move(revProg)},
+                engineOptions);
 
   boost::multi_array<double, 3>
       hostPrevAct(boost::extents[batchSize][fwdInChans]
@@ -703,7 +711,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (modelType != "Cpu") {
+  if (modelType != "Cpu" && modelType != "Sim") {
     engine.printSummary(std::cout, OptionFlags{
       { "doLayerWiseBreakdown", "true" }
     });
