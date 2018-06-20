@@ -2,89 +2,132 @@ find_package(Boost REQUIRED unit_test_framework timer system program_options)
 find_package(PythonInterp REQUIRED)
 find_package(Threads)
 
-if(OVERRIDE_TEST_DEVICES)
-  set(ENABLED_TEST_DEVICES ${OVERRIDE_TEST_DEVICES})
-else()
-  set(ENABLED_TEST_DEVICES "IpuModel" CACHE STRING
-      "Generate tests for these devices")
-endif()
+
+set(ENABLED_TEST_VARIANTS "IpuModel" CACHE STRING
+    "Generate tests for these variants")
 
 add_subdirectory(popsolver)
 
-# remove any requested targets not present in ${ENABLED_TEST_DEVICES}
-# If no targets were requested all ${ENABLED_TEST_DEVICES} are returned
-function(sanitise_targets target_name)
-  set(targets ${${target_name}})
-  set(old_targets "${targets}")
-  if (NOT old_targets)
-    set(new_targets ${ENABLED_TEST_DEVICES})
+# remove any requested variants not present in ${ENABLED_TEST_VARIANTS}
+# If no variants were requested all ${ENABLED_TEST_VARIANTS} are returned
+function(sanitise_variants variant_name)
+  set(variants ${${variant_name}})
+  set(old_variants "${variants}")
+  if (NOT old_variants)
+    set(new_variants ${ENABLED_TEST_VARIANTS})
   else()
-    set(new_targets "")
-    # test for all targets that are supported
-    foreach(target ${old_targets})
-      if (${target} IN_LIST ENABLED_TEST_DEVICES)
-        list(APPEND new_targets ${target})
+    set(new_variants "")
+    # test for all variants that are supported
+    foreach(variant ${old_variants})
+      if (${variant} IN_LIST ENABLED_TEST_VARIANTS)
+        list(APPEND new_variants ${variant})
       endif()
     endforeach()
   endif()
-  set(${target_name} "${new_targets}" PARENT_SCOPE)
+  set(${variant_name} "${new_variants}" PARENT_SCOPE)
+endfunction()
+
+# A VARIANT is a colon separated pair "target:[runconfig]". This function
+# extracts the "target" part storing it in the second argument.
+function(extract_target variant target)
+  string(REPLACE ":" ";" vspec ${${variant}})
+  list(GET vspec 0 HEAD)
+  set(${target} ${HEAD} PARENT_SCOPE)
+endfunction()
+
+# A VARIANT is a colon separated pair "target:[runconfig]". This function
+# extracts the "runconfig" part storing it in the second argument.
+function(extract_runconfig variant run_config)
+  string(REPLACE ":" ";" vspec ${${variant}})
+  list(LENGTH vspec vlen)
+  if (${vlen} EQUAL "1")
+    set(${run_config} "default" PARENT_SCOPE)
+  else()
+    list(GET vspec 1 config)
+    set(${run_config} ${config} PARENT_SCOPE)
+  endif()
+endfunction()
+
+# A VARIANT is a colon separated pair "target:[runconfig]". This function
+# extracts a list containing just the "target" parts. Where targets are listed
+# with multiple runconfigs in the original list the duplicates are removed
+# from the returned list.
+function(extract_targets variants targets)
+  set(extracted_targets "")
+  foreach(variant ${${variants}})
+    string(REPLACE ":" ";" vspec ${variant})
+    list(GET vspec 0 HEAD)
+    list(APPEND extracted_targets ${HEAD})
+  endforeach()
+  list(REMOVE_DUPLICATES extracted_targets)
+  set(${targets} ${extracted_targets} PARENT_SCOPE)
+endfunction()
+
+function(add_test_executable name)
+    add_executable(${name} ${ARGN})
+  set_property(TARGET ${name}
+      APPEND_STRING PROPERTY
+      COMPILE_FLAGS "-DTEST_TARGET=DeviceType::${TEST_TARGET}")
+  target_include_directories(${name}
+      PRIVATE
+      $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
+      $<TARGET_PROPERTY:popconv,INCLUDE_DIRECTORIES>)
+  target_link_libraries(${name} poprand popnn poputil
+                        poplar
+                        poplibs_test
+                        Boost::unit_test_framework
+                        Boost::timer
+                        Boost::system
+                        Boost::program_options
+                        ${CMAKE_THREAD_LIBS_INIT})
+  if(NOT Boost_UNIT_TEST_FRAMEWORK_LIBRARY MATCHES "\\.a$")
+    target_compile_definitions(${name} PRIVATE -DBOOST_TEST_DYN_LINK)
+  endif()
 endfunction()
 
 # first parameter is the test name, following ones are source files,
-# everything after TARGETS is a target
+# everything after VARIANTS is a variant
 function(add_popnn_unit_test name)
-  cmake_parse_arguments(add_unit_test "" "FILES" "TARGETS" "FILES;${ARGN}")
-  sanitise_targets(add_unit_test_TARGETS)
+  cmake_parse_arguments(add_unit_test "" "FILES" "VARIANTS" "FILES;${ARGN}")
+  sanitise_variants(add_unit_test_VARIANTS)
   set(FILES "${add_unit_test_FILES}")
+  extract_targets(test_args_VARIANTS TARGETS)
 
-  foreach(TEST_TARGET ${add_unit_test_TARGETS})
-    set(test_name "${TEST_TARGET}_${name}")
-    message("generating test for test_name=${test_name}")
-    add_executable(${test_name} ${ARGN})
-    set_property(TARGET ${test_name}
-        APPEND_STRING PROPERTY
-	COMPILE_FLAGS "-DTEST_TARGET=DeviceType::${TEST_TARGET}")
-    target_include_directories(${test_name}
-	PRIVATE
-	$<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
-        $<TARGET_PROPERTY:popconv,INCLUDE_DIRECTORIES>)
-    target_link_libraries(${test_name} poprand popnn poputil
-                          poplar
-                          poplibs_test
-                          Boost::unit_test_framework
-                          Boost::timer
-                          Boost::system
-                          Boost::program_options
-                          ${CMAKE_THREAD_LIBS_INIT})
-    if(NOT Boost_UNIT_TEST_FRAMEWORK_LIBRARY MATCHES "\\.a$")
-      target_compile_definitions(${name} PRIVATE -DBOOST_TEST_DYN_LINK)
-    endif()
-    add_test(NAME ${test_name}
-      COMMAND ${test_name})
-    if (TEST_TARGET STREQUAL "Sim")
-      set_property(TEST "${test_name}" PROPERTY LABELS SLOW)
-    endif()
+  foreach(TEST_TARGET ${TARGETS})
+    set(executable_name "${TEST_TARGET}_${name}")
+    add_test_executable(${executable_name} ${FILES})
+  endforeach()
+
+  foreach(VARIANT ${add_unit_test_VARIANTS})
+    extract_target(VARIANT TEST_TARGET)
+    extract_runconfig(VARIANT TEST_CONFIG)
+
+    set(test_name "${TEST_TARGET}_${TEST_CONFIG}_${name}")
+    set(executable_name "${TEST_TARGET}_${name}")
+    add_test(NAME "${test_name}"
+      COMMAND ${executable_name}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_BUILD_DIR})
   endforeach()
 endfunction()
 
-# add a test to run on the specified TARGETs
+# add a test to run on the specified VARIANTSs
 function(add_multitarget_test)
   cmake_parse_arguments(add_multitarget_test "" "NAME"
-                        "TARGETS;COMMAND"
+                        "VARIANTS;COMMAND"
                         "${ARGN}")
-  sanitise_targets(add_multitarget_test_TARGETS)
+  sanitise_variants(add_multitarget_test_VARIANTS)
   set(name ${add_multitarget_test_NAME})
   if (NOT add_multitarget_test_NAME)
     message(FATAL_ERROR "add_multitarget_test requires a NAME to be specified")
   endif()
-  foreach (TEST_TARGET ${add_multitarget_test_TARGETS})
-    set(test_name "${TEST_TARGET}_${name}")
-    add_test(
-      NAME ${test_name}
-      COMMAND ${add_multitarget_test_COMMAND} "--device-type=${TEST_TARGET}")
-    if (TEST_TARGET STREQUAL "Sim")
-      set_property(TEST "${test_name}" PROPERTY LABELS SLOW)
-    endif()
+  foreach(VARIANT ${add_multitarget_test_VARIANTS})
+    extract_target(VARIANT TEST_TARGET)
+    extract_runconfig(VARIANT TEST_CONFIG)
+
+    set(test_name "${TEST_TARGET}_${TEST_CONFIG}_${name}")
+    add_test(NAME "${test_name}"
+      COMMAND ${add_multitarget_test_COMMAND} "--device-type=${TEST_TARGET}"
+      WORKING_DIRECTORY ${CMAKE_CURRENT_BUILD_DIR})
   endforeach()
 endfunction()
 
