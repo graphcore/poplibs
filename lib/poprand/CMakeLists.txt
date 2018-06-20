@@ -22,6 +22,16 @@ target_include_directories(poprand
     .
 )
 
+set(codelet_cpp_sources
+  ${CMAKE_CURRENT_SOURCE_DIR}/poprandCodelets.cpp
+)
+set(codelet_asm_sources
+  # Assembly to be added
+)
+set(codelet_headers
+  # Add any header files used here
+)
+
 add_custom_command(
   OUTPUT
     poprand.gp
@@ -29,14 +39,31 @@ add_custom_command(
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
     -I ${CMAKE_CURRENT_SOURCE_DIR}
     -o poprand.gp
-    ${CMAKE_CURRENT_SOURCE_DIR}/poprandCodelets.cpp
+    ${codelet_cpp_sources}
+    ${codelet_asm_sourceS}
   DEPENDS
-    poprandCodelets.cpp
+    ${codelet_cpp_sources}
+    ${codelet_asm_sources}
+    ${codelet_headers}
     popc_bin
 )
 
-add_custom_target(poprand_codelets DEPENDS poprand.gp
-                  SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/poprandCodelets.cpp)
+add_custom_command(
+  OUTPUT
+    poprand_c.gp
+  COMMAND
+    ${POPC_EXECUTABLE} ${POPC_FLAGS} -DPOPLIBS_DISABLE_ASM_CODELETS
+    -I ${CMAKE_CURRENT_SOURCE_DIR}
+    -o poprand_c.gp
+    ${codelet_cpp_sources}
+  DEPENDS
+    ${codelet_cpp_sources}
+    ${codelet_headers}
+    popc_bin
+)
+
+add_custom_target(poprand_codelets DEPENDS poprand.gp poprand_c.gp
+                  SOURCES ${codelet_cpp_source} ${codelet_asm_sources})
 add_dependencies(poprand poprand_codelets)
 
 install(TARGETS poprand
@@ -55,5 +82,9 @@ install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/poprand
         COMPONENT poprand)
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/poprand.gp
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        COMPONENT poprand)
+
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/poprand_c.gp
         DESTINATION ${CMAKE_INSTALL_LIBDIR}
         COMPONENT poprand)

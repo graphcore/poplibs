@@ -9,15 +9,27 @@
 namespace poplibs {
 
 std::string getCodeletsPath(const std::string &libName,
-                            const std::string &codeletsFile) {
+                            const std::string &codeletsFile_) {
+  auto codeletsFile = codeletsFile_;
   auto upperName = libName;
   std::transform(upperName.begin(), upperName.end(), upperName.begin(),
                  [](unsigned char c) { return std::toupper(c); });
-  std::string envVar= "IPU_" + upperName + "_GP";
+  std::string envVar = "IPU_" + upperName + "_GP";
 
   const auto env = std::getenv(envVar.c_str());
   if (env && std::ifstream(env).good())
     return env;
+
+  const auto suffixVar = "POPLIBS_CODELET_SUFFIX";
+  const auto suffixEnv = std::getenv(suffixVar);
+  if (suffixEnv) {
+    auto pos = codeletsFile.find(".gp");
+    if (pos == std::string::npos) {
+      codeletsFile += suffixEnv;
+    } else {
+      codeletsFile.insert(pos, suffixEnv);
+    }
+  }
 
 #if defined(__linux__) || defined(__APPLE__)
   Dl_info dlInfo;

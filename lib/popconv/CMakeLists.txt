@@ -37,6 +37,16 @@ target_include_directories(popconv
     .
 )
 
+set(codelet_cpp_sources
+  ${CMAKE_CURRENT_SOURCE_DIR}/popconvCodelets.cpp
+)
+set(codelet_asm_sources
+  # Assembly to be added
+)
+set(codelet_headers
+  PerformanceEstimation.hpp
+)
+
 add_custom_command(
   OUTPUT
     popconv.gp
@@ -44,14 +54,31 @@ add_custom_command(
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
     -I ${CMAKE_CURRENT_SOURCE_DIR}
     -o popconv.gp
-    ${CMAKE_CURRENT_SOURCE_DIR}/popconvCodelets.cpp
+    ${codelet_cpp_sources}
+    ${codelet_asm_sourceS}
   DEPENDS
-    popconvCodelets.cpp
-    PerformanceEstimation.hpp
+    ${codelet_cpp_sources}
+    ${codelet_asm_sources}
+    ${codelet_headers}
     popc_bin
 )
 
-add_custom_target(graph_program DEPENDS popconv.gp SOURCES popconvCodelets.cpp)
+add_custom_command(
+  OUTPUT
+    popconv_c.gp
+  COMMAND
+    ${POPC_EXECUTABLE} ${POPC_FLAGS} -DPOPLIBS_DISABLE_ASM_CODELETS
+    -I ${CMAKE_CURRENT_SOURCE_DIR}
+    -o popconv_c.gp
+    ${codelet_cpp_sources}
+  DEPENDS
+    ${codelet_cpp_sources}
+    ${codelet_headers}
+    popc_bin
+)
+
+add_custom_target(graph_program DEPENDS popconv.gp popconv_c.gp
+                  SOURCES ${codelet_cpp_source} ${codelet_asm_sources})
 add_dependencies(popconv graph_program)
 
 install(TARGETS popconv
@@ -70,5 +97,9 @@ install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/popconv
         COMPONENT popconv)
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/popconv.gp
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        COMPONENT popconv)
+
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/popconv_c.gp
         DESTINATION ${CMAKE_INSTALL_LIBDIR}
         COMPONENT popconv)

@@ -107,6 +107,10 @@ function(add_popnn_unit_test name)
     add_test(NAME "${test_name}"
       COMMAND ${executable_name}
       WORKING_DIRECTORY ${CMAKE_CURRENT_BUILD_DIR})
+    if (${TEST_CONFIG} STREQUAL "cpp")
+      set_tests_properties(${test_name} PROPERTIES
+                           ENVIRONMENT POPLIBS_CODELET_SUFFIX=_c)
+    endif()
   endforeach()
 endfunction()
 
@@ -128,6 +132,10 @@ function(add_multitarget_test)
     add_test(NAME "${test_name}"
       COMMAND ${add_multitarget_test_COMMAND} "--device-type=${TEST_TARGET}"
       WORKING_DIRECTORY ${CMAKE_CURRENT_BUILD_DIR})
+    if (${TEST_CONFIG} STREQUAL "cpp")
+      set_tests_properties(${test_name} PROPERTIES
+                           ENVIRONMENT POPLIBS_CODELET_SUFFIX=_c)
+    endif()
   endforeach()
 endfunction()
 

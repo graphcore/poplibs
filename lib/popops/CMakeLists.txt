@@ -69,13 +69,23 @@ target_include_directories(popops
     .
 )
 
-set(codelet_sources
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/dynamicSliceCodelets.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elementwiseCodelets.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/encodingCodelets.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/miscCodelets.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/reduceCodelets.cpp
-  )
+
+
+set(codelet_cpp_sources
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/dynamicSliceCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elementwiseCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/encodingCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/miscCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/reduceCodelets.cpp
+)
+
+set(codelet_asm_sources
+  # Assembly to be added
+)
+
+set(codelet_headers
+  # Add any header files used here
+)
 
 add_custom_command(
   OUTPUT
@@ -85,14 +95,32 @@ add_custom_command(
     -I ${CMAKE_CURRENT_SOURCE_DIR}
     -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
     -o popops.gp
-    ${codelet_sources}
+    ${codelet_cpp_sources}
+    ${codelet_asm_sourceS}
   DEPENDS
-    ${codelet_sources}
+    ${codelet_cpp_sources}
+    ${codelet_asm_sources}
+    ${codelet_headers}
     popc_bin
 )
 
-add_custom_target(popops_codelets DEPENDS popops.gp
-                  SOURCES ${codelet_sources})
+add_custom_command(
+  OUTPUT
+    popops_c.gp
+  COMMAND
+    ${POPC_EXECUTABLE} ${POPC_FLAGS} -DPOPLIBS_DISABLE_ASM_CODELETS
+    -I ${CMAKE_CURRENT_SOURCE_DIR}}
+    -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
+    -o popops_c.gp
+    ${codelet_cpp_sources}
+  DEPENDS
+    ${codelet_cpp_sources}
+    ${codelet_headers}
+    popc_bin
+)
+
+add_custom_target(popops_codelets DEPENDS popops.gp popops_c.gp
+                  SOURCES ${codelet_cpp_sources} ${codelet_asm_sources})
 add_dependencies(popops popops_codelets)
 
 install(TARGETS popops
@@ -111,5 +139,9 @@ install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/popops
         COMPONENT popops)
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/popops.gp
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        COMPONENT popops)
+
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/popops_c.gp
         DESTINATION ${CMAKE_INSTALL_LIBDIR}
         COMPONENT popops)

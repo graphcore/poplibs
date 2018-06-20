@@ -38,8 +38,15 @@ target_include_directories(popnn
     .
 )
 
-set(codelets_cpp_sources
+set(codelet_cpp_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/popnnCodelets.cpp
+)
+
+set(codelet_asm_sources
+  # Assembly to be added
+)
+set(codelet_headers
+  PerformanceEstimation.hpp
 )
 
 add_custom_command(
@@ -49,15 +56,31 @@ add_custom_command(
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
     -I ${CMAKE_CURRENT_SOURCE_DIR}
     -o popnn.gp
-    ${codelets_cpp_sources}
+    ${codelet_cpp_sources}
+    ${codelet_asm_sourceS}
   DEPENDS
-    ${codelets_cpp_sources}
-    PerformanceEstimation.hpp
+    ${codelet_cpp_sources}
+    ${codelet_asm_sources}
+    ${codelet_headers}
     popc_bin
 )
 
-add_custom_target(popnn_codelets DEPENDS popnn.gp
-                  SOURCES ${codelets_cpp_sources})
+add_custom_command(
+  OUTPUT
+    popnn_c.gp
+  COMMAND
+    ${POPC_EXECUTABLE} ${POPC_FLAGS} -DPOPLIBS_DISABLE_ASM_CODELETS
+    -I ${CMAKE_CURRENT_SOURCE_DIR}
+    -o popnn_c.gp
+    ${codelet_cpp_sources}
+  DEPENDS
+    ${codelet_cpp_sources}
+    ${codelet_headers}
+    popc_bin
+)
+
+add_custom_target(popnn_codelets DEPENDS popnn.gp popnn_c.gp
+                  SOURCES ${codelets_cpp_sources} ${codelet_asm_sources})
 add_dependencies(popnn popnn_codelets)
 
 install(TARGETS popnn
@@ -76,5 +99,9 @@ install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/popnn
         COMPONENT popnn)
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/popnn.gp
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        COMPONENT popnn)
+
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/popnn_c.gp
         DESTINATION ${CMAKE_INSTALL_LIBDIR}
         COMPONENT popnn)
