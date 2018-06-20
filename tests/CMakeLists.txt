@@ -3,8 +3,11 @@ find_package(PythonInterp REQUIRED)
 find_package(Threads)
 
 
-set(ENABLED_TEST_VARIANTS "IpuModel" CACHE STRING
-    "Generate tests for these variants")
+set(DEFAULT_TEST_VARIANTS "IpuModel" CACHE STRING
+    "The device variants to run tests on when no variants are set explicitly")
+
+set(ENABLED_TEST_VARIANTS "Cpu;IpuModel;Sim;Sim:cpp" CACHE STRING
+    "Generate tests for these devices and variants")
 
 add_subdirectory(popsolver)
 
@@ -14,7 +17,7 @@ function(sanitise_variants variant_name)
   set(variants ${${variant_name}})
   set(old_variants "${variants}")
   if (NOT old_variants)
-    set(new_variants ${ENABLED_TEST_VARIANTS})
+    set(new_variants ${DEFAULT_TEST_VARIANTS})
   else()
     set(new_variants "")
     # test for all variants that are supported
