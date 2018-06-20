@@ -144,7 +144,7 @@ static void computeReference(Tensor in, Tensor weights, Tensor activations,
 BOOST_AUTO_TEST_CASE(WinogradConvolution,
                        *utf::tolerance<float>(
                           fpc::percent_tolerance<float>(1))) {
-  auto device = createTestDevice(TEST_TARGET, 304);
+  auto device = createTestDevice(TEST_TARGET, 1, 304);
   Graph graph(device);
   popops::addCodelets(graph);
   popconv::addCodelets(graph);

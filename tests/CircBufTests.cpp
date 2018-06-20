@@ -79,7 +79,7 @@ BOOST_AUTO_TEST_CASE(CircBufIncrIndex2d) {
 }
 
 BOOST_AUTO_TEST_CASE(CircBufCheckAdd) {
-  auto device = createTestDevice(TEST_TARGET, 16);
+  auto device = createTestDevice(TEST_TARGET, 1, 16);
   Graph graph(device);
 
   popops::addCodelets(graph);

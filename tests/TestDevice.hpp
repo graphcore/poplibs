@@ -8,15 +8,12 @@ namespace {
 enum class DeviceType {
   Cpu,         //CPU
   IpuModel,    //IPU modelled on CPU, number of tiles specified by parameter
-  Sim,         //IPU simulated by CISS, quantised min number of tiles
-  Sim4IPU4,    //4 IPUs simulated by CISS, 4 tiles each
-  Sim1IPU};    //IPU simulated by CISS, all tiles
+  Sim };       //IPU simulated by CISS, number of tiles specified by parameter
 
 // Create an engine for testing
-// minNumTiles = the minimum number of tiles required; 0 to accept the default
-// (0 not allowed for IPUModel)
 inline poplar::Device createTestDevice(DeviceType deviceType,
-                                       unsigned minNumTiles = 1)
+                                       unsigned numIPUs = 1,
+                                       unsigned tilesPerIPU = 1)
 {
   poplar::Target target;
   poplar::Device d;
@@ -28,50 +25,63 @@ inline poplar::Device createTestDevice(DeviceType deviceType,
   case DeviceType::IpuModel:
   {
     poplar::IPUModel ipuModel;
-    if (minNumTiles)
-      ipuModel.tilesPerIPU = minNumTiles;
+    ipuModel.tilesPerIPU = tilesPerIPU;
     d = ipuModel.createDevice();
     break;
   }
   case DeviceType::Sim:
   {
-    // support a 2tile sim using a 4tile sim
-    if (minNumTiles == 2)
-      minNumTiles = 4;
-    // any multi-tile sim must have a multiple of 4 tiles
-    if ((minNumTiles != 1 && (minNumTiles % 4) != 0) || minNumTiles > 1216)
+    if ((tilesPerIPU!= 1 && (tilesPerIPU % 4) != 0) || tilesPerIPU > 1216)
       throw std::logic_error(
-      "createDevice:: minNumTiles must be 1 or a multiple of 4 "
+      "createDevice:: tilesPerIPU must be 1 or a multiple of 4 "
       "less than 1216\n");
-    target = poplar::Target::createIPUTarget(1, minNumTiles, "_TEST_SYSTEM");
+    target = poplar::Target::createIPUTarget(numIPUs,
+                                             tilesPerIPU, "_TEST_SYSTEM");
     poplar::OptionFlags opt;
-    opt.set("debug.trace", minNumTiles <= 16 ? "true" : "false");
+    opt.set("debug.trace", tilesPerIPU <= 16 ? "true" : "false");
     d = poplar::Device::createSimulatorDevice(target, opt);
     break;
   }
-  case DeviceType::Sim4IPU4:
-    if (minNumTiles > 4)
-      throw std::logic_error("Sim1IPU4 supports only 1 or 4 tiles\n");
-    target = poplar::Target::createIPUTarget(4, 4, "_TEST_SYSTEM");
-    d = poplar::Device::createSimulatorDevice(target);
-    break;
-  case DeviceType::Sim1IPU:
-    // any multi-tile sim must have a multiple of 4 tiles
-    if ((minNumTiles != 1 && (minNumTiles % 4) != 0) || minNumTiles > 1216)
-      throw std::logic_error(
-      "createDevice:: minNumTiles must be 1 or a multiple of 4 "
-      "less than 1216\n");
-
-    target = poplar::Target::createIPUTarget(1, "_TEST_SYSTEM");
-    d = poplar::Device::createSimulatorDevice(target);
-    break;
-
   default:
       throw std::logic_error(
-        "deviceType must be \"Cpu\", \"IpuModel\", \"Sim1\" , \"Sim4IPU4\""
-        " or \"Sim1IPU\"\n");
+        "deviceType must be \"Cpu\", \"IpuModel\" or \"Sim\"\n");
   }
   return d;
 }
+
+
+inline const char *asString(const DeviceType &deviceType) {
+  switch (deviceType) {
+  case DeviceType::Cpu:
+    return "Cpu";
+  case DeviceType::IpuModel:
+    return "IpuModel";
+  case DeviceType::Sim:
+    return "Sim";
+  default:
+    break;
+  }
+  throw std::logic_error("Invalid device type");
+}
+
+inline std::istream &operator>>(std::istream &is, DeviceType &type) {
+  std::string token;
+  is >> token;
+  if (token == "Cpu")
+    type = DeviceType::Cpu;
+  else if (token == "IpuModel")
+    type = DeviceType::IpuModel;
+  else if (token == "Sim")
+    type = DeviceType::Sim;
+  else
+    throw std::logic_error("Unsupported device type <" + token + ">");
+  return is;
+}
+
+inline std::ostream &operator<<(std::ostream &os, const DeviceType &type) {
+  os << asString(type);
+  return os;
+}
+
 }
 #endif // __TestDevice_hpp

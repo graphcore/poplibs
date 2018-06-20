@@ -19,7 +19,7 @@ namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;
 
 BOOST_AUTO_TEST_CASE(VoidFunctionTest) {
-  auto device = createTestDevice(TEST_TARGET);
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
   Graph graph(device);
   popops::addCodelets(graph);
   Tensor x1 = graph.addVariable(FLOAT, {5});
@@ -67,7 +67,7 @@ BOOST_AUTO_TEST_CASE(VoidFunctionTest) {
 }
 
 BOOST_AUTO_TEST_CASE(ProgramFunctionTest) {
-  auto device = createTestDevice(TEST_TARGET);
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
   Graph graph(device);
   popops::addCodelets(graph);
   Tensor x1 = graph.addVariable(FLOAT, {5});
@@ -124,7 +124,7 @@ BOOST_AUTO_TEST_CASE(ProgramFunctionTest) {
 
 
 BOOST_AUTO_TEST_CASE(CreatedTensorFunctionTest) {
-  auto device = createTestDevice(TEST_TARGET);
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
   Graph graph(device);
 
   popops::addCodelets(graph);
@@ -181,7 +181,7 @@ BOOST_AUTO_TEST_CASE(CreatedTensorFunctionTest) {
 }
 
 BOOST_AUTO_TEST_CASE(TensorFunctionTest) {
-  auto device = createTestDevice(TEST_TARGET);
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
   Graph graph(device);
   popops::addCodelets(graph);
   Tensor x1 = graph.addVariable(FLOAT, {5});

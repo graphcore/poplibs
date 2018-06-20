@@ -175,7 +175,7 @@ void sliceTestND(unsigned tilesPerIPU,
 {
   std::cerr << "\nTest "
             << boost::unit_test::framework::current_test_case().p_name << "\n";
-  auto device = createTestDevice(TEST_TARGET, tilesPerIPU);
+  auto device = createTestDevice(TEST_TARGET, 1, tilesPerIPU);
   Graph graph(device);
   popops::addCodelets(graph);
   std::vector<size_t> t1Shape = testShape;
@@ -318,7 +318,7 @@ void updateTestND(unsigned tilesPerIPU,
 {
   std::cerr << "\nTest "
             << boost::unit_test::framework::current_test_case().p_name << "\n";
-  auto device = createTestDevice(TEST_TARGET, tilesPerIPU);
+  auto device = createTestDevice(TEST_TARGET, 1, tilesPerIPU);
   Graph graph(device);
   popops::addCodelets(graph);
   std::vector<size_t> t1Shape = testShape;
@@ -450,7 +450,7 @@ BOOST_AUTO_TEST_CASE(SliceOrder) {
   // so that it slices the dimensions in the order [1, 2, 0] (and
   // idxOrder should be [2, 0, 1]).
 
-  auto device = createTestDevice(TEST_TARGET, 4);
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
   Graph graph(device);
   popops::addCodelets(graph);
 

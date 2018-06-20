@@ -22,6 +22,7 @@
 #include <poplibs_test/Util.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include "poplibs_support/VectorUtils.hpp"
+#include "TestDevice.hpp"
 #include <random>
 
 // Default tolerances used in tests
@@ -78,7 +79,7 @@ static void addGlobalExchangeConstraints(IPUModel &ipuModel) {
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
-  std::string modelType = "IpuModel";
+  DeviceType deviceType = DeviceType::IpuModel;
   unsigned fwdInChansPerConvGroup;
   unsigned fwdOutChansPerConvGroup;
   ShapeOption<std::size_t> inputFieldSizeOption;
@@ -121,8 +122,9 @@ int main(int argc, char **argv) {
   po::options_description desc("Options");
   desc.add_options()
     ("help", "Produce help message")
-    ("model-type", po::value<std::string>(&modelType)->default_value(modelType),
-     "poplar model type: IpuModel | Cpu | | Sim | Sim1IPU")
+    ("device-type",
+     po::value<DeviceType>(&deviceType)->default_value(deviceType),
+     "Device type")
     ("input-channels", po::value<unsigned>(&fwdInChansPerConvGroup)->required(),
      "Number of input channels per grouped convolution")
     ("output-channels",
@@ -393,35 +395,10 @@ int main(int argc, char **argv) {
   }
 
   Device dev;
-  if (modelType == "IpuModel") {
+  if (deviceType == DeviceType::IpuModel) {
     dev = ipuModel.createDevice();
-  } else if (modelType == "Cpu") {
-    dev = Device::createCPUDevice();
-  } else if (modelType == "Sim") {
-    if (ipuModel.numIPUs > 1) {
-      std::cerr << "Multi-IPU Simulation models not supported\n";
-      exit(1);
-    }
-    // Exchange requires that there are a multiple of 4 tiles
-    if (ipuModel.tilesPerIPU == 2)
-      ipuModel.tilesPerIPU = 4;
-    assert(ipuModel.tilesPerIPU == 1 || (ipuModel.tilesPerIPU % 4) == 0);
-    std::string system = "_TEST_SYSTEM";
-    auto target = Target::createIPUTarget(1, ipuModel.tilesPerIPU, system);
-    if (ipuModel.tilesPerIPU <= 16)
-      dev = Device::createSimulatorDevice(target, simDebugOptions);
-    else
-      dev = Device::createSimulatorDevice(target);
-  } else if (modelType == "Sim1IPU") {
-    if (ipuModel.numIPUs > 1) {
-      std::cerr << "Multi-IPU Simulation models not supported\n";
-      exit(1);
-    }
-    auto target = Target::createIPUTarget(1, "_TEST_SYSTEM_ALL_TILES");
-    dev = Device::createSimulatorDevice(target);
   } else {
-    std::cerr << "Invalid model type requested\n";
-    return 1;
+    dev = createTestDevice(deviceType, ipuModel.numIPUs, ipuModel.tilesPerIPU);
   }
   const auto &target = dev.getTarget();
   Graph graph(dev);
@@ -711,7 +688,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (modelType != "Cpu" && modelType != "Sim") {
+  if (deviceType != DeviceType::Cpu && deviceType != DeviceType::Sim) {
     engine.printSummary(std::cout, OptionFlags{
       { "doLayerWiseBreakdown", "true" }
     });

@@ -158,7 +158,7 @@ static bool reduceAddTest(const std::vector<std::size_t> &dims,
                           float k,
                           bool update,
                           bool scale) {
-  auto device = createTestDevice(TEST_TARGET, 64);
+  auto device = createTestDevice(TEST_TARGET, 1, 64);
   auto &target = device.getTarget();
   Graph graph(device);
   popops::addCodelets(graph);
@@ -253,7 +253,7 @@ static bool reduceOpsTest(const std::vector<std::size_t> &dims,
                           const std::vector<std::size_t> &redVect,
                           const Type &outType,
                           popops::Operation operation) {
-  auto device = createTestDevice(TEST_TARGET, 64);
+  auto device = createTestDevice(TEST_TARGET, 1, 64);
   const auto &target = device.getTarget();
   Graph graph(device);
   popops::addCodelets(graph);
@@ -535,7 +535,7 @@ BOOST_AUTO_TEST_CASE(Reduce_Nop_ADD_float) {
   };
 
 
-  auto device = createTestDevice(TEST_TARGET, 64);
+  auto device = createTestDevice(TEST_TARGET, 1, 64);
   Graph graph(device);
   popops::addCodelets(graph);
 

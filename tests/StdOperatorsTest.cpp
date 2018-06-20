@@ -1189,7 +1189,7 @@ BOOST_AUTO_TEST_CASE(StdOperationClampInPlaceFloat,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationBinaryOutputMapChoice) {
-  auto device = createTestDevice(TEST_TARGET, 4);
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
   Graph graph(device);
   popops::addCodelets(graph);
 
@@ -1224,7 +1224,7 @@ BOOST_AUTO_TEST_CASE(StdOperationBinaryOutputMapChoice) {
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationTrinaryOutputMapChoice) {
-  auto device = createTestDevice(TEST_TARGET, 4);
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
   Graph graph(device);
   popops::addCodelets(graph);
 

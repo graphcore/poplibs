@@ -48,7 +48,7 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   const auto dimX = dims[2];
   const auto numChannels = dims[3];
 
-  auto device = createTestDevice(TEST_TARGET, tilesPerIPU);
+  auto device = createTestDevice(TEST_TARGET, 1, tilesPerIPU);
   const auto &target = device.getTarget();
   Graph graph(device);
   popops::addCodelets(graph);
@@ -228,7 +228,7 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
                         unsigned tilesPerIPU,
                         const Type &dataType,
                         const Type &partialsType) {
-  auto device = createTestDevice(TEST_TARGET, tilesPerIPU);
+  auto device = createTestDevice(TEST_TARGET, 1, tilesPerIPU);
   const auto &target = device.getTarget();
   Graph graph(device);
   popops::addCodelets(graph);
