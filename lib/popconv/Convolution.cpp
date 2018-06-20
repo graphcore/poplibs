@@ -363,7 +363,9 @@ getNumElementsInSlice(const std::vector<unsigned> &sliceBegin,
 }
 
 // Reshape the activations tensor from [N][G * C]... shape to
-// [G][N]...[C].
+// [G][N]...[C] where N is the batch size, ... is the set of spatial
+// dimensions (usually [W][H]), G is the number of groups and C is the number
+// of channels in each group.
 static Tensor
 actsToInternalShape(const Tensor &act, unsigned numConvGroups) {
   if (act.dim(1) % numConvGroups != 0) {
@@ -375,11 +377,12 @@ actsToInternalShape(const Tensor &act, unsigned numConvGroups) {
 }
 
 // Reshape the activations tensor from [G][N]...[C] shape to
-// [N][G * C]... shape.
+// [N][G * C]... shape where N is the batch size, ... is the set of spatial
+// dimensions (usually [W][H]), G is the number of groups and C is the number
+// of channels in each group.
 static Tensor
 actsToExternalShape(const Tensor &act) {
-  return act.dimShufflePartial({0, act.rank() - 1}, {1, 2})
-            .reshapePartial(1, 3, {act.dim(0) * act.dim(act.rank() - 1)});
+  return act.dimShufflePartial({0, act.rank() - 1}, {1, 2}).flatten(1, 3);
 }
 
 // Reshape the weights tensor from [G][OC][IC]... shape to
@@ -3353,14 +3356,14 @@ addToChannel(Graph &graph, const Tensor &actsUngrouped,
                                 .flatten(2, acts.rank());
   const auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
   const unsigned numTiles = firstInGroupMapping.size();
-  const auto flattenedActsMapping = graph.getTileMapping(acts.flatten());
+  const auto actsMapping = graph.getTileMapping(acts);
   const std::string vertexName =
       scale == 1.0 ? "popconv::AddToChannel" : "popconv::ScaledAddToChannel";
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto singleGroup = getAssignedGroupForTile(firstInGroupMapping[tile],
                                                      firstInGroup.shape());
     if (singleGroup.second) {
-      const auto tileMap = flattenedActsMapping[tile];
+      const auto tileMap = actsMapping[tile];
       auto v =
         graph.addVertex(cs, templateVertex(vertexName, dType),
                         {{"acts", concat(acts.flatten().slices(tileMap))},
