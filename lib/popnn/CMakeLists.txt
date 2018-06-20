@@ -27,7 +27,7 @@ target_link_libraries(popnn
   PUBLIC
     poplar popconv poputil poplin ${CMAKE_DL_LIBS}
   PRIVATE
-    Boost::boost
+    poplibs_support Boost::boost
 )
 
 target_include_directories(popnn

@@ -5,11 +5,13 @@ find_package(Boost REQUIRED)
 
 add_library(poplibs_support STATIC
   Algorithms.cpp
+  codelets.cpp
   ContiguousRegionsByTile.cpp
   IclUtil.cpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/Algorithms.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/Compiler.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/ContiguousRegionsByTile.hpp
+  ${CMAKE_SOURCE_DIR}/include/poplibs_support/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/cyclesTables.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/gcd.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/IclUtil.hpp
