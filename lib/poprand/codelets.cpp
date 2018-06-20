@@ -5,7 +5,7 @@
 namespace poprand {
 
 void addCodelets(poplar::Graph &graph) {
-  graph.addCodelets(poplibs::getCodeletsPath("poprand", "poprand"));
+  graph.addCodelets(poplibs::getCodeletsPath("poprand", "poprand.gp"));
   poplibs::registerCyclesFunctions(graph, makeCyclesFunctionTable());
 }
 

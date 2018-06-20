@@ -91,7 +91,7 @@ function(add_popnn_unit_test name)
   cmake_parse_arguments(add_unit_test "" "FILES" "VARIANTS" "FILES;${ARGN}")
   sanitise_variants(add_unit_test_VARIANTS)
   set(FILES "${add_unit_test_FILES}")
-  extract_targets(test_args_VARIANTS TARGETS)
+  extract_targets(add_unit_test_VARIANTS TARGETS)
 
   foreach(TEST_TARGET ${TARGETS})
     set(executable_name "${TEST_TARGET}_${name}")
