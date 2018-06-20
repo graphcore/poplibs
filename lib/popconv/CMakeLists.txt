@@ -55,7 +55,7 @@ add_custom_command(
     -I ${CMAKE_CURRENT_SOURCE_DIR}
     -o popconv.gp
     ${codelet_cpp_sources}
-    ${codelet_asm_sourceS}
+    ${codelet_asm_sources}
   DEPENDS
     ${codelet_cpp_sources}
     ${codelet_asm_sources}

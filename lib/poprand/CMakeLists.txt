@@ -12,6 +12,8 @@ add_library(poprand SHARED
 target_link_libraries(poprand
   PUBLIC
     poplar poputil ${CMAKE_DL_LIBS}
+  PRIVATE
+    poplibs_support
 )
 
 target_include_directories(poprand
@@ -40,7 +42,7 @@ add_custom_command(
     -I ${CMAKE_CURRENT_SOURCE_DIR}
     -o poprand.gp
     ${codelet_cpp_sources}
-    ${codelet_asm_sourceS}
+    ${codelet_asm_sources}
   DEPENDS
     ${codelet_cpp_sources}
     ${codelet_asm_sources}
