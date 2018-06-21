@@ -3,7 +3,7 @@ find_package(PythonInterp REQUIRED)
 find_package(Threads)
 
 
-set(DEFAULT_TEST_VARIANTS "IpuModel" CACHE STRING
+set(DEFAULT_TEST_VARIANTS "Cpu;IpuModel;Sim;Sim:cpp" CACHE STRING
     "The device variants to run tests on when no variants are set explicitly")
 
 set(ENABLED_TEST_VARIANTS "Cpu;IpuModel;Sim;Sim:cpp" CACHE STRING
@@ -11,8 +11,8 @@ set(ENABLED_TEST_VARIANTS "Cpu;IpuModel;Sim;Sim:cpp" CACHE STRING
 
 add_subdirectory(popsolver)
 
-# remove any requested variants not present in ${ENABLED_TEST_VARIANTS}
-# If no variants were requested all ${ENABLED_TEST_VARIANTS} are returned
+# Remove any requested variants not present in ${ENABLED_TEST_VARIANTS}
+# If no variants were requested all ${ENABLED_TEST_VARIANTS} are returned.
 function(sanitise_variants variant_name)
   set(variants ${${variant_name}})
   set(old_variants "${variants}")
@@ -20,14 +20,37 @@ function(sanitise_variants variant_name)
     set(new_variants ${DEFAULT_TEST_VARIANTS})
   else()
     set(new_variants "")
-    # test for all variants that are supported
+    # Only allow each variant if it is enabled:
     foreach(variant ${old_variants})
       if (${variant} IN_LIST ENABLED_TEST_VARIANTS)
         list(APPEND new_variants ${variant})
       endif()
     endforeach()
   endif()
+  list(REMOVE_DUPLICATES new_variants)
   set(${variant_name} "${new_variants}" PARENT_SCOPE)
+endfunction()
+
+function(add_test_executable name)
+    add_executable(${name} ${ARGN})
+  set_property(TARGET ${name}
+      APPEND_STRING PROPERTY
+      COMPILE_FLAGS "-DTEST_TARGET=DeviceType::${TEST_TARGET}")
+  target_include_directories(${name}
+      PRIVATE
+      $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
+      $<TARGET_PROPERTY:popconv,INCLUDE_DIRECTORIES>)
+  target_link_libraries(${name} poprand popnn poputil
+                        poplar
+                        poplibs_test
+                        Boost::unit_test_framework
+                        Boost::timer
+                        Boost::system
+                        Boost::program_options
+                        ${CMAKE_THREAD_LIBS_INIT})
+  if (NOT Boost_UNIT_TEST_FRAMEWORK_LIBRARY MATCHES "\\.a$")
+    target_compile_definitions(${name} PRIVATE -DBOOST_TEST_DYN_LINK)
+  endif()
 endfunction()
 
 # A VARIANT is a colon separated pair "target:[runconfig]". This function
@@ -66,35 +89,36 @@ function(extract_targets variants targets)
   set(${targets} ${extracted_targets} PARENT_SCOPE)
 endfunction()
 
-function(add_test_executable name)
-    add_executable(${name} ${ARGN})
-  set_property(TARGET ${name}
-      APPEND_STRING PROPERTY
-      COMPILE_FLAGS "-DTEST_TARGET=DeviceType::${TEST_TARGET}")
-  target_include_directories(${name}
-      PRIVATE
-      $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
-      $<TARGET_PROPERTY:popconv,INCLUDE_DIRECTORIES>)
-  target_link_libraries(${name} poprand popnn poputil
-                        poplar
-                        poplibs_test
-                        Boost::unit_test_framework
-                        Boost::timer
-                        Boost::system
-                        Boost::program_options
-                        ${CMAKE_THREAD_LIBS_INIT})
-  if(NOT Boost_UNIT_TEST_FRAMEWORK_LIBRARY MATCHES "\\.a$")
-    target_compile_definitions(${name} PRIVATE -DBOOST_TEST_DYN_LINK)
-  endif()
-endfunction()
+# If running tests on Ipu hardware is enabled then add a test fixture that
+# checks if a physical IPU device is present. Hw tests will list this test as a
+# "required fixture" and they will therefore not be run if no Ipu device is
+# present at run time (and the fixture will be listed as a failure):
+extract_targets(ENABLED_TEST_VARIANTS ENABLED_TEST_TARGETS)
+if ("Hw" IN_LIST ENABLED_TEST_TARGETS)
+  add_test_executable(EnumerateDevices EnumerateDevices.cpp)
+  add_test(NAME CheckIpuHwAvailable
+           COMMAND EnumerateDevices
+           WORKING_DIRECTORY ${CMAKE_CURRENT_BUILD_DIR})
+  set_tests_properties(CheckIpuHwAvailable
+                       PROPERTIES FIXTURES_SETUP IpuIsAvailable)
+endif()
 
-# first parameter is the test name, following ones are source files,
-# everything after VARIANTS is a variant
+# Add a test to run with the specified VARIANTS (or all enabled VARIANTS if
+# none are specified). The first parameter is the test name, the following are
+# source files, and finally everything after VARIANTS are variant
+# specifications.
+#
+# A variation specification must be of the form "target:[config]"
+#
+# Currently supported targets are "Cpu;IpuModel;Sim;Hw"
+# Currently supported configs are "cpp;default" which specify the codelet types
 function(add_popnn_unit_test name)
   cmake_parse_arguments(add_unit_test "" "FILES" "VARIANTS" "FILES;${ARGN}")
   sanitise_variants(add_unit_test_VARIANTS)
   set(FILES "${add_unit_test_FILES}")
   extract_targets(add_unit_test_VARIANTS TARGETS)
+  message(STATUS
+    "Adding test '${name}' with variants: ${add_unit_test_VARIANTS}")
 
   foreach(TEST_TARGET ${TARGETS})
     set(executable_name "${TEST_TARGET}_${name}")
@@ -113,6 +137,15 @@ function(add_popnn_unit_test name)
     if (${TEST_CONFIG} STREQUAL "cpp")
       set_tests_properties(${test_name} PROPERTIES
                            ENVIRONMENT POPLIBS_CODELET_SUFFIX=_c)
+    endif()
+    if (${TEST_TARGET} STREQUAL "Hw")
+      # Serialise tests that require a physical IPU using dummy resource
+      # 'IpuDeviceAccess' and make sure those tests only run if an IPU was
+      # found by the IpuIsAvailable test fixture:
+      #message(STATUS "${test_name} requires an IPU: setting required fixture")
+      set_tests_properties(${test_name}
+        PROPERTIES RESOURCE_LOCK IpuDeviceAccess
+                   FIXTURES_REQUIRED IpuIsAvailable)
     endif()
   endforeach()
 endfunction()
@@ -138,6 +171,15 @@ function(add_multitarget_test)
     if (${TEST_CONFIG} STREQUAL "cpp")
       set_tests_properties(${test_name} PROPERTIES
                            ENVIRONMENT POPLIBS_CODELET_SUFFIX=_c)
+    endif()
+    if (${TEST_TARGET} STREQUAL "Hw")
+      # Serialise tests that require a physical IPU using dummy resource
+      # 'IpuDeviceAccess' and make sure those tests only run if an IPU was
+      # found by the IpuIsAvailable test fixture:
+      #message(STATUS "${test_name} requires an IPU: setting required fixture")
+      set_tests_properties(${test_name}
+        PROPERTIES RESOURCE_LOCK IpuDeviceAccess
+                   FIXTURES_REQUIRED IpuIsAvailable)
     endif()
   endforeach()
 endfunction()

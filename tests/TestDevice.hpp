@@ -1,32 +1,31 @@
-#ifndef __TestDevice_hpp
-#define __TestDevice_hpp
+#ifndef TestDevice_hpp__
+#define TestDevice_hpp__
 
 #include <poplar/Engine.hpp>
-#include <poplar/IPUModel.hpp>
 #include <poplar/Target.hpp>
+#include <poplar/Device.hpp>
+#include <poplar/IPUModel.hpp>
+
 namespace {
-enum class DeviceType {
-  Cpu,         //CPU
-  IpuModel,    //IPU modelled on CPU, number of tiles specified by parameter
-  Sim };       //IPU simulated by CISS, number of tiles specified by parameter
+// In CMakeLists.txt there is a regex on "Hw*" so be
+// careful when adding new enums that begin with Hw:
+enum class DeviceType {Cpu, Sim, Hw, IpuModel};
 
 // Create an engine for testing
 inline poplar::Device createTestDevice(DeviceType deviceType,
                                        unsigned numIPUs = 1,
-                                       unsigned tilesPerIPU = 1)
-{
+                                       unsigned tilesPerIPU = 1) {
   poplar::Target target;
-  poplar::Device d;
   switch (deviceType) {
   case DeviceType::Cpu:
     target = poplar::Target::createCPUTarget();
-    d = poplar::Device::createCPUDevice();
+    return poplar::Device::createCPUDevice();
     break;
   case DeviceType::IpuModel:
   {
     poplar::IPUModel ipuModel;
     ipuModel.tilesPerIPU = tilesPerIPU;
-    d = ipuModel.createDevice();
+    return ipuModel.createDevice();
     break;
   }
   case DeviceType::Sim:
@@ -39,14 +38,34 @@ inline poplar::Device createTestDevice(DeviceType deviceType,
                                              tilesPerIPU, "_TEST_SYSTEM");
     poplar::OptionFlags opt;
     opt.set("debug.trace", "false");
-    d = poplar::Device::createSimulatorDevice(target, opt);
+    return poplar::Device::createSimulatorDevice(target, opt);
+  }
+  case DeviceType::Hw:
+  {
+    static auto set = poplar::DeviceSet::getDeviceSet();
+    try {
+      auto device = set.getDevices(poplar::TargetType::IPU, 1).at(0);
+      auto success = device.attach();
+      if (!success) {
+        throw std::logic_error("Could not acquire device " +
+                                std::to_string(device.getId()));
+      }
+      if (tilesPerIPU != device.getTarget().getTilesPerIPU()) {
+        device = device.createVirtualDevice(tilesPerIPU);
+      }
+      return device;
+    } catch (const std::exception &e) {
+      throw std::logic_error("Could not acquire physical IPU device. "
+                             "Error: '" +
+                              std::string(e.what()) + "'");
+  }
+
     break;
   }
   default:
       throw std::logic_error(
-        "deviceType must be \"Cpu\", \"IpuModel\" or \"Sim\"\n");
+        "deviceType must be \"Cpu\", \"IpuModel\", \"Sim\" or \"Hw\"\n");
   }
-  return d;
 }
 
 
@@ -58,6 +77,8 @@ inline const char *asString(const DeviceType &deviceType) {
     return "IpuModel";
   case DeviceType::Sim:
     return "Sim";
+  case DeviceType::Hw:
+    return "Hw";
   default:
     break;
   }
@@ -73,8 +94,12 @@ inline std::istream &operator>>(std::istream &is, DeviceType &type) {
     type = DeviceType::IpuModel;
   else if (token == "Sim")
     type = DeviceType::Sim;
+  else if (token == "Hw")
+    type = DeviceType::Hw;
   else
-    throw std::logic_error("Unsupported device type <" + token + ">");
+    throw std::logic_error(
+      "Unsupported device type <" + token + ">" +
+      "; must be one of \"Cpu\", \"IpuModel\", \"Sim\" or \"Hw\"");
   return is;
 }
 
