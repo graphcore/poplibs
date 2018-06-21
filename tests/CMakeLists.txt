@@ -3,7 +3,7 @@ find_package(PythonInterp REQUIRED)
 find_package(Threads)
 
 
-set(DEFAULT_TEST_VARIANTS "Cpu;IpuModel;Sim;Sim:cpp" CACHE STRING
+set(DEFAULT_TEST_VARIANTS "IpuModel;Sim;Sim:cpp" CACHE STRING
     "The device variants to run tests on when no variants are set explicitly")
 
 set(ENABLED_TEST_VARIANTS "Cpu;IpuModel;Sim;Sim:cpp" CACHE STRING
@@ -111,6 +111,7 @@ endif()
 # A variation specification must be of the form "target:[config]"
 #
 # Currently supported targets are "Cpu;IpuModel;Sim;Hw"
+# Note that the Cpu target does not support multi-tile tests
 # Currently supported configs are "cpp;default" which specify the codelet types
 function(add_popnn_unit_test name)
   cmake_parse_arguments(add_unit_test "" "FILES" "VARIANTS" "FILES;${ARGN}")
