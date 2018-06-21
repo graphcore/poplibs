@@ -19,7 +19,8 @@ using namespace poputil;
 using namespace popops;
 
 const poplar::OptionFlags options {
-  {"target.textSectionSizeInBytes", "0x9000"}
+  {"target.textSectionSizeInBytes", "0x9000"},
+  {"target.workerStackSizeInBytes", "0x1000"}
 };
 
 namespace utf = boost::unit_test;
@@ -233,6 +234,10 @@ void binaryOpTest(const BinaryOpFn &op,
   eng.writeTensor("in2", hIn2);
   eng.run();
   eng.readTensor("out", hOut);
+
+  if (TEST_TARGET == DeviceType::IpuModel) {
+    eng.printSummary(std::cout, {{"doLayerWiseBreakdown", "true"}});
+  }
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -1029,6 +1034,9 @@ BOOST_AUTO_TEST_CASE(StdOperationSelectInt,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationClampFloat,
+                   // This test is currently disabled for the
+                   // simulator/hardware see T3461
+                  *utf::enable_if<TEST_TARGET == DeviceType::IpuModel>()
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
@@ -1384,10 +1392,12 @@ BOOST_AUTO_TEST_CASE(MapTest) {
   eng.run();
   eng.readTensor("out", hOut);
 
-  auto execReport = eng.getExecutionReport({
-    { "doLayerWiseBreakdown", "true" }
-  });
-  execReport.printSummary(std::cerr);
+  if (TEST_TARGET == DeviceType::IpuModel) {
+    auto execReport = eng.getExecutionReport({
+      { "doLayerWiseBreakdown", "true" }
+    });
+    execReport.printSummary(std::cerr);
+  }
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -1439,10 +1449,13 @@ BOOST_AUTO_TEST_CASE(MapTestMultiTensor) {
   eng.run();
   eng.readTensor("out", hOut);
 
-  auto execReport = eng.getExecutionReport({
-    { "doLayerWiseBreakdown", "true" }
-  });
-  execReport.printSummary(std::cerr);
+
+  if (TEST_TARGET == DeviceType::IpuModel) {
+    auto execReport = eng.getExecutionReport({
+      { "doLayerWiseBreakdown", "true" }
+    });
+    execReport.printSummary(std::cerr);
+  }
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -1475,10 +1488,13 @@ BOOST_AUTO_TEST_CASE(MapInPlaceTest) {
   eng.run();
   eng.readTensor("out", hOut);
 
-  auto execReport = eng.getExecutionReport({
-    { "doLayerWiseBreakdown", "true" }
-  });
-  execReport.printSummary(std::cerr);
+
+  if (TEST_TARGET == DeviceType::IpuModel) {
+    auto execReport = eng.getExecutionReport({
+      { "doLayerWiseBreakdown", "true" }
+    });
+    execReport.printSummary(std::cerr);
+  }
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -1529,10 +1545,13 @@ BOOST_AUTO_TEST_CASE(MapInferTypeTest) {
   eng.run();
   eng.readTensor("out", hOut);
 
-  auto execReport = eng.getExecutionReport({
-    { "doLayerWiseBreakdown", "true" }
-  });
-  execReport.printSummary(std::cerr);
+  if (TEST_TARGET == DeviceType::IpuModel) {
+    auto execReport = eng.getExecutionReport({
+      { "doLayerWiseBreakdown", "true" }
+    });
+    execReport.printSummary(std::cerr);
+  }
+
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     auto expected = (aIn[i] == bIn[i]) && cIn[i];
@@ -1571,10 +1590,14 @@ BOOST_AUTO_TEST_CASE(AddInPlaceTest) {
   eng.run();
   eng.readTensor("out", hOut);
 
-  auto execReport = eng.getExecutionReport({
-    { "doLayerWiseBreakdown", "true" }
-  });
-  execReport.printSummary(std::cerr);
+
+  if (TEST_TARGET == DeviceType::IpuModel) {
+    auto execReport = eng.getExecutionReport({
+      { "doLayerWiseBreakdown", "true" }
+    });
+    execReport.printSummary(std::cerr);
+  }
+
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
