@@ -215,7 +215,9 @@ static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
   auto outFlat = out.flatten();
   graph.reorderToSimplify(&outFlat, {&inFlat});
   const auto mapping = graph.getTileMapping(inFlat);
-  const auto grainSize = target.getVectorWidth(inType);
+  const auto grainSize =
+      std::max<unsigned>(target.getVectorWidth(inType),
+                         target.getAtomicStoreGranularity());
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
     const auto tileContiguousRegions =
@@ -273,7 +275,9 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
   graph.reorderToSimplify(&outFlat, {&in1Flat, &in2Flat});
   const auto mapping = graph.getTileMapping(outFlat);
 
-  const auto grainSize = target.getVectorWidth(in1Type);
+  const auto grainSize =
+      std::max<unsigned>(target.getVectorWidth(in1Type),
+                         target.getAtomicStoreGranularity());
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
     const auto tileContiguousRegions =
@@ -340,7 +344,9 @@ static Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
   graph.reorderToSimplify(&outFlat, {&in1Flat, &in2Flat, &in3Flat});
   const auto mapping = graph.getTileMapping(outFlat);
 
-  const auto grainSize = target.getVectorWidth(in1Type);
+  const auto grainSize =
+      std::max<unsigned>(target.getVectorWidth(in1Type),
+                         target.getAtomicStoreGranularity());
   const auto opVertexName = vertexName(op) + (inPlace ? "InPlace" : "");
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
