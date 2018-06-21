@@ -38,7 +38,7 @@ inline poplar::Device createTestDevice(DeviceType deviceType,
     target = poplar::Target::createIPUTarget(numIPUs,
                                              tilesPerIPU, "_TEST_SYSTEM");
     poplar::OptionFlags opt;
-    opt.set("debug.trace", tilesPerIPU <= 16 ? "true" : "false");
+    opt.set("debug.trace", "false");
     d = poplar::Device::createSimulatorDevice(target, opt);
     break;
   }
