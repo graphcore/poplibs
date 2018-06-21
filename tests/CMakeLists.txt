@@ -143,28 +143,42 @@ function(add_multitarget_test)
 endfunction()
 
 # Unit tests
-add_popnn_unit_test(RandomGenTest RandomGenTest.cpp)
-add_popnn_unit_test(ConvUtilTest ConvUtilTest.cpp)
-add_popnn_unit_test(RangeTest RangeTest.cpp)
-add_popnn_unit_test(ConvPlanTest ConvPlanTest.cpp)
+add_popnn_unit_test(RandomGenTest RandomGenTest.cpp
+                    VARIANTS "IpuModel;Sim:cpp;Sim")
+add_popnn_unit_test(ConvUtilTest ConvUtilTest.cpp
+                    VARIANTS "IpuModel;Sim:cpp;Sim")
+add_popnn_unit_test(RangeTest RangeTest.cpp
+                    VARIANTS "IpuModel;Sim:cpp;Sim")
+add_popnn_unit_test(ConvPlanTest ConvPlanTest.cpp
+                    VARIANTS "IpuModel;Sim:cpp;Sim")
 add_popnn_unit_test(StdArithmeticTests StdArithmeticTests.cpp
-                    VARIANTS "IpuModel;Sim")
-add_popnn_unit_test(GraphFunctionTest GraphFunctionTest.cpp)
+                    VARIANTS "IpuModel;Sim:cpp;Sim")
+add_popnn_unit_test(GraphFunctionTest GraphFunctionTest.cpp
+                    VARIANTS "IpuModel;Sim:cpp;Sim")
 add_popnn_unit_test(WinogradConvolution WinogradConv.cpp)
-add_popnn_unit_test(NonLinearityTest NonLinearityTest.cpp)
-add_popnn_unit_test(BigNLVertices BigNLVertices.cpp)
-add_popnn_unit_test(GraphProgLocationTest GraphProgLocationTest.cpp)
+add_popnn_unit_test(NonLinearityTest NonLinearityTest.cpp
+                    VARIANTS "IpuModel;Sim:cpp;Sim")
+add_popnn_unit_test(BigNLVertices BigNLVertices.cpp
+                    VARIANTS "IpuModel;Sim:cpp;Sim")
+add_popnn_unit_test(GraphProgLocationTest GraphProgLocationTest.cpp
+                    VARIANTS "IpuModel;Sim:cpp;Sim")
 add_popnn_unit_test(StdOperatorTest StdOperatorsTest.cpp
-                    VARIANTS "IpuModel;Sim")
+                    VARIANTS "IpuModel;Sim:cpp;Sim")
 add_popnn_unit_test(BatchNormTest BatchNormTest.cpp)
 add_popnn_unit_test(ReductionTests ReductionTests.cpp)
-add_popnn_unit_test(LargeSplitRegionsTest LargeSplitRegionsTest.cpp)
+add_popnn_unit_test(LargeSplitRegionsTest LargeSplitRegionsTest.cpp
+                    VARIANTS "IpuModel;Sim:cpp;Sim")
 add_popnn_unit_test(DynamicSliceTest DynamicSliceTest.cpp)
-add_popnn_unit_test(CircBufTests CircBufTests.cpp)
-add_popnn_unit_test(BroadcastToMatchTest BroadcastToMatchTest.cpp)
-add_popnn_unit_test(ParallelTest ParallelTest.cpp)
-add_popnn_unit_test(LossTest LossTest.cpp)
-add_popnn_unit_test(EncodingTest EncodingTest.cpp)
+add_popnn_unit_test(CircBufTests CircBufTests.cpp
+                    VARIANTS "IpuModel;Sim:cpp;Sim")
+add_popnn_unit_test(BroadcastToMatchTest BroadcastToMatchTest.cpp
+                    VARIANTS "IpuModel;Sim:cpp;Sim")
+add_popnn_unit_test(ParallelTest ParallelTest.cpp
+                    VARIANTS "IpuModel;Sim:cpp;Sim")
+add_popnn_unit_test(LossTest LossTest.cpp
+                    VARIANTS "IpuModel;Sim:cpp;Sim")
+add_popnn_unit_test(EncodingTest EncodingTest.cpp
+                    VARIANTS "IpuModel;Sim:cpp;Sim")
 
 # Random single_conv_layer tests with fixed seed.
 set(NUM_CONV_RANDOM_TESTS 50)
