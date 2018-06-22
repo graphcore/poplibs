@@ -688,7 +688,8 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (deviceType != DeviceType::Cpu && deviceType != DeviceType::Sim) {
+  if (deviceType != DeviceType::Cpu && deviceType != DeviceType::Sim &&
+      deviceType != DeviceType::Hw) {
     engine.printSummary(std::cout, OptionFlags{
       { "doLayerWiseBreakdown", "true" }
     });
