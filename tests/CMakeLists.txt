@@ -3,7 +3,7 @@ find_package(PythonInterp REQUIRED)
 find_package(Threads)
 
 
-set(DEFAULT_TEST_VARIANTS "Cpu;IpuModel;Sim;Sim:cpp" CACHE STRING
+set(DEFAULT_TEST_VARIANTS "IpuModel" CACHE STRING
     "The device variants to run tests on when no variants are set explicitly")
 
 set(ENABLED_TEST_VARIANTS "Cpu;IpuModel;Sim;Sim:cpp" CACHE STRING
