@@ -3,7 +3,7 @@
 
 #include <poplar/Engine.hpp>
 #include <poplar/Target.hpp>
-#include <poplar/Device.hpp>
+#include <poplar/DeviceSet.hpp>
 #include <poplar/IPUModel.hpp>
 
 namespace {
