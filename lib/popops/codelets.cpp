@@ -64,7 +64,8 @@ void addReduceCodelets(poplar::Graph &graph) {
 }
 
 void addCodelets(poplar::Graph &graph) {
-  graph.addCodelets(poplibs::getCodeletsPath("popops", "popops.gp"));
+  static poplibs::CurrentLibLocator loc;
+  graph.addCodelets(poplibs::getCodeletsPath("popops", "popops.gp", loc));
   poplibs::registerCyclesFunctions(graph, makeCyclesFunctionTable());
   addReduceCodelets(graph);
 }

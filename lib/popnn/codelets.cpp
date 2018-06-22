@@ -5,7 +5,8 @@
 namespace popnn {
 
 void addCodelets(poplar::Graph &graph) {
-  graph.addCodelets(poplibs::getCodeletsPath("popnn", "popnn.gp"));
+  static poplibs::CurrentLibLocator loc;
+  graph.addCodelets(poplibs::getCodeletsPath("popnn", "popnn.gp", loc));
   poplibs::registerCyclesFunctions(graph, makeCyclesFunctionTable());
 }
 

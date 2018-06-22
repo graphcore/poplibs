@@ -19,7 +19,8 @@ const std::vector<std::string> winogradCodelets =
 
 
 void addCodelets(poplar::Graph &graph) {
-  graph.addCodelets(poplibs::getCodeletsPath("popconv", "popconv.gp"));
+  static poplibs::CurrentLibLocator loc;
+  graph.addCodelets(poplibs::getCodeletsPath("popconv", "popconv.gp", loc));
   poplibs::registerCyclesFunctions(graph, makeCyclesFunctionTable());
 
   // The winograd codelets are not currently supported and do not have correct

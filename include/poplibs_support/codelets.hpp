@@ -4,8 +4,13 @@
 
 namespace poplibs {
 
+struct CurrentLibLocator {
+  void *dummy;
+};
+
 std::string getCodeletsPath(const std::string &libName,
-                            const std::string &codeletsFile);
+                            const std::string &codeletsFile,
+                            const CurrentLibLocator &locator);
 
 } // end namespace poplibs
 

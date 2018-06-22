@@ -9,7 +9,8 @@
 namespace poplibs {
 
 std::string getCodeletsPath(const std::string &libName,
-                            const std::string &codeletsFile_) {
+                            const std::string &codeletsFile_,
+                            const CurrentLibLocator &locator) {
   auto codeletsFile = codeletsFile_;
   auto upperName = libName;
   std::transform(upperName.begin(), upperName.end(), upperName.begin(),
@@ -33,8 +34,7 @@ std::string getCodeletsPath(const std::string &libName,
 
 #if defined(__linux__) || defined(__APPLE__)
   Dl_info dlInfo;
-  static const void* dummy;
-  if (dladdr(&dummy, &dlInfo)) {
+  if (dladdr(&locator.dummy, &dlInfo)) {
     std::string path(dlInfo.dli_fname);
     path = path.substr(0, path.find_last_of( '/' ) + 1);
     path = path + codeletsFile;
