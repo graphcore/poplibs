@@ -25,8 +25,7 @@ using namespace popops;
 using namespace poplibs_test::util;
 
 const OptionFlags options {
-  {"target.textSectionSizeInBytes", "0x9000"},
-  {"target.workerStackSizeInBytes", "0x1000"}
+  {"target.textSectionSizeInBytes", "0x9000"}
 };
 
 namespace utf = boost::unit_test;
