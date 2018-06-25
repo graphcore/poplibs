@@ -126,10 +126,14 @@ template class ConvPartialnx1<float, float, false>;
 template class ConvPartialnx1<half, half, false>;
 template class ConvPartialnx1<half, float, false>;
 
+
+// Note!! This vertex is changed to SupervisorVertex to ensure that writes
+// are single threaded. The graph construction, or the edge alignment could be
+// changed but is not done as this code is going to go away with new reduction
 template <typename FPType>
 class
 [[poplar::constraint("elem(*in) != elem(*out)")]]
-ConvChanReduce2: public Vertex {
+ConvChanReduce2: public SupervisorVertex {
 public:
   Vector<Output<FPType>> out;
   Vector<Input<FPType>, ONE_PTR> in;
@@ -152,8 +156,11 @@ public:
 template class ConvChanReduce2<float>;
 template class ConvChanReduce2<half>;
 
+// Note!! This vertex is changed to SupervisorVertex to ensure that writes
+// are single threaded. The graph construction, or the edge alignment could be
+// changed but is not done as this code is going to go away with new reduction
 template <typename InType, typename OutType>
-class ConvChanReduceAcc: public Vertex {
+class ConvChanReduceAcc: public SupervisorVertex {
 public:
   InOut<OutType> out;
   Vector<Input<InType>> in;
@@ -937,10 +944,13 @@ template class ChannelMul<float>;
 template class ChannelMul<half>;
 
 
+// Note!! This vertex is changed to SupervisorVertex to ensure that writes
+// are single threaded. The graph construction, or the edge alignment could be
+// changed but is not done as this code is going to go away with new reduction
 template <typename InType, typename OutType>
 class
 [[poplar::constraint("elem(**in) != elem(*out)")]]
-ConvChanReduce: public Vertex {
+ConvChanReduce: public SupervisorVertex {
 public:
   Output<Vector<OutType>> out;
   Vector<Input<Vector<InType, TWO_PTR, 1, true>>> in;
@@ -969,10 +979,13 @@ template class ConvChanReduce<half, float>;
 template class ConvChanReduce<half, half>;
 
 
+// Note!! This vertex is changed to SupervisorVertex to ensure that writes
+// are single threaded. The graph construction, or the edge alignment could be
+// changed but is not done as this code is going to go away with new reduction
 template <typename InType, typename OutType>
 class
 [[poplar::constraint("elem(**in) != elem(*out)")]]
-ConvChanReduceSquare: public Vertex {
+ConvChanReduceSquare: public SupervisorVertex {
 public:
   Output<Vector<OutType>> out;
   Vector<Input<Vector<InType, TWO_PTR, 1, true>>> in;
@@ -999,8 +1012,11 @@ public:
 template class ConvChanReduceSquare<float, float>;
 template class ConvChanReduceSquare<half, float>;
 
+// Note!! This vertex is changed to SupervisorVertex to ensure that writes
+// are single threaded. The graph construction, or the edge alignment could be
+// changed but is not done as this code is going to go away with new reduction
 template <typename InType, typename OutType>
-class ConvChanReduceAndScale: public Vertex {
+class ConvChanReduceAndScale: public SupervisorVertex {
 public:
   Output<OutType> out;
   Vector<Input<InType>, TWO_PTR, 1, true> in; // partial running sum
