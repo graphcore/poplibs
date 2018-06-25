@@ -50,10 +50,10 @@ namespace {
   };
 
   DEFINE_UNARY_OP_FN(expr::UnaryOpType::ABSOLUTE,
-                     if (x >= 0) {
-                       return x;
+                     if (std::is_integral<T>::value) {
+                       return std::abs(x);
                      } else {
-                       return -x;
+                       return std::fabs(x);
                      })
   DEFINE_UNARY_OP_FN(expr::UnaryOpType::BITWISE_NOT, return ~x;)
   DEFINE_UNARY_OP_FN(expr::UnaryOpType::CEIL, return std::ceil(x);)
