@@ -43,6 +43,7 @@ max_kernel_padding = 3
 max_chans = 128
 max_stride = 4
 max_flops = 500000
+max_flops_per_tile = 70000
 
 
 def geometric_sequence(a, r):
@@ -235,7 +236,7 @@ def make_params():
     return params
 
 
-def make_constrained_params():
+def make_constrained_params(tiles_per_ipu):
     """
     Return a random set of convolution parameters subject to constraints
 
@@ -249,13 +250,16 @@ def make_constrained_params():
             continue
         if (p.get_flops() > max_flops):
             continue
+        if (p.get_flops() > max_flops_per_tile * tiles_per_ipu):
+            continue;
         return p
 
+def select_tiles_per_ipu():
+    return weighted_choice([1, 16, 24], [0.3, 0.4, 0.3])
 
-def make_device_args():
+def make_device_args(tiles_per_ipu):
     """Return a random set of device arguments to pass to single_conv_layer"""
     args = []
-    tiles_per_ipu = weighted_choice([1, 16, 24], [0.3, 0.4, 0.3])
     args.append('--tiles-per-ipu=' + str(tiles_per_ipu))
     return args
 
@@ -296,8 +300,9 @@ def main():
     args = parser.parse_args()
     random.seed(args.seed)
     for i in range(args.n):
-        params = make_constrained_params()
-        device_args = make_device_args()
+        tiles_per_ipu = select_tiles_per_ipu()
+        device_args = make_device_args(tiles_per_ipu)
+        params = make_constrained_params(tiles_per_ipu)
         print('Run #{}:'.format(i))
         try: 
             run(params, binary=args.binary,
