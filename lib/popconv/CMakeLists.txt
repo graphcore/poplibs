@@ -38,7 +38,7 @@ target_include_directories(popconv
 )
 
 set(codelet_cpp_sources
-  ${CMAKE_CURRENT_SOURCE_DIR}/popconvCodelets.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/popconvCodelets.cpp
 )
 set(codelet_asm_sources
   # Assembly to be added

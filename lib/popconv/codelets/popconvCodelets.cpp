@@ -4,6 +4,8 @@
 #include <cmath>
 #include <type_traits>
 
+#include "poplibs_support/ExternalCodelet.hpp"
+
 using namespace poplar;
 
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;

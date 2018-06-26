@@ -3,6 +3,7 @@
 #include <limits>
 
 #include "util.hpp"
+#include "poplibs_support/ExternalCodelet.hpp"
 
 using namespace poplar;
 

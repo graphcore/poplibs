@@ -4,6 +4,7 @@
 
 #include "util.hpp"
 #include "popops/ExprOp.hpp"
+#include "poplibs_support/ExternalCodelet.hpp"
 
 using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;

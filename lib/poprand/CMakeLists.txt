@@ -25,7 +25,7 @@ target_include_directories(poprand
 )
 
 set(codelet_cpp_sources
-  ${CMAKE_CURRENT_SOURCE_DIR}/poprandCodelets.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/poprandCodelets.cpp
 )
 set(codelet_asm_sources
   # Assembly to be added

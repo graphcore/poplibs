@@ -1,5 +1,6 @@
 #include <poplar/Vertex.hpp>
 #include <poplar/HalfFloat.hpp>
+#include "poplibs_support/ExternalCodelet.hpp"
 
 using namespace poplar;
 

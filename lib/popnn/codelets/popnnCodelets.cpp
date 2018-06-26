@@ -5,6 +5,7 @@
 #include <type_traits>
 #include "popnn/Loss.hpp"
 #include "popnn/NonLinearity.hpp"
+#include "poplibs_support/ExternalCodelet.hpp"
 
 using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
