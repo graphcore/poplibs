@@ -3356,17 +3356,20 @@ addToChannel(Graph &graph, const Tensor &actsUngrouped,
                                 .flatten(2, acts.rank());
   const auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
   const unsigned numTiles = firstInGroupMapping.size();
-  const auto actsMapping = graph.getTileMapping(acts);
   const std::string vertexName =
       scale == 1.0 ? "popconv::AddToChannel" : "popconv::ScaledAddToChannel";
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto singleGroup = getAssignedGroupForTile(firstInGroupMapping[tile],
                                                      firstInGroup.shape());
     if (singleGroup.second) {
-      const auto tileMap = actsMapping[tile];
+      std::vector<Interval> actsSlices;
+      for (const auto &t : firstInGroupMapping[tile]) {
+          actsSlices.emplace_back(t.begin() * outChansPerGroup,
+                                  t.end() * outChansPerGroup);
+      }
       auto v =
         graph.addVertex(cs, templateVertex(vertexName, dType),
-                        {{"acts", concat(acts.flatten().slices(tileMap))},
+                        {{"acts", concat(acts.flatten().slices(actsSlices))},
                          {"addend", addendByGroup[singleGroup.first]}});
       if (scale != 1.0)
           graph.setInitialValue(v["scale"], scale);
@@ -3581,20 +3584,20 @@ channelMul(Graph &graph, const Tensor &actsUngrouped, const Tensor &scale,
                                                 {acts.dim(2) * acts.dim(3)});
   const auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
   const unsigned numTiles = firstInGroupMapping.size();
-  const auto flattenedActs = acts.flatten();
-  const auto flattenedScaledActs = actsScaled.flatten();
-  // scaledActs has the same mapping as acts
-  const auto actsMapping = graph.getTileMapping(flattenedActs);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto singleGroup = getAssignedGroupForTile(firstInGroupMapping[tile],
                                                      firstInGroup.shape());
     if (singleGroup.second) {
-      const auto tileMap = actsMapping[tile];
+      std::vector<Interval> actsSlices;
+      for (const auto &t : firstInGroupMapping[tile]) {
+          actsSlices.emplace_back(t.begin() * outChansPerGroup,
+                                  t.end() * outChansPerGroup);
+      }
       auto v =
         graph.addVertex(cs, templateVertex("popconv::ChannelMul", dType),
-                      {{"actsIn", concat(flattenedActs.slices(tileMap))},
-                       {"actsOut", concat(flattenedScaledActs.slices(tileMap))},
-                       {"scale", scaleByGroup[singleGroup.first]}});
+                  {{"actsIn", concat(acts.flatten().slices(actsSlices))},
+                   {"actsOut", concat(actsScaled.flatten().slices(actsSlices))},
+                   {"scale", scaleByGroup[singleGroup.first]}});
       graph.setTileMapping(v, tile);
       continue;
     }
