@@ -299,9 +299,14 @@ def main():
         params = make_constrained_params()
         device_args = make_device_args()
         print('Run #{}:'.format(i))
-        run(params, binary=args.binary,
-            extra_args=device_args + ['--device-type=' + str(args.device_type)],
-            dummy_run=args.dummy)
+        try: 
+            run(params, binary=args.binary,
+                extra_args=device_args + ['--device-type=' +
+                   str(args.device_type)],
+                dummy_run=args.dummy)
+        except TestFailureException as inst:
+            print('TestFailure: ' + str(inst.args))
+            sys.exit(1);
 
 if __name__ == "__main__":
     sys.exit(main())
