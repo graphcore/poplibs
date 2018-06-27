@@ -38,15 +38,22 @@ target_include_directories(popnn
     .
 )
 
+# Search for arch_man path
+foreach(path ${CMAKE_PREFIX_PATH})
+    if(EXISTS "${path}/colossus/include/tileimplconsts_tommy.h")
+      set(ARCH_MAN_PATH ${path})
+    endif()
+endforeach(path)
+
 set(codelet_cpp_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/popnnCodelets.cpp
 )
-
 set(codelet_asm_sources
-  # Assembly to be added
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearitySupervisor.S
 )
 set(codelet_headers
   PerformanceEstimation.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/detail/NonLinearitySupervisorTemplates.S
 )
 
 add_custom_command(
@@ -55,6 +62,7 @@ add_custom_command(
   COMMAND
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
     -I ${CMAKE_CURRENT_SOURCE_DIR}
+    -I ${ARCH_MAN_PATH}/colossus/include
     -o popnn.gp
     ${codelet_cpp_sources}
     ${codelet_asm_sources}

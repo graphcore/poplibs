@@ -38,6 +38,7 @@ function(add_test_executable name)
       COMPILE_FLAGS "-DTEST_TARGET=DeviceType::${TEST_TARGET}")
   target_include_directories(${name}
       PRIVATE
+      ${CMAKE_SOURCE_DIR}/tests
       $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
       $<TARGET_PROPERTY:popconv,INCLUDE_DIRECTORIES>)
   target_link_libraries(${name} poprand popnn poputil
@@ -222,6 +223,9 @@ add_popnn_unit_test(LossTest LossTest.cpp
                     VARIANTS "IpuModel;Sim:cpp;Sim")
 add_popnn_unit_test(EncodingTest EncodingTest.cpp
                     VARIANTS "IpuModel;Sim:cpp;Sim")
+
+# Codelets
+add_subdirectory(codelets)
 
 # Random single_conv_layer tests with fixed seed.
 set(NUM_CONV_RANDOM_TESTS 50)

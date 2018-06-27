@@ -1,0 +1,223 @@
+// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
+#include <TestDevice.hpp>
+#include <poplar/Engine.hpp>
+#include <popnn/NonLinearity.hpp>
+#include <popnn/codelets.hpp>
+#include "poputil/VertexTemplates.hpp"
+#include "poplibs_test/Util.hpp"
+
+#include <cmath>
+#include <vector>
+
+#define BOOST_TEST_MODULE NonLinearitySupervisor_@DATA_TYPE@_@NL_TYPE@
+#include <boost/test/unit_test.hpp>
+
+using namespace poplar;
+using namespace poplar::program;
+using namespace popnn;
+using namespace poputil;
+using namespace poplibs_test::util;
+
+using namespace boost::unit_test;
+
+#define TOL 0.1 //tolerance of 0.1%
+#define FLOAT_ATOL 1e-20
+#define HALF_ATOL 1e-7
+
+namespace {
+
+// Unsigned integer version of log2 rounded up
+// Single-line constexpr form added to allow compile-time calculation.
+// Could be nicer if using multi-line constexpr function (needs C++14).
+constexpr static unsigned ceilLog2Aux(unsigned n) {
+  return (n ? 1 + ceilLog2Aux(n >> 1) : 0);
+}
+// Check if power of 2 and then call to count up to most significant bit
+constexpr static unsigned ceilLog2(unsigned n) {
+  return ((n & (n - 1)) ? 1 : 0) + ceilLog2Aux(n >> 1);
+}
+
+// Generated with python: "{0:-,.6f}".format(random.gauss(0.0,5.0))
+constexpr static std::size_t randomDataSize = 80;
+constexpr static double randomData[randomDataSize] = {
+  -0.737873, 1.337075, 8.437973, -10.654166, -4.325676,
+  9.487553, 8.889291, 1.709754, -4.326430, -0.426860,
+  -2.501665, -0.299281, 0.831253, 0.549082, -9.290357,
+  -6.706331, 4.499326, 12.251322, -1.957114, 0.592880,
+  4.177108, -2.815978, -5.566706, 1.880811, 6.710350,
+  9.380615, 4.871368, 2.216989, 2.792609, 2.474920,
+  3.169892, -1.546323, -6.200352, -5.285461, -4.760159,
+  0.523091, 1.635472, 3.255665, 1.603656, -2.059597,
+  -3.134368, -6.930725, 1.465806, -2.113396, -4.939822,
+  -1.009831, -5.018216, -4.275927, -5.259424, 1.409921,
+  7.581671, -3.363830, -7.479782, -0.867524, 4.391104,
+  -5.352319, 2.532336, 3.769678, 7.958588, -8.574877,
+  -1.584704, -6.517893, 8.309027, -3.836431, 3.404698,
+  -2.815457, -2.627222, 0.508437, -8.954427, 5.862103,
+  1.590211, -0.167946, 9.862661, -0.853928, 1.191383,
+  -6.853818, 5.237251, -1.092760, 0.851126, -1.905695
+};
+
+struct Params {
+  Type dataType;
+  NonLinearityType nlType;
+};
+
+struct SliceDesc {
+  std::size_t offset;
+  std::size_t numElements;
+};
+
+void calculateModelData(const NonLinearityType &nlType,
+                        const boost::multi_array<double, 1> &inputData,
+                        boost::multi_array<double, 1> &modelData) {
+  switch (nlType) {
+    case NON_LINEARITY_SIGMOID: {
+      for (std::size_t i = 0; i < inputData.num_elements(); ++i) {
+        const auto in = inputData[i];
+        modelData[i] = 1. / (1. + std::exp(-in));
+      }
+      break;
+    }
+    case NON_LINEARITY_RELU: {
+      for (std::size_t i = 0; i < inputData.num_elements(); ++i) {
+        const auto in = inputData[i];
+        modelData[i] = in > 0 ? in : 0;
+      }
+      break;
+    }
+    case NON_LINEARITY_TANH: {
+      for (std::size_t i = 0; i < inputData.num_elements(); ++i) {
+        const auto in = inputData[i];
+        modelData[i] = std::tanh(in);
+      }
+      break;
+    }
+    default: {
+      assert(0 && "Unhandled non-linearity type");
+      break;
+    }
+  }
+}
+
+void singleTest(const Type &dataType, const NonLinearityType &nlType) {
+  Device device = createTestDevice(TEST_TARGET);
+  const auto &target = device.getTarget();
+  Graph graph(device);
+  popnn::addCodelets(graph);
+
+  const auto elementSize = target.getTypeSize(dataType);
+  const auto vectorWidthBytes = (target.getDataPathWidth() / 8);
+  const auto vectorElements = (vectorWidthBytes / elementSize);
+  const auto numWorkers = target.getNumWorkerContexts();
+  const auto elementsPerChunk = vectorElements * numWorkers;
+  const auto remainderBits = ceilLog2(elementsPerChunk);
+  // Vertices currently hardcode 64-bit vector width and 6 worker contexts.
+  assert(vectorWidthBytes == 8);
+  assert(numWorkers == 6);
+
+  // Once we have hit 3 full 64-bit loops for all workers +
+  // up to 32-bits leading we will have covered all paths through the codelet.
+  const auto maxElements =
+    (vectorElements * numWorkers) * 3 +
+    (vectorElements / 2);
+  assert(randomDataSize >= maxElements);
+
+  auto t = graph.addVariable(dataType, {maxElements});
+  auto tResult = graph.addVariable(dataType, {maxElements});
+  graph.setTileMapping(t, 0);
+  graph.setTileMapping(tResult, 0);
+
+  // Generate some test data
+  std::vector<std::pair<std::string, char*>> tmap;
+  auto rawHostInput =
+    allocateHostMemoryForTensor(t, "test data", graph, tmap);
+  auto rawHostResult =
+    allocateHostMemoryForTensor(tResult, "result data", graph, tmap);
+
+  boost::multi_array<double, 1>
+    hostData(boost::extents[maxElements]);
+  std::copy(&randomData[0], &randomData[maxElements], hostData.data());
+
+  boost::multi_array<double, 1>
+    modelData(boost::extents[maxElements]);
+  calculateModelData(nlType, hostData, modelData);
+
+  const auto vertexClass =
+    templateVertex("popnn::NonLinearitySupervisor",
+                   dataType, nlType);
+
+  std::vector<Program> programs;
+  std::vector<SliceDesc> programSlices;
+  // For each possible offset up to multiples of 8 byte alignment
+  // for this type
+  for (std::size_t offset = 0;
+       offset * elementSize < 8;
+       offset += (4 / elementSize)) {
+    for (std::size_t numElements = 1;
+         offset + numElements < maxElements;
+         ++numElements) {
+      // Get a slice into our common tensor to perform the non-linearity on
+      auto tTestSlice = t.slice(offset, offset + numElements);
+      const auto testId = programs.size();
+
+      // Calculate packed size parameter
+      const auto chunks = numElements / elementsPerChunk;
+      const auto remainder = numElements % elementsPerChunk;
+      const auto packedSize =
+        (chunks << remainderBits) | (remainder & ((1u << remainderBits) - 1));
+
+      auto cs = graph.addComputeSet("cs_" + std::to_string(offset) +
+                                    "_" + std::to_string(numElements));
+      auto v = graph.addVertex(cs, vertexClass);
+      graph.setTileMapping(v, 0);
+      graph.connect(v["data"], tTestSlice);
+      graph.setInitialValue(v["n"], packedSize);
+
+      programs.push_back(Sequence(
+        Execute(cs),
+        Copy(t, tResult)
+      ));
+      programSlices.push_back(SliceDesc{
+        offset,
+        numElements
+      });
+    }
+  }
+
+  Engine e(device, graph, programs, OptionFlags{
+    { "target.textSectionSizeInBytes", "0x9000" }
+  });
+
+  boost::multi_array<double, 1>
+    hostResult(boost::extents[maxElements]);
+  const auto relativeTolerance = TOL;
+  const auto absoluteTolerance =
+    dataType == FLOAT ? FLOAT_ATOL
+                             : HALF_ATOL;
+  for (std::size_t testId = 0; testId < programs.size(); ++testId) {
+    copy(target, hostData, dataType, rawHostInput.get());
+    upload(e, tmap);
+    e.run(testId);
+    download(e, tmap);
+    copy(target, dataType, rawHostResult.get(), hostResult);
+
+    auto &testDesc = programSlices[testId];
+    bool areClose = checkIsClose("test_" + std::to_string(testDesc.offset) +
+                                 "_" + std::to_string(testDesc.numElements),
+                                 hostResult.data() + testDesc.offset,
+                                 {testDesc.numElements},
+                                 modelData.data() + testDesc.offset,
+                                 testDesc.numElements,
+                                 relativeTolerance, absoluteTolerance);
+    BOOST_CHECK(areClose);
+  }
+}
+
+
+} // end anonymous namespace
+
+
+BOOST_AUTO_TEST_CASE(NonLinearitySupervisor_@DATA_TYPE@_@NL_TYPE@) {
+  singleTest(@DATA_TYPE_UPPER@, @NL_TYPE_UPPER@);
+}

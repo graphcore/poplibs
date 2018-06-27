@@ -9,12 +9,13 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 
+namespace {
 
 // computes softmax along the innermost dimension
 // This is not an optimal implementation in terms of precision and order of
 // operations
-static Tensor softmaxImpl(Graph &graph, Tensor t, Sequence &prog,
-                          const std::string &debugStr = "") {
+Tensor softmaxImpl(Graph &graph, Tensor t, Sequence &prog,
+                   const std::string &debugStr = "") {
   // exchange innermost dimension as softmax is done over it
   const auto rank = t.rank();
   auto tShuf = t.dimShufflePartial({0}, {rank - 1});
@@ -29,6 +30,20 @@ static Tensor softmaxImpl(Graph &graph, Tensor t, Sequence &prog,
 
   return outShuf.dimShufflePartial({0}, {rank - 1});
 }
+
+// Unsigned integer version of log2 rounded up
+// Single-line constexpr form added to allow compile-time calculation.
+// Could be nicer if using multi-line constexpr function (needs C++14).
+constexpr static unsigned ceilLog2Aux(unsigned n) {
+  return (n ? 1 + ceilLog2Aux(n >> 1) : 0);
+}
+// Check if power of 2 and then call to count up to most significant bit
+constexpr static unsigned ceilLog2(unsigned n) {
+  return ((n & (n - 1)) ? 1 : 0) + ceilLog2Aux(n >> 1);
+}
+
+} // end anonymous namespace
+
 
 namespace popnn {
 
@@ -111,7 +126,6 @@ nonLinearityInputGradient(Graph &graph,
   return t;
 }
 
-
 void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
                   poplar::Tensor t, ComputeSet &cs,
                   const std::string &debugPrefix) {
@@ -127,6 +141,7 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
   const auto dType = t.elementType();
   const auto &target = graph.getTarget();
   auto mapping = graph.getTileMapping(t);
+  const auto numWorkers = target.getNumWorkerContexts();
   const auto numTiles = target.getNumTiles();
   const auto tFlat = t.flatten();
   const auto vectorWidth = target.getVectorWidth(dType);
@@ -137,9 +152,19 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
   const auto codeletNameSupervisor =
       templateVertex("popnn::NonLinearitySupervisor", dType,
                      static_cast<unsigned>(nonLinearityType));
-  auto maxSupervisorElements =
-      graph.getMaxVertexFieldValue(codeletNameSupervisor, "n");
-  auto max2DElements = graph.getMaxFieldDim(codeletName2D, "data", 1);
+
+  const auto elementSize = target.getTypeSize(dType);
+  const auto vectorWidthBytes = (target.getDataPathWidth() / 8);
+  const auto vectorElements = (vectorWidthBytes / elementSize);
+  const auto elementsPerChunk = vectorElements * numWorkers;
+  const auto remBits = ceilLog2(elementsPerChunk);
+  const auto chunkBits = 16 - remBits;
+
+  // Maximum elements supervisor non-linearity vertex can handle is based on
+  // the packed size + remainder it takes as an input.
+  const auto maxSupervisorElements =
+    (((1u << chunkBits) - 1) * elementsPerChunk) + elementsPerChunk - 1;
+  const auto max2DElements = graph.getMaxFieldDim(codeletName2D, "data", 1);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto thisTileMap = mapping[tile];
     const auto tileContiguousRegions =
@@ -149,11 +174,19 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
     // a single edge
     if (tileContiguousRegions.size() == 1) {
       const auto tThisTile = concat(tFlat.slices(thisTileMap));
-      if (tThisTile.numElements() <= maxSupervisorElements) {
+      const auto numElements = tThisTile.numElements();
+      // There is only a specialised supervisor vertex for 8-byte vector
+      // width and 6 worker contexts currently.
+      if (numWorkers == 6 && vectorWidthBytes == 8 &&
+          numElements <= maxSupervisorElements) {
+        const unsigned workerChunks = numElements / elementsPerChunk;
+        const unsigned remainder = numElements % elementsPerChunk;
+        std::uint16_t packedSize =
+          (workerChunks << remBits) | (remainder & ((1u << remBits) - 1));
         auto v =
             graph.addVertex(cs, codeletNameSupervisor,
                             {{"data", tThisTile}});
-        graph.setInitialValue(v["n"], tThisTile.numElements());
+        graph.setInitialValue(v["n"], packedSize);
         graph.setTileMapping(v, tile);
         continue;
       }

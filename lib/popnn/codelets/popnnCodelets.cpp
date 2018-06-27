@@ -29,6 +29,16 @@ static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
 /****************************************************************************/
 /*            Auxiliary math functions                                      */
 /****************************************************************************/
+// Unsigned integer version of log2 rounded up
+// Single-line constexpr form added to allow compile-time calculation.
+// Could be nicer if using multi-line constexpr function (needs C++14).
+constexpr static unsigned ceilLog2Aux(unsigned n) {
+  return (n ? 1 + ceilLog2Aux(n >> 1) : 0);
+}
+// Check if power of 2 and then call to count up to most significant bit
+constexpr static unsigned ceilLog2(unsigned n) {
+  return ((n & (n - 1)) ? 1 : 0) + ceilLog2Aux(n >> 1);
+}
 
 static float sigmoid(float x)
 {
@@ -101,8 +111,20 @@ public:
   InOut<Vector<FPType, SCALED_PTR32, 2>> data;
   unsigned short n;
 
+  IS_EXTERNAL_CODELET(true);
   bool compute() {
-    for (unsigned i = 0; i < n; ++i) {
+    // Unpack size from n.
+    // elementsPerChunk = num worker contexts * element vector width
+    // These values are checked in the API.
+    // NOTE: Because sizeof(half) can differ from getTypeSize(HALF) when
+    // using IPUModel + FastHalf this is hardcoded based on type for now.
+    constexpr std::size_t elementsPerChunk =
+      std::is_same<FPType, half>::value ? 24 : 12;
+    constexpr auto remainderBits = ceilLog2(elementsPerChunk);
+    const auto size =
+      ((n >> remainderBits) * elementsPerChunk) +
+      (n & ((1u << remainderBits) - 1));
+    for (unsigned i = 0; i < size; ++i) {
       data[i] = nonlinearity(NonLinearityType(nlType), data[i]);
     }
     return true;

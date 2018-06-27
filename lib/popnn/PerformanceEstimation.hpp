@@ -15,7 +15,7 @@ inline uint64_t getNonLinearityCycles(std::vector<unsigned> regionSizes,
                                       bool supervisorVertex,
                                       unsigned dataPathWidth,
                                       unsigned numWorkers) {
-  uint64_t cycles = supervisorVertex ? 9 : 5; // vertex overhead
+  uint64_t cycles = 0;
   if (!is2D)
     assert(regionSizes.size() == 1);
   for (const auto numItems : regionSizes) {
@@ -34,7 +34,7 @@ inline uint64_t getNonLinearityCycles(std::vector<unsigned> regionSizes,
       break;
     case popnn::NonLinearityType::NON_LINEARITY_SIGMOID:
       // scalar operation for floats, vector operation for halves
-      // transcendtal operations are ~7cycles for float, ~2cycles for half
+      // sigm is ~5 cycles for float, ~2 cycles for half
       if (isFloat) {
         cycles += numItems * 7;
       } else {
@@ -43,11 +43,12 @@ inline uint64_t getNonLinearityCycles(std::vector<unsigned> regionSizes,
       }
       break;
     case popnn::NonLinearityType::NON_LINEARITY_TANH:
+      // scalar operation for floats, vector operation for halves
+      // tanh is ~5 cycles for float, always 1 cycle for half.
       if (isFloat) {
-        cycles += numItems * 7;
+        cycles += numItems * 5;
       } else {
-        cycles += 2 * (numItems + transHalfVectorWidth - 1)
-                      / transHalfVectorWidth;
+        cycles += (numItems + transHalfVectorWidth - 1) / transHalfVectorWidth;
       }
       break;
     case popnn::NonLinearityType::NON_LINEARITY_SOFTMAX:
@@ -64,8 +65,16 @@ inline uint64_t getNonLinearityCycles(std::vector<unsigned> regionSizes,
     cycles += 1+2; // form base constant, add+shift
   }
 
-  if (supervisorVertex)
-    cycles = numWorkers * cycles + 9;
+  if (supervisorVertex) {
+    // We don't account for the possible future existence of a 2D
+    // supervisor vertex.
+    assert(!is2D);
+    cycles = (cycles + numWorkers - 1) / numWorkers;
+    cycles += 9;
+  } else {
+    cycles += 5;
+  }
+
   return cycles;
 }
 
