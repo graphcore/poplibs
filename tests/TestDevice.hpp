@@ -14,7 +14,8 @@ enum class DeviceType {Cpu, Sim, Hw, IpuModel};
 // Create an engine for testing
 inline poplar::Device createTestDevice(DeviceType deviceType,
                                        unsigned numIPUs = 1,
-                                       unsigned tilesPerIPU = 1) {
+                                       unsigned tilesPerIPU = 1,
+                                       const poplar::OptionFlags &opt = {}) {
   poplar::Target target;
   switch (deviceType) {
   case DeviceType::Cpu:
