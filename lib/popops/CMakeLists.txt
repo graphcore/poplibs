@@ -109,7 +109,7 @@ add_custom_command(
     popops_c.gp
   COMMAND
     ${POPC_EXECUTABLE} ${POPC_FLAGS} -DPOPLIBS_DISABLE_ASM_CODELETS
-    -I ${CMAKE_CURRENT_SOURCE_DIR}}
+    -I ${CMAKE_CURRENT_SOURCE_DIR}
     -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
     -o popops_c.gp
     ${codelet_cpp_sources}
