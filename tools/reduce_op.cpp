@@ -203,7 +203,7 @@ float getRandomScale(std::mt19937 &gen, popops::Operation op) {
   // Only (square)add can scale.
   if (op != popops::Operation::ADD && op != popops::Operation::SQUARE_ADD)
     return 1.0f;
-  return std::normal_distribution<>(1.0f, 1.0f)(gen);
+  return std::normal_distribution<>(-2.0f, 2.0f)(gen);
 }
 
 // Random decision on whether or not to do an update operation.
@@ -212,6 +212,11 @@ bool getRandomUpdate(std::mt19937 &gen, popops::Operation op) {
   if (op != popops::Operation::ADD && op != popops::Operation::SQUARE_ADD)
     return false;
   return std::bernoulli_distribution(0.3)(gen);
+}
+
+// Randomly decide between reduce() and reduceWithOutput().
+bool getRandomWithOutput(std::mt19937 &gen) {
+  return std::bernoulli_distribution(0.5)(gen);
 }
 
 // Get a randm number of IPUs.
@@ -273,6 +278,23 @@ bool validateParameters(const po::variables_map &vm) {
   return true;
 }
 
+std::vector<std::size_t> getReducedShape(const std::vector<std::size_t> &shape,
+                                         const std::vector<std::size_t> &dims) {
+  // Is the given dimension one that should be reduced.
+  auto isReducedDim = [&](std::size_t dim) {
+    return std::find(dims.begin(), dims.end(), dim) != dims.end();
+  };
+
+  std::vector<std::size_t> reducedShape;
+
+  for (unsigned i = 0; i < shape.size(); ++i) {
+    if (!isReducedDim(i)) {
+      reducedShape.push_back(shape[i]);
+    }
+  }
+  return reducedShape;
+}
+
 int main(int argc, char **argv) {
 
   // Defaul input parameters.
@@ -280,6 +302,7 @@ int main(int argc, char **argv) {
   popops::Operation op = popops::Operation::ADD;
   float scale = 1.0f;
   bool update = false;
+  bool withOutput = false;
   int seed = 0;
   std::string shapeString;
   std::string dimsString;
@@ -308,6 +331,8 @@ int main(int argc, char **argv) {
       "Scale the final value by this amount.")
     ("update", po::value(&update),
       "If true, do `out += reduce(in)`, otherwise do `out = reduce(in)`")
+    ("withoutput", po::value(&withOutput),
+      "If true use reduceWithOutput(), otherwise use reduce()")
     ("shape", po::value(&shapeString),
       "The shape of the input tensor, e.g. `4,2,3`")
     ("dims", po::value(&dimsString),
@@ -390,9 +415,9 @@ int main(int argc, char **argv) {
   }
 
   // If --file wasn't specified, set the shape from --shape, or randomly
-  // if -sseed was specified.
+  // if --seed was specified.
   if (vm.count("file") == 0) {
-    if (vm.count("seed") != 0) {
+    if (vm.count("seed") != 0 && vm.count("shape") == 0) {
       std::cerr << "Randomly setting shape.\n";
       shape = getRandomShape(randomEngine);
     } else {
@@ -400,7 +425,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (vm.count("seed") != 0) {
+  if (vm.count("seed") != 0 && vm.count("dims") == 0) {
     std::cerr << "Randomly setting dims.\n";
     dims = getRandomDims(randomEngine, shape.size());
   } else {
@@ -419,6 +444,10 @@ int main(int argc, char **argv) {
     if (vm.count("update") == 0) {
       std::cerr << "Randomly choosing + or +=.\n";
       update = getRandomUpdate(randomEngine, op);
+    }
+    if (vm.count("withoutput") == 0) {
+      std::cerr << "Randomly choosing reduce() or reduceWithOutput().\n";
+      withOutput = getRandomWithOutput(randomEngine);
     }
     if (vm.count("type") == 0) {
       std::cerr << "Choosing random data type.\n";
@@ -469,29 +498,21 @@ int main(int argc, char **argv) {
     mapTensorLinearly(graph, input);
   }
 
-  // Update not supported because the API doesn't let you do it and specify
-  // the dimensions yet.
-  if (update) {
-    std::cerr << "Testing currently doesn't support update=true. Setting to "
-                 "false.\n";
-    update = false;
-  }
-  // Scale not supported because the API doesn't let you do it and specify
-  // the dimensions yet.
-  if (scale != 1.0f) {
-    std::cerr << "Testing currently doesn't support scale. Setting to 1.0.\n";
-    scale = 1.0f;
-  }
-
   if (op != popops::Operation::ADD && op != popops::Operation::SQUARE_ADD) {
     if (scale != 1.0f) {
       std::cerr << "Scale must be 1.0 for non-add operations.\n";
       scale = 1.0f;
     }
     if (update) {
-      std::cerr << "Cannot use update for non-add operations.\n";
+      std::cerr << "Cannot use update for non-add operations. "
+                   "Setting to false.\n";
       update = false;
     }
+  }
+
+  if (update && !withOutput) {
+    std::cerr << "Update must use reduceWithOutput(). Using it.\n";
+    withOutput = true;
   }
 
   // Output the settings.
@@ -506,6 +527,7 @@ int main(int argc, char **argv) {
   std::cerr << "Op: " << op << "\n";
   std::cerr << "Scale: " << scale << "\n";
   std::cerr << "Update: " << update << "\n";
+  std::cerr << "WithOutput: " << withOutput << "\n";
   std::cerr << "NumIPUS: " << ipuModel.numIPUs << "\n";
   std::cerr << "TilesPerIPU: " << ipuModel.tilesPerIPU << "\n";
   std::cerr << "Type: " << dataType.toString() << "\n";
@@ -521,8 +543,18 @@ int main(int argc, char **argv) {
   }
 
   Tensor output;
-  output = popops::reduce(graph, input, dims, op, prog);
 
+  if (withOutput) {
+    // Make the output.
+    auto reducedShape = getReducedShape(input.shape(), dims);
+    output = graph.addVariable(input.elementType(), reducedShape,
+                               VariableMappingMethod::LINEAR);
+    popops::reduceWithOutput(graph, input, output, dims,
+                             {op, scale, update}, prog);
+  } else {
+    output = popops::reduce(graph, input, dims,
+                            {op, scale, update}, prog);
+  }
   double absoluteTolerance = FLOAT_ABS_TOL;
   double relativeTolerance = FLOAT_REL_TOL;
 
@@ -545,6 +577,13 @@ int main(int argc, char **argv) {
                     inputTensor.values.data() + inputTensor.values.size(),
                     -2.0, 2.0, randomEngine);
 
+  // Also write random values for the output for the `update` case.
+  std::vector<double> outputValues(output.numElements());
+  writeRandomValues(target, dataType,
+                    outputValues.data(),
+                    outputValues.data() + outputValues.size(),
+                    -30.0, 30.0, randomEngine);
+
   // Validate against a reference model
   auto outputRef = poplibs_test::reduce::reduce(inputTensor, dims, op);
 
@@ -552,17 +591,31 @@ int main(int argc, char **argv) {
   for (auto &v : outputRef.values)
     v *= scale;
 
+  // If it's an update, add the output values.
+  if (update) {
+    for (std::size_t i = 0; i < outputRef.values.size(); ++i)
+      outputRef.values[i] += outputValues[i];
+  }
+
+
   std::cerr << "Running engine...\n";
 
   std::vector<std::pair<std::string, char*>> tmap;
   auto inputData = allocateHostMemoryForTensor(input, "input", graph, tmap);
   auto outputData = allocateHostMemoryForTensor(output, "output", graph, tmap);
 
+  // Copy the input and output numbers to input/outputData, converting the
+  // type as necessary.
   copy(target,
        inputTensor.values.data(),
        inputTensor.values.size(),
        dataType,
        inputData.get());
+  copy(target,
+       outputValues.data(),
+       outputValues.size(),
+       dataType,
+       outputData.get());
 
   Engine engine(device, graph, prog);
 

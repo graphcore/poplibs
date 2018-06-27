@@ -43,16 +43,9 @@
 
 namespace popops {
 
-/// A tensor that has been reshaped to 2D, and the shape that it should
-/// be reshape()'d to to retrieve the original.
-struct MangledTensor {
-  poplar::Tensor tensor;
-  std::vector<std::size_t> inflatedShape;
-};
-
 /// Flatten, dimroll and reshape A so that it is 2D and the dimensions given
 /// by `dims` are in the first dimension, and all the others are in the second.
-MangledTensor mangleTo2D(const poplar::Tensor &A,
+poplar::Tensor mangleTo2D(const poplar::Tensor &A,
                          std::set<unsigned> &reducedDims);
 
 }

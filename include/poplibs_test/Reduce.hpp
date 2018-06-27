@@ -24,8 +24,15 @@ ReferenceTensor<T> reduce(const ReferenceTensor<T> &input,
                          const std::vector<std::size_t> &reduceDims,
                          popops::Operation op) {
 
-  if (reduceDims.empty())
-    return input;
+  if (reduceDims.empty()) {
+    auto output = input;
+    if (op == popops::Operation::SQUARE_ADD) {
+      // Square the output.
+      for (auto &val : output.values)
+        val *= val;
+    }
+    return output;
+  }
 
   // Is the given dimension one that should be reduced.
   auto isReducedDim = [&](std::size_t dim) {
@@ -44,25 +51,26 @@ ReferenceTensor<T> reduce(const ReferenceTensor<T> &input,
     }
   }
 
+  T initVal{};
+
   switch (op) {
   case popops::Operation::ADD:
   case popops::Operation::SQUARE_ADD:
   case popops::Operation::LOGICAL_OR:
-    output.values = std::vector<T>(numOutVals, 0);
+    initVal = 0;
     break;
   case popops::Operation::MUL:
   case popops::Operation::LOGICAL_AND:
-    output.values = std::vector<T>(numOutVals, 1);
+    initVal = 1;
     break;
   case popops::Operation::MIN:
-    output.values = std::vector<T>(numOutVals,
-                                   std::numeric_limits<T>::max());
+    initVal = std::numeric_limits<T>::max();
     break;
   case popops::Operation::MAX:
-    output.values = std::vector<T>(numOutVals,
-                                   std::numeric_limits<T>::lowest());
+    initVal = std::numeric_limits<T>::lowest();
     break;
   }
+  output.values = std::vector<T>(numOutVals, initVal);
 
   // The current input index we are at.
   std::vector<std::size_t> inputIndex(input.shape.size(), 0);

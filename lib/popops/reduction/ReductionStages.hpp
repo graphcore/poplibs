@@ -22,24 +22,22 @@ namespace popops {
 /// it is always quicker to reduce a value than to send it somewhere else.
 ///
 /// \param graph    The graph
-/// \param A        The 2D input tensor
-/// \param mapping  The result of graph.getTileMapping(A)
-/// \param out      The output tensor. Doesn't not have to have its tile mapping
+/// \param in       The 2D input tensor
+/// \param mapping  The result of graph.getTileMapping(in)
+/// \param out      The output tensor. Doesn't have to have its tile mapping
 ///                 set yet.
 /// \param params   The reduce operation to do, including scale & update.
-/// \param accumType The accumulation type of the reduction - this may be
-///                  different to the type of the 'out' tensor.
+/// \param inVertexType   The accumulation type of the reduction - this may
+///                       be different to the type of the 'out' tensor.
 /// \param prog     Sequence to append to.
 /// \param debugPrefix
 /// \param debug    Optional pointer (can be null) to be filled with debug info.
 ///
-/// \returns The output tensor.
-poplar::Tensor inputToOutputNoExchange(
-    poplar::Graph &graph,
-    const poplar::Tensor &A,
+void inputToOutputNoExchange(poplar::Graph &graph,
+    const poplar::Tensor &in,
     const poplar::Graph::TileToTensorMapping &mapping,
     const poplar::Tensor &out,
-    const poplar::Type &accumType,
+    poplar::Type inVertexType,
     ReduceParams params,
     poplar::program::Sequence &prog,
     const std::string &debugPrefix,
@@ -49,9 +47,11 @@ poplar::Tensor inputToOutputNoExchange(
 /// doing any exchange.
 ///
 /// \param graph    The graph
-/// \param A        The 2D input tensor
-/// \param mapping  The result of graph.getTileMapping(A)
-/// \param params   The reduce operation to do, including scale & update.
+/// \param in       The 2D input tensor
+/// \param mapping  The result of graph.getTileMapping(in)
+/// \param op       The reduce operation to do. This never does scale or update.
+/// \param inVertexType   The accumulation type of the reduction - this may
+///                       be different to `outType`.
 /// \param outType  The required output type
 /// \param prog     Sequence to append to.
 /// \param debugPrefix
@@ -59,9 +59,10 @@ poplar::Tensor inputToOutputNoExchange(
 ///
 /// \returns A structure containing the intermediate partials.
 IntermediatePartials inputToIntermediateNoExchange(poplar::Graph &graph,
-    const poplar::Tensor &A,
+    const poplar::Tensor &in,
     const poplar::Graph::TileToTensorMapping &mapping,
-    ReduceParams params,
+    Operation op,
+    const poplar::Type &inVertexType,
     const poplar::Type &outType,
     poplar::program::Sequence &prog,
     const std::string &debugPrefix,
@@ -72,7 +73,9 @@ IntermediatePartials inputToIntermediateNoExchange(poplar::Graph &graph,
 ///
 /// \param graph    The graph
 /// \param ipIn     The intermediate partials from the prevoius stage.
-/// \param params   The parametres of the reduction
+/// \param op       The reduce operation to do. This never does scale or update.
+/// \param inVertexType   The accumulation type of the reduction - this may
+///                       be different to `outType`.
 /// \param outType  The required output type
 /// \param prog     Sequence to append to.
 /// \param debugPrefix
@@ -81,7 +84,8 @@ IntermediatePartials inputToIntermediateNoExchange(poplar::Graph &graph,
 /// \returns The intermediate partials produced by this reduction stage.
 IntermediatePartials intermediateToIntermediate(poplar::Graph &graph,
     const IntermediatePartials &ipIn,
-    ReduceParams params,
+    Operation op,
+    const poplar::Type &inVertexType,
     const poplar::Type &outType,
     poplar::program::Sequence &prog,
     const std::string &debugPrefix,
@@ -95,18 +99,17 @@ IntermediatePartials intermediateToIntermediate(poplar::Graph &graph,
 /// \param ipIn     The intermediate partials from the prevoius stage.
 /// \param output   The output tensor, may not be mapped.
 /// \param params   The reduction operation, scale and update are applied.
-/// \param accumType The accumulation type of the reduction - this may be
-///                  different to the type of the 'out' tensor.
+/// \param inVertexType   The accumulation type of the reduction - this may
+///                       be different to the type of the 'out' tensor.
 /// \param prog     Sequence to append to.
 /// \param debugPrefix
 /// \param debug    Optional pointer (can be null) to be filled with debug info.
 ///
-/// \returns The output tensor.
-poplar::Tensor intermediateToOutput(poplar::Graph &graph,
+void intermediateToOutput(poplar::Graph &graph,
     const IntermediatePartials &ipIn,
     const poplar::Tensor &output,
     ReduceParams params,
-    const poplar::Type &accumType,
+    poplar::Type inVertexType,
     poplar::program::Sequence &prog,
     const std::string &debugPrefix,
     ReductionDebug *debug);

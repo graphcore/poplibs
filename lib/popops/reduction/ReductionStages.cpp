@@ -29,40 +29,52 @@ using namespace poplibs;
 
 namespace popops {
 
-Tensor inputToOutputNoExchange(Graph &graph,
-    const Tensor &A,
+void inputToOutputNoExchange(
+    Graph &graph,
+    const Tensor &in,
     const Graph::TileToTensorMapping &mapping,
-    const poplar::Tensor &finalOutput,
-    const poplar::Type &accumType,
+    const Tensor &finalOutput,
+    Type inVertexType,
     ReduceParams params,
     program::Sequence &prog,
     const std::string &debugPrefix,
     ReductionDebug *debug) {
+
+  // If we're doing an update, things get really complicated if we have to do
+  // casts too, so for now just use the same type for accumulation as the
+  // output type.
+  if (params.update)
+    inVertexType = finalOutput.elementType();
+
+  // The inVertex type is also the type that the vertex outputs (for simplicity
+  // and to avoid having a million template specialisations). If it is
+  // different from the output type we just add an explicit cast.
+
   Tensor out;
-  bool castRequired = accumType != finalOutput.elementType();
+  bool castRequired = inVertexType != finalOutput.elementType();
   if (castRequired) {
-    out = graph.clone(accumType, finalOutput);
+    out = graph.clone(inVertexType, finalOutput);
     graph.setTileMapping(out, graph.getTileMapping(finalOutput, false));
   } else {
     out = finalOutput;
   }
 
-  assert(A.rank() == 2);
+  assert(in.rank() == 2);
 
   // Number of output values of the reduction.
-  auto outputSize = A.dim(1);
+  auto outputSize = in.dim(1);
 
   assert(out.rank() == 1);
   assert(out.numElements() == outputSize);
 
-  auto partialType = A.elementType();
+  auto inType = in.elementType();
 
   // If the output isn't mapped yet, map it exactly the same as the first
   // row of the input which ensures no exchange will happen.
   try {
     graph.getTileMapping(out);
-  } catch (poplar::invalid_tile_mapping&) {
-    auto mapping = graph.getTileMapping(A.slice(0, 1, 0));
+  } catch (invalid_tile_mapping&) {
+    auto mapping = graph.getTileMapping(in.slice(0, 1, 0));
     graph.setTileMapping(out, mapping);
   }
 
@@ -70,7 +82,7 @@ Tensor inputToOutputNoExchange(Graph &graph,
   // necessary at tile mapping boundaries). The region indices here are in
   // the flattened input tensor.
   auto contiguousRegionsByTile = getSortedContiguousRegionsByTile(graph,
-                                                                  A,
+                                                                  in,
                                                                   mapping);
 
   // Debug information.
@@ -81,7 +93,7 @@ Tensor inputToOutputNoExchange(Graph &graph,
     stageDebug->label = "Input to Output (No Exchange)";
   }
 
-  std::vector<poplar::ComputeSet> computeSets;
+  std::vector<ComputeSet> computeSets;
 
   // Loop through the tiles. We can process each tile independently.
   for (unsigned tile = 0; tile < contiguousRegionsByTile.size(); ++tile) {
@@ -97,7 +109,7 @@ Tensor inputToOutputNoExchange(Graph &graph,
         = getSplitWrappedRegions(contiguousRegionsThisTile, outputSize);
 
     // Convert it to poplar format.
-    std::vector<poplar::Interval> outputRegionsSplit
+    std::vector<Interval> outputRegionsSplit
         = splitIntervalSetToPoplar(outputRegionsSplitIcl);
 
     // Split them if it would make it faster by processing them separately
@@ -106,7 +118,7 @@ Tensor inputToOutputNoExchange(Graph &graph,
                            graph.getTarget(),
                            graph.getTarget().getNumWorkerContexts(),
                            params.op,
-                           partialType,
+                           inType,
                            outputRegionsSplit
                          );
 
@@ -123,7 +135,7 @@ Tensor inputToOutputNoExchange(Graph &graph,
       rt.output = outputSlice;
 
       // Get the input slice for this output region.
-      Tensor partialSlice = A.slice(re.begin(), re.end(), 1);
+      Tensor partialSlice = in.slice(re.begin(), re.end(), 1);
 
       // It should be the case that every element of partialSlice is mapped
       // to this tile.
@@ -167,7 +179,7 @@ Tensor inputToOutputNoExchange(Graph &graph,
       tileDebug = &stageDebug->tiles.back();
     }
 
-    connectReductions(graph, computeSets, params, partialType, accumType,
+    connectReductions(graph, computeSets, params, inType, inVertexType,
                       tile, reductions, tileDebug);
   }
 
@@ -175,13 +187,10 @@ Tensor inputToOutputNoExchange(Graph &graph,
     prog.add(program::Execute(cs));
 
   if (castRequired) {
-    // If the mapping of finalOutput was incomplete we need to
-    // set it.
+    // If the mapping of finalOutput was incomplete we need to set it.
     graph.setTileMapping(finalOutput, graph.getTileMapping(out));
-    prog.add(popops::cast(graph, out, finalOutput, debugPrefix + "/Cast"));
+    prog.add(cast(graph, out, finalOutput, debugPrefix + "/Cast"));
   }
-
-  return finalOutput;
 }
 
 struct WrappedSplitContiguousSortedRegions {
@@ -250,18 +259,21 @@ wrapAndSplitContiguousSortedRegions(
 
 IntermediatePartials inputToIntermediateNoExchange(
     Graph &graph,
-    const Tensor &A,
+    const Tensor &in,
     const Graph::TileToTensorMapping &mapping,
-    ReduceParams params,
+    Operation op,
+    const Type &inVertexType,
     const Type &outType,
     program::Sequence &prog,
     const std::string &debugPrefix,
     ReductionDebug *debug) {
 
-  // Number of output values of the reduction.
-  auto outputSize = A.dim(1);
+  // TODO: inVertexType is currently unused.
 
-  auto partialType = A.elementType();
+  // Number of output values of the reduction.
+  auto outputSize = in.dim(1);
+
+  auto inType = in.elementType();
 
   // Add a new tensor for each tile to output its partials to. These tensors
   // and the meta-info needed are stored in an IntermediatePartials.
@@ -277,13 +289,13 @@ IntermediatePartials inputToIntermediateNoExchange(
     stageDebug->label = "Input to Intermediate (No Exchange)";
   }
 
-  std::vector<poplar::ComputeSet> computeSets;
+  std::vector<ComputeSet> computeSets;
 
   // Get the set of contiguous regions on each tile (splitting them if
   // necessary at tile mapping boundaries). The region indices here are in
   // the flattened input tensor.
   auto contiguousRegionsByTile = getSortedContiguousRegionsByTile(graph,
-                                                                  A,
+                                                                  in,
                                                                   mapping);
 
   // Loop through the tiles. We can process each tile independently.
@@ -318,8 +330,8 @@ IntermediatePartials inputToIntermediateNoExchange(
     outputRegionsSplit = splitOutputRegionsForWorkers(
                            graph.getTarget(),
                            graph.getTarget().getNumWorkerContexts(),
-                           params.op,
-                           partialType,
+                           op,
+                           inType,
                            outputRegionsSplit
                          );
 
@@ -363,7 +375,7 @@ IntermediatePartials inputToIntermediateNoExchange(
 
         // Most of the time it'll be 0, 1, 2, 3 etc. and in that case
         // we can merge them. Meow.
-        std::vector<poplar::Tensor> cats;
+        std::vector<Tensor> cats;
 
         size_t rowBegin = 0;
         size_t rowEnd = 0;
@@ -374,7 +386,7 @@ IntermediatePartials inputToIntermediateNoExchange(
           } else {
             // Otherwise append the previous slice and start a new one.
             if (rowBegin != rowEnd)
-              cats.push_back(A.slice({rowBegin, re.begin()},
+              cats.push_back(in.slice({rowBegin, re.begin()},
                                      {rowEnd, re.end()}));
             rowBegin = partialRows[p];
             rowEnd = rowBegin + 1;
@@ -382,9 +394,9 @@ IntermediatePartials inputToIntermediateNoExchange(
         }
         // The final one.
         if (rowBegin != rowEnd)
-          cats.push_back(A.slice({rowBegin, re.begin()}, {rowEnd, re.end()}));
+          cats.push_back(in.slice({rowBegin, re.begin()}, {rowEnd, re.end()}));
 
-        rt.partials.push_back(poplar::concat(cats, 0).flatten());
+        rt.partials.push_back(concat(cats, 0).flatten());
 
         ReductionDebug::Partial di;
         di.sourceCols = re;
@@ -417,7 +429,7 @@ IntermediatePartials inputToIntermediateNoExchange(
       tileDebug = &stageDebug->tiles.back();
     }
 
-    connectReductions(graph, computeSets, params, partialType, outType,
+    connectReductions(graph, computeSets, op, inType, outType,
                       tile, reductions, tileDebug);
   }
 
@@ -428,13 +440,17 @@ IntermediatePartials inputToIntermediateNoExchange(
   return ir;
 }
 
-IntermediatePartials intermediateToIntermediate(Graph &graph,
+IntermediatePartials intermediateToIntermediate(
+    Graph &graph,
     const IntermediatePartials &ipIn,
-    ReduceParams params,
+    Operation op,
+    const Type &inVertexType,
     const Type &outType,
     program::Sequence &prog,
     const std::string &debugPrefix,
     ReductionDebug *debug) {
+
+  // TODO: inVertexType is currently unused.
 
   // Debug information.
   ReductionDebug::ReductionStage *stageDebug = nullptr;
@@ -449,21 +465,21 @@ IntermediatePartials intermediateToIntermediate(Graph &graph,
   ir.setOutputSize(ipIn.outputSize());
   ir.setDataType(outType);
 
-  auto partialType = ipIn.dataType();
+  auto inType = ipIn.dataType();
 
   const auto &target = graph.getTarget();
 
-  unsigned grainSize = target.getVectorWidth(partialType);
+  unsigned grainSize = target.getVectorWidth(inType);
 
   if (grainSize == 0)
     throw poputil::poplib_error("Zero vector width for type " +
-                                partialType.toString());
+                                inType.toString());
 
   // The grain size is doubled for ADD (and ABS_ADD and SQUARE_ADD) because
   // these operations have dedicated instructions on Colossus that can operate
   // on twice as much data as all the other operations (MUL etc).
-  if (params.op == popops::Operation::ADD ||
-      params.op == popops::Operation::SQUARE_ADD) // Or ABS_ADD.
+  if (op == popops::Operation::ADD ||
+      op == popops::Operation::SQUARE_ADD) // Or ABS_ADD.
     grainSize *= 2;
 
   // If each piece is really small the overhead of having extra reduction
@@ -545,7 +561,7 @@ IntermediatePartials intermediateToIntermediate(Graph &graph,
 
 
   // Now make all the connections.
-  std::vector<poplar::ComputeSet> computeSets;
+  std::vector<ComputeSet> computeSets;
 
   // For each output tile...
   for (unsigned tile = 0; tile < tileReductions.size(); ++tile) {
@@ -623,7 +639,7 @@ IntermediatePartials intermediateToIntermediate(Graph &graph,
       tileDebug = &stageDebug->tiles.back();
     }
 
-    connectReductions(graph, computeSets, params, partialType, outType,
+    connectReductions(graph, computeSets, op, inType, outType,
                       tile, reductions, tileDebug);
 
   }
@@ -634,18 +650,29 @@ IntermediatePartials intermediateToIntermediate(Graph &graph,
   return ir;
 }
 
-Tensor intermediateToOutput(Graph &graph,
+void intermediateToOutput(Graph &graph,
     const IntermediatePartials &ipIn,
     const Tensor &finalOutput,
     ReduceParams params,
-    const Type &accumType,
+    Type inVertexType,
     program::Sequence &prog,
     const std::string &debugPrefix,
     ReductionDebug *debug) {
+
+  // If we're doing an update, things get really complicated if we have to do
+  // casts too, so for now just use the same type for accumulation as the
+  // output type.
+  if (params.update)
+    inVertexType = finalOutput.elementType();
+
+  // The inVertex type is also the type that the vertex outputs (for simplicity
+  // and to avoid having a million template specialisations). If it is
+  // different from the output type we just add an explicit cast.
+
   Tensor out;
-  bool castRequired = accumType != finalOutput.elementType();
+  bool castRequired = inVertexType != finalOutput.elementType();
   if (castRequired) {
-    out = graph.clone(accumType, finalOutput);
+    out = graph.clone(inVertexType, finalOutput);
     graph.setTileMapping(out, graph.getTileMapping(finalOutput, false));
 
   } else {
@@ -655,7 +682,7 @@ Tensor intermediateToOutput(Graph &graph,
   // This is assumed below.
   assert(out.rank() == 1);
 
-  auto partialType = ipIn.dataType();
+  auto inType = ipIn.dataType();
 
   // Debug information.
   ReductionDebug::ReductionStage *stageDebug = nullptr;
@@ -674,11 +701,11 @@ Tensor intermediateToOutput(Graph &graph,
     if (!shouldReduceAtDestination(graph.getTarget(),
                                    ipIn,
                                    mapping,
-                                   accumType,
+                                   inVertexType,
                                    out.numElements())) {
       mapping = poputil::calcLinearTileMapping(graph, out);
     }
-  } catch (poplar::invalid_tile_mapping&) {
+  } catch (invalid_tile_mapping&) {
     mapping = poputil::calcLinearTileMapping(graph, out);
     graph.setTileMapping(out, mapping);
   }
@@ -743,7 +770,7 @@ Tensor intermediateToOutput(Graph &graph,
           );
     });
 
-  std::vector<poplar::ComputeSet> computeSets;
+  std::vector<ComputeSet> computeSets;
 
   // Partition tilesForOutput based on mappingIcl.
 
@@ -760,7 +787,7 @@ Tensor intermediateToOutput(Graph &graph,
 
     // Convert the output element indices to poplar interval format.
 
-    std::vector<poplar::Interval> outputRegionsSplit;
+    std::vector<Interval> outputRegionsSplit;
     outputRegionsSplit.reserve(thisTilesForOutput.size());
 
     for (const auto &ival : thisTilesForOutput)
@@ -772,7 +799,7 @@ Tensor intermediateToOutput(Graph &graph,
                            graph.getTarget(),
                            graph.getTarget().getNumWorkerContexts(),
                            params.op,
-                           accumType,
+                           inVertexType,
                            outputRegionsSplit
                          );
 
@@ -824,7 +851,7 @@ Tensor intermediateToOutput(Graph &graph,
       tileDebug = &stageDebug->tiles.back();
     }
 
-    connectReductions(graph, computeSets, params, partialType, accumType,
+    connectReductions(graph, computeSets, params, inType, inVertexType,
                       tile, reductions, tileDebug);
   }
 
@@ -837,8 +864,6 @@ Tensor intermediateToOutput(Graph &graph,
     graph.setTileMapping(finalOutput, graph.getTileMapping(out));
     prog.add(popops::cast(graph, out, finalOutput, debugPrefix + "/Cast"));
   }
-
-  return finalOutput;
 }
 
 }

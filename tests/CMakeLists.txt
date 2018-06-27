@@ -236,8 +236,8 @@ foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
 endforeach()
 
 # Random reduce_op tests with fixed seed.
-set(NUM_CONV_RANDOM_TESTS 50)
-foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
+set(NUM_REDUCE_RANDOM_TESTS 150)
+foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})
   add_test(NAME reduce_random_${n}
            COMMAND $<TARGET_FILE:reduce_op> --seed ${n})
 endforeach()

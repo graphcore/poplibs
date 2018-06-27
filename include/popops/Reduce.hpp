@@ -23,9 +23,9 @@ enum class Operation {
 };
 
 /// A reduce operation can optionally scale the output, and can also be an
-/// "update", i.e. A += reduce(B) rather than A = reduce(B).
+/// "update", i.e. out += reduce(in) rather than out = reduce(in).
 ///
-/// FullOperation stores that information, as well as the basic operation
+/// ReduceParams stores that information, as well as the basic operation
 /// being performed (add, mul, etc).
 ///
 /// scale == 1.0f is treated as a special case and no scaling is applied.
@@ -44,15 +44,15 @@ struct ReduceParams {
 // Debug information about the reduction. This is internal currently.
 struct ReductionDebug;
 
-/// Reduce A in dimensions dims. params specifies the operation. Note that
-/// currently scale and update are only valid with the Add operation, and they
-/// cannot be used simultaneously.
+/// Reduce `in` in dimensions `dims`. params specifies the operation. Note that
+/// currently scale and update are only valid with the ADD or SQUARE_ADD
+/// operations.
 ///
 /// Optionally a ReductionDebug object can be filled in with debug information
 /// to help visualise and debug the reduction.
 ///
 /// Internally this creates a new variable for the output then calls
-/// reduceWithOutput(). The type of the output will be the same as the input.
+/// reduceWithOutput(). The type of the output will be `outType`.
 ///
 /// The options parameter accepts the following:
 ///
@@ -60,13 +60,14 @@ struct ReductionDebug;
 ///                            between tiles (either 'float' or 'half').
 ///    'accumType.inVertex' - The type to used for intermediate values within
 ///                           a vertex (either 'float' or 'half').
+///
 /// If either of the above options are not set then the intermediate type will
 /// default to either the input tensor element type or `float` if the input
 /// is of type 'half' and the reduction operation benefits from
 /// higher precision (e.g. add).
 ///
 poplar::Tensor reduce(poplar::Graph &graph,
-                      const poplar::Tensor &A,
+                      const poplar::Tensor &in,
                       const poplar::Type &outType,
                       const std::vector<std::size_t> &dims,
                       ReduceParams params,
@@ -75,9 +76,9 @@ poplar::Tensor reduce(poplar::Graph &graph,
                       const poplar::OptionFlags &options = {},
                       ReductionDebug *debug = nullptr);
 
-// An alias for reduce(graph, A, A.elementType(), ...)
+// An alias for reduce(graph, in, in.elementType(), ...)
 poplar::Tensor reduce(poplar::Graph &graph,
-                      const poplar::Tensor &A,
+                      const poplar::Tensor &in,
                       const std::vector<std::size_t> &dims,
                       ReduceParams params,
                       poplar::program::Sequence &prog,
@@ -88,15 +89,15 @@ poplar::Tensor reduce(poplar::Graph &graph,
 /// This is similar to reduce() but allows you to specify the output.
 /// If the tile mapping of `out` is not complete it will be set. Otherwise it
 /// won't be changed.
-poplar::Tensor reduceWithOutput(poplar::Graph &graph,
-                                const poplar::Tensor &A,
-                                const poplar::Tensor &out,
-                                const std::vector<std::size_t> &dims,
-                                ReduceParams params,
-                                poplar::program::Sequence &prog,
-                                const std::string &debugPrefix = "",
-                                const poplar::OptionFlags &options = {},
-                                ReductionDebug *debug = nullptr);
+void reduceWithOutput(poplar::Graph &graph,
+                      const poplar::Tensor &in,
+                      const poplar::Tensor &out,
+                      const std::vector<std::size_t> &dims,
+                      ReduceParams params,
+                      poplar::program::Sequence &prog,
+                      const std::string &debugPrefix = "",
+                      const poplar::OptionFlags &options = {},
+                      ReductionDebug *debug = nullptr);
 
 }
 
