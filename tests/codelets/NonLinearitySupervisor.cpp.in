@@ -186,7 +186,8 @@ void singleTest(const Type &dataType, const NonLinearityType &nlType) {
   }
 
   Engine e(device, graph, programs, OptionFlags{
-    { "target.textSectionSizeInBytes", "0x9000" }
+    { "target.textSectionSizeInBytes", "0x9000" },
+    { "target.workerStackSizeInBytes", "0x100" }
   });
 
   boost::multi_array<double, 1>
