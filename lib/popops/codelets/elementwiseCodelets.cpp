@@ -96,9 +96,13 @@ public:
   Vector<Output<Vector<typename UnaryOpOutputType<op, T>::type>>> out;
 
   bool compute() {
-    for (unsigned i = 0; i != out.size(); ++i) {
-      for (unsigned j = 0; j != out[i].size(); ++j) {
-        out[i][j] = UnaryOpFn<op, T>::fn(in[i][j]);
+    unsigned limI = out.size();
+    for (unsigned i = 0; i != limI; ++i) {
+      unsigned limJ = out[i].size();
+      auto const &refIn = in[i];
+      auto &refOut = out[i];
+      for (unsigned j = 0; j != limJ; ++j) {
+        refOut[j] = UnaryOpFn<op, T>::fn(refIn[j]);
       }
     }
     return true;
@@ -113,9 +117,10 @@ public:
   Vector<InOut<Vector<T>>> inOut;
 
   bool compute() {
-    for (unsigned i = 0; i != inOut.size(); ++i) {
-      for (unsigned j = 0; j != inOut[i].size(); ++j) {
-        inOut[i][j] = UnaryOpFn<op, T>::fn(inOut[i][j]);
+    for (auto &row : inOut) {
+      const unsigned limJ = row.size();
+      for (unsigned j = 0; j != limJ; ++j) {
+        row[j] = UnaryOpFn<op, T>::fn(row[j]);
       }
     }
     return true;
@@ -250,10 +255,14 @@ public:
   Vector<Output<Vector<typename BinaryOpOutputType<op, T>::type>>> out;
 
   bool compute() {
-
-    for (unsigned i = 0; i != out.size(); ++i) {
-      for (unsigned j = 0; j != out[i].size(); ++j) {
-        out[i][j] = BinaryOpFn<op, T>::fn(in1[i][j], in2[i][j]);
+    const unsigned limI = out.size();
+    for (unsigned i = 0; i != limI; ++i) {
+      const unsigned limJ = out[i].size();
+      auto const &refIn1 = in1[i];
+      auto const &refIn2 = in2[i];
+      auto &refOut = out[i];
+      for (unsigned j = 0; j != limJ; ++j) {
+        refOut[j] = BinaryOpFn<op, T>::fn(refIn1[j], refIn2[j]);
       }
     }
     return true;
@@ -270,9 +279,13 @@ public:
   Vector<Input<Vector<T, ONE_PTR>>, ONE_PTR> in2;
 
   bool compute() {
-    for (unsigned i = 0; i != in1Out.size(); ++i) {
-      for (unsigned j = 0; j != in1Out[i].size(); ++j) {
-        in1Out[i][j] = BinaryOpFn<op, T>::fn(in1Out[i][j], in2[i][j]);
+    const unsigned limI = in1Out.size();
+    for (unsigned i = 0; i != limI; ++i) {
+      const unsigned limJ = in1Out[i].size();
+      auto const &refIn2 = in2[i];
+      auto &refIn1Out = in1Out[i];
+      for (unsigned j = 0; j != limJ; ++j) {
+        refIn1Out[j] = BinaryOpFn<op, T>::fn(refIn1Out[j], refIn2[j]);
       }
     }
     return true;
@@ -347,7 +360,8 @@ public:
   InType K;
 
   bool compute() {
-    for (unsigned i = 0; i < data.size(); ++i) {
+    unsigned limI = data.size();
+    for (unsigned i = 0; i < limI; ++i) {
       data[i] += K * deltas[i];
     }
     return true;
@@ -369,9 +383,13 @@ public:
   InType K;
 
   bool compute() {
-    for (unsigned i = 0; i < data.size(); ++i) {
-      for (unsigned j = 0; j < data[i].size(); ++j) {
-        data[i][j] += K * deltas[i][j];
+    unsigned limI = data.size();
+    for (unsigned i = 0; i < limI; ++i) {
+      unsigned limJ = data[i].size();
+      auto const &refIn = deltas[i];
+      auto &refOut = data[i];
+      for (unsigned j = 0; j < limJ; ++j) {
+        refOut[j] += K * refIn[j];
       }
     }
     return true;
@@ -392,11 +410,14 @@ public:
   Vector<InOut<Vector<FPType>>> A;
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> B;
 
-
   bool compute() {
-    for (unsigned i = 0; i < A.size(); ++i) {
-      for (unsigned j = 0; j < A[i].size(); ++j) {
-        A[i][j] *= B[i][j];
+    const unsigned limI = A.size();
+    for (unsigned i = 0; i < limI; ++i) {
+      const unsigned limJ = A[i].size();
+      auto const &refIn = B[i];
+      auto &refOut = A[i];
+      for (unsigned j = 0; j < limJ; ++j) {
+        refOut[j] *= refIn[j];
       }
     }
     return true;
@@ -414,8 +435,8 @@ public:
   Output<Vector<InType>> out;
 
   bool compute() {
-    for (unsigned i = 0; i < out.size(); ++i) {
-      out[i] = 0;
+    for (auto &x : out) {
+      x = 0;
     }
     return true;
   }
@@ -454,7 +475,8 @@ public:
   Output<Vector<DstType>> dst;
 
   bool compute() {
-    for (unsigned i = 0; i < dst.size(); ++i) {
+    const unsigned limI = dst.size();
+    for (unsigned i = 0; i < limI; ++i) {
       dst[i] = static_cast<DstType>(src[i]);
     }
     return true;
@@ -490,9 +512,13 @@ public:
   Vector<Output<Vector<DstType>>> dst;
 
   bool compute() {
-    for (unsigned i = 0; i != dst.size(); ++i) {
-      for (unsigned j = 0; j != dst[i].size(); ++j) {
-        dst[i][j] = static_cast<DstType>(src[i][j]);
+    const unsigned limI = dst.size();
+    for (unsigned i = 0; i != limI; ++i) {
+      const unsigned limJ = dst[i].size();
+      auto const &refSrc = src[i];
+      auto &refDst = dst[i];
+      for (unsigned j = 0; j != limJ; ++j) {
+        refDst[j] = static_cast<DstType>(refSrc[j]);
       }
     }
     return true;
