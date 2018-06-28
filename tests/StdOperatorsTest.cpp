@@ -1034,9 +1034,6 @@ BOOST_AUTO_TEST_CASE(StdOperationSelectInt,
 }
 
 BOOST_AUTO_TEST_CASE(StdOperationClampFloat,
-                   // This test is currently disabled for the
-                   // simulator/hardware see T3461
-                  *utf::enable_if<TEST_TARGET == DeviceType::IpuModel>()
                   *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01))
                   *utf::tolerance<double>(fpc::percent_tolerance<double>(0.01))
                   ) {
