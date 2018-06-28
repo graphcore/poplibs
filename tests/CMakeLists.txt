@@ -306,7 +306,8 @@ add_multitarget_test(
             --field={7,7}
             --tiles-per-ipu=16
             --stride=1
-            --kernel-size=1)
+            --kernel-size=1
+            --extra-text=1)
 
 add_multitarget_test(
          NAME conv1x1_stride_3
@@ -579,7 +580,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME conv_flip_input_only
          COMMAND single_conv_layer
-                 --field={28,28}
+                 --field={24,24}
                  --padding=1
                  --flip-input=1
                  --kernel-size=3
@@ -590,7 +591,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME conv_flip_kernel_only
          COMMAND single_conv_layer
-                 --field={28,28}
+                 --field={24,24}
                  --padding=1
                  --kernel-size=3
                  --flip-kernel=1
@@ -1081,7 +1082,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME grouped_conv5x5_stride_2_fwd_asym_padding
          COMMAND single_conv_layer
-                  --input-channels=64
+                  --input-channels=32
                   --output-channels=64
                   --field={28,20}
                   --kernel-size=5

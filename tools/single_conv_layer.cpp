@@ -37,6 +37,11 @@ using namespace poplibs_test::util;
 using namespace poputil;
 using poplibs_test::Pass;
 
+const OptionFlags extraTextengineOptions {
+  {"target.textSectionSizeInBytes", "0xe000"},
+  {"target.workerStackSizeInBytes", "0x200"}
+};
+
 const OptionFlags engineOptions {
   {"target.textSectionSizeInBytes", "0xa000"},
   {"target.workerStackSizeInBytes", "0x200"}
@@ -109,6 +114,7 @@ int main(int argc, char **argv) {
   double absoluteTolerance, relativeTolerance;
   IPUModel ipuModel;
   bool reportPlan;
+  bool extraText;
   bool reportVarStorage;
 
   Pass pass = Pass::ALL;
@@ -282,6 +288,8 @@ int main(int argc, char **argv) {
      "Weight update method: amp | auto")
     ("report-plan", po::value<bool>(&reportPlan)->default_value(false),
      "Display plan")
+    ("extra-text", po::value<bool>(&extraText)->default_value(false),
+     "Reserve extra memory for .text")
     ("report-var-storage",
      po::value<bool>(&reportVarStorage)->default_value(false),
      "Report variable storage information")
@@ -531,7 +539,7 @@ int main(int argc, char **argv) {
                                                     graph, tmap);
   }
   Engine engine(dev, graph, {std::move(fwdProg), std::move(revProg)},
-                engineOptions);
+                extraText ? extraTextengineOptions : engineOptions);
 
   boost::multi_array<double, 3>
       hostPrevAct(boost::extents[batchSize][fwdInChans]
