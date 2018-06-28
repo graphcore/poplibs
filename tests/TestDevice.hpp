@@ -31,10 +31,6 @@ inline poplar::Device createTestDevice(DeviceType deviceType,
   }
   case DeviceType::Sim:
   {
-    if ((tilesPerIPU!= 1 && (tilesPerIPU % 4) != 0) || tilesPerIPU > 1216)
-      throw std::logic_error(
-      "createDevice:: tilesPerIPU must be 1 or a multiple of 4 "
-      "less than 1216\n");
     target = poplar::Target::createIPUTarget(numIPUs,
                                              tilesPerIPU, "_TEST_SYSTEM");
     poplar::OptionFlags opt;
