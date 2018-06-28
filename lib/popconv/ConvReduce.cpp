@@ -108,6 +108,8 @@ partialGroupedReduce(
   const unsigned minGrainSize = target.getVectorWidth(resultType);
   const unsigned partialChansPerGroup = partials.dim(partials.rank()-1);
   const auto grainSize = std::max(partialChansPerGroup, minGrainSize);
+  const auto roundedGrainSize = (grainSize + minGrainSize - 1) / minGrainSize
+                                * minGrainSize;
 
   for (unsigned i = 0; i != outDepth; ++i) {
     unsigned begin = (i * partialsDepth) / outDepth;
@@ -120,7 +122,7 @@ partialGroupedReduce(
       const auto tileEnd = std::max(tileBegin + 1,
                                     ((i + 1) * tilesInGroup) / outDepth);
       const auto outSplitRegions =
-          splitRegions(tileGroupRegions[tileGroup], grainSize,
+          splitRegions(tileGroupRegions[tileGroup], roundedGrainSize,
                        tileEnd - tileBegin);
       for (unsigned j = 0; j != outSplitRegions.size(); ++j) {
         outSubMapping[tileGroups[tileGroup][j + tileBegin]] =
