@@ -40,7 +40,7 @@ max_kernel_size = 16
 max_kernel_dilation = 4
 max_kernel_padding = 3
 
-max_chans = 128
+max_chans_per_group = 128
 max_stride = 4
 max_flops = 500000
 max_flops_per_tile = 70000
@@ -115,11 +115,11 @@ class Params:
         cmd.append('--conv-groups=' + str(self.conv_groups))
         cmd.append('--batch-size=' + str(self.batch_size))
         cmd.append('--field=' + shape_to_str(self.field))
-        cmd.append('--input-channels=' + str(self.in_chans))
+        cmd.append('--input-channels=' + str(self.in_chans_per_group))
         cmd.append('--in-dilation=' + shape_to_str(self.in_dilation))
         cmd.append('--padding-upper=' + shape_to_str(self.padding_upper))
         cmd.append('--padding-lower=' + shape_to_str(self.padding_lower))
-        cmd.append('--output-channels=' + str(self.out_chans))
+        cmd.append('--output-channels=' + str(self.out_chans_per_group))
         cmd.append('--kernel-size=' + shape_to_str(self.kernel_size))
         cmd.append('--kernel-dilation=' + shape_to_str(self.kernel_dilation))
         cmd.append('--kernel-padding-upper=' +
@@ -158,11 +158,10 @@ class Params:
         output_elements = reduce(mul, output_size, 1)
         output_elements *= self.conv_groups * self.batch_size
         kernel_elements = reduce(mul, self.kernel_size, 1)
-        in_chans_per_group = self.in_chans / self.conv_groups
-        out_chans_per_group = self.out_chans / self.conv_groups
+        in_chans_per_group = self.in_chans_per_group
+        out_chans_per_group = self.out_chans_per_group
         return (output_elements * kernel_elements * in_chans_per_group *
                 out_chans_per_group)
-
 
 def make_params():
     """Return a random set of convolution parameters"""
@@ -185,12 +184,12 @@ def make_params():
         [1, vector_width[params.data_type], amp_in_chans[params.data_type]],
         [0.25, 0.25, 0.5]
     ) * params.conv_groups
-    params.in_chans = geometric_choice(
-        range(1, max_chans // in_chans_multiple + 1),
+    params.in_chans_per_group = geometric_choice(
+        range(1, max_chans_per_group // in_chans_multiple + 1),
         pow(0.9, in_chans_multiple)
     ) * in_chans_multiple
-    params.out_chans = geometric_choice(
-        range(1, max_chans // out_chans_multiple + 1),
+    params.out_chans_per_group = geometric_choice(
+        range(1, max_chans_per_group // out_chans_multiple + 1),
         pow(0.9, out_chans_multiple)
     ) * out_chans_multiple
     field_dims = random.randrange(min_field_dims, max_field_dims + 1)
@@ -248,9 +247,15 @@ def make_constrained_params(tiles_per_ipu):
         if any(f < k for f, k in zip(p.get_dilated_and_padded_input_size(),
                                      p.get_dilated_and_padded_kernel_size())):
             continue
-        if (p.get_flops() > max_flops):
+        # Odd strides have a cost/memory penalty, so derate the flops to
+        # compensate. This is only problematic when the number of tiles is low
+        flops = p.get_flops();
+        nOddDims=len(filter(lambda a: a > 1 and a%2, p.stride))
+        if (len(filter(lambda a: a > 1 and a%2, p.stride))):
+          print("odd: " + str(p.stride))
+        if (flops > max_flops):
             continue
-        if (p.get_flops() > max_flops_per_tile * tiles_per_ipu):
+        if (flops * (1 + 0.5*nOddDims) > max_flops_per_tile * tiles_per_ipu):
             continue;
         return p
 
