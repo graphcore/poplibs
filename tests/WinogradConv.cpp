@@ -15,7 +15,9 @@ using namespace poplar::program;
 using namespace poputil;
 
 const OptionFlags options {
-  {"target.textSectionSizeInBytes", "0x9000"}
+  {"target.textSectionSizeInBytes", "0x6000"},
+  {"target.workerStackSizeInBytes", "0x400"}
+
 };
 
 namespace utf = boost::unit_test;
