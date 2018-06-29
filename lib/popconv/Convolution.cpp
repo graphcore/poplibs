@@ -3058,31 +3058,230 @@ convolutionWeightUpdate(Graph &graph,
               debugPrefix + "/UpdateWeights");
 }
 
+static void
+convChannelReduce(Graph &graph,
+                  const Tensor &in,
+                  Tensor dst,
+                  bool doAcc,
+                  float scale,
+                  bool doSquare,
+                  std::vector<ComputeSet> &computeSets,
+                  const Type &partialsType,
+                  const std::string &debugPrefix) {
+
+  if (computeSets.size() == 0) {
+    computeSets.push_back(graph.addComputeSet(debugPrefix + "/Reduce1"));
+    computeSets.push_back(graph.addComputeSet(debugPrefix + "/Reduce2"));
+    computeSets.push_back(doAcc ?
+                          graph.addComputeSet(debugPrefix + "/FinalUpdate")
+                          : graph.addComputeSet(debugPrefix + "/FinalReduce"));
+  }
+  assert(computeSets.size() == 3);
+
+  // Force convolution grouping to be 1
+  auto inGrouped =
+      splitActivationChanGroups(
+        actsToInternalShape(in, 1)
+      )[0];
+
+  // set this to true to enable f16v8 and f32v4 instructions
+  const bool useDoubleDataPathInstr = true;
+
+  // The bias gradient is the sum of all the deltas.
+  // The reduction of these deltas is done in three stages:
+  //     The first stage reduces on each tile. It places the partial sum
+  //     for each tile in the tensor 'tileReducedBiasDeltas[tile]'.
+  //     The second stage reduces across tiles to a set of partial sums
+  //     spread across the workers. It takes 'tileReducedBiasDeltas' as input
+  //     and outputs to the 'biasPartials' 2-d tensor.
+  //     The final stage reduces the 'biasPartials' 2-d tensor to get the
+  //     final gradient for each bias, multiplies it by the learning rate and
+  //     subtracts from the bias in the 'biases' tensor.
+  const auto &target = graph.getTarget();
+  auto dType = inGrouped.elementType();
+  auto numTiles = target.getNumTiles();
+  auto numOut = dst.numElements();
+  auto inChansPerGroup = inGrouped.dim(inGrouped.rank() - 1);
+  // Before the cross tile reduction. Reduce biases on each tile.
+  auto inFlatField = inGrouped.flatten(1, inGrouped.rank() - 1);
+
+  // Calculate which bias groups have values to reduce on each tile
+  auto firstInGroup = inFlatField.slice(0, 1, 2).squeeze({2});
+  auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
+  std::vector<std::map<unsigned, std::vector<Interval>>>
+      tileLocalReductions(numTiles);
+  for (unsigned tile = 0; tile < numTiles; ++tile) {
+    for (const auto &interval : firstInGroupMapping[tile]) {
+      auto begin = interval.begin();
+      auto last = interval.end() - 1;
+      auto beginIndices = poputil::unflattenIndex(firstInGroup.shape(), begin);
+      auto lastIndices = poputil::unflattenIndex(firstInGroup.shape(), last);
+      for (unsigned g = beginIndices[0]; g != lastIndices[0] + 1; ++g) {
+        unsigned fieldBegin = g == beginIndices[0] ?
+                                   beginIndices[1] :
+                                   0;
+        unsigned fieldLast = g == lastIndices[0] ?
+                                  lastIndices[1] :
+                                  firstInGroup.dim(1) - 1;
+        unsigned flatBegin = flattenIndex(firstInGroup.shape(),
+                                          {g, fieldBegin});
+        unsigned flatLast = flattenIndex(firstInGroup.shape(),
+                                         {g, fieldLast});
+        tileLocalReductions[tile][g].emplace_back(flatBegin, flatLast + 1);
+      }
+    }
+  }
+
+  // On each tile create vertices that reduce the on-tile elements to a single
+  // value for each element on each tile stored in the
+  // tensor tileReduced[tile].
+  std::vector<Tensor> tileReduced;
+  tileReduced.reserve(numTiles);
+  auto inGroups = inGrouped.reshape({inGrouped.numElements() / inChansPerGroup,
+                                     inChansPerGroup});
+  for (unsigned tile = 0; tile < numTiles; ++tile) {
+    auto tileNumGroups = tileLocalReductions[tile].size();
+    Tensor r = graph.addVariable(partialsType, {tileNumGroups, inChansPerGroup},
+                                 "tileReduced");
+    tileReduced.push_back(r);
+    graph.setTileMapping(r, tile);
+    unsigned outIndex = 0;
+    for (const auto &entry : tileLocalReductions[tile]) {
+      auto v = graph.addVertex(computeSets[0],
+                               templateVertex(doSquare ?
+                                              "popconv::ConvChanReduceSquare" :
+                                              "popconv::ConvChanReduce",
+                                              dType, partialsType));
+      unsigned numRanges = 0;
+      for (const auto &interval : entry.second) {
+        auto in = inGroups.slice(interval.begin(), interval.end())
+                          .flatten();
+        graph.connect(v["in"][numRanges++], in);
+      }
+      graph.setFieldSize(v["in"], numRanges);
+      graph.connect(v["out"], r[outIndex++]);
+      graph.setInitialValue(v["useDoubleDataPathInstr"],
+                            useDoubleDataPathInstr);
+      graph.setTileMapping(v, tile);
+    }
+  }
+
+  /** The number of outputs is often small. So the reduction of ouputs
+   *  is done in two stages to balance compute.
+   */
+  auto numWorkers = target.getNumWorkerContexts() * target.getNumTiles();
+  unsigned workersPerOutput, usedWorkers, maxOutputsPerWorker;
+  if (numWorkers > numOut) {
+    workersPerOutput = numWorkers / numOut;
+    usedWorkers = workersPerOutput * numOut;
+    maxOutputsPerWorker = 1;
+  } else {
+    workersPerOutput = 1;
+    usedWorkers = numWorkers;
+    maxOutputsPerWorker = (numOut + numWorkers - 1) / numWorkers;
+  }
+  auto partials =
+      graph.addVariable(partialsType, {usedWorkers, maxOutputsPerWorker},
+                        "partials");
+  for (unsigned worker = 0; worker  < usedWorkers; ++worker ) {
+    auto tile = worker / target.getNumWorkerContexts();
+    graph.setTileMapping(partials[worker].slice(0, maxOutputsPerWorker), tile);
+    unsigned outBegin = (worker  * numOut) / usedWorkers;
+    unsigned outEnd = ((worker  + workersPerOutput) * numOut) / usedWorkers;
+    if (outBegin == outEnd)
+      continue;
+    unsigned numWorkerOutputs = outEnd - outBegin;
+    std::vector<Tensor> toReduceSlices;
+    std::vector<unsigned> numInputsPerOutput;
+    for (auto o = outBegin; o != outEnd; ++o) {
+      auto outGroup = o / inChansPerGroup;
+      auto outInGroup = o % inChansPerGroup;
+      std::vector<Tensor> inputSlices;
+      for (unsigned srcTile = 0; srcTile < numTiles; ++srcTile) {
+        auto it = tileLocalReductions[srcTile].find(outGroup);
+        if (it == tileLocalReductions[srcTile].end())
+          continue;
+        unsigned i = std::distance(tileLocalReductions[srcTile].begin(),
+                                   it);
+        auto srcBias = tileReduced[srcTile][i][outInGroup];
+        inputSlices.push_back(srcBias.expand({0}));
+      }
+      if (inputSlices.empty()) {
+        numInputsPerOutput.push_back(0);
+      } else {
+        auto inputs = concat(inputSlices);
+        const auto numInputs = inputs.numElements();
+        auto inBegin =
+            ((worker  % workersPerOutput) * numInputs) / workersPerOutput;
+        unsigned inEnd =
+            (((worker  % workersPerOutput) + 1) * numInputs) / workersPerOutput;
+        if (inBegin != inEnd) {
+          toReduceSlices.push_back(inputs.slice(inBegin, inEnd));
+        }
+        numInputsPerOutput.push_back(inEnd - inBegin);
+      }
+    }
+    if (toReduceSlices.empty()) {
+      auto v = graph.addVertex(computeSets[1],
+                               templateVertex("popops::Zero", partialsType));
+      graph.connect(v["out"], partials[worker].slice(0, maxOutputsPerWorker));
+      graph.setTileMapping(v, tile);
+      continue;
+    }
+    auto toReduce = concat(toReduceSlices);
+    auto v = graph.addVertex(computeSets[1],
+                             templateVertex("popconv::ConvChanReduce2",
+                                            partialsType));
+    graph.connect(v["in"], toReduce);
+    graph.connect(v["out"], partials[worker].slice(0, numWorkerOutputs));
+    graph.setInitialValue(v["numInputsPerOutput"], numInputsPerOutput);
+    graph.setTileMapping(v, tile);
+  }
+
+  const auto outMapping = graph.getTileMapping(dst);
+  for (unsigned tile = 0; tile != numTiles; ++tile) {
+    for (const auto &interval : outMapping[tile]) {
+      for (unsigned o = interval.begin(); o != interval.end(); ++o) {
+        std::string vType;
+        if (doAcc) {
+          vType = templateVertex("popconv::ConvChanReduceAcc",
+                                 partialsType, dType);
+        } else {
+          vType = templateVertex("popconv::ConvChanReduceAndScale",
+                                 partialsType, dType);
+        }
+        auto v = graph.addVertex(computeSets[2], vType);
+        unsigned numPartials = 0;
+        for (unsigned srcWorker = 0; srcWorker < usedWorkers; ++srcWorker) {
+          unsigned inBegin = (srcWorker * numOut) / usedWorkers;
+          unsigned inEnd =
+              ((srcWorker + workersPerOutput) * numOut) / usedWorkers;
+          if (inBegin > o || inEnd <= o)
+            continue;
+          graph.connect(v["in"][numPartials++],
+                        partials[srcWorker][o - inBegin]);
+        }
+        graph.setFieldSize(v["in"], numPartials);
+        graph.connect(v["out"], dst[o]);
+        graph.setInitialValue(v["K"], scale);
+        graph.setTileMapping(v, tile);
+      }
+    }
+  }
+}
+
 static Tensor
 batchNormReduce(Graph &graph,
                 const Tensor &actsUngrouped,
                 float scale,
                 bool doSquare,
-                Sequence &prog,
+                std::vector<ComputeSet> &csVec,
                 const Type &partialsType,
                 const std::string &debugPrefix) {
-
   auto t = createBiases(graph, actsUngrouped,
                         "bnReduceResult");
-
-  if (actsUngrouped.rank() < 2)
-    throw poplib_error("batchNormReduce with rank " +
-                       std::to_string(actsUngrouped.rank()) +
-                       " expected >=2");
-
-  std::vector<std::size_t> reduceDims(actsUngrouped.rank()-1);
-  std::iota(reduceDims.begin()+1, reduceDims.end(), 2);
-
-  popops::reduceWithOutput(graph, actsUngrouped, t, reduceDims, {
-                             doSquare ? popops::Operation::SQUARE_ADD
-                                      : popops::Operation::ADD,
-                             scale
-                           }, prog, debugPrefix);
+  convChannelReduce(graph, actsUngrouped, t, false,
+                    scale, doSquare, csVec, partialsType, debugPrefix);
   return t;
 }
 
@@ -3096,17 +3295,15 @@ convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
                       const Type &partialsType,
                       Sequence &prog,
                       const std::string &debugPrefix) {
-  if (zDeltasUngrouped.rank() < 2)
-    throw poplib_error("convolutionBiasUpdate with rank " +
-                       std::to_string(zDeltasUngrouped.rank()) +
-                       " expected >=2");
-
-  std::vector<std::size_t> reduceDims(zDeltasUngrouped.rank()-1);
-  std::iota(reduceDims.begin()+1, reduceDims.end(), 2);
-
-  popops::reduceWithOutput(graph, zDeltasUngrouped, biases, reduceDims, {
-                             popops::Operation::ADD, -learningRate, true
-                           }, prog, "/BiasUpdate");
+  std::vector< ComputeSet> csVec;
+  convChannelReduce(graph, zDeltasUngrouped, biases, true,
+                    -learningRate, false,
+                    csVec, partialsType,
+                    debugPrefix + "/BiasUpdate");
+  assert(csVec.size() == 3);
+  for (const auto &cs : csVec) {
+    prog.add(Execute(cs));
+  }
 }
 
 // Returns a pair with second element set to true if a single channel group is
@@ -3509,15 +3706,16 @@ batchNormEstimates(Graph &graph,
   const auto numElements = acts.numElements() / acts.dim(1);
   const float scale = 1.0 / numElements;
 
-  // TODO: Previous code did these in parallel but the new reduce() API
-  // doesn't have a version that takes a compute set vector. It probably should.
-
+  std::vector< ComputeSet> csVec;
   auto mean =
-    batchNormReduce(graph, acts, scale, false, prog, partialsType,
+    batchNormReduce(graph, acts, scale, false, csVec, partialsType,
                     fnPrefix + "/mean");
   auto power =
-    batchNormReduce(graph, acts, scale, true, prog, partialsType,
+    batchNormReduce(graph, acts, scale, true, csVec, partialsType,
                     fnPrefix + "/power");
+  for (const auto &cs : csVec) {
+    prog.add(Execute(cs));
+  }
 
   auto iStdDev = computeInvStdDev(graph, mean, power, eps, prog,
                                   acts.elementType(), debugPrefix);
@@ -3582,10 +3780,14 @@ batchNormDeltas(Graph &graph,
   const auto gradsInMultActs =
     mul(graph, gradsIn, actsWhitened, prog, fnPrefix);
 
+  std::vector< ComputeSet> csVec = {};
   auto numChannels = gradsInMultActs.dim(1);
   const auto concatDeltas =
     batchNormReduce(graph, concat({gradsInMultActs, gradsIn}, 1), 1.0,
-                    false, prog, partialsType, fnPrefix + "/JointGammaDelta");
+                    false, csVec, partialsType, fnPrefix + "/JointGammaDelta");
+  for (const auto &cs : csVec) {
+    prog.add(Execute(cs));
+  }
   return std::make_pair(concatDeltas.slice(0, numChannels),
                         concatDeltas.slice(numChannels, 2 * numChannels));
 }
