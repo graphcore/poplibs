@@ -477,7 +477,7 @@ int main(int argc, char **argv) {
   // Always generate the fwd program as it maps the weights and biases. Only
   // actually create the engined if the fwd pass is to be run
   Tensor nextAct = popconv::convolution(graph, prevAct, weights, params, false,
-                                        fwdProg, "", fwdOptions, &cache);
+                                        fwdProg, "fwd/", fwdOptions, &cache);
   if (reportPlan) {
     std::cout << "Forward plan:\n";
     popconv::reportPlanInfo(std::cout, graph, params, fwdOptions, &cache);
@@ -495,7 +495,7 @@ int main(int argc, char **argv) {
 
   if (doBwdPass) {
     prevDeltas = popconv::convolution(graph, zDeltas, weights, bwdParams,
-                                      true, revProg, "",
+                                      true, revProg, "bwd",
                                       bwdOptions, &cache);
     if (reportPlan) {
       std::cout << "Backward plan:\n";
@@ -505,7 +505,7 @@ int main(int argc, char **argv) {
   if (doWuPass) {
     popconv::convolutionWeightUpdate(graph, zDeltas, weights, prevAct,
                                      params, learningRate,
-                                     revProg, "", wuOptions, &cache);
+                                     revProg, "wu", wuOptions, &cache);
     if (bias) {
       popconv::convolutionBiasUpdate(graph, zDeltas, biases, learningRate,
                                      partialsType, revProg);
