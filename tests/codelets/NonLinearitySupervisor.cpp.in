@@ -159,7 +159,6 @@ void singleTest(const Type &dataType, const NonLinearityType &nlType) {
          ++numElements) {
       // Get a slice into our common tensor to perform the non-linearity on
       auto tTestSlice = t.slice(offset, offset + numElements);
-      const auto testId = programs.size();
 
       // Calculate packed size parameter
       const auto chunks = numElements / elementsPerChunk;

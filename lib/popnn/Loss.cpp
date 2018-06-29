@@ -116,7 +116,6 @@ Program calcLossSoftmaxCrossEntropy(Graph &graph,
                                     const Type &expectedType,
                                     const std::string &debugPrefix) {
   const auto layerPrefix = debugPrefix + "/LossSoftmaxCrossEntropy";
-  const auto &target = graph.getTarget();
   const auto batchSize = activations.dim(0);
   const auto perBatch = activations.numElements() / batchSize;
 

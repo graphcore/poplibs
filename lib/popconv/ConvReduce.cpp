@@ -48,7 +48,6 @@ static void reduce(Graph &graph,
                         partials.numElements() / tilesPerInZGroup});
   auto flatReduced = reduced.flatten();
   const auto &target = graph.getTarget();
-  const auto dataPathWidth = target.getDataPathWidth();
   std::string vertexName = "popconv::ReduceAdd";
 
   // Accumulate the partial sums.

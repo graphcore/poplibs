@@ -146,18 +146,6 @@ getModelLossAndDeltas(const LossType lossType,
   }
 }
 
-static unsigned
-calculateExpectedNumCorrect(const std::vector<unsigned> &predictions,
-                            const std::vector<unsigned> &labels,
-                            const std::size_t batchSize) {
-  unsigned numCorrect = 0;
-  for (std::size_t b = 0; b < batchSize; b++) {
-    numCorrect += (predictions[b] == labels[b] ? 1 : 0);
-  }
-  return numCorrect;
-}
-
-
 static bool lossTest(const LossType lossType,
                      std::size_t batchSize,
                      std::size_t numClasses,

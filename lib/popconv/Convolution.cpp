@@ -948,13 +948,6 @@ iteratePartition(const ConvParams &params,
   }
 }
 
-
-static boost::icl::discrete_interval<unsigned>
-toIclInterval(const Interval &interval) {
-  return boost::icl::interval<unsigned>::right_open(interval.begin(),
-                                                    interval.end());
-}
-
 static std::vector<unsigned>
 inversePermutation(const std::vector<unsigned> &permutation) {
   const auto rank = permutation.size();
@@ -2293,9 +2286,11 @@ calcPartialConvOutput(Graph &graph,
                       ComputeSet convolveCS,
                       Tensor in, Tensor weights,
                       Tensor out) {
+#ifndef NDEBUG
   const auto numOutChans = params.getNumOutputChansPerConvGroup();
   const auto outChansPerGroup = plan.partialChansPerGroup;
   assert(numOutChans % outChansPerGroup == 0);
+#endif
   graph.setTileMapping(out, tile);
   in = splitActivationChanGroups(in, plan.inChansPerGroup);
   weights = groupWeights(weights, plan.inChansPerGroup,

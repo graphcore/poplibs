@@ -56,7 +56,6 @@ encodeOneHot(Graph &graph,
                                  grainSize, grainSize * 2);
 
     for (const auto &regions : perVertexRegions) {
-      const auto numRegions = regions.size();
       VertexRef v;
       // For the common case of just one index encoded by a particular
       // vertex on a tile, this is special cased to reduce memory footprint
