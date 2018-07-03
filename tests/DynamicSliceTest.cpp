@@ -20,7 +20,8 @@ using namespace poputil;
 using namespace popops;
 
 const OptionFlags options {
-  {"target.textSectionSizeInBytes", "0x9000"}
+  {"target.textSectionSizeInBytes", "0x9000"},
+  {"target.workerStackSizeInBytes", "0x200"}
 };
 
 #define NUM_DIMS 3
