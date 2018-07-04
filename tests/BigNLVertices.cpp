@@ -1,4 +1,4 @@
-// Check that we can handle larget tensors on a single tile
+// Check that we can handle large tensors on two tiles
 //
 #define BOOST_TEST_MODULE NonLinearityTest
 #include <popnn/NonLinearity.hpp>
@@ -12,6 +12,7 @@
 #include <poplibs_test/NonLinearity.hpp>
 #include <iostream>
 #include <poplibs_test/Util.hpp>
+#include "TestDevice.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
@@ -37,10 +38,9 @@ BOOST_AUTO_TEST_CASE(BigVectorList) {
 #include <vector>
 
   // will perform Relu on tensors with this number of elements
-  for (size_t nElms : {100, 1000, 10000, 100000, 1000000}) {
-    poplar::IPUModel model;
-    model.tilesPerIPU = 2;
-    auto device = model.createDevice();
+  std::vector<size_t> sizes({100, 1000, 10000, 100000, 1000000});
+  for (const size_t nElms : sizes) {
+    auto device = createTestDevice(TEST_TARGET, 1, 2);
 
     poplar::Graph graph(device);
     popnn::addCodelets(graph);
@@ -54,7 +54,6 @@ BOOST_AUTO_TEST_CASE(BigVectorList) {
     }
     poplar::Tensor dPre  = graph.addVariable(poplar::FLOAT, {nElms});
 
-    //graph.setTileMapping(dPre, 0);
     poputil::mapTensorLinearly(graph, dPre);
 
     poplar::Tensor dPost = graph.clone(dPre, "dPost");
@@ -85,6 +84,7 @@ BOOST_AUTO_TEST_CASE(BigVectorList) {
     }
     std::cout << "with " << nElms << " elements, min val : " << minVal
               << std::endl;
-    BOOST_CHECK(minVal == 0);
+    // Test a float is exactly zero without getting a compiler warning:
+    BOOST_CHECK(minVal >= -0.f && minVal <= 0.f);
   }
 }

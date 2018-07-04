@@ -195,26 +195,21 @@ add_popnn_unit_test(RangeTest RangeTest.cpp
                     VARIANTS "IpuModel;Sim:cpp;Sim")
 add_popnn_unit_test(ConvPlanTest ConvPlanTest.cpp
                     VARIANTS "IpuModel;Sim:cpp;Sim")
-add_popnn_unit_test(StdArithmeticTests StdArithmeticTests.cpp
-                    VARIANTS "IpuModel;Sim:cpp;Sim")
-add_popnn_unit_test(GraphFunctionTest GraphFunctionTest.cpp
-                    VARIANTS "IpuModel;Sim:cpp;Sim")
+add_popnn_unit_test(StdArithmeticTests StdArithmeticTests.cpp)
+add_popnn_unit_test(GraphFunctionTest GraphFunctionTest.cpp)
 add_popnn_unit_test(WinogradConvolution WinogradConv.cpp)
-add_popnn_unit_test(NonLinearityTest NonLinearityTest.cpp
-                    VARIANTS "IpuModel;Sim:cpp;Sim")
+add_popnn_unit_test(NonLinearityTest NonLinearityTest.cpp)
 add_popnn_unit_test(BigNLVertices BigNLVertices.cpp
                     VARIANTS "IpuModel;Sim:cpp;Sim")
 add_popnn_unit_test(GraphProgLocationTest GraphProgLocationTest.cpp
                     VARIANTS "IpuModel;Sim:cpp;Sim")
-add_popnn_unit_test(StdOperatorTest StdOperatorsTest.cpp
-                    VARIANTS "IpuModel;Sim:cpp;Sim")
+add_popnn_unit_test(StdOperatorTest StdOperatorsTest.cpp)
 add_popnn_unit_test(BatchNormTest BatchNormTest.cpp)
 add_popnn_unit_test(ReductionTests ReductionTests.cpp)
 add_popnn_unit_test(LargeSplitRegionsTest LargeSplitRegionsTest.cpp
                     VARIANTS "IpuModel;Sim:cpp;Sim")
 add_popnn_unit_test(DynamicSliceTest DynamicSliceTest.cpp)
-add_popnn_unit_test(CircBufTests CircBufTests.cpp
-                    VARIANTS "IpuModel;Sim:cpp;Sim")
+add_popnn_unit_test(CircBufTests CircBufTests.cpp)
 add_popnn_unit_test(BroadcastToMatchTest BroadcastToMatchTest.cpp
                     VARIANTS "IpuModel;Sim:cpp;Sim")
 add_popnn_unit_test(ParallelTest ParallelTest.cpp
