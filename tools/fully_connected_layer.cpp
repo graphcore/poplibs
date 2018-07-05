@@ -23,6 +23,7 @@
 #include <poplibs_test/Pass.hpp>
 #include <poplibs_test/Util.hpp>
 #include <poplibs_support/Compiler.hpp>
+#include "TestDevice.hpp"
 #include <random>
 
 using namespace poplar;
@@ -33,6 +34,15 @@ using namespace poputil;
 using namespace popops;
 using poplibs_test::Pass;
 
+const OptionFlags engineOptions {
+  {"target.textSectionSizeInBytes", "0xe000"},
+  {"target.workerStackSizeInBytes", "0x200"},
+};
+
+const OptionFlags simDebugOptions {
+  {"debug.trace", "false"}
+};
+
 // Default tolerances used in tests
 #define FLOAT_REL_TOL  0.1
 #define HALF_REL_TOL   0.3
@@ -42,6 +52,7 @@ using poplibs_test::Pass;
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
+  DeviceType deviceType = DeviceType::IpuModel;
   unsigned numGroups;
   unsigned inputSize;
   unsigned outputSize;
@@ -57,6 +68,9 @@ int main(int argc, char **argv) {
   po::options_description desc("Options");
   desc.add_options()
     ("help", "Produce help message")
+    ("device-type",
+     po::value<DeviceType>(&deviceType)->default_value(deviceType),
+     "Device type: Cpu | Sim | Hw | IpuModel")
     ("input-size", po::value<unsigned>(&inputSize)->required(),
      "Number of inputs")
     ("output-size", po::value<unsigned>(&outputSize)->required(),
@@ -131,7 +145,8 @@ int main(int argc, char **argv) {
   }
 
   const auto learningRate = 0.5;
-  auto device  = ipuModel.createDevice();
+  auto device = createTestDevice(deviceType, ipuModel.numIPUs,
+                                  ipuModel.tilesPerIPU);
   const auto &target = device.getTarget();
 
   Graph graph(device );
@@ -242,7 +257,8 @@ int main(int argc, char **argv) {
     scaledAddTo(graph, biases, biasDeltas, -learningRate, bwdProg);
   }
 
-  Engine engine(device , graph, {std::move(fwdProg), std::move(bwdProg)});
+  Engine engine(device , graph, {std::move(fwdProg), std::move(bwdProg)},
+                engineOptions);
 
   boost::multi_array<double, 3>
       hostPrevAct(boost::extents[numGroups][batchSize][inputSize]);
@@ -317,9 +333,11 @@ int main(int argc, char **argv) {
     }
   }
 
-  engine.printSummary(std::cout, OptionFlags{
-    { "doLayerWiseBreakdown", "true" }
-  });
+  if (deviceType == DeviceType::IpuModel) {
+    engine.printSummary(std::cout, OptionFlags{
+                          { "doLayerWiseBreakdown", "true" }
+                        });
+  }
 
   if (!matchesModel) {
     std::cerr << "Validation failed\n";

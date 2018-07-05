@@ -25,6 +25,7 @@ inline poplar::Device createTestDevice(DeviceType deviceType,
   case DeviceType::IpuModel:
   {
     poplar::IPUModel ipuModel;
+    ipuModel.numIPUs = numIPUs;
     ipuModel.tilesPerIPU = tilesPerIPU;
     return ipuModel.createDevice();
     break;
