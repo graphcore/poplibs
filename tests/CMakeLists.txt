@@ -3,7 +3,7 @@ find_package(PythonInterp REQUIRED)
 find_package(Threads)
 
 
-set(DEFAULT_TEST_VARIANTS "IpuModel;Sim;Sim:cpp" CACHE STRING
+set(DEFAULT_TEST_VARIANTS "IpuModel;Sim:cpp;Sim" CACHE STRING
     "The device variants to run tests on when no variants are set explicitly")
 
 set(ENABLED_TEST_VARIANTS "Cpu;IpuModel;Sim;Sim:cpp" CACHE STRING
@@ -192,26 +192,21 @@ add_popnn_unit_test(ConvUtilTest ConvUtilTest.cpp)
 add_popnn_unit_test(RangeTest RangeTest.cpp)
 add_popnn_unit_test(ConvPlanTest ConvPlanTest.cpp)
 add_popnn_unit_test(StdArithmeticTests StdArithmeticTests.cpp
-                    VARIANTS "IpuModel")
+                    VARIANTS IpuModel)
 add_popnn_unit_test(GraphFunctionTest GraphFunctionTest.cpp
-                    VARIANTS "IpuModel")
+                    VARIANTS IpuModel)
 add_popnn_unit_test(WinogradConvolution WinogradConv.cpp
-                    VARIANTS "IpuModel")
+                    VARIANTS IpuModel)
 add_popnn_unit_test(NonLinearityTest NonLinearityTest.cpp
-                    VARIANTS "IpuModel")
+                    VARIANTS IpuModel)
 add_popnn_unit_test(BigNLVertices BigNLVertices.cpp)
 add_popnn_unit_test(GraphProgLocationTest GraphProgLocationTest.cpp)
-add_popnn_unit_test(StdOperatorTest StdOperatorsTest.cpp
-                    VARIANTS "IpuModel")
-add_popnn_unit_test(BatchNormTest BatchNormTest.cpp
-                    VARIANTS "IpuModel")
-add_popnn_unit_test(ReductionTests ReductionTests.cpp
-                    VARIANTS "IpuModel")
+add_popnn_unit_test(StdOperatorTest StdOperatorsTest.cpp VARIANTS IpuModel)
+add_popnn_unit_test(BatchNormTest BatchNormTest.cpp VARIANTS IpuModel)
+add_popnn_unit_test(ReductionTests ReductionTests.cpp VARIANTS IpuModel)
 add_popnn_unit_test(LargeSplitRegionsTest LargeSplitRegionsTest.cpp)
-add_popnn_unit_test(DynamicSliceTest DynamicSliceTest.cpp
-                    VARIANTS "IpuModel")
-add_popnn_unit_test(CircBufTests CircBufTests.cpp
-                    VARIANTS "IpuModel")
+add_popnn_unit_test(DynamicSliceTest DynamicSliceTest.cpp VARIANTS IpuModel)
+add_popnn_unit_test(CircBufTests CircBufTests.cpp VARIANTS IpuModel)
 add_popnn_unit_test(BroadcastToMatchTest BroadcastToMatchTest.cpp)
 add_popnn_unit_test(ParallelTest ParallelTest.cpp)
 add_popnn_unit_test(LossTest LossTest.cpp)
