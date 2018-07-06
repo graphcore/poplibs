@@ -103,13 +103,13 @@ BOOST_AUTO_TEST_CASE(BigVectorList) {
   }
 
   for (const auto s : sizesThatFit) {
-    std::out << "Size " << s << " expected to fit\n";
+    std::cout << "Size " << s << " expected to fit\n";
     testReluWithTensorOfSize(s);
   }
 
   if (everythingFits == false) {
     for (const auto s : sizesThatDoNotFit) {
-      std::out << "Size " << s << " NOT expected to fit\n";
+      std::cout << "Size " << s << " NOT expected to fit\n";
       BOOST_CHECK_THROW(testReluWithTensorOfSize(s),
                         graph_memory_allocation_error);
     }
