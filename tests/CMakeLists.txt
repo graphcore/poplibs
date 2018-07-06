@@ -204,6 +204,8 @@ add_popnn_unit_test(BigNLVertices BigNLVertices.cpp
 add_popnn_unit_test(GraphProgLocationTest GraphProgLocationTest.cpp
                     VARIANTS "IpuModel;Sim:cpp;Sim")
 add_popnn_unit_test(StdOperatorTest StdOperatorsTest.cpp)
+set_tests_properties(Sim_default_StdOperatorTest PROPERTIES TIMEOUT 1800)
+set_tests_properties(Sim_cpp_StdOperatorTest PROPERTIES TIMEOUT 1800)
 add_popnn_unit_test(BatchNormTest BatchNormTest.cpp)
 add_popnn_unit_test(ReductionTests ReductionTests.cpp)
 add_popnn_unit_test(LargeSplitRegionsTest LargeSplitRegionsTest.cpp
