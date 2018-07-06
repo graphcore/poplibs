@@ -1486,14 +1486,16 @@ add_multitarget_test(
                  --tiles-per-ipu=16
                  VARIANTS TimesOutOnSim)
 
-add_test(NAME fully_connected_half
+add_multitarget_test(
+         NAME fully_connected_half
          COMMAND fully_connected_layer
                  --input-size 300
                  --output-size 100
                  --tiles-per-ipu 16
                  --data-type=half)
 
-add_test(NAME fully_connected_half_fwd
+add_multitarget_test(
+         NAME fully_connected_half_fwd
          COMMAND fully_connected_layer
                  --single-phase=fwd
                  --input-size 300
@@ -1501,7 +1503,8 @@ add_test(NAME fully_connected_half_fwd
                  --tiles-per-ipu 16
                  --data-type=half)
 
-add_test(NAME fully_connected_half_bwd
+add_multitarget_test(
+        NAME fully_connected_half_bwd
         COMMAND fully_connected_layer
                 --single-phase=bwd
                 --input-size 300
@@ -1509,7 +1512,8 @@ add_test(NAME fully_connected_half_bwd
                 --tiles-per-ipu 16
                 --data-type=half)
 
-add_test(NAME fully_connected_small_field_half_wu
+add_multitarget_test(
+        NAME fully_connected_small_field_half_wu
         COMMAND fully_connected_layer
                 --single-phase=wu
                 --input-size 4
@@ -1517,7 +1521,8 @@ add_test(NAME fully_connected_small_field_half_wu
                 --tiles-per-ipu 16
                 --data-type=half)
 
-add_test(NAME fully_connected_large_field_half_wu
+add_multitarget_test(
+        NAME fully_connected_large_field_half_wu
         COMMAND fully_connected_layer
                 --single-phase=wu
                 --input-size 300
@@ -1525,7 +1530,8 @@ add_test(NAME fully_connected_large_field_half_wu
                 --tiles-per-ipu 16
                 --data-type=half)
 
-add_test(NAME fully_connected_half_two_ipu
+add_test(
+         NAME fully_connected_half_two_ipu
          COMMAND fully_connected_layer
                  --input-size 300
                  --output-size 100
@@ -1533,14 +1539,16 @@ add_test(NAME fully_connected_half_two_ipu
                  --ipus=2
                  --data-type=half)
 
-add_test(NAME fully_connected_float
+add_multitarget_test(
+         NAME fully_connected_float
          COMMAND fully_connected_layer
                  --input-size 300
                  --output-size 100
                  --tiles-per-ipu 16
                  --data-type=float)
 
-add_test(NAME fully_connected_float_two_ipus
+add_test(
+         NAME fully_connected_float_two_ipus
          COMMAND fully_connected_layer
                  --input-size 300
                  --output-size 100
@@ -1548,7 +1556,8 @@ add_test(NAME fully_connected_float_two_ipus
                  --ipus=2
                  --data-type=float)
 
-add_test(NAME fully_connected_half_batch_4
+add_multitarget_test(
+         NAME fully_connected_half_batch_4
          COMMAND fully_connected_layer
                  --input-size 300
                  --output-size 100
@@ -1556,7 +1565,8 @@ add_test(NAME fully_connected_half_batch_4
                  --data-type=half
                  --batch-size=4)
 
-add_test(NAME fully_connected_half_batch_4_two_ipus
+add_test(
+         NAME fully_connected_half_batch_4_two_ipus
          COMMAND fully_connected_layer
                  --input-size 300
                  --output-size 100
@@ -1565,7 +1575,8 @@ add_test(NAME fully_connected_half_batch_4_two_ipus
                  --ipus=2
                  --batch-size=4)
 
-add_test(NAME fully_connected_half_batch_7
+add_multitarget_test(
+      NAME fully_connected_half_batch_7
       COMMAND fully_connected_layer
               --input-size 256
               --output-size 256
@@ -1573,7 +1584,8 @@ add_test(NAME fully_connected_half_batch_7
               --data-type=half
               --batch-size=7)
 
-add_test(NAME fully_connected_half_batch_7_bwd_as_wu
+add_multitarget_test(
+      NAME fully_connected_half_batch_7_bwd_as_wu
       COMMAND fully_connected_layer
               --input-size 256
               --output-size 256
@@ -1581,7 +1593,8 @@ add_test(NAME fully_connected_half_batch_7_bwd_as_wu
               --data-type=half
               --batch-size=7)
 
-add_test(NAME fully_connected_float_batch_4
+add_multitarget_test(
+         NAME fully_connected_float_batch_4
          COMMAND fully_connected_layer
                  --input-size 300
                  --output-size 100
@@ -1589,7 +1602,8 @@ add_test(NAME fully_connected_float_batch_4
                  --data-type=float
                  --batch-size=4)
 
-add_test(NAME fully_connected_float_batch_4_two_ipus
+add_test(
+         NAME fully_connected_float_batch_4_two_ipus
          COMMAND fully_connected_layer
                  --input-size 300
                  --output-size 100
@@ -1598,7 +1612,8 @@ add_test(NAME fully_connected_float_batch_4_two_ipus
                  --ipus=2
                  --batch-size=4)
 
-add_test(NAME fully_connected_batch_fwd_one_tile
+add_multitarget_test(
+         NAME fully_connected_batch_fwd_one_tile
          COMMAND fully_connected_layer
                  --input-size 300
                  --output-size 100
@@ -1607,7 +1622,8 @@ add_test(NAME fully_connected_batch_fwd_one_tile
                  --batch-size=4
                  --inference-only)
 
-add_test(NAME fully_connected_input_size_1
+add_multitarget_test(
+         NAME fully_connected_input_size_1
          COMMAND fully_connected_layer
                  --input-size=1
                  --output-size=100
@@ -1615,7 +1631,8 @@ add_test(NAME fully_connected_input_size_1
                  --data-type=half
                  --batch-size=16)
 
-add_test(NAME fully_connected_output_size_1
+add_multitarget_test(
+         NAME fully_connected_output_size_1
          COMMAND fully_connected_layer
                  --input-size=100
                  --output-size=1
@@ -1623,7 +1640,8 @@ add_test(NAME fully_connected_output_size_1
                  --data-type=half
                  --batch-size=16)
 
-add_test(NAME grouped_fully_connected_half
+add_multitarget_test(
+         NAME grouped_fully_connected_half
          COMMAND fully_connected_layer
                  --input-size 300
                  --output-size 100
@@ -1632,7 +1650,8 @@ add_test(NAME grouped_fully_connected_half
                  --data-type=half)
 
 
-add_test(NAME grouped_fully_connected_half_two_ipu
+add_test(
+         NAME grouped_fully_connected_half_two_ipu
          COMMAND fully_connected_layer
                  --input-size 300
                  --output-size 100
@@ -1642,7 +1661,8 @@ add_test(NAME grouped_fully_connected_half_two_ipu
                  --data-type=half)
 
 
-add_test(NAME grouped_fully_connected_half_batch_4
+add_multitarget_test(
+         NAME grouped_fully_connected_half_batch_4
          COMMAND fully_connected_layer
                  --input-size 300
                  --output-size 100
@@ -1651,7 +1671,8 @@ add_test(NAME grouped_fully_connected_half_batch_4
                  --num-groups 2
                  --batch-size=4)
 
-add_test(NAME grouped_fully_connected_half_batch_4_two_ipus
+add_test(
+         NAME grouped_fully_connected_half_batch_4_two_ipus
          COMMAND fully_connected_layer
                  --input-size 300
                  --output-size 100
@@ -1661,7 +1682,8 @@ add_test(NAME grouped_fully_connected_half_batch_4_two_ipus
                  --ipus=2
                  --batch-size=4)
 
-add_test(NAME grouped_fully_connected_half_batch_7
+add_multitarget_test(
+      NAME grouped_fully_connected_half_batch_7
       COMMAND fully_connected_layer
               --input-size 256
               --output-size 256
@@ -1670,7 +1692,8 @@ add_test(NAME grouped_fully_connected_half_batch_7
               --num-groups 3
               --batch-size=7)
 
-add_test(NAME grouped_fully_connected_batch_fwd_one_tile
+add_multitarget_test(
+         NAME grouped_fully_connected_batch_fwd_one_tile
          COMMAND fully_connected_layer
                  --input-size 300
                  --output-size 100
@@ -1681,7 +1704,8 @@ add_test(NAME grouped_fully_connected_batch_fwd_one_tile
                  --inference-only)
 
 # Fully connected layer where the RHS has fewer elements than the LHS
-add_test(NAME fully_connected_small_rhs
+add_multitarget_test(
+         NAME fully_connected_small_rhs
          COMMAND fully_connected_layer
                  --batch-size=64
                  --input-size=512
