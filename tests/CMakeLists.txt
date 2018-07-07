@@ -243,7 +243,8 @@ add_multitarget_test(NAME conv3x3_stride_2_128_out
                  --kernel-size=3
                  --data-type=half
                  --padding=2
-                 --stride=2)
+                 --stride=2
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv1x1_stride_1
@@ -253,18 +254,20 @@ add_multitarget_test(
              --field={7,7}
              --tiles-per-ipu=16
              --stride=1
-             --kernel-size=1)
+             --kernel-size=1
+             VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv1x1_no_bias
-        COMMAND single_conv_layer
+         COMMAND single_conv_layer
             --input-channels=64
             --output-channels=32
             --field={7,7}
             --tiles-per-ipu=16
             --stride=1
             --kernel-size=1
-            --bias=0)
+            --bias=0
+            VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv1x1_stride_1_odd_outchans
@@ -274,7 +277,8 @@ add_multitarget_test(
             --field={7,7}
             --tiles-per-ipu=16
             --stride=1
-            --kernel-size=1)
+            --kernel-size=1
+            VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv1x1_stride_1_odd_inchans
@@ -284,7 +288,8 @@ add_multitarget_test(
             --field={7,7}
             --tiles-per-ipu=16
             --stride=1
-            --kernel-size=1)
+            --kernel-size=1
+            VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv1x1_stride_1_odd_in_and_out_chans
@@ -295,7 +300,8 @@ add_multitarget_test(
             --tiles-per-ipu=16
             --stride=1
             --kernel-size=1
-            --extra-text=1)
+            --extra-text=1
+            VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv1x1_stride_3
@@ -305,14 +311,16 @@ add_multitarget_test(
              --field={14,14}
              --tiles-per-ipu=8
              --stride=3
-             --kernel-size=1)
+             --kernel-size=1
+             VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv1x1_thinly_spread
          COMMAND single_conv_layer
              --field={1,128}
              --input-channels=16
-             --output-channels=8)
+             --output-channels=8
+             VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv3x3_stride_1
@@ -322,8 +330,8 @@ add_multitarget_test(
              --field={7,7}
              --tiles-per-ipu=16
              --stride=1
-             --kernel-size=3)
-
+             --kernel-size=3
+             VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv3x3_stride_2
@@ -333,7 +341,8 @@ add_multitarget_test(
              --field={7,7}
              --tiles-per-ipu=16
              --stride=2
-             --kernel-size=3)
+             --kernel-size=3
+             VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv3x3_asymmetric_stride
@@ -343,7 +352,8 @@ add_multitarget_test(
              --field={7,10}
              --tiles-per-ipu=16
              --stride={2,3}
-             --kernel-size=3)
+             --kernel-size=3
+             VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv3x3_stride_1_padding_1
@@ -354,7 +364,8 @@ add_multitarget_test(
               --tiles-per-ipu=16
               --stride=1
               --kernel-size=3
-              --padding=1)
+              --padding=1
+              VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv4x4_stride_1_padding_2
@@ -365,7 +376,8 @@ add_multitarget_test(
               --tiles-per-ipu=16
               --stride=1
               --kernel-size=4
-              --padding=2)
+              --padding=2
+              VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv3x3_stride_2_multi_tile
@@ -375,7 +387,8 @@ add_multitarget_test(
                  --field={7,7}
                  --tiles-per-ipu=2
                  --stride=2
-                 --kernel-size=3)
+                 --kernel-size=3
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv1x1_stride_3_fwd
@@ -385,7 +398,8 @@ add_multitarget_test(
                  --output-channels=16
                  --field={7,7}
                  --tiles-per-ipu=1
-                 --stride=3)
+                 --stride=3
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv3x3_batch_2
@@ -396,7 +410,8 @@ add_multitarget_test(
                   --tiles-per-ipu=2
                   --stride=2
                   --kernel-size=3
-                  --batch-size=2)
+                  --batch-size=2
+                  VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv3x3_16_to_16_stride_1_differing_padding
@@ -407,7 +422,8 @@ add_multitarget_test(
         --kernel-size=3
         --data-type=half
         --padding={1,2}
-        --stride=1)
+        --stride=1
+        VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv3x3_batch_2_differing_padding
@@ -419,7 +435,8 @@ add_multitarget_test(
         --stride=2
         --kernel-size=3
         --padding={1,2}
-        --batch-size=2)
+        --batch-size=2
+        VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv3x3_stride_1_fwd_asym_padding
@@ -431,7 +448,9 @@ add_multitarget_test(
                 --data-type=half
                 --padding-lower=1
                 --padding-upper=2
-                --stride=1)
+                --stride=1
+                VARIANTS IpuModel)
+
 add_multitarget_test(
          NAME conv3x3_stride_1_fwd_asym_padding_2
          COMMAND single_conv_layer
@@ -442,7 +461,8 @@ add_multitarget_test(
                 --data-type=half
                 --padding-lower=3
                 --padding-upper=0
-                --stride=1)
+                --stride=1
+                VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv5x5_stride_2_fwd_asym_padding
@@ -455,7 +475,8 @@ add_multitarget_test(
                   --padding-lower={1,2}
                   --padding-upper={3,3}
                   --stride=2
-                  --tiles-per-ipu=16)
+                  --tiles-per-ipu=16
+                  VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME small_conv_many_tiles_1x1
@@ -464,7 +485,8 @@ add_multitarget_test(
                  --output-channels=32
                  --field={14,14}
                  --partials-type=float
-                 --tiles-per-ipu=1216)
+                 --tiles-per-ipu=1216
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME small_conv_many_tiles_3x3
@@ -474,7 +496,8 @@ add_multitarget_test(
                  --kernel-size=3
                  --field={14,14}
                  --partials-type=float
-                 --tiles-per-ipu=1216)
+                 --tiles-per-ipu=1216
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv1x1_shallow_input
@@ -482,7 +505,8 @@ add_multitarget_test(
                  --input-channels=8
                  --output-channels=1024
                  --field={16,16}
-                 --data-type=half)
+                 --data-type=half
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv3x3_feature8x8_shallow
@@ -494,7 +518,8 @@ add_multitarget_test(
                  --kernel-size=3
                  --padding=1
                  --stride=1
-                 --data-type=half)
+                 --data-type=half
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv3x3_feature8x8_shallow_stride2
@@ -506,7 +531,8 @@ add_multitarget_test(
                  --kernel-size=3
                  --padding=1
                  --stride=2
-                 --data-type=half)
+                 --data-type=half
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_large_kernel
@@ -517,7 +543,8 @@ add_multitarget_test(
                  --input-channels=16
                  --output-channels=16
                  --padding=1
-                 --stride=2)
+                 --stride=2
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_large_kernel_bwd
@@ -528,7 +555,8 @@ add_multitarget_test(
                  --input-channels=16
                  --output-channels=16
                  --padding=1
-                 --stride=2)
+                 --stride=2
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_large_kernel_with_small_field
@@ -538,7 +566,8 @@ add_multitarget_test(
                  --kernel-size={1,7}
                  --input-channels=16
                  --output-channels=16
-                 --tiles-per-ipu=16)
+                 --tiles-per-ipu=16
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_flip_input_and_kernel_1
@@ -551,7 +580,8 @@ add_multitarget_test(
                  --flip-kernel={0,1}
                  --input-channels=2
                  --output-channels=1
-                 --tiles-per-ipu=1)
+                 --tiles-per-ipu=1
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_flip_input_and_kernel_2
@@ -563,7 +593,8 @@ add_multitarget_test(
                  --flip-kernel={0,1}
                  --input-channels=32
                  --output-channels=8
-                 --tiles-per-ipu=4)
+                 --tiles-per-ipu=4
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_flip_input_only
@@ -574,7 +605,8 @@ add_multitarget_test(
                  --kernel-size=3
                  --input-channels=32
                  --output-channels=32
-                 --tiles-per-ipu=16)
+                 --tiles-per-ipu=16
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_flip_kernel_only
@@ -585,7 +617,8 @@ add_multitarget_test(
                  --flip-kernel=1
                  --input-channels=32
                  --output-channels=32
-                 --tiles-per-ipu=16)
+                 --tiles-per-ipu=16
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_batch_bwd
@@ -595,7 +628,8 @@ add_multitarget_test(
                  --output-channels=32
                  --tiles-per-ipu=16
                  --data-type=half
-                 --batch-size=4)
+                 --batch-size=4
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_batch_bwd_float
@@ -605,7 +639,8 @@ add_multitarget_test(
                  --output-channels=32
                  --tiles-per-ipu=16
                  --data-type=float
-                 --batch-size=4)
+                 --batch-size=4
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_batch_group
@@ -613,7 +648,8 @@ add_multitarget_test(
                  --field={28,28}
                  --input-channels=512
                  --output-channels=128
-                 --batch-size=2)
+                 --batch-size=2
+                 VARIANTS IpuModel)
 
 # conv_batch_bwd_float test split into the three component phases
 add_multitarget_test(
@@ -625,7 +661,8 @@ add_multitarget_test(
                  --tiles-per-ipu=16
                  --data-type=float
                  --batch-size=4
-                 --single-phase=fwd)
+                 --single-phase=fwd
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_batch_bwd_float_bwd
@@ -636,7 +673,8 @@ add_multitarget_test(
                  --tiles-per-ipu=16
                  --data-type=float
                  --batch-size=4
-                 --single-phase=bwd)
+                 --single-phase=bwd
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_batch_bwd_float_wu
@@ -647,7 +685,8 @@ add_multitarget_test(
                  --tiles-per-ipu=16
                  --data-type=float
                  --batch-size=4
-                 --single-phase=wu)
+                 --single-phase=wu
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_negative_input_padding_upper_simple
@@ -657,7 +696,8 @@ add_multitarget_test(
                 --field={1,2}
                 --kernel-size={1,1}
                 --truncation-upper={0,1}
-                --tiles-per-ipu=1)
+                --tiles-per-ipu=1
+                VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_negative_kernel_padding_upper_simple
@@ -667,7 +707,8 @@ add_multitarget_test(
                 --field={1,1}
                 --kernel-size={1,2}
                 --kernel-truncation-upper={0,1}
-                --tiles-per-ipu=1)
+                --tiles-per-ipu=1
+                VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_positive_and_negative_kernel_padding
@@ -678,7 +719,8 @@ add_multitarget_test(
          --kernel-size=2
          --kernel-padding-lower=1
          --kernel-truncation-upper=1
-         --tiles-per-ipu=1)
+         --tiles-per-ipu=1
+         VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_negative_input_padding_lower_simple
@@ -688,7 +730,8 @@ add_multitarget_test(
                  --field={1,2}
                  --kernel-size={1,1}
                  --truncation-upper={0,1}
-                 --tiles-per-ipu=1)
+                 --tiles-per-ipu=1
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_negative_kernel_padding_lower_simple
@@ -698,7 +741,8 @@ add_multitarget_test(
                  --field={1,1}
                  --kernel-size={1,2}
                  --kernel-truncation-lower={0,1}
-                 --tiles-per-ipu=1)
+                 --tiles-per-ipu=1
+                 VARIANTS IpuModel)
 
 # Test where the size of the output tensor is much bigger than the size weight
 # tensor. As such it likely to be better to rearranging the weight deltas
@@ -710,7 +754,8 @@ add_multitarget_test(
                 --input-channels=16
                 --output-channels=128
                 --tiles-per-ipu=16
-                --data-type=half)
+                --data-type=half
+                VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_large_weights
@@ -724,7 +769,8 @@ add_multitarget_test(
                 --flip-kernel={1,0}
                 --tiles-per-ipu=16
                 --data-type=half
-                --single-phase=fwd)
+                --single-phase=fwd
+                VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_outer_product
@@ -732,7 +778,8 @@ add_multitarget_test(
                  --input-channels=1
                  --output-channels=1024
                  --field={1,512}
-                 --tiles-per-ipu=64)
+                 --tiles-per-ipu=64
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv3x3_stride_1_half_partials
@@ -743,7 +790,8 @@ add_multitarget_test(
                  --tiles-per-ipu=16
                  --stride=1
                  --kernel-size=3
-                 --partials-type=half)
+                 --partials-type=half
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv1x1_kernel_with_padding_larger_than_field
@@ -752,7 +800,8 @@ add_multitarget_test(
                  --output-channels=8
                  --field={1,128}
                  --tiles-per-ipu=2
-                 --padding={1,64})
+                 --padding={1,64}
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_input_dilation_and_stride_share_factor1
@@ -763,7 +812,8 @@ add_multitarget_test(
                  --kernel-size={3,3}
                  --in-dilation=3
                  --stride=3
-                 --tiles-per-ipu=16)
+                 --tiles-per-ipu=16
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_input_dilation_and_stride_share_factor2
@@ -774,7 +824,8 @@ add_multitarget_test(
                  --kernel-size={3,3}
                  --in-dilation=4
                  --stride=2
-                 --tiles-per-ipu=16)
+                 --tiles-per-ipu=16
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_input_dilation_and_stride_share_factor3
@@ -785,7 +836,8 @@ add_multitarget_test(
                  --kernel-size={3,3}
                  --in-dilation=2
                  --stride=4
-                 --tiles-per-ipu=16)
+                 --tiles-per-ipu=16
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_input_dilation_and_stride_share_factor4
@@ -796,7 +848,8 @@ add_multitarget_test(
                 --kernel-size={3,3}
                 --in-dilation=4
                 --stride=6
-                --tiles-per-ipu=16)
+                --tiles-per-ipu=16
+                VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv_input_dilation_and_stride_share_factor5
@@ -807,7 +860,8 @@ add_multitarget_test(
                 --kernel-size={3,3}
                 --in-dilation=6
                 --stride=4
-                --tiles-per-ipu=16)
+                --tiles-per-ipu=16
+                VARIANTS IpuModel)
 
 # Example where the amount of padding that must be added to start of the input
 # window for the conv nx1 vertex exceeds the amount of lower padding for the
@@ -822,7 +876,8 @@ add_multitarget_test(
                  --kernel-size={2,1}
                  --kernel-dilation={2,1}
                  --stride={3,1}
-                 --tiles-per-ipu=1)
+                 --tiles-per-ipu=1
+                 VARIANTS IpuModel)
 
 # Test where, after padding and dilation, the last input index that would be
 # multiplied by the a kernel element is in the middle of the lower input
@@ -837,7 +892,8 @@ add_multitarget_test(
                  --stride=7
                  --input-channels=16
                  --output-channels=16
-                 --tiles-per-ipu=1)
+                 --tiles-per-ipu=1
+                 VARIANTS IpuModel)
 
 # Test with large amounts of output padding
 add_multitarget_test(
@@ -847,7 +903,8 @@ add_multitarget_test(
                  --input-channels=16
                  --output-channels=16
                  --output-padding=10
-                 --tiles-per-ipu=16)
+                 --tiles-per-ipu=16
+                 VARIANTS IpuModel)
 
 #  Grouped convolution layer tests
 add_multitarget_test(
@@ -860,7 +917,8 @@ add_multitarget_test(
                  --data-type=half
                  --padding=2
                  --conv-groups=2
-                 --stride=2)
+                 --stride=2
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv1x1_stride_1
@@ -871,7 +929,8 @@ add_multitarget_test(
              --tiles-per-ipu=16
              --stride=1
              --conv-groups=4
-             --kernel-size=1)
+             --kernel-size=1
+             VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv1x1_stride_1_odd_outchans
@@ -882,7 +941,8 @@ add_multitarget_test(
             --tiles-per-ipu=16
             --stride=1
             --conv-groups=2
-            --kernel-size=1)
+            --kernel-size=1
+            VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv1x1_stride_1_odd_inchans
@@ -893,7 +953,8 @@ add_multitarget_test(
             --tiles-per-ipu=16
             --stride=1
             --conv-groups=2
-            --kernel-size=1)
+            --kernel-size=1
+            VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv1x1_stride_1_odd_in_and_out_chans
@@ -904,7 +965,8 @@ add_multitarget_test(
             --tiles-per-ipu=16
             --stride=1
             --conv-groups=2
-            --kernel-size=1)
+            --kernel-size=1
+            VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv1x1_stride_3_odd_conv_groups
@@ -915,7 +977,8 @@ add_multitarget_test(
              --tiles-per-ipu=8
              --stride=3
              --conv-groups=3
-             --kernel-size=1)
+             --kernel-size=1
+             VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv1x1_thinly_spread
@@ -923,7 +986,8 @@ add_multitarget_test(
              --field={1,128}
              --input-channels=16
              --conv-groups=2
-             --output-channels=8)
+             --output-channels=8
+             VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv3x3_stride_1_odd_groups
@@ -934,8 +998,8 @@ add_multitarget_test(
              --tiles-per-ipu=16
              --stride=1
              --conv-groups=3
-             --kernel-size=3)
-
+             --kernel-size=3
+             VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv3x3_stride_2
@@ -946,7 +1010,8 @@ add_multitarget_test(
              --tiles-per-ipu=16
              --stride=2
              --conv-groups=2
-             --kernel-size=3)
+             --kernel-size=3
+             VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv3x3_asymmetric_stride
@@ -957,7 +1022,8 @@ add_multitarget_test(
              --tiles-per-ipu=16
              --stride={2,3}
              --conv-groups=2
-             --kernel-size=3)
+             --kernel-size=3
+             VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv3x3_stride_1_padding_1
@@ -969,7 +1035,8 @@ add_multitarget_test(
               --stride=1
               --kernel-size=3
               --conv-groups=2
-              --padding=1)
+              --padding=1
+              VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv4x4_stride_1_padding_2
@@ -981,7 +1048,8 @@ add_multitarget_test(
               --stride=1
               --kernel-size=4
               --conv-groups=2
-              --padding=2)
+              --padding=2
+              VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv3x3_stride_2_multi_tile
@@ -992,7 +1060,8 @@ add_multitarget_test(
                  --tiles-per-ipu=2
                  --stride=2
                  --conv-groups=2
-                 --kernel-size=3)
+                 --kernel-size=3
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv1x1_stride_3_fwd
@@ -1003,7 +1072,8 @@ add_multitarget_test(
                  --field={7,7}
                  --tiles-per-ipu=1
                  --conv-groups=2
-                 --stride=3)
+                 --stride=3
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv3x3_batch_2
@@ -1015,7 +1085,8 @@ add_multitarget_test(
                   --stride=2
                   --kernel-size=3
                   --conv-groups=2
-                  --batch-size=2)
+                  --batch-size=2
+                  VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv3x3_16_to_16_stride_1_differing_padding
@@ -1027,7 +1098,8 @@ add_multitarget_test(
         --data-type=half
         --padding={1,2}
         --conv-groups=2
-        --stride=1)
+        --stride=1
+        VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv3x3_batch_2_differing_padding
@@ -1040,7 +1112,8 @@ add_multitarget_test(
         --kernel-size=3
         --padding={1,2}
         --conv-groups=2
-        --batch-size=2)
+        --batch-size=2
+        VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv3x3_stride_1_fwd_asym_padding
@@ -1053,7 +1126,9 @@ add_multitarget_test(
                 --padding-lower=1
                 --padding-upper=2
                 --conv-groups=2
-                --stride=1)
+                --stride=1
+                VARIANTS IpuModel)
+
 add_multitarget_test(
          NAME grouped_conv3x3_stride_1_fwd_asym_padding_2
          COMMAND single_conv_layer
@@ -1065,7 +1140,8 @@ add_multitarget_test(
                 --padding-lower=3
                 --padding-upper=0
                 --conv-groups=2
-                --stride=1)
+                --stride=1
+                VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv5x5_stride_2_fwd_asym_padding
@@ -1079,7 +1155,8 @@ add_multitarget_test(
                   --padding-upper={3,3}
                   --stride=2
                   --conv-groups=2
-                  --tiles-per-ipu=16)
+                  --tiles-per-ipu=16
+                  VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_small_conv_many_tiles_1x1
@@ -1089,7 +1166,8 @@ add_multitarget_test(
                  --field={14,14}
                  --partials-type=float
                  --conv-groups=2
-                 --tiles-per-ipu=1216)
+                 --tiles-per-ipu=1216
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_small_conv_many_tiles_3x3
@@ -1100,7 +1178,8 @@ add_multitarget_test(
                  --field={14,14}
                  --partials-type=float
                  --conv-groups=2
-                 --tiles-per-ipu=1216)
+                 --tiles-per-ipu=1216
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv1x1_shallow_input
@@ -1109,7 +1188,8 @@ add_multitarget_test(
                 --output-channels=1024
                 --field={16,16}
                 --conv-groups=2
-                --data-type=half)
+                --data-type=half
+                VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv3x3_feature8x8_shallow
@@ -1122,7 +1202,8 @@ add_multitarget_test(
                  --padding=1
                  --stride=1
                  --conv-groups=2
-                 --data-type=half)
+                 --data-type=half
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv3x3_feature8x8_shallow_stride2
@@ -1135,7 +1216,8 @@ add_multitarget_test(
                  --padding=1
                  --stride=2
                  --conv-groups=2
-                 --data-type=half)
+                 --data-type=half
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv_large_kernel
@@ -1147,7 +1229,8 @@ add_multitarget_test(
                  --output-channels=16
                  --padding=1
                  --conv-groups=2
-                 --stride=2)
+                 --stride=2
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv_large_kernel_bwd
@@ -1159,7 +1242,8 @@ add_multitarget_test(
                  --output-channels=16
                  --padding=1
                  --conv-groups=2
-                 --stride=2)
+                 --stride=2
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv_large_kernel_with_small_field
@@ -1170,7 +1254,8 @@ add_multitarget_test(
                  --input-channels=16
                  --output-channels=16
                  --conv-groups=2
-                 --tiles-per-ipu=16)
+                 --tiles-per-ipu=16
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv_batch_bwd
@@ -1181,7 +1266,8 @@ add_multitarget_test(
                  --tiles-per-ipu=16
                  --data-type=half
                  --conv-groups=2
-                 --batch-size=4)
+                 --batch-size=4
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv_batch_bwd_float
@@ -1192,7 +1278,8 @@ add_multitarget_test(
                  --tiles-per-ipu=16
                  --data-type=float
                  --conv-groups=2
-                 --batch-size=4)
+                 --batch-size=4
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv_batch_group
@@ -1202,7 +1289,8 @@ add_multitarget_test(
                  --output-channels=128
                  --tiles-per-ipu=304
                  --conv-groups=2
-                 --batch-size=2)
+                 --batch-size=2
+                 VARIANTS IpuModel)
 
 # conv_batch_bwd_float test split into the three component phases
 add_multitarget_test(
@@ -1215,7 +1303,8 @@ add_multitarget_test(
                  --data-type=float
                  --batch-size=4
                  --conv-groups=2
-                 --single-phase=fwd)
+                 --single-phase=fwd
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv_batch_bwd_float_bwd
@@ -1227,7 +1316,8 @@ add_multitarget_test(
                  --data-type=float
                  --batch-size=4
                  --conv-groups=2
-                 --single-phase=bwd)
+                 --single-phase=bwd
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv_batch_bwd_float_wu
@@ -1239,7 +1329,8 @@ add_multitarget_test(
                  --data-type=float
                  --batch-size=4
                  --conv-groups=2
-                 --single-phase=wu)
+                 --single-phase=wu
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv_negative_input_padding_upper_simple
@@ -1250,7 +1341,8 @@ add_multitarget_test(
                 --kernel-size={1,1}
                 --truncation-upper={0,1}
                 --conv-groups=2
-                --tiles-per-ipu=1)
+                --tiles-per-ipu=1
+                VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv_negative_kernel_padding_upper_simple
@@ -1261,7 +1353,8 @@ add_multitarget_test(
                  --kernel-size={1,2}
                  --kernel-truncation-lower={0,1}
                  --conv-groups=2
-                 --tiles-per-ipu=1)
+                 --tiles-per-ipu=1
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv_negative_input_padding_lower_simple
@@ -1272,7 +1365,8 @@ add_multitarget_test(
                 --kernel-size={1,1}
                 --truncation-upper={0,1}
                 --conv-groups=2
-                --tiles-per-ipu=1)
+                --tiles-per-ipu=1
+                VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv_negative_kernel_padding_lower_simple_${phase}
@@ -1283,7 +1377,8 @@ add_multitarget_test(
                  --kernel-size={1,2}
                  --conv-groups=2
                  --kernel-truncation-lower={0,1}
-                 --tiles-per-ipu=1)
+                 --tiles-per-ipu=1
+                 VARIANTS IpuModel)
 
 # Test where the size of the output tensor is much bigger than the size weight
 # tensor. As such it likely to be better to rearranging the weight deltas
@@ -1296,7 +1391,8 @@ add_multitarget_test(
                 --output-channels=64
                 --tiles-per-ipu=16
                 --conv-groups=2
-                --data-type=half)
+                --data-type=half
+                VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv_large_weights
@@ -1311,7 +1407,8 @@ add_multitarget_test(
                 --tiles-per-ipu=16
                 --data-type=half
                 --conv-groups=2
-                --single-phase=fwd)
+                --single-phase=fwd
+                VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME grouped_conv_outer_product
@@ -1320,7 +1417,8 @@ add_multitarget_test(
                  --output-channels=1024
                  --field={1,512}
                  --conv-groups=2
-                 --tiles-per-ipu=64)
+                 --tiles-per-ipu=64
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv0d_simple
@@ -1329,7 +1427,8 @@ add_multitarget_test(
                  --batch-size=4
                  --input-channels=256
                  --output-channels=128
-                 --tiles-per-ipu=48)
+                 --tiles-per-ipu=48
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv1d_simple
@@ -1339,7 +1438,8 @@ add_multitarget_test(
                   --padding=1
                   --input-channels=128
                   --output-channels=128
-                  --tiles-per-ipu=48)
+                  --tiles-per-ipu=48
+                  VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv3d_simple
@@ -1349,7 +1449,8 @@ add_multitarget_test(
                  --padding={1,1,1}
                  --input-channels=32
                  --output-channels=64
-                 --tiles-per-ipu=48)
+                 --tiles-per-ipu=48
+                 VARIANTS IpuModel)
 
 add_multitarget_test(
          NAME conv3d_1_output_chan
@@ -1359,7 +1460,8 @@ add_multitarget_test(
                  --padding={1,1,1}
                  --input-channels=32
                  --output-channels=1
-                 --tiles-per-ipu=48)
+                 --tiles-per-ipu=48
+                 VARIANTS IpuModel)
 
 # 3D convolution with multiple batches, convolution groups, input dilation,
 # kernel dilation and striding.
@@ -1376,7 +1478,8 @@ add_multitarget_test(
                  --input-channels=16
                  --output-channels=64
                  --stride={1,1,3}
-                 --tiles-per-ipu=16)
+                 --tiles-per-ipu=16
+                 VARIANTS IpuModel)
 
 add_test(NAME fully_connected_half
          COMMAND fully_connected_layer
