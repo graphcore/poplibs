@@ -1053,8 +1053,9 @@ public:
     for (unsigned i = 0; i != mean.size(); ++i) {
 
       for (unsigned j = 0; j != mean[i].size(); ++j) {
-        iStdDev[i][j] =
-          1.0 / std::sqrt((power[i][j] - mean[i][j] * mean[i][j] + eps));
+        float varianceEst = power[i][j] - mean[i][j] * mean[i][j] + eps;
+        float invStdDev = sqrt(1.0 / varianceEst);
+        iStdDev[i][j] = invStdDev;
       }
     }
     return true;

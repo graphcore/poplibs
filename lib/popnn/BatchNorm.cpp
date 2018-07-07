@@ -89,10 +89,11 @@ batchNormEstimates(Graph &graph, const Tensor acts,
 
     // Both mean and stdDev share the same mapping, so use mapping of one
     const auto mapping = graph.getTileMapping(mean);
+    const auto grainSize = target.getVectorWidth(dType);
 
     for (auto tile = 0U; tile != mapping.size(); ++tile) {
       const auto vertexRegions =
-          splitRegionsBetweenWorkers(target, mapping[tile], 1);
+          splitRegionsBetweenWorkers(target, mapping[tile], grainSize);
 
       for (const auto &regions : vertexRegions) {
         unsigned inpIdx = 0;

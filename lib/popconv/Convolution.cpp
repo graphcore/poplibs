@@ -3078,6 +3078,8 @@ convChannelReduce(Graph &graph,
   }
   assert(computeSets.size() == 3);
 
+  const auto outputType = dst.elementType();
+
   // Force convolution grouping to be 1
   auto inGrouped =
       splitActivationChanGroups(
@@ -3245,10 +3247,10 @@ convChannelReduce(Graph &graph,
         std::string vType;
         if (doAcc) {
           vType = templateVertex("popconv::ConvChanReduceAcc",
-                                 partialsType, dType);
+                                 partialsType, outputType);
         } else {
           vType = templateVertex("popconv::ConvChanReduceAndScale",
-                                 partialsType, dType);
+                                 partialsType, outputType);
         }
         auto v = graph.addVertex(computeSets[2], vType);
         unsigned numPartials = 0;
@@ -3277,9 +3279,13 @@ batchNormReduce(Graph &graph,
                 bool doSquare,
                 std::vector<ComputeSet> &csVec,
                 const Type &partialsType,
+                const Type &outputType,
                 const std::string &debugPrefix) {
   auto t = createBiases(graph, actsUngrouped,
                         "bnReduceResult");
+  if (actsUngrouped.elementType() != outputType) {
+    t = graph.clone(outputType, t);
+  }
   convChannelReduce(graph, actsUngrouped, t, false,
                     scale, doSquare, csVec, partialsType, debugPrefix);
   return t;
@@ -3705,18 +3711,22 @@ batchNormEstimates(Graph &graph,
   const auto actsShape = acts.shape();
   const auto numElements = acts.numElements() / acts.dim(1);
   const float scale = 1.0 / numElements;
+  const auto &outputType = acts.elementType();
 
   std::vector< ComputeSet> csVec;
   auto mean =
-    batchNormReduce(graph, acts, scale, false, csVec, partialsType,
+    batchNormReduce(graph, acts, scale, false, csVec, partialsType, outputType,
                     fnPrefix + "/mean");
+  // The actual output type for squared sum may be different as the dynamic
+  // range is higher. The selection should be based on actual statistics
+  // gathered from training experiments. For now keep it at reduced precision
+  // to save memory
   auto power =
-    batchNormReduce(graph, acts, scale, true, csVec, partialsType,
+    batchNormReduce(graph, acts, scale, true, csVec, partialsType, outputType,
                     fnPrefix + "/power");
   for (const auto &cs : csVec) {
     prog.add(Execute(cs));
   }
-
   auto iStdDev = computeInvStdDev(graph, mean, power, eps, prog,
                                   acts.elementType(), debugPrefix);
 
@@ -3784,7 +3794,8 @@ batchNormDeltas(Graph &graph,
   auto numChannels = gradsInMultActs.dim(1);
   const auto concatDeltas =
     batchNormReduce(graph, concat({gradsInMultActs, gradsIn}, 1), 1.0,
-                    false, csVec, partialsType, fnPrefix + "/JointGammaDelta");
+                    false, csVec, partialsType, gradsIn.elementType(),
+                    fnPrefix + "/JointGammaDelta");
   for (const auto &cs : csVec) {
     prog.add(Execute(cs));
   }

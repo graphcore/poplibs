@@ -406,9 +406,14 @@ public:
           sumOfSquares += acts[actsIdx][b] * acts[actsIdx][b];
         }
         ++actsIdx;
-        mean[i][a] = sum / batchSize;
-        iStdDev[i][a] = 1.0 / std::sqrt(sumOfSquares / batchSize
-                                 - mean[i][a] * mean[i][a] + eps);
+        PartialsType sampleMean = sum / batchSize;
+        mean[i][a] = sampleMean;
+        // compute unbiased sample variance
+        PartialsType sampleVariance =
+            sumOfSquares / (batchSize - 1) - sampleMean * sampleMean + eps;
+        // machine allows only 32 bit inverse of sqrt
+        float istdDevEstimate = sqrt(1.0f / static_cast<float>(sampleVariance));
+        iStdDev[i][a] = istdDevEstimate;
       }
     }
     return true;

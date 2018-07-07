@@ -30,7 +30,13 @@ using namespace popnn;
 using namespace popops;
 
 const OptionFlags options {
-  {"target.textSectionSizeInBytes", "0x9000"}
+  {"target.textSectionSizeInBytes", "0x9000"},
+  {"target.workerStackSizeInBytes", "0x180"},
+};
+
+
+const OptionFlags simDebugOptions {
+  {"debug.trace", "false"}
 };
 
 namespace utf = boost::unit_test;
@@ -48,7 +54,9 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   const auto dimX = dims[2];
   const auto numChannels = dims[3];
 
-  auto device = createTestDevice(TEST_TARGET, 1, tilesPerIPU);
+  const DeviceType deviceType = TEST_TARGET;
+
+  auto device = createTestDevice(deviceType, 1, tilesPerIPU, simDebugOptions);
   const auto &target = device.getTarget();
   Graph graph(device);
   popops::addCodelets(graph);
@@ -219,6 +227,12 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
     checkIsClose("gamma", hostGamma, modelGamma, relativeTolerance,
                  absoluteTolerance);
 
+  if (deviceType != DeviceType::Cpu && deviceType != DeviceType::Sim &&
+      deviceType != DeviceType::Hw) {
+    engine.printSummary(std::cout, OptionFlags{
+      { "doLayerWiseBreakdown", "true" }
+    });
+  }
   return matchesModel;
 }
 
@@ -228,7 +242,8 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
                         unsigned tilesPerIPU,
                         const Type &dataType,
                         const Type &partialsType) {
-  auto device = createTestDevice(TEST_TARGET, 1, tilesPerIPU);
+  const DeviceType deviceType = TEST_TARGET;
+  auto device = createTestDevice(deviceType, 1, tilesPerIPU, simDebugOptions);
   const auto &target = device.getTarget();
   Graph graph(device);
   popops::addCodelets(graph);
@@ -384,13 +399,19 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   matchesModel &=
     checkIsClose("gamma", hostGamma, modelGamma, relativeTolerance,
                  absoluteTolerance);
+
+  if (deviceType != DeviceType::Cpu && deviceType != DeviceType::Sim &&
+      deviceType != DeviceType::Hw) {
+    engine.printSummary(std::cout, OptionFlags{
+      { "doLayerWiseBreakdown", "true" }
+    });
+  }
   return matchesModel;
 }
 
-
 BOOST_AUTO_TEST_CASE(BatchNormConv_Batch2_Dim28x28_Ch32_SmallEps){
-  const float eps = 0.000001;
-  const float learningRate = 0.1;
+  const float eps = 0.00001;
+  const float learningRate = 0.01;
   const Type dataType = HALF;
   const Type partialsType = FLOAT;
   const unsigned tilesPerIPU = 16;
@@ -400,21 +421,21 @@ BOOST_AUTO_TEST_CASE(BatchNormConv_Batch2_Dim28x28_Ch32_SmallEps){
   BOOST_TEST(matchesModel == true);
 }
 
-BOOST_AUTO_TEST_CASE(BatchNormConv_Batch4_Dim56x56_Ch64_LargeEps){
+BOOST_AUTO_TEST_CASE(BatchNormConv_Batch4_Dim28x28_Ch40_LargeEps){
   const float eps = 0.01;
-  const float learningRate = 0.1;
+  const float learningRate = 0.01;
   const Type dataType = HALF;
   const Type partialsType = FLOAT;
 
   const unsigned tilesPerIPU = 16;
-  auto matchesModel = BatchNormConv({4, 56, 56, 64}, eps, learningRate,
+  auto matchesModel = BatchNormConv({4, 28, 28, 40}, eps, learningRate,
                                     tilesPerIPU, dataType, partialsType);
   BOOST_TEST(matchesModel == true);
 }
 
 BOOST_AUTO_TEST_CASE(BatchNormConv_Batch16_Dim7x7_Ch8){
   const float eps = 0.001;
-  const float learningRate = 0.1;
+  const float learningRate = 0.01;
   const Type dataType = HALF;
   const Type partialsType = FLOAT;
 
@@ -426,7 +447,7 @@ BOOST_AUTO_TEST_CASE(BatchNormConv_Batch16_Dim7x7_Ch8){
 
 BOOST_AUTO_TEST_CASE(BatchNormConv_Batch1_DataFloat_PartialsFloat){
   const float eps = 0.0001;
-  const float learningRate = 0.1;
+  const float learningRate = 0.01;
   const Type dataType = FLOAT;
   const Type partialsType = FLOAT;
 
@@ -438,7 +459,7 @@ BOOST_AUTO_TEST_CASE(BatchNormConv_Batch1_DataFloat_PartialsFloat){
 
 BOOST_AUTO_TEST_CASE(BatchNormFc_Batch4_Acts2048) {
   const float eps = 0.001;
-  const float learningRate = 0.1;
+  const float learningRate = 0.01;
   const Type dataType = HALF;
   const Type partialsType = FLOAT;
   const unsigned tilesPerIPU = 16;
@@ -449,7 +470,7 @@ BOOST_AUTO_TEST_CASE(BatchNormFc_Batch4_Acts2048) {
 
 BOOST_AUTO_TEST_CASE(BatchNormFc_Batch16_Acts256_SmallEps) {
   const float eps = 0.00001;
-  const float learningRate = 0.1;
+  const float learningRate = 0.01;
   const Type dataType = HALF;
   const Type partialsType = FLOAT;
   const unsigned tilesPerIPU = 16;
@@ -460,7 +481,7 @@ BOOST_AUTO_TEST_CASE(BatchNormFc_Batch16_Acts256_SmallEps) {
 
 BOOST_AUTO_TEST_CASE(BatchNormFc_Batch8_Acts512_LargeEps) {
   const float eps = 0.01;
-  const float learningRate = 0.1;
+  const float learningRate = 0.01;
   const Type dataType = HALF;
   const Type partialsType = FLOAT;
   const unsigned tilesPerIPU = 16;
@@ -471,7 +492,7 @@ BOOST_AUTO_TEST_CASE(BatchNormFc_Batch8_Acts512_LargeEps) {
 
 BOOST_AUTO_TEST_CASE(BatchNormFc_Batch8_Acts512_DataFloat_PartialsFloat) {
   const float eps = 0.001;
-  const float learningRate = 0.1;
+  const float learningRate = 0.01;
   const Type dataType = FLOAT;
   const Type partialsType = FLOAT;
   const unsigned tilesPerIPU = 16;

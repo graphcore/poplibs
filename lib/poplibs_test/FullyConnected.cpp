@@ -137,7 +137,8 @@ void poplibs_test::fc::batchNormEstimates(
     }
     mean[a] = batchSize == 1 ? 0 : rSum / batchSize;
     iStdDev[a] = batchSize == 1 ? 1.0 :
-         1.0 / std::sqrt(rSumOfSquares / batchSize - mean[a] * mean[a] + eps);
+         1.0 / std::sqrt(rSumOfSquares / (batchSize - 1) - mean[a] * mean[a]
+                         + eps);
   }
 }
 
