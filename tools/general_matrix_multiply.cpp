@@ -73,7 +73,7 @@ const OptionFlags engineOptions {
 };
 
 const OptionFlags simDebugOptions {
-  {"debug.trace", "true"}
+  {"debug.trace", "false"}
 };
 
 int main(int argc, char **argv) {
