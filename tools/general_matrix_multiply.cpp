@@ -17,6 +17,7 @@
 #include <popops/codelets.hpp>
 #include <poplin/codelets.hpp>
 #include <poplibs_test/Util.hpp>
+#include "TestDevice.hpp"
 #include <poplibs_support/Compiler.hpp>
 #include <poputil/exceptions.hpp>
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
@@ -66,6 +67,15 @@ std::ostream &operator<<(std::ostream &os, const MatrixOp &op) {
   return os << asString(op);
 }
 
+const OptionFlags engineOptions {
+  {"target.textSectionSizeInBytes", "0xe000"},
+  {"target.workerStackSizeInBytes", "0x180"}
+};
+
+const OptionFlags simDebugOptions {
+  {"debug.trace", "true"}
+};
+
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
@@ -79,12 +89,15 @@ int main(int argc, char **argv) {
   double relativeTolerance, absoluteTolerance;
   MatrixOp matAOp = MatrixOp::NORMAL;
   MatrixOp matBOp = MatrixOp::NORMAL;
-
+  DeviceType deviceType = DeviceType::IpuModel;
   IPUModel ipuModel;
 
   po::options_description desc("Options");
   desc.add_options()
     ("help", "Produce help message")
+    ("device-type",
+      po::value<DeviceType>(&deviceType)->default_value(deviceType),
+      "Device type: Cpu | Sim | Hw | IpuModel")
     ("m", po::value<unsigned>(&m)->required(),
      "Number of rows of left matrix, left-matrix-op(A)")
     ("k", po::value<unsigned>(&k)->required(),
@@ -144,12 +157,12 @@ int main(int argc, char **argv) {
     absoluteTolerance = HALF_ABS_TOL;
     relativeTolerance = HALF_REL_TOL;
   }
-
-
   if (beta != 1.0) {
     throw poputil::poplib_error("Only beta = 1.0 is supported");
   }
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(deviceType, ipuModel.numIPUs,
+                                  ipuModel.tilesPerIPU, simDebugOptions);
+
   const auto &target = device.getTarget();
   Graph graph(device);
   popconv::addCodelets(graph);
@@ -208,7 +221,7 @@ int main(int argc, char **argv) {
   auto rawHostMatB = allocateHostMemoryForTensor(matB, "matB", graph, tmap);
   auto rawHostMatC = allocateHostMemoryForTensor(matC, "matC", graph, tmap);
 
-  Engine engine(device, graph, prog);
+  Engine engine(device, graph, prog, engineOptions);
 
   boost::multi_array<double, 2>
       hostMatA(boost::extents[rowsMatA][colsMatA]);
@@ -239,9 +252,11 @@ int main(int argc, char **argv) {
 
   const bool matchesModel = checkIsClose("gemm", hostMatC, refMatC,
                                          relativeTolerance, absoluteTolerance);
-  engine.printSummary(std::cout, OptionFlags{
-    { "doLayerWiseBreakdown", "true" }
-  });
+  if (deviceType == DeviceType::IpuModel) {
+    engine.printSummary(std::cout, OptionFlags{
+      { "doLayerWiseBreakdown", "true" }
+    });
+  }
   if (!matchesModel) {
     std::cerr << "Validation failed\n";
     return 1;
