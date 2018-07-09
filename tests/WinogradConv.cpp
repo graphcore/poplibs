@@ -146,7 +146,7 @@ static void computeReference(Tensor in, Tensor weights, Tensor activations,
 BOOST_AUTO_TEST_CASE(WinogradConvolution,
                        *utf::tolerance<float>(
                           fpc::percent_tolerance<float>(1))) {
-  auto device = createTestDevice(TEST_TARGET, 1, 304);
+  auto device = createTestDevice(TEST_TARGET, 1, 24);
   Graph graph(device);
   popops::addCodelets(graph);
   popconv::addCodelets(graph);
@@ -154,15 +154,15 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   /* Test configuration */
 
   const auto dType = FLOAT;
-  const unsigned numOutPartialChanGroups = 256/8;
+  const unsigned numOutPartialChanGroups = 128/8;
   const unsigned numOutPartialChansInGroup = 8;
-  const unsigned numInpChanGroups = 128/16;
+  const unsigned numInpChanGroups = 32/16;
   const unsigned featureX = 13;
   const unsigned featureY = 13;
   const unsigned numInpChansInGroup = 16;
   const unsigned kernelSizeX = 3;
   const unsigned kernelSizeY = 3;
-  const unsigned numOutChanGroups = 256/8;
+  const unsigned numOutChanGroups = 128/8;
   const unsigned numOutChansInGroup = 8;
   const unsigned patchSizeX = 4;
   const unsigned patchSizeY = 4;
