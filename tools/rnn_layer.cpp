@@ -18,6 +18,7 @@
 #include <popops/codelets.hpp>
 #include <poplin/codelets.hpp>
 #include <popnn/codelets.hpp>
+#include "TestDevice.hpp"
 #include <poplibs_test/Util.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
@@ -39,6 +40,16 @@ using namespace poputil;
 #define HALF_REL_TOL   0.3
 #define FLOAT_ABS_TOL  1e-5
 #define HALF_ABS_TOL   7e-2
+
+const OptionFlags engineOptions {
+  {"target.textSectionSizeInBytes", "0xa000"},
+  {"target.workerStackSizeInBytes", "0x200"}
+};
+
+const OptionFlags simDebugOptions {
+  {"debug.trace", "false"}
+};
+
 
 const char *asString(popnn::NonLinearityType &type) {
   switch (type) {
@@ -75,7 +86,7 @@ std::istream &operator>>(std::istream &in, popnn::NonLinearityType &type) {
 
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
-
+  DeviceType deviceType = DeviceType::IpuModel;
   unsigned sequenceSize, inputSize = 1, outputSize;
   unsigned batchSize = 1;
 
@@ -92,6 +103,9 @@ int main(int argc, char **argv) {
   po::options_description desc("Options");
   desc.add_options()
     ("help", "Produce help message")
+    ("device-type",
+     po::value<DeviceType>(&deviceType)->default_value(deviceType),
+     "Device type: Cpu | Sim | Hw | IpuModel")
     ("sequence-size", po::value<unsigned>(&sequenceSize)->required(),
      "Sequence size in the RNN")
     ("input-size", po::value<unsigned>(&inputSize)->default_value(inputSize),
@@ -113,10 +127,10 @@ int main(int argc, char **argv) {
     ("partials-type",
      po::value<Type>(&partialsType)->default_value(FLOAT),
      "Type of the partials")
-    ("rel-tolerance",po::value<double>(&relativeTolerance)->default_value(0.01),
+    ("rel-tolerance",po::value<double>(&relativeTolerance),
      "Relative tolerance to use when validating results against the reference "
      "model")
-    ("abs-tolerance",po::value<double>(&absoluteTolerance)->default_value(1e-6),
+    ("abs-tolerance",po::value<double>(&absoluteTolerance),
      "Absolute tolerance to use when validating results against the reference "
      "model")
     ("tiles-per-ipu",
@@ -180,7 +194,8 @@ int main(int argc, char **argv) {
     applyFeedFwdWeights = true;
   }
 
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(deviceType, ipuModel.numIPUs,
+                                  ipuModel.tilesPerIPU, simDebugOptions);
   const auto &target = device.getTarget();
   Graph graph(device);
   popconv::addCodelets(graph);
@@ -351,7 +366,7 @@ int main(int argc, char **argv) {
                                     "biasesDeltaAcc", graph, tmap);
   }
 
-  Engine engine(device, graph, prog);
+  Engine engine(device, graph, prog, engineOptions);
 
   boost::multi_array<double, 3>
       hostPrevAct(boost::extents[sequenceSize][batchSize][inputSize]);
@@ -521,10 +536,11 @@ int main(int argc, char **argv) {
                    modelBiasesDeltasAcc, relativeTolerance, absoluteTolerance);
   }
 
-  engine.printSummary(std::cout, OptionFlags{
-    { "doLayerWiseBreakdown", "true" }
-  });
-
+  if (deviceType == DeviceType::IpuModel) {
+    engine.printSummary(std::cout, OptionFlags{
+      { "doLayerWiseBreakdown", "true" }
+    });
+  }
   if (!matchesModel) {
     std::cerr << "Validation failed\n";
     return 1;

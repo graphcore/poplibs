@@ -17,6 +17,7 @@
 #include <popops/Zero.hpp>
 #include <poplin/codelets.hpp>
 #include <popnn/codelets.hpp>
+#include "TestDevice.hpp"
 #include <poplibs_test/Lstm.hpp>
 #include <poplibs_test/Util.hpp>
 #include <poplibs_test/Pass.hpp>
@@ -36,8 +37,19 @@ using namespace popnn;
 #define FLOAT_ABS_TOL  1e-5
 #define HALF_ABS_TOL   7e-2
 
+const OptionFlags engineOptions {
+  {"target.textSectionSizeInBytes", "0xa000"},
+  {"target.workerStackSizeInBytes", "0x200"}
+};
+
+const OptionFlags simDebugOptions {
+  {"debug.trace", "false"}
+};
+
+
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
+  DeviceType deviceType = DeviceType::IpuModel;
 
   unsigned sequenceSize, inputSize, outputSize;
   unsigned batchSize = 1;
@@ -46,7 +58,6 @@ int main(int argc, char **argv) {
   Type partialsType;
   double relativeTolerance;
   double absoluteTolerance;
-  bool useCpuModel;
   IPUModel ipuModel;
   bool preweightInput = false;
   poplibs_test::Pass pass = poplibs_test::Pass::FWD;
@@ -54,8 +65,9 @@ int main(int argc, char **argv) {
   po::options_description desc("Options");
   desc.add_options()
     ("help", "Produce help message")
-    ("use-cpu", po::value<bool>(&useCpuModel)->default_value(false),
-     "When true, use a CPU model of the device. Otherwise use the IPU model")
+    ("device-type",
+       po::value<DeviceType>(&deviceType)->default_value(deviceType),
+       "Device type: Cpu | Sim | Hw | IpuModel")
     ("sequence-size", po::value<unsigned>(&sequenceSize)->required(),
      "Sequence size in the RNN")
     ("input-size", po::value<unsigned>(&inputSize)->required(),
@@ -111,6 +123,7 @@ int main(int argc, char **argv) {
       relativeTolerance = HALF_REL_TOL;
     }
   }
+
   if (vm["abs-tolerance"].empty()) {
     if (dataType == FLOAT) {
       absoluteTolerance = FLOAT_ABS_TOL;
@@ -118,9 +131,8 @@ int main(int argc, char **argv) {
       absoluteTolerance = HALF_ABS_TOL;
     }
   }
-
-  Device device = useCpuModel ? Device::createCPUDevice() :
-                                ipuModel.createDevice();
+  auto device = createTestDevice(deviceType, ipuModel.numIPUs,
+                                  ipuModel.tilesPerIPU, simDebugOptions);
 
   const auto &target = device.getTarget();
   Graph graph(device);
@@ -246,7 +258,7 @@ int main(int argc, char **argv) {
                                                          graph, tmap));
   }
 
-  Engine engine(device, graph, prog);
+  Engine engine(device, graph, prog, engineOptions);
 
   boost::multi_array<double, 3>
       hostPrevLayerAct(boost::extents[sequenceSize][batchSize][inputSize]);
@@ -331,7 +343,7 @@ int main(int argc, char **argv) {
                             modelFwdState,  modelBwdState, modelPrevLayerGrads);
   }
 
-  if (!useCpuModel) {
+  if (deviceType == DeviceType::IpuModel) {
     engine.printSummary(std::cout, OptionFlags{
       { "doLayerWiseBreakdown", "true" }
     });
