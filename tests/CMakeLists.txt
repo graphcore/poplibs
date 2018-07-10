@@ -2294,7 +2294,8 @@ add_multitarget_test(
                  --output-size 38
                  --tiles-per-ipu=16
                  --phase all
-                 --sequence-size 2)
+                 --sequence-size 2
+                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME basic_lstm_40x4x38_seq_2_half_data_preweight_inp
@@ -2305,7 +2306,8 @@ add_multitarget_test(
                  --pre-weight-input=1
                  --tiles-per-ipu=16
                  --phase all
-                 --sequence-size 2)
+                 --sequence-size 2
+                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME basic_lstm_40x4x38_seq_2_float_data
@@ -2316,7 +2318,8 @@ add_multitarget_test(
                  --sequence-size 2
                  --tiles-per-ipu=16
                  --phase all
-                 --data-type=float)
+                 --data-type=float
+                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME conv1x1_in_dilation_2_fwd
