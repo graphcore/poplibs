@@ -3367,6 +3367,7 @@ addToChannel(Graph &graph, const Tensor &actsUngrouped,
                                 .flatten(2, acts.rank());
   const auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
   const unsigned numTiles = firstInGroupMapping.size();
+  const auto vectorWidth = target.getVectorWidth(dType);
   const std::string vertexName =
       scale == 1.0 ? "popconv::AddToChannel" : "popconv::ScaledAddToChannel";
   for (unsigned tile = 0; tile != numTiles; ++tile) {
@@ -3388,7 +3389,8 @@ addToChannel(Graph &graph, const Tensor &actsUngrouped,
       continue;
     }
     const auto perWorkerGroups =
-        splitRegionsBetweenWorkers(target, firstInGroupMapping[tile], 1);
+        splitRegionsBetweenWorkers(target, firstInGroupMapping[tile],
+                                   vectorWidth);
     for (const auto &entry : perWorkerGroups) {
       VertexRef v;
       v = graph.addVertex(cs, templateVertex(vertexName + "2D", dType));
@@ -3595,6 +3597,7 @@ channelMul(Graph &graph, const Tensor &actsUngrouped, const Tensor &scale,
                                                 {acts.dim(2) * acts.dim(3)});
   const auto firstInGroupMapping = graph.getTileMapping(firstInGroup);
   const unsigned numTiles = firstInGroupMapping.size();
+  const auto vectorWidth = target.getVectorWidth(dType);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto singleGroup = getAssignedGroupForTile(firstInGroupMapping[tile],
                                                      firstInGroup.shape());
@@ -3613,7 +3616,8 @@ channelMul(Graph &graph, const Tensor &actsUngrouped, const Tensor &scale,
       continue;
     }
     const auto perWorkerGroups =
-        splitRegionsBetweenWorkers(target, firstInGroupMapping[tile], 1);
+        splitRegionsBetweenWorkers(target, firstInGroupMapping[tile],
+                                   vectorWidth);
     for (const auto &entry : perWorkerGroups) {
       auto v =
           graph.addVertex(cs, templateVertex("popconv::ChannelMul2D", dType));
