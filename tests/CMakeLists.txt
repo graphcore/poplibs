@@ -234,7 +234,8 @@ foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
                    ${CMAKE_SOURCE_DIR}/tools/single_conv_layer_random.py
                    --n 1
                    --seed ${n}
-                   --binary $<TARGET_FILE:single_conv_layer>)
+                   --binary $<TARGET_FILE:single_conv_layer>
+           VARIANTS ${TimesOutOnSim})
 endforeach()
 
 # Random reduce_op tests with fixed seed.
@@ -1497,7 +1498,8 @@ add_multitarget_test(
                  --input-size 300
                  --output-size 100
                  --tiles-per-ipu 16
-                 --data-type=half)
+                 --data-type=half
+                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME fully_connected_half_fwd
@@ -1550,7 +1552,8 @@ add_multitarget_test(
                  --input-size 300
                  --output-size 100
                  --tiles-per-ipu 16
-                 --data-type=float)
+                 --data-type=float
+                 VARIANTS ${TimesOutOnSim})
 
 add_test(
          NAME fully_connected_float_two_ipus
@@ -1568,7 +1571,8 @@ add_multitarget_test(
                  --output-size 100
                  --tiles-per-ipu 16
                  --data-type=half
-                 --batch-size=4)
+                 --batch-size=4
+                 VARIANTS ${TimesOutOnSim})
 
 add_test(
          NAME fully_connected_half_batch_4_two_ipus
@@ -1587,7 +1591,8 @@ add_multitarget_test(
               --output-size 256
               --tiles-per-ipu 16
               --data-type=half
-              --batch-size=7)
+              --batch-size=7
+              VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
       NAME fully_connected_half_batch_7_bwd_as_wu
@@ -1596,7 +1601,8 @@ add_multitarget_test(
               --output-size 256
               --tiles-per-ipu 16
               --data-type=half
-              --batch-size=7)
+              --batch-size=7
+              VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME fully_connected_float_batch_4
@@ -1605,7 +1611,8 @@ add_multitarget_test(
                  --output-size 100
                  --tiles-per-ipu 16
                  --data-type=float
-                 --batch-size=4)
+                 --batch-size=4
+                 VARIANTS ${TimesOutOnSim})
 
 add_test(
          NAME fully_connected_float_batch_4_two_ipus
@@ -1652,7 +1659,8 @@ add_multitarget_test(
                  --output-size 100
                  --tiles-per-ipu 16
                  --num-groups 2
-                 --data-type=half)
+                 --data-type=half
+                 VARIANTS ${TimesOutOnSim})
 
 
 add_test(
@@ -1674,7 +1682,8 @@ add_multitarget_test(
                  --tiles-per-ipu 16
                  --data-type=half
                  --num-groups 2
-                 --batch-size=4)
+                 --batch-size=4
+                 VARIANTS ${TimesOutOnSim})
 
 add_test(
          NAME grouped_fully_connected_half_batch_4_two_ipus
@@ -1695,7 +1704,8 @@ add_multitarget_test(
               --tiles-per-ipu 16
               --data-type=half
               --num-groups 3
-              --batch-size=7)
+              --batch-size=7
+              VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME grouped_fully_connected_batch_fwd_one_tile
@@ -1716,7 +1726,8 @@ add_multitarget_test(
                  --input-size=512
                  --tiles-per-ipu=16
                  --output-size=4
-                 --data-type=half)
+                 --data-type=half
+                 VARIANTS ${TimesOutOnSim})
 
 add_test(NAME max_pool_layer_half
          COMMAND pooling_layer
@@ -2209,7 +2220,8 @@ add_multitarget_test(
                  --beta 1
                  --tiles-per-ipu=16
                  --left-matrix-op=normal
-                 --right-matrix-op=normal)
+                 --right-matrix-op=normal
+                 VARIANTS ${TimesOutOnSim})
 
 
 add_multitarget_test(
@@ -2222,7 +2234,8 @@ add_multitarget_test(
                  --beta 1 
                  --tiles-per-ipu=16
                  --left-matrix-op=normal
-                 --right-matrix-op=normal)
+                 --right-matrix-op=normal
+                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME gemm_40x39x38_left_transpose
@@ -2234,7 +2247,8 @@ add_multitarget_test(
                  --beta 1 
                  --tiles-per-ipu=16
                  --left-matrix-op=transpose
-                 --right-matrix-op=normal)
+                 --right-matrix-op=normal
+                 VARIANTS ${TimesOutOnSim})
 
 
 add_multitarget_test(
@@ -2247,7 +2261,8 @@ add_multitarget_test(
                  --beta 1 
                  --tiles-per-ipu=16
                  --left-matrix-op=normal
-                 --right-matrix-op=transpose)
+                 --right-matrix-op=transpose
+                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME rnn_3x2x38_no_feedfwd
