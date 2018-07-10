@@ -1714,6 +1714,7 @@ add_multitarget_test(
          COMMAND fully_connected_layer
                  --batch-size=64
                  --input-size=512
+                 --tiles-per-ipu=16
                  --output-size=4
                  --data-type=half)
 
