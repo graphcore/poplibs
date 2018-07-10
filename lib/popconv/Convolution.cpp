@@ -4,6 +4,7 @@
 #include <limits>
 #include <algorithm>
 #include <boost/optional.hpp>
+#include <boost/math/common_factor.hpp>
 #include <cassert>
 #include <cmath>
 #include <functional>
@@ -3182,6 +3183,15 @@ convChannelReduce(Graph &graph,
     usedWorkers = numWorkers;
     maxOutputsPerWorker = (numOut + numWorkers - 1) / numWorkers;
   }
+
+  // This is to ensure that entries each row of partials tensor below is
+  // aligned at a multiple of the atomic store granularity. The other option
+  // is to create a separate variable for each used worker
+  maxOutputsPerWorker =
+      boost::math::lcm<unsigned>(target.getAtomicStoreGranularity(),
+                                 maxOutputsPerWorker
+                                 * target.getTypeSize(partialsType)) /
+      target.getTypeSize(partialsType);
   auto partials =
       graph.addVariable(partialsType, {usedWorkers, maxOutputsPerWorker},
                         "partials");
