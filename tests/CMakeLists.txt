@@ -1508,7 +1508,8 @@ add_multitarget_test(
                  --input-size 300
                  --output-size 100
                  --tiles-per-ipu 16
-                 --data-type=half)
+                 --data-type=half
+                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
         NAME fully_connected_half_bwd
@@ -1517,7 +1518,8 @@ add_multitarget_test(
                 --input-size 300
                 --output-size 100
                 --tiles-per-ipu 16
-                --data-type=half)
+                --data-type=half
+                VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
         NAME fully_connected_small_field_half_wu
@@ -1716,7 +1718,8 @@ add_multitarget_test(
                  --data-type=half
                  --batch-size=4
                  --num-groups 2
-                 --inference-only)
+                 --inference-only
+                 VARIANTS ${TimesOutOnSim})
 
 # Fully connected layer where the RHS has fewer elements than the LHS
 add_multitarget_test(
@@ -2284,7 +2287,8 @@ add_multitarget_test(
                  --phase all
                  --tiles-per-ipu=16
                  --nonlinearity-type sigmoid
-                 --apply-feedforward-weights) 
+                 --apply-feedforward-weights
+                 VARIANTS ${TimesOutOnSim})
                  
 add_multitarget_test(
          NAME basic_lstm_40x4x38_seq_2_half_data
