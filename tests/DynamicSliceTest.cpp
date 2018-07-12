@@ -213,7 +213,8 @@ void sliceTestND(unsigned tilesPerIPU,
   graph.createHostRead("out", tOut);
 
   std::cerr << "Creating engine\n";
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
 
   TestData testData(t1Shape, wantedShape, testBase);
 
@@ -355,7 +356,8 @@ void updateTestND(unsigned tilesPerIPU,
   graph.createHostRead("out", t1);
 
   std::cerr << "Creating engine\n";
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
 
   TestData testData(t1Shape, subShape, testBase);
 

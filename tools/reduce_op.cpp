@@ -617,8 +617,8 @@ int main(int argc, char **argv) {
        dataType,
        outputData.get());
 
-  Engine engine(device, graph, prog);
-
+  Engine engine(graph, prog);
+  engine.load(device);
   upload(engine, tmap);
   engine.run(0);
   download(engine, tmap);

@@ -46,7 +46,8 @@ BOOST_AUTO_TEST_CASE(VoidFunctionTest) {
   f(args1, prog);
   std::vector<Tensor> args2 = {x2, y2};
   f(args2, prog);
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   std::vector<float> hx1 = {5, 3, 1, 7, 9};
   std::vector<float> hy1 = {55, 3, 2, 8, 4};
   std::vector<float> hx2 = {99, 2, 0, 3, 6};
@@ -102,7 +103,8 @@ BOOST_AUTO_TEST_CASE(ProgramFunctionTest) {
   prog.add(f(args1));
   std::vector<Tensor> args2 = {x2, y2, z2};
   prog.add(f(args2));
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   std::vector<float> hx1 = {5, 3, 1, 7, 9};
   std::vector<float> hy1 = {55, 3, 2, 8, 4};
   std::vector<float> hx2 = {99, 2, 0, 3, 6};
@@ -160,7 +162,8 @@ BOOST_AUTO_TEST_CASE(CreatedTensorFunctionTest) {
   auto &z2 = args2[2];
   graph.createHostRead("z1", z1);
   graph.createHostRead("z2", z2);
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   std::vector<float> hx1 = {5, 3, 1, 7, 9};
   std::vector<float> hy1 = {55, 3, 2, 8, 4};
   std::vector<float> hx2 = {99, 2, 0, 3, 6};
@@ -214,7 +217,8 @@ BOOST_AUTO_TEST_CASE(TensorFunctionTest) {
   auto z2 = f(args2, prog);
   graph.createHostRead("z1", z1);
   graph.createHostRead("z2", z2);
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   std::vector<float> hx1 = {5, 3, 1, 7, 9};
   std::vector<float> hy1 = {55, 3, 2, 8, 4};
   std::vector<float> hx2 = {99, 2, 0, 3, 6};

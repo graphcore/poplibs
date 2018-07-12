@@ -221,7 +221,8 @@ int main(int argc, char **argv) {
   auto rawHostMatB = allocateHostMemoryForTensor(matB, "matB", graph, tmap);
   auto rawHostMatC = allocateHostMemoryForTensor(matC, "matC", graph, tmap);
 
-  Engine engine(device, graph, prog, engineOptions);
+  Engine engine(graph, prog, engineOptions);
+  engine.load(device);
 
   boost::multi_array<double, 2>
       hostMatA(boost::extents[rowsMatA][colsMatA]);

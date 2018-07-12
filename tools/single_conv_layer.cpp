@@ -538,9 +538,9 @@ int main(int argc, char **argv) {
     rawHostPrevDeltas = allocateHostMemoryForTensor(prevDeltas, "prevDeltas",
                                                     graph, tmap);
   }
-  Engine engine(dev, graph, {std::move(fwdProg), std::move(revProg)},
+  Engine engine(graph, {std::move(fwdProg), std::move(revProg)},
                 extraText ? extraTextengineOptions : engineOptions);
-
+  engine.load(dev);
   boost::multi_array<double, 3>
       hostPrevAct(boost::extents[batchSize][fwdInChans]
                                 [product(inputFieldSize)]);

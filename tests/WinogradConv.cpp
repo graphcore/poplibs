@@ -250,7 +250,8 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   graph.createHostWrite("weights", weights);
   graph.createHostRead("out", activations);
 
-  Engine eng(device, graph, wgdConv, options);
+  Engine eng(graph, wgdConv, options);
+  eng.load(device);
   eng.writeTensor("in", inBuffer.data());
   eng.writeTensor("weights", weightsBuffer.data());
   eng.run();

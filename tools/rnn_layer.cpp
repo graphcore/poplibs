@@ -366,7 +366,8 @@ int main(int argc, char **argv) {
                                     "biasesDeltaAcc", graph, tmap);
   }
 
-  Engine engine(device, graph, prog, engineOptions);
+  Engine engine(graph, prog, engineOptions);
+  engine.load(device);
 
   boost::multi_array<double, 3>
       hostPrevAct(boost::extents[sequenceSize][batchSize][inputSize]);

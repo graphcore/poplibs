@@ -133,7 +133,8 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     auto fwdProg = Sequence();
     nonLinearity(graph, n, actF, fwdProg);
     nonLinearity(graph, n, actH, fwdProg);;
-    Engine fwdEng(device, graph, fwdProg, options);
+    Engine fwdEng(graph, fwdProg, options);
+    fwdEng.load(device);
     copy(target, hActIn, FLOAT, rawHActInF.get());
     fwdEng.writeTensor("inF", rawHActInF.get());
     copy(target, hActIn, HALF, rawHActInH.get());
@@ -157,7 +158,8 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     bwdProg.add(Copy(deltaFF, deltaF));
     auto deltaHH = nonLinearityInputGradient(graph, n, actH, deltaH, bwdProg);
     bwdProg.add(Copy(deltaHH, deltaH));
-    Engine bwdEng(device, graph, bwdProg, options);
+    Engine bwdEng(graph, bwdProg, options);
+    bwdEng.load(device);
     copy(target, hActIn, FLOAT, rawHActInF.get());
     bwdEng.writeTensor("inF", rawHActInF.get());
     copy(target, hActIn, HALF, rawHActInH.get());
@@ -232,7 +234,8 @@ BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
   auto fwdProg = Sequence();
   nonLinearity(graph, nl, actF, fwdProg);
   nonLinearity(graph, nl, actH, fwdProg);
-  Engine fwdEng(device, graph, fwdProg, options);
+  Engine fwdEng(graph, fwdProg, options);
+  fwdEng.load(device);
 
   copy(target, hActIn, FLOAT, rawHActInF.get());
   fwdEng.writeTensor("inF", rawHActInF.get());

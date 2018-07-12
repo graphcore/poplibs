@@ -40,7 +40,8 @@ BOOST_AUTO_TEST_CASE(CircBufIncrIndex) {
 
   unsigned cbOut[indexBufSize];
 
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   eng.run();
   eng.readTensor("out", cbOut);
 
@@ -70,7 +71,8 @@ BOOST_AUTO_TEST_CASE(CircBufIncrIndex2d) {
 
   unsigned cbOut[indexBufSize];
 
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   eng.run();
   eng.readTensor("out", cbOut);
 
@@ -118,7 +120,8 @@ BOOST_AUTO_TEST_CASE(CircBufCheckAdd) {
     }
   }
 
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   eng.writeTensor("in", cbSrc);
   eng.run();
   eng.readTensor("out", cbDst);

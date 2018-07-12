@@ -257,8 +257,9 @@ int main(int argc, char **argv) {
     scaledAddTo(graph, biases, biasDeltas, -learningRate, bwdProg);
   }
 
-  Engine engine(device , graph, {std::move(fwdProg), std::move(bwdProg)},
+  Engine engine(graph, {std::move(fwdProg), std::move(bwdProg)},
                 engineOptions);
+  engine.load(device);
 
   boost::multi_array<double, 3>
       hostPrevAct(boost::extents[numGroups][batchSize][inputSize]);

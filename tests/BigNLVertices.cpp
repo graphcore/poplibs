@@ -68,7 +68,8 @@ void testReluWithTensorOfSize(size_t nElms) {
 
 
 
-  poplar::Engine eng(device, graph, prog, options);
+  poplar::Engine eng(graph, prog, options);
+  eng.load(device);
   eng.writeTensor("hPre", hPre.data());
   eng.run();
   eng.readTensor("hPost", hPost.data());

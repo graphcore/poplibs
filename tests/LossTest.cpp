@@ -193,7 +193,8 @@ static bool lossTest(const LossType lossType,
                        fpType, expectedType,
                        lossType);
 
-  Engine engine(device, graph, prog, options);
+  Engine engine(graph, prog, options);
+  engine.load(device);
 
   upload(engine, tmap);
   engine.run(0);
@@ -266,7 +267,8 @@ static bool accuracyTest(const Type &fpType,
                            expected, numCorrect,
                            fpType, labelType);
 
-  Engine engine(device, graph, prog, options);
+  Engine engine(graph, prog, options);
+  engine.load(device);
 
   upload(engine, tmap);
   engine.run(0);

@@ -214,8 +214,8 @@ static bool reduceAddTest(const std::vector<std::size_t> &dims,
   copy(target, hostPrev, outType, rawHostPrev.get());
   copy(target, hostIn, partialsType, rawHostIn.get());
 
-  Engine engine(device, graph, prog, options);
-
+  Engine engine(graph, prog, options);
+  engine.load(device);
   upload(engine, tmap);
   engine.run(0); // Run.
   download(engine, tmap);
@@ -318,7 +318,8 @@ static bool reduceOpsTest(const std::vector<std::size_t> &dims,
   copy(target, hostOut, outType, rawHostOut.get());
   copy(target, hostIn, outType, rawHostIn.get());
 
-  Engine engine(device, graph, prog, options);
+  Engine engine(graph, prog, options);
+  engine.load(device);
 
   upload(engine, tmap);
   engine.run(0); // Run.
@@ -587,7 +588,8 @@ BOOST_AUTO_TEST_CASE(ReduceIntermediatePrec) {
   graph.setInitialValue(input, poplar::ArrayRef<float>(hInput));
   graph.createHostRead("out", out);
 
-  Engine engine(device, graph, prog, options);
+  Engine engine(graph, prog, options);
+  engine.load(device);
 
   engine.run(0);
 

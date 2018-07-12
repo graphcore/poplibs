@@ -158,7 +158,8 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   copy(target, hostBeta, dataType, rawHostBeta.get());
   copy(target, hostGradsIn, dataType, rawHostGradsIn.get());
 
-  Engine engine(device, graph, prog, options);
+  Engine engine(graph, prog, options);
+  engine.load(device);
 
   upload(engine, tmap);
   engine.run(0); // Run.
@@ -335,7 +336,8 @@ static bool BatchNormFc(const std::vector<unsigned> dims,
   copy(target, hostGamma, dataType, rawHostGamma.get());
   copy(target, hostBeta, dataType, rawHostBeta.get());
 
-  Engine engine(device, graph, prog, options);
+  Engine engine(graph, prog, options);
+  engine.load(device);
 
   upload(engine, tmap);
   engine.run(0); // Run.

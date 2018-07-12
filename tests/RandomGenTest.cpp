@@ -142,7 +142,8 @@ static bool uniformTest(T hOut[DIM_SIZE][DIM_SIZE],
   Random r(mode, seed);
   r.uniform(graph, out, minVal, maxVal, prog);
 
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   eng.run();
   readAndConvertTensor<T, deviceHalf>(graph.getTarget(), eng, "out",
                                       &hOut[0][0],
@@ -200,7 +201,8 @@ static bool bernoulliTest(T hOut[DIM_SIZE][DIM_SIZE], float prob,
   Random r(mode, seed);
   r.bernoulli(graph, out, prob, prog);
 
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   eng.run();
   readAndConvertTensor<T, deviceHalf>(graph.getTarget(), eng, "out",
                                       &hOut[0][0],
@@ -271,7 +273,8 @@ static bool normalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean, float stdDev,
   Random r(mode, seed);
   r.normal(graph, out, mean, stdDev, prog);
 
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   eng.run();
   readAndConvertTensor<T, deviceHalf>(graph.getTarget(), eng, "out",
                                       &hOut[0][0],
@@ -359,7 +362,8 @@ static bool truncatedNormalTest(T hOut[DIM_SIZE][DIM_SIZE], float mean,
   Random r(mode, seed);
   r.truncatedNormal(graph, out, mean, stdDev, alpha, prog);
 
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   eng.run();
   readAndConvertTensor<T, deviceHalf>(graph.getTarget(), eng, "out",
                                       &hOut[0][0],

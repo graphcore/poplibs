@@ -84,7 +84,8 @@ BOOST_AUTO_TEST_CASE(StdAddTo_float,
   graph.createHostRead("out", in1);
   auto prog = Sequence();
   scaledAddTo(graph, in1, in2, k, prog);
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
 
   float hOut[DIM_SIZE][DIM_SIZE];
 
@@ -121,7 +122,8 @@ BOOST_AUTO_TEST_CASE(StdSubFrom_int,
   graph.createHostRead("out", in1);
   auto prog = Sequence();
   scaledSubtractFrom(graph, in1, in2, k, prog);
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
 
   int hOut[DIM_SIZE][DIM_SIZE];
 
@@ -161,7 +163,8 @@ BOOST_AUTO_TEST_CASE(StdCast) {
 
   int hOut[DIM_SIZE];
 
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   eng.writeTensor("in", hIn);
   eng.run();
   eng.readTensor("out", hOut);

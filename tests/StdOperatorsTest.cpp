@@ -181,7 +181,8 @@ void unaryOpTest(const UnaryOpFn &op,
   graph.createHostWrite("in", in);
   graph.createHostRead("out", out);
 
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
 
   T hIn[DIM_SIZE][DIM_SIZE];
   T hOut[DIM_SIZE][DIM_SIZE];
@@ -226,7 +227,8 @@ void binaryOpTest(const BinaryOpFn &op,
   graph.createHostWrite("in2", in2);
   graph.createHostRead("out", out);
 
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   T hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
   OutT hOut[DIM_SIZE][DIM_SIZE];
   setBinaryOpInputs(hIn1, hIn2);
@@ -265,7 +267,8 @@ void binaryOpTestHalf(const BinaryOpFn &op,
   graph.createHostWrite("in2", in2);
   graph.createHostRead("out", out);
 
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   float hIn1[DIM_SIZE][DIM_SIZE], hIn2[DIM_SIZE][DIM_SIZE];
   float hOut[DIM_SIZE][DIM_SIZE];
   setBinaryOpInputsHalf(hIn1, hIn2);
@@ -754,7 +757,8 @@ BOOST_AUTO_TEST_CASE(StdOperationPower,
   graph.createHostWrite("in2", in2);
   graph.createHostRead("out", out);
 
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   float hOut[DIM_SIZE][DIM_SIZE];
   eng.writeTensor("in1", hIn1);
   eng.writeTensor("in2", hIn2);
@@ -971,7 +975,8 @@ BOOST_AUTO_TEST_CASE(StdOperationSelectFloat,
 
   float hOut[DIM_SIZE][DIM_SIZE];
 
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   eng.writeTensor("in1", hIn1);
   eng.writeTensor("in2", hIn2);
   eng.writeTensor("in3", hIn3);
@@ -1018,7 +1023,8 @@ BOOST_AUTO_TEST_CASE(StdOperationSelectInt,
 
   int hOut[DIM_SIZE][DIM_SIZE];
 
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   eng.writeTensor("in1", hIn1);
   eng.writeTensor("in2", hIn2);
   eng.writeTensor("in3", hIn3);
@@ -1065,7 +1071,8 @@ BOOST_AUTO_TEST_CASE(StdOperationClampFloat,
 
   float hOut[DIM_SIZE][DIM_SIZE];
 
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   eng.writeTensor("in1", hIn1);
   eng.writeTensor("in2", hIn2);
   eng.writeTensor("in3", hIn3);
@@ -1118,7 +1125,8 @@ BOOST_AUTO_TEST_CASE(StdOperationClampInt,
 
   int hOut[DIM_SIZE][DIM_SIZE];
 
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   eng.writeTensor("in1", hIn1);
   eng.writeTensor("in2", hIn2);
   eng.writeTensor("in3", hIn3);
@@ -1172,7 +1180,8 @@ BOOST_AUTO_TEST_CASE(StdOperationClampInPlaceFloat,
 
   float hOut[DIM_SIZE][DIM_SIZE];
 
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   eng.writeTensor("in1", hIn1);
   eng.writeTensor("in2", hIn2);
   eng.writeTensor("in3", hIn3);
@@ -1320,7 +1329,8 @@ BOOST_AUTO_TEST_CASE(StdOperationAllTrue) {
   graph.createHostRead("out", in);
 
 
-  Engine eng(device, graph, mainProg, options);
+  Engine eng(graph, mainProg, options);
+  eng.load(device);
   eng.writeTensor("in", init);
   eng.run();
   eng.readTensor("out", output);
@@ -1350,7 +1360,8 @@ BOOST_AUTO_TEST_CASE(StdOperationIsFinite) {
 
   bool hOut[DIM_SIZE][DIM_SIZE];
 
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   eng.writeTensor("in", hIn);
   eng.run();
   eng.readTensor("out", hOut);
@@ -1384,7 +1395,8 @@ BOOST_AUTO_TEST_CASE(MapTest) {
 
   setUnaryOpInput(hIn);
 
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   eng.writeTensor("in", hIn);
   eng.run();
   eng.readTensor("out", hOut);
@@ -1439,7 +1451,8 @@ BOOST_AUTO_TEST_CASE(MapTestMultiTensor) {
     cIn[i] = dist(randomEngine);
   }
 
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   eng.writeTensor("a", aIn);
   eng.writeTensor("b", bIn);
   eng.writeTensor("c", cIn);
@@ -1480,7 +1493,8 @@ BOOST_AUTO_TEST_CASE(MapInPlaceTest) {
 
   setUnaryOpInput(hIn);
 
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   eng.writeTensor("in", hIn);
   eng.run();
   eng.readTensor("out", hOut);
@@ -1535,7 +1549,8 @@ BOOST_AUTO_TEST_CASE(MapInferTypeTest) {
     cIn[i] = dist(randomEngine) > 0.0;
   }
 
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   eng.writeTensor("a", aIn);
   eng.writeTensor("b", bIn);
   eng.writeTensor("c", cIn);
@@ -1581,7 +1596,8 @@ BOOST_AUTO_TEST_CASE(AddInPlaceTest) {
   setUnaryOpInput(hIn1);
   setUnaryOpInput(hIn2);
 
-  Engine eng(device, graph, prog, options);
+  Engine eng(graph, prog, options);
+  eng.load(device);
   eng.writeTensor("in1", hIn1);
   eng.writeTensor("in2", hIn2);
   eng.run();

@@ -358,8 +358,9 @@ int main(int argc, char **argv) {
   OptionFlags engOpt{
     { "debug.cpuMultiThreadExecution", "false" }
   };
-  Engine engine(device, graph, {std::move(fwdProg), std::move(bwdProg)},
+  Engine engine(graph, {std::move(fwdProg), std::move(bwdProg)},
                 engOpt);
+  engine.load(device);
 
   boost::multi_array<double, 4>
       hostPrevAct(boost::extents[batchSize][chans][height][width]);

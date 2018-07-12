@@ -97,7 +97,8 @@ static bool encodeTest(std::size_t numIndices,
   auto rawHostEncoded =
     allocateHostMemoryForTensor(encoded, "encoded", graph, tmap);
 
-  Engine engine(device, graph, prog, options);
+  Engine engine(graph, prog, options);
+  engine.load(device);
 
   upload(engine, tmap);
   engine.run(0);
