@@ -248,11 +248,12 @@ endforeach()
 #  ORIG Layer tests
 add_multitarget_test(NAME conv3x3_stride_2_128_out
          COMMAND single_conv_layer
-                 --input-channels=64
+                 --input-channels=48
                  --output-channels=128
-                 --field={28,20}
+                 --field={20,12}
                  --kernel-size=3
                  --data-type=half
+                 --tiles-per-ipu=12
                  --padding=2
                  --stride=2
                  VARIANTS ${TimesOutOnSim})
@@ -274,7 +275,7 @@ add_multitarget_test(
             --input-channels=64
             --output-channels=32
             --field={7,7}
-            --tiles-per-ipu=16
+            --tiles-per-ipu=8
             --stride=1
             --kernel-size=1
             --bias=0
@@ -297,7 +298,7 @@ add_multitarget_test(
             --input-channels=129
             --output-channels=256
             --field={7,7}
-            --tiles-per-ipu=16
+            --tiles-per-ipu=12
             --stride=1
             --kernel-size=1
             VARIANTS ${TimesOutOnSim})
@@ -308,7 +309,7 @@ add_multitarget_test(
             --input-channels=129
             --output-channels=257
             --field={7,7}
-            --tiles-per-ipu=16
+            --tiles-per-ipu=12
             --stride=1
             --kernel-size=1
             --extra-text=1
@@ -328,10 +329,12 @@ add_multitarget_test(
 add_multitarget_test(
          NAME conv1x1_thinly_spread
          COMMAND single_conv_layer
-             --field={1,128}
+             --field={1,56}
              --input-channels=16
              --output-channels=8
-             VARIANTS ${TimesOutOnSim})
+             --tiles-per-ipu=24
+	     VARIANTS ${TimesOutOnSim}
+             )
 
 add_multitarget_test(
          NAME conv3x3_stride_1
@@ -433,6 +436,7 @@ add_multitarget_test(
         --kernel-size=3
         --data-type=half
         --padding={1,2}
+        --tiles-per-ipu=16
         --stride=1
         VARIANTS ${TimesOutOnSim})
 
@@ -450,73 +454,76 @@ add_multitarget_test(
         VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
-         NAME conv3x3_stride_1_fwd_asym_padding
+         NAME conv3x3_stride_1_asym_padding
         COMMAND single_conv_layer
                 --input-channels=32
-                --output-channels=48
-                --field={28,20}
+                --output-channels=24
+                --field={20,12}
                 --kernel-size=3
                 --data-type=half
                 --padding-lower=1
                 --padding-upper=2
+                --tiles-per-ipu=12
                 --stride=1
                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
-         NAME conv3x3_stride_1_fwd_asym_padding_2
+         NAME conv3x3_stride_1_asym_padding_2
          COMMAND single_conv_layer
                 --input-channels=32
-                --output-channels=48
-                --field={28,20}
+                --output-channels=40
+                --field={20,12}
                 --kernel-size=3
                 --data-type=half
                 --padding-lower=3
                 --padding-upper=0
+                --tiles-per-ipu=16
                 --stride=1
                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
-         NAME conv5x5_stride_2_fwd_asym_padding
+         NAME conv5x5_stride_2_asym_padding
          COMMAND single_conv_layer
-                  --input-channels=64
-                  --output-channels=64
-                  --field={28,20}
+                  --input-channels=32
+                  --output-channels=32
+                  --field={20,12}
                   --kernel-size=5
                   --data-type=half
                   --padding-lower={1,2}
                   --padding-upper={3,3}
                   --stride=2
-                  --tiles-per-ipu=16
+                  --tiles-per-ipu=12
                   VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME small_conv_many_tiles_1x1
          COMMAND single_conv_layer
-                 --input-channels=32
-                 --output-channels=32
-                 --field={14,14}
+                 --input-channels=16
+                 --output-channels=8
+                 --field={5,5}
                  --partials-type=float
-                 --tiles-per-ipu=1216
+                 --tiles-per-ipu=24
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME small_conv_many_tiles_3x3
          COMMAND single_conv_layer
-                 --input-channels=32
-                 --output-channels=32
+                 --input-channels=16
+                 --output-channels=8
                  --kernel-size=3
-                 --field={14,14}
+                 --field={7,7}
                  --partials-type=float
-                 --tiles-per-ipu=1216
+                 --tiles-per-ipu=24
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME conv1x1_shallow_input
          COMMAND single_conv_layer
                  --input-channels=8
-                 --output-channels=1024
-                 --field={16,16}
+                 --output-channels=512
+                 --field={8,8}
                  --data-type=half
+                 --tiles-per-ipu=16
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -530,6 +537,7 @@ add_multitarget_test(
                  --padding=1
                  --stride=1
                  --data-type=half
+                 --tiles-per-ipu=2
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -543,6 +551,7 @@ add_multitarget_test(
                  --padding=1
                  --stride=2
                  --data-type=half
+		 --tiles-per-ipu=2
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -555,6 +564,7 @@ add_multitarget_test(
                  --output-channels=16
                  --padding=1
                  --stride=2
+		 --tiles-per-ipu=16
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -567,6 +577,7 @@ add_multitarget_test(
                  --output-channels=16
                  --padding=1
                  --stride=2
+		 --tiles-per-ipu=16
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -610,25 +621,25 @@ add_multitarget_test(
 add_multitarget_test(
          NAME conv_flip_input_only
          COMMAND single_conv_layer
-                 --field={24,24}
+                 --field={20,20}
                  --padding=1
                  --flip-input=1
                  --kernel-size=3
                  --input-channels=32
-                 --output-channels=32
-                 --tiles-per-ipu=16
+                 --output-channels=16
+                 --tiles-per-ipu=8
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME conv_flip_kernel_only
          COMMAND single_conv_layer
-                 --field={24,24}
+                 --field={20,20}
                  --padding=1
                  --kernel-size=3
                  --flip-kernel=1
                  --input-channels=32
-                 --output-channels=32
-                 --tiles-per-ipu=16
+                 --output-channels=16
+                 --tiles-per-ipu=8
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -637,17 +648,18 @@ add_multitarget_test(
                  --field={14,14}
                  --input-channels=32
                  --output-channels=32
-                 --tiles-per-ipu=16
+                 --tiles-per-ipu=12
                  --data-type=half
                  --batch-size=4
+                 --single-phase=bwd
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
-         NAME conv_batch_bwd_float
+         NAME conv_batch_float
          COMMAND single_conv_layer
-                 --field={14,14}
+                 --field={7,7}
                  --input-channels=32
-                 --output-channels=32
+                 --output-channels=16
                  --tiles-per-ipu=16
                  --data-type=float
                  --batch-size=4
@@ -656,44 +668,45 @@ add_multitarget_test(
 add_multitarget_test(
          NAME conv_batch_group
          COMMAND single_conv_layer
-                 --field={28,28}
-                 --input-channels=512
-                 --output-channels=128
+                 --field={7,7}
+                 --input-channels=256
+                 --output-channels=64
                  --batch-size=2
+	                --tiles-per-ipu=16
                  VARIANTS ${TimesOutOnSim})
 
-# conv_batch_bwd_float test split into the three component phases
+# conv_batch_float test split into the three component phases
 add_multitarget_test(
-         NAME conv_batch_bwd_float_fwd
+         NAME conv_batch_float_fwd
          COMMAND single_conv_layer
-                 --field={14,14}
+                 --field={7,7}
                  --input-channels=32
-                 --output-channels=32
-                 --tiles-per-ipu=16
+                 --output-channels=16
+                 --tiles-per-ipu=12
                  --data-type=float
                  --batch-size=4
                  --single-phase=fwd
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
-         NAME conv_batch_bwd_float_bwd
+         NAME conv_batch_float_bwd
          COMMAND single_conv_layer
-                 --field={14,14}
+                 --field={7,7}
                  --input-channels=32
-                 --output-channels=32
-                 --tiles-per-ipu=16
+                 --output-channels=16
+                 --tiles-per-ipu=12
                  --data-type=float
                  --batch-size=4
                  --single-phase=bwd
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
-         NAME conv_batch_bwd_float_wu
+         NAME conv_batch_float_wu
          COMMAND single_conv_layer
-                 --field={14,14}
+                 --field={7,7}
                  --input-channels=32
-                 --output-channels=32
-                 --tiles-per-ipu=16
+                 --output-channels=16
+                 --tiles-per-ipu=12
                  --data-type=float
                  --batch-size=4
                  --single-phase=wu
@@ -764,7 +777,7 @@ add_multitarget_test(
                 --field={16,16}
                 --input-channels=16
                 --output-channels=128
-                --tiles-per-ipu=16
+                --tiles-per-ipu=12
                 --data-type=half
                 VARIANTS ${TimesOutOnSim})
 
@@ -787,9 +800,9 @@ add_multitarget_test(
          NAME conv_outer_product
          COMMAND single_conv_layer
                  --input-channels=1
-                 --output-channels=1024
-                 --field={1,512}
-                 --tiles-per-ipu=64
+                 --output-channels=384
+                 --field={1,128}
+                 --tiles-per-ipu=12
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -810,7 +823,7 @@ add_multitarget_test(
                  --input-channels=16
                  --output-channels=8
                  --field={1,128}
-                 --tiles-per-ipu=2
+                 --tiles-per-ipu=4
                  --padding={1,64}
                  VARIANTS ${TimesOutOnSim})
 
@@ -830,48 +843,48 @@ add_multitarget_test(
          NAME conv_input_dilation_and_stride_share_factor2
          COMMAND single_conv_layer
                  --input-channels=32
-                 --output-channels=64
+                 --output-channels=32
                  --field={14,14}
                  --kernel-size={3,3}
                  --in-dilation=4
                  --stride=2
-                 --tiles-per-ipu=16
+                 --tiles-per-ipu=12
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME conv_input_dilation_and_stride_share_factor3
          COMMAND single_conv_layer
                  --input-channels=32
-                 --output-channels=64
+                 --output-channels=32
                  --field={14,14}
                  --kernel-size={3,3}
                  --in-dilation=2
                  --stride=4
-                 --tiles-per-ipu=16
+                 --tiles-per-ipu=8
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME conv_input_dilation_and_stride_share_factor4
         COMMAND single_conv_layer
                 --input-channels=32
-                --output-channels=64
+                --output-channels=32
                 --field={14,14}
                 --kernel-size={3,3}
                 --in-dilation=4
                 --stride=6
-                --tiles-per-ipu=16
+                --tiles-per-ipu=8
                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME conv_input_dilation_and_stride_share_factor5
         COMMAND single_conv_layer
                 --input-channels=32
-                --output-channels=64
+                --output-channels=32
                 --field={14,14}
                 --kernel-size={3,3}
                 --in-dilation=6
                 --stride=4
-                --tiles-per-ipu=16
+                --tiles-per-ipu=8
                 VARIANTS ${TimesOutOnSim})
 
 # Example where the amount of padding that must be added to start of the input
@@ -914,21 +927,22 @@ add_multitarget_test(
                  --input-channels=16
                  --output-channels=16
                  --output-padding=10
-                 --tiles-per-ipu=16
+                 --tiles-per-ipu=1
                  VARIANTS ${TimesOutOnSim})
 
 #  Grouped convolution layer tests
 add_multitarget_test(
-         NAME grouped_conv3x3_stride_2_256_out
+         NAME grouped_conv3x3_stride_2_32_out
          COMMAND single_conv_layer
-                 --input-channels=64
-                 --output-channels=128
-                 --field={28,20}
+                 --input-channels=32
+                 --output-channels=32
+                 --field={20,12}
                  --kernel-size=3
                  --data-type=half
                  --padding=2
                  --conv-groups=2
                  --stride=2
+		             --tiles-per-ipu=16
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -949,7 +963,7 @@ add_multitarget_test(
             --input-channels=64
             --output-channels=129
             --field={7,7}
-            --tiles-per-ipu=16
+            --tiles-per-ipu=8
             --stride=1
             --conv-groups=2
             --kernel-size=1
@@ -973,7 +987,7 @@ add_multitarget_test(
             --input-channels=65
             --output-channels=129
             --field={7,7}
-            --tiles-per-ipu=16
+            --tiles-per-ipu=12
             --stride=1
             --conv-groups=2
             --kernel-size=1
@@ -985,7 +999,7 @@ add_multitarget_test(
              --input-channels=32
              --output-channels=64
              --field={14,14}
-             --tiles-per-ipu=8
+             --tiles-per-ipu=16
              --stride=3
              --conv-groups=3
              --kernel-size=1
@@ -998,6 +1012,7 @@ add_multitarget_test(
              --input-channels=16
              --conv-groups=2
              --output-channels=8
+             --tiles-per-ipu=24
              VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -1081,7 +1096,7 @@ add_multitarget_test(
                  --input-channels=16
                  --output-channels=16
                  --field={7,7}
-                 --tiles-per-ipu=1
+                 --tiles-per-ipu=4
                  --conv-groups=2
                  --stride=3
                  VARIANTS ${TimesOutOnSim})
@@ -1092,7 +1107,7 @@ add_multitarget_test(
                   --input-channels=16
                   --output-channels=16
                   --field={7,7}
-                  --tiles-per-ipu=2
+                  --tiles-per-ipu=4
                   --stride=2
                   --kernel-size=3
                   --conv-groups=2
@@ -1110,6 +1125,7 @@ add_multitarget_test(
         --padding={1,2}
         --conv-groups=2
         --stride=1
+        --tiles-per-ipu=12
         VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -1118,7 +1134,7 @@ add_multitarget_test(
         --input-channels=16
         --output-channels=16
         --field={7,7}
-        --tiles-per-ipu=2
+        --tiles-per-ipu=4
         --stride=2
         --kernel-size=3
         --padding={1,2}
@@ -1127,46 +1143,48 @@ add_multitarget_test(
         VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
-         NAME grouped_conv3x3_stride_1_fwd_asym_padding
+         NAME grouped_conv3x3_stride_1_asym_padding
         COMMAND single_conv_layer
-                --input-channels=32
-                --output-channels=48
-                --field={28,20}
+                --input-channels=16
+                --output-channels=24
+                --field={20,12}
                 --kernel-size=3
                 --data-type=half
                 --padding-lower=1
                 --padding-upper=2
                 --conv-groups=2
+                --tiles-per-ipu=12
                 --stride=1
                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
-         NAME grouped_conv3x3_stride_1_fwd_asym_padding_2
+         NAME grouped_conv3x3_stride_1_asym_padding_2
          COMMAND single_conv_layer
-                --input-channels=32
-                --output-channels=48
-                --field={28,20}
+                --input-channels=16
+                --output-channels=24
+                --field={20,12}
                 --kernel-size=3
                 --data-type=half
                 --padding-lower=3
                 --padding-upper=0
                 --conv-groups=2
+                --tiles-per-ipu=12
                 --stride=1
                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
-         NAME grouped_conv5x5_stride_2_fwd_asym_padding
+         NAME grouped_conv5x5_stride_2_asym_padding
          COMMAND single_conv_layer
-                  --input-channels=32
-                  --output-channels=64
-                  --field={28,20}
+                  --input-channels=16
+                  --output-channels=16
+                  --field={20,12}
                   --kernel-size=5
                   --data-type=half
                   --padding-lower={1,2}
                   --padding-upper={3,3}
                   --stride=2
                   --conv-groups=2
-                  --tiles-per-ipu=16
+                  --tiles-per-ipu=12
                   VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -1177,29 +1195,30 @@ add_multitarget_test(
                  --field={14,14}
                  --partials-type=float
                  --conv-groups=2
-                 --tiles-per-ipu=1216
+                 --tiles-per-ipu=12
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME grouped_small_conv_many_tiles_3x3
          COMMAND single_conv_layer
-                 --input-channels=32
-                 --output-channels=32
+                 --input-channels=16
+                 --output-channels=16
                  --kernel-size=3
-                 --field={14,14}
+                 --field={7,7}
                  --partials-type=float
                  --conv-groups=2
-                 --tiles-per-ipu=1216
+                 --tiles-per-ipu=20
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME grouped_conv1x1_shallow_input
         COMMAND single_conv_layer
                 --input-channels=8
-                --output-channels=1024
-                --field={16,16}
+                --output-channels=384
+                --field={8,8}
                 --conv-groups=2
                 --data-type=half
+                --tiles-per-ipu=16
                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -1214,6 +1233,7 @@ add_multitarget_test(
                  --stride=1
                  --conv-groups=2
                  --data-type=half
+                 --tiles-per-ipu=16
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -1228,19 +1248,21 @@ add_multitarget_test(
                  --stride=2
                  --conv-groups=2
                  --data-type=half
+                 --tiles-per-ipu=16
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
-         NAME grouped_conv_large_kernel
+         NAME grouped_conv_large_kernel_fwd
          COMMAND single_conv_layer
                  --single-phase=fwd
                  --field={64,14}
                  --kernel-size={62,3}
                  --input-channels=16
-                 --output-channels=16
+                 --output-channels=8
                  --padding=1
                  --conv-groups=2
                  --stride=2
+                 --tiles-per-ipu=16
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -1250,10 +1272,11 @@ add_multitarget_test(
                  --field={64,14}
                  --kernel-size={62,3}
                  --input-channels=16
-                 --output-channels=16
+                 --output-channels=8
                  --padding=1
                  --conv-groups=2
                  --stride=2
+                 --tiles-per-ipu=20
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -1278,10 +1301,11 @@ add_multitarget_test(
                  --data-type=half
                  --conv-groups=2
                  --batch-size=4
+                 --single-phase=fwd
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
-         NAME grouped_conv_batch_bwd_float
+         NAME grouped_conv_batch_float
          COMMAND single_conv_layer
                  --field={14,14}
                  --input-channels=32
@@ -1289,28 +1313,28 @@ add_multitarget_test(
                  --tiles-per-ipu=16
                  --data-type=float
                  --conv-groups=2
-                 --batch-size=4
+                 --batch-size=2
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME grouped_conv_batch_group
          COMMAND single_conv_layer
-                 --field={14,14}
-                 --input-channels=512
-                 --output-channels=128
-                 --tiles-per-ipu=304
+                 --field={7,7}
+                 --input-channels=256
+                 --output-channels=64
+                 --tiles-per-ipu=32
                  --conv-groups=2
                  --batch-size=2
                  VARIANTS ${TimesOutOnSim})
 
 # conv_batch_bwd_float test split into the three component phases
 add_multitarget_test(
-         NAME grouped_conv_batch_bwd_float_fwd
+         NAME grouped_conv_batch_float_fwd
          COMMAND single_conv_layer
                  --field={14,14}
-                 --input-channels=32
-                 --output-channels=32
-                 --tiles-per-ipu=16
+                 --input-channels=16
+                 --output-channels=16
+                 --tiles-per-ipu=12
                  --data-type=float
                  --batch-size=4
                  --conv-groups=2
@@ -1318,12 +1342,12 @@ add_multitarget_test(
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
-         NAME grouped_conv_batch_bwd_float_bwd
+         NAME grouped_conv_batch_float_bwd
          COMMAND single_conv_layer
                  --field={14,14}
-                 --input-channels=32
-                 --output-channels=32
-                 --tiles-per-ipu=16
+                 --input-channels=16
+                 --output-channels=16
+                 --tiles-per-ipu=12
                  --data-type=float
                  --batch-size=4
                  --conv-groups=2
@@ -1331,12 +1355,12 @@ add_multitarget_test(
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
-         NAME grouped_conv_batch_bwd_float_wu
+         NAME grouped_conv_batch_float_wu
          COMMAND single_conv_layer
                  --field={14,14}
-                 --input-channels=32
-                 --output-channels=32
-                 --tiles-per-ipu=16
+                 --input-channels=16
+                 --output-channels=16
+                 --tiles-per-ipu=12
                  --data-type=float
                  --batch-size=4
                  --conv-groups=2
@@ -1400,7 +1424,7 @@ add_multitarget_test(
                 --field={16,16}
                 --input-channels=16
                 --output-channels=64
-                --tiles-per-ipu=16
+                --tiles-per-ipu=12
                 --conv-groups=2
                 --data-type=half
                 VARIANTS ${TimesOutOnSim})
@@ -1412,10 +1436,10 @@ add_multitarget_test(
                 --padding={2,0}
                 --flip-input={1,0}
                 --input-channels=32
-                --output-channels=32
+                --output-channels=16
                 --kernel-size={16,1}
                 --flip-kernel={1,0}
-                --tiles-per-ipu=16
+                --tiles-per-ipu=12
                 --data-type=half
                 --conv-groups=2
                 --single-phase=fwd
@@ -1425,10 +1449,10 @@ add_multitarget_test(
          NAME grouped_conv_outer_product
          COMMAND single_conv_layer
                  --input-channels=1
-                 --output-channels=1024
-                 --field={1,512}
+                 --output-channels=256
+                 --field={1,128}
                  --conv-groups=2
-                 --tiles-per-ipu=64
+                 --tiles-per-ipu=20
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -1436,20 +1460,20 @@ add_multitarget_test(
          COMMAND single_conv_layer
                  --field={}
                  --batch-size=4
-                 --input-channels=256
-                 --output-channels=128
-                 --tiles-per-ipu=48
+                 --input-channels=128
+                 --output-channels=64
+                 --tiles-per-ipu=16
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME conv1d_simple
          COMMAND single_conv_layer
-                  --field={80}
+                  --field={40}
                   --kernel-size=3
                   --padding=1
                   --input-channels=128
                   --output-channels=128
-                  --tiles-per-ipu=48
+                  --tiles-per-ipu=20
                   VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -1458,9 +1482,9 @@ add_multitarget_test(
                  --field={5,6,7}
                  --kernel-size={4,3,2}
                  --padding={1,1,1}
-                 --input-channels=32
-                 --output-channels=64
-                 --tiles-per-ipu=48
+                 --input-channels=16
+                 --output-channels=32
+                 --tiles-per-ipu=20
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -1471,7 +1495,7 @@ add_multitarget_test(
                  --padding={1,1,1}
                  --input-channels=32
                  --output-channels=1
-                 --tiles-per-ipu=48
+                 --tiles-per-ipu=8
                  VARIANTS ${TimesOutOnSim})
 
 # 3D convolution with multiple batches, convolution groups, input dilation,
@@ -1481,13 +1505,13 @@ add_multitarget_test(
          COMMAND single_conv_layer
                  --conv-groups=2
                  --batch-size=2
-                 --field={4,3,32}
+                 --field={4,3,16}
                  --in-dilation={1,2,1}
                  --padding={1,0,1}
                  --kernel-size={3,2,3}
                  --kernel-dilation={1,1,2}
                  --input-channels=16
-                 --output-channels=64
+                 --output-channels=32
                  --stride={1,1,3}
                  --tiles-per-ipu=16
                  VARIANTS ${TimesOutOnSim})
@@ -1589,22 +1613,13 @@ add_test(
 add_multitarget_test(
       NAME fully_connected_half_batch_7
       COMMAND fully_connected_layer
-              --input-size 256
-              --output-size 256
-              --tiles-per-ipu 16
+              --input-size 96
+              --output-size 96
+              --tiles-per-ipu 8
               --data-type=half
               --batch-size=7
               VARIANTS ${TimesOutOnSim})
 
-add_multitarget_test(
-      NAME fully_connected_half_batch_7_bwd_as_wu
-      COMMAND fully_connected_layer
-              --input-size 256
-              --output-size 256
-              --tiles-per-ipu 16
-              --data-type=half
-              --batch-size=7
-              VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME fully_connected_float_batch_4
@@ -1657,9 +1672,9 @@ add_multitarget_test(
 add_multitarget_test(
          NAME grouped_fully_connected_half
          COMMAND fully_connected_layer
-                 --input-size 300
+                 --input-size 160
                  --output-size 100
-                 --tiles-per-ipu 16
+                 --tiles-per-ipu 12
                  --num-groups 2
                  --data-type=half
                  VARIANTS ${TimesOutOnSim})
@@ -1679,9 +1694,9 @@ add_test(
 add_multitarget_test(
          NAME grouped_fully_connected_half_batch_4
          COMMAND fully_connected_layer
-                 --input-size 300
+                 --input-size 160
                  --output-size 100
-                 --tiles-per-ipu 16
+                 --tiles-per-ipu 12
                  --data-type=half
                  --num-groups 2
                  --batch-size=4
@@ -1701,9 +1716,9 @@ add_test(
 add_multitarget_test(
       NAME grouped_fully_connected_half_batch_7
       COMMAND fully_connected_layer
-              --input-size 256
-              --output-size 256
-              --tiles-per-ipu 16
+              --input-size 112
+              --output-size 112
+              --tiles-per-ipu 8
               --data-type=half
               --num-groups 3
               --batch-size=7
@@ -2394,7 +2409,7 @@ add_multitarget_test(
                 --field={14,28}
                 --kernel-size={3,5}
                 --kernel-dilation={3,2}
-                --tiles-per-ipu=16
+                --tiles-per-ipu=12
                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(

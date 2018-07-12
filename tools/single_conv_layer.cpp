@@ -38,12 +38,12 @@ using namespace poputil;
 using poplibs_test::Pass;
 
 const OptionFlags extraTextengineOptions {
-  {"target.textSectionSizeInBytes", "0xe000"},
+  {"target.textSectionSizeInBytes", "0x10000"},
   {"target.workerStackSizeInBytes", "0x200"}
 };
 
 const OptionFlags engineOptions {
-  {"target.textSectionSizeInBytes", "0xa000"},
+  {"target.textSectionSizeInBytes", "0xe000"},
   {"target.workerStackSizeInBytes", "0x200"}
 };
 
