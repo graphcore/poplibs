@@ -1112,7 +1112,6 @@ static Program dataTransform(
 }
 
 
-
 static Program dataTransform(
               Graph &graph,
               const WgdTilePartition &tp,
@@ -1274,7 +1273,6 @@ static Program accum(
               std::vector<Tensor> &kernelTf,
               Tensor acc) {
   ComputeSet cs = graph.addComputeSet(layerName + "/Accum");
-  ComputeSet zeroCS = graph.addComputeSet(layerName + "/ZeroAccum");
 
   unsigned numZig = tp.zig;
   for (unsigned zigTile = 0; zigTile < tp.tilesForZig; ++zigTile) {
@@ -1376,12 +1374,8 @@ static Program accum(
   }
 
   Sequence prog;
-  if (!graph.getComputeSet(zeroCS).empty()) {
-    prog.add(Execute(zeroCS));
-  }
   prog.add(Execute(cs));
   return prog;
-
 }
 
 
