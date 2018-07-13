@@ -57,7 +57,11 @@ public:
       typename std::conditional<isUpdate, InOut<T>, Output<T>>::type;
 
   /* Vector of regions to output. */
-  ReduceOutput<VectorList<OutType, VectorListLayout::DELTAN>> out;
+  /* TODO: Remove the alignment constraint once graph construction or poplar */
+  /*       deals with sub-word writes */
+
+
+  ReduceOutput<VectorList<OutType, VectorListLayout::DELTAN, 4>> out;
   /* Vector of regions to use as input. */
   Input<VectorList<PartialsType, VectorListLayout::DELTAN, 1, true>> partials;
 
