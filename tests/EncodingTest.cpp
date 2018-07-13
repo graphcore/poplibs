@@ -8,6 +8,7 @@
 #include "poputil/exceptions.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poplibs_test/Util.hpp"
+#include "TestDevice.hpp"
 #include <iostream>
 #include <limits>
 #include <random>
@@ -73,9 +74,7 @@ static bool encodeTest(std::size_t numIndices,
                        std::size_t length,
                        const Type &indicesType,
                        const Type &encodedType) {
-  IPUModel ipuModel;
-  ipuModel.tilesPerIPU = 64;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
   const auto &target = device.getTarget();
 
   Graph graph(device);
