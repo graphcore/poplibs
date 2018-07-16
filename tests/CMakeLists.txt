@@ -192,7 +192,7 @@ function(add_multitarget_test)
 endfunction()
 
 # Make an alias for IpuModel that can be used to denote tests that specifically
-# should only be run on IpuModel because the test times out if run on the
+# should not be run on Sim variants because the test times out if run on the
 # simulator:
 set(TimesOutOnSim "IpuModel")
 
@@ -201,21 +201,21 @@ add_popnn_unit_test(RandomGenTest RandomGenTest.cpp)
 add_popnn_unit_test(ConvUtilTest ConvUtilTest.cpp)
 add_popnn_unit_test(RangeTest RangeTest.cpp)
 add_popnn_unit_test(ConvPlanTest ConvPlanTest.cpp)
-add_popnn_unit_test(StdArithmeticTests StdArithmeticTests.cpp
-                    VARIANTS IpuModel)
-add_popnn_unit_test(GraphFunctionTest GraphFunctionTest.cpp
-                    VARIANTS IpuModel)
+add_popnn_unit_test(StdArithmeticTests StdArithmeticTests.cpp)
+# GraphFunctionTest is variant-independent
+add_popnn_unit_test(GraphFunctionTest GraphFunctionTest.cpp VARIANTS IpuModel)
 add_popnn_unit_test(WinogradConvolution WinogradConv.cpp
-                    VARIANTS IpuModel)
-add_popnn_unit_test(NonLinearityTest NonLinearityTest.cpp
-                    VARIANTS IpuModel)
+                    VARIANTS ${TimesOutOnSim})
+add_popnn_unit_test(NonLinearityTest NonLinearityTest.cpp)
 add_popnn_unit_test(BigNLVertices BigNLVertices.cpp)
 add_popnn_unit_test(GraphProgLocationTest GraphProgLocationTest.cpp)
-add_popnn_unit_test(StdOperatorTest StdOperatorsTest.cpp VARIANTS IpuModel)
-add_popnn_unit_test(BatchNormTest BatchNormTest.cpp VARIANTS IpuModel)
-add_popnn_unit_test(ReductionTests ReductionTests.cpp VARIANTS IpuModel)
+add_popnn_unit_test(StdOperatorTest StdOperatorsTest.cpp
+                    VARIANTS ${TimesOutOnSim})
+add_popnn_unit_test(BatchNormTest BatchNormTest.cpp
+                    VARIANTS ${TimesOutOnSim})
+add_popnn_unit_test(ReductionTests ReductionTests.cpp)
 add_popnn_unit_test(LargeSplitRegionsTest LargeSplitRegionsTest.cpp)
-add_popnn_unit_test(DynamicSliceTest DynamicSliceTest.cpp VARIANTS IpuModel)
+add_popnn_unit_test(DynamicSliceTest DynamicSliceTest.cpp)
 add_popnn_unit_test(CircBufTests CircBufTests.cpp)
 add_popnn_unit_test(BroadcastToMatchTest BroadcastToMatchTest.cpp)
 add_popnn_unit_test(ParallelTest ParallelTest.cpp)
@@ -235,7 +235,7 @@ foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
                    --n 1
                    --seed ${n}
                    --binary $<TARGET_FILE:single_conv_layer>
-           VARIANTS ${TimesOutOnSim})
+           ) #EAEA VARIANTS ${TimesOutOnSim})
 endforeach()
 
 # Random reduce_op tests with fixed seed.
