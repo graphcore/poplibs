@@ -3,7 +3,7 @@
 
 #include <poplar/Engine.hpp>
 #include <poplar/Target.hpp>
-#include <poplar/DeviceSet.hpp>
+#include <poplar/DeviceManager.hpp>
 #include <poplar/IPUModel.hpp>
 
 namespace {
@@ -38,7 +38,7 @@ inline poplar::Device createTestDevice(DeviceType deviceType,
   }
   case DeviceType::Hw:
   {
-    static auto set = poplar::DeviceSet::getDeviceSet();
+    static auto set = poplar::DeviceManager::getDeviceManager();
     try {
       auto device = set.getDevices(poplar::TargetType::IPU, 1).at(0);
       auto success = device.attach();
