@@ -3,7 +3,7 @@ find_package(PythonInterp REQUIRED)
 find_package(Threads)
 
 
-set(DEFAULT_TEST_VARIANTS "IpuModel;Sim:cpp;Sim" CACHE STRING
+set(DEFAULT_TEST_VARIANTS "IpuModel;Sim:cpp;Sim;Hw" CACHE STRING
     "The device variants to run tests on when no variants are set explicitly")
 
 set(ENABLED_TEST_VARIANTS "Cpu;IpuModel;Sim;Sim:cpp" CACHE STRING
@@ -194,7 +194,7 @@ endfunction()
 # Make an alias for IpuModel that can be used to denote tests that specifically
 # should not be run on Sim variants because the test times out if run on the
 # simulator:
-set(TimesOutOnSim "IpuModel")
+set(TimesOutOnSim "IpuModel;Hw")
 
 # Unit tests
 add_popnn_unit_test(RandomGenTest RandomGenTest.cpp)
@@ -1746,54 +1746,60 @@ add_multitarget_test(
                  --data-type=half
                  VARIANTS ${TimesOutOnSim})
 
-add_test(NAME max_pool_layer_half
+add_multitarget_test(NAME max_pool_layer_half
          COMMAND pooling_layer
-                 --channels 32
-                 --width=28
-                 --height=28
+                 --channels 16
+                 --width=14
+                 --height=9
                  --kernel-size=2
+                 --tiles-per-ipu=16
                  --stride=2
                  --data-type=half)
 
-add_test(NAME max_pool_layer_float
+add_multitarget_test(NAME max_pool_layer_float
          COMMAND pooling_layer
-                 --channels 32
-                 --width=28
-                 --height=28
+                 --channels 16
+                 --width=14
+                 --height=9
                  --kernel-size=2
+                 --tiles-per-ipu=16
                  --stride=2
                  --data-type=float)
-               
 
-add_test(NAME max_pool_layer_1chan_overlapping_kernel
+add_multitarget_test(NAME max_pool_layer_1chan_overlapping_kernel
          COMMAND pooling_layer
                  --channels 1
-                 --width=100
-                 --height=100
+                 --width=50
+                 --height=50
                  --kernel-size=3
+                 --tiles-per-ipu=16
                  --stride=2
                  --padding=1
                  --data-type=float)
 
-add_test(NAME max_pool_layer_half_batch
+add_multitarget_test(NAME max_pool_layer_half_batch
          COMMAND pooling_layer
                  --batch-size=4
-                 --channels 32
-                 --width=28
-                 --height=28
+                 --channels 16
+                 --width=14
+                 --height=14
+                 --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
-                 --data-type=half)
+                 --data-type=half
+                 VARIANTS ${TimesOutOnSim})
 
-add_test(NAME max_pool_layer_float_batch
+add_multitarget_test(NAME max_pool_layer_float_batch
          COMMAND pooling_layer
-                 --batch-size=4
-                 --channels 32
-                 --width=28
-                 --height=28
+                 --batch-size=2
+                 --channels 16
+                 --width=14
+                 --height=14
+                 --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
-                 --data-type=float)
+                 --data-type=float
+                 VARIANTS ${TimesOutOnSim})
 
 add_test(NAME max_pool_layer_2ipu
          COMMAND pooling_layer
@@ -1801,26 +1807,29 @@ add_test(NAME max_pool_layer_2ipu
                  --bwd-chans-per-group=8
                  --width=56
                  --height=56
+                 --tiles-per-ipu=16
                  --kernel-size=3
                  --tiles-per-ipu 304
                  --stride=2
                  --ipus 2)
 
-add_test(NAME max_pool_layer_1x4
+add_multitarget_test(NAME max_pool_layer_1x4
          COMMAND pooling_layer
                  --channels 32
                  --width=32
                  --height=1
+                 --tiles-per-ipu=16
                  --kernel-height=1
                  --kernel-width=4
                  --stride-height=1
                  --stride-width=4)
 
-add_test(NAME max_pool_layer_mixed_padding
+add_multitarget_test(NAME max_pool_layer_mixed_padding
         COMMAND pooling_layer
                 --channels 32
                 --width=32
                 --height=16
+                --tiles-per-ipu=16
                 --kernel-height=5
                 --kernel-width=3
                 --stride-height=1
@@ -1828,13 +1837,15 @@ add_test(NAME max_pool_layer_mixed_padding
                 --padding-width-lower=1
                 --padding-width-upper=2
                 --padding-height-lower=3
-                --padding-height-upper=4)
+                --padding-height-upper=4
+                 VARIANTS ${TimesOutOnSim})
 
-add_test(NAME max_pool_layer_negative_mixed_padding
+add_multitarget_test(NAME max_pool_layer_negative_mixed_padding
         COMMAND pooling_layer
                 --channels 32
                 --width=32
                 --height=16
+                --tiles-per-ipu=16
                 --kernel-height=5
                 --kernel-width=3
                 --stride-height=1
@@ -1842,60 +1853,71 @@ add_test(NAME max_pool_layer_negative_mixed_padding
                 --padding-width-lower=-1
                 --padding-width-upper=2
                 --padding-height-lower=-3
-                --padding-height-upper=4)
+                --padding-height-upper=4
+                 VARIANTS ${TimesOutOnSim})
 
-add_test(NAME avg_pool_layer_half
+add_multitarget_test(NAME avg_pool_layer_half
          COMMAND pooling_layer
                  --channels 32
                  --pooling-type=avg
                  --width=28
                  --height=28
+                 --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
-                 --data-type=half)
+                 --data-type=half
+                 VARIANTS ${TimesOutOnSim})
 
-add_test(NAME avg_pool_layer_float
+add_multitarget_test(NAME avg_pool_layer_float
          COMMAND pooling_layer
                  --channels 32
                  --pooling-type=avg
                  --width=28
                  --height=28
+                 --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
-                 --data-type=float)
+                 --data-type=float
+                 VARIANTS ${TimesOutOnSim})
 
-add_test(NAME avg_pool_layer_1chan_overlapping_kernel
+add_multitarget_test(NAME avg_pool_layer_1chan_overlapping_kernel
          COMMAND pooling_layer
                  --channels 1
                  --pooling-type=avg
                  --width=100
                  --height=100
+                 --tiles-per-ipu=16
                  --kernel-size=3
                  --stride=2
                  --padding=1
-                 --data-type=float)
+                 --data-type=float
+                 VARIANTS ${TimesOutOnSim})
 
-add_test(NAME avg_pool_layer_half_batch
+add_multitarget_test(NAME avg_pool_layer_half_batch
+         COMMAND pooling_layer
+                 --batch-size=4
+                 --pooling-type=avg
+                 --channels 16
+                 --width=14
+                 --height=14
+                 --tiles-per-ipu=16
+                 --kernel-size=2
+                 --stride=2
+                 --data-type=half
+                 VARIANTS ${TimesOutOnSim})
+
+add_multitarget_test(NAME avg_pool_layer_float_batch
          COMMAND pooling_layer
                  --batch-size=4
                  --pooling-type=avg
                  --channels 32
                  --width=28
                  --height=28
+                 --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
-                 --data-type=half)
-
-add_test(NAME avg_pool_layer_float_batch
-         COMMAND pooling_layer
-                 --batch-size=4
-                 --pooling-type=avg
-                 --channels 32
-                 --width=28
-                 --height=28
-                 --kernel-size=2
-                 --stride=2
-                 --data-type=float)
+                 --data-type=float
+                 VARIANTS ${TimesOutOnSim})
 
 add_test(NAME avg_pool_layer_2ipu
          COMMAND pooling_layer
@@ -1904,28 +1926,33 @@ add_test(NAME avg_pool_layer_2ipu
                  --bwd-chans-per-group=8
                  --width=56
                  --height=56
+                 --tiles-per-ipu=16
                  --kernel-size=3
                  --tiles-per-ipu=304
                  --stride=2
-                 --ipus 2)
+                 --ipus 2
+                 VARIANTS ${TimesOutOnSim})
 
-add_test(NAME avg_pool_layer_1x4
+add_multitarget_test(NAME avg_pool_layer_1x4
          COMMAND pooling_layer
-                 --channels 32
+                 --channels 16
                  --pooling-type=avg
                  --width=32
                  --height=1
+                 --tiles-per-ipu=8
                  --kernel-height=1
                  --kernel-width=4
                  --stride-height=1
-                 --stride-width=4)
+                 --stride-width=4
+                 VARIANTS ${TimesOutOnSim})
 
-add_test(NAME avg_pool_layer_mixed_padding
+add_multitarget_test(NAME avg_pool_layer_mixed_padding
         COMMAND pooling_layer
-                --channels 32
+                --channels 16
                 --pooling-type=avg
-                --width=32
+                --width=24
                 --height=16
+                 --tiles-per-ipu=16
                 --kernel-height=5
                 --kernel-width=3
                 --stride-height=1
@@ -1933,14 +1960,16 @@ add_test(NAME avg_pool_layer_mixed_padding
                 --padding-width-lower=1
                 --padding-width-upper=2
                 --padding-height-lower=3
-                --padding-height-upper=4)
+                --padding-height-upper=4
+                 VARIANTS ${TimesOutOnSim})
 
-add_test(NAME avg_pool_layer_negative_mixed_padding
+add_multitarget_test(NAME avg_pool_layer_negative_mixed_padding
         COMMAND pooling_layer
-                --channels 32
+                --channels 16
                 --pooling-type=avg
-                --width=32
+                --width=24
                 --height=16
+                 --tiles-per-ipu=16
                 --kernel-height=5
                 --kernel-width=3
                 --stride-height=1
@@ -1948,61 +1977,71 @@ add_test(NAME avg_pool_layer_negative_mixed_padding
                 --padding-width-lower=-1
                 --padding-width-upper=2
                 --padding-height-lower=-3
-                --padding-height-upper=4)
+                --padding-height-upper=4
+                 VARIANTS ${TimesOutOnSim})
 
-add_test(NAME sum_pool_layer_half
+add_multitarget_test(NAME sum_pool_layer_half
+         COMMAND pooling_layer
+                 --channels 16
+                 --pooling-type=sum
+                 --width=14
+                 --height=14
+                 --tiles-per-ipu=16
+                 --kernel-size=2
+                 --stride=2
+                 --data-type=half
+                 VARIANTS ${TimesOutOnSim})
+
+add_multitarget_test(NAME sum_pool_layer_float
          COMMAND pooling_layer
                  --channels 32
                  --pooling-type=sum
-                 --width=28
-                 --height=28
+                 --width=14
+                 --height=14
+                 --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
-                 --data-type=half)
+                 --data-type=float
+                 VARIANTS ${TimesOutOnSim})
 
-add_test(NAME sum_pool_layer_float
-         COMMAND pooling_layer
-                 --channels 32
-                 --pooling-type=sum
-                 --width=28
-                 --height=28
-                 --kernel-size=2
-                 --stride=2
-                 --data-type=float)
-               
-
-add_test(NAME sum_pool_layer_1chan_overlapping_kernel
+add_multitarget_test(NAME sum_pool_layer_1chan_overlapping_kernel
          COMMAND pooling_layer
                  --channels 1
                  --pooling-type=sum
                  --width=100
                  --height=100
+                 --tiles-per-ipu=16
                  --kernel-size=3
                  --stride=2
                  --padding=1
-                 --data-type=float)
+                 --data-type=float
+                 VARIANTS ${TimesOutOnSim})
 
-add_test(NAME sum_pool_layer_half_batch
+add_multitarget_test(NAME sum_pool_layer_half_batch
          COMMAND pooling_layer
                  --batch-size=4
                  --pooling-type=sum
-                 --channels 32
-                 --width=28
-                 --height=28
+                 --channels 16
+                 --width=14
+                 --height=14
+                 --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
-                 --data-type=half)
+                 --data-type=half
+                 VARIANTS ${TimesOutOnSim})
 
-add_test(NAME sum_pool_layer_float_batch
+add_multitarget_test(NAME sum_pool_layer_float_batch
          COMMAND pooling_layer
                  --batch-size=4
                  --pooling-type=sum
-                 --channels 32
-                 --width=28
-                 --height=28
+                 --channels 16
+                 --width=14
+                 --height=14
+                 --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
-                 --data-type=float)
+                 --data-type=float
+                 VARIANTS ${TimesOutOnSim})
 
 add_test(NAME sum_pool_layer_2ipu
          COMMAND pooling_layer
@@ -2011,28 +2050,31 @@ add_test(NAME sum_pool_layer_2ipu
                  --bwd-chans-per-group=8
                  --width=56
                  --height=56
+                 --tiles-per-ipu=16
                  --kernel-size=3
                  --tiles-per-ipu=304
                  --stride=2
                  --ipus 2)
 
-add_test(NAME sum_pool_layer_1x4
+add_multitarget_test(NAME sum_pool_layer_1x4
          COMMAND pooling_layer
                  --channels 32
                  --pooling-type=sum
                  --width=32
                  --height=1
+                 --tiles-per-ipu=16
                  --kernel-height=1
                  --kernel-width=4
                  --stride-height=1
                  --stride-width=4)
 
-add_test(NAME sum_pool_layer_mixed_padding
+add_multitarget_test(NAME sum_pool_layer_mixed_padding
         COMMAND pooling_layer
-                --channels 32
+                --channels 16
                 --pooling-type=sum
-                --width=32
+                --width=24
                 --height=16
+                 --tiles-per-ipu=16
                 --kernel-height=5
                 --kernel-width=3
                 --stride-height=1
@@ -2040,14 +2082,16 @@ add_test(NAME sum_pool_layer_mixed_padding
                 --padding-width-lower=1
                 --padding-width-upper=2
                 --padding-height-lower=3
-                --padding-height-upper=4)
+                --padding-height-upper=4
+                 VARIANTS ${TimesOutOnSim})
 
-add_test(NAME sum_pool_layer_negative_mixed_padding
+add_multitarget_test(NAME sum_pool_layer_negative_mixed_padding
         COMMAND pooling_layer
-                --channels 32
+                --channels 16
                 --pooling-type=sum
-                --width=32
+                --width=24
                 --height=16
+                 --tiles-per-ipu=16
                 --kernel-height=5
                 --kernel-width=3
                 --stride-height=1
@@ -2055,7 +2099,8 @@ add_test(NAME sum_pool_layer_negative_mixed_padding
                 --padding-width-lower=-1
                 --padding-width-upper=2
                 --padding-height-lower=-3
-                --padding-height-upper=4)
+                --padding-height-upper=4
+                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
           NAME gemm_5x0x4
@@ -2232,7 +2277,7 @@ add_multitarget_test(
          COMMAND general_matrix_multiply
                  --m 40
                  --k 40
-                 --n 40 
+                 --n 40
                  --alpha 2
                  --beta 1
                  --tiles-per-ipu=16
@@ -2246,9 +2291,9 @@ add_multitarget_test(
          COMMAND general_matrix_multiply
                  --m 40
                  --k 39
-                 --n 38 
+                 --n 38
                  --alpha 2
-                 --beta 1 
+                 --beta 1
                  --tiles-per-ipu=16
                  --left-matrix-op=normal
                  --right-matrix-op=normal
@@ -2259,9 +2304,9 @@ add_multitarget_test(
          COMMAND general_matrix_multiply
                  --m 40
                  --k 39
-                 --n 38 
+                 --n 38
                  --alpha 2
-                 --beta 1 
+                 --beta 1
                  --tiles-per-ipu=16
                  --left-matrix-op=transpose
                  --right-matrix-op=normal
@@ -2273,9 +2318,9 @@ add_multitarget_test(
          COMMAND general_matrix_multiply
                  --m 40
                  --k 39
-                 --n 38 
+                 --n 38
                  --alpha 2
-                 --beta 1 
+                 --beta 1
                  --tiles-per-ipu=16
                  --left-matrix-op=normal
                  --right-matrix-op=transpose
@@ -2303,7 +2348,7 @@ add_multitarget_test(
                  --nonlinearity-type sigmoid
                  --apply-feedforward-weights
                  VARIANTS ${TimesOutOnSim})
-                 
+
 add_multitarget_test(
          NAME basic_lstm_40x4x38_seq_2_half_data
          COMMAND lstm_layer

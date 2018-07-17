@@ -18,6 +18,7 @@
 #include <poplibs_test/Util.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include <poputil/exceptions.hpp>
+#include "TestDevice.hpp"
 #include <random>
 
 
@@ -32,6 +33,15 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
 using namespace poputil;
+
+const OptionFlags engineOptions {
+  {"target.textSectionSizeInBytes", "0xa000"},
+  {"target.workerStackSizeInBytes", "0x200"}
+};
+
+const OptionFlags simDebugOptions {
+  {"debug.trace", "false"}
+};
 using popnn::PoolingType;
 
 namespace popnn {
@@ -75,8 +85,8 @@ int main(int argc, char **argv) {
   unsigned batchSize;
   Type dataType;
   double relativeTolerance, absoluteTolerance;
-  bool useCpuModel;
 
+  DeviceType deviceType = DeviceType::IpuModel;
   IPUModel ipuModel;
   PoolingType poolingType = PoolingType::MAX;
 
@@ -90,8 +100,9 @@ int main(int argc, char **argv) {
   po::options_description desc("Options");
   desc.add_options()
     ("help", "Produce help message")
-    ("use-cpu", po::value<bool>(&useCpuModel)->default_value(false),
-     "When true, use a CPU model of the device. Otherwise use the IPU model")
+    ("device-type: Cpu | Sim | Hw | IpuModel",
+     po::value<DeviceType>(&deviceType)->default_value(deviceType),
+     "Device type")
     ("channels", po::value<unsigned>(&chans)->required(),
      "Number of channels")
     ("width", po::value<unsigned>(&width)->required(), "Field width")
@@ -264,8 +275,8 @@ int main(int argc, char **argv) {
   }
 
   bool inferenceOnly = vm.count("inference-only");
-  Device device = useCpuModel ? Device::createCPUDevice() :
-                                ipuModel.createDevice();
+  Device device = createTestDevice(deviceType, ipuModel.numIPUs,
+                                   ipuModel.tilesPerIPU, simDebugOptions);
   const auto &target = device.getTarget();
   Graph graph(device);
   popnn::addCodelets(graph);
@@ -429,7 +440,9 @@ int main(int argc, char **argv) {
     matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
                                  relativeTolerance, absoluteTolerance);
   }
-  if (!useCpuModel) {
+
+  if (deviceType != DeviceType::Cpu && deviceType != DeviceType::Sim &&
+      deviceType != DeviceType::Hw) {
     engine.printSummary(std::cout, OptionFlags{
       { "doLayerWiseBreakdown", "true" }
     });
