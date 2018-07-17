@@ -1,0 +1,193 @@
+// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
+// Test for the clamp vertex
+//
+#include <TestDevice.hpp>
+#include <poplar/Engine.hpp>
+#include <popops/ElementWise.hpp>
+#include <popops/Zero.hpp>
+
+#include "poputil/VertexTemplates.hpp"
+
+#include <poputil/TileMapping.hpp>
+#include <popnn/codelets.hpp>
+#include <popops/codelets.hpp>
+#include <poplin/codelets.hpp>
+#include <poplibs_test/Util.hpp>
+
+#define BOOST_TEST_MODULE ClampTest_@DATA_TYPE@
+#include <boost/test/unit_test.hpp>
+
+using namespace poplar;
+using namespace poplar::program;
+using namespace poputil;
+using namespace popnn;
+using namespace poplibs_test::util;
+using namespace poplin;
+
+//Input array sizes
+#define ROWS 2
+#define COLUMNS 6
+#define RESULT_SIZE (ROWS*COLUMNS * ROWS*(COLUMNS+1))           //Extra column for the output compared to the input
+
+//*************************************************
+// clampHost: generate expected results
+// Array size generated is always ROWS*COLUMNS,
+// but data outside active_rows,active_columns is zeroed
+//*************************************************
+double* clampHost(double *in1,double *in2,double *in3, double *out, unsigned active_columns,unsigned active_rows,unsigned offset)
+{
+    int i,j;
+    for(j=0;j<ROWS;j++)
+    {
+        if(offset)                                     //Pad output if the unused item is at row start
+            *out++=0;
+        for(i=0;i<COLUMNS;i++)
+        {
+            double c_result=in1[i+j*COLUMNS];
+            if(c_result<in2[i+j*COLUMNS])
+                c_result=in2[i+j*COLUMNS];
+            if(c_result>in3[i+j*COLUMNS])
+                c_result=in3[i+j*COLUMNS];
+
+            if(j<active_rows && i<active_columns)       //Active area for this test
+                *out++=c_result;
+            else
+                *out++=0;
+        }
+        if(!offset)                                 //pad output if the unused item is at row end
+            *out++=0;
+    }
+    return out;
+}
+//*************************************************
+// Simple test data
+//*************************************************
+double in1Test[ROWS][COLUMNS]={{5,60,-7,8,6,9},{-100,-10,-30,-30,-6,-9}};
+double in2Test[ROWS][COLUMNS]={{1,2,3,4,5,7},{-101,-100,-90,-10,-5,10}};
+double in3Test[ROWS][COLUMNS]={{10,20,30,40,50,60},{-10,-20,-30,10,5,100}};
+
+double outTest[RESULT_SIZE];          //Host reference result
+
+//*************************************************
+// Main Test function for clamp
+//
+// Overview: test using a small array of input data with at least 2 rows.
+// The input to each clamp is a ROWSxCOLUMNS array.
+// The output is a ROWSx(COLUMNS+1) array where either the 1st or last column is unused
+// by the clamp function.
+// Using the same input data, multiple slices of input are also tested: 1 row, 1 column
+// up to the whole input array
+//*************************************************
+void clampTest(const Type &dataType)
+{
+    unsigned long i,j;
+    double *outptr=outTest;
+
+    Device device = createTestDevice(TEST_TARGET);
+    Target target=device.getTarget();
+
+    //Create Graph object
+    Graph graph(target);
+    popops::addCodelets(graph);
+
+    //Input data for the clamp function
+    Tensor in1=graph.addVariable(dataType,{ROWS,COLUMNS}, "Input 1: Data");
+    Tensor in2=graph.addVariable(dataType,{ROWS,COLUMNS}, "Input2: Low Bound");
+    Tensor in3=graph.addVariable(dataType,{ROWS,COLUMNS},"Input 3: High Bound");
+    graph.setTileMapping(in1,0);
+    graph.setTileMapping(in2,0);
+    graph.setTileMapping(in3,0);
+
+    //Result data from the clamp function
+    Tensor out=graph.addVariable(dataType,{ROWS,COLUMNS+1}, "Output");//+1 to give space for offset output
+    graph.setTileMapping(out,0);
+
+    //allocateHostMemoryForTensor
+    std::vector<std::pair<std::string, char*>> tmap;
+    auto input1=allocateHostMemoryForTensor(in1,"in1",graph,tmap);
+    auto input2=allocateHostMemoryForTensor(in2,"in2",graph,tmap);
+    auto input3=allocateHostMemoryForTensor(in3,"in3",graph,tmap);
+
+    auto output=allocateHostMemoryForTensor(out,"out",graph,tmap);
+
+    //Put test inputs into arrays of the correct type ready to use
+    boost::multi_array<double,1> in1Host(boost::extents[ROWS*COLUMNS]);
+    std::copy(&in1Test[0][0],&in1Test[ROWS][0],in1Host.data());             //Careful with copy end location and 2D arrays!
+
+    boost::multi_array<double,1> in2Host(boost::extents[ROWS*COLUMNS]);
+    std::copy(&in2Test[0][0],&in2Test[ROWS][0],in2Host.data());
+
+    boost::multi_array<double,1> in3Host(boost::extents[ROWS*COLUMNS]);
+    std::copy(&in3Test[0][0],&in3Test[ROWS][0],in3Host.data());
+
+    boost::multi_array<double,1> outHost(boost::extents[ROWS*(COLUMNS+1)]);
+    boost::multi_array<double,1> outTest2(boost::extents[ROWS*(COLUMNS+1)]); 
+
+    //Make a multiple programs to test clamp, each using different input slices
+    std::array<Program, ROWS * COLUMNS> programs;
+    int progNo=0;
+    Tensor slice1,slice2,slice3,sliceOut;
+
+
+    for(i=1;i<=COLUMNS;i++)
+    {
+        for(j=1;j<=ROWS;j++)
+        {
+            Sequence sequence;
+            unsigned offset=j&1;                                                    //Vary the offset into the output each pass to test that it functions with correct alignment
+
+            ComputeSet testComputeSet=graph.addComputeSet("computeClamp");
+
+            const auto vertexClass=templateVertex("popops::Clamp",dataType);
+
+            auto clampVertex=graph.addVertex(testComputeSet,vertexClass);
+            graph.setTileMapping(clampVertex,0);
+
+            slice1=in1.slice({0,0},{j,i});                                          //Different slices of the same input data to test looping decisions
+            slice2=in2.slice({0,0},{j,i});
+            slice3=in3.slice({0,0},{j,i});
+            sliceOut=out.slice({0,offset},{j,i+offset});                            //Different slices of the output to test alignment
+
+
+            graph.connect(clampVertex["in1"],slice1);
+            graph.connect(clampVertex["in2"],slice2);
+            graph.connect(clampVertex["in3"],slice3);
+            graph.connect(clampVertex["out"],sliceOut);
+
+            popops::zero(graph,out,sequence,"Zero output");
+            sequence.add(Execute(testComputeSet));
+            programs[progNo]=sequence;
+
+            //generate host version of the data for reference
+            outptr=clampHost(in1Test[0],in2Test[0],in3Test[0],outptr,i,j,offset);   //generate the expected result in the outTest array 
+            progNo++;
+        }
+     }
+
+    //Run each program and compare host and IPU result
+     Engine engine(graph,programs);
+     engine.load(device);
+    for(j=0;j<(ROWS*COLUMNS);j++)
+    { 
+        copy(target,in1Host,dataType,input1.get()); 
+        copy(target,in2Host,dataType,input2.get());
+        copy(target,in3Host,dataType,input3.get());
+
+        upload(engine, tmap);
+
+        engine.run(j);
+
+        download(engine,tmap);
+        copy(target,dataType,output.get(),outHost);
+
+        //Check the result, in the outTest array (Generated above),
+        //each result is a ROWS*COLUMNS array with an active area defined by the slices, zero elsewhere
+        std::copy(&outTest[ROWS*(COLUMNS+1)*j],&outTest[ROWS*(COLUMNS+1)*(j+1)],outTest2.data());
+        bool check=checkIsClose("Test_"+std::to_string(j),outHost,outTest2,0.0);
+        BOOST_CHECK(check);
+    }
+}
+
+ BOOST_AUTO_TEST_CASE(Clamp_@DATA_TYPE@) {
+   clampTest(@DATA_TYPE_UPPER@);
+ }

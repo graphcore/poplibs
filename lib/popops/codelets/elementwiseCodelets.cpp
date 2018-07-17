@@ -1,5 +1,6 @@
 #include <poplar/Vertex.hpp>
 #include <poplar/HalfFloat.hpp>
+
 #include <cmath>
 
 #include "util.hpp"
@@ -552,6 +553,10 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;  // lower bound
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in3;  // upper bound
   Vector<Output<Vector<InType>>> out;
+
+  static const bool ext = std::is_same<InType,float>::value
+            || std::is_same<InType,half>::value;
+  IS_EXTERNAL_CODELET(ext);
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {

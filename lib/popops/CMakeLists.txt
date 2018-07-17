@@ -80,7 +80,7 @@ set(codelet_cpp_sources
 )
 
 set(codelet_asm_sources
-  # Assembly to be added
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Clamp.S
 )
 
 set(codelet_headers
