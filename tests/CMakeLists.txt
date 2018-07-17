@@ -221,6 +221,7 @@ add_popnn_unit_test(BroadcastToMatchTest BroadcastToMatchTest.cpp)
 add_popnn_unit_test(ParallelTest ParallelTest.cpp)
 add_popnn_unit_test(LossTest LossTest.cpp)
 add_popnn_unit_test(EncodingTest EncodingTest.cpp)
+add_popnn_unit_test(AllTrueTest AllTrueTest.cpp)
 
 # Codelets
 add_subdirectory(codelets)

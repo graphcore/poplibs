@@ -778,22 +778,6 @@ MAKE_CYCLE_ESTIMATOR_NAME(DynamicUpdateSlice2d)(
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(AllTrue)(const VertexIntrospector &vertex,
-                                   const Target &target) {
-  uint64_t cycles = 6;
-  const auto in = vertex.getFieldInfo("in");
-  for (unsigned i = 0; i < in.size(); ++i) {
-    unsigned cyclesPerVector = 1;
-    unsigned overhead = 11;
-    unsigned numElem = in[i].size();
-    unsigned vectorWidth = target.getDataPathWidth() / (sizeof(bool) * 8);
-    cycles += basicOpLoopCycles(overhead, numElem, vectorWidth,
-                                cyclesPerVector);
-  }
-  return cycles;
-}
-
-std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(CircBufIncrIndex)(const VertexIntrospector &vertex,
                                             const Target &target) {
   return 8;
@@ -945,7 +929,6 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2d, INT),
     CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2d, BOOL),
 
-    CYCLE_ESTIMATOR_ENTRY(popops, AllTrue),
     CYCLE_ESTIMATOR_ENTRY(popops, CircBufIncrIndex),
     CYCLE_ESTIMATOR_ENTRY(popops, CircOffset),
 

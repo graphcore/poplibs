@@ -6,21 +6,6 @@
 using namespace poplar;
 namespace popops {
 
-class AllTrue : public Vertex {
-public:
-  Vector<Input<Vector<bool>>> in;
-
-  bool compute() {
-    bool v = true;
-    for (unsigned i = 0; i != in.size(); ++i) {
-      for (unsigned j = 0; j != in[i].size(); ++j) {
-        v = v && in[i][j];
-      }
-    }
-    return v;
-  }
-};
-
 class CircBufIncrIndex : public Vertex {
 public:
   InOut<unsigned> index;
