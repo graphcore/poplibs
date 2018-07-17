@@ -53,9 +53,10 @@ Tensor onTileTransform(Graph &graph,
     // this transform. Were this gather particularly expensive specialised
     // single/multiple/2D transforms could be added but doesn't currently
     // seem worth it.
+
+    // The maximum size of the region is 2^12 - 1
     auto workerRegions =
-      splitRegionsBetweenWorkers(target, contiguousRegions,
-                                 grainSize, grainSize * 2);
+      splitRegionsBetweenWorkers(target, contiguousRegions, grainSize, 0xFFF);
 
     for (const auto &vertexRegions : workerRegions) {
       auto vertexTransformed =
@@ -67,6 +68,8 @@ Tensor onTileTransform(Graph &graph,
           {"deltas", concat(deltas.flatten().slices(vertexRegions))},
           {"transformed", vertexTransformed}
         });
+      graph.setInitialValue(transformV["size"],
+                            vertexTransformed.numElements());
       graph.setTileMapping(vertexTransformed, tile);
       graph.setTileMapping(transformV, tile);
     }

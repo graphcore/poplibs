@@ -49,6 +49,7 @@ set(codelet_cpp_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/popnnCodelets.cpp
 )
 set(codelet_asm_sources
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/LossTransform.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearitySupervisor.S
 )
 set(codelet_headers

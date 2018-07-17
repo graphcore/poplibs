@@ -227,8 +227,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(LossSumSquaredTransform)
   (const VertexIntrospector &vertex,
    const Target &target,
    const Type &fpType) {
-  // TODO
-  return 0;
+  const bool isFloat = fpType == FLOAT;
+  const auto size = vertex.getFieldInfo("probs").size();
+  const auto isSoftmax = false;
+  return getLossTransformCycles(isFloat, isSoftmax, size);
 }
 
 std::uint64_t
@@ -236,8 +238,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(LossSoftmaxTransform)
   (const VertexIntrospector &vertex,
    const Target &target,
    const Type &fpType) {
-  // TODO
-  return 0;
+  const bool isFloat = fpType == FLOAT;
+  const auto size = vertex.getFieldInfo("probs").size();
+  const auto isSoftmax = true;
+  return getLossTransformCycles(isFloat, isSoftmax, size);
 }
 
 std::uint64_t

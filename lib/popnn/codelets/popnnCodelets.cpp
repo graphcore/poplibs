@@ -311,13 +311,16 @@ template class SumPoolingGrad<half>;
 template <typename FPType>
 class LossSumSquaredTransform : public Vertex {
 public:
-  Input<Vector<FPType>> probs;
-  Input<Vector<FPType, ONE_PTR>> expected;
+  Input<Vector<FPType, SCALED_PTR32, 4>> probs;
+  Input<Vector<FPType, SCALED_PTR32, 4>> expected;
+  Output<Vector<FPType, SCALED_PTR32, 4>> deltas;
+  Output<Vector<FPType, SCALED_PTR32, 4>> transformed;
+  unsigned short size;
 
-  Output<Vector<FPType, ONE_PTR>> deltas;
-  Output<Vector<FPType, ONE_PTR>> transformed;
+  IS_EXTERNAL_CODELET(true);
+
   bool compute() {
-    for (std::size_t i = 0; i < probs.size(); i++) {
+    for (std::size_t i = 0; i < size; i++) {
       FPType expect = expected[i];
       FPType actual = probs[i];
       FPType delta = (actual - expect);
@@ -334,13 +337,16 @@ template class LossSumSquaredTransform<half>;
 template <typename FPType>
 class LossSoftmaxTransform : public Vertex {
 public:
-  Input<Vector<FPType>> probs;
-  Input<Vector<FPType, ONE_PTR>> expected;
+  Input<Vector<FPType, SCALED_PTR32, 4>> probs;
+  Input<Vector<FPType, SCALED_PTR32, 4>> expected;
+  Output<Vector<FPType, SCALED_PTR32, 4>> deltas;
+  Output<Vector<FPType, SCALED_PTR32, 4>> transformed;
+  unsigned short size;
 
-  Output<Vector<FPType, ONE_PTR>> deltas;
-  Output<Vector<FPType, ONE_PTR>> transformed;
+  IS_EXTERNAL_CODELET(true);
+
   bool compute() {
-    for (std::size_t i = 0; i < probs.size(); i++) {
+    for (std::size_t i = 0; i < size; i++) {
       FPType expect = expected[i];
       FPType actual = probs[i];
       deltas[i] = (actual - expect);
