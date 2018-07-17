@@ -241,7 +241,7 @@ endforeach()
 # Random reduce_op tests with fixed seed.
 set(NUM_REDUCE_RANDOM_TESTS 150)
 foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})
-  add_test(NAME reduce_random_${n}
+  add_multitarget_test(NAME reduce_random_${n}
            COMMAND $<TARGET_FILE:reduce_op> --seed ${n})
 endforeach()
 
@@ -333,8 +333,7 @@ add_multitarget_test(
              --input-channels=16
              --output-channels=8
              --tiles-per-ipu=24
-	     VARIANTS ${TimesOutOnSim}
-             )
+             VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME conv3x3_stride_1
@@ -551,7 +550,7 @@ add_multitarget_test(
                  --padding=1
                  --stride=2
                  --data-type=half
-		 --tiles-per-ipu=2
+                 --tiles-per-ipu=2
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -564,7 +563,7 @@ add_multitarget_test(
                  --output-channels=16
                  --padding=1
                  --stride=2
-		 --tiles-per-ipu=16
+                 --tiles-per-ipu=16
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -577,7 +576,7 @@ add_multitarget_test(
                  --output-channels=16
                  --padding=1
                  --stride=2
-		 --tiles-per-ipu=16
+                 --tiles-per-ipu=16
                  VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(

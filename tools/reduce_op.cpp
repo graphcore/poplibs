@@ -8,7 +8,7 @@
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
-
+#include "TestDevice.hpp"
 #include <popops/Cast.hpp>
 #include <popops/Reduce.hpp>
 #include <popops/codelets.hpp>
@@ -34,6 +34,18 @@ namespace po = boost::program_options;
 #define HALF_REL_TOL   0.3
 #define FLOAT_ABS_TOL  1e-5
 #define HALF_ABS_TOL   7e-2
+
+#define MAX_TILES_TO_USE 32
+#define MAX_IPUS_TO_USE  1
+
+const OptionFlags engineOptions {
+  {"target.textSectionSizeInBytes", "0xa000"},
+  {"target.workerStackSizeInBytes", "0x200"}
+};
+
+const OptionFlags simDebugOptions {
+  {"debug.trace", "false"}
+};
 
 // Stream operators for popops::Operation allow it to work with
 // boost::program_options.
@@ -129,11 +141,12 @@ std::vector<std::size_t> parseSizeVector(const std::string &token) {
 
 // Generate a random tensor shape, with some dimensions randomly set to
 // 1 because it is an edge case.
-std::vector<std::size_t> getRandomShape(std::mt19937 &gen) {
+std::vector<std::size_t> getRandomShape(std::mt19937 &gen, unsigned tiles) {
   auto rank = std::uniform_int_distribution<>(1, 5)(gen);
 
   // Distribution over the number of elements.
-  auto expectedNumel = std::binomial_distribution<>(rank * 10000)(gen) + 1;
+  const auto numElems = rank * 10000 / tiles;
+  auto expectedNumel = std::binomial_distribution<>(numElems)(gen) + 1;
 
   // Distribution over the dimensions.
   std::uniform_int_distribution<> dimDist(1, pow(expectedNumel, 1.0/rank) * 2);
@@ -221,12 +234,12 @@ bool getRandomWithOutput(std::mt19937 &gen) {
 
 // Get a randm number of IPUs.
 unsigned getRandomNumIPUs(std::mt19937 &gen) {
-  return std::uniform_int_distribution<>(1, 2)(gen);
+  return std::uniform_int_distribution<>(1, MAX_IPUS_TO_USE)(gen);
 }
 
 // And a random number of tiles.
 unsigned getRandomTilesPerIPU(std::mt19937 &gen) {
-  return std::uniform_int_distribution<>(1, 1024)(gen);
+  return 4 * std::uniform_int_distribution<>(1, MAX_TILES_TO_USE / 4)(gen);
 }
 
 // Get random input and output types. This is only used when the operation
@@ -296,7 +309,7 @@ std::vector<std::size_t> getReducedShape(const std::vector<std::size_t> &shape,
 }
 
 int main(int argc, char **argv) {
-
+  DeviceType deviceType = DeviceType::IpuModel;
   // Defaul input parameters.
   Type dataType = FLOAT;
   popops::Operation op = popops::Operation::ADD;
@@ -319,6 +332,9 @@ int main(int argc, char **argv) {
       "Do a random reduction with the given seed. No other options "
       "are required, if they are specified they override the randomly chosen"
       "settings.")
+    ("device-type",
+       po::value<DeviceType>(&deviceType)->default_value(deviceType),
+       "Device type: Cpu | Sim | Hw | IpuModel")
     ("file", po::value(&file),
       "If specified, load the input and optionally output tensors from "
       "a file. The file must be a binary serialisation of the tensors "
@@ -390,9 +406,9 @@ int main(int argc, char **argv) {
 
   std::cerr << "Initializing graph...\n";
 
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(deviceType, ipuModel.numIPUs,
+                                 ipuModel.tilesPerIPU, simDebugOptions);
   const auto &target = device.getTarget();
-
   Graph graph(device);
   popops::addCodelets(graph);
   Tensor input;
@@ -419,7 +435,8 @@ int main(int argc, char **argv) {
   if (vm.count("file") == 0) {
     if (vm.count("seed") != 0 && vm.count("shape") == 0) {
       std::cerr << "Randomly setting shape.\n";
-      shape = getRandomShape(randomEngine);
+      shape = getRandomShape(randomEngine,
+                             ipuModel.tilesPerIPU * ipuModel.numIPUs);
     } else {
       shape = parseSizeVector(shapeString);
     }
@@ -547,8 +564,8 @@ int main(int argc, char **argv) {
   if (withOutput) {
     // Make the output.
     auto reducedShape = getReducedShape(input.shape(), dims);
-    output = graph.addVariable(input.elementType(), reducedShape,
-                               VariableMappingMethod::LINEAR);
+    output = graph.addVariable(input.elementType(), reducedShape);
+    mapTensorLinearly(graph, output);
     popops::reduceWithOutput(graph, input, output, dims,
                              {op, scale, update}, prog);
   } else {
@@ -617,7 +634,7 @@ int main(int argc, char **argv) {
        dataType,
        outputData.get());
 
-  Engine engine(graph, prog);
+  Engine engine(graph, prog, engineOptions);
   engine.load(device);
   upload(engine, tmap);
   engine.run(0);
@@ -640,6 +657,12 @@ int main(int argc, char **argv) {
                                          outputRef.values.size(),
                                          relativeTolerance,
                                          absoluteTolerance);
+  if (deviceType == DeviceType::IpuModel) {
+    engine.printSummary(std::cout, OptionFlags{
+      { "doLayerWiseBreakdown", "true" }
+    });
+  }
+
 
   if (!matchesModel) {
     std::cerr << "Validation failed\n";
