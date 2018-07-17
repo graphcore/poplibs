@@ -310,7 +310,7 @@ add_multitarget_test(
             --input-channels=129
             --output-channels=257
             --field={7,7}
-            --tiles-per-ipu=12
+            --tiles-per-ipu=16
             --stride=1
             --kernel-size=1
             --extra-text=1

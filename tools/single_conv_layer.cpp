@@ -39,13 +39,13 @@ using poplibs_test::Pass;
 
 const OptionFlags extraTextengineOptions {
   {"debug.edgeValidation", "false"}, // DISABLED due to T3667 (random test#23)
-  {"target.textSectionSizeInBytes", "0x10000"},
+  {"target.textSectionSizeInBytes", "0xe000"},
   {"target.workerStackSizeInBytes", "0x200"}
 };
 
 const OptionFlags engineOptions {
   {"debug.edgeValidation", "false"}, // DISABLED due to T3667 (random test#23)
-  {"target.textSectionSizeInBytes", "0xe000"},
+  {"target.textSectionSizeInBytes", "0xa000"},
   {"target.workerStackSizeInBytes", "0x200"}
 };
 
