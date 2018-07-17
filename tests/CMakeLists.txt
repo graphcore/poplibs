@@ -235,7 +235,7 @@ foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
                    --n 1
                    --seed ${n}
                    --binary $<TARGET_FILE:single_conv_layer>
-           ) #EAEA VARIANTS ${TimesOutOnSim})
+           VARIANTS ${TimesOutOnSim})
 endforeach()
 
 # Random reduce_op tests with fixed seed.
