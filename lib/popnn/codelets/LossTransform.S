@@ -109,12 +109,12 @@ lossSumSquaredHalf:
   ldz16 $TRANSFORMED_PTR, $mvertex_base, $mzero, TRANSFORMED_PTR_OFFSET
   ldz16 $SIZE, $mvertex_base, $mzero, SIZE_OFFSET
 
-  // CONST_HALF = 0x38003800, where 0x3800 represents 0.5 in FP16
-  {setzi $BASE, TMEM_REGION0_BASE_ADDR; or     $CONST_HALF, $azero, 0x38000000}
-  {shl $PROB_PTR, $PROB_PTR, 2;         roll16 $ASCRATCH, $CONST_HALF, $azero}
-  {shl $EXPECTED_PTR, $EXPECTED_PTR, 2; or     $CONST_HALF, $CONST_HALF, $ASCRATCH}
-  shl  $DELTA_PTR, $DELTA_PTR, 2
-  shl  $TRANSFORMED_PTR, $TRANSFORMED_PTR, 2;
+  // CONST_HALF = [0.5h, 0.5h] in FP16
+  {setzi $BASE, TMEM_REGION0_BASE_ADDR; f16v2sigm $CONST_HALF, $azero}
+  shl $PROB_PTR, $PROB_PTR, 2
+  shl $EXPECTED_PTR, $EXPECTED_PTR, 2
+  shl $DELTA_PTR, $DELTA_PTR, 2
+  shl $TRANSFORMED_PTR, $TRANSFORMED_PTR, 2;
 
   // Divide size by two - working on two elements at a time
   shr $SIZE_D2, $SIZE, 1
