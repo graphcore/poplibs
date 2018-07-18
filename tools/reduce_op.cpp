@@ -35,7 +35,8 @@ namespace po = boost::program_options;
 #define FLOAT_ABS_TOL  1e-5
 #define HALF_ABS_TOL   7e-2
 
-#define MAX_TILES_TO_USE 32
+#define MAX_TILES_TO_USE_SIM_TARGET 20
+#define MAX_TILES_TO_USE_DEFAULT    64
 #define MAX_IPUS_TO_USE  1
 
 const OptionFlags engineOptions {
@@ -238,8 +239,8 @@ unsigned getRandomNumIPUs(std::mt19937 &gen) {
 }
 
 // And a random number of tiles.
-unsigned getRandomTilesPerIPU(std::mt19937 &gen) {
-  return 4 * std::uniform_int_distribution<>(1, MAX_TILES_TO_USE / 4)(gen);
+unsigned getRandomTilesPerIPU(std::mt19937 &gen, unsigned maxTiles) {
+  return 4 * std::uniform_int_distribution<>(1, maxTiles / 4)(gen);
 }
 
 // Get random input and output types. This is only used when the operation
@@ -396,7 +397,10 @@ int main(int argc, char **argv) {
   if (vm.count("seed") != 0) {
     if (vm.count("tiles-per-ipu") == 0) {
       std::cerr << "Randomly setting tiles-per-ipu.\n";
-      ipuModel.tilesPerIPU = getRandomTilesPerIPU(randomEngine);
+      const unsigned maxTiles =
+          deviceType == DeviceType::Sim ? MAX_TILES_TO_USE_SIM_TARGET
+                                        : MAX_TILES_TO_USE_DEFAULT;
+      ipuModel.tilesPerIPU = getRandomTilesPerIPU(randomEngine, maxTiles);
     }
     if (vm.count("ipus") == 0) {
       std::cerr << "Randomly setting ipus.\n";
