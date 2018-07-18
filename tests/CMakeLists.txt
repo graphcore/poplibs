@@ -243,7 +243,8 @@ endforeach()
 set(NUM_REDUCE_RANDOM_TESTS 150)
 foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})
   add_multitarget_test(NAME reduce_random_${n}
-           COMMAND $<TARGET_FILE:reduce_op> --seed ${n})
+           COMMAND $<TARGET_FILE:reduce_op> --seed ${n} 
+                            VARIANTS ${TimesOutOnSim})
 endforeach()
 
 #  ORIG Layer tests
