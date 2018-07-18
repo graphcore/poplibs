@@ -4,6 +4,7 @@
 #include <popnn/NonLinearity.hpp>
 #include <popnn/codelets.hpp>
 #include "poputil/VertexTemplates.hpp"
+#include "poplibs_test/NonLinearity.hpp"
 #include "poplibs_test/Util.hpp"
 
 #include <cmath>
@@ -58,49 +59,12 @@ constexpr static double randomData[randomDataSize] = {
   -6.853818, 5.237251, -1.092760, 0.851126, -1.905695
 };
 
-struct Params {
-  Type dataType;
-  NonLinearityType nlType;
-};
-
 struct SliceDesc {
   std::size_t offset;
   std::size_t numElements;
 };
 
-void calculateModelData(const NonLinearityType &nlType,
-                        const boost::multi_array<double, 1> &inputData,
-                        boost::multi_array<double, 1> &modelData) {
-  switch (nlType) {
-    case NON_LINEARITY_SIGMOID: {
-      for (std::size_t i = 0; i < inputData.num_elements(); ++i) {
-        const auto in = inputData[i];
-        modelData[i] = 1. / (1. + std::exp(-in));
-      }
-      break;
-    }
-    case NON_LINEARITY_RELU: {
-      for (std::size_t i = 0; i < inputData.num_elements(); ++i) {
-        const auto in = inputData[i];
-        modelData[i] = in > 0 ? in : 0;
-      }
-      break;
-    }
-    case NON_LINEARITY_TANH: {
-      for (std::size_t i = 0; i < inputData.num_elements(); ++i) {
-        const auto in = inputData[i];
-        modelData[i] = std::tanh(in);
-      }
-      break;
-    }
-    default: {
-      assert(0 && "Unhandled non-linearity type");
-      break;
-    }
-  }
-}
-
-void singleTest(const Type &dataType, const NonLinearityType &nlType) {
+void doTest(const Type &dataType, const NonLinearityType &nlType) {
   Device device = createTestDevice(TEST_TARGET);
   const auto &target = device.getTarget();
   Graph graph(device);
@@ -141,7 +105,8 @@ void singleTest(const Type &dataType, const NonLinearityType &nlType) {
 
   boost::multi_array<double, 1>
     modelData(boost::extents[maxElements]);
-  calculateModelData(nlType, hostData, modelData);
+  poplibs_test::nonLinearity(
+    nlType, hostData.data(), modelData.data(), maxElements);
 
   const auto vertexClass =
     templateVertex("popnn::NonLinearitySupervisor",
@@ -220,5 +185,5 @@ void singleTest(const Type &dataType, const NonLinearityType &nlType) {
 
 
 BOOST_AUTO_TEST_CASE(NonLinearitySupervisor_@DATA_TYPE@_@NL_TYPE@) {
-  singleTest(@DATA_TYPE_UPPER@, @NL_TYPE_UPPER@);
+  doTest(@DATA_TYPE_UPPER@, @NL_TYPE_UPPER@);
 }

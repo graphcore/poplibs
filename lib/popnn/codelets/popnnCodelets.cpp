@@ -155,8 +155,9 @@ INSTANTIATE_NL(NonLinearityGradSupervisor)
 template <typename FPType, unsigned nlType>
 class NonLinearity2D : public Vertex {
 public:
-  Vector<InOut<Vector<FPType>>> data;
+  InOut<VectorList<FPType, VectorListLayout::DELTAN>> data;
 
+  IS_EXTERNAL_CODELET(true);
   bool compute() {
     for (unsigned i = 0; i < data.size(); ++i) {
       for (unsigned j = 0; j < data[i].size(); ++j) {

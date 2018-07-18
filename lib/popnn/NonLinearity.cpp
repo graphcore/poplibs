@@ -164,7 +164,11 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
   // the packed size + remainder it takes as an input.
   const auto maxSupervisorElements =
     (((1u << chunkBits) - 1) * elementsPerChunk) + elementsPerChunk - 1;
-  const auto max2DElements = graph.getMaxFieldDim(codeletName2D, "data", 1);
+  // Maximum elements 2D non-linearity vertex can handle per-region is based
+  // on input vector type and the max count the `rpt` instruction can handle.
+  const auto maxInnerElements = graph.getMaxFieldDim(codeletName2D, "data", 1);
+  const auto max2DElements =
+    std::min(maxInnerElements, target.getRptCountMax() * vectorElements);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto thisTileMap = mapping[tile];
     const auto tileContiguousRegions =

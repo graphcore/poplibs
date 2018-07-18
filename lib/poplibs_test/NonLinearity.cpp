@@ -38,14 +38,25 @@ static void softmax(boost::multi_array_ref<double, 2> &array) {
 }
 
 void poplibs_test::nonLinearity(NonLinearityType nonLinearityType,
+                                const double *inputData, double *outputData,
+                                std::size_t n) {
+  if (nonLinearityType == NON_LINEARITY_SOFTMAX) {
+    throw poplibs_test::poplibs_test_error("softmax not supported, use "
+                                           "shaped functions instead");
+  }
+  while (n-- > 0) {
+    *outputData++ = ::nonLinearity(nonLinearityType, *inputData++);
+  }
+}
+
+void poplibs_test::nonLinearity(NonLinearityType nonLinearityType,
                                boost::multi_array_ref<double, 2> array) {
   if (nonLinearityType == NON_LINEARITY_SOFTMAX) {
     softmax(array);
   } else {
-    for (auto it = array.data(), end = array.data() + array.num_elements();
-         it != end; ++it) {
-      *it = ::nonLinearity(nonLinearityType, *it);
-    }
+    nonLinearity(nonLinearityType,
+                 array.data(), array.data(),
+                 array.num_elements());
   }
 }
 
@@ -55,10 +66,9 @@ void poplibs_test::nonLinearity(NonLinearityType nonLinearityType,
     throw poplibs_test::poplibs_test_error("softmax not supported for 4D "
                                            "tensor");
   }
-  for (auto it = array.data(), end = array.data() + array.num_elements();
-       it != end; ++it) {
-    *it = ::nonLinearity(nonLinearityType, *it);
-  }
+  nonLinearity(nonLinearityType,
+               array.data(), array.data(),
+               array.num_elements());
 }
 
 static double nonLinearityDerivative(NonLinearityType nonLinearityType,
@@ -83,16 +93,28 @@ static double bwdNonLinearity(NonLinearityType nonLinearityType,
 }
 
 void poplibs_test::bwdNonLinearity(
+  NonLinearityType nonLinearityType,
+  const double *activations, double *deltas,
+  std::size_t n) {
+  if (nonLinearityType == NON_LINEARITY_SOFTMAX) {
+    throw poplibs_test::poplibs_test_error("softmax not supported, use "
+                                           "shaped functions instead");
+  }
+  while (n-- > 0) {
+    *deltas = ::bwdNonLinearity(nonLinearityType, *deltas, *activations++);
+    ++deltas;
+  }
+}
+
+void poplibs_test::bwdNonLinearity(
     NonLinearityType nonLinearityType,
     const boost::multi_array<double, 4> &activations,
     boost::multi_array<double, 4> &deltas) {
   assert(std::equal(activations.shape(), activations.shape() + 4,
                     deltas.shape()));
-  auto actIt = activations.data();
-  for (auto it = deltas.data(), end = deltas.data() + deltas.num_elements();
-       it != end; ++it, ++actIt) {
-    *it = ::bwdNonLinearity(nonLinearityType, *it, *actIt);
-  }
+  bwdNonLinearity(nonLinearityType,
+                  activations.data(), deltas.data(),
+                  deltas.num_elements());
 }
 
 void poplibs_test::bwdNonLinearity(
@@ -101,9 +123,7 @@ void poplibs_test::bwdNonLinearity(
     boost::multi_array<double, 2> &deltas) {
   assert(std::equal(activations.shape(), activations.shape() + 2,
                     deltas.shape()));
-  auto actIt = activations.data();
-  for (auto it = deltas.data(), end = deltas.data() + deltas.num_elements();
-       it != end; ++it, ++actIt) {
-    *it = ::bwdNonLinearity(nonLinearityType, *it, *actIt);
-  }
+  bwdNonLinearity(nonLinearityType,
+                  activations.data(), deltas.data(),
+                  deltas.num_elements());
 }

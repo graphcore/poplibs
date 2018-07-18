@@ -1,12 +1,16 @@
 # NonLinearitySupervisor<dataType, nlType>
 foreach(DATA_TYPE half float)
   foreach(NL_TYPE sigmoid relu tanh)
-    set(VARIANT_NAME "NonLinearitySupervisor_${DATA_TYPE}_${NL_TYPE}")
-    set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
-    string(TOUPPER "${DATA_TYPE}" DATA_TYPE_UPPER)
-    string(TOUPPER "NON_LINEARITY_${NL_TYPE}" NL_TYPE_UPPER)
-    configure_file(NonLinearitySupervisor.cpp.in ${VARIANT_SRC})
-    add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC})
+    foreach(NL_VERTEX Supervisor 2D)
+      set(VARIANT_INPUT "NonLinearity${NL_VERTEX}.cpp.in")
+      set(VARIANT_NAME "NonLinearity${NL_VERTEX}_${DATA_TYPE}_${NL_TYPE}")
+      set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
+      string(TOUPPER "${DATA_TYPE}" DATA_TYPE_UPPER)
+      string(TOUPPER "NON_LINEARITY_${NL_TYPE}" NL_TYPE_UPPER)
+      configure_file(${VARIANT_INPUT} ${VARIANT_SRC})
+      add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC}
+                          VARIANTS "IpuModel;Sim:cpp;Sim")
+    endforeach()
   endforeach()
 endforeach()
 

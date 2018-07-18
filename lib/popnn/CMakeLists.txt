@@ -51,10 +51,12 @@ set(codelet_cpp_sources
 set(codelet_asm_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/LossTransform.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearitySupervisor.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearity2D.S
 )
 set(codelet_headers
   PerformanceEstimation.hpp
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/detail/NonLinearitySupervisorTemplates.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/detail/NonLinearity2DTemplates.S
 )
 
 add_custom_command(

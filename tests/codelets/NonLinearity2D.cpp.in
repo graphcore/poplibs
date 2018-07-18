@@ -1,0 +1,169 @@
+// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
+#include <TestDevice.hpp>
+#include <poplar/Engine.hpp>
+#include <popnn/NonLinearity.hpp>
+#include <popnn/codelets.hpp>
+#include "poputil/VertexTemplates.hpp"
+#include "poplibs_test/NonLinearity.hpp"
+#include "poplibs_test/Util.hpp"
+
+#include <cmath>
+#include <vector>
+
+#define BOOST_TEST_MODULE NonLinearity2D_@DATA_TYPE@_@NL_TYPE@
+#include <boost/test/unit_test.hpp>
+
+using namespace poplar;
+using namespace poplar::program;
+using namespace popnn;
+using namespace poputil;
+using namespace poplibs_test::util;
+
+#define TOL 0.1 //tolerance of 0.1%
+#define FLOAT_ATOL 1e-20
+#define HALF_ATOL 1e-7
+
+namespace {
+
+// Generated with python: "{0:-,.6f}".format(random.gauss(0.0,5.0))
+constexpr static std::size_t randomDataSize = 54;
+constexpr static double randomData[randomDataSize] = {
+  -1.363063, 6.590855, -1.808181, -7.897238, -4.266652,
+  4.064484, -12.879016, -8.521756, -3.760860, 13.313155,
+  9.388029, -3.281752, -0.848680, -3.044330, -5.974442,
+  -4.652190, 0.683414, 0.468458, -2.227848, 3.479158,
+  2.000612, -9.059770, -11.321158, 3.265349, 7.258343,
+  -5.725096, 2.390649, -5.182225, 2.477468, -1.410790,
+  5.631778, 1.608285, -3.547397, 4.153984, 7.495993,
+  1.061097, 3.186139, -1.215145, 5.905051, 0.284197,
+  3.458912, -10.597435, 3.889679, -4.992706, 8.237274,
+  -3.864746, -2.701962, 9.659042, -2.789558, -0.937477,
+  11.091992, 8.830758, -3.798772
+};
+
+struct SliceDesc {
+  std::vector<Interval> intervals;
+};
+
+void doTest(const Type &dataType, const NonLinearityType &nlType) {
+  Device device = createTestDevice(TEST_TARGET);
+  const auto &target = device.getTarget();
+  Graph graph(device);
+  popnn::addCodelets(graph);
+
+  const auto vectorWidth = target.getVectorWidth(dataType);
+
+  constexpr auto maxRegions = 3;
+  // In each inner region of the 2D tensor, test up to at least 3 full
+  // 64-bit loops to catch all inner loop paths plus up to 64-bits of
+  // trailing elements plus up to 32-bits of leading elements.
+  const auto maxElementsPerRegion =
+    (vectorWidth * 3) + (vectorWidth + (vectorWidth / 2));
+  const auto maxElements =
+    maxElementsPerRegion * maxRegions;
+  assert(maxElements <= randomDataSize);
+
+  auto t = graph.addVariable(dataType, {maxElements});
+  graph.setTileMapping(t, 0);
+
+  // Generate some test data
+  std::vector<std::pair<std::string, char*>> tmap;
+  auto rawHostData =
+    allocateHostMemoryForTensor(t, "test data", graph, tmap);
+
+  boost::multi_array<double, 1>
+    hostData(boost::extents[maxElements]);
+  std::copy(&randomData[0], &randomData[maxElements], hostData.data());
+
+  boost::multi_array<double, 1>
+    modelData(boost::extents[maxElements]);
+  poplibs_test::nonLinearity(
+    nlType, hostData.data(), modelData.data(), maxElements);
+
+
+  const auto vertexClass =
+    templateVertex("popnn::NonLinearity2D",
+                   dataType, nlType);
+
+  std::vector<Program> programs;
+  std::vector<SliceDesc> programSlices;
+  unsigned uid = 0;
+  for (std::size_t nRegions = 1; nRegions <= maxRegions; ++nRegions) {
+    std::size_t currRegion = 0;
+    std::vector<Interval> intervals(nRegions);
+    bool filled = false;
+    for (std::size_t offset = 0; offset < vectorWidth; ++offset) {
+      for (std::size_t n = 1; n < maxElementsPerRegion - offset; ++n) {
+        const auto regionOffset = currRegion * maxElementsPerRegion;
+        intervals[currRegion] =
+          {regionOffset + offset, regionOffset + offset + n};
+        currRegion = (currRegion + 1) % nRegions;
+        filled |= (currRegion == 0);
+
+        // Only test if we've filled all the regions
+        if (filled) {
+          // Get slices into our variable
+          auto tTestSlices = t.slices(intervals);
+
+          auto cs = graph.addComputeSet("cs_" + std::to_string(uid++));
+          auto v = graph.addVertex(cs, vertexClass);
+          graph.setTileMapping(v, 0);
+          graph.connect(v["data"], tTestSlices);
+
+          programs.emplace_back(Execute(cs));
+          programSlices.emplace_back(SliceDesc{intervals});
+        }
+      }
+    }
+  }
+  
+  // The multiple levels of function calls and loops in the NonLinearity2D
+  // vertices manage to overflow the stack sometimes in the C++ codelets at
+  // present.
+  Engine e(graph, programs, OptionFlags{
+    { "target.textSectionSizeInBytes", "0x9000" },
+    { "target.workerStackSizeInBytes", "0x100" }
+  });
+  e.load(device);
+
+  boost::multi_array<double, 1>
+    hostResult(boost::extents[maxElements]);
+  const auto relativeTolerance = TOL;
+  const auto absoluteTolerance =
+    dataType == FLOAT ? FLOAT_ATOL
+                      : HALF_ATOL;
+
+  for (std::size_t testId = 0; testId < programs.size(); ++testId) {
+    // Fill out the model data, applying the non-linearity to regions to be
+    // processed by the vertex. This allows us to detect over/underwrites
+    // by the vertex as a bonus
+    std::copy(hostData.data(), hostData.data() + hostData.num_elements(),
+              modelData.data());
+    for (const auto &region : programSlices[testId].intervals) {
+      const auto offset = region.begin();
+      const auto n = region.size();
+      poplibs_test::nonLinearity(nlType,
+                                 hostData.data() + offset,
+                                 modelData.data() + offset,
+                                 n);
+    }
+
+    copy(target, hostData, dataType, rawHostData.get());
+    upload(e, tmap);
+    e.run(testId);
+    download(e, tmap);
+    copy(target, dataType, rawHostData.get(), hostResult);
+
+    BOOST_CHECK(checkIsClose("test_" + std::to_string(testId),
+                             hostResult.data(), {hostResult.num_elements()},
+                             modelData.data(), modelData.num_elements(),
+                             relativeTolerance, absoluteTolerance));
+  }
+}
+
+} // end anonymous namespace
+
+
+BOOST_AUTO_TEST_CASE(NonLinearity2D_@DATA_TYPE@_@NL_TYPE@) {
+  doTest(@DATA_TYPE_UPPER@, @NL_TYPE_UPPER@);
+}

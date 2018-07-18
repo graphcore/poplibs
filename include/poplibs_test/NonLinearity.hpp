@@ -34,20 +34,29 @@ inline std::istream &operator>>(std::istream &in,
     type = popnn::NonLinearityType::NON_LINEARITY_SIGMOID;
   else if (token == "tanh")
     type = popnn::NonLinearityType::NON_LINEARITY_TANH;
-  else if (token == "softmax") {
+  else if (token == "softmax")
     type = popnn::NonLinearityType::NON_LINEARITY_SOFTMAX;
-  } else
+  else
     throw poplibs_test::poplibs_test_error(
         "Unsupported nonlinearity <" + token + ">");
 
   return in;
 }
 
+// input/output can be pointers to same memory
+void nonLinearity(popnn::NonLinearityType nonLinearityType,
+                  const double *inputData, double *outputData,
+                  std::size_t n);
+
 void nonLinearity(popnn::NonLinearityType nonLinearityType,
                   boost::multi_array_ref<double, 2> array);
 
 void nonLinearity(popnn::NonLinearityType nonLinearityType,
                   boost::multi_array<double, 4> &array);
+
+void bwdNonLinearity(popnn::NonLinearityType nonLinearityType,
+                     const double *activations, double *deltas,
+                     std::size_t n);
 
 void bwdNonLinearity(popnn::NonLinearityType nonLinearityType,
                      const boost::multi_array<double, 4> &activations,
