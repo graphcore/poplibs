@@ -1808,11 +1808,11 @@ add_test(NAME max_pool_layer_2ipu
                  --bwd-chans-per-group=8
                  --width=56
                  --height=56
-                 --tiles-per-ipu=16
                  --kernel-size=3
                  --tiles-per-ipu 304
                  --stride=2
-                 --ipus 2)
+                 --ipus 2
+                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(NAME max_pool_layer_1x4
          COMMAND pooling_layer
@@ -1927,7 +1927,6 @@ add_test(NAME avg_pool_layer_2ipu
                  --bwd-chans-per-group=8
                  --width=56
                  --height=56
-                 --tiles-per-ipu=16
                  --kernel-size=3
                  --tiles-per-ipu=304
                  --stride=2
@@ -2051,11 +2050,11 @@ add_test(NAME sum_pool_layer_2ipu
                  --bwd-chans-per-group=8
                  --width=56
                  --height=56
-                 --tiles-per-ipu=16
                  --kernel-size=3
                  --tiles-per-ipu=304
                  --stride=2
-                 --ipus 2)
+                 --ipus 2
+                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(NAME sum_pool_layer_1x4
          COMMAND pooling_layer
