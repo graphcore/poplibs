@@ -12,21 +12,20 @@ set(ENABLED_TEST_VARIANTS "Cpu;IpuModel;Sim;Sim:cpp" CACHE STRING
 add_subdirectory(popsolver)
 
 # Remove any requested variants not present in ${ENABLED_TEST_VARIANTS}
-# If no variants were requested all ${ENABLED_TEST_VARIANTS} are returned.
+# If no variants were requested filtered ${DEFAULT_TEST_VARIANTS} are returned.
 function(sanitise_variants variant_name)
   set(variants ${${variant_name}})
   set(old_variants "${variants}")
   if (NOT old_variants)
-    set(new_variants ${DEFAULT_TEST_VARIANTS})
-  else()
-    set(new_variants "")
-    # Only allow each variant if it is enabled:
-    foreach(variant ${old_variants})
-      if (${variant} IN_LIST ENABLED_TEST_VARIANTS)
-        list(APPEND new_variants ${variant})
-      endif()
-    endforeach()
+    set(old_variants ${DEFAULT_TEST_VARIANTS})
   endif()
+  set(new_variants "")
+  # Only allow each variant if it is enabled:
+  foreach(variant ${old_variants})
+    if (${variant} IN_LIST ENABLED_TEST_VARIANTS)
+      list(APPEND new_variants ${variant})
+    endif()
+  endforeach()
   list(REMOVE_DUPLICATES new_variants)
   set(${variant_name} "${new_variants}" PARENT_SCOPE)
 endfunction()
