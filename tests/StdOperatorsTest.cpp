@@ -73,10 +73,12 @@ static void setUnaryOpInput(int hIn[DIM_SIZE][DIM_SIZE]) {
 
 static void setUnaryOpInput(bool hIn[DIM_SIZE][DIM_SIZE]) {
   int val = -100;
+
+  std::mt19937 randomEngine;
+  std::uniform_int_distribution<> dist(0, 1);
   for (auto r = 0U; r != DIM_SIZE; ++r) {
     for (auto c = 0U; c != DIM_SIZE; ++c) {
-      int sign = 1 - 2 * ((r + c) & 1);
-      hIn[r][c] = (val + (r * DIM_SIZE + c)) * sign;
+      hIn[r][c] = dist(randomEngine);
     }
   }
 }
