@@ -113,13 +113,13 @@ poplar::Tensor ReflectPadder::getPaddingTensor(const poplar::Tensor &t,
                                                unsigned d,
                                                ptrdiff_t padSize,
                                                bool padIsLow) {
-  if (padSize >= t.dim(d)) {
+  size_t padSizeUnsigned = static_cast<size_t>(padSize);
+  if (padSizeUnsigned >= t.dim(d)) {
     throw poputil::poplib_error("padSize too large for reflection padding");
   }
 
   poplar::Tensor reflPadding;
 
-  size_t padSizeUnsigned = static_cast<size_t>(padSize);
   if (padIsLow) {
     reflPadding = t.slice(1, padSizeUnsigned + 1, d);
   } else {

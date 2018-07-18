@@ -283,7 +283,7 @@ std::vector<unsigned> splitTwoStageReductionsBetweenWorkers(
     --freeWorkers;
   }
 
-  assert(std::accumulate(splits.begin(), splits.end(), 0) <=
+  assert(std::accumulate(splits.begin(), splits.end(), 0u) <=
          target.getNumWorkerContexts());
 
   return splits;
@@ -541,7 +541,7 @@ void connectTwoStageReductions(poplar::Graph &graph,
                                ReductionDebug::TileReduction *tileDebug) {
   // Triple check...
   assert(splits.size() == reductions.size());
-  assert(std::accumulate(splits.begin(), splits.end(), 0)
+  assert(std::accumulate(splits.begin(), splits.end(), 0u)
          <= graph.getTarget().getNumWorkerContexts());
 
   std::vector<RegionReduction> singleStageReductions;
@@ -571,11 +571,6 @@ void connectTwoStageReductions(poplar::Graph &graph,
   // If there are no two-stage reductions, that's it!
   if (singleStageReductions.size() == reductions.size())
     return;
-
-  // Don't update or scale in the first stage.
-  auto firstStageParams = params;
-  firstStageParams.scale = 1.0f;
-  firstStageParams.update = false;
 
   // The name of the vertex to use.
   std::string firstStageVertexName =
@@ -610,7 +605,7 @@ void connectTwoStageReductions(poplar::Graph &graph,
     assert(!rowsPerWorker.empty());
     assert(rowsPerWorker.size() <= splits[i]);
     assert(std::accumulate(rowsPerWorker.begin(),
-                           rowsPerWorker.end(), 0) == totalRows);
+                           rowsPerWorker.end(), 0u) == totalRows);
 
     auto partialsPerWorker = splitPartialsByRows(reductions[i],
                                                  rowsPerWorker);

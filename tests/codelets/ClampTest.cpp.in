@@ -36,7 +36,7 @@ using namespace poplin;
 //*************************************************
 double* clampHost(double *in1,double *in2,double *in3, double *out, unsigned active_columns,unsigned active_rows,unsigned offset)
 {
-    int i,j;
+    unsigned i,j;
     for(j=0;j<ROWS;j++)
     {
         if(offset)                                     //Pad output if the unused item is at row start
