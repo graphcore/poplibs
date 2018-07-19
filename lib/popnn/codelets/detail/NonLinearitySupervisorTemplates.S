@@ -37,6 +37,8 @@
 #define PREFIX_EVAL(p, s) PREFIX_PASTE(p, s)
 #define PREFIX(s) PREFIX_EVAL(OP_UNIQUE_PREFIX, s)
 
+.section .text.HALF_SYMBOL_NAME
+
 .globl HALF_SYMBOL_NAME
 .type HALF_SYMBOL_NAME, @function
 
@@ -171,6 +173,8 @@ HALF_SYMBOL_NAME:
     br $lr
 
 .size HALF_SYMBOL_NAME, .-HALF_SYMBOL_NAME
+
+.section .text.FLOAT_SYMBOL_NAME
 
 .globl FLOAT_SYMBOL_NAME
 .type FLOAT_SYMBOL_NAME, @function

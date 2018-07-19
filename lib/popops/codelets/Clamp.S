@@ -8,8 +8,6 @@
 
 .globl __runCodelet_popops__Clamp___half
 .type __runCodelet_popops__Clamp___half, @function
-.text
-.align 8
 
 
 /* Input vertex structure offsets */
@@ -54,6 +52,9 @@
 //
 // Benchmark: 8+ vectors*(12+2) +(total_inputs_in_all_vectors-vectors)*4
 //***************************************************************************************************
+
+.section .text.__runCodelet_popops__Clamp___float
+.align 8
 
 clamp_prepad:                      //Pad with an instruction to ensure the loop start below is aligned to a 64 bit boundary
                                    //doing it here means that the instruction never gets executed and costs no time
@@ -120,7 +121,9 @@ clamp_loop_inner_end:
 // Benckmark (aligned)= 8 + vectors*(14+2) + total_inputs_in_all_vectors * 7/2
 //***************************************************************************************************
 
+.section .text.__runCodelet_popops__Clamp___half
 .align 8
+
 clamp16_prepad:                      //Pad with an instruction to ensure the loop start below is aligned to a 64 bit boundary
                                      //doing it here means that the instruction never gets executed and costs no time
   nop

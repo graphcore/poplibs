@@ -20,9 +20,11 @@
 // popnn::LossSumSquaredTransform<half>
 // popnn::LossSumSquaredTransform<float>
 /*****************************************************************************/
+.section .text.lossSumSquaredFloat
+.align 8
+
 .global lossSumSquaredFloat
 .type lossSumSquaredFloat, @function
-.align 8
 
 #define PROB_PTR                m0
 #define EXPECTED_PTR            m1
@@ -76,6 +78,8 @@ lossSumSquaredFloat_loopEnd:
 #undef DELTA
 #undef TRANSFORMED
 #undef CONST_HALF
+
+.section .text.lossSumSquaredHalf
 
 .global lossSumSquaredHalf
 .type lossSumSquaredHalf, @function
@@ -165,6 +169,8 @@ lossSumSquaredHalf_end:
 // popnn::LossSoftmaxTransform<half>
 // popnn::LossSoftmaxTransform<float>
 /*****************************************************************************/
+.section .text.lossSoftmaxFloat
+
 .global lossSoftmaxFloat
 .type lossSoftmaxFloat, @function
 .align 8
@@ -222,6 +228,8 @@ lossSoftmaxFloat_loopEnd:
 #undef TRANSFORMED
 #undef LN_PROB
 #undef NEG_EXPECTED
+
+.section .text.lossSoftmaxHalf
 
 .global lossSoftmaxHalf
 .type lossSoftmaxHalf, @function

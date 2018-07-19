@@ -24,7 +24,6 @@
 //  Currently no memory constraints that would allow 128-bit loads for wider
 //  vector operations.
 
-.text
 /*****************************************************************************/
 // popnn::NonLinearitySupervisor<half, popnn::NonLinearityType::SIGMOID>
 // popnn::NonLinearitySupervisor<float, popnn::NonLinearityType::SIGMOID>

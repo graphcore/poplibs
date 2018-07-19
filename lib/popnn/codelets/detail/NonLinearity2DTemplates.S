@@ -33,10 +33,12 @@
 #define PREFIX_EVAL(p, s) PREFIX_PASTE(p, s)
 #define PREFIX(s) PREFIX_EVAL(OP_UNIQUE_PREFIX, s)
 
+.section .text.HALF_SYMBOL_NAME
+.align 8
+
 .globl HALF_SYMBOL_NAME
 .type HALF_SYMBOL_NAME, @function
 
-.align 8
     nop
 HALF_SYMBOL_NAME:
     ld32 $MSCRATCH, $mvertex_base, $mzero, BASE_AND_N0_VOFFSET
@@ -143,10 +145,12 @@ HALF_SYMBOL_NAME:
 
 .size HALF_SYMBOL_NAME, .-HALF_SYMBOL_NAME
 
+.section .text.FLOAT_SYMBOL_NAME
+.align 8
+
 .globl FLOAT_SYMBOL_NAME
 .type FLOAT_SYMBOL_NAME, @function
 
-.align 8
     nop
 FLOAT_SYMBOL_NAME:
     ld32 $MSCRATCH, $mvertex_base, $mzero, BASE_AND_N0_VOFFSET

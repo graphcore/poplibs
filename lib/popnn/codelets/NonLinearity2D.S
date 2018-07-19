@@ -21,7 +21,6 @@
 //
 //  * Vertex state aligned to at least 4 bytes.
 
-.text
 /*****************************************************************************/
 // popnn::NonLinearity2D<half, popnn::NonLinearityType::SIGMOID>
 // popnn::NonLinearity2D<float, popnn::NonLinearityType::SIGMOID>
