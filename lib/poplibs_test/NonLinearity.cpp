@@ -13,13 +13,13 @@ static double sigmoid(double x) {
 static double nonLinearity(NonLinearityType nonLinearityType,
                            double x) {
   switch (nonLinearityType) {
-  case NON_LINEARITY_SIGMOID:
+  case NonLinearityType::SIGMOID:
     return sigmoid(x);
-  case NON_LINEARITY_RELU:
+  case NonLinearityType::RELU:
     return std::max(0.0, x);
-  case NON_LINEARITY_TANH:
+  case NonLinearityType::TANH:
     return tanh(x);
-  case NON_LINEARITY_SOFTMAX:
+  case NonLinearityType::SOFTMAX:
     throw poplibs_test::poplibs_test_error("softmax not supported");
   }
   POPLIB_UNREACHABLE();
@@ -40,7 +40,7 @@ static void softmax(boost::multi_array_ref<double, 2> &array) {
 void poplibs_test::nonLinearity(NonLinearityType nonLinearityType,
                                 const double *inputData, double *outputData,
                                 std::size_t n) {
-  if (nonLinearityType == NON_LINEARITY_SOFTMAX) {
+  if (nonLinearityType == NonLinearityType::SOFTMAX) {
     throw poplibs_test::poplibs_test_error("softmax not supported, use "
                                            "shaped functions instead");
   }
@@ -51,7 +51,7 @@ void poplibs_test::nonLinearity(NonLinearityType nonLinearityType,
 
 void poplibs_test::nonLinearity(NonLinearityType nonLinearityType,
                                boost::multi_array_ref<double, 2> array) {
-  if (nonLinearityType == NON_LINEARITY_SOFTMAX) {
+  if (nonLinearityType == NonLinearityType::SOFTMAX) {
     softmax(array);
   } else {
     nonLinearity(nonLinearityType,
@@ -62,7 +62,7 @@ void poplibs_test::nonLinearity(NonLinearityType nonLinearityType,
 
 void poplibs_test::nonLinearity(NonLinearityType nonLinearityType,
                                boost::multi_array<double, 4> &array) {
-  if (nonLinearityType == NON_LINEARITY_SOFTMAX) {
+  if (nonLinearityType == NonLinearityType::SOFTMAX) {
     throw poplibs_test::poplibs_test_error("softmax not supported for 4D "
                                            "tensor");
   }
@@ -74,13 +74,13 @@ void poplibs_test::nonLinearity(NonLinearityType nonLinearityType,
 static double nonLinearityDerivative(NonLinearityType nonLinearityType,
                                      double act) {
   switch (nonLinearityType) {
-  case NON_LINEARITY_SIGMOID:
+  case NonLinearityType::SIGMOID:
     return act * (1.0 - act);
-  case NON_LINEARITY_RELU:
+  case NonLinearityType::RELU:
     return (act > 0) ? 1 : 0;
-  case NON_LINEARITY_TANH:
+  case NonLinearityType::TANH:
     return 1 - act * act;
-  case NON_LINEARITY_SOFTMAX:
+  case NonLinearityType::SOFTMAX:
     throw poplibs_test::poplibs_test_error("softmax derivative not "
                                            "implemented");
   }
@@ -96,7 +96,7 @@ void poplibs_test::bwdNonLinearity(
   NonLinearityType nonLinearityType,
   const double *activations, double *deltas,
   std::size_t n) {
-  if (nonLinearityType == NON_LINEARITY_SOFTMAX) {
+  if (nonLinearityType == NonLinearityType::SOFTMAX) {
     throw poplibs_test::poplibs_test_error("softmax not supported, use "
                                            "shaped functions instead");
   }

@@ -58,7 +58,7 @@ void testReluWithTensorOfSize(size_t nElms) {
   poplar::program::Copy copyProg(dPre, dPost);
   prog.add(copyProg);
   popnn::nonLinearity(graph,
-                      popnn::NonLinearityType::NON_LINEARITY_RELU,
+                      popnn::NonLinearityType::RELU,
                       dPost,
                       prog,
                       "Relu");

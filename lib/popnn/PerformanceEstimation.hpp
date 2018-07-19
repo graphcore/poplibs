@@ -24,7 +24,7 @@ inline uint64_t getNonLinearityCycles(std::vector<unsigned> regionSizes,
     const auto transHalfVectorWidth = 2;
     cycles += 10;
     switch (nonLinearityType) {
-    case popnn::NonLinearityType::NON_LINEARITY_RELU:
+    case popnn::NonLinearityType::RELU:
       {
         const unsigned numBlocks = isFloat ?
                   (numItems + floatVectorWidth - 1) / floatVectorWidth :
@@ -32,7 +32,7 @@ inline uint64_t getNonLinearityCycles(std::vector<unsigned> regionSizes,
         cycles += (numBlocks / 2) * 3 + (numBlocks & 1);
       }
       break;
-    case popnn::NonLinearityType::NON_LINEARITY_SIGMOID:
+    case popnn::NonLinearityType::SIGMOID:
       // scalar operation for floats, vector operation for halves
       // sigm is ~5 cycles for float, ~2 cycles for half
       if (isFloat) {
@@ -42,7 +42,7 @@ inline uint64_t getNonLinearityCycles(std::vector<unsigned> regionSizes,
                       / transHalfVectorWidth;
       }
       break;
-    case popnn::NonLinearityType::NON_LINEARITY_TANH:
+    case popnn::NonLinearityType::TANH:
       // scalar operation for floats, vector operation for halves
       // tanh is ~5 cycles for float, always 1 cycle for half.
       if (isFloat) {
@@ -51,7 +51,7 @@ inline uint64_t getNonLinearityCycles(std::vector<unsigned> regionSizes,
         cycles += (numItems + transHalfVectorWidth - 1) / transHalfVectorWidth;
       }
       break;
-    case popnn::NonLinearityType::NON_LINEARITY_SOFTMAX:
+    case popnn::NonLinearityType::SOFTMAX:
       throw std::runtime_error("Nonlinearity not implemented as a "
                                "single vertex");
     default:
@@ -94,10 +94,10 @@ inline uint64_t getBwdNonlinearityDerivativeCycles(
     const unsigned numVectors = (numItems + vectorWidth - 1) / vectorWidth;
     // scaled32 pointers for out/outGrad
     switch (nonLinearityType) {
-    case popnn::NonLinearityType::NON_LINEARITY_SIGMOID:
+    case popnn::NonLinearityType::SIGMOID:
       cycles += 5 + numVectors * 3;
       break;
-    case popnn::NonLinearityType::NON_LINEARITY_RELU:
+    case popnn::NonLinearityType::RELU:
       {
         const unsigned vertexOverhead =
                                        // run instruction
@@ -106,10 +106,10 @@ inline uint64_t getBwdNonlinearityDerivativeCycles(
         cycles += vertexOverhead + numVectors * 3;
       }
       break;
-    case popnn::NonLinearityType::NON_LINEARITY_TANH:
+    case popnn::NonLinearityType::TANH:
       cycles += 5 + numVectors * 3;
       break;
-    case popnn::NonLinearityType::NON_LINEARITY_SOFTMAX:
+    case popnn::NonLinearityType::SOFTMAX:
       throw std::runtime_error("Nonlinearity not implemented");
     default:
       throw std::runtime_error("Invalid nonlinearity type");

@@ -14,6 +14,7 @@
 #include <poplin/MatMul.hpp>
 #include <popops/Zero.hpp>
 #include <popops/Reduce.hpp>
+#include <popnn/NonLinearity.hpp>
 #include <popnn/Recurrent.hpp>
 #include <popops/codelets.hpp>
 #include <poplin/codelets.hpp>
@@ -51,38 +52,39 @@ const OptionFlags simDebugOptions {
 };
 
 
-const char *asString(popnn::NonLinearityType &type) {
+const char *asString(const popnn::NonLinearityType &type) {
   switch (type) {
-  case popnn::NonLinearityType::NON_LINEARITY_RELU: return "relu";
-  case popnn::NonLinearityType::NON_LINEARITY_SIGMOID: return "sigmoid";
-  case popnn::NonLinearityType::NON_LINEARITY_TANH: return "tanh";
-  case popnn::NonLinearityType::NON_LINEARITY_SOFTMAX: return "softmax";
+  case popnn::NonLinearityType::RELU: return "relu";
+  case popnn::NonLinearityType::SIGMOID: return "sigmoid";
+  case popnn::NonLinearityType::TANH: return "tanh";
+  case popnn::NonLinearityType::SOFTMAX: return "softmax";
   }
   POPLIB_UNREACHABLE();
 }
 
-std::ostream &operator<<(std::ostream &os, popnn::NonLinearityType &type) {
+namespace popnn {
+
+std::ostream &operator<<(std::ostream &os, const NonLinearityType &type) {
   return os << asString(type);
 }
 
-namespace popnn {
-
-std::istream &operator>>(std::istream &in, popnn::NonLinearityType &type) {
+std::istream &operator>>(std::istream &in, NonLinearityType &type) {
   std::string token;
   in >> token;
   if (token == "relu")
-    type = popnn::NonLinearityType::NON_LINEARITY_RELU;
+    type = NonLinearityType::RELU;
   else if (token == "sigmoid")
-    type = popnn::NonLinearityType::NON_LINEARITY_SIGMOID;
+    type = NonLinearityType::SIGMOID;
   else if (token == "tanh")
-    type = popnn::NonLinearityType::NON_LINEARITY_TANH;
+    type = NonLinearityType::TANH;
   else
     throw poplibs_test::poplibs_test_error(
         "Unsupported nonlinearity <" + token + ">");
 
   return in;
 }
-}
+
+} // end namespace popnn
 
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
@@ -94,8 +96,7 @@ int main(int argc, char **argv) {
   Type partialsType;
   double relativeTolerance, absoluteTolerance;
 
-  popnn::NonLinearityType nonLinearityType =
-                                popnn::NonLinearityType::NON_LINEARITY_SIGMOID;
+  popnn::NonLinearityType nonLinearityType = popnn::NonLinearityType::SIGMOID;
 
   IPUModel ipuModel;
 

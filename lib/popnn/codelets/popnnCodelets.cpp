@@ -14,17 +14,17 @@ static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
 // Macro to instantiate a template class for non linear operations
 #define INSTANTIATE_NL(v) \
         template class v<float, \
-                         popnn::NonLinearityType::NON_LINEARITY_SIGMOID>; \
+                         popnn::NonLinearityType::SIGMOID>; \
         template class v<half, \
-                         popnn::NonLinearityType::NON_LINEARITY_SIGMOID>; \
+                         popnn::NonLinearityType::SIGMOID>; \
         template class v<float, \
-                         popnn::NonLinearityType::NON_LINEARITY_RELU>; \
+                         popnn::NonLinearityType::RELU>; \
         template class v<half, \
-                         popnn::NonLinearityType::NON_LINEARITY_RELU>; \
+                         popnn::NonLinearityType::RELU>; \
         template class v<float, \
-                         popnn::NonLinearityType::NON_LINEARITY_TANH>; \
+                         popnn::NonLinearityType::TANH>; \
         template class v<half, \
-                         popnn::NonLinearityType::NON_LINEARITY_TANH>;
+                         popnn::NonLinearityType::TANH>;
 
 /****************************************************************************/
 /*            Auxiliary math functions                                      */
@@ -72,13 +72,13 @@ static float tanh_derivative(float activation)
 
 static float nonlinearity(popnn::NonLinearityType t, float x) {
   switch (t) {
-  case popnn::NonLinearityType::NON_LINEARITY_SIGMOID:
+  case popnn::NonLinearityType::SIGMOID:
     return sigmoid(x);
-  case popnn::NonLinearityType::NON_LINEARITY_RELU:
+  case popnn::NonLinearityType::RELU:
     return relu(x);
-  case popnn::NonLinearityType::NON_LINEARITY_TANH:
+  case popnn::NonLinearityType::TANH:
     return tanh(x);
-  case popnn::NonLinearityType::NON_LINEARITY_SOFTMAX:
+  case popnn::NonLinearityType::SOFTMAX:
     assert(0 && "Non linearity not supported");
     return x;
   }
@@ -87,13 +87,13 @@ static float nonlinearity(popnn::NonLinearityType t, float x) {
 static float nonlinearity_derivative(popnn::NonLinearityType t,
                                      float activation) {
   switch (t) {
-  case popnn::NonLinearityType::NON_LINEARITY_SIGMOID:
+  case popnn::NonLinearityType::SIGMOID:
     return sigmoid_derivative(activation);
-  case popnn::NonLinearityType::NON_LINEARITY_RELU:
+  case popnn::NonLinearityType::RELU:
     return relu_derivative(activation);
-  case popnn::NonLinearityType::NON_LINEARITY_TANH:
+  case popnn::NonLinearityType::TANH:
     return tanh_derivative(activation);
-  case popnn::NonLinearityType::NON_LINEARITY_SOFTMAX:
+  case popnn::NonLinearityType::SOFTMAX:
     assert(0 && "Non linearity not supported");
     return activation;
   }
@@ -105,7 +105,7 @@ static float nonlinearity_derivative(popnn::NonLinearityType t,
 /****************************************************************************/
 
 namespace popnn {
-template <typename FPType, unsigned nlType>
+template <typename FPType, NonLinearityType nlType>
 class NonLinearitySupervisor : public SupervisorVertex {
 public:
   InOut<Vector<FPType, SCALED_PTR32>> data;
@@ -125,7 +125,7 @@ public:
       ((n >> remainderBits) * elementsPerChunk) +
       (n & ((1u << remainderBits) - 1));
     for (unsigned i = 0; i < size; ++i) {
-      data[i] = nonlinearity(NonLinearityType(nlType), data[i]);
+      data[i] = nonlinearity(nlType, data[i]);
     }
     return true;
   }
@@ -133,7 +133,7 @@ public:
 
 INSTANTIATE_NL(NonLinearitySupervisor)
 
-template <typename FPType, unsigned nlType>
+template <typename FPType, NonLinearityType nlType>
 class NonLinearityGradSupervisor : public SupervisorVertex {
 public:
   Input<Vector<FPType, SCALED_PTR32>> outGrad;
@@ -143,8 +143,7 @@ public:
 
   bool compute() {
     for (unsigned i = 0; i < n; ++i) {
-      inGrad[i] = outGrad[i] *
-                  nonlinearity_derivative(NonLinearityType(nlType), out[i]);
+      inGrad[i] = outGrad[i] * nonlinearity_derivative(nlType, out[i]);
     }
     return true;
   }
@@ -152,7 +151,7 @@ public:
 
 INSTANTIATE_NL(NonLinearityGradSupervisor)
 
-template <typename FPType, unsigned nlType>
+template <typename FPType, NonLinearityType nlType>
 class NonLinearity2D : public Vertex {
 public:
   InOut<VectorList<FPType, VectorListLayout::DELTAN>> data;
@@ -161,7 +160,7 @@ public:
   bool compute() {
     for (unsigned i = 0; i < data.size(); ++i) {
       for (unsigned j = 0; j < data[i].size(); ++j) {
-        data[i][j] = nonlinearity(NonLinearityType(nlType), data[i][j]);
+        data[i][j] = nonlinearity(nlType, data[i][j]);
       }
     }
     return true;
@@ -170,7 +169,7 @@ public:
 
 INSTANTIATE_NL(NonLinearity2D)
 
-template <typename FPType, unsigned nlType>
+template <typename FPType, NonLinearityType nlType>
 class NonLinearityGrad2D : public Vertex {
 public:
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> outGrad;
@@ -181,9 +180,7 @@ public:
     for (unsigned i = 0; i < inGrad.size(); ++i) {
       for (unsigned j = 0; j < inGrad[i].size(); ++j) {
         inGrad[i][j] =
-            outGrad[i][j] *
-              nonlinearity_derivative(NonLinearityType(nlType),
-                                                       out[i][j]);
+            outGrad[i][j] * nonlinearity_derivative(nlType, out[i][j]);
       }
     }
     return true;

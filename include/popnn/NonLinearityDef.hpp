@@ -3,11 +3,15 @@
 #ifndef popnn_NonLinearityDef_hpp
 #define popnn_NonLinearityDef_hpp
 
-enum NonLinearityType {
-  NON_LINEARITY_SIGMOID,
-  NON_LINEARITY_RELU,
-  NON_LINEARITY_TANH,
-  NON_LINEARITY_SOFTMAX
+namespace popnn {
+
+enum class NonLinearityType {
+  SIGMOID,
+  RELU,
+  TANH,
+  SOFTMAX
 };
+
+} // end namespace popnn
 
 #endif // popnn_NonLinearityDef_hpp

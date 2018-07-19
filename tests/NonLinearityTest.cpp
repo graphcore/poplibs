@@ -117,15 +117,12 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
     }
   }
 
-  for (enum NonLinearityType n : {NON_LINEARITY_RELU,
-                                  NON_LINEARITY_SIGMOID,
-                                  NON_LINEARITY_TANH,
-                                  }) {
+  for (auto n : {NonLinearityType::RELU,
+                 NonLinearityType::SIGMOID,
+                 NonLinearityType::TANH,
+                 }) {
     //Check backward gradient calculations
-    if (n == NON_LINEARITY_SOFTMAX) {
-      continue;
-    }
-    std::cerr<<"Check nl type "<< n << "\n";
+    std::cerr << "Check nl type " << poplibs_test::asString(n) << "\n";
     //Check forward activation calculation
     hRefActOut = hActIn;
     poplibs_test::nonLinearity(n, hRefActOut);
@@ -193,7 +190,7 @@ BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
   popops::addCodelets(graph);
 
   // support only 2D
-  const auto nl = NON_LINEARITY_SOFTMAX;
+  const auto nl = NonLinearityType::SOFTMAX;
   const unsigned batchSize = 2;
   const unsigned numChannels = 128;
 
@@ -226,7 +223,7 @@ BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
     }
   }
 
-  std::cerr<<"Check nl type "<< nl << "\n";
+  std::cerr << "Check nl type " << poplibs_test::asString(nl) << "\n";
 
   auto hActOut = hActIn;
   poplibs_test::nonLinearity(nl, hActOut);

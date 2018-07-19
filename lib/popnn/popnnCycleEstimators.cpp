@@ -8,17 +8,17 @@ using namespace poplar;
 // Macro to create entries in cycle estimator table
 #define INSTANTIATE_NL_CYCLE_ESTIMATOR(v, ...) \
         CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, \
-                              popnn::NonLinearityType::NON_LINEARITY_SIGMOID), \
+                              popnn::NonLinearityType::SIGMOID), \
         CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, \
-                              popnn::NonLinearityType::NON_LINEARITY_SIGMOID), \
+                              popnn::NonLinearityType::SIGMOID), \
         CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, \
-                              popnn::NonLinearityType::NON_LINEARITY_RELU), \
+                              popnn::NonLinearityType::RELU), \
         CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, \
-                              popnn::NonLinearityType::NON_LINEARITY_RELU), \
+                              popnn::NonLinearityType::RELU), \
         CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, \
-                              popnn::NonLinearityType::NON_LINEARITY_TANH), \
+                              popnn::NonLinearityType::TANH), \
         CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, \
-                              popnn::NonLinearityType::NON_LINEARITY_TANH)
+                              popnn::NonLinearityType::TANH)
 namespace popnn {
 
 std::uint64_t

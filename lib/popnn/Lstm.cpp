@@ -98,9 +98,9 @@ applyGateNonlinearities(Graph &graph,
                            t[BASIC_LSTM_CELL_FORGET_GATE],
                            t[BASIC_LSTM_CELL_OUTPUT_GATE]});
   auto cs = graph.addComputeSet(debugStr + "/OutputGate");
-  nonLinearity(graph, popnn::NonLinearityType::NON_LINEARITY_SIGMOID,
+  nonLinearity(graph, popnn::NonLinearityType::SIGMOID,
                sigmoidIn, cs, debugStr);
-  nonLinearity(graph, popnn::NonLinearityType::NON_LINEARITY_TANH,
+  nonLinearity(graph, popnn::NonLinearityType::TANH,
                t[BASIC_LSTM_CELL_CANDIDATE], cs, debugStr);
   prog.add(Execute(cs));
 }
@@ -582,11 +582,11 @@ BackwardStepImpl(Graph &graph,
 
   auto cs1 = graph.addComputeSet(fPrefix + "/OutputGate");
   auto gradAtOTanhOutput =
-    nonLinearityInputGradient(graph, NonLinearityType::NON_LINEARITY_TANH,
+    nonLinearityInputGradient(graph, NonLinearityType::TANH,
                               actOutputTanh, gradAtOTanhInput, cs1,
                               fPrefix + "/OuputTanh");
   auto gradOutputGate =
-    nonLinearityInputGradient(graph, NonLinearityType::NON_LINEARITY_SIGMOID,
+    nonLinearityInputGradient(graph, NonLinearityType::SIGMOID,
                               actOutputGate, gradAtOutputGateInput, cs1,
                               fPrefix + "/OutputGate");
   prog.add(Execute(cs1));
@@ -614,15 +614,15 @@ BackwardStepImpl(Graph &graph,
 
   auto cs2 = graph.addComputeSet(fPrefix + "/{Input+Candidate}Gate");
   auto gradInputGate =
-    nonLinearityInputGradient(graph, NonLinearityType::NON_LINEARITY_SIGMOID,
+    nonLinearityInputGradient(graph, NonLinearityType::SIGMOID,
                               actInputGate, gradAtInputGateInput, cs2,
                               fPrefix + "/InputGate");
   auto gradCandidate =
-    nonLinearityInputGradient(graph, NonLinearityType::NON_LINEARITY_TANH,
+    nonLinearityInputGradient(graph, NonLinearityType::TANH,
                               actCandidate, gradAtCandTanhInput, cs2,
                               fPrefix + "/Cand");
   auto gradForgetGate =
-    nonLinearityInputGradient(graph, NonLinearityType::NON_LINEARITY_SIGMOID,
+    nonLinearityInputGradient(graph, NonLinearityType::SIGMOID,
                               actForgetGate, gradAtForgetGateInput, cs2,
                               fPrefix + "/Cand");
   prog.add(Execute(cs2));

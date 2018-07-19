@@ -4,12 +4,18 @@
 #include "tileimplconsts_tommy.h"
 
 // Assembly implementation of popnn::NonLinearity2D vertex template instantiations.
-#define NonLinearityHalfSigm2D __runCodelet_popnn__NonLinearity2D___half_0
-#define NonLinearityFloatSigm2D __runCodelet_popnn__NonLinearity2D___float_0
-#define NonLinearityHalfRelu2D __runCodelet_popnn__NonLinearity2D___half_1
-#define NonLinearityFloatRelu2D __runCodelet_popnn__NonLinearity2D___float_1
-#define NonLinearityHalfTanh2D __runCodelet_popnn__NonLinearity2D___half_2
-#define NonLinearityFloatTanh2D __runCodelet_popnn__NonLinearity2D___float_2
+#define NonLinearityHalfSigm2D \
+  __runCodelet_popnn__NonLinearity2D___half_popnn__NonLinearityType__SIGMOID
+#define NonLinearityFloatSigm2D \
+  __runCodelet_popnn__NonLinearity2D___float_popnn__NonLinearityType__SIGMOID
+#define NonLinearityHalfRelu2D \
+  __runCodelet_popnn__NonLinearity2D___half_popnn__NonLinearityType__RELU
+#define NonLinearityFloatRelu2D \
+  __runCodelet_popnn__NonLinearity2D___float_popnn__NonLinearityType__RELU
+#define NonLinearityHalfTanh2D \
+  __runCodelet_popnn__NonLinearity2D___half_popnn__NonLinearityType__TANH
+#define NonLinearityFloatTanh2D \
+  __runCodelet_popnn__NonLinearity2D___float_popnn__NonLinearityType__TANH
 
 // Restrictions
 //
@@ -17,8 +23,8 @@
 
 .text
 /*****************************************************************************/
-// popnn::NonLinearity2D<half, NON_LINEARITY_SIGMOID>
-// popnn::NonLinearity2D<float, NON_LINEARITY_SIGMOID>
+// popnn::NonLinearity2D<half, popnn::NonLinearityType::SIGMOID>
+// popnn::NonLinearity2D<float, popnn::NonLinearityType::SIGMOID>
 /*****************************************************************************/
 #define HALF_SYMBOL_NAME NonLinearityHalfSigm2D
 #define FLOAT_SYMBOL_NAME NonLinearityFloatSigm2D
@@ -33,8 +39,8 @@
 #undef CALC_FLOAT
 
 /*****************************************************************************/
-// popnn::NonLinearity2D<half, NON_LINEARITY_RELU>
-// popnn::NonLinearity2D<float, NON_LINEARITY_RELU>
+// popnn::NonLinearity2D<half, popnn::NonLinearityType::RELU>
+// popnn::NonLinearity2D<float, popnn::NonLinearityType::RELU>
 /*****************************************************************************/
 #define HALF_SYMBOL_NAME NonLinearityHalfRelu2D
 #define FLOAT_SYMBOL_NAME NonLinearityFloatRelu2D
@@ -49,8 +55,8 @@
 #undef CALC_FLOAT
 
 /*****************************************************************************/
-// popnn::NonLinearity2D<half, NON_LINEARITY_TANH>
-// popnn::NonLinearity2D<float, NON_LINEARITY_TANH>
+// popnn::NonLinearity2D<half, popnn::NonLinearityType::TANH>
+// popnn::NonLinearity2D<float, popnn::NonLinearityType::TANH>
 /*****************************************************************************/
 #define HALF_SYMBOL_NAME NonLinearityHalfTanh2D
 #define FLOAT_SYMBOL_NAME NonLinearityFloatTanh2D

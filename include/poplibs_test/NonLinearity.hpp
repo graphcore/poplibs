@@ -11,10 +11,10 @@
 namespace poplibs_test {
 inline const char *asString(const popnn::NonLinearityType &type) {
   switch (type) {
-  case popnn::NonLinearityType::NON_LINEARITY_RELU: return "relu";
-  case popnn::NonLinearityType::NON_LINEARITY_SIGMOID: return "sigmoid";
-  case popnn::NonLinearityType::NON_LINEARITY_TANH: return "tanh";
-  case popnn::NonLinearityType::NON_LINEARITY_SOFTMAX: return "softmax";
+  case popnn::NonLinearityType::RELU: return "relu";
+  case popnn::NonLinearityType::SIGMOID: return "sigmoid";
+  case popnn::NonLinearityType::TANH: return "tanh";
+  case popnn::NonLinearityType::SOFTMAX: return "softmax";
   }
   POPLIB_UNREACHABLE();
 }
@@ -29,13 +29,13 @@ inline std::istream &operator>>(std::istream &in,
   std::string token;
   in >> token;
   if (token == "relu")
-    type = popnn::NonLinearityType::NON_LINEARITY_RELU;
+    type = popnn::NonLinearityType::RELU;
   else if (token == "sigmoid")
-    type = popnn::NonLinearityType::NON_LINEARITY_SIGMOID;
+    type = popnn::NonLinearityType::SIGMOID;
   else if (token == "tanh")
-    type = popnn::NonLinearityType::NON_LINEARITY_TANH;
+    type = popnn::NonLinearityType::TANH;
   else if (token == "softmax")
-    type = popnn::NonLinearityType::NON_LINEARITY_SOFTMAX;
+    type = popnn::NonLinearityType::SOFTMAX;
   else
     throw poplibs_test::poplibs_test_error(
         "Unsupported nonlinearity <" + token + ">");

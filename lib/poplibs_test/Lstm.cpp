@@ -102,7 +102,7 @@ basicLstmCellForwardPass(const Array3dRef input,
     processBasicLstmUnit(prevOutputThisStep, inputThisStep, weightsInput,
                          weightsOutput, biases, forgetGate,
                          BASIC_LSTM_CELL_FORGET_GATE,
-                         popnn::NonLinearityType::NON_LINEARITY_SIGMOID);
+                         popnn::NonLinearityType::SIGMOID);
     state[LSTM_FWD_STATE_FORGET_GATE][s] = forgetGate;
 
     /* input gate */
@@ -110,7 +110,7 @@ basicLstmCellForwardPass(const Array3dRef input,
     processBasicLstmUnit(prevOutputThisStep, inputThisStep, weightsInput,
                          weightsOutput, biases, inputGate,
                          BASIC_LSTM_CELL_INPUT_GATE,
-                         popnn::NonLinearityType::NON_LINEARITY_SIGMOID);
+                         popnn::NonLinearityType::SIGMOID);
     state[LSTM_FWD_STATE_INPUT_GATE][s] = inputGate;
 
     /* new candidate contribution to this cell */
@@ -118,7 +118,7 @@ basicLstmCellForwardPass(const Array3dRef input,
     processBasicLstmUnit(prevOutputThisStep, inputThisStep, weightsInput,
                          weightsOutput, biases,  candidate,
                          BASIC_LSTM_CELL_CANDIDATE,
-                         popnn::NonLinearityType::NON_LINEARITY_TANH);
+                         popnn::NonLinearityType::TANH);
     state[LSTM_FWD_STATE_CAND_TANH][s] = candidate;
 
     /* output gate */
@@ -126,7 +126,7 @@ basicLstmCellForwardPass(const Array3dRef input,
     processBasicLstmUnit(prevOutputThisStep, inputThisStep, weightsInput,
                          weightsOutput, biases, outputGate,
                          BASIC_LSTM_CELL_OUTPUT_GATE,
-                         popnn::NonLinearityType::NON_LINEARITY_SIGMOID);
+                         popnn::NonLinearityType::SIGMOID);
     state[LSTM_FWD_STATE_OUTPUT_GATE][s] = outputGate;
 
     poplibs_test::gemm::hadamardProduct(forgetGate, cellState, cellState);
@@ -135,7 +135,7 @@ basicLstmCellForwardPass(const Array3dRef input,
 
     /* need to maintain the cell state for next step */
     Array2d outputThisStep = cellState;
-    nonLinearity(popnn::NonLinearityType::NON_LINEARITY_TANH, outputThisStep);
+    nonLinearity(popnn::NonLinearityType::TANH, outputThisStep);
     state[LSTM_FWD_STATE_OUTPUT_TANH][s] = outputThisStep;
     gemm::hadamardProduct(outputThisStep, outputGate, outputThisStep);
 
@@ -225,10 +225,10 @@ basicLstmCellBackwardPass(const Array3dRef weightsInput,
 
     gemm::hadamardProduct(actTanhOutGate, sumGradOut, gradAtOutGate);
 
-    bwdNonLinearity(popnn::NonLinearityType::NON_LINEARITY_TANH, actTanhOutGate,
+    bwdNonLinearity(popnn::NonLinearityType::TANH, actTanhOutGate,
                     gradAtOTanhInp);
 
-    bwdNonLinearity(popnn::NonLinearityType::NON_LINEARITY_SIGMOID, actOutGate,
+    bwdNonLinearity(popnn::NonLinearityType::SIGMOID, actOutGate,
                     gradAtOutGate);
 
     Array2dRef gradAtCellStateSum = gradAtOTanhInp;
@@ -240,9 +240,9 @@ basicLstmCellBackwardPass(const Array3dRef weightsInput,
     Array2d actCand = fwdState[LSTM_FWD_STATE_CAND_TANH][s];
     Array2d gradAtInpGate(boost::extents[batchSize][outputSize]);;
     gemm::hadamardProduct(actCand, gradAtCellStateSum, gradAtInpGate);
-    bwdNonLinearity(popnn::NonLinearityType::NON_LINEARITY_TANH,
+    bwdNonLinearity(popnn::NonLinearityType::TANH,
                                  actCand, gradAtCand);
-    bwdNonLinearity(popnn::NonLinearityType::NON_LINEARITY_SIGMOID,
+    bwdNonLinearity(popnn::NonLinearityType::SIGMOID,
                                  actInpGate, gradAtInpGate);
 
     Array2d actForgetGate = fwdState[LSTM_FWD_STATE_FORGET_GATE][s];
@@ -258,7 +258,7 @@ basicLstmCellBackwardPass(const Array3dRef weightsInput,
     Array2d gradAtForgetGate(boost::extents[batchSize][outputSize]);;
 
     gemm::hadamardProduct(pCellAct, gradAtCellStateSum, gradAtForgetGate);
-    bwdNonLinearity(popnn::NonLinearityType::NON_LINEARITY_SIGMOID,
+    bwdNonLinearity(popnn::NonLinearityType::SIGMOID,
                     actForgetGate, gradAtForgetGate);
 
     Array2d gradIn(boost::extents[batchSize][inputSize]);;

@@ -185,5 +185,5 @@ void doTest(const Type &dataType, const NonLinearityType &nlType) {
 
 
 BOOST_AUTO_TEST_CASE(NonLinearitySupervisor_@DATA_TYPE@_@NL_TYPE@) {
-  doTest(@DATA_TYPE_UPPER@, @NL_TYPE_UPPER@);
+  doTest(@DATA_TYPE_UPPER@, NonLinearityType::@NL_TYPE_UPPER@);
 }

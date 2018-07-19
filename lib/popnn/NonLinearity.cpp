@@ -53,7 +53,7 @@ nonLinearityInputGradient(Graph &graph,
                           Tensor out, Tensor outGradient,
                           ComputeSet &cs,
                           const std::string &debugPrefix) {
-  if (nonLinearityType == NON_LINEARITY_SOFTMAX) {
+  if (nonLinearityType == NonLinearityType::SOFTMAX) {
     throw poputil::poplib_error("SOFTMAX gradient not implemented");
   }
   const auto dType = out.elementType();
@@ -79,8 +79,7 @@ nonLinearityInputGradient(Graph &graph,
         auto v =
           graph.addVertex(cs,
                           templateVertex("popnn::NonLinearityGradSupervisor",
-                                         dType,
-                                      static_cast<unsigned>(nonLinearityType)),
+                                         dType, nonLinearityType),
                           {{"out", concat(outFlat.slices(thisTileMap))},
                            {"outGrad", outGradTile},
                            {"inGrad", concat(inGradFlat.slices(thisTileMap))}});
@@ -102,7 +101,7 @@ nonLinearityInputGradient(Graph &graph,
       auto v =
           graph.addVertex(cs,
                           templateVertex("popnn::NonLinearityGrad2D", dType,
-                                       static_cast<unsigned>(nonLinearityType)),
+                                         nonLinearityType),
                           {{"out", outFlat.slices(regions)},
                            {"outGrad", outGradFlat.slices(regions)},
                            {"inGrad", inGradFlat.slices(regions)}});
@@ -129,7 +128,7 @@ nonLinearityInputGradient(Graph &graph,
 void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
                   poplar::Tensor t, ComputeSet &cs,
                   const std::string &debugPrefix) {
-  if (nonLinearityType == NON_LINEARITY_SOFTMAX) {
+  if (nonLinearityType == NonLinearityType::SOFTMAX) {
     throw poputil::poplib_error("Compute set variant of softmax not "
                                "implemented");
   }
@@ -147,11 +146,9 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
   const auto vectorWidth = target.getVectorWidth(dType);
   // generate regions such that the 1d nonlinearity function can be called
   const auto codeletName2D =
-    templateVertex("popnn::NonLinearity2D", dType,
-                   static_cast<unsigned>(nonLinearityType));
+    templateVertex("popnn::NonLinearity2D", dType, nonLinearityType);
   const auto codeletNameSupervisor =
-      templateVertex("popnn::NonLinearitySupervisor", dType,
-                     static_cast<unsigned>(nonLinearityType));
+    templateVertex("popnn::NonLinearitySupervisor", dType, nonLinearityType);
 
   const auto elementSize = target.getTypeSize(dType);
   const auto vectorWidthBytes = (target.getDataPathWidth() / 8);
@@ -219,7 +216,7 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
 
 void nonLinearity(Graph &graph, NonLinearityType nonLinearityType,
                   Tensor t, Sequence &prog, const std::string &debugPrefix) {
-  if (nonLinearityType == NON_LINEARITY_SOFTMAX) {
+  if (nonLinearityType == NonLinearityType::SOFTMAX) {
     auto out = softmaxImpl(graph, t, prog, debugPrefix);
     prog.add(Copy(out, t));
     return;
