@@ -34,4 +34,38 @@ foreach(DATA_TYPE half float int)
    add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC} VARIANTS "IpuModel;Sim:cpp;Sim")
 endforeach()
 
+# MaxPooling<dataType> and ScaledSumPooling<dataType, poolType>
+foreach(DATA_TYPE half float)
+  foreach(POOL_TYPE avg sum max)
+    set(VARIANT_NAME "Pooling_${DATA_TYPE}_${POOL_TYPE}")
+    set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
+
+    # set up the variables used in the test.
+    if("${POOL_TYPE}" STREQUAL "avg")
+      set(VERTEX
+        "popnn::ScaledSumPooling<${DATA_TYPE},popnn::PoolingType::AVG>")
+      set(EXPECTED "pooling/AvgPoolingExpected.hpp")
+    elseif("${POOL_TYPE}" STREQUAL "sum")
+      set(VERTEX
+        "popnn::ScaledSumPooling<${DATA_TYPE},popnn::PoolingType::SUM>")
+      set(EXPECTED "pooling/SumPoolingExpected.hpp")
+    elseif("${POOL_TYPE}" STREQUAL "max")
+      set(VERTEX "popnn::MaxPooling<${DATA_TYPE}>")
+      set(EXPECTED "pooling/MaxPoolingExpected.hpp")
+    endif()
+
+    string(TOUPPER "${DATA_TYPE}" TYPE)
+    if("${DATA_TYPE}" STREQUAL "half")
+      set(ATOL "1e-7")
+    else()
+      set(ATOL "1e-20")
+    endif()
+
+    # create the test.
+    configure_file(Pooling.cpp.in ${VARIANT_SRC})
+    configure_file(${EXPECTED} ${CMAKE_CURRENT_BINARY_DIR}/${EXPECTED} COPYONLY)
+    add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC})
+  endforeach()
+endforeach()
+
 add_popnn_unit_test(AddToChannel AddToChannel.cpp)

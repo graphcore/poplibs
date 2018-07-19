@@ -6,6 +6,7 @@
 #include "poputil/Util.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "popops/ElementWise.hpp"
+#include "PoolingDefUtil.hpp"
 #include <boost/multi_array.hpp>
 #include <functional>
 #include <numeric>
@@ -30,11 +31,14 @@ const char *asString(const PoolingType &pType) {
   POPLIB_UNREACHABLE();
 }
 
-static std::string getFwdVertexName(const PoolingType pType) {
+static
+std::string getFwdVertexName(const PoolingType pType, const Type &dType) {
   switch (pType) {
-  case PoolingType::MAX: return "popnn::MaxPooling";
-  case PoolingType::AVG: return "popnn::ScaledSumPooling";
-  case PoolingType::SUM: return "popnn::ScaledSumPooling";
+  case PoolingType::MAX:
+    return templateVertex("popnn::MaxPooling", dType);
+  case PoolingType::AVG:
+  case PoolingType::SUM:
+    return templateVertex("popnn::ScaledSumPooling", dType, pType);
   }
   POPLIB_UNREACHABLE();
 }
@@ -503,14 +507,17 @@ Tensor pool(Graph &graph,
           windowSizes.push_back(windowSize);
         }
       }
-      auto v = graph.addVertex(cs, templateVertex(getFwdVertexName(poolingType),
-                                                  dType),
+      auto v = graph.addVertex(cs, getFwdVertexName(poolingType, dType),
                                {{"in", vertexIn}, {"out", vertexOut}});
       graph.setTileMapping(v, tile);
-      if (poolingType != PoolingType::MAX) {
-        graph.setInitialValue(v["scaleOutput"],
-                              poolingType == PoolingType::AVG);
+
+      // all window sizes must be at least 1.
+      for (const auto windowSize : windowSizes) {
+        if (windowSize == 0) {
+          throw poputil::poplib_error("Cannot have a window size of zero.");
+        }
       }
+
       graph.setInitialValue(v["windowSizes"], windowSizes);
     }
   }

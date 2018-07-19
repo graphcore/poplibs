@@ -78,14 +78,15 @@ writeRandomValues(const Target &target,
   }
 }
 
-bool checkIsClose(double a, double b, double relativeTolerance) {
+template <typename FPType>
+bool checkIsClose(FPType a, FPType b, double relativeTolerance) {
   // These checks are necessary because close_at_tolerance doesn't handle
   // NaN or infinity.
   if (a == b)
     return true;
   if (std::isnan(a) && std::isnan(b))
     return true;
-  return boost::math::fpc::close_at_tolerance<double>(relativeTolerance)(a, b);
+  return boost::math::fpc::close_at_tolerance<FPType>(relativeTolerance)(a, b);
 }
 
 std::string prettyCoord(const std::string &name, std::size_t index,
@@ -104,9 +105,10 @@ std::string prettyCoord(const std::string &name, std::size_t index,
   return str;
 }
 
-bool checkIsClose(const std::string &name, const double *actual,
+template <typename FPType>
+bool checkIsClose(const std::string &name, const FPType *actual,
                   const std::vector<std::size_t> &shape,
-                  const double *expected, std::size_t N,
+                  const FPType *expected, std::size_t N,
                   double relativeTolerance,
                   double absoluteTolerance) {
   auto it = actual;
@@ -114,11 +116,11 @@ bool checkIsClose(const std::string &name, const double *actual,
   bool isClose = true;
   for (; it != end; ++it, ++expected) {
     if (!checkIsClose(*it, *expected, relativeTolerance)) {
-      if (fabs(*expected) < 0.01 && checkIsClose(*it, *expected,
-                                                 5 * relativeTolerance)) {
+      if (std::fabs(*expected) < 0.01 && checkIsClose(*it, *expected,
+                                                      5 * relativeTolerance)) {
         std::cerr << "close to mismatch on element ";
         // values close to zero have 5x the tolerance
-      } else if   (fabs(*expected - *it) < absoluteTolerance) {
+      } else if   (std::fabs(*expected - *it) < absoluteTolerance) {
         std::cerr << "within absolute tolerance bounds on element ";
       } else {
         std::cerr << "mismatch on element ";
@@ -132,6 +134,14 @@ bool checkIsClose(const std::string &name, const double *actual,
   }
   return isClose;
 }
+
+template bool checkIsClose<float>(const std::string &, const float *,
+                                  const std::vector<std::size_t> &,
+                                  const float *, std::size_t, double, double);
+
+template bool checkIsClose<double>(const std::string &, const double *,
+                                   const std::vector<std::size_t> &,
+                                   const double *, std::size_t, double, double);
 
 } // end namespace util
 } // end namespace poplibs_test

@@ -18,6 +18,43 @@
 
 namespace poplibs_test {
 namespace util {
+
+namespace detail {
+
+template <typename T>
+void copyToDevice(const poplar::Target &target, const T *src, void *dst,
+                  std::size_t n);
+
+template <>
+void copyToDevice(const poplar::Target &target, const float *src, void *dst,
+                  std::size_t n) {
+  poplar::copyFloatToDeviceHalf(target, src, dst, n);
+}
+
+template <>
+void copyToDevice(const poplar::Target &target, const double *src, void *dst,
+                  std::size_t n) {
+  poplar::copyDoubleToDeviceHalf(target, src, dst, n);
+}
+
+template <typename T>
+void copyFromDevice(const poplar::Target &target, const void *src, T *dst,
+                    std::size_t n);
+
+template <>
+void copyFromDevice(const poplar::Target &target, const void *src, float *dst,
+                    std::size_t n) {
+  poplar::copyDeviceHalfToFloat(target, src, dst, n);
+}
+
+template <>
+void copyFromDevice(const poplar::Target &target, const void *src, double *dst,
+                    std::size_t n) {
+  poplar::copyDeviceHalfToDouble(target, src, dst, n);
+}
+
+} // namespace detail
+
 std::unique_ptr<char []>
 allocateHostMemoryForTensor(const poplar::Target &target,
                             const poplar::Tensor &t);
@@ -52,16 +89,17 @@ writeRandomValues(const poplar::Target &target,
                            min, max, randomEngine);
 }
 
-inline void
+template <typename T>
+void
 copy(const poplar::Target &target,
-     const double *src,
+     const T *src,
      std::size_t n,
      const poplar::Type &dstType,
      void *dst) {
   if (dstType == poplar::FLOAT) {
     std::copy(src, src + n, reinterpret_cast<float*>(dst));
   } else if (dstType == poplar::HALF) {
-    poplar::copyDoubleToDeviceHalf(target, src, dst, n);
+    detail::copyToDevice<T>(target, src, dst, n);
   } else if (dstType == poplar::INT) {
     std::copy(src, src + n, reinterpret_cast<int*>(dst));
   } else {
@@ -80,18 +118,19 @@ copy(const poplar::Target &target,
   copy(target, src.data(), src.num_elements(), dstType, dst);
 }
 
-inline void
+template <typename T>
+void
 copy(const poplar::Target &target,
      const poplar::Type &srcType,
      void *src,
-     double *dst,
+     T *dst,
      size_t n) {
   if (srcType == poplar::FLOAT) {
     std::copy(reinterpret_cast<float*>(src),
               reinterpret_cast<float*>(src) + n,
               dst);
   } else if (srcType == poplar::HALF) {
-    poplar::copyDeviceHalfToDouble(target, src, dst, n);
+    detail::copyFromDevice<T>(target, src, dst, n);
   } else if (srcType == poplar::UNSIGNED_INT) {
     std::copy(reinterpret_cast<unsigned*>(src),
               reinterpret_cast<unsigned*>(src) + n,
@@ -118,9 +157,10 @@ copy(const poplar::Target &target,
   copy(target, srcType, src, dst.data(), dst.num_elements());
 }
 
-bool checkIsClose(const std::string &name, const double *actual,
+template <typename FPType>
+bool checkIsClose(const std::string &name, const FPType *actual,
                   const std::vector<std::size_t> &shape,
-                  const double *expected, std::size_t N,
+                  const FPType *expected, std::size_t N,
                   double relativeTolerance,
                   double absoluteTolerance = 0);
 

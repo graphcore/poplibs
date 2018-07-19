@@ -5,10 +5,12 @@
 #include <type_traits>
 #include "popnn/Loss.hpp"
 #include "popnn/NonLinearity.hpp"
+#include "popnn/PoolingDef.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
 
 using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
+static constexpr auto TWO_PTR = poplar::VectorLayout::TWO_PTR;
 static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
 
 // Macro to instantiate a template class for non linear operations
@@ -192,8 +194,10 @@ INSTANTIATE_NL(NonLinearityGrad2D)
 template <typename FPType>
 class MaxPooling : public Vertex {
 public:
-  Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> in;
-  Vector<Output<Vector<FPType>>> out;
+  IS_EXTERNAL_CODELET(true);
+
+  Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> in;
+  Vector<Output<Vector<FPType, TWO_PTR, 8>>> out;
   Vector<unsigned short, ONE_PTR> windowSizes;
 
   bool compute() {
@@ -216,15 +220,18 @@ public:
 template class MaxPooling<float>;
 template class MaxPooling<half>;
 
-template <typename FPType>
+template <typename FPType, PoolingType PType>
 class ScaledSumPooling : public Vertex {
+  static_assert(PType != PoolingType::MAX,
+                "MaxPooling is handled by a dedicated vertex.");
+
+  constexpr static bool scaleOutput = PType == PoolingType::AVG;
 public:
-  Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> in;
-  Vector<Output<Vector<FPType>>> out;
+  IS_EXTERNAL_CODELET(true);
+
+  Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> in;
+  Vector<Output<Vector<FPType, TWO_PTR, 8>>> out;
   Vector<unsigned short, ONE_PTR> windowSizes;
-  // This field may be removed if separate vertices are defined for
-  // Sum Pooling and Avg pooling
-  bool scaleOutput;
 
   bool compute() {
     unsigned inIndex = 0;
@@ -246,8 +253,10 @@ public:
   }
 };
 
-template class ScaledSumPooling<float>;
-template class ScaledSumPooling<half>;
+template class ScaledSumPooling<float, PoolingType::AVG>;
+template class ScaledSumPooling<float, PoolingType::SUM>;
+template class ScaledSumPooling<half, PoolingType::AVG>;
+template class ScaledSumPooling<half, PoolingType::SUM>;
 
 template <typename FPType>
 class MaxPoolingGrad : public Vertex {

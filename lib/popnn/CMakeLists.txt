@@ -45,10 +45,51 @@ foreach(path ${CMAKE_PREFIX_PATH})
     endif()
 endforeach(path)
 
+# Create the pooling vertex definitions from the shared template.
+foreach(DATA_TYPE float half)
+  foreach(POOL_TYPE max avg sum)
+    if("${POOL_TYPE}" STREQUAL "max")
+      set(VERTEX_NAME "__runCodelet_popnn__MaxPooling___${DATA_TYPE}")
+      set(OP "max")
+    else()
+      string(TOUPPER "${POOL_TYPE}" PTYPE_UPPER)
+
+      # split across two lines for character length reasons!
+      set(VERTEX_NAME_PREFIX "__runCodelet_popnn__ScaledSumPooling___\
+${DATA_TYPE}_popnn__PoolingType__${PTYPE_UPPER}")
+      set(VERTEX_NAME "${VERTEX_NAME_PREFIX}${VERTEX_NAME_SUFFIX}")
+      set(OP "add")
+    endif()
+
+    if("${POOL_TYPE}" STREQUAL "avg")
+      set(AVERAGE_RESULT 1)
+    else()
+      set(AVERAGE_RESULT 0)
+    endif()
+
+    if("${DATA_TYPE}" STREQUAL "half")
+      set(BIT_WIDTH 16)
+    else()
+      set(BIT_WIDTH 32)
+    endif()
+
+    # calc function will be something like "f16v4max"
+    set(CALC_FUNC "f${BIT_WIDTH} ## n ## ${OP} dst, dst, src")
+
+    set(INPUT_FILE
+      ${CMAKE_CURRENT_SOURCE_DIR}/codelets/detail/Pooling_${DATA_TYPE}.S.in)
+    set(OUTPUT_FILE ${CMAKE_CURRENT_BINARY_DIR}/codelets/${VERTEX_NAME}.S)
+
+    configure_file(${INPUT_FILE} ${OUTPUT_FILE})
+    list(APPEND POOLING_VERTICES ${OUTPUT_FILE})
+  endforeach()
+endforeach()
+
 set(codelet_cpp_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/popnnCodelets.cpp
 )
 set(codelet_asm_sources
+  ${POOLING_VERTICES}
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/LossTransform.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearitySupervisor.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearity2D.S

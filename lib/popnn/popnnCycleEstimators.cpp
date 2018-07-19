@@ -1,6 +1,8 @@
 #include "popnnCycleEstimators.hpp"
 
 #include "popnn/NonLinearity.hpp"
+#include "popnn/PoolingDef.hpp"
+#include "PoolingDefUtil.hpp"
 #include "PerformanceEstimation.hpp"
 
 using namespace poplar;
@@ -121,7 +123,8 @@ MAKE_CYCLE_ESTIMATOR_NAME(MaxPooling)(const VertexIntrospector &vertex,
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(ScaledSumPooling)(const VertexIntrospector &vertex,
                                             const Target &target,
-                                            const Type &type) {
+                                            const Type &type,
+                                            const popnn::PoolingType pType) {
   unsigned numCycles = 10;
   bool isFloat = type == FLOAT;
   const auto out = vertex.getFieldInfo("out");
@@ -129,9 +132,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(ScaledSumPooling)(const VertexIntrospector &vertex,
   const auto windowSizeValues =
     windowSizes.getInitialValues<unsigned short>(target);
   const auto vectorWidth = target.getDataPathWidth() / (isFloat ? 32 : 16);
-  const auto scaleOutput =
-    vertex.getFieldInfo("scaleOutput").getInitialValue<bool>(target);
-  const unsigned scaleCycles = scaleOutput ? 1 : 0;
+  const unsigned scaleCycles = pType == popnn::PoolingType::AVG ? 1 : 0;
   CODELET_FIELD(in);
   unsigned inIndex = 0;
   for (unsigned i = 0; i < out.size(); ++i) {
@@ -299,8 +300,10 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popnn, MaxPoolingGrad, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popnn, MaxPoolingGrad, HALF),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, ScaledSumPooling, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ScaledSumPooling, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ScaledSumPooling, FLOAT, PoolingType::AVG),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ScaledSumPooling, FLOAT, PoolingType::SUM),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ScaledSumPooling, HALF, PoolingType::AVG),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ScaledSumPooling, HALF, PoolingType::SUM),
 
     CYCLE_ESTIMATOR_ENTRY(popnn, MaxPooling, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popnn, MaxPooling, HALF),
