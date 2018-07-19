@@ -72,8 +72,6 @@ static void setUnaryOpInput(int hIn[DIM_SIZE][DIM_SIZE]) {
 }
 
 static void setUnaryOpInput(bool hIn[DIM_SIZE][DIM_SIZE]) {
-  int val = -100;
-
   std::mt19937 randomEngine;
   std::uniform_int_distribution<> dist(0, 1);
   for (auto r = 0U; r != DIM_SIZE; ++r) {
