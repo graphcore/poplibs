@@ -46,7 +46,8 @@ const OptionFlags extraTextengineOptions {
 const OptionFlags engineOptions {
   {"debug.edgeValidation", "false"}, // DISABLED due to T3667 (random test#23)
   {"target.textSectionSizeInBytes", "0xa000"},
-  {"target.workerStackSizeInBytes", "0x200"}
+  {"target.workerStackSizeInBytes", "0x200"},
+  {"target.supervisorStackSizeInBytes", "0x80"}
 };
 
 const OptionFlags simDebugOptions {

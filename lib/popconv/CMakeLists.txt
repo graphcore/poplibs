@@ -22,6 +22,13 @@ add_library(popconv SHARED
   ${CMAKE_SOURCE_DIR}/include/popconv/internal/ConvPlan.hpp
 )
 
+# Search for the runtime and arch man
+foreach(path ${CMAKE_PREFIX_PATH})
+    if(EXISTS "${path}/colossus/include/tileimplconsts_tommy.h")
+      set(ARCH_MAN_PATH ${path})
+    endif()
+endforeach(path)
+
 target_link_libraries(popconv
   PUBLIC
     poplar popops poputil popsolver ${CMAKE_DL_LIBS}
@@ -41,7 +48,8 @@ set(codelet_cpp_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/popconvCodelets.cpp
 )
 set(codelet_asm_sources
-  # Assembly to be added
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/conv_partial_1x1_half_float.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/conv_partial_nx1_half_float.S
 )
 set(codelet_headers
   PerformanceEstimation.hpp
@@ -53,6 +61,7 @@ add_custom_command(
   COMMAND
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
     -I ${CMAKE_CURRENT_SOURCE_DIR}
+    -I ${ARCH_MAN_PATH}/colossus/include
     -o popconv.gp
     ${codelet_cpp_sources}
     ${codelet_asm_sources}
@@ -68,7 +77,7 @@ add_custom_command(
     popconv_c.gp
   COMMAND
     ${POPC_EXECUTABLE} ${POPC_FLAGS} -DPOPLIBS_DISABLE_ASM_CODELETS
-    -I ${CMAKE_CURRENT_SOURCE_DIR}
+    -I ${CMAKE_CURRENT_SOURCE_DIR}   
     -o popconv_c.gp
     ${codelet_cpp_sources}
   DEPENDS

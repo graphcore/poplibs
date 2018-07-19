@@ -7,7 +7,6 @@
 #include "ConvValidation.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "PerformanceEstimation.hpp"
-#include "VertexOptim.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include <cassert>
 #include <cmath>
@@ -251,6 +250,7 @@ getConvPartialnx1InnerLoopCycleEstimate(
     const std::vector<unsigned> &outShape,
     const std::vector<unsigned> &kernelShape,
     unsigned filterHeight,
+    unsigned outChansPerGroup,
     unsigned convUnitInputLoadElemsPerCycle,
     unsigned numConvUnitsPerTile,
     unsigned convUnitCoeffLoadBytesPerCycle,
@@ -288,10 +288,14 @@ getConvPartialnx1InnerLoopCycleEstimate(
       }
     }
   }
+  const auto kernelOuterElems = numKernelPositions / positionsOuter;
+  const auto kernelInnerElems = positionsOuter;
+
   cycles = getConvPartialnx1SupervisorCycleInnerLoopEstimate(
-             workList, numKernelPositions, filterHeight,
-             convUnitInputLoadElemsPerCycle, numConvUnitsPerTile,
-             convUnitCoeffLoadBytesPerCycle, numWorkerContexts, floatWeights);
+             workList, kernelInnerElems, kernelOuterElems, filterHeight,
+             outChansPerGroup, convUnitInputLoadElemsPerCycle,
+             numConvUnitsPerTile, convUnitCoeffLoadBytesPerCycle,
+             numWorkerContexts, floatWeights);
   return cycles;
 }
 
@@ -321,7 +325,8 @@ getConvPartial1x1InnerLoopCycleEstimate(
   }
   cycles +=
       getConvPartial1x1SupervisorInnerLoopCycleEstimate(worklist,
-                                                        numWorkerContexts);
+                                                        numWorkerContexts,
+                                                        false);
   return cycles;
 }
 
@@ -728,10 +733,6 @@ addPartialCalcCycleEstimate(
                                      outChanGrainSize;
         const auto tileNumOutGroups =
             (tileNumOutChans + outChansPerGroup - 1) / outChansPerGroup;
-        unsigned numEdges =
-            tileNumInGroups + tileNumOutGroups +
-            tileNumInGroups * tileNumOutGroups;
-        bool useDeltasForEdges = useDeltaEdgesForConvPartials(numEdges);
         if (canUseConvPartial1x1Vertex(params, transformedDims,
                                        transformedInputDilation,
                                        transformedOutputStride,
@@ -742,18 +743,22 @@ addPartialCalcCycleEstimate(
                 convSize.batchSize, tileFieldSize,
                 target.getNumWorkerContexts(), transformedInputDilation,
                 transformedOutputStride);
+          // cycles cost assumes that cost of zeroing partials is
+          // negligible
           return
               getConvPartial1x1SupervisorOuterLoopCycleEstimate(
-                innerLoopCycles, convSize.numConvGroups, tileNumInGroups,
+                innerLoopCycles, innerLoopCycles,
+                convSize.numConvGroups, tileNumInGroups,
                 tileNumOutGroups, outChansPerGroup,
                 convUnitInputLoadElemsPerCycle, numConvUnits,
                 target.getConvUnitCoeffLoadBytesPerCycle(),
-                floatActivations, useDeltasForEdges);
+                floatActivations);
         }
         auto innerLoopCycles =
             cache->mGetConvPartialnx1InnerLoopCycleEstimate(
               convSize.batchSize, tileFieldSize, convSize.kernelSize,
-              convUnitWeightHeight, convUnitInputLoadElemsPerCycle,
+              convUnitWeightHeight, outChansPerGroup,
+              convUnitInputLoadElemsPerCycle,
               numConvUnits, target.getConvUnitCoeffLoadBytesPerCycle(),
               target.getNumWorkerContexts(), floatActivations,
               transformedInputDilation, transformedOutputStride);
@@ -761,7 +766,7 @@ addPartialCalcCycleEstimate(
             getConvPartialnx1SupervisorCycleOuterLoopEstimate(
               innerLoopCycles, convSize.numConvGroups,
               tileNumOutGroups, tileNumInGroups, outChansPerGroup,
-              useDeltasForEdges, numConvUnits);
+              numConvUnits);
       });
     }
   case Plan::Method::MAC:

@@ -16,7 +16,6 @@
 #include "poputil/VertexTemplates.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "PerformanceEstimation.hpp"
-#include "VertexOptim.hpp"
 #include "poputil/exceptions.hpp"
 #include "popops/Cast.hpp"
 #include "poputil/Util.hpp"
@@ -1843,7 +1842,7 @@ static void createConvPartialAmpVertex(Graph &graph,
   // This stride is what's used to move down one element in the input field by
   // the vertex.
   int inRowStride =
-      inChansPerGroup * params.kernelTransform.dilation.front() *
+      params.kernelTransform.dilation.front() *
       product(params.inputFieldShape) / params.inputFieldShape[0];
   if (params.inputTransform.flip.front() !=
       params.kernelTransform.flip.front()) {
@@ -1866,6 +1865,15 @@ static void createConvPartialAmpVertex(Graph &graph,
   const auto numSubKernelPositions = product(numSubKernelSlices);
   std::vector<std::vector<unsigned>> worklist(contextsPerVertex *
                                               numSubKernelPositions);
+
+  auto kernelInnerElements = product(numSubKernelSlices) /
+                             numSubKernelSlices[0];
+  auto inStrideX = params.outputTransform.stride.back();
+  auto outStrideX = params.inputTransform.dilation.back();
+  const auto strideDivisor = gcd(inStrideX, outStrideX);
+  inStrideX /= strideDivisor;
+  outStrideX /= strideDivisor;
+
   for (unsigned k = 0; k != numSubKernelPositions; ++k) {
     auto kernelBeginIndices = unflattenIndex(numSubKernelSlices, k);
     kernelBeginIndices[0] = kernelBeginIndices[0] * convUnitWeightHeight;
@@ -1918,7 +1926,7 @@ static void createConvPartialAmpVertex(Graph &graph,
           for (unsigned k = kOuterBegin; k != kOuterEnd; ++k) {
             auto inOuterIndex = getInputIndex(0, outOuterIndex, k, params);
             if (inOuterIndex != ~0U) {
-              auto inOuterBeginIndex =
+             auto inOuterBeginIndex =
                   inOuterIndex +
                   (inRowStride < 0 ? 1 : -1) *
                   (k - kOuterBegin) * params.kernelTransform.dilation.front();
@@ -1946,57 +1954,141 @@ static void createConvPartialAmpVertex(Graph &graph,
         inBeginIndices.push_back(workerInXBegin);
         const auto inBeginOffset =
             flattenIndex(inputBatchAndFieldShape, inBeginIndices);
-        assert(outBeginOffset < std::numeric_limits<unsigned short>::max());
-        assert(workerOutWidth < std::numeric_limits<unsigned short>::max());
-        assert(inBeginOffset < std::numeric_limits<unsigned short>::max());
-        worklist[k * contextsPerVertex + i].push_back(outBeginOffset);
-        worklist[k * contextsPerVertex + i].push_back(workerOutWidth);
+        const auto outOffset = flipOut ? outBeginOffset + workerOutWidth - 1 :
+                                         outBeginOffset;
+        const auto numFieldElems =
+            useConvPartial1x1OutVertex ?
+              workerOutWidth : (workerOutWidth + outStrideX - 1) / outStrideX;
+        worklist[k * contextsPerVertex + i].push_back(outOffset);
+        worklist[k * contextsPerVertex + i].push_back(numFieldElems);
         worklist[k * contextsPerVertex + i].push_back(inBeginOffset);
       }
     }
   }
-  unsigned numEdges = inWindow.size() + outWindow.size() + weightsWindow.size();
+
+  auto fitsMachineStride = [&](int stride) {
+    int64_t maxLimit = (1 << target.getNumStrideBits()/2) - 1;
+    int64_t minLimit = -(1 << target.getNumStrideBits()/2);
+    return stride >= minLimit && stride < maxLimit;
+  };
+
+  if (useConvPartial1x1OutVertex) {
+    assert(convUnitWeightHeight == 1);
+    inRowStride = 1;
+  }
+
+  // Some codelet implementations rely on the input row stride to be 1 when
+  // it is unused.
+  if (convUnitWeightHeight == 1) {
+    inRowStride = 1;
+  }
+  const auto convInputLoadElems =
+      target.getConvUnitInputLoadElemsPerCycle(in.elementType() == FLOAT);
+  int transformedInStride =
+      (static_cast<int>(inStrideX) - 1 -
+       static_cast<int>(convUnitWeightHeight - 1) * inRowStride ) *
+      static_cast<int>(inChansPerGroup / convInputLoadElems) + 1;
+
+  unsigned outStrideToUse = useConvPartial1x1OutVertex ? 1 : outStrideX;
+  int scaledOutStride = static_cast<int>(outStrideToUse * outChansPerGroup);
+  int transformedOutStride =
+      -6 + (flipOut ? -scaledOutStride : scaledOutStride);
+
+  int transformedInRowStride =  (inRowStride - 1) *
+      static_cast<int>(inChansPerGroup / convInputLoadElems) + 1;
+
+  // TODO: revisit this once float assembler codelets are written
+  bool useLimitedVer = true;
+  if (!fitsMachineStride(transformedOutStride / 2) ||
+      !fitsMachineStride(transformedInStride) ||
+      !fitsMachineStride(transformedInRowStride))
+    useLimitedVer = false;
+
+  // check if all worklist items meet range constraints
+  for (auto j = 0U; j != worklist.size() && useLimitedVer; ++j) {
+    const auto &vec = worklist[j];
+    for (auto i = 0U; i != vec.size(); ++i) {
+      if ((i % 3) == 1) {
+        if (vec[i] >  target.getRptCountMax()) {
+          useLimitedVer = false;
+          break;
+        }
+      } else {
+        if (vec[i] > std::numeric_limits<unsigned short>::max()) {
+          useLimitedVer = false;
+          break;
+        }
+      }
+    }
+  }
+
+  std::vector<unsigned> zeroWorklist;
+  if (!useConvPartial1x1OutVertex) {
+    zeroWorklist = createZeroWorklist(target, outWindow[0]);
+    for (auto entry : zeroWorklist) {
+      if (entry > std::numeric_limits<unsigned short>::max()) {
+        useLimitedVer = false;
+        break;
+      }
+    }
+  }
+  const auto worklistEntryType = useLimitedVer ? UNSIGNED_SHORT : UNSIGNED_INT;
+
   auto codeletName = useConvPartial1x1OutVertex ?
                        "popconv::ConvPartial1x1Out" :
                        "popconv::ConvPartialnx1";
   auto v = graph.addVertex(fwdCS,
                            templateVertex(codeletName, in.elementType(),
                                           plan.types.back().partialType,
-                                        useDeltaEdgesForConvPartials(numEdges) ?
-                                                          "true" : "false"));
-  auto kernelInnerElements = product(numSubKernelSlices) /
-                             numSubKernelSlices[0];
-  auto inStrideX = params.outputTransform.stride.back();
-  auto outStrideX = params.inputTransform.dilation.back();
-  const auto strideDivisor = gcd(inStrideX, outStrideX);
-  inStrideX /= strideDivisor;
-  outStrideX /= strideDivisor;
+                                          useLimitedVer ? "true" : "false"));
+  auto reorderWeightsTensor =
+      [](std::vector<Tensor> &in, unsigned numInGroups,
+         unsigned numOutGroups, unsigned numConvGroups) {
+    assert(in.size() == numInGroups * numOutGroups * numConvGroups);
+    std::vector<Tensor> reorderedIn;
+    for (auto cg = 0U; cg != numConvGroups; ++cg) {
+      for (auto ig = 0U; ig != numInGroups; ++ig) {
+        for (auto ogp1 = numOutGroups; ogp1 > 0; --ogp1) {
+          const auto og = ogp1 - 1;
+          auto inIndex = cg * numOutGroups * numInGroups + og * numInGroups
+                         + ig;
+          reorderedIn.push_back(in[inIndex]);
+        }
+      }
+    }
+    return reorderedIn;
+  };
+
+  // The parameters are modified to what the vertex uses
   graph.connect(v["in"], inWindow);
   graph.connect(v["out"], outWindow);
-  graph.connect(v["weights"], weightsWindow);
+  graph.connect(v["weights"],
+                  reorderWeightsTensor(weightsWindow, numInChanGroups,
+                                       numOutChanGroups, numConvGroups));
   graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
-  graph.setInitialValue(v["numOutGroups"], numOutChanGroups);
-  graph.setInitialValue(v["numInGroups"], numInChanGroups);
-  graph.setInitialValue(v["inStride"], inStrideX) ;
-  graph.setInitialValue(v["numConvGroups"], numConvGroups);
-  graph.setInitialValue(v["flipOut"], flipOut);
+  graph.setInitialValue(v["numOutGroupsM1"], numOutChanGroups - 1);
+  graph.setInitialValue(v["numInGroupsM1"], numInChanGroups - 1);
+  graph.setInitialValue(v["convInputLoadElems"], convInputLoadElems);
+  assert(inChansPerGroup % convInputLoadElems);
+
+  graph.setInitialValue(v["transformedInStride"], transformedInStride);
+
+  graph.setInitialValue(v["numConvGroupsM1"], numConvGroups - 1);
+
+  graph.setInitialValue(v["transformedOutStride"], transformedOutStride);
   graph.setFieldSize(v["worklists"], worklist.size());
   for (unsigned i = 0;i < worklist.size(); ++i) {
-    auto t = graph.addConstant(UNSIGNED_SHORT, {worklist[i].size()},
+    auto t = graph.addConstant(worklistEntryType, {worklist[i].size()},
                                worklist[i].data());
     graph.connect(v["worklists"][i], t);
   }
-
   if (!useConvPartial1x1OutVertex) {
-    graph.setInitialValue(v["kernelInnerElements"], kernelInnerElements);
-    graph.setInitialValue(v["kernelOuterSize"], numSubKernelSlices[0]);
-    graph.setInitialValue(v["outStride"], outStrideX);
-    graph.setInitialValue(v["ampKernelHeight"], convUnitWeightHeight);
-    graph.setInitialValue(v["inRowStride"], inRowStride);
-
-    const auto zeroWorklist = createZeroWorklist(target, outWindow[0]);
-    auto zeroWorklistTensor = graph.addConstant(UNSIGNED_SHORT,
+    graph.setInitialValue(v["kernelInnerElementsM1"], kernelInnerElements - 1);
+    graph.setInitialValue(v["kernelOuterSizeM1"], numSubKernelSlices[0] - 1);
+    graph.setInitialValue(v["ampKernelHeightM1"], convUnitWeightHeight - 1);
+    graph.setInitialValue(v["transformedInRowStride"], transformedInRowStride);
+    auto zeroWorklistTensor = graph.addConstant(worklistEntryType,
                                                 {zeroWorklist.size()},
                                                 zeroWorklist.data());
     graph.connect(v["zeroWorklist"], zeroWorklistTensor);
