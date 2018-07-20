@@ -284,7 +284,9 @@ getConvPartialnx1SupervisorCycleInnerLoopEstimate(
       innermostLoopCycles += 20;
       break;
     default:
-      assert("filter height not supported" && 0);
+      // non-limited version will pick this up and we don't estimate unlimited
+      // version correctly
+      innermostLoopCycles += 20 * filterHeight;
   }
   uint64_t innerLoopCycles = 0;
   for (auto ky = 0U; ky != kernelOuterElems; ++ky) {

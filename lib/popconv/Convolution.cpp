@@ -2004,6 +2004,15 @@ static void createConvPartialAmpVertex(Graph &graph,
       !fitsMachineStride(target, transformedInRowStride))
     useLimitedVer = false;
 
+  if (!useConvPartial1x1OutVertex) {
+    if (in.elementType() == HALF &&
+        convUnitWeightHeight != 1 &&
+        convUnitWeightHeight != 2 &&
+        convUnitWeightHeight != 4)
+      useLimitedVer = false;
+    // TODO: extend for FLOAT input type when ASM codelet is implemented
+  }
+
   // check if all worklist items meet range constraints
   for (auto j = 0U; j != worklist.size() && useLimitedVer; ++j) {
     const auto &vec = worklist[j];
