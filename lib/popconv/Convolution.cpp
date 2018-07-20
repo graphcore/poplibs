@@ -1735,6 +1735,12 @@ partitionConvOutputBetweenWorkers(const Graph &graph,
   return perWorkerConvOutputSlices;
 }
 
+static bool fitsMachineStride(const Target &target, int stride) {
+  int64_t maxLimit = (1 << target.getNumStrideBits()/2) - 1;
+  int64_t minLimit = -(1 << target.getNumStrideBits()/2);
+  return stride >= minLimit && stride < maxLimit;
+};
+
 static void createConvPartialAmpVertex(Graph &graph,
                                        const Plan &plan,
                                        unsigned tile,
@@ -1966,12 +1972,6 @@ static void createConvPartialAmpVertex(Graph &graph,
     }
   }
 
-  auto fitsMachineStride = [&](int stride) {
-    int64_t maxLimit = (1 << target.getNumStrideBits()/2) - 1;
-    int64_t minLimit = -(1 << target.getNumStrideBits()/2);
-    return stride >= minLimit && stride < maxLimit;
-  };
-
   if (useConvPartial1x1OutVertex) {
     assert(convUnitWeightHeight == 1);
     inRowStride = 1;
@@ -1999,15 +1999,19 @@ static void createConvPartialAmpVertex(Graph &graph,
 
   // TODO: revisit this once float assembler codelets are written
   bool useLimitedVer = true;
-  if (!fitsMachineStride(transformedOutStride / 2) ||
-      !fitsMachineStride(transformedInStride) ||
-      !fitsMachineStride(transformedInRowStride))
+  if (!fitsMachineStride(target, transformedOutStride / 2) ||
+      !fitsMachineStride(target, transformedInStride) ||
+      !fitsMachineStride(target, transformedInRowStride))
     useLimitedVer = false;
 
   // check if all worklist items meet range constraints
   for (auto j = 0U; j != worklist.size() && useLimitedVer; ++j) {
     const auto &vec = worklist[j];
     for (auto i = 0U; i != vec.size(); ++i) {
+      // worklist is a multiple of 3.
+      // i % 3 == 0 : output offset
+      // i % 3 == 1 : number of field elems
+      // i % 3 == 2 : input offset
       if ((i % 3) == 1) {
         if (vec[i] >  target.getRptCountMax()) {
           useLimitedVer = false;
@@ -2231,9 +2235,6 @@ createConvPartialHorizontalMacVertex(Graph &graph,
               workerSlice.b * numInFieldElems +
               flattenIndex(params.inputFieldShape, workerIn);
           auto kIndex = k * kernelSizeX + kx;
-          assert(outBeginOffset < std::numeric_limits<unsigned short>::max());
-          assert(workerOutWidth < std::numeric_limits<unsigned short>::max());
-          assert(inBeginOffset < std::numeric_limits<unsigned short>::max());
           worklist[kIndex * contextsPerVertex + i].push_back(outBeginOffset);
           worklist[kIndex * contextsPerVertex + i].push_back(workerOutWidth);
           worklist[kIndex * contextsPerVertex + i].push_back(inBeginOffset);
@@ -2247,10 +2248,43 @@ createConvPartialHorizontalMacVertex(Graph &graph,
   const auto strideDivisor = gcd(inStrideX, outStrideX);
   inStrideX /= strideDivisor;
   outStrideX /= strideDivisor;
+
+  bool useLimitedVer = true;
+  if (!fitsMachineStride(target, inStrideX) ||
+      !fitsMachineStride(target, outStrideX))
+    useLimitedVer = false;
+
+  // check if all worklist items meet range constraints
+  for (auto j = 0U; j != worklist.size() && useLimitedVer; ++j) {
+    const auto &vec = worklist[j];
+    for (auto i = 0U; i != vec.size(); ++i) {
+      if ((i % 3) == 1) {
+        if (vec[i] >  target.getRptCountMax()) {
+          useLimitedVer = false;
+          break;
+        }
+      } else {
+        if (vec[i] > std::numeric_limits<unsigned short>::max()) {
+          useLimitedVer = false;
+          break;
+        }
+      }
+    }
+  }
+  const auto zeroWorklist = createZeroWorklist(target, outWindow[0]);
+  for (auto entry : zeroWorklist) {
+    if (entry > std::numeric_limits<unsigned short>::max()) {
+      useLimitedVer = false;
+      break;
+    }
+  }
+
+  const auto worklistEntryType = useLimitedVer ? UNSIGNED_SHORT : UNSIGNED_INT;
   auto v = graph.addVertex(fwdCS,
                            templateVertex("popconv::ConvPartialHorizontalMac",
                                           in.elementType(),
-                                          plan.types.back().partialType));
+                                          plan.types.back().partialType,
+                                          useLimitedVer ? "true" : "false"));
   graph.connect(v["in"], inWindow);
   graph.connect(v["out"], outWindow);
   graph.connect(v["weights"], weightsWindow);
@@ -2265,12 +2299,11 @@ createConvPartialHorizontalMacVertex(Graph &graph,
   graph.setInitialValue(v["flipOut"], flipOut);
   graph.setFieldSize(v["worklists"], worklist.size());
   for (unsigned i = 0;i < worklist.size(); ++i) {
-    auto t = graph.addConstant(UNSIGNED_SHORT, {worklist[i].size()},
+    auto t = graph.addConstant(worklistEntryType, {worklist[i].size()},
                                worklist[i].data());
     graph.connect(v["worklists"][i], t);
   }
-  const auto zeroWorklist = createZeroWorklist(target, outWindow[0]);
-  auto zeroWorklistTensor = graph.addConstant(UNSIGNED_SHORT,
+  auto zeroWorklistTensor = graph.addConstant(worklistEntryType,
                                               {zeroWorklist.size()},
                                               zeroWorklist.data());
   graph.connect(v["zeroWorklist"], zeroWorklistTensor);

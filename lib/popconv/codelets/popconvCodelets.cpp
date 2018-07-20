@@ -22,7 +22,7 @@ namespace popconv {
 
 /**
  * Compute nx1 convolutions and accumulate them with partial sums in memory.
- * useLimitedVer is set if there are constraints imposed on
+ * useLimitedVer is "true" if there are constraints imposed on
  * - size of strides are bounded to strides supported by ISA
  * - worklists-offsets are bounded to fit 16-bits
  * - worklists-number of elements <= maximum count supported by rpt instruction
@@ -227,7 +227,7 @@ template class ConvChanReduceAcc<float, half>;
 /**
  * Compute a sum of 1x1 convolutions over a subset of the input channels for
  * multiple output channels.
- * useLimitedVer is set if there are constraints imposed on
+ * useLimitedVer is "true" if there are constraints imposed on
  * - size of strides are bounded to strides supported by ISA
  * - worklists-offsets are bounded to fit 16-bits
  * - worklists-number of elements <= maximum count supported by rpt instruction
@@ -330,17 +330,24 @@ template class ConvPartial1x1Out<float, half, false>;
 template class ConvPartial1x1Out<float, float, false>;
 
 /* Perform a series of 1x1 convolutions using the MAC instruction were the
- * axis of accumulation is across the vector. */
-template <class FPType, class AccumType>
+ * axis of accumulation is across the vector.
+ * useLimitedVer is "true" if there are constraints imposed on
+ * - size of strides are bounded to strides supported by ISA
+ * - worklists-offsets are bounded to fit 16-bits
+ * - worklists-number of elements <= maximum count supported by rpt instruction
+ */
+template <class FPType, class AccumType, bool useLimitedVer>
 class
 [[poplar::constraint("elem(**in) != elem(**weights)")]]
 ConvPartialHorizontalMac : public SupervisorVertex {
 public:
+  using WorkListType =
+      typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> in;
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> weights;
   Vector<InOut<Vector<AccumType, ONE_PTR>>, ONE_PTR> out;
-  Input<VectorList<unsigned short, VectorListLayout::DELTAN>> worklists;
-  Input<Vector<unsigned short>> zeroWorklist;
+  Input<VectorList<WorkListType, VectorListLayout::DELTAN>> worklists;
+  Input<Vector<WorkListType>> zeroWorklist;
   unsigned numOutGroups;
   unsigned numInGroups;
   unsigned kernelSize;
@@ -410,9 +417,13 @@ public:
     return true;
   }
 };
-template class ConvPartialHorizontalMac<float, float>;
-template class ConvPartialHorizontalMac<half, float>;
-template class ConvPartialHorizontalMac<half, half>;
+template class ConvPartialHorizontalMac<float, float, true>;
+template class ConvPartialHorizontalMac<float, float, false>;
+template class ConvPartialHorizontalMac<half, float, true>;
+template class ConvPartialHorizontalMac<half, float, false>;
+template class ConvPartialHorizontalMac<half, half, true>;
+template class ConvPartialHorizontalMac<half, half, false>;
+
 
 template <class FPType, unsigned patchSizeX, unsigned patchSizeY,
           unsigned kernelX, unsigned kernelY>

@@ -187,7 +187,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
     const VertexIntrospector &vertex,
     const Target &target,
     const Type &fpType,
-    const Type &accumType) {
+    const Type &accumType,
+    bool useLimitedVer) {
+  // TODO: cost for non-limited version not estimated
+  (void) useLimitedVer;
   CODELET_VECTOR_2D_VALS(worklists, unsigned);
   CODELET_VECTOR_VALS(zeroWorklist, unsigned);
   CODELET_SCALAR_VAL(numOutGroups, unsigned);
@@ -751,11 +754,17 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
                                    HALF, 4, 4, 3, 3),
 
     CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialHorizontalMac,
-                                   FLOAT, FLOAT),
+                                   FLOAT, FLOAT, true),
     CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialHorizontalMac,
-                                   HALF, FLOAT),
+                                   HALF, FLOAT, true),
     CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialHorizontalMac,
-                                   HALF, HALF),
+                                   HALF, HALF, true),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialHorizontalMac,
+                                       FLOAT, FLOAT, false),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialHorizontalMac,
+                                       HALF, FLOAT, false),
+    CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialHorizontalMac,
+                                       HALF, HALF, false),
 
     CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartial1x1Out, HALF, HALF, true),
     CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartial1x1Out, HALF, FLOAT, true),
