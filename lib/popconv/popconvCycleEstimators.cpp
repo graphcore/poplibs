@@ -424,24 +424,6 @@ addToChannelCycles(unsigned elemsPerWorker, unsigned chansPerGroup,
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(AddToChannel)(const VertexIntrospector &vertex,
-                                        const Target &target,
-                                        const Type &type) {
-  CODELET_FIELD(acts);
-  CODELET_FIELD(addend);
-  const auto dataPathWidth = target.getDataPathWidth();
-  const auto numWorkerContexts = target.getNumWorkerContexts();
-  std::uint64_t numCycles = 10;
-  unsigned chansPerGroup = addend.size();
-  assert(acts.size() % chansPerGroup == 0);
-  const auto elemsPerWorker =
-      (acts.size() / chansPerGroup + numWorkerContexts - 1) / numWorkerContexts;
-  numCycles += addToChannelCycles(elemsPerWorker, chansPerGroup, dataPathWidth,
-                                  type, false);
-  return numCycles * numWorkerContexts + 10;
-}
-
-std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(AddToChannel2D)(const VertexIntrospector &vertex,
                                         const Target &target,
                                         const Type &type) {
@@ -466,16 +448,70 @@ MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddToChannel)(const VertexIntrospector &vertex,
                                               const Type &type) {
   CODELET_FIELD(acts);
   CODELET_FIELD(addend);
-  const auto dataPathWidth = target.getDataPathWidth();
+  CODELET_SCALAR_VAL(actsBlockCountPacked, uint16_t);
+
   const auto numWorkerContexts = target.getNumWorkerContexts();
-  std::uint64_t numCycles = 10;
-  unsigned chansPerGroup = addend.size();
-  assert(acts.size() % chansPerGroup == 0);
-  const auto elemsPerWorker =
-      (acts.size() / chansPerGroup + numWorkerContexts - 1) / numWorkerContexts;
-  numCycles += addToChannelCycles(elemsPerWorker, chansPerGroup,
-                                               dataPathWidth, type, true);
-  return numCycles * numWorkerContexts + 10;
+
+  // All numbers are approximate.
+
+  // Supervisor overhead.
+  std::uint64_t numCycles = 1 + 6 + 1 + 6;
+
+  auto approxBlocksPerWorker = actsBlockCountPacked >> 3;
+
+  if (type == HALF) {
+    // Worker overhead.
+    numCycles += numWorkerContexts * 30;
+
+    if (addend.size() % 4 == 0) {
+      // This case is handled optimally, and we process 4 halves per
+      // cycle.
+      // There is another code path for `addend.size() % 8 == 0` but it
+      // should give very similar performance to this.
+      numCycles += numWorkerContexts * (
+                     5 +          // Overhead for this code path.
+                     (10 +        // Overhead for each addend loop.
+                        approxBlocksPerWorker)    // The actual work.
+                       * (addend.size() / 4)  // Number of addend loops.
+                   );
+
+    } else {
+      // Slow scalar code, we process one half per 9 cycles.
+      numCycles += numWorkerContexts * (
+                     2 +          // Overhead for this code path.
+                     (5 +         // Overhead for each addend loop.
+                        approxBlocksPerWorker * 9)    // The actual work.
+                       * addend.size()  // Number of addend loops.
+                   );
+    }
+  } else {
+
+    // Worker overhead.
+    numCycles += numWorkerContexts * 19;
+
+    // Float currently always uses the same code and does 1 float per 3 cycles.
+    numCycles += numWorkerContexts * (
+                   1 +          // Overhead for this code path.
+                   (4 +        // Overhead for each addend loop.
+                      approxBlocksPerWorker * 3)    // The actual work.
+                     * addend.size()  // Number of addend loops.
+                 );
+
+    // Exit
+    numCycles += 1;
+  }
+
+  return numCycles;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(AddToChannel)(const VertexIntrospector &vertex,
+                                        const Target &target,
+                                        const Type &type) {
+
+  // ScaledAddToChannel and AddToChannel use nearly the same code. There is
+  // an additional branch in the supervisor part though.
+  return getCyclesEstimateForScaledAddToChannel(vertex, target, type) + 1;
 }
 
 std::uint64_t
