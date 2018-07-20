@@ -2070,7 +2070,7 @@ static void createConvPartialAmpVertex(Graph &graph,
   graph.setInitialValue(v["numOutGroupsM1"], numOutChanGroups - 1);
   graph.setInitialValue(v["numInGroupsM1"], numInChanGroups - 1);
   graph.setInitialValue(v["convInputLoadElems"], convInputLoadElems);
-  assert(inChansPerGroup % convInputLoadElems);
+  assert(inChansPerGroup % convInputLoadElems == 0);
 
   graph.setInitialValue(v["transformedInStride"], transformedInStride);
 
