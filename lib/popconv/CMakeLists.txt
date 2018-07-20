@@ -44,12 +44,21 @@ target_include_directories(popconv
     .
 )
 
+# Search for arch_man path
+foreach(path ${CMAKE_PREFIX_PATH})
+    if(EXISTS "${path}/colossus/include/tileimplconsts_tommy.h")
+      set(ARCH_MAN_PATH ${path})
+    endif()
+endforeach(path)
+
 set(codelet_cpp_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/popconvCodelets.cpp
 )
 set(codelet_asm_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/conv_partial_1x1_half_float.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/conv_partial_nx1_half_float.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/AddToChannel_half.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/AddToChannel_float.S
 )
 set(codelet_headers
   PerformanceEstimation.hpp

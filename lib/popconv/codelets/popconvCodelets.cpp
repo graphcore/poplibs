@@ -859,14 +859,19 @@ class
 [[poplar::constraint("elem(*acts) != elem(*addend)")]]
 AddToChannel : public SupervisorVertex {
 public:
-  InOut<Vector<FPType>> acts;
-  Input<Vector<FPType, TWO_PTR, 1, true>> addend;
+  Input<Vector<FPType, TWO_PTR, 8>> addend;
+  InOut<Vector<FPType, ONE_PTR, 8, true>> acts;
+  // actsBlockCount = acts.size() / addend.size();
+  // actsBlockCountPacked = (actsBlockCount/6 << 3) | (actsBlockCount % 6)
+  uint16_t actsBlockCountPacked;
+
+  IS_EXTERNAL_CODELET(true);
 
   bool compute() {
     unsigned chansPerGroup = addend.size();
-    assert(acts.size() % chansPerGroup == 0);
-    unsigned len = acts.size() / chansPerGroup;
-    for (unsigned j = 0; j != len; ++j) {
+    unsigned actsBlockCount = (actsBlockCountPacked >> 3) * 6
+                              + (actsBlockCountPacked & 0x07);
+    for (unsigned j = 0; j != actsBlockCount; ++j) {
       for (unsigned k = 0; k != chansPerGroup; ++k) {
         acts[j * chansPerGroup + k] += addend[k];
       }
@@ -908,14 +913,20 @@ class
 [[poplar::constraint("elem(*acts) != elem(*addend)")]]
 ScaledAddToChannel : public SupervisorVertex {
 public:
-  InOut<Vector<FPType>> acts;
-  Input<Vector<FPType, TWO_PTR, 1, true>> addend;
-  float scale;
+  Input<Vector<FPType, TWO_PTR, 8>> addend;
+  InOut<Vector<FPType, ONE_PTR, 8, true>> acts;
+  // actsBlockCount = acts.size() / addend.size();
+  // actsBlockCountPacked = (actsBlockCount/6 << 3) | (actsBlockCount % 6)
+  uint16_t actsBlockCountPacked;
+  FPType scale;
+
+  IS_EXTERNAL_CODELET(true);
 
   bool compute() {
     unsigned chansPerGroup = addend.size();
-    unsigned len = acts.size() / chansPerGroup;
-    for (unsigned j = 0; j != len; ++j) {
+    unsigned actsBlockCount = (actsBlockCountPacked >> 3) * 6
+                              + (actsBlockCountPacked & 0x07);
+    for (unsigned j = 0; j != actsBlockCount; ++j) {
       for (unsigned k = 0; k != chansPerGroup; ++k) {
         acts[j * chansPerGroup + k] += scale * addend[k];
       }

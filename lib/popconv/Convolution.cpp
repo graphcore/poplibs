@@ -3438,6 +3438,71 @@ getAssignedGroupForTile(const std::vector<Interval> &tileMap,
   return {singleGroupIndex, singleGroup};
 }
 
+// Add an AddToChannel vertex, but if acts is too long, use multiple vertices.
+// This is to simplify the codelet assembly because `rpt` can only
+// loop up to 4095 times.
+static void
+addAddToChannelVertex(Graph &graph,
+                      ComputeSet &cs,
+                      const std::string &vertexName,
+                      const Type &dType,
+                      const Tensor &acts,
+                      const Tensor &addend,
+                      float scale,
+                      unsigned tile) {
+  if (graph.getTarget().getNumWorkerContexts() != 6)
+    throw poplib_error("not implemented for IPUs without 6 worker contexts");
+
+  auto addendLen = addend.numElements();
+  auto actsBlockCount = acts.numElements() / addendLen;
+
+  auto actsFlat = acts.flatten();
+
+  std::size_t idx = 0;
+
+  while (idx < actsBlockCount) {
+    // We can do up to 6 * 4094 blocks per vertex. We can't do
+    // 6 * 4094 + 2 blocks because that would result in workers having the
+    // following numbers of blocks:
+    //
+    // 4095 4095 4094 4094 4094 4094
+    //
+    // Which would then be rounded to make them even to:
+    //
+    // 4094 4096 4094 4094 4094 4094
+    //
+    // And the second worker has too many blocks for the `rpt`. In fact
+    // we can do 6 * 4094 + 1 blocks but let's keep things simple.
+
+    auto maxWorkerBlockCount = graph.getTarget().getRptCountMax() & ~1UL;
+    auto thisBlockCount = std::min(actsBlockCount - idx,
+                                   6 * maxWorkerBlockCount);
+
+    auto actsSlice = actsFlat.slice(idx * addendLen,
+                                    (idx + thisBlockCount) * addendLen);
+
+    auto v = graph.addVertex(cs, templateVertex(vertexName, dType),
+                             {{"acts", actsSlice},
+                              {"addend", addend}});
+
+    auto actsBlockCountPacked = ((thisBlockCount / 6) << 3)
+                                | (thisBlockCount % 6);
+
+    uint16_t actsBlockCountPacked16 = actsBlockCountPacked;
+    assert(actsBlockCountPacked16 == actsBlockCountPacked);
+
+    graph.setInitialValue(v["actsBlockCountPacked"], actsBlockCountPacked16);
+
+    if (scale != 1.0)
+        graph.setInitialValue(v["scale"], scale);
+
+    graph.setTileMapping(v, tile);
+
+    idx += thisBlockCount;
+  }
+
+};
+
 static void
 addToChannel(Graph &graph, const Tensor &actsUngrouped,
              const Tensor &addend, float scale, Sequence &prog,
@@ -3471,13 +3536,11 @@ addToChannel(Graph &graph, const Tensor &actsUngrouped,
           actsSlices.emplace_back(t.begin() * outChansPerGroup,
                                   t.end() * outChansPerGroup);
       }
-      auto v =
-        graph.addVertex(cs, templateVertex(vertexName, dType),
-                        {{"acts", concat(acts.flatten().slices(actsSlices))},
-                         {"addend", addendByGroup[singleGroup.first]}});
-      if (scale != 1.0)
-          graph.setInitialValue(v["scale"], scale);
-      graph.setTileMapping(v, tile);
+      auto vActs = concat(acts.flatten().slices(actsSlices));
+      auto vAddend = addendByGroup[singleGroup.first];
+
+      addAddToChannelVertex(graph, cs, vertexName, dType,
+                            vActs, vAddend, scale, tile);
       continue;
     }
     const auto perWorkerGroups =
@@ -3486,6 +3549,7 @@ addToChannel(Graph &graph, const Tensor &actsUngrouped,
     for (const auto &entry : perWorkerGroups) {
       VertexRef v;
       v = graph.addVertex(cs, templateVertex(vertexName + "2D", dType));
+
       graph.setTileMapping(v, tile);
       unsigned num = 0;
       for (const auto &interval : entry) {

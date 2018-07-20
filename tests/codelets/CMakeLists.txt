@@ -25,6 +25,7 @@ foreach(DATA_TYPE half float)
     add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC})
   endforeach()
 endforeach()
+
 foreach(DATA_TYPE half float int)
    set(VARIANT_NAME "ClampTest_${DATA_TYPE}")
    set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
@@ -32,3 +33,5 @@ foreach(DATA_TYPE half float int)
    configure_file(ClampTest.cpp.in ${VARIANT_SRC})
    add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC} VARIANTS "IpuModel;Sim:cpp;Sim")
 endforeach()
+
+add_popnn_unit_test(AddToChannel AddToChannel.cpp)
