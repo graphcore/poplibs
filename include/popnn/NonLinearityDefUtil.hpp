@@ -1,3 +1,5 @@
+// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+
 #ifndef poplibs_NonLinearityDefUtil_hpp_
 #define poplibs_NonLinearityDefUtil_hpp_
 
