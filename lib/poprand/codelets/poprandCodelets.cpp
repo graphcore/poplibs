@@ -352,8 +352,10 @@ public:
       }
     }
     // save seeds
-    seedL = s[0];
-    seedH = s[1];
+    vSeedL[0] = static_cast<uint32_t>(s[0]);
+    vSeedL[1] = static_cast<uint32_t>(s[0] >> 32);
+    vSeedH[0] = static_cast<uint32_t>(s[1]);
+    vSeedH[1] = static_cast<uint32_t>(s[1] >> 32);
     return true;
   }
 };
