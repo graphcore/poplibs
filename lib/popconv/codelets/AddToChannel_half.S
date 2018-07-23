@@ -276,6 +276,19 @@ scaled_addtochannel_f16:
   // code paths depending on whether the addend_len is a multiple of 8,
   // or 4, or otherwise.
 
+  // The current multiple of 4 and 8 pipelines use ldst64pace. The
+  // stride of that instruction is a signed 10-bit number of 64-bit words. So
+  // the maximum stride is 8 * (2^9-1) = 4088 bytes = 2044 halfs.
+  //
+  // The stride is equal to the channel size for the multiple-of-4 pipeline,
+  // and 8 bytes less than that for the multiple-of-8 pipeline. Therefore the
+  // maximum channel size is 2048 halfs (because that is a multiple of 8,
+  // so the extra 4 halfs are fine).
+  //
+  // So if addend_len is more than 2048 we must use the scalar path.
+  cmpult $mscratch0, $addend_len, 2049
+  brz $mscratch0, .Laddend_scalar
+
   // Check if the addend len is a multiple of 8. This is the most common case.
   // When I checked resnet50, all the addends are either 8 or 16 elements.
   and $mscratch0, $addend_len, 0x07

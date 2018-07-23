@@ -16,7 +16,7 @@
 #define FLOAT_REL_TOL  0.01
 #define HALF_REL_TOL   0.1
 #define FLOAT_ABS_TOL  1e-6
-#define HALF_ABS_TOL   1e-5
+#define HALF_ABS_TOL   1e-3
 
 using namespace poplar;
 using namespace poplar::program;
@@ -239,4 +239,14 @@ BOOST_AUTO_TEST_CASE(AddToChannelLarge8_float) {
     {FLOAT, 8, 8000, 3.0f},
   };
   runAddToChannelTests(cases);
+}
+
+// Above an addend length of 2048, we switch to scalar code. Check that works.
+BOOST_AUTO_TEST_CASE(AddToChannel_MaxChannels_MultipleOfFour_half) {
+  for (std::size_t addendLen = 2044; addendLen <= 2056; addendLen += 4) {
+    std::vector<TestCase> cases = {
+      {HALF, addendLen, addendLen * 4, 3.0f},
+    };
+    runAddToChannelTests(cases);
+  }
 }
