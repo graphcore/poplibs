@@ -109,13 +109,13 @@ scaled_addtochannel_f32:
   br           $lr
 
 .Lscaled_addtochannel_worker:
-  // Load the scale into the lower half of $TAS, and 1.0 into the upper half.
+  // Load the scale.
   ld32 $scale, $mvertex_base, $mzero, VERTEX_DATA_SCALE_OFFSET
   // Jump to the shared worker code.
   bri .Lworker
 
 .Laddtochannel_worker:
-  // Load 1.0 into $TAS
+  // Set the scale to 1.0.
   f32exp $scale, $azero
   // Fall through.
 
