@@ -38,26 +38,30 @@ inline poplar::Device createTestDevice(DeviceType deviceType,
   }
   case DeviceType::Hw:
   {
-    static auto set = poplar::DeviceManager::getDeviceManager();
-    try {
-      auto device = set.getDevices(poplar::TargetType::IPU, 1).at(0);
-      auto success = device.attach();
-      if (!success) {
-        throw std::logic_error("Could not acquire device " +
-                                std::to_string(device.getId()));
-      }
-      if (tilesPerIPU != device.getTarget().getTilesPerIPU()) {
-        device = device.createVirtualDevice(tilesPerIPU);
-      }
-      return device;
-    } catch (const std::exception &e) {
-      throw std::logic_error("Could not acquire physical IPU device. "
-                             "Error: '" +
-                              std::string(e.what()) + "'");
-  }
+    static auto manager = poplar::DeviceManager::getDeviceManager();
+    auto singleIPUs = manager.getDevices(poplar::TargetType::IPU, 1);
 
-    break;
+    // Find a device that can be attached to:
+    bool success = false;
+    poplar::Device device;
+    for (auto &ipu : singleIPUs) {
+      success = ipu.attach();
+      if (success) {
+        device = std::move(ipu);
+        break;
+      }
+    }
+
+    if (!success) {
+      throw poplar::poplar_error("Could not acquire any Hw devices");
+    }
+    if (tilesPerIPU != device.getTarget().getTilesPerIPU()) {
+      device = device.createVirtualDevice(tilesPerIPU);
+    }
+
+    return device;
   }
+  break;
   default:
       throw std::logic_error(
         "deviceType must be \"Cpu\", \"IpuModel\", \"Sim\" or \"Hw\"\n");
