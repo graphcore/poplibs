@@ -168,32 +168,40 @@ static std::string debugName(TernaryOpType op) {
 
 static unsigned
 compareTileMapDistributions(Graph &graph, std::vector<Tensor> in) {
-  std::vector<unsigned> tileScore(in.size());
-  std::vector<unsigned> distributionScore(in.size());
+  std::vector<unsigned> tilesOccupied(in.size());
+  std::vector<unsigned> numRegions(in.size());
+  std::vector<size_t> maxTileMemSize(in.size());
 
   for (unsigned i = 0; i < in.size(); ++i) {
     const auto mapping = graph.getTileMapping(in[i]);
-
+    maxTileMemSize[i] = 0;
     for (const auto &tile : mapping) {
       if (tile.size() != 0) {
-        tileScore[i]++;
-        distributionScore[i] += tile.size();
+        tilesOccupied[i]++;
+        numRegions[i] += tile.size();
+        size_t tileMemSize = 0;
+        for(const auto &interval : tile) {
+          tileMemSize += interval.size();
+        }
+        maxTileMemSize[i] = std::max(maxTileMemSize[i], tileMemSize);
       }
     }
   }
 
   unsigned best = 0;
   for (unsigned i = 1; i < in.size(); ++i) {
-    // Select the tensor which is spread onto the most tiles
-    if (tileScore[i] > tileScore[best]) {
+    // Select the tensor with the minimum maximum tile memory size
+    if (maxTileMemSize[i] < maxTileMemSize[best]) {
       best = i;
-    }
-
-    // If two tensors share the same number of tiles, then select the one
-    // which has the fewest overall regions
-    if (tileScore[i] == tileScore[best] &&
-        distributionScore[i] < distributionScore[best]) {
-      best = i;
+    } else if (maxTileMemSize[i] == maxTileMemSize[best]) {
+      // If both have the same maximum, select the tensor which is spread onto
+      // the most tiles, or if two tensors share the same number of tiles, then
+      // select the one which has the fewest overall regions
+      if ((tilesOccupied[i] > tilesOccupied[best]) ||
+          (tilesOccupied[i] == tilesOccupied[best] &&
+           numRegions[i] < numRegions[best])) {
+        best = i;
+      }
     }
   }
 
