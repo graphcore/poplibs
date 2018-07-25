@@ -59,6 +59,7 @@ set(codelet_asm_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/conv_partial_nx1_half_float.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/AddToChannel_half.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/AddToChannel_float.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceAdd.S
 )
 set(codelet_headers
   PerformanceEstimation.hpp
@@ -86,7 +87,7 @@ add_custom_command(
     popconv_c.gp
   COMMAND
     ${POPC_EXECUTABLE} ${POPC_FLAGS} -DPOPLIBS_DISABLE_ASM_CODELETS
-    -I ${CMAKE_CURRENT_SOURCE_DIR}   
+    -I ${CMAKE_CURRENT_SOURCE_DIR}
     -o popconv_c.gp
     ${codelet_cpp_sources}
   DEPENDS

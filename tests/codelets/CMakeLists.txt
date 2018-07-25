@@ -34,6 +34,21 @@ foreach(DATA_TYPE half float int)
    add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC} VARIANTS "IpuModel;Sim:cpp;Sim")
 endforeach()
 
+foreach(OUTER_DIM RANGE 1 15)
+  foreach(INNER_DIM RANGE 1 3)
+    foreach(PARTIALS_TYPE HALF FLOAT)
+      foreach(OUT_TYPE HALF FLOAT)
+        set(VARIANT_NAME
+            "ReduceAdd_${OUTER_DIM}_${INNER_DIM}_${PARTIALS_TYPE}_${OUT_TYPE}")
+        set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
+        configure_file(ReduceAdd.cpp ${VARIANT_SRC})
+        add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC}
+	                           VARIANTS "IpuModel;Sim:cpp;Sim")
+        endforeach()
+      endforeach()
+  endforeach()
+endforeach()
+
 # MaxPooling<dataType> and ScaledSumPooling<dataType, poolType>
 foreach(DATA_TYPE half float)
   foreach(POOL_TYPE avg sum max)

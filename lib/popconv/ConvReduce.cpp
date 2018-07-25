@@ -30,7 +30,7 @@ static void reduce(Graph &graph,
                      std::vector<Interval>
                    > &reduceVertexMapping,
                    ComputeSet reduceCS) {
-
+  const auto &target = graph.getTarget();
   assert(partials[0].shape() == reduced.shape());
   if (partials.dim(0) == 0) {
     popops::zero(graph, reduced, reduceVertexMapping, reduceCS);
@@ -43,11 +43,16 @@ static void reduce(Graph &graph,
   const auto partialType = partials.elementType();
   const auto reducedType = reduced.elementType();
   const auto tilesPerInZGroup = partials.dim(0);
+  if (tilesPerInZGroup > target.getRptCountMax()) {
+    // if this error is hit then reduction needs to be split into smaller
+    // reductions first reduce then the output of each are reduced against
+    // each other
+    poplib_error("Reduction to large for counter");
+  }
   auto flatPartials =
       partials.reshape({tilesPerInZGroup,
                         partials.numElements() / tilesPerInZGroup});
   auto flatReduced = reduced.flatten();
-  const auto &target = graph.getTarget();
   std::string vertexName = "popconv::ReduceAdd";
 
   // Accumulate the partial sums.
@@ -65,6 +70,7 @@ static void reduce(Graph &graph,
                                                     partialType));
       graph.setFieldSize(v["out"], regions.size());
       graph.setFieldSize(v["partials"], regions.size() * tilesPerInZGroup);
+      graph.setInitialValue(v["numPartials"], tilesPerInZGroup);
       graph.setTileMapping(v, tile);
       const auto numRegions = regions.size();
       for (unsigned i = 0; i != numRegions; ++i) {

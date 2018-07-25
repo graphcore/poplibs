@@ -1190,15 +1190,15 @@ template class OuterProduct<half>;
 
 template <typename OutType, typename PartialsType>
 class
-[[poplar::constraint("elem(*out) != elem(*partials)")]]
 ReduceAdd : public Vertex {
 public:
-  Output<VectorList<OutType, DELTAN>> out;
-  Input<VectorList<PartialsType, DELTAN, 1, true>> partials;
+  Vector<Input<Vector<PartialsType, ONE_PTR, 8, false>>, ONE_PTR> partials;
+  Output<VectorList<OutType, DELTAN, 4>> out;
+  unsigned short numPartials;
 
+  IS_EXTERNAL_CODELET(true);
   bool compute() {
     unsigned numReductions = out.size();
-    unsigned numPartials = partials.size() / numReductions;
     for (unsigned r = 0; r < numReductions; ++r) {
       unsigned numElem = out[r].size();
       for (unsigned i = 0; i < numElem; ++i) {
