@@ -189,8 +189,12 @@ std::vector<std::size_t> getRandomDims(std::mt19937 &gen,
   for (int i = 0; i < numDimsToReduce; ++i)
     reduceDim[i] = true;
 
+  auto randomFunc = [&](unsigned d) {
+    return gen() % d;
+  };
+
   // Shuffle, so random dimensions are chosen.
-  std::random_shuffle(reduceDim.begin(), reduceDim.end());
+  std::random_shuffle(reduceDim.begin(), reduceDim.end(), randomFunc);
 
   std::vector<std::size_t> dims;
 
@@ -199,7 +203,7 @@ std::vector<std::size_t> getRandomDims(std::mt19937 &gen,
       dims.push_back(i);
 
   // Shuffle the dims in case some code only works when they're ordered.
-  std::random_shuffle(dims.begin(), dims.end());
+  std::random_shuffle(dims.begin(), dims.end(), randomFunc);
 
   return dims;
 }

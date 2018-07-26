@@ -303,7 +303,12 @@ def main():
     parser.add_argument('--dummy', action='store_true',
                         help='Print parameters without running convolution')
     args = parser.parse_args()
-    random.seed(args.seed)
+
+    if sys.version_info[0] < 3:
+        random.seed(args.seed)
+    else:
+        random.seed(args.seed, 1) # Use old PRNG algorithm for compatibility.
+
     for i in range(args.n):
         tiles_per_ipu = select_tiles_per_ipu()
         device_args = make_device_args(tiles_per_ipu)
