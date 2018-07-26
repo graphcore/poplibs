@@ -4,6 +4,7 @@
 #define VERTEX_NAME @VERTEX_NAME@
 #define CALC_FUNC(n, dst, src) @CALC_FUNC@
 #define AVERAGE_RESULT @AVERAGE_RESULT@
+#define IDENTITY_VALUE @IDENTITY_VALUE@
 
 .globl VERTEX_NAME
 .type VERTEX_NAME, @function
@@ -16,6 +17,7 @@
 
 #define LOG2_FLOAT_SIZEOF 2
 #define OUT_SIZEOF 8
+#define LDCONST_MASK ((1 << 20) - 1)
 
 // integer variables
 #define inPtrPtr m0
@@ -28,7 +30,7 @@
 #define chanSizeD2 m7
 #define inPtrPtr2 m8
 #define windowSize m9
-#define windowSizeM2 m10
+#define windowSizeM1 m10
 
 // floating point variables
 #define float a0
@@ -38,6 +40,9 @@
 #define result2i0 a2
 #define result2i1 a3
 #define windowSizeFP a4
+#define identity2 a6:7
+#define identity2i0 a6
+#define identity2i1 a7
 
 // scratch variables
 #define mscratch m11
@@ -57,10 +62,21 @@ VERTEX_NAME:
 
   // while outBegin != outEnd
   cmpeq $mscratch, $outBegin, $outEnd
-  brnz $mscratch, .Lepilogue
-
-  ld32 $inPtrPtr, $mvertex_base, $mzero, VERTEX_IN_OFFSET
-  ld32 $windowSizes, $mvertex_base, $mzero, VERTEX_WINDOW_SIZES_OFFSET
+  {
+    brnz $mscratch, .Lepilogue
+    // preload the identity value into a scratch register here for free because
+    // we can bundle all the necessary instructions, this saves us a cycle in
+    // the window size is not zero case.
+    setzi $identity2i0, IDENTITY_VALUE & LDCONST_MASK
+  }
+  {
+    ld32 $inPtrPtr, $mvertex_base, $mzero, VERTEX_IN_OFFSET
+    or $identity2i0, $identity2i0, IDENTITY_VALUE & ~LDCONST_MASK
+  }
+  {
+    ld32 $windowSizes, $mvertex_base, $mzero, VERTEX_WINDOW_SIZES_OFFSET
+    mov $identity2i1, $identity2i0
+  }
 
 .Lout_loop:
   ld32 $out, $outBegin, $mzero, 0
@@ -75,19 +91,17 @@ VERTEX_NAME:
     sort4x16lo $windowSizeFP, $windowSizeFP, $azero
   }
   {
-    // windowSize is minus 2 because we always load the first one as the initial
-    // result and pipeline the second before each rpt loop below.
-    // assert(windowSize > 0);
-    add $windowSizeM2, $windowSize, -2
+    // windowSize is minus 1 because we pipeline the first before each rpt
+    // loop below.
+    add $windowSizeM1, $windowSize, -1
     f32fromui32 $windowSizeFP, $windowSizeFP
   }
 #else
   ldz16step $windowSize, $mzero, $windowSizes+=, 1
 
-  // windowSize is minus 2 because we always load the first one as the initial
-  // result and pipeline the second before each rpt loop below.
-  // assert(windowSize > 0);
-  add $windowSizeM2, $windowSize, -2
+  // windowSize is minus 1 because we pipeline the first before each rpt
+  // loop below.
+  add $windowSizeM1, $windowSize, -1
 #endif
 
   // calculate $chanSize by doing (end - begin) / sizeof(float).
@@ -102,21 +116,19 @@ VERTEX_NAME:
   // minus 1 for brnzdec.
   add $chanSizeD2, $chanSizeD2, -1
 .Lchan_loop:
-  // make a copy of $inPtrPtr as we need to return to this point each iteration.
-  mov $inPtrPtr2, $inPtrPtr
+  {
+    // make a copy of $inPtrPtr as we need to return to this point each iteration.
+    mov $inPtrPtr2, $inPtrPtr
+    mov $result2, $identity2
+  }
 
-  // load the first window value as the initial result.
-  ld32step $in, $mzero, $inPtrPtr2+=, 1
-  ld64 $result2, $in, $mzero, $chanSizeD2
-
-  // as window size is always > 0, window size - 2 is only negative when window
-  // size is equal to 1. in that case we are done.
-  brneg $windowSizeM2, .Lwindow_loop_epilogue
+  // if window size is 0 we are done.
+  brneg $windowSizeM1, .Lwindow_loop_epilogue
 
   ld32step $in, $mzero, $inPtrPtr2+=, 1
   ld64 $float2, $in, $mzero, $chanSizeD2
 
-  rpt $windowSizeM2, (.Lwindow_loop_end - .Lwindow_loop) / 8 - 1
+  rpt $windowSizeM1, (.Lwindow_loop_end - .Lwindow_loop) / 8 - 1
 .Lwindow_loop:
   {
     ld32step $in, $mzero, $inPtrPtr2+=, 1
@@ -149,20 +161,18 @@ VERTEX_NAME:
   add $chanSize, $chanSize, -1
 
   // scalar version of the channel loop above.
-  mov $inPtrPtr2, $inPtrPtr
-  ld32step $in, $mzero, $inPtrPtr2+=, 1
-  ld32 $result, $in, $mzero, $chanSize
+  {
+    mov $inPtrPtr2, $inPtrPtr
+    mov $result2i0, $identity2i0
+  }
 
-  // if window size is 1 we are done.
-  brneg $windowSizeM2, .Lchan_rem_window_loop_epilogue
+  // if window size is 0 we are done.
+  brneg $windowSizeM1, .Lchan_rem_window_loop_epilogue
 
   ld32step $in, $mzero, $inPtrPtr2+=, 1
   ld32 $float, $in, $mzero, $chanSize
 
-  {
-    rpt $windowSizeM2, (.Lchan_rem_window_loop_end - .Lchan_rem_window_loop)/8-1
-    fnop
-  }
+  rpt $windowSizeM1, (.Lchan_rem_window_loop_end - .Lchan_rem_window_loop)/8-1
 .Lchan_rem_window_loop:
   {
     ld32step $in, $mzero, $inPtrPtr2+=, 1
@@ -187,8 +197,7 @@ VERTEX_NAME:
 .Lout_loop_epilogue:
   // move pointers onwards.
   add $outBegin, $outBegin, OUT_SIZEOF
-  // do a dummy load to move $inPtrPtr on by $windowSize*4 in a single cycle.
-  ld32step $mzero, $mzero, $inPtrPtr+=, $windowSize
+  mov $inPtrPtr, $inPtrPtr2
 
   cmpeq $mscratch, $outBegin, $outEnd
   brz $mscratch, .Lout_loop

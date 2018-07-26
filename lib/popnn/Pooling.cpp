@@ -510,14 +510,6 @@ Tensor pool(Graph &graph,
       auto v = graph.addVertex(cs, getFwdVertexName(poolingType, dType),
                                {{"in", vertexIn}, {"out", vertexOut}});
       graph.setTileMapping(v, tile);
-
-      // all window sizes must be at least 1.
-      for (const auto windowSize : windowSizes) {
-        if (windowSize == 0) {
-          throw poputil::poplib_error("Cannot have a window size of zero.");
-        }
-      }
-
       graph.setInitialValue(v["windowSizes"], windowSizes);
     }
   }

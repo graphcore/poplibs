@@ -1,18 +1,33 @@
-const float expected0[2][1] = {
+#include <limits>
+
+// TYPE defined in test file.
+const auto identity = [] {
+  if (TYPE == HALF) {
+    // taken from std::numeric_limits<half>::lowest() in HalfFloat.hpp
+    return -float(0xFBFF);
+  } else {
+    return -std::numeric_limits<float>::infinity();
+  }
+}();
+
+const float expected0[3][1] = {
   {84.7325},
+  {identity},
   {81.4111},
 };
-const float expected1[1][2] = {
+const float expected1[2][2] = {
+  {identity, identity},
   {53.3526, 68.6753},
 };
 const float expected2[2][3] = {
   {39.1661, 81.2709, 7.4539},
   {57.5866, 17.5915, 65.4395},
 };
-const float expected3[3][4] = {
+const float expected3[4][4] = {
   {41.8107, 63.0969, 93.9388, 56.4574},
   {39.2027, 80.4818, 14.3622, 55.7751},
   {36.1396, 34.4204, 38.3141, 12.4978},
+  {identity, identity, identity, identity},
 };
 const float expected4[2][5] = {
   {72.5981, 95.4094, 74.2324, 99.4235, 33.221},

@@ -193,6 +193,16 @@ INSTANTIATE_NL(NonLinearityGrad2D)
 
 template <typename FPType>
 class MaxPooling : public Vertex {
+  FPType identity() const
+  {
+    if (std::is_same<FPType, float>{}) {
+      return -std::numeric_limits<FPType>::infinity();
+    } else {
+      // half type has no infinity so use the lowest finite value instead.
+      return std::numeric_limits<FPType>::lowest();
+    }
+  }
+
 public:
   IS_EXTERNAL_CODELET(true);
 
@@ -204,7 +214,7 @@ public:
     unsigned inIndex = 0;
     for (unsigned i = 0; i < out.size(); ++i) {
       for (unsigned chan = 0; chan < out[i].size(); ++chan) {
-        FPType val;
+        FPType val = identity();
         for (unsigned w = 0; w < windowSizes[i]; ++w) {
           if (w == 0 || val < in[inIndex + w][chan])
             val = in[inIndex + w][chan];

@@ -4,6 +4,7 @@
 #define VERTEX_NAME @VERTEX_NAME@
 #define CALC_FUNC(n, dst, src) @CALC_FUNC@
 #define AVERAGE_RESULT @AVERAGE_RESULT@
+#define IDENTITY_VALUE @IDENTITY_VALUE@
 
 .globl VERTEX_NAME
 .type VERTEX_NAME, @function
@@ -17,6 +18,8 @@
 #define HALF_SIZEOF 2
 #define LOG2_HALF_SIZEOF 1
 #define OUT_SIZEOF 8
+#define LDCONST_MASK ((1 << 20) - 1)
+#define IDENTITY_VALUE_V2 (IDENTITY_VALUE << 16 | IDENTITY_VALUE)
 
 // integer variables
 #define inPtrPtr m0
@@ -27,7 +30,7 @@
 #define in m5
 #define inPtrPtr2 m6
 #define chanSizeD4 m7
-#define windowSizeM2 m8
+#define windowSizeM1 m8
 #define chanSize m9
 #define chanSizeRem m10
 
@@ -42,9 +45,9 @@
 #define result4i1 a3
 #define data a3
 #define windowSizeFP a4
-#define float2 a6:7
-#define float2i0 a6
-#define float2i1 a7
+#define identity4 a6:7
+#define identity4i0 a6
+#define identity4i1 a7
 
 // scratch variables
 #define mscratch m11
@@ -64,10 +67,21 @@ VERTEX_NAME:
 
   // while outBegin != outEnd
   cmpeq $mscratch, $outBegin, $outEnd
-  brnz $mscratch, .Lepilogue
-
-  ld32 $inPtrPtr, $mvertex_base, $mzero, VERTEX_IN_OFFSET
-  ld32 $windowSizes, $mvertex_base, $mzero, VERTEX_WINDOW_SIZES_OFFSET
+  {
+    brnz $mscratch, .Lepilogue
+    // preload the identity value into a scratch register here for free because
+    // we can bundle all the necessary instructions, this saves us a cycle in
+    // the window size is not zero case.
+    setzi $identity4i0, IDENTITY_VALUE_V2 & LDCONST_MASK
+  }
+  {
+    ld32 $inPtrPtr, $mvertex_base, $mzero, VERTEX_IN_OFFSET
+    or $identity4i0, $identity4i0, IDENTITY_VALUE_V2 & ~LDCONST_MASK
+  }
+  {
+    ld32 $windowSizes, $mvertex_base, $mzero, VERTEX_WINDOW_SIZES_OFFSET
+    mov $identity4i1, $identity4i0
+  }
 
 .Lout_loop:
   ld32 $out, $outBegin, $mzero, 0
@@ -76,28 +90,24 @@ VERTEX_NAME:
   // load the window size in the ARF so we can use it to average the results.
   ldb16 $windowSizeFP, $windowSizes, $mzero, 0
   {
-    ldz16step $windowSizeM2, $mzero, $windowSizes+=, 1
+    ldz16step $windowSizeM1, $mzero, $windowSizes+=, 1
     // zero extend the top half to transform the broadcasted 2x 16-bit vector
     // into an unsigned 32-bit int.
     sort4x16lo $windowSizeFP, $windowSizeFP, $azero
   }
   {
-    // windowSize is minus 2 because we always load the first one as the initial
-    // result and pipeline the second before each rpt loop below.
-    // assert(windowSize > 0);
-    add $windowSizeM2, $windowSizeM2, -2
+    // windowSize is minus 1 because we pipeline the first before each rpt
+    // loop below.
+    add $windowSizeM1, $windowSizeM1, -1
     f32fromui32 $windowSizeFP, $windowSizeFP
   }
 #else
-  ldz16step $windowSizeM2, $mzero, $windowSizes+=, 1
+  ldz16step $windowSizeM1, $mzero, $windowSizes+=, 1
 
-  // windowSize is minus 2 because we always load the first one as the initial
-  // result and pipeline the second before each rpt loop below.
-  // assert(windowSize > 0);
-  add $windowSizeM2, $windowSizeM2, -2
+  // windowSize is minus 1 because we pipeline the first before each rpt
+  // loop below.
+  add $windowSizeM1, $windowSizeM1, -1
 #endif
-
-
 
   // calculate $chanSize by doing (end - begin) / sizeof(half).
   ld32 $mscratch, $outBegin, $mzero, 1
@@ -111,21 +121,19 @@ VERTEX_NAME:
   // minus 1 for brnzdec.
   add $chanSizeD4, $chanSizeD4, -1
 .Lchan_loop:
-  // make a copy of $inPtrPtr as we need to return to this point each iteration.
-  mov $inPtrPtr2, $inPtrPtr
+  {
+    // make a copy of $inPtrPtr as we need to return to this point each loop.
+    mov $inPtrPtr2, $inPtrPtr
+    mov $result4, $identity4
+  }
 
-  // load the first window value as the initial result.
-  ld32step $in, $mzero, $inPtrPtr2+=, 1
-  ld64 $result4, $in, $mzero, $chanSizeD4
-
-  // as window size is always > 0, window size - 2 is only negative when window
-  // size is equal to 1. in that case we are done.
-  brneg $windowSizeM2, .Lwindow_loop_epilogue
+  // if window size is 0 we are done.
+  brneg $windowSizeM1, .Lwindow_loop_epilogue
 
   ld32step $in, $mzero, $inPtrPtr2+=, 1
   ld64 $half4, $in, $mzero, $chanSizeD4
 
-  rpt $windowSizeM2, (.Lwindow_loop_end - .Lwindow_loop) / 8 - 1
+  rpt $windowSizeM1, (.Lwindow_loop_end - .Lwindow_loop) / 8 - 1
 .Lwindow_loop:
   {
     ld32step $in, $mzero, $inPtrPtr2+=, 1
@@ -140,16 +148,17 @@ VERTEX_NAME:
   CALC_FUNC(v4, $result4, $half4)
 
 #if AVERAGE_RESULT == 1
-  // average the summed values before storing them.
-  f16v2tof32 $float2, $result4i0
-  f32div $float2i0, $float2i0, $windowSizeFP
-  f32div $float2i1, $float2i1, $windowSizeFP
-  f32v2tof16 $result4i0, $float2
+  // average the summed values before storing them. re-purpose the half4
+  // register for storing the float conversion.
+  f16v2tof32 $half4, $result4i0
+  f32div $half4i0, $half4i0, $windowSizeFP
+  f32div $half4i1, $half4i1, $windowSizeFP
+  f32v2tof16 $result4i0, $half4
 
-  f16v2tof32 $float2, $result4i1
-  f32div $float2i0, $float2i0, $windowSizeFP
-  f32div $float2i1, $float2i1, $windowSizeFP
-  f32v2tof16 $result4i1, $float2
+  f16v2tof32 $half4, $result4i1
+  f32div $half4i0, $half4i0, $windowSizeFP
+  f32div $half4i1, $half4i1, $windowSizeFP
+  f32v2tof16 $result4i1, $half4
 #endif
 
 .Lwindow_loop_epilogue:
@@ -177,16 +186,21 @@ VERTEX_NAME:
 
   // vector2 version of the channel loop above.
 .Lchan_rem2_loop:
-  mov $inPtrPtr2, $inPtrPtr
-  ld32step $in, $mzero, $inPtrPtr2+=, 1
-  ld32 $result2, $in, $mzero, $offset
+  {
+    mov $inPtrPtr2, $inPtrPtr
+    mov $result4i0, $identity4i0
+  }
 
-  brneg $windowSizeM2, .Lchan_rem2_loop_epilogue
+  // if window size is 0 we are done.
+  brneg $windowSizeM1, .Lchan_rem2_loop_epilogue
 
   ld32step $in, $mzero, $inPtrPtr2+=, 1
   ld32 $half2, $in, $mzero, $offset
 
-  rpt $windowSizeM2, (.Lchan_rem2_window_loop_end - .Lchan_rem2_window_loop)/8-1
+  {
+    rpt $windowSizeM1, (.Lchan_rem2_window_loop_end-.Lchan_rem2_window_loop)/8-1
+    fnop
+  }
 .Lchan_rem2_window_loop:
   {
     ld32step $in, $mzero, $inPtrPtr2+=, 1
@@ -201,14 +215,15 @@ VERTEX_NAME:
   CALC_FUNC(v2, $result2, $half2)
 
 #if AVERAGE_RESULT == 1
-  // average the summed values before storing them.
-  f16v2tof32 $float2, $result2
-  f32div $float2i0, $float2i0, $windowSizeFP
-  f32div $float2i1, $float2i1, $windowSizeFP
+  // average the summed values before storing them. re-purpose the half4
+  // register for storing the float conversion.
+  f16v2tof32 $half4, $result2
+  f32div $half4i0, $half4i0, $windowSizeFP
+  f32div $half4i1, $half4i1, $windowSizeFP
   {
     // reduce remainder.
     add $chanSizeRem, $chanSizeRem, -2
-    f32v2tof16 $result2, $float2
+    f32v2tof16 $result2, $half4
   }
 #else
   // reduce remainder.
@@ -232,20 +247,18 @@ VERTEX_NAME:
   // at this point because we have only processed an even number of elements.
 .Lchan_rem1:
   shl $offsetT2, $offset, 1
+  {
+    mov $inPtrPtr2, $inPtrPtr
+    mov $result4i0, $identity4i0
+  }
 
-  mov $inPtrPtr2, $inPtrPtr
-  ld32step $in, $mzero, $inPtrPtr2+=, 1
-  ldb16 $result2, $in, $mzero, $offsetT2
-
-  brneg $windowSizeM2, .Lchan_rem1_loop_epilogue
+  // if window size is 0 we are done.
+  brneg $windowSizeM1, .Lchan_rem1_loop_epilogue
 
   ld32step $in, $mzero, $inPtrPtr2+=, 1
   ldb16 $half2, $in, $mzero, $offsetT2
 
-  {
-    rpt $windowSizeM2, (.Lchan_rem1_window_loop_end-.Lchan_rem1_window_loop)/8-1
-    fnop
-  }
+  rpt $windowSizeM1, (.Lchan_rem1_window_loop_end-.Lchan_rem1_window_loop)/8-1
 .Lchan_rem1_window_loop:
   {
     ld32step $in, $mzero, $inPtrPtr2+=, 1
@@ -259,15 +272,16 @@ VERTEX_NAME:
   CALC_FUNC(v2, $result2, $half2)
 
 #if AVERAGE_RESULT == 1
-  // average the summed values before storing them.
-  f16v2tof32 $float2, $result2
-  f32div $float2i0, $float2i0, $windowSizeFP
-  f32div $float2i1, $float2i1, $windowSizeFP
+  // average the summed values before storing them. re-purpose the half4
+  // register for storing the float conversion.
+  f16v2tof32 $half4, $result2
+  f32div $half4i0, $half4i0, $windowSizeFP
+  f32div $half4i1, $half4i1, $windowSizeFP
 
   {
     // load the next word to perform a read/modify/write of the final half.
     ld32 $data, $out, $mzero, $offset
-    f32v2tof16 $result2, $float2
+    f32v2tof16 $result2, $half4
   }
 #else
   // load the next word to perform a read/modify/write of the final result half.
@@ -283,9 +297,7 @@ VERTEX_NAME:
 .Lout_loop_epilogue:
   // move pointers onwards.
   add $outBegin, $outBegin, OUT_SIZEOF
-  add $mscratch, $windowSizeM2, 2
-  // do a dummy load to move $inPtrPtr on by $windowSize*4 in a single cycle.
-  ld32step $mzero, $mzero, $inPtrPtr+=, $mscratch
+  mov $inPtrPtr, $inPtrPtr2
 
   cmpeq $mscratch, $outBegin, $outEnd
   brz $mscratch, .Lout_loop
