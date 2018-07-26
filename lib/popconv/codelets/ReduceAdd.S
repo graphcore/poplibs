@@ -1,4 +1,5 @@
-#ifdef __IPU__
+//#ifdef __IPU__
+#if 0
 #include "tilearch.h"
 #include "tileimplconsts_tommy.h"
 
@@ -585,7 +586,7 @@ _partials_rpt_2_loop_f_h:
     fnop
   }
   {
-    add         $IN_j_DELTA, $IN_j_DELTA, 4
+    add         $IN_j_DELTA, $IN_j_DELTA, 8
     f32v4acc    $VALUES_0:7
   }
   {
@@ -751,7 +752,7 @@ _partials_rpt_2_loop_f_f:
     fnop
   }
   {
-    add         $IN_j_DELTA, $IN_j_DELTA, 4
+    add         $IN_j_DELTA, $IN_j_DELTA, 8
     f32v4acc    $VALUES_0:7
   }
   //{

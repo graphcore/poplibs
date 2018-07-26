@@ -1196,7 +1196,7 @@ public:
   Output<VectorList<OutType, DELTAN, 4>> out;
   unsigned short numPartials;
 
-  IS_EXTERNAL_CODELET(true);
+  IS_EXTERNAL_CODELET(false);
   bool compute() {
     unsigned numReductions = out.size();
     for (unsigned r = 0; r < numReductions; ++r) {

@@ -32,7 +32,9 @@ BOOST_AUTO_TEST_CASE(ReduceAdd) {
   // Claim enough space for floats
   unsigned char data[INNER_DIM * OUTER_DIM * 4];
   float nums[INNER_DIM * OUTER_DIM];
-  std::fill(&nums[0], &nums[INNER_DIM * OUTER_DIM], 1.0);
+  for (unsigned i = 0; i < INNER_DIM * OUTER_DIM; ++i) {
+    nums[i] = 1.0 * (i % OUTER_DIM);
+  }
   copy(target, nums, INNER_DIM*OUTER_DIM, PARTIALS_TYPE, data);
   float answers[OUTER_DIM + 1];
   char ans_data[(OUTER_DIM + 1) * 4];
@@ -49,7 +51,6 @@ BOOST_AUTO_TEST_CASE(ReduceAdd) {
   partials = graph.addVariable(PARTIALS_TYPE, {INNER_DIM, OUTER_DIM});
   Tensor out;
   out = graph.addVariable(OUT_TYPE, {1, OUTER_DIM+1});
-  //auto out = graph.addVariable(FLOAT, {1, OUTER_DIM+1});
 
   const auto vertexClass = templateVertex("popconv::ReduceAdd",
                                           OUT_TYPE, PARTIALS_TYPE);
@@ -89,7 +90,7 @@ BOOST_AUTO_TEST_CASE(ReduceAdd) {
   copy(target, OUT_TYPE, ans_data, answers, OUTER_DIM+1);
 
   for(int i =0; i < OUTER_DIM; ++i){
-    BOOST_CHECK_EQUAL(INNER_DIM * 1.0, answers[i]);
+    BOOST_CHECK_EQUAL(INNER_DIM * 1.0 * i, answers[i]);
     answers[i] = 0; // zero for next iteration
   }
   BOOST_CHECK_EQUAL(answers[OUTER_DIM], 0.0);
