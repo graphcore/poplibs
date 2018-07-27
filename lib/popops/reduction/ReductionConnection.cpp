@@ -305,17 +305,27 @@ void connectVertexEdges(poplar::Graph &graph,
   unsigned numPartialRegions = 0;
 
   // Number of input partial regions for each output region, start with 0.
-  std::vector<unsigned> numPartials;
+  std::vector<unsigned short> numPartials;
   numPartials.reserve(numOutputRegions);
 
   for (const auto &r : reductions) {
     auto sz = r.partials.size();
 
-    if (sz < 1)
+    if (sz < 1) {
       throw poputil::poplib_error("output region with no partials");
-
+    }
+    if (sz > std::numeric_limits<unsigned short>::max()) {
+      // As total memory on Colossus B0 is 2**18, 2**16 * num_workers
+      // assuming that the work is split across workers
+      // would occupy more memory than we have. If work is not split across
+      // workers, then if partials[i].size() < 4 for all reductions
+      // could hit this limit.
+      // Come MK2 may have to deal with num partials greater than this
+      // and create more vertices
+      throw poputil::poplib_error("Number of partials larger than short");
+    }
     numPartialRegions += sz;
-    numPartials.push_back(sz);
+    numPartials.push_back(static_cast<unsigned short>(sz));
   }
 
   graph.setInitialValue(vertex["numPartials"], numPartials);

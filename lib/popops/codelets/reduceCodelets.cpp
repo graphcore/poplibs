@@ -67,7 +67,7 @@ public:
 
   /* The number of input regions (partials) for each output region. */
   /* This should sum to `partials.size()`. */
-  Vector<unsigned> numPartials;
+  Vector<unsigned short> numPartials;
 
   /* Multiplication factor. Might be unused. */
   float k;
