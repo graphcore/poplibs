@@ -1,5 +1,4 @@
-//#ifdef __IPU__
-#if 0
+#ifdef __IPU__
 #include "tilearch.h"
 #include "tileimplconsts_tommy.h"
 
@@ -73,7 +72,10 @@ _loop_over_reductions:
   shr         $OUT_j_PTR, $OUT_j_PTR, 14
   add         $OUT_j_PTR, $OUT_j_PTR, $BASE
 
-  shr         $SCRATCH, $OUT_j_SIZE, 3
+  {
+    shr         $SCRATCH, $OUT_j_SIZE, 3
+    uput        $FP_CLR, $ZAACC
+  }
 
   setzi       $IN_j_DELTA, 0
   brnzdec     $SCRATCH, _skip_r
@@ -81,10 +83,7 @@ _loop_over_reductions:
   _skip_r:
 
   // and to see if it is 8 bytes aligned, vertex state guarentees it is 4 byte
-  {
-    and         $OUT_j_ALIGN, $OUT_j_PTR, 4
-    uput        $FP_CLR, $ZAACC
-  }
+  and         $OUT_j_ALIGN, $OUT_j_PTR, 4
 _loop_over_outer_dim:
   {
     setzi       $IN_i_DELTA, 0
@@ -311,7 +310,10 @@ _loop_over_reductions_h_h:
   shr         $OUT_j_PTR, $OUT_j_PTR, 14
   add         $OUT_j_PTR, $OUT_j_PTR, $BASE
 
-  shr         $SCRATCH, $OUT_j_SIZE, 3
+  {
+    shr         $SCRATCH, $OUT_j_SIZE, 3
+    uput        $FP_CLR, $ZAACC
+  }
 
   setzi       $IN_j_DELTA, 0
   brnzdec     $SCRATCH, _skip_r_h_h
@@ -319,10 +321,7 @@ _loop_over_reductions_h_h:
   _skip_r_h_h:
 
   // and to see if it is 8 bytes aligned, vertex state guarentees it is 4 byte
-  {
-    and         $OUT_j_ALIGN, $OUT_j_PTR, 4
-    uput        $FP_CLR, $ZAACC
-  }
+  and         $OUT_j_ALIGN, $OUT_j_PTR, 4
 _loop_over_outer_dim_h_h:
   {
     setzi       $IN_i_DELTA, 0
@@ -514,7 +513,10 @@ _loop_over_reductions_f_h:
   shr         $OUT_j_PTR, $OUT_j_PTR, 14
   add         $OUT_j_PTR, $OUT_j_PTR, $BASE
 
-  shr         $SCRATCH, $OUT_j_SIZE, 2
+  {
+    shr         $SCRATCH, $OUT_j_SIZE, 2
+    uput        $FP_CLR, $ZAACC
+  }
 
   setzi       $IN_j_DELTA, 0
   brnzdec     $SCRATCH, _skip_r_f_h
@@ -522,10 +524,7 @@ _loop_over_reductions_f_h:
   _skip_r_f_h:
 
   // and to see if it is 8 bytes aligned, vertex state guarentees it is 4 byte
-  {
-    and         $OUT_j_ALIGN, $OUT_j_PTR, 4
-    uput        $FP_CLR, $ZAACC
-  }
+  and         $OUT_j_ALIGN, $OUT_j_PTR, 4
 _loop_over_outer_dim_f_h:
   {
     setzi       $IN_i_DELTA, 0
@@ -673,7 +672,10 @@ _loop_over_reductions_f_f:
   shr         $OUT_j_PTR, $OUT_j_PTR, 14
   add         $OUT_j_PTR, $OUT_j_PTR, $BASE
 
-  shr         $SCRATCH, $OUT_j_SIZE, 2
+  {
+    shr         $SCRATCH, $OUT_j_SIZE, 2
+    uput        $FP_CLR, $ZAACC
+  }
 
   setzi       $IN_j_DELTA, 0
   brnzdec     $SCRATCH, _skip_r_f_f
@@ -681,10 +683,7 @@ _loop_over_reductions_f_f:
   _skip_r_f_f:
 
   // and to see if it is 8 bytes aligned, vertex state guarentees it is 4 byte
-  {
-    and         $OUT_j_ALIGN, $OUT_j_PTR, 4
-    uput        $FP_CLR, $ZAACC
-  }
+  and         $OUT_j_ALIGN, $OUT_j_PTR, 4
 _loop_over_outer_dim_f_f:
   {
     setzi       $IN_i_DELTA, 0
