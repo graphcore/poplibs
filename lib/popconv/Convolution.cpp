@@ -1736,8 +1736,8 @@ partitionConvOutputBetweenWorkers(const Graph &graph,
 }
 
 static bool fitsMachineStride(const Target &target, int stride) {
-  int64_t maxLimit = (1 << target.getNumStrideBits()/2) - 1;
-  int64_t minLimit = -(1 << target.getNumStrideBits()/2);
+  int64_t maxLimit = (1 << target.getNumStrideBits()) / 2 - 1;
+  int64_t minLimit = -(1 << target.getNumStrideBits()) / 2;
   return stride >= minLimit && stride < maxLimit;
 };
 
