@@ -7,6 +7,7 @@
 #include <poplin/codelets.hpp>
 #include <string>
 #include <random>
+#include <boost/random.hpp>
 #include <Winograd.hpp>
 #include "TestDevice.hpp"
 
@@ -207,7 +208,7 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   std::fill(debugBuffer.begin(), debugBuffer.end(), 0);
 
   std::mt19937 randomEngine;
-  std::normal_distribution<> dist(mean, stdDev);
+  boost::random::normal_distribution<> dist(mean, stdDev);
 
   for (unsigned i = 0; i < inSize; ++i) {
     inBuffer[i] = dist(randomEngine);

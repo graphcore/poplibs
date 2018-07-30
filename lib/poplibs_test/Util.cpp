@@ -3,6 +3,7 @@
 #include <poplibs_support/Compiler.hpp>
 #include <poputil/exceptions.hpp>
 #include <cmath>
+#include <boost/random.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -61,7 +62,7 @@ writeRandomValues(const Target &target,
                   const Type &type,
                   double *begin, double *end, double min, double max,
                   std::mt19937 &randomEngine) {
-  std::uniform_real_distribution<> dist(min, max);
+  boost::random::uniform_real_distribution<> dist(min, max);
   for (auto it = begin; it != end; ++it) {
     *it = dist(randomEngine);
   }

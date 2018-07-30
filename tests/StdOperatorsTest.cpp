@@ -11,12 +11,14 @@
 #include <iostream>
 #include <cmath>
 #include <random>
+#include <boost/random.hpp>
 #include "TestDevice.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
+namespace br = boost::random;
 
 const poplar::OptionFlags options {
   {"target.textSectionSizeInBytes", "0x9000"},
@@ -73,7 +75,7 @@ static void setUnaryOpInput(int hIn[DIM_SIZE][DIM_SIZE]) {
 
 static void setUnaryOpInput(bool hIn[DIM_SIZE][DIM_SIZE]) {
   std::mt19937 randomEngine;
-  std::uniform_int_distribution<> dist(0, 1);
+  br::uniform_int_distribution<> dist(0, 1);
   for (auto r = 0U; r != DIM_SIZE; ++r) {
     for (auto c = 0U; c != DIM_SIZE; ++c) {
       hIn[r][c] = dist(randomEngine);
@@ -1444,7 +1446,7 @@ BOOST_AUTO_TEST_CASE(MapTestMultiTensor) {
   float hOut[DIM_SIZE];
 
   std::mt19937 randomEngine;
-  std::uniform_real_distribution<> dist(-10.0, +10.0);
+  br::uniform_real_distribution<> dist(-10.0, +10.0);
   for (unsigned i = 0; i < DIM_SIZE; ++i) {
     aIn[i] = dist(randomEngine);
     bIn[i] = dist(randomEngine);
@@ -1542,7 +1544,7 @@ BOOST_AUTO_TEST_CASE(MapInferTypeTest) {
   bool  hOut[DIM_SIZE];
 
   std::mt19937 randomEngine;
-  std::uniform_real_distribution<> dist(-10.0, +10.0);
+  br::uniform_real_distribution<> dist(-10.0, +10.0);
   for (unsigned i = 0; i < DIM_SIZE; ++i) {
     aIn[i] = dist(randomEngine);
     bIn[i] = dist(randomEngine);

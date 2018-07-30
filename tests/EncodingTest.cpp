@@ -13,6 +13,7 @@
 #include <limits>
 #include <random>
 #include <type_traits>
+#include <boost/random.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -28,7 +29,7 @@ getRandomIndices(std::size_t numIndices,
                  std::size_t length) {
   std::vector<std::uint64_t> indices(numIndices);
   std::mt19937 randomEngine;
-  std::uniform_int_distribution<std::uint64_t> dist(0, length - 1);
+  boost::random::uniform_int_distribution<std::uint64_t> dist(0, length - 1);
   for (std::size_t i = 0; i < numIndices; i++) {
     indices[i] = dist(randomEngine);
   }

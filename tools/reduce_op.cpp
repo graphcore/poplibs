@@ -22,12 +22,15 @@
 #include <boost/program_options.hpp>
 #include <boost/test/tools/floating_point_comparison.hpp>
 
+#include <boost/random.hpp>
+
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
 using namespace poplibs_test::util;
 namespace po = boost::program_options;
+namespace br = boost::random;
 
 // Default tolerances used in tests
 #define FLOAT_REL_TOL  0.1
@@ -143,17 +146,17 @@ std::vector<std::size_t> parseSizeVector(const std::string &token) {
 // Generate a random tensor shape, with some dimensions randomly set to
 // 1 because it is an edge case.
 std::vector<std::size_t> getRandomShape(std::mt19937 &gen, unsigned tiles) {
-  auto rank = std::uniform_int_distribution<>(1, 5)(gen);
+  auto rank = br::uniform_int_distribution<>(1, 5)(gen);
 
   // Distribution over the number of elements.
   const auto numElems = rank * 10000 / tiles;
-  auto expectedNumel = std::binomial_distribution<>(numElems)(gen) + 1;
+  auto expectedNumel = br::binomial_distribution<>(numElems)(gen) + 1;
 
   // Distribution over the dimensions.
-  std::uniform_int_distribution<> dimDist(1, pow(expectedNumel, 1.0/rank) * 2);
+  br::uniform_int_distribution<> dimDist(1, pow(expectedNumel, 1.0/rank) * 2);
 
   // Probability of setting a dimension to 1.
-  std::bernoulli_distribution dimOneDist(0.05);
+  br::bernoulli_distribution<double> dimOneDist(0.05);
 
   std::vector<std::size_t> shape(rank);
 
@@ -181,7 +184,7 @@ std::vector<std::size_t> getRandomDims(std::mt19937 &gen,
   if (rank > 0)
     weights.push_back(1.0); // Reduce all dimensions.
 
-  std::discrete_distribution<> numDimsToReduceDist(weights.begin(),
+  br::discrete_distribution<> numDimsToReduceDist(weights.begin(),
                                                    weights.end());
   auto numDimsToReduce = numDimsToReduceDist(gen);
 
@@ -212,7 +215,7 @@ std::vector<std::size_t> getRandomDims(std::mt19937 &gen,
 popops::Operation getRandomOp(std::mt19937 &gen) {
   // Randomly choose an op from ADD, SQUARE_ADD, MUL, MIN, MAX, AND and OR.
   return static_cast<popops::Operation>(
-           std::uniform_int_distribution<>(0, 6)(gen)
+           br::uniform_int_distribution<>(0, 6)(gen)
          );
 }
 
@@ -221,7 +224,7 @@ float getRandomScale(std::mt19937 &gen, popops::Operation op) {
   // Only (square)add can scale.
   if (op != popops::Operation::ADD && op != popops::Operation::SQUARE_ADD)
     return 1.0f;
-  return std::normal_distribution<>(-2.0f, 2.0f)(gen);
+  return br::normal_distribution<>(-2.0f, 2.0f)(gen);
 }
 
 // Random decision on whether or not to do an update operation.
@@ -229,22 +232,22 @@ bool getRandomUpdate(std::mt19937 &gen, popops::Operation op) {
   // Only (square)add can update.
   if (op != popops::Operation::ADD && op != popops::Operation::SQUARE_ADD)
     return false;
-  return std::bernoulli_distribution(0.3)(gen);
+  return br::bernoulli_distribution<double>(0.3)(gen);
 }
 
 // Randomly decide between reduce() and reduceWithOutput().
 bool getRandomWithOutput(std::mt19937 &gen) {
-  return std::bernoulli_distribution(0.5)(gen);
+  return br::bernoulli_distribution<double>(0.5)(gen);
 }
 
 // Get a randm number of IPUs.
 unsigned getRandomNumIPUs(std::mt19937 &gen) {
-  return std::uniform_int_distribution<>(1, MAX_IPUS_TO_USE)(gen);
+  return br::uniform_int_distribution<>(1, MAX_IPUS_TO_USE)(gen);
 }
 
 // And a random number of tiles.
 unsigned getRandomTilesPerIPU(std::mt19937 &gen, unsigned maxTiles) {
-  return 4 * std::uniform_int_distribution<>(1, maxTiles / 4)(gen);
+  return 4 * br::uniform_int_distribution<>(1, maxTiles / 4)(gen);
 }
 
 // Get random input and output types. This is only used when the operation
@@ -256,7 +259,7 @@ poplar::Type getRandomTypes(std::mt19937 &gen,
     return BOOL;
   }
 
-  switch (std::uniform_int_distribution<>(0, 2)(gen)) {
+  switch (br::uniform_int_distribution<>(0, 2)(gen)) {
   case 0:
     return HALF;
   case 1:

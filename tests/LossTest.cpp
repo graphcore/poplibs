@@ -15,6 +15,7 @@
 #include <iostream>
 #include <limits>
 #include <random>
+#include <boost/random.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -67,7 +68,8 @@ getExpected(boost::multi_array<double, 2> &activations,
     }
     // Random labels not equal the predicted for the rest
     std::mt19937 labelEngine;
-    std::uniform_int_distribution<std::uint64_t> labelDist(0, numClasses - 1);
+    boost::random::uniform_int_distribution<std::uint64_t>
+        labelDist(0, numClasses - 1);
     for (std::size_t b = numCorrect; b < batchSize; b++) {
       const auto actualBatch = shuffledBatches[b];
       auto randLabel = predictions[actualBatch];
