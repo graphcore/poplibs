@@ -11,6 +11,8 @@ add_library(popconv SHARED
   ConvReduce.hpp
   ConvReduce.cpp
   ConvUtil.cpp
+  ConvUtilInternal.cpp
+  ConvUtilInternal.hpp
   ConvValidation.hpp
   ConvValidation.cpp
   PerformanceEstimation.hpp

@@ -1,4 +1,6 @@
 #include "popconv/internal/ConvPlan.hpp"
+
+#include "ConvUtilInternal.hpp"
 #include "popconv/internal/ConvOptions.hpp"
 #include "popconv/Convolution.hpp"
 #include "poputil/exceptions.hpp"

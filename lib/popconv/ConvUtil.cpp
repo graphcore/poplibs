@@ -797,80 +797,6 @@ getKernelRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
   return {kernelBegin, kernelEnd};
 }
 
-std::vector<std::vector<PartialRow>>
-partitionConvPartialByWorker(unsigned batchElements,
-                             const std::vector<unsigned> &tileConvOutSize,
-                             unsigned numContexts,
-                             const std::vector<unsigned> &inputDilation,
-                             const std::vector<unsigned> &stride) {
-  const auto numFieldDims = tileConvOutSize.size();
-  assert(inputDilation.size() == numFieldDims);
-  assert(stride.size() == numFieldDims);
-  std::vector<unsigned> outputStride = inputDilation;
-  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    outputStride[dim] /= gcd(outputStride[dim], stride[dim]);
-  }
-  std::vector<std::vector<PartialRow>> partitionByWorker;
-  partitionByWorker.reserve(numContexts);
-  const auto elementsPerRow =
-      (tileConvOutSize.back() + outputStride.back() - 1) /
-      outputStride.back();
-  unsigned activeRows = 1;
-  std::vector<unsigned> activeRowShape;
-  for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
-    auto dimActiveRows = (tileConvOutSize[dim] + outputStride[dim] - 1) /
-                         outputStride[dim];
-    activeRowShape.push_back(dimActiveRows);
-    activeRows *= dimActiveRows;
-  }
-  const auto numElements = batchElements * activeRows * elementsPerRow;
-  for (unsigned i = 0; i != numContexts; ++i) {
-    partitionByWorker.emplace_back();
-    const auto beginElement = (i * numElements) / numContexts;
-    const auto endElement = ((i + 1) * numElements) / numContexts;
-    if (beginElement == endElement)
-      continue;
-    const auto lastElement = endElement - 1;
-    auto beginIndices =
-        poputil::unflattenIndex<std::size_t>({batchElements, activeRows,
-                                             elementsPerRow}, beginElement);
-    auto lastIndices =
-        poputil::unflattenIndex<std::size_t>({batchElements, activeRows,
-                                             elementsPerRow}, lastElement);
-    for (unsigned b = beginIndices[0]; b != lastIndices[0] + 1; ++b) {
-      unsigned activeRowBegin = b == beginIndices[0] ?
-                                beginIndices[1] :
-                                0;
-      unsigned activeRowLast = b == lastIndices[0] ?
-                               lastIndices[1] :
-                               activeRows - 1;
-      for (unsigned activeRow = activeRowBegin; activeRow != activeRowLast + 1;
-           ++activeRow) {
-        unsigned activeXBegin =
-            b == beginIndices[0] && activeRow == beginIndices[1] ?
-              beginIndices[2] : 0;
-        unsigned activeXLast =
-            b == lastIndices[0] && activeRow == lastIndices[1] ?
-              lastIndices[2] : elementsPerRow - 1;
-        auto outerFieldIndices = poputil::unflattenIndex(activeRowShape,
-                                                        activeRow);
-        for (unsigned dim = 0; dim != outerFieldIndices.size(); ++dim) {
-          outerFieldIndices[dim] *= outputStride[dim];
-          assert(outerFieldIndices[dim] < tileConvOutSize[dim]);
-        }
-        const auto xBegin = activeXBegin * outputStride.back();
-        const auto xEnd = activeXLast * outputStride.back() + 1;
-        assert(b < batchElements);
-        assert(xBegin < tileConvOutSize.back());
-        assert(xEnd <= tileConvOutSize.back());
-        partitionByWorker.back().emplace_back(b, outerFieldIndices, xBegin,
-                                              xEnd);
-      }
-    }
-  }
-  return partitionByWorker;
-}
-
 // Return a convolution where the same input, kernel and output size match the
 // specified convolution and where the output is all zero.
 static ConvParams getZeroConv(const ConvParams &params) {
@@ -1187,20 +1113,4 @@ unsigned detectChannelGrouping(const poplar::Tensor &t0) {
   return upper;
 }
 
-std::pair<unsigned, unsigned>
-getTileSplitForGroup(unsigned group, unsigned numGroups, unsigned numTiles) {
-  if (numTiles < numGroups) {
-    return std::make_pair(group % numTiles, 1);
-  } else {
-    const auto tilesPerGroup = numTiles / numGroups;
-    const auto g1 = numGroups * (tilesPerGroup + 1) - numTiles;
-    if (group < g1) {
-      return std::make_pair(group * tilesPerGroup, tilesPerGroup);
-    } else {
-      return std::make_pair(group * (tilesPerGroup + 1) -  g1,
-                            tilesPerGroup + 1);
-    }
-  }
-}
-
-} // namespace convutil
+} // namespace popconv

@@ -12,10 +12,6 @@
 
 namespace popconv {
 
-inline unsigned absdiff(unsigned a, unsigned b) {
-  return a < b ? b - a : a - b;
-}
-
 /// Return the output size when the specified dilation is applied to an
 /// input of the specified size.
 unsigned getDilatedSize(unsigned size, unsigned dilation);
@@ -110,26 +106,6 @@ getInputRange(unsigned dim, std::pair<unsigned, unsigned> outputRange,
   return getInputRange(dim, outputRange, {0, params.kernelShape[dim]},
                        params);
 }
-
-struct PartialRow {
-  unsigned b;
-  std::vector<unsigned> outerFieldIndices;
-  unsigned xBegin;
-  unsigned xEnd;
-  PartialRow(unsigned b, std::vector<unsigned> outerFieldIndices,
-             unsigned xBegin, unsigned xEnd) :
-    b(b),
-    outerFieldIndices(std::move(outerFieldIndices)),
-    xBegin(xBegin),
-    xEnd(xEnd) {}
-};
-
-std::vector<std::vector<PartialRow>>
-partitionConvPartialByWorker(unsigned batchElements,
-                             const std::vector<unsigned> &tileConvOutSize,
-                             unsigned numContexts,
-                             const std::vector<unsigned> &inputDilation,
-                             const std::vector<unsigned> &stride);
 
 ConvParams canonicalizeParams(const ConvParams &params);
 
