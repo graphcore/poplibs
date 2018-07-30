@@ -195,7 +195,7 @@ getConvPartial1x1SupervisorOuterLoopCycleEstimate(
                           * numConvUnitsPerTile
                           * (floatWeights ? 4 : 2)
                           / convUnitCoeffLoadBytesPerCycle;
-  const uint64_t supervisorNonloopOverhead = 80;
+  const uint64_t supervisorNonloopOverhead = 55;
   return supervisorNonloopOverhead + numConvGroups
            * (13 + (numInGroups - 1)
               * (13 + numOutGroups

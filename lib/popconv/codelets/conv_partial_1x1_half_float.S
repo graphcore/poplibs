@@ -358,88 +358,76 @@ conv_partial_sup_contiguous:
 
 // supervisor base is $m0 - passed to this function
 #define sup_base                  m0
-#define wkr_vertex                sp
 #define stride_s                  m1
-#define partition_s               m3
-#define weights_vectors_s         m6
-#define inchan_group_s            m3
-#define inchan_vectors_s          m8
-#define weight_vec_s              m7
-#define outchan_vectors_s         m4
 #define invec_s                   m2
+#define outvec_s                  m2
+#define inchan_group_s            m3
+#define partition_s               m3
+#define temp_s                    m4
+#define wkr_function              m4
 #define conv_group_s              m5
-#define outchan_group_s           m10
 #define amp_group_s               m5
-#define temp_s                    m9
-#define outvec_s                  invec_s
-#define wkr_function              m9
-#define outstride_s               outchan_group_s
+#define outchan_group_s           m6
+#define outstride_s               m6
+#define weight_vec_s              m7
+#define outchan_vectors_s         m8
+#define inchan_vectors_s          m9
+#define weights_vectors_s         m10
+#define wkr_vertex                sp
 
 #define SUP_STACK_CALLEE_SAVE0    0  //(word)
 #define SUP_STACK_CALLEE_SAVE1    4  //(word)
-#define SUP_STACK_CALLEE_SAVE2    8  //(word)
-#define SUP_STACK_CONV_GROUP      12 //(word)
+#define SUP_STACK_CONV_GROUP      8 //(word)
 // The number of output channels per group is divided by the number of number
 // of channels the AMP processes. The actual value kept is one less.
-#define SUP_STACK_AMP_GROUPS      16 //(word)
-#define SUP_STACK_SIZE            24
+#define SUP_STACK_AMP_GROUPS      12 //(word)
+#define SUP_STACK_SIZE            (SUP_STACK_AMP_GROUPS + 4)
 
-// TODO: There are code sequences below which can be rearranged to reduce 
-//       bubbles
 // Performance:
-// 80 + numConvGroups * (13 + 
+// 55 + numConvGroups * (13 + 
 //                       inChanGroups * (13 + 
 //                                       outChanGroups * (11 + 
 //                                                        AmpGroups * 22))))
 // Where AMP groups = OutChansPerGroup / 8
-
-// save $m4..6  and create space for vertex base
-add           $sp, $sp, -(WKR_VERTEX_SIZE + SUP_STACK_SIZE)
-ld32          $weights_vectors_s, $sup_base, SUP_WEIGHTS_VECTORS/4 
-ld32          $stride_s, $sup_base, SUP_INPUT_STRIDE/4
-
-// from base and delta, create base and expand pointer to vector list
-// TODO: Optimise this to hide latencies if possible
 ld32          $partition_s, $sup_base, SUP_PARTITION_BASEDELTA/4 
+add           $sp, $sp, -(WKR_VERTEX_SIZE + SUP_STACK_SIZE)
+ld32          $stride_s, $sup_base, SUP_INPUT_STRIDE/4
+ld32          $amp_group_s, $sup_base, SUP_OUTCHANS_PER_GROUP/4
+ld32          $outchan_vectors_s, $sup_base, SUP_OUTCHAN_VECTORS/4
+ld32          $outstride_s, $sup_base, SUP_OUTSTRIDE/4
 shl           $partition_s, $partition_s, 12
+st32          $m9, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE0/4
+ld32          $inchan_vectors_s, $sup_base, SUP_INCHAN_VECTORS/4
+shl           $amp_group_s, $amp_group_s, 2
+st32          $m10, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE1/4
+shr           $outstride_s, $outstride_s, 1
 shr           $partition_s, $partition_s, 12
+ld32          $weights_vectors_s, $sup_base, SUP_WEIGHTS_VECTORS/4 
+ld32step      $invec_s, $mzero, $inchan_vectors_s+=, 1
+st32          $amp_group_s,  $wkr_vertex, WKR_OUTCHANS_PER_GROUP/4
+shr           $amp_group_s, $amp_group_s, (LOG2_AMP_OUTPUTS + 2)
+and           $temp_s, $outstride_s, 0x3FF 
 st32          $partition_s, $sp, WKR_PARTITION_BASE/4
 ld32          $partition_s, $sup_base, (SUP_PARTITION_BASEDELTA + 4)/4
+ld32step      $weight_vec_s, $mzero, $weights_vectors_s+=, 1 
+ld32          $outchan_group_s, $mzero, $sup_base, SUP_NUM_OUTCHAN_GROUPS_M1/4
+add           $amp_group_s, $amp_group_s, -1
+shl           $temp_s, $temp_s, 10
+delay         1
 shl           $partition_s, $partition_s, 15
+put           $CCCSLOAD, $weight_vec_s
+// TODO: change this once base and number of list entries is swapped in vector
+//       list
 or            $partition_s, $partition_s, 0x80000000
+st32          $amp_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_AMP_GROUPS/4
+or            $stride_s, $stride_s, $temp_s
+ld32          $conv_group_s, $sup_base, SUP_NUM_CONV_GROUPS_M1/4
+setzi         $wkr_function, convPartialFlattenedField    
+delay         1
 shr           $partition_s, $partition_s, 13
 st32          $partition_s, $wkr_vertex, WKR_PARTITION_LIST/4
-
-st32          $m9, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE1/4
-st32          $m10, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE2/4
-
-ld32step      $weight_vec_s, $mzero, $weights_vectors_s+=, 1 
-ld32          $inchan_vectors_s, $sup_base, SUP_INCHAN_VECTORS/4
-
-ld32          $outchan_vectors_s, $sup_base, SUP_OUTCHAN_VECTORS/4
-ld32          $inchan_group_s, $mzero, $sup_base, SUP_NUM_INCHAN_GROUPS_M1/4
-
-ld32          $amp_group_s, $sup_base, SUP_OUTCHANS_PER_GROUP/4
-shl           $amp_group_s, $amp_group_s, 2
-st32          $amp_group_s,  $wkr_vertex, WKR_OUTCHANS_PER_GROUP/4
-// additional shift because of multiply by 4 above
-shr           $amp_group_s, $amp_group_s, (LOG2_AMP_OUTPUTS + 2)
-add           $amp_group_s, $amp_group_s, -1
-st32          $amp_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_AMP_GROUPS/4
-
-put           $CCCSLOAD, $weight_vec_s
-
-ld32          $conv_group_s, $sup_base, SUP_NUM_CONV_GROUPS_M1/4
-
-ld32          $outstride_s, $sup_base, SUP_OUTSTRIDE / 4
-shr           $outstride_s, $outstride_s, 1
-and           $temp_s, $outstride_s, 0x3FF 
-shl           $temp_s, $temp_s, 10
-or            $stride_s, $stride_s, $temp_s
-ld32step      $invec_s, $mzero, $inchan_vectors_s+=, 1    
 st32          $stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
-ld32          $outchan_group_s, $mzero, $sup_base, SUP_NUM_OUTCHAN_GROUPS_M1/4
-setzi         $wkr_function, convPartialFlattenedField    
+ld32          $inchan_group_s, $mzero, $sup_base, SUP_NUM_INCHAN_GROUPS_M1/4
 
 convGroupsLoop:
   st32          $conv_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CONV_GROUP/4
@@ -499,8 +487,8 @@ AmpGroupLoop:
   brnzdec       $conv_group_s, convGroupsLoop
 
 // restore stack
-ld32          $m9, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE1/4
-ld32          $m10, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE2/4
+ld32          $m9, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE0/4
+ld32          $m10, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE1/4
 add           $sp, $sp, WKR_VERTEX_SIZE + SUP_STACK_SIZE
 br            $lr
 
