@@ -305,7 +305,7 @@ BOOST_AUTO_TEST_CASE(ND_2_4_2){
 // large-buffer update
 BOOST_AUTO_TEST_CASE(circTest){
   auto delayTestData = GenDelayData();
-  sliceTestND(20, delayTestShape, delayTestData,
+  sliceTestND(24, delayTestShape, delayTestData,
               {1}, {1});
 }
 

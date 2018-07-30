@@ -36,7 +36,6 @@ using namespace poputil;
 
 const OptionFlags engineOptions {
   {"target.textSectionSizeInBytes", "0xa000"},
-  {"target.workerStackSizeInBytes", "0x200"}
 };
 
 const OptionFlags simDebugOptions {
@@ -366,11 +365,8 @@ int main(int argc, char **argv) {
     rawHostPrevDeltas = allocateHostMemoryForTensor(prevDeltas, "prevDeltas",
                                                     graph, tmap);
   }
-  OptionFlags engOpt{
-    { "debug.cpuMultiThreadExecution", "false" }
-  };
   Engine engine(graph, {std::move(fwdProg), std::move(bwdProg)},
-                engOpt);
+                engineOptions);
   engine.load(device);
 
   boost::multi_array<double, 4>

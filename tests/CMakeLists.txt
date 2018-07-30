@@ -1334,7 +1334,7 @@ add_multitarget_test(
                  --field={14,14}
                  --input-channels=16
                  --output-channels=16
-                 --tiles-per-ipu=12
+                 --tiles-per-ipu=16
                  --data-type=float
                  --batch-size=4
                  --conv-groups=2
@@ -1347,7 +1347,7 @@ add_multitarget_test(
                  --field={14,14}
                  --input-channels=16
                  --output-channels=16
-                 --tiles-per-ipu=12
+                 --tiles-per-ipu=16
                  --data-type=float
                  --batch-size=4
                  --conv-groups=2
@@ -1360,7 +1360,7 @@ add_multitarget_test(
                  --field={14,14}
                  --input-channels=16
                  --output-channels=16
-                 --tiles-per-ipu=12
+                 --tiles-per-ipu=16
                  --data-type=float
                  --batch-size=4
                  --conv-groups=2
@@ -1644,8 +1644,8 @@ add_test(
 add_multitarget_test(
          NAME fully_connected_batch_fwd_one_tile
          COMMAND fully_connected_layer
-                 --input-size 300
-                 --output-size 100
+                 --input-size 220
+                 --output-size 84
                  --tiles-per-ipu 1
                  --data-type=half
                  --batch-size=4
@@ -1727,11 +1727,11 @@ add_multitarget_test(
 add_multitarget_test(
          NAME grouped_fully_connected_batch_fwd_one_tile
          COMMAND fully_connected_layer
-                 --input-size 300
-                 --output-size 100
+                 --input-size 108
+                 --output-size 84
                  --tiles-per-ipu 1
                  --data-type=half
-                 --batch-size=4
+                 --batch-size=2
                  --num-groups 2
                  --inference-only
                  VARIANTS ${TimesOutOnSim})
@@ -1913,7 +1913,7 @@ add_multitarget_test(NAME avg_pool_layer_float_batch
                  --pooling-type=avg
                  --channels 32
                  --width=28
-                 --height=28
+                 --height=14
                  --tiles-per-ipu=16
                  --kernel-size=2
                  --stride=2
