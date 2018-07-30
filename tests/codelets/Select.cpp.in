@@ -1,0 +1,121 @@
+#include "poplar/Engine.hpp"
+#include "poplar/Target.hpp"
+#define BOOST_TEST_MODULE Select_@DATA_TYPE@
+#include <boost/test/unit_test.hpp>
+#include "TestDevice.hpp"
+#include "popops/codelets.hpp"
+#include "poplibs_test/Util.hpp"
+#include "poputil/VertexTemplates.hpp"
+#include <memory>
+// codelets
+#include "popops/ElementWise.hpp"
+
+#include "@DATA_HEADER@"
+
+#define TYPE @TYPE@
+
+using namespace poplar;
+using namespace poplar::program;
+using namespace poplibs_test::util;
+
+const std::vector<std::vector<bool>> in3 = {
+  {},
+  { true},
+  {false,  true},
+  {false,  true, false},
+  { true, false,  true, false},
+  { true,  true, false, false,  true},
+  {false, false, false,  true,  true,  true, false,  true, false}
+};
+
+const unsigned N_DATA_ROWS = 7;
+const unsigned N_DATA_COLUMNS[N_DATA_ROWS] = {0, 1, 2, 3, 4, 5, 9};
+const std::array<std::string, 3> IN_NAMES = {"in1", "in2", "in3"};
+
+BOOST_AUTO_TEST_CASE(SELECT_@DATA_TYPE@) {
+  Device device = createTestDevice(TEST_TARGET);
+  const auto &target = device.getTarget();
+  Graph graph(device);
+  popops::addCodelets(graph);
+
+  auto cs = graph.addComputeSet("cs");
+  const auto vertexClass = poputil::templateVertex("popops::Select", TYPE);
+  auto v = graph.addVertex(cs, vertexClass);
+  graph.setTileMapping(v, 0);
+
+  graph.setFieldSize(v["in1"], N_DATA_ROWS);
+  graph.setFieldSize(v["in2"], N_DATA_ROWS);
+  graph.setFieldSize(v["in3"], N_DATA_ROWS);
+  graph.setFieldSize(v["out"], N_DATA_ROWS);
+
+  std::vector<std::function<void(Engine &)>> writeFns;
+
+  for (unsigned i = 0; i < N_DATA_ROWS; ++i) {
+    const unsigned SIZE = N_DATA_COLUMNS[i];
+
+    for (unsigned j = 0; j < IN_NAMES.size(); ++j) {
+      auto t = graph.addVariable((j == 2 ? BOOL : TYPE), {SIZE});
+      graph.setTileMapping(t, 0);
+      graph.connect(v[IN_NAMES[j]][i], t);
+      const std::string NAME = IN_NAMES[j] + std::to_string(i);
+      graph.createHostWrite(NAME, t);
+
+      writeFns.push_back([NAME, i, j, SIZE, &target](Engine &e) {
+        std::unique_ptr<char[]> dst(
+              new char[SIZE * target.getTypeSize((j == 2 ? BOOL : TYPE))]);
+
+        switch(j) {
+        case 0:
+        case 1: {
+          std::unique_ptr<float[]> arr(new float[SIZE]);
+          auto in = (j == 0 ? in1 : in2);
+          std::copy(std::begin(in[i]), std::end(in[i]), arr.get());
+          copy(target, arr.get(), SIZE, TYPE, dst.get());
+          break;
+        }
+        case 2: {
+          std::unique_ptr<bool[]> arr(new bool[SIZE]);
+          std::copy(std::begin(in3[i]), std::end(in3[i]), arr.get());
+          copy(target, arr.get(), SIZE, BOOL, dst.get());
+          break;
+        }
+        }
+
+        e.writeTensor(NAME, dst.get());
+      });
+    }
+
+    auto t = graph.addVariable(TYPE, {N_DATA_COLUMNS[i]});
+    graph.setTileMapping(t, 0);
+    graph.connect(v["out"][i], t);
+    const std::string NAME = "out" + std::to_string(i);
+    graph.createHostRead(NAME, t);
+  }
+
+  Execute prog(cs);
+  Engine e(graph, prog);
+  e.load(device);
+
+  for (const auto &writeFn : writeFns)
+    writeFn(e);
+
+  e.run();
+
+  for (unsigned i = 0; i < N_DATA_ROWS; ++i) {
+    const unsigned SIZE = N_DATA_COLUMNS[i];
+    const std::string NAME = "out" + std::to_string(i);
+
+    std::unique_ptr<char[]> src(new char[SIZE * target.getTypeSize(TYPE)]);
+    e.readTensor(NAME, src.get());
+
+    std::vector<float> actual(SIZE);
+    copy(target, TYPE, src.get(), actual.data(), SIZE);
+
+    for (unsigned j = 0; j < actual.size(); j++) {
+      if (TYPE == HALF)
+        BOOST_CHECK_CLOSE(expected[i][j], actual[j], 0.1);
+      else
+        BOOST_CHECK_EQUAL(expected[i][j], actual[j]);
+    }
+  }
+}

@@ -92,3 +92,14 @@ add_popnn_unit_test(AddToChannel
 add_popnn_unit_test(AddToChannel2D
                     AddToChannel2D.cpp
                     VARIANTS ${TimesOutOnSim})
+
+# Select
+foreach(DATA_TYPE int float half bool)
+  set(VARIANT_NAME "Select_${DATA_TYPE}")
+  set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
+  string(TOUPPER "${DATA_TYPE}" TYPE)
+  set(DATA_HEADER "select/${DATA_TYPE}.hpp")
+  configure_file(Select.cpp.in ${VARIANT_SRC})
+  configure_file(${DATA_HEADER} ${CMAKE_CURRENT_BINARY_DIR}/${DATA_HEADER} COPYONLY)
+  add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC})
+endforeach()
