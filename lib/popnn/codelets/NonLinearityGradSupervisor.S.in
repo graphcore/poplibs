@@ -1,0 +1,327 @@
+#ifdef __IPU__
+
+// Assembly implementation of popnn::NonLinearityGrad2D vertex template instantiations.
+
+// Restrictions
+//
+//  * All input/output regions 8-byte aligned.
+//  * Load up to 64-bits past the end of outGrad and out regions without exceptions.
+
+#include "tilearch.h"
+#include "tileimplconsts_tommy.h"
+
+// Symbol names
+#define HALF_SYMBOL \
+  __runCodelet_popnn__NonLinearityGradSupervisor___half_popnn__NonLinearityType__@NL_TYPE_UPPER@
+#define FLOAT_SYMBOL \
+  __runCodelet_popnn__NonLinearityGradSupervisor___float_popnn__NonLinearityType__@NL_TYPE_UPPER@
+
+// Fill $ONES register(s) with values of 1.0 for whichever data type
+#define GENERATE_ONES_SIGMOID 0
+#define GENERATE_ONES_RELU 1
+#define GENERATE_ONES_TANH 1
+#define GENERATE_ONES GENERATE_ONES_@NL_TYPE_UPPER@
+
+// Constants
+#define OUTGRAD_PTR_VOFFSET 0
+#define OUT_PTR_VOFFSET 1
+#define INGRAD_PTR_VOFFSET 2
+#define N_VOFFSET 3
+
+#define RECIPROCAL_3_SHL17 ((((1 << 17) - 1) / 3) + 1)
+#define LOG2_24_OVER_3 3
+#define LOG2_12_OVER_3 2
+
+// Supervisor register aliases
+#define SUPER_BASE m0
+#define WORKER_ENTRY m1
+
+// Worker register aliases
+#define WORKER_ID m0
+#define MEMORY_BASE m1
+#define OUTGRAD_PTR m2
+#define OUT_PTR m3
+#define INGRAD_PTR m4
+#define SIZE m5
+#define REM m6
+#define REM_64BIT m7
+#define MSCRATCH m10
+
+#define OUTGRAD_0 a0
+#define OUTGRAD_1 a1
+#define OUTGRAD_PAIR a0:1
+#define OUT_0 a2
+#define OUT_1 a3
+#define OUT_PAIR a2:3
+#define INGRAD_0 a4
+#define INGRAD_1 a5
+#define INGRAD_PAIR a4:5
+#define ONES_0 a6
+#define ONES_1 a7
+#define ONES a6:7
+
+// Macros
+#define v1 // Scalar
+#define VECTOR_INSTRUCTION(type, vector_width, op) type ## vector_width ## op
+
+#define CALC_SIGMOID_STAGE_1(type, vector_width, ingrad, out, zero) \
+  VECTOR_INSTRUCTION(type, vector_width, mul) ingrad, out, out
+#define CALC_RELU_STAGE_1(type, vector_width, ingrad, out, zero) \
+  VECTOR_INSTRUCTION(type, vector_width, cmpgt) ingrad, out, zero
+#define CALC_TANH_STAGE_1(type, vector_width, ingrad, out, zero) \
+  VECTOR_INSTRUCTION(type, vector_width, mul) ingrad, out, out
+
+#define CALC_STAGE_1(type, vector_width, ingrad, out, zero) \
+  CALC_@NL_TYPE_UPPER@_STAGE_1(type, vector_width, ingrad, out, zero)
+
+#define CALC_SIGMOID_STAGE_2(type, vector_width, ingrad, out, ones) \
+  VECTOR_INSTRUCTION(type, vector_width, sub) ingrad, out, ingrad
+#define CALC_RELU_STAGE_2(type, vector_width, ingrad, out, ones) \
+  VECTOR_INSTRUCTION(type, vector_width, min) ingrad, ingrad, ones
+#define CALC_TANH_STAGE_2(type, vector_width, ingrad, out, ones) \
+  VECTOR_INSTRUCTION(type, vector_width, sub) ingrad, ones, ingrad
+
+#define CALC_STAGE_2(type, vector_width, ingrad, out, ones) \
+  CALC_@NL_TYPE_UPPER@_STAGE_2(type, vector_width, ingrad, out, ones)
+
+#define CALC_STAGE_3_(type, vector_width, ingrad, outgrad) \
+  VECTOR_INSTRUCTION(type, vector_width, mul) ingrad, ingrad, outgrad
+#define CALC_STAGE_3(type, vector_width, ingrad, outgrad) \
+  CALC_STAGE_3_(type, vector_width, ingrad, outgrad)
+
+
+.section .text.HALF_SYMBOL
+.globl HALF_SYMBOL
+.type HALF_SYMBOL, @function
+
+// All inputs must be separate registers
+// Splits 64-bit chunks of n elements between workers.
+// The result we want is n / (no. of worker contexts * elements per-64-bits).
+// We achieve this by dividing by 3 first, by multiplying n by the reciprocal
+// of 3 shifted left. This value is then shifted right by the same amount + any
+// further division by powers of 2 to get the actual divisor we want.
+// As an example, in this half case there are 4 halves per-64-bits and
+// 6 worker contexts so the divisor we want is 24.
+// (n / 3) / 8 = n / 24 so the extra divisor is 8, meaning an extra shift of 3.
+.macro HALF_SPLIT_BETWEEN_WORKERS n size rem
+    setzi \size, RECIPROCAL_3_SHL17
+    mul \size, \n, \size
+    shr \size, \size, (17 + LOG2_24_OVER_3)
+    mul \rem, \size, 24
+    sub \rem, \n, \rem
+.endm
+
+.align 8
+  nop
+.Lhalf_worker:
+  ldz16 $OUTGRAD_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET
+  ldz16 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET
+  ldz16 $INGRAD_PTR, $mvertex_base, $mzero, INGRAD_PTR_VOFFSET
+  ldz16 $MSCRATCH, $mvertex_base, $mzero, N_VOFFSET
+  shl $OUTGRAD_PTR, $OUTGRAD_PTR, 2
+  shl $OUT_PTR, $OUT_PTR, 2
+  shl $INGRAD_PTR, $INGRAD_PTR, 2
+  setzi $MEMORY_BASE, TMEM_REGION0_BASE_ADDR
+
+  // $SIZE = No. of 64-bit elements each worker should process
+  // $REM = No. of remaining elements between workers
+  HALF_SPLIT_BETWEEN_WORKERS $MSCRATCH $SIZE $REM
+
+  // Get worker ID
+  get $WORKER_ID, $WSR
+  and $WORKER_ID, $WORKER_ID, CSR_W_WSR__CTXTID_M1__MASK
+
+  // Add remaining 64-bit loads/stores to relevant workers
+  shr $REM_64BIT, $REM, 2
+  cmpult $MSCRATCH, $WORKER_ID, $REM_64BIT
+  add $SIZE, $SIZE, $MSCRATCH
+
+  // Use dummy loads to offset each worker's pointers into the data to
+  // interleave them
+  ld64step $azeros, $MEMORY_BASE, $OUTGRAD_PTR+=, $WORKER_ID
+  ld64step $azeros, $MEMORY_BASE, $OUT_PTR+=, $WORKER_ID
+  ld64step $azeros, $MEMORY_BASE, $INGRAD_PTR+=, $WORKER_ID
+
+  // Load inputs ahead, and generate ones if we need them
+#if GENERATE_ONES
+  { ld64step $OUT_PAIR, $MEMORY_BASE, $OUT_PTR+=, CTXT_WORKERS
+    f16v2exp $ONES_0, $azero }
+  { ld64step $OUTGRAD_PAIR, $MEMORY_BASE, $OUTGRAD_PTR+=, CTXT_WORKERS
+    f16v2exp $ONES_1, $azero }
+#else
+  ld64step $OUT_PAIR, $MEMORY_BASE, $OUT_PTR+=, CTXT_WORKERS
+  ld64step $OUTGRAD_PAIR, $MEMORY_BASE, $OUTGRAD_PTR+=, CTXT_WORKERS
+#endif
+  brz $SIZE, .Lhalf_32_bit_remainder
+  // Warm up the pipeline
+  { add $SIZE, $SIZE, -1
+    CALC_STAGE_1(f16, v4, $INGRAD_PAIR, $OUT_PAIR, $azeros) }
+  { ld64step $OUT_PAIR, $MEMORY_BASE, $OUT_PTR+=, CTXT_WORKERS
+    CALC_STAGE_2(f16, v4, $INGRAD_PAIR, $OUT_PAIR, $ONES) }
+  { ld64step $OUTGRAD_PAIR, $MEMORY_BASE, $OUTGRAD_PTR+=, CTXT_WORKERS
+    CALC_STAGE_3(f16, v4, $INGRAD_PAIR, $OUTGRAD_PAIR) }
+  rpt $SIZE, (2f - 1f)/8 - 1
+1:
+  { st64step $INGRAD_PAIR, $MEMORY_BASE, $INGRAD_PTR+=, CTXT_WORKERS
+    CALC_STAGE_1(f16, v4, $INGRAD_PAIR, $OUT_PAIR, $azeros) }
+  { ld64step $OUT_PAIR, $MEMORY_BASE, $OUT_PTR+=, CTXT_WORKERS
+    CALC_STAGE_2(f16, v4, $INGRAD_PAIR, $OUT_PAIR, $ONES) }
+  { ld64step $OUTGRAD_PAIR, $MEMORY_BASE, $OUTGRAD_PTR+=, CTXT_WORKERS
+    CALC_STAGE_3(f16, v4, $INGRAD_PAIR, $OUTGRAD_PAIR) }
+2:
+  // Handle last pipeline output
+  st64step $INGRAD_PAIR, $MEMORY_BASE, $INGRAD_PTR+=, CTXT_WORKERS
+
+.Lhalf_32_bit_remainder:
+  // Handle remaining element with a single worker. We pick the first
+  // worker which didn't handle a remainder element.
+  // $REM_64BIT = No. of remaining 64-bit loads possible = index to first
+  // worker for which 64-bit load isn't possible.
+  cmpeq $MSCRATCH, $WORKER_ID, $REM_64BIT
+  brz $MSCRATCH, .Lhalf_end
+
+  and $MSCRATCH, $REM, 0x2
+  brz $MSCRATCH, .Lhalf_16_bit_remainder
+
+  // Handle remaining 32-bit value
+  CALC_STAGE_1(f16, v2, $INGRAD_0, $OUT_0, $azero)
+  CALC_STAGE_2(f16, v2, $INGRAD_0, $OUT_0, $ONES_0)
+  CALC_STAGE_3(f16, v2, $INGRAD_0, $OUTGRAD_0)
+  // Store and move the upper word of remaining loaded values
+  // down for use in the 16-bit remainder below
+  { st32step $INGRAD_0, $MEMORY_BASE, $INGRAD_PTR+=, 1
+    mov $OUTGRAD_0, $OUTGRAD_1 }
+  mov $OUT_0, $OUT_1
+
+.Lhalf_16_bit_remainder:
+  and $MSCRATCH, $REM, 0x1
+  brz $MSCRATCH, .Lhalf_end
+
+  // Handle remaining 16-bit value
+  // Broadcasting lower 16-bits of remaining input words to
+  // ensure no exceptions when calculating last gradient.
+  { ld32 $INGRAD_1, $MEMORY_BASE, $INGRAD_PTR, 0
+    sort4x16lo $OUTGRAD_0, $OUTGRAD_0, $OUTGRAD_0 }
+  sort4x16lo $OUT_0, $OUT_0, $OUT_0
+  CALC_STAGE_1(f16, v2, $INGRAD_0, $OUT_0, $azero)
+  CALC_STAGE_2(f16, v2, $INGRAD_0, $OUT_0, $ONES_0)
+  CALC_STAGE_3(f16, v2, $INGRAD_0, $OUTGRAD_0)
+  sort4x16hi $INGRAD_0, $INGRAD_0, $INGRAD_1
+  st32 $INGRAD_0, $MEMORY_BASE, $INGRAD_PTR, 0
+
+.Lhalf_end:
+  exitz $mzero
+
+HALF_SYMBOL:
+  setzi $WORKER_ENTRY, .Lhalf_worker
+  runall $WORKER_ENTRY, $SUPER_BASE, 0
+  sync TEXCH_SYNCZONE_LOCAL
+  br $lr
+
+.size HALF_SYMBOL, .-HALF_SYMBOL
+
+.section .text.FLOAT_SYMBOL
+.globl FLOAT_SYMBOL
+.type FLOAT_SYMBOL, @function
+
+// All inputs must be separate registers
+// As described above in HALF_SPLIT_BETWEEN_WORKERS with different
+// divisor.
+.macro FLOAT_SPLIT_BETWEEN_WORKERS n size rem
+    setzi \size, RECIPROCAL_3_SHL17
+    mul \size, \n, \size
+    shr \size, \size, (17 + LOG2_12_OVER_3)
+    mul \rem, \size, 12
+    sub \rem, \n, \rem
+.endm
+
+.align 8
+  nop
+.Lfloat_worker:
+  ldz16 $OUTGRAD_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET
+  ldz16 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET
+  ldz16 $INGRAD_PTR, $mvertex_base, $mzero, INGRAD_PTR_VOFFSET
+  ldz16 $MSCRATCH, $mvertex_base, $mzero, N_VOFFSET
+  shl $OUTGRAD_PTR, $OUTGRAD_PTR, 2
+  shl $OUT_PTR, $OUT_PTR, 2
+  shl $INGRAD_PTR, $INGRAD_PTR, 2
+  setzi $MEMORY_BASE, TMEM_REGION0_BASE_ADDR
+
+  // $SIZE = No. of 64-bit elements each worker should process
+  // $REM = No. of remaining elements between workers
+  FLOAT_SPLIT_BETWEEN_WORKERS $MSCRATCH $SIZE $REM
+
+  // Get worker ID
+  get $WORKER_ID, $WSR
+  and $WORKER_ID, $WORKER_ID, CSR_W_WSR__CTXTID_M1__MASK
+
+  // Add remaining 64-bit loads/stores to relevant workers
+  shr $REM_64BIT, $REM, 1
+  cmpult $MSCRATCH, $WORKER_ID, $REM_64BIT
+  add $SIZE, $SIZE, $MSCRATCH
+
+  // Use dummy loads to offset each worker's pointers into the data to
+  // interleave them
+  ld64step $OUTGRAD_PAIR, $MEMORY_BASE, $OUTGRAD_PTR+=, $WORKER_ID
+  ld64step $OUT_PAIR, $MEMORY_BASE, $OUT_PTR+=, $WORKER_ID
+  ld64step $INGRAD_PAIR, $MEMORY_BASE, $INGRAD_PTR+=, $WORKER_ID
+
+  // Load inputs ahead, and generate ones if we need them
+#if GENERATE_ONES
+  { ld64step $OUT_PAIR, $MEMORY_BASE, $OUT_PTR+=, CTXT_WORKERS
+    f32exp $ONES_0, $azero }
+  { ld64step $OUTGRAD_PAIR, $MEMORY_BASE, $OUTGRAD_PTR+=, CTXT_WORKERS
+    f32exp $ONES_1, $azero }
+#else
+  ld64step $OUT_PAIR, $MEMORY_BASE, $OUT_PTR+=, CTXT_WORKERS
+  ld64step $OUTGRAD_PAIR, $MEMORY_BASE, $OUTGRAD_PTR+=, CTXT_WORKERS
+#endif
+  brz $SIZE, .Lfloat_32_bit_remainder
+  // Warm up the pipeline
+  { add $SIZE, $SIZE, -1
+    CALC_STAGE_1(f32, v2, $INGRAD_PAIR, $OUT_PAIR, $azeros) }
+  { ld64step $OUT_PAIR, $MEMORY_BASE, $OUT_PTR+=, CTXT_WORKERS
+    CALC_STAGE_2(f32, v2, $INGRAD_PAIR, $OUT_PAIR, $ONES) }
+  { ld64step $OUTGRAD_PAIR, $MEMORY_BASE, $OUTGRAD_PTR+=, CTXT_WORKERS
+    CALC_STAGE_3(f32, v2, $INGRAD_PAIR, $OUTGRAD_PAIR) }
+  rpt $SIZE, (2f - 1f)/8 - 1
+1:
+  { st64step $INGRAD_PAIR, $MEMORY_BASE, $INGRAD_PTR+=, CTXT_WORKERS
+    CALC_STAGE_1(f32, v2, $INGRAD_PAIR, $OUT_PAIR, $azeros) }
+  { ld64step $OUT_PAIR, $MEMORY_BASE, $OUT_PTR+=, CTXT_WORKERS
+    CALC_STAGE_2(f32, v2, $INGRAD_PAIR, $OUT_PAIR, $ONES) }
+  { ld64step $OUTGRAD_PAIR, $MEMORY_BASE, $OUTGRAD_PTR+=, CTXT_WORKERS
+    CALC_STAGE_3(f32, v2, $INGRAD_PAIR, $OUTGRAD_PAIR) }
+2:
+  // Handle last pipeline output
+  st64step $INGRAD_PAIR, $MEMORY_BASE, $INGRAD_PTR+=, CTXT_WORKERS
+
+.Lfloat_32_bit_remainder:
+  // Handle remaining element with a single worker. We pick the first
+  // worker which didn't handle a remainder element.
+  // $REM_64BIT = No. of remaining 64-bit loads possible = index to first
+  // worker for which 64-bit load isn't possible.
+  cmpeq $MSCRATCH, $WORKER_ID, $REM_64BIT
+  brz $MSCRATCH, .Lfloat_end
+
+  and $MSCRATCH, $REM, 0x1
+  brz $MSCRATCH, .Lfloat_end
+
+  // Handle remaining 32-bit value
+  CALC_STAGE_1(f32, v1, $INGRAD_0, $OUT_0, $azero)
+  CALC_STAGE_2(f32, v1, $INGRAD_0, $OUT_0, $ONES_0)
+  CALC_STAGE_3(f32, v1, $INGRAD_0, $OUTGRAD_0)
+  st32step $INGRAD_0, $MEMORY_BASE, $INGRAD_PTR+=, 1
+
+.Lfloat_end:
+  exitz $mzero
+
+FLOAT_SYMBOL:
+  setzi $WORKER_ENTRY, .Lfloat_worker
+  runall $WORKER_ENTRY, $SUPER_BASE, 0
+  sync TEXCH_SYNCZONE_LOCAL
+  br $lr
+
+.size FLOAT_SYMBOL, .-FLOAT_SYMBOL
+
+#endif // __IPU__

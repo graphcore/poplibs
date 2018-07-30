@@ -64,7 +64,25 @@ nonLinearityInputGradient(Graph &graph,
   auto inGradFlat = inGradient.flatten();
   graph.reorderToSimplify(&inGradFlat, {&outFlat, &outGradFlat});
   auto outGradMapping = graph.getTileMapping(outGradFlat);
+  const auto numWorkers = target.getNumWorkerContexts();
   const auto numTiles = target.getNumTiles();
+  const auto vectorWidth = target.getVectorWidth(dType);
+
+  const auto codeletName2D =
+    templateVertex("popnn::NonLinearityGrad2D",
+                   dType, nonLinearityType);
+  const auto codeletNameSupervisor =
+    templateVertex("popnn::NonLinearityGradSupervisor",
+                   dType, nonLinearityType);
+
+  // Maximum elements vertices can handle per-region is based on input vector
+  // type and the max count the `rpt` instruction can handle.
+  const auto maxSupervisorElements = std::min<std::size_t>(
+    graph.getMaxVertexFieldValue(codeletNameSupervisor, "n"),
+    target.getRptCountMax() * numWorkers * vectorWidth);
+  const auto max2DInnerElements = std::min<std::size_t>(
+    graph.getMaxFieldDim(codeletName2D, "inGrad", 1),
+    target.getRptCountMax() * vectorWidth);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto thisTileMap = outGradMapping[tile];
     const auto tileContiguousRegions =
@@ -74,16 +92,14 @@ nonLinearityInputGradient(Graph &graph,
     // a single edge
     if (tileContiguousRegions.size() == 1) {
       const auto outGradTile = concat(outGradFlat.slices(thisTileMap));
-      // TODO: use max of field from target
-      if (outGradTile.numElements() <= 0xFFFF) {
+      const auto numElements = outGradTile.numElements();
+      if (numElements <= maxSupervisorElements) {
         auto v =
-          graph.addVertex(cs,
-                          templateVertex("popnn::NonLinearityGradSupervisor",
-                                         dType, nonLinearityType),
+          graph.addVertex(cs, codeletNameSupervisor,
                           {{"out", concat(outFlat.slices(thisTileMap))},
                            {"outGrad", outGradTile},
                            {"inGrad", concat(inGradFlat.slices(thisTileMap))}});
-        graph.setInitialValue(v["n"], outGradTile.numElements());
+        graph.setInitialValue(v["n"], numElements);
         graph.setTileMapping(v, tile);
         continue;
       }
@@ -96,12 +112,11 @@ nonLinearityInputGradient(Graph &graph,
     const auto grainSize = target.getVectorWidth(dType);
     auto vertexRegions =
         splitRegionsBetweenWorkers(target, tileContiguousRegions,
-                                   grainSize, 2 * grainSize, 0xfff);
+                                   grainSize, 2 * grainSize,
+                                   max2DInnerElements);
     for (const auto &regions : vertexRegions) {
       auto v =
-          graph.addVertex(cs,
-                          templateVertex("popnn::NonLinearityGrad2D", dType,
-                                         nonLinearityType),
+          graph.addVertex(cs, codeletName2D,
                           {{"out", outFlat.slices(regions)},
                            {"outGrad", outGradFlat.slices(regions)},
                            {"inGrad", inGradFlat.slices(regions)}});
@@ -144,28 +159,20 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
   const auto numTiles = target.getNumTiles();
   const auto tFlat = t.flatten();
   const auto vectorWidth = target.getVectorWidth(dType);
-  // generate regions such that the 1d nonlinearity function can be called
+
   const auto codeletName2D =
     templateVertex("popnn::NonLinearity2D", dType, nonLinearityType);
   const auto codeletNameSupervisor =
     templateVertex("popnn::NonLinearitySupervisor", dType, nonLinearityType);
 
-  const auto elementSize = target.getTypeSize(dType);
-  const auto vectorWidthBytes = (target.getDataPathWidth() / 8);
-  const auto vectorElements = (vectorWidthBytes / elementSize);
-  const auto elementsPerChunk = vectorElements * numWorkers;
-  const auto remBits = ceilLog2(elementsPerChunk);
-  const auto chunkBits = 16 - remBits;
-
-  // Maximum elements supervisor non-linearity vertex can handle is based on
-  // the packed size + remainder it takes as an input.
-  const auto maxSupervisorElements =
-    (((1u << chunkBits) - 1) * elementsPerChunk) + elementsPerChunk - 1;
-  // Maximum elements 2D non-linearity vertex can handle per-region is based
-  // on input vector type and the max count the `rpt` instruction can handle.
-  const auto maxInnerElements = graph.getMaxFieldDim(codeletName2D, "data", 1);
-  const auto max2DElements =
-    std::min(maxInnerElements, target.getRptCountMax() * vectorElements);
+  // Maximum elements vertices can handle per-region is based on input vector
+  // type and the max count the `rpt` instruction can handle.
+  const auto maxSupervisorElements = std::min<std::size_t>(
+    graph.getMaxVertexFieldValue(codeletNameSupervisor, "n"),
+    target.getRptCountMax() * numWorkers * vectorWidth);
+  const auto max2DElements = std::min<std::size_t>(
+    graph.getMaxFieldDim(codeletName2D, "data", 1),
+    target.getRptCountMax() * vectorWidth);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto thisTileMap = mapping[tile];
     const auto tileContiguousRegions =
@@ -176,18 +183,11 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
     if (tileContiguousRegions.size() == 1) {
       const auto tThisTile = concat(tFlat.slices(thisTileMap));
       const auto numElements = tThisTile.numElements();
-      // There is only a specialised supervisor vertex for 8-byte vector
-      // width and 6 worker contexts currently.
-      if (numWorkers == 6 && vectorWidthBytes == 8 &&
-          numElements <= maxSupervisorElements) {
-        const unsigned workerChunks = numElements / elementsPerChunk;
-        const unsigned remainder = numElements % elementsPerChunk;
-        std::uint16_t packedSize =
-          (workerChunks << remBits) | (remainder & ((1u << remBits) - 1));
+      if (numElements <= maxSupervisorElements) {
         auto v =
             graph.addVertex(cs, codeletNameSupervisor,
                             {{"data", tThisTile}});
-        graph.setInitialValue(v["n"], packedSize);
+        graph.setInitialValue(v["n"], numElements);
         graph.setTileMapping(v, tile);
         continue;
       }

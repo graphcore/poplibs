@@ -1,0 +1,277 @@
+#ifdef __IPU__
+
+// Assembly implementation of popnn::NonLinearityGrad2D vertex template instantiations.
+
+// Restrictions
+//
+//  * Vertex state aligned to at least 4 bytes.
+//  * All input/output regions 8-byte aligned.
+
+#include "tilearch.h"
+#include "tileimplconsts_tommy.h"
+
+// Symbol names
+#define HALF_SYMBOL \
+  __runCodelet_popnn__NonLinearityGrad2D___half_popnn__NonLinearityType__@NL_TYPE_UPPER@
+#define FLOAT_SYMBOL \
+  __runCodelet_popnn__NonLinearityGrad2D___float_popnn__NonLinearityType__@NL_TYPE_UPPER@
+
+// Fill $ONES register(s) with values of 1.0 for whichever data type
+#define GENERATE_ONES_SIGMOID 0
+#define GENERATE_ONES_RELU 1
+#define GENERATE_ONES_TANH 1
+#define GENERATE_ONES GENERATE_ONES_@NL_TYPE_UPPER@
+
+// Constants
+#define OUTGRAD_PTR_VOFFSET 0
+#define OUT_PTR_VOFFSET 1
+#define INGRAD_BASE_AND_N0_VOFFSET 2
+#define INGRAD_DELTAN_PTR_VOFFSET (3 * 2) // *2 for 16-bit offset
+
+#define DELTAN_BASE_PTR_BITS 20
+#define DELTAN_BASE_PTR_MASK ((1 << DELTAN_BASE_PTR_BITS) - 1)
+#define DELTAN_OFFSET_BITS 18
+#define DELTAN_OFFSET_MASK ((1 << DELTAN_OFFSET_BITS) - 1)
+
+// Worker register aliases
+#define MASK m0
+#define OUTGRAD_OUTER_PTR m1
+#define OUTGRAD_PTR m2
+#define OUT_OUTER_PTR m3
+#define OUT_PTR m4
+#define INGRAD_BASE_PTR m5
+#define INGRAD_DELTAN_PTR m6
+#define INGRAD_OFFSET m7
+#define N0 m8
+#define N1 m9
+#define N1_64BIT m10
+#define MSCRATCH m11
+
+#define OUTGRAD_0 a0
+#define OUTGRAD_1 a1
+#define OUTGRAD_PAIR a0:1
+#define OUT_0 a2
+#define OUT_1 a3
+#define OUT_PAIR a2:3
+#define INGRAD_0 a4
+#define INGRAD_1 a5
+#define INGRAD_PAIR a4:5
+#define ONES_0 a6
+#define ONES_1 a7
+#define ONES a6:7
+
+// Macros
+#define v1 // Scalar
+#define VECTOR_INSTRUCTION(t, vector_width, op) t ## vector_width ## op
+
+#define CALC_SIGMOID_STAGE_1(type, vector_width, ingrad, out, zero) \
+  VECTOR_INSTRUCTION(type, vector_width, mul) ingrad, out, out
+#define CALC_RELU_STAGE_1(type, vector_width, ingrad, out, zero) \
+  VECTOR_INSTRUCTION(type, vector_width, cmpgt) ingrad, out, zero
+#define CALC_TANH_STAGE_1(type, vector_width, ingrad, out, zero) \
+  VECTOR_INSTRUCTION(type, vector_width, mul) ingrad, out, out
+
+#define CALC_STAGE_1(type, vector_width, ingrad, out, zero) \
+  CALC_@NL_TYPE_UPPER@_STAGE_1(type, vector_width, ingrad, out, zero)
+
+#define CALC_SIGMOID_STAGE_2(type, vector_width, ingrad, out, ones) \
+  VECTOR_INSTRUCTION(type, vector_width, sub) ingrad, out, ingrad
+#define CALC_RELU_STAGE_2(type, vector_width, ingrad, out, ones) \
+  VECTOR_INSTRUCTION(type, vector_width, min) ingrad, ingrad, ones
+#define CALC_TANH_STAGE_2(type, vector_width, ingrad, out, ones) \
+  VECTOR_INSTRUCTION(type, vector_width, sub) ingrad, ones, ingrad
+
+#define CALC_STAGE_2(type, vector_width, ingrad, out, ones) \
+  CALC_@NL_TYPE_UPPER@_STAGE_2(type, vector_width, ingrad, out, ones)
+
+#define CALC_STAGE_3_(type, vector_width, ingrad, outgrad) \
+  VECTOR_INSTRUCTION(type, vector_width, mul) ingrad, ingrad, outgrad
+#define CALC_STAGE_3(type, vector_width, ingrad, outgrad) \
+  CALC_STAGE_3_(type, vector_width, ingrad, outgrad)
+
+
+.section .text.HALF_SYMBOL
+.globl HALF_SYMBOL
+.type HALF_SYMBOL, @function
+
+.align 8
+HALF_SYMBOL:
+  ld32 $OUTGRAD_OUTER_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET
+  ld32 $OUT_OUTER_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET
+  ld32 $MSCRATCH, $mvertex_base, $mzero, INGRAD_BASE_AND_N0_VOFFSET
+  ldz16 $INGRAD_DELTAN_PTR, $mvertex_base, $mzero, INGRAD_DELTAN_PTR_VOFFSET
+
+  // Unpack base pointer and n0, and generate ones if needed
+  setzi $MASK, DELTAN_BASE_PTR_MASK
+#if GENERATE_ONES
+  { and $INGRAD_BASE_PTR, $MSCRATCH, $MASK
+    f16v2exp $ONES_0, $azero }
+  { shr $N0, $MSCRATCH, DELTAN_BASE_PTR_BITS
+    f16v2exp $ONES_1, $azero }
+#else
+  and $INGRAD_BASE_PTR, $MSCRATCH, $MASK
+  shr $N0, $MSCRATCH, DELTAN_BASE_PTR_BITS
+#endif
+
+  // DeltaN table pointer is a ScaledPtr32, gives offset in
+  // 32-bit units from TMEM_REGION0_BASE_ADDR.
+  // Actually added offset to reclaim a register rather than
+  // using extra offset parameters for loads
+  shl $INGRAD_DELTAN_PTR, $INGRAD_DELTAN_PTR, 2
+  setzi $MSCRATCH, TMEM_REGION0_BASE_ADDR
+  add $INGRAD_DELTAN_PTR, $INGRAD_DELTAN_PTR, $MSCRATCH
+
+  setzi $MASK, DELTAN_OFFSET_MASK
+
+  // Sub 1 to use post-decrementing brnzdec
+  add $N0, $N0, -1
+.Lhalf_n0_loop:
+  ld32step $OUT_PTR, $mzero, $OUT_OUTER_PTR+=, 1
+  ld32step $OUTGRAD_PTR, $mzero, $OUTGRAD_OUTER_PTR+=, 1
+  ld32step $MSCRATCH, $mzero, $INGRAD_DELTAN_PTR+=, 1
+  and $INGRAD_OFFSET, $MSCRATCH, $MASK
+  shr $N1, $MSCRATCH, DELTAN_OFFSET_BITS
+  shr $N1_64BIT, $N1, 2
+
+  // Load inputs ahead
+  ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, 1
+  ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, 1
+  brz $N1_64BIT, .Lhalf_32_bit_remainder
+  // Warm up the pipeline
+  { add $N1_64BIT, $N1_64BIT, -1
+    CALC_STAGE_1(f16, v4, $INGRAD_PAIR, $OUT_PAIR, $azeros) }
+  { ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, 1
+    CALC_STAGE_2(f16, v4, $INGRAD_PAIR, $OUT_PAIR, $ONES) }
+  { ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, 1
+    CALC_STAGE_3(f16, v4, $INGRAD_PAIR, $OUTGRAD_PAIR) }
+  rpt $N1_64BIT, (2f - 1f)/8 - 1
+1:
+  { st64step $INGRAD_PAIR, $INGRAD_BASE_PTR, $INGRAD_OFFSET+=, 1
+    CALC_STAGE_1(f16, v4, $INGRAD_PAIR, $OUT_PAIR, $azeros) }
+  { ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, 1
+    CALC_STAGE_2(f16, v4, $INGRAD_PAIR, $OUT_PAIR, $ONES) }
+  { ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, 1
+    CALC_STAGE_3(f16, v4, $INGRAD_PAIR, $OUTGRAD_PAIR) }
+2:
+  // Handle last pipeline output
+  st64step $INGRAD_PAIR, $INGRAD_BASE_PTR, $INGRAD_OFFSET+=, 1
+
+.Lhalf_32_bit_remainder:
+  and $MSCRATCH, $N1, 0x2
+  brz $MSCRATCH, .Lhalf_16_bit_remainder
+
+  // Handle remaining 32-bit value
+  CALC_STAGE_1(f16, v2, $INGRAD_0, $OUT_0, $azero)
+  CALC_STAGE_2(f16, v2, $INGRAD_0, $OUT_0, $ONES_0)
+  CALC_STAGE_3(f16, v2, $INGRAD_0, $OUTGRAD_0)
+  // Store and move the upper word of remaining loaded values
+  // down for use in the 16-bit remainder below
+  { st32step $INGRAD_0, $INGRAD_BASE_PTR, $INGRAD_OFFSET+=, 1
+    mov $OUTGRAD_0, $OUTGRAD_1 }
+  mov $OUT_0, $OUT_1
+
+.Lhalf_16_bit_remainder:
+  and $MSCRATCH, $N1, 0x1
+  brz $MSCRATCH, .Lhalf_n0_loop_cond
+
+  // Handle remaining 16-bit value
+  // Broadcasting lower 16-bits of remaining input words to
+  // ensure no exceptions when calculating last gradient.
+  { ld32 $INGRAD_1, $INGRAD_BASE_PTR, $INGRAD_OFFSET, 0
+    sort4x16lo $OUTGRAD_0, $OUTGRAD_0, $OUTGRAD_0 }
+  sort4x16lo $OUT_0, $OUT_0, $OUT_0
+  CALC_STAGE_1(f16, v2, $INGRAD_0, $OUT_0, $azero)
+  CALC_STAGE_2(f16, v2, $INGRAD_0, $OUT_0, $ONES_0)
+  CALC_STAGE_3(f16, v2, $INGRAD_0, $OUTGRAD_0)
+  sort4x16hi $INGRAD_0, $INGRAD_0, $INGRAD_1
+  st32 $INGRAD_0, $INGRAD_BASE_PTR, $INGRAD_OFFSET, 0
+
+.Lhalf_n0_loop_cond:
+  brnzdec $N0, .Lhalf_n0_loop
+  exitz $mzero
+
+.size HALF_SYMBOL, .-HALF_SYMBOL
+
+.section .text.FLOAT_SYMBOL
+.globl FLOAT_SYMBOL
+.type FLOAT_SYMBOL, @function
+
+.align 8
+FLOAT_SYMBOL:
+  ld32 $OUTGRAD_OUTER_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET
+  ld32 $OUT_OUTER_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET
+  ld32 $MSCRATCH, $mvertex_base, $mzero, INGRAD_BASE_AND_N0_VOFFSET
+  ldz16 $INGRAD_DELTAN_PTR, $mvertex_base, $mzero, INGRAD_DELTAN_PTR_VOFFSET
+
+  // Unpack base pointer and n0, and generate ones if needed
+  setzi $MASK, DELTAN_BASE_PTR_MASK
+#if GENERATE_ONES
+  { and $INGRAD_BASE_PTR, $MSCRATCH, $MASK
+    f32exp $ONES_0, $azero }
+  { shr $N0, $MSCRATCH, DELTAN_BASE_PTR_BITS
+    f32exp $ONES_1, $azero }
+#else
+  and $INGRAD_BASE_PTR, $MSCRATCH, $MASK
+  shr $N0, $MSCRATCH, DELTAN_BASE_PTR_BITS
+#endif
+
+  // DeltaN table pointer is a ScaledPtr32, gives offset in
+  // 32-bit units from TMEM_REGION0_BASE_ADDR.
+  // Actually added offset to reclaim a register rather than
+  // using extra offset parameters for loads
+  shl $INGRAD_DELTAN_PTR, $INGRAD_DELTAN_PTR, 2
+  setzi $MSCRATCH, TMEM_REGION0_BASE_ADDR
+  add $INGRAD_DELTAN_PTR, $INGRAD_DELTAN_PTR, $MSCRATCH
+
+  setzi $MASK, DELTAN_OFFSET_MASK
+
+  // Sub 1 to use post-decrementing brnzdec
+  add $N0, $N0, -1
+.Lfloat_n0_loop:
+  ld32step $OUTGRAD_PTR, $mzero, $OUTGRAD_OUTER_PTR+=, 1
+  ld32step $OUT_PTR, $mzero, $OUT_OUTER_PTR+=, 1
+  ld32step $MSCRATCH, $mzero, $INGRAD_DELTAN_PTR+=, 1
+  and $INGRAD_OFFSET, $MSCRATCH, $MASK
+  shr $N1, $MSCRATCH, DELTAN_OFFSET_BITS
+  shr $N1_64BIT, $N1, 1
+
+  // Load inputs ahead
+  ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, 1
+  ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, 1
+  brz $N1_64BIT, .Lfloat_32_bit_remainder
+  // Warm up the pipeline
+  { add $N1_64BIT, $N1_64BIT, -1
+    CALC_STAGE_1(f32, v2, $INGRAD_PAIR, $OUT_PAIR, $azeros) }
+  { ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, 1
+    CALC_STAGE_2(f32, v2, $INGRAD_PAIR, $OUT_PAIR, $ONES) }
+  { ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, 1
+    CALC_STAGE_3(f32, v2, $INGRAD_PAIR, $OUTGRAD_PAIR) }
+  rpt $N1_64BIT, (2f - 1f)/8 - 1
+1:
+  { st64step $INGRAD_PAIR, $INGRAD_BASE_PTR, $INGRAD_OFFSET+=, 1
+    CALC_STAGE_1(f32, v2, $INGRAD_PAIR, $OUT_PAIR, $azeros) }
+  { ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, 1
+    CALC_STAGE_2(f32, v2, $INGRAD_PAIR, $OUT_PAIR, $ONES) }
+  { ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, 1
+    CALC_STAGE_3(f32, v2, $INGRAD_PAIR, $OUTGRAD_PAIR) }
+2:
+  // Handle last pipeline output
+  st64step $INGRAD_PAIR, $INGRAD_BASE_PTR, $INGRAD_OFFSET+=, 1
+
+.Lfloat_32_bit_remainder:
+  and $MSCRATCH, $N1, 0x1
+  brz $MSCRATCH, .Lfloat_n0_loop_condition
+
+  // Handle 32-bit remainder
+  CALC_STAGE_1(f32, v1, $INGRAD_0, $OUT_0, $azero)
+  CALC_STAGE_2(f32, v1, $INGRAD_0, $OUT_0, $ONES_0)
+  CALC_STAGE_3(f32, v1, $INGRAD_0, $OUTGRAD_0)
+  st32step $INGRAD_0, $INGRAD_BASE_PTR, $INGRAD_OFFSET+=, 1
+
+.Lfloat_n0_loop_condition:
+  brnzdec $N0, .Lfloat_n0_loop
+  exitz $mzero
+
+.size FLOAT_SYMBOL, .-FLOAT_SYMBOL
+
+#endif // __IPU__

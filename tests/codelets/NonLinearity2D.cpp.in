@@ -41,6 +41,21 @@ constexpr static double randomData[randomDataSize] = {
   11.091992, 8.830758, -3.798772
 };
 
+constexpr static std::size_t randomData2Size = 54;
+constexpr static double randomData2[randomData2Size] = {
+  6.063585, -1.603059, 3.668168, -3.164358, -5.669303,
+  6.042537, -1.827524, 3.141997, 7.839743, -0.449503,
+  11.704780, 4.080705, 6.092508, 1.941723, -4.315962,
+  -3.851170, -4.832400, -2.369191, 4.311729, 12.653507,
+  0.090832, -5.663074, 11.635682, -1.027572, -1.115758,
+  3.978761, 7.596279, -2.769141, 4.046201, -3.727586,
+  3.798045, 4.005900, -0.328572, -2.739621, 5.095390,
+  4.176589, 6.089753, 5.570235, 6.978266, 2.231976,
+  -0.563166, 2.612484, -2.182849, 6.476901, 5.321058,
+  3.173620, 1.060784, 7.694968, -3.347791, -8.521936,
+  -2.760514, 6.953309, 2.192015
+};
+
 struct SliceDesc {
   std::vector<Interval> intervals;
 };
@@ -62,27 +77,40 @@ void doTest(const Type &dataType, const NonLinearityType &nlType) {
   const auto maxElements =
     maxElementsPerRegion * maxRegions;
   assert(maxElements <= randomDataSize);
+  assert(maxElements <= randomData2Size);
 
-  auto t = graph.addVariable(dataType, {maxElements});
-  graph.setTileMapping(t, 0);
+  auto acts = graph.addVariable(dataType, {maxElements});
+  auto outgrad = graph.addVariable(dataType, {maxElements});
+  auto ingrad = graph.addVariable(dataType, {maxElements});
+  graph.setTileMapping(acts, 0);
+  graph.setTileMapping(outgrad, 0);
+  graph.setTileMapping(ingrad, 0);
 
   // Generate some test data
   std::vector<std::pair<std::string, char*>> tmap;
-  auto rawHostData =
-    allocateHostMemoryForTensor(t, "test data", graph, tmap);
+  auto rawHostActsIn =
+    allocateHostMemoryForTensor(acts, "test in", graph, tmap);
+  auto rawHostGradOut =
+    allocateHostMemoryForTensor(outgrad, "test outgrad", graph, tmap);
+  auto rawHostGradIn =
+    allocateHostMemoryForTensor(ingrad, "test ingrad", graph, tmap);
 
   boost::multi_array<double, 1>
-    hostData(boost::extents[maxElements]);
-  std::copy(&randomData[0], &randomData[maxElements], hostData.data());
+    hostActsIn(boost::extents[maxElements]),
+    hostGradOut(boost::extents[maxElements]);
+  std::copy(&randomData[0], &randomData[maxElements], hostActsIn.data());
+  std::copy(&randomData2[0], &randomData2[maxElements], hostGradOut.data());
 
   boost::multi_array<double, 1>
-    modelData(boost::extents[maxElements]);
-  poplibs_test::nonLinearity(
-    nlType, hostData.data(), modelData.data(), maxElements);
+    modelActsOut(boost::extents[maxElements]);
+  boost::multi_array<double, 1>
+    modelGradIn(boost::extents[maxElements]);
 
-
-  const auto vertexClass =
+  const auto fwdVertexClass =
     templateVertex("popnn::NonLinearity2D",
+                   dataType, nlType);
+  const auto bwdVertexClass =
+    templateVertex("popnn::NonLinearityGrad2D",
                    dataType, nlType);
 
   std::vector<Program> programs;
@@ -103,15 +131,29 @@ void doTest(const Type &dataType, const NonLinearityType &nlType) {
         // Only test if we've filled all the regions
         if (filled) {
           // Get slices into our variable
-          auto tTestSlices = t.slices(intervals);
+          auto actTestSlices = acts.slices(intervals);
+          auto outgradTestSlices = outgrad.slices(intervals);
+          auto ingradTestSlices = ingrad.slices(intervals);
 
-          auto cs = graph.addComputeSet("cs_" + std::to_string(uid++));
-          auto v = graph.addVertex(cs, vertexClass);
-          graph.setTileMapping(v, 0);
-          graph.connect(v["data"], tTestSlices);
+          auto fwdCS = graph.addComputeSet("cs_fwd_" + std::to_string(uid));
+          auto fwdV = graph.addVertex(fwdCS, fwdVertexClass);
+          graph.setTileMapping(fwdV, 0);
+          graph.connect(fwdV["data"], actTestSlices);
 
-          programs.emplace_back(Execute(cs));
+          auto bwdCS = graph.addComputeSet("cs_bwd_" + std::to_string(uid));
+          auto bwdV = graph.addVertex(bwdCS, bwdVertexClass);
+          graph.setTileMapping(bwdV, 0);
+          graph.connect(bwdV["out"], actTestSlices);
+          graph.connect(bwdV["outGrad"], outgradTestSlices);
+          graph.connect(bwdV["inGrad"], ingradTestSlices);
+
+          programs.emplace_back(
+            Sequence(
+              Execute(bwdCS),
+              Execute(fwdCS)
+            ));
           programSlices.emplace_back(SliceDesc{intervals});
+          uid++;
         }
       }
     }
@@ -127,7 +169,8 @@ void doTest(const Type &dataType, const NonLinearityType &nlType) {
   e.load(device);
 
   boost::multi_array<double, 1>
-    hostResult(boost::extents[maxElements]);
+    hostActsOut(boost::extents[maxElements]),
+    hostGradIn(boost::extents[maxElements]);
   const auto relativeTolerance = TOL;
   const auto absoluteTolerance =
     dataType == FLOAT ? FLOAT_ATOL
@@ -137,26 +180,46 @@ void doTest(const Type &dataType, const NonLinearityType &nlType) {
     // Fill out the model data, applying the non-linearity to regions to be
     // processed by the vertex. This allows us to detect over/underwrites
     // by the vertex as a bonus
-    std::copy(hostData.data(), hostData.data() + hostData.num_elements(),
-              modelData.data());
+    std::copy(hostActsIn.data(), hostActsIn.data() + hostActsIn.num_elements(),
+              modelActsOut.data());
+    // fill areas of output that should be untouched by backward vertex with
+    // values that should never be output by the vertex
+    std::fill_n(modelGradIn.data(), modelGradIn.num_elements(), 50.0);
     for (const auto &region : programSlices[testId].intervals) {
       const auto offset = region.begin();
       const auto n = region.size();
+      std::copy(hostGradOut.data() + offset,
+                hostGradOut.data() + offset + n,
+                modelGradIn.data() + offset);
+      poplibs_test::bwdNonLinearity(nlType,
+                                    hostActsIn.data() + offset,
+                                    modelGradIn.data() + offset,
+                                    n);
       poplibs_test::nonLinearity(nlType,
-                                 hostData.data() + offset,
-                                 modelData.data() + offset,
+                                 hostActsIn.data() + offset,
+                                 modelActsOut.data() + offset,
                                  n);
     }
 
-    copy(target, hostData, dataType, rawHostData.get());
+    copy(target, hostActsIn, dataType, rawHostActsIn.get());
+    copy(target, hostGradOut, dataType, rawHostGradOut.get());
+    // fill areas of output that should be untouched by backward vertex with
+    // values that should never be output by the vertex
+    std::fill_n(hostGradIn.data(), hostGradIn.num_elements(), 50.0);
+    copy(target, hostGradIn, dataType, rawHostGradIn.get());
     upload(e, tmap);
     e.run(testId);
     download(e, tmap);
-    copy(target, dataType, rawHostData.get(), hostResult);
+    copy(target, dataType, rawHostActsIn.get(), hostActsOut);
+    copy(target, dataType, rawHostGradIn.get(), hostGradIn);
 
-    BOOST_CHECK(checkIsClose("test_" + std::to_string(testId),
-                             hostResult.data(), {hostResult.num_elements()},
-                             modelData.data(), modelData.num_elements(),
+    BOOST_CHECK(checkIsClose("fwd_" + std::to_string(testId),
+                             hostActsOut.data(), {hostActsOut.num_elements()},
+                             modelActsOut.data(), modelActsOut.num_elements(),
+                             relativeTolerance, absoluteTolerance));
+    BOOST_CHECK(checkIsClose("bwd_" + std::to_string(testId),
+                             hostGradIn.data(), {hostGradIn.num_elements()},
+                             modelGradIn.data(), modelGradIn.num_elements(),
                              relativeTolerance, absoluteTolerance));
   }
 }

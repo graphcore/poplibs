@@ -21,6 +21,7 @@ using namespace poplar;
                               popnn::NonLinearityType::TANH), \
         CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, \
                               popnn::NonLinearityType::TANH)
+
 namespace popnn {
 
 std::uint64_t

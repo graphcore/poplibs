@@ -1,14 +1,27 @@
-// Required defines:
+#ifdef __IPU__
+
+// Assembly implementation of popnn::NonLinearitySupervisor vertex template variations.
+
+// Restrictions
 //
-// HALF_SYMBOL_NAME
-// FLOAT_SYMBOL_NAME
-// OP_UNIQUE_PREFIX
-// CALC_HALF(dst, src)
-// CALC_FLOAT(dst, src)
+//  * At least 32-bit aligned source/destination address.
+
+#include "tilearch.h"
+#include "tileimplconsts_tommy.h"
+
+// Symbols
+#define HALF_SYMBOL \
+  __runCodelet_popnn__NonLinearitySupervisor___half_popnn__NonLinearityType__@NL_TYPE_UPPER@
+#define FLOAT_SYMBOL \
+  __runCodelet_popnn__NonLinearitySupervisor___float_popnn__NonLinearityType__@NL_TYPE_UPPER@
 
 // Constants
 #define DATA_PTR_VOFFSET 0
 #define SIZE_VOFFSET 1
+
+#define RECIPROCAL_3_SHL17 ((((1 << 17) - 1) / 3) + 1)
+#define LOG2_24_OVER_3 3
+#define LOG2_12_OVER_3 2
 
 // Supervisor register aliases
 #define SUPER_BASE m0
@@ -33,19 +46,51 @@
 #define ASCRATCH a6
 #define ASCRATCH_PAIR a6:7
 
-#define PREFIX_PASTE(p, s) p ## s
-#define PREFIX_EVAL(p, s) PREFIX_PASTE(p, s)
-#define PREFIX(s) PREFIX_EVAL(OP_UNIQUE_PREFIX, s)
+// Macros
+#define v1 // Scalar
+#define VECTOR_INSTRUCTION(type, vector_width, op) type ## vector_width ## op
 
-.section .text.HALF_SYMBOL_NAME
+#define CALC_SIGMOID(type, vector_width, dst, src) \
+  VECTOR_INSTRUCTION(type, vector_width, sigm) dst, src
+#define CALC_RELU(type, vector_width, dst, src) \
+  VECTOR_INSTRUCTION(type, vector_width, max) dst, src, $azero
+#define CALC_TANH(type, vector_width, dst, src) \
+  VECTOR_INSTRUCTION(type, vector_width, tanh) dst, src
 
-.globl HALF_SYMBOL_NAME
-.type HALF_SYMBOL_NAME, @function
+#define CALC(type, vector_width, dst, src) \
+  CALC_@NL_TYPE_UPPER@(type, vector_width, dst, src)
+
+.section .text.HALF_SYMBOL
+
+.globl HALF_SYMBOL
+.type HALF_SYMBOL, @function
+
+// All inputs must be separate registers
+// Splits 64-bit chunks of n elements between workers.
+// The result we want is n / (no. of worker contexts * elements per-64-bits).
+// We achieve this by dividing by 3 first, by multiplying n by the reciprocal
+// of 3 shifted left. This value is then shifted right by the same amount + any
+// further division by powers of 2 to get the actual divisor we want.
+// As an example, in this half case there are 4 halves per-64-bits and
+// 6 worker contexts so the divisor we want is 24.
+// (n / 3) / 8 = n / 24 so the extra divisor is 8, meaning an extra shift of 3.
+.macro HALF_SPLIT_BETWEEN_WORKERS n size rem
+    setzi \size, RECIPROCAL_3_SHL17
+    mul \size, \n, \size
+    shr \size, \size, (17 + LOG2_24_OVER_3)
+    mul \rem, \size, 24
+    sub \rem, \n, \rem
+.endm
 
 .align 8
-PREFIX(_half_worker):
+    nop
+.Lhalf_worker:
     ldz16 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET
-    ldz16 $SIZE, $mvertex_base, $mzero, SIZE_VOFFSET
+    ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET
+
+    // $SIZE = No. of 64-bit elements each worker should process
+    // $REM = No. of remaining elements between workers
+    HALF_SPLIT_BETWEEN_WORKERS $MSCRATCH $SIZE $REM
 
     // Scaled pointer gives offset in 32-bit units from
     // TMEM_REGION0_BASE_ADDR
@@ -56,50 +101,43 @@ PREFIX(_half_worker):
     get $WORKER_ID, $WSR
     and $WORKER_ID, $WORKER_ID, CSR_W_WSR__CTXTID_M1__MASK
 
-    // Extract packed size + remainder
-    // $SIZE = No. of elements / (CTXT_WORKERS * elements per 64-bits)
-    // $REM = No. of remaining elements
-    and $REM, $SIZE, 0x1F
-    shr $SIZE, $SIZE, 5
-
     // Check if address is 64-bit aligned
     and $MSCRATCH, $DATA_PTR, 0x7
-    brz $MSCRATCH, .PREFIX(_half_64_bit_aligned)
+    brz $MSCRATCH, .Lhalf_64_bit_aligned
 
-.PREFIX(_half_32_bit_aligned):
+.Lhalf_32_bit_aligned:
     // Catch special case for just 1 or 2 elements at a 32-bit aligned address.
     setzi $MSCRATCH, 2
     cmpult $MSCRATCH, $MSCRATCH, $REM
     or $MSCRATCH, $MSCRATCH, $SIZE
-    brnz $MSCRATCH, .PREFIX(_half_32_bit_lead)
+    brnz $MSCRATCH, .Lhalf_32_bit_lead
 
-    // Just 1 or 2 elements remain. Skip to remainder handling, only calculate
-    // with a single worker (worker 0).
+
     shr $REM_32BIT, $REM, 1
     and $REM_16BIT, $REM, 0x1
     shr $REM_32BIT, $REM_32BIT, $WORKER_ID
     shr $REM_16BIT, $REM_16BIT, $WORKER_ID
-    bri .PREFIX(_half_32_bit_remainder)
+    bri .Lhalf_32_bit_remainder
 
-.PREFIX(_half_32_bit_lead):
+.Lhalf_32_bit_lead:
     // Select a single worker to do this
     cmpeq $MSCRATCH, $WORKER_ID, 0
-    brz $MSCRATCH, .PREFIX(_half_skip_32_bit_lead)
+    brz $MSCRATCH, .Lhalf_skip_32_bit_lead
 
     ld32 $ACTS_0, $DATA_PTR, $BASE, 0
-    CALC_HALF($RESULTS_0, $ACTS_0)
+    CALC(f16, v2, $RESULTS_0, $ACTS_0)
     st32 $RESULTS_0, $DATA_PTR, $BASE, 0
 
-.PREFIX(_half_skip_32_bit_lead):
+.Lhalf_skip_32_bit_lead:
     ld32step $ASCRATCH, $BASE, $DATA_PTR+=, 1
 
     // Decrement remaining element count
     add $REM, $REM, -2
-    brpos $REM, .PREFIX(_half_64_bit_aligned)
+    brpos $REM, .Lhalf_64_bit_aligned
     add $REM, $REM, (CTXT_WORKERS * 4)
     add $SIZE, $SIZE, -1
 
-.PREFIX(_half_64_bit_aligned):
+.Lhalf_64_bit_aligned:
     // $REM_32BIT = Non-zero if a remaining 32-bit load
     // $REM_16BIT = Non-zero if a remaining 16-bit load
     // $REM = No. of remaining 64-bit loads
@@ -116,73 +154,89 @@ PREFIX(_half_worker):
     ld64step $ASCRATCH_PAIR, $BASE, $DATA_PTR+=, $WORKER_ID
 
     // Overlap 64-bit loads/stores with vector 2 half calculations
-    brz $SIZE, .PREFIX(_half_64_bit_loop_exit)
+    brz $SIZE, .Lhalf_64_bit_loop_exit
     add $SIZE, $SIZE, -1
     ld64 $ACTS_PAIR, $DATA_PTR, $BASE, 0
     {
-      rpt $SIZE, (.PREFIX(_half_rpt_end) - .PREFIX(_half_rpt_start)) / 8 - 1
-      CALC_HALF($RESULTS_0, $ACTS_0)
+      rpt $SIZE, (2f - 1f) / 8 - 1
+      CALC(f16, v2, $RESULTS_0, $ACTS_0)
     }
-    .PREFIX(_half_rpt_start):
+1:
     {
       ld64 $ACTS_PAIR, $DATA_PTR, $BASE, CTXT_WORKERS
-      CALC_HALF($RESULTS_1, $ACTS_1)
+      CALC(f16, v2, $RESULTS_1, $ACTS_1)
     }
     {
       st64step $RESULTS_PAIR, $BASE, $DATA_PTR+=, CTXT_WORKERS
-      CALC_HALF($RESULTS_0, $ACTS_0)
+      CALC(f16, v2, $RESULTS_0, $ACTS_0)
     }
-    .PREFIX(_half_rpt_end):
-    CALC_HALF($RESULTS_1, $ACTS_1)
+2:
+    CALC(f16, v2, $RESULTS_1, $ACTS_1)
     st64step $RESULTS_PAIR, $BASE, $DATA_PTR+=, CTXT_WORKERS
-.PREFIX(_half_64_bit_loop_exit):
+.Lhalf_64_bit_loop_exit:
 
     // Handle remaining elements with the worker with the correct $DATA_PTR.
     // $REM = Num of remaining 64-bit loads possible = index to first worker
     // for which 64-bit load isn't possible
     cmpeq $MSCRATCH, $WORKER_ID, $REM
-    brz $MSCRATCH, .PREFIX(_half_end)
+    brz $MSCRATCH, .Lhalf_end
 
-.PREFIX(_half_32_bit_remainder):
-    brz $REM_32BIT, .PREFIX(_half_16_bit_remainder)
+.Lhalf_32_bit_remainder:
+    brz $REM_32BIT, .Lhalf_16_bit_remainder
 
     ld32 $ACTS_0, $DATA_PTR, $BASE, 0
-    CALC_HALF($RESULTS_0, $ACTS_0)
+    CALC(f16, v2, $RESULTS_0, $ACTS_0)
     st32step $RESULTS_0, $BASE, $DATA_PTR+=, 1
 
-.PREFIX(_half_16_bit_remainder):
-    brz $REM_16BIT, .PREFIX(_half_end)
+.Lhalf_16_bit_remainder:
+    brz $REM_16BIT, .Lhalf_end
 
     // Load the first and second half in the word to store along
     // with the remaining
     ldb16 $ACTS_0, $DATA_PTR, $BASE, 0
     {
       ldb16 $ASCRATCH, $DATA_PTR, $BASE, 1
-      CALC_HALF($RESULTS_0, $ACTS_0)
+      CALC(f16, v2, $RESULTS_0, $ACTS_0)
     }
     roll16 $RESULTS_0, $RESULTS_0, $ASCRATCH
     st32 $RESULTS_0, $DATA_PTR, $BASE, 0
 
-.PREFIX(_half_end):
+.Lhalf_end:
     exitz $mzero
 
-HALF_SYMBOL_NAME:
-    setzi $WORKER_ENTRY, PREFIX(_half_worker)
+HALF_SYMBOL:
+    setzi $WORKER_ENTRY, .Lhalf_worker
     runall $WORKER_ENTRY, $SUPER_BASE, 0
     sync TEXCH_SYNCZONE_LOCAL
     br $lr
 
-.size HALF_SYMBOL_NAME, .-HALF_SYMBOL_NAME
+.size HALF_SYMBOL, .-HALF_SYMBOL
 
-.section .text.FLOAT_SYMBOL_NAME
+.section .text.FLOAT_SYMBOL
 
-.globl FLOAT_SYMBOL_NAME
-.type FLOAT_SYMBOL_NAME, @function
+.globl FLOAT_SYMBOL
+.type FLOAT_SYMBOL, @function
+
+// All inputs must be separate registers
+// As described above in HALF_SPLIT_BETWEEN_WORKERS with different
+// divisor.
+.macro FLOAT_SPLIT_BETWEEN_WORKERS n size rem
+    setzi \size, RECIPROCAL_3_SHL17
+    mul \size, \n, \size
+    shr \size, \size, (17 + LOG2_12_OVER_3)
+    mul \rem, \size, 12
+    sub \rem, \n, \rem
+.endm
 
 .align 8
-PREFIX(_float_worker):
+    nop
+.Lfloat_worker:
     ldz16 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET
-    ldz16 $SIZE, $mvertex_base, $mzero, SIZE_VOFFSET
+    ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET
+
+    // $SIZE = No. of 64-bit elements each worker should process
+    // $REM = No. of remaining elements between workers
+    FLOAT_SPLIT_BETWEEN_WORKERS $MSCRATCH $SIZE $REM
 
     // Scaled pointer gives offset in 32-bit units from
     // TMEM_REGION0_BASE_ADDR
@@ -193,35 +247,29 @@ PREFIX(_float_worker):
     get $WORKER_ID, $WSR
     and $WORKER_ID, $WORKER_ID, CSR_W_WSR__CTXTID_M1__MASK
 
-    // Extract packed size + remainder
-    // $SIZE = No. of elements / (CTXT_WORKERS * elements per 64-bits)
-    // $REM = No. of remaining elements
-    and $REM, $SIZE, 0x0F
-    shr $SIZE, $SIZE, 4
-
     // Check if address is 64-bit aligned
     and $MSCRATCH, $DATA_PTR, 0x7
-    brz $MSCRATCH, .PREFIX(_float_64_bit_aligned)
+    brz $MSCRATCH, .Lfloat_64_bit_aligned
 
-.PREFIX(_float_32_bit_aligned):
+.Lfloat_32_bit_aligned:
     // Select a single worker to do this
     cmpeq $MSCRATCH, $WORKER_ID, 0
-    brz $MSCRATCH, .PREFIX(_float_skip_32_bit_lead)
+    brz $MSCRATCH, .Lfloat_skip_32_bit_lead
 
     ld32 $ACTS_0, $DATA_PTR, $BASE, 0
-    CALC_FLOAT($RESULTS_0, $ACTS_0)
+    CALC(f32, v1, $RESULTS_0, $ACTS_0)
     st32 $RESULTS_0, $DATA_PTR, $BASE, 0
 
-.PREFIX(_float_skip_32_bit_lead):
+.Lfloat_skip_32_bit_lead:
     ld32step $ASCRATCH, $BASE, $DATA_PTR+=, 1
 
     // Decrement remaining element count
     add $REM, $REM, -1
-    brpos $REM, .PREFIX(_float_64_bit_aligned)
+    brpos $REM, .Lfloat_64_bit_aligned
     add $REM, $REM, (CTXT_WORKERS * 2)
     add $SIZE, $SIZE, -1
 
-.PREFIX(_float_64_bit_aligned):
+.Lfloat_64_bit_aligned:
     // $SIZE = No. of 64-bit loads/stores possible
     // $REM_32BIT = No. of remaining 32-bit loads
     // $REM = No. of remaining 64-bit loads
@@ -237,46 +285,48 @@ PREFIX(_float_worker):
     ld64step $ASCRATCH_PAIR, $BASE, $DATA_PTR+=, $WORKER_ID
 
     // Overlap 64-bit loads/stores with float calculations
-    brz $SIZE, .PREFIX(_float_64_bit_loop_exit)
+    brz $SIZE, .Lfloat_64_bit_loop_exit
     add $SIZE, $SIZE, -1
     ld64 $ACTS_PAIR, $DATA_PTR, $BASE, 0
     {
-      rpt $SIZE, (.PREFIX(_float_rpt_end) - .PREFIX(_float_rpt_start)) / 8 - 1
-      CALC_FLOAT($RESULTS_0, $ACTS_0)
+      rpt $SIZE, (2f - 1f) / 8 - 1
+      CALC(f32, v1, $RESULTS_0, $ACTS_0)
     }
-    .PREFIX(_float_rpt_start):
+1:
     {
       ld64 $ACTS_PAIR, $DATA_PTR, $BASE, CTXT_WORKERS
-      CALC_FLOAT($RESULTS_1, $ACTS_1)
+      CALC(f32, v1, $RESULTS_1, $ACTS_1)
     }
     {
       st64step $RESULTS_PAIR, $BASE, $DATA_PTR+=, CTXT_WORKERS
-      CALC_FLOAT($RESULTS_0, $ACTS_0)
+      CALC(f32, v1, $RESULTS_0, $ACTS_0)
     }
-    .PREFIX(_float_rpt_end):
-    CALC_FLOAT($RESULTS_1, $ACTS_1)
+2:
+    CALC(f32, v1, $RESULTS_1, $ACTS_1)
     st64step $RESULTS_PAIR, $BASE, $DATA_PTR+=, CTXT_WORKERS
-.PREFIX(_float_64_bit_loop_exit):
+.Lfloat_64_bit_loop_exit:
 
     // Handle remaining elements with the worker with the correct $DATA_PTR.
     // $REM = Num of remaining 64-bit loads possible = index to first worker
     // for which 64-bit load isn't possible
     cmpeq $MSCRATCH, $WORKER_ID, $REM
     and $MSCRATCH, $MSCRATCH, $REM_32BIT
-    brz $MSCRATCH, .PREFIX(_float_end)
+    brz $MSCRATCH, .Lfloat_end
 
-.PREFIX(_float_32_bit_remainder):
+.Lfloat_32_bit_remainder:
     ld32 $ACTS_0, $DATA_PTR, $BASE, 0
-    CALC_FLOAT($RESULTS_0, $ACTS_0)
+    CALC(f32, v1, $RESULTS_0, $ACTS_0)
     st32step $RESULTS_0, $BASE, $DATA_PTR+=, 1
 
-.PREFIX(_float_end):
+.Lfloat_end:
     exitz $mzero
 
-FLOAT_SYMBOL_NAME:
-    setzi $WORKER_ENTRY, PREFIX(_float_worker)
+FLOAT_SYMBOL:
+    setzi $WORKER_ENTRY, .Lfloat_worker
     runall $WORKER_ENTRY, $SUPER_BASE, 0
     sync TEXCH_SYNCZONE_LOCAL
     br $lr
 
-.size FLOAT_SYMBOL_NAME, .-FLOAT_SYMBOL_NAME
+.size FLOAT_SYMBOL, .-FLOAT_SYMBOL
+
+#endif // __IPU__

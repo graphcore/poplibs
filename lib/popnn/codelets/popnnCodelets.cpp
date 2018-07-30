@@ -12,6 +12,7 @@ using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 static constexpr auto TWO_PTR = poplar::VectorLayout::TWO_PTR;
 static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
+static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
 
 // Macro to instantiate a template class for non linear operations
 #define INSTANTIATE_NL(v) \
@@ -115,18 +116,7 @@ public:
 
   IS_EXTERNAL_CODELET(true);
   bool compute() {
-    // Unpack size from n.
-    // elementsPerChunk = num worker contexts * element vector width
-    // These values are checked in the API.
-    // NOTE: Because sizeof(half) can differ from getTypeSize(HALF) when
-    // using IPUModel + FastHalf this is hardcoded based on type for now.
-    constexpr std::size_t elementsPerChunk =
-      std::is_same<FPType, half>::value ? 24 : 12;
-    constexpr auto remainderBits = ceilLog2(elementsPerChunk);
-    const auto size =
-      ((n >> remainderBits) * elementsPerChunk) +
-      (n & ((1u << remainderBits) - 1));
-    for (unsigned i = 0; i < size; ++i) {
+    for (unsigned i = 0; i < n; ++i) {
       data[i] = nonlinearity(nlType, data[i]);
     }
     return true;
@@ -138,11 +128,12 @@ INSTANTIATE_NL(NonLinearitySupervisor)
 template <typename FPType, NonLinearityType nlType>
 class NonLinearityGradSupervisor : public SupervisorVertex {
 public:
-  Input<Vector<FPType, SCALED_PTR32>> outGrad;
-  Input<Vector<FPType, SCALED_PTR32>> out;
-  Output<Vector<FPType, SCALED_PTR32>> inGrad;
+  Input<Vector<FPType, SCALED_PTR32, 8>> outGrad;
+  Input<Vector<FPType, SCALED_PTR32, 8>> out;
+  Output<Vector<FPType, SCALED_PTR32, 8>> inGrad;
   unsigned short n;
 
+  IS_EXTERNAL_CODELET(true);
   bool compute() {
     for (unsigned i = 0; i < n; ++i) {
       inGrad[i] = outGrad[i] * nonlinearity_derivative(nlType, out[i]);
@@ -174,10 +165,11 @@ INSTANTIATE_NL(NonLinearity2D)
 template <typename FPType, NonLinearityType nlType>
 class NonLinearityGrad2D : public Vertex {
 public:
-  Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> outGrad;
-  Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> out;
-  Vector<Output<Vector<FPType>>> inGrad;
+  Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> outGrad;
+  Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> out;
+  Output<VectorList<FPType, DELTAN, 8>> inGrad;
 
+  IS_EXTERNAL_CODELET(true);
   bool compute() {
     for (unsigned i = 0; i < inGrad.size(); ++i) {
       for (unsigned j = 0; j < inGrad[i].size(); ++j) {

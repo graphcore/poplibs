@@ -59,6 +59,26 @@ constexpr static double randomData[randomDataSize] = {
   -6.853818, 5.237251, -1.092760, 0.851126, -1.905695
 };
 
+constexpr static std::size_t randomData2Size = 80;
+constexpr static double randomData2[randomData2Size] = {
+  -4.436526, 3.106630, 1.293025, -6.476578, -6.447246,
+  -5.495446, 2.864524, 5.506601, -1.118131, -1.967583,
+  8.106135, 1.792813, -0.594200, 4.334451, -1.202842,
+  6.522413, 0.696654, -1.322245, -4.257638, -8.676723,
+  -7.290822, -0.062777, -10.468264, 6.252668, 0.612885,
+  -6.255880, -1.359411, -5.116864, 7.431683, 5.348917,
+  0.253156, 0.977697, 4.575610, 1.229057, -0.919852,
+  6.160684, -0.223279, -8.867977, -6.295284, -1.953921,
+  -2.577365, 14.365989, 2.315338, -6.359479, -3.551872,
+  -0.330124, 7.465863, -8.430678, 3.860931, -4.650391,
+  -11.242988, -5.981461, 6.576061, 1.947509, -11.811246,
+  0.936855, -5.088598, -3.710995, -7.859832, -2.770553,
+  1.481630, -8.869824, 1.375009, 0.838196, -6.784614,
+  5.024838, -1.321908, -0.647572, -8.963158, 4.039382,
+  3.718576, 2.268444, -3.604734, -4.731974, 15.841928,
+  -1.603268, -1.221412, -1.057963, -11.249434, 1.300697
+};
+
 struct SliceDesc {
   std::size_t offset;
   std::size_t numElements;
@@ -70,78 +90,93 @@ void doTest(const Type &dataType, const NonLinearityType &nlType) {
   Graph graph(device);
   popnn::addCodelets(graph);
 
-  const auto elementSize = target.getTypeSize(dataType);
-  const auto vectorWidthBytes = (target.getDataPathWidth() / 8);
-  const auto vectorElements = (vectorWidthBytes / elementSize);
+  const auto vectorWidth = target.getVectorWidth(dataType);
   const auto numWorkers = target.getNumWorkerContexts();
-  const auto elementsPerChunk = vectorElements * numWorkers;
+  const auto elementsPerChunk = vectorWidth * numWorkers;
   const auto remainderBits = ceilLog2(elementsPerChunk);
-  // Vertices currently hardcode 64-bit vector width and 6 worker contexts.
-  assert(vectorWidthBytes == 8);
-  assert(numWorkers == 6);
 
   // Once we have hit 3 full 64-bit loops for all workers +
   // up to 32-bits leading we will have covered all paths through the codelet.
   const auto maxElements =
-    (vectorElements * numWorkers) * 3 +
-    (vectorElements / 2);
+    (vectorWidth * numWorkers) * 3 +
+    (vectorWidth / 2);
   assert(randomDataSize >= maxElements);
+  assert(randomData2Size >= maxElements);
 
-  auto t = graph.addVariable(dataType, {maxElements});
-  auto tResult = graph.addVariable(dataType, {maxElements});
-  graph.setTileMapping(t, 0);
-  graph.setTileMapping(tResult, 0);
+  auto acts = graph.addVariable(dataType, {maxElements});
+  auto outgrad = graph.addVariable(dataType, {maxElements});
+  auto ingrad = graph.addVariable(dataType, {maxElements});
+  graph.setTileMapping(acts, 0);
+  graph.setTileMapping(outgrad, 0);
+  graph.setTileMapping(ingrad, 0);
 
   // Generate some test data
   std::vector<std::pair<std::string, char*>> tmap;
-  auto rawHostInput =
-    allocateHostMemoryForTensor(t, "test data", graph, tmap);
-  auto rawHostResult =
-    allocateHostMemoryForTensor(tResult, "result data", graph, tmap);
+  auto rawHostActsIn =
+    allocateHostMemoryForTensor(acts, "test acts", graph, tmap);
+  auto rawHostGradOut =
+    allocateHostMemoryForTensor(outgrad, "test outgrad", graph, tmap);
+  auto rawHostGradIn =
+    allocateHostMemoryForTensor(ingrad, "test ingrad", graph, tmap);
 
   boost::multi_array<double, 1>
-    hostData(boost::extents[maxElements]);
-  std::copy(&randomData[0], &randomData[maxElements], hostData.data());
+    hostActsIn(boost::extents[maxElements]),
+    hostGradOut(boost::extents[maxElements]);
+  std::copy(&randomData[0], &randomData[maxElements], hostActsIn.data());
+  std::copy(&randomData2[0], &randomData2[maxElements], hostGradOut.data());
 
   boost::multi_array<double, 1>
-    modelData(boost::extents[maxElements]);
+    modelActsOut(boost::extents[maxElements]),
+    modelGradIn(boost::extents[maxElements]);
   poplibs_test::nonLinearity(
-    nlType, hostData.data(), modelData.data(), maxElements);
+      nlType, hostActsIn.data(), modelActsOut.data(), maxElements);
+  std::copy_n(hostGradOut.data(), maxElements, modelGradIn.data());
+  poplibs_test::bwdNonLinearity(
+      nlType, hostActsIn.data(), modelGradIn.data(), maxElements);
 
-  const auto vertexClass =
-    templateVertex("popnn::NonLinearitySupervisor",
-                   dataType, nlType);
+  const auto fwdVertexClass =
+    templateVertex("popnn::NonLinearitySupervisor", dataType, nlType);
+  const auto bwdVertexClass =
+    templateVertex("popnn::NonLinearityGradSupervisor", dataType, nlType);
 
   std::vector<Program> programs;
   std::vector<SliceDesc> programSlices;
   // For each possible offset up to multiples of 8 byte alignment
-  // for this type
+  // for this type. Because we have guaranteed 4-byte start alignment
+  // only bother testing at 4-byte offsets.
+  const auto elementSize = target.getTypeSize(dataType);
   for (std::size_t offset = 0;
-       offset * elementSize < 8;
-       offset += (4 / elementSize)) {
+       offset < vectorWidth;
+       offset += std::max(1ul, 4 / elementSize)) {
     for (std::size_t numElements = 1;
          offset + numElements < maxElements;
          ++numElements) {
       // Get a slice into our common tensor to perform the non-linearity on
-      auto tTestSlice = t.slice(offset, offset + numElements);
+      auto actsTestSlice = acts.slice(offset, offset + numElements);
+      auto outgradTestSlice = outgrad.slice(offset, offset + numElements);
+      auto ingradTestSlice = ingrad.slice(offset, offset + numElements);
 
-      // Calculate packed size parameter
-      const auto chunks = numElements / elementsPerChunk;
-      const auto remainder = numElements % elementsPerChunk;
-      const auto packedSize =
-        (chunks << remainderBits) | (remainder & ((1u << remainderBits) - 1));
+      auto fwdCS = graph.addComputeSet("cs_fwd_" + std::to_string(offset) +
+                                       "_" + std::to_string(numElements));
+      auto fwdV = graph.addVertex(fwdCS, fwdVertexClass);
+      graph.setTileMapping(fwdV, 0);
+      graph.connect(fwdV["data"], actsTestSlice);
+      graph.setInitialValue(fwdV["n"], numElements);
 
-      auto cs = graph.addComputeSet("cs_" + std::to_string(offset) +
-                                    "_" + std::to_string(numElements));
-      auto v = graph.addVertex(cs, vertexClass);
-      graph.setTileMapping(v, 0);
-      graph.connect(v["data"], tTestSlice);
-      graph.setInitialValue(v["n"], packedSize);
+      auto bwdCS = graph.addComputeSet("cs_bwd_" + std::to_string(offset) +
+                                       "_" + std::to_string(numElements));
+      auto bwdV = graph.addVertex(bwdCS, bwdVertexClass);
+      graph.setTileMapping(bwdV, 0);
+      graph.connect(bwdV["out"], actsTestSlice);
+      graph.connect(bwdV["outGrad"], outgradTestSlice);
+      graph.connect(bwdV["inGrad"], ingradTestSlice);
+      graph.setInitialValue(bwdV["n"], numElements);
 
-      programs.push_back(Sequence(
-        Execute(cs),
-        Copy(t, tResult)
-      ));
+      programs.push_back(
+        Sequence(
+          Execute(bwdCS),
+          Execute(fwdCS)
+        ));
       programSlices.push_back(SliceDesc{
         offset,
         numElements
@@ -156,27 +191,37 @@ void doTest(const Type &dataType, const NonLinearityType &nlType) {
   e.load(device);
 
   boost::multi_array<double, 1>
-    hostResult(boost::extents[maxElements]);
+    hostActsOut(boost::extents[maxElements]);
+  boost::multi_array<double, 1>
+    hostGradIn(boost::extents[maxElements]);
   const auto relativeTolerance = TOL;
   const auto absoluteTolerance =
     dataType == FLOAT ? FLOAT_ATOL
-                             : HALF_ATOL;
+                      : HALF_ATOL;
   for (std::size_t testId = 0; testId < programs.size(); ++testId) {
-    copy(target, hostData, dataType, rawHostInput.get());
+    copy(target, hostActsIn, dataType, rawHostActsIn.get());
+    copy(target, hostGradOut, dataType, rawHostGradOut.get());
     upload(e, tmap);
     e.run(testId);
     download(e, tmap);
-    copy(target, dataType, rawHostResult.get(), hostResult);
+    copy(target, dataType, rawHostActsIn.get(), hostActsOut);
+    copy(target, dataType, rawHostGradIn.get(), hostGradIn);
 
     auto &testDesc = programSlices[testId];
-    bool areClose = checkIsClose("test_" + std::to_string(testDesc.offset) +
-                                 "_" + std::to_string(testDesc.numElements),
-                                 hostResult.data() + testDesc.offset,
-                                 {testDesc.numElements},
-                                 modelData.data() + testDesc.offset,
-                                 testDesc.numElements,
-                                 relativeTolerance, absoluteTolerance);
-    BOOST_CHECK(areClose);
+    BOOST_CHECK(checkIsClose("fwd_" + std::to_string(testDesc.offset) +
+                             "_" + std::to_string(testDesc.numElements),
+                             hostActsOut.data() + testDesc.offset,
+                             {testDesc.numElements},
+                             modelActsOut.data() + testDesc.offset,
+                             testDesc.numElements,
+                             relativeTolerance, absoluteTolerance));
+    BOOST_CHECK(checkIsClose("bwd_" + std::to_string(testDesc.offset) +
+                             "_" + std::to_string(testDesc.numElements),
+                             hostGradIn.data() + testDesc.offset,
+                             {testDesc.numElements},
+                             modelGradIn.data() + testDesc.offset,
+                             testDesc.numElements,
+                             relativeTolerance, absoluteTolerance));
   }
 }
 

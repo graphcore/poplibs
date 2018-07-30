@@ -45,6 +45,10 @@ foreach(path ${CMAKE_PREFIX_PATH})
     endif()
 endforeach(path)
 
+set(codelet_asm_sources
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/LossTransform.S
+)
+
 # Create the pooling vertex definitions from the shared template.
 foreach(DATA_TYPE float half)
   foreach(POOL_TYPE max avg sum)
@@ -94,23 +98,27 @@ ${DATA_TYPE}_popnn__PoolingType__${PTYPE_UPPER}")
     set(OUTPUT_FILE ${CMAKE_CURRENT_BINARY_DIR}/codelets/${VERTEX_NAME}.S)
 
     configure_file(${INPUT_FILE} ${OUTPUT_FILE})
-    list(APPEND POOLING_VERTICES ${OUTPUT_FILE})
+    list(APPEND codelet_asm_sources ${OUTPUT_FILE})
+  endforeach()
+endforeach()
+
+# Generate non-linearity assembly implementation variants
+foreach(VERTEX_TYPE Supervisor 2D GradSupervisor Grad2D)
+  set(VARIANT_TEMPLATE "codelets/NonLinearity${VERTEX_TYPE}.S.in")
+  foreach(NL_TYPE sigmoid relu tanh)
+    set(VARIANT_NAME "NonLinearity${VERTEX_TYPE}_${NL_TYPE}")
+    set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/codelets/${VARIANT_NAME}.S")
+    string(TOUPPER "${NL_TYPE}" NL_TYPE_UPPER)
+    configure_file(${VARIANT_TEMPLATE} ${VARIANT_SRC})
+    list(APPEND codelet_asm_sources ${VARIANT_SRC})
   endforeach()
 endforeach()
 
 set(codelet_cpp_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/popnnCodelets.cpp
 )
-set(codelet_asm_sources
-  ${POOLING_VERTICES}
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/LossTransform.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearitySupervisor.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearity2D.S
-)
 set(codelet_headers
   PerformanceEstimation.hpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/detail/NonLinearitySupervisorTemplates.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/detail/NonLinearity2DTemplates.S
 )
 
 add_custom_command(
