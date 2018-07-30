@@ -1,6 +1,12 @@
 #define BOOST_TEST_MODULE ConvUtilTest
-#include <boost/test/unit_test.hpp>
+#include "ConvUtilInternal.hpp"
+#include <popconv/Convolution.hpp>
 #include <popconv/ConvUtil.hpp>
+#include "TestDevice.hpp"
+
+#include <boost/test/unit_test.hpp>
+
+using namespace poplar;
 
 BOOST_AUTO_TEST_CASE(getInputRangeFlipActsAndWeights) {
   auto params = popconv::ConvParams(poplar::FLOAT, // type,
@@ -50,4 +56,18 @@ BOOST_AUTO_TEST_CASE(getKernelRangeTruncateInput) {
   auto kernelRange = popconv::getKernelRange(0, {0, 1}, {0, 3}, params);
   BOOST_CHECK_EQUAL(kernelRange.first, 1);
   BOOST_CHECK_EQUAL(kernelRange.second, 4);
+}
+
+BOOST_AUTO_TEST_CASE(DetectWeightsChannelGrouping) {
+  auto device = createTestDevice(TEST_TARGET);
+  Graph graph(device);
+  const auto outChansPerGroup = 8;
+  const auto inChansPerGroup = 16;
+  auto t =
+      graph.addVariable(HALF, {2, 14, 7, outChansPerGroup, inChansPerGroup});
+  unsigned detectedOutChansPerGroup, detectedInChansPerGroup;
+  std::tie(detectedOutChansPerGroup, detectedInChansPerGroup) =
+    popconv::detectWeightsChannelGrouping(t);
+  BOOST_CHECK_EQUAL(outChansPerGroup, detectedOutChansPerGroup);
+  BOOST_CHECK_EQUAL(inChansPerGroup, detectedInChansPerGroup);
 }

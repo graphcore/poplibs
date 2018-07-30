@@ -163,7 +163,7 @@ detectWeightsChannelGrouping(const Tensor &w) {
   const auto w1 =
       w.reshapePartial(rank - 1, rank, {w.dim(rank - 1) / inChansPerGroup,
                                         inChansPerGroup})
-       .dimRoll(rank - 1, 0);
+       .dimRoll(rank - 1, 0).flatten(rank - 1, rank + 1);
   auto outChansPerGroup = detectChannelGrouping(w1);
   assert(outChansPerGroup % inChansPerGroup == 0);
   outChansPerGroup /= inChansPerGroup;
