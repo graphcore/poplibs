@@ -307,13 +307,12 @@ add_multitarget_test(
 add_multitarget_test(
          NAME conv1x1_stride_1_odd_in_and_out_chans
         COMMAND single_conv_layer
-            --input-channels=129
-            --output-channels=257
+            --input-channels=65
+            --output-channels=129
             --field={7,7}
             --tiles-per-ipu=16
             --stride=1
             --kernel-size=1
-            --extra-text=1
             VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
