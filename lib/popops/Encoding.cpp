@@ -82,8 +82,6 @@ encodeOneHot(Graph &graph,
       graph.setTileMapping(v, tile);
     }
   }
-  // Initialise, then encode
-  popops::zero(graph, encoded, prog, layerPrefix);
   prog.add(Execute(cs));
   return encoded;
 }

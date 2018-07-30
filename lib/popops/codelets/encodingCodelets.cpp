@@ -23,8 +23,8 @@ public:
   Input<IndexType> index;
   Output<Vector<OutType>> out;
   bool compute() {
-    if (index >= 0 && index < out.size()) {
-      out[index] = 1;
+    for (std::size_t i = 0; i < out.size(); i++) {
+      out[i] = OutType(i == index);
     }
     return true;
   }
@@ -35,13 +35,13 @@ INSTANTIATE_TEMPLATES(EncodeOneHot);
 template <typename IndexType, typename OutType>
 class EncodeOneHot2D : public Vertex {
 public:
-  Input<Vector<IndexType>> indices;
+  Input<Vector<IndexType, VectorLayout::ONE_PTR>> indices;
   Output<VectorList<OutType, VectorListLayout::DELTAN>> out;
   bool compute() {
-    for (std::size_t i = 0; i < indices.size(); i++) {
+    for (std::size_t i = 0; i < out.size(); i++) {
       const auto index = indices[i];
-      if (index >= 0 && index < out[i].size()) {
-        out[i][index] = 1;
+      for (std::size_t j = 0; j < out[i].size(); j++) {
+        out[i][j] = OutType(j == index);
       }
     }
     return true;
