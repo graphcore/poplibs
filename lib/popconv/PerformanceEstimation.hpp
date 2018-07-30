@@ -242,9 +242,9 @@ getConvPartialnx1SupervisorCycleOuterLoopEstimate(
     unsigned outChansPerGroup,
     unsigned numConvUnitsPerTile) {
   uint64_t cycles = innerLoopCycles;
-  return 120 + numConvGroups
-             * (17 + numOutGroups
-              * (15 + numInGroups
+  return 93 + numConvGroups
+             * (15 + numOutGroups
+              * (16 + numInGroups
                 * (16 + cycles)));
 }
 
