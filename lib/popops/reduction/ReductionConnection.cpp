@@ -548,6 +548,7 @@ void connectTwoStageReductions(poplar::Graph &graph,
                                unsigned tile,
                                const std::vector<RegionReduction> &reductions,
                                const std::vector<unsigned> &splits,
+                               const std::string &debugPrefix,
                                ReductionDebug::TileReduction *tileDebug) {
   // Triple check...
   assert(splits.size() == reductions.size());
@@ -670,7 +671,7 @@ void connectTwoStageReductions(poplar::Graph &graph,
 
   // Add a second compute set if needed.
   if (css.size() < 2)
-    css.emplace_back(graph.addComputeSet());
+    css.emplace_back(graph.addComputeSet(debugPrefix + "/Reduce_Second_Stage"));
 
   // Work out which vertex should do each second stage. We just assign
   // in a round-robin manner since there shouldn't really ever be more than
@@ -745,6 +746,7 @@ void connectReductions(poplar::Graph &graph,
                        poplar::Type outputType,
                        unsigned tile,
                        const std::vector<RegionReduction> &reductions,
+                       const std::string &debugPrefix,
                        ReductionDebug::TileReduction *tileDebug) {
 
   const auto &target = graph.getTarget();
@@ -777,7 +779,7 @@ void connectReductions(poplar::Graph &graph,
 
   // We need at least one compute set.
   if (css.size() < 1)
-    css.emplace_back(graph.addComputeSet());
+    css.emplace_back(graph.addComputeSet(debugPrefix + "/Reduce"));
 
   // See if there is the possibility of easily splitting reductions
   // into two-level ones.
@@ -794,6 +796,7 @@ void connectReductions(poplar::Graph &graph,
                               tile,
                               reductions,
                               splits,
+                              debugPrefix,
                               tileDebug);
 
 

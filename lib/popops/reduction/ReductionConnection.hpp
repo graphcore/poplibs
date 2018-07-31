@@ -68,6 +68,7 @@ struct RegionReduction {
 ///                      compute cycle estimation.
 /// \param tile          The tile to map the vertices to.
 /// \param reductions    The set of reductions to distribute between vertices.
+/// \param debugPrefix   Prefix for the compute sets that are added.
 /// \param tileDebug     Will be filled with debug information.
 ///
 void connectReductions(poplar::Graph &graph,
@@ -77,6 +78,7 @@ void connectReductions(poplar::Graph &graph,
                        poplar::Type outputType,
                        unsigned tile,
                        const std::vector<RegionReduction> &reductions,
+                       const std::string &debugPrefix,
                        ReductionDebug::TileReduction *tileDebug);
 
 }

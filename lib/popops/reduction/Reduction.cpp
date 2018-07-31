@@ -109,7 +109,7 @@ void reduceFirstDim2D(Graph &graph,
                             reductionTypes.inVertex,
                             params,
                             prog,
-                            debugPrefix + "/full_on_tile",
+                            debugPrefix + "/ReduceOnTile",
                             debug);
 
   } else {
@@ -130,7 +130,7 @@ void reduceFirstDim2D(Graph &graph,
                                          reductionTypes.inVertex,
                                          reductionTypes.interTile,
                                          prog,
-                                         debugPrefix + "/on_tile",
+                                         debugPrefix + "/ReduceOnTile",
                                          debug);
       // If it was a SQUARE_ADD, then at this point we have now done the
       // SQUARE - change it to an ADD.
@@ -156,7 +156,7 @@ void reduceFirstDim2D(Graph &graph,
                                         reductionTypes.inVertex,
                                         reductionTypes.interTile,
                                         prog,
-                                        debugPrefix + "/stage_"
+                                        debugPrefix + "/ReduceStage"
                                           + std::to_string(i),
                                         debug);
         // If it was a SQUARE_ADD, then at this point we have now done the
@@ -171,7 +171,7 @@ void reduceFirstDim2D(Graph &graph,
                              params,
                              reductionTypes.inVertex,
                              prog,
-                             debugPrefix + "/final_stage",
+                             debugPrefix + "/ReduceFinalStage",
                              debug);
         return;
       }
@@ -216,7 +216,7 @@ Tensor reduce(Graph &graph,
       reducedShape.push_back(shape[d]);
 
   auto out =
-      graph.addVariable(outType, reducedShape, debugPrefix + "/output");
+      graph.addVariable(outType, reducedShape, debugPrefix + "/ReduceOutput");
 
   // Deliberately don't set the tile mapping - this will be detected
   // in reduceLastDim2D() and set appropriately.
@@ -345,7 +345,7 @@ void reduceWithOutput(Graph &graph,
     if (params.op == popops::Operation::ADD ||
         params.op == popops::Operation::SQUARE_ADD ||
         params.op == popops::Operation::LOGICAL_OR) {
-      popops::zero(graph, out, prog, debugPrefix + "/add_init");
+      popops::zero(graph, out, prog, debugPrefix + "/ReduceAddInit");
     } else {
       double initVal = 0.0;
       switch (params.op) {
@@ -405,7 +405,7 @@ void reduceWithOutput(Graph &graph,
       poplar::Tensor inCast = in;
       if (in.elementType() != out.elementType()) {
         inCast = cast(
-            graph, in, out.elementType(), prog, debugPrefix + "/cast");
+            graph, in, out.elementType(), prog, debugPrefix + "/ReduceCast");
       }
 
       // Calculate the necessary expression. E.g. the most complex case,
@@ -431,13 +431,14 @@ void reduceWithOutput(Graph &graph,
       if (params.update)
         expr.reset(new Add(*expr, _1));
 
-      mapInPlace(graph, *expr, {out.flatten(), inCast.flatten()}, prog);
+      mapInPlace(graph, *expr, {out.flatten(), inCast.flatten()}, prog,
+                 debugPrefix + "/ReduceExpression");
 
     } else {
       // Cast is used here rather than copy because the type could be different
       // if AND or OR are used. If the type is the same cast() will
       // automatically switch to copy.
-      auto castProg = cast(graph, in, out, debugPrefix + "/cast");
+      auto castProg = cast(graph, in, out, debugPrefix + "/ReduceCast");
       prog.add(castProg);
     }
 

@@ -180,7 +180,8 @@ void inputToOutputNoExchange(
     }
 
     connectReductions(graph, computeSets, params, inType, inVertexType,
-                      tile, reductions, tileDebug);
+                      tile, reductions,
+                      debugPrefix + "/InToOutNoExchange", tileDebug);
   }
 
   for (const auto &cs : computeSets)
@@ -430,7 +431,8 @@ IntermediatePartials inputToIntermediateNoExchange(
     }
 
     connectReductions(graph, computeSets, op, inType, outType,
-                      tile, reductions, tileDebug);
+                      tile, reductions,
+                      debugPrefix + "/InToIntermediateNoExchange", tileDebug);
   }
 
 
@@ -640,7 +642,8 @@ IntermediatePartials intermediateToIntermediate(
     }
 
     connectReductions(graph, computeSets, op, inType, outType,
-                      tile, reductions, tileDebug);
+                      tile, reductions,
+                      debugPrefix + "/IntermediateToIntermediate", tileDebug);
 
   }
 
@@ -852,7 +855,8 @@ void intermediateToOutput(Graph &graph,
     }
 
     connectReductions(graph, computeSets, params, inType, inVertexType,
-                      tile, reductions, tileDebug);
+                      tile, reductions,
+                      debugPrefix + "/IntermediateToOutput", tileDebug);
   }
 
   for (const auto &cs : computeSets)
