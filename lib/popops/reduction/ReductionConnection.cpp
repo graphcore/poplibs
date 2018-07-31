@@ -583,11 +583,12 @@ void connectTwoStageReductions(poplar::Graph &graph,
   if (singleStageReductions.size() == reductions.size())
     return;
 
-  // The name of the vertex to use.
+  // The name of the vertex to use. Don't do scale or update in the first
+  // stage.
   std::string firstStageVertexName =
-      getReductionVertexName(params, partialType, outputType,  false);
+      getReductionVertexName({params.op}, partialType, outputType,  false);
   std::string firstStageVertexNamePaos =
-      getReductionVertexName(params, partialType, outputType, true);
+      getReductionVertexName({params.op}, partialType, outputType, true);
 
   // Map from reduction number to the partial for second stage reductions.
   std::map<unsigned, poplar::Tensor> secondStagePartials;
