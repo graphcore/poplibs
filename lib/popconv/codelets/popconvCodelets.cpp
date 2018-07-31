@@ -879,7 +879,6 @@ template class Transpose2d<half>;
 
 template <class FPType>
 class
-[[poplar::constraint("elem(*acts) != elem(*addend)")]]
 AddToChannel : public SupervisorVertex {
 public:
   Input<Vector<FPType, TWO_PTR, 8>> addend;
@@ -907,24 +906,30 @@ template class AddToChannel<half>;
 
 template <class FPType>
 class
-[[poplar::constraint("elem(**acts) != elem(**addend)")]]
 AddToChannel2D : public Vertex {
 public:
-  Vector<InOut<Vector<FPType>>> acts;
-  Vector<Input<Vector<FPType, TWO_PTR, 1, true>>, ONE_PTR> addend;
+  // n is equal to addend.size(), addendLen.size(), acts.size()
+  // and actsBlockCount.size()
+  uint32_t n;
+  Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> addend;
+  Vector<uint16_t, ONE_PTR> addendLen;
+  Vector<InOut<Vector<FPType, ONE_PTR, 8, true>>, ONE_PTR> acts;
+  Vector<uint16_t, ONE_PTR> actsBlockCount;
+
+  IS_EXTERNAL_CODELET(true);
 
   bool compute() {
-    unsigned n = acts.size();
     for (unsigned i = 0; i != n; ++i) {
-      unsigned chansPerGroup = addend[i].size();
-      assert(acts[i].size() % chansPerGroup == 0);
-      unsigned len = acts[i].size() / chansPerGroup;
-      for (unsigned j = 0; j != len; ++j) {
-        for (unsigned k = 0; k != chansPerGroup; ++k) {
-          acts[i][j * chansPerGroup + k] += addend[i][k];
+        unsigned blockCount = actsBlockCount[i];
+        unsigned len = addendLen[i];
+
+        for (unsigned b = 0; b != blockCount; ++b) {
+            for (unsigned a = 0; a != len; ++a) {
+                acts[i][b * len + a] += addend[i][a];
+            }
         }
-      }
     }
+
     return true;
   }
 };
@@ -933,7 +938,6 @@ template class AddToChannel2D<half>;
 
 template <class FPType>
 class
-[[poplar::constraint("elem(*acts) != elem(*addend)")]]
 ScaledAddToChannel : public SupervisorVertex {
 public:
   Input<Vector<FPType, TWO_PTR, 8>> addend;
@@ -951,7 +955,7 @@ public:
                               + (actsBlockCountPacked & 0x07);
     for (unsigned j = 0; j != actsBlockCount; ++j) {
       for (unsigned k = 0; k != chansPerGroup; ++k) {
-        acts[j * chansPerGroup + k] += scale * addend[k];
+        acts[j * chansPerGroup + k] += addend[k] * scale;
       }
     }
     return true;
@@ -963,24 +967,31 @@ template class ScaledAddToChannel<half>;
 
 template <class FPType>
 class
-[[poplar::constraint("elem(**acts) != elem(**addend)")]]
 ScaledAddToChannel2D : public Vertex {
 public:
-  Vector<InOut<Vector<FPType>>, ONE_PTR> acts;
-  Vector<Input<Vector<FPType, TWO_PTR, 1, true>>> addend;
-  float scale;
+  // n is equal to addend.size(), addendLen.size(), acts.size()
+  // and actsBlockCount.size()
+  uint32_t n;
+  Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> addend;
+  Vector<uint16_t, ONE_PTR> addendLen;
+  Vector<InOut<Vector<FPType, ONE_PTR, 8, true>>, ONE_PTR> acts;
+  Vector<uint16_t, ONE_PTR> actsBlockCount;
+  FPType scale;
+
+  IS_EXTERNAL_CODELET(true);
 
   bool compute() {
-    unsigned n = addend.size();
     for (unsigned i = 0; i != n; ++i) {
-      unsigned chansPerGroup = addend[i].size();
-      unsigned len = acts[i].size() / chansPerGroup;
-      for (unsigned j = 0; j != len; ++j) {
-        for (unsigned k = 0; k != chansPerGroup; ++k) {
-          acts[i][j * chansPerGroup + k] += scale * addend[i][k];
+        unsigned blockCount = actsBlockCount[i];
+        unsigned len = addendLen[i];
+
+        for (unsigned b = 0; b != blockCount; ++b) {
+            for (unsigned a = 0; a != len; ++a) {
+                acts[i][b * len + a] += addend[i][a] * scale;
+            }
         }
-      }
     }
+
     return true;
   }
 };

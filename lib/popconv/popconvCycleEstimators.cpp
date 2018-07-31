@@ -416,38 +416,122 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
   return cycles;
 }
 
-static std::uint64_t
-addToChannelCycles(unsigned elemsPerWorker, unsigned chansPerGroup,
-                   unsigned dataPathWidth, const Type &type, bool scaledAdd) {
-  const bool isFloat = type == FLOAT;
-  const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-  // Load bias and act pointers.
-  std::uint64_t numCycles = 2;
-  if (scaledAdd) // to load CSR
-    numCycles += 1;
-  // Add addend to acts using add + dual load + store
-  // Add addend to acts using axpby + dual load + store for scaledAdd = 1
-  numCycles += (elemsPerWorker * chansPerGroup + vectorWidth - 1) / vectorWidth;
-  return numCycles;
+// Exact worker cycle count for popconv_AddToChannel__float_core
+std::uint64_t addToChannelCoreCycles_float(unsigned addendLen,
+                                           unsigned blockCount) {
+  std::uint64_t cycles = 1; // return
+
+  ++cycles; // brz
+
+  if (blockCount == 0)
+    return cycles;
+
+  ++cycles; // acts_loop_count = blockCount - 1
+
+  for (unsigned i = 0; i < addendLen; ++i) {
+    cycles += 4; // start of loop
+    cycles += 3 * blockCount; // rpt loop
+    ++cycles; // brnzdec
+  }
+  return cycles;
+}
+
+std::uint64_t addToChannelCoreCycles_half_scalar(unsigned addendLen,
+                                                 unsigned blockCount) {
+  std::uint64_t cycles = 3; // pre-loop
+  // Aligned loop bodies take 7 cycles, misaligned take 9, but they are
+  // equally numerous so it averages to 8.
+  cycles += addendLen * (4 + blockCount * 8);
+  return cycles;
+}
+std::uint64_t addToChannelCoreCycles_half_multiple_of_8(unsigned addendLen,
+                                                        unsigned blockCount) {
+  std::uint64_t cycles = 5; // pre-loop
+  cycles += (addendLen/8) * (
+    8 + // pre-rpt
+    2 * (blockCount - 1) + // rpt body
+    // post-rpt
+    4
+  );
+  return cycles;
+}
+std::uint64_t addToChannelCoreCycles_half_multiple_of_4(unsigned addendLen,
+                                                        unsigned blockCount) {
+  std::uint64_t cycles = 6; // pre-loop
+  cycles += (addendLen/4) * (
+    7 + // pre-rpt
+    2 * (blockCount/2 - 1) + // rpt body
+    // post-rpt. The code actually depends on whether or not blockCount
+    // was odd but it takes the same number of cycles in both cases.
+    6
+  );
+  return cycles;
+}
+
+// Exact worker cycle count for popconv_AddToChannel__half_core
+std::uint64_t addToChannelCoreCycles_half(unsigned addendLen,
+                                          unsigned blockCount) {
+  std::uint64_t cycles = 1; // return
+
+  cycles += 2; // cmpult > 2048, brz
+  if (addendLen > 2048) {
+    return cycles + addToChannelCoreCycles_half_scalar(addendLen, blockCount);
+  }
+
+  cycles += 2; // and, brz
+  if (addendLen % 8 == 0) {
+    return cycles + addToChannelCoreCycles_half_multiple_of_8(addendLen,
+                                                              blockCount);
+  }
+
+  cycles += 2; // cmpult, brnz
+  if (blockCount < 2) {
+    return cycles + addToChannelCoreCycles_half_scalar(addendLen, blockCount);
+  }
+
+  cycles += 2; // and, brz
+  if (addendLen % 4 == 0) {
+    return cycles + addToChannelCoreCycles_half_multiple_of_4(addendLen,
+                                                              blockCount);
+  }
+  return cycles + addToChannelCoreCycles_half_scalar(addendLen, blockCount);
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(AddToChannel2D)(const VertexIntrospector &vertex,
+MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddToChannel2D)(
+                                        const VertexIntrospector &vertex,
                                         const Target &target,
                                         const Type &type) {
-  CODELET_FIELD(acts);
-  CODELET_FIELD(addend);
-  const auto dataPathWidth = target.getDataPathWidth();
-  unsigned n = acts.size();
-  std::uint64_t numCycles = 5;
+  CODELET_SCALAR_VAL(n, uint32_t);
+  CODELET_FIELD(addendLen);
+  CODELET_FIELD(actsBlockCount);
+
+  std::uint64_t numCycles = 7; // pre-loop
+
   for (unsigned i = 0; i != n; ++i) {
-    unsigned chansPerGroup = addend[i].size();
-    assert(acts[i].size() % chansPerGroup == 0);
-    numCycles += addToChannelCycles(acts[i].size() / chansPerGroup,
-                                    chansPerGroup, dataPathWidth, type, false);
-    numCycles += 1; // branch.
+    numCycles += 6; // loop overhead.
+
+    auto coreFunc = type == HALF ? addToChannelCoreCycles_half
+                                 : addToChannelCoreCycles_float;
+
+    numCycles += coreFunc(addendLen.getInitialValue<uint16_t>(target, i),
+                          actsBlockCount.getInitialValue<uint16_t>(target, i));
   }
+
+  // Exit
+  numCycles += 1;
+
   return numCycles;
+}
+
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(AddToChannel2D)(const VertexIntrospector &vertex,
+                                          const Target &target,
+                                          const Type &type) {
+  // ScaledAddToChannel2D and AddToChannel2D use nearly the same code. There is
+  // an additional branch in the supervisor part though.
+  return getCyclesEstimateForScaledAddToChannel2D(vertex, target, type) + 1;
 }
 
 std::uint64_t
@@ -460,54 +544,26 @@ MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddToChannel)(const VertexIntrospector &vertex,
 
   const auto numWorkerContexts = target.getNumWorkerContexts();
 
-  // All numbers are approximate.
+  // These numbers may not be exact (e.g. the remainder of
+  // actsBlockCountPacked is ignored).
 
   // Supervisor overhead.
   std::uint64_t numCycles = 1 + 6 + 1 + 6;
 
   auto approxBlocksPerWorker = actsBlockCountPacked >> 3;
 
-  if (type == HALF) {
-    // Worker overhead.
-    numCycles += numWorkerContexts * 30;
 
-    if (addend.size() % 4 == 0) {
-      // This case is handled optimally, and we process 4 halves per
-      // cycle.
-      // There is another code path for `addend.size() % 8 == 0` but it
-      // should give very similar performance to this.
-      numCycles += numWorkerContexts * (
-                     5 +          // Overhead for this code path.
-                     (10 +        // Overhead for each addend loop.
-                        approxBlocksPerWorker)    // The actual work.
-                       * (addend.size() / 4)  // Number of addend loops.
-                   );
+  // Worker overhead.
+  numCycles += numWorkerContexts * (type == HALF ? 26 : 19);
 
-    } else {
-      // Slow scalar code, we process one half per 9 cycles.
-      numCycles += numWorkerContexts * (
-                     2 +          // Overhead for this code path.
-                     (5 +         // Overhead for each addend loop.
-                        approxBlocksPerWorker * 9)    // The actual work.
-                       * addend.size()  // Number of addend loops.
-                   );
-    }
-  } else {
+  auto coreFunc = type == HALF ? addToChannelCoreCycles_half
+                               : addToChannelCoreCycles_float;
 
-    // Worker overhead.
-    numCycles += numWorkerContexts * 19;
+  numCycles += numWorkerContexts * coreFunc(addend.size(),
+                                            approxBlocksPerWorker);
 
-    // Float currently always uses the same code and does 1 float per 3 cycles.
-    numCycles += numWorkerContexts * (
-                   1 +          // Overhead for this code path.
-                   (4 +        // Overhead for each addend loop.
-                      approxBlocksPerWorker * 3)    // The actual work.
-                     * addend.size()  // Number of addend loops.
-                 );
-
-    // Exit
-    numCycles += 1;
-  }
+  // Exit
+  numCycles += 1;
 
   return numCycles;
 }
@@ -520,26 +576,6 @@ MAKE_CYCLE_ESTIMATOR_NAME(AddToChannel)(const VertexIntrospector &vertex,
   // ScaledAddToChannel and AddToChannel use nearly the same code. There is
   // an additional branch in the supervisor part though.
   return getCyclesEstimateForScaledAddToChannel(vertex, target, type) + 1;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddToChannel2D)(
-                                        const VertexIntrospector &vertex,
-                                        const Target &target,
-                                        const Type &type) {
-  CODELET_FIELD(acts);
-  CODELET_FIELD(addend);
-  const auto dataPathWidth = target.getDataPathWidth();
-  unsigned n = acts.size();
-  std::uint64_t numCycles = 5;
-  for (unsigned i = 0; i != n; ++i) {
-    unsigned chansPerGroup = addend[i].size();
-    assert(acts[i].size() % chansPerGroup == 0);
-    numCycles += addToChannelCycles(acts[i].size() / chansPerGroup,
-                                    chansPerGroup, dataPathWidth, type, true);
-    numCycles += 1; // branch.
-  }
-  return numCycles;
 }
 
 static std::uint64_t

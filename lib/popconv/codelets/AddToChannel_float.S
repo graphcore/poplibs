@@ -36,68 +36,129 @@
 #include "tileimplconsts_tommy.h"
 #include "tilearch.h"
 
-// Vertex state layout
-#define VERTEX_DATA_ADDEND_OFFSET 0            // In 32-bits
-#define VERTEX_DATA_ADDEND_END_OFFSET 1        // In 32-bits
-#define VERTEX_DATA_ACTS_OFFSET 2              // In 32-bits
-#define VERTEX_DATA_ACTS_BLOCK_COUNT_OFFSET 6  // In 16-bits
-// For ScaledAddToChannel
-#define VERTEX_DATA_SCALE_OFFSET 4             // In 32-bits
+.globl __runCodelet_popconv__AddToChannel___float
+.type __runCodelet_popconv__AddToChannel___float, @function
+.globl __runCodelet_popconv__AddToChannel2D___float
+.type __runCodelet_popconv__AddToChannel2D___float, @function
+.globl __runCodelet_popconv__ScaledAddToChannel___float
+.type __runCodelet_popconv__ScaledAddToChannel___float, @function
+.globl __runCodelet_popconv__ScaledAddToChannel2D___float
+.type __runCodelet_popconv__ScaledAddToChannel2D___float, @function
 
-/////////// Supervisor Variables ///////////////
+.section .text.AddToChannel_float_core
+.align 8
 
-// The vertex base is passed in as the first parameter
-#define supervisor_vertex_base m0
-#define worker_entry m1
-
-/////////// Worker Variables //////////////////
-
-// Integer variables
+// This is the main function that does the actual work. It takes the following
+// register arguments:
+//
 #define addend m0
 #define addend_len m1
 #define acts m2
 #define acts_block_count m3
+#define scale a0
+//
+// $m0 and $m2 are modified, but the others are not. $m10 ($lr) is used for
+// the return address. It also uses the following scratch registers:
+//
+#define acts_ptr m4
+#define addend_loop_count m5
+#define tmp a6
+#define current_addend a7
 
-#define acts_ptr m6
+popconv_AddToChannel__float_core:
+  // If we have no blocks to do, return.
+  brz $acts_block_count, .Lreturn
 
-#define blocks_per_worker m5
-#define worker_id m6
-#define block_begin m7
-#define remaining_blocks m8
+  // Currently we just do things as simply as possible with a scalar
+  // non-pipelined path. In future this could be optimised by pipelining it
+  // (so the body contains two instruction bundles), and by using dedicated
+  // multiple-of-2 and multiple-of-4 pipelines as in the half code. But this
+  // code is not as slow as the half scalar code so it isn't such a priority.
 
-#define outer_loop_count m9
+.Laddend_scalar:
+  // Subtract one so that brnzdec can be used for the loop.
+  add $addend_loop_count, $addend_len, -1
 
-#define mscratch0 m10
+// for i = 0..addend_len
+.Lscalar_addend_loop:
+  // Get the next addend.
+  ld32step $current_addend, $mzero, $addend+=, 1
 
-// Float variables
-#define tmp0 a0
-#define scale a3
-#define current_addend0 a4
+  // Store the acts pointer
+{ mov $acts_ptr, $acts
+  // Multiply the addend by the scale.
+  f32mul $current_addend, $current_addend, $scale }
 
-// Mangled function names
+  // Move the acts pointer to the next element for the next loop.
+  add $acts, $acts, 4
 
-// popconv::AddToChannel<half>
-#define addtochannel_f32 __runCodelet_popconv__AddToChannel___float
-// popconv::ScaledAddToChannel<half>
-#define scaled_addtochannel_f32 __runCodelet_popconv__ScaledAddToChannel___float
+  // Loop through acts. This must be 8-byte aligned which can be done with
+  // `.align 8` but that might insert a `nop` and waste a cycle. Instead
+  // we do it manually using bundles if necessary.
+  {
+    rpt $acts_block_count, (2f - 1f)/8-1
+    fnop
+  }
+1:
+  {
+    ld32 $tmp, $mzero, $acts_ptr, 0
+    fnop
+  }
+  {
+    nop
+    f32add $tmp, $tmp, $current_addend
+  }
+  {
+    st32step $tmp, $mzero, $acts_ptr+=, $addend_len
+    fnop
+  }
+2:
 
-.globl addtochannel_f32
-.globl scaled_addtochannel_f32
-.type addtochannel_f32, @function
-.type scaled_addtochannel_f32, @function
+  // If addend_len != 0 decrement it and loop.
+  brnzdec $addend_loop_count, .Lscalar_addend_loop
+
+.Lreturn:
+  br $lr
+
+// Undefine scratch registers. Arguments are left defined for the functions
+// below.
+#undef acts_ptr
+#undef addend_loop_count
+#undef tmp
+#undef current_addend
+
+.size popconv_AddToChannel__float_core, . - popconv_AddToChannel__float_core
+
+
+/////////////////// AddToChannel Supervisor Vertices ///////////////////////
+
+// Vertex state layout for AddToChannel
+#define VERTEX_DATA_ADDEND_OFFSET 0            // In 32-bits
+#define VERTEX_DATA_ADDEND_END_OFFSET 1        // In 32-bits
+#define VERTEX_DATA_ACTS_OFFSET 2              // In 32-bits
+#define VERTEX_DATA_ACTS_BLOCK_COUNT_OFFSET 6  // In 16-bits
+// Additional state for ScaledAddToChannel
+#define VERTEX_DATA_SCALE_OFFSET 4             // In 32-bits
 
 .section .text.AddToChannel_float
-.align 8
+.align 4
 
-addtochannel_f32:
+// The following supervisor variables are used. The vertex base is
+// passed in as $m0.
+#define supervisor_vertex_base m0
+#define worker_entry m1
+
+__runCodelet_popconv__ScaledAddToChannel___float:
   // Set the entry point for the workers.
-  setzi        $worker_entry, .Laddtochannel_worker
+  setzi        $worker_entry, .Lscaled_addtochannel_worker
   // Run the workers.
   bri .Lrun_workers
 
-scaled_addtochannel_f32:
+.size __runCodelet_popconv__ScaledAddToChannel___float, . - __runCodelet_popconv__ScaledAddToChannel___float
+
+__runCodelet_popconv__AddToChannel___float:
   // Set the entry point for the workers.
-  setzi        $worker_entry, .Lscaled_addtochannel_worker
+  setzi        $worker_entry, .Laddtochannel_worker
   // Fall through.
 
 .Lrun_workers:
@@ -107,6 +168,17 @@ scaled_addtochannel_f32:
   sync         TEXCH_SYNCZONE_LOCAL
   // Return to caller.
   br           $lr
+
+#undef supervisor_vertex_base
+#undef worker_entry
+
+// Worker code.
+
+#define blocks_per_worker m4
+#define worker_id m5
+#define block_begin m6
+#define remaining_blocks m7
+#define mscratch0 m8
 
 .Lscaled_addtochannel_worker:
   // Load the scale.
@@ -120,7 +192,6 @@ scaled_addtochannel_f32:
   // Fall through.
 
 .Lworker:
-
   // Load vertex state.
   ld32 $addend,            $mvertex_base, $mzero, VERTEX_DATA_ADDEND_OFFSET
   ld32 $mscratch0,         $mvertex_base, $mzero, VERTEX_DATA_ADDEND_END_OFFSET
@@ -150,77 +221,87 @@ scaled_addtochannel_f32:
   cmpult $mscratch0, $worker_id, $remaining_blocks
   add $acts_block_count, $blocks_per_worker, $mscratch0
 
-  // If we have no blocks to do, exit.
-  brz $acts_block_count, .Lend
-
   // How many elements to advance $acts.
   mul $mscratch0, $block_begin, $addend_len
   // Advance $acts by 4*$mscratch0 bytes to the $block_begin'th block using
   // a dummy load.
   ld32step $azero, $mzero, $acts+=, $mscratch0
 
-  // Now we are prepared to do the computation, but we have different
-  // code paths depending on whether the addend_len is a multiple of 4 or 2
-  // or neither.
+  call $lr, popconv_AddToChannel__float_core
 
-  // However, for now we'll just do the slow path which is not as slow as
-  // f16's slow path.
-
-  // Otherwise fall through and do it slowly.
-
-///////////////////////////////////////////////////////////////////////////////
-//                                                                           //
-//                              Scalar Code                                  //
-//                                                                           //
-///////////////////////////////////////////////////////////////////////////////
-.Laddend_scalar:
-  // Subtract one so that brnzdec can be used for the loop.
-  add $outer_loop_count, $addend_len, -1
-
-// for i = 0..addend_len
-.Lscalar_addend_loop:
-  // Get the next addend.
-  ld32step $current_addend0, $mzero, $addend+=, 1
-
-  // Store the acts pointer
-{ mov $acts_ptr, $acts
-  // Multiply the addend by the scale.
-  f32mul $current_addend0, $current_addend0, $scale }
-
-  // Move the acts pointer to the next element for the next loop.
-  add $acts, $acts, 4
-
-  // Loop through acts. This must be 8-byte aligned which can be done with
-  // `.align 8` but that might insert a `nop` and waste a cycle. Instead
-  // we do it manually using bundles if necessary.
-  {
-    rpt $acts_block_count, (2f - 1f)/8-1
-    fnop
-  }
-1:
-  {
-    ld32 $tmp0, $mzero, $acts_ptr, 0
-    fnop
-  }
-  {
-    nop
-    f32add $tmp0, $tmp0, $current_addend0
-  }
-  {
-    st32step $tmp0, $mzero, $acts_ptr+=, $addend_len
-    fnop
-  }
-2:
-
-  // If addend_len != 0 decrement it and loop.
-  brnzdec $outer_loop_count, .Lscalar_addend_loop
-
-.Lend:
   exitnz $mzero
 
-// Set the symbol sizes. It doesn't *really* make sense, but I think this is
-// the least confusing.
-.size addtochannel_f32, . - addtochannel_f32
-.size scaled_addtochannel_f32, . - addtochannel_f32
+#undef blocks_per_worker
+#undef worker_id
+#undef block_begin
+#undef remaining_blocks
+#undef mscratch0
+
+.size __runCodelet_popconv__AddToChannel___float, . - __runCodelet_popconv__AddToChannel___float
+
+///////////////////// AddToChannel2D Worker Vertices ////////////////////////
+
+// Vertex state layout for AddToChannel2D
+#define VERTEX2D_DATA_N_OFFSET 0                    // In 32-bits
+#define VERTEX2D_DATA_ADDEND_OFFSET 1               // In 32-bits
+#define VERTEX2D_DATA_ADDEND_LEN_OFFSET 2           // In 32-bits
+#define VERTEX2D_DATA_ACTS_OFFSET 3                 // In 32-bits
+#define VERTEX2D_DATA_ACTS_BLOCK_COUNT_OFFSET 4     // In 32-bits
+// Additional state for ScaledAddToChannel2D
+#define VERTEX2D_DATA_SCALE_OFFSET 5                // In 32-bits
+
+.section .text.AddToChannel2D_float
+.align 4
+
+__runCodelet_popconv__ScaledAddToChannel2D___float:
+  // Load the scale.
+  ld32 $scale, $mvertex_base, $mzero, VERTEX2D_DATA_SCALE_OFFSET
+  // Jump to the shared worker code.
+  bri .Lworker2d
+
+.size __runCodelet_popconv__ScaledAddToChannel2D___float, . - __runCodelet_popconv__ScaledAddToChannel2D___float
+
+__runCodelet_popconv__AddToChannel2D___float:
+  // Set the scale to 1.0.
+  f32exp $scale, $azero
+  // Fall through.
+
+#define addend_iterator m6
+#define addend_len_iterator m7
+#define acts_iterator m8
+#define acts_block_count_iterator m9
+#define n m11
+
+.Lworker2d:
+
+  ld32 $n,                         $mvertex_base, $mzero, VERTEX2D_DATA_N_OFFSET
+  ld32 $addend_iterator,           $mvertex_base, $mzero, VERTEX2D_DATA_ADDEND_OFFSET
+  ld32 $addend_len_iterator,       $mvertex_base, $mzero, VERTEX2D_DATA_ADDEND_LEN_OFFSET
+  ld32 $acts_iterator,             $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_OFFSET
+  ld32 $acts_block_count_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_BLOCK_COUNT_OFFSET
+
+  // Subtract one for brnzdec
+  add $n, $n, -1
+
+.Louter_loop:
+  // Advance all the iterators.
+  ld32step  $addend,           $mzero, $addend_iterator+=, 1
+  ldz16step $addend_len,       $mzero, $addend_len_iterator+=, 1
+  ld32step  $acts,             $mzero, $acts_iterator+=, 1
+  ldz16step $acts_block_count, $mzero, $acts_block_count_iterator+=, 1
+
+  call $lr, popconv_AddToChannel__float_core
+
+  brnzdec $n, .Louter_loop
+
+  exitnz $mzero
+
+#undef addend_iterator
+#undef addend_len_iterator
+#undef acts_iterator
+#undef acts_block_count_iterator
+#undef n
+
+.size __runCodelet_popconv__AddToChannel2D___float, . - __runCodelet_popconv__AddToChannel2D___float
 
 #endif // __IPU__

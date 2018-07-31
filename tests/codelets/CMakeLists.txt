@@ -83,3 +83,4 @@ foreach(DATA_TYPE half float)
 endforeach()
 
 add_popnn_unit_test(AddToChannel AddToChannel.cpp)
+add_popnn_unit_test(AddToChannel2D AddToChannel2D.cpp)

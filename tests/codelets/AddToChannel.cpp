@@ -93,7 +93,8 @@ static bool addToChannelTests(const std::vector<TestCase> &cases) {
                                | (actsBlockCount % 6);
     uint16_t actsBlockCountPacked16 = actsBlockCountPacked;
 
-    BOOST_CHECK_EQUAL(actsBlockCountPacked16, actsBlockCountPacked);
+    if (actsBlockCountPacked16 != actsBlockCountPacked)
+      return false;
 
     graph.setInitialValue(v["actsBlockCountPacked"], actsBlockCountPacked16);
 
@@ -192,18 +193,22 @@ void runAddToChannelTests(std::vector<TestCase> cases) {
 
 BOOST_AUTO_TEST_CASE(AddToChannelSmall) {
   std::vector<TestCase> cases = {
-    {HALF, 1, 800, 3.0f},
-    {HALF, 4, 800, 3.0f},
-    {HALF, 8, 800, 3.0f},
+    {HALF, 1, 480, 3.0f},
+    {HALF, 4, 480, 3.0f},
+    {HALF, 8, 480, 3.0f},
+    {HALF, 12, 480, 3.0f},
+    {HALF, 16, 480, 3.0f},
     {HALF, 1, 15, 3.0f},
     {HALF, 4, 12, 3.0f},
     {HALF, 8, 40, 3.0f},
     {HALF, 5, 15, 3.0f},
     {HALF, 8, 168, 3.0f},
 
-    {FLOAT, 1, 800, 3.0f},
-    {FLOAT, 4, 800, 3.0f},
-    {FLOAT, 8, 800, 3.0f},
+    {FLOAT, 1, 480, 3.0f},
+    {FLOAT, 4, 480, 3.0f},
+    {FLOAT, 8, 480, 3.0f},
+    {FLOAT, 12, 480, 3.0f},
+    {FLOAT, 16, 480, 3.0f},
     {FLOAT, 1, 15, 3.0f},
     {FLOAT, 4, 12, 3.0f},
     {FLOAT, 8, 40, 3.0f},
@@ -213,9 +218,16 @@ BOOST_AUTO_TEST_CASE(AddToChannelSmall) {
   runAddToChannelTests(cases);
 }
 
+std::size_t maxBlockCount() {
+  // This is the maximum acts_block_count the vertex supports.
+  // We can only test it for addend length of 1 otherwise it doesn't
+  // fit in memory.
+  return 4094 * 6;
+}
+
 BOOST_AUTO_TEST_CASE(AddToChannelLarge1_half) {
   std::vector<TestCase> cases = {
-    {HALF, 1, 8000, 3.0f},
+    {HALF, 1, maxBlockCount(), 3.0f},
   };
   runAddToChannelTests(cases);
 }
@@ -229,7 +241,7 @@ BOOST_AUTO_TEST_CASE(AddToChannelLarge8_half) {
 
 BOOST_AUTO_TEST_CASE(AddToChannelLarge1_float) {
   std::vector<TestCase> cases = {
-    {FLOAT, 1, 8000, 3.0f},
+    {FLOAT, 1, maxBlockCount(), 3.0f},
   };
   runAddToChannelTests(cases);
 }
