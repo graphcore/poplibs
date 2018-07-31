@@ -251,8 +251,52 @@ MAKE_CYCLE_ESTIMATOR_NAME(CalcAccuracy)(const VertexIntrospector &vertex,
                                         const Target &target,
                                         const Type &fpType,
                                         const Type &labelType) {
-  // TODO
-  return 0;
+  std::uint64_t cycles = 5; // Vertex overhead
+
+  CODELET_FIELD(activations);
+  CODELET_FIELD(labels);
+  const auto batchSize = activations.size();
+  assert(labels.size() == batchSize);
+
+  cycles += 3 + // Load activations outer start/end pointer, calc length
+            1 + // Load labels pointer
+            2 + // Load numCorrect pointer, then current value
+            1;  // Sub 1 for brnzdec
+
+  const auto classesPerBatch = activations[0].size();
+  for (std::size_t b = 0; b < batchSize; ++b) {
+    cycles += 3; // Load inner start/end pointer and calc length
+
+    const auto numClasses = activations[b].size();
+    assert(numClasses == classesPerBatch);
+
+    // Cycles to find index of max class
+    // This is worst case, where all activations are sorted in ascending order
+    // and every iteration takes the branch.
+    //
+    cycles += 1;   // Set counter tracking current class index (to -1 for below
+                   // loop to work).
+    cycles += numClasses *
+              (1 + // [M] load next activation
+                   // [A] cmpgt this activation
+               1 + // [A] min to give 0.0/1.0
+               1 + // [M] add to counter tracking current class index
+                   // [A] convert comparison result to int
+               2 + // [M] move comparison result to MRF, then branch
+               1 + // [M] potentially update current max activation
+                   // [A] potentially update current max class index
+               2); // [M] cmpeq curr class index with class count, branch to
+                   //     loop.
+
+    // Cycles to check if the max class index was the expected
+    cycles += 1 + // load expected class index
+              1 + // cmpeq expected with max class index
+              1 + // add to running numCorrect total
+              1;  // outer loop brnzdec
+  }
+
+  cycles += 1; // store final numCorrect total
+  return cycles;
 }
 
 std::uint64_t

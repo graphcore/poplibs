@@ -371,7 +371,7 @@ template class LossSoftmaxTransform<half>;
 template <typename FPType, typename LabelType>
 class CalcAccuracy : public Vertex {
 public:
-  Input<VectorList<FPType, VectorListLayout::DELTAN>> activations;
+  Vector<Input<Vector<FPType>>> activations;
   Input<Vector<LabelType, ONE_PTR>> labels;
 
   InOut<unsigned> numCorrect;
