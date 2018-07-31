@@ -1618,6 +1618,25 @@ static bool fitsMachineStride(const Target &target, int stride) {
   return stride >= minLimit && stride < maxLimit;
 };
 
+// Weights for output channel groups is reordered to be reverse order
+static std::vector<Tensor>
+reorderWeightsTensor(std::vector<Tensor> &in, unsigned numInGroups,
+                     unsigned numOutGroups, unsigned numConvGroups) {
+  assert(in.size() == numInGroups * numOutGroups * numConvGroups);
+  std::vector<Tensor> reorderedIn;
+  for (auto cg = 0U; cg != numConvGroups; ++cg) {
+    for (auto ig = 0U; ig != numInGroups; ++ig) {
+      for (auto ogp1 = numOutGroups; ogp1 > 0; --ogp1) {
+        const auto og = ogp1 - 1;
+        auto inIndex = cg * numOutGroups * numInGroups + og * numInGroups
+                       + ig;
+        reorderedIn.push_back(in[inIndex]);
+      }
+    }
+  }
+  return reorderedIn;
+}
+
 static void createConvPartialAmpVertex(Graph &graph,
                                        const Plan &plan,
                                        unsigned tile,
@@ -1931,23 +1950,6 @@ static void createConvPartialAmpVertex(Graph &graph,
                            templateVertex(codeletName, in.elementType(),
                                           plan.types.back().partialType,
                                           useLimitedVer ? "true" : "false"));
-  auto reorderWeightsTensor =
-      [](std::vector<Tensor> &in, unsigned numInGroups,
-         unsigned numOutGroups, unsigned numConvGroups) {
-    assert(in.size() == numInGroups * numOutGroups * numConvGroups);
-    std::vector<Tensor> reorderedIn;
-    for (auto cg = 0U; cg != numConvGroups; ++cg) {
-      for (auto ig = 0U; ig != numInGroups; ++ig) {
-        for (auto ogp1 = numOutGroups; ogp1 > 0; --ogp1) {
-          const auto og = ogp1 - 1;
-          auto inIndex = cg * numOutGroups * numInGroups + og * numInGroups
-                         + ig;
-          reorderedIn.push_back(in[inIndex]);
-        }
-      }
-    }
-    return reorderedIn;
-  };
 
   // The parameters are modified to what the vertex uses
   graph.connect(v["in"], inWindow);
@@ -2038,6 +2040,12 @@ createConvPartialHorizontalMacVertex(Graph &graph,
     }
   }
 
+  auto inStrideX = params.outputTransform.stride.back();
+  auto outStrideX = params.inputTransform.dilation.back();
+  const auto strideDivisor = gcd(inStrideX, outStrideX);
+  inStrideX /= strideDivisor;
+  outStrideX /= strideDivisor;
+
   const unsigned numInFieldElems = product(params.inputFieldShape);
   const unsigned numKernelFieldElems = product(params.kernelShape);
   const unsigned kernelSizeX = params.kernelShape.back();
@@ -2120,48 +2128,57 @@ createConvPartialHorizontalMacVertex(Graph &graph,
           const auto inBeginOffset =
               workerSlice.b * numInFieldElems +
               flattenIndex(params.inputFieldShape, workerIn);
+
           auto kIndex = k * kernelSizeX + kx;
-          worklist[kIndex * contextsPerVertex + i].push_back(outBeginOffset);
-          worklist[kIndex * contextsPerVertex + i].push_back(workerOutWidth);
+          const auto numFieldElems =
+              (workerOutWidth + outStrideX - 1) / outStrideX;
+
+          const auto outOffset = flipOut ? outBeginOffset + workerOutWidth - 1 :
+                                           outBeginOffset;
+
+          worklist[kIndex * contextsPerVertex + i].push_back(outOffset);
+          worklist[kIndex * contextsPerVertex + i].push_back(numFieldElems);
           worklist[kIndex * contextsPerVertex + i].push_back(inBeginOffset);
         }
       }
     }
   }
 
-  auto inStrideX = params.outputTransform.stride.back();
-  auto outStrideX = params.inputTransform.dilation.back();
-  const auto strideDivisor = gcd(inStrideX, outStrideX);
-  inStrideX /= strideDivisor;
-  outStrideX /= strideDivisor;
+  int transformedOutStride =
+      ((flipOut ? -static_cast<int>(outStrideX) :
+                   static_cast<int>(outStrideX)) - 1) * outChansPerGroup;
+  const auto transformedInStride = inStrideX * inChansPerGroup;
 
   bool useLimitedVer = true;
-  if (!fitsMachineStride(target, inStrideX) ||
-      !fitsMachineStride(target, outStrideX))
-    useLimitedVer = false;
-
   // check if all worklist items meet range constraints
   for (auto j = 0U; j != worklist.size() && useLimitedVer; ++j) {
     const auto &vec = worklist[j];
-    for (auto i = 0U; i != vec.size(); ++i) {
-      if ((i % 3) == 1) {
-        if (vec[i] >  target.getRptCountMax()) {
-          useLimitedVer = false;
-          break;
-        }
-      } else {
-        if (vec[i] > std::numeric_limits<unsigned short>::max()) {
-          useLimitedVer = false;
-          break;
-        }
+    for (auto entry : vec) {
+      if (entry > std::numeric_limits<unsigned short>::max()) {
+        useLimitedVer = false;
+        break;
       }
     }
   }
+
   const auto zeroWorklist = createZeroWorklist(target, outWindow[0]);
   for (auto entry : zeroWorklist) {
     if (entry > std::numeric_limits<unsigned short>::max()) {
       useLimitedVer = false;
       break;
+    }
+  }
+
+  // TODO: add float constraints when assembler codelet is written
+  if (in.elementType() == HALF) {
+    // Conv planner sets a grain size of 2 for input channels per group
+    if (inChansPerGroup % 2)
+      useLimitedVer = false;
+    else {
+      const auto maxRptCount = inChansPerGroup % 4 == 0 ? inChansPerGroup / 4 :
+                                                          inChansPerGroup / 2;
+      if (maxRptCount > target.getRptCountMax())
+        useLimitedVer = false;
     }
   }
 
@@ -2173,16 +2190,17 @@ createConvPartialHorizontalMacVertex(Graph &graph,
                                           useLimitedVer ? "true" : "false"));
   graph.connect(v["in"], inWindow);
   graph.connect(v["out"], outWindow);
-  graph.connect(v["weights"], weightsWindow);
+  graph.connect(v["weights"],
+      reorderWeightsTensor(weightsWindow, numInChanGroups,
+                           numOutChanGroups, numConvGroups));
   graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
-  graph.setInitialValue(v["numOutGroups"], numOutChanGroups);
-  graph.setInitialValue(v["numInGroups"], numInChanGroups);
-  graph.setInitialValue(v["kernelSize"], numKernelFieldElems);
-  graph.setInitialValue(v["inStride"], inStrideX);
-  graph.setInitialValue(v["outStride"], outStrideX);
-  graph.setInitialValue(v["numConvGroups"], numConvGroups);
-  graph.setInitialValue(v["flipOut"], flipOut);
+  graph.setInitialValue(v["numOutGroupsM1"], numOutChanGroups - 1);
+  graph.setInitialValue(v["numInGroupsM1"], numInChanGroups - 1);
+  graph.setInitialValue(v["kernelSizeM1"], numKernelFieldElems - 1);
+  graph.setInitialValue(v["transformedInStride"], transformedInStride);
+  graph.setInitialValue(v["transformedOutStride"], transformedOutStride);
+  graph.setInitialValue(v["numConvGroupsM1"], numConvGroups - 1);
   graph.setFieldSize(v["worklists"], worklist.size());
   for (unsigned i = 0;i < worklist.size(); ++i) {
     auto t = graph.addConstant(worklistEntryType, {worklist[i].size()},

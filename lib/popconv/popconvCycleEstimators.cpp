@@ -193,15 +193,22 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
   (void) useLimitedVer;
   CODELET_VECTOR_2D_VALS(worklists, unsigned);
   CODELET_VECTOR_VALS(zeroWorklist, unsigned);
-  CODELET_SCALAR_VAL(numOutGroups, unsigned);
-  CODELET_SCALAR_VAL(numInGroups, unsigned);
-  CODELET_SCALAR_VAL(numConvGroups, unsigned);
-  CODELET_SCALAR_VAL(kernelSize, unsigned);
-  CODELET_SCALAR_VAL(outStride, unsigned);
+  CODELET_SCALAR_VAL(numOutGroupsM1, unsigned);
+  CODELET_SCALAR_VAL(numInGroupsM1, unsigned);
+  CODELET_SCALAR_VAL(numConvGroupsM1, unsigned);
+  CODELET_SCALAR_VAL(kernelSizeM1, unsigned);
+  CODELET_SCALAR_VAL(transformedOutStride, unsigned);
   CODELET_SCALAR_VAL(inChansPerGroup, unsigned);
+  CODELET_SCALAR_VAL(outChansPerGroup, unsigned);
   CODELET_FIELD(out);
   CODELET_FIELD(in);
   CODELET_FIELD(weights);
+  const auto numConvGroups = numConvGroupsM1 + 1;
+  const auto numOutGroups = numOutGroupsM1 + 1;
+  const auto numInGroups = numInGroupsM1 + 1;
+  const auto kernelSize = kernelSizeM1 + 1;
+  const auto outStride = transformedOutStride / outChansPerGroup + 1;
+
   assert(numConvGroups * numOutGroups * numInGroups == weights.size());
   assert(out.size() == numOutGroups * numConvGroups);
   assert(in.size() == numInGroups * numConvGroups);
@@ -245,6 +252,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
         numOutGroups,
         kernelSize,
         inChansPerGroup,
+        outChansPerGroup,
         dataPathWidth,
         numWorkerContexts,
         floatActivations);

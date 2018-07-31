@@ -84,6 +84,7 @@
 // Performance: 14 + num_samples / 2
 
 .section ".text.convNx1ZeroOutField", "ax"
+.global convNx1ZeroOutField
 .type convNx1ZeroOutField, @function
 .align 8
 

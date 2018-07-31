@@ -341,6 +341,7 @@ estimateConvPartialHorizontalMacInnerLoopCycles(unsigned numOutRows,
                                                 unsigned numWorkers,
                                                 bool floatActivations,
                                                 unsigned inChansPerGroup,
+                                                unsigned outChansPerGroup,
                                                 unsigned dataPathWidth);
 class PlanningCacheImpl {
 public:
@@ -519,6 +520,7 @@ estimateConvPartialHorizontalMacInnerLoopCycles(unsigned numOutRows,
                                                 unsigned numWorkers,
                                                 bool floatActivations,
                                                 unsigned inChansPerGroup,
+                                                unsigned outChansPerGroup,
                                                 unsigned dataPathWidth) {
   unsigned rowSplitFactor = numWorkers / gcd(numWorkers, numOutRows);
   unsigned numPartRows = numOutRows * rowSplitFactor;
@@ -549,6 +551,7 @@ estimateConvPartialHorizontalMacInnerLoopCycles(unsigned numOutRows,
     workerPartitions,
     kernelSize,
     inChansPerGroup,
+    outChansPerGroup,
     dataPathWidth,
     numWorkers,
     floatActivations);
@@ -810,6 +813,7 @@ addPartialCalcCycleEstimate(
               target.getNumWorkerContexts(),
               floatActivations,
               inChansPerGroup,
+              outChansPerGroup,
               target.getDataPathWidth());
         return
             getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(

@@ -332,9 +332,11 @@ template class ConvPartial1x1Out<float, float, false>;
 /* Perform a series of 1x1 convolutions using the MAC instruction were the
  * axis of accumulation is across the vector.
  * useLimitedVer is "true" if there are constraints imposed on
- * - size of strides are bounded to strides supported by ISA
- * - worklists-offsets are bounded to fit 16-bits
- * - worklists-number of elements <= maximum count supported by rpt instruction
+ * - The number of input channels is a multiple of 2
+ * - worklists items are bounded to fit 16-bits
+ * - number of input channels per group divided by 2 or 4 depending on whether
+ *   those channels are multiple of 2 and 4 respectively
+ *    <= maximum count supported by rpt instruction
  */
 template <class FPType, class AccumType, bool useLimitedVer>
 class
@@ -343,23 +345,36 @@ ConvPartialHorizontalMac : public SupervisorVertex {
 public:
   using WorkListType =
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
-  Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> in;
-  Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> weights;
-  Vector<InOut<Vector<AccumType, ONE_PTR>>, ONE_PTR> out;
+  Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> in;
+  Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> weights;
+  Vector<InOut<Vector<AccumType, ONE_PTR, 8>>, ONE_PTR> out;
   Input<VectorList<WorkListType, VectorListLayout::DELTAN>> worklists;
   Input<Vector<WorkListType>> zeroWorklist;
-  unsigned numOutGroups;
-  unsigned numInGroups;
-  unsigned kernelSize;
-  unsigned inStride;
-  unsigned outStride;
-  unsigned numConvGroups;
-  bool flipOut;
+  unsigned numOutGroupsM1;
+  unsigned numInGroupsM1;
+  unsigned kernelSizeM1;
+  // transformedInStride =  ("actual input stride" - 1) * inChansPerGroup
+  unsigned transformedInStride;
+  // transformedOutStride =
+  //   = (-1 * "actual output stride" - 1 * outChansPerGroup (if flip output)
+  //   = +1 * "actual output stride" * outChansPerGroup
+  int transformedOutStride;
+  unsigned numConvGroupsM1;
+  unsigned outChansPerGroup;
+  unsigned inChansPerGroup;
 
-  SimOnlyField<unsigned> outChansPerGroup;
-  SimOnlyField<unsigned> inChansPerGroup;
+  static const bool isExternalCodelet = (EXTERNAL_CODELET) &&
+                                        std::is_same<FPType, half>() &&
+                                        std::is_same<AccumType, float>() &&
+                                        useLimitedVer == true;
   bool compute() {
+    const auto kernelSize = kernelSizeM1 + 1;
     const auto usedContexts = worklists.size() / kernelSize;
+    const auto numOutGroups = numOutGroupsM1 + 1;
+    const auto numInGroups = numInGroupsM1 + 1;
+    const auto numConvGroups = numConvGroupsM1 + 1;
+    const auto outStride = transformedOutStride / outChansPerGroup + 1;
+    const auto inStride = transformedInStride / inChansPerGroup;
 
     for (unsigned cg = 0; cg != numConvGroups; ++cg) {
       for (unsigned og = 0; og != numOutGroups; ++og) {
@@ -375,8 +390,9 @@ public:
       for (unsigned og = 0; og != numOutGroups; ++og) {
         for (unsigned ig = 0; ig != numInGroups; ++ig) {
           const auto &w = weights[cg * numOutGroups * numInGroups +
-                                  og * numInGroups +
-                                  ig];
+                                  ig * numOutGroups +
+                                  (numOutGroups - 1 - og)];
+
           for (unsigned k = 0; k != kernelSize; ++k) {
             for (unsigned context = 0; context < usedContexts; ++context) {
               const auto &wl =
@@ -384,17 +400,13 @@ public:
               unsigned wi = 0;
               while (wi < wl.size()) {
                 auto outOffset  = wl[wi];
-                auto outWidth   = wl[wi + 1];
+                auto numConv   = wl[wi + 1];
                 auto inOffset   = wl[wi + 2];
                 wi += 3;
-                auto numConv = (outWidth + outStride - 1) / outStride;
                 for (unsigned i = 0; i != numConv; ++i) {
                   for (unsigned oc = 0; oc != outChansPerGroup; ++oc) {
-                    const auto outX =
-                        flipOut ? (outWidth - 1 - i * outStride) :
-                                  i * outStride;
                     const auto outIndex =
-                        (outOffset + outX) * outChansPerGroup + oc;
+                      (outOffset +  i * outStride) * outChansPerGroup + oc;
                     AccumType sum = out[cg * numOutGroups + og][outIndex];
                     for (unsigned ic = 0; ic != inChansPerGroup; ++ic) {
                       const auto inIndex =

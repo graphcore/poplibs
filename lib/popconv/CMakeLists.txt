@@ -62,6 +62,7 @@ set(codelet_asm_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/AddToChannel_half.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/AddToChannel_float.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceAdd.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/conv_hzmac_half_float.S  
 )
 set(codelet_headers
   PerformanceEstimation.hpp

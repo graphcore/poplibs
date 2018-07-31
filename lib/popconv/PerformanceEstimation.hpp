@@ -11,13 +11,14 @@
 inline std::uint64_t
 getDenseDotProductCycles(bool isFloat, unsigned size, unsigned dataPathWidth) {
   if (isFloat) {
-    const auto floatVectorWidth = dataPathWidth / 32;
-    return (size + floatVectorWidth - 1) / floatVectorWidth + 2;
+    unsigned vecLen = (size % 2) == 0 ? size / 2 : size;
+    return vecLen + 4;
   }
-  const auto halfVectorWidth = dataPathWidth / 16;
-  return (size + halfVectorWidth - 1) / halfVectorWidth + 2;
+  if ((size % 4) == 0)
+    return 6 + size / 4;
+  else
+    return 4 + size;
 }
-
 
 template <class InputIterator>
 bool allEqual(InputIterator begin, InputIterator end) {
@@ -34,16 +35,19 @@ bool allEqual(InputIterator begin, InputIterator end) {
 inline std::uint64_t
 getConvPartialHorizontalMacCycleEstimate(
     bool isFloat,
-    unsigned numChans,
+    unsigned numInChans,
+    unsigned numOutChans,
     const std::vector<unsigned> &convSizes,
     unsigned dataPathWidth) {
-  uint64_t cycles = 0;
+  uint64_t cycles = 16;
   for (auto convSize : convSizes) {
-    // 3 to load in offset, out offset and width,
-    // 3 to setup pointers + tapack
-    // 1 additional cycles for pipeline
-    cycles += 7 + convSize * getDenseDotProductCycles(isFloat, numChans,
-                                                      dataPathWidth);
+    if (convSize == 0) {
+      cycles += 7;
+    } else {
+      cycles += 19 + convSize * (7 + numOutChans *
+                                 getDenseDotProductCycles(isFloat, numInChans,
+                                                          dataPathWidth));
+    }
   }
   return cycles;
 }
@@ -70,6 +74,7 @@ getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
     const std::vector<std::vector<std::vector<unsigned>>> &workerPartitions,
     unsigned kernelSize,
     unsigned numInChansPerGroup,
+    unsigned numOutChansPerGroup,
     unsigned dataPathWidth,
     unsigned numWorkerContexts,
     bool isFloat) {
@@ -83,20 +88,18 @@ getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
     for (auto k = 0U; k != kernelSize; ++k) {
       thisWorkerCycles +=
         getConvPartialHorizontalMacCycleEstimate(isFloat, numInChansPerGroup,
+                                                 numOutChansPerGroup,
                                                  workerPartitions[context][k],
                                                  dataPathWidth);
-      // to load partition with post increment and branch
-      // + additional cycles to create pointer to worklist
-      thisWorkerCycles += 2 + 2;
     }
-    const unsigned workerNonLoopOverhead = 6;
+    const unsigned workerNonLoopOverhead = 16;
     thisWorkerCycles += workerNonLoopOverhead;
     maxWorkerCycles =
         std::max(maxWorkerCycles, numWorkerContexts * thisWorkerCycles);
     minWorkerCycles =
         std::min(minWorkerCycles, numWorkerContexts * thisWorkerCycles);
   }
-  cycles += std::max(maxWorkerCycles, minWorkerCycles + 11);
+  cycles += std::max(maxWorkerCycles, minWorkerCycles);
   return cycles;
 }
 
@@ -107,10 +110,10 @@ getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(
     unsigned numInGroups,
     unsigned numOutGroups) {
   uint64_t cycles = innerLoopCycles;
-  return 6  + numConvGroups
-            * (16 + numOutGroups
-                * (8 + numInGroups
-                   * (2 + cycles)));
+  return 62 + numConvGroups
+            * (21 + numInGroups
+                * (15 + numOutGroups
+                   * (10 + cycles)));
 }
 
 inline std::uint64_t
@@ -121,14 +124,14 @@ getConvPartialHorizontalMacSupervisorCycleEstimate(
     unsigned numOutGroups,
     unsigned kernelSize,
     unsigned numInChansPerGroup,
+    unsigned numOutChansPerGroup,
     unsigned dataPathWidth,
     unsigned numWorkerContexts,
     bool isFloat) {
-  // 8 cycles to extract from vectorlist::deltan
-  auto cycles = 8 +
+  auto cycles =
       getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
-        workerPartitions, kernelSize, numInChansPerGroup, dataPathWidth,
-        numWorkerContexts, isFloat);
+        workerPartitions, kernelSize, numInChansPerGroup, numOutChansPerGroup,
+        dataPathWidth, numWorkerContexts, isFloat);
   return getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(
         cycles, numConvGroups, numInGroups, numOutGroups);
 }
