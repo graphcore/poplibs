@@ -82,5 +82,9 @@ foreach(DATA_TYPE half float)
   endforeach()
 endforeach()
 
-add_popnn_unit_test(AddToChannel AddToChannel.cpp)
-add_popnn_unit_test(AddToChannel2D AddToChannel2D.cpp)
+add_popnn_unit_test(AddToChannel
+                    AddToChannel.cpp
+                    VARIANTS ${TimesOutOnSim})
+add_popnn_unit_test(AddToChannel2D
+                    AddToChannel2D.cpp
+                    VARIANTS ${TimesOutOnSim})
