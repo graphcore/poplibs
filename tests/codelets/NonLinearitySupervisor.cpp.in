@@ -93,7 +93,6 @@ void doTest(const Type &dataType, const NonLinearityType &nlType) {
   const auto vectorWidth = target.getVectorWidth(dataType);
   const auto numWorkers = target.getNumWorkerContexts();
   const auto elementsPerChunk = vectorWidth * numWorkers;
-  const auto remainderBits = ceilLog2(elementsPerChunk);
 
   // Once we have hit 3 full 64-bit loops for all workers +
   // up to 32-bits leading we will have covered all paths through the codelet.
