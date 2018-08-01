@@ -6,6 +6,8 @@ find_package(Boost REQUIRED)
 add_library(popconv SHARED
   codelets.cpp
   popconvCycleEstimators.cpp
+  ChannelOps.cpp
+  ChannelOps.hpp
   Convolution.cpp
   ConvPlan.cpp
   ConvReduce.hpp
