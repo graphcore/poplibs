@@ -35,7 +35,6 @@ using namespace popops;
 using poplibs_test::Pass;
 
 const OptionFlags engineOptions {
-  {"debug.edgeValidation", "false"}, // DISABLED due to T3666 (random test#7)
   {"target.textSectionSizeInBytes", "0xa000"},
   {"target.workerStackSizeInBytes", "0x200"},
 };
