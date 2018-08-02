@@ -35,7 +35,7 @@ calcLinearTileMapping(const poplar::Graph &graph,
   unsigned grainSize = target.getVectorWidth(dType);
   const auto minBytesPerTile = 128;
   const auto minElementsPerTile =
-    (minBytesPerTile + typeSize - 1) / minBytesPerTile;
+    (minBytesPerTile + typeSize - 1) / typeSize;
   return calcLinearTileMapping(graph, t.shape(), minElementsPerTile,
                                grainSize);
 }

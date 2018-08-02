@@ -1,5 +1,4 @@
 #include "popconv/Convolution.hpp"
-
 #include "ConvUtilInternal.hpp"
 #include "popconv/internal/ConvPlan.hpp"
 #include "popconv/internal/ConvOptions.hpp"
@@ -1343,7 +1342,7 @@ static void mapActivationsOrWeights(Graph &graph, ConvParams params,
   const auto inTypeSize = graph.getTarget().getTypeSize(inType);
   const auto minBytesPerTile = isActs ? 128 : 256;
   const auto minElementsPerTile =
-    (minBytesPerTile + inTypeSize - 1) / minBytesPerTile;
+    (minBytesPerTile + inTypeSize - 1) / inTypeSize;
   const auto grainSize =
       isActs ? plan.inChansPerGroup :
                plan.inChansPerGroup * plan.partialChansPerGroup;
