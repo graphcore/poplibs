@@ -144,13 +144,13 @@ exitz         $mzero
 //
 // Loop performance:
 //      Number of field elems = 0
-//             2 cycles
+//             18 cycles
 //      Number of field elems = 1
-//             28 cycles
+//             30 cycles
 //      Number of field elems = 2
-//             35 cycles
+//             34 cycles
 //      Number of field elems >= 3
-//             39 + (num_field_elems - 3) * 4 
+//             35 + (num_field_elems - 3) * 4 
 
 .section ".text.convPartialNx1Flattened", "ax"
 .type convPartialNx1Flattened, @function
@@ -218,10 +218,6 @@ shr           $num_partitions_v, $num_partitions_v, 16
 PartitionLoop:
   ldz16         $num_fp_v, $partition_v, PARTITION_NUM_ELEMS/2
 
-  // TODO: could save once cycle by using a dummy ld2xpace. This would require
-  // storing (input channels per groups * 2)/8 and 
-  // (output channels per group * 4)/8
-
   // form input address
   ldz16         $in_offset_v, $partition_v, PARTITION_INOFFSET/2
   mul           $in_offset_v, $in_offset_v, $in_chans_per_group_x2
@@ -229,9 +225,8 @@ PartitionLoop:
 
   // form output address
   // Note this relies on the fact that out offset is the first entry in the
-  // parition. This allows us to wind the pointer to the next partition
+  // partition. This allows us to wind the pointer to the next partition
   ldz16step     $out_offset_v, $mzero, $partition_v+=, 3
-  brz           $num_fp_v, L_Partition_end 
 
   mul           $out_offset_v, $out_offset_v, $out_chans_per_group_x4
   add           $out_addr_v, $outchan_ptr_v, $out_offset_v
@@ -251,8 +246,10 @@ PartitionLoop:
     f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P1
   }
   // jump to specialisation for number of field samples equal to 1
-  add           $num_fp_v, $num_fp_v, -1
-  brz           $num_fp_v, ConvNumFpEq1
+  // Note: when num_fpv = 0, 3 partials will be loaded but with an post 
+  //       increment of 8 bytes
+  add           $num_fp_v, $num_fp_v, -3
+  brneg         $num_fp_v, ConvNumFpEq1
   {
     // *input-ptr += 0; *partials-ptr += out-stride
     ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $inoutstrides1_v, 0b0111 
@@ -272,10 +269,7 @@ PartitionLoop:
     // *input-ptr += in-row-stride0; *partials-ptr += 1
     ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0010
     f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P1
-  }
-
-  add           $num_fp_v, $num_fp_v, -2
-  brneg         $num_fp_v, ConvNumFpEq2
+  }  
 
   {
     // *input-ptr += in-stride; *partials_ptr += out-stride
@@ -297,10 +291,7 @@ PartitionLoop:
     ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0010
     f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P1
   }
-  {
-    rpt $num_fp_v, (Loop_end_Amp-Loop_start_Amp)/8-1
-    fnop
-  }
+  rpt $num_fp_v, (Loop_end_Amp-Loop_start_Amp)/8-1
 Loop_start_Amp:
     {
       // *input-ptr += in-stride; *partials-ptr += out-stride; *out-ptr += 1
@@ -395,6 +386,10 @@ exitz         $mzero
 // 6 extra partials are loaded to allow use of pace instruction all with 
 // post increment of 1
 ConvNumFpEq1:
+add           $num_fp_v, $num_fp_v, 1
+brz           $num_fp_v, ConvNumFpEq2
+add           $num_fp_v, $num_fp_v, 1
+brneg         $num_fp_v, L_Partition_end
 {
   // *input-ptr += 0; *partials-ptr += 0
   ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $inoutstrides1_v, 0b1111
@@ -422,9 +417,11 @@ ConvNumFpEq1:
 }
 f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P3
 f16v4sisoamp  $a4:5, $azeros, $azeros, TAMP_F16V4_E4_P0
-f16v4sisoamp  $a6:7, $azeros, $azeros, TAMP_F16V4_E4_P1
-// Jump to common part to store final samples
-bri           StoreFinalAmpOutputs1
+{
+  // Jump to common part to store final samples
+  bri           StoreFinalAmpOutputs1
+  f16v4sisoamp  $a6:7, $azeros, $azeros, TAMP_F16V4_E4_P1
+}
 
 // =============================================================================
 
@@ -437,6 +434,27 @@ bri           StoreFinalAmpOutputs1
 // clear output stride to allow post increment by 0 in the dummy loads of 
 // partials
 ConvNumFpEq2:
+  {
+    // *input-ptr += 0; *partials-ptr += out-stride
+    ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $inoutstrides1_v, 0b0111 
+    f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P2
+  }
+  {
+    // *input-ptr += in-row-stride0; *partials-ptr += 1
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+    f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P3
+  }
+  {
+    // *input-ptr += in-row-stride1; partials-ptr += 1
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0011 
+    f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P0
+  }
+  {
+    // *input-ptr += in-row-stride0; *partials-ptr += 1
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+    f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P1
+  }
+
 #define inoutstrides2_eq2_v   num_fp_v
 andc          $inoutstrides2_eq2_v, $inoutstrides2_v, 0x3ff     
 
@@ -469,9 +487,9 @@ bri           StoreFinalAmpOutputs2
 
 // Performance:
 // Kernel height dependent cycles in the innermost loop (i.e. AmpOutGroupLoop)
-//   Kernel Height = 1: 20 + 16 + workerCycles
-//   Kernel Height = 2: 40 + 16 + workerCycles
-//   Kernel Height = 4: 35 + 19 + 32 + workerCycles
+//   Kernel Height = 1: 15 + 16 + workerCycles
+//   Kernel Height = 2: 46 + 16 + workerCycles
+//   Kernel Height = 4: 41 + 19 + 32 + workerCycles
 // 93 + numConvGroups * (15 + numInChanGroups * (16 + numOutChanGroups * (16 + innerLoopCycles)))
 //
 // Where innerLoopCycles are:
@@ -624,7 +642,8 @@ ZeroOutChanGroup:
 mul           $temp_2_s, $temp_6_s, $outchans_per_group_s
 st32          $temp_4_s, $sp, (STACK_BASE + STACK_AMP_OUTSUBGROUP)/4
 st32          $partition_ptr_b_s, $sp, (STACK_BASE + STACK_PARTITION_PTR)/4
-setzi         $jmp_addr_s, AmpHeightEq1
+// Jump address for amp height == 1 is set to 0 to take the fast path
+setzi         $jmp_addr_s, 0
 
 brz           $amp_kernel_height_s, JmpAddrSelEnd
 add           $amp_kernel_height_s, $amp_kernel_height_s, -1
@@ -664,8 +683,8 @@ OutChanLoop:
       // This load of CCCS is for the case of Amp Kernel Height = 1. In the
       // other two cases, the weights are not loaded in order
       put           $CCCSLOAD, $weights_ptr_s 
+      st32          $outchan_count_s, $sp, (STACK_BASE + STACK_OUTCHAN_COUNT)/4
       ld32          $ky_count_s, $sup_base, SUP_NUM_KERNEL_Y_M1/4
-      st32          $outchan_count_s, $sp, (STACK_BASE + STACK_OUTCHAN_COUNT)/4 
 KyLoop:
         st32          $ky_count_s, $sp, (STACK_BASE + STACK_KY_COUNT)/4 
         ld32          $kx_count_s, $sup_base, SUP_NUM_KERNEL_X_M1/4
@@ -674,7 +693,6 @@ KxLoop:
           ld32          $outchan_ptr_s, $mzero, $outchan_vectors_s, $outchan_count_s
           ld32          $amp_out_subgroup_count_s, $sp, (STACK_BASE + STACK_AMP_OUTSUBGROUP)/4
           ld32          $weights_ptr_h_incr, $sp, (STACK_BASE + STACK_WEIGHTS_PTR_INCR)/4
-
 AmpOutGroupLoop:      
             // registers $m1 and $m8 are free to use in this function as long
             // as wkr_function_s is set before the run 
@@ -689,7 +707,7 @@ AmpOutGroupLoop:
             // address as a register rather than immediate, for the fallthrough
             // case we could have set the condition to check fail (eg using 
             // brnz would become brnz $amp_height_jump_s, $amp_height_jump_s)
-            br            $amp_height_jump_s
+            brnz          $amp_height_jump_s, AmpHeightJumpToNeq1
  AmpHeightEq1:         
             ld128putcs    0
             ld128putcs    2
@@ -715,9 +733,9 @@ AmpHeightRun:
             add           $outchan_ptr_s, $outchan_ptr_s, SIZEOF_OUT_ATOM * AMP_OUTPUTS_HALF
             brnzdec       $amp_out_subgroup_count_s, AmpOutGroupLoop
 
-          add           $partition_ptr_s,$partition_ptr_s, 6 * 4
-          ld32          $kx_count_s, $sp, (STACK_BASE + STACK_KX_COUNT)/4
+          add           $partition_ptr_s, $partition_ptr_s, 6 * 4
           ld32          $outchan_count_s, $sp, (STACK_BASE + STACK_OUTCHAN_COUNT)/4
+          ld32          $kx_count_s, $sp, (STACK_BASE + STACK_KX_COUNT)/4
           brnzdec       $kx_count_s, KxLoop
 
         get           $weights_ptr_s, $CCCSLOAD
@@ -737,7 +755,6 @@ AmpHeightRun:
   add           $outchan_count_s, $outchan_count_s, 1
   brnzdec       $convgroup_count_s, ConvGroupLoop
 
-
 L_sup_conv_end:
 // Restore saved registers
 ld32          $m9, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 0
@@ -745,6 +762,10 @@ ld32          $m10, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 1
 add           $sp, $sp, (WKR_STATE_SIZE + STACK_SIZE + 8)
 sync          TEXCH_SYNCZONE_LOCAL
 br            $lr
+
+// Jump to code fragment to handle kernel heights = 2 and 4
+AmpHeightJumpToNeq1:
+br            $amp_height_jump_s
 
 // Code fragement to load CWEI with coefficients when the weights tensor
 // innermost dimensions are [AMP_OUTPUTS_HALF * m][AMP_INPUTS_HALF/2]

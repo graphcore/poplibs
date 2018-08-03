@@ -148,21 +148,21 @@ getConvPartial1x1SupervisorInnerLoopCycleEstimate(
   for (const auto &worker : workerPartitions) {
     // fixed overhead for loading pointers worklist pointers and dividing
     // partitions by 3
-    uint64_t thisWorkerCycles = 14;
+    uint64_t thisWorkerCycles = 16;
     for (auto wi : worker) {
       const auto numElems =  wi;
       switch (numElems) {
         case 0:
-          thisWorkerCycles += 7;
+          thisWorkerCycles += 15;
           break;
         case 1:
-          thisWorkerCycles += 36 + (2 + 4) * outputZeroing;
+          thisWorkerCycles += 40 + (2 + 4) * outputZeroing;
           break;
         case 2:
-          thisWorkerCycles += 44 + (2 + 4 * 2) * outputZeroing;
+          thisWorkerCycles += 40 + (2 + 4 * 2) * outputZeroing;
           break;
         default:
-          thisWorkerCycles += 49 + (2 + 4 * numElems) * outputZeroing +
+          thisWorkerCycles += 40 + (2 + 4 * numElems) * outputZeroing +
                                    (numElems - 3) * 4;
       }
     }
@@ -278,13 +278,13 @@ getConvPartialnx1SupervisorCycleInnerLoopEstimate(
   // additional load cycles dependent on filterHeight
   switch (filterHeight) {
     case 4:
-      innermostLoopCycles += 54;
+      innermostLoopCycles += 60;
       break;
     case 2:
-      innermostLoopCycles += 40;
+      innermostLoopCycles += 46;
       break;
     case 1:
-      innermostLoopCycles += 20;
+      innermostLoopCycles += 15;
       break;
     default:
       // non-limited version will pick this up and we don't estimate unlimited
@@ -306,16 +306,16 @@ getConvPartialnx1SupervisorCycleInnerLoopEstimate(
         for (auto &numElems :  workerPartitions[context][k]) {
           switch (numElems) {
           case 0:
-              thisWorkerCycles += 2;
+              thisWorkerCycles += 18;
               break;
           case 1:
-              thisWorkerCycles += 28;
+              thisWorkerCycles += 30;
               break;
           case 2:
-              thisWorkerCycles += 35;
+              thisWorkerCycles += 34;
               break;
           default:
-              thisWorkerCycles += 39 + (numElems - 3) * 4;
+              thisWorkerCycles += 35 + (numElems - 3) * 4;
 
           }
         }

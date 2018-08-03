@@ -82,16 +82,16 @@
 
 // worker code:
 //       overhead: 7 cycles if number of paritions = 0
-//                 14 cycles otherwise 
+//                 16 cycles otherwise 
 //       Loop (cycles for field positions): 
 //                   num_field_pos = 0
-//                      7
+//                      15
 //                   num_field_pos == 1
-//                      36 + (2 + 4) * first_input_group
+//                      40 + (2 + 4) * first_input_group
 //                   num_field_pos == 2
-//                      44 + (2 + 4 * 2) * first_input_group
+//                      40 + (2 + 4 * 2) * first_input_group
 //                   num_field_pos >= 3
-//                      49  + (2 + 4 * num_field_pos) * first_input_group 
+//                      40  + (2 + 4 * num_field_pos) * first_input_group 
 //                          + (num_field_pos - 3) * 4
 //                   
 // first_in_group is set to a 1 for the first input channel group of every
@@ -108,16 +108,17 @@ convPartialFlattenedField:
 #define inchan_ptr                m0
 #define outchan_ptr               m1
 #define partition_w               m2
-#define in_off                    m3
-#define inchan_ptr_iter           m3
-#define out_off                   m4
-#define outchan_ptr_iter          m4
+#define num_outchans_per_groupx4  m3
+#define zero_outchan              m4
 #define num_elems                 m5
 #define temp_w                    m5
 #define stride1                   m6
 #define stride2                   m7
-#define zero_outchan              m8
-#define num_outchans_per_groupx4  m8
+// $inchan_ptr_iter and $outchan_ptr_iter must be the same as $tripacked_addr pair
+#define in_off                    m8
+#define inchan_ptr_iter           m8
+#define out_off                   m9
+#define outchan_ptr_iter          m9
 #define tripacked_addr            m8:9  
 #define cmp_res                   m10
 #define stride3                   m10
@@ -148,53 +149,24 @@ shl           $partition_w, $partition_w, 14
 shr           $partition_w, $partition_w, 14
 ld32          $temp_w, $mvertex_base, WKR_PARTITION_BASE/4
 add           $partition_w, $temp_w, $partition_w
+ld32          $num_outchans_per_groupx4, $mvertex_base, WKR_OUTCHANS_PER_GROUP/4
+ld32          $zero_outchan, $mvertex_base, WKR_ZERO_FLAG/4
 
 Loop_outer:
   ldz16step     $out_off, $mzero, $partition_w+=, 1
-  ld32          $num_outchans_per_groupx4, $mvertex_base, WKR_OUTCHANS_PER_GROUP/4
   mul           $out_off, $out_off, $num_outchans_per_groupx4
   ldz16step     $num_elems, $mzero, $partition_w+=, 1 
   ldz16step     $in_off, $mzero, $partition_w+=, 1
-  brz           $num_elems, Loop_outer_end
   mul           $in_off, $in_off, NUM_INCHAN_GROUPS * SIZEOF_HALF
   ld32          $stride1, $mvertex_base, WKR_IN_OUT_STRIDES/4
 
-  // Check strides to use in the AMP loop. The strides to use are dependent on
-  // the number of elements to avoid excess strided reads
-  // Stride1 = Stride2 = [0][out index][in index] are the default
-  mov           $stride2, $stride1
-
-  cmpeq         $cmp_res, $num_elems, 2
-  brz           $cmp_res, LStrideCheckElemsEq1
-
-  // Number of elems = 2
-  // Stride1 = [0][out index][in index]
-  // Stride2 = [0][0][in index]
-  and           $stride2, $stride1, 0x3FF
-
-LStrideCheckElemsEq1:
-  cmpeq         $cmp_res, $num_elems, 1
-  brz           $cmp_res, LStrideCheckElemsGt2
-
-  // Number of elems = 1
-  // Stride1 = Stride2 = [0][0][0]
-  mov           $stride1, $mzero
-  mov           $stride2, $mzero
-
-LStrideCheckElemsGt2:
-  // stride3 is 0 if number of elements = 1 else it is 1
-  // This avoids 6 extra loads of the output(partials)
-  // Note that when number of elements = 2, 3 extra non-strided loads are done 
-  // In all other cases, no extra loads are done
-  cmpeq         $stride3, $cmp_res, 0
-
   add           $inchan_ptr_iter, $inchan_ptr, $in_off
   add           $outchan_ptr_iter, $outchan_ptr, $out_off
-  ld32          $zero_outchan, $mvertex_base, WKR_ZERO_FLAG/4
 
   brz           $zero_outchan, Amp_start
-  tapack        $tripacked_addr, $mzero, $mzero, $outchan_ptr_iter
-  rpt $num_elems, (LZeroLoopEnd - LZeroLoopBegin)/8 - 1
+  // The two input pointers will be retained even though store pointer is incremented
+  tapack        $tripacked_addr, $inchan_ptr_iter, $outchan_ptr_iter, $outchan_ptr_iter
+  rpt           $num_elems, (LZeroLoopEnd - LZeroLoopBegin)/8 - 1
 LZeroLoopBegin:
     {
       st64pace      $azeros,          $tripacked_addr+=, $mzero, 0b00
@@ -214,6 +186,24 @@ LZeroLoopBegin:
     }       
 LZeroLoopEnd:
 Amp_start:
+
+  // Check strides to use in the AMP loop. The strides to use are dependent on
+  // the number of elements to avoid excess strided reads
+  add           $num_elems, $num_elems, -3
+  brneg         $num_elems, SetStridesNumElemsLt3  
+
+  // case of num_elems >= 3
+  // Stride1 = Stride2 = [0][out index][in index] are the default
+  mov           $stride2, $stride1
+  setzi         $stride3, 1
+
+AfterStrideSet:
+
+  // stride3 is 0 if number of elements = 1 else it is 1
+  // This avoids 6 extra loads of the output(partials)
+  // Note that when number of elements = 2, 3 extra non-strided loads are done 
+  // In all other cases, no extra loads are done
+
 
   // Get compact representation of physical addresses
   tapack        $tripacked_addr, $inchan_ptr_iter, $outchan_ptr_iter, $outchan_ptr_iter
@@ -262,16 +252,9 @@ Amp_start:
   }
 
   // exit paths for special cases of num_elems = {1, 2}
-  add           $num_elems, $num_elems, -1
-  brz           $num_elems, LNumElemsEq1
+  brneg         $num_elems, JumpPaths
 
-  add           $num_elems, $num_elems, -2
-  brneg         $num_elems, LNumElemsEq2
-
-  {
-    rpt $num_elems, (Loop_end_Amp-Loop_start_Amp)/8-1
-    fnop
-  }
+  rpt $num_elems, (Loop_end_Amp-Loop_start_Amp)/8-1
 Loop_start_Amp:
     // The reads in the last pass are effectively dummy to avoid code bloat
     {
@@ -345,6 +328,36 @@ Loop_outer_end:
 
 L_end_fn:
 exitz         $m15
+
+// Code fragment to set strides for num_elems = {0, 1, 2}
+// Jumps back to main program after setting strides
+SetStridesNumElemsLt3:
+add           $cmp_res, $num_elems, 1 
+brz           $cmp_res, LStrideCheckElemsEq2
+add           $cmp_res, $num_elems, 2
+brneg         $cmp_res, Loop_outer_end
+// Number of elems = 1
+// Stride1 = Stride2 = [0][0][0]
+mov           $stride1, $mzero
+mov           $stride2, $mzero
+mov           $stride3, $mzero
+bri           AfterStrideSet
+
+LStrideCheckElemsEq2:
+// Number of elems = 2
+// Stride1 = [0][out index][in index]
+// Stride2 = [0][0][in index]
+and           $stride2, $stride1, 0x3FF
+setzi         $stride3, 1
+bri           AfterStrideSet
+
+// This code fragment jumps to the appropriate point in the main program for
+// number of elements = {1, 2}
+JumpPaths:
+add           $num_elems, $num_elems, 1
+brz           $num_elems, LNumElemsEq2
+bri           LNumElemsEq1
+
 
 .size convPartialFlattenedField, . - convPartialFlattenedField
 
