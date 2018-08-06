@@ -273,6 +273,7 @@ getConvPartialnx1SupervisorCycleInnerLoopEstimate(
                         * numConvUnitsPerTile
                         * (floatWeights ? 4 : 2)
                         / convUnitCoeffLoadBytesPerCycle;
+  // innermostLoopCycles is the cycles in the innermost supervisor loop
   uint64_t innermostLoopCycles = numLoads;
 
   // additional load cycles dependent on filterHeight
@@ -295,36 +296,38 @@ getConvPartialnx1SupervisorCycleInnerLoopEstimate(
   for (auto ky = 0U; ky != kernelOuterElems; ++ky) {
     innerLoopCycles += 15;
     for (auto kx = 0U; kx != kernelInnerElems; ++kx) {
-      // load coefficients
-      innerLoopCycles += 18 + innermostLoopCycles * numOutChanPasses;
-      uint64_t maxWorkerCycles = 0;
-      uint64_t minWorkerCycles = usedContexts < numWorkerContexts ?
-                                 0 : std::numeric_limits<uint64_t>::max();
-      for (auto context = 0U; context != usedContexts; ++context) {
-        uint64_t thisWorkerCycles = 19;
-        const auto k = ky * kernelInnerElems + kx;
-        for (auto &numElems :  workerPartitions[context][k]) {
-          switch (numElems) {
-          case 0:
+      // remove cycles for branch in outChanPasses loop for last iteration
+      innerLoopCycles += 18 - 5;
+      for (auto ocp = 0U; ocp != numOutChanPasses; ++ocp) {
+        uint64_t maxWorkerCycles = 0;
+        uint64_t minWorkerCycles = usedContexts < numWorkerContexts ?
+                                   0 : std::numeric_limits<uint64_t>::max();
+        for (auto context = 0U; context != usedContexts; ++context) {
+          uint64_t thisWorkerCycles = 19;
+          const auto k = ky * kernelInnerElems + kx;
+          for (auto &numElems :  workerPartitions[context][k]) {
+            switch (numElems) {
+            case 0:
               thisWorkerCycles += 18;
               break;
-          case 1:
+            case 1:
               thisWorkerCycles += 30;
               break;
-          case 2:
+            case 2:
               thisWorkerCycles += 34;
               break;
-          default:
+            default:
               thisWorkerCycles += 35 + (numElems - 3) * 4;
-
+            }
           }
+          maxWorkerCycles =
+            std::max(maxWorkerCycles, numWorkerContexts * thisWorkerCycles);
+          minWorkerCycles =
+            std::min(minWorkerCycles, numWorkerContexts * thisWorkerCycles);
         }
-        maxWorkerCycles =
-          std::max(maxWorkerCycles, numWorkerContexts * thisWorkerCycles);
-        minWorkerCycles =
-          std::min(minWorkerCycles, numWorkerContexts * thisWorkerCycles);
+        innerLoopCycles += innermostLoopCycles +
+            std::max(maxWorkerCycles, minWorkerCycles + 9);
       }
-      innerLoopCycles += std::max(maxWorkerCycles, minWorkerCycles + 9);
     }
   }
   return innerLoopCycles;
