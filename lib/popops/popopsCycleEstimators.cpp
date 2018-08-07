@@ -108,6 +108,64 @@ scaledAddCycles(std::vector<unsigned> regionSizes,
 }
 
 std::uint64_t
+encodeOneHotCycles(std::vector<unsigned> regionSizes,
+                   const Target &target,
+                   const Type &indicesType,
+                   const Type &encodedType,
+                   bool is2D) {
+  std::uint64_t cycles = 5; // Vertex overhead
+
+  if (is2D) {
+    cycles += 4 + // Load start/end pointer, sub, shr to get length.
+              1;  // Sub 1 for brnzdec loop
+  } else {
+    cycles += 1;  // Load index pointer.
+  }
+
+  const auto vectorWidth = target.getVectorWidth(encodedType);
+  for (const auto &regionSize : regionSizes) {
+    cycles += 3 + // Load start/end pointer, calculate length.
+              1;  // Shift length to get number of elements.
+
+    // Write 0's to every element
+    const auto numVectors = regionSize / vectorWidth;
+    const auto remainder = regionSize % vectorWidth;
+    cycles += numVectors;
+    if (encodedType == HALF) {
+      cycles += 2; // Check for 32-bit remainder
+      if (remainder & 0x2) {
+        cycles += 1; // Write 32-bits
+      }
+      cycles += 2; // Check for 16-bit remainder
+      if (remainder & 0x1) {
+        cycles += 3; // RMW 16-bits
+      }
+    } else if (encodedType == FLOAT) {
+      cycles += 2; // Check for 32-bit remainder
+      if (remainder & 0x1) {
+        cycles += 1; // Write 32-bits
+      }
+    }
+
+    // Write a single 1 to element at correct index
+    cycles += 1 + // Load index
+              2;  // Check in-bounds
+    if (encodedType == HALF) {
+      cycles += 2 + // Check alignment
+                3;  // RMW
+    } else if (encodedType == FLOAT) {
+      cycles += 1; // Write 32-bits
+    }
+
+    if (is2D) {
+      cycles += 1; // brnzdec
+    }
+  }
+
+  return cycles;
+}
+
+std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddSupervisor)(const VertexIntrospector &vertex,
                                      const Target &target,
                                      const Type &type) {
@@ -880,46 +938,11 @@ MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHot)(const VertexIntrospector &vertex,
                                         const Target &target,
                                         const Type &indexType,
                                         const Type &outputType) {
-  // 3 cycles unconditionally to load index from the input and exit.
-  std::uint64_t cycles = 3;
-
-  // 1 cycle to check if index is negative when IndexType is signed.
-  if (indexType == INT) {
-    cycles += 1;
-  }
-
-  // 2 cycles to load remaining vertex state and 2 cycles to caculate
-  // count: (end-begin)/sizeof(OutputType).
-  cycles += 4;
-
-  // 2 cycles to compare and branch on index < count.
-  cycles += 2;
-
-  // one cycle to load 1 into a register when on the main side (the aux
-  // equivalent should get bundled).
-  if (outputType == INT || outputType == UNSIGNED_INT) {
-    cycles += 1;
-  } else {
-    assert(outputType == HALF || outputType == FLOAT);
-  }
-
-  const auto outputTypeSizeBytes = target.getTypeSize(outputType);
-  if (outputTypeSizeBytes == 4) {
-    // one cycle to do a 32-bit store.
-    cycles += 1;
-  } else {
-    assert(outputTypeSizeBytes == 2);
-
-    // 6 cycles to align pointer to 32-bits and load the word to store into.
-    cycles += 6;
-
-    // there is an extra cycle required if we store at the start of the word
-    // but there is no way to check the alignment of the address to deduce
-    // that here so we ignore it.
-    cycles += 2;
-  }
-
-  return cycles;
+  CODELET_FIELD(index);
+  CODELET_FIELD(out);
+  std::vector<unsigned> regionSizes;
+  regionSizes.push_back(out.size());
+  return encodeOneHotCycles(regionSizes, target, indexType, outputType, false);
 }
 
 std::uint64_t
@@ -927,8 +950,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHot2D)(const VertexIntrospector &vertex,
                                           const Target &target,
                                           const Type &indexType,
                                           const Type &outputType) {
-  // TODO: Proper cycle estimates
-  return 0;
+  CODELET_FIELD(indices);
+  CODELET_FIELD(out);
+  std::vector<unsigned> regionSizes;
+  for (std::size_t i = 0; i < out.size(); ++i) {
+    regionSizes.push_back(out[i].size());
+  }
+  return encodeOneHotCycles(regionSizes, target, indexType, outputType, true);
 }
 
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {

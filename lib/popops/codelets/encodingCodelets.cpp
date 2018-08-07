@@ -36,7 +36,7 @@ template <typename IndexType, typename OutType>
 class EncodeOneHot2D : public Vertex {
 public:
   Input<Vector<IndexType, VectorLayout::ONE_PTR>> indices;
-  Output<VectorList<OutType, VectorListLayout::DELTAN>> out;
+  Vector<Output<Vector<OutType>>> out;
   bool compute() {
     for (std::size_t i = 0; i < out.size(); i++) {
       const auto index = indices[i];

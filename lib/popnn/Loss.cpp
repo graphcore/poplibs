@@ -87,14 +87,12 @@ Program calcLossSumSquared(Graph &graph,
                            const Type &expectedType,
                            const std::string &debugPrefix) {
   const auto layerPrefix = debugPrefix + "/LossSumSquared";
-  const auto batchSize = activations.dim(0);
-  const auto perBatch = activations.numElements() / batchSize;
 
   Sequence prog;
-  auto oneHot =
-    popops::encodeOneHot(graph, activationType,
-                         expected, perBatch, prog,
-                         layerPrefix);
+
+  auto oneHot = graph.clone(activationType, activations,
+                            layerPrefix + "/OneHotEncoded");
+  popops::encodeOneHot(graph, expected, oneHot, prog, layerPrefix);
 
   // Compute loss partials and deltas
   auto transformed = onTileTransform(graph,
@@ -120,7 +118,7 @@ Program calcLossSoftmaxCrossEntropy(Graph &graph,
                                     const std::string &debugPrefix) {
   const auto layerPrefix = debugPrefix + "/LossSoftmaxCrossEntropy";
   const auto batchSize = activations.dim(0);
-  const auto perBatch = activations.numElements() / batchSize;
+  const auto actsPerBatch = activations.numElements() / batchSize;
 
   // Optimisation: Focus point for cycles and memory
   // At each broadcast/calculate/reduce step a choice can be  made about
@@ -131,13 +129,13 @@ Program calcLossSoftmaxCrossEntropy(Graph &graph,
   // decent estimations of compute/exchange cycles needed for the different
   // steps to balance this.
   Sequence prog;
-  auto oneHot =
-    popops::encodeOneHot(graph, activationType,
-                         expected, perBatch, prog,
-                         layerPrefix);
+
+  auto oneHot = graph.clone(activationType, activations,
+                            layerPrefix + "/OneHotEncoded");
+  popops::encodeOneHot(graph, expected, oneHot, prog, layerPrefix);
 
   auto activationsCopy =
-    graph.clone(activations.reshape({batchSize, perBatch}),
+    graph.clone(activations.reshape({batchSize, actsPerBatch}),
                 layerPrefix + "/ActivationsPreprocessed");
   prog.add(Copy(activations, activationsCopy));
 

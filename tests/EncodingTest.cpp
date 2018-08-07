@@ -92,8 +92,9 @@ static bool encodeTest(std::size_t numIndices,
   copyIndices(randIndices, indicesType, rawHostIndices.get());
 
   auto prog = Sequence();
-  auto encoded = encodeOneHot(graph, encodedType, indices, length, prog,
-                              "/OneHotEncodeTest");
+  auto encoded = graph.addVariable(encodedType, {numIndices, length},
+                                   VariableMappingMethod::LINEAR, "encoded");
+  encodeOneHot(graph, indices, encoded, prog, "/OneHotEncodeTest");
   auto rawHostEncoded =
     allocateHostMemoryForTensor(encoded, "encoded", graph, tmap);
 
