@@ -1622,3 +1622,116 @@ BOOST_AUTO_TEST_CASE(AddInPlaceTest) {
     }
   }
 }
+
+BOOST_AUTO_TEST_CASE(BinaryMultiVariableConcat) {
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
+  popops::addCodelets(graph);
+
+  auto prog = Sequence();
+  auto t1 = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "in1");
+  auto t2 = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "in2");
+  auto t3 = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "in3");
+  auto t4 = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "in4");
+
+  mapTensorLinearly(graph, t1);
+  mapTensorLinearly(graph, t2);
+  mapTensorLinearly(graph, t3);
+  mapTensorLinearly(graph, t4);
+  auto t5 = add(graph, concat(t1, t2, 1), concat(t3, t4, 1),  prog);
+
+  graph.createHostWrite("in1", t1);
+  graph.createHostWrite("in2", t2);
+  graph.createHostWrite("in3", t3);
+  graph.createHostWrite("in4", t4);
+  graph.createHostRead("out",  t5);
+
+  float hIn1[DIM_SIZE][DIM_SIZE];
+  float hIn2[DIM_SIZE][DIM_SIZE];
+  float hIn3[DIM_SIZE][DIM_SIZE];
+  float hIn4[DIM_SIZE][DIM_SIZE];
+  float hOut[DIM_SIZE][2 * DIM_SIZE];
+
+  setUnaryOpInput(hIn1);
+  setUnaryOpInput(hIn2);
+  setUnaryOpInput(hIn3);
+  setUnaryOpInput(hIn4);
+
+  Engine eng(graph, prog, options);
+  eng.load(device);
+  eng.writeTensor("in1", hIn1);
+  eng.writeTensor("in2", hIn2);
+  eng.writeTensor("in3", hIn3);
+  eng.writeTensor("in4", hIn4);
+  eng.run();
+  eng.readTensor("out", hOut);
+
+
+  if (TEST_TARGET == DeviceType::IpuModel) {
+    auto execReport = eng.getExecutionReport({
+      { "doLayerWiseBreakdown", "true" }
+    });
+    execReport.printSummary(std::cerr);
+  }
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < 2 * DIM_SIZE; ++j) {
+      auto expected =
+          j < DIM_SIZE ? hIn1[i][j] + hIn3[i][j] :
+                         hIn2[i][j - DIM_SIZE] + hIn4[i][j - DIM_SIZE];
+      BOOST_TEST(hOut[i][j] == expected);
+    }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(UnaryMultiVariableConcat) {
+  IPUModel ipuModel;
+  auto device = ipuModel.createDevice();
+  Graph graph(device);
+  popops::addCodelets(graph);
+
+  auto prog = Sequence();
+  auto t1 = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "in1");
+  auto t2 = graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "in2");
+
+  mapTensorLinearly(graph, t1);
+  mapTensorLinearly(graph, t2);
+  auto t3 = neg(graph, concat(t1, t2, 1), prog);
+
+  graph.createHostWrite("in1", t1);
+  graph.createHostWrite("in2", t2);
+  graph.createHostRead("out",  t3);
+
+  float hIn1[DIM_SIZE][DIM_SIZE];
+  float hIn2[DIM_SIZE][DIM_SIZE];
+  float hOut[DIM_SIZE][2 * DIM_SIZE];
+
+  setUnaryOpInput(hIn1);
+  setUnaryOpInput(hIn2);
+
+  Engine eng(graph, prog, options);
+  eng.load(device);
+  eng.writeTensor("in1", hIn1);
+  eng.writeTensor("in2", hIn2);
+  eng.run();
+  eng.readTensor("out", hOut);
+
+
+  if (TEST_TARGET == DeviceType::IpuModel) {
+    auto execReport = eng.getExecutionReport({
+      { "doLayerWiseBreakdown", "true" }
+    });
+    execReport.printSummary(std::cerr);
+  }
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < 2 * DIM_SIZE; ++j) {
+      auto expected =
+          j < DIM_SIZE ? -hIn1[i][j] : -hIn2[i][j - DIM_SIZE];
+      BOOST_TEST(hOut[i][j] == expected);
+    }
+  }
+}

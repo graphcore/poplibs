@@ -495,10 +495,10 @@ unaryOpInnerLoopCycles(const Target &target, const Type &type,
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp)(const VertexIntrospector &vertex,
-                                   const Target &target,
-                                   popops::expr::UnaryOpType op,
-                                   const Type &type) {
+MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp2D)(const VertexIntrospector &vertex,
+                                     const Target &target,
+                                     popops::expr::UnaryOpType op,
+                                     const Type &type) {
   uint64_t cycles = 5;
   const auto in = vertex.getFieldInfo("in");
   const auto out = vertex.getFieldInfo("out");
@@ -512,16 +512,52 @@ MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp)(const VertexIntrospector &vertex,
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(UnaryOpInPlace)(const VertexIntrospector &vertex,
-                                          const Target &target,
-                                          popops::expr::UnaryOpType op,
-                                          const Type &type) {
+MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp1DSupervisor)(
+                                   const VertexIntrospector &vertex,
+                                   const Target &target,
+                                   popops::expr::UnaryOpType op,
+                                   const Type &type) {
+  uint64_t workerCycles = 10;
+  const auto in = vertex.getFieldInfo("in");
+  const auto out = vertex.getFieldInfo("out");
+  const auto &info = unaryOpPerfInfo.at({op, type});
+  assert (in.size() == out.size());
+  const auto numWorkers = target.getNumWorkerContexts();
+  auto numElems = (in.size() + numWorkers - 1) / numWorkers;
+  workerCycles += unaryOpInnerLoopCycles(target, type, info, numElems);
+  // Unary op is a supervisor vertex
+  uint64_t cycles = workerCycles * numWorkers + 18;
+  return cycles;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp2DInPlace)(const VertexIntrospector &vertex,
+                                            const Target &target,
+                                            popops::expr::UnaryOpType op,
+                                            const Type &type) {
   uint64_t cycles = 5;
   const auto inOut = vertex.getFieldInfo("inOut");
   const auto &info = unaryOpInPlacePerfInfo.at({op, type});
   for (unsigned i = 0; i < inOut.size(); ++i) {
     cycles += unaryOpInnerLoopCycles(target, type, info, inOut[i].size());
   }
+  return cycles;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp1DInPlaceSupervisor)(
+                                    const VertexIntrospector &vertex,
+                                    const Target &target,
+                                    popops::expr::UnaryOpType op,
+                                    const Type &type) {
+  uint64_t workerCycles = 10;
+  const auto inOut = vertex.getFieldInfo("inOut");
+  const auto &info = unaryOpInPlacePerfInfo.at({op, type});
+  const auto numWorkers = target.getNumWorkerContexts();
+  auto numElems = (inOut.size() + numWorkers - 1) / numWorkers;
+  workerCycles += unaryOpInnerLoopCycles(target, type, info, numElems);
+  // UnaryOpInPlace is a supervisor vertex
+  uint64_t cycles = workerCycles * numWorkers + 18;
   return cycles;
 }
 
@@ -548,10 +584,10 @@ binaryOpInnerLoopCycles(const Target &target, const Type &type,
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp)(const VertexIntrospector &vertex,
-                                    const Target &target,
-                                    BinaryOpType op,
-                                    const Type &type) {
+MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp2D)(const VertexIntrospector &vertex,
+                                      const Target &target,
+                                      BinaryOpType op,
+                                      const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
   CODELET_FIELD(in2);
@@ -575,10 +611,37 @@ MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp)(const VertexIntrospector &vertex,
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(BinaryOpInPlace)(const VertexIntrospector &vertex,
-                                           const Target &target,
-                                           BinaryOpType op,
-                                           const Type &type) {
+MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp1DSupervisor)(
+                                             const VertexIntrospector &vertex,
+                                             const Target &target,
+                                             BinaryOpType op,
+                                             const Type &type) {
+  uint64_t workerCycles = 13;
+  const auto in1 = vertex.getFieldInfo("in1");
+  CODELET_FIELD(in2);
+  CODELET_FIELD(out);
+  assert(in1.size() == out.size());
+  assert(in2.size() == in1.size());
+  auto c = comparisonOpPerfInfo.find({op, type});
+  const bool isComparison = c != comparisonOpPerfInfo.end();
+  const auto &info =
+      isComparison ? OpPerformanceInfo() :
+                     binaryOpPerfInfo.at({op, type});
+  unsigned numBoolOpCycles = isComparison ? c->second : 0;
+  const auto numWorkers = target.getNumWorkerContexts();
+  unsigned numElems = (in1.size() + numWorkers - 1) / numWorkers;
+
+  workerCycles += binaryOpInnerLoopCycles(target, type, isComparison,
+                                          numBoolOpCycles, info, numElems);
+
+  return numWorkers * workerCycles + 18;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp2DInPlace)(const VertexIntrospector &vertex,
+                                             const Target &target,
+                                             BinaryOpType op,
+                                             const Type &type) {
   uint64_t cycles = 5;
   const auto in1Out = vertex.getFieldInfo("in1Out");
   CODELET_FIELD(in2);
@@ -596,6 +659,29 @@ MAKE_CYCLE_ESTIMATOR_NAME(BinaryOpInPlace)(const VertexIntrospector &vertex,
                                       numBoolOpCycles, info, in1Out[i].size());
   }
   return cycles;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp1DInPlaceSupervisor)(
+                                           const VertexIntrospector &vertex,
+                                           const Target &target,
+                                           BinaryOpType op,
+                                           const Type &type) {
+  uint64_t workerCycles = 13;
+  const auto in1Out = vertex.getFieldInfo("in1Out");
+  CODELET_FIELD(in2);
+  assert(in1Out.size() == in2.size());
+  auto c = comparisonOpPerfInfo.find({op, type});
+  const bool isComparison = c != comparisonOpPerfInfo.end();
+  const auto &info =
+      isComparison ? OpPerformanceInfo() :
+                     binaryOpInPlacePerfInfo.at({op, type});
+  unsigned numBoolOpCycles = isComparison ? c->second : 0;
+  const auto numWorkers = target.getNumWorkerContexts();
+  unsigned numElems = (in1Out.size() + numWorkers - 1) / numWorkers;
+  workerCycles += binaryOpInnerLoopCycles(target, type, isComparison,
+                                          numBoolOpCycles, info, numElems);
+  return numWorkers * workerCycles + 18;
 }
 
 
@@ -973,38 +1059,65 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
   };
   for (const auto &entry : unaryOpPerfInfo) {
     table.push_back(
-      CYCLE_ESTIMATOR_ENTRY(popops, UnaryOp, entry.first.first,
+      CYCLE_ESTIMATOR_ENTRY(popops, UnaryOp2D, entry.first.first,
                             entry.first.second)
     );
+    table.push_back(
+      CYCLE_ESTIMATOR_ENTRY(popops, UnaryOp1DSupervisor, entry.first.first,
+                            entry.first.second)
+    );
+
   }
   for (const auto &entry : unaryOpInPlacePerfInfo) {
     table.push_back(
-      CYCLE_ESTIMATOR_ENTRY(popops, UnaryOpInPlace, entry.first.first,
+      CYCLE_ESTIMATOR_ENTRY(popops, UnaryOp2DInPlace, entry.first.first,
                             entry.first.second)
     );
+    table.push_back(
+      CYCLE_ESTIMATOR_ENTRY(popops, UnaryOp1DInPlaceSupervisor,
+                            entry.first.first, entry.first.second)
+    );
   }
+
   for (const auto &entry : binaryOpPerfInfo) {
     table.push_back(
-      CYCLE_ESTIMATOR_ENTRY(popops, BinaryOpInPlace, entry.first.first,
+      CYCLE_ESTIMATOR_ENTRY(popops, BinaryOp2D, entry.first.first,
+                            entry.first.second)
+    );
+    table.push_back(
+      CYCLE_ESTIMATOR_ENTRY(popops, BinaryOp1DSupervisor, entry.first.first,
                             entry.first.second)
     );
   }
   for (const auto &entry : binaryOpInPlacePerfInfo) {
     table.push_back(
-      CYCLE_ESTIMATOR_ENTRY(popops, BinaryOp, entry.first.first,
+      CYCLE_ESTIMATOR_ENTRY(popops, BinaryOp2DInPlace, entry.first.first,
                             entry.first.second)
     );
+    table.push_back(
+      CYCLE_ESTIMATOR_ENTRY(popops, BinaryOp1DInPlaceSupervisor,
+                            entry.first.first, entry.first.second)
+    );
   }
+
   for (const auto &entry : comparisonOpPerfInfo) {
     table.push_back(
-      CYCLE_ESTIMATOR_ENTRY(popops, BinaryOp, entry.first.first,
+      CYCLE_ESTIMATOR_ENTRY(popops, BinaryOp2D, entry.first.first,
+                            entry.first.second)
+    );
+    table.push_back(
+      CYCLE_ESTIMATOR_ENTRY(popops, BinaryOp1DSupervisor, entry.first.first,
                             entry.first.second)
     );
   }
   for (const auto &entry : comparisonOpInplacePerfInfo) {
     table.push_back(
-      CYCLE_ESTIMATOR_ENTRY(popops, BinaryOp, entry.first.first,
+      CYCLE_ESTIMATOR_ENTRY(popops, BinaryOp2DInPlace, entry.first.first,
                             entry.first.second)
+    );
+    table.push_back(
+      CYCLE_ESTIMATOR_ENTRY(popops, BinaryOp1DInPlaceSupervisor,
+                            entry.first.first, entry.first.second)
     );
   }
   return table;

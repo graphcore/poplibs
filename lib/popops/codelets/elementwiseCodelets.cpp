@@ -91,7 +91,7 @@ namespace {
 template <expr::UnaryOpType op, typename T>
 class
 [[poplar::constraint("elem(**in) != elem(**out)")]]
-UnaryOp : public Vertex {
+UnaryOp2D : public Vertex {
 public:
   Vector<Input<Vector<T, ONE_PTR>>, ONE_PTR> in;
   Vector<Output<Vector<typename UnaryOpOutputType<op, T>::type>>> out;
@@ -110,10 +110,26 @@ public:
   }
 };
 
+template <expr::UnaryOpType op, typename T>
+class
+[[poplar::constraint("elem(*in) != elem(*out)")]]
+UnaryOp1DSupervisor : public SupervisorVertex {
+public:
+  Input<Vector<T, ONE_PTR>> in;
+  Output<Vector<typename UnaryOpOutputType<op, T>::type>> out;
+
+  bool compute() {
+    for (unsigned j = 0; j != out.size(); ++j) {
+        out[j] = UnaryOpFn<op, T>::fn(in[j]);
+    }
+    return true;
+  }
+};
+
 
 template <expr::UnaryOpType op, typename T>
 class
-UnaryOpInPlace : public Vertex {
+UnaryOp2DInPlace : public Vertex {
 public:
   Vector<InOut<Vector<T>>> inOut;
 
@@ -128,44 +144,111 @@ public:
   }
 };
 
-INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::ABSOLUTE, float, half, int)
-INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::BITWISE_NOT, int)
-INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::CEIL, float, half)
-INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::COS, float, half)
-INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::COUNT_LEADING_ZEROS, int)
-INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::EXPONENT, float, half)
-INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::EXPONENT_MINUS_ONE, float, half)
-INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::FLOOR, float, half)
-INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::IS_FINITE, float, half)
-INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::LOGARITHM, float, half)
-INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::LOGARITHM_ONE_PLUS, float, half)
-INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::LOGICAL_NOT, bool)
-INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::NEGATE, float, half, int)
-INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::POPCOUNT, int)
-INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::SIGNUM, float, half, int)
-INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::SIN, float, half)
-INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::TANH, float, half)
-INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::ROUND, float, half)
-INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::SQRT, float, half, int)
-INSTANTIATE_OP(UnaryOp, expr::UnaryOpType::SQUARE, float, half)
+template <expr::UnaryOpType op, typename T>
+class
+UnaryOp1DInPlaceSupervisor : public SupervisorVertex {
+public:
+  InOut<Vector<T>> inOut;
 
-INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::ABSOLUTE, float, half, int)
-INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::BITWISE_NOT, int)
-INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::CEIL, float, half)
-INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::COS, float, half)
-INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::COUNT_LEADING_ZEROS, int)
-INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::EXPONENT, float, half)
-INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::FLOOR, float, half)
-INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::LOGARITHM, float, half)
-INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::LOGICAL_NOT, bool)
-INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::NEGATE, float, half, int)
-INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::POPCOUNT, int)
-INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::SIGNUM, float, half, int)
-INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::SIN, float, half)
-INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::TANH, float, half)
-INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::ROUND, float, half)
-INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::SQRT, float, half, int)
-INSTANTIATE_OP(UnaryOpInPlace, expr::UnaryOpType::SQUARE, float, half)
+  bool compute() {
+    for (unsigned j = 0; j != inOut.size(); ++j) {
+      inOut[j] = UnaryOpFn<op, T>::fn(inOut[j]);
+    }
+    return true;
+  }
+};
+
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::ABSOLUTE, float, half, int)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::BITWISE_NOT, int)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::CEIL, float, half)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::COS, float, half)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::COUNT_LEADING_ZEROS, int)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::EXPONENT, float, half)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::EXPONENT_MINUS_ONE, float, half)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::FLOOR, float, half)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::IS_FINITE, float, half)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::LOGARITHM, float, half)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::LOGARITHM_ONE_PLUS, float, half)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::LOGICAL_NOT, bool)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::NEGATE, float, half, int)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::POPCOUNT, int)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::SIGNUM, float, half, int)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::SIN, float, half)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::TANH, float, half)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::ROUND, float, half)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::SQRT, float, half, int)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::SQUARE, float, half)
+
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::ABSOLUTE, float, half,
+               int)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::BITWISE_NOT, int)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::CEIL, float, half)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::COS, float, half)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::COUNT_LEADING_ZEROS, int)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::EXPONENT, float, half)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::EXPONENT_MINUS_ONE,
+               float, half)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::FLOOR, float, half)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::IS_FINITE, float, half)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::LOGARITHM, float, half)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::LOGARITHM_ONE_PLUS,
+               float, half)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::LOGICAL_NOT, bool)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::NEGATE, float, half, int)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::POPCOUNT, int)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::SIGNUM, float, half, int)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::SIN, float, half)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::TANH, float, half)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::ROUND, float, half)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::SQRT, float, half, int)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::SQUARE, float, half)
+
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::ABSOLUTE, float, half, int)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::BITWISE_NOT, int)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::CEIL, float, half)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::COS, float, half)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::COUNT_LEADING_ZEROS, int)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::EXPONENT, float, half)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::FLOOR, float, half)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::LOGARITHM, float, half)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::LOGICAL_NOT, bool)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::NEGATE, float, half, int)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::POPCOUNT, int)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::SIGNUM, float, half, int)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::SIN, float, half)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::TANH, float, half)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::ROUND, float, half)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::SQRT, float, half, int)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::SQUARE, float, half)
+
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::ABSOLUTE, float,
+               half, int)
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::BITWISE_NOT, int)
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::CEIL, float, half)
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::COS, float, half)
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor,
+               expr::UnaryOpType::COUNT_LEADING_ZEROS, int)
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::EXPONENT, float,
+               half)
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor,
+               expr::UnaryOpType::FLOOR, float, half)
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::LOGARITHM, float,
+               half)
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::LOGICAL_NOT, bool)
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::NEGATE, float,
+               half, int)
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::POPCOUNT, int)
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::SIGNUM, float,
+               half, int)
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::SIN, float, half)
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::TANH, float,
+               half)
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::ROUND, float,
+               half)
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::SQRT, float, half,
+               int)
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::SQUARE, float,
+               half)
 
 namespace {
   // Structure with template specialization to define the output type
@@ -249,7 +332,7 @@ class
                      "elem(**in2) != elem(**out)",
                      "elem(**in1) != elem(**out)",
                      "upper(**in1) || upper(**in2)")]]
-BinaryOp : public Vertex {
+BinaryOp2D : public Vertex {
 public:
   Vector<Input<Vector<T, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<T, ONE_PTR>>, ONE_PTR> in2;
@@ -272,8 +355,29 @@ public:
 
 template <expr::BinaryOpType op, typename T>
 class
+[[poplar::constraint("elem(*in1) != elem(*in2)",
+                     "elem(*in2) != elem(*out)",
+                     "elem(*in1) != elem(*out)",
+                     "upper(*in1) || upper(*in2)")]]
+BinaryOp1DSupervisor : public SupervisorVertex {
+public:
+  Input<Vector<T, ONE_PTR>> in1;
+  Input<Vector<T, ONE_PTR>> in2;
+  Output<Vector<typename BinaryOpOutputType<op, T>::type>> out;
+
+  bool compute() {
+    for (unsigned j = 0; j != out.size(); ++j) {
+      out[j] = BinaryOpFn<op, T>::fn(in1[j], in2[j]);
+    }
+    return true;
+  }
+};
+
+
+template <expr::BinaryOpType op, typename T>
+class
 [[poplar::constraint("elem(**in2) != elem(**in1Out)")]]
-BinaryOpInPlace : public Vertex {
+BinaryOp2DInPlace : public Vertex {
 public:
   Vector<InOut<Vector<typename BinaryOpOutputType<op, T>::type, TWO_PTR, 1,
          true>>> in1Out;
@@ -293,63 +397,163 @@ public:
   }
 };
 
-INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::ADD, float, half, int, unsigned)
-INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::ATAN2, float, half)
-INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::BITWISE_AND, int)
-INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::BITWISE_OR, int)
-INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::DIVIDE, float, half, int)
-INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::EQUAL, float, half, bool, int)
-INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::GREATER_THAN_EQUAL,
+
+template <expr::BinaryOpType op, typename T>
+class
+[[poplar::constraint("elem(*in2) != elem(*in1Out)")]]
+BinaryOp1DInPlaceSupervisor : public SupervisorVertex {
+public:
+  InOut<Vector<typename BinaryOpOutputType<op, T>::type, TWO_PTR, 1,
+         true>> in1Out;
+  Input<Vector<T, ONE_PTR>> in2;
+
+  bool compute() {
+      for (unsigned j = 0; j != in1Out.size(); ++j) {
+        in1Out[j] = BinaryOpFn<op, T>::fn(in1Out[j], in2[j]);
+      }
+    return true;
+  }
+};
+
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::ADD, float, half, int, unsigned)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::ATAN2, float, half)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::BITWISE_AND, int)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::BITWISE_OR, int)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::DIVIDE, float, half, int)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::EQUAL, float, half, bool, int)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::GREATER_THAN_EQUAL,
                float, half, int, bool)
-INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::GREATER_THAN,
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::GREATER_THAN,
                float, half, int, bool)
-INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::LESS_THAN_EQUAL,
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::LESS_THAN_EQUAL,
                float, half, int, bool)
-INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::LOGICAL_AND, bool)
-INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::LOGICAL_OR, bool)
-INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::LESS_THAN,
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::LOGICAL_AND, bool)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::LOGICAL_OR, bool)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::LESS_THAN,
                float, half, int, bool)
-INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::MAXIMUM, float, half, int)
-INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::MINIMUM, float, half, int)
-INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::MULTIPLY, float, half, int)
-INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::NOT_EQUAL, float, half, int, bool)
-INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::POWER, float, half)
-INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::REMAINDER, float, half, int)
-INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::SHIFT_LEFT, int)
-INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::SHIFT_RIGHT, int)
-INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND,
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::MAXIMUM, float, half, int)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::MINIMUM, float, half, int)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::MULTIPLY, float, half, int)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::NOT_EQUAL, float, half, int,
+               bool)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::POWER, float, half)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::REMAINDER, float, half, int)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::SHIFT_LEFT, int)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::SHIFT_RIGHT, int)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND,
                int)
-INSTANTIATE_OP(BinaryOp, expr::BinaryOpType::SUBTRACT,
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::SUBTRACT,
                float, half, int, unsigned)
 
 
-INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::ADD, float, half, int,
+INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::ADD, float, half,
+               int, unsigned)
+INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::ATAN2, float, half)
+INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::BITWISE_AND, int)
+INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::BITWISE_OR, int)
+INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::DIVIDE, float, half,
+               int)
+INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::EQUAL, float, half,
+               bool, int)
+INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::GREATER_THAN_EQUAL,
+               float, half, int, bool)
+INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::GREATER_THAN,
+               float, half, int, bool)
+INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::LESS_THAN_EQUAL,
+               float, half, int, bool)
+INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::LOGICAL_AND, bool)
+INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::LOGICAL_OR, bool)
+INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::LESS_THAN,
+               float, half, int, bool)
+INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::MAXIMUM, float, half,
+               int)
+INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::MINIMUM, float, half,
+               int)
+INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::MULTIPLY, float, half,
+               int)
+INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::NOT_EQUAL, float, half,
+               int, bool)
+INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::POWER, float, half)
+INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::REMAINDER, float, half,
+               int)
+INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::SHIFT_LEFT, int)
+INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::SHIFT_RIGHT, int)
+INSTANTIATE_OP(BinaryOp1DSupervisor,
+               expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, int)
+INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::SUBTRACT,
+               float, half, int, unsigned)
+
+
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::ADD, float, half, int,
                unsigned)
-INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::ATAN2, float, half)
-INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::BITWISE_AND, int)
-INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::BITWISE_OR, int)
-INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::DIVIDE, float, half, int)
-INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::EQUAL, bool)
-INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::GREATER_THAN_EQUAL, bool)
-INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::GREATER_THAN, bool)
-INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::LESS_THAN_EQUAL, bool)
-INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::LOGICAL_AND, bool)
-INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::LOGICAL_OR, bool)
-INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::LESS_THAN, bool)
-INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::MAXIMUM, float, half, int)
-INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::MINIMUM, float, half, int)
-INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::MULTIPLY, float, half, int)
-INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::NOT_EQUAL, bool)
-INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::POWER, float, half)
-INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::REMAINDER, float, half, int)
-INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::SHIFT_LEFT, int)
-INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::SHIFT_RIGHT, int)
-INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND,
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::ATAN2, float, half)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::BITWISE_AND, int)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::BITWISE_OR, int)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::DIVIDE, float, half, int)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::EQUAL, bool)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::GREATER_THAN_EQUAL, bool)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::GREATER_THAN, bool)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::LESS_THAN_EQUAL, bool)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::LOGICAL_AND, bool)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::LOGICAL_OR, bool)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::LESS_THAN, bool)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::MAXIMUM, float, half,
                int)
-INSTANTIATE_OP(BinaryOpInPlace, expr::BinaryOpType::SUBTRACT,
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::MINIMUM, float, half,
+               int)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::MULTIPLY, float, half,
+               int)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::NOT_EQUAL, bool)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::POWER, float, half)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::REMAINDER, float, half,
+               int)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::SHIFT_LEFT, int)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::SHIFT_RIGHT, int)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND,
+               int)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::SUBTRACT,
                float, half, int, unsigned)
 
-
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::ADD, float,
+               half, int, unsigned)
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::ATAN2, float,
+               half)
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::BITWISE_AND,
+               int)
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::BITWISE_OR,
+               int)
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::DIVIDE, float,
+               half, int)
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::EQUAL, bool)
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor,
+               expr::BinaryOpType::GREATER_THAN_EQUAL, bool)
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::GREATER_THAN,
+               bool)
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::LESS_THAN_EQUAL,
+               bool)
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::LOGICAL_AND,
+               bool)
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::LOGICAL_OR,
+               bool)
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::LESS_THAN, bool)
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::MAXIMUM, float,
+               half, int)
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::MINIMUM, float,
+               half, int)
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::MULTIPLY, float,
+               half, int)
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::NOT_EQUAL, bool)
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::POWER, float,
+               half)
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::REMAINDER,
+               float, half, int)
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::SHIFT_LEFT, int)
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::SHIFT_RIGHT,
+               int)
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor,
+               expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, int)
+INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::SUBTRACT,
+               float, half, int, unsigned)
 
 template <typename InType>
 class

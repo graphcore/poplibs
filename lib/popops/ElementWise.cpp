@@ -228,22 +228,45 @@ static Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog,
                          target.getAtomicStoreGranularity());
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
+    const auto thisTileMap =  mapping[tile];
     const auto tileContiguousRegions =
-        graph.getSortedContiguousRegions(outFlat, mapping[tile]);
-    auto vertexRegions =
-        splitRegionsBetweenWorkers(target, tileContiguousRegions,
+        graph.getSortedContiguousRegions(outFlat, thisTileMap);
+    if (tileContiguousRegions.size() == 1) {
+      // If mapping of the output tensor on this tile is only region or regions
+      // from one variable, force a gather (in case of more than one region)
+      // to get all data to a single edge.
+      // The decision to make a vertex supervisor may also have to account
+      // for the total elements as the overhead and work balance may not be
+      // very good for small vector sizes.
+      // TODO: Use profiled results for selection
+      const auto vertexTemplate =
+          templateVertex(inPlace ? "popops::UnaryOp1DInPlaceSupervisor" :
+                                   "popops::UnaryOp1DSupervisor",
+                         op, inType);
+      auto v = inPlace ?
+        graph.addVertex(cs, vertexTemplate,
+                        {{"inOut", concat(inFlat.slices(thisTileMap))}}):
+        graph.addVertex(cs, vertexTemplate,
+                        {{"in", concat(inFlat.slices(thisTileMap))},
+                         {"out", concat(outFlat.slices(thisTileMap))}});
+        graph.setTileMapping(v, tile);
+    } else {
+      const auto vertexTemplate =
+          templateVertex(inPlace ? "popops::UnaryOp2DInPlace" :
+                                   "popops::UnaryOp2D",
+                         op, inType);
+      auto vertexRegions =
+          splitRegionsBetweenWorkers(target, tileContiguousRegions,
                                    grainSize, 2 * grainSize);
-
-    for (const auto &regions : vertexRegions) {
-      VertexRef v = inPlace ?
-          graph.addVertex(cs,
-                          templateVertex("popops::UnaryOpInPlace", op, inType),
-                          {{"inOut", inFlat.slices(regions)}}) :
-          graph.addVertex(cs,
-                          templateVertex("popops::UnaryOp", op, inType),
-                          {{"in", inFlat.slices(regions)},
+      for (const auto &regions : vertexRegions) {
+        VertexRef v = inPlace ?
+            graph.addVertex(cs, vertexTemplate,
+                            {{"inOut", inFlat.slices(regions)}}) :
+            graph.addVertex(cs, vertexTemplate,
+                            {{"in", inFlat.slices(regions)},
                            {"out", outFlat.slices(regions)}});
-      graph.setTileMapping(v, tile);
+        graph.setTileMapping(v, tile);
+      }
     }
   }
   prog.add(Execute(cs));
@@ -288,26 +311,51 @@ static Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2,
                          target.getAtomicStoreGranularity());
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
+    const auto thisTileMap =  mapping[tile];
     const auto tileContiguousRegions =
-        graph.getSortedContiguousRegions(outFlat, mapping[tile]);
-    auto vertexRegions =
-      splitRegionsBetweenWorkers(target, tileContiguousRegions,
-                                 grainSize, 2 * grainSize);
-
-    for (const auto &regions : vertexRegions) {
+        graph.getSortedContiguousRegions(outFlat, thisTileMap);
+    if (tileContiguousRegions.size() == 1) {
+      // If mapping of the output tensor on this tile is only region or regions
+      // from one variable, force a gather (in case of more than one region)
+      // to get all data to a single edge.
+      //
+      // The decision to make a vertex supervisor may also have to account
+      // for the total elements as the overhead and work balance may not be
+      // very good for small vector sizes.
+      // TODO: Use profiled results for selection
+      const auto vertexTemplate =
+          templateVertex(inPlace ? "popops::BinaryOp1DInPlaceSupervisor" :
+                                   "popops::BinaryOp1DSupervisor",
+                         op, in1Type);
       auto v = inPlace ?
-            graph.addVertex(cs,
-                            templateVertex("popops::BinaryOpInPlace", op,
-                                              in1Type),
-                               {{"in1Out", outFlat.slices(regions)},
-                                {"in2", in2Flat.slices(regions)}}) :
-            graph.addVertex(cs,
-                            templateVertex("popops::BinaryOp", op,
-                                              in1Type),
-                               {{"in1", in1Flat.slices(regions)},
-                                {"in2", in2Flat.slices(regions)},
-                                {"out", outFlat.slices(regions)}});
+            graph.addVertex(cs, vertexTemplate,
+                            {{"in1Out", concat(outFlat.slices(thisTileMap))},
+                             {"in2", concat(in2Flat.slices(thisTileMap))}}) :
+            graph.addVertex(cs, vertexTemplate,
+                            {{"in1", concat(in1Flat.slices(thisTileMap))},
+                             {"in2", concat(in2Flat.slices(thisTileMap))},
+                             {"out", concat(outFlat.slices(thisTileMap))}});
       graph.setTileMapping(v, tile);
+    } else {
+      const auto vertexTemplate =
+            templateVertex(inPlace ? "popops::BinaryOp2DInPlace" :
+                                     "popops::BinaryOp2D",
+                           op, in1Type);
+      auto vertexRegions =
+        splitRegionsBetweenWorkers(target, tileContiguousRegions,
+                                   grainSize, 2 * grainSize);
+
+      for (const auto &regions : vertexRegions) {
+        auto v = inPlace ?
+              graph.addVertex(cs, vertexTemplate,
+                              {{"in1Out", outFlat.slices(regions)},
+                               {"in2", in2Flat.slices(regions)}}) :
+              graph.addVertex(cs, vertexTemplate,
+                              {{"in1", in1Flat.slices(regions)},
+                               {"in2", in2Flat.slices(regions)},
+                               {"out", outFlat.slices(regions)}});
+        graph.setTileMapping(v, tile);
+      }
     }
   }
   prog.add(Execute(cs));
