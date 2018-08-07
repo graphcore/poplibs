@@ -2879,6 +2879,8 @@ static Tensor weightsPartialTranspose(Graph &graph, Tensor in, ComputeSet cs) {
           graph.addVertex(cs, templateVertex("popconv::Transpose2d", dType));
       graph.setInitialValue(v["numSrcColumns"],
                             static_cast<unsigned>(numSrcColumns));
+      graph.setInitialValue(v["numSrcRows"],
+                            static_cast<unsigned>(numSrcRows));
       graph.setTileMapping(v, tile);
       unsigned i = 0;
       for (const auto &interval : entry) {
@@ -3428,6 +3430,8 @@ fullyConnectedWeightTranspose(Graph &graph,
       graph.setTileMapping(v, tile);
       graph.setInitialValue(v["numSrcColumns"],
                             static_cast<unsigned>(fwdGroupSize));
+      graph.setInitialValue(v["numSrcRows"],
+                            static_cast<unsigned>(bwdGroupSize));
       unsigned index = 0;
       for (const auto interval : entry) {
         for (auto block = interval.begin(); block != interval.end(); ++block) {

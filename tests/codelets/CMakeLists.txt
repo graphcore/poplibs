@@ -25,6 +25,7 @@ foreach(DATA_TYPE half float)
   endforeach()
 endforeach()
 
+#Clamp<InType>
 foreach(DATA_TYPE half float int)
    set(VARIANT_NAME "ClampTest_${DATA_TYPE}")
    set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
@@ -47,6 +48,9 @@ foreach(OUTER_DIM RANGE 1 15)
       endforeach()
   endforeach()
 endforeach()
+
+#Transpose2d<InType>
+   add_popnn_unit_test(Transpose2dTest Transpose2dTest.cpp VARIANTS "IpuModel;Sim:cpp;Sim")
 
 # MaxPooling<dataType> and ScaledSumPooling<dataType, poolType>
 foreach(DATA_TYPE half float)
