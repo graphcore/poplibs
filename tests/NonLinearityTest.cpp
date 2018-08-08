@@ -35,7 +35,7 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
                     *utf::tolerance<double>(fpc::percent_tolerance<double>(TOL))
                      ) {
   if (TEST_TARGET == DeviceType::Sim)
-    // test disabled until T3905 is fixed
+    // test disabled until T3986 is fixed
     return;
   auto device = createTestDevice(TEST_TARGET);
   auto &target = device.getTarget();
