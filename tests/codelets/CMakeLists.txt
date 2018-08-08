@@ -1,28 +1,14 @@
-# Function to add a multi-target test executable for codelets
-function(add_codelet_test_executable name)
-  add_executable(${name} ${ARGN})
-  target_include_directories(${name}
-    PRIVATE
-      ${CMAKE_SOURCE_DIR}/tests
-      $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
-      $<TARGET_PROPERTY:popconv,INCLUDE_DIRECTORIES>)
-  target_link_libraries(${name}
-    poprand popnn poputil poplar poplibs_test
-    Boost::program_options ${CMAKE_THREAD_LIBS_INIT})
-endfunction()
-
-# NonLinearity{Supervisor,2D}<dataType, nlType>
-foreach(NL_VERTEX Supervisor 2D)
-  set(TEST_EXECUTABLE "NonLinearity${NL_VERTEX}")
-  set(TEST_SRC "${TEST_EXECUTABLE}.cpp")
-  add_codelet_test_executable(${TEST_EXECUTABLE} ${TEST_SRC})
-  foreach(DATA_TYPE half float)
-    foreach(NL_TYPE sigmoid relu tanh)
+# NonLinearitySupervisor<dataType, nlType>
+foreach(DATA_TYPE half float)
+  foreach(NL_TYPE sigmoid relu tanh)
+    foreach(NL_VERTEX Supervisor 2D)
+      set(VARIANT_INPUT "NonLinearity${NL_VERTEX}.cpp.in")
       set(VARIANT_NAME "NonLinearity${NL_VERTEX}_${DATA_TYPE}_${NL_TYPE}")
-      add_multitarget_test(NAME ${VARIANT_NAME}
-                           COMMAND ${TEST_EXECUTABLE}
-                             --data-type=${DATA_TYPE}
-                             --nl-type=${NL_TYPE})
+      set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
+      string(TOUPPER "${DATA_TYPE}" DATA_TYPE_UPPER)
+      string(TOUPPER "${NL_TYPE}" NL_TYPE_UPPER)
+      configure_file(${VARIANT_INPUT} ${VARIANT_SRC})
+      add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC})
     endforeach()
   endforeach()
 endforeach()
@@ -48,19 +34,16 @@ foreach(DATA_TYPE half float int)
    add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC} VARIANTS "IpuModel;Sim:cpp;Sim")
 endforeach()
 
-add_codelet_test_executable(ReduceAdd ReduceAdd.cpp)
 foreach(OUTER_DIM RANGE 1 15)
   foreach(INNER_DIM RANGE 1 3)
-    foreach(PARTIALS_TYPE half float)
-      foreach(OUT_TYPE half float)
+    foreach(PARTIALS_TYPE HALF FLOAT)
+      foreach(OUT_TYPE HALF FLOAT)
         set(VARIANT_NAME
             "ReduceAdd_${OUTER_DIM}_${INNER_DIM}_${PARTIALS_TYPE}_${OUT_TYPE}")
-        add_multitarget_test(NAME ${VARIANT_NAME}
-                             COMMAND ReduceAdd
-                               --partials-type=${PARTIALS_TYPE}
-                               --out-type=${OUT_TYPE}
-                               --outer-dim=${OUTER_DIM}
-                               --inner-dim=${INNER_DIM})
+        set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
+        configure_file(ReduceAdd.cpp ${VARIANT_SRC})
+        add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC}
+	                           VARIANTS "IpuModel;Sim:cpp;Sim")
         endforeach()
       endforeach()
   endforeach()

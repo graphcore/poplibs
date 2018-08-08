@@ -62,6 +62,30 @@ const char *asString(const popnn::NonLinearityType &type) {
   POPLIB_UNREACHABLE();
 }
 
+namespace popnn {
+
+std::ostream &operator<<(std::ostream &os, const NonLinearityType &type) {
+  return os << asString(type);
+}
+
+std::istream &operator>>(std::istream &in, NonLinearityType &type) {
+  std::string token;
+  in >> token;
+  if (token == "relu")
+    type = NonLinearityType::RELU;
+  else if (token == "sigmoid")
+    type = NonLinearityType::SIGMOID;
+  else if (token == "tanh")
+    type = NonLinearityType::TANH;
+  else
+    throw poplibs_test::poplibs_test_error(
+        "Unsupported nonlinearity <" + token + ">");
+
+  return in;
+}
+
+} // end namespace popnn
+
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
   DeviceType deviceType = DeviceType::IpuModel;
