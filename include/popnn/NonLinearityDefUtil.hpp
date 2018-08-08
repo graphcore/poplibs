@@ -7,6 +7,44 @@
 #include <poputil/exceptions.hpp>
 #include <poputil/VertexTemplates.hpp>
 
+namespace popnn {
+
+inline const char *asString(const popnn::NonLinearityType &type) {
+  switch (type) {
+  case popnn::NonLinearityType::RELU: return "relu";
+  case popnn::NonLinearityType::SIGMOID: return "sigmoid";
+  case popnn::NonLinearityType::TANH: return "tanh";
+  case popnn::NonLinearityType::SOFTMAX: return "softmax";
+  default:
+    throw poputil::poplib_error("Unsupported non-linearity type");
+  }
+}
+
+inline std::ostream &operator<<(std::ostream &os,
+                                const popnn::NonLinearityType &type) {
+  return os << asString(type);
+}
+
+inline std::istream &operator>>(std::istream &in,
+                                popnn::NonLinearityType &type) {
+  std::string token;
+  in >> token;
+  if (token == "relu")
+    type = popnn::NonLinearityType::RELU;
+  else if (token == "sigmoid")
+    type = popnn::NonLinearityType::SIGMOID;
+  else if (token == "tanh")
+    type = popnn::NonLinearityType::TANH;
+  else if (token == "softmax")
+    type = popnn::NonLinearityType::SOFTMAX;
+  else
+    throw poputil::poplib_error(
+      "Unsupported non-linearity type '" + token + "'");
+  return in;
+}
+
+} // end namespace popnn
+
 // Specialize vertex template stringification for non-linearity type.
 namespace poputil {
 

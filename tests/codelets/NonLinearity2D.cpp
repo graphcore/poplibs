@@ -8,10 +8,10 @@
 #include "poplibs_test/Util.hpp"
 
 #include <cmath>
+#include <stdexcept>
 #include <vector>
 
-#define BOOST_TEST_MODULE NonLinearity2D_@DATA_TYPE@_@NL_TYPE@
-#include <boost/test/unit_test.hpp>
+#include <boost/program_options.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -60,8 +60,9 @@ struct SliceDesc {
   std::vector<Interval> intervals;
 };
 
-void doTest(const Type &dataType, const NonLinearityType &nlType) {
-  Device device = createTestDevice(TEST_TARGET);
+bool doTest(const DeviceType &deviceType,
+            const Type &dataType, const NonLinearityType &nlType) {
+  Device device = createTestDevice(deviceType);
   const auto &target = device.getTarget();
   Graph graph(device);
   popnn::addCodelets(graph);
@@ -158,7 +159,7 @@ void doTest(const Type &dataType, const NonLinearityType &nlType) {
       }
     }
   }
-  
+
   // The multiple levels of function calls and loops in the NonLinearity2D
   // vertices manage to overflow the stack sometimes in the C++ codelets at
   // present.
@@ -176,6 +177,7 @@ void doTest(const Type &dataType, const NonLinearityType &nlType) {
     dataType == FLOAT ? FLOAT_ATOL
                       : HALF_ATOL;
 
+  bool success = true;
   for (std::size_t testId = 0; testId < programs.size(); ++testId) {
     // Fill out the model data, applying the non-linearity to regions to be
     // processed by the vertex. This allows us to detect over/underwrites
@@ -213,20 +215,54 @@ void doTest(const Type &dataType, const NonLinearityType &nlType) {
     copy(target, dataType, rawHostActsIn.get(), hostActsOut);
     copy(target, dataType, rawHostGradIn.get(), hostGradIn);
 
-    BOOST_CHECK(checkIsClose("fwd_" + std::to_string(testId),
-                             hostActsOut.data(), {hostActsOut.num_elements()},
-                             modelActsOut.data(), modelActsOut.num_elements(),
-                             relativeTolerance, absoluteTolerance));
-    BOOST_CHECK(checkIsClose("bwd_" + std::to_string(testId),
-                             hostGradIn.data(), {hostGradIn.num_elements()},
-                             modelGradIn.data(), modelGradIn.num_elements(),
-                             relativeTolerance, absoluteTolerance));
+    success &=
+      checkIsClose("fwd_" + std::to_string(testId),
+                   hostActsOut.data(), {hostActsOut.num_elements()},
+                   modelActsOut.data(), modelActsOut.num_elements(),
+                   relativeTolerance, absoluteTolerance);
+    success &=
+      checkIsClose("bwd_" + std::to_string(testId),
+                   hostGradIn.data(), {hostGradIn.num_elements()},
+                   modelGradIn.data(), modelGradIn.num_elements(),
+                   relativeTolerance, absoluteTolerance);
   }
+  return success;
 }
 
 } // end anonymous namespace
 
+int main(int argc, char **argv) {
+  namespace po = boost::program_options;
 
-BOOST_AUTO_TEST_CASE(NonLinearity2D_@DATA_TYPE@_@NL_TYPE@) {
-  doTest(@DATA_TYPE_UPPER@, NonLinearityType::@NL_TYPE_UPPER@);
+  DeviceType deviceType;
+  Type dataType;
+  NonLinearityType nlType;
+  po::options_description desc("Options");
+  desc.add_options()
+    ("help", "Print help")
+    ("device-type",
+     po::value<DeviceType>(&deviceType)->default_value(deviceType),
+     "Device Type")
+    ("data-type",
+     po::value<Type>(&dataType),
+     "Data type for the non-linearity")
+    ("nl-type",
+     po::value<NonLinearityType>(&nlType),
+     "Non-linearity type");
+  po::variables_map vm;
+  try {
+    po::store(po::parse_command_line(argc, argv, desc), vm);
+    if (vm.count("help")) {
+      std::cout << desc << "\n\n";
+      return 1;
+    }
+    po::notify(vm);
+  } catch (std::exception &e) {
+    std::cerr << "error: " << e.what() << "\n";
+    return 1;
+  }
+
+  if (!doTest(deviceType, dataType, nlType))
+    return 1;
+  return 0;
 }
