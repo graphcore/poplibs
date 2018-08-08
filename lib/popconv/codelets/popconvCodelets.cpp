@@ -1004,8 +1004,7 @@ template <class FPType>
 class
 [[poplar::constraint("elem(**actsIn) != elem(**actsOut)",
                      "elem(**actsIn) != elem(**scale)",
-                     "elem(**scale) != elem(**actsOut)",
-                     "upper(**actsIn) || upper(**actsOut)")]]
+                     "elem(**scale) != elem(**actsOut)")]]
 ChannelMul2D : public Vertex {
 public:
   Vector<Input<Vector<FPType>>> actsIn;
@@ -1035,8 +1034,7 @@ template <class FPType>
 class
 [[poplar::constraint("elem(*actsIn) != elem(*actsOut)",
                      "elem(*actsIn) != elem(*scale)",
-                     "elem(*scale) != elem(*actsOut)",
-                     "upper(*actsIn) || upper(*actsOut)")]]
+                     "elem(*scale) != elem(*actsOut)")]]
 ChannelMul : public SupervisorVertex {
 public:
   Input<Vector<FPType>> actsIn;

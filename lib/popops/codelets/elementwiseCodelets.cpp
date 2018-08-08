@@ -330,8 +330,7 @@ template <expr::BinaryOpType op, typename T>
 class
 [[poplar::constraint("elem(**in1) != elem(**in2)",
                      "elem(**in2) != elem(**out)",
-                     "elem(**in1) != elem(**out)",
-                     "upper(**in1) || upper(**in2)")]]
+                     "elem(**in1) != elem(**out)")]]
 BinaryOp2D : public Vertex {
 public:
   Vector<Input<Vector<T, ONE_PTR>>, ONE_PTR> in1;
@@ -357,8 +356,7 @@ template <expr::BinaryOpType op, typename T>
 class
 [[poplar::constraint("elem(*in1) != elem(*in2)",
                      "elem(*in2) != elem(*out)",
-                     "elem(*in1) != elem(*out)",
-                     "upper(*in1) || upper(*in2)")]]
+                     "elem(*in1) != elem(*out)")]]
 BinaryOp1DSupervisor : public SupervisorVertex {
 public:
   Input<Vector<T, ONE_PTR>> in1;
