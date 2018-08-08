@@ -558,6 +558,8 @@ class
 [[poplar::constraint("elem(*data) != elem(*deltas)")]]
 ScaledAddSupervisor : public SupervisorVertex {
 public:
+  IS_EXTERNAL_CODELET(true);
+
   InOut<Vector<InType>> data;
   Input<Vector<InType, ONE_PTR>> deltas;
   InType K;
