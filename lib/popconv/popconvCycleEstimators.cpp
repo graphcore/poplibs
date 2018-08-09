@@ -104,31 +104,6 @@ MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(const VertexIntrospector &vertex,
 
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(ConvChanReduce2)(const VertexIntrospector &vertex,
-                                           const Target &target,
-                                           const Type &fpType) {
-  CODELET_FIELD(out);
-  CODELET_VECTOR_VALS(numInputsPerOutput, unsigned);
-  auto numBiases = out.size();
-  uint64_t cycles = 10;
-
-  for (unsigned bias = 0; bias < numBiases; ++bias) {
-    cycles += numInputsPerOutput[bias];
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(ConvChanReduceAcc)(const VertexIntrospector &vertex,
-                                             const Target &target,
-                                             const Type &inType,
-                                             const Type &outType) {
-  CODELET_FIELD(in);
-  return 15 + in.size();
-}
-
-
-std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(const VertexIntrospector &vertex,
                                              const Target &target,
                                              const Type &fpType,
@@ -633,74 +608,6 @@ MAKE_CYCLE_ESTIMATOR_NAME(ChannelMul)(const VertexIntrospector &vertex,
   return numCycles * numWorkerContexts + 10;
 }
 
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(ConvChanReduce)(const VertexIntrospector &vertex,
-                                          const Target &target,
-                                          const Type &inType,
-                                          const Type &outType) {
-  CODELET_FIELD(out);
-  CODELET_FIELD(in);
-  CODELET_SCALAR_VAL(useDoubleDataPathInstr, bool);
-  const auto dataPathWidth = target.getDataPathWidth();
-
-  const bool isFloat = inType == FLOAT;
-  // factor of 2 for instructions that allow double the datapath width
-  unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-  if (useDoubleDataPathInstr) {
-    vectorWidth *= 2;
-  }
-  unsigned numVectors = (out.size() + vectorWidth - 1) / vectorWidth;
-
-  uint64_t cycles = 11; // overhead from benchmark including 2 cycles for run
-  cycles += 7 * numVectors;
-  for (unsigned d = 0; d < in.size(); d++) {
-    cycles += 5;
-    auto samplesPerEst = in[d].size() / out.size();
-    cycles += numVectors * (3 + samplesPerEst);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(ConvChanReduceSquare)(
-    const VertexIntrospector &vertex,
-    const Target &target,
-    const Type &inType,
-    const Type &outType) {
-  CODELET_FIELD(out);
-  CODELET_FIELD(in);
-  CODELET_SCALAR_VAL(useDoubleDataPathInstr, bool);
-  const auto dataPathWidth = target.getDataPathWidth();
-
-  const bool isFloat = inType == FLOAT;
-  // factor of 2 for instructions that allow double the datapath width
-  unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-  if (useDoubleDataPathInstr) {
-    vectorWidth *= 2;
-  }
-  unsigned numVectors = (out.size() + vectorWidth - 1) / vectorWidth;
-
-  uint64_t cycles = 11; // overhead from benchmark including 2 cycles for run
-  cycles += 7 * numVectors;
-  for (unsigned d = 0; d < in.size(); d++) {
-    cycles += 5;
-    auto samplesPerEst = in[d].size() / out.size();
-    cycles += numVectors * (3 + samplesPerEst);
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(ConvChanReduceAndScale)(
-    const VertexIntrospector &vertex,
-    const Target &target,
-    const Type &inType,
-    const Type &outType) {
-  CODELET_FIELD(in);
-  return 15 + in.size();
-}
-
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(InverseStdDeviation)(
     const VertexIntrospector &vertex,
@@ -784,18 +691,6 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popconv, InverseStdDeviation,
                                    HALF, HALF, HALF),
 
-    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceAndScale, FLOAT,
-                                   FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceAndScale, FLOAT, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceAndScale, HALF, HALF),
-
-    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceSquare, FLOAT, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceSquare, HALF, FLOAT),
-
-    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduce, FLOAT, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduce, HALF, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduce, HALF, HALF),
-
     CYCLE_ESTIMATOR_ENTRY(popconv, ChannelMul, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popconv, ChannelMul, HALF),
     CYCLE_ESTIMATOR_ENTRY(popconv, ChannelMul2D, FLOAT),
@@ -858,13 +753,6 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
                                    FLOAT, HALF, false),
     CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartial1x1Out,
                                    FLOAT, FLOAT, false),
-
-    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceAcc, FLOAT, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceAcc, HALF, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduceAcc, FLOAT, HALF),
-
-    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduce2, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popconv, ConvChanReduce2, HALF),
 
     CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialnx1, FLOAT, FLOAT, true),
     CYCLE_ESTIMATOR_ENTRY(popconv, ConvPartialnx1, HALF, HALF, true),
