@@ -800,9 +800,10 @@ class Select : public Vertex {
 public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in1;
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
-  Vector<Input<Vector<bool>>> in3;
-  Vector<Output<Vector<InType>>> out;
+  Vector<Input<Vector<bool,   ONE_PTR>>, ONE_PTR> in3;
+  Vector<Output<Vector<InType, TWO_PTR, 4>>> out;
 
+  IS_EXTERNAL_CODELET(true);
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
       for (unsigned j = 0; j != out[i].size(); ++j) {
