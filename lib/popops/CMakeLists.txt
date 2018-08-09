@@ -69,7 +69,12 @@ target_include_directories(popops
     .
 )
 
-
+# Search for arch_man path
+foreach(path ${CMAKE_PREFIX_PATH})
+    if(EXISTS "${path}/colossus/include/tileimplconsts_tommy.h")
+      set(ARCH_MAN_PATH ${path})
+    endif()
+endforeach(path)
 
 set(codelet_cpp_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/dynamicSliceCodelets.cpp
@@ -81,6 +86,9 @@ set(codelet_cpp_sources
 
 set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Clamp.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ScaledAddSupervisor_half.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ScaledAddSupervisor_float.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ScaledAddSupervisor_integral.S
 )
 
 set(codelet_headers
@@ -94,6 +102,7 @@ add_custom_command(
     ${POPC_EXECUTABLE} ${POPC_FLAGS}
     -I ${CMAKE_CURRENT_SOURCE_DIR}
     -I ${CMAKE_CURRENT_SOURCE_DIR}/codelets/
+    -I ${ARCH_MAN_PATH}/colossus/include
     -o popops.gp
     ${codelet_cpp_sources}
     ${codelet_asm_sources}

@@ -109,3 +109,7 @@ add_popnn_unit_test(AddToChannel
 add_popnn_unit_test(AddToChannel2D
                     AddToChannel2D.cpp
                     VARIANTS ${TimesOutOnSim})
+add_popnn_unit_test(ScaledAddSupervisor_fp
+                    ScaledAddSupervisor_fp.cpp)
+add_popnn_unit_test(ScaledAddSupervisor_integral
+                    ScaledAddSupervisor_integral.cpp)
