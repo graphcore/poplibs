@@ -23,7 +23,7 @@ namespace detail {
 
 template <typename T>
 void copyToDevice(const poplar::Target &target, const T *src, void *dst,
-                  std::size_t n) {}
+                  std::size_t n);
 
 template <>
 void copyToDevice(const poplar::Target &target, const float *src, void *dst,
@@ -39,7 +39,7 @@ void copyToDevice(const poplar::Target &target, const double *src, void *dst,
 
 template <typename T>
 void copyFromDevice(const poplar::Target &target, const void *src, T *dst,
-                    std::size_t n) {}
+                    std::size_t n);
 
 template <>
 void copyFromDevice(const poplar::Target &target, const void *src, float *dst,

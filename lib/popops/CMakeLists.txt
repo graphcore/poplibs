@@ -81,9 +81,6 @@ set(codelet_cpp_sources
 
 set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Clamp.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/select_bool.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/select_half.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/select_int_float.S
 )
 
 set(codelet_headers
