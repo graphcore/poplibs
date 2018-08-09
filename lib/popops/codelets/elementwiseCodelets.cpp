@@ -557,11 +557,16 @@ template <typename InType>
 class
 [[poplar::constraint("elem(*data) != elem(*deltas)")]]
 ScaledAddSupervisor : public SupervisorVertex {
+  constexpr static std::size_t minAlign() {
+    // the floating point variants use ld2x64pace and therefore require
+    // 64-bit alignment.
+    return std::is_integral<InType>{} ? alignof(InType) : 8;
+  }
 public:
   IS_EXTERNAL_CODELET(true);
 
-  InOut<Vector<InType>> data;
-  Input<Vector<InType, ONE_PTR>> deltas;
+  InOut<Vector<InType, TWO_PTR, minAlign()>> data;
+  Input<Vector<InType, ONE_PTR, minAlign()>> deltas;
   InType K;
 
   bool compute() {
