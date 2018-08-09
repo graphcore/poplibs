@@ -563,8 +563,6 @@ ScaledAddSupervisor : public SupervisorVertex {
     return std::is_integral<InType>{} ? alignof(InType) : 8;
   }
 public:
-  IS_EXTERNAL_CODELET(true);
-
   InOut<Vector<InType, TWO_PTR, minAlign()>> data;
   Input<Vector<InType, ONE_PTR, minAlign()>> deltas;
   InType K;
