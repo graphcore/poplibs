@@ -6,7 +6,6 @@
 #include <popnn/NonLinearityDef.hpp>
 
 #ifndef __POPC__
-#include <popnn/NonLinearityDefUtil.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 

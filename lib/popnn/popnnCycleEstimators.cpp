@@ -1,6 +1,7 @@
 #include "popnnCycleEstimators.hpp"
 
 #include "popnn/NonLinearity.hpp"
+#include "popnn/NonLinearityDefUtil.hpp"
 #include "popnn/PoolingDef.hpp"
 #include "PoolingDefUtil.hpp"
 #include "PerformanceEstimation.hpp"

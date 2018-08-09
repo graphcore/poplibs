@@ -146,10 +146,10 @@ void singleTest(const Type &dataType, const LossTransformType &ltType) {
     auto cs = graph.addComputeSet("cs_" + std::to_string(size));
     auto v = graph.addVertex(cs, vertexClass);
     graph.setTileMapping(v, 0);
-    graph.connect(v["probs"], tProbs.slice({0}, {size}));
-    graph.connect(v["expected"], tExpected.slice({0}, {size}));
-    graph.connect(v["deltas"], tDeltas.slice({0}, {size}));
-    graph.connect(v["transformed"], tTransformed.slice({0}, {size}));
+    graph.connect(v["probs"], tProbs.slice(0, size));
+    graph.connect(v["expected"], tExpected.slice(0, size));
+    graph.connect(v["deltas"], tDeltas.slice(0, size));
+    graph.connect(v["transformed"], tTransformed.slice(0, size));
     graph.setInitialValue(v["size"], size);
 
     programs.push_back(Sequence(

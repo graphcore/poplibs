@@ -2,6 +2,7 @@
 //
 #define BOOST_TEST_MODULE NonLinearityTest
 #include <popnn/NonLinearity.hpp>
+#include <popnn/NonLinearityDefUtil.hpp>
 #include <boost/test/unit_test.hpp>
 #include <limits>
 #include <poplar/Engine.hpp>
@@ -125,7 +126,7 @@ BOOST_AUTO_TEST_CASE(NonLinearity,
                  NonLinearityType::TANH,
                  }) {
     //Check backward gradient calculations
-    std::cerr << "Check nl type " << poplibs_test::asString(n) << "\n";
+    std::cerr << "Check nl type " << n << "\n";
     //Check forward activation calculation
     hRefActOut = hActIn;
     poplibs_test::nonLinearity(n, hRefActOut);
@@ -226,7 +227,7 @@ BOOST_AUTO_TEST_CASE(NonLinearitySoftMax,
     }
   }
 
-  std::cerr << "Check nl type " << poplibs_test::asString(nl) << "\n";
+  std::cerr << "Check nl type " << nl << "\n";
 
   auto hActOut = hActIn;
   poplibs_test::nonLinearity(nl, hActOut);

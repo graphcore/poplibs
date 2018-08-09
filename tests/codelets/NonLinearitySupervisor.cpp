@@ -2,16 +2,17 @@
 #include <TestDevice.hpp>
 #include <poplar/Engine.hpp>
 #include <popnn/NonLinearity.hpp>
+#include <popnn/NonLinearityDefUtil.hpp>
 #include <popnn/codelets.hpp>
 #include "poputil/VertexTemplates.hpp"
 #include "poplibs_test/NonLinearity.hpp"
 #include "poplibs_test/Util.hpp"
 
 #include <cmath>
+#include <stdexcept>
 #include <vector>
 
-#define BOOST_TEST_MODULE NonLinearitySupervisor_@DATA_TYPE@_@NL_TYPE@
-#include <boost/test/unit_test.hpp>
+#include <boost/program_options.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -19,24 +20,11 @@ using namespace popnn;
 using namespace poputil;
 using namespace poplibs_test::util;
 
-using namespace boost::unit_test;
-
 #define TOL 0.1 //tolerance of 0.1%
 #define FLOAT_ATOL 1e-20
 #define HALF_ATOL 1e-7
 
 namespace {
-
-// Unsigned integer version of log2 rounded up
-// Single-line constexpr form added to allow compile-time calculation.
-// Could be nicer if using multi-line constexpr function (needs C++14).
-constexpr static unsigned ceilLog2Aux(unsigned n) {
-  return (n ? 1 + ceilLog2Aux(n >> 1) : 0);
-}
-// Check if power of 2 and then call to count up to most significant bit
-constexpr static unsigned ceilLog2(unsigned n) {
-  return ((n & (n - 1)) ? 1 : 0) + ceilLog2Aux(n >> 1);
-}
 
 // Generated with python: "{0:-,.6f}".format(random.gauss(0.0,5.0))
 constexpr static std::size_t randomDataSize = 80;
@@ -84,15 +72,15 @@ struct SliceDesc {
   std::size_t numElements;
 };
 
-void doTest(const Type &dataType, const NonLinearityType &nlType) {
-  Device device = createTestDevice(TEST_TARGET);
+void doTest(const DeviceType &deviceType,
+            const Type &dataType, const NonLinearityType &nlType) {
+  Device device = createTestDevice(deviceType);
   const auto &target = device.getTarget();
   Graph graph(device);
   popnn::addCodelets(graph);
 
   const auto vectorWidth = target.getVectorWidth(dataType);
   const auto numWorkers = target.getNumWorkerContexts();
-  const auto elementsPerChunk = vectorWidth * numWorkers;
 
   // Once we have hit 3 full 64-bit loops for all workers +
   // up to 32-bits leading we will have covered all paths through the codelet.
@@ -207,27 +195,66 @@ void doTest(const Type &dataType, const NonLinearityType &nlType) {
     copy(target, dataType, rawHostGradIn.get(), hostGradIn);
 
     auto &testDesc = programSlices[testId];
-    BOOST_CHECK(checkIsClose("fwd_" + std::to_string(testDesc.offset) +
-                             "_" + std::to_string(testDesc.numElements),
-                             hostActsOut.data() + testDesc.offset,
-                             {testDesc.numElements},
-                             modelActsOut.data() + testDesc.offset,
-                             testDesc.numElements,
-                             relativeTolerance, absoluteTolerance));
-    BOOST_CHECK(checkIsClose("bwd_" + std::to_string(testDesc.offset) +
-                             "_" + std::to_string(testDesc.numElements),
-                             hostGradIn.data() + testDesc.offset,
-                             {testDesc.numElements},
-                             modelGradIn.data() + testDesc.offset,
-                             testDesc.numElements,
-                             relativeTolerance, absoluteTolerance));
+    bool validation = true;
+    validation &=
+      checkIsClose("fwd_" + std::to_string(testDesc.offset) +
+                   "_" + std::to_string(testDesc.numElements),
+                   hostActsOut.data() + testDesc.offset,
+                   {testDesc.numElements},
+                   modelActsOut.data() + testDesc.offset,
+                   testDesc.numElements,
+                   relativeTolerance, absoluteTolerance);
+    validation &=
+      checkIsClose("bwd_" + std::to_string(testDesc.offset) +
+                   "_" + std::to_string(testDesc.numElements),
+                   hostGradIn.data() + testDesc.offset,
+                   {testDesc.numElements},
+                   modelGradIn.data() + testDesc.offset,
+                   testDesc.numElements,
+                   relativeTolerance, absoluteTolerance);
+    if (!validation)
+      throw std::runtime_error("Results validation failed");
   }
 }
 
 
 } // end anonymous namespace
 
+int main(int argc, char **argv) {
+  namespace po = boost::program_options;
 
-BOOST_AUTO_TEST_CASE(NonLinearitySupervisor_@DATA_TYPE@_@NL_TYPE@) {
-  doTest(@DATA_TYPE_UPPER@, NonLinearityType::@NL_TYPE_UPPER@);
+  DeviceType deviceType;
+  Type dataType;
+  NonLinearityType nlType;
+  po::options_description desc("Options");
+  desc.add_options()
+    ("help", "Print help")
+    ("device-type",
+     po::value<DeviceType>(&deviceType)->required(),
+     "Device Type")
+    ("data-type",
+     po::value<Type>(&dataType)->required(),
+     "Data type for the non-linearity")
+    ("nl-type",
+     po::value<NonLinearityType>(&nlType)->required(),
+     "Non-linearity type");
+  po::variables_map vm;
+  try {
+    po::store(po::parse_command_line(argc, argv, desc), vm);
+    if (vm.count("help")) {
+      std::cout << desc << "\n\n";
+      return 1;
+    }
+    po::notify(vm);
+  } catch (std::exception &e) {
+    std::cerr << "error: " << e.what() << "\n";
+    return 1;
+  }
+
+  try {
+    doTest(deviceType, dataType, nlType);
+  } catch (std::exception &e) {
+    std::cerr << "Test failed: " << e.what() << "\n";
+    return 1;
+  }
 }
