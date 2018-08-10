@@ -150,13 +150,14 @@ int main(int argc, char **argv) {
                   || pass == poplibs_test::Pass::WU;
   bool fwdOnly = !doBwdPass && !doWuPass;
 
+  poplin::PlanningCache cache;
   auto prevLayerAct =
     lstm::createInput(graph, sequenceSize, batchSize, inputSize, outputSize,
-                      dataType, fwdOnly, "prevLayerAct");
+                      dataType, fwdOnly, "prevLayerAct", &cache);
   auto prog = Sequence();
   auto fwdStateInit =
     lstm::createFwdState(graph, batchSize, outputSize, prog, false, dataType,
-                         false);
+                         false, "fwdState", &cache);
 
   auto outputInit = lstm::getOutputFromFwdState(fwdStateInit);
   auto cellStateInit = lstm::getCellFromFwdState(fwdStateInit);
@@ -167,10 +168,11 @@ int main(int argc, char **argv) {
   auto weightsInput =
     lstm::createWeightsInput(graph, sequenceSize, batchSize, inputSize,
                              outputSize, false, dataType, partialsType,
-                             fwdOnly);
+                             fwdOnly, "weightsInput", &cache);
   auto weightsOutput =
     lstm::createWeightsOutput(graph, sequenceSize, batchSize, outputSize,
-                              dataType, partialsType, fwdOnly);
+                              dataType, partialsType, fwdOnly,
+                              "weightsOutput", &cache);
 
   std::vector<std::pair<std::string, char *>> tmap;
 
@@ -178,14 +180,14 @@ int main(int argc, char **argv) {
   if (preweightInput) {
     weightedIn =
       lstm::calcSequenceWeightedInputs(graph, prevLayerAct, weightsInput, prog,
-                                       partialsType);
+                                       partialsType, "calcInputs", &cache);
   }
 
   Tensor fwdState = popnn::lstm::lstmFwdSequence(
     graph, fwdOnly, prog, fwdStateInit,
     preweightInput ? &weightedIn : nullptr,
     biases, weightsInput, weightsOutput, prevLayerAct, dataType,
-    partialsType);
+    partialsType, "fwd", &cache);
 
   auto nextLayerGrads =
      graph.addVariable(dataType, {sequenceSize, batchSize, outputSize});
@@ -194,7 +196,8 @@ int main(int argc, char **argv) {
   Tensor bwdStateInit;
   if (doBwdPass || doWuPass) {
     bwdStateInit =
-      lstm::createBwdState(graph, batchSize, outputSize, prog, dataType);
+      lstm::createBwdState(graph, batchSize, outputSize, prog, dataType,
+                           "bwdState", &cache);
   }
 
   Tensor bwdState;
@@ -208,7 +211,7 @@ int main(int argc, char **argv) {
                             fwdStateInit, fwdState, biases,
                             weightsInput, weightsOutput,
                             prevLayerAct, nextLayerGrads, bwdStateInit,
-                            dataType, partialsType);
+                            dataType, partialsType, "bwd", &cache);
   }
 
   auto rawHostWeightsInput =
