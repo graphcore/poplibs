@@ -93,8 +93,9 @@ class
 [[poplar::constraint("elem(**in) != elem(**out)")]]
 UnaryOp2D : public Vertex {
 public:
-  Vector<Input<Vector<T, ONE_PTR>>, ONE_PTR> in;
-  Vector<Output<Vector<typename UnaryOpOutputType<op, T>::type>>> out;
+  Vector<Input<Vector<T, ONE_PTR, 8>>, ONE_PTR> in;
+  Vector<Output<Vector<typename UnaryOpOutputType<op, T>::type, TWO_PTR, 8>>>
+      out;
 
   bool compute() {
     unsigned limI = out.size();
@@ -131,7 +132,7 @@ template <expr::UnaryOpType op, typename T>
 class
 UnaryOp2DInPlace : public Vertex {
 public:
-  Vector<InOut<Vector<T>>> inOut;
+  Vector<InOut<Vector<T, TWO_PTR, 8>>> inOut;
 
   bool compute() {
     for (auto &row : inOut) {
@@ -333,9 +334,10 @@ class
                      "elem(**in1) != elem(**out)")]]
 BinaryOp2D : public Vertex {
 public:
-  Vector<Input<Vector<T, ONE_PTR>>, ONE_PTR> in1;
-  Vector<Input<Vector<T, ONE_PTR>>, ONE_PTR> in2;
-  Vector<Output<Vector<typename BinaryOpOutputType<op, T>::type>>> out;
+  Vector<Input<Vector<T, ONE_PTR, 8>>, ONE_PTR> in1;
+  Vector<Input<Vector<T, ONE_PTR, 8>>, ONE_PTR> in2;
+  Vector<Output<Vector<typename BinaryOpOutputType<op, T>::type, TWO_PTR, 8>>>
+      out;
 
   bool compute() {
     const unsigned limI = out.size();
@@ -377,9 +379,10 @@ class
 [[poplar::constraint("elem(**in2) != elem(**in1Out)")]]
 BinaryOp2DInPlace : public Vertex {
 public:
-  Vector<InOut<Vector<typename BinaryOpOutputType<op, T>::type, TWO_PTR, 1,
-         true>>> in1Out;
-  Vector<Input<Vector<T, ONE_PTR>>, ONE_PTR> in2;
+  Vector<
+      InOut<Vector<typename BinaryOpOutputType<op, T>::type, TWO_PTR, 8, true>>>
+      in1Out;
+  Vector<Input<Vector<T, ONE_PTR, 8>>> in2;
 
   bool compute() {
     const unsigned limI = in1Out.size();
