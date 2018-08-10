@@ -464,8 +464,8 @@ getReduceCycleEstimate(const std::vector<unsigned> &outSizes,
                        unsigned partialsSize,
                        unsigned dataPathWidth,
                        bool isUpdate, bool isScale,
-                       bool isPartialsFloat,
-                       bool isOutTypeFloat) {
+                       bool isOutTypeFloat,
+                       bool isPartialsFloat) {
   unsigned vectorWidth = dataPathWidth / (isPartialsFloat ? 32 : 16);
   bool conversionCyles = isPartialsFloat != isOutTypeFloat;
   unsigned cycles;
@@ -501,11 +501,11 @@ getReduceCycleEstimate(const std::vector<unsigned> &outSizes,
     // save a cycle (basemem only created once)
     cycles += 7 + 8 - 1;
     for (unsigned r = 0; r < numReductions; ++r) {
-      cycles += 6;
+      cycles += 10;
       const unsigned numElem = outSizes[r];
       auto numVectorWidths = (numElem + 2 * vectorWidth - 1)
                              / (2 * vectorWidth);
-      cycles += (3 * numPartials + 1 + 3) * numVectorWidths;
+      cycles += (3 * numPartials + 1 + 5) * numVectorWidths;
       cycles += numVectorWidths * addCycles;
     }
     break;
