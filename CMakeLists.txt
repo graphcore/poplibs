@@ -17,7 +17,13 @@ endif()
 find_package(poplar REQUIRED)
 find_package(Boost REQUIRED regex)
 find_package(Sparsehash REQUIRED)
+find_package(TBB REQUIRED)
 
+# For Ubuntu 16 we need to help the linker find TBB. On Ubuntu 18 and
+# OSX the linker manages to find it (presumably using the rpath that is
+# embedded in libpoplar?)
+get_filename_component(TBB_LIB_DIR ${TBB_LIBRARY} DIRECTORY)
+set(CMAKE_BUILD_RPATH "${TBB_LIB_DIR}")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Require C++11.
