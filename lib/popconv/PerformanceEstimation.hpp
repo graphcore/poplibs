@@ -450,12 +450,42 @@ getOuterProductCycleEstimate(bool isFloat,
                              unsigned dataPathWidth) {
   assert(numChannels % chansPerGroup == 0);
   const auto numChanGroups = numChannels / chansPerGroup;
-  const auto elementWidth = isFloat ? 32 : 16;
-  auto vectorsPerGroup =
-      (chansPerGroup * elementWidth + dataPathWidth - 1) / dataPathWidth;
-  // Taken from conv_outer_product_f16 microbenchmark.
-  std::uint64_t cycles =
-      9 + numChanGroups * (8 + width * (1 + vectorsPerGroup));
+
+  int cycles;
+  // Conditions for executing a fast or slow path, replicated from the assembly
+  // implementation
+  if(isFloat) {
+      if( (chansPerGroup >= 6) &&             // Min size of unrolled loop
+          ((chansPerGroup & 1) == 0)  &&      // Loop processes 2 at once
+          ((chansPerGroup/2 -3) < 0x1000) &&  // hardware RPT count constraint
+          ((chansPerGroup/2 +1)  < 512)) {    // Stride size contstraint
+
+          // Float, Fast path cycle estimates
+          cycles = 25 + numChanGroups *
+                  (11 + width * (6 + (chansPerGroup-6)/2));
+      }
+      else {
+          // Float, Slow path cycle estimates
+          cycles = 25 + numChanGroups *
+                  (11 + width * (10 + chansPerGroup*2));
+      }
+  }
+  else {
+       if( (chansPerGroup >= 12) &&           // Min size of unrolled loop
+          ((chansPerGroup & 3) == 0)  &&      // Loop processes 2 at once
+          ((chansPerGroup/4 -3) < 0x1000) &&  // hardware RPT count constraint
+          ((chansPerGroup/4 +1) < 512)) {     // Stride size contstraint
+
+          // Half, Fast path cycle estimates
+          cycles = 25 + numChanGroups *
+                  (10 + width * (6 + (chansPerGroup-12)/4));
+      }
+      else {
+          // Half, Slow path cycle estimates
+          cycles = 25 + numChanGroups *
+                  (10 + width * (10 + (chansPerGroup*5)/2));
+      }
+  }
   return cycles;
 }
 

@@ -2290,6 +2290,10 @@ createOuterProductVertex(
                              {{"in", inWindow},
                               {"weights", weightsWindow},
                               {"out", outWindow}});
+
+    graph.setInitialValue(v["chansPerGroup"],
+          weightsWindow.numElements() / outWindow.dim(0));
+
     graph.setTileMapping(v, tile);
   }
 }

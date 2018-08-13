@@ -45,7 +45,7 @@ foreach(DATA_TYPE half float int)
    set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
    string(TOUPPER "${DATA_TYPE}" DATA_TYPE_UPPER)
    configure_file(ClampTest.cpp.in ${VARIANT_SRC})
-   add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC} VARIANTS "IpuModel;Sim:cpp;Sim")
+   add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC} )
 endforeach()
 
 add_codelet_test_executable(ReduceAdd ReduceAdd.cpp)
@@ -67,7 +67,7 @@ foreach(OUTER_DIM RANGE 1 15)
 endforeach()
 
 #Transpose2d<InType>
-   add_popnn_unit_test(Transpose2dTest Transpose2dTest.cpp VARIANTS "IpuModel;Sim:cpp;Sim")
+   add_popnn_unit_test(Transpose2dTest Transpose2dTest.cpp)
 
 # MaxPooling<dataType> and ScaledSumPooling<dataType, poolType>
 foreach(DATA_TYPE half float)
@@ -109,7 +109,11 @@ add_popnn_unit_test(AddToChannel
 add_popnn_unit_test(AddToChannel2D
                     AddToChannel2D.cpp
                     VARIANTS ${TimesOutOnSim})
+
 add_popnn_unit_test(ScaledAddSupervisor_fp
                     ScaledAddSupervisor_fp.cpp)
 add_popnn_unit_test(ScaledAddSupervisor_integral
                     ScaledAddSupervisor_integral.cpp)
+
+#OuterProduct<InType>
+   add_popnn_unit_test(OuterProductTest OuterProductTest.cpp)

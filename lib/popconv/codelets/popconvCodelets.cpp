@@ -1037,16 +1037,16 @@ class
 OuterProduct : public Vertex {
 public:
   Input<Vector<T>> in;
-  Input<Vector<T>> weights;
-  Vector<Output<Vector<T, ONE_PTR>>> out;
+  Input<Vector<T, ONE_PTR,8>> weights;
+  Vector<Output<Vector<T, ONE_PTR,8>>> out;
+  unsigned chansPerGroup;
 
+  IS_EXTERNAL_CODELET(true);
   bool compute() {
     const auto width = in.size();
-    const auto numChans = weights.size();
     const auto numChanGroups = out.size();
-    assert(numChans % numChanGroups == 0);
-    const auto chansPerGroup = numChans / numChanGroups;
-    for (unsigned g = 0; g != numChanGroups; ++g) {
+
+     for (unsigned g = 0; g != numChanGroups; ++g) {
       for (unsigned chanInGroup = 0; chanInGroup != chansPerGroup;
            ++chanInGroup) {
         const auto c = chanInGroup + g * chansPerGroup;

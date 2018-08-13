@@ -644,6 +644,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(OuterProduct)(const VertexIntrospector &vertex,
   CODELET_FIELD(in);
   CODELET_FIELD(weights);
   CODELET_FIELD(out);
+  CODELET_SCALAR_VAL(chansPerGroup,unsigned);
   const auto dataPathWidth = target.getDataPathWidth();
 
   const bool isFloat = type == FLOAT;
@@ -651,7 +652,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(OuterProduct)(const VertexIntrospector &vertex,
   const auto numChans = weights.size();
   const auto numChanGroups = out.size();
   assert(numChans % numChanGroups == 0);
-  const auto chansPerGroup = numChans / numChanGroups;
+
   return getOuterProductCycleEstimate(isFloat, width, numChans, chansPerGroup,
                                       dataPathWidth);
 }
