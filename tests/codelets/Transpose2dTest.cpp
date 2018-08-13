@@ -103,7 +103,7 @@ void Transpose2dTest(const Type &dataType) {
     //different input slices
     std::vector<Program> programs(test_count);
 
-    for(int tests=0;tests<test_count;tests++) {
+    for(std::size_t tests=0;tests<test_count;tests++) {
         auto matrices=TestList[tests].matrices;
         auto rows=TestList[tests].rows;
         auto cols=TestList[tests].cols;
@@ -138,7 +138,7 @@ void Transpose2dTest(const Type &dataType) {
     //Put test inputs into an array of the correct type ready to use
     std::vector<double> outHost(total_size);
 
-    for(int tests=0;tests<test_count;tests++) {
+    for(std::size_t tests=0;tests<test_count;tests++) {
         auto matrices=TestList[tests].matrices;
         auto rows=TestList[tests].rows;
         auto cols=TestList[tests].cols;

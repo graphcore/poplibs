@@ -97,7 +97,7 @@ static bool doTest(const DeviceType &deviceType,
   copy(target, outType, ans_data.data(), answers.data(), outerDim+1);
 
   bool success = true;
-  for(int i =0; i < outerDim; ++i){
+  for(unsigned i = 0; i < outerDim; ++i){
     CHECK_IF(success, innerDim * 1.0 * i == answers[i]);
     answers[i] = 0; // zero for next iteration
   }
