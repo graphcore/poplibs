@@ -347,45 +347,42 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
                                        const Type &type) {
   CODELET_FIELD(src);
   CODELET_FIELD(dst);
+  CODELET_SCALAR_VAL(numSrcRows, unsigned);
   CODELET_SCALAR_VAL(numSrcColumns, unsigned);
 
   const bool isFloat = type == FLOAT;
-  std::uint64_t cycles = 2; // Run instruction.
-  if (isFloat)
-    cycles += 6;  // Vertex overhead.
-  else
-    cycles += 7;
-  const auto numTranspositions = src.size();
-  assert(src.size() == dst.size());
-#ifndef NDEBUG
-  for (unsigned i = 0; i != numTranspositions; ++i) {
-    assert(src[i].size() == dst[i].size());
-    const auto numElements = src[i].size();
-    assert(numElements % numSrcColumns == 0);
+  const auto matrices = dst.size();
+  std::uint64_t cycles;
+
+  if(isFloat) {
+    if( ((numSrcRows & 1) == 0) &&
+        ((numSrcColumns & 1 ) == 0) &&
+        (numSrcColumns/2 < 0x1000 ) &&      // hardware RPT count constraint
+        (numSrcRows * (numSrcColumns-2)/2 < 512) ) {  // Largest stride used
+        // Float, fast path estimates
+        cycles = 25 + matrices *
+                  (11 + (numSrcRows/2 ) * ( 6 + 3 * (numSrcColumns/2 -1)));
+    }
+    else {
+        // Float, slow path estimates based on numSrcRows being even
+        cycles = 13 + matrices *
+                  (8 + numSrcColumns * ( 5 + (numSrcRows * 4)/2));
+    }
   }
-#endif
-  for (unsigned i = 0; i != numTranspositions; ++i) {
-    const auto numElements = src[i].size();
-    cycles += 2; // Load src and dst pointers.
-    if (isFloat) {
-      cycles += 1; // 1 cycle latency before first value is written to memory.
-      cycles += numElements;
-    } else {
-      // Cycle count based on the transpose16x16 microbenchmark which takes
-      // 75 cycles per 16x16 block, reading each 4xn in turn. Any nx4 block
-      // where n is 1 or even will have a similar cost until the offset
-      // between rows exceeds the allowable triple addressing offset
-      assert(numElements % numSrcColumns == 0);
-      if (numSrcColumns % 4 == 0 && numElements % 16 == 0) {
-        const auto num4x4Blocks = numElements / (4 * 4);
-        cycles += 11 + num4x4Blocks * 4;
-      } else {
-        // Cycle count taken from transpose16x8 microbenchmark.
-        const auto numSrcRows = numElements / numSrcColumns;
-        const auto middleIterations = (numSrcColumns + 3) / 4;
-        const auto innerIterations = (numSrcRows + 1) / 2;
-        cycles += 3 + middleIterations * (3 + innerIterations * 6);
-      }
+  else {
+    if( ((numSrcRows & 3) == 0) &&
+        ((numSrcColumns & 3 ) == 0)  &&
+        (numSrcColumns >= 8) &&
+        (numSrcColumns/4 < 0x1000 ) &&        // hardware RPT count constraint
+        (numSrcRows * (numSrcColumns-1)/4 < 512) ) {  // Largest stride used
+        // Half, fast path estimates
+        cycles = 34 + matrices *
+                  (11 + (numSrcRows/4 ) * ( 9 + 4 *(numSrcColumns/4 -2)));
+    }
+    else {
+        // Half, slow path estimates based on numSrcRows being even
+        cycles = 15 + matrices *
+                  (8 + numSrcColumns * ( 5 + (numSrcRows * 5)/2));
     }
   }
   return cycles;
