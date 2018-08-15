@@ -111,12 +111,16 @@ void OuterProductTest(const Type &dataType) {
     graph.setTileMapping(out,0);
 
     //allocateHostMemoryForTensor
+    Sequence uploadProg, downloadProg;
     std::vector<std::pair<std::string, char*>> tmap;
-    auto input_host = allocateHostMemoryForTensor(in,"in",graph,tmap);
+    auto input_host = allocateHostMemoryForTensor(in,"in",graph,uploadProg,
+                                                  downloadProg,tmap);
     auto weight_host = allocateHostMemoryForTensor(weights,"weights",
-            graph,tmap);
+                                                   graph,uploadProg,
+                                                   downloadProg,tmap);
 
-    auto output_host = allocateHostMemoryForTensor(out,"out",graph,tmap);
+    auto output_host = allocateHostMemoryForTensor(out,"out",graph,uploadProg,
+                                                   downloadProg,tmap);
 
     //Make multiple programs to test Transpose 2D each using
     //different input slices
@@ -154,10 +158,15 @@ void OuterProductTest(const Type &dataType) {
         sequence.add(Execute(testComputeSet));
         programs[tests]=sequence;
 
-     }
+    }
+    const auto uploadProgIndex = programs.size();
+    programs.push_back(std::move(uploadProg));
+    const auto downloadProgIndex = programs.size();
+    programs.push_back(std::move(downloadProg));
     //Run each program and compare host and IPU result
-     Engine engine(graph,programs);
-     engine.load(device);
+    Engine engine(graph,programs);
+    engine.load(device);
+    attachStreams(engine, tmap);
 
 
     //Put test inputs into an array of the correct type ready to use
@@ -172,11 +181,11 @@ void OuterProductTest(const Type &dataType) {
         copy(target,weightTest.data(),weightTest.size(),dataType,
                 weight_host.get());
 
-        upload(engine, tmap);
+        engine.run(uploadProgIndex);
 
         engine.run(tests);
 
-        download(engine,tmap);
+        engine.run(downloadProgIndex);
         copy(target,dataType,output_host.get(),outHost.data(),outHost.size());
 
         // Host generated result, start with zeros
