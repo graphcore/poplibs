@@ -169,15 +169,20 @@ static bool lossTest(const LossType lossType,
   auto loss = graph.addVariable(fpType, {batchSize},
       VariableMappingMethod::LINEAR, "loss");
 
+  Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char*>> tmap;
   auto rawHostActivations =
-    allocateHostMemoryForTensor(activations, "activations", graph, tmap);
+    allocateHostMemoryForTensor(activations, "activations", graph, uploadProg,
+                                downloadProg, tmap);
   auto rawHostExpected =
-    allocateHostMemoryForTensor(expected, "expected", graph, tmap);
+    allocateHostMemoryForTensor(expected, "expected", graph, uploadProg,
+                                downloadProg, tmap);
   auto rawHostDeltas =
-    allocateHostMemoryForTensor(deltas, "deltas", graph, tmap);
+    allocateHostMemoryForTensor(deltas, "deltas", graph, uploadProg,
+                                downloadProg, tmap);
   auto rawHostLoss =
-    allocateHostMemoryForTensor(loss, "loss", graph, tmap);
+    allocateHostMemoryForTensor(loss, "loss", graph, uploadProg, downloadProg,
+                                tmap);
 
   std::mt19937 randomEngine;
   boost::multi_array<double, 2>
@@ -195,12 +200,11 @@ static bool lossTest(const LossType lossType,
                        fpType, expectedType,
                        lossType);
 
-  Engine engine(graph, prog, options);
+  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
   engine.load(device);
+  attachStreams(engine, tmap);
 
-  upload(engine, tmap);
   engine.run(0);
-  download(engine, tmap);
 
   boost::multi_array<double, 2>
     hostDeltas(boost::extents[batchSize][numClasses]);
@@ -247,13 +251,17 @@ static bool accuracyTest(const Type &fpType,
       VariableMappingMethod::LINEAR, "expected");
   auto numCorrect = graph.addVariable(UNSIGNED_INT, {},
       VariableMappingMethod::LINEAR, "numCorrect");
+  Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char*>> tmap;
   auto rawHostActivations =
-    allocateHostMemoryForTensor(activations, "activations", graph, tmap);
+    allocateHostMemoryForTensor(activations, "activations", graph, uploadProg,
+                                downloadProg, tmap);
   auto rawHostExpected =
-    allocateHostMemoryForTensor(expected, "expected", graph, tmap);
+    allocateHostMemoryForTensor(expected, "expected", graph, uploadProg,
+                                downloadProg, tmap);
   auto rawHostNumCorrect =
-    allocateHostMemoryForTensor(numCorrect, "numCorrect", graph, tmap);
+    allocateHostMemoryForTensor(numCorrect, "numCorrect", graph, uploadProg,
+                                downloadProg, tmap);
 
   std::mt19937 randomEngine;
   boost::multi_array<double, 2>
@@ -269,12 +277,11 @@ static bool accuracyTest(const Type &fpType,
                            expected, numCorrect,
                            fpType, labelType);
 
-  Engine engine(graph, prog, options);
+  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
   engine.load(device);
+  attachStreams(engine, tmap);
 
-  upload(engine, tmap);
   engine.run(0);
-  download(engine, tmap);
 
   auto *hostNumCorrect = reinterpret_cast<unsigned*>(rawHostNumCorrect.get());
   unsigned actualNumCorrect = *hostNumCorrect;

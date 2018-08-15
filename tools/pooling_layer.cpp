@@ -352,22 +352,36 @@ int main(int argc, char **argv) {
                                           prevAct, nextAct, zDeltas,
                                           bwdProg);
   }
+  Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
   auto rawHostPrevAct = allocateHostMemoryForTensor(prevAct, "prevAct",
-                                                    graph, tmap);
+                                                    graph, uploadProg,
+                                                    downloadProg, tmap);
   auto rawHostNextAct = allocateHostMemoryForTensor(nextAct, "nextAct",
-                                                    graph, tmap);
+                                                    graph, uploadProg,
+                                                    downloadProg, tmap);
   std::unique_ptr<char[]> rawHostZDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
   if (!inferenceOnly) {
     rawHostZDeltas = allocateHostMemoryForTensor(zDeltas, "zDeltas",
-                                                 graph, tmap);
+                                                 graph, uploadProg,
+                                                 downloadProg, tmap);
     rawHostPrevDeltas = allocateHostMemoryForTensor(prevDeltas, "prevDeltas",
-                                                    graph, tmap);
+                                                    graph, uploadProg,
+                                                    downloadProg, tmap);
   }
-  Engine engine(graph, {std::move(fwdProg), std::move(bwdProg)},
-                engineOptions);
+  std::vector<Program> programs;
+  const auto fwdProgIndex = programs.size();
+  programs.push_back(std::move(fwdProg));
+  const auto bwdProgIndex = programs.size();
+  programs.push_back(std::move(bwdProg));
+  const auto uploadProgIndex = programs.size();
+  programs.push_back(std::move(uploadProg));
+  const auto downloadProgIndex = programs.size();
+  programs.push_back(std::move(downloadProg));
+  Engine engine(graph, std::move(programs), engineOptions);
   engine.load(device);
+  attachStreams(engine, tmap);
 
   boost::multi_array<double, 4>
       hostPrevAct(boost::extents[batchSize][chans][height][width]);
@@ -377,9 +391,9 @@ int main(int argc, char **argv) {
   writeRandomValues(target, dataType, hostPrevAct, -4.0, 4.0, randomEngine);
   copy<4>(target, hostPrevAct, dataType, rawHostPrevAct.get());
   // Run the forward pass.
-  upload(engine, tmap);
-  engine.run(0); // Run.
-  download(engine, tmap);
+  engine.run(uploadProgIndex);
+  engine.run(fwdProgIndex); // Run.
+  engine.run(downloadProgIndex);
 
   // Validate against a reference model.
   if (vm["tolerance"].empty()) {
@@ -417,9 +431,9 @@ int main(int argc, char **argv) {
     copy<4>(target, hostZDeltas, dataType, rawHostZDeltas.get());
     copy<4>(target, modelNextAct, dataType, rawHostNextAct.get());
     copy<4>(target, hostPrevAct, dataType, rawHostPrevAct.get());
-    upload(engine, tmap);
-    engine.run(1); // Run.
-    download(engine, tmap);
+    engine.run(uploadProgIndex);
+    engine.run(bwdProgIndex); // Run.
+    engine.run(downloadProgIndex);
     copy<4>(target, dataType, rawHostZDeltas.get(), hostZDeltas);
     copy<4>(target, dataType, rawHostPrevDeltas.get(), hostPrevDeltas);
 

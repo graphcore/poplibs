@@ -98,13 +98,17 @@ void doTest(const DeviceType &deviceType,
   graph.setTileMapping(ingrad, 0);
 
   // Generate some test data
+  Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char*>> tmap;
   auto rawHostActsIn =
-    allocateHostMemoryForTensor(acts, "test acts", graph, tmap);
+    allocateHostMemoryForTensor(acts, "test acts", graph, uploadProg,
+                                downloadProg, tmap);
   auto rawHostGradOut =
-    allocateHostMemoryForTensor(outgrad, "test outgrad", graph, tmap);
+    allocateHostMemoryForTensor(outgrad, "test outgrad", graph, uploadProg,
+                                downloadProg, tmap);
   auto rawHostGradIn =
-    allocateHostMemoryForTensor(ingrad, "test ingrad", graph, tmap);
+    allocateHostMemoryForTensor(ingrad, "test ingrad", graph, uploadProg,
+                                downloadProg, tmap);
 
   boost::multi_array<double, 1>
     hostActsIn(boost::extents[maxElements]),
@@ -170,12 +174,18 @@ void doTest(const DeviceType &deviceType,
       });
     }
   }
+  const auto numTests = programs.size();
+  const auto uploadProgIndex = programs.size();
+  programs.push_back(uploadProg);
+  const auto downloadProgIndex = programs.size();
+  programs.push_back(downloadProg);
 
   Engine e(graph, programs, OptionFlags{
     { "target.textSectionSizeInBytes", "0x9000" },
     { "target.workerStackSizeInBytes", "0x100" }
   });
   e.load(device);
+  attachStreams(e, tmap);
 
   boost::multi_array<double, 1>
     hostActsOut(boost::extents[maxElements]);
@@ -185,12 +195,12 @@ void doTest(const DeviceType &deviceType,
   const auto absoluteTolerance =
     dataType == FLOAT ? FLOAT_ATOL
                       : HALF_ATOL;
-  for (std::size_t testId = 0; testId < programs.size(); ++testId) {
+  for (std::size_t testId = 0; testId < numTests; ++testId) {
     copy(target, hostActsIn, dataType, rawHostActsIn.get());
     copy(target, hostGradOut, dataType, rawHostGradOut.get());
-    upload(e, tmap);
+    e.run(uploadProgIndex);
     e.run(testId);
-    download(e, tmap);
+    e.run(downloadProgIndex);
     copy(target, dataType, rawHostActsIn.get(), hostActsOut);
     copy(target, dataType, rawHostGradIn.get(), hostGradIn);
 

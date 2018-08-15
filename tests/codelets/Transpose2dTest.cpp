@@ -94,10 +94,13 @@ void Transpose2dTest(const Type &dataType) {
     graph.setTileMapping(out,0);
 
     //allocateHostMemoryForTensor
+    Sequence uploadProg, downloadProg;
     std::vector<std::pair<std::string, char*>> tmap;
-    auto input=allocateHostMemoryForTensor(in,"in",graph,tmap);
+    auto input=allocateHostMemoryForTensor(in,"in",graph,uploadProg,
+                                           downloadProg,tmap);
 
-    auto output=allocateHostMemoryForTensor(out,"out",graph,tmap);
+    auto output=allocateHostMemoryForTensor(out,"out",graph,uploadProg,
+                                            downloadProg,tmap);
 
     //Make multiple programs to test Transpose 2D each using
     //different input slices
@@ -130,10 +133,16 @@ void Transpose2dTest(const Type &dataType) {
         sequence.add(Execute(testComputeSet));
         programs[tests]=sequence;
 
-     }
+    }
+    const auto uploadProgIndex = programs.size();
+    programs.push_back(uploadProg);
+    const auto downloadProgIndex = programs.size();
+    programs.push_back(downloadProg);
+
     //Run each program and compare host and IPU result
-     Engine engine(graph,programs);
-     engine.load(device);
+    Engine engine(graph,programs);
+    engine.load(device);
+    attachStreams(engine, tmap);
 
     //Put test inputs into an array of the correct type ready to use
     std::vector<double> outHost(total_size);
@@ -145,11 +154,11 @@ void Transpose2dTest(const Type &dataType) {
 
         copy(target,inTest.data(),inTest.size(),dataType,input.get());
 
-        upload(engine, tmap);
+        engine.run(uploadProgIndex);
 
         engine.run(tests);
 
-        download(engine,tmap);
+        engine.run(downloadProgIndex);
         copy(target,dataType,output.get(),outHost.data(),outHost.size());
         //Host generated result, start with zeros
          for(unsigned i=0;i<total_size;i++)

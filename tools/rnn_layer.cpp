@@ -311,33 +311,38 @@ int main(int argc, char **argv) {
   std::unique_ptr<char[]> rawHostFeedFwdWeights;
   std::vector< std::unique_ptr<char[]> > rawHostfeedFwdOutput;
   std::vector< std::unique_ptr<char[]> > rawHostNextAct;
+  Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
   if (applyFeedFwdWeights) {
     rawHostPrevAct = allocateHostMemoryForTensor(prevAct, "prevAct", graph,
+                                                 uploadProg, downloadProg,
                                                  tmap);
     rawHostFeedFwdWeights = allocateHostMemoryForTensor(feedFwdWeights,
                                                         "feedFwdWeights",
-                                                        graph, tmap);
+                                                        graph, uploadProg,
+                                                        downloadProg, tmap);
   }
 
   for (auto s = 0U; s != sequenceSize; ++s) {
     rawHostfeedFwdOutput.push_back(
          allocateHostMemoryForTensor(feedFwdOutput[s],
                                      "feedFwdOutput" + std::to_string(s),
-                                     graph, tmap));
+                                     graph, uploadProg, downloadProg, tmap));
     auto nextAct = popnn::rnn::getOutputFromFwdState(fwdNextState[s]);
     rawHostNextAct.push_back(
         allocateHostMemoryForTensor(nextAct, "nextAct" + std::to_string(s),
-                                    graph, tmap));
+                                    graph, uploadProg, downloadProg, tmap));
   }
 
   auto rawHostFeedbackWeights =
       allocateHostMemoryForTensor(feedbackWeights, "feedbackWeights",
-                                  graph, tmap);
+                                  graph, uploadProg, downloadProg, tmap);
   auto rawHostInitAct =
-      allocateHostMemoryForTensor(initAct, "initAct", graph, tmap);
+      allocateHostMemoryForTensor(initAct, "initAct", graph, uploadProg,
+                                  downloadProg, tmap);
   auto rawHostBiases =
-      allocateHostMemoryForTensor(biases, "biases", graph, tmap);
+      allocateHostMemoryForTensor(biases, "biases", graph, uploadProg,
+                                  downloadProg, tmap);
 
   std::unique_ptr<char[]> rawNextLayerGrads;
   std::unique_ptr<char[]> rawHostPrevLayerGrads;
@@ -345,12 +350,13 @@ int main(int argc, char **argv) {
   if (doBwdPass || doWuPass) {
     rawNextLayerGrads =
       allocateHostMemoryForTensor(nextLayerGrads, "nextLayerGrads", graph,
-                                  tmap);
+                                  uploadProg, downloadProg, tmap);
     rawHostPrevLayerGrads =
       allocateHostMemoryForTensor(prevLayerGrads, "prevLayerGrads", graph,
-                                  tmap);
+                                  uploadProg, downloadProg, tmap);
     rawHostGradientSum =
-      allocateHostMemoryForTensor(gradientSum, "gradientSum", graph, tmap);
+      allocateHostMemoryForTensor(gradientSum, "gradientSum", graph,
+                                  uploadProg, downloadProg, tmap);
   }
   std::unique_ptr<char[]> rawHostFeedFwdWeightsDeltasAcc;
   std::unique_ptr<char[]> rawHostFeedbackWeightsDeltasAcc;
@@ -358,17 +364,21 @@ int main(int argc, char **argv) {
   if (doWuPass) {
     rawHostFeedFwdWeightsDeltasAcc =
         allocateHostMemoryForTensor(feedFwdWeightsDeltaAcc,
-                                    "feedFwdWeightsDeltaAcc", graph, tmap);
+                                    "feedFwdWeightsDeltaAcc", graph,
+                                    uploadProg, downloadProg, tmap);
     rawHostFeedbackWeightsDeltasAcc =
         allocateHostMemoryForTensor(feedbackWeightsDeltaAcc,
-                                    "feedbackWeightsDeltaAcc", graph, tmap);
+                                    "feedbackWeightsDeltaAcc", graph,
+                                    uploadProg, downloadProg, tmap);
     rawHostBiasesDeltasAcc =
         allocateHostMemoryForTensor(biasesDeltaAcc,
-                                    "biasesDeltaAcc", graph, tmap);
+                                    "biasesDeltaAcc", graph,
+                                    uploadProg, downloadProg, tmap);
   }
 
-  Engine engine(graph, prog, engineOptions);
+  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
   engine.load(device);
+  attachStreams(engine, tmap);
 
   boost::multi_array<double, 3>
       hostPrevAct(boost::extents[sequenceSize][batchSize][inputSize]);
@@ -470,10 +480,7 @@ int main(int argc, char **argv) {
     copy(target, hostNextLayerGrads, dataType, rawNextLayerGrads.get());
   }
 
-  upload(engine, tmap);
   engine.run(0);
-  download(engine, tmap);
-
   bool matchesModel = true;
 
   if (applyFeedFwdWeights) {

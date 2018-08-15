@@ -56,6 +56,7 @@ static bool addToChannelTests(const std::vector<TestCase> &cases) {
   // One compute set, with a vertex for each test case.
   auto cs = graph.addComputeSet("cs");
 
+  Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
   std::vector<TestCaseData> tcData(cases.size());
 
@@ -104,9 +105,11 @@ static bool addToChannelTests(const std::vector<TestCase> &cases) {
     graph.setTileMapping(v, 0);
 
     tcData[i].rawAddend =
-        allocateHostMemoryForTensor(addend, "addend" + suffix, graph, tmap);
+        allocateHostMemoryForTensor(addend, "addend" + suffix, graph,
+                                    uploadProg, downloadProg, tmap);
     tcData[i].rawActs =
-        allocateHostMemoryForTensor(acts, "acts" + suffix, graph, tmap);
+        allocateHostMemoryForTensor(acts, "acts" + suffix, graph, uploadProg,
+                                    downloadProg, tmap);
 
     tcData[i].addend.resize(tc.addendLen);
     tcData[i].acts.resize(tc.actsLen + overwriteLen);
@@ -134,13 +137,12 @@ static bool addToChannelTests(const std::vector<TestCase> &cases) {
   std::cout << "Executing engine\n";
 
   auto prog = Execute(cs);
-  Engine engine(graph, prog, options);
+  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
 
   engine.load(device);
+  attachStreams(engine, tmap);
 
-  upload(engine, tmap);
   engine.run(0);
-  download(engine, tmap);
 
   std::cout << "Checking results\n";
 

@@ -93,13 +93,18 @@ void singleTest(const Type &dataType, const LossTransformType &ltType) {
   graph.setTileMapping(tTransformed, 0);
 
   // Generate some test data
+  Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char*>> tmap;
-  auto hProbs = allocateHostMemoryForTensor(tProbs, "probs", graph, tmap);
+  auto hProbs = allocateHostMemoryForTensor(tProbs, "probs", graph, uploadProg,
+                                            downloadProg, tmap);
   auto hExpected =
-    allocateHostMemoryForTensor(tExpected, "expected", graph, tmap);
-  auto hDeltas = allocateHostMemoryForTensor(tDeltas, "deltas", graph, tmap);
+    allocateHostMemoryForTensor(tExpected, "expected", graph, uploadProg,
+                                downloadProg, tmap);
+  auto hDeltas = allocateHostMemoryForTensor(tDeltas, "deltas", graph,
+                                             uploadProg, downloadProg, tmap);
   auto hTransformed =
-    allocateHostMemoryForTensor(tTransformed, "transformed", graph, tmap);
+    allocateHostMemoryForTensor(tTransformed, "transformed", graph, uploadProg,
+                                downloadProg, tmap);
 
   boost::multi_array<double, 1> hProbsData(boost::extents[randomDataSize]);
   std::copy(&randomA[0], &randomA[randomDataSize], hProbsData.data());
@@ -157,9 +162,15 @@ void singleTest(const Type &dataType, const LossTransformType &ltType) {
     ));
     programSizes.push_back(size);
   }
+  const auto numTests = programs.size();
+  const auto uploadProgIndex = programs.size();
+  programs.push_back(uploadProg);
+  const auto downloadProgIndex = programs.size();
+  programs.push_back(downloadProg);
 
   Engine e(graph, programs);
   e.load(device);
+  attachStreams(e, tmap);
 
   boost::multi_array<double, 1>
       hostDeltasResult(boost::extents[randomDataSize]);
@@ -169,14 +180,14 @@ void singleTest(const Type &dataType, const LossTransformType &ltType) {
   const auto absoluteTolerance =
     dataType == FLOAT ? FLOAT_ATOL: HALF_ATOL;
 
-  for (std::size_t testId = 0; testId < programs.size(); ++testId) {
+  for (std::size_t testId = 0; testId < numTests; ++testId) {
     copy(target, hProbsData, dataType, hProbs.get());
     copy(target, hExpectedData, dataType, hExpected.get());
     copy(target, hDeltasData, dataType, hDeltas.get());
     copy(target, hTransformedData, dataType, hTransformed.get());
-    upload(e, tmap);
+    e.run(uploadProgIndex);
     e.run(testId);
-    download(e, tmap);
+    e.run(downloadProgIndex);
     copy(target, dataType, hDeltas.get(), hostDeltasResult);
     copy(target, dataType, hTransformed.get(), hostTransformedResult);
 

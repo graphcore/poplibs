@@ -628,9 +628,12 @@ int main(int argc, char **argv) {
 
   std::cerr << "Running engine...\n";
 
+  Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char*>> tmap;
-  auto inputData = allocateHostMemoryForTensor(input, "input", graph, tmap);
-  auto outputData = allocateHostMemoryForTensor(output, "output", graph, tmap);
+  auto inputData = allocateHostMemoryForTensor(input, "input", graph,
+                                               uploadProg, downloadProg, tmap);
+  auto outputData = allocateHostMemoryForTensor(output, "output", graph,
+                                                uploadProg, downloadProg, tmap);
 
   // Copy the input and output numbers to input/outputData, converting the
   // type as necessary.
@@ -645,11 +648,10 @@ int main(int argc, char **argv) {
        dataType,
        outputData.get());
 
-  Engine engine(graph, prog, engineOptions);
+  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
   engine.load(device);
-  upload(engine, tmap);
+  attachStreams(engine, tmap);
   engine.run(0);
-  download(engine, tmap);
 
   std::vector<double> outputTensor(output.numElements());
 

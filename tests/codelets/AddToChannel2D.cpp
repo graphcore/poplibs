@@ -58,6 +58,7 @@ static bool addToChannel2DTests(const std::vector<TestCase> &cases) {
   auto cs = graph.addComputeSet("cs");
 
   std::vector<std::pair<std::string, char *>> tmap;
+  Sequence uploadProg, downloadProg;
   std::vector<TestCaseData> tcData(cases.size());
 
   for (std::size_t i = 0; i < cases.size(); ++i) {
@@ -139,12 +140,12 @@ static bool addToChannel2DTests(const std::vector<TestCase> &cases) {
 
     tcData[i].rawAllAddends = allocateHostMemoryForTensor(allAddends,
                                                           "allAddend" + suffix,
-                                                          graph,
-                                                          tmap);
+                                                          graph, uploadProg,
+                                                          downloadProg, tmap);
     tcData[i].rawAllActs = allocateHostMemoryForTensor(allActs,
                                                        "allActs" + suffix,
-                                                       graph,
-                                                       tmap);
+                                                       graph, uploadProg,
+                                                       downloadProg, tmap);
 
     tcData[i].allAddends.resize(totalAddendLen);
     tcData[i].allActs.resize(totalActsLen + overwriteLen);
@@ -172,13 +173,12 @@ static bool addToChannel2DTests(const std::vector<TestCase> &cases) {
   std::cout << "Executing engine\n";
 
   auto prog = Execute(cs);
-  Engine engine(graph, prog, options);
+  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
 
   engine.load(device);
+  attachStreams(engine, tmap);
 
-  upload(engine, tmap);
   engine.run(0);
-  download(engine, tmap);
 
   std::cout << "Checking results\n";
 

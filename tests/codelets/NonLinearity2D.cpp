@@ -89,13 +89,17 @@ bool doTest(const DeviceType &deviceType,
   graph.setTileMapping(ingrad, 0);
 
   // Generate some test data
+  Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char*>> tmap;
   auto rawHostActsIn =
-    allocateHostMemoryForTensor(acts, "test in", graph, tmap);
+    allocateHostMemoryForTensor(acts, "test in", graph, uploadProg,
+                                downloadProg, tmap);
   auto rawHostGradOut =
-    allocateHostMemoryForTensor(outgrad, "test outgrad", graph, tmap);
+    allocateHostMemoryForTensor(outgrad, "test outgrad", graph, uploadProg,
+                                downloadProg, tmap);
   auto rawHostGradIn =
-    allocateHostMemoryForTensor(ingrad, "test ingrad", graph, tmap);
+    allocateHostMemoryForTensor(ingrad, "test ingrad", graph, uploadProg,
+                                downloadProg, tmap);
 
   boost::multi_array<double, 1>
     hostActsIn(boost::extents[maxElements]),
@@ -160,6 +164,11 @@ bool doTest(const DeviceType &deviceType,
       }
     }
   }
+  const auto numTests = programs.size();
+  const auto uploadProgIndex = programs.size();
+  programs.push_back(uploadProg);
+  const auto downloadProgIndex = programs.size();
+  programs.push_back(downloadProg);
 
   // The multiple levels of function calls and loops in the NonLinearity2D
   // vertices manage to overflow the stack sometimes in the C++ codelets at
@@ -169,6 +178,7 @@ bool doTest(const DeviceType &deviceType,
     { "target.workerStackSizeInBytes", "0x100" }
   });
   e.load(device);
+  attachStreams(e, tmap);
 
   boost::multi_array<double, 1>
     hostActsOut(boost::extents[maxElements]),
@@ -179,7 +189,7 @@ bool doTest(const DeviceType &deviceType,
                       : HALF_ATOL;
 
   bool success = true;
-  for (std::size_t testId = 0; testId < programs.size(); ++testId) {
+  for (std::size_t testId = 0; testId < numTests; ++testId) {
     // Fill out the model data, applying the non-linearity to regions to be
     // processed by the vertex. This allows us to detect over/underwrites
     // by the vertex as a bonus
@@ -210,9 +220,9 @@ bool doTest(const DeviceType &deviceType,
     // values that should never be output by the vertex
     std::fill_n(hostGradIn.data(), hostGradIn.num_elements(), 50.0);
     copy(target, hostGradIn, dataType, rawHostGradIn.get());
-    upload(e, tmap);
+    e.run(uploadProgIndex);
     e.run(testId);
-    download(e, tmap);
+    e.run(downloadProgIndex);
     copy(target, dataType, rawHostActsIn.get(), hostActsOut);
     copy(target, dataType, rawHostGradIn.get(), hostGradIn);
 

@@ -62,13 +62,12 @@ allocateHostMemoryForTensor(const poplar::Target &target,
 std::unique_ptr<char []>
 allocateHostMemoryForTensor(const poplar::Tensor &t,  const std::string &name,
                             poplar::Graph &graph,
+                            poplar::program::Sequence &uploadProg,
+                            poplar::program::Sequence &downloadProg,
                             std::vector<std::pair<std::string, char *>> &map);
 
-void upload(poplar::Engine &e,
-            std::vector<std::pair<std::string, char *>> &map);
-
-void download(poplar::Engine &e,
-              std::vector<std::pair<std::string, char *>> &map);
+void attachStreams(poplar::Engine &e,
+                   const std::vector<std::pair<std::string, char *>> &map);
 
 /// Fill a vector with values in the interval [min:max)
 /// The specific values returned seem the same on ubuntu/gcc and

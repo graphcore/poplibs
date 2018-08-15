@@ -201,15 +201,20 @@ int main(int argc, char **argv) {
     mapTensorLinearly(graph, nextAct);
   }
 
+  Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
   auto rawHostPrevAct =
-      allocateHostMemoryForTensor(prevAct, "prevAct", graph, tmap);
+      allocateHostMemoryForTensor(prevAct, "prevAct", graph, uploadProg,
+                                  downloadProg, tmap);
   auto rawHostWeights =
-      allocateHostMemoryForTensor(weights, "weights", graph, tmap);
+      allocateHostMemoryForTensor(weights, "weights", graph, uploadProg,
+                                  downloadProg, tmap);
   auto rawHostBiases = allocateHostMemoryForTensor(biases, "biases", graph,
+                                                   uploadProg, downloadProg,
                                                    tmap);
   auto rawHostNextAct =
-      allocateHostMemoryForTensor(nextAct, "nextAct", graph, tmap);
+      allocateHostMemoryForTensor(nextAct, "nextAct", graph, uploadProg,
+                                  downloadProg, tmap);
 
   Tensor zDeltas;
   std::unique_ptr<char[]> rawHostZDeltas;
@@ -220,7 +225,8 @@ int main(int argc, char **argv) {
                                             {numGroups, outputSize, inputSize},
                                             "zDeltas", bwdOptions, &cache);
     rawHostZDeltas =
-        allocateHostMemoryForTensor(zDeltas, "zDeltas", graph, tmap);
+        allocateHostMemoryForTensor(zDeltas, "zDeltas", graph, uploadProg,
+                                    downloadProg, tmap);
   }
   Tensor prevDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
@@ -237,7 +243,8 @@ int main(int argc, char **argv) {
                                       bwdOptions, &cache);
     }
     rawHostPrevDeltas =
-        allocateHostMemoryForTensor(prevDeltas, "prevDeltas", graph, tmap);
+        allocateHostMemoryForTensor(prevDeltas, "prevDeltas", graph, uploadProg,
+                                    downloadProg, tmap);
   }
   if (doWuPass) {
     auto wuOptions = fwdOptions;
@@ -257,9 +264,18 @@ int main(int argc, char **argv) {
     scaledAddTo(graph, biases, biasDeltas, -learningRate, bwdProg);
   }
 
-  Engine engine(graph, {std::move(fwdProg), std::move(bwdProg)},
-                engineOptions);
+  std::vector<Program> programs;
+  const auto fwdProgIndex = programs.size();
+  programs.push_back(std::move(fwdProg));
+  const auto bwdProgIndex = programs.size();
+  programs.push_back(std::move(bwdProg));
+  const auto uploadProgIndex = programs.size();
+  programs.push_back(std::move(uploadProg));
+  const auto downloadProgIndex = programs.size();
+  programs.push_back(std::move(downloadProg));
+  Engine engine(graph, std::move(programs), engineOptions);
   engine.load(device);
+  attachStreams(engine, tmap);
 
   boost::multi_array<double, 3>
       hostPrevAct(boost::extents[numGroups][batchSize][inputSize]);
@@ -277,9 +293,9 @@ int main(int argc, char **argv) {
   copy(target, hostWeights, dataType, rawHostWeights.get());
   copy(target, hostBiases, dataType, rawHostBiases.get());
   // Run the forward pass.
-  upload(engine, tmap);
-  engine.run(0); // Run.
-  download(engine, tmap);
+  engine.run(uploadProgIndex);
+  engine.run(fwdProgIndex); // Run.
+  engine.run(downloadProgIndex);
   copy(target, dataType, rawHostNextAct.get(), hostNextAct);
 
   // Validate against a reference model.
@@ -305,9 +321,9 @@ int main(int argc, char **argv) {
     // Run the backwards pass.
     writeRandomValues(target, dataType, hostZDeltas, -5.0, 5.0, randomEngine);
     copy(target, hostZDeltas, dataType, rawHostZDeltas.get());
-    upload(engine, tmap);
-    engine.run(1); // Run.
-    download(engine, tmap);
+    engine.run(uploadProgIndex);
+    engine.run(bwdProgIndex); // Run.
+    engine.run(downloadProgIndex);
 
     // Validate against a reference model.
     if (doBwdPass) {

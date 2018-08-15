@@ -190,13 +190,17 @@ static bool reduceAddTest(const std::vector<std::size_t> &dims,
                          popops::Operation::ADD, prog);
   }
 
+  Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
   auto rawHostPrev =
-          allocateHostMemoryForTensor(prev, "prev", graph, tmap);
+          allocateHostMemoryForTensor(prev, "prev", graph, uploadProg,
+                                      downloadProg, tmap);
   auto rawHostIn =
-          allocateHostMemoryForTensor(in, "in", graph, tmap);
+          allocateHostMemoryForTensor(in, "in", graph, uploadProg,
+                                      downloadProg, tmap);
   auto rawHostOut =
-          allocateHostMemoryForTensor(out, "out", graph, tmap);
+          allocateHostMemoryForTensor(out, "out", graph, uploadProg,
+                                      downloadProg, tmap);
 
   boost::multi_array<double, 1>
       hostPrev(boost::extents[dims[1]]);
@@ -214,11 +218,10 @@ static bool reduceAddTest(const std::vector<std::size_t> &dims,
   copy(target, hostPrev, outType, rawHostPrev.get());
   copy(target, hostIn, partialsType, rawHostIn.get());
 
-  Engine engine(graph, prog, options);
+  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
   engine.load(device);
-  upload(engine, tmap);
+  attachStreams(engine, tmap);
   engine.run(0); // Run.
-  download(engine, tmap);
 
   copy(target, outType, rawHostOut.get(), hostOut);
 
@@ -269,11 +272,14 @@ static bool reduceOpsTest(const std::vector<std::size_t> &dims,
   auto prog = Sequence();
   Tensor out =  popops::reduce(graph, in, redVect, operation, prog);
 
+  Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
   auto rawHostIn =
-          allocateHostMemoryForTensor(in, "in", graph, tmap);
+          allocateHostMemoryForTensor(in, "in", graph, uploadProg, downloadProg,
+                                      tmap);
   auto rawHostOut =
-          allocateHostMemoryForTensor(out, "out", graph, tmap);
+          allocateHostMemoryForTensor(out, "out", graph, uploadProg,
+                                      downloadProg, tmap);
 
   // check reduction dimensions: restricted set allowed
 #ifndef NDEBUG
@@ -318,12 +324,11 @@ static bool reduceOpsTest(const std::vector<std::size_t> &dims,
   copy(target, hostOut, outType, rawHostOut.get());
   copy(target, hostIn, outType, rawHostIn.get());
 
-  Engine engine(graph, prog, options);
+  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
   engine.load(device);
+  attachStreams(engine, tmap);
 
-  upload(engine, tmap);
   engine.run(0); // Run.
-  download(engine, tmap);
 
   copy(target, outType, rawHostOut.get(), hostOut);
 

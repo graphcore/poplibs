@@ -517,30 +517,48 @@ int main(int argc, char **argv) {
                                           wuOptions, &cache);
     }
   }
+  Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
   auto rawHostPrevAct = allocateHostMemoryForTensor(prevAct, "prevAct", graph,
+                                                    uploadProg, downloadProg,
                                                     tmap);
   auto rawHostWeights = allocateHostMemoryForTensor(weights, "weights", graph,
+                                                    uploadProg, downloadProg,
                                                     tmap);
   std::unique_ptr<char []> rawHostBiases;
   if (bias) {
     rawHostBiases = allocateHostMemoryForTensor(biases, "biases", graph,
+                                                uploadProg, downloadProg,
                                                 tmap);
   }
   auto rawHostNextAct = allocateHostMemoryForTensor(nextAct, "nextAct", graph,
+                                                    uploadProg, downloadProg,
                                                     tmap);
   std::unique_ptr<char[]> rawHostZDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
   if (doBwdPass || doWuPass) {
     rawHostZDeltas = allocateHostMemoryForTensor(zDeltas, "zDeltas", graph,
+                                                 uploadProg, downloadProg,
                                                  tmap);
   }
   if (doBwdPass) {
     rawHostPrevDeltas = allocateHostMemoryForTensor(prevDeltas, "prevDeltas",
-                                                    graph, tmap);
+                                                    graph, uploadProg,
+                                                    downloadProg,
+                                                    tmap);
   }
-  Engine engine(graph, {std::move(fwdProg), std::move(revProg)},
+  std::vector<Program> programs;
+  const auto fwdProgIndex = programs.size();
+  programs.push_back(std::move(fwdProg));
+  const auto revProgIndex = programs.size();
+  programs.push_back(std::move(revProg));
+  const auto uploadProgIndex = programs.size();
+  programs.push_back(std::move(uploadProg));
+  const auto downloadProgIndex = programs.size();
+  programs.push_back(std::move(downloadProg));
+  Engine engine(graph, std::move(programs),
                 extraText ? extraTextengineOptions : engineOptions);
+  attachStreams(engine, tmap);
   engine.load(dev);
   boost::multi_array<double, 3>
       hostPrevAct(boost::extents[batchSize][fwdInChans]
@@ -571,9 +589,9 @@ int main(int argc, char **argv) {
   }
 
   // Run the forward pass.
-  upload(engine, tmap);
-  engine.run(0); // Run.
-  download(engine, tmap);
+  engine.run(uploadProgIndex);
+  engine.run(fwdProgIndex); // Run.
+  engine.run(downloadProgIndex);
 
   // Validate against a reference model.
   bool matchesModel = true;
@@ -621,9 +639,9 @@ int main(int argc, char **argv) {
     // Run the backwards and/or weight update passes.
     writeRandomValues(target, dataType, hostZDeltas, -3.0, 7.0, randomEngine);
     copy(target, hostZDeltas, dataType, rawHostZDeltas.get());
-    upload(engine, tmap);
-    engine.run(1); // Run.
-    download(engine, tmap);
+    engine.run(uploadProgIndex);
+    engine.run(revProgIndex);
+    engine.run(downloadProgIndex);
 
     copy(target, dataType, rawHostZDeltas.get(), hostZDeltas);
     if (doBwdPass) {

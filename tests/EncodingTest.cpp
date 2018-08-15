@@ -83,9 +83,11 @@ static bool encodeTest(std::size_t numIndices,
   auto indices = graph.addVariable(indicesType, {numIndices}, "indices");
   poputil::mapTensorLinearly(graph, indices);
 
+  Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char*>> tmap;
   auto rawHostIndices =
-    allocateHostMemoryForTensor(indices, "indices", graph, tmap);
+    allocateHostMemoryForTensor(indices, "indices", graph, uploadProg,
+                                downloadProg, tmap);
 
   auto randIndices = getRandomIndices(numIndices, length);
   auto modelEncoded = getEncodedModel(randIndices, length);
@@ -96,14 +98,14 @@ static bool encodeTest(std::size_t numIndices,
                                    VariableMappingMethod::LINEAR, "encoded");
   encodeOneHot(graph, indices, encoded, prog, "/OneHotEncodeTest");
   auto rawHostEncoded =
-    allocateHostMemoryForTensor(encoded, "encoded", graph, tmap);
+    allocateHostMemoryForTensor(encoded, "encoded", graph, uploadProg,
+                                downloadProg, tmap);
 
-  Engine engine(graph, prog, options);
+  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
   engine.load(device);
+  attachStreams(engine, tmap);
 
-  upload(engine, tmap);
   engine.run(0);
-  download(engine, tmap);
 
   boost::multi_array<double, 2>
     hostEncoded(boost::extents[numIndices][length]);

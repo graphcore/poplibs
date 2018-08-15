@@ -103,12 +103,17 @@ void clampTest(const Type &dataType)
     graph.setTileMapping(out,0);
 
     //allocateHostMemoryForTensor
+    Sequence uploadProg, downloadProg;
     std::vector<std::pair<std::string, char*>> tmap;
-    auto input1=allocateHostMemoryForTensor(in1,"in1",graph,tmap);
-    auto input2=allocateHostMemoryForTensor(in2,"in2",graph,tmap);
-    auto input3=allocateHostMemoryForTensor(in3,"in3",graph,tmap);
+    auto input1=allocateHostMemoryForTensor(in1,"in1",graph,uploadProg,
+                                            downloadProg,tmap);
+    auto input2=allocateHostMemoryForTensor(in2,"in2",graph,uploadProg,
+                                            downloadProg,tmap);
+    auto input3=allocateHostMemoryForTensor(in3,"in3",graph,uploadProg,
+                                            downloadProg,tmap);
 
-    auto output=allocateHostMemoryForTensor(out,"out",graph,tmap);
+    auto output=allocateHostMemoryForTensor(out,"out",graph,uploadProg,
+                                            downloadProg,tmap);
 
     //Put test inputs into arrays of the correct type ready to use
     boost::multi_array<double,1> in1Host(boost::extents[ROWS*COLUMNS]);
@@ -124,7 +129,7 @@ void clampTest(const Type &dataType)
     boost::multi_array<double,1> outTest2(boost::extents[ROWS*(COLUMNS+1)]); 
 
     //Make a multiple programs to test clamp, each using different input slices
-    std::array<Program, ROWS * COLUMNS> programs;
+    std::array<Program, ROWS * COLUMNS + 2> programs;
     int progNo=0;
     Tensor slice1,slice2,slice3,sliceOut;
 
@@ -162,22 +167,27 @@ void clampTest(const Type &dataType)
             outptr=clampHost(in1Test[0],in2Test[0],in3Test[0],outptr,i,j,offset);   //generate the expected result in the outTest array 
             progNo++;
         }
-     }
+    }
+    const auto uploadProgIndex = progNo++;
+    programs[uploadProgIndex] = uploadProg;
+    const auto downloadProgIndex = progNo++;
+    programs[downloadProgIndex] = downloadProg;
 
     //Run each program and compare host and IPU result
-     Engine engine(graph,programs);
-     engine.load(device);
+    Engine engine(graph,programs);
+    engine.load(device);
+    attachStreams(engine,tmap);
     for(j=0;j<(ROWS*COLUMNS);j++)
     { 
         copy(target,in1Host,dataType,input1.get()); 
         copy(target,in2Host,dataType,input2.get());
         copy(target,in3Host,dataType,input3.get());
 
-        upload(engine, tmap);
+        engine.run(uploadProgIndex);
 
         engine.run(j);
 
-        download(engine,tmap);
+        engine.run(downloadProgIndex);
         copy(target,dataType,output.get(),outHost);
 
         //Check the result, in the outTest array (Generated above),

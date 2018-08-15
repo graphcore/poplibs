@@ -216,13 +216,21 @@ int main(int argc, char **argv) {
 
   scaledAddTo(graph, matC, matAxB, alpha, prog);
 
+  Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
-  auto rawHostMatA = allocateHostMemoryForTensor(matA, "matA", graph, tmap);
-  auto rawHostMatB = allocateHostMemoryForTensor(matB, "matB", graph, tmap);
-  auto rawHostMatC = allocateHostMemoryForTensor(matC, "matC", graph, tmap);
+  auto rawHostMatA = allocateHostMemoryForTensor(matA, "matA", graph,
+                                                 uploadProg, downloadProg,
+                                                 tmap);
+  auto rawHostMatB = allocateHostMemoryForTensor(matB, "matB", graph,
+                                                 uploadProg, downloadProg,
+                                                 tmap);
+  auto rawHostMatC = allocateHostMemoryForTensor(matC, "matC", graph,
+                                                 uploadProg, downloadProg,
+                                                 tmap);
 
-  Engine engine(graph, prog, engineOptions);
+  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
   engine.load(device);
+  attachStreams(engine, tmap);
 
   boost::multi_array<double, 2>
       hostMatA(boost::extents[rowsMatA][colsMatA]);
@@ -245,9 +253,7 @@ int main(int argc, char **argv) {
   copy(target, hostMatB, dataType, rawHostMatB.get());
   copy(target, hostMatC, dataType, rawHostMatC.get());
 
-  upload(engine, tmap);
   engine.run(0);    // matrix operation
-  download(engine, tmap);
 
   copy(target, dataType, rawHostMatC.get(), hostMatC);
 

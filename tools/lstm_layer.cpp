@@ -174,6 +174,7 @@ int main(int argc, char **argv) {
                               dataType, partialsType, fwdOnly,
                               "weightsOutput", &cache);
 
+  Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
 
   Tensor weightedIn;
@@ -215,17 +216,23 @@ int main(int argc, char **argv) {
   }
 
   auto rawHostWeightsInput =
-    allocateHostMemoryForTensor(weightsInput, "weightsInput", graph, tmap);
+    allocateHostMemoryForTensor(weightsInput, "weightsInput", graph,
+                                uploadProg, downloadProg, tmap);
   auto rawHostWeightsOutput =
-    allocateHostMemoryForTensor(weightsOutput, "weightsOutput", graph, tmap);
+    allocateHostMemoryForTensor(weightsOutput, "weightsOutput", graph,
+                                uploadProg, downloadProg, tmap);
   auto rawHostPrevLayerAct =
-    allocateHostMemoryForTensor(prevLayerAct, "prevLayerAct", graph, tmap);
+    allocateHostMemoryForTensor(prevLayerAct, "prevLayerAct", graph, uploadProg,
+                                downloadProg, tmap);
   auto rawHostBiases =
-    allocateHostMemoryForTensor(biases, "biases", graph, tmap);
+    allocateHostMemoryForTensor(biases, "biases", graph, uploadProg,
+                                downloadProg, tmap);
   auto rawHostOutputInit =
-    allocateHostMemoryForTensor(outputInit, "outputInit", graph, tmap);
+    allocateHostMemoryForTensor(outputInit, "outputInit", graph, uploadProg,
+                                downloadProg, tmap);
   auto rawHostCellStateInit =
-    allocateHostMemoryForTensor(cellStateInit, "cellStateInit", graph, tmap);
+    allocateHostMemoryForTensor(cellStateInit, "cellStateInit", graph,
+                                uploadProg, downloadProg, tmap);
 
   std::unique_ptr<char[]> rawHostNextLayerGrads;
   std::unique_ptr<char[]> rawHostPrevLayerGrads;
@@ -236,20 +243,21 @@ int main(int argc, char **argv) {
   if (doBwdPass) {
     rawHostNextLayerGrads =
       allocateHostMemoryForTensor(nextLayerGrads, "nextLayerGrads", graph,
-                                  tmap);
+                                  uploadProg, downloadProg, tmap);
     rawHostPrevLayerGrads =
       allocateHostMemoryForTensor(prevLayerGrads, "prevLayerGrads", graph,
-                                  tmap);
+                                  uploadProg, downloadProg, tmap);
   }
   if (doWuPass) {
     rawHostWeightsInputDeltas =
       allocateHostMemoryForTensor(weightsInputDeltas, "weightsInputDeltas",
-                                  graph, tmap);
+                                  graph, uploadProg, downloadProg, tmap);
     rawHostWeightsOutputDeltas =
       allocateHostMemoryForTensor(weightsOutputDeltas, "weightsOutputDeltas",
-                                  graph, tmap);
+                                  graph, uploadProg, downloadProg, tmap);
     rawHostBiasDeltas =
-      allocateHostMemoryForTensor(biasDeltas, "biasDeltas", graph, tmap);
+      allocateHostMemoryForTensor(biasDeltas, "biasDeltas", graph, uploadProg,
+                                  downloadProg, tmap);
   }
 
   std::vector<std::unique_ptr<char[]>> rawHostNextAct;
@@ -258,11 +266,13 @@ int main(int argc, char **argv) {
     rawHostNextAct.push_back(allocateHostMemoryForTensor(nextAct,
                                                          "nextAct" +
                                                            std::to_string(s),
-                                                         graph, tmap));
+                                                         graph, uploadProg,
+                                                         downloadProg, tmap));
   }
 
-  Engine engine(graph, prog, engineOptions);
+  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
   engine.load(device);
+  attachStreams(engine, tmap);
 
   boost::multi_array<double, 3>
       hostPrevLayerAct(boost::extents[sequenceSize][batchSize][inputSize]);
@@ -331,9 +341,7 @@ int main(int argc, char **argv) {
     copy(target, hostNextLayerGrads, dataType, rawHostNextLayerGrads.get());
   }
 
-  upload(engine, tmap);
   engine.run(0);
-  download(engine, tmap);
 
   poplibs_test::lstm::basicLstmCellForwardPass(
                           hostPrevLayerAct, hostBiases, hostOutputInit,
