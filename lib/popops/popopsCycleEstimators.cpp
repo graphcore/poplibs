@@ -254,10 +254,27 @@ MAKE_CYCLE_ESTIMATOR_NAME(Cast)(const VertexIntrospector &vertex,
                                 const Target &target,
                                 const Type &fromType,
                                 const Type &toType) {
-  // These are not valid for integer and boolean casts
   const auto dst = vertex.getFieldInfo("dst");
-  const auto floatVectorWidth = target.getDataPathWidth() / 32;
-  return (dst.size() + floatVectorWidth - 1) / floatVectorWidth + 5;
+  std::uint64_t cycles;
+
+  // Cast float to half written in assembly.  Estimates for other types not
+  // revised
+  if(fromType == FLOAT && toType == HALF)  {
+    auto columns=dst.size();
+    if (columns < 4) {
+      cycles = 11 + (columns * 14 )/3;
+    }
+    else {
+      cycles = 26 + 2 * (columns/4) + ((columns & 3)*14)/3;
+    }
+  }
+  else {
+    // These are not valid for integer and boolean casts
+    const auto floatVectorWidth = target.getDataPathWidth() / 32;
+    cycles = (dst.size() + floatVectorWidth - 1) / floatVectorWidth + 5;
+  }
+
+  return cycles;
 }
 
 std::uint64_t

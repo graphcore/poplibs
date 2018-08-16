@@ -69,6 +69,9 @@ endforeach()
 #Transpose2d<InType>
    add_popnn_unit_test(Transpose2dTest Transpose2dTest.cpp)
 
+#Cast<InType>
+   add_popnn_unit_test(CastTest CastTest.cpp)
+
 # MaxPooling<dataType> and ScaledSumPooling<dataType, poolType>
 foreach(DATA_TYPE half float)
   foreach(POOL_TYPE avg sum max)
