@@ -6,12 +6,52 @@
 #include <poplar/DeviceManager.hpp>
 #include <poplar/IPUModel.hpp>
 
+#include <thread>
+#include <chrono>
+#include <iostream>
+
 namespace {
 // In CMakeLists.txt there is a regex on "Hw*" so be
 // careful when adding new enums that begin with Hw:
 enum class DeviceType {Cpu, Sim, Hw, IpuModel};
 
-// Create an engine for testing
+// In order to run multiple hardware tests concurrently loop indefinitely
+// trying to acquire devices (relying on test timeout to terminate the
+// test if none are available). To work sensibly this requires that at
+// most N tests are run in parallel on any Hw build-bot
+// e.g. via 'ctest -jN'.
+inline
+std::pair<bool, poplar::Device>
+acquireHardwareDevice(std::vector<poplar::Device> &devices)
+{
+  bool success = false;
+  poplar::Device device;
+
+  unsigned waitIterCount = 0;
+  while (!success) {
+    for (auto &candidateDevice : devices) {
+      success = candidateDevice.attach();
+      if (success) {
+        device = std::move(candidateDevice);
+        break;
+      }
+    }
+    if (!success) {
+      std::cout << "Could not acquire hardware device, retrying ... "
+                   "(retry count: " << waitIterCount << ")\n";
+      waitIterCount += 1;
+      std::this_thread::sleep_for(std::chrono::seconds(10));
+    }
+  }
+
+  if (waitIterCount && success) {
+    std::cout << "Successfully acquired device after retry.";
+  }
+
+  return std::make_pair(success, std::move(device));
+}
+
+// Create an device for testing:
 inline poplar::Device createTestDevice(DeviceType deviceType,
                                        unsigned numIPUs = 1,
                                        unsigned tilesPerIPU = 1,
@@ -21,47 +61,40 @@ inline poplar::Device createTestDevice(DeviceType deviceType,
   case DeviceType::Cpu:
     target = poplar::Target::createCPUTarget();
     return poplar::Device::createCPUDevice();
-    break;
-  case DeviceType::IpuModel:
-  {
-    poplar::IPUModel ipuModel;
-    ipuModel.numIPUs = numIPUs;
-    ipuModel.tilesPerIPU = tilesPerIPU;
-    return ipuModel.createDevice();
-    break;
-  }
   case DeviceType::Sim:
-  {
-    target = poplar::Target::createIPUTarget(numIPUs,
-                                             tilesPerIPU, "_TEST_SYSTEM");
-    return poplar::Device::createSimulatorDevice(target, opt);
-  }
+    target = poplar::Target::createIPUTarget(numIPUs, tilesPerIPU,
+                                             "_TEST_SYSTEM");
+    return poplar::Device::createSimulatorDevice(target);
   case DeviceType::Hw:
-  {
-    static auto manager = poplar::DeviceManager::getDeviceManager();
-    auto singleIPUs = manager.getDevices(poplar::TargetType::IPU, 1);
-
-    // Find a device that can be attached to:
-    bool success = false;
-    poplar::Device device;
-    for (auto &ipu : singleIPUs) {
-      success = ipu.attach();
-      if (success) {
-        device = std::move(ipu);
-        break;
+    {
+      static auto manager = poplar::DeviceManager::getDeviceManager();
+      auto devices = manager.getDevices(poplar::TargetType::IPU, numIPUs);
+      if (devices.empty()) {
+        // If the device list is empty we have to terminate here otherwise
+        // acquireHardwareDevice() will retry forever.
+        throw poplar::poplar_error("No devices exist with the requested "
+                                   "configuration");
       }
-    }
+      bool success = false;
+      poplar::Device device;
+      std::tie(success, device) = acquireHardwareDevice(devices);
 
-    if (!success) {
-      throw poplar::poplar_error("Could not acquire any Hw devices");
-    }
-    if (tilesPerIPU != device.getTarget().getTilesPerIPU()) {
-      device = device.createVirtualDevice(tilesPerIPU);
-    }
+      if (!success) {
+        throw poplar::poplar_error("Could not acquire any Hw devices");
+      }
+      if (tilesPerIPU != device.getTarget().getTilesPerIPU()) {
+        device = device.createVirtualDevice(tilesPerIPU);
+      }
 
-    return device;
-  }
-  break;
+      return device;
+    }
+  case DeviceType::IpuModel:
+    {
+      poplar::IPUModel model;
+      model.numIPUs = numIPUs;
+      model.tilesPerIPU = tilesPerIPU;
+      return model.createDevice();
+    }
   default:
       throw std::logic_error(
         "deviceType must be \"Cpu\", \"IpuModel\", \"Sim\" or \"Hw\"\n");
