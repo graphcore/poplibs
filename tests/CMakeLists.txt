@@ -209,8 +209,8 @@ add_popnn_unit_test(BigNLVertices BigNLVertices.cpp)
 add_popnn_unit_test(GraphProgLocationTest GraphProgLocationTest.cpp)
 add_popnn_unit_test(StdOperatorTest StdOperatorsTest.cpp
                     VARIANTS ${TimesOutOnSim})
-add_popnn_unit_test(BatchNormTest BatchNormTest.cpp
-                    VARIANTS ${TimesOutOnSim})
+#add_popnn_unit_test(BatchNormTest BatchNormTest.cpp
+#                    VARIANTS ${TimesOutOnSim})
 add_popnn_unit_test(ReductionTests ReductionTests.cpp VARIANTS ${TimesOutOnSim})
 add_popnn_unit_test(LargeSplitRegionsTest LargeSplitRegionsTest.cpp)
 if (APPLE)
