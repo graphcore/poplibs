@@ -343,6 +343,7 @@ int main(int argc, char **argv) {
     ("device-type",
        po::value<DeviceType>(&deviceType)->default_value(deviceType),
        "Device type: Cpu | Sim | Hw | IpuModel")
+    ("profile", "Output profiling report")
     ("file", po::value(&file),
       "If specified, load the input and optionally output tensors from "
       "a file. The file must be a binary serialisation of the tensors "
@@ -670,7 +671,7 @@ int main(int argc, char **argv) {
                                          outputRef.values.size(),
                                          relativeTolerance,
                                          absoluteTolerance);
-  if (deviceType == DeviceType::IpuModel) {
+  if (deviceType != DeviceType::Cpu && vm.count("profile")) {
     engine.printSummary(std::cout, OptionFlags{
       { "doLayerWiseBreakdown", "true" }
     });

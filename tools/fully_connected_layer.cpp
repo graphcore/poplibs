@@ -71,6 +71,7 @@ int main(int argc, char **argv) {
     ("device-type",
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
      "Device type: Cpu | Sim | Hw | IpuModel")
+    ("profile", "Output profiling report")
     ("input-size", po::value<unsigned>(&inputSize)->required(),
      "Number of inputs")
     ("output-size", po::value<unsigned>(&outputSize)->required(),
@@ -350,7 +351,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (deviceType == DeviceType::IpuModel) {
+  if (deviceType != DeviceType::Cpu && vm.count("profile")) {
     engine.printSummary(std::cout, OptionFlags{
                           { "doLayerWiseBreakdown", "true" }
                         });

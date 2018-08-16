@@ -102,6 +102,7 @@ int main(int argc, char **argv) {
     ("device-type: Cpu | Sim | Hw | IpuModel",
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
      "Device type")
+    ("profile", "Output profiling report")
     ("channels", po::value<unsigned>(&chans)->required(),
      "Number of channels")
     ("width", po::value<unsigned>(&width)->required(), "Field width")
@@ -451,8 +452,7 @@ int main(int argc, char **argv) {
                                  relativeTolerance, absoluteTolerance);
   }
 
-  if (deviceType != DeviceType::Cpu && deviceType != DeviceType::Sim &&
-      deviceType != DeviceType::Hw) {
+  if (deviceType != DeviceType::Cpu && vm.count("profile")) {
     engine.printSummary(std::cout, OptionFlags{
       { "doLayerWiseBreakdown", "true" }
     });

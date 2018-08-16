@@ -98,6 +98,7 @@ int main(int argc, char **argv) {
     ("device-type",
       po::value<DeviceType>(&deviceType)->default_value(deviceType),
       "Device type: Cpu | Sim | Hw | IpuModel")
+    ("profile", "Output profiling report")
     ("m", po::value<unsigned>(&m)->required(),
      "Number of rows of left matrix, left-matrix-op(A)")
     ("k", po::value<unsigned>(&k)->required(),
@@ -259,7 +260,7 @@ int main(int argc, char **argv) {
 
   const bool matchesModel = checkIsClose("gemm", hostMatC, refMatC,
                                          relativeTolerance, absoluteTolerance);
-  if (deviceType == DeviceType::IpuModel) {
+  if (deviceType != DeviceType::Cpu && vm.count("profile")) {
     engine.printSummary(std::cout, OptionFlags{
       { "doLayerWiseBreakdown", "true" }
     });

@@ -133,6 +133,7 @@ int main(int argc, char **argv) {
     ("device-type",
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
      "Device type")
+    ("profile", "Output profiling report")
     ("input-channels", po::value<unsigned>(&fwdInChansPerConvGroup)->required(),
      "Number of input channels per grouped convolution")
     ("output-channels",
@@ -312,7 +313,6 @@ int main(int argc, char **argv) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }
-
   auto &inputFieldSize = inputFieldSizeOption.val;
   const auto numFieldDims = inputFieldSize.size();
 
@@ -717,8 +717,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (deviceType != DeviceType::Cpu && deviceType != DeviceType::Sim &&
-      deviceType != DeviceType::Hw) {
+  if (deviceType != DeviceType::Cpu && vm.count("profile")) {
     engine.printSummary(std::cout, OptionFlags{
       { "doLayerWiseBreakdown", "true" }
     });

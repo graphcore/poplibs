@@ -107,6 +107,7 @@ int main(int argc, char **argv) {
     ("device-type",
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
      "Device type: Cpu | Sim | Hw | IpuModel")
+    ("profile", "Output profiling report")
     ("sequence-size", po::value<unsigned>(&sequenceSize)->required(),
      "Sequence size in the RNN")
     ("input-size", po::value<unsigned>(&inputSize)->default_value(inputSize),
@@ -545,7 +546,7 @@ int main(int argc, char **argv) {
                    modelBiasesDeltasAcc, relativeTolerance, absoluteTolerance);
   }
 
-  if (deviceType == DeviceType::IpuModel) {
+  if (deviceType != DeviceType::Cpu && vm.count("profile")) {
     engine.printSummary(std::cout, OptionFlags{
       { "doLayerWiseBreakdown", "true" }
     });
