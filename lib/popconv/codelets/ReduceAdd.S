@@ -38,7 +38,7 @@
 .globl ReduceAdd_Half_Float
 .type ReduceAdd_Half_Float, @function
 .align 8
-nop
+
 ReduceAdd_Half_Float:
   ld32        $BASE, $mvertex_base, $mzero, OUT_OFF
   ldz16       $OUT_i_PTR, $mvertex_base, $mzero, OFFSET_OFF
@@ -57,8 +57,6 @@ ReduceAdd_Half_Float:
 
   ld32        $IN_i_PTR, $mvertex_base, $mzero, IN_OFF
   ldz16       $NUM_PART, $mvertex_base, $mzero, NUM_OFF
-
-  brz         $NUM_PART, _exit
 
   brnzdec     $OUT_i_SIZE, _skip_e
   bri         _exit
@@ -276,7 +274,7 @@ _misaligned_st_2:
 .globl ReduceAdd_Half_Half
 .type ReduceAdd_Half_Half, @function
 .align 8
-nop
+
 ReduceAdd_Half_Half:
   ld32        $BASE, $mvertex_base, $mzero, OUT_OFF
   ldz16       $OUT_i_PTR, $mvertex_base, $mzero, OFFSET_OFF
@@ -295,8 +293,6 @@ ReduceAdd_Half_Half:
 
   ld32        $IN_i_PTR, $mvertex_base, $mzero, IN_OFF
   ldz16       $NUM_PART, $mvertex_base, $mzero, NUM_OFF
-
-  brz         $NUM_PART, _exit_h_h
 
   brnzdec     $OUT_i_SIZE, _skip_e_h_h
   bri         _exit_h_h
@@ -497,7 +493,6 @@ ReduceAdd_Float_Half:
   ld32        $IN_i_PTR, $mvertex_base, $mzero, IN_OFF
   ldz16       $NUM_PART, $mvertex_base, $mzero, NUM_OFF
   setzi       $OFFSET_MASK, 0x3FFFF
-  brz         $NUM_PART, _exit_f_h
 
   brnzdec     $OUT_i_SIZE, _skip_e_f_h
   bri         _exit_f_h
@@ -518,7 +513,7 @@ _loop_over_reductions_f_h:
     setzi       $IN_j_DELTA, 0
     zero        $VALUES_0:5
   }
-  { 
+  {
     brnzdec     $SCRATCH, _skip_r_f_h
     zero        $VALUES_2:7
   }
@@ -529,7 +524,7 @@ _loop_over_outer_dim_f_h:
 
 _partials_rpt_8_loop_f_h:
   // If force alignment of IN_i_PTR to 16 bytes can use ld128, save cycle in rpt
-  {rpt         $NUM_PART, 2; fnop}
+  rpt         $NUM_PART, 2
     {
       ld32step  $IN_j_PTR, $IN_i_PTR, $IN_i_DELTA+=, 1
       f32v4acc  $VALUES_0:7
@@ -555,7 +550,7 @@ _partials_rpt_8_loop_f_h:
     st32step    $VALUES_0, $BASE, $OUT_j_PTR+=, 1
     f16v2gina   $VALUES_0, $azero, 0
   }
-  { 
+  {
     st32step    $VALUES_0, $BASE, $OUT_j_PTR+=, 1
     zero        $VALUES_0:5
   }
@@ -652,7 +647,6 @@ ReduceAdd_Float_Float:
   ld32        $IN_i_PTR, $mvertex_base, $mzero, IN_OFF
   ldz16       $NUM_PART, $mvertex_base, $mzero, NUM_OFF
 
-  brz         $NUM_PART, _exit_f_f
   setzi       $OFFSET_MASK, 0x3FFFF
 
   brnzdec     $OUT_i_SIZE, _skip_e_f_f
@@ -687,7 +681,7 @@ _loop_over_outer_dim_f_f:
 
 _partials_rpt_8_loop_f_f:
   // If force alignment of IN_i_PTR to 16 bytes can use ld128, save cycle in rpt
-  {rpt         $NUM_PART, 2; fnop}
+  rpt         $NUM_PART, 2
   {
     ld32step  $IN_j_PTR, $IN_i_PTR, $IN_i_DELTA+=, 1
     f32v4acc  $VALUES_0:7
