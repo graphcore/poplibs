@@ -93,10 +93,13 @@ void CastTest(const Type &dataTypeIn, const Type &dataTypeOut) {
     graph.setTileMapping(out,0);
 
     //allocateHostMemoryForTensor
+    Sequence uploadProg, downloadProg;
     std::vector<std::pair<std::string, char*>> tmap;
-    auto input=allocateHostMemoryForTensor(in,"in",graph,tmap);
+    auto input=allocateHostMemoryForTensor(in,"in",graph,uploadProg,
+                                                  downloadProg,tmap);
 
-    auto output=allocateHostMemoryForTensor(out,"out",graph,tmap);
+    auto output=allocateHostMemoryForTensor(out,"out",graph,uploadProg,
+                                                  downloadProg,tmap);
 
     //Make multiple programs to test Cast each using
     //different input slices, for different input sizes and offsets
@@ -128,9 +131,15 @@ void CastTest(const Type &dataTypeIn, const Type &dataTypeOut) {
         sequence.add(Execute(testComputeSet));
         programs[tests]=sequence;
      }
-    //Run each program and compare host and IPU result
+
+     const auto uploadProgIndex = programs.size();
+     programs.push_back(std::move(uploadProg));
+     const auto downloadProgIndex = programs.size();
+     programs.push_back(std::move(downloadProg));
+     //Run each program and compare host and IPU result
      Engine engine(graph,programs);
      engine.load(device);
+     attachStreams(engine, tmap);
 
     //Put test inputs into an array of the correct type ready to use
     std::vector<double> outHost(total_size);
@@ -141,11 +150,12 @@ void CastTest(const Type &dataTypeIn, const Type &dataTypeOut) {
 
         copy(target,inTest.data(),inTest.size(),dataTypeIn,input.get());
 
-        upload(engine, tmap);
+        engine.run(uploadProgIndex);
 
         engine.run(tests);
 
-        download(engine,tmap);
+        engine.run(downloadProgIndex);
+
         copy(target,dataTypeOut,output.get(),outHost.data(),outHost.size());
 
         //Host generated result, start with zeros
