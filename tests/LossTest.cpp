@@ -1,7 +1,7 @@
 #define BOOST_TEST_MODULE LossTests
-
 #include <boost/test/unit_test.hpp>
-#include <boost/multi_array.hpp>
+
+#include "TestDevice.hpp"
 #include "poplar/Engine.hpp"
 #include "poplar/IPUModel.hpp"
 #include "popnn/Loss.hpp"
@@ -16,6 +16,7 @@
 #include <limits>
 #include <random>
 #include <boost/random.hpp>
+#include <boost/multi_array.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -31,6 +32,7 @@ namespace {
 static unsigned
 getExpected(boost::multi_array<double, 2> &activations,
             std::vector<std::uint64_t> &expected,
+            std::mt19937 &randomEngine,
             const std::size_t minCorrect = 1,
             const double proportionCorrect = 0.5) {
   const auto batchSize = activations.size();
@@ -61,20 +63,19 @@ getExpected(boost::multi_array<double, 2> &activations,
     std::vector<std::size_t> shuffledBatches(batchSize);
     std::iota(shuffledBatches.begin(), shuffledBatches.end(), 0);
     std::shuffle(shuffledBatches.begin(), shuffledBatches.end(),
-                 std::mt19937{std::random_device{}()});
+                 randomEngine);
     for (std::size_t b = 0; b < numCorrect; b++) {
       const auto actualBatch = shuffledBatches[b];
       expected[actualBatch] = predictions[actualBatch];
     }
     // Random labels not equal the predicted for the rest
-    std::mt19937 labelEngine;
     boost::random::uniform_int_distribution<std::uint64_t>
         labelDist(0, numClasses - 1);
     for (std::size_t b = numCorrect; b < batchSize; b++) {
       const auto actualBatch = shuffledBatches[b];
       auto randLabel = predictions[actualBatch];
       while (randLabel == predictions[actualBatch])
-        randLabel = labelDist(labelEngine);
+        randLabel = labelDist(randomEngine);
       expected[shuffledBatches[b]] = randLabel;
     }
   }
@@ -153,8 +154,7 @@ static bool lossTest(const LossType lossType,
                      std::size_t numClasses,
                      const Type &fpType,
                      const Type &expectedType) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
   auto target = device.getTarget();
   poplar::Graph graph(target);
   popops::addCodelets(graph);
@@ -191,7 +191,7 @@ static bool lossTest(const LossType lossType,
   copy(target, hostActivations, fpType, rawHostActivations.get());
 
   std::vector<std::uint64_t> hostExpected;
-  getExpected(hostActivations, hostExpected);
+  getExpected(hostActivations, hostExpected, randomEngine);
   copyLabels(expectedType, hostExpected, rawHostExpected.get());
 
   auto prog = calcLoss(graph,
@@ -238,8 +238,7 @@ static bool accuracyTest(const Type &fpType,
                          const Type &labelType,
                          std::size_t batchSize,
                          std::size_t numClasses) {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
   auto target = device.getTarget();
   poplar::Graph graph(target);
   popops::addCodelets(graph);
@@ -270,7 +269,8 @@ static bool accuracyTest(const Type &fpType,
   copy(target, hostActivations, fpType, rawHostActivations.get());
 
   std::vector<std::uint64_t> hostExpected;
-  auto modelNumCorrect = getExpected(hostActivations, hostExpected);
+  auto modelNumCorrect =
+    getExpected(hostActivations, hostExpected, randomEngine);
   copyLabels(labelType, hostExpected, rawHostExpected.get());
 
   auto prog = calcAccuracy(graph, activations,
@@ -310,7 +310,7 @@ static bool accuracyTest(const Type &fpType,
   ENUMERATE_VALID_LOSS_TYPE_TESTS(SOFTMAX_CROSS_ENTROPY_LOSS, b, n)
 
 ENUMERATE_LOSS_TYPE_TESTS(1, 1)
-ENUMERATE_LOSS_TYPE_TESTS(4, 1024)
+ENUMERATE_LOSS_TYPE_TESTS(4, 100)
 
 #define ACCURACY_TEST_NAME(name, b, n, fpType, labelType) \
   name ## _ ## b ## x ## n ## _ ## fpType ## _ ## labelType
@@ -328,4 +328,4 @@ ENUMERATE_LOSS_TYPE_TESTS(4, 1024)
   ACCURACY_TEST_TYPE(Accuracy, b, n, HALF, INT)
 
 ENUMERATE_VALID_ACCURACY_TYPE_TESTS(1, 1)
-ENUMERATE_VALID_ACCURACY_TYPE_TESTS(4, 1024)
+ENUMERATE_VALID_ACCURACY_TYPE_TESTS(4, 100)
