@@ -53,7 +53,8 @@ VERTEX:
 #define delta a2:3
 #define deltai0 a2
 #define deltai1 a3
-#define k a4
+#define result a4:5
+#define k a6
 
 // scratch variables
 #define mscratch m10
@@ -79,7 +80,7 @@ scaled_add_kernel:
   //  atoms size) and count is how many elements every worker processes
 
   // final = count % atomSize
-  and $final, $count, 0x3
+  and $final, $count, (1 << LOG2_ATOM_SIZE) - 1
 
   // for the rest calculate n / 6 and n % 6 by reciprocal multiplcation
   //   n/6 = (n * 0xAAAB) >> 18
@@ -106,7 +107,7 @@ scaled_add_kernel:
   shr $remM1, $final, LOG2_ATOM_SIZE
   add $remM1, $remM1, $mscratch2
 
-  and $mscratch, $final, 0x3
+  and $mscratch, $final, (1 << LOG2_ATOM_SIZE) - 1
   cmpne $mscratch, $mscratch, $mzero
   add $remM1, $remM1, $mscratch
 
@@ -170,20 +171,16 @@ scaled_add_kernel:
 .Lvector_loop_begin:
   {
     ld2x64pace $data, $delta, $triPtr+=, $stride, 0b0101
-    fnop
+    f16v4mix $result, $azeros, $azeros
   }
   {
-    nop
-    f16v4mix $data, $delta, $data
-  }
-  {
-    st64step $data, $mzero, $dataPtr+=, $stride
-    fnop
+    st64step $result, $mzero, $dataPtr+=, $stride
+    f16v4mix $azeros, $delta, $data
   }
 .Lvector_loop_end:
   // store the final 4 processed values.
-  f16v4mix $data, $azeros, $azeros
-  st64step $data, $mzero, $dataPtr+=, $stride
+  f16v4mix $result, $azeros, $azeros
+  st64step $result, $mzero, $dataPtr+=, $stride
 
 .Lvector_epilogue:
   // at most one of our workers will have to do the remaining elements. this

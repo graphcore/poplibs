@@ -53,7 +53,8 @@ VERTEX:
 #define delta a2:3
 #define deltai0 a2
 #define deltai1 a3
-#define k a4
+#define result a4:5
+#define k a6
 
 // scratch variables
 #define mscratch m10
@@ -164,20 +165,16 @@ scaled_add_kernel:
 .Lvector_loop_begin:
   {
     ld2x64pace $data, $delta, $triPtr+=, $stride, 0b0101
-    fnop
+    f32v2axpy $result, $azeros, $azeros
   }
   {
-    nop
-    f32v2axpy $data, $delta, $data
-  }
-  {
-    st64step $data, $mzero, $dataPtr+=, $stride
-    fnop
+    st64step $result, $mzero, $dataPtr+=, $stride
+    f32v2axpy $azeros, $delta, $data
   }
 .Lvector_loop_end:
   // store the final 2 processed values.
-  f32v2axpy $data, $azeros, $azeros
-  st64step $data, $mzero, $dataPtr+=, $stride
+  f32v2axpy $result, $azeros, $azeros
+  st64step $result, $mzero, $dataPtr+=, $stride
 
 .Lvector_epilogue:
   // at most one of our workers will have to do the remaining element. this
