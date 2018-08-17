@@ -248,55 +248,118 @@ MAKE_CYCLE_ESTIMATOR_NAME(LossSoftmaxTransform)
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(CalcAccuracy)(const VertexIntrospector &vertex,
-                                        const Target &target,
-                                        const Type &fpType,
-                                        const Type &labelType) {
-  std::uint64_t cycles = 5; // Vertex overhead
-
+MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxClassGather)
+  (const VertexIntrospector &vertex,
+   const Target &target,
+   const Type &fpType,
+   const Type &labelType) {
+  std::uint64_t cycles = 5 + // Vertex overhead
+                         4;  // Supervisor call + sync
   CODELET_FIELD(activations);
-  CODELET_FIELD(labels);
-  const auto batchSize = activations.size();
-  assert(labels.size() == batchSize);
+  CODELET_SCALAR_VAL(size, unsigned);
+  CODELET_SCALAR_VAL(divisorLog2, unsigned short);
+  const auto numWorkers = target.getNumWorkerContexts();
+  const auto maxValueGrainSize =
+    std::max<std::size_t>(1, target.getAtomicStoreGranularity() /
+                             target.getTypeSize(fpType));
+  const auto divisor = (1u << divisorLog2);
+  // Check the divisor chosen is large enough to process all inputs
+  // with the target number of workers and the grain size.
+  assert(divisor * maxValueGrainSize * numWorkers >= size);
+  const auto isFloat = (fpType == FLOAT);
 
-  cycles += 3 + // Load activations outer start/end pointer, calc length
-            1 + // Load labels pointer
-            2 + // Load numCorrect pointer, then current value
-            1;  // Sub 1 for brnzdec
-
-  const auto classesPerBatch = activations[0].size();
-  for (std::size_t b = 0; b < batchSize; ++b) {
-    cycles += 3; // Load inner start/end pointer and calc length
-
-    const auto numClasses = activations[b].size();
-    assert(numClasses == classesPerBatch);
-
-    // Cycles to find index of max class
-    // This is worst case, where all activations are sorted in ascending order
-    // and every iteration takes the branch.
-    //
-    cycles += 1;   // Set counter tracking current class index (to -1 for below
-                   // loop to work).
-    cycles += numClasses *
-              (1 + // [M] load next activation
-                   // [A] cmpgt this activation
-               1 + // [A] min to give 0.0/1.0
-               1 + // [M] add to counter tracking current class index
-                   // [A] convert comparison result to int
-               2 + // [M] move comparison result to MRF, then branch
-               1 + // [M] potentially update current max activation
-                   // [A] potentially update current max class index
-               2); // [M] cmpeq curr class index with class count, branch to
-                   //     loop.
-
-    // Cycles to check if the max class index was the expected
-    cycles += 1 + // load expected class index
-              1 + // cmpeq expected with max class index
-              1 + // add to running numCorrect total
-              1;  // outer loop brnzdec
+  // NOTE: Cycles per act in inner loop are conservative in that we assume
+  // we always take the branch. i.e. activations are sorted in ascending
+  // order when passed to the vertex.
+  if (isFloat) {
+    cycles += 3 + // Load acts ptr, size, divisor
+              2 + // Get worker ID
+              7 + // Calculate the worker region, branch if nothing
+              1 + // Offset pointer
+              2 + // Initialise maxValue/maxIndex
+              2 + // sub for brnzdec, skip loop if single element
+              (divisor - 1) * 6 +
+              4 + // Recover maxIndex from loop
+              2 + // Load maxValue/maxIndex pointers
+              2;  // Store maxValue/maxIndex
+  } else {
+    cycles += 3 + // Load vertex state
+              2 + // Get worker ID
+              4 + // Setup outer loop, branch if nothing to do
+              2 * (4 + // Calculate region
+                   3 + // Setup loop counter, branch if empty
+                   2 + // Load and offset pointer for worker
+                   2 + // Initialise maxValue/maxIndex
+                   2 + // sub for brnzdec, skip loop if single element
+                   (divisor - 1) * 6 +
+                   4 + // Recover maxIndex from loop
+                   1 + // Store maxIndex
+                   6)+ // Increment outer loop counter, branch
+              ((size & 1) ? 6 : 4); // RMW/store for maxValue
   }
 
-  cycles += 1; // store final numCorrect total
+  return cycles;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxClassSparse)
+  (const VertexIntrospector &vertex,
+   const Target &target,
+   const Type &fpType,
+   const Type &labelType) {
+  std::uint64_t cycles = 5; // Vertex overhead
+  CODELET_FIELD(activations);
+  CODELET_FIELD(labels);
+  const auto numActs = activations.size();
+  assert(numActs == labels.size());
+  const auto isFloat = (fpType == FLOAT);
+
+  cycles += 3 + // Load acts pointer start/end, labels pointer
+            2 + // sub + shr acts pointers for element count
+            4 + // Load first act as maxValue, initialise maxIndex
+            2;  // sub 2 for first element and brnzdec, branch if done
+
+  // NOTE: Cycles per act are conservative in that we assume we always
+  // take the branch. i.e. activations are sorted in ascending order
+  // when passed to the vertex.
+  cycles += (numActs - 1) *
+              (2 + // [M] load act pointer, load act
+               1 + // [A] compare to current max
+               1 + // [M] atom
+               1 + // [M] branch
+               1 + // [M/A] set current max value/index
+               1); // [M] brnzdec
+
+  cycles += 3 + // Recover max index from loop above, load actual label
+            2 + // Load maxValue/maxIndex pointers
+            1 + // Store maxIndex
+            (isFloat ? 1 : 6); // Store maxValue
+
+  return cycles;
+}
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(CalcAccuracy)(const VertexIntrospector &vertex,
+                                        const Target &target,
+                                        const Type &labelType) {
+  std::uint64_t cycles = 5; // Vertex overhead
+  CODELET_FIELD(maxPerBatch);
+  CODELET_FIELD(expected);
+  const auto batchSize = maxPerBatch.size();
+  assert(batchSize == expected.size());
+
+  cycles += 4 + // Load maxPerBatch start/end, sub, shift for num elements
+            2 + // Load expected and numCorrect pointer
+            1 + // Load initial numCorrect value
+            1;  // rpt
+
+  cycles += batchSize *
+              (2 + // Load maxPerBatch/expected
+               1 + // cmpeq
+               1); // add
+
+  cycles += 1; // Store final numCorrect
+
   return cycles;
 }
 
@@ -335,10 +398,18 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popnn, LossSoftmaxTransform, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popnn, LossSoftmaxTransform, HALF),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, CalcAccuracy, FLOAT, UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, CalcAccuracy, HALF, UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, CalcAccuracy, FLOAT, INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, CalcAccuracy, HALF, INT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, FLOAT, UNSIGNED_INT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, HALF, UNSIGNED_INT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, FLOAT, INT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, HALF, INT),
+
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, FLOAT, UNSIGNED_INT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, HALF, UNSIGNED_INT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, FLOAT, INT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, HALF, INT),
+
+    CYCLE_ESTIMATOR_ENTRY(popnn, CalcAccuracy, UNSIGNED_INT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, CalcAccuracy, INT),
 
     CYCLE_ESTIMATOR_ENTRY(popnn, SumPoolingGrad, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popnn, SumPoolingGrad, HALF),

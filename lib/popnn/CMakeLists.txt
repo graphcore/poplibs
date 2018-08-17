@@ -47,6 +47,8 @@ endforeach(path)
 
 set(codelet_asm_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/LossTransform.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceMaxClassGather.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceMaxClassSparse.S
 )
 
 # Create the pooling vertex definitions from the shared template.

@@ -32,17 +32,6 @@ static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
 /****************************************************************************/
 /*            Auxiliary math functions                                      */
 /****************************************************************************/
-// Unsigned integer version of log2 rounded up
-// Single-line constexpr form added to allow compile-time calculation.
-// Could be nicer if using multi-line constexpr function (needs C++14).
-constexpr static unsigned ceilLog2Aux(unsigned n) {
-  return (n ? 1 + ceilLog2Aux(n >> 1) : 0);
-}
-// Check if power of 2 and then call to count up to most significant bit
-constexpr static unsigned ceilLog2(unsigned n) {
-  return ((n & (n - 1)) ? 1 : 0) + ceilLog2Aux(n >> 1);
-}
-
 static float sigmoid(float x)
 {
   return (1. / (1. + exp(-x)));
@@ -368,35 +357,95 @@ public:
 template class LossSoftmaxTransform<float>;
 template class LossSoftmaxTransform<half>;
 
+// Takes a contiguous set of activations starting
+// at the given index, returns the max index and
+// value of these.
 template <typename FPType, typename LabelType>
-class CalcAccuracy : public Vertex {
+class ReduceMaxClassGather : public SupervisorVertex {
 public:
-  Vector<Input<Vector<FPType>>> activations;
-  Input<Vector<LabelType, ONE_PTR>> labels;
+  Input<Vector<FPType, ONE_PTR>> activations;
+  LabelType index;
+  Output<Vector<FPType, ONE_PTR, 4>> maxValue;
+  Output<Vector<LabelType, ONE_PTR, 4>> maxIndex;
+  unsigned size;
+  unsigned short divisorLog2;
 
-  InOut<unsigned> numCorrect;
+  IS_EXTERNAL_CODELET(true);
   bool compute() {
-    const auto batchSize = activations.size();
-    for (unsigned batch = 0; batch < batchSize; ++batch) {
-      auto in = activations[batch];
-      FPType max = in[0];
-      LabelType maxIndex = 0;
-      for (LabelType i = 0; i < in.size(); i++) {
-        if (in[i] > max) {
-          max = in[i];
-          maxIndex = i;
+    // Work is split between up to N workers based on the divisor
+    // and outputs to each maxValue/Index output based on this
+    const auto divisor = (1u << divisorLog2);
+    const auto nOutputs = (size + divisor - 1) / divisor;
+    for (std::size_t i = 0; i < nOutputs; ++i) {
+      LabelType maxI = divisor * i;
+      FPType maxV = activations[maxI];
+      const auto end = (maxI + divisor > size) ? size : maxI + divisor;
+      for (std::size_t j = maxI + 1; j < end; ++j) {
+        if (activations[j] > maxV) {
+          maxV = activations[j];
+          maxI = j;
         }
       }
-      *numCorrect += (maxIndex == labels[batch] ? 1 : 0);
+      maxValue[i] = maxV;
+      maxIndex[i] = maxI + index;
     }
     return true;
   }
 };
 
-template class CalcAccuracy<float,unsigned int>;
-template class CalcAccuracy<half,unsigned int>;
-template class CalcAccuracy<float,int>;
-template class CalcAccuracy<half,int>;
+template class ReduceMaxClassGather<float, unsigned int>;
+template class ReduceMaxClassGather<half, unsigned int>;
+template class ReduceMaxClassGather<float, int>;
+template class ReduceMaxClassGather<half, int>;
+
+template <typename FPType, typename LabelType>
+class ReduceMaxClassSparse : Vertex {
+public:
+  Vector<Input<FPType>> activations;
+  Vector<Input<LabelType>, ONE_PTR> labels;
+  Output<FPType> maxValue;
+  Output<LabelType> maxIndex;
+
+  IS_EXTERNAL_CODELET(true);
+  bool compute() {
+    LabelType maxI = 0;
+    FPType maxV = activations[0];
+    for (std::size_t i = 1; i < activations.size(); ++i) {
+      if (activations[i] > maxV) {
+        maxV = activations[i];
+        maxI = i;
+      }
+    }
+    *maxValue = maxV;
+    *maxIndex = labels[maxI];
+    return true;
+  }
+};
+
+template class ReduceMaxClassSparse<float, unsigned int>;
+template class ReduceMaxClassSparse<half, unsigned int>;
+template class ReduceMaxClassSparse<float, int>;
+template class ReduceMaxClassSparse<half, int>;
+
+template <typename LabelType>
+class CalcAccuracy : public Vertex {
+public:
+  Input<Vector<LabelType>> maxPerBatch;
+  Input<Vector<LabelType, ONE_PTR>> expected;
+  InOut<unsigned> numCorrect;
+
+  bool compute() {
+    auto count = *numCorrect;
+    for (std::size_t i = 0; i < maxPerBatch.size(); ++i) {
+      count += (maxPerBatch[i] == expected[i]);
+    }
+    *numCorrect = count;
+    return true;
+  }
+};
+
+template class CalcAccuracy<unsigned int>;
+template class CalcAccuracy<int>;
 
 template <class InType, class PartialsType>
 class BatchNormEstimates : public Vertex {

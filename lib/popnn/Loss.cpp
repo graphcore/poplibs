@@ -9,6 +9,7 @@
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 
+#include <boost/optional.hpp>
 #include <limits>
 
 using namespace poplar;
@@ -18,6 +19,17 @@ using namespace poputil;
 namespace popnn {
 
 namespace {
+
+// Unsigned integer version of log2 rounded up
+// Single-line constexpr form added to allow compile-time calculation.
+// Could be nicer if using multi-line constexpr function (needs C++14).
+constexpr static unsigned ceilLog2Aux(unsigned n) {
+  return (n ? 1 + ceilLog2Aux(n >> 1) : 0);
+}
+// Check if power of 2 and then call to count up to most significant bit
+constexpr static unsigned ceilLog2(unsigned n) {
+  return ((n & (n - 1)) ? 1 : 0) + ceilLog2Aux(n >> 1);
+}
 
 // Per-element of input probabilities, on the tile these are mapped to
 // compute the gradient and the contribution to loss.
@@ -252,39 +264,170 @@ calcAccuracy(Graph &graph,
     throw poplib_error("expected tensor must be of length equal the number of "
                        "batches given in activations tensor");
   }
-  // TODO: More distributed implementation. This implementation performs the
-  // search for the max on a single tile with a single vertex.
-  //
-  // This operation will be similar to a reduction
-  // in the sense that we seek the max over the activations in each batch.
-  // However, we seek the index of the max element within each batch.
-  // For this reason this cannot simply use reduction, it requires the index
-  // to be supplied along with the activations.
-  //
-  // Suggested implementation involves two types of vertices seeking the index
-  // of the max activation. 'MaxClass' taking a list of activations, and
-  // outputting the max value/index. 'MaxClassSparse' taking a list of
-  // activations and associated labels (indices), and outputting the max
-  // value/index.
-  //
-  // First stage: 'MaxClass' split across vertices/tiles given contiguous
-  // regions of the input activations. An offset applied to the max class
-  // returned to give the actual index of the max element for that region.
-  // (If needed) N reduction stages: 'MaxClassSparse' for max values/indices
-  // given by the first stage to reach a single max value/index for each
-  // batch.
-  //
-  // Finally check if the max index for each batch is equal 'expected' and
-  // sum to give 'numCorrect'.
-  auto cs = graph.addComputeSet(layerPrefix);
-  auto v = graph.addVertex(cs, templateVertex("popnn::CalcAccuracy",
-                                              activationType,
-                                              expectedType),
-                           {{"activations", activations},
-                            {"labels", expected},
+
+  // Find out which tile `numCorrect` sits on
+  auto numCorrectMapping = graph.getTileMapping(numCorrect);
+  boost::optional<unsigned> numCorrectTile;
+  for (const auto &tileMapping : numCorrectMapping) {
+    if (!tileMapping.empty()) {
+      assert(tileMapping.size() == 1 &&
+             tileMapping[0].size() == 1);
+      numCorrectTile = tileMapping[0].begin();
+    }
+  }
+  assert(numCorrectTile);
+
+  const auto &target = graph.getTarget();
+  const auto tilesPerIPU = target.getTilesPerIPU();
+  const auto maxValueGrainSize =
+    std::max<std::size_t>(1, target.getAtomicStoreGranularity() /
+                             target.getTypeSize(activationType));
+  const auto reduceGatherVertexClass =
+    templateVertex("popnn::ReduceMaxClassGather",
+                   activationType, expectedType);
+  const auto reduceSparseVertexClass =
+    templateVertex("popnn::ReduceMaxClassSparse",
+                   activationType, expectedType);
+  const auto calcAccuracyVertexClass =
+    templateVertex("popnn::CalcAccuracy", expectedType);
+
+  const auto numWorkers = target.getNumWorkerContexts();
+  std::vector<ComputeSet> reductionCS;
+  Tensor lastValuePartials = activations;
+  Tensor lastIndexPartials;
+  auto lastBatchPartials = lastValuePartials.numElements() / batchSize;
+
+  std::size_t reduceIndex = 0;
+  unsigned nextTile = 0;
+  while (lastBatchPartials > 1) {
+
+    // These numbers are good enough to handle existing number of activations
+    // and batch size for current hardware. The advent of an enormous number
+    // of batches or activations would need a bit more thought.
+    std::size_t partialsFactor = 16;
+    if (lastBatchPartials <= partialsFactor * 2) {
+      partialsFactor = partialsFactor * 2;
+    }
+    const auto batchPartials =
+      (lastBatchPartials + partialsFactor - 1) / partialsFactor;
+
+    bool isFirstReduce = (reduceIndex == 0);
+    bool isLastReduce = (batchPartials == 1);
+    const auto vertexClass =
+      isFirstReduce ? reduceGatherVertexClass
+                    : reduceSparseVertexClass;
+    reductionCS.push_back(
+      graph.addComputeSet(layerPrefix + "/ReduceMaxClass[" +
+                          std::to_string(reduceIndex) + "]"));
+    const auto &cs = reductionCS.back();
+    auto valuePartials =
+      graph.addVariable(activationType, {batchSize, batchPartials},
+                        layerPrefix + "/maxValuePartials[" +
+                        std::to_string(reduceIndex) + "]");
+    auto indexPartials =
+      graph.addVariable(expectedType, {batchSize, batchPartials},
+                        layerPrefix + "/maxIndexPartials[" +
+                        std::to_string(reduceIndex) + "]");
+
+    for (std::size_t b = 0; b < batchSize; ++b) {
+      std::size_t batchOffset = 0;
+      std::size_t partialsIndex = 0;
+      while (batchOffset != lastBatchPartials) {
+        // If this is the last reduction, put the reduction on the tile where
+        // the final accuracy will be calculated.
+        const auto tile = isLastReduce ? *numCorrectTile : nextTile;
+        const auto v =  graph.addVertex(cs, vertexClass);
+        if (isFirstReduce) {
+          // This first reduction uses a supervisor vertex, so try and give it
+          // a grain of splits per-worker each time.
+          const auto supervisorPartials = partialsFactor * numWorkers *
+                                          maxValueGrainSize;
+          const auto partialsThisSplit =
+            std::min(lastBatchPartials - batchOffset,
+                     supervisorPartials);
+          const auto divisorLog2 = ceilLog2(partialsFactor);
+          const auto divisor = (1u << divisorLog2);
+          const auto nOutputs = (partialsThisSplit + divisor - 1) / divisor;
+          auto splitValuePartials =
+            lastValuePartials[b].slice(batchOffset,
+                                       batchOffset + partialsThisSplit);
+          auto splitMaxValue =
+            valuePartials[b].slice(partialsIndex,
+                                   partialsIndex + nOutputs);
+          auto splitMaxIndex =
+            indexPartials[b].slice(partialsIndex,
+                                   partialsIndex + nOutputs);
+          graph.connect(v["activations"], splitValuePartials);
+          graph.setInitialValue(v["index"], batchOffset);
+          graph.connect(v["maxValue"], splitMaxValue);
+          graph.connect(v["maxIndex"], splitMaxIndex);
+          graph.setInitialValue(v["size"], partialsThisSplit);
+          graph.setInitialValue(v["divisorLog2"], divisorLog2);
+          graph.setTileMapping(splitMaxValue, tile);
+          graph.setTileMapping(splitMaxIndex, tile);
+          partialsIndex += nOutputs;
+          batchOffset += partialsThisSplit;
+        } else {
+          const auto partialsThisSplit =
+            std::min(lastBatchPartials - batchOffset, partialsFactor);
+          auto splitValuePartials =
+            lastValuePartials[b].slice(batchOffset,
+                                       batchOffset + partialsThisSplit);
+          auto splitIndexPartials =
+            lastIndexPartials[b].slice(batchOffset,
+                                       batchOffset + partialsThisSplit);
+          graph.connect(v["activations"], splitValuePartials);
+          graph.connect(v["labels"], splitIndexPartials);
+          graph.connect(v["maxValue"], valuePartials[b][partialsIndex]);
+          graph.connect(v["maxIndex"], indexPartials[b][partialsIndex]);
+          graph.setTileMapping(valuePartials[b][partialsIndex], tile);
+          graph.setTileMapping(indexPartials[b][partialsIndex], tile);
+          ++partialsIndex;
+          batchOffset += partialsThisSplit;
+        }
+        graph.setTileMapping(v, tile);
+        nextTile = (nextTile + 1) % tilesPerIPU;
+        assert(batchOffset <= lastBatchPartials);
+      }
+    }
+
+    lastValuePartials = valuePartials;
+    lastIndexPartials = indexPartials;
+    lastBatchPartials = batchPartials;
+    ++reduceIndex;
+  }
+
+  // Special case for if there happens to be just 1 act per batch (really only
+  // occurs in tests).
+  if (reduceIndex == 0) {
+    lastIndexPartials = graph.addVariable(expectedType, {batchSize, 1},
+                                          layerPrefix + "/maxIndexPartials");
+    graph.setTileMapping(lastIndexPartials, *numCorrectTile);
+    for (std::size_t b = 0; b < batchSize; ++b) {
+      graph.setInitialValue(lastIndexPartials[b][0], 0);
+    }
+  }
+
+  // This would ideally be calculated with a popops::eq followed by a
+  // popops::reduceWithOutput. At the moment popops::eq outputs bool
+  // so this requires some ugly casting. For now this last step is its
+  // own vertex. Doesn't particularly matter while batch size is generally
+  // so small.
+  const auto calcAccuracyCS =
+    graph.addComputeSet(layerPrefix + "/CalcAccuracy");
+  auto v = graph.addVertex(calcAccuracyCS, calcAccuracyVertexClass,
+                           {{"maxPerBatch", lastIndexPartials.flatten()},
+                            {"expected", expected},
                             {"numCorrect", flatNumCorrect[0]}});
-  graph.setTileMapping(v, 0);
-  return Execute(cs);
+  graph.setTileMapping(v, *numCorrectTile);
+
+  // Add all the reductions and final accuracy.
+  Sequence prog;
+  for (const auto &cs : reductionCS) {
+    prog.add(Execute(cs));
+  }
+  prog.add(Execute(calcAccuracyCS));
+  return prog;
 }
 
 Program
