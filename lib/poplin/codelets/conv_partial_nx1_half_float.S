@@ -1,0 +1,851 @@
+// Computes an nx1 convolution using AMP. A contiguous field is partitioned
+// between workers for each position of the kernel element. 
+//
+// Requires a total stack size of 80 bytes in the supervisor
+//
+#ifdef __IPU__
+
+#include "tileimplconsts_tommy.h"
+#include "tilearch.h"
+
+#define conv_partial_nx1_sup_contiguous __runCodelet_poplin__ConvPartialnx1___half_float_true
+
+// =============================================================================
+
+// Vertex input, output and weight data atom size constants
+
+// The number of AMP outputs with input and weight data == half
+#define AMP_OUTPUTS_HALF                8
+#define LOG2_AMP_OUTPUTS_HALF           3
+// log2(AMP_OUTPUTS_HALF)
+#define AMP_INPUTS_HALF                 16
+// sizeof(input) in bytes
+#define SIZEOF_IN_ATOM                  2
+// sizeof(output) in bytes
+#define SIZEOF_OUT_ATOM                 4
+// sizeof(weights) in bytes
+#define SIZEOF_WEIGHTS_ATOM             2
+
+// =============================================================================
+
+// Supervisor vertex state: offsets and the number must match vertex field
+// ordering and sizes
+#define SUP_INCHAN_VECTORS              0    // word
+#define SUP_WEIGHTS_VECTORS             4    // word
+#define SUP_OUTCHAN_VECTORS             8    // word
+#define SUP_PARTITION_TABLES            12   // VectorList::DELTA
+#define SUP_ZERO_PARTITION_TABLE        20   // word
+#define SUP_NUM_OUTCHAN_M1              28   // word 
+#define SUP_NUM_INCHAN_M1               32   // word
+#define SUP_NUM_KERNEL_Y_M1             36   // word (Kx-1)
+#define SUP_NUM_KERNEL_X_M1             40   // word (Ky-1)
+#define SUP_INSTRIDE                    44   // word
+#define SUP_OUTSTRIDE                   48   // word
+#define SUP_NUM_CONVGROUPS_M1           52   // word
+#define SUP_NUM_FILTER_HEIGHT_M1        56   // word
+#define SUP_IN_ROW_STRIDE               60   // word 
+#define SUP_NUM_OUTCHANS_PER_GROUP      64   // word
+#define SUP_NUM_INCHANS_PER_GROUP       68   // word
+
+// Worklist partition fields: must match the order of entries in worklists
+#define PARTITION_OUTOFFSET             0    // half
+#define PARTITION_NUM_ELEMS             2    // half
+#define PARTITION_INOFFSET              4    // half
+
+// Zero partition fields: must match the order of entries in zero worklist
+#define ZERO_PARTITION_OUTOFFSET        0
+#define ZERO_PARTITION_NUM_ELEMS        2
+
+// Zero partition constants
+#define ZERO_PARTITION_ATOM_SIZE        2
+#define ZERO_PARTITION_NUM_ENTRIES      2
+
+// =============================================================================
+
+
+// Vertex state shared between workers
+// The supervisor sets up a common state for workers to use
+#define WKR_INOUTSTRIDES1               0      // word
+#define WKR_INOUTSTRIDES2               4      // word
+#define WKR_INCHAN_PTR                  8      // word
+#define WKR_OUTCHAN_PTR                 12     // word
+#define WKR_PARTITION_PTR               16     // word
+#define WKR_ZERO_PARTITION_PTR          20     // word
+#define WKR_OUTCHANS_PER_GROUP_X4       24     // word
+#define WKR_PARTITION_BASE              28     // word
+#define WKR_INCHANS_PER_GROUP_X2        32     // word
+#define WKR_STATE_SIZE                  (WKR_INCHANS_PER_GROUP_X2 + 4) // bytes  
+
+// =============================================================================
+
+// Zero output/partials
+// Uses same vertex state as the convolution
+//
+// Performance: 14 + num_samples / 2
+
+.section ".text.convNx1ZeroOutField", "ax"
+.global convNx1ZeroOutField
+.type convNx1ZeroOutField, @function
+.align 8
+
+#define wkr_id_zv                       m0
+#define outchan_ptr_zv                  m1
+#define partition_ptr_zv                m2
+#define num_samples_zv                  m3
+#define offset_zv                       m4
+#define outchans_per_group_x4_zv        m5
+#define odd_zv                          m6
+#define num_64bit_samples               m7
+
+convNx1ZeroOutField:
+get           $wkr_id_zv, $WSR
+and           $wkr_id_zv, $wkr_id_zv, CSR_W_WSR__CTXTID_M1__MASK
+ld32          $outchan_ptr_zv, $mvertex_base, WKR_OUTCHAN_PTR/4
+ld32          $partition_ptr_zv, $mvertex_base, WKR_ZERO_PARTITION_PTR/4
+
+// Scale up by number of entries per partition times atom size in bytes
+mul           $wkr_id_zv, $wkr_id_zv, ZERO_PARTITION_ATOM_SIZE * ZERO_PARTITION_NUM_ENTRIES
+ldz16         $num_samples_zv, $wkr_id_zv, $partition_ptr_zv, ZERO_PARTITION_NUM_ELEMS/2
+
+// Offset is in output atoms. Scale up to get offset in bytes
+ldz16         $offset_zv, $wkr_id_zv, $partition_ptr_zv, ZERO_PARTITION_OUTOFFSET/2
+
+// Wind pointer to correct output location. The offset is always even because
+// of the way work is partitioned. This guarantees the output to be aligned to
+// 8 bytes. Dummy load to wind pointer to correct for worker because the access
+// location is valid
+ld32step      $mzero, $mzero, $outchan_ptr_zv+=, $offset_zv  
+
+shr           $num_64bit_samples, $num_samples_zv, 1
+rpt           $num_64bit_samples, (Loop_end_zero-Loop_start_zero)/8-1
+Loop_start_zero:
+  {
+    st64step      $azeros, $mzero, $outchan_ptr_zv+=, 1
+    fnop
+  }
+Loop_end_zero:
+
+// store last atom if number of atoms is odd
+and           $odd_zv, $num_samples_zv, 1
+brz           $odd_zv, ExitZeroFn
+st32          $azero, $outchan_ptr_zv, 0
+
+ExitZeroFn:
+exitz         $mzero
+
+.size convNx1ZeroOutField, . - convNx1ZeroOutField
+
+// =============================================================================
+
+
+// Non loop overhead:
+//      zero Partitions:         7
+//      non-zero partitions:     19
+//
+// Loop performance:
+//      Number of field elems = 0
+//             18 cycles
+//      Number of field elems = 1
+//             30 cycles
+//      Number of field elems = 2
+//             34 cycles
+//      Number of field elems >= 3
+//             35 + (num_field_elems - 3) * 4 
+
+.section ".text.convPartialNx1Flattened", "ax"
+.type convPartialNx1Flattened, @function
+.align 8
+convPartialNx1FlattenedAligned:
+convPartialNx1Flattened:
+// worker register mapping
+#define wkr_id_v                       m0
+#define inoutstrides2_v                m0
+#define partition_table_v              m1
+#define partition_struct_v             m1
+#define partition_v                    m1
+#define num_partitions_v               m2
+#define num_fp_v                       m3
+#define inoutstrides1_v                m4
+#define in_offset_v                    m5
+#define out_offset_v                   m5
+#define out_chans_per_group_x4         m6
+#define partition_base_v               m7
+#define in_chans_per_group_x2          m7
+#define tripacked_addr                 m8:9
+#define in_addr_v                      m8
+#define out_addr_v                     m9
+#define inchan_ptr_v                   m10
+#define outchan_ptr_v                  m11
+
+get           $wkr_id_v, $WSR
+and           $wkr_id_v, $wkr_id_v, CSR_W_WSR__CTXTID_M1__MASK
+
+ld32          $partition_table_v, $mvertex_base, WKR_PARTITION_PTR/4
+ld32          $partition_struct_v, $partition_table_v, $wkr_id_v
+
+// extract offset and delta: upper 14 bits gives number of partitions
+// lower 18 bits give offset to common base for the vector list
+shr           $num_partitions_v, $partition_struct_v, 18
+// exit if no work to be done for worker
+brz           $num_partitions_v, L_Conv_end
+shl           $partition_v, $partition_struct_v, 14
+shr           $partition_v, $partition_v, 14
+ld32          $partition_base_v, $mvertex_base, WKR_PARTITION_BASE/4
+add           $partition_v, $partition_v, $partition_base_v
+
+ld32          $inchan_ptr_v, $mvertex_base, WKR_INCHAN_PTR/4
+ld32          $outchan_ptr_v, $mvertex_base, WKR_OUTCHAN_PTR/4
+
+// inoutstrides1_v = [0][in-stride][out-stride]
+ld32          $inoutstrides1_v, $mvertex_base, WKR_INOUTSTRIDES1/4
+// inoutstrides2_v = [in-row-stride1][in-row-stride0][out-stride]
+ld32          $inoutstrides2_v, $mvertex_base, WKR_INOUTSTRIDES2/4
+ld32          $in_chans_per_group_x2, $mvertex_base, WKR_INCHANS_PER_GROUP_X2/4
+ld32          $out_chans_per_group_x4, $mvertex_base, WKR_OUTCHANS_PER_GROUP_X4/4
+
+// This following approximates num_partitions/3 - 1 for values
+// [3:3:2^14-1]. The case of zero is handled above
+mul           $num_partitions_v, $num_partitions_v, 21845
+shr           $num_partitions_v, $num_partitions_v, 16
+
+
+// Code fragments to handle number of field samples equal to 1 and 2 are
+// handled differently inorder to avoid excess loads which could potentially
+// cause memory conflicts given that striding on both inputs and output are
+// used. It is possible to use the same code for all cases but this would
+// require a lot more stride registers and selective setting of them depending
+// on number of field samples.
+PartitionLoop:
+  ldz16         $num_fp_v, $partition_v, PARTITION_NUM_ELEMS/2
+
+  // form input address
+  ldz16         $in_offset_v, $partition_v, PARTITION_INOFFSET/2
+  mul           $in_offset_v, $in_offset_v, $in_chans_per_group_x2
+  add           $in_addr_v, $inchan_ptr_v, $in_offset_v
+
+  // form output address
+  // Note this relies on the fact that out offset is the first entry in the
+  // partition. This allows us to wind the pointer to the next partition
+  ldz16step     $out_offset_v, $mzero, $partition_v+=, 3
+
+  mul           $out_offset_v, $out_offset_v, $out_chans_per_group_x4
+  add           $out_addr_v, $outchan_ptr_v, $out_offset_v
+
+  // Form packed address
+  tapack        $tripacked_addr, $in_addr_v, $out_addr_v, $out_addr_v
+  // *input-ptr += 0; *partials-ptr += 1
+  ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $inoutstrides1_v, 0b0011
+  {
+    // input-ptr += 0; partials-ptr += 1 
+    ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $inoutstrides1_v, 0b0011
+    f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P0
+  }
+  {
+    // *input-ptr += 0; *partials-ptr += 1
+    ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $inoutstrides1_v, 0b0011 
+    f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P1
+  }
+  // jump to specialisation for number of field samples equal to 1
+  // Note: when num_fpv = 0, 3 partials will be loaded but with an post 
+  //       increment of 8 bytes
+  add           $num_fp_v, $num_fp_v, -3
+  brneg         $num_fp_v, ConvNumFpEq1
+  {
+    // *input-ptr += 0; *partials-ptr += out-stride
+    ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $inoutstrides1_v, 0b0111 
+    f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P2
+  }
+  {
+    // *input-ptr += in-row-stride0; *partials-ptr += 1
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+    f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P3
+  }
+  {
+    // *input-ptr += in-row-stride1; partials-ptr += 1
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0011 
+    f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P0
+  }
+  {
+    // *input-ptr += in-row-stride0; *partials-ptr += 1
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+    f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P1
+  }  
+
+  {
+    // *input-ptr += in-stride; *partials_ptr += out-stride
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides1_v, 0b0110
+    f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P2
+  }
+  {
+    // *input-ptr += in-row-stride0; *partials-ptr += 1
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+    f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P3
+  }
+  {
+    // *input-ptr += in-row-stride1; *partials-ptr += 1
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0011
+    f16v4sisoamp  $a4:5, $a0:1, $a2:3, TAMP_F16V4_E4_P0
+  }
+  {
+    // *input-ptr += in-row-stride0; *partials += 1
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+    f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P1
+  }
+  rpt $num_fp_v, (Loop_end_Amp-Loop_start_Amp)/8-1
+Loop_start_Amp:
+    {
+      // *input-ptr += in-stride; *partials-ptr += out-stride; *out-ptr += 1
+      ld2xst64pace  $a0:3, $a4:5, $tripacked_addr+=, $inoutstrides1_v, 0b000110
+      f16v4sisoamp  $a4:5, $a0:1, $a2:3, TAMP_F16V4_E4_P2
+    }
+    {
+      // *input-ptr += in-row-stride0; *partials-ptr += 1; *out-ptr += 1
+      ld2xst64pace  $a0:3, $a6:7, $tripacked_addr+=, $inoutstrides2_v, 0b000010
+      f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P3
+    }
+    {
+      // *input-ptr += in-row-stride1; *partials-ptr += 1; *out-ptr += 1
+      ld2xst64pace  $a0:3, $a4:5, $tripacked_addr+=, $inoutstrides2_v, 0b000011
+      f16v4sisoamp  $a4:5, $a0:1, $a2:3, TAMP_F16V4_E4_P0
+    }
+    {
+      // *input-ptr += in-row-stride0; *partials-ptr += 1; *out-ptr += out-stride
+      ld2xst64pace  $a0:3, $a6:7, $tripacked_addr+=, $inoutstrides2_v, 0b010010
+      f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P1
+    }
+Loop_end_Amp:
+  {
+    // *input-ptr += in-stride; *partials-ptr += out-stride; out-ptr += 1
+    ld2xst64pace  $a0:3, $a4:5, $tripacked_addr+=, $inoutstrides1_v, 0b000110
+    f16v4sisoamp  $a4:5, $a0:1, $a2:3, TAMP_F16V4_E4_P2
+  }
+  {
+    // input-ptr += in-row-stride0; partials-ptr += 1; out-ptr += 1
+    ldst64pace    $a0:1, $a6:7, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+    f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P3
+  }
+  {
+    // input-ptr += in-row-stride1; partials-ptr += 1; out-ptr += 1
+    ldst64pace    $a0:1, $a4:5, $tripacked_addr+=, $inoutstrides2_v, 0b0011
+    f16v4sisoamp  $a4:5, $a0:1, $azeros, TAMP_F16V4_E4_P0
+  }
+  {
+    // input-ptr += in-row-stride0; partials-ptr += 1; out-ptr += out-stride
+    ldst64pace    $a0:1, $a6:7, $tripacked_addr+=, $inoutstrides2_v, 0b0110
+    f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P1
+  }
+StoreFinalAmpOutputs2:
+  {
+    // *input-ptr += in-stride; *out-ptr += 1
+    ldst64pace    $a0:1, $a4:5, $tripacked_addr+=, $mzero, 0b0000
+    f16v4sisoamp  $a4:5, $a0:1, $azeros, TAMP_F16V4_E4_P2
+  }
+  {
+    // *out-ptr += 1
+    st64pace  $a6:7, $tripacked_addr+=, $mzero, 0b00
+    f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P3
+  }
+  {
+    // *out-ptr += 1
+    st64pace  $a4:5, $tripacked_addr+=, $mzero, 0b00
+    f16v4sisoamp  $a4:5, $azeros, $azeros, TAMP_F16V4_E4_P0
+  }
+  {
+    // *out-ptr += out-stride
+    st64pace  $a6:7, $tripacked_addr+=, $inoutstrides1_v, 0b01
+    f16v4sisoamp  $a6:7, $azeros, $azeros, TAMP_F16V4_E4_P1
+  }
+StoreFinalAmpOutputs1:
+  // The partials for the next iteration may be loaded here but would require
+  // the input and output addresses to be computed.
+  {
+    // *out-ptr += 1
+    st64pace      $a4:5, $tripacked_addr+=, $mzero, 0b00
+    f16v4sisoamp  $a4:5, $azeros, $azeros, TAMP_F16V4_E4_P2
+  }
+  {
+    // *out-ptr += 1
+    st64pace      $a6:7, $tripacked_addr+=, $mzero, 0b00
+    f16v4sisoamp  $a6:7, $azeros, $azeros, TAMP_F16V4_E4_P3
+  }
+  // *out-ptr += 1
+  st64pace      $a4:5, $tripacked_addr+=, $mzero, 0b00
+  // *out-ptr += 1
+  st64pace      $a6:7, $tripacked_addr+=, $mzero, 0b00
+
+L_Partition_end:
+  brnzdec       $num_partitions_v, PartitionLoop
+
+L_Conv_end:
+exitz         $mzero
+
+// =============================================================================
+
+// This handles the case of number of field positions equal to 1. The first 
+// three partials are already assumed to be loaded and fed to the AMP
+// 6 extra partials are loaded to allow use of pace instruction all with 
+// post increment of 1
+ConvNumFpEq1:
+add           $num_fp_v, $num_fp_v, 1
+brz           $num_fp_v, ConvNumFpEq2
+add           $num_fp_v, $num_fp_v, 1
+brneg         $num_fp_v, L_Partition_end
+{
+  // *input-ptr += 0; *partials-ptr += 0
+  ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $inoutstrides1_v, 0b1111
+  f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P2
+}
+{
+  // *input-ptr += in-row-stride0; *partials-ptr += 1
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+  f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P3
+}
+{
+  // *input-ptr += in-row-stride1; *partials-ptr += 1
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $inoutstrides2_v, 0b0011 
+  f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P0
+}
+{
+  // *input-ptr += in-row-stride0; *partials-ptr += 1
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+  f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P1
+}
+{
+  // *input-ptr += in-stride; *partials_ptr += 0
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $inoutstrides1_v, 0b1110
+  f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P2
+}
+f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P3
+f16v4sisoamp  $a4:5, $azeros, $azeros, TAMP_F16V4_E4_P0
+{
+  // Jump to common part to store final samples
+  bri           StoreFinalAmpOutputs1
+  f16v4sisoamp  $a6:7, $azeros, $azeros, TAMP_F16V4_E4_P1
+}
+
+// =============================================================================
+
+
+// This handles the case of number of field positions equal to 2. The first
+// seven partials and the first three input data are assumed to be loaded and
+// fed to the AMP
+// 6 extra partials are already loaded with an increment of 1.
+
+// clear output stride to allow post increment by 0 in the dummy loads of 
+// partials
+ConvNumFpEq2:
+  {
+    // *input-ptr += 0; *partials-ptr += out-stride
+    ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $inoutstrides1_v, 0b0111 
+    f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P2
+  }
+  {
+    // *input-ptr += in-row-stride0; *partials-ptr += 1
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+    f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P3
+  }
+  {
+    // *input-ptr += in-row-stride1; partials-ptr += 1
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0011 
+    f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P0
+  }
+  {
+    // *input-ptr += in-row-stride0; *partials-ptr += 1
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+    f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P1
+  }
+
+#define inoutstrides2_eq2_v   num_fp_v
+andc          $inoutstrides2_eq2_v, $inoutstrides2_v, 0x3ff     
+
+{
+  // *input-ptr += in-stride; *partials_ptr += 0
+  ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides1_v, 0b1110
+  f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P2
+}
+{
+  // *input-ptr += in-row-stride0; *partials-ptr += 1
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $inoutstrides2_eq2_v, 0b0110
+  f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P3
+}
+{
+  // input-ptr += in-row-stride1; partials-ptr += 1
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $inoutstrides2_eq2_v, 0b0111
+  f16v4sisoamp  $a4:5, $a0:1, $azeros, TAMP_F16V4_E4_P0
+}
+{
+  // input-ptr += in-row-stride0; partials += 1
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $inoutstrides2_eq2_v, 0b0110
+  f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P1
+}
+bri           StoreFinalAmpOutputs2
+
+.size convPartialNx1Flattened, . - convPartialNx1Flattened
+
+
+// =============================================================================
+
+// Performance:
+// Kernel height dependent cycles in the innermost loop (i.e. AmpOutGroupLoop)
+//   Kernel Height = 1: 15 + 16 + workerCycles
+//   Kernel Height = 2: 46 + 16 + workerCycles
+//   Kernel Height = 4: 41 + 19 + 32 + workerCycles
+// 93 + numConvGroups * (15 + numInChanGroups * (16 + numOutChanGroups * (16 + innerLoopCycles)))
+//
+// Where innerLoopCycles are:
+// Ky * (15 + Kx * (18 + AmpOutGroupLoop cycles ))
+
+.section .text.conv_partial_nx1_sup_contiguous
+.type conv_partial_nx1_sup_contiguous, @function
+.globl conv_partial_nx1_sup_contiguous
+
+// STACK VARIABLES for supervisor
+#define STACK_BASE                      WKR_STATE_SIZE  
+#define STACK_AMP_OUTSUBGROUP           0      // word
+#define STACK_CONV_GROUP_COUNT          4      // word
+#define STACK_OUTCHAN_COUNT             8      // word
+#define STACK_INNER_LOOP_ADDR           12     // word
+#define STACK_WEIGHTS_PTR_INCR          16     // word ptr increment in amp kernel height
+#define STACK_PARTITION_PTR             20     
+#define STACK_KX_COUNT                  24
+#define STACK_KY_COUNT                  28
+#define STACK_INCHAN_COUNT              32     // word
+#define STACK_SIZE                      (STACK_INCHAN_COUNT + 4) // bytes
+
+
+// registers
+#define sup_base                        m0
+#define weights_ptr_h_incr              m1
+#define temp_5_s                        m1
+#define convgroup_count_s               m1
+#define temp_1_s                        m2
+#define inchan_count_s                  m2
+#define partition_ptr_s                 m2
+#define strides_s                       m2
+#define inchan_ptr_s                    m3
+#define jmp_addr_s                      m3 
+#define temp_4_s                        m3
+#define amp_out_subgroup_count_s        m4
+#define ky_count_s                      m4
+#define kx_count_s                      m4     
+#define wkr_function_s                  m5
+#define weights_ptr_s_h                 m5
+#define outchan_count_s                 m5
+#define amp_height_jump_s               m5
+#define temp_3_s                        m5
+#define outchan_ptr_s                   m6
+#define partition_ptr_b_s               m6
+#define weights_ptr_s                   m7
+#define temp_2_s                        m7
+#define outstride_s                     m7
+#define inchan_vectors_s                m8
+#define in_row_stride_s                 m8
+#define temp_6_s                        m8
+#define outchan_vectors_s               m9
+#define inchans_per_group_s             m9
+#define amp_kernel_height_s             m9
+#define outchans_per_group_s            m10
+#define weights_vectors_s               m10  
+#define wkr_base                        sp    
+
+
+// for zeroing partials
+#define outchan_vectors_z_s             m1
+#define outchan_count_z_s               m2
+#define partition_ptr_s_z               m3
+#define outchan_ptr_z_s                 m5
+#define wkr_function_s_z                m4
+#define convgroup_count_s_z             m7
+
+
+conv_partial_nx1_sup_contiguous:
+
+ld32          $temp_1_s, $sup_base, SUP_INSTRIDE/4
+ld32          $outstride_s, $sup_base, SUP_OUTSTRIDE/4
+ld32          $partition_ptr_b_s, $sup_base, SUP_PARTITION_TABLES/4 
+// space for worker vertex state, supervisor state and callee-save registers
+add           $sp, $sp, -(WKR_STATE_SIZE + 8 + STACK_SIZE)
+ld32          $in_row_stride_s, $sup_base, SUP_IN_ROW_STRIDE/4
+ld32          $partition_ptr_s_z, $sup_base, SUP_ZERO_PARTITION_TABLE/4
+and           $temp_1_s, $temp_1_s, 0x3FF
+
+
+// in-stride and out-stride are packed in one register. Out-stride
+// must be scaled by 1/2 because 64 bit writes are used and atom size is 32
+// bits
+// inoutstrides = [0][in-stride][out-stride]
+shr           $outstride_s, $outstride_s, 1
+shl           $partition_ptr_b_s, $partition_ptr_b_s, 12
+st32          $m9, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 0
+st32          $m10, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 1
+st32          $partition_ptr_s_z, $wkr_base, WKR_ZERO_PARTITION_PTR/4
+shl           $temp_1_s, $temp_1_s, 10
+and           $outstride_s, $outstride_s, 0x3FF
+and           $in_row_stride_s, $in_row_stride_s, 0x3FF
+ld32          $temp_5_s, $sup_base, SUP_NUM_FILTER_HEIGHT_M1/4
+ld32          $inchans_per_group_s, $sup_base, SUP_NUM_INCHANS_PER_GROUP/4
+ld32          $outchans_per_group_s, $sup_base, SUP_NUM_OUTCHANS_PER_GROUP/4
+shr           $partition_ptr_b_s, $partition_ptr_b_s, 12
+or            $temp_4_s, $outstride_s, $temp_1_s
+shl           $in_row_stride_s, $in_row_stride_s, 20
+
+// A second input strides registers has packed strides
+// [in-row-stride1][in-row-stride0][out-stride]
+// in-row-stride0 = in-row-stride for kernel height = 4
+//                = 1 for other heights
+cmpult        $temp_1_s, $temp_5_s, 3
+brz           $temp_1_s, SetInStridesHeightEq4
+setzi         $strides_s, 0x400
+bri           StridesSet
+SetInStridesHeightEq4:
+shr           $strides_s, $in_row_stride_s, 10
+StridesSet:
+st32          $partition_ptr_b_s, $wkr_base, WKR_PARTITION_BASE/4
+ldz16         $partition_ptr_b_s, $sup_base, (SUP_PARTITION_TABLES + 4)/2
+st32          $temp_4_s, $wkr_base, WKR_INOUTSTRIDES1/4
+mul           $temp_5_s, $inchans_per_group_s, SIZEOF_IN_ATOM
+mul           $temp_4_s, $outchans_per_group_s, SIZEOF_OUT_ATOM
+or            $strides_s, $strides_s, $outstride_s
+shr           $temp_2_s, $outchans_per_group_s, LOG2_AMP_OUTPUTS_HALF
+shl           $partition_ptr_b_s, $partition_ptr_b_s, 15
+
+setzi         $wkr_function_s_z, convNx1ZeroOutField
+
+// Scale output and input channels per group to scale input and output offsets.
+// Scaling depends on sizeof(input) and sizeof(output)
+st32          $temp_5_s, $wkr_base, WKR_INCHANS_PER_GROUP_X2/4
+ld32          $outchan_vectors_z_s,$sup_base, SUP_OUTCHAN_VECTORS/4
+or            $strides_s, $strides_s, $in_row_stride_s
+ld32          $temp_6_s, $sup_base, SUP_NUM_KERNEL_X_M1/4
+or            $partition_ptr_b_s, $partition_ptr_b_s, 0x80000000
+st32          $temp_4_s, $wkr_base, WKR_OUTCHANS_PER_GROUP_X4/4
+add           $temp_4_s, $temp_2_s, -1
+
+ld32step      $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
+ld32          $convgroup_count_s_z, $sup_base, SUP_NUM_CONVGROUPS_M1/4
+
+st32          $strides_s, $wkr_base, WKR_INOUTSTRIDES2/4
+shr           $partition_ptr_b_s, $partition_ptr_b_s, 13
+add           $temp_6_s, $temp_6_s, 1
+ld32          $amp_kernel_height_s, $sup_base, SUP_NUM_FILTER_HEIGHT_M1/4
+
+ZeroConvGroup:
+  ld32          $outchan_count_z_s, $sup_base, SUP_NUM_OUTCHAN_M1/4
+ZeroOutChanGroup:
+    sync          TEXCH_SYNCZONE_LOCAL
+    st32          $outchan_ptr_z_s, $wkr_base, WKR_OUTCHAN_PTR/4
+    ld32step      $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
+    runall        $wkr_function_s_z, $wkr_base, 0
+    brnzdec       $outchan_count_z_s, ZeroOutChanGroup 
+  brnzdec       $convgroup_count_s_z, ZeroConvGroup
+
+mul           $temp_2_s, $temp_6_s, $outchans_per_group_s
+st32          $temp_4_s, $sp, (STACK_BASE + STACK_AMP_OUTSUBGROUP)/4
+st32          $partition_ptr_b_s, $sp, (STACK_BASE + STACK_PARTITION_PTR)/4
+// Jump address for amp height == 1 is set to 0 to take the fast path
+setzi         $jmp_addr_s, 0
+
+brz           $amp_kernel_height_s, JmpAddrSelEnd
+add           $amp_kernel_height_s, $amp_kernel_height_s, -1
+mul           $temp_6_s, $temp_2_s, AMP_INPUTS_HALF/2 * SIZEOF_WEIGHTS_ATOM
+setzi         $jmp_addr_s, AmpHeightEq2
+delay         2
+brz           $amp_kernel_height_s, JmpAddrSelEnd
+setzi         $jmp_addr_s, AmpHeightEq4
+mul           $temp_6_s, $temp_2_s, AMP_INPUTS_HALF/4 * SIZEOF_WEIGHTS_ATOM
+JmpAddrSelEnd:
+
+// The only call to this function may be zero out partials
+ld32          $inchan_count_s, $mzero, $sup_base, SUP_NUM_INCHAN_M1/4
+ld32          $convgroup_count_s, $sup_base, SUP_NUM_CONVGROUPS_M1/4
+ld32          $weights_vectors_s, $sup_base, SUP_WEIGHTS_VECTORS/4
+ld32step      $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
+mov           $outchan_count_s, $mzero
+st32          $jmp_addr_s, $sp, (STACK_BASE + STACK_INNER_LOOP_ADDR)/4
+st32          $temp_6_s, $sp, (STACK_BASE + STACK_WEIGHTS_PTR_INCR) / 4
+ld32          $inchan_vectors_s, $sup_base, SUP_INCHAN_VECTORS/4
+
+brneg         $inchan_count_s,  L_sup_conv_end
+ld32          $outchan_vectors_s, $sup_base, SUP_OUTCHAN_VECTORS/4
+
+ConvGroupLoop:
+  // Output channel vectors are increased by numOutChanGroups for each
+  // convolution group. The increment at the start is 0. The increment
+  // of numOutChanGroups is done before branching here for each conv group.
+  ld32step      $mzero, $mzero, $outchan_vectors_s+=, $outchan_count_s  
+  ld32          $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/4
+  st32          $convgroup_count_s, $sp, (STACK_BASE + STACK_CONV_GROUP_COUNT)/4 
+InChanLoop:
+    st32          $inchan_count_s, $sp, (STACK_BASE + STACK_INCHAN_COUNT)/4
+    ld32step      $inchan_ptr_s, $mzero, $inchan_vectors_s+=, 1
+OutChanLoop:
+      ld32          $partition_ptr_s, $sp, (STACK_BASE + STACK_PARTITION_PTR)/4
+      // This load of CCCS is for the case of Amp Kernel Height = 1. In the
+      // other two cases, the weights are not loaded in order
+      put           $CCCSLOAD, $weights_ptr_s 
+      st32          $outchan_count_s, $sp, (STACK_BASE + STACK_OUTCHAN_COUNT)/4
+      ld32          $ky_count_s, $sup_base, SUP_NUM_KERNEL_Y_M1/4
+KyLoop:
+        st32          $ky_count_s, $sp, (STACK_BASE + STACK_KY_COUNT)/4 
+        ld32          $kx_count_s, $sup_base, SUP_NUM_KERNEL_X_M1/4
+KxLoop:
+          st32          $kx_count_s, $sp, (STACK_BASE + STACK_KX_COUNT)/4
+          ld32          $outchan_ptr_s, $mzero, $outchan_vectors_s, $outchan_count_s
+          ld32          $amp_out_subgroup_count_s, $sp, (STACK_BASE + STACK_AMP_OUTSUBGROUP)/4
+          ld32          $weights_ptr_h_incr, $sp, (STACK_BASE + STACK_WEIGHTS_PTR_INCR)/4
+AmpOutGroupLoop:      
+            // registers $m1 and $m8 are free to use in this function as long
+            // as wkr_function_s is set before the run 
+            ld32          $amp_height_jump_s, $sp, (STACK_BASE + STACK_INNER_LOOP_ADDR)/4
+            sync          TEXCH_SYNCZONE_LOCAL
+            st32          $partition_ptr_s, $wkr_base, WKR_PARTITION_PTR/4 
+            st32          $outchan_ptr_s, $wkr_base, WKR_OUTCHAN_PTR/4
+            st32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4      
+            // Different AMP kernel heights have different coefficient loading
+            // schemes and they all branch back to AmpHeightRun
+            // If there were an brnz instruction with target branch
+            // address as a register rather than immediate, for the fallthrough
+            // case we could have set the condition to check fail (eg using 
+            // brnz would become brnz $amp_height_jump_s, $amp_height_jump_s)
+            brnz          $amp_height_jump_s, AmpHeightJumpToNeq1
+ AmpHeightEq1:         
+            ld128putcs    0
+            ld128putcs    2
+            ld128putcs    4
+            ld128putcs    6
+            ld128putcs    8
+            ld128putcs    10
+            ld128putcs    12
+            ld128putcs    14
+            ld128putcs    16
+            ld128putcs    18
+            setzi         $wkr_function_s, convPartialNx1Flattened
+            ld128putcs    20
+            ld128putcs    22
+            ld128putcs    24
+            ld128putcs    26
+            ld128putcs    28
+            ld128putcs    30
+AmpHeightRun:          
+            runall        $wkr_function_s, $wkr_base, 0
+
+            // wind pointer to point to next amp subgroup
+            add           $outchan_ptr_s, $outchan_ptr_s, SIZEOF_OUT_ATOM * AMP_OUTPUTS_HALF
+            brnzdec       $amp_out_subgroup_count_s, AmpOutGroupLoop
+
+          add           $partition_ptr_s, $partition_ptr_s, 6 * 4
+          ld32          $outchan_count_s, $sp, (STACK_BASE + STACK_OUTCHAN_COUNT)/4
+          ld32          $kx_count_s, $sp, (STACK_BASE + STACK_KX_COUNT)/4
+          brnzdec       $kx_count_s, KxLoop
+
+        get           $weights_ptr_s, $CCCSLOAD
+        ld32          $ky_count_s, $sp, (STACK_BASE + STACK_KY_COUNT)/4        
+        brnzdec       $ky_count_s, KyLoop
+      ld32step      $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
+      brnzdec       $outchan_count_s, OutChanLoop
+    ld32          $outchan_count_s, $sup_base, SUP_NUM_OUTCHAN_M1/4
+    ld32          $inchan_count_s, $sp, (STACK_BASE + STACK_INCHAN_COUNT)/4
+    brnzdec       $inchan_count_s, InChanLoop
+  ld32          $convgroup_count_s, $sp, (STACK_BASE + STACK_CONV_GROUP_COUNT)/4 
+  ld32          $inchan_count_s, $sup_base, SUP_NUM_INCHAN_M1/4
+  // cannot use delay instruction here because workers may be active
+  nop          
+  nop
+  nop
+  add           $outchan_count_s, $outchan_count_s, 1
+  brnzdec       $convgroup_count_s, ConvGroupLoop
+
+L_sup_conv_end:
+// Restore saved registers
+ld32          $m9, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 0
+ld32          $m10, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 1
+add           $sp, $sp, (WKR_STATE_SIZE + STACK_SIZE + 8)
+sync          TEXCH_SYNCZONE_LOCAL
+br            $lr
+
+// Jump to code fragment to handle kernel heights = 2 and 4
+AmpHeightJumpToNeq1:
+br            $amp_height_jump_s
+
+// Code fragement to load CWEI with coefficients when the weights tensor
+// innermost dimensions are [AMP_OUTPUTS_HALF * m][AMP_INPUTS_HALF/2]
+AmpHeightEq2:
+put           $CCCSLOAD, $weights_ptr_s 
+add           $weights_ptr_s_h, $weights_ptr_s, $weights_ptr_h_incr  
+ld128putcs    0
+ld128putcs    4
+ld128putcs    8
+ld128putcs    12
+ld128putcs    16
+ld128putcs    20
+ld128putcs    24
+ld128putcs    28
+put           $CCCSLOAD, $weights_ptr_s_h
+ld128putcs    2
+ld128putcs    6
+setzi         $wkr_function_s, convPartialNx1Flattened
+ld128putcs    10
+ld128putcs    14
+ld128putcs    18
+ld128putcs    22
+ld128putcs    26
+ld128putcs    30
+// update weight pointer by the amount of coefficient 
+add           $weights_ptr_s, $weights_ptr_s, AMP_OUTPUTS_HALF * SIZEOF_WEIGHTS_ATOM * AMP_INPUTS_HALF/2 
+bri           AmpHeightRun
+
+// =============================================================================
+
+// Code fragement to load CWEI with coefficients when the weights tensor
+// innermost dimensions are [AMP_OUTPUTS_HALF * m][AMP_INPUTS_HALF/4]
+AmpHeightEq4:
+put           $CCCSLOAD, $weights_ptr_s 
+add           $weights_ptr_s_h, $weights_ptr_s, $weights_ptr_h_incr  
+ld64putcs     0
+ld64putcs     4
+ld64putcs     8
+ld64putcs     12
+ld64putcs     16
+ld64putcs     20
+ld64putcs     24
+ld64putcs     28
+put           $CCCSLOAD, $weights_ptr_s_h
+add           $weights_ptr_s_h, $weights_ptr_s_h, $weights_ptr_h_incr  
+ld64putcs     1
+ld64putcs     5
+ld64putcs     9
+ld64putcs     13
+ld64putcs     17
+ld64putcs     21
+ld64putcs     25
+ld64putcs     29
+put           $CCCSLOAD, $weights_ptr_s_h
+add           $weights_ptr_s_h, $weights_ptr_s_h, $weights_ptr_h_incr  
+ld64putcs     2
+ld64putcs     6
+ld64putcs     10
+ld64putcs     14
+ld64putcs     18
+ld64putcs     22
+ld64putcs     26
+ld64putcs     30
+put           $CCCSLOAD, $weights_ptr_s_h
+setzi         $wkr_function_s, convPartialNx1Flattened
+ld64putcs     3
+ld64putcs     7
+ld64putcs     11
+ld64putcs     15
+ld64putcs     19
+ld64putcs     23
+ld64putcs     27
+ld64putcs     31
+// update weight pointer by the number of coefficients used up as the next time
+add           $weights_ptr_s, $weights_ptr_s, AMP_OUTPUTS_HALF * SIZEOF_WEIGHTS_ATOM * AMP_INPUTS_HALF/4
+bri           AmpHeightRun
+
+.size conv_partial_nx1_sup_contiguous, . - conv_partial_nx1_sup_contiguous
+
+#endif
+
+// =============================================================================
+// =============================================================================

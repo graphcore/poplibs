@@ -8,7 +8,7 @@
 #include "poputil/VertexTemplates.hpp"
 
 #include <poputil/TileMapping.hpp>
-#include <popconv/codelets.hpp>
+#include <poplin/codelets.hpp>
 #include <popops/codelets.hpp>
 #include <poplibs_test/Util.hpp>
 
@@ -19,7 +19,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
-using namespace popconv;
+using namespace poplin;
 
 //Define a number of tests to run:
 struct  TestParams {
@@ -81,7 +81,7 @@ void Transpose2dTest(const Type &dataType) {
     //Create Graph object
     Graph graph(target);
     popops::addCodelets(graph);
-    popconv::addCodelets(graph);
+    poplin::addCodelets(graph);
 
     //Input data
     Tensor in=graph.addVariable(dataType,{max_matrices, max_rows*max_cols},
@@ -115,7 +115,7 @@ void Transpose2dTest(const Type &dataType) {
 
         ComputeSet testComputeSet=graph.addComputeSet("computeTranspose2d");
 
-        const auto vertexClass=templateVertex("popconv::Transpose2d",dataType);
+        const auto vertexClass=templateVertex("poplin::Transpose2d",dataType);
 
         auto transVertex=graph.addVertex(testComputeSet,vertexClass);
         graph.setTileMapping(transVertex,0);

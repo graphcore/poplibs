@@ -1,8 +1,8 @@
 #include <poplar/Engine.hpp>
 #include "TestDevice.hpp"
 // codelets
-#include "popconv/codelets.hpp"
-#include "popconv/Convolution.hpp"
+#include "poplin/codelets.hpp"
+#include "poplin/Convolution.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poplibs_test/Util.hpp"
 #include "poplibs_test/Util.hpp"
@@ -14,7 +14,7 @@
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace popconv;
+using namespace poplin;
 using namespace poputil;
 using namespace poplibs_test::util;
 
@@ -34,7 +34,7 @@ static bool doTest(const DeviceType &deviceType,
   auto device = createTestDevice(deviceType);
   auto &target = device.getTarget();
   Graph graph(device);
-  popconv::addCodelets(graph);
+  poplin::addCodelets(graph);
 
   // Claim enough space for floats
   std::vector<char> data(innerDim * outerDim * 4);
@@ -59,7 +59,7 @@ static bool doTest(const DeviceType &deviceType,
   Tensor out;
   out = graph.addVariable(outType, {1, outerDim+1});
 
-  const auto vertexClass = templateVertex("popconv::ReduceAdd",
+  const auto vertexClass = templateVertex("poplin::ReduceAdd",
                                           outType, partialsType);
   auto v1 = graph.addVertex(cs,
                             vertexClass);

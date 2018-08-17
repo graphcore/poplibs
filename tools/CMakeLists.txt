@@ -4,7 +4,7 @@ find_package(Boost REQUIRED program_options)
 
 function(add_tool name)
   add_executable(${name} ${ARGN})
-  target_link_libraries(${name} popnn poplin popconv popops poputil)
+  target_link_libraries(${name} popnn poplin popops poputil)
   target_include_directories(${name} PRIVATE ${PROJECT_SOURCE_DIR}/tests)
 endfunction()
 

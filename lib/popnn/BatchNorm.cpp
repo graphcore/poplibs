@@ -5,7 +5,7 @@
 #include "popnn/BatchNorm.hpp"
 #include "popops/Reduce.hpp"
 #include "popops/ScaledAdd.hpp"
-#include "popconv/Convolution.hpp"
+#include "poplin/Convolution.hpp"
 #include "poputil/exceptions.hpp"
 #include <poplar/Program.hpp>
 #include <poplar/Graph.hpp>
@@ -45,7 +45,7 @@ createBatchNormParams(Graph &graph, const Tensor acts) {
   const auto rank = acts.rank();
   check(acts);
   if (rank == 4) {
-    return popconv::createBatchNormParams(graph, acts);
+    return poplin::createBatchNormParams(graph, acts);
   } else {
     const unsigned numActs = acts.shape()[1];
     const auto dType = acts.elementType();
@@ -67,7 +67,7 @@ batchNormEstimates(Graph &graph, const Tensor acts,
   const auto rank = acts.rank();
   check(acts);
   if (rank == 4) {
-    return popconv::batchNormEstimates(graph, acts, eps, prog, partialsType,
+    return poplin::batchNormEstimates(graph, acts, eps, prog, partialsType,
                                        debugPrefix);
   } else {
 
@@ -136,7 +136,7 @@ batchNormalise(Graph &graph,
   const auto rank = acts.rank();
   check(acts);
   if (rank == 4) {
-    return popconv::batchNormalise(graph, acts, gamma, beta, mean, iStdDev,
+    return poplin::batchNormalise(graph, acts, gamma, beta, mean, iStdDev,
                                    prog, debugPrefix);
   } else {
     const auto fnPrefix = debugPrefix + "/BN/batchNormalise";
@@ -172,7 +172,7 @@ batchNormalise(Graph &graph,
   const auto rank = acts.rank();
   check(acts);
   if (rank == 4) {
-    return popconv::batchNormalise(graph, acts, combinedMultiplicand, addend,
+    return poplin::batchNormalise(graph, acts, combinedMultiplicand, addend,
                                    prog, debugPrefix);
   } else {
     const auto fnPrefix = debugPrefix + "/BN/batchNormaliseInference";
@@ -202,7 +202,7 @@ batchNormDeltas(Graph &graph,
   check(actsWhitened);
   const auto rank = actsWhitened.rank();
   if (rank == 4) {
-    return popconv::batchNormDeltas(graph, actsWhitened, gradsIn, prog,
+    return poplin::batchNormDeltas(graph, actsWhitened, gradsIn, prog,
                                     partialsType, debugPrefix);
   } else {
     const auto fnPrefix = debugPrefix + "/BN/deltas";
@@ -229,7 +229,7 @@ Tensor batchNormGradients(Graph &graph,
   const auto rank = actsWhitened.rank();
   check(actsWhitened);
   if (rank == 4) {
-    return popconv::batchNormGradients(graph, actsWhitened, gradsIn, gammaDelta,
+    return poplin::batchNormGradients(graph, actsWhitened, gradsIn, gammaDelta,
                                        betaDelta, iStdDev, gamma, prog,
                                        partialsType, debugPrefix);
   } else {

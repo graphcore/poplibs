@@ -13,9 +13,8 @@
 #include <poplin/MatMul.hpp>
 #include <popops/ScaledAdd.hpp>
 #include <popops/Reduce.hpp>
-#include <popconv/codelets.hpp>
-#include <popops/codelets.hpp>
 #include <poplin/codelets.hpp>
+#include <popops/codelets.hpp>
 #include <poplibs_test/Util.hpp>
 #include "TestDevice.hpp"
 #include <poplibs_support/Compiler.hpp>
@@ -166,9 +165,8 @@ int main(int argc, char **argv) {
 
   const auto &target = device.getTarget();
   Graph graph(device);
-  popconv::addCodelets(graph);
-  popops::addCodelets(graph);
   poplin::addCodelets(graph);
+  popops::addCodelets(graph);
 
   const bool transposeA = matAOp == MatrixOp::TRANSPOSE;
   const bool transposeB = matBOp == MatrixOp::TRANSPOSE;
@@ -179,7 +177,7 @@ int main(int argc, char **argv) {
   const auto rowsMatB = transposeB ? n : k;
   const auto colsMatB = transposeB ? k : n;
 
-  PlanningCache cache;
+  matmul::PlanningCache cache;
   poplar::OptionFlags mmOpt{
     { "partialsType", partialsType.toString() }
   };

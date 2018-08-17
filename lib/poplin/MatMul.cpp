@@ -1,5 +1,5 @@
 #include "poplin/MatMul.hpp"
-#include "popconv/Convolution.hpp"
+#include "poplin/Convolution.hpp"
 #include "poputil/exceptions.hpp"
 #include "popops/ScaledAdd.hpp"
 #include "poplibs_support/OptionParsing.hpp"
@@ -12,7 +12,9 @@ using namespace poplar::program;
 
 namespace poplin {
 
-class PlanningCacheImpl : public popconv::PlanningCache {};
+namespace matmul {
+
+class PlanningCacheImpl : public poplin::PlanningCache {};
 
 PlanningCache::PlanningCache() :
   impl(new PlanningCacheImpl) {
@@ -20,6 +22,8 @@ PlanningCache::PlanningCache() :
 }
 
 PlanningCache::~PlanningCache() = default;
+
+} // namespace matmul
 
 enum class FullyConnectedPass {
   NONE,
@@ -96,12 +100,12 @@ static poplar::OptionFlags getConvOptionFlags(const MatMulOptions &options) {
   return convOptions;
 }
 
-static popconv::PlanningCache *getConvCache(poplin::PlanningCache *cache) {
-  popconv::PlanningCache *convCache = nullptr;
+static poplin::PlanningCache *getLinCache(matmul::PlanningCache *cache) {
+  poplin::PlanningCache *linCache = nullptr;
   if (cache) {
-    convCache = cache->impl.get();
+    linCache = cache->impl.get();
   }
-  return convCache;
+  return linCache;
 }
 
 // Transform a conv activations tensor to a  grouped matrix tensor view
@@ -178,7 +182,7 @@ specialMatrixOpHandling(Graph &graph,
   return resultTensor;
 }
 
-static popconv::ConvParams getConvParams(
+static poplin::ConvParams getConvParams(
     const Type &dType,
     const std::vector<std::size_t> &aShape,
     const std::vector<std::size_t> &bShape,
@@ -212,7 +216,7 @@ static popconv::ConvParams getConvParams(
       const auto batchSize = aShape[1];
       const auto numGroups = aShape[0];
       return
-          popconv::ConvParams(dType,
+          poplin::ConvParams(dType,
                               // batch size
                               1,
                               // input field shape for each channel and batch
@@ -271,7 +275,7 @@ static popconv::ConvParams getConvParams(
       const auto batchSize = aShape[1];
       const auto numGroups = aShape[0];
       return
-          popconv::ConvParams(dType,
+          poplin::ConvParams(dType,
                               // batch size
                               1,
                               // input field shape for each channel and batch
@@ -330,7 +334,7 @@ static popconv::ConvParams getConvParams(
       const auto batchSize = aShape[2];
       const auto numGroups = aShape[0];
       return
-          popconv::ConvParams(dType,
+          poplin::ConvParams(dType,
                               // batch size
                               1,
                               // input field shape for each channel and batch
@@ -389,12 +393,12 @@ matMulImpl(poplar::Graph &graph,
        poplar::program::Sequence &prog,
        const std::string &debugPrefix,
        const MatMulOptions &options,
-       PlanningCache *cache) {
+       matmul::PlanningCache *cache) {
   assert(A.rank() == 3 && B.rank() == 3);
   const auto dType = A.elementType();
   // TODO cache.
   const auto convOptions = getConvOptionFlags(options);
-  popconv::PlanningCache *convCache = getConvCache(cache);
+  poplin::PlanningCache *linCache = getLinCache(cache);
   const auto spOut = specialMatrixOpHandling(graph, dType, A.shape(), B.shape(),
                                              SpecialOpHandling::MATMUL_RESULT);
   if (spOut)
@@ -422,9 +426,9 @@ matMulImpl(poplar::Graph &graph,
                                     {numGroups, outputSize, inputSize});
       auto actsView =
           convWeightsFromMatrix(acts, {numGroups, batchSize, inputSize});
-      out = popconv::convolution(graph, weightsView, actsView, convParams,
+      out = poplin::convolution(graph, weightsView, actsView, convParams,
                                  false, prog, debugPrefix,
-                                 convOptions, convCache);
+                                 convOptions, linCache);
       out = transpose(matrixFromConvActivations(out, numGroups));
       break;
     }
@@ -447,12 +451,12 @@ matMulImpl(poplar::Graph &graph,
       auto deltasView =
           convWeightsFromMatrix(deltas, {numGroups, batchSize, outputSize});
       auto weightsTransposed =
-          popconv::fullyConnectedWeightTranspose(graph, weightsView,
+          poplin::fullyConnectedWeightTranspose(graph, weightsView,
                                                  convParams, prog, "",
-                                                 convOptions, convCache);
-      out = popconv::convolution(graph, weightsTransposed, deltasView,
+                                                 convOptions, linCache);
+      out = poplin::convolution(graph, weightsTransposed, deltasView,
                                  convParams, false, prog, debugPrefix,
-                                 convOptions, convCache);
+                                 convOptions, linCache);
       out = transpose(matrixFromConvActivations(out, numGroups));
       break;
     }
@@ -474,8 +478,8 @@ matMulImpl(poplar::Graph &graph,
                                     {numGroups, outputSize, batchSize});
       auto actsView =
           convWeightsFromMatrix(acts, {numGroups, batchSize, inputSize});
-      out = popconv::convolution(graph, deltasView, actsView, convParams, true,
-                                 prog, debugPrefix, convOptions, convCache);
+      out = poplin::convolution(graph, deltasView, actsView, convParams, true,
+                                 prog, debugPrefix, convOptions, linCache);
       out = transpose(matrixFromConvActivations(out, numGroups));
       break;
     }
@@ -525,7 +529,7 @@ matMulAcc(poplar::Graph &graph, const poplar::Tensor &C_, float k,
           poplar::program::Sequence &prog,
           const std::string &debugPrefix,
           const poplar::OptionFlags &options_,
-          PlanningCache *cache) {
+          matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
   matMulDimChecks(A_, B_);
   const auto A = A_.expand({0});
@@ -540,7 +544,7 @@ matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
                  poplar::program::Sequence &prog,
                  const std::string &debugPrefix,
                  const poplar::OptionFlags &options_,
-                 PlanningCache *cache) {
+                 matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
   matMulGroupedDimChecks(A, B);
   auto product = matMulImpl(graph, A, B, prog, debugPrefix, options, cache);
@@ -555,7 +559,7 @@ createMatMulInputLHSImpl(poplar::Graph &graph,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
                      const MatMulOptions &options,
-                     PlanningCache *cache) {
+                     matmul::PlanningCache *cache) {
   if (options.fullyConnectedPass == FullyConnectedPass::TRAINING_WU) {
     auto fwdOptions = options;
     fwdOptions.fullyConnectedPass = FullyConnectedPass::TRAINING_FWD;
@@ -571,21 +575,21 @@ createMatMulInputLHSImpl(poplar::Graph &graph,
     return *spOut;
   auto convParams = getConvParams(dType, aShape, bShape, options);
   auto convOptions = getConvOptionFlags(options);
-  auto convCache = getConvCache(cache);
+  auto linCache = getLinCache(cache);
   switch (options.fullyConnectedPass) {
   default: assert(0 && "Unexpected pass");
   case FullyConnectedPass::NONE:
   case FullyConnectedPass::INFERENCE_FWD:
   case FullyConnectedPass::TRAINING_FWD:
     {
-      auto convWeights = popconv::createWeights(graph, convParams, name,
-                                                convOptions, convCache);
+      auto convWeights = poplin::createWeights(graph, convParams, name,
+                                                convOptions, linCache);
       return matrixFromConvWeights(convWeights);
     }
   case FullyConnectedPass::TRAINING_BWD:
     {
-      auto convWeights = popconv::createWeights(graph, convParams, name,
-                                                convOptions, convCache);
+      auto convWeights = poplin::createWeights(graph, convParams, name,
+                                                convOptions, linCache);
       return matrixFromConvWeights(convWeights);
     }
   }
@@ -598,7 +602,7 @@ createMatMulInputRHSImpl(poplar::Graph &graph,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
                      const MatMulOptions &options,
-                     PlanningCache *cache) {
+                     matmul::PlanningCache *cache) {
   if (options.fullyConnectedPass == FullyConnectedPass::TRAINING_BWD) {
     auto fwdOptions = options;
     fwdOptions.fullyConnectedPass = FullyConnectedPass::TRAINING_FWD;
@@ -614,7 +618,7 @@ createMatMulInputRHSImpl(poplar::Graph &graph,
     return *spOut;
   auto convParams = getConvParams(dType, aShape, bShape, options);
   const auto convOptions = getConvOptionFlags(options);
-  const auto convCache = getConvCache(cache);
+  const auto linCache = getLinCache(cache);
   const auto numGroups = convParams.getNumConvGroups();
   switch (options.fullyConnectedPass) {
   default: assert(0 && "Unexpected pass");
@@ -622,14 +626,14 @@ createMatMulInputRHSImpl(poplar::Graph &graph,
   case FullyConnectedPass::INFERENCE_FWD:
   case FullyConnectedPass::TRAINING_FWD:
     {
-      auto convInput = popconv::createInput(graph, convParams, name,
-                                            convOptions, convCache);
+      auto convInput = poplin::createInput(graph, convParams, name,
+                                            convOptions, linCache);
       return transpose(matrixFromConvActivations(convInput, numGroups));
     }
   case FullyConnectedPass::TRAINING_WU:
     {
-      auto convInput = popconv::createInput(graph, convParams, name,
-                                            convOptions, convCache);
+      auto convInput = poplin::createInput(graph, convParams, name,
+                                            convOptions, linCache);
       return transpose(matrixFromConvActivations(convInput, numGroups));
     }
   }
@@ -642,7 +646,7 @@ createMatMulInputRHS(poplar::Graph &graph,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
                      const poplar::OptionFlags &options_,
-                     PlanningCache *cache) {
+                     matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
   return createMatMulInputRHSImpl(graph, dType,
                                   {1, aShape[0], aShape[1]},
@@ -657,7 +661,7 @@ createMatMulGroupedInputRHS(poplar::Graph &graph,
                             const std::vector<std::size_t> &bShape,
                             const std::string &name,
                             const poplar::OptionFlags &options_,
-                            PlanningCache *cache) {
+                            matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
   return createMatMulInputRHSImpl(graph, dType, aShape, bShape, name,
                                   options, cache);
@@ -669,7 +673,7 @@ matMul(poplar::Graph &graph,
        poplar::program::Sequence &prog,
        const std::string &debugPrefix,
        const poplar::OptionFlags &options_,
-       PlanningCache *cache) {
+       matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
   matMulDimChecks(A_, B_);
   const auto A = A_.expand({0});
@@ -683,7 +687,7 @@ void matMulReportPlan(std::ostream &out,
                       const std::vector<std::size_t> &aShape_,
                       const std::vector<std::size_t> &bShape_,
                       const OptionFlags &options,
-                      PlanningCache *cache) {
+                      matmul::PlanningCache *cache) {
   auto aShape = aShape_;
   aShape.insert(aShape.begin(), 1);
   auto bShape = bShape_;
@@ -698,7 +702,7 @@ matMulGrouped(poplar::Graph &graph,
               poplar::program::Sequence &prog,
               const std::string &debugPrefix,
               const poplar::OptionFlags &options_,
-              PlanningCache *cache) {
+              matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
   matMulGroupedDimChecks(A, B);
   return matMulImpl(graph, A, B, prog, debugPrefix, options, cache);
@@ -710,17 +714,17 @@ void matMulGroupedReportPlan(std::ostream &out,
                              const std::vector<std::size_t> &aShape,
                              const std::vector<std::size_t> &bShape,
                              const poplar::OptionFlags &options_,
-                             PlanningCache *cache) {
+                             matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
   auto convOptions = getConvOptionFlags(options);
   auto convParams = getConvParams(dType, aShape, bShape, options);
-  auto convCache = getConvCache(cache);
+  auto linCache = getLinCache(cache);
   if (!bShape[2]) {
     out << "Matrix multiplication result produced via special handling\n";
     return;
   }
-  return popconv::reportPlanInfo(out, graph, convParams,
-                                 convOptions, convCache);
+  return poplin::reportPlanInfo(out, graph, convParams,
+                                 convOptions, linCache);
 }
 
 poplar::Tensor
@@ -730,7 +734,7 @@ createMatMulInputLHS(poplar::Graph &graph,
                      const std::vector<std::size_t> &bShape,
                      const std::string &name,
                      const poplar::OptionFlags &options_,
-                     PlanningCache *cache) {
+                     matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
   return
     createMatMulInputLHSImpl(graph, dType,
@@ -746,7 +750,7 @@ createMatMulGroupedInputLHS(poplar::Graph &graph,
                             const std::vector<std::size_t> &bShape,
                             const std::string &name,
                             const poplar::OptionFlags &options_,
-                            PlanningCache *cache) {
+                            matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
   return createMatMulInputLHSImpl(graph, dType, aShape, bShape, name,
                                   options, cache);

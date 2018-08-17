@@ -1,14 +1,14 @@
 #define BOOST_TEST_MODULE ConvPlanTest
 #include <boost/test/unit_test.hpp>
-#include <popconv/internal/ConvPlan.hpp>
-#include "popconv/internal/ConvOptions.hpp"
+#include <poplin/internal/ConvPlan.hpp>
+#include "poplin/internal/ConvOptions.hpp"
 #include <popnn/codelets.hpp>
 #include <vector>
 
 BOOST_AUTO_TEST_CASE(getPlan){
   poplar::Graph graph(poplar::Target::createCPUTarget());
 
-  auto params = popconv::ConvParams(poplar::FLOAT,
+  auto params = poplin::ConvParams(poplar::FLOAT,
                                     // batch size
                                     1,
                                     // input field shape
@@ -55,5 +55,5 @@ BOOST_AUTO_TEST_CASE(getPlan){
                                     {0, 0},
                                     // upper output truncation
                                     {0, 0});
-  popconv::getPlan(graph, params, popconv::ConvOptions(), nullptr);
+  poplin::getPlan(graph, params, poplin::ConvOptions(), nullptr);
 }

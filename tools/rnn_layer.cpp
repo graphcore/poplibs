@@ -9,7 +9,7 @@
 #include <poplar/Graph.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/IPUModel.hpp>
-#include <popconv/codelets.hpp>
+#include <poplin/codelets.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poplin/MatMul.hpp>
 #include <popops/Zero.hpp>
@@ -200,9 +200,8 @@ int main(int argc, char **argv) {
                                   ipuModel.tilesPerIPU, simDebugOptions);
   const auto &target = device.getTarget();
   Graph graph(device);
-  popconv::addCodelets(graph);
-  popops::addCodelets(graph);
   poplin::addCodelets(graph);
+  popops::addCodelets(graph);
   popnn::addCodelets(graph);
 
   Sequence prog;

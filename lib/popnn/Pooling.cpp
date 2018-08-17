@@ -1,7 +1,7 @@
 #include "popnn/Pooling.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/TileMapping.hpp"
-#include "popconv/ConvUtil.hpp"
+#include "poplin/ConvUtil.hpp"
 #include "poputil/exceptions.hpp"
 #include "poputil/Util.hpp"
 #include "poplibs_support/Compiler.hpp"
@@ -15,7 +15,7 @@
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace popconv;
+using namespace poplin;
 using std::tie;
 using namespace poputil;
 

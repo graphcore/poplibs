@@ -25,7 +25,7 @@ add_library(popnn SHARED
 
 target_link_libraries(popnn
   PUBLIC
-    poplar popconv poputil poplin ${CMAKE_DL_LIBS}
+    poplar poplin poputil poplin ${CMAKE_DL_LIBS}
   PRIVATE
     poplibs_support Boost::boost
 )

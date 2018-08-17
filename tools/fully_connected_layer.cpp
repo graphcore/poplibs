@@ -10,14 +10,13 @@
 #include <poplar/Engine.hpp>
 #include <poplar/IPUModel.hpp>
 #include <poputil/TileMapping.hpp>
-#include <popconv/Convolution.hpp>
-#include <popconv/codelets.hpp>
+#include <poplin/Convolution.hpp>
+#include <poplin/codelets.hpp>
 #include <poplin/MatMul.hpp>
 #include <popops/ElementWise.hpp>
 #include <popops/ScaledAdd.hpp>
 #include <popops/Reduce.hpp>
 #include <popops/codelets.hpp>
-#include <poplin/codelets.hpp>
 #include <poplibs_test/FullyConnected.hpp>
 #include <poplibs_test/NonLinearity.hpp>
 #include <poplibs_test/Pass.hpp>
@@ -151,9 +150,8 @@ int main(int argc, char **argv) {
   const auto &target = device.getTarget();
 
   Graph graph(device );
-  popconv::addCodelets(graph);
-  popops::addCodelets(graph);
   poplin::addCodelets(graph);
+  popops::addCodelets(graph);
 
   poplar::OptionFlags fwdOptions{
     { "partialsType", partialsType.toString() },
@@ -161,7 +159,7 @@ int main(int argc, char **argv) {
                                             "TRAINING_FWD" }
   };
 
-  PlanningCache cache;
+  matmul::PlanningCache cache;
   Tensor prevAct =
       createMatMulGroupedInputLHS(graph, dataType,
                                   {numGroups, batchSize, inputSize},

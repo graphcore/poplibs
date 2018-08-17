@@ -4,7 +4,7 @@
 #include <poputil/VertexTemplates.hpp>
 #include <popnn/Lstm.hpp>
 #include <popops/ElementWise.hpp>
-#include <popconv/Convolution.hpp>
+#include <poplin/Convolution.hpp>
 #include <popops/Zero.hpp>
 #include <poputil/Util.hpp>
 #include <popops/DynamicSlice.hpp>
@@ -113,7 +113,7 @@ basicLstmUnitsNlInputPreWeighted(Graph &graph,
                                        Tensor weightsOutput,
                                        Sequence &prog,
                                        OptionFlags &mmOpt,
-                                       PlanningCache *cache,
+                                       matmul::PlanningCache *cache,
                                        const std::string debugStr) {
   assert(weightedIn.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   assert(weightsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
@@ -133,7 +133,7 @@ basicLstmUnitsNlInput(Graph &graph,
                       Tensor weightsOutput,
                       Sequence &prog,
                       OptionFlags &mmOpt,
-                      PlanningCache *cache,
+                      matmul::PlanningCache *cache,
                       const std::string &debugStr) {
   assert(weightsInput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   assert(weightsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
@@ -200,7 +200,7 @@ Tensor createInput(Graph &graph,
                    const Type &dType,
                    bool inferenceOnly,
                    const std::string &name,
-                   PlanningCache *cache) {
+                   matmul::PlanningCache *cache) {
   OptionFlags mmOpt{
     { "partialsType", "float" },
     { "fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" :
@@ -224,7 +224,7 @@ Tensor createFwdState(Graph &graph,
                       const Type &dType,
                       bool inferenceOnly,
                       const std::string &debugPrefix,
-                      PlanningCache *cache) {
+                      matmul::PlanningCache *cache) {
   auto stateDims = inferenceOnly ? LSTM_NUM_FWD_STATES_INFERENCE :
                    LSTM_NUM_FWD_STATES_TRAINING;
   auto state =
@@ -253,7 +253,7 @@ Tensor createBwdState(Graph &graph,
                       Sequence &prog,
                       const Type &dType,
                       const std::string &debugPrefix,
-                      PlanningCache *cache) {
+                      matmul::PlanningCache *cache) {
   auto state =
     graph.addVariable(dType, {LSTM_NUM_BWD_STATES, batchSize, outputSize},
                       debugPrefix + "/BwdState");
@@ -282,7 +282,7 @@ Tensor createWeightsInput(Graph &graph,
                           const Type &partialsType,
                           bool inferenceOnly,
                           const std::string &name,
-                          PlanningCache *cache
+                          matmul::PlanningCache *cache
                           ) {
   OptionFlags mmOpt{
     { "partialsType", partialsType.toString() },
@@ -310,7 +310,7 @@ Tensor createWeightsOutput(Graph &graph,
                            const Type &partialsType,
                            bool inferenceOnly,
                            const std::string &name,
-                           PlanningCache *cache
+                           matmul::PlanningCache *cache
                            ) {
   OptionFlags mmOpt{
     { "partialsType", partialsType.toString() },
@@ -333,7 +333,7 @@ calcSequenceWeightedInputs(Graph &graph,
                            program::Sequence &prog,
                            const Type &partialsType,
                            const std::string &debugPrefix,
-                           PlanningCache *cache) {
+                           matmul::PlanningCache *cache) {
   OptionFlags mmOpt{
     { "partialsType", partialsType.toString() }
   };
@@ -363,7 +363,7 @@ basicLstmCellForwardPassImpl(Graph &graph,
                              const Type &partialsType,
                              bool inferenceOnly,
                              const std::string &debugPrefix,
-                             PlanningCache *cache) {
+                             matmul::PlanningCache *cache) {
   unsigned sequenceSize;
   const unsigned outputSize = prevCellState.dim(1);
   const unsigned batchSize = prevCellState.dim(0);
@@ -461,7 +461,7 @@ basicLstmCellForwardPassWeightedInputs(Graph &graph,
                                        const Type &partialsType,
                                        bool inferenceOnly,
                                        const std::string &debugPrefix,
-                                       PlanningCache *cache) {
+                                       matmul::PlanningCache *cache) {
   return
     basicLstmCellForwardPassImpl(graph, weightedIn, biases, prevOutputAct,
                                  prevCellState, nullptr, weightsOutput,
@@ -481,7 +481,7 @@ basicLstmCellForwardPass(Graph &graph,
                          const Type &partialsType,
                          bool inferenceOnly,
                          const std::string &debugPrefix,
-                         PlanningCache *cache) {
+                         matmul::PlanningCache *cache) {
   return
     basicLstmCellForwardPassImpl(graph, in, biases, prevOutputAct,
                                  prevCellState, &weightsInput, weightsOutput,
@@ -501,7 +501,7 @@ Tensor lstmFwdSequence(Graph &graph,
                        const Type &dataType,
                        const Type &partialsType,
                        const std::string &debugPrefix,
-                       PlanningCache *cache) {
+                       matmul::PlanningCache *cache) {
   Tensor fwdState;
   // loop counter
   auto seqIdx = graph.addVariable(UNSIGNED_INT, {1},
@@ -577,7 +577,7 @@ BackwardStepImpl(Graph &graph,
                       Sequence &prog,
                       const Type &partialsType,
                       const std::string &debugPrefix,
-                      PlanningCache *cache) {
+                      matmul::PlanningCache *cache) {
   const auto fPrefix = debugPrefix + "/LstmBwd";
   auto gradSum =
     popops::add(graph, getBwdState(bwdState, LSTM_BWD_STATE_GRAD_ACT_GRAD),
@@ -688,7 +688,7 @@ basicLstmBackwardStep(Graph &graph,
                       Sequence &prog,
                       const Type &partialsType,
                       const std::string &debugPrefix,
-                      PlanningCache *cache) {
+                      matmul::PlanningCache *cache) {
   Tensor gradientIn, gradAtPrevOutput;
   return
     BackwardStepImpl(graph, gradNextLayer, fwdStateThisStep, prevCellState,
@@ -706,7 +706,7 @@ basicLstmBackwardStep(Graph &graph,
                       Sequence &prog,
                       const Type &partialsType,
                       const std::string &debugPrefix,
-                      PlanningCache *cache) {
+                      matmul::PlanningCache *cache) {
   Tensor gradientIn, gradAtPrevOutput;
   std::tie(gradientIn, gradAtPrevOutput) =
     BackwardStepImpl(graph, gradNextLayer, fwdStateThisStep, prevCellState,
@@ -726,7 +726,7 @@ basicLstmParamUpdate(Graph &graph,
                      Sequence &prog,
                      const Type &partialsType,
                      const std::string &debugPrefix,
-                     PlanningCache *cache) {
+                     matmul::PlanningCache *cache) {
   const auto fPrefix = debugPrefix + "/LstmDeltas";
   OptionFlags mmOpt{
     { "partialsType", partialsType.toString() },
@@ -769,7 +769,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> lstmBwdSequence(
   const Type &dataType,
   const Type &partialsType,
   const std::string &debugPrefix,
-  PlanningCache *cache)
+  matmul::PlanningCache *cache)
 {
   Tensor gradPrevLayer, weightsInputDeltasAcc, weightsOutputDeltasAcc,
          biasDeltasAcc;

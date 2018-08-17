@@ -10,11 +10,11 @@
 #include <poplar/Engine.hpp>
 #include <poplar/IPUModel.hpp>
 #include <poputil/TileMapping.hpp>
-#include <popconv/Convolution.hpp>
-#include <popconv/ConvUtil.hpp>
+#include <poplin/Convolution.hpp>
+#include <poplin/ConvUtil.hpp>
 #include <poputil/exceptions.hpp>
 #include <popops/codelets.hpp>
-#include <popconv/codelets.hpp>
+#include <poplin/codelets.hpp>
 #include <popnn/NonLinearity.hpp>
 #include <poplibs_test/Convolution.hpp>
 #include <poplibs_test/NonLinearity.hpp>
@@ -126,7 +126,7 @@ int main(int argc, char **argv) {
   std::string winogradPatchSize = "4";
   std::string percentageCyclesExcessForMemOptim = "0";
   std::string weightUpdateMethod = "AUTO";
-  popconv::PlanningCache cache;
+  poplin::PlanningCache cache;
   po::options_description desc("Options");
   desc.add_options()
     ("help", "Produce help message")
@@ -414,10 +414,10 @@ int main(int argc, char **argv) {
   const auto &target = dev.getTarget();
   Graph graph(dev);
   popops::addCodelets(graph);
-  popconv::addCodelets(graph);
+  poplin::addCodelets(graph);
 
   const auto params =
-      popconv::ConvParams(dataType,
+      poplin::ConvParams(dataType,
                           batchSize,
                           inputFieldSize,
                           kernelSize,
@@ -464,29 +464,29 @@ int main(int argc, char **argv) {
 
   // Create tensors.
   Tensor prevAct =
-      popconv::createInput(graph, params, "prevAct", fwdOptions, &cache);
+      poplin::createInput(graph, params, "prevAct", fwdOptions, &cache);
   Tensor weights =
-      popconv::createWeights(graph, params, "weights", fwdOptions, &cache);
+      poplin::createWeights(graph, params, "weights", fwdOptions, &cache);
 
   Tensor prevDeltas, zDeltas;
   if (doBwdPass || doWuPass) {
-    zDeltas = popconv::createInput(graph, bwdParams, "zDeltas",
+    zDeltas = poplin::createInput(graph, bwdParams, "zDeltas",
                                    bwdOptions, &cache);
   }
 
   auto fwdProg = Sequence();
   // Always generate the fwd program as it maps the weights and biases. Only
   // actually create the engined if the fwd pass is to be run
-  Tensor nextAct = popconv::convolution(graph, prevAct, weights, params, false,
+  Tensor nextAct = poplin::convolution(graph, prevAct, weights, params, false,
                                         fwdProg, "fwd/", fwdOptions, &cache);
   if (reportPlan) {
     std::cout << "Forward plan:\n";
-    popconv::reportPlanInfo(std::cout, graph, params, fwdOptions, &cache);
+    poplin::reportPlanInfo(std::cout, graph, params, fwdOptions, &cache);
   }
   Tensor biases;
   if (bias) {
-    biases = popconv::createBiases(graph, nextAct);
-    popconv::addBias(graph, nextAct, biases, fwdProg, "");
+    biases = poplin::createBiases(graph, nextAct);
+    poplin::addBias(graph, nextAct, biases, fwdProg, "");
   }
   if (!doFwdPass)
     fwdProg = Sequence();
@@ -495,25 +495,25 @@ int main(int argc, char **argv) {
   const auto learningRate = 0.5;
 
   if (doBwdPass) {
-    prevDeltas = popconv::convolution(graph, zDeltas, weights, bwdParams,
+    prevDeltas = poplin::convolution(graph, zDeltas, weights, bwdParams,
                                       true, revProg, "bwd",
                                       bwdOptions, &cache);
     if (reportPlan) {
       std::cout << "Backward plan:\n";
-      popconv::reportPlanInfo(std::cout, graph, bwdParams, bwdOptions, &cache);
+      poplin::reportPlanInfo(std::cout, graph, bwdParams, bwdOptions, &cache);
     }
   }
   if (doWuPass) {
-    popconv::convolutionWeightUpdate(graph, zDeltas, weights, prevAct,
+    poplin::convolutionWeightUpdate(graph, zDeltas, weights, prevAct,
                                      params, learningRate,
                                      revProg, "wu", wuOptions, &cache);
     if (bias) {
-      popconv::convolutionBiasUpdate(graph, zDeltas, biases, learningRate,
+      poplin::convolutionBiasUpdate(graph, zDeltas, biases, learningRate,
                                      partialsType, revProg);
     }
     if (reportPlan) {
       std::cout << "WU plan:\n";
-      popconv::reportWeightUpdatePlanInfo(std::cout, graph, params,
+      poplin::reportWeightUpdatePlanInfo(std::cout, graph, params,
                                           wuOptions, &cache);
     }
   }

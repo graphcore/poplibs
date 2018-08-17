@@ -199,7 +199,7 @@ Tensor forwardWeightInput(Graph &graph, const Tensor &actIn,
                           const Type &partialsType,
                           const std::string &debugPrefix) {
   const unsigned sequenceSize = actIn.dim(0);
-  PlanningCache cache;
+  matmul::PlanningCache cache;
   OptionFlags mmOpt{
     { "partialsType", partialsType.toString() }
   };
@@ -229,7 +229,7 @@ Tensor forwardIterate(Graph  &graph,
   auto actOut = graph.addVariable(feedFwdIn.elementType(),
                                   {0, batchSize, outputSize},
                                   "actOut");
-  PlanningCache cache;
+  matmul::PlanningCache cache;
   OptionFlags mmOpt{
     { "partialsType", partialsType.toString() }
   };
@@ -331,7 +331,7 @@ backwardGradientStepImpl(Graph &graph,
                      const Type &partialsType,
                      const std::string &debugPrefix
                      ) {
-  PlanningCache cache;
+  matmul::PlanningCache cache;
   OptionFlags mmOpt{
     { "partialsType", partialsType.toString() },
     { "fullyConnectedPass", "TRAINING_BWD" }
@@ -416,7 +416,7 @@ void paramDeltaUpdate(Graph &graph,
                       const Type &partialsType,
                       const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/RnDeltas";
-  PlanningCache cache;
+  matmul::PlanningCache cache;
   OptionFlags mmOpt{
     { "partialsType", partialsType.toString() },
     { "fullyConnectedPass", "TRAINING_WU" }

@@ -1,9 +1,8 @@
 #define BOOST_TEST_MODULE FullyConnectedTest
 #include <boost/test/unit_test.hpp>
-#include <popconv/Convolution.hpp>
+#include <poplin/Convolution.hpp>
 #include <poputil/TileMapping.hpp>
 #include <popops/codelets.hpp>
-#include <popconv/codelets.hpp>
 #include <poplin/codelets.hpp>
 #include <string>
 #include <random>
@@ -150,7 +149,7 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   auto device = createTestDevice(TEST_TARGET, 1, 24);
   Graph graph(device);
   popops::addCodelets(graph);
-  popconv::addCodelets(graph);
+  poplin::addCodelets(graph);
 
   /* Test configuration */
 
@@ -220,7 +219,7 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
   }
 
   auto params =
-      popconv::ConvParams(dType,
+      poplin::ConvParams(dType,
                           1,
                           {featureY, featureX},
                           {kernelSizeY, kernelSizeX},
@@ -242,7 +241,7 @@ BOOST_AUTO_TEST_CASE(WinogradConvolution,
                           {1, 1},
                           {0, 0}, {0, 0});
 
-  auto wgdConv = popconv::winogradConvolution(graph, params, in, weights,
+  auto wgdConv = poplin::winogradConvolution(graph, params, in, weights,
                                               activations,
                                               patchSizeX, patchSizeY,
                                               FLOAT);

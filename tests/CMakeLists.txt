@@ -38,7 +38,7 @@ function(add_test_executable name)
       PRIVATE
       ${CMAKE_SOURCE_DIR}/tests
       $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
-      $<TARGET_PROPERTY:popconv,INCLUDE_DIRECTORIES>)
+      $<TARGET_PROPERTY:poplin,INCLUDE_DIRECTORIES>)
   target_link_libraries(${name} poprand popnn poputil
                         poplar
                         poplibs_test

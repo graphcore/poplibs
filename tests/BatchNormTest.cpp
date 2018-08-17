@@ -5,7 +5,7 @@
 #include <poputil/TileMapping.hpp>
 #include <poplar/Engine.hpp>
 #include <popops/ElementWise.hpp>
-#include <popconv/codelets.hpp>
+#include <poplin/codelets.hpp>
 #include <popnn/codelets.hpp>
 #include <popops/codelets.hpp>
 #include <poplibs_test/Convolution.hpp>
@@ -61,7 +61,7 @@ static bool BatchNormConv(const std::vector<unsigned> dims,
   Graph graph(device);
   popops::addCodelets(graph);
   popnn::addCodelets(graph);
-  popconv::addCodelets(graph);
+  poplin::addCodelets(graph);
 
   auto acts = graph.addVariable(dataType, {batchSize, dimY, dimX, numChannels},
                                 "act");

@@ -50,7 +50,7 @@ createInput(poplar::Graph &graph,
             const poplar::Type &dType,
             bool inferenceOnly = false,
             const std::string &name = "",
-            poplin::PlanningCache *planningCache = nullptr);
+            poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /** Create forward state which is typically the input state of the LSTM cell.
  *  The first call to the LSTM forward pass will be to feed this created state
@@ -82,7 +82,7 @@ createFwdState(poplar::Graph &graph,
                const poplar::Type &dType,
                bool inferenceOnly,
                const std::string &debugPrefix = "",
-               poplin::PlanningCache *planningCache = nullptr);
+               poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /** Returns the output tensor view from the forward state tensor
  *
@@ -120,7 +120,7 @@ createWeightsInput(poplar::Graph &graph,
                    const poplar::Type &partialsType = poplar::FLOAT,
                    bool inferenceOnly = false,
                    const std::string &name = "",
-                   poplin::PlanningCache *planningCache = nullptr);
+                   poplin::matmul::PlanningCache *planningCache = nullptr);
 
 poplar::Tensor
 createWeightsOutput(poplar::Graph &graph,
@@ -131,7 +131,7 @@ createWeightsOutput(poplar::Graph &graph,
                     const poplar::Type &partialsType = poplar::FLOAT,
                     bool inferenceOnly = false,
                     const std::string &name = "",
-                    poplin::PlanningCache *planningCache = nullptr);
+                    poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /**
  * Basic LSTM cell without peephole connections. The cell performs the following
@@ -179,7 +179,7 @@ basicLstmCellForwardPass(poplar::Graph &graph,
                          const poplar::Type &partialsType = poplar::FLOAT,
                          bool inferenceOnly = false,
                          const std::string &debugPrefix = "",
-                         poplin::PlanningCache *planningCache = nullptr);
+                         poplin::matmul::PlanningCache *planningCache=nullptr);
 
 /** Precalculate weighted inputs for the entire sequence to be passed to a
  *  LSTM cell.
@@ -202,7 +202,8 @@ calcSequenceWeightedInputs(poplar::Graph  &graph,
                            poplar::program::Sequence &prog,
                            const poplar::Type &partialsType = poplar::FLOAT,
                            const std::string &debugPrefix = "",
-                           poplin::PlanningCache *planningCache = nullptr);
+                           poplin::matmul::PlanningCache *planningCache
+                              = nullptr);
 
 
 /** Calculate the result of apply an LSTM across a sequence given that
@@ -243,7 +244,7 @@ basicLstmCellForwardPassWeightedInputs(
               const poplar::Type &partialsType = poplar::FLOAT,
               bool inferenceOnly = false,
               const std::string &debugPrefix = "",
-              poplin::PlanningCache *planningCache = nullptr);
+              poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /** Create backward gradient pass state. The state is typically created as the
  *  initialisation state for the backward and weight update passes.
@@ -268,7 +269,7 @@ createBwdState(poplar::Graph &graph,
                poplar::program::Sequence &prog,
                const poplar::Type &dType,
                const std::string &debugPrefix = "",
-               poplin::PlanningCache *planningCache = nullptr);
+               poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /** A single step of a LSTM backward pass with S sequence steps. The backward
  *  pass executes in reverse order as compared to the forward pass. If the
@@ -311,7 +312,7 @@ basicLstmBackwardStep(poplar::Graph &graph,
                       poplar::program::Sequence &prog,
                       const poplar::Type &partialsType = poplar::FLOAT,
                       const std::string &fPrefix = "",
-                      poplin::PlanningCache *planningCache = nullptr);
+                      poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /** Same as \see basicLstmBackwardStep but without the input weight matrix.
  * The returned tensor is the backward state tensor for this step
@@ -326,7 +327,7 @@ basicLstmBackwardStep(poplar::Graph &graph,
                       poplar::program::Sequence &prog,
                       const poplar::Type &partialsType = poplar::FLOAT,
                       const std::string &fPrefix = "",
-                      poplin::PlanningCache *planningCache = nullptr);
+                      poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /** A single step of a LSTM param deltas update with S sequence steps. The param
  *  update pass can be run in any random order of steps spu = {0, 1, ..., S-1}
@@ -363,7 +364,7 @@ basicLstmParamUpdate(poplar::Graph &graph,
                      poplar::program::Sequence &prog,
                      const poplar::Type &partialsType = poplar::FLOAT,
                      const std::string &debugPrefix = "",
-                     poplin::PlanningCache *planningCache = nullptr);
+                     poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /** Calculate the result of applying an LSTM across a sequence
  *
@@ -404,7 +405,7 @@ poplar::Tensor lstmFwdSequence(
                      const poplar::Type &dataType,
                      const poplar::Type &partialsType = poplar::FLOAT,
                      const std::string &debugPrefix = "",
-                     poplin::PlanningCache *planningCache = nullptr);
+                     poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /**
  *  Run LSTM backward pass. The backward pass executes in reverse order as
@@ -458,7 +459,7 @@ std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor, poplar::Tensor>
     const poplar::Type &dataType,
     const poplar::Type &partialsType,
     const std::string &debugPrefix = "",
-    poplin::PlanningCache *planningCache = nullptr);
+    poplin::matmul::PlanningCache *planningCache = nullptr);
 
 } // namespace lstm
 } // namespave popnn

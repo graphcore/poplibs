@@ -12,10 +12,9 @@
 #include <poplin/MatMul.hpp>
 #include <popnn/Lstm.hpp>
 #include <poputil/TileMapping.hpp>
-#include <popconv/codelets.hpp>
+#include <poplin/codelets.hpp>
 #include <popops/codelets.hpp>
 #include <popops/Zero.hpp>
-#include <poplin/codelets.hpp>
 #include <popnn/codelets.hpp>
 #include "TestDevice.hpp"
 #include <poplibs_test/Lstm.hpp>
@@ -137,9 +136,8 @@ int main(int argc, char **argv) {
 
   const auto &target = device.getTarget();
   Graph graph(device);
-  popconv::addCodelets(graph);
-  popops::addCodelets(graph);
   poplin::addCodelets(graph);
+  popops::addCodelets(graph);
   popnn::addCodelets(graph);
 
   // Bwd pass is always run if WU is run. This may change is tensors input to
@@ -151,7 +149,7 @@ int main(int argc, char **argv) {
                   || pass == poplibs_test::Pass::WU;
   bool fwdOnly = !doBwdPass && !doWuPass;
 
-  poplin::PlanningCache cache;
+  poplin::matmul::PlanningCache cache;
   auto prevLayerAct =
     lstm::createInput(graph, sequenceSize, batchSize, inputSize, outputSize,
                       dataType, fwdOnly, "prevLayerAct", &cache);

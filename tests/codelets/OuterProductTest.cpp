@@ -8,7 +8,7 @@
 #include "poputil/VertexTemplates.hpp"
 
 #include <poputil/TileMapping.hpp>
-#include <popconv/codelets.hpp>
+#include <poplin/codelets.hpp>
 #include <popops/codelets.hpp>
 #include <poplibs_test/Util.hpp>
 
@@ -19,7 +19,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
-using namespace popconv;
+using namespace poplin;
 
 //Define a number of tests to run:
 struct TestParams  {
@@ -94,7 +94,7 @@ void OuterProductTest(const Type &dataType) {
     //Create Graph object
     Graph graph(target);
     popops::addCodelets(graph);
-    popconv::addCodelets(graph);
+    poplin::addCodelets(graph);
 
     //Input data
     Tensor in = graph.addVariable(dataType,{max_insize},
@@ -137,7 +137,7 @@ void OuterProductTest(const Type &dataType) {
 
         ComputeSet testComputeSet = graph.addComputeSet("computeOuterProduct");
 
-        const auto vertexClass = templateVertex("popconv::OuterProduct",
+        const auto vertexClass = templateVertex("poplin::OuterProduct",
                 dataType);
 
         auto Vertex = graph.addVertex(testComputeSet,vertexClass);
