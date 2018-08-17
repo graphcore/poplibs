@@ -292,8 +292,9 @@ oloop_first_pass:
 
     brnzdec     $mSCRATCH, oloop_start
 store_last2:
-   {ldst64pace $VAL12, $VAL56, $INOUT_PTR+=, $STRIDE, 6
-     sort4x32hi $VAL34, $VAL12, $VAL34}
+    // Avoid over read - making sure we store, with no load
+    { st64pace   $VAL56, $INOUT_PTR+=, $STRIDE, 1
+      sort4x32hi $VAL34, $VAL12, $VAL34}
     st64pace $VAL34, $INOUT_PTR2+=, $STRIDE, 1
 
 
@@ -450,9 +451,13 @@ matrix_loop_half:
 
     bri  outer_loop_first_pass
 outer_loop_start:
-    // This is the end of the loop body, which stores and loads.  It
-    // would read 4x64 bits from 4 non-existant input rows so put loop ending here
-    // and skip it the 1st time around
+   // This is the end of the loop body, which stores and loads.  It
+   // would read 4x64 bits from 4 non-existant input rows so put loop ending here
+   // and skip it the 1st time around
+  { ldst64pace $a0:1, $a2:3, $TRI_PTR+=, $STRIDES2, INC_LDx_STw
+   f16v4istacc $a2:3, $a4:5, $a6:7, TISTACC_P1 }
+  { ldst64pace $a2:3, $a2:3, $TRI_PTR+=, $STRIDES2, INC_LDx_STw
+   f16v4stacc  $a6:7, TSTACC_P0 }
 
   { ldst64pace $a4:5, $a6:7, $TRI_PTR+=, $STRIDES2, INC_LDx_STw
    f16v4stacc  $a6:7, TSTACC_P1 }
@@ -485,24 +490,25 @@ outer_loop_first_pass:
   // Different increment of the load pointer to just move to the next row
   { ldst64pace $a6:7, $a6:7, $TRI_PTR+=, $STRIDES,  INC_LD1_STw
    f16v4istacc $a2:3, $a0:1, $a2:3, TISTACC_P0 }
-  { ldst64pace $a0:1, $a2:3, $TRI_PTR+=, $STRIDES2, INC_LDx_STw
-   f16v4istacc $a2:3, $a4:5, $a6:7, TISTACC_P1 }
-  { ldst64pace $a2:3, $a2:3, $TRI_PTR+=, $STRIDES2, INC_LDx_STw
-   f16v4stacc  $a6:7, TSTACC_P0 }
 
    brnzdec $COUNTER, outer_loop_start
 
-  // Just stores to avoid a lot of overreading, including some with a stride
-  // to a few rows past the end of the input
-store_last_no_read:
+
+   // Just stores to avoid a lot of overreading
+
+  { st64pace  $a2:3, $TRI_PTR+=, $STRIDES2, 1
+   f16v4istacc $a2:3, $a4:5, $a6:7, TISTACC_P1 }
+  { st64pace  $a2:3, $TRI_PTR+=, $STRIDES2, 1
+   f16v4stacc  $a6:7, TSTACC_P0 }
+
   { st64pace  $a6:7, $TRI_PTR+=, $STRIDES2, 1
    f16v4stacc  $a6:7, TSTACC_P1 }
   { st64pace  $a6:7, $TRI_PTR+=, $STRIDES,  1
    f16v4istacc $a2:3, $a0:1, $a2:3, TISTACC_P0 }
   { st64pace  $a2:3, $TRI_PTR+=, $STRIDES2, 1
    f16v4istacc $a2:3, $a4:5, $a6:7, TISTACC_P1 }
- {  st64pace  $a2:3, $TRI_PTR+=, $STRIDES2, 1
-   f16v4stacc  $a6:7, TSTACC_P0 }
+   st64pace  $a2:3, $TRI_PTR+=, $STRIDES2, 1
+
 
    brnzdec $IN_ROWS,matrix_loop_half
 
