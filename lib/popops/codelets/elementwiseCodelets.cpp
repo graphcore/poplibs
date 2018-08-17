@@ -591,8 +591,10 @@ class
 [[poplar::constraint("elem(**data) != elem(**deltas)")]]
 ScaledAdd2D : public Vertex {
 public:
-  Vector<InOut<Vector<InType>>> data;
-  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> deltas;
+  IS_EXTERNAL_CODELET(true);
+
+  Vector<InOut<Vector<InType, TWO_PTR, 8>>> data;
+  Vector<Input<Vector<InType, ONE_PTR, 8>>, ONE_PTR> deltas;
   InType K;
 
   bool compute() {

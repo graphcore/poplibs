@@ -66,12 +66,6 @@ foreach(OUTER_DIM RANGE 1 15)
   endforeach()
 endforeach()
 
-#Transpose2d<InType>
-   add_popnn_unit_test(Transpose2dTest Transpose2dTest.cpp)
-
-#Cast<InType>
-   add_popnn_unit_test(CastTest CastTest.cpp)
-
 # MaxPooling<dataType> and ScaledSumPooling<dataType, poolType>
 foreach(DATA_TYPE half float)
   foreach(POOL_TYPE avg sum max)
@@ -106,21 +100,6 @@ foreach(DATA_TYPE half float)
   endforeach()
 endforeach()
 
-add_popnn_unit_test(AddToChannel
-                    AddToChannel.cpp
-                    VARIANTS ${TimesOutOnSim})
-add_popnn_unit_test(AddToChannel2D
-                    AddToChannel2D.cpp
-                    VARIANTS ${TimesOutOnSim})
-
-add_popnn_unit_test(ScaledAddSupervisor_fp
-                    ScaledAddSupervisor_fp.cpp)
-add_popnn_unit_test(ScaledAddSupervisor_integral
-                    ScaledAddSupervisor_integral.cpp)
-
-#OuterProduct<InType>
-   add_popnn_unit_test(OuterProductTest OuterProductTest.cpp)
-
 # Select
 foreach(DATA_TYPE int float half bool)
   set(VARIANT_NAME "Select_${DATA_TYPE}")
@@ -151,3 +130,24 @@ foreach(SIZE RANGE 1 4)
                          COMMAND ReduceMaxClassSparse
                          --size=${SIZE})
 endforeach()
+
+add_popnn_unit_test(AddToChannel
+                    AddToChannel.cpp
+                    VARIANTS ${TimesOutOnSim})
+add_popnn_unit_test(AddToChannel2D
+                    AddToChannel2D.cpp
+                    VARIANTS ${TimesOutOnSim})
+add_popnn_unit_test(CastTest
+                    CastTest.cpp)
+add_popnn_unit_test(OuterProductTest
+                    OuterProductTest.cpp)
+add_popnn_unit_test(ScaledAdd2D_fp
+                    ScaledAdd2D_fp.cpp)
+add_popnn_unit_test(ScaledAdd2D_integral
+                    ScaledAdd2D_integral.cpp)
+add_popnn_unit_test(ScaledAddSupervisor_fp
+                    ScaledAddSupervisor_fp.cpp)
+add_popnn_unit_test(ScaledAddSupervisor_integral
+                    ScaledAddSupervisor_integral.cpp)
+add_popnn_unit_test(Transpose2dTest
+                    Transpose2dTest.cpp)

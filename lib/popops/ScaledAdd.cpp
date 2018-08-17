@@ -18,6 +18,15 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, float k,
   const auto dType = A.elementType();
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix + "/AddTo");
+  const auto vectorWidth = target.getVectorWidth(dType);
+
+  const auto codeletName2D = templateVertex("popops::ScaledAdd2D", dType);
+
+  // Maximum elements vertices can handle per-region is based on input vector
+  // type and the max count the `rpt` instruction can handle.
+  const auto max2DInnerElements = std::min<std::size_t>(
+    graph.getMaxFieldDim(codeletName2D, "data", 1),
+    target.getRptCountMax() * vectorWidth);
 
   auto aFlat = A.flatten();
   auto bFlat = B.flatten();
@@ -45,10 +54,11 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, float k,
     } else {
       auto vertexRegions =
         splitRegionsBetweenWorkers(target, tileContiguousRegions,
-                                   grainSize, 2 * grainSize);
+                                   grainSize, 2 * grainSize,
+                                   max2DInnerElements);
       for (const auto &regions : vertexRegions) {
         auto v = graph.addVertex(cs,
-                                 templateVertex("popops::ScaledAdd2D", dType),
+                                 codeletName2D,
                                  {{"data", aFlat.slices(regions)},
                                   {"deltas", bFlat.slices(regions)}});
         graph.setInitialValue(v["K"], k);
