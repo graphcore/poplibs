@@ -1,53 +1,48 @@
 #include <poplar/Vertex.hpp>
+#include <poplar/VectorTypes.hpp>
 #include <poplar/HalfFloat.hpp>
 #include "poplibs_support/ExternalCodelet.hpp"
+
+#include <string.h>
 
 using namespace poplar;
 
 namespace popops {
 
-#define INSTANTIATE_TEMPLATES(name) \
-  template class name<unsigned, float>; \
-  template class name<unsigned, half>; \
-  template class name<unsigned, unsigned>; \
-  template class name<unsigned, int>; \
-  template class name<int, float>; \
-  template class name<int, half>; \
-  template class name<int, unsigned>; \
-  template class name<int, int>
-
+static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 
 template <typename IndexType, typename OutType>
-class EncodeOneHot : public Vertex {
+class EncodeOneHot : public SupervisorVertex {
+  constexpr static bool isExternal() {
+    return std::is_same<IndexType, unsigned>{}
+      && std::is_same<OutType, half>{};
+  }
 public:
-  Input<IndexType> index;
-  Output<Vector<OutType>> out;
+  IS_EXTERNAL_CODELET(isExternal());
+
+  Input<Vector<IndexType>> indices;
+  Output<Vector<OutType, ONE_PTR, 8>> out;
+  // the output tensor has been flattened, so this field states how many
+  // elements to be processed for each index.
+  unsigned sliceLength;
+
   bool compute() {
-    for (std::size_t i = 0; i < out.size(); i++) {
-      out[i] = OutType(i == index);
+    memset(out.begin(), 0, indices.size() * sliceLength * sizeof(OutType));
+
+    for (unsigned i = 0; i < indices.size(); ++i) {
+      out[i * sliceLength + indices[i]] = 1;
     }
     return true;
   }
 };
 
-INSTANTIATE_TEMPLATES(EncodeOneHot);
+template class EncodeOneHot<unsigned, float>;
+template class EncodeOneHot<unsigned, half>;
+template class EncodeOneHot<unsigned, unsigned>;
+template class EncodeOneHot<unsigned, int>;
+template class EncodeOneHot<int, float>;
+template class EncodeOneHot<int, half>;
+template class EncodeOneHot<int, unsigned>;
+template class EncodeOneHot<int, int>;
 
-template <typename IndexType, typename OutType>
-class EncodeOneHot2D : public Vertex {
-public:
-  Input<Vector<IndexType, VectorLayout::ONE_PTR>> indices;
-  Vector<Output<Vector<OutType>>> out;
-  bool compute() {
-    for (std::size_t i = 0; i < out.size(); i++) {
-      const auto index = indices[i];
-      for (std::size_t j = 0; j < out[i].size(); j++) {
-        out[i][j] = OutType(j == index);
-      }
-    }
-    return true;
-  }
-};
-
-INSTANTIATE_TEMPLATES(EncodeOneHot2D);
-
-}
+} // namespace popops

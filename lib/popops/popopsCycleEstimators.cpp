@@ -955,25 +955,11 @@ MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHot)(const VertexIntrospector &vertex,
                                         const Target &target,
                                         const Type &indexType,
                                         const Type &outputType) {
-  CODELET_FIELD(index);
+  CODELET_FIELD(indices);
   CODELET_FIELD(out);
   std::vector<unsigned> regionSizes;
   regionSizes.push_back(out.size());
   return encodeOneHotCycles(regionSizes, target, indexType, outputType, false);
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHot2D)(const VertexIntrospector &vertex,
-                                          const Target &target,
-                                          const Type &indexType,
-                                          const Type &outputType) {
-  CODELET_FIELD(indices);
-  CODELET_FIELD(out);
-  std::vector<unsigned> regionSizes;
-  for (std::size_t i = 0; i < out.size(); ++i) {
-    regionSizes.push_back(out[i].size());
-  }
-  return encodeOneHotCycles(regionSizes, target, indexType, outputType, true);
 }
 
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
@@ -1090,17 +1076,6 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot, INT, HALF),
     CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot, INT, UNSIGNED_INT),
     CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot, INT, INT),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot2D, UNSIGNED_INT, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot2D, UNSIGNED_INT, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot2D, UNSIGNED_INT, UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot2D, UNSIGNED_INT, INT),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot2D, INT, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot2D, INT, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot2D, INT, UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popops, EncodeOneHot2D, INT, INT),
-
   };
   for (const auto &entry : unaryOpPerfInfo) {
     table.push_back(

@@ -87,6 +87,7 @@ set(codelet_cpp_sources
 set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Clamp.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Cast.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/EncodeOneHot.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ScaledAddSupervisor_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ScaledAddSupervisor_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ScaledAddSupervisor_integral.S

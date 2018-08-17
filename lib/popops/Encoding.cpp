@@ -39,44 +39,36 @@ void encodeOneHot(Graph &graph,
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
 
+  // how many elements in the encoded tensor refer to each index.
+  const auto sliceLength = encodedShape[1];
+
   // Vertices to encode '1' at correct indices.
   // Also map resulting tensor to tile the index is mapped to.
   auto cs = graph.addComputeSet(layerPrefix + "/Encode");
-  const auto grainSize = target.getVectorWidth(encoded.elementType());
   const auto mapping = graph.getTileMapping(inFlat);
   for (unsigned tile = 0; tile < numTiles; tile++) {
     const auto &tileRegions = mapping[tile];
     if (tileRegions.empty())
       continue;
-    const auto tileContiguousRegions =
-      graph.getSortedContiguousRegions(inFlat, tileRegions);
-    const auto perVertexRegions =
-      splitRegionsBetweenWorkers(target, tileContiguousRegions,
-                                 grainSize, grainSize * 2);
 
-    for (const auto &regions : perVertexRegions) {
-      VertexRef v;
-      // For the common case of just one index encoded by a particular
-      // vertex on a tile, this is special cased to reduce memory footprint
-      if (regions.size() == 1 &&
-          regions[0].size() == 1 &&
-          regions[0][0].size() == 1) {
-        const auto index = regions[0][0].begin();
-        v = graph.addVertex(cs, templateVertex("popops::EncodeOneHot",
-                                               inFlat.elementType(),
-                                               encoded.elementType()),
-                            {{"index", inFlat[index]},
-                             {"out", encoded[index]}});
-      } else {
-        v = graph.addVertex(cs, templateVertex("popops::EncodeOneHot2D",
-                                               inFlat.elementType(),
-                                               encoded.elementType()),
-                            {{"indices", concat(inFlat.slices(regions))},
-                             {"out", concat(encoded.slices(regions))}});
+    // loop through each index on this tile and gather the associated encoded
+    // tensors together.
+    std::vector<Tensor> encodedTensors;
+    for (const auto &interval : tileRegions) {
+      for (auto index = interval.begin(); index != interval.end(); ++index) {
+        encodedTensors.push_back(encoded[index]);
       }
-      graph.setTileMapping(v, tile);
     }
+
+    auto v = graph.addVertex(cs, templateVertex("popops::EncodeOneHot",
+                                                indexType,
+                                                encoded.elementType()),
+                             {{"indices", concat(inFlat.slices(tileRegions))},
+                              {"out", concat(encodedTensors)}});
+    graph.setInitialValue(v["sliceLength"], sliceLength);
+    graph.setTileMapping(v, tile);
   }
+
   prog.add(Execute(cs));
 }
 
