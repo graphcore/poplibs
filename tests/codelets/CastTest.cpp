@@ -24,6 +24,7 @@ using namespace poplibs_test::util;
 struct TestParams {
     unsigned columns;
     unsigned offsetOut;
+    unsigned numRows;
 };
 
 // Tests - based on knowing that the implementation
@@ -32,15 +33,16 @@ struct TestParams {
 // repeat count function correctly. The output can either be 8 byte or 4 byte
 // aligned. offsetOut of 2 equates to 4 byte aligned only.
 std::vector<TestParams> TestList={
-    {1,0},      {1,2},
-    {2,0},      {2,2},
-    {3,0},      {3,2},
-    {4,0},      {4,2},
-    {16,0},     {16,2},
-    {17,0},     {17,2},
-    {18,0},     {18,2},
-    {19,0},     {19,2},
-    {0x1100,0}, {0x1100,2},
+#if 0
+    {1, 0, 2},      {2, 0, 3},
+    {1, 0, 1},      {1, 2, 1},
+    {2, 0, 1},      {2, 2, 1},
+    {3, 0, 1},      {3, 2, 1},
+    {4, 0, 1},      {4, 2, 1},
+    {16 ,0, 1},     {16, 2, 1},
+    {17, 0, 1},     {17, 2, 1},
+#endif
+    {0x1100, 0, 1}, {0x1100, 2, 1},
 };
 
 //*************************************************
@@ -58,23 +60,26 @@ void CastTest(const Type &dataTypeIn, const Type &dataTypeOut) {
     //determine the sizes of arrays required
     auto test_count=TestList.size();
 
-    auto max_cols=std::max_element(TestList.begin(),TestList.end(),
+    const auto tIt = std::max_element(TestList.begin(),TestList.end(),
                 [](TestParams &a, TestParams &b) {
-                    return (a.columns <b.columns );})->columns;
+                    return (a.columns * a.numRows <b.columns * b.numRows );});
+    auto max_elems = tIt->columns * tIt->numRows;
+
+
     auto max_offsetOut=std::max_element(TestList.begin(),TestList.end(),
                 [](TestParams &a, TestParams &b) {
                     return (a.offsetOut <b.offsetOut );})->offsetOut;
     //Whole data array size
-    auto total_size=max_cols + max_offsetOut;
+    auto total_size=max_elems + max_offsetOut;
 
     // Program generated test data
     std::vector<double> outTest(total_size);
-    std::vector<double> inTest(max_cols);
+    std::vector<double> inTest(max_elems);
 
     // Initialise input pattern, picking a numeric range and
     // tolerance (below) that works for halves as a limited size/resolution data
     // type with enough unique numbers to satisfy a large test size
-    for (unsigned  i = 0; i < max_cols; i++)
+    for (unsigned  i = 0; i < max_elems; i++)
             inTest[i] = 0.1 * i + 1;
 
     Device device = createTestDevice(TEST_TARGET);
@@ -85,7 +90,7 @@ void CastTest(const Type &dataTypeIn, const Type &dataTypeOut) {
     popops::addCodelets(graph);
 
     //Input data
-    Tensor in=graph.addVariable(dataTypeIn,{max_cols}, "Input Data");
+    Tensor in=graph.addVariable(dataTypeIn,{max_elems}, "Input Data");
     graph.setTileMapping(in,0);
 
     //Result data
@@ -108,21 +113,28 @@ void CastTest(const Type &dataTypeIn, const Type &dataTypeOut) {
     for(int tests=0;tests<test_count;tests++) {
         auto columns=TestList[tests].columns;
         auto offsetOut=TestList[tests].offsetOut;
+        auto rows = TestList[tests].numRows;
 
         Sequence sequence;
 
         ComputeSet testComputeSet=graph.addComputeSet("computeCast");
 
-        const auto vertexClass=templateVertex("popops::Cast",dataTypeIn,
-            dataTypeOut);
+        const auto vertexClass=templateVertex(rows > 1 ? "popops::Cast2d" :
+                                                         "popops::Cast",
+                                               dataTypeIn, dataTypeOut);
 
         auto castVertex=graph.addVertex(testComputeSet,vertexClass);
         graph.setTileMapping(castVertex,0);
 
         //Different slices of the same input data to test looping decisions,
         // Slices of the output data with offset
-        auto sliceIn=in.slice(0,columns);
-        auto sliceOut=out.slice(offsetOut, columns+ offsetOut);
+        auto sliceIn=in.slice(0, columns * rows);
+        auto sliceOut=out.slice(offsetOut, columns * rows + offsetOut);
+
+        if (rows > 1) {
+          sliceIn = sliceIn.reshape({rows, columns});
+          sliceOut = sliceOut.reshape({rows, columns});
+        }
 
         graph.connect(castVertex["src"],sliceIn);
         graph.connect(castVertex["dst"],sliceOut);
@@ -147,6 +159,7 @@ void CastTest(const Type &dataTypeIn, const Type &dataTypeOut) {
     for(int tests=0;tests<test_count;tests++) {
         auto columns=TestList[tests].columns;
         auto offsetOut=TestList[tests].offsetOut;
+        auto rows = TestList[tests].numRows;
 
         copy(target,inTest.data(),inTest.size(),dataTypeIn,input.get());
 
@@ -162,7 +175,7 @@ void CastTest(const Type &dataTypeIn, const Type &dataTypeOut) {
          for(unsigned i=0;i<total_size;i++)
             outTest[i]=0;
         //Then cast the same portion of the input as the code under test
-        for(unsigned j=0; j<columns; j++) {
+        for(unsigned j=0; j<columns*rows; j++) {
             outTest[j + offsetOut]=inTest[j];
         }
 

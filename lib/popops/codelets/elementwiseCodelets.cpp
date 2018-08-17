@@ -725,8 +725,12 @@ class
 [[poplar::constraint("elem(**src) != elem(**dst)")]]
 Cast2d : public Vertex {
 public:
-  Vector<Input<Vector<SrcType, ONE_PTR>>, ONE_PTR> src;
-  Vector<Output<Vector<DstType>>> dst;
+  Vector<Input<Vector<SrcType, ONE_PTR, 8>>, ONE_PTR> src;
+  Vector<Output<Vector<DstType, TWO_PTR, 4>>> dst;
+
+  static const bool ext = std::is_same<SrcType,float>::value
+            && std::is_same<DstType,half>::value;
+  IS_EXTERNAL_CODELET(ext);
 
   bool compute() {
     const unsigned limI = dst.size();
