@@ -71,18 +71,10 @@ target_include_directories(popops
 
 # Search for arch_man path
 foreach(path ${CMAKE_PREFIX_PATH})
-    if(EXISTS "${path}/colossus/include/tileimplconsts_tommy.h")
-      set(ARCH_MAN_PATH ${path})
-    endif()
+  if(EXISTS "${path}/colossus/include/tileimplconsts_tommy.h")
+    set(ARCH_MAN_PATH ${path})
+  endif()
 endforeach(path)
-
-set(codelet_cpp_sources
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/dynamicSliceCodelets.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elementwiseCodelets.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/encodingCodelets.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/miscCodelets.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/reduceCodelets.cpp
-)
 
 set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Clamp.S
@@ -98,6 +90,32 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/select_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/select_int_float.S
 )
+
+
+
+foreach(ReduceOp ReduceAdd ReduceSquareAdd)
+  foreach(IS_UPDATE 0 1)
+    if("${ReduceOp}" STREQUAL "ReduceAdd")
+      set(INSTRUCTION "acc")
+    elseif("${ReduceOp}" STREQUAL "ReduceSquareAdd")
+      set(INSTRUCTION "sqacc")
+    endif()
+    set(OUTPUT_FILE
+        ${CMAKE_CURRENT_BINARY_DIR}/codelets/${ReduceOp}_${IS_UPDATE}.S)
+    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/codelets/Reductions.S
+                   ${OUTPUT_FILE})
+    list(APPEND codelet_asm_sources ${OUTPUT_FILE})
+  endforeach()
+endforeach()
+
+set(codelet_cpp_sources
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/dynamicSliceCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elementwiseCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/encodingCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/miscCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/reduceCodelets.cpp
+)
+
 
 set(codelet_headers
   # Add any header files used here

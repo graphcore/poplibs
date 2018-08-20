@@ -100,6 +100,23 @@ foreach(DATA_TYPE half float)
   endforeach()
 endforeach()
 
+
+add_codelet_test_executable(Reduce Reduce.cpp)
+foreach(OUTER_DIM RANGE 1 16)
+  foreach(IN_TYPE half float)
+    foreach(OUT_TYPE half float)
+      set(VARIANT_NAME "Reduce_${IN_TYPE}_${OUT_TYPE}_${OUTER_DIM}")
+      set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
+      add_multitarget_test(NAME ${VARIANT_NAME}
+                           COMMAND Reduce
+                            --in-type=${IN_TYPE}
+                            --out-type=${OUT_TYPE}
+                            --outer-dim=${OUTER_DIM})
+    endforeach()
+  endforeach()
+endforeach()
+
+
 # Select
 foreach(DATA_TYPE int float half bool)
   set(VARIANT_NAME "Select_${DATA_TYPE}")

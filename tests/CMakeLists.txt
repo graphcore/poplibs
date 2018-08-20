@@ -192,7 +192,7 @@ endfunction()
 # Make an alias for IpuModel that can be used to denote tests that specifically
 # should not be run on Sim variants because the test times out if run on the
 # simulator:
-set(TimesOutOnSim "IpuModel;Hw")
+set(TimesOutOnSim "IpuModel;Hw;Sim")
 
 # Unit tests
 add_popnn_unit_test(RandomGenTest RandomGenTest.cpp)

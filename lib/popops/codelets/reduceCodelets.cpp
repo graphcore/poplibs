@@ -6,8 +6,60 @@
 #include "poplibs_support/ExternalCodelet.hpp"
 
 using namespace poplar;
+static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
+static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
 
 namespace popops {
+
+struct ReduceAdd {
+  template <typename T>
+  static T init() { return 0; }
+  template <typename OutType, typename PartialsType>
+  static void update(OutType &acc, PartialsType val) { acc += val; }
+};
+
+struct ReduceSquareAdd {
+  template <typename T>
+  static T init() { return 0; }
+  template <typename OutType, typename PartialsType>
+  static void update(OutType &acc, PartialsType val) { acc += val * val; }
+};
+
+struct ReduceMul {
+  template <typename T>
+  static T init() { return 1; }
+  template <typename OutType, typename PartialsType>
+  static void update(OutType &acc, PartialsType val) { acc *= val; }
+};
+
+struct ReduceMax {
+  template <typename T>
+  static T init() { return std::numeric_limits<T>::lowest(); }
+  template <typename OutType, typename PartialsType>
+  static void update(OutType &acc, PartialsType val) { acc = max(acc, val); }
+};
+
+struct ReduceMin {
+  template <typename T>
+  static T init() { return std::numeric_limits<T>::max(); }
+  template <typename OutType, typename PartialsType>
+  static void update(OutType &acc, PartialsType val) { acc = min(acc, val); }
+};
+
+struct ReduceAnd {
+  template <typename T>
+  static T init() { return true; }
+  template <typename OutType, typename PartialsType>
+  static void update(OutType &acc, PartialsType val) { acc = acc && val; }
+};
+
+struct ReduceOr {
+  template <typename T>
+  static T init() { return false; }
+  template <typename OutType, typename PartialsType>
+  static void update(OutType &acc, PartialsType val) { acc = acc || val; }
+};
+
 
 /** Generic vertex template for all reductions. The template parameters provide
  *  the information on types, what the reduction operator is, whether to
@@ -16,9 +68,11 @@ template <typename ReduceOp,
           typename PartialsType, typename OutType, bool partialsAreOutputSize,
           bool isScale, bool isUpdate>
 class
-[[poplar::constraint("elem(*out) != elem(*partials)")]]
 Reduce : public Vertex {
 public:
+  IS_EXTERNAL_CODELET(((std::is_same<ReduceOp, ReduceAdd>::value
+                        || std::is_same<ReduceOp, ReduceSquareAdd>::value)
+                        && !std::is_same<PartialsType, int>::value));
   /* If `out` were:                                        */
 
   /*   [                                                   */
@@ -56,38 +110,22 @@ public:
   using ReduceOutput =
       typename std::conditional<isUpdate, InOut<T>, Output<T>>::type;
 
+  /* Multiplication factor. Might be unused. */
+  float k;
+
   /* Vector of regions to output. */
-  /* TODO: Remove the alignment constraint once graph construction or poplar */
-  /*       deals with sub-word writes */
-
-
-  ReduceOutput<VectorList<OutType, VectorListLayout::DELTAN, 4>> out;
-  /* Vector of regions to use as input. */
-  Input<VectorList<PartialsType, VectorListLayout::DELTAN, 1, true>> partials;
+  ReduceOutput<VectorList<OutType, VectorListLayout::DELTAN, 8>> out;
 
   /* The number of input regions (partials) for each output region. */
   /* This should sum to `partials.size()`. */
-  Vector<unsigned short> numPartials;
+  Vector<unsigned short, SCALED_PTR32, 4> numPartials;
 
-  /* Multiplication factor. Might be unused. */
-  float k;
+  /* Vector of regions to use as input. */
+  Input<VectorList<PartialsType, VectorListLayout::DELTAN, 8, false>> partials;
 
   bool compute() {
     /* The number of output regions. */
     unsigned numReductions = out.size();
-
-    /* Check that each output vector has a number saying how many */
-    /* input vectors. */
-    assert(numPartials.size() == numReductions);
-
-    /* Check that the total number of partials equals the actual number */
-    /* of input partial vectors (and that they all have at least 1 input). */
-    unsigned sum = 0;
-    for (auto np : numPartials) {
-      assert(np >= 1);
-      sum += np;
-    }
-    assert(sum == partials.size());
 
     /* The current offset into the partials vector. */
     unsigned pidx = 0;
@@ -173,66 +211,17 @@ public:
 #define DECLARE_BOOL_TYPES_REDUCTION(NAME) \
     DECLARE_REDUCTION3(NAME, bool, bool)
 
-struct ReduceAdd {
-  template <typename T>
-  static T init() { return 0; }
-  template <typename OutType, typename PartialsType>
-  static void update(OutType &acc, PartialsType val) { acc += val; }
-};
-
 DECLARE_FULL_TYPES_REDUCTION(ReduceAdd)
-
-struct ReduceSquareAdd {
-  template <typename T>
-  static T init() { return 0; }
-  template <typename OutType, typename PartialsType>
-  static void update(OutType &acc, PartialsType val) { acc += val * val; }
-};
 
 DECLARE_FULL_TYPES_REDUCTION(ReduceSquareAdd)
 
-struct ReduceMul {
-  template <typename T>
-  static T init() { return 1; }
-  template <typename OutType, typename PartialsType>
-  static void update(OutType &acc, PartialsType val) { acc *= val; }
-};
-
 DECLARE_FULL_TYPES_REDUCTION(ReduceMul)
-
-struct ReduceMax {
-  template <typename T>
-  static T init() { return std::numeric_limits<T>::lowest(); }
-  template <typename OutType, typename PartialsType>
-  static void update(OutType &acc, PartialsType val) { acc = max(acc, val); }
-};
 
 DECLARE_EQUAL_TYPES_REDUCTION(ReduceMax)
 
-struct ReduceMin {
-  template <typename T>
-  static T init() { return std::numeric_limits<T>::max(); }
-  template <typename OutType, typename PartialsType>
-  static void update(OutType &acc, PartialsType val) { acc = min(acc, val); }
-};
-
 DECLARE_EQUAL_TYPES_REDUCTION(ReduceMin)
 
-struct ReduceAnd {
-  template <typename T>
-  static T init() { return true; }
-  template <typename OutType, typename PartialsType>
-  static void update(OutType &acc, PartialsType val) { acc = acc && val; }
-};
-
 DECLARE_BOOL_TYPES_REDUCTION(ReduceAnd)
-
-struct ReduceOr {
-  template <typename T>
-  static T init() { return false; }
-  template <typename OutType, typename PartialsType>
-  static void update(OutType &acc, PartialsType val) { acc = acc || val; }
-};
 
 DECLARE_BOOL_TYPES_REDUCTION(ReduceOr)
 
