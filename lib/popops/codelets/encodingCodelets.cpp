@@ -24,13 +24,20 @@ public:
   Output<Vector<OutType, ONE_PTR, 8>> out;
   // the output tensor has been flattened, so this field states how many
   // elements to be processed for each index.
-  unsigned sliceLength;
+  Input<Vector<unsigned, ONE_PTR>> sliceLength;
+  Input<Vector<unsigned, ONE_PTR>> offsets;
+  // This field could be removed as it is sum of the total slice Lengths
+  unsigned outLength;
 
   bool compute() {
-    memset(out.begin(), 0, indices.size() * sliceLength * sizeof(OutType));
-
+    memset(out.begin(), 0, outLength * sizeof(OutType));
+    unsigned idx = 0;
     for (unsigned i = 0; i < indices.size(); ++i) {
-      out[i * sliceLength + indices[i]] = 1;
+      if (indices[i] >= offsets[i] &&
+          (offsets[i] < indices[i] + sliceLength[i])) {
+        out[idx + indices[i] - offsets[i]] = 1;
+      }
+      idx += sliceLength[i];
     }
     return true;
   }

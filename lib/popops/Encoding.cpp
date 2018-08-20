@@ -17,19 +17,18 @@ void encodeOneHot(Graph &graph,
                   Sequence &prog,
                   const std::string &debugPrefix) {
   // Verify inputs
-  auto inFlat = indices.flatten();
   const auto encodedShape = encoded.shape();
   if (encodedShape.size() != 2) {
     throw poputil::poplib_error("Tensor taking one-hot encoded output must be "
                                 "2 dimensional");
   }
-  const auto inputShape = inFlat.shape();
+  const auto inputShape = indices.shape();
   if (encodedShape[0] != inputShape[0]) {
     throw poputil::poplib_error("Tensor taking one-hot encoded output must "
                                 "have same number of rows as indices tensor.");
   }
 
-  const auto indexType = inFlat.elementType();
+  const auto indexType = indices.elementType();
   if (indexType != UNSIGNED_INT &&
       indexType != INT) {
     throw poputil::poplib_error("Index type must be integer type");
@@ -40,35 +39,70 @@ void encodeOneHot(Graph &graph,
   const auto numTiles = target.getNumTiles();
 
   // how many elements in the encoded tensor refer to each index.
-  const auto sliceLength = encodedShape[1];
+  const auto elemsPerBatch = encodedShape[1];
+  const auto numIndices = encodedShape[0];
 
-  // Vertices to encode '1' at correct indices.
-  // Also map resulting tensor to tile the index is mapped to.
-  auto cs = graph.addComputeSet(layerPrefix + "/Encode");
-  const auto mapping = graph.getTileMapping(inFlat);
-  for (unsigned tile = 0; tile < numTiles; tile++) {
-    const auto &tileRegions = mapping[tile];
-    if (tileRegions.empty())
-      continue;
+  const auto grainSize = target.getVectorWidth(encoded.elementType());
+  // Have a minimum grains per tile in order for the overhead not to dominate
+  // compute
+  const auto minGrainsPerTile = 4UL;
+  auto numBatchGrains = (elemsPerBatch + grainSize - 1) / grainSize;
+  auto grainsPerTile =
+      std::max((numBatchGrains * numIndices + numTiles - 1) / numTiles,
+               minGrainsPerTile);
 
-    // loop through each index on this tile and gather the associated encoded
-    // tensors together.
-    std::vector<Tensor> encodedTensors;
-    for (const auto &interval : tileRegions) {
-      for (auto index = interval.begin(); index != interval.end(); ++index) {
-        encodedTensors.push_back(encoded[index]);
-      }
+  unsigned encElem = 0;
+  unsigned tile = 0U;
+  auto cs = graph.addComputeSet(layerPrefix + "/OneHotEncode");
+
+  while (encElem != encoded.numElements()) {
+    auto tileEncElemStart = encElem;
+    auto tileEncElemEnd = std::min(tileEncElemStart + grainsPerTile * grainSize,
+                                   encoded.numElements());
+
+    std::vector<Tensor> encThisTile;
+    std::vector<Tensor> indicesThisTile;
+    std::vector<unsigned> offsets;
+    std::vector<unsigned> sliceLen;
+    auto elemsThisTile = tileEncElemEnd - tileEncElemStart;
+    // Elements in each slice must belong to the same index
+    while (elemsThisTile) {
+      const auto thisBatchStart = encElem % elemsPerBatch;
+      const auto thisBatchEnd =
+          std::min(thisBatchStart + elemsThisTile, elemsPerBatch);
+      const auto thisIndex = encElem / elemsPerBatch;
+      encThisTile.push_back(encoded[thisIndex]
+                 .slice({thisBatchStart, thisBatchEnd}));
+      indicesThisTile.push_back(indices[thisIndex].expand({0}));
+      offsets.push_back(thisBatchStart);
+      const auto elemsThisEntry = thisBatchEnd - thisBatchStart;
+      sliceLen.push_back(elemsThisEntry);
+      assert(elemsThisTile >= elemsThisEntry);
+      elemsThisTile -= elemsThisEntry;
+      encElem += elemsThisEntry;
     }
 
-    auto v = graph.addVertex(cs, templateVertex("popops::EncodeOneHot",
-                                                indexType,
-                                                encoded.elementType()),
-                             {{"indices", concat(inFlat.slices(tileRegions))},
-                              {"out", concat(encodedTensors)}});
-    graph.setInitialValue(v["sliceLength"], sliceLength);
-    graph.setTileMapping(v, tile);
-  }
+    auto offsetTensor =
+          graph.addConstant(UNSIGNED_INT, {offsets.size()}, offsets.data());
 
+    auto sliceLenTensor =
+          graph.addConstant(UNSIGNED_INT, {sliceLen.size()}, sliceLen.data());
+    auto outFlattened = concat(encThisTile);
+    auto v = graph.addVertex(cs, templateVertex("popops::EncodeOneHot",
+                                                 indexType,
+                                                 encoded.elementType()),
+                             {{"indices", concat(indicesThisTile)},
+                              {"out", outFlattened},
+                              {"offsets", offsetTensor},
+                              {"sliceLength", sliceLenTensor}});
+    // TODO: Note that outLength is the sum of the elements of vector
+    // sliceLength and as an optimisation maybe removed
+    graph.setInitialValue(v["outLength"], outFlattened.numElements());
+    graph.setTileMapping(v, tile);
+
+    if (++tile >= numTiles)
+      tile = 0;
+  }
   prog.add(Execute(cs));
 }
 

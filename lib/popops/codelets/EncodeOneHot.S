@@ -7,24 +7,33 @@
 .globl VERTEX
 .type VERTEX, @function
 
-// constants
+
+// Field offsets in vertex
 #define VERTEX_INDEX_BEGIN_OFFSET 0
 #define VERTEX_INDEX_END_OFFSET 1
 #define VERTEX_OUT_OFFSET 2
 #define VERTEX_SLICE_OFFSET 3
+#define VERTEX_OFFSETS_OFFSET 4
+#define VERTEX_OUT_LENGTH_OFFSET 5
 
+// Memset vertex fields
 #define MEMSET_VERTEX_DST_OFFSET 0
 #define MEMSET_VERTEX_SIZE_OFFSET 1
 
+// Stack offsets
 #define STACK_OUT_BEGIN_OFFSET 2
 #define STACK_INDEX_BEGIN_OFFSET 3
 #define STACK_INDEX_SIZE_OFFSET 4
 #define STACK_SLICE_OFFSET 5
 #define STACK_LR_OFFSET 6
+#define STACK_OFFSETS 7
+#define STACK_CALLER_SAVE_OFFSET 8
 
+// Total stack must be a multiple of 8 bytes
 #define MEMSET_VERTEX_SIZE (2*4)
-#define STACK_SIZE (5*4)
+#define STACK_SIZE (8*4)
 
+// constants
 #define LOG2_SIZEOF_HALF 1
 #define LOG2_SIZEOF_UNSIGNED 2
 
@@ -38,7 +47,8 @@
 #define outBegin m6
 #define index m7
 #define slice m8
-
+#define offsets_ptr m1
+#define outBegin_cpy m9
 #define mscratch m0
 
 .section .text.VERTEX
@@ -47,9 +57,13 @@
 VERTEX:
   // one hot encoding is:
   //
-  //  memset(out.begin(), 0, indices.size() * slice * sizeof(OutType));
+  //  memset(out.begin(), 0, outLength * sizeof(OutType));
   //  for (unsigned i = 0; i < indices.size(); ++i) {
-  //    out[i * slice + indices[i]] = 1;
+  //    if (indices[i] >= offsets[i] && 
+  //      (offsets[i] < indices[i] + sliceLength[i])) {
+  //      out[idx + indices[i] - offsets[i]] = 1;        
+  //    } 
+  //    idx += sliceLength[i];
   //  }
   //
   // therefore we delegate to the MemsetZeroSupervisor codelet to do the bulk
@@ -74,6 +88,7 @@ VERTEX:
 
   ld32 $outBegin, $vertexPtr, $mzero, VERTEX_OUT_OFFSET
   ld32 $size, $vertexPtr, $mzero, VERTEX_INDEX_END_OFFSET
+  ld32 $offsets_ptr, $vertexPtr, $mzero, VERTEX_OFFSETS_OFFSET
 
   // load the index from our vertex state.
   ld32 $index, $vertexPtr, $mzero, VERTEX_INDEX_BEGIN_OFFSET
@@ -86,16 +101,14 @@ VERTEX:
   // make some space on our stack
   add $sp, $sp, -(MEMSET_VERTEX_SIZE + STACK_SIZE)
 
-  // calculate size in bytes by doing:
-  //  (end - begin)/sizeof(IndexType) * slice * sizeof(OutType)
+  // number of indices
   sub $size, $size, $index
   shr $size, $size, LOG2_SIZEOF_UNSIGNED
 
   // store number of indices now before we turn it into number of bytes in
   // the output tensor.
   st32 $size, $sp, $mzero, STACK_INDEX_SIZE_OFFSET
-
-  mul $size, $size, $slice
+  ld32 $size, $vertexPtr, $mzero, VERTEX_OUT_LENGTH_OFFSET
   shl $size, $size, LOG2_SIZEOF_HALF
 
   // save the index before we run the memset vertex.
@@ -104,10 +117,13 @@ VERTEX:
   // begin saving our vertex state to the stack because this will get trashed by
   // the memset. we'll save $index later to avoid the load latency penalty.
   st32 $lr, $sp, $mzero, STACK_LR_OFFSET
+  st32 $m9, $sp, $mzero, STACK_CALLER_SAVE_OFFSET
 
   st32 $outBegin, $sp, $mzero, STACK_OUT_BEGIN_OFFSET
 
   st32 $slice, $sp, $mzero, STACK_SLICE_OFFSET
+
+  st32 $offsets_ptr, $sp, $mzero, STACK_OFFSETS
 
   // wordsPerWorker = size / (8*6) = (size * 0xAAAB) >> 21
   // see here for how these constants were derived: 
@@ -149,54 +165,68 @@ VERTEX:
   call $lr, __runCodelet_poplar_rt__MemsetZeroSupervisor
 
   // retrieve our vertex state and perform the one hot encoding.
+  ld32 $offsets_ptr, $sp, $mzero, STACK_OFFSETS
   ld32 $size, $sp, $mzero, STACK_INDEX_SIZE_OFFSET
   ld32 $index, $sp, $mzero, STACK_INDEX_BEGIN_OFFSET
   ld32 $slice, $sp, $mzero, STACK_SLICE_OFFSET
   ld32 $lr, $sp, $mzero, STACK_LR_OFFSET
   ld32 $outBegin, $sp, $mzero, STACK_OUT_BEGIN_OFFSET
 
-  // registers m0, m1, m2, m3 and m4 are available to use for encoding.
+  // registers m0, m2, m3 and m4 are available to use for encoding.
 
   // minus 1 for brnzdec
   add $size, $size, -1
 
-  // keep a register with slice/2 because when we do the 32-bit store that is
-  // offset by slice we must treat it like a 32-bit offset rather than 16-bit.
-  shr $m4, $slice, 1
-
 .Lencode_loop:
-  // load the next index.
-  ld32 $m3, $index, $mzero, $size
+    ld32step $m4, $mzero, $slice+=, 1
 
-  setzi $m0, 0x00003c00
-  shl $m1, $m0, 16
+    // use a separate copy as we need to check alignment of write address
+    mov $outBegin_cpy, $outBegin
 
-  // there is a 6 cycle penalty when index is larger than out.size().
-  cmpult $m2, $m3, $slice
-  brz $m2, .Lskip_index
+    // move out pointer to next slice before check on whether this index 
+    // lies within this slice
+    ldz16step $mzero, $mzero, $outBegin+=, $m4
 
-  // if index is even we want to write [1, 0], otherwise we want to write [0, 1]
-  // so, firstly check to see if index is even or odd
-  and $m2, $m3, 0x1
+    ld32step $m3, $mzero, $index+=, 1
+    ld32step $m0, $mzero, $offsets_ptr+=, 1
+    // Need to write only if index satisfies:
+    //   offset <= index < offset + slice
 
-  // when index is odd we want to swap the values round in our register.
-  movz $m0, $m2, $m1
+    // index - offset
+    sub $m3, $m3, $m0
 
-  // store it to index/2 because index refers to every 16-bits.
-  shr $m3, $m3, 1
-  mul $m2, $m4, $size
-  add $m3, $m3, $m2
-  stm32 $m0, $outBegin, $m3
+    brneg $m3, .Lskip_index
 
-  // 6 cycle penalty each iteration.
-  brnzdec $size, .Lencode_loop
+    // there is a 6 cycle penalty when index is larger than out.size().
+    cmpult $m2, $m3, $m4
+    brz $m2, .Lskip_index
+
+    // dummy load to move to index to write to
+    ldz16step $mzero, $mzero, $outBegin_cpy+=, $m3
+    and $m2, $outBegin_cpy, 0x2
+    setzi $m0, 0x3c00
+    // Pointer is 32-bit aligned
+    sub $outBegin_cpy, $outBegin_cpy, $m2
+    // TODO: reduce bubbles
+    brz $m2, .LEven
+    ldz16 $m4, $mzero, $outBegin_cpy, 0
+    sort4x16lo $m4, $m4, $m0
+    bri .LStore
+.LEven:   
+    ldz16 $m4, $mzero, $outBegin_cpy, 1
+    sort4x16lo $m4, $m0, $m4
+.LStore:    
+    stm32 $m4, $outBegin_cpy, $mzero
+
+.Lskip_index:
+    // 6 cycle penalty each iteration.
+    brnzdec $size, .Lencode_loop
 
 .Lepilogue:
   // restore stack pointer.
+  ld32 $m9, $sp, $mzero, STACK_CALLER_SAVE_OFFSET
   add $sp, $sp, MEMSET_VERTEX_SIZE + STACK_SIZE
   br $lr
 
-.Lskip_index:
-  brnzdec $size, .Lencode_loop
 
 #endif // __IPU__
