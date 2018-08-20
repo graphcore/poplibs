@@ -33,7 +33,6 @@ struct TestParams {
 // repeat count function correctly. The output can either be 8 byte or 4 byte
 // aligned. offsetOut of 2 equates to 4 byte aligned only.
 std::vector<TestParams> TestList={
-#if 0
     {1, 0, 2},      {2, 0, 3},
     {1, 0, 1},      {1, 2, 1},
     {2, 0, 1},      {2, 2, 1},
@@ -41,7 +40,6 @@ std::vector<TestParams> TestList={
     {4, 0, 1},      {4, 2, 1},
     {16 ,0, 1},     {16, 2, 1},
     {17, 0, 1},     {17, 2, 1},
-#endif
     {0x1100, 0, 1}, {0x1100, 2, 1},
 };
 
