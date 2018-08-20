@@ -301,7 +301,7 @@ exitz         $mzero
 // Where innerLoopCycles are vertex cycles
 // 
 
-.section ".text.\conv_hzmac_sup_half_float\()", "ax"
+.section .text.conv_hzmac_sup_half_float
 .type conv_hzmac_sup_half_float, @function
 .globl conv_hzmac_sup_half_float
 

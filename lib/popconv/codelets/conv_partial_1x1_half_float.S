@@ -363,7 +363,7 @@ bri           LNumElemsEq1
 
 // =============================================================================
 
-.section ".text.\conv_partial_sup_contiguous\()", "ax"
+.section .text.conv_partial_sup_contiguous
 .globl conv_partial_sup_contiguous 
 .type conv_partial_sup_contiguous, @function
 

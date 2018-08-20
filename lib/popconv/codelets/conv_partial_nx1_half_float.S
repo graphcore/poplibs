@@ -495,7 +495,7 @@ bri           StoreFinalAmpOutputs2
 // Where innerLoopCycles are:
 // Ky * (15 + Kx * (18 + AmpOutGroupLoop cycles ))
 
-.section ".text.\conv_partial_nx1_sup_contiguous\()", "ax"
+.section .text.conv_partial_nx1_sup_contiguous
 .type conv_partial_nx1_sup_contiguous, @function
 .globl conv_partial_nx1_sup_contiguous
 
