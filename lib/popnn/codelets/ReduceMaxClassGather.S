@@ -3,9 +3,11 @@
 // Assembly implementation of popnn::ReduceMaxClassGather vertex template
 // variations.
 
-// Restrictions:
-//
-//  * 4-byte aligned outputs
+// No restrictions
+
+// TODO: Much of the inner portion of this code is identical
+// to ReduceMaxClassSparse. There is an opportunity to reuse code here if
+// needed.
 
 #include "tilearch.h"
 #include "tileimplconsts_tommy.h"
@@ -21,8 +23,8 @@
 #define SIZE_VOFFSET 4
 #define DIVISORLOG2_VOFFSET (5 * 2) // 16-bit load
 
-#define GRAINSIZE_HALF 2
-#define LOG2_GRAINSIZE_HALF 1
+#define LOG2_SIZEOF_FLOAT 2
+#define LOG2_SIZEOF_HALF 1
 
 // Supervisor register aliases
 #define SUPER_BASE m0
@@ -31,22 +33,16 @@
 // Worker register aliases
 #define WORKER_ID m0
 #define ACTS_PTR m1
-#define MAXINDEX_PTR m2
-#define MAXACT_PTR m3
-#define TOTALSIZE m3
-#define SIZE m4
-#define DIVISORLOG2 m5
-#define OFFSET m6
-#define END m7
-#define N m8
-#define N0 m8
-#define N1 m9
-#define MAXINDEX m10
+#define SIZE m2
+#define DIVISORLOG2 m3
+#define OFFSET m4
+#define END m5
+#define N m6
+#define MAX_PTR m7
 #define MSCRATCH m11
 
 #define ACT a0
-#define MAXACT a1
-#define GRAIN a2
+#define MAX a1
 #define ASCRATCH a6
 
 .section .text.VERTEX(float, unsigned_int)
@@ -56,7 +52,8 @@
 .globl VERTEX(float, int)
 .type VERTEX(float, int), @function
 
-.align 4
+.align 8
+  nop
 VERTEX(float, unsigned_int):
 VERTEX(float, int):
   setzi $WORKER_ENTRY, .Lfloat_worker
@@ -80,53 +77,58 @@ VERTEX(float, int):
   shl $END, $END, $DIVISORLOG2
   min $END, $END, $SIZE
 
-  // Calculate number of elements, sub 1 for first loaded below
+  // Calculate number of elements, sub 1 for first element loaded below
   sub $N, $END, $OFFSET
-  add $SIZE, $N, -1
+  add $N, $N, -1
 
   // If there is no actual work for this worker, early exit
-  brneg $SIZE, .Lfloat_end
+  brneg $N, .Lfloat_end
 
   // Offset pointer
   ld32step $azero, $mzero, $ACTS_PTR+=, $OFFSET
 
-  // Get starting max values
-  ld32step $MAXACT, $mzero, $ACTS_PTR+=, 1
-  add $MAXINDEX, $N, -1
-
-  brz $MAXINDEX, .Lfloat_loop_end
-  // -2 for already handled value and for post-decrement brnzdec below
-  add $N, $N, -2
-.Lfloat_loop_start:
+  // Initialise max
+  mov $MAX_PTR, $ACTS_PTR
+  ld32step $MAX, $mzero, $MAX_PTR+=, 2
   ld32step $ACT, $mzero, $ACTS_PTR+=, 1
-  f32cmpgt $ASCRATCH, $ACT, $MAXACT
+
+  // Doesn't matter what $ASCRATCH is on the first
+  // loop iteration, $MAX_PTR will end up the same value
+  rpt $N, (2f-1f)/8-1
+1:
+  { ld32step $ACT, $mzero, $ACTS_PTR+=, 1
+    fnop }
+  { atom $MSCRATCH, $ASCRATCH
+    f32cmpgt $ASCRATCH, $ACT, $MAX }
+  { movz $MAX_PTR, $MSCRATCH, $ACTS_PTR
+    f32max $MAX, $ACT, $MAX }
+2:
+  // Handle remaining conditional set for the MAX_PTR, MAX is already handled.
+  ld32step $azero, $mzero, $ACTS_PTR+=, 1
   atom $MSCRATCH, $ASCRATCH
-  brz $MSCRATCH, .Lfloat_not_greater
-  { mov $MAXINDEX, $N
-    mov $MAXACT, $ACT }
-.Lfloat_not_greater:
-  brnzdec $N, .Lfloat_loop_start
-.Lfloat_loop_end:
+  movz $MAX_PTR, $MSCRATCH, $ACTS_PTR
 
-  // Recover the max index from N above, add the index from vertex state
-  sub $MAXINDEX, $SIZE, $MAXINDEX
-  add $MAXINDEX, $MAXINDEX, $OFFSET
+  // Calculate the index from $MAX_PTR
+  ld32 $ACTS_PTR, $mvertex_base, $mzero, ACTS_VOFFSET
+  sub $MAX_PTR, $MAX_PTR, $ACTS_PTR
+  shr $MAX_PTR, $MAX_PTR, LOG2_SIZEOF_FLOAT
+  // $MAX_PTR always ends up 2 elements ahead by the end of the loop
+  add $MAX_PTR, $MAX_PTR, -2
+  // Add the offset for the vertex's activations to the max index
   ld32 $MSCRATCH, $mvertex_base, $mzero, INDEX_VOFFSET
-  add $MAXINDEX, $MAXINDEX, $MSCRATCH
+  add $MAX_PTR, $MAX_PTR, $MSCRATCH
 
-  // Load maxValue/maxIndex output pointers
-  ld32 $MAXACT_PTR, $mvertex_base, $mzero, MAXACT_VOFFSET
-  ld32 $MAXINDEX_PTR, $mvertex_base, $mzero, MAXINDEX_VOFFSET
-
-  st32 $MAXACT, $MAXACT_PTR, $mzero, $WORKER_ID
-  stm32 $MAXINDEX, $MAXINDEX_PTR, $WORKER_ID
+  // Load maxValue/maxIndex output pointers, store
+  ld32 $MSCRATCH, $mvertex_base, $mzero, MAXACT_VOFFSET
+  st32 $MAX, $MSCRATCH, $mzero, $WORKER_ID
+  ld32 $MSCRATCH, $mvertex_base, $mzero, MAXINDEX_VOFFSET
+  stm32 $MAX_PTR, $MSCRATCH, $WORKER_ID
 
 .Lfloat_end:
   exitz $mzero
 
 .size VERTEX(float, unsigned_int), .-VERTEX(float, unsigned_int)
 .size VERTEX(float, int), .-VERTEX(float, int)
-
 
 .section .text.VERTEX(half, unsigned_int)
 .globl VERTEX(half, unsigned_int)
@@ -136,6 +138,7 @@ VERTEX(float, int):
 .type VERTEX(half, int), @function
 
 .align 8
+  nop
 VERTEX(half, unsigned_int):
 VERTEX(half, int):
   setzi $WORKER_ENTRY, .Lhalf_worker
@@ -145,87 +148,68 @@ VERTEX(half, int):
 
 .Lhalf_worker:
   // Load starting vertex state
-  ld32 $TOTALSIZE, $mvertex_base, $mzero, SIZE_VOFFSET
+  ld32 $ACTS_PTR, $mvertex_base, $mzero, ACTS_VOFFSET
+  ld32 $SIZE, $mvertex_base, $mzero, SIZE_VOFFSET
   ldz16 $DIVISORLOG2, $mvertex_base, $mzero, DIVISORLOG2_VOFFSET
-  ld32 $MAXINDEX_PTR, $mvertex_base, $mzero, MAXINDEX_VOFFSET
 
   // Get worker ID
   get $WORKER_ID, $WSR
   and $WORKER_ID, $WORKER_ID, CSR_W_WSR__CTXTID_M1__MASK
 
-  shl $N0, $WORKER_ID, LOG2_GRAINSIZE_HALF
-
-  // If there are no outputs, it isn't safe to proceed
-  shl $OFFSET, $N0, $DIVISORLOG2
-  cmpult $MSCRATCH, $OFFSET, $TOTALSIZE
-  brz $MSCRATCH, .Lhalf_end
-.Lhalf_loop_outer_start:
-  // Compute this region
-  shl $OFFSET, $N0, $DIVISORLOG2
-  add $END, $N0, 1
+  // Compute worker region
+  shl $OFFSET, $WORKER_ID, $DIVISORLOG2
+  add $END, $WORKER_ID, 1
   shl $END, $END, $DIVISORLOG2
-  min $END, $END, $TOTALSIZE
+  min $END, $END, $SIZE
 
-  sub $N1, $END, $OFFSET
-  add $SIZE, $N1, -1
+  // Calculate number of elements, sub 1 for first element loaded below
+  sub $N, $END, $OFFSET
+  add $N, $N, -1
 
-  // If this region is empty, this worker is done, so go to the store
-  brneg $SIZE, .Lhalf_handle_maxact
+  // If there is no actual work for this worker, early exit
+  brneg $N, .Lhalf_end
 
-  // Load pointer and offset
-  ld32 $ACTS_PTR, $mvertex_base, $mzero, ACTS_VOFFSET
+  // Offset pointer
   ldb16step $azero, $mzero, $ACTS_PTR+=, $OFFSET
 
-  // Get starting max values
-  ldb16step $MAXACT, $mzero, $ACTS_PTR+=, 1
-  add $MAXINDEX, $N1, -1
-
-  // -2 for already handled value and for post-decrement brnzdec below
-  add $N1, $N1, -2
-  brneg $N1, .Lhalf_loop_end
-.Lhalf_loop_start:
+  // Initialise max
+  mov $MAX_PTR, $ACTS_PTR
+  ldb16step $MAX, $mzero, $MAX_PTR+=, 2
   ldb16step $ACT, $mzero, $ACTS_PTR+=, 1
-  f16v2cmpgt $ASCRATCH, $ACT, $MAXACT
+
+  // Doesn't matter what $ASCRATCH is on the first
+  // loop iteration, $MAX_PTR will end up the same value
+  rpt $N, (2f-1f)/8-1
+1:
+  { ldb16step $ACT, $mzero, $ACTS_PTR+=, 1
+    fnop }
+  { atom $MSCRATCH, $ASCRATCH
+    f16v2cmpgt $ASCRATCH, $ACT, $MAX }
+  { movz $MAX_PTR, $MSCRATCH, $ACTS_PTR
+    f16v2max $MAX, $ACT, $MAX }
+2:
+  // Handle remaining conditional set for the MAX_PTR, MAX is already handled.
+  ldb16step $azero, $mzero, $ACTS_PTR+=, 1
   atom $MSCRATCH, $ASCRATCH
-  brz $MSCRATCH, .Lhalf_not_greater
-  { mov $MAXINDEX, $N1
-    mov $MAXACT, $ACT }
-.Lhalf_not_greater:
-  brnzdec $N1, .Lhalf_loop_start
-.Lhalf_loop_end:
+  movz $MAX_PTR, $MSCRATCH, $ACTS_PTR
 
-  // Recover max index from N above, add vertex offset, add worker offset
-  sub $MAXINDEX, $SIZE, $MAXINDEX
-  add $MAXINDEX, $MAXINDEX, $OFFSET
+  // Calculate the index from $MAX_PTR
+  ld32 $ACTS_PTR, $mvertex_base, $mzero, ACTS_VOFFSET
+  sub $MAX_PTR, $MAX_PTR, $ACTS_PTR
+  shr $MAX_PTR, $MAX_PTR, LOG2_SIZEOF_HALF
+  // $MAX_PTR always ends up 2 elements ahead by the end of the loop
+  add $MAX_PTR, $MAX_PTR, -2
+  // Add the offset for the vertex's activations to the max index
   ld32 $MSCRATCH, $mvertex_base, $mzero, INDEX_VOFFSET
-  add $MAXINDEX, $MAXINDEX, $MSCRATCH
-  stm32 $MAXINDEX, $MAXINDEX_PTR, $N0
+  add $MAX_PTR, $MAX_PTR, $MSCRATCH
 
-  // Store maxAct away for storage later
-  roll16 $GRAIN, $GRAIN, $MAXACT
-  add $N0, $N0, 1
-  add $MSCRATCH, $WORKER_ID, 1
-  shl $MSCRATCH, $MSCRATCH, LOG2_GRAINSIZE_HALF
-  cmpeq $MSCRATCH, $MSCRATCH, $N0
-  brz $MSCRATCH, .Lhalf_loop_outer_start
+  // Load maxValue/maxIndex output pointers, store
+  { ld32 $MSCRATCH, $mvertex_base, $mzero, MAXACT_VOFFSET
+    f16tof32 $MAX, $MAX }
+  st32 $MAX, $MSCRATCH, $mzero, $WORKER_ID
+  ld32 $MSCRATCH, $mvertex_base, $mzero, MAXINDEX_VOFFSET
+  stm32 $MAX_PTR, $MSCRATCH, $WORKER_ID
 
-.Lhalf_handle_maxact:
-  ld32 $MAXACT_PTR, $mvertex_base, $mzero, MAXACT_VOFFSET
-
-  // Check if we have the full word of output or not
-  and $N0, $N0, 1
-  brz $N0, .Lhalf_store_maxact
-
-  // We have a single output to write, merge with the hi
-  // half that is already in memory.
-  ld32 $ASCRATCH, $MAXACT_PTR, $mzero, $WORKER_ID
-  sort4x16hi $GRAIN, $GRAIN, $ASCRATCH
-
-.Lhalf_store_maxact:
-  // By happy coincidence, the 32-bit output slot we
-  // want is exactly the worker ID
-  st32 $GRAIN, $MAXACT_PTR, $mzero, $WORKER_ID
- 
 .Lhalf_end:
   exitz $mzero
 

@@ -131,3 +131,23 @@ foreach(DATA_TYPE int float half bool)
   configure_file(${DATA_HEADER} ${CMAKE_CURRENT_BINARY_DIR}/${DATA_HEADER} COPYONLY)
   add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC})
 endforeach()
+
+add_codelet_test_executable(ReduceMaxClassGather ReduceMaxClassGather.cpp)
+foreach(ACTIVATION_TYPE half float)
+  foreach(SIZE RANGE 1 24)
+    set(VARIANT_NAME "ReduceMaxClassGather_${ACTIVATION_TYPE}_${SIZE}/4")
+    add_multitarget_test(NAME ${VARIANT_NAME}
+                           COMMAND ReduceMaxClassGather
+                           --activation-type=${ACTIVATION_TYPE}
+                           --divisor=4
+                           --size=${SIZE})
+  endforeach()
+endforeach()
+
+add_codelet_test_executable(ReduceMaxClassSparse ReduceMaxClassSparse.cpp)
+foreach(SIZE RANGE 1 4)
+  set(VARIANT_NAME "ReduceMaxClassSparse_${SIZE}")
+  add_multitarget_test(NAME ${VARIANT_NAME}
+                         COMMAND ReduceMaxClassSparse
+                         --size=${SIZE})
+endforeach()

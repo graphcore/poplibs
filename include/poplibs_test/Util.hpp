@@ -99,6 +99,8 @@ copy(const poplar::Target &target,
     std::copy(src, src + n, reinterpret_cast<float*>(dst));
   } else if (dstType == poplar::HALF) {
     detail::copyToDevice<T>(target, src, dst, n);
+  } else if (dstType == poplar::UNSIGNED_INT) {
+    std::copy(src, src + n, reinterpret_cast<unsigned*>(dst));
   } else if (dstType == poplar::INT) {
     std::copy(src, src + n, reinterpret_cast<int*>(dst));
   } else {
@@ -155,6 +157,11 @@ copy(const poplar::Target &target,
   assert(dst.storage_order() == boost::c_storage_order());
   copy(target, srcType, src, dst.data(), dst.num_elements());
 }
+
+template <typename intType>
+bool checkEqual(const std::string &name, const intType *actual,
+                const std::vector<std::size_t> &shape,
+                const intType *expected, std::size_t N);
 
 template <typename FPType>
 bool checkIsClose(const std::string &name, const FPType *actual,

@@ -259,44 +259,23 @@ MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxClassGather)
   CODELET_SCALAR_VAL(size, unsigned);
   CODELET_SCALAR_VAL(divisorLog2, unsigned short);
   const auto numWorkers = target.getNumWorkerContexts();
-  const auto maxValueGrainSize =
-    std::max<std::size_t>(1, target.getAtomicStoreGranularity() /
-                             target.getTypeSize(fpType));
   const auto divisor = (1u << divisorLog2);
   // Check the divisor chosen is large enough to process all inputs
   // with the target number of workers and the grain size.
-  assert(divisor * maxValueGrainSize * numWorkers >= size);
+  assert(divisor * numWorkers >= size);
   const auto isFloat = (fpType == FLOAT);
 
-  // NOTE: Cycles per act in inner loop are conservative in that we assume
-  // we always take the branch. i.e. activations are sorted in ascending
-  // order when passed to the vertex.
-  if (isFloat) {
-    cycles += 3 + // Load acts ptr, size, divisor
-              2 + // Get worker ID
-              7 + // Calculate the worker region, branch if nothing
-              1 + // Offset pointer
-              2 + // Initialise maxValue/maxIndex
-              2 + // sub for brnzdec, skip loop if single element
-              (divisor - 1) * 6 +
-              4 + // Recover maxIndex from loop
-              2 + // Load maxValue/maxIndex pointers
-              2;  // Store maxValue/maxIndex
-  } else {
-    cycles += 3 + // Load vertex state
-              2 + // Get worker ID
-              4 + // Setup outer loop, branch if nothing to do
-              2 * (4 + // Calculate region
-                   3 + // Setup loop counter, branch if empty
-                   2 + // Load and offset pointer for worker
-                   2 + // Initialise maxValue/maxIndex
-                   2 + // sub for brnzdec, skip loop if single element
-                   (divisor - 1) * 6 +
-                   4 + // Recover maxIndex from loop
-                   1 + // Store maxIndex
-                   6)+ // Increment outer loop counter, branch
-              ((size & 1) ? 6 : 4); // RMW/store for maxValue
-  }
+  cycles += 3 + // Load acts pointer, size, divisor
+            2 + // Get worker ID
+            4 + // Calculate the worker's region
+            3 + // Calculate N, sub 1 for first element, branch if no work.
+            1 + // Offset pointer for worker
+            3 + // Load first element as max, setup pointers
+            1 + // rpt
+            std::min(divisor - 1, size - 1) * 3 +
+            3 + // Handle remaining element from loop
+            6 + // Calculate max index from max act pointer
+            4;  // Load maxValue/maxIndex pointers, store (+ f16->f32 for half)
 
   return cycles;
 }
@@ -305,35 +284,21 @@ std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxClassSparse)
   (const VertexIntrospector &vertex,
    const Target &target,
-   const Type &fpType,
    const Type &labelType) {
   std::uint64_t cycles = 5; // Vertex overhead
   CODELET_FIELD(activations);
   CODELET_FIELD(labels);
   const auto numActs = activations.size();
   assert(numActs == labels.size());
-  const auto isFloat = (fpType == FLOAT);
 
-  cycles += 3 + // Load acts pointer start/end, labels pointer
-            2 + // sub + shr acts pointers for element count
-            4 + // Load first act as maxValue, initialise maxIndex
-            2;  // sub 2 for first element and brnzdec, branch if done
-
-  // NOTE: Cycles per act are conservative in that we assume we always
-  // take the branch. i.e. activations are sorted in ascending order
-  // when passed to the vertex.
-  cycles += (numActs - 1) *
-              (2 + // [M] load act pointer, load act
-               1 + // [A] compare to current max
-               1 + // [M] atom
-               1 + // [M] branch
-               1 + // [M/A] set current max value/index
-               1); // [M] brnzdec
-
-  cycles += 3 + // Recover max index from loop above, load actual label
-            2 + // Load maxValue/maxIndex pointers
-            1 + // Store maxIndex
-            (isFloat ? 1 : 6); // Store maxValue
+  cycles += 2 + // Load acts start/end pointer
+            3 + // Calculate N, sub 1 for first element
+            3 + // Load first element as max, setup pointers
+            1 + // rpt
+            (numActs - 1) * 3 +
+            3 + // Handle remaining element from loop
+            6 + // Calculate max index from max act pointer
+            4;  // Load maxValue/maxIndex pointers, store
 
   return cycles;
 }
@@ -403,10 +368,8 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, FLOAT, INT),
     CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassGather, HALF, INT),
 
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, FLOAT, UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, HALF, UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, FLOAT, INT),
-    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, HALF, INT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, UNSIGNED_INT),
+    CYCLE_ESTIMATOR_ENTRY(popnn, ReduceMaxClassSparse, INT),
 
     CYCLE_ESTIMATOR_ENTRY(popnn, CalcAccuracy, UNSIGNED_INT),
     CYCLE_ESTIMATOR_ENTRY(popnn, CalcAccuracy, INT),

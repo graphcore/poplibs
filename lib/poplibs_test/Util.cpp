@@ -111,6 +111,36 @@ std::string prettyCoord(const std::string &name, std::size_t index,
   return str;
 }
 
+template <typename intType>
+bool checkEqual(const std::string &name, const intType *actual,
+                const std::vector<std::size_t> &shape,
+                const intType *expected, std::size_t N) {
+  auto it = actual;
+  auto end = it + N;
+  bool equal = true;
+  for (; it != end; ++it, ++expected) {
+    if (*it != *expected) {
+      std::cerr << "mismatch on element ";
+      equal = false;
+      const auto n = it - actual;
+      std::cerr << prettyCoord(name, n, shape) << ':';
+      std::cerr << " expected=" << *expected;
+      std::cerr << " actual=" << *it << '\n';
+    }
+  }
+  return equal;
+}
+
+template bool checkEqual<unsigned>(
+    const std::string &, const unsigned *,
+    const std::vector<std::size_t> &,
+    const unsigned *, std::size_t);
+
+template bool checkEqual<std::uint64_t>(
+    const std::string &, const std::uint64_t *,
+    const std::vector<std::size_t> &,
+    const std::uint64_t *, std::size_t);
+
 template <typename FPType>
 bool checkIsClose(const std::string &name, const FPType *actual,
                   const std::vector<std::size_t> &shape,
@@ -160,6 +190,8 @@ std::istream &operator>>(std::istream &in, poplar::Type &type) {
     type = poplar::HALF;
   else if (token == "float")
     type = poplar::FLOAT;
+  else if (token == "unsigned")
+    type = poplar::UNSIGNED_INT;
   else if (token == "int")
     type = poplar::INT;
   else if (token == "bool")

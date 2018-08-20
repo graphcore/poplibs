@@ -8,6 +8,7 @@
 #include "poputil/Broadcast.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
+#include "poplibs_support/Algorithm.hpp"
 
 #include <boost/optional.hpp>
 #include <limits>
@@ -19,17 +20,6 @@ using namespace poputil;
 namespace popnn {
 
 namespace {
-
-// Unsigned integer version of log2 rounded up
-// Single-line constexpr form added to allow compile-time calculation.
-// Could be nicer if using multi-line constexpr function (needs C++14).
-constexpr static unsigned ceilLog2Aux(unsigned n) {
-  return (n ? 1 + ceilLog2Aux(n >> 1) : 0);
-}
-// Check if power of 2 and then call to count up to most significant bit
-constexpr static unsigned ceilLog2(unsigned n) {
-  return ((n & (n - 1)) ? 1 : 0) + ceilLog2Aux(n >> 1);
-}
 
 // Per-element of input probabilities, on the tile these are mapped to
 // compute the gradient and the contribution to loss.
@@ -279,15 +269,13 @@ calcAccuracy(Graph &graph,
 
   const auto &target = graph.getTarget();
   const auto tilesPerIPU = target.getTilesPerIPU();
-  const auto maxValueGrainSize =
-    std::max<std::size_t>(1, target.getAtomicStoreGranularity() /
-                             target.getTypeSize(activationType));
+
   const auto reduceGatherVertexClass =
     templateVertex("popnn::ReduceMaxClassGather",
                    activationType, expectedType);
   const auto reduceSparseVertexClass =
     templateVertex("popnn::ReduceMaxClassSparse",
-                   activationType, expectedType);
+                   expectedType);
   const auto calcAccuracyVertexClass =
     templateVertex("popnn::CalcAccuracy", expectedType);
 
@@ -304,10 +292,7 @@ calcAccuracy(Graph &graph,
     // These numbers are good enough to handle existing number of activations
     // and batch size for current hardware. The advent of an enormous number
     // of batches or activations would need a bit more thought.
-    std::size_t partialsFactor = 16;
-    if (lastBatchPartials <= partialsFactor * 2) {
-      partialsFactor = partialsFactor * 2;
-    }
+    std::size_t partialsFactor = 32;
     const auto batchPartials =
       (lastBatchPartials + partialsFactor - 1) / partialsFactor;
 
@@ -320,8 +305,14 @@ calcAccuracy(Graph &graph,
       graph.addComputeSet(layerPrefix + "/ReduceMaxClass[" +
                           std::to_string(reduceIndex) + "]"));
     const auto &cs = reductionCS.back();
+    // Partial values are always 32-bit floating point. We don't need to
+    // perform any arithmetic on these values so the precision is equivalent
+    // to the original. This allows the half supervisor reduction vertex to
+    // operate on a single split per-worker as it no longer has to avoid
+    // sub-word writes. Memory cost is tiny here as there are very few
+    // of these partials.
     auto valuePartials =
-      graph.addVariable(activationType, {batchSize, batchPartials},
+      graph.addVariable(FLOAT, {batchSize, batchPartials},
                         layerPrefix + "/maxValuePartials[" +
                         std::to_string(reduceIndex) + "]");
     auto indexPartials =
@@ -340,12 +331,11 @@ calcAccuracy(Graph &graph,
         if (isFirstReduce) {
           // This first reduction uses a supervisor vertex, so try and give it
           // a grain of splits per-worker each time.
-          const auto supervisorPartials = partialsFactor * numWorkers *
-                                          maxValueGrainSize;
+          const auto supervisorPartials = partialsFactor * numWorkers;
           const auto partialsThisSplit =
             std::min(lastBatchPartials - batchOffset,
                      supervisorPartials);
-          const auto divisorLog2 = ceilLog2(partialsFactor);
+          const auto divisorLog2 = poplibs_support::ceilLog2(partialsFactor);
           const auto divisor = (1u << divisorLog2);
           const auto nOutputs = (partialsThisSplit + divisor - 1) / divisor;
           auto splitValuePartials =

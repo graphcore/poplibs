@@ -365,8 +365,8 @@ class ReduceMaxClassGather : public SupervisorVertex {
 public:
   Input<Vector<FPType, ONE_PTR>> activations;
   LabelType index;
-  Output<Vector<FPType, ONE_PTR, 4>> maxValue;
-  Output<Vector<LabelType, ONE_PTR, 4>> maxIndex;
+  Output<Vector<float, ONE_PTR>> maxValue;
+  Output<Vector<LabelType, ONE_PTR>> maxIndex;
   unsigned size;
   unsigned short divisorLog2;
 
@@ -398,18 +398,18 @@ template class ReduceMaxClassGather<half, unsigned int>;
 template class ReduceMaxClassGather<float, int>;
 template class ReduceMaxClassGather<half, int>;
 
-template <typename FPType, typename LabelType>
+template <typename LabelType>
 class ReduceMaxClassSparse : Vertex {
 public:
-  Vector<Input<FPType>> activations;
-  Vector<Input<LabelType>, ONE_PTR> labels;
-  Output<FPType> maxValue;
+  Input<Vector<float>> activations;
+  Input<Vector<LabelType, ONE_PTR>> labels;
+  Output<float> maxValue;
   Output<LabelType> maxIndex;
 
   IS_EXTERNAL_CODELET(true);
   bool compute() {
     LabelType maxI = 0;
-    FPType maxV = activations[0];
+    float maxV = activations[0];
     for (std::size_t i = 1; i < activations.size(); ++i) {
       if (activations[i] > maxV) {
         maxV = activations[i];
@@ -422,10 +422,8 @@ public:
   }
 };
 
-template class ReduceMaxClassSparse<float, unsigned int>;
-template class ReduceMaxClassSparse<half, unsigned int>;
-template class ReduceMaxClassSparse<float, int>;
-template class ReduceMaxClassSparse<half, int>;
+template class ReduceMaxClassSparse<unsigned int>;
+template class ReduceMaxClassSparse<int>;
 
 template <typename LabelType>
 class CalcAccuracy : public Vertex {
