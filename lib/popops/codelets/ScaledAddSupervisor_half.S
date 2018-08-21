@@ -8,11 +8,23 @@
 .globl VERTEX
 .type VERTEX, @function
 
-// constants
+// vertex state
+
 #define VERTEX_DATA_OFFSET 0
 #define VERTEX_PACKED_COUNT_OFFSET 1
 #define VERTEX_DELTAS_OFFSET 2
-#define VERTEX_K_OFFSET 6
+#define VERTEX_K_OFFSET 3
+
+// create a new vertex state on the supervisor stack that has the input values
+// preprocessed for all of the workers to use.
+#define SV_STATE_VPTR_OFFSET 0
+#define SV_STATE_COUNT_OFFSET 1
+#define SV_STATE_REMM1_OFFSET 2
+#define SV_STATE_FINAL_OFFSET 3
+
+#define SV_STATE_SIZE 16
+
+// constants
 
 #define LOG2_SIZEOF_HALF 1
 // to avoid sub-word writes we must make sure that each worker processes
@@ -22,23 +34,114 @@
 
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
+// supervisor variables
+#define vertexPtr m0
+#define dataPtr m1
+#define countD4 m2
+#define final m3
+#define remM1 m4
+#define entry m5
+
+#define mscratch m6
+#define mscratch2 m7
+
 .section .text.VERTEX
 .align 4
-
 VERTEX:
-  setzi $m1, scaled_add_kernel
-  runall $m1, $m0, 0
+  // load vertex state
+  ld32 $dataPtr, $vertexPtr, $mzero, VERTEX_DATA_OFFSET
+  ld32 $countD4, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET
+
+  // initialise some constants used below.
+  setzi $mscratch, 0xAAAB
+  setzi $entry, scaled_add_kernel
+
+  add $sp, $sp, -SV_STATE_SIZE
+
+  // derive count from (end-start)/sizeof(half)
+  sub $countD4, $countD4, $dataPtr
+  shr $countD4, $countD4, LOG2_SIZEOF_HALF
+
+  // transform the total count into remM1, final and count/6:
+  //  where remM1 is the amount of workers (minus 1) that are required to
+  //  process an extra atom size of elements, final is the non atom size
+  //  remainder the final worker must process (when N is not divisible by the
+  //  atoms size) and count is how many elements every worker processes
+
+  // final = count % atomSize
+  and $final, $countD4, (1 << LOG2_ATOM_SIZE) - 1
+
+  // for the rest calculate n / 6 and n % 6 by reciprocal multiplcation
+  //   n/6 = (n * 0xAAAB) >> 18
+  //   n%6 = n - (n/6)*6
+  // where n = count/atomSize
+  // see recipe #1 for how these constants were derived:
+  //   https://embeddedgurus.com/stack-overflow/2009/06/division-of-integers-by-constants/
+  shr $countD4, $countD4, LOG2_ATOM_SIZE
+
+  // rem = (count / atomSize) % numWorkers + ceil(final, atomSize)
+  //  where ceil(x, y) = x / y + (x % y > 0);
+  shr $remM1, $final, LOG2_ATOM_SIZE
+
+  // mscratch = n/6
+  mul $mscratch, $countD4, $mscratch
+  shr $mscratch, $mscratch, 18
+
+  // mscratch2 = n%6
+  mul $mscratch2, $mscratch, 6
+  sub $mscratch2, $countD4, $mscratch2
+
+  // countPerWorker = (count / atomSize) / numWorkers * atomSize
+  shl $countD4, $mscratch, LOG2_ATOM_SIZE
+
+  add $remM1, $remM1, $mscratch2
+
+  and $mscratch, $final, (1 << LOG2_ATOM_SIZE) - 1
+  cmpne $mscratch, $mscratch, $mzero
+  add $remM1, $remM1, $mscratch
+
+  // when final is zero that means that the final worker can process an entire
+  // block of elements. the easiest way to represent this is to add one to
+  // remM1 (or just don't decrement it) in that case.
+  brz $final, 1f
+  add $remM1, $remM1, -1
+1:
+
+  // process 4 at a time first as this is the optimal scenario
+  shr $countD4, $countD4, 2
+
+  // allocate space on the stack for our new state and store it.
+  st32 $vertexPtr, $sp, $mzero, SV_STATE_VPTR_OFFSET
+  st32 $remM1, $sp, $mzero, SV_STATE_REMM1_OFFSET
+  st32 $final, $sp, $mzero, SV_STATE_FINAL_OFFSET
+  st32 $countD4, $sp, $mzero, SV_STATE_COUNT_OFFSET
+
+  runall $entry, $sp, 0
   sync TEXCH_SYNCZONE_LOCAL
+
+  // restore the stack pointer
+  add $sp, $sp, SV_STATE_SIZE
+
   br $lr
+
+// clear supervisor variables
+#undef vertexPtr
+#undef dataPtr
+#undef countD4
+#undef final
+#undef remM1
+#undef entry
+#undef mscratch
+#undef mscratch2
 
 // worker variables
 
 // integer variables
-#define dataPtr m0
-#define count m1
+#define vertexPtr m0
+#define dataPtr m1
 #define remM1 m2
 #define final m3
-#define countD m4
+#define countD4 m4
 #define deltaPtr m5
 #define triPtr m6:7
 #define triPtri0 m6
@@ -58,90 +161,41 @@ VERTEX:
 
 // scratch variables
 #define mscratch m10
-#define mscratch2 m11
 #define ascratch a7
 
 .align 8
 scaled_add_kernel:
   // load vertex state
-  ld32 $dataPtr, $mvertex_base, $mzero, VERTEX_DATA_OFFSET
-  ld32 $count, $mvertex_base, $mzero, VERTEX_PACKED_COUNT_OFFSET
-  ld32 $deltaPtr, $mvertex_base, $mzero, VERTEX_DELTAS_OFFSET
-  ldb16 $k, $mvertex_base, $mzero, VERTEX_K_OFFSET
+  ld32 $vertexPtr, $mvertex_base, $mzero, SV_STATE_VPTR_OFFSET
+  ld32 $countD4, $mvertex_base, $mzero, SV_STATE_COUNT_OFFSET
+  ld32 $remM1, $mvertex_base, $mzero, SV_STATE_REMM1_OFFSET
+  ld32 $final, $mvertex_base, $mzero, SV_STATE_FINAL_OFFSET
 
-  // derive count from (end-start)/sizeof(half)
-  sub $count, $count, $dataPtr
-  shr $count, $count, LOG2_SIZEOF_HALF
-
-  // transform the total count into remM1, final and count/6:
-  //  where remM1 is the amount of workers (minus 1) that are required to
-  //  process an extra atom size of elements, final is the non atom size
-  //  remainder the final worker must process (when N is not divisible by the
-  //  atoms size) and count is how many elements every worker processes
-
-  // final = count % atomSize
-  and $final, $count, (1 << LOG2_ATOM_SIZE) - 1
-
-  // for the rest calculate n / 6 and n % 6 by reciprocal multiplcation
-  //   n/6 = (n * 0xAAAB) >> 18
-  //   n%6 = n - (n/6)*6
-  // where n = count/atomSize
-  // see recipe #1 for how these constants were derived:
-  //   https://embeddedgurus.com/stack-overflow/2009/06/division-of-integers-by-constants/
-  shr $count, $count, LOG2_ATOM_SIZE
-
-  // mscratch = n/6
-  setzi $mscratch, 0xAAAB
-  mul $mscratch, $count, $mscratch
-  shr $mscratch, $mscratch, 18
-
-  // mscratch2 = n%6
-  mul $mscratch2, $mscratch, 6
-  sub $mscratch2, $count, $mscratch2
-
-  // countPerWorker = (count / atomSize) / numWorkers * atomSize
-  shl $count, $mscratch, LOG2_ATOM_SIZE
-
-  // rem = (count / atomSize) % numWorkers + ceil(final, atomSize)
-  //  where ceil(x, y) = x / y + (x % y > 0);
-  shr $remM1, $final, LOG2_ATOM_SIZE
-  add $remM1, $remM1, $mscratch2
-
-  and $mscratch, $final, (1 << LOG2_ATOM_SIZE) - 1
-  cmpne $mscratch, $mscratch, $mzero
-  add $remM1, $remM1, $mscratch
-
-  // remM1 = rem - 1
-  add $remM1, $remM1, -1
-
+  ld32 $dataPtr, $vertexPtr, $mzero, VERTEX_DATA_OFFSET
+  ld32 $deltaPtr, $vertexPtr, $mzero, VERTEX_DELTAS_OFFSET
   {
-    get $workerIdM1, $WSR
+    ld32 $k, $vertexPtr, $mzero, VERTEX_K_OFFSET
     f16v2exp $ascratch, $azero
   }
   {
-    and $workerIdM1, $workerIdM1, CSR_W_WSR__CTXTID_M1__MASK
+    get $workerIdM1, $WSR
     // $k should have the form of {k, 1}
     sort4x16lo $k, $k, $ascratch
   }
   {
-    // pack in pointers (out is never used).
-    tapack $triPtr, $dataPtr, $deltaPtr, $mzero
-    // setup $TAS for the f16v4mix instructions below.
+    and $workerIdM1, $workerIdM1, CSR_W_WSR__CTXTID_M1__MASK
+    // setup $TAS for the f32v2axpy instructions below.
     uput $TAS, $k
   }
   {
-    // process 4 at a time first as this is the optimal scenario
-    shr $countD, $count, 2
+    // pack out points (in is never used).
+    tapack $triPtr, $dataPtr, $deltaPtr, $mzero
     setzi $ascratch, ZAACC_BITMASK
   }
 
-  // if worker id is less than the remainder or equal to and final is zero then
-  // this worker can process an extra 4.
+  // if worker id is less than the remainder this worker can process an extra 4.
   cmpslt $mscratch, $workerIdM1, $remM1
-  cmpeq $mscratch2, $workerIdM1, $remM1
-  movz $mscratch2, $final, $mzero
-  or $mscratch, $mscratch, $mscratch2
-  add $countD, $countD, $mscratch
+  add $countD4, $countD4, $mscratch
 
   // offset each worker's pointer into the data to interleave them.
   ld64step $azeros, $mzero, $dataPtr+=, $workerIdM1
@@ -149,11 +203,7 @@ scaled_add_kernel:
   // twice in the same instruction.
   ld2x64pace $azeros, $data, $triPtr+=, $workerIdM1, 0b0101
 
-  {
-    brz $countD, .Lvector_epilogue
-    // zero accumulators
-    uput $FP_CLR, $ascratch
-  }
+  brz $countD4, .Lvector_epilogue
 
   // each worker's data is interleaved so set a stride of how many workers
   // we have.
@@ -163,7 +213,7 @@ scaled_add_kernel:
   ld2x64pace $data, $delta, $triPtr+=, $stride, 0b0101
   {
     // minus 1 because we pipeline the first value.
-    add $mscratch, $countD, -1
+    add $mscratch, $countD4, -1
     f16v4mix $azeros, $delta, $data
   }
 
