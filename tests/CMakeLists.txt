@@ -210,7 +210,7 @@ add_popnn_unit_test(GraphProgLocationTest GraphProgLocationTest.cpp)
 add_popnn_unit_test(StdOperatorTest StdOperatorsTest.cpp
                     VARIANTS ${TimesOutOnSim})
 add_popnn_unit_test(BatchNormTest BatchNormTest.cpp
-                    VARIANTS IpuModel)
+                    VARIANTS ${TimesOutOnSim})
 add_popnn_unit_test(ReductionTests ReductionTests.cpp VARIANTS ${TimesOutOnSim})
 add_popnn_unit_test(LargeSplitRegionsTest LargeSplitRegionsTest.cpp)
 if (APPLE)
@@ -1354,7 +1354,7 @@ add_multitarget_test(
                  --batch-size=4
                  --conv-groups=2
                  --single-phase=bwd
-                 VARIANTS IpuModel)
+                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME grouped_conv_batch_float_wu
@@ -1920,7 +1920,7 @@ add_multitarget_test(NAME avg_pool_layer_float_batch
                  --kernel-size=2
                  --stride=2
                  --data-type=float
-                 VARIANTS IpuModel)
+                 VARIANTS ${TimesOutOnSim})
 
 add_test(NAME avg_pool_layer_2ipu
          COMMAND pooling_layer

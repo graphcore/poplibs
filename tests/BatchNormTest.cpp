@@ -450,8 +450,8 @@ BOOST_AUTO_TEST_CASE(BatchNormConv_Batch4_Dim28x28_Ch40_LargeEps){
   const Type dataType = HALF;
   const Type partialsType = FLOAT;
 
-  const unsigned tilesPerIPU = 16;
-  auto matchesModel = BatchNormConv({4, 28, 28, 40}, eps, learningRate,
+  const unsigned tilesPerIPU = 24;
+  auto matchesModel = BatchNormConv({4, 20, 20, 32}, eps, learningRate,
                                     tilesPerIPU, dataType, partialsType);
   BOOST_TEST(matchesModel == true);
 }
@@ -523,4 +523,3 @@ BOOST_AUTO_TEST_CASE(BatchNormFc_Batch8_Acts512_DataFloat_PartialsFloat) {
                                   tilesPerIPU, dataType, partialsType);
   BOOST_TEST(matchesModel == true);
 }
-
