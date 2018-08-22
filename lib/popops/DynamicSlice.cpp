@@ -140,6 +140,7 @@ static void generateVertices(std::string vertexName,
                                });
       graph.setInitialValue(v["numBaseElements"], numBaseElements);
       graph.setInitialValue(v["numSubElements"], numSubElements);
+      graph.setInitialValue(v["numRegions"], base.size()/numBaseElements);
       graph.setTileMapping(v, tile);
     }
   } // end loop over tiles

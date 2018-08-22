@@ -881,7 +881,8 @@ MAKE_CYCLE_ESTIMATOR_NAME(DynamicSlice)(const VertexIntrospector &vertex,
     vertex.getFieldInfo("numSubElements").getInitialValue<unsigned>(target);
 
   unsigned vectorWidth = target.getDataPathWidth() / (sizeof(type) * 8);
-  auto numRegions = baseT.size() / numBaseElements;
+  const unsigned numRegions =
+          vertex.getFieldInfo("numRegions").getInitialValue<unsigned>(target);
   auto cycles = 5;
   for (unsigned r = 0; r != numRegions; ++r) {
     auto regionSize = baseT[r * numBaseElements].size();
@@ -902,7 +903,8 @@ MAKE_CYCLE_ESTIMATOR_NAME(DynamicUpdateSlice)(const VertexIntrospector &vertex,
     vertex.getFieldInfo("numSubElements").getInitialValue<unsigned>(target);
 
   unsigned vectorWidth = target.getDataPathWidth() / (sizeof(type) * 8);
-  auto numRegions = baseT.size() / numBaseElements;
+  const unsigned numRegions =
+          vertex.getFieldInfo("numRegions").getInitialValue<unsigned>(target);
   auto cycles = 5;
   for (unsigned r = 0; r != numRegions; ++r) {
     auto regionSize = baseT[r * numBaseElements].size();

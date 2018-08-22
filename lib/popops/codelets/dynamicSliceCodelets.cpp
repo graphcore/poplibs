@@ -4,6 +4,9 @@
 #include "poplibs_support/ExternalCodelet.hpp"
 
 using namespace poplar;
+
+static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
+
 namespace popops {
 
 // Copy slices [\a offset : \a offset + \a numOutElements) of regions of
@@ -14,19 +17,19 @@ template <typename InType>
 class DynamicSlice : public Vertex {
 public:
   Input<unsigned> offset; // in \a baseT
-  Vector<Input<Vector<InType>>> baseT; // [region*numBaseElements+sliceIdx][os]
-  Vector<Output<Vector<InType>>> subT; // [region*numSubElements+sliceIdx][os]
-  unsigned numBaseElements;  // in the slice dimension
-  unsigned numSubElements; // int the slice dimension
+  // [region*numBaseElements+sliceIdx][os]
+  Vector<Input<Vector<InType>>, ONE_PTR> baseT;
+  // [region*numSubElements+sliceIdx][os]
+  Vector<Output<Vector<InType, ONE_PTR>>, ONE_PTR> subT;
+  unsigned short numBaseElements;  // in the slice dimension
+  unsigned short numSubElements; // int the slice dimension
+  unsigned short numRegions;
+
   bool compute() {
-    assert(baseT.size() % numBaseElements == 0);
-    auto numRegions = baseT.size() / numBaseElements;
-    assert(subT.size() == numSubElements * numRegions);
     for (unsigned r = 0; r != numRegions; ++r) {
       auto regionSize = baseT[r * numBaseElements].size();
       for (unsigned subSlice = 0; subSlice != numSubElements; ++subSlice) {
         auto subIdx = r * numSubElements + subSlice;
-        assert(subT[subIdx].size() == regionSize);
         auto baseSlice = (offset + subSlice) % numBaseElements;
         auto baseIdx = r * numBaseElements + baseSlice;
         for (unsigned e = 0; e != regionSize; e++) {
@@ -90,20 +93,19 @@ template <typename InType>
 class DynamicUpdateSlice : public Vertex {
 public:
   Input<unsigned> offset; // in out
-  Vector<InOut<Vector<InType>>> baseT; // [region*numBaseElements+sliceIdx][os]
-  Vector<Input<Vector<InType>>> subT; // [region*numSubElements+sliceIdx][os]
-  unsigned numBaseElements;  // in the slice dimension
-  unsigned numSubElements; // in the slice dimension
+  // [region*numBaseElements+sliceIdx][os]
+  Vector<InOut<Vector<InType>>, ONE_PTR> baseT;
+  // [region*numSubElements+sliceIdx][os]
+  Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> subT;
+  unsigned short numBaseElements;  // in the slice dimension
+  unsigned short numSubElements; // in the slice dimension
+  unsigned short numRegions;
 
   bool compute() {
-    assert(baseT.size() % numBaseElements == 0);
-    auto numRegions = baseT.size() / numBaseElements;
-    assert(subT.size() == numSubElements * numRegions);
     for (unsigned r = 0; r != numRegions; ++r) {
       auto regionSize = baseT[r * numBaseElements].size();
       for (unsigned subSlice = 0; subSlice != numSubElements; ++subSlice) {
         auto subIdx = r * numSubElements + subSlice;
-        assert(subT[subIdx].size() == regionSize);
         auto baseSlice = (offset + subSlice) % numBaseElements;
         auto baseIdx = r * numBaseElements + baseSlice;
         for (unsigned e = 0; e != regionSize; e++) {
