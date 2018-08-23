@@ -237,7 +237,18 @@ void runAddToChannel2DTests(std::vector<TestCase> cases) {
   BOOST_TEST(addToChannel2DTests(cases));
 }
 
-BOOST_AUTO_TEST_CASE(AddToChannel2DSmall) {
+const bool isNotSim = TEST_TARGET != DeviceType::Sim;
+
+BOOST_AUTO_TEST_CASE(AddToChannel2DTiny) {
+  std::vector<TestCase> cases = {
+    {HALF, {1, 4, 8, 5}, {15, 12, 32, 15}, 3.0f},
+    {FLOAT, {1, 4, 8, 5}, {15, 12, 32, 15}, 3.0f},
+  };
+  runAddToChannel2DTests(cases);
+}
+
+BOOST_AUTO_TEST_CASE(AddToChannel2DSmall,
+                     *boost::unit_test::enable_if<isNotSim>()) {
   std::vector<TestCase> cases = {
     {HALF, {1, 4, 8, 12, 16}, {480, 480, 480, 480, 480}, 3.0f},
     {HALF, {1, 4, 8, 5, 8}, {15, 12, 40, 15, 168}, 3.0f},
@@ -252,28 +263,32 @@ std::size_t maxBlockCount() {
   return 4095;
 }
 
-BOOST_AUTO_TEST_CASE(AddToChannel2DLarge1_half) {
+BOOST_AUTO_TEST_CASE(AddToChannel2DLarge1_half,
+                     *boost::unit_test::enable_if<isNotSim>()) {
   std::vector<TestCase> cases = {
     {HALF, {1, 1}, {maxBlockCount(), 80}, 3.0f},
   };
   runAddToChannel2DTests(cases);
 }
 
-BOOST_AUTO_TEST_CASE(AddToChannel2DLarge8_half) {
+BOOST_AUTO_TEST_CASE(AddToChannel2DLarge8_half,
+                     *boost::unit_test::enable_if<isNotSim>()) {
   std::vector<TestCase> cases = {
     {HALF, {8, 8}, {8000, 80}, 3.0f},
   };
   runAddToChannel2DTests(cases);
 }
 
-BOOST_AUTO_TEST_CASE(AddToChannel2DLarge1_float) {
+BOOST_AUTO_TEST_CASE(AddToChannel2DLarge1_float,
+                     *boost::unit_test::enable_if<isNotSim>()) {
   std::vector<TestCase> cases = {
     {FLOAT, {1, 1}, {maxBlockCount(), 80}, 3.0f},
   };
   runAddToChannel2DTests(cases);
 }
 
-BOOST_AUTO_TEST_CASE(AddToChannel2DLarge8_float) {
+BOOST_AUTO_TEST_CASE(AddToChannel2DLarge8_float,
+                     *boost::unit_test::enable_if<isNotSim>()) {
   std::vector<TestCase> cases = {
     {FLOAT, {8, 8}, {8000, 80}, 3.0f},
   };

@@ -56,7 +56,8 @@ static bool addToChannelTests(const std::vector<TestCase> &cases) {
   // One compute set, with a vertex for each test case.
   auto cs = graph.addComputeSet("cs");
 
-  Sequence uploadProg, downloadProg;
+  Sequence uploadProg;
+  Sequence downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
   std::vector<TestCaseData> tcData(cases.size());
 
@@ -193,7 +194,24 @@ void runAddToChannelTests(std::vector<TestCase> cases) {
   BOOST_TEST(addToChannelTests(cases));
 }
 
-BOOST_AUTO_TEST_CASE(AddToChannelSmall) {
+const bool isNotSim = TEST_TARGET != DeviceType::Sim;
+
+BOOST_AUTO_TEST_CASE(AddToChannelTiny) {
+  std::vector<TestCase> cases = {
+    {HALF, 1, 8, 3.0f},
+    {HALF, 4, 16, 3.0f},
+    {HALF, 8, 32, 3.0f},
+    {HALF, 5, 15, 3.0f},
+    {FLOAT, 1, 8, 3.0f},
+    {FLOAT, 4, 16, 3.0f},
+    {FLOAT, 8, 32, 3.0f},
+    {FLOAT, 5, 15, 3.0f},
+  };
+  runAddToChannelTests(cases);
+}
+
+BOOST_AUTO_TEST_CASE(AddToChannelSmall,
+                     *boost::unit_test::enable_if<isNotSim>()) {
   std::vector<TestCase> cases = {
     {HALF, 1, 480, 3.0f},
     {HALF, 4, 480, 3.0f},
@@ -227,36 +245,41 @@ std::size_t maxBlockCount() {
   return 4094 * 6;
 }
 
-BOOST_AUTO_TEST_CASE(AddToChannelLarge1_half) {
+BOOST_AUTO_TEST_CASE(AddToChannelLarge1_half,
+                     *boost::unit_test::enable_if<isNotSim>()) {
   std::vector<TestCase> cases = {
     {HALF, 1, maxBlockCount(), 3.0f},
   };
   runAddToChannelTests(cases);
 }
 
-BOOST_AUTO_TEST_CASE(AddToChannelLarge8_half) {
+BOOST_AUTO_TEST_CASE(AddToChannelLarge8_half,
+                     *boost::unit_test::enable_if<isNotSim>()) {
   std::vector<TestCase> cases = {
     {HALF, 8, 8000, 3.0f},
   };
   runAddToChannelTests(cases);
 }
 
-BOOST_AUTO_TEST_CASE(AddToChannelLarge1_float) {
+BOOST_AUTO_TEST_CASE(AddToChannelLarge1_float,
+                     *boost::unit_test::enable_if<isNotSim>()) {
   std::vector<TestCase> cases = {
     {FLOAT, 1, maxBlockCount(), 3.0f},
   };
   runAddToChannelTests(cases);
 }
 
-BOOST_AUTO_TEST_CASE(AddToChannelLarge8_float) {
+BOOST_AUTO_TEST_CASE(AddToChannelLarge8_float,
+                     *boost::unit_test::enable_if<isNotSim>()) {
   std::vector<TestCase> cases = {
     {FLOAT, 8, 8000, 3.0f},
   };
   runAddToChannelTests(cases);
 }
 
-// Above an addend length of 2048, we switch to scalar code. Check that works.
-BOOST_AUTO_TEST_CASE(AddToChannel_MaxChannels_MultipleOfFour_half) {
+// Above an addend length over 2048, we switch to scalar code. Check that works.
+BOOST_AUTO_TEST_CASE(AddToChannel_MaxChannels_MultipleOfFour_half,
+                     *boost::unit_test::enable_if<isNotSim>()) {
   for (std::size_t addendLen = 2044; addendLen <= 2056; addendLen += 4) {
     std::vector<TestCase> cases = {
       {HALF, addendLen, addendLen * 4, 3.0f},

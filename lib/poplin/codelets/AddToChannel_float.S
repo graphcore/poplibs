@@ -23,15 +23,7 @@
 //
 //   { ldst64pace; f32v2axpy }
 //
-// If the addend len is odd then we resort to the slow path, which is a lot
-// quicker than for f16s - we can even use `rpt` in that case and process one
-// float every 3 cycles.
-//
-// In fact, by pipelining even the slow path could do one float per two cycles
-// which is pretty good, but I haven't done that yet to keep things simple.
-//
-// The multiple-of-2 and multiple-of-4 fast paths could be implemented
-// as they are for the f16 version.
+// Currently this fast path is not implemented, instead we use
 
 #include "tileimplconsts_tommy.h"
 #include "tilearch.h"
@@ -60,59 +52,69 @@
 // $m0 and $m2 are modified, but the others are not. $m10 ($lr) is used for
 // the return address. It also uses the following scratch registers:
 //
-#define acts_ptr m4
+#define outer_stride m4
 #define addend_loop_count m5
-#define tmp a6
+#define tmp0 a5
+#define tmp1 a6
 #define current_addend a7
 
 poplin_AddToChannel__float_core:
   // If we have no blocks to do, return.
   brz $acts_block_count, .Lreturn
 
-  // Currently we just do things as simply as possible with a scalar
-  // non-pipelined path. In future this could be optimised by pipelining it
-  // (so the body contains two instruction bundles), and by using dedicated
-  // multiple-of-2 and multiple-of-4 pipelines as in the half code. But this
-  // code is not as slow as the half scalar code so it isn't such a priority.
+  // We use `rpt` which has a limited loop count, but this is taken care of
+  // in the popconv host code.
+
+  // In future this could be optimised by using dedicated multiple-of-2 and
+  // multiple-of-4 pipelines as in the half code. But this code is not as slow
+  // as the half scalar code so it isn't such a priority.
 
 .Laddend_scalar:
+  // Calculate the stride for the outer loop. This is subtracted from
+  // acts to get it back to where they started, plus one
+  // float further.
+  mul $outer_stride, $acts_block_count, $addend_len
+  add $outer_stride, $outer_stride, -1
+  shl $outer_stride, $outer_stride, 2
+
   // Subtract one so that brnzdec can be used for the loop.
   add $addend_loop_count, $addend_len, -1
+
+  // Subtract one so we don't read past the end (which might matter if we
+  // are at the very end of memory).
+  add $acts_block_count, $acts_block_count, -1
 
 // for i = 0..addend_len
 .Lscalar_addend_loop:
   // Get the next addend.
   ld32step $current_addend, $mzero, $addend+=, 1
 
-  // Store the acts pointer
-{ mov $acts_ptr, $acts
+  // Load the first value.
+{ ld32 $tmp0, $mzero, $acts, 0
   // Multiply the addend by the scale.
   f32mul $current_addend, $current_addend, $scale }
-
-  // Move the acts pointer to the next element for the next loop.
-  add $acts, $acts, 4
 
   // Loop through acts. This must be 8-byte aligned which can be done with
   // `.align 8` but that might insert a `nop` and waste a cycle. Instead
   // we do it manually using bundles if necessary.
-  {
-    rpt $acts_block_count, (2f - 1f)/8-1
-    fnop
-  }
+  rpt $acts_block_count, (2f - 1f)/8-1
 1:
   {
-    ld32 $tmp, $mzero, $acts_ptr, 0
-    fnop
+    ld32 $tmp0, $mzero, $acts, $addend_len
+    f32add $tmp1, $tmp0, $current_addend
   }
   {
-    nop
-    f32add $tmp, $tmp, $current_addend
-  }
-  {
-    st32step $tmp, $mzero, $acts_ptr+=, $addend_len
+    st32step $tmp1, $mzero, $acts+=, $addend_len
     fnop
   }
 2:
+
+  // Add and store the last value.
+  f32add $tmp1, $tmp0, $current_addend
+  st32step $tmp1, $mzero, $acts+=, $addend_len
+
+  // Move the acts pointer back to the next element.
+  sub $acts, $acts, $outer_stride
 
   // If addend_len != 0 decrement it and loop.
   brnzdec $addend_loop_count, .Lscalar_addend_loop
@@ -122,9 +124,10 @@ poplin_AddToChannel__float_core:
 
 // Undefine scratch registers. Arguments are left defined for the functions
 // below.
-#undef acts_ptr
+#undef outer_stride
 #undef addend_loop_count
-#undef tmp
+#undef tmp0
+#undef tmp1
 #undef current_addend
 
 .size poplin_AddToChannel__float_core, . - poplin_AddToChannel__float_core

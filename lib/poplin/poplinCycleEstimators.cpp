@@ -398,12 +398,12 @@ std::uint64_t addToChannelCoreCycles_float(unsigned addendLen,
   if (blockCount == 0)
     return cycles;
 
-  ++cycles; // acts_loop_count = blockCount - 1
+  cycles += 5; // before loop
 
   for (unsigned i = 0; i < addendLen; ++i) {
-    cycles += 4; // start of loop
-    cycles += 3 * blockCount; // rpt loop
-    ++cycles; // brnzdec
+    cycles += 2; // start of loop
+    cycles += 2 * blockCount; // rpt loop
+    cycles += 4; // end of loop
   }
   return cycles;
 }
@@ -510,7 +510,6 @@ std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddToChannel)(const VertexIntrospector &vertex,
                                               const Target &target,
                                               const Type &type) {
-  CODELET_FIELD(acts);
   CODELET_FIELD(addend);
   CODELET_SCALAR_VAL(actsBlockCountPacked, uint16_t);
 
@@ -550,38 +549,97 @@ MAKE_CYCLE_ESTIMATOR_NAME(AddToChannel)(const VertexIntrospector &vertex,
   return getCyclesEstimateForScaledAddToChannel(vertex, target, type) + 1;
 }
 
-static std::uint64_t
-channelMulCycles(unsigned elemsPerWorker, unsigned chansPerGroup,
-                 unsigned dataPathWidth, const Type &type) {
-  const bool isFloat = type == FLOAT;
-  const auto vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
-  std::uint64_t numCycles = 3; // Load scale and act pointers.
 
-  // multiply scale by acts using mul + dual load + store.
-  numCycles += (elemsPerWorker * chansPerGroup + vectorWidth - 1) / vectorWidth;
-  return numCycles;
+// Exact worker cycle count for popconv_ChannelMul__float_core
+std::uint64_t channelMulCoreCycles_float(unsigned scaleLen,
+                                         unsigned blockCount) {
+  std::uint64_t cycles = 1; // return
+
+  ++cycles; // brz
+
+  if (blockCount == 0)
+    return cycles;
+
+  cycles += 5; // before loop
+
+  for (unsigned i = 0; i < scaleLen; ++i) {
+    cycles += 2; // start of loop
+    cycles += 2 * blockCount; // rpt loop
+    cycles += 5; // end of loop
+  }
+  return cycles;
 }
+
+std::uint64_t channelMulCoreCycles_half_scalar(unsigned scaleLen,
+                                               unsigned blockCount) {
+  std::uint64_t cycles = 4; // pre-loop
+  // Aligned loop bodies take 7 cycles, misaligned take 9, but they are
+  // equally numerous so it averages to 8.
+  cycles += scaleLen * (5 + blockCount * 8);
+  return cycles;
+}
+
+std::uint64_t channelMulCoreCycles_half_multiple_of_4(unsigned scaleLen,
+                                                      unsigned blockCount) {
+  std::uint64_t cycles = 5; // pre-loop
+  cycles += (scaleLen/4) * (
+    5 + // pre-rpt
+    2 * (blockCount/2 - 1) + // rpt body
+    // post-rpt. The code actually depends on whether or not blockCount
+    // was odd but it takes the same number of cycles in both cases.
+    7
+  );
+  return cycles;
+}
+
+// Exact worker cycle count for popconv_ChannelMul__half_core
+std::uint64_t channelMulCoreCycles_half(unsigned scaleLen,
+                                        unsigned blockCount) {
+  std::uint64_t cycles = 1; // return
+
+  cycles += 2; // cmpult > 2044, brz
+  if (scaleLen > 2044) {
+    return cycles + addToChannelCoreCycles_half_scalar(scaleLen, blockCount);
+  }
+
+  cycles += 2; // cmpult, brnz
+  if (blockCount < 2) {
+    return cycles + addToChannelCoreCycles_half_scalar(scaleLen, blockCount);
+  }
+
+  cycles += 2; // and, brz
+  if (scaleLen % 4 == 0) {
+    return cycles + addToChannelCoreCycles_half_multiple_of_4(scaleLen,
+                                                              blockCount);
+  }
+  return cycles + addToChannelCoreCycles_half_scalar(scaleLen, blockCount);
+}
+
+
 
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(ChannelMul2D)(const VertexIntrospector &vertex,
                                         const Target &target,
                                         const Type &type) {
-  CODELET_FIELD(actsIn);
-  CODELET_FIELD(actsOut);
-  CODELET_FIELD(scale);
-  const auto dataPathWidth = target.getDataPathWidth();
-  unsigned n = actsIn.size();
-  unsigned numCycles = 5;
-  assert(actsIn.size() == actsOut.size());
-  assert(scale.size() == n);
+  CODELET_SCALAR_VAL(n, uint32_t);
+  CODELET_FIELD(scaleLen);
+  CODELET_FIELD(actsBlockCount);
+
+  std::uint64_t numCycles = 7; // pre-loop
+
   for (unsigned i = 0; i != n; ++i) {
-    unsigned chansPerGroup = scale[i].size();
-    assert(actsIn[i].size() % chansPerGroup == 0);
-    assert(actsOut[i].size() % chansPerGroup == 0);
-    numCycles +=
-        channelMulCycles(actsIn[i].size() / chansPerGroup, chansPerGroup,
-                         dataPathWidth, type);
+    numCycles += type == HALF ? 13 : 10; // loop overhead.
+
+    auto coreFunc = type == HALF ? addToChannelCoreCycles_half
+                                 : addToChannelCoreCycles_float;
+
+    numCycles += coreFunc(scaleLen.getInitialValue<uint16_t>(target, i),
+                          actsBlockCount.getInitialValue<uint16_t>(target, i));
   }
+
+  // Exit
+  numCycles += 1;
+
   return numCycles;
 }
 
@@ -589,20 +647,33 @@ std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(ChannelMul)(const VertexIntrospector &vertex,
                                       const Target &target,
                                       const Type &type) {
-  CODELET_FIELD(actsIn);
-  CODELET_FIELD(actsOut);
   CODELET_FIELD(scale);
-  const auto dataPathWidth = target.getDataPathWidth();
+  CODELET_SCALAR_VAL(actsBlockCountPacked, uint16_t);
+
   const auto numWorkerContexts = target.getNumWorkerContexts();
-  assert(actsIn.size() == actsOut.size());
-  unsigned chansPerGroup = scale.size();
-  assert(actsIn.size() % chansPerGroup == 0);
-  assert(actsOut.size() % chansPerGroup == 0);
-  unsigned len = actsIn.size() / chansPerGroup;
-  unsigned elemsPerWorker = (len + numWorkerContexts - 1) / numWorkerContexts;
-  std::uint64_t numCycles =
-      10 + channelMulCycles(elemsPerWorker, chansPerGroup, dataPathWidth, type);
-  return numCycles * numWorkerContexts + 10;
+
+  // These numbers may not be exact (e.g. the remainder of
+  // actsBlockCountPacked is ignored).
+
+  // Supervisor overhead.
+  std::uint64_t numCycles = 1 + 6 + 1 + 6;
+
+  auto approxBlocksPerWorker = actsBlockCountPacked >> 3;
+
+
+  // Worker overhead.
+  numCycles += numWorkerContexts * (type == HALF ? 26 : 19);
+
+  auto coreFunc = type == HALF ? addToChannelCoreCycles_half
+                               : addToChannelCoreCycles_float;
+
+  numCycles += numWorkerContexts * coreFunc(scale.size(),
+                                            approxBlocksPerWorker);
+
+  // Exit
+  numCycles += 1;
+
+  return numCycles;
 }
 
 std::uint64_t

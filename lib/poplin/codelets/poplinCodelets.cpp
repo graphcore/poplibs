@@ -948,52 +948,26 @@ template class ScaledAddToChannel2D<half>;
 
 template <class FPType>
 class
-[[poplar::constraint("elem(**actsIn) != elem(**actsOut)",
-                     "elem(**actsIn) != elem(**scale)",
-                     "elem(**scale) != elem(**actsOut)")]]
-ChannelMul2D : public Vertex {
-public:
-  Vector<Input<Vector<FPType>>> actsIn;
-  Vector<Output<Vector<FPType, ONE_PTR>>, ONE_PTR> actsOut;
-  Vector<Input<Vector<FPType>>, ONE_PTR> scale;
-
-  bool compute() {
-    unsigned n = actsIn.size();
-    for (unsigned i = 0; i != n; ++i) {
-      unsigned chansPerGroup = scale[i].size();
-      unsigned len = actsIn[i].size() / chansPerGroup;
-      for (unsigned j = 0; j != len; ++j) {
-        for (unsigned k = 0; k != chansPerGroup; ++k) {
-          actsOut[i][j * chansPerGroup + k] =
-            actsIn[i][j * chansPerGroup + k] * scale[i][k];
-        }
-      }
-    }
-    return true;
-  }
-};
-
-template class ChannelMul2D<float>;
-template class ChannelMul2D<half>;
-
-template <class FPType>
-class
-[[poplar::constraint("elem(*actsIn) != elem(*actsOut)",
-                     "elem(*actsIn) != elem(*scale)",
-                     "elem(*scale) != elem(*actsOut)")]]
+[[poplar::constraint("elem(*actsIn) != elem(*actsOut)")]]
 ChannelMul : public SupervisorVertex {
 public:
-  Input<Vector<FPType>> actsIn;
-  Output<Vector<FPType, ONE_PTR>> actsOut;
-  Input<Vector<FPType>> scale;
+  Input<Vector<FPType, TWO_PTR, 8>> scale;
+  InOut<Vector<FPType, ONE_PTR, 8>> actsIn;
+  InOut<Vector<FPType, ONE_PTR, 8>> actsOut;
+  // actsBlockCount = actsIn.size() / scale.size();
+  // actsBlockCountPacked = (actsBlockCount/6 << 3) | (actsBlockCount % 6)
+  uint16_t actsBlockCountPacked;
+
+  IS_EXTERNAL_CODELET(true);
 
   bool compute() {
     unsigned chansPerGroup = scale.size();
-    unsigned len = actsIn.size() / chansPerGroup;
-    for (unsigned j = 0; j != len; ++j) {
+    unsigned actsBlockCount = (actsBlockCountPacked >> 3) * 6
+                              + (actsBlockCountPacked & 0x07);
+    for (unsigned j = 0; j != actsBlockCount; ++j) {
       for (unsigned k = 0; k != chansPerGroup; ++k) {
         actsOut[j * chansPerGroup + k] =
-        actsIn[j * chansPerGroup + k] * scale[k];
+            actsIn[j * chansPerGroup + k] * scale[k];
       }
     }
     return true;
@@ -1002,6 +976,42 @@ public:
 
 template class ChannelMul<float>;
 template class ChannelMul<half>;
+
+template <class FPType>
+class
+[[poplar::constraint("elem(**actsIn) != elem(**actsOut)")]]
+ChannelMul2D : public Vertex {
+public:
+  // n is equal to scale.size(), scaleLen.size(), actsIn.size(), actsOut.size()
+  // and scale.size().
+  uint32_t n;
+  Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> scale;
+  Vector<uint16_t, ONE_PTR> scaleLen;
+  Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> actsIn;
+  Vector<Output<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> actsOut;
+  Vector<uint16_t, ONE_PTR> actsBlockCount;
+
+  IS_EXTERNAL_CODELET(true);
+
+  bool compute() {
+    for (unsigned i = 0; i != n; ++i) {
+        unsigned blockCount = actsBlockCount[i];
+        unsigned len = scaleLen[i];
+
+        for (unsigned b = 0; b != blockCount; ++b) {
+            for (unsigned a = 0; a != len; ++a) {
+                actsOut[i][b * len + a] =
+                    actsIn[i][b * len + a] * scale[i][a];
+            }
+        }
+    }
+
+    return true;
+  }
+};
+
+template class ChannelMul2D<float>;
+template class ChannelMul2D<half>;
 
 template <class MeanType, class PowerType, class OutType>
 class InverseStdDeviation : public Vertex {

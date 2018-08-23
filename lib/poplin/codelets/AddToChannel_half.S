@@ -50,7 +50,7 @@
 //  7:        (Load 7)    (Add 6)     Store 4
 //  8:        (Load 8)    (Add 7)     Store 5
 //
-// To delay the store we can usecan use f16v4mix, which stores and loads values
+// To delay the store we can use f16v4mix, which stores and loads values
 // from the temporary accumulator ($AACC[0, 2]). This also gives us the scale
 // for free by setting the $TAS register.
 //
@@ -307,7 +307,7 @@ poplin_AddToChannel__half_core:
   // Note if $acts_block_count is odd.
   and $acts_block_count_was_odd, $acts_block_count, 0x01
   // Work out how many of the main cycles we need to do.
-  // We process 2 blocks per loop. In this case we need to keep 
+  // We process 2 blocks per loop.
   shr $acts_block_count, $acts_block_count, 1
   // Also subtract 1 so we don't process past the end.
   // The minimum number of blocks required for this pipeline is 2.
@@ -360,7 +360,7 @@ poplin_AddToChannel__half_core:
   }
 2:
 
-  // We may need either 1 or 2 more stores depending on the oddness of
+  // We may need either 2 or 3 more stores depending on the oddness of
   // $acts_block_count (before we divided it by 2).
 
   brnz $acts_block_count_was_odd, 1f

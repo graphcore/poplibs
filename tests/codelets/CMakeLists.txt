@@ -149,13 +149,15 @@ foreach(SIZE RANGE 1 4)
 endforeach()
 
 add_popnn_unit_test(AddToChannel
-                    AddToChannel.cpp
-                    VARIANTS ${TimesOutOnSim})
+                    AddToChannel.cpp)
 add_popnn_unit_test(AddToChannel2D
-                    AddToChannel2D.cpp
-                    VARIANTS ${TimesOutOnSim})
+                    AddToChannel2D.cpp)
 add_popnn_unit_test(CastTest
                     CastTest.cpp)
+add_popnn_unit_test(ChannelMul
+                    ChannelMul.cpp)
+add_popnn_unit_test(ChannelMul2D
+                    ChannelMul2D.cpp)
 add_popnn_unit_test(OuterProductTest
                     OuterProductTest.cpp)
 add_popnn_unit_test(ScaledAdd2D_fp
