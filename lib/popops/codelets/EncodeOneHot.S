@@ -7,7 +7,6 @@
 .globl VERTEX
 .type VERTEX, @function
 
-
 // Field offsets in vertex
 #define VERTEX_INDEX_BEGIN_OFFSET 0
 #define VERTEX_INDEX_END_OFFSET 1
@@ -86,12 +85,12 @@ VERTEX:
 
   // TODO: optimise instruction ordering to avoid stalls.
 
-  ld32 $outBegin, $vertexPtr, $mzero, VERTEX_OUT_OFFSET
   ld32 $size, $vertexPtr, $mzero, VERTEX_INDEX_END_OFFSET
+  ld32 $index, $vertexPtr, $mzero, VERTEX_INDEX_BEGIN_OFFSET
+  ld32 $outBegin, $vertexPtr, $mzero, VERTEX_OUT_OFFSET
   ld32 $offsets_ptr, $vertexPtr, $mzero, VERTEX_OFFSETS_OFFSET
 
   // load the index from our vertex state.
-  ld32 $index, $vertexPtr, $mzero, VERTEX_INDEX_BEGIN_OFFSET
 
   ld32 $slice, $vertexPtr, $mzero, VERTEX_SLICE_OFFSET
 
@@ -101,15 +100,18 @@ VERTEX:
   // make some space on our stack
   add $sp, $sp, -(MEMSET_VERTEX_SIZE + STACK_SIZE)
 
+  // avoid register bubble
+  nop
+
   // number of indices
   sub $size, $size, $index
-  shr $size, $size, LOG2_SIZEOF_UNSIGNED
+  shr $size, $size, LOG2_SIZEOF_UNSIGNED // 6 cycles
 
   // store number of indices now before we turn it into number of bytes in
   // the output tensor.
-  st32 $size, $sp, $mzero, STACK_INDEX_SIZE_OFFSET
+  st32 $size, $sp, $mzero, STACK_INDEX_SIZE_OFFSET // 6 cycles
   ld32 $size, $vertexPtr, $mzero, VERTEX_OUT_LENGTH_OFFSET
-  shl $size, $size, LOG2_SIZEOF_HALF
+  shl $size, $size, LOG2_SIZEOF_HALF // 6 cycles
 
   // save the index before we run the memset vertex.
   st32 $index, $sp, $mzero, STACK_INDEX_BEGIN_OFFSET
@@ -131,12 +133,12 @@ VERTEX:
   // NOTE: the maximum size that can be handled is ~96000 because at that point
   // log2(n * 0xAAAB) > 32 and we lose bits before we shift the answer in.
   mul $wordsPerWorker, $size, $wordsPerWorker
-  shr $wordsPerWorker, $wordsPerWorker, 21
+  shr $wordsPerWorker, $wordsPerWorker, 21 // 6 cycles
 
   // remainder = (size/8) - (wordsPerWorker*6)
   shr $remainder, $size, 3
   mul $mscratch, $wordsPerWorker, 6
-  sub $remainder, $remainder, $mscratch
+  sub $remainder, $remainder, $mscratch // 6 cycles
 
   // numBytesPreAlignment and alignment are both zero therefore alignmentInfo
   // is just trailingBytes << 6.
@@ -144,48 +146,53 @@ VERTEX:
   and $trailingBytes, $size, 0x7
 
   shl $size, $wordsPerWorker, 3
-  or $size, $size, $remainder
+  or $size, $size, $remainder // 6 cycles
   shl $trailingBytes, $trailingBytes, 6
 
   // turn $outBegin into a scaled pointer
   setzi $dst, TMEM_REGION0_BASE_ADDR
-  sub $dst, $outBegin, $dst
-  shr $dst, $dst, 2
+  sub $dst, $outBegin, $dst // 6 cycles
+  shr $dst, $dst, 2 // 6 cycles
 
   // pack $dst and $alignmentInfo into 32-bits to store in the vertex state.
-  sort4x16lo $dst, $dst, $trailingBytes
+  sort4x16lo $dst, $dst, $trailingBytes // 6 cycles
 
   // create the memset zero state.
-  st32 $dst, $sp, $mzero, MEMSET_VERTEX_DST_OFFSET
+  st32 $dst, $sp, $mzero, MEMSET_VERTEX_DST_OFFSET // 6 cycles
   st32 $size, $sp, $mzero, MEMSET_VERTEX_SIZE_OFFSET
 
   // run the vertex ($m0 has already been set).
   // prep $m0 as the vertex state parameter that will be passed to the memset.
   mov $m0, $sp
-  call $lr, __runCodelet_poplar_rt__MemsetZeroSupervisor
+  call $lr, __runCodelet_poplar_rt__MemsetZeroSupervisor // 6 cycles
 
   // retrieve our vertex state and perform the one hot encoding.
-  ld32 $offsets_ptr, $sp, $mzero, STACK_OFFSETS
   ld32 $size, $sp, $mzero, STACK_INDEX_SIZE_OFFSET
+  ld32 $offsets_ptr, $sp, $mzero, STACK_OFFSETS
   ld32 $index, $sp, $mzero, STACK_INDEX_BEGIN_OFFSET
   ld32 $slice, $sp, $mzero, STACK_SLICE_OFFSET
   ld32 $lr, $sp, $mzero, STACK_LR_OFFSET
   ld32 $outBegin, $sp, $mzero, STACK_OUT_BEGIN_OFFSET
+
+  // avoid register bubble
+  nop
 
   // registers m0, m2, m3 and m4 are available to use for encoding.
 
   // minus 1 for brnzdec
   add $size, $size, -1
 
+  // 99
+
 .Lencode_loop:
     ld32step $m4, $mzero, $slice+=, 1
 
-    // use a separate copy as we need to check alignment of write address
-    mov $outBegin_cpy, $outBegin
-
     // move out pointer to next slice before check on whether this index 
     // lies within this slice
-    ldz16step $mzero, $mzero, $outBegin+=, $m4
+    ldz16step $mzero, $mzero, $outBegin+=, $m4 // 6 cycles
+
+    // use a separate copy as we need to check alignment of write address
+    mov $outBegin_cpy, $outBegin // 6 cycles
 
     ld32step $m3, $mzero, $index+=, 1
     ld32step $m0, $mzero, $offsets_ptr+=, 1
@@ -193,30 +200,35 @@ VERTEX:
     //   offset <= index < offset + slice
 
     // index - offset
-    sub $m3, $m3, $m0
+    sub $m3, $m3, $m0 // 6 cycles
 
-    brneg $m3, .Lskip_index
+    brneg $m3, .Lskip_index // take this branch: 27
 
     // there is a 6 cycle penalty when index is larger than out.size().
     cmpult $m2, $m3, $m4
-    brz $m2, .Lskip_index
+    brz $m2, .Lskip_index // take this branch: 29
 
     // dummy load to move to index to write to
     ldz16step $mzero, $mzero, $outBegin_cpy+=, $m3
-    and $m2, $outBegin_cpy, 0x2
-    setzi $m0, 0x3c00
+    and $m2, $outBegin_cpy, 0x2 // 6 cycles
     // Pointer is 32-bit aligned
-    sub $outBegin_cpy, $outBegin_cpy, $m2
+    sub $outBegin_cpy, $outBegin_cpy, $m2 // 6 cycles
+    setzi $m0, 0x3c00
+
+    // 49
+    //  + 20 if odd, or
+    //  + 14 if even
+
     // TODO: reduce bubbles
     brz $m2, .LEven
-    ldz16 $m4, $mzero, $outBegin_cpy, 0
-    sort4x16lo $m4, $m4, $m0
-    bri .LStore
+    ldz16 $m4, $mzero, $outBegin_cpy, 0 // 6 cycles
+    sort4x16lo $m4, $m4, $m0 // 6 cycles
+    bri .LStore // 6 cycles
 .LEven:   
     ldz16 $m4, $mzero, $outBegin_cpy, 1
-    sort4x16lo $m4, $m0, $m4
+    sort4x16lo $m4, $m0, $m4 // 6 cycles
 .LStore:    
-    stm32 $m4, $outBegin_cpy, $mzero
+    stm32 $m4, $outBegin_cpy, $mzero // 6 cycles if $outBegin_cpy is even.
 
 .Lskip_index:
     // 6 cycle penalty each iteration.
@@ -226,7 +238,6 @@ VERTEX:
   // restore stack pointer.
   ld32 $m9, $sp, $mzero, STACK_CALLER_SAVE_OFFSET
   add $sp, $sp, MEMSET_VERTEX_SIZE + STACK_SIZE
-  br $lr
-
+  br $lr // 6 cycles
 
 #endif // __IPU__
