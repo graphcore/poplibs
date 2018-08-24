@@ -43,40 +43,43 @@
 
 VERTEX(int):
 VERTEX(unsigned_int):
+  add $sp, $sp, -8
+
+  setzi $sizeD3, 0xAAAB
+
   ld32 $size, $m0, $mzero, VERTEX_DATA_END_OFFSET
   ld32 $dataPtr, $m0, $mzero, VERTEX_DATA_START_OFFSET
   ld32 $deltaPtr, $m0, $mzero, VERTEX_DELTAS_OFFSET
   // NOTE: this trashes the vertex state pointer because $k is mapped to $m0.
   ld32 $k, $m0, $mzero, VERTEX_K_OFFSET
 
-  // store the registers we need to restore at the end to the stack. do this
-  // after we have loaded the vertex state because this provides us with enough
-  // cycles between loading $size and using it to avoid a cycle penalty.
-  add $sp, $sp, -8
+  // avoid register bubble on $sp
+  nop
+
+  // store the registers we need to restore at the end to the stack
   st32 $fp, $sp, $mzero, 0
   st32 $lr, $sp, $mzero, 1
 
   // calculate size by doing (end-begin)/sizeof(int)
   sub $size, $size, $dataPtr
-  shr $size, $size, LOG2_SIZEOF_INT
+  shr $size, $size, LOG2_SIZEOF_INT // 6 cycles
 
   // calculate n/3 using (n * 0xAAAB) >> 17
   // see recipe #1 for how these constants were derived:
   //   https://embeddedgurus.com/stack-overflow/2009/06/division-of-integers-by-constants/
-  setzi $sizeD3, 0xAAAB
-  mul $sizeD3, $size, $sizeD3
-  shr $sizeD3, $sizeD3, 17
+  mul $sizeD3, $size, $sizeD3 // 6 cycles
+  shr $sizeD3, $sizeD3, 17 // 6 cycles
 
   // calculate n%3 using n - (n/3)*3
-  mul $rem, $sizeD3, 3
-  sub $rem, $size, $rem
+  mul $rem, $sizeD3, 3 // 6 cycles
+  sub $rem, $size, $rem // 6 cycles
 
   // minus 1 from each size for the brnzdec
   add $sizeD3M1, $sizeD3, -1
 
   // skip the x3 loop if we have less than 3 to process. 6 cycles if
   // sizeD3M1 < 0, 1 otherwise.
-  brneg $sizeD3M1, .Lloop1_prologue
+  brneg $sizeD3M1, .Lloop1_prologue // 6 cycles
 
 .Lloop3:
   // we must make sure we won't use any of the resulting values from a load
@@ -90,6 +93,9 @@ VERTEX(unsigned_int):
   ld32 $data1, $mzero, $dataPtr, 1
   ld32 $data2, $mzero, $dataPtr, 2
 
+  // avoid register bubble
+  nop
+
   mul $delta0, $delta0, $k
   mul $delta1, $delta1, $k
   mul $delta2, $delta2, $k
@@ -97,6 +103,9 @@ VERTEX(unsigned_int):
   add $data0, $data0, $delta0
   add $data1, $data1, $delta1
   add $data2, $data2, $delta2
+
+  // avoid register bubble
+  nop ; nop ; nop ; nop
 
   st32step $data0, $mzero, $dataPtr+=, 1
   st32step $data1, $mzero, $dataPtr+=, 1
@@ -110,17 +119,14 @@ VERTEX(unsigned_int):
   brz $rem, .Lepilogue
 
   // minus 1 from the remainder for the brnzdec. do this before we check for
-  add $rem, $rem, -1
+  add $rem, $rem, -1 // 6 cycles
 .Lloop1:
-  ld32step $delta0, $mzero, $deltaPtr+=, 1
   ld32 $data0, $mzero, $dataPtr, 0
+  ld32step $delta0, $mzero, $deltaPtr+=, 1
 
-  // wait 4 more cycles before using $delta0
-  delay 3
-
-  mul $delta0, $delta0, $k
-  add $data0, $data0, $delta0
-  st32step $data0, $mzero, $dataPtr+=, 1
+  mul $delta0, $delta0, $k // 6 cycles
+  add $data0, $data0, $delta0 // 6 cycles
+  st32step $data0, $mzero, $dataPtr+=, 1 // 6 cycles
 
   // 6 cycle penalty here each iteration. perhaps it's worth unrolling this
   // loop as it will only ever be 2 iterations at most.
@@ -133,7 +139,7 @@ VERTEX(unsigned_int):
   ld32step $fp, $mzero, $sp+=, 1
   ld32step $lr, $mzero, $sp+=, 1
 
-  br $lr
+  br $lr // 6 cycles
 
 #undef size
 .size VERTEX(int), .-VERTEX(int)

@@ -7,11 +7,18 @@ using namespace poplar;
 
 namespace popops {
 
+namespace {
+
+// integer ceil
+int iceil(int x, int y) {
+  return x / y + (x % y > 0);
+}
+
 /* Cycle cost computation for basic operations */
-static uint64_t basicOpLoopCycles(unsigned overhead,
-                                  unsigned numElems,
-                                  unsigned vectorSize,
-                                  unsigned cyclesPerVector) {
+uint64_t basicOpLoopCycles(unsigned overhead,
+                           unsigned numElems,
+                           unsigned vectorSize,
+                           unsigned cyclesPerVector) {
   return overhead + (numElems + vectorSize - 1) / vectorSize  * cyclesPerVector;
 }
 
@@ -19,10 +26,10 @@ static uint64_t basicOpLoopCycles(unsigned overhead,
  * For boolean inputs the number of cycles depend on the type of operation
  * as some ops have to be synthesized from the available instruction set
  */
-static uint64_t comparisonOpsCycles(unsigned dataPathWidth,
-                                    unsigned numElems,
-                                    unsigned boolInputComputeCycles,
-                                    Type type) {
+uint64_t comparisonOpsCycles(unsigned dataPathWidth,
+                             unsigned numElems,
+                             unsigned boolInputComputeCycles,
+                             Type type) {
   if (type == FLOAT) {
     unsigned vectorWidth = dataPathWidth / 32;
     if (sizeof(bool) == 4) {
@@ -76,67 +83,112 @@ static uint64_t comparisonOpsCycles(unsigned dataPathWidth,
   return 0;
 }
 
-static std::uint64_t
-scaledAddCycles(std::vector<unsigned> regionSizes,
-                 const Target &target,
-                 const Type &type,
-                 bool is2D) {
-  uint64_t cycles = 5;
-  if (!is2D)
-    assert(regionSizes.size() == 1);
-
-  for (const auto numElem : regionSizes) {
-    unsigned vectorWidth = 1;
-    unsigned cyclesPerVector = 1;
-    if (type == FLOAT) {
-      vectorWidth = target.getDataPathWidth() / 32;
-    }
-    else if (type == HALF) {
-      vectorWidth = target.getDataPathWidth() / 16;
-    }
-    else {// integer types are not vectorisable
-      cyclesPerVector = 4; //ld/mpy/add/st
-      vectorWidth = 1;
-    }
-    // Inner loop uses the axpy instruction.
-    cycles += 5 + cyclesPerVector *
-             (1 + (numElem + vectorWidth - 1) / vectorWidth);
-  }
-  if (!is2D)
-    cycles -= 3;
-  return cycles;
-}
+} // unnamed namespace
 
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddSupervisor)(const VertexIntrospector &vertex,
                                      const Target &target,
                                      const Type &type) {
-  CODELET_FIELD(deltas);
+  CODELET_FIELD(data);
+
+  if (type == INT || type == UNSIGNED_INT) {
+    std::uint64_t supervisorCycles = 47 // constant overhead
+      + (26 * (data.size()/3)); // main loop
+    if (data.size() % 3 == 0) {
+      supervisorCycles += 6; // 6 cycle branch to skip the remainder loop
+    } else {
+      supervisorCycles += 6 // --rem
+        + (26 * (data.size()%3)); // remainder loop
+    }
+    supervisorCycles += 8; // constant epilogue overhead.
+    return supervisorCycles;
+  } else {
+    assert(type == HALF || type == FLOAT);
+  }
+
+  // calculate count, rem and final
   const auto numWorkers = target.getNumWorkerContexts();
-  std::vector<unsigned> regionSizes;
-  const auto data = vertex.getFieldInfo("data");
-  assert(data.size() == deltas.size());
-  regionSizes.push_back((data.size() + numWorkers - 1) / numWorkers);
-  // 6 additional cycles overhead to divide work in worker and 9 cycles overhead
-  // in supervisor
-  return 9 +
-      (scaledAddCycles(regionSizes, target, type, false) + 6) * numWorkers;
+  const unsigned atomSize = 8/target.getTypeSize(type);
+  const unsigned count = (data.size() / numWorkers / atomSize) * atomSize;
+  const unsigned final = data.size() % numWorkers;
+  const unsigned rem = (data.size() / numWorkers) % numWorkers
+    + iceil(final, atomSize);
+
+  std::uint64_t supervisorCycles = 31 // per-type supervisor overhead
+    + 66 // common supervisor overhead
+    + (final == 0 ? 7 : 13)
+    + 9;
+
+  std::vector<unsigned> workerCycles(numWorkers);
+  for (unsigned wid = 0; wid <= numWorkers; ++wid) {
+    std::uint64_t cycles = 16; // constant worker prologue cycles
+    if (count/2 != 0) {
+      cycles += 6 // inner loop constant overhead
+        + (2 * (count/2-1)); // loop cycles
+    }
+    cycles += 2; // workerID == rem
+    if (wid == rem) {
+      cycles += 1; // final == 0?
+      if (final != 0) {
+        if (type == FLOAT) {
+          cycles += 8; // process final float.
+        } else {
+          cycles += 5; // unpack triPtr and check if at least 2 remain
+          if (final >= 2) {
+            cycles += 7; // process 2 of the remainder.
+            if (final == 3) {
+              cycles += 6; // process final half
+            }
+          }
+        }
+      }
+    }
+    cycles += 1; // exitz
+    workerCycles.push_back(cycles);
+  }
+
+  auto maxWorkerCycles =
+    *std::max_element(std::begin(workerCycles), std::end(workerCycles));
+  return supervisorCycles + maxWorkerCycles * 6;
 }
 
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(ScaledAdd2D)(const VertexIntrospector &vertex,
                                        const Target &target,
                                        const Type &type) {
-  CODELET_FIELD(deltas);
-  std::vector<unsigned> regionSizes;
-  const auto data = vertex.getFieldInfo("data");
-  assert(data.size() == deltas.size());
-  for (unsigned i = 0; i < data.size(); ++i) {
-    unsigned numElem = data[i].size();
-    assert(data[i].size() == deltas[i].size());
-    regionSizes.push_back(numElem);
+  CODELET_FIELD(data);
+
+  if (type == INT || type == UNSIGNED_INT) {
+    std::uint64_t cycles = 8; // prologue and epilogue overhead.
+    for (unsigned i = 0; i < data.size(); ++i) {
+      cycles += 7 // outer loop constant overhead
+        + (data[i].size() * 5); // inner loop
+    }
+
+    return cycles;
+  } else {
+    assert(type == HALF || type == FLOAT);
   }
-  return 5 + scaledAddCycles(regionSizes, target, type, true);
+
+  const auto grain = type == HALF ? 4 : 2;
+  std::uint64_t cycles = 8;// prologue and epilogue overhead.
+
+  for (unsigned i = 0; i < data.size(); ++i) {
+    cycles += 11; // outer loop constant overhead
+      + (data[i].size()/grain != 0 ? 5 : 0) // inner loop overhead
+      + (data[i].size()/grain * 2); // inner loop
+
+    if (type == FLOAT) {
+      cycles += (data[i].size()%grain != 0 ? 7 : 0); // last element.
+    } else {
+      auto rem = data[i].size() % grain;
+      cycles += (rem > 0 ? 4 : 0) // remainder overhead
+        + (rem >= 2 ? 6 : 0) // process 2 more at end.
+        + (rem % 2 == 1 ? 7 : 0); // process last element.
+    }
+  }
+
+  return cycles;
 }
 
 std::uint64_t
