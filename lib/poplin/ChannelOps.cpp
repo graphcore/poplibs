@@ -309,9 +309,9 @@ void addChannelMulSupervisorVertex(Graph &graph,
     auto actsSlice = actsFlat.slice(consumedBlocks * scaleLen,
                                     (consumedBlocks + thisBlockCount)
                                       * scaleLen);
-    auto actsOutSlice = actsFlat.slice(consumedBlocks * scaleLen,
-                                       (consumedBlocks + thisBlockCount)
-                                         * scaleLen);
+    auto actsOutSlice = actsOutFlat.slice(consumedBlocks * scaleLen,
+                                          (consumedBlocks + thisBlockCount)
+                                            * scaleLen);
 
     auto v = graph.addVertex(cs, templateVertex(vertexName, dType),
                              {{"actsIn", actsSlice},
