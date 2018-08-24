@@ -67,12 +67,24 @@ struct ReduceOr {
 template <typename ReduceOp,
           typename PartialsType, typename OutType, bool partialsAreOutputSize,
           bool isScale, bool isUpdate>
-class
-Reduce : public Vertex {
+class Reduce : public Vertex {
+private:
+
+  constexpr static bool vectorised_8() {
+    return std::is_same<ReduceOp, ReduceAdd>::value
+                         || std::is_same<ReduceOp, ReduceSquareAdd>::value;
+  }
+  constexpr static bool vectorised_4() {
+    return ((std::is_same<ReduceOp, ReduceMul>::value
+            || std::is_same<ReduceOp, ReduceMax>::value
+            || std::is_same<ReduceOp, ReduceMin>::value)
+            && std::is_same<PartialsType, OutType>::value
+            && !isUpdate);
+  }
 public:
-  IS_EXTERNAL_CODELET(((std::is_same<ReduceOp, ReduceAdd>::value
-                        || std::is_same<ReduceOp, ReduceSquareAdd>::value)
-                        && !std::is_same<PartialsType, int>::value));
+  IS_EXTERNAL_CODELET((!std::is_same<PartialsType, int>::value
+                      && ((vectorised_8() || vectorised_4()))));
+
   /* If `out` were:                                        */
 
   /*   [                                                   */

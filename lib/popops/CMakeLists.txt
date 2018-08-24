@@ -76,6 +76,7 @@ foreach(path ${CMAKE_PREFIX_PATH})
   endif()
 endforeach(path)
 
+
 set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Clamp.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Cast.S
@@ -90,8 +91,6 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/select_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/select_int_float.S
 )
-
-
 
 foreach(ReduceOp ReduceAdd ReduceSquareAdd)
   foreach(IS_UPDATE 0 1)
@@ -108,6 +107,27 @@ foreach(ReduceOp ReduceAdd ReduceSquareAdd)
   endforeach()
 endforeach()
 
+foreach(ReduceOp ReduceMul ReduceMax ReduceMin)
+  if("${ReduceOp}" STREQUAL "ReduceMul")
+    set(INSTRUCTION "mul")
+    set(INIT_FLOAT "0x3f800000") # 1.0 in float format
+    set(INIT_HALF "0x3c003c00") # 1.0 half format broadcast
+  elseif("${ReduceOp}" STREQUAL "ReduceMax")
+    set(INSTRUCTION "max")
+    set(INIT_FLOAT "0xff800000") # -inf in float format
+    # tile treats inf as NAN for halves so must use representable number
+    set(INIT_HALF  "0xfbfffbff") # smallest half broadcast
+  elseif("${ReduceOp}" STREQUAL "ReduceMin")
+    set(INSTRUCTION "min")
+    set(INIT_FLOAT "0x7f800000") # inf in float format
+    set(INIT_HALF  "0x7bff7bff") # largest half broadcast
+  endif()
+  set(OUTPUT_FILE ${CMAKE_CURRENT_BINARY_DIR}/codelets/${ReduceOp}.S)
+  configure_file(${CMAKE_CURRENT_SOURCE_DIR}/codelets/Reductions_4_vectorised.S
+                 ${OUTPUT_FILE})
+  list(APPEND codelet_asm_sources ${OUTPUT_FILE})
+endforeach()
+
 set(codelet_cpp_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/dynamicSliceCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elementwiseCodelets.cpp
@@ -115,7 +135,6 @@ set(codelet_cpp_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/miscCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/reduceCodelets.cpp
 )
-
 
 set(codelet_headers
   # Add any header files used here

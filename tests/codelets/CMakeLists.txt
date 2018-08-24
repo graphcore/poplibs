@@ -100,7 +100,6 @@ foreach(DATA_TYPE half float)
   endforeach()
 endforeach()
 
-
 add_codelet_test_executable(Reduce Reduce.cpp)
 foreach(OUTER_DIM RANGE 1 16)
   foreach(IN_TYPE half float)
