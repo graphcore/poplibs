@@ -902,7 +902,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHot)(const VertexIntrospector &vertex,
   CODELET_FIELD(indices);
   CODELET_SCALAR_VAL(outLength, unsigned);
 
-  std::uint64_t cycles = 107; // constant supervisor overhead
+  std::uint64_t cycles = 112; // constant supervisor overhead
 
   // internally the EncodeOneHot vertex uses the MemsetZeroSupervisor vertex,
   // unfortunately that cycle estimate isn't available from inside poplibs so
@@ -914,13 +914,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHot)(const VertexIntrospector &vertex,
   cycles += 20 + wordsPerworker;
 
   // the encode loop can take the following cycles for each index:
-  //  - 27 if index[i] < offset[i],
-  //  - 29 if index[i] > out.size(),
-  //  - 69 if out[idx + indices[i] - offsets[i]] & 0x3 == 0,
-  //  - 63 if out[idx + indices[i] - offsets[i]] & 0x3 == 1,
+  //  - 22 if index[i] < offset[i],
+  //  - 24 if index[i] > out.size(),
+  //  - 64 if out[idx + indices[i] - offsets[i]] & 0x3 == 0,
+  //  - 58 if out[idx + indices[i] - offsets[i]] & 0x3 == 1,
   // as we can't tell which branch the code will take, assume the worst case
   // every iteration.
-  cycles += 69 * indices.size();
+  cycles += 64 * indices.size();
 
   return cycles;
 }

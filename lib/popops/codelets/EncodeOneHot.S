@@ -182,17 +182,15 @@ VERTEX:
   // minus 1 for brnzdec
   add $size, $size, -1
 
-  // 99
-
 .Lencode_loop:
-    ld32step $m4, $mzero, $slice+=, 1
+    ld32step $m4, $mzero, $slice+=, 1 // 6 cycles on first iteration.
+
+    // use a separate copy as we need to check alignment of write address
+    mov $outBegin_cpy, $outBegin
 
     // move out pointer to next slice before check on whether this index 
     // lies within this slice
     ldz16step $mzero, $mzero, $outBegin+=, $m4 // 6 cycles
-
-    // use a separate copy as we need to check alignment of write address
-    mov $outBegin_cpy, $outBegin // 6 cycles
 
     ld32step $m3, $mzero, $index+=, 1
     ld32step $m0, $mzero, $offsets_ptr+=, 1
@@ -214,10 +212,6 @@ VERTEX:
     // Pointer is 32-bit aligned
     sub $outBegin_cpy, $outBegin_cpy, $m2 // 6 cycles
     setzi $m0, 0x3c00
-
-    // 49
-    //  + 20 if odd, or
-    //  + 14 if even
 
     // TODO: reduce bubbles
     brz $m2, .LEven
