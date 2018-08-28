@@ -32,12 +32,55 @@ MAKE_CYCLE_ESTIMATOR_NAME(NonLinearitySupervisor)(
                               const Type &type,
                               const NonLinearityType &nlType) {
   bool isFloat = type == FLOAT;
-  std::vector<unsigned> regionSizes;
-  const auto data = vertex.getFieldInfo("data");
-  regionSizes.push_back(data.size());
-  return getNonLinearityCycles(regionSizes, nlType, isFloat, false, true,
-                               target.getDataPathWidth(),
-                               target.getNumWorkerContexts());
+  CODELET_FIELD(data);
+  const auto numWorkers = target.getNumWorkerContexts();
+  const auto vectorWidth = target.getVectorWidth(type);
+  const auto n = data.size();
+
+  const auto numVectors = n / vectorWidth;
+  const auto remainder = n % vectorWidth;
+
+  // If any worker handles an extra vector due to the remainder
+  // we take the longest worker hence rounded up.
+  const auto vectorsPerWorker = (numVectors + numWorkers - 1) / numWorkers;
+
+  // We do 2 ops per vector.
+  const auto opCycles = getNonLinearityOpCycles(nlType, isFloat);
+  const auto vectorLoopCycles = opCycles * 2;
+
+  // These cycle estimates follow the aligned path. Slightly optimistic.
+  // The cost of misalignment is ~9 cycles for half, less for float.
+  std::uint64_t cycles = 9; // Supervisor vertex overhead
+  cycles += 2 + // Load input pointer and size
+            5 + // Divide & Remainder to split work between workers
+            2 + // Shift scaled pointer, get base address
+            2 + // Get worker ID
+            2 + // Check 64-bit aligned and branch
+            5 + // Setup remainders and size for worker
+            2 + // Offset worker's pointer and branch if done
+            (vectorsPerWorker ? 1 : 0) *
+              (2 + opCycles + // Warm up pipeline, rpt
+               (vectorsPerWorker - 1) * vectorLoopCycles +
+               1 + opCycles); // Handle remaining element from pipeline
+
+  // Add remainder handling cycles. This handling could be slightly overlapped
+  // with other workers if the worker doing the remainder had less vector
+  // work than the others. Some of these transcendental ops may take
+  // less time anyway so we'll just stick with the simpler estimation.
+  if (isFloat) {
+    cycles +=
+      3 + // Test worker ID to handle remainder, test remainder, branch
+      ((remainder & 1) ? 1 : 0) * (2 + opCycles);  // Handle 32-bit remainder
+  } else {
+    cycles +=
+      2 + // Test worker ID to handle remainder with
+      1 + // branch for 32-bit remainder
+      ((remainder & 2) ? 1 : 0) * (2 + opCycles) + // Handle 32-bit remainder
+      1 + // branch for 16-bit remainder
+      ((remainder & 1) ? 1 : 0) * (3 + opCycles);  // Handle 16-bit remainder
+  }
+
+  return cycles;
 }
 
 std::uint64_t
@@ -47,16 +90,46 @@ MAKE_CYCLE_ESTIMATOR_NAME(NonLinearityGradSupervisor)(
                               const Type &type,
                               const NonLinearityType &nlType) {
   bool isFloat = type == FLOAT;
-  std::vector<unsigned> regionSizes;
-  const auto inGrad = vertex.getFieldInfo("inGrad");
+  const auto vectorWidth = target.getVectorWidth(type);
+  const auto numWorkers = target.getNumWorkerContexts();
+  CODELET_FIELD(inGrad);
   CODELET_FIELD(outGrad);
   CODELET_FIELD(out);
-  assert(outGrad.size() == inGrad.size());
-  assert(outGrad.size() == out.size());
-  regionSizes.push_back(inGrad.size());
-  return getBwdNonlinearityDerivativeCycles(regionSizes, nlType, isFloat, false,
-                                            true, target.getDataPathWidth(),
-                                            target.getNumWorkerContexts());
+  const auto n = inGrad.size();
+  assert(outGrad.size() == n);
+  assert(out.size() == n);
+
+  const auto numVectors = n / vectorWidth;
+  const auto remainder = n % vectorWidth;
+  const auto vectorsPerWorker = (numVectors + numWorkers - 1) / numWorkers;
+
+  std::uint64_t cycles = 9; // Supervisor vertex overhead
+
+  cycles += 8 + // Load vertex state, get real pointers from scaled pointers
+            5 + // Split work between workers
+            2 + // Get worker ID
+            3 + // Add remaining vectors to relevant workers
+            3 + // Offset pointers to data
+            3 + // Pre-load inputs, and generate ones if needed
+            1 + // Branch if no vectors
+            (vectorsPerWorker ? 1 : 0) *
+              (4 + // Warm up the pipeline
+               (vectorsPerWorker - 1) * 3 +
+               1); // Store remaining element
+
+  if (isFloat) {
+    cycles += 2 + // Pick a worker to handle the remainder, branch
+              2 + // Check for remainder
+              (remainder ? 1 : 0) * 4;
+  } else {
+    cycles += 2 + // Pick a worker to handle remainders, branch
+              2 + // Check for 32-bit remainder
+              ((remainder & 2) ? 1 : 0) * 5 +
+              2 + // Check for 16-bit remainder
+              ((remainder & 1) ? 1 : 0) * 7;
+  }
+
+  return cycles;
 }
 
 std::uint64_t
@@ -65,13 +138,51 @@ MAKE_CYCLE_ESTIMATOR_NAME(NonLinearity2D)(const VertexIntrospector &vertex,
                                           const Type &type,
                                           const NonLinearityType &nlType) {
   bool isFloat = type == FLOAT;
-  std::vector<unsigned> regionSizes;
-  const auto data = vertex.getFieldInfo("data");
-  for (unsigned i=0;i<data.size(); ++i)
-    regionSizes.push_back(data[i].size());
-  return getNonLinearityCycles(regionSizes, nlType, isFloat, true, false,
-                               target.getDataPathWidth(),
-                               target.getNumWorkerContexts());
+  const auto vectorWidth = target.getVectorWidth(type);
+  CODELET_FIELD(data);
+  const auto n0 = data.size();
+  assert(n0 > 0);
+
+  std::uint64_t cycles = 5; // Vertex overhead
+
+  // We do 2 ops per vector.
+  const auto opCycles = getNonLinearityOpCycles(nlType, isFloat);
+  const auto vectorLoopCycles = opCycles * 2;
+
+  cycles += 2 + // Load base pointer, DeltaN pointer
+            5 + // Unpack base pointer, n0, DeltaN pointer
+            2;  // Set mask for inner loop, sub for brnzdec
+
+  // Following 64-bit aligned path
+  for (std::size_t i = 0; i < n0; ++i) {
+    const auto n1 = data[i].size();
+    const auto numVectors = n1 / vectorWidth;
+    const auto remainder = n1 % vectorWidth;
+
+    cycles += 4 + // Load DeltaN, calculate inner pointer and n1
+              (isFloat ? 0 : 2) + // Test 32-bit aligned
+              2 + // Test 64-bit aligned
+              2 + // Shift to get num vectors, branch if 0
+              (numVectors ? 1 : 0) *
+                (2 + opCycles + // Warm up pipeline
+                 (numVectors - 1) * vectorLoopCycles +
+                 1 + opCycles); // Handle last element
+
+    if (isFloat) {
+      cycles += 2 + // Check for remainder, branch
+                (remainder ? 1 : 0) * (2 + opCycles);
+    } else {
+      cycles +=
+        2 + // Check for 32-bit remainder, branch
+        ((remainder & 2) ? 1 : 0) * (2 + opCycles) +
+        2 + // Check for 16-bit remainder, branch
+        ((remainder & 1) ? 1 : 0) * (3 + opCycles);
+    }
+
+    cycles += 1; // brnzdec
+  }
+
+  return cycles;
 }
 
 std::uint64_t
@@ -80,19 +191,50 @@ MAKE_CYCLE_ESTIMATOR_NAME(NonLinearityGrad2D)(const VertexIntrospector &vertex,
                                               const Type &type,
                                               const NonLinearityType &nlType) {
   bool isFloat = type == FLOAT;
-  std::vector<unsigned> regionSizes;
-  const auto inGrad = vertex.getFieldInfo("inGrad");
+  const auto vectorWidth = target.getVectorWidth(type);
+  CODELET_FIELD(inGrad);
   CODELET_FIELD(outGrad);
   CODELET_FIELD(out);
-  assert(outGrad.size() == inGrad.size());
-  for (unsigned i = 0; i < inGrad.size(); ++i) {
-    assert(outGrad[i].size() == inGrad[i].size());
-    assert(outGrad[i].size() == out[i].size());
-    regionSizes.push_back(inGrad[i].size());
+  const auto n0 = inGrad.size();
+  assert(outGrad.size() == n0);
+  assert(out.size() == n0);
+  assert(n0 > 0);
+
+  std::uint64_t cycles = 5; // Vertex overhead
+
+  cycles += 4 + // Load vertex state
+            3 + // Load DeltaN base/n0, generate ones if needed
+            3 + // Calculate DeltaN pointer
+            2;  // Set mask for inner loop, sub for brnzdec
+
+  for (std::size_t i = 0; i < n0; ++i) {
+    const auto n1 = inGrad[i].size();
+    assert(outGrad[i].size() == n1);
+    assert(out[i].size() == n1);
+    const auto numVectors = n1 / vectorWidth;
+    const auto remainder = n1 % vectorWidth;
+
+    cycles += 6 + // Load DeltaN, calculate inner pointer/n1, shift for n1 vecs
+              3 + // Pre-load inputs for pipeline, branch if 0
+              (numVectors ? 1 : 0) *
+                (4 + // Warm up pipeline
+                 (numVectors - 1) * 3 +
+                 1); // Store last element
+
+    if (isFloat) {
+      cycles += 2 + // Check for remainder
+                (remainder ? 1 : 0) * 4;
+    } else {
+      cycles += 2 + // Check for 32-bit remainder
+                ((remainder & 2) ? 1 : 0) * 5 +
+                2 + // Check for 16-bit remainder
+                ((remainder & 1) ? 1 : 0) * 7;
+    }
+
+    cycles += 1; // brnzdec
   }
-  return getBwdNonlinearityDerivativeCycles(regionSizes, nlType, isFloat, true,
-                                            false, target.getDataPathWidth(),
-                                            target.getNumWorkerContexts());
+
+  return cycles;
 }
 
 std::uint64_t
