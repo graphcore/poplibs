@@ -300,6 +300,8 @@ def main():
                         help='Random number seed')
     parser.add_argument('--device-type', default='IpuModel',
                         help='Underlying target to use')
+    parser.add_argument('--profile', action='store_true',
+                        help='Print profiling report once complete')
     parser.add_argument('--dummy', action='store_true',
                         help='Print parameters without running convolution')
     args = parser.parse_args()
@@ -315,9 +317,12 @@ def main():
         params = make_constrained_params(tiles_per_ipu)
         print('Run #{}:'.format(i))
         try: 
+            extra_args=device_args + ['--device-type=' +
+                str(args.device_type)];
+            if args.profile:
+                extra_args.append('--profile');
             run(params, binary=args.binary,
-                extra_args=device_args + ['--device-type=' +
-                   str(args.device_type)],
+                extra_args=extra_args,
                 dummy_run=args.dummy)
         except TestFailureException as inst:
             print('TestFailure: ' + str(inst.args))
