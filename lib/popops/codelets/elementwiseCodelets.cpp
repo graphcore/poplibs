@@ -7,6 +7,29 @@
 #include "popops/ExprOp.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
 
+#ifdef __IPU__
+#include <ipu_memory_intrinsics>
+#include <ipu_vector_math>
+namespace ipu {
+// ipu vector math defines floating point versions
+// scalar integer overloads are implemented here
+inline int fmax(int x, int y) { return max(x, y); }
+inline int fmin(int x, int y) { return min(x, y); }
+inline int sqrt(int x) { return std::sqrt(x); }
+} // namespace ipu
+#endif
+
+namespace architecture {
+// Use tag dispatching in place of #ifdef
+struct generic;
+struct ipu;
+#ifdef __IPU__
+using active = ipu;
+#else
+using active = generic;
+#endif
+} // namespace architecture
+
 using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 static constexpr auto TWO_PTR = poplar::VectorLayout::TWO_PTR;
@@ -43,13 +66,27 @@ namespace {
 
   // Structure with template specialization to define the function
   // that performes that operation on one element
-  template <expr::UnaryOpType op, typename T>
+  template <expr::UnaryOpType op, typename T, typename A>
   struct UnaryOpFn {};
 
-#define DEFINE_UNARY_OP_FN(op, body) \
-  template <typename T> struct UnaryOpFn<op, T> { \
-    static typename UnaryOpOutputType<op, T>::type fn(T x) { body } \
+  template <expr::UnaryOpType op, typename T>
+  using UnaryOpOutputType_t = typename UnaryOpOutputType<op, T>::type;
+
+#define DEFINE_UNARY_OP_FN(op, body)                                           \
+  template <typename T, typename A> struct UnaryOpFn<op, T, A> {               \
+    using arch = architecture::generic;                                        \
+    static UnaryOpOutputType_t<op, T> fn(T x) { body }                         \
   };
+
+#ifdef __IPU__
+#define DEFINE_UNARY_OP_FN_IPU(op, body)                                       \
+  template <typename T> struct UnaryOpFn<op, T, architecture::ipu> {           \
+    using arch = architecture::ipu;                                            \
+    static UnaryOpOutputType_t<op, T> fn(T x) { body }                         \
+  };
+#else
+#define DEFINE_UNARY_OP_FN_IPU(op, body)
+#endif
 
   DEFINE_UNARY_OP_FN(expr::UnaryOpType::ABSOLUTE,
                      if (std::is_integral<T>::value) {
@@ -86,11 +123,83 @@ namespace {
                      return std::sqrt(x);)
   DEFINE_UNARY_OP_FN(expr::UnaryOpType::SQUARE,
                      return (x * x);)
-}
+
+  DEFINE_UNARY_OP_FN_IPU(expr::UnaryOpType::EXPONENT, return ipu::exp(x);)
+  DEFINE_UNARY_OP_FN_IPU(expr::UnaryOpType::LOGARITHM, return ipu::log(x);)
+  DEFINE_UNARY_OP_FN_IPU(expr::UnaryOpType::TANH, return ipu::tanh(x);)
+  DEFINE_UNARY_OP_FN_IPU(expr::UnaryOpType::SQRT, return ipu::sqrt(x);)
+  DEFINE_UNARY_OP_FN_IPU(expr::UnaryOpType::SQUARE, return (x * x);)
+} // namespace
+
+template <expr::UnaryOpType op, typename T, typename A>
+struct UnaryOpDispatch {
+  static void compute(unsigned size,
+                      const __attribute__((align_value(8))) T *in,
+                      __attribute__((align_value(8)))
+                      typename UnaryOpOutputType<op, T>::type *out) {
+
+    for (unsigned j = 0; j != size; ++j) {
+      out[j] = UnaryOpFn<op, T, A>::fn(in[j]);
+    }
+  }
+};
+
+#ifdef __IPU__
+template <expr::UnaryOpType op>
+struct UnaryOpDispatch<op, half, architecture::ipu> {
+  static_assert(
+      std::is_same<half, typename UnaryOpOutputType<op, half>::type>::value,
+      "");
+  static void compute(unsigned size,
+                      const __attribute__((align_value(8))) half *in,
+                      __attribute__((align_value(8)))
+                      typename UnaryOpOutputType<op, half>::type *out) {
+    using arch = architecture::ipu;
+
+    if (size >= 4) {
+      const half4 *h4In = reinterpret_cast<const half4 *>(in);
+      half4 *h4Out = reinterpret_cast<half4 *>(out);
+
+      half4 load = ipu::load_postinc(&h4In, 1);
+      asm volatile("# Thwart loop rotation (start)" ::: "memory");
+      for (unsigned i = 0; i < (size / 4u) - 1u; i++) {
+        half4 calc = UnaryOpFn<op, half4, arch>::fn(load);
+        load = ipu::load_postinc(&h4In, 1);
+        ipu::store_postinc(&h4Out, calc, 1);
+      }
+      asm volatile("# Thwart loop rotation (end)" ::: "memory");
+      ipu::store_postinc(&h4Out, UnaryOpFn<op, half4, arch>::fn(load), 1);
+
+      in = reinterpret_cast<const half *>(h4In);
+      half *tmp = reinterpret_cast<half *>(h4Out);
+      size -= (tmp - out);
+      out = tmp;
+    }
+
+    const half2 *h2In = reinterpret_cast<const half2 *>(in);
+    half2 *h2Out = reinterpret_cast<half2 *>(out);
+
+    if (size >= 2) {
+      ipu::store_postinc(
+          &h2Out, UnaryOpFn<op, half2, arch>::fn(ipu::load_postinc(&h2In, 1)),
+          1);
+      size -= 2;
+    }
+
+    if (size == 1) {
+      half2 res = (half2){
+          UnaryOpFn<op, half, arch>::fn((*h2In)[0]),
+          (*h2Out)[1],
+      };
+      *h2Out = res;
+    }
+  }
+};
+
+#endif
 
 template <expr::UnaryOpType op, typename T>
 class
-[[poplar::constraint("elem(**in) != elem(**out)")]]
 UnaryOp2D : public Vertex {
 public:
   Vector<Input<Vector<T, ONE_PTR, 8>>, ONE_PTR> in;
@@ -98,14 +207,11 @@ public:
       out;
 
   bool compute() {
+    using arch = typename popops::UnaryOpFn<op, T, architecture::active>::arch;
     unsigned limI = out.size();
     for (unsigned i = 0; i != limI; ++i) {
-      unsigned limJ = out[i].size();
-      auto const &refIn = in[i];
-      auto &refOut = out[i];
-      for (unsigned j = 0; j != limJ; ++j) {
-        refOut[j] = UnaryOpFn<op, T>::fn(refIn[j]);
-      }
+      popops::UnaryOpDispatch<op, T, arch>::compute(out[i].size(), &in[i][0],
+                                                    &out[i][0]);
     }
     return true;
   }
@@ -121,7 +227,7 @@ public:
 
   bool compute() {
     for (unsigned j = 0; j != out.size(); ++j) {
-        out[j] = UnaryOpFn<op, T>::fn(in[j]);
+      out[j] = UnaryOpFn<op, T, architecture::generic>::fn(in[j]);
     }
     return true;
   }
@@ -135,11 +241,11 @@ public:
   Vector<InOut<Vector<T, TWO_PTR, 8>>> inOut;
 
   bool compute() {
-    for (auto &row : inOut) {
-      const unsigned limJ = row.size();
-      for (unsigned j = 0; j != limJ; ++j) {
-        row[j] = UnaryOpFn<op, T>::fn(row[j]);
-      }
+    using arch = typename popops::UnaryOpFn<op, T, architecture::active>::arch;
+    unsigned limI = inOut.size();
+    for (unsigned i = 0; i != limI; ++i) {
+      popops::UnaryOpDispatch<op, T, arch>::compute(inOut[i].size(),
+                                                    &inOut[i][0], &inOut[i][0]);
     }
     return true;
   }
@@ -153,7 +259,7 @@ public:
 
   bool compute() {
     for (unsigned j = 0; j != inOut.size(); ++j) {
-      inOut[j] = UnaryOpFn<op, T>::fn(inOut[j]);
+      inOut[j] = UnaryOpFn<op, T, architecture::generic>::fn(inOut[j]);
     }
     return true;
   }
@@ -286,13 +392,26 @@ namespace {
 
   // Structure with template specialization to define the function
   // that performes that operation on scalar elements
-  template <expr::BinaryOpType op, typename T>
-  struct BinaryOpFn {};
+  template <expr::BinaryOpType op, typename T, typename A> struct BinaryOpFn {};
 
-#define DEFINE_BINARY_OP_FN(op, body) \
-  template <typename T> struct BinaryOpFn<op, T> { \
-    static typename BinaryOpOutputType<op, T>::type fn(T x, T y) { body } \
+  template <expr::BinaryOpType op, typename T>
+  using BinaryOpOutputType_t = typename BinaryOpOutputType<op, T>::type;
+
+#define DEFINE_BINARY_OP_FN(op, body)                                          \
+  template <typename T, typename A> struct BinaryOpFn<op, T, A> {              \
+    using arch = architecture::generic;                                        \
+    static BinaryOpOutputType_t<op, T> fn(T x, T y) { body }                   \
   };
+
+#ifdef __IPU__
+#define DEFINE_BINARY_OP_FN_IPU(op, body)                                      \
+  template <typename T> struct BinaryOpFn<op, T, architecture::ipu> {          \
+    using arch = architecture::ipu;                                            \
+    static BinaryOpOutputType_t<op, T> fn(T x, T y) { body }                   \
+  };
+#else
+#define DEFINE_BINARY_OP_FN_IPU(op, body)
+#endif
 
   DEFINE_BINARY_OP_FN(expr::BinaryOpType::ADD, return x + y;)
   DEFINE_BINARY_OP_FN(expr::BinaryOpType::ATAN2, return std::atan2(x, y);)
@@ -324,14 +443,140 @@ namespace {
   DEFINE_BINARY_OP_FN(expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND,
                       return x >> y;)
   DEFINE_BINARY_OP_FN(expr::BinaryOpType::SUBTRACT, return x - y; )
-}
 
+  DEFINE_BINARY_OP_FN_IPU(expr::BinaryOpType::ADD, return x + y;)
+  DEFINE_BINARY_OP_FN_IPU(expr::BinaryOpType::DIVIDE, return x / y;)
+  DEFINE_BINARY_OP_FN_IPU(expr::BinaryOpType::MAXIMUM, return ipu::fmax(x, y);)
+  DEFINE_BINARY_OP_FN_IPU(expr::BinaryOpType::MINIMUM, return ipu::fmin(x, y);)
+  DEFINE_BINARY_OP_FN_IPU(expr::BinaryOpType::MULTIPLY, return x * y;)
+  DEFINE_BINARY_OP_FN_IPU(expr::BinaryOpType::SUBTRACT, return x - y;)
+} // namespace
+
+template <expr::BinaryOpType op, typename T, typename A>
+struct BinaryOpDispatch {
+  static void compute(unsigned size,
+                      const __attribute__((align_value(8))) T *in1,
+                      const __attribute__((align_value(8))) T *in2,
+                      __attribute__((align_value(8)))
+                      typename BinaryOpOutputType<op, T>::type *out) {
+
+    for (unsigned j = 0; j != size; ++j) {
+      out[j] = BinaryOpFn<op, T, A>::fn(in1[j], in2[j]);
+    }
+  }
+};
+
+#ifdef __IPU__
+
+template <expr::BinaryOpType op>
+struct BinaryOpDispatch<op, half, architecture::ipu> {
+  static_assert(
+      std::is_same<half, typename BinaryOpOutputType<op, half>::type>::value,
+      "");
+  static void compute(unsigned size,
+                      const __attribute__((align_value(8))) half *in1,
+                      const __attribute__((align_value(8))) half *in2,
+                      __attribute__((align_value(8)))
+                      typename BinaryOpOutputType<op, half>::type *out) {
+    using arch = architecture::ipu;
+
+    if (size >= 4) {
+      const half4 *h4In1 = reinterpret_cast<const half4 *>(in1);
+      const half4 *h4In2 = reinterpret_cast<const half4 *>(in2);
+      half4 *h4Out = reinterpret_cast<half4 *>(out);
+
+      half4 load1 = ipu::load_postinc(&h4In1, 1);
+      half4 load2 = ipu::load_postinc(&h4In2, 1);
+      asm volatile ("# Thwart loop rotation (start)" ::: "memory");
+      for (unsigned i = 0; i < (size/4u)-1u; i++) {
+        half4 calc = BinaryOpFn<op, half4, arch>::fn(load1, load2);
+        load1 = ipu::load_postinc(&h4In1, 1);
+        load2 = ipu::load_postinc(&h4In2, 1);
+        ipu::store_postinc(&h4Out, calc, 1);
+      }
+      asm volatile ("# Thwart loop rotation (end)" ::: "memory");
+      ipu::store_postinc(&h4Out, BinaryOpFn<op, half4, arch>::fn(load1, load2),
+                         1);
+
+      in1 = reinterpret_cast<const half *>(h4In1);
+      in2 = reinterpret_cast<const half *>(h4In2);
+      half *tmp = reinterpret_cast<half *>(h4Out);
+      size -= (tmp - out);
+      out = tmp;
+    }
+
+    const half2 *h2In1 = reinterpret_cast<const half2 *>(in1);
+    const half2 *h2In2 = reinterpret_cast<const half2 *>(in2);
+    half2 *h2Out = reinterpret_cast<half2 *>(out);
+
+    if (size >= 2) {
+      ipu::store_postinc(
+          &h2Out,
+          BinaryOpFn<op, half2, arch>::fn(ipu::load_postinc(&h2In1, 1),
+                                          ipu::load_postinc(&h2In2, 1)),
+          1);
+      size -= 2;
+    }
+
+    if (size == 1) {
+      half2 res = (half2)
+        {
+          BinaryOpFn<op, half, arch>::fn((*h2In1)[0], (*h2In2)[0]),
+          (*h2Out)[1],
+        };
+      *h2Out = res;
+    }
+  }
+};
+
+template <expr::BinaryOpType op>
+struct BinaryOpDispatch<op, float, architecture::ipu> {
+  static_assert(
+      std::is_same<float, typename BinaryOpOutputType<op, float>::type>::value,
+      "");
+
+  static void compute(unsigned size,
+                      const __attribute__((align_value(8))) float *in1,
+                      const __attribute__((align_value(8))) float *in2,
+                      __attribute__((align_value(8)))
+                      typename BinaryOpOutputType<op, float>::type *out) {
+    using arch = architecture::ipu;
+
+    if (size >= 2) {
+      const float2 *f2In1 = reinterpret_cast<const float2 *>(in1);
+      const float2 *f2In2 = reinterpret_cast<const float2 *>(in2);
+      float2 *f2Out = reinterpret_cast<float2 *>(out);
+
+      float2 load1 = ipu::load_postinc(&f2In1, 1);
+      float2 load2 = ipu::load_postinc(&f2In2, 1);
+      asm volatile ("# Thwart loop rotation (start)" ::: "memory");
+      for (unsigned i = 0; i < (size/2u)-1u; i++) {
+        float2 calc = BinaryOpFn<op, float2, arch>::fn(load1, load2);
+        load1 = ipu::load_postinc(&f2In1, 1);
+        load2 = ipu::load_postinc(&f2In2, 1);
+        ipu::store_postinc(&f2Out, calc, 1);
+      }
+      asm volatile ("# Thwart loop rotation (end)" ::: "memory");
+      ipu::store_postinc(&f2Out, BinaryOpFn<op, float2, arch>::fn(load1, load2),
+                         1);
+
+      in1 = reinterpret_cast<const float *>(f2In1);
+      in2 = reinterpret_cast<const float *>(f2In2);
+      float *tmp = reinterpret_cast<float *>(f2Out);
+      size -= (tmp - out);
+      out = tmp;
+    }
+
+    if (size == 1) {
+      *out = BinaryOpFn<op,float,arch>::fn(*in1,*in2);
+    }
+  }
+};
+
+#endif
 
 template <expr::BinaryOpType op, typename T>
 class
-[[poplar::constraint("elem(**in1) != elem(**in2)",
-                     "elem(**in2) != elem(**out)",
-                     "elem(**in1) != elem(**out)")]]
 BinaryOp2D : public Vertex {
 public:
   Vector<Input<Vector<T, ONE_PTR, 8>>, ONE_PTR> in1;
@@ -340,15 +585,11 @@ public:
       out;
 
   bool compute() {
+    using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;
     const unsigned limI = out.size();
     for (unsigned i = 0; i != limI; ++i) {
-      const unsigned limJ = out[i].size();
-      auto const &refIn1 = in1[i];
-      auto const &refIn2 = in2[i];
-      auto &refOut = out[i];
-      for (unsigned j = 0; j != limJ; ++j) {
-        refOut[j] = BinaryOpFn<op, T>::fn(refIn1[j], refIn2[j]);
-      }
+      popops::BinaryOpDispatch<op, T, arch>::compute(out[i].size(), &in1[i][0],
+                                                     &in2[i][0], &out[i][0]);
     }
     return true;
   }
@@ -367,7 +608,7 @@ public:
 
   bool compute() {
     for (unsigned j = 0; j != out.size(); ++j) {
-      out[j] = BinaryOpFn<op, T>::fn(in1[j], in2[j]);
+      out[j] = BinaryOpFn<op, T, architecture::generic>::fn(in1[j], in2[j]);
     }
     return true;
   }
@@ -376,7 +617,6 @@ public:
 
 template <expr::BinaryOpType op, typename T>
 class
-[[poplar::constraint("elem(**in2) != elem(**in1Out)")]]
 BinaryOp2DInPlace : public Vertex {
 public:
   Vector<
@@ -385,14 +625,11 @@ public:
   Vector<Input<Vector<T, ONE_PTR, 8>>> in2;
 
   bool compute() {
+    using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;
     const unsigned limI = in1Out.size();
     for (unsigned i = 0; i != limI; ++i) {
-      const unsigned limJ = in1Out[i].size();
-      auto const &refIn2 = in2[i];
-      auto &refIn1Out = in1Out[i];
-      for (unsigned j = 0; j != limJ; ++j) {
-        refIn1Out[j] = BinaryOpFn<op, T>::fn(refIn1Out[j], refIn2[j]);
-      }
+      popops::BinaryOpDispatch<op, T, arch>::compute(
+          in1Out[i].size(), &in1Out[i][0], &in2[i][0], &in1Out[i][0]);
     }
     return true;
   }
@@ -410,9 +647,10 @@ public:
 
   bool compute() {
       for (unsigned j = 0; j != in1Out.size(); ++j) {
-        in1Out[j] = BinaryOpFn<op, T>::fn(in1Out[j], in2[j]);
+        in1Out[j] =
+            BinaryOpFn<op, T, architecture::generic>::fn(in1Out[j], in2[j]);
       }
-    return true;
+      return true;
   }
 };
 
