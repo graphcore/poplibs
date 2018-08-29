@@ -374,10 +374,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
         ((numSrcColumns & 3 ) == 0)  &&
         (numSrcColumns >= 8) &&
         (numSrcColumns/4 < 0x1000 ) &&        // hardware RPT count constraint
-        (numSrcRows * (numSrcColumns-1)/4 < 512) ) {  // Largest stride used
+        (1 + 3 * (numSrcColumns/4) < 512) ) {  // Largest stride used
         // Half, fast path estimates
         cycles = 34 + matrices *
-                  (11 + (numSrcRows/4 ) * ( 9 + 4 *(numSrcColumns/4 -2)));
+                  (11 + (numSrcRows/4 ) * ( 15 + 4 *(numSrcColumns/4 -2)));
     }
     else {
         // Half, slow path estimates based on numSrcRows being even

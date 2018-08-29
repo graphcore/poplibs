@@ -12,7 +12,7 @@
 // and store pairs of values (across a row).  This is not as fast but works
 // for other sized arrays.
 /* -------------------------------------------------------------------------- */
-
+#include "tilearch.h"
 
 // Register aliases
 
@@ -51,12 +51,18 @@
 // Input rows   (integer - row count)
 // Input columns (integer - column count)
 //****************************************************************************
-.macro GET_PARAMS VOFF_IN_START_PTR VOFF_IN_END_PTR VOFF_OUT_PTR VOFF_SRC_ROWS VOFF_SRC_COLUMNS
-    ld32     $IN_START_PTR, $mzero, $mvertex_base, \VOFF_IN_START_PTR
-    ld32     $mSCRATCH,     $mzero, $mvertex_base, \VOFF_IN_END_PTR
-    ld32     $OUT_PTR,      $mzero, $mvertex_base, \VOFF_OUT_PTR
-    ld32     $IN_ROWS,      $mzero, $mvertex_base, \VOFF_SRC_ROWS
-    ld32     $IN_COLUMNS,   $mzero, $mvertex_base, \VOFF_SRC_COLUMNS
+#define VOFF_IN_START_PTR   0
+#define VOFF_IN_END_PTR     1
+#define VOFF_OUT_PTR        2
+#define VOFF_SRC_ROWS       3
+#define VOFF_SRC_COLUMNS    4
+
+.macro GET_PARAMS p1 p2 p3 p4 p5
+    ld32     $IN_START_PTR, $mzero, $mvertex_base, \p1
+    ld32     $mSCRATCH,     $mzero, $mvertex_base, \p2
+    ld32     $OUT_PTR,      $mzero, $mvertex_base, \p3
+    ld32     $IN_ROWS,      $mzero, $mvertex_base, \p4
+    ld32     $IN_COLUMNS,   $mzero, $mvertex_base, \p5
 .endm
 
 //********************************************************************
@@ -186,7 +192,7 @@ os_loop_exit\@:
 
 __runCodelet_poplin__Transpose2d___float:
 
-     GET_PARAMS  0 1 2 3 4
+     GET_PARAMS  VOFF_IN_START_PTR VOFF_IN_END_PTR VOFF_OUT_PTR VOFF_SRC_ROWS VOFF_SRC_COLUMNS
 
     sub      $MATRIX_LOOP_COUNT, $mSCRATCH, $IN_START_PTR
     shr      $MATRIX_LOOP_COUNT, $MATRIX_LOOP_COUNT, 2
@@ -207,7 +213,7 @@ __runCodelet_poplin__Transpose2d___float:
     add   $LOOP_COUNT, $LOOP_COUNT, -1
 
    //check that the repeat count is within range of its register value
-    cmpult    $STRIDE, $LOOP_COUNT, 0x1000
+    cmpult    $STRIDE, $LOOP_COUNT, CSR_W_REPEAT_COUNT__VALUE__MASK + 1
     brz       $STRIDE, float_slower
 
     // calculate a write stride for the end of the inner loop=
@@ -323,6 +329,10 @@ float_slower:
 .section .text.__runCodelet_poplin__Transpose2d___half
 .global __runCodelet_poplin__Transpose2d___half
 .type __runCodelet_poplin__Transpose2d___half,   @function
+
+
+// Register aliases
+
 // Input pointer
 #define LD_PTR m6
 
@@ -340,7 +350,7 @@ float_slower:
 #define INC_LD1_STw  0x4
 #define INC_LDMz_STw 0x6
 #define INC_LDx_STw  0x6
-#define INC_LDx_STMy 0xe
+#define INC_LDx_STM0 0xe
 
 #define TISTACC_P0 0
 #define TISTACC_P1 1
@@ -358,7 +368,7 @@ float_slower:
 
 __runCodelet_poplin__Transpose2d___half:
 
-    GET_PARAMS  0 1 2 3 4
+    GET_PARAMS  VOFF_IN_START_PTR VOFF_IN_END_PTR VOFF_OUT_PTR VOFF_SRC_ROWS VOFF_SRC_COLUMNS
 
     // The fast algorithm works for rows,cols a multiple of 4 only - test &
     // branch if we can't use it.
@@ -383,41 +393,31 @@ __runCodelet_poplin__Transpose2d___half:
     mul       $IN_REWIND, $IN_GROUPS, -3
     add       $IN_REWIND, $IN_REWIND, 1
 
-    // find output rewind stride = -1*((IR*(IC-1))/4-1)
-    // calculated in $STRIDES2 as that's the only place it needs to be
-    add       $STRIDES2, $IN_COLUMNS, -1
-    mul       $STRIDES2, $IN_ROWS, $STRIDES2
-    shr       $STRIDES2, $STRIDES2, 2
-    sub       $STRIDES2, 1, $STRIDES2
-
     // This should be the largest stride calculated so check it:
     // Is this -ve stride going to be bigger than a signed 10 bit range?
-    cmpslt    $COUNTER, $STRIDES2, -512
-    brnz      $COUNTER, half_slower
-
+    cmpslt    $mSCRATCH, $IN_REWIND, -512
+    brnz      $mSCRATCH, half_slower
 
     // Combine to form stride fields
     // $STRIDES= in_rewind<<10, out_groups
     // $STRIDES= z<<10,         w               (Refs in LDMz_STw)
 
-    // $STRIDES2= (out_rewind<<20| in_groups<<10 | out_groups)
-    // $STRIDES2= y<<20            x<<10           w         (Refs in LDx_STw etc)
+    // $STRIDES2= (0<<20| in_groups<<10 | out_groups)
+    // $STRIDES2= 0<<20   x<<10           w         (Refs in LDx_STw etc)
 
-    shl       $STRIDES2, $STRIDES2, 20  //note unmasked but leftmost stride:OK
-    or        $STRIDES2, $STRIDES2, $OUT_GROUPS
     shl       $IN_GROUPS, $IN_GROUPS, 10
-    or        $STRIDES2, $STRIDES2, $IN_GROUPS
+    or        $STRIDES2, $OUT_GROUPS, $IN_GROUPS
 
     shr       $IN_GROUPS, $IN_GROUPS, 10
 
-    shl       $STRIDES, $IN_REWIND, 10     //note unmasked but leftmost stride:OK
+    shl       $STRIDES, $IN_REWIND, 10
     or        $STRIDES, $STRIDES, $OUT_GROUPS
 
     // loop count is constant throughout too
     add       $LOOP_COUNT, $IN_GROUPS, -2
 
     //check that the repeat count is within range of its register value
-    cmpult    $COUNTER, $LOOP_COUNT, 0x1000
+    cmpult    $COUNTER, $LOOP_COUNT, CSR_W_REPEAT_COUNT__VALUE__MASK + 1
     brz       $COUNTER, half_slower
 
     mov       $IN_ROWS, $LD_PTR           //$IN_ROWS now used as a loop count
@@ -426,7 +426,8 @@ matrix_loop_half:
     // loop per matrix starts here - fetch input/output pointers
     ld32step   $LD_PTR, $mzero, $IN_START_PTR+=, 1
     ld32step   $ST_PTR, $mzero, $OUT_PTR+=, 1
-    // calculate output pointer
+
+    // calculate outer loop passes
     add        $COUNTER, $OUT_GROUPS, -1
 
     // Warmup - preload data to feed into AACC
@@ -445,14 +446,19 @@ matrix_loop_half:
     f16v4stacc  $a6:7, TSTACC_P0 }
 
     // From now on we'll use load/store so pack into tri ptr
-    tapack $TRI_PTR, $LD_PTR, $mzero, $ST_PTR
+    // The first reference to store pointer is to store an copy
+    // of the pointer which won't get modified by the stores ldst64pace
+    // instructions.  However it will still be available in ST_PTR (as
+    // LD_PTR, ST_PTR overlay with TRI_PTR) to modify manually below to
+    // stride to the next 4 column group
+    tapack $TRI_PTR, $LD_PTR, $ST_PTR, $ST_PTR
 
     // Outer loop to deal with an input slice, 4 rows x all columns
 
     bri  outer_loop_first_pass
 outer_loop_start:
    // This is the end of the loop body, which stores and loads.  It
-   // would read 4x64 bits from 4 non-existant input rows so put loop ending here
+    // would read 6x64 bits from 4 non-existant input rows so put loop ending here
    // and skip it the 1st time around
   { ldst64pace $a0:1, $a2:3, $TRI_PTR+=, $STRIDES2, INC_LDx_STw
    f16v4istacc $a2:3, $a4:5, $a6:7, TISTACC_P1 }
@@ -466,13 +472,21 @@ outer_loop_start:
   { ldst64pace $a0:1, $a2:3, $TRI_PTR+=, $STRIDES2, INC_LDx_STw
    f16v4istacc $a2:3, $a4:5, $a6:7, TISTACC_P1 }
   // The last store will modify the store pointer and point back to the
-  // next group of 4 output columns
-  { ldst64pace $a2:3, $a2:3, $TRI_PTR+=, $STRIDES2, INC_LDx_STMy
+  // next group of 4 output columns, could be done with a
+  // stride but that limits the size of array to around 40 x 48
+  { ldst64pace $a2:3, $a2:3, $TRI_PTR+=, $STRIDES2, INC_LDx_STM0
    f16v4stacc  $a6:7, TSTACC_P0 }
 
+   // Stride the unmodified ST_PTR, (stored in TRI_PTR) by 4 halves, to
+   // point at the top of the next group of 4 columns.  Re-pack but
+   // twice so we have a copy to use for the next group of 4 columns.
+   add    $ST_PTR, $ST_PTR, 4*2
+   tapack $TRI_PTR, $LD_PTR, $ST_PTR, $ST_PTR
+
 outer_loop_first_pass:
-  { rpt $LOOP_COUNT, ((2f - 1f) / 8) - 1;
-    fnop }
+    {rpt $LOOP_COUNT, ((2f - 1f) / 8) - 1
+     fnop}
+
 1:
   { ldst64pace $a4:5, $a6:7, $TRI_PTR+=, $STRIDES2, INC_LDx_STw
     f16v4stacc  $a6:7, TSTACC_P1 }
@@ -494,7 +508,7 @@ outer_loop_first_pass:
    brnzdec $COUNTER, outer_loop_start
 
 
-   // Just stores to avoid a lot of overreading
+   // Just stores to avoid a lot of overreading, at the end of a matrix
 
   { st64pace  $a2:3, $TRI_PTR+=, $STRIDES2, 1
    f16v4istacc $a2:3, $a4:5, $a6:7, TISTACC_P1 }
@@ -509,7 +523,6 @@ outer_loop_first_pass:
    f16v4istacc $a2:3, $a4:5, $a6:7, TISTACC_P1 }
    st64pace  $a2:3, $TRI_PTR+=, $STRIDES2, 1
 
-
    brnzdec $IN_ROWS,matrix_loop_half
 
 
@@ -519,6 +532,7 @@ outer_loop_first_pass:
 // Slower version for half processing - using macro above
 
 half_slower:
+   ld32     $mSCRATCH, $mzero, $mvertex_base, VOFF_IN_END_PTR
    sub      $MATRIX_LOOP_COUNT,$mSCRATCH,$IN_START_PTR
    shr      $MATRIX_LOOP_COUNT,$MATRIX_LOOP_COUNT,2
    add      $MATRIX_LOOP_COUNT,$MATRIX_LOOP_COUNT,-1
