@@ -11,87 +11,63 @@
 #include <popops/codelets.hpp>
 #include <poplibs_test/Util.hpp>
 
-#define BOOST_TEST_MODULE CastTest
-#include <boost/test/unit_test.hpp>
+#include <boost/program_options.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
 
-
-//Define a number of tests to run:
-struct TestParams {
-    unsigned columns;
-    unsigned offsetOut;
-    unsigned numRows;
-};
-
-// Tests - based on knowing that the implementation
-// Has execution paths for multiples of 4, and needs to tidy the last
-// few following it.  Also a long test to check that sizes > maximum
-// repeat count function correctly. The output can either be 8 byte or 4 byte
-// aligned. offsetOut of 2 equates to 4 byte aligned only.
-std::vector<TestParams> TestList={
-    {1, 0, 2},      {2, 0, 3},
-    {1, 0, 1},      {1, 2, 1},
-    {2, 0, 1},      {2, 2, 1},
-    {3, 0, 1},      {3, 2, 1},
-    {4, 0, 1},      {4, 2, 1},
-    {16 ,0, 1},     {16, 2, 1},
-    {17, 0, 1},     {17, 2, 1},
-};
-
 //*************************************************
-// Main Test function for Cast
+// Test function for Cast
 //
 // Overview:
 //
-// Run a series of tests that cast a varying number of items.
-// The results are put into a memory area large enough to
-// hold the largest test result, so often the other items are
+// Run a series of tests that cast the specified number of items.
+// The results are put into a larger memory area and the remaining items are
 // expected to be zero.  This is checked as well as the "wanted" data.
 //*************************************************
-void CastTest(const Type &dataTypeIn, const Type &dataTypeOut) {
+bool doTest(const DeviceType &deviceType,
+              const Type &dataTypeIn,
+              const Type &dataTypeOut,
+              unsigned rows,
+              unsigned columns,
+              unsigned offsetOut) {
 
-    //determine the sizes of arrays required
-    auto test_count=TestList.size();
+    // Check that the output offset results in a multiple of 4
+    // bytes
+    if ( offsetOut  % 2 != 0) {
+        throw std::logic_error
+    ("Offset is not a multiple of output alignment, copies will be introduced");
+    }
 
-    const auto tIt = std::max_element(TestList.begin(),TestList.end(),
-                [](TestParams &a, TestParams &b) {
-                    return (a.columns * a.numRows <b.columns * b.numRows );});
-    auto max_elems = tIt->columns * tIt->numRows;
-
-
-    auto max_offsetOut=std::max_element(TestList.begin(),TestList.end(),
-                [](TestParams &a, TestParams &b) {
-                    return (a.offsetOut <b.offsetOut );})->offsetOut;
-    //Whole data array size
-    auto total_size=max_elems + max_offsetOut;
+    // Whole data array size
+    auto total_elems = rows * columns;
+    auto total_size = rows * (columns + offsetOut );
 
     // Program generated test data
     std::vector<double> outTest(total_size);
-    std::vector<double> inTest(max_elems);
+    std::vector<double> inTest(total_elems);
 
     // Initialise input pattern, picking a numeric range and
     // tolerance (below) that works for halves as a limited size/resolution data
     // type with enough unique numbers to satisfy a large test size
-    for (unsigned  i = 0; i < max_elems; i++)
+    for (unsigned  i = 0; i < total_elems; i++)
             inTest[i] = 0.1 * i + 1;
 
-    Device device = createTestDevice(TEST_TARGET);
-    Target target=device.getTarget();
-
-    //Create Graph object
+    //Create Graph object, target and device
+    Device device = createTestDevice(deviceType);
+    Target target = device.getTarget();
     Graph graph(target);
     popops::addCodelets(graph);
 
     //Input data
-    Tensor in=graph.addVariable(dataTypeIn,{max_elems}, "Input Data");
+    Tensor in=graph.addVariable(dataTypeIn,{rows, columns}, "Input Data");
     graph.setTileMapping(in,0);
 
     //Result data
-    Tensor out=graph.addVariable(dataTypeOut,{total_size}, "Output");
+    Tensor out=graph.addVariable(dataTypeOut,
+        {rows, columns + offsetOut}, "Output");
     graph.setTileMapping(out,0);
 
     //allocateHostMemoryForTensor
@@ -103,86 +79,112 @@ void CastTest(const Type &dataTypeIn, const Type &dataTypeOut) {
     auto output=allocateHostMemoryForTensor(out,"out",graph,uploadProg,
                                                   downloadProg,tmap);
 
-    //Make multiple programs to test Cast each using
-    //different input slices, for different input sizes and offsets
-    std::vector<Program> programs(test_count);
+    //Make a sequence to zero output memory and run cast
+    Sequence sequence;
 
-    for(int tests=0;tests<test_count;tests++) {
-        auto columns=TestList[tests].columns;
-        auto offsetOut=TestList[tests].offsetOut;
-        auto rows = TestList[tests].numRows;
+    ComputeSet testComputeSet=graph.addComputeSet("computeCast");
 
-        Sequence sequence;
+    const auto vertexClass=templateVertex(rows > 1 ? "popops::Cast2d" :
+                                                     "popops::Cast",
+                                           dataTypeIn, dataTypeOut);
 
-        ComputeSet testComputeSet=graph.addComputeSet("computeCast");
+    auto castVertex=graph.addVertex(testComputeSet,vertexClass);
+    graph.setTileMapping(castVertex,0);
 
-        const auto vertexClass=templateVertex(rows > 1 ? "popops::Cast2d" :
-                                                         "popops::Cast",
-                                               dataTypeIn, dataTypeOut);
+    // Use slices to apply the offset, and deal with 1d/ 2d cases
+    Tensor sliceIn, sliceOut;
+    if (rows > 1) {
+        sliceIn=in.slice({0,0}, {rows, columns} );
+        sliceOut=out.slice({0, offsetOut}, {rows, columns + offsetOut} );
+    }
+    else {
+        sliceIn= in.reshape({columns});
+        sliceOut= out.reshape({columns + offsetOut});
+        sliceOut= sliceOut.slice(offsetOut, columns + offsetOut);
+    }
 
-        auto castVertex=graph.addVertex(testComputeSet,vertexClass);
-        graph.setTileMapping(castVertex,0);
+    graph.connect(castVertex["src"],sliceIn);
+    graph.connect(castVertex["dst"],sliceOut);
 
-        //Different slices of the same input data to test looping decisions,
-        // Slices of the output data with offset
-        auto sliceIn=in.slice(0, columns * rows);
-        auto sliceOut=out.slice(offsetOut, columns * rows + offsetOut);
+    popops::zero(graph,out,sequence,"Zero output");
+    sequence.add(Execute(testComputeSet));
 
-        if (rows > 1) {
-          sliceIn = sliceIn.reshape({rows, columns});
-          sliceOut = sliceOut.reshape({rows, columns});
-        }
-
-        graph.connect(castVertex["src"],sliceIn);
-        graph.connect(castVertex["dst"],sliceOut);
-
-        popops::zero(graph,out,sequence,"Zero output");
-        sequence.add(Execute(testComputeSet));
-        programs[tests]=sequence;
-     }
-
-     const auto uploadProgIndex = programs.size();
-     programs.push_back(std::move(uploadProg));
-     const auto downloadProgIndex = programs.size();
-     programs.push_back(std::move(downloadProg));
-     //Run each program and compare host and IPU result
-     Engine engine(graph,programs);
-     engine.load(device);
-     attachStreams(engine, tmap);
+    //Run each sequence and compare host and IPU result
+    Engine engine(graph,Sequence(uploadProg, sequence, downloadProg));
+    engine.load(device);
+    attachStreams(engine, tmap);
 
     //Put test inputs into an array of the correct type ready to use
-    std::vector<double> outHost(total_size);
+    copy(target,inTest.data(),inTest.size(),dataTypeIn,input.get());
 
-    for(int tests=0;tests<test_count;tests++) {
-        auto columns=TestList[tests].columns;
-        auto offsetOut=TestList[tests].offsetOut;
-        auto rows = TestList[tests].numRows;
+    engine.run(0);
 
-        copy(target,inTest.data(),inTest.size(),dataTypeIn,input.get());
+    std::vector<double> outHost(total_size );
+    copy(target,dataTypeOut,output.get(),outHost.data(),outHost.size());
 
-        engine.run(uploadProgIndex);
-
-        engine.run(tests);
-
-        engine.run(downloadProgIndex);
-
-        copy(target,dataTypeOut,output.get(),outHost.data(),outHost.size());
-
-        //Host generated result, start with zeros
-         for(unsigned i=0;i<total_size;i++)
-            outTest[i]=0;
-        //Then cast the same portion of the input as the code under test
-        for(unsigned j=0; j<columns*rows; j++) {
-            outTest[j + offsetOut]=inTest[j];
-        }
-
-        //Check the result, in the outTest array
-        //Always check the whole output memory to catch any overwrites
-        //
-        bool check=checkIsClose("Test_"+std::to_string(tests),
-            outHost.data(),{outHost.size()},outTest.data(),outTest.size(),
-            0.05,0.05);
-        BOOST_CHECK(check);
+     //Host generated result, start with zeros
+     for(unsigned i=0;i<total_size ;i++)
+        outTest[i]=0;
+    //Then cast the same portion of the input as the code under test
+    for(unsigned i=0; i<rows; i++) {
+        for(unsigned j=0; j<columns; j++) {
+            outTest[j + i * (columns + offsetOut) + offsetOut] =
+                                                inTest[j + i * columns];
+         }
     }
+    //Check the result, in the outTest array
+    //Always check the whole output memory to catch any overwrites
+
+    bool check=checkIsClose("CastTest",
+        outHost.data(),{outHost.size()},outTest.data(),outTest.size(),
+        0.05,0.05);
+
+    return check;
 }
- BOOST_AUTO_TEST_CASE(CastTest_float_half) {CastTest(FLOAT,HALF);}
+
+//******************************************************************************
+int main(int argc, char **argv) {
+  namespace po = boost::program_options;
+
+  DeviceType deviceType;
+  Type inType;
+  Type outType;
+  unsigned rows, columns, offsetOut;
+  po::options_description desc("Options");
+  desc.add_options()
+    ("help", "Print help")
+    ("device-type",
+     po::value<DeviceType>(&deviceType)->required(),
+     "Device Type")
+    ("in-type",
+     po::value<Type>(&inType)->required(),
+     "Input Type")
+    ("out-type",
+     po::value<Type>(&outType)->required(),
+     "Output Type")
+    ("rows",
+     po::value<unsigned>(&rows)->required(),
+     "In/Out data rows")
+    ("columns",
+     po::value<unsigned>(&columns)->required(),
+     "In/Out data columns")
+    ("out-offset",
+     po::value<unsigned>(&offsetOut)->required(),
+     "Output offset in output word size units");
+  po::variables_map vm;
+  try {
+    po::store(po::parse_command_line(argc, argv, desc), vm);
+    if (vm.count("help")) {
+      std::cout << desc << "\n\n";
+      return 1;
+    }
+    po::notify(vm);
+  } catch (std::exception &e) {
+    std::cerr << "error: " << e.what() << "\n";
+    return 1;
+  }
+
+  if (!doTest(deviceType, inType, outType, rows, columns, offsetOut))
+    return 1;
+  return 0;
+}

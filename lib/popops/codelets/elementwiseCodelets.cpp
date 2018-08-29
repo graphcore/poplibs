@@ -689,11 +689,20 @@ class
 [[poplar::constraint("elem(*src) != elem(*dst)")]]
 Cast : public Vertex {
 public:
-  Input<Vector<SrcType, ONE_PTR, 8>> src;
-  Output<Vector<DstType, TWO_PTR, 4>> dst;
 
-  static const bool ext = std::is_same<SrcType,float>::value
+  // Logic for the minimum aligment based on Src and Dst Type
+  static const bool floatHalf = std::is_same<SrcType,float>::value
             && std::is_same<DstType,half>::value;
+  static const bool halfFloat = std::is_same<SrcType,half>::value
+            && std::is_same<DstType,float>::value;
+
+  static const bool ext = halfFloat || floatHalf;
+  static const unsigned outAlign = ext ? (halfFloat ? 8 : 4) : 1;
+  static const unsigned inAlign = ext ? 8 : 1;
+
+  Input<Vector<SrcType, ONE_PTR, inAlign>> src;
+  Output<Vector<DstType, TWO_PTR, outAlign>> dst;
+
   IS_EXTERNAL_CODELET(ext);
 
   bool compute() {
@@ -730,11 +739,20 @@ class
 [[poplar::constraint("elem(**src) != elem(**dst)")]]
 Cast2d : public Vertex {
 public:
-  Vector<Input<Vector<SrcType, ONE_PTR, 8>>, ONE_PTR> src;
-  Vector<Output<Vector<DstType, TWO_PTR, 4>>> dst;
 
-  static const bool ext = std::is_same<SrcType,float>::value
+  // Logic for the minimum aligment based on Src and Dst Type
+  static const bool floatHalf = std::is_same<SrcType,float>::value
             && std::is_same<DstType,half>::value;
+  static const bool halfFloat = std::is_same<SrcType,half>::value
+            && std::is_same<DstType,float>::value;
+
+  static const bool ext = halfFloat || floatHalf;
+  static const unsigned outAlign = ext ? (halfFloat ? 8 : 4) : 1;
+  static const unsigned inAlign = ext ? 8 : 1;
+
+  Vector<Input<Vector<SrcType, ONE_PTR, inAlign>>, ONE_PTR> src;
+  Vector<Output<Vector<DstType, TWO_PTR, outAlign>>> dst;
+
   IS_EXTERNAL_CODELET(ext);
 
   bool compute() {

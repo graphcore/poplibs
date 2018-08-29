@@ -249,9 +249,11 @@ MAKE_CYCLE_ESTIMATOR_NAME(Cast)(const VertexIntrospector &vertex,
   const auto dst = vertex.getFieldInfo("dst");
   std::uint64_t cycles;
 
-  // Cast float to half written in assembly.  Estimates for other types not
-  // revised
-  if(fromType == FLOAT && toType == HALF)  {
+  // Cast float to/from half written in assembly.
+  // The equations below are a reasonable approximation for both
+  // Estimates for other types not revised
+  if( (fromType == FLOAT && toType == HALF) ||
+      (fromType == HALF && toType == FLOAT) ) {
     auto columns=dst.size();
     if (columns < 4) {
       cycles = 11 + (columns * 14 )/3;

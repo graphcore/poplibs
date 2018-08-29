@@ -147,12 +147,47 @@ foreach(SIZE RANGE 1 4)
                          --size=${SIZE})
 endforeach()
 
+#Cast<InType, OutType>
+add_codelet_test_executable(CastTest CastTest.cpp)
+
+foreach(IN_TYPE half float)
+  if(IN_TYPE STREQUAL half)
+    set(OUT_TYPE float)
+  else()
+    set(OUT_TYPE half)
+  endif()
+  foreach(ROWS 1 2 )
+    foreach(COLUMNS RANGE 1 8)
+      foreach(OFFSET 0 2)
+          set(VARIANT_NAME "Casttest_${IN_TYPE}_${OUT_TYPE}_${ROWS}_${COLUMNS}_${OFFSET}")
+          add_multitarget_test(NAME ${VARIANT_NAME}
+                        COMMAND CastTest
+                            --in-type=${IN_TYPE}
+                            --out-type=${OUT_TYPE}
+                            --rows=${ROWS}
+                            --columns=${COLUMNS}
+                            --out-offset=${OFFSET})
+      endforeach()
+    endforeach()
+  endforeach()
+
+  set(ROWS 1)
+  set(COLUMNS 4300)
+  set(OFFSET 0)
+  set(VARIANT_NAME "Casttest_${IN_TYPE}_${OUT_TYPE}_${ROWS}_${COLUMNS}_${OFFSET}")
+  add_multitarget_test(NAME ${VARIANT_NAME}
+                COMMAND CastTest
+                    --in-type=${IN_TYPE}
+                    --out-type=${OUT_TYPE}
+                    --rows=${ROWS}
+                    --columns=${COLUMNS}
+                    --out-offset=${OFFSET})
+endforeach()
+
 add_popnn_unit_test(AddToChannel
                     AddToChannel.cpp)
 add_popnn_unit_test(AddToChannel2D
                     AddToChannel2D.cpp)
-add_popnn_unit_test(CastTest
-                    CastTest.cpp)
 add_popnn_unit_test(ChannelMul
                     ChannelMul.cpp)
 add_popnn_unit_test(ChannelMul2D
