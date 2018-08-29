@@ -162,28 +162,26 @@ std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(Zero)(const VertexIntrospector &vertex,
                                 const Target &target,
                                 const Type &type) {
-  // TODO: make this more accurate
   const auto out = vertex.getFieldInfo("out");
-  bool isFloat = type == FLOAT;
-  const auto vectorWidth = target.getDataPathWidth() / (isFloat ? 32 : 16);
-  std::uint64_t cycles = 2 // run
-                         + 5; // vertex overhead
-  for (unsigned i=0; i<out.size(); ++i) {
-    auto zeroCycles = (out[i].size() + vectorWidth - 1) / vectorWidth;
-    auto const loopOverhead = 3;
-    cycles += loopOverhead + zeroCycles;
-  }
-  return cycles;
+  bool isHalf = type == HALF;
+  auto width = target.getDataPathWidth() /  (isHalf ? 16 : 32);
+
+  return 20 + out.size()/width;
 }
 
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(Zero2d)(const VertexIntrospector &vertex,
                                   const Target &target,
                                   const Type &type) {
-  const auto dst = vertex.getFieldInfo("out");
-  // These are not valid for integer and boolean casts
-  const auto floatVectorWidth = target.getDataPathWidth() / 32;
-  return (dst.size() + floatVectorWidth - 1) / floatVectorWidth + 5;
+  const auto out = vertex.getFieldInfo("out");
+  bool isHalf = type == HALF;
+  auto width = target.getDataPathWidth() /  (isHalf ? 16 : 32);
+
+  std::uint64_t cycles = 0;
+  for (unsigned i=0; i<out.size(); ++i) {
+    cycles += 20 + out[i].size()/width;
+  }
+  return cycles;
 }
 
 // TODO: popops::Cast* cycle estimators do not depend on template type

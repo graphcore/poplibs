@@ -80,6 +80,7 @@ endforeach(path)
 set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Clamp.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Cast.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Zero.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/EncodeOneHot.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ScaledAdd2D_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ScaledAdd2D_half.S

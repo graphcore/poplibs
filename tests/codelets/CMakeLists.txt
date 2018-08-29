@@ -169,3 +169,5 @@ add_popnn_unit_test(ScaledAddSupervisor_integral
                     ScaledAddSupervisor_integral.cpp)
 add_popnn_unit_test(Transpose2dTest
                     Transpose2dTest.cpp)
+add_popnn_unit_test(ZeroTest
+                    ZeroTest.cpp)

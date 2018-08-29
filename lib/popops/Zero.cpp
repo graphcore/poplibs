@@ -22,9 +22,13 @@ zero(poplar::Graph &graph,
   const auto vectorWidth = target.getVectorWidth(dType);
   const auto tileContiguousRegions =
       graph.getSortedContiguousRegions(t, tileRegions);
+
+  auto width = target.getDataPathWidth() /  ( (dType == HALF) ? 16 : 32);
   auto vertexRegions =
       splitRegionsBetweenWorkers(target, tileContiguousRegions,
-                                 vectorWidth, 2 * vectorWidth);
+                                    vectorWidth, 2 * vectorWidth,
+                                    target.getRptCountMax() * width);
+
   for (const auto &regions : vertexRegions) {
     const auto numRegions = regions.size();
     VertexRef v;
