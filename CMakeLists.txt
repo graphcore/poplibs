@@ -66,6 +66,8 @@ if (OPTIMISE_IPU_DEBUG AND CMAKE_BUILD_TYPE STREQUAL Debug)
   list(APPEND POPC_FLAGS -O3)
 endif()
 
+add_definitions("-DBOOST_ICL_USE_STATIC_BOUNDED_INTERVALS")
+
 add_subdirectory(lib)
 add_subdirectory(tests)
 add_subdirectory(tools)

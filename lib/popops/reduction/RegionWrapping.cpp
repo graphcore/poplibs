@@ -27,7 +27,7 @@ getSplitWrappedRegions(const vector<Interval> &ivals,
   wrapRegions(ivals.begin(), ivals.end(),
               wrapSize,
               [&](size_t begin, size_t end) {
-    wrapped.add(boost::icl::discrete_interval<size_t>::right_open(begin, end));
+    wrapped.add(boost::icl::interval<size_t>::right_open(begin, end));
   });
 
   return wrapped;
@@ -41,7 +41,7 @@ getWrappedRegions(const vector<Interval> &ivals,
   wrapRegions(ivals.begin(), ivals.end(),
               wrapSize,
               [&](size_t begin, size_t end) {
-    wrapped.add(boost::icl::discrete_interval<size_t>::right_open(begin, end));
+    wrapped.add(boost::icl::interval<size_t>::right_open(begin, end));
   });
 
   return wrapped;
@@ -90,8 +90,7 @@ boost::icl::split_interval_set<std::size_t> getSplitWrappedRegions(
   wrapRegions(begin, end,
               wrapSize,
               [&](size_t begin, size_t end) {
-    colRegions.add(boost::icl::discrete_interval<size_t>::right_open(begin,
-                                                                     end));
+    colRegions.add(boost::icl::interval<size_t>::right_open(begin, end));
   });
 
   return colRegions;
@@ -109,8 +108,7 @@ boost::icl::interval_set<std::size_t> getWrappedRegions(
   wrapRegions(begin, end,
               wrapSize,
               [&](size_t begin, size_t end) {
-    colRegions.add(boost::icl::discrete_interval<size_t>::right_open(begin,
-                                                                     end));
+    colRegions.add(boost::icl::interval<size_t>::right_open(begin, end));
   });
 
   return colRegions;

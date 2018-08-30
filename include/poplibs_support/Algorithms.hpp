@@ -7,7 +7,7 @@
 #include <cstddef>
 #include <functional>
 
-#include <boost/icl/discrete_interval.hpp>
+#include <boost/icl/interval.hpp>
 
 namespace poplibs {
 
@@ -28,7 +28,7 @@ std::vector<T> flatten(const std::vector<std::vector<T>>& v) {
 }
 
 // Get the bounds of an interval in a generic way, so that it works
-// for boost::icl::discrete_interval(), and also poplar::Interval.
+// for boost::icl::interval, and also poplar::Interval.
 template<typename T>
 std::size_t ival_begin(const T& ival) {
   return ival.begin();
@@ -39,11 +39,11 @@ std::size_t ival_end(const T& ival) {
 }
 
 template<>
-std::size_t ival_begin<boost::icl::discrete_interval<std::size_t>>(
-    const boost::icl::discrete_interval<std::size_t>& ival);
+std::size_t ival_begin<boost::icl::interval<std::size_t>::type>(
+    const boost::icl::right_open_interval<std::size_t>& ival);
 template<>
-std::size_t ival_end<boost::icl::discrete_interval<std::size_t>>(
-    const boost::icl::discrete_interval<std::size_t>& ival);
+std::size_t ival_end<boost::icl::interval<std::size_t>::type>(
+    const boost::icl::right_open_interval<std::size_t>& ival);
 
 /// Iterate over two region lists. There must be no gaps in the lists and
 /// they must cover the same span.

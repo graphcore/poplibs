@@ -53,7 +53,7 @@ mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t) {
   graph.setTileMapping(t, calcLinearTileMapping(graph, t));
 }
 
-static boost::icl::discrete_interval<unsigned>
+static boost::icl::interval<unsigned>::type
 toIclInterval(const poplar::Interval &interval) {
   return boost::icl::interval<unsigned>::right_open(interval.begin(),
                                                     interval.end());

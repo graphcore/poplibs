@@ -496,7 +496,7 @@ IntermediatePartials intermediateToIntermediate(
                                     minPieceSize,
                                     target.getNumTiles());
 
-  std::vector<boost::icl::discrete_interval<std::size_t>> allOutputRegionsSplit;
+  std::vector<boost::icl::interval<std::size_t>::type> allOutputRegionsSplit;
   allOutputRegionsSplit.reserve(splitMapIcl.iterative_size());
   for (const auto &it : splitMapIcl)
     allOutputRegionsSplit.push_back(it.first);
@@ -767,7 +767,7 @@ void intermediateToOutput(Graph &graph,
         const boost::container::flat_set<unsigned> &partialTiles) {
       tilesForOutputPerTile[mappedToTile].set(
           std::make_pair(
-            boost::icl::discrete_interval<std::size_t>::right_open(begin, end),
+            boost::icl::interval<std::size_t>::right_open(begin, end),
             partialTiles
             )
           );

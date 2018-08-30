@@ -256,7 +256,7 @@ multiStageGroupedReduce(Graph &graph,
     for (unsigned tile = 0; tile != tileMapping.size(); ++tile) {
       for (const auto &interval : tileMapping[tile]) {
         outputToTiles += std::make_pair(
-                           boost::icl::discrete_interval<unsigned>::right_open(
+                           boost::icl::interval<unsigned>::right_open(
                              interval.begin(),
                              interval.end()),
                            std::set<unsigned>({tile}));

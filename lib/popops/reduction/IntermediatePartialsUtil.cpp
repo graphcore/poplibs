@@ -36,7 +36,7 @@ bool mappingHasMultipleValuesFromOneColumnOnTheSameTile(
         }
 
         // Convert to boost format.
-        auto re = boost::icl::discrete_interval<size_t>::right_open(x, x + len);
+        auto re = boost::icl::interval<size_t>::right_open(x, x + len);
 
         // If it intersects, then we have multiple values from one column
         // on the same tile.
@@ -137,7 +137,7 @@ tensorToIntermediatePartials(const poplar::Tensor &A,
                                  {re.row + 1, re.end}).flatten());
 
       outputIndices.add(
-          boost::icl::discrete_interval<size_t>::right_open(re.begin, re.end));
+          boost::icl::interval<size_t>::right_open(re.begin, re.end));
 
       if (tileDebug != nullptr) {
         // Add debug information to show the flow of data, even though this

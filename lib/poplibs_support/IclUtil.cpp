@@ -21,7 +21,7 @@ poplarToSplitIntervalSet(const std::vector<poplar::Interval> &intervals) {
 
   for (const auto &ival : intervals) {
     ret.insert(
-          boost::icl::discrete_interval<size_t>::right_open(
+          boost::icl::interval<size_t>::right_open(
             ival.begin(), ival.end()
             )
           );
@@ -39,7 +39,7 @@ tileMappingToIntervalMap(const poplar::Graph::TileToTensorMapping &mapping) {
 
   for (unsigned tile = 0; tile < mapping.size(); ++tile) {
     for (const auto &re : mapping[tile]) {
-      auto reIcl = boost::icl::discrete_interval<std::size_t>::right_open(
+      auto reIcl = boost::icl::interval<std::size_t>::right_open(
                      re.begin(),
                      re.end()
                    );

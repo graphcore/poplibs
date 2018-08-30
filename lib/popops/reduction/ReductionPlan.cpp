@@ -31,7 +31,7 @@ std::size_t getMaxTileSpread(const Graph::TileToTensorMapping &mapping,
                 outputSize,
                 [&](size_t begin, size_t end) {
       spread.add(std::make_pair(
-                   boost::icl::discrete_interval<std::size_t>::right_open(
+                   boost::icl::interval<std::size_t>::right_open(
                      begin, end),
                    1));
     });
@@ -292,7 +292,7 @@ calculateSplit(const IntermediatePartials &ir,
       if (N < 1)
         N = 1;
 
-      auto iclRe = boost::icl::discrete_interval<std::size_t>::right_open(
+      auto iclRe = boost::icl::interval<std::size_t>::right_open(
                      re.begin(),
                      re.end()
                    );

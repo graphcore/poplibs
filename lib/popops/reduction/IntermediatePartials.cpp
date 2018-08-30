@@ -82,7 +82,7 @@ void IntermediatePartials::setTensor(
     auto size = ival.upper() - ival.lower();
 
     td.outputIndices.set(std::make_pair(
-        boost::icl::discrete_interval<std::size_t>::right_open(pos, pos + size),
+        boost::icl::interval<std::size_t>::right_open(pos, pos + size),
         ival.lower()));
 
     pos += size;

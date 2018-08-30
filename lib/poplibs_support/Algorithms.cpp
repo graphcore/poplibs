@@ -3,13 +3,13 @@
 namespace poplibs {
 
 template<>
-std::size_t ival_begin<boost::icl::discrete_interval<std::size_t>>(
-    const boost::icl::discrete_interval<std::size_t>& ival) {
+std::size_t ival_begin<boost::icl::interval<std::size_t>::type>(
+    const boost::icl::interval<std::size_t>::type& ival) {
    return ival.lower();
 }
 template<>
-std::size_t ival_end<boost::icl::discrete_interval<std::size_t>>(
-    const boost::icl::discrete_interval<std::size_t>& ival) {
+std::size_t ival_end<boost::icl::interval<std::size_t>::type>(
+    const boost::icl::interval<std::size_t>::type& ival) {
    return ival.upper();
 }
 
