@@ -240,8 +240,8 @@ _loop_over_reductions.LABEL_SUFFIX:
   brnzdec    $NUM_PART, _skip3.LABEL_SUFFIX
   shr        $SCRATCH, $OUT_j_SIZE, 1
   ldconst    $ACC_0, INIT_HALF
-  rpt       $SCRATCH, 0
-  {st32      $ACC_0, $mzero, $OUT_j_PTR+=, 1; fnop}
+  rpt        $SCRATCH, 0
+  {st32step  $ACC_0, $mzero, $OUT_j_PTR+=, 1; fnop}
   and        $OUT_j_SIZE, $OUT_j_SIZE, 1
   brz        $OUT_j_SIZE, _out_j_size_end.LABEL_SUFFIX
   ld32       $ASCRATCH_0, $OUT_j_PTR, $mzero, 0
@@ -428,7 +428,7 @@ _exit.LABEL_SUFFIX:
 // ------------------------------------------------------- //
 // ------------------------------------------------------- //
 
-
+#undef LABEL_SUFFIX
 #define LABEL_SUFFIX _f_f_
 
 #undef SIZE_OF_IN_TYPE

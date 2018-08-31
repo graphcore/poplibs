@@ -27,9 +27,9 @@ using namespace poplibs_test::util;
 static bool do_test(const DeviceType &deviceType,
                     const Type &inType,
                     const Type &outType,
-                    unsigned outerDim) {
+                    unsigned outerDim,
+                    unsigned INNER_DIM) {
   static unsigned outer_dim = outerDim * (1 + PARTIALS_ARE);
-  unsigned INNER_DIM = 4;
 
   auto device = createTestDevice(deviceType);
   auto &target = device.getTarget();
@@ -350,7 +350,10 @@ int main(int argc, char **argv) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }
-  if (!do_test(deviceType, inType, outType, outerDim)) {
+  if (!do_test(deviceType, inType, outType, outerDim, 4)) {
+    return 1;
+  }
+  if (!do_test(deviceType, inType, outType, outerDim, 0)) {
     return 1;
   }
   if (inType == outType) {
