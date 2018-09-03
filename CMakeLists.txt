@@ -16,7 +16,6 @@ endif()
 
 find_package(poplar REQUIRED)
 find_package(Boost REQUIRED regex)
-find_package(Sparsehash REQUIRED)
 find_package(TBB REQUIRED)
 
 # For Ubuntu 16 we need to help the linker find TBB. On Ubuntu 18 and
