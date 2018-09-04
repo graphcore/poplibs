@@ -90,7 +90,7 @@ VERTEX(int):
 
   exitz $mzero
 
-.size VERTEX(unsigned_int), .-VERTEX(unsigned_int)
+// Only set the size for the int version so we don't count it twice.
 .size VERTEX(int), .-VERTEX(int)
 
 #endif // __IPU__

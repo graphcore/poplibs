@@ -69,6 +69,7 @@ ZERO2D_HALF_FUNC:
 ZERO2D_FLOAT_FUNC:
 ZERO2D_INT_FUNC:
 ZERO2D_UINT_FUNC:
+__popops__Zero2d:
   // Fetch vertex state: start and end of a list of pointers to data
   ld32    $OUT_LIST_PTR, $mvertex_base,  VOFF_OUT_PTR
   ld32    $OUT_LIST_COUNT, $mvertex_base,  VOFF_OUT_END_PTR
@@ -84,10 +85,7 @@ zero2d_loop:
   ld32step $OUT_END_PTR, $mzero, $OUT_LIST_PTR+=,1
   bri      zero_2d_continue
 
-.size ZERO2D_HALF_FUNC, .-ZERO2D_HALF_FUNC
-.size ZERO2D_FLOAT_FUNC, .-ZERO2D_FLOAT_FUNC
-.size ZERO2D_INT_FUNC, .-ZERO2D_INT_FUNC
-.size ZERO2D_UINT_FUNC, .-ZERO2D_UINT_FUNC
+.size __popops__Zero2d, .-__popops__Zero2d
 
 //******************************************************************************
 // Zero vertex entry
@@ -104,6 +102,7 @@ ZERO_HALF_FUNC:
 ZERO_FLOAT_FUNC:
 ZERO_INT_FUNC:
 ZERO_UINT_FUNC:
+__popops__Zero:
   // Fetch pointers to  start and end of the one area to zero
   ld32     $OUT_PTR, $mzero, $mvertex_base, VOFF_OUT_PTR
   ld32     $OUT_END_PTR, $mzero, $mvertex_base, VOFF_OUT_END_PTR
@@ -166,9 +165,6 @@ zero_2d_continue:
   brnzdec    $OUT_LIST_COUNT, zero2d_loop
   exitz      $mzero
 
-.size ZERO_HALF_FUNC, .-ZERO_HALF_FUNC
-.size ZERO_FLOAT_FUNC, .-ZERO_FLOAT_FUNC
-.size ZERO_INT_FUNC, .-ZERO_INT_FUNC
-.size ZERO_UINT_FUNC, .-ZERO_UINT_FUNC
+.size __popops__Zero, .-__popops__Zero
 
 #endif

@@ -112,6 +112,14 @@
 .endm
 
 .align 8
+
+HALF_SYMBOL:
+  setzi $WORKER_ENTRY, .Lhalf_worker
+  runall $WORKER_ENTRY, $SUPER_BASE, 0
+  sync TEXCH_SYNCZONE_LOCAL
+  br $lr
+
+  // For rpt alignment below.
   nop
 .Lhalf_worker:
   ldz16 $OUTGRAD_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET
@@ -212,12 +220,6 @@
 .Lhalf_end:
   exitz $mzero
 
-HALF_SYMBOL:
-  setzi $WORKER_ENTRY, .Lhalf_worker
-  runall $WORKER_ENTRY, $SUPER_BASE, 0
-  sync TEXCH_SYNCZONE_LOCAL
-  br $lr
-
 .size HALF_SYMBOL, .-HALF_SYMBOL
 
 .section .text.FLOAT_SYMBOL
@@ -236,6 +238,13 @@ HALF_SYMBOL:
 .endm
 
 .align 8
+FLOAT_SYMBOL:
+  setzi $WORKER_ENTRY, .Lfloat_worker
+  runall $WORKER_ENTRY, $SUPER_BASE, 0
+  sync TEXCH_SYNCZONE_LOCAL
+  br $lr
+
+  // For rpt alignment below.
   nop
 .Lfloat_worker:
   ldz16 $OUTGRAD_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET
@@ -315,12 +324,6 @@ HALF_SYMBOL:
 
 .Lfloat_end:
   exitz $mzero
-
-FLOAT_SYMBOL:
-  setzi $WORKER_ENTRY, .Lfloat_worker
-  runall $WORKER_ENTRY, $SUPER_BASE, 0
-  sync TEXCH_SYNCZONE_LOCAL
-  br $lr
 
 .size FLOAT_SYMBOL, .-FLOAT_SYMBOL
 

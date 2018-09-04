@@ -127,7 +127,7 @@ VERTEX(float, int):
 .Lfloat_end:
   exitz $mzero
 
-.size VERTEX(float, unsigned_int), .-VERTEX(float, unsigned_int)
+// Only set the size for the int version so we don't count it twice.
 .size VERTEX(float, int), .-VERTEX(float, int)
 
 .section .text.VERTEX(half, unsigned_int)
@@ -213,7 +213,7 @@ VERTEX(half, int):
 .Lhalf_end:
   exitz $mzero
 
-.size VERTEX(half, unsigned_int), .-VERTEX(half, unsigned_int)
+// Only set the size for the int version so we don't count it twice.
 .size VERTEX(half, int), .-VERTEX(half, int)
 
 #endif // __IPU__

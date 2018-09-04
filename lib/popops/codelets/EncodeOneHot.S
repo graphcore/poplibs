@@ -234,4 +234,9 @@ VERTEX:
   add $sp, $sp, MEMSET_VERTEX_SIZE + STACK_SIZE
   br $lr // 6 cycles
 
+// size is used as a register name above.
+#undef size
+
+.size VERTEX, . - VERTEX
+
 #endif // __IPU__
