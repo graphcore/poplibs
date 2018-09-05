@@ -180,7 +180,7 @@ BOOST_AUTO_TEST_CASE(Pooling) {
   addOutTensor(8, 2, &expected7[0][0]);
 
   Execute prog(cs);
-  Engine e(graph, prog);
+  Engine e(graph, prog, {{"target.textSectionSizeInBytes", "0xa000"}});
   e.load(device);
 
   for (const auto &writeFn : writeFns) {
