@@ -192,6 +192,8 @@ add_popnn_unit_test(ChannelMul
                     ChannelMul.cpp)
 add_popnn_unit_test(ChannelMul2D
                     ChannelMul2D.cpp)
+add_popnn_unit_test(MaxPoolingGrad
+                    MaxPoolingGrad.cpp)
 add_popnn_unit_test(OuterProductTest
                     OuterProductTest.cpp)
 add_popnn_unit_test(ScaledAdd2D_fp

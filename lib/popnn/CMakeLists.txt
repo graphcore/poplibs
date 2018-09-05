@@ -47,6 +47,8 @@ endforeach(path)
 
 set(codelet_asm_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/LossTransform.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MaxPoolingGrad_float.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MaxPoolingGrad_half.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceMaxClassGather.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceMaxClassSparse.S
 )

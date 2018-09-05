@@ -252,11 +252,13 @@ template class ScaledSumPooling<half, PoolingType::SUM>;
 template <typename FPType>
 class MaxPoolingGrad : public Vertex {
 public:
-  Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> outGrad;
-  Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> in;
-  Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> out;
-  Vector<Output<Vector<FPType>>> inGrad;
-  Vector<unsigned short, ONE_PTR> windowSizes;
+  IS_EXTERNAL_CODELET(true);
+
+  Vector<Input<Vector<FPType, ONE_PTR, 8>>, SCALED_PTR32> out;
+  Vector<Input<Vector<FPType, ONE_PTR, 8>>, SCALED_PTR32> outGrad;
+  Input<VectorList<FPType, DELTAN, 8>> in;
+  Vector<unsigned short, SCALED_PTR32> windowSizes;
+  Output<VectorList<FPType, DELTAN, 8>> inGrad;
 
   bool compute() {
     unsigned inIndex = 0;
