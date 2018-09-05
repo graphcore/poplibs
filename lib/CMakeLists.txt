@@ -6,6 +6,7 @@ add_subdirectory(poprand)
 add_subdirectory(poplin)
 add_subdirectory(popnn)
 add_subdirectory(poplibs_test)
+add_subdirectory(popsys)
 
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/poplibs-config.cmake
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/poplibs

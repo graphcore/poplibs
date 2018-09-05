@@ -39,7 +39,7 @@ function(add_test_executable name)
       ${CMAKE_SOURCE_DIR}/tests
       $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
       $<TARGET_PROPERTY:poplin,INCLUDE_DIRECTORIES>)
-  target_link_libraries(${name} poprand popnn poputil
+  target_link_libraries(${name} poprand popnn poputil popsys
                         poplar
                         poplibs_test
                         Boost::unit_test_framework
@@ -245,7 +245,7 @@ endforeach()
 set(NUM_REDUCE_RANDOM_TESTS 150)
 foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})
   add_multitarget_test(NAME reduce_random_${n}
-           COMMAND $<TARGET_FILE:reduce_op> --seed ${n} 
+           COMMAND $<TARGET_FILE:reduce_op> --seed ${n}
                             VARIANTS ${TimesOutOnSim})
 endforeach()
 

@@ -127,6 +127,8 @@ foreach(DATA_TYPE int float half bool)
   add_popnn_unit_test(${VARIANT_NAME} ${VARIANT_SRC})
 endforeach()
 
+add_popnn_unit_test(Popsys
+                    Popsys.cpp VARIANTS Sim;Sim:cpp;Hw) # cycle count doesn;t exist on Cpu model
 add_codelet_test_executable(ReduceMaxClassGather ReduceMaxClassGather.cpp)
 foreach(ACTIVATION_TYPE half float)
   foreach(SIZE RANGE 1 24)
