@@ -31,13 +31,15 @@ public:
 
   bool compute() {
     memset(out.begin(), 0, outLength * sizeof(OutType));
-    unsigned idx = 0;
+    unsigned begin = 0;
     for (unsigned i = 0; i < indices.size(); ++i) {
       if (indices[i] >= offsets[i] &&
-          (offsets[i] < indices[i] + sliceLength[i])) {
-        out[idx + indices[i] - offsets[i]] = 1;
+          (indices[i] < offsets[i] + sliceLength[i])) {
+        const auto index = begin + indices[i] - offsets[i];
+        assert(index < outLength);
+        out[index] = 1;
       }
-      idx += sliceLength[i];
+      begin += sliceLength[i];
     }
     return true;
   }
