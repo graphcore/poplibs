@@ -284,10 +284,11 @@ template class MaxPoolingGrad<half>;
 template <typename FPType>
 class SumPoolingGrad : public Vertex {
 public:
+  IS_EXTERNAL_CODELET(true);
+
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> outGrad;
   Vector<Output<Vector<FPType>>> inGrad;
   Vector<unsigned short, ONE_PTR> windowSizes;
-
 
   bool compute() {
     unsigned inIndex = 0;
