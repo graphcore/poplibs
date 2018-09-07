@@ -99,7 +99,7 @@ static void generateVertices(std::string vertexName,
         auto elementsPerWorker = (regionSize + numWorkers - 1)
                                  / numWorkers;
         auto v = graph.addVertex(cs,
-                                 templateVertex(vertexName + "2d",
+                                 templateVertex(vertexName + "Supervisor",
                                                 t2d.elementType()),
                                  {{"offset", offset},
                                   {"baseT", tileBase},
@@ -133,7 +133,8 @@ static void generateVertices(std::string vertexName,
         }
       }
       auto v = graph.addVertex(cs,
-                               templateVertex(vertexName, t2d.elementType()),
+                               templateVertex(vertexName + "2d",
+                                t2d.elementType()),
                                {{"offset", offset},
                                 {"baseT", base},
                                 {"subT", sub}

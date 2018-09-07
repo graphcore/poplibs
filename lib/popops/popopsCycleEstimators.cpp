@@ -865,7 +865,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(ClampInPlace)(const VertexIntrospector &vertex,
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(DynamicSlice)(const VertexIntrospector &vertex,
+MAKE_CYCLE_ESTIMATOR_NAME(DynamicSlice2d)(const VertexIntrospector &vertex,
                                          const Target &target,
                                          const Type &type) {
   const auto baseT = vertex.getFieldInfo("baseT");
@@ -877,17 +877,21 @@ MAKE_CYCLE_ESTIMATOR_NAME(DynamicSlice)(const VertexIntrospector &vertex,
   unsigned vectorWidth = target.getDataPathWidth() / (sizeof(type) * 8);
   const unsigned numRegions =
           vertex.getFieldInfo("numRegions").getInitialValue<unsigned>(target);
-  auto cycles = 5;
+  auto cycles = 12;
   for (unsigned r = 0; r != numRegions; ++r) {
     auto regionSize = baseT[r * numBaseElements].size();
     unsigned nVectors = (regionSize + vectorWidth - 1) / vectorWidth;
-    cycles += (4 + nVectors) * numSubElements + 4;
+    if(type == HALF)
+        cycles += (22 + 2 * nVectors) * numSubElements + 16;
+    else
+        cycles += (20 + nVectors) * numSubElements + 16;
   }
   return cycles;
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(DynamicUpdateSlice)(const VertexIntrospector &vertex,
+MAKE_CYCLE_ESTIMATOR_NAME(DynamicUpdateSlice2d)(
+                                              const VertexIntrospector &vertex,
                                               const Target &target,
                                               const Type &type) {
   const auto baseT = vertex.getFieldInfo("baseT");
@@ -899,17 +903,21 @@ MAKE_CYCLE_ESTIMATOR_NAME(DynamicUpdateSlice)(const VertexIntrospector &vertex,
   unsigned vectorWidth = target.getDataPathWidth() / (sizeof(type) * 8);
   const unsigned numRegions =
           vertex.getFieldInfo("numRegions").getInitialValue<unsigned>(target);
-  auto cycles = 5;
-  for (unsigned r = 0; r != numRegions; ++r) {
+  auto cycles = 12;
+ for (unsigned r = 0; r != numRegions; ++r) {
     auto regionSize = baseT[r * numBaseElements].size();
     unsigned nVectors = (regionSize + vectorWidth - 1) / vectorWidth;
-    cycles += (4 + nVectors) * numSubElements + 4;
+    if(type == HALF)
+        cycles += (22 + 2 * nVectors) * numSubElements + 16;
+    else
+        cycles += (20 + nVectors) * numSubElements + 16;
   }
   return cycles;
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(DynamicSlice2d)(const VertexIntrospector &vertex,
+MAKE_CYCLE_ESTIMATOR_NAME(DynamicSliceSupervisor)(
+                                           const VertexIntrospector &vertex,
                                            const Target &target,
                                            const Type &type) {
   unsigned vectorWidth = target.getDataPathWidth() / (sizeof(type) * 8);
@@ -927,11 +935,11 @@ MAKE_CYCLE_ESTIMATOR_NAME(DynamicSlice2d)(const VertexIntrospector &vertex,
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(DynamicUpdateSlice2d)(
+MAKE_CYCLE_ESTIMATOR_NAME(DynamicUpdateSliceSupervisor)(
     const VertexIntrospector &vertex,
     const Target &target,
     const Type &type) {
-  return MAKE_CYCLE_ESTIMATOR_NAME(DynamicSlice2d)(vertex, target, type);
+ return MAKE_CYCLE_ESTIMATOR_NAME(DynamicSliceSupervisor)(vertex, target, type);
 }
 
 std::uint64_t
@@ -1041,16 +1049,6 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, BOOL, INT),
     CYCLE_ESTIMATOR_ENTRY(popops, Cast2d, BOOL, BOOL),
 
-    CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice, INT),
-    CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice, BOOL),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice, INT),
-    CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice, BOOL),
-
     CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2d, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2d, HALF),
     CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2d, INT),
@@ -1060,6 +1058,16 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2d, HALF),
     CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2d, INT),
     CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2d, BOOL),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, DynamicSliceSupervisor, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, DynamicSliceSupervisor, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, DynamicSliceSupervisor, INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, DynamicSliceSupervisor, BOOL),
+
+    CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSliceSupervisor, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSliceSupervisor, HALF),
+    CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSliceSupervisor, INT),
+    CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSliceSupervisor, BOOL),
 
     CYCLE_ESTIMATOR_ENTRY(popops, CircBufIncrIndex),
     CYCLE_ESTIMATOR_ENTRY(popops, CircOffset),
