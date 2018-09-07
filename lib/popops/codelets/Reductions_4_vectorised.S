@@ -152,7 +152,7 @@ _##paos##_##scale##_##false
 .type REDUCE_HALF_HALF_PAOS_SCALE, @function
 
 .section .text.REDUCE_HALF_HALF, "ax"
-.align 8
+.align 4
 REDUCE_HALF_HALF:
 REDUCE_HALF_HALF_PAOS:
 REDUCE_HALF_HALF_SCALE:
@@ -236,19 +236,7 @@ _loop_over_reductions.LABEL_SUFFIX:
   ld32       $NUM_PART_PTR, $mworker_base, $mzero, 3
   ldz16step  $NUM_PART, $mzero, $NUM_PART_PTR+=, 1
   st32       $NUM_PART_PTR, $mworker_base, $mzero, 3
-
-  brnzdec    $NUM_PART, _skip3.LABEL_SUFFIX
-  shr        $SCRATCH, $OUT_j_SIZE, 1
-  ldconst    $ACC_0, INIT_HALF
-  rpt        $SCRATCH, 0
-  {st32step  $ACC_0, $mzero, $OUT_j_PTR+=, 1; fnop}
-  and        $OUT_j_SIZE, $OUT_j_SIZE, 1
-  brz        $OUT_j_SIZE, _out_j_size_end.LABEL_SUFFIX
-  ld32       $ASCRATCH_0, $OUT_j_PTR, $mzero, 0
-  sort4x16hi $ACC_0, $ACC_0, $ASCRATCH_0
-  st32       $SCRATCH, $OUT_j_PTR, $mzero, 0
-  bri        _out_j_size_end.LABEL_SUFFIX
-  _skip3.LABEL_SUFFIX:
+  add        $NUM_PART, $NUM_PART, -1
 
   st32       $NUM_PART, $mzero, $mworker_base, 5
   setzi      $IN_j_DELTA, 0
@@ -444,7 +432,7 @@ _exit.LABEL_SUFFIX:
 .type REDUCE_FLOAT_FLOAT_PAOS_SCALE, @function
 
 .section .text.REDUCE_FLOAT_FLOAT, "ax"
-.align 8
+.align 4
 REDUCE_FLOAT_FLOAT:
 REDUCE_FLOAT_FLOAT_PAOS:
 REDUCE_FLOAT_FLOAT_SCALE:
@@ -521,13 +509,7 @@ _loop_over_reductions.LABEL_SUFFIX:
   ld32       $NUM_PART_PTR, $mworker_base, $mzero, 3
   ldz16step  $NUM_PART, $mzero, $NUM_PART_PTR+=, 1
   st32       $NUM_PART_PTR, $mworker_base, $mzero, 3
-  brnzdec    $NUM_PART, _skip3.LABEL_SUFFIX
-
-  ldconst    $ACC_0, INIT_FLOAT
-  rpt        $OUT_j_SIZE, 0
-  {st32step  $ACC_0, $mzero, $OUT_j_PTR+=, 1; fnop}
-
-  _skip3.LABEL_SUFFIX:
+  add        $NUM_PART, $NUM_PART, -1
   st32       $NUM_PART, $mzero, $mworker_base, 5
 
   and        $SCRATCH, $OUT_j_SIZE, 0x1

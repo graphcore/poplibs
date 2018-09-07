@@ -182,7 +182,7 @@ __runCodelet_popops__Reduce___popops__##op##_##ptype##_##otype##_##paos##_##scal
 .type REDUCE_HALF_FLOAT_PAOS_SCALE, @function
 
 .section .text.REDUCE_HALF_FLOAT, "ax"
-.align 8
+.align 4
 REDUCE_HALF_FLOAT:
 REDUCE_HALF_FLOAT_PAOS:
 REDUCE_HALF_FLOAT_SCALE:
@@ -261,12 +261,7 @@ _loop_over_reductions.LABEL_SUFFIX:
   ldz16step  $NUM_PART, $mzero, $NUM_PART_PTR+=, 1
   st32       $NUM_PART_PTR, $mworker_base, $mzero, NP_PTR_SCRATCH
 
-  brnzdec    $NUM_PART, _skip3.LABEL_SUFFIX
-  // if num part zero then zero output
-  rpt        $OUT_j_SIZE, 0
-  {st32step  $azero, $mzero, $OUT_j_PTR+=, 1; fnop}
-  bri        _out_j_size_end.LABEL_SUFFIX
-  _skip3.LABEL_SUFFIX:
+  add        $NUM_PART, $NUM_PART, -1
   st32       $NUM_PART, $mzero, $mworker_base, NP_SCRATCH
 
   and        $SCRATCH, $OUT_j_SIZE, 0x7
@@ -533,7 +528,7 @@ _exit.LABEL_SUFFIX:
 .type REDUCE_HALF_HALF_PAOS_SCALE, @function
 
 .section .text.REDUCE_HALF_HALF, "ax"
-.align 8
+.align 4
 REDUCE_HALF_HALF:
 REDUCE_HALF_HALF_PAOS:
 REDUCE_HALF_HALF_SCALE:
@@ -612,17 +607,7 @@ _loop_over_reductions.LABEL_SUFFIX:
   ld32       $NUM_PART_PTR, $mworker_base, $mzero, NP_PTR_SCRATCH
   ldz16step  $NUM_PART, $mzero, $NUM_PART_PTR+=, 1
   st32       $NUM_PART_PTR, $mworker_base, $mzero, NP_PTR_SCRATCH
-  brnzdec    $NUM_PART, _skip3.LABEL_SUFFIX
-  shr        $SCRATCH, $OUT_j_SIZE, 1
-  rpt        $SCRATCH, 0
-  {st32step  $mzero, $mzero, $OUT_j_PTR+=, 1; fnop}
-  and        $OUT_j_SIZE, $OUT_j_SIZE, 1
-  brz        $OUT_j_SIZE, _out_j_size_end.LABEL_SUFFIX
-  ld32       $SCRATCH, $OUT_j_PTR, $mzero, 0
-  sort4x16hi $SCRATCH, $mzero, $SCRATCH
-  st32       $SCRATCH, $OUT_j_PTR, $mzero, 0
-  bri        _out_j_size_end.LABEL_SUFFIX
-  _skip3.LABEL_SUFFIX:
+  add        $NUM_PART, $NUM_PART, -1
   st32       $NUM_PART, $mzero, $mworker_base, NP_SCRATCH
 
   and        $SCRATCH, $OUT_j_SIZE, 0x7
@@ -880,7 +865,7 @@ _exit.LABEL_SUFFIX:
 .type REDUCE_FLOAT_FLOAT_PAOS_SCALE, @function
 
 .section .text.REDUCE_FLOAT_FLOAT, "ax"
-.align 8
+.align 4
 REDUCE_FLOAT_FLOAT:
 REDUCE_FLOAT_FLOAT_PAOS:
 REDUCE_FLOAT_FLOAT_SCALE:
@@ -956,13 +941,7 @@ _loop_over_reductions.LABEL_SUFFIX:
   ld32       $NUM_PART_PTR, $mworker_base, $mzero, NP_PTR_SCRATCH
   ldz16step  $NUM_PART, $mzero, $NUM_PART_PTR+=, 1
   st32       $NUM_PART_PTR, $mworker_base, $mzero, NP_PTR_SCRATCH
-  brnzdec    $NUM_PART, _skip3.LABEL_SUFFIX
-  // if num part zero then zero output
-  rpt        $OUT_j_SIZE, 0
-  {st32step  $azero, $mzero, $OUT_j_PTR+=, 1; fnop}
-  bri        _out_j_size_end.LABEL_SUFFIX
-  bri        _out_j_size_end.LABEL_SUFFIX
-  _skip3.LABEL_SUFFIX:
+  add        $NUM_PART, $NUM_PART, -1
   st32       $NUM_PART, $mzero, $mworker_base, NP_SCRATCH
 
   and        $SCRATCH, $OUT_j_SIZE, 0x3
@@ -1167,7 +1146,7 @@ _exit.LABEL_SUFFIX:
 .type REDUCE_FLOAT_HALF_PAOS_SCALE, @function
 
 .section .text.REDUCE_FLOAT_HALF, "ax"
-.align 8
+.align 4
 REDUCE_FLOAT_HALF:
 REDUCE_FLOAT_HALF_PAOS:
 REDUCE_FLOAT_HALF_SCALE:
@@ -1246,19 +1225,7 @@ _loop_over_reductions.LABEL_SUFFIX:
   ld32       $NUM_PART_PTR, $mworker_base, $mzero, NP_PTR_SCRATCH
   ldz16step  $NUM_PART, $mzero, $NUM_PART_PTR+=, 1
   st32       $NUM_PART_PTR, $mworker_base, $mzero, NP_PTR_SCRATCH
-  brnzdec    $NUM_PART, _skip3.LABEL_SUFFIX
-  // zero output if nothing to sum
-  shr        $SCRATCH, $OUT_j_SIZE, 1
-  rpt       $SCRATCH, 0
-  {st32step  $mzero, $mzero, $OUT_j_PTR+=, 1; fnop}
-  and        $OUT_j_SIZE, $OUT_j_SIZE, 1
-  brz        $OUT_j_SIZE, _out_j_size_end.LABEL_SUFFIX
-  ld32       $SCRATCH, $OUT_j_PTR, $mzero, 0
-  sort4x16hi $SCRATCH, $mzero, $SCRATCH
-  st32       $SCRATCH, $OUT_j_PTR, $mzero, 0
-  bri        _out_j_size_end.LABEL_SUFFIX
-  bri        _out_j_size_end.LABEL_SUFFIX
-  _skip3.LABEL_SUFFIX:
+  add        $NUM_PART, $NUM_PART, -1
   st32       $NUM_PART, $mzero, $mworker_base, NP_SCRATCH
 
   and        $SCRATCH, $OUT_j_SIZE, 0x3

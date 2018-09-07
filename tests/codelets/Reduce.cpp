@@ -353,9 +353,6 @@ int main(int argc, char **argv) {
   if (!do_test(deviceType, inType, outType, outerDim, 4)) {
     return 1;
   }
-  if (!do_test(deviceType, inType, outType, outerDim, 0)) {
-    return 1;
-  }
   if (inType == outType) {
     if (!do_test_multi(deviceType, inType, outType, outerDim)) {
       return 1;
