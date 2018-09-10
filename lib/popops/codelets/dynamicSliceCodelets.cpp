@@ -12,7 +12,10 @@ namespace popops {
 // Copy slices [\a offset : \a offset + \a numOutElements) of regions of
 // \a baseT to \a subT.
 // The slice calculation is currently performed modulo \a numBaseElements but
-// this is subject to change
+// this is subject to change.
+// Where the offset given is larger than numBaseElements, behaviour is not
+// properly specified.  Options could be baseSlice=offset % numBaseElements,
+// or as implemented if(offset>=numBaseElements) baseSlice=0;
 template <typename InType>
 class DynamicSlice2d : public Vertex {
 public:
@@ -35,7 +38,7 @@ public:
       unsigned baseSlice = offset;
       unsigned subIdx = r * numSubElements;
       if(baseSlice >= numBaseElements)
-        baseSlice-=numBaseElements;
+        baseSlice=0;
 
       for (unsigned subSlice = 0; subSlice != numSubElements; ++subSlice) {
         auto baseIdx = r * numBaseElements + baseSlice;
@@ -62,6 +65,9 @@ template class DynamicSlice2d<bool>;
 // address of the base and sub Tensors.
 // The slice calculation is currently performed modulo \a numBaseElements but
 // this is subject to change
+// Where the offset given is larger than numBaseElements, behaviour is not
+// properly specified.  Options could be baseSlice=offset % numBaseElements,
+// or as implemented if(offset>=numBaseElements) baseSlice=0;
 template <typename InType>
 class DynamicSliceSupervisor : public SupervisorVertex {
 public:
@@ -79,6 +85,8 @@ public:
     for (unsigned worker = 0; worker != numWorkers; ++worker) {
       unsigned vertexOffset = worker * elementsPerWorker;
       unsigned baseSlice = offset;
+      if (baseSlice >= numBaseElements)
+        baseSlice=0;
       for (unsigned subSlice = 0; subSlice != numSubElements; ++subSlice) {
         for (unsigned e = 0; e != elementsPerWorker; e++) {
           if (vertexOffset + e >= regionSize)
@@ -103,6 +111,9 @@ template class DynamicSliceSupervisor<bool>;
 
 // Copy each \numSubElements regions from \a in to
 // \a out regions [\a offset : \a offset + \a numInElements)
+// Where the offset given is larger than numBaseElements, behaviour is not
+// properly specified.  Options could be baseSlice=offset % numBaseElements,
+// or as implemented if(offset>=numBaseElements) baseSlice=0;
 template <typename InType>
 class DynamicUpdateSlice2d : public Vertex {
 public:
@@ -123,7 +134,7 @@ public:
       auto regionSize = baseT[r * numBaseElements].size();
       unsigned baseSlice = offset;
       if(baseSlice >= numBaseElements)
-        baseSlice-=numBaseElements;
+        baseSlice=0;
       unsigned subIdx = r * numSubElements;
 
       for (unsigned subSlice = 0; subSlice != numSubElements; ++subSlice) {
@@ -151,6 +162,9 @@ template class DynamicUpdateSlice2d<bool>;
 // address of the base and sub Tensors.
 // The slice calculation is currently performed modulo \a numBaseElements but
 // this is subject to change
+// Where the offset given is larger than numBaseElements, behaviour is not
+// properly specified.  Options could be baseSlice=offset % numBaseElements,
+// or as implemented if(offset>=numBaseElements) baseSlice=0;
 template <typename InType>
 class DynamicUpdateSliceSupervisor : public SupervisorVertex {
 public:
@@ -168,6 +182,8 @@ public:
     for (unsigned worker = 0; worker != numWorkers; ++worker) {
       unsigned vertexOffset = worker * elementsPerWorker;
       unsigned baseSlice =offset;
+      if (baseSlice >= numBaseElements)
+        baseSlice=0;
       for (unsigned subSlice = 0; subSlice != numSubElements; ++subSlice) {
         for (unsigned e = 0; e != elementsPerWorker; e++) {
           if (vertexOffset + e >= regionSize)

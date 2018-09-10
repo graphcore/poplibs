@@ -53,7 +53,7 @@
 #define WOFF_REGIONS 0
 
 //******************************************************************************
-// Labels names for each variant 
+// Labels names for each variant
 //******************************************************************************
 #define DS_HALF_FUNC __runCodelet_popops__DynamicSlice2d___half
 #define DUS_HALF_FUNC __runCodelet_popops__DynamicUpdateSlice2d___half
@@ -113,19 +113,19 @@ DS_INT_FUNC:
    bri     DynamicSlice2d_common
 
 .size DynamicSlice2d_32_entry, .-DynamicSlice2d_32_entry
-    
+
 //******************************************************************************
 // Common code - loop for fetching pointers to regions
 //******************************************************************************
 .section .text.DynamicSlice2d_common
 .align 4
-DynamicSlice2d_common:  
-    // Load most of the vertex state  
+DynamicSlice2d_common:
+    // Load most of the vertex state
     ld32     $mSCRATCH,$mzero, $mvertex_base, VOFF_OFFSET
     ld32     $SUBT, $mzero, $mvertex_base, VOFF_SUBT
     ldz16    $BASE_ELEM, $mzero, $mvertex_base, VOFF_BASE_ELEM
     ldz16    $REGIONS, $mzero, $mvertex_base, VOFF_REGIONS
-    ld32     $BASET, $mzero, $mvertex_base, VOFF_BASET                       
+    ld32     $BASET, $mzero, $mvertex_base, VOFF_BASET
 
     zero    $BASE_IDX
     add     $REGIONS, $REGIONS, -1
@@ -133,20 +133,20 @@ DynamicSlice2d_common:
 .Louter_loop:
     st32    $REGIONS, $mzero, $mworker_base, WOFF_REGIONS
     // Find the size of next region to copy, by indexing into the
-    // array of baset pointers (2-pointers) 
+    // array of baset pointers (2-pointers)
     shl     $mSCRATCH, $BASE_IDX,3
     ld32    $REGION_SIZE, $BASET, $mSCRATCH, 0
     ld32    $mSCRATCH, $BASET, $mSCRATCH, 1
-    sub     $REGION_SIZE, $mSCRATCH, $REGION_SIZE 
+    sub     $REGION_SIZE, $mSCRATCH, $REGION_SIZE
 
     // Apply the offset to the base index and check the result is in bounds.
     // Result is base slice
     atom    $mSCRATCH, $OFFSET
     add     $BASE_SLICE, $BASE_IDX, $mSCRATCH
     add     $mSCRATCH, $BASE_IDX, $BASE_ELEM
-    cmpult  $mSCRATCH, $BASE_SLICE, $mSCRATCH 
+    cmpult  $mSCRATCH, $BASE_SLICE, $mSCRATCH
     brnz    $mSCRATCH, 3f
-    sub     $BASE_SLICE, $BASE_SLICE, $BASE_ELEM
+    mov     $BASE_SLICE, $BASE_IDX
 3:
     // Setup loop over subElements count
     ldz16   $SUB_ELEM, $mzero, $mvertex_base, VOFF_SUB_ELEM
@@ -157,17 +157,17 @@ DynamicSlice2d_common:
     // ***** Jump to selected function which loads ptrs and copies *******
     br      $COPY_PTR
     // Not a local label as referenced across sections.
-DynamicSlice_loop_resume: 
+DynamicSlice_loop_resume:
     // Increment the base slice and check the result is within bounds
     add     $BASE_SLICE, $BASE_SLICE, 1
     add     $mSCRATCH, $BASE_IDX, $BASE_ELEM
     cmpult  $mSCRATCH, $BASE_SLICE, $mSCRATCH
-    brnz    $mSCRATCH, 3f                                                       
+    brnz    $mSCRATCH, 3f
     sub     $BASE_SLICE, $BASE_SLICE, $BASE_ELEM
 3:
     ld32     $BASET, $mzero, $mvertex_base, VOFF_BASET
     brnzdec $SUB_ELEM, .Lsub_elem_loop
-   
+
     // add num Base elements to the base index for the next region
     add     $BASE_IDX, $BASE_IDX, $BASE_ELEM
     ld32    $REGIONS, $mzero, $mworker_base, WOFF_REGIONS
@@ -199,12 +199,12 @@ copy_loop_DS_32:
     // 32/64 bit alignment float/int copy begins
     // Note REGIONS, BASET registers are re-used
     // REGIONS = number of 32 bit words to copy
-    shr      $REGIONS, $REGION_SIZE,2         
+    shr      $REGIONS, $REGION_SIZE,2
     // Aligned output?
     and      $BASET, $mSCRATCH2, 4
     brz      $BASET, 1f
 
-    // Output not aligned -load/store a word to force it to be aligned 
+    // Output not aligned -load/store a word to force it to be aligned
     // for the loop
     ld32step     $VAL1, $mzero, $mSCRATCH+=,1
     st32step     $VAL1, $mzero, $mSCRATCH2+=,1
@@ -243,7 +243,7 @@ copy_loop_DS_32:
     // Is there a last one?
     and     $REGIONS, $REGIONS,1
     brz     $REGIONS, DynamicSlice_loop_resume
-3:  
+3:
     // Copy the last 32 bits
     ld32step $VAL1, $mzero, $mSCRATCH+=,1
     st32step $VAL1, $mzero, $mSCRATCH2+=,1
@@ -275,7 +275,7 @@ copy_loop_DS_16:
 
     // 32/16 alignment half copy begins
     // Note REGIONS, BASET registers are re-used
-    shr      $REGIONS, $REGION_SIZE, 1         
+    shr      $REGIONS, $REGION_SIZE, 1
     // Aligned output?
     and      $BASET, $mSCRATCH2, 2
     brz      $BASET, 1f
@@ -292,11 +292,11 @@ copy_loop_DS_16:
     // input aligned?
     and     $BASET, $mSCRATCH,2
     brz     $BASET, 5f
- 
+
     // Case for misaligned input
     shr     $BASET, $REGIONS,2
     ldb16step $VAL1, $mzero, $mSCRATCH+=,1
-    
+
     // Copy 2 pairs of items per loop, output is 32 bit aligned, input is not
     {rpt $BASET, ((2f-1f)/8) -1
         fnop}
@@ -347,7 +347,7 @@ copy_loop_DS_16:
     roll16   $VAL1, $VAL1, $VAL2
     st32step $VAL1, $mzero, $mSCRATCH2+=,1
     bri     DynamicSlice_loop_resume
- 
+
 .size DynamicSlice2d_16_copy, .-DynamicSlice2d_16_copy
 
 #endif
