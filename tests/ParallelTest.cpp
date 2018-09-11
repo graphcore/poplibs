@@ -4,11 +4,15 @@
 #include "TestDevice.hpp"
 
 #include <thread>
+#include <atomic>
+#include <iostream>
 
 using namespace poplar;
 using namespace popops;
 
 BOOST_AUTO_TEST_CASE(ManyParallelGraphLoads){
+    std::atomic<bool> success { true };
+
     const size_t nthreads = std::thread::hardware_concurrency();
 
     if (TEST_TARGET == DeviceType::Hw) {
@@ -19,16 +23,26 @@ BOOST_AUTO_TEST_CASE(ManyParallelGraphLoads){
 
       for (unsigned t = 0; t<nthreads; t++)
       {
-        threads.push_back(std::thread([]() {
-          auto device = createTestDevice(TEST_TARGET);
+        threads.push_back(std::thread([&]() {
+          // Exceptions can't be thrown across threads so just
+          // catch everything and print a message if it failed.
+          try {
+            auto device = createTestDevice(TEST_TARGET);
 
-          Graph graph(device);
-          popops::addCodelets(graph);
+            Graph graph(device);
+            popops::addCodelets(graph);
+          } catch (const std::exception &e) {
+            std::cout << ((std::string("Exception: ") +
+                           e.what()) + "\n");
+            success = false;
+          }
         }));
       }
 
       for (unsigned t = 0; t<nthreads; t++) {
         threads[t].join();
       }
+
+      BOOST_CHECK(success);
     }
 }
