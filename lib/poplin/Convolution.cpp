@@ -2548,7 +2548,7 @@ convolutionImpl(Graph &graph, ConvParams params,
                         plan.partitions.back().outChanSplit;
     if (inNumDests > inViewMaxBroadcastDests) {
       auto inRearranged = createInputImpl(graph, params, level, true, indices,
-                                          "inRearranged", plan);
+                                          debugPrefix + "/inRearranged", plan);
       copies[level].add(Copy(in, inRearranged));
       in = inRearranged;
     }
@@ -2557,9 +2557,9 @@ convolutionImpl(Graph &graph, ConvParams params,
       weightsNumDests *= split;
     }
     if (weightsNumDests > weightViewMaxBroadcastDests) {
-      auto weightsRearranged = createWeightsImpl(graph, params, level, true,
-                                                 indices, "weightsRearranged",
-                                                 plan);
+      auto weightsRearranged =
+          createWeightsImpl(graph, params, level, true, indices,
+                            debugPrefix + "weightsRearranged", plan);
       copies[level].add(Copy(weights, weightsRearranged));
       weights = weightsRearranged;
     }
