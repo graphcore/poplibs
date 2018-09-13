@@ -293,7 +293,7 @@ public:
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> in;
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> weights;
-  Vector<InOut<Vector<AccumType, ONE_PTR, 8>>, ONE_PTR> out;
+  Vector<Output<Vector<AccumType, ONE_PTR, 8>>, ONE_PTR> out;
   Input<VectorList<WorkListType, VectorListLayout::DELTAN>> worklists;
   Input<Vector<WorkListType>> zeroWorklist;
   unsigned numOutGroupsM1;
