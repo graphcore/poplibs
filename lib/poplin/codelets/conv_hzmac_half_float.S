@@ -394,23 +394,24 @@ ld32          $outchans_per_group_s, $sup_base, SUP_NUM_OUTCHANS_PER_GROUP/4
 //           = actualStride * inChansPerGroup / 2 for all other values of inChansPerGroup
 //             (divide by 2 because ld32 is used to wind the pointer) 
 ld32          $instride_s, $sup_base, SUP_INSTRIDE/4
-delay         1
 and           $temp_2_s, $inchans_per_group_s, 0x3
 ldz16         $partition_ptr_s, $sup_base, (SUP_PARTITION_TABLES + 4)/2
 
 shr           $icg_count_s, $inchans_per_group_s, 1
 st32          $outstride_s, $wkr_base, WKR_OUTSTRIDE/4
-delay         1
+nop
+nop
 brnz          $temp_2_s, IcgNotMult4
 shr           $instride_s, $instride_s, 1
 shr           $icg_count_s, $icg_count_s, 1
+nop
+nop
 
 IcgNotMult4:
 shl           $partition_ptr_s, $partition_ptr_s, 15
 
 // weight pointer increment per kernel element = inChansPerGroup * outChansPerGroup
 mul           $weights_ptr_h_incr, $inchans_per_group_s, $outchans_per_group_s
-delay         1
 shr           $instride_s, $instride_s, 1
 add           $icg_count_s, $icg_count_s, -1
 

@@ -646,10 +646,10 @@ st32          $partition_ptr_b_s, $sp, (STACK_BASE + STACK_PARTITION_PTR)/4
 setzi         $jmp_addr_s, 0
 
 brz           $amp_kernel_height_s, JmpAddrSelEnd
-add           $amp_kernel_height_s, $amp_kernel_height_s, -1
 mul           $temp_6_s, $temp_2_s, AMP_INPUTS_HALF/2 * SIZEOF_WEIGHTS_ATOM
 setzi         $jmp_addr_s, AmpHeightEq2
-delay         2
+// a bubble here instead of using 3 nop instructions
+add           $amp_kernel_height_s, $amp_kernel_height_s, -1
 brz           $amp_kernel_height_s, JmpAddrSelEnd
 setzi         $jmp_addr_s, AmpHeightEq4
 mul           $temp_6_s, $temp_2_s, AMP_INPUTS_HALF/4 * SIZEOF_WEIGHTS_ATOM

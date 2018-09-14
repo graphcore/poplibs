@@ -426,7 +426,7 @@ ld32step      $weight_vec_s, $mzero, $weights_vectors_s+=, 1
 ld32          $outchan_group_s, $mzero, $sup_base, SUP_NUM_OUTCHAN_GROUPS_M1/4
 add           $amp_group_s, $amp_group_s, -1
 shl           $temp_s, $temp_s, 10
-delay         1
+nop
 shl           $partition_s, $partition_s, 15
 put           $CCCSLOAD, $weight_vec_s
 // TODO: change this once base and number of list entries is swapped in vector
@@ -436,7 +436,7 @@ st32          $amp_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_AMP_GROUPS/4
 or            $stride_s, $stride_s, $temp_s
 ld32          $conv_group_s, $sup_base, SUP_NUM_CONV_GROUPS_M1/4
 setzi         $wkr_function, convPartialFlattenedField    
-delay         1
+nop
 shr           $partition_s, $partition_s, 13
 st32          $partition_s, $wkr_vertex, WKR_PARTITION_LIST/4
 st32          $stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
