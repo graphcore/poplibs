@@ -156,7 +156,7 @@ int main(int argc, char **argv) {
   auto prog = Sequence();
   auto fwdStateInit =
     lstm::createFwdState(graph, batchSize, outputSize, prog, false, dataType,
-                         false, "fwdState", &cache);
+                         fwdOnly, "fwdState", &cache);
 
   auto outputInit = lstm::getOutputFromFwdState(fwdStateInit);
   auto cellStateInit = lstm::getCellFromFwdState(fwdStateInit);
