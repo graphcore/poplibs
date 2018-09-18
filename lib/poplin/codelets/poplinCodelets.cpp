@@ -952,8 +952,8 @@ class
 ChannelMul : public SupervisorVertex {
 public:
   Input<Vector<FPType, TWO_PTR, 8>> scale;
-  InOut<Vector<FPType, ONE_PTR, 8>> actsIn;
-  InOut<Vector<FPType, ONE_PTR, 8>> actsOut;
+  Input<Vector<FPType, ONE_PTR, 8>> actsIn;
+  Output<Vector<FPType, ONE_PTR, 8>> actsOut;
   // actsBlockCount = actsIn.size() / scale.size();
   // actsBlockCountPacked = (actsBlockCount/6 << 3) | (actsBlockCount % 6)
   uint16_t actsBlockCountPacked;
