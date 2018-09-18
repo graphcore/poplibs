@@ -76,7 +76,7 @@ outer_loop:
   shr $chanSize, $chanSize, LOG2_SIZEOF_HALF
 
   // do 4 at a time first.
-  shr $chanSizeD4, $chanSize, 1
+  shr $chanSizeD4, $chanSize, 2
 
   // minus 1 for the chan4_loop brnzdec but also check to see if chanSizeD4 is
   // zero and skip the vectorised loop if so. additionally skip the first
