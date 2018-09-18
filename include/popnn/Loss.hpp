@@ -30,6 +30,8 @@ namespace popnn {
  *                        the expected per-batch.
  *  \param activationType Device type used for activations.
  *  \param expectedType   Device type used for expected labels.
+ *  \param stabilityOptimization If true, potentially perform extra calculation
+ *                        to improve the numerical stability of the results.
  *  \param lossType       Method for calculating loss measurement.
  *  \param debugPrefix    Optional debug prefix for operations and tensors
  *                        for this operation.
@@ -43,6 +45,7 @@ calcLoss(poplar::Graph &graph,
          const poplar::Type& activationType,
          const poplar::Type& expectedType,
          LossType lossType,
+         const bool& stabilityOptimization=true,
          const std::string &debugPrefix = "");
 
 /** Calculate loss, gradient, and number of correct classifications
@@ -61,6 +64,7 @@ calcLoss(poplar::Graph &graph,
          const poplar::Type &activationType,
          const poplar::Type &expectedType,
          LossType lossType,
+         const bool &stabilityOptimization=true,
          const std::string &debugPrefix = "");
 
 /** Calculate the number of correct classifications for a set of

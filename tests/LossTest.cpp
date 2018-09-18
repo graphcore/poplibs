@@ -153,7 +153,8 @@ static bool lossTest(const LossType lossType,
                      std::size_t batchSize,
                      std::size_t numClasses,
                      const Type &fpType,
-                     const Type &expectedType) {
+                     const Type &expectedType,
+                     const bool &stabilityOptimization) {
   auto device = createTestDevice(TEST_TARGET, 1, 4);
   auto target = device.getTarget();
   poplar::Graph graph(target);
@@ -198,7 +199,7 @@ static bool lossTest(const LossType lossType,
                        activations, expected,
                        loss, deltas,
                        fpType, expectedType,
-                       lossType);
+                       lossType, stabilityOptimization);
 
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
   engine.load(device);
@@ -290,24 +291,25 @@ static bool accuracyTest(const Type &fpType,
 
 } // end anonymous namespace
 
-#define LOSS_TEST_NAME(lossType, b, n, fpType, lType) \
-  lossType ## _ ## b ## x ## n ## _ ## fpType ## _ ## lType
+#define LOSS_TEST_NAME(lossType, b, n, fpType, lType, sOpt) \
+  lossType ## _ ## b ## x ## n ## _ ## fpType ## _ ## lType ## _ ## sOpt
 
-#define LOSS_TEST_TYPE(lossType, b, n, fpType, lType) \
-  BOOST_AUTO_TEST_CASE(LOSS_TEST_NAME(lossType, b, n, fpType, lType)) { \
-    auto matchesModel = lossTest(lossType, b, n, fpType, lType); \
+#define LOSS_TEST_TYPE(lossType, b, n, fpType, lType, sOpt) \
+  BOOST_AUTO_TEST_CASE(LOSS_TEST_NAME(lossType, b, n, fpType, lType, sOpt)) { \
+    auto matchesModel = lossTest(lossType, b, n, fpType, lType, sOpt); \
     BOOST_CHECK(matchesModel); \
   }
 
-#define ENUMERATE_VALID_LOSS_TYPE_TESTS(lossType, b, n) \
-  LOSS_TEST_TYPE(lossType, b, n, FLOAT, UNSIGNED_INT) \
-  LOSS_TEST_TYPE(lossType, b, n, HALF, UNSIGNED_INT) \
-  LOSS_TEST_TYPE(lossType, b, n, FLOAT, INT) \
-  LOSS_TEST_TYPE(lossType, b, n, HALF, INT)
+#define ENUMERATE_VALID_LOSS_TYPE_TESTS(lossType, b, n, sOpt) \
+  LOSS_TEST_TYPE(lossType, b, n, FLOAT, UNSIGNED_INT, sOpt) \
+  LOSS_TEST_TYPE(lossType, b, n, HALF, UNSIGNED_INT, sOpt) \
+  LOSS_TEST_TYPE(lossType, b, n, FLOAT, INT, sOpt) \
+  LOSS_TEST_TYPE(lossType, b, n, HALF, INT, sOpt)
 
 #define ENUMERATE_LOSS_TYPE_TESTS(b, n) \
-  ENUMERATE_VALID_LOSS_TYPE_TESTS(SUM_SQUARED_LOSS, b, n) \
-  ENUMERATE_VALID_LOSS_TYPE_TESTS(SOFTMAX_CROSS_ENTROPY_LOSS, b, n)
+  ENUMERATE_VALID_LOSS_TYPE_TESTS(SUM_SQUARED_LOSS, b, n, false) \
+  ENUMERATE_VALID_LOSS_TYPE_TESTS(SOFTMAX_CROSS_ENTROPY_LOSS, b, n, true) \
+  ENUMERATE_VALID_LOSS_TYPE_TESTS(SOFTMAX_CROSS_ENTROPY_LOSS, b, n, false)
 
 ENUMERATE_LOSS_TYPE_TESTS(1, 1)
 ENUMERATE_LOSS_TYPE_TESTS(4, 100)

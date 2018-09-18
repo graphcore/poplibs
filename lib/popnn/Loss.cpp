@@ -117,6 +117,7 @@ Program calcLossSoftmaxCrossEntropy(Graph &graph,
                                     const Tensor &deltas,
                                     const Type &activationType,
                                     const Type &expectedType,
+                                    const bool &stabilityOptimization,
                                     const std::string &debugPrefix) {
   const auto layerPrefix = debugPrefix + "/LossSoftmaxCrossEntropy";
   const auto batchSize = activations.dim(0);
@@ -146,22 +147,25 @@ Program calcLossSoftmaxCrossEntropy(Graph &graph,
   // performance and memory (exchange code/vertices).
   // Any other methods that would give acceptable stability? Is it possible
   // to know ahead of time what the range of inputs will be?
+  // This optimization can be selected using stabilityOptimization.
   //
-  // Subtract max value for purposes of numerical stability
+  // If selected, subtract max value for purposes of numerical stability
   // when normalising exponentials: e^(x - max(X)).
-  auto maxAct =
-    popops::reduce(graph, activationsCopy,
-                   {1}, popops::Operation::MAX,
-                   prog,
-                   layerPrefix + "/shift_range_for_stability")
-    .reshape({batchSize, 1});
 
-  broadcastToMatch(maxAct, activationsCopy.shape());
-  popops::subInPlace(graph, activationsCopy, maxAct, prog,
-                     layerPrefix + "/shift_range_for_stability");
+  if(stabilityOptimization) {
+    auto maxAct =
+      popops::reduce(graph, activationsCopy,
+                     {1}, popops::Operation::MAX,
+                     prog,
+                     layerPrefix + "/shift_range_for_stability")
+      .reshape({batchSize, 1});
 
+    broadcastToMatch(maxAct, activationsCopy.shape());
+    popops::subInPlace(graph, activationsCopy, maxAct, prog,
+                       layerPrefix + "/shift_range_for_stability");
+  }
   popops::expInPlace(graph, activationsCopy, prog,
-                     layerPrefix + "/exponent");
+                    layerPrefix + "/exponent");
 
   // Sum exponentials to perform normalisation below
   auto sumExp =
@@ -204,6 +208,7 @@ calcLoss(Graph &graph,
          const Type& activationType,
          const Type& expectedType,
          LossType lossType,
+         const bool& stabilityOptimization,
          const std::string &debugPrefix) {
   switch (lossType) {
     case LossType::SUM_SQUARED_LOSS:
@@ -223,6 +228,7 @@ calcLoss(Graph &graph,
                                          deltas,
                                          activationType,
                                          expectedType,
+                                         stabilityOptimization,
                                          debugPrefix);
     default:
       throw poplib_error("Unknown loss type requested in calcLoss");
@@ -430,10 +436,11 @@ calcLoss(Graph &graph,
          const Type &activationType,
          const Type &expectedType,
          LossType lossType,
+         const bool &stabilityOptimization,
          const std::string &debugPrefix) {
   Sequence prog(
-    calcLoss(graph, activations, expected, loss, deltas,
-             activationType, expectedType, lossType, debugPrefix),
+    calcLoss(graph, activations, expected, loss, deltas, activationType,
+             expectedType, lossType, stabilityOptimization, debugPrefix),
     calcAccuracy(graph, activations, expected, numCorrect,
                  activationType, expectedType, debugPrefix)
   );
