@@ -224,23 +224,23 @@ _exit:
 
 
 _misaligned_st_8:
-  st32step      $VALUES_0, $mzero, $OUT_j_PTR+=, 1
   {
-    st32step    $VALUES_1, $mzero, $OUT_j_PTR+=, 1
-    f32v2gina   $VALUES_0:5, $azeros, 0
+    st32step      $VALUES_0, $mzero, $OUT_j_PTR+=, 1
+    f32v2gina     $VALUES_2:7, $azeros, 0
   }
-  st32step      $VALUES_0, $mzero, $OUT_j_PTR+=, 1
+  roll32        $VALUES_0:5, $VALUES_0:5, $VALUES_2:7
   {
-    st32step    $VALUES_1, $mzero, $OUT_j_PTR+=, 1
-    f32v2gina   $VALUES_0:5, $azeros, 0
+    st64step      $VALUES_0:5, $mzero, $OUT_j_PTR+=, 1
+    f32v2gina     $VALUES_0:5, $azeros, 0
   }
-  st32step      $VALUES_0, $mzero, $OUT_j_PTR+=, 1
+  roll32        $VALUES_2:7, $VALUES_2:7, $VALUES_0:5
   {
-    st32step    $VALUES_1, $mzero, $OUT_j_PTR+=, 1
-    f32v2gina   $VALUES_0:5, $azeros, 0
+    st64step      $VALUES_2:7, $mzero, $OUT_j_PTR+=, 1
+    f32v2gina     $VALUES_2:7, $azeros, 0
   }
-  st32step      $VALUES_0, $mzero, $OUT_j_PTR+=, 1
-  st32step      $VALUES_1, $mzero, $OUT_j_PTR+=, 1
+  roll32        $VALUES_0:5, $VALUES_0:5, $VALUES_2:7
+  st64step      $VALUES_0:5, $mzero, $OUT_j_PTR+=, 1
+  st32step      $VALUES_3, $mzero, $OUT_j_PTR+=, 1
 
   brnzdec     $SCRATCH, _loop_over_outer_dim
   bri         _partials_rpt_4_loop
