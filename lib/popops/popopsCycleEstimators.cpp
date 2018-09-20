@@ -920,17 +920,26 @@ MAKE_CYCLE_ESTIMATOR_NAME(DynamicSliceSupervisor)(
                                            const VertexIntrospector &vertex,
                                            const Target &target,
                                            const Type &type) {
-  unsigned vectorWidth = target.getDataPathWidth() / (sizeof(type) * 8);
+  const auto regionSize =
+    vertex.getFieldInfo("regionSize").getInitialValue<unsigned>(target);
   const unsigned numSubElements =
     vertex.getFieldInfo("numSubElements").getInitialValue<unsigned>(target);
-  const unsigned elementsPerWorker =
-    vertex.getFieldInfo("elementsPerWorker").getInitialValue<unsigned>(target);
+  const unsigned numBaseElements =
+    vertex.getFieldInfo("numBaseElements").getInitialValue<unsigned>(target);
   const unsigned numWorkers = target.getNumWorkerContexts();
+  const auto baseT = vertex.getFieldInfo("baseT");
+  const auto subT = vertex.getFieldInfo("subT");
 
-  auto cycles = 5;
-  unsigned nVectors = (elementsPerWorker + vectorWidth - 1) / vectorWidth;
-  cycles += (4 + nVectors) * numSubElements + 4;
+  assert(subT.size() == numSubElements * regionSize);
+  assert(baseT.size() == numBaseElements * regionSize);
+  const unsigned elementsPerWorker = (regionSize + numWorkers -1 )/numWorkers;
+  auto cycles = 42;
+  // This is the more optimistic path - where the inner loop is copying
+  // aligned data
+  unsigned nCopies = elementsPerWorker / 2;
+  cycles += (27 + nCopies) * numSubElements;
   cycles *= numWorkers;
+
   return cycles;
 }
 

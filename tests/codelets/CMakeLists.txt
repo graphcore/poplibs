@@ -214,3 +214,5 @@ add_popnn_unit_test(ZeroTest
                     ZeroTest.cpp)
 add_popnn_unit_test(DynamicSliceCodeletTest
                     DynamicSliceCodeletTest.cpp)
+add_popnn_unit_test(DynamicSliceSupervisorCodeletTest
+                    DynamicSliceSupervisorCodeletTest.cpp)

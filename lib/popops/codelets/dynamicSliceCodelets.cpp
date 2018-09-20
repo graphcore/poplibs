@@ -6,6 +6,7 @@
 using namespace poplar;
 
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
+static constexpr auto TWO_PTR = poplar::VectorLayout::TWO_PTR;
 
 namespace popops {
 
@@ -72,28 +73,31 @@ template <typename InType>
 class DynamicSliceSupervisor : public SupervisorVertex {
 public:
   Input<unsigned> offset; // in \a baseT
-  Input<Vector<InType>> baseT;
-  Output<Vector<InType>> subT;
-  unsigned numBaseElements;  // in the slice dimension
-  unsigned numSubElements;   // in the slice dimension
-  unsigned regionSize;       // stride between slices
-  unsigned elementsPerWorker;// number of elements to copy
+  Input<Vector<InType, ONE_PTR>> baseT;
+  Output<Vector<InType, ONE_PTR>> subT;
+  unsigned short numBaseElements;  // in the slice dimension
+  unsigned short numSubElements;   // in the slice dimension
+  unsigned short regionSize;       // stride between slices
   SimOnlyField<unsigned> numWorkers;
+
+  static const bool isBool = std::is_same<InType,bool>::value;
+  IS_EXTERNAL_CODELET(!isBool);
+
   bool compute() {
-    assert(baseT.size() == numBaseElements * regionSize);
-    assert(subT.size() == numSubElements * regionSize);
+    unsigned elementsPerWorker = (regionSize + numWorkers -1) / numWorkers;
+
     for (unsigned worker = 0; worker != numWorkers; ++worker) {
-      unsigned vertexOffset = worker * elementsPerWorker;
+      unsigned workerOffset = worker * elementsPerWorker;
       unsigned baseSlice = offset;
       if (baseSlice >= numBaseElements)
         baseSlice=0;
       for (unsigned subSlice = 0; subSlice != numSubElements; ++subSlice) {
         for (unsigned e = 0; e != elementsPerWorker; e++) {
-          if (vertexOffset + e >= regionSize)
+          if (workerOffset + e >= regionSize)
             // vertices may have empty or truncated regions
             break;
-          subT[subSlice * regionSize + vertexOffset + e] =
-            baseT[baseSlice * regionSize + vertexOffset + e];
+          subT[subSlice * regionSize + workerOffset + e] =
+            baseT[baseSlice * regionSize + workerOffset + e];
         }
         baseSlice++;
         if (baseSlice >= numBaseElements)
@@ -169,28 +173,31 @@ template <typename InType>
 class DynamicUpdateSliceSupervisor : public SupervisorVertex {
 public:
   Input<unsigned> offset; // in \a baseT
-  InOut<Vector<InType>> baseT;
-  Input<Vector<InType>> subT;
-  unsigned numBaseElements;  // in the slice dimension
-  unsigned numSubElements;   // in the slice dimension
-  unsigned regionSize;       // stride between slices
-  unsigned elementsPerWorker;// number of elements to copy
+  InOut<Vector<InType, ONE_PTR>> baseT;
+  Input<Vector<InType, ONE_PTR>> subT;
+  unsigned short numBaseElements;  // in the slice dimension
+  unsigned short numSubElements;   // in the slice dimension
+  unsigned short regionSize;       // stride between slices
   SimOnlyField<unsigned> numWorkers;
+
+  static const bool isBool = std::is_same<InType,bool>::value;
+  IS_EXTERNAL_CODELET(!isBool);
+
   bool compute() {
-    assert(baseT.size() == numBaseElements * regionSize);
-    assert(subT.size() == numSubElements * regionSize);
+    unsigned elementsPerWorker = (regionSize + numWorkers -1) / numWorkers;
+
     for (unsigned worker = 0; worker != numWorkers; ++worker) {
-      unsigned vertexOffset = worker * elementsPerWorker;
+      unsigned workerOffset = worker * elementsPerWorker;
       unsigned baseSlice =offset;
       if (baseSlice >= numBaseElements)
         baseSlice=0;
       for (unsigned subSlice = 0; subSlice != numSubElements; ++subSlice) {
         for (unsigned e = 0; e != elementsPerWorker; e++) {
-          if (vertexOffset + e >= regionSize)
+          if (workerOffset + e >= regionSize)
             // vertices may have empty or truncated regions
             break;
-          baseT[baseSlice * regionSize + vertexOffset + e] =
-            subT[subSlice * regionSize + vertexOffset + e];
+          baseT[baseSlice * regionSize + workerOffset + e] =
+            subT[subSlice * regionSize + workerOffset + e];
         }
         baseSlice++;
         if (baseSlice >= numBaseElements)
