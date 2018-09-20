@@ -1523,8 +1523,6 @@ createZeroWorklist(const Target &target, const Tensor &out) {
       unsigned begin, end;
       zeroWorklist[2 * i] = begin = region.begin();
       zeroWorklist[2 * i + 1] = end = region.end() - region.begin();
-      assert(begin < std::numeric_limits<unsigned short>::max());
-      assert(end < std::numeric_limits<unsigned short>::max());
     }
   }
   return zeroWorklist;
@@ -1719,20 +1717,8 @@ static void createConvPartialAmpVertex(Graph &graph,
   const unsigned inChansPerGroup = plan.inChansPerGroup;
   bool flipOut = params.inputTransform.flip[numFieldDims - 1];
 
-  std::vector<Tensor> outWindow;
-  std::vector<Tensor> inWindow;
   std::vector<Tensor> weightsWindow;
   for (unsigned cg = 0; cg != numConvGroups; ++cg) {
-    for (unsigned ozg = 0; ozg != numOutChanGroups; ++ozg) {
-      auto o = out[cg][ozg].flatten();
-      outWindow.push_back(o);
-    }
-    // TODO if the tile kernel size is 1 and the stride is greater than one we
-    // could subsample the input instead of using input striding.
-    for (unsigned izg = 0; izg != numInChanGroups; ++izg) {
-      auto window = in[cg][izg].flatten();
-      inWindow.push_back(window);
-    }
     for (unsigned ozg = 0; ozg < numOutChanGroups; ++ozg) {
       for (unsigned izg = 0; izg < numInChanGroups; ++izg) {
         auto window = weights[cg][ozg][izg].flatten();
@@ -1741,23 +1727,6 @@ static void createConvPartialAmpVertex(Graph &graph,
     }
   }
 
-  // This stride is what's used to move down one element in the input field by
-  // the vertex.
-  int inRowStride =
-      params.kernelTransform.dilation.front() *
-      product(params.inputFieldShape) / params.inputFieldShape[0];
-  if (params.inputTransform.flip.front() !=
-      params.kernelTransform.flip.front()) {
-    inRowStride = -inRowStride;
-  }
-
-  std::vector<std::size_t> inputBatchAndFieldShape = { params.getBatchSize() };
-  std::copy(params.inputFieldShape.begin(), params.inputFieldShape.end(),
-            std::back_inserter(inputBatchAndFieldShape));
-  std::vector<std::size_t> outputBatchAndFieldShape = { params.getBatchSize() };
-  const auto outputFieldShape = params.getOutputFieldShape();
-  std::copy(outputFieldShape.begin(), outputFieldShape.end(),
-            std::back_inserter(outputBatchAndFieldShape));
   const auto contextsPerVertex = target.getNumWorkerContexts();
   // The number of n x 1 x ... 1 slices required to cover the kernel in each
   // dimension.
@@ -1765,8 +1734,6 @@ static void createConvPartialAmpVertex(Graph &graph,
   assert(numSubKernelSlices[0] % convUnitWeightHeight == 0);
   numSubKernelSlices[0] /= convUnitWeightHeight;
   const auto numSubKernelPositions = product(numSubKernelSlices);
-  std::vector<std::vector<unsigned>> worklist(contextsPerVertex *
-                                              numSubKernelPositions);
 
   auto kernelInnerElements = product(numSubKernelSlices) /
                              numSubKernelSlices[0];
@@ -1776,216 +1743,343 @@ static void createConvPartialAmpVertex(Graph &graph,
   inStrideX /= strideDivisor;
   outStrideX /= strideDivisor;
 
-  for (unsigned k = 0; k != numSubKernelPositions; ++k) {
-    auto kernelBeginIndices = unflattenIndex(numSubKernelSlices, k);
-    kernelBeginIndices[0] = kernelBeginIndices[0] * convUnitWeightHeight;
-    std::vector<unsigned> tileConvOutBegin;
-    std::vector<unsigned> tileConvOutSize;
-    for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-      const auto kernelBeginIndex = kernelBeginIndices[dim];
-      const auto kernelEndIndex =
-          kernelBeginIndex + (dim == 0 ? convUnitWeightHeight : 1);
-      auto convOutRange =
-          getOutputRangeForKernelRange(dim, {0, params.getOutputSize(dim)},
-                                       {kernelBeginIndex, kernelEndIndex},
-                                       params);
-      tileConvOutBegin.push_back(convOutRange.first);
-      tileConvOutSize.push_back(convOutRange.second - convOutRange.first);
-    }
-    if (product(tileConvOutSize) == 0)
-      continue;
-    auto workerPartition =
-        partitionConvPartialByWorker(params.getBatchSize(),
-                                     tileConvOutSize,
-                                     contextsPerVertex,
-                                     params.inputTransform.dilation,
-                                     params.outputTransform.stride);
-    for (unsigned i = 0; i != contextsPerVertex; ++i) {
-      for (const auto &partialRow : workerPartition[i]) {
-        auto workerOutXBegin = tileConvOutBegin.back() + partialRow.xBegin;
-        auto workerOutXEnd = tileConvOutBegin.back() + partialRow.xEnd;
-        std::tie(workerOutXBegin, workerOutXEnd) =
-            getOutputRangeForKernelIndex(numFieldDims - 1,
-                                         {workerOutXBegin, workerOutXEnd},
-                                         kernelBeginIndices.back(), params);
-        const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
-        if (workerOutWidth == 0)
-          continue;
-        std::vector<std::size_t> outBeginIndices = { partialRow.b };
-        for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
-          outBeginIndices.push_back(partialRow.outerFieldIndices[dim] +
-                                    tileConvOutBegin[dim]);
-        }
-        outBeginIndices.push_back(partialRow.xBegin + tileConvOutBegin.back());
-        const auto outBeginOffset =
-            flattenIndex(outputBatchAndFieldShape, outBeginIndices);
-        std::vector<std::size_t> inBeginIndices = { partialRow.b };
-        if (numFieldDims > 1) {
-          const auto kOuterBegin = kernelBeginIndices[0];
-          const auto kOuterEnd = kOuterBegin + convUnitWeightHeight;
-          const auto outOuterIndex = tileConvOutBegin[0] +
-                                     partialRow.outerFieldIndices[0];
-          for (unsigned k = kOuterBegin; k != kOuterEnd; ++k) {
-            auto inOuterIndex = getInputIndex(0, outOuterIndex, k, params);
-            if (inOuterIndex != ~0U) {
-             auto inOuterBeginIndex =
-                  inOuterIndex +
-                  (inRowStride < 0 ? 1 : -1) *
-                  (k - kOuterBegin) * params.kernelTransform.dilation.front();
-              inBeginIndices.push_back(inOuterBeginIndex);
-              break;
-            }
-          }
-          if (inBeginIndices.size() < 2) {
-            continue;
-          }
-        }
-        for (unsigned dim = 1; dim + 1 < numFieldDims; ++dim) {
-          auto inIndex =
-              getInputIndex(dim,
-                            tileConvOutBegin[dim] +
-                                partialRow.outerFieldIndices[dim],
-                            kernelBeginIndices[dim], params);
-          assert(inIndex != ~0U);
-          inBeginIndices.push_back(inIndex);
-        }
-        auto workerInXBegin =
-            getInputRange(numFieldDims - 1, {workerOutXBegin, workerOutXEnd},
-                          kernelBeginIndices.back(), params).first;
-        assert(workerInXBegin != ~0U);
-        inBeginIndices.push_back(workerInXBegin);
-        const auto inBeginOffset =
-            flattenIndex(inputBatchAndFieldShape, inBeginIndices);
-        const auto outOffset = flipOut ? outBeginOffset + workerOutWidth - 1 :
-                                         outBeginOffset;
-        const auto numFieldElems =
-            useConvPartial1x1OutVertex ?
-              workerOutWidth : (workerOutWidth + outStrideX - 1) / outStrideX;
-        worklist[k * contextsPerVertex + i].push_back(outOffset);
-        worklist[k * contextsPerVertex + i].push_back(numFieldElems);
-        worklist[k * contextsPerVertex + i].push_back(inBeginOffset);
-      }
-    }
-  }
+  const auto unsplitOutputFieldShape = params.getOutputFieldShape();
 
-  if (useConvPartial1x1OutVertex) {
-    assert(convUnitWeightHeight == 1);
-    inRowStride = 1;
-  }
-
-  // Some codelet implementations rely on the input row stride to be 1 when
-  // it is unused.
-  if (convUnitWeightHeight == 1) {
-    inRowStride = 1;
-  }
+  const auto inRowStrideBeforeSplit =
+      getInRowStride(params, product(params.inputFieldShape)
+                         / params.inputFieldShape[0],
+                     useConvPartial1x1OutVertex, convUnitWeightHeight);
   const auto convInputLoadElems =
       target.getConvUnitInputLoadElemsPerCycle(in.elementType() == FLOAT);
-  int transformedInStride =
+  int transformedInStrideBeforeSplit =
       (static_cast<int>(inStrideX) - 1 -
-       static_cast<int>(convUnitWeightHeight - 1) * inRowStride ) *
+       static_cast<int>(convUnitWeightHeight - 1) * inRowStrideBeforeSplit) *
+      static_cast<int>(inChansPerGroup / convInputLoadElems) + 1;
+  int transformedInRowStrideBeforeSplit = (inRowStrideBeforeSplit - 1) *
       static_cast<int>(inChansPerGroup / convInputLoadElems) + 1;
 
-  unsigned outStrideToUse = useConvPartial1x1OutVertex ? 1 : outStrideX;
-  int scaledOutStride = static_cast<int>(outStrideToUse * outChansPerGroup);
-  int transformedOutStride =
-      -6 + (flipOut ? -scaledOutStride : scaledOutStride);
+  // Find field split that satisfies machine stride bit-widths
+  // Only use input striding to decide to split field as it is most likely to
+  // exceed machine strides
+  const auto fieldDimSplit =
+      splitConvIntoAmpVertices(params, target.getNumStrideBits(),
+                               transformedInStrideBeforeSplit,
+                               transformedInRowStrideBeforeSplit);
 
-  int transformedInRowStride =  (inRowStride - 1) *
-      static_cast<int>(inChansPerGroup / convInputLoadElems) + 1;
+  // number of convolution vertices to create
+  const auto numConvVertices = product(fieldDimSplit);
 
-  // TODO: revisit this once float assembler codelets are written
-  bool useLimitedVer = true;
-  if (!fitsMachineStride(target, transformedOutStride / 2) ||
-      !fitsMachineStride(target, transformedInStride) ||
-      !fitsMachineStride(target, transformedInRowStride))
-    useLimitedVer = false;
+  for (auto vertexNum = 0U; vertexNum != numConvVertices; ++vertexNum) {
+    const auto splitIndices = unflattenIndex(fieldDimSplit, vertexNum);
+    std::vector<std::vector<unsigned>> worklist(contextsPerVertex *
+                                                numSubKernelPositions);
+    struct Partition {
+      std::vector<std::size_t> outBeginIndices;
+      unsigned outXWidth;
+      std::vector<std::size_t> inBeginIndices;
+      unsigned inXWidth;
+      unsigned context;
+      unsigned subKernelPosition;
+    };
 
-  if (!useConvPartial1x1OutVertex) {
-    if (in.elementType() == HALF &&
-        convUnitWeightHeight != 1 &&
-        convUnitWeightHeight != 2 &&
-        convUnitWeightHeight != 4)
+    std::vector<Partition> partitions;
+    for (unsigned k = 0; k != numSubKernelPositions; ++k) {
+      auto kernelBeginIndices = unflattenIndex(numSubKernelSlices, k);
+      kernelBeginIndices[0] = kernelBeginIndices[0] * convUnitWeightHeight;
+      std::vector<unsigned> tileConvOutBegin;
+      std::vector<unsigned> tileConvOutSize;
+      for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+        const auto kernelBeginIndex = kernelBeginIndices[dim];
+        const auto kernelEndIndex =
+            kernelBeginIndex + (dim == 0 ? convUnitWeightHeight : 1);
+        if (dim == 0) {
+          // outermost dimension cannot be split
+          assert(fieldDimSplit[dim] == 1);
+        }
+        const auto outputSize = params.getOutputSize(dim);
+        auto elemsPerSplit =
+            (outputSize + fieldDimSplit[dim] - 1) / fieldDimSplit[dim];
+        auto outBegin = splitIndices[dim] * elemsPerSplit;
+        auto outEnd = (splitIndices[dim] == fieldDimSplit[dim] - 1) ?
+            outputSize : outBegin + elemsPerSplit;
+
+        auto convOutRange =
+            getOutputRangeForKernelRange(dim, {outBegin, outEnd},
+                                         {kernelBeginIndex, kernelEndIndex},
+                                         params);
+        tileConvOutBegin.push_back(convOutRange.first);
+        tileConvOutSize.push_back(convOutRange.second - convOutRange.first);
+      }
+      if (product(tileConvOutSize) == 0)
+        continue;
+      auto workerPartition =
+          partitionConvPartialByWorker(params.getBatchSize(),
+                                       tileConvOutSize,
+                                       contextsPerVertex,
+                                       params.inputTransform.dilation,
+                                       params.outputTransform.stride);
+      for (unsigned i = 0; i != contextsPerVertex; ++i) {
+        for (const auto &partialRow : workerPartition[i]) {
+          auto workerOutXBegin = tileConvOutBegin.back() + partialRow.xBegin;
+          auto workerOutXEnd = tileConvOutBegin.back() + partialRow.xEnd;
+          std::tie(workerOutXBegin, workerOutXEnd) =
+              getOutputRangeForKernelIndex(numFieldDims - 1,
+                                           {workerOutXBegin, workerOutXEnd},
+                                           kernelBeginIndices.back(), params);
+          const auto workerOutWidth = workerOutXEnd - workerOutXBegin;
+          if (workerOutWidth == 0)
+            continue;
+          std::vector<std::size_t> outBeginIndices = { partialRow.b };
+          for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
+            outBeginIndices.push_back(partialRow.outerFieldIndices[dim] +
+                                      tileConvOutBegin[dim]);
+          }
+          outBeginIndices.push_back(partialRow.xBegin +
+                                    tileConvOutBegin.back());
+          std::vector<std::size_t> inBeginIndices = { partialRow.b };
+          if (numFieldDims > 1) {
+            const auto kOuterBegin = kernelBeginIndices[0];
+            const auto kOuterEnd = kOuterBegin + convUnitWeightHeight;
+            const auto outOuterIndex = tileConvOutBegin[0] +
+                                       partialRow.outerFieldIndices[0];
+            for (unsigned k = kOuterBegin; k != kOuterEnd; ++k) {
+              auto inOuterIndex = getInputIndex(0, outOuterIndex, k, params);
+              if (inOuterIndex != ~0U) {
+              auto inOuterBeginIndex =
+                    inOuterIndex +
+                    (params.inputTransform.flip.front() !=
+                     params.kernelTransform.flip.front() ? 1 : -1) *
+                    (k - kOuterBegin) * params.kernelTransform.dilation.front();
+                inBeginIndices.push_back(inOuterBeginIndex);
+                break;
+              }
+            }
+            if (inBeginIndices.size() < 2) {
+              continue;
+            }
+          }
+          for (unsigned dim = 1; dim + 1 < numFieldDims; ++dim) {
+            auto inIndex =
+                getInputIndex(dim,
+                              tileConvOutBegin[dim] +
+                                  partialRow.outerFieldIndices[dim],
+                              kernelBeginIndices[dim], params);
+            assert(inIndex != ~0U);
+            inBeginIndices.push_back(inIndex);
+          }
+          auto workerInXRange =
+              getInputRange(numFieldDims - 1, {workerOutXBegin, workerOutXEnd},
+                            kernelBeginIndices.back(), params);
+          assert(workerInXRange.first != ~0U);
+          inBeginIndices.push_back(workerInXRange.first);
+          partitions.push_back({std::move(outBeginIndices),
+                                workerOutWidth,
+                                std::move(inBeginIndices),
+                                workerInXRange.second - workerInXRange.first,
+                                i, k});
+        }
+      }
+    }
+
+    // Once partitions are known, find the actual range to use for each
+    // dimension.
+    std::vector<std::pair<unsigned, unsigned>> convInFieldRange;
+    std::vector<std::pair<unsigned, unsigned>> convOutFieldRange;
+    std::vector<std::size_t> inputBatchAndFieldShape = {params.getBatchSize()};
+    std::vector<std::size_t> outputBatchAndFieldShape = {params.getBatchSize()};
+
+    for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+      // outermost dimension cannot be split
+      std::size_t inLowestElem =
+          dim == 0 ? 0 : std::numeric_limits<std::size_t>::max();
+      std::size_t inHighestElem = dim == 0 ? params.inputFieldShape[0] : 0;
+      std::size_t outLowestElem =
+          dim == 0 ? 0 : std::numeric_limits<std::size_t>::max();
+      std::size_t outHighestElem = dim == 0 ? unsplitOutputFieldShape[0] : 0;
+
+      if (dim) {
+        for (const auto &p : partitions) {
+          inLowestElem = std::min(inLowestElem, p.inBeginIndices[dim + 1]);
+          outLowestElem = std::min(outLowestElem, p.outBeginIndices[dim + 1]);
+          inHighestElem =
+              std::max(inHighestElem, p.inBeginIndices[dim + 1] +
+                       (dim + 1 == numFieldDims ? p.inXWidth : 1));
+          outHighestElem =
+              std::max(outHighestElem, p.outBeginIndices[dim + 1] +
+                       (dim + 1 == numFieldDims ? p.outXWidth : 1));
+        }
+      }
+      convInFieldRange.emplace_back(inLowestElem, inHighestElem);
+      convOutFieldRange.emplace_back(outLowestElem, outHighestElem);
+      inputBatchAndFieldShape.push_back(inHighestElem - inLowestElem);
+      outputBatchAndFieldShape.push_back(outHighestElem - outLowestElem);
+    }
+
+    // update partitions to reflect the start offset of each dimension. Batch
+    // is not split, so update only field dimensions.
+    for (auto &p : partitions) {
+      for (unsigned dim = 0U; dim != numFieldDims; ++dim) {
+        p.inBeginIndices[dim + 1] -= convInFieldRange[dim].first;
+        p.outBeginIndices[dim + 1] -= convOutFieldRange[dim].first;
+      }
+    }
+
+    // create worklist now that dimensions of all splits are known
+    for (const auto &p : partitions) {
+      const auto outBeginOffset =
+          flattenIndex(outputBatchAndFieldShape, p.outBeginIndices);
+      const auto inBeginOffset =
+          flattenIndex(inputBatchAndFieldShape, p.inBeginIndices);
+      const auto outOffset = flipOut ? outBeginOffset + p.outXWidth - 1 :
+                                       outBeginOffset;
+      const auto numFieldElems =
+          useConvPartial1x1OutVertex ?
+            p.outXWidth : (p.outXWidth + outStrideX - 1) / outStrideX;
+      const auto wIndex = p.subKernelPosition * contextsPerVertex + p.context;
+      worklist[wIndex].push_back(outOffset);
+      worklist[wIndex].push_back(numFieldElems);
+      worklist[wIndex].push_back(inBeginOffset);
+    }
+
+    std::vector<Tensor> outWindow;
+    std::vector<Tensor> inWindow;
+
+    for (unsigned cg = 0; cg != numConvGroups; ++cg) {
+      for (unsigned ozg = 0; ozg != numOutChanGroups; ++ozg) {
+        auto o = out[cg][ozg].slice(0, outputBatchAndFieldShape[0], 0);
+        for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+          const auto &r = convOutFieldRange[dim];
+          o = o.slice(r.first, r.second, 1 + dim);
+        }
+        outWindow.push_back(o.flatten());
+      }
+      // TODO if the tile kernel size is 1 and the stride is greater than one we
+      // could subsample the input instead of using input striding.
+      for (unsigned izg = 0; izg != numInChanGroups; ++izg) {
+        auto window = in[cg][izg].slice(0, inputBatchAndFieldShape[0], 0);
+        for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+          const auto &r = convInFieldRange[dim];
+          window = window.slice(r.first, r.second, 1 + dim);
+        }
+        inWindow.push_back(window.flatten());
+      }
+    }
+    // This stride is what's used to move down one element in the input field by
+    // the vertex.
+    int inRowStride =
+        getInRowStride(params, product(inputBatchAndFieldShape) /
+                                     (inputBatchAndFieldShape[0]
+                                      * inputBatchAndFieldShape[1]),
+                       useConvPartial1x1OutVertex, convUnitWeightHeight);
+
+    int transformedInStride =
+        (static_cast<int>(inStrideX) - 1 -
+         static_cast<int>(convUnitWeightHeight - 1) * inRowStride) *
+        static_cast<int>(inChansPerGroup / convInputLoadElems) + 1;
+    // fill in worklist
+    unsigned outStrideToUse = useConvPartial1x1OutVertex ? 1 : outStrideX;
+    int scaledOutStride = static_cast<int>(outStrideToUse * outChansPerGroup);
+    int transformedOutStride =
+        -6 + (flipOut ? -scaledOutStride : scaledOutStride);
+
+    int transformedInRowStride =  (inRowStride - 1) *
+        static_cast<int>(inChansPerGroup / convInputLoadElems) + 1;
+
+    // TODO: revisit this once float assembler codelets are written
+    bool useLimitedVer = true;
+    if (!fitsMachineStride(target, transformedOutStride / 2) ||
+        !fitsMachineStride(target, transformedInStride) ||
+        !fitsMachineStride(target, transformedInRowStride))
       useLimitedVer = false;
-    // TODO: extend for FLOAT input type when ASM codelet is implemented
-  }
 
-  // check if all worklist items meet range constraints
-  for (auto j = 0U; j != worklist.size() && useLimitedVer; ++j) {
-    const auto &vec = worklist[j];
-    for (auto i = 0U; i != vec.size(); ++i) {
-      // worklist is a multiple of 3.
-      // i % 3 == 0 : output offset
-      // i % 3 == 1 : number of field elems
-      // i % 3 == 2 : input offset
-      if ((i % 3) == 1) {
-        if (vec[i] >  target.getRptCountMax()) {
-          useLimitedVer = false;
-          break;
-        }
-      } else {
-        if (vec[i] > std::numeric_limits<unsigned short>::max()) {
-          useLimitedVer = false;
-          break;
-        }
-      }
-    }
-  }
-
-  std::vector<unsigned> zeroWorklist;
-  if (!useConvPartial1x1OutVertex) {
-    zeroWorklist = createZeroWorklist(target, outWindow[0]);
-    for (auto entry : zeroWorklist) {
-      if (entry > std::numeric_limits<unsigned short>::max()) {
+    if (!useConvPartial1x1OutVertex) {
+      if (in.elementType() == HALF &&
+          convUnitWeightHeight != 1 &&
+          convUnitWeightHeight != 2 &&
+          convUnitWeightHeight != 4)
         useLimitedVer = false;
-        break;
+      // TODO: extend for FLOAT input type when ASM codelet is implemented
+    }
+    // check if all worklist items meet range constraints
+    for (auto j = 0U; j != worklist.size() && useLimitedVer; ++j) {
+      const auto &vec = worklist[j];
+      for (auto i = 0U; i != vec.size(); ++i) {
+        // worklist is a multiple of 3.
+        // i % 3 == 0 : output offset
+        // i % 3 == 1 : number of field elems
+        // i % 3 == 2 : input offset
+        if ((i % 3) == 1) {
+          if (vec[i] >  target.getRptCountMax()) {
+            useLimitedVer = false;
+            break;
+          }
+        } else {
+          if (vec[i] > std::numeric_limits<unsigned short>::max()) {
+            useLimitedVer = false;
+            break;
+          }
+        }
       }
     }
+    std::vector<unsigned> zeroWorklist;
+    if (!useConvPartial1x1OutVertex) {
+      zeroWorklist = createZeroWorklist(target, outWindow[0]);
+      for (auto entry : zeroWorklist) {
+        if (entry > std::numeric_limits<unsigned short>::max()) {
+          useLimitedVer = false;
+          break;
+        }
+      }
+    }
+    const auto worklistEntryType =
+        useLimitedVer ? UNSIGNED_SHORT : UNSIGNED_INT;
+
+    auto codeletName = useConvPartial1x1OutVertex ?
+                         "poplin::ConvPartial1x1Out" :
+                         "poplin::ConvPartialnx1";
+    auto v = graph.addVertex(fwdCS,
+                             templateVertex(codeletName, in.elementType(),
+                                            plan.types.back().partialType,
+                                            useLimitedVer ? "true" : "false"));
+
+    // The parameters are modified to what the vertex uses
+    graph.connect(v["in"], inWindow);
+    graph.connect(v["out"], outWindow);
+    graph.connect(v["weights"],
+                    reorderWeightsTensor(weightsWindow, numInChanGroups,
+                                         numOutChanGroups, numConvGroups));
+    graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
+    graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
+    graph.setInitialValue(v["numOutGroupsM1"], numOutChanGroups - 1);
+    graph.setInitialValue(v["numInGroupsM1"], numInChanGroups - 1);
+    graph.setInitialValue(v["convInputLoadElems"], convInputLoadElems);
+    assert(inChansPerGroup % convInputLoadElems == 0);
+
+    graph.setInitialValue(v["transformedInStride"], transformedInStride);
+
+    graph.setInitialValue(v["numConvGroupsM1"], numConvGroups - 1);
+
+    graph.setInitialValue(v["transformedOutStride"], transformedOutStride);
+    graph.setFieldSize(v["worklists"], worklist.size());
+    for (unsigned i = 0;i < worklist.size(); ++i) {
+      auto t = graph.addConstant(worklistEntryType, {worklist[i].size()},
+                                 worklist[i].data());
+      graph.connect(v["worklists"][i], t);
+    }
+    if (!useConvPartial1x1OutVertex) {
+      graph.setInitialValue(v["kernelInnerElementsM1"],
+          kernelInnerElements - 1);
+      graph.setInitialValue(v["kernelOuterSizeM1"], numSubKernelSlices[0] - 1);
+      graph.setInitialValue(v["ampKernelHeightM1"], convUnitWeightHeight - 1);
+      graph.setInitialValue(v["transformedInRowStride"],
+          transformedInRowStride);
+      auto zeroWorklistTensor = graph.addConstant(worklistEntryType,
+                                                  {zeroWorklist.size()},
+                                                  zeroWorklist.data());
+      graph.connect(v["zeroWorklist"], zeroWorklistTensor);
+    }
+    graph.setTileMapping(v, tile);
   }
-  const auto worklistEntryType = useLimitedVer ? UNSIGNED_SHORT : UNSIGNED_INT;
-
-  auto codeletName = useConvPartial1x1OutVertex ?
-                       "poplin::ConvPartial1x1Out" :
-                       "poplin::ConvPartialnx1";
-  auto v = graph.addVertex(fwdCS,
-                           templateVertex(codeletName, in.elementType(),
-                                          plan.types.back().partialType,
-                                          useLimitedVer ? "true" : "false"));
-
-  // The parameters are modified to what the vertex uses
-  graph.connect(v["in"], inWindow);
-  graph.connect(v["out"], outWindow);
-  graph.connect(v["weights"],
-                  reorderWeightsTensor(weightsWindow, numInChanGroups,
-                                       numOutChanGroups, numConvGroups));
-  graph.setInitialValue(v["outChansPerGroup"], outChansPerGroup);
-  graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
-  graph.setInitialValue(v["numOutGroupsM1"], numOutChanGroups - 1);
-  graph.setInitialValue(v["numInGroupsM1"], numInChanGroups - 1);
-  graph.setInitialValue(v["convInputLoadElems"], convInputLoadElems);
-  assert(inChansPerGroup % convInputLoadElems == 0);
-
-  graph.setInitialValue(v["transformedInStride"], transformedInStride);
-
-  graph.setInitialValue(v["numConvGroupsM1"], numConvGroups - 1);
-
-  graph.setInitialValue(v["transformedOutStride"], transformedOutStride);
-  graph.setFieldSize(v["worklists"], worklist.size());
-  for (unsigned i = 0;i < worklist.size(); ++i) {
-    auto t = graph.addConstant(worklistEntryType, {worklist[i].size()},
-                               worklist[i].data());
-    graph.connect(v["worklists"][i], t);
-  }
-  if (!useConvPartial1x1OutVertex) {
-    graph.setInitialValue(v["kernelInnerElementsM1"], kernelInnerElements - 1);
-    graph.setInitialValue(v["kernelOuterSizeM1"], numSubKernelSlices[0] - 1);
-    graph.setInitialValue(v["ampKernelHeightM1"], convUnitWeightHeight - 1);
-    graph.setInitialValue(v["transformedInRowStride"], transformedInRowStride);
-    auto zeroWorklistTensor = graph.addConstant(worklistEntryType,
-                                                {zeroWorklist.size()},
-                                                zeroWorklist.data());
-    graph.connect(v["zeroWorklist"], zeroWorklistTensor);
-  }
-  graph.setTileMapping(v, tile);
 }
 
 static void
@@ -2572,7 +2666,7 @@ convolutionImpl(Graph &graph, ConvParams params,
       partialsShape.insert(partialsShape.begin(), numPartials);
     }
     partials = graph.addVariable(plan.types.back().partialType, partialsShape,
-                                 "partials");
+                                 debugPrefix + "/partials");
   }
   Tensor out;
   const auto resultType = plan.types[level].resultType;

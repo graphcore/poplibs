@@ -738,6 +738,8 @@ addPartialCalcCycleEstimate(
                                      outChanGrainSize;
         const auto tileNumOutGroups =
             (tileNumOutChans + outChansPerGroup - 1) / outChansPerGroup;
+
+
         if (canUseConvPartial1x1Vertex(params, transformedDims,
                                        transformedInputDilation,
                                        transformedOutputStride,
@@ -748,8 +750,8 @@ addPartialCalcCycleEstimate(
                 convSize.batchSize, tileFieldSize,
                 target.getNumWorkerContexts(), transformedInputDilation,
                 transformedOutputStride);
-          // cycles cost assumes that cost of zeroing partials is
-          // negligible
+          // cycles cost assumes that cost of zeroing partials and overhead
+          // of splitting vertices is negligible.
           return
               getConvPartial1x1SupervisorOuterLoopCycleEstimate(
                 innerLoopCycles, innerLoopCycles,

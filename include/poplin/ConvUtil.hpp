@@ -117,5 +117,19 @@ ConvParams getGradientParams(const ConvParams &params);
 
 unsigned detectChannelGrouping(const poplar::Tensor &t);
 
+// Stride is what's used to move down one element in the input field by
+// the vertex. fieldsElems is the number of field elements in all but the
+// outermost dimension
+int getInRowStride(const ConvParams &params, unsigned fieldElems,
+                   bool useConvPartial1x1OutVertex,
+                   unsigned convUnitWeightHeight);
+
+// Split field dimensions such that the stride fits machine stride. This
+// implementation only splits field such that input stride fits. The outermost
+// dimension is not split
+std::vector<unsigned>
+splitConvIntoAmpVertices(const ConvParams &params,
+                         unsigned numMachineStrideBits,
+                         int inStride, int inRowStride);
 }
 #endif // poplin_ConvUtil_hpp
