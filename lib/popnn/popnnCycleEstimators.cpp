@@ -51,28 +51,29 @@ MAKE_CYCLE_ESTIMATOR_NAME(NonLinearitySupervisor)(
   // These cycle estimates follow the aligned path. Slightly optimistic.
   // The cost of misalignment is ~9 cycles for half, less for float.
   std::uint64_t cycles = 9; // Supervisor vertex overhead
-  cycles += 2 + // Load input pointer and size
-            5 + // Divide & Remainder to split work between workers
-            2 + // Shift scaled pointer, get base address
-            2 + // Get worker ID
-            2 + // Check 64-bit aligned and branch
-            5 + // Setup remainders and size for worker
-            2 + // Offset worker's pointer and branch if done
-            (vectorsPerWorker ? 1 : 0) *
-              (2 + opCycles + // Warm up pipeline, rpt
-               (vectorsPerWorker - 1) * vectorLoopCycles +
-               1 + opCycles); // Handle remaining element from pipeline
+  std::uint64_t workerCycles =
+    2 + // Load input pointer and size
+    5 + // Divide & Remainder to split work between workers
+    2 + // Shift scaled pointer, get base address
+    2 + // Get worker ID
+    2 + // Check 64-bit aligned and branch
+    5 + // Setup remainders and size for worker
+    2 + // Offset worker's pointer and branch if done
+    (vectorsPerWorker ? 1 : 0) *
+      (2 + opCycles + // Warm up pipeline, rpt
+       (vectorsPerWorker - 1) * vectorLoopCycles +
+       1 + opCycles); // Handle remaining element from pipeline
 
   // Add remainder handling cycles. This handling could be slightly overlapped
   // with other workers if the worker doing the remainder had less vector
   // work than the others. Some of these transcendental ops may take
   // less time anyway so we'll just stick with the simpler estimation.
   if (isFloat) {
-    cycles +=
+    workerCycles +=
       3 + // Test worker ID to handle remainder, test remainder, branch
       ((remainder & 1) ? 1 : 0) * (2 + opCycles);  // Handle 32-bit remainder
   } else {
-    cycles +=
+    workerCycles +=
       2 + // Test worker ID to handle remainder with
       1 + // branch for 32-bit remainder
       ((remainder & 2) ? 1 : 0) * (2 + opCycles) + // Handle 32-bit remainder
@@ -80,7 +81,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(NonLinearitySupervisor)(
       ((remainder & 1) ? 1 : 0) * (3 + opCycles);  // Handle 16-bit remainder
   }
 
-  return cycles;
+  return cycles + (workerCycles * numWorkers);
 }
 
 std::uint64_t
@@ -104,32 +105,32 @@ MAKE_CYCLE_ESTIMATOR_NAME(NonLinearityGradSupervisor)(
   const auto vectorsPerWorker = (numVectors + numWorkers - 1) / numWorkers;
 
   std::uint64_t cycles = 9; // Supervisor vertex overhead
-
-  cycles += 8 + // Load vertex state, get real pointers from scaled pointers
-            5 + // Split work between workers
-            2 + // Get worker ID
-            3 + // Add remaining vectors to relevant workers
-            3 + // Offset pointers to data
-            3 + // Pre-load inputs, and generate ones if needed
-            1 + // Branch if no vectors
-            (vectorsPerWorker ? 1 : 0) *
-              (4 + // Warm up the pipeline
-               (vectorsPerWorker - 1) * 3 +
-               1); // Store remaining element
+  std::uint64_t workerCycles =
+    8 + // Load vertex state, get real pointers from scaled pointers
+    5 + // Split work between workers
+    2 + // Get worker ID
+    3 + // Add remaining vectors to relevant workers
+    3 + // Offset pointers to data
+    3 + // Pre-load inputs, and generate ones if needed
+    1 + // Branch if no vectors
+    (vectorsPerWorker ? 1 : 0) *
+      (4 + // Warm up the pipeline
+       (vectorsPerWorker - 1) * 3 +
+       1); // Store remaining element
 
   if (isFloat) {
-    cycles += 2 + // Pick a worker to handle the remainder, branch
-              2 + // Check for remainder
-              (remainder ? 1 : 0) * 4;
+    workerCycles += 2 + // Pick a worker to handle the remainder, branch
+                    2 + // Check for remainder
+                    (remainder ? 1 : 0) * 4;
   } else {
-    cycles += 2 + // Pick a worker to handle remainders, branch
-              2 + // Check for 32-bit remainder
-              ((remainder & 2) ? 1 : 0) * 5 +
-              2 + // Check for 16-bit remainder
-              ((remainder & 1) ? 1 : 0) * 7;
+    workerCycles += 2 + // Pick a worker to handle remainders, branch
+                    2 + // Check for 32-bit remainder
+                    ((remainder & 2) ? 1 : 0) * 5 +
+                    2 + // Check for 16-bit remainder
+                    ((remainder & 1) ? 1 : 0) * 7;
   }
 
-  return cycles;
+  return cycles + (workerCycles * numWorkers);
 }
 
 std::uint64_t
