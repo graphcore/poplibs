@@ -294,7 +294,7 @@ def run(params, binary='single_conv_layer', extra_args=None, dummy_run=False):
     if not dummy_run:
         process = subprocess.Popen(cmd, env=my_env)
         process.communicate()
-        if process.returncode != 0
+        if process.returncode != 0:
             raise TestFailureException('Failed to run ' + cmd_str + '')
 
 def main():

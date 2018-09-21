@@ -656,18 +656,17 @@ add_multitarget_test(NAME Reduce_Skip_ADD_float
 # Codelets
 add_subdirectory(codelets)
 
-# Temporarily disable these tests (T4417) as they fail on buildbot.
-# # Random single_conv_layer tests with fixed seed.
-# set(NUM_CONV_RANDOM_TESTS 50)
-# foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
-#   add_multitarget_test(
-#            NAME conv_random_${n}
-#            COMMAND ${PYTHON_EXECUTABLE}
-#                    ${CMAKE_SOURCE_DIR}/tools/single_conv_layer_random.py
-#                    --n 1
-#                    --seed ${n}
-#                    --binary $<TARGET_FILE:single_conv_layer>)
-# endforeach()
+# Random single_conv_layer tests with fixed seed.
+set(NUM_CONV_RANDOM_TESTS 50)
+foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
+  add_multitarget_test(
+           NAME conv_random_${n}
+           COMMAND ${PYTHON_EXECUTABLE}
+                   ${CMAKE_SOURCE_DIR}/tools/single_conv_layer_random.py
+                   --n 1
+                   --seed ${n}
+                   --binary $<TARGET_FILE:single_conv_layer>)
+endforeach()
 
 # Random reduce_op tests with fixed seed.
 set(NUM_REDUCE_RANDOM_TESTS 150)
