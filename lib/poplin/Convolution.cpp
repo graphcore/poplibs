@@ -1881,6 +1881,9 @@ static void createConvPartialAmpVertex(Graph &graph,
       }
     }
 
+    if (partitions.empty())
+      continue;
+
     // Once partitions are known, find the actual range to use for each
     // dimension.
     std::vector<std::pair<unsigned, unsigned>> convInFieldRange;
